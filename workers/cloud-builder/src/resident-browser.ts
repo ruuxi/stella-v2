@@ -4,8 +4,9 @@
  * Browser Run lives behind the private Browser Gateway, and every command is
  * a bounded JSON request, so nothing about it needs a container: the Durable
  * Object forwards each command under the turn's own authority, exactly as the
- * turn broker does for the container executor. The model-facing surface is
- * the gateway's allowlist and nothing more — no evaluate, no CDP, no cookies.
+ * turn broker does for the container executor. The model-facing surface
+ * mirrors the desktop agent's: Playwright selectors, page scripts, cookies,
+ * the network log, and screenshots.
  *
  * A login handoff is the one command that does not complete. The gateway puts
  * the profile under human control and answers with a secret-free suspension;
@@ -46,6 +47,12 @@ export type ResidentBrowserMethod =
   | "uncheck"
   | "text"
   | "screenshot"
+  | "evaluate"
+  | "cookies"
+  | "setCookies"
+  | "clearCookies"
+  | "requests"
+  | "responseBody"
   | "close"
   | "requestLoginTakeover"
   | "requestDeviceCodeFixture";
@@ -71,6 +78,12 @@ export const RESIDENT_BROWSER_METHODS: ReadonlySet<string> =
     "uncheck",
     "text",
     "screenshot",
+    "evaluate",
+    "cookies",
+    "setCookies",
+    "clearCookies",
+    "requests",
+    "responseBody",
     "close",
     "requestLoginTakeover",
     "requestDeviceCodeFixture",
@@ -120,28 +133,6 @@ export type ResidentBrowserClient = Readonly<{
   checkpoint(signal: AbortSignal): Promise<void>;
 }>;
 
-const SENSITIVE_RESULT_KEYS = new Set([
-  "accesstoken",
-  "authorization",
-  "browsercapability",
-  "capability",
-  "capabilityurl",
-  "cookie",
-  "cookies",
-  "credential",
-  "credentials",
-  "devicesecret",
-  "liveviewcapability",
-  "liveviewcapabilityurl",
-  "password",
-  "polltoken",
-  "refreshtoken",
-  "secret",
-  "setcookie",
-  "storagestate",
-  "token",
-]);
-
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -151,9 +142,13 @@ const hasExactKeys = (
 ): boolean =>
   Object.keys(value).sort().join(",") === [...keys].sort().join(",");
 
-/** Defense in depth against a gateway accidentally returning private state. */
+/**
+ * Defense in depth: a Live View URL is the human's control capability for a
+ * handoff and is never an agent's to hold, whatever a page script returns.
+ */
 const assertCapabilityFree = (value: unknown, seen = new Set<object>()): void => {
   if (typeof value === "string") {
+    if (!value.includes("live.browser.run")) return;
     let hostname: string | undefined;
     try {
       hostname = new URL(value).hostname.toLowerCase();
@@ -167,21 +162,14 @@ const assertCapabilityFree = (value: unknown, seen = new Set<object>()): void =>
   }
   if (typeof value !== "object" || value === null || seen.has(value)) return;
   seen.add(value);
-  if (Array.isArray(value)) {
-    for (const item of value) assertCapabilityFree(item, seen);
-    return;
-  }
-  for (const [key, nested] of Object.entries(value)) {
-    if (SENSITIVE_RESULT_KEYS.has(key.toLowerCase().replace(/[^a-z0-9]/gu, ""))) {
-      throw new Error("Cloud browser response contained private browser state.");
-    }
+  for (const nested of Array.isArray(value) ? value : Object.values(value)) {
     assertCapabilityFree(nested, seen);
   }
 };
 
 type GatewayOutcome =
   | Readonly<{ outcome: "completed"; data?: unknown }>
-  | Readonly<{ outcome: "failed"; code: string }>
+  | Readonly<{ outcome: "failed"; code: string; detail?: string }>
   | Readonly<{ outcome: "suspended"; suspension: CloudBrowserSuspension }>;
 
 const parseGatewayResponse = (
@@ -229,6 +217,20 @@ const parseGatewayResponse = (
     /^[a-z_]{1,64}$/u.test(value.code)
   ) {
     return { outcome: "failed", code: value.code };
+  }
+  // The gateway's error envelope (`publicErrorResponse`).
+  if (
+    isRecord(value.error) &&
+    typeof value.error.code === "string" &&
+    /^[a-z_]{1,64}$/u.test(value.error.code)
+  ) {
+    return {
+      outcome: "failed",
+      code: value.error.code,
+      ...(typeof value.error.detail === "string"
+        ? { detail: value.error.detail.slice(0, 2_000) }
+        : {}),
+    };
   }
   throw new Error("Cloud browser returned an invalid response.");
 };
@@ -297,22 +299,25 @@ const planFor = (method: ResidentBrowserMethod, args: readonly unknown[]): Plan 
     case "click":
       return {
         action: "browser.click",
-        params: { selector: requireString(args[0], "selector", 512) },
+        params: { selector: requireString(args[0], "selector", 4_096) },
       };
-    case "fill":
+    case "fill": {
+      if (typeof args[1] !== "string") {
+        throw new TypeError("browser: value must be a string.");
+      }
       return {
         action: "browser.fill",
         params: {
-          selector: requireString(args[0], "selector", 512),
-          value: requireString(args[1], "value"),
-          sensitivity: "non_secret",
+          selector: requireString(args[0], "selector", 4_096),
+          value: args[1],
         },
       };
+    }
     case "press":
       return {
         action: "browser.press",
         params: {
-          selector: requireString(args[0], "selector", 512),
+          selector: requireString(args[0], "selector", 4_096),
           key: requireString(args[1], "key", 64),
         },
       };
@@ -320,7 +325,7 @@ const planFor = (method: ResidentBrowserMethod, args: readonly unknown[]): Plan 
       return {
         action: "browser.select",
         params: {
-          selector: requireString(args[0], "selector", 512),
+          selector: requireString(args[0], "selector", 4_096),
           value: requireString(args[1], "value", 1_024),
         },
       };
@@ -335,7 +340,7 @@ const planFor = (method: ResidentBrowserMethod, args: readonly unknown[]): Plan 
       return {
         action: "browser.wait",
         params: {
-          selector: requireString(args[0], "selector", 512),
+          selector: requireString(args[0], "selector", 4_096),
           ...(timeoutMs === undefined ? {} : { timeoutMs }),
         },
       };
@@ -357,7 +362,7 @@ const planFor = (method: ResidentBrowserMethod, args: readonly unknown[]): Plan 
     case "text":
       return {
         action: `browser.${method}`,
-        params: { selector: requireString(args[0], "selector", 512) },
+        params: { selector: requireString(args[0], "selector", 4_096) },
       };
     case "scroll": {
       const options = optionalObject(args[0], "options");
@@ -374,12 +379,51 @@ const planFor = (method: ResidentBrowserMethod, args: readonly unknown[]): Plan 
           ...(options.amount === undefined ? {} : { amount: options.amount }),
           ...(options.selector === undefined
             ? {}
-            : { selector: requireString(options.selector, "selector", 512) }),
+            : { selector: requireString(options.selector, "selector", 4_096) }),
         },
       };
     }
-    case "screenshot":
-      return { action: "browser.screenshot", params: {} };
+    case "screenshot": {
+      const options = optionalObject(args[0], "options");
+      return {
+        action: "browser.screenshot",
+        params: options.fullPage === true ? { fullPage: true } : {},
+      };
+    }
+    case "evaluate":
+      return {
+        action: "browser.evaluate",
+        params: {
+          script: requireString(args[0], "script", 512 * 1024),
+          ...(args.length > 1 ? { arg: args[1] } : {}),
+        },
+      };
+    case "cookies": {
+      const urls = args[0];
+      if (urls !== undefined && !Array.isArray(urls)) {
+        throw new TypeError("browser.cookies: urls must be an array.");
+      }
+      return { action: "browser.cookies", params: urls ? { urls } : {} };
+    }
+    case "setCookies":
+      if (!Array.isArray(args[0])) {
+        throw new TypeError("browser.setCookies: cookies must be an array.");
+      }
+      return { action: "browser.set_cookies", params: { cookies: args[0] } };
+    case "clearCookies":
+      return { action: "browser.clear_cookies", params: {} };
+    case "requests": {
+      const options = optionalObject(args[0], "options");
+      return {
+        action: "browser.requests",
+        params: options.limit === undefined ? {} : { limit: options.limit },
+      };
+    }
+    case "responseBody":
+      return {
+        action: "browser.response_body",
+        params: { url: requireString(args[0], "url", 8_192) },
+      };
     case "close":
       return { action: "browser.close", params: {} };
     case "requestLoginTakeover": {
@@ -432,7 +476,9 @@ export const createResidentBrowserClient = (
     }
     const outcome = parseGatewayResponse(forwarded.body, command.requestId);
     if (outcome.outcome === "failed") {
-      throw new Error(`Cloud browser ${plan.action} failed: ${outcome.code}.`);
+      throw new Error(
+        `Cloud browser ${plan.action} failed: ${outcome.code}${outcome.detail ? ` — ${outcome.detail}` : ""}.`,
+      );
     }
     if (outcome.outcome === "suspended") {
       suspension = outcome.suspension;
@@ -473,6 +519,14 @@ export const createResidentBrowserClient = (
           return isRecord(data) && typeof data.text === "string"
             ? data.text
             : "";
+        case "evaluate":
+          return isRecord(data) ? data.result : undefined;
+        case "cookies":
+          return isRecord(data) && Array.isArray(data.cookies) ? data.cookies : [];
+        case "requests":
+          return isRecord(data) && Array.isArray(data.requests)
+            ? data.requests
+            : [];
         case "screenshot": {
           const shot = isRecord(data) ? data.screenshot : undefined;
           if (

@@ -181,26 +181,65 @@ describe("resident cloud browser client", () => {
     ).rejects.toThrow("browser.navigate failed: navigation_denied.");
   });
 
-  test("rejects a response that leaks private browser state", async () => {
+  test("returns cookies and page data but never a Live View capability", async () => {
     const client = createResidentBrowserClient(
       gateway([], (command) =>
         forwarded({
           schemaVersion: 1,
           outcome: "completed",
           requestId: command.requestId,
-          data: { cookies: [{ name: "sid" }] },
+          data:
+            command.action === "browser.cookies"
+              ? { cookies: [{ name: "sid", value: "abc" }] }
+              : { result: { url: "https://live.browser.run/x" } },
         }),
       ),
     );
 
-    await expect(client.call("tabs", [], signal)).rejects.toThrow(
-      "private browser state",
+    expect(await client.call("cookies", [], signal)).toEqual([
+      { name: "sid", value: "abc" },
+    ]);
+    await expect(
+      client.call("evaluate", ["location.href"], signal),
+    ).rejects.toThrow("private capability");
+  });
+
+  test("surfaces the gateway's error envelope with the page's own detail", async () => {
+    const client = createResidentBrowserClient(
+      gateway([], () =>
+        forwarded(
+          {
+            schemaVersion: 1,
+            error: {
+              code: "evaluation_failed",
+              message: "The page script threw an error.",
+              detail: "ReferenceError: foo is not defined",
+            },
+          },
+          422,
+        ),
+      ),
+    );
+
+    await expect(client.call("evaluate", ["foo"], signal)).rejects.toThrow(
+      "evaluation_failed — ReferenceError: foo is not defined",
     );
   });
 
   test("maps the desktop-parity methods onto gateway actions", async () => {
     const sent: CloudBrowserCommandRequest[] = [];
     const client = createResidentBrowserClient(gateway(sent));
+
+    await client.call("fill", ["input[type=password]", "hunter2"], signal);
+    await client.call("evaluate", ["(n) => n + 1", 1], signal);
+    await client.call("setCookies", [[{ name: "a", value: "b" }]], signal);
+    await client.call("responseBody", ["https://example.com/api"], signal);
+    expect(sent.splice(0).map((command) => [command.action, command.params])).toEqual([
+      ["browser.fill", { selector: "input[type=password]", value: "hunter2" }],
+      ["browser.evaluate", { script: "(n) => n + 1", arg: 1 }],
+      ["browser.set_cookies", { cookies: [{ name: "a", value: "b" }] }],
+      ["browser.response_body", { url: "https://example.com/api" }],
+    ]);
 
     await client.call("back", [], signal);
     await client.call("hover", ["ref=e3"], signal);

@@ -509,7 +509,7 @@ describe("native state Builder integration", () => {
     const oversized = await builderHarness({
       engine: "stella",
       browserGateway: {
-        fetch: async () => new Response("x".repeat(1024 * 1024 + 1)),
+        fetch: async () => new Response("x".repeat(16 * 1024 * 1024 + 1)),
       },
     });
     const oversizedResponse = await new TurnCredentialBrokerClient(

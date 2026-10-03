@@ -34,11 +34,11 @@ let cloudflareCodeModePromise: Promise<CloudflareCodeModeModule> | undefined;
 export const loadCloudflareCodeMode = (): Promise<CloudflareCodeModeModule> =>
   (cloudflareCodeModePromise ??= import("@cloudflare/codemode"));
 
-export const CLOUD_CODE_WORKER_VALUE_MAX_BYTES = 128 * 1024;
+export const CLOUD_CODE_WORKER_VALUE_MAX_BYTES = 8 * 1024 * 1024;
 export const CLOUD_CODE_WORKER_MAX_VALUE_DEPTH = 16;
-export const CLOUD_CODE_WORKER_MAX_VALUE_NODES = 4_096;
-export const CLOUD_CODE_WORKER_MAX_VALUE_ENTRIES = 4_096;
-export const CLOUD_CODE_WORKER_MAX_STRING_BYTES = 128 * 1024;
+export const CLOUD_CODE_WORKER_MAX_VALUE_NODES = 200_000;
+export const CLOUD_CODE_WORKER_MAX_VALUE_ENTRIES = 200_000;
+export const CLOUD_CODE_WORKER_MAX_STRING_BYTES = 8 * 1024 * 1024;
 
 const WORKER_MAX_LOG_LINES = 100;
 const WORKER_MAX_LOG_LINE_BYTES = 4_000;
@@ -284,7 +284,13 @@ const BROWSER_GLOBAL_LINES = [
   '      check: (selector) => __browserCall("check", [selector]),',
   '      uncheck: (selector) => __browserCall("uncheck", [selector]),',
   '      text: (selector) => __browserCall("text", [selector]),',
-  '      screenshot: () => __browserCall("screenshot", []),',
+  '      screenshot: (options) => __browserCall("screenshot", [options]),',
+  '      evaluate: (script, arg) => __browserCall("evaluate", arg === undefined ? [script] : [script, arg]),',
+  '      cookies: (urls) => __browserCall("cookies", [urls]),',
+  '      setCookies: (cookies) => __browserCall("setCookies", [cookies]),',
+  '      clearCookies: () => __browserCall("clearCookies", []),',
+  '      requests: (options) => __browserCall("requests", [options]),',
+  '      responseBody: (url) => __browserCall("responseBody", [url]),',
   '      close: () => __browserCall("close", []),',
   '      requestLoginTakeover: (options) => __browserCall("requestLoginTakeover", [options]),',
   '      requestDeviceCodeFixture: (options) => __browserCall("requestDeviceCodeFixture", [options]),',

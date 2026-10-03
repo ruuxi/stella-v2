@@ -6,9 +6,9 @@
  *   POST /api/admin/owners/enforcement          {ownerId, status, reason, until?} via the gate's setOwnerEnforcement
  *   POST /api/admin/billing/plan                {ownerId, plan?, usageMode? | unlimited?, resetUsage?}
  *   POST /api/admin/delete                      {kind: "feedback", id} | {kind: "media_job", ownerId, id}
+ *   POST /api/admin/test-accounts/session       {email?, plan?, usageMode?} → a signed-in test user (dev only)
  *
- * Owners are addressed by id only; email lookup returns with auth in D1.
- * `/api/admin/test-accounts/session` stays on Convex until then.
+ * Owners are addressed by id only.
  */
 
 import { OWNER_ENFORCEMENT_STATUSES, type OwnerEnforcementStatus } from "@stella/contracts/gateway/usage";
@@ -216,6 +216,74 @@ const remove = async (request: Request, env: AdminEnv): Promise<Response> => {
   }
 };
 
+// ── Test accounts ────────────────────────────────────────────────────────
+
+const TEST_ACCOUNT_SUFFIX = "@test.stella.local";
+
+/**
+ * A signed-in `@test.stella.local` user for agents and harnesses, through the
+ * same magic-link verification a real sign-in takes. Dev deployments only
+ * (`STELLA_TEST_ACCOUNTS=1`). The plan is set on the owner's object, which
+ * this request places near the tester.
+ */
+const testAccountSession = async (request: Request, env: AdminEnv): Promise<Response> => {
+  const { backendUrl, createAuth, testAccountsEnabled } = await import("../auth/auth.js");
+  if (!testAccountsEnabled(env)) return fail(404, "Test accounts disabled.", { env: "STELLA_TEST_ACCOUNTS" });
+  const body = await readBody(request);
+  if (!body) return fail(400, "Body must be a JSON object.");
+  if (body.email !== undefined && typeof body.email !== "string") return fail(400, "email must be a string.");
+  const email =
+    typeof body.email === "string"
+      ? body.email.trim().toLowerCase()
+      : `agent-${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}${TEST_ACCOUNT_SUFFIX}`;
+  if (!email.endsWith(TEST_ACCOUNT_SUFFIX)) return fail(400, `email must end with ${TEST_ACCOUNT_SUFFIX}.`);
+  const plan = typeof body.plan === "string" ? body.plan.trim().toLowerCase() : "";
+  if (body.plan !== undefined && plan !== "free" && plan !== "go" && plan !== "pro") {
+    return fail(400, "plan must be free, go, or pro.");
+  }
+  const usageMode = typeof body.usageMode === "string" ? body.usageMode.trim().toLowerCase() : "";
+  if (body.usageMode !== undefined && usageMode !== "default" && usageMode !== "unlimited") {
+    return fail(400, "usageMode must be default or unlimited.");
+  }
+
+  const fullEnv = env as unknown as Cloudflare.Env;
+  const auth = createAuth(fullEnv);
+  const context = await auth.$context;
+  const token = Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) =>
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".charAt(byte % 52),
+  ).join("");
+  await context.internalAdapter.createVerificationValue({
+    identifier: token,
+    value: JSON.stringify({ email, name: "" }),
+    expiresAt: new Date(Date.now() + 5 * 60_000),
+  });
+  const verified = await auth.api.magicLinkVerify({ query: { token }, headers: new Headers(), returnHeaders: true });
+  const sessionToken = verified.headers.get("set-auth-token")?.trim() ?? "";
+  const userId = (verified.response as { user?: { id?: unknown } } | null)?.user?.id;
+  if (!sessionToken || typeof userId !== "string" || !userId) {
+    return fail(500, "Better Auth did not return a test account session.");
+  }
+  const minted = await auth.api.getToken({ headers: new Headers({ authorization: `Bearer ${sessionToken}` }) });
+
+  const ownerId = userId;
+  if (plan) {
+    await env.OWNER_GATES.getByName(ownerId).setBillingPlan({
+      plan: plan as "free" | "go" | "pro",
+      ...(usageMode ? { usageMode: usageMode as "default" | "unlimited" } : {}),
+    });
+  }
+  console.log(JSON.stringify({ event: "admin_test_account_session", ownerId, plan: plan || "free" }));
+  return json({
+    ownerId,
+    userId,
+    email,
+    sessionToken,
+    token: minted.token,
+    plan: plan || "free",
+    siteUrl: backendUrl(fullEnv),
+  });
+};
+
 // ── Routing ──────────────────────────────────────────────────────────────
 
 const ROUTES: Record<string, { method: "GET" | "POST"; run: (request: Request, url: URL, env: AdminEnv) => Promise<Response> }> = {
@@ -224,6 +292,7 @@ const ROUTES: Record<string, { method: "GET" | "POST"; run: (request: Request, u
   "/api/admin/owners/enforcement": { method: "POST", run: (request, _url, env) => enforcement(request, env) },
   "/api/admin/billing/plan": { method: "POST", run: (request, _url, env) => billingPlan(request, env) },
   "/api/admin/delete": { method: "POST", run: (request, _url, env) => remove(request, env) },
+  "/api/admin/test-accounts/session": { method: "POST", run: (request, _url, env) => testAccountSession(request, env) },
 };
 
 /** Admin routes, or null when the request is not one. */

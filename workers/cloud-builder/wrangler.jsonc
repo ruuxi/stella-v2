@@ -58,6 +58,10 @@
     // Strictly a dev-target proof seam. Production configs must omit both
     // values; the Worker and DO independently deny the route without them.
     "ENABLE_DEV_ACCEPTANCE_PROBES": "1",
+    // Dev only: `/api/admin/test-accounts/session` mints signed-in
+    // `@test.stella.local` users, whose magic links are logged, not sent.
+    // Production and acceptance configs must omit it.
+    "STELLA_TEST_ACCOUNTS": "1",
     "STELLA_DEPLOYMENT_IDENTITY": "dev:outgoing-bulldog-865",
     // Public origin of the model gateway. Durable Objects reach it through the
     // MODEL_GATEWAY service binding (the hostname only has to parse there);

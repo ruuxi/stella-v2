@@ -46,6 +46,7 @@ import { BROWSER_BRIDGE_MISSING_ERROR } from "../utils/register-stella-native-me
 import { registerAppSourceHandlers } from "../ipc/app-source-handlers.js";
 import { AppSourceService } from "../services/app-source/app-source-service.js";
 import { buildAndUploadWebRenderer } from "../services/app-source/web-renderer.js";
+import { assertHeadSigned, signHead } from "../launcher-client.js";
 import { getMainLogger } from "../observability/main-logger.js";
 import { openDraftPreview } from "../services/app-source/draft-preview.js";
 import { relaunchApp } from "../launcher-client.js";
@@ -411,6 +412,11 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
             getBackendUrl: () => services.authService.getBackendUrl(),
             getAuthToken: () => services.authService.getConvexAuthToken(),
             log: (event, data) => getMainLogger()?.process(event, data),
+            // Under the native launcher, only signed trees run: refuse to act
+            // on an unsigned HEAD and sign every change that lands. Both are
+            // no-ops when Stella runs without the launcher.
+            beforeAction: assertHeadSigned,
+            afterApply: signHead,
             // A push that changed the UI rebuilds the owner's browser renderer.
             onPushed: (cwd) => buildAndUploadWebRenderer(cwd, {
                 getBackendUrl: () => services.authService.getBackendUrl(),

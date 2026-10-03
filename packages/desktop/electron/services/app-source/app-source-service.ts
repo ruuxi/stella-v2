@@ -48,6 +48,11 @@ type AppSourceServiceOptions = {
    * before it is swapped in. A throw fails the action.
    */
   afterApply?: (cwd: string) => void | Promise<void>;
+  /**
+   * Runs before every action, against the checkout as it stands. A throw
+   * refuses the action (the launcher refuses to act on an unsigned HEAD).
+   */
+  beforeAction?: (cwd: string) => void | Promise<void>;
 };
 
 type ForkAccess = {
@@ -260,6 +265,7 @@ export class AppSourceService {
     const result = this.queue.then(async (): Promise<AppSourceActionResult> => {
       this.setBusy(true);
       try {
+        await this.options.beforeAction?.(this.options.stellaAppDir);
         await task(this.options.stellaAppDir);
         this.pushToFork();
         return { ok: true };

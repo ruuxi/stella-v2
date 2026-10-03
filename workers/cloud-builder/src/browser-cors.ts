@@ -18,7 +18,8 @@ const isBrowserRoute = (path: string): boolean =>
   ) ||
   /^\/owners\/me\/(devices|dispatches|apps)(\/|$)/u.test(path) ||
   path.startsWith("/cloud-home/") ||
-  path.startsWith("/api/rpc/");
+  path.startsWith("/api/rpc/") ||
+  path.startsWith("/api/media/v1/");
 
 /** CORS grants browser access only; the router still authenticates every operation. */
 export async function withBrowserCors(
@@ -30,7 +31,9 @@ export async function withBrowserCors(
     return handle();
   const path = new URL(request.url).pathname;
   const appRoute =
-    /^\/owners\/me\/apps(\/|$)/.test(path) || path.startsWith("/api/rpc/");
+    /^\/owners\/me\/apps(\/|$)/.test(path) ||
+    path.startsWith("/api/rpc/") ||
+    path.startsWith("/api/media/v1/");
   // Packaged Electron has an opaque file origin; isolated dev runs use random
   // loopback ports. These routes require a bearer JWT and never use cookies.
   const allowed =

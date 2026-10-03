@@ -50,6 +50,7 @@ import {
 } from "../bounded-body.js";
 import { withBrowserCors } from "../browser-cors.js";
 import { handleBackendRoute } from "../owner-store/routes.js";
+import { handleMediaRoute } from "../media/routes.js";
 import { handleAppSourceBootstrap } from "../app-source-bootstrap.js";
 import { handleWebRendererRoute } from "../web-renderer.js";
 import { handleUserCloudHomeRoute, ownerAccess } from "../cloud-home-routes.js";
@@ -956,7 +957,10 @@ const router = {
     if (backendResponse) return backendResponse;
     // Public: the model catalog (an optional bearer picks the audience).
     const modelsResponse = await handleStellaModelsRoute(request, env);
-    if (modelsResponse) return modelsResponse;
+    if (modelsResponse) return modelsResponse &
+    // Managed media and music; fal's webhook carries its own signed token.
+    const mediaResponse = await handleMediaRoute(request, env);
+    if (mediaResponse) return mediaResponse;
     // Public: upstream read access for callers without an account.
     const bootstrapResponse = await handleAppSourceBootstrap(request, env);
     if (bootstrapResponse) return bootstrapResponse;

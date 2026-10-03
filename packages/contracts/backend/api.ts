@@ -17,6 +17,7 @@ import type { PreferenceCalls, PreferenceViews } from "./preferences.js";
 import type { AccountCalls } from "./account.js";
 import type { ShareCalls, ShareViews } from "./shares.js";
 import type { SearchCalls } from "./search.js";
+import type { MediaCalls, MediaViews } from "./media.js";
 
 type SystemCalls = {
   /** Round trip through the caller's owner object. */
@@ -35,7 +36,8 @@ export type BackendCalls = SystemCalls &
   PreferenceCalls &
   AccountCalls &
   ShareCalls &
-  SearchCalls;
+  SearchCalls &
+  MediaCalls;
 export type BackendViews = ConversationViews &
   AgentThreadViews &
   BillingViews &
@@ -44,7 +46,8 @@ export type BackendViews = ConversationViews &
   DriveViews &
   ScheduleViews &
   PreferenceViews &
-  ShareViews;
+  ShareViews &
+  MediaViews;
 
 export type CallName = keyof BackendCalls & string;
 export type ViewName = keyof BackendViews & string;

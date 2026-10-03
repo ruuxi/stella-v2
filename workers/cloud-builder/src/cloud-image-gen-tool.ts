@@ -2,14 +2,13 @@
  * `image_gen` for the cloud orchestrator.
  *
  * Desktop's tool (`packages/runtime/kernel/tools/media.ts`) drives the managed
- * image gateway and materializes the result under ~/.stella/media/outputs.
- * There is no local disk here, so this one keeps the gateway contract — one
- * durable POST to /api/media/v1/generate, then /api/media/v1/job polls under
- * the same idempotency key — authenticated by the turn's control-plane
- * capability instead of an account token, and lands the finished image in the
- * owner's drive. The drive file is what both chat clients render and what the
- * user keeps; the tool result also carries the gateway job id so the desktop
- * can materialize its own copy the way it does for every media job.
+ * media API and materializes the result under ~/.stella/media/outputs. There
+ * is no local disk here, so this one starts the job in the owner's object
+ * (`media.generateForTurn`, keyed by turn and tool call), polls `media.lookup`
+ * under the same key, and lands the finished image in the owner's drive. The
+ * drive file is what both chat clients render and what the user keeps; the
+ * tool result also carries the media job id so the desktop can materialize
+ * its own copy the way it does for every media job.
  *
  * BYOK does not exist here: provider keys live on the user's device, so every
  * cloud generation is Stella managed and metered like any other managed job.
@@ -18,8 +17,10 @@
 import type { TSchema } from "@sinclair/typebox";
 import { sleepWithAbort } from "@stella/runtime/kernel/tools/effect-runtime.js";
 import type { AgentTool } from "@stella/runtime/kernel/agent-core/types.js";
+import type { MediaGenerateAccepted, MediaJob } from "@stella/contracts/backend/media";
 import { readBoundedResponseBytes } from "./bounded-body.js";
 import { sha256Hex } from "./hash.js";
+import { RpcError } from "./owner-store/errors.js";
 import type { ReplayableAgentTool } from "./tool-replay.js";
 import type { OwnerInternalCall } from "./owner-store/registry.js";
 import type { DriveTurnFilesResult } from "./owner-store/domains/drive.js";
@@ -30,14 +31,12 @@ export const CLOUD_IMAGE_GEN_TOOL_NAME = "image_gen";
 const MAX_REFERENCE_ITEMS = 4;
 /** The drive's inline upload cap; a generated still is well under it. */
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
-const MAX_JOB_JSON_BYTES = 4 * 1024 * 1024;
 /** Fal image endpoints settle in seconds; a turn has a 15-minute wall clock. */
 const JOB_TIMEOUT_MS = 10 * 60_000;
 const ARTIFACT_GRACE_MS = 60_000;
 const INITIAL_POLL_MS = 750;
 const MAX_POLL_MS = 5_000;
 const SUBMIT_ATTEMPTS = 3;
-const REQUEST_TIMEOUT_MS = 30_000;
 const DOWNLOAD_TIMEOUT_MS = 30_000;
 /** Drive folder generated images land in, bucketed by day like uploads. */
 const DRIVE_OUTPUT_PREFIX = "images";
@@ -59,20 +58,6 @@ export type CloudImageGenToolContext = {
   turnId: string;
   /** A server-internal operation on the owner's object, under the turn's generation. */
   ownerInternal: OwnerInternalCall;
-  /**
-   * A request against the Convex site carrying the turn capability as its
-   * bearer. The media routes accept that capability when the caller marks
-   * itself as a cloud turn.
-   */
-  convexFetch: (
-    path: string,
-    init: {
-      method: "GET" | "POST" | "DELETE";
-      headers?: Record<string, string>;
-      body?: string;
-      signal?: AbortSignal;
-    },
-  ) => Promise<Response>;
   /** Append a `files` card to this turn so the chat and drive UIs list the image. */
   publishFiles: (writerKey: string, files: CloudImageGenDriveFile[]) => void;
   fetchImpl?: typeof fetch;
@@ -91,22 +76,7 @@ type CloudImageGenArgs = {
   referenceDrivePaths?: unknown;
 };
 
-type MediaJobStatus =
-  | "queued"
-  | "running"
-  | "succeeded"
-  | "failed"
-  | "canceled"
-  | "unknown";
-
-type ManagedMediaJob = {
-  jobId: string;
-  capability: string;
-  status: MediaJobStatus;
-  output?: unknown;
-  error?: { message?: string; code?: string; details?: unknown };
-  completedAt?: number;
-};
+type MediaJobStatus = MediaJob["status"];
 
 type RemoteImage = { url: string; mimeType?: string };
 
@@ -272,56 +242,6 @@ const withTimeout = (
     ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)])
     : AbortSignal.timeout(timeoutMs);
 
-const parseErrorResponse = async (response: Response): Promise<string> => {
-  const text = await response.text().catch(() => "");
-  if (!text) return `request failed with status ${response.status}`;
-  try {
-    const parsed = JSON.parse(text) as {
-      error?: unknown;
-      message?: unknown;
-      action?: unknown;
-    };
-    const message =
-      asNonEmptyString(parsed.error) ?? asNonEmptyString(parsed.message);
-    const action = asNonEmptyString(parsed.action);
-    if (message && action) return `${message} ${action}`;
-    return message ?? action ?? text.trim();
-  } catch {
-    return text.trim();
-  }
-};
-
-const parseJobJson = async (response: Response): Promise<unknown> =>
-  JSON.parse(
-    new TextDecoder().decode(
-      await readBoundedResponseBytes(response, MAX_JOB_JSON_BYTES),
-    ),
-  );
-
-const parseJobStatus = (value: unknown): MediaJobStatus | null => {
-  switch (value) {
-    case "queued":
-    case "running":
-    case "succeeded":
-    case "failed":
-    case "canceled":
-    case "unknown":
-      return value;
-    default:
-      return null;
-  }
-};
-
-const isManagedMediaJob = (value: unknown): value is ManagedMediaJob => {
-  if (!value || typeof value !== "object") return false;
-  const record = value as Record<string, unknown>;
-  return Boolean(
-    asNonEmptyString(record.jobId) &&
-    asNonEmptyString(record.capability) &&
-    parseJobStatus(record.status),
-  );
-};
-
 const extractRemoteImages = (output: unknown): RemoteImage[] => {
   if (!output || typeof output !== "object") return [];
   const images = (output as Record<string, unknown>).images;
@@ -480,14 +400,12 @@ export const createCloudImageGenTool = (
       ...(aspectRatio ? { aspectRatio } : {}),
       ...(Object.keys(input).length > 0 ? { input } : {}),
     };
-    const rawBody = JSON.stringify(requestBody);
-
     const sleep = context.sleep ?? defaultSleep;
     const fetchImpl = context.fetchImpl ?? fetch;
     const timeoutMs = context.timeoutMs ?? JOB_TIMEOUT_MS;
     // Stable across a retried tool call after a lost response: the same turn
-    // and tool call reach the same gateway job instead of a second one.
-    const idempotencyKey = `stella-image-gen-v1-${await sha256Hex(
+    // and tool call reach the same media job instead of a second one.
+    const clientRequestKey = `stella-image-gen-v1-${await sha256Hex(
       [
         "stella-cloud-image-gen-v1",
         context.ownerGeneration,
@@ -496,12 +414,6 @@ export const createCloudImageGenTool = (
         toolCallId,
       ].join("\0"),
     )}`;
-    const requestHash = await sha256Hex(rawBody);
-    const headers = {
-      "x-stella-caller": "cloud-turn",
-      "idempotency-key": idempotencyKey,
-      "x-stella-request-hash": requestHash,
-    };
     const deadline = now() + timeoutMs;
     let reattached = false;
     let lastSubmitError = "";
@@ -530,71 +442,39 @@ export const createCloudImageGenTool = (
       };
     };
 
-    const reconcileAcceptance = async (): Promise<string | null> => {
-      try {
-        const params = new URLSearchParams({
-          clientRequestKey: idempotencyKey,
-          requestHash,
-        });
-        const response = await context.convexFetch(
-          `/api/media/v1/job?${params.toString()}`,
-          {
-            method: "GET",
-            headers,
-            signal: withTimeout(REQUEST_TIMEOUT_MS, signal),
-          },
-        );
-        if (response.status === 404) return null;
-        if (!response.ok) {
-          lastSubmitError = await parseErrorResponse(response);
-          return null;
-        }
-        const value = (await parseJobJson(response)) as { jobId?: unknown };
-        const jobId = asNonEmptyString(value.jobId);
-        if (jobId) reattached = true;
-        return jobId;
-      } catch (error) {
-        throwIfAborted(signal);
-        lastSubmitError = (error as Error).message;
-        return null;
-      }
-    };
+    const lookup = async (args: { jobId?: string; clientRequestKey?: string }) =>
+      (await context.ownerInternal("media.lookup", args)) as MediaJob | null;
 
     let jobId: string | null = null;
     try {
       for (let attempt = 0; !jobId && attempt < SUBMIT_ATTEMPTS; attempt += 1) {
         throwIfAborted(signal);
         try {
-          const response = await context.convexFetch("/api/media/v1/generate", {
-            method: "POST",
-            headers: { ...headers, "content-type": "application/json" },
-            body: rawBody,
-            signal: withTimeout(REQUEST_TIMEOUT_MS, signal),
-          });
-          if (response.ok) {
-            const accepted = (await parseJobJson(response)) as {
-              jobId?: unknown;
-              reattached?: unknown;
-            };
-            jobId = asNonEmptyString(accepted.jobId);
-            if (accepted.reattached === true) reattached = true;
-            if (jobId) break;
-          } else {
-            lastSubmitError = await parseErrorResponse(response);
-            if (response.status < 500) {
-              return failure(
-                "failed",
-                `submission_${response.status}`,
-                lastSubmitError,
-              );
-            }
-          }
+          const accepted = (await context.ownerInternal("media.generateForTurn", {
+            request: { ...requestBody, clientRequestKey },
+            conversationId: context.conversationId,
+            turnId: context.turnId,
+          })) as MediaGenerateAccepted;
+          jobId = accepted.jobId;
+          if (accepted.reattached === true) reattached = true;
+          break;
         } catch (error) {
           throwIfAborted(signal);
           lastSubmitError = (error as Error).message;
+          if (error instanceof RpcError && !error.retryable) {
+            return failure("failed", `submission_${error.code.toLowerCase()}`, error.message);
+          }
         }
-        jobId = await reconcileAcceptance();
-        if (jobId) break;
+        try {
+          const existing = await lookup({ clientRequestKey });
+          if (existing) {
+            jobId = existing.jobId;
+            reattached = true;
+            break;
+          }
+        } catch {
+          // Reconciliation is best effort; the next attempt tries again.
+        }
         await sleep(Math.min(250 * 2 ** attempt, 1_000), signal);
       }
       if (!jobId) {
@@ -608,128 +488,93 @@ export const createCloudImageGenTool = (
 
       let pollMs = INITIAL_POLL_MS;
       let artifactDeadline: number | null = null;
-      let lastJob: ManagedMediaJob | null = null;
+      let lastJob: MediaJob | null = null;
       while (now() < deadline) {
         throwIfAborted(signal);
         try {
-          const params = new URLSearchParams({ jobId });
-          const response = await context.convexFetch(
-            `/api/media/v1/job?${params.toString()}`,
-            {
-              method: "GET",
-              headers,
-              signal: withTimeout(REQUEST_TIMEOUT_MS, signal),
+          const value = await lookup({ jobId });
+          if (!value) {
+            return failure("failed", "job_lookup_not_found", "The image job no longer exists.", { jobId });
+          }
+          lastJob = value;
+          onUpdate?.({
+            content: [{ type: "text", text: statusText(value.status) }],
+            details: {
+              jobId,
+              status: value.status,
+              statusText: statusText(value.status),
             },
-          );
-          if (!response.ok) {
-            if (response.status < 500) {
-              return failure(
-                "failed",
-                `job_lookup_${response.status}`,
-                await parseErrorResponse(response),
-                { jobId },
-              );
-            }
-          } else {
-            const value = await parseJobJson(response);
-            if (!isManagedMediaJob(value)) {
-              return failure(
-                "failed",
-                "invalid_job_response",
-                "Image generation returned an invalid job response.",
-                { jobId },
-              );
-            }
-            lastJob = value;
-            onUpdate?.({
-              content: [{ type: "text", text: statusText(value.status) }],
-              details: {
+          });
+          if (value.status === "failed" || value.status === "canceled") {
+            return failure(
+              value.status,
+              asNonEmptyString(value.error?.code)?.toLowerCase() ?? value.status,
+              asNonEmptyString(value.error?.message) ?? `Image generation ${value.status}.`,
+              {
                 jobId,
-                status: value.status,
-                statusText: statusText(value.status),
+                ...(value.error?.details !== undefined ? { reason: value.error.details } : {}),
               },
-            });
-            if (
-              value.status === "failed" ||
-              value.status === "canceled" ||
-              value.status === "unknown"
-            ) {
-              return failure(
-                value.status,
-                asNonEmptyString(value.error?.code)?.toLowerCase() ??
-                  value.status,
-                asNonEmptyString(value.error?.message) ??
-                  `Image generation ${value.status}.`,
-                {
+            );
+          }
+          if (value.status === "succeeded") {
+            artifactDeadline ??= Math.min(deadline, now() + ARTIFACT_GRACE_MS);
+            const images = extractRemoteImages(value.output);
+            if (images.length > 0) {
+              try {
+                const saved = await saveImagesToDrive({
+                  context,
+                  fetchImpl,
                   jobId,
-                  ...(value.error?.details !== undefined
-                    ? { reason: value.error.details }
-                    : {}),
-                },
-              );
-            }
-            if (value.status === "succeeded") {
-              artifactDeadline ??= Math.min(deadline, now() + ARTIFACT_GRACE_MS);
-              const images = extractRemoteImages(value.output);
-              if (images.length > 0) {
-                try {
-                  const saved = await saveImagesToDrive({
-                    context,
-                    fetchImpl,
-                    jobId,
-                    toolCallId,
-                    images,
-                    signal,
-                    now: now(),
-                  });
-                  const details: CloudImageGenDetails = {
-                    status: "succeeded",
-                    jobId,
-                    capability: value.capability,
-                    prompt,
-                    ...(aspectRatio ? { aspectRatio } : {}),
-                    ...(requestedSize ? { requestedSize } : {}),
-                    drivePaths: saved.map((artifact) => artifact.path),
-                    artifacts: saved,
-                    reattached,
-                    ...(typeof value.completedAt === "number"
-                      ? { completedAt: value.completedAt }
-                      : {}),
-                  };
-                  const listed = saved.map((artifact) => artifact.path).join(", ");
-                  return {
-                    content: [
-                      {
-                        type: "text",
-                        text: `Generated ${saved.length} image${saved.length === 1 ? "" : "s"} and saved ${saved.length === 1 ? "it" : "them"} to the user's drive: ${listed}. The image is already shown in the chat; do not link or describe the file path unless asked.`,
-                      },
-                    ],
-                    details,
-                  };
-                } catch (error) {
-                  throwIfAborted(signal);
-                  if (now() >= artifactDeadline) {
-                    return failure(
-                      "failed",
-                      "artifact_materialization_failed",
-                      `Image completed but its artifact could not be saved: ${(error as Error).message}`,
-                      { jobId },
-                    );
-                  }
+                  toolCallId,
+                  images,
+                  signal,
+                  now: now(),
+                });
+                const details: CloudImageGenDetails = {
+                  status: "succeeded",
+                  jobId,
+                  capability: value.capability,
+                  prompt,
+                  ...(aspectRatio ? { aspectRatio } : {}),
+                  ...(requestedSize ? { requestedSize } : {}),
+                  drivePaths: saved.map((artifact) => artifact.path),
+                  artifacts: saved,
+                  reattached,
+                  ...(typeof value.completedAt === "number" ? { completedAt: value.completedAt } : {}),
+                };
+                const listed = saved.map((artifact) => artifact.path).join(", ");
+                return {
+                  content: [
+                    {
+                      type: "text",
+                      text: `Generated ${saved.length} image${saved.length === 1 ? "" : "s"} and saved ${saved.length === 1 ? "it" : "them"} to the user's drive: ${listed}. The image is already shown in the chat; do not link or describe the file path unless asked.`,
+                    },
+                  ],
+                  details,
+                };
+              } catch (error) {
+                throwIfAborted(signal);
+                if (now() >= artifactDeadline) {
+                  return failure(
+                    "failed",
+                    "artifact_materialization_failed",
+                    `Image completed but its artifact could not be saved: ${(error as Error).message}`,
+                    { jobId },
+                  );
                 }
-              } else if (now() >= artifactDeadline) {
-                return failure(
-                  "failed",
-                  "artifact_missing",
-                  "Image generation completed without a downloadable artifact.",
-                  { jobId },
-                );
               }
+            } else if (now() >= artifactDeadline) {
+              return failure(
+                "failed",
+                "artifact_missing",
+                "Image generation completed without a downloadable artifact.",
+                { jobId },
+              );
             }
           }
         } catch (error) {
           throwIfAborted(signal);
-          // Transient lookup/network failures reattach on the next poll.
+          // Transient lookup failures reattach on the next poll.
         }
         await sleep(Math.min(pollMs, Math.max(1, deadline - now())), signal);
         pollMs = Math.min(MAX_POLL_MS, Math.max(INITIAL_POLL_MS, pollMs * 1.5));
@@ -743,21 +588,10 @@ export const createCloudImageGenTool = (
       );
     } catch (error) {
       if (signal?.aborted) {
-        // Repeating DELETE is safe: the gateway persists one owner-scoped
-        // tombstone before attempting provider cancellation. The tool's own
-        // signal is already aborted, so cancellation gets its own budget.
-        for (let attempt = 0; attempt < 3; attempt += 1) {
-          try {
-            const response = await context.convexFetch("/api/media/v1/job", {
-              method: "DELETE",
-              headers,
-              signal: AbortSignal.timeout(5_000),
-            });
-            if (response.ok) break;
-          } catch {
-            // Retry only the idempotent cancellation, never the generation.
-          }
-        }
+        // Cancelling is idempotent and keyed like the submission.
+        await context
+          .ownerInternal("media.cancelForTurn", { clientRequestKey })
+          .catch(() => undefined);
         throw abortError(signal);
       }
       throw error;

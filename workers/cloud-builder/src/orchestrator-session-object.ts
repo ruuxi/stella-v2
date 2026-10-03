@@ -10332,8 +10332,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         conversationId: turn.conversationId,
         turnId: turn.turnId,
         ownerInternal: toolContext.ownerInternal,
-        convexFetch: (path, init) =>
-          this.convexRequest(path, init, controlPlane.token),
         publishFiles: (writerKey, files) =>
           this.publishTurnFilesCard(turn.turnId, writerKey, files),
       }),

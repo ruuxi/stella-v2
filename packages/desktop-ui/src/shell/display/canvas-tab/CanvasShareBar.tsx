@@ -2,20 +2,21 @@
  * Share controls for the active canvas, overlaid on the canvas hero.
  *
  *  - Share button: publishes the selected canvas HTML to a public URL via
- *    the canvas-share backend, then shows the returned link with a
+ *    the backend's `shares.publish`, then shows the returned link with a
  *    copy-to-clipboard affordance and a lightweight confirmation.
  *  - Shared links: a small panel listing the account's active shares
- *    (`listMine`) with copy + revoke.
+ *    (the live `shares.list` view) with copy + revoke.
  *
  * The whole bar renders nothing when the canvas-share context is absent, so
- * the sandboxed canvas renderer never reaches for Convex outside a provider.
+ * the sandboxed canvas renderer never reaches for the backend outside a provider.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { Check, Copy, Globe, LoaderCircle, Trash2 } from "@/ui/icons";
 import { Popover, PopoverContent, PopoverTrigger } from "@/ui/popover";
 import { showToast } from "@/ui/toast";
 import {
   useCanvasShare,
+  useSharedCanvasLinks,
   type PublishedCanvasShare,
   type SharedCanvasLink,
 } from "@/features/canvas-share/canvas-share-context";
@@ -133,30 +134,11 @@ const ShareResultView = ({
 const SharedLinksPanel = () => {
   const t = useT();
   const share = useCanvasShare();
-  const version = share?.version ?? 0;
-  const [links, setLinks] = useState<SharedCanvasLink[] | null>(null);
-  const [error, setError] = useState(false);
+  const live = useSharedCanvasLinks();
+  const links = live.value ?? null;
+  const error = live.status === "error" && links === null;
   const [revoking, setRevoking] = useState<string | null>(null);
   const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
-  const loadGenerationRef = useRef(0);
-
-  const load = useCallback(async () => {
-    if (!share) return;
-    const generation = ++loadGenerationRef.current;
-    setError(false);
-    try {
-      const nextLinks = await share.listMine();
-      if (generation === loadGenerationRef.current) setLinks(nextLinks);
-    } catch {
-      if (generation === loadGenerationRef.current) setError(true);
-    }
-  }, [share]);
-
-  // Reload whenever the panel mounts or a publish/revoke bumps `version`.
-  useEffect(() => {
-    void load();
-    return () => { loadGenerationRef.current += 1; };
-  }, [load, version]);
 
   const onCopy = useCallback(async (link: SharedCanvasLink) => {
     try {
@@ -175,9 +157,6 @@ const SharedLinksPanel = () => {
       setRevoking(slug);
       try {
         await share.revoke({ slug });
-        setLinks((current) =>
-          current ? current.filter((link) => link.slug !== slug) : current,
-        );
         showToast(t("shell.display.canvasShare.toasts.revoked"));
       } catch {
         showToast(t("shell.display.canvasShare.toasts.revokeFailed"));

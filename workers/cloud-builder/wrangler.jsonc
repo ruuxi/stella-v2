@@ -78,6 +78,8 @@
     "R2_MEDIA_BUCKET": "stella-v2-media-dev",
     // The CANVAS_SHARES binding's bucket, by name.
     "R2_CANVAS_SHARES_BUCKET": "stella-canvas-shares",
+    // Public origin of workers/canvas-share; share URLs are `<this>/c/<slug>`.
+    "CANVAS_SHARE_BASE_URL": "https://stellashare.app",
   },
   "secrets": {
     // CAPABILITY_SIGNING_KEY is the PKCS8 PEM of the ES256 private key that

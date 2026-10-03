@@ -15,6 +15,7 @@ import type { DriveCalls, DriveViews } from "./drive.js";
 import type { ScheduleCalls, ScheduleViews } from "./schedules.js";
 import type { PreferenceCalls, PreferenceViews } from "./preferences.js";
 import type { AccountCalls } from "./account.js";
+import type { ShareCalls, ShareViews } from "./shares.js";
 
 type SystemCalls = {
   /** Round trip through the caller's owner object. */
@@ -31,7 +32,8 @@ export type BackendCalls = SystemCalls &
   DriveCalls &
   ScheduleCalls &
   PreferenceCalls &
-  AccountCalls;
+  AccountCalls &
+  ShareCalls;
 export type BackendViews = ConversationViews &
   AgentThreadViews &
   BillingViews &
@@ -39,7 +41,8 @@ export type BackendViews = ConversationViews &
   HomeViews &
   DriveViews &
   ScheduleViews &
-  PreferenceViews;
+  PreferenceViews &
+  ShareViews;
 
 export type CallName = keyof BackendCalls & string;
 export type ViewName = keyof BackendViews & string;

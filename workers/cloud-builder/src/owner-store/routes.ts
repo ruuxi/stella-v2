@@ -65,13 +65,13 @@ const rpcJson = (body: RpcResponse): Response =>
     headers: { "cache-control": "no-store" },
   });
 
-const readArgs = async (request: Request): Promise<unknown> => {
+const readArgs = async (request: Request, maxBytes = MAX_RPC_BODY_BYTES): Promise<unknown> => {
   const length = Number(request.headers.get("content-length") ?? "0");
-  if (length > MAX_RPC_BODY_BYTES) {
+  if (length > maxBytes) {
     throw new RpcError("BAD_REQUEST", "Request body is too large.");
   }
   const text = await request.text();
-  if (text.length > MAX_RPC_BODY_BYTES) {
+  if (text.length > maxBytes) {
     throw new RpcError("BAD_REQUEST", "Request body is too large.");
   }
   if (!text) return {};
@@ -112,7 +112,7 @@ export const handleRpc = async (
   const { caller } = verified;
   let args: unknown;
   try {
-    args = await readArgs(request);
+    args = await readArgs(request, def.scope === "owner" ? def.maxBodyBytes : undefined);
   } catch (error) {
     return rpcJson({ ok: false, error: toBackendError(error) });
   }

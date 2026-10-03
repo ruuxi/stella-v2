@@ -7,11 +7,7 @@
  * of electron/node imports so both the desktop main process and the renderer
  * can share it while the parsing rules stay independent of either surface.
  *
- * Backend contract these helpers pair with:
- *   publish({ html, title? }) -> { url, slug, expiresAt }
- *   revoke({ slug })
- *   listMine({ snapshotAt, limit? })
- *     -> [{ slug, url, title, createdAt, expiresAt }]
+ * The backend calls these helpers pair with are in `./backend/shares.ts`.
  */
 
 /** Path segment that scopes a single shared canvas under the base URL. */

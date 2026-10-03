@@ -165,6 +165,8 @@ type Access = {
 
 export type OwnerCallDef<K extends CallName> = Access & {
   scope: "owner";
+  /** Largest request body this call accepts. Default 1 MiB. */
+  maxBodyBytes?: number;
   parse: Parser<CallArgs<K>>;
   handler: (ctx: OwnerContext, args: CallArgs<K>) => CallResult<K> | Promise<CallResult<K>>;
 };

@@ -20,12 +20,12 @@ const row = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-const tools = (post: (path: string, body: unknown, signal?: AbortSignal) => Promise<Response>) => {
+const tools = (post: (name: string, body: unknown) => Promise<unknown>) => {
   const created = createCloudScheduleTools({
     ownerId: "owner-1",
     ownerGeneration: "generation-1",
     conversationId: "conversation-1",
-    post,
+    ownerInternal: post,
   });
   const byName = new Map(created.map((tool) => [tool.name, tool]));
   return {
@@ -42,14 +42,14 @@ describe("cloud schedule tools", () => {
     const requests: Array<Record<string, unknown>> = [];
     let lose = true;
     const { add } = tools(async (path, body) => {
-      expect(path).toBe("/api/cloud/schedule");
+      expect(path).toBe("schedules.tool");
       const request = structuredClone(body) as Record<string, unknown>;
       requests.push(request);
       if (lose) {
         lose = false;
         throw new Error("response lost");
       }
-      return Response.json({
+      return ({
         ok: true,
         schedule: row(),
         replayed: true,
@@ -87,9 +87,9 @@ describe("cloud schedule tools", () => {
       if (request.action === "create") {
         created = request;
         const stored = row({ prompt: request.prompt, description: request.description });
-        return Response.json({ ok: true, schedule: stored, schedules: [stored] });
+        return { ok: true, schedule: stored, schedules: [stored] };
       }
-      return Response.json({
+      return ({
         ok: true,
         schedules: [row({ prompt: reminderPrompt("Drink water"), description: "Hydrate" })],
       });
@@ -116,7 +116,7 @@ describe("cloud schedule tools", () => {
     let posted = false;
     const { add } = tools(async () => {
       posted = true;
-      return Response.json({ schedules: [] });
+      return { schedules: [] };
     });
     const watch = await add.execute("call-1", {
       name: "Watch",
@@ -145,9 +145,9 @@ describe("cloud schedule tools", () => {
       requests.push(request);
       if (request.action === "update") {
         const patched = row({ status: "paused" });
-        return Response.json({ ok: true, schedule: patched, schedules: [patched] });
+        return { ok: true, schedule: patched, schedules: [patched] };
       }
-      return Response.json({ ok: true, removed: true, schedules: [] });
+      return { ok: true, removed: true, schedules: [] };
     });
     const updated = await update.execute("call-1", { jobId: "sch-1", enabled: false });
     expect(updated.isError).not.toBe(true);

@@ -1,8 +1,8 @@
 /**
  * `schedule_add` / `schedule_list` / `schedule_update` / `schedule_remove`
  * for the cloud orchestrator — the device tools' exact model-visible
- * surface (see `defs/schedule-manage-def.ts`) over the owner's cloud
- * schedule (`/api/cloud/schedule`).
+ * surface (see `defs/schedule-manage-def.ts`) over the owner's schedules in
+ * the owner's object (`schedules.tool`).
  *
  * The cloud store holds one kind of entry: a prompt that fires as a fresh
  * orchestrator turn. The device's three trigger kinds map onto it:
@@ -24,6 +24,7 @@ import {
 } from "@stella/runtime/kernel/tools/defs/schedule-manage-def.js";
 import type { CloudCodeSourceAgentTool } from "./cloud-code-tool.js";
 import { sha256Hex } from "./hash.js";
+import { RpcError } from "./owner-store/errors.js";
 import type { OwnerInternalCall } from "./owner-store/registry.js";
 
 export type CloudScheduleToolContext = Readonly<{
@@ -32,7 +33,6 @@ export type CloudScheduleToolContext = Readonly<{
   conversationId: string;
   /** A server-internal operation on the owner's object, under `ownerGeneration`. */
   ownerInternal: OwnerInternalCall;
-  post: (path: string, body: unknown, signal?: AbortSignal) => Promise<Response>;
 }>;
 
 /** The cloud scheduler's floor; nothing can run more often than this. */
@@ -172,15 +172,6 @@ const failure = (message: string): AgentToolResult<unknown> => ({
   isError: true,
 });
 
-const readJson = async (response: Response): Promise<Record<string, unknown>> => {
-  try {
-    const payload = (await response.json()) as unknown;
-    return isRecord(payload) ? payload : {};
-  } catch {
-    return {};
-  }
-};
-
 const rowsOf = (payload: Record<string, unknown>): ScheduleRow[] =>
   (Array.isArray(payload.schedules) ? payload.schedules : []).filter(
     (row): row is ScheduleRow =>
@@ -198,34 +189,31 @@ export const createCloudScheduleTools = (
     toolCallId: string,
     signal?: AbortSignal,
   ): Promise<Record<string, unknown>> => {
+    signal?.throwIfAborted();
     const requestId =
       action === "list"
         ? undefined
         : await sha256Hex(
             `schedule\0${context.ownerGeneration}\0${context.conversationId}\0${toolCallId}`,
           );
-    const response = await context.post(
-      "/api/cloud/schedule",
-      {
-        ownerId: context.ownerId,
-        ownerGeneration: context.ownerGeneration,
+    let payload: unknown;
+    try {
+      payload = await context.ownerInternal("schedules.tool", {
         action,
         ...(requestId ? { requestId } : {}),
         ...body,
-      },
-      signal,
-    );
-    const payload = await readJson(response);
-    if (!response.ok) {
+      });
+    } catch (error) {
+      // The model reads this text back to the user.
       throw new Error(
-        typeof payload.error === "string"
-          ? payload.error === "sign_in_required"
-            ? "Sign in to Stella with a connected account before scheduling."
-            : payload.error
-          : `Scheduling failed (${response.status}).`,
+        error instanceof RpcError && error.reason === "sign_in_required"
+          ? "Sign in to Stella with a connected account before scheduling."
+          : error instanceof Error
+            ? error.message
+            : "Scheduling failed.",
       );
     }
-    return payload;
+    return isRecord(payload) ? payload : {};
   };
 
   const tool = (
@@ -239,7 +227,7 @@ export const createCloudScheduleTools = (
     parameters: descriptor.parameters as unknown as TSchema,
     demoted: { searchTerms: SCHEDULE_SEARCH_TERMS },
     // Every write carries a request id derived from the tool call id, and
-    // Convex replays the receipt it stored for it (`replayed: true`), so a
+    // the owner's object replays its receipt for it (`replayed: true`), so a
     // rerun reports the first attempt's schedule instead of adding a twin.
     replay:
       descriptor.name === SCHEDULE_LIST_TOOL_DESCRIPTOR.name ? "safe" : "keyed",

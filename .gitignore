@@ -19,8 +19,6 @@ DEV-CONTEXT.md
 
 # Workspace installs
 /node_modules/
-/convex/.env.local
-/convex/node_modules/
 /packages/*/node_modules/
 /workers/*/.dev.vars
 /workers/*/node_modules/
@@ -104,8 +102,8 @@ packages/runtime/kernel/exec/.exec-worker-cache/
 # Local strategy notes (never commit).
 /strategy/
 
-# Written by the Convex CLI during deploys. Nothing named .env.local is
-# tracked; this only guards against one being committed later.
+# Nothing named .env.local is tracked; this only guards against one being
+# committed later.
 .env.local
 
 /packages/runtime-rust/target/

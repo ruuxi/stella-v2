@@ -78,13 +78,13 @@ orphaned helpers.
 
 ## Public service configuration
 
-Connected builds supply `VITE_CONVEX_URL`, `VITE_CONVEX_SITE_URL`, and
+Connected builds supply `VITE_STELLA_BACKEND_URL` and
 `VITE_STELLA_APPS_HOST` at Vite build time. They are public service locations,
 not credentials. An unconfigured local package still mounts the offline shell
 and Bun runtime; its cloud-backed auth, synchronization, or Apps features stay
 unavailable until the corresponding public URLs are supplied. The known
 `stella-v2-apps-host-dev` origin is restricted to the CI/development harness.
-The release workflow defaults to the provisioned Intent Jackal Convex and Apps
+The release workflow pins the production cloud-builder backend and Apps
 origins and rejects an invalid or development Apps origin. Repository variables
 can override those public locations when a replacement production stack has
 been reviewed.
@@ -231,9 +231,8 @@ M4 stops locally. To run the real release:
    `STELLA_WINDOWS_CERT_SHA1`, and `STELLA_WINDOWS_CERT_SERIAL`. The API key
    and client certificate must belong to the least-privilege KeyLocker signer
    service user assigned to the certificate.
-4. Optionally add public repository variables `VITE_CONVEX_URL`,
-   `VITE_CONVEX_SITE_URL`, and `VITE_STELLA_APPS_HOST` to move connected
-   release builds away from the default Intent Jackal stack. The Apps value
+4. Optionally add the public repository variable `VITE_STELLA_APPS_HOST` to
+   move connected release builds away from the default production Apps host. The Apps value
    must be a reviewed production HTTPS origin; the release validator explicitly
    rejects the development Apps host. Confirm the
    configured R2 public base URL serves byte ranges and exposes only the

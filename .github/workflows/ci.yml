@@ -44,8 +44,7 @@ jobs:
 
       - name: Build renderer
         env:
-          VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL }}
-          VITE_CONVEX_SITE_URL: ${{ vars.VITE_CONVEX_SITE_URL }}
+          VITE_STELLA_BACKEND_URL: https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev
           # CI is a development-tier harness. Production packaging must never
           # inherit this host; the release workflow requires its own reviewed
           # VITE_STELLA_APPS_HOST repository variable.
@@ -79,10 +78,10 @@ jobs:
       - name: Test packaging and verification scripts
         run: bun run test:verification
 
-  backend:
-    name: Backend and prompt contracts
+  prompts:
+    name: Prompt contracts
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -104,19 +103,6 @@ jobs:
 
       - name: Check generated prompt defaults
         run: bun run prompts:check-defaults
-
-      - name: Typecheck Convex backend
-        run: bun run backend:typecheck
-
-      - name: Test backend:test:all components with serial Convex workers
-        env:
-          # Convex suites patch process.env and global fetch. One worker and no
-          # file parallelism prevents test-file mock state from bleeding.
-          VITEST_MAX_WORKERS: "1"
-        run: |
-          bun run backend:test
-          bun run backend:test:convex -- --maxWorkers=1 --no-file-parallelism
-          bun run backend:test:lib
 
   runtime:
     name: Runtime and Effect ownership

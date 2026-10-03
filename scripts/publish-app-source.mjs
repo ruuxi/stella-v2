@@ -30,7 +30,6 @@ const EXCLUDED_PATHS = [
   "infra",
   "launcher",
   "workers",
-  "packages/backend",
   "packages/executor-cloud",
   "packages/mobile",
   "packages/mobile-screenshots",

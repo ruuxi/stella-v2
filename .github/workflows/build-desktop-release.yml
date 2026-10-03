@@ -45,8 +45,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       target: ${{ steps.version.outputs.target }}
-      convex_url: ${{ steps.version.outputs.convex_url }}
-      convex_site_url: ${{ steps.version.outputs.convex_site_url }}
+      backend_url: ${{ steps.version.outputs.backend_url }}
       apps_host: ${{ steps.version.outputs.apps_host }}
       apps_auth_host: ${{ steps.version.outputs.apps_auth_host }}
       auto_update: ${{ steps.version.outputs.auto_update }}
@@ -77,18 +76,15 @@ jobs:
             fi
           fi
           if [[ "$target" == development ]]; then
-            deployment=outgoing-bulldog-865
             worker_suffix=dev
           else
-            deployment=intent-jackal-330
             worker_suffix=prod
           fi
           {
             echo "version=$version"
             echo "target=$target"
             echo "auto_update=$auto_update"
-            echo "convex_url=https://${deployment}.convex.cloud"
-            echo "convex_site_url=https://${deployment}.convex.site"
+            echo "backend_url=https://stella-v2-cloud-builder-${worker_suffix}.lolruuxi.workers.dev"
             echo "apps_host=https://stella-v2-apps-host-${worker_suffix}.lolruuxi.workers.dev"
             echo "apps_auth_host=https://stella-v2-apps-auth-${worker_suffix}.lolruuxi.workers.dev"
           } >> "$GITHUB_OUTPUT"
@@ -180,8 +176,7 @@ jobs:
         env:
           # Explicit, reviewed environment pins: repository variables must not
           # silently redirect a stable release to an old deployment.
-          VITE_CONVEX_URL: ${{ needs.validate_stable_tag.outputs.convex_url }}
-          VITE_CONVEX_SITE_URL: ${{ needs.validate_stable_tag.outputs.convex_site_url }}
+          VITE_STELLA_BACKEND_URL: ${{ needs.validate_stable_tag.outputs.backend_url }}
           VITE_STELLA_APPS_HOST: ${{ needs.validate_stable_tag.outputs.apps_host }}
           VITE_STELLA_APPS_AUTH_HOST: ${{ needs.validate_stable_tag.outputs.apps_auth_host }}
           STELLA_DESKTOP_AUTO_UPDATE: ${{ needs.validate_stable_tag.outputs.auto_update }}

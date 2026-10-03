@@ -3,7 +3,7 @@
  *
  *   GET  /api/admin/owners/lookup?ownerId=      snapshot identity, enforcement, billing and risk row
  *   GET  /api/admin/owners/top?limit=&status=   D1 `owner_risk` by score
- *   POST /api/admin/owners/enforcement          {ownerId, status, reason, until?} via `abuse.setEnforcement`
+ *   POST /api/admin/owners/enforcement          {ownerId, status, reason, until?} via the gate's setOwnerEnforcement
  *   POST /api/admin/billing/plan                {ownerId, plan?, usageMode? | unlimited?, resetUsage?}
  *   POST /api/admin/delete                      {kind: "feedback", id} | {kind: "media_job", ownerId, id}
  *
@@ -154,15 +154,14 @@ const enforcement = async (request: Request, env: AdminEnv): Promise<Response> =
   if (until !== undefined && (typeof until !== "number" || !Number.isFinite(until))) {
     return fail(400, "until must be a timestamp.");
   }
-  const response = await ownerInternal(env, ownerId, "abuse.setEnforcement", {
-    status,
+  const state = await env.OWNER_GATES.getByName(ownerId).setOwnerEnforcement({
+    status: status as OwnerEnforcementStatus,
     reason,
-    ...(typeof until === "number" ? { expiresAt: until } : {}),
+    actor: "admin",
+    ...(typeof until === "number" ? { until } : {}),
   });
-  if (response instanceof Response) return response;
-  if (!response.ok) return failRpc(response);
   console.log(JSON.stringify({ event: "admin_owner_enforcement", ownerId, status }));
-  return json({ ownerId, ...(isRecord(response.value) ? response.value : { result: response.value }) });
+  return json({ ownerId, enforcement: state });
 };
 
 // ── Billing ──────────────────────────────────────────────────────────────

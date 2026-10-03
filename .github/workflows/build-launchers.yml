@@ -1,0 +1,216 @@
+name: Build Launchers
+
+# Builds the native launchers (launcher/{macos,windows,linux}), runs each one's
+# --self-test against this commit's source (install → sign → verify → prepare
+# → launch Electron → wait for ready → quit, exit 0), and on a manual publish
+# uploads the binaries to R2 launcher/stable/.
+#
+# The self-tests install into a throwaway STELLA_LAUNCHER_ROOT with a throwaway
+# STELLA_LAUNCHER_KEY_FILE and clone from the checkout (--source), so they
+# never touch a real install or the upstream bootstrap.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "launcher/**"
+      - ".github/workflows/build-launchers.yml"
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Upload the launchers to R2 launcher/stable/"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-launchers-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Build Stella.app (universal launcher)
+        run: launcher/macos/build.sh
+
+      - name: Self-test
+        env:
+          STELLA_LAUNCHER_ROOT: ${{ runner.temp }}/stella-root
+          STELLA_LAUNCHER_KEY_FILE: ${{ runner.temp }}/test-key/signing.pem
+        run: |
+          launcher/macos/build/Stella.app/Contents/MacOS/StellaLauncher \
+            --self-test --source "$GITHUB_WORKSPACE" --capture-dir "$RUNNER_TEMP/capture"
+
+      - name: Package
+        run: ditto -c -k --keepParent launcher/macos/build/Stella.app "$RUNNER_TEMP/Stella-macos.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: launcher-macos
+          path: ${{ runner.temp }}/Stella-macos.zip
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: launcher-macos-evidence
+          path: |
+            ${{ runner.temp }}/capture
+            ${{ runner.temp }}/stella-root/logs
+          if-no-files-found: ignore
+
+  windows-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            launcher
+            packages/desktop/build
+
+      - name: Install MinGW-w64
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends g++-mingw-w64-x86-64 binutils-mingw-w64-x86-64
+
+      - name: Build Stella.exe
+        run: launcher/windows/build.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: launcher-windows
+          path: launcher/windows/build/Stella.exe
+          if-no-files-found: error
+
+  windows-self-test:
+    needs: windows-build
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: launcher-windows
+          path: ${{ runner.temp }}\launcher
+
+      - name: Self-test
+        shell: pwsh
+        run: |
+          $env:STELLA_LAUNCHER_ROOT = "$env:RUNNER_TEMP\stella-root"
+          $env:STELLA_LAUNCHER_KEY_FILE = "$env:RUNNER_TEMP\test-key\signing.pem"
+          # Stella.exe is a GUI-subsystem program: wait on it explicitly.
+          $p = Start-Process -FilePath "$env:RUNNER_TEMP\launcher\Stella.exe" -Wait -PassThru -ArgumentList @(
+            '--self-test', '--source', "`"$env:GITHUB_WORKSPACE`"", '--capture-dir', "`"$env:RUNNER_TEMP\capture`"")
+          Get-Content "$env:STELLA_LAUNCHER_ROOT\logs\launcher.log"
+          Write-Host "self-test exit code: $($p.ExitCode)"
+          exit $p.ExitCode
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: launcher-windows-evidence
+          path: |
+            ${{ runner.temp }}\capture
+            ${{ runner.temp }}\stella-root\logs
+          if-no-files-found: ignore
+
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install build and Electron runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential pkg-config libgtk-3-dev libssl-dev \
+            xvfb xauth unzip libnss3 libgbm1 libasound2t64 libxss1 libxshmfence1 libsecret-1-0
+
+      - name: Build stella-launcher
+        run: launcher/linux/build.sh
+
+      - name: Self-test
+        env:
+          STELLA_LAUNCHER_ROOT: ${{ runner.temp }}/stella-root
+          STELLA_LAUNCHER_KEY_FILE: ${{ runner.temp }}/test-key/signing.pem
+        run: |
+          xvfb-run -a -s "-screen 0 1280x800x24" launcher/linux/build/stella-launcher \
+            --self-test --source "$GITHUB_WORKSPACE" --capture-dir "$RUNNER_TEMP/capture"
+
+      - name: Name the binary
+        run: cp launcher/linux/build/stella-launcher "$RUNNER_TEMP/stella-launcher-linux-${{ matrix.arch }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: launcher-linux-${{ matrix.arch }}
+          path: ${{ runner.temp }}/stella-launcher-linux-${{ matrix.arch }}
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: launcher-linux-${{ matrix.arch }}-evidence
+          path: |
+            ${{ runner.temp }}/capture
+            ${{ runner.temp }}/stella-root/logs
+          if-no-files-found: ignore
+
+  publish:
+    needs: [macos, windows-self-test, linux]
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: launcher-*
+          path: launchers
+          merge-multiple: true
+
+      - name: Checksums
+        run: |
+          rm -rf launchers/*evidence* 2>/dev/null || true
+          cd launchers && ls -la && sha256sum Stella-macos.zip Stella.exe stella-launcher-linux-* | tee SHA256SUMS
+
+      - name: Upload to R2 launcher/stable/
+        if: env.R2_ACCESS_KEY_ID != '' && env.R2_SECRET_ACCESS_KEY != '' && env.R2_BUCKET != '' && env.R2_ENDPOINT != ''
+        run: |
+          set -euo pipefail
+          export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
+          export AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
+          export AWS_DEFAULT_REGION="auto"
+          for file in Stella-macos.zip Stella.exe stella-launcher-linux-x64 stella-launcher-linux-arm64 SHA256SUMS; do
+            aws s3 cp "launchers/$file" "s3://${R2_BUCKET}/launcher/stable/$file" \
+              --cache-control "no-cache" --endpoint-url "$R2_ENDPOINT"
+          done
+          echo "Published launchers to launcher/stable/ (commit $GITHUB_SHA)"
+
+      - name: R2 not configured
+        if: env.R2_ACCESS_KEY_ID == '' || env.R2_SECRET_ACCESS_KEY == '' || env.R2_BUCKET == '' || env.R2_ENDPOINT == ''
+        run: echo "R2 secrets are not configured; skipping the upload to launcher/stable/."

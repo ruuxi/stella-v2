@@ -549,12 +549,18 @@ type WipeRow = {
 
 const readWipe = (db: OwnerDbReader): WipeRow | null => db.one<WipeRow>("SELECT * FROM memory_wipe WHERE id = 1");
 
-const wipeStatus = (db: OwnerDbReader, subject: string): MemoryWipeStatus => {
+const wipeStatus = (
+  db: OwnerDbReader,
+  subject: string,
+  callerGeneration = "",
+): MemoryWipeStatus => {
   const state = readState(db);
   const wipe = readWipe(db);
   return {
     subject,
-    ownerGeneration: state.owner_generation,
+    // An owner with no home write yet has no stored generation; the caller's
+    // checked one stands in for it.
+    ownerGeneration: state.owner_generation || callerGeneration,
     state: state.memory_state as MemoryLifecycleState,
     memoryEpoch: state.memory_epoch,
     importDisposition: state.import_disposition as MemoryImportDisposition,
@@ -1684,8 +1690,8 @@ const internal: Record<string, InternalDef> = {
     return { memoryEpoch: state.memory_epoch };
   },
   "memory.wipeStatus": (ctx, raw) => {
-    generationOnly(raw);
-    return wipeStatus(ctx.db, ctx.ownerId);
+    const args = generationOnly(raw);
+    return wipeStatus(ctx.db, ctx.ownerId, args.ownerGeneration);
   },
   "memory.begin": beginMemoryWrite,
   "memory.commit": commitMemoryWrite,

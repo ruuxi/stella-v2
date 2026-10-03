@@ -58,7 +58,18 @@ const gateway = (
       outcome: "completed",
       requestId: command.requestId,
       data:
-        command.action === "browser.open"
+        command.action === "browser.screenshot"
+          ? {
+              screenshot: {
+                mimeType: "image/jpeg",
+                data: "/9j/4AAQ",
+                width: 1280,
+                height: 720,
+              },
+            }
+          : command.action === "browser.text"
+            ? { text: "Order total: $42" }
+            : command.action === "browser.open"
           ? {
               profileId: "default",
               profileEpoch: 1,
@@ -187,6 +198,29 @@ describe("resident cloud browser client", () => {
     );
   });
 
+  test("maps the desktop-parity methods onto gateway actions", async () => {
+    const sent: CloudBrowserCommandRequest[] = [];
+    const client = createResidentBrowserClient(gateway(sent));
+
+    await client.call("back", [], signal);
+    await client.call("hover", ["ref=e3"], signal);
+    await client.call("scroll", [{ selector: 'role=button[name="More"]' }], signal);
+    await client.call("check", ["#terms"], signal);
+    const text = await client.call("text", ['text="Order total"'], signal);
+
+    expect(sent.map((command) => [command.action, command.params])).toEqual([
+      ["browser.back", {}],
+      ["browser.hover", { selector: "ref=e3" }],
+      [
+        "browser.scroll",
+        { direction: "down", selector: 'role=button[name="More"]' },
+      ],
+      ["browser.check", { selector: "#terms" }],
+      ["browser.text", { selector: 'text="Order total"' }],
+    ]);
+    expect(text).toBe("Order total: $42");
+  });
+
   test("checkpoints the profile only after it was used", async () => {
     const sent: CloudBrowserCommandRequest[] = [];
     const client = createResidentBrowserClient(gateway(sent));
@@ -251,6 +285,34 @@ describe("cloud code with a resident browser", () => {
     await withBrowser.execute("call", { code: "1" });
     expect(keys).toContain("$browser");
     expect(withBrowser.description).toContain("browser.requestLoginTakeover");
+  });
+
+  test("hands a screenshot to the model as an image, not to the cell", async () => {
+    let cellSaw: unknown;
+    const factory = providerFactory(async (fns) => {
+      cellSaw = await fns.$browser?.({ method: "screenshot", args: [] });
+      return "looked";
+    });
+    const code = await createCloudCodeAgentTool({
+      loader,
+      tools: [],
+      executionScope: "g:c:t",
+      browser: createResidentBrowserClient(gateway([])),
+      executeCode: (request) =>
+        executeCloudCodeWithExecutorFactory(request, factory),
+    });
+
+    const output = await code.execute("outer", {
+      code: "await browser.screenshot()",
+    });
+
+    expect(JSON.stringify(cellSaw)).not.toContain("/9j/4AAQ");
+    expect(cellSaw).toMatchObject({ width: 1280, height: 720 });
+    expect(output.content).toContainEqual({
+      type: "image",
+      data: "/9j/4AAQ",
+      mimeType: "image/jpeg",
+    });
   });
 
   test("ends the call as a suspension even when the cell catches the handoff", async () => {

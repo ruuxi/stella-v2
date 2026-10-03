@@ -694,6 +694,90 @@ describe("browser profile session core", () => {
     ).rejects.toMatchObject<Partial<GatewayError>>({ code: "bad_request" });
   });
 
+  test("serves the desktop-parity actions and recaptures a replayed screenshot", async () => {
+    const browser = new FakeBrowser();
+    const store = new MemoryProfileStore();
+    const core = new BrowserProfileSessionCore({
+      store,
+      browser,
+      bucket: new MemoryR2().asBucket(),
+      kekV1: TEST_KEK,
+      randomUuid: () => uuid(950),
+    });
+    await core.turn(
+      command(uuid(951), "browser.open", {
+        allowedOrigins: ["https://app.example"],
+        startUrl: "https://app.example/",
+      }),
+    );
+
+    const back = (await core.turn(command(uuid(952), "browser.back", {}))) as any;
+    expect(back.data.observation.elements[0]).toMatchObject({ ref: "e1" });
+    expect(
+      (await core.turn(
+        command(uuid(953), "browser.hover", { selector: "ref=e1" }),
+      )) as any,
+    ).toMatchObject({ outcome: "completed", data: { hovered: true } });
+    expect(
+      (await core.turn(
+        command(uuid(954), "browser.scroll", { direction: "down" }),
+      )) as any,
+    ).toMatchObject({ outcome: "completed" });
+    expect(
+      (await core.turn(
+        command(uuid(955), "browser.check", {
+          selector: 'role=checkbox[name="Remember me"]',
+        }),
+      )) as any,
+    ).toMatchObject({ data: { checked: true } });
+    expect(
+      (await core.turn(
+        command(uuid(956), "browser.text", { selector: 'text="Total"' }),
+      )) as any,
+    ).toMatchObject({ data: { text: "Element text" } });
+
+    const shot = command(uuid(957), "browser.screenshot", {});
+    const first = (await core.turn(shot)) as any;
+    expect(first.data.screenshot).toMatchObject({ mimeType: "image/jpeg" });
+    await core.turn(shot);
+    expect(browser.screenshotCount).toBe(2);
+    expect(store.getReceipt(uuid(957))).toBeNull();
+
+    await expect(
+      core.turn(
+        command(uuid(958), "browser.scroll", { direction: "sideways" }),
+      ),
+    ).rejects.toMatchObject<Partial<GatewayError>>({ code: "bad_request" });
+  });
+
+  test("accepts role-based verification selectors but never a page ref", async () => {
+    const takeover = (requestId: string, authenticatedSelector: string) =>
+      command(requestId, "browser.login_takeover", {
+        allowedOrigins: ["https://app.example"],
+        displayOrigin: "https://app.example",
+        verification: {
+          expectedOrigin: "https://app.example",
+          authenticatedSelector,
+          loggedOutSelector: 'role=button[name="Sign in"]',
+          resumeUrl: "https://app.example/",
+        },
+      });
+    const core = new BrowserProfileSessionCore({
+      store: new MemoryProfileStore(),
+      browser: new FakeBrowser(),
+      bucket: new MemoryR2().asBucket(),
+      kekV1: TEST_KEK,
+      randomUuid: () => uuid(960),
+    });
+    await expect(core.turn(takeover(uuid(961), "ref=e2"))).rejects.toMatchObject<
+      Partial<GatewayError>
+    >({ code: "bad_request" });
+    const suspended = (await core.turn(
+      takeover(uuid(962), 'role=link[name="Sign out"]'),
+    )) as any;
+    expect(suspended.outcome).toBe("suspended");
+  });
+
   test("aborts before handoff when the displayed, navigated, or resume origin differs", async () => {
     const create = (browser = new FakeBrowser()) => ({
       browser,

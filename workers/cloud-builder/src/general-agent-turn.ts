@@ -788,6 +788,33 @@ const journaledUsage = (messages: readonly AgentMessage[]): TurnUsage => {
 };
 
 /**
+ * Tool images (cloud browser screenshots) reach the model inside the turn
+ * that took them; the durable transcript keeps a note instead of the bytes.
+ * A thread's history is bounded at a few megabytes and every later turn
+ * re-reads it, so persisting each screenshot would eventually make the thread
+ * unreadable.
+ */
+const withoutInlineToolImages = (message: AgentMessage): AgentMessage => {
+  if (
+    message.role !== "toolResult" ||
+    !message.content.some((block) => block.type === "image")
+  ) {
+    return message;
+  }
+  return {
+    ...message,
+    content: message.content.map((block) =>
+      block.type === "image"
+        ? {
+            type: "text" as const,
+            text: "[Screenshot shown to the agent during this step; not kept in history.]",
+          }
+        : block,
+    ),
+  };
+};
+
+/**
  * The resident Stella agent loop.
  *
  * Thread history in, sealed transcript out, no sandbox touched. The prompt is
@@ -1026,7 +1053,7 @@ export const runResidentStellaLoop = async (
       if (context.cancellation.aborted || context.signal.aborted) return;
       if (event.type !== "message_end") return;
       try {
-        journal.append(event.message);
+        journal.append(withoutInlineToolImages(event.message));
       } catch (error) {
         journalError ??=
           error instanceof Error ? error.message : "journal append failed";

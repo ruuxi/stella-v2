@@ -16,13 +16,21 @@ import {
   redactVisibleText,
   sanitizePageUrl,
 } from "./safe-observation.js";
+import {
+  ELEMENT_REF_ATTRIBUTE,
+  parseAgentSelector,
+  toPlaywrightSelector,
+} from "./selectors.js";
 import { trustedVerifyPageResult } from "./trusted-verification.js";
 import type {
   BrowserBackend,
   BrowserHandoff,
   HandoffState,
+  SafeElement,
   SafeObservation,
+  SafeScreenshot,
   SafeTab,
+  ScrollRequest,
   TrustedVerification,
   TrustedVerificationState,
 } from "./browser-provider.js";
@@ -43,6 +51,209 @@ const boundedString = (value: unknown, maximum: number): string => {
 
 const safeTitle = (value: string): string =>
   redactVisibleText(value).slice(0, 512);
+
+/** Credential-shaped controls: listed, masked, never actionable by the agent. */
+const SENSITIVE_CONTROL_PATTERN =
+  "(?:password|email|tel|username|one-time-code|otp|token|secret|passkey|cc-)";
+
+/** Screenshot mask: controls that can show a credential, code, or card number. */
+const SCREENSHOT_MASK_SELECTOR = [
+  'input[type="password"]',
+  'input[type="email"]',
+  'input[type="tel"]',
+  '[autocomplete*="username" i]',
+  '[autocomplete*="one-time-code" i]',
+  '[autocomplete*="cc-" i]',
+  '[autocomplete*="password" i]',
+].join(",");
+
+const MAX_OBSERVED_ELEMENTS = 150;
+const SCREENSHOT_MAX_BYTES = 600_000;
+
+type RawElement = {
+  ref: string;
+  role: string;
+  name: string;
+  id?: string;
+  testId?: string;
+  href?: string;
+  checked?: boolean;
+  disabled?: boolean;
+  sensitive?: boolean;
+};
+
+/**
+ * Runs in the page. Stamps a ref on each visible, actionable element and
+ * describes it by role and accessible name, the way the desktop snapshot
+ * does. Form values are never read: a text field is described by its label,
+ * not its contents.
+ *
+ * Kept as plain source: Playwright serializes the function with `String()`,
+ * and the bundler's name-keeping helpers (`__name`) do not exist in the page.
+ */
+const COLLECT_ELEMENTS_SOURCE = String.raw`(body, args) => {
+  const doc = body.ownerDocument;
+  const view = doc.defaultView;
+  for (const stale of Array.from(doc.querySelectorAll("[" + args.attribute + "]"))) {
+    stale.removeAttribute(args.attribute);
+  }
+  const roles = new Set([
+    "button", "checkbox", "combobox", "heading", "img", "link", "listbox",
+    "menuitem", "option", "radio", "searchbox", "switch", "tab", "textbox",
+  ]);
+  const sensitive = new RegExp(args.sensitive, "u");
+  const clean = (value) => (value || "").replace(/\s+/gu, " ").trim().slice(0, 120);
+  const implicitRole = (element) => {
+    const tag = element.tagName.toLowerCase();
+    const type = (element.getAttribute("type") || "text").toLowerCase();
+    if (tag === "a") return element.hasAttribute("href") ? "link" : "";
+    if (tag === "button" || tag === "summary") return "button";
+    if (tag === "select") return element.hasAttribute("multiple") ? "listbox" : "combobox";
+    if (tag === "textarea") return "textbox";
+    if (/^h[1-3]$/u.test(tag)) return "heading";
+    if (tag === "img") return element.getAttribute("alt") ? "img" : "";
+    if (tag === "input") {
+      if (type === "hidden") return "";
+      if (["submit", "button", "reset", "image"].includes(type)) return "button";
+      if (type === "checkbox") return "checkbox";
+      if (type === "radio") return "radio";
+      if (type === "search") return "searchbox";
+      if (["file", "range", "color"].includes(type)) return "";
+      return "textbox";
+    }
+    const editable = element.getAttribute("contenteditable");
+    if (editable === "true" || editable === "") return "textbox";
+    return "";
+  };
+  const textOf = (element) => clean(element.innerText || element.textContent);
+  const nameOf = (element, role) => {
+    const label = element.getAttribute("aria-label");
+    if (label) return clean(label);
+    const labelledBy = element.getAttribute("aria-labelledby");
+    if (labelledBy) {
+      const joined = labelledBy
+        .split(/\s+/u)
+        .map((id) => doc.getElementById(id))
+        .filter((node) => Boolean(node))
+        .map((node) => textOf(node))
+        .join(" ");
+      if (joined) return clean(joined);
+    }
+    const tag = element.tagName.toLowerCase();
+    if (tag === "img") return clean(element.getAttribute("alt"));
+    if (tag === "input" || tag === "textarea" || tag === "select") {
+      const type = (element.getAttribute("type") || "").toLowerCase();
+      if (tag === "input" && ["submit", "button", "reset"].includes(type)) {
+        return clean(element.getAttribute("value") || type);
+      }
+      if (element.labels && element.labels.length > 0) return textOf(element.labels[0]);
+      return clean(element.getAttribute("placeholder") || element.getAttribute("title"));
+    }
+    if (role === "textbox") return clean(element.getAttribute("title"));
+    return textOf(element) || clean(element.getAttribute("title"));
+  };
+  const visible = (element) => {
+    const rect = element.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return false;
+    const style = view ? view.getComputedStyle(element) : null;
+    if (style && (style.visibility === "hidden" || style.display === "none")) return false;
+    return !element.closest('[aria-hidden="true"]');
+  };
+  const unique = (selector) => {
+    try {
+      return doc.querySelectorAll(selector).length === 1;
+    } catch {
+      return false;
+    }
+  };
+  const results = [];
+  const candidates = doc.querySelectorAll(
+    "a[href],button,input,select,textarea,summary,img[alt],h1,h2,h3,[role],[contenteditable]",
+  );
+  for (const element of Array.from(candidates)) {
+    if (results.length >= args.max) break;
+    const explicit = (element.getAttribute("role") || "").split(/\s+/u)[0] || "";
+    const role = explicit || implicitRole(element);
+    if (!roles.has(role) || !visible(element)) continue;
+    const ref = "e" + (results.length + 1);
+    element.setAttribute(args.attribute, ref);
+    const tag = element.tagName.toLowerCase();
+    const formControl =
+      role === "textbox" || role === "searchbox" || role === "combobox" ||
+      tag === "input" || tag === "textarea" || tag === "select";
+    const descriptor = ["type", "autocomplete", "name", "id", "placeholder", "aria-label"]
+      .map((attribute) => element.getAttribute(attribute) || "")
+      .join(" ")
+      .toLowerCase();
+    const id = element.getAttribute("id") || "";
+    const testId = element.getAttribute("data-testid") || "";
+    const record = { ref, role, name: nameOf(element, role) };
+    if (/^[A-Za-z][A-Za-z0-9_-]*$/u.test(id) && unique("#" + id)) record.id = id;
+    if (/^[A-Za-z0-9_.:-]{1,96}$/u.test(testId) && unique('[data-testid="' + testId + '"]')) {
+      record.testId = testId;
+    }
+    if (role === "link" && element.href) record.href = String(element.href);
+    if (role === "checkbox" || role === "radio" || role === "switch") {
+      record.checked = element.checked === true || element.getAttribute("aria-checked") === "true";
+    }
+    if (element.disabled === true || element.getAttribute("aria-disabled") === "true") {
+      record.disabled = true;
+    }
+    if (formControl && sensitive.test(descriptor)) record.sensitive = true;
+    results.push(record);
+  }
+  return results;
+}`;
+
+type CollectElementsArgs = { attribute: string; max: number; sensitive: string };
+
+/** A function object Playwright serializes to exactly the source above. */
+const collectElements = Object.assign(
+  (_body: Element, _args: CollectElementsArgs): RawElement[] => [],
+  { toString: () => COLLECT_ELEMENTS_SOURCE },
+);
+
+/** Host-side projection: redact names and offer a durable selector when one is safe. */
+const safeElement = (raw: RawElement): SafeElement => {
+  const name = redactVisibleText(raw.name ?? "").slice(0, 120);
+  const nameIsPublic = name === raw.name;
+  const candidates = [
+    raw.id && !raw.id.includes("@") ? `#${raw.id}` : undefined,
+    raw.testId ? `[data-testid="${raw.testId}"]` : undefined,
+    nameIsPublic && name && ["button", "link", "tab", "menuitem", "heading"].includes(raw.role)
+      ? `role=${raw.role}[name="${name}"]`
+      : undefined,
+  ];
+  let selector: string | undefined;
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    try {
+      selector = parseAgentSelector(candidate, { allowRef: false });
+      break;
+    } catch {
+      // Not expressible in the agent selector grammar; the ref still works.
+    }
+  }
+  const href = raw.href ? sanitizePageUrl(raw.href) : "";
+  return {
+    ref: raw.ref,
+    role: raw.role,
+    name,
+    ...(selector ? { selector } : {}),
+    ...(href ? { href } : {}),
+    ...(raw.checked !== undefined ? { checked: raw.checked } : {}),
+    ...(raw.disabled ? { disabled: true } : {}),
+    ...(raw.sensitive ? { sensitive: true } : {}),
+  };
+};
+
+const base64 = (bytes: Uint8Array): string => {
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+  }
+  return btoa(binary);
+};
 
 const trustedVerifyPage = async (
   page: Page,
@@ -160,7 +371,7 @@ export class CloudflarePlaywrightProvider implements BrowserBackend {
     page = this.requiredPage(),
   ): Promise<SafeObservation> {
     try {
-      const [title, text] = await Promise.all([
+      const [title, text, rawElements] = await Promise.all([
         page.title(),
         page
           .locator("body")
@@ -176,12 +387,21 @@ export class CloudflarePlaywrightProvider implements BrowserBackend {
             return clone.innerText || clone.textContent || "";
           }, SENSITIVE_OBSERVATION_SELECTOR)
           .catch(() => ""),
+        page
+          .locator("body")
+          .evaluate(collectElements, {
+            attribute: ELEMENT_REF_ATTRIBUTE,
+            max: MAX_OBSERVED_ELEMENTS,
+            sensitive: SENSITIVE_CONTROL_PATTERN,
+          })
+          .catch((): RawElement[] => []),
       ]);
       return {
         url: sanitizePageUrl(page.url()),
         title: safeTitle(title),
         // innerText deliberately excludes form control values.
         text: redactVisibleText(text),
+        elements: rawElements.map(safeElement),
       };
     } catch {
       throw new GatewayError("browser_unavailable", 503);
@@ -205,10 +425,30 @@ export class CloudflarePlaywrightProvider implements BrowserBackend {
     return this.observation();
   }
 
-  private async safeAgentLocator(selector: string): Promise<Locator> {
-    const locator = this.requiredPage().locator(boundedString(selector, 128));
+  async history(
+    direction: "back" | "forward" | "reload",
+  ): Promise<SafeObservation> {
+    const page = this.requiredPage();
+    const options = { waitUntil: "domcontentloaded" as const, timeout: 30_000 };
     try {
-      if ((await locator.count()) !== 1) {
+      if (direction === "back") await page.goBack(options);
+      else if (direction === "forward") await page.goForward(options);
+      else await page.reload(options);
+      return await this.observation();
+    } catch (error) {
+      if (error instanceof GatewayError) throw error;
+      throw new GatewayError("browser_unavailable", 503);
+    }
+  }
+
+  private async safeAgentLocator(selector: string): Promise<Locator> {
+    const locator = this.requiredPage().locator(
+      toPlaywrightSelector(boundedString(selector, 160)),
+    );
+    try {
+      // Exactly one visible match: a hidden element is never a target, so
+      // presence of hidden content cannot be probed through success/failure.
+      if ((await locator.count()) !== 1 || !(await locator.isVisible())) {
         throw new GatewayError("navigation_denied", 403);
       }
       const [type, autocomplete, name, id, placeholder, ariaLabel] =
@@ -285,12 +525,108 @@ export class CloudflarePlaywrightProvider implements BrowserBackend {
 
   async wait(selector: string, timeoutMs: number): Promise<void> {
     try {
-      await (
-        await this.safeAgentLocator(selector)
-      ).waitFor({
-        state: "visible",
-        timeout: timeoutMs,
+      // Waiting is for something that has not appeared yet, so it cannot
+      // require a match up front; it only ever observes visible elements.
+      await this.requiredPage()
+        .locator(toPlaywrightSelector(boundedString(selector, 160)))
+        .first()
+        .waitFor({ state: "visible", timeout: timeoutMs });
+    } catch (error) {
+      if (error instanceof GatewayError) throw error;
+      throw new GatewayError("browser_unavailable", 503);
+    }
+  }
+
+  async hover(selector: string): Promise<void> {
+    try {
+      await (await this.safeAgentLocator(selector)).hover({ timeout: 15_000 });
+    } catch (error) {
+      if (error instanceof GatewayError) throw error;
+      throw new GatewayError("browser_unavailable", 503);
+    }
+  }
+
+  async scroll(request: ScrollRequest): Promise<void> {
+    try {
+      if (request.selector) {
+        await (
+          await this.safeAgentLocator(request.selector)
+        ).scrollIntoViewIfNeeded({ timeout: 15_000 });
+        return;
+      }
+      const delta = request.amount;
+      await this.requiredPage().mouse.wheel(
+        request.direction === "left" ? -delta : request.direction === "right" ? delta : 0,
+        request.direction === "up" ? -delta : request.direction === "down" ? delta : 0,
+      );
+    } catch (error) {
+      if (error instanceof GatewayError) throw error;
+      throw new GatewayError("browser_unavailable", 503);
+    }
+  }
+
+  async setChecked(selector: string, checked: boolean): Promise<void> {
+    try {
+      await (await this.safeAgentLocator(selector)).setChecked(checked, {
+        timeout: 15_000,
       });
+    } catch (error) {
+      if (error instanceof GatewayError) throw error;
+      throw new GatewayError("browser_unavailable", 503);
+    }
+  }
+
+  async text(selector: string): Promise<string> {
+    try {
+      const text = await (await this.safeAgentLocator(selector)).evaluate(
+        (element, sensitive) => {
+          const clone = element.cloneNode(true) as unknown as {
+            querySelectorAll(selector: string): Iterable<{ remove(): void }>;
+            innerText?: string;
+            textContent?: string | null;
+          };
+          for (const node of clone.querySelectorAll(sensitive)) node.remove();
+          return (
+            (element as unknown as { innerText?: string }).innerText ??
+            clone.textContent ??
+            ""
+          );
+        },
+        SENSITIVE_OBSERVATION_SELECTOR,
+      );
+      return redactVisibleText(text).slice(0, 8_000);
+    } catch (error) {
+      if (error instanceof GatewayError) throw error;
+      throw new GatewayError("browser_unavailable", 503);
+    }
+  }
+
+  async screenshot(): Promise<SafeScreenshot> {
+    const page = this.requiredPage();
+    try {
+      const viewport = page.viewportSize() ?? { width: 1280, height: 720 };
+      let bytes: Uint8Array | undefined;
+      for (const quality of [60, 35]) {
+        bytes = await page.screenshot({
+          type: "jpeg",
+          quality,
+          timeout: 15_000,
+          animations: "disabled",
+          // Credential and card fields are painted over, as the desktop
+          // agent's own screenshots never need them.
+          mask: [page.locator(SCREENSHOT_MASK_SELECTOR)],
+        });
+        if (bytes.byteLength <= SCREENSHOT_MAX_BYTES) break;
+      }
+      if (!bytes || bytes.byteLength > SCREENSHOT_MAX_BYTES) {
+        throw new GatewayError("browser_unavailable", 503);
+      }
+      return {
+        mimeType: "image/jpeg",
+        data: base64(bytes),
+        width: viewport.width,
+        height: viewport.height,
+      };
     } catch (error) {
       if (error instanceof GatewayError) throw error;
       throw new GatewayError("browser_unavailable", 503);

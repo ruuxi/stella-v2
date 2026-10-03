@@ -111,7 +111,8 @@ const SHA256_HEX = /^[0-9a-f]{64}$/;
 /** @see src/build-session/shared/keys.ts */
 export { turnBrokerCredentialsPath } from "./shared/keys.js";
 
-const BROWSER_GATEWAY_RESPONSE_MAX_BYTES = 64 * 1024;
+/** Room for one masked viewport screenshot (~600 KB JPEG, base64) plus JSON. */
+const BROWSER_GATEWAY_RESPONSE_MAX_BYTES = 1024 * 1024;
 
 const registryBookkeepingAfterCheckpoint = async <T>(
   historyCursor: string,

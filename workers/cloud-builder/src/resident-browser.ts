@@ -37,6 +37,15 @@ export type ResidentBrowserMethod =
   | "wait"
   | "tabs"
   | "focusTab"
+  | "back"
+  | "forward"
+  | "reload"
+  | "hover"
+  | "scroll"
+  | "check"
+  | "uncheck"
+  | "text"
+  | "screenshot"
   | "close"
   | "requestLoginTakeover"
   | "requestDeviceCodeFixture";
@@ -53,6 +62,15 @@ export const RESIDENT_BROWSER_METHODS: ReadonlySet<string> =
     "wait",
     "tabs",
     "focusTab",
+    "back",
+    "forward",
+    "reload",
+    "hover",
+    "scroll",
+    "check",
+    "uncheck",
+    "text",
+    "screenshot",
     "close",
     "requestLoginTakeover",
     "requestDeviceCodeFixture",
@@ -71,6 +89,19 @@ export class ResidentBrowserSuspendedError extends Error {
     this.name = "ResidentBrowserSuspendedError";
   }
 }
+
+/**
+ * What `screenshot` resolves to on the host. The code tool lifts the image
+ * into the call's result for the model; the sandbox only learns it was taken.
+ */
+export type ResidentBrowserScreenshot = Readonly<{
+  image: Readonly<{
+    mimeType: "image/jpeg";
+    data: string;
+    width: number;
+    height: number;
+  }>;
+}>;
 
 export type ResidentBrowserClient = Readonly<{
   call(
@@ -316,6 +347,39 @@ const planFor = (method: ResidentBrowserMethod, args: readonly unknown[]): Plan 
         action: "browser.focus_tab",
         params: { tabId: requireString(args[0], "tabId", 32) },
       };
+    case "back":
+    case "forward":
+    case "reload":
+      return { action: `browser.${method}`, params: {} };
+    case "hover":
+    case "check":
+    case "uncheck":
+    case "text":
+      return {
+        action: `browser.${method}`,
+        params: { selector: requireString(args[0], "selector", 512) },
+      };
+    case "scroll": {
+      const options = optionalObject(args[0], "options");
+      const allowed = new Set(["direction", "amount", "selector"]);
+      if (Object.keys(options).some((key) => !allowed.has(key))) {
+        throw new TypeError(
+          "browser.scroll: options are { direction?, amount?, selector? }.",
+        );
+      }
+      return {
+        action: "browser.scroll",
+        params: {
+          direction: options.direction ?? "down",
+          ...(options.amount === undefined ? {} : { amount: options.amount }),
+          ...(options.selector === undefined
+            ? {}
+            : { selector: requireString(options.selector, "selector", 512) }),
+        },
+      };
+    }
+    case "screenshot":
+      return { action: "browser.screenshot", params: {} };
     case "close":
       return { action: "browser.close", params: {} };
     case "requestLoginTakeover": {
@@ -401,7 +465,33 @@ export const createResidentBrowserClient = (
           };
         case "navigate":
         case "observe":
+        case "back":
+        case "forward":
+        case "reload":
           return observation ?? data;
+        case "text":
+          return isRecord(data) && typeof data.text === "string"
+            ? data.text
+            : "";
+        case "screenshot": {
+          const shot = isRecord(data) ? data.screenshot : undefined;
+          if (
+            !isRecord(shot) ||
+            shot.mimeType !== "image/jpeg" ||
+            typeof shot.data !== "string" ||
+            !/^[A-Za-z0-9+/]+={0,2}$/u.test(shot.data)
+          ) {
+            throw new Error("Cloud browser returned an invalid screenshot.");
+          }
+          return {
+            image: {
+              mimeType: shot.mimeType,
+              data: shot.data,
+              width: Number(shot.width) || 0,
+              height: Number(shot.height) || 0,
+            },
+          } satisfies ResidentBrowserScreenshot;
+        }
         default:
           return data;
       }

@@ -1,3 +1,4 @@
+import { toPlaywrightSelector } from "./selectors.js";
 import type {
   TrustedVerification,
   TrustedVerificationState,
@@ -44,7 +45,7 @@ export const trustedVerifyPageResult = async (
   const intervalMs = polling.intervalMs ?? 100;
   try {
     const anyVisible = async (selector: string) => {
-      const locator = page.locator(selector);
+      const locator = page.locator(toPlaywrightSelector(selector));
       const count = Math.min(await locator.count(), 32);
       for (let index = 0; index < count; index += 1) {
         if (await locator.nth(index).isVisible().catch(() => false)) {

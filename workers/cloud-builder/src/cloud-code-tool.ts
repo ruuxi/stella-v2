@@ -49,7 +49,10 @@ import {
   CLOUD_CODE_SEARCH_INTRINSIC,
 } from "./cloud-code-worker-executor.js";
 import { sha256Hex } from "./hash.js";
-import type { ResidentBrowserClient } from "./resident-browser.js";
+import type {
+  ResidentBrowserClient,
+  ResidentBrowserScreenshot,
+} from "./resident-browser.js";
 import type { ToolReplayPolicy } from "./tool-replay.js";
 
 const CLOUD_CODE_MODEL_OUTPUT_MAX_BYTES = 50_000;
@@ -59,6 +62,10 @@ const MAX_INLINE_TOOL_DESCRIPTION_CHARS = 96_000;
 const TOOL_DESCRIPTION_CHUNK_CHARS = 64_000;
 /** Keep a runaway cell from stacking maps down the timeline. */
 const MAX_LIFTED_MAPS = 3;
+/** Screenshots one code call may hand the model. */
+const MAX_LIFTED_SCREENSHOTS = 3;
+
+type LiftedScreenshot = ResidentBrowserScreenshot["image"];
 
 /**
  * Tools that never appear inside code. Same set the device kernel excludes:
@@ -91,7 +98,7 @@ const cloudCodeToolDescription = (browser: boolean): string =>
  * the profile persists between turns, and sign-in is a human handoff.
  */
 const CLOUD_CODE_BROWSER_SENTENCE =
-  `browser drives Stella's private cloud browser (one persistent signed-in profile, kept between turns; it is not the user's own browser). Each method is one awaited command: browser.open(url, { allowedOrigins? }) starts at an https URL and limits navigation to its origin plus allowedOrigins, returning { url, title, text }; browser.navigate(url) and browser.observe() return the same shape, where text is the page's visible text with form fields and account details redacted; browser.click(selector), browser.fill(selector, value) for non-secret fields only, browser.press(selector, key), browser.select(selector, value), browser.wait(selector, timeoutMs?), browser.tabs(), browser.focusTab(tabId), and browser.close(). Every selector may only be #id, .class, or [data-testid=\"...\"]; anything else is refused. There is no evaluate, screenshot, cookie, or download access. When a page needs the user to sign in, call browser.requestLoginTakeover({ allowedOrigins: [origin], displayOrigin: origin, startUrl?, displayTitle?, verification: { expectedOrigin: origin, authenticatedSelector, loggedOutSelector, resumeUrl } }) with one exact https origin everywhere; both selectors are required, must differ, and may only be #id, .class, or [data-testid="..."]. It hands the login screen to the user on their phone or desktop and pauses this task until they finish: make it the last call in that code cell, and never ask for, type, or fill a password yourself. When the task continues, this code call's result says whether sign-in was approved, canceled, or expired; on approval, browser.open the site again and carry on signed in.`;
+  `browser drives Stella's private cloud browser (one persistent signed-in profile, kept between turns; it is not the user's own browser). Each method is one awaited command. browser.open(url, { allowedOrigins? }) starts at an https URL and limits navigation to its origin plus allowedOrigins. browser.open, navigate(url), observe(), back(), forward(), and reload() return { url, title, text, elements }: text is the page's visible text with form values and account details redacted, and elements lists the visible controls as { ref, role, name, selector?, href?, checked?, disabled?, sensitive? }. Act on an element with ref=eN from the latest observation, its selector, #id, .class, [data-testid="..."], role=button[name="Exact name"], or text="Exact text" (exact matches only; anything else is refused): click(selector), fill(selector, value) for non-secret fields, press(selector, key), select(selector, value), check(selector), uncheck(selector), hover(selector), text(selector) for one element's text, wait(selector, timeoutMs?), and scroll({ direction?, amount?, selector? }). Refs change after navigation, so observe again. browser.screenshot() attaches a picture of the viewport to this code call's result, with credential fields masked (up to ${MAX_LIFTED_SCREENSHOTS} per call). Also tabs(), focusTab(tabId), and close(). Elements marked sensitive (passwords, email, codes) cannot be filled or clicked, and there is no evaluate, cookie, storage, or network access. When a page needs the user to sign in, call browser.requestLoginTakeover({ allowedOrigins: [origin], displayOrigin: origin, startUrl?, displayTitle?, verification: { expectedOrigin: origin, authenticatedSelector, loggedOutSelector, resumeUrl } }) with one exact https origin everywhere. loggedOutSelector names something visible now only when signed out (such as an element's selector from the sign-in form); authenticatedSelector names something that appears only once signed in (such as role=button[name="Account"] or text="Sign out"); they must differ and cannot be refs. It hands the login screen to the user on their phone or desktop and pauses this task until they finish: make it the last call in that code cell, and never ask for, type, or fill a password yourself. When the task continues, this code call's result says whether sign-in was approved, canceled, or expired; on approval, browser.open the site again and carry on signed in.`;
 
 export const CLOUD_CODE_TOOL_DESCRIPTION = cloudCodeToolDescription(false);
 
@@ -506,13 +513,47 @@ const historyIntrinsic =
     }
   };
 
-/** `browser.<method>(...)` — forwarded to the turn's cloud browser client. */
+const isScreenshotResult = (
+  value: unknown,
+): value is ResidentBrowserScreenshot =>
+  Boolean(value) &&
+  typeof value === "object" &&
+  typeof (value as { image?: { data?: unknown } }).image?.data === "string";
+
+/**
+ * `browser.<method>(...)` — forwarded to the turn's cloud browser client. A
+ * screenshot is lifted out of the sandbox: the image rides the outer code
+ * result as an image block the model sees, and the cell only learns it was
+ * taken, which also keeps image bytes off the sandbox value bridge.
+ */
 const browserIntrinsic =
-  (client: ResidentBrowserClient): CloudCodeIntrinsic =>
+  (
+    client: ResidentBrowserClient,
+    screenshots: Map<string, LiftedScreenshot[]>,
+  ): CloudCodeIntrinsic =>
   async (input, context) => {
     const request = asRecord(input);
     const method = typeof request.method === "string" ? request.method : "";
     const args = Array.isArray(request.args) ? request.args : [];
+    if (method === "screenshot") {
+      const sink = screenshots.get(context.executionId);
+      if (!sink) throw new Error("browser.screenshot ran outside a code call.");
+      if (sink.length >= MAX_LIFTED_SCREENSHOTS) {
+        throw new Error(
+          `One code call can take at most ${MAX_LIFTED_SCREENSHOTS} screenshots.`,
+        );
+      }
+      const result = await client.call(method, args, context.signal);
+      if (!isScreenshotResult(result)) {
+        throw new Error("Cloud browser returned an invalid screenshot.");
+      }
+      sink.push(result.image);
+      return {
+        screenshot: `attached as image ${sink.length} of this code call's result`,
+        width: result.image.width,
+        height: result.image.height,
+      };
+    }
     return await client.call(method, args, context.signal);
   };
 
@@ -527,6 +568,7 @@ export const createCloudCodeAgentTool = async (
   const sourceTools = options.tools.filter(isCloudCodeReachableTool);
   const value = await loadTypeBoxValue();
   const liftedMaps = new Map<string, MapRouteArtifact[]>();
+  const liftedScreenshots = new Map<string, LiftedScreenshot[]>();
   const prepared = await prepareCloudCodeTools(
     sourceTools.map((tool) => definitionForAgentTool(tool, value, liftedMaps)),
   );
@@ -538,7 +580,12 @@ export const createCloudCodeAgentTool = async (
     [CLOUD_CODE_CONNECT_INTRINSIC]: connectIntrinsic(options.connect),
     [CLOUD_CODE_HISTORY_INTRINSIC]: historyIntrinsic(options.history),
     ...(options.browser
-      ? { [CLOUD_CODE_BROWSER_INTRINSIC]: browserIntrinsic(options.browser) }
+      ? {
+          [CLOUD_CODE_BROWSER_INTRINSIC]: browserIntrinsic(
+            options.browser,
+            liftedScreenshots,
+          ),
+        }
       : {}),
   };
   const executeCode = options.executeCode ?? executeCloudCode;
@@ -556,6 +603,8 @@ export const createCloudCodeAgentTool = async (
       )}`;
       const sink: MapRouteArtifact[] = [];
       liftedMaps.set(executionId, sink);
+      const screenshots: LiftedScreenshot[] = [];
+      liftedScreenshots.set(executionId, screenshots);
       let result: CloudCodeExecutionResult;
       try {
         result = await executeCode({
@@ -571,6 +620,7 @@ export const createCloudCodeAgentTool = async (
         });
       } finally {
         liftedMaps.delete(executionId);
+        liftedScreenshots.delete(executionId);
       }
       // A login handoff parked the profile under human control during this
       // cell. Whatever the cell did with the error afterwards, the turn waits
@@ -580,7 +630,14 @@ export const createCloudCodeAgentTool = async (
       const text = modelTextForResult(result);
       const maps = sink;
       return {
-        content: [{ type: "text", text }],
+        content: [
+          { type: "text", text },
+          ...screenshots.map((image) => ({
+            type: "image" as const,
+            data: image.data,
+            mimeType: image.mimeType,
+          })),
+        ],
         details: {
           code: result.ok
             ? { ok: true, output: text, toolCallId }

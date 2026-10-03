@@ -3,6 +3,8 @@ import type {
   BrowserHandoff,
   HandoffState,
   SafeObservation,
+  SafeScreenshot,
+  ScrollRequest,
   SafeTab,
   TrustedVerification,
   TrustedVerificationState,
@@ -121,7 +123,28 @@ export class FakeBrowser implements BrowserBackend {
     return this.observe();
   }
   async observe(): Promise<SafeObservation> {
-    return { url: this.currentUrl, title: "Safe page", text: "Safe body" };
+    return {
+      url: this.currentUrl,
+      title: "Safe page",
+      text: "Safe body",
+      elements: [{ ref: "e1", role: "button", name: "Continue" }],
+    };
+  }
+  async history(
+    _direction: "back" | "forward" | "reload",
+  ): Promise<SafeObservation> {
+    return this.observe();
+  }
+  async hover(_selector: string): Promise<void> {}
+  async scroll(_request: ScrollRequest): Promise<void> {}
+  async setChecked(_selector: string, _checked: boolean): Promise<void> {}
+  async text(_selector: string): Promise<string> {
+    return "Element text";
+  }
+  screenshotCount = 0;
+  async screenshot(): Promise<SafeScreenshot> {
+    this.screenshotCount += 1;
+    return { mimeType: "image/jpeg", data: "/9j/", width: 1280, height: 720 };
   }
   async click(_selector: string): Promise<void> {}
   async fillNonSecret(_selector: string, _value: string): Promise<void> {}

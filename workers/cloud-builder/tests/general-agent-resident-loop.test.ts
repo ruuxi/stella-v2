@@ -490,6 +490,32 @@ describe("resident Stella loop browser handoff", () => {
     ]);
   });
 
+  test("shows a tool image to the model but keeps it out of the transcript", async () => {
+    const built = harness({ script: [codeCall, assistantText("I can see it.")] });
+    openJournals.push(built);
+    const result = await runResidentStellaLoop({
+      ...built.input,
+      tools: withCode({
+        ...noopDoLocalTool("code"),
+        execute: async () => ({
+          content: [
+            { type: "text", text: "looked" },
+            { type: "image", data: "/9j/SCREENSHOT", mimeType: "image/jpeg" },
+          ],
+          details: null,
+        }),
+      }),
+    });
+
+    expect(result.outcome).toBe("completed");
+    expect(JSON.stringify(built.contexts[1]?.messages)).toContain(
+      "/9j/SCREENSHOT",
+    );
+    const persisted = JSON.stringify(built.appended[0]?.rows);
+    expect(persisted).not.toContain("/9j/SCREENSHOT");
+    expect(persisted).toContain("not kept in history");
+  });
+
   test("refuses a resume receipt that names a different call", async () => {
     const built = harness({
       script: [assistantText("unreachable")],

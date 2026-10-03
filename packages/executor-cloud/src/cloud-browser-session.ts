@@ -23,7 +23,7 @@ import type { TurnCredentialBrokerClient } from "./turn-credential-broker.js";
 
 export const CLOUD_BROWSER_COMMAND_PATH = "/api/cloud/browser/command";
 
-const MAX_CLOUD_BROWSER_RESPONSE_BYTES = 64 * 1024;
+const MAX_CLOUD_BROWSER_RESPONSE_BYTES = 256 * 1024;
 const SENSITIVE_BROWSER_RESULT_KEYS = new Set([
   "accesstoken",
   "authorization",
@@ -74,6 +74,14 @@ type CloudBrowserGatewayAction =
   | "browser.wait"
   | "browser.tabs"
   | "browser.focus_tab"
+  | "browser.back"
+  | "browser.forward"
+  | "browser.reload"
+  | "browser.hover"
+  | "browser.scroll"
+  | "browser.check"
+  | "browser.uncheck"
+  | "browser.text"
   | "browser.checkpoint"
   | "browser.login_takeover"
   | "browser.close"
@@ -132,13 +140,40 @@ type SafeObservation = Readonly<{
   url: string;
   title: string;
   text: string;
+  elements: readonly unknown[];
 }>;
 
+/** The gateway's actionable-element list: bounded records, passed through. */
+const safeElements = (value: unknown): readonly unknown[] => {
+  if (value === undefined) return Object.freeze([]);
+  if (
+    !Array.isArray(value) ||
+    value.length > 200 ||
+    value.some(
+      (element) =>
+        !isRecord(element) ||
+        typeof element.ref !== "string" ||
+        typeof element.role !== "string" ||
+        typeof element.name !== "string",
+    )
+  ) {
+    throw new Error("Cloud browser returned an invalid observation.");
+  }
+  return Object.freeze([...value]);
+};
+
 const safeObservation = (value: unknown): SafeObservation => {
-  if (!isRecord(value) || !hasExactKeys(value, ["url", "title", "text"])) {
+  if (
+    !isRecord(value) ||
+    !(
+      hasExactKeys(value, ["url", "title", "text"]) ||
+      hasExactKeys(value, ["url", "title", "text", "elements"])
+    )
+  ) {
     throw new Error("Cloud browser returned an invalid observation.");
   }
   return Object.freeze({
+    elements: safeElements(value.elements),
     url: requiredString(value.url, "observation.url", 4_096),
     title:
       typeof value.title === "string" && value.title.length <= 1_024
@@ -532,10 +567,77 @@ class TurnBrokerBrowserSession implements BrowserSessionClient {
             const observation = observationFromData(data);
             return Object.freeze({
               snapshot: observation.text,
+              elements: observation.elements,
               url: observation.url,
               title: observation.title,
             });
           },
+        };
+      }
+      case "back":
+      case "forward":
+      case "reload": {
+        localParams(rawParams, [...tabMetadata, "timeout"]);
+        return {
+          action: `browser.${action}`,
+          params: {},
+          project: (data) => {
+            const observation = observationFromData(data);
+            return Object.freeze({
+              url: observation.url,
+              title: observation.title,
+              snapshot: observation.text,
+            });
+          },
+        };
+      }
+      case "hover":
+      case "check":
+      case "uncheck": {
+        const params = localParams(rawParams, [...tabMetadata, "selector"]);
+        return {
+          action: `browser.${action}`,
+          params: {
+            selector: requiredString(params.selector, "selector", 512),
+          },
+          project: identity,
+        };
+      }
+      case "innertext":
+      case "gettext": {
+        const params = localParams(rawParams, [...tabMetadata, "selector"]);
+        return {
+          action: "browser.text",
+          params: {
+            selector: requiredString(params.selector, "selector", 512),
+          },
+          project: identity,
+        };
+      }
+      case "scroll": {
+        const params = localParams(rawParams, [
+          ...tabMetadata,
+          "direction",
+          "amount",
+          "selector",
+        ]);
+        return {
+          action: "browser.scroll",
+          params: {
+            direction:
+              params.direction === undefined
+                ? "down"
+                : requiredString(params.direction, "direction", 8),
+            ...(params.amount === undefined
+              ? {}
+              : { amount: Math.round(Number(params.amount)) }),
+            ...(params.selector === undefined
+              ? {}
+              : {
+                  selector: requiredString(params.selector, "selector", 512),
+                }),
+          },
+          project: identity,
         };
       }
       case "url": {

@@ -12,6 +12,7 @@ import type {
   DeviceCodeGrant,
 } from "./device-code-fixture-client.js";
 import { GatewayError } from "./errors.js";
+import { parseAgentSelector } from "./selectors.js";
 import {
   PROFILE_KEY_VERSION,
   decryptStorageState,
@@ -165,22 +166,18 @@ const boundedInteger = (
 };
 
 /**
- * Model-authored selectors are intentionally much narrower than Playwright's
- * locator language. This prevents hidden values and text from becoming a
- * success/failure oracle through attribute operators, text engines, pseudos,
- * combinators, or raw form-control selectors.
+ * Model-authored selectors are narrower than Playwright's locator language:
+ * refs, ids, classes, test ids, and exact role or text matches only (see
+ * `selectors.ts`). That keeps hidden values and redacted text from becoming a
+ * success/failure oracle through attribute operators, substring or regex
+ * text, pseudos, combinators, or raw form-control selectors.
  */
-const safeLocatorSelector = (value: unknown): string => {
-  const selector = boundedString(value, 128);
-  if (
-    !/^(?:#[A-Za-z][A-Za-z0-9_-]*|\.[A-Za-z][A-Za-z0-9_-]*|\[data-testid="[A-Za-z0-9_.:-]{1,96}"\])$/u.test(
-      selector,
-    )
-  ) {
-    throw new GatewayError("bad_request", 400);
-  }
-  return selector;
-};
+const safeLocatorSelector = (value: unknown): string =>
+  parseAgentSelector(value, { allowRef: true });
+
+/** Verification runs again in a fresh session, where a ref means nothing. */
+const safeVerificationSelector = (value: unknown): string =>
+  parseAgentSelector(value, { allowRef: false });
 
 const forbiddenHostname = (hostname: string): boolean => {
   const lower = hostname.toLowerCase();
@@ -282,10 +279,12 @@ const parseVerification = (
   ]);
   const result: TrustedVerification = {
     expectedOrigin: parseOrigin(verification.expectedOrigin),
-    authenticatedSelector: safeLocatorSelector(
+    authenticatedSelector: safeVerificationSelector(
       verification.authenticatedSelector,
     ),
-    loggedOutSelector: safeLocatorSelector(verification.loggedOutSelector),
+    loggedOutSelector: safeVerificationSelector(
+      verification.loggedOutSelector,
+    ),
     resumeUrl: allowedUrl(verification.resumeUrl, allowedOrigins),
   };
   if (!allowedOrigins.includes(result.expectedOrigin)) {
@@ -867,6 +866,92 @@ export class BrowserProfileSessionCore {
         response = completed({ focused: true });
         break;
       }
+      case "browser.back":
+      case "browser.forward":
+      case "browser.reload": {
+        exactObject(params, []);
+        state = await this.ensureBrowser(state);
+        const direction =
+          envelope.command.action === "browser.back"
+            ? "back"
+            : envelope.command.action === "browser.forward"
+              ? "forward"
+              : "reload";
+        try {
+          response = completed({
+            observation: this.validateObservation(
+              await this.browser.history(direction),
+              state.allowedOrigins,
+            ),
+          });
+        } catch (error) {
+          if (
+            error instanceof GatewayError &&
+            error.code === "navigation_denied"
+          ) {
+            await this.closeBrowser(state);
+          }
+          throw error;
+        }
+        break;
+      }
+      case "browser.hover": {
+        const value = exactObject(params, ["selector"]);
+        state = await this.ensureBrowser(state);
+        await this.browser.hover(safeLocatorSelector(value.selector));
+        response = completed({ hovered: true });
+        break;
+      }
+      case "browser.scroll": {
+        const value = exactObject(params, ["direction"], ["amount", "selector"]);
+        if (
+          value.direction !== "up" &&
+          value.direction !== "down" &&
+          value.direction !== "left" &&
+          value.direction !== "right"
+        ) {
+          throw new GatewayError("bad_request", 400);
+        }
+        state = await this.ensureBrowser(state);
+        await this.browser.scroll({
+          direction: value.direction,
+          amount:
+            value.amount === undefined
+              ? 600
+              : boundedInteger(value.amount, 1, 20_000),
+          ...(value.selector === undefined
+            ? {}
+            : { selector: safeLocatorSelector(value.selector) }),
+        });
+        response = completed({ scrolled: true });
+        break;
+      }
+      case "browser.check":
+      case "browser.uncheck": {
+        const value = exactObject(params, ["selector"]);
+        state = await this.ensureBrowser(state);
+        const checked = envelope.command.action === "browser.check";
+        await this.browser.setChecked(
+          safeLocatorSelector(value.selector),
+          checked,
+        );
+        response = completed({ checked });
+        break;
+      }
+      case "browser.text": {
+        const value = exactObject(params, ["selector"]);
+        state = await this.ensureBrowser(state);
+        response = completed({
+          text: await this.browser.text(safeLocatorSelector(value.selector)),
+        });
+        break;
+      }
+      case "browser.screenshot": {
+        exactObject(params, []);
+        state = await this.ensureBrowser(state);
+        response = completed({ screenshot: await this.browser.screenshot() });
+        break;
+      }
       case "browser.checkpoint": {
         exactObject(params, []);
         state = await this.ensureBrowser(state);
@@ -1064,12 +1149,16 @@ export class BrowserProfileSessionCore {
       }
     }
 
-    this.store.putReceipt({
-      requestId: envelope.command.requestId,
-      requestDigest,
-      response,
-      createdAt: now,
-    });
+    // A screenshot is read-only and large; a replay simply captures again
+    // rather than keeping image bytes in the receipt table.
+    if (envelope.command.action !== "browser.screenshot") {
+      this.store.putReceipt({
+        requestId: envelope.command.requestId,
+        requestDigest,
+        response,
+        createdAt: now,
+      });
+    }
     return response;
   }
 

@@ -59,7 +59,10 @@ const backendCall = (name: string, args: unknown) => {
       throw new Error(`unexpected backend call ${name}`);
   }
 };
+// Process-global in bun: keep every real export so later files still link.
+const realBackend = await import("../backend");
 mock.module("../backend", () => ({
+  ...realBackend,
   getBackendClient: () => ({
     call: async (name: string, args: unknown) => backendCall(name, args),
   }),

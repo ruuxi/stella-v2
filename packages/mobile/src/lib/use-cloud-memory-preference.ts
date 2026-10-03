@@ -6,17 +6,18 @@ import {
   useRef,
   useState,
 } from "react";
-import { AppState } from "react-native";
+import { getBackendClient, reconnectBackend, useBackendView } from "./backend";
 import type { CloudConversationIdentity } from "./cloud-conversation-auth";
 import {
   MobileCloudMemoryPreferenceError,
   acceptCurrentMobileCloudMemoryPreferenceResult,
   beginMobileCloudMemoryPreferenceWrite,
-  createMobileCloudMemoryPreferenceRequestFence,
+  createMobileCloudMemoryPreferenceClient,
+  decodeMobileCloudMemoryPreferenceForSubject,
+  followsMobileOwnerGeneration,
   type MobileCloudMemoryPreference,
   type MobileCloudMemoryPreferenceWriteAttempt,
 } from "./cloud-memory-preference";
-import { mobileCloudMemoryPreferenceClient } from "./cloud-memory-preference-convex";
 import {
   failedMobileCloudMemoryPreference,
   loadingMobileCloudMemoryPreference,
@@ -26,7 +27,10 @@ import {
 } from "./cloud-memory-preference-ui-state";
 import { useConvexTokenOwner } from "./use-convex-token-owner";
 
-const PREFERENCE_REFRESH_MS = 30_000;
+const preferenceClient = createMobileCloudMemoryPreferenceClient({
+  setMemoryEnabled: (input) =>
+    getBackendClient().call("memory.setEnabled", input),
+});
 
 type PreferenceIdentity = {
   accountScope: string;
@@ -51,10 +55,18 @@ export type MobileCloudMemoryPreferenceView =
     retry: () => void;
   };
 
+/** A view value echoing another owner is the previous account's, not ours. */
+const belongsToAnotherOwner = (value: unknown, subject: string): boolean =>
+  typeof value === "object" &&
+  value !== null &&
+  typeof (value as { subject?: unknown }).subject === "string" &&
+  (value as { subject: string }).subject !== subject;
+
 /**
  * Session/request/generation-fenced CAS controller for the mobile Memory
- * switch. Its caller also keys the component by the full Better Auth session,
- * so an account transition cannot paint the prior owner's setting.
+ * switch. The owner's live `memory.preference` view is the authority; its
+ * caller also keys the component by the full Better Auth session, so an
+ * account transition cannot paint the prior owner's setting.
  */
 export const useCloudMemoryPreference = (
   sessionIdentity: CloudConversationIdentity | null,
@@ -71,9 +83,12 @@ export const useCloudMemoryPreference = (
     };
   }, [tokenOwner.identity]);
   const hasSessionIdentity = sessionIdentity !== null;
+  const live = useBackendView("memory.preference", identity ? {} : "skip");
   const committedIdentityRef = useRef<PreferenceIdentity | null>(identity);
   const activeRequestIdRef = useRef<string | null>(null);
   const preferenceRef = useRef<MobileCloudMemoryPreference | null>(null);
+  /** The last head the view delivered; null until it does or once it fails. */
+  const liveRef = useRef<MobileCloudMemoryPreference | null>(null);
   const retryPlanRef = useRef<RetryPlan | null>(null);
   const desiredValueRef = useRef<boolean | null>(null);
   const writeInFlightRef = useRef(false);
@@ -130,7 +145,7 @@ export const useCloudMemoryPreference = (
       writeInFlightRef.current = true;
       retryPlanRef.current = null;
       setState(savingMobileCloudMemoryPreference(base, attempt.memoryEnabled));
-      void mobileCloudMemoryPreferenceClient.write(attempt).then(
+      void preferenceClient.write(attempt).then(
         (result) => {
           const currentIdentity = committedIdentityRef.current;
           const accepted = acceptCurrentMobileCloudMemoryPreferenceResult(
@@ -146,6 +161,7 @@ export const useCloudMemoryPreference = (
           );
           if (!accepted) return;
           writeInFlightRef.current = false;
+          activeRequestIdRef.current = null;
           if (accepted.status === "committed") {
             preferenceRef.current = accepted.preference;
             const desired = desiredValueRef.current;
@@ -176,6 +192,7 @@ export const useCloudMemoryPreference = (
         (error) => {
           if (!requestIsCurrent(attempt)) return;
           writeInFlightRef.current = false;
+          activeRequestIdRef.current = null;
           preferenceRef.current = base;
           const desired = desiredValueRef.current ?? attempt.memoryEnabled;
           retryPlanRef.current =
@@ -195,84 +212,73 @@ export const useCloudMemoryPreference = (
     runWriteRef.current = runWrite;
   }, [runWrite]);
 
-  const load = useCallback(
-    (options: { thenWrite?: boolean; silent?: boolean } = {}) => {
+  /**
+   * Settle on a head the view delivered: write toward `target` when it
+   * differs, otherwise publish it as synced.
+   */
+  const settle = useCallback(
+    (preference: MobileCloudMemoryPreference, target?: boolean | null) => {
       const currentIdentity = committedIdentityRef.current;
-      if (!currentIdentity || writeInFlightRef.current) return;
-      const fence =
-        createMobileCloudMemoryPreferenceRequestFence(currentIdentity);
-      activeRequestIdRef.current = fence.requestId;
-      retryPlanRef.current = null;
-      if (!options.silent) {
-        setState(loadingMobileCloudMemoryPreference(preferenceRef.current));
+      if (!currentIdentity) return;
+      const previousGeneration = preferenceRef.current?.ownerGeneration;
+      preferenceRef.current = preference;
+      if (
+        previousGeneration &&
+        previousGeneration !== preference.ownerGeneration
+      ) {
+        // A reset/migration creates a new authority generation. Never carry
+        // an old exact-attempt retry across that boundary.
+        retryPlanRef.current = null;
       }
-      void mobileCloudMemoryPreferenceClient.read(fence).then(
-        (result) => {
-          const liveIdentity = committedIdentityRef.current;
-          const accepted = acceptCurrentMobileCloudMemoryPreferenceResult(
-            result,
-            {
-              accountScope: liveIdentity?.accountScope,
-              identityKey: liveIdentity?.identityKey,
-              identityRevision: liveIdentity?.identityRevision,
-              expectedSubject: liveIdentity?.expectedSubject,
-              requestId: activeRequestIdRef.current,
-            },
-          );
-          if (!accepted) return;
-          const previousGeneration = preferenceRef.current?.ownerGeneration;
-          preferenceRef.current = accepted.preference;
-          if (
-            previousGeneration &&
-            previousGeneration !== accepted.preference.ownerGeneration
-          ) {
-            // A reset/migration creates a new authority generation. Never
-            // carry an old exact-attempt retry across that boundary.
-            retryPlanRef.current = null;
-          }
-          const target =
-            options.thenWrite ?? desiredValueRef.current ?? undefined;
-          if (
-            target !== undefined &&
-            accepted.preference.memoryEnabled !== target &&
-            liveIdentity
-          ) {
-            const attempt = beginMobileCloudMemoryPreferenceWrite({
-              ...liveIdentity,
-              preference: accepted.preference,
-              memoryEnabled: target,
-            });
-            runWriteRef.current?.(attempt, accepted.preference);
-            return;
-          }
-          desiredValueRef.current = null;
-          setState(syncedMobileCloudMemoryPreference(accepted.preference));
-        },
-        () => {
-          if (!requestIsCurrent(fence)) return;
-          const target = options.thenWrite ?? desiredValueRef.current;
-          retryPlanRef.current =
-            target === undefined || target === null
-              ? { kind: "load" }
-              : { kind: "reload_then_write", memoryEnabled: target };
-          if (!options.silent || !preferenceRef.current) {
-            setState(
-              failedMobileCloudMemoryPreference(
-                preferenceRef.current,
-                target === undefined || target === null ? "load" : "save",
-              ),
-            );
-          }
-        },
-      );
+      if (
+        target !== undefined &&
+        target !== null &&
+        preference.memoryEnabled !== target
+      ) {
+        const attempt = beginMobileCloudMemoryPreferenceWrite({
+          ...currentIdentity,
+          preference,
+          memoryEnabled: target,
+        });
+        runWriteRef.current?.(attempt, preference);
+        return;
+      }
+      desiredValueRef.current = null;
+      retryPlanRef.current = null;
+      setState(syncedMobileCloudMemoryPreference(preference));
     },
-    [requestIsCurrent],
+    [],
+  );
+
+  /**
+   * Reconcile from the live view. A failed or still-empty view is retried by
+   * reconnecting the live channel; the head it delivers next is settled by
+   * the subscription effect.
+   */
+  const reconcile = useCallback(
+    (thenWrite?: boolean) => {
+      if (!committedIdentityRef.current || writeInFlightRef.current) return;
+      const latest = liveRef.current;
+      if (!latest) {
+        if (thenWrite !== undefined) desiredValueRef.current = thenWrite;
+        retryPlanRef.current =
+          thenWrite === undefined
+            ? { kind: "load" }
+            : { kind: "reload_then_write", memoryEnabled: thenWrite };
+        setState(loadingMobileCloudMemoryPreference(preferenceRef.current));
+        reconnectBackend();
+        return;
+      }
+      settle(latest, thenWrite ?? desiredValueRef.current);
+    },
+    [settle],
   );
 
   useLayoutEffect(() => {
     committedIdentityRef.current = identity;
     activeRequestIdRef.current = null;
     preferenceRef.current = null;
+    liveRef.current = null;
     retryPlanRef.current = null;
     desiredValueRef.current = null;
     writeInFlightRef.current = false;
@@ -281,8 +287,7 @@ export const useCloudMemoryPreference = (
 
   useEffect(() => {
     mountedRef.current = true;
-    if (identity) load();
-    else if (hasSessionIdentity && tokenOwner.unavailable) {
+    if (!identity && hasSessionIdentity && tokenOwner.unavailable) {
       setState(failedMobileCloudMemoryPreference(null, "load"));
     }
     return () => {
@@ -290,22 +295,66 @@ export const useCloudMemoryPreference = (
       activeRequestIdRef.current = null;
       writeInFlightRef.current = false;
     };
-  }, [hasSessionIdentity, identity, load, tokenOwner.unavailable]);
+  }, [hasSessionIdentity, identity, tokenOwner.unavailable]);
 
   useEffect(() => {
     if (!identity) return;
-    const interval = setInterval(
-      () => load({ silent: true }),
-      PREFERENCE_REFRESH_MS,
-    );
-    const subscription = AppState.addEventListener("change", (nextState) => {
-      if (nextState === "active") load({ silent: true });
-    });
-    return () => {
-      clearInterval(interval);
-      subscription.remove();
-    };
-  }, [identity, load]);
+    if (live.error) {
+      liveRef.current = null;
+      if (writeInFlightRef.current) return;
+      const target = desiredValueRef.current;
+      retryPlanRef.current =
+        target === null
+          ? { kind: "load" }
+          : { kind: "reload_then_write", memoryEnabled: target };
+      // A head already on screen stays unless the user is waiting on a retry.
+      setState((current) =>
+        !preferenceRef.current || current.status === "loading"
+          ? failedMobileCloudMemoryPreference(
+              preferenceRef.current,
+              target === null ? "load" : "save",
+            )
+          : current,
+      );
+      return;
+    }
+    if (live.value === undefined) return;
+    if (belongsToAnotherOwner(live.value, identity.expectedSubject)) return;
+    let preference: MobileCloudMemoryPreference;
+    try {
+      preference = decodeMobileCloudMemoryPreferenceForSubject(
+        live.value,
+        identity.expectedSubject,
+      );
+    } catch {
+      liveRef.current = null;
+      if (writeInFlightRef.current) return;
+      retryPlanRef.current = { kind: "load" };
+      setState(failedMobileCloudMemoryPreference(preferenceRef.current, "load"));
+      return;
+    }
+    liveRef.current = preference;
+    if (writeInFlightRef.current) {
+      const base = preferenceRef.current?.ownerGeneration;
+      if (
+        base !== undefined &&
+        (base === preference.ownerGeneration ||
+          followsMobileOwnerGeneration(base, preference.ownerGeneration))
+      ) {
+        return;
+      }
+      // The owner generation moved under the write; its result can no longer
+      // apply, so drop it and adopt the new head.
+      activeRequestIdRef.current = null;
+      writeInFlightRef.current = false;
+      desiredValueRef.current = null;
+      retryPlanRef.current = null;
+      preferenceRef.current = preference;
+      setState(syncedMobileCloudMemoryPreference(preference));
+      return;
+    }
+    settle(preference, desiredValueRef.current);
+  }, [identity, live.error, live.value, settle]);
 
   const setMemoryEnabled = useCallback((memoryEnabled: boolean) => {
     if (typeof memoryEnabled !== "boolean") return;
@@ -331,7 +380,7 @@ export const useCloudMemoryPreference = (
     const plan = retryPlanRef.current;
     if (!plan || !committedIdentityRef.current) return;
     if (plan.kind === "load") {
-      load();
+      reconcile();
       return;
     }
     if (plan.kind === "write") {
@@ -340,8 +389,8 @@ export const useCloudMemoryPreference = (
       return;
     }
     desiredValueRef.current = plan.memoryEnabled;
-    load({ thenWrite: plan.memoryEnabled });
-  }, [load]);
+    reconcile(plan.memoryEnabled);
+  }, [reconcile]);
 
   return {
     ...state,

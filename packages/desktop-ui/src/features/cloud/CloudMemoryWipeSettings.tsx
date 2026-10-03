@@ -9,10 +9,10 @@ import {
 } from "@/ui/dialog";
 import { TextField } from "@/ui/text-field";
 import { useT } from "@/shared/i18n";
-import type { CloudMemoryWipeJob } from "./cloud-home-api";
+import type { MemoryWipeJob } from "@stella/contracts/backend/home";
 import { useCloudMemoryWipe } from "./use-cloud-memory-wipe";
 
-const stageCopy = (job: CloudMemoryWipeJob): string => {
+const stageCopy = (job: MemoryWipeJob): string => {
   if (job.stage === "sweeping") {
     return "Permanently deleting encrypted Memory objects from cloud storage.";
   }

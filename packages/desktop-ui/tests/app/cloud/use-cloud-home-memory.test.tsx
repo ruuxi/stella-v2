@@ -5,8 +5,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  queryResults: {} as Record<string, unknown>,
-  queryRequests: null as unknown,
+  lifecycle: undefined as unknown,
+  viewRequest: null as unknown,
   createClient: vi.fn(),
   beginWrite: vi.fn(),
   listMemory: vi.fn(),
@@ -23,10 +23,12 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("convex/react", () => ({
-  useQueries: (requests: unknown) => {
-    mocks.queryRequests = requests;
-    return mocks.queryResults;
+vi.mock("@/platform/backend/use-backend-view", () => ({
+  useBackendView: (view: string, args: unknown) => {
+    mocks.viewRequest = [view, args];
+    return mocks.lifecycle === undefined
+      ? { status: "loading", value: undefined, error: undefined }
+      : { status: "ready", value: mocks.lifecycle, error: undefined };
   },
 }));
 
@@ -112,8 +114,8 @@ describe("useCloudHomeMemory", () => {
   beforeEach(() => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     observed = null;
-    mocks.queryResults = {};
-    mocks.queryRequests = null;
+    mocks.lifecycle = undefined;
+    mocks.viewRequest = null;
     mocks.createClient.mockReset();
     mocks.beginWrite.mockReset();
     mocks.listMemory.mockReset();
@@ -135,22 +137,15 @@ describe("useCloudHomeMemory", () => {
     container.remove();
   });
 
-  it("asks only for the exact-subject memory lifecycle", async () => {
-    mocks.queryResults = {};
+  it("subscribes to the owner's memory lifecycle view", async () => {
     await render();
 
     expect(observed).toMatchObject({ available: false, loading: true });
-    expect(mocks.queryRequests).toEqual({
-      memoryLifecycle: expect.objectContaining({
-        args: { expectedSubject: "https://site.example|owner-a" },
-      }),
-    });
+    expect(mocks.viewRequest).toEqual(["memory.wipeStatus", {}]);
   });
 
   it("pins issuer, subject, account, and session revision in the client", async () => {
-    mocks.queryResults = {
-      memoryLifecycle: lifecycle,
-    };
+    mocks.lifecycle = lifecycle;
     await render();
 
     expect(observed).toMatchObject({
@@ -186,8 +181,7 @@ describe("useCloudHomeMemory", () => {
   });
 
   it("fails closed while the exact-subject lifecycle is wiping", async () => {
-    mocks.queryResults = {
-      memoryLifecycle: {
+    mocks.lifecycle = {
         ...lifecycle,
         state: "wiping",
         memoryEpoch: "memory-epoch-2",
@@ -200,8 +194,7 @@ describe("useCloudHomeMemory", () => {
           rowsDeleted: 0,
           updatedAt: 1,
         },
-      },
-    };
+      };
     await render();
 
     expect(observed).toMatchObject({
@@ -212,19 +205,17 @@ describe("useCloudHomeMemory", () => {
     });
   });
 
-  it("rejects a lifecycle echo for a different exact subject", async () => {
-    mocks.queryResults = {
-      memoryLifecycle: {
-        ...lifecycle,
-        subject: "https://site.example|owner-b",
-      },
+  it("keeps loading past a lifecycle echo for a different exact subject", async () => {
+    mocks.lifecycle = {
+      ...lifecycle,
+      subject: "https://site.example|owner-b",
     };
     await render();
 
     expect(observed).toMatchObject({
       available: false,
-      loading: false,
-      unavailable: true,
+      loading: true,
+      unavailable: false,
       lifecycle: null,
     });
   });

@@ -15,20 +15,27 @@ const mocks = vi.hoisted(() => ({
     ownerSubject: "https://stella.example|owner-a" as string | null,
   },
   reactiveResult: undefined as unknown,
-  requests: null as unknown,
-  convex: {
-    query: vi.fn(),
-    mutation: vi.fn(),
+  backend: {
+    call: vi.fn(),
+    reconnect: vi.fn(),
   },
   requestSync: vi.fn(),
 }));
 
-vi.mock("convex/react", () => ({
-  useConvex: () => mocks.convex,
-  useQueries: (requests: unknown) => {
-    mocks.requests = requests;
-    return { memoryReimportStatus: mocks.reactiveResult };
+vi.mock("@/platform/backend/use-backend-view", () => ({
+  useBackendView: (_view: string, args: unknown) => {
+    const result = args === "skip" ? undefined : mocks.reactiveResult;
+    if (result === undefined) {
+      return { status: "loading", value: undefined, error: undefined };
+    }
+    return result instanceof Error
+      ? { status: "error", value: undefined, error: result }
+      : { status: "ready", value: result, error: undefined };
   },
+}));
+
+vi.mock("@/platform/backend/backend-client", () => ({
+  backendClient: mocks.backend,
 }));
 
 vi.mock("@/global/auth/hooks/use-cloud-conversation-session", () => ({
@@ -122,9 +129,8 @@ describe("useCloudMemoryReimport", () => {
       ownerSubject: subjectA,
     };
     mocks.reactiveResult = required();
-    mocks.requests = null;
-    mocks.convex.query.mockReset();
-    mocks.convex.mutation.mockReset();
+    mocks.backend.call.mockReset();
+    mocks.backend.reconnect.mockReset();
     mocks.requestSync.mockReset();
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -137,20 +143,19 @@ describe("useCloudMemoryReimport", () => {
     vi.restoreAllMocks();
   });
 
-  it("queries the exact full subject and authorizes the current generation and epoch", async () => {
-    mocks.convex.mutation.mockResolvedValue(allowed());
+  it("authorizes the current generation and epoch of the live head", async () => {
+    mocks.backend.call.mockResolvedValue(allowed());
     await render();
 
-    expect(mocks.requests).toMatchObject({
-      memoryReimportStatus: { args: { expectedSubject: subjectA } },
-    });
     expect(latest?.eligible).toBe(true);
     await act(async () =>
       expect(latest!.authorizeReimport()).resolves.toBe(true),
     );
 
-    expect(mocks.convex.mutation.mock.calls[0]?.[1]).toMatchObject({
-      expectedSubject: subjectA,
+    expect(mocks.backend.call.mock.calls[0]?.[0]).toBe(
+      "memory.authorizeReimport",
+    );
+    expect(mocks.backend.call.mock.calls[0]?.[1]).toEqual({
       expectedOwnerGeneration: "generation-1",
       expectedMemoryEpoch: "epoch-2",
       requestId: expect.stringMatching(/^desktop-memory-reimport:/u),
@@ -161,7 +166,7 @@ describe("useCloudMemoryReimport", () => {
   });
 
   it("retries an ambiguous mutation with the exact same payload", async () => {
-    mocks.convex.mutation
+    mocks.backend.call
       .mockRejectedValueOnce(new Error("network unavailable"))
       .mockResolvedValueOnce(allowed());
     await render();
@@ -172,16 +177,16 @@ describe("useCloudMemoryReimport", () => {
     expect(latest?.phase).toBe("error");
     await act(async () => expect(latest!.retry()).resolves.toBe(true));
 
-    expect(mocks.convex.mutation).toHaveBeenCalledTimes(2);
-    expect(mocks.convex.mutation.mock.calls[1]?.[1]).toEqual(
-      mocks.convex.mutation.mock.calls[0]?.[1],
+    expect(mocks.backend.call).toHaveBeenCalledTimes(2);
+    expect(mocks.backend.call.mock.calls[1]?.[1]).toEqual(
+      mocks.backend.call.mock.calls[0]?.[1],
     );
     expect(mocks.requestSync).toHaveBeenCalledTimes(1);
   });
 
   it("drops a late authorization result after the full account identity changes", async () => {
     const ownerAResult = deferred<ReturnType<typeof allowed>>();
-    mocks.convex.mutation.mockReturnValue(ownerAResult.promise);
+    mocks.backend.call.mockReturnValue(ownerAResult.promise);
     await render();
 
     let pending!: Promise<boolean>;
@@ -214,6 +219,6 @@ describe("useCloudMemoryReimport", () => {
     expect(latest?.phase).toBe("authorized");
     expect(latest?.eligible).toBe(false);
     await expect(latest!.authorizeReimport()).resolves.toBe(false);
-    expect(mocks.convex.mutation).not.toHaveBeenCalled();
+    expect(mocks.backend.call).not.toHaveBeenCalled();
   });
 });

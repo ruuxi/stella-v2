@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { CloudMemoryDocument } from "@stella/contracts/cloud-home-sync";
-import type { CloudMemoryWipeStatus } from "./cloud-home-api";
+import type { MemoryWipeStatus } from "@stella/contracts/backend/home";
 import { Button } from "@/ui/button";
 import {
   Dialog,
@@ -57,7 +57,7 @@ const summarize = (document: CloudMemoryDocument): MemorySummary => ({
 
 const openAuthority = (
   expectedSubject: string,
-  lifecycle: CloudMemoryWipeStatus | null,
+  lifecycle: MemoryWipeStatus | null,
 ): OpenMemoryAuthority | null =>
   lifecycle?.state === "open" && lifecycle.subject === expectedSubject
     ? {
@@ -133,7 +133,7 @@ export function CloudHomeMemorySettings() {
       ])
     : null;
   const activeIdentityRef = useRef<string | null>(null);
-  const activeLifecycleRef = useRef<CloudMemoryWipeStatus | null>(null);
+  const activeLifecycleRef = useRef<MemoryWipeStatus | null>(null);
   const requestEpoch = useRef(0);
   const exportEpoch = useRef(0);
   const pendingExportIdRef = useRef<string | null>(null);

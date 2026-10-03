@@ -1,7 +1,7 @@
-import type {
-  AuthorizeCloudMemoryReimportArgs,
-  CloudMemoryWipeStatus,
-} from "./cloud-home-api";
+import { BackendRequestError } from "@stella/contracts/backend/client";
+import type { HomeCalls, MemoryWipeStatus } from "@stella/contracts/backend/home";
+import { OWNER_GENERATION_STALE } from "@stella/contracts/backend/protocol";
+import { followsOwnerGeneration } from "./cloud-memory-preference";
 import {
   CloudMemoryWipeError,
   decodeCloudMemoryWipeStatus,
@@ -10,6 +10,9 @@ import {
 const MAX_IDENTITY_CHARS = 1_024;
 const IDENTITY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/|?-]{0,1023}$/u;
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
+
+export type AuthorizeCloudMemoryReimportArgs =
+  HomeCalls["memory.authorizeReimport"]["args"];
 
 export type CloudMemoryReimportIdentity = Readonly<{
   accountScope: string;
@@ -31,7 +34,6 @@ export type CloudMemoryReimportIssueCode =
   | "stale_epoch"
   | "owner_generation_changed"
   | "idempotency_conflict"
-  | "account_unavailable"
   | "unauthorized"
   | "invalid_response"
   | "unavailable";
@@ -47,9 +49,6 @@ export class CloudMemoryReimportError extends Error {
     this.retryable = retryable;
   }
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
 
 const hasControlCharacter = (value: string): boolean =>
   [...value].some((character) => {
@@ -114,7 +113,7 @@ export const createCloudMemoryReimportRequestFence = (args: {
 
 export const beginCloudMemoryReimport = (args: {
   identity: CloudMemoryReimportIdentity;
-  status: CloudMemoryWipeStatus;
+  status: MemoryWipeStatus;
   createEntropy?: () => string;
 }): CloudMemoryReimportAttempt => {
   const status = decodeCloudMemoryWipeStatus(
@@ -133,7 +132,6 @@ export const beginCloudMemoryReimport = (args: {
   });
   return Object.freeze({
     ...fence,
-    expectedSubject: fence.ownerSubject,
     expectedOwnerGeneration: status.ownerGeneration,
     expectedMemoryEpoch: status.memoryEpoch,
   });
@@ -142,10 +140,9 @@ export const beginCloudMemoryReimport = (args: {
 export const cloudMemoryReimportMutationInput = (
   attempt: CloudMemoryReimportAttempt,
 ): AuthorizeCloudMemoryReimportArgs => ({
-  expectedSubject: attempt.expectedSubject,
+  requestId: attempt.requestId,
   expectedOwnerGeneration: attempt.expectedOwnerGeneration,
   expectedMemoryEpoch: attempt.expectedMemoryEpoch,
-  requestId: attempt.requestId,
 });
 
 export const isCloudMemoryReimportRequestCurrent = (
@@ -162,25 +159,6 @@ export const isCloudMemoryReimportRequestCurrent = (
   originating.ownerSubject === current.ownerSubject &&
   originating.requestId === current.requestId;
 
-const readSerializedPayload = (
-  message: string,
-): Record<string, unknown> | null => {
-  const first = message.indexOf("{");
-  const last = message.lastIndexOf("}");
-  if (first < 0 || last <= first) return null;
-  try {
-    const value: unknown = JSON.parse(message.slice(first, last + 1));
-    return isRecord(value) ? value : null;
-  } catch {
-    return null;
-  }
-};
-
-const readErrorPayload = (error: unknown): Record<string, unknown> | null => {
-  if (isRecord(error) && isRecord(error.data)) return error.data;
-  return error instanceof Error ? readSerializedPayload(error.message) : null;
-};
-
 export const normalizeCloudMemoryReimportError = (
   error: unknown,
 ): CloudMemoryReimportError => {
@@ -188,59 +166,47 @@ export const normalizeCloudMemoryReimportError = (
   if (error instanceof CloudMemoryWipeError) {
     return new CloudMemoryReimportError("invalid_response");
   }
-  const payload = readErrorPayload(error);
-  const code = typeof payload?.code === "string" ? payload.code : "";
-  if (code === "CLOUD_MEMORY_REIMPORT_NOT_REQUIRED") {
+  // Anything that is not a backend refusal is a transport failure, and the
+  // exact attempt (same request id) is safe to replay.
+  if (!(error instanceof BackendRequestError)) {
+    return new CloudMemoryReimportError("unavailable", true);
+  }
+  if (error.reason === "CLOUD_MEMORY_REIMPORT_NOT_REQUIRED") {
     return new CloudMemoryReimportError("not_required");
   }
-  if (code === "CLOUD_MEMORY_WIPE_ACTIVE") {
+  if (error.reason === "CLOUD_MEMORY_WIPE_ACTIVE") {
     return new CloudMemoryReimportError("active");
   }
-  if (code === "CLOUD_MEMORY_EPOCH_STALE") {
+  if (error.reason === "CLOUD_MEMORY_EPOCH_STALE") {
     return new CloudMemoryReimportError("stale_epoch");
   }
-  if (
-    code === "OWNER_DATA_GENERATION_STALE" ||
-    code === "OWNER_EXTERNAL_FENCE_MISMATCH" ||
-    code === "OWNERSHIP_MIGRATED" ||
-    code === "ANONYMOUS_IDENTITY_MIGRATED"
-  ) {
+  if (error.reason === OWNER_GENERATION_STALE) {
     return new CloudMemoryReimportError("owner_generation_changed");
   }
-  if (code === "CLOUD_HOME_IDEMPOTENCY_CONFLICT") {
+  if (error.reason === "CLOUD_HOME_IDEMPOTENCY_CONFLICT") {
     return new CloudMemoryReimportError("idempotency_conflict");
   }
-  if (code === "OWNER_DATA_PURGE_ACTIVE") {
-    return new CloudMemoryReimportError("account_unavailable");
-  }
-  if (
-    code === "UNAUTHENTICATED" ||
-    code === "UNAUTHORIZED" ||
-    code === "SESSION_IDENTITY_MISMATCH"
-  ) {
+  if (error.code === "UNAUTHENTICATED" || error.code === "FORBIDDEN") {
     return new CloudMemoryReimportError("unauthorized");
   }
-  const message = error instanceof Error ? error.message : String(error);
-  if (
-    /unauthenticated|authentication required|sign in|unauthorized/iu.test(
-      message,
-    )
-  ) {
-    return new CloudMemoryReimportError("unauthorized");
-  }
+  // Includes MEMORY_POLICY_CHANGING: retrying the same request id settles it.
   return new CloudMemoryReimportError("unavailable", true);
 };
 
 export type CloudMemoryReimportPort = {
-  read: (args: { expectedSubject: string }) => Promise<unknown>;
   authorize: (args: AuthorizeCloudMemoryReimportArgs) => Promise<unknown>;
 };
 
 const validateAuthorizationResult = (
-  status: CloudMemoryWipeStatus,
+  status: MemoryWipeStatus,
   attempt: CloudMemoryReimportAttempt,
-): CloudMemoryWipeStatus => {
-  if (status.ownerGeneration !== attempt.expectedOwnerGeneration) {
+): MemoryWipeStatus => {
+  if (
+    !followsOwnerGeneration(
+      attempt.expectedOwnerGeneration,
+      status.ownerGeneration,
+    )
+  ) {
     throw new CloudMemoryReimportError("owner_generation_changed");
   }
   if (status.memoryEpoch !== attempt.expectedMemoryEpoch) {
@@ -258,19 +224,6 @@ const validateAuthorizationResult = (
 export const createCloudMemoryReimportClient = (
   port: CloudMemoryReimportPort,
 ) => ({
-  read: async (fence: CloudMemoryReimportRequestFence) => {
-    try {
-      return {
-        fence,
-        status: decodeCloudMemoryWipeStatus(
-          await port.read({ expectedSubject: fence.ownerSubject }),
-          fence.ownerSubject,
-        ),
-      };
-    } catch (error) {
-      throw normalizeCloudMemoryReimportError(error);
-    }
-  },
   authorize: async (attempt: CloudMemoryReimportAttempt) => {
     try {
       const status = decodeCloudMemoryWipeStatus(

@@ -6,20 +6,21 @@ import {
   useRef,
   useState,
 } from "react";
-import { useConvex, useQueries, type RequestForQueries } from "convex/react";
+import type { MemoryPolicy } from "@stella/contracts/turn-plane/memory-policy";
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
-import { cloudHomeApi } from "./cloud-home-api";
+import { backendClient } from "@/platform/backend/backend-client";
+import { useBackendView } from "@/platform/backend/use-backend-view";
 import {
   CloudMemoryPreferenceError,
   beginCloudMemoryPreferenceWrite,
   createCloudMemoryPreferenceClient,
-  createCloudMemoryPreferenceRequestFence,
   decodeCloudMemoryPreferenceForSubject,
+  followsOwnerGeneration,
+  normalizeCloudMemoryPreferenceIssue,
   type CloudMemoryPreferenceIssue,
   type CloudMemoryPreferenceRequestFence,
   type CloudMemoryPreferenceWriteAttempt,
 } from "./cloud-memory-preference";
-import type { CloudMemoryPreference } from "./cloud-home-api";
 import { mirrorCloudMemoryPreferenceLocally } from "./cloud-memory-local-mirror";
 
 type AuthorityIdentity = {
@@ -35,7 +36,7 @@ type RetryPlan =
 
 export type CloudMemoryPreferenceView = {
   status: "loading" | "synced" | "saving" | "error";
-  preference: CloudMemoryPreference | null;
+  preference: MemoryPolicy | null;
   memoryEnabled: boolean;
   issue: "load" | "save" | null;
   issueCode: CloudMemoryPreferenceIssue["code"] | null;
@@ -60,15 +61,25 @@ const sameIdentity = (
   );
 
 const issueCode = (error: unknown): CloudMemoryPreferenceIssue["code"] =>
-  error instanceof CloudMemoryPreferenceError ? error.code : "unavailable";
+  normalizeCloudMemoryPreferenceIssue(error).code;
+
+const preferenceClient = createCloudMemoryPreferenceClient({
+  write: (args) => backendClient.call("memory.setEnabled", args),
+});
+
+/** A view value echoing another owner is the previous account's, not ours. */
+const belongsToAnotherOwner = (value: unknown, subject: string): boolean =>
+  typeof value === "object" &&
+  value !== null &&
+  typeof (value as { subject?: unknown }).subject === "string" &&
+  (value as { subject: string }).subject !== subject;
 
 /**
- * One cloud-authoritative desktop Memory controller. Convex remains the
- * canonical preference; the Electron-local bit is only a privacy-conservative
- * runtime mirror and never seeds this state.
+ * One cloud-authoritative desktop Memory controller. The owner's live
+ * `memory.preference` view is the canonical preference; the Electron-local bit
+ * is only a privacy-conservative runtime mirror and never seeds this state.
  */
 export function useCloudMemoryPreference(): CloudMemoryPreferenceView {
-  const convex = useConvex();
   const mode = useCloudConversationSession();
   const identity = useMemo<AuthorityIdentity | null>(
     () =>
@@ -86,29 +97,17 @@ export function useCloudMemoryPreference(): CloudMemoryPreferenceView {
       mode.ownerSubject,
     ],
   );
-  const requests = useMemo<RequestForQueries>(() => {
-    const next: RequestForQueries = {};
-    if (identity) {
-      next.preference = {
-        query: cloudHomeApi.getMyMemoryPreference,
-        args: { expectedSubject: identity.expectedSubject },
-      };
-    }
-    return next;
-  }, [identity]);
-  const queryResults = useQueries(requests);
-  const reactiveResult = queryResults.preference;
-  const client = useMemo(
-    () =>
-      createCloudMemoryPreferenceClient({
-        read: (args) => convex.query(cloudHomeApi.getMyMemoryPreference, args),
-        write: (args) => convex.action(cloudHomeApi.setMyMemoryEnabled, args),
-      }),
-    [convex],
-  );
+  const live = useBackendView("memory.preference", identity ? {} : "skip");
+  const reactiveResult: unknown =
+    live.status === "ready"
+      ? live.value
+      : live.status === "error"
+        ? live.error
+        : undefined;
 
   const currentIdentityRef = useRef<AuthorityIdentity | null>(identity);
-  const preferenceRef = useRef<CloudMemoryPreference | null>(null);
+  const preferenceRef = useRef<MemoryPolicy | null>(null);
+  const liveFailedRef = useRef(false);
   const activeRequestIdRef = useRef<string | null>(null);
   const activeAttemptRef = useRef<CloudMemoryPreferenceWriteAttempt | null>(
     null,
@@ -140,7 +139,7 @@ export function useCloudMemoryPreference(): CloudMemoryPreferenceView {
     [],
   );
 
-  const publishPreference = useCallback((preference: CloudMemoryPreference) => {
+  const publishPreference = useCallback((preference: MemoryPolicy) => {
     preferenceRef.current = preference;
     setView({
       status: "synced",
@@ -152,7 +151,7 @@ export function useCloudMemoryPreference(): CloudMemoryPreferenceView {
   }, []);
 
   const supersedingPreference = useCallback(
-    (candidate: CloudMemoryPreference): CloudMemoryPreference | null => {
+    (candidate: MemoryPolicy): MemoryPolicy | null => {
       const current = preferenceRef.current;
       if (!current || current.ownerGeneration !== candidate.ownerGeneration) {
         return null;
@@ -173,7 +172,7 @@ export function useCloudMemoryPreference(): CloudMemoryPreferenceView {
   const publishSupersededWrite = useCallback(
     (
       attempt: CloudMemoryPreferenceWriteAttempt,
-      authoritative: CloudMemoryPreference,
+      authoritative: MemoryPolicy,
     ) => {
       preferenceRef.current = authoritative;
       activeAttemptRef.current = null;
@@ -230,12 +229,15 @@ export function useCloudMemoryPreference(): CloudMemoryPreferenceView {
       }
 
       try {
-        const result = await client.write(attempt);
+        const result = await preferenceClient.write(attempt);
         if (!fenceIsCurrent(attempt)) return false;
         const currentGeneration = preferenceRef.current?.ownerGeneration;
         if (
           currentGeneration &&
-          currentGeneration !== attempt.expectedOwnerGeneration
+          !followsOwnerGeneration(
+            attempt.expectedOwnerGeneration,
+            currentGeneration,
+          )
         ) {
           return false;
         }
@@ -313,7 +315,6 @@ export function useCloudMemoryPreference(): CloudMemoryPreferenceView {
       }
     },
     [
-      client,
       fenceIsCurrent,
       publishPreference,
       publishSupersededWrite,
@@ -325,59 +326,51 @@ export function useCloudMemoryPreference(): CloudMemoryPreferenceView {
     runWriteRef.current = runWrite;
   }, [runWrite]);
 
-  const load = useCallback(
+  /**
+   * Reconcile from the live view. A head the view already delivered is used
+   * directly (followed by a write toward `thenWrite` when it differs); a
+   * failed view is retried by reconnecting the live channel, and the value it
+   * delivers next is published by the subscription effect.
+   */
+  const reconcile = useCallback(
     async (thenWrite?: boolean): Promise<boolean> => {
       const liveIdentity = currentIdentityRef.current;
       if (!liveIdentity || activeAttemptRef.current) return false;
-      const fence = createCloudMemoryPreferenceRequestFence(liveIdentity);
-      activeRequestIdRef.current = fence.requestId;
-      retryPlanRef.current = null;
-      setView((current) => ({
-        ...current,
-        status: "loading",
-        issue: null,
-        issueCode: null,
-      }));
-      try {
-        const result = await client.read(fence);
-        if (!fenceIsCurrent(fence)) return false;
-        preferenceRef.current = result.preference;
-        if (
-          thenWrite !== undefined &&
-          result.preference.memoryEnabled !== thenWrite
-        ) {
-          const attempt = beginCloudMemoryPreferenceWrite({
-            ...liveIdentity,
-            preference: result.preference,
-            memoryEnabled: thenWrite,
-          });
-          return (await runWriteRef.current?.(attempt)) ?? false;
-        }
-        activeRequestIdRef.current = null;
-        publishPreference(result.preference);
-        return true;
-      } catch (error) {
-        if (!fenceIsCurrent(fence)) return false;
+      activeRequestIdRef.current = null;
+      const preference = preferenceRef.current;
+      if (!preference || liveFailedRef.current) {
         retryPlanRef.current =
           thenWrite === undefined
             ? { kind: "load" }
             : { kind: "reload_then_write", memoryEnabled: thenWrite };
-        setView({
-          status: "error",
-          preference: preferenceRef.current,
-          memoryEnabled: preferenceRef.current?.memoryEnabled ?? false,
-          issue: thenWrite === undefined ? "load" : "save",
-          issueCode: issueCode(error),
-        });
+        setView((current) => ({
+          ...current,
+          status: "loading",
+          issue: null,
+          issueCode: null,
+        }));
+        backendClient.reconnect();
         return false;
       }
+      retryPlanRef.current = null;
+      if (thenWrite !== undefined && preference.memoryEnabled !== thenWrite) {
+        const attempt = beginCloudMemoryPreferenceWrite({
+          ...liveIdentity,
+          preference,
+          memoryEnabled: thenWrite,
+        });
+        return (await runWriteRef.current?.(attempt)) ?? false;
+      }
+      publishPreference(preference);
+      return true;
     },
-    [client, fenceIsCurrent, publishPreference],
+    [publishPreference],
   );
 
   useLayoutEffect(() => {
     currentIdentityRef.current = identity;
     preferenceRef.current = null;
+    liveFailedRef.current = false;
     activeRequestIdRef.current = null;
     activeAttemptRef.current = null;
     retryPlanRef.current = null;
@@ -403,6 +396,7 @@ export function useCloudMemoryPreference(): CloudMemoryPreferenceView {
     if (!identity) return;
     if (reactiveResult === undefined) return;
     if (reactiveResult instanceof Error) {
+      liveFailedRef.current = true;
       if (!activeAttemptRef.current) {
         retryPlanRef.current = { kind: "load" };
         setView({
@@ -415,6 +409,10 @@ export function useCloudMemoryPreference(): CloudMemoryPreferenceView {
       }
       return;
     }
+    if (belongsToAnotherOwner(reactiveResult, identity.expectedSubject)) {
+      return;
+    }
+    liveFailedRef.current = false;
     try {
       const preference = decodeCloudMemoryPreferenceForSubject(
         reactiveResult,
@@ -424,6 +422,10 @@ export function useCloudMemoryPreference(): CloudMemoryPreferenceView {
       preferenceRef.current = preference;
       if (
         activeAttempt &&
+        !followsOwnerGeneration(
+          activeAttempt.expectedOwnerGeneration,
+          preference.ownerGeneration,
+        ) &&
         activeAttempt.expectedOwnerGeneration !== preference.ownerGeneration
       ) {
         activeRequestIdRef.current = null;
@@ -433,8 +435,7 @@ export function useCloudMemoryPreference(): CloudMemoryPreferenceView {
         return;
       }
       if (!activeAttempt) {
-        // The subscription is the live authority. Invalidate any older
-        // one-shot reload so its eventual response cannot regress this head.
+        // The subscription is the live authority.
         activeRequestIdRef.current = null;
         retryPlanRef.current = null;
         publishPreference(preference);
@@ -477,12 +478,12 @@ export function useCloudMemoryPreference(): CloudMemoryPreferenceView {
   const retry = useCallback(async (): Promise<boolean> => {
     const plan = retryPlanRef.current;
     if (!plan) return false;
-    if (plan.kind === "load") return await load();
+    if (plan.kind === "load") return await reconcile();
     if (plan.kind === "write") {
       return (await runWriteRef.current?.(plan.attempt)) ?? false;
     }
-    return await load(plan.memoryEnabled);
-  }, [load]);
+    return await reconcile(plan.memoryEnabled);
+  }, [reconcile]);
 
   return {
     ...view,

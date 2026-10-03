@@ -6,7 +6,7 @@ import type {
   CloudMemoryDocument,
   CloudMemorySnapshot,
 } from "@stella/contracts/cloud-home-sync";
-import type { CloudMemoryWipeStatus } from "@/features/cloud/cloud-home-api";
+import type { MemoryWipeStatus } from "@stella/contracts/backend/home";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -29,7 +29,7 @@ const mocks = vi.hoisted(() => ({
     memoryEpoch: "memory-epoch-1",
     importDisposition: "automatic_allowed",
     job: null,
-  } as CloudMemoryWipeStatus | null,
+  } as MemoryWipeStatus | null,
   listMemory: vi.fn(),
   writeMemory: vi.fn(),
   beginMemoryExport: vi.fn(),

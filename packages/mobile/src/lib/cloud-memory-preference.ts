@@ -1,8 +1,13 @@
+import { BackendRequestError } from "@stella/contracts/backend/client";
+import type { HomeCalls } from "@stella/contracts/backend/home";
+import { OWNER_GENERATION_STALE } from "@stella/contracts/backend/protocol";
+
 const MAX_OWNER_GENERATION_CHARS = 512;
 const MAX_ACCOUNT_SCOPE_CHARS = 1_024;
 const MAX_TIMESTAMP_MS = 8_640_000_000_000_000;
 
 const OWNER_GENERATION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,511}$/u;
+const EPOCH_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/|?-]{0,1023}$/u;
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/u;
 const PREFERENCE_KEYS = new Set([
@@ -11,7 +16,14 @@ const PREFERENCE_KEYS = new Set([
   "revision",
   "updatedAt",
 ]);
-const SESSION_PREFERENCE_KEYS = new Set(["subject", ...PREFERENCE_KEYS]);
+const SESSION_PREFERENCE_KEYS = new Set([
+  "subject",
+  "memoryEpoch",
+  "state",
+  "importDisposition",
+  ...PREFERENCE_KEYS,
+]);
+const SESSION_PREFERENCE_OPTIONAL_KEYS = new Set(["lastWipedEpoch"]);
 
 export type MobileCloudMemoryPreference = {
   ownerGeneration: string;
@@ -39,25 +51,11 @@ export type MobileCloudMemoryPreferenceWriteAttempt = Readonly<{
   expectedRevision: number;
 }>;
 
-export type MobileCloudMemoryPreferenceMutationInput = {
-  expectedSubject: string;
-  memoryEnabled: boolean;
-  expectedOwnerGeneration: string;
-  expectedRevision: number;
-  requestId: string;
-};
-
-export type MobileCloudMemoryPreferenceConflictHead = {
-  revision: number;
-  memoryEnabled: boolean;
-};
+export type MobileCloudMemoryPreferenceMutationInput =
+  HomeCalls["memory.setEnabled"]["args"];
 
 export type MobileCloudMemoryPreferenceIssue =
-  | {
-      code: "revision_conflict";
-      retryable: false;
-      current: MobileCloudMemoryPreferenceConflictHead | null;
-    }
+  | { code: "revision_conflict"; retryable: false }
   | {
       code:
         | "owner_generation_changed"
@@ -66,7 +64,6 @@ export type MobileCloudMemoryPreferenceIssue =
         | "invalid_response";
       retryable: false;
     }
-  | { code: "account_unavailable"; retryable: false }
   | { code: "unavailable"; retryable: true };
 
 export class MobileCloudMemoryPreferenceError extends Error {
@@ -85,15 +82,13 @@ export class MobileCloudMemoryPreferenceError extends Error {
     const message =
       issue.code === "owner_generation_changed"
         ? "Cloud memory changed account generations. Reload this setting."
-        : issue.code === "account_unavailable"
-          ? "Cloud memory is unavailable while this account is being reset."
-          : issue.code === "idempotency_conflict"
-            ? "This cloud memory update no longer identifies the same change."
-            : issue.code === "unauthorized"
-              ? "Sign in again to change cloud memory."
-              : issue.code === "invalid_response"
-                ? "Cloud memory returned an invalid response."
-                : "Cloud memory could not be reached. Try again.";
+        : issue.code === "idempotency_conflict"
+          ? "This cloud memory update no longer identifies the same change."
+          : issue.code === "unauthorized"
+            ? "Sign in again to change cloud memory."
+            : issue.code === "invalid_response"
+              ? "Cloud memory returned an invalid response."
+              : "Cloud memory could not be reached. Try again.";
     super(message);
     this.name = "MobileCloudMemoryPreferenceError";
     this.code = issue.code;
@@ -113,13 +108,23 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const hasExactKeys = (
   value: Record<string, unknown>,
-  keys: ReadonlySet<string>,
+  required: ReadonlySet<string>,
+  optional: ReadonlySet<string> = new Set(),
 ): boolean =>
-  Object.keys(value).length === keys.size &&
-  Object.keys(value).every((key) => keys.has(key));
+  [...required].every((key) => Object.hasOwn(value, key)) &&
+  Object.keys(value).every((key) => required.has(key) || optional.has(key));
 
+const isEpoch = (value: unknown): value is string =>
+  typeof value === "string" &&
+  value.normalize("NFC") === value &&
+  value.trim() === value &&
+  !CONTROL_CHARACTER_PATTERN.test(value) &&
+  EPOCH_PATTERN.test(value);
+
+/** `""` until the owner's first cloud-home write. */
 const readOwnerGeneration = (value: unknown): string => {
   if (typeof value !== "string") return invalidResponse();
+  if (value === "") return value;
   if (
     !value ||
     value.length > MAX_OWNER_GENERATION_CHARS ||
@@ -131,6 +136,16 @@ const readOwnerGeneration = (value: unknown): string => {
   }
   return value;
 };
+
+/**
+ * Whether an observed owner generation can follow a request made against
+ * `expected`. Views report `""` before the owner's first cloud-home write;
+ * a call made against `""` comes back stamped with a real generation.
+ */
+export const followsMobileOwnerGeneration = (
+  expected: string,
+  observed: string,
+): boolean => (expected === "" ? observed !== "" : observed === expected);
 
 const readNormalizedIdentity = (value: unknown, label: string): string => {
   if (
@@ -165,7 +180,7 @@ export const createMobileCloudMemoryOwnerSubject = (
 const isNonNegativeSafeInteger = (value: unknown): value is number =>
   Number.isSafeInteger(value) && (value as number) >= 0;
 
-/** Strictly decodes the public Convex preference projection. */
+/** Strictly decodes the preference projection the switch works from. */
 export const decodeMobileCloudMemoryPreference = (
   value: unknown,
 ): MobileCloudMemoryPreference => {
@@ -190,19 +205,36 @@ export const decodeMobileCloudMemoryPreference = (
 };
 
 /**
- * Strictly decodes the session-attested public projection. The server echoes
- * the exact authenticated tokenIdentifier so a renderer can never relabel an
- * account-A result as account B after an auth transition.
+ * Strictly decodes a `memory.preference` view value or `memory.setEnabled`
+ * result. The backend echoes the caller's owner id so a renderer can never
+ * relabel an account-A result as account B after an auth transition.
  */
 export const decodeMobileCloudMemoryPreferenceForSubject = (
   value: unknown,
   expectedSubject: string,
 ): MobileCloudMemoryPreference => {
   const expected = readNormalizedIdentity(expectedSubject, "owner subject");
-  if (!isRecord(value) || !hasExactKeys(value, SESSION_PREFERENCE_KEYS)) {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(
+      value,
+      SESSION_PREFERENCE_KEYS,
+      SESSION_PREFERENCE_OPTIONAL_KEYS,
+    )
+  ) {
     return invalidResponse();
   }
-  if (value.subject !== expected) return invalidResponse();
+  if (
+    value.subject !== expected ||
+    !isEpoch(value.memoryEpoch) ||
+    (value.state !== "open" && value.state !== "wiping") ||
+    (value.importDisposition !== "automatic_allowed" &&
+      value.importDisposition !== "explicit_required" &&
+      value.importDisposition !== "explicit_allowed") ||
+    (value.lastWipedEpoch !== undefined && !isEpoch(value.lastWipedEpoch))
+  ) {
+    return invalidResponse();
+  }
   return decodeMobileCloudMemoryPreference({
     ownerGeneration: value.ownerGeneration,
     memoryEnabled: value.memoryEnabled,
@@ -303,11 +335,10 @@ export const beginMobileCloudMemoryPreferenceWrite = (args: {
 export const mobileCloudMemoryPreferenceMutationInput = (
   attempt: MobileCloudMemoryPreferenceWriteAttempt,
 ): MobileCloudMemoryPreferenceMutationInput => ({
-  expectedSubject: attempt.expectedSubject,
-  memoryEnabled: attempt.memoryEnabled,
-  expectedOwnerGeneration: attempt.expectedOwnerGeneration,
-  expectedRevision: attempt.expectedRevision,
   requestId: attempt.requestId,
+  memoryEnabled: attempt.memoryEnabled,
+  expectedRevision: attempt.expectedRevision,
+  expectedOwnerGeneration: attempt.expectedOwnerGeneration,
 });
 
 export const isMobileCloudMemoryPreferenceRequestCurrent = (
@@ -355,26 +386,7 @@ export const acceptCurrentMobileCloudMemoryPreferenceResult = <
     ? result
     : null;
 
-const readSerializedPayload = (
-  message: string,
-): Record<string, unknown> | null => {
-  const first = message.indexOf("{");
-  const last = message.lastIndexOf("}");
-  if (first < 0 || last <= first) return null;
-  try {
-    const parsed: unknown = JSON.parse(message.slice(first, last + 1));
-    return isRecord(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
-};
-
-const readErrorPayload = (error: unknown): Record<string, unknown> | null => {
-  if (isRecord(error) && isRecord(error.data)) return error.data;
-  return error instanceof Error ? readSerializedPayload(error.message) : null;
-};
-
-/** Converts Convex details into a small, UI-safe and exhaustive issue set. */
+/** Converts backend refusals into a small, UI-safe and exhaustive issue set. */
 export const normalizeMobileCloudMemoryPreferenceIssue = (
   error: unknown,
 ): MobileCloudMemoryPreferenceIssue => {
@@ -384,65 +396,34 @@ export const normalizeMobileCloudMemoryPreferenceIssue = (
       { code: "revision_conflict" }
     >;
   }
-  const payload = readErrorPayload(error);
-  const code = typeof payload?.code === "string" ? payload.code : "";
-  if (code === "CLOUD_HOME_REVISION_CONFLICT") {
-    const current =
-      isNonNegativeSafeInteger(payload?.currentRevision) &&
-      typeof payload?.currentMemoryEnabled === "boolean"
-        ? {
-            revision: payload.currentRevision,
-            memoryEnabled: payload.currentMemoryEnabled,
-          }
-        : null;
-    return { code: "revision_conflict", retryable: false, current };
+  // Anything that is not a backend refusal is a transport failure, and the
+  // exact attempt (same request id) is safe to replay.
+  if (!(error instanceof BackendRequestError)) {
+    return { code: "unavailable", retryable: true };
   }
-  if (
-    code === "OWNER_DATA_GENERATION_STALE" ||
-    code === "OWNER_EXTERNAL_FENCE_MISMATCH" ||
-    code === "OWNERSHIP_MIGRATED" ||
-    code === "ANONYMOUS_IDENTITY_MIGRATED"
-  ) {
+  if (error.reason === "CLOUD_HOME_REVISION_CONFLICT") {
+    return { code: "revision_conflict", retryable: false };
+  }
+  if (error.reason === OWNER_GENERATION_STALE) {
+    // A reset rotates the owner generation. A UI may offer a reload, but it
+    // must never replay the same frozen write attempt.
     return { code: "owner_generation_changed", retryable: false };
   }
-  if (code === "OWNER_DATA_PURGE_ACTIVE") {
-    // Even a temporary reset rotates the owner generation. A UI may offer a
-    // reload, but it must never replay the same frozen write attempt.
-    return { code: "account_unavailable", retryable: false };
-  }
-  if (code === "CLOUD_HOME_IDEMPOTENCY_CONFLICT") {
+  if (error.reason === "CLOUD_HOME_IDEMPOTENCY_CONFLICT") {
     return { code: "idempotency_conflict", retryable: false };
   }
-  if (
-    code === "UNAUTHENTICATED" ||
-    code === "UNAUTHORIZED" ||
-    code === "SESSION_IDENTITY_MISMATCH"
-  ) {
+  if (error.code === "UNAUTHENTICATED" || error.code === "FORBIDDEN") {
     return { code: "unauthorized", retryable: false };
   }
-  const message = error instanceof Error ? error.message : String(error);
-  if (
-    /unauthenticated|authentication required|sign in|unauthorized/iu.test(
-      message,
-    )
-  ) {
-    return { code: "unauthorized", retryable: false };
-  }
+  // Includes MEMORY_POLICY_CHANGING: the change is still being applied and
+  // the same request id settles it.
   return { code: "unavailable", retryable: true };
 };
 
 export type MobileCloudMemoryPreferencePort = {
-  getMyMemoryPreference: (input: {
-    expectedSubject: string;
-  }) => Promise<unknown>;
-  setMyMemoryEnabled: (
+  setMemoryEnabled: (
     input: MobileCloudMemoryPreferenceMutationInput,
   ) => Promise<unknown>;
-};
-
-export type MobileCloudMemoryPreferenceReadResult = {
-  fence: MobileCloudMemoryPreferenceRequestFence;
-  preference: MobileCloudMemoryPreference;
 };
 
 export type MobileCloudMemoryPreferenceWriteResult =
@@ -454,56 +435,32 @@ export type MobileCloudMemoryPreferenceWriteResult =
   | {
       status: "conflict";
       fence: MobileCloudMemoryPreferenceWriteAttempt;
-      /** Partial server hint only. Reload before publishing a new snapshot. */
-      current: MobileCloudMemoryPreferenceConflictHead | null;
     };
 
 export type MobileCloudMemoryPreferenceClient = {
-  read: (
-    fence: MobileCloudMemoryPreferenceRequestFence,
-  ) => Promise<MobileCloudMemoryPreferenceReadResult>;
   write: (
     attempt: MobileCloudMemoryPreferenceWriteAttempt,
   ) => Promise<MobileCloudMemoryPreferenceWriteResult>;
-};
-
-const preferenceError = (error: unknown): MobileCloudMemoryPreferenceError => {
-  const issue = normalizeMobileCloudMemoryPreferenceIssue(error);
-  if (issue.code === "revision_conflict") {
-    return new MobileCloudMemoryPreferenceError({
-      code: "unavailable",
-      retryable: true,
-    });
-  }
-  return new MobileCloudMemoryPreferenceError(issue);
 };
 
 /** Dependency-injected adapter used by React hooks and deterministic tests. */
 export const createMobileCloudMemoryPreferenceClient = (
   port: MobileCloudMemoryPreferencePort,
 ): MobileCloudMemoryPreferenceClient => ({
-  read: async (fence) => {
-    try {
-      const preference = decodeMobileCloudMemoryPreferenceForSubject(
-        await port.getMyMemoryPreference({
-          expectedSubject: fence.expectedSubject,
-        }),
-        fence.expectedSubject,
-      );
-      return { fence, preference };
-    } catch (error) {
-      throw preferenceError(error);
-    }
-  },
   write: async (attempt) => {
     try {
       const preference = decodeMobileCloudMemoryPreferenceForSubject(
-        await port.setMyMemoryEnabled(
+        await port.setMemoryEnabled(
           mobileCloudMemoryPreferenceMutationInput(attempt),
         ),
         attempt.expectedSubject,
       );
-      if (preference.ownerGeneration !== attempt.expectedOwnerGeneration) {
+      if (
+        !followsMobileOwnerGeneration(
+          attempt.expectedOwnerGeneration,
+          preference.ownerGeneration,
+        )
+      ) {
         throw new MobileCloudMemoryPreferenceError({
           code: "owner_generation_changed",
           retryable: false,
@@ -522,11 +479,7 @@ export const createMobileCloudMemoryPreferenceClient = (
     } catch (error) {
       const issue = normalizeMobileCloudMemoryPreferenceIssue(error);
       if (issue.code === "revision_conflict") {
-        return {
-          status: "conflict",
-          fence: attempt,
-          current: issue.current,
-        };
+        return { status: "conflict", fence: attempt };
       }
       throw new MobileCloudMemoryPreferenceError(issue);
     }

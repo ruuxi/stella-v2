@@ -3,6 +3,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { BackendRequestError } from "@stella/contracts/backend/client";
 
 const subjectA = "https://stella.example|owner-a";
 const subjectB = "https://stella.example|owner-b";
@@ -15,15 +16,26 @@ const mocks = vi.hoisted(() => ({
     ownerSubject: "https://stella.example|owner-a" as string | null,
   },
   reactiveResult: undefined as unknown,
-  convex: {
-    query: vi.fn(),
-    action: vi.fn(),
+  backend: {
+    call: vi.fn(),
+    reconnect: vi.fn(),
   },
 }));
 
-vi.mock("convex/react", () => ({
-  useConvex: () => mocks.convex,
-  useQueries: () => ({ wipeStatus: mocks.reactiveResult }),
+vi.mock("@/platform/backend/use-backend-view", () => ({
+  useBackendView: (_view: string, args: unknown) => {
+    const result = args === "skip" ? undefined : mocks.reactiveResult;
+    if (result === undefined) {
+      return { status: "loading", value: undefined, error: undefined };
+    }
+    return result instanceof Error
+      ? { status: "error", value: undefined, error: result }
+      : { status: "ready", value: result, error: undefined };
+  },
+}));
+
+vi.mock("@/platform/backend/backend-client", () => ({
+  backendClient: mocks.backend,
 }));
 
 vi.mock("@/global/auth/hooks/use-cloud-conversation-session", () => ({
@@ -34,6 +46,14 @@ import {
   useCloudMemoryWipe,
   type CloudMemoryWipeView,
 } from "@/features/cloud/use-cloud-memory-wipe";
+
+const refusal = (reason: string) =>
+  new BackendRequestError({
+    code: "CONFLICT",
+    message: "refused",
+    retryable: false,
+    reason,
+  });
 
 const ready = (
   args: {
@@ -119,8 +139,8 @@ describe("useCloudMemoryWipe", () => {
       ownerSubject: subjectA,
     };
     mocks.reactiveResult = ready();
-    mocks.convex.query.mockReset();
-    mocks.convex.action.mockReset();
+    mocks.backend.call.mockReset();
+    mocks.backend.reconnect.mockReset();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -132,28 +152,28 @@ describe("useCloudMemoryWipe", () => {
     vi.restoreAllMocks();
   });
 
-  it("reloads once after a nonretryable epoch error without replaying the stale attempt", async () => {
-    mocks.convex.action.mockRejectedValue({
-      data: { code: "CLOUD_MEMORY_EPOCH_STALE" },
-    });
-    mocks.convex.query.mockResolvedValue(
-      ready({ generation: "generation-2", epoch: "epoch-2" }),
-    );
+  it("settles on the live head after a nonretryable epoch error without replaying the stale attempt", async () => {
+    mocks.backend.call.mockRejectedValue(refusal("CLOUD_MEMORY_EPOCH_STALE"));
     await render();
 
     await act(async () => expect(latest!.startWipe()).resolves.toBe(false));
     expect(latest?.phase).toBe("error");
     expect(latest?.issueCode).toBe("stale_epoch");
 
+    mocks.reactiveResult = ready({
+      generation: "generation-2",
+      epoch: "epoch-2",
+    });
+    await render();
     await act(async () => expect(latest!.retry()).resolves.toBe(true));
     expect(latest?.phase).toBe("ready");
     expect(latest?.status?.ownerGeneration).toBe("generation-2");
-    expect(mocks.convex.action).toHaveBeenCalledTimes(1);
-    expect(mocks.convex.query).toHaveBeenCalledTimes(1);
+    expect(mocks.backend.call).toHaveBeenCalledTimes(1);
+    expect(mocks.backend.call.mock.calls[0]?.[0]).toBe("memory.startWipe");
   });
 
   it("replays one exact idempotent attempt after ambiguous transport loss", async () => {
-    mocks.convex.action
+    mocks.backend.call
       .mockRejectedValueOnce(new Error("network unavailable"))
       .mockResolvedValueOnce(active());
     await render();
@@ -162,16 +182,16 @@ describe("useCloudMemoryWipe", () => {
     await act(async () => expect(latest!.retry()).resolves.toBe(true));
 
     expect(latest?.phase).toBe("active");
-    expect(mocks.convex.action).toHaveBeenCalledTimes(2);
-    expect(mocks.convex.action.mock.calls[1]?.[1]).toEqual(
-      mocks.convex.action.mock.calls[0]?.[1],
+    expect(mocks.backend.call).toHaveBeenCalledTimes(2);
+    expect(mocks.backend.call.mock.calls[1]?.[1]).toEqual(
+      mocks.backend.call.mock.calls[0]?.[1],
     );
   });
 
   it("drops a late start result after the account identity changes", async () => {
     const ownerAStart = deferred<ReturnType<typeof active>>();
     const ownerBStart = deferred<ReturnType<typeof active>>();
-    mocks.convex.action
+    mocks.backend.call
       .mockReturnValueOnce(ownerAStart.promise)
       .mockReturnValueOnce(ownerBStart.promise);
     await render();

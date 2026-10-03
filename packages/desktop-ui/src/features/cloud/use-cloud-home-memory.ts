@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from "react";
-import { useQueries, type RequestForQueries } from "convex/react";
+import type { MemoryWipeStatus } from "@stella/contracts/backend/home";
 import type {
   CloudMemoryDocument,
   CloudMemorySnapshot,
@@ -12,7 +12,7 @@ import { getAuthSessionSnapshot } from "@/global/auth/services/auth-session";
 import { getConvexTokenForSubject } from "@/global/auth/services/auth-token";
 import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
 import { backendUrl } from "@/platform/backend/backend-client";
-import { cloudHomeApi, type CloudMemoryWipeStatus } from "./cloud-home-api";
+import { useBackendView } from "@/platform/backend/use-backend-view";
 import {
   beginCloudMemoryDocumentWrite,
   CloudHomeMemoryError,
@@ -53,7 +53,7 @@ export type CloudHomeMemoryWriteInput = Readonly<{
 
 export type UseCloudHomeMemoryResult = Readonly<{
   identity: CloudHomeMemoryClientIdentity | null;
-  lifecycle: CloudMemoryWipeStatus | null;
+  lifecycle: MemoryWipeStatus | null;
   available: boolean;
   loading: boolean;
   unavailable: boolean;
@@ -96,35 +96,21 @@ export const useCloudHomeMemory = (): UseCloudHomeMemoryResult => {
     session.cacheScope,
     session.identityRevision,
   ]);
-  const requests = useMemo<RequestForQueries>(() => {
-    const next: RequestForQueries = {};
-    if (identity) {
-      next.memoryLifecycle = {
-        query: cloudHomeApi.getMyMemoryWipeStatus,
-        args: { expectedSubject: identity.expectedSubject },
-      };
-    }
-    return next;
-  }, [identity]);
-  const queryResults = useQueries(requests);
-  const lifecycleResult = queryResults.memoryLifecycle;
-  const lifecycle = useMemo<CloudMemoryWipeStatus | null>(() => {
-    if (
-      !identity ||
-      lifecycleResult === undefined ||
-      lifecycleResult instanceof Error
-    ) {
-      return null;
-    }
+  const live = useBackendView("memory.wipeStatus", identity ? {} : "skip");
+  // A value echoing another owner is the previous account's; keep loading.
+  const settled =
+    live.status === "error" ||
+    (live.status === "ready" &&
+      live.value.subject === identity?.expectedSubject);
+  const liveValue = live.status === "ready" ? live.value : undefined;
+  const lifecycle = useMemo<MemoryWipeStatus | null>(() => {
+    if (!identity || liveValue === undefined) return null;
     try {
-      return decodeCloudMemoryWipeStatus(
-        lifecycleResult,
-        identity.expectedSubject,
-      );
+      return decodeCloudMemoryWipeStatus(liveValue, identity.expectedSubject);
     } catch {
       return null;
     }
-  }, [identity, lifecycleResult]);
+  }, [identity, liveValue]);
   const client = useMemo(() => {
     if (!identity || !backendUrl) return null;
     try {
@@ -162,10 +148,8 @@ export const useCloudHomeMemory = (): UseCloudHomeMemoryResult => {
     identity,
     lifecycle,
     available: Boolean(client && lifecycle?.state === "open"),
-    loading: Boolean(identity && lifecycleResult === undefined),
-    unavailable: Boolean(
-      identity && lifecycleResult !== undefined && (!client || !lifecycle),
-    ),
+    loading: Boolean(identity && !settled),
+    unavailable: Boolean(identity && settled && (!client || !lifecycle)),
     listMemory,
     writeMemory,
   };

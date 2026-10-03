@@ -1,4 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
+import { BackendRequestError } from "@stella/contracts/backend/client";
+import type { MemoryPreference } from "@stella/contracts/backend/home";
+import type { MemoryPolicy } from "@stella/contracts/turn-plane/memory-policy";
 import {
   CloudMemoryPreferenceError,
   beginCloudMemoryPreferenceWrite,
@@ -9,14 +12,12 @@ import {
   isCloudMemoryPreferenceRequestCurrent,
   normalizeCloudMemoryPreferenceIssue,
 } from "@/features/cloud/cloud-memory-preference";
-import type { CloudMemoryPreference } from "@/features/cloud/cloud-home-api";
 
 const subjectA = "https://stella.example|owner-a";
 
-const preference = (
-  overrides: Partial<CloudMemoryPreference> = {},
-): CloudMemoryPreference => ({
+const preference = (overrides: Partial<MemoryPolicy> = {}): MemoryPolicy => ({
   ownerGeneration: "generation-a:1",
+  memoryEpoch: "epoch-a:1",
   memoryEnabled: true,
   revision: 7,
   updatedAt: 1_000,
@@ -24,9 +25,11 @@ const preference = (
 });
 
 const envelope = (
-  overrides: Partial<CloudMemoryPreference & { subject: string }> = {},
-) => ({
+  overrides: Partial<MemoryPreference> = {},
+): MemoryPreference => ({
   subject: subjectA,
+  state: "open",
+  importDisposition: "automatic_allowed",
   ...preference(),
   ...overrides,
 });
@@ -66,7 +69,6 @@ describe("cloud Memory preference protocol", () => {
   it("builds an immutable exact-CAS input and preserves it for replay", async () => {
     const writes: unknown[] = [];
     const client = createCloudMemoryPreferenceClient({
-      read: vi.fn(),
       write: async (input) => {
         writes.push(input);
         return envelope({ memoryEnabled: false, revision: 8 });
@@ -74,7 +76,6 @@ describe("cloud Memory preference protocol", () => {
     });
     const writeAttempt = attempt();
     const expectedInput = {
-      expectedSubject: subjectA,
       memoryEnabled: false,
       expectedOwnerGeneration: "generation-a:1",
       expectedRevision: 7,
@@ -89,27 +90,39 @@ describe("cloud Memory preference protocol", () => {
     await client.write(writeAttempt);
 
     expect(writes).toEqual([expectedInput, expectedInput]);
-  });
 
-  it("passes only the immutable expected subject to the authoritative read", async () => {
-    const read = vi.fn(async () => envelope());
-    const client = createCloudMemoryPreferenceClient({
-      read,
-      write: vi.fn(),
-    });
-    const fence = createCloudMemoryPreferenceRequestFence({
+    // A fresh owner's view reports "" until the first write stamps a
+    // generation; the attempt passes "" through and accepts the stamp.
+    expect(
+      decodeCloudMemoryPreferenceForSubject(
+        envelope({ ownerGeneration: "" }),
+        subjectA,
+      ),
+    ).toEqual(preference({ ownerGeneration: "" }));
+    const freshAttempt = beginCloudMemoryPreferenceWrite({
       accountScope: "account:owner-a",
       identityRevision: 4,
       expectedSubject: subjectA,
-      createEntropy: () => "read-a",
+      preference: preference({ ownerGeneration: "", revision: 0 }),
+      memoryEnabled: false,
+      createEntropy: () => "request-fresh",
     });
-
-    await expect(client.read(fence)).resolves.toEqual({
-      fence,
-      preference: preference(),
+    expect(cloudMemoryPreferenceMutationInput(freshAttempt)).toMatchObject({
+      expectedOwnerGeneration: "",
     });
-    expect(read).toHaveBeenCalledExactlyOnceWith({
-      expectedSubject: subjectA,
+    const stamped = createCloudMemoryPreferenceClient({
+      write: async () => envelope({ memoryEnabled: false, revision: 1 }),
+    });
+    await expect(stamped.write(freshAttempt)).resolves.toMatchObject({
+      status: "committed",
+      preference: { ownerGeneration: "generation-a:1" },
+    });
+    const unstamped = createCloudMemoryPreferenceClient({
+      write: async () =>
+        envelope({ ownerGeneration: "", memoryEnabled: false, revision: 1 }),
+    });
+    await expect(unstamped.write(freshAttempt)).rejects.toMatchObject({
+      code: "invalid_response",
     });
   });
 
@@ -120,7 +133,6 @@ describe("cloud Memory preference protocol", () => {
     ["revision", { revision: 9 }],
   ])("rejects a committed response with the wrong %s", async (_name, patch) => {
     const client = createCloudMemoryPreferenceClient({
-      read: vi.fn(),
       write: async () =>
         envelope({ memoryEnabled: false, revision: 8, ...patch }),
     });
@@ -131,16 +143,14 @@ describe("cloud Memory preference protocol", () => {
     });
   });
 
-  it("normalizes a revision conflict without treating its partial head as authority", async () => {
-    const error = Object.assign(new Error("conflict"), {
-      data: {
-        code: "CLOUD_HOME_REVISION_CONFLICT",
-        currentRevision: 9,
-        currentMemoryEnabled: false,
-      },
+  it("returns a revision conflict for the live view to resolve", async () => {
+    const error = new BackendRequestError({
+      code: "CONFLICT",
+      message: "conflict",
+      retryable: false,
+      reason: "CLOUD_HOME_REVISION_CONFLICT",
     });
     const client = createCloudMemoryPreferenceClient({
-      read: vi.fn(),
       write: async () => {
         throw error;
       },
@@ -149,12 +159,10 @@ describe("cloud Memory preference protocol", () => {
     await expect(client.write(attempt())).resolves.toEqual({
       status: "conflict",
       fence: attempt(),
-      current: { revision: 9, memoryEnabled: false },
     });
     expect(normalizeCloudMemoryPreferenceIssue(error)).toEqual({
       code: "revision_conflict",
       retryable: false,
-      current: { revision: 9, memoryEnabled: false },
     });
   });
 

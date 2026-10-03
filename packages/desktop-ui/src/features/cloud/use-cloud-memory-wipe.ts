@@ -6,23 +6,25 @@ import {
   useRef,
   useState,
 } from "react";
-import { useConvex, useQueries, type RequestForQueries } from "convex/react";
+import type { MemoryWipeStatus } from "@stella/contracts/backend/home";
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
-import { cloudHomeApi, type CloudMemoryWipeStatus } from "./cloud-home-api";
+import { backendClient } from "@/platform/backend/backend-client";
+import { useBackendView } from "@/platform/backend/use-backend-view";
 import {
   CloudMemoryWipeError,
   beginCloudMemoryWipe,
   createCloudMemoryWipeClient,
-  createCloudMemoryWipeRequestFence,
   decodeCloudMemoryWipeStatus,
   isCloudMemoryWipeActive,
   isCloudMemoryWipeComplete,
   isCloudMemoryWipeRequestCurrent,
+  normalizeCloudMemoryWipeError,
   type CloudMemoryWipeAttempt,
   type CloudMemoryWipeIdentity,
   type CloudMemoryWipeIssueCode,
   type CloudMemoryWipeRequestFence,
 } from "./cloud-memory-wipe";
+import { followsOwnerGeneration } from "./cloud-memory-preference";
 
 type RetryPlan =
   | { kind: "load" }
@@ -31,7 +33,7 @@ type RetryPlan =
 export type CloudMemoryWipeView = Readonly<{
   identity: CloudMemoryWipeIdentity | null;
   phase: "loading" | "ready" | "starting" | "active" | "completed" | "error";
-  status: CloudMemoryWipeStatus | null;
+  status: MemoryWipeStatus | null;
   issueCode: CloudMemoryWipeIssueCode | null;
   disabled: boolean;
   startWipe: () => Promise<boolean>;
@@ -51,8 +53,19 @@ const sameIdentity = (
       left.ownerSubject === right.ownerSubject,
   );
 
+const wipeClient = createCloudMemoryWipeClient({
+  start: (args) => backendClient.call("memory.startWipe", args),
+});
+
+/** A view value echoing another owner is the previous account's, not ours. */
+const belongsToAnotherOwner = (value: unknown, subject: string): boolean =>
+  typeof value === "object" &&
+  value !== null &&
+  typeof (value as { subject?: unknown }).subject === "string" &&
+  (value as { subject: string }).subject !== subject;
+
 const phaseForStatus = (
-  status: CloudMemoryWipeStatus,
+  status: MemoryWipeStatus,
 ): CloudMemoryWipeView["phase"] =>
   isCloudMemoryWipeActive(status)
     ? "active"
@@ -62,11 +75,11 @@ const phaseForStatus = (
 
 /**
  * Account/session-fenced controller for the dedicated destructive Memory wipe.
- * Convex is the only authority; intermediate mutation success is never treated
- * as completion, and an ambiguous retry reuses its exact request id.
+ * The owner's live `memory.wipeStatus` view is the only authority and pushes
+ * every stage; intermediate call success is never treated as completion, and
+ * an ambiguous retry reuses its exact request id.
  */
 export function useCloudMemoryWipe(): CloudMemoryWipeView {
-  const convex = useConvex();
   const mode = useCloudConversationSession();
   const identity = useMemo<CloudMemoryWipeIdentity | null>(
     () =>
@@ -84,28 +97,18 @@ export function useCloudMemoryWipe(): CloudMemoryWipeView {
       mode.ownerSubject,
     ],
   );
-  const requests = useMemo<RequestForQueries>(() => {
-    if (!identity) return {} as RequestForQueries;
-    return {
-      wipeStatus: {
-        query: cloudHomeApi.getMyMemoryWipeStatus,
-        args: { expectedSubject: identity.ownerSubject },
-      },
-    };
-  }, [identity]);
-  const queryResults = useQueries(requests);
-  const reactiveResult = queryResults.wipeStatus;
-  const client = useMemo(
-    () =>
-      createCloudMemoryWipeClient({
-        read: (args) => convex.query(cloudHomeApi.getMyMemoryWipeStatus, args),
-        start: (args) => convex.action(cloudHomeApi.startMyMemoryWipe, args),
-      }),
-    [convex],
-  );
+  const live = useBackendView("memory.wipeStatus", identity ? {} : "skip");
+  const reactiveResult: unknown =
+    live.status === "ready"
+      ? live.value
+      : live.status === "error"
+        ? live.error
+        : undefined;
 
   const currentIdentityRef = useRef<CloudMemoryWipeIdentity | null>(identity);
-  const statusRef = useRef<CloudMemoryWipeStatus | null>(null);
+  const statusRef = useRef<MemoryWipeStatus | null>(null);
+  /** The last status the view delivered, published or not; null once it fails. */
+  const liveStatusRef = useRef<MemoryWipeStatus | null>(null);
   const activeRequestIdRef = useRef<string | null>(null);
   const activeAttemptRef = useRef<CloudMemoryWipeAttempt | null>(null);
   const observedOperationIdRef = useRef<string | null>(null);
@@ -147,10 +150,16 @@ export function useCloudMemoryWipe(): CloudMemoryWipeView {
   );
 
   const publishStatus = useCallback(
-    (status: CloudMemoryWipeStatus): boolean => {
+    (status: MemoryWipeStatus): boolean => {
       const attempt = activeAttemptRef.current;
       if (attempt) {
-        if (status.ownerGeneration !== attempt.expectedOwnerGeneration) {
+        if (
+          status.ownerGeneration !== attempt.expectedOwnerGeneration &&
+          !followsOwnerGeneration(
+            attempt.expectedOwnerGeneration,
+            status.ownerGeneration,
+          )
+        ) {
           activeAttemptRef.current = null;
           observedOperationIdRef.current = null;
           publishError(new CloudMemoryWipeError("owner_generation_changed"), {
@@ -229,7 +238,7 @@ export function useCloudMemoryWipe(): CloudMemoryWipeView {
         issueCode: null,
       });
       try {
-        const result = await client.start(attempt);
+        const result = await wipeClient.start(attempt);
         if (!requestIsCurrent(attempt)) return false;
         activeRequestIdRef.current = null;
         return publishStatus(result.status);
@@ -256,44 +265,35 @@ export function useCloudMemoryWipe(): CloudMemoryWipeView {
         }
       }
     },
-    [client, publishError, publishStatus, requestIsCurrent],
+    [publishError, publishStatus, requestIsCurrent],
   );
 
-  const load = useCallback(
-    async (silent = false): Promise<boolean> => {
-      const current = currentIdentityRef.current;
-      if (!current || startingRef.current) return false;
-      const fence = createCloudMemoryWipeRequestFence(current);
-      activeRequestIdRef.current = fence.requestId;
-      if (!silent && retryPlanRef.current?.kind !== "start") {
-        setView({
-          phase: "loading",
-          status: statusRef.current,
-          issueCode: null,
-        });
-      }
-      try {
-        const result = await client.read(fence);
-        if (!requestIsCurrent(fence)) return false;
-        activeRequestIdRef.current = null;
-        return publishStatus(result.status);
-      } catch (error) {
-        if (!requestIsCurrent(fence)) return false;
-        activeRequestIdRef.current = null;
-        const normalized =
-          error instanceof CloudMemoryWipeError
-            ? error
-            : new CloudMemoryWipeError("unavailable", true);
-        publishError(normalized, { kind: "load" });
-        return false;
-      }
-    },
-    [client, publishError, publishStatus, requestIsCurrent],
-  );
+  /**
+   * Republish from the live view. A failed view is retried by reconnecting
+   * the live channel; the status it delivers next is published by the
+   * subscription effect.
+   */
+  const load = useCallback(async (): Promise<boolean> => {
+    const current = currentIdentityRef.current;
+    if (!current || startingRef.current) return false;
+    activeRequestIdRef.current = null;
+    const latest = liveStatusRef.current;
+    if (latest) return publishStatus(latest);
+    if (retryPlanRef.current?.kind !== "start") {
+      setView({
+        phase: "loading",
+        status: statusRef.current,
+        issueCode: null,
+      });
+    }
+    backendClient.reconnect();
+    return false;
+  }, [publishStatus]);
 
   useLayoutEffect(() => {
     currentIdentityRef.current = identity;
     statusRef.current = null;
+    liveStatusRef.current = null;
     activeRequestIdRef.current = null;
     activeAttemptRef.current = null;
     observedOperationIdRef.current = null;
@@ -317,20 +317,24 @@ export function useCloudMemoryWipe(): CloudMemoryWipeView {
   useEffect(() => {
     if (!identity || reactiveResult === undefined) return;
     if (reactiveResult instanceof Error) {
+      liveStatusRef.current = null;
       if (retryPlanRef.current?.kind !== "start") {
-        publishError(new CloudMemoryWipeError("unavailable", true), {
+        publishError(normalizeCloudMemoryWipeError(reactiveResult), {
           kind: "load",
         });
       }
       return;
     }
+    if (belongsToAnotherOwner(reactiveResult, identity.ownerSubject)) return;
     try {
       const status = decodeCloudMemoryWipeStatus(
         reactiveResult,
         identity.ownerSubject,
       );
+      liveStatusRef.current = status;
       publishStatus(status);
     } catch (error) {
+      liveStatusRef.current = null;
       publishError(
         error instanceof CloudMemoryWipeError
           ? error
@@ -339,12 +343,6 @@ export function useCloudMemoryWipe(): CloudMemoryWipeView {
       );
     }
   }, [identity, publishError, publishStatus, reactiveResult]);
-
-  useEffect(() => {
-    if (view.phase !== "active") return;
-    const timer = globalThis.setInterval(() => void load(true), 2_500);
-    return () => globalThis.clearInterval(timer);
-  }, [load, view.phase]);
 
   const startWipe = useCallback(async (): Promise<boolean> => {
     const currentIdentity = currentIdentityRef.current;

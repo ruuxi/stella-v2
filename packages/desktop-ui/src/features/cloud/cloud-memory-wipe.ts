@@ -1,8 +1,13 @@
+import { BackendRequestError } from "@stella/contracts/backend/client";
 import type {
-  CloudMemoryWipeJob,
-  CloudMemoryWipeStatus,
-  StartCloudMemoryWipeArgs,
-} from "./cloud-home-api";
+  HomeCalls,
+  MemoryWipeJob,
+  MemoryWipeStatus,
+} from "@stella/contracts/backend/home";
+import { OWNER_GENERATION_STALE } from "@stella/contracts/backend/protocol";
+import { followsOwnerGeneration } from "./cloud-memory-preference";
+
+export type StartCloudMemoryWipeArgs = HomeCalls["memory.startWipe"]["args"];
 
 const MAX_TOKEN_CHARS = 1_024;
 const MAX_ERROR_CODE_CHARS = 120;
@@ -52,7 +57,6 @@ export type CloudMemoryWipeIssueCode =
   | "stale_epoch"
   | "owner_generation_changed"
   | "idempotency_conflict"
-  | "account_unavailable"
   | "unauthorized"
   | "invalid_response"
   | "unavailable";
@@ -123,7 +127,7 @@ const normalizedIdentityValue = (value: string, label: string): string => {
   }
 };
 
-const decodeJob = (value: unknown): CloudMemoryWipeJob => {
+const decodeJob = (value: unknown): MemoryWipeJob => {
   if (
     !isRecord(value) ||
     !hasExactKeys(value, JOB_REQUIRED_KEYS, JOB_OPTIONAL_KEYS)
@@ -185,7 +189,7 @@ const decodeJob = (value: unknown): CloudMemoryWipeJob => {
 export const decodeCloudMemoryWipeStatus = (
   value: unknown,
   expectedOwnerSubject: string,
-): CloudMemoryWipeStatus => {
+): MemoryWipeStatus => {
   const subject = normalizedIdentityValue(
     expectedOwnerSubject,
     "owner subject",
@@ -197,7 +201,9 @@ export const decodeCloudMemoryWipeStatus = (
     return invalidResponse();
   }
   if (value.subject !== subject) return invalidResponse();
-  const ownerGeneration = normalizedToken(value.ownerGeneration);
+  // "" until the owner's first cloud-home write.
+  const ownerGeneration =
+    value.ownerGeneration === "" ? "" : normalizedToken(value.ownerGeneration);
   const memoryEpoch = normalizedToken(value.memoryEpoch);
   if (value.state !== "open" && value.state !== "wiping") {
     return invalidResponse();
@@ -232,11 +238,11 @@ export const decodeCloudMemoryWipeStatus = (
 };
 
 export const isCloudMemoryWipeActive = (
-  status: CloudMemoryWipeStatus,
+  status: MemoryWipeStatus,
 ): boolean => status.state === "wiping";
 
 export const isCloudMemoryWipeComplete = (
-  status: CloudMemoryWipeStatus,
+  status: MemoryWipeStatus,
 ): boolean =>
   status.state === "open" &&
   status.job?.stage === "completed" &&
@@ -280,7 +286,7 @@ export const createCloudMemoryWipeRequestFence = (args: {
 
 export const beginCloudMemoryWipe = (args: {
   identity: CloudMemoryWipeIdentity;
-  status: CloudMemoryWipeStatus;
+  status: MemoryWipeStatus;
   createEntropy?: () => string;
 }): CloudMemoryWipeAttempt => {
   const status = decodeCloudMemoryWipeStatus(
@@ -296,7 +302,6 @@ export const beginCloudMemoryWipe = (args: {
   });
   return Object.freeze({
     ...fence,
-    expectedSubject: fence.ownerSubject,
     expectedOwnerGeneration: status.ownerGeneration,
     expectedMemoryEpoch: status.memoryEpoch,
     previousOperationId: status.job?.operationId ?? null,
@@ -306,10 +311,9 @@ export const beginCloudMemoryWipe = (args: {
 export const cloudMemoryWipeMutationInput = (
   attempt: CloudMemoryWipeAttempt,
 ): StartCloudMemoryWipeArgs => ({
+  requestId: attempt.requestId,
   expectedOwnerGeneration: attempt.expectedOwnerGeneration,
   expectedMemoryEpoch: attempt.expectedMemoryEpoch,
-  expectedSubject: attempt.expectedSubject,
-  requestId: attempt.requestId,
 });
 
 export const isCloudMemoryWipeRequestCurrent = (
@@ -326,80 +330,47 @@ export const isCloudMemoryWipeRequestCurrent = (
   originating.ownerSubject === current.ownerSubject &&
   originating.requestId === current.requestId;
 
-const readSerializedPayload = (
-  message: string,
-): Record<string, unknown> | null => {
-  const first = message.indexOf("{");
-  const last = message.lastIndexOf("}");
-  if (first < 0 || last <= first) return null;
-  try {
-    const value: unknown = JSON.parse(message.slice(first, last + 1));
-    return isRecord(value) ? value : null;
-  } catch {
-    return null;
-  }
-};
-
-const readErrorPayload = (error: unknown): Record<string, unknown> | null => {
-  if (isRecord(error) && isRecord(error.data)) return error.data;
-  return error instanceof Error ? readSerializedPayload(error.message) : null;
-};
-
 export const normalizeCloudMemoryWipeError = (
   error: unknown,
 ): CloudMemoryWipeError => {
   if (error instanceof CloudMemoryWipeError) return error;
-  const payload = readErrorPayload(error);
-  const code = typeof payload?.code === "string" ? payload.code : "";
-  if (code === "CLOUD_MEMORY_WIPE_ACTIVE") {
+  // Anything that is not a backend refusal is a transport failure, and the
+  // exact attempt (same request id) is safe to replay.
+  if (!(error instanceof BackendRequestError)) {
+    return new CloudMemoryWipeError("unavailable", true);
+  }
+  if (error.reason === "CLOUD_MEMORY_WIPE_ACTIVE") {
     return new CloudMemoryWipeError("active");
   }
-  if (code === "CLOUD_MEMORY_EPOCH_STALE") {
+  if (error.reason === "CLOUD_MEMORY_EPOCH_STALE") {
     return new CloudMemoryWipeError("stale_epoch");
   }
-  if (
-    code === "OWNER_DATA_GENERATION_STALE" ||
-    code === "OWNER_EXTERNAL_FENCE_MISMATCH" ||
-    code === "OWNERSHIP_MIGRATED" ||
-    code === "ANONYMOUS_IDENTITY_MIGRATED"
-  ) {
+  if (error.reason === OWNER_GENERATION_STALE) {
     return new CloudMemoryWipeError("owner_generation_changed");
   }
-  if (code === "CLOUD_HOME_IDEMPOTENCY_CONFLICT") {
+  if (error.reason === "CLOUD_HOME_IDEMPOTENCY_CONFLICT") {
     return new CloudMemoryWipeError("idempotency_conflict");
   }
-  if (code === "OWNER_DATA_PURGE_ACTIVE") {
-    return new CloudMemoryWipeError("account_unavailable");
-  }
-  if (
-    code === "UNAUTHENTICATED" ||
-    code === "UNAUTHORIZED" ||
-    code === "SESSION_IDENTITY_MISMATCH"
-  ) {
+  if (error.code === "UNAUTHENTICATED" || error.code === "FORBIDDEN") {
     return new CloudMemoryWipeError("unauthorized");
   }
-  const message = error instanceof Error ? error.message : String(error);
-  if (
-    /unauthenticated|authentication required|sign in|unauthorized/iu.test(
-      message,
-    )
-  ) {
-    return new CloudMemoryWipeError("unauthorized");
-  }
+  // Includes MEMORY_POLICY_CHANGING: retrying the same request id settles it.
   return new CloudMemoryWipeError("unavailable", true);
 };
 
 export type CloudMemoryWipePort = {
-  read: (args: { expectedSubject: string }) => Promise<unknown>;
   start: (args: StartCloudMemoryWipeArgs) => Promise<unknown>;
 };
 
 const validateStartResult = (
-  status: CloudMemoryWipeStatus,
+  status: MemoryWipeStatus,
   attempt: CloudMemoryWipeAttempt,
-): CloudMemoryWipeStatus => {
+): MemoryWipeStatus => {
   if (
-    status.ownerGeneration !== attempt.expectedOwnerGeneration ||
+    !followsOwnerGeneration(
+      attempt.expectedOwnerGeneration,
+      status.ownerGeneration,
+    ) ||
     !status.job ||
     status.job.operationId === attempt.previousOperationId
   ) {
@@ -421,19 +392,6 @@ const validateStartResult = (
 };
 
 export const createCloudMemoryWipeClient = (port: CloudMemoryWipePort) => ({
-  read: async (fence: CloudMemoryWipeRequestFence) => {
-    try {
-      return {
-        fence,
-        status: decodeCloudMemoryWipeStatus(
-          await port.read({ expectedSubject: fence.ownerSubject }),
-          fence.ownerSubject,
-        ),
-      };
-    } catch (error) {
-      throw normalizeCloudMemoryWipeError(error);
-    }
-  },
   start: async (attempt: CloudMemoryWipeAttempt) => {
     try {
       const status = decodeCloudMemoryWipeStatus(

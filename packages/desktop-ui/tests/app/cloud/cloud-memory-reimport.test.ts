@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import type { CloudMemoryWipeStatus } from "@/features/cloud/cloud-home-api";
+import { BackendRequestError } from "@stella/contracts/backend/client";
+import type { MemoryWipeStatus } from "@stella/contracts/backend/home";
 import {
   beginCloudMemoryReimport,
   CloudMemoryReimportError,
@@ -18,8 +19,8 @@ const identity = {
 };
 
 const status = (
-  overrides: Partial<CloudMemoryWipeStatus> = {},
-): CloudMemoryWipeStatus => ({
+  overrides: Partial<MemoryWipeStatus> = {},
+): MemoryWipeStatus => ({
   subject: ownerSubject,
   ownerGeneration: "generation-1",
   state: "open",
@@ -39,6 +40,17 @@ const status = (
   ...overrides,
 });
 
+const refusal = (
+  code: "CONFLICT" | "UNAUTHENTICATED",
+  reason?: string,
+): BackendRequestError =>
+  new BackendRequestError({
+    code,
+    message: "refused",
+    retryable: false,
+    ...(reason ? { reason } : {}),
+  });
+
 describe("cloud Memory reimport authorization contract", () => {
   it("freezes the exact subject, account, revision, generation, epoch, and request fence", () => {
     const attempt = beginCloudMemoryReimport({
@@ -52,13 +64,11 @@ describe("cloud Memory reimport authorization contract", () => {
       accountScope: "account:owner-a",
       identityRevision: 7,
       ownerSubject,
-      expectedSubject: ownerSubject,
       expectedOwnerGeneration: "generation-1",
       expectedMemoryEpoch: "epoch-2",
       requestId: "desktop-memory-reimport:stable-attempt",
     });
     expect(cloudMemoryReimportMutationInput(attempt)).toEqual({
-      expectedSubject: ownerSubject,
       expectedOwnerGeneration: "generation-1",
       expectedMemoryEpoch: "epoch-2",
       requestId: "desktop-memory-reimport:stable-attempt",
@@ -92,10 +102,7 @@ describe("cloud Memory reimport authorization contract", () => {
     const authorize = vi
       .fn()
       .mockResolvedValue(status({ importDisposition: "explicit_allowed" }));
-    const client = createCloudMemoryReimportClient({
-      read: vi.fn().mockResolvedValue(status()),
-      authorize,
-    });
+    const client = createCloudMemoryReimportClient({ authorize });
     const attempt = beginCloudMemoryReimport({
       identity,
       status: status(),
@@ -112,10 +119,37 @@ describe("cloud Memory reimport authorization contract", () => {
     );
   });
 
+  it("authorizes a fresh owner from the empty generation and accepts the stamped one", async () => {
+    const attempt = beginCloudMemoryReimport({
+      identity,
+      status: status({ ownerGeneration: "" }),
+    });
+    expect(
+      cloudMemoryReimportMutationInput(attempt).expectedOwnerGeneration,
+    ).toBe("");
+
+    const stamped = createCloudMemoryReimportClient({
+      authorize: vi
+        .fn()
+        .mockResolvedValue(status({ importDisposition: "explicit_allowed" })),
+    });
+    await expect(stamped.authorize(attempt)).resolves.toMatchObject({
+      status: { ownerGeneration: "generation-1" },
+    });
+    const unstamped = createCloudMemoryReimportClient({
+      authorize: vi.fn().mockResolvedValue(
+        status({ ownerGeneration: "", importDisposition: "explicit_allowed" }),
+      ),
+    });
+    await expect(unstamped.authorize(attempt)).rejects.toMatchObject({
+      code: "owner_generation_changed",
+    });
+  });
+
   it("fails closed unless the mutation echoes the exact subject, generation, epoch, and allowed result", async () => {
     const attempt = beginCloudMemoryReimport({ identity, status: status() });
     const cases: Array<{
-      response: CloudMemoryWipeStatus;
+      response: MemoryWipeStatus;
       code: string;
     }> = [
       {
@@ -144,7 +178,6 @@ describe("cloud Memory reimport authorization contract", () => {
 
     for (const testCase of cases) {
       const client = createCloudMemoryReimportClient({
-        read: vi.fn(),
         authorize: vi.fn().mockResolvedValue(testCase.response),
       });
       await expect(client.authorize(attempt)).rejects.toMatchObject({
@@ -191,19 +224,17 @@ describe("cloud Memory reimport authorization contract", () => {
       normalizeCloudMemoryReimportError(new Error("offline")),
     ).toMatchObject({ code: "unavailable", retryable: true });
     expect(
-      normalizeCloudMemoryReimportError({
-        data: { code: "CLOUD_MEMORY_REIMPORT_NOT_REQUIRED" },
-      }),
+      normalizeCloudMemoryReimportError(
+        refusal("CONFLICT", "CLOUD_MEMORY_REIMPORT_NOT_REQUIRED"),
+      ),
     ).toMatchObject({ code: "not_required", retryable: false });
     expect(
-      normalizeCloudMemoryReimportError({
-        data: { code: "CLOUD_MEMORY_EPOCH_STALE" },
-      }),
+      normalizeCloudMemoryReimportError(
+        refusal("CONFLICT", "CLOUD_MEMORY_EPOCH_STALE"),
+      ),
     ).toMatchObject({ code: "stale_epoch", retryable: false });
     expect(
-      normalizeCloudMemoryReimportError({
-        data: { code: "SESSION_IDENTITY_MISMATCH" },
-      }),
+      normalizeCloudMemoryReimportError(refusal("UNAUTHENTICATED")),
     ).toMatchObject({ code: "unauthorized", retryable: false });
     expect(new CloudMemoryReimportError("invalid_response").retryable).toBe(
       false,

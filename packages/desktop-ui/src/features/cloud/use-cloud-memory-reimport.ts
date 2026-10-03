@@ -6,15 +6,15 @@ import {
   useRef,
   useState,
 } from "react";
-import { useConvex, useQueries, type RequestForQueries } from "convex/react";
+import type { MemoryWipeStatus } from "@stella/contracts/backend/home";
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
-import { cloudHomeApi, type CloudMemoryWipeStatus } from "./cloud-home-api";
+import { backendClient } from "@/platform/backend/backend-client";
+import { useBackendView } from "@/platform/backend/use-backend-view";
 import { cloudHomeSyncRetryStore } from "./cloud-home-sync";
 import {
   beginCloudMemoryReimport,
   CloudMemoryReimportError,
   createCloudMemoryReimportClient,
-  createCloudMemoryReimportRequestFence,
   isCloudMemoryReimportRequestCurrent,
   normalizeCloudMemoryReimportError,
   type CloudMemoryReimportAttempt,
@@ -22,6 +22,7 @@ import {
   type CloudMemoryReimportIssueCode,
   type CloudMemoryReimportRequestFence,
 } from "./cloud-memory-reimport";
+import { followsOwnerGeneration } from "./cloud-memory-preference";
 import { decodeCloudMemoryWipeStatus } from "./cloud-memory-wipe";
 
 type RetryPlan =
@@ -31,7 +32,7 @@ type RetryPlan =
 export type CloudMemoryReimportView = Readonly<{
   identity: CloudMemoryReimportIdentity | null;
   phase: "loading" | "ready" | "authorizing" | "authorized" | "error";
-  status: CloudMemoryWipeStatus | null;
+  status: MemoryWipeStatus | null;
   issueCode: CloudMemoryReimportIssueCode | null;
   eligible: boolean;
   disabled: boolean;
@@ -52,7 +53,18 @@ const sameIdentity = (
       left.ownerSubject === right.ownerSubject,
   );
 
-const statusIsEligible = (status: CloudMemoryWipeStatus | null): boolean =>
+const reimportClient = createCloudMemoryReimportClient({
+  authorize: (args) => backendClient.call("memory.authorizeReimport", args),
+});
+
+/** A view value echoing another owner is the previous account's, not ours. */
+const belongsToAnotherOwner = (value: unknown, subject: string): boolean =>
+  typeof value === "object" &&
+  value !== null &&
+  typeof (value as { subject?: unknown }).subject === "string" &&
+  (value as { subject: string }).subject !== subject;
+
+const statusIsEligible = (status: MemoryWipeStatus | null): boolean =>
   status?.state === "open" && status.importDisposition === "explicit_required";
 
 /**
@@ -60,7 +72,6 @@ const statusIsEligible = (status: CloudMemoryWipeStatus | null): boolean =>
  * Memory into a fresh post-wipe epoch. It does not authorize skills.
  */
 export function useCloudMemoryReimport(): CloudMemoryReimportView {
-  const convex = useConvex();
   const mode = useCloudConversationSession();
   const identity = useMemo<CloudMemoryReimportIdentity | null>(
     () =>
@@ -78,31 +89,20 @@ export function useCloudMemoryReimport(): CloudMemoryReimportView {
       mode.ownerSubject,
     ],
   );
-  const requests = useMemo<RequestForQueries>(() => {
-    if (!identity) return {} as RequestForQueries;
-    return {
-      memoryReimportStatus: {
-        query: cloudHomeApi.getMyMemoryWipeStatus,
-        args: { expectedSubject: identity.ownerSubject },
-      },
-    };
-  }, [identity]);
-  const queryResults = useQueries(requests);
-  const reactiveResult = queryResults.memoryReimportStatus;
-  const client = useMemo(
-    () =>
-      createCloudMemoryReimportClient({
-        read: (args) => convex.query(cloudHomeApi.getMyMemoryWipeStatus, args),
-        authorize: (args) =>
-          convex.mutation(cloudHomeApi.authorizeMyMemoryReimport, args),
-      }),
-    [convex],
-  );
+  const live = useBackendView("memory.wipeStatus", identity ? {} : "skip");
+  const reactiveResult: unknown =
+    live.status === "ready"
+      ? live.value
+      : live.status === "error"
+        ? live.error
+        : undefined;
 
   const currentIdentityRef = useRef<CloudMemoryReimportIdentity | null>(
     identity,
   );
-  const statusRef = useRef<CloudMemoryWipeStatus | null>(null);
+  const statusRef = useRef<MemoryWipeStatus | null>(null);
+  /** The last status the view delivered; null once it fails. */
+  const liveStatusRef = useRef<MemoryWipeStatus | null>(null);
   const activeRequestIdRef = useRef<string | null>(null);
   const activeAttemptRef = useRef<CloudMemoryReimportAttempt | null>(null);
   const retryPlanRef = useRef<RetryPlan | null>(null);
@@ -143,7 +143,7 @@ export function useCloudMemoryReimport(): CloudMemoryReimportView {
   );
 
   const publishOrdinaryStatus = useCallback(
-    (status: CloudMemoryWipeStatus): boolean => {
+    (status: MemoryWipeStatus): boolean => {
       retryPlanRef.current = null;
       statusRef.current = status;
       setView({
@@ -161,7 +161,7 @@ export function useCloudMemoryReimport(): CloudMemoryReimportView {
   );
 
   const completeAuthorization = useCallback(
-    (status: CloudMemoryWipeStatus): boolean => {
+    (status: MemoryWipeStatus): boolean => {
       activeRequestIdRef.current = null;
       activeAttemptRef.current = null;
       retryPlanRef.current = null;
@@ -176,15 +176,19 @@ export function useCloudMemoryReimport(): CloudMemoryReimportView {
   );
 
   const publishReactiveStatus = useCallback(
-    (status: CloudMemoryWipeStatus): boolean => {
+    (status: MemoryWipeStatus): boolean => {
       const attempt = activeAttemptRef.current;
       if (!attempt) {
-        // A reactive head is newer authority than any one-shot load already in
-        // flight. Invalidate that load before publishing this status.
         activeRequestIdRef.current = null;
         return publishOrdinaryStatus(status);
       }
-      if (status.ownerGeneration !== attempt.expectedOwnerGeneration) {
+      if (
+        status.ownerGeneration !== attempt.expectedOwnerGeneration &&
+        !followsOwnerGeneration(
+          attempt.expectedOwnerGeneration,
+          status.ownerGeneration,
+        )
+      ) {
         activeRequestIdRef.current = null;
         activeAttemptRef.current = null;
         authorizingRef.current = false;
@@ -249,7 +253,7 @@ export function useCloudMemoryReimport(): CloudMemoryReimportView {
         issueCode: null,
       });
       try {
-        const result = await client.authorize(attempt);
+        const result = await reimportClient.authorize(attempt);
         if (!requestIsCurrent(attempt)) return false;
         return completeAuthorization(result.status);
       } catch (error) {
@@ -271,9 +275,14 @@ export function useCloudMemoryReimport(): CloudMemoryReimportView {
         }
       }
     },
-    [client, completeAuthorization, publishError, requestIsCurrent],
+    [completeAuthorization, publishError, requestIsCurrent],
   );
 
+  /**
+   * Republish from the live view. A failed view is retried by reconnecting
+   * the live channel; the status it delivers next is published by the
+   * subscription effect.
+   */
   const load = useCallback(async (): Promise<boolean> => {
     const current = currentIdentityRef.current;
     // An ambiguous authorization owns its exact retry until it resolves. A
@@ -281,29 +290,22 @@ export function useCloudMemoryReimport(): CloudMemoryReimportView {
     if (!current || authorizingRef.current || activeAttemptRef.current) {
       return false;
     }
-    const fence = createCloudMemoryReimportRequestFence(current);
-    activeRequestIdRef.current = fence.requestId;
+    activeRequestIdRef.current = null;
+    const latest = liveStatusRef.current;
+    if (latest) return publishOrdinaryStatus(latest);
     setView({
       phase: "loading",
       status: statusRef.current,
       issueCode: null,
     });
-    try {
-      const result = await client.read(fence);
-      if (!requestIsCurrent(fence)) return false;
-      activeRequestIdRef.current = null;
-      return publishOrdinaryStatus(result.status);
-    } catch (error) {
-      if (!requestIsCurrent(fence)) return false;
-      activeRequestIdRef.current = null;
-      publishError(normalizeCloudMemoryReimportError(error), { kind: "load" });
-      return false;
-    }
-  }, [client, publishError, publishOrdinaryStatus, requestIsCurrent]);
+    backendClient.reconnect();
+    return false;
+  }, [publishOrdinaryStatus]);
 
   useLayoutEffect(() => {
     currentIdentityRef.current = identity;
     statusRef.current = null;
+    liveStatusRef.current = null;
     activeRequestIdRef.current = null;
     activeAttemptRef.current = null;
     retryPlanRef.current = null;
@@ -326,19 +328,25 @@ export function useCloudMemoryReimport(): CloudMemoryReimportView {
   useEffect(() => {
     if (!identity || reactiveResult === undefined) return;
     if (reactiveResult instanceof Error) {
+      liveStatusRef.current = null;
       if (!activeAttemptRef.current) {
         activeRequestIdRef.current = null;
-        publishError(new CloudMemoryReimportError("unavailable", true), {
+        publishError(normalizeCloudMemoryReimportError(reactiveResult), {
           kind: "load",
         });
       }
       return;
     }
+    if (belongsToAnotherOwner(reactiveResult, identity.ownerSubject)) return;
     try {
-      publishReactiveStatus(
-        decodeCloudMemoryWipeStatus(reactiveResult, identity.ownerSubject),
+      const status = decodeCloudMemoryWipeStatus(
+        reactiveResult,
+        identity.ownerSubject,
       );
+      liveStatusRef.current = status;
+      publishReactiveStatus(status);
     } catch (error) {
+      liveStatusRef.current = null;
       activeRequestIdRef.current = null;
       activeAttemptRef.current = null;
       authorizingRef.current = false;

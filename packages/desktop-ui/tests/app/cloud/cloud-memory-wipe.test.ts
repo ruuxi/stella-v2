@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import type { CloudMemoryWipeStatus } from "@/features/cloud/cloud-home-api";
+import { BackendRequestError } from "@stella/contracts/backend/client";
+import type { MemoryWipeStatus } from "@stella/contracts/backend/home";
 import {
   CloudMemoryWipeError,
   beginCloudMemoryWipe,
@@ -20,8 +21,8 @@ const identity = {
 };
 
 const activeStatus = (
-  overrides: Partial<CloudMemoryWipeStatus> = {},
-): CloudMemoryWipeStatus => ({
+  overrides: Partial<MemoryWipeStatus> = {},
+): MemoryWipeStatus => ({
   subject: ownerSubject,
   ownerGeneration: "generation-1",
   state: "wiping",
@@ -40,8 +41,8 @@ const activeStatus = (
 });
 
 const readyStatus = (
-  overrides: Partial<CloudMemoryWipeStatus> = {},
-): CloudMemoryWipeStatus => ({
+  overrides: Partial<MemoryWipeStatus> = {},
+): MemoryWipeStatus => ({
   subject: ownerSubject,
   ownerGeneration: "generation-1",
   state: "open",
@@ -51,7 +52,7 @@ const readyStatus = (
   ...overrides,
 });
 
-const completedStatus = (): CloudMemoryWipeStatus => ({
+const completedStatus = (): MemoryWipeStatus => ({
   subject: ownerSubject,
   ownerGeneration: "generation-1",
   state: "open",
@@ -69,6 +70,17 @@ const completedStatus = (): CloudMemoryWipeStatus => ({
     updatedAt: 200,
   },
 });
+
+const refusal = (
+  code: "CONFLICT" | "UNAUTHENTICATED",
+  reason?: string,
+): BackendRequestError =>
+  new BackendRequestError({
+    code,
+    message: "refused",
+    retryable: false,
+    ...(reason ? { reason } : {}),
+  });
 
 describe("cloud Memory wipe contract", () => {
   it("strictly decodes the subject, lifecycle, epoch, and job receipt", () => {
@@ -136,7 +148,6 @@ describe("cloud Memory wipe contract", () => {
       accountScope: "account:owner-a",
       identityRevision: 7,
       ownerSubject,
-      expectedSubject: ownerSubject,
       expectedOwnerGeneration: "generation-1",
       expectedMemoryEpoch: "epoch-1",
       previousOperationId: "memorywipe-previous",
@@ -145,17 +156,13 @@ describe("cloud Memory wipe contract", () => {
     expect(cloudMemoryWipeMutationInput(attempt)).toEqual({
       expectedOwnerGeneration: "generation-1",
       expectedMemoryEpoch: "epoch-1",
-      expectedSubject: ownerSubject,
       requestId: "desktop-memory-wipe:stable-attempt",
     });
   });
 
   it("reuses the exact start payload for an ambiguous retry", async () => {
     const start = vi.fn().mockResolvedValue(activeStatus());
-    const client = createCloudMemoryWipeClient({
-      read: vi.fn().mockResolvedValue(readyStatus()),
-      start,
-    });
+    const client = createCloudMemoryWipeClient({ start });
     const attempt = beginCloudMemoryWipe({
       identity,
       status: readyStatus(),
@@ -170,6 +177,28 @@ describe("cloud Memory wipe contract", () => {
     expect(start.mock.calls[0]?.[0].requestId).toBe(
       "desktop-memory-wipe:one-request",
     );
+  });
+
+  it("starts a fresh owner's wipe from the empty generation and accepts the stamped one", async () => {
+    const fresh = readyStatus({ ownerGeneration: "" });
+    expect(decodeCloudMemoryWipeStatus(fresh, ownerSubject)).toEqual(fresh);
+    const attempt = beginCloudMemoryWipe({ identity, status: fresh });
+    expect(cloudMemoryWipeMutationInput(attempt).expectedOwnerGeneration).toBe(
+      "",
+    );
+
+    const stamped = createCloudMemoryWipeClient({
+      start: vi.fn().mockResolvedValue(activeStatus()),
+    });
+    await expect(stamped.start(attempt)).resolves.toMatchObject({
+      status: { ownerGeneration: "generation-1", state: "wiping" },
+    });
+    const unstamped = createCloudMemoryWipeClient({
+      start: vi.fn().mockResolvedValue(activeStatus({ ownerGeneration: "" })),
+    });
+    await expect(unstamped.start(attempt)).rejects.toMatchObject({
+      code: "invalid_response",
+    });
   });
 
   it("fails closed on echoed generation, epoch, or operation drift", async () => {
@@ -200,7 +229,6 @@ describe("cloud Memory wipe contract", () => {
 
     for (const response of cases) {
       const client = createCloudMemoryWipeClient({
-        read: vi.fn(),
         start: vi.fn().mockResolvedValue(response),
       });
       await expect(client.start(attempt)).rejects.toMatchObject({
@@ -242,22 +270,20 @@ describe("cloud Memory wipe contract", () => {
       retryable: true,
     });
     expect(
-      normalizeCloudMemoryWipeError({
-        data: { code: "CLOUD_MEMORY_EPOCH_STALE" },
-      }),
+      normalizeCloudMemoryWipeError(
+        refusal("CONFLICT", "CLOUD_MEMORY_EPOCH_STALE"),
+      ),
     ).toMatchObject({ code: "stale_epoch", retryable: false });
     expect(
-      normalizeCloudMemoryWipeError({
-        data: { code: "OWNER_DATA_GENERATION_STALE" },
-      }),
+      normalizeCloudMemoryWipeError(
+        refusal("CONFLICT", "owner_generation_stale"),
+      ),
     ).toMatchObject({
       code: "owner_generation_changed",
       retryable: false,
     });
     expect(
-      normalizeCloudMemoryWipeError({
-        data: { code: "SESSION_IDENTITY_MISMATCH" },
-      }),
+      normalizeCloudMemoryWipeError(refusal("UNAUTHENTICATED")),
     ).toMatchObject({ code: "unauthorized", retryable: false });
   });
 });

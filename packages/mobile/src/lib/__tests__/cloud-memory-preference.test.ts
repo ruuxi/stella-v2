@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { BackendRequestError } from "@stella/contracts/backend/client";
 import {
   observeCloudConversationIdentity,
   resetCloudConversationIdentityForTests,
@@ -36,7 +37,24 @@ const identityA = {
 const sessionPreference = (
   value: MobileCloudMemoryPreference = preference,
   subject = ownerSubjectA,
-) => ({ subject, ...value });
+) => ({
+  subject,
+  memoryEpoch: "epoch:3",
+  state: "open",
+  importDisposition: "automatic_allowed",
+  ...value,
+});
+
+const refusal = (
+  code: "CONFLICT" | "UNAUTHENTICATED" | "UNAVAILABLE",
+  reason?: string,
+) =>
+  new BackendRequestError({
+    code,
+    message: "refused",
+    retryable: code === "UNAVAILABLE",
+    ...(reason ? { reason } : {}),
+  });
 
 const attempt = () =>
   beginMobileCloudMemoryPreferenceWrite({
@@ -101,13 +119,8 @@ describe("mobile cloud memory preference adapter", () => {
       },
     });
     const inputs: MobileCloudMemoryPreferenceMutationInput[] = [];
-    const reads: { expectedSubject: string }[] = [];
     const client = createMobileCloudMemoryPreferenceClient({
-      getMyMemoryPreference: async (input) => {
-        reads.push(input);
-        return sessionPreference();
-      },
-      setMyMemoryEnabled: async (input) => {
+      setMemoryEnabled: async (input) => {
         inputs.push(input);
         return sessionPreference({
           ...preference,
@@ -117,28 +130,20 @@ describe("mobile cloud memory preference adapter", () => {
       },
     });
 
-    const readFence = createMobileCloudMemoryPreferenceRequestFence(
-      identityA,
-      () => "read-attested",
-    );
-    await client.read(readFence);
     const first = await client.write(writeAttempt);
     const retried = await client.write(writeAttempt);
 
     expect(entropyCalls).toBe(1);
     expect(Object.isFrozen(writeAttempt)).toBe(true);
     expect(writeAttempt.requestId).toBe("mobile-memory:attempt-stable");
-    expect(reads).toEqual([{ expectedSubject: ownerSubjectA }]);
     expect(inputs).toEqual([
       {
-        expectedSubject: ownerSubjectA,
         memoryEnabled: false,
         expectedOwnerGeneration: "generation:7",
         expectedRevision: 4,
         requestId: "mobile-memory:attempt-stable",
       },
       {
-        expectedSubject: ownerSubjectA,
         memoryEnabled: false,
         expectedOwnerGeneration: "generation:7",
         expectedRevision: 4,
@@ -148,52 +153,69 @@ describe("mobile cloud memory preference adapter", () => {
     expect(first.status).toBe("committed");
     expect(retried.status).toBe("committed");
     expect(first.fence).toBe(writeAttempt);
+
+    // A fresh owner's view reports "" until the first write stamps a
+    // generation; the attempt passes "" through and accepts the stamp.
+    const fresh = { ...preference, ownerGeneration: "", revision: 0 };
+    expect(
+      decodeMobileCloudMemoryPreferenceForSubject(
+        sessionPreference(fresh),
+        ownerSubjectA,
+      ),
+    ).toEqual(fresh);
+    const freshAttempt = beginMobileCloudMemoryPreferenceWrite({
+      ...identityA,
+      preference: fresh,
+      memoryEnabled: false,
+      createEntropy: () => "attempt-fresh",
+    });
+    expect(freshAttempt.expectedOwnerGeneration).toBe("");
+    const stamped = createMobileCloudMemoryPreferenceClient({
+      setMemoryEnabled: async () =>
+        sessionPreference({ ...preference, memoryEnabled: false, revision: 1 }),
+    });
+    expect((await stamped.write(freshAttempt)).status).toBe("committed");
+    const unstamped = createMobileCloudMemoryPreferenceClient({
+      setMemoryEnabled: async () =>
+        sessionPreference({ ...fresh, memoryEnabled: false, revision: 1 }),
+    });
+    let unstampedError: unknown = null;
+    try {
+      await unstamped.write(freshAttempt);
+    } catch (error) {
+      unstampedError = error;
+    }
+    expect(unstampedError).toMatchObject({ code: "owner_generation_changed" });
   });
 
   test("normalizes a CAS conflict without inventing a new write", async () => {
     const client = createMobileCloudMemoryPreferenceClient({
-      getMyMemoryPreference: async () => sessionPreference(),
-      setMyMemoryEnabled: async () => {
-        throw {
-          data: {
-            code: "CLOUD_HOME_REVISION_CONFLICT",
-            message: "changed",
-            currentRevision: 8,
-            currentMemoryEnabled: false,
-          },
-        };
+      setMemoryEnabled: async () => {
+        throw refusal("CONFLICT", "CLOUD_HOME_REVISION_CONFLICT");
       },
     });
 
     expect(await client.write(attempt())).toEqual({
       status: "conflict",
       fence: attempt(),
-      current: { revision: 8, memoryEnabled: false },
     });
 
     expect(
       normalizeMobileCloudMemoryPreferenceIssue(
-        new Error(
-          'ConvexError: {"code":"CLOUD_HOME_REVISION_CONFLICT","currentRevision":9,"currentMemoryEnabled":true}',
-        ),
+        refusal("CONFLICT", "CLOUD_HOME_REVISION_CONFLICT"),
       ),
-    ).toEqual({
-      code: "revision_conflict",
-      retryable: false,
-      current: { revision: 9, memoryEnabled: true },
-    });
+    ).toEqual({ code: "revision_conflict", retryable: false });
   });
 
   test("fails closed when a mutation response crosses owner generations", async () => {
     const client = createMobileCloudMemoryPreferenceClient({
-      getMyMemoryPreference: async () => sessionPreference(),
-      setMyMemoryEnabled: async () => ({
-        subject: ownerSubjectA,
-        ownerGeneration: "generation:8",
-        memoryEnabled: false,
-        revision: 5,
-        updatedAt: preference.updatedAt,
-      }),
+      setMemoryEnabled: async () =>
+        sessionPreference({
+          ownerGeneration: "generation:8",
+          memoryEnabled: false,
+          revision: 5,
+          updatedAt: preference.updatedAt,
+        }),
     });
 
     let thrown: unknown = null;
@@ -211,8 +233,7 @@ describe("mobile cloud memory preference adapter", () => {
 
   test("rejects a well-shaped response for different mutation input", async () => {
     const wrongValueClient = createMobileCloudMemoryPreferenceClient({
-      getMyMemoryPreference: async () => sessionPreference(),
-      setMyMemoryEnabled: async () => ({
+      setMemoryEnabled: async () => ({
         ...sessionPreference(),
         // This is valid data, but cannot be the result of the attempted write.
         memoryEnabled: true,
@@ -232,8 +253,7 @@ describe("mobile cloud memory preference adapter", () => {
     });
 
     const wrongRevisionClient = createMobileCloudMemoryPreferenceClient({
-      getMyMemoryPreference: async () => sessionPreference(),
-      setMyMemoryEnabled: async () => ({
+      setMemoryEnabled: async () => ({
         ...sessionPreference(),
         memoryEnabled: false,
         revision: 6,
@@ -256,11 +276,7 @@ describe("mobile cloud memory preference adapter", () => {
       identityA,
       () => "load-1",
     );
-    const client = createMobileCloudMemoryPreferenceClient({
-      getMyMemoryPreference: async () => sessionPreference(),
-      setMyMemoryEnabled: async () => sessionPreference(),
-    });
-    const result = await client.read(fence);
+    const result = { fence, preference };
     const current = {
       accountScope: identityA.accountScope,
       identityKey: identityA.identityKey,
@@ -382,29 +398,13 @@ describe("mobile cloud memory preference adapter", () => {
 
   test("rejects a response that echoes a different authenticated subject", async () => {
     const client = createMobileCloudMemoryPreferenceClient({
-      getMyMemoryPreference: async () =>
-        sessionPreference(preference, "https://issuer.test|user-b"),
-      setMyMemoryEnabled: async () =>
+      setMemoryEnabled: async () =>
         sessionPreference(
           { ...preference, memoryEnabled: false, revision: 5 },
           "https://issuer.test|user-b",
         ),
     });
-    const fence = createMobileCloudMemoryPreferenceRequestFence(
-      identityA,
-      () => "subject-read",
-    );
 
-    let readError: unknown = null;
-    try {
-      await client.read(fence);
-    } catch (error) {
-      readError = error;
-    }
-    expect(readError).toMatchObject({
-      code: "invalid_response",
-      retryable: false,
-    });
     let writeError: unknown = null;
     try {
       await client.write(attempt());
@@ -417,56 +417,30 @@ describe("mobile cloud memory preference adapter", () => {
     });
   });
 
-  test("rejects malformed reads and normalizes known lifecycle errors", async () => {
-    const client = createMobileCloudMemoryPreferenceClient({
-      getMyMemoryPreference: async () =>
+  test("rejects malformed view values and normalizes known lifecycle errors", () => {
+    expect(() =>
+      decodeMobileCloudMemoryPreferenceForSubject(
         sessionPreference({ ...preference, revision: Number.NaN }),
-      setMyMemoryEnabled: async () => sessionPreference(),
-    });
-    const fence = createMobileCloudMemoryPreferenceRequestFence(
-      identityA,
-      () => "load-invalid",
-    );
-
-    let thrown: unknown = null;
-    try {
-      await client.read(fence);
-    } catch (error) {
-      thrown = error;
-    }
-    expect(thrown).toMatchObject({
-      code: "invalid_response",
-      retryable: false,
-    });
+        ownerSubjectA,
+      ),
+    ).toThrow(MobileCloudMemoryPreferenceError);
     expect(
-      normalizeMobileCloudMemoryPreferenceIssue({
-        data: { code: "OWNER_DATA_GENERATION_STALE" },
-      }),
+      normalizeMobileCloudMemoryPreferenceIssue(
+        refusal("CONFLICT", "owner_generation_stale"),
+      ),
     ).toEqual({ code: "owner_generation_changed", retryable: false });
     expect(
-      normalizeMobileCloudMemoryPreferenceIssue({
-        data: { code: "CLOUD_HOME_IDEMPOTENCY_CONFLICT" },
-      }),
+      normalizeMobileCloudMemoryPreferenceIssue(
+        refusal("CONFLICT", "CLOUD_HOME_IDEMPOTENCY_CONFLICT"),
+      ),
     ).toEqual({ code: "idempotency_conflict", retryable: false });
     expect(
-      normalizeMobileCloudMemoryPreferenceIssue({
-        data: { code: "UNAUTHENTICATED" },
-      }),
+      normalizeMobileCloudMemoryPreferenceIssue(refusal("UNAUTHENTICATED")),
     ).toEqual({ code: "unauthorized", retryable: false });
     expect(
-      normalizeMobileCloudMemoryPreferenceIssue({
-        data: { code: "SESSION_IDENTITY_MISMATCH" },
-      }),
-    ).toEqual({ code: "unauthorized", retryable: false });
-    expect(
-      normalizeMobileCloudMemoryPreferenceIssue({
-        data: { code: "OWNER_DATA_PURGE_ACTIVE", state: "resetting" },
-      }),
-    ).toEqual({ code: "account_unavailable", retryable: false });
-    expect(
-      normalizeMobileCloudMemoryPreferenceIssue({
-        data: { code: "OWNER_DATA_PURGE_ACTIVE", state: "deleting" },
-      }),
-    ).toEqual({ code: "account_unavailable", retryable: false });
+      normalizeMobileCloudMemoryPreferenceIssue(
+        refusal("UNAVAILABLE", "MEMORY_POLICY_CHANGING"),
+      ),
+    ).toEqual({ code: "unavailable", retryable: true });
   });
 });

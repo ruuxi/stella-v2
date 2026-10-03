@@ -1,27 +1,17 @@
 /**
  * Core Memory Synthesis Service
  *
- * Delegates synthesis through Electron host IPC so onboarding orchestration
- * stays host-coordinated while the backend still owns the actual model work.
+ * Delegates synthesis through Electron host IPC, which runs the model work
+ * on this device through the runtime.
  */
 
 import { getSynthesisPromptConfig } from "@/prompts";
 import type { DiscoveryCategory } from "@stella/contracts/discovery";
 import type { OnboardingSynthesisResponse } from "@stella/contracts/desktop/onboarding";
 
-type SynthesisResult = OnboardingSynthesisResponse;
-
-type SynthesisRequestOptions = {
-  includeAuth?: boolean;
-  includeWelcomeHtml?: boolean;
-  /** Chat onboarding only: also ask for profile highlights + starters. */
-  includeStarters?: boolean;
-};
-
 export async function synthesizeCoreMemory(
   formattedSections: Partial<Record<DiscoveryCategory, string>>,
-  options: SynthesisRequestOptions = {},
-): Promise<SynthesisResult> {
+): Promise<OnboardingSynthesisResponse> {
   const onboardingApi = window.electronAPI?.onboarding;
   if (!onboardingApi?.synthesizeCoreMemory) {
     throw new Error(
@@ -31,9 +21,6 @@ export async function synthesizeCoreMemory(
 
   return await onboardingApi.synthesizeCoreMemory({
     formattedSections: formattedSections as Record<string, string>,
-    promptConfig: getSynthesisPromptConfig() as Record<string, unknown>,
-    includeAuth: options.includeAuth ?? true,
-    includeWelcomeHtml: options.includeWelcomeHtml ?? true,
-    ...(options.includeStarters ? { includeStarters: true } : {}),
+    promptConfig: getSynthesisPromptConfig(),
   });
 }

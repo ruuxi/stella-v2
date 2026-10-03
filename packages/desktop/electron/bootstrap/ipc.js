@@ -315,8 +315,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
     });
     registerOnboardingHandlers({
-        authService: services.authService,
-        getDeviceId: () => state.deviceId,
+        getStellaHostRunner: lifecycle.getRunner,
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
     });
     registerOfficePreviewHandlers({

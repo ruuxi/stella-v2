@@ -44,7 +44,6 @@ export type DiscoveryJobInput = {
   categories: DiscoveryCategory[];
   selectedBrowser?: string;
   selectedProfile?: string;
-  includeAuth: boolean;
 };
 
 const IDLE: DiscoveryJobSnapshot = { status: "idle", result: null, error: null };
@@ -125,11 +124,7 @@ export const startDiscoveryJob = (input: DiscoveryJobInput) => {
       }
 
       publish({ status: "synthesizing", result: null, error: null });
-      const synthesis = await synthesizeCoreMemory(formattedSections, {
-        includeAuth: input.includeAuth,
-        includeWelcomeHtml: false,
-        includeStarters: true,
-      });
+      const synthesis = await synthesizeCoreMemory(formattedSections);
       if (!isCurrent()) return;
       if (!synthesis.coreMemory) {
         fail(

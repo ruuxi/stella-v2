@@ -1,14 +1,16 @@
+/** The renderer's synthesis prompts; see `desktop-ui/src/prompts/transport.ts`. */
+export type OnboardingSynthesisPromptConfig = {
+  /** Per-category system prompts keyed by discovery category id. */
+  categoryAnalysisSystemPrompts?: Record<string, string>;
+  categoryAnalysisUserPromptTemplate?: string;
+  coreMemorySystemPrompt: string;
+  coreMemoryUserPromptTemplate: string;
+  welcomeMessagePromptTemplate: string;
+};
+
 export type OnboardingSynthesisRequest = {
-  formattedSections?: Record<string, string>;
-  promptConfig?: Record<string, unknown>;
-  includeAuth?: boolean;
-  includeWelcomeHtml?: boolean;
-  /**
-   * Ask synthesis for the personalized finale payload (`profileHighlights`
-   * + `starters`). Off by default so the legacy onboarding flow keeps its
-   * exact request shape and cost.
-   */
-  includeStarters?: boolean;
+  formattedSections: Record<string, string>;
+  promptConfig: OnboardingSynthesisPromptConfig;
 };
 
 /** One tappable "try this" suggestion on the onboarding finale. */
@@ -22,7 +24,6 @@ export type OnboardingStarter = {
 export type OnboardingSynthesisResponse = {
   coreMemory: string;
   welcomeMessage: string;
-  welcomeHtml?: string;
   categoryAnalyses?: Record<string, string>;
   /** 3–5 two-to-five-word phrases describing the person, from discovery. */
   profileHighlights?: string[];

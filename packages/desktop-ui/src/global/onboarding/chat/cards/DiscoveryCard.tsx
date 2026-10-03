@@ -207,10 +207,9 @@ export function DiscoveryCard({
       categories,
       selectedBrowser: choice.selectedBrowser ?? undefined,
       selectedProfile: choice.selectedProfile ?? undefined,
-      includeAuth: isAuthenticated,
     });
     onAnswer("accepted");
-  }, [choice, includeDev, isAuthenticated, onAnswer, persistSelection]);
+  }, [choice, includeDev, onAnswer, persistSelection]);
 
   const handleSkip = useCallback(() => {
     persistSelection([]);
@@ -237,9 +236,8 @@ export function DiscoveryCard({
       categories,
       selectedBrowser,
       selectedProfile,
-      includeAuth: isAuthenticated,
     });
-  }, [isAuthenticated]);
+  }, []);
 
   if (answered === "skipped") {
     return (

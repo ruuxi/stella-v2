@@ -8,6 +8,7 @@ export const STELLA_PROMPT_IDS = [
   "prompts/fallback-orchestrator.md",
   "prompts/fallback-subagent.md",
   "prompts/personality.md",
+  "prompts/synthesis.md",
 ] as const;
 
 export const STELLA_PROMPT_ID_SET = new Set<string>(STELLA_PROMPT_IDS);

@@ -8,11 +8,24 @@ import {
 } from "@/platform/dev/vite-error-recovery";
 
 type Props = { children: ReactNode };
+
+/**
+ * Account data resets fence every owner query until they finish, so a live
+ * query can throw this mid-reset. It is a wait, not a crash: retry until the
+ * reset lifts, and only show the crash surface if it never does.
+ */
+const OWNER_RESET_CODE = "OWNER_DATA_PURGE_ACTIVE";
+const OWNER_RESET_RETRY_MS = 2_000;
+const OWNER_RESET_MAX_RETRIES = 60;
+const isOwnerResetError = (error: Error | null) =>
+  Boolean(error?.message?.includes(OWNER_RESET_CODE));
 type State = {
   hasError: boolean;
   caughtError: Error | null;
   componentStack: string | null;
   source: "react" | "build";
+  /** A mid-reset owner query failed; render nothing while it retries. */
+  waitingForReset: boolean;
 };
 
 /**
@@ -27,15 +40,24 @@ type State = {
  * instead of Vite's red overlay.
  */
 export class ErrorBoundary extends Component<Props, State> {
+  private resetRetries = 0;
+  private resetRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
   state: State = {
     hasError: false,
     caughtError: null,
     componentStack: null,
     source: "react",
+    waitingForReset: false,
   };
 
   static getDerivedStateFromError(error: Error): Partial<State> {
-    return { hasError: true, caughtError: error, source: "react" };
+    return {
+      hasError: true,
+      caughtError: error,
+      source: "react",
+      waitingForReset: isOwnerResetError(error),
+    };
   }
 
   componentDidMount() {
@@ -50,6 +72,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentWillUnmount() {
+    if (this.resetRetryTimer) clearTimeout(this.resetRetryTimer);
     window.removeEventListener(
       STELLA_BUILD_ERROR_EVENT,
       this.handleBuildError as EventListener,
@@ -61,6 +84,22 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
+    if (isOwnerResetError(error)) {
+      if (this.resetRetries < OWNER_RESET_MAX_RETRIES) {
+        this.resetRetries += 1;
+        this.resetRetryTimer = setTimeout(() => {
+          this.resetRetryTimer = null;
+          this.setState({
+            hasError: false,
+            caughtError: null,
+            componentStack: null,
+            waitingForReset: false,
+          });
+        }, OWNER_RESET_RETRY_MS);
+        return;
+      }
+      this.setState({ waitingForReset: false });
+    }
     console.error("ErrorBoundary caught:", error, info);
     reportRendererError({
       kind: "react",
@@ -99,6 +138,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render() {
     if (!this.state.hasError) return this.props.children;
+    if (this.state.waitingForReset) return null;
     return (
       <CrashSurface
         error={this.state.caughtError}

@@ -629,7 +629,7 @@ export const createAgentOrchestration = (
           agentType,
           site,
           deviceId: context.deviceId,
-          modelCatalogUpdatedAt: context.state.modelCatalogUpdatedAt,
+          backendUrl: context.state.backendUrl,
           stellaDataDir: context.stellaDataDir,
           ...(context.cliBridgeSocketPath
             ? { cliBridgeSocketPath: context.cliBridgeSocketPath }

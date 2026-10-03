@@ -1,5 +1,5 @@
 /** Stella's managed model catalog, fetched over HTTP from the backend. */
-import { getJson } from "./http";
+import { backendOrigin, getJson } from "./http";
 
 export type ReasoningEffort =
   | "default"
@@ -67,7 +67,10 @@ export async function fetchStellaCatalog(
 ): Promise<StellaCatalog> {
   let parsed: CatalogApiResponse;
   try {
-    parsed = (await getJson("/api/stella/models", options)) as CatalogApiResponse;
+    parsed = (await getJson("/api/stella/models", {
+      ...options,
+      origin: backendOrigin(),
+    })) as CatalogApiResponse;
   } catch {
     return { models: FALLBACK_STELLA_MODELS, agentKeys: FALLBACK_AGENT_KEYS };
   }

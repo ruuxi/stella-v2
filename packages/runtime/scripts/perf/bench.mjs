@@ -539,7 +539,6 @@ class WorkerClient {
       convexSiteUrl: null,
       hasConnectedAccount: false,
       cloudSyncEnabled: false,
-      modelCatalogUpdatedAt: null,
       localLlmCredentialsUpdatedAt: null,
     };
   }

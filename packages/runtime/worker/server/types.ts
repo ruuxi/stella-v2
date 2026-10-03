@@ -23,7 +23,6 @@ export type WorkerInitializationState = {
   backendUrl: string | null;
   hasConnectedAccount: boolean;
   cloudSyncEnabled: boolean;
-  modelCatalogUpdatedAt: number | null;
   localLlmCredentialsUpdatedAt: number | null;
 };
 

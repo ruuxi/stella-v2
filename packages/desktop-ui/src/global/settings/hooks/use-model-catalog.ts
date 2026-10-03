@@ -3,8 +3,7 @@ import type { BillingStatus } from "@stella/contracts/backend/billing";
 import { useCallback, useMemo } from "react";
 import { isWebsiteHost } from "@/platform/capabilities";
 import { useDesktopAuthSession, getAuthSessionSnapshot } from "@/global/auth/services/auth-session";
-import { readModelCatalogUpdatedAtSnapshot, useModelCatalogUpdatedAt } from "@/global/settings/hooks/model-catalog-updated-at";
-import { createServiceRequest } from "@/platform/http/service-request";
+import { fetchStellaModels } from "@/platform/backend/stella-models";
 import {
   groupCatalogModelsByProvider,
   listLocalCatalogModels,
@@ -12,13 +11,11 @@ import {
   normalizeRuntimeCatalogSnapshot,
   normalizeStellaCatalogModels,
   searchCatalogModels,
-  type CatalogApiResponse,
   type CatalogDefaultModel,
   type CatalogModel,
   type ManagedRuntimeCatalogPayload,
   type ProviderGroup,
 } from "@/global/settings/lib/model-catalog";
-import { STELLA_MODELS_PATH } from "@/shared/stella-api";
 import {
   resolveBillingAudience,
   type ManagedModelAudience,
@@ -56,19 +53,13 @@ const EMPTY_MANAGED: ManagedRuntimeCatalogPayload = {
 };
 
 /**
- * Per-(audience, catalog-version) Stella catalog. Keyed by
- * `${authAudienceKey}::${modelCatalogUpdatedAt}` — the service-request
- * endpoint and device id come from `createServiceRequest` inside the
- * fetcher and don't shift within a renderer-process session, so they
- * don't need to participate in the cache key.
+ * Per-audience Stella catalog, keyed by the auth audience. Fetched once per
+ * launch and again (with its ETag) when `billing.status` moves the audience.
  */
 const stellaCatalogStore = createResourceStore<string, StellaCatalogPayload>({
   staleMs: MODEL_CATALOG_REFRESH_INTERVAL_MS,
   fetcher: async () => {
-    const request = await createServiceRequest(STELLA_MODELS_PATH);
-    const res = await fetch(request.endpoint, { headers: request.headers });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = (await res.json()) as CatalogApiResponse;
+    const data = await fetchStellaModels();
     return {
       models: normalizeStellaCatalogModels(data?.data ?? []),
       defaults: data.defaults ?? [],
@@ -135,10 +126,6 @@ function getSessionCacheKey(sessionData: AuthSessionData): string {
 
 export function useModelCatalog() {
   const session = useDesktopAuthSession();
-  // Read the catalog updated-at from the shared provider rather than
-  // opening a second `useQuery` subscription — `__root.tsx` already
-  // mounts `ModelCatalogUpdatedAtProvider` for the whole tree.
-  const modelCatalogUpdatedAt = useModelCatalogUpdatedAt();
   const sessionData = session.data as AuthSessionData;
   const user = sessionData?.user ?? null;
   const hasConnectedAccount = Boolean(
@@ -177,13 +164,10 @@ export function useModelCatalog() {
     sessionCacheScope,
   ]);
 
-  const stellaCacheKey = useMemo(() => {
-    if (!authAudienceKey) return null;
-    // The updated-at marker is only a cache-bust hint, not a prerequisite.
-    // Fall back to a stable token so the catalog loads even if the marker
-    // query hasn't resolved yet, then re-fetch when it does.
-    return `${authAudienceKey}::${modelCatalogUpdatedAt ?? "pending"}`;
-  }, [authAudienceKey, modelCatalogUpdatedAt]);
+  // The key follows `billing.status` (plan and fallback), so a billing change
+  // that moves the audience refetches; the ETag makes an unchanged catalog a
+  // 304.
+  const stellaCacheKey = authAudienceKey;
 
   const stellaQuery = useResourceStore(stellaCatalogStore, stellaCacheKey);
   const managedQuery = useResourceStore(managedGatewayStore, isWebsiteHost() ? null : "default");
@@ -236,26 +220,19 @@ export function useModelCatalog() {
       (stellaQuery.isLoading && stellaPayload.models.length === 0),
     error: errorMessage,
     searchModels,
-    modelCatalogUpdatedAt,
     refresh,
     refreshing: stellaQuery.isFetching || managedQuery.isFetching,
     audience,
   };
 }
 
-function buildAnonymousStellaCatalogKey(
-  sessionData: AuthSessionData,
-  modelCatalogUpdatedAt: number,
-): string {
-  return `${getSessionCacheKey(sessionData)}:audience:anonymous::${modelCatalogUpdatedAt}`;
+function buildAnonymousStellaCatalogKey(sessionData: AuthSessionData): string {
+  return `${getSessionCacheKey(sessionData)}:audience:anonymous`;
 }
 
 /** Intent-hover warm for the sidebar Models popover and composer entry points. */
 export function preloadModelCatalogCache(): void {
   if (!isWebsiteHost()) void managedGatewayStore.ensure("default");
-
-  const modelCatalogUpdatedAt = readModelCatalogUpdatedAtSnapshot();
-  if (modelCatalogUpdatedAt === null) return;
 
   const session = getAuthSessionSnapshot();
   if (session.isPending) return;
@@ -266,7 +243,5 @@ export function preloadModelCatalogCache(): void {
   );
   if (hasConnectedAccount) return;
 
-  void stellaCatalogStore.ensure(
-    buildAnonymousStellaCatalogKey(sessionData, modelCatalogUpdatedAt),
-  );
+  void stellaCatalogStore.ensure(buildAnonymousStellaCatalogKey(sessionData));
 }

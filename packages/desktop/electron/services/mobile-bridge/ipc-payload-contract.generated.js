@@ -124,7 +124,6 @@ export const IPC_PAYLOAD_CONTRACT = {
     "home:listRecentApps": { kind: "object", fields: ["limit"] },
     "host:configurePiRuntime": { kind: "passthrough" },
     "host:setCloudSyncEnabled": { kind: "passthrough" },
-    "host:setModelCatalogUpdatedAt": { kind: "passthrough" },
     "llmCredentials:cancelOAuth": { kind: "object", fields: ["provider"] },
     "llmCredentials:delete": { kind: "object", fields: ["provider"] },
     "llmCredentials:deleteOAuth": { kind: "object", fields: ["provider"] },

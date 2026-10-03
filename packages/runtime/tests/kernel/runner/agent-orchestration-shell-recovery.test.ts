@@ -33,7 +33,6 @@ describe("subagent shell recovery scope", () => {
         authToken: null,
         convexSiteUrl: "https://example.test",
         hasConnectedAccount: false,
-        modelCatalogUpdatedAt: null,
         localAgentManager: null,
         orchestratorSessions: new Map(),
         runCallbacksByRunId: new Map(),

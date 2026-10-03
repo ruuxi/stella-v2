@@ -131,11 +131,6 @@ export const createConvexSession = (
     context.state.cloudSyncEnabled = Boolean(enabled);
   };
 
-  const setModelCatalogUpdatedAt = (value: number | null) => {
-    context.state.modelCatalogUpdatedAt =
-      typeof value === "number" && Number.isFinite(value) ? value : null;
-  };
-
   const setHasConnectedAccount = (value: boolean) => {
     context.state.hasConnectedAccount = Boolean(value);
   };
@@ -171,7 +166,6 @@ export const createConvexSession = (
     setAuthToken,
     setHasConnectedAccount,
     setCloudSyncEnabled,
-    setModelCatalogUpdatedAt,
     subscribeQuery,
     getConvexUrl: () => context.state.convexDeploymentUrl,
     getStellaSiteAuth: (): { baseUrl: string; authToken: string } | null => {

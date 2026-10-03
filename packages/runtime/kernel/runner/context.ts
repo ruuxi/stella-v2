@@ -959,7 +959,6 @@ export const createRunnerContext = ({
       convexClientUrl: null,
       hasConnectedAccount: false,
       cloudSyncEnabled: true,
-      modelCatalogUpdatedAt: null,
       isRunning: false,
       isInitialized: false,
       initializationPromise: null,

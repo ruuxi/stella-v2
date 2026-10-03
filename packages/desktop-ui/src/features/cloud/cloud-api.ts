@@ -70,13 +70,6 @@ export type CloudProject = {
 };
 
 export const cloudApi = {
-  // Renderer-side model calls (dictation cleanup and the like) talk to the
-  // model gateway directly; this says where it lives.
-  getModelGatewayConfig: makeFunctionReference<
-    "query",
-    Record<string, never>,
-    { origin: string }
-  >("gateway_capabilities:getModelGatewayConfig"),
   listMyEngineConnections: makeFunctionReference<
     "query",
     Record<string, never>,

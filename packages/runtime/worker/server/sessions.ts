@@ -334,15 +334,9 @@ export const layer = Layer.effect(
       if (patch.cloudSyncEnabled !== undefined) {
         runner?.setCloudSyncEnabled(patch.cloudSyncEnabled);
       }
-      if (patch.modelCatalogUpdatedAt !== undefined) {
-        runner?.setModelCatalogUpdatedAt(patch.modelCatalogUpdatedAt);
-      }
-      // Auth identity and the catalog version are the two cache-key inputs
+      // Auth identity and the backend are the catalog's cache-key inputs
       // the runtime controls; re-warm when either moves.
-      if (
-        patch.authToken !== undefined ||
-        patch.modelCatalogUpdatedAt !== undefined
-      ) {
+      if (patch.authToken !== undefined || patch.backendUrl !== undefined) {
         catalog.scheduleWarm(() => session.runnerCell.get());
       }
     };

@@ -447,11 +447,6 @@ export class RuntimeHostAdapter {
         // This affects future local work; in-flight turns retain their storage mode.
         this.queueRuntimeConfigPatch({ cloudSyncEnabled: Boolean(enabled) });
     }
-    setModelCatalogUpdatedAt(value) {
-        this.queueRuntimeConfigPatch({
-            modelCatalogUpdatedAt: typeof value === "number" && Number.isFinite(value) ? value : null,
-        });
-    }
     refreshLocalLlmCredentials() {
         this.queueRuntimeConfigPatch({
             localLlmCredentialsUpdatedAt: Date.now(),

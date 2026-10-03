@@ -278,7 +278,6 @@ export const layer = Layer.effect(
       runner.setAuthToken(cfg.authToken);
       runner.setHasConnectedAccount(cfg.hasConnectedAccount);
       runner.setCloudSyncEnabled(cfg.cloudSyncEnabled);
-      runner.setModelCatalogUpdatedAt(cfg.modelCatalogUpdatedAt);
       runnerCell.set(runner);
       runner.start();
       return runner;

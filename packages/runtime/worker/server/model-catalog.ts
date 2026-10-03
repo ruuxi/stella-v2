@@ -24,7 +24,7 @@ export interface Interface {
   >;
   /**
    * Warm the Stella model catalog in the background whenever an input to its
-   * cache key changes (auth identity, device, `modelCatalogUpdatedAt`).
+   * cache key changes (auth identity, device, backend).
    * Debounced so a `configure` call touching multiple fields only warms
    * once, and best-effort so a network failure never affects config
    * application. No-ops when the runner isn't built yet.

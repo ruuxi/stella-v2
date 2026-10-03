@@ -142,7 +142,6 @@ import {
   IPC_DIAGNOSTICS_OPEN_LOGS,
   IPC_GLOBAL_SHORTCUTS_GET_SUSPENDED,
   IPC_GLOBAL_SHORTCUTS_SET_SUSPENDED,
-  IPC_HOST_SET_MODEL_CATALOG_UPDATED_AT,
   IPC_PERMISSIONS_RESET,
   IPC_PERMISSIONS_RESET_MICROPHONE,
   IPC_PREFERENCES_GET_MODELS,
@@ -1129,8 +1128,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke(IPC_AUTH_GET_CONVEX_TOKEN) as Promise<string | null>,
     setCloudSyncEnabled: (payload: { enabled: boolean }) =>
       ipcRenderer.invoke("host:setCloudSyncEnabled", payload),
-    setModelCatalogUpdatedAt: (payload: { updatedAt: number | null }) =>
-      ipcRenderer.invoke(IPC_HOST_SET_MODEL_CATALOG_UPDATED_AT, payload),
     onAuthSessionInvalidated: onIpcSignal(IPC_AUTH_SESSION_INVALIDATED),
     quitForRestart: () =>
       ipcRenderer.invoke(IPC_APP_QUIT_FOR_RESTART) as Promise<{ ok: boolean }>,

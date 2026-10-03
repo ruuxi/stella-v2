@@ -13,8 +13,7 @@ import {
   gatewayRelayBaseUrl,
   type GatewayErrorBody,
 } from "@stella/contracts/gateway/api";
-import { cloudApi } from "@/features/cloud/cloud-api";
-import { convexClient } from "@/platform/convex/convex-client";
+import { fetchStellaModels } from "@/platform/backend/stella-models";
 import {
   STELLA_DEFAULT_MODEL,
   extractChatText,
@@ -91,14 +90,15 @@ const normalizeGatewayOrigin = (value: unknown): string => {
 };
 
 /**
- * The gateway origin Convex advertises for this deployment. Resolved once per
- * renderer session; a failed lookup is not cached so the next call retries.
+ * The gateway origin the model catalog advertises for this deployment.
+ * Resolved once per renderer session; a failed lookup is not cached so the
+ * next call retries.
  */
 const resolveGatewayOrigin = (): Promise<string> => {
   if (!gatewayOriginPromise) {
-    const pending = convexClient
-      .query(cloudApi.getModelGatewayConfig, {})
-      .then((config) => normalizeGatewayOrigin(config.origin));
+    const pending = fetchStellaModels().then((catalog) =>
+      normalizeGatewayOrigin(catalog.gateway?.origin),
+    );
     pending.catch(() => {
       if (gatewayOriginPromise === pending) gatewayOriginPromise = null;
     });

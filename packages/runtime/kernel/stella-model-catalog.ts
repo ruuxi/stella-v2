@@ -68,7 +68,7 @@ type StellaModelCatalog = {
   gateway: { origin: string };
 };
 
-type CatalogCacheEntry = StellaModelCatalog;
+type CatalogCacheEntry = StellaModelCatalog & { etag: string | null };
 
 type ModelIdentity = Pick<Model<Api>, "api" | "provider" | "id" | "name">;
 
@@ -152,12 +152,10 @@ const publishCatalogToModelRuntime = async (
 };
 
 /**
- * The disk cache is keyed by the IDENTITY (endpoint + user + device) only —
- * deliberately NOT by catalog version. The pushed `modelCatalogUpdatedAt`
- * decides freshness, not existence: when the version bumps, the stored copy
- * goes stale but stays servable, so a catalog change (or a flaky backend
- * mid-deploy) can never leave route resolution with nothing. One file per
- * identity also stops the per-version file accumulation the old scheme had.
+ * The disk cache is keyed by the IDENTITY (endpoint + user + device), with
+ * the catalog's ETag beside it. A stored copy is servable at once on launch
+ * and revalidated in the background, so a catalog change (or a flaky backend
+ * mid-deploy) can never leave route resolution with nothing.
  */
 const diskCachePathForIdentity = (
   stellaDataDir: string,
@@ -200,40 +198,36 @@ const isCatalogDefault = (value: unknown): value is CatalogDefaultModel => {
   );
 };
 
-const parsePersistedCatalog = (
-  value: unknown,
-): { catalog: StellaModelCatalog; storedCacheKey: string } | null => {
+const parsePersistedCatalog = (value: unknown): CatalogCacheEntry | null => {
   if (!value || typeof value !== "object") return null;
   const candidate = value as {
-    cacheKey?: unknown;
+    etag?: unknown;
     catalog?: {
       models?: unknown;
       defaults?: unknown;
       gateway?: { origin?: unknown };
     };
   };
-  if (typeof candidate.cacheKey !== "string") return null;
   const models = candidate.catalog?.models;
   const defaults = candidate.catalog?.defaults;
   if (!Array.isArray(models) || !Array.isArray(defaults)) return null;
   if (!models.every(isCatalogModel) || !defaults.every(isCatalogDefault)) {
     return null;
   }
-  // A pre-gateway disk copy carries no origin; it reads as "nothing stored"
-  // so the next lookup fetches a catalog that does.
   const gatewayOrigin = normalizeGatewayOrigin(candidate.catalog?.gateway?.origin);
   if (!gatewayOrigin) return null;
   return {
-    catalog: { models, defaults, gateway: { origin: gatewayOrigin } },
-    storedCacheKey: candidate.cacheKey,
+    models,
+    defaults,
+    gateway: { origin: gatewayOrigin },
+    etag: typeof candidate.etag === "string" ? candidate.etag : null,
   };
 };
 
 const readCatalogFromDiskEffect = (
   stellaDataDir: string | undefined,
   identityKey: string,
-  cacheKey: string,
-): Effect.Effect<{ catalog: StellaModelCatalog; fresh: boolean } | null> =>
+): Effect.Effect<CatalogCacheEntry | null> =>
   Effect.suspend(() => {
     if (!stellaDataDir?.trim()) {
       return Effect.succeed(null);
@@ -243,12 +237,7 @@ const readCatalogFromDiskEffect = (
         diskCachePathForIdentity(stellaDataDir, identityKey),
         "utf-8",
       );
-      const persisted = parsePersistedCatalog(JSON.parse(raw));
-      if (!persisted) return null;
-      return {
-        catalog: persisted.catalog,
-        fresh: persisted.storedCacheKey === cacheKey,
-      };
+      return parsePersistedCatalog(JSON.parse(raw));
     }).pipe(
       // Missing/torn/unparsable disk cache reads as "nothing stored" —
       // the old `catch { return null }`.
@@ -259,8 +248,7 @@ const readCatalogFromDiskEffect = (
 const writeCatalogToDiskEffect = (
   stellaDataDir: string | undefined,
   identityKey: string,
-  cacheKey: string,
-  catalog: StellaModelCatalog,
+  entry: CatalogCacheEntry,
 ): Effect.Effect<void, unknown> =>
   Effect.suspend(() => {
     if (!stellaDataDir?.trim()) {
@@ -269,7 +257,7 @@ const writeCatalogToDiskEffect = (
     return tryCatalogOp(() =>
       writePrivateFile(
         diskCachePathForIdentity(stellaDataDir, identityKey),
-        JSON.stringify({ cacheKey, catalog }, null, 2),
+        JSON.stringify({ etag: entry.etag, catalog: cloneCatalog(entry) }, null, 2),
       ),
     );
   });
@@ -320,22 +308,20 @@ const getJwtCacheIdentity = (authorization: string | undefined): string => {
 const buildCatalogRequest = (args: {
   site: StellaSiteConfig;
   deviceId?: string;
-  modelCatalogUpdatedAt?: number | null;
+  backendUrl?: string | null;
 }): {
   endpoint: string;
   headers: Record<string, string>;
   /** Who is asking: endpoint + stable JWT identity + device. */
   identityKey: string;
-  /** identityKey + the pushed catalog version — the freshness key. */
-  cacheKey: string;
 } | null => {
-  const baseUrl = args.site.baseUrl?.trim();
+  const backendUrl = args.backendUrl?.trim();
   const authToken = args.site.getAuthToken()?.trim();
-  if (!baseUrl || !authToken) {
+  if (!backendUrl || !authToken) {
     return null;
   }
 
-  const endpoint = `${normalizeStellaSiteUrl(baseUrl)}${STELLA_MODELS_PATH}`;
+  const endpoint = `${normalizeStellaSiteUrl(backendUrl)}${STELLA_MODELS_PATH}`;
   const headers: Record<string, string> = {
     Authorization: `Bearer ${authToken}`,
   };
@@ -347,15 +333,7 @@ const buildCatalogRequest = (args: {
     getJwtCacheIdentity(headers.Authorization),
     headers["X-Device-ID"] ?? "device:none",
   ].join("|");
-  return {
-    endpoint,
-    headers,
-    identityKey,
-    cacheKey: [
-      identityKey,
-      args.modelCatalogUpdatedAt ?? "model-catalog-updated-at:none",
-    ].join("|"),
-  };
+  return { endpoint, headers, identityKey };
 };
 
 type CatalogRequest = NonNullable<ReturnType<typeof buildCatalogRequest>>;
@@ -370,6 +348,7 @@ type CatalogRequest = NonNullable<ReturnType<typeof buildCatalogRequest>>;
 const fetchCatalogFromNetwork = (
   request: CatalogRequest,
   stellaDataDir: string | undefined,
+  stored: CatalogCacheEntry | null,
 ): Promise<StellaModelCatalog | null> => {
   const existing = inFlightCatalogRequests.get(request.identityKey);
   if (existing) {
@@ -386,10 +365,16 @@ const fetchCatalogFromNetwork = (
     Effect.gen(function* () {
       const res = yield* tryCatalogOp(() =>
         fetch(request.endpoint, {
-          headers: request.headers,
+          headers: stored?.etag
+            ? { ...request.headers, "If-None-Match": stored.etag }
+            : request.headers,
           signal: AbortSignal.timeout(CATALOG_FETCH_TIMEOUT_MS),
         }),
       );
+      if (res.status === 304 && stored) {
+        catalogCache.set(request.identityKey, stored);
+        return cloneCatalog(stored) as StellaModelCatalog | null;
+      }
       if (!res.ok) {
         return yield* Effect.fail(new Error(`HTTP ${res.status}`));
       }
@@ -417,12 +402,15 @@ const fetchCatalogFromNetwork = (
         defaults: data.defaults ?? [],
         gateway: { origin: gatewayOrigin },
       };
-      catalogCache.set(request.cacheKey, cloneCatalog(catalog));
+      const entry: CatalogCacheEntry = {
+        ...cloneCatalog(catalog),
+        etag: res.headers.get("etag"),
+      };
+      catalogCache.set(request.identityKey, entry);
       yield* writeCatalogToDiskEffect(
         stellaDataDir,
         request.identityKey,
-        request.cacheKey,
-        catalog,
+        entry,
       ).pipe(Effect.catch(() => Effect.void));
       return catalog as StellaModelCatalog | null;
     }).pipe(
@@ -448,22 +436,22 @@ const fetchCatalogFromNetwork = (
 };
 
 /**
- * Push-invalidated, stale-while-revalidate catalog lookup.
+ * Stale-while-revalidate catalog lookup, revalidated once per launch.
  *
- * The backend pushes `modelCatalogUpdatedAt` down through desktop config;
- * that version is the ONLY thing that decides freshness. Resolution order:
- *   1. memory/disk copy stored under the current version → serve it;
- *   2. any older stored copy → serve it IMMEDIATELY and refresh in the
- *      background (spaced by {@link CATALOG_REFRESH_MIN_INTERVAL_MS});
+ * Resolution order:
+ *   1. a copy fetched or revalidated by this process → serve it;
+ *   2. the disk copy → serve it IMMEDIATELY and revalidate it in the
+ *      background with its ETag (spaced by
+ *      {@link CATALOG_REFRESH_MIN_INTERVAL_MS});
  *   3. nothing stored at all (first run) → one bounded network fetch.
  * After the first successful fetch on a device, callers never block on the
- * network again — a version bump degrades to "briefly stale", never to
+ * network again — a catalog change degrades to "briefly stale", never to
  * "hangs" or "no catalog".
  */
 const fetchStellaModelCatalogEffect = (args: {
   site: StellaSiteConfig;
   deviceId?: string;
-  modelCatalogUpdatedAt?: number | null;
+  backendUrl?: string | null;
   stellaDataDir?: string;
 }): Effect.Effect<StellaModelCatalog | null, unknown> =>
   Effect.gen(function* () {
@@ -472,7 +460,7 @@ const fetchStellaModelCatalogEffect = (args: {
       return null;
     }
 
-    const cached = catalogCache.get(request.cacheKey);
+    const cached = catalogCache.get(request.identityKey);
     if (cached) {
       yield* tryCatalogOp(() => publishCatalogToModelRuntime(cached, args.site));
       return cloneCatalog(cached);
@@ -481,19 +469,10 @@ const fetchStellaModelCatalogEffect = (args: {
     const diskCached = yield* readCatalogFromDiskEffect(
       args.stellaDataDir,
       request.identityKey,
-      request.cacheKey,
     );
-    if (diskCached?.fresh) {
-      catalogCache.set(request.cacheKey, cloneCatalog(diskCached.catalog));
-      yield* tryCatalogOp(() =>
-        publishCatalogToModelRuntime(diskCached.catalog, args.site),
-      );
-      return diskCached.catalog;
-    }
     if (diskCached) {
-      // Stale copy: usable now, refresh behind the caller's back. The stale
-      // catalog is deliberately NOT memoized under the current cacheKey — the
-      // memory entry for this version is only written by a successful fetch.
+      // Usable now, revalidated behind the caller's back. It is memoized
+      // only once the backend confirms it (304) or replaces it.
       const lastAttempt =
         lastCatalogFetchAttemptAtMs.get(request.identityKey) ?? 0;
       if (
@@ -505,7 +484,7 @@ const fetchStellaModelCatalogEffect = (args: {
         // instead of the process' unhandled-rejection path.
         catalogRuntime.runFork(
           tryCatalogOp(() =>
-            fetchCatalogFromNetwork(request, args.stellaDataDir),
+            fetchCatalogFromNetwork(request, args.stellaDataDir, diskCached),
           ).pipe(
             Effect.flatMap((catalog) =>
               catalog
@@ -518,13 +497,13 @@ const fetchStellaModelCatalogEffect = (args: {
         );
       }
       yield* tryCatalogOp(() =>
-        publishCatalogToModelRuntime(diskCached.catalog, args.site),
+        publishCatalogToModelRuntime(diskCached, args.site),
       );
-      return diskCached.catalog;
+      return cloneCatalog(diskCached);
     }
 
     const fetched = yield* tryCatalogOp(() =>
-      fetchCatalogFromNetwork(request, args.stellaDataDir),
+      fetchCatalogFromNetwork(request, args.stellaDataDir, null),
     );
     if (fetched) {
       yield* tryCatalogOp(() =>
@@ -556,7 +535,7 @@ const resolveStellaModelAliasEffect = (args: {
   agentType: string;
   site: StellaSiteConfig;
   deviceId?: string;
-  modelCatalogUpdatedAt?: number | null;
+  backendUrl?: string | null;
   stellaDataDir?: string;
 }): Effect.Effect<CatalogModelResolution | null, unknown> =>
   Effect.gen(function* () {
@@ -570,7 +549,7 @@ const resolveStellaModelAliasEffect = (args: {
       const catalog = yield* fetchStellaModelCatalogEffect({
         site: args.site,
         deviceId: args.deviceId,
-        modelCatalogUpdatedAt: args.modelCatalogUpdatedAt,
+        backendUrl: args.backendUrl,
         stellaDataDir: args.stellaDataDir,
       });
       const catalogModel = catalog?.models.find(
@@ -585,7 +564,7 @@ const resolveStellaModelAliasEffect = (args: {
     const catalog = yield* fetchStellaModelCatalogEffect({
       site: args.site,
       deviceId: args.deviceId,
-      modelCatalogUpdatedAt: args.modelCatalogUpdatedAt,
+      backendUrl: args.backendUrl,
       stellaDataDir: args.stellaDataDir,
     });
     if (!catalog) {
@@ -619,7 +598,7 @@ export const withStellaModelCatalogMetadata = (args: {
   agentType: string;
   site: StellaSiteConfig;
   deviceId?: string;
-  modelCatalogUpdatedAt?: number | null;
+  backendUrl?: string | null;
   stellaDataDir?: string;
   reasoningEffort?: string;
 }): Promise<ResolvedLlmRoute> =>

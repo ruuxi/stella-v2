@@ -64,7 +64,7 @@ export const resolveRunnerLlmRouteWithMetadata = async (
     agentType,
     site,
     deviceId: context.deviceId,
-    modelCatalogUpdatedAt: context.state.modelCatalogUpdatedAt,
+    backendUrl: context.state.backendUrl,
     stellaDataDir: context.stellaDataDir,
     reasoningEffort,
   });

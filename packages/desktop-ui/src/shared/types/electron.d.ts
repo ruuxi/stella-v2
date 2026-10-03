@@ -639,9 +639,6 @@ export type ElectronSystemApi = {
   setCloudSyncEnabled: (payload: {
     enabled: boolean;
   }) => Promise<{ ok: boolean }>;
-  setModelCatalogUpdatedAt: (payload: {
-    updatedAt: number | null;
-  }) => Promise<{ ok: boolean }>;
   onAuthSessionInvalidated: (callback: () => void) => () => void;
   quitForRestart: () => Promise<{ ok: boolean }>;
   openFullDiskAccess: () => void;

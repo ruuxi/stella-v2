@@ -100,7 +100,6 @@ import {
   type StellaOpenPanelChatDetail,
   type StellaComposeTextDetail,
 } from "@/shared/lib/stella-orb-chat";
-import { ModelCatalogUpdatedAtProvider } from "@/global/settings/hooks/model-catalog-updated-at";
 import { useRestrictedStellaModelReset } from "@/global/settings/hooks/use-restricted-stella-model-reset";
 import { MobileActivityNotificationsBridge } from "@/global/mobile/MobileActivityNotificationsBridge";
 import { useDictationToggleBridge } from "@/shell/root-chrome/use-dictation-toggle-bridge";
@@ -653,15 +652,13 @@ function RootLayout() {
           to reconnect your account.
         </div>
       ) : null}
-      <ModelCatalogUpdatedAtProvider>
-        <ChatRuntimeProvider
-          activeConversationId={conversationId}
-          isOnChatRoute={isOnChatRoute}
-          navigateToConversation={navigateToConversation}
-        >
-          <RootChrome conversationId={conversationId} />
-        </ChatRuntimeProvider>
-      </ModelCatalogUpdatedAtProvider>
+      <ChatRuntimeProvider
+        activeConversationId={conversationId}
+        isOnChatRoute={isOnChatRoute}
+        navigateToConversation={navigateToConversation}
+      >
+        <RootChrome conversationId={conversationId} />
+      </ChatRuntimeProvider>
     </>
   );
 }

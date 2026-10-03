@@ -2448,7 +2448,6 @@ export class StellaRuntimeHost {
             backendUrl: this.configCache.backendUrl ?? null,
             hasConnectedAccount: this.configCache.hasConnectedAccount ?? false,
             cloudSyncEnabled: this.configCache.cloudSyncEnabled ?? false,
-            modelCatalogUpdatedAt: this.configCache.modelCatalogUpdatedAt ?? null,
             localLlmCredentialsUpdatedAt: this.configCache.localLlmCredentialsUpdatedAt ?? null,
         };
     }

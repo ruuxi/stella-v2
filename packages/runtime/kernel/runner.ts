@@ -515,7 +515,6 @@ export const createStellaHostRunner = (
     },
     setHasConnectedAccount,
     setCloudSyncEnabled: convexSession.setCloudSyncEnabled,
-    setModelCatalogUpdatedAt: convexSession.setModelCatalogUpdatedAt,
     start: runtimeInitialization.start,
     stop: async () => {
       cloudAgentLifecycle.stop();

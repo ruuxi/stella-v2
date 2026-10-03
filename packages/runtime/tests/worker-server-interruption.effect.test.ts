@@ -35,7 +35,6 @@ const harness = vi.hoisted(() => {
     setAuthToken: () => undefined,
     setHasConnectedAccount: () => undefined,
     setCloudSyncEnabled: () => undefined,
-    setModelCatalogUpdatedAt: () => undefined,
     start: () => undefined,
     stop: async () => {
       state.runnersStopped += 1;
@@ -115,7 +114,6 @@ const initParams = (dataDir: string, appDir: string) =>
     convexSiteUrl: null,
     hasConnectedAccount: false,
     cloudSyncEnabled: false,
-    modelCatalogUpdatedAt: null,
     localLlmCredentialsUpdatedAt: null,
   }) as unknown as WorkerInitializationState;
 

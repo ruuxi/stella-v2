@@ -26,8 +26,8 @@ const mocks = vi.hoisted(() => ({
   getConvexToken: vi.fn(),
 }));
 
-vi.mock("@/platform/convex/convex-client", () => ({
-  convexClient: { query: mocks.query },
+vi.mock("@/platform/backend/stella-models", () => ({
+  fetchStellaModels: async () => ({ gateway: await mocks.query() }),
 }));
 vi.mock("@/global/auth/services/auth-token", () => ({
   getConvexToken: mocks.getConvexToken,

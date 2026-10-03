@@ -163,8 +163,6 @@ export const IPC_AUTH_DELETE_USER = "auth:deleteUser" as const;
 export const IPC_AUTH_APPLY_SESSION_TOKEN = "auth:applySessionToken" as const;
 export const IPC_AUTH_GET_CONVEX_TOKEN = "auth:getConvexToken" as const;
 export const IPC_HOST_SET_CLOUD_SYNC = "host:setCloudSyncEnabled" as const;
-export const IPC_HOST_SET_MODEL_CATALOG_UPDATED_AT =
-  "host:setModelCatalogUpdatedAt" as const;
 
 // Main revoked this device's session on its own (the stored bearer was
 // rejected). Push-only: nothing the renderer did triggers it.

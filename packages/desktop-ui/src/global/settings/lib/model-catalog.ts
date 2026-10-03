@@ -72,6 +72,8 @@ export type CatalogApiModel = {
 export type CatalogApiResponse = {
   data?: CatalogApiModel[];
   defaults?: CatalogDefaultModel[];
+  /** Model-gateway origin every Stella route relays through. */
+  gateway?: { origin?: string };
 };
 
 export { getProviderDisplayName };

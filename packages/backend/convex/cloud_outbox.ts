@@ -3,7 +3,6 @@ import type {
   ConversationCreatedEvent,
   ConversationDeletedEvent,
   ConversationIndexEvent,
-  DispatchUpdatedEvent,
   OutboxEvent,
   OutboxRejectReason,
   ThreadCompletedEvent,
@@ -153,11 +152,12 @@ const applyConversationDeleted = async (
     ownerId: event.ownerId,
     now: event.deletedAt,
   });
-  // The DO said it is gone; the purge handshake confirms its storage is.
+  // The DO said it is gone, and the owner object purges it. What is left here
+  // is this projection's own turns, events and threads.
   await ctx.scheduler.runAfter(
     0,
-    internal.cloud_apps.purgeConversationInternal,
-    { conversationId: event.conversationId, ownerId: event.ownerId },
+    internal.cloud_apps.purgeConversationRowsInternal,
+    { conversationId: event.conversationId },
   );
   return applied;
 };
@@ -382,64 +382,6 @@ const applyBuildRecorded = async (
   return duplicate;
 };
 
-/**
- * Placement projection. The owner gate is the authority; this row exists so
- * the activity UI can list what ran where. Delivery reorders, so the stored
- * revision fences every apply — an older revision arriving after a newer one
- * is a duplicate, not a rewrite.
- */
-const applyDispatchUpdated = async (
-  ctx: MutationCtx,
-  event: DispatchUpdatedEvent,
-): Promise<OutboxApplyResult> => {
-  const summary = event.dispatch;
-  const existing = await ctx.db
-    .query("cloud_dispatches")
-    .withIndex("by_dispatchId", (q) => q.eq("dispatchId", event.dispatchId))
-    .unique();
-  const fields = {
-    dispatchId: summary.dispatchId,
-    ownerId: event.ownerId,
-    ownerGeneration: event.ownerGeneration,
-    idempotencyKey: summary.idempotencyKey,
-    kind: summary.kind,
-    ingress: summary.ingress,
-    subject: summary.subject,
-    requestedTargetMode: summary.requestedTargetMode,
-    requestedExecutorDeviceId: summary.requestedExecutorDeviceId,
-    conversationId: summary.conversationId,
-    parentTurnId: summary.parentTurnId,
-    threadId: summary.threadId,
-    state: summary.state,
-    placement: summary.placement,
-    executorDeviceId: summary.executorDeviceId,
-    executorPresenceSessionId: summary.executorPresenceSessionId,
-    revision: summary.revision,
-    fallbackReason: summary.fallbackReason,
-    cancelRequestId: summary.cancelRequestId,
-    cancelReason: summary.cancelReason,
-    errorCode: summary.errorCode,
-    errorMessage: summary.errorMessage,
-    cloudTurnId: summary.cloudTurnId,
-    cloudThreadId: summary.cloudThreadId,
-    createdAt: summary.createdAt,
-    updatedAt: summary.updatedAt,
-  };
-  if (!existing) {
-    await ctx.db.insert("cloud_dispatches", fields);
-    return applied;
-  }
-  if (existing.ownerId !== event.ownerId) return rejected("owner_mismatch");
-  if (existing.revision >= summary.revision) return duplicate;
-  // `replace` rather than `patch`: a field the newer revision dropped (a
-  // cleared cancel request, a resolved error) must not survive as residue.
-  await ctx.db.replace(existing._id, {
-    ...fields,
-    createdAt: existing.createdAt,
-  });
-  return applied;
-};
-
 const applyEvent = async (
   ctx: MutationCtx,
   event: OutboxEvent,
@@ -462,8 +404,6 @@ const applyEvent = async (
       return await applyThreadCompleted(ctx, event);
     case "build.recorded":
       return await applyBuildRecorded(ctx, event, options.now);
-    case "dispatch.updated":
-      return await applyDispatchUpdated(ctx, event);
   }
 };
 

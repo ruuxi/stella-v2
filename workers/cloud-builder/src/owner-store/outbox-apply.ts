@@ -10,7 +10,7 @@ import {
   type AgentThreadEffects,
 } from "./domains/agent-threads.js";
 import { applyConversationEvent } from "./domains/conversations.js";
-import type { OwnerDb } from "./registry.js";
+import type { OwnerContext } from "./registry.js";
 
 /** Parents before children, so a batch never applies a child to a missing row. */
 const KIND_ORDER: Record<OutboxEvent["kind"], number> = {
@@ -21,14 +21,14 @@ const KIND_ORDER: Record<OutboxEvent["kind"], number> = {
   "turn.event": 4,
   "thread.completed": 5,
   "conversation.deleted": 6,
-  "dispatch.updated": 7,
-  "build.recorded": 8,
+  "build.recorded": 7,
 };
 
 export const applyOwnerOutbox = (
-  db: OwnerDb,
+  ctx: Pick<OwnerContext, "db" | "jobs" | "now">,
   events: readonly OutboxEvent[],
 ): AgentThreadEffects => {
+  const { db } = ctx;
   const effects: AgentThreadEffects = { cards: [] };
   const ordered = [...events].sort(
     (left, right) => KIND_ORDER[left.kind] - KIND_ORDER[right.kind],
@@ -38,10 +38,10 @@ export const applyOwnerOutbox = (
       case "conversation.created":
       case "conversation.index":
       case "conversation.deleted":
-        applyConversationEvent(db, event);
+        applyConversationEvent(ctx, event);
         break;
       case "turn.started":
-        applyConversationEvent(db, event);
+        applyConversationEvent(ctx, event);
         applyAgentThreadEvent(db, event, effects);
         break;
       case "turn.event":
@@ -49,8 +49,6 @@ export const applyOwnerOutbox = (
       case "thread.completed":
         applyAgentThreadEvent(db, event, effects);
         break;
-      // The gate emits dispatch updates from its own table; nothing to mirror.
-      case "dispatch.updated":
       case "build.recorded":
         break;
     }

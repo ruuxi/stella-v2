@@ -2452,66 +2452,6 @@ describe("crash-safe ownership migration lifecycle", () => {
     ]);
   });
 
-  it("discards both principals' dispatch projections", async () => {
-    const t = createTest();
-    await t.mutation(migrationInternal.prepareOwnershipMigration, ownerArgs);
-    const claim = await t.mutation(migrationInternal.claimOwnershipMigration, {
-      ...ownerArgs,
-      leaseId: "placement-lease",
-      now: 1_000,
-    });
-    await t.run(async (ctx) => {
-      for (const [ownerId, ownerGeneration, suffix] of [
-        [fromOwnerId, claim.fromOwnerGeneration!, "source"],
-        [toOwnerId, claim.toOwnerGeneration!, "destination"],
-      ] as const) {
-        await ctx.db.insert("cloud_dispatches", {
-          dispatchId: `dispatch-${suffix}`,
-          ownerId,
-          ownerGeneration,
-          idempotencyKey: `dispatch-idempotency-${suffix}`,
-          kind: "chat",
-          ingress: "desktop",
-          subject: "portable",
-          conversationId: `conversation-${suffix}`,
-          state: "computer_running",
-          revision: 1,
-          createdAt: 1,
-          updatedAt: 1,
-        });
-      }
-    });
-
-    await expect(
-      t.query(migrationInternal.auditOwnershipMigrationResidue, ownerArgs),
-    ).resolves.toEqual({ kind: "retry", table: "cloud_dispatches" });
-
-    for (let pass = 0; pass < 2; pass += 1) {
-      await expect(
-        t.mutation(migrationInternal.discardAnonymousTransientHandshakesBatch, {
-          ...ownerArgs,
-          leaseId: "placement-lease",
-          leaseGeneration: claim.leaseGeneration!,
-          leaseNow: 1_003 + pass,
-        }),
-      ).resolves.toEqual({ hasMore: true });
-    }
-    await expect(
-      t.mutation(migrationInternal.discardAnonymousTransientHandshakesBatch, {
-        ...ownerArgs,
-        leaseId: "placement-lease",
-        leaseGeneration: claim.leaseGeneration!,
-        leaseNow: 1_011,
-      }),
-    ).resolves.toEqual({ hasMore: false });
-    await expect(
-      t.query(migrationInternal.auditOwnershipMigrationResidue, ownerArgs),
-    ).resolves.toEqual({ kind: "clear" });
-    await expect(
-      t.run(async (ctx) => await ctx.db.query("cloud_dispatches").collect()),
-    ).resolves.toEqual([]);
-  });
-
   it("moves versioned Memory and authorized Skills without stale leases", async () => {
     const t = createTest();
     await t.mutation(migrationInternal.prepareOwnershipMigration, ownerArgs);

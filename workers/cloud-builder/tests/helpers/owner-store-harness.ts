@@ -152,7 +152,7 @@ export const createOwnerStoreHarness = (
       };
     },
     async outbox(events: OutboxEvent[]) {
-      const effects = applyOwnerOutbox(store.context(null).db, events);
+      const effects = applyOwnerOutbox(store.context(null), events);
       store.flush();
       for (const card of effects.cards) await ownerHost.postConversationCard(card);
     },

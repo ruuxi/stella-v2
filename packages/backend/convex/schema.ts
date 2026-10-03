@@ -21,7 +21,6 @@ import { cloudDriveSchema } from "./schema/cloud_drive";
 import { cloudProjectsSchema } from "./schema/cloud_projects";
 import { cloudScheduleSchema } from "./schema/cloud_schedule";
 import { ownerLifecycleSchema } from "./schema/owner_lifecycle";
-import { executionPlacementSchema } from "./schema/execution_placement";
 import { accountExternalMediaSchema } from "./schema/account_external_media";
 import { cloudBrowserSchema } from "./schema/cloud_browser";
 import { cloudConnectorConnectSchema } from "./schema/cloud_connector_connect";
@@ -52,7 +51,6 @@ export default defineSchema({
   ...cloudProjectsSchema,
   ...cloudScheduleSchema,
   ...ownerLifecycleSchema,
-  ...executionPlacementSchema,
   ...accountExternalMediaSchema,
   ...cloudBrowserSchema,
   ...cloudConnectorConnectSchema,

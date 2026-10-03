@@ -148,7 +148,6 @@ import {
   type DevicePresenceState,
   type DeviceRegistration,
 } from "./dispatch-policy.js";
-import { enqueueOutbox } from "./outbox.js";
 import { OwnerFenceStore } from "./owner-fence-store.js";
 import { OwnerModelGrantStore, type OwnerModelGrant, type OwnerModelGrantRevokeAllInput } from "./owner-model-grants.js";
 import { OwnerMemoryPolicy, MemoryPolicyError } from "./memory-policy.js";
@@ -1000,8 +999,10 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         (generation === null || event.ownerGeneration === generation),
     );
     const store = this.ownerStore();
-    const effects = applyOwnerOutbox(store.context(null).db, current);
+    const effects = applyOwnerOutbox(store.context(null), current);
     store.flush();
+    // A deleted conversation schedules its purge job.
+    await this.scheduleAlarm(Date.now());
     for (const event of current) {
       if (event.kind !== "turn.event" || !event.terminal) continue;
       const outcome = event.terminalStatus;
@@ -2682,30 +2683,6 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       .toArray()[0];
   }
 
-  private async emitDispatchUpdated(row: DispatchRow): Promise<void> {
-    const event: OutboxEvent = {
-      v: 1,
-      kind: "dispatch.updated",
-      key: `${row.dispatch_id}:${row.revision}`,
-      ownerId: this.ownerId(),
-      ownerGeneration: row.owner_generation,
-      emittedAt: Date.now(),
-      dispatchId: row.dispatch_id,
-      dispatch: dispatchSummary(row),
-    };
-    try {
-      await enqueueOutbox(this.env, [event]);
-    } catch (error) {
-      // The projection is for the activity UI; a queue outage must never take
-      // a dispatch transition down with it.
-      log("error", "dispatch_projection_deferred", {
-        dispatchId: row.dispatch_id,
-        revision: row.revision,
-        message: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
   private notifyExecutor(row: DispatchRow): void {
     if (!row.executor_device_id) return;
     const socket = this.connectedSocket(row.executor_device_id);
@@ -2713,7 +2690,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     this.send(socket, { type: "dispatch", dispatch: dispatchSummary(row) });
   }
 
-  /** Every transition goes through here: one revision bump, one projection. */
+  /** Every transition goes through here: one revision bump. */
   private async patchDispatch(
     row: DispatchRow,
     patch: Record<string, string | number | null>,
@@ -2733,7 +2710,6 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       row.dispatch_id,
     );
     const next = this.dispatchRow(row.dispatch_id)!;
-    await this.emitDispatchUpdated(next);
     if (options.notifyExecutor !== false) this.notifyExecutor(next);
     return next;
   }
@@ -3671,10 +3647,6 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       now,
     );
     let row = this.dispatchRow(dispatchId)!;
-    // The dispatch row is already durable before outgoing I/O passes the
-    // storage output gate. Its activity projection is independent of routing;
-    // don't put the queue service's acknowledgement before turn admission.
-    const projectionWork = this.emitDispatchUpdated(row);
     if (terminal) {
       if (gateHeld) await this.release({ turnId: dispatchId });
     } else if (state === "computer_accepted" && executorDeviceId) {
@@ -3693,7 +3665,6 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       });
       row = await this.runCloudBranch(row, now);
     }
-    await projectionWork;
     await this.scheduleAlarm(now);
     return {
       ok: true,

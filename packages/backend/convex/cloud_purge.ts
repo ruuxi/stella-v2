@@ -2,10 +2,10 @@
 //
 // This exists because none of it was covered before. `account_deletion.ts` and
 // `reset.ts` drained every OTHER owner-scoped table and left the entire
-// `cloud_*` surface behind. The DO-resident transcript makes that worse if it
-// goes unaddressed: the bytes live in Durable Object SQLite and R2, where
-// Convex cannot reach them except by asking the DO. So deletion is a handshake,
-// and it is driven from here.
+// `cloud_*` surface behind. Conversation transcripts live in Durable Object
+// SQLite and R2; the owner object purges those through each conversation's DO
+// when the worker's `/owners/purge` runs its `owner-data` step, so the Convex
+// rows here are projections and drain like any other owner table.
 //
 // Everything below is idempotent, batched, and resumable: each mutation is its
 // own transaction, each drain loops until it reports done, and the whole action
@@ -44,10 +44,8 @@ import { deleteGithubInstallationGrant } from "./cloud_projects";
 import { assertOwnerPurgeOperation } from "./owner_lifecycle";
 import { deleteComponentR2ObjectsRef } from "./lib/component_r2_deletion";
 
-/** Rows per transaction. Conservative — several tables cascade. */
+/** Rows per transaction. */
 const BATCH = 100;
-/** Turns per transaction; each one also drains its events and invocations. */
-const TURN_BATCH = 10;
 /** Apps per transaction; each one also drains its builds and storage. */
 const APP_BATCH = 5;
 /**
@@ -69,12 +67,6 @@ const logPurge = (event: string, fields: Record<string, unknown>): void => {
  * has to look like.
  *
  *  simple       — an owner index and nothing hanging off it. Delete the rows.
- *  cascade      — an owner index, but children that are only reachable THROUGH
- *                 the row: children first, parent last, or the children become
- *                 unreachable garbage.
- *  handshake    — the rows are an index; the data is in a Durable Object. Only
- *                 the DO can say its storage is gone, so the row is tombstoned
- *                 first and deleted only on the DO's word.
  *  bytes        — every row names an R2 object. Object first, row last: the row
  *                 is the only name the object has.
  *  external-ref — an owner index, but the row names state in the builder worker
@@ -90,8 +82,6 @@ const logPurge = (event: string, fields: Record<string, unknown>): void => {
  */
 type StoreStyle =
   | "simple"
-  | "cascade"
-  | "handshake"
   | "bytes"
   | "external-ref"
   | "stopped"
@@ -100,20 +90,19 @@ type StoreStyle =
   | "global";
 
 const OWNER_STORES = {
-  // The conversation index. Content lives in the OrchestratorSession DO and
-  // its R2 segments; `purgeConversationInternal` is the handshake.
-  cloud_conversations: "handshake",
-  // Turns plus their event stream. Events now carry their own rolling owner
-  // attribution so parent loss cannot hide them from strict purge/readback.
-  agent_turns: "cascade",
+  // The conversation index projection. Content lives in the
+  // OrchestratorSession DO and its R2 segments, which the owner object purges
+  // (the worker's `owner-data` step) before this stage finishes.
+  cloud_conversations: "simple",
+  // Turns plus their event stream. Events carry their own owner, so each
+  // drains by its own owner index.
+  agent_turns: "simple",
   agent_events: "simple",
   // Singleton cursor/lease for rolling legacy-event attribution repair. It
   // carries no owner content and must survive every individual owner purge.
   agent_event_ownership_maintenance: "global",
-  // A rolling-schema agent event can be owner-less and reachable only through
-  // `sessionId === threadId`. Those children must be scanned before the thread
-  // row disappears or strict readback loses the only remaining owner locator.
-  cloud_agent_threads: "cascade",
+  // Spawned-agent thread projection.
+  cloud_agent_threads: "simple",
   // Browser profile/session bytes live in the Gateway. Keep the interaction
   // receipts until the owner-level `default` profile purge is confirmed.
   cloud_browser_interactions: "external-ref",
@@ -165,9 +154,6 @@ const OWNER_STORES = {
   cloud_llm_credentials: "simple",
   cloud_engine_connects: "simple",
   cloud_engine_settings: "simple",
-  // Read-only projection of the owner gate's dispatch rows. The gate owns
-  // placement; deleting the projection removes nothing an executor observes.
-  cloud_dispatches: "simple",
   // Cloud projects. Each names a sandbox checkpoint in the worker's KV whose
   // key hashes `<owner>:project:<slug>` and cannot be derived without the row.
   cloud_projects: "external-ref",
@@ -199,6 +185,9 @@ type StoresWithStyle<S extends StoreStyle> = {
  * through and no bytes outside Convex. Everything harder gets its own drain.
  */
 const SIMPLE_TABLES = [
+  "cloud_conversations",
+  "agent_turns",
+  "cloud_agent_threads",
   "agent_events",
   "cloud_memory_lifecycles",
   "cloud_memory_wipe_jobs",
@@ -213,7 +202,6 @@ const SIMPLE_TABLES = [
   "cloud_llm_credentials",
   "cloud_engine_connects",
   "cloud_engine_settings",
-  "cloud_dispatches",
 ] as const;
 
 const LEASED_TABLES = ["cloud_integration_call_receipts"] as const;
@@ -270,6 +258,36 @@ const drainOwnerIndexedTable = async (
 ): Promise<number> => {
   let ids: Id<OwnerIndexedTable>[] = [];
   switch (table) {
+    case "cloud_conversations": {
+      const rows = await ctx.db
+        .query("cloud_conversations")
+        .withIndex("by_ownerId_and_updatedAt", (q) => q.eq("ownerId", ownerId))
+        .take(BATCH);
+      // The resurrection fence goes in with the row's deletion, in the same
+      // transaction, so a late index flush cannot recreate it.
+      const now = Date.now();
+      for (const row of rows) {
+        await recordConversationTombstone(ctx, row.conversationId, now);
+      }
+      ids = rows.map((r) => r._id) as Id<OwnerIndexedTable>[];
+      break;
+    }
+    case "agent_turns": {
+      const rows = await ctx.db
+        .query("agent_turns")
+        .withIndex("by_ownerId_and_createdAt", (q) => q.eq("ownerId", ownerId))
+        .take(BATCH);
+      ids = rows.map((r) => r._id) as Id<OwnerIndexedTable>[];
+      break;
+    }
+    case "cloud_agent_threads": {
+      const rows = await ctx.db
+        .query("cloud_agent_threads")
+        .withIndex("by_ownerId_and_updatedAt", (q) => q.eq("ownerId", ownerId))
+        .take(BATCH);
+      ids = rows.map((r) => r._id) as Id<OwnerIndexedTable>[];
+      break;
+    }
     case "agent_events": {
       const rows = await ctx.db
         .query("agent_events")
@@ -411,14 +429,6 @@ const drainOwnerIndexedTable = async (
       ids = rows.map((row) => row._id) as Id<OwnerIndexedTable>[];
       break;
     }
-    case "cloud_dispatches": {
-      const rows = await ctx.db
-        .query("cloud_dispatches")
-        .withIndex("by_ownerId_and_updatedAt", (q) => q.eq("ownerId", ownerId))
-        .take(BATCH);
-      ids = rows.map((row) => row._id) as Id<OwnerIndexedTable>[];
-      break;
-    }
     default: {
       const exhaustive: never = table;
       throw new Error(`Unhandled cloud table: ${String(exhaustive)}`);
@@ -460,112 +470,6 @@ export const deleteOwnerBrowserInteractionBatchInternal = internalMutation({
       .take(BATCH);
     for (const row of rows) await ctx.db.delete(row._id);
     return { hasMore: rows.length === BATCH };
-  },
-});
-
-/**
- * Cascades rolling-schema agent events before deleting their last owner
- * locator, the spawned-agent thread.
- *
- * Current events carry ownerId and the ordinary owner-indexed drain owns them.
- * A legacy event may not. When its exact turn is already gone, the migration
- * contract attributes `sessionId === threadId` to the durable thread. This
- * paginated mutation applies the same rule during reset/delete and deletes the
- * thread only in the transaction that observes the final page. A legacy row
- * with a surviving mismatched/foreign turn is protected: that exact turn, not
- * a coincidental session id, remains authoritative for its lifecycle.
- */
-export const deleteOwnerAgentThreadCascadeBatchInternal = internalMutation({
-  args: {
-    ...purgeOperationArgs,
-    cursor: v.union(v.string(), v.null()),
-  },
-  returns: v.object({
-    hasThread: v.boolean(),
-    completedThread: v.boolean(),
-    deletedEvents: v.number(),
-    protectedEvents: v.number(),
-    cursor: v.union(v.string(), v.null()),
-  }),
-  handler: async (ctx, args) => {
-    await assertOwnerPurgeOperation(ctx, args);
-    const thread = await ctx.db
-      .query("cloud_agent_threads")
-      .withIndex("by_ownerId_and_updatedAt", (q) =>
-        q.eq("ownerId", args.ownerId),
-      )
-      .first();
-    if (!thread) {
-      return {
-        hasThread: false,
-        completedThread: false,
-        deletedEvents: 0,
-        protectedEvents: 0,
-        cursor: null,
-      };
-    }
-
-    const persistedCursorMatchesFence =
-      thread.legacyEventPurgeOperationId === args.operationId &&
-      thread.legacyEventPurgeGeneration === args.generation;
-    const effectiveCursor = persistedCursorMatchesFence
-      ? (thread.legacyEventPurgeCursor ?? args.cursor)
-      : args.cursor;
-    const page = await ctx.db
-      .query("agent_events")
-      .withIndex("by_sessionId_and_ownerId_and_createdAt", (q) =>
-        q.eq("sessionId", thread.threadId).eq("ownerId", undefined),
-      )
-      .paginate({ cursor: effectiveCursor, numItems: BATCH });
-    let deletedEvents = 0;
-    let protectedEvents = 0;
-    for (const event of page.page) {
-      const exactTurn = await ctx.db
-        .query("agent_turns")
-        .withIndex("by_turnId", (q) => q.eq("turnId", event.turnId))
-        .unique();
-      if (
-        !exactTurn ||
-        (exactTurn.ownerId === args.ownerId &&
-          exactTurn.sessionId === event.sessionId)
-      ) {
-        await ctx.db.delete(event._id);
-        deletedEvents += 1;
-      } else {
-        protectedEvents += 1;
-      }
-    }
-
-    if (page.isDone) {
-      // Reset the persisted continuation explicitly before retiring its
-      // parent. The delete is the durable end-of-scan marker; the clear makes
-      // the lifecycle transition unambiguous if this code is later split.
-      await ctx.db.patch(thread._id, {
-        legacyEventPurgeCursor: undefined,
-        legacyEventPurgeOperationId: undefined,
-        legacyEventPurgeGeneration: undefined,
-      });
-      await ctx.db.delete(thread._id);
-      return {
-        hasThread: true,
-        completedThread: true,
-        deletedEvents,
-        protectedEvents,
-        cursor: null,
-      };
-    }
-    await ctx.db.patch(thread._id, {
-      legacyEventPurgeCursor: page.continueCursor,
-      legacyEventPurgeOperationId: args.operationId,
-      legacyEventPurgeGeneration: args.generation,
-    });
-    return {
-      hasThread: true,
-      completedThread: false,
-      deletedEvents,
-      protectedEvents,
-      cursor: page.continueCursor,
-    };
   },
 });
 
@@ -701,45 +605,6 @@ export const deleteOwnerAgentHomeBatch = internalMutation({
     await assertOwnerPurgeOperation(ctx, args);
     const deleted = await drainAgentHomeTable(ctx, args.ownerId, args.table);
     return { hasMore: deleted === BATCH };
-  },
-});
-
-/**
- * Turns cascade: each carries its event stream and any app-operation
- * invocations it created. Children go first, and the turn row is only retired
- * once its last child is gone — an orphaned event row can never be found
- * again, because every index into it starts at the turn.
- */
-export const deleteOwnerTurnBatch = internalMutation({
-  args: purgeOperationArgs,
-  returns: v.object({ hasMore: v.boolean() }),
-  handler: async (ctx, args) => {
-    await assertOwnerPurgeOperation(ctx, args);
-    const turns = await ctx.db
-      .query("agent_turns")
-      .withIndex("by_ownerId_and_createdAt", (q) =>
-        q.eq("ownerId", args.ownerId),
-      )
-      .take(TURN_BATCH);
-    if (turns.length === 0) return { hasMore: false };
-    for (const turn of turns) {
-      const events = await ctx.db
-        .query("agent_events")
-        .withIndex("by_turnId_and_seq", (q) => q.eq("turnId", turn.turnId))
-        .take(BATCH);
-      for (const event of events) await ctx.db.delete(event._id);
-      if (events.length === BATCH) return { hasMore: true };
-
-      const invocations = await ctx.db
-        .query("cloud_app_op_invocations")
-        .withIndex("by_turnId", (q) => q.eq("turnId", turn.turnId))
-        .take(BATCH);
-      for (const invocation of invocations) await ctx.db.delete(invocation._id);
-      if (invocations.length === BATCH) return { hasMore: true };
-
-      await ctx.db.delete(turn._id);
-    }
-    return { hasMore: true };
   },
 });
 
@@ -1187,58 +1052,6 @@ export const deleteDriveRowsInternal = internalMutation({
   },
 });
 
-// ─── Conversations ───────────────────────────────────────────────────────────
-
-/** Conversation index rows, including tombstones the DO already purged. */
-export const listOwnerConversationsInternal = internalQuery({
-  args: { ownerId: v.string() },
-  returns: v.array(
-    v.object({ conversationId: v.string(), purged: v.boolean() }),
-  ),
-  handler: async (ctx, args) => {
-    const rows = await ctx.db
-      .query("cloud_conversations")
-      .withIndex("by_ownerId_and_updatedAt", (q) =>
-        q.eq("ownerId", args.ownerId),
-      )
-      .take(25);
-    return rows.map((row) => ({
-      conversationId: row.conversationId,
-      purged: row.purgedAt !== undefined,
-    }));
-  },
-});
-
-/**
- * The index row carries `ownerId`, so account deletion has to delete it — the
- * per-conversation delete's habit of keeping a stripped row is not available
- * here. But that row is also what made a late index flush from a DO that was
- * resident at purge time hit `upsertConversationIndexInternal`'s "already
- * tombstoned" refusal instead of its `!row` self-heal INSERT.
- *
- * So the fence moves to `cloud_conversation_tombstones` in the SAME
- * transaction. Two separate mutations would leave a window in which neither
- * record exists, and that window is precisely when a retried flush lands. It
- * would re-insert the deleted owner's conversation row under an owner id that
- * no longer exists.
- */
-export const deleteConversationIndexRowInternal = internalMutation({
-  args: { ...purgeOperationArgs, conversationId: v.string() },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    await assertOwnerPurgeOperation(ctx, args);
-    await recordConversationTombstone(ctx, args.conversationId, Date.now());
-    const row = await ctx.db
-      .query("cloud_conversations")
-      .withIndex("by_conversationId", (q) =>
-        q.eq("conversationId", args.conversationId),
-      )
-      .unique();
-    if (row?.ownerId === args.ownerId) await ctx.db.delete(row._id);
-    return null;
-  },
-});
-
 // ─── Completeness ────────────────────────────────────────────────────────────
 
 /**
@@ -1553,16 +1366,6 @@ export const remainingOwnerStoresInternal = internalQuery({
               .take(1),
           );
           break;
-        case "cloud_dispatches":
-          await check(store, () =>
-            ctx.db
-              .query("cloud_dispatches")
-              .withIndex("by_ownerId_and_updatedAt", (q) =>
-                q.eq("ownerId", ownerId),
-              )
-              .take(1),
-          );
-          break;
         case "cloud_projects":
           await check(store, () =>
             ctx.db
@@ -1643,6 +1446,8 @@ type ExternalPurgeRequest = {
   appSlugs?: string[];
   buildPrefixes?: string[];
   browserProfiles?: string[];
+  /** The owner-level pass: also purges the owner object's own data. */
+  mode?: "reset" | "delete";
 };
 
 const requireBuilderEndpoint = (): BuilderEndpoint => {
@@ -1996,16 +1801,11 @@ export const stopOwnerSchedules = async (
  * Order is not incidental:
  *  1. Schedules stop first — they are the only store that keeps ACTING while
  *     the rest is being deleted.
- *  2. Conversations next, and they are the step that can refuse to finish:
- *     their transcript lives in a Durable Object and their history in R2, and
- *     the only honest way to know that data is gone is for the DO to say so. A
- *     conversation whose DO cannot be reached keeps its tombstone (identity
- *     only — no title, no preview, no content) and is retried by the sweep
- *     cron, rather than having its index row deleted and its bytes stranded
- *     with no record of where they are.
- *  3. Every store that names bytes outside Convex has those bytes purged
+ *  2. Every store that names bytes outside Convex has those bytes purged
  *     BEFORE its row is deleted, because the row is the only name they have.
- *  4. Everything else drains by owner index.
+ *  3. Everything else drains by owner index.
+ *  4. The worker's owner-level pass purges everything outside Convex,
+ *     including the owner object's data and each conversation's DO.
  *  5. A completeness check re-reads all of it.
  *
  * Reset and deletion share the same checked purge. Their durable lifecycle job
@@ -2079,43 +1879,6 @@ export const purgeOwnerCloudStack = internalAction({
       );
       if (!integrationQuiescence.ready) {
         pending.push("cloud_integration_call_receipts");
-      }
-
-      // 1. Conversations. Each is a handshake with its DO.
-      let pass = 0;
-      for (; pass < MAX_PASSES; pass += 1) {
-        const rows: Array<{ conversationId: string; purged: boolean }> =
-          await ctx.runQuery(
-            internal.cloud_purge.listOwnerConversationsInternal,
-            { ownerId },
-          );
-        if (rows.length === 0) break;
-        let progressed = false;
-        for (const row of rows) {
-          if (!row.purged) {
-            await assertCloudLease();
-            const result: { purged: boolean } = await ctx.runAction(
-              internal.cloud_apps.purgeConversationInternal,
-              { conversationId: row.conversationId, ...fence },
-            );
-            if (!result.purged) continue;
-          }
-          await ctx.runMutation(
-            internal.cloud_purge.deleteConversationIndexRowInternal,
-            { ...fence, conversationId: row.conversationId },
-          );
-          progressed = true;
-        }
-        if (!progressed) {
-          pending.push("cloud_conversations");
-          break;
-        }
-      }
-      if (pass === MAX_PASSES) {
-        // Still making progress but out of budget. The remaining conversations
-        // are untouched — live, not half-deleted — so a re-run finishes them.
-        pending.push("cloud_conversations");
-        logPurge("owner_conversation_drain_truncated", { passes: MAX_PASSES });
       }
 
       // 2. Mini apps. The hosted route and the built artifacts are dropped by
@@ -2276,35 +2039,6 @@ export const purgeOwnerCloudStack = internalAction({
         }
       }
 
-      // 7. Spawned-agent threads first: a rolling-schema event can be
-      //    owner-less and reachable only through `sessionId === threadId`.
-      //    The cascade keeps each parent until its paginated legacy-event scan
-      //    is complete, so a crash merely restarts from the still-present
-      //    thread and can never turn private payload into invisible residue.
-      let agentThreadsDrained = false;
-      let agentThreadCursor: string | null = null;
-      for (let p = 0; p < MAX_PASSES; p += 1) {
-        const result: {
-          hasThread: boolean;
-          completedThread: boolean;
-          deletedEvents: number;
-          protectedEvents: number;
-          cursor: string | null;
-        } = await ctx.runMutation(
-          internal.cloud_purge.deleteOwnerAgentThreadCascadeBatchInternal,
-          { ...fence, cursor: agentThreadCursor },
-        );
-        if (!result.hasThread) {
-          agentThreadsDrained = true;
-          break;
-        }
-        agentThreadCursor = result.completedThread ? null : result.cursor;
-      }
-      if (!agentThreadsDrained) {
-        pending.push("cloud_agent_threads");
-        logPurge("owner_agent_thread_cascade_truncated", { ownerId });
-      }
-
       // 8. Owner-indexed tables with nothing hanging off them. Independent —
       //    drain them concurrently.
       await Promise.all(
@@ -2343,15 +2077,6 @@ export const purgeOwnerCloudStack = internalAction({
         }
       }
 
-      // 9. Turns and their cascade.
-      for (let turnPass = 0; turnPass < MAX_PASSES; turnPass += 1) {
-        const result: { hasMore: boolean } = await ctx.runMutation(
-          internal.cloud_purge.deleteOwnerTurnBatch,
-          fence,
-        );
-        if (!result.hasMore) break;
-      }
-
       // 10. Schedules: stopped in step 0, drained now that nothing can re-arm one.
       let schedulesDrained = false;
       for (let schedulePass = 0; schedulePass < MAX_PASSES; schedulePass += 1) {
@@ -2384,11 +2109,14 @@ export const purgeOwnerCloudStack = internalAction({
       }
 
       // 11. Owner-level object storage the per-row steps cannot see: the
-      //    agent-home memory prefix, any archive segment whose conversation row
-      //    was already gone, and the owner's world checkpoint, which exists
+      //    owner object's own data (conversations and each one's DO, agent
+      //    threads, and the other owner-object domains), the agent-home
+      //    memory prefix, any archive segment whose conversation row was
+      //    already gone, and the owner's world checkpoint, which exists
       //    without a row anywhere naming it.
       const external = await purgeExternalStoresFenced({
         browserProfiles: ["default"],
+        mode: claim.mode,
       });
       if (external.pending.length > 0) {
         pending.push(...external.pending.map((store) => `builder:${store}`));

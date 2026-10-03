@@ -6,7 +6,9 @@
  *
  * Delivery is at-least-once and may reorder, so index updates are fenced on
  * `(epoch, lastSeq)` and a deleted row stays as a tombstone: nothing that
- * arrives late can move a row backwards or bring it back.
+ * arrives late can move a row backwards or bring it back. Deleting a row
+ * schedules `conversations.purge` (`../purge.ts`), which confirms the
+ * orchestrator's storage is gone and drops the threads under it.
  */
 
 import type {
@@ -29,8 +31,14 @@ import { parseCloudExecutionSelection } from "../../turn-start-request.js";
 import { empty, number, object, optional, string } from "../args.js";
 import type { Parser } from "../args.js";
 import { RpcError } from "../errors.js";
+import {
+  CONVERSATION_PURGE_JOB,
+  conversationPurgeJob,
+  purgeConversationData,
+  scheduleConversationPurge,
+} from "../purge.js";
 import { enforceOwnerRateLimit } from "../rate-limit.js";
-import type { OwnerContext, OwnerDb, OwnerDbReader, OwnerDomain } from "../registry.js";
+import type { OwnerContext, OwnerDbReader, OwnerDomain } from "../registry.js";
 
 export type ConversationRow = {
   conversation_id: string;
@@ -237,7 +245,11 @@ export type ConversationEvent =
   | TurnStartedEvent;
 
 /** Apply one orchestrator event to the index. Safe to replay. */
-export const applyConversationEvent = (db: OwnerDb, event: ConversationEvent): void => {
+export const applyConversationEvent = (
+  ctx: Pick<OwnerContext, "db" | "jobs" | "now">,
+  event: ConversationEvent,
+): void => {
+  const { db } = ctx;
   const row = readConversation(db, event.conversationId);
   switch (event.kind) {
     case "conversation.created": {
@@ -320,6 +332,7 @@ export const applyConversationEvent = (db: OwnerDb, event: ConversationEvent): v
         event.deletedAt,
         event.conversationId,
       );
+      scheduleConversationPurge(ctx.jobs, event.conversationId, ctx.now);
       return;
     }
     case "turn.started": {
@@ -345,6 +358,8 @@ const conversationIdArg = string({ pattern: CONVERSATION_ID_PATTERN, max: 64 });
 export const conversationsDomain = {
   name: "conversations",
   migrations: [CONVERSATIONS_MIGRATION],
+  purge: purgeConversationData,
+  jobs: { [CONVERSATION_PURGE_JOB]: conversationPurgeJob },
   calls: {
   "owner.identity": {
     scope: "owner",

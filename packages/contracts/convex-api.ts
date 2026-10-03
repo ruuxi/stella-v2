@@ -181,9 +181,6 @@ export type PublicApiType = {
     "generateUploadUrl": FunctionReference<'mutation', 'public', {}, any, string | undefined>;
     "syncMetadata": FunctionReference<'mutation', 'public', { key: string; }, any, string | undefined>;
   };
-  "reset": {
-    "resetAllUserData": FunctionReference<'action', 'public', {}, any, string | undefined>;
-  };
   "scheduling": {
     "cron_jobs": {
       "completeCronTurnResult": FunctionReference<'mutation', 'public', { conversationId: Id<'conversations'>; text: string; deviceId: string; requestId: string; attemptId: string; }, any, string | undefined>;

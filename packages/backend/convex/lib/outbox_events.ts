@@ -1,5 +1,4 @@
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
-import type { DispatchSummary } from "@stella/contracts/turn-plane/placement";
 import {
   OUTBOX_EVENT_VERSION,
   type OutboxEvent,
@@ -24,7 +23,6 @@ export const OUTBOX_EVENT_KINDS: readonly OutboxEventKind[] = [
   "thread.spawned",
   "thread.completed",
   "build.recorded",
-  "dispatch.updated",
 ];
 
 /**
@@ -41,9 +39,6 @@ const KIND_PRIORITY: Record<OutboxEventKind, number> = {
   "build.recorded": 5,
   "thread.completed": 6,
   "conversation.deleted": 7,
-  // Placement projection: keyed by dispatchId and revision-fenced, so it has
-  // no parent in the batch and its position is only about stable ordering.
-  "dispatch.updated": 8,
 };
 
 export const sortOutboxBatch = <T extends { kind: OutboxEventKind }>(
@@ -133,157 +128,6 @@ const TERMINAL_STATUSES = new Set([
   "canceled",
   "waiting_for_user",
 ]);
-
-const DISPATCH_KINDS = new Set(["chat", "agent"]);
-const DISPATCH_INGRESSES = new Set([
-  "desktop",
-  "mobile",
-  "browser",
-  "cloud",
-  "schedule",
-]);
-const DISPATCH_SUBJECTS = new Set(["portable", "computer", "cloud"]);
-const DISPATCH_TARGET_MODES = new Set(["automatic", "cloud", "device"]);
-const DISPATCH_PLACEMENTS = new Set(["computer", "cloud"]);
-const DISPATCH_STATES = new Set([
-  "offering",
-  "computer_claimed",
-  "computer_accepted",
-  "computer_running",
-  "cloud_committed",
-  "cloud_running",
-  "cancel_pending",
-  "reconciliation_required",
-  "blocked",
-  "completed",
-  "failed",
-  "canceled",
-]);
-
-const MAX_DISPATCH_REASON = 512;
-
-/** Absent stays absent; present-but-malformed rejects the whole event. */
-const requireOptionalId = (value: unknown): string | undefined => {
-  const parsed = optionalId(value);
-  if (parsed === null) throw new Error("dispatch is invalid");
-  return parsed;
-};
-
-const requireOptionalText = (
-  value: unknown,
-  max: number,
-): string | undefined => {
-  if (value === undefined || value === null) return undefined;
-  if (!isText(value, max)) throw new Error("dispatch is invalid");
-  return value;
-};
-
-/** Throws (caught by the caller as a rejection) when the summary is malformed. */
-const parseDispatchSummary = (value: unknown): DispatchSummary => {
-  if (!isRecord(value)) throw new Error("dispatch is invalid");
-  const optionals = {
-    requestedExecutorDeviceId: requireOptionalId(
-      value.requestedExecutorDeviceId,
-    ),
-    parentTurnId: requireOptionalId(value.parentTurnId),
-    threadId: requireOptionalId(value.threadId),
-    executorDeviceId: requireOptionalId(value.executorDeviceId),
-    executorPresenceSessionId: requireOptionalId(
-      value.executorPresenceSessionId,
-    ),
-    cancelRequestId: requireOptionalId(value.cancelRequestId),
-    cloudTurnId: requireOptionalId(value.cloudTurnId),
-    cloudThreadId: requireOptionalId(value.cloudThreadId),
-    errorCode: requireOptionalId(value.errorCode),
-    fallbackReason: requireOptionalText(
-      value.fallbackReason,
-      MAX_DISPATCH_REASON,
-    ),
-    cancelReason: requireOptionalText(value.cancelReason, MAX_DISPATCH_REASON),
-    errorMessage: requireOptionalText(value.errorMessage, MAX_TEXT),
-  };
-  if (
-    !isId(value.dispatchId, 128) ||
-    !isId(value.idempotencyKey, 256) ||
-    typeof value.kind !== "string" ||
-    !DISPATCH_KINDS.has(value.kind) ||
-    typeof value.ingress !== "string" ||
-    !DISPATCH_INGRESSES.has(value.ingress) ||
-    typeof value.subject !== "string" ||
-    !DISPATCH_SUBJECTS.has(value.subject) ||
-    (value.requestedTargetMode !== undefined &&
-      (typeof value.requestedTargetMode !== "string" ||
-        !DISPATCH_TARGET_MODES.has(value.requestedTargetMode))) ||
-    !isId(value.conversationId) ||
-    typeof value.state !== "string" ||
-    !DISPATCH_STATES.has(value.state) ||
-    (value.placement !== undefined &&
-      (typeof value.placement !== "string" ||
-        !DISPATCH_PLACEMENTS.has(value.placement))) ||
-    !isNatural(value.revision) ||
-    !isFinite(value.createdAt) ||
-    !isFinite(value.updatedAt)
-  ) {
-    throw new Error("dispatch is invalid");
-  }
-  return {
-    dispatchId: value.dispatchId,
-    idempotencyKey: value.idempotencyKey,
-    kind: value.kind as DispatchSummary["kind"],
-    ingress: value.ingress as DispatchSummary["ingress"],
-    subject: value.subject as DispatchSummary["subject"],
-    ...(value.requestedTargetMode !== undefined
-      ? {
-          requestedTargetMode:
-            value.requestedTargetMode as DispatchSummary["requestedTargetMode"],
-        }
-      : {}),
-    ...(optionals.requestedExecutorDeviceId !== undefined
-      ? { requestedExecutorDeviceId: optionals.requestedExecutorDeviceId }
-      : {}),
-    conversationId: value.conversationId,
-    ...(optionals.parentTurnId !== undefined
-      ? { parentTurnId: optionals.parentTurnId }
-      : {}),
-    ...(optionals.threadId !== undefined
-      ? { threadId: optionals.threadId }
-      : {}),
-    state: value.state as DispatchSummary["state"],
-    ...(value.placement !== undefined
-      ? { placement: value.placement as DispatchSummary["placement"] }
-      : {}),
-    ...(optionals.executorDeviceId !== undefined
-      ? { executorDeviceId: optionals.executorDeviceId }
-      : {}),
-    ...(optionals.executorPresenceSessionId !== undefined
-      ? { executorPresenceSessionId: optionals.executorPresenceSessionId }
-      : {}),
-    revision: value.revision,
-    ...(optionals.fallbackReason !== undefined
-      ? { fallbackReason: optionals.fallbackReason }
-      : {}),
-    ...(optionals.cancelRequestId !== undefined
-      ? { cancelRequestId: optionals.cancelRequestId }
-      : {}),
-    ...(optionals.cancelReason !== undefined
-      ? { cancelReason: optionals.cancelReason }
-      : {}),
-    ...(optionals.errorCode !== undefined
-      ? { errorCode: optionals.errorCode }
-      : {}),
-    ...(optionals.errorMessage !== undefined
-      ? { errorMessage: optionals.errorMessage }
-      : {}),
-    ...(optionals.cloudTurnId !== undefined
-      ? { cloudTurnId: optionals.cloudTurnId }
-      : {}),
-    ...(optionals.cloudThreadId !== undefined
-      ? { cloudThreadId: optionals.cloudThreadId }
-      : {}),
-    createdAt: Math.floor(value.createdAt),
-    updatedAt: Math.floor(value.updatedAt),
-  };
-};
 
 export type ParsedOutboxEvent =
   | { ok: true; event: OutboxEvent }
@@ -593,25 +437,6 @@ export const parseOutboxEvent = (raw: unknown): ParsedOutboxEvent => {
               ? { errorMessage: record.errorMessage }
               : {}),
             completedAt: record.completedAt,
-          },
-        };
-      }
-      case "dispatch.updated": {
-        if (!isId(record.dispatchId, 128)) return reject();
-        const dispatch = parseDispatchSummary(record.dispatch);
-        if (dispatch.dispatchId !== record.dispatchId) return reject();
-        // The gate keys the event `${dispatchId}:${revision}`; a receipt that
-        // did not describe this exact revision would make replay unsafe.
-        if (key !== `${dispatch.dispatchId}:${dispatch.revision}`) {
-          return reject();
-        }
-        return {
-          ok: true,
-          event: {
-            ...base,
-            kind: eventKind,
-            dispatchId: dispatch.dispatchId,
-            dispatch,
           },
         };
       }

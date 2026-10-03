@@ -131,19 +131,7 @@ export type BuildRecordedEvent = OutboxBase & {
   payload: unknown;
 };
 
-/**
- * Placement projection for the activity UI. Emitted by the owner gate on
- * every dispatch transition; `key` is `${dispatchId}:${revision}` and Convex
- * keeps the highest revision it has seen.
- */
-export type DispatchUpdatedEvent = OutboxBase & {
-  kind: "dispatch.updated";
-  dispatchId: string;
-  dispatch: import("./placement.js").DispatchSummary;
-};
-
 export type OutboxEvent =
-  | DispatchUpdatedEvent
   | ConversationCreatedEvent
   | ConversationIndexEvent
   | ConversationDeletedEvent

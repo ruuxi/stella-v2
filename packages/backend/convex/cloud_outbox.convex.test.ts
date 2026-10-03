@@ -6,7 +6,6 @@ import {
   type OutboxBatchResult,
   type OutboxEvent,
 } from "@stella/contracts/turn-plane/outbox";
-import type { DispatchSummary } from "@stella/contracts/turn-plane/placement";
 import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import betterAuthSchema from "./betterAuth/schema";
@@ -252,7 +251,7 @@ describe("conversation projections", () => {
     });
   });
 
-  it("tombstones on delete and schedules the storage purge", async () => {
+  it("tombstones on delete and schedules the projection row purge", async () => {
     const t = await createTest();
     await ingest(t, [created()]);
     const deleted = event("conversation.deleted", {
@@ -280,7 +279,7 @@ describe("conversation projections", () => {
         .collect();
       expect(
         scheduled.some((entry) =>
-          entry.name.includes("purgeConversationInternal"),
+          entry.name.includes("purgeConversationRowsInternal"),
         ),
       ).toBe(true);
     });
@@ -598,176 +597,5 @@ describe("retired build receipts", () => {
       expect(await ctx.db.query("cloud_apps").collect()).toEqual([]);
       expect(await ctx.db.query("cloud_app_builds").collect()).toEqual([]);
     });
-  });
-});
-
-describe("dispatch projection", () => {
-  const DISPATCH_ID = "dispatch-1";
-  const summary = (
-    overrides: Partial<DispatchSummary> = {},
-  ): DispatchSummary => ({
-    dispatchId: DISPATCH_ID,
-    idempotencyKey: "idem-1",
-    kind: "chat",
-    ingress: "mobile",
-    subject: "portable",
-    conversationId: CONVERSATION_ID,
-    state: "offering",
-    revision: 1,
-    createdAt: 1_000,
-    updatedAt: 1_000,
-    ...overrides,
-  });
-  const dispatchEvent = (
-    dispatch: DispatchSummary,
-    overrides: { ownerId?: string } = {},
-  ) =>
-    event("dispatch.updated", {
-      key: `${dispatch.dispatchId}:${dispatch.revision}`,
-      dispatchId: dispatch.dispatchId,
-      dispatch,
-      ...overrides,
-    });
-
-  const rows = (t: Harness) =>
-    t.run(async (ctx) => await ctx.db.query("cloud_dispatches").collect());
-
-  it("keeps one row per dispatch at the highest revision", async () => {
-    const t = await createTest();
-    expect(await ingest(t, [dispatchEvent(summary())])).toMatchObject({
-      applied: [`${DISPATCH_ID}:1`],
-    });
-    const claimed = summary({
-      revision: 2,
-      state: "computer_accepted",
-      placement: "computer",
-      executorDeviceId: "desktop-1",
-      executorPresenceSessionId: "presence-1",
-      updatedAt: 2_000,
-    });
-    expect(await ingest(t, [dispatchEvent(claimed)])).toMatchObject({
-      applied: [`${DISPATCH_ID}:2`],
-    });
-    const stored = await rows(t);
-    expect(stored).toHaveLength(1);
-    expect(stored[0]).toMatchObject({
-      dispatchId: DISPATCH_ID,
-      ownerId: OWNER_ID,
-      revision: 2,
-      state: "computer_accepted",
-      placement: "computer",
-      executorDeviceId: "desktop-1",
-      // The insert's createdAt survives; only the gate's later fields move.
-      createdAt: 1_000,
-      updatedAt: 2_000,
-    });
-  });
-
-  it("drops an out-of-order older revision and replays are duplicates", async () => {
-    const t = await createTest();
-    const newer = summary({
-      revision: 5,
-      state: "completed",
-      placement: "cloud",
-      cloudTurnId: "turn-9",
-      updatedAt: 5_000,
-    });
-    await ingest(t, [dispatchEvent(newer)]);
-    // A redelivery of the same revision never reaches the projection: the
-    // (kind, key) receipt answers first.
-    expect(await ingest(t, [dispatchEvent(newer)])).toMatchObject({
-      duplicate: [`${DISPATCH_ID}:5`],
-    });
-    // A genuinely older revision arriving late carries a fresh key, so the
-    // revision fence — not the receipt — is what refuses it.
-    const older = summary({
-      revision: 4,
-      state: "cloud_running",
-      updatedAt: 4_000,
-    });
-    expect(await ingest(t, [dispatchEvent(older)])).toMatchObject({
-      duplicate: [`${DISPATCH_ID}:4`],
-    });
-    const stored = await rows(t);
-    expect(stored).toHaveLength(1);
-    expect(stored[0]).toMatchObject({
-      revision: 5,
-      state: "completed",
-      cloudTurnId: "turn-9",
-      updatedAt: 5_000,
-    });
-  });
-
-  it("clears fields a newer revision dropped", async () => {
-    const t = await createTest();
-    await ingest(t, [
-      dispatchEvent(
-        summary({
-          revision: 1,
-          state: "cancel_pending",
-          cancelRequestId: "cancel-1",
-          cancelReason: "user asked",
-          errorCode: "transient",
-        }),
-      ),
-    ]);
-    await ingest(t, [
-      dispatchEvent(
-        summary({ revision: 2, state: "completed", updatedAt: 3_000 }),
-      ),
-    ]);
-    const stored = await rows(t);
-    expect(stored[0]?.cancelRequestId).toBeUndefined();
-    expect(stored[0]?.cancelReason).toBeUndefined();
-    expect(stored[0]?.errorCode).toBeUndefined();
-  });
-
-  it("refuses another owner's dispatch id and a malformed summary", async () => {
-    const t = await createTest();
-    await ingest(t, [dispatchEvent(summary())]);
-    expect(
-      await ingest(t, [
-        dispatchEvent(summary({ revision: 2 }), { ownerId: OTHER_OWNER_ID }),
-      ]),
-    ).toMatchObject({
-      rejected: [
-        {
-          kind: "dispatch.updated",
-          key: `${DISPATCH_ID}:2`,
-          reason: "owner_mismatch",
-        },
-      ],
-    });
-    const badState = {
-      ...dispatchEvent(summary({ revision: 3 })),
-      dispatch: { ...summary({ revision: 3 }), state: "queued" },
-    };
-    expect(await ingest(t, [badState])).toMatchObject({
-      rejected: [
-        {
-          kind: "dispatch.updated",
-          key: `${DISPATCH_ID}:3`,
-          reason: "invalid",
-        },
-      ],
-    });
-    // The key must name the exact revision it carries, or a replay of one
-    // revision could overwrite another.
-    const mismatchedKey = {
-      ...dispatchEvent(summary({ revision: 4 })),
-      key: `${DISPATCH_ID}:9`,
-    };
-    expect(await ingest(t, [mismatchedKey])).toMatchObject({
-      rejected: [
-        {
-          kind: "dispatch.updated",
-          key: `${DISPATCH_ID}:9`,
-          reason: "invalid",
-        },
-      ],
-    });
-    const stored = await rows(t);
-    expect(stored).toHaveLength(1);
-    expect(stored[0]?.revision).toBe(1);
   });
 });

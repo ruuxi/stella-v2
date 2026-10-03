@@ -977,24 +977,6 @@ export const discardAnonymousTransientHandshakesBatch = internalMutation({
       await ctx.db.delete(githubState._id);
       return { hasMore: true };
     }
-    let dispatch: Doc<"cloud_dispatches"> | undefined;
-    for (const ownerId of migrationOwnerIds) {
-      dispatch = (
-        await ctx.db
-          .query("cloud_dispatches")
-          .withIndex("by_ownerId_and_updatedAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1)
-      )[0];
-      if (dispatch) break;
-    }
-    if (dispatch) {
-      // A display-only projection of owner-gate rows. The gate holds the
-      // authority and fences on the owner generation the link rotates.
-      await ctx.db.delete(dispatch._id);
-      return { hasMore: true };
-    }
     return { hasMore: false };
   },
 });
@@ -4909,23 +4891,6 @@ export const auditOwnershipMigrationResidue = internalQuery({
           .take(1),
       ],
       [
-        "cloud_dispatches",
-        [
-          ...(await ctx.db
-            .query("cloud_dispatches")
-            .withIndex("by_ownerId_and_updatedAt", (q) =>
-              q.eq("ownerId", args.fromOwnerId),
-            )
-            .take(1)),
-          ...(await ctx.db
-            .query("cloud_dispatches")
-            .withIndex("by_ownerId_and_updatedAt", (q) =>
-              q.eq("ownerId", args.toOwnerId),
-            )
-            .take(1)),
-        ],
-      ],
-      [
         "media_jobs",
         await ctx.db
           .query("media_jobs")
@@ -6215,10 +6180,10 @@ export const migrateOwnership = internalAction({
       if (conversation) {
         if (conversation.deleted) {
           if (!conversation.purged) {
-            await ctx.runAction(internal.cloud_apps.purgeConversationInternal, {
-              conversationId: conversation.conversationId,
-              ownerId: args.fromOwnerId,
-            });
+            await ctx.runMutation(
+              internal.cloud_apps.purgeConversationRowsInternal,
+              { conversationId: conversation.conversationId },
+            );
           } else {
             await ctx.runMutation(
               internal.auth_migration.commitDeletedCloudConversationTransfer,

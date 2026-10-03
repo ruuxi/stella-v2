@@ -402,7 +402,8 @@ export type WorkspaceCheckpointImports = {
  *
  * Deliberately NOT here, with the reason:
  *  - OrchestratorSession DO SQLite and the R2 objects its manifest names are
- *    purged per conversation through `POST /conversations/:id/purge`, because
+ *    purged per conversation by the owner object's purge hook
+ *    (`owner-store/purge.ts`, run as this route's `owner-data` step), because
  *    only the DO can say its own storage is gone. The `conversations/` prefix
  *    sweep above is the backstop for segments whose index row was already lost.
  *  - BuildSession DOs hold no durable owner state. The world's Sandbox DO
@@ -432,6 +433,12 @@ export type OwnerPurgeRequest = {
   buildPrefixes?: string[];
   /** Private browser profiles that must be confirmed gone before row drain. */
   browserProfiles?: string[];
+  /**
+   * Reset or account deletion, from Convex's purge job. Present on the final
+   * owner-level pass, which also purges the owner object's own data
+   * (`OwnerGate.purgeOwnerData`); per-app passes omit it.
+   */
+  mode?: "reset" | "delete";
 };
 
 export type OwnerTransferCoordinatorContext = {

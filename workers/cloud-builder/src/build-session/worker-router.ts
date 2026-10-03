@@ -2054,6 +2054,13 @@ const router = {
         return json({ error: "ownerId and purgeGeneration required." }, 400);
       }
       if (
+        body.mode !== undefined &&
+        body.mode !== "reset" &&
+        body.mode !== "delete"
+      ) {
+        return json({ error: "Malformed owner purge mode." }, 400);
+      }
+      if (
         !Array.isArray(browserProfiles) ||
         browserProfiles.length > 1 ||
         browserProfiles.some((profile) => profile !== "default") ||
@@ -2155,6 +2162,29 @@ const router = {
           }
         }
       }
+      // The owner object's own data: conversations and their orchestrators,
+      // agent threads, and every other domain's purge hook. Only the
+      // owner-level pass names a mode; per-app passes leave it alone.
+      let ownerDataPending = false;
+      if (body.mode) {
+        try {
+          const ownerData = await env.OWNER_GATES.getByName(
+            ownerId,
+          ).purgeOwnerData({ mode: body.mode });
+          if (ownerData.pending.length > 0) {
+            ownerDataPending = true;
+            log("info", "owner_data_purge_pending", {
+              domains: ownerData.pending,
+            });
+          }
+        } catch (error) {
+          ownerDataPending = true;
+          log("error", "owner_storage_purge_step_failed", {
+            store: "owner-data",
+            message: errorMessage(error),
+          });
+        }
+      }
       const legacyReport = await purgeOwnerStorage(env, ownerId, body);
       const report: OwnerPurgeReport = {
         ok: true,
@@ -2165,6 +2195,7 @@ const router = {
             ...legacyReport.pending,
             ...(turnStatePending ? ["turn-state"] : []),
             ...browserProfilePending,
+            ...(ownerDataPending ? ["owner-data"] : []),
           ]),
         ),
       };

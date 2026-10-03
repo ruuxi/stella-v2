@@ -212,17 +212,6 @@ crons.interval(
   { limit: 10 },
 );
 
-// Retries the storage half of a conversation delete. Convex tombstones
-// synchronously, but the transcript and its R2 segments live in the DO, and a
-// DO that was unreachable when the user pressed delete must not be the reason
-// their data survives.
-crons.interval(
-  "purge tombstoned cloud conversations",
-  { minutes: 5 },
-  internal.cloud_apps.sweepDeletedConversationsInternal,
-  { limit: 10 },
-);
-
 // Retires the resurrection fences left by finished purges. They are a random
 // conversation id and a timestamp -- no owner, no content -- and only have to
 // outlive an index flush that was in flight when the purge ran.

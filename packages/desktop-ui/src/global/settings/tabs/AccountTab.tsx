@@ -1,6 +1,5 @@
 import { useCallback, useState, useSyncExternalStore } from "react";
-import { useAction } from "convex/react";
-import { api } from "@/convex/api";
+import { backendClient } from "@/platform/backend/backend-client";
 import { Button } from "@/ui/button";
 import { showToast } from "@/ui/toast";
 import {
@@ -102,7 +101,6 @@ interface AccountTabProps {
 export function AccountTab({ onSignOut, onOpenLegal }: AccountTabProps) {
   const t = useT();
   const { hasConnectedAccount } = useAuthSessionState();
-  const resetUserData = useAction(api.reset.resetAllUserData);
   const [pendingDeleteAction, setPendingDeleteAction] =
     useState<AccountDeleteAction | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -175,7 +173,7 @@ export function AccountTab({ onSignOut, onOpenLegal }: AccountTabProps) {
     try {
       if (action === "data") {
         if (hasConnectedAccount) {
-          await resetUserData();
+          await backendClient.call("account.reset", {});
         }
       } else {
         if (!hasConnectedAccount) {
@@ -204,7 +202,7 @@ export function AccountTab({ onSignOut, onOpenLegal }: AccountTabProps) {
       setIsDeleting(false);
       setPendingDeleteAction(null);
     }
-  }, [hasConnectedAccount, isDeleting, pendingDeleteAction, resetUserData, t]);
+  }, [hasConnectedAccount, isDeleting, pendingDeleteAction, t]);
 
   const deleteDialogTitle =
     pendingDeleteAction === "account"

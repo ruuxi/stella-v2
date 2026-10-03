@@ -2,6 +2,7 @@ import type { HttpRouter } from "convex/server";
 import { ConvexError } from "convex/values";
 import { isManagedModelAudience } from "@stella/contracts/gateway/capability";
 import type { NetworkClass } from "@stella/contracts/gateway/api";
+import { CONVEX_OWNER_RESET_PATH } from "@stella/contracts/backend/account";
 import { CONVEX_OWNER_SNAPSHOT_PATH } from "@stella/contracts/turn-plane/owner-snapshot";
 import {
   CONVEX_GATEWAY_CONFIG_PATH,
@@ -39,8 +40,8 @@ import { postAlert } from "../lib/alerts";
  *
  * The cloud-builder owner object's routes take that worker's own
  * `BUILDER_SERVICE_SECRET`: the owner snapshot
- * (`@stella/contracts/turn-plane/owner-snapshot`), session admission, and the
- * plan its billing ledger reports.
+ * (`@stella/contracts/turn-plane/owner-snapshot`), session admission, the
+ * plan its billing ledger reports, and the start of an account reset.
  */
 
 export const GATEWAY_SERVICE_SECRET_ENV = "GATEWAY_SERVICE_SECRET";
@@ -586,11 +587,57 @@ const ownerSnapshot = httpAction(async (ctx, request) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// POST /api/cloud/owners/reset  { ownerId }
+// ---------------------------------------------------------------------------
+
+/**
+ * The owner object's `account.reset`. Opens the reset purge (a new blocking
+ * owner generation) and schedules its run; answers once the reset has
+ * started. The purge job's own retry cron resumes it if the scheduled run
+ * dies.
+ */
+const ownerReset = httpAction(async (ctx, request) => {
+  const denied = requireBuilderServiceRequest(request);
+  if (denied) return denied;
+  const body = await readJsonObject(request);
+  if (!body || !isId(body.ownerId)) return json({ error: "bad_request" }, 400);
+  const ownerId = body.ownerId;
+  let lifecycle: { operationId: string; generation: string };
+  try {
+    lifecycle = await ctx.runMutation(
+      internal.owner_lifecycle.beginOwnerDataPurgeInternal,
+      {
+        ownerId,
+        operationId: crypto.randomUUID(),
+        mode: "reset",
+        now: Date.now(),
+      },
+    );
+  } catch (error) {
+    if (convexErrorCode(error) === "OWNER_DATA_PURGE_ACTIVE") {
+      return json({ error: "owner_deleting" }, 409);
+    }
+    throw error;
+  }
+  await ctx.scheduler.runAfter(0, internal.reset.resumeOwnerResetInternal, {
+    ownerId,
+    operationId: lifecycle.operationId,
+    generation: lifecycle.generation,
+  });
+  return json({ ok: true }, 202);
+});
+
 export const registerGatewayRoutes = (http: HttpRouter) => {
   http.route({
     path: CONVEX_OWNER_SNAPSHOT_PATH,
     method: "GET",
     handler: ownerSnapshot,
+  });
+  http.route({
+    path: CONVEX_OWNER_RESET_PATH,
+    method: "POST",
+    handler: ownerReset,
   });
   http.route({
     path: CONVEX_GATEWAY_SESSION_ADMISSION_PATH,

@@ -78,14 +78,9 @@ const advanceOwnerPurgeStage = makeFunctionReference<
   },
   boolean
 >("owner_lifecycle:advanceOwnerPurgeStageInternal");
-const deleteOwnerTurnBatch = makeFunctionReference<
-  "mutation",
-  PurgeFence,
-  { hasMore: boolean }
->("cloud_purge:deleteOwnerTurnBatch");
 const deleteOwnerCloudBatch = makeFunctionReference<
   "mutation",
-  PurgeFence & { table: "agent_events" },
+  PurgeFence & { table: "agent_events" | "agent_turns" },
   { hasMore: boolean }
 >("cloud_purge:deleteOwnerCloudBatch");
 
@@ -269,7 +264,7 @@ describe("agent event ownership migration", () => {
       }),
     );
     const fence = await beginCloudPurge(t, owners.fromOwnerId);
-    await t.mutation(deleteOwnerTurnBatch, fence);
+    await t.mutation(deleteOwnerCloudBatch, { ...fence, table: "agent_turns" });
     await t.mutation(deleteOwnerCloudBatch, {
       ...fence,
       table: "agent_events",

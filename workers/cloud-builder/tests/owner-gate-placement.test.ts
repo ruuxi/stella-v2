@@ -174,56 +174,6 @@ describe("dispatch submission", () => {
     expect(preparations).toBe(1);
   });
 
-  test("starts cloud admission while the initial activity projection is pending", async () => {
-    const projection = Promise.withResolvers<void>();
-    const forwarded = Promise.withResolvers<void>();
-    const harness = open(OwnerGate, {
-      snapshot: snapshotWith([]),
-      enqueue: async (events) => {
-        if (events.some((event) =>
-          event.kind === "dispatch.updated" && event.dispatch.revision === 1,
-        )) {
-          await projection.promise;
-        }
-      },
-      respond: (call) => {
-        forwarded.resolve();
-        return Response.json({
-          protocol: 1,
-          conversationId: call.name,
-          turnId: call.authority!.turnId,
-          accepted: true,
-          replayed: false,
-          createdConversation: false,
-        }, { status: 202 });
-      },
-    });
-    let settled = false;
-    const submission = harness.instance.submit({
-      request: submitBody({ requestingDeviceId: undefined }), now: NOW,
-    }).then((result) => {
-      settled = true;
-      return result;
-    });
-    try {
-      await Promise.race([
-        forwarded.promise,
-        Bun.sleep(1_000).then(() => {
-          throw new Error("Cloud admission waited for the projection");
-        }),
-      ]);
-      expect(settled).toBe(false);
-      expect(harness.forwarded).toHaveLength(1);
-    } finally {
-      projection.resolve();
-      await submission;
-    }
-    expect((await submission).response.dispatch.state).toBe("cloud_running");
-    expect(harness.outbox.filter((event) =>
-      event.kind === "dispatch.updated",
-    )).toHaveLength(2);
-  });
-
   test("offers a scheduled fire to the computer it targets", async () => {
     const desk = await generateDeviceKey("desk-1");
     const harness = open(OwnerGate, {
@@ -1356,58 +1306,6 @@ describe("leases and projections", () => {
       state: "cloud_running",
       fallbackReason: "computer-claim-expired",
     });
-  });
-
-  test("every transition bumps the revision and projects it exactly once", async () => {
-    const desk = await generateDeviceKey("desk-1");
-    const harness = open(OwnerGate, {
-      snapshot: snapshotWith([desk], ["desk-1"]),
-    });
-    const { socket } = await withNow(NOW, () => harness.connect(desk));
-    const submitted = await withNow(NOW, () =>
-      harness.instance.submit({
-        request: submitBody(),
-        pairGrantDeviceId: "desk-1",
-        now: NOW,
-      }),
-    );
-    const dispatchId = submitted.response.dispatch.dispatchId;
-    for (const [at, frame] of [
-      [NOW + 100, { type: "claim", dispatchId, claimRequestId: "claim-1" }],
-      [NOW + 200, { type: "ack", dispatchId }],
-      [NOW + 300, { type: "running", dispatchId }],
-      [NOW + 400, { type: "complete", dispatchId, outcome: "completed" }],
-    ] as const) {
-      await withNow(at, () => harness.sendFrame(socket, frame as never));
-    }
-    const projections = harness.outbox.filter(
-      (event) => event.kind === "dispatch.updated",
-    ) as Array<{
-      key: string;
-      ownerId: string;
-      ownerGeneration: string;
-      dispatchId: string;
-      dispatch: { revision: number; state: string };
-    }>;
-    expect(projections.map((event) => event.dispatch.state)).toEqual([
-      "offering",
-      "computer_claimed",
-      "computer_accepted",
-      "computer_running",
-      "completed",
-    ]);
-    expect(projections.map((event) => event.dispatch.revision)).toEqual([
-      1, 2, 3, 4, 5,
-    ]);
-    expect(projections.map((event) => event.key)).toEqual(
-      [1, 2, 3, 4, 5].map((revision) => `${dispatchId}:${revision}`),
-    );
-    expect(new Set(projections.map((event) => event.ownerId))).toEqual(
-      new Set(["owner-1"]),
-    );
-    expect(new Set(projections.map((event) => event.ownerGeneration))).toEqual(
-      new Set(["generation-1"]),
-    );
   });
 
   test("the payload's own ttl clears the bytes without moving the dispatch", async () => {

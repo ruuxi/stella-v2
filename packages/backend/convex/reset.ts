@@ -1,5 +1,4 @@
 import {
-  action,
   internalAction,
   internalMutation,
   internalQuery,
@@ -11,13 +10,11 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { type Infer, v } from "convex/values";
 import { makeFunctionReference } from "convex/server";
-import { requireUserId } from "./auth";
 import {
   ensureExternalOwnerPurge,
   quiesceOwnerIntegrationCalls,
   stopOwnerSchedules,
 } from "./cloud_purge";
-import { enforceActionRateLimit, RATE_SENSITIVE } from "./lib/rate_limits";
 import { purgeOwnerMigrationSourceDependencies } from "./lib/owner_migration_purge";
 import { assertOwnerPurgeOperation } from "./owner_lifecycle";
 
@@ -345,45 +342,10 @@ const runOwnerReset = async (
 };
 
 // ---------------------------------------------------------------------------
-// Public action - orchestrates full user data reset across many small mutations
+// Entry points. A user's reset arrives as the owner object's `account.reset`,
+// which posts to `/api/cloud/owners/reset` (http_routes/gateway.ts): that route
+// opens the purge and schedules `resumeOwnerResetInternal`.
 // ---------------------------------------------------------------------------
-
-export const resetAllUserData = action({
-  args: {},
-  returns: v.null(),
-  handler: async (ctx) => {
-    const ownerId = await requireUserId(ctx);
-
-    // Destructive: wipes the user's entire data set across many mutations.
-    // A hijacked session shouldn't be able to fire-and-forget this multiple
-    // times in parallel.
-    await enforceActionRateLimit(
-      ctx,
-      "reset_all_user_data",
-      ownerId,
-      RATE_SENSITIVE,
-      "Too many account reset attempts. Please wait a minute and try again.",
-    );
-
-    const lifecycle = await ctx.runMutation(
-      internal.owner_lifecycle.beginOwnerDataPurgeInternal,
-      {
-        ownerId,
-        operationId: crypto.randomUUID(),
-        mode: "reset",
-        now: Date.now(),
-      },
-    );
-    const fence: OwnerPurgeFence = {
-      ownerId,
-      operationId: lifecycle.operationId,
-      generation: lifecycle.generation,
-    };
-    await runOwnerReset(ctx, fence);
-
-    return null;
-  },
-});
 
 export const resumeOwnerResetInternal = internalAction({
   args: {

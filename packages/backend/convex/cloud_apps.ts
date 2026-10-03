@@ -28,7 +28,6 @@ import { enforceMutationRateLimit } from "./lib/rate_limits";
 import {
   assertOwnerDataAccessActive,
   assertOwnerDataWriteAllowed,
-  assertOwnerPurgeOperation,
 } from "./owner_lifecycle";
 
 /**
@@ -275,14 +274,13 @@ export const clip = (value: string, max: number): string =>
   value.length > max ? value.slice(0, max) : value;
 
 /**
- * Fence a conversation id whose DO has confirmed its storage is gone.
+ * Fence a conversation id whose index row reset or account deletion drops.
  *
- * Exported as a plain helper rather than a mutation so account deletion can
- * write the fence in the SAME transaction that deletes the index row: between
- * the two there must be no instant in which neither exists, because that
- * instant is exactly what `upsertConversationIndexInternal`'s self-heal branch
- * reads. Idempotent — the delete action, the retry sweep and account deletion
- * all reach it, and a re-run must not add a second row.
+ * Exported as a plain helper rather than a mutation so the purge can write the
+ * fence in the SAME transaction that deletes the index row: between the two
+ * there must be no instant in which neither exists, because that instant is
+ * exactly what `upsertConversationIndexInternal`'s self-heal branch reads.
+ * Idempotent: a re-run must not add a second row.
  */
 export const recordConversationTombstone = async (
   ctx: MutationCtx,
@@ -696,71 +694,38 @@ export const getConversationProbeInternal = internalAction({
 });
 
 // ---------------------------------------------------------------------------
-// Conversation deletion. The DO owns the transcript and its R2 segments, so
-// deletion is a two-party handshake: Convex tombstones (which is what makes it
-// disappear and stay gone), the DO purges its own storage, Convex records that
-// it finished. Any step can be retried; none can be skipped.
+// Conversation deletion. The DO owns the transcript and its R2 segments, and
+// the owner object (cloud-builder `owner-store/purge.ts`) confirms the DO
+// purged them. Convex tombstones its projection row, which is what makes it
+// disappear and stay gone, and drops the turn and thread rows derived from it.
 // ---------------------------------------------------------------------------
-
-type ConversationOwnerPurgeFence = {
-  ownerId: string;
-  operationId: string;
-  generation: string;
-};
-
-const conversationOwnerPurgeFence = (args: {
-  ownerId?: string;
-  operationId?: string;
-  generation?: string;
-}): ConversationOwnerPurgeFence | null => {
-  // `ownerId` alone is the ordinary signed-in/sweep ownership check. Only the
-  // operation fields opt this call into the account-purge authority path.
-  const supplied =
-    args.operationId !== undefined || args.generation !== undefined;
-  if (!supplied) return null;
-  if (!args.ownerId || !args.operationId || !args.generation) {
-    throw new ConvexError(
-      "ownerId, operationId, and generation must be supplied together.",
-    );
-  }
-  return {
-    ownerId: args.ownerId,
-    operationId: args.operationId,
-    generation: args.generation,
-  };
-};
 
 /**
  * Marks a conversation deleted: invisible, unwritable, and stripped of the
- * user's words on the spot. The storage purge is a separate, retried step.
+ * user's words on the spot.
  */
 export const tombstoneConversation = async (
   ctx: MutationCtx,
   args: {
     conversationId: string;
-    ownerId?: string;
-    operationId?: string;
-    generation?: string;
+    ownerId: string;
     now: number;
   },
 ): Promise<{ ok: boolean; ownerId: string }> => {
-  const purgeFence = conversationOwnerPurgeFence(args);
-  if (purgeFence) await assertOwnerPurgeOperation(ctx, purgeFence);
   const row = await ctx.db
     .query("cloud_conversations")
     .withIndex("by_conversationId", (q) =>
       q.eq("conversationId", args.conversationId),
     )
     .unique();
-  if (!row || (args.ownerId && row.ownerId !== args.ownerId)) {
+  if (!row || row.ownerId !== args.ownerId) {
     throw new ConvexError("Conversation not found.");
   }
   if (row.deletedAt !== undefined) {
     return { ok: true, ownerId: row.ownerId };
   }
-  // The tombstone keeps only what the purge needs: identity. The title and
-  // preview are the user's words, and they go now rather than whenever the
-  // DO gets around to answering.
+  // The tombstone keeps only identity. The title and preview are the user's
+  // words, and they go now.
   await ctx.db.patch(row._id, {
     deletedAt: args.now,
     title: "",
@@ -772,46 +737,23 @@ export const tombstoneConversation = async (
   return { ok: true, ownerId: row.ownerId };
 };
 
-export const tombstoneConversationInternal = internalMutation({
-  args: {
-    conversationId: v.string(),
-    /** Omitted by the sweeps, which already know the row. */
-    ownerId: v.optional(v.string()),
-    operationId: v.optional(v.string()),
-    generation: v.optional(v.string()),
-    now: v.number(),
-  },
-  returns: v.object({ ok: v.boolean(), ownerId: v.string() }),
-  handler: async (ctx, args) => await tombstoneConversation(ctx, args),
-});
-
 /**
- * Drops every Convex row derived from one conversation, including turn/event
- * rows that carry prompts. Batched because a long conversation exceeds one
- * transaction.
+ * Drops every Convex row derived from one deleted conversation, including
+ * turn/event rows that carry prompts, one batch per transaction, then stamps
+ * `purgedAt`. Reschedules itself until done.
  */
 export const purgeConversationRowsInternal = internalMutation({
-  args: {
-    conversationId: v.string(),
-    ownerId: v.optional(v.string()),
-    operationId: v.optional(v.string()),
-    generation: v.optional(v.string()),
-  },
+  args: { conversationId: v.string() },
   returns: v.object({ hasMore: v.boolean() }),
   handler: async (ctx, args) => {
-    const purgeFence = conversationOwnerPurgeFence(args);
-    if (purgeFence) {
-      await assertOwnerPurgeOperation(ctx, purgeFence);
-      const conversation = await ctx.db
-        .query("cloud_conversations")
-        .withIndex("by_conversationId", (q) =>
-          q.eq("conversationId", args.conversationId),
-        )
-        .unique();
-      if (conversation && conversation.ownerId !== purgeFence.ownerId) {
-        throw new ConvexError("Conversation not found.");
-      }
-    }
+    const more = async (): Promise<{ hasMore: boolean }> => {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.cloud_apps.purgeConversationRowsInternal,
+        args,
+      );
+      return { hasMore: true };
+    };
     // Spawned-agent control-plane rows belong to the conversation and go too.
     const threads = await ctx.db
       .query("cloud_agent_threads")
@@ -819,13 +761,8 @@ export const purgeConversationRowsInternal = internalMutation({
         q.eq("conversationId", args.conversationId),
       )
       .take(10);
-    for (const thread of threads) {
-      if (purgeFence && thread.ownerId !== purgeFence.ownerId) {
-        throw new ConvexError("Conversation not found.");
-      }
-      await ctx.db.delete(thread._id);
-    }
-    if (threads.length === 10) return { hasMore: true };
+    for (const thread of threads) await ctx.db.delete(thread._id);
+    if (threads.length === 10) return await more();
 
     const turns = await ctx.db
       .query("agent_turns")
@@ -834,224 +771,35 @@ export const purgeConversationRowsInternal = internalMutation({
       )
       .take(20);
     for (const turn of turns) {
-      if (purgeFence && turn.ownerId !== purgeFence.ownerId) {
-        throw new ConvexError("Conversation not found.");
-      }
       const events = await ctx.db
         .query("agent_events")
         .withIndex("by_turnId_and_seq", (q) => q.eq("turnId", turn.turnId))
         .take(PURGE_BATCH);
       for (const event of events) await ctx.db.delete(event._id);
       // Children first, and the turn only once its last child is gone.
-      if (events.length === PURGE_BATCH) return { hasMore: true };
+      if (events.length === PURGE_BATCH) return await more();
       await ctx.db.delete(turn._id);
     }
-    return { hasMore: turns.length === 20 };
-  },
-});
+    if (turns.length === 20) return await more();
 
-export const finishConversationPurgeInternal = internalMutation({
-  args: {
-    conversationId: v.string(),
-    ownerId: v.optional(v.string()),
-    operationId: v.optional(v.string()),
-    generation: v.optional(v.string()),
-    now: v.number(),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const purgeFence = conversationOwnerPurgeFence(args);
-    if (purgeFence) await assertOwnerPurgeOperation(ctx, purgeFence);
     const row = await ctx.db
       .query("cloud_conversations")
       .withIndex("by_conversationId", (q) =>
         q.eq("conversationId", args.conversationId),
       )
       .unique();
-    if (purgeFence && row && row.ownerId !== purgeFence.ownerId) {
-      throw new ConvexError("Conversation not found.");
+    if (row && row.deletedAt !== undefined && row.purgedAt === undefined) {
+      await ctx.db.patch(row._id, { purgedAt: Date.now() });
     }
-    // The fence goes in first and unconditionally — before the `!row` bail and
-    // in the same transaction as the stamp. It is what stops a late index flush
-    // from resurrecting the conversation as a sidebar ghost pointing at storage
-    // that no longer exists, and it must not depend on the index row still
-    // being here: account deletion deletes that row, and a sweep can reach a
-    // conversation whose row a concurrent account purge already took.
-    await recordConversationTombstone(ctx, args.conversationId, args.now);
-    if (!row) return null;
-    // The index row also stays for a per-conversation delete, stripped of the
-    // user's words by `tombstoneConversationInternal` at the start. `purgedAt`
-    // is what tells the retry sweep this purge finished.
-    await ctx.db.patch(row._id, { purgedAt: args.now });
-    return null;
-  },
-});
-
-/**
- * The whole purge, idempotent end to end: safe to re-run after any failure,
- * which is what the sweep cron relies on.
- */
-export const purgeConversationInternal = internalAction({
-  args: {
-    conversationId: v.string(),
-    ownerId: v.optional(v.string()),
-    operationId: v.optional(v.string()),
-    generation: v.optional(v.string()),
-  },
-  returns: v.object({ purged: v.boolean() }),
-  handler: async (ctx, args): Promise<{ purged: boolean }> => {
-    const purgeFence = conversationOwnerPurgeFence(args);
-    await ctx.runMutation(internal.cloud_apps.tombstoneConversationInternal, {
-      conversationId: args.conversationId,
-      ...(args.ownerId ? { ownerId: args.ownerId } : {}),
-      ...(purgeFence
-        ? {
-            operationId: purgeFence.operationId,
-            generation: purgeFence.generation,
-          }
-        : {}),
-      now: Date.now(),
-    });
-    let hasMore = true;
-    while (hasMore) {
-      const result: { hasMore: boolean } = await ctx.runMutation(
-        internal.cloud_apps.purgeConversationRowsInternal,
-        {
-          conversationId: args.conversationId,
-          ...(purgeFence ? purgeFence : {}),
-        },
-      );
-      hasMore = result.hasMore;
-    }
-    const builder = builderEndpoint();
-    if (!builder) {
-      logCloud("conversation_purge_unconfigured", {
-        conversationId: args.conversationId,
-      });
-      return { purged: false };
-    }
-    {
-      let ok = false;
-      try {
-        const response = await fetch(
-          `${builder.url}/conversations/${encodeURIComponent(args.conversationId)}/purge`,
-          {
-            method: "POST",
-            headers: {
-              authorization: `Bearer ${builder.secret}`,
-              "content-type": "application/json",
-            },
-            body: "{}",
-            signal: AbortSignal.timeout(60_000),
-          },
-        );
-        // The DO's own verdict decides this, never the status class. An
-        // incomplete purge answers 202 `{purged:false}`: it could not delete
-        // some of its R2 objects, so it deliberately kept its storage —
-        // including the manifest naming those objects — and is waiting to be
-        // asked again. `response.ok` is true for that, and treating it as
-        // success is what stamps `purgedAt` on a conversation whose transcript
-        // is still in DO SQLite and whose segments are still in R2, with
-        // nothing left that will ever look at it again.
-        //
-        // A 404 is NOT "the DO never existed", however it reads: the namespace
-        // creates the object on demand, so an id nothing ever addressed still
-        // answers 200 `{purged:true}`. The only thing that 404s this route is a
-        // request that never reached a purge handler — a stale
-        // `CLOUD_BUILDER_URL`, a worker rolled back past the route, a rename.
-        // Every one of those leaves the transcript and its R2 objects intact,
-        // so it is a failure like any other: keep the tombstone and let the
-        // sweep ask again.
-        if (response.ok) {
-          const verdict = (await response.json().catch(() => null)) as {
-            purged?: boolean;
-            pending?: number;
-          } | null;
-          ok = verdict?.purged === true;
-          if (!ok) {
-            logCloud("conversation_purge_incomplete", {
-              conversationId: args.conversationId,
-              status: response.status,
-              pending: verdict?.pending ?? -1,
-            });
-          }
-        } else {
-          logCloud("conversation_purge_rejected", {
-            conversationId: args.conversationId,
-            status: response.status,
-          });
-        }
-      } catch (error) {
-        logCloud("conversation_purge_failed", {
-          conversationId: args.conversationId,
-          message: error instanceof Error ? error.message : String(error),
-        });
-      }
-      if (!ok) {
-        // The tombstone stays unpurged; `sweepDeletedConversationsInternal`
-        // retries. Reporting success here would strand R2 segments with no
-        // record of their keys — and would release account deletion's durable
-        // gate on the strength of a purge that explicitly said it was not done.
-        return { purged: false };
-      }
-    }
-    await ctx.runMutation(internal.cloud_apps.finishConversationPurgeInternal, {
-      conversationId: args.conversationId,
-      ...(purgeFence ? purgeFence : {}),
-      now: Date.now(),
-    });
-    return { purged: true };
-  },
-});
-
-/** Tombstones awaiting a retried purge, oldest first. */
-export const listUnpurgedConversationsInternal = internalQuery({
-  args: { limit: v.number(), before: v.number() },
-  returns: v.array(v.object({ conversationId: v.string() })),
-  handler: async (ctx, args) => {
-    const rows = await ctx.db
-      .query("cloud_conversations")
-      .withIndex("by_purgedAt_and_deletedAt", (q) =>
-        q
-          .eq("purgedAt", undefined)
-          .gte("deletedAt", 1)
-          .lte("deletedAt", args.before),
-      )
-      .take(Math.min(50, Math.max(1, args.limit)));
-    return rows.map((row) => ({ conversationId: row.conversationId }));
-  },
-});
-
-export const sweepDeletedConversationsInternal = internalAction({
-  args: { limit: v.optional(v.number()) },
-  returns: v.object({ attempted: v.number(), purged: v.number() }),
-  handler: async (
-    ctx,
-    args,
-  ): Promise<{ attempted: number; purged: number }> => {
-    const rows: Array<{ conversationId: string }> = await ctx.runQuery(
-      internal.cloud_apps.listUnpurgedConversationsInternal,
-      // A minute of grace: the delete action's own scheduled purge should get
-      // first refusal, so the sweep is a retry and not a race.
-      { limit: args.limit ?? 10, before: Date.now() - 60_000 },
-    );
-    let purged = 0;
-    for (const row of rows) {
-      const result: { purged: boolean } = await ctx.runAction(
-        internal.cloud_apps.purgeConversationInternal,
-        { conversationId: row.conversationId },
-      );
-      if (result.purged) purged += 1;
-    }
-    return { attempted: rows.length, purged };
+    return { hasMore: false };
   },
 });
 
 /**
  * Conversations the DO never flushed: a row created at dispatch whose turn
  * never reached the builder. Without this they accumulate as permanently empty
- * sidebar entries. Tombstoned rather than deleted outright, so the same purge
- * path clears whatever partial DO state may exist.
+ * sidebar entries. Tombstoned rather than deleted outright, so a late index
+ * flush cannot bring them back.
  */
 export const sweepOrphanConversationsInternal = internalMutation({
   args: { limit: v.optional(v.number()) },

@@ -1,13 +1,13 @@
 /**
- * AWS SigV4 for the drive's R2 bucket over its S3 API, on WebCrypto. A port
- * of `packages/backend/convex/lib/r2_sigv4.ts` (same canonical path encoding,
- * same header signing) plus query-string presigning, so clients PUT and GET
- * drive bytes straight to R2 and the Worker never carries them.
+ * AWS SigV4 for this Worker's R2 buckets over their S3 API, on WebCrypto. A
+ * port of `packages/backend/convex/lib/r2_sigv4.ts` (same canonical path
+ * encoding, same header signing) plus query-string presigning, so clients
+ * PUT and GET bytes straight to R2 and the Worker never carries them.
  *
- * The R2 binding (`env.DRIVE`) does everything else: HEAD, DELETE, LIST and
- * the inline writes of agent output. Only what must work without the binding
- * is signed here: client URLs and the server-side copy that moves an upload
- * out of its client-writable staging key.
+ * The R2 bindings (`DRIVE`, `MEDIA`) do everything else: HEAD, DELETE, LIST
+ * and inline writes. Only what must work without a binding is signed here:
+ * client URLs and the server-side copy that moves a drive upload out of its
+ * client-writable staging key.
  */
 
 export type R2Signer = {
@@ -261,24 +261,25 @@ export const presignR2Url = async (
   return `${url.origin}${url.pathname}?${canonicalQuery}&X-Amz-Signature=${result.signature}`;
 };
 
-/** The drive's signer, or null when this deployment has no R2 S3 credentials. */
-export const driveSigner = (
-  env: Pick<
-    Cloudflare.Env,
-    "R2_ACCESS_KEY_ID" | "R2_SECRET_ACCESS_KEY" | "R2_S3_ENDPOINT" | "R2_DRIVE_BUCKET"
-  >,
+/**
+ * A signer for `bucket` (a bucket name, such as `env.R2_DRIVE_BUCKET`), or
+ * null when this deployment has no R2 S3 credentials.
+ */
+export const r2Signer = (
+  env: Pick<Cloudflare.Env, "R2_ACCESS_KEY_ID" | "R2_SECRET_ACCESS_KEY" | "R2_S3_ENDPOINT">,
+  bucket: string | undefined,
 ): R2Signer | null => {
   const accessKeyId = env.R2_ACCESS_KEY_ID?.trim();
   const secretAccessKey = env.R2_SECRET_ACCESS_KEY?.trim();
   const endpoint = env.R2_S3_ENDPOINT?.trim();
-  const bucket = env.R2_DRIVE_BUCKET?.trim();
-  if (!accessKeyId || !secretAccessKey || !endpoint || !bucket) return null;
+  const name = bucket?.trim();
+  if (!accessKeyId || !secretAccessKey || !endpoint || !name) return null;
   if (endpoint.includes("PENDING_")) return null;
-  return { accessKeyId, secretAccessKey, endpoint, bucket };
+  return { accessKeyId, secretAccessKey, endpoint, bucket: name };
 };
 
 /**
- * Server-side copy inside the drive bucket (S3 CopyObject), so a finalized
+ * Server-side copy inside one bucket (S3 CopyObject), so a finalized drive
  * upload's bytes leave the staging key its presigned PUT can still write.
  * Throws unless storage confirms the copy.
  */

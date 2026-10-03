@@ -25,7 +25,7 @@ import type {
   DriveFileRecord,
   DriveFileUrl,
 } from "@stella/contracts/backend/drive";
-import { copyR2Object, driveSigner, presignR2Url, type R2Signer } from "../../drive/presign.js";
+import { copyR2Object, presignR2Url, r2Signer, type R2Signer } from "../../r2-presign.js";
 import { sha256Hex } from "../../hash.js";
 import { number, object, optional, string } from "../args.js";
 import { RpcError } from "../errors.js";
@@ -273,7 +273,7 @@ const bucketOf = (ctx: Pick<OwnerContext, "env">): R2Bucket => {
 };
 
 const signerOf = (ctx: Pick<OwnerContext, "env">): R2Signer => {
-  const signer = driveSigner(ctx.env);
+  const signer = r2Signer(ctx.env, ctx.env.R2_DRIVE_BUCKET);
   if (!signer) throw unavailable();
   return signer;
 };

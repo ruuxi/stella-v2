@@ -461,6 +461,22 @@
         "wrangler": "4.127.1",
       },
     },
+    "workers/x-bot": {
+      "name": "@stella/x-bot-worker",
+      "version": "0.0.0",
+      "dependencies": {
+        "@fontsource/cormorant-garamond": "5.2.6",
+        "@fontsource/manrope": "5.2.6",
+        "@resvg/resvg-wasm": "2.6.2",
+        "harfbuzzjs": "0.10.0",
+        "satori": "0.33.4",
+      },
+      "devDependencies": {
+        "@cloudflare/workers-types": "5.20260830.1",
+        "typescript": "^6.0.3",
+        "wrangler": "4.127.1",
+      },
+    },
   },
   "trustedDependencies": [
     "mac-screen-capture-permissions",
@@ -1441,6 +1457,8 @@
     "@stella/telemetry-worker": ["@stella/telemetry-worker@workspace:workers/telemetry"],
 
     "@stella/theme": ["@stella/theme@workspace:packages/theme"],
+
+    "@stella/x-bot-worker": ["@stella/x-bot-worker@workspace:workers/x-bot"],
 
     "@swc/helpers": ["@swc/helpers@0.5.15", "", { "dependencies": { "tslib": "^2.8.0" } }, "sha512-JQ5TuMi45Owi4/BIMAJBoSQoOJu12oOk/gADqlcUL9JEdHB8vyjUSsxqeNXnmXHjYKMi2WcYtezGEEhqUI/E2g=="],
 

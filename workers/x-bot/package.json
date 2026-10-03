@@ -1,0 +1,26 @@
+{
+  "name": "@stella/x-bot-worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "types:generate": "wrangler types worker-configuration.d.ts --include-runtime false --strict-vars=false",
+    "types:check": "wrangler types worker-configuration.d.ts --include-runtime false --strict-vars=false --check",
+    "typecheck": "bun run types:check && tsc --noEmit",
+    "build:dry-run": "wrangler deploy --dry-run --outdir .wrangler/dry-run",
+    "deploy:dev": "wrangler deploy --strict"
+  },
+  "dependencies": {
+    "@fontsource/cormorant-garamond": "5.2.6",
+    "@fontsource/manrope": "5.2.6",
+    "@resvg/resvg-wasm": "2.6.2",
+    "harfbuzzjs": "0.10.0",
+    "satori": "0.33.4"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260830.1",
+    "typescript": "^6.0.3",
+    "wrangler": "4.127.1"
+  }
+}

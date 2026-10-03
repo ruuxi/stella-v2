@@ -235,7 +235,7 @@ describe("stella-computer shell bootstrap", () => {
 
     const state = createShellState(tempDir, {
       stellaMediaCliPath: fakeMediaCliPath,
-      getStellaSiteAuth: () => ({
+      getCloudBackendAuth: () => ({
         baseUrl: "https://stella.example",
         authToken: "token-test",
       }),

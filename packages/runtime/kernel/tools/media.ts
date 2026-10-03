@@ -20,7 +20,7 @@ import { pruneImageOperationLedger } from "./image-operation-store.js";
 export const IMAGE_GEN_TOOL_NAME = "image_gen";
 
 type MediaToolOptions = {
-  getStellaSiteAuth?: () => { baseUrl: string; authToken: string } | null;
+  getCloudBackendAuth?: () => { baseUrl: string; authToken: string } | null;
   managedImageJob?: Partial<
     Pick<
       ManagedImageJobOptions,
@@ -212,15 +212,15 @@ const createImageGenHandler =
     if (useImageEdit) input.image_urls = imageUrls;
     const capability = useImageEdit ? "image_edit" : "text_to_image";
 
-    if (!options.getStellaSiteAuth) {
+    if (!options.getCloudBackendAuth) {
       return {
         error:
           "image_gen is not available because Stella media auth is not configured in this runtime.",
       };
     }
 
-    const siteAuth = options.getStellaSiteAuth();
-    if (!siteAuth) {
+    const backendAuth = options.getCloudBackendAuth();
+    if (!backendAuth) {
       return {
         error:
           "image_gen requires Stella sign-in. Open Stella and finish signing in, then retry.",
@@ -252,8 +252,8 @@ const createImageGenHandler =
     }
 
     const terminal = await submitAndWaitForManagedImageJob({
-      baseUrl: siteAuth.baseUrl,
-      authToken: siteAuth.authToken,
+      baseUrl: backendAuth.baseUrl,
+      authToken: backendAuth.authToken,
       requestBody,
       context,
       extras,

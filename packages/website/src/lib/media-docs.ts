@@ -12,9 +12,9 @@
  * Audience: AI agents driving the Stella desktop app, not human readers.
  * Optimized for `curl` consumption — no headers, no nav, no boilerplate.
  *
- * Source of truth for what the gateway *accepts* lives in the backend
- * (`backend/convex/media_catalog.ts`). Keep the capability IDs here
- * in sync when that catalog changes.
+ * Source of truth for what the backend *accepts* lives in the cloud-builder
+ * worker (`workers/cloud-builder/src/media/catalog.ts`). Keep the capability
+ * IDs here in sync when that catalog changes.
  */
 
 export const MEDIA_DOCS_KINDS = [
@@ -40,8 +40,9 @@ Content-Type: application/json
 Authorization: Bearer <stella-session-token>
 
 Where \`<stella-api>\` is the Stella backend base URL the desktop app is signed
-in against (e.g. \`https://api.stella.sh\`). Reuse the user's existing session
-token — do not invent your own credentials.
+in against. Reuse the user's existing session token — do not invent your own
+credentials. An optional \`Idempotency-Key\` header makes retries safe: the
+same key and body reattach to the first job instead of starting another.
 
 ## Request body
 
@@ -67,14 +68,12 @@ The backend wraps the value into the right shape for the picked endpoint
 {
   "jobId": "job_123",
   "capability": "text_to_image",
-  "status": "queued",
-  "upstreamStatus": "IN_QUEUE",
-  "subscription": {
-    "query": "api.media_jobs.getByJobId",
-    "args": { "jobId": "job_123" }
-  }
+  "status": "queued"
 }
 \`\`\`
+
+Music and transcription finish inside the request, so their response is
+\`"status": "succeeded"\` with the result in \`output\`.
 
 ## Watching for completion
 
@@ -108,9 +107,11 @@ the signed-in user, downloads the output to
 sidebar automatically. If generation fails, Stella shows a failure
 notification.
 
-If you do need the raw status, subscribe to Convex:
-\`useQuery(api.media_jobs.getByJobId, { jobId })\`. Status values:
-\`queued\`, \`running\`, \`succeeded\`, \`failed\`, \`canceled\`.
+If you do need the raw status, poll
+\`GET <stella-api>/api/media/v1/job?jobId=<jobId>\` with the same bearer token.
+Status values: \`queued\`, \`running\`, \`succeeded\`, \`failed\`,
+\`canceled\`. A succeeded job's \`output\` keeps the provider's shape, with each
+file \`url\` pointing at a signed, time-limited copy Stella stored.
 
 ## Auth failure (401)
 
@@ -129,9 +130,6 @@ When you see \`code: "auth_required"\`:
 1. Stop the in-flight job — do not retry on a backoff.
 2. Surface \`action\` to the user verbatim so they know what to do.
 3. Once they confirm sign-in, re-run the original request with the same payload.
-
-The response also sets \`WWW-Authenticate: Bearer realm="stella-media"\` for
-non-agent HTTP clients.
 
 ## Errors
 

@@ -71,7 +71,7 @@ Usage:
   stella-media status --job-id <jobId> [--save] [--json]
 
 Environment:
-  STELLA_MEDIA_BASE_URL       Stella site base URL
+  STELLA_MEDIA_BASE_URL       Stella backend URL
   STELLA_MEDIA_AUTH_TOKEN     Stella bearer token
 `;
 
@@ -152,8 +152,7 @@ const getAuth = (): {
 } => {
   const baseUrl =
     process.env.STELLA_MEDIA_BASE_URL?.trim() ||
-    process.env.STELLA_SITE_URL?.trim() ||
-    process.env.STELLA_LLM_PROXY_URL?.trim() ||
+    process.env.STELLA_BACKEND_URL?.trim() ||
     "";
   const authToken =
     process.env.STELLA_MEDIA_AUTH_TOKEN?.trim() ||

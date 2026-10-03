@@ -77,6 +77,8 @@ export type ShellState = {
   nodeShimDir?: string;
   windowsCliShimDir?: string;
   getStellaSiteAuth?: () => { baseUrl: string; authToken: string } | null;
+  /** The backend origin and auth token, for `stella-media`. */
+  getCloudBackendAuth?: () => { baseUrl: string; authToken: string } | null;
   /**
    * Per-root CLI bridge UDS path (worker-side). Forwarded into the PTY
    * env as `STELLA_CLI_BRIDGE_SOCK` so sidecar CLIs (e.g. `stella-computer`)
@@ -94,6 +96,7 @@ type ShellStateOptions = {
   stellaMediaCliPath?: string;
   stellaXApiCliPath?: string;
   getStellaSiteAuth?: () => { baseUrl: string; authToken: string } | null;
+  getCloudBackendAuth?: () => { baseUrl: string; authToken: string } | null;
   cliBridgeSocketPath?: string;
 };
 
@@ -533,6 +536,7 @@ export function createShellState(
     stellaXApiCliPath: options?.stellaXApiCliPath,
     ...(nodeShimDir ? { nodeShimDir } : {}),
     getStellaSiteAuth: options?.getStellaSiteAuth,
+    getCloudBackendAuth: options?.getCloudBackendAuth,
     ...(windowsCliShimDir ? { windowsCliShimDir } : {}),
     cliBridgeSocketPath: options?.cliBridgeSocketPath,
     lastDeferredDeleteSweepAt: 0,
@@ -2260,10 +2264,10 @@ const resolveManagedShellCommand = (
   }
 
   if (shouldUseStellaMedia(command)) {
-    const siteAuth = state.getStellaSiteAuth?.();
-    if (siteAuth) {
-      envOverrides.STELLA_MEDIA_BASE_URL = siteAuth.baseUrl;
-      envOverrides.STELLA_MEDIA_AUTH_TOKEN = siteAuth.authToken;
+    const backendAuth = state.getCloudBackendAuth?.();
+    if (backendAuth) {
+      envOverrides.STELLA_MEDIA_BASE_URL = backendAuth.baseUrl;
+      envOverrides.STELLA_MEDIA_AUTH_TOKEN = backendAuth.authToken;
     }
     if (context?.deviceId) {
       envOverrides.STELLA_DEVICE_ID = context.deviceId;

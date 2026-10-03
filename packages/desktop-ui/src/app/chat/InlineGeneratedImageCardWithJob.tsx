@@ -1,6 +1,5 @@
 import { useEffect } from "react";
-import { useQuery } from "convex/react";
-import { api } from "@/convex/api";
+import { useBackendView } from "@/platform/backend/use-backend-view";
 import {
   markMediaJobMaterialized,
   publishMaterializedMediaPayload,
@@ -72,15 +71,15 @@ export function InlineGeneratedImageCardWithJob({
   const materializedPayload = useMaterializedMediaPayload(payload.jobId);
   const hasResolvedAssets =
     payload.asset.kind === "image" && payload.asset.filePaths.length > 0;
-  const job = useQuery(
-    api.media_jobs.getByJobId,
+  const job: MediaJobLookup | undefined = useBackendView(
+    "media.job",
     payload.jobId &&
       materializeJob &&
       !materializedPayload &&
       !hasResolvedAssets
       ? { jobId: payload.jobId }
       : "skip",
-  ) as MediaJobLookup | undefined;
+  ).value;
 
   useEffect(() => {
     if (!materializeJob) return;

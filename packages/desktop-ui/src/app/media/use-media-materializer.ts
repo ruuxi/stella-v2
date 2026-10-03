@@ -7,14 +7,13 @@
  *
  * Decoupling production from materialization is what makes "all generated
  * media is available in the workspace panel" robust: it doesn't matter who
- * `curl`'d the managed media API — every job lives in `media_jobs` keyed by
- * `ownerId`, this hook drains the queue, and downstream UI subscribes to a
- * single payload stream.
+ * `curl`'d the managed media API — every job lives in the owner's backend
+ * object (`media.jobs`), this hook drains the queue, and downstream UI
+ * subscribes to a single payload stream.
  */
 
 import { useEffect, useMemo, useRef } from "react"
-import { useQuery } from "convex/react"
-import { api } from "@/convex/api"
+import { useBackendView } from "@/platform/backend/use-backend-view"
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state"
 import type {
   DisplayPayload,
@@ -128,15 +127,17 @@ export const useMediaMaterializer = ({
 
   const inFlightRef = useRef<Set<string>>(new Set())
 
-  const jobs = useQuery(
-    api.media_jobs.listSucceededSince,
-    hasConnectedAccount ? { since: bootSince, limit: 50 } : "skip",
-  ) as MaterializerJob[] | undefined
+  const jobs: MaterializerJob[] | undefined = useBackendView(
+    "media.jobs",
+    hasConnectedAccount
+      ? { since: bootSince, status: "succeeded", limit: 50 }
+      : "skip",
+  ).value
 
-  const failedJobs = useQuery(
-    api.media_jobs.listFailedSince,
-    hasConnectedAccount ? { since: bootSince, limit: 50 } : "skip",
-  ) as MaterializerJob[] | undefined
+  const failedJobs: MaterializerJob[] | undefined = useBackendView(
+    "media.jobs",
+    hasConnectedAccount ? { since: bootSince, status: "failed", limit: 50 } : "skip",
+  ).value
 
   useEffect(() => {
     if (!jobs || jobs.length === 0) return

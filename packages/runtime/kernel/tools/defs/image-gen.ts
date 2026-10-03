@@ -8,7 +8,7 @@ import { createMediaToolHandlers } from "../media.js";
 import type { ToolDefinition, ToolHandler } from "../types.js";
 
 export type ImageGenToolOptions = {
-  getStellaSiteAuth?: () => { baseUrl: string; authToken: string } | null;
+  getCloudBackendAuth?: () => { baseUrl: string; authToken: string } | null;
 };
 
 export const createImageGenTool = (

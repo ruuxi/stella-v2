@@ -236,6 +236,7 @@ export const createToolHost = ({
     stellaMediaCliPath,
     stellaXApiCliPath,
     getStellaSiteAuth,
+    getCloudBackendAuth,
     cliBridgeSocketPath,
   });
   const stateContext: StateContext = createStateContext(
@@ -483,6 +484,7 @@ export const createToolHost = ({
     extensionTools,
     webSearch,
     getStellaSiteAuth,
+    getCloudBackendAuth,
     queryConvex,
     actionConvex,
     shellState,

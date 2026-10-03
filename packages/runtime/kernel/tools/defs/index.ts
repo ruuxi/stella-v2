@@ -113,7 +113,7 @@ export const buildBuiltinTools = (
   );
   tools.push(
     createImageGenTool({
-      getStellaSiteAuth: options.getStellaSiteAuth,
+      getCloudBackendAuth: options.getCloudBackendAuth,
     }),
   );
   tools.push(

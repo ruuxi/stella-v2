@@ -1,14 +1,11 @@
 /**
- * Reactive capability toast for the Stella-paid media surfaces
- * (image/video via `/api/media/v1/generate`, music via
- * `/api/music/stream`, future emoji-pack generation, …).
+ * Reactive capability toast for the Stella-paid media surfaces (image,
+ * video, audio and music through the backend's `media.generate`).
  *
- * Backend marker: `lib/managed_billing.assertPaidMediaTier` and the
- * `isPaidMediaTier` checks in `http_routes/media.ts` +
- * `http_routes/music.ts`. Either path returns a 402 with this message
- * or throws a `PAID_PLAN_REQUIRED` ConvexError carrying it — both
- * surface to the renderer as a thrown Error whose message the shared
- * classifier reads.
+ * Backend marker: the media domain's plan gate refuses with the shared
+ * capability denial message, as a `FORBIDDEN` RPC error or a 402 from
+ * `/api/media/v1/generate`. Both surface to the renderer as a thrown
+ * Error whose message the shared classifier reads.
  *
  * The classification and the copy both come from the one client-side
  * capability gate (`./capabilities` over the shared matrix), so this

@@ -6,10 +6,10 @@ import {
   useMemo,
   startTransition,
 } from "react";
-import { useQuery } from "convex/react";
 import { Folder } from "@/ui/icons";
-import { api } from "@/convex/api";
-import { createServiceRequest } from "@/platform/http/service-request";
+import { getAuthHeaders } from "@/global/auth/services/auth-token";
+import { backendUrl } from "@/platform/backend/backend-client";
+import { useBackendView } from "@/platform/backend/use-backend-view";
 import { maybeShowPaidMediaTierToast } from "@/global/billing/paid-media-tier-toast";
 import { useCapabilityAccess } from "@/global/billing/use-capability-access";
 import {
@@ -212,15 +212,11 @@ async function generateMedia(
   body: Record<string, unknown>,
   planCapability: PlanCapability,
 ): Promise<GenerateResponse> {
-  const { endpoint, headers } = await createServiceRequest(
-    "/api/media/v1/generate",
-    {
-      "Content-Type": "application/json",
-    },
-  );
-  const res = await fetch(endpoint, {
+  // The HTTP form of `media.generate`: it takes inline sources larger than
+  // an RPC body allows.
+  const res = await fetch(`${backendUrl}/api/media/v1/generate`, {
     method: "POST",
-    headers,
+    headers: await getAuthHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -298,15 +294,15 @@ export default function MediaStudio() {
     ? (capability.sourceAccept?.startsWith(sourceType ?? "") ?? false)
     : false;
 
-  // Convex subscription for active job
-  const job = useQuery(
-    api.media_jobs.getByJobId,
+  // Live view of the active job
+  const job = useBackendView(
+    "media.job",
     activeJobId ? { jobId: activeJobId } : "skip",
-  ) as Record<string, unknown> | null | undefined;
+  ).value;
 
-  const jobStatus = (job?.status ?? null) as string | null;
+  const jobStatus = job?.status ?? null;
   const jobOutput = job?.output;
-  const jobError = job?.error as { message?: string } | undefined;
+  const jobError = job?.error;
 
   // When job completes, save to history + desktop/state
   useEffect(() => {

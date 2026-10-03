@@ -1,4 +1,4 @@
-import { postServiceJson } from "@/platform/http/service-request";
+import { backendClient } from "@/platform/backend/backend-client";
 import { generateMusicPrompt, type MusicMood } from "@/prompts/music";
 import { maybeShowPaidMediaTierToast } from "@/global/billing/paid-media-tier-toast";
 
@@ -209,17 +209,6 @@ async function audioUrlToArrayBuffer(
   };
 }
 
-async function parseErrorResponse(response: Response): Promise<string> {
-  const body = await response.json().catch(() => null);
-  if (body && typeof body === "object" && "error" in body) {
-    const error = (body as { error?: unknown }).error;
-    if (typeof error === "string" && error.trim()) {
-      return error;
-    }
-  }
-  return `Failed to start music (${response.status})`;
-}
-
 async function playGeneratedAudio(
   payload: GeneratedMusicResponse,
   generation: number,
@@ -320,8 +309,8 @@ export async function play(): Promise<void> {
       return;
     }
 
-    const payload = await postServiceJson<GeneratedMusicResponse>(
-      "/api/media/v1/generate",
+    const accepted = await backendClient.call(
+      "media.generate",
       {
         capability: "text_to_music",
         prompt: promptSet.prompts[0]?.text ?? state.userHint,
@@ -338,20 +327,9 @@ export async function play(): Promise<void> {
           },
         },
       },
-      {
-        headers: {
-          Accept: "application/json",
-        },
-        onResponse: (response) => {
-          logMusic("Music generation HTTP response received.", {
-            ok: response.ok,
-            status: response.status,
-            statusText: response.statusText,
-          });
-        },
-        errorMessage: parseErrorResponse,
-      },
     );
+    logMusic("Music generation finished.", { jobId: accepted.jobId });
+    const payload = { output: accepted.output } as GeneratedMusicResponse;
     if (generation !== playbackGeneration) {
       return;
     }

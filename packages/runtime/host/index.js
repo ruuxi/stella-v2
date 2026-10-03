@@ -2204,13 +2204,13 @@ export class StellaRuntimeHost {
         return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_LOCAL_CHAT_LIST_SYNC_MESSAGES, payload, { ensureWorker: true, recordActivity: false });
     }
     /**
-     * Reminders and tasks live in Convex (see cloud-schedules.ts); watches
-     * stay on the local scheduler. Callers see one list either way.
+     * Reminders and tasks live in the owner's object (see cloud-schedules.ts);
+     * watches stay on the local scheduler. Callers see one list either way.
      */
     getCloudSchedules() {
         if (!this.cloudSchedules) {
             this.cloudSchedules = createCloudSchedules({
-                getClient: () => this.ensureHostConvexClient(),
+                getClient: () => this.getConfiguredHostAuthToken() ? this.ensureHostBackendClient() : null,
                 getDeviceId: () => this.deviceIdentity?.deviceId,
             });
         }

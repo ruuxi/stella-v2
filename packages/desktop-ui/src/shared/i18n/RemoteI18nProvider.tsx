@@ -1,7 +1,7 @@
 import { useCallback } from "react";
-import { useMutation, useQuery } from "convex/react";
-import { api } from "@/convex/api";
 import { useAuthBootstrapState } from "@/global/auth/DesktopConvexAuthProvider";
+import { backendClient } from "@/platform/backend/backend-client";
+import { useBackendValue } from "@/platform/backend/use-backend-view";
 import {
   I18nProviderBase,
   type I18nProviderProps,
@@ -17,19 +17,18 @@ export function I18nProvider({ children }: I18nProviderProps) {
   // `I18nProviderBase`; the remote value is purely an override applied once it
   // resolves, and `undefined` (skip) leaves the local value in place.
   const { runtimeAuthReady } = useAuthBootstrapState();
-  const remotePreference = useQuery(
-    api.data.preferences.getLocale,
+  const preferences = useBackendValue(
+    "preferences.get",
     runtimeAuthReady ? {} : "skip",
   );
-  const saveRemoteLocale = useMutation(api.data.preferences.setLocale);
   const persistRemoteLocale = useCallback<PersistRemoteLocale>(
-    (locale) => saveRemoteLocale({ locale }),
-    [saveRemoteLocale],
+    (locale) => backendClient.call("preferences.set", { locale }),
+    [],
   );
 
   return (
     <I18nProviderBase
-      remotePreference={remotePreference}
+      remotePreference={preferences?.locale}
       persistRemoteLocale={persistRemoteLocale}
     >
       {children}

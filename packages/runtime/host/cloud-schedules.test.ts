@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { getFunctionName } from "convex/server";
 import {
   createCloudSchedules,
   isCloudScheduleId,
@@ -23,12 +22,17 @@ const row = {
 const fakeClient = () => {
   const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
   const client = {
-    query: async (ref: unknown, args: Record<string, unknown>) => {
-      calls.push({ name: getFunctionName(ref as never), args });
-      return [row];
+    watch: (
+      name: string,
+      args: Record<string, unknown>,
+      onValue: (value: unknown) => void,
+    ) => {
+      calls.push({ name, args });
+      onValue([row]);
+      return () => {};
     },
-    mutation: async (ref: unknown, args: Record<string, unknown>) => {
-      calls.push({ name: getFunctionName(ref as never), args });
+    call: async (name: string, args: Record<string, unknown>) => {
+      calls.push({ name, args });
       return row;
     },
   };
@@ -59,7 +63,7 @@ describe("cloud schedules on the desktop", () => {
       payload: { kind: "notify", text: "Stretch" },
     });
     expect(calls[0]).toMatchObject({
-      name: "cloud_schedule:createMySchedule",
+      name: "schedules.create",
       args: {
         targetDeviceId: "desk-1",
         conversationId: "conversation-1",
@@ -83,7 +87,7 @@ describe("cloud schedules on the desktop", () => {
     });
     await schedules.update("sch-abc", { enabled: false });
     expect(calls[0]).toMatchObject({
-      name: "cloud_schedule:updateMySchedule",
+      name: "schedules.update",
       args: { scheduleId: "sch-abc", status: "paused" },
     });
   });

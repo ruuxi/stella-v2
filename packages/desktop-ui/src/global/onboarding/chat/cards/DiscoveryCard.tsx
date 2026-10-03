@@ -7,8 +7,7 @@
  * ticking while the rest of the conversation continues.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useMutation } from "convex/react";
-import { api } from "@/convex/api";
+import { backendClient } from "@/platform/backend/backend-client";
 import { Button } from "@/ui/button";
 import { Check, Eye, RotateCcw } from "@/ui/icons";
 import { uiState } from "@/platform/ui-state";
@@ -141,9 +140,6 @@ export function DiscoveryCard({
   const job = useDiscoveryJob();
   const choice = useBrowserChoice(active && answered === undefined);
   const [includeDev, setIncludeDev] = useState(false);
-  const savePreferredBrowser = useMutation(
-    api.data.preferences.setPreferredBrowser,
-  );
 
   const browsers = useMemo(
     () =>
@@ -181,14 +177,16 @@ export function DiscoveryCard({
         uiState.removeItem(BROWSER_PROFILE_KEY);
       }
       if (isAuthenticated) {
-        void savePreferredBrowser({
-          browser: choice.selectedBrowser ?? "none",
-        }).catch(() => {
-          // Browser preference sync is best-effort only.
-        });
+        void backendClient
+          .call("preferences.set", {
+            preferredBrowser: choice.selectedBrowser ?? "none",
+          })
+          .catch(() => {
+            // Browser preference sync is best-effort only.
+          });
       }
     },
-    [choice.selectedBrowser, choice.selectedProfile, isAuthenticated, savePreferredBrowser],
+    [choice.selectedBrowser, choice.selectedProfile, isAuthenticated],
   );
 
   const handleAccept = useCallback(() => {

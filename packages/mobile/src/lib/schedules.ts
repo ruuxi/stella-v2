@@ -1,12 +1,13 @@
 /**
- * The owner's schedules, read live from Convex. Every schedule lives there,
- * whichever computer or the cloud runs it, so the tab works with the
- * computer asleep and opens without a round-trip through it.
+ * The owner's schedules, read live from the owner's object on the backend
+ * worker. Every schedule lives there, whichever computer or the cloud runs
+ * it, so the tab works with the computer asleep and opens without a
+ * round-trip through it.
  */
 
-import { useMutation, useQuery } from "convex/react";
-import { makeFunctionReference } from "convex/server";
 import { useCallback } from "react";
+import type { ScheduleRow } from "@stella/contracts/backend/schedules";
+import { getBackendClient, useBackendView } from "./backend";
 import {
   formatNextRun,
   parseStoredSchedule,
@@ -31,33 +32,20 @@ export type MobileSchedule = {
   running: boolean;
 };
 
-export type CloudScheduleRow = {
-  scheduleId: string;
-  conversationId?: string;
-  targetDeviceId?: string;
-  prompt: string;
-  schedule: string;
-  nextRunAt: number;
-  status: string;
-  description: string;
-  lastError?: string;
-};
+export type CloudScheduleRow = Pick<
+  ScheduleRow,
+  | "scheduleId"
+  | "conversationId"
+  | "targetDeviceId"
+  | "prompt"
+  | "schedule"
+  | "nextRunAt"
+  | "status"
+  | "description"
+  | "lastError"
+>;
 
 export type MobileScheduleAction = "pause" | "resume" | "remove";
-
-const listRef = makeFunctionReference<"query", Record<string, never>, CloudScheduleRow[]>(
-  "cloud_schedule:listMySchedules",
-);
-const updateRef = makeFunctionReference<
-  "mutation",
-  { requestId: string; scheduleId: string; status: "active" | "paused" },
-  unknown
->("cloud_schedule:updateMySchedule");
-const removeRef = makeFunctionReference<
-  "mutation",
-  { requestId: string; scheduleId: string },
-  null
->("cloud_schedule:removeMySchedule");
 
 export const toMobileSchedule = (row: CloudScheduleRow): MobileSchedule => ({
   kind: "cron",
@@ -76,7 +64,7 @@ export const toMobileSchedule = (row: CloudScheduleRow): MobileSchedule => ({
 export function useMobileSchedules(
   enabled: boolean,
 ): MobileSchedule[] | undefined {
-  const rows = useQuery(listRef, enabled ? {} : "skip");
+  const rows = useBackendView("schedules.list", enabled ? {} : "skip").value;
   return rows?.map(toMobileSchedule);
 }
 
@@ -84,24 +72,23 @@ const requestId = (action: string, id: string) =>
   `phone-${action}-${id}-${Date.now().toString(36)}`.slice(0, 128);
 
 export function useScheduleAction() {
-  const update = useMutation(updateRef);
-  const remove = useMutation(removeRef);
   return useCallback(
     async (action: MobileScheduleAction, schedule: MobileSchedule) => {
+      const client = getBackendClient();
       if (action === "remove") {
-        await remove({
+        await client.call("schedules.remove", {
           requestId: requestId("remove", schedule.id),
           scheduleId: schedule.id,
         });
         return;
       }
-      await update({
+      await client.call("schedules.update", {
         requestId: requestId(action, schedule.id),
         scheduleId: schedule.id,
         status: action === "resume" ? "active" : "paused",
       });
     },
-    [remove, update],
+    [],
   );
 }
 

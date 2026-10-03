@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
-import { useMutation } from "convex/react";
-import { api } from "@/convex/api";
+import { FEEDBACK_MAX_CHARS } from "@stella/contracts/backend/preferences";
+import { backendClient } from "@/platform/backend/backend-client";
 import { Button } from "@/ui/button";
 import {
   Dialog,
@@ -19,7 +19,7 @@ interface FeedbackDialogProps {
   onSubmitted?: () => void;
 }
 
-export const FEEDBACK_MAX_LENGTH = 32_000;
+export const FEEDBACK_MAX_LENGTH = FEEDBACK_MAX_CHARS;
 
 interface FeedbackFormProps {
   onCancel: () => void;
@@ -30,14 +30,12 @@ const FeedbackForm = ({ onCancel, onSubmitted }: FeedbackFormProps) => {
   const t = useT();
   const [text, setText] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const submitFeedback = useMutation(api.feedback.submitFeedback);
-
   const handleSubmit = useCallback(async () => {
     const trimmed = text.trim();
     if (!trimmed || submitting) return;
     setSubmitting(true);
     try {
-      await submitFeedback({ message: trimmed });
+      await backendClient.call("feedback.submit", { message: trimmed });
       onCancel();
       onSubmitted?.();
       showToast({
@@ -55,7 +53,7 @@ const FeedbackForm = ({ onCancel, onSubmitted }: FeedbackFormProps) => {
     } finally {
       setSubmitting(false);
     }
-  }, [text, submitting, submitFeedback, onCancel, onSubmitted, t]);
+  }, [text, submitting, onCancel, onSubmitted, t]);
 
   return (
     <>

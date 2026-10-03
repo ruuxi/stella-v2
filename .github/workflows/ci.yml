@@ -166,13 +166,16 @@ jobs:
           STELLA_PERF_LAB_DIR: ${{ runner.temp }}/stella-perf-lab
         run: bun run runtime:perf:check --out "$RUNNER_TEMP/stella-perf-report.json"
 
+      # Diagnostic only: an exhausted account artifact quota must not fail CI.
       - name: Upload runtime perf report
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: runtime-perf-report
           path: ${{ runner.temp }}/stella-perf-report.json
           if-no-files-found: ignore
+          retention-days: 7
 
   executor:
     name: Cloud executor

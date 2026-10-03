@@ -6,7 +6,7 @@
  * world and never reach the owner's drive or the conversation's files card.
  * The bytes are already durable here, so this delivers them the same way the
  * sandbox does: register (and inline-upload) each reply-linked drive file
- * through `/api/cloud/drive/files` under the turn's own authority, then
+ * with the owner's drive under the turn's own authority, then
  * announce the delivered set with an `output_files` event, which the outbox
  * turns into the files card both clients render on the completion.
  *
@@ -16,10 +16,7 @@
  * their world-relative path, never by following anything.
  */
 import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
-import {
-  forwardTurnBrokerRequest,
-  type TurnBrokerTarget,
-} from "../turn-credential-broker.js";
+import { TURN_BROKER_DRIVE_PATHS } from "../turn-credential-broker.js";
 import { worldRelativeToolPath } from "../world/path.js";
 import {
   driveRootForWorld,
@@ -28,12 +25,12 @@ import {
 } from "../workspace.js";
 import type { TurnRequest } from "./shared/types.js";
 import type { BuildSessionInternals } from "./host.js";
+import { serveTurnDriveRequest } from "./turn-broker.js";
 
 /** Files at or above this size are registered but not uploaded inline. */
 const INLINE_LIMIT_BYTES = 8 * 1024 * 1024;
 /** A reply that "produced" more than this is reporting churn, not deliverables. */
 const MAX_REPORTED_FILES = 25;
-const MAX_CALLBACK_BODY_BYTES = 16 * 1024 * 1024;
 /** The tool host's private state directory is never a deliverable. */
 const STATE_DIR_SEGMENT = ".stella";
 
@@ -144,7 +141,7 @@ type WorldFileReader = {
 
 export type WorldLinkedFilesHost = Pick<
   BuildSessionInternals,
-  "env" | "emitTurnEvent" | "controlPlaneCapability"
+  "env" | "emitTurnEvent"
 >;
 
 /**
@@ -159,9 +156,9 @@ export const deliverWorldLinkedFiles = async (
     finalText: string;
     signal: AbortSignal;
     known?: ReadonlyMap<string, number>;
-    /** Test seam: the world to read from and the fetch to forward with. */
+    /** Test seam: the world to read from and the drive to deliver to. */
     world?: WorldFileReader;
-    fetchImpl?: typeof fetch;
+    drive?: (body: Record<string, unknown>) => Promise<Response>;
     log?: (event: string, fields: Record<string, unknown>) => void;
   },
 ): Promise<string[]> => {
@@ -172,8 +169,6 @@ export const deliverWorldLinkedFiles = async (
     worldRootForFork(turn.workspaceForkId),
   );
   if (targets.length === 0) return [];
-  const convexOrigin = host.env.STELLA_CONVEX_SITE_URL?.trim();
-  if (!convexOrigin) return [];
   const world: WorldFileReader =
     args.world ?? host.env.WORLDS.getByName(await worldName(turn.ownerId));
   const fork = turn.workspaceForkId ? { fork: turn.workspaceForkId } : {};
@@ -211,30 +206,18 @@ export const deliverWorldLinkedFiles = async (
   }
   if (files.length === 0) return [];
 
-  const target: TurnBrokerTarget = {
-    kind: "callback",
-    method: "POST",
-    path: "/api/cloud/drive/files",
-    maxBodyBytes: MAX_CALLBACK_BODY_BYTES,
+  const body = {
+    turnId: turn.turnId,
+    // The batch is the turn's, and a redelivery is the same writer.
+    batchKey: `${turn.turnId}:world:0`,
+    files,
   };
   let response: Response;
   try {
-    response = await forwardTurnBrokerRequest({
-      target,
-      body: new TextEncoder().encode(
-        JSON.stringify({
-          turnId: turn.turnId,
-          // The batch is the turn's, and a redelivery is the same writer.
-          batchKey: `${turn.turnId}:world:0`,
-          files,
-        }),
-      ),
-      incomingHeaders: new Headers({ "content-type": "application/json" }),
-      convexOrigin,
-      controlPlaneCapability: await host.controlPlaneCapability(turn),
-      signal: args.signal,
-      ...(args.fetchImpl ? { fetchImpl: args.fetchImpl } : {}),
-    });
+    args.signal.throwIfAborted();
+    response = args.drive
+      ? await args.drive(body)
+      : await serveTurnDriveRequest(host.env, turn, TURN_BROKER_DRIVE_PATHS.files, body);
   } catch (error) {
     log("world_linked_files_failed", {
       turnId: turn.turnId,

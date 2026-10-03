@@ -14,6 +14,7 @@ import {
   htmlCanvasSlug,
 } from "@stella/runtime/kernel/tools/defs/html-def.js";
 import type { CloudCodeSourceAgentTool } from "./cloud-code-tool.js";
+import type { DriveTurnFilesResult } from "./owner-store/domains/drive.js";
 import type { OwnerInternalCall } from "./owner-store/registry.js";
 
 /** Drive folder every cloud canvas lands in; mirrors the device layout. */
@@ -21,21 +22,11 @@ export const CLOUD_HTML_DRIVE_DIR = "outputs/html";
 export const CLOUD_HTML_CONTENT_TYPE = "text/html; charset=utf-8";
 /** Below the drive's inline upload cap with room for the JSON envelope. */
 const MAX_HTML_BYTES = 6 * 1024 * 1024;
-const REQUEST_TIMEOUT_MS = 30_000;
 
 export type CloudHtmlToolContext = Readonly<{
   turnId: string;
   /** A server-internal operation on the owner's object, under the turn's generation. */
   ownerInternal: OwnerInternalCall;
-  convexFetch: (
-    path: string,
-    init: {
-      method: "POST";
-      headers?: Record<string, string>;
-      body?: string;
-      signal?: AbortSignal;
-    },
-  ) => Promise<Response>;
   publishFiles: (
     writerKey: string,
     files: Array<{
@@ -94,51 +85,34 @@ export const createCloudHtmlTool = (
     }
     const path = cloudHtmlDrivePath(slug);
     const name = `${slug}.html`;
-    const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
-    let response: Response;
+    let result: DriveTurnFilesResult;
     try {
-      response = await context.convexFetch("/api/cloud/drive/files", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          turnId: context.turnId,
-          source: "html",
-          batchKey: toolCallId,
-          files: [
-            {
-              path,
-              name,
-              sizeBytes: bytes.byteLength,
-              contentType: CLOUD_HTML_CONTENT_TYPE,
-              contentBase64: encodeBase64(bytes),
-            },
-          ],
-        }),
-        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-      });
+      signal?.throwIfAborted();
+      result = (await context.ownerInternal("drive.turnFiles", {
+        turnId: context.turnId,
+        hydratesDrive: false,
+        source: "html",
+        batchKey: toolCallId,
+        files: [
+          {
+            path,
+            name,
+            sizeBytes: bytes.byteLength,
+            contentType: CLOUD_HTML_CONTENT_TYPE,
+            contentBase64: encodeBase64(bytes),
+          },
+        ],
+      })) as DriveTurnFilesResult;
     } catch (error) {
       return failure(
         `Canvas could not be saved: ${error instanceof Error ? error.message : "the drive did not respond."}`,
       );
     }
-    const payload = (await response.json().catch(() => null)) as {
-      error?: unknown;
-      files?: Array<{ path?: unknown; stored?: unknown }>;
-    } | null;
-    if (!response.ok) {
-      return failure(
-        `Canvas could not be saved: ${
-          typeof payload?.error === "string"
-            ? payload.error
-            : `drive write failed (${response.status}).`
-        }`,
-      );
-    }
-    const stored = (payload?.files ?? []).some(
-      (file) => file.path === path && file.stored !== false,
-    );
+    const stored = result.files.some((file) => file.path === path && file.stored);
     if (!stored) {
-      return failure("Canvas could not be saved: the drive did not store it.");
+      return failure(
+        `Canvas could not be saved: ${result.skipped[0]?.reason ?? "the drive did not store it."}`,
+      );
     }
     const createdAt = Date.now();
     context.publishFiles(`html:${toolCallId}`, [

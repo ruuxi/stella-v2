@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { getFunctionName, type FunctionReference } from "convex/server";
 import {
   appendAttachments,
   attachmentsSettled,
@@ -51,10 +50,9 @@ const fakeDrive = (options: { putOk?: boolean; finalizeThrows?: boolean } = {}) 
   const calls: string[] = [];
   const deps: AttachmentUploadDeps = {
     client: {
-      action: (async (reference: unknown, args: Record<string, unknown>) => {
-        const name = getFunctionName(reference as FunctionReference<"action">);
-        calls.push(name.split(":").pop()!);
-        if (name.endsWith("finalizeDriveUpload")) {
+      call: (async (name: string, args: Record<string, unknown>) => {
+        calls.push(name);
+        if (name === "drive.finalizeUpload") {
           if (options.finalizeThrows) throw new Error("Drive quota exceeded.");
           return {
             path: args.path,
@@ -70,7 +68,7 @@ const fakeDrive = (options: { putOk?: boolean; finalizeThrows?: boolean } = {}) 
           uploadUrl: "https://r2.example/put",
           contentType: String(args.contentType),
         };
-      }) as AttachmentUploadDeps["client"]["action"],
+      }) as AttachmentUploadDeps["client"]["call"],
     },
     readFile: async () => PNG,
     now: () => new Date("2026-08-29T12:00:00.000Z"),
@@ -181,13 +179,10 @@ describe("the two-step drive upload", () => {
     const { deps } = fakeDrive();
     const declared: string[] = [];
     const client: AttachmentUploadDeps["client"] = {
-      action: (async (reference: unknown, args: Record<string, unknown>) => {
+      call: (async (name: string, args: Record<string, unknown>) => {
         declared.push(String(args.contentType));
-        return await deps.client.action(
-          reference as never,
-          args as never,
-        );
-      }) as AttachmentUploadDeps["client"]["action"],
+        return await deps.client.call(name as never, args as never);
+      }) as AttachmentUploadDeps["client"]["call"],
     };
     // A HEIC that iOS labelled image/jpeg is the production case; here PNG
     // bytes under a jpeg label make the same point without a second fixture.

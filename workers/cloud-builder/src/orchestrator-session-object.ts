@@ -4821,12 +4821,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           ),
         ),
         measurePreparation("attachmentsMs", () =>
-          this.loadChatAttachmentImages(
-            base,
-            turn,
-            capabilities.controlPlane,
-            executionSignal,
-          ),
+          this.loadChatAttachmentImages(turn, executionSignal),
         ),
         measuredHomePreparation.then((context) => context.skillCatalog),
         measurePreparation("modelResolutionMs", () =>
@@ -5893,40 +5888,29 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
   }
 
   /**
-   * Hydrate the turn's attached drive images into image content blocks.
-   * Capability scoped: the route only signs images the capability's owner
-   * holds, image-typed and size-capped. Failure of any piece degrades to a
+   * Hydrate the turn's attached drive images into image content blocks. The
+   * owner's object signs only its own images, image-typed and size-capped,
+   * under the turn's owner generation. Failure of any piece degrades to a
    * turn without pixels — the prompt text still names the paths.
    */
   private async loadChatAttachmentImages(
-    base: string,
     turn: ChatTurnRequest,
-    controlPlane: Pick<MintedTurnCapability, "token">,
     signal?: AbortSignal,
   ): Promise<ImageContent[]> {
     const paths = (turn.attachments ?? []).slice(0, 4);
     if (paths.length === 0) return [];
     try {
       signal?.throwIfAborted();
-      const response = await fetch(
-        `${base.replace(/\/+$/, "")}/api/cloud/drive/attachments`,
-        {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            authorization: `Bearer ${controlPlane.token}`,
-          },
-          body: JSON.stringify({ turnId: turn.turnId, paths }),
-          signal: signal
-            ? AbortSignal.any([signal, AbortSignal.timeout(20_000)])
-            : AbortSignal.timeout(20_000),
-        },
-      );
-      signal?.throwIfAborted();
-      if (!response.ok) return [];
-      const payload = (await response.json()) as {
+      const payload = unwrapRpc(
+        await this.ownerGate(turn.ownerId).ownerInternal({
+          name: "drive.turnAttachments",
+          args: { paths },
+          ownerGeneration: turn.ownerGeneration,
+        }),
+      ) as {
         attachments?: Array<{ path: string; contentType: string; url: string }>;
       };
+      signal?.throwIfAborted();
       const images: ImageContent[] = [];
       for (const entry of payload.attachments ?? []) {
         try {
@@ -10481,8 +10465,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       createCloudHtmlTool({
         turnId: turn.turnId,
         ownerInternal: toolContext.ownerInternal,
-        convexFetch: (path, init) =>
-          this.convexRequest(path, init, controlPlane.token),
         publishFiles: (writerKey, files) =>
           this.publishTurnFilesCard(turn.turnId, writerKey, files),
       }),

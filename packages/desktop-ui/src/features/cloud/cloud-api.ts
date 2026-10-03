@@ -57,17 +57,6 @@ export type CloudAgentThread = {
   updatedAt: number;
 };
 
-/** A file in the owner's cloud drive (C3 `cloud_drive_files`). */
-export type CloudDriveFile = {
-  path: string;
-  name: string;
-  sizeBytes: number;
-  contentType: string;
-  source: string;
-  updatedAt: number;
-  createdAt: number;
-};
-
 /** A cloud project (C9 `cloud_projects`). */
 export type CloudProject = {
   projectId: string;
@@ -126,57 +115,6 @@ export const cloudApi = {
     { execution: CloudExecutionSelection },
     null
   >("cloud_engines:setMyCloudExecution"),
-};
-
-/**
- * Drive (W2) and projects (W3) live in their own Convex modules. They are
- * referenced by name here for the same reason `cloudApi` is: this client never
- * imports the Convex `api` object.
- */
-export const driveApi = {
-  listMyDriveFiles: makeFunctionReference<
-    "query",
-    { limit?: number },
-    CloudDriveFile[]
-  >("cloud_drive:listMyDriveFiles"),
-  getMyDriveFileUrl: makeFunctionReference<
-    "action",
-    { path: string },
-    { url: string }
-  >("cloud_drive:getMyDriveFileUrl"),
-  deleteMyDriveFile: makeFunctionReference<
-    "action",
-    { path: string },
-    { deleted: boolean }
-  >("cloud_drive:deleteMyDriveFile"),
-  // Two-step upload: mint a signed R2 PUT, send the bytes straight to R2,
-  // then let Convex record the row from the size R2 reports.
-  prepareDriveUpload: makeFunctionReference<
-    "action",
-    { path: string; sizeBytes: number; contentType?: string },
-    {
-      path: string;
-      uploadId: string;
-      uploadUrl: string;
-      contentType: string;
-    }
-  >("cloud_drive:prepareDriveUpload"),
-  finalizeDriveUpload: makeFunctionReference<
-    "action",
-    {
-      path: string;
-      uploadId: string;
-      contentType?: string;
-      source?: string;
-    },
-    {
-      path: string;
-      name: string;
-      sizeBytes: number;
-      contentType: string;
-      updatedAt: number;
-    }
-  >("cloud_drive:finalizeDriveUpload"),
 };
 
 export type CloudGithubInstallations = {

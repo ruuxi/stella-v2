@@ -72,6 +72,8 @@
     // S3 API origin of the account that owns the DRIVE bucket, for presigned
     // drive uploads and downloads.
     "R2_S3_ENDPOINT": "https://f34b91c9c7dc22f0aef0ba855a9f026f.r2.cloudflarestorage.com",
+    // The DRIVE binding's bucket, by name, for the presigned URLs above.
+    "R2_DRIVE_BUCKET": "stella-v2-drive-dev",
   },
   "secrets": {
     // CAPABILITY_SIGNING_KEY is the PKCS8 PEM of the ES256 private key that

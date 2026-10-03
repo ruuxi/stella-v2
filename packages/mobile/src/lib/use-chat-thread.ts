@@ -30,7 +30,7 @@ import {
   type ComposerAttachment,
   type PickedAttachment,
 } from "./chat-attachments";
-import { getConvexClient } from "./convex";
+import { getBackendClient } from "./backend";
 import { File } from "expo-file-system";
 import { fetch as expoFetch } from "expo/fetch";
 import { useT } from "../i18n/I18nProvider";
@@ -415,7 +415,7 @@ export function useChatThread(opts: {
           .filter(Boolean),
       );
       void uploadChatAttachment(picked, taken, {
-        client: getConvexClient(),
+        client: getBackendClient(),
         readFile: async (uri) => await new File(uri).bytes(),
         fetch: expoFetch,
       })

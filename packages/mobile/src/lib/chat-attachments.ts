@@ -12,8 +12,7 @@
  * upload harmless. The composer still holds the draft and the chip when the
  * failure lands, so there is nothing to restore and nothing to lose.
  */
-import type { ConvexReactClient } from "convex/react";
-import { makeFunctionReference } from "convex/server";
+import type { BackendClient } from "@stella/contracts/backend/client";
 import { attachmentContentType } from "./image-attachments";
 
 /**
@@ -158,26 +157,8 @@ export const withAttachmentPreamble = (
   return `${prompt}\n\nAttached in my drive:\n${lines}`;
 };
 
-const prepareDriveUploadRef = makeFunctionReference<
-  "action",
-  { path: string; sizeBytes: number; contentType?: string },
-  { path: string; uploadId: string; uploadUrl: string; contentType: string }
->("cloud_drive:prepareDriveUpload");
-
-const finalizeDriveUploadRef = makeFunctionReference<
-  "action",
-  { path: string; uploadId: string; contentType?: string; source?: string },
-  {
-    path: string;
-    name: string;
-    sizeBytes: number;
-    contentType: string;
-    updatedAt: number;
-  }
->("cloud_drive:finalizeDriveUpload");
-
 export type AttachmentUploadDeps = {
-  client: Pick<ConvexReactClient, "action">;
+  client: Pick<BackendClient, "call">;
   /** Reads the picked file's bytes. Split out so tests never touch the disk. */
   readFile: (uri: string) => Promise<Uint8Array<ArrayBuffer>>;
   /** Native uses expo/fetch, which accepts byte buffers without RN Blob conversion. */
@@ -204,7 +185,7 @@ export const uploadChatAttachment = async (
   });
   const bytes = await deps.readFile(attachment.uri);
   const contentType = attachmentContentType(bytes, attachment.mimeType);
-  const prepared = await deps.client.action(prepareDriveUploadRef, {
+  const prepared = await deps.client.call("drive.prepareUpload", {
     path,
     sizeBytes: bytes.byteLength,
     contentType,
@@ -217,7 +198,7 @@ export const uploadChatAttachment = async (
   if (!put.ok) {
     throw new Error(`Upload failed (${put.status}).`);
   }
-  const finalized = await deps.client.action(finalizeDriveUploadRef, {
+  const finalized = await deps.client.call("drive.finalizeUpload", {
     path: prepared.path,
     uploadId: prepared.uploadId,
     contentType,

@@ -1,15 +1,13 @@
-import { useAction } from "convex/react";
 import { useId, useMemo, type ReactNode } from "react";
 import { DisplayFileSourceContext } from "@/shared/hooks/display-file-source";
-import { driveApi } from "./cloud-api";
+import { backendClient } from "@/platform/backend/backend-client";
 
 export function CloudFileSource({ path, children }: { path: string; children: ReactNode }) {
-  const getUrl = useAction(driveApi.getMyDriveFileUrl);
   const id = useId();
   const source = useMemo(() => ({
     key: `drive:${id}:${path}`,
     async read(_filePath: string, maxBytes = 32 * 1024 * 1024) {
-      const { url } = await getUrl({ path });
+      const { url } = await backendClient.call("drive.fileUrl", { path });
       const response = await fetch(url, { headers: { Range: `bytes=0-${maxBytes}` } });
       if (!response.ok) throw new Error("Couldn’t load this Drive file.");
       const reader = response.body?.getReader();
@@ -32,6 +30,6 @@ export function CloudFileSource({ path, children }: { path: string; children: Re
       for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
       return { bytes, truncated, mimeType: response.headers.get("content-type") ?? "application/octet-stream" };
     },
-  }), [getUrl, id, path]);
+  }), [id, path]);
   return <DisplayFileSourceContext.Provider value={source}>{children}</DisplayFileSourceContext.Provider>;
 }

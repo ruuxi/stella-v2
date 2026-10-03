@@ -13,10 +13,10 @@ import { sha256Hex } from "./hash.js";
  * No control-plane credential ever crosses the BuildSession boundary. A
  * sandbox gets this independently random, short-lived capability instead; it
  * can only ask the owning BuildSession to perform one of the bounded
- * turn-scoped requests below. Two of them the session performs itself — the
- * turn's event stream and its thread transcript are the session's own state
- * now — and the rest it forwards to Convex under the turn's control-plane
- * capability, which the sandbox never sees.
+ * turn-scoped requests below. Some the session performs itself — the turn's
+ * event stream and its thread transcript are the session's own state, and the
+ * drive is the owner object's — and the rest it forwards to Convex under the
+ * turn's control-plane capability, which the sandbox never sees.
  *
  * Model traffic does not pass through here. The sandbox holds a separate
  * turn capability that is only valid at the model gateway, and speaks to the
@@ -33,11 +33,18 @@ const MAX_CONTROL_BODY_BYTES = 64 * 1024;
 const MAX_TURN_STATE_CHECKPOINT_BODY_BYTES = 5 * 1024 * 1024;
 
 /** Convex routes a sandbox may reach, forwarded under the turn capability. */
-const CONVEX_CALLBACK_PATHS = new Set([
-  "/api/cloud/drive/files",
-  "/api/cloud/drive/sync",
-  "/api/cloud/web-search",
-]);
+const CONVEX_CALLBACK_PATHS = new Set(["/api/cloud/web-search"]);
+
+/**
+ * The owner's drive: the turn reports what it produced and reads what its
+ * workspace should hold. Served by the BuildSession through the owner's
+ * object, under the turn's own identity.
+ */
+export const TURN_BROKER_DRIVE_PATHS = {
+  files: "/api/cloud/drive/files",
+  sync: "/api/cloud/drive/sync",
+} as const;
+const DRIVE_PATHS = new Set<string>(Object.values(TURN_BROKER_DRIVE_PATHS));
 
 /** The turn's event stream. Handled by the BuildSession, projected by outbox. */
 export const TURN_BROKER_EVENTS_PATH = "/api/cloud/events";
@@ -74,6 +81,7 @@ export type TurnBrokerTarget = {
     | "browser-gateway"
     | "builder-callback"
     | "callback"
+    | "drive"
     | "turn-event"
     | "thread-messages";
   method: "POST";
@@ -344,6 +352,14 @@ export const validateTurnBrokerTarget = (
   if (CONVEX_CALLBACK_PATHS.has(parsed.pathname)) {
     return {
       kind: "callback",
+      method: "POST",
+      path: parsed.pathname,
+      maxBodyBytes: MAX_CALLBACK_BODY_BYTES,
+    };
+  }
+  if (DRIVE_PATHS.has(parsed.pathname)) {
+    return {
+      kind: "drive",
       method: "POST",
       path: parsed.pathname,
       maxBodyBytes: MAX_CALLBACK_BODY_BYTES,

@@ -1,6 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { convexClient } from "@/platform/convex/convex-client";
-import { driveApi } from "./cloud-api";
+import { backendClient } from "@/platform/backend/backend-client";
 import { cloudAttachmentsStore } from "./cloud-composer-store";
 
 export const BROWSER_ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024;
@@ -196,7 +195,7 @@ const uploadOne = async (upload: BrowserAttachmentUpload): Promise<void> => {
       error: null,
       path,
     });
-    const prepared = await convexClient.action(driveApi.prepareDriveUpload, {
+    const prepared = await backendClient.call("drive.prepareUpload", {
       path,
       sizeBytes: file.size,
       contentType,
@@ -207,7 +206,7 @@ const uploadOne = async (upload: BrowserAttachmentUpload): Promise<void> => {
       prepared.contentType,
     );
     replace(upload.id, { status: "finalizing", progress: 0.99 });
-    const finalized = await convexClient.action(driveApi.finalizeDriveUpload, {
+    const finalized = await backendClient.call("drive.finalizeUpload", {
       path: prepared.path,
       uploadId: prepared.uploadId,
       contentType,

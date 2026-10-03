@@ -22,6 +22,7 @@ import { readBoundedResponseBytes } from "./bounded-body.js";
 import { sha256Hex } from "./hash.js";
 import type { ReplayableAgentTool } from "./tool-replay.js";
 import type { OwnerInternalCall } from "./owner-store/registry.js";
+import type { DriveTurnFilesResult } from "./owner-store/domains/drive.js";
 
 export const CLOUD_IMAGE_GEN_TOOL_NAME = "image_gen";
 
@@ -40,6 +41,8 @@ const REQUEST_TIMEOUT_MS = 30_000;
 const DOWNLOAD_TIMEOUT_MS = 30_000;
 /** Drive folder generated images land in, bucketed by day like uploads. */
 const DRIVE_OUTPUT_PREFIX = "images";
+/** Drive reference URLs are signed as of the start of this window. */
+const REFERENCE_SIGNING_BUCKET_MS = 60 * 60_000;
 
 const HTTP_URL_RE = /^https?:\/\//i;
 
@@ -59,7 +62,7 @@ export type CloudImageGenToolContext = {
   /**
    * A request against the Convex site carrying the turn capability as its
    * bearer. The media routes accept that capability when the caller marks
-   * itself as a cloud turn; the drive route accepts it unconditionally.
+   * itself as a cloud turn.
    */
   convexFetch: (
     path: string,
@@ -451,25 +454,34 @@ export const createCloudImageGenTool = (
       }
     }
 
+    const now = context.now ?? Date.now;
+    // The provider cannot read the drive, so drive references become signed
+    // GETs. They are signed as of the current hour, so a retried call signs
+    // the same URLs and its request hash still finds the same job.
+    const driveReferenceUrls =
+      referenceDrivePaths.length > 0
+        ? (
+            (await context.ownerInternal("drive.signImages", {
+              paths: referenceDrivePaths,
+              signedAt: Math.floor(now() / REFERENCE_SIGNING_BUCKET_MS) * REFERENCE_SIGNING_BUCKET_MS,
+            })) as { urls: string[] }
+          ).urls
+        : [];
+    const imageUrls = [...referenceUrls, ...driveReferenceUrls];
+
     const input: Record<string, unknown> = {};
     if (quality) input.quality = quality;
     if (requestedSize) input.image_size = requestedSize;
-    if (referenceUrls.length > 0) input.image_urls = referenceUrls;
-    const useImageEdit =
-      referenceUrls.length > 0 || referenceDrivePaths.length > 0;
-    const capability = useImageEdit ? "image_edit" : "text_to_image";
+    if (imageUrls.length > 0) input.image_urls = imageUrls;
+    const capability = imageUrls.length > 0 ? "image_edit" : "text_to_image";
     const requestBody = {
       capability,
       prompt,
       ...(aspectRatio ? { aspectRatio } : {}),
       ...(Object.keys(input).length > 0 ? { input } : {}),
-      // Resolved to signed URLs inside the gateway route: the drive's bucket
-      // is not reachable from here, and the URLs must not outlive the job.
-      ...(referenceDrivePaths.length > 0 ? { referenceDrivePaths } : {}),
     };
     const rawBody = JSON.stringify(requestBody);
 
-    const now = context.now ?? Date.now;
     const sleep = context.sleep ?? defaultSleep;
     const fetchImpl = context.fetchImpl ?? fetch;
     const timeoutMs = context.timeoutMs ?? JOB_TIMEOUT_MS;
@@ -795,33 +807,16 @@ const saveImagesToDrive = async (args: {
     });
   }
 
-  const response = await args.context.convexFetch("/api/cloud/drive/files", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      turnId: args.context.turnId,
-      source: "image_gen",
-      batchKey: args.toolCallId,
-      files,
-    }),
-    signal: withTimeout(REQUEST_TIMEOUT_MS * 2, args.signal),
-  });
-  const payload = (await response.json().catch(() => null)) as {
-    error?: unknown;
-    files?: Array<{ path?: unknown; stored?: unknown }>;
-    skipped?: Array<{ path?: unknown; reason?: unknown }>;
-  } | null;
-  if (!response.ok) {
-    throw new Error(
-      asNonEmptyString(payload?.error) ??
-        `Drive write failed (${response.status}).`,
-    );
-  }
+  throwIfAborted(args.signal);
+  const payload = (await args.context.ownerInternal("drive.turnFiles", {
+    turnId: args.context.turnId,
+    hydratesDrive: false,
+    source: "image_gen",
+    batchKey: args.toolCallId,
+    files,
+  })) as DriveTurnFilesResult;
   const stored = new Set(
-    (payload?.files ?? [])
-      .filter((file) => file.stored !== false)
-      .map((file) => file.path)
-      .filter((path): path is string => typeof path === "string"),
+    payload.files.filter((file) => file.stored).map((file) => file.path),
   );
   const artifacts: CloudImageGenArtifact[] = [];
   const cardFiles: CloudImageGenDriveFile[] = [];

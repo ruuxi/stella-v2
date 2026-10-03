@@ -3,7 +3,7 @@
  *
  * A placement payload names attachments by drive-relative path, never by
  * bytes. The cloud placement turns those paths into image content through
- * `/api/cloud/drive/attachments`; the desktop turns them into
+ * the owner object's `drive.turnAttachments`; the desktop turns them into
  * `RuntimeAttachmentRef`s pointing at a short-lived signed drive GET, which the
  * agent runtime already knows how to materialize into vision content.
  *
@@ -21,7 +21,7 @@
  */
 import type { RuntimeAttachmentRef } from "@stella/contracts/protocol";
 
-/** What `cloud_drive:getMyDriveFileUrl` returns for one path. */
+/** What the backend's `drive.fileUrl` returns for one path. */
 export type DriveFileResolution = {
   path: string;
   name: string;

@@ -1,27 +1,13 @@
-import { makeFunctionReference } from "convex/server";
 import { useEffect, useState } from "react";
-import { getConvexClient } from "./convex";
+import type { DriveFileUrl } from "@stella/contracts/backend/drive";
+import { getBackendClient } from "./backend";
 
 /**
  * Signed URLs for the current owner's drive files, for images a cloud turn
- * produced (`image_gen` saves into the drive). The same action the attachment
+ * produced (`image_gen` saves into the drive). The same call the attachment
  * previews use; cached here so a strip of tiles and the viewer that opens one
  * of them share a URL instead of each minting their own.
  */
-
-type DriveFileUrl = {
-  path: string;
-  name: string;
-  contentType: string;
-  url: string;
-  expiresAt: number;
-};
-
-const getDriveFileUrl = makeFunctionReference<
-  "action",
-  { path: string },
-  DriveFileUrl
->("cloud_drive:getMyDriveFileUrl");
 
 /** Refresh this long before a URL expires so an on-screen image never breaks. */
 const REFRESH_MARGIN_MS = 30_000;
@@ -40,8 +26,8 @@ export const resolveCloudDriveFileUri = async (
   if (fresh(cached)) return cached.url;
   let pending = inflight.get(path);
   if (!pending) {
-    pending = getConvexClient()
-      .action(getDriveFileUrl, { path })
+    pending = getBackendClient()
+      .call("drive.fileUrl", { path })
       .then((entry) => {
         cache.set(path, entry);
         return entry;

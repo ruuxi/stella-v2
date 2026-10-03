@@ -1340,7 +1340,7 @@ export class StellaRuntimeHost {
                     : dispatch.dispatchId;
                 const attachments = await resolvePlacementAttachments({
                     paths: placementAttachmentPaths(payload),
-                    resolve: async (path) => await client.action(anyApi.cloud_drive.getMyDriveFileUrl, { path }),
+                    resolve: async (path) => await client.call("drive.fileUrl", { path }),
                     onSkipped: (path, error) => console.warn(`[execution-placement] attachment ${path} could not be resolved from the drive.`, error),
                 });
                 await this.appendLocalChatEvent({

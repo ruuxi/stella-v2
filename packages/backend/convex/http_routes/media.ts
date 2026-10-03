@@ -58,11 +58,9 @@ import { dollarsToMicroCents } from "../lib/billing_money";
 import { requireSignedInAccountAction } from "../http_shared/auth";
 import { authorizeControlPlaneRequest } from "../lib/capability_verify";
 import { isCloudTurnCaller } from "../http_shared/cloud_turn_caller";
-import { r2 } from "../r2_files";
 import { requireCapabilityAction } from "../http_shared/capability";
 import { encryptSecret } from "../data/secrets_crypto";
 import {
-  MAX_MANAGED_IMAGE_REFERENCE_ITEMS,
   MAX_MANAGED_IMAGE_REQUEST_BYTES,
   validateManagedImageReferenceEnvelope,
 } from "../media_image_limits";
@@ -105,8 +103,6 @@ const MEDIA_AUTH_REQUIRED_ACTION =
  * is an account token, so a capability can never be mistaken for one.
  */
 /** Long enough for the provider to fetch a reference; far shorter than a job. */
-const DRIVE_REFERENCE_URL_EXPIRES_SECONDS = 60 * 60;
-const MAX_DRIVE_REFERENCE_PATHS = MAX_MANAGED_IMAGE_REFERENCE_ITEMS;
 
 type MediaCaller =
   | {
@@ -157,58 +153,6 @@ const authorizeMediaCaller = async (
     auth.ownerId,
   );
   return { ok: true, ownerId: auth.ownerId, ownerGeneration, cloudTurn: false };
-};
-
-/**
- * A cloud turn cannot read the drive's bucket, so it names reference images by
- * drive path and the gateway swaps in short-lived signed URLs the provider can
- * fetch. Only the owner's own rows resolve; anything else is a plain error
- * back to the tool. Mutates `input.image_urls` in place, in request order.
- */
-const resolveDriveReferences = async (
-  ctx: ActionCtx,
-  owner: { ownerId: string; ownerGeneration: string },
-  requestBody: unknown,
-): Promise<string | null> => {
-  if (!isRecord(requestBody)) return null;
-  const raw = requestBody.referenceDrivePaths;
-  if (raw === undefined) return null;
-  if (!Array.isArray(raw) || raw.some((entry) => typeof entry !== "string")) {
-    return "referenceDrivePaths must be an array of drive paths.";
-  }
-  const paths = raw
-    .map((entry) => (entry as string).trim())
-    .filter((entry) => entry.length > 0);
-  if (paths.length > MAX_DRIVE_REFERENCE_PATHS) {
-    return `referenceDrivePaths accepts at most ${MAX_DRIVE_REFERENCE_PATHS} paths.`;
-  }
-  const urls: string[] = [];
-  for (const path of paths) {
-    let row: { r2Key: string; contentType: string } | null;
-    try {
-      row = (await ctx.runQuery(internal.cloud_drive.getDriveFileInternal, {
-        ownerId: owner.ownerId,
-        ownerGeneration: owner.ownerGeneration,
-        path,
-      })) as { r2Key: string; contentType: string } | null;
-    } catch {
-      row = null;
-    }
-    if (!row) return `${path} is not in the user's drive.`;
-    if (!row.contentType.toLowerCase().startsWith("image/")) {
-      return `${path} is not an image (${row.contentType}).`;
-    }
-    urls.push(
-      await r2.getUrl(row.r2Key, {
-        expiresIn: DRIVE_REFERENCE_URL_EXPIRES_SECONDS,
-      }),
-    );
-  }
-  const input = isRecord(requestBody.input) ? requestBody.input : {};
-  const existing = Array.isArray(input.image_urls) ? input.image_urls : [];
-  requestBody.input = { ...input, image_urls: [...existing, ...urls] };
-  delete requestBody.referenceDrivePaths;
-  return null;
 };
 
 const ownerFenceErrorCode = (error: unknown): string | null =>
@@ -846,16 +790,6 @@ export const registerMediaRoutes = (http: HttpRouter) => {
           requestBody = null;
         }
         try {
-          if (auth.cloudTurn) {
-            const referenceError = await resolveDriveReferences(
-              ctx,
-              { ownerId, ownerGeneration },
-              requestBody,
-            );
-            if (referenceError) {
-              return errorResponse(400, referenceError, origin);
-            }
-          }
           const body = parseMediaGenerateRequest(requestBody);
           if (!body)
             return errorResponse(

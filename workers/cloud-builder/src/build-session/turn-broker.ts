@@ -82,6 +82,9 @@ import type {
 import { isCloudBrowserSuspension } from "@stella/contracts/cloud-browser";
 import type { CloudBrowserSuspension } from "@stella/contracts/cloud-browser";
 import { TURN_BROKER_RESPONSE_HEADERS } from "@stella/contracts/turn-credential-broker";
+import { rpcErrorStatus, type RpcResponse } from "@stella/contracts/backend/protocol";
+import { TURN_BROKER_DRIVE_PATHS } from "../turn-credential-broker.js";
+import type { DriveTurnFilesResult } from "../owner-store/domains/drive.js";
 import type {
   TurnBrokerTurnStateCheckpointReceipt,
   TurnBrokerTurnStateCheckpointRequest,
@@ -703,15 +706,79 @@ const observeBrowserGatewaySuspension = async (
   });
 };
 
+const driveJson = (body: unknown, status = 200): Response =>
+  Response.json(body, { status, headers: { "cache-control": "no-store" } });
+
 /**
- * The two broker targets the BuildSession answers itself.
+ * A turn's drive request, served by the owner's object under the turn's own
+ * identity and owner generation. The sandbox still sends the paths and bodies
+ * the Convex routes took, and gets their answers: 200 with the result, 413
+ * when a write landed nothing (with the per-file reasons), and the owner
+ * object's error status otherwise.
+ *
+ * Only an agent turn hydrates the drive into its workspace, which is what
+ * lets a write report that it replaced a file it never opened.
+ */
+export const serveTurnDriveRequest = async (
+  env: Pick<Cloudflare.Env, "OWNER_GATES">,
+  turn: Pick<TurnRequest, "ownerId" | "ownerGeneration" | "turnId" | "kind">,
+  path: string,
+  body: Record<string, unknown>,
+): Promise<Response> => {
+  const write = path === TURN_BROKER_DRIVE_PATHS.files;
+  if (!write && path !== TURN_BROKER_DRIVE_PATHS.sync) return brokerFailure(403);
+  const response = (await env.OWNER_GATES.getByName(turn.ownerId).ownerInternal({
+    name: write ? "drive.turnFiles" : "drive.turnSync",
+    args: write
+      ? {
+          turnId: turn.turnId,
+          hydratesDrive: turn.kind === "agent",
+          source: body.source,
+          batchKey: body.batchKey,
+          files: body.files,
+        }
+      : {
+          turnId: turn.turnId,
+          include: body.include,
+          since: body.since,
+          have: body.have,
+        },
+    ownerGeneration: turn.ownerGeneration,
+  })) as RpcResponse;
+  if (!response.ok) {
+    return driveJson(
+      { error: response.error.message },
+      rpcErrorStatus(response.error.code),
+    );
+  }
+  if (write) {
+    const result = response.value as DriveTurnFilesResult;
+    if (result.files.length === 0 && result.skipped.length > 0) {
+      return driveJson(
+        {
+          error: result.skipped[0]!.reason,
+          skipped: result.skipped,
+          renamed: result.renamed,
+          files: [],
+        },
+        413,
+      );
+    }
+  }
+  return driveJson({ ok: true, ...(response.value as Record<string, unknown>) });
+};
+
+/**
+ * The broker targets the BuildSession answers itself.
  *
  * `/api/cloud/events` and `/api/cloud/messages` are still the paths the
  * sandbox knows — that contract is stable and versioned with the executor —
  * but their destination moved here: the event stream is projected through
  * the outbox with an ordinal this object assigns, and the transcript is
  * committed to this thread's own table. Both are idempotent, which is what
- * lets the executor's unchanged single retry stay safe.
+ * lets the executor's unchanged single retry stay safe. The drive paths go
+ * to the owner's object (see `serveTurnDriveRequest`); the claim's live
+ * fence already proved this exact attempt is running.
  */
 const handleBrokerLocalRequest = async (
   host: TurnBrokerHost,
@@ -728,6 +795,9 @@ const handleBrokerLocalRequest = async (
     return brokerFailure(403);
   }
   try {
+    if (target.kind === "drive") {
+      return await serveTurnDriveRequest(host.env, turn, target.path, body);
+    }
     if (target.kind === "turn-event") {
       if (
         body.attemptGeneration !== undefined &&
@@ -949,12 +1019,14 @@ export const handleTurnBroker = async (
     }
     if (
       claimed.target.kind === "turn-event" ||
-      claimed.target.kind === "thread-messages"
+      claimed.target.kind === "thread-messages" ||
+      claimed.target.kind === "drive"
     ) {
       // The turn's events and its thread transcript are this object's own
-      // state now. The sandbox still asks for them by their old Convex
-      // paths — that is the executor's stable contract — but the request
-      // stops here instead of crossing to the control plane.
+      // state now, and the drive is the owner object's. The sandbox still
+      // asks for them by their old Convex paths — that is the executor's
+      // stable contract — but the request stops here instead of crossing to
+      // the control plane.
       await host.ctx.storage.put(recordKey, claimed.record);
       return {
         kind: "local" as const,

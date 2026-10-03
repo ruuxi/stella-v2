@@ -1,12 +1,11 @@
 /**
  * Fetches an HTML document the cloud `html` tool wrote into the owner's
- * drive. The signed URL is minted at read time by the owner-scoped action;
+ * drive. The signed URL is minted at read time by the owner's object;
  * `version` (the canvas's createdAt) forces a refetch when the same slug is
  * overwritten by a later turn.
  */
-import { useAction } from "convex/react";
 import { useEffect, useState } from "react";
-import { driveApi } from "./cloud-api";
+import { backendClient } from "@/platform/backend/backend-client";
 
 type State = {
   key: string | null;
@@ -19,7 +18,6 @@ export const useCloudDriveHtml = (
   drivePath: string | null,
   version?: number,
 ): { html: string | null; error: string | null; loading: boolean } => {
-  const getUrl = useAction(driveApi.getMyDriveFileUrl);
   const key = drivePath ? `${drivePath}:${version ?? 0}` : null;
   const [state, setState] = useState<State>({
     key: null,
@@ -35,7 +33,9 @@ export const useCloudDriveHtml = (
     setState({ key, html: null, error: null, loading: true });
     void (async () => {
       try {
-        const { url } = await getUrl({ path: drivePath });
+        const { url } = await backendClient.call("drive.fileUrl", {
+          path: drivePath,
+        });
         const response = await fetch(url, { signal: controller.signal });
         if (!response.ok) {
           throw new Error(`Drive file fetch failed (${response.status}).`);
@@ -56,7 +56,7 @@ export const useCloudDriveHtml = (
       cancelled = true;
       controller.abort();
     };
-  }, [drivePath, getUrl, key]);
+  }, [drivePath, key]);
 
   if (!key) return { html: null, error: null, loading: false };
   if (state.key !== key) return { html: null, error: null, loading: true };

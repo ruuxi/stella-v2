@@ -44,8 +44,7 @@ describe("deliverWorldLinkedFiles", () => {
 
   const makeHost = (events: Array<{ kind: string; payload: unknown }>) =>
     ({
-      env: { STELLA_CONVEX_SITE_URL: "https://convex.test", WORLDS: {} },
-      controlPlaneCapability: async () => "cap",
+      env: { WORLDS: {} },
       emitTurnEvent: async (_turn: unknown, kind: string, payload: unknown) => {
         events.push({ kind, payload });
         return events.length;
@@ -54,7 +53,7 @@ describe("deliverWorldLinkedFiles", () => {
 
   test("registers the file with its bytes and announces it with an output_files event", async () => {
     const events: Array<{ kind: string; payload: unknown }> = [];
-    const posted: Array<{ url: string; body: unknown }> = [];
+    const posted: unknown[] = [];
     const delivered = await deliverWorldLinkedFiles(makeHost(events), {
       turn,
       finalText: "Wrote [hello.txt](/workspace/world/drive/hello.txt).",
@@ -64,15 +63,14 @@ describe("deliverWorldLinkedFiles", () => {
         stat: async (path) => (path === "drive/hello.txt" ? { kind: "file", size: bytes.byteLength } : null),
         readFile: async () => bytes,
       },
-      fetchImpl: (async (url: string | URL | Request, init?: RequestInit) => {
-        posted.push({ url: String(url), body: JSON.parse(new TextDecoder().decode(init?.body as Uint8Array)) });
+      drive: async (body) => {
+        posted.push(body);
         return Response.json({ ok: true, renamed: [], skipped: [] });
-      }) as typeof fetch,
+      },
     });
     expect(delivered).toEqual(["hello.txt"]);
     expect(posted).toHaveLength(1);
-    expect(posted[0]!.url).toBe("https://convex.test/api/cloud/drive/files");
-    expect(posted[0]!.body).toEqual({
+    expect(posted[0]).toEqual({
       turnId: "turn-1",
       batchKey: "turn-1:world:0",
       files: [{
@@ -96,8 +94,8 @@ describe("deliverWorldLinkedFiles", () => {
         stat: async (path) => (path === "drive/dir" ? { kind: "dir", size: 0 } : { kind: "file", size: 3 }),
         readFile: async () => bytes,
       },
-      fetchImpl: (async () =>
-        Response.json({ ok: true, renamed: [{ from: "a.md", to: "a (agent copy).md", reason: "user upload kept" }], skipped: [{ path: "b.md", reason: "quota" }] })) as typeof fetch,
+      drive: async () =>
+        Response.json({ ok: true, renamed: [{ from: "a.md", to: "a (agent copy).md", reason: "user upload kept" }], skipped: [{ path: "b.md", reason: "quota" }] }),
     });
     expect(delivered).toEqual(["a (agent copy).md"]);
     expect((events[0]!.payload as { files: Array<{ name: string }> }).files.map((f) => f.name)).toEqual(["a (agent copy).md"]);
@@ -112,7 +110,7 @@ describe("deliverWorldLinkedFiles", () => {
     expect(await deliverWorldLinkedFiles(makeHost(events), {
       turn, finalText: "[a](/workspace/world/drive/a.md)", signal: new AbortController().signal,
       world: { stat: async () => ({ kind: "file", size: 3 }), readFile: async () => bytes },
-      fetchImpl: (async () => Response.json({ skipped: [{ path: "a.md", reason: "too big" }] }, { status: 413 })) as typeof fetch,
+      drive: async () => Response.json({ skipped: [{ path: "a.md", reason: "too big" }] }, { status: 413 }),
     })).toEqual([]);
     expect(events).toEqual([]);
   });

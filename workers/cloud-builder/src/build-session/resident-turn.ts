@@ -38,9 +38,10 @@ import {
   TURN_BROKER_MAX_TTL_MS,
   issueTurnBrokerCredential,
   turnBrokerStorageKey,
-  forwardTurnBrokerRequest,
+  TURN_BROKER_DRIVE_PATHS,
 } from "../turn-credential-broker.js";
 import { issueWorldCapability } from "../world-capability.js";
+import { serveTurnDriveRequest } from "./turn-broker.js";
 import { deliverWorldLinkedFiles } from "./world-linked-files.js";
 import {
   agentTurnSessionId,
@@ -741,8 +742,6 @@ export const runResidentAgentTurn = async (
   const prepareWorkspace = (): Promise<boolean> => {
     if (ladder.attached()) return Promise.resolve(false);
     return (hydration ??= (async () => {
-      const convexOrigin = host.env.STELLA_CONVEX_SITE_URL?.trim();
-      if (!convexOrigin) return false;
       try {
         driveKnown = await hydrateResidentDrive({
           turnId: turn.turnId,
@@ -758,22 +757,15 @@ export const runResidentAgentTurn = async (
             commitShell: (change) =>
               world.commitShell({ ...change, ...forkScope }),
           },
-          post: async (body, signal) =>
-            forwardTurnBrokerRequest({
-              target: {
-                kind: "callback",
-                method: "POST",
-                path: "/api/cloud/drive/sync",
-                maxBodyBytes: 64 * 1024,
-              },
-              body: new TextEncoder().encode(JSON.stringify(body)),
-              incomingHeaders: new Headers({
-                "content-type": "application/json",
-              }),
-              convexOrigin,
-              controlPlaneCapability: await host.controlPlaneCapability(turn),
-              signal,
-            }),
+          post: async (body, signal) => {
+            signal.throwIfAborted();
+            return await serveTurnDriveRequest(
+              host.env,
+              turn,
+              TURN_BROKER_DRIVE_PATHS.sync,
+              body as Record<string, unknown>,
+            );
+          },
         });
         return true;
       } catch (error) {

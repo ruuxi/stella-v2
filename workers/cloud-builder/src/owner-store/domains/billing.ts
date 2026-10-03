@@ -420,6 +420,12 @@ export const recordBillingIdentity = (
 export const billingPaying = (ctx: { db: OwnerDbReader; now: number }): boolean =>
   isPaying(readAccount(ctx.db, ctx.now));
 
+/** The plan and whether usage is unlimited, for plan quotas kept by other domains. */
+export const billingPlan = (ctx: { db: OwnerDbReader; now: number }): { plan: BillingPlan; unlimited: boolean } => {
+  const row = readAccount(ctx.db, ctx.now);
+  return { plan: plan(row), unlimited: row.usage_mode === "unlimited" };
+};
+
 export const billingAccess = (ctx: { db: OwnerDbReader; env: Cloudflare.Env; now: number }): BillingAccess =>
   accessFor(billingConfig(ctx.env), readAccount(ctx.db, ctx.now), ctx.now);
 

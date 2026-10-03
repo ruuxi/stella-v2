@@ -1,19 +1,9 @@
-import { makeFunctionReference } from "convex/server";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AppState } from "react-native";
+import type { DriveFileUrl as DrivePreview } from "@stella/contracts/backend/drive";
 import type { ChatMessage } from "../types";
-import { getConvexClient } from "./convex";
+import { getBackendClient } from "./backend";
 
-type DrivePreview = {
-  path: string;
-  name: string;
-  contentType: string;
-  url: string;
-  expiresAt: number;
-};
-const getPreview = makeFunctionReference<"action", { path: string }, DrivePreview>(
-  "cloud_drive:getMyDriveFileUrl",
-);
 const REFRESH_MARGIN_MS = 30_000;
 const RETRY_MS = 30_000;
 
@@ -60,7 +50,7 @@ export function useChatAttachmentPreviews(
       while (current() && cursor < pending.length) {
         const path = pending[cursor++]!;
         try {
-          const preview = await getConvexClient().action(getPreview, { path });
+          const preview = await getBackendClient().call("drive.fileUrl", { path });
           if (!current()) return;
           cache.entries.set(path, preview);
           setRevision((value) => value + 1);

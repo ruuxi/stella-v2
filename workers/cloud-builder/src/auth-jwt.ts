@@ -20,6 +20,7 @@
  * signed-in user at once.
  */
 
+import type { IdentityLevel } from "@stella/contracts/gateway/api";
 import {
   CLOCK_SKEW_S,
   JWKS_MIN_REFETCH_MS,
@@ -27,12 +28,16 @@ import {
 } from "./conversation-types.js";
 
 export type VerifiedToken = {
-  /** `${issuer}|${sub}` — matches Convex's `identity.tokenIdentifier`. */
+  /** The owner id: `sub` for Stella tokens, `${issuer}|${sub}` for Convex ones. */
   ownerId: string;
   subject: string;
   sessionId: string;
   expiresAtMs: number;
   isAnonymous: boolean;
+  /** 0 anonymous, 1 email, 2 social; Convex tokens carry none, so 0 or 1. */
+  identityLevel: IdentityLevel;
+  /** `iat` in ms; 0 when absent. */
+  issuedAtMs: number;
 };
 
 export type VerifyResult =
@@ -372,6 +377,106 @@ export const verifyConvexToken = async (
       sessionId: typeof payload.sessionId === "string" ? payload.sessionId : "",
       expiresAtMs: exp * 1000,
       isAnonymous: payload.isAnonymous === true,
+      identityLevel: payload.isAnonymous === true ? 0 : 1,
+      issuedAtMs: typeof payload.iat === "number" ? payload.iat * 1000 : 0,
+    },
+  };
+};
+
+// ---------------------------------------------------------------------------
+// Stella's own tokens (src/auth/), verified with this worker's in-process keys
+// ---------------------------------------------------------------------------
+
+type UserKeys = { keys: Map<string, CryptoKey>; fetchedAtMs: number };
+
+let userKeys: UserKeys | null = null;
+let userKeysInflight: Promise<UserKeys> | null = null;
+
+const loadUserKeys = (env: Cloudflare.Env): Promise<UserKeys> =>
+  (userKeysInflight ??= (async () => {
+    const { createAuth } = await import("./auth/auth.js");
+    const jwks = await createAuth(env).api.getJwks();
+    const keys = new Map<string, CryptoKey>();
+    for (const { kid, jwk } of parsePublicKeys(jwks)) {
+      keys.set(
+        kid,
+        await crypto.subtle.importKey("jwk", jwk, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]),
+      );
+    }
+    return (userKeys = { keys, fetchedAtMs: Date.now() });
+  })().finally(() => {
+    userKeysInflight = null;
+  }));
+
+/** The key for `kid`, refetching once per JWKS_MIN_REFETCH_MS when it is unknown (a rotation). */
+const userKey = async (env: Cloudflare.Env, kid: string): Promise<CryptoKey | null> => {
+  const cached = userKeys;
+  const found = cached?.keys.get(kid);
+  if (found) return found;
+  if (cached && Date.now() - cached.fetchedAtMs < JWKS_MIN_REFETCH_MS) return null;
+  return (await loadUserKeys(env)).keys.get(kid) ?? null;
+};
+
+/**
+ * Verify a Stella JWT (`GET /api/auth/token`): RS256 under this worker's own
+ * keys, `iss` equal to this worker's public URL, `aud` "stella". The owner id
+ * is `sub`, the Better Auth user id.
+ */
+export const verifyUserToken = async (token: string, env: Cloudflare.Env): Promise<VerifyResult> => {
+  const issuer = (env.CLOUD_BUILDER_PUBLIC_URL ?? "").trim().replace(/\/+$/, "");
+  if (!issuer) return fail("no_issuer_configured", true);
+  const parts = token.split(".");
+  if (parts.length !== 3) return fail("malformed");
+  const header = decodeSegment(parts[0]!);
+  const payload = decodeSegment(parts[1]!);
+  if (!header || !payload) return fail("malformed");
+  if (header.alg !== "RS256") return fail("unsupported_alg");
+  const kid = typeof header.kid === "string" ? header.kid : "";
+  if (!kid) return fail("no_kid");
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const exp = typeof payload.exp === "number" ? payload.exp : null;
+  if (exp === null) return fail("no_exp");
+  if (nowSeconds > exp + CLOCK_SKEW_S) return fail("expired");
+  if (typeof payload.nbf === "number" && nowSeconds < payload.nbf - CLOCK_SKEW_S) return fail("not_yet_valid");
+  const iat = typeof payload.iat === "number" ? payload.iat : 0;
+  if (nowSeconds < iat - CLOCK_SKEW_S) return fail("issued_in_future");
+  if (payload.iss !== issuer) return fail("wrong_issuer");
+  if (!audienceMatches(payload.aud, "stella")) return fail("wrong_audience");
+  const subject = typeof payload.sub === "string" ? payload.sub.trim() : "";
+  if (!subject) return fail("no_subject");
+
+  let key: CryptoKey | null;
+  try {
+    key = await userKey(env, kid);
+  } catch (error) {
+    return fail(`jwks_unavailable:${error instanceof Error ? error.message : "unknown"}`, true);
+  }
+  // Retryable for the same reason as above: usually a rotation we are behind.
+  if (!key) return fail("unknown_kid", true);
+  let valid = false;
+  try {
+    valid = await crypto.subtle.verify(
+      "RSASSA-PKCS1-v1_5",
+      key,
+      base64UrlToBytes(parts[2]!).buffer as ArrayBuffer,
+      new TextEncoder().encode(`${parts[0]}.${parts[1]}`).buffer as ArrayBuffer,
+    );
+  } catch {
+    return fail("verify_threw");
+  }
+  if (!valid) return fail("bad_signature");
+  const anonymous = payload.anon === true;
+  const idl = payload.idl;
+  return {
+    ok: true,
+    token: {
+      ownerId: subject,
+      subject,
+      sessionId: typeof payload.sid === "string" ? payload.sid : "",
+      expiresAtMs: exp * 1000,
+      isAnonymous: anonymous,
+      identityLevel: anonymous ? 0 : idl === 1 || idl === 2 || idl === 3 ? idl : 1,
+      issuedAtMs: iat * 1000,
     },
   };
 };

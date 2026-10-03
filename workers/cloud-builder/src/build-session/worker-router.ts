@@ -16,11 +16,7 @@ import { worldName } from "../workspace.js";
 
 import { GATEWAY_NETWORK_POLICY } from "@stella/contracts/gateway/api";
 import { TURN_BROKER_HEADERS } from "@stella/contracts/turn-credential-broker";
-import type {
-  OwnerSnapshot,
-  OwnerSnapshotChangedRequest,
-} from "@stella/contracts/turn-plane/owner-snapshot";
-import { BUILDER_OWNER_SNAPSHOT_CHANGED_PATH } from "@stella/contracts/turn-plane/owner-snapshot";
+import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
 import {
   buildMobilePairingChallenge,
   canonicalDispatchPayloadJson,
@@ -43,6 +39,7 @@ import {
 import { classifyNetwork } from "../../../shared/network-class.js";
 import { isOwnerAppBuildPrefix } from "../app-build-artifacts.js";
 import { verifyConvexToken } from "../auth-jwt.js";
+import { noteOwnerIdentity } from "../owner-identity.js";
 import { readBoundedRequestText } from "../bounded-body.js";
 import { withBrowserCors } from "../browser-cors.js";
 import { handleVoiceRoute, ownerDictationControl } from "../voice/routes.js";
@@ -84,7 +81,6 @@ import type { OwnerPurgeFence, OwnerPurgeMode } from "../owner-fence-do.js";
 import {
   HEADER_PRESENCE_DEVICE_ID,
   OwnerGate,
-  parseOwnerSnapshot,
 } from "../owner-gate.js";
 import { normalizeOwnerGeneration } from "../owner-generation.js";
 import { parseOwnerProductTransferRequest } from "../owner-product-transfer.js";
@@ -256,6 +252,7 @@ const authenticateConversationCaller = async (
           false,
         );
   }
+  await noteOwnerIdentity(env, verified.token);
   return { ok: true, caller: { ...verified.token, issuer } };
 };
 
@@ -1759,37 +1756,6 @@ const router = {
           body: text,
         },
       );
-    }
-    // Convex learned an owner's plan, generation, engines or pairing changed.
-    // A complete push pre-warms the gate; a snapshot-less push marks it stale.
-    if (
-      request.method === "POST" &&
-      url.pathname === BUILDER_OWNER_SNAPSHOT_CHANGED_PATH
-    ) {
-      const body = (await request
-        .json()
-        .catch(() => null)) as Partial<OwnerSnapshotChangedRequest> | null;
-      const ownerId =
-        typeof body?.ownerId === "string" ? body.ownerId.trim() : "";
-      if (!ownerId || ownerId.length > 512) {
-        return json({ error: "ownerId is required." }, 400);
-      }
-      const gate = env.OWNER_GATES.getByName(ownerId);
-      if (body?.snapshot !== undefined) {
-        const snapshot = parseOwnerSnapshot(body.snapshot, ownerId);
-        if (!snapshot) {
-          return json({ error: "snapshot is malformed." }, 400);
-        }
-        await gate.replaceSnapshot(snapshot);
-      } else {
-        await gate.invalidate();
-      }
-      log("info", "owner_snapshot_changed", {
-        requestId,
-        reason: typeof body?.reason === "string" ? body.reason : "unknown",
-        pushedSnapshot: body?.snapshot !== undefined,
-      });
-      return json({ ok: true });
     }
     const chatCancelMatch = url.pathname.match(
       /^\/conversations\/([^/]+)\/cancel$/,

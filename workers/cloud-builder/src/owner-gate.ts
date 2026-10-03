@@ -15,32 +15,27 @@ import { applyOwnerEventsToStore } from "./owner-store/owner-events.js";
 import type { RpcResponse } from "@stella/contracts/backend/protocol";
 import {
   HEADER_ANONYMOUS,
+  HEADER_IDENTITY_LEVEL,
   HEADER_OWNER,
   HEADER_SESSION,
   HEADER_SUBJECT,
   HEADER_TOKEN_EXP,
+  HEADER_TOKEN_IAT,
 } from "./conversation-types.js";
 /**
  * The owner gate: one Durable Object per owner, named by ownerId, that
- * answers "may this owner start a turn right now?" without a synchronous
- * Convex call on the turn's critical path.
+ * answers "may this owner start a turn right now?" from its own tables.
  *
- * It holds exactly one control-plane read — the owner snapshot Convex serves
- * from `GET /api/gateway/owner-snapshot` (plan, model allowance,
- * default execution, owner generation, write fence) — cached for the
- * snapshot's own `ttlMs`. Convex normally pushes the replacement snapshot
- * when billing or lifecycle state changes; a push without one marks the copy
- * stale for background refresh. Its SQLite registry records running turns for
- * replay detection. Conversation and thread objects admit through it and release
- * on their terminal paths; a release that never arrives is bounded by
- * `TURN_TIMEOUT_MS` plus a grace, after which a running row is treated as
+ * It is the owner's authority: the owner snapshot (generation, write fence,
+ * identity, enforcement, plan and allowance, default execution, devices) is
+ * built from its domains on every read. Its SQLite registry records running
+ * turns for replay detection. Conversation and thread objects admit through it
+ * and release on their terminal paths; a release that never arrives is bounded
+ * by `TURN_TIMEOUT_MS` plus a grace, after which a running row is treated as
  * released, so a lost isolate can never wedge an owner permanently.
  *
  * Refusals are values, never thrown: an RPC caller maps them straight to the
- * turn-start error contract. Only a snapshot that cannot be obtained at all
- * fails closed — as `internal`, retryable — and even then a snapshot cached
- * within three ttls is served while a single background refresh runs rather
- * than putting a Convex call on the turn path.
+ * turn-start error contract.
  */
 
 import { DurableObject } from "cloudflare:workers";
@@ -52,18 +47,21 @@ import {
 import { signCapability } from "@stella/contracts/gateway/jwt";
 import type { GatewaySessionCapabilityResponse } from "@stella/contracts/gateway/api";
 import {
-  CONVEX_OWNER_SNAPSHOT_PATH,
   OWNER_SNAPSHOT_VERSION,
-  type CloudPlanId,
   type OwnerSnapshot,
 } from "@stella/contracts/turn-plane/owner-snapshot";
+import type { IdentityLevel } from "@stella/contracts/gateway/api";
 import {
-  OWNER_ENFORCEMENT_STATUSES,
+  beginOwnerPurge,
+  callerSessionRevoked,
+  noteCallerIdentity,
+  readOwnerState,
+} from "./owner-store/domains/account.js";
+import {
   type BillingControlResult,
   type ConvexOwnerEnforcementState,
   type ConvexSessionCapabilityRequest,
   type GatewayUsageEvent,
-  type OwnerEnforcement,
 } from "@stella/contracts/gateway/usage";
 import type { BillingPlan } from "@stella/contracts/backend/billing";
 import type { TelemetryEventV1 } from "@stella/contracts/telemetry";
@@ -92,7 +90,7 @@ import {
   type SetEnforcementInput,
 } from "./owner-store/domains/abuse.js";
 import { deleteTunnels, handleMobileRoute, snapshotDevices, type MobileRouteInput } from "./owner-store/domains/devices.js";
-import { DEFAULT_EXECUTION, snapshotEngines } from "./owner-store/domains/engines.js";
+import { snapshotEngines } from "./owner-store/domains/engines.js";
 import type { StripeEvent } from "./billing/stripe.js";
 import { BillingConfigError } from "./billing/plans.js";
 import { capabilitySigningKey } from "./capability-signer.js";
@@ -276,23 +274,9 @@ export type OwnerGateSnapshotWithLease =
 
 /** Grace added to `TURN_TIMEOUT_MS` before a running row is presumed released. */
 export const OWNER_GATE_RUNNING_GRACE_MS = 60_000;
-/**
- * Synchronous fetches are limited to three seconds. Production saw the old
- * ten-second timeout turn into 8-18 second admissions, and a Convex call must
- * not hold the turn path when the gate already has a usable snapshot.
- */
-export const OWNER_GATE_SNAPSHOT_TIMEOUT_MS = 3_000;
-/** Background refreshes stay off the turn path and may wait longer for Convex. */
-export const OWNER_GATE_BACKGROUND_SNAPSHOT_TIMEOUT_MS = 10_000;
 /** A cloud start refused as unavailable (503) is retried once, after this. */
 export const DISPATCH_CLOUD_RETRY_DELAY_MS = 1_000;
 export const DISPATCH_CLOUD_MAX_ATTEMPTS = 2;
-/**
- * Hard ceiling for stale-while-revalidate. Before it, the gate serves its
- * copy immediately; at or beyond it, admission waits for a bounded fetch and
- * fails closed if Convex is unavailable.
- */
-export const OWNER_GATE_STALE_SNAPSHOT_TTLS = 3;
 const DEFAULT_TURN_TIMEOUT_MS = 900_000;
 const OWNER_MODEL_GRANT_FREEZE_TIMEOUT_MS = 5_000;
 const CLOUD_CHAT_READER_PREPARE_TIMEOUT_MS = 1_000;
@@ -314,7 +298,8 @@ const ownerFenceRequest = (path: string, body: unknown, headers?: Record<string,
     method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body),
   });
 const CLOUD_CHAT_READER_PREPARE_CACHE_MAX = 128;
-const SNAPSHOT_KEY = "ownerSnapshot";
+/** How long a snapshot may be reused by its readers; it is rebuilt locally on every read. */
+const SNAPSHOT_TTL_MS = 30_000;
 const DDL = [
   `CREATE TABLE IF NOT EXISTS running (
      turn_id         TEXT    PRIMARY KEY,
@@ -403,13 +388,6 @@ const DDL = [
      ON dispatch_offers(device_id, status)`,
 ];
 
-type CachedSnapshot = {
-  snapshot: OwnerSnapshot;
-  cachedAt: number;
-  /** Convex announced a change but could not include a replacement. */
-  stale?: true;
-};
-
 /** How the snapshot fetch failed. `owner_purged` is definite; the rest are not. */
 export class OwnerGateSnapshotError extends Error {
   constructor(
@@ -443,168 +421,6 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const isCount = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-
-const isOwnerEnforcementStatus = (
-  value: unknown,
-): value is OwnerEnforcement["status"] =>
-  OWNER_ENFORCEMENT_STATUSES.some((status) => status === value);
-
-const parseOwnerEnforcement = (value: unknown): OwnerEnforcement | null => {
-  if (!isRecord(value)) return null;
-  if (!isOwnerEnforcementStatus(value.status)) return null;
-  if (
-    value.until !== undefined &&
-    (typeof value.until !== "number" || !Number.isFinite(value.until))
-  ) {
-    return null;
-  }
-  if (value.reason !== undefined && typeof value.reason !== "string") {
-    return null;
-  }
-  return {
-    status: value.status,
-    ...(value.until !== undefined ? { until: value.until } : {}),
-    ...(value.reason !== undefined ? { reason: value.reason } : {}),
-  };
-};
-
-type PairedDevice = NonNullable<OwnerSnapshot["pairedDevices"]>[number];
-type SnapshotDevice = NonNullable<OwnerSnapshot["devices"]>[number];
-
-/**
- * `mobilePublicKey` is the phone's pairing key: the worker verifies a mobile
- * submit's proof against it, so a malformed entry must be dropped rather than
- * carried through as an unusable string.
- */
-const parsePairedDevices = (value: readonly unknown[]): PairedDevice[] => {
-  const paired: PairedDevice[] = [];
-  for (const entry of value) {
-    if (
-      !isRecord(entry) ||
-      typeof entry.mobileDeviceId !== "string" ||
-      !entry.mobileDeviceId ||
-      typeof entry.desktopDeviceId !== "string" ||
-      !entry.desktopDeviceId
-    ) {
-      continue;
-    }
-    const key =
-      typeof entry.mobilePublicKey === "string" && entry.mobilePublicKey.trim()
-        ? entry.mobilePublicKey.trim()
-        : undefined;
-    paired.push({
-      mobileDeviceId: entry.mobileDeviceId,
-      desktopDeviceId: entry.desktopDeviceId,
-      ...(key ? { mobilePublicKey: key } : {}),
-    });
-  }
-  return paired;
-};
-
-/** A device with no public key can never prove a presence socket: drop it. */
-const parseSnapshotDevices = (value: readonly unknown[]): SnapshotDevice[] => {
-  const devices: SnapshotDevice[] = [];
-  for (const entry of value) {
-    if (
-      !isRecord(entry) ||
-      typeof entry.deviceId !== "string" ||
-      !entry.deviceId ||
-      entry.deviceId.length > MAX_DEVICE_ID_CHARS ||
-      typeof entry.publicKey !== "string" ||
-      !entry.publicKey ||
-      typeof entry.remoteExecutionEnabled !== "boolean"
-    ) {
-      continue;
-    }
-    const label =
-      typeof entry.label === "string" && entry.label.trim()
-        ? entry.label.trim().slice(0, 128)
-        : undefined;
-    // The last capabilities Convex saw. Eligibility uses what the live socket
-    // advertises instead; this is only what a never-connected device reports.
-    const capabilities = Array.isArray(entry.capabilities)
-      ? (entry.capabilities.filter((capability) =>
-          CAPABILITY_VALUES.includes(capability as ExecutionCapability),
-        ) as SnapshotDevice["capabilities"])
-      : undefined;
-    devices.push({
-      deviceId: entry.deviceId,
-      publicKey: entry.publicKey,
-      remoteExecutionEnabled: entry.remoteExecutionEnabled,
-      ...(label ? { label } : {}),
-      ...(capabilities ? { capabilities } : {}),
-    });
-  }
-  return devices;
-};
-
-/**
- * Structural validation of what Convex served. A malformed snapshot is a
- * deployment skew, not an owner refusal: it is reported as a fetch failure so
- * the cached copy (if any) keeps serving while someone fixes the drift.
- */
-export const parseOwnerSnapshot = (
-  value: unknown,
-  ownerId: string,
-): OwnerSnapshot | null => {
-  if (!isRecord(value)) return null;
-  if (value.v !== OWNER_SNAPSHOT_VERSION) return null;
-  if (value.ownerId !== ownerId) return null;
-  if (typeof value.ownerGeneration !== "string" || !value.ownerGeneration) {
-    return null;
-  }
-  if (typeof value.writable !== "boolean") return null;
-  if (typeof value.isAnonymous !== "boolean") return null;
-  const identityLevel = value.identityLevel;
-  if (
-    identityLevel !== 0 &&
-    identityLevel !== 1 &&
-    identityLevel !== 2 &&
-    identityLevel !== 3
-  ) {
-    return null;
-  }
-  const enforcement =
-    value.enforcement === undefined
-      ? undefined
-      : parseOwnerEnforcement(value.enforcement);
-  if (value.enforcement !== undefined && !enforcement) return null;
-  // Plan and allowance come from the owner's own billing ledger, and the
-  // execution and connected engines from the engines domain (see
-  // `OwnerGate.snapshot`); Convex's copies are ignored.
-  if (
-    typeof value.fetchedAt !== "number" ||
-    !Number.isFinite(value.fetchedAt) ||
-    typeof value.ttlMs !== "number" ||
-    !Number.isFinite(value.ttlMs) ||
-    value.ttlMs <= 0
-  ) {
-    return null;
-  }
-  return {
-    v: OWNER_SNAPSHOT_VERSION,
-    ownerId,
-    ownerGeneration: value.ownerGeneration,
-    writable: value.writable,
-    isAnonymous: value.isAnonymous,
-    identityLevel,
-    ...(enforcement ? { enforcement } : {}),
-    plan: "free" as CloudPlanId,
-    allowance: {
-      audience: value.isAnonymous ? "anonymous" : "free",
-      budgetMicroCents: 0,
-    },
-    execution: DEFAULT_EXECUTION,
-    ...(Array.isArray(value.pairedDevices)
-      ? { pairedDevices: parsePairedDevices(value.pairedDevices) }
-      : {}),
-    ...(Array.isArray(value.devices)
-      ? { devices: parseSnapshotDevices(value.devices) }
-      : {}),
-    fetchedAt: value.fetchedAt,
-    ttlMs: value.ttlMs,
-  };
-};
 
 /** True when the snapshot lets a turn pin this execution's engine. */
 export const snapshotAllowsExecutionEngine = (
@@ -898,6 +714,8 @@ const trustedOwnerCaller = (request: Request): OwnerCaller | null => {
   const subject = request.headers.get(HEADER_SUBJECT)?.trim() ?? "";
   const sessionId = request.headers.get(HEADER_SESSION)?.trim() ?? "";
   const expiresAtMs = Number(request.headers.get(HEADER_TOKEN_EXP));
+  const identityLevel = Number(request.headers.get(HEADER_IDENTITY_LEVEL) ?? NaN);
+  const issuedAtMs = Number(request.headers.get(HEADER_TOKEN_IAT) ?? NaN);
   if (!ownerId || !subject || !Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
     return null;
   }
@@ -907,6 +725,10 @@ const trustedOwnerCaller = (request: Request): OwnerCaller | null => {
     sessionId,
     expiresAtMs,
     isAnonymous: request.headers.get(HEADER_ANONYMOUS) === "1",
+    ...(identityLevel === 0 || identityLevel === 1 || identityLevel === 2 || identityLevel === 3
+      ? { identityLevel }
+      : {}),
+    ...(Number.isSafeInteger(issuedAtMs) ? { issuedAtMs } : {}),
   };
 };
 
@@ -931,6 +753,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       changeMemoryPolicy: (change) => this.changeMemoryPolicyForCall(change),
       fence: (path, body) => this.ownerFenceCall(path, body),
       applyOwnerEvents: (events) => this.applyOwnerEvents(events),
+      purgeOwner: (mode, requestId) => this.purgeOwnerPass(mode, requestId),
       log,
     });
   }
@@ -992,9 +815,22 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     for (const card of effects.cards) await this.ownerHost().postConversationCard(card);
   }
 
-  /** `POST /api/rpc/<name>` for owner-scoped functions, verified by the Worker. */
+  /**
+   * `POST /api/rpc/<name>` for owner-scoped functions, verified by the Worker.
+   * A token from before the owner's last sign-out-everywhere is refused; any
+   * other notes the identity it claims.
+   */
   async ownerRpc(input: { name: string; args: unknown; caller: OwnerCaller }): Promise<RpcResponse> {
-    const response = await this.ownerStore().call(input.name, input.args, input.caller);
+    const store = this.ownerStore();
+    const { db } = store.context(input.caller);
+    if (callerSessionRevoked(db, input.caller)) {
+      return {
+        ok: false,
+        error: toBackendError(new RpcError("UNAUTHENTICATED", "You were signed out. Sign in again to continue.")),
+      };
+    }
+    noteCallerIdentity(db, input.caller);
+    const response = await store.call(input.name, input.args, input.caller);
     await this.scheduleAlarm(Date.now());
     return response;
   }
@@ -1262,23 +1098,33 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   }
 
   /**
-   * Account deletion, before the auth user row goes: end Stripe and the
-   * tunnels, then fence the owner for good and purge every store in delete
-   * mode. Returns the stores still pending.
+   * Account deletion, before the auth user row goes: close the owner for
+   * good, end Stripe and the tunnels, then run the first delete pass of the
+   * `account.purge` job now. A pass that leaves stores pending is retried by
+   * the job.
    */
   async closeOwner(): Promise<{ pending: string[] }> {
+    await this.billingWrite((ctx) => beginOwnerPurge(ctx, "delete"));
     await this.closeBilling();
     await this.closeDevices();
+    await this.ownerStore().runDueJobs();
+    const store = this.ownerStore();
+    const { purge } = readOwnerState(store.context(null).db);
+    store.flush();
+    return { pending: purge ? ["owner"] : [] };
+  }
+
+  /** One reset or deletion pass across every store; see src/owner-purge.ts. */
+  private async purgeOwnerPass(mode: OwnerPurgeMode, requestId: string): Promise<{ pending: string[] }> {
     const { runOwnerPurge } = await import("./owner-purge.js");
     return await runOwnerPurge({
       env: this.env as unknown as import("./build-session/shared/env.js").Env,
       ownerId: this.ownerId(),
-      mode: "delete",
-      requestId: `close:${this.ownerId()}`,
-      purgeOwnerData: () => this.purgeOwnerData({ mode: "delete" }),
+      mode,
+      requestId,
+      purgeOwnerData: () => this.purgeOwnerData({ mode }),
     });
   }
-  private snapshotInflight: Promise<OwnerSnapshot> | null = null;
   private gatewayOwnerPreparation?: Promise<void>;
   private memoryPolicyState?: OwnerMemoryPolicy;
   private homeContextState?: OwnerHomeContextCache;
@@ -1553,119 +1399,50 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   }
 
   /**
-   * One GET to Convex. Split out so tests replace the transport without
-   * touching the caching and failure policy around it.
-   */
-  protected async fetchSnapshot(
-    ownerId: string,
-    timeoutMs: number,
-  ): Promise<OwnerSnapshot> {
-    const base = convexSiteBase(this.env);
-    const secret = this.env.BUILDER_SERVICE_SECRET;
-    if (!base || !secret) {
-      throw new OwnerGateSnapshotError(
-        "internal",
-        "Owner snapshot endpoint is not configured.",
-        true,
-      );
-    }
-    let response: Response;
-    try {
-      response = await fetch(
-        `${base}${CONVEX_OWNER_SNAPSHOT_PATH}?ownerId=${encodeURIComponent(ownerId)}`,
-        {
-          headers: {
-            authorization: `Bearer ${secret}`,
-            accept: "application/json",
-          },
-          signal: AbortSignal.timeout(timeoutMs),
-        },
-      );
-    } catch (error) {
-      throw new OwnerGateSnapshotError(
-        "internal",
-        `Owner snapshot fetch failed: ${error instanceof Error ? error.message : String(error)}`,
-        true,
-      );
-    }
-    if (response.status === 404 || response.status === 410) {
-      throw new OwnerGateSnapshotError(
-        "owner_purged",
-        "This owner no longer exists.",
-        false,
-      );
-    }
-    if (!response.ok) {
-      throw new OwnerGateSnapshotError(
-        "internal",
-        `Owner snapshot fetch returned ${response.status}.`,
-        true,
-      );
-    }
-    const parsed = parseOwnerSnapshot(
-      await response.json().catch(() => null),
-      ownerId,
-    );
-    if (!parsed) {
-      throw new OwnerGateSnapshotError(
-        "internal",
-        "Owner snapshot response was malformed.",
-        true,
-      );
-    }
-    return parsed;
-  }
-
-  /**
-   * Serves any cached copy below the hard ceiling without waiting on Convex.
-   * Copies beyond `ttlMs`, plus copies marked stale by a snapshot-less push,
-   * start one shared background refresh. This stale-while-revalidate rule
-   * keeps the synchronous control plane off the turn path after production
-   * showed ten-second fetches stalling admissions. With no usable copy, or
-   * with `refresh: true`, the refresh stays synchronous and uses the three
-   * second bound. Background refreshes use a ten-second bound because they do
-   * not hold admission. When one reports a definite "owner gone", it removes
-   * the exact cached record that started the refresh so later reads fail
-   * closed.
+   * The owner snapshot, built from this object's own tables on every read:
+   * generation and writability from `account`, identity as the owner's last
+   * verified token claimed it, enforcement from `abuse`, plan and turn
+   * allowance from `billing`, execution from `engines`, devices from
+   * `devices`. `refresh` is accepted for callers that still pass it.
    */
   async snapshot(
     options: { refresh?: boolean; now?: number } = {},
   ): Promise<OwnerSnapshot> {
-    const control = await this.controlSnapshot(options);
-    return this.withOwnerData(control, options.now ?? Date.now());
-  }
-
-  /**
-   * The owner's own data over the control-plane snapshot: devices and
-   * pairings, the default execution and connected engines, and the plan and
-   * turn allowance from the billing ledger. The
-   * identity Convex reports is noted on the ledger so allowance shares
-   * follow sign-in changes.
-   */
-  private withOwnerData(control: OwnerSnapshot, now: number): OwnerSnapshot {
+    const now = options.now ?? Date.now();
     const store = this.ownerStore();
     const ctx = store.context(null, now);
     try {
-      // Enforcement lives in the abuse domain, not the control snapshot.
+      const state = readOwnerState(ctx.db);
       const enforcement = enforcementForSnapshot(ctx);
-      const { enforcement: _controlEnforcement, ...rest } = control;
-      const owned = {
-        ...rest,
+      const owned: OwnerSnapshot = {
+        v: OWNER_SNAPSHOT_VERSION,
+        ownerId: this.ownerId(),
+        ownerGeneration: state.generation,
+        writable: state.writable && enforcement?.status !== "suspended",
+        isAnonymous: state.isAnonymous,
+        identityLevel: state.identityLevel,
         ...(enforcement ? { enforcement } : {}),
+        plan: "free",
+        allowance: {
+          audience: state.isAnonymous ? "anonymous" : "free",
+          budgetMicroCents: 0,
+        },
         ...snapshotDevices(ctx.db),
         ...snapshotEngines(ctx.db),
+        fetchedAt: now,
+        ttlMs: SNAPSHOT_TTL_MS,
       };
       let billing: ReturnType<typeof turnAllowance>;
       try {
         recordBillingIdentity(ctx, {
-          isAnonymous: control.isAnonymous,
-          identityLevel: control.identityLevel,
+          isAnonymous: state.isAnonymous,
+          identityLevel: state.identityLevel,
         });
         billing = turnAllowance(ctx);
       } catch (error) {
         if (!(error instanceof BillingConfigError)) throw error;
-        // Unconfigured billing serves the control snapshot's own allowance,
-        // which Convex sends as zero: turns fail closed until it is set.
+        // Unconfigured billing serves a zero allowance: turns fail closed
+        // until it is set.
         log("error", "billing_unconfigured", { message: error.message });
         return owned;
       }
@@ -1680,53 +1457,13 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     }
   }
 
-  private async controlSnapshot(
-    options: { refresh?: boolean; now?: number } = {},
-  ): Promise<OwnerSnapshot> {
-    const now = options.now ?? Date.now();
-    const cached = await this.ctx.storage.get<CachedSnapshot>(SNAPSHOT_KEY);
-    const ageMs = cached ? now - cached.cachedAt : 0;
-    const belowHardCeiling =
-      cached && ageMs < cached.snapshot.ttlMs * OWNER_GATE_STALE_SNAPSHOT_TTLS;
-    if (!options.refresh && cached && belowHardCeiling) {
-      if (cached.stale || ageMs >= cached.snapshot.ttlMs) {
-        if (ageMs >= cached.snapshot.ttlMs) {
-          log("info", "owner_snapshot_served_stale", {
-            ownerId: this.ownerId(),
-            ageMs,
-          });
-        }
-        this.refreshSnapshotInBackground(now);
-      }
-      return cached.snapshot;
-    }
+  /** Record the identity a Worker-verified token claims, for the snapshot. */
+  async noteIdentity(input: { isAnonymous: boolean; identityLevel?: IdentityLevel }): Promise<void> {
+    const store = this.ownerStore();
     try {
-      return await this.refreshSnapshot(now, OWNER_GATE_SNAPSHOT_TIMEOUT_MS);
-    } catch (error) {
-      if (error instanceof OwnerGateSnapshotError && !error.retryable) {
-        throw error;
-      }
-      if (cached && belowHardCeiling) {
-        log("error", "owner_snapshot_refresh_failed", {
-          ownerId: this.ownerId(),
-          ageMs,
-          message: error instanceof Error ? error.message : String(error),
-        });
-        if (ageMs >= cached.snapshot.ttlMs) {
-          log("info", "owner_snapshot_served_stale", {
-            ownerId: this.ownerId(),
-            ageMs,
-          });
-        }
-        return cached.snapshot;
-      }
-      throw error instanceof OwnerGateSnapshotError
-        ? error
-        : new OwnerGateSnapshotError(
-            "internal",
-            error instanceof Error ? error.message : String(error),
-            true,
-          );
+      noteCallerIdentity(store.context(null).db, input);
+    } finally {
+      store.flush();
     }
   }
 
@@ -1853,121 +1590,6 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       ...(typeof body?.code === "string" ? { code: body.code } : {}),
       ...(typeof body?.error === "string" ? { error: body.error } : {}),
     };
-  }
-
-  private refreshSnapshotInBackground(now: number): void {
-    if (this.snapshotInflight) return;
-    void this.refreshSnapshot(
-      now,
-      OWNER_GATE_BACKGROUND_SNAPSHOT_TIMEOUT_MS,
-    ).catch((error) => {
-      log("error", "owner_snapshot_refresh_failed", {
-        ownerId: this.ownerId(),
-        message: error instanceof Error ? error.message : String(error),
-      });
-    });
-  }
-
-  private refreshSnapshot(
-    now: number,
-    timeoutMs: number,
-  ): Promise<OwnerSnapshot> {
-    if (this.snapshotInflight) return this.snapshotInflight;
-    const work = (async () => {
-      const cachedBeforeRefresh =
-        await this.ctx.storage.get<CachedSnapshot>(SNAPSHOT_KEY);
-      try {
-        const snapshot = await this.fetchSnapshot(this.ownerId(), timeoutMs);
-        return (await this.storeSnapshot(snapshot, now)).snapshot;
-      } catch (error) {
-        if (
-          cachedBeforeRefresh &&
-          error instanceof OwnerGateSnapshotError &&
-          !error.retryable
-        ) {
-          const current =
-            await this.ctx.storage.get<CachedSnapshot>(SNAPSHOT_KEY);
-          if (
-            current?.cachedAt === cachedBeforeRefresh.cachedAt &&
-            current.snapshot.fetchedAt ===
-              cachedBeforeRefresh.snapshot.fetchedAt &&
-            current.snapshot.ownerGeneration ===
-              cachedBeforeRefresh.snapshot.ownerGeneration
-          ) {
-            await this.ctx.storage.delete(SNAPSHOT_KEY);
-          }
-        }
-        throw error;
-      }
-    })().finally(() => {
-      if (this.snapshotInflight === work) this.snapshotInflight = null;
-    });
-    this.snapshotInflight = work;
-    return work;
-  }
-
-  private async storeSnapshot(
-    snapshot: OwnerSnapshot,
-    cachedAt: number,
-  ): Promise<{ snapshot: OwnerSnapshot; stored: boolean }> {
-    const cached = await this.ctx.storage.get<CachedSnapshot>(SNAPSHOT_KEY);
-    const olderFetchedAt =
-      cached && snapshot.fetchedAt < cached.snapshot.fetchedAt;
-    const ambiguousGenerationAtSameTime =
-      cached &&
-      snapshot.fetchedAt === cached.snapshot.fetchedAt &&
-      snapshot.ownerGeneration !== cached.snapshot.ownerGeneration;
-    if (cached && (olderFetchedAt || ambiguousGenerationAtSameTime)) {
-      log("info", "owner_snapshot_replacement_ignored", {
-        ownerId: this.ownerId(),
-        cachedGeneration: cached.snapshot.ownerGeneration,
-        cachedFetchedAt: cached.snapshot.fetchedAt,
-        pushedGeneration: snapshot.ownerGeneration,
-        pushedFetchedAt: snapshot.fetchedAt,
-      });
-      return { snapshot: cached.snapshot, stored: false };
-    }
-    await this.ctx.storage.put(SNAPSHOT_KEY, {
-      snapshot,
-      cachedAt,
-    } satisfies CachedSnapshot);
-    return { snapshot, stored: true };
-  }
-
-  /**
-   * Convex pushed a complete replacement. A lower `fetchedAt`, or a different
-   * generation at the same timestamp, cannot overwrite the cached copy. A
-   * stored replacement clears the stale mark and pre-warms the next turn.
-   */
-  async replaceSnapshot(snapshot: OwnerSnapshot): Promise<void> {
-    if (snapshot.ownerId !== this.ownerId()) {
-      throw new Error("Pushed owner snapshot does not match this owner gate.");
-    }
-    const result = await this.storeSnapshot(snapshot, Date.now());
-    if (result.stored) {
-      log("info", "owner_snapshot_replaced", {
-        ownerId: this.ownerId(),
-        generation: result.snapshot.ownerGeneration,
-        fetchedAt: result.snapshot.fetchedAt,
-      });
-    }
-  }
-
-  /**
-   * A snapshot-less Convex push marks the cached copy stale instead of
-   * deleting it. The next read serves the copy and refreshes in the
-   * background, because invalidation must not put Convex back on the turn
-   * path. With no cached copy, the next read still fetches synchronously.
-   */
-  async invalidate(): Promise<void> {
-    const cached = await this.ctx.storage.get<CachedSnapshot>(SNAPSHOT_KEY);
-    if (cached) {
-      await this.ctx.storage.put(SNAPSHOT_KEY, {
-        ...cached,
-        stale: true,
-      } satisfies CachedSnapshot);
-    }
-    log("info", "owner_snapshot_invalidated", { ownerId: this.ownerId() });
   }
 
   private prune(now: number): void {
@@ -2234,7 +1856,13 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       if (!caller || caller.ownerId !== this.ownerId()) {
         return Response.json({ error: "Missing verified identity." }, { status: 401 });
       }
-      const response = this.ownerStore().acceptLive(caller);
+      const store = this.ownerStore();
+      const { db } = store.context(caller);
+      if (callerSessionRevoked(db, caller)) {
+        return Response.json({ error: "You were signed out." }, { status: 401 });
+      }
+      noteCallerIdentity(db, caller);
+      const response = store.acceptLive(caller);
       await this.scheduleAlarm(Date.now());
       return response;
     }

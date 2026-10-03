@@ -19,7 +19,7 @@
 
 import { APP_INTEGRITY_HEADER } from "@stella/contracts/app-integrity";
 import { betterAuth, type BetterAuthOptions, type BetterAuthPlugin } from "better-auth";
-import { APIError, createAuthMiddleware } from "better-auth/api";
+import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
 import { anonymous, bearer, captcha, jwt, magicLink, oneTimeToken } from "better-auth/plugins";
 import { expo } from "@better-auth/expo";
 import { importPKCS8, SignJWT } from "jose";
@@ -194,6 +194,34 @@ const nativeOttRedirect = (): BetterAuthPlugin => ({
 });
 
 /**
+ * Signing out everywhere (`/revoke-sessions`) also refuses the JWTs already
+ * minted, through the owner's `account.sessionsRevoked` floor; their
+ * 15-minute expiry bounds anything that slips past. A plugin hook, after
+ * `bearer()`, so the caller's bearer has become its session.
+ */
+const revokedTokenFloor = (env: AuthEnv): BetterAuthPlugin => ({
+  id: "stella-revoked-token-floor",
+  hooks: {
+    before: [
+      {
+        matcher: (ctx) => ctx.path === "/revoke-sessions",
+        handler: createAuthMiddleware(async (ctx) => {
+          const session = await getSessionFromCtx(ctx).catch(() => null);
+          if (!session) return;
+          const gate = env.OWNER_GATES.getByName(session.user.id);
+          const { ownerGeneration } = await gate.snapshot();
+          await gate.ownerInternal({
+            name: "account.sessionsRevoked",
+            args: { minIatMs: Date.now() },
+            ownerGeneration,
+          });
+        }),
+      },
+    ],
+  },
+});
+
+/**
  * A magic link sent with an anonymous bearer for an unused email (see
  * `stellaHandoff`) upgrades that anonymous user when it is opened: the user
  * takes the email, so the verification signs in to it with a fresh session.
@@ -353,6 +381,7 @@ const buildOptions = (env: AuthEnv) => {
     plugins: [
       expoOAuthProxy(),
       bearer({ requireSignature: true }),
+      revokedTokenFloor(env),
       oneTimeToken({ storeToken: "hashed", expiresIn: 3, disableClientRequest: true, setOttHeaderOnNewSession: true }),
       nativeOttRedirect(),
       anonymous({ emailDomainName: "anon.stella.local", disableDeleteAnonymousUser: true }),

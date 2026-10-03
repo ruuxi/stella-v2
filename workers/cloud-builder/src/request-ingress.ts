@@ -77,8 +77,7 @@ export const serviceJsonBodyLimit = (
     pathname === "/routes/activate" ||
     pathname === "/routes/suspend" ||
     pathname === "/internal/owners/activity/register" ||
-    pathname === "/internal/owners/activity/unregister" ||
-    pathname === "/internal/owners/snapshot-changed"
+    pathname === "/internal/owners/activity/unregister"
   ) {
     return CLOUD_BUILDER_BODY_LIMITS.tinyControl;
   }

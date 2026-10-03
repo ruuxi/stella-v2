@@ -284,12 +284,10 @@ export const createGateHarness = (
       BUILD_SESSIONS: namespace("build"),
 
     },
-    fetchSnapshot: async () => snapshot,
   });
 
-  // Devices and pairings live in the owner's own tables, which overlay the
-  // control snapshot; seed the ones the fixture names there.
-  if (snapshot.devices?.length || snapshot.pairedDevices?.length) {
+  // The snapshot is built from the owner's own tables; seed the fixture there.
+  {
     const store = (instance as unknown as {
       ownerStore(): {
         context(caller: null): { db: { run(sql: string, ...args: unknown[]): void } };
@@ -297,6 +295,14 @@ export const createGateHarness = (
       };
     }).ownerStore();
     const { db } = store.context(null);
+    db.run(
+      `INSERT INTO owner_state (id, generation, writable, closed, is_anonymous, identity_level, min_iat_ms)
+       VALUES (1, ?, ?, 0, ?, ?, 0)`,
+      snapshot.ownerGeneration,
+      snapshot.writable ? 1 : 0,
+      snapshot.isAnonymous ? 1 : 0,
+      snapshot.identityLevel,
+    );
     for (const device of snapshot.devices ?? []) {
       db.run(
         `INSERT INTO devices (device_id, public_key, name, platform, remote_execution_enabled, capabilities, registered_at, updated_at)

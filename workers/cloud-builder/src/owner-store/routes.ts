@@ -24,10 +24,12 @@ import { convexSiteBase } from "../convex-site.js";
 import { stripStellaHeaders } from "../conversation-hub.js";
 import {
   HEADER_ANONYMOUS,
+  HEADER_IDENTITY_LEVEL,
   HEADER_OWNER,
   HEADER_SESSION,
   HEADER_SUBJECT,
   HEADER_TOKEN_EXP,
+  HEADER_TOKEN_IAT,
 } from "../conversation-types.js";
 import { ownerRegistry } from "./domains.js";
 import { RpcError, toBackendError } from "./errors.js";
@@ -198,6 +200,8 @@ export const handleLive = async (request: Request, env: RouteEnv): Promise<Respo
   forwarded.headers.set(HEADER_SESSION, caller.sessionId);
   forwarded.headers.set(HEADER_TOKEN_EXP, String(caller.expiresAtMs));
   forwarded.headers.set(HEADER_ANONYMOUS, caller.isAnonymous ? "1" : "0");
+  if (caller.identityLevel !== undefined) forwarded.headers.set(HEADER_IDENTITY_LEVEL, String(caller.identityLevel));
+  if (caller.issuedAtMs !== undefined) forwarded.headers.set(HEADER_TOKEN_IAT, String(caller.issuedAtMs));
   try {
     // The token has done its job; keep it out of anything downstream logs.
     forwarded.headers.set("sec-websocket-protocol", LIVE_SUBPROTOCOL);

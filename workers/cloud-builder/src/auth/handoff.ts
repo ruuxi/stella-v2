@@ -17,6 +17,8 @@
  * and stores it encrypted under BETTER_AUTH_SECRET, and only the holder of the
  * secret can claim it.
  *
+ * The caller's bearer may be its session token or its Stella JWT.
+ *
  * Anonymous upgrade happens in place. A magic link sent with an anonymous
  * session's bearer for an email nobody uses gives that user the email when
  * the link is opened (the `/magic-link/verify` before-hook in auth.ts). A
@@ -29,7 +31,8 @@
 import { isAppIntegrityPurpose } from "@stella/contracts/app-integrity";
 import type { BetterAuthPlugin } from "better-auth";
 import { createAuthEndpoint, getSessionFromCtx } from "better-auth/api";
-import { symmetricDecrypt, symmetricEncrypt } from "better-auth/crypto";
+import { makeSignature, symmetricDecrypt, symmetricEncrypt } from "better-auth/crypto";
+import { verifyUserToken } from "../auth-jwt.js";
 import { isDisposableEmail } from "./disposable-email-domains.js";
 import { issueIntegrityNonce } from "./integrity.js";
 
@@ -52,7 +55,7 @@ export type HandoffApi = {
 };
 
 export type HandoffConfig = {
-  env: Pick<Cloudflare.Env, "DB">;
+  env: Cloudflare.Env;
   backendUrl: string;
   websiteUrl: string;
   secret: string;
@@ -153,24 +156,58 @@ type Endpoint = Parameters<typeof getSessionFromCtx>[0] & {
   headers?: Headers;
 };
 
+type BearerSession = { userId: string; anonymous: boolean; bearer: string };
+
+/**
+ * The session behind a bearer: a session token, or a Stella JWT whose `sid`
+ * names a live session. Either way the result carries the signed session
+ * token, which is what Better Auth's own endpoints accept.
+ */
+const bearerSession = async (ctx: Endpoint, config: HandoffConfig, bearer: string): Promise<BearerSession | null> => {
+  if (bearer.split(".").length !== 3) {
+    const session = await getSessionFromCtx(ctx).catch(() => null);
+    if (!session) return null;
+    return {
+      userId: session.user.id,
+      anonymous: (session.user as { isAnonymous?: unknown }).isAnonymous === true,
+      bearer,
+    };
+  }
+  const verified = await verifyUserToken(bearer, config.env);
+  if (!verified.ok || !verified.token.sessionId || !config.env.DB) return null;
+  const row = await config.env.DB
+    .prepare(
+      `SELECT s."token" AS token, u."isAnonymous" AS isAnonymous FROM "session" s JOIN "user" u ON u."id" = s."userId"
+        WHERE s."id" = ? AND s."userId" = ? AND s."expiresAt" > ?`,
+    )
+    .bind(verified.token.sessionId, verified.token.subject, new Date().toISOString())
+    .first<{ token: string; isAnonymous: number | null }>();
+  if (!row) return null;
+  return {
+    userId: verified.token.subject,
+    anonymous: row.isAnonymous === 1,
+    bearer: `${row.token}.${await makeSignature(row.token, config.secret)}`,
+  };
+};
+
 /**
  * The anonymous user a request may upgrade: from its own bearer, never from
  * anything in the body. A bearer that does not verify is refused outright.
  */
 const anonymousCaller = async (
   ctx: Endpoint,
+  config: HandoffConfig,
   requireAnonymous: boolean,
 ): Promise<{ userId?: string; bearer?: string } | Response> => {
   const authorization = ctx.headers?.get("authorization")?.trim() ?? "";
   const bearer = /^Bearer\s+(\S+)$/i.exec(authorization)?.[1];
   if (authorization && !bearer) return fail(401, "The anonymous session could not be verified.");
-  const session = bearer ? await getSessionFromCtx(ctx).catch(() => null) : null;
+  const session = bearer ? await bearerSession(ctx, config, bearer) : null;
   if (bearer && !session) return fail(401, "The anonymous session could not be verified.");
-  const anonymous = session?.user && (session.user as { isAnonymous?: unknown }).isAnonymous === true;
-  if (requireAnonymous && !anonymous) {
+  if (requireAnonymous && !session?.anonymous) {
     return fail(401, "An authenticated anonymous session is required to preserve this conversation.");
   }
-  return anonymous && session ? { userId: session.user.id, ...(bearer ? { bearer } : {}) } : {};
+  return session?.anonymous ? { userId: session.userId, bearer: session.bearer } : {};
 };
 
 const sessionTokenOf = (result: { headers: Headers; response: { user?: { id?: unknown } } }) => ({
@@ -277,7 +314,7 @@ export const stellaHandoff = (config: HandoffConfig) => {
         if (body.requireAnonymousOwner !== undefined && typeof body.requireAnonymousOwner !== "boolean") {
           return fail(400, "requireAnonymousOwner must be a boolean.");
         }
-        const caller = await anonymousCaller(ctx as Endpoint, body.requireAnonymousOwner === true);
+        const caller = await anonymousCaller(ctx as Endpoint, config, body.requireAnonymousOwner === true);
         if (caller instanceof Response) return caller;
         // Upgrade in place only into an email nobody uses; otherwise this is
         // an ordinary sign-in to the account that has it.
@@ -368,7 +405,7 @@ export const stellaHandoff = (config: HandoffConfig) => {
         if (!body) return fail(400, "Invalid JSON body");
         const claimHash = text(body.claimHash);
         if (!CLAIM_HASH_PATTERN.test(claimHash)) return fail(400, "A valid claimHash is required");
-        const caller = await anonymousCaller(ctx as Endpoint, false);
+        const caller = await anonymousCaller(ctx as Endpoint, config, false);
         if (caller instanceof Response) return caller;
         const requestId = crypto.randomUUID();
         const callbackURL = `${config.backendUrl}/api/auth/desktop-social/verify?requestId=${encodeURIComponent(requestId)}`;
@@ -421,7 +458,7 @@ export const stellaHandoff = (config: HandoffConfig) => {
         if (!body) return fail(400, "Invalid JSON body");
         const returnTo = normalizeReturnTarget(text(body.returnTo), origin);
         if (!returnTo) return fail(400, "Invalid browser auth return target.");
-        const caller = await anonymousCaller(ctx as Endpoint, true);
+        const caller = await anonymousCaller(ctx as Endpoint, config, true);
         if (caller instanceof Response) return caller;
         const requestId = crypto.randomUUID();
         const now = Date.now();

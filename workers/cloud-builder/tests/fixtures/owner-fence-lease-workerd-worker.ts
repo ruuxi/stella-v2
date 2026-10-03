@@ -106,10 +106,9 @@ export class LeaseTestOwnerGate extends OwnerGate {
     super(ctx, env as never);
   }
 
-  /** No Convex here: every owner is writable at `generation:<ownerId>`. */
-  protected override async fetchSnapshot(
-    ownerId: string,
-  ): Promise<OwnerSnapshot> {
+  /** Every owner is writable at `generation:<ownerId>`. */
+  override async snapshot(): Promise<OwnerSnapshot> {
+    const ownerId = this.ctx.id.name ?? "";
     return {
       v: 1,
       ownerId,

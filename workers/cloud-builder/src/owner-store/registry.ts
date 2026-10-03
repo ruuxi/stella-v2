@@ -30,6 +30,10 @@ export type OwnerCaller = {
   sessionId: string;
   isAnonymous: boolean;
   expiresAtMs: number;
+  /** The identity ladder rung the token claims (0 anonymous, 1 email, 2 social). */
+  identityLevel?: import("@stella/contracts/gateway/api").IdentityLevel;
+  /** The token's `iat`, for session revocation. */
+  issuedAtMs?: number;
 };
 
 export type SqlValue = string | number | null | ArrayBuffer;
@@ -97,6 +101,11 @@ export type OwnerHost = {
   changeMemoryPolicy(change: MemoryPolicyChange): Promise<void>;
   /** Start a scheduled prompt as a turn, in a cloud chat or on a named desktop. */
   startScheduledTurn(input: ScheduledTurnStart): Promise<void>;
+  /**
+   * One pass of a reset or deletion across every store (src/owner-purge.ts),
+   * rejoining the fence `requestId` opened. Returns the stores still pending.
+   */
+  purgeOwner(mode: OwnerPurgeMode, requestId: string): Promise<{ pending: string[] }>;
 };
 
 export type ScheduledTurnStart = {

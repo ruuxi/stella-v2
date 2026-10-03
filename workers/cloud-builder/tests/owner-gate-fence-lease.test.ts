@@ -8,9 +8,7 @@ mock.module("cloudflare:workers", () => ({
   RpcTarget: class {},
   WorkerEntrypoint: class {},
 }));
-const { OwnerGate, OwnerGateSnapshotError } = await import(
-  "../src/owner-gate.js"
-);
+const { OwnerGate } = await import("../src/owner-gate.js");
 const { OwnerFenceStore } = await import("../src/owner-fence-store.js");
 mock.restore();
 
@@ -18,7 +16,7 @@ mock.restore();
  * `snapshotWithFenceLease` is the one gate round trip a new local turn makes:
  * the cached owner snapshot plus, when that snapshot still authorizes the
  * caller, the colocated fence's `register`. These tests drive the real class
- * with in-memory SQLite and a scripted snapshot transport, and read the fence
+ * with in-memory SQLite seeded from a fixture snapshot, and read the fence
  * back through the production `OwnerFenceStore` so what the combined call
  * stores is exactly what `POST /owner-fence/register` would have.
  */
@@ -28,7 +26,6 @@ const NOW = 1_800_000_000_000;
 const gateHarness = (
   options: {
     snapshot?: OwnerSnapshot;
-    fetch?: () => Promise<OwnerSnapshot>;
   } = {},
 ) => {
   const values = new Map<string, unknown>();
@@ -51,7 +48,6 @@ const gateHarness = (
   const instance = Object.create(OwnerGate.prototype) as InstanceType<
     typeof OwnerGate
   >;
-  let fetches = 0;
   Object.assign(instance, {
     ctx: { storage, id: { name: "owner-1", toString: () => "owner-1" } },
     env: {
@@ -59,16 +55,28 @@ const gateHarness = (
       BUILDER_SERVICE_SECRET: "secret",
       TURN_TIMEOUT_MS: "900000",
     },
-    fetchSnapshot: async () => {
-      fetches += 1;
-      if (options.fetch) return await options.fetch();
-      return options.snapshot ?? sampleOwnerSnapshot();
-    },
   });
+  const snapshot = options.snapshot ?? sampleOwnerSnapshot();
+  const { db } = (instance as unknown as {
+    ownerStore(): { context(caller: null): { db: { run(sql: string, ...args: unknown[]): void } } };
+  }).ownerStore().context(null);
+  db.run(
+    `INSERT INTO owner_state (id, generation, writable, closed, is_anonymous, identity_level, min_iat_ms)
+     VALUES (1, ?, ?, 0, ?, ?, 0)`,
+    snapshot.ownerGeneration,
+    snapshot.writable ? 1 : 0,
+    snapshot.isAnonymous ? 1 : 0,
+    snapshot.identityLevel,
+  );
+  if (snapshot.enforcement) {
+    db.run(
+      `INSERT INTO abuse_state (id, status, until_at, reason, actor, updated_at) VALUES (1, ?, NULL, '', 'test', 0)`,
+      snapshot.enforcement.status,
+    );
+  }
   return {
     instance,
     values,
-    fetches: () => fetches,
     alarm: () => alarm,
     // The fence host stamps leases with the wall clock, so read them with it.
     activeLeaseIds: () => {
@@ -128,7 +136,6 @@ describe("OwnerGate.snapshotWithFenceLease", () => {
     });
     expect(harness.activeLeaseIds()).toEqual(["lease-1"]);
     expect(harness.alarm()).toBe(expiresAt);
-    expect(harness.fetches()).toBe(1);
 
     // An exact replay of the same lease is idempotent and reads the cached
     // snapshot: no second Convex fetch, no second lease.
@@ -138,7 +145,6 @@ describe("OwnerGate.snapshotWithFenceLease", () => {
     });
     expect(replay.lease).toMatchObject({ status: "registered", generation });
     expect(harness.activeLeaseIds()).toEqual(["lease-1"]);
-    expect(harness.fetches()).toBe(1);
   });
 
   test("skips the register when the snapshot does not authorize the caller", async () => {
@@ -194,44 +200,6 @@ describe("OwnerGate.snapshotWithFenceLease", () => {
     expect(harness.activeLeaseIds()).toEqual([]);
   });
 
-  test("returns a snapshot failure as a value and registers nothing", async () => {
-    const unavailable = open({
-      fetch: async () => {
-        throw new OwnerGateSnapshotError("internal", "convex is down", true);
-      },
-    });
-    const failed = await unavailable.instance.snapshotWithFenceLease({
-      lease: lease(),
-      now: NOW,
-    });
-    expect(failed).toEqual({
-      snapshot: null,
-      snapshotError: {
-        code: "internal",
-        message: "convex is down",
-        retryable: true,
-      },
-      lease: { status: "skipped", reason: "snapshot_unavailable" },
-    });
-    expect(unavailable.activeLeaseIds()).toEqual([]);
-    expect(unavailable.values.has("ownerPurgeFence")).toBe(false);
-
-    const purged = open({
-      fetch: async () => {
-        throw new OwnerGateSnapshotError("owner_purged", "gone", false);
-      },
-    });
-    const gone = await purged.instance.snapshotWithFenceLease({
-      lease: lease(),
-      now: NOW,
-    });
-    expect(gone.snapshot).toBeNull();
-    expect(gone.snapshotError).toEqual({
-      code: "owner_purged",
-      message: "gone",
-      retryable: false,
-    });
-  });
 });
 
 describe("OwnerGate.admitWithFenceLease", () => {

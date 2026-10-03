@@ -49,11 +49,14 @@ export type GateHostDependencies = {
   fence: OwnerFenceCaller;
   /** The gate's own `applyOwnerEvents`, called in-process. */
   applyOwnerEvents: (events: OwnerEvent[]) => Promise<void>;
+  /** One reset or deletion pass across every store. */
+  purgeOwner: OwnerHost["purgeOwner"];
   log: (level: "info" | "error", event: string, fields: Record<string, unknown>) => void;
 };
 
 export const createGateHost = (deps: GateHostDependencies): OwnerHost => ({
   snapshot: deps.snapshot,
+  purgeOwner: deps.purgeOwner,
 
   async dispatchAgentTurn(input: AgentTurnDispatch): Promise<void> {
     try {

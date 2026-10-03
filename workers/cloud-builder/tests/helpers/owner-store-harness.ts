@@ -67,6 +67,7 @@ export const createOwnerStoreHarness = (
   const harness = {} as OwnerStoreHarness;
   const ownerHost: OwnerHost = {
     snapshot: async () => harness.snapshot,
+    purgeOwner: async () => ({ pending: [] }),
     dispatchAgentTurn: async (input) => {
       host.dispatched.push(input);
       const outcome = harness.dispatchOutcome;

@@ -873,8 +873,9 @@ describe("the cloud branch", () => {
         model: "stella/default",
         reasoningEffort: "default",
       },
-      audience: "pro",
-      budgetMicroCents: 250_000_000,
+      // Billing is unconfigured here, so the allowance fails closed.
+      audience: "free",
+      budgetMicroCents: 0,
       source: "placement",
       clientMsgId: dispatchId,
       parentTurnId: "parent-turn-1",

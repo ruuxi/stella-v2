@@ -44,9 +44,6 @@ describe("Cloud Builder request ingress", () => {
     expect(
       serviceJsonBodyLimit("POST", "/conversations/conversation-1/turns"),
     ).toBeNull();
-    expect(
-      serviceJsonBodyLimit("POST", "/internal/owners/snapshot-changed"),
-    ).toBe(CLOUD_BUILDER_BODY_LIMITS.tinyControl);
     expect(serviceJsonBodyLimit("POST", "/owners/purge")).toBe(
       CLOUD_BUILDER_BODY_LIMITS.conversationAppend,
     );

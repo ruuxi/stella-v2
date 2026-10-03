@@ -67,6 +67,15 @@ export const normalizeStellaSiteUrl = (value: string): string =>
     .replace(/\/api\/stella\/?$/i, "")
     .replace(/\/+$/, "");
 
+/** A configured backend origin, normalized, or null when unset or blank. */
+export const readConfiguredBackendUrl = (
+  value: string | null | undefined,
+): string | null => {
+  if (typeof value !== "string") return null;
+  const normalized = normalizeStellaSiteUrl(value);
+  return normalized.length > 0 ? normalized : null;
+};
+
 const stellaUrlFromSiteUrl = (siteUrl: string, path: string): string =>
   `${normalizeStellaSiteUrl(siteUrl)}${path}`;
 

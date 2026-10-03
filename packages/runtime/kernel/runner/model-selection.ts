@@ -14,7 +14,7 @@ import {
 import type { RunnerContext } from "./types.js";
 
 export const createRunnerSiteConfig = (context: RunnerContext) => ({
-  baseUrl: context.state.convexSiteUrl,
+  baseUrl: context.state.backendUrl,
   getAuthToken: () => context.state.authToken?.trim(),
   hasConnectedAccount: () => context.state.hasConnectedAccount,
   getChallengeToken: context.requestChallengeToken,

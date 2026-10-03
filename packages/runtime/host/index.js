@@ -1615,8 +1615,6 @@ export class StellaRuntimeHost {
             stellaDataDirPath: this.options.initializeParams.stellaDataDirPath,
             stellaWorkspacePath: this.options.initializeParams.stellaWorkspacePath,
             authToken: this.configCache.authToken ?? null,
-            convexUrl: this.configCache.convexUrl ?? null,
-            convexSiteUrl: this.configCache.convexSiteUrl ?? null,
             backendUrl: this.configCache.backendUrl ?? null,
             hasConnectedAccount: this.configCache.hasConnectedAccount ?? false,
             cloudSyncEnabled: this.configCache.cloudSyncEnabled ?? false,

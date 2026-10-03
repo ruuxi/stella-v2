@@ -160,7 +160,7 @@ const launchHarness = (options: {
     },
     state: {
       orchestratorSessions,
-      convexSiteUrl: null,
+      backendUrl: null,
       authToken: null,
       hasConnectedAccount: false,
       compactionScheduler: undefined,

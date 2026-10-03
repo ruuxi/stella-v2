@@ -272,8 +272,6 @@ export const layer = Layer.effect(
       // Apply the latest config (config patches that arrived during the
       // import fanned out against an empty RunnerCell, so re-apply).
       const cfg = config.get();
-      runner.setConvexUrl(cfg.convexUrl);
-      runner.setConvexSiteUrl(cfg.convexSiteUrl);
       runner.setBackendUrl(cfg.backendUrl ?? null);
       runner.setAuthToken(cfg.authToken);
       runner.setHasConnectedAccount(cfg.hasConnectedAccount);

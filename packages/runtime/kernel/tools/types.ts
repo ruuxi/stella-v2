@@ -488,22 +488,6 @@ export type ToolHostOptions = {
    * while signed out. Backs `history.sql` / `history.read` in `code`.
    */
   getCloudBackendAuth?: () => { baseUrl: string; authToken: string } | null;
-  /**
-   * Optional authenticated Convex query bridge for polling backend-owned state
-   * such as media job completion.
-   */
-  queryConvex?: (
-    ref: unknown,
-    args: Record<string, unknown>,
-  ) => Promise<unknown>;
-  /**
-   * Optional authenticated Convex action bridge for tools that need to invoke
-   * backend-owned side effects, such as connector delivery affordances.
-   */
-  actionConvex?: (
-    ref: unknown,
-    args: Record<string, unknown>,
-  ) => Promise<unknown>;
   stellaDataDir?: string;
   requestCredential?: (payload: {
     provider: string;

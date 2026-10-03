@@ -9,8 +9,9 @@ import {
   resolveAgent,
   sampleAgentEngineConfig,
 } from "./runner/context.js";
-import { createConvexSession } from "./runner/convex-session.js";
 import { forkDelayedCall } from "./runner/cloud-effect-runtime.js";
+import type { WebSearchResult } from "@stella/contracts/backend/search";
+import { scheduleRemotePromptRevalidation } from "./prompts/remote-prompts.js";
 import { createOrchestratorController } from "./runner/orchestrator.js";
 import { createRuntimeInitialization } from "./runner/runtime-initialization.js";
 import { createAgentOrchestration } from "./runner/agent-orchestration.js";
@@ -196,21 +197,48 @@ export const createStellaHostRunner = (
   context.toolHost.setToolCallHooks(context.hookEmitter);
   let restartCloudAgentLifecycle = () => {};
   let resumeComputerAgentCloudRecords = () => {};
-  const convexSession = createConvexSession(context, {
-    onAuthTokenSet: () => {
+  const setAuthToken = (value: string | null) => {
+    if (process.env.STELLA_LLM_PROXY_TOKEN) return;
+    const prev = context.state.authToken?.trim() || null;
+    const next = value?.trim() || null;
+    if (next === prev) return;
+    context.state.authToken = value;
+    context.backend.noteAuthToken();
+    if (next) {
       restartCloudAgentLifecycle();
       resumeComputerAgentCloudRecords();
-    },
-  });
+      context.cloudTranscript.resume();
+    }
+  };
   const setHasConnectedAccount = (value: boolean) => {
-    convexSession.setHasConnectedAccount(value);
+    context.state.hasConnectedAccount = Boolean(value);
     restartCloudAgentLifecycle();
+  };
+  const webSearch = async (
+    query: string,
+    searchOptions?: { category?: string },
+  ): Promise<WebSearchResult> => {
+    try {
+      const result = await context.backend.require().call("search.web", {
+        query,
+        ...(searchOptions?.category ? { category: searchOptions.category } : {}),
+      });
+      return {
+        text: result.text || "WebSearch returned no response.",
+        results: result.results,
+      };
+    } catch (error) {
+      return {
+        text: `WebSearch failed: ${(error as Error).message}`,
+        results: [],
+      };
+    }
   };
   if (options.requestRuntimeAuthRefresh) {
     context.requestRuntimeAuthRefresh = async (payload) => {
       const result = await options.requestRuntimeAuthRefresh?.(payload);
       if (result?.token) {
-        convexSession.setAuthToken(result.token);
+        setAuthToken(result.token);
       }
       if (result) {
         setHasConnectedAccount(result.hasConnectedAccount);
@@ -224,7 +252,7 @@ export const createStellaHostRunner = (
       );
     };
   }
-  context.state.webSearch = convexSession.webSearch;
+  context.state.webSearch = webSearch;
 
   // Local history stays on this device. Authentication and startup must not
   // upload existing transcripts or wait for a history transfer.
@@ -475,10 +503,10 @@ export const createStellaHostRunner = (
   };
 
   const runtimeInitialization = createRuntimeInitialization(context, {
-    disposeConvexClient: convexSession.disposeConvexClient,
+    disposeBackendClient: () => context.backend.dispose(),
     shutdownTasks: async () => {
       // Stop network delivery first: shutdown still admits every resulting
-      // cancel/terminal row synchronously, but it must not wait on a Convex
+      // cancel/terminal row synchronously, but it must not wait on a backend
       // client that runtime teardown has already disposed. The next worker
       // resumes those durable rows before constructing its agent manager.
       computerAgentCloudRecords.stop();
@@ -489,23 +517,17 @@ export const createStellaHostRunner = (
   return {
     deviceId: context.deviceId,
     hookEmitter: context.hookEmitter,
-    setConvexUrl: (value) => {
-      convexSession.setConvexUrl(value);
-      queueMicrotask(() => cloudAgentLifecycle.start());
-      computerAgentCloudRecords.resume();
-    },
-    setConvexSiteUrl: convexSession.setConvexSiteUrl,
     setBackendUrl: (value) => {
       context.backend.setBackendUrl(value);
+      scheduleRemotePromptRevalidation();
       queueMicrotask(() => cloudAgentLifecycle.start());
       computerAgentCloudRecords.resume();
     },
-    setAuthToken: (value) => {
-      convexSession.setAuthToken(value);
-      context.backend.noteAuthToken();
-    },
+    setAuthToken,
     setHasConnectedAccount,
-    setCloudSyncEnabled: convexSession.setCloudSyncEnabled,
+    setCloudSyncEnabled: (enabled) => {
+      context.state.cloudSyncEnabled = Boolean(enabled);
+    },
     start: runtimeInitialization.start,
     stop: async () => {
       cloudAgentLifecycle.stop();
@@ -516,9 +538,11 @@ export const createStellaHostRunner = (
         await context.state.initializationPromise;
       }
     },
-    subscribeQuery: convexSession.subscribeQuery,
-    getConvexUrl: convexSession.getConvexUrl,
-    getStellaSiteAuth: convexSession.getStellaSiteAuth,
+    getStellaSiteAuth: () => {
+      const baseUrl = context.state.backendUrl?.trim();
+      const authToken = context.state.authToken?.trim();
+      return baseUrl && authToken ? { baseUrl, authToken } : null;
+    },
     killAllShells: () => context.toolHost.killAllShells(),
     killShellsByPort: (port) => context.toolHost.killShellsByPort(port),
     // Voice tool calls are model-issued; validate and run hooks like any
@@ -548,7 +572,7 @@ export const createStellaHostRunner = (
         return null;
       }
     },
-    webSearch: convexSession.webSearch,
+    webSearch,
     handleLocalChat: orchestratorController.handleLocalChat,
     resumeInterruptedOrchestratorRuns: async ({ createCallbacks }) => {
       const resumed: string[] = [];
@@ -755,18 +779,6 @@ export const createStellaHostRunner = (
         ...(history.length > 0 ? { history } : {}),
       };
     },
-    convexAction: async (ref: unknown, args: unknown): Promise<unknown> => {
-      const client = convexSession.ensureConvexClient();
-      if (!client) {
-        throw new Error(
-          "Convex client not available — check connection and auth.",
-        );
-      }
-      return (
-        client as { action: (ref: unknown, args: unknown) => Promise<unknown> }
-      ).action(ref, args);
-    },
-
     googleWorkspaceGetAuthStatus: async () => {
       return {
         connected: Boolean(

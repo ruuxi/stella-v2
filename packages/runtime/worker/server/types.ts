@@ -18,8 +18,6 @@ export type WorkerInitializationState = {
   stellaDataDirPath: string;
   stellaWorkspacePath: string;
   authToken: string | null;
-  convexUrl: string | null;
-  convexSiteUrl: string | null;
   backendUrl: string | null;
   hasConnectedAccount: boolean;
   cloudSyncEnabled: boolean;

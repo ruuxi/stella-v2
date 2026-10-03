@@ -141,9 +141,7 @@ const jwtStringClaim = (
 export const ownerIdFromBetterAuthToken = (token: string): string | null => {
   const payload = decodeJwtPayload(token);
   if (!payload) return null;
-  const issuer = jwtStringClaim(payload, "iss").replace(/\/+$/, "");
-  const subject = jwtStringClaim(payload, "sub");
-  return issuer && subject ? `${issuer}|${subject}` : null;
+  return jwtStringClaim(payload, "sub") || null;
 };
 
 export const sessionCapabilityJti = (capability: string): string | null => {

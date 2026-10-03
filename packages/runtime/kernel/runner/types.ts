@@ -1,4 +1,3 @@
-import type { ConvexClient } from "convex/browser";
 import type { Api, Model } from "../../ai/types.js";
 import type { ImageCapTarget } from "../../ai/utils/image-caps.js";
 import type { AgentMessage } from "../agent-core/types.js";
@@ -287,13 +286,9 @@ export type RunnerPaths = {
 };
 
 export type RunnerState = {
-  convexSiteUrl: string | null;
   /** The Stella backend worker origin; see `backend-session.ts`. */
   backendUrl: string | null;
   authToken: string | null;
-  convexDeploymentUrl: string | null;
-  convexClient: ConvexClient | null;
-  convexClientUrl: string | null;
   hasConnectedAccount: boolean;
   cloudSyncEnabled: boolean;
   isRunning: boolean;
@@ -368,11 +363,9 @@ export type RunnerState = {
   runCallbacksByRunId: Map<string, AgentCallbacks>;
   loadedAgents: ParsedAgentLike[];
   /**
-   * Late-bound web search handler. Wired by `createStellaHostRunner` after the
-   * Convex session is created so the toolHost (built earlier in startup) can
-   * reach the managed search provider via the same convex-session call path
-   * that the rest of the runtime uses. Stored on state so the toolHost can
-   * read it lazily.
+   * Late-bound web search handler. Wired by `createStellaHostRunner` so the
+   * toolHost (built earlier in startup) can reach the backend's `search.web`
+   * call. Stored on state so the toolHost can read it lazily.
    */
   webSearch:
     | ((
@@ -387,7 +380,6 @@ export type RunnerState = {
 
 export type RunnerContext = {
   loadExecutionContext?: () => Promise<import("@stella/contracts/execution-context").ExecutionContextSnapshot>;
-  convexApi: unknown;
   /** The Stella backend worker (backend calls and live views). */
   backend: import("./backend-session.js").BackendSession;
   deviceId: string;
@@ -464,8 +456,6 @@ export type RunnerContext = {
 export type RunnerPublicApi = {
   deviceId: string;
   hookEmitter: HookEmitter;
-  setConvexUrl: (value: string | null) => void;
-  setConvexSiteUrl: (value: string | null) => void;
   setBackendUrl: (value: string | null) => void;
   setAuthToken: (value: string | null) => void;
   setHasConnectedAccount: (value: boolean) => void;
@@ -473,13 +463,6 @@ export type RunnerPublicApi = {
   start: () => void;
   stop: () => Promise<void>;
   waitUntilInitialized: () => Promise<void>;
-  subscribeQuery: (
-    query: unknown,
-    args: Record<string, unknown>,
-    onUpdate: (value: unknown) => void,
-    onError?: (error: Error) => void,
-  ) => (() => void) | null;
-  getConvexUrl: () => string | null;
   getStellaSiteAuth: () => { baseUrl: string; authToken: string } | null;
   killAllShells: () => void;
   killShellsByPort: (port: number) => void;
@@ -596,7 +579,6 @@ export type RunnerPublicApi = {
   getVoiceOrchestratorConfig: (
     payload: RuntimeVoiceOrchestratorConfigRequest,
   ) => Promise<RuntimeVoiceOrchestratorConfig>;
-  convexAction: (ref: unknown, args: unknown) => Promise<unknown>;
   googleWorkspaceGetAuthStatus: () => Promise<{
     connected: boolean;
     unavailable?: boolean;

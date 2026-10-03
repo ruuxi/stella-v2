@@ -257,7 +257,7 @@ export const createExtensionReloadScheduler = (
 export const createRuntimeInitialization = (
   context: RunnerContext,
   deps: {
-    disposeConvexClient: () => void;
+    disposeBackendClient: () => void;
     shutdownTasks: () => void | Promise<void>;
     lifecycle?: RuntimeInitializationLifecycleOverrides;
   },
@@ -816,13 +816,13 @@ export const createRuntimeInitialization = (
     // Re-arm the boot latch so a restarted runner's waiters park again
     // instead of observing the previous generation as already open.
     context.state.initializationStarted.reset();
-    // This join is deliberately before Convex, task, tool-host, and ultimately
+    // This join is deliberately before the backend client, task, tool-host, and ultimately
     // session-storage teardown. Even a user extension factory that ignores its
     // abort signal must settle before its captured services can be closed.
     await stopInitialization();
-    deps.disposeConvexClient();
+    deps.disposeBackendClient();
     // The cloud journal writer holds a retry timer and an in-memory queue.
-    // Stopping it before the Convex client is gone would be pointless (it
+    // Stopping it before the backend client is gone would be pointless (it
     // needs a token to flush) and leaving it running keeps a timer alive past
     // shutdown, so it is dropped here alongside the client it depends on.
     context.cloudTranscript.stop();

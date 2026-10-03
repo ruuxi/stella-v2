@@ -39,8 +39,7 @@ type CliOptions = {
   stellaDataDirPath: string | null;
   workerEntryPath: string | null;
   authToken: string | null;
-  convexUrl: string | null;
-  convexSiteUrl: string | null;
+  backendUrl: string | null;
   timeoutMs: number;
   help: boolean;
 };
@@ -66,8 +65,7 @@ Options:
   --worker-entry <path>     Worker entry (default: the source tree's
                             packages/runtime/worker/entry.ts).
   --auth-token <token>      Stella auth token (or env STELLA_AUTH_TOKEN).
-  --convex-url <url>        Convex deployment URL (default: desktop-ui .env).
-  --convex-site-url <url>   Convex site URL (default: desktop-ui .env).
+  --backend-url <url>       Stella backend URL (default: desktop-ui .env).
   --timeout <seconds>       Max wall time for the turn (default: 600).
   -h, --help                Show this help.
 
@@ -85,8 +83,7 @@ const parseArgs = (argv: string[]): CliOptions => {
     stellaDataDirPath: null,
     workerEntryPath: null,
     authToken: null,
-    convexUrl: null,
-    convexSiteUrl: null,
+    backendUrl: null,
     timeoutMs: 600_000,
     help: false,
   };
@@ -138,11 +135,8 @@ const parseArgs = (argv: string[]): CliOptions => {
       case "--auth-token":
         options.authToken = next(++i);
         break;
-      case "--convex-url":
-        options.convexUrl = next(++i);
-        break;
-      case "--convex-site-url":
-        options.convexSiteUrl = next(++i);
+      case "--backend-url":
+        options.backendUrl = next(++i);
         break;
       case "--timeout": {
         const seconds = Number.parseFloat(next(++i));
@@ -176,28 +170,18 @@ const log = (message: string): void => {
   process.stderr.write(`[headless] ${message}\n`);
 };
 
-/** Default Convex URLs from the same checked-in env file the desktop uses. */
-const readDesktopUiEnvDefaults = (
-  stellaAppDir: string,
-): { convexUrl: string | null; convexSiteUrl: string | null } => {
+/** Default backend URL from the same checked-in env file the desktop uses. */
+const readDesktopUiBackendUrl = (stellaAppDir: string): string | null => {
   const envPath = path.join(stellaAppDir, "packages", "desktop-ui", ".env");
-  const result: { convexUrl: string | null; convexSiteUrl: string | null } = {
-    convexUrl: null,
-    convexSiteUrl: null,
-  };
   try {
     for (const line of readFileSync(envPath, "utf-8").split("\n")) {
-      const match = line.match(
-        /^\s*(VITE_CONVEX_URL|VITE_CONVEX_SITE_URL)\s*=\s*(\S+)\s*$/,
-      );
-      if (!match) continue;
-      if (match[1] === "VITE_CONVEX_URL") result.convexUrl = match[2] ?? null;
-      else result.convexSiteUrl = match[2] ?? null;
+      const match = line.match(/^\s*VITE_STELLA_BACKEND_URL\s*=\s*(\S+)\s*$/);
+      if (match) return match[1] ?? null;
     }
   } catch {
-    // No defaults available; Stella-managed models then require --convex-url.
+    // No default available; Stella-managed models then require --backend-url.
   }
-  return result;
+  return null;
 };
 
 const main = async (): Promise<void> => {
@@ -253,9 +237,8 @@ const main = async (): Promise<void> => {
 
   const authToken =
     options.authToken?.trim() || process.env.STELLA_AUTH_TOKEN?.trim() || null;
-  const envDefaults = readDesktopUiEnvDefaults(paths.stellaAppDir);
-  const convexUrl = options.convexUrl ?? envDefaults.convexUrl;
-  const convexSiteUrl = options.convexSiteUrl ?? envDefaults.convexSiteUrl;
+  const backendUrl =
+    options.backendUrl ?? readDesktopUiBackendUrl(paths.stellaAppDir);
 
   if (options.mode !== "list-models" && !options.prompt.trim()) {
     throw new Error("A prompt is required (use --prompt or --help).");
@@ -313,8 +296,7 @@ const main = async (): Promise<void> => {
   timeout.unref?.();
 
   await host.configure({
-    convexUrl,
-    convexSiteUrl,
+    backendUrl,
     authToken,
     hasConnectedAccount: false,
     cloudSyncEnabled: false,

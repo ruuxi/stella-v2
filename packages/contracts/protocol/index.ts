@@ -262,8 +262,8 @@ export type RuntimeInitializeResult = {
 };
 
 export type RuntimeConfigureParams = {
-  convexUrl?: string | null;
-  convexSiteUrl?: string | null;
+  /** The Stella backend worker (auth, backend calls and live views). */
+  backendUrl?: string | null;
   authToken?: string | null;
   hasConnectedAccount?: boolean;
   cloudSyncEnabled?: boolean;

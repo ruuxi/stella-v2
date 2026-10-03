@@ -154,7 +154,7 @@ describe("session capability cache", () => {
     await expect(
       verifyDeviceKeyProof({
         proof: body.deviceKey as Parameters<typeof verifyDeviceKeyProof>[0]["proof"],
-        ownerId: `${ISSUER}|user-1`,
+        ownerId: "user-1",
         gatewayOrigin: GATEWAY,
         now,
       }),

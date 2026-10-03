@@ -31,7 +31,7 @@ describe("subagent shell recovery scope", () => {
       stellaDataDir: "/tmp/stella-data",
       state: {
         authToken: null,
-        convexSiteUrl: "https://example.test",
+        backendUrl: "https://example.test",
         hasConnectedAccount: false,
         localAgentManager: null,
         orchestratorSessions: new Map(),

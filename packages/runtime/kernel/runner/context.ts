@@ -25,7 +25,6 @@ import {
   filterLocalChatEventWindow,
   type LocalChatEventWindowQuery,
 } from "../storage/event-window.js";
-import { ConvexClient } from "convex/browser";
 import {
   formatDateTimeReminder,
   THIRTY_MINUTES_MS,
@@ -41,7 +40,6 @@ import {
   estimateRuntimeTokens,
   formatRuntimeThreadStatusLabel,
 } from "../runtime-threads.js";
-import { anyApi } from "convex/server";
 import type { LocalAgentContext } from "../agents/local-agent-manager.js";
 import { loadAgentSystemPrompt } from "../agents/home-agent-prompt.js";
 import { renderSkillCatalogBlock } from "../shared/skill-catalog.js";
@@ -91,8 +89,6 @@ import {
   MIN_LOCAL_HISTORY_TOKENS,
   readCoreMemory,
   readUserProfileDoc,
-  sanitizeConvexDeploymentUrl,
-  sanitizeStellaBase,
 } from "./shared.js";
 import {
   resolveRunnerLlmRoute,
@@ -498,60 +494,11 @@ export const createRunnerContext = ({
   notifyThreadActivityUpdated,
   getDefaultConversationId,
 }: StellaHostRunnerOptions): RunnerContext => {
-  const envProxyBaseUrl = sanitizeStellaBase(
-    process.env.STELLA_LLM_PROXY_URL ?? null,
-  );
   const envAuthToken = process.env.STELLA_LLM_PROXY_TOKEN ?? null;
-  const envConvexDeploymentUrl = sanitizeConvexDeploymentUrl(
-    process.env.STELLA_CONVEX_URL ?? null,
-  );
 
   const context = {} as RunnerContext;
   const hookEmitter = new HookEmitter();
   const backend = createBackendSession(() => context.state);
-
-  const convexCall = async (
-    kind: "action" | "mutation" | "query",
-    ref: unknown,
-    args: unknown,
-  ): Promise<unknown> => {
-    const deploymentUrl = sanitizeConvexDeploymentUrl(
-      context.state?.convexDeploymentUrl ?? envConvexDeploymentUrl,
-    );
-    const authToken = (context.state?.authToken ?? envAuthToken ?? "").trim();
-    if (!deploymentUrl || !authToken) {
-      throw new Error("Convex connection and auth are required.");
-    }
-
-    const existingClient = context.state?.convexClient;
-    if (existingClient && context.state?.convexClientUrl === deploymentUrl) {
-      return await (
-        existingClient as Record<
-          typeof kind,
-          (tool: unknown, params: unknown) => Promise<unknown>
-        >
-      )[kind](ref, args);
-    }
-
-    const client = new ConvexClient(deploymentUrl, {
-      logger: false,
-      unsavedChangesWarning: false,
-    });
-    client.setAuth(async () => authToken);
-    try {
-      return await (
-        client as Record<
-          typeof kind,
-          (tool: unknown, params: unknown) => Promise<unknown>
-        >
-      )[kind](ref, args);
-    } finally {
-      void client.close().catch(() => undefined);
-    }
-  };
-
-  const convexAction = async (ref: unknown, args: unknown): Promise<unknown> =>
-    await convexCall("action", ref, args);
 
   const getCloudOwnerGeneration = async (): Promise<string> => {
     const identity = await backend.ownerIdentity();
@@ -783,46 +730,9 @@ export const createRunnerContext = ({
       return baseUrl && authToken ? { baseUrl, authToken } : null;
     },
     getStellaSiteAuth: () => {
-      const baseUrl = sanitizeStellaBase(
-        context.state?.convexSiteUrl ?? envProxyBaseUrl,
-      );
+      const baseUrl = context.state?.backendUrl?.trim();
       const authToken = (context.state?.authToken ?? envAuthToken ?? "").trim();
       return baseUrl && authToken ? { baseUrl, authToken } : null;
-    },
-    actionConvex: async (ref, args) =>
-      (await convexAction(ref, args)) as unknown,
-    queryConvex: async (ref, args) => {
-      const deploymentUrl = sanitizeConvexDeploymentUrl(
-        context.state?.convexDeploymentUrl ?? envConvexDeploymentUrl,
-      );
-      const authToken = (context.state?.authToken ?? envAuthToken ?? "").trim();
-      if (!deploymentUrl || !authToken) {
-        throw new Error("Convex connection and auth are required.");
-      }
-
-      const existingClient = context.state?.convexClient;
-      if (existingClient && context.state?.convexClientUrl === deploymentUrl) {
-        return await (
-          existingClient as {
-            query: (tool: unknown, params: unknown) => Promise<unknown>;
-          }
-        ).query(ref, args);
-      }
-
-      const client = new ConvexClient(deploymentUrl, {
-        logger: false,
-        unsavedChangesWarning: false,
-      });
-      client.setAuth(async () => authToken);
-      try {
-        return await (
-          client as {
-            query: (tool: unknown, params: unknown) => Promise<unknown>;
-          }
-        ).query(ref, args);
-      } finally {
-        void client.close().catch(() => undefined);
-      }
     },
     agentApi: {
       // Cloud placements never touch LocalAgentManager: the subject lives off
@@ -914,7 +824,6 @@ export const createRunnerContext = ({
   });
 
   Object.assign(context, {
-    convexApi: anyApi,
     backend,
     deviceId,
     stellaAppDir,
@@ -951,12 +860,8 @@ export const createRunnerContext = ({
       extensionsPath: resolveRuntimeSourceAsset("extensions"),
     },
     state: {
-      convexSiteUrl: envProxyBaseUrl,
       backendUrl: initialBackendUrl(),
       authToken: envAuthToken,
-      convexDeploymentUrl: envConvexDeploymentUrl,
-      convexClient: null,
-      convexClientUrl: null,
       hasConnectedAccount: false,
       cloudSyncEnabled: true,
       isRunning: false,

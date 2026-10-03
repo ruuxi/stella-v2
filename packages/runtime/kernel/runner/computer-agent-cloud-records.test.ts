@@ -10,7 +10,7 @@ import {
   CloudAgentStartAdmissionError,
   createComputerAgentCloudRecords as createComputerAgentCloudRecordsRaw,
   isCloudAgentStartAdmissionError,
-  resolveConvexJwtOwnerScope,
+  resolveJwtOwnerScope,
 } from "./computer-agent-cloud-records.js";
 
 const OWNER_A_GENERATION = "owner-a-generation-1";
@@ -188,7 +188,7 @@ describe("computer agent cloud lifecycle records", () => {
     const { database, store } = createStore();
     store.bindComputerAgentCloudThreadAuthority(
       "thread-7",
-      resolveConvexJwtOwnerScope(ownerAAuthToken)!,
+      resolveJwtOwnerScope(ownerAAuthToken)!,
       OWNER_A_GENERATION,
     );
     const calls: Array<{ ref: unknown; args: unknown }> = [];
@@ -264,7 +264,7 @@ describe("computer agent cloud lifecycle records", () => {
     });
     signedInStorage.store.bindComputerAgentCloudThreadAuthority(
       "thread-7",
-      resolveConvexJwtOwnerScope(ownerAAuthToken)!,
+      resolveJwtOwnerScope(ownerAAuthToken)!,
       OWNER_A_GENERATION,
     );
     await expect(signedIn.get("thread-7")).resolves.toEqual({
@@ -301,7 +301,7 @@ describe("computer agent cloud lifecycle records", () => {
 
   test("fails closed without an exact attempt generation even while signed in", async () => {
     const { database, store } = createStore();
-    const ownerScope = resolveConvexJwtOwnerScope(ownerAAuthToken)!;
+    const ownerScope = resolveJwtOwnerScope(ownerAAuthToken)!;
     store.bindComputerAgentCloudThreadAuthority(
       "thread-unknown-attempt",
       ownerScope,
@@ -606,9 +606,9 @@ describe("computer agent cloud lifecycle records", () => {
       getAuthToken: () => token,
       mutation: async (_ref, rawArgs) => {
         const args = rawArgs as { threadId: string };
-        const ownerScope = resolveConvexJwtOwnerScope(token);
+        const ownerScope = resolveJwtOwnerScope(token);
         calls.push({ ownerScope, threadId: args.threadId });
-        if (ownerScope === resolveConvexJwtOwnerScope(ownerAAuthToken)) {
+        if (ownerScope === resolveJwtOwnerScope(ownerAAuthToken)) {
           if (ownerAOffline) throw new Error("owner A offline");
         }
         return { agentId: args.threadId };
@@ -642,7 +642,7 @@ describe("computer agent cloud lifecycle records", () => {
     expect(calls.some((call) => call.threadId === "thread-owner-b")).toBe(true);
     expect(
       store.listComputerAgentCloudOutbox(
-        resolveConvexJwtOwnerScope(ownerAAuthToken)!,
+        resolveJwtOwnerScope(ownerAAuthToken)!,
       ),
     ).toHaveLength(1);
 
@@ -804,7 +804,7 @@ describe("computer agent cloud lifecycle records", () => {
     expect(
       store.isComputerAgentCloudGenerationRetired({
         threadId: "thread-stale",
-        ownerScope: resolveConvexJwtOwnerScope(ownerAAuthToken)!,
+        ownerScope: resolveJwtOwnerScope(ownerAAuthToken)!,
         ownerGeneration: OWNER_A_GENERATION,
       }),
     ).toBe(true);
@@ -851,7 +851,7 @@ describe("computer agent cloud lifecycle records", () => {
       }),
     ).rejects.toMatchObject({ retryable: true });
 
-    const ownerScope = resolveConvexJwtOwnerScope(ownerAAuthToken)!;
+    const ownerScope = resolveJwtOwnerScope(ownerAAuthToken)!;
     expect(store.listComputerAgentCloudOutbox(ownerScope)).toMatchObject([
       { threadId: "thread-aba", ownerGeneration: generationTwo },
     ]);
@@ -927,7 +927,7 @@ describe("computer agent cloud lifecycle records", () => {
     expect(delivered).toEqual([OWNER_A_GENERATION, generationTwo]);
     expect(store.getComputerAgentCloudThreadAuthority("thread-inflight-aba"))
       .toEqual({
-        ownerScope: resolveConvexJwtOwnerScope(ownerAAuthToken),
+        ownerScope: resolveJwtOwnerScope(ownerAAuthToken),
         ownerGeneration: generationTwo,
       });
 
@@ -992,7 +992,7 @@ describe("computer agent cloud lifecycle records", () => {
       }),
     ).rejects.toThrow("OWNER_DATA_GENERATION_STALE");
 
-    const ownerScope = resolveConvexJwtOwnerScope(ownerAAuthToken)!;
+    const ownerScope = resolveJwtOwnerScope(ownerAAuthToken)!;
     expect(
       store.getComputerAgentCloudThreadAuthority("thread-reverse-aba"),
     ).toEqual({

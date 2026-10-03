@@ -82,10 +82,10 @@ export const getOrchestratorHealth = (
   if (canResolveRunnerLlmRoute(context, orchestratorModel)) {
     return { ready: true, engine: "pi" };
   }
-  const hasSiteUrl = Boolean(sanitizeStellaBase(context.state.convexSiteUrl));
+  const hasSiteUrl = Boolean(sanitizeStellaBase(context.state.backendUrl));
   const hasAuthToken = Boolean(context.state.authToken?.trim());
   if (!hasSiteUrl) {
-    return { ready: false, reason: "Missing site URL", engine: "pi" };
+    return { ready: false, reason: "Missing backend URL", engine: "pi" };
   }
   if (!hasAuthToken) {
     return { ready: false, reason: "Missing auth token", engine: "pi" };

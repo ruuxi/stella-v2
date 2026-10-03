@@ -17,7 +17,7 @@ import {
   gatewayRelayBaseUrl,
   type GatewayProtocol,
 } from "@stella/contracts/gateway/api";
-import { readConfiguredStellaSiteUrl } from "@stella/contracts/convex-urls";
+import { readConfiguredBackendUrl } from "@stella/contracts/stella-api";
 import {
   STELLA_GATEWAY_DEVICE_VERIFICATION_MESSAGE,
   createGatewaySessionClient,
@@ -342,7 +342,7 @@ const createRelayModel = (args: {
   return model;
 };
 
-export const normalizeStellaBase = readConfiguredStellaSiteUrl;
+export const normalizeStellaBase = readConfiguredBackendUrl;
 
 const capabilityExhausted = async (response: Response): Promise<boolean> => {
   if (response.status !== 402 && response.status !== 429) return false;

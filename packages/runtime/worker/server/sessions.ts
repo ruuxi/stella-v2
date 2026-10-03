@@ -315,12 +315,6 @@ export const layer = Layer.effect(
     ) => {
       session.config.patch(patch);
       const runner = session.runnerCell.get();
-      if (patch.convexUrl !== undefined) {
-        runner?.setConvexUrl(patch.convexUrl);
-      }
-      if (patch.convexSiteUrl !== undefined) {
-        runner?.setConvexSiteUrl(patch.convexSiteUrl);
-      }
       if (patch.backendUrl !== undefined) {
         runner?.setBackendUrl(patch.backendUrl);
       }

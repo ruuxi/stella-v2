@@ -1253,7 +1253,7 @@ export const layer = Layer.effect(
         runtime: {
           stellaAppDir: init.stellaAppDir,
           stellaDataDir: init.stellaDataDirPath,
-          siteBaseUrl: init.convexSiteUrl,
+          siteBaseUrl: init.backendUrl,
           getAuthToken: () => init.authToken,
           hasConnectedAccount: () => config.get().hasConnectedAccount ?? false,
           requestRuntimeAuthRefresh: async () => {

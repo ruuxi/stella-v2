@@ -109,7 +109,7 @@ const makeLifecycleHarness = (
     stopWatchers: () => events.push("watchers-stopped"),
   };
   const runtime = createRuntimeInitialization(context as never, {
-    disposeConvexClient: () => events.push("convex-disposed"),
+    disposeBackendClient: () => events.push("backend-disposed"),
     shutdownTasks: async () => {
       events.push("tasks-stopped");
     },
@@ -277,7 +277,7 @@ describe("runtime initialization ownership", () => {
 
     expect(events).not.toContain("extensions-installed");
     expect(events).not.toContain("watchers-started");
-    expect(events.indexOf("convex-disposed")).toBeGreaterThan(
+    expect(events.indexOf("backend-disposed")).toBeGreaterThan(
       events.indexOf("watchers-stopped"),
     );
     expect(state.isInitialized).toBe(false);
@@ -298,14 +298,14 @@ describe("runtime initialization ownership", () => {
     await vi.waitFor(() => expect(events).toContain("extensions-installed"));
     const stopped = runtime.stop();
     expect(modelSignal?.aborted).toBe(true);
-    expect(events).not.toContain("convex-disposed");
+    expect(events).not.toContain("backend-disposed");
 
     models.resolve();
     await stopped;
 
     expect(events).not.toContain("watchers-started");
     expect(state.isInitialized).toBe(false);
-    expect(events).toContain("convex-disposed");
+    expect(events).toContain("backend-disposed");
   });
 
   it("owns and joins the post-ready catalog refresh before shutdown dependencies", async () => {
@@ -329,12 +329,12 @@ describe("runtime initialization ownership", () => {
     const stopped = runtime.stop();
     expect(refreshSignal?.aborted).toBe(true);
     expect(events).toContain("watchers-stopped");
-    expect(events).not.toContain("convex-disposed");
+    expect(events).not.toContain("backend-disposed");
 
     refresh.resolve();
     await stopped;
 
-    expect(events.indexOf("convex-disposed")).toBeGreaterThan(
+    expect(events.indexOf("backend-disposed")).toBeGreaterThan(
       events.indexOf("watchers-stopped"),
     );
     expect(state.isInitialized).toBe(false);
@@ -360,7 +360,7 @@ describe("runtime initialization ownership", () => {
     expect(secondStop).toBe(firstStop);
     await Promise.all([firstStop, secondStop]);
 
-    expect(events.filter((event) => event === "convex-disposed")).toHaveLength(
+    expect(events.filter((event) => event === "backend-disposed")).toHaveLength(
       1,
     );
     expect(events.filter((event) => event === "tool-host-stop")).toHaveLength(

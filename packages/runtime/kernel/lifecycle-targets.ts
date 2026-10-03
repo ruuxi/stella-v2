@@ -9,8 +9,6 @@ type Awaitable<T> = T | Promise<T>;
 export type PiRunnerAuthHandle = {
   setAuthToken: (value: string | null) => void;
   setHasConnectedAccount: (value: boolean) => void;
-  setConvexUrl: (value: string | null) => void;
-  setConvexSiteUrl: (value: string | null) => void;
   setBackendUrl: (value: string | null) => void;
 };
 

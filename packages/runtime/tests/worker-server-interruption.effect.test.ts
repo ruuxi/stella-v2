@@ -29,8 +29,6 @@ const harness = vi.hoisted(() => {
     runnersStopped: 0,
   };
   const makeRunner = () => ({
-    setConvexUrl: () => undefined,
-    setConvexSiteUrl: () => undefined,
     setBackendUrl: () => undefined,
     setAuthToken: () => undefined,
     setHasConnectedAccount: () => undefined,
@@ -110,8 +108,7 @@ const initParams = (dataDir: string, appDir: string) =>
     stellaDataDirPath: dataDir,
     stellaWorkspacePath: path.join(dataDir, "workspace"),
     authToken: null,
-    convexUrl: null,
-    convexSiteUrl: null,
+    backendUrl: null,
     hasConnectedAccount: false,
     cloudSyncEnabled: false,
     localLlmCredentialsUpdatedAt: null,

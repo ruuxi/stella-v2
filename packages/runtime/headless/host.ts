@@ -40,7 +40,7 @@ import {
  *     return whatever token the caller handed us and never mint tokens.
  */
 export type HeadlessAuthInput = {
-  /** Convex auth token minted elsewhere (desktop session, CI secret, ...). */
+  /** Stella auth token minted elsewhere (desktop session, CI secret, ...). */
   authToken?: string | null;
 };
 

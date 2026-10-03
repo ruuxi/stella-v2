@@ -213,7 +213,7 @@ type StartAdmissionWaiter = {
  * decision: Convex still verifies the JWT. It only prevents a durable row
  * admitted under account A from ever being attempted with account B's client.
  */
-export const resolveConvexJwtOwnerScope = (
+export const resolveJwtOwnerScope = (
   token: string | null | undefined,
 ): string | null => {
   const normalized = token?.trim();
@@ -255,7 +255,7 @@ export const createComputerAgentCloudRecords = (
   let cancelRetryDelay: (() => void) | null = null;
   let activeDrainPromise: Promise<void> | null = null;
   let stopped = false;
-  let lastKnownOwnerScope = resolveConvexJwtOwnerScope(options.getAuthToken());
+  let lastKnownOwnerScope = resolveJwtOwnerScope(options.getAuthToken());
   const startAdmissionWaiters = new Map<string, Set<StartAdmissionWaiter>>();
 
   const settleStartAdmission = (
@@ -280,7 +280,7 @@ export const createComputerAgentCloudRecords = (
     new CloudAgentStartAdmissionError(args);
 
   const currentOwnerScope = (): string | null => {
-    const scope = resolveConvexJwtOwnerScope(options.getAuthToken());
+    const scope = resolveJwtOwnerScope(options.getAuthToken());
     if (scope) lastKnownOwnerScope = scope;
     return scope;
   };

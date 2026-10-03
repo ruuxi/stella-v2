@@ -4,10 +4,7 @@ import {
   type AgentLifecycleEvent,
 } from "../agents/local-agent-manager.js";
 import { LOCAL_CONTEXT_EVENT_TYPES } from "../storage/shared.js";
-import {
-  readConfiguredConvexUrl as sanitizeConvexDeploymentUrl,
-  readConfiguredStellaBaseUrl as sanitizeStellaBase,
-} from "@stella/contracts/convex-urls";
+import { readConfiguredBackendUrl as sanitizeStellaBase } from "@stella/contracts/stella-api";
 import { isOrchestratorAgentType } from "@stella/contracts/agent-runtime";
 import { formatAgentTerminalStateSystemReminder } from "@stella/contracts/system-reminders";
 import { readRuntimePrompt } from "../prompts/home-prompts.js";
@@ -18,7 +15,6 @@ export const LOCAL_HISTORY_RESERVE_TOKENS = 16_384;
 export const MIN_LOCAL_HISTORY_TOKENS = 8_000;
 export {
   LOCAL_CONTEXT_EVENT_TYPES,
-  sanitizeConvexDeploymentUrl,
   sanitizeStellaBase,
 };
 

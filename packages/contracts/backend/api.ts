@@ -21,6 +21,8 @@ import type { MediaCalls, MediaViews } from "./media.js";
 import type { VoiceCalls } from "./voice.js";
 import type { IntegrationCalls, IntegrationViews } from "./integrations.js";
 import type { EngineCalls, EngineViews } from "./engines.js";
+import type { ProjectCalls, ProjectViews } from "./projects.js";
+import type { BrowserCalls, BrowserViews } from "./browser.js";
 
 type SystemCalls = {
   /** Round trip through the caller's owner object. */
@@ -43,7 +45,9 @@ export type BackendCalls = SystemCalls &
   MediaCalls &
   VoiceCalls &
   IntegrationCalls &
-  EngineCalls;
+  EngineCalls &
+  ProjectCalls &
+  BrowserCalls;
 export type BackendViews = ConversationViews &
   AgentThreadViews &
   BillingViews &
@@ -55,7 +59,9 @@ export type BackendViews = ConversationViews &
   ShareViews &
   MediaViews &
   IntegrationViews &
-  EngineViews;
+  EngineViews &
+  ProjectViews &
+  BrowserViews;
 
 export type CallName = keyof BackendCalls & string;
 export type ViewName = keyof BackendViews & string;

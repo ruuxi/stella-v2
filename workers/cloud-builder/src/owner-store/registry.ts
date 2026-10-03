@@ -122,6 +122,8 @@ export type AgentTurnDispatch = {
   execution: import("@stella/contracts/agent-engine").CloudExecutionSelection;
   originDeviceId?: string;
   originConversationId?: string;
+  /** Resume a hosted-browser wait with this answer. */
+  browserResume?: import("@stella/contracts/cloud-browser").CloudBrowserResumeReceipt;
 };
 
 export class DispatchError extends Error {

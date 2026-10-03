@@ -43,16 +43,13 @@ import {
 import { classifyNetwork } from "../../../shared/network-class.js";
 import { isOwnerAppBuildPrefix } from "../app-build-artifacts.js";
 import { verifyConvexToken } from "../auth-jwt.js";
-import {
-  BoundedBodyError,
-  readBoundedRequestText,
-  readBoundedResponseBytes,
-} from "../bounded-body.js";
+import { readBoundedRequestText } from "../bounded-body.js";
 import { withBrowserCors } from "../browser-cors.js";
 import { handleVoiceRoute, ownerDictationControl } from "../voice/routes.js";
 import { handleBackendRoute } from "../owner-store/routes.js";
 import { handleMediaRoute } from "../media/routes.js";
 import { handleIntegrationsRoute } from "../integrations/routes.js";
+import { handleProjectsRoute } from "../projects/routes.js";
 import { handleAppSourceBootstrap } from "../app-source-bootstrap.js";
 import { handleWebRendererRoute } from "../web-renderer.js";
 import { handleUserCloudHomeRoute, ownerAccess } from "../cloud-home-routes.js";
@@ -964,6 +961,10 @@ const router = {
     // Managed media and music; fal's webhook carries its own signed token.
     const mediaResponse = await handleMediaRoute(request, env);
     if (mediaResponse) return mediaResponse;
+    // GitHub App: the install callback carries a signed state, the webhook
+    // GitHub's own signature.
+    const projectsResponse = await handleProjectsRoute(request, env);
+    if (projectsResponse) return projectsResponse;
     // Public: upstream read access for callers without an account.
     const bootstrapResponse = await handleAppSourceBootstrap(request, env);
     if (bootstrapResponse) return bootstrapResponse;
@@ -1271,95 +1272,6 @@ const router = {
       const bounded = await boundedIngressRequest(request, serviceBodyLimit);
       if (bounded instanceof Response) return bounded;
       request = bounded;
-    }
-    if (
-      request.method === "POST" &&
-      [
-        "/internal/interactions/status",
-        "/internal/interactions/live-view",
-        "/internal/interactions/session-transfer-capability",
-        "/internal/interactions/session-transfer",
-        "/internal/interactions/decision",
-        "/internal/owners/profile/reset",
-      ].includes(url.pathname)
-    ) {
-      if (!env.BROWSER_GATEWAY) {
-        return json(
-          { code: "unavailable", message: "Cloud browser is unavailable." },
-          503,
-        );
-      }
-      if (
-        !/^application\/json(?:\s*;|$)/iu.test(
-          request.headers.get("content-type") ?? "",
-        )
-      ) {
-        return json(
-          { code: "bad_request", message: "JSON request required." },
-          415,
-        );
-      }
-      const body = await request.arrayBuffer();
-      if (body.byteLength === 0 || body.byteLength > 64 * 1024) {
-        return json(
-          { code: "bad_request", message: "Malformed request." },
-          400,
-        );
-      }
-      try {
-        const upstream = await env.BROWSER_GATEWAY.fetch(
-          `https://browser-gateway${url.pathname}`,
-          {
-            method: "POST",
-            redirect: "manual",
-            headers: { "content-type": "application/json" },
-            body,
-          },
-        );
-        if (upstream.status >= 300 && upstream.status < 400) {
-          await upstream.body?.cancel().catch(() => undefined);
-          return json(
-            {
-              code: "upstream_failure",
-              message: "Cloud browser response was invalid.",
-            },
-            502,
-          );
-        }
-        let upstreamBody: Uint8Array;
-        try {
-          upstreamBody = await readBoundedResponseBytes(upstream, 64 * 1024);
-        } catch (error) {
-          if (!(error instanceof BoundedBodyError)) throw error;
-          return json(
-            {
-              code: "upstream_failure",
-              message: "Cloud browser response was invalid.",
-            },
-            502,
-          );
-        }
-        return new Response(upstreamBody, {
-          status: upstream.status,
-          headers: {
-            "cache-control": "no-store",
-            "content-type": "application/json; charset=utf-8",
-          },
-        });
-      } catch {
-        log("error", "browser_gateway_control_failed", {
-          requestId,
-          path: url.pathname,
-          errorCode: "BROWSER_GATEWAY_UPSTREAM_FAILURE",
-        });
-        return json(
-          {
-            code: "upstream_failure",
-            message: "Cloud browser request failed.",
-          },
-          502,
-        );
-      }
     }
     if (
       request.method === "POST" &&

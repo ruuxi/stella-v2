@@ -92,16 +92,6 @@ export const serviceJsonBodyLimit = (
   if (pathname === "/owners/purge") {
     return CLOUD_BUILDER_BODY_LIMITS.conversationAppend;
   }
-  if (
-    pathname === "/internal/interactions/status" ||
-    pathname === "/internal/interactions/live-view" ||
-    pathname === "/internal/interactions/session-transfer-capability" ||
-    pathname === "/internal/interactions/session-transfer" ||
-    pathname === "/internal/interactions/decision" ||
-    pathname === "/internal/owners/profile/reset"
-  ) {
-    return CLOUD_BUILDER_BODY_LIMITS.tinyControl;
-  }
   return null;
 };
 

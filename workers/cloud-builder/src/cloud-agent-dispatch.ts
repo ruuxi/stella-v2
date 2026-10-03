@@ -1,5 +1,6 @@
 import type { AgentToolResult } from "@stella/runtime/kernel/agent-core/types.js";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
+import type { CloudBrowserResumeReceipt } from "@stella/contracts/cloud-browser";
 import {
   OUTBOX_EVENT_VERSION,
   type ThreadSpawnedEvent,
@@ -344,6 +345,8 @@ export type CloudAgentDispatchAttempt = Readonly<{
   /** The desktop and local conversation that receive a desktop dispatch's result. */
   originDeviceId?: string;
   originConversationId?: string;
+  /** Hosted-browser resume receipt carried into this attempt. */
+  browserResume?: CloudBrowserResumeReceipt;
 }>;
 
 /** A refusal that trying again cannot fix (admission said no, or the request was bad). */
@@ -512,6 +515,7 @@ export const dispatchCloudAgentTurn = async (args: {
     ...(attempt.originConversationId
       ? { originConversationId: attempt.originConversationId }
       : {}),
+    ...(attempt.browserResume ? { browserResume: attempt.browserResume } : {}),
   };
   let response: Response;
   try {

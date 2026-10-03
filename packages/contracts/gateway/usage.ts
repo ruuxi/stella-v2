@@ -15,8 +15,7 @@ import type {
  * Usage events are the gateway's only write toward the control plane. They
  * travel gateway -> Cloudflare Queue -> cloud-builder (`BillingControl`),
  * which settles them into each owner's ledger, in batches, idempotent on
- * `requestId`. Until abuse accounting leaves Convex, the same batch also
- * goes to Convex `POST /api/gateway/usage` for risk signals only.
+ * `requestId`; the owner object also takes its risk signals from them.
  */
 
 export const GATEWAY_USAGE_EVENT_VERSION = 1 as const;
@@ -92,7 +91,7 @@ export const CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH =
   "/api/gateway/owner-enforcement" as const;
 
 // ---------------------------------------------------------------------------
-// Owner enforcement (suspension / throttling), pushed Convex -> gateway.
+// Owner enforcement (suspension / throttling), pushed owner object -> gateway.
 // ---------------------------------------------------------------------------
 
 export const OWNER_ENFORCEMENT_STATUSES = [
@@ -118,7 +117,7 @@ export type ConvexOwnerEnforcementState = {
   updatedAt: number | null;
 };
 
-/** `POST {gateway}/internal/owners/enforcement` body (GATEWAY_SERVICE_SECRET). */
+/** `ModelGatewayControl.applyOwnerEnforcement` input, pushed by the owner object. */
 export type GatewayOwnerEnforcementRequest = {
   ownerId: string;
   enforcement: OwnerEnforcement;
@@ -199,6 +198,8 @@ export type BillingControlRpc = {
   ingestUsage(batch: GatewayUsageBatch): Promise<GatewayUsageBatchResult>;
   /** Prices, anonymous ceilings and tier breakers; throws while unavailable. */
   gatewayConfig(): Promise<GatewayConfigSnapshot>;
+  /** One owner's enforcement, seeding the gateway's owner object; throws while unavailable. */
+  ownerEnforcement(ownerId: string): Promise<ConvexOwnerEnforcementState>;
 };
 
 /** Convex answers the exchange with this when step-up is required and no valid token came. */

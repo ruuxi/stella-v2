@@ -59,10 +59,9 @@ import {
   type OwnerSnapshot,
 } from "@stella/contracts/turn-plane/owner-snapshot";
 import {
-  CONVEX_GATEWAY_SESSION_ADMISSION_PATH,
   OWNER_ENFORCEMENT_STATUSES,
   type BillingControlResult,
-  type ConvexSessionAdmissionResponse,
+  type ConvexOwnerEnforcementState,
   type ConvexSessionCapabilityRequest,
   type GatewayUsageEvent,
   type OwnerEnforcement,
@@ -83,6 +82,16 @@ import {
   type BillingAccess,
   type UsageBatchResult,
 } from "./owner-store/domains/billing.js";
+import {
+  abuseState,
+  admitSession,
+  chargeAnonymousNetworks,
+  enforcementForSnapshot,
+  readEnforcement,
+  recordGatewayUsageRisk,
+  setEnforcement,
+  type SetEnforcementInput,
+} from "./owner-store/domains/abuse.js";
 import { deleteTunnels, handleMobileRoute, snapshotDevices, type MobileRouteInput } from "./owner-store/domains/devices.js";
 import type { StripeEvent } from "./billing/stripe.js";
 import { BillingConfigError } from "./billing/plans.js";
@@ -1102,16 +1111,22 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
 
   /**
    * A session capability for a client runtime, asked for by the model
-   * gateway. Convex rules on abuse (step-up, sybil pressure, suspension, the
-   * anonymous request chunk); this ledger reserves the budget, and this
-   * Worker signs the capability.
+   * gateway. The abuse domain rules on admission (step-up, sybil pressure,
+   * suspension, the anonymous request chunk); this ledger reserves the
+   * budget, and this Worker signs the capability.
    */
   async issueSessionCapability(
     request: ConvexSessionCapabilityRequest,
   ): Promise<BillingControlResult<GatewaySessionCapabilityResponse>> {
     const now = Date.now();
     const paying = billingPaying(this.ownerStore().context(null, now));
-    const admission = await this.sessionAdmission({ ...request, paying });
+    let snapshot: OwnerSnapshot;
+    try {
+      snapshot = await this.snapshot({ now });
+    } catch {
+      return { ok: false, status: null, code: null, retryable: true };
+    }
+    const admission = await this.billingWrite((ctx) => admitSession(ctx, { ...request, paying, snapshot }));
     if (!admission.ok) return admission;
     const { ownerGeneration, isAnonymous, identityLevel, maxRequests } = admission.body;
     const jti = crypto.randomUUID();
@@ -1149,48 +1164,37 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     };
   }
 
-  private async sessionAdmission(
-    request: ConvexSessionCapabilityRequest & { paying: boolean },
-  ): Promise<BillingControlResult<ConvexSessionAdmissionResponse>> {
-    const base = convexSiteBase(this.env);
-    const secret = this.env.BUILDER_SERVICE_SECRET;
-    if (!base || !secret) return { ok: false, status: null, code: "internal", retryable: true };
-    let response: Response;
-    try {
-      response = await fetch(`${base}${CONVEX_GATEWAY_SESSION_ADMISSION_PATH}`, {
-        method: "POST",
-        headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
-        body: JSON.stringify({ ...request, ownerId: this.ownerId() }),
-        signal: AbortSignal.timeout(OWNER_GATE_SNAPSHOT_TIMEOUT_MS * 3),
-      });
-    } catch {
-      return { ok: false, status: null, code: null, retryable: true };
-    }
-    const body = (await response.json().catch(() => null)) as
-      | (ConvexSessionAdmissionResponse & { error?: { code?: string } | string })
-      | null;
-    if (response.ok && body && typeof body.ownerGeneration === "string") return { ok: true, body };
-    const rawCode = typeof body?.error === "string" ? body.error : body?.error?.code;
-    const code =
-      rawCode === "challenge_required" ||
-      rawCode === "sign_in_required" ||
-      rawCode === "owner_suspended" ||
-      rawCode === "rate_limited"
-        ? rawCode
-        : null;
-    return {
-      ok: false,
-      status: response.status,
-      code,
-      retryable: response.status >= 500 || response.status === 429,
-    };
-  }
-
   /** The gateway's settled usage for this owner. */
   async applyGatewayUsage(events: GatewayUsageEvent[]): Promise<UsageBatchResult> {
-    const result = await this.billingWrite((ctx) => applyGatewayUsage(ctx, events));
-    await this.reportCharges(events.filter((event) => result.accepted.includes(event.requestId)));
+    const result = await this.billingWrite((ctx) => {
+      const settled = applyGatewayUsage(ctx, events);
+      const accepted = events.filter((event) => settled.accepted.includes(event.requestId));
+      recordGatewayUsageRisk(ctx, accepted, billingAccess(ctx).identityLevel);
+      return settled;
+    });
+    const accepted = events.filter((event) => result.accepted.includes(event.requestId));
+    await chargeAnonymousNetworks(this.env as Cloudflare.Env, accepted, Date.now()).catch((error: unknown) => {
+      log("error", "anon_network_allowance_failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
+    await this.reportCharges(accepted);
     return result;
+  }
+
+  /** The owner's enforcement, for the model gateway's bootstrap read (`BillingControl`). */
+  async ownerEnforcement(): Promise<ConvexOwnerEnforcementState> {
+    return readEnforcement(this.ownerStore().context(null));
+  }
+
+  /** Set the owner's enforcement (admin). Pushes it to the model gateway. */
+  async setOwnerEnforcement(input: SetEnforcementInput): Promise<ConvexOwnerEnforcementState> {
+    return await this.billingWrite((ctx) => setEnforcement(ctx, input));
+  }
+
+  /** Enforcement, risk score and risk windows (admin lookup). */
+  async abuseState(): Promise<ReturnType<typeof abuseState>> {
+    return abuseState(this.ownerStore().context(null));
   }
 
   /**
@@ -1658,7 +1662,10 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     const store = this.ownerStore();
     const ctx = store.context(null, now);
     try {
-      const owned = { ...control, ...snapshotDevices(ctx.db) };
+      // Enforcement lives in the abuse domain, not the control snapshot.
+      const enforcement = enforcementForSnapshot(ctx);
+      const { enforcement: _controlEnforcement, ...rest } = control;
+      const owned = { ...rest, ...(enforcement ? { enforcement } : {}), ...snapshotDevices(ctx.db) };
       let billing: ReturnType<typeof turnAllowance>;
       try {
         recordBillingIdentity(ctx, {

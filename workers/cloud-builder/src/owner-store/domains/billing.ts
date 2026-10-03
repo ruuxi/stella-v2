@@ -45,7 +45,6 @@ const CREDIT_MAX_CENTS = 50_000;
 const CREDIT_PRESET_CENTS = [500, 1_000, 2_500, 5_000];
 const ANON_RESET_AFTER_INACTIVITY_DAYS = 30;
 const STRIPE_RATE_LIMIT = { count: 10, windowMs: 60_000 };
-export const PLAN_REPORT_JOB = "billing.reportPlan";
 
 export const BILLING_MIGRATION = {
   id: "billing.1-ledger",
@@ -536,7 +535,6 @@ export const applyGatewayUsage = (ctx: OwnerContext, events: GatewayUsageEvent[]
     if (event.billable && event.outcome !== "failed") charge(ctx, charged);
     result.accepted.push(event.requestId);
   }
-  schedulePlanReport(ctx);
   return result;
 };
 
@@ -552,48 +550,7 @@ export const recordUsage = (
     charge(ctx, record.costMicroCents);
     recorded += 1;
   }
-  schedulePlanReport(ctx);
   return { recorded, duplicate: records.length - recorded };
-};
-
-// ── Plan report for Convex ─────────────────────────────────────────────────
-
-/**
- * Convex still enforces a few plan quotas (drive, schedules, daily caps) and
- * its identity ladder needs to know who pays, so the ledger reports the
- * plan, the paying bit and unlimited usage whenever one changes. Goes when
- * those move.
- */
-const reportedPlan = (row: AccountRow) =>
-  `${plan(row)}:${isPaying(row) ? 1 : 0}:${row.usage_mode === "unlimited" ? 1 : 0}`;
-
-const schedulePlanReport = (ctx: OwnerContext): void => {
-  const row = readAccount(ctx.db, ctx.now);
-  const current = reportedPlan(row);
-  if (row.reported_plan === current) return;
-  ctx.jobs.schedule(PLAN_REPORT_JOB, ctx.now, { report: current }, { id: PLAN_REPORT_JOB });
-};
-
-const reportPlan = async (ctx: OwnerContext): Promise<void> => {
-  const row = ensureAccount(ctx.db, ctx.now);
-  const current = reportedPlan(row);
-  if (row.reported_plan === current) return;
-  const base = ctx.env.STELLA_CONVEX_SITE_URL?.replace(/\/+$/, "");
-  const secret = ctx.env.BUILDER_SERVICE_SECRET;
-  if (!base || !secret) return;
-  const response = await fetch(`${base}/api/billing/owner-plan`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
-    body: JSON.stringify({
-      ownerId: ctx.ownerId,
-      plan: plan(row),
-      paying: isPaying(row),
-      unlimited: row.usage_mode === "unlimited",
-    }),
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (!response.ok) throw new Error(`Convex plan report returned ${response.status}.`);
-  updateAccount(ctx.db, { reported_plan: current });
 };
 
 // ── Admin ──────────────────────────────────────────────────────────────────
@@ -620,7 +577,6 @@ export const setAdminPlan = (
       : {}),
     updated_at: ctx.now,
   });
-  schedulePlanReport(ctx);
 };
 
 const resetWindows = (now: number, anchor: number): Partial<AccountRow> => ({
@@ -946,7 +902,6 @@ export const applyStripeEvent = async (ctx: OwnerContext, event: StripeEvent): P
   }
   ctx.db.run("INSERT INTO billing_stripe_events (id, created_at) VALUES (?, ?)", event.id, ctx.now);
   ctx.db.run("DELETE FROM billing_stripe_events WHERE created_at < ?", ctx.now - RECEIPT_RETENTION_MS);
-  schedulePlanReport(ctx);
 };
 
 /** Cancel the subscription and delete the Stripe customer (account deletion). */
@@ -1056,9 +1011,6 @@ export const billingDomain = {
       parse: empty(),
       read: (ctx) => status(ctx),
     },
-  },
-  jobs: {
-    [PLAN_REPORT_JOB]: { run: reportPlan, maxAttempts: 50 },
   },
 } satisfies OwnerDomain;
 

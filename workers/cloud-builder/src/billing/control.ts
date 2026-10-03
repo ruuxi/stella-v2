@@ -2,6 +2,7 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import type {
   BillingControlResult,
   BillingControlRpc,
+  ConvexOwnerEnforcementState,
   ConvexSessionCapabilityRequest,
   GatewayConfigSnapshot,
   GatewayUsageBatch,
@@ -77,6 +78,14 @@ export class BillingControl extends WorkerEntrypoint<Env> implements BillingCont
       ],
       updatedAt: updatedAt || Date.now(),
     };
+  }
+
+  /** One owner's enforcement, from its abuse domain. Seeds the gateway's owner object. */
+  async ownerEnforcement(ownerId: string): Promise<ConvexOwnerEnforcementState> {
+    if (typeof ownerId !== "string" || !ownerId || ownerId.length > 512) {
+      throw new Error("The owner id is invalid.");
+    }
+    return await this.env.OWNER_GATES.getByName(ownerId).ownerEnforcement();
   }
 
   /** Settle a batch. Throws when any owner's share should be redelivered. */

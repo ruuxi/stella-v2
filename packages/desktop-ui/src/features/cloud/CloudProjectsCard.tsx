@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { useConvexAuth } from "convex/react";
+import { useAuthState } from "@/global/auth/BackendAuthProvider";
 import { Button } from "@/ui/button";
 import { showToast } from "@/ui/toast";
 import { CloudBoundary } from "./CloudBoundary";
@@ -220,7 +220,7 @@ function CloudProjectsCardImpl() {
 }
 
 export function CloudProjectsCard() {
-  const { isAuthenticated } = useConvexAuth();
+  const { isAuthenticated } = useAuthState();
   if (!isAuthenticated) return null;
   return (
     <CloudBoundary>

@@ -12,7 +12,7 @@ vi.mock("@/platform/interior/interior-bridge", () => ({
   getStellaInteriorBridge: mocks.bridge,
 }));
 vi.mock("@/global/auth/lib/auth-client", () => ({
-  authClient: { convex: { token: mocks.browserToken } },
+  authClient: { token: mocks.browserToken },
 }));
 vi.mock("@/platform/electron/device", () => ({
   configurePiRuntime: mocks.configurePiRuntime,
@@ -37,16 +37,12 @@ describe("interior scoped auth token", () => {
     });
     const mod = await import("@/global/auth/services/auth-token");
 
-    await expect(mod.getConvexToken({ forceRefresh: true })).resolves.toBe(
+    await expect(mod.getAuthToken({ forceRefresh: true })).resolves.toBe(
       "opaque-interior-scope-token",
     );
-    await expect(
-      mod.getConvexTokenForIdentity(
-        "https://convex.example.test|viewer-1",
-        false,
-        { identityRevision: 1 },
-      ),
-    ).resolves.toBe("opaque-interior-scope-token");
+    await expect(mod.getAuthTokenForSubject("viewer-1")).resolves.toBe(
+      "opaque-interior-scope-token",
+    );
     expect(getToken).toHaveBeenCalledWith({ forceRefresh: true });
     expect(mocks.browserToken).not.toHaveBeenCalled();
     expect(mocks.configurePiRuntime).not.toHaveBeenCalled();

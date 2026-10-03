@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useConvexAuth } from "convex/react";
+import { useAuthState } from "@/global/auth/BackendAuthProvider";
 import { Button } from "@/ui/button";
 import {
   Dialog,
@@ -113,6 +113,6 @@ function CloudBrowserDataCardImpl() {
 }
 
 export function CloudBrowserDataCard() {
-  const { isAuthenticated } = useConvexAuth();
+  const { isAuthenticated } = useAuthState();
   return isAuthenticated ? <CloudBrowserDataCardImpl /> : null;
 }

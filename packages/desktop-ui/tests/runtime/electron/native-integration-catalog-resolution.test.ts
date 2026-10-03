@@ -55,7 +55,7 @@ describe("desktop native integration catalog resolution", () => {
     await writeCachedServerCatalog(root, [backendEntry("outlook", "Outlook")]);
 
     const resolved = await resolveDesktopNativeConnectorEntry(
-      { getConvexSiteUrl: () => null, getConvexAuthToken: async () => null },
+      { getBackendUrl: () => null, getAuthToken: async () => null },
       root,
       "outlook",
     );

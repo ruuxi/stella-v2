@@ -23,14 +23,14 @@ import { STELLA_DEFAULT_MODEL } from "../../../src/shared/stella-api.js";
 
 const mocks = vi.hoisted(() => ({
   query: vi.fn(),
-  getConvexToken: vi.fn(),
+  getAuthToken: vi.fn(),
 }));
 
 vi.mock("@/platform/backend/stella-models", () => ({
   fetchStellaModels: async () => ({ gateway: await mocks.query() }),
 }));
 vi.mock("@/global/auth/services/auth-token", () => ({
-  getConvexToken: mocks.getConvexToken,
+  getAuthToken: mocks.getAuthToken,
 }));
 
 const GATEWAY_ORIGIN = "https://gateway.example";
@@ -132,7 +132,7 @@ describe("Stella LLM helper", () => {
   beforeEach(() => {
     vi.resetModules();
     mocks.query.mockReset().mockResolvedValue({ origin: `${GATEWAY_ORIGIN}/` });
-    mocks.getConvexToken.mockReset().mockResolvedValue(JWT);
+    mocks.getAuthToken.mockReset().mockResolvedValue(JWT);
     globalThis.fetch = originalFetch;
     vi.stubGlobal("window", {
       electronAPI: { system: { signDevice: deviceKey.signDevice } },
@@ -442,7 +442,7 @@ describe("Stella LLM helper", () => {
 
   it("requires a signed-in session before exchanging a capability", async () => {
     const gateway = installGateway([]);
-    mocks.getConvexToken.mockResolvedValue(null);
+    mocks.getAuthToken.mockResolvedValue(null);
     const { callStellaLlmText } = await loadLlm();
 
     await expect(callStellaLlmText("x")).rejects.toThrow(/sign in/i);

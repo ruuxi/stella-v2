@@ -7,12 +7,12 @@ import {
 } from "@stella/contracts/gateway/dpop";
 
 const mocks = vi.hoisted(() => ({
-  getConvexToken: vi.fn(),
+  getAuthToken: vi.fn(),
   getChallengeToken: vi.fn(),
 }));
 
 vi.mock("@/global/auth/services/auth-token", () => ({
-  getConvexToken: mocks.getConvexToken,
+  getAuthToken: mocks.getAuthToken,
 }));
 
 vi.mock("@/platform/auth/challenge-token", () => ({
@@ -20,7 +20,7 @@ vi.mock("@/platform/auth/challenge-token", () => ({
 }));
 
 const ISSUER = "https://issuer.example.test";
-const OWNER_ID = `${ISSUER}|user-1`;
+const OWNER_ID = "user-1";
 const AUTH_JWT = `header.${Buffer.from(
   JSON.stringify({ iss: ISSUER, sub: "user-1" }),
 ).toString("base64url")}.signature`;
@@ -29,7 +29,7 @@ describe("renderer gateway session challenge", () => {
   beforeEach(async () => {
     vi.resetModules();
     vi.resetAllMocks();
-    mocks.getConvexToken.mockResolvedValue(AUTH_JWT);
+    mocks.getAuthToken.mockResolvedValue(AUTH_JWT);
     mocks.getChallengeToken.mockResolvedValue("turnstile-token");
     const generated = await generateDpopKeyPair();
     if (generated.alg !== "ed25519") {

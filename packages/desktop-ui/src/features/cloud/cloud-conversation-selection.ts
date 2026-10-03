@@ -48,11 +48,9 @@ const pendingCreatedConversations = new Map<
 >();
 
 /**
- * Convex returns the immutable owner id with every conversation summary.
- * Compare it to Convex's canonical `${issuer}|${subject}` owner identity.
- * `accountScope` deliberately contains only the Better Auth user id and is a
- * local cache namespace; treating it as a Convex owner id filters every real
- * server row out after authentication.
+ * The backend returns the immutable owner id (the Better Auth user id, the
+ * JWT's `sub`) with every conversation summary. Compare it to the session's
+ * owner subject. `accountScope` is a local cache namespace, not an owner id.
  */
 export const cloudConversationBelongsToOwnerSubject = (
   conversation: Pick<CloudConversation, "ownerId">,

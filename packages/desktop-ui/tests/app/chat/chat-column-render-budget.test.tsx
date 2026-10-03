@@ -2,9 +2,9 @@
 import { countRenders } from "../../helpers/react-render-counter";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("convex/react", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("convex/react")>()),
-  useConvexAuth: () => ({ isAuthenticated: false, isLoading: false }),
+vi.mock("@/global/auth/BackendAuthProvider", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/global/auth/BackendAuthProvider")>()),
+  useAuthState: () => ({ isAuthenticated: false, isLoading: false }),
   useQuery: () => undefined,
   useMutation: () => async () => undefined,
   useAction: () => async () => undefined,

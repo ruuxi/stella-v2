@@ -192,47 +192,37 @@ function websiteLaunchHtml(): Plugin {
 }
 
 /**
- * Warm the connections the main window's boot path needs before any script
- * runs: the Convex sync socket (both shells) and, in the browser shell, the
- * Convex site origin it reads its session from (Electron main owns that
- * traffic on desktop). The entry chunk graph takes a few hundred milliseconds
- * to fetch and evaluate; DNS and TLS for these origins can finish meanwhile.
- * Session reads are credential-less CORS fetches, hence `crossorigin`.
+ * Warm the connection to the Stella backend worker before any script runs:
+ * backend calls, live views and (in the browser shell) Better Auth all go
+ * there. The entry chunk graph takes a few hundred milliseconds to fetch and
+ * evaluate; DNS and TLS for the origin can finish meanwhile. Backend fetches
+ * are credential-less CORS requests, hence `crossorigin`.
  */
-function convexPreconnectHints(): Plugin {
-  let origins: { href: string; crossorigin: boolean }[] = [];
-  const originOf = (value: string | undefined): string | null => {
-    try {
-      return value?.trim() ? new URL(value.trim()).origin : null;
-    } catch {
-      return null;
-    }
-  };
+function backendPreconnectHint(): Plugin {
+  let origin: string | null = null;
   return {
-    name: "convex-preconnect-hints",
+    name: "backend-preconnect-hint",
     configResolved(config) {
-      const cloud = originOf(config.env.VITE_CONVEX_URL);
-      const site = originOf(config.env.VITE_CONVEX_SITE_URL);
-      origins = [
-        ...(cloud ? [{ href: cloud, crossorigin: false }] : []),
-        ...(site && WEBSITE_BUILD ? [{ href: site, crossorigin: true }] : []),
-      ];
+      try {
+        const value = config.env.VITE_STELLA_BACKEND_URL?.trim();
+        origin = value ? new URL(value).origin : null;
+      } catch {
+        origin = null;
+      }
     },
     transformIndexHtml(html, ctx) {
-      if (origins.length === 0 || path.basename(ctx.filename) !== "index.html") {
+      if (!origin || path.basename(ctx.filename) !== "index.html") {
         return html;
       }
       return {
         html,
-        tags: origins.map(({ href, crossorigin }) => ({
-          tag: "link",
-          attrs: {
-            rel: "preconnect",
-            href,
-            ...(crossorigin ? { crossorigin: "anonymous" } : {}),
+        tags: [
+          {
+            tag: "link",
+            attrs: { rel: "preconnect", href: origin, crossorigin: "anonymous" },
+            injectTo: "head" as const,
           },
-          injectTo: "head" as const,
-        })),
+        ],
       };
     },
   };
@@ -307,10 +297,10 @@ const packageNameFromModuleId = (id: string): string | null => {
   return first;
 };
 
-// Packages left out of the per-package vendor chunks. `convex` stays with its
-// importers; the rest are only reached through lazy imports (PDF preview,
-// usage charts) and must not own shared modules the entry needs.
-const LAZY_ONLY_PACKAGES = new Set(["convex", "pdfjs-dist", "recharts"]);
+// Packages left out of the per-package vendor chunks. They are only reached
+// through lazy imports (PDF preview, usage charts) and must not own shared
+// modules the entry needs.
+const LAZY_ONLY_PACKAGES = new Set(["pdfjs-dist", "recharts"]);
 
 const packageChunkName = (packageName: string): string =>
   `vendor-${packageName.replace(/^@/, "").replace(/[^a-zA-Z0-9_-]+/g, "-")}`;
@@ -322,7 +312,7 @@ export default defineConfig({
     tailwindcss(),
     devCspRelax(),
     websiteLaunchHtml(),
-    convexPreconnectHints(),
+    backendPreconnectHint(),
     bunHttpServerCloseFix(),
     uiStateSharedStore(),
     pdfWorkerAsset(),
@@ -343,7 +333,6 @@ export default defineConfig({
       "motion",
       "@tanstack/react-router",
       "@tanstack/react-table",
-      "convex/react",
       "@legendapp/list/react",
       "zod",
       "@radix-ui/react-dialog",

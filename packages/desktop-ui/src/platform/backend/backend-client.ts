@@ -1,16 +1,8 @@
 import { BackendClient } from "@stella/contracts/backend/client";
-import { getConvexToken } from "@/global/auth/services/auth-token";
+import { getAuthToken } from "@/global/auth/services/auth-token";
+import { backendUrl } from "./backend-url";
 
-/**
- * The renderer's one connection to the Stella backend worker: calls over
- * HTTP and live views over a single socket. The URL is public build-time
- * config, like the Convex URL it replaces.
- */
-export const backendUrl = (
-  (import.meta.env.VITE_STELLA_BACKEND_URL as string | undefined) ?? ""
-)
-  .trim()
-  .replace(/\/+$/, "");
+export { backendUrl };
 
 if (!backendUrl) {
   console.warn(
@@ -21,10 +13,14 @@ if (!backendUrl) {
 /** `wss://` twin of `backendUrl`, for the conversation socket. */
 export const backendSocketUrl = backendUrl.replace(/^http/, "ws");
 
+/**
+ * The renderer's one connection to the Stella backend worker: calls over
+ * HTTP and live views over a single socket.
+ */
 export const backendClient = new BackendClient({
   baseUrl: backendUrl || "http://127.0.0.1:8787",
   getToken: (options) =>
-    getConvexToken(options?.force ? { forceRefresh: true } : {}),
+    getAuthToken(options?.force ? { forceRefresh: true } : {}),
 });
 
 let accountEpoch = 0;

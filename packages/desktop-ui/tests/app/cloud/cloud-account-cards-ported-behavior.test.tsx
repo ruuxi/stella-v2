@@ -37,9 +37,8 @@ const requiredHandler = (
   return handler;
 };
 
-vi.mock("convex/react", () => ({
-  ConvexReactClient: vi.fn(),
-  useConvexAuth: () => ({ isAuthenticated: mocks.authenticated }),
+vi.mock("@/global/auth/BackendAuthProvider", () => ({
+  useAuthState: () => ({ isAuthenticated: mocks.authenticated, isLoading: false }),
   useQuery: (ref: unknown, args: unknown) => {
     mocks.queryCalls.push({ ref, args });
     return args === "skip" ? undefined : mocks.queries.get(ref);

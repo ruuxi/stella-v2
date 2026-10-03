@@ -74,7 +74,7 @@ export type ConversationSocketOptions = {
   conversationId: string;
   /** Builder origin, e.g. `https://stella-v2-cloud-builder-dev…workers.dev`. */
   baseUrl: string;
-  /** Resolves the owner's Convex JWT. `forceRefresh` bypasses every cache. */
+  /** Resolves the owner's JWT. `forceRefresh` bypasses every cache. */
   getToken: (options?: { forceRefresh?: boolean }) => Promise<string | null>;
   onEvent: (event: ConversationSocketEvent) => void;
   /** Structurally validated SQLite replica head used for a delta resume. */

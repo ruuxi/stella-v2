@@ -50,7 +50,7 @@ vi.mock("@/global/auth/hooks/use-cloud-conversation-session", () => ({
     accountScope: "account:owner-a",
     identityRevision: 9,
     expectedSubject: "owner-a",
-    ownerSubject: "https://site.example|owner-a",
+    ownerSubject: "owner-a",
   }),
 }));
 
@@ -59,15 +59,11 @@ vi.mock("@/global/auth/services/auth-session", () => ({
 }));
 
 vi.mock("@/global/auth/services/auth-token", () => ({
-  getConvexTokenForSubject: mocks.getTokenForSubject,
+  getAuthTokenForSubject: mocks.getTokenForSubject,
 }));
 
 vi.mock("@/platform/backend/backend-client", () => ({
   backendUrl: "https://builder.example",
-}));
-
-vi.mock("@/shared/lib/convex-urls", () => ({
-  readConfiguredConvexSiteUrl: () => "https://site.example",
 }));
 
 vi.mock("@/features/cloud/cloud-home-memory-client", () => {
@@ -103,7 +99,7 @@ describe("useCloudHomeMemory", () => {
   };
 
   const lifecycle = {
-    subject: "https://site.example|owner-a",
+    subject: "owner-a",
     ownerGeneration: "generation-1",
     state: "open",
     memoryEpoch: "memory-epoch-1",
@@ -169,14 +165,14 @@ describe("useCloudHomeMemory", () => {
     expect(options.identity).toEqual({
       accountScope: "account:owner-a",
       identityRevision: 9,
-      expectedSubject: "https://site.example|owner-a",
+      expectedSubject: "owner-a",
     });
     expect(options.getCurrentIdentity()).toEqual(options.identity);
     await expect(
-      options.getTokenForSubject("https://site.example|owner-a"),
+      options.getTokenForSubject("owner-a"),
     ).resolves.toBe("signed-token");
     expect(mocks.getTokenForSubject).toHaveBeenCalledWith(
-      "https://site.example|owner-a",
+      "owner-a",
     );
   });
 
@@ -208,7 +204,7 @@ describe("useCloudHomeMemory", () => {
   it("keeps loading past a lifecycle echo for a different exact subject", async () => {
     mocks.lifecycle = {
       ...lifecycle,
-      subject: "https://site.example|owner-b",
+      subject: "owner-b",
     };
     await render();
 

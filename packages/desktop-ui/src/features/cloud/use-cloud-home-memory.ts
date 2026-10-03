@@ -9,8 +9,7 @@ import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conve
 import type { AuthSessionScopeData } from "@/global/auth/lib/auth-session-scope";
 import { resolveAuthSessionCacheScope } from "@/global/auth/lib/auth-session-scope";
 import { getAuthSessionSnapshot } from "@/global/auth/services/auth-session";
-import { getConvexTokenForSubject } from "@/global/auth/services/auth-token";
-import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
+import { getAuthTokenForSubject } from "@/global/auth/services/auth-token";
 import { backendUrl } from "@/platform/backend/backend-client";
 import { useBackendView } from "@/platform/backend/use-backend-view";
 import {
@@ -21,12 +20,8 @@ import {
 } from "./cloud-home-memory-client";
 import { decodeCloudMemoryWipeStatus } from "./cloud-memory-wipe";
 
-const tokenIssuer = readConfiguredConvexSiteUrl(
-  import.meta.env.VITE_CONVEX_SITE_URL as string | undefined,
-);
-
 const readOwnerToken = async (ownerSubject: string): Promise<string> => {
-  const token = await getConvexTokenForSubject(ownerSubject);
+  const token = await getAuthTokenForSubject(ownerSubject);
   if (!token) throw new CloudHomeMemoryError("unauthorized");
   return token;
 };
@@ -36,11 +31,11 @@ const identityFromCurrentSession = (): CloudHomeMemoryClientIdentity | null => {
   if (snapshot.isPending || !snapshot.data) return null;
   const data = snapshot.data as Exclude<AuthSessionScopeData, null | undefined>;
   const rawSubject = data.user?.id?.trim();
-  if (!tokenIssuer || !rawSubject) return null;
+  if (!rawSubject) return null;
   return Object.freeze({
     accountScope: resolveAuthSessionCacheScope(data),
     identityRevision: snapshot.identityRevision,
-    expectedSubject: `${tokenIssuer}|${rawSubject}`,
+    expectedSubject: rawSubject,
   });
 };
 

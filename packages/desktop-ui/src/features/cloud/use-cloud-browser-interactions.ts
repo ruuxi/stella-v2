@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useConvexAuth } from "convex/react";
+import { useAuthState } from "@/global/auth/BackendAuthProvider";
 import type {
   CloudBrowserInteractionDecision,
   CloudBrowserInteractionDetail,
@@ -19,7 +19,7 @@ const newRequestId = (): string =>
     : `browser-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
 export function usePendingCloudBrowserInteractions(): readonly CloudBrowserInteractionSummary[] {
-  const { isAuthenticated } = useConvexAuth();
+  const { isAuthenticated } = useAuthState();
   const { hasConnectedAccount } = useAuthSessionState();
   const interactions = useBackendValue(
     "browser.pending",
@@ -31,7 +31,7 @@ export function usePendingCloudBrowserInteractions(): readonly CloudBrowserInter
 export function useCloudBrowserInteraction(
   interactionId: string | null | undefined,
 ): CloudBrowserInteractionDetail | null | undefined {
-  const { isAuthenticated } = useConvexAuth();
+  const { isAuthenticated } = useAuthState();
   const pending = usePendingCloudBrowserInteractions();
   const revision = pending.find(
     (entry) => entry.interactionId === interactionId,

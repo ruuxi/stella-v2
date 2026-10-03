@@ -42,7 +42,7 @@ vi.mock("@/features/cloud/placement-client", async (importOriginal) => ({
 }));
 
 vi.mock("@/global/auth/services/auth-token", () => ({
-  getConvexToken: async () => "jwt-account",
+  getAuthToken: async () => "jwt-account",
 }));
 
 vi.mock("@/global/auth/hooks/use-cloud-conversation-session", () => ({

@@ -51,7 +51,7 @@ const makeService = (root: string, withSiteAuth = false) => {
   };
   const service = new ConnectorConnectService({
     getStellaAppDir: () => root,
-    getConvexAuthToken: async () => (withSiteAuth ? "site-token" : null),
+    getAuthToken: async () => (withSiteAuth ? "site-token" : null),
     getBackendUrl: () => (withSiteAuth ? "https://stella.test" : null),
     windowManagerTarget: { getWindowManager: () => null } as never,
     connectorCredentialService: credentialService as never,

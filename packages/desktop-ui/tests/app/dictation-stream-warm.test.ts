@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/global/auth/services/auth-token", () => ({
-  getConvexToken: async () => "jwt-fixture",
+  getAuthToken: async () => "jwt-fixture",
 }));
 vi.mock("@/platform/backend/backend-client", () => ({
   backendClient: {

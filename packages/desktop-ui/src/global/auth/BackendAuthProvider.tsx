@@ -10,12 +10,8 @@ import {
   useRef,
   useState,
 } from "react";
-import { ConvexProviderWithAuth } from "convex/react";
 import { MagicLinkAuthProvider } from "@/global/auth/useMagicLinkAuth";
-import {
-  clearCachedToken,
-  getConvexTokenForIdentity,
-} from "@/global/auth/services/auth-token";
+import { clearCachedToken } from "@/global/auth/services/auth-token";
 import {
   getAuthSessionSnapshot,
   refreshAuthSession,
@@ -23,21 +19,8 @@ import {
   useDesktopAuthSession,
   waitForBrowserAuthHandoff,
 } from "@/global/auth/services/auth-session";
-import { convexClient } from "@/platform/convex/convex-client";
-import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
 import { SIGN_IN_TOAST_ACTION } from "@/shared/lib/auth-cta";
 import { showToast } from "@/ui/toast";
-
-const CONVEX_TOKEN_ISSUER = readConfiguredConvexSiteUrl(
-  import.meta.env.VITE_CONVEX_SITE_URL as string | undefined,
-);
-
-const expectedConvexTokenSubject = (userId: string | null): string | null => {
-  const subject = userId?.trim();
-  return CONVEX_TOKEN_ISSUER && subject
-    ? `${CONVEX_TOKEN_ISSUER}|${subject}`
-    : null;
-};
 
 export type AuthBootstrapStatus =
   | "loading_session"
@@ -68,81 +51,20 @@ export function useAuthBootstrapState() {
 }
 
 /**
- * `useAuth` hook for `ConvexProviderWithAuth`. Exported so secondary
- * windows can wire Convex auth without
- * the full `DesktopConvexAuthProvider` bootstrap chain (anonymous-session
- * creation, magic-link layer, runtime token sync). Those side effects
- * only belong in the primary shell window.
+ * Whether the renderer holds a verified session identity. Backend calls
+ * authenticate with the owner JWT minted from that session, so this is the
+ * gate for every account-bound view.
  */
-export function useDesktopConvexAuth() {
+export function useAuthState() {
   const session = useDesktopAuthSession();
-
   const sessionUserId =
     (session.data as { user?: { id?: string } } | null | undefined)?.user?.id ??
     null;
-  const sessionIsAnonymous =
-    (
-      session.data as
-        | { user?: { isAnonymous?: boolean | null } }
-        | null
-        | undefined
-    )?.user?.isAnonymous === true;
-  const expectedTokenSubject = expectedConvexTokenSubject(sessionUserId);
-  const identityRevision = session.identityRevision;
-  const tokenIdentityKey = expectedTokenSubject
-    ? [
-        expectedTokenSubject,
-        sessionIsAnonymous ? "anonymous" : "connected",
-        String(identityRevision),
-      ].join("\u0000")
-    : null;
-  const activeTokenIdentityKeyRef = useRef(tokenIdentityKey);
-  activeTokenIdentityKeyRef.current = tokenIdentityKey;
-  const hasValidSessionIdentity = Boolean(
-    session.data && sessionUserId?.trim(),
-  );
-
-  const fetchAccessToken = useCallback(
-    async ({
-      forceRefreshToken = false,
-    }: { forceRefreshToken?: boolean } = {}) => {
-      if (
-        !expectedTokenSubject ||
-        !tokenIdentityKey ||
-        activeTokenIdentityKeyRef.current !== tokenIdentityKey
-      ) {
-        return null;
-      }
-      const token = await getConvexTokenForIdentity(
-        expectedTokenSubject,
-        sessionIsAnonymous,
-        {
-          forceRefresh: forceRefreshToken,
-          identityRevision,
-        },
-      );
-      return activeTokenIdentityKeyRef.current === tokenIdentityKey
-        ? token
-        : null;
-    },
-    // Intentionally keyed on the full session identity so
-    // ConvexProviderWithAuth re-calls setAuth when the signed-in identity
-    // changes, including anonymous → real account links that preserve user.id.
-    [
-      expectedTokenSubject,
-      identityRevision,
-      sessionIsAnonymous,
-      tokenIdentityKey,
-    ],
-  );
-
+  const isAuthenticated = Boolean(session.data && sessionUserId?.trim());
+  const isLoading = Boolean(session.isPending);
   return useMemo(
-    () => ({
-      isLoading: Boolean(session.isPending),
-      isAuthenticated: hasValidSessionIdentity,
-      fetchAccessToken,
-    }),
-    [fetchAccessToken, hasValidSessionIdentity, session.isPending],
+    () => ({ isLoading, isAuthenticated }),
+    [isAuthenticated, isLoading],
   );
 }
 
@@ -204,9 +126,9 @@ function DesktopAuthRuntimeEffects({
         }
         attemptedAnonAuthRef.current = false;
         // A verified session identity is the whole barrier now. Electron main
-        // owns Convex token minting and refresh, and a browser shell mints
-        // through `ConvexProviderWithAuth`; neither needs the renderer to
-        // hand a token anywhere before the shell may open.
+        // owns token minting and refresh, and a browser shell mints through
+        // Better Auth's JWT plugin; neither needs the renderer to hand a token
+        // anywhere before the shell may open.
         setAuthBootstrapState({ status: "ready", error: null });
         return;
       }
@@ -260,7 +182,7 @@ function DesktopAuthRuntimeEffects({
   }, [chatStorageMode]);
 
   // Main pushes this when a background retry reaches a new verdict. Drop the
-  // cached Convex JWT and re-read the snapshot so the shell converges without
+  // cached owner JWT and re-read the snapshot so the shell converges without
   // interpreting the notification itself as a sign-out.
   useEffect(() => {
     const systemApi = window.electronAPI?.system;
@@ -277,7 +199,7 @@ function DesktopAuthRuntimeEffects({
   return null;
 }
 
-export function DesktopConvexAuthProvider({
+export function BackendAuthProvider({
   children,
   enableRuntimeEffects = true,
 }: {
@@ -315,22 +237,17 @@ export function DesktopConvexAuthProvider({
   );
 
   return (
-    <ConvexProviderWithAuth
-      client={convexClient}
-      useAuth={useDesktopConvexAuth}
-    >
-      <AuthBootstrapContext.Provider value={authBootstrapValue}>
-        <MagicLinkAuthProvider>
-          {enableRuntimeEffects ? (
-            <DesktopAuthRuntimeEffects
-              retryAttempt={retryAttempt}
-              scheduleRetry={scheduleRetry}
-              setAuthBootstrapState={setAuthBootstrapState}
-            />
-          ) : null}
-          {children}
-        </MagicLinkAuthProvider>
-      </AuthBootstrapContext.Provider>
-    </ConvexProviderWithAuth>
+    <AuthBootstrapContext.Provider value={authBootstrapValue}>
+      <MagicLinkAuthProvider>
+        {enableRuntimeEffects ? (
+          <DesktopAuthRuntimeEffects
+            retryAttempt={retryAttempt}
+            scheduleRetry={scheduleRetry}
+            setAuthBootstrapState={setAuthBootstrapState}
+          />
+        ) : null}
+        {children}
+      </MagicLinkAuthProvider>
+    </AuthBootstrapContext.Provider>
   );
 }

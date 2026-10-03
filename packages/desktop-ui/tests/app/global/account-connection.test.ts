@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   writeBrowserSessionToken: vi.fn(),
-  getConvexToken: vi.fn(),
+  getAuthToken: vi.fn(),
   getAuthSessionSnapshot: vi.fn(),
   refreshAuthSession: vi.fn(),
   socialSignIn: vi.fn(),
@@ -29,11 +29,12 @@ vi.mock("@/global/auth/services/auth-storage", () => ({
 }));
 
 vi.mock("@/global/auth/services/auth-token", () => ({
-  getConvexToken: mocks.getConvexToken,
+  getAuthToken: mocks.getAuthToken,
 }));
 
-vi.mock("@/shared/lib/convex-urls", () => ({
-  readConfiguredConvexSiteUrl: () => "https://auth.example",
+vi.mock("@/platform/backend/backend-url", () => ({
+  backendUrl: "https://auth.example",
+  requireBackendUrl: () => "https://auth.example",
 }));
 
 import {
@@ -61,7 +62,7 @@ describe("account connection renderer boundaries", () => {
       "/cloud?access_token=must-not-copy#ott=must-not-copy",
     );
     mocks.socialSignIn.mockResolvedValue({ data: null, error: null });
-    mocks.getConvexToken.mockResolvedValue("current-owner.jwt");
+    mocks.getAuthToken.mockResolvedValue("current-owner.jwt");
     mocks.fetch.mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -140,7 +141,7 @@ describe("account connection renderer boundaries", () => {
   });
 
   it("binds browser magic-link sends to a freshly minted anonymous-owner JWT", async () => {
-    mocks.getConvexToken.mockResolvedValue("current-owner.jwt");
+    mocks.getAuthToken.mockResolvedValue("current-owner.jwt");
 
     await expect(
       buildMagicLinkSendRequest("owner@example.com", "turnstile-token"),
@@ -155,11 +156,11 @@ describe("account connection renderer boundaries", () => {
         requireAnonymousOwner: true,
       },
     });
-    expect(mocks.getConvexToken).toHaveBeenCalledWith({ forceRefresh: true });
+    expect(mocks.getAuthToken).toHaveBeenCalledWith({ forceRefresh: true });
   });
 
   it("fails closed before a browser magic-link send when owner proof is unavailable", async () => {
-    mocks.getConvexToken.mockResolvedValue(null);
+    mocks.getAuthToken.mockResolvedValue(null);
 
     await expect(
       buildMagicLinkSendRequest("owner@example.com"),
@@ -181,7 +182,7 @@ describe("account connection renderer boundaries", () => {
         requireAnonymousOwner: true,
       },
     });
-    expect(mocks.getConvexToken).toHaveBeenCalledWith({ forceRefresh: true });
+    expect(mocks.getAuthToken).toHaveBeenCalledWith({ forceRefresh: true });
   });
 
   it("stores a browser bearer and accepts it only after a connected owner revalidates", async () => {

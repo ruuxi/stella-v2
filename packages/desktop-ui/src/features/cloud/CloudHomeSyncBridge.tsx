@@ -6,7 +6,7 @@ import {
 } from "react";
 import type { CloudSkillHead } from "@stella/contracts/cloud-home-sync";
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
-import { getConvexTokenForSubject } from "@/global/auth/services/auth-token";
+import { getAuthTokenForSubject } from "@/global/auth/services/auth-token";
 import { backendClient, backendUrl } from "@/platform/backend/backend-client";
 import { uiState } from "@/platform/ui-state";
 import {
@@ -128,7 +128,7 @@ export function CloudHomeSyncBridge() {
     const identityAtStart = identityKey;
     void (async () => {
       const token = ownerSubject
-        ? await getConvexTokenForSubject(ownerSubject)
+        ? await getAuthTokenForSubject(ownerSubject)
         : null;
       if (
         controller.signal.aborted ||

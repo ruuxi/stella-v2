@@ -23,7 +23,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
-import { getConvexToken } from "@/global/auth/services/auth-token";
+import { getAuthToken } from "@/global/auth/services/auth-token";
 import { backendSocketUrl } from "@/platform/backend/backend-client";
 import { useCloudEngines } from "./cloud-engines-api";
 import { markCloudConversationCreated } from "./cloud-conversation-selection";
@@ -436,7 +436,7 @@ export const useConversation = (
             socketOrigin,
             conversationId: targetConversationId,
             request: cloudTurnStartRequest(clientMsgId, submission, entry.text),
-            getToken: (options) => getConvexToken(options ?? {}),
+            getToken: (options) => getAuthToken(options ?? {}),
           });
           if (!isCurrentAuthority()) return;
           // Route validation must accept the client-minted id before Convex
@@ -506,7 +506,7 @@ export const useConversation = (
               result: await submitDispatch({
                 socketOrigin: placementOrigin,
                 request: submitArgs,
-                getToken: (options) => getConvexToken(options ?? {}),
+                getToken: (options) => getAuthToken(options ?? {}),
               }),
             };
           } catch (error) {
@@ -548,7 +548,7 @@ export const useConversation = (
         if (current?.cancelRequested) {
           const canceled = await cancelDispatch({
             socketOrigin: placementOrigin,
-            getToken: (options) => getConvexToken(options ?? {}),
+            getToken: (options) => getAuthToken(options ?? {}),
             ...browserExecutionCancelArgs(result.dispatchId),
           });
           if (!isCurrentAuthority()) return;
@@ -569,7 +569,7 @@ export const useConversation = (
             getDispatchStatus({
               socketOrigin: placementOrigin,
               dispatchId,
-              getToken: (options) => getConvexToken(options ?? {}),
+              getToken: (options) => getAuthToken(options ?? {}),
             }),
           isCurrentAccount: isCurrentAuthority,
         });
@@ -758,7 +758,7 @@ export const useConversation = (
       try {
         const canceled = await cancelDispatch({
           socketOrigin: placementOrigin,
-          getToken: (options) => getConvexToken(options ?? {}),
+          getToken: (options) => getAuthToken(options ?? {}),
           ...browserExecutionCancelArgs(entry.dispatchId),
         });
         if (canceled.state === "canceled") {
@@ -795,7 +795,7 @@ export const useConversation = (
         try {
           await cancelDispatch({
             socketOrigin: placementOrigin,
-            getToken: (options) => getConvexToken(options ?? {}),
+            getToken: (options) => getAuthToken(options ?? {}),
             ...browserExecutionCancelArgs(dispatchId),
           });
           return true;

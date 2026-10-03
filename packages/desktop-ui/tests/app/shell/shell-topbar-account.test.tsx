@@ -51,14 +51,6 @@ vi.mock("@/global/auth/hooks/use-nickname", () => ({
   useNickname: () => ({ nickname: "anon" }),
 }));
 
-vi.mock("@/shared/lib/use-convex-one-shot", () => ({
-  usePersistentConvexOneShot: () => ({ plan: "pro", plans: {} }),
-}));
-
-vi.mock("@/convex/api", () => ({
-  api: { billing: { getSubscriptionStatus: {} } },
-}));
-
 vi.mock("@/global/auth/services/auth", () => ({
   secureSignOut: vi.fn(),
 }));

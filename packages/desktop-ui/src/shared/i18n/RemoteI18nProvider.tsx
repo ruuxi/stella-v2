@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { useAuthBootstrapState } from "@/global/auth/DesktopConvexAuthProvider";
+import { useAuthBootstrapState } from "@/global/auth/BackendAuthProvider";
 import { backendClient } from "@/platform/backend/backend-client";
 import { useBackendValue } from "@/platform/backend/use-backend-view";
 import {

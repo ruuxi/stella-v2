@@ -1,4 +1,4 @@
-import { getConvexToken } from "@/global/auth/services/auth-token";
+import { getAuthToken } from "@/global/auth/services/auth-token";
 import { getStellaInteriorBridge } from "@/platform/interior/interior-bridge";
 import { backendClient } from "@/platform/backend/backend-client";
 
@@ -45,7 +45,7 @@ export const loadDictationRealtimeConfig = (): Promise<RealtimeConfig> => {
  * so calling this on hover, focus, or mount is cheap.
  */
 export const prewarmDictation = (): void => {
-  void Promise.all([loadDictationRealtimeConfig(), getConvexToken()]).catch(
+  void Promise.all([loadDictationRealtimeConfig(), getAuthToken()]).catch(
     () => undefined,
   );
 };
@@ -63,7 +63,7 @@ export const prewarmDictationSocket = (): void => {
 const connectRelay = async (): Promise<WebSocket> => {
   const [config, token] = await Promise.all([
     loadDictationRealtimeConfig(),
-    getConvexToken(),
+    getAuthToken(),
   ]);
   if (!token) throw new Error("Sign in to Stella to use dictation.");
   const base = getStellaInteriorBridge()?.gatewayOrigin ?? config.relayOrigin;

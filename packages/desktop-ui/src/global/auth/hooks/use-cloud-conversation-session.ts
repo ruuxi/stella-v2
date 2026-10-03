@@ -1,9 +1,7 @@
 import { useEffect } from "react";
-import { useConvexAuth } from "convex/react";
-import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
 import { setBackendAccount } from "@/platform/backend/backend-client";
 import { useOwnerIdentity } from "@/platform/backend/use-owner-identity";
-import { useAuthBootstrapState } from "../DesktopConvexAuthProvider";
+import { useAuthBootstrapState, useAuthState } from "../BackendAuthProvider";
 import {
   resolveCloudConversationSession,
   type CloudConversationSessionGate,
@@ -24,21 +22,18 @@ import { reportCloudReadiness } from "@/features/cloud/cloud-readiness-timing";
  * that is the account the renderer expects.
  */
 export function useCloudConversationSession() {
-  const convex = useConvexAuth();
+  const auth = useAuthState();
   const session = useAuthSessionState();
   const authBootstrap = useAuthBootstrapState();
   const expectedSubject = session.user?.id?.trim() || null;
-  const tokenIssuer = readConfiguredConvexSiteUrl(
-    import.meta.env.VITE_CONVEX_SITE_URL as string | undefined,
-  );
-  const ownerSubject =
-    tokenIssuer && expectedSubject ? `${tokenIssuer}|${expectedSubject}` : null;
+  // The backend's owner id is the Better Auth user id (the JWT's `sub`).
+  const ownerSubject = expectedSubject;
   const shouldConfirmIdentity = Boolean(
     authBootstrap.status === "ready" &&
       !session.isLoading &&
       session.hasSession &&
       expectedSubject &&
-      convex.isAuthenticated,
+      auth.isAuthenticated,
   );
   const accountKey =
     shouldConfirmIdentity && ownerSubject
@@ -54,8 +49,8 @@ export function useCloudConversationSession() {
   const sessionGate: CloudConversationSessionGate = {
     hasSession: session.hasSession,
     sessionIsLoading: session.isLoading,
-    convexIsAuthenticated: convex.isAuthenticated,
-    convexIsLoading: convex.isLoading,
+    authIsAuthenticated: auth.isAuthenticated,
+    authIsLoading: auth.isLoading,
     hasExpectedSubject: Boolean(expectedSubject),
     authBootstrapReady: authBootstrap.status === "ready",
     authBootstrapFailed: authBootstrap.status === "failed",
@@ -74,8 +69,8 @@ export function useCloudConversationSession() {
     if (!session.isLoading && session.hasSession) {
       reportCloudReadiness("cloud.session-ready", { outcome: "success" });
     }
-    if (!convex.isLoading && convex.isAuthenticated) {
-      reportCloudReadiness("cloud.convex-auth-ready", { outcome: "success" });
+    if (!auth.isLoading && auth.isAuthenticated) {
+      reportCloudReadiness("cloud.auth-ready", { outcome: "success" });
     }
     if (identityConfirmed) {
       reportCloudReadiness("cloud.identity-confirmed", { outcome: "success" });
@@ -85,8 +80,8 @@ export function useCloudConversationSession() {
     }
   }, [
     authBootstrap.status,
-    convex.isAuthenticated,
-    convex.isLoading,
+    auth.isAuthenticated,
+    auth.isLoading,
     identityConfirmed,
     mode.isCloudConversationReady,
     session.hasSession,

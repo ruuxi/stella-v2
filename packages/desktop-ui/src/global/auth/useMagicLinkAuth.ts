@@ -19,7 +19,7 @@ import {
   generateClaimSecret,
   hashClaimSecret,
 } from "@/global/auth/lib/claim-secret";
-import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
+import { requireBackendUrl } from "@/platform/backend/backend-url";
 import { useT, useTPlural } from "@/shared/i18n";
 import { getPlatformChallengeToken } from "@/platform/auth/challenge-token";
 
@@ -86,16 +86,6 @@ type MagicLinkAuthState = Omit<UseMagicLinkAuthResult, "error"> & {
 
 const MagicLinkAuthContext = createContext<MagicLinkAuthState | null>(null);
 
-const getConvexSiteUrl = () => {
-  const url = readConfiguredConvexSiteUrl(
-    import.meta.env.VITE_CONVEX_SITE_URL as string | undefined,
-  );
-  if (!url) {
-    throw new Error("Convex site URL is not configured.");
-  }
-  return url;
-};
-
 function useMagicLinkAuthState(): MagicLinkAuthState {
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<Status>("idle");
@@ -118,7 +108,7 @@ function useMagicLinkAuthState(): MagicLinkAuthState {
     else setIsResending(true);
 
     try {
-      const convexSiteUrl = getConvexSiteUrl();
+      const backendUrl = requireBackendUrl();
       const turnstileToken = await getPlatformChallengeToken();
       const sendRequest = await buildMagicLinkSendRequest(
         targetEmail,
@@ -133,7 +123,7 @@ function useMagicLinkAuthState(): MagicLinkAuthState {
       // and returns nothing usable from /link/status.
       const claimSecret = generateClaimSecret();
       claimSecretRef.current = claimSecret;
-      const response = await fetch(`${convexSiteUrl}/api/auth/link/send`, {
+      const response = await fetch(`${backendUrl}/api/auth/link/send`, {
         method: "POST",
         headers: sendRequest.headers,
         body: JSON.stringify({
@@ -223,7 +213,7 @@ function useMagicLinkAuthState(): MagicLinkAuthState {
     // clears `status`/`requestId`, which re-runs this effect and runs the old
     // run's cleanup.
     let cancelled = false;
-    const convexSiteUrl = getConvexSiteUrl();
+    const backendUrl = requireBackendUrl();
 
     const poll = async () => {
       while (!cancelled) {
@@ -232,7 +222,7 @@ function useMagicLinkAuthState(): MagicLinkAuthState {
 
         try {
           const res = await fetch(
-            `${convexSiteUrl}/api/auth/link/status?requestId=${encodeURIComponent(requestId)}`,
+            `${backendUrl}/api/auth/link/status?requestId=${encodeURIComponent(requestId)}`,
           );
           if (!res.ok) continue;
           const data = (await res.json()) as { status: string };
@@ -245,7 +235,7 @@ function useMagicLinkAuthState(): MagicLinkAuthState {
               // shell generated, which is the only thing that can claim it.
               const secret = claimSecretRef.current;
               const token = secret
-                ? await claimSessionToken(convexSiteUrl, requestId, secret)
+                ? await claimSessionToken(backendUrl, requestId, secret)
                 : null;
               if (!token) {
                 throw new Error("Handoff could not be claimed.");

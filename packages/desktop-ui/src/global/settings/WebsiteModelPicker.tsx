@@ -1,5 +1,5 @@
 import { useState, useSyncExternalStore } from "react";
-import { useConvexAuth } from "convex/react";
+import { useAuthState } from "@/global/auth/BackendAuthProvider";
 import {
   cloudEnginesApi,
   useCloudEngines,
@@ -25,7 +25,7 @@ export function WebsiteModelPicker({
   className?: string;
 }) {
   const t = useT();
-  const { isAuthenticated } = useConvexAuth();
+  const { isAuthenticated } = useAuthState();
   const connections = useCloudEngines(isAuthenticated);
   const localExecution = useSyncExternalStore(
     subscribeCloudExecutionSelection,

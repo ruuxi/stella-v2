@@ -18,8 +18,8 @@ const mocks = vi.hoisted(() => ({
     reasoningEffort: "high",
   },
 }));
-vi.mock("convex/react", () => ({
-  useConvexAuth: () => ({ isAuthenticated: true }),
+vi.mock("@/global/auth/BackendAuthProvider", () => ({
+  useAuthState: () => ({ isAuthenticated: true, isLoading: false }),
 }));
 vi.mock("@/features/cloud/cloud-engines-api", () => ({
   useCloudEngines: () => ({ execution: mocks.execution }),

@@ -16,7 +16,7 @@ import { cloudCacheDelta } from "./cloud-cache-delta";
  *    prompt is durably written before any conversation exists to file it under.
  */
 
-import { getConvexToken } from "@/global/auth/services/auth-token";
+import { getAuthToken } from "@/global/auth/services/auth-token";
 import {
   BACKFILL_BATCH_RECORDS,
   MAX_CLIENT_RECORDS,
@@ -870,7 +870,7 @@ class ConversationStore {
     this.socket = new ConversationSocket({
       conversationId: this.conversationId,
       baseUrl: this.baseUrl,
-      getToken: (options) => getConvexToken(options ?? {}),
+      getToken: (options) => getAuthToken(options ?? {}),
       onEvent: (event) => this.onEvent(event),
       ...(initialCursor ? { initialCursor } : {}),
     });

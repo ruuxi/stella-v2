@@ -1,4 +1,4 @@
-import { getConvexToken } from "@/global/auth/services/auth-token";
+import { getAuthToken } from "@/global/auth/services/auth-token";
 import { backendUrl } from "@/platform/backend/backend-client";
 
 /**
@@ -11,7 +11,7 @@ export const voiceBackendFetch = async (
   init: { body: BodyInit; contentType: string; headers?: Record<string, string>; signal?: AbortSignal },
 ): Promise<Response> => {
   if (!backendUrl) throw new Error("VITE_STELLA_BACKEND_URL is not set.");
-  const token = await getConvexToken();
+  const token = await getAuthToken();
   if (!token) throw new Error("Sign in to Stella to use voice.");
   const response = await fetch(`${backendUrl}${path}`, {
     method: "POST",

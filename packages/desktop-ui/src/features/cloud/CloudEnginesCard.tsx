@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { useConvexAuth } from "convex/react";
+import { useAuthState } from "@/global/auth/BackendAuthProvider";
 import type {
   AgentModelReasoningEffort,
   CloudExecutionSelection,
@@ -176,7 +176,7 @@ function EngineConnectRow({
 }
 
 export function CloudEnginesCard() {
-  const { isAuthenticated } = useConvexAuth();
+  const { isAuthenticated } = useAuthState();
   const connections = useCloudEngines(isAuthenticated);
   const [switching, setSwitching] = useState(false);
 

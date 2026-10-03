@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { useConvexAuth } from "convex/react";
+import { useAuthState } from "@/global/auth/BackendAuthProvider";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import { cloudEnginesApi, useCloudEngines } from "./cloud-engines-api";
 import { publishCloudExecutionSelection } from "./cloud-execution-store";
@@ -22,7 +22,7 @@ const readLocal = async (): Promise<MirroredModelPreferences | null> =>
  * ever saved one, the desktop's current choice seeds it.
  */
 export function CloudModelSelectionBridge() {
-  const { isAuthenticated } = useConvexAuth();
+  const { isAuthenticated } = useAuthState();
   const hasLocalRuntime = Boolean(
     window.electronAPI?.system?.setLocalModelPreferences,
   );

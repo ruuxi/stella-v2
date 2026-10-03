@@ -4,8 +4,8 @@ import {
   refreshAuthSession,
 } from "@/global/auth/services/auth-session";
 import { writeBrowserSessionToken } from "@/global/auth/services/auth-storage";
-import { getConvexToken } from "@/global/auth/services/auth-token";
-import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
+import { getAuthToken } from "@/global/auth/services/auth-token";
+import { backendUrl } from "@/platform/backend/backend-url";
 import { platformCapabilities } from "@/platform/capabilities";
 import { captchaHeaders } from "@/platform/auth/challenge-token";
 
@@ -59,9 +59,7 @@ const readBrowserSocialBridgeCallback = (
 };
 
 export const startBrowserGoogleSignIn = async () => {
-  const siteUrl = readConfiguredConvexSiteUrl(
-    import.meta.env.VITE_CONVEX_SITE_URL as string | undefined,
-  );
+  const siteUrl = backendUrl || null;
   const authorization = await getBrowserOwnerAuthorization();
   if (!siteUrl || !authorization) {
     throw new Error("Browser account ownership could not be verified.");
@@ -100,7 +98,7 @@ export const startBrowserGoogleSignIn = async () => {
 export const getBrowserOwnerAuthorization = async (): Promise<
   string | null
 > => {
-  const token = (await getConvexToken({ forceRefresh: true }))?.trim();
+  const token = (await getAuthToken({ forceRefresh: true }))?.trim();
   return token ? `Bearer ${token}` : null;
 };
 
@@ -114,7 +112,7 @@ export type MagicLinkSendRequest = {
 
 /**
  * Every shell binds the send to the current anonymous owner and refuses to
- * issue an unowned link. `getConvexToken` obtains Electron authority through
+ * issue an unowned link. `getAuthToken` obtains Electron authority through
  * host IPC and browser authority through Better Auth, so the backend receives
  * the same proof without moving session cookies across either boundary.
  */

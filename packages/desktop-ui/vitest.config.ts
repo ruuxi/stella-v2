@@ -3,7 +3,7 @@ import path from 'path';
 
 export default defineConfig({
   define: {
-    'import.meta.env.VITE_CONVEX_URL': JSON.stringify('http://127.0.0.1:3210'),
+    'import.meta.env.VITE_STELLA_BACKEND_URL': JSON.stringify('http://127.0.0.1:8787'),
   },
   test: {
     globals: true,

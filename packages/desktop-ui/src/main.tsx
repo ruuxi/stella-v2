@@ -12,7 +12,7 @@ import "./shared/lib/native-font-smoothing";
 import { installRendererErrorReporting } from "./platform/diagnostics/report-error";
 import { App } from "./App.tsx";
 import { AppProviders } from "./context/AppProviders";
-import { DesktopConvexAuthProvider } from "./global/auth/DesktopConvexAuthProvider";
+import { BackendAuthProvider } from "./global/auth/BackendAuthProvider";
 import { prefetchAuthSessionBeforeRender } from "./global/auth/services/auth-session";
 import { ErrorBoundary } from "./shell/ErrorBoundary";
 
@@ -29,11 +29,11 @@ document.documentElement.dataset.stellaWindow = "full";
 
 const appTree = (
   <ErrorBoundary>
-    <DesktopConvexAuthProvider enableRuntimeEffects>
+    <BackendAuthProvider enableRuntimeEffects>
       <AppProviders>
         <App />
       </AppProviders>
-    </DesktopConvexAuthProvider>
+    </BackendAuthProvider>
   </ErrorBoundary>
 );
 

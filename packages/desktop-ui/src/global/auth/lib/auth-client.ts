@@ -1,11 +1,11 @@
 import { createAuthClient } from "better-auth/client";
-import { convexClient } from "@convex-dev/better-auth/client/plugins";
 import {
   anonymousClient,
+  jwtClient,
   magicLinkClient,
   oneTimeTokenClient,
 } from "better-auth/client/plugins";
-import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
+import { backendUrl } from "@/platform/backend/backend-url";
 import { getStellaInteriorBridge } from "@/platform/interior/interior-bridge";
 import {
   captureRotatedSessionToken,
@@ -13,15 +13,13 @@ import {
   readBrowserSessionToken,
 } from "@/global/auth/services/auth-storage";
 
-// `convexClient()` exposes `authClient.convex.token()`, which is the JWT
-// `desktop/src/global/auth/services/auth-token.ts` actually consumes. The
-// standalone `jwtClient()` was paired with a now-removed `jwt({...})` plugin
-// in `backend/convex/auth.ts` (see comment there) and is intentionally absent.
-// `oneTimeTokenClient()` replaces `crossDomainClient()`'s OTT surface. A
-// browser shell redeems the handoff token through it and the `bearer` plugin
-// returns the session credential in `set-auth-token`.
+// Better Auth lives on the backend worker at `/api/auth`. `jwtClient()`
+// exposes `authClient.token()`, the short-lived owner JWT that
+// `services/auth-token.ts` hands to backend calls. `oneTimeTokenClient()`
+// redeems the browser handoff token; the `bearer` plugin returns the session
+// credential in `set-auth-token`.
 const createPlugins = () => [
-  convexClient(),
+  jwtClient(),
   anonymousClient(),
   magicLinkClient(),
   oneTimeTokenClient(),
@@ -41,34 +39,21 @@ export const authClient = new Proxy({} as AuthClient, {
       throw new Error("Use the trusted Stella shell for account changes.");
     }
     if (!_instance) {
-      const plugins = createPlugins();
-      const convexBaseURL = readConfiguredConvexSiteUrl(
-        import.meta.env.VITE_CONVEX_SITE_URL as string | undefined,
-      );
-      if (!convexBaseURL) {
+      if (!backendUrl) {
         throw new Error(
-          "Convex site URL is not set. Cannot initialize auth client.",
+          "Stella backend URL is not set. Cannot initialize auth client.",
         );
       }
-      const configuredAppsAuthOrigin = (
-        import.meta.env.VITE_STELLA_APPS_AUTH_HOST as string | undefined
-      )
-        ?.trim()
-        .replace(/\/+$/, "");
+      // The browser renderer is served by the backend worker itself, so a
+      // first-party session cookie works there. Anywhere else the shell
+      // carries its own bearer from local storage (Electron routes session
+      // mutations through main, which owns the bearer).
       const usesTrustedCookieAuth =
-        !window.electronAPI &&
-        Boolean(configuredAppsAuthOrigin) &&
-        window.location.origin === configuredAppsAuthOrigin;
+        !window.electronAPI && window.location.origin === backendUrl;
       if (usesTrustedCookieAuth) clearBrowserSessionToken();
       _instance = createAuthClient({
-        baseURL: usesTrustedCookieAuth
-          ? configuredAppsAuthOrigin
-          : convexBaseURL,
-        plugins,
-        // Neither shell has a cookie jar for the Convex site origin. Electron
-        // routes session mutations through main, which owns the bearer; a
-        // browser shell carries its own bearer from local storage. Sending
-        // credentials would only invite an ambient third-party cookie.
+        baseURL: backendUrl,
+        plugins: createPlugins(),
         fetchOptions: {
           credentials: usesTrustedCookieAuth ? "include" : "omit",
           onRequest(context) {

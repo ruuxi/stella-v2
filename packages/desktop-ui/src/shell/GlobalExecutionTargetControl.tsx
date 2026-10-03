@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { DeviceDestination } from "@stella/contracts/turn-plane/placement";
 import { listExecutionDevices } from "@/features/cloud/placement-client";
 import { backendUrl } from "@/platform/backend/backend-client";
-import { getConvexToken } from "@/global/auth/services/auth-token";
+import { getAuthToken } from "@/global/auth/services/auth-token";
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
 import {
@@ -57,7 +57,7 @@ export function GlobalExecutionTargetControl() {
     const read = () => {
       void listExecutionDevices({
         socketOrigin,
-        getToken: (options) => getConvexToken(options ?? {}),
+        getToken: (options) => getAuthToken(options ?? {}),
       })
         .then((response) => {
           if (active) setDestinations(response.devices);

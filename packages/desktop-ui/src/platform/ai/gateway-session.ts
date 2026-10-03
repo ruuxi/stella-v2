@@ -19,7 +19,7 @@ import {
   type GatewaySessionCapabilityRequest,
   type GatewaySessionCapabilityResponse,
 } from "@stella/contracts/gateway/api";
-import { getConvexToken } from "@/global/auth/services/auth-token";
+import { getAuthToken } from "@/global/auth/services/auth-token";
 import { parseJwtPayload } from "@/shared/lib/jwt";
 import { getPlatformChallengeToken } from "@/platform/auth/challenge-token";
 import {
@@ -94,16 +94,10 @@ const authIdentity = (token: string): string => {
 
 const ownerIdFromBetterAuthToken = (token: string): string | null => {
   try {
-    const payload = parseJwtPayload<{ iss?: unknown; sub?: unknown }>(token);
-    if (
-      typeof payload.iss !== "string" ||
-      !payload.iss.trim() ||
-      typeof payload.sub !== "string" ||
-      !payload.sub.trim()
-    ) {
-      return null;
-    }
-    return `${payload.iss.trim().replace(/\/+$/, "")}|${payload.sub.trim()}`;
+    const payload = parseJwtPayload<{ sub?: unknown }>(token);
+    return typeof payload.sub === "string" && payload.sub.trim()
+      ? payload.sub.trim()
+      : null;
   } catch {
     return null;
   }
@@ -233,7 +227,7 @@ const exchange = async (args: {
         ) {
           refreshedAuth = true;
           const refreshed = (
-            await getConvexToken({ forceRefresh: true })
+            await getAuthToken({ forceRefresh: true })
           )?.trim();
           if (refreshed && refreshed !== currentAuthToken) {
             currentAuthToken = refreshed;
@@ -282,7 +276,7 @@ export const getGatewaySessionCapability = async (
   gatewayOrigin: string,
   options: { forceRefresh?: boolean } = {},
 ): Promise<string> => {
-  const authToken = (await getConvexToken())?.trim();
+  const authToken = (await getAuthToken())?.trim();
   if (!authToken) throw new Error(STELLA_GATEWAY_SIGN_IN_REQUIRED_MESSAGE);
   const signer = await getRendererDeviceSigner();
   const key = `${cacheKey({ gatewayOrigin, authToken })}|${Array.from(

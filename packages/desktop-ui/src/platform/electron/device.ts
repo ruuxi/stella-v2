@@ -1,13 +1,10 @@
 import { getElectronApi } from "./electron";
 import { writeLocalDeviceId } from "./device-id";
-import {
-  readConfiguredConvexSiteUrl,
-  readConfiguredConvexUrl,
-} from "@/shared/lib/convex-urls";
+import { backendUrl } from "@/platform/backend/backend-url";
 
 export { getDeviceIdOrNull, getOrCreateDeviceId } from "./device-id";
 
-// The runtime config (Convex URLs) comes from `import.meta.env` and never
+// The runtime config (the backend URL) comes from `import.meta.env` and never
 // changes within a session, yet `configurePiRuntime` is invoked 3-5+ times
 // serially during cold start. Cache the resolved promise on FIRST SUCCESS only
 // so it runs at most once per session. On failure we leave the cache empty so a
@@ -17,23 +14,10 @@ let configurePiRuntimePromise: Promise<void> | null = null;
 
 const runConfigurePiRuntime = async () => {
   const api = getElectronApi();
-  const convexUrl = readConfiguredConvexUrl(
-    import.meta.env.VITE_CONVEX_URL as string | undefined,
-  );
-  const convexSiteUrl = readConfiguredConvexSiteUrl(
-    import.meta.env.VITE_CONVEX_SITE_URL as string | undefined,
-  );
-  if (!api?.system?.configurePiRuntime || !convexUrl || !convexSiteUrl) {
+  if (!api?.system?.configurePiRuntime || !backendUrl) {
     return;
   }
-  const backendUrl = (
-    (import.meta.env.VITE_STELLA_BACKEND_URL as string | undefined) ?? ""
-  ).trim();
-  const response = await api.system.configurePiRuntime({
-    convexUrl,
-    convexSiteUrl,
-    ...(backendUrl ? { backendUrl } : {}),
-  });
+  const response = await api.system.configurePiRuntime({ backendUrl });
   if (response?.deviceId) {
     writeLocalDeviceId(response.deviceId);
   }

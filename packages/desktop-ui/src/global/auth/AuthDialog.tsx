@@ -21,7 +21,7 @@ import {
   hashClaimSecret,
 } from "@/global/auth/lib/claim-secret";
 import { openExternalUrl } from "@/platform/electron/open-external";
-import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
+import { requireBackendUrl } from "@/platform/backend/backend-url";
 import { useT } from "@/shared/i18n";
 import "./AuthDialog.css";
 
@@ -48,24 +48,14 @@ const wait = (ms: number) =>
     window.setTimeout(resolve, ms);
   });
 
-const getConvexSiteUrl = () => {
-  const url = readConfiguredConvexSiteUrl(
-    import.meta.env.VITE_CONVEX_SITE_URL as string | undefined,
-  );
-  if (!url) {
-    throw new Error("Convex site URL is not configured.");
-  }
-  return url;
-};
-
 type Translate = ReturnType<typeof useT>;
 
 const startDesktopSocialAuth = async (t: Translate) => {
-  const convexSiteUrl = getConvexSiteUrl();
+  const backendUrl = requireBackendUrl();
   // Held in memory for this attempt only; the server stores just the hash.
   const claimSecret = generateClaimSecret();
   const response = await fetch(
-    `${convexSiteUrl}/api/auth/desktop-social/start`,
+    `${backendUrl}/api/auth/desktop-social/start`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -84,7 +74,7 @@ const startDesktopSocialAuth = async (t: Translate) => {
     throw new Error(data?.error || t("global.auth.googleStartFailed"));
   }
   return {
-    convexSiteUrl,
+    backendUrl,
     requestId: data.requestId,
     callbackURL: data.callbackURL,
     claimSecret,
@@ -92,7 +82,7 @@ const startDesktopSocialAuth = async (t: Translate) => {
 };
 
 const pollDesktopSocialAuth = async (
-  convexSiteUrl: string,
+  backendUrl: string,
   requestId: string,
   claimSecret: string,
   t: Translate,
@@ -101,7 +91,7 @@ const pollDesktopSocialAuth = async (
   while (Date.now() < deadline) {
     await wait(SOCIAL_AUTH_POLL_INTERVAL_MS);
     const response = await fetch(
-      `${convexSiteUrl}/api/auth/link/status?requestId=${encodeURIComponent(requestId)}`,
+      `${backendUrl}/api/auth/link/status?requestId=${encodeURIComponent(requestId)}`,
     );
     if (!response.ok) {
       continue;
@@ -113,7 +103,7 @@ const pollDesktopSocialAuth = async (
       // The credential is never returned by /link/status. Exchange the secret
       // for it.
       const token = await claimSessionToken(
-        convexSiteUrl,
+        backendUrl,
         requestId,
         claimSecret,
       );
@@ -221,7 +211,7 @@ function GoogleAuthButton() {
         return;
       }
 
-      const { convexSiteUrl, requestId, callbackURL, claimSecret } =
+      const { backendUrl, requestId, callbackURL, claimSecret } =
         await startDesktopSocialAuth(t);
       const result = (await authClient.signIn.social({
         provider: "google",
@@ -240,7 +230,7 @@ function GoogleAuthButton() {
       }
 
       openExternalUrl(url);
-      await pollDesktopSocialAuth(convexSiteUrl, requestId, claimSecret, t);
+      await pollDesktopSocialAuth(backendUrl, requestId, claimSecret, t);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : t("global.auth.googleStartFailed"),

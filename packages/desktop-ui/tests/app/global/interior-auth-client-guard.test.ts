@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   bridge: vi.fn(),
   createAuthClient: vi.fn(),
-  convexPlugin: vi.fn(),
+  jwtPlugin: vi.fn(),
   anonymousPlugin: vi.fn(),
   magicLinkPlugin: vi.fn(),
   oneTimeTokenPlugin: vi.fn(),
@@ -20,10 +20,8 @@ vi.mock("@/platform/interior/interior-bridge", () => ({
 vi.mock("better-auth/client", () => ({
   createAuthClient: mocks.createAuthClient,
 }));
-vi.mock("@convex-dev/better-auth/client/plugins", () => ({
-  convexClient: mocks.convexPlugin,
-}));
 vi.mock("better-auth/client/plugins", () => ({
+  jwtClient: mocks.jwtPlugin,
   anonymousClient: mocks.anonymousPlugin,
   magicLinkClient: mocks.magicLinkPlugin,
   oneTimeTokenClient: mocks.oneTimeTokenPlugin,
@@ -52,7 +50,7 @@ describe("interior Better Auth guard", () => {
       "Use the trusted Stella shell for account changes.",
     );
     expect(mocks.createAuthClient).not.toHaveBeenCalled();
-    expect(mocks.convexPlugin).not.toHaveBeenCalled();
+    expect(mocks.jwtPlugin).not.toHaveBeenCalled();
     expect(mocks.anonymousPlugin).not.toHaveBeenCalled();
     expect(mocks.magicLinkPlugin).not.toHaveBeenCalled();
     expect(mocks.oneTimeTokenPlugin).not.toHaveBeenCalled();

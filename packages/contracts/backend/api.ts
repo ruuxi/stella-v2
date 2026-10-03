@@ -18,6 +18,7 @@ import type { AccountCalls } from "./account.js";
 import type { ShareCalls, ShareViews } from "./shares.js";
 import type { SearchCalls } from "./search.js";
 import type { MediaCalls, MediaViews } from "./media.js";
+import type { VoiceCalls } from "./voice.js";
 
 type SystemCalls = {
   /** Round trip through the caller's owner object. */
@@ -37,7 +38,8 @@ export type BackendCalls = SystemCalls &
   AccountCalls &
   ShareCalls &
   SearchCalls &
-  MediaCalls;
+  MediaCalls &
+  VoiceCalls;
 export type BackendViews = ConversationViews &
   AgentThreadViews &
   BillingViews &

@@ -1,4 +1,8 @@
-import { handleMuseTranscribeSocket } from "../../src/muse-transcribe-socket.js";
+import {
+  DictationUsageError,
+  handleMuseTranscribeSocket,
+  type MuseControl,
+} from "../../src/muse-transcribe-socket.js";
 
 const state = {
   providerFrames: [] as number[][],
@@ -19,33 +23,6 @@ let hangProvider = false;
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const request = new Request(input, init);
   const url = new URL(request.url);
-  if (url.hostname === "control.fixture") {
-    if (url.pathname.endsWith("/prepare")) {
-      const body = (await request.json()) as {
-        ownerId: string;
-        sessionId?: string;
-      };
-      if (body.sessionId) state.preparedSessionIds.push(body.sessionId);
-      if (body.ownerId === "owner-slow-prepare")
-        await new Promise((resolve) => setTimeout(resolve, 400));
-      state.prepareFinishedAt = Date.now();
-      if (body.ownerId === "owner-exhausted")
-        return Response.json(
-          { error: "Your Stella usage allowance is exhausted." },
-          { status: 429 },
-        );
-      return Response.json({
-        sessionId:
-          body.ownerId === "owner-hanging" ? "muse-hanging" : "muse-fixture",
-        ownerGeneration: "generation-1",
-        providerDeadlineAt:
-          Date.now() + (body.ownerId === "owner-deadline" ? 500 : 30_000),
-        ...(body.ownerId === "owner-capped" ? { maxAudioBytes: 6 } : {}),
-      });
-    }
-    state.settlements.push((await request.json()) as Record<string, unknown>);
-    return Response.json({ ok: true });
-  }
   if (url.hostname === "api.meta.ai") {
     state.providerSessionIds.push(url.searchParams.get("sessionId") ?? "");
     // Use native fetch over a real upgrade, so its AbortSignal has Workerd's
@@ -59,6 +36,27 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   }
   throw new Error(`Unexpected fixture fetch: ${url.hostname}`);
 }) as typeof originalFetch;
+
+/** The owner's metering, faked per fixture owner. */
+const fixtureControl = (ownerId: string): MuseControl => ({
+  async prepare(sessionId) {
+    state.preparedSessionIds.push(sessionId);
+    if (ownerId === "owner-slow-prepare")
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    state.prepareFinishedAt = Date.now();
+    if (ownerId === "owner-exhausted")
+      throw new DictationUsageError("Your Stella usage allowance is exhausted.");
+    return {
+      sessionId: ownerId === "owner-hanging" ? "muse-hanging" : "muse-fixture",
+      providerDeadlineAt:
+        Date.now() + (ownerId === "owner-deadline" ? 500 : 30_000),
+      ...(ownerId === "owner-capped" ? { maxAudioBytes: 6 } : {}),
+    };
+  },
+  async settle(usage) {
+    state.settlements.push(usage);
+  },
+});
 
 const providerResponse = () => {
   const pair = new WebSocketPair();
@@ -120,14 +118,12 @@ export default {
       hangProvider = new URL(request.url).searchParams.has("hang");
       return await handleMuseTranscribeSocket({
         request,
-        ownerId: new URL(request.url).searchParams.has("hang")
-          ? "owner-hanging"
-          : `owner-${new URL(request.url).searchParams.get("case") ?? "fixture"}`,
-        env: {
-          BUILDER_SERVICE_SECRET: "fixture-only",
-          META_MODEL_API_KEY: "fixture-only",
-          STELLA_CONVEX_SITE_URL: "https://control.fixture",
-        },
+        control: fixtureControl(
+          new URL(request.url).searchParams.has("hang")
+            ? "owner-hanging"
+            : `owner-${new URL(request.url).searchParams.get("case") ?? "fixture"}`,
+        ),
+        env: { META_MODEL_API_KEY: "fixture-only" },
         waitUntil: (work) => ctx.waitUntil(work),
       });
     }

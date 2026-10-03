@@ -10,6 +10,7 @@ const ALLOWED_HEADERS = new Set([
   "authorization",
   "content-type",
   "x-stella-expected-subject",
+  "x-stella-voice-lease",
 ]);
 
 const isBrowserRoute = (path: string): boolean =>
@@ -19,7 +20,8 @@ const isBrowserRoute = (path: string): boolean =>
   /^\/owners\/me\/(devices|dispatches|apps)(\/|$)/u.test(path) ||
   path.startsWith("/cloud-home/") ||
   path.startsWith("/api/rpc/") ||
-  path.startsWith("/api/media/v1/");
+  path.startsWith("/api/media/v1/") ||
+  path.startsWith("/api/voice/");
 
 /** CORS grants browser access only; the router still authenticates every operation. */
 export async function withBrowserCors(
@@ -33,7 +35,8 @@ export async function withBrowserCors(
   const appRoute =
     /^\/owners\/me\/apps(\/|$)/.test(path) ||
     path.startsWith("/api/rpc/") ||
-    path.startsWith("/api/media/v1/");
+    path.startsWith("/api/media/v1/") ||
+    path.startsWith("/api/voice/");
   // Packaged Electron has an opaque file origin; isolated dev runs use random
   // loopback ports. These routes require a bearer JWT and never use cookies.
   const allowed =

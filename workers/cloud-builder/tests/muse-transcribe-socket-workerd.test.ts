@@ -87,8 +87,6 @@ describe("Muse PCM relay in real Workerd", () => {
     expect(state.settlements).toHaveLength(1);
     expect(state.settlements[0]).toMatchObject({
       sessionId: "muse-fixture",
-      ownerId: "owner-fixture",
-      ownerGeneration: "generation-1",
       audioBytes: 8,
       success: true,
     });

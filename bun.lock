@@ -408,6 +408,7 @@
       "name": "@stella/cloud-builder",
       "version": "0.0.0",
       "dependencies": {
+        "@breezystack/lamejs": "1.2.7",
         "@cloudflare/codemode": "0.5.1",
         "@cloudflare/sandbox": "1.0.0",
         "@cloudflare/worker-bundler": "^0.2.3",

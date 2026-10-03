@@ -49,6 +49,7 @@ import {
   readBoundedResponseBytes,
 } from "../bounded-body.js";
 import { withBrowserCors } from "../browser-cors.js";
+import { handleVoiceRoute, ownerDictationControl } from "../voice/routes.js";
 import { handleBackendRoute } from "../owner-store/routes.js";
 import { handleMediaRoute } from "../media/routes.js";
 import { handleAppSourceBootstrap } from "../app-source-bootstrap.js";
@@ -973,6 +974,9 @@ const router = {
     if (billingResponse) return billingResponse;
     const devicesResponse = await handleDevicesRoute(request, env);
     if (devicesResponse) return devicesResponse;
+    // Voice checks the user's JWT itself; the HLS GETs carry a signed ticket.
+    const voiceResponse = await handleVoiceRoute(request, env);
+    if (voiceResponse) return voiceResponse;
     if (url.pathname === "/dictation/socket") {
       if (request.method !== "GET" || !isWebSocketUpgrade(request)) {
         return json({ error: "This endpoint speaks WebSocket only." }, 426);
@@ -988,7 +992,7 @@ const router = {
       return await handleMuseTranscribeSocket({
         request,
         env,
-        ownerId: auth.caller.ownerId,
+        control: ownerDictationControl(env, auth.caller.ownerId),
         waitUntil: (promise) => ctx.waitUntil(promise),
         timing: { requestId, receivedAt, authMs: Date.now() - receivedAt },
       });

@@ -18,6 +18,7 @@ import { accountDomain } from "./domains/account.js";
 import { sharesDomain } from "./domains/shares.js";
 import { searchDomain } from "./domains/search.js";
 import { mediaDomain } from "./domains/media.js";
+import { voiceDomain } from "./domains/voice.js";
 import { RATE_LIMIT_MIGRATION } from "./rate-limit.js";
 import { createOwnerRegistry, type OwnerDomain } from "./registry.js";
 
@@ -49,6 +50,7 @@ export const ownerDomains: OwnerDomain[] = [
   sharesDomain,
   searchDomain,
   mediaDomain,
+  voiceDomain,
 ];
 
 export const ownerRegistry = createOwnerRegistry(ownerDomains);

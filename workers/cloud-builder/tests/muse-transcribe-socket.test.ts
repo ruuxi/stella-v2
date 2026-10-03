@@ -14,8 +14,7 @@ describe("Muse transcription protocol", () => {
   });
 });
 
-// Exercise the relay with in-memory transports; billing itself is covered by
-// the Convex HTTP tests with real mutations and durable receipts.
+// Exercise the relay with in-memory transports and an in-memory control.
 describe("Muse relay settlement", () => {
   it.each(["frames", "silence"])(
     "enforces the receipt deadline during %s and retries usage only after upstream closes",
@@ -53,26 +52,8 @@ describe("Muse relay settlement", () => {
       const settlements: unknown[] = [];
       let now = originalNow();
       const deadline = now + (mode === "silence" ? 20 : 3_600_000);
-      const fakeFetch = async (
-        input: RequestInfo | URL,
-        init?: RequestInit,
-      ) => {
-        const url = String(input);
-        if (url.endsWith("/prepare"))
-          return originalResponse.json({
-            sessionId: "muse_00000000-0000-0000-0000-000000000001",
-            ownerGeneration: "legacy",
-            providerDeadlineAt: deadline,
-          });
-        if (url.endsWith("/settle")) {
-          settlements.push(JSON.parse(String(init?.body)));
-          return originalResponse.json(
-            {},
-            { status: settlements.length === 1 ? 503 : 200 },
-          );
-        }
-        return { status: 101, webSocket: upstream } as unknown as Response;
-      };
+      const fakeFetch = async () =>
+        ({ status: 101, webSocket: upstream }) as unknown as Response;
       try {
         Date.now = () => now;
         globalThis.fetch = fakeFetch as typeof fetch;
@@ -90,12 +71,17 @@ describe("Muse relay settlement", () => {
         };
         await handleMuseTranscribeSocket({
           request: new Request("https://relay.test"),
-          env: {
-            META_MODEL_API_KEY: "test",
-            BUILDER_SERVICE_SECRET: "test",
-            STELLA_CONVEX_SITE_URL: "https://convex.test",
+          env: { META_MODEL_API_KEY: "test" },
+          control: {
+            prepare: async () => ({
+              sessionId: "muse_00000000-0000-0000-0000-000000000001",
+              providerDeadlineAt: deadline,
+            }),
+            settle: async (usage) => {
+              settlements.push(usage);
+              if (settlements.length === 1) throw new Error("unavailable");
+            },
           },
-          ownerId: "owner",
           waitUntil: (promise) => {
             pending.push(promise);
           },

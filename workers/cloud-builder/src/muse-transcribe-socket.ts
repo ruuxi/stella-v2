@@ -12,19 +12,31 @@ const PCM_BYTES_PER_SECOND = 16_000 * 2;
 const MAX_AUDIO_BYTES = 60 * 60 * PCM_BYTES_PER_SECOND;
 const MAX_FRAME_BYTES = PCM_BYTES_PER_SECOND;
 
-type MuseRelayEnv = Pick<
-  Cloudflare.Env,
-  "BUILDER_SERVICE_SECRET" | "META_MODEL_API_KEY" | "STELLA_CONVEX_SITE_URL"
->;
+type MuseRelayEnv = Pick<Cloudflare.Env, "META_MODEL_API_KEY">;
 
-type PreparedSession = {
+export type PreparedSession = {
   sessionId: string;
-  ownerGeneration: string;
   providerDeadlineAt: number;
   maxAudioBytes?: number;
 };
 
-class DictationUsageError extends Error {}
+/** The usage allowance refused the session; the message is shown to the user. */
+export class DictationUsageError extends Error {}
+
+/**
+ * Sizes and charges a session against the owner's allowance (the voice
+ * domain's `dictation.prepare` and `dictation.settle`). `prepare` throws
+ * `DictationUsageError` when the allowance refuses.
+ */
+export type MuseControl = {
+  prepare(sessionId: string): Promise<PreparedSession>;
+  settle(usage: {
+    sessionId: string;
+    audioBytes: number;
+    durationMs: number;
+    success: boolean;
+  }): Promise<void>;
+};
 
 export const createMuseHandshake = (apiKey: string) => ({
   authorization: { accessToken: `Bearer ${apiKey}` },
@@ -62,47 +74,10 @@ const closeSocket = (socket: WebSocket, code: number, reason: string): void => {
   }
 };
 
-const callControlPlane = async <T>(
-  env: MuseRelayEnv,
-  path: string,
-  body: unknown,
-): Promise<T> => {
-  const base = env.STELLA_CONVEX_SITE_URL?.trim().replace(/\/+$/u, "");
-  if (!base || !env.BUILDER_SERVICE_SECRET) {
-    throw new Error("Muse relay control plane is unavailable.");
-  }
-  const response = await fetch(`${base}${path}`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${env.BUILDER_SERVICE_SECRET}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (!response.ok) {
-    if (response.status === 429) {
-      const body = (await response.json().catch(() => null)) as {
-        error?: unknown;
-      } | null;
-      throw new DictationUsageError(
-        typeof body?.error === "string"
-          ? body.error
-          : "Your Stella usage allowance is exhausted.",
-      );
-    }
-    await response.body?.cancel().catch(() => undefined);
-    throw new Error(
-      `Muse relay control plane rejected the request (${response.status}).`,
-    );
-  }
-  return (await response.json()) as T;
-};
-
 type MuseRelayArgs = {
   request: Request;
   env: MuseRelayEnv;
-  ownerId: string;
+  control: MuseControl;
   waitUntil: (promise: Promise<unknown>) => void;
   /** Startup timings for the `dictation_socket_timing` log line. */
   timing?: { requestId: string; receivedAt: number; authMs: number };
@@ -153,7 +128,7 @@ type ProviderStart =
 
 /**
  * Reserve a Stella session and start the provider session in parallel. The
- * upgrade and the handshake go out while Convex reserves the session, so the
+ * upgrade and the handshake go out while the owner reserves the session, so the
  * provider's session setup overlaps the reservation instead of following it.
  * No audio is forwarded until the reservation has committed (the bridge only
  * starts after this resolves), and a refused reservation closes the provider
@@ -217,11 +192,7 @@ const startProvider = async (
 
   let prepared: PreparedSession;
   try {
-    prepared = await callControlPlane<PreparedSession>(
-      args.env,
-      "/api/cloud/dictation/prepare",
-      { ownerId: args.ownerId, sessionId },
-    );
+    prepared = await args.control.prepare(sessionId);
   } catch (error) {
     discardUpstream();
     if (error instanceof DictationUsageError) {
@@ -260,9 +231,7 @@ const startProvider = async (
     // makes a lost successful response safe to repeat.
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        await callControlPlane(args.env, "/api/cloud/dictation/settle", {
-          ownerId: args.ownerId,
-          ownerGeneration: prepared.ownerGeneration,
+        await args.control.settle({
           sessionId: prepared.sessionId,
           audioBytes,
           durationMs,
@@ -270,7 +239,7 @@ const startProvider = async (
         });
         return;
       } catch {
-        // If all attempts fail, Convex's receipt expiry bills the reserved cap.
+        // If all attempts fail, the session goes unbilled.
       }
     }
   };

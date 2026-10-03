@@ -1,0 +1,244 @@
+/**
+ * Operator routes, authenticated with `STELLA_ADMIN_API_SECRET` as a bearer:
+ *
+ *   GET  /api/admin/owners/lookup?ownerId=      snapshot identity, enforcement, billing and risk row
+ *   GET  /api/admin/owners/top?limit=&status=   D1 `owner_risk` by score
+ *   POST /api/admin/owners/enforcement          {ownerId, status, reason, until?} via `abuse.setEnforcement`
+ *   POST /api/admin/billing/plan                {ownerId, plan?, usageMode? | unlimited?, resetUsage?}
+ *   POST /api/admin/delete                      {kind: "feedback", id} | {kind: "media_job", ownerId, id}
+ *
+ * Owners are addressed by id only; email lookup returns with auth in D1.
+ * `/api/admin/test-accounts/session` stays on Convex until then.
+ */
+
+import { OWNER_ENFORCEMENT_STATUSES, type OwnerEnforcementStatus } from "@stella/contracts/gateway/usage";
+import { rpcErrorStatus, type RpcResponse } from "@stella/contracts/backend/protocol";
+import { fixedWorkSha256SecretEqual } from "../service-bearer.js";
+
+type AdminEnv = Pick<Cloudflare.Env, "OWNER_GATES" | "DB">;
+
+const OWNER_ID_MAX = 512;
+const TOP_DEFAULT_LIMIT = 50;
+const TOP_MAX_LIMIT = 200;
+
+const json = (body: unknown, status = 200): Response =>
+  Response.json(body, { status, headers: { "cache-control": "no-store" } });
+
+const fail = (status: number, error: string, extra: Record<string, unknown> = {}): Response =>
+  json({ error, ...extra }, status);
+
+const failRpc = (response: Extract<RpcResponse, { ok: false }>): Response =>
+  fail(rpcErrorStatus(response.error.code), response.error.message, {
+    code: response.error.code,
+    ...(response.error.reason ? { reason: response.error.reason } : {}),
+  });
+
+const message = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const readBody = async (request: Request): Promise<Record<string, unknown> | null> => {
+  const body = (await request.json().catch(() => null)) as unknown;
+  return isRecord(body) ? body : null;
+};
+
+const ownerIdOf = (value: unknown): string | null => {
+  const ownerId = typeof value === "string" ? value.trim() : "";
+  return ownerId && ownerId.length <= OWNER_ID_MAX ? ownerId : null;
+};
+
+/** The bearer against the secret, with the same work whatever was sent. */
+const authorized = async (request: Request, env: AdminEnv): Promise<Response | null> => {
+  const raw = (env as unknown as Record<string, unknown>).STELLA_ADMIN_API_SECRET;
+  const expected = typeof raw === "string" ? raw.trim() : "";
+  if (!expected) return fail(503, "Admin API disabled.", { env: "STELLA_ADMIN_API_SECRET" });
+  const header = request.headers.get("authorization") ?? "";
+  const provided = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+  return (await fixedWorkSha256SecretEqual(provided, expected)) ? null : fail(401, "Invalid admin credentials.");
+};
+
+/**
+ * The owner's object and its current snapshot. A snapshot that cannot be
+ * read (an unknown or purged owner, or Convex down) answers 404 with why.
+ */
+const ownerGate = async (env: AdminEnv, ownerId: string) => {
+  const gate = env.OWNER_GATES.getByName(ownerId);
+  try {
+    return { gate, snapshot: await gate.snapshot() };
+  } catch (error) {
+    return { response: fail(404, "Owner not found or unavailable.", { ownerId, detail: message(error) }) };
+  }
+};
+
+const ownerInternal = async (
+  env: AdminEnv,
+  ownerId: string,
+  name: string,
+  args: unknown,
+): Promise<Response | RpcResponse> => {
+  const owner = await ownerGate(env, ownerId);
+  if (owner.response) return owner.response;
+  return await owner.gate.ownerInternal({ name, args, ownerGeneration: owner.snapshot.ownerGeneration });
+};
+
+const db = (env: AdminEnv): D1Database => {
+  if (!env.DB) throw new Error("D1 is not bound.");
+  return env.DB;
+};
+
+// ── Owners ───────────────────────────────────────────────────────────────
+
+const lookup = async (url: URL, env: AdminEnv): Promise<Response> => {
+  const ownerId = ownerIdOf(url.searchParams.get("ownerId"));
+  if (!ownerId) return fail(400, "Missing ownerId.");
+  const owner = await ownerGate(env, ownerId);
+  if (owner.response) return owner.response;
+  const { snapshot } = owner;
+  const [billing, risk] = await Promise.all([
+    owner.gate.billingAccess(),
+    db(env)
+      .prepare("SELECT score, status, updated_at AS updatedAt FROM owner_risk WHERE owner_id = ?")
+      .bind(ownerId)
+      .first(),
+  ]);
+  return json({
+    ownerId,
+    isAnonymous: snapshot.isAnonymous,
+    identityLevel: snapshot.identityLevel,
+    plan: billing.plan,
+    enforcement: snapshot.enforcement ?? { status: "ok" },
+    billing,
+    risk: risk ?? null,
+  });
+};
+
+const top = async (url: URL, env: AdminEnv): Promise<Response> => {
+  const rawLimit = url.searchParams.get("limit");
+  const limit = rawLimit === null ? TOP_DEFAULT_LIMIT : Number(rawLimit);
+  if (!Number.isInteger(limit) || limit < 1 || limit > TOP_MAX_LIMIT) {
+    return fail(400, `limit must be 1 to ${TOP_MAX_LIMIT}.`);
+  }
+  const status = url.searchParams.get("status")?.trim().toLowerCase() || null;
+  if (status && !OWNER_ENFORCEMENT_STATUSES.includes(status as OwnerEnforcementStatus)) {
+    return fail(400, "Invalid enforcement status.");
+  }
+  const query = status
+    ? db(env)
+        .prepare(
+          `SELECT owner_id AS ownerId, score, status, updated_at AS updatedAt FROM owner_risk
+           WHERE status = ? ORDER BY score DESC LIMIT ?`,
+        )
+        .bind(status, limit)
+    : db(env)
+        .prepare(
+          `SELECT owner_id AS ownerId, score, status, updated_at AS updatedAt FROM owner_risk
+           ORDER BY score DESC LIMIT ?`,
+        )
+        .bind(limit);
+  const { results } = await query.all();
+  return json({ owners: results });
+};
+
+const enforcement = async (request: Request, env: AdminEnv): Promise<Response> => {
+  const body = await readBody(request);
+  const ownerId = ownerIdOf(body?.ownerId);
+  if (!ownerId) return fail(400, "Missing ownerId.");
+  const status = typeof body?.status === "string" ? body.status.trim().toLowerCase() : "";
+  if (!OWNER_ENFORCEMENT_STATUSES.includes(status as OwnerEnforcementStatus)) {
+    return fail(400, "Invalid enforcement status.");
+  }
+  const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
+  if (!reason || reason.length > 1_000) return fail(400, "reason must be 1 to 1,000 characters.");
+  const until = body?.until;
+  if (until !== undefined && (typeof until !== "number" || !Number.isFinite(until))) {
+    return fail(400, "until must be a timestamp.");
+  }
+  const response = await ownerInternal(env, ownerId, "abuse.setEnforcement", {
+    status,
+    reason,
+    ...(typeof until === "number" ? { expiresAt: until } : {}),
+  });
+  if (response instanceof Response) return response;
+  if (!response.ok) return failRpc(response);
+  console.log(JSON.stringify({ event: "admin_owner_enforcement", ownerId, status }));
+  return json({ ownerId, ...(isRecord(response.value) ? response.value : { result: response.value }) });
+};
+
+// ── Billing ──────────────────────────────────────────────────────────────
+
+const billingPlan = async (request: Request, env: AdminEnv): Promise<Response> => {
+  const body = await readBody(request);
+  const ownerId = ownerIdOf(body?.ownerId);
+  if (!ownerId) return fail(400, "Missing ownerId.");
+  const plan = typeof body?.plan === "string" ? body.plan.trim().toLowerCase() : "";
+  if (plan && plan !== "free" && plan !== "go" && plan !== "pro") return fail(400, `Unsupported plan: ${plan}`);
+  const rawUsageMode = typeof body?.usageMode === "string" ? body.usageMode.trim().toLowerCase() : "";
+  const usageMode =
+    typeof body?.unlimited === "boolean" ? (body.unlimited ? "unlimited" : "default") : rawUsageMode;
+  if (usageMode && usageMode !== "default" && usageMode !== "unlimited") {
+    return fail(400, `Unsupported usageMode: ${usageMode}`);
+  }
+  if (body?.resetUsage !== undefined && typeof body.resetUsage !== "boolean") {
+    return fail(400, "resetUsage must be a boolean.");
+  }
+  const owner = await ownerGate(env, ownerId);
+  if (owner.response) return owner.response;
+  await owner.gate.setBillingPlan({
+    ...(plan ? { plan: plan as "free" | "go" | "pro" } : {}),
+    ...(usageMode ? { usageMode: usageMode as "default" | "unlimited" } : {}),
+    ...(typeof body?.resetUsage === "boolean" ? { resetUsage: body.resetUsage } : {}),
+  });
+  console.log(JSON.stringify({ event: "admin_billing_plan", ownerId, plan: plan || null, usageMode: usageMode || null }));
+  return json(await owner.gate.billingAccess());
+};
+
+// ── Deletes ──────────────────────────────────────────────────────────────
+
+const remove = async (request: Request, env: AdminEnv): Promise<Response> => {
+  const body = await readBody(request);
+  const kind = typeof body?.kind === "string" ? body.kind.trim() : "";
+  const id = typeof body?.id === "string" ? body.id.trim() : "";
+  if (!kind || !id) return fail(400, "Missing kind or id.");
+  switch (kind) {
+    case "feedback": {
+      const result = await db(env).prepare("DELETE FROM feedback WHERE id = ?").bind(id).run();
+      return json({ deleted: (result.meta.changes ?? 0) > 0, kind, id });
+    }
+    case "media_job": {
+      const ownerId = ownerIdOf(body?.ownerId);
+      if (!ownerId) return fail(400, "media_job deletes need the job's ownerId.");
+      const response = await ownerInternal(env, ownerId, "media.deleteJob", { jobId: id });
+      if (response instanceof Response) return response;
+      return response.ok ? json(response.value) : failRpc(response);
+    }
+    default:
+      return fail(400, `Unsupported delete kind: ${kind}`);
+  }
+};
+
+// ── Routing ──────────────────────────────────────────────────────────────
+
+const ROUTES: Record<string, { method: "GET" | "POST"; run: (request: Request, url: URL, env: AdminEnv) => Promise<Response> }> = {
+  "/api/admin/owners/lookup": { method: "GET", run: (_request, url, env) => lookup(url, env) },
+  "/api/admin/owners/top": { method: "GET", run: (_request, url, env) => top(url, env) },
+  "/api/admin/owners/enforcement": { method: "POST", run: (request, _url, env) => enforcement(request, env) },
+  "/api/admin/billing/plan": { method: "POST", run: (request, _url, env) => billingPlan(request, env) },
+  "/api/admin/delete": { method: "POST", run: (request, _url, env) => remove(request, env) },
+};
+
+/** Admin routes, or null when the request is not one. */
+export const handleAdminRoute = async (request: Request, env: AdminEnv): Promise<Response | null> => {
+  const url = new URL(request.url);
+  const route = ROUTES[url.pathname];
+  if (!route) return null;
+  if (request.method !== route.method) return fail(405, "Method not allowed.");
+  const denied = await authorized(request, env);
+  if (denied) return denied;
+  try {
+    return await route.run(request, url, env);
+  } catch (error) {
+    console.error(JSON.stringify({ event: "admin_route_failed", path: url.pathname, message: message(error) }));
+    return fail(500, "Admin request failed.", { detail: message(error) });
+  }
+};

@@ -163,23 +163,23 @@ Both Workers are on `workers.dev` and Convex HTTP is on `convex.site`, so zone-l
 
 ## 8. Verification after setup
 
-From `packages/backend` with the deployment's site URL as `$SITE` and the admin bearer as `$ADMIN`:
+From `packages/backend` with the deployment's site URL as `$SITE`, the cloud-builder URL as `$BACKEND` and the admin bearer as `$ADMIN`. Admin routes live on cloud-builder and take an owner id (email lookup returns with auth):
 
 ```sh
 # Gateway config carries the tier ceilings (service secret from the gateway)
 curl -s -H "authorization: Bearer $GATEWAY_SERVICE_SECRET" "$SITE/api/gateway/config" | head -c 600
 
-# Admin lookup (email or ownerId)
-curl -s -H "authorization: Bearer $ADMIN" "$SITE/api/admin/owners/lookup?email=you@example.com"
+# Admin lookup
+curl -s -H "authorization: Bearer $ADMIN" "$BACKEND/api/admin/owners/lookup?ownerId=$OWNER"
 
 # Suspend and clear an owner; the gateway KV entry appears within seconds
 curl -s -X POST -H "authorization: Bearer $ADMIN" -H "content-type: application/json" \
-  -d '{"email":"you@example.com","status":"suspended","reason":"manual test"}' "$SITE/api/admin/owners/enforcement"
+  -d '{"ownerId":"'"$OWNER"'","status":"suspended","reason":"manual test"}' "$BACKEND/api/admin/owners/enforcement"
 curl -s -X POST -H "authorization: Bearer $ADMIN" -H "content-type: application/json" \
-  -d '{"email":"you@example.com","status":"ok","reason":"cleared"}' "$SITE/api/admin/owners/enforcement"
+  -d '{"ownerId":"'"$OWNER"'","status":"ok","reason":"cleared"}' "$BACKEND/api/admin/owners/enforcement"
 
-# Top spenders / risk
-curl -s -H "authorization: Bearer $ADMIN" "$SITE/api/admin/owners/top?window=24h&by=spend"
+# Highest risk scores (optional &status=challenged|throttled|suspended)
+curl -s -H "authorization: Bearer $ADMIN" "$BACKEND/api/admin/owners/top?limit=20"
 
 # App-integrity challenge issues a nonce
 curl -s -X POST -H "content-type: application/json" -d '{"purpose":"anonymous-sign-in"}' "$SITE/api/auth/integrity/challenge"

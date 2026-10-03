@@ -819,6 +819,23 @@ const lookup = async (ctx: OwnerContext, raw: unknown): Promise<MediaJob | null>
   return toJob(row, stored === undefined ? undefined : await resignOutputs(ctx, stored));
 };
 
+/** Admin delete: cancel an open job, then drop its row and its objects. */
+const deleteJob = async (
+  ctx: OwnerContext,
+  raw: unknown,
+): Promise<{ deleted: boolean; kind: "media_job"; id: string }> => {
+  const { jobId } = object({ jobId: string({ min: 1, max: 100 }) })(raw);
+  const row = getRow(ctx.db, jobId);
+  if (!row) return { deleted: false, kind: "media_job", id: jobId };
+  await cancelJob(ctx, { jobId });
+  ctx.db.run("DELETE FROM media_jobs WHERE job_id = ?", jobId);
+  const bucket = bucketOf(ctx);
+  const prefix = `${await mediaOwnerPrefix(ctx.ownerId)}${jobId}/`;
+  const listed = await bucket.list({ prefix, limit: 1_000 });
+  if (listed.objects.length > 0) await bucket.delete(listed.objects.map((object) => object.key));
+  return { deleted: true, kind: "media_job", id: jobId };
+};
+
 // ── Purge ────────────────────────────────────────────────────────────────
 
 /** Reset or deletion: cancel open fal requests, drop every row and every object. */
@@ -906,6 +923,7 @@ export const mediaDomain = {
     "media.falWebhook": falWebhook,
     "media.lookup": lookup,
     "media.cancelForTurn": (ctx: OwnerContext, raw: unknown) => cancelJob(ctx, lookupArgs(raw)),
+    "media.deleteJob": deleteJob,
   },
   jobs: {
     [MEDIA_POLL_JOB]: { run: runPoll },

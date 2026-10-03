@@ -108,6 +108,7 @@ import {
 } from "../request-ingress.js";
 import { verifyServiceBearerRequest } from "../service-bearer.js";
 import { handleBillingRoute } from "../billing/routes.js";
+import { handleAdminRoute } from "../admin/routes.js";
 import { handleStellaModelsRoute } from "../catalog/models.js";
 import { handleDevicesRoute } from "../devices/routes.js";
 import { validateTurnBrokerTarget } from "../turn-credential-broker.js";
@@ -972,6 +973,9 @@ const router = {
     // service secret themselves.
     const billingResponse = await handleBillingRoute(request, env);
     if (billingResponse) return billingResponse;
+    // Operator routes check STELLA_ADMIN_API_SECRET themselves.
+    const adminResponse = await handleAdminRoute(request, env);
+    if (adminResponse) return adminResponse;
     const devicesResponse = await handleDevicesRoute(request, env);
     if (devicesResponse) return devicesResponse;
     // Voice checks the user's JWT itself; the HLS GETs carry a signed ticket.

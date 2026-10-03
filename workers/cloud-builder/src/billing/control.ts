@@ -89,6 +89,8 @@ export class BillingControl extends WorkerEntrypoint<Env> implements BillingCont
       throw new Error("The owner id is invalid.");
     }
     return await this.env.OWNER_GATES.getByName(ownerId).ownerEnforcement();
+  }
+
   /**
    * A fresh access token for the owner's connected engine (the native lane),
    * from the engines domain in the owner's object. Refused as

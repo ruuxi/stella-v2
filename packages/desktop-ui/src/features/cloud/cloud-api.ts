@@ -30,5 +30,3 @@ export type CloudAgentThread = {
   createdAt: number;
   updatedAt: number;
 };
-
-};

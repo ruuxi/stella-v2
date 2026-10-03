@@ -879,6 +879,11 @@ const router = {
     if (request.method === "GET" && url.pathname === STELLA_PROMPTS_PATH) {
       return stellaPromptsResponse(request);
     }
+    // Identity: Better Auth, loaded on first use to keep it off other wakes.
+    if (url.pathname.startsWith("/api/auth/")) {
+      const { handleAuthRoute } = await import("../auth/routes.js");
+      return await handleAuthRoute(request, env);
+    }
 
     const worldRoute =
       /^\/internal\/worlds\/([0-9a-f]{64}:[0-9a-f]{64})\/(export|changes|push)$/u.exec(

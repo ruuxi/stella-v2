@@ -1260,6 +1260,24 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   async closeDevices(): Promise<void> {
     await this.billingWrite((ctx) => deleteTunnels(ctx, { idleOnly: false }));
   }
+
+  /**
+   * Account deletion, before the auth user row goes: end Stripe and the
+   * tunnels, then fence the owner for good and purge every store in delete
+   * mode. Returns the stores still pending.
+   */
+  async closeOwner(): Promise<{ pending: string[] }> {
+    await this.closeBilling();
+    await this.closeDevices();
+    const { runOwnerPurge } = await import("./owner-purge.js");
+    return await runOwnerPurge({
+      env: this.env as unknown as import("./build-session/shared/env.js").Env,
+      ownerId: this.ownerId(),
+      mode: "delete",
+      requestId: `close:${this.ownerId()}`,
+      purgeOwnerData: () => this.purgeOwnerData({ mode: "delete" }),
+    });
+  }
   private snapshotInflight: Promise<OwnerSnapshot> | null = null;
   private gatewayOwnerPreparation?: Promise<void>;
   private memoryPolicyState?: OwnerMemoryPolicy;

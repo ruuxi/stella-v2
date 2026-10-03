@@ -26,6 +26,8 @@ The build falls back to the tracked public backend URLs from
 `packages/desktop-ui/.env`. Set `NEXT_PUBLIC_CONVEX_URL` and, optionally,
 `NEXT_PUBLIC_CONVEX_SITE_URL` in `packages/website/.env.local` to override them
 for a different deployment. These are public client endpoints, not secrets.
+`NEXT_PUBLIC_X_BOT_URL` is the X bot worker's origin (`workers/x-bot`); the
+`/x/<handle>` pages read their runs from it and 404 when it is unset.
 
 ## Vercel
 

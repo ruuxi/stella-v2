@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DownloadButton } from "@/components/download-button";
-import { tryReadConvexSiteUrl } from "@/lib/convex-urls";
 import styles from "./x-handle-page.module.css";
 
 export const metadata: Metadata = {
@@ -20,7 +19,8 @@ const X_HANDLE_PATTERN = /^[A-Za-z0-9_]{1,15}$/;
 type XBotPageRun = {
   id: string;
   mentionId: string;
-  replyId: string;
+  // Null for runs recorded while the bot was in dry-run mode.
+  replyId: string | null;
   summonerUsername: string;
   posterUsername: string;
   headline: string;
@@ -35,12 +35,14 @@ type XBotPage = {
   runs: XBotPageRun[];
 };
 
+// The X bot worker (workers/x-bot) serves the runs.
+const X_BOT_URL = process.env.NEXT_PUBLIC_X_BOT_URL?.trim().replace(/\/+$/, "");
+
 const loadPage = async (handle: string): Promise<XBotPage | null> => {
-  const siteUrl = tryReadConvexSiteUrl();
-  if (!siteUrl) return null;
+  if (!X_BOT_URL) return null;
   try {
     const response = await fetch(
-      `${siteUrl}/api/x/bot/page/${encodeURIComponent(handle)}`,
+      `${X_BOT_URL}/page/${encodeURIComponent(handle)}`,
       { next: { revalidate } },
     );
     if (!response.ok) return null;
@@ -85,19 +87,21 @@ export default async function XHandlePage({
           <p className={styles.lede}>
             You asked about this on X. Here is what handing it to Stella looks
             like, and the prompt to paste in once it is installed. Stella is a
-            free AI assistant that works inside your apps, browser, files,
-            and terminal, and asks before anything that matters.
+            free AI assistant that works inside your apps, browser, files, and
+            terminal, and asks before anything that matters.
           </p>
           <div className={styles.actions}>
             <DownloadButton />
-            <a
-              className={styles.replyLink}
-              href={`https://x.com/i/status/${encodeURIComponent(latest.replyId)}`}
-              rel="noopener noreferrer"
-              target="_blank"
-            >
-              See the reply on X
-            </a>
+            {latest.replyId ? (
+              <a
+                className={styles.replyLink}
+                href={`https://x.com/i/status/${encodeURIComponent(latest.replyId)}`}
+                rel="noopener noreferrer"
+                target="_blank"
+              >
+                See the reply on X
+              </a>
+            ) : null}
           </div>
         </header>
 

@@ -470,7 +470,7 @@ describe("owner snapshot parsing", () => {
     }
   });
 
-  test("rejects malformed executions and engines", () => {
+  test("rejects malformed snapshots", () => {
     const base = sampleOwnerSnapshot();
     for (const broken of [
       { ...base, v: 2 },
@@ -483,9 +483,6 @@ describe("owner snapshot parsing", () => {
       { ...base, identityLevel: 4 },
       { ...base, enforcement: { status: "blocked" } },
       { ...base, enforcement: { status: "suspended", until: "later" } },
-      { ...base, execution: { ...base.execution, provider: "anthropic" } },
-      { ...base, execution: { ...base.execution, model: "" } },
-      { ...base, connectedEngines: ["gemini"] },
       { ...base, ttlMs: 0 },
     ]) {
       expect(parseOwnerSnapshot(broken, "owner-1")).toBeNull();

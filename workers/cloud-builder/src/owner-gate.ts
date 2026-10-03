@@ -48,7 +48,6 @@ import {
   GATEWAY_CAPABILITY_ISSUERS,
   GATEWAY_SESSION_CAPABILITY_TTL_MS,
   isManagedModelAudience,
-  type GatewayNativeCredentialProvider,
 } from "@stella/contracts/gateway/capability";
 import { signCapability } from "@stella/contracts/gateway/jwt";
 import type { GatewaySessionCapabilityResponse } from "@stella/contracts/gateway/api";
@@ -93,6 +92,7 @@ import {
   type SetEnforcementInput,
 } from "./owner-store/domains/abuse.js";
 import { deleteTunnels, handleMobileRoute, snapshotDevices, type MobileRouteInput } from "./owner-store/domains/devices.js";
+import { DEFAULT_EXECUTION, snapshotEngines } from "./owner-store/domains/engines.js";
 import type { StripeEvent } from "./billing/stripe.js";
 import { BillingConfigError } from "./billing/plans.js";
 import { capabilitySigningKey } from "./capability-signer.js";
@@ -469,11 +469,6 @@ const parseOwnerEnforcement = (value: unknown): OwnerEnforcement | null => {
   };
 };
 
-const NATIVE_ENGINES: readonly GatewayNativeCredentialProvider[] = [
-  "anthropic",
-  "openai-codex",
-];
-
 type PairedDevice = NonNullable<OwnerSnapshot["pairedDevices"]>[number];
 type SnapshotDevice = NonNullable<OwnerSnapshot["devices"]>[number];
 
@@ -575,33 +570,9 @@ export const parseOwnerSnapshot = (
       ? undefined
       : parseOwnerEnforcement(value.enforcement);
   if (value.enforcement !== undefined && !enforcement) return null;
-  // Plan and allowance come from the owner's own billing ledger (see
-  // `OwnerGate.snapshot`); Convex no longer serves them.
-  const execution = value.execution;
-  if (!isRecord(execution)) return null;
-  const pair = `${String(execution.engine)}/${String(execution.provider)}`;
-  if (
-    (pair !== "stella/stella" &&
-      pair !== "anthropic/anthropic" &&
-      pair !== "openai-codex/openai-codex") ||
-    typeof execution.model !== "string" ||
-    !execution.model.trim() ||
-    typeof execution.reasoningEffort !== "string" ||
-    !execution.reasoningEffort
-  ) {
-    return null;
-  }
-  let connectedEngines: GatewayNativeCredentialProvider[] | undefined;
-  if (value.connectedEngines !== undefined) {
-    if (!Array.isArray(value.connectedEngines)) return null;
-    connectedEngines = [];
-    for (const engine of value.connectedEngines) {
-      if (!NATIVE_ENGINES.includes(engine as GatewayNativeCredentialProvider)) {
-        return null;
-      }
-      connectedEngines.push(engine as GatewayNativeCredentialProvider);
-    }
-  }
+  // Plan and allowance come from the owner's own billing ledger, and the
+  // execution and connected engines from the engines domain (see
+  // `OwnerGate.snapshot`); Convex's copies are ignored.
   if (
     typeof value.fetchedAt !== "number" ||
     !Number.isFinite(value.fetchedAt) ||
@@ -624,13 +595,7 @@ export const parseOwnerSnapshot = (
       audience: value.isAnonymous ? "anonymous" : "free",
       budgetMicroCents: 0,
     },
-    execution: {
-      engine: execution.engine,
-      provider: execution.provider,
-      model: execution.model,
-      reasoningEffort: execution.reasoningEffort,
-    } as OwnerSnapshot["execution"],
-    ...(connectedEngines ? { connectedEngines } : {}),
+    execution: DEFAULT_EXECUTION,
     ...(Array.isArray(value.pairedDevices)
       ? { pairedDevices: parsePairedDevices(value.pairedDevices) }
       : {}),
@@ -1654,7 +1619,8 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
 
   /**
    * The owner's own data over the control-plane snapshot: devices and
-   * pairings, and the plan and turn allowance from the billing ledger. The
+   * pairings, the default execution and connected engines, and the plan and
+   * turn allowance from the billing ledger. The
    * identity Convex reports is noted on the ledger so allowance shares
    * follow sign-in changes.
    */
@@ -1665,7 +1631,12 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       // Enforcement lives in the abuse domain, not the control snapshot.
       const enforcement = enforcementForSnapshot(ctx);
       const { enforcement: _controlEnforcement, ...rest } = control;
-      const owned = { ...rest, ...(enforcement ? { enforcement } : {}), ...snapshotDevices(ctx.db) };
+      const owned = {
+        ...rest,
+        ...(enforcement ? { enforcement } : {}),
+        ...snapshotDevices(ctx.db),
+        ...snapshotEngines(ctx.db),
+      };
       let billing: ReturnType<typeof turnAllowance>;
       try {
         recordBillingIdentity(ctx, {

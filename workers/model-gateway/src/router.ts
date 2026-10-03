@@ -25,7 +25,6 @@ import {
   verifySessionDpop,
 } from "./capability.js";
 import { getGatewayConfig, type GatewayConfigStorage } from "./config-cache.js";
-import { createConvexClient, type ConvexClient } from "./convex-client.js";
 import {
   errorResponse,
   GatewayError,
@@ -177,7 +176,6 @@ const handleSessionCapability = async (
   request: Request,
   env: Env,
   deps: GatewayDeps,
-  convex: ConvexClient,
   traceId: string,
 ): Promise<Response> => {
   const token = bearerToken(request);
@@ -422,7 +420,6 @@ const handleRelay = async (
   request: Request,
   env: Env,
   deps: GatewayDeps,
-  convex: ConvexClient,
   traceId: string,
   localOwner?: LocalOwnerRelay,
 ): Promise<Response> => {
@@ -519,7 +516,6 @@ const handleRelay = async (
         request,
         env,
         deps,
-        convex,
         traceId,
         auth,
       });
@@ -584,7 +580,6 @@ export const handleRequest = async (
 ): Promise<Response> => {
   const traceId = crypto.randomUUID();
   const url = new URL(request.url);
-  const convex = createConvexClient(env, deps.fetch);
   try {
     if (
       localOwner &&
@@ -606,7 +601,7 @@ export const handleRequest = async (
     if (url.pathname === GATEWAY_SESSION_CAPABILITY_PATH) {
       if (request.method !== "POST")
         throw new GatewayError(405, "bad_request", "Method not allowed.");
-      return await handleSessionCapability(request, env, deps, convex, traceId);
+      return await handleSessionCapability(request, env, deps, traceId);
     }
     if (
       url.pathname === GATEWAY_RESOLVE_PATH ||
@@ -630,7 +625,7 @@ export const handleRequest = async (
     ) {
       if (request.method !== "POST")
         throw new GatewayError(405, "bad_request", "Method not allowed.");
-      return await handleRelay(request, env, deps, convex, traceId, localOwner);
+      return await handleRelay(request, env, deps, traceId, localOwner);
     }
     throw new GatewayError(404, "bad_request", "Not found.");
   } catch (error) {

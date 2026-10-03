@@ -21,6 +21,7 @@ import { mediaDomain } from "./domains/media.js";
 import { voiceDomain } from "./domains/voice.js";
 import { abuseDomain } from "./domains/abuse.js";
 import { integrationsDomain } from "./domains/integrations.js";
+import { enginesDomain } from "./domains/engines.js";
 import { RATE_LIMIT_MIGRATION } from "./rate-limit.js";
 import { createOwnerRegistry, type OwnerDomain } from "./registry.js";
 
@@ -55,6 +56,7 @@ export const ownerDomains: OwnerDomain[] = [
   voiceDomain,
   abuseDomain,
   integrationsDomain,
+  enginesDomain,
 ];
 
 export const ownerRegistry = createOwnerRegistry(ownerDomains);

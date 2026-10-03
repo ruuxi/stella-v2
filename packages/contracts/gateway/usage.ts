@@ -85,6 +85,7 @@ export const CONVEX_GATEWAY_CONFIG_PATH = "/api/gateway/config" as const;
 /** Abuse admission for a session exchange; the owner object calls it before reserving budget. */
 export const CONVEX_GATEWAY_SESSION_ADMISSION_PATH =
   "/api/gateway/session-admission" as const;
+/** Dead: the native lane uses `BillingControl.engineAccess`. Removed with the Convex sweep. */
 export const CONVEX_GATEWAY_ENGINE_ACCESS_PATH =
   "/api/gateway/engine-access" as const;
 export const CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH =
@@ -200,6 +201,10 @@ export type BillingControlRpc = {
   gatewayConfig(): Promise<GatewayConfigSnapshot>;
   /** One owner's enforcement, seeding the gateway's owner object; throws while unavailable. */
   ownerEnforcement(ownerId: string): Promise<ConvexOwnerEnforcementState>;
+  /** A fresh access token for the owner's connected engine, for the native lane. */
+  engineAccess(
+    request: EngineAccessRequest,
+  ): Promise<BillingControlResult<EngineAccessResponse>>;
 };
 
 /** Convex answers the exchange with this when step-up is required and no valid token came. */
@@ -207,16 +212,20 @@ export const CONVEX_SESSION_CHALLENGE_REQUIRED = "challenge_required" as const;
 
 export type { IdentityLevel };
 
-/** `POST /api/gateway/engine-access` request/response for the native lane. */
-export type ConvexEngineAccessRequest = {
+/** `BillingControl.engineAccess` request/response for the native lane. */
+export type EngineAccessRequest = {
   ownerId: string;
   ownerGeneration: string;
   provider: "anthropic" | "openai-codex";
 };
 
-export type ConvexEngineAccessResponse = {
+export type EngineAccessResponse = {
   accessToken: string;
   accountId?: string;
   /** Absolute ms timestamp; the gateway must not cache past this. */
   expiresAt: number;
 };
+
+/** The dead Convex `/api/gateway/engine-access` route's names, until its sweep. */
+export type ConvexEngineAccessRequest = EngineAccessRequest;
+export type ConvexEngineAccessResponse = EngineAccessResponse;

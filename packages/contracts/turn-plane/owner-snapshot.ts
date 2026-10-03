@@ -41,7 +41,10 @@ export type OwnerSnapshot = {
     budgetMicroCents: number;
     maxRequests?: number;
   };
-  /** Owner default execution used when a turn does not pin one. */
+  /**
+   * Owner default execution used when a turn does not pin one. The gate
+   * fills it from the owner's engines domain; Convex's copy is ignored.
+   */
   execution: CloudExecutionSelection;
   /**
    * Paired mobile devices allowed to submit against this owner's desktops
@@ -79,7 +82,8 @@ export type OwnerSnapshot = {
   /**
    * Engines the owner has a live connected credential for. Lets the gate
    * refuse (or fall back from) an execution whose engine cannot be honoured
-   * before it mints a `credential` turn capability.
+   * before it mints a `credential` turn capability. Filled by the gate from
+   * the owner's engines domain, like `execution`.
    */
   connectedEngines?: Array<"anthropic" | "openai-codex">;
   fetchedAt: number;

@@ -10,7 +10,7 @@ import type {
 } from "@stella/contracts/gateway/capability";
 import {
   GATEWAY_USAGE_EVENT_VERSION,
-  type ConvexEngineAccessResponse,
+  type EngineAccessResponse,
   type GatewayUsageEvent,
   type GatewayUsageTokens,
 } from "@stella/contracts/gateway/usage";
@@ -27,7 +27,7 @@ import {
   verifySessionDpop,
   type AuthenticatedCapability,
 } from "./capability.js";
-import type { ConvexClient } from "./convex-client.js";
+import { billingControl } from "./billing-control.js";
 import { GatewayError } from "./errors.js";
 import {
   agentTypeFrom,
@@ -53,7 +53,7 @@ export const ENGINE_ACCESS_EXPIRY_MARGIN_MS = 60_000;
 const MAX_USAGE_PARSE_BYTES = 4 * 1024 * 1024;
 
 type EngineAccessEntry = {
-  access: ConvexEngineAccessResponse;
+  access: EngineAccessResponse;
   validUntil: number;
 };
 const engineAccessCache = new Map<string, EngineAccessEntry>();
@@ -63,19 +63,27 @@ export const resetEngineAccessCacheForTests = (): void => {
 };
 
 const engineAccessFor = async (
-  convex: ConvexClient,
+  env: Pick<Env, "BILLING">,
   claims: GatewayCapabilityClaims,
   provider: GatewayNativeCredentialProvider,
   now: number,
-): Promise<ConvexEngineAccessResponse> => {
+): Promise<EngineAccessResponse> => {
   const key = `${claims.sub}|${claims.gen}|${provider}`;
   const hit = engineAccessCache.get(key);
   if (hit && hit.validUntil > now) return hit.access;
-  const result = await convex.engineAccess({
-    ownerId: claims.sub,
-    ownerGeneration: claims.gen,
-    provider,
-  });
+  // BillingControl reports refusals as data; a throw is a transport failure.
+  const result = await billingControl(env)
+    .engineAccess({
+      ownerId: claims.sub,
+      ownerGeneration: claims.gen,
+      provider,
+    })
+    .catch(() => ({
+      ok: false as const,
+      status: null,
+      code: null,
+      retryable: true,
+    }));
   if (!result.ok) {
     if (result.code) {
       throw new GatewayError(
@@ -140,11 +148,10 @@ export const handleNativeRelay = async (args: {
   request: Request;
   env: Env;
   deps: GatewayDeps;
-  convex: ConvexClient;
   traceId: string;
   auth: AuthenticatedCapability;
 }): Promise<Response> => {
-  const { request, env, deps, convex, traceId } = args;
+  const { request, env, deps, traceId } = args;
   const { claims, probe } = args.auth;
   const credential = claims.credential;
   if (!credential)
@@ -206,7 +213,7 @@ export const handleNativeRelay = async (args: {
     );
   }
 
-  const access = await engineAccessFor(convex, claims, credential, deps.now());
+  const access = await engineAccessFor(env, claims, credential, deps.now());
   const userCredential: NativeRelayCredential = {
     provider: credential,
     accessToken: access.accessToken,

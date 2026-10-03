@@ -4,12 +4,15 @@ import type {
   BillingControlRpc,
   ConvexOwnerEnforcementState,
   ConvexSessionCapabilityRequest,
+  EngineAccessRequest,
+  EngineAccessResponse,
   GatewayConfigSnapshot,
   GatewayUsageBatch,
   GatewayUsageBatchResult,
   GatewayUsageEvent,
 } from "@stella/contracts/gateway/usage";
 import type { GatewaySessionCapabilityResponse } from "@stella/contracts/gateway/api";
+import type { RpcResponse } from "@stella/contracts/backend/protocol";
 import { dollarsToMicroCents } from "@stella/model-catalog/pricing";
 import { readManagedModelPrices } from "../catalog/prices.js";
 import { billingConfig } from "./plans.js";
@@ -86,6 +89,49 @@ export class BillingControl extends WorkerEntrypoint<Env> implements BillingCont
       throw new Error("The owner id is invalid.");
     }
     return await this.env.OWNER_GATES.getByName(ownerId).ownerEnforcement();
+  /**
+   * A fresh access token for the owner's connected engine (the native lane),
+   * from the engines domain in the owner's object. Refused as
+   * `generation_stale` when the capability predates an owner reset.
+   */
+  async engineAccess(
+    request: EngineAccessRequest,
+  ): Promise<BillingControlResult<EngineAccessResponse>> {
+    if (
+      typeof request?.ownerId !== "string" ||
+      !request.ownerId ||
+      request.ownerId.length > 512 ||
+      typeof request.ownerGeneration !== "string" ||
+      !request.ownerGeneration ||
+      (request.provider !== "anthropic" && request.provider !== "openai-codex")
+    ) {
+      return { ok: false, status: 400, code: "bad_request", retryable: false };
+    }
+    try {
+      const response = (await this.env.OWNER_GATES.getByName(request.ownerId).ownerInternal({
+        name: "engines.access",
+        args: { provider: request.provider },
+        ownerGeneration: request.ownerGeneration,
+      })) as unknown as RpcResponse;
+      if (response.ok) {
+        const access = response.value as EngineAccessResponse | null;
+        return access
+          ? { ok: true, body: access }
+          : { ok: false, status: 404, code: null, retryable: false };
+      }
+      if (response.error.reason === "owner_generation_stale") {
+        return { ok: false, status: 409, code: "generation_stale", retryable: false };
+      }
+      return { ok: false, status: 503, code: null, retryable: response.error.retryable };
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          event: "billing_engine_access_failed",
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
+      return { ok: false, status: null, code: null, retryable: true };
+    }
   }
 
   /** Settle a batch. Throws when any owner's share should be redelivered. */

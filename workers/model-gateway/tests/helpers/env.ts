@@ -610,30 +610,37 @@ export const createTestEnv = (overrides: Record<string, unknown> = {}) => {
   // cloud-builder's BillingControl, served by the test's fetch mock at the
   // control-plane paths the tests already stub.
   let billingFetch: typeof fetch = () => Promise.reject(new Error("no fetch"));
+  const billingCall = async (path: string, request: unknown) => {
+    let response: Response;
+    try {
+      response = await billingFetch(`${CONVEX_SITE}${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(request),
+      });
+    } catch {
+      return { ok: false, status: null, code: null, retryable: true };
+    }
+    const body = (await response.json().catch(() => null)) as {
+      error?: string | { code?: string };
+    } | null;
+    if (response.ok) return { ok: true, body };
+    const code =
+      typeof body?.error === "string"
+        ? body.error
+        : (body?.error?.code ?? null);
+    return {
+      ok: false,
+      status: response.status,
+      code,
+      retryable: response.status >= 500 || response.status === 429,
+    };
+  };
   const billing = {
-    issueSessionCapability: async (request: unknown) => {
-      let response: Response;
-      try {
-        response = await billingFetch(`${CONVEX_SITE}/api/gateway/session-capability`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(request),
-        });
-      } catch {
-        return { ok: false, status: null, code: null, retryable: true };
-      }
-      const body = (await response.json().catch(() => null)) as
-        | { error?: string | { code?: string } }
-        | null;
-      if (response.ok) return { ok: true, body };
-      const code = typeof body?.error === "string" ? body.error : (body?.error?.code ?? null);
-      return {
-        ok: false,
-        status: response.status,
-        code,
-        retryable: response.status >= 500 || response.status === 429,
-      };
-    },
+    issueSessionCapability: (request: unknown) =>
+      billingCall("/api/gateway/session-capability", request),
+    engineAccess: (request: unknown) =>
+      billingCall("/api/gateway/engine-access", request),
     ingestUsage: async () => ({ accepted: [], duplicate: [], rejected: [] }),
     gatewayConfig: () => billingConfigLoader(billingFetch)(),
     ownerEnforcement: async (ownerId: string) => {

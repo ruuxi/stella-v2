@@ -14,7 +14,6 @@ import {
   OWNER_ID,
   readError,
   relayRequest,
-  SERVICE_SECRET,
   signSession,
   signTurn,
   sseText,
@@ -175,9 +174,6 @@ describe("native lane", () => {
     const access = ctx.fetchMock.calls.find(
       (call) => call.url.pathname === "/api/gateway/engine-access",
     )!;
-    expect(access.headers.get("authorization")).toBe(
-      `Bearer ${SERVICE_SECRET}`,
-    );
     expect(JSON.parse(access.body ?? "{}")).toEqual({
       ownerId: OWNER_ID,
       ownerGeneration: "gen-1",

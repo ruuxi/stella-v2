@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 const action = vi.fn();
-vi.mock("@/platform/convex/convex-client", () => ({
-  convexClient: { action },
+vi.mock("@/platform/backend/backend-client", () => ({
+  backendClient: { call: action },
 }));
 
 class SuccessfulUploadRequest {

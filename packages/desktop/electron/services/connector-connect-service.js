@@ -62,7 +62,7 @@ export class ConnectorConnectService {
             return { ok: false, reason: "unsupported" };
         }
         const target = await resolveDesktopNativeConnectorEntry({
-            getConvexAuthToken: this.options.getConvexAuthToken,
+            getAuthToken: this.options.getAuthToken,
             getBackendUrl: this.options.getBackendUrl,
         }, stellaAppDir, payload.id.trim().toLowerCase());
         const { entry } = target;
@@ -268,7 +268,7 @@ export class ConnectorConnectService {
         }
         const credentialService = this.options.connectorCredentialService;
         const flowOptions = {
-            getConvexAuthToken: this.options.getConvexAuthToken,
+            getAuthToken: this.options.getAuthToken,
             getBackendUrl: this.options.getBackendUrl,
             // Cancels the backend Composio completion wait too, so a
             // dismissed/aborted card doesn't keep polling for minutes.

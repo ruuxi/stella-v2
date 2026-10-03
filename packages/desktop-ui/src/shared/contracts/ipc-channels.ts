@@ -161,7 +161,8 @@ export const IPC_AUTH_SIGN_IN_ANONYMOUS = "auth:signInAnonymous" as const;
 export const IPC_AUTH_SIGN_OUT = "auth:signOut" as const;
 export const IPC_AUTH_DELETE_USER = "auth:deleteUser" as const;
 export const IPC_AUTH_APPLY_SESSION_TOKEN = "auth:applySessionToken" as const;
-export const IPC_AUTH_GET_CONVEX_TOKEN = "auth:getConvexToken" as const;
+export const IPC_AUTH_GET_TOKEN = "auth:getToken" as const;
+export const IPC_AUTH_REVOKE_SESSIONS = "auth:revokeSessions" as const;
 export const IPC_HOST_SET_CLOUD_SYNC = "host:setCloudSyncEnabled" as const;
 
 // Main revoked this device's session on its own (the stored bearer was

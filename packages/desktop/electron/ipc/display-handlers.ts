@@ -22,14 +22,14 @@ import type { LocalChatHistoryService } from "../services/local-chat-history-ser
 import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
 import type { LocalChatEventRecord } from "@stella/runtime/kernel/storage/shared";
 import { planDisplayFileRead } from "./display-read-limit.js";
-import { resolveConvexJwtOwnerScope } from "@stella/runtime/kernel/runner/computer-agent-cloud-records";
+import { resolveJwtOwnerScope } from "@stella/runtime/kernel/runner/computer-agent-cloud-records";
 import { resolveCanonicalConversationFilePaths } from "../services/canonical-conversation-file-paths.js";
 
 type DisplayHandlersOptions = {
   getStellaAppDir: () => string | null;
   getStellaDataDir: () => string | null;
   localChatHistoryService?: LocalChatHistoryService;
-  getConvexAuthToken?: () => Promise<string | null>;
+  getAuthToken?: () => Promise<string | null>;
   assertPrivilegedSender: (
     event: IpcMainEvent | IpcMainInvokeEvent,
     channel: string,
@@ -272,8 +272,8 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
             : await resolveCanonicalConversationFilePaths(
                 options.localChatHistoryService.listCanonicalFilePaths(
                   conversationId,
-                  resolveConvexJwtOwnerScope(
-                    await options.getConvexAuthToken?.().catch(() => null),
+                  resolveJwtOwnerScope(
+                    await options.getAuthToken?.().catch(() => null),
                   ),
                 ),
               );

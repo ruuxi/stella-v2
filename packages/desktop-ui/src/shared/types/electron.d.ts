@@ -624,8 +624,7 @@ export type ElectronSystemApi = {
   startPhoneAccessSession: () => Promise<{ ok: boolean }>;
   stopPhoneAccessSession: () => Promise<{ ok: boolean }>;
   configurePiRuntime: (config: {
-    convexUrl?: string;
-    convexSiteUrl?: string;
+    backendUrl: string;
   }) => Promise<{ deviceId: string | null }>;
   getAuthSession: (options?: {
     allowCached?: boolean;
@@ -635,7 +634,8 @@ export type ElectronSystemApi = {
   signOutAuth: () => Promise<{ ok: boolean }>;
   deleteAuthUser: () => Promise<{ ok: boolean }>;
   applyAuthSessionToken: (sessionToken: string) => Promise<{ ok: boolean }>;
-  getConvexAuthToken: () => Promise<string | null>;
+  getAuthToken: () => Promise<string | null>;
+  revokeAuthSessions: () => Promise<{ ok: boolean }>;
   setCloudSyncEnabled: (payload: {
     enabled: boolean;
   }) => Promise<{ ok: boolean }>;

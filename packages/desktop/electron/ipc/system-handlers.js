@@ -21,7 +21,7 @@ import { deleteLocalLlmCredential, getLocalLlmCredential, listLocalLlmCredential
 import { cleanupRetiredLocalLlmOAuthCredentials, deleteLocalLlmOAuthCredential, getLocalLlmOAuthApiKey, listLocalLlmOAuthCredentials, saveLocalLlmOAuthCredential, } from "@stella/runtime/kernel/storage/llm-oauth-credentials";
 import { getOAuthProvider, getOAuthProviders, } from "@stella/runtime/ai/utils/oauth";
 import { isRuntimeUnavailableError } from "@stella/contracts/protocol/rpc-peer";
-import { IPC_APP_QUIT_FOR_RESTART, IPC_AUTH_APPLY_SESSION_TOKEN, IPC_AUTH_DELETE_USER, IPC_AUTH_GET_CONVEX_TOKEN, IPC_AUTH_GET_SESSION, IPC_AUTH_SIGN_IN_ANONYMOUS, IPC_AUTH_SIGN_OUT, IPC_DIAGNOSTICS_EXPORT_LOGS, IPC_DIAGNOSTICS_RECORD_HEAP_TRACE, IPC_DIAGNOSTICS_REPORT_ERROR, IPC_DIAGNOSTICS_REPORT_TIMING, IPC_DIAGNOSTICS_OPEN_LOGS, IPC_GLOBAL_SHORTCUTS_GET_SUSPENDED, IPC_GLOBAL_SHORTCUTS_SET_SUSPENDED, IPC_SYSTEM_OPEN_FDA, IPC_PERMISSIONS_GET_STATUS, IPC_PERMISSIONS_OPEN_SETTINGS, IPC_PERMISSIONS_REQUEST, IPC_PERMISSIONS_RESET, IPC_PERMISSIONS_RESET_MICROPHONE, IPC_SHELL_SAVE_FILE_AS, IPC_CUSTOMIZATIONS_RESET, IPC_PROMPT_PRESETS_LIST, IPC_PROMPT_PRESETS_READ, IPC_PROMPT_PRESETS_SAVE, IPC_PROMPT_PRESETS_DELETE, IPC_PROMPT_PRESETS_SELECT, IPC_PREFERENCES_GET_MODELS, IPC_PREFERENCES_LIST_CODEX_MODELS, IPC_PREFERENCES_LIST_CLAUDE_CODE_MODELS, IPC_PREFERENCES_LIST_MODELS, IPC_PREFERENCES_GET_ONBOARDING_COMPLETED, IPC_PREFERENCES_GET_PREVENT_SLEEP, IPC_PREFERENCES_GET_LOCKED_COMPUTER_USE, IPC_PREFERENCES_GET_SOUND_NOTIFICATIONS, IPC_PREFERENCES_SET_MODELS, IPC_PREFERENCES_SET_ONBOARDING_COMPLETED, IPC_PREFERENCES_SET_PREVENT_SLEEP, IPC_PREFERENCES_SET_LOCKED_COMPUTER_USE, IPC_PREFERENCES_SET_SOUND_NOTIFICATIONS, IPC_PREFERENCES_GET_READ_ALOUD, IPC_PREFERENCES_READ_ALOUD_CHANGED, IPC_PREFERENCES_SET_READ_ALOUD, IPC_VOICE_PREFERENCES_CHANGED, } from "@stella/contracts/desktop/ipc-channels";
+import { IPC_APP_QUIT_FOR_RESTART, IPC_AUTH_APPLY_SESSION_TOKEN, IPC_AUTH_DELETE_USER, IPC_AUTH_GET_SESSION, IPC_AUTH_GET_TOKEN, IPC_AUTH_REVOKE_SESSIONS, IPC_AUTH_SIGN_IN_ANONYMOUS, IPC_AUTH_SIGN_OUT, IPC_DIAGNOSTICS_EXPORT_LOGS, IPC_DIAGNOSTICS_RECORD_HEAP_TRACE, IPC_DIAGNOSTICS_REPORT_ERROR, IPC_DIAGNOSTICS_REPORT_TIMING, IPC_DIAGNOSTICS_OPEN_LOGS, IPC_GLOBAL_SHORTCUTS_GET_SUSPENDED, IPC_GLOBAL_SHORTCUTS_SET_SUSPENDED, IPC_SYSTEM_OPEN_FDA, IPC_PERMISSIONS_GET_STATUS, IPC_PERMISSIONS_OPEN_SETTINGS, IPC_PERMISSIONS_REQUEST, IPC_PERMISSIONS_RESET, IPC_PERMISSIONS_RESET_MICROPHONE, IPC_SHELL_SAVE_FILE_AS, IPC_CUSTOMIZATIONS_RESET, IPC_PROMPT_PRESETS_LIST, IPC_PROMPT_PRESETS_READ, IPC_PROMPT_PRESETS_SAVE, IPC_PROMPT_PRESETS_DELETE, IPC_PROMPT_PRESETS_SELECT, IPC_PREFERENCES_GET_MODELS, IPC_PREFERENCES_LIST_CODEX_MODELS, IPC_PREFERENCES_LIST_CLAUDE_CODE_MODELS, IPC_PREFERENCES_LIST_MODELS, IPC_PREFERENCES_GET_ONBOARDING_COMPLETED, IPC_PREFERENCES_GET_PREVENT_SLEEP, IPC_PREFERENCES_GET_LOCKED_COMPUTER_USE, IPC_PREFERENCES_GET_SOUND_NOTIFICATIONS, IPC_PREFERENCES_SET_MODELS, IPC_PREFERENCES_SET_ONBOARDING_COMPLETED, IPC_PREFERENCES_SET_PREVENT_SLEEP, IPC_PREFERENCES_SET_LOCKED_COMPUTER_USE, IPC_PREFERENCES_SET_SOUND_NOTIFICATIONS, IPC_PREFERENCES_GET_READ_ALOUD, IPC_PREFERENCES_READ_ALOUD_CHANGED, IPC_PREFERENCES_SET_READ_ALOUD, IPC_VOICE_PREFERENCES_CHANGED, } from "@stella/contracts/desktop/ipc-channels";
 import { resolveNativeHelperPath } from "../native-helper-path.js";
 import { hasMacPermission, clearPermissionCache, getMicrophonePermissionStatus, requestMacPermission, resetMacMicrophonePermissions, resetMacPermission, } from "../utils/macos-permissions.js";
 import { waitForConnectedRunner } from "./runtime-availability.js";
@@ -525,17 +525,9 @@ export const registerSystemHandlers = (options) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, "host:configurePiRuntime")) {
             throw new Error("Blocked untrusted host configuration request.");
         }
-        const convexUrl = sanitizeOptionalHttpUrl(config?.convexUrl, "convexUrl");
-        const convexSiteUrl = sanitizeOptionalHttpUrl(config?.convexSiteUrl, "convexSiteUrl");
         const backendUrl = sanitizeOptionalHttpUrl(config?.backendUrl, "backendUrl");
-        if (convexUrl) {
-            options.authService.configurePiRuntime({
-                convexUrl,
-                convexSiteUrl,
-                backendUrl,
-            });
-            if (convexSiteUrl) {
-            }
+        if (backendUrl) {
+            options.authService.configurePiRuntime({ backendUrl });
         }
         return { deviceId: options.getDeviceId() };
     });
@@ -577,11 +569,18 @@ export const registerSystemHandlers = (options) => {
         }
         return await options.authService.applySessionToken(typeof payload?.sessionToken === "string" ? payload.sessionToken : "");
     });
-    ipcMain.handle(IPC_AUTH_GET_CONVEX_TOKEN, async (event) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "auth:getConvexToken")) {
-            throw new Error("Blocked untrusted Convex token request.");
+    ipcMain.handle(IPC_AUTH_GET_TOKEN, async (event) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_AUTH_GET_TOKEN)) {
+            throw new Error("Blocked untrusted auth token request.");
         }
-        return await options.authService.getConvexAuthToken();
+        const result = await options.authService.getAuthTokenResult();
+        return result.ok ? result.token : null;
+    });
+    ipcMain.handle(IPC_AUTH_REVOKE_SESSIONS, async (event) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_AUTH_REVOKE_SESSIONS)) {
+            throw new Error("Blocked untrusted session revocation request.");
+        }
+        return await options.authService.revokeSessions();
     });
     ipcMain.handle("host:setCloudSyncEnabled", (event, payload) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, "host:setCloudSyncEnabled")) {

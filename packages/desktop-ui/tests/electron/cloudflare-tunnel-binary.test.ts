@@ -22,7 +22,7 @@ const { CloudflareTunnelService } = await import(
 const createService = (getCloudflaredBinDir?: () => string | null) =>
   new CloudflareTunnelService({
     getAuthToken: async () => "desktop-token",
-    getConvexSiteUrl: () => "https://example.convex.site",
+    getBackendUrl: () => "https://backend.example.test",
     getDeviceId: () => "desktop-device",
     ...(getCloudflaredBinDir ? { getCloudflaredBinDir } : {}),
     onTunnelUrl: vi.fn(),

@@ -76,7 +76,7 @@ export type NativeIntegrationHandlersOptions = {
     | { ok: false; reason: "cancelled" | "timeout" | "unsupported" | string }
   >;
   disconnectGoogleWorkspace?: () => Promise<{ ok: boolean }>;
-  getConvexAuthToken?: () => Promise<string | null>;
+  getAuthToken?: () => Promise<string | null>;
   getBackendUrl?: () => string | null;
   assertPrivilegedSender: (
     event: IpcMainEvent | IpcMainInvokeEvent,
@@ -95,7 +95,7 @@ export type NativeCredentialFlowOptions = Pick<
   | "requestPreregisteredOAuth"
   | "requestDeviceOAuth"
   | "requestExternalOAuthApproval"
-  | "getConvexAuthToken"
+  | "getAuthToken"
   | "getBackendUrl"
 > & {
   /**
@@ -145,7 +145,7 @@ export const loadConfiguredOAuthProviders = async (
 ) => {
   const backendUrl = options.getBackendUrl?.()?.trim().replace(/\/+$/u, "");
   if (!backendUrl) return emptyConfiguredOAuthProviders();
-  const authToken = await options.getConvexAuthToken?.();
+  const authToken = await options.getAuthToken?.();
   if (!authToken) return emptyConfiguredOAuthProviders();
   const response = await fetch(`${backendUrl}/api/native-oauth/providers`, {
     headers: {
@@ -231,7 +231,7 @@ export const resolveDesktopNativeConnectorCatalog = async (
     stellaDataDir: stellaAppDir,
     getBackendAuth: async () => {
       const baseUrl = options.getBackendUrl?.()?.trim().replace(/\/+$/u, "");
-      const authToken = (await options.getConvexAuthToken?.())?.trim() ?? "";
+      const authToken = (await options.getAuthToken?.())?.trim() ?? "";
       return baseUrl && authToken ? { baseUrl, authToken } : null;
     },
   });
@@ -312,7 +312,7 @@ export const ensureNativeCredential = async (
     // not turn into an implicit "connected".
     const backendUrl = options.getBackendUrl?.()?.trim().replace(/\/+$/u, "");
     if (!backendUrl) throw new Error("Stella backend is unavailable.");
-    const authToken = await options.getConvexAuthToken?.();
+    const authToken = await options.getAuthToken?.();
     if (!authToken) {
       throw new Error(`Sign in to Stella before connecting ${entry.name}.`);
     }

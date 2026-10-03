@@ -23,15 +23,12 @@ import type { SourceTools } from "./tools.js";
 const toPosix = (value: string) => value.replace(/\\/g, "/");
 const ASSETS = "assets";
 
-const KNOWN_DEPLOYMENTS: Record<string, string> = {
-  "https://outgoing-bulldog-865.convex.cloud": "dev",
-  "https://intent-jackal-330.convex.cloud": "prod",
-  "https://basic-nightingale-118.convex.cloud": "basic-nightingale-118",
-};
+/** `stella-v2-cloud-builder-<suffix>` backends pair with the same-suffix Apps host. */
+const BACKEND_SUFFIX = /^https:\/\/stella-v2-cloud-builder-([a-z0-9-]+)\.lolruuxi\.workers\.dev$/;
 
 /**
  * The website's public config: `VITE_*`, then the website's `NEXT_PUBLIC_*`
- * twin, then desktop-ui's `.env` files. The Apps hosts follow the backend.
+ * twin, then desktop-ui's `.env` files. The Apps host follows the backend.
  */
 export const webBuildEnv = (
   uiRoot: string,
@@ -42,31 +39,20 @@ export const webBuildEnv = (
     processEnv[`VITE_${name}`] ||
     processEnv[`NEXT_PUBLIC_${name}`] ||
     (typeof base[`VITE_${name}`] === "string" ? (base[`VITE_${name}`] as string) : "");
-  const convexUrl = pick("CONVEX_URL");
-  const convexSiteUrl =
-    processEnv.VITE_CONVEX_SITE_URL ||
-    processEnv.NEXT_PUBLIC_CONVEX_SITE_URL ||
-    (convexUrl.endsWith(".convex.cloud")
-      ? `${convexUrl.slice(0, -".convex.cloud".length)}.convex.site`
-      : pick("CONVEX_SITE_URL"));
-  const suffix = KNOWN_DEPLOYMENTS[convexUrl];
+  const backendUrl = pick("STELLA_BACKEND_URL").trim().replace(/\/+$/, "");
+  const suffix = BACKEND_SUFFIX.exec(backendUrl)?.[1];
   const appsHost =
     pick("STELLA_APPS_HOST") ||
     (suffix ? `https://stella-v2-apps-host-${suffix}.lolruuxi.workers.dev` : "");
-  const appsAuthHost =
-    pick("STELLA_APPS_AUTH_HOST") ||
-    (suffix ? `https://stella-v2-apps-auth-${suffix}.lolruuxi.workers.dev` : "");
-  if (!appsHost || !appsAuthHost) {
-    throw new Error("Configure both Stella Apps host origins for this backend.");
+  if (!backendUrl || !appsHost) {
+    throw new Error("Configure the Stella backend and Apps host origins.");
   }
   return {
     ...base,
     VITE_STELLA_WEB_BUILD: "1",
-    VITE_CONVEX_URL: convexUrl,
-    VITE_CONVEX_SITE_URL: convexSiteUrl,
+    VITE_STELLA_BACKEND_URL: backendUrl,
     VITE_TURNSTILE_SITE_KEY: pick("TURNSTILE_SITE_KEY"),
     VITE_STELLA_APPS_HOST: appsHost,
-    VITE_STELLA_APPS_AUTH_HOST: appsAuthHost,
     BASE_URL: "./",
   };
 };
@@ -284,8 +270,7 @@ export const buildWebRenderer = async (options: WebBuildOptions): Promise<{ file
       return null;
     }
   };
-  const cloud = originOf(options.env.VITE_CONVEX_URL);
-  const site = originOf(options.env.VITE_CONVEX_SITE_URL);
+  const backend = originOf(options.env.VITE_STELLA_BACKEND_URL);
   html = html
     .replace(LAUNCH_RESCUE, "")
     .replace(
@@ -303,8 +288,7 @@ export const buildWebRenderer = async (options: WebBuildOptions): Promise<{ file
     .replace(
       "</head>",
       [
-        ...(cloud ? [`  <link rel="preconnect" href="${cloud}">`] : []),
-        ...(site ? [`  <link rel="preconnect" href="${site}" crossorigin="anonymous">`] : []),
+        ...(backend ? [`  <link rel="preconnect" href="${backend}" crossorigin="anonymous">`] : []),
         "</head>",
       ].join("\n  "),
     );

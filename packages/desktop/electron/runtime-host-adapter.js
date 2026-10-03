@@ -2,7 +2,7 @@ import { withConversationStorage } from "./cloud-conversation-mode.js";
 import { AGENT_STREAM_EVENT_TYPES, isTaskLifecycleEventType, isTaskLifecycleTerminalType, } from "@stella/contracts/agent-runtime";
 import { RemoteRuntimeHost } from "@stella/runtime/host/remote";
 import { createRuntimeUnavailableError } from "@stella/contracts/protocol/rpc-peer";
-import { readConfiguredStellaSiteUrl } from "@stella/contracts/convex-urls";
+import { readConfiguredBackendUrl } from "@stella/contracts/stella-api";
 
 const isRunTerminalEvent = (type) => type === AGENT_STREAM_EVENT_TYPES.RUN_FINISHED;
 /**
@@ -428,12 +428,6 @@ export class RuntimeHostAdapter {
         }
         await this.waitForAvailability((snapshot) => snapshot.connected, timeoutMs, "Stella runtime client is not connected.");
     }
-    setConvexUrl(value) {
-        this.queueRuntimeConfigPatch({ convexUrl: value });
-    }
-    setConvexSiteUrl(value) {
-        this.queueRuntimeConfigPatch({ convexSiteUrl: value });
-    }
     setBackendUrl(value) {
         this.queueRuntimeConfigPatch({ backendUrl: value ?? null });
     }
@@ -453,7 +447,7 @@ export class RuntimeHostAdapter {
         });
     }
     getStellaSiteAuth() {
-        const baseUrl = readConfiguredStellaSiteUrl(this.pendingConfig.convexSiteUrl ?? null);
+        const baseUrl = readConfiguredBackendUrl(this.pendingConfig.backendUrl ?? null);
         const authToken = this.pendingConfig.authToken?.trim() || null;
         if (!baseUrl || !authToken) {
             return null;

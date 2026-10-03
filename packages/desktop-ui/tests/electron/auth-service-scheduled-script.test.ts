@@ -36,7 +36,7 @@ vi.mock("electron", () => ({
 import { AuthService } from "@stella/desktop/electron/services/auth-service.js";
 import { protectValue } from "@stella/runtime/kernel/shared/protected-storage";
 
-const SITE_URL = "https://example.convex.site";
+const SITE_URL = "https://backend.example.test";
 const BEARER_KEY = "better-auth_session_token";
 const SESSION_KEY = "better-auth_session_data";
 const IDENTITY_INTENT_KEY = "auth_identity_intent";
@@ -72,8 +72,6 @@ const createService = () => {
   const runner = {
     setAuthToken: vi.fn(),
     setHasConnectedAccount: vi.fn(),
-    setConvexUrl: vi.fn(),
-    setConvexSiteUrl: vi.fn(),
     setBackendUrl: vi.fn(),
   };
   const onSessionInvalidated = vi.fn();
@@ -92,8 +90,7 @@ const createService = () => {
 
 const configure = (service: AuthService) => {
   service.configurePiRuntime({
-    convexUrl: "https://example.convex.cloud",
-    convexSiteUrl: `${SITE_URL}/`,
+    backendUrl: `${SITE_URL}/`,
   });
 };
 
@@ -162,7 +159,7 @@ describe("AuthService main-process token authority", () => {
       const { service } = createService();
       installTestSafeStorage();
       installAuthRoutes({
-        "/convex/token": () => json({ token: futureJwt() }),
+        "/token": () => json({ token: futureJwt() }),
         "/get-session": connectedSession,
       });
       configure(service);
@@ -177,7 +174,7 @@ describe("AuthService main-process token authority", () => {
     const { service } = createService();
     const seen: Array<string | null> = [];
     installAuthRoutes({
-      "/convex/token": (request) => {
+      "/token": (request) => {
         seen.push(request.headers.get("authorization"));
         return json({ token: futureJwt() });
       },
@@ -201,11 +198,11 @@ describe("AuthService main-process token authority", () => {
     await expect(service.getScheduleScriptAuth()).resolves.toBeNull();
   });
 
-  it("mints the Convex JWT in main and hands it straight to the runner", async () => {
+  it("mints the backend JWT in main and hands it straight to the runner", async () => {
     const { runner, service } = createService();
     const token = futureJwt();
     installAuthRoutes({
-      "/convex/token": () => json({ token }),
+      "/token": () => json({ token }),
       "/get-session": connectedSession,
     });
     configure(service);
@@ -227,7 +224,7 @@ describe("AuthService main-process token authority", () => {
       return json({ token: futureJwt() });
     };
     installAuthRoutes({
-      "/convex/token": capture,
+      "/token": capture,
       "/get-session": (request) => {
         seen.push(request.headers);
         return connectedSession();
@@ -249,7 +246,7 @@ describe("AuthService main-process token authority", () => {
   it("persists the rotated bearer returned in set-auth-token", async () => {
     const { service } = createService();
     installAuthRoutes({
-      "/convex/token": () =>
+      "/token": () =>
         json(
           { token: futureJwt() },
           { headers: { "set-auth-token": "bearer-rotated" } },
@@ -265,7 +262,7 @@ describe("AuthService main-process token authority", () => {
     const { service: reopened } = createService();
     const seen: (string | null)[] = [];
     installAuthRoutes({
-      "/convex/token": (request) => {
+      "/token": (request) => {
         seen.push(request.headers.get("authorization"));
         return json({ token: futureJwt() });
       },
@@ -280,7 +277,7 @@ describe("AuthService main-process token authority", () => {
   it("reports an anonymous session as authenticated without a connected account", async () => {
     const { runner, service } = createService();
     installAuthRoutes({
-      "/convex/token": () => json({ token: futureJwt() }),
+      "/token": () => json({ token: futureJwt() }),
       "/get-session": () =>
         json({
           user: { id: "anon", isAnonymous: true },
@@ -303,7 +300,7 @@ describe("AuthService main-process token authority", () => {
     const connectedToken = futureJwt("connected");
     let bearer = "bearer-anon";
     installAuthRoutes({
-      "/convex/token": () =>
+      "/token": () =>
         json({
           token: bearer === "bearer-anon" ? anonymousToken : connectedToken,
         }),
@@ -330,7 +327,7 @@ describe("AuthService main-process token authority", () => {
   it("requires reauthentication and pushes an invalidation when a connected bearer is rejected", async () => {
     const { onSessionInvalidated, runner, service } = createService();
     installAuthRoutes({
-      "/convex/token": () =>
+      "/token": () =>
         json(
           { code: "UNAUTHORIZED", message: "Session expired" },
           { status: 401 },
@@ -359,7 +356,7 @@ describe("AuthService main-process token authority", () => {
     const { onSessionInvalidated, service } = createService();
     const cachedToken = futureJwt();
     installAuthRoutes({
-      "/convex/token": () => json({ token: cachedToken }),
+      "/token": () => json({ token: cachedToken }),
       "/get-session": connectedSession,
     });
     configure(service);
@@ -367,13 +364,13 @@ describe("AuthService main-process token authority", () => {
     await service.refreshRuntimeAuth();
 
     installAuthRoutes({
-      "/convex/token": () => {
+      "/token": () => {
         throw new TypeError("fetch failed");
       },
       "/get-session": connectedSession,
     });
 
-    await expect(service.getConvexAuthTokenResult()).resolves.toEqual({
+    await expect(service.getAuthTokenResult()).resolves.toEqual({
       ok: false,
       reason: "network",
     });
@@ -385,7 +382,7 @@ describe("AuthService main-process token authority", () => {
     const { runner, service } = createService();
     const gate: { release: (() => void) | null } = { release: null };
     installAuthRoutes({
-      "/convex/token": async () => {
+      "/token": async () => {
         await new Promise<void>((resolve) => {
           gate.release = resolve;
         });
@@ -440,7 +437,7 @@ describe("AuthService main-process token authority", () => {
     const { service } = createService();
     const minted: string[] = [];
     installAuthRoutes({
-      "/convex/token": () => {
+      "/token": () => {
         const token =
           minted.length === 0 ? nearlyExpiredJwt("first") : futureJwt("second");
         minted.push(token);
@@ -553,7 +550,7 @@ describe("AuthService main-process token authority", () => {
             })
           : json({ code: "INVALID_SESSION" }, { status: 401 }),
       "/sign-in/anonymous": anonymousSignIn,
-      "/convex/token": () => json({ token: futureJwt("anon-2") }),
+      "/token": () => json({ token: futureJwt("anon-2") }),
     });
     configure(service);
     service.setAuthStorageItem(BEARER_KEY, "bearer-anon-1");
@@ -585,7 +582,7 @@ describe("AuthService main-process token authority", () => {
     );
     installAuthRoutes({
       "/sign-in/anonymous": anonymousSignIn,
-      "/convex/token": () => json({ token: futureJwt("anon") }),
+      "/token": () => json({ token: futureJwt("anon") }),
       "/get-session": () =>
         json({
           user: { id: "anon", isAnonymous: true },
@@ -613,7 +610,7 @@ describe("AuthService main-process token authority", () => {
     });
     installAuthRoutes({
       "/sign-in/anonymous": anonymousSignIn,
-      "/convex/token": () => json({ token: futureJwt("anon") }),
+      "/token": () => json({ token: futureJwt("anon") }),
       "/get-session": () =>
         json({
           user: { id: "anon", isAnonymous: true },
@@ -636,7 +633,7 @@ describe("AuthService main-process token authority", () => {
     installAuthRoutes({
       "/sign-out": () => json({ ok: true }),
       "/sign-in/anonymous": anonymousSignIn,
-      "/convex/token": () => json({ token: futureJwt("anon") }),
+      "/token": () => json({ token: futureJwt("anon") }),
       "/get-session": () =>
         json({
           user: { id: "anon", isAnonymous: true },

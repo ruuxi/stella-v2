@@ -291,11 +291,6 @@ const connectHostRunner = async (context) => {
     if (!runner) {
         throw new Error("Host runner did not initialize.");
     }
-    const pendingConvexUrl = services.authService.getPendingConvexUrl();
-    if (pendingConvexUrl) {
-        runner.setConvexUrl(pendingConvexUrl);
-    }
-    runner.setConvexSiteUrl(services.authService.getConvexSiteUrl());
     runner.setBackendUrl(services.authService.getBackendUrl());
     runner.setHasConnectedAccount(services.authService.getHostHasConnectedAccount());
     runner.setAuthToken(await services.authService.getAuthToken());

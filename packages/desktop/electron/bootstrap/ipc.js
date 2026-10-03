@@ -319,14 +319,14 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
     });
     registerOfficePreviewHandlers({
-        getConvexAuthToken: () => services.authService.getAuthToken(),
+        getAuthToken: () => services.authService.getAuthToken(),
         getStellaAppDir: lifecycle.getStellaAppDir,
         getStellaDataDir: lifecycle.getStellaDataDir,
         localChatHistoryService: services.localChatHistoryService,
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
     });
     registerDisplayHandlers({
-        getConvexAuthToken: () => services.authService.getAuthToken(),
+        getAuthToken: () => services.authService.getAuthToken(),
         getStellaAppDir: lifecycle.getStellaAppDir,
         getStellaDataDir: lifecycle.getStellaDataDir,
         localChatHistoryService: services.localChatHistoryService,
@@ -365,7 +365,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
     registerNativeIntegrationHandlers({
         getStellaAppDir: lifecycle.getStellaDataDir,
         requestExternalOAuthApproval: (payload) => services.connectorOAuthService.requestExternalOAuthApproval(payload),
-        getConvexAuthToken: () => services.authService.getConvexAuthToken(),
+        getAuthToken: () => services.authService.getAuthToken(),
         getBackendUrl: () => services.authService.getBackendUrl(),
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
     });
@@ -409,7 +409,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
             relaunch: relaunchApp,
             hasConnectedAccount: () => services.authService.getHostHasConnectedAccount(),
             getBackendUrl: () => services.authService.getBackendUrl(),
-            getAuthToken: () => services.authService.getConvexAuthToken(),
+            getAuthToken: () => services.authService.getAuthToken(),
             log: (event, data) => getMainLogger()?.process(event, data),
             // Under the native launcher, only signed trees run: refuse to act
             // on an unsigned HEAD and sign every change that lands. Both are
@@ -419,7 +419,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
             // A push that changed the UI rebuilds the owner's browser renderer.
             onPushed: (cwd) => buildAndUploadWebRenderer(cwd, {
                 getBackendUrl: () => services.authService.getBackendUrl(),
-                getAuthToken: () => services.authService.getConvexAuthToken(),
+                getAuthToken: () => services.authService.getAuthToken(),
                 log: (event, data) => getMainLogger()?.process(event, data),
             }),
         });

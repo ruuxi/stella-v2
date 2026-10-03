@@ -13,7 +13,7 @@ const createService = () => {
   const onTunnelUrl = vi.fn();
   const service = new CloudflareTunnelService({
     getAuthToken: async () => "desktop-token",
-    getConvexSiteUrl: () => "https://example.convex.site",
+    getBackendUrl: () => "https://backend.example.test",
     getDeviceId: () => "desktop-device",
     onTunnelUrl,
   });

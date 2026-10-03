@@ -130,7 +130,8 @@ import {
   IPC_APP_QUIT_FOR_RESTART,
   IPC_AUTH_APPLY_SESSION_TOKEN,
   IPC_AUTH_DELETE_USER,
-  IPC_AUTH_GET_CONVEX_TOKEN,
+  IPC_AUTH_GET_TOKEN,
+  IPC_AUTH_REVOKE_SESSIONS,
   IPC_AUTH_GET_SESSION,
   IPC_AUTH_SESSION_INVALIDATED,
   IPC_AUTH_SIGN_IN_ANONYMOUS,
@@ -1104,11 +1105,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       }>,
     stopPhoneAccessSession: () =>
       ipcRenderer.invoke("phoneAccess:stopSession") as Promise<{ ok: boolean }>,
-    configurePiRuntime: (config: {
-      convexUrl?: string;
-      convexSiteUrl?: string;
-      backendUrl?: string;
-    }) => ipcRenderer.invoke("host:configurePiRuntime", config),
+    configurePiRuntime: (config: { backendUrl: string }) =>
+      ipcRenderer.invoke("host:configurePiRuntime", config),
     getAuthSession: (options?: { allowCached?: boolean }) =>
       ipcRenderer.invoke(IPC_AUTH_GET_SESSION, options),
     signInAnonymous: () => ipcRenderer.invoke(IPC_AUTH_SIGN_IN_ANONYMOUS),
@@ -1124,8 +1122,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke(IPC_AUTH_APPLY_SESSION_TOKEN, {
         sessionToken,
       }) as Promise<{ ok: boolean }>,
-    getConvexAuthToken: () =>
-      ipcRenderer.invoke(IPC_AUTH_GET_CONVEX_TOKEN) as Promise<string | null>,
+    getAuthToken: () =>
+      ipcRenderer.invoke(IPC_AUTH_GET_TOKEN) as Promise<string | null>,
+    revokeAuthSessions: () =>
+      ipcRenderer.invoke(IPC_AUTH_REVOKE_SESSIONS) as Promise<{ ok: boolean }>,
     setCloudSyncEnabled: (payload: { enabled: boolean }) =>
       ipcRenderer.invoke("host:setCloudSyncEnabled", payload),
     onAuthSessionInvalidated: onIpcSignal(IPC_AUTH_SESSION_INVALIDATED),

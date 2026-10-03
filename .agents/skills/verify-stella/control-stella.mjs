@@ -552,7 +552,13 @@ const mintTestAccount = async (runId, mode) => {
       recovery:
         "Export STELLA_ADMIN_API_SECRET, or make `bunx convex env get STELLA_ADMIN_API_SECRET` work from packages/backend (CONVEX_DEPLOY_KEY or a logged-in Convex CLI).",
     });
-  const body = { email: `agent-${runId}@${TEST_ACCOUNT_EMAIL_DOMAIN}` };
+  // STELLA_VERIFY_ACCOUNT_EMAIL reuses one test account across runs, e.g.
+  // two checkouts acting as the same owner's two computers.
+  const reuseEmail = process.env.STELLA_VERIFY_ACCOUNT_EMAIL?.trim();
+  if (reuseEmail && !reuseEmail.endsWith(`@${TEST_ACCOUNT_EMAIL_DOMAIN}`)) {
+    fail(`STELLA_VERIFY_ACCOUNT_EMAIL must end with @${TEST_ACCOUNT_EMAIL_DOMAIN}.`, 2);
+  }
+  const body = { email: reuseEmail || `agent-${runId}@${TEST_ACCOUNT_EMAIL_DOMAIN}` };
   if (mode === "go" || mode === "pro") {
     body.plan = mode;
     body.usageMode = "unlimited";

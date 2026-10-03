@@ -11,7 +11,7 @@ import { ownerRegistry } from "./owner-store/domains.js";
 import type { OwnerCaller, OwnerHost, OwnerPurgeMode, OwnerRegistry } from "./owner-store/registry.js";
 import { createGateHost } from "./owner-store/gate-host.js";
 import { RpcError, toBackendError } from "./owner-store/errors.js";
-import { applyOwnerOutbox } from "./owner-store/outbox-apply.js";
+import { applyOwnerEventsToStore } from "./owner-store/owner-events.js";
 import type { RpcResponse } from "@stella/contracts/backend/protocol";
 import {
   HEADER_ANONYMOUS,
@@ -132,7 +132,7 @@ import {
   canonicalDispatchPayloadJson,
   sha256Hex,
 } from "@stella/contracts/turn-plane/pairing-proof";
-import type { OutboxEvent } from "@stella/contracts/turn-plane/outbox";
+import type { OwnerEvent } from "@stella/contracts/turn-plane/owner-events";
 import {
   TURN_OWNER_GENERATION_HEADER,
   TURN_PLANE_PROTOCOL,
@@ -185,7 +185,6 @@ export type OwnerGateEnv = Pick<
       | "TURN_TIMEOUT_MS"
       | "ORCHESTRATOR_SESSIONS"
       | "BUILD_SESSIONS"
-      | "TURN_OUTBOX"
       | "CAPABILITY_SIGNING_KEY"
       | "CAPABILITY_SIGNING_KID"
       | "TELEMETRY"
@@ -931,6 +930,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         this.homeContextCache().changed(ownerGeneration, revision),
       changeMemoryPolicy: (change) => this.changeMemoryPolicyForCall(change),
       fence: (path, body) => this.ownerFenceCall(path, body),
+      applyOwnerEvents: (events) => this.applyOwnerEvents(events),
       log,
     });
   }
@@ -953,12 +953,12 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   }
 
   /**
-   * This owner's share of a `TURN_OUTBOX` batch: the conversation and
-   * agent-thread index, plus the terminal receipts mobile polls. Events from
-   * another owner or an owner generation since reset are dropped. Throws only
-   * when the batch should be redelivered.
+   * Turn-plane events for this owner (see `src/owner-events.ts`): the
+   * conversation and agent-thread index, browser waits, and the terminal
+   * receipts mobile polls. Events from another owner or an owner generation
+   * since reset are dropped. Throws only when the producer should retry.
    */
-  async applyOutboxEvents(events: OutboxEvent[]): Promise<void> {
+  async applyOwnerEvents(events: OwnerEvent[]): Promise<void> {
     const ownerId = this.ownerId();
     let generation: string | null = null;
     try {
@@ -973,7 +973,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         (generation === null || event.ownerGeneration === generation),
     );
     const store = this.ownerStore();
-    const effects = applyOwnerOutbox(store.context(null), current);
+    const effects = applyOwnerEventsToStore(store.context(null), current);
     store.flush();
     // A deleted conversation schedules its purge job.
     await this.scheduleAlarm(Date.now());

@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { isCloudBrowserSuspension } from "@stella/contracts/cloud-browser";
-import type { ThreadCompletedEvent } from "@stella/contracts/turn-plane/outbox";
+import type { ThreadCompletedEvent } from "@stella/contracts/turn-plane/owner-events";
 import {
   TURN_OWNER_GENERATION_HEADER,
   TURN_PLANE_PROTOCOL,
@@ -65,10 +65,10 @@ export type TerminalDeliveryHost = Pick<
   | "deleteTurnStoragePreservingExactCancellations"
   | "deliverTerminal"
   | "destroySandboxDurably"
-  | "enqueueOutboxDurable"
+  | "deliverOwnerEventsDurable"
   | "event"
   | "mutateExactTurn"
-  | "outboxBase"
+  | "ownerEventBase"
   | "ownsExactTurn"
   | "registerTurn"
   | "releaseOwnerGate"
@@ -237,9 +237,9 @@ export const deliverTerminal = async (
           pending.kind === "completed"
             ? undefined
             : (pending.threadError ?? "The agent stopped.");
-        await host.enqueueOutboxDurable([
+        await host.deliverOwnerEventsDurable([
           {
-            ...host.outboxBase(
+            ...host.ownerEventBase(
               turn,
               `${turn.threadId}:${turn.turnId}:${turn.attemptGeneration ?? 1}`,
             ),
@@ -257,7 +257,7 @@ export const deliverTerminal = async (
         // NOT how the parent conversation learns. Convex used to do both in
         // one mutation, so the wake rode on the callback's latency and its
         // retry ladder. The parent session lives one Durable Object away, so
-        // it is woken directly and the outbox stays a pure projection.
+        // it is woken directly.
         await host.wakeParentAgentOrConversation(turn, {
           status: pending.kind,
           threadUpdatedAt: completedAt,
@@ -292,9 +292,9 @@ export const deliverTerminal = async (
       message: errorMessage(error),
     });
     if (!owns) return false;
-    // No exponential ladder any more: delivery is an outbox append plus a
+    // No exponential ladder any more: delivery is an owner event plus a
     // Durable Object call, both of which fail fast and locally. The one
-    // fixed retry exists so a queue outage or a parent object that is
+    // fixed retry exists so an unreachable owner or a parent object that is
     // briefly unavailable does not strand a decided terminal.
     let attempts = 0;
     const retained = await host.ctx.storage.transaction(async (txn) => {

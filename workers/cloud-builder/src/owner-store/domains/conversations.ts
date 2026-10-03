@@ -1,7 +1,7 @@
 /**
  * The owner's conversation index. Each conversation's transcript lives in its
  * own `OrchestratorSession`; this table is what a client lists and selects
- * from. The orchestrator keeps it current through the turn outbox
+ * from. The orchestrator keeps it current through owner events
  * (`conversation.*`, `turn.started`), which `applyConversationEvent` applies.
  *
  * Delivery is at-least-once and may reorder, so index updates are fenced on
@@ -26,7 +26,7 @@ import type {
   ConversationDeletedEvent,
   ConversationIndexEvent,
   TurnStartedEvent,
-} from "@stella/contracts/turn-plane/outbox";
+} from "@stella/contracts/turn-plane/owner-events";
 import { parseCloudExecutionSelection } from "../../turn-start-request.js";
 import { empty, number, object, optional, string } from "../args.js";
 import type { Parser } from "../args.js";
@@ -236,7 +236,7 @@ const page = (
   };
 };
 
-// ── Outbox events from the orchestrator ───────────────────────────────────
+// ── Owner events from the orchestrator ────────────────────────────────────
 
 export type ConversationEvent =
   | ConversationCreatedEvent

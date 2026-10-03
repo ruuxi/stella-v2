@@ -3,7 +3,7 @@ import type {
   ConversationCreatedEvent,
   TurnEventEvent,
   TurnStartedEvent,
-} from "@stella/contracts/turn-plane/outbox";
+} from "@stella/contracts/turn-plane/owner-events";
 import {
   TURN_OWNER_GENERATION_HEADER,
   TURN_PLANE_PROTOCOL,
@@ -16,7 +16,8 @@ import {
 import { sha256Hex } from "@stella/contracts/turn-plane/pairing-proof";
 import { HEADER_TURN_AUTH_KIND } from "../src/turn-start-request.js";
 import {
-  fakeOutbox,
+  fakeOwnerEvents,
+  withOwnerEvents,
   fakeOwnerGates,
   sampleOwnerSnapshot,
 } from "./helpers/turn-plane-fakes.js";
@@ -130,14 +131,14 @@ const harness = (
     values?: Map<string, unknown>;
     journal?: ReturnType<typeof journalFake>;
     gates?: ReturnType<typeof fakeOwnerGates>;
-    outbox?: ReturnType<typeof fakeOutbox>;
+    outbox?: ReturnType<typeof fakeOwnerEvents>;
     editLock?: unknown;
   } = {},
 ) => {
   const { values, storage, alarm } = storageFake(options.values);
   const journal = options.journal ?? journalFake();
   const gates = options.gates ?? fakeOwnerGates();
-  const outbox = options.outbox ?? fakeOutbox();
+  const outbox = options.outbox ?? fakeOwnerEvents();
   const instance = Object.create(OrchestratorSession.prototype) as InstanceType<
     typeof OrchestratorSession
   > &
@@ -154,8 +155,7 @@ const harness = (
         await operation(),
     },
     env: {
-      OWNER_GATES: gates.namespace,
-      TURN_OUTBOX: outbox.queue,
+      OWNER_GATES: withOwnerEvents(gates.namespace, outbox),
       STELLA_CONVEX_SITE_URL: "https://convex.example",
     },
     exactTurnCancellations: new ExactTurnCancellationLedger(storage),
@@ -428,7 +428,7 @@ describe("OrchestratorSession turn admission", () => {
     const values = new Map<string, unknown>();
     const journal = journalFake();
     const gates = fakeOwnerGates();
-    const outbox = fakeOutbox();
+    const outbox = fakeOwnerEvents();
     const first = harness({ values, journal, gates, outbox });
     const accepted = await first.dispatch(start(), USER);
     const { turnId } = (await accepted.json()) as { turnId: string };
@@ -697,9 +697,9 @@ describe("OrchestratorSession turn admission", () => {
   });
 
   test("admission completes while queue delivery is stalled, and a restart retries the persisted batch", async () => {
-    const outbox = fakeOutbox();
+    const outbox = fakeOwnerEvents();
     const pending = Promise.withResolvers<void>();
-    outbox.queue.sendBatch = async () => pending.promise;
+    outbox.apply = async () => pending.promise;
     const h = harness({ outbox });
     try {
       const response = await Promise.race([
@@ -713,12 +713,12 @@ describe("OrchestratorSession turn admission", () => {
       ]);
       expect(response.status).toBe(202);
       const batchKeys = [...h.values.keys()].filter((key) =>
-        key.startsWith("outboxBatch:"),
+        key.startsWith("ownerEventBatch:"),
       );
       expect(batchKeys).toHaveLength(1);
       expect(h.alarm()).not.toBeNull();
       const restarted = harness({ values: h.values });
-      await (restarted.instance["retryOutboxDebt"] as () => Promise<void>)();
+      await (restarted.instance["retryOwnerEventDebt"] as () => Promise<void>)();
       expect(restarted.outbox.events.map((event) => event.kind)).toEqual([
         "conversation.created",
         "turn.started",
@@ -730,16 +730,16 @@ describe("OrchestratorSession turn admission", () => {
   });
 
   test("a completing batch cannot erase a second batch appended while it was in flight", async () => {
-    const outbox = fakeOutbox();
+    const outbox = fakeOwnerEvents();
     const pending = Promise.withResolvers<void>();
-    outbox.queue.sendBatch = async () => pending.promise;
+    outbox.apply = async () => pending.promise;
     const h = harness({ outbox });
     try {
       await h.dispatch(start(), USER);
       const first = [...h.values.keys()].find((key) =>
-        key.startsWith("outboxBatch:"),
+        key.startsWith("ownerEventBatch:"),
       )!;
-      outbox.queue.sendBatch = async () => {
+      outbox.apply = async () => {
         throw new Error("queue unavailable");
       };
       await h.dispatch(start({ clientMsgId: "client-msg-0002" }), USER);
@@ -747,7 +747,7 @@ describe("OrchestratorSession turn admission", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(h.values.has(first)).toBe(false);
       expect(
-        [...h.values.keys()].filter((key) => key.startsWith("outboxBatch:")),
+        [...h.values.keys()].filter((key) => key.startsWith("ownerEventBatch:")),
       ).toHaveLength(1);
     } finally {
       pending.resolve();
@@ -755,13 +755,13 @@ describe("OrchestratorSession turn admission", () => {
   });
 
   test("a refused outbox at admission becomes durable debt the alarm retries", async () => {
-    const outbox = fakeOutbox();
+    const outbox = fakeOwnerEvents();
     outbox.failNext(1);
     const h = harness({ outbox });
     const response = await h.dispatch(start(), USER);
     expect(response.status).toBe(202);
     const debt = [...h.values]
-      .filter(([key]) => key.startsWith("outboxBatch:"))
+      .filter(([key]) => key.startsWith("ownerEventBatch:"))
       .flatMap(([, value]) => value as Array<{ kind: string }>);
     expect(debt.map((event) => event.kind)).toEqual([
       "conversation.created",
@@ -770,13 +770,13 @@ describe("OrchestratorSession turn admission", () => {
     expect(h.alarm()).not.toBeNull();
     expect(outbox.events).toHaveLength(0);
 
-    await (h.instance["retryOutboxDebt"] as () => Promise<void>)();
+    await (h.instance["retryOwnerEventDebt"] as () => Promise<void>)();
     expect(outbox.events.map((event) => event.kind)).toEqual([
       "conversation.created",
       "turn.started",
     ]);
     expect(
-      [...h.values.keys()].some((key) => key.startsWith("outboxBatch:")),
+      [...h.values.keys()].some((key) => key.startsWith("ownerEventBatch:")),
     ).toBe(false);
   });
 });
@@ -834,7 +834,7 @@ describe("turn.event ordinals", () => {
 
   test("terminal delivery survives a new turn and restart while the queue is unavailable", async () => {
     const values = new Map<string, unknown>();
-    const outbox = fakeOutbox();
+    const outbox = fakeOwnerEvents();
     outbox.failNext(1);
     const first = harness({ values, outbox });
     const emit = first.instance["emitTurnEvent"] as Emit;
@@ -850,13 +850,13 @@ describe("turn.event ordinals", () => {
       },
     );
     expect(
-      [...values.keys()].some((key) => key.startsWith("outboxBatch:")),
+      [...values.keys()].some((key) => key.startsWith("ownerEventBatch:")),
     ).toBe(true);
     expect(first.alarm()).not.toBeNull();
     values.set("turn", turn("new-turn"));
     values.set("terminalOwed", null);
     const restarted = harness({ values, outbox });
-    await (restarted.instance["retryOutboxDebt"] as () => Promise<void>).call(
+    await (restarted.instance["retryOwnerEventDebt"] as () => Promise<void>).call(
       restarted.instance,
     );
     expect(outbox.events).toContainEqual(
@@ -869,13 +869,13 @@ describe("turn.event ordinals", () => {
     );
     expect(values.get("turn")).toEqual(turn("new-turn"));
     expect(
-      [...values.keys()].some((key) => key.startsWith("outboxBatch:")),
+      [...values.keys()].some((key) => key.startsWith("ownerEventBatch:")),
     ).toBe(false);
   });
 
   test("are monotonic per turn, survive an isolate restart, and a retried terminal reuses its ordinal", async () => {
     const values = new Map<string, unknown>();
-    const outbox = fakeOutbox();
+    const outbox = fakeOwnerEvents();
     const first = harness({ values, outbox });
     const emit = first.instance["emitTurnEvent"] as Emit;
     const t = turn("turn-1");
@@ -954,14 +954,14 @@ describe("turn.event ordinals", () => {
   });
 
   test("a refused enqueue leaves the ordinal consumed so a retry never reuses a seq for different content", async () => {
-    const outbox = fakeOutbox();
+    const outbox = fakeOwnerEvents();
     const h = harness({ outbox });
     const emit = h.instance["emitTurnEvent"] as Emit;
     outbox.failNext(1);
     await expect(
-      emit.call(h.instance, turn("turn-x"), "started", {}),
-    ).rejects.toThrow("queue unavailable");
-    expect(await emit.call(h.instance, turn("turn-x"), "started", {})).toBe(2);
+      emit.call(h.instance, turn("turn-x"), "output_files", {}),
+    ).rejects.toThrow("owner unavailable");
+    expect(await emit.call(h.instance, turn("turn-x"), "output_files", {})).toBe(2);
     expect(outbox.events).toHaveLength(1);
   });
 });

@@ -5,7 +5,7 @@ import type {
   TurnBrokerTurnStateCheckpointReceipt,
   TurnBrokerTurnStateCheckpointRequest,
 } from "@stella/contracts/turn-credential-broker";
-import type { OutboxEvent } from "@stella/contracts/turn-plane/outbox";
+import type { OwnerEvent } from "@stella/contracts/turn-plane/owner-events";
 import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
 import type { AgentHistoryRow } from "@stella/executor-cloud/agent-history";
 import { DurableObject } from "cloudflare:workers";
@@ -74,22 +74,20 @@ import {
   childAgentDispatchDependencies,
   cleanupOwnerPurgedTurnStorage,
   cleanupTransientWrites,
-  controlPlaneCapability,
-  convexCall,
   deleteTurnStoragePreservingExactCancellations,
   emitTurnEvent,
-  enqueueOutboxDurable,
+  deliverOwnerEventsDurable,
   event,
   fetchCanonicalAgentHistory,
   mutateExactTurn,
-  outboxBase,
+  ownerEventBase,
   ownerGateFor,
   ownsExactTurn,
   redeliverOrphan,
   registerTurn,
   releaseOwnerGate,
   retireTerminalAppTurnStorage,
-  retryOutboxDebt,
+  retryOwnerEventDebt,
   scheduleDurabilityAlarm,
   setExactTurnAlarm,
   settleAgentTransientBackup,
@@ -200,11 +198,7 @@ export class BuildSessionObject extends DurableObject<Env> {
   >();
   /** Effect-supervised spawned-agent work; Stop never joins a raw promise. */
   private readonly agentTurnExecutions = new Map<string, TurnExecution<void>>();
-  /** Per-isolate cache of this attempt's control-plane capability. */
-  private readonly controlPlaneCapabilities = new Map<
-    string,
-    { token: string; expiresAt: number }
-  >();
+
   /**
    * Alarm recovery interrupts an exact run without destroying its disk. The
    * interrupt hooks consult this set, kill/join only the model-controlled
@@ -249,13 +243,13 @@ export class BuildSessionObject extends DurableObject<Env> {
     );
   }
 
-  // ── The turn plane: owner gate, capabilities, outbox, transcript ───────
+  // ── The turn plane: owner gate, capabilities, owner events, transcript ─
   //
   // Everything below replaces a synchronous Convex round trip that used to sit
   // on a turn's critical path. Admission is the owner gate's, authority is a
   // signed capability rather than a reusable token Convex has to look up, and
-  // every projection Convex needs leaves through the outbox queue instead of
-  // an HTTP callback with its own retry ladder.
+  // what the owner indexes is delivered to the owner gate instead of an HTTP
+  // callback with its own retry ladder.
 
   /** @see src/build-session/session-core.ts */
   private ownerGateFor(ownerId: string) {
@@ -272,20 +266,6 @@ export class BuildSessionObject extends DurableObject<Env> {
     return releaseOwnerGate(this.self, turn);
   }
 
-  /** @see src/build-session/session-core.ts */
-  private controlPlaneCapability(turn: TurnRequest): Promise<string> {
-    return controlPlaneCapability(this.self, turn);
-  }
-
-  /** @see src/build-session/session-core.ts */
-  private convexCall(
-    turn: TurnRequest,
-    path: string,
-    body: unknown,
-    options: { signal?: AbortSignal; timeoutMs?: number } = {},
-  ): Promise<Response> {
-    return convexCall(this.self, turn, path, body, options);
-  }
 
   /** @see src/build-session/session-core.ts */
   private agentControlPlane(
@@ -297,18 +277,18 @@ export class BuildSessionObject extends DurableObject<Env> {
   }
 
   /** @see src/build-session/session-core.ts */
-  private outboxBase(turn: TurnRequest, key: string) {
-    return outboxBase(this.self, turn, key);
+  private ownerEventBase(turn: TurnRequest, key: string) {
+    return ownerEventBase(this.self, turn, key);
   }
 
   /** @see src/build-session/session-core.ts */
-  private enqueueOutboxDurable(events: OutboxEvent[]): Promise<void> {
-    return enqueueOutboxDurable(this.self, events);
+  private deliverOwnerEventsDurable(events: OwnerEvent[]): Promise<void> {
+    return deliverOwnerEventsDurable(this.self, events);
   }
 
   /** @see src/build-session/session-core.ts */
-  private retryOutboxDebt(): Promise<void> {
-    return retryOutboxDebt(this.self);
+  private retryOwnerEventDebt(): Promise<void> {
+    return retryOwnerEventDebt(this.self);
   }
 
   /** @see src/build-session/session-core.ts */
@@ -879,7 +859,7 @@ export class BuildSessionObject extends DurableObject<Env> {
   async alarm(): Promise<void> {
     await this.retryDueSandboxDestroyDebts();
     await this.retryOwnerFenceLeaseRetirements();
-    await this.retryOutboxDebt();
+    await this.retryOwnerEventDebt();
     try {
       await this.runScheduledTurnAlarm();
     } finally {

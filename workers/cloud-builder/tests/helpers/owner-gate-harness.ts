@@ -1,7 +1,7 @@
 /**
  * Drives the real `OwnerGate` outside workerd: in-memory SQLite for its
  * tables, a scripted owner snapshot, recording stand-ins for the two Durable
- * Object namespaces and the outbox queue, and a fake of the hibernation
+ * Object namespaces, and a fake of the hibernation
  * WebSocket API (`acceptWebSocket` / `getWebSockets` / `serializeAttachment`)
  * so the presence protocol is exercised frame by frame.
  *
@@ -12,7 +12,6 @@
 import { openSqlStorageFake } from "../fixtures/sql-storage.js";
 import { sampleOwnerSnapshot } from "./turn-plane-fakes.js";
 import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
-import type { OutboxEvent } from "@stella/contracts/turn-plane/outbox";
 import type {
   DevicePresenceDeviceFrame,
   DevicePresenceServerFrame,
@@ -130,7 +129,6 @@ export type GateHarness = {
     alarm: () => Promise<void>;
   };
   sockets: FakeSocket[];
-  outbox: OutboxEvent[];
   forwarded: ForwardedCall[];
   frozenModelGrants: unknown[];
   preparedCloudChatReaders: string[];
@@ -162,7 +160,6 @@ export const createGateHarness = (
     ownerId?: string;
     snapshot?: OwnerSnapshot;
     respond?: (call: ForwardedCall) => Response | Promise<Response>;
-    enqueue?: (events: OutboxEvent[]) => Promise<void>;
     prepareCloudChatReader?: (conversationId: string) => Promise<string>;
   } = {},
 ): GateHarness => {
@@ -172,7 +169,6 @@ export const createGateHarness = (
   const values = new Map<string, unknown>();
   const sqlFake = openSqlStorageFake();
   const alarms: number[] = [];
-  const outbox: OutboxEvent[] = [];
   const forwarded: ForwardedCall[] = [];
   const frozenModelGrants: unknown[] = [];
   const preparedCloudChatReaders: string[] = [];
@@ -286,15 +282,7 @@ export const createGateHarness = (
       },
       ORCHESTRATOR_SESSIONS: namespace("orchestrator"),
       BUILD_SESSIONS: namespace("build"),
-      TURN_OUTBOX: {
-        sendBatch: async (messages: Iterable<{ body: OutboxEvent }>) => {
-          const batch = [...messages];
-          await options.enqueue?.(batch.map((message) => message.body));
-          for (const message of batch) {
-            outbox.push(structuredClone(message.body));
-          }
-        },
-      },
+
     },
     fetchSnapshot: async () => snapshot,
   });
@@ -346,7 +334,6 @@ export const createGateHarness = (
     get sockets() {
       return tagged.map((entry) => entry.socket);
     },
-    outbox,
     forwarded,
     frozenModelGrants,
     preparedCloudChatReaders,

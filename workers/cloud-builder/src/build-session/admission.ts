@@ -1,9 +1,9 @@
 import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
 import type {
-  OutboxEvent,
+  OwnerEvent,
   ThreadSpawnedEvent,
   TurnStartedEvent,
-} from "@stella/contracts/turn-plane/outbox";
+} from "@stella/contracts/turn-plane/owner-events";
 import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
 import {
   TURN_PLANE_PROTOCOL,
@@ -11,7 +11,7 @@ import {
   type CloudAgentTurnStartResponse,
   type CloudTurnSource,
 } from "@stella/contracts/turn-plane/turn-start";
-import { mintTurnCapabilities } from "../capability-signer.js";
+
 import type { ExactTurnCancellation } from "../execution-placement-turn-cancellation.js";
 import {
   parseTurnComputePlan,
@@ -60,16 +60,16 @@ export type AdmissionHost = Pick<
   | "agentTurnExecutions"
   | "appTurnExecutions"
   | "builderFallbackRecoveries"
-  | "controlPlaneCapabilities"
+
   | "exactTurnCancellations"
   | "residentAgentAborts"
   | "acknowledgeExactAgentTurnCancellation"
   | "agentTurnAccepted"
   | "deleteTurnStoragePreservingExactCancellations"
   | "deliverTerminal"
-  | "enqueueOutboxDurable"
+  | "deliverOwnerEventsDurable"
   | "mutateExactTurn"
-  | "outboxBase"
+  | "ownerEventBase"
   | "ownerGateFor"
   | "ownsExactTurn"
   | "quiesceCurrentAgentSession"
@@ -338,43 +338,6 @@ export const admitAgentTurnThroughOwnerGate = async (
   // The snapshot is the authority for both, overriding the dispatcher.
   turn.audience = snapshot.allowance.audience;
   turn.budgetMicroCents = snapshot.allowance.budgetMicroCents;
-  try {
-    // Both capabilities for this attempt, from the same admitted facts. The
-    // control-plane half is cached here because it never leaves the object;
-    // the model half is re-minted when the attempt actually starts, so its
-    // 30-minute lifetime covers the run rather than the wait before it.
-    const minted = await mintTurnCapabilities(host.env, {
-      ownerId: turn.ownerId,
-      ownerGeneration: turn.ownerGeneration,
-      turnId: turn.turnId,
-      conversationId: turn.conversationId ?? "",
-      execution: turn.execution!,
-      audience: turn.audience,
-      budgetMicroCents: turn.budgetMicroCents,
-      agentTypes: ["general"],
-    });
-    host.controlPlaneCapabilities.set(
-      `${turn.turnId}:${turn.attemptGeneration ?? 1}`,
-      {
-        token: minted.controlPlane.token,
-        expiresAt: minted.controlPlane.expiresAt,
-      },
-    );
-  } catch (error) {
-    if (!turn.gateAdmittedByCaller) await host.releaseOwnerGate(turn);
-    log("error", "agent_turn_capability_mint_failed", {
-      turnId: turn.turnId,
-      threadId: turn.threadId,
-      message: errorMessage(error),
-    });
-    return {
-      ok: false,
-      response: json(
-        { error: "Stella can't authorize this agent right now. Try again." },
-        503,
-      ),
-    };
-  }
   return { ok: true, snapshot };
 };
 
@@ -404,9 +367,9 @@ const projectAgentTurnStart = async (
   const source = CLOUD_TURN_SOURCES.includes(turn.source as CloudTurnSource)
     ? (turn.source as CloudTurnSource)
     : undefined;
-  const events: OutboxEvent[] = [
+  const events: OwnerEvent[] = [
     {
-      ...host.outboxBase(turn, turn.turnId),
+      ...host.ownerEventBase(turn, turn.turnId),
       kind: "turn.started",
       turnId: turn.turnId,
       turnKind: "agent",
@@ -425,7 +388,7 @@ const projectAgentTurnStart = async (
   ];
   if (attemptGeneration === 1 && !turn.gateAdmittedByCaller) {
     events.push({
-      ...host.outboxBase(turn, `${turn.threadId}:${attemptGeneration}`),
+      ...host.ownerEventBase(turn, `${turn.threadId}:${attemptGeneration}`),
       kind: "thread.spawned",
       threadId: turn.threadId ?? "",
       conversationId: turn.conversationId ?? "",
@@ -448,7 +411,7 @@ const projectAgentTurnStart = async (
       createdAt,
     } satisfies ThreadSpawnedEvent);
   }
-  await host.enqueueOutboxDurable(events);
+  await host.deliverOwnerEventsDurable(events);
 };
 
 export const acceptAgentTurn = async (
@@ -674,9 +637,9 @@ export const acceptAgentTurn = async (
       Math.min(watchdogDeadlineAt, Date.now() + AGENT_TURN_HEARTBEAT_MS),
     );
   });
-  // Projected before the run starts: Convex has to know the attempt exists
-  // even if this isolate dies in the next millisecond, and the outbox is
-  // ordered behind a durable debt if the queue refuses.
+  // Delivered before the run starts: the owner has to know the attempt exists
+  // even if this isolate dies in the next millisecond, and the delivery is
+  // kept as durable debt if the owner refuses.
   await projectAgentTurnStart(host, turn);
   host.ctx.waitUntil(
     host.startAgentTurn(turn, sandboxId).catch(() => undefined),

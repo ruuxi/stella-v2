@@ -14,10 +14,11 @@ import {
 import { sha256Hex } from "../src/hash.js";
 import { localClientMessageFingerprintSource } from "../src/local-turn-protocol.js";
 import {
-  fakeOutbox,
+  fakeOwnerEvents,
+  withOwnerEvents,
   fakeOwnerGates,
   sampleOwnerSnapshot,
-  type FakeOutbox,
+  type FakeOwnerEvents,
   type FakeOwnerGates,
 } from "./helpers/turn-plane-fakes.js";
 import { openSqlStorageFake } from "./fixtures/sql-storage.js";
@@ -129,10 +130,10 @@ const queuedKeys = (values: Map<string, unknown>): string[] =>
 
 const sessionHarness = (
   values = new Map<string, unknown>(),
-  plane: { gates?: FakeOwnerGates; outbox?: FakeOutbox } = {},
+  plane: { gates?: FakeOwnerGates; outbox?: FakeOwnerEvents } = {},
 ) => {
   const gates = plane.gates ?? fakeOwnerGates();
-  const outbox = plane.outbox ?? fakeOutbox();
+  const outbox = plane.outbox ?? fakeOwnerEvents();
   let alarm: number | null = null;
   const storage = {
     get: async <T>(key: string) => values.get(key) as T | undefined,
@@ -172,8 +173,7 @@ const sessionHarness = (
   Object.assign(instance, {
     ctx,
     env: {
-      OWNER_GATES: gates.namespace,
-      TURN_OUTBOX: outbox.queue,
+      OWNER_GATES: withOwnerEvents(gates.namespace, outbox),
       STELLA_CONVEX_SITE_URL: "https://convex.example",
       CLOUD_BUILDER_PUBLIC_URL: "https://builder.example",
     },
@@ -327,11 +327,8 @@ const cloudAgentTool = async (
       agentHome: { available: boolean },
       skillCatalog: Record<string, never>,
       memoryEnabled: boolean,
-      controlPlane: { token: string },
     ) => Promise<ExecutableCloudTool[]>
-  )(targetTurn, { available: false }, {}, false, {
-    token: "control-plane-capability",
-  });
+  )(targetTurn, { available: false }, {}, false);
   const tool = tools.find((candidate) => candidate.name === name);
   if (!tool) throw new Error(`Missing cloud agent tool: ${name}`);
   return tool;
@@ -376,7 +373,7 @@ const appTurn = (turnId: string, ownerGeneration = "generation-1") => ({
 const buildSessionHarness = (values = new Map<string, unknown>()) => {
   let alarm: number | null = null;
   const gates = fakeOwnerGates();
-  const outbox = fakeOutbox();
+  const outbox = fakeOwnerEvents();
   const sqlFake = openSqlStorageFake();
   const put = async (
     key: string | Record<string, unknown>,
@@ -449,12 +446,10 @@ const buildSessionHarness = (values = new Map<string, unknown>()) => {
     env: {
       BUILDER_SERVICE_SECRET: "builder-secret",
       STELLA_CONVEX_SITE_URL: "https://convex.example",
-      OWNER_GATES: gates.namespace,
-      TURN_OUTBOX: outbox.queue,
+      OWNER_GATES: withOwnerEvents(gates.namespace, outbox),
     },
     // Signing is exercised in capability-signer tests; admission here only
     // needs it not to refuse the turn.
-    controlPlaneCapability: async () => "control-plane-capability",
     admitAgentTurnThroughOwnerGate: async (target: {
       audience: string;
       budgetMicroCents: number;
@@ -2078,7 +2073,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
       receipts.push({ surface: "event", kind, payload, terminal });
       return 1;
     };
-    harness.instance["enqueueOutboxDurable"] = async (
+    harness.instance["deliverOwnerEventsDurable"] = async (
       events: Array<Record<string, unknown>>,
     ) => {
       for (const event of events)
@@ -3407,7 +3402,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
       };
     };
     const gates = fakeOwnerGates();
-    const outbox = fakeOutbox();
+    const outbox = fakeOwnerEvents();
     // An already-projected conversation: the harness journal is bound.
     values.set("conversationProjected", true);
 
@@ -3527,7 +3522,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
   test("send_input dispatches the next attempt straight to the BuildSession and fences ABA", async () => {
     const values = new Map<string, unknown>();
     const gates = fakeOwnerGates();
-    const outbox = fakeOutbox();
+    const outbox = fakeOwnerEvents();
     const first = sessionHarness(values, { gates, outbox });
     await (
       first.instance["rememberCloudAgentControlReceipt"] as (
@@ -3754,7 +3749,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
     const values = new Map<string, unknown>();
     const parentTurn = turn("turn-spawn-outcome");
     const gates = fakeOwnerGates();
-    const outbox = fakeOutbox();
+    const outbox = fakeOwnerEvents();
     const first = sessionHarness(values, { gates, outbox });
     const calls = installBuildSessions(first, acceptedAgentTurn);
     const spawn = await cloudAgentTool(
@@ -3808,7 +3803,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
     // replaying the same call reaches the same BuildSession and turn.
     const twin = sessionHarness(new Map(), {
       gates: fakeOwnerGates(),
-      outbox: fakeOutbox(),
+      outbox: fakeOwnerEvents(),
     });
     const twinCalls = installBuildSessions(twin, acceptedAgentTurn);
     const twinSpawn = await cloudAgentTool(
@@ -4272,7 +4267,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
   test("the alarm retries an owed terminal as the same outbox event until the queue accepts it", async () => {
     const values = new Map<string, unknown>();
     const gates = fakeOwnerGates();
-    const outbox = fakeOutbox();
+    const outbox = fakeOwnerEvents();
     const owed = turn("turn-owed-terminal");
     values.set("turn", owed);
     values.set("terminal", true);
@@ -4294,7 +4289,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
     expect(outbox.events).toHaveLength(0);
     expect(values.get("terminalDelivered")).toBe(true);
     expect(
-      [...values.keys()].some((key) => key.startsWith("outboxBatch:")),
+      [...values.keys()].some((key) => key.startsWith("ownerEventBatch:")),
     ).toBe(true);
     expect(values.get("alarmAttempts")).toBe(0);
     expect(await first.storage.getAlarm()).not.toBeNull();
@@ -4305,7 +4300,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
     ]);
 
     const restarted = sessionHarness(values, { gates, outbox });
-    await (restarted.instance["retryOutboxDebt"] as () => Promise<void>)();
+    await (restarted.instance["retryOwnerEventDebt"] as () => Promise<void>)();
     expect(values.get("terminalDelivered")).toBe(true);
     expect(outbox.events).toHaveLength(1);
     expect(outbox.events[0]).toMatchObject({

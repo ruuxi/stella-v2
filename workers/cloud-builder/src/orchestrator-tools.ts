@@ -33,12 +33,6 @@ export type OrchestratorToolContext = {
   agentHome: AgentHome;
   /** A server-internal operation on the owner's object, under `ownerGeneration`. */
   ownerInternal: OwnerInternalCall;
-  /** POST to a Convex HTTP route with the builder service secret. */
-  post: (
-    path: string,
-    body: unknown,
-    signal?: AbortSignal,
-  ) => Promise<Response>;
 };
 
 const readJson = async (

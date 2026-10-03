@@ -84,7 +84,7 @@ describe("BuildSession agent orchestration", () => {
         return { ok: true, snapshot: sampleOwnerSnapshot() };
       },
       releaseOwnerGate: async () => undefined,
-      enqueueOutbox: async (batch) => {
+      deliverOwnerEvents: async (batch) => {
         events.push(...batch);
       },
       now: () => 100,
@@ -164,7 +164,7 @@ describe("BuildSession agent orchestration", () => {
         return { ok: true, snapshot: sampleOwnerSnapshot() };
       },
       releaseOwnerGate: async () => undefined,
-      enqueueOutbox: async () => undefined,
+      deliverOwnerEvents: async () => undefined,
     };
     const makeControl = (storage: unknown) =>
       createBuildSessionAgentControl({
@@ -273,7 +273,7 @@ describe("BuildSession agent orchestration", () => {
         snapshot: sampleOwnerSnapshot(),
       }),
       releaseOwnerGate: async () => undefined,
-      enqueueOutbox: async () => undefined,
+      deliverOwnerEvents: async () => undefined,
     };
     const control = createBuildSessionAgentControl({
       storage: storage as never,

@@ -100,7 +100,6 @@ export type ResidentTurnHost = Pick<
   | "turnStateCheckpointRuns"
   | "agentTurnExecutions"
   | "agentControlPlane"
-  | "controlPlaneCapability"
   | "emitTurnEvent"
   | "assertAgentExecutionActive"
   | "assertAgentTurnIdentity"

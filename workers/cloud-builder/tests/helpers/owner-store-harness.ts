@@ -1,11 +1,11 @@
 /**
  * The production owner-store registry over in-memory SQLite, with a scripted
- * host. Domain tests drive calls, views, jobs and outbox events through the
+ * host. Domain tests drive calls, views, jobs and owner events through the
  * same `OwnerStore` the gate uses.
  */
 
 import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
-import type { OutboxEvent } from "@stella/contracts/turn-plane/outbox";
+import type { OwnerEvent } from "@stella/contracts/turn-plane/owner-events";
 import { openSqlStorageFake, type SqlStorageFake } from "../fixtures/sql-storage.js";
 import { installWebSocketPair, type FakeSocket } from "./owner-gate-harness.js";
 import { sampleOwnerSnapshot } from "./turn-plane-fakes.js";
@@ -14,7 +14,7 @@ import type {
   ConversationEditResult,
 } from "../../src/conversation-edit-protocol.js";
 import { ownerRegistry } from "../../src/owner-store/domains.js";
-import { applyOwnerOutbox } from "../../src/owner-store/outbox-apply.js";
+import { applyOwnerEventsToStore } from "../../src/owner-store/owner-events.js";
 import type {
   AgentTurnDispatch,
   OwnerCaller,
@@ -49,7 +49,7 @@ export type OwnerStoreHarness = {
   callError(name: string, args: unknown, caller?: OwnerCaller): Promise<{ code: string; message: string; reason?: string }>;
   /** Subscribe on a fresh live socket; returns a reader of the latest value. */
   watch(view: string, args: unknown): Promise<() => any>;
-  outbox(events: OutboxEvent[]): Promise<void>;
+  ownerEvents(events: OwnerEvent[]): Promise<void>;
   runJobs(now?: number): Promise<number>;
   close(): void;
 };
@@ -151,8 +151,8 @@ export const createOwnerStoreHarness = (
         return latest.value;
       };
     },
-    async outbox(events: OutboxEvent[]) {
-      const effects = applyOwnerOutbox(store.context(null), events);
+    async ownerEvents(events: OwnerEvent[]) {
+      const effects = applyOwnerEventsToStore(store.context(null), events);
       store.flush();
       for (const card of effects.cards) await ownerHost.postConversationCard(card);
     },

@@ -796,8 +796,8 @@ export const serveTurnSearchRequest = async (
  *
  * `/api/cloud/events` and `/api/cloud/messages` are still the paths the
  * sandbox knows — that contract is stable and versioned with the executor —
- * but their destination moved here: the event stream is projected through
- * the outbox with an ordinal this object assigns, and the transcript is
+ * but their destination moved here: the event stream gets an ordinal this
+ * object assigns and the owner reads what it indexes, and the transcript is
  * committed to this thread's own table. Both are idempotent, which is what
  * lets the executor's unchanged single retry stay safe. The drive paths and
  * web search go to the owner's object (see `serveTurnDriveRequest` and

@@ -23,7 +23,7 @@ import {
   type CloudBrowserResumeReceipt,
   type CloudBrowserSessionTransferCapability,
 } from "@stella/contracts/cloud-browser";
-import type { TurnEventEvent } from "@stella/contracts/turn-plane/outbox";
+import type { TurnEventEvent } from "@stella/contracts/turn-plane/owner-events";
 import { empty, literal, number, object, string } from "../args.js";
 import { RpcError } from "../errors.js";
 import { enforceOwnerRateLimit } from "../rate-limit.js";
@@ -134,7 +134,7 @@ const log = (event: string, fields: Record<string, unknown>): void =>
 
 /**
  * A `waiting_for_user` turn event. Never throws: a malformed or replayed
- * event is logged and dropped, since the outbox would redeliver it forever.
+ * event is logged and dropped, since its producer would redeliver it forever.
  */
 export const recordBrowserSuspension = (
   ctx: Pick<OwnerContext, "db" | "jobs" | "now">,

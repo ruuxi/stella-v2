@@ -1,7 +1,7 @@
 /**
  * `BuildSession`'s core: the turn registry, the identity assertions every
- * other cluster calls before it writes, event/outbox emission, transient-write
- * settlement, and the owner-plane RPC (gate, fence, turn state, Convex).
+ * other cluster calls before it writes, owner event delivery, transient-write
+ * settlement, and the owner-plane RPC (gate, fence, turn state).
  *
  * Extracted verbatim from `src/index.ts`; every method takes the host surface
  * instead of `this` and is delegated to from the class. See
@@ -10,13 +10,12 @@
 import type { WebSearchResult } from "@stella/contracts/backend/search";
 import { createAgentControlPlane } from "../agent-control-plane.js";
 import { retireTransientAppBuild } from "../app-build-artifacts.js";
-import { mintTurnCapability } from "../capability-signer.js";
 import { EXACT_TURN_CANCELLATIONS_KEY } from "../execution-placement-turn-cancellation.js";
 import {
   nativeStateCheckpointPrefix,
   parseNativeStateCheckpointRecord,
 } from "../native-state-checkpoint.js";
-import { enqueueOutbox } from "../outbox.js";
+import { deliverOwnerEvents } from "../owner-events.js";
 import { HEADER_OWNER_FENCE_ID } from "../owner-fence-do.js";
 import { unwrapRpc } from "../owner-store/errors.js";
 import { isSandboxDestroyDebtKey } from "../sandbox-lifecycle.js";
@@ -32,9 +31,9 @@ import type { BuildSessionInternals } from "./host.js";
 import type { Env } from "./shared/env.js";
 import {
   BACKUP_ID_PATTERN,
-  OUTBOX_DEBT_KEY,
-  OUTBOX_DEBT_MAX,
-  OUTBOX_DEBT_RETRY_MS,
+  OWNER_EVENT_DEBT_KEY,
+  OWNER_EVENT_DEBT_MAX,
+  OWNER_EVENT_DEBT_RETRY_MS,
   R2_SWEEP_MAX_PAGES,
   TERMINAL_EVENT_STATUS,
   agentExecutionMarkerKey,
@@ -65,37 +64,32 @@ import type {
 } from "./shared/types.js";
 import type { CloudAgentDispatchDependencies } from "../cloud-agent-dispatch.js";
 import type { TurnExecutionContext } from "../turn-cancellation.js";
-import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
-import { CONTROL_PLANE_CAPABILITY_AUDIENCE } from "@stella/contracts/gateway/capability";
 import {
-  OUTBOX_EVENT_VERSION,
-  type OutboxEvent,
+  OWNER_EVENT_VERSION,
+  type OwnerEvent,
   type TurnEventEvent,
-} from "@stella/contracts/turn-plane/outbox";
+} from "@stella/contracts/turn-plane/owner-events";
 import type { AgentHistoryRow } from "@stella/executor-cloud/agent-history";
-import { convexSiteBase } from "../convex-site.js";
 
 export type SessionCoreHost = Pick<
   BuildSessionInternals,
   | "ctx"
   | "env"
   | "runningTurns"
-  | "controlPlaneCapabilities"
   | "armOwnerFenceLeaseReconciliationAlarm"
   | "assertAgentTurnIdentity"
   | "assertTurnWritable"
   | "appendThreadTranscript"
   | "callOwnerFence"
   | "cleanupTransientWrites"
-  | "controlPlaneCapability"
   | "deleteTurnStoragePreservingExactCancellations"
   | "deliverTerminal"
   | "emitTurnEvent"
-  | "enqueueOutboxDurable"
+  | "deliverOwnerEventsDurable"
   | "fetchCanonicalAgentHistory"
   | "hasOwnerFenceLeaseRetirementDebt"
   | "mutateExactTurn"
-  | "outboxBase"
+  | "ownerEventBase"
   | "ownerFenceLeaseSlotKey"
   | "ownerFenceReceiptMatches"
   | "ownerGateFor"
@@ -110,19 +104,6 @@ export type SessionCoreHost = Pick<
   | "unregisterTurn"
   | "unregisterTurnLease"
 >;
-
-/**
- * The app-build lane has no model call and therefore no execution selection
- * — but a turn capability's binding is not optional. This placeholder is what
- * the lane's control-plane capability carries. It is never minted for the
- * model-gateway audience, so it can never pin a model call.
- */
-const APP_BUILD_CONTROL_PLANE_EXECUTION = {
-  engine: "stella",
-  provider: "stella",
-  model: "app-build",
-  reasoningEffort: "default",
-} as CloudExecutionSelection;
 
 /** @see src/build-session/shared/keys.ts */
 export { mintAgentTurnModelGateway } from "./shared/keys.js";
@@ -152,14 +133,14 @@ export const deleteTurnStoragePreservingExactCancellations = async (
     const listed = [...(await host.ctx.storage.list<unknown>()).keys()];
     const hasDestroyDebt = listed.some(isSandboxDestroyDebtKey);
     const hasOwnerFenceDebt = listed.some(isBuildOwnerFenceDurabilityKey);
-    // Projections a queue outage deferred outlive the turn that produced
-    // them: Convex has no other way to learn a terminal state, and the
+    // Owner events an unreachable owner deferred outlive the turn that
+    // produced them: the owner has no other way to learn a terminal state, and the
     // alarm that retries them must survive with the debt.
-    const hasOutboxDebt = listed.includes(OUTBOX_DEBT_KEY);
+    const hasOwnerEventDebt = listed.includes(OWNER_EVENT_DEBT_KEY);
     const keys = listed.filter(
       (key) =>
         key !== EXACT_TURN_CANCELLATIONS_KEY &&
-        key !== OUTBOX_DEBT_KEY &&
+        key !== OWNER_EVENT_DEBT_KEY &&
         !isSandboxDestroyDebtKey(key) &&
         !isBuildOwnerFenceDurabilityKey(key),
     );
@@ -179,7 +160,7 @@ export const deleteTurnStoragePreservingExactCancellations = async (
         deleteAlarm &&
         !hasDestroyDebt &&
         !hasOwnerFenceDebt &&
-        !hasOutboxDebt
+        !hasOwnerEventDebt
       ) {
         await txn.deleteAlarm();
       }
@@ -213,8 +194,8 @@ export const childAgentDispatchDependencies = (
         turnId: input.turnId,
       });
     },
-    enqueueOutbox: async (events) =>
-      await host.enqueueOutboxDurable([...events]),
+    deliverOwnerEvents: async (events) =>
+      await host.deliverOwnerEventsDurable([...events]),
   };
 };
 
@@ -240,88 +221,8 @@ export const releaseOwnerGate = async (
 };
 
 /**
- * The control-plane capability for this exact attempt.
- *
- * Minted here rather than stored: a bearer token that outlives the isolate
- * would have to be written to durable storage and rotated there, and the
- * signature costs less than the storage round trip would. Cached per
- * isolate until a minute before expiry so a long turn re-signs at most a
- * handful of times.
- *
- * It is the model-gateway capability's twin — same owner, generation, turn
- * binding, audience and budget — and differs only in `aud`, which is why it
- * must never leave this Durable Object.
- */
-export const controlPlaneCapability = async (
-  host: SessionCoreHost,
-  turn: TurnRequest,
-): Promise<string> => {
-  const attemptGeneration = turn.attemptGeneration ?? 1;
-  const key = `${turn.turnId}:${attemptGeneration}`;
-  const now = Date.now();
-  const cached = host.controlPlaneCapabilities.get(key);
-  if (cached && cached.expiresAt - 60_000 > now) return cached.token;
-  const conversationId = turn.conversationId?.trim() ?? "";
-  if (!conversationId) {
-    throw turn.kind === "agent"
-      ? new AgentTurnAuthorityLostError()
-      : new AppTurnAuthorityLostError();
-  }
-  const minted = await mintTurnCapability(host.env, {
-    ownerId: turn.ownerId,
-    ownerGeneration: turn.ownerGeneration,
-    turnId: turn.turnId,
-    conversationId,
-    execution:
-      turn.execution ??
-      (turn.kind === "agent" ? undefined : APP_BUILD_CONTROL_PLANE_EXECUTION)!,
-    audience: turn.audience,
-    budgetMicroCents: turn.budgetMicroCents,
-    agentTypes: ["general"],
-    aud: CONTROL_PLANE_CAPABILITY_AUDIENCE,
-  });
-  host.controlPlaneCapabilities.set(key, {
-    token: minted.token,
-    expiresAt: minted.expiresAt,
-  });
-  return minted.token;
-};
-
-/**
- * The remaining synchronous Convex reads a turn still needs — the ones that
- * answer a question only the control plane can answer (web search, drive,
- * the app-build art director). Authority is this turn's control-plane
- * capability; the worker's shared secret is no longer sent from a turn path,
- * so a compromised turn cannot act as the worker.
- */
-export const convexCall = async (
-  host: SessionCoreHost,
-  turn: TurnRequest,
-  path: string,
-  body: unknown,
-  options: { signal?: AbortSignal; timeoutMs?: number } = {},
-): Promise<Response> => {
-  const base = convexSiteBase(host.env);
-  if (!base) throw new Error("Convex site URL is not configured.");
-  const capability = await host.controlPlaneCapability(turn);
-  const timeout = AbortSignal.timeout(options.timeoutMs ?? 30_000);
-  return await fetch(`${base}${path}`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${capability}`,
-      "content-type": "application/json",
-      accept: "application/json",
-    },
-    body: JSON.stringify(body),
-    signal: options.signal
-      ? AbortSignal.any([options.signal, timeout])
-      : timeout,
-  });
-};
-
-/**
  * The resident loop's control plane, wired to this object's own transcript
- * table and outbox, and to the owner object for web search.
+ * table and owner events, and to the owner object for web search.
  */
 export const agentControlPlane = (
   host: SessionCoreHost,
@@ -364,13 +265,13 @@ export const agentControlPlane = (
   });
 };
 
-export const outboxBase = (
+export const ownerEventBase = (
   host: SessionCoreHost,
   turn: TurnRequest,
   key: string,
 ) => {
   return {
-    v: OUTBOX_EVENT_VERSION,
+    v: OWNER_EVENT_VERSION,
     key,
     ownerId: turn.ownerId,
     ownerGeneration: turn.ownerGeneration,
@@ -379,32 +280,32 @@ export const outboxBase = (
 };
 
 /**
- * Append to the outbox, or remember the debt and let the alarm retry it.
- * A queue outage must not lose a projection Convex has no other way to
- * learn: the UI's thread rows, the turn's terminal state, a recorded build.
+ * Deliver to the owner's object, or remember the debt and let the alarm
+ * retry it. An unreachable owner must not lose what it has no other way to
+ * learn: the UI's thread rows and the turn's terminal state.
  */
-export const enqueueOutboxDurable = async (
+export const deliverOwnerEventsDurable = async (
   host: SessionCoreHost,
-  events: OutboxEvent[],
+  events: OwnerEvent[],
 ): Promise<void> => {
   if (events.length === 0) return;
   try {
-    await enqueueOutbox(host.env, events);
+    await deliverOwnerEvents(host.env, events);
     return;
   } catch (error) {
-    log("error", "outbox_enqueue_deferred", {
+    log("error", "owner_events_deferred", {
       events: events.map((event) => `${event.kind}:${event.key}`),
       message: errorMessage(error),
     });
   }
   await host.ctx.blockConcurrencyWhile(async () => {
     const debt =
-      (await host.ctx.storage.get<OutboxEvent[]>(OUTBOX_DEBT_KEY)) ?? [];
+      (await host.ctx.storage.get<OwnerEvent[]>(OWNER_EVENT_DEBT_KEY)) ?? [];
     await host.ctx.storage.put(
-      OUTBOX_DEBT_KEY,
-      [...debt, ...events].slice(-OUTBOX_DEBT_MAX),
+      OWNER_EVENT_DEBT_KEY,
+      [...debt, ...events].slice(-OWNER_EVENT_DEBT_MAX),
     );
-    const retryAt = Date.now() + OUTBOX_DEBT_RETRY_MS;
+    const retryAt = Date.now() + OWNER_EVENT_DEBT_RETRY_MS;
     const current = await host.ctx.storage.getAlarm();
     if (current === null || current > retryAt) {
       await host.ctx.storage.setAlarm(retryAt);
@@ -412,18 +313,18 @@ export const enqueueOutboxDurable = async (
   });
 };
 
-export const retryOutboxDebt = async (host: SessionCoreHost): Promise<void> => {
-  const debt = await host.ctx.storage.get<OutboxEvent[]>(OUTBOX_DEBT_KEY);
+export const retryOwnerEventDebt = async (host: SessionCoreHost): Promise<void> => {
+  const debt = await host.ctx.storage.get<OwnerEvent[]>(OWNER_EVENT_DEBT_KEY);
   if (!debt || debt.length === 0) return;
   try {
-    await enqueueOutbox(host.env, debt);
-    await host.ctx.storage.delete(OUTBOX_DEBT_KEY);
+    await deliverOwnerEvents(host.env, debt);
+    await host.ctx.storage.delete(OWNER_EVENT_DEBT_KEY);
   } catch (error) {
-    log("error", "outbox_debt_retry_failed", {
+    log("error", "owner_events_retry_failed", {
       events: debt.length,
       message: errorMessage(error),
     });
-    const retryAt = Date.now() + OUTBOX_DEBT_RETRY_MS;
+    const retryAt = Date.now() + OWNER_EVENT_DEBT_RETRY_MS;
     const current = await host.ctx.storage.getAlarm();
     if (current === null || current > retryAt) {
       await host.ctx.storage.setAlarm(retryAt);
@@ -472,7 +373,7 @@ export const emitTurnEvent = async (
   }
   const terminal = options.terminal === true;
   const event: TurnEventEvent = {
-    ...host.outboxBase(turn, `${turn.turnId}:${attemptGeneration}:${eventSeq}`),
+    ...host.ownerEventBase(turn, `${turn.turnId}:${attemptGeneration}:${eventSeq}`),
     kind: "turn.event",
     turnId: turn.turnId,
     ...(turn.kind === "agent" ? { attemptGeneration } : {}),
@@ -488,7 +389,7 @@ export const emitTurnEvent = async (
     ...(options.resultJson ? { resultJson: options.resultJson } : {}),
     createdAt: Date.now(),
   };
-  await host.enqueueOutboxDurable([event]);
+  await host.deliverOwnerEventsDurable([event]);
   return eventSeq;
 };
 
@@ -1108,11 +1009,11 @@ export const scheduleDurabilityAlarm = async (
   if (await host.hasOwnerFenceLeaseRetirementDebt()) {
     await host.armOwnerFenceLeaseReconciliationAlarm();
   }
-  // Deferred projections are durability debt like any other: without a wake
-  // a queue outage would strand a terminal state Convex never hears about.
-  const outboxDebt = await host.ctx.storage.get<OutboxEvent[]>(OUTBOX_DEBT_KEY);
-  if (outboxDebt && outboxDebt.length > 0) {
-    const retryAt = Date.now() + OUTBOX_DEBT_RETRY_MS;
+  // Deferred owner events are durability debt like any other: without a wake
+  // an unreachable owner would strand a terminal state it never hears about.
+  const ownerEventDebt = await host.ctx.storage.get<OwnerEvent[]>(OWNER_EVENT_DEBT_KEY);
+  if (ownerEventDebt && ownerEventDebt.length > 0) {
+    const retryAt = Date.now() + OWNER_EVENT_DEBT_RETRY_MS;
     const current = await host.ctx.storage.getAlarm();
     if (current === null || current > retryAt) {
       await host.ctx.storage.setAlarm(retryAt);

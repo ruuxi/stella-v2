@@ -1,6 +1,5 @@
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import {
-  CONTROL_PLANE_CAPABILITY_AUDIENCE,
   GATEWAY_CAPABILITY_AUDIENCE,
   GATEWAY_CAPABILITY_ISSUERS,
   GATEWAY_TURN_CAPABILITY_TTL_MS,
@@ -25,12 +24,6 @@ import {
  * needs to authorize and meter the turn's model calls without consulting
  * Convex: owner, generation, audience, budget, the exact admitted execution,
  * and (for connected subscriptions) which native credential lane to use.
- *
- * Every admitted turn mints TWO capabilities from the same input: one for the
- * model gateway (`stella-model-gateway`, may enter a sandbox or a CLI) and
- * one for Convex callback routes (`stella-control-plane`, never leaves the
- * Durable Object). The split is what makes a leaked gateway capability
- * useless against the control plane.
  *
  * The imported CryptoKey is cached per isolate; PKCS8 import is not free and
  * every turn in the isolate signs with the same key.
@@ -194,31 +187,4 @@ export const mintTurnCapability = async (
     claims: signed.claims,
     expiresAt: signed.claims.exp * 1000,
   };
-};
-
-export type MintedTurnCapabilities = {
-  /** Presented to the model gateway; may travel into a sandbox. */
-  model: MintedTurnCapability;
-  /** Presented to Convex callback routes; never leaves the Durable Object. */
-  controlPlane: MintedTurnCapability;
-};
-
-/**
- * Both capabilities for one admitted turn. They share every binding claim
- * (owner, generation, turn, execution, audience, budget) and differ only in
- * `aud`, so a Convex route can bind on `turn.turnId` exactly as the gateway
- * does while a gateway token can never be replayed against Convex.
- */
-export const mintTurnCapabilities = async (
-  env: CapabilitySignerEnv,
-  input: Omit<TurnCapabilityInput, "aud">,
-): Promise<MintedTurnCapabilities> => {
-  const [model, controlPlane] = await Promise.all([
-    mintTurnCapability(env, { ...input, aud: GATEWAY_CAPABILITY_AUDIENCE }),
-    mintTurnCapability(env, {
-      ...input,
-      aud: CONTROL_PLANE_CAPABILITY_AUDIENCE,
-    }),
-  ]);
-  return { model, controlPlane };
 };

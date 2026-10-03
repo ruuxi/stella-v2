@@ -2,9 +2,9 @@ import type { AgentToolResult } from "@stella/runtime/kernel/agent-core/types.js
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import type { CloudBrowserResumeReceipt } from "@stella/contracts/cloud-browser";
 import {
-  OUTBOX_EVENT_VERSION,
+  OWNER_EVENT_VERSION,
   type ThreadSpawnedEvent,
-} from "@stella/contracts/turn-plane/outbox";
+} from "@stella/contracts/turn-plane/owner-events";
 import {
   TURN_PLANE_PROTOCOL,
   TURN_PROMPT_MAX_CHARS,
@@ -372,7 +372,7 @@ export type CloudAgentDispatchDependencies = Readonly<{
     ownerId: string;
     turnId: string;
   }) => Promise<void>;
-  enqueueOutbox: (events: readonly ThreadSpawnedEvent[]) => Promise<void>;
+  deliverOwnerEvents: (events: readonly ThreadSpawnedEvent[]) => Promise<void>;
   now?: () => number;
 }>;
 
@@ -569,9 +569,9 @@ export const dispatchCloudAgentTurn = async (args: {
       `${attempt.threadId} was continued while this request was in flight. Refresh its status and try again.`,
     );
   }
-  await dependencies.enqueueOutbox([
+  await dependencies.deliverOwnerEvents([
     {
-      v: OUTBOX_EVENT_VERSION,
+      v: OWNER_EVENT_VERSION,
       key: `${attempt.threadId}:${attempt.attemptGeneration}`,
       ownerId: caller.ownerId,
       ownerGeneration: caller.ownerGeneration,

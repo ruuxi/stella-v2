@@ -1,12 +1,12 @@
 /**
- * In-memory stand-ins for the turn plane's two new bindings — the owner gate
- * namespace and the outbox queue — plus a well-formed owner snapshot. Every
- * fake records what it was asked so a test can assert the exact admission,
- * release, and projection traffic a code path produced.
+ * In-memory stand-ins for the owner gate namespace (including the owner
+ * events it is handed) plus a well-formed owner snapshot. Every fake records
+ * what it was asked so a test can assert the exact admission, release, and
+ * owner-event traffic a code path produced.
  */
 
 import { generateCapabilityKeyPair } from "@stella/contracts/gateway/jwt";
-import type { OutboxEvent } from "@stella/contracts/turn-plane/outbox";
+import type { OwnerEvent } from "@stella/contracts/turn-plane/owner-events";
 import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
 import type {
   OwnerGateAdmission,
@@ -53,6 +53,7 @@ export type FakeOwnerGates = {
         lease: OwnerGateFenceLeaseRequest;
       }) => Promise<OwnerGateSnapshotWithLease>;
       invalidate: () => Promise<void>;
+      applyOwnerEvents: (events: OwnerEvent[]) => Promise<void>;
     };
   };
   admits: Array<{ ownerId: string; input: OwnerGateAdmitInput }>;
@@ -79,8 +80,11 @@ export const fakeOwnerGates = (
       ownerId: string,
       lease: OwnerGateFenceLeaseRequest,
     ) => OwnerGateSnapshotWithLease | Promise<OwnerGateSnapshotWithLease>;
+    /** Records the owner events the gates are handed. */
+    ownerEvents?: FakeOwnerEvents;
   } = {},
 ): FakeOwnerGates => {
+  const ownerEvents = options.ownerEvents ?? fakeOwnerEvents();
   const snapshot = options.snapshot ?? sampleOwnerSnapshot();
   const admits: FakeOwnerGates["admits"] = [];
   const releases: FakeOwnerGates["releases"] = [];
@@ -174,6 +178,7 @@ export const fakeOwnerGates = (
         invalidate: async () => {
           invalidations.push(ownerId);
         },
+        applyOwnerEvents: async (events) => await ownerEvents.apply(events),
       }),
     },
     admits,
@@ -184,43 +189,40 @@ export const fakeOwnerGates = (
   };
 };
 
-export type FakeOutbox = {
-  queue: {
-    send: (body: OutboxEvent) => Promise<void>;
-    sendBatch: (messages: Iterable<{ body: OutboxEvent }>) => Promise<void>;
-  };
-  events: OutboxEvent[];
-  /** Number of `sendBatch` calls, to assert batching. */
-  batches: OutboxEvent[][];
-  /** Make the next `count` sends throw. */
+/** An owner gate namespace whose stubs hand owner events to `recorder`. */
+export const withOwnerEvents = <T extends object>(
+  namespace: { getByName: (ownerId: string) => T },
+  recorder: FakeOwnerEvents,
+) => ({
+  getByName: (ownerId: string) => ({
+    ...namespace.getByName(ownerId),
+    applyOwnerEvents: async (events: OwnerEvent[]) =>
+      await recorder.apply(events),
+  }),
+});
+
+export type FakeOwnerEvents = {
+  apply: (events: OwnerEvent[]) => Promise<void>;
+  events: OwnerEvent[];
+  /** One entry per delivery, to assert batching. */
+  batches: OwnerEvent[][];
+  /** Make the next `count` deliveries throw. */
   failNext: (count: number) => void;
 };
 
-export const fakeOutbox = (): FakeOutbox => {
-  const events: OutboxEvent[] = [];
-  const batches: OutboxEvent[][] = [];
+export const fakeOwnerEvents = (): FakeOwnerEvents => {
+  const events: OwnerEvent[] = [];
+  const batches: OwnerEvent[][] = [];
   let failures = 0;
-  const fail = () => {
-    if (failures > 0) {
-      failures -= 1;
-      throw new Error("queue unavailable");
-    }
-  };
   return {
-    queue: {
-      send: async (body) => {
-        fail();
-        events.push(structuredClone(body));
-        batches.push([structuredClone(body)]);
-      },
-      sendBatch: async (messages) => {
-        fail();
-        const batch = [...messages].map((message) =>
-          structuredClone(message.body),
-        );
-        events.push(...batch);
-        batches.push(batch);
-      },
+    apply: async (delivered) => {
+      if (failures > 0) {
+        failures -= 1;
+        throw new Error("owner unavailable");
+      }
+      const batch = delivered.map((event) => structuredClone(event));
+      events.push(...batch);
+      batches.push(batch);
     },
     events,
     batches,

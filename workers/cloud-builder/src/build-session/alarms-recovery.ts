@@ -1167,8 +1167,8 @@ export const advanceBuilderFallback = async (
     });
   }
   if (!fallback.transcriptCommitted) {
-    // The rows are committed to this thread's own table; the projection
-    // rides the outbox. Re-appending the same ordinals is a no-op, so the
+    // The rows are committed to this thread's own table. Re-appending the
+    // same ordinals is a no-op, so the
     // replay this journal exists for cannot double-write the transcript.
     await host.appendThreadTranscript(turn, fallback.messages);
     const canonicalRows = host.fetchCanonicalAgentHistory(turn, {

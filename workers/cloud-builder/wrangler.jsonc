@@ -287,25 +287,6 @@
       "deleted_classes": ["SandboxSmall", "AppBuildSandbox"],
     },
   ],
-  "queues": {
-    "producers": [
-      {
-        // Durable Objects append control-plane projections here; the
-        // consumer below batches them into Convex `POST /api/cloud/outbox`.
-        "binding": "TURN_OUTBOX",
-        "queue": "stella-v2-turn-outbox-dev",
-      },
-    ],
-    "consumers": [
-      {
-        "queue": "stella-v2-turn-outbox-dev",
-        "max_batch_size": 50,
-        "max_batch_timeout": 2,
-        "max_retries": 10,
-        "dead_letter_queue": "stella-v2-turn-outbox-dlq-dev",
-      },
-    ],
-  },
   "env": {
     "bn118": {
       "name": "stella-v2-cloud-builder-basic-nightingale-118",
@@ -488,23 +469,6 @@
           "deleted_classes": ["SandboxSmall", "AppBuildSandbox"],
         },
       ],
-      "queues": {
-        "producers": [
-          {
-            "binding": "TURN_OUTBOX",
-            "queue": "stella-v2-turn-outbox-basic-nightingale-118",
-          },
-        ],
-        "consumers": [
-          {
-            "queue": "stella-v2-turn-outbox-basic-nightingale-118",
-            "max_batch_size": 50,
-            "max_batch_timeout": 2,
-            "max_retries": 10,
-            "dead_letter_queue": "stella-v2-turn-outbox-dlq-basic-nightingale-118",
-          },
-        ],
-      },
     },
     "production": {
       "name": "stella-v2-cloud-builder-prod",
@@ -686,23 +650,6 @@
           "deleted_classes": ["SandboxSmall", "AppBuildSandbox"],
         },
       ],
-      "queues": {
-        "producers": [
-          {
-            "binding": "TURN_OUTBOX",
-            "queue": "stella-v2-turn-outbox",
-          },
-        ],
-        "consumers": [
-          {
-            "queue": "stella-v2-turn-outbox",
-            "max_batch_size": 50,
-            "max_batch_timeout": 2,
-            "max_retries": 10,
-            "dead_letter_queue": "stella-v2-turn-outbox-dlq",
-          },
-        ],
-      },
     },
   },
 }

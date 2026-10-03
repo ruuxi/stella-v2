@@ -1,7 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import { nativeHistoryCursorFromRows } from "../src/native-state-checkpoint.js";
 import { openSqlStorageFake } from "./fixtures/sql-storage.js";
-import { fakeOutbox } from "./helpers/turn-plane-fakes.js";
 
 mock.module("cloudflare:workers", () => ({
   DurableObject: class {},
@@ -124,7 +123,7 @@ const harness = () => {
       blockConcurrencyWhile: async <T>(operation: () => Promise<T>) =>
         await operation(),
     },
-    env: { TURN_OUTBOX: fakeOutbox().queue },
+    env: {},
     agentTurnExecutions: new Map(),
     builderFallbackRecoveries: new Set(),
     turnStateCheckpointRuns: new Map(),

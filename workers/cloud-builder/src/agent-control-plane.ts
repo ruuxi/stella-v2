@@ -8,7 +8,7 @@
  *
  * None of them is a Convex call. The thread transcript and the turn event
  * stream belong to the `BuildSession` — the transcript lives in its SQLite
- * and the events leave through the outbox — and web search is the owner
+ * and the owner reads the events it needs — and web search is the owner
  * object's `search.web`, so all three arrive here as injected callbacks.
  */
 
@@ -83,7 +83,7 @@ export class TranscriptNotCanonicalError extends Error {
  * The transcript and event transports the owning `BuildSession` supplies.
  * They are injected rather than implemented here because both are now that
  * object's own state: the rows live in its SQLite, and the events leave
- * through its outbox with a DO-assigned ordinal.
+ * as owner events with a DO-assigned ordinal.
  */
 export type AgentControlPlaneTransport = Readonly<{
   /** This thread's rows, oldest first, excluding the current turn on request. */

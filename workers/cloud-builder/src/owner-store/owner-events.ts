@@ -1,10 +1,10 @@
 /**
- * Turn-plane outbox events, applied to the owner's own index. The
- * orchestrator and BuildSessions emit these through `TURN_OUTBOX`; the queue
- * consumer groups a batch by owner and hands each owner its events.
+ * Turn-plane events applied to the owner's own index. The orchestrator,
+ * BuildSessions and conversation objects deliver them to
+ * `OwnerGate.applyOwnerEvents` (see `src/owner-events.ts`).
  */
 
-import type { OutboxEvent } from "@stella/contracts/turn-plane/outbox";
+import type { OwnerEvent } from "@stella/contracts/turn-plane/owner-events";
 import {
   applyAgentThreadEvent,
   type AgentThreadEffects,
@@ -14,7 +14,7 @@ import { recordBrowserSuspension } from "./domains/browser.js";
 import type { OwnerContext } from "./registry.js";
 
 /** Parents before children, so a batch never applies a child to a missing row. */
-const KIND_ORDER: Record<OutboxEvent["kind"], number> = {
+const KIND_ORDER: Record<OwnerEvent["kind"], number> = {
   "conversation.created": 0,
   "turn.started": 1,
   "thread.spawned": 2,
@@ -22,12 +22,11 @@ const KIND_ORDER: Record<OutboxEvent["kind"], number> = {
   "turn.event": 4,
   "thread.completed": 5,
   "conversation.deleted": 6,
-  "build.recorded": 7,
 };
 
-export const applyOwnerOutbox = (
+export const applyOwnerEventsToStore = (
   ctx: Pick<OwnerContext, "db" | "jobs" | "now">,
-  events: readonly OutboxEvent[],
+  events: readonly OwnerEvent[],
 ): AgentThreadEffects => {
   const { db } = ctx;
   const effects: AgentThreadEffects = { cards: [] };
@@ -55,8 +54,6 @@ export const applyOwnerOutbox = (
       case "thread.spawned":
       case "thread.completed":
         applyAgentThreadEvent(db, event, effects);
-        break;
-      case "build.recorded":
         break;
     }
   }

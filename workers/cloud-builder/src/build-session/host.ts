@@ -17,7 +17,7 @@ import type {
   TurnBrokerTurnStateCheckpointReceipt,
   TurnBrokerTurnStateCheckpointRequest,
 } from "@stella/contracts/turn-credential-broker";
-import type { OutboxEvent } from "@stella/contracts/turn-plane/outbox";
+import type { OwnerEvent } from "@stella/contracts/turn-plane/owner-events";
 import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
 import type { AgentHistoryRow } from "@stella/executor-cloud/agent-history";
 import type {
@@ -77,10 +77,7 @@ export interface BuildSessionInternals {
   readonly runningTurns: Map<string, Set<Promise<unknown>>>;
   readonly appTurnExecutions: Map<string, TurnExecution<Response>>;
   readonly agentTurnExecutions: Map<string, TurnExecution<void>>;
-  readonly controlPlaneCapabilities: Map<
-    string,
-    { token: string; expiresAt: number }
-  >;
+
   readonly builderFallbackRecoveries: Set<string>;
   readonly residentAgentAborts: Map<string, () => void>;
   readonly turnStateCheckpointRuns: Map<
@@ -96,19 +93,13 @@ export interface BuildSessionInternals {
   ownerGateFor(ownerId: string): DurableObjectStub<OwnerGate>;
   childAgentDispatchDependencies(): CloudAgentDispatchDependencies;
   releaseOwnerGate(turn: TurnRequest): Promise<void>;
-  controlPlaneCapability(turn: TurnRequest): Promise<string>;
-  convexCall(
-    turn: TurnRequest,
-    path: string,
-    body: unknown,
-    options?: { signal?: AbortSignal; timeoutMs?: number },
-  ): Promise<Response>;
+
   agentControlPlane(
     turn: TurnRequest,
     attemptGeneration: number,
     sessionId: string,
   ): ReturnType<typeof createAgentControlPlane>;
-  outboxBase(
+  ownerEventBase(
     turn: TurnRequest,
     key: string,
   ): {
@@ -118,8 +109,8 @@ export interface BuildSessionInternals {
     readonly ownerGeneration: string;
     readonly emittedAt: number;
   };
-  enqueueOutboxDurable(events: OutboxEvent[]): Promise<void>;
-  retryOutboxDebt(): Promise<void>;
+  deliverOwnerEventsDurable(events: OwnerEvent[]): Promise<void>;
+  retryOwnerEventDebt(): Promise<void>;
   emitTurnEvent(
     turn: TurnRequest,
     eventKind: string,

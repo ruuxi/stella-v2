@@ -107,13 +107,11 @@ const environment = (
     snapshot: ReturnType<typeof sampleOwnerSnapshot>;
   }> = [];
   const submissions: unknown[] = [];
-  const outboxApplied: Array<{ ownerId: string; events: unknown[] }> = [];
   return {
     forwarded,
     invalidated,
     replaced,
     submissions,
-    outboxApplied,
     env: {
       BUILDER_SERVICE_SECRET: SERVICE_SECRET,
       STELLA_CONVEX_SITE_URL: ISSUER,
@@ -154,9 +152,6 @@ const environment = (
           },
           invalidate: async () => {
             invalidated.push(ownerId);
-          },
-          applyOutboxEvents: async (events: unknown[]) => {
-            outboxApplied.push({ ownerId, events });
           },
           replaceSnapshot: async (
             snapshot: ReturnType<typeof sampleOwnerSnapshot>,
@@ -642,67 +637,5 @@ describe("POST /internal/owners/snapshot-changed", () => {
     );
     expect(mismatchedSnapshot.status).toBe(400);
     expect(replaced).toHaveLength(1);
-  });
-});
-
-describe("queue consumer export", () => {
-  test("delivers a batch to Convex and acks it", async () => {
-    const queueEnvironment = environment();
-    let posted: unknown;
-    let ackedAll = 0;
-    const previous = globalThis.fetch;
-    globalThis.fetch = (async (
-      input: string | URL | Request,
-      init?: RequestInit,
-    ) => {
-      expect(String(input)).toBe(`${ISSUER}/api/cloud/outbox`);
-      posted = JSON.parse(String(init?.body));
-      return Response.json({
-        applied: ["turn.event:k"],
-        duplicate: [],
-        rejected: [],
-      });
-    }) as typeof fetch;
-    try {
-      await worker.queue(
-        {
-          queue: "stella-v2-turn-outbox-dev",
-          messages: [
-            {
-              body: {
-                v: 1,
-                kind: "turn.event",
-                key: "k",
-                ownerId: "owner-1",
-                ownerGeneration: "generation-1",
-                emittedAt: 1,
-                turnId: "turn-1",
-                sessionId: "chat-1",
-                eventSeq: 1,
-                eventKind: "started",
-                payload: {},
-                terminal: false,
-                createdAt: 1,
-              },
-              ack: () => undefined,
-            },
-          ],
-          ackAll: () => {
-            ackedAll += 1;
-          },
-          retryAll: () => undefined,
-        } as unknown as MessageBatch<unknown>,
-        queueEnvironment.env,
-        {} as ExecutionContext,
-      );
-    } finally {
-      globalThis.fetch = previous;
-    }
-    // The owner's object gets its share before Convex does.
-    expect(queueEnvironment.outboxApplied).toEqual([
-      { ownerId: "owner-1", events: [expect.objectContaining({ kind: "turn.event", key: "k" })] },
-    ]);
-    expect((posted as { events: unknown[] }).events).toHaveLength(1);
-    expect(ackedAll).toBe(1);
   });
 });

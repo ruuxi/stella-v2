@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { OutboxEvent } from "@stella/contracts/turn-plane/outbox";
+import type { OwnerEvent } from "@stella/contracts/turn-plane/owner-events";
 import { DispatchError } from "../src/owner-store/registry.js";
 import {
   completeConversationEdit,
@@ -12,7 +12,7 @@ const GEN = "generation-1";
 const CONV = "6f0e2a7c-1b3d-4c5e-8f9a-0b1c2d3e4f5a";
 const execution = { engine: "stella", provider: "stella", model: "stella/default", reasoningEffort: "default" } as const;
 
-const base = (kind: OutboxEvent["kind"], key: string) => ({
+const base = (kind: OwnerEvent["kind"], key: string) => ({
   v: 1 as const,
   kind,
   key,
@@ -21,7 +21,7 @@ const base = (kind: OutboxEvent["kind"], key: string) => ({
   emittedAt: 1,
 });
 
-const created = (conversationId = CONV, createdAt = 1_000): OutboxEvent => ({
+const created = (conversationId = CONV, createdAt = 1_000): OwnerEvent => ({
   ...base("conversation.created", conversationId),
   kind: "conversation.created",
   conversationId,
@@ -29,7 +29,7 @@ const created = (conversationId = CONV, createdAt = 1_000): OutboxEvent => ({
   title: "Plan the trip",
 });
 
-const indexEvent = (fields: { epoch: number; lastSeq: number; updatedAt: number; lastPreview?: string; force?: boolean }): OutboxEvent => ({
+const indexEvent = (fields: { epoch: number; lastSeq: number; updatedAt: number; lastPreview?: string; force?: boolean }): OwnerEvent => ({
   ...base("conversation.index", `${CONV}:${fields.epoch}:${fields.lastSeq}`),
   kind: "conversation.index",
   conversationId: CONV,
@@ -72,22 +72,22 @@ describe("conversations", () => {
 
   test("index events are fenced on epoch and sequence; deletion hides the row for good", async () => {
     const get = await h.watch("conversations.get", { conversationId: CONV });
-    await h.outbox([created()]);
+    await h.ownerEvents([created()]);
     expect(get()).toMatchObject({ conversationId: CONV, title: "Plan the trip", updatedAt: 1_000 });
 
-    await h.outbox([indexEvent({ epoch: 1, lastSeq: 5, updatedAt: 2_000, lastPreview: "five" })]);
+    await h.ownerEvents([indexEvent({ epoch: 1, lastSeq: 5, updatedAt: 2_000, lastPreview: "five" })]);
     expect(get()).toMatchObject({ lastPreview: "five", updatedAt: 2_000, activity: "idle" });
     // Older sequence and older epoch are dropped.
-    await h.outbox([indexEvent({ epoch: 1, lastSeq: 4, updatedAt: 3_000, lastPreview: "four" })]);
-    await h.outbox([indexEvent({ epoch: 0, lastSeq: 9, updatedAt: 3_000, lastPreview: "old epoch" })]);
+    await h.ownerEvents([indexEvent({ epoch: 1, lastSeq: 4, updatedAt: 3_000, lastPreview: "four" })]);
+    await h.ownerEvents([indexEvent({ epoch: 0, lastSeq: 9, updatedAt: 3_000, lastPreview: "old epoch" })]);
     expect(get()).toMatchObject({ lastPreview: "five", updatedAt: 2_000 });
     // A rewind's new epoch wins even at a lower sequence.
-    await h.outbox([indexEvent({ epoch: 2, lastSeq: 1, updatedAt: 4_000, lastPreview: "rewound" })]);
+    await h.ownerEvents([indexEvent({ epoch: 2, lastSeq: 1, updatedAt: 4_000, lastPreview: "rewound" })]);
     expect(get()).toMatchObject({ lastPreview: "rewound", updatedAt: 4_000 });
 
-    await h.outbox([{ ...base("conversation.deleted", CONV), kind: "conversation.deleted", conversationId: CONV, deletedAt: 5_000 }]);
+    await h.ownerEvents([{ ...base("conversation.deleted", CONV), kind: "conversation.deleted", conversationId: CONV, deletedAt: 5_000 }]);
     expect(get()).toBeNull();
-    await h.outbox([indexEvent({ epoch: 3, lastSeq: 7, updatedAt: 6_000, lastPreview: "late" })]);
+    await h.ownerEvents([indexEvent({ epoch: 3, lastSeq: 7, updatedAt: 6_000, lastPreview: "late" })]);
     expect(get()).toBeNull();
     expect((await h.call("conversations.page", {})).conversations).toEqual([]);
   });
@@ -95,7 +95,7 @@ describe("conversations", () => {
   test("pages through history newest first", async () => {
     for (let index = 0; index < 5; index++) {
       const id = `00000000-0000-4000-8000-00000000000${index}`;
-      await h.outbox([created(id, 1_000 + index)]);
+      await h.ownerEvents([created(id, 1_000 + index)]);
     }
     const first = await h.call("conversations.page", { limit: 2 });
     expect(first.hasMore).toBe(true);
@@ -115,7 +115,7 @@ describe("fork and rewind", () => {
   const rewindArgs = { conversationId: CONV, throughSeq: 3, expectedEpoch: 1, expectedLastSeq: 5, requestId: "rewind-request-1", activeTurnPolicy: "conflict" };
 
   beforeEach(async () => {
-    await h.outbox([created(), indexEvent({ epoch: 1, lastSeq: 5, updatedAt: 2_000, lastPreview: "five" })]);
+    await h.ownerEvents([created(), indexEvent({ epoch: 1, lastSeq: 5, updatedAt: 2_000, lastPreview: "five" })]);
   });
 
   test("fork publishes a new conversation and replays by request id", async () => {
@@ -162,7 +162,7 @@ describe("fork and rewind", () => {
     expect(h.host.edits).toEqual([expect.objectContaining({ kind: "rewind", conversationId: CONV, activeTurnPolicy: "conflict" })]);
     expect(get()).toMatchObject({ lastPreview: "kept", lastRole: "user", activity: "idle" });
 
-    await h.outbox([indexEvent({ epoch: 1, lastSeq: 6, updatedAt: 9_000, lastPreview: "cut" })]);
+    await h.ownerEvents([indexEvent({ epoch: 1, lastSeq: 6, updatedAt: 9_000, lastPreview: "cut" })]);
     expect(get()).toMatchObject({ lastPreview: "kept" });
     expect(await h.call("conversations.rewind", rewindArgs)).toEqual({ ...rewind, replayed: true });
   });
@@ -182,7 +182,7 @@ describe("fork and rewind", () => {
 
   test("a deleted source stops the fork before it publishes", async () => {
     h.editResponder = async (request) => {
-      await h.outbox([{ ...base("conversation.deleted", CONV), kind: "conversation.deleted", conversationId: CONV, deletedAt: 3_000 }]);
+      await h.ownerEvents([{ ...base("conversation.deleted", CONV), kind: "conversation.deleted", conversationId: CONV, deletedAt: 3_000 }]);
       return completeConversationEdit(request);
     };
     expect(await h.callError("conversations.fork", forkArgs)).toMatchObject({ code: "NOT_FOUND" });
@@ -202,7 +202,7 @@ const spawnArgs = (overrides: Record<string, unknown> = {}) => ({
 
 describe("desktop-dispatched cloud agents", () => {
   beforeEach(async () => {
-    await h.outbox([created()]);
+    await h.ownerEvents([created()]);
   });
 
   test("spawn records the attempt, dispatches it, and replays by request id", async () => {
@@ -267,7 +267,7 @@ describe("desktop-dispatched cloud agents", () => {
     const device = await h.watch("agentThreads.forDevice", { originDeviceId: "desktop-1", ownerGeneration: GEN });
     expect(device()).toHaveLength(1);
     const turnId = h.host.dispatched[0]!.turnId;
-    await h.outbox([
+    await h.ownerEvents([
       {
         ...base("thread.completed", `${control.threadId}:${turnId}:1`),
         kind: "thread.completed",
@@ -368,9 +368,9 @@ describe("desktop-dispatched cloud agents", () => {
 
 describe("orchestrator-spawned cloud agents", () => {
   test("outbox events build the thread, and completion files a card under its parent turn", async () => {
-    await h.outbox([created()]);
+    await h.ownerEvents([created()]);
     const recent = await h.watch("agentThreads.recent", {});
-    await h.outbox([
+    await h.ownerEvents([
       {
         ...base("thread.spawned", "thr-a:1"),
         kind: "thread.spawned",
@@ -416,7 +416,7 @@ describe("orchestrator-spawned cloud agents", () => {
     expect(recent()).toEqual([expect.objectContaining({ threadId: "thr-a", status: "running", parentTurnId: "parent-turn" })]);
 
     // A late event from attempt 0 changes nothing; completion of attempt 1 lands.
-    await h.outbox([
+    await h.ownerEvents([
       {
         ...base("thread.completed", "thr-a:agent-turn-1:1"),
         kind: "thread.completed",
@@ -438,7 +438,7 @@ describe("orchestrator-spawned cloud agents", () => {
       },
     ]);
     // Replaying the completion is a no-op.
-    await h.outbox([
+    await h.ownerEvents([
       {
         ...base("thread.completed", "thr-a:agent-turn-1:1"),
         kind: "thread.completed",
@@ -468,7 +468,7 @@ describe("desktop (computer) agents", () => {
 
   test("attempts follow the start, complete and cancel rules", async () => {
     expect((await h.callError("computerThreads.start", start(1))).reason).toBe("conversation_not_found");
-    await h.outbox([created()]);
+    await h.ownerEvents([created()]);
     expect((await h.callError("computerThreads.start", start(2))).reason).toBe("initial_attempt_invalid");
     expect(await h.call("computerThreads.start", start(1))).toEqual({ threadId: "local-agent-1" });
     expect(await h.call("computerThreads.start", start(1))).toEqual({ threadId: "local-agent-1" });

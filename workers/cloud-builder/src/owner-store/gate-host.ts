@@ -16,7 +16,7 @@ import {
   runConversationEdit,
 } from "../conversation-edit-runner.js";
 import { withOwnerActivityLease, type OwnerFenceCaller } from "../owner-activity-lease.js";
-import { enqueueOutbox } from "../outbox.js";
+import type { OwnerEvent } from "@stella/contracts/turn-plane/owner-events";
 import type {
   OwnerGateAdmission,
   OwnerGateAdmitInput,
@@ -29,7 +29,7 @@ import { startScheduledTurn } from "./scheduled-turn.js";
 
 type GateHostEnv = Pick<
   Cloudflare.Env,
-  "BUILD_SESSIONS" | "WORLDS" | "ORCHESTRATOR_SESSIONS" | "TURN_OUTBOX"
+  "BUILD_SESSIONS" | "WORLDS" | "ORCHESTRATOR_SESSIONS"
 > &
   Partial<Pick<Cloudflare.Env, "CLOUD_BUILDER_PUBLIC_URL">>;
 
@@ -47,6 +47,8 @@ export type GateHostDependencies = {
   changeMemoryPolicy: OwnerHost["changeMemoryPolicy"];
   /** This object's owner fence, called in-process. */
   fence: OwnerFenceCaller;
+  /** The gate's own `applyOwnerEvents`, called in-process. */
+  applyOwnerEvents: (events: OwnerEvent[]) => Promise<void>;
   log: (level: "info" | "error", event: string, fields: Record<string, unknown>) => void;
 };
 
@@ -66,7 +68,7 @@ export const createGateHost = (deps: GateHostDependencies): OwnerHost => ({
               expectedGeneration: admit.expectedGeneration,
             }),
           releaseOwnerGate: async ({ turnId }) => await deps.release({ turnId }),
-          enqueueOutbox: async (events) => await enqueueOutbox(deps.env, events),
+          deliverOwnerEvents: async (events) => await deps.applyOwnerEvents([...events]),
         },
         caller: {
           ownerId: deps.ownerId(),

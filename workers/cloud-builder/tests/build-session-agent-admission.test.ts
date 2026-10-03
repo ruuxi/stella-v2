@@ -3,7 +3,7 @@ import type {
   ThreadCompletedEvent,
   ThreadSpawnedEvent,
   TurnStartedEvent,
-} from "@stella/contracts/turn-plane/outbox";
+} from "@stella/contracts/turn-plane/owner-events";
 import type { CloudTurnStartRequest } from "@stella/contracts/turn-plane/turn-start";
 import { ExactTurnCancellationLedger } from "../src/execution-placement-turn-cancellation.js";
 import { HEADER_GATE_ADMITTED } from "../src/turn-start-request.js";
@@ -12,7 +12,8 @@ import { SteerMailbox } from "../src/steer-mailbox.js";
 import { openSqlStorageFake } from "./fixtures/sql-storage.js";
 import {
   capabilitySignerEnv,
-  fakeOutbox,
+  fakeOwnerEvents,
+  withOwnerEvents,
   fakeOwnerGates,
   sampleOwnerSnapshot,
 } from "./helpers/turn-plane-fakes.js";
@@ -126,7 +127,7 @@ const harness = async (
     },
   };
   const gates = options.gates ?? fakeOwnerGates();
-  const outbox = fakeOutbox();
+  const outbox = fakeOwnerEvents();
   const orchestratorCalls: Array<{ request: Request; body: unknown }> = [];
   const instance = Object.create(BuildSession.prototype) as InstanceType<
     typeof BuildSession
@@ -145,8 +146,7 @@ const harness = async (
       ...(await capabilitySignerEnv()),
       BUILDER_SERVICE_SECRET: "builder-secret",
       STELLA_CONVEX_SITE_URL: "https://convex.example",
-      OWNER_GATES: gates.namespace,
-      TURN_OUTBOX: outbox.queue,
+      OWNER_GATES: withOwnerEvents(gates.namespace, outbox),
       BUILD_SESSIONS: {
         getByName: (threadId: string) => ({
           fetch: async (input: RequestInfo | URL, init?: RequestInit) =>
@@ -178,7 +178,6 @@ const harness = async (
       },
     },
     // Class fields are not initialized by Object.create.
-    controlPlaneCapabilities: new Map(),
     exactTurnCancellations: new ExactTurnCancellationLedger(storage),
     runningTurns: new Map(),
     agentTurnExecutions: new Map(),
@@ -220,7 +219,6 @@ const harness = async (
       > &
         Record<string, unknown>;
       Object.assign(replacement, instance, {
-        controlPlaneCapabilities: new Map(),
         agentTurnExecutions: new Map(),
         runningTurns: new Map(),
       });
@@ -948,11 +946,11 @@ describe("turn event ordinals", () => {
     ): Promise<number> =>
       invoke<Promise<number>>(instance, "emitTurnEvent", turn, kind, {}, {});
 
-    expect(await emit(h.instance, "started")).toBe(1);
-    expect(await emit(h.instance, "progress")).toBe(2);
+    expect(await emit(h.instance, "output_files")).toBe(1);
+    expect(await emit(h.instance, "output_files")).toBe(2);
 
     const revived = h.restart();
-    expect(await emit(revived, "progress")).toBe(3);
+    expect(await emit(revived, "output_files")).toBe(3);
 
     const ordinals = h.outbox.events
       .filter((event) => event.kind === "turn.event")
@@ -1004,24 +1002,24 @@ describe("deferred projections", () => {
       h.instance,
       "emitTurnEvent",
       turn,
-      "progress",
-      { step: 1 },
+      "output_files",
+      { files: [] },
       {},
     );
 
-    const debt = h.values.get("outboxDebt") as Array<{ kind: string }>;
+    const debt = h.values.get("ownerEventDebt") as Array<{ kind: string }>;
     expect(debt.map((event) => event.kind)).toEqual(["turn.event"]);
     expect(await h.storage.getAlarm()).not.toBeNull();
     expect(h.outbox.events).toHaveLength(projected);
 
-    await invoke<Promise<void>>(h.instance, "retryOutboxDebt");
+    await invoke<Promise<void>>(h.instance, "retryOwnerEventDebt");
 
-    expect(h.values.has("outboxDebt")).toBe(false);
+    expect(h.values.has("ownerEventDebt")).toBe(false);
     expect(h.outbox.events).toHaveLength(projected + 1);
     h.close();
   });
 
-  test("turn storage cleanup keeps debt Convex has not seen", async () => {
+  test("turn storage cleanup keeps debt the owner has not seen", async () => {
     const h = await harness();
     await dispatch(h.instance, agentDispatch());
     const turn = h.values.get("turn") as Record<string, unknown>;
@@ -1030,7 +1028,7 @@ describe("deferred projections", () => {
       h.instance,
       "emitTurnEvent",
       turn,
-      "progress",
+      "output_files",
       {},
       {},
     );
@@ -1043,7 +1041,7 @@ describe("deferred projections", () => {
     );
 
     expect(h.values.has("turn")).toBe(false);
-    expect(h.values.has("outboxDebt")).toBe(true);
+    expect(h.values.has("ownerEventDebt")).toBe(true);
     // The debt keeps its own wake: dropping the alarm would strand it.
     expect(await h.storage.getAlarm()).not.toBeNull();
     h.close();

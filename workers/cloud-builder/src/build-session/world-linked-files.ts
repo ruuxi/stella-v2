@@ -7,7 +7,7 @@
  * The bytes are already durable here, so this delivers them the same way the
  * sandbox does: register (and inline-upload) each reply-linked drive file
  * with the owner's drive under the turn's own authority, then
- * announce the delivered set with an `output_files` event, which the outbox
+ * announce the delivered set with an `output_files` event, which the owner
  * turns into the files card both clients render on the completion.
  *
  * The file list is the reply's own — markdown links in the final assistant

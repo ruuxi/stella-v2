@@ -3,7 +3,7 @@ import { runToolEffect } from "@stella/runtime/kernel/tools/effect-runtime.js";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import type { ExecutionSession } from "../../sandbox-client.js";
 import type { CloudTurnSource } from "@stella/contracts/turn-plane/turn-start";
-import type { TurnEventEvent } from "@stella/contracts/turn-plane/outbox";
+import type { TurnEventEvent } from "@stella/contracts/turn-plane/owner-events";
 import { classifyAgentFailureDiagnostic } from "../../agent-failure-diagnostic.js";
 import { mintTurnCapability } from "../../capability-signer.js";
 import { sha256Hex } from "../../hash.js";
@@ -19,12 +19,12 @@ import { nativeHistoryCursorFromRows } from "../../native-state-checkpoint.js";
 import type { Env } from "./env.js";
 import type { ObservedBrowserSuspension, TurnRequest } from "./types.js";
 
-/** Retry cadence for outbox events a queue outage refused. */
-export const OUTBOX_DEBT_KEY = "outboxDebt";
+/** Owner events the owner object refused, kept for the alarm to retry. */
+export const OWNER_EVENT_DEBT_KEY = "ownerEventDebt";
 
-export const OUTBOX_DEBT_MAX = 200;
+export const OWNER_EVENT_DEBT_MAX = 200;
 
-export const OUTBOX_DEBT_RETRY_MS = 30_000;
+export const OWNER_EVENT_DEBT_RETRY_MS = 30_000;
 
 /** Sources a `turn.started` event may carry; the agent lane has one extra. */
 export const CLOUD_TURN_SOURCES: readonly CloudTurnSource[] = [
@@ -326,19 +326,6 @@ export const HEADER_PREVIEW_BASE_URL = "x-stella-preview-base-url";
 /** Digest shape every artifact and gateway observation must present. */
 export const SHA256_HEX = /^[0-9a-f]{64}$/;
 
-/**
- * App-build turns are dispatched without a pinned execution — the art
- * director's model is Convex's own choice, resolved through `/api/cloud/model`
- * — but a turn capability's binding is not optional. This placeholder is what
- * the lane's control-plane capability carries. It is never minted for the
- * model-gateway audience, so it can never pin a model call.
- */
-export const APP_BUILD_CONTROL_PLANE_EXECUTION = {
-  engine: "stella",
-  provider: "stella",
-  model: "app-build",
-  reasoningEffort: "default",
-} as CloudExecutionSelection;
 
 /** Header the outer Worker forwards a signed preview capability on. */
 export const HEADER_PREVIEW_CAPABILITY = "x-stella-preview-capability";

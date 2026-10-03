@@ -202,7 +202,7 @@ export const nextTurnEventSeq = (
  * auto-assigned one cannot land on it. The app-build lane numbers its own
  * events (it has to, because its retries replay an exact ordinal), while its
  * recovery paths take the next one from here — without this they would
- * eventually collide on the same outbox key.
+ * eventually collide on the same owner event key.
  */
 export const reserveTurnEventSeq = (
   sql: SqlStorage,

@@ -131,8 +131,8 @@ export type AppTurnAdmissionClaim = {
 export type PendingAppBuildPublication = {
   turnId: string;
   /**
-   * `"callback"` still names the step, but the step is now an outbox append —
-   * a permanent Convex rejection is no longer visible here, so nothing falls
+   * `"callback"` still names the step, but the step is now an owner event
+   * delivery — a permanent rejection is not visible here, so nothing falls
    * from it into cleanup. `"cleanup"` is reached only by a build that failed
    * after uploading bytes, and its job is to remove them and terminate.
    */

@@ -222,7 +222,6 @@ const builderHarness = async (
     },
     // The one route a sandbox still reaches through Convex authenticates with
     // this turn's control-plane capability; signing it is covered elsewhere.
-    controlPlaneCapability: async () => "control-plane-capability",
     exactTurnCancellations: ledger,
     agentTurnExecutions:
       options.running === false

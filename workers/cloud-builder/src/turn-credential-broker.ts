@@ -46,7 +46,7 @@ export const TURN_BROKER_DRIVE_PATHS = {
 } as const;
 const DRIVE_PATHS = new Set<string>(Object.values(TURN_BROKER_DRIVE_PATHS));
 
-/** The turn's event stream. Handled by the BuildSession, projected by outbox. */
+/** The turn's event stream. Handled by the BuildSession. */
 export const TURN_BROKER_EVENTS_PATH = "/api/cloud/events";
 /** The thread transcript. Written to the BuildSession's own table. */
 export const TURN_BROKER_MESSAGES_PATH = "/api/cloud/messages";

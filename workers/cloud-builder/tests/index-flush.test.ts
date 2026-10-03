@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import type { ConversationIndexEvent } from "@stella/contracts/turn-plane/outbox";
+import type { ConversationIndexEvent } from "@stella/contracts/turn-plane/owner-events";
 import { ConversationIndex } from "../src/index-flush.js";
 import { Journal } from "../src/journal.js";
-import { fakeOutbox } from "./helpers/turn-plane-fakes.js";
+import { fakeOwnerEvents } from "./helpers/turn-plane-fakes.js";
 
 const databases: Database[] = [];
 
@@ -80,7 +80,7 @@ const appendUser = (journal: Journal, turnId: string, text: string) =>
 
 const indexFor = (
   journal: Journal,
-  outbox: ReturnType<typeof fakeOutbox>,
+  outbox: ReturnType<typeof fakeOwnerEvents>,
   options: { purged?: () => boolean } = {},
 ) =>
   new ConversationIndex(
@@ -89,15 +89,15 @@ const indexFor = (
     () => ({ ownerId: "owner-1", ownerGeneration: "generation-1" }),
     {
       enqueue: (events) =>
-        outbox.queue.sendBatch(events.map((body) => ({ body }))),
+        outbox.apply(events),
       purged: options.purged ?? (() => false),
     },
   );
 
-describe("conversation index over the outbox", () => {
+describe("conversation index over owner events", () => {
   test("ships one excerpt-free fenced row and advances its cursor", async () => {
     const journal = await openJournal();
-    const outbox = fakeOutbox();
+    const outbox = fakeOwnerEvents();
     appendUser(journal, "turn-1", "hello there");
     const index = indexFor(journal, outbox);
 
@@ -132,7 +132,7 @@ describe("conversation index over the outbox", () => {
 
   test("a refused enqueue leaves the row lagging for the next flush", async () => {
     const journal = await openJournal();
-    const outbox = fakeOutbox();
+    const outbox = fakeOwnerEvents();
     appendUser(journal, "turn-1", "keep this pending");
     outbox.failNext(1);
     const index = indexFor(journal, outbox);
@@ -195,7 +195,7 @@ describe("conversation index over the outbox", () => {
 
   test("a purged session sends nothing", async () => {
     const journal = await openJournal();
-    const outbox = fakeOutbox();
+    const outbox = fakeOwnerEvents();
     appendUser(journal, "turn-1", "one");
     const index = indexFor(journal, outbox, { purged: () => true });
 

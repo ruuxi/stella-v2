@@ -15,7 +15,6 @@ const readyInput = (): CloudBuilderReadinessInput => ({
   ORCHESTRATOR_SESSIONS: methods("getByName"),
   OWNER_TRANSFER_COORDINATORS: methods("getByName"),
   OWNER_GATES: methods("getByName"),
-  TURN_OUTBOX: methods("send", "sendBatch"),
   BROWSER_GATEWAY: methods("fetch"),
   APP_BUILDS: methods("get", "put", "delete", "list"),
   APP_ROUTES: methods("get", "put", "delete", "list"),

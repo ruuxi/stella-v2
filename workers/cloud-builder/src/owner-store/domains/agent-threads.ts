@@ -5,7 +5,7 @@
  *
  * Cloud threads are written from two directions. A desktop's spawn, continue
  * and cancel calls land here first and record the attempt before dispatching
- * it; the BuildSession's outbox events (`turn.started`, `turn.event`,
+ * it; the BuildSession's owner events (`turn.started`, `turn.event`,
  * `thread.spawned`, `thread.completed`) then confirm it. Every write is fenced
  * on the thread's `attempt_generation`, so a late event from an older attempt
  * never rewrites a newer one.
@@ -33,7 +33,7 @@ import type {
   ThreadSpawnedEvent,
   TurnEventEvent,
   TurnStartedEvent,
-} from "@stella/contracts/turn-plane/outbox";
+} from "@stella/contracts/turn-plane/owner-events";
 import { parseCloudExecutionSelection } from "../../turn-start-request.js";
 import { literal, number, object, optional, string, type Parser } from "../args.js";
 import { RpcError } from "../errors.js";
@@ -892,7 +892,7 @@ const computerRecord = (row: ThreadRow): ComputerThreadRecord => {
   };
 };
 
-// ── Outbox events from BuildSessions and the orchestrator ─────────────────
+// ── Owner events from BuildSessions and the orchestrator ──────────────────
 
 export type AgentThreadEvent =
   | TurnStartedEvent

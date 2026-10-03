@@ -80,8 +80,6 @@ import { sha256Hex } from "../hash.js";
 import { handleMuseTranscribeSocket } from "../muse-transcribe-socket.js";
 import { STELLA_PROMPTS_PATH } from "@stella/contracts/stella-api";
 import { stellaPromptsResponse } from "../prompts/route.js";
-import { deliverOutboxBatch, isOutboxEvent } from "../outbox.js";
-import type { OutboxEvent } from "@stella/contracts/turn-plane/outbox";
 import type { OwnerPurgeFence, OwnerPurgeMode } from "../owner-fence-do.js";
 import {
   HEADER_PRESENCE_DEVICE_ID,
@@ -2149,40 +2147,6 @@ const router = {
       return json(report);
     }
     return json({ error: "Not found." }, 404);
-  },
-
-  /**
-   * The outbox consumer. Every batch is one `POST /api/cloud/outbox`; the
-   * verdict decides ack versus retry (see `deliverOutboxBatch`), and after
-   * `max_retries` the queue parks the batch on the dead-letter queue.
-   */
-  async queue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
-    // Each owner's object applies its share first: the conversation and
-    // agent-thread index clients read, and the terminal receipts mobile polls.
-    // The batch is acknowledged only once every owner has it.
-    try {
-      const byOwner = new Map<string, OutboxEvent[]>();
-      for (const { body } of batch.messages) {
-        if (!isOutboxEvent(body)) continue;
-        const events = byOwner.get(body.ownerId) ?? [];
-        events.push(body);
-        byOwner.set(body.ownerId, events);
-      }
-      for (const [ownerId, events] of byOwner) {
-        await env.OWNER_GATES.getByName(ownerId).applyOutboxEvents(events);
-      }
-    } catch (error) {
-      log("error", "outbox_owner_apply_failed", {
-        message: error instanceof Error ? error.message : String(error),
-      });
-      batch.retryAll();
-      return;
-    }
-    const delivery = await deliverOutboxBatch(batch, env);
-    log(delivery.disposition === "retried" ? "error" : "info", "outbox_batch", {
-      queue: batch.queue,
-      ...delivery,
-    });
   },
 } satisfies ExportedHandler<Env>;
 

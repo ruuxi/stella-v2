@@ -20,7 +20,6 @@ import {
   appendThreadMessages,
   readThreadHistory,
 } from "../src/thread-transcript.js";
-import { fakeOutbox } from "./helpers/turn-plane-fakes.js";
 import type { AgentHistoryRow } from "@stella/executor-cloud/agent-history";
 
 mock.module("cloudflare:workers", () => ({
@@ -170,7 +169,6 @@ const recoveryHarness = () => {
     env: {
       BUILDER_SERVICE_SECRET: "builder-secret",
       STELLA_CONVEX_SITE_URL: "https://convex.example",
-      TURN_OUTBOX: fakeOutbox().queue,
     },
     exactTurnCancellations: new ExactTurnCancellationLedger(storage),
     runningTurns: new Map<string, Set<Promise<unknown>>>(),

@@ -51,18 +51,17 @@ import { executionContextHistoryEntries } from "@stella/runtime/kernel/agent-run
  * decides idempotency (by `clientMsgId`), ownership (a fresh conversation
  * adopts its first verified caller — conversation ids are client-minted
  * UUIDs), owner policy (through the owner gate), the execution, and mints the turn's
- * two capabilities itself. Convex learns about all of it through the
- * `TURN_OUTBOX` queue: `conversation.created`, `turn.started`, every
- * `turn.event` (with a DO-assigned `eventSeq`), `conversation.index`,
- * `thread.spawned`, `conversation.deleted`. No Convex call sits on a turn's
- * critical path; the synchronous callbacks that remain (web search, schedules,
- * drive attachments, integrations, the agent home) present the turn's
- * control-plane capability. The model queries the local journal through
+ * model capability itself. The owner's object learns what it indexes through
+ * owner events: `conversation.created`, `turn.started`, the `turn.event`s it
+ * reads (with a DO-assigned `eventSeq`), `conversation.index`,
+ * `thread.spawned`, `conversation.deleted`. Everything else a turn touches
+ * (web search, schedules, drive attachments, integrations, the agent home) is
+ * an owner-object call. The model queries the local journal through
  * `history.sql` in code.
  *
  * What did NOT change, deliberately: the turn lifecycle. Accepted turns are
  * still durable under `queued:*` before the 202, the alarm still retries
- * terminal delivery (now "retry the enqueue"), and `terminal` /
+ * terminal delivery (now "retry the owner delivery"), and `terminal` /
  * `terminalDelivered` still guarantee exactly one terminal state. The
  * journal's `turns` table is a projection of that machinery and is never
  * consulted to decide whether a terminal event is owed.
@@ -145,19 +144,19 @@ import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
 
 import { loadRuntimeAgent } from "./runtime-agent.js";
-import { convexSiteBase } from "./convex-site.js";
+
 import type {
   OwnerModelGrant,
   OwnerModelGrantFreezeRequest,
 } from "./owner-model-grants.js";
 import {
-  OUTBOX_EVENT_VERSION,
+  OWNER_EVENT_VERSION,
   type ConversationCreatedEvent,
   type ConversationDeletedEvent,
-  type OutboxEvent,
+  type OwnerEvent,
   type TurnEventEvent,
   type TurnStartedEvent,
-} from "@stella/contracts/turn-plane/outbox";
+} from "@stella/contracts/turn-plane/owner-events";
 import {
   TURN_OWNER_GENERATION_HEADER,
   TURN_PLANE_PROTOCOL,
@@ -168,7 +167,7 @@ import {
 } from "@stella/contracts/turn-plane/turn-start";
 import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
 import {
-  mintTurnCapabilities,
+  mintTurnCapability,
   type MintedTurnCapability,
 } from "./capability-signer.js";
 import {
@@ -178,7 +177,7 @@ import {
   type OwnerGateAdmissionWithLease,
   type OwnerGateAdmitInput,
 } from "./owner-gate.js";
-import { enqueueOutbox } from "./outbox.js";
+import { deliverOwnerEvents } from "./owner-events.js";
 import {
   HEADER_TURN_AUTH_KIND,
   conversationTitleFor,
@@ -368,7 +367,7 @@ type Env = Pick<
       Cloudflare.Env,
       | "AGENT_HOME"
       | "CONVERSATION_ARCHIVE"
-      | "STELLA_CONVEX_SITE_URL"
+
       | "ENABLE_DEV_ACCEPTANCE_PROBES"
       | "STELLA_DEPLOYMENT_IDENTITY"
       | "MODEL_GATEWAY"
@@ -378,7 +377,7 @@ type Env = Pick<
       | "CLOUD_BUILDER_PUBLIC_URL"
       | "CAPABILITY_SIGNING_KEY"
       | "CAPABILITY_SIGNING_KID"
-      | "TURN_OUTBOX"
+
       | "DB"
     >
   >;
@@ -397,7 +396,7 @@ export type ChatTurnRequest = {
   turnId: string;
   sessionId: string;
   prompt: string;
-  /** The execution this turn was admitted with; both capabilities pin it. */
+  /** The execution this turn was admitted with; its model capability pins it. */
   execution: CloudExecutionSelection;
   /** Managed-model audience from the owner snapshot at admission. */
   audience: ManagedModelAudience;
@@ -607,15 +606,15 @@ const TURN_EVENT_SEQ_PREFIX = "turnEventSeq:";
 const turnEventSeqKey = (turnId: string): string =>
   `${TURN_EVENT_SEQ_PREFIX}${turnId}`;
 /**
- * Set once `conversation.created` has been handed to the outbox. Adoption
+ * Set once `conversation.created` has been handed to the owner. Adoption
  * (binding the owner) happens at the first verified contact — a socket
- * connect or a turn — but Convex has nothing to index until a turn exists,
- * so the projection is the first turn's job whichever contact came first.
+ * connect or a turn — but there is nothing to index until a turn exists,
+ * so the event is the first turn's job whichever contact came first.
  */
 const CONVERSATION_PROJECTED_KEY = "conversationProjected";
-/** Outbox batches the queue has not confirmed yet; the alarm retries them. */
-const OUTBOX_BATCH_PREFIX = "outboxBatch:";
-const OUTBOX_DEBT_RETRY_MS = 30_000;
+/** Owner event batches the owner has not confirmed yet; the alarm retries them. */
+const OWNER_EVENT_BATCH_PREFIX = "ownerEventBatch:";
+const OWNER_EVENT_DEBT_RETRY_MS = 30_000;
 /** Time one named step into `timings`, whether it resolves or throws. */
 const measureInto =
   (timings: Record<string, number>) =>
@@ -946,7 +945,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       log,
       () => this.indexIdentity(),
       {
-        enqueue: (events) => this.deferOutbox(events),
+        enqueue: (events) => this.deferOwnerEvents(events),
         purged: () => this.purged(),
       },
     );
@@ -1140,7 +1139,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
   private async hasMaintenanceDebt(): Promise<boolean> {
     return (
       (await this.hasOwnerFenceLeaseRetirementDebt()) ||
-      (await this.hasOutboxDebt())
+      (await this.hasOwnerEventDebt())
     );
   }
 
@@ -1587,7 +1586,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
   }
 
   // -------------------------------------------------------------------------
-  // Owner gate and outbox
+  // Owner gate and owner events
   // -------------------------------------------------------------------------
 
   private ownerGate(ownerId: string) {
@@ -1640,80 +1639,77 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     }
   }
 
-  private async enqueueOutbox(events: OutboxEvent[]): Promise<void> {
-    await enqueueOutbox(this.env, events);
-  }
-
   /**
-   * Persist the projection locally, then deliver; queue latency must not
-   * delay a reply. For the projections a turn owes (`conversation.created`,
-   * `turn.started`, `thread.spawned`, `conversation.deleted`) a queue outage
-   * must never turn into a lost row: Convex cannot index a conversation it
-   * never heard of, so the alarm retries every batch still on disk.
+   * Persist the events locally, then deliver; the owner round trip must not
+   * delay a reply. For the events a turn owes (`conversation.created`,
+   * `turn.started`, `thread.spawned`, `conversation.deleted`) an unreachable
+   * owner must never turn into a lost row: the owner cannot index a
+   * conversation it never heard of, so the alarm retries every batch still
+   * on disk.
    */
-  private async deferOutbox(events: OutboxEvent[]): Promise<void> {
+  private async deferOwnerEvents(events: OwnerEvent[]): Promise<void> {
     if (events.length === 0) return;
-    const key = `${OUTBOX_BATCH_PREFIX}${crypto.randomUUID()}`;
+    const key = `${OWNER_EVENT_BATCH_PREFIX}${crypto.randomUUID()}`;
     await this.ctx.blockConcurrencyWhile(async () => {
-      const retryAt = Date.now() + OUTBOX_DEBT_RETRY_MS;
+      const retryAt = Date.now() + OWNER_EVENT_DEBT_RETRY_MS;
       await this.armAlarmNoLaterThan(retryAt);
       await this.putTurnState({ [key]: events });
     });
-    void this.deliverDeferredOutbox(key, events).catch((error: unknown) => {
-      log("error", "outbox_batch_delivery_failed", {
+    void this.deliverDeferredOwnerEvents(key, events).catch((error: unknown) => {
+      log("error", "owner_events_delivery_failed", {
         message: errorMessage(error),
       });
     });
   }
 
-  private async deliverDeferredOutbox(
+  private async deliverDeferredOwnerEvents(
     key: string,
-    events: OutboxEvent[],
+    events: OwnerEvent[],
   ): Promise<void> {
     try {
-      await this.enqueueOutbox(events);
+      await deliverOwnerEvents(this.env, events);
       // Each batch owns its key. A concurrent append or retry cannot be erased
       // by an earlier send completing; duplicate sends remain idempotent.
       if (this.ctx.storage.kv) this.ctx.storage.kv.delete(key);
       else await this.ctx.storage.delete(key);
     } catch (error) {
-      log("error", "outbox_enqueue_deferred", {
+      log("error", "owner_events_deferred", {
         events: events.map((event) => `${event.kind}:${event.key}`),
         message: errorMessage(error),
       });
       await this.ctx.blockConcurrencyWhile(async () => {
         if (!(await this.ctx.storage.get(key))) return;
-        const retryAt = Date.now() + OUTBOX_DEBT_RETRY_MS;
+        const retryAt = Date.now() + OWNER_EVENT_DEBT_RETRY_MS;
         await this.armAlarmNoLaterThan(retryAt);
       });
     }
   }
 
-  private async hasOutboxDebt(): Promise<boolean> {
+  private async hasOwnerEventDebt(): Promise<boolean> {
     const batches = await this.ctx.storage.list({
-      prefix: OUTBOX_BATCH_PREFIX,
+      prefix: OWNER_EVENT_BATCH_PREFIX,
       limit: 1,
     });
     return batches.size > 0;
   }
 
-  private async retryOutboxDebt(): Promise<void> {
-    const batches = await this.ctx.storage.list<OutboxEvent[]>({
-      prefix: OUTBOX_BATCH_PREFIX,
+  private async retryOwnerEventDebt(): Promise<void> {
+    const batches = await this.ctx.storage.list<OwnerEvent[]>({
+      prefix: OWNER_EVENT_BATCH_PREFIX,
     });
     await Promise.all(
       [...batches].map(([key, events]) =>
-        this.deliverDeferredOutbox(key, events),
+        this.deliverDeferredOwnerEvents(key, events),
       ),
     );
   }
 
-  private outboxBase(
+  private ownerEventBase(
     turn: Pick<ChatTurnRequest, "ownerId" | "ownerGeneration">,
     key: string,
   ) {
     return {
-      v: OUTBOX_EVENT_VERSION,
+      v: OWNER_EVENT_VERSION,
       key,
       ownerId: turn.ownerId,
       ownerGeneration: turn.ownerGeneration,
@@ -2488,65 +2484,8 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
   }
 
   /**
-   * A synchronous Convex callback during a turn. The bearer is the turn's
-   * control-plane capability: Convex binds on its `turn.turnId`, `sub` and
-   * `gen` claims, so no owner fields in the body are trusted there.
-   */
-  private convexPost(
-    path: string,
-    body: unknown,
-    options: { capability: string; signal?: AbortSignal },
-  ): Promise<Response> {
-    return this.convexRequest(
-      path,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          accept: "application/json, text/event-stream",
-        },
-        body: JSON.stringify(body),
-        signal: options.signal
-          ? AbortSignal.any([options.signal, AbortSignal.timeout(30_000)])
-          : AbortSignal.timeout(30_000),
-      },
-      options.capability,
-    );
-  }
-
-  /**
-   * The general form of {@link convexPost}: a tool that polls a job or
-   * cancels one needs GET and DELETE under the same capability bearer, with
-   * its own request budget.
-   */
-  private convexRequest(
-    path: string,
-    init: {
-      method: "GET" | "POST" | "DELETE";
-      headers?: Record<string, string>;
-      body?: string;
-      signal?: AbortSignal;
-    },
-    capability: string,
-  ): Promise<Response> {
-    const base = convexSiteBase(this.env);
-    if (!base) {
-      return Promise.reject(new Error("Convex site URL is not configured."));
-    }
-    return fetch(`${base}${path}`, {
-      method: init.method,
-      headers: {
-        ...(init.headers ?? {}),
-        authorization: `Bearer ${capability}`,
-      },
-      ...(init.body !== undefined ? { body: init.body } : {}),
-      ...(init.signal ? { signal: init.signal } : {}),
-    });
-  }
-
-  /**
-   * One `turn.event` on the outbox. Terminal events commit to the local
-   * durable outbox before returning, independently of queue availability.
+   * One `turn.event` for the owner. Terminal events commit to a local
+   * durable batch before returning, independently of the owner's availability.
    * Each batch survives a newer turn replacing terminalOwed; its alarm owns
    * delivery retries. The original ordinal keeps redelivery idempotent.
    */
@@ -2566,7 +2505,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       options.eventSeq ?? (await this.nextTurnEventSeq(turn.turnId));
     const terminal = options.terminal === true;
     const event: TurnEventEvent = {
-      ...this.outboxBase(turn, `${turn.turnId}:${eventSeq}`),
+      ...this.ownerEventBase(turn, `${turn.turnId}:${eventSeq}`),
       kind: "turn.event",
       turnId: turn.turnId,
       sessionId: turn.sessionId,
@@ -2581,8 +2520,8 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       ...(options.resultJson ? { resultJson: options.resultJson } : {}),
       createdAt: Date.now(),
     };
-    if (options.deferred || terminal) await this.deferOutbox([event]);
-    else await this.enqueueOutbox([event]);
+    if (options.deferred || terminal) await this.deferOwnerEvents([event]);
+    else await deliverOwnerEvents(this.env, [event]);
     return eventSeq;
   }
 
@@ -2745,7 +2684,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     // this wake-up for the conversation lifecycle. Same for projections the
     // queue refused at admission time.
     await this.retryOwnerFenceLeaseRetirements();
-    await this.retryOutboxDebt();
+    await this.retryOwnerEventDebt();
     const localLease =
       await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
     if (localLease) {
@@ -3674,7 +3613,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         Array.from(this.ctx.storage.kv.list({ prefix: "queued:", limit: 1 }))
           .length === 0
       ) {
-        const work = mintTurnCapabilities(this.env, {
+        const work = mintTurnCapability(this.env, {
           ownerId: turn.ownerId,
           ownerGeneration: turn.ownerGeneration,
           turnId: turn.turnId,
@@ -3832,11 +3771,11 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       // Projections, after the durable commit and before the 202: the queue
       // is durable, so once these are enqueued (or debted) Convex will learn
       // of the conversation and the turn no matter what this isolate does next.
-      const projections: OutboxEvent[] = [];
+      const projections: OwnerEvent[] = [];
       if (createdConversation) {
         const meta = this.journal.meta();
         projections.push({
-          ...this.outboxBase(turn, conversationId),
+          ...this.ownerEventBase(turn, conversationId),
           kind: "conversation.created",
           conversationId,
           createdAt: meta.created_at > 0 ? meta.created_at : now,
@@ -3845,7 +3784,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         } satisfies ConversationCreatedEvent);
       }
       projections.push({
-        ...this.outboxBase(turn, turnId),
+        ...this.ownerEventBase(turn, turnId),
         kind: "turn.started",
         turnId,
         turnKind: "chat",
@@ -3866,7 +3805,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         prompt: turn.prompt,
         createdAt: queuedAt,
       } satisfies TurnStartedEvent);
-      await this.deferOutbox(projections);
+      await this.deferOwnerEvents(projections);
 
       if (!heldForLocalTurn) this.enqueue(turn, freshAdmission);
       else this.cloudHomePreparations.delete(turnId);
@@ -4437,7 +4376,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     // costs a re-run of a turn that has produced nothing yet.
     //
     // The stale-turn recovery above deliberately sits outside the window: it
-    // yields on the outbox send, and it needs the previous turn to still be
+    // yields on the owner delivery, and it needs the previous turn to still be
     // under `turn` in order to recover it at all.
     // The same turn claimed again (a resume, or a restart that lost it
     // before its prompt was journaled) keeps its original watchdog and start:
@@ -4570,10 +4509,8 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       // This work can reject before the other preparation joins it. Preserve
       // that rejection for the await below without an unhandled rejection.
       void canonicalPromptsWork.catch(() => undefined);
-      // Both capabilities, minted before any callback: the control-plane one
-      // is the bearer for every synchronous Convex route this turn touches
-      // (agent home, attachments, search, recall, schedules, integrations),
-      // the model one is the only credential the model gateway ever sees.
+      // The model capability is the only credential the model gateway ever
+      // sees.
       const destinationsWork = measurePreparation(
         "devicesMs",
         () =>
@@ -4583,7 +4520,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             .catch(() => null),
       );
       const minted = await measurePreparation("capabilitiesMs", () =>
-        mintTurnCapabilities(this.env, {
+        mintTurnCapability(this.env, {
           ownerId: turn.ownerId,
           ownerGeneration: turn.ownerGeneration,
           turnId: turn.turnId,
@@ -4607,14 +4544,12 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         persistedModel.capability.expiresAt > watchdogAt + 60_000
           ? persistedModel.capability
           : undefined;
-      const capabilities = reusedModel
-        ? { ...minted, model: reusedModel }
-        : minted;
+      const turnCapability = reusedModel ?? minted;
       if (!reusedModel) {
         await this.putTurnState({
           [CHAT_TURN_MODEL_CAPABILITY_KEY]: {
             turnId: turn.turnId,
-            capability: minted.model,
+            capability: minted,
           } satisfies PersistedChatTurnModelCapability,
         });
       }
@@ -4652,7 +4587,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       if (!modelGatewayOrigin || !modelGateway) {
         throw new Error("Model gateway is not configured.");
       }
-      const turnCapability = capabilities.model;
+
       if (
         executionSelection.engine === "stella" &&
         !this.gatewayPreparedInInstance &&
@@ -5074,7 +5009,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             agentHome,
             skillCatalog,
             memoryEnabled,
-            capabilities.controlPlane,
           ),
           startSeq: contextStartSeq,
           journalEpoch,
@@ -5273,7 +5207,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             agentHome,
             skillCatalog,
             memoryPreference.memoryEnabled,
-            capabilities.controlPlane,
           ),
           startSeq: range.startSeq,
           journalEpoch,
@@ -9566,9 +9499,9 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       // After the wipe, best-effort: Convex's own purge already tombstoned
       // the row before calling here; this closes the loop for a purge that
       // started on this side.
-      await this.deferOutbox([
+      await this.deferOwnerEvents([
         {
-          ...this.outboxBase(identity, purgedId),
+          ...this.ownerEventBase(identity, purgedId),
           kind: "conversation.deleted",
           conversationId: purgedId,
           deletedAt: now,
@@ -9662,7 +9595,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
 
   /**
    * A `files` card for drive files the orchestrator's own turn produced. The
-   * outbox only projects files for spawned threads (`applyThreadCompleted`),
+   * owner only files cards for spawned threads (`applyThreadCompleted`),
    * so a direct tool such as `image_gen` publishes its own. Same card shape
    * the clients already render for thread output.
    */
@@ -9750,7 +9683,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     agentHome: AgentHome,
     skillCatalog: CloudSkillCatalogSnapshot,
     memoryEnabled: boolean,
-    controlPlane: Pick<MintedTurnCapability, "token">,
   ): Promise<AgentTool[]> {
     const toolContext = {
       ownerId: turn.ownerId,
@@ -9765,11 +9697,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             ownerGeneration: turn.ownerGeneration,
           }),
         ),
-      post: (path: string, body: unknown, signal?: AbortSignal) =>
-        this.convexPost(path, body, {
-          capability: controlPlane.token,
-          ...(signal ? { signal } : {}),
-        }),
     };
     // Resolved on first use: a turn that never reads a world file never
     // touches the world Durable Object.
@@ -9848,7 +9775,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
               expectedGeneration: input.expectedGeneration,
             }),
           releaseOwnerGate: async (input) => await this.releaseOwnerGate(input),
-          enqueueOutbox: async (events) => await this.deferOutbox([...events]),
+          deliverOwnerEvents: async (events) => await this.deferOwnerEvents([...events]),
         },
         caller: {
           ownerId: turn.ownerId,

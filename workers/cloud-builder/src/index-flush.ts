@@ -4,16 +4,16 @@
  * Convex keeps one derived row because a per-conversation Durable Object
  * cannot list an owner's conversations. Full-text search stays inside the
  * object. Each `conversation.index` event is fenced on `(epoch, lastSeq)` so
- * reordered delivery cannot move the row backwards. Once the durable outbox
- * accepts an event, `meta.index_synced_seq` advances; a later turn boundary or
+ * reordered delivery cannot move the row backwards. Once the durable owner
+ * event batch accepts an event, `meta.index_synced_seq` advances; a later turn boundary or
  * socket connect retries a refused enqueue.
  */
 
 import {
-  OUTBOX_EVENT_VERSION,
+  OWNER_EVENT_VERSION,
   type ConversationIndexEvent,
-  type OutboxEvent,
-} from "@stella/contracts/turn-plane/outbox";
+  type OwnerEvent,
+} from "@stella/contracts/turn-plane/owner-events";
 import {
   PREVIEW_MAX_CHARS,
   type ConversationLogger,
@@ -37,8 +37,8 @@ export type IndexIdentity = {
 };
 
 export type IndexFlushDeps = {
-  /** Append to the outbox; throws when the queue refused. */
-  enqueue: (events: OutboxEvent[]) => Promise<void>;
+  /** Hand the events to the owner (durably); throws when that failed. */
+  enqueue: (events: OwnerEvent[]) => Promise<void>;
   /** The durable tombstone or in-memory seal that survives `deleteAll()`. */
   purged: () => boolean;
 };
@@ -79,7 +79,7 @@ export class ConversationIndex {
     const lastSeq = meta.next_seq - 1;
     const preview = this.journal.lastPreview(PREVIEW_MAX_CHARS);
     const event: ConversationIndexEvent = {
-      v: OUTBOX_EVENT_VERSION,
+      v: OWNER_EVENT_VERSION,
       kind: "conversation.index",
       key: `${meta.conversation_id}:${meta.epoch}:${lastSeq}:${options.updatedAt}`,
       ownerId: identity.ownerId,

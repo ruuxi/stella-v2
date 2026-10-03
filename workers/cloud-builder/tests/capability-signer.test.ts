@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
-  CONTROL_PLANE_CAPABILITY_AUDIENCE,
   GATEWAY_BUDGET_UNLIMITED,
   GATEWAY_CAPABILITY_AUDIENCE,
   GATEWAY_CAPABILITY_ISSUERS,
@@ -14,7 +13,6 @@ import {
 } from "@stella/contracts/gateway/jwt";
 import {
   capabilitySigningKey,
-  mintTurnCapabilities,
   mintTurnCapability,
   resetCapabilitySigningKeyCache,
   type TurnCapabilityInput,
@@ -106,44 +104,6 @@ describe("turn capability signer", () => {
       typ: "JWT",
       kid: KID,
     });
-  });
-
-  test("mints a model and a control-plane capability that differ only in audience", async () => {
-    const pairMinted = await mintTurnCapabilities(env, input());
-    expect(pairMinted.model.claims.aud).toBe(GATEWAY_CAPABILITY_AUDIENCE);
-    expect(pairMinted.controlPlane.claims.aud).toBe(
-      CONTROL_PLANE_CAPABILITY_AUDIENCE,
-    );
-    expect(pairMinted.model.claims.jti).not.toBe(
-      pairMinted.controlPlane.claims.jti,
-    );
-    const strip = (claims: Record<string, unknown>) => {
-      const { aud, jti, ...rest } = claims;
-      void aud;
-      void jti;
-      return rest;
-    };
-    expect(strip(pairMinted.model.claims)).toEqual(
-      strip(pairMinted.controlPlane.claims),
-    );
-    const gatewayVerdict = await verifyCapability(
-      pairMinted.controlPlane.token,
-      verificationKeys,
-      { now: NOW },
-    );
-    expect(gatewayVerdict).toEqual({ ok: false, reason: "audience_mismatch" });
-    const controlVerdict = await verifyCapability(
-      pairMinted.controlPlane.token,
-      verificationKeys,
-      { now: NOW, expectedAudience: CONTROL_PLANE_CAPABILITY_AUDIENCE },
-    );
-    expect(controlVerdict.ok).toBe(true);
-    const modelVerdict = await verifyCapability(
-      pairMinted.model.token,
-      verificationKeys,
-      { now: NOW, expectedAudience: CONTROL_PLANE_CAPABILITY_AUDIENCE },
-    );
-    expect(modelVerdict).toEqual({ ok: false, reason: "audience_mismatch" });
   });
 
   test("mints a fresh jti per turn so the gateway ledger never collides", async () => {

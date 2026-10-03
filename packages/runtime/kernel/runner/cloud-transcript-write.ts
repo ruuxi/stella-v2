@@ -51,6 +51,8 @@ export type CloudTranscriptBeginAck = {
   history: string[];
   contextStartSeq: number;
   contextEndSeq: number;
+  /** Set on a renewal ACK, which only extends `leaseToken`/`expiresAt`. */
+  renewed?: true;
 };
 
 export type CloudTranscriptHistory = {
@@ -318,6 +320,28 @@ const journalOutboxId = (
 const parseBeginAck = (value: unknown): CloudTranscriptBeginAck | null => {
   if (!value || typeof value !== "object") return null;
   const candidate = value as Record<string, unknown>;
+  // A renewal only extends the lease: it carries no history or context
+  // window, and the heartbeat keeps the ones the original begin returned.
+  if (
+    candidate.renewed === true &&
+    typeof candidate.turnId === "string" &&
+    candidate.turnId &&
+    typeof candidate.leaseToken === "string" &&
+    candidate.leaseToken &&
+    typeof candidate.expiresAt === "number" &&
+    Number.isFinite(candidate.expiresAt) &&
+    candidate.expiresAt > Date.now()
+  ) {
+    return {
+      turnId: candidate.turnId,
+      leaseToken: candidate.leaseToken,
+      expiresAt: candidate.expiresAt,
+      history: [],
+      contextStartSeq: -1,
+      contextEndSeq: -1,
+      renewed: true,
+    };
+  }
   if (
     typeof candidate.turnId !== "string" ||
     !candidate.turnId ||
@@ -954,7 +978,16 @@ export const createCloudTranscriptWriter = (
           if (result.begin) {
             activateBegin(
               id,
-              { ...active, ack: result.begin },
+              {
+                ...active,
+                ack: result.begin.renewed
+                  ? {
+                      ...active.ack,
+                      leaseToken: result.begin.leaseToken,
+                      expiresAt: result.begin.expiresAt,
+                    }
+                  : result.begin,
+              },
               result.authorityRequestStartedAt,
             );
           } else {

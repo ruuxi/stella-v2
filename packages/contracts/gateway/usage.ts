@@ -81,7 +81,6 @@ export type GatewayUsageBatchResult = {
 
 /** Convex HTTP routes the gateway talks to, all authenticated by GATEWAY_SERVICE_SECRET. */
 export const CONVEX_GATEWAY_USAGE_PATH = "/api/gateway/usage" as const;
-export const CONVEX_GATEWAY_CONFIG_PATH = "/api/gateway/config" as const;
 /** Abuse admission for a session exchange; the owner object calls it before reserving budget. */
 export const CONVEX_GATEWAY_SESSION_ADMISSION_PATH =
   "/api/gateway/session-admission" as const;
@@ -142,7 +141,7 @@ export type GatewayModelPrice = {
   reasoningPerMillionUsd: number;
 };
 
-/** `GET /api/gateway/config` response; cached by the gateway for a few minutes. */
+/** `BillingControl.gatewayConfig()` response; cached by the gateway for a few minutes. */
 export type GatewayConfigSnapshot = {
   v: 1;
   prices: GatewayModelPrice[];

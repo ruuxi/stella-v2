@@ -9,7 +9,6 @@ import {
   internalAction,
   internalMutation,
   internalQuery,
-  query,
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
@@ -20,15 +19,11 @@ import {
   consumeDeviceAllowanceBulkAuthorized,
   readDeviceAllowance,
 } from "./ai_proxy_data";
-import { assertOwnerMigrationWriteAllowed, requireUserId } from "./auth";
+import { assertOwnerMigrationWriteAllowed } from "./auth";
 import {
   isAnonDeviceHashSaltMissingError,
   logMissingSaltOnce,
 } from "./http_shared/anon_device";
-import {
-  MODEL_GATEWAY_URL_ENV,
-  resolveModelGatewayOrigin,
-} from "./http_routes/stella_models";
 import {
   getMaxAnonRequests,
   getMaxAnonRequestsPerIp,
@@ -56,22 +51,6 @@ import { recordOwnerRiskSignals } from "./risk";
  * suspension, step-up challenges, sybil pressure, and the anonymous trial's
  * request chunk. Moves with abuse protection.
  */
-
-export const getModelGatewayConfig = query({
-  args: {},
-  returns: v.object({ origin: v.string() }),
-  handler: async (ctx) => {
-    await requireUserId(ctx);
-    const origin = resolveModelGatewayOrigin(process.env);
-    if (!origin) {
-      throw new ConvexError({
-        code: "SERVICE_UNAVAILABLE",
-        message: `Stella model gateway is not configured (${MODEL_GATEWAY_URL_ENV}).`,
-      });
-    }
-    return { origin };
-  },
-});
 
 const networkClassValidator = v.union(
   v.literal("hosting"),

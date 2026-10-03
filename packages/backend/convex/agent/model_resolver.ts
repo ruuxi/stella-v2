@@ -7,9 +7,8 @@
 
 import type { ActionCtx } from "../_generated/server";
 import type { ManagedProtocol } from "../runtime_ai/managed";
-import { internal } from "../_generated/api";
 import { getModelConfig, type ManagedModelAudience } from "./model";
-import { resolveStellaModelConfigForSelection } from "../stella_models";
+import { resolveStellaModelConfigForSelection } from "@stella/model-catalog/aliases";
 import {
   resolveManagedGatewayProvider,
   type ManagedGatewayProvider,
@@ -30,43 +29,16 @@ export type ResolvedModelConfig = {
   serviceTier?: string;
   providerOptions?: Record<string, Record<string, unknown>>;
   /**
-   * Input modalities resolved from `billing_model_prices` (synced from
-   * models.dev). Forwarded to `buildManagedModel` so unsupported parts
-   * (image/audio/video/pdf) are dropped at the gateway boundary instead of
-   * being shipped to providers that may tokenize the data URLs as raw
-   * characters. Defaults to ["text"] when the row is missing or
-   * unpopulated.
+   * Input modalities forwarded to `buildManagedModel` so unsupported parts
+   * (image/audio/video/pdf) are dropped at the gateway boundary. Text only
+   * since model prices left Convex.
    */
   modalitiesInput?: ("text" | "image" | "audio" | "video" | "pdf")[];
 };
 
 const TEXT_ONLY: ("text" | "image" | "audio" | "video" | "pdf")[] = ["text"];
 
-const KNOWN_MODALITIES = new Set(["text", "image", "audio", "video", "pdf"]);
-
-const sanitizeStoredModalities = (
-  modalities: readonly string[] | undefined,
-): ("text" | "image" | "audio" | "video" | "pdf")[] => {
-  if (!modalities || modalities.length === 0) return TEXT_ONLY;
-  const filtered = modalities.filter(
-    (m): m is "text" | "image" | "audio" | "video" | "pdf" =>
-      KNOWN_MODALITIES.has(m),
-  );
-  return filtered.length > 0 ? filtered : TEXT_ONLY;
-};
-
 type RunQueryCtx = { runQuery: ActionCtx["runQuery"] };
-
-const lookupModalitiesInput = async (
-  ctx: RunQueryCtx,
-  model: string,
-): Promise<("text" | "image" | "audio" | "video" | "pdf")[]> => {
-  const row = await ctx.runQuery(internal.model_prices.getManagedModelPrice, {
-    model,
-  });
-  if (!row) return TEXT_ONLY;
-  return sanitizeStoredModalities(row.modalitiesInput);
-};
 
 export const toResolvedModelConfig = (
   config: {
@@ -117,9 +89,9 @@ export async function resolveModelConfig(
     agentType,
     audience,
   );
-  const modalitiesInput = await lookupModalitiesInput(ctx, config.model);
+  void ctx;
   void ownerId;
-  return toResolvedModelConfig(config, modalitiesInput);
+  return toResolvedModelConfig(config, TEXT_ONLY);
 }
 
 export async function resolveFallbackConfig(
@@ -132,7 +104,7 @@ export async function resolveFallbackConfig(
     options?.access?.modelAudience ?? options?.audience ?? "free";
   const defaults = getModelConfig(agentType, audience);
   if (!defaults.fallback) return null;
-  const modalitiesInput = await lookupModalitiesInput(ctx, defaults.fallback);
+  void ctx;
 
   const resolvedFallback = toResolvedModelConfig(
     {
@@ -143,7 +115,7 @@ export async function resolveFallbackConfig(
       serviceTier: defaults.fallbackServiceTier,
       providerOptions: defaults.fallbackProviderOptions,
     },
-    modalitiesInput,
+    TEXT_ONLY,
   );
 
   void ownerId;

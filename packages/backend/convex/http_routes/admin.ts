@@ -5,7 +5,7 @@ import {
   type OwnerEnforcementStatus,
 } from "@stella/contracts/gateway/usage";
 import { httpAction } from "../_generated/server";
-import { components, internal } from "../_generated/api";
+import { components } from "../_generated/api";
 import { requireAdminRequest } from "../http_shared/admin";
 import {
   readBetterAuthResponseUserId,
@@ -18,16 +18,11 @@ import {
   tokenIdentifierForBetterAuthUserId,
 } from "../auth";
 
-const ADMIN_DELETE_PATH = "/api/admin/delete";
 const ADMIN_BILLING_PLAN_PATH = "/api/admin/billing/plan";
 const ADMIN_TEST_ACCOUNT_SESSION_PATH = "/api/admin/test-accounts/session";
 const ADMIN_OWNER_ENFORCEMENT_PATH = "/api/admin/owners/enforcement";
 const ADMIN_OWNER_LOOKUP_PATH = "/api/admin/owners/lookup";
 const ADMIN_OWNER_TOP_PATH = "/api/admin/owners/top";
-type AdminDeleteBody = {
-  kind?: string;
-  id?: string;
-};
 
 type AdminBillingPlanBody = {
   ownerId?: string;
@@ -104,18 +99,6 @@ const parseRequestJson = async (request: Request): Promise<unknown> => {
   } catch {
     return null;
   }
-};
-
-const readDeleteBody = async (
-  request: Request,
-): Promise<{ kind: string; id: string } | Response> => {
-  const body = (await parseRequestJson(request)) as AdminDeleteBody | null;
-  const kind = typeof body?.kind === "string" ? body.kind.trim() : "";
-  const id = typeof body?.id === "string" ? body.id.trim() : "";
-  if (!kind || !id) {
-    return jsonResponse(400, { error: "Missing kind or id." });
-  }
-  return { kind, id };
 };
 
 const isBillingPlan = (value: string): value is "free" | "go" | "pro" =>
@@ -500,33 +483,6 @@ export const registerAdminRoutes = (http: HttpRouter) => {
         ...(resetUsage !== undefined ? { resetUsage } : {}),
       });
       return jsonResponse(200, await fetchBillingAccess(ownerId));
-    }),
-  });
-
-  http.route({
-    path: ADMIN_DELETE_PATH,
-    method: "POST",
-    handler: httpAction(async (ctx, request) => {
-      const admin = requireAdminRequest(request);
-      if (!admin.ok) return admin.response;
-
-      const parsed = await readDeleteBody(request);
-      if (parsed instanceof Response) return parsed;
-
-      const { kind, id } = parsed;
-      switch (kind) {
-        case "desktop_release":
-          return jsonResponse(
-            200,
-            await ctx.runMutation(internal.admin_deletes.deleteDesktopRelease, {
-              platform: id,
-            }),
-          );
-        default:
-          return jsonResponse(400, {
-            error: `Unsupported delete kind: ${kind}`,
-          });
-      }
     }),
   });
 };

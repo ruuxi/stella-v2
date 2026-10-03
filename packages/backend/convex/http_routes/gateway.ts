@@ -5,14 +5,12 @@ import type { NetworkClass } from "@stella/contracts/gateway/api";
 import { CONVEX_OWNER_RESET_PATH } from "@stella/contracts/backend/account";
 import { CONVEX_OWNER_SNAPSHOT_PATH } from "@stella/contracts/turn-plane/owner-snapshot";
 import {
-  CONVEX_GATEWAY_CONFIG_PATH,
   CONVEX_GATEWAY_ENGINE_ACCESS_PATH,
   CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
   CONVEX_GATEWAY_SESSION_ADMISSION_PATH,
   CONVEX_GATEWAY_USAGE_PATH,
   GATEWAY_USAGE_EVENT_VERSION,
   type ConvexEngineAccessResponse,
-  type GatewayConfigSnapshot,
   type GatewayUsageBatchResult,
   type ConvexOwnerEnforcementState,
 } from "@stella/contracts/gateway/usage";
@@ -24,12 +22,7 @@ import {
   resolveEngineAccess,
   type CloudEngineProvider,
 } from "../cloud_engines";
-import {
-  getMaxAnonRequests,
-  getMaxAnonRequestsPerIp,
-} from "../lib/anonymous_usage";
 import { constantTimeEqual } from "../lib/crypto_utils";
-import { dollarsToMicroCents } from "../lib/billing_money";
 import { assertOwnerDataAccessActive } from "../owner_lifecycle";
 import { postAlert } from "../lib/alerts";
 
@@ -445,62 +438,6 @@ const usage = httpAction(async (ctx, request) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /api/gateway/config
-// ---------------------------------------------------------------------------
-
-const tierCeilingMicroCents = (envName: string, defaultUsd: number): number => {
-  const raw = process.env[envName]?.trim();
-  const value = raw ? Number(raw) : defaultUsd;
-  if (!Number.isFinite(value) || (value < 0 && value !== -1)) {
-    throw new Error(`${envName} must be -1 or a non-negative USD amount.`);
-  }
-  return value === -1 ? -1 : dollarsToMicroCents(value);
-};
-
-const config = httpAction(async (ctx, request) => {
-  const denied = requireGatewayServiceRequest(request);
-  if (denied) return denied;
-  const { prices, updatedAt } = await ctx.runQuery(
-    internal.model_prices.listGatewayModelPricesInternal,
-    {},
-  );
-  const snapshot: GatewayConfigSnapshot = {
-    v: 1,
-    prices,
-    anonymous: {
-      maxRequestsPerOwner: getMaxAnonRequests(),
-      maxRequestsPerIp: getMaxAnonRequestsPerIp(),
-    },
-    tierCeilings: [
-      {
-        audience: "anonymous",
-        hourlyMicroCents: tierCeilingMicroCents(
-          "STELLA_TIER_CEILING_ANON_HOURLY_USD",
-          20,
-        ),
-        dailyMicroCents: tierCeilingMicroCents(
-          "STELLA_TIER_CEILING_ANON_DAILY_USD",
-          200,
-        ),
-      },
-      {
-        audience: "free",
-        hourlyMicroCents: tierCeilingMicroCents(
-          "STELLA_TIER_CEILING_FREE_HOURLY_USD",
-          100,
-        ),
-        dailyMicroCents: tierCeilingMicroCents(
-          "STELLA_TIER_CEILING_FREE_DAILY_USD",
-          1_000,
-        ),
-      },
-    ],
-    updatedAt: updatedAt || Date.now(),
-  };
-  return json(snapshot);
-});
-
-// ---------------------------------------------------------------------------
 // GET /api/gateway/owner-enforcement?ownerId=
 // ---------------------------------------------------------------------------
 
@@ -658,11 +595,6 @@ export const registerGatewayRoutes = (http: HttpRouter) => {
     path: GATEWAY_ALERTS_PATH,
     method: "POST",
     handler: alerts,
-  });
-  http.route({
-    path: CONVEX_GATEWAY_CONFIG_PATH,
-    method: "GET",
-    handler: config,
   });
   http.route({
     path: CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,

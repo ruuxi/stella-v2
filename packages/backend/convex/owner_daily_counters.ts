@@ -2,8 +2,6 @@ import { ConvexError, v } from "convex/values";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 
 const CLOUD_APP_OPERATION_DAILY_LIMIT = 200;
-const X_BOT_AUTHOR_DAILY_LIMIT = 10;
-const X_BOT_GLOBAL_DAILY_LIMIT = 500;
 
 const toUtcDay = (timestamp: number): string => {
   const date = new Date(timestamp);
@@ -105,72 +103,8 @@ export const consumeCloudAppOperationDailyInternal = internalMutation({
     }),
 });
 
-export const consumeXBotDailyAllowanceInternal = internalMutation({
-  args: { authorId: v.string(), now: v.number() },
-  returns: v.object({
-    allowed: v.boolean(),
-    scope: v.union(v.literal("author"), v.literal("global"), v.null()),
-    retryAt: v.number(),
-  }),
-  handler: async (ctx, args) => {
-    const day = toUtcDay(args.now);
-    const authorOwnerId = `x-author:${args.authorId}`;
-    const globalOwnerId = "x-global";
-    const [author, global] = await Promise.all([
-      ctx.db
-        .query("owner_daily_counters")
-        .withIndex("by_owner_kind_day", (q) =>
-          q
-            .eq("ownerId", authorOwnerId)
-            .eq("kind", "x_bot_mentions")
-            .eq("day", day),
-        )
-        .unique(),
-      ctx.db
-        .query("owner_daily_counters")
-        .withIndex("by_owner_kind_day", (q) =>
-          q
-            .eq("ownerId", globalOwnerId)
-            .eq("kind", "x_bot_mentions")
-            .eq("day", day),
-        )
-        .unique(),
-    ]);
-    const retryAt = nextUtcMidnight(args.now);
-    if ((author?.count ?? 0) >= X_BOT_AUTHOR_DAILY_LIMIT) {
-      return { allowed: false, scope: "author" as const, retryAt };
-    }
-    if ((global?.count ?? 0) >= X_BOT_GLOBAL_DAILY_LIMIT) {
-      return { allowed: false, scope: "global" as const, retryAt };
-    }
-    if (author) {
-      await ctx.db.patch(author._id, { count: author.count + 1 });
-    } else {
-      await ctx.db.insert("owner_daily_counters", {
-        ownerId: authorOwnerId,
-        kind: "x_bot_mentions",
-        day,
-        count: 1,
-      });
-    }
-    if (global) {
-      await ctx.db.patch(global._id, { count: global.count + 1 });
-    } else {
-      await ctx.db.insert("owner_daily_counters", {
-        ownerId: globalOwnerId,
-        kind: "x_bot_mentions",
-        day,
-        count: 1,
-      });
-    }
-    return { allowed: true, scope: null, retryAt };
-  },
-});
-
 export {
   CLOUD_APP_OPERATION_DAILY_LIMIT,
-  X_BOT_AUTHOR_DAILY_LIMIT,
-  X_BOT_GLOBAL_DAILY_LIMIT,
   nextUtcMidnight,
   toUtcDay,
 };

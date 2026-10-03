@@ -198,24 +198,8 @@ const runOwnerReset = async (
           hasMore = result.hasMore;
         }
       }),
-      ctx.runAction(internal.data.canvas_shares_actions.purgeOwnerShares, {
-        ownerUserId: fence.ownerId,
-        operationId: fence.operationId,
-        generation: fence.generation,
-        leaseId,
-        mode: "reset",
-      }),
     ]);
 
-    // Close the admission-to-dispatch edge for creators that reserved their
-    // external locator just before the lifecycle fence became visible.
-    await ctx.runAction(internal.data.canvas_shares_actions.purgeOwnerShares, {
-      ownerUserId: fence.ownerId,
-      operationId: fence.operationId,
-      generation: fence.generation,
-      leaseId,
-      mode: "reset",
-    });
     const finalRemoteTurns = await ctx.runMutation(
       internal.channels.connector_delivery
         .quiesceOwnerRemoteTurnsForPurgeInternal,
@@ -402,12 +386,6 @@ export const remainingOwnerResetStoresInternal = internalQuery({
           .withIndex("by_ownerId_and_createdAt", (q) =>
             q.eq("ownerId", ownerId),
           )
-          .first(),
-      ),
-      ownerResidueCheck("canvas_shares", () =>
-        ctx.db
-          .query("canvas_shares")
-          .withIndex("by_ownerUserId", (q) => q.eq("ownerUserId", ownerId))
           .first(),
       ),
     ]);

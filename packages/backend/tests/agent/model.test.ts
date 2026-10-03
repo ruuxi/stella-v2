@@ -9,7 +9,7 @@ import {
   parseStellaModelSelection,
   resolveStellaModelConfigForSelection,
   resolveStellaModelSelection,
-} from "../../convex/stella_models";
+} from "@stella/model-catalog/aliases";
 
 const FLASH_MODEL = "crof/deepseek-v4-flash-0731";
 const FLASH_SELECTION = `stella/${FLASH_MODEL}`;

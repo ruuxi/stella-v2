@@ -19,12 +19,6 @@ const consumeCloudOperationRef = makeFunctionReference<
   { allowed: boolean; count: number; limit: number; retryAt: number }
 >("owner_daily_counters:consumeCloudAppOperationDailyInternal");
 
-const consumeXBotRef = makeFunctionReference<
-  "mutation",
-  { authorId: string; now: number },
-  { allowed: boolean; scope: "author" | "global" | null; retryAt: number }
->("owner_daily_counters:consumeXBotDailyAllowanceInternal");
-
 const recomputeRiskRef = makeFunctionReference<
   "mutation",
   { now?: number; cursor?: string },
@@ -183,7 +177,7 @@ describe("Sybil pressure", () => {
 });
 
 describe("daily cost counters", () => {
-  it("caps cloud operations at 200 and X at 10 per author and 500 globally", async () => {
+  it("caps cloud operations at 200 per day", async () => {
     const t = convexTest(schema, modules);
     const now = Date.UTC(2026, 8, 2, 12);
     const day = "20260902";
@@ -193,18 +187,6 @@ describe("daily cost counters", () => {
         kind: "cloud_app_operation_router",
         day,
         count: 199,
-      });
-      await ctx.db.insert("owner_daily_counters", {
-        ownerId: "x-author:author-a",
-        kind: "x_bot_mentions",
-        day,
-        count: 9,
-      });
-      await ctx.db.insert("owner_daily_counters", {
-        ownerId: "x-global",
-        kind: "x_bot_mentions",
-        day,
-        count: 498,
       });
     });
     expect(
@@ -219,28 +201,6 @@ describe("daily cost counters", () => {
         now,
       }),
     ).toMatchObject({ allowed: false, count: 200 });
-    expect(
-      await t.mutation(consumeXBotRef, { authorId: "author-a", now }),
-    ).toMatchObject({
-      allowed: true,
-    });
-    expect(
-      await t.mutation(consumeXBotRef, { authorId: "author-a", now }),
-    ).toMatchObject({
-      allowed: false,
-      scope: "author",
-    });
-    expect(
-      await t.mutation(consumeXBotRef, { authorId: "author-b", now }),
-    ).toMatchObject({
-      allowed: true,
-    });
-    expect(
-      await t.mutation(consumeXBotRef, { authorId: "author-c", now }),
-    ).toMatchObject({
-      allowed: false,
-      scope: "global",
-    });
   });
 });
 

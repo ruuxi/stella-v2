@@ -6,7 +6,7 @@ import {
 } from "../../convex/agent/model_resolver";
 import { AGENT_IDS } from "../../convex/lib/agent_constants";
 
-// resolveModelConfig only touches ctx.runQuery (modalities lookup); null → text-only.
+// resolveModelConfig does not read ctx; modalities are text-only.
 const ctx = { runQuery: async () => null } as never;
 
 describe("resolveModelConfig single-model enforcement", () => {

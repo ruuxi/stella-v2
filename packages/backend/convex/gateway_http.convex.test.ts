@@ -4,10 +4,7 @@ import { GATEWAY_SESSION_BUDGET_CHUNK_MICRO_CENTS } from "@stella/contracts/gate
 import { convexTest } from "convex-test";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { listManagedModelIds } from "@stella/model-catalog/model";
-import { STATIC_MANAGED_MODEL_PRICE_OVERRIDES } from "@stella/model-catalog/pricing";
 import {
-  CONVEX_GATEWAY_CONFIG_PATH,
   CONVEX_GATEWAY_ENGINE_ACCESS_PATH,
   CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
 
@@ -18,7 +15,6 @@ import { components, internal } from "./_generated/api";
 import { tokenIdentifierForBetterAuthUserId } from "./auth";
 import betterAuthSchema from "./betterAuth/schema";
 import { encryptEnginePayload } from "./cloud_engines";
-import { dollarsToMicroCents } from "./lib/billing_money";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -151,17 +147,17 @@ const usageEvent = (
 describe("gateway service authentication", () => {
   it("rejects missing or wrong bearer secrets and disables itself without one", async () => {
     const t = await createTest();
-    const unauthenticated = await t.fetch(CONVEX_GATEWAY_CONFIG_PATH, {
+    const unauthenticated = await t.fetch(CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH, {
       method: "GET",
     });
     expect(unauthenticated.status).toBe(401);
-    const wrong = await t.fetch(CONVEX_GATEWAY_CONFIG_PATH, {
+    const wrong = await t.fetch(CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH, {
       method: "GET",
       headers: { authorization: "Bearer not-the-secret" },
     });
     expect(wrong.status).toBe(401);
     delete process.env.GATEWAY_SERVICE_SECRET;
-    const disabled = await t.fetch(CONVEX_GATEWAY_CONFIG_PATH, {
+    const disabled = await t.fetch(CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH, {
       method: "GET",
       headers: { authorization: `Bearer ${SERVICE_SECRET}` },
     });
@@ -273,79 +269,6 @@ describe("POST /api/gateway/usage", () => {
     expect((await post(t, CONVEX_GATEWAY_USAGE_PATH, { v: 1 })).status).toBe(
       400,
     );
-  });
-});
-
-describe("GET /api/gateway/config", () => {
-  it("serves synced prices, static fill-ins, and anonymous ceilings", async () => {
-    const t = await createTest();
-    const syncedModel = listManagedModelIds()[0]!;
-    const staticModel = Object.keys(STATIC_MANAGED_MODEL_PRICE_OVERRIDES).find(
-      (model) => model !== syncedModel,
-    )!;
-    await t.run(async (ctx) => {
-      await ctx.db.insert("billing_model_prices", {
-        model: syncedModel,
-        source: "models.dev",
-        sourceProvider: "test",
-        sourceModelId: syncedModel,
-        inputPerMillionUsd: 1.5,
-        outputPerMillionUsd: 6,
-        cacheReadPerMillionUsd: 0.15,
-        cacheWritePerMillionUsd: 1.875,
-        reasoningPerMillionUsd: 6,
-        sourceUpdatedAt: "2026-01-01",
-        syncedAt: 1_700_000_000_000,
-      });
-    });
-    const response = await t.fetch(CONVEX_GATEWAY_CONFIG_PATH, {
-      method: "GET",
-      headers: { authorization: `Bearer ${SERVICE_SECRET}` },
-    });
-    expect(response.status).toBe(200);
-    const body = (await response.json()) as {
-      v: number;
-      prices: Array<Record<string, unknown>>;
-      anonymous: Record<string, number>;
-      tierCeilings: Array<Record<string, number | string>>;
-      updatedAt: number;
-    };
-    expect(body.v).toBe(1);
-    expect(body.anonymous).toEqual({
-      maxRequestsPerOwner: ANON_MAX_REQUESTS,
-      maxRequestsPerIp: ANON_MAX_REQUESTS * 10,
-    });
-    expect(body.tierCeilings).toEqual([
-      {
-        audience: "anonymous",
-        hourlyMicroCents: dollarsToMicroCents(20),
-        dailyMicroCents: dollarsToMicroCents(200),
-      },
-      {
-        audience: "free",
-        hourlyMicroCents: dollarsToMicroCents(100),
-        dailyMicroCents: dollarsToMicroCents(1_000),
-      },
-    ]);
-    expect(body.updatedAt).toBe(1_700_000_000_000);
-    expect(body.prices.find((price) => price.model === syncedModel)).toEqual({
-      model: syncedModel,
-      inputPerMillionUsd: 1.5,
-      outputPerMillionUsd: 6,
-      cacheReadPerMillionUsd: 0.15,
-      cacheWritePerMillionUsd: 1.875,
-      reasoningPerMillionUsd: 6,
-    });
-    const staticPrice = STATIC_MANAGED_MODEL_PRICE_OVERRIDES[staticModel]!;
-    expect(body.prices.find((price) => price.model === staticModel)).toEqual({
-      model: staticModel,
-      inputPerMillionUsd: staticPrice.inputPerMillionUsd,
-      outputPerMillionUsd: staticPrice.outputPerMillionUsd,
-      cacheReadPerMillionUsd: staticPrice.cacheReadPerMillionUsd ?? 0,
-      cacheWritePerMillionUsd: staticPrice.cacheWritePerMillionUsd ?? 0,
-      reasoningPerMillionUsd:
-        staticPrice.reasoningPerMillionUsd ?? staticPrice.outputPerMillionUsd,
-    });
   });
 });
 
@@ -523,30 +446,3 @@ describe("owner enforcement admin routes", () => {
   });
 });
 
-describe("GET /api/stella/models", () => {
-  it("advertises the model gateway origin", async () => {
-    const t = await createTest();
-    const response = await t.fetch("/api/stella/models", { method: "GET" });
-    expect(response.status).toBe(200);
-    const body = (await response.json()) as {
-      data: Array<{ id: string; api: string }>;
-      gateway: { origin: string };
-      updatedAt: number;
-    };
-    expect(body.gateway).toEqual({ origin: "https://gateway.test" });
-    expect(body.data.length).toBeGreaterThan(0);
-    expect(
-      body.data.find(
-        (model) => model.id === "stella/meta/muse-spark-1.3-contributor",
-      )?.api,
-    ).toBe("openai-responses");
-  });
-
-  it("fails in production when the gateway origin is unset", async () => {
-    const t = await createTest();
-    delete process.env.MODEL_GATEWAY_URL;
-    process.env.STELLA_DEPLOYMENT_IDENTITY = "prod:intent-jackal-330";
-    const response = await t.fetch("/api/stella/models", { method: "GET" });
-    expect(response.status).toBe(500);
-  });
-});

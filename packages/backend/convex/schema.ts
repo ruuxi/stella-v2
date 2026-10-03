@@ -6,10 +6,6 @@ import { integrationsSchema } from "./schema/integrations";
 import { devicesSchema } from "./schema/devices";
 import { usersSchema } from "./schema/users";
 import { telemetrySchema } from "./schema/telemetry";
-import { billingSchema } from "./schema/billing";
-import { desktopReleasesSchema } from "./schema/desktop_releases";
-import { canvasSharesSchema } from "./schema/canvas_shares";
-import { promptsSchema } from "./schema/prompts";
 import { gatewaySchema } from "./schema/gateway";
 import { cloudAppsSchema } from "./schema/cloud_apps";
 import { cloudEnginesSchema } from "./schema/cloud_engines";
@@ -18,7 +14,6 @@ import { ownerLifecycleSchema } from "./schema/owner_lifecycle";
 import { cloudBrowserSchema } from "./schema/cloud_browser";
 import { cloudConnectorConnectSchema } from "./schema/cloud_connector_connect";
 import { cloudOutboxSchema } from "./schema/cloud_outbox";
-import { xBotSchema } from "./schema/x_bot";
 import { abuseSchema } from "./schema/abuse";
 
 export default defineSchema({
@@ -29,10 +24,6 @@ export default defineSchema({
   ...devicesSchema,
   ...usersSchema,
   ...telemetrySchema,
-  ...billingSchema,
-  ...desktopReleasesSchema,
-  ...canvasSharesSchema,
-  ...promptsSchema,
   ...gatewaySchema,
   ...cloudAppsSchema,
   ...cloudEnginesSchema,
@@ -41,6 +32,5 @@ export default defineSchema({
   ...cloudBrowserSchema,
   ...cloudConnectorConnectSchema,
   ...cloudOutboxSchema,
-  ...xBotSchema,
   ...abuseSchema,
 });

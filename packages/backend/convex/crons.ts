@@ -62,14 +62,6 @@ crons.interval(
 );
 
 crons.interval(
-  "managed model price sync",
-  { hours: 24 },
-  internal.model_prices.syncManagedModelPricesFromModelsDev,
-  {},
-);
-
-
-crons.interval(
   "recover Composio session cleanup dispatches",
   { minutes: 1 },
   sweepComposioSessionCleanupRef,
@@ -107,13 +99,6 @@ crons.interval(
   purgeExpiredAppIntegrityNoncesRef,
   {},
 );
-crons.interval(
-  "purge expired canvas shares",
-  { hours: 1 },
-  internal.data.canvas_shares_actions.purgeExpiredShares,
-  { batchSize: 200, maxBatches: 10 },
-);
-
 crons.interval(
   "purge old usage logs",
   { hours: 24 },

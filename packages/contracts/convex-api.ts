@@ -80,16 +80,6 @@ export type PublicApiType = {
     "attachments": {
       "createFromDataUrl": FunctionReference<'action', 'public', { conversationId: Id<'conversations'>; deviceId: string; dataUrl: string; }, any, string | undefined>;
     };
-    "canvas_shares": {
-      "listMine": FunctionReference<'query', 'public', { limit?: number | undefined; snapshotAt: number; }, any, string | undefined>;
-    };
-    "canvas_shares_actions": {
-      "publish": FunctionReference<'action', 'public', { title?: string | undefined; html: string; }, any, string | undefined>;
-      "revoke": FunctionReference<'action', 'public', { slug: string; }, any, string | undefined>;
-    };
-    "desktop_releases": {
-      "currentDesktopRelease": FunctionReference<'query', 'public', { platform: string; }, any, string | undefined>;
-    };
     "integrations": {
       "listStoreIntegrations": FunctionReference<'query', 'public', {}, any, string | undefined>;
       "createXConnectUrl": FunctionReference<'mutation', 'public', {}, any, string | undefined>;
@@ -100,24 +90,15 @@ export type PublicApiType = {
       "listSecrets": FunctionReference<'query', 'public', { provider?: string | undefined; }, any, string | undefined>;
       "deleteSecret": FunctionReference<'mutation', 'public', { secretId: Id<'secrets'>; }, any, string | undefined>;
     };
-    "x_bot": {
-      "listXBotRunsByHandle": FunctionReference<'query', 'public', { handle: string; }, any, string | undefined>;
-    };
   };
   "events": {
     "subscribeRemoteTurnRequestsForDevice": FunctionReference<'query', 'public', { limit?: number | undefined; deviceId: string; since: number; }, any, string | undefined>;
     "subscribeRemoteTurnCancelsForDevice": FunctionReference<'query', 'public', { limit?: number | undefined; deviceId: string; since: number; }, any, string | undefined>;
     "isRemoteTurnClaimed": FunctionReference<'query', 'public', { requestId: string; }, any, string | undefined>;
   };
-  "gateway_capabilities": {
-    "getModelGatewayConfig": FunctionReference<'query', 'public', {}, any, string | undefined>;
-  };
   "scheduling": {
     "cron_jobs": {
       "completeCronTurnResult": FunctionReference<'mutation', 'public', { conversationId: Id<'conversations'>; text: string; deviceId: string; requestId: string; attemptId: string; }, any, string | undefined>;
     };
-  };
-  "stella_models": {
-    "getModelCatalogUpdatedAt": FunctionReference<'query', 'public', {}, any, string | undefined>;
   };
 } & Record<string, any>;

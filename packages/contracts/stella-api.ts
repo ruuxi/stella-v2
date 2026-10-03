@@ -73,9 +73,6 @@ const stellaUrlFromSiteUrl = (siteUrl: string, path: string): string =>
 export const stellaApiBaseUrlFromSiteUrl = (siteUrl: string): string =>
   stellaUrlFromSiteUrl(siteUrl, STELLA_API_BASE_PATH);
 
-export const stellaPromptEndpointFromSiteUrl = (siteUrl: string): string =>
-  stellaUrlFromSiteUrl(siteUrl, STELLA_PROMPTS_PATH);
-
 type ChatContentPart =
   | { type?: string; text?: string }
   | {

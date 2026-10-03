@@ -5,7 +5,7 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { requireConversationOwnerAction, requireUserId } from "../auth";
 import { getPlatformSystemGuidance } from "../prompts/index";
-import { STELLA_DEFAULT_MODEL } from "../stella_models";
+import { STELLA_DEFAULT_MODEL } from "@stella/model-catalog/aliases";
 import { resolveAgentConfig } from "./agents";
 
 export type PromptBuildResult = {

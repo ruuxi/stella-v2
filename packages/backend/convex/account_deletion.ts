@@ -448,29 +448,7 @@ export const purgeOwnerCloudData = internalAction({
       await Promise.all([
         ...OWNER_TABLES.map((table) => drainOwnerTable(ctx, fence, table)),
         ...EXTRA_TABLES.map((table) => drainExtraTable(ctx, fence, table)),
-        // Canvas shares: delete R2 objects + rows for this owner.
-        ctx.runAction(internal.data.canvas_shares_actions.purgeOwnerShares, {
-          ownerUserId: ownerId,
-          operationId: fence.operationId,
-          generation: fence.generation,
-          leaseId,
-          mode: "delete",
-        }),
       ]);
-
-      // Final external re-drain closes the window for a creator that reserved
-      // its durable locator immediately before the deletion fence. Active
-      // reservations remain retry debt until their bounded lease ends.
-      await ctx.runAction(
-        internal.data.canvas_shares_actions.purgeOwnerShares,
-        {
-          ownerUserId: ownerId,
-          operationId: fence.operationId,
-          generation: fence.generation,
-          leaseId,
-          mode: "delete",
-        },
-      );
 
       const finalRemoteTurns = await ctx.runMutation(
         internal.channels.connector_delivery

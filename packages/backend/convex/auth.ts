@@ -1579,11 +1579,6 @@ export const getUserIdOrNull = async (ctx: QueryCtx | MutationCtx) => {
   return identity?.tokenIdentifier ?? null;
 };
 
-export const requireConnectedUserIdAction = async (ctx: ActionCtx) => {
-  const identity = await requireConnectedUserIdentityAction(ctx);
-  return identity.tokenIdentifier;
-};
-
 export const requireSensitiveUserIdentity = async (
   ctx: QueryCtx | MutationCtx,
 ) => {

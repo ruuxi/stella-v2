@@ -3365,13 +3365,6 @@ export const auditOwnershipMigrationResidue = internalQuery({
           .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
           .take(1),
       ],
-      [
-        "canvas_shares",
-        await ctx.db
-          .query("canvas_shares")
-          .withIndex("by_ownerUserId", (q) => q.eq("ownerUserId", ownerId))
-          .take(1),
-      ],
     ] as const;
     const retryableTransientTables = new Set<string>([
       "billing_managed_dispatch_leases",

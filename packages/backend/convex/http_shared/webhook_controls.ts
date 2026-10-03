@@ -2,8 +2,6 @@ import type { ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { withCors } from "./cors";
 
-const WEBHOOK_EVENT_DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000;
-
 export const rateLimitResponse = (retryAfterMs: number) =>
   new Response(JSON.stringify({ error: "Rate limit exceeded" }), {
     status: 429,
@@ -12,24 +10,6 @@ export const rateLimitResponse = (retryAfterMs: number) =>
       "Retry-After": String(Math.max(1, Math.ceil(retryAfterMs / 1000))),
     },
   });
-
-export const consumeWebhookDedup = async (
-  ctx: Pick<ActionCtx, "runMutation">,
-  scope: string,
-  key: string | null | undefined,
-): Promise<boolean> => {
-  if (!key || key.trim().length === 0) {
-    return true;
-  }
-  const status = await ctx.runMutation(internal.rate_limits.consumeWebhookRateLimit, {
-    scope: `${scope}_dedup`,
-    key,
-    limit: 1,
-    windowMs: WEBHOOK_EVENT_DEDUP_WINDOW_MS,
-    blockMs: WEBHOOK_EVENT_DEDUP_WINDOW_MS,
-  });
-  return status.allowed;
-};
 
 export const consumeWebhookRateLimit = async (
   ctx: Pick<ActionCtx, "runMutation">,

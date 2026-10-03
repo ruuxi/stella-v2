@@ -593,9 +593,9 @@ const ownerSnapshot = httpAction(async (ctx, request) => {
 
 /**
  * The owner object's `account.reset`. Opens the reset purge (a new blocking
- * owner generation) and schedules its run; answers once the reset has
- * started. The purge job's own retry cron resumes it if the scheduled run
- * dies.
+ * owner generation) and runs it before answering, so the client's live
+ * queries resume only after the purge fence lifts. The purge job's own retry
+ * cron resumes it if this run dies.
  */
 const ownerReset = httpAction(async (ctx, request) => {
   const denied = requireBuilderServiceRequest(request);
@@ -620,12 +620,12 @@ const ownerReset = httpAction(async (ctx, request) => {
     }
     throw error;
   }
-  await ctx.scheduler.runAfter(0, internal.reset.resumeOwnerResetInternal, {
+  await ctx.runAction(internal.reset.resumeOwnerResetInternal, {
     ownerId,
     operationId: lifecycle.operationId,
     generation: lifecycle.generation,
   });
-  return json({ ok: true }, 202);
+  return json({ ok: true }, 200);
 });
 
 export const registerGatewayRoutes = (http: HttpRouter) => {

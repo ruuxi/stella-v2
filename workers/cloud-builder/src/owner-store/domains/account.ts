@@ -15,7 +15,8 @@ import { enforceOwnerRateLimit } from "../rate-limit.js";
 import type { OwnerContext, OwnerDomain } from "../registry.js";
 import { SCHEDULE_FIRE_JOB } from "./schedules.js";
 
-const RESET_TIMEOUT_MS = 30_000;
+// Convex runs the whole reset before answering, as the old action did.
+const RESET_TIMEOUT_MS = 300_000;
 
 /** Pending scheduled fires must not start turns for data that is going away. */
 const cancelScheduleFires = (ctx: OwnerContext): void => {

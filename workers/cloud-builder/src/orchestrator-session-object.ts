@@ -242,6 +242,10 @@ import {
   type CloudConnectorDeclines,
 } from "./cloud-connect-client.js";
 import {
+  listIntegrationActions,
+  listIntegrationCatalog,
+} from "./integrations/catalog.js";
+import {
   createCloudConnectorStatusTool,
   type CloudConnectorConnectionOutcome,
   type CloudConnectorConnectionRequest,
@@ -375,6 +379,7 @@ type Env = Pick<
       | "CAPABILITY_SIGNING_KEY"
       | "CAPABILITY_SIGNING_KID"
       | "TURN_OUTBOX"
+      | "DB"
     >
   >;
 
@@ -9777,12 +9782,19 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       : undefined;
     const declines = this.connectorDeclines();
     // Connectors belong to the account: the same Store integrations the
-    // desktop app connected, resolved through Convex under the turn
-    // capability. One directory per turn memoizes the catalog and the
-    // owner's live connections for every connect.* call and status check.
+    // desktop app connected, from the global catalog and the owner object.
+    // One directory per turn memoizes the catalog and the owner's live
+    // connections for every connect.* call and status check.
     const connectors = new CloudConnectorDirectory({
-      convexFetch: (path, init) =>
-        this.convexRequest(path, init, controlPlane.token),
+      source: {
+        catalog: () => listIntegrationCatalog(this.env),
+        actions: (args) => listIntegrationActions(this.env, args),
+        connections: async () =>
+          (await toolContext.ownerInternal("integrations.connections", {})) as {
+            connections: Array<{ id: string; connected: boolean }>;
+          },
+        run: (args) => toolContext.ownerInternal("integrations.run", args),
+      },
       declines,
     });
 
@@ -10356,7 +10368,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         requestConnection: (request, signal) =>
           this.requestCloudConnectorConnection(
             turn,
-            controlPlane,
+            toolContext.ownerInternal,
             request,
             signal,
           ),
@@ -10409,42 +10421,31 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
 
   /**
    * Show the inline connect card and wait for the answer. The card is a
-   * pending request row in Convex that every signed-in client renders
-   * (the same pattern as cloud browser interactions); the user's answer
+   * pending request row in the owner object that every signed-in client
+   * watches (`connect.pending`); the user's answer
    * either finishes the account-level Composio connection or declines.
    * Polling is the wait: the turn holds the tool call open while the row
    * moves through pending → connecting → connected/declined/expired.
    */
   private async requestCloudConnectorConnection(
     turn: ChatTurnRequest,
-    controlPlane: Pick<MintedTurnCapability, "token">,
+    ownerInternal: (name: string, args: unknown) => Promise<unknown>,
     request: CloudConnectorConnectionRequest,
     signal?: AbortSignal,
   ): Promise<CloudConnectorConnectionOutcome> {
     const post = async (
       body: Record<string, unknown>,
     ): Promise<Record<string, unknown>> => {
-      const response = await this.convexPost(
-        "/api/cloud/connector-connect",
-        {
-          conversationId: turn.conversationId,
-          turnId: turn.turnId,
-          ...body,
-        },
-        { capability: controlPlane.token },
-      );
-      const payload = (await response.json().catch(() => ({}))) as Record<
-        string,
-        unknown
-      >;
-      if (!response.ok) {
-        throw new Error(
-          typeof payload.error === "string"
-            ? payload.error
-            : `Connect card request failed (${response.status}).`,
-        );
-      }
-      return payload;
+      const { action, ...args } = body;
+      const card =
+        action === "create"
+          ? await ownerInternal("connect.request", {
+              conversationId: turn.conversationId,
+              turnId: turn.turnId,
+              ...args,
+            })
+          : await ownerInternal(action === "cancel" ? "connect.cancel" : "connect.poll", args);
+      return { request: card ?? {} };
     };
     const readRequest = (payload: Record<string, unknown>) => {
       const record =

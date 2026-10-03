@@ -52,6 +52,7 @@ import { withBrowserCors } from "../browser-cors.js";
 import { handleVoiceRoute, ownerDictationControl } from "../voice/routes.js";
 import { handleBackendRoute } from "../owner-store/routes.js";
 import { handleMediaRoute } from "../media/routes.js";
+import { handleIntegrationsRoute } from "../integrations/routes.js";
 import { handleAppSourceBootstrap } from "../app-source-bootstrap.js";
 import { handleWebRendererRoute } from "../web-renderer.js";
 import { handleUserCloudHomeRoute, ownerAccess } from "../cloud-home-routes.js";
@@ -981,6 +982,10 @@ const router = {
     // Voice checks the user's JWT itself; the HLS GETs carry a signed ticket.
     const voiceResponse = await handleVoiceRoute(request, env);
     if (voiceResponse) return voiceResponse;
+    // Store integrations and X check the user's JWT (or the admin secret)
+    // themselves; X's OAuth callback carries a signed state.
+    const integrationsResponse = await handleIntegrationsRoute(request, env);
+    if (integrationsResponse) return integrationsResponse;
     if (url.pathname === "/dictation/socket") {
       if (request.method !== "GET" || !isWebSocketUpgrade(request)) {
         return json({ error: "This endpoint speaks WebSocket only." }, 426);

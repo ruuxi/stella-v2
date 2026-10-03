@@ -3,10 +3,10 @@
  *
  * Same surface as the device kernel's `connect` (see
  * `connectors/connect-worker-api.ts`), backed by the Store's Composio
- * integrations through Convex instead of a local catalog cache and CLI
- * bridge. Connectors belong to the account, not the device: the routes
- * accept the turn capability and resolve the same owner the desktop app
- * signs in as, so a service connected anywhere is usable here.
+ * integrations: the global catalog in D1 and the owner object's
+ * `integrations.*` internals, instead of a local catalog cache and CLI
+ * bridge. Connectors belong to the account, not the device, so a service
+ * connected anywhere is usable here.
  *
  * Custom MCP/API connectors (`addMcp`/`remove`) are device-local — stdio
  * processes, generated skills, on-disk credentials — and stay that way.
@@ -20,17 +20,12 @@ import {
   redactSensitiveText,
   sanitizeSensitiveData,
 } from "@stella/contracts/sensitive-data";
+import type {
+  IntegrationActionsPage,
+  IntegrationCatalogEntry,
+} from "@stella/contracts/backend/integrations";
 import type { CloudConnectClient } from "./cloud-code-tool.js";
-
-export type CloudConnectFetch = (
-  path: string,
-  init: {
-    method: "GET" | "POST" | "DELETE";
-    headers?: Record<string, string>;
-    body?: string;
-    signal?: AbortSignal;
-  },
-) => Promise<Response>;
+import { RpcError } from "./owner-store/errors.js";
 
 /** Persisted per-conversation memory of connect offers the user declined. */
 export type CloudConnectorDeclines = Readonly<{
@@ -38,11 +33,31 @@ export type CloudConnectorDeclines = Readonly<{
   recordDecline(id: string): Promise<void>;
 }>;
 
+/**
+ * Where the directory reads: the global catalog (D1) and the owner's
+ * connections and runs (the owner object's `integrations.*` internals).
+ */
+export type CloudConnectorSource = Readonly<{
+  catalog(): Promise<readonly IntegrationCatalogEntry[]>;
+  actions(args: {
+    id: string;
+    action?: string;
+    query?: string;
+    cursor?: string;
+    limit?: number;
+  }): Promise<IntegrationActionsPage | null>;
+  connections(): Promise<{ connections: ReadonlyArray<{ id: string; connected: boolean }> }>;
+  run(args: {
+    id: string;
+    action: string;
+    input: Record<string, unknown>;
+    requestId: string;
+  }): Promise<unknown>;
+}>;
+
 export type CloudConnectClientContext = Readonly<{
-  convexFetch: CloudConnectFetch;
+  source: CloudConnectorSource;
   declines?: CloudConnectorDeclines;
-  fetchTimeoutMs?: number;
-  signal?: AbortSignal;
 }>;
 
 export type CloudConnectorCatalogEntry = Readonly<{
@@ -61,21 +76,11 @@ export type CloudConnectorConnection = Readonly<{
   connected: boolean;
 }>;
 
-export const CLOUD_TURN_CALLER_HEADER = "x-stella-caller";
-export const CLOUD_TURN_CALLER_VALUE = "cloud-turn";
-
-const CATALOG_PATH = "/api/native-integrations/catalog";
-const CONNECTIONS_PATH = "/api/native-integrations/connections";
-const ACTIONS_PATH = "/api/native-integrations/actions";
-const RUN_PATH = "/api/native-integrations/run";
-
 const DISCOVER_MAX_MATCHES = 8;
 const ACTIONS_DEFAULT_LIMIT = 25;
 const ACTIONS_MAX_LIMIT = 100;
-/** Convex action pages; matches MAX_INTEGRATION_ACTIONS_PAGE_SIZE upstream. */
+/** The catalog's largest action page. */
 const ACTIONS_PAGE_LIMIT = 100;
-const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
-const DEFAULT_FETCH_TIMEOUT_MS = 30_000;
 const SAFE_CONNECTOR_ID = /^[a-z0-9][a-z0-9_-]{0,127}$/u;
 const SAFE_ACTION = /^[A-Z][A-Z0-9_]{1,127}$/u;
 
@@ -121,31 +126,12 @@ const clampActionLimit = (limit: unknown): number => {
   return Math.max(1, Math.min(ACTIONS_MAX_LIMIT, Math.floor(limit)));
 };
 
-const readBoundedJson = async (response: Response): Promise<unknown> => {
-  const contentLength = Number(response.headers.get("content-length"));
-  if (Number.isFinite(contentLength) && contentLength > MAX_RESPONSE_BYTES) {
-    throw new Error("The connector response exceeded the safe size limit.");
-  }
-  const text = await response.text();
-  if (text.length > MAX_RESPONSE_BYTES) {
-    throw new Error("The connector response exceeded the safe size limit.");
-  }
-  if (!text) return null;
-  try {
-    return JSON.parse(text) as unknown;
-  } catch {
-    throw new Error("The connector response was not valid JSON.");
-  }
-};
-
-const backendErrorMessage = (payload: unknown, fallback: string): string => {
-  const message = isRecord(payload) ? payload.error : null;
-  return redactSensitiveText(
-    typeof message === "string" && message.trim()
-      ? message.slice(0, 1_000)
+const sourceErrorMessage = (error: unknown, fallback: string): string =>
+  redactSensitiveText(
+    error instanceof Error && error.message.trim()
+      ? error.message.slice(0, 1_000)
       : fallback,
   );
-};
 
 type ActionRecord = {
   name: string;
@@ -247,62 +233,11 @@ export class CloudConnectorDirectory {
     this.#context = context;
   }
 
-  async request(
-    path: string,
-    init: { method: "GET" | "POST"; body?: string; headers?: Record<string, string> },
-  ): Promise<{ response: Response; payload: unknown }> {
-    const timeout = AbortSignal.timeout(
-      this.#context.fetchTimeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS,
-    );
-    const signal = this.#context.signal
-      ? AbortSignal.any([timeout, this.#context.signal])
-      : timeout;
-    let response: Response;
-    try {
-      response = await this.#context.convexFetch(path, {
-        method: init.method,
-        headers: {
-          accept: "application/json",
-          [CLOUD_TURN_CALLER_HEADER]: CLOUD_TURN_CALLER_VALUE,
-          ...(init.body !== undefined
-            ? { "content-type": "application/json" }
-            : {}),
-          ...(init.headers ?? {}),
-        },
-        ...(init.body !== undefined ? { body: init.body } : {}),
-        signal,
-      });
-    } catch (error) {
-      throw new Error(
-        signal.aborted
-          ? "The connector request was cancelled or timed out."
-          : redactSensitiveText(
-              error instanceof Error
-                ? error.message
-                : "The connector service could not be reached.",
-            ),
-      );
-    }
-    const payload = await readBoundedJson(response);
-    return { response, payload };
-  }
-
   catalog(): Promise<readonly CloudConnectorCatalogEntry[]> {
     return (this.#catalog ??= (async () => {
-      const { response, payload } = await this.request(CATALOG_PATH, {
-        method: "GET",
-      });
-      if (!response.ok) {
-        throw new Error(
-          backendErrorMessage(
-            payload,
-            `The integration catalog is unavailable (${response.status}).`,
-          ),
-        );
-      }
-      const raw = isRecord(payload) ? payload.integrations : null;
+      const entries = await this.#context.source.catalog();
       return Object.freeze(
-        (Array.isArray(raw) ? raw : [])
+        entries
           .map(readCloudConnectorCatalogEntry)
           .filter(
             (entry): entry is CloudConnectorCatalogEntry => entry !== null,
@@ -310,7 +245,7 @@ export class CloudConnectorDirectory {
       );
     })().catch((error) => {
       this.#catalog = undefined;
-      throw error;
+      throw new Error(sourceErrorMessage(error, "The integration catalog is unavailable."));
     }));
   }
 
@@ -319,33 +254,13 @@ export class CloudConnectorDirectory {
   }): Promise<readonly CloudConnectorConnection[]> {
     if (options?.refresh) this.#connections = undefined;
     return (this.#connections ??= (async () => {
-      const { response, payload } = await this.request(CONNECTIONS_PATH, {
-        method: "GET",
-      });
-      if (response.status === 403) {
-        throw new Error(
-          "Sign in to Stella with a connected account before using integrations.",
-        );
-      }
-      if (!response.ok) {
-        throw new Error(
-          backendErrorMessage(
-            payload,
-            `Connected integrations are unavailable (${response.status}).`,
-          ),
-        );
-      }
-      const raw = isRecord(payload) ? payload.connections : null;
+      const { connections } = await this.#context.source.connections();
       return Object.freeze(
-        (Array.isArray(raw) ? raw : []).flatMap((entry) =>
-          isRecord(entry) && typeof entry.id === "string"
-            ? [{ id: entry.id, connected: entry.connected === true }]
-            : [],
-        ),
+        connections.map((entry) => ({ id: entry.id, connected: entry.connected === true })),
       );
     })().catch((error) => {
       this.#connections = undefined;
-      throw error;
+      throw new Error(sourceErrorMessage(error, "Connected integrations are unavailable."));
     }));
   }
 
@@ -362,62 +277,41 @@ export class CloudConnectorDirectory {
     id: string,
     options: { query?: string; limit?: number },
   ): Promise<{ total: number; actions: ActionRecord[] }> {
-    const params = new URLSearchParams({ id });
-    if (options.query?.trim()) params.set("query", options.query.trim());
-    params.set("limit", String(ACTIONS_PAGE_LIMIT));
     const actions: ActionRecord[] = [];
     let total = 0;
     let cursor: string | null = null;
     const wanted = clampActionLimit(options.limit);
     do {
-      if (cursor) params.set("cursor", cursor);
-      const { response, payload } = await this.request(
-        `${ACTIONS_PATH}?${params.toString()}`,
-        { method: "GET" },
-      );
-      if (response.status === 404) {
+      const page: IntegrationActionsPage | null = await this.#context.source
+        .actions({
+          id,
+          ...(options.query?.trim() ? { query: options.query.trim() } : {}),
+          ...(cursor ? { cursor } : {}),
+          limit: ACTIONS_PAGE_LIMIT,
+        })
+        .catch((error: unknown) => {
+          throw new Error(sourceErrorMessage(error, "Integration action catalog failed."));
+        });
+      if (!page) {
         throw new Error(
           `Connector is not installed or known: ${id}. Search with connect.discover("<keywords>").`,
         );
       }
-      if (!response.ok) {
-        throw new Error(
-          backendErrorMessage(
-            payload,
-            `Integration action catalog failed (${response.status}).`,
-          ),
-        );
-      }
-      const record = isRecord(payload) ? payload : {};
-      total =
-        typeof record.actionCount === "number" ? record.actionCount : total;
-      for (const raw of Array.isArray(record.actions) ? record.actions : []) {
+      total = page.actionCount;
+      for (const raw of page.actions) {
         const action = readActionRecord(raw);
         if (action) actions.push(action);
       }
-      cursor = typeof record.nextCursor === "string" ? record.nextCursor : null;
+      cursor = page.nextCursor;
     } while (cursor && actions.length < wanted);
     return { total: Math.max(total, actions.length), actions };
   }
 
   async getAction(id: string, action: string): Promise<ActionRecord | null> {
-    const params = new URLSearchParams({ id, action });
-    const { response, payload } = await this.request(
-      `${ACTIONS_PATH}?${params.toString()}`,
-      { method: "GET" },
-    );
-    if (response.status === 404) return null;
-    if (!response.ok) {
-      throw new Error(
-        backendErrorMessage(
-          payload,
-          `Integration action lookup failed (${response.status}).`,
-        ),
-      );
-    }
-    const record = isRecord(payload) ? payload : {};
-    const first = Array.isArray(record.actions) ? record.actions[0] : null;
-    return readActionRecord(first);
+    const page = await this.#context.source.actions({ id, action }).catch((error: unknown) => {
+      throw new Error(sourceErrorMessage(error, "Integration action lookup failed."));
+    });
+    return page ? readActionRecord(page.actions[0]) : null;
   }
 
   async run(
@@ -425,31 +319,18 @@ export class CloudConnectorDirectory {
     action: string,
     input: Record<string, unknown>,
   ): Promise<unknown> {
-    const requestId = crypto.randomUUID();
-    const { response, payload } = await this.request(RUN_PATH, {
-      method: "POST",
-      headers: { "x-stella-request-id": requestId },
-      body: JSON.stringify({ id, action, input }),
-    });
-    if (response.status === 409) {
-      throw new Error(
-        `${id} is not connected for this account. Offer the inline connect card with tools.connector_status({ connector: "${id}" }) (or the Store), then retry.`,
+    try {
+      return sanitizeSensitiveData(
+        await this.#context.source.run({ id, action, input, requestId: crypto.randomUUID() }),
       );
+    } catch (error) {
+      if (error instanceof RpcError && error.reason === "not_connected") {
+        throw new Error(
+          `${id} is not connected for this account. Offer the inline connect card with tools.connector_status({ connector: "${id}" }) (or the Store), then retry.`,
+        );
+      }
+      throw new Error(sourceErrorMessage(error, "Integration action failed."));
     }
-    if (response.status === 403) {
-      throw new Error(
-        "Sign in to Stella with a connected account before using integrations.",
-      );
-    }
-    if (!response.ok) {
-      throw new Error(
-        backendErrorMessage(
-          payload,
-          `Integration action failed (${response.status}).`,
-        ),
-      );
-    }
-    return sanitizeSensitiveData(payload);
   }
 }
 

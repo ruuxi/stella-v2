@@ -5,6 +5,7 @@ import {
   resolveCloudConnectorEntry,
 } from "../src/cloud-connect-client.js";
 import { createCloudConnectorStatusTool } from "../src/cloud-connector-status-tool.js";
+import { RpcError } from "../src/owner-store/errors.js";
 
 const catalog = [
   {
@@ -42,16 +43,41 @@ const directoryWith = (
   declined = new Set<string>(),
 ) =>
   new CloudConnectorDirectory({
-    convexFetch: async (path, init) => {
-      const call: Call = {
-        path,
-        method: init.method,
-        ...(init.body ? { body: JSON.parse(init.body) } : {}),
-        ...(init.headers ? { headers: init.headers } : {}),
+    source: (() => {
+      const send = async (call: Call) => {
+        calls.push(call);
+        return await routes(call);
       };
-      calls.push(call);
-      return await routes(call);
-    },
+      return {
+        catalog: async () =>
+          ((await (await send({ path: "/api/native-integrations/catalog", method: "GET" })).json()) as {
+            integrations: never[];
+          }).integrations,
+        connections: async () =>
+          (await (await send({ path: "/api/native-integrations/connections", method: "GET" })).json()) as never,
+        actions: async (args) => {
+          const params = new URLSearchParams(
+            Object.entries(args).map(([key, value]) => [key, String(value)]),
+          );
+          const response = await send({ path: `/api/native-integrations/actions?${params}`, method: "GET" });
+          return response.status === 404 ? null : ((await response.json()) as never);
+        },
+        run: async ({ requestId, ...body }) => {
+          const response = await send({
+            path: "/api/native-integrations/run",
+            method: "POST",
+            body,
+            headers: { "x-stella-request-id": requestId },
+          });
+          if (response.status === 409) {
+            throw new RpcError("CONFLICT", "Connect this integration before using it.", {
+              reason: "not_connected",
+            });
+          }
+          return await response.json();
+        },
+      };
+    })(),
     declines: {
       isDeclined: async (id) => declined.has(id),
       recordDecline: async (id) => {
@@ -102,18 +128,6 @@ const standardRoutes =
   };
 
 describe("cloud connect client", () => {
-  test("every request carries the cloud-turn caller header", async () => {
-    const calls: Call[] = [];
-    const client = createCloudConnectClient(
-      directoryWith(standardRoutes([{ id: "gmail", connected: true }]), calls),
-    );
-    await client.connectors();
-    expect(calls.length).toBeGreaterThan(0);
-    for (const call of calls) {
-      expect(call.headers?.["x-stella-caller"]).toBe("cloud-turn");
-    }
-  });
-
   test("discover ranks Store integrations and reports account connection state", async () => {
     const client = createCloudConnectClient(
       directoryWith(standardRoutes([{ id: "gmail", connected: true }])),

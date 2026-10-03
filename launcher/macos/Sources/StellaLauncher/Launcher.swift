@@ -82,7 +82,10 @@ final class Launcher {
                     failure = (reason, output)
                 }
             } catch {
-                failure = ("\(error)", [])
+                // First line is the message; any detail (a command's output)
+                // goes to the output pane.
+                let lines = "\(error)".split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+                failure = (lines.first ?? "\(error)", Array(lines.dropFirst().suffix(40)))
             }
 
             guard let failure else { continue }
@@ -160,11 +163,19 @@ final class Launcher {
     /// on PATH, and none of the launcher's own secrets.
     private func baseEnvironment() -> [String: String] {
         var env = ProcessInfo.processInfo.environment
-        for key in ["STELLA_LAUNCHER_KEY_FILE", "STELLA_LAUNCHER_ROOT", "ELECTRON_RUN_AS_NODE",
-                    "STELLA_DEV_HARNESS", "STELLA_DEV_HARNESS_STORAGE_KEY", "STELLA_V2_DEV_USER_DATA_DIR",
-                    "STELLA_V2_DEV_DATA_DIR", "STELLA_APP_DIR", "STELLA_RUNTIME_STATE_DIR",
-                    "STELLA_DEV_RESTART_REQUEST_FILE", "STELLA_DEV_USER_QUIT_REQUEST_FILE",
-                    "STELLA_ELECTRON_DEV_RUNNER_PID", "STELLA_ELECTRON_READY_FILE", "NODE_OPTIONS"] {
+        let usesTestKey = !(env["STELLA_LAUNCHER_KEY_FILE"] ?? "").isEmpty
+        var stripped = ["STELLA_LAUNCHER_KEY_FILE", "STELLA_LAUNCHER_ROOT", "ELECTRON_RUN_AS_NODE",
+                        "STELLA_V2_DEV_DATA_DIR", "STELLA_APP_DIR", "STELLA_RUNTIME_STATE_DIR",
+                        "STELLA_DEV_RESTART_REQUEST_FILE", "STELLA_DEV_USER_QUIT_REQUEST_FILE",
+                        "STELLA_ELECTRON_DEV_RUNNER_PID", "STELLA_ELECTRON_READY_FILE", "NODE_OPTIONS"]
+        // The dev harness (own profile, file-backed safeStorage, remote
+        // debugging) passes through only for a test root signed with a test
+        // key file: it opens Electron to debugging, so it must never apply
+        // to an install whose key is the real keychain key.
+        let harness = ["STELLA_DEV_HARNESS", "STELLA_DEV_HARNESS_STORAGE_KEY", "STELLA_V2_DEV_USER_DATA_DIR",
+                       "STELLA_REMOTE_DEBUG_PORT", "STELLA_DEV_HARNESS_SESSION_TOKEN"]
+        if !(paths.isolated && usesTestKey) { stripped += harness }
+        for key in stripped {
             env.removeValue(forKey: key)
         }
         if paths.isolated {
@@ -190,6 +201,7 @@ final class Launcher {
             // A test root never touches the real profile or Stella home.
             env["STELLA_LAUNCHER_USER_DATA_DIR"] = paths.isolatedUserData.path
             env["STELLA_DATA_DIR"] = paths.isolatedHome.path
+            env["STELLA_V2_DEV_DATA_DIR"] = paths.isolatedHome.path
         }
         return env
     }
@@ -210,7 +222,10 @@ final class Launcher {
         do {
             process = try ElectronProcess(
                 executable: electronApp.appendingPathComponent("Contents/MacOS/Electron"),
-                args: [paths.app.path],
+                // Stella doesn't use AppKit window restoration. Skipping it
+                // keeps launch independent of the persistent-UI service, whose
+                // XPC call at launch can block Electron's main thread forever.
+                args: [paths.app.path, "-ApplePersistenceIgnoreState", "YES"],
                 cwd: paths.app,
                 env: electronEnvironment(),
                 logFile: paths.electronLog)
@@ -226,6 +241,9 @@ final class Launcher {
 
         var readyAt: Date?
         var pending: (String, [String])?
+        var quitRequested = false
+        /// The clean exit Electron announced; used if its teardown hangs.
+        var announcedExit: Int32?
         while let event = process.events.next(until: nil) {
             switch event {
             case let .message(message):
@@ -238,6 +256,11 @@ final class Launcher {
                     if options.selfTest { process.after(options.hold, "self-test-quit") }
                 case "sign":
                     handleSign(message, process: process, git: git, signer: signer)
+                case "exiting":
+                    let code = (message["code"] as? NSNumber)?.int32Value ?? 0
+                    announcedExit = code
+                    log("supervisor: Electron is exiting with \(code)")
+                    process.after(10, "exit-grace")
                 case "failed":
                     let reason = (message["reason"] as? String) ?? "unknown"
                     log("supervisor: Electron reported failure: \(reason)")
@@ -263,10 +286,14 @@ final class Launcher {
                     }
                 case "self-test-quit":
                     log("supervisor: self-test asks Electron to quit")
+                    quitRequested = true
                     process.send(["op": "quit"])
                     process.after(30, "quit-timeout")
-                case "quit-timeout":
+                case "quit-timeout" where announcedExit == nil:
                     log("supervisor: Electron did not quit in time; terminating")
+                    process.terminate()
+                case "exit-grace":
+                    log("supervisor: Electron's teardown is still running 10s after it announced its exit; terminating")
                     process.terminate()
                 default:
                     break
@@ -278,7 +305,14 @@ final class Launcher {
                 let detail = signal != 0 ? "signal \(signal)" : "exit \(code)"
                 log("supervisor: Electron exited (\(detail))")
                 if let pending { return .failed(pending.0, output) }
+                // A hung teardown killed after the announcement counts as the
+                // announced exit.
+                let code = announcedExit ?? (signal == 0 ? code : -1)
+                let signal = announcedExit != nil ? 0 : signal
                 if signal == 0 && code == Launcher.relaunchExitCode { return .relaunch }
+                if quitRequested && !(signal == 0 && code == 0) {
+                    return .failed("Stella didn't quit cleanly when asked (\(detail)).", output)
+                }
                 if signal == 0 && code == 0 {
                     if readyAt == nil && options.selfTest {
                         return .failed("Stella quit before it finished starting.", output)

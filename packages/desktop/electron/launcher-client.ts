@@ -14,7 +14,8 @@ import { git, gitRaw } from "./services/app-source/git.js";
  *
  * - to the launcher: `{"op":"ready"}` when the main window is ready to show,
  *   `{"op":"sign","id":n,"commit":sha}` after the checkout's HEAD changed,
- *   `{"op":"failed","reason":"..."}` when Stella can't keep running;
+ *   `{"op":"failed","reason":"..."}` when Stella can't keep running,
+ *   `{"op":"exiting","code":0|75}` just before a clean exit;
  * - from the launcher: `{"op":"sign-result","id":n,"ok":true,"commit":sha}`
  *   or `{"op":"sign-result","id":n,"ok":false,"error":"..."}`, and
  *   `{"op":"quit"}` (self-test).
@@ -209,6 +210,14 @@ export const relaunchApp = () => {
   app.quit();
 };
 
-/** The exit code for a clean quit: 75 when a relaunch was requested. */
-export const launcherExitCode = () =>
-  relaunchRequested && isLauncherPresent() ? LAUNCHER_RELAUNCH_EXIT_CODE : 0;
+/**
+ * The exit code for a clean quit (75 when a relaunch was requested), also
+ * announced to the launcher as `{"op":"exiting","code"}` so a process whose
+ * teardown then hangs is killed and treated as that exit, not a crash.
+ */
+export const launcherExitCode = () => {
+  const code =
+    relaunchRequested && isLauncherPresent() ? LAUNCHER_RELAUNCH_EXIT_CODE : 0;
+  send({ op: "exiting", code });
+  return code;
+};

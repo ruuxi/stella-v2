@@ -74,6 +74,10 @@
     "R2_S3_ENDPOINT": "https://f34b91c9c7dc22f0aef0ba855a9f026f.r2.cloudflarestorage.com",
     // The DRIVE binding's bucket, by name, for the presigned URLs above.
     "R2_DRIVE_BUCKET": "stella-v2-drive-dev",
+    // The MEDIA binding's bucket, by name, for presigned media reads.
+    "R2_MEDIA_BUCKET": "stella-v2-media-dev",
+    // The CANVAS_SHARES binding's bucket, by name.
+    "R2_CANVAS_SHARES_BUCKET": "stella-canvas-shares",
   },
   "secrets": {
     // CAPABILITY_SIGNING_KEY is the PKCS8 PEM of the ES256 private key that
@@ -153,7 +157,20 @@
       "binding": "DRIVE",
       "bucket_name": "stella-v2-drive-dev",
     },
+    {
+      // Generated media and TTS segments. A lifecycle rule deletes tts/ after
+      // a day.
+      "binding": "MEDIA",
+      "bucket_name": "stella-v2-media-dev",
+    },
+    {
+      // Published canvas documents, served by workers/canvas-share.
+      "binding": "CANVAS_SHARES",
+      "bucket_name": "stella-canvas-shares",
+    },
   ],
+  // One Cron Trigger; src/cron.ts runs every global sweep.
+  "triggers": { "crons": ["17 3 * * *"] },
   // Global data (feedback first; later auth, routing indexes and catalogs).
   "d1_databases": [
     {

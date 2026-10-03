@@ -2253,4 +2253,8 @@ export const worker = {
   fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     return withBrowserCors(request, () => router.fetch(request, env, ctx));
   },
+  async scheduled(controller, env, ctx) {
+    const { runScheduled } = await import("../cron.js");
+    await runScheduled(controller, env, ctx);
+  },
 } satisfies ExportedHandler<Env>;

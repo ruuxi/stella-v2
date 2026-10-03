@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Alert } from "react-native";
-import { ConvexHttpClient } from "convex/browser";
-import { makeFunctionReference } from "convex/server";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
-import type {
-  EngineModelCatalog,
-  EngineModelOption,
+import {
+  ENGINE_MODEL_CATALOG,
+  type EngineModelCatalog,
+  type EngineModelOption,
 } from "@stella/contracts/engine-model-catalog";
-import { env } from "../config/env";
 import { useT } from "../i18n";
+import { getBackendClient, readBackendView } from "./backend";
 import { authClient } from "./auth-client";
 import { getConvexTokenForOwner } from "./auth-token";
 import { observeCloudConversationIdentity } from "./cloud-conversation-auth";
@@ -31,22 +30,6 @@ export const MODEL_ENGINE_OPTIONS: ReadonlyArray<{ id: ModelEngine; label: strin
   { id: "openai-codex", label: "Codex" },
 ];
 
-type Connections = {
-  execution: CloudExecutionSelection;
-  connections: Array<{ provider: string }>;
-};
-
-const readRef = makeFunctionReference<"query", Record<string, never>, Connections>(
-  "cloud_engines:listMyEngineConnections",
-);
-const engineModelsRef = makeFunctionReference<
-  "query",
-  Record<string, never>,
-  EngineModelCatalog
->("cloud_engines:listEngineModels");
-const writeRef = makeFunctionReference<"mutation", { execution: CloudExecutionSelection }, null>(
-  "cloud_engines:setMyCloudExecution",
-);
 const EMPTY_CATALOG: StellaCatalog = { models: [], agentKeys: [] };
 const EMPTY_ENGINE_MODELS: EngineModelCatalog = { claude: [], codex: [] };
 
@@ -130,17 +113,14 @@ export function useCloudModelSettings(active: boolean) {
         getToken: () => getConvexTokenForOwner(owner.userSubject, owner.expectedSubject),
         isCurrent: () => currentScope.current === scope && readRevision.current === revision,
         request: async (token) => {
-          const client = new ConvexHttpClient(env.convexUrl);
-          client.setAuth(token);
-          const [settings, engineModels, catalog] = await Promise.all([
-            client.query(readRef, {}),
-            client.query(engineModelsRef, {}),
+          const [settings, catalog] = await Promise.all([
+            readBackendView("engines.get", {}),
             fetchStellaCatalog({ headers: { Authorization: `Bearer ${token}` } }),
           ]);
           return {
             execution: settings.execution,
             connectedProviders: settings.connections.map((row) => row.provider),
-            engineModels,
+            engineModels: ENGINE_MODEL_CATALOG,
             catalog,
           };
         },
@@ -169,10 +149,8 @@ export function useCloudModelSettings(active: boolean) {
       await runOwnerBoundModelRequest({
         getToken: () => getConvexTokenForOwner(owner.userSubject, owner.expectedSubject),
         isCurrent: () => currentScope.current === scope,
-        request: async (token) => {
-          const client = new ConvexHttpClient(env.convexUrl);
-          client.setAuth(token);
-          await client.mutation(writeRef, { execution: next });
+        request: async () => {
+          await getBackendClient().call("engines.setExecution", { execution: next });
         },
       });
     } catch (error) {

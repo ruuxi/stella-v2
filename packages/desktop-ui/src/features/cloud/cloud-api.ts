@@ -1,4 +1,3 @@
-import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import { makeFunctionReference } from "convex/server";
 
 export type CloudConversation = {
@@ -13,29 +12,6 @@ export type CloudConversation = {
 };
 
 export type { WorkspaceApp as CloudApp } from "@stella/contracts/workspace-apps";
-export type CloudEngineConnections = {
-  chatEngine: string;
-  execution: CloudExecutionSelection;
-  /** When the account last saved a model selection; absent until then. */
-  selectedAt?: number;
-  connections: Array<{
-    provider: string;
-    label: string;
-    updatedAt: number;
-  }>;
-  importedConnections: Array<{
-    credentialId: string;
-    provider: string;
-    label: string;
-    updatedAt: number;
-  }>;
-  importedSettings: Array<{
-    settingsId: string;
-    chatEngine: string;
-    execution?: CloudExecutionSelection;
-    updatedAt: number;
-  }>;
-};
 
 /** One spawned cloud agent. Mirrors the `cloud_agent_threads` row. */
 export type CloudAgentThread = {
@@ -67,47 +43,6 @@ export type CloudProject = {
   defaultBranch: string;
   status: string;
   updatedAt: number;
-};
-
-export const cloudApi = {
-  listMyEngineConnections: makeFunctionReference<
-    "query",
-    Record<string, never>,
-    CloudEngineConnections
-  >("cloud_engines:listMyEngineConnections"),
-  startEngineConnect: makeFunctionReference<
-    "action",
-    { provider: string },
-    { connectId: string; authorizeUrl: string }
-  >("cloud_engines:startEngineConnect"),
-  finishEngineConnect: makeFunctionReference<
-    "action",
-    { connectId: string; pastedInput: string },
-    { ok: boolean }
-  >("cloud_engines:finishEngineConnect"),
-  disconnectEngine: makeFunctionReference<
-    "mutation",
-    { provider: string },
-    null
-  >("cloud_engines:disconnectEngine"),
-  activateImportedCredential: makeFunctionReference<
-    "mutation",
-    { credentialId: string },
-    { activated: boolean }
-  >("cloud_engines:activateImportedCredential"),
-  activateImportedEngineSettings: makeFunctionReference<
-    "mutation",
-    { settingsId: string },
-    { activated: boolean }
-  >("cloud_engines:activateImportedEngineSettings"),
-  setMyCloudEngine: makeFunctionReference<"mutation", { engine: string }, null>(
-    "cloud_engines:setMyCloudEngine",
-  ),
-  setMyCloudExecution: makeFunctionReference<
-    "mutation",
-    { execution: CloudExecutionSelection },
-    null
-  >("cloud_engines:setMyCloudExecution"),
 };
 
 export type CloudGithubInstallations = {

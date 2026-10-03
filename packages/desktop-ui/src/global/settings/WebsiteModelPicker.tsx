@@ -1,6 +1,9 @@
 import { useState, useSyncExternalStore } from "react";
-import { useConvexAuth, useMutation, useQuery } from "convex/react";
-import { cloudApi } from "@/features/cloud/cloud-api";
+import { useConvexAuth } from "convex/react";
+import {
+  cloudEnginesApi,
+  useCloudEngines,
+} from "@/features/cloud/cloud-engines-api";
 import {
   getCloudExecutionSelectionSnapshot,
   publishCloudExecutionSelection,
@@ -23,11 +26,7 @@ export function WebsiteModelPicker({
 }) {
   const t = useT();
   const { isAuthenticated } = useConvexAuth();
-  const connections = useQuery(
-    cloudApi.listMyEngineConnections,
-    isAuthenticated ? {} : "skip",
-  );
-  const setExecution = useMutation(cloudApi.setMyCloudExecution);
+  const connections = useCloudEngines(isAuthenticated);
   const localExecution = useSyncExternalStore(
     subscribeCloudExecutionSelection,
     getCloudExecutionSelectionSnapshot,
@@ -52,7 +51,7 @@ export function WebsiteModelPicker({
         // Stella-managed models take their effort from the backend config.
         reasoningEffort: "default" as const,
       };
-      await setExecution({ execution: next });
+      await cloudEnginesApi.setExecution(next);
       publishCloudExecutionSelection(next);
       onSelected?.();
     } catch (caught) {

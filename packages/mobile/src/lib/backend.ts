@@ -37,6 +37,31 @@ export function reconnectBackend(): void {
   cachedClient?.reconnect();
 }
 
+/** A view's current value, read once. */
+export function readBackendView<K extends ViewName>(
+  view: K,
+  args: ViewArgs<K>,
+): Promise<ViewResult<K>> {
+  return new Promise((resolve, reject) => {
+    let done = false;
+    let unsubscribe: (() => void) | null = null;
+    const settle = (finish: () => void) => {
+      if (done) return;
+      done = true;
+      unsubscribe?.();
+      finish();
+    };
+    unsubscribe = getBackendClient().watch(
+      view,
+      args,
+      (value) => settle(() => resolve(value)),
+      (error) => settle(() => reject(error)),
+    );
+    // The value may already have arrived synchronously.
+    if (done) unsubscribe();
+  });
+}
+
 /** Subscribe to a backend view; `"skip"` holds off. Undefined while loading. */
 export function useBackendView<K extends ViewName>(
   view: K,

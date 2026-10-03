@@ -20,8 +20,10 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("convex/react", () => ({
   useConvexAuth: () => ({ isAuthenticated: true }),
-  useQuery: () => ({ execution: mocks.execution }),
-  useMutation: () => mocks.save,
+}));
+vi.mock("@/features/cloud/cloud-engines-api", () => ({
+  useCloudEngines: () => ({ execution: mocks.execution }),
+  cloudEnginesApi: { setExecution: mocks.save },
 }));
 vi.mock("@/shared/i18n", () => ({ useT: () => (key: string) => key }));
 vi.mock("@/global/settings/hooks/use-model-catalog", () => ({
@@ -63,7 +65,7 @@ describe("website model selection", () => {
     await act(async () => saved());
     // Stella-managed picks never carry a user effort: the backend owns it.
     const expected = { ...mocks.execution, model: "stella/second", reasoningEffort: "default" };
-    expect(mocks.save).toHaveBeenCalledWith({ execution: expected });
+    expect(mocks.save).toHaveBeenCalledWith(expected);
     expect(getCloudExecutionSelectionSnapshot()).toEqual(expected);
     expect(container.textContent).toBe("stella/second");
     expect(mocks.selected).toHaveBeenCalledOnce();

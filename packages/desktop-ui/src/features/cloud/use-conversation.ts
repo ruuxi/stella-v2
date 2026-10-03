@@ -22,11 +22,10 @@ import {
   useRef,
   useSyncExternalStore,
 } from "react";
-import { useQuery } from "convex/react";
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import { getConvexToken } from "@/global/auth/services/auth-token";
 import { backendSocketUrl } from "@/platform/backend/backend-client";
-import { cloudApi } from "./cloud-api";
+import { useCloudEngines } from "./cloud-engines-api";
 import { markCloudConversationCreated } from "./cloud-conversation-selection";
 import {
   CloudTurnStartClientError,
@@ -321,10 +320,7 @@ export const useConversation = (
   const activatedAuthorityKeyRef = useRef<string | null>(null);
   const dispatchByTurnRef = useRef(new Map<string, string>());
   const preparingAttachmentSendRef = useRef(false);
-  const cloudEngine = useQuery(
-    cloudApi.listMyEngineConnections,
-    isCloudConversationReady ? {} : "skip",
-  );
+  const cloudEngine = useCloudEngines(isCloudConversationReady);
   const localExecution = useSyncExternalStore(
     subscribeCloudExecutionSelection,
     getCloudExecutionSelectionSnapshot,

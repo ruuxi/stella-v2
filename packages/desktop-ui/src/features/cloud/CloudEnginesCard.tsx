@@ -1,13 +1,13 @@
 import { useCallback, useState } from "react";
-import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
-import { ConvexError } from "convex/values";
+import { useConvexAuth } from "convex/react";
 import type {
   AgentModelReasoningEffort,
   CloudExecutionSelection,
 } from "@stella/contracts/agent-engine";
+import type { EngineProvider } from "@stella/contracts/backend/engines";
 import { Button } from "@/ui/button";
 import { showToast } from "@/ui/toast";
-import { cloudApi } from "./cloud-api";
+import { cloudEnginesApi, useCloudEngines } from "./cloud-engines-api";
 import { publishCloudExecutionSelection } from "./cloud-execution-store";
 
 /**
@@ -21,23 +21,13 @@ import { publishCloudExecutionSelection } from "./cloud-execution-store";
  * exchanged and stored server-side; the browser never sees them.
  */
 
-const friendlyError = (error: unknown): string => {
-  if (error instanceof ConvexError) {
-    const data = error.data as { message?: string } | string;
-    if (typeof data === "string") return data;
-    if (data?.message) return data.message;
-  }
-  if (
-    error instanceof Error &&
-    !/Server Error|ConvexError/.test(error.message)
-  ) {
-    return error.message;
-  }
-  return "That didn't work. Try again.";
-};
+const friendlyError = (error: unknown): string =>
+  error instanceof Error && error.message
+    ? error.message
+    : "That didn't work. Try again.";
 
 type ProviderMeta = {
-  provider: string;
+  provider: EngineProvider;
   name: string;
   pasteHint: string;
 };
@@ -60,16 +50,11 @@ function EngineConnectRow({
   meta,
   connected,
   refreshing,
-  onChanged,
 }: {
   meta: ProviderMeta;
   connected: boolean;
   refreshing: boolean;
-  onChanged: () => void;
 }) {
-  const startConnect = useAction(cloudApi.startEngineConnect);
-  const finishConnect = useAction(cloudApi.finishEngineConnect);
-  const disconnect = useMutation(cloudApi.disconnectEngine);
   const [connectId, setConnectId] = useState<string | null>(null);
   const [pasted, setPasted] = useState("");
   const [busy, setBusy] = useState(false);
@@ -77,7 +62,7 @@ function EngineConnectRow({
   const handleStart = useCallback(async () => {
     setBusy(true);
     try {
-      const result = await startConnect({ provider: meta.provider });
+      const result = await cloudEnginesApi.startConnect(meta.provider);
       setConnectId(result.connectId);
       window.open(result.authorizeUrl, "_blank", "noopener");
     } catch (error) {
@@ -85,36 +70,34 @@ function EngineConnectRow({
     } finally {
       setBusy(false);
     }
-  }, [meta.provider, startConnect]);
+  }, [meta.provider]);
 
   const handleFinish = useCallback(async () => {
     if (!connectId || !pasted.trim()) return;
     setBusy(true);
     try {
-      await finishConnect({ connectId, pastedInput: pasted.trim() });
+      await cloudEnginesApi.finishConnect(connectId, pasted.trim());
       setConnectId(null);
       setPasted("");
       showToast({ title: `${meta.name} connected.` });
-      onChanged();
     } catch (error) {
       showToast({ title: friendlyError(error), variant: "error" });
     } finally {
       setBusy(false);
     }
-  }, [connectId, finishConnect, meta.name, onChanged, pasted]);
+  }, [connectId, meta.name, pasted]);
 
   const handleDisconnect = useCallback(async () => {
     setBusy(true);
     try {
-      await disconnect({ provider: meta.provider });
+      await cloudEnginesApi.disconnect(meta.provider);
       showToast({ title: `${meta.name} disconnected.` });
-      onChanged();
     } catch (error) {
       showToast({ title: friendlyError(error), variant: "error" });
     } finally {
       setBusy(false);
     }
-  }, [disconnect, meta.name, meta.provider, onChanged]);
+  }, [meta.name, meta.provider]);
 
   return (
     <>
@@ -194,31 +177,15 @@ function EngineConnectRow({
 
 export function CloudEnginesCard() {
   const { isAuthenticated } = useConvexAuth();
-  const connections = useQuery(
-    cloudApi.listMyEngineConnections,
-    isAuthenticated ? {} : "skip",
-  );
-  const setExecution = useMutation(cloudApi.setMyCloudExecution);
-  const activateImportedCredential = useMutation(
-    cloudApi.activateImportedCredential,
-  );
-  const activateImportedSettings = useMutation(
-    cloudApi.activateImportedEngineSettings,
-  );
+  const connections = useCloudEngines(isAuthenticated);
   const [switching, setSwitching] = useState(false);
-  const [activatingImportId, setActivatingImportId] = useState<string | null>(
-    null,
-  );
-  // Convex queries are reactive; onChanged exists only for symmetry with
-  // imperative flows and future non-reactive contexts.
-  const noopRefresh = useCallback(() => {}, []);
 
   if (!isAuthenticated) return null;
 
-  const connectedProviders = new Set(
+  const connectedProviders = new Set<string>(
     (connections?.connections ?? []).map((row) => row.provider),
   );
-  const chatEngine = connections?.chatEngine ?? "stella";
+  const chatEngine = connections?.execution.engine ?? "stella";
 
   const chooseEngine = async (engine: CloudExecutionSelection["engine"]) => {
     if (engine === chatEngine) return;
@@ -253,56 +220,12 @@ export function CloudEnginesCard() {
                 model,
                 reasoningEffort,
               } satisfies CloudExecutionSelection);
-      await setExecution({ execution });
+      await cloudEnginesApi.setExecution(execution);
       publishCloudExecutionSelection(execution);
     } catch (error) {
       showToast({ title: friendlyError(error), variant: "error" });
     } finally {
       setSwitching(false);
-    }
-  };
-
-  const activateCredentialImport = async (
-    credentialId: string,
-    provider: string,
-  ) => {
-    const name =
-      PROVIDERS.find((candidate) => candidate.provider === provider)?.name ??
-      provider;
-    if (
-      !window.confirm(
-        `Use the ${name} connection imported from your anonymous session? Your current connection will be kept as the imported alternative.`,
-      )
-    ) {
-      return;
-    }
-    setActivatingImportId(credentialId);
-    try {
-      await activateImportedCredential({ credentialId });
-      showToast({ title: `Imported ${name} connection is now active.` });
-    } catch (error) {
-      showToast({ title: friendlyError(error), variant: "error" });
-    } finally {
-      setActivatingImportId(null);
-    }
-  };
-
-  const activateSettingsImport = async (settingsId: string) => {
-    if (
-      !window.confirm(
-        "Use the cloud engine selection imported from your anonymous session? Your current selection will be kept as the imported alternative.",
-      )
-    ) {
-      return;
-    }
-    setActivatingImportId(settingsId);
-    try {
-      await activateImportedSettings({ settingsId });
-      showToast({ title: "Imported cloud engine selection is now active." });
-    } catch (error) {
-      showToast({ title: friendlyError(error), variant: "error" });
-    } finally {
-      setActivatingImportId(null);
     }
   };
 
@@ -366,62 +289,8 @@ export function CloudEnginesCard() {
           meta={meta}
           connected={connectedProviders.has(meta.provider)}
           refreshing={connections === undefined}
-          onChanged={noopRefresh}
         />
       ))}
-      {(connections?.importedConnections.length ?? 0) > 0 ||
-      (connections?.importedSettings.length ?? 0) > 0 ? (
-        <div className="settings-row">
-          <div className="settings-row-info">
-            <div className="settings-row-label">
-              Imported anonymous engine setup
-            </div>
-            <div className="settings-row-sublabel">
-              Stella kept both setups during sign-in. Nothing changes unless you
-              explicitly choose an imported copy.
-            </div>
-          </div>
-          <div
-            className="settings-row-control"
-            style={{ display: "flex", flexDirection: "column", gap: 6 }}
-          >
-            {(connections?.importedConnections ?? []).map((row) => (
-              <Button
-                key={row.credentialId}
-                type="button"
-                variant="ghost"
-                className="pill-btn"
-                disabled={activatingImportId !== null}
-                onClick={() =>
-                  void activateCredentialImport(row.credentialId, row.provider)
-                }
-              >
-                {activatingImportId === row.credentialId
-                  ? "Switching…"
-                  : `Use imported ${
-                      PROVIDERS.find(
-                        (candidate) => candidate.provider === row.provider,
-                      )?.name ?? row.provider
-                    }`}
-              </Button>
-            ))}
-            {(connections?.importedSettings ?? []).map((row) => (
-              <Button
-                key={row.settingsId}
-                type="button"
-                variant="ghost"
-                className="pill-btn"
-                disabled={activatingImportId !== null}
-                onClick={() => void activateSettingsImport(row.settingsId)}
-              >
-                {activatingImportId === row.settingsId
-                  ? "Switching…"
-                  : "Use imported engine selection"}
-              </Button>
-            ))}
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

@@ -5,15 +5,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const API = vi.hoisted(() => ({
-  cloud: {
-    listMyEngineConnections: "cloud:listMyEngineConnections",
-    startEngineConnect: "cloud:startEngineConnect",
-    finishEngineConnect: "cloud:finishEngineConnect",
-    disconnectEngine: "cloud:disconnectEngine",
-    setMyCloudExecution: "cloud:setMyCloudExecution",
-    activateImportedCredential: "cloud:activateImportedCredential",
-    activateImportedEngineSettings: "cloud:activateImportedEngineSettings",
-  },
   projects: {
     listMyProjects: "projects:listMyProjects",
     listMyGithubInstallations: "projects:listMyGithubInstallations",
@@ -31,6 +22,13 @@ const mocks = vi.hoisted(() => ({
   queryCalls: [] as Array<{ ref: unknown; args: unknown }>,
   showToast: vi.fn(),
   publishExecution: vi.fn(),
+  engines: undefined as unknown,
+  enginesApi: {
+    startConnect: vi.fn(),
+    finishConnect: vi.fn(),
+    disconnect: vi.fn(),
+    setExecution: vi.fn(),
+  },
 }));
 
 const requiredHandler = (
@@ -54,8 +52,12 @@ vi.mock("convex/react", () => ({
 }));
 
 vi.mock("@/features/cloud/cloud-api", () => ({
-  cloudApi: API.cloud,
   projectsApi: API.projects,
+}));
+
+vi.mock("@/features/cloud/cloud-engines-api", () => ({
+  useCloudEngines: (enabled: boolean) => (enabled ? mocks.engines : undefined),
+  cloudEnginesApi: mocks.enginesApi,
 }));
 
 vi.mock("@/features/cloud/cloud-execution-store", () => ({
@@ -74,7 +76,7 @@ vi.mock("@/ui/toast", () => ({ showToast: mocks.showToast }));
 import { CloudAccountCards } from "@/features/cloud/CloudAccountCards";
 
 const engineConnections = () => ({
-  chatEngine: "stella",
+  selectedAt: 1,
   execution: {
     engine: "stella",
     provider: "stella",
@@ -85,8 +87,6 @@ const engineConnections = () => ({
     { provider: "anthropic", label: "Claude", updatedAt: 1 },
     { provider: "openai-codex", label: "ChatGPT", updatedAt: 1 },
   ],
-  importedConnections: [],
-  importedSettings: [],
 });
 
 describe("ported cloud account cards", () => {
@@ -120,18 +120,15 @@ describe("ported cloud account cards", () => {
     mocks.queryCalls = [];
     mocks.showToast.mockReset();
     mocks.publishExecution.mockReset();
+    mocks.engines = undefined;
+    mocks.enginesApi.startConnect.mockReset().mockResolvedValue({
+      connectId: "connect-1",
+      authorizeUrl: "https://provider.example/authorize",
+    });
+    mocks.enginesApi.finishConnect.mockReset().mockResolvedValue({ ok: true });
+    mocks.enginesApi.disconnect.mockReset().mockResolvedValue(null);
+    mocks.enginesApi.setExecution.mockReset().mockResolvedValue(null);
 
-    mocks.actions.set(
-      API.cloud.startEngineConnect,
-      vi.fn().mockResolvedValue({
-        connectId: "connect-1",
-        authorizeUrl: "https://provider.example/authorize",
-      }),
-    );
-    mocks.actions.set(
-      API.cloud.finishEngineConnect,
-      vi.fn().mockResolvedValue({ ok: true }),
-    );
     mocks.actions.set(
       API.projects.startGithubAppInstall,
       vi.fn().mockResolvedValue({
@@ -140,22 +137,6 @@ describe("ported cloud account cards", () => {
       }),
     );
 
-    mocks.mutations.set(
-      API.cloud.disconnectEngine,
-      vi.fn().mockResolvedValue(null),
-    );
-    mocks.mutations.set(
-      API.cloud.setMyCloudExecution,
-      vi.fn().mockResolvedValue(null),
-    );
-    mocks.mutations.set(
-      API.cloud.activateImportedCredential,
-      vi.fn().mockResolvedValue({ activated: true }),
-    );
-    mocks.mutations.set(
-      API.cloud.activateImportedEngineSettings,
-      vi.fn().mockResolvedValue({ activated: true }),
-    );
     mocks.mutations.set(
       API.projects.createMyProject,
       vi.fn().mockResolvedValue({ projectId: "project-1" }),
@@ -201,7 +182,7 @@ describe("ported cloud account cards", () => {
   });
 
   it("publishes the selected engine immediately after the mutation", async () => {
-    mocks.queries.set(API.cloud.listMyEngineConnections, engineConnections());
+    mocks.engines = engineConnections();
     await render();
 
     await act(async () => {
@@ -215,9 +196,7 @@ describe("ported cloud account cards", () => {
       model: "gpt-6-sol",
       reasoningEffort: "default",
     };
-    expect(
-      mocks.mutations.get(API.cloud.setMyCloudExecution),
-    ).toHaveBeenCalledWith({ execution: expected });
+    expect(mocks.enginesApi.setExecution).toHaveBeenCalledWith(expected);
     expect(mocks.publishExecution).toHaveBeenCalledWith(expected);
   });
 

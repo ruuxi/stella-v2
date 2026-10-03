@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
-import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import { useConvexAuth } from "convex/react";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
-import { cloudApi } from "./cloud-api";
+import { cloudEnginesApi, useCloudEngines } from "./cloud-engines-api";
 import { publishCloudExecutionSelection } from "./cloud-execution-store";
 import {
   cloudExecutionFromLocal,
@@ -26,11 +26,7 @@ export function CloudModelSelectionBridge() {
   const hasLocalRuntime = Boolean(
     window.electronAPI?.system?.setLocalModelPreferences,
   );
-  const connections = useQuery(
-    cloudApi.listMyEngineConnections,
-    isAuthenticated && hasLocalRuntime ? {} : "skip",
-  );
-  const setExecution = useMutation(cloudApi.setMyCloudExecution);
+  const connections = useCloudEngines(isAuthenticated && hasLocalRuntime);
   const serverRef = useRef<CloudExecutionSelection | null>(null);
   const queue = useRef<Promise<void>>(Promise.resolve());
 
@@ -50,7 +46,7 @@ export function CloudModelSelectionBridge() {
     if (!derived || (server && sameCloudExecution(derived, server))) return;
     serverRef.current = derived;
     publishCloudExecutionSelection(derived);
-    return setExecution({ execution: derived });
+    return cloudEnginesApi.setExecution(derived);
   };
 
   useEffect(() => {
@@ -58,7 +54,7 @@ export function CloudModelSelectionBridge() {
     enqueue(async () => {
       const local = await readLocal();
       if (!local) return;
-      if (selectedAt === undefined) {
+      if (selectedAt === null) {
         // Nothing saved on the account yet: the desktop's choice seeds it.
         await pushLocal(local);
         return;

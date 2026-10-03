@@ -12,16 +12,30 @@ export const CHAT_APP_PATH = "/chat-app/index.html";
  * renderer download during HTML parse instead of after the page's own
  * JavaScript loads and hydrates. A no-op once the frame has a source, so the
  * hydrated fallback never navigates the frame twice.
+ *
+ * An owner who changed Stella's UI has their own renderer under
+ * `/chat-app/u/<fork>/<tree>/`; the renderer stores that path in
+ * `stella:web-renderer` (see `web-renderer-switch.ts` in desktop-ui), and the
+ * frame starts there instead of the shared build.
  */
 export function adoptChatFrameSource(frameId: string, appPath: string): void {
   const frame = document.getElementById(frameId);
   if (!frame || frame.getAttribute("src")) return;
+  let source = appPath;
+  try {
+    const own = window.localStorage.getItem("stella:web-renderer");
+    if (own && /^\/chat-app\/u\/u-[0-9a-f]{24}\/(?:[0-9a-f]{40}|[0-9a-f]{64})\/$/.test(own)) {
+      source = `${own}index.html`;
+    }
+  } catch {
+    // Storage blocked: the shared build.
+  }
   const rawFragment = window.location.hash.replace(/^#\??/, "");
   const containsHandoff =
     rawFragment.length > 0 && new URLSearchParams(rawFragment).has("ott");
   frame.setAttribute(
     "src",
-    `${appPath}${containsHandoff ? window.location.hash : ""}`,
+    `${source}${containsHandoff ? window.location.hash : ""}`,
   );
   if (containsHandoff) {
     window.history.replaceState(

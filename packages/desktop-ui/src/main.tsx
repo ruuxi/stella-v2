@@ -19,6 +19,11 @@ import { ErrorBoundary } from "./shell/ErrorBoundary";
 applyLowPowerDocumentFlag();
 installRendererErrorReporting();
 prefetchAuthSessionBeforeRender();
+if (import.meta.env.VITE_STELLA_WEB_BUILD === "1") {
+  void import("./platform/web-renderer-switch").then((module) =>
+    module.startWebRendererSwitch(),
+  );
+}
 
 document.documentElement.dataset.stellaWindow = "full";
 

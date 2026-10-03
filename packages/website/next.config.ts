@@ -14,6 +14,15 @@ const publicConvexSiteUrl =
   (publicConvexUrl?.endsWith(".convex.cloud")
     ? `${publicConvexUrl.slice(0, -".convex.cloud".length)}.convex.site`
     : desktopPublicEnv.VITE_CONVEX_SITE_URL);
+// Owners' own browser renderers are served by the backend worker; the chat
+// iframe loads them through a rewrite so they stay on this origin.
+const stellaBackendUrl = (
+  process.env.NEXT_PUBLIC_STELLA_BACKEND_URL ||
+  desktopPublicEnv.VITE_STELLA_BACKEND_URL ||
+  ""
+)
+  .trim()
+  .replace(/\/+$/, "");
 const publicTurnstileSiteKey =
   process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ||
   desktopPublicEnv.VITE_TURNSTILE_SITE_KEY;
@@ -68,6 +77,16 @@ const nextConfig: NextConfig = {
       { source: "/go", destination: "/", statusCode: 301 },
     ];
   },
+  async rewrites() {
+    return stellaBackendUrl
+      ? [
+          {
+            source: "/chat-app/u/:fork/:tree/:path*",
+            destination: `${stellaBackendUrl}/web-renderer/:fork/:tree/:path*`,
+          },
+        ]
+      : [];
+  },
   async headers() {
     return [
       {
@@ -105,6 +124,16 @@ const nextConfig: NextConfig = {
         // listing this first left the hashed bundle revalidating on every
         // visit.
         source: "/chat-app/assets/:path*",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=31536000, immutable",
+          },
+        ],
+      },
+      {
+        // An owner's renderer lives under its tree hash and never changes.
+        source: "/chat-app/u/:path*",
         headers: [
           {
             key: "Cache-Control",

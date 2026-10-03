@@ -28,12 +28,10 @@ CREATE TABLE model_prices (
 -- promoter account summoned); the website's /x/<handle> page lists done rows.
 CREATE TABLE x_bot_runs (
   mention_id TEXT PRIMARY KEY,
-  -- pending | done | failed
   status TEXT NOT NULL,
   attempts INTEGER NOT NULL DEFAULT 0,
-  -- The mention as received: {id, text, authorId, authorUsername, authorName,
-  -- authorCreatedAt?, parentId}.
   mention_json TEXT NOT NULL,
+  author_id TEXT NOT NULL,
   parent_id TEXT NOT NULL,
   summoner_username TEXT NOT NULL,
   handle TEXT,
@@ -42,14 +40,13 @@ CREATE TABLE x_bot_runs (
   reply_id TEXT,
   headline TEXT,
   reply TEXT,
-  -- JSON array of {user, stella}.
   exchanges_json TEXT,
-  -- The rendered reply card, when it rendered.
-  image_png BLOB,
+  image_key TEXT,
   error TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
-
-CREATE INDEX x_bot_runs_handle ON x_bot_runs (handle, created_at);
-CREATE INDEX x_bot_runs_status ON x_bot_runs (status, updated_at);
+CREATE INDEX x_bot_runs_by_handle ON x_bot_runs (handle, created_at);
+CREATE INDEX x_bot_runs_by_author ON x_bot_runs (author_id, created_at);
+CREATE INDEX x_bot_runs_by_created ON x_bot_runs (created_at);
+CREATE INDEX x_bot_runs_by_status ON x_bot_runs (status, updated_at);

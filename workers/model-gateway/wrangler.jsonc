@@ -3,7 +3,9 @@
   "name": "stella-v2-model-gateway-dev",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-30",
-  "compatibility_flags": ["nodejs_compat"],
+  // global_fetch_strictly_public: the JWKS lives on cloud-builder in the same
+  // account, which a plain worker-to-worker fetch can't reach (error 1042).
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "workers_dev": true,
   "preview_urls": false,
   "observability": {

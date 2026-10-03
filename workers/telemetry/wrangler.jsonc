@@ -3,6 +3,8 @@
   "name": "stella-v2-telemetry-dev",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-30",
+  // The JWKS lives on cloud-builder in the same account (see model-gateway).
+  "compatibility_flags": ["global_fetch_strictly_public"],
   "workers_dev": true,
   "preview_urls": false,
   "observability": {

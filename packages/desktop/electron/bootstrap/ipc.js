@@ -45,6 +45,7 @@ import path from "path";
 import { BROWSER_BRIDGE_MISSING_ERROR } from "../utils/register-stella-native-messaging-host.js";
 import { registerAppSourceHandlers } from "../ipc/app-source-handlers.js";
 import { AppSourceService } from "../services/app-source/app-source-service.js";
+import { buildAndUploadWebRenderer } from "../services/app-source/web-renderer.js";
 import { getMainLogger } from "../observability/main-logger.js";
 import { openDraftPreview } from "../services/app-source/draft-preview.js";
 import { restoreDevHarnessStorageKeyForRelaunch } from "./dev-harness-protected-storage.js";
@@ -414,6 +415,12 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
             getBackendUrl: () => services.authService.getBackendUrl(),
             getAuthToken: () => services.authService.getConvexAuthToken(),
             log: (event, data) => getMainLogger()?.process(event, data),
+            // A push that changed the UI rebuilds the owner's browser renderer.
+            onPushed: (cwd) => buildAndUploadWebRenderer(cwd, {
+                getBackendUrl: () => services.authService.getBackendUrl(),
+                getAuthToken: () => services.authService.getConvexAuthToken(),
+                log: (event, data) => getMainLogger()?.process(event, data),
+            }),
         });
         state.appSourceService = appSourceService;
         state.processRuntime.registerCleanup("will-quit", "app-source", () => {

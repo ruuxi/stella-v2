@@ -206,8 +206,17 @@ const revokedTokenFloor = (env: AuthEnv): BetterAuthPlugin => ({
       {
         matcher: (ctx) => ctx.path === "/revoke-sessions",
         handler: createAuthMiddleware(async (ctx) => {
-          const session = await getSessionFromCtx(ctx).catch(() => null);
-          if (!session) return;
+          // Before hooks can run ahead of bearer()'s, so fall back to the
+          // bearer itself: `<session token>.<signature>`.
+          const header = ctx.headers?.get("authorization") ?? "";
+          const bearer = header.startsWith("Bearer ") ? decodeURIComponent(header.slice(7).trim()) : "";
+          const session =
+            (await getSessionFromCtx(ctx).catch(() => null)) ??
+            (bearer ? await ctx.context.internalAdapter.findSession(bearer.split(".")[0]!).catch(() => null) : null);
+          if (!session) {
+            console.warn(JSON.stringify({ event: "auth_revoke_floor_skipped", reason: "no_session" }));
+            return;
+          }
           const gate = env.OWNER_GATES.getByName(session.user.id);
           const { ownerGeneration } = await gate.snapshot();
           await gate.ownerInternal({

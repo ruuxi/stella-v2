@@ -701,6 +701,10 @@ const warmCacheDir = (entryKind) => {
 
 // ------------------------------------------------------------------ turn driver
 let turnSeq = 0;
+// Request ids must be unique across invocations: a reused template already
+// holds the seed turn's run_admission row, and startChat answers a repeated
+// (conversation, request id) as a duplicate without starting a run.
+const TURN_RUN_TAG = Date.now().toString(36);
 /**
  * One chat turn through `internal.worker.startChat`. Marks come from the
  * worker's own notifications, timestamped on arrival:
@@ -712,7 +716,7 @@ let turnSeq = 0;
  */
 const runTurn = async (client, { conversationId, prompt, timeoutMs = 30_000 }) => {
   turnSeq += 1;
-  const requestId = `perf-req-${turnSeq}`;
+  const requestId = `perf-req-${TURN_RUN_TAG}-${turnSeq}`;
   const marks = {};
   const toolSpans = [];
   let runId = null;

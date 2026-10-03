@@ -159,7 +159,14 @@ export function useFullShellChat({
   // Auth scope is a hard renderer privacy boundary. Clear composer content,
   // attachment handles, and per-tab memories in a layout effect so no frame
   // can paint the previous owner's unsent text during identity bootstrap.
+  // Keyed on the scope it last cleared for: Fast Refresh re-runs every effect
+  // of an edited component, and an applied renderer change must not wipe the
+  // same owner's unsent text.
+  const clearedForScopeRef = useRef(null);
   useLayoutEffect(() => {
+    const scope = `${accountScope}\0${storageMode}`;
+    if (clearedForScopeRef.current === scope) return;
+    clearedForScopeRef.current = scope;
     composerMemoryByConversationRef.current.clear();
     scrollMemoryByConversationRef.current.clear();
     previousComposerConversationIdRef.current = null;

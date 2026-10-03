@@ -169,7 +169,7 @@ describe("BrowserProfileSession in real workerd", () => {
           pull(controller) {
             chunksSent += 1;
             controller.enqueue(new Uint8Array(32 * 1024));
-            if (chunksSent === 3) controller.close();
+            if (chunksSent === 40) controller.close();
           },
         },
         { highWaterMark: 0 },

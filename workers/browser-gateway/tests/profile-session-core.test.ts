@@ -634,7 +634,7 @@ describe("browser profile session core", () => {
     }
   });
 
-  test("rejects selector oracles and caller-supplied tool identities", async () => {
+  test("rejects malformed refs and caller-supplied tool identities", async () => {
     const browser = new FakeBrowser();
     const core = new BrowserProfileSessionCore({
       store: new MemoryProfileStore(),
@@ -650,14 +650,7 @@ describe("browser profile session core", () => {
       }),
     );
 
-    for (const selector of [
-      '[value^="a"]',
-      "text=secret",
-      ".card:has(#secret)",
-      "input",
-      "#one, #two",
-      "#one #two",
-    ]) {
+    for (const selector of ["ref=x1", "ref=e0", "", "ref="]) {
       await expect(
         core.turn(command(crypto.randomUUID(), "browser.wait", { selector })),
       ).rejects.toMatchObject<Partial<GatewayError>>({ code: "bad_request" });
@@ -750,7 +743,68 @@ describe("browser profile session core", () => {
     ).rejects.toMatchObject<Partial<GatewayError>>({ code: "bad_request" });
   });
 
-  test("accepts role-based verification selectors but never a page ref", async () => {
+  test("serves evaluate, cookies, and the network log without keeping receipts", async () => {
+    const browser = new FakeBrowser();
+    const store = new MemoryProfileStore();
+    const core = new BrowserProfileSessionCore({
+      store,
+      browser,
+      bucket: new MemoryR2().asBucket(),
+      kekV1: TEST_KEK,
+      randomUuid: () => uuid(970),
+    });
+    await core.turn(
+      command(uuid(971), "browser.open", {
+        allowedOrigins: ["https://app.example"],
+        startUrl: "https://app.example/",
+      }),
+    );
+
+    const evaluated = (await core.turn(
+      command(uuid(972), "browser.evaluate", {
+        script: "(n) => n * 2",
+        arg: 21,
+      }),
+    )) as any;
+    expect(evaluated.data.result).toEqual({ script: "(n) => n * 2", arg: 21 });
+    const cookies = (await core.turn(
+      command(uuid(973), "browser.cookies", {}),
+    )) as any;
+    expect(cookies.data.cookies[0].value).toBe(browser.storageMarker);
+    expect(
+      (await core.turn(
+        command(uuid(974), "browser.set_cookies", {
+          cookies: [{ name: "a", value: "b", url: "https://app.example" }],
+        }),
+      )) as any,
+    ).toMatchObject({ data: { set: 1 } });
+    expect(
+      ((await core.turn(command(uuid(975), "browser.requests", {}))) as any)
+        .data.requests[0],
+    ).toMatchObject({ url: "https://app.example/api" });
+    expect(
+      (await core.turn(
+        command(uuid(976), "browser.response_body", {
+          url: "https://app.example/api",
+        }),
+      )) as any,
+    ).toMatchObject({ data: { status: 200, body: "{}" } });
+    expect(
+      (await core.turn(
+        command(uuid(977), "browser.fill", {
+          selector: "input[type=password]",
+          value: "hunter2",
+        }),
+      )) as any,
+    ).toMatchObject({ data: { filled: true } });
+
+    for (const requestId of [972, 973, 974, 975, 976]) {
+      expect(store.getReceipt(uuid(requestId))).toBeNull();
+    }
+    expect(store.getReceipt(uuid(977))).not.toBeNull();
+  });
+
+  test("accepts any verification selector but never a page ref", async () => {
     const takeover = (requestId: string, authenticatedSelector: string) =>
       command(requestId, "browser.login_takeover", {
         allowedOrigins: ["https://app.example"],

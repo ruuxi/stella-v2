@@ -1,6 +1,6 @@
 import { GatewayError } from "./errors.js";
 
-export const MAX_REQUEST_BYTES = 64 * 1024;
+export const MAX_REQUEST_BYTES = 1024 * 1024;
 export const PROFILE_ID = "default";
 
 export const TURN_ACTIONS = [
@@ -23,6 +23,12 @@ export const TURN_ACTIONS = [
   "browser.uncheck",
   "browser.text",
   "browser.screenshot",
+  "browser.evaluate",
+  "browser.cookies",
+  "browser.set_cookies",
+  "browser.clear_cookies",
+  "browser.requests",
+  "browser.response_body",
   "browser.checkpoint",
   "browser.login_takeover",
   "browser.close",

@@ -299,6 +299,16 @@ const parseVerification = (
   return result;
 };
 
+const UNRECEIPTED_ACTIONS: ReadonlySet<string> = new Set([
+  "browser.screenshot",
+  "browser.evaluate",
+  "browser.cookies",
+  "browser.set_cookies",
+  "browser.requests",
+  "browser.response_body",
+  "browser.text",
+]);
+
 const interactionTerminal = (state: InteractionRecord["state"]): boolean =>
   ["completed", "canceled", "expired", "failed"].includes(state);
 
@@ -809,14 +819,16 @@ export class BrowserProfileSessionCore {
         break;
       }
       case "browser.fill": {
-        const value = exactObject(params, ["selector", "value", "sensitivity"]);
-        if (value.sensitivity !== "non_secret") {
+        // `sensitivity` is accepted for older callers and no longer gates
+        // anything: credential fields are fillable like any other.
+        const value = exactObject(params, ["selector", "value"], ["sensitivity"]);
+        if (typeof value.value !== "string" || value.value.length > 65_536) {
           throw new GatewayError("bad_request", 400);
         }
         state = await this.ensureBrowser(state);
-        await this.browser.fillNonSecret(
+        await this.browser.fill(
           safeLocatorSelector(value.selector),
-          boundedString(value.value, 4_096),
+          value.value,
         );
         response = completed({ filled: true });
         break;
@@ -947,9 +959,96 @@ export class BrowserProfileSessionCore {
         break;
       }
       case "browser.screenshot": {
+        const value = exactObject(params, [], ["fullPage"]);
+        if (value.fullPage !== undefined && typeof value.fullPage !== "boolean") {
+          throw new GatewayError("bad_request", 400);
+        }
+        state = await this.ensureBrowser(state);
+        response = completed({
+          screenshot: await this.browser.screenshot({
+            fullPage: value.fullPage === true,
+          }),
+        });
+        break;
+      }
+      case "browser.evaluate": {
+        const value = exactObject(params, ["script"], ["arg"]);
+        if (
+          typeof value.script !== "string" ||
+          !value.script.trim() ||
+          value.script.length > 512 * 1024
+        ) {
+          throw new GatewayError("bad_request", 400);
+        }
+        state = await this.ensureBrowser(state);
+        response = completed({
+          result: await this.browser.evaluate(value.script, value.arg),
+        });
+        break;
+      }
+      case "browser.cookies": {
+        const value = exactObject(params, [], ["urls"]);
+        if (
+          value.urls !== undefined &&
+          (!Array.isArray(value.urls) ||
+            value.urls.length > 64 ||
+            value.urls.some((url) => typeof url !== "string"))
+        ) {
+          throw new GatewayError("bad_request", 400);
+        }
+        state = await this.ensureBrowser(state);
+        response = completed({
+          cookies: await this.browser.cookies(
+            value.urls as readonly string[] | undefined,
+          ),
+        });
+        break;
+      }
+      case "browser.set_cookies": {
+        const value = exactObject(params, ["cookies"]);
+        if (
+          !Array.isArray(value.cookies) ||
+          value.cookies.length > 512 ||
+          value.cookies.some(
+            (cookie) =>
+              typeof cookie !== "object" ||
+              cookie === null ||
+              typeof (cookie as { name?: unknown }).name !== "string" ||
+              typeof (cookie as { value?: unknown }).value !== "string",
+          )
+        ) {
+          throw new GatewayError("bad_request", 400);
+        }
+        state = await this.ensureBrowser(state);
+        await this.browser.setCookies(
+          value.cookies as Parameters<typeof this.browser.setCookies>[0],
+        );
+        response = completed({ set: value.cookies.length });
+        break;
+      }
+      case "browser.clear_cookies": {
         exactObject(params, []);
         state = await this.ensureBrowser(state);
-        response = completed({ screenshot: await this.browser.screenshot() });
+        await this.browser.clearCookies();
+        response = completed({ cleared: true });
+        break;
+      }
+      case "browser.requests": {
+        const value = exactObject(params, [], ["limit"]);
+        state = await this.ensureBrowser(state);
+        response = completed({
+          requests: await this.browser.requests(
+            value.limit === undefined ? 100 : boundedInteger(value.limit, 1, 500),
+          ),
+        });
+        break;
+      }
+      case "browser.response_body": {
+        const value = exactObject(params, ["url"]);
+        state = await this.ensureBrowser(state);
+        response = completed(
+          await this.browser.responseBody(boundedString(value.url, 8_192)),
+        );
         break;
       }
       case "browser.checkpoint": {
@@ -1149,9 +1248,10 @@ export class BrowserProfileSessionCore {
       }
     }
 
-    // A screenshot is read-only and large; a replay simply captures again
-    // rather than keeping image bytes in the receipt table.
-    if (envelope.command.action !== "browser.screenshot") {
+    // Receipts make a retried command idempotent. Large reads and anything
+    // that can carry cookies or page secrets are not kept: a replay runs again
+    // instead of leaving those bytes in plaintext SQLite.
+    if (!UNRECEIPTED_ACTIONS.has(envelope.command.action)) {
       this.store.putReceipt({
         requestId: envelope.command.requestId,
         requestDigest,

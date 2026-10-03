@@ -39,11 +39,18 @@ cannot choose either value. The action allowlist is:
 - `browser.open`: `{allowedOrigins, startUrl?}`
 - `browser.navigate`: `{url}`
 - `browser.observe`: `{}`
+- `browser.back`, `browser.forward`, `browser.reload`: `{}`
 - `browser.click`: `{selector}`
-- `browser.fill`: `{selector, value, sensitivity:"non_secret"}`
+- `browser.fill`: `{selector, value, sensitivity?}` (`sensitivity` is ignored)
 - `browser.press`: `{selector, key}`
 - `browser.select`: `{selector, value}`
+- `browser.check`, `browser.uncheck`, `browser.hover`, `browser.text`: `{selector}`
+- `browser.scroll`: `{direction, amount?, selector?}`
 - `browser.wait`: `{selector, timeoutMs?}`
+- `browser.screenshot`: `{fullPage?}`
+- `browser.evaluate`: `{script, arg?}` (an expression, or a function source called with `arg`)
+- `browser.cookies`: `{urls?}`; `browser.set_cookies`: `{cookies}`; `browser.clear_cookies`: `{}`
+- `browser.requests`: `{limit?}`; `browser.response_body`: `{url}`
 - `browser.tabs`: `{}`
 - `browser.focus_tab`: `{tabId}`
 - `browser.checkpoint`: `{}`
@@ -52,9 +59,14 @@ cannot choose either value. The action allowlist is:
 - `browser.close`: `{}`
 - `device_code.fixture_start`: `{expiresInMs?:300000}`
 
-There is no evaluate, arbitrary CDP, cookie, storage, request-interception, or
-file-system command. `browser.fill` rejects credential-shaped controls and is
-disabled while the profile is under human control.
+Selectors are Playwright selectors, plus `ref=eN` for an element of the most
+recent observation (refs are refused in trusted verification, which runs in a
+fresh session). Observations list visible controls with refs, roles, and names,
+and still omit form values and redact account details from page text. There is
+no arbitrary CDP, request-interception, or file-system command. Every agent
+command is refused while the profile is under human control. Receipts are not
+kept for screenshot, evaluate, cookie, network, or element-text commands; a
+retried one runs again.
 
 The `toolCallId` field required by the shared suspension/receipt wire shape is
 filled with the neutral command request ID. It is never treated as the outer

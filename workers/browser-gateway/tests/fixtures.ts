@@ -4,7 +4,10 @@ import type {
   HandoffState,
   SafeObservation,
   SafeScreenshot,
+  ScreenshotRequest,
   ScrollRequest,
+  BrowserCookie,
+  NetworkEntry,
   SafeTab,
   TrustedVerification,
   TrustedVerificationState,
@@ -142,12 +145,26 @@ export class FakeBrowser implements BrowserBackend {
     return "Element text";
   }
   screenshotCount = 0;
-  async screenshot(): Promise<SafeScreenshot> {
+  async screenshot(_request: ScreenshotRequest): Promise<SafeScreenshot> {
     this.screenshotCount += 1;
     return { mimeType: "image/jpeg", data: "/9j/", width: 1280, height: 720 };
   }
   async click(_selector: string): Promise<void> {}
-  async fillNonSecret(_selector: string, _value: string): Promise<void> {}
+  async fill(_selector: string, _value: string): Promise<void> {}
+  async evaluate(script: string, arg: unknown): Promise<unknown> {
+    return { script, arg };
+  }
+  async cookies(_urls?: readonly string[]): Promise<readonly BrowserCookie[]> {
+    return [{ name: "session", value: this.storageMarker, domain: "app.example" }];
+  }
+  async setCookies(_cookies: readonly BrowserCookie[]): Promise<void> {}
+  async clearCookies(): Promise<void> {}
+  async requests(_limit: number): Promise<readonly NetworkEntry[]> {
+    return [{ url: "https://app.example/api", method: "GET", resourceType: "fetch", status: 200 }];
+  }
+  async responseBody(url: string) {
+    return { url, status: 200, body: "{}" };
+  }
   async press(_selector: string, _key: string): Promise<void> {}
   async select(_selector: string, _value: string): Promise<void> {}
   async wait(_selector: string, _timeoutMs: number): Promise<void> {}

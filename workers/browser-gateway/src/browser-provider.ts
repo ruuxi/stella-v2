@@ -13,7 +13,7 @@ export type SafeElement = Readonly<{
   href?: string;
   checked?: boolean;
   disabled?: boolean;
-  /** A credential-shaped control: listed so the agent can recognise a sign-in form, never actionable. */
+  /** A credential-shaped control (password, email, code, card), flagged so the agent recognises a sign-in form. */
   sensitive?: boolean;
 }>;
 
@@ -29,6 +29,30 @@ export type SafeScreenshot = Readonly<{
   data: string;
   width: number;
   height: number;
+}>;
+
+export type ScreenshotRequest = Readonly<{ fullPage: boolean }>;
+
+export type BrowserCookie = Readonly<{
+  name: string;
+  value: string;
+  domain?: string;
+  path?: string;
+  url?: string;
+  expires?: number;
+  httpOnly?: boolean;
+  secure?: boolean;
+  sameSite?: "Strict" | "Lax" | "None";
+}>;
+
+export type NetworkEntry = Readonly<{
+  url: string;
+  method: string;
+  resourceType: string;
+  status?: number;
+  ok?: boolean;
+  failure?: string;
+  bodyAvailable?: boolean;
 }>;
 
 export type ScrollRequest = Readonly<{
@@ -79,9 +103,17 @@ export interface BrowserBackend {
   scroll(request: ScrollRequest): Promise<void>;
   setChecked(selector: string, checked: boolean): Promise<void>;
   text(selector: string): Promise<string>;
-  screenshot(): Promise<SafeScreenshot>;
+  screenshot(request: ScreenshotRequest): Promise<SafeScreenshot>;
+  evaluate(script: string, arg: unknown): Promise<unknown>;
+  cookies(urls?: readonly string[]): Promise<readonly BrowserCookie[]>;
+  setCookies(cookies: readonly BrowserCookie[]): Promise<void>;
+  clearCookies(): Promise<void>;
+  requests(limit: number): Promise<readonly NetworkEntry[]>;
+  responseBody(
+    url: string,
+  ): Promise<Readonly<{ url: string; status: number; body: string }>>;
   click(selector: string): Promise<void>;
-  fillNonSecret(selector: string, value: string): Promise<void>;
+  fill(selector: string, value: string): Promise<void>;
   press(selector: string, key: string): Promise<void>;
   select(selector: string, value: string): Promise<void>;
   wait(selector: string, timeoutMs: number): Promise<void>;

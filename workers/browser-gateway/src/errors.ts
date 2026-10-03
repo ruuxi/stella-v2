@@ -11,6 +11,7 @@ export type GatewayErrorCode =
   | "verification_failed"
   | "interaction_expired"
   | "snapshot_unavailable"
+  | "evaluation_failed"
   | "internal_error";
 
 const PUBLIC_MESSAGES: Record<GatewayErrorCode, string> = {
@@ -26,6 +27,7 @@ const PUBLIC_MESSAGES: Record<GatewayErrorCode, string> = {
   verification_failed: "The sign-in could not be verified.",
   interaction_expired: "The browser interaction expired.",
   snapshot_unavailable: "The saved browser profile is unavailable.",
+  evaluation_failed: "The page script threw an error.",
   internal_error: "The browser request could not be completed.",
 };
 
@@ -33,11 +35,15 @@ export class GatewayError extends Error {
   readonly code: GatewayErrorCode;
   readonly status: number;
 
-  constructor(code: GatewayErrorCode, status: number) {
+  /** Agent-facing detail, such as the page's own error for a failed script. */
+  readonly detail: string | undefined;
+
+  constructor(code: GatewayErrorCode, status: number, detail?: string) {
     super(PUBLIC_MESSAGES[code]);
     this.name = "GatewayError";
     this.code = code;
     this.status = status;
+    this.detail = detail;
   }
 }
 
@@ -52,6 +58,7 @@ export const publicErrorResponse = (error: unknown): Response => {
       error: {
         code: gatewayError.code,
         message: PUBLIC_MESSAGES[gatewayError.code],
+        ...(gatewayError.detail ? { detail: gatewayError.detail } : {}),
       },
     },
     {

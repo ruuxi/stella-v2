@@ -18,18 +18,21 @@ import {
 } from "./safe-observation.js";
 import {
   ELEMENT_REF_ATTRIBUTE,
-  parseAgentSelector,
+  exactRoleSelector,
   toPlaywrightSelector,
 } from "./selectors.js";
 import { trustedVerifyPageResult } from "./trusted-verification.js";
 import type {
   BrowserBackend,
+  BrowserCookie,
   BrowserHandoff,
   HandoffState,
+  NetworkEntry,
   SafeElement,
   SafeObservation,
   SafeScreenshot,
   SafeTab,
+  ScreenshotRequest,
   ScrollRequest,
   TrustedVerification,
   TrustedVerificationState,
@@ -52,23 +55,16 @@ const boundedString = (value: unknown, maximum: number): string => {
 const safeTitle = (value: string): string =>
   redactVisibleText(value).slice(0, 512);
 
-/** Credential-shaped controls: listed, masked, never actionable by the agent. */
+/** Credential-shaped controls, flagged in observations so the agent knows a sign-in form when it sees one. */
 const SENSITIVE_CONTROL_PATTERN =
   "(?:password|email|tel|username|one-time-code|otp|token|secret|passkey|cc-)";
 
-/** Screenshot mask: controls that can show a credential, code, or card number. */
-const SCREENSHOT_MASK_SELECTOR = [
-  'input[type="password"]',
-  'input[type="email"]',
-  'input[type="tel"]',
-  '[autocomplete*="username" i]',
-  '[autocomplete*="one-time-code" i]',
-  '[autocomplete*="cc-" i]',
-  '[autocomplete*="password" i]',
-].join(",");
-
 const MAX_OBSERVED_ELEMENTS = 150;
-const SCREENSHOT_MAX_BYTES = 600_000;
+const SCREENSHOT_MAX_BYTES = 6 * 1024 * 1024;
+/** Requests remembered for `requests()`; bodies are kept for the newest few. */
+const NETWORK_LOG_SIZE = 500;
+const NETWORK_BODY_RETAINED = 100;
+const RESPONSE_BODY_MAX_CHARS = 8 * 1024 * 1024;
 
 type RawElement = {
   ref: string;
@@ -217,23 +213,14 @@ const collectElements = Object.assign(
 const safeElement = (raw: RawElement): SafeElement => {
   const name = redactVisibleText(raw.name ?? "").slice(0, 120);
   const nameIsPublic = name === raw.name;
-  const candidates = [
-    raw.id && !raw.id.includes("@") ? `#${raw.id}` : undefined,
-    raw.testId ? `[data-testid="${raw.testId}"]` : undefined,
-    nameIsPublic && name && ["button", "link", "tab", "menuitem", "heading"].includes(raw.role)
-      ? `role=${raw.role}[name="${name}"]`
-      : undefined,
-  ];
-  let selector: string | undefined;
-  for (const candidate of candidates) {
-    if (!candidate) continue;
-    try {
-      selector = parseAgentSelector(candidate, { allowRef: false });
-      break;
-    } catch {
-      // Not expressible in the agent selector grammar; the ref still works.
-    }
-  }
+  const selector =
+    raw.id && !raw.id.includes("@")
+      ? `#${raw.id}`
+      : raw.testId
+        ? `[data-testid="${raw.testId}"]`
+        : nameIsPublic && name
+          ? exactRoleSelector(raw.role, name)
+          : undefined;
   const href = raw.href ? sanitizePageUrl(raw.href) : "";
   return {
     ref: raw.ref,
@@ -277,6 +264,10 @@ export class CloudflarePlaywrightProvider implements BrowserBackend {
   // live in the gateway, so the remote browser only needs an interactive
   // Live View of the fenced page.
   private activeHandoffId: string | undefined;
+  private network: Array<{
+    entry: NetworkEntry;
+    response?: import("@cloudflare/playwright").Response;
+  }> = [];
   private handoffOriginViolation = false;
   private handoffRouteHandler:
     Parameters<BrowserContext["route"]>[1] | undefined;
@@ -355,11 +346,59 @@ export class CloudflarePlaywrightProvider implements BrowserBackend {
             >[0])
           : undefined,
       );
+      this.recordNetwork(this.context);
       this.page = this.context.pages()[0] ?? (await this.context.newPage());
     } catch {
       await this.closeRemote();
       throw new GatewayError("browser_unavailable", 503);
     }
+  }
+
+  /** The desktop agent's `requests`/`responsebody`: a bounded log of this context's traffic. */
+  private recordNetwork(context: BrowserContext): void {
+    this.network = [];
+    const remember = (
+      request: import("@cloudflare/playwright").Request,
+      update: Partial<NetworkEntry>,
+      response?: import("@cloudflare/playwright").Response,
+    ) => {
+      let item = this.network.find(
+        (candidate) =>
+          candidate.entry.url === request.url() &&
+          candidate.entry.method === request.method() &&
+          candidate.entry.status === undefined &&
+          candidate.entry.failure === undefined,
+      );
+      if (!item) {
+        item = {
+          entry: {
+            url: request.url(),
+            method: request.method(),
+            resourceType: request.resourceType(),
+          },
+        };
+        this.network.push(item);
+        if (this.network.length > NETWORK_LOG_SIZE) this.network.shift();
+      }
+      item.entry = { ...item.entry, ...update };
+      if (response) item.response = response;
+      // Bodies are only kept for the newest responses.
+      const withBodies = this.network.filter((candidate) => candidate.response);
+      for (const stale of withBodies.slice(0, -NETWORK_BODY_RETAINED)) {
+        delete stale.response;
+      }
+    };
+    context.on("request", (request) => remember(request, {}));
+    context.on("response", (response) =>
+      remember(
+        response.request(),
+        { status: response.status(), ok: response.ok() },
+        response,
+      ),
+    );
+    context.on("requestfailed", (request) =>
+      remember(request, { failure: request.failure()?.errorText ?? "failed" }),
+    );
   }
 
   private requiredPage(): Page {
@@ -441,41 +480,11 @@ export class CloudflarePlaywrightProvider implements BrowserBackend {
     }
   }
 
+  /** Playwright's own locator semantics: auto-waiting and strict, as on the desktop. */
   private async safeAgentLocator(selector: string): Promise<Locator> {
-    const locator = this.requiredPage().locator(
-      toPlaywrightSelector(boundedString(selector, 160)),
+    return this.requiredPage().locator(
+      toPlaywrightSelector(boundedString(selector, 4_096)),
     );
-    try {
-      // Exactly one visible match: a hidden element is never a target, so
-      // presence of hidden content cannot be probed through success/failure.
-      if ((await locator.count()) !== 1 || !(await locator.isVisible())) {
-        throw new GatewayError("navigation_denied", 403);
-      }
-      const [type, autocomplete, name, id, placeholder, ariaLabel] =
-        await Promise.all([
-          locator.getAttribute("type"),
-          locator.getAttribute("autocomplete"),
-          locator.getAttribute("name"),
-          locator.getAttribute("id"),
-          locator.getAttribute("placeholder"),
-          locator.getAttribute("aria-label"),
-        ]);
-      const descriptor = [type, autocomplete, name, id, placeholder, ariaLabel]
-        .map((item) => item ?? "")
-        .join(" ")
-        .toLowerCase();
-      if (
-        /(?:password|email|tel|username|one-time-code|otp|token|secret|passkey)/u.test(
-          descriptor,
-        )
-      ) {
-        throw new GatewayError("navigation_denied", 403);
-      }
-      return locator;
-    } catch (error) {
-      if (error instanceof GatewayError) throw error;
-      throw new GatewayError("navigation_denied", 403);
-    }
   }
 
   async click(selector: string): Promise<void> {
@@ -491,10 +500,13 @@ export class CloudflarePlaywrightProvider implements BrowserBackend {
     }
   }
 
-  async fillNonSecret(selector: string, value: string): Promise<void> {
+  async fill(selector: string, value: string): Promise<void> {
     try {
       const locator = await this.safeAgentLocator(selector);
-      await locator.fill(boundedString(value, 4_096), { timeout: 15_000 });
+      if (typeof value !== "string" || value.length > 65_536) {
+        throw new GatewayError("bad_request", 400);
+      }
+      await locator.fill(value, { timeout: 15_000 });
     } catch (error) {
       if (error instanceof GatewayError) throw error;
       throw new GatewayError("browser_unavailable", 503);
@@ -526,9 +538,9 @@ export class CloudflarePlaywrightProvider implements BrowserBackend {
   async wait(selector: string, timeoutMs: number): Promise<void> {
     try {
       // Waiting is for something that has not appeared yet, so it cannot
-      // require a match up front; it only ever observes visible elements.
+      // require a match up front.
       await this.requiredPage()
-        .locator(toPlaywrightSelector(boundedString(selector, 160)))
+        .locator(toPlaywrightSelector(boundedString(selector, 4_096)))
         .first()
         .waitFor({ state: "visible", timeout: timeoutMs });
     } catch (error) {
@@ -578,43 +590,27 @@ export class CloudflarePlaywrightProvider implements BrowserBackend {
 
   async text(selector: string): Promise<string> {
     try {
-      const text = await (await this.safeAgentLocator(selector)).evaluate(
-        (element, sensitive) => {
-          const clone = element.cloneNode(true) as unknown as {
-            querySelectorAll(selector: string): Iterable<{ remove(): void }>;
-            innerText?: string;
-            textContent?: string | null;
-          };
-          for (const node of clone.querySelectorAll(sensitive)) node.remove();
-          return (
-            (element as unknown as { innerText?: string }).innerText ??
-            clone.textContent ??
-            ""
-          );
-        },
-        SENSITIVE_OBSERVATION_SELECTOR,
-      );
-      return redactVisibleText(text).slice(0, 8_000);
+      return await (await this.safeAgentLocator(selector)).innerText({
+        timeout: 15_000,
+      });
     } catch (error) {
       if (error instanceof GatewayError) throw error;
       throw new GatewayError("browser_unavailable", 503);
     }
   }
 
-  async screenshot(): Promise<SafeScreenshot> {
+  async screenshot(request: ScreenshotRequest): Promise<SafeScreenshot> {
     const page = this.requiredPage();
     try {
       const viewport = page.viewportSize() ?? { width: 1280, height: 720 };
       let bytes: Uint8Array | undefined;
-      for (const quality of [60, 35]) {
+      for (const quality of [80, 55, 30]) {
         bytes = await page.screenshot({
           type: "jpeg",
           quality,
-          timeout: 15_000,
+          fullPage: request.fullPage,
+          timeout: 30_000,
           animations: "disabled",
-          // Credential and card fields are painted over, as the desktop
-          // agent's own screenshots never need them.
-          mask: [page.locator(SCREENSHOT_MASK_SELECTOR)],
         });
         if (bytes.byteLength <= SCREENSHOT_MAX_BYTES) break;
       }
@@ -630,6 +626,83 @@ export class CloudflarePlaywrightProvider implements BrowserBackend {
     } catch (error) {
       if (error instanceof GatewayError) throw error;
       throw new GatewayError("browser_unavailable", 503);
+    }
+  }
+
+  /**
+   * The desktop agent's `evaluate`: an expression, or a function source
+   * called with `arg`. Errors come back as the page's own message so the
+   * agent can fix its script.
+   */
+  async evaluate(script: string, arg: unknown): Promise<unknown> {
+    const page = this.requiredPage();
+    const source = `(async () => {
+      const __stellaValue = (${script}\n);
+      return typeof __stellaValue === "function"
+        ? await __stellaValue(${JSON.stringify(arg ?? null)})
+        : await __stellaValue;
+    })()`;
+    try {
+      return (await page.evaluate(source)) ?? null;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message.split("\n")[0] ?? "" : "";
+      throw new GatewayError("evaluation_failed", 422, message.slice(0, 2_000));
+    }
+  }
+
+  async cookies(urls?: readonly string[]): Promise<readonly BrowserCookie[]> {
+    if (!this.context) throw new GatewayError("browser_unavailable", 503);
+    try {
+      return (await this.context.cookies(
+        urls ? [...urls] : undefined,
+      )) as readonly BrowserCookie[];
+    } catch {
+      throw new GatewayError("browser_unavailable", 503);
+    }
+  }
+
+  async setCookies(cookies: readonly BrowserCookie[]): Promise<void> {
+    if (!this.context) throw new GatewayError("browser_unavailable", 503);
+    try {
+      await this.context.addCookies(
+        cookies as Parameters<BrowserContext["addCookies"]>[0],
+      );
+    } catch {
+      throw new GatewayError("bad_request", 400);
+    }
+  }
+
+  async clearCookies(): Promise<void> {
+    if (!this.context) throw new GatewayError("browser_unavailable", 503);
+    try {
+      await this.context.clearCookies();
+    } catch {
+      throw new GatewayError("browser_unavailable", 503);
+    }
+  }
+
+  async requests(limit: number): Promise<readonly NetworkEntry[]> {
+    return this.network.slice(-limit).map((item) => ({
+      ...item.entry,
+      bodyAvailable: Boolean(item.response),
+    }));
+  }
+
+  async responseBody(url: string): Promise<Readonly<{ url: string; status: number; body: string }>> {
+    const item = [...this.network]
+      .reverse()
+      .find((candidate) => candidate.response && candidate.entry.url === url);
+    if (!item?.response) throw new GatewayError("not_found", 404);
+    try {
+      const body = await item.response.text();
+      return {
+        url,
+        status: item.response.status(),
+        body: body.slice(0, RESPONSE_BODY_MAX_CHARS),
+      };
+    } catch {
+      throw new GatewayError("not_found", 404);
     }
   }
 

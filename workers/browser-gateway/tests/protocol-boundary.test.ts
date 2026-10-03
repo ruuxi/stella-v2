@@ -33,7 +33,7 @@ describe("private protocol boundary", () => {
         command: {
           schemaVersion: 1,
           requestId: uuid(1),
-          action: "browser.evaluate",
+          action: "browser.download",
           params: {},
         },
       }),
@@ -106,7 +106,8 @@ describe("private protocol boundary", () => {
       Partial<GatewayError>
     >({ status: 413 });
     expect(canceled).toBe(true);
-    expect(pulls).toBe(3);
+    // 1 MiB in 32 KiB chunks: the 33rd chunk crosses the limit.
+    expect(pulls).toBe(33);
   });
 
   test("accepts bounded JSON when transfer size is not declared", async () => {

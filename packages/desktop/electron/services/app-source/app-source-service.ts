@@ -18,6 +18,7 @@ import {
   listWorktrees,
   run,
 } from "./git.js";
+import { installCheckoutGuard } from "./checkout-guard.js";
 
 /**
  * Applies finished drafts to the app's own checkout, undoes recent commits,
@@ -146,6 +147,12 @@ export class AppSourceService {
     const sync = setInterval(() => void this.syncFork(), FORK_SYNC_INTERVAL_MS);
     for (const timer of [poll, firstSync, sync]) timer.unref?.();
     this.timers = [poll, firstSync, sync];
+    void installCheckoutGuard(this.options.stellaAppDir, this.options.log).catch(
+      (error: unknown) =>
+        this.options.log("app-source.checkout-guard-failed", {
+          error: error instanceof Error ? error.message : String(error),
+        }),
+    );
     void this.refresh();
   }
 

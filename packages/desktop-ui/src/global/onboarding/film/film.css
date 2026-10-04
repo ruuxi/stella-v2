@@ -1,0 +1,419 @@
+/* ──────────────────────────────────────────────────────────────────────
+ * Onboarding film stage.
+ *
+ * One fixed 960×540 canvas scaled to the card. Every motion is a transform
+ * or opacity change on a spring sampled into `linear()` (see Film.tsx), so
+ * camera moves and entrances stay on the compositor. Colors come from the
+ * app's tokens so the films follow the theme the user is about to pick.
+ * ────────────────────────────────────────────────────────────────────── */
+
+.ofilm {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 16px;
+  isolation: isolate;
+  contain: layout paint;
+  background:
+    radial-gradient(
+      90% 70% at 50% 0%,
+      color-mix(in oklch, var(--foreground) 6%, transparent),
+      transparent 70%
+    ),
+    color-mix(in oklch, var(--foreground) 3%, var(--background));
+  border: 1px solid color-mix(in oklch, var(--foreground) 9%, transparent);
+  font-family: var(--font-family-sans, "Manrope", system-ui, sans-serif);
+  user-select: none;
+}
+
+.ofilm__canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 960px;
+  height: 540px;
+  transform-origin: 0 0;
+  transition: opacity 240ms ease;
+}
+
+.ofilm__backdrop {
+  position: absolute;
+  inset: 0;
+}
+
+.ofilm__camera {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+  transition: transform var(--film-camera-ms) var(--film-camera);
+}
+
+/* ── Layers ──────────────────────────────────────────────────────── */
+
+.ofilm-layer {
+  position: absolute;
+  opacity: 0;
+  transition:
+    transform var(--film-pop-ms) var(--film-pop),
+    opacity 280ms ease,
+    filter 420ms ease;
+  pointer-events: none;
+}
+
+.ofilm-layer[data-from="rise"] {
+  transform: translate3d(0, 18px, 0) scale(0.97);
+}
+.ofilm-layer[data-from="deal"] {
+  transform: translate3d(-220px, 24px, 0) scale(0.78) rotate(-3deg);
+  transform-origin: 0% 50%;
+}
+.ofilm-layer[data-from="drop"] {
+  transform: translate3d(0, -26px, 0) scale(0.96);
+}
+.ofilm-layer[data-from="pop"] {
+  transform: scale(0.6);
+}
+.ofilm-layer[data-from="right"] {
+  transform: translate3d(60px, 0, 0) scale(0.96);
+}
+.ofilm-layer[data-from="fade"] {
+  transform: none;
+}
+
+.ofilm-layer[data-visible] {
+  opacity: 1;
+  transform: none;
+}
+
+/* Recede, don't blur: a dimmed layer stays crisp and cheap to composite. */
+.ofilm-layer[data-visible][data-dim] {
+  opacity: 0.42;
+  transform: scale(0.985);
+}
+
+/* ── Windows ─────────────────────────────────────────────────────── */
+
+.ofilm-win {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--background);
+  border: 1px solid color-mix(in oklch, var(--foreground) 10%, transparent);
+  box-shadow:
+    0 1px 0 color-mix(in oklch, white 40%, transparent) inset,
+    0 24px 60px -18px color-mix(in oklch, black 34%, transparent),
+    0 4px 14px -6px color-mix(in oklch, black 18%, transparent);
+}
+
+.ofilm-win__bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 30px;
+  padding: 0 10px;
+  flex-shrink: 0;
+  border-bottom: 1px solid color-mix(in oklch, var(--foreground) 7%, transparent);
+  background: color-mix(in oklch, var(--foreground) 3%, var(--background));
+}
+
+.ofilm-win__lights {
+  display: inline-flex;
+  gap: 5px;
+}
+
+.ofilm-win__lights i {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--foreground) 15%, transparent);
+}
+
+.ofilm-win__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-base, var(--foreground));
+  letter-spacing: -0.005em;
+}
+
+.ofilm-win__url {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 19px;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  color: var(--text-weak);
+  background: color-mix(in oklch, var(--foreground) 6%, transparent);
+  overflow: hidden;
+}
+
+.ofilm-win__url-text {
+  display: inline-grid;
+}
+
+.ofilm-win__badge {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--success);
+  background: color-mix(in oklch, var(--success) 14%, transparent);
+  opacity: 0;
+  transform: scale(0.7);
+  transition:
+    opacity 200ms ease,
+    transform var(--film-pop-ms) var(--film-pop);
+}
+
+.ofilm-win__badge[data-visible] {
+  opacity: 1;
+  transform: none;
+}
+
+.ofilm-win__body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ── Cursor ──────────────────────────────────────────────────────── */
+
+.ofilm-cursor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 40;
+  width: 18px;
+  height: 20px;
+  opacity: 0;
+  transition:
+    transform 760ms cubic-bezier(0.45, 0, 0.2, 1),
+    opacity 220ms ease;
+  filter: drop-shadow(0 2px 3px color-mix(in oklch, black 28%, transparent));
+}
+
+.ofilm-cursor[data-visible] {
+  opacity: 1;
+}
+
+.ofilm-cursor svg {
+  position: relative;
+  display: block;
+  transition: transform 120ms ease;
+}
+
+.ofilm-cursor[data-click] svg {
+  animation: ofilmPress 340ms ease;
+}
+
+.ofilm-cursor__ripple {
+  position: absolute;
+  left: -14px;
+  top: -14px;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  border: 2px solid color-mix(in oklch, var(--primary) 70%, transparent);
+  opacity: 0;
+  transform: scale(0.3);
+}
+
+.ofilm-cursor[data-click] .ofilm-cursor__ripple {
+  animation: ofilmRipple 560ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.ofilm-cursor__tag {
+  position: absolute;
+  left: 15px;
+  top: 16px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: white;
+  background: var(--primary);
+  white-space: nowrap;
+}
+
+@keyframes ofilmPress {
+  0% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(0.82);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes ofilmRipple {
+  0% {
+    opacity: 0.9;
+    transform: scale(0.3);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.5);
+  }
+}
+
+/* ── Threads ─────────────────────────────────────────────────────── */
+
+.ofilm-thread {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 3;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.ofilm-thread path {
+  fill: none;
+  stroke-linecap: round;
+}
+
+.ofilm-thread__base {
+  stroke: color-mix(in oklch, var(--primary) 30%, transparent);
+  stroke-width: 1.5;
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+  transition: stroke-dashoffset 640ms cubic-bezier(0.3, 0, 0.1, 1), stroke 400ms ease;
+}
+
+.ofilm-thread__flow {
+  stroke: var(--primary);
+  stroke-width: 2;
+  stroke-dasharray: 6 94;
+  stroke-dashoffset: 100;
+  opacity: 0;
+  transition: opacity 260ms ease;
+}
+
+.ofilm-thread__node {
+  fill: var(--primary);
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: scale(0.2);
+  transition:
+    opacity 200ms ease 300ms,
+    transform var(--film-pop-ms) var(--film-pop) 300ms;
+}
+
+.ofilm-thread[data-visible] .ofilm-thread__base {
+  stroke-dashoffset: 0;
+}
+
+.ofilm-thread[data-visible]:not([data-done]) .ofilm-thread__flow {
+  opacity: 1;
+  animation: ofilmFlow 1100ms linear infinite;
+}
+
+.ofilm-thread[data-visible] .ofilm-thread__node {
+  opacity: 1;
+  transform: none;
+}
+
+.ofilm-thread[data-done] .ofilm-thread__base {
+  stroke: color-mix(in oklch, var(--success) 55%, transparent);
+}
+
+.ofilm-thread[data-done] .ofilm-thread__node {
+  fill: var(--success);
+}
+
+@keyframes ofilmFlow {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* ── Text roll ───────────────────────────────────────────────────── */
+
+.ofilm-roll {
+  display: inline-grid;
+  overflow: hidden;
+}
+
+.ofilm-roll__value {
+  grid-area: 1 / 1;
+  animation: ofilmRollIn 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes ofilmRollIn {
+  from {
+    opacity: 0;
+    transform: translateY(70%);
+    filter: blur(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+
+/* ── Super ───────────────────────────────────────────────────────── */
+
+.ofilm-super {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  z-index: 50;
+  transform: translate(-50%, 10px);
+  opacity: 0;
+  padding: 7px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-strong);
+  background: color-mix(in oklch, var(--background) 82%, transparent);
+  border: 1px solid color-mix(in oklch, var(--foreground) 10%, transparent);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(12px) saturate(1.4);
+  transition:
+    transform var(--film-pop-ms) var(--film-pop),
+    opacity 240ms ease;
+  white-space: nowrap;
+}
+
+.ofilm-super[data-visible] {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ofilm__camera,
+  .ofilm-layer,
+  .ofilm-cursor,
+  .ofilm-thread__base,
+  .ofilm-win__badge,
+  .ofilm-super {
+    transition-duration: 0ms !important;
+  }
+  .ofilm-thread__flow,
+  .ofilm-roll__value,
+  .ofilm-cursor svg,
+  .ofilm-cursor__ripple {
+    animation: none !important;
+  }
+}

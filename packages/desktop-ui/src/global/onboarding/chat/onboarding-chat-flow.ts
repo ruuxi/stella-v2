@@ -6,27 +6,30 @@
  * short user bubble and the next message arrives. Everything here is
  * renderer-side state — the rows are never persisted as chat messages.
  *
- * Discovery runs first on purpose: it kicks off signal collection and the
- * synthesis model call, and the remaining steps give that work time to
- * finish before the personalized finale needs its result.
+ * Value comes first: what Stella can do, that she can change herself, and
+ * the one conversation. Then the asks: sign in, a look, the extras. The
+ * quickstart (discovery + synthesis) closes the flow as an offer the user
+ * can run or skip; it keeps going in the background if they head in early.
  */
 import { uiState } from "@/platform/ui-state";
 
 export type OnboardingChatStep =
-  | "discovery"
   | "capabilities"
+  | "selfmod"
   | "memory"
+  | "signin"
   | "theme"
   | "extras"
-  | "ready";
+  | "quickstart";
 
 export const ONBOARDING_CHAT_STEPS: readonly OnboardingChatStep[] = [
-  "discovery",
   "capabilities",
+  "selfmod",
   "memory",
+  "signin",
   "theme",
   "extras",
-  "ready",
+  "quickstart",
 ];
 
 export type OnboardingChatAnswer = "accepted" | "skipped" | "done";

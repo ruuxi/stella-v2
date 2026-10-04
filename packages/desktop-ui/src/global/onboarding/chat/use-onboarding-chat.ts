@@ -55,17 +55,20 @@ const ANSWER_TEXT_KEYS: Record<
   OnboardingChatStep,
   Partial<Record<OnboardingChatAnswer, string>>
 > = {
-  discovery: {
-    accepted: "onboarding.chat.replies.discoveryAccepted",
-    skipped: "onboarding.chat.replies.discoverySkipped",
-  },
   capabilities: {
     done: "onboarding.chat.replies.capabilitiesDone",
     skipped: "onboarding.chat.replies.capabilitiesSkipped",
   },
+  selfmod: {
+    done: "onboarding.chat.replies.selfmodDone",
+  },
   memory: {
     done: "onboarding.chat.replies.memoryDone",
     skipped: "onboarding.chat.replies.memorySkipped",
+  },
+  signin: {
+    done: "onboarding.chat.replies.signinDone",
+    skipped: "onboarding.chat.replies.signinSkipped",
   },
   theme: {
     done: "onboarding.chat.replies.themeDone",
@@ -75,7 +78,7 @@ const ANSWER_TEXT_KEYS: Record<
     done: "onboarding.chat.replies.extrasDone",
     skipped: "onboarding.chat.replies.extrasSkipped",
   },
-  ready: {},
+  quickstart: {},
 };
 
 const assistantEntry = (
@@ -119,7 +122,7 @@ const buildResumedEntries = (
 export function useOnboardingChat({ onFinished }: UseOnboardingChatArgs) {
   const t = useT();
   const [progress, setProgress] = useState<OnboardingChatProgress>(
-    () => readOnboardingChatProgress() ?? { step: "discovery", answers: {} },
+    () => readOnboardingChatProgress() ?? { step: "capabilities", answers: {} },
   );
   const resumedRef = useRef(readOnboardingChatProgress() !== null);
   const [entries, setEntries] = useState<OnboardingChatEntry[]>(() =>

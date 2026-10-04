@@ -646,18 +646,17 @@
       "composerPlaceholder": "Or just ask me something to get started",
       "send": "Send",
       "messages": {
-        "discovery": "Hi, I'm Stella.\n\nI'm not a chatbot. I use this computer to actually get things done for you.\n\nOne quick thing before we start.",
-        "capabilities": "Here's what that looks like day to day.",
+        "capabilities": "Γεια, είμαι η Stella.\n\nΔεν είμαι chatbot. Χρησιμοποιώ αυτόν τον υπολογιστή για να κάνω πραγματικά πράγματα για σένα, στο παρασκήνιο, ενώ εσύ συνεχίζεις τη δουλειά σου.\n\nΝα πώς φαίνεται αυτό.",
         "theme": "Now, how should I look?",
         "extras": "Almost done. A little housekeeping, then we start.",
-        "readyGeneric": "That's it. I'll get to know you as we go.\n\nWhat do you want to do first?",
-        "readyPending": "That's everything. I'm still writing up what I noticed, so give me a moment, or just dive in.",
-        "readyFailed": "That's everything. I couldn't finish reading your browser this time, but we can start anyway and I'll learn as we go.",
-        "memory": "One more thing that makes me different."
+        "memory": "One more thing that makes me different.",
+        "selfmod": "Και επειδή ζω στον υπολογιστή σου, μπορώ να αλλάζω τον εαυτό μου.",
+        "signin": "Στη συνέχεια, ας συνδεθείς. Χρησιμοποίησε λογαριασμό Stella ή το πλάνο Claude ή ChatGPT που ήδη έχεις.",
+        "quickstart": "Αυτό ήταν όλο. Ένα τελευταίο πράγμα, προαιρετικό: μια γρήγορη εκκίνηση.",
+        "quickstartDone": "Έτοιμο. Να τι έμαθα και μερικά πράγματα με τα οποία θα μπορούσαμε να ξεκινήσουμε.",
+        "quickstartFailed": "Αυτή τη φορά δεν κατάφερα να διαβάσω ολόκληρο το πρόγραμμα περιήγησής σου. Μπορούμε να ξεκινήσουμε έτσι κι αλλιώς και θα μαθαίνω όσο προχωράμε."
       },
       "replies": {
-        "discoveryAccepted": "Go ahead, take a look.",
-        "discoverySkipped": "Not right now.",
         "capabilitiesDone": "Got it.",
         "capabilitiesSkipped": "Skip the tour.",
         "themeDone": "That one.",
@@ -665,29 +664,15 @@
         "extrasDone": "Done.",
         "extrasSkipped": "Skip for now.",
         "memoryDone": "Nice.",
-        "memorySkipped": "Skip it."
+        "memorySkipped": "Skip it.",
+        "selfmodDone": "Πολύ ωραίο.",
+        "signinDone": "Έγινε.",
+        "signinSkipped": "Θα το κάνω αργότερα."
       },
       "discovery": {
-        "title": "Give me a head start",
-        "body": "Most assistants start from zero and learn you slowly, chat by chat. Point me at your browser and I'll build a starting memory from it, so I'm useful to you from day one instead of weeks in.",
         "browserLabel": "Your browser",
         "includeDev": "My coding setup",
-        "accept": "Get a head start",
-        "skip": "Not now",
         "hint": "About a minute, in the background.",
-        "settledTitle": "Building your memory from {target}",
-        "settledTitleGeneric": "Building your memory",
-        "settledDesc": "I'll keep going while we finish up.",
-        "settledSkippedTitle": "Skipped for now",
-        "settledSkippedDesc": "I'll build up memory from our conversations instead.",
-        "status": {
-          "idle": "Done",
-          "collecting": "Reading",
-          "synthesizing": "Writing your profile",
-          "saving": "Saving",
-          "done": "Done",
-          "failed": "Didn't finish"
-        },
         "alsoLabel": "Also include",
         "assurance": "A one-time read, kept on this computer. You can see and edit what I keep at any time."
       },
@@ -695,7 +680,7 @@
         "errands": {
           "word": "Errands",
           "title": "Ask once. Consider it handled.",
-          "caption": "I open the site, fill in the form, and finish the job, the same way you would."
+          "caption": "Βρίσκω το σωστό μέρος, συμπληρώνω τη φόρμα και την προσθέτω στο ημερολόγιό σου, όπως θα έκανες κι εσύ."
         },
         "shopping": {
           "word": "Shopping",
@@ -704,22 +689,22 @@
         },
         "work": {
           "word": "Work",
-          "title": "Real files. Real apps.",
-          "caption": "Spreadsheets, documents, slides: I work inside the real apps on this computer."
+          "title": "Πραγματικά αρχεία. Πολλές δουλειές ταυτόχρονα.",
+          "caption": "Δουλεύω μέσα στις πραγματικές εφαρμογές αυτού του υπολογιστή και μπορώ να τρέχω περισσότερες από μία δουλειές ταυτόχρονα."
         },
         "build": {
           "word": "Build",
           "title": "Say it. I'll build it.",
           "caption": "Apps and websites, made to order. Describe it in plain words and I'll build it, run it, and put it online."
         },
-        "games": {
-          "word": "Games",
-          "title": "Even your games.",
-          "caption": "Want something the game doesn't do? I'll write the mod and install it for you."
-        },
         "settledTitle": "The quick tour",
         "replay": "Replay this demo",
-        "tablist": "Capability demos"
+        "tablist": "Capability demos",
+        "routines": {
+          "word": "Ρουτίνες",
+          "title": "Ζήτα το μία φορά. Γίνεται κάθε μέρα.",
+          "caption": "Προγραμμάτισε οτιδήποτε και θα το κάνω στην ώρα του, ακόμη κι όταν κοιμάσαι."
+        }
       },
       "memory": {
         "titleChatbot": "You know this one",
@@ -782,15 +767,12 @@
         "settledMemory": "Memory"
       },
       "ready": {
-        "pendingLabel": "Still reading",
-        "pendingBody": "I'm writing up what I noticed. Your starters will personalize once that's done, or just start now.",
         "highlightsLabel": "What I picked up",
         "startersLabel": "Try one of these",
         "startersLabelPersonal": "Made for you",
         "notesSummary": "See everything I noted",
         "notesFoot": "You can read or edit this any time in Settings › Memory.",
         "start": "Start chatting",
-        "startAnyway": "Start anyway",
         "hint": "Or type anything below.",
         "generic": {
           "plan": {
@@ -810,6 +792,76 @@
             "prompt": "Keep an eye on a web page for me and tell me when it changes."
           }
         }
+      },
+      "progress": "Πρόοδος ρύθμισης",
+      "selfmod": {
+        "title": "Μπορώ να αλλάζω τον εαυτό μου",
+        "body": "Σου λείπει μια λειτουργία ή θέλεις κάτι να δουλεύει διαφορετικά; Απλώς ζήτα το. Θα ξαναγράψω τον δικό μου κώδικα, θα σε αφήσω να τον δοκιμάσεις και εσύ αποφασίζεις αν θα τον κρατήσεις.",
+        "steps": {
+          "ask": {
+            "title": "Ζήτα",
+            "body": "Περίγραψε την αλλαγή με απλά λόγια."
+          },
+          "preview": {
+            "title": "Προεπισκόπηση",
+            "body": "Ένας πράκτορας το φτιάχνει και ανοίγει ζωντανή προεπισκόπηση."
+          },
+          "update": {
+            "title": "Ενημέρωση",
+            "body": "Ένα κλικ για εφαρμογή. Αναίρεση όποτε θέλεις."
+          }
+        },
+        "hint": "Οι αλλαγές μένουν σε αυτόν τον υπολογιστή.",
+        "settledTitle": "Μπορώ να αλλάζω τον εαυτό μου",
+        "settledDesc": "Ζήτα, δες προεπισκόπηση, ενημέρωσε. Αναίρεση όποτε θέλεις."
+      },
+      "signin": {
+        "title": "Σύνδεση",
+        "body": "Αρκεί οποιοδήποτε από αυτά. Μπορείς να προσθέσεις τα υπόλοιπα αργότερα.",
+        "options": {
+          "stella": {
+            "title": "Λογαριασμός Stella",
+            "body": "Google ή email. Οι συνομιλίες σου σε ακολουθούν στο κινητό σου."
+          },
+          "claude": {
+            "title": "Claude Code",
+            "body": "Χρησιμοποίησε το πλάνο Claude Pro ή Max."
+          },
+          "codex": {
+            "title": "Codex",
+            "body": "Χρησιμοποίησε το πλάνο ChatGPT Plus ή Pro."
+          }
+        },
+        "signIn": "Σύνδεση",
+        "connect": "Σύνδεση",
+        "use": "Χρήση",
+        "inUse": "Σε χρήση",
+        "waiting": "Ολοκλήρωσε τη σύνδεση στο πρόγραμμα περιήγησής σου και μετά γύρνα εδώ.",
+        "error": "Δεν συνδέθηκε. Να δοκιμάσεις ξανά;",
+        "fine": "Άλλαξέ το όποτε θέλεις στις Ρυθμίσεις.",
+        "skip": "Όχι τώρα",
+        "hint": "Δωρεάν για να ξεκινήσεις.",
+        "settledEngine": "Χρήση {name}",
+        "settledStella": "Συνδεδεμένος στη Stella",
+        "settledSkipped": "Δεν έχεις συνδεθεί ακόμη",
+        "settledDesc": "Άλλαξέ το όποτε θέλεις στις Ρυθμίσεις."
+      },
+      "quickstart": {
+        "eyebrow": "Γρήγορη εκκίνηση",
+        "title": "Δώσε μου ένα προβάδισμα",
+        "body": "Οι περισσότεροι βοηθοί ξεκινούν από το μηδέν. Δείξε μου το πρόγραμμα περιήγησής σου και θα το διαβάσω μία φορά για να φτιάξω μια αρχική μνήμη, ώστε να είμαι χρήσιμη από την πρώτη μέρα.",
+        "run": "Εκτέλεση γρήγορης εκκίνησης",
+        "skip": "Παράλειψη",
+        "runningTitle": "Σε γνωρίζω",
+        "runningBody": "Περίπου ένα λεπτό. Μπες όποτε θέλεις και θα τελειώσω στο παρασκήνιο.",
+        "stages": {
+          "read": "Διαβάζω ό,τι επέλεξες",
+          "notice": "Εντοπίζω τι έχει σημασία για σένα",
+          "write": "Γράφω την αρχική σου μνήμη"
+        },
+        "continueInBackground": "Ξεκίνα συνομιλία, τελείωσε στο παρασκήνιο",
+        "failedTitle": "Δεν ολοκληρώθηκε",
+        "failedBody": "Κάτι διέκοψε την ανάγνωση. Δοκίμασε ξανά ή ξεκίνα συνομιλία και θα μαθαίνω όσο προχωράμε."
       }
     }
   },

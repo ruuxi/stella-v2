@@ -646,18 +646,17 @@
       "composerPlaceholder": "Or just ask me something to get started",
       "send": "Send",
       "messages": {
-        "discovery": "Hi, I'm Stella.\n\nI'm not a chatbot. I use this computer to actually get things done for you.\n\nOne quick thing before we start.",
-        "capabilities": "Here's what that looks like day to day.",
+        "capabilities": "Hei, olen Stella.\n\nEn ole chatbotti. Käytän tätä tietokonetta saadakseni asioita oikeasti tehtyä puolestasi taustalla, kun sinä jatkat omiasi.\n\nNäin se näyttää.",
         "theme": "Now, how should I look?",
         "extras": "Almost done. A little housekeeping, then we start.",
-        "readyGeneric": "That's it. I'll get to know you as we go.\n\nWhat do you want to do first?",
-        "readyPending": "That's everything. I'm still writing up what I noticed, so give me a moment, or just dive in.",
-        "readyFailed": "That's everything. I couldn't finish reading your browser this time, but we can start anyway and I'll learn as we go.",
-        "memory": "One more thing that makes me different."
+        "memory": "One more thing that makes me different.",
+        "selfmod": "Ja koska asun tietokoneellasi, voin muuttaa itseäni.",
+        "signin": "Seuraavaksi kirjaudutaan sisään. Käytä Stella-tiliä tai Claude- tai ChatGPT-tilausta, joka sinulla jo on.",
+        "quickstart": "Siinä kaikki. Vielä yksi asia, ja se on valinnainen: pikaopastus.",
+        "quickstartDone": "Valmis. Tämän opin, ja tässä muutamia asioita, joista voisimme aloittaa.",
+        "quickstartFailed": "En saanut selaintasi luettua loppuun tällä kertaa. Voimme aloittaa silti, ja opin matkan varrella."
       },
       "replies": {
-        "discoveryAccepted": "Go ahead, take a look.",
-        "discoverySkipped": "Not right now.",
         "capabilitiesDone": "Got it.",
         "capabilitiesSkipped": "Skip the tour.",
         "themeDone": "That one.",
@@ -665,29 +664,15 @@
         "extrasDone": "Done.",
         "extrasSkipped": "Skip for now.",
         "memoryDone": "Nice.",
-        "memorySkipped": "Skip it."
+        "memorySkipped": "Skip it.",
+        "selfmodDone": "Todella hienoa.",
+        "signinDone": "Valmis.",
+        "signinSkipped": "Teen sen myöhemmin."
       },
       "discovery": {
-        "title": "Give me a head start",
-        "body": "Most assistants start from zero and learn you slowly, chat by chat. Point me at your browser and I'll build a starting memory from it, so I'm useful to you from day one instead of weeks in.",
         "browserLabel": "Your browser",
         "includeDev": "My coding setup",
-        "accept": "Get a head start",
-        "skip": "Not now",
         "hint": "About a minute, in the background.",
-        "settledTitle": "Building your memory from {target}",
-        "settledTitleGeneric": "Building your memory",
-        "settledDesc": "I'll keep going while we finish up.",
-        "settledSkippedTitle": "Skipped for now",
-        "settledSkippedDesc": "I'll build up memory from our conversations instead.",
-        "status": {
-          "idle": "Done",
-          "collecting": "Reading",
-          "synthesizing": "Writing your profile",
-          "saving": "Saving",
-          "done": "Done",
-          "failed": "Didn't finish"
-        },
         "alsoLabel": "Also include",
         "assurance": "A one-time read, kept on this computer. You can see and edit what I keep at any time."
       },
@@ -695,7 +680,7 @@
         "errands": {
           "word": "Errands",
           "title": "Ask once. Consider it handled.",
-          "caption": "I open the site, fill in the form, and finish the job, the same way you would."
+          "caption": "Löydän oikean paikan, täytän lomakkeen ja lisään sen kalenteriisi, aivan kuten sinäkin tekisit."
         },
         "shopping": {
           "word": "Shopping",
@@ -704,22 +689,22 @@
         },
         "work": {
           "word": "Work",
-          "title": "Real files. Real apps.",
-          "caption": "Spreadsheets, documents, slides: I work inside the real apps on this computer."
+          "title": "Oikeita tiedostoja. Useita töitä yhtä aikaa.",
+          "caption": "Työskentelen tämän tietokoneen oikeissa sovelluksissa, ja voin hoitaa useampaa työtä yhtä aikaa."
         },
         "build": {
           "word": "Build",
           "title": "Say it. I'll build it.",
           "caption": "Apps and websites, made to order. Describe it in plain words and I'll build it, run it, and put it online."
         },
-        "games": {
-          "word": "Games",
-          "title": "Even your games.",
-          "caption": "Want something the game doesn't do? I'll write the mod and install it for you."
-        },
         "settledTitle": "The quick tour",
         "replay": "Replay this demo",
-        "tablist": "Capability demos"
+        "tablist": "Capability demos",
+        "routines": {
+          "word": "Rutiinit",
+          "title": "Pyydä kerran. Se tapahtuu joka päivä.",
+          "caption": "Ajasta mitä tahansa, niin teen sen ajallaan, vaikka nukkuisit."
+        }
       },
       "memory": {
         "titleChatbot": "You know this one",
@@ -782,15 +767,12 @@
         "settledMemory": "Memory"
       },
       "ready": {
-        "pendingLabel": "Still reading",
-        "pendingBody": "I'm writing up what I noticed. Your starters will personalize once that's done, or just start now.",
         "highlightsLabel": "What I picked up",
         "startersLabel": "Try one of these",
         "startersLabelPersonal": "Made for you",
         "notesSummary": "See everything I noted",
         "notesFoot": "You can read or edit this any time in Settings › Memory.",
         "start": "Start chatting",
-        "startAnyway": "Start anyway",
         "hint": "Or type anything below.",
         "generic": {
           "plan": {
@@ -810,6 +792,76 @@
             "prompt": "Keep an eye on a web page for me and tell me when it changes."
           }
         }
+      },
+      "progress": "Käyttöönoton eteneminen",
+      "selfmod": {
+        "title": "Voin muuttaa itseäni",
+        "body": "Puuttuuko ominaisuus, vai haluatko jonkin toimivan toisin? Pyydä vain. Kirjoitan oman koodini uusiksi, annan sinun kokeilla sitä, ja sinä päätät, pidätkö muutoksen.",
+        "steps": {
+          "ask": {
+            "title": "Pyydä",
+            "body": "Kuvaile muutos tavallisin sanoin."
+          },
+          "preview": {
+            "title": "Esikatsele",
+            "body": "Agentti rakentaa sen ja avaa suoran esikatselun."
+          },
+          "update": {
+            "title": "Päivitä",
+            "body": "Yksi napsautus ottaa sen käyttöön. Kumoa milloin tahansa."
+          }
+        },
+        "hint": "Muutokset pysyvät tällä tietokoneella.",
+        "settledTitle": "Voin muuttaa itseäni",
+        "settledDesc": "Pyydä, esikatsele, päivitä. Kumoa milloin tahansa."
+      },
+      "signin": {
+        "title": "Kirjaudu sisään",
+        "body": "Yksi näistä riittää. Voit lisätä muut myöhemmin.",
+        "options": {
+          "stella": {
+            "title": "Stella-tili",
+            "body": "Google tai sähköposti. Keskustelusi seuraavat sinua puhelimeen."
+          },
+          "claude": {
+            "title": "Claude Code",
+            "body": "Käytä Claude Pro- tai Max-tilaustasi."
+          },
+          "codex": {
+            "title": "Codex",
+            "body": "Käytä ChatGPT Plus- tai Pro-tilaustasi."
+          }
+        },
+        "signIn": "Kirjaudu",
+        "connect": "Yhdistä",
+        "use": "Käytä",
+        "inUse": "Käytössä",
+        "waiting": "Viimeistele kirjautuminen selaimessasi ja palaa sitten tänne.",
+        "error": "Yhdistäminen ei onnistunut. Yritetäänkö uudelleen?",
+        "fine": "Voit muuttaa tämän milloin tahansa asetuksissa.",
+        "skip": "Ei nyt",
+        "hint": "Aloittaminen on ilmaista.",
+        "settledEngine": "Käytössä {name}",
+        "settledStella": "Kirjauduttu Stellaan",
+        "settledSkipped": "Ei vielä kirjautunut",
+        "settledDesc": "Voit muuttaa tämän milloin tahansa asetuksissa."
+      },
+      "quickstart": {
+        "eyebrow": "Pikaopastus",
+        "title": "Anna minulle hyvä alku",
+        "body": "Useimmat avustajat aloittavat tyhjästä. Osoita minut selaimeesi, niin luen sen kerran ja rakennan alkumuistin, jotta olen hyödyksi heti ensimmäisestä päivästä.",
+        "run": "Aloita pikaopastus",
+        "skip": "Ohita",
+        "runningTitle": "Tutustun sinuun",
+        "runningBody": "Noin minuutti. Siirry keskusteluun milloin haluat, niin viimeistelen taustalla.",
+        "stages": {
+          "read": "Luen valitsemasi",
+          "notice": "Huomaan, mikä sinulle on tärkeää",
+          "write": "Kirjoitan alkumuistisi"
+        },
+        "continueInBackground": "Aloita keskustelu, viimeistele taustalla",
+        "failedTitle": "Tämä ei valmistunut",
+        "failedBody": "Jokin keskeytti lukemisen. Yritä uudelleen tai aloita keskustelu, niin opin matkan varrella."
       }
     }
   },

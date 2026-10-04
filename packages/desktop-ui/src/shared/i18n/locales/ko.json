@@ -645,18 +645,17 @@
       "composerPlaceholder": "Or just ask me something to get started",
       "send": "Send",
       "messages": {
-        "discovery": "Hi, I'm Stella.\n\nI'm not a chatbot. I use this computer to actually get things done for you.\n\nOne quick thing before we start.",
-        "capabilities": "Here's what that looks like day to day.",
+        "capabilities": "안녕하세요, Stella예요.\n\n저는 챗봇이 아니에요. 이 컴퓨터를 직접 사용해서 필요한 일을 실제로 해내요. 하시던 일을 계속하시는 동안 백그라운드에서요.\n\n어떤 모습인지 보여 드릴게요.",
         "theme": "Now, how should I look?",
         "extras": "Almost done. A little housekeeping, then we start.",
-        "readyGeneric": "That's it. I'll get to know you as we go.\n\nWhat do you want to do first?",
-        "readyPending": "That's everything. I'm still writing up what I noticed, so give me a moment, or just dive in.",
-        "readyFailed": "That's everything. I couldn't finish reading your browser this time, but we can start anyway and I'll learn as we go.",
-        "memory": "One more thing that makes me different."
+        "memory": "One more thing that makes me different.",
+        "selfmod": "그리고 저는 이 컴퓨터 안에 있기 때문에 스스로를 바꿀 수 있어요.",
+        "signin": "이제 로그인해 볼게요. Stella 계정이나 이미 쓰고 계신 Claude 또는 ChatGPT 요금제를 사용하세요.",
+        "quickstart": "이게 전부예요. 마지막으로 하나만 남았고, 선택 사항이에요. 바로 퀵스타트예요.",
+        "quickstartDone": "완료했어요. 제가 파악한 내용과 함께 시작해 볼 만한 일 몇 가지를 정리했어요.",
+        "quickstartFailed": "이번에는 브라우저를 끝까지 읽지 못했어요. 그래도 먼저 시작해요. 하면서 배울게요."
       },
       "replies": {
-        "discoveryAccepted": "Go ahead, take a look.",
-        "discoverySkipped": "Not right now.",
         "capabilitiesDone": "Got it.",
         "capabilitiesSkipped": "Skip the tour.",
         "themeDone": "That one.",
@@ -664,29 +663,15 @@
         "extrasDone": "Done.",
         "extrasSkipped": "Skip for now.",
         "memoryDone": "Nice.",
-        "memorySkipped": "Skip it."
+        "memorySkipped": "Skip it.",
+        "selfmodDone": "정말 멋지네요.",
+        "signinDone": "완료했어요.",
+        "signinSkipped": "나중에 할게요."
       },
       "discovery": {
-        "title": "Give me a head start",
-        "body": "Most assistants start from zero and learn you slowly, chat by chat. Point me at your browser and I'll build a starting memory from it, so I'm useful to you from day one instead of weeks in.",
         "browserLabel": "Your browser",
         "includeDev": "My coding setup",
-        "accept": "Get a head start",
-        "skip": "Not now",
         "hint": "About a minute, in the background.",
-        "settledTitle": "Building your memory from {target}",
-        "settledTitleGeneric": "Building your memory",
-        "settledDesc": "I'll keep going while we finish up.",
-        "settledSkippedTitle": "Skipped for now",
-        "settledSkippedDesc": "I'll build up memory from our conversations instead.",
-        "status": {
-          "idle": "Done",
-          "collecting": "Reading",
-          "synthesizing": "Writing your profile",
-          "saving": "Saving",
-          "done": "Done",
-          "failed": "Didn't finish"
-        },
         "alsoLabel": "Also include",
         "assurance": "A one-time read, kept on this computer. You can see and edit what I keep at any time."
       },
@@ -694,7 +679,7 @@
         "errands": {
           "word": "Errands",
           "title": "Ask once. Consider it handled.",
-          "caption": "I open the site, fill in the form, and finish the job, the same way you would."
+          "caption": "알맞은 곳을 찾고, 양식을 채우고, 캘린더에 넣어 둘게요. 직접 하시는 것과 똑같은 방식으로요."
         },
         "shopping": {
           "word": "Shopping",
@@ -703,22 +688,22 @@
         },
         "work": {
           "word": "Work",
-          "title": "Real files. Real apps.",
-          "caption": "Spreadsheets, documents, slides: I work inside the real apps on this computer."
+          "title": "진짜 파일. 여러 작업을 동시에.",
+          "caption": "저는 이 컴퓨터의 실제 앱 안에서 일하고, 한 번에 여러 작업을 진행할 수 있어요."
         },
         "build": {
           "word": "Build",
           "title": "Say it. I'll build it.",
           "caption": "Apps and websites, made to order. Describe it in plain words and I'll build it, run it, and put it online."
         },
-        "games": {
-          "word": "Games",
-          "title": "Even your games.",
-          "caption": "Want something the game doesn't do? I'll write the mod and install it for you."
-        },
         "settledTitle": "The quick tour",
         "replay": "Replay this demo",
-        "tablist": "Capability demos"
+        "tablist": "Capability demos",
+        "routines": {
+          "word": "루틴",
+          "title": "한 번만 요청하세요. 매일 해 둘게요.",
+          "caption": "무엇이든 예약해 두세요. 주무시는 동안에도 제때 처리할게요."
+        }
       },
       "memory": {
         "titleChatbot": "You know this one",
@@ -781,15 +766,12 @@
         "settledMemory": "Memory"
       },
       "ready": {
-        "pendingLabel": "Still reading",
-        "pendingBody": "I'm writing up what I noticed. Your starters will personalize once that's done, or just start now.",
         "highlightsLabel": "What I picked up",
         "startersLabel": "Try one of these",
         "startersLabelPersonal": "Made for you",
         "notesSummary": "See everything I noted",
         "notesFoot": "You can read or edit this any time in Settings › Memory.",
         "start": "Start chatting",
-        "startAnyway": "Start anyway",
         "hint": "Or type anything below.",
         "generic": {
           "plan": {
@@ -809,6 +791,76 @@
             "prompt": "Keep an eye on a web page for me and tell me when it changes."
           }
         }
+      },
+      "progress": "설정 진행 상황",
+      "selfmod": {
+        "title": "저는 스스로를 바꿀 수 있어요",
+        "body": "기능이 없거나 다르게 동작하길 원하세요? 그냥 요청하세요. 제가 제 코드를 직접 고쳐서 써 보실 수 있게 하고, 유지할지는 직접 정하세요.",
+        "steps": {
+          "ask": {
+            "title": "요청",
+            "body": "바꾸고 싶은 점을 쉬운 말로 설명하세요."
+          },
+          "preview": {
+            "title": "미리보기",
+            "body": "에이전트가 만들어서 실시간 미리보기를 열어 줘요."
+          },
+          "update": {
+            "title": "업데이트",
+            "body": "한 번 클릭하면 적용돼요. 언제든 실행 취소할 수 있어요."
+          }
+        },
+        "hint": "변경 사항은 이 컴퓨터에만 남아요.",
+        "settledTitle": "저는 스스로를 바꿀 수 있어요",
+        "settledDesc": "요청하고, 미리 보고, 업데이트하세요. 언제든 실행 취소할 수 있어요."
+      },
+      "signin": {
+        "title": "로그인",
+        "body": "이 중 하나면 충분해요. 나머지는 나중에 추가할 수 있어요.",
+        "options": {
+          "stella": {
+            "title": "Stella 계정",
+            "body": "Google 또는 이메일. 대화가 휴대폰까지 이어져요."
+          },
+          "claude": {
+            "title": "Claude Code",
+            "body": "Claude Pro 또는 Max 요금제를 사용해요."
+          },
+          "codex": {
+            "title": "Codex",
+            "body": "ChatGPT Plus 또는 Pro 요금제를 사용해요."
+          }
+        },
+        "signIn": "로그인",
+        "connect": "연결",
+        "use": "사용",
+        "inUse": "사용 중",
+        "waiting": "브라우저에서 로그인을 마친 뒤 여기로 돌아오세요.",
+        "error": "연결하지 못했어요. 다시 시도할까요?",
+        "fine": "설정에서 언제든 바꿀 수 있어요.",
+        "skip": "나중에",
+        "hint": "무료로 시작할 수 있어요.",
+        "settledEngine": "{name} 사용 중",
+        "settledStella": "Stella에 로그인됨",
+        "settledSkipped": "아직 로그인하지 않음",
+        "settledDesc": "설정에서 언제든 바꿀 수 있어요."
+      },
+      "quickstart": {
+        "eyebrow": "퀵스타트",
+        "title": "먼저 시작할 수 있게 도와드릴게요",
+        "body": "대부분의 어시스턴트는 처음부터 시작해요. 브라우저를 알려 주시면 한 번 읽고 기본 메모리를 만들어서, 첫날부터 도움이 되도록 할게요.",
+        "run": "퀵스타트 실행",
+        "skip": "건너뛰기",
+        "runningTitle": "사용자를 알아가는 중",
+        "runningBody": "약 1분 걸려요. 편할 때 들어오세요. 나머지는 백그라운드에서 마칠게요.",
+        "stages": {
+          "read": "선택하신 내용을 읽는 중",
+          "notice": "중요한 것을 파악하는 중",
+          "write": "기본 메모리를 작성하는 중"
+        },
+        "continueInBackground": "대화를 시작하고, 백그라운드에서 마무리",
+        "failedTitle": "끝내지 못했어요",
+        "failedBody": "읽는 도중에 문제가 생겼어요. 다시 시도하거나, 대화를 시작하세요. 하면서 배울게요."
       }
     }
   },

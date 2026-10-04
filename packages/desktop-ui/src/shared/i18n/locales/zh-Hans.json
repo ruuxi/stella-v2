@@ -645,18 +645,17 @@
       "composerPlaceholder": "Or just ask me something to get started",
       "send": "Send",
       "messages": {
-        "discovery": "Hi, I'm Stella.\n\nI'm not a chatbot. I use this computer to actually get things done for you.\n\nOne quick thing before we start.",
-        "capabilities": "Here's what that looks like day to day.",
+        "capabilities": "你好，我是 Stella。\n\n我不是聊天机器人。我会用这台电脑在后台真正把事情做完，你只管忙你的。\n\n来看看是什么样子。",
         "theme": "Now, how should I look?",
         "extras": "Almost done. A little housekeeping, then we start.",
-        "readyGeneric": "That's it. I'll get to know you as we go.\n\nWhat do you want to do first?",
-        "readyPending": "That's everything. I'm still writing up what I noticed, so give me a moment, or just dive in.",
-        "readyFailed": "That's everything. I couldn't finish reading your browser this time, but we can start anyway and I'll learn as we go.",
-        "memory": "One more thing that makes me different."
+        "memory": "One more thing that makes me different.",
+        "selfmod": "因为我就住在你的电脑上，所以我可以改变自己。",
+        "signin": "接下来登录。可以用 Stella 账号，也可以用你已有的 Claude 或 ChatGPT 套餐。",
+        "quickstart": "就这些了。还有最后一件事，可选：快速上手。",
+        "quickstartDone": "好了。这是我了解到的内容，还有几件我们可以先做的事。",
+        "quickstartFailed": "这次我没能读完你的浏览器。我们可以直接开始，我会边用边了解。"
       },
       "replies": {
-        "discoveryAccepted": "Go ahead, take a look.",
-        "discoverySkipped": "Not right now.",
         "capabilitiesDone": "Got it.",
         "capabilitiesSkipped": "Skip the tour.",
         "themeDone": "That one.",
@@ -664,29 +663,15 @@
         "extrasDone": "Done.",
         "extrasSkipped": "Skip for now.",
         "memoryDone": "Nice.",
-        "memorySkipped": "Skip it."
+        "memorySkipped": "Skip it.",
+        "selfmodDone": "太酷了。",
+        "signinDone": "好了。",
+        "signinSkipped": "我稍后再做。"
       },
       "discovery": {
-        "title": "Give me a head start",
-        "body": "Most assistants start from zero and learn you slowly, chat by chat. Point me at your browser and I'll build a starting memory from it, so I'm useful to you from day one instead of weeks in.",
         "browserLabel": "Your browser",
         "includeDev": "My coding setup",
-        "accept": "Get a head start",
-        "skip": "Not now",
         "hint": "About a minute, in the background.",
-        "settledTitle": "Building your memory from {target}",
-        "settledTitleGeneric": "Building your memory",
-        "settledDesc": "I'll keep going while we finish up.",
-        "settledSkippedTitle": "Skipped for now",
-        "settledSkippedDesc": "I'll build up memory from our conversations instead.",
-        "status": {
-          "idle": "Done",
-          "collecting": "Reading",
-          "synthesizing": "Writing your profile",
-          "saving": "Saving",
-          "done": "Done",
-          "failed": "Didn't finish"
-        },
         "alsoLabel": "Also include",
         "assurance": "A one-time read, kept on this computer. You can see and edit what I keep at any time."
       },
@@ -694,7 +679,7 @@
         "errands": {
           "word": "Errands",
           "title": "Ask once. Consider it handled.",
-          "caption": "I open the site, fill in the form, and finish the job, the same way you would."
+          "caption": "我会找到对的地方，填好表单，再加进你的日历，就像你自己做的一样。"
         },
         "shopping": {
           "word": "Shopping",
@@ -703,22 +688,22 @@
         },
         "work": {
           "word": "Work",
-          "title": "Real files. Real apps.",
-          "caption": "Spreadsheets, documents, slides: I work inside the real apps on this computer."
+          "title": "真实的文件。多项任务同时进行。",
+          "caption": "我在这台电脑上的真实应用里工作，还能同时处理多项任务。"
         },
         "build": {
           "word": "Build",
           "title": "Say it. I'll build it.",
           "caption": "Apps and websites, made to order. Describe it in plain words and I'll build it, run it, and put it online."
         },
-        "games": {
-          "word": "Games",
-          "title": "Even your games.",
-          "caption": "Want something the game doesn't do? I'll write the mod and install it for you."
-        },
         "settledTitle": "The quick tour",
         "replay": "Replay this demo",
-        "tablist": "Capability demos"
+        "tablist": "Capability demos",
+        "routines": {
+          "word": "例行任务",
+          "title": "说一次，每天都会做。",
+          "caption": "任何事都可以定时，我会准时完成，哪怕你正在睡觉。"
+        }
       },
       "memory": {
         "titleChatbot": "You know this one",
@@ -781,15 +766,12 @@
         "settledMemory": "Memory"
       },
       "ready": {
-        "pendingLabel": "Still reading",
-        "pendingBody": "I'm writing up what I noticed. Your starters will personalize once that's done, or just start now.",
         "highlightsLabel": "What I picked up",
         "startersLabel": "Try one of these",
         "startersLabelPersonal": "Made for you",
         "notesSummary": "See everything I noted",
         "notesFoot": "You can read or edit this any time in Settings › Memory.",
         "start": "Start chatting",
-        "startAnyway": "Start anyway",
         "hint": "Or type anything below.",
         "generic": {
           "plan": {
@@ -809,6 +791,76 @@
             "prompt": "Keep an eye on a web page for me and tell me when it changes."
           }
         }
+      },
+      "progress": "设置进度",
+      "selfmod": {
+        "title": "我可以改变自己",
+        "body": "缺少某个功能，或者想让某样东西换种方式运作？直接告诉我。我会重写自己的代码，让你试用，是否保留由你决定。",
+        "steps": {
+          "ask": {
+            "title": "提出",
+            "body": "用平常的话描述你想要的更改。"
+          },
+          "preview": {
+            "title": "预览",
+            "body": "由智能体构建，并打开实时预览。"
+          },
+          "update": {
+            "title": "更新",
+            "body": "点一下即可应用。随时可以撤销。"
+          }
+        },
+        "hint": "更改只保留在这台电脑上。",
+        "settledTitle": "我可以改变自己",
+        "settledDesc": "提出、预览、更新。随时可以撤销。"
+      },
+      "signin": {
+        "title": "登录",
+        "body": "任选其一就够了。其他的以后再添加。",
+        "options": {
+          "stella": {
+            "title": "Stella 账号",
+            "body": "使用 Google 或邮箱。你的聊天会同步到手机。"
+          },
+          "claude": {
+            "title": "Claude Code",
+            "body": "使用你的 Claude Pro 或 Max 套餐。"
+          },
+          "codex": {
+            "title": "Codex",
+            "body": "使用你的 ChatGPT Plus 或 Pro 套餐。"
+          }
+        },
+        "signIn": "登录",
+        "connect": "连接",
+        "use": "使用",
+        "inUse": "使用中",
+        "waiting": "请在浏览器中完成登录，然后回到这里。",
+        "error": "没能连接上。再试一次？",
+        "fine": "随时可以在“设置”中更改。",
+        "skip": "暂不",
+        "hint": "免费开始。",
+        "settledEngine": "正在使用 {name}",
+        "settledStella": "已登录 Stella",
+        "settledSkipped": "尚未登录",
+        "settledDesc": "随时可以在“设置”中更改。"
+      },
+      "quickstart": {
+        "eyebrow": "快速上手",
+        "title": "让我先走一步",
+        "body": "大多数助手都是从零开始。让我读一次你的浏览器，建立一份初始记忆，这样我从第一天起就能帮上忙。",
+        "run": "运行快速上手",
+        "skip": "跳过",
+        "runningTitle": "正在了解你",
+        "runningBody": "大约一分钟。你想进去就进去，我会在后台完成。",
+        "stages": {
+          "read": "正在读取你选择的内容",
+          "notice": "正在留意对你重要的事",
+          "write": "正在写入你的初始记忆"
+        },
+        "continueInBackground": "开始聊天，在后台完成",
+        "failedTitle": "没有完成",
+        "failedBody": "读取被打断了。再试一次，或者直接开始聊天，我会边用边了解。"
       }
     }
   },

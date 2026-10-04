@@ -646,18 +646,17 @@
       "composerPlaceholder": "Or just ask me something to get started",
       "send": "Send",
       "messages": {
-        "discovery": "Hi, I'm Stella.\n\nI'm not a chatbot. I use this computer to actually get things done for you.\n\nOne quick thing before we start.",
-        "capabilities": "Here's what that looks like day to day.",
+        "capabilities": "Hej, jag är Stella.\n\nJag är ingen chattbot. Jag använder den här datorn för att faktiskt få saker gjorda åt dig, i bakgrunden, medan du fortsätter med ditt.\n\nSå här ser det ut.",
         "theme": "Now, how should I look?",
         "extras": "Almost done. A little housekeeping, then we start.",
-        "readyGeneric": "That's it. I'll get to know you as we go.\n\nWhat do you want to do first?",
-        "readyPending": "That's everything. I'm still writing up what I noticed, so give me a moment, or just dive in.",
-        "readyFailed": "That's everything. I couldn't finish reading your browser this time, but we can start anyway and I'll learn as we go.",
-        "memory": "One more thing that makes me different."
+        "memory": "One more thing that makes me different.",
+        "selfmod": "Och eftersom jag lever på din dator kan jag ändra mig själv.",
+        "signin": "Nästa steg är att logga in. Använd ett Stella-konto, eller det Claude- eller ChatGPT-abonnemang du redan har.",
+        "quickstart": "Det var allt. En sista sak, och den är valfri: en snabbstart.",
+        "quickstartDone": "Klart. Här är vad jag har lärt mig, och några saker vi kan börja med.",
+        "quickstartFailed": "Jag kunde inte läsa klart din webbläsare den här gången. Vi kan börja ändå, så lär jag mig under tiden."
       },
       "replies": {
-        "discoveryAccepted": "Go ahead, take a look.",
-        "discoverySkipped": "Not right now.",
         "capabilitiesDone": "Got it.",
         "capabilitiesSkipped": "Skip the tour.",
         "themeDone": "That one.",
@@ -665,29 +664,15 @@
         "extrasDone": "Done.",
         "extrasSkipped": "Skip for now.",
         "memoryDone": "Nice.",
-        "memorySkipped": "Skip it."
+        "memorySkipped": "Skip it.",
+        "selfmodDone": "Superläckert.",
+        "signinDone": "Klart.",
+        "signinSkipped": "Jag gör det senare."
       },
       "discovery": {
-        "title": "Give me a head start",
-        "body": "Most assistants start from zero and learn you slowly, chat by chat. Point me at your browser and I'll build a starting memory from it, so I'm useful to you from day one instead of weeks in.",
         "browserLabel": "Your browser",
         "includeDev": "My coding setup",
-        "accept": "Get a head start",
-        "skip": "Not now",
         "hint": "About a minute, in the background.",
-        "settledTitle": "Building your memory from {target}",
-        "settledTitleGeneric": "Building your memory",
-        "settledDesc": "I'll keep going while we finish up.",
-        "settledSkippedTitle": "Skipped for now",
-        "settledSkippedDesc": "I'll build up memory from our conversations instead.",
-        "status": {
-          "idle": "Done",
-          "collecting": "Reading",
-          "synthesizing": "Writing your profile",
-          "saving": "Saving",
-          "done": "Done",
-          "failed": "Didn't finish"
-        },
         "alsoLabel": "Also include",
         "assurance": "A one-time read, kept on this computer. You can see and edit what I keep at any time."
       },
@@ -695,7 +680,7 @@
         "errands": {
           "word": "Errands",
           "title": "Ask once. Consider it handled.",
-          "caption": "I open the site, fill in the form, and finish the job, the same way you would."
+          "caption": "Jag hittar rätt ställe, fyller i formuläret och lägger in det i din kalender, precis som du skulle göra."
         },
         "shopping": {
           "word": "Shopping",
@@ -704,22 +689,22 @@
         },
         "work": {
           "word": "Work",
-          "title": "Real files. Real apps.",
-          "caption": "Spreadsheets, documents, slides: I work inside the real apps on this computer."
+          "title": "Riktiga filer. Flera jobb samtidigt.",
+          "caption": "Jag arbetar i de riktiga apparna på den här datorn, och jag kan köra fler än ett jobb åt gången."
         },
         "build": {
           "word": "Build",
           "title": "Say it. I'll build it.",
           "caption": "Apps and websites, made to order. Describe it in plain words and I'll build it, run it, and put it online."
         },
-        "games": {
-          "word": "Games",
-          "title": "Even your games.",
-          "caption": "Want something the game doesn't do? I'll write the mod and install it for you."
-        },
         "settledTitle": "The quick tour",
         "replay": "Replay this demo",
-        "tablist": "Capability demos"
+        "tablist": "Capability demos",
+        "routines": {
+          "word": "Rutiner",
+          "title": "Fråga en gång. Det händer varje dag.",
+          "caption": "Schemalägg vad som helst så gör jag det i tid, även medan du sover."
+        }
       },
       "memory": {
         "titleChatbot": "You know this one",
@@ -782,15 +767,12 @@
         "settledMemory": "Memory"
       },
       "ready": {
-        "pendingLabel": "Still reading",
-        "pendingBody": "I'm writing up what I noticed. Your starters will personalize once that's done, or just start now.",
         "highlightsLabel": "What I picked up",
         "startersLabel": "Try one of these",
         "startersLabelPersonal": "Made for you",
         "notesSummary": "See everything I noted",
         "notesFoot": "You can read or edit this any time in Settings › Memory.",
         "start": "Start chatting",
-        "startAnyway": "Start anyway",
         "hint": "Or type anything below.",
         "generic": {
           "plan": {
@@ -810,6 +792,76 @@
             "prompt": "Keep an eye on a web page for me and tell me when it changes."
           }
         }
+      },
+      "progress": "Installationsförlopp",
+      "selfmod": {
+        "title": "Jag kan ändra mig själv",
+        "body": "Saknar du en funktion, eller vill du att något ska fungera annorlunda? Fråga bara. Jag skriver om min egen kod, du får prova den, och du bestämmer om du vill behålla den.",
+        "steps": {
+          "ask": {
+            "title": "Fråga",
+            "body": "Beskriv ändringen med vanliga ord."
+          },
+          "preview": {
+            "title": "Förhandsvisa",
+            "body": "En agent bygger den och öppnar en live-förhandsvisning."
+          },
+          "update": {
+            "title": "Uppdatera",
+            "body": "Ett klick för att tillämpa den. Ångra när du vill."
+          }
+        },
+        "hint": "Ändringar stannar på den här datorn.",
+        "settledTitle": "Jag kan ändra mig själv",
+        "settledDesc": "Fråga, förhandsvisa, uppdatera. Ångra när du vill."
+      },
+      "signin": {
+        "title": "Logga in",
+        "body": "Vilket som helst av dessa räcker. Du kan lägga till de andra senare.",
+        "options": {
+          "stella": {
+            "title": "Stella-konto",
+            "body": "Google eller e-post. Dina chattar följer med till din telefon."
+          },
+          "claude": {
+            "title": "Claude Code",
+            "body": "Använd ditt Claude Pro- eller Max-abonnemang."
+          },
+          "codex": {
+            "title": "Codex",
+            "body": "Använd ditt ChatGPT Plus- eller Pro-abonnemang."
+          }
+        },
+        "signIn": "Logga in",
+        "connect": "Anslut",
+        "use": "Använd",
+        "inUse": "Används",
+        "waiting": "Slutför inloggningen i webbläsaren och kom sedan tillbaka hit.",
+        "error": "Det gick inte att ansluta. Försöka igen?",
+        "fine": "Du kan ändra det när som helst i Inställningar.",
+        "skip": "Inte nu",
+        "hint": "Gratis att börja med.",
+        "settledEngine": "Använder {name}",
+        "settledStella": "Inloggad på Stella",
+        "settledSkipped": "Inte inloggad än",
+        "settledDesc": "Ändra det när som helst i Inställningar."
+      },
+      "quickstart": {
+        "eyebrow": "Snabbstart",
+        "title": "Ge mig ett försprång",
+        "body": "De flesta assistenter börjar från noll. Peka mig mot din webbläsare så läser jag den en gång och bygger ett första minne, så att jag är till nytta från dag ett.",
+        "run": "Kör snabbstart",
+        "skip": "Hoppa över",
+        "runningTitle": "Lär känna dig",
+        "runningBody": "Ungefär en minut. Gå in när du vill, så blir jag klar i bakgrunden.",
+        "stages": {
+          "read": "Läser det du valde",
+          "notice": "Lägger märke till vad som är viktigt för dig",
+          "write": "Skriver ditt första minne"
+        },
+        "continueInBackground": "Börja chatta, slutför i bakgrunden",
+        "failedTitle": "Det blev inte klart",
+        "failedBody": "Något avbröt läsningen. Försök igen, eller börja chatta så lär jag mig under tiden."
       }
     }
   },

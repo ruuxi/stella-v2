@@ -40,10 +40,13 @@ import "./demo-shell.css";
 export function DemoShell({
   className,
   style,
+  topbarCenter,
   children,
 }: {
   className?: string;
   style?: CSSProperties;
+  /** Anything a change to Stella adds to the top bar, between its controls. */
+  topbarCenter?: ReactNode;
   children: ReactNode;
 }) {
   const { gradientMode, gradientColor } = useTheme();
@@ -81,6 +84,8 @@ export function DemoShell({
             New chat
           </span>
         </span>
+        <span className="odemo-shell__topbar-spacer" />
+        {topbarCenter}
         <span className="odemo-shell__topbar-spacer" />
         <span className="odemo-shell__controls">
           <span className="odemo-shell__icon-btn">

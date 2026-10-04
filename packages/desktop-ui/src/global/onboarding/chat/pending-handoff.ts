@@ -15,11 +15,14 @@ import { uiState } from "@/platform/ui-state";
 
 const PENDING_WELCOME_KEY = "stella-onboarding-pending-welcome";
 const PENDING_COMPOSER_KEY = "stella-onboarding-pending-composer";
+/** Fired when a greeting is parked after the chat has already mounted. */
+const WELCOME_PARKED_EVENT = "stella:onboarding-welcome-parked";
 
 export const setPendingDiscoveryWelcome = (message: string) => {
   const trimmed = message.trim();
   if (!trimmed) return;
   uiState.setItem(PENDING_WELCOME_KEY, trimmed);
+  window.dispatchEvent(new Event(WELCOME_PARKED_EVENT));
 };
 
 export const takePendingDiscoveryWelcome = (): string | null => {
@@ -72,22 +75,28 @@ export const clearPendingHandoff = () => {
 };
 
 /**
- * Appends the parked discovery greeting to the active conversation the
- * first time one is selected. Mounted by the root layout, which owns
- * conversation selection; runs at most once per parked greeting.
+ * Appends the parked discovery greeting to the active conversation: the
+ * first time one is selected, or as soon as it is parked if the quickstart
+ * finishes after the user has already headed into the chat. Mounted by the
+ * root layout, which owns conversation selection; each greeting lands once.
  */
 export function usePendingDiscoveryWelcome(conversationId: string | null) {
   useEffect(() => {
     if (!conversationId) return;
     const persist = window.electronAPI?.localChat?.persistDiscoveryWelcome;
     if (!persist) return;
-    const message = takePendingDiscoveryWelcome();
-    if (!message) return;
-    void persist({ conversationId, message }).catch((error) => {
-      console.error(
-        "[onboarding-chat] Failed to persist the discovery greeting.",
-        error,
-      );
-    });
+    const deliver = () => {
+      const message = takePendingDiscoveryWelcome();
+      if (!message) return;
+      void persist({ conversationId, message }).catch((error) => {
+        console.error(
+          "[onboarding-chat] Failed to persist the discovery greeting.",
+          error,
+        );
+      });
+    };
+    deliver();
+    window.addEventListener(WELCOME_PARKED_EVENT, deliver);
+    return () => window.removeEventListener(WELCOME_PARKED_EVENT, deliver);
   }, [conversationId]);
 }

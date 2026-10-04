@@ -25,14 +25,18 @@ import type { StellaMarkHandle } from "@/ui/stella-character/rig";
 import { LOCALE_NATIVE_LABELS, useI18n, useT } from "@/shared/i18n";
 import { useWindowFocus } from "@/shared/hooks/use-window-focus";
 import { OnboardingComposer } from "./OnboardingComposer";
-import { DiscoveryCard } from "./cards/DiscoveryCard";
 import { CapabilitiesCard } from "./cards/CapabilitiesCard";
+import { SelfModCard } from "./cards/SelfModCard";
 import { MemoryCard } from "./cards/MemoryCard";
+import { SignInCard } from "./cards/SignInCard";
 import { ThemeCard } from "./cards/ThemeCard";
 import { ExtrasCard } from "./cards/ExtrasCard";
-import { ReadyCard } from "./cards/ReadyCard";
+import { QuickstartCard } from "./cards/QuickstartCard";
 import { useDiscoveryJob } from "./discovery-job";
-import type { OnboardingChatStep } from "./onboarding-chat-flow";
+import {
+  ONBOARDING_CHAT_STEPS,
+  type OnboardingChatStep,
+} from "./onboarding-chat-flow";
 import type { PendingComposerDraft } from "./pending-handoff";
 import {
   useOnboardingChat,
@@ -56,12 +60,13 @@ const SPEAKING_MS = 1600;
 
 /** The resting pose while a step waits on the user. */
 const STEP_MOODS: Record<OnboardingChatStep, StellaCharacterState> = {
-  discovery: "listening",
   capabilities: "idle",
+  selfmod: "idle",
   memory: "idle",
+  signin: "listening",
   theme: "listening",
   extras: "idle",
-  ready: "happy",
+  quickstart: "happy",
 };
 
 /**
@@ -144,19 +149,31 @@ export function OnboardingChat({ isAuthenticated, onComplete }: OnboardingChatPr
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const lastEntryId = entries[entries.length - 1]?.id ?? null;
   const lastEntryKind = entries[entries.length - 1]?.kind ?? null;
+  // A resumed flow lands on its current step at once; later rows glide.
+  const scrolledOnceRef = useRef(false);
   useLayoutEffect(() => {
     const scroller = scrollRef.current;
     if (!scroller || !lastEntryId) return;
-    const frame = window.requestAnimationFrame(() => {
+    const first = !scrolledOnceRef.current;
+    scrolledOnceRef.current = true;
+    const land = (behavior: ScrollBehavior) => {
       const target = scroller.querySelector<HTMLElement>(
         `[data-obc-entry="${CSS.escape(lastEntryId)}"]`,
       );
       if (lastEntryKind === "assistant" && target) {
-        target.scrollIntoView({ behavior: "smooth", block: "start" });
+        target.scrollIntoView({ behavior, block: "start" });
         return;
       }
-      scroller.scrollTo({ top: scroller.scrollHeight, behavior: "smooth" });
-    });
+      scroller.scrollTo({ top: scroller.scrollHeight, behavior });
+    };
+    if (first) {
+      // Cards above settle their heights over the first frames (fonts,
+      // measured films), so land now and again once they have.
+      land("auto");
+      const settle = window.setTimeout(() => land("auto"), 300);
+      return () => window.clearTimeout(settle);
+    }
+    const frame = window.requestAnimationFrame(() => land("smooth"));
     return () => window.cancelAnimationFrame(frame);
   }, [lastEntryId, lastEntryKind]);
 
@@ -218,6 +235,11 @@ export function OnboardingChat({ isAuthenticated, onComplete }: OnboardingChatPr
     return () => window.clearTimeout(timer);
   }, [lastFreshAssistantId]);
 
+  // Steps answered so far; the finale counts once the user heads in.
+  const progressCount = exiting
+    ? ONBOARDING_CHAT_STEPS.length
+    : ONBOARDING_CHAT_STEPS.indexOf(currentStep);
+
   const jobBusy =
     job.status === "collecting" ||
     job.status === "synthesizing" ||
@@ -228,44 +250,29 @@ export function OnboardingChat({ isAuthenticated, onComplete }: OnboardingChatPr
       ? "writing"
       : speaking
         ? "speaking"
-        : currentStep === "ready"
-          ? "happy"
-          : jobBusy
+        : jobBusy
             ? "reading"
             : STEP_MOODS[currentStep];
 
   useEffect(() => {
-    if (currentStep === "ready") markRef.current?.sparkle();
+    if (currentStep === "quickstart") markRef.current?.sparkle();
   }, [currentStep]);
+  useEffect(() => {
+    if (job.status === "done") markRef.current?.sparkle();
+  }, [job.status]);
 
   /* ── Prose per step ─────────────────────────────────────────────── */
   const proseFor = (step: OnboardingChatStep): string => {
-    if (step !== "ready") return t(`onboarding.chat.messages.${step}`);
-    if (answers.discovery !== "accepted") {
-      return t("onboarding.chat.messages.readyGeneric");
-    }
-    if (job.status === "done" && job.result?.welcomeMessage) {
-      return job.result.welcomeMessage;
-    }
-    if (job.status === "failed") {
-      return t("onboarding.chat.messages.readyFailed");
-    }
-    return t("onboarding.chat.messages.readyPending");
+    if (step !== "quickstart") return t(`onboarding.chat.messages.${step}`);
+    if (job.status === "done") return t("onboarding.chat.messages.quickstartDone");
+    if (job.status === "failed") return t("onboarding.chat.messages.quickstartFailed");
+    return t("onboarding.chat.messages.quickstart");
   };
 
   const cardFor = (step: OnboardingChatStep): ReactNode => {
     const active = currentStep === step && !exiting;
     const answered = answers[step];
     switch (step) {
-      case "discovery":
-        return (
-          <DiscoveryCard
-            active={active}
-            answered={answered}
-            isAuthenticated={isAuthenticated}
-            onAnswer={(kind) => answer(step, kind)}
-          />
-        );
       case "capabilities":
         return (
           <CapabilitiesCard
@@ -274,9 +281,25 @@ export function OnboardingChat({ isAuthenticated, onComplete }: OnboardingChatPr
             onAnswer={(kind) => answer(step, kind)}
           />
         );
+      case "selfmod":
+        return (
+          <SelfModCard
+            active={active}
+            answered={answered}
+            onAnswer={(kind) => answer(step, kind)}
+          />
+        );
       case "memory":
         return (
           <MemoryCard
+            active={active}
+            answered={answered}
+            onAnswer={(kind) => answer(step, kind)}
+          />
+        );
+      case "signin":
+        return (
+          <SignInCard
             active={active}
             answered={answered}
             onAnswer={(kind) => answer(step, kind)}
@@ -299,12 +322,13 @@ export function OnboardingChat({ isAuthenticated, onComplete }: OnboardingChatPr
             onAnswer={(kind) => answer(step, kind)}
           />
         );
-      case "ready":
+      case "quickstart":
         return (
-          <ReadyCard
+          <QuickstartCard
             active={active}
-            discoveryAnswered={answers.discovery}
+            isAuthenticated={isAuthenticated}
             onStart={handleStart}
+            onSkip={handleSkipAll}
           />
         );
       default: {
@@ -367,6 +391,24 @@ export function OnboardingChat({ isAuthenticated, onComplete }: OnboardingChatPr
       />
 
       <div className="obc-dragbar">
+        <div
+          className="obc-progress"
+          role="progressbar"
+          aria-label={t("onboarding.chat.progress")}
+          aria-valuemin={0}
+          aria-valuemax={ONBOARDING_CHAT_STEPS.length}
+          aria-valuenow={progressCount}
+        >
+          {ONBOARDING_CHAT_STEPS.map((step, index) => (
+            <span
+              key={step}
+              className="obc-progress__seg"
+              data-state={
+                index < progressCount ? "done" : index === progressCount ? "current" : undefined
+              }
+            />
+          ))}
+        </div>
         <div className="obc-dragbar__lang">
         <Select
           value={locale}

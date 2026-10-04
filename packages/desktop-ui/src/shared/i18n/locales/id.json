@@ -645,18 +645,17 @@
       "composerPlaceholder": "Or just ask me something to get started",
       "send": "Send",
       "messages": {
-        "discovery": "Hi, I'm Stella.\n\nI'm not a chatbot. I use this computer to actually get things done for you.\n\nOne quick thing before we start.",
-        "capabilities": "Here's what that looks like day to day.",
+        "capabilities": "Halo, saya Stella.\n\nSaya bukan chatbot. Saya memakai komputer ini untuk benar-benar menyelesaikan pekerjaan Anda, di latar belakang, sementara Anda terus melanjutkan aktivitas.\n\nBeginilah tampaknya.",
         "theme": "Now, how should I look?",
         "extras": "Almost done. A little housekeeping, then we start.",
-        "readyGeneric": "That's it. I'll get to know you as we go.\n\nWhat do you want to do first?",
-        "readyPending": "That's everything. I'm still writing up what I noticed, so give me a moment, or just dive in.",
-        "readyFailed": "That's everything. I couldn't finish reading your browser this time, but we can start anyway and I'll learn as we go.",
-        "memory": "One more thing that makes me different."
+        "memory": "One more thing that makes me different.",
+        "selfmod": "Dan karena saya berada di komputer Anda, saya bisa mengubah diri saya sendiri.",
+        "signin": "Selanjutnya, mari masuk ke akun. Gunakan akun Stella, atau paket Claude atau ChatGPT yang sudah Anda miliki.",
+        "quickstart": "Itu saja. Satu hal terakhir, dan ini opsional: panduan mulai cepat.",
+        "quickstartDone": "Selesai. Ini yang saya pelajari, dan beberapa hal yang bisa kita mulai.",
+        "quickstartFailed": "Kali ini saya tidak bisa selesai membaca browser Anda. Kita tetap bisa mulai, dan saya akan belajar seiring berjalan."
       },
       "replies": {
-        "discoveryAccepted": "Go ahead, take a look.",
-        "discoverySkipped": "Not right now.",
         "capabilitiesDone": "Got it.",
         "capabilitiesSkipped": "Skip the tour.",
         "themeDone": "That one.",
@@ -664,29 +663,15 @@
         "extrasDone": "Done.",
         "extrasSkipped": "Skip for now.",
         "memoryDone": "Nice.",
-        "memorySkipped": "Skip it."
+        "memorySkipped": "Skip it.",
+        "selfmodDone": "Keren sekali.",
+        "signinDone": "Selesai.",
+        "signinSkipped": "Saya akan melakukannya nanti."
       },
       "discovery": {
-        "title": "Give me a head start",
-        "body": "Most assistants start from zero and learn you slowly, chat by chat. Point me at your browser and I'll build a starting memory from it, so I'm useful to you from day one instead of weeks in.",
         "browserLabel": "Your browser",
         "includeDev": "My coding setup",
-        "accept": "Get a head start",
-        "skip": "Not now",
         "hint": "About a minute, in the background.",
-        "settledTitle": "Building your memory from {target}",
-        "settledTitleGeneric": "Building your memory",
-        "settledDesc": "I'll keep going while we finish up.",
-        "settledSkippedTitle": "Skipped for now",
-        "settledSkippedDesc": "I'll build up memory from our conversations instead.",
-        "status": {
-          "idle": "Done",
-          "collecting": "Reading",
-          "synthesizing": "Writing your profile",
-          "saving": "Saving",
-          "done": "Done",
-          "failed": "Didn't finish"
-        },
         "alsoLabel": "Also include",
         "assurance": "A one-time read, kept on this computer. You can see and edit what I keep at any time."
       },
@@ -694,7 +679,7 @@
         "errands": {
           "word": "Errands",
           "title": "Ask once. Consider it handled.",
-          "caption": "I open the site, fill in the form, and finish the job, the same way you would."
+          "caption": "Saya menemukan tempat yang tepat, mengisi formulirnya, dan memasukkannya ke kalender Anda, persis seperti yang akan Anda lakukan."
         },
         "shopping": {
           "word": "Shopping",
@@ -703,22 +688,22 @@
         },
         "work": {
           "word": "Work",
-          "title": "Real files. Real apps.",
-          "caption": "Spreadsheets, documents, slides: I work inside the real apps on this computer."
+          "title": "File sungguhan. Beberapa pekerjaan sekaligus.",
+          "caption": "Saya bekerja di dalam aplikasi sungguhan di komputer ini, dan bisa menjalankan lebih dari satu pekerjaan sekaligus."
         },
         "build": {
           "word": "Build",
           "title": "Say it. I'll build it.",
           "caption": "Apps and websites, made to order. Describe it in plain words and I'll build it, run it, and put it online."
         },
-        "games": {
-          "word": "Games",
-          "title": "Even your games.",
-          "caption": "Want something the game doesn't do? I'll write the mod and install it for you."
-        },
         "settledTitle": "The quick tour",
         "replay": "Replay this demo",
-        "tablist": "Capability demos"
+        "tablist": "Capability demos",
+        "routines": {
+          "word": "Rutinitas",
+          "title": "Minta sekali. Terjadi setiap hari.",
+          "caption": "Jadwalkan apa saja dan saya akan mengerjakannya tepat waktu, bahkan saat Anda tidur."
+        }
       },
       "memory": {
         "titleChatbot": "You know this one",
@@ -781,15 +766,12 @@
         "settledMemory": "Memory"
       },
       "ready": {
-        "pendingLabel": "Still reading",
-        "pendingBody": "I'm writing up what I noticed. Your starters will personalize once that's done, or just start now.",
         "highlightsLabel": "What I picked up",
         "startersLabel": "Try one of these",
         "startersLabelPersonal": "Made for you",
         "notesSummary": "See everything I noted",
         "notesFoot": "You can read or edit this any time in Settings › Memory.",
         "start": "Start chatting",
-        "startAnyway": "Start anyway",
         "hint": "Or type anything below.",
         "generic": {
           "plan": {
@@ -809,6 +791,76 @@
             "prompt": "Keep an eye on a web page for me and tell me when it changes."
           }
         }
+      },
+      "progress": "Kemajuan penyiapan",
+      "selfmod": {
+        "title": "Saya bisa mengubah diri sendiri",
+        "body": "Ada fitur yang kurang, atau ingin sesuatu bekerja dengan cara lain? Cukup minta. Saya akan menulis ulang kode saya sendiri, Anda mencobanya, dan Anda yang memutuskan apakah akan dipertahankan.",
+        "steps": {
+          "ask": {
+            "title": "Minta",
+            "body": "Jelaskan perubahannya dengan kata-kata sederhana."
+          },
+          "preview": {
+            "title": "Pratinjau",
+            "body": "Sebuah agen membuatnya dan membuka pratinjau langsung."
+          },
+          "update": {
+            "title": "Perbarui",
+            "body": "Satu klik untuk menerapkannya. Urungkan kapan saja."
+          }
+        },
+        "hint": "Perubahan tetap berada di komputer ini.",
+        "settledTitle": "Saya bisa mengubah diri sendiri",
+        "settledDesc": "Minta, pratinjau, perbarui. Urungkan kapan saja."
+      },
+      "signin": {
+        "title": "Masuk",
+        "body": "Salah satunya sudah cukup. Anda bisa menambahkan yang lain nanti.",
+        "options": {
+          "stella": {
+            "title": "Akun Stella",
+            "body": "Google atau email. Obrolan Anda ikut ke ponsel Anda."
+          },
+          "claude": {
+            "title": "Claude Code",
+            "body": "Gunakan paket Claude Pro atau Max Anda."
+          },
+          "codex": {
+            "title": "Codex",
+            "body": "Gunakan paket ChatGPT Plus atau Pro Anda."
+          }
+        },
+        "signIn": "Masuk",
+        "connect": "Hubungkan",
+        "use": "Gunakan",
+        "inUse": "Digunakan",
+        "waiting": "Selesaikan proses masuk di browser Anda, lalu kembali ke sini.",
+        "error": "Tidak tersambung. Coba lagi?",
+        "fine": "Ubah kapan saja di Pengaturan.",
+        "skip": "Nanti saja",
+        "hint": "Gratis untuk memulai.",
+        "settledEngine": "Menggunakan {name}",
+        "settledStella": "Sudah masuk ke Stella",
+        "settledSkipped": "Belum masuk",
+        "settledDesc": "Ubah kapan saja di Pengaturan."
+      },
+      "quickstart": {
+        "eyebrow": "Mulai cepat",
+        "title": "Beri saya awal yang baik",
+        "body": "Kebanyakan asisten mulai dari nol. Arahkan saya ke browser Anda dan saya akan membacanya sekali untuk membangun memori awal, sehingga saya berguna sejak hari pertama.",
+        "run": "Jalankan mulai cepat",
+        "skip": "Lewati",
+        "runningTitle": "Mengenal Anda",
+        "runningBody": "Sekitar satu menit. Silakan masuk kapan saja, saya akan menyelesaikannya di latar belakang.",
+        "stages": {
+          "read": "Membaca yang Anda pilih",
+          "notice": "Memperhatikan hal yang penting bagi Anda",
+          "write": "Menulis memori awal Anda"
+        },
+        "continueInBackground": "Mulai mengobrol, selesaikan di latar belakang",
+        "failedTitle": "Belum selesai",
+        "failedBody": "Ada yang menghentikan pembacaan. Coba lagi, atau mulai mengobrol dan saya akan belajar seiring berjalan."
       }
     }
   },

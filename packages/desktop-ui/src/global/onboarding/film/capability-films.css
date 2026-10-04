@@ -1,0 +1,1224 @@
+/* ──────────────────────────────────────────────────────────────────────
+ * Capability films: the set dressing inside each agent window.
+ * Canvas pixels throughout (the film scales the whole canvas), and every
+ * state change is a transform, opacity or color transition.
+ * ────────────────────────────────────────────────────────────────────── */
+
+/* Stella's own window, fixed to canvas pixels instead of viewport units. */
+.ofilm-stella {
+  border-radius: 14px;
+  box-shadow:
+    0 1px 0 color-mix(in oklch, white 40%, transparent) inset,
+    0 30px 70px -24px color-mix(in oklch, black 30%, transparent);
+}
+
+.ofilm-stella .odemo-chat__greeting {
+  font-size: 26px;
+}
+
+.ofilm-stella .odemo-shell__main {
+  padding: 0 14px 14px;
+}
+
+.ofilm-stella .odemo-chat {
+  width: 100%;
+  padding: 0 4px;
+}
+
+/* ── Approval card (in the chat) ─────────────────────────────────── */
+
+.ofc-approve {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  align-self: flex-start;
+  width: 86%;
+  padding: 8px 9px 8px 10px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in oklch, var(--primary) 32%, transparent);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in oklch, var(--primary) 7%, transparent),
+      transparent
+    ),
+    var(--panel-surface-bg, var(--background));
+  box-shadow: 0 6px 18px -10px color-mix(in oklch, var(--primary) 60%, transparent);
+  font-size: 11px;
+  opacity: 0;
+  transform: translate3d(0, 10px, 0) scale(0.96);
+  transition:
+    opacity 320ms ease,
+    transform var(--film-pop-ms) var(--film-pop),
+    border-color 300ms ease;
+}
+
+.ofc-approve[data-visible] {
+  opacity: 1;
+  transform: none;
+}
+
+.ofc-approve[data-done] {
+  border-color: color-mix(in oklch, var(--success) 40%, transparent);
+}
+
+.ofc-approve__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 13%, transparent);
+  flex-shrink: 0;
+}
+
+.ofc-approve__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ofc-approve__text b {
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.ofc-approve__text i {
+  font-style: normal;
+  font-size: 10px;
+  color: var(--text-weak);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ofc-approve__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 58px;
+  height: 22px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 10px;
+  font-weight: 600;
+  transition:
+    transform var(--film-snap-ms) var(--film-snap),
+    background-color 260ms ease,
+    min-width var(--film-pop-ms) var(--film-pop);
+}
+
+.ofc-approve__btn[data-pressed] {
+  transform: scale(0.9);
+}
+
+.ofc-approve[data-done] .ofc-approve__btn {
+  min-width: 22px;
+  padding: 0;
+  transform: none;
+  background: var(--success);
+  color: white;
+}
+
+/* ── Shared: CTA button that morphs into its result ──────────────── */
+
+.ofc-cta {
+  position: relative;
+  display: inline-grid;
+  align-items: center;
+  justify-items: center;
+  height: 30px;
+  min-width: 120px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 11px;
+  font-weight: 600;
+  transition:
+    transform var(--film-snap-ms) var(--film-snap),
+    background-color 320ms ease;
+}
+
+.ofc-cta > span {
+  grid-area: 1 / 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  transition:
+    opacity 220ms ease,
+    transform var(--film-pop-ms) var(--film-pop);
+}
+
+.ofc-cta__done {
+  opacity: 0;
+  transform: translateY(10px) scale(0.9);
+}
+
+.ofc-cta[data-pressed] {
+  transform: scale(0.93);
+}
+
+.ofc-cta[data-done] {
+  background: color-mix(in oklch, var(--success) 16%, var(--background));
+  color: color-mix(in oklch, var(--success) 75%, var(--foreground));
+}
+
+.ofc-cta[data-done] .ofc-cta__label {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.9);
+}
+
+.ofc-cta[data-done] .ofc-cta__done {
+  opacity: 1;
+  transform: none;
+}
+
+/* ── Errands: results → booking form ─────────────────────────────── */
+
+.ofc-results {
+  position: absolute;
+  inset: 0;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition:
+    transform var(--film-settle-ms) var(--film-settle),
+    opacity 300ms ease;
+}
+
+.ofc-results[data-gone] {
+  transform: translateX(-30%);
+  opacity: 0;
+}
+
+.ofc-results__head {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-weak);
+  padding-bottom: 2px;
+}
+
+.ofc-results__row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 10px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in oklch, var(--foreground) 8%, transparent);
+  background: color-mix(in oklch, var(--foreground) 2%, var(--background));
+  opacity: 0;
+  transform: translateY(10px);
+  transition:
+    opacity 300ms ease,
+    transform var(--film-pop-ms) var(--film-pop),
+    border-color 240ms ease,
+    box-shadow 240ms ease;
+}
+
+.ofc-results__row[data-visible] {
+  opacity: 1;
+  transform: none;
+}
+
+.ofc-results__row[data-picked] {
+  border-color: color-mix(in oklch, var(--primary) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--primary) 14%, transparent);
+  transform: scale(1.02);
+  transition-delay: 0ms !important;
+}
+
+.ofc-results__thumb {
+  width: 40px;
+  height: 40px;
+  border-radius: 9px;
+  flex-shrink: 0;
+  background:
+    radial-gradient(circle at 30% 30%, oklch(0.85 0.08 var(--hue)), transparent 60%),
+    linear-gradient(135deg, oklch(0.7 0.12 var(--hue)), oklch(0.45 0.1 calc(var(--hue) + 40)));
+}
+
+.ofc-results__text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ofc-results__text b {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.ofc-results__text em {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-style: normal;
+  font-size: 10px;
+  color: var(--text-weak);
+}
+
+.ofc-results__slot {
+  padding: 4px 9px;
+  border-radius: 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 11%, transparent);
+}
+
+.ofc-book {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 0 16px 16px;
+  transform: translateX(40%);
+  opacity: 0;
+  transition:
+    transform var(--film-settle-ms) var(--film-settle),
+    opacity 300ms ease;
+}
+
+.ofc-book[data-visible] {
+  transform: none;
+  opacity: 1;
+}
+
+.ofc-book__hero {
+  align-self: stretch;
+  margin: 0 -16px;
+  padding: 34px 16px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background:
+    linear-gradient(180deg, transparent, color-mix(in oklch, var(--background) 92%, transparent)),
+    linear-gradient(120deg, oklch(0.62 0.1 200), oklch(0.4 0.08 250));
+}
+
+.ofc-book__hero b {
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--text-strong);
+}
+
+.ofc-book__hero em {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-style: normal;
+  font-size: 10px;
+  color: var(--text-weak);
+}
+
+.ofc-book__fields {
+  align-self: stretch;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.ofc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in oklch, var(--foreground) 11%, transparent);
+  transition:
+    border-color 240ms ease,
+    box-shadow 240ms ease;
+}
+
+.ofc-field em {
+  font-style: normal;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-weaker);
+}
+
+.ofc-field b {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-strong);
+  opacity: 0;
+  transform: translateY(4px);
+  transition:
+    opacity 200ms ease,
+    transform var(--film-pop-ms) var(--film-pop);
+}
+
+.ofc-field[data-filled] {
+  border-color: color-mix(in oklch, var(--primary) 45%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--primary) 10%, transparent);
+}
+
+.ofc-field[data-filled] b {
+  opacity: 1;
+  transform: none;
+}
+
+/* Calendar */
+.ofc-cal {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 40px repeat(3, 1fr);
+  grid-template-rows: 22px repeat(4, 1fr);
+  padding: 6px 10px 10px 0;
+}
+
+.ofc-cal__day {
+  grid-row: 1;
+  font-size: 9.5px;
+  font-weight: 600;
+  text-align: center;
+  color: var(--text-weak);
+}
+
+.ofc-cal__day:nth-child(1) {
+  grid-column: 2;
+}
+.ofc-cal__day:nth-child(2) {
+  grid-column: 3;
+}
+.ofc-cal__day:nth-child(3) {
+  grid-column: 4;
+  color: var(--primary);
+}
+
+.ofc-cal__row {
+  grid-column: 1 / -1;
+  border-top: 1px solid color-mix(in oklch, var(--foreground) 7%, transparent);
+}
+
+.ofc-cal__row em {
+  display: block;
+  width: 36px;
+  padding-top: 2px;
+  font-style: normal;
+  font-size: 8.5px;
+  text-align: right;
+  color: var(--text-weaker);
+}
+
+.ofc-cal__busy,
+.ofc-cal__event {
+  position: absolute;
+  width: 26%;
+  border-radius: 7px;
+  padding: 4px 6px;
+  font-size: 9px;
+}
+
+.ofc-cal__busy {
+  height: 15%;
+  color: var(--text-weak);
+  background: color-mix(in oklch, var(--foreground) 7%, transparent);
+}
+
+.ofc-cal__event {
+  left: 72%;
+  top: 62%;
+  height: 26%;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  color: white;
+  background: linear-gradient(160deg, oklch(0.66 0.14 210), oklch(0.55 0.14 240));
+  box-shadow: 0 8px 18px -8px oklch(0.5 0.14 230 / 0.8);
+  opacity: 0;
+  transform: translateY(-40px) scale(0.9);
+  transition:
+    opacity 200ms ease,
+    transform var(--film-pop-ms) var(--film-pop);
+}
+
+.ofc-cal__event b {
+  font-weight: 650;
+}
+
+.ofc-cal__event em {
+  font-style: normal;
+  opacity: 0.85;
+}
+
+.ofc-cal__event[data-visible] {
+  opacity: 1;
+  transform: none;
+}
+
+/* ── Shopping ────────────────────────────────────────────────────── */
+
+.ofc-shop {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 1.05fr 1fr;
+  gap: 16px;
+  padding: 16px;
+  opacity: 0;
+  transform: translateY(8px);
+  transition:
+    opacity 300ms ease,
+    transform var(--film-settle-ms) var(--film-settle);
+}
+
+.ofc-shop[data-visible] {
+  opacity: 1;
+  transform: none;
+}
+
+.ofc-shop__image {
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background:
+    radial-gradient(80% 60% at 50% 70%, color-mix(in oklch, var(--foreground) 10%, transparent), transparent),
+    color-mix(in oklch, var(--foreground) 4%, var(--background));
+}
+
+.ofc-shoe {
+  width: 82%;
+  color: oklch(0.62 0.16 35);
+  filter: drop-shadow(0 10px 8px color-mix(in oklch, black 22%, transparent));
+}
+
+.ofc-shoe__sole {
+  fill: color-mix(in oklch, var(--foreground) 80%, var(--background));
+}
+
+.ofc-shop__info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding-top: 4px;
+}
+
+.ofc-shop__info > b {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--text-strong);
+}
+
+.ofc-shop__price {
+  font-size: 13px;
+  color: var(--text-base, var(--foreground));
+}
+
+.ofc-shop__label {
+  margin-top: 8px;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-weaker);
+}
+
+.ofc-shop__sizes {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.ofc-size {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 26px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid color-mix(in oklch, var(--foreground) 12%, transparent);
+  color: var(--text-base, var(--foreground));
+  transition:
+    background-color 200ms ease,
+    color 200ms ease,
+    transform var(--film-pop-ms) var(--film-pop);
+}
+
+.ofc-size[data-active] {
+  background: var(--foreground);
+  color: var(--background);
+  transform: scale(1.08);
+}
+
+.ofc-checkout {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 56%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 16px;
+  background: var(--background);
+  border-left: 1px solid color-mix(in oklch, var(--foreground) 9%, transparent);
+  box-shadow: -18px 0 40px -20px color-mix(in oklch, black 30%, transparent);
+  transform: translateX(105%);
+  transition: transform var(--film-settle-ms) var(--film-settle);
+}
+
+.ofc-checkout[data-visible] {
+  transform: none;
+}
+
+.ofc-checkout__row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+}
+
+.ofc-checkout__row em {
+  font-style: normal;
+  color: var(--text-weak);
+}
+
+.ofc-checkout__row b {
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.ofc-checkout__pay {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 11px;
+  border: 1px solid color-mix(in oklch, var(--foreground) 11%, transparent);
+  color: var(--text-base, var(--foreground));
+}
+
+.ofc-checkout__hold {
+  margin-top: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 11%, transparent);
+  animation: ofcBreathe 1.6s ease-in-out infinite;
+}
+
+@keyframes ofcBreathe {
+  50% {
+    background: color-mix(in oklch, var(--primary) 18%, transparent);
+  }
+}
+
+/* ── Work: sheet, deck and the chart between them ────────────────── */
+
+.ofc-sheet {
+  position: absolute;
+  left: 12px;
+  top: 14px;
+  width: 172px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklch, var(--foreground) 9%, transparent);
+}
+
+.ofc-sheet__row {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr 1fr;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ofc-sheet__row + .ofc-sheet__row {
+  border-top: 1px solid color-mix(in oklch, var(--foreground) 7%, transparent);
+}
+
+.ofc-sheet__row span {
+  padding: 7px 8px;
+  color: var(--text-base, var(--foreground));
+}
+
+.ofc-sheet__row span + span {
+  text-align: right;
+  border-left: 1px solid color-mix(in oklch, var(--foreground) 7%, transparent);
+}
+
+.ofc-sheet__row[data-head] span {
+  font-weight: 600;
+  font-size: 9.5px;
+  color: var(--text-weak);
+  background: color-mix(in oklch, var(--foreground) 4%, transparent);
+}
+
+.ofc-sheet__row[data-total] span {
+  font-weight: 650;
+}
+
+.ofc-sheet__fresh {
+  position: relative;
+  color: transparent !important;
+  transition: color 240ms ease, background-color 700ms ease;
+}
+
+.ofc-sheet__fresh[data-filled] {
+  color: var(--text-strong) !important;
+  background: color-mix(in oklch, var(--success) 14%, transparent);
+  animation: ofcCellFlash 900ms ease forwards;
+}
+
+@keyframes ofcCellFlash {
+  0% {
+    background: color-mix(in oklch, var(--success) 34%, transparent);
+  }
+  100% {
+    background: color-mix(in oklch, var(--success) 9%, transparent);
+  }
+}
+
+/* The empty frame the chart leaves behind in the sheet. */
+.ofc-sheet__chart-slot {
+  position: absolute;
+  left: 196px;
+  top: 40px;
+  width: 112px;
+  height: 92px;
+  border-radius: 10px;
+  border: 1px dashed transparent;
+  transition: border-color 400ms ease 300ms;
+}
+
+.ofc-sheet__chart-slot[data-empty] {
+  border-color: color-mix(in oklch, var(--foreground) 14%, transparent);
+}
+
+.ofc-flight-x,
+.ofc-flight-y {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform-origin: 0 0;
+}
+
+/* Horizontal leg eases in and out; the vertical leg leads, so the path
+ * arcs up and over instead of sliding diagonally. */
+.ofc-flight-x {
+  transition: transform 880ms cubic-bezier(0.55, 0, 0.25, 1);
+}
+
+.ofc-flight-y {
+  transition: transform 880ms cubic-bezier(0.2, 0.9, 0.3, 1.05);
+}
+
+.ofc-chart {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 10px 10px 8px;
+  border-radius: 10px;
+  background: var(--background);
+  border: 1px solid color-mix(in oklch, var(--foreground) 9%, transparent);
+  box-shadow: 0 1px 2px color-mix(in oklch, black 6%, transparent);
+  transition:
+    transform 440ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 440ms ease;
+}
+
+.ofc-chart[data-lifted] {
+  transform: scale(1.12) rotate(-2deg);
+  box-shadow: 0 26px 40px -16px color-mix(in oklch, black 40%, transparent);
+}
+
+.ofc-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 8%;
+  width: 100%;
+  height: 100%;
+  border-bottom: 1px solid color-mix(in oklch, var(--foreground) 14%, transparent);
+}
+
+.ofc-bars i {
+  flex: 1;
+  border-radius: 4px 4px 1px 1px;
+  background: linear-gradient(180deg, oklch(0.68 0.15 160), oklch(0.56 0.14 175));
+  transform: scaleY(0);
+  transform-origin: bottom;
+  transition: transform var(--film-pop-ms) var(--film-pop);
+}
+
+.ofc-bars i:last-child {
+  background: linear-gradient(180deg, var(--primary), color-mix(in oklch, var(--primary) 70%, black));
+}
+
+.ofc-bars[data-grown] i {
+  transform: none;
+}
+
+.ofc-deck {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 62px 1fr;
+  gap: 10px;
+  padding: 10px;
+}
+
+.ofc-deck__strip {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ofc-deck__thumb {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  height: 30px;
+  padding: 5px;
+  border-radius: 5px;
+  border: 1px solid color-mix(in oklch, var(--foreground) 10%, transparent);
+  opacity: 0;
+  transform: translateX(-8px);
+  transition:
+    opacity 260ms ease,
+    transform var(--film-pop-ms) var(--film-pop);
+}
+
+.ofc-deck__thumb i {
+  height: 3px;
+  width: 70%;
+  border-radius: 2px;
+  background: color-mix(in oklch, var(--foreground) 16%, transparent);
+}
+
+.ofc-deck__thumb i + i {
+  width: 45%;
+}
+
+.ofc-deck__thumb[data-visible] {
+  opacity: 1;
+  transform: none;
+}
+
+.ofc-deck__thumb[data-active] {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--primary) 18%, transparent);
+}
+
+.ofc-deck__slide {
+  position: relative;
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: color-mix(in oklch, var(--foreground) 3%, var(--background));
+  border: 1px solid color-mix(in oklch, var(--foreground) 9%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ofc-deck__slide b {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text-strong);
+}
+
+.ofc-deck__slide em {
+  position: absolute;
+  left: 14px;
+  bottom: 10px;
+  font-style: normal;
+  font-size: 9.5px;
+  color: var(--success);
+  opacity: 0;
+  transform: translateY(6px);
+  transition:
+    opacity 240ms ease,
+    transform var(--film-pop-ms) var(--film-pop);
+}
+
+.ofc-deck__slide em[data-visible] {
+  opacity: 1;
+  transform: none;
+}
+
+/* ── Build ───────────────────────────────────────────────────────── */
+
+.ofc-code {
+  position: absolute;
+  inset: 0;
+  padding: 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-family: var(--font-family-mono, ui-monospace, monospace);
+  font-size: 10px;
+  background: color-mix(in oklch, var(--foreground) 2%, var(--background));
+}
+
+.ofc-code__line {
+  display: flex;
+  gap: 10px;
+  white-space: nowrap;
+  color: var(--text-base, var(--foreground));
+  opacity: 0;
+  transform: translateX(-6px);
+  transition:
+    opacity 200ms ease,
+    transform 300ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.ofc-code__line i {
+  width: 12px;
+  flex-shrink: 0;
+  font-style: normal;
+  text-align: right;
+  color: var(--text-weaker);
+}
+
+.ofc-code[data-visible] .ofc-code__line {
+  opacity: 1;
+  transform: none;
+}
+
+.ofc-site {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+}
+
+.ofc-site__hero {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 2px;
+  height: 108px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  color: white;
+  background:
+    linear-gradient(180deg, transparent 30%, oklch(0.25 0.04 50 / 0.75)),
+    radial-gradient(70% 90% at 80% 20%, oklch(0.82 0.1 70), transparent 60%),
+    linear-gradient(135deg, oklch(0.62 0.12 45), oklch(0.42 0.09 30));
+  clip-path: inset(0 100% 0 0 round 10px);
+  transition: clip-path 760ms cubic-bezier(0.65, 0, 0.2, 1);
+}
+
+.ofc-site__hero[data-visible] {
+  clip-path: inset(0 0 0 0 round 10px);
+}
+
+.ofc-site__hero b {
+  font-family: var(--font-family-display);
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+.ofc-site__hero em {
+  font-style: normal;
+  font-size: 10px;
+  opacity: 0.85;
+}
+
+.ofc-site__menu {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.ofc-site__item {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  opacity: 0;
+  transform: translateY(14px) scale(0.94);
+  transition:
+    opacity 260ms ease,
+    transform var(--film-pop-ms) var(--film-pop);
+}
+
+.ofc-site__item i {
+  height: 52px;
+  border-radius: 8px;
+  background: linear-gradient(140deg, oklch(0.8 0.08 var(--hue)), oklch(0.6 0.11 calc(var(--hue) - 20)));
+}
+
+.ofc-site__item b {
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.ofc-site__item[data-visible] {
+  opacity: 1;
+  transform: none;
+}
+
+.ofc-site__order {
+  align-self: center;
+  margin-top: 4px;
+  padding: 8px 20px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+  color: white;
+  background: oklch(0.5 0.11 40);
+  opacity: 0;
+  transform: scale(0.7);
+  transition:
+    opacity 220ms ease,
+    transform var(--film-pop-ms) var(--film-pop);
+}
+
+.ofc-site__order[data-visible] {
+  opacity: 1;
+  transform: none;
+}
+
+.ofc-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--success);
+  animation: ofcLive 1.4s ease-in-out infinite;
+}
+
+@keyframes ofcLive {
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in oklch, var(--success) 25%, transparent);
+  }
+}
+
+.ofc-phone {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 18px;
+  padding: 6px;
+  background: oklch(0.18 0.01 260);
+  box-shadow:
+    0 0 0 1.5px oklch(0.35 0.01 260),
+    0 24px 40px -18px color-mix(in oklch, black 60%, transparent);
+  overflow: hidden;
+}
+
+.ofc-phone::before {
+  content: "";
+  position: absolute;
+  inset: 6px;
+  border-radius: 13px;
+  background:
+    radial-gradient(120% 70% at 30% 0%, oklch(0.55 0.12 280), transparent 70%),
+    linear-gradient(180deg, oklch(0.32 0.08 270), oklch(0.2 0.05 250));
+}
+
+.ofc-phone__island {
+  position: absolute;
+  left: 50%;
+  top: 11px;
+  width: 30px;
+  height: 8px;
+  border-radius: 999px;
+  background: black;
+  transform: translateX(-50%);
+}
+
+.ofc-phone__time {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 34px;
+  text-align: center;
+  font-size: 22px;
+  font-weight: 600;
+  color: white;
+  letter-spacing: -0.02em;
+}
+
+.ofc-phone__note {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  top: 76px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 7px;
+  border-radius: 9px;
+  font-size: 8px;
+  color: oklch(0.2 0.01 260);
+  background: oklch(0.97 0 0 / 0.92);
+  box-shadow: 0 4px 10px -4px oklch(0 0 0 / 0.5);
+  opacity: 0;
+  transform: translateY(-10px) scale(0.92);
+  transition:
+    opacity 220ms ease,
+    transform var(--film-pop-ms) var(--film-pop);
+}
+
+.ofc-phone__note b {
+  font-weight: 700;
+}
+
+.ofc-phone__note em {
+  font-style: normal;
+  opacity: 0.85;
+}
+
+.ofc-phone__note[data-visible] {
+  opacity: 1;
+  transform: none;
+}
+
+/* ── Routines: night passes, the brief arrives ───────────────────── */
+
+.ofc-sky,
+.ofc-sky i {
+  position: absolute;
+  inset: 0;
+}
+
+.ofc-sky i {
+  opacity: 0;
+  transition: opacity 1100ms ease;
+}
+
+.ofc-sky__night {
+  background:
+    radial-gradient(60% 50% at 75% 20%, oklch(0.35 0.08 280 / 0.9), transparent 70%),
+    linear-gradient(180deg, oklch(0.2 0.05 270), oklch(0.28 0.06 260));
+}
+
+.ofc-sky__dawn {
+  background:
+    radial-gradient(70% 55% at 75% 95%, oklch(0.85 0.12 70 / 0.95), transparent 70%),
+    linear-gradient(180deg, oklch(0.62 0.08 250), oklch(0.82 0.07 50));
+}
+
+.ofc-sky[data-phase="night"] .ofc-sky__night,
+.ofc-sky[data-phase="dawn"] .ofc-sky__dawn {
+  opacity: 1;
+}
+
+.ofc-clock {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: white;
+}
+
+.ofc-clock__time {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 92px;
+  font-weight: 300;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 4px 30px color-mix(in oklch, black 30%, transparent);
+}
+
+.ofc-clock__time em {
+  font-style: normal;
+  font-size: 24px;
+  font-weight: 500;
+  letter-spacing: 0;
+  opacity: 0.8;
+}
+
+.ofc-clock__sub {
+  font-size: 13px;
+  font-weight: 500;
+  opacity: 0.8;
+}
+
+.ofc-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 100%;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: color-mix(in oklch, var(--background) 80%, transparent);
+  backdrop-filter: blur(20px) saturate(1.6);
+  border: 1px solid color-mix(in oklch, white 30%, transparent);
+  box-shadow: 0 18px 40px -18px color-mix(in oklch, black 50%, transparent);
+}
+
+.ofc-banner__app {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: var(--background);
+  box-shadow: 0 1px 3px color-mix(in oklch, black 18%, transparent);
+  flex-shrink: 0;
+}
+
+.ofc-banner__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ofc-banner__text b {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--text-strong);
+}
+
+.ofc-banner__text em {
+  font-style: normal;
+  font-size: 10.5px;
+  color: var(--text-weak);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ofc-banner__when {
+  align-self: flex-start;
+  font-size: 9.5px;
+  color: var(--text-weaker);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ofilm [class^="ofc-"],
+  .ofilm [class*=" ofc-"] {
+    transition-duration: 0ms !important;
+    animation: none !important;
+  }
+}

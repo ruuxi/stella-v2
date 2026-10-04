@@ -53,9 +53,10 @@ html[data-low-power] .assistant-reply-peek {
    prefers-reduced-motion itself and sleeps when blurred or offscreen, so it
    needs no override here. */
 
-/* Onboarding demo scenes (capabilities chapters, memory recall) */
-html[data-low-power] .oscene__hearts[data-visible] i,
-html[data-low-power] .oscene__cursor[data-click] svg,
+/* Onboarding films (capabilities, self-modification) and memory recall */
+html[data-low-power] .ofilm-thread__flow,
+html[data-low-power] .ofilm-cursor[data-click] svg,
+html[data-low-power] .ofilm .odemo-working__label,
 html[data-low-power] .orecall__scan,
 html[data-low-power] .obc-skeleton {
   animation: none !important;

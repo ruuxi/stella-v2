@@ -646,18 +646,17 @@
       "composerPlaceholder": "Or just ask me something to get started",
       "send": "Send",
       "messages": {
-        "discovery": "Hi, I'm Stella.\n\nI'm not a chatbot. I use this computer to actually get things done for you.\n\nOne quick thing before we start.",
-        "capabilities": "Here's what that looks like day to day.",
+        "capabilities": "नमस्ते, मैं Stella हूँ।\n\nमैं कोई चैटबॉट नहीं हूँ। मैं इस कंप्यूटर का इस्तेमाल करके सचमुच आपके काम निपटाती हूँ, बैकग्राउंड में, जबकि आप अपने काम में लगे रहते हैं।\n\nदेखिए, यह कैसा दिखता है।",
         "theme": "Now, how should I look?",
         "extras": "Almost done. A little housekeeping, then we start.",
-        "readyGeneric": "That's it. I'll get to know you as we go.\n\nWhat do you want to do first?",
-        "readyPending": "That's everything. I'm still writing up what I noticed, so give me a moment, or just dive in.",
-        "readyFailed": "That's everything. I couldn't finish reading your browser this time, but we can start anyway and I'll learn as we go.",
-        "memory": "One more thing that makes me different."
+        "memory": "One more thing that makes me different.",
+        "selfmod": "और क्योंकि मैं आपके कंप्यूटर पर रहती हूँ, मैं खुद को बदल सकती हूँ।",
+        "signin": "अब साइन इन करते हैं। Stella खाता इस्तेमाल करें, या आपके पास पहले से जो Claude या ChatGPT प्लान है, वह।",
+        "quickstart": "बस इतना ही। एक आख़िरी बात, और वह भी वैकल्पिक है: क्विकस्टार्ट।",
+        "quickstartDone": "हो गया। यह रहा जो मैंने सीखा, और कुछ चीज़ें जिनसे हम शुरू कर सकते हैं।",
+        "quickstartFailed": "इस बार मैं आपका ब्राउज़र पूरा नहीं पढ़ पाई। हम फिर भी शुरू कर सकते हैं, और मैं साथ-साथ सीखती जाऊँगी।"
       },
       "replies": {
-        "discoveryAccepted": "Go ahead, take a look.",
-        "discoverySkipped": "Not right now.",
         "capabilitiesDone": "Got it.",
         "capabilitiesSkipped": "Skip the tour.",
         "themeDone": "That one.",
@@ -665,29 +664,15 @@
         "extrasDone": "Done.",
         "extrasSkipped": "Skip for now.",
         "memoryDone": "Nice.",
-        "memorySkipped": "Skip it."
+        "memorySkipped": "Skip it.",
+        "selfmodDone": "बहुत बढ़िया।",
+        "signinDone": "हो गया।",
+        "signinSkipped": "मैं इसे बाद में कर लूँगी।"
       },
       "discovery": {
-        "title": "Give me a head start",
-        "body": "Most assistants start from zero and learn you slowly, chat by chat. Point me at your browser and I'll build a starting memory from it, so I'm useful to you from day one instead of weeks in.",
         "browserLabel": "Your browser",
         "includeDev": "My coding setup",
-        "accept": "Get a head start",
-        "skip": "Not now",
         "hint": "About a minute, in the background.",
-        "settledTitle": "Building your memory from {target}",
-        "settledTitleGeneric": "Building your memory",
-        "settledDesc": "I'll keep going while we finish up.",
-        "settledSkippedTitle": "Skipped for now",
-        "settledSkippedDesc": "I'll build up memory from our conversations instead.",
-        "status": {
-          "idle": "Done",
-          "collecting": "Reading",
-          "synthesizing": "Writing your profile",
-          "saving": "Saving",
-          "done": "Done",
-          "failed": "Didn't finish"
-        },
         "alsoLabel": "Also include",
         "assurance": "A one-time read, kept on this computer. You can see and edit what I keep at any time."
       },
@@ -695,7 +680,7 @@
         "errands": {
           "word": "Errands",
           "title": "Ask once. Consider it handled.",
-          "caption": "I open the site, fill in the form, and finish the job, the same way you would."
+          "caption": "मैं सही जगह ढूँढती हूँ, फ़ॉर्म भरती हूँ और उसे आपके कैलेंडर में जोड़ देती हूँ, ठीक वैसे ही जैसे आप करते।"
         },
         "shopping": {
           "word": "Shopping",
@@ -704,22 +689,22 @@
         },
         "work": {
           "word": "Work",
-          "title": "Real files. Real apps.",
-          "caption": "Spreadsheets, documents, slides: I work inside the real apps on this computer."
+          "title": "असली फ़ाइलें। एक साथ कई काम।",
+          "caption": "मैं इस कंप्यूटर के असली ऐप्स के अंदर काम करती हूँ, और एक साथ एक से ज़्यादा काम चला सकती हूँ।"
         },
         "build": {
           "word": "Build",
           "title": "Say it. I'll build it.",
           "caption": "Apps and websites, made to order. Describe it in plain words and I'll build it, run it, and put it online."
         },
-        "games": {
-          "word": "Games",
-          "title": "Even your games.",
-          "caption": "Want something the game doesn't do? I'll write the mod and install it for you."
-        },
         "settledTitle": "The quick tour",
         "replay": "Replay this demo",
-        "tablist": "Capability demos"
+        "tablist": "Capability demos",
+        "routines": {
+          "word": "रूटीन",
+          "title": "एक बार कहिए। यह रोज़ होगा।",
+          "caption": "कुछ भी शेड्यूल कीजिए और मैं उसे समय पर कर दूँगी, आपके सोते समय भी।"
+        }
       },
       "memory": {
         "titleChatbot": "You know this one",
@@ -782,15 +767,12 @@
         "settledMemory": "Memory"
       },
       "ready": {
-        "pendingLabel": "Still reading",
-        "pendingBody": "I'm writing up what I noticed. Your starters will personalize once that's done, or just start now.",
         "highlightsLabel": "What I picked up",
         "startersLabel": "Try one of these",
         "startersLabelPersonal": "Made for you",
         "notesSummary": "See everything I noted",
         "notesFoot": "You can read or edit this any time in Settings › Memory.",
         "start": "Start chatting",
-        "startAnyway": "Start anyway",
         "hint": "Or type anything below.",
         "generic": {
           "plan": {
@@ -810,6 +792,76 @@
             "prompt": "Keep an eye on a web page for me and tell me when it changes."
           }
         }
+      },
+      "progress": "सेटअप की प्रगति",
+      "selfmod": {
+        "title": "मैं खुद को बदल सकती हूँ",
+        "body": "कोई फ़ीचर कम है, या कुछ अलग तरह से चलाना है? बस कहिए। मैं अपना कोड खुद दोबारा लिखूँगी, आप उसे आज़माइए, और रखना है या नहीं, यह आप तय कीजिए।",
+        "steps": {
+          "ask": {
+            "title": "कहें",
+            "body": "बदलाव को आसान शब्दों में बताइए।"
+          },
+          "preview": {
+            "title": "पूर्वावलोकन",
+            "body": "एक एजेंट उसे बनाता है और लाइव पूर्वावलोकन खोलता है।"
+          },
+          "update": {
+            "title": "अपडेट करें",
+            "body": "लागू करने के लिए एक क्लिक। कभी भी पूर्ववत करें।"
+          }
+        },
+        "hint": "बदलाव इसी कंप्यूटर पर रहते हैं।",
+        "settledTitle": "मैं खुद को बदल सकती हूँ",
+        "settledDesc": "कहें, पूर्वावलोकन देखें, अपडेट करें। कभी भी पूर्ववत करें।"
+      },
+      "signin": {
+        "title": "साइन इन करें",
+        "body": "इनमें से कोई एक काफ़ी है। बाकी बाद में जोड़ सकते हैं।",
+        "options": {
+          "stella": {
+            "title": "Stella खाता",
+            "body": "Google या ईमेल। आपकी चैट आपके फ़ोन पर भी साथ चलती हैं।"
+          },
+          "claude": {
+            "title": "Claude Code",
+            "body": "अपना Claude Pro या Max प्लान इस्तेमाल करें।"
+          },
+          "codex": {
+            "title": "Codex",
+            "body": "अपना ChatGPT Plus या Pro प्लान इस्तेमाल करें।"
+          }
+        },
+        "signIn": "साइन इन करें",
+        "connect": "कनेक्ट करें",
+        "use": "इस्तेमाल करें",
+        "inUse": "इस्तेमाल में",
+        "waiting": "अपने ब्राउज़र में साइन इन पूरा करें, फिर यहाँ लौट आइए।",
+        "error": "कनेक्ट नहीं हो पाया। फिर कोशिश करें?",
+        "fine": "इसे कभी भी सेटिंग्स में बदलें।",
+        "skip": "अभी नहीं",
+        "hint": "शुरू करना मुफ़्त है।",
+        "settledEngine": "{name} इस्तेमाल हो रहा है",
+        "settledStella": "Stella में साइन इन हो गया",
+        "settledSkipped": "अभी साइन इन नहीं है",
+        "settledDesc": "इसे कभी भी सेटिंग्स में बदलें।"
+      },
+      "quickstart": {
+        "eyebrow": "क्विकस्टार्ट",
+        "title": "मुझे एक अच्छी शुरुआत दीजिए",
+        "body": "ज़्यादातर असिस्टेंट शून्य से शुरू करते हैं। मुझे अपना ब्राउज़र दिखाइए, मैं उसे एक बार पढ़कर शुरुआती मेमोरी बना लूँगी, ताकि पहले दिन से आपके काम आ सकूँ।",
+        "run": "क्विकस्टार्ट चलाएँ",
+        "skip": "छोड़ें",
+        "runningTitle": "आपको जान रही हूँ",
+        "runningBody": "लगभग एक मिनट। आप जब चाहें अंदर जाइए, मैं बैकग्राउंड में पूरा कर दूँगी।",
+        "stages": {
+          "read": "आपने जो चुना, उसे पढ़ रही हूँ",
+          "notice": "आपके लिए क्या मायने रखता है, यह समझ रही हूँ",
+          "write": "आपकी शुरुआती मेमोरी लिख रही हूँ"
+        },
+        "continueInBackground": "चैट शुरू करें, बाकी बैकग्राउंड में पूरा हो",
+        "failedTitle": "यह पूरा नहीं हो पाया",
+        "failedBody": "किसी वजह से पढ़ना रुक गया। फिर कोशिश करें, या चैट शुरू करें और मैं साथ-साथ सीखती जाऊँगी।"
       }
     }
   },

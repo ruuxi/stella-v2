@@ -645,18 +645,17 @@
       "composerPlaceholder": "Or just ask me something to get started",
       "send": "Send",
       "messages": {
-        "discovery": "Hi, I'm Stella.\n\nI'm not a chatbot. I use this computer to actually get things done for you.\n\nOne quick thing before we start.",
-        "capabilities": "Here's what that looks like day to day.",
+        "capabilities": "Xin chào, tôi là Stella.\n\nTôi không phải chatbot. Tôi dùng chiếc máy tính này để thực sự hoàn thành công việc cho bạn, chạy ngầm, trong lúc bạn tiếp tục việc của mình.\n\nĐây là cách nó diễn ra.",
         "theme": "Now, how should I look?",
         "extras": "Almost done. A little housekeeping, then we start.",
-        "readyGeneric": "That's it. I'll get to know you as we go.\n\nWhat do you want to do first?",
-        "readyPending": "That's everything. I'm still writing up what I noticed, so give me a moment, or just dive in.",
-        "readyFailed": "That's everything. I couldn't finish reading your browser this time, but we can start anyway and I'll learn as we go.",
-        "memory": "One more thing that makes me different."
+        "memory": "One more thing that makes me different.",
+        "selfmod": "Và vì tôi sống trên máy tính của bạn, tôi có thể tự thay đổi chính mình.",
+        "signin": "Tiếp theo, hãy đăng nhập. Dùng tài khoản Stella, hoặc gói Claude hay ChatGPT mà bạn đã có.",
+        "quickstart": "Vậy là xong. Còn một việc cuối, và không bắt buộc: khởi động nhanh.",
+        "quickstartDone": "Xong rồi. Đây là những gì tôi đã nắm được, và vài việc chúng ta có thể bắt đầu.",
+        "quickstartFailed": "Lần này tôi không đọc xong trình duyệt của bạn. Chúng ta vẫn có thể bắt đầu, và tôi sẽ học dần."
       },
       "replies": {
-        "discoveryAccepted": "Go ahead, take a look.",
-        "discoverySkipped": "Not right now.",
         "capabilitiesDone": "Got it.",
         "capabilitiesSkipped": "Skip the tour.",
         "themeDone": "That one.",
@@ -664,29 +663,15 @@
         "extrasDone": "Done.",
         "extrasSkipped": "Skip for now.",
         "memoryDone": "Nice.",
-        "memorySkipped": "Skip it."
+        "memorySkipped": "Skip it.",
+        "selfmodDone": "Tuyệt thật.",
+        "signinDone": "Xong.",
+        "signinSkipped": "Tôi sẽ làm sau."
       },
       "discovery": {
-        "title": "Give me a head start",
-        "body": "Most assistants start from zero and learn you slowly, chat by chat. Point me at your browser and I'll build a starting memory from it, so I'm useful to you from day one instead of weeks in.",
         "browserLabel": "Your browser",
         "includeDev": "My coding setup",
-        "accept": "Get a head start",
-        "skip": "Not now",
         "hint": "About a minute, in the background.",
-        "settledTitle": "Building your memory from {target}",
-        "settledTitleGeneric": "Building your memory",
-        "settledDesc": "I'll keep going while we finish up.",
-        "settledSkippedTitle": "Skipped for now",
-        "settledSkippedDesc": "I'll build up memory from our conversations instead.",
-        "status": {
-          "idle": "Done",
-          "collecting": "Reading",
-          "synthesizing": "Writing your profile",
-          "saving": "Saving",
-          "done": "Done",
-          "failed": "Didn't finish"
-        },
         "alsoLabel": "Also include",
         "assurance": "A one-time read, kept on this computer. You can see and edit what I keep at any time."
       },
@@ -694,7 +679,7 @@
         "errands": {
           "word": "Errands",
           "title": "Ask once. Consider it handled.",
-          "caption": "I open the site, fill in the form, and finish the job, the same way you would."
+          "caption": "Tôi tìm đúng nơi, điền biểu mẫu và đưa vào lịch của bạn, giống như cách bạn vẫn làm."
         },
         "shopping": {
           "word": "Shopping",
@@ -703,22 +688,22 @@
         },
         "work": {
           "word": "Work",
-          "title": "Real files. Real apps.",
-          "caption": "Spreadsheets, documents, slides: I work inside the real apps on this computer."
+          "title": "Tệp thật. Nhiều việc cùng lúc.",
+          "caption": "Tôi làm việc bên trong các ứng dụng thật trên máy tính này, và có thể chạy nhiều việc cùng lúc."
         },
         "build": {
           "word": "Build",
           "title": "Say it. I'll build it.",
           "caption": "Apps and websites, made to order. Describe it in plain words and I'll build it, run it, and put it online."
         },
-        "games": {
-          "word": "Games",
-          "title": "Even your games.",
-          "caption": "Want something the game doesn't do? I'll write the mod and install it for you."
-        },
         "settledTitle": "The quick tour",
         "replay": "Replay this demo",
-        "tablist": "Capability demos"
+        "tablist": "Capability demos",
+        "routines": {
+          "word": "Tác vụ định kỳ",
+          "title": "Nhờ một lần. Việc diễn ra mỗi ngày.",
+          "caption": "Hẹn giờ bất cứ việc gì, tôi sẽ làm đúng giờ, kể cả khi bạn đang ngủ."
+        }
       },
       "memory": {
         "titleChatbot": "You know this one",
@@ -781,15 +766,12 @@
         "settledMemory": "Memory"
       },
       "ready": {
-        "pendingLabel": "Still reading",
-        "pendingBody": "I'm writing up what I noticed. Your starters will personalize once that's done, or just start now.",
         "highlightsLabel": "What I picked up",
         "startersLabel": "Try one of these",
         "startersLabelPersonal": "Made for you",
         "notesSummary": "See everything I noted",
         "notesFoot": "You can read or edit this any time in Settings › Memory.",
         "start": "Start chatting",
-        "startAnyway": "Start anyway",
         "hint": "Or type anything below.",
         "generic": {
           "plan": {
@@ -809,6 +791,76 @@
             "prompt": "Keep an eye on a web page for me and tell me when it changes."
           }
         }
+      },
+      "progress": "Tiến trình thiết lập",
+      "selfmod": {
+        "title": "Tôi có thể tự thay đổi mình",
+        "body": "Thiếu một tính năng, hay muốn thứ gì đó hoạt động khác đi? Cứ nói. Tôi sẽ viết lại mã của chính mình, để bạn dùng thử, và bạn quyết định có giữ lại hay không.",
+        "steps": {
+          "ask": {
+            "title": "Nhờ",
+            "body": "Mô tả thay đổi bằng lời đơn giản."
+          },
+          "preview": {
+            "title": "Xem trước",
+            "body": "Một tác tử xây dựng nó và mở bản xem trước trực tiếp."
+          },
+          "update": {
+            "title": "Cập nhật",
+            "body": "Một cú nhấp để áp dụng. Hoàn tác bất cứ lúc nào."
+          }
+        },
+        "hint": "Thay đổi chỉ nằm trên máy tính này.",
+        "settledTitle": "Tôi có thể tự thay đổi mình",
+        "settledDesc": "Nhờ, xem trước, cập nhật. Hoàn tác bất cứ lúc nào."
+      },
+      "signin": {
+        "title": "Đăng nhập",
+        "body": "Chỉ cần một trong số này là đủ. Bạn có thể thêm các cái khác sau.",
+        "options": {
+          "stella": {
+            "title": "Tài khoản Stella",
+            "body": "Google hoặc email. Các cuộc trò chuyện của bạn theo bạn sang điện thoại."
+          },
+          "claude": {
+            "title": "Claude Code",
+            "body": "Dùng gói Claude Pro hoặc Max của bạn."
+          },
+          "codex": {
+            "title": "Codex",
+            "body": "Dùng gói ChatGPT Plus hoặc Pro của bạn."
+          }
+        },
+        "signIn": "Đăng nhập",
+        "connect": "Kết nối",
+        "use": "Dùng",
+        "inUse": "Đang dùng",
+        "waiting": "Hãy đăng nhập xong trong trình duyệt, rồi quay lại đây.",
+        "error": "Chưa kết nối được. Thử lại nhé?",
+        "fine": "Bạn có thể đổi bất cứ lúc nào trong Cài đặt.",
+        "skip": "Để sau",
+        "hint": "Bắt đầu miễn phí.",
+        "settledEngine": "Đang dùng {name}",
+        "settledStella": "Đã đăng nhập vào Stella",
+        "settledSkipped": "Chưa đăng nhập",
+        "settledDesc": "Đổi bất cứ lúc nào trong Cài đặt."
+      },
+      "quickstart": {
+        "eyebrow": "Khởi động nhanh",
+        "title": "Cho tôi một khởi đầu thuận lợi",
+        "body": "Hầu hết trợ lý đều bắt đầu từ con số không. Hãy chỉ tôi đến trình duyệt của bạn, tôi sẽ đọc một lần để tạo bộ nhớ ban đầu, để tôi hữu ích ngay từ ngày đầu.",
+        "run": "Chạy khởi động nhanh",
+        "skip": "Bỏ qua",
+        "runningTitle": "Đang làm quen với bạn",
+        "runningBody": "Khoảng một phút. Cứ vào bất cứ lúc nào, tôi sẽ hoàn tất ngầm.",
+        "stages": {
+          "read": "Đang đọc những gì bạn đã chọn",
+          "notice": "Đang nhận ra điều quan trọng với bạn",
+          "write": "Đang viết bộ nhớ ban đầu của bạn"
+        },
+        "continueInBackground": "Bắt đầu trò chuyện, hoàn tất ngầm",
+        "failedTitle": "Chưa hoàn tất",
+        "failedBody": "Có điều gì đó đã làm gián đoạn việc đọc. Hãy thử lại, hoặc bắt đầu trò chuyện và tôi sẽ học dần."
       }
     }
   },

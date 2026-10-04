@@ -647,18 +647,17 @@
       "composerPlaceholder": "Or just ask me something to get started",
       "send": "Send",
       "messages": {
-        "discovery": "Hi, I'm Stella.\n\nI'm not a chatbot. I use this computer to actually get things done for you.\n\nOne quick thing before we start.",
-        "capabilities": "Here's what that looks like day to day.",
+        "capabilities": "Bună, sunt Stella.\n\nNu sunt un chatbot. Folosesc acest computer ca să rezolv lucruri pentru tine, pe bune, în fundal, în timp ce tu mergi mai departe.\n\nIată cum arată asta.",
         "theme": "Now, how should I look?",
         "extras": "Almost done. A little housekeeping, then we start.",
-        "readyGeneric": "That's it. I'll get to know you as we go.\n\nWhat do you want to do first?",
-        "readyPending": "That's everything. I'm still writing up what I noticed, so give me a moment, or just dive in.",
-        "readyFailed": "That's everything. I couldn't finish reading your browser this time, but we can start anyway and I'll learn as we go.",
-        "memory": "One more thing that makes me different."
+        "memory": "One more thing that makes me different.",
+        "selfmod": "Și, fiindcă locuiesc pe computerul tău, mă pot schimba singură.",
+        "signin": "Acum să te conectăm. Folosește un cont Stella sau abonamentul Claude ori ChatGPT pe care îl ai deja.",
+        "quickstart": "Asta e tot. Încă un singur lucru, opțional: un start rapid.",
+        "quickstartDone": "Gata. Iată ce am aflat și câteva lucruri cu care putem începe.",
+        "quickstartFailed": "De data asta nu am reușit să-ți citesc tot browserul. Putem începe oricum, iar eu învăț pe parcurs."
       },
       "replies": {
-        "discoveryAccepted": "Go ahead, take a look.",
-        "discoverySkipped": "Not right now.",
         "capabilitiesDone": "Got it.",
         "capabilitiesSkipped": "Skip the tour.",
         "themeDone": "That one.",
@@ -666,29 +665,15 @@
         "extrasDone": "Done.",
         "extrasSkipped": "Skip for now.",
         "memoryDone": "Nice.",
-        "memorySkipped": "Skip it."
+        "memorySkipped": "Skip it.",
+        "selfmodDone": "Foarte tare.",
+        "signinDone": "Gata.",
+        "signinSkipped": "O fac mai târziu."
       },
       "discovery": {
-        "title": "Give me a head start",
-        "body": "Most assistants start from zero and learn you slowly, chat by chat. Point me at your browser and I'll build a starting memory from it, so I'm useful to you from day one instead of weeks in.",
         "browserLabel": "Your browser",
         "includeDev": "My coding setup",
-        "accept": "Get a head start",
-        "skip": "Not now",
         "hint": "About a minute, in the background.",
-        "settledTitle": "Building your memory from {target}",
-        "settledTitleGeneric": "Building your memory",
-        "settledDesc": "I'll keep going while we finish up.",
-        "settledSkippedTitle": "Skipped for now",
-        "settledSkippedDesc": "I'll build up memory from our conversations instead.",
-        "status": {
-          "idle": "Done",
-          "collecting": "Reading",
-          "synthesizing": "Writing your profile",
-          "saving": "Saving",
-          "done": "Done",
-          "failed": "Didn't finish"
-        },
         "alsoLabel": "Also include",
         "assurance": "A one-time read, kept on this computer. You can see and edit what I keep at any time."
       },
@@ -696,7 +681,7 @@
         "errands": {
           "word": "Errands",
           "title": "Ask once. Consider it handled.",
-          "caption": "I open the site, fill in the form, and finish the job, the same way you would."
+          "caption": "Găsesc locul potrivit, completez formularul și îl pun în calendar, exact cum ai face tu."
         },
         "shopping": {
           "word": "Shopping",
@@ -705,22 +690,22 @@
         },
         "work": {
           "word": "Work",
-          "title": "Real files. Real apps.",
-          "caption": "Spreadsheets, documents, slides: I work inside the real apps on this computer."
+          "title": "Fișiere reale. Mai multe sarcini deodată.",
+          "caption": "Lucrez în aplicațiile reale de pe acest computer și pot rula mai multe sarcini în același timp."
         },
         "build": {
           "word": "Build",
           "title": "Say it. I'll build it.",
           "caption": "Apps and websites, made to order. Describe it in plain words and I'll build it, run it, and put it online."
         },
-        "games": {
-          "word": "Games",
-          "title": "Even your games.",
-          "caption": "Want something the game doesn't do? I'll write the mod and install it for you."
-        },
         "settledTitle": "The quick tour",
         "replay": "Replay this demo",
-        "tablist": "Capability demos"
+        "tablist": "Capability demos",
+        "routines": {
+          "word": "Rutine",
+          "title": "Cere o dată. Se întâmplă în fiecare zi.",
+          "caption": "Programează orice și o fac la timp, chiar și în timp ce dormi."
+        }
       },
       "memory": {
         "titleChatbot": "You know this one",
@@ -783,15 +768,12 @@
         "settledMemory": "Memory"
       },
       "ready": {
-        "pendingLabel": "Still reading",
-        "pendingBody": "I'm writing up what I noticed. Your starters will personalize once that's done, or just start now.",
         "highlightsLabel": "What I picked up",
         "startersLabel": "Try one of these",
         "startersLabelPersonal": "Made for you",
         "notesSummary": "See everything I noted",
         "notesFoot": "You can read or edit this any time in Settings › Memory.",
         "start": "Start chatting",
-        "startAnyway": "Start anyway",
         "hint": "Or type anything below.",
         "generic": {
           "plan": {
@@ -811,6 +793,76 @@
             "prompt": "Keep an eye on a web page for me and tell me when it changes."
           }
         }
+      },
+      "progress": "Progresul configurării",
+      "selfmod": {
+        "title": "Mă pot schimba singură",
+        "body": "Îți lipsește o funcție sau vrei ca ceva să funcționeze altfel? Cere-mi. Îmi rescriu propriul cod, te las să-l încerci, iar tu decizi dacă îl păstrezi.",
+        "steps": {
+          "ask": {
+            "title": "Cere",
+            "body": "Descrie schimbarea cu cuvinte simple."
+          },
+          "preview": {
+            "title": "Previzualizează",
+            "body": "Un agent o construiește și deschide o previzualizare live."
+          },
+          "update": {
+            "title": "Actualizează",
+            "body": "Un clic pentru a o aplica. Poți anula oricând."
+          }
+        },
+        "hint": "Modificările rămân pe acest computer.",
+        "settledTitle": "Mă pot schimba singură",
+        "settledDesc": "Cere, previzualizează, actualizează. Poți anula oricând."
+      },
+      "signin": {
+        "title": "Conectează-te",
+        "body": "Oricare dintre acestea este de ajuns. Le poți adăuga pe celelalte mai târziu.",
+        "options": {
+          "stella": {
+            "title": "Cont Stella",
+            "body": "Google sau e-mail. Conversațiile tale te urmează pe telefon."
+          },
+          "claude": {
+            "title": "Claude Code",
+            "body": "Folosește abonamentul tău Claude Pro sau Max."
+          },
+          "codex": {
+            "title": "Codex",
+            "body": "Folosește abonamentul tău ChatGPT Plus sau Pro."
+          }
+        },
+        "signIn": "Conectează-te",
+        "connect": "Conectează",
+        "use": "Folosește",
+        "inUse": "În uz",
+        "waiting": "Termină autentificarea în browser, apoi revino aici.",
+        "error": "Nu s-a conectat. Încerci din nou?",
+        "fine": "Schimbă asta oricând din Setări.",
+        "skip": "Nu acum",
+        "hint": "Gratuit la început.",
+        "settledEngine": "Folosești {name}",
+        "settledStella": "Conectat la Stella",
+        "settledSkipped": "Încă neconectat",
+        "settledDesc": "Schimbă oricând din Setări."
+      },
+      "quickstart": {
+        "eyebrow": "Start rapid",
+        "title": "Dă-mi un start bun",
+        "body": "Cei mai mulți asistenți pornesc de la zero. Arată-mi browserul tău și îl citesc o singură dată ca să construiesc o memorie de început, ca să-ți fiu utilă din prima zi.",
+        "run": "Rulează start rapid",
+        "skip": "Omite",
+        "runningTitle": "Te cunosc mai bine",
+        "runningBody": "Aproximativ un minut. Intră când vrei, iar eu termin în fundal.",
+        "stages": {
+          "read": "Citesc ce ai ales",
+          "notice": "Observ ce contează pentru tine",
+          "write": "Scriu memoria ta de început"
+        },
+        "continueInBackground": "Începe să vorbești, termin în fundal",
+        "failedTitle": "Nu s-a terminat",
+        "failedBody": "Ceva a întrerupt citirea. Încearcă din nou sau începe să vorbești, iar eu învăț pe parcurs."
       }
     }
   },

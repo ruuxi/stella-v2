@@ -648,18 +648,17 @@
       "composerPlaceholder": "Or just ask me something to get started",
       "send": "Send",
       "messages": {
-        "discovery": "Hi, I'm Stella.\n\nI'm not a chatbot. I use this computer to actually get things done for you.\n\nOne quick thing before we start.",
-        "capabilities": "Here's what that looks like day to day.",
+        "capabilities": "Привет, я Stella.\n\nЯ не чат-бот. Я использую этот компьютер, чтобы на самом деле делать дела за вас, в фоновом режиме, пока вы занимаетесь своими.\n\nВот как это выглядит.",
         "theme": "Now, how should I look?",
         "extras": "Almost done. A little housekeeping, then we start.",
-        "readyGeneric": "That's it. I'll get to know you as we go.\n\nWhat do you want to do first?",
-        "readyPending": "That's everything. I'm still writing up what I noticed, so give me a moment, or just dive in.",
-        "readyFailed": "That's everything. I couldn't finish reading your browser this time, but we can start anyway and I'll learn as we go.",
-        "memory": "One more thing that makes me different."
+        "memory": "One more thing that makes me different.",
+        "selfmod": "А поскольку я живу на вашем компьютере, я могу менять саму себя.",
+        "signin": "Теперь давайте войдём в аккаунт. Используйте аккаунт Stella или подписку Claude либо ChatGPT, которая у вас уже есть.",
+        "quickstart": "Это всё. Остался один шаг, необязательный: быстрый старт.",
+        "quickstartDone": "Готово. Вот что я узнала, и несколько дел, с которых можно начать.",
+        "quickstartFailed": "На этот раз я не смогла дочитать ваш браузер. Мы можем начать и так, а я буду учиться по ходу дела."
       },
       "replies": {
-        "discoveryAccepted": "Go ahead, take a look.",
-        "discoverySkipped": "Not right now.",
         "capabilitiesDone": "Got it.",
         "capabilitiesSkipped": "Skip the tour.",
         "themeDone": "That one.",
@@ -667,29 +666,15 @@
         "extrasDone": "Done.",
         "extrasSkipped": "Skip for now.",
         "memoryDone": "Nice.",
-        "memorySkipped": "Skip it."
+        "memorySkipped": "Skip it.",
+        "selfmodDone": "Очень круто.",
+        "signinDone": "Готово.",
+        "signinSkipped": "Сделаю позже."
       },
       "discovery": {
-        "title": "Give me a head start",
-        "body": "Most assistants start from zero and learn you slowly, chat by chat. Point me at your browser and I'll build a starting memory from it, so I'm useful to you from day one instead of weeks in.",
         "browserLabel": "Your browser",
         "includeDev": "My coding setup",
-        "accept": "Get a head start",
-        "skip": "Not now",
         "hint": "About a minute, in the background.",
-        "settledTitle": "Building your memory from {target}",
-        "settledTitleGeneric": "Building your memory",
-        "settledDesc": "I'll keep going while we finish up.",
-        "settledSkippedTitle": "Skipped for now",
-        "settledSkippedDesc": "I'll build up memory from our conversations instead.",
-        "status": {
-          "idle": "Done",
-          "collecting": "Reading",
-          "synthesizing": "Writing your profile",
-          "saving": "Saving",
-          "done": "Done",
-          "failed": "Didn't finish"
-        },
         "alsoLabel": "Also include",
         "assurance": "A one-time read, kept on this computer. You can see and edit what I keep at any time."
       },
@@ -697,7 +682,7 @@
         "errands": {
           "word": "Errands",
           "title": "Ask once. Consider it handled.",
-          "caption": "I open the site, fill in the form, and finish the job, the same way you would."
+          "caption": "Я нахожу нужное место, заполняю форму и добавляю в календарь, точно так же, как сделали бы вы."
         },
         "shopping": {
           "word": "Shopping",
@@ -706,22 +691,22 @@
         },
         "work": {
           "word": "Work",
-          "title": "Real files. Real apps.",
-          "caption": "Spreadsheets, documents, slides: I work inside the real apps on this computer."
+          "title": "Настоящие файлы. Несколько задач сразу.",
+          "caption": "Я работаю в настоящих приложениях на этом компьютере и могу выполнять больше одной задачи одновременно."
         },
         "build": {
           "word": "Build",
           "title": "Say it. I'll build it.",
           "caption": "Apps and websites, made to order. Describe it in plain words and I'll build it, run it, and put it online."
         },
-        "games": {
-          "word": "Games",
-          "title": "Even your games.",
-          "caption": "Want something the game doesn't do? I'll write the mod and install it for you."
-        },
         "settledTitle": "The quick tour",
         "replay": "Replay this demo",
-        "tablist": "Capability demos"
+        "tablist": "Capability demos",
+        "routines": {
+          "word": "Рутины",
+          "title": "Попросите один раз. Это будет происходить каждый день.",
+          "caption": "Запланируйте что угодно, и я сделаю это вовремя, даже пока вы спите."
+        }
       },
       "memory": {
         "titleChatbot": "You know this one",
@@ -784,15 +769,12 @@
         "settledMemory": "Memory"
       },
       "ready": {
-        "pendingLabel": "Still reading",
-        "pendingBody": "I'm writing up what I noticed. Your starters will personalize once that's done, or just start now.",
         "highlightsLabel": "What I picked up",
         "startersLabel": "Try one of these",
         "startersLabelPersonal": "Made for you",
         "notesSummary": "See everything I noted",
         "notesFoot": "You can read or edit this any time in Settings › Memory.",
         "start": "Start chatting",
-        "startAnyway": "Start anyway",
         "hint": "Or type anything below.",
         "generic": {
           "plan": {
@@ -812,6 +794,76 @@
             "prompt": "Keep an eye on a web page for me and tell me when it changes."
           }
         }
+      },
+      "progress": "Ход настройки",
+      "selfmod": {
+        "title": "Я могу менять саму себя",
+        "body": "Не хватает функции или хочется, чтобы что-то работало иначе? Просто попросите. Я перепишу собственный код, дам вам его попробовать, а вы решите, оставить ли изменение.",
+        "steps": {
+          "ask": {
+            "title": "Попросите",
+            "body": "Опишите изменение простыми словами."
+          },
+          "preview": {
+            "title": "Предпросмотр",
+            "body": "Агент создаст его и откроет живой предпросмотр."
+          },
+          "update": {
+            "title": "Обновить",
+            "body": "Один клик, чтобы применить. Отменить можно в любой момент."
+          }
+        },
+        "hint": "Изменения остаются на этом компьютере.",
+        "settledTitle": "Я могу менять саму себя",
+        "settledDesc": "Попросите, посмотрите, обновите. Отменить можно в любой момент."
+      },
+      "signin": {
+        "title": "Вход",
+        "body": "Достаточно любого из вариантов. Остальные можно добавить позже.",
+        "options": {
+          "stella": {
+            "title": "Аккаунт Stella",
+            "body": "Google или почта. Ваши чаты будут и на телефоне."
+          },
+          "claude": {
+            "title": "Claude Code",
+            "body": "Используйте подписку Claude Pro или Max."
+          },
+          "codex": {
+            "title": "Codex",
+            "body": "Используйте подписку ChatGPT Plus или Pro."
+          }
+        },
+        "signIn": "Войти",
+        "connect": "Подключить",
+        "use": "Использовать",
+        "inUse": "Используется",
+        "waiting": "Завершите вход в браузере и возвращайтесь сюда.",
+        "error": "Подключиться не удалось. Повторить?",
+        "fine": "Это можно изменить в любой момент в Настройках.",
+        "skip": "Не сейчас",
+        "hint": "Начать можно бесплатно.",
+        "settledEngine": "Используется {name}",
+        "settledStella": "Вход в Stella выполнен",
+        "settledSkipped": "Вход ещё не выполнен",
+        "settledDesc": "Это можно изменить в любой момент в Настройках."
+      },
+      "quickstart": {
+        "eyebrow": "Быстрый старт",
+        "title": "Помогите мне начать",
+        "body": "Большинство ассистентов начинают с нуля. Укажите мне свой браузер, и я прочитаю его один раз, чтобы собрать начальную память и быть полезной с первого дня.",
+        "run": "Запустить быстрый старт",
+        "skip": "Пропустить",
+        "runningTitle": "Знакомлюсь с вами",
+        "runningBody": "Около минуты. Можете заходить, когда захотите, а я закончу в фоновом режиме.",
+        "stages": {
+          "read": "Читаю то, что вы выбрали",
+          "notice": "Замечаю, что для вас важно",
+          "write": "Записываю вашу начальную память"
+        },
+        "continueInBackground": "Начать чат, закончу в фоне",
+        "failedTitle": "Не получилось",
+        "failedBody": "Что-то прервало чтение. Повторите попытку или начните чат, а я буду учиться по ходу дела."
       }
     }
   },

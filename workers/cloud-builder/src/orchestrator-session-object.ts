@@ -117,6 +117,7 @@ import {
   SEND_INPUT_TOOL_DESCRIPTOR,
   SEND_INPUT_TOOL_REPLAY,
   SPAWN_AGENT_TOOL_DESCRIPTOR,
+  parseSpawnDestination,
 } from "@stella/runtime/kernel/tools/defs/agent-orchestration-def.js";
 import type { TSchema } from "@sinclair/typebox";
 import { guardedModelFetch } from "./guarded-model-fetch.js";
@@ -191,6 +192,13 @@ import { buildCloudSkillsBlock } from "./cloud-skills.js";
 import { resolveCloudSpawnExecution } from "./cloud-spawn-model.js";
 import { sha256Hex } from "./hash.js";
 import { worldName } from "./workspace.js";
+import {
+  cancelDeviceAgent,
+  continueDeviceAgent,
+  readDeviceAgent,
+  spawnDeviceAgent,
+  type DeviceAgentCaller,
+} from "./device-agent-tools.js";
 import {
   agentStatusResult as sharedAgentStatusResult,
   commitCloudAgentToolOutcome as commitSharedCloudAgentToolOutcome,
@@ -9479,6 +9487,12 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         purpose,
         toolCallId,
       });
+    const deviceCaller: DeviceAgentCaller = {
+      ownerInternal: toolContext.ownerInternal,
+      ownerGeneration: turn.ownerGeneration,
+      conversationId: turn.conversationId,
+      parentTurnId: turn.turnId,
+    };
 
     /**
      * Dispatch one agent attempt straight to its BuildSession. Admission is
@@ -9555,8 +9569,10 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             description: string;
             prompt: string;
             model?: string;
+            destination?: string;
           };
           const model = args.model?.trim();
+          const destination = parseSpawnDestination(args.destination);
           // Parsed before the replay read so an invalid override fails the
           // same way every time, without consulting the ledger.
           const execution = resolveCloudSpawnExecution(model, turn.execution);
@@ -9564,6 +9580,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             description: args.description,
             prompt: args.prompt,
             model: model && model !== "default" ? model : null,
+            device: destination.kind === "device" ? destination.deviceId : null,
           });
           let outcome = await this.readCloudAgentToolOutcome(
             turn,
@@ -9571,6 +9588,21 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             "spawn_agent",
             fingerprint,
           );
+          if (!outcome && destination.kind === "device") {
+            const admitted = await spawnDeviceAgent(deviceCaller, {
+              clientMsgId: await toolScopedId("turn", toolCallId),
+              targetDeviceId: destination.deviceId,
+              description: args.description,
+              prompt: args.prompt,
+            });
+            outcome = await this.commitCloudAgentToolOutcome(
+              turn,
+              toolCallId,
+              "spawn_agent",
+              fingerprint,
+              admitted,
+            );
+          }
           if (!outcome) {
             const admitted = await dispatchAgentTurn(
               {
@@ -9597,7 +9629,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             content: [
               {
                 type: "text",
-                text: `Spawned agent (thread_id: ${control.threadId}, status: running, description: "${args.description}"). It is running in the background and has NOT finished — an [Agent completed] message will arrive on this conversation with its report. Check on it with agent_status, steer it with send_input, or stop it with pause_agent.`,
+                text: `Spawned agent (thread_id: ${control.threadId}, status: running, description: "${args.description}"${control.executorDeviceId ? `, device_id: ${control.executorDeviceId}` : ""}). It is running in the background and has NOT finished — an [Agent completed] message will arrive on this conversation with its report. Check on it with agent_status, steer it with send_input, or stop it with pause_agent.`,
               },
             ],
             details: {
@@ -9606,6 +9638,9 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
               description: args.description,
               attempt_generation: control.attemptGeneration,
               thread_updated_at: control.threadUpdatedAt,
+              ...(control.executorDeviceId
+                ? { device_id: control.executorDeviceId }
+                : {}),
             },
           };
         },
@@ -9638,7 +9673,13 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             );
             let admitted: CloudAgentControlReceipt;
             let disposition: "steered" | "resumed";
-            if (isCloudAgentControlActive(prior.status)) {
+            if (prior.executorDeviceId) {
+              admitted = await continueDeviceAgent(deviceCaller, prior, {
+                controlRequestId: await toolScopedId("turn", toolCallId),
+                message: args.message,
+              });
+              disposition = "resumed";
+            } else if (isCloudAgentControlActive(prior.status)) {
               const steered = await steerCloudAgent({
                 env: this.env,
                 threadId: prior.threadId,
@@ -9746,6 +9787,11 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
               `Thread not found in this conversation: ${threadId}. agent_status only sees agents spawned from this conversation.`,
             );
           }
+          if (control.executorDeviceId) {
+            control = await this.rememberCloudAgentControlReceipt(
+              await readDeviceAgent(deviceCaller, control),
+            );
+          }
           return agentStatusResult(control);
         },
       },
@@ -9785,6 +9831,22 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           let finalControl = control;
           if (!isCloudAgentControlActive(control.status)) {
             disposition = "already_terminal";
+          } else if (control.executorDeviceId) {
+            disposition = "paused";
+            finalControl = await this.rememberCloudAgentControlReceipt(
+              await cancelDeviceAgent(
+                deviceCaller,
+                control,
+                await sha256Hex(
+                  JSON.stringify([
+                    "pause_agent",
+                    turn.turnId,
+                    control.threadId,
+                    toolCallId,
+                  ]),
+                ),
+              ),
+            );
           } else {
             if (!control.turnId) {
               throw new Error(

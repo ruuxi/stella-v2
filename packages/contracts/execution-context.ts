@@ -117,7 +117,7 @@ export const renderExecutionDevices = (
     ...(!snapshot.devicesKnown
       ? ["The connected device list is currently unavailable."]
       : []),
-    "This list describes destinations; it does not grant tools access to another device or move running agents.",
+    'To run an agent on one of these, pass its device_id (or "cloud") as spawn_agent\'s destination. Your own tools still run where you are, and running agents stay where they started.',
   ].join("\n");
 
 export const renderExecutionDestination = (

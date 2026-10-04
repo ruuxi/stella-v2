@@ -39,6 +39,11 @@ export type AgentCapabilities = {
   injectsUserProfile?: boolean;
   /** Inject runtime reminder hidden messages. */
   injectsRuntimeReminders?: boolean;
+  /**
+   * Inject the connected-devices list and this run's own execution
+   * destination, so the agent can place work with `spawn_agent`.
+   */
+  injectsExecutionContext?: boolean;
   /** Inject the skill catalog block into the dynamic context. */
   injectsSkillCatalog?: boolean;
   /** Record a durable thread summary on successful run completion. */
@@ -85,6 +90,7 @@ const BUILTIN_AGENT_DEFINITIONS = [
       injectsCoreMemory: true,
       injectsUserProfile: true,
       injectsRuntimeReminders: true,
+      injectsExecutionContext: true,
       injectsSkillCatalog: true,
     },
   },
@@ -105,6 +111,7 @@ const BUILTIN_AGENT_DEFINITIONS = [
       order: 1,
     },
     capabilities: {
+      injectsExecutionContext: true,
       injectsSkillCatalog: true,
       recordsThreadSummary: true,
     },

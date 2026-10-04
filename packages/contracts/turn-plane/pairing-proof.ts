@@ -401,6 +401,7 @@ export const canonicalDispatchPayloadJson = (
         }
       : {}),
     ...(payload.description ? { description: payload.description } : {}),
+    ...(payload.threadId ? { threadId: payload.threadId } : {}),
   });
 
 /** Lowercase hex sha256 of `canonicalDispatchPayloadJson`. */

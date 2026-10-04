@@ -140,6 +140,12 @@ export type DispatchPayload = {
   execution?: CloudExecutionSelection | null;
   /** Agent dispatches only. */
   description?: string;
+  /**
+   * Agent dispatches only: the owner's agent thread this attempt belongs to.
+   * The device keeps one local thread per remote thread, so a follow-up
+   * continues with its history.
+   */
+  threadId?: string;
 };
 
 export type DispatchSubmitRequest = {

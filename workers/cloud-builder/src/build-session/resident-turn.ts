@@ -18,6 +18,13 @@ import {
 import { AgentTurnJournal } from "../agent-turn-journal.js";
 import { createBuildSessionAgentControl } from "../build-session-agent-control.js";
 import {
+  createExecutionContextSnapshot,
+  renderExecutionDestination,
+  renderExecutionDevices,
+} from "@stella/contracts/execution-context";
+import type { DeviceDestination } from "@stella/contracts/turn-plane/placement";
+import { MAX_CLOUD_AGENT_DEPTH } from "../cloud-agent-dispatch.js";
+import {
   createCloudCodeAgentTool,
   type CloudHistoryClient,
 } from "../cloud-code-tool.js";
@@ -154,6 +161,29 @@ export type ResidentTurnHost = Pick<
  * lives only in the daemon process the archive below is about to kill, and
  * the interrupted result says exactly that much: the effect is unknown.
  */
+
+/**
+ * The owner's devices as spawn destinations for a cloud agent that can start
+ * agents of its own, and its own place (the cloud). Failed discovery is
+ * advisory: the list says it is unavailable.
+ */
+const cloudAgentExecutionContext = async (
+  env: Pick<Cloudflare.Env, "OWNER_GATES">,
+  ownerId: string,
+): Promise<string> => {
+  let devices: DeviceDestination[] | null = null;
+  try {
+    devices = (await env.OWNER_GATES.getByName(ownerId).devices()).devices;
+  } catch {
+    devices = null;
+  }
+  const snapshot = createExecutionContextSnapshot({
+    devices,
+    destination: { kind: "cloud" },
+  });
+  return `${renderExecutionDevices(snapshot)}\n\n${renderExecutionDestination(snapshot)}`;
+};
+
 export const repairedResidentJournal = async (
   host: ResidentTurnHost,
   turn: TurnRequest,
@@ -953,6 +983,14 @@ export const runResidentAgentTurn = async (
       workspacePrompt: {
         office: false,
         history: Boolean(jsSandbox && history),
+        ...(turn.agentDepth < MAX_CLOUD_AGENT_DEPTH
+          ? {
+              executionContext: await cloudAgentExecutionContext(
+                host.env,
+                turn.ownerId,
+              ),
+            }
+          : {}),
       },
       now: () => Date.now(),
       onAgentStarted: (abort) => {

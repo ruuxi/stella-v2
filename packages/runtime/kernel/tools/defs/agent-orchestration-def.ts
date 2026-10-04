@@ -1,6 +1,20 @@
 export const SPAWN_AGENT_MODEL_DESCRIPTION =
   "Optional model/engine override. Omit `model` to use the currently configured model and engine. Explicit selectors: `stella/default` for Stella; `openrouter/<provider>/<model>` for a provider model; `codex` for Codex with its configured model or `codex/gpt-6-sol` for GPT-6 Sol; `claude-code` for Claude Code with its configured model, `claude-code/fable` for Fable, or `claude-code/opus` for Opus. The listed Stella, Codex, and Claude Code selectors accept `:low`, `:medium`, `:high`, or `:xhigh` to override reasoning; omit the suffix to use the configured default.";
 
+/** Where a `spawn_agent` call asked its agent to run. */
+export type SpawnDestination =
+  | { kind: "here" }
+  | { kind: "cloud" }
+  | { kind: "device"; deviceId: string };
+
+/** Blank means where the caller runs; any other value names a device. */
+export const parseSpawnDestination = (value: unknown): SpawnDestination => {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (!text) return { kind: "here" };
+  if (text.toLowerCase() === "cloud") return { kind: "cloud" };
+  return { kind: "device", deviceId: text };
+};
+
 export const SPAWN_AGENT_TOOL_DESCRIPTOR = {
   name: "spawn_agent",
   description:
@@ -21,6 +35,11 @@ export const SPAWN_AGENT_TOOL_DESCRIPTOR = {
       model: {
         type: "string",
         description: SPAWN_AGENT_MODEL_DESCRIPTION,
+      },
+      destination: {
+        type: "string",
+        description:
+          'Where the agent runs: "cloud", or a device_id from the connected devices list. Omit to run it where you are.',
       },
     },
     required: ["description", "prompt"],

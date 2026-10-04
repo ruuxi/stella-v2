@@ -8,7 +8,7 @@ import { verifyUserToken } from "./auth-jwt.js";
 import { OwnerStore } from "./owner-store/store.js";
 import { ownerRegistry } from "./owner-store/domains.js";
 import type { OwnerCaller, OwnerHost, OwnerPurgeMode, OwnerRegistry } from "./owner-store/registry.js";
-import { createGateHost } from "./owner-store/gate-host.js";
+import { DEVICE_AGENT_DISPATCH_PREFIX, createGateHost } from "./owner-store/gate-host.js";
 import { RpcError, toBackendError } from "./owner-store/errors.js";
 import { applyOwnerEventsToStore } from "./owner-store/owner-events.js";
 import type { RpcResponse } from "@stella/contracts/backend/protocol";
@@ -742,6 +742,8 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       admit: (input) => this.admit(input),
       release: (input) => this.release(input),
       submit: (input) => this.submit(input),
+      cancelDispatch: (input) => this.cancelDispatch(input),
+      devices: () => this.devices(),
       homeChanged: (ownerGeneration, revision) =>
         this.homeContextCache().changed(ownerGeneration, revision),
       changeMemoryPolicy: (change) => this.changeMemoryPolicyForCall(change),
@@ -2317,7 +2319,35 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     );
     const next = this.dispatchRow(row.dispatch_id)!;
     if (options.notifyExecutor !== false) this.notifyExecutor(next);
+    if (
+      !isTerminalDispatchState(row.state as DispatchState) &&
+      isTerminalDispatchState(next.state as DispatchState)
+    ) {
+      await this.reportDeviceAgentSettled(next);
+    }
     return next;
+  }
+
+  /**
+   * A device attempt of an owner agent thread ended: hand the outcome to the
+   * thread ledger, which records it and wakes a cloud requester.
+   */
+  private async reportDeviceAgentSettled(row: DispatchRow): Promise<void> {
+    if (row.kind !== "agent" || !row.idempotency_key.startsWith(DEVICE_AGENT_DISPATCH_PREFIX)) {
+      return;
+    }
+    const response = await this.ownerStore().internalCall("agentThreads.deviceSettled", {
+      turnId: row.idempotency_key.slice(DEVICE_AGENT_DISPATCH_PREFIX.length),
+      state: row.state,
+      ...(row.result_json ? { resultJson: row.result_json } : {}),
+      ...(row.error_message ? { errorMessage: row.error_message } : {}),
+    });
+    if (!response.ok) {
+      log("error", "device_agent_settle_failed", {
+        dispatchId: row.dispatch_id,
+        message: response.error.message,
+      });
+    }
   }
 
   private openOffers(dispatchId: string): Array<{
@@ -2419,7 +2449,10 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     if (
       (row.ingress === "desktop" ||
         row.ingress === "browser" ||
-        row.ingress === "schedule") &&
+        row.ingress === "schedule" ||
+        // A cloud agent spawned onto a named device (agent threads only;
+        // the public submit route never admits cloud ingress).
+        row.ingress === "cloud") &&
       row.requested_target_mode === "device" &&
       row.requested_executor_device_id
     ) {

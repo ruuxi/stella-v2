@@ -69,6 +69,24 @@ export type OwnerHost = {
    * Throws on refusal; `retryable` says whether trying again can help.
    */
   dispatchAgentTurn(input: AgentTurnDispatch): Promise<void>;
+  /** The owner's devices as execution destinations, with live presence. */
+  deviceDestinations(): Promise<import("@stella/contracts/turn-plane/placement").DeviceDestination[]>;
+  /**
+   * Offer one recorded agent attempt to a named device through the gate's
+   * dispatch. Throws `DispatchError` when the device cannot take it.
+   */
+  dispatchDeviceAgentTurn(input: DeviceAgentTurnDispatch): Promise<{ dispatchId: string }>;
+  /** Stop a device attempt's dispatch. Idempotent per `cancelRequestId`. */
+  cancelDeviceAgentTurn(input: {
+    dispatchId: string;
+    cancelRequestId: string;
+    reason: string;
+  }): Promise<void>;
+  /**
+   * Hand a finished thread's report to the cloud agent or conversation that
+   * spawned it. Desktop requesters read their own `forDevice` delivery.
+   */
+  deliverAgentCompletion(input: AgentCompletionDelivery): Promise<void>;
   /** Stop one exact running attempt. `changed` means it is no longer that attempt. */
   cancelAgentTurn(input: {
     threadId: string;
@@ -133,6 +151,32 @@ export type AgentTurnDispatch = {
   originConversationId?: string;
   /** Resume a hosted-browser wait with this answer. */
   browserResume?: import("@stella/contracts/cloud-browser").CloudBrowserResumeReceipt;
+};
+
+export type DeviceAgentTurnDispatch = {
+  ownerGeneration: string;
+  conversationId: string;
+  threadId: string;
+  turnId: string;
+  description: string;
+  prompt: string;
+  targetDeviceId: string;
+  /** The desktop that asked, if any; absent for a cloud requester. */
+  requestingDeviceId?: string;
+};
+
+export type AgentCompletionDelivery = {
+  ownerGeneration: string;
+  conversationId: string;
+  threadId: string;
+  /** The cloud agent that spawned it; absent when the conversation did. */
+  parentThreadId?: string;
+  attemptGeneration: number;
+  description: string;
+  status: "completed" | "failed" | "canceled";
+  resultJson?: string;
+  errorMessage?: string;
+  threadUpdatedAt: number;
 };
 
 export class DispatchError extends Error {

@@ -6,10 +6,24 @@
  */
 
 import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
+import { PLACEMENT_PROTOCOL, type DeviceDestination } from "@stella/contracts/turn-plane/placement";
+import {
+  TURN_OWNER_GENERATION_HEADER,
+  TURN_PLANE_PROTOCOL,
+  type CloudTurnStartRequest,
+} from "@stella/contracts/turn-plane/turn-start";
 import {
   CloudAgentDispatchRefused,
   dispatchCloudAgentTurn,
+  steerCloudAgent,
 } from "../cloud-agent-dispatch.js";
+import { HEADER_CONVERSATION_ID, ORCHESTRATOR_INTERNAL_ORIGIN } from "../build-session/shared/keys.js";
+import {
+  agentCompletionPromptText,
+  agentLifecycleReport,
+} from "../build-session/terminal-delivery.js";
+import { HEADER_OWNER } from "../conversation-types.js";
+import { HEADER_TURN_AUTH_KIND } from "../turn-start-request.js";
 import { OwnerPurgeFenceError } from "../build-session/shared/errors.js";
 import {
   ConversationEditHttpError,
@@ -20,12 +34,17 @@ import type { OwnerEvent } from "@stella/contracts/turn-plane/owner-events";
 import type {
   OwnerGateAdmission,
   OwnerGateAdmitInput,
+  OwnerGateCancelInput,
   OwnerGateDispatchResult,
+  OwnerGateStatusResult,
   OwnerGateSubmitInput,
 } from "../owner-gate.js";
 import { RpcError } from "./errors.js";
 import { DispatchError, type AgentTurnDispatch, type OwnerHost } from "./registry.js";
 import { startScheduledTurn } from "./scheduled-turn.js";
+
+/** Idempotency keys of the dispatches the agent-thread ledger submits. */
+export const DEVICE_AGENT_DISPATCH_PREFIX = "agent-thread:";
 
 type GateHostEnv = Pick<
   Cloudflare.Env,
@@ -41,6 +60,10 @@ export type GateHostDependencies = {
   release: (input: { turnId: string }) => Promise<void>;
   /** The gate's own desktop dispatch. */
   submit: (input: OwnerGateSubmitInput) => Promise<OwnerGateDispatchResult>;
+  /** The gate's own dispatch cancellation. */
+  cancelDispatch: (input: OwnerGateCancelInput) => Promise<OwnerGateStatusResult>;
+  /** The gate's devices, with live presence. */
+  devices: () => Promise<{ devices: DeviceDestination[] }>;
   /** Invalidate the gate's cached home context. */
   homeChanged: (ownerGeneration: string, revision: number) => Promise<void>;
   /** The gate's memory policy change, refusals as `RpcError`. */
@@ -57,6 +80,119 @@ export type GateHostDependencies = {
 export const createGateHost = (deps: GateHostDependencies): OwnerHost => ({
   snapshot: deps.snapshot,
   purgeOwner: deps.purgeOwner,
+
+  deviceDestinations: async () => (await deps.devices()).devices,
+
+  async dispatchDeviceAgentTurn(input) {
+    const result = await deps.submit({
+      request: {
+        protocol: PLACEMENT_PROTOCOL,
+        // One dispatch per recorded attempt, so a retried job replays it.
+        idempotencyKey: `${DEVICE_AGENT_DISPATCH_PREFIX}${input.turnId}`,
+        kind: "agent",
+        ingress: input.requestingDeviceId ? "desktop" : "cloud",
+        // The requester named this device; never hand the work to the cloud.
+        subject: "computer",
+        targetMode: "device",
+        targetDeviceId: input.targetDeviceId,
+        ...(input.requestingDeviceId ? { requestingDeviceId: input.requestingDeviceId } : {}),
+        conversationId: input.conversationId,
+        threadId: input.threadId,
+        requiredCapabilities: ["agent"],
+        payload: {
+          schemaVersion: 1,
+          prompt: input.prompt,
+          conversationId: input.conversationId,
+          clientMsgId: input.turnId,
+          description: input.description,
+          threadId: input.threadId,
+        },
+      },
+      expectedGeneration: input.ownerGeneration,
+    });
+    if (!result.ok) {
+      throw new DispatchError(result.error.message, result.error.retryable);
+    }
+    const dispatch = result.response.dispatch;
+    if (dispatch.state === "blocked" || dispatch.state === "failed") {
+      throw new DispatchError(
+        dispatch.errorMessage ?? "The device could not take the work. It may be offline or busy.",
+        false,
+      );
+    }
+    return { dispatchId: dispatch.dispatchId };
+  },
+
+  async cancelDeviceAgentTurn(input) {
+    const result = await deps.cancelDispatch({
+      dispatchId: input.dispatchId,
+      cancelRequestId: input.cancelRequestId,
+      reason: input.reason,
+    });
+    if (!result.ok && result.error.code !== "not_found") {
+      throw new RpcError(
+        result.error.retryable ? "UNAVAILABLE" : "CONFLICT",
+        result.error.message,
+      );
+    }
+  },
+
+  async deliverAgentCompletion(input) {
+    const text = agentCompletionPromptText(input);
+    if (input.parentThreadId) {
+      const steered = await steerCloudAgent({
+        env: deps.env,
+        threadId: input.parentThreadId,
+        message: {
+          id: `wake:${input.threadId}:${input.attemptGeneration}`.slice(0, 256),
+          kind:
+            input.status === "completed"
+              ? "child_completed"
+              : input.status === "canceled"
+                ? "child_canceled"
+                : "child_failed",
+          text,
+          threadId: input.threadId,
+          attemptGeneration: input.attemptGeneration,
+          createdAt: input.threadUpdatedAt,
+        },
+      });
+      if (steered.accepted) return;
+    }
+    const body: CloudTurnStartRequest = {
+      protocol: TURN_PLANE_PROTOCOL,
+      clientMsgId: `wake:${input.threadId}:${input.attemptGeneration}`.slice(0, 64),
+      prompt: text,
+      lane: "wake",
+      source: "agent-thread",
+      hiddenMessage: true,
+      agentThreadControl: {
+        lifecycleReport: agentLifecycleReport(input),
+        threadId: input.threadId,
+        attemptGeneration: input.attemptGeneration,
+        threadUpdatedAt: input.threadUpdatedAt,
+        status: input.status,
+      },
+    };
+    const response = await deps.env.ORCHESTRATOR_SESSIONS.getByName(input.conversationId).fetch(
+      `${ORCHESTRATOR_INTERNAL_ORIGIN}/turn`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          [HEADER_OWNER]: deps.ownerId(),
+          [HEADER_TURN_AUTH_KIND]: "service",
+          [HEADER_CONVERSATION_ID]: input.conversationId,
+          [TURN_OWNER_GENERATION_HEADER]: input.ownerGeneration,
+        },
+        body: JSON.stringify(body),
+      },
+    );
+    await response.body?.cancel().catch(() => undefined);
+    if (!response.ok) {
+      throw new Error(`Agent completion wake was refused (${response.status}).`);
+    }
+  },
 
   async dispatchAgentTurn(input: AgentTurnDispatch): Promise<void> {
     try {

@@ -15,6 +15,8 @@ export type AgentThreadSummary = {
   conversationId: string;
   parentTurnId?: string;
   parentThreadId?: string;
+  /** The paired device running this thread for someone else, if any. */
+  executorDeviceId?: string;
   description: string;
   placement: AgentThreadPlacement;
   agentType: string;
@@ -58,9 +60,10 @@ export type AgentThreadCalls = {
     result: { threads: AgentThreadSummary[]; hasMore: boolean };
   };
   /**
-   * Start a cloud agent for a desktop. `clientMsgId` makes a retried request
-   * return the original thread. Without `conversationId` the agent reports
-   * into the owner's newest conversation.
+   * Start a remote agent for a desktop: in the cloud, or on another of the
+   * owner's devices when `targetDeviceId` names one. `clientMsgId` makes a
+   * retried request return the original thread. Without `conversationId` the
+   * agent reports into the owner's newest conversation.
    */
   "agentThreads.spawnFromDesktop": {
     args: Origin & {
@@ -70,6 +73,7 @@ export type AgentThreadCalls = {
       prompt: string;
       conversationId?: string;
       execution?: CloudExecutionSelection;
+      targetDeviceId?: string;
     };
     result: AgentThreadControl;
   };

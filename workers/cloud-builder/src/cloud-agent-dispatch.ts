@@ -50,6 +50,8 @@ export type CloudAgentControlReceipt = {
   turnId?: string;
   execution?: CloudExecutionSelection;
   description?: string;
+  /** Set when the thread runs on one of the owner's devices, not in a BuildSession. */
+  executorDeviceId?: string;
 };
 
 export type CloudAgentToolKind = "spawn_agent" | "send_input" | "pause_agent";
@@ -132,6 +134,11 @@ export const normalizeCloudAgentControlReceipt = (
     ...(turnId ? { turnId } : {}),
     ...(execution ? { execution } : {}),
     ...(description ? { description } : {}),
+    ...(typeof candidate.executorDeviceId === "string" &&
+    candidate.executorDeviceId.trim() &&
+    candidate.executorDeviceId.length <= 256
+      ? { executorDeviceId: candidate.executorDeviceId.trim() }
+      : {}),
   };
 };
 
@@ -141,6 +148,13 @@ export const advanceCloudAgentControlReceipt = (
 ): CloudAgentControlReceipt => {
   if (!existing) return receipt;
   if (receipt.attemptGeneration < existing.attemptGeneration) return existing;
+  // Where a thread runs never changes between attempts.
+  if (
+    receipt.executorDeviceId === undefined &&
+    existing.executorDeviceId !== undefined
+  ) {
+    receipt = { ...receipt, executorDeviceId: existing.executorDeviceId };
+  }
   if (receipt.attemptGeneration > existing.attemptGeneration) return receipt;
   const existingTerminal = !isCloudAgentControlActive(existing.status);
   const receiptTerminal = !isCloudAgentControlActive(receipt.status);
@@ -156,6 +170,10 @@ export const advanceCloudAgentControlReceipt = (
       : {}),
     ...(winner.description === undefined && existing.description !== undefined
       ? { description: existing.description }
+      : {}),
+    ...(winner.executorDeviceId === undefined &&
+    existing.executorDeviceId !== undefined
+      ? { executorDeviceId: existing.executorDeviceId }
       : {}),
   });
   if (!existingTerminal && receiptTerminal) return merged(receipt);

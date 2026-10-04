@@ -316,7 +316,7 @@ export const deliverTerminal = async (
   }
 };
 
-const agentLifecycleReport = (completion: {
+export const agentLifecycleReport = (completion: {
   resultJson?: string;
   errorMessage?: string;
 }): string => {
@@ -340,27 +340,41 @@ const agentLifecycleReport = (completion: {
   );
 };
 
+/** The hidden prompt that hands one finished thread to its requester. */
+export const agentCompletionPromptText = (args: {
+  threadId: string;
+  description?: string;
+  status: "completed" | "failed" | "canceled";
+  resultJson?: string;
+  errorMessage?: string;
+}): string => {
+  const resultText = agentLifecycleReport(args);
+  const label =
+    args.status === "completed"
+      ? "[Agent completed]"
+      : args.status === "canceled"
+        ? "[Agent canceled]"
+        : "[Agent failed]";
+  const description = args.description?.trim() || args.threadId;
+  const heading = `${label} ${description} (thread ${args.threadId})\n\n`;
+  const bodyLimit = Math.max(0, TURN_PROMPT_MAX_CHARS - heading.length);
+  return `${heading}${(resultText || "No result was reported.").slice(0, bodyLimit)}`;
+};
+
 const agentCompletionText = async (
-  host: TerminalDeliveryHost,
+  _host: TerminalDeliveryHost,
   turn: TurnRequest,
   completion: {
     status: "completed" | "failed" | "canceled";
     resultJson?: string;
     errorMessage?: string;
   },
-): Promise<string> => {
-  const resultText = agentLifecycleReport(completion);
-  const label =
-    completion.status === "completed"
-      ? "[Agent completed]"
-      : completion.status === "canceled"
-        ? "[Agent canceled]"
-        : "[Agent failed]";
-  const description = turn.description?.trim() || turn.threadId;
-  const heading = `${label} ${description} (thread ${turn.threadId})\n\n`;
-  const bodyLimit = Math.max(0, TURN_PROMPT_MAX_CHARS - heading.length);
-  return `${heading}${(resultText || "No result was reported.").slice(0, bodyLimit)}`;
-};
+): Promise<string> =>
+  agentCompletionPromptText({
+    threadId: turn.threadId ?? "",
+    ...(turn.description ? { description: turn.description } : {}),
+    ...completion,
+  });
 
 export const wakeParentAgentOrConversation = async (
   host: TerminalDeliveryHost,

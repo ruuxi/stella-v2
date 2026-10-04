@@ -5,7 +5,16 @@ import {
   PAUSE_AGENT_TOOL_DESCRIPTOR,
   SEND_INPUT_TOOL_DESCRIPTOR,
   SPAWN_AGENT_TOOL_DESCRIPTOR,
+  parseSpawnDestination,
 } from "@stella/runtime/kernel/tools/defs/agent-orchestration-def.js";
+import {
+  cancelDeviceAgent,
+  continueDeviceAgent,
+  readDeviceAgent,
+  spawnDeviceAgent,
+  type DeviceAgentCaller,
+} from "./device-agent-tools.js";
+import { unwrapRpc } from "./owner-store/errors.js";
 import {
   CLOUD_AGENT_DEPTH_LIMIT_ERROR,
   MAX_CLOUD_AGENT_DEPTH,
@@ -42,7 +51,7 @@ export type BuildSessionAgentControlParent = Readonly<{
 
 export type BuildSessionAgentControlDependencies = Readonly<{
   storage: CloudAgentControlStorage;
-  env: Pick<Cloudflare.Env, "BUILD_SESSIONS">;
+  env: Pick<Cloudflare.Env, "BUILD_SESSIONS" | "OWNER_GATES">;
   dispatch: CloudAgentDispatchDependencies;
   parent: BuildSessionAgentControlParent;
   now?: () => number;
@@ -132,6 +141,21 @@ export const createBuildSessionAgentControl = (
       ...(disposition ? { disposition } : {}),
     });
 
+  const deviceCaller: DeviceAgentCaller = {
+    ownerInternal: async (name, args) =>
+      unwrapRpc(
+        await deps.env.OWNER_GATES.getByName(parent.ownerId).ownerInternal({
+          name,
+          args,
+          ownerGeneration: parent.ownerGeneration,
+        }),
+      ),
+    ownerGeneration: parent.ownerGeneration,
+    conversationId: parent.conversationId,
+    parentTurnId: parent.turnId,
+    parentThreadId: parent.threadId,
+  };
+
   return {
     execute: async (toolName, toolCallId, params, signal) => {
       if (toolName === SPAWN_AGENT_TOOL_DESCRIPTOR.name) {
@@ -144,12 +168,27 @@ export const createBuildSessionAgentControl = (
         const model =
           typeof params.model === "string" ? params.model.trim() : "";
         const execution = resolveCloudSpawnExecution(model, parent.execution);
+        const destination = parseSpawnDestination(params.destination);
         const value = await fingerprint("spawn_agent", {
           description,
           prompt,
           model: model && model !== "default" ? model : null,
+          device: destination.kind === "device" ? destination.deviceId : null,
         });
         let outcome = await readOutcome(toolCallId, "spawn_agent", value);
+        if (!outcome && destination.kind === "device") {
+          outcome = await commitOutcome(
+            toolCallId,
+            "spawn_agent",
+            value,
+            await spawnDeviceAgent(deviceCaller, {
+              clientMsgId: await scopedId("turn", toolCallId),
+              targetDeviceId: destination.deviceId,
+              description,
+              prompt,
+            }),
+          );
+        }
         if (!outcome) {
           const turnId = await scopedId("turn", toolCallId);
           const control = await dispatch(
@@ -172,11 +211,14 @@ export const createBuildSessionAgentControl = (
           );
         }
         return textResult(
-          `Spawned agent (thread_id: ${outcome.control.threadId}, status: running, description: "${description}"). It is running in the background and has NOT finished — an [Agent completed] message will arrive on this agent thread with its report. Check on it with agent_status, steer it with send_input, or stop it with pause_agent.`,
+          `Spawned agent (thread_id: ${outcome.control.threadId}, status: running, description: "${description}"${outcome.control.executorDeviceId ? `, device_id: ${outcome.control.executorDeviceId}` : ""}). It is running in the background and has NOT finished — an [Agent completed] message will arrive on this agent thread with its report. Check on it with agent_status, steer it with send_input, or stop it with pause_agent.`,
           {
             thread_id: outcome.control.threadId,
             status: "running",
             description,
+            ...(outcome.control.executorDeviceId
+              ? { device_id: outcome.control.executorDeviceId }
+              : {}),
             attempt_generation: outcome.control.attemptGeneration,
             thread_updated_at: outcome.control.threadUpdatedAt,
           },
@@ -197,7 +239,13 @@ export const createBuildSessionAgentControl = (
           });
           let control: CloudAgentControlReceipt;
           let disposition: "steered" | "resumed";
-          if (isCloudAgentControlActive(prior.status)) {
+          if (prior.executorDeviceId) {
+            control = await continueDeviceAgent(deviceCaller, prior, {
+              controlRequestId: await scopedId("turn", toolCallId),
+              message,
+            });
+            disposition = "resumed";
+          } else if (isCloudAgentControlActive(prior.status)) {
             const steered = await steerCloudAgent({
               env: deps.env,
               threadId,
@@ -279,19 +327,24 @@ export const createBuildSessionAgentControl = (
         const threadId =
           typeof params.thread_id === "string" ? params.thread_id.trim() : "";
         if (!threadId) throw new Error("thread_id is required.");
+        let control: CloudAgentControlReceipt;
         try {
-          return agentStatusResult(
-            await requireCloudAgentControlReceipt({
-              storage: deps.storage,
-              threadId,
-            }),
-            now(),
-          );
+          control = await requireCloudAgentControlReceipt({
+            storage: deps.storage,
+            threadId,
+          });
         } catch {
           throw new Error(
             `Thread not found in this agent: ${threadId}. agent_status only sees agents spawned from this agent thread.`,
           );
         }
+        if (control.executorDeviceId) {
+          control = await rememberCloudAgentControlReceipt(
+            deps.storage,
+            await readDeviceAgent(deviceCaller, control),
+          );
+        }
+        return agentStatusResult(control, now());
       }
 
       if (toolName === PAUSE_AGENT_TOOL_DESCRIPTOR.name) {
@@ -321,6 +374,18 @@ export const createBuildSessionAgentControl = (
         let disposition: "paused" | "pending" | "already_terminal";
         if (!isCloudAgentControlActive(control.status)) {
           disposition = "already_terminal";
+        } else if (control.executorDeviceId) {
+          disposition = "paused";
+          finalControl = await rememberCloudAgentControlReceipt(
+            deps.storage,
+            await cancelDeviceAgent(
+              deviceCaller,
+              control,
+              await sha256Hex(
+                JSON.stringify(["pause_agent", parent.turnId, threadId, toolCallId]),
+              ),
+            ),
+          );
         } else {
           if (!control.turnId) {
             throw new Error(

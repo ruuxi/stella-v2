@@ -564,11 +564,18 @@ export type RuntimeLocalAgentRequest = {
   agentType?: string;
   /** Exact caller-owned thread identity used for idempotent placement/cancel. */
   threadId?: string;
+  /**
+   * The placement fence for this one attempt, when a thread outlives it (a
+   * remote agent thread continued on this device). Defaults to `threadId`.
+   */
+  executionId?: string;
 };
 
 export type RuntimeLocalAgentCancellationRequest = {
   agentId: string;
   reason?: string;
+  /** The attempt's placement fence; defaults to `agentId`. */
+  executionId?: string;
 };
 
 export type RuntimePlacementAutomationCancellationRequest = {

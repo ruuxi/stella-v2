@@ -57,6 +57,11 @@ export type GeneralAgentPromptOptions = {
   threadId?: string;
   /** `history` works inside this turn's `code`. */
   history?: boolean;
+  /**
+   * Present when this agent can start agents of its own: the connected
+   * devices and this run's own destination, already rendered.
+   */
+  executionContext?: string;
   skills?: GeneralAgentPromptSkills;
 } & GeneralAgentPromptWorkspace;
 
@@ -230,5 +235,5 @@ report where it is. You have bun, node, and git available via exec_command.
 
 ${documents}
 
-You cannot spawn other agents and you cannot reach the user directly.${options.history ? ` ${HISTORY_SENTENCE}` : ""}${workspaceLines}${skillLines}${options.threadId ? `\n\nThread ID: ${options.threadId}` : ""}`;
+${options.executionContext ? "You can start agents of your own with spawn_agent, and you cannot reach the user directly." : "You cannot spawn other agents and you cannot reach the user directly."}${options.history ? ` ${HISTORY_SENTENCE}` : ""}${workspaceLines}${skillLines}${options.executionContext ? `\n\n${options.executionContext}` : ""}${options.threadId ? `\n\nThread ID: ${options.threadId}` : ""}`;
 };

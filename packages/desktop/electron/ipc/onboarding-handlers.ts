@@ -8,6 +8,7 @@ import type {
   RuntimeOneShotCompletionRequest,
   RuntimeOneShotCompletionResult,
 } from "@stella/contracts/protocol";
+import { STELLA_DEFAULT_MODEL } from "@stella/contracts/stella-api";
 import { readRuntimePrompt } from "@stella/runtime/kernel/prompts/home-prompts";
 
 type OneShotRunner = {
@@ -118,7 +119,14 @@ const synthesize = async (
     options: { systemPrompt?: string; maxOutputTokens?: number } = {},
   ): Promise<string> =>
     (
-      await runner.runOneShotCompletion({ agentType, userText, ...options })
+      // Pinned to Stella's default so a per-agent model override can't
+      // send the user's raw browsing data somewhere unexpected.
+      await runner.runOneShotCompletion({
+        agentType,
+        userText,
+        model: STELLA_DEFAULT_MODEL,
+        ...options,
+      })
     ).text.trim();
 
   const analysisTemplate = config.categoryAnalysisUserPromptTemplate?.trim();

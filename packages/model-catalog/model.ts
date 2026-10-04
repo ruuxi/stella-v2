@@ -170,22 +170,6 @@ export const MANAGED_MODEL_API_OVERRIDES: Readonly<
   [DEEPSEEK_V4_1_FLASH_MODEL]: "openai-completions",
 };
 
-const KIMI_K2_6_SYNTHESIS_CONFIG: ModelConfig = {
-  model: "moonshotai/kimi-k2.6",
-  managedGatewayProvider: "openrouter",
-  maxOutputTokens: 32768,
-  providerOptions: {
-    openai: {
-      reasoningEffort: "low",
-    },
-    gateway: {
-      order: ["coreweave", "baseten", "together", "fireworks"],
-      only: ["coreweave", "baseten", "together", "fireworks"],
-      allow_fallbacks: true,
-    },
-  },
-};
-
 const GEMINI_3_1_FLASH_LITE_IMAGE_DESCRIPTION_CONFIG: ModelConfig = {
   model: "google/gemini-3.1-flash-lite",
   managedGatewayProvider: "google",
@@ -211,7 +195,6 @@ const GEMINI_3_7_FLASH_OFFLINE_RESPONDER_CONFIG: ModelConfig = {
 const INTERNAL_MODEL_CONFIGS = {
   image_description: GEMINI_3_1_FLASH_LITE_IMAGE_DESCRIPTION_CONFIG,
   offline_responder: GEMINI_3_7_FLASH_OFFLINE_RESPONDER_CONFIG,
-  synthesis: KIMI_K2_6_SYNTHESIS_CONFIG,
 } as const satisfies Record<string, ModelConfig>;
 
 type InternalModelConfigKey = keyof typeof INTERNAL_MODEL_CONFIGS;
@@ -373,7 +356,7 @@ export const TASK_MODEL_SELECTIONS: Record<string, TaskModelSelection> = {
   [AGENT_IDS.STORE]: "light",
 
   schedule: "light",
-  synthesis: "synthesis",
+  synthesis: "light",
   welcome: "light",
   asset_metadata: "light",
   chronicle: "light",

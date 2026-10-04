@@ -93,6 +93,8 @@ import {
 } from "./MessageContextMenu";
 import { AppBackdrop, TOP_BAR_BAR_HEIGHT } from "./AppBackdrop";
 import { ArtifactCard } from "./ArtifactCard";
+import { AppPreviewCard } from "./AppPreviewCard";
+import { extractStellaAppLinkSlugs } from "@stella/contracts/workspace-apps";
 import { stellaFileChatArtifact } from "../lib/stella-file-links";
 import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
 import {
@@ -1546,6 +1548,11 @@ const ChatMessageRow = memo(function ChatMessageRow({
     return receipts;
   }, [item.toolSteps]);
   const hasText = item.text.trim().length > 0;
+  // Apps the reply links (`stella://app/<slug>`) show as app cards under it.
+  const linkedAppSlugs = useMemo(
+    () => (item.role === "assistant" ? extractStellaAppLinkSlugs(item.text) : []),
+    [item.role, item.text],
+  );
   const boundedAssistantBubble = useMemo(
     () => item.role === "assistant" && assistantBubbleNeedsBoundedWidth(item.text),
     [item.role, item.text],
@@ -1751,7 +1758,8 @@ const ChatMessageRow = memo(function ChatMessageRow({
   const showArtifacts =
     showMapArtifacts ||
     showFileArtifacts ||
-    showGeneratedImages;
+    showGeneratedImages ||
+    linkedAppSlugs.length > 0;
   // Desktop renders the complete markdown body once, then attaches activity
   // and artifact cards at the row boundary. Keep the same shape on mobile:
   // bridge text offsets still describe event chronology, but must never become
@@ -1905,6 +1913,9 @@ const ChatMessageRow = memo(function ChatMessageRow({
         >
           {/* Running agents surface in the top bar's status mark, not as
               transcript rows; finished ones arrive as quotes above replies. */}
+          {linkedAppSlugs.map((slug) => (
+            <AppPreviewCard key={`app:${slug}`} slug={slug} colors={colors} />
+          ))}
           {showMapArtifacts
             ? mapArtifacts.map((artifact) => (
                 <MapRouteCard

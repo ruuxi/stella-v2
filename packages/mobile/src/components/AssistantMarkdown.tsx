@@ -23,6 +23,8 @@ import {
 } from "react-native-nitro-markdown";
 import * as WebBrowser from "expo-web-browser";
 import { parseStellaFileUrl } from "../lib/stella-file-links";
+import { parseStellaAppUrl } from "@stella/contracts/workspace-apps";
+import { requestOpenApp } from "../lib/workspace-app-links";
 import { fadeHex } from "../theme/oklch";
 import { fonts } from "../theme/fonts";
 import type { Colors } from "../theme/colors";
@@ -198,6 +200,11 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
 
   const onLinkPress = useCallback(
     (url: string): boolean => {
+      const appSlug = parseStellaAppUrl(url);
+      if (appSlug) {
+        requestOpenApp(appSlug);
+        return false;
+      }
       const stellaFilePath = parseStellaFileUrl(url);
       if (stellaFilePath) {
         if (onStellaFileLink) {

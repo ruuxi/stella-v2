@@ -27,6 +27,11 @@ import { fonts } from "../theme/fonts";
 import { authClient } from "../lib/auth-client";
 import { env } from "../config/env";
 import {
+  clearPendingAppOpen,
+  shareWorkspaceApps,
+  usePendingAppOpen,
+} from "../lib/workspace-app-links";
+import {
   appListCacheKey,
   reusableAppFrame,
   retainAppFrame,
@@ -187,6 +192,7 @@ function AppsHost({
         if (!response.ok) throw new Error("Apps could not be refreshed.");
         const data = parseWorkspaceApps((await response.json()).apps);
         if (cancelled) return;
+        shareWorkspaceApps(data);
         setApps((current) =>
           JSON.stringify(current) === JSON.stringify(data) ? current : data,
         );
@@ -278,6 +284,19 @@ function AppsHost({
       }
     }
   };
+  // An app card or link in the chat asked to open this app.
+  const pendingOpen = usePendingAppOpen();
+  const openPending = useEffectEvent((slug: string) => {
+    const app = apps?.find(
+      (entry) => entry.slug === slug && entry.status === "ready",
+    );
+    if (!app) return;
+    clearPendingAppOpen();
+    void open(app);
+  });
+  useEffect(() => {
+    if (pendingOpen && visible) openPending(pendingOpen);
+  }, [pendingOpen, visible, apps]);
   const renewSelected = useEffectEvent(() => {
     const app = apps?.find((entry) => entry.slug === selected);
     if (app) void open(app);

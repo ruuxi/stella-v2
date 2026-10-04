@@ -4,13 +4,10 @@ import { NextResponse } from "next/server";
  * Serve desktop downloads from the trusted stella.sh domain instead of the raw
  * Cloudflare R2 bucket host (`pub-…r2.dev`), which has no domain reputation.
  *
- * This is a 302 redirect, not a byte proxy: the installers are large (the
- * Windows build is ~350MB), too big to stream safely through a serverless
- * function within Vercel's response/time/memory limits. A redirect keeps the
- * asset on R2 (unchanged) while making the URL the user clicks — and the
- * navigation the browser initiates — `https://stella.sh/download/<platform>`.
- * That click origin is the trust signal we can improve without a code-signing
- * certificate, reducing SmartScreen friction for the still-unsigned build.
+ * This is a 302 redirect, not a byte proxy: a redirect keeps the launcher on
+ * R2 (unchanged) and off Vercel's function limits, while making the URL the
+ * user clicks — and the navigation the browser initiates —
+ * `https://stella.sh/download/<platform>`.
  */
 
 import { RELEASE_ASSETS } from "@/lib/downloads";

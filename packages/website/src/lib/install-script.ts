@@ -1,30 +1,29 @@
-import { RELEASE_ASSETS, SITE_ORIGIN } from "@/lib/downloads";
+import { LAUNCHER_CHECKSUMS_URL, RELEASE_ASSETS } from "@/lib/downloads";
 
 /**
  * `curl -fsSL https://stella.sh/install.sh | sh`
  *
  * POSIX sh (no bashisms) so it runs under dash/busybox ash, which is `/bin/sh`
- * on plenty of Linux systems. Every step is idempotent: re-running replaces the
- * AppImage and its desktop entry in place, and `pacman -U` simply reinstalls.
+ * on plenty of Linux systems. It installs the native launcher, verified
+ * against the published SHA256SUMS, and starts it; the launcher installs and
+ * updates the app itself. Re-running replaces the launcher in place.
  *
- * macOS downloads the architecture-matched DMG and opens it. Linux gets a real
- * one-click-equivalent install: on Arch (Omarchy) the native pacman package,
- * everywhere else the AppImage placed on PATH with a `.desktop` entry and icon
- * so it shows up in the application menu immediately instead of on first run
- * (see `packages/desktop/electron/linux-desktop-integration.js`, which writes
- * the same entry and is therefore a no-op after this script has run).
+ * Linux puts the launcher where it installs itself
+ * (`$XDG_DATA_HOME/stella/bin/stella-launcher`, see
+ * `launcher/linux/stella-launcher.c`), so its first-run self-copy is a no-op;
+ * on that first run it writes the `stella.desktop` menu entry. macOS unpacks
+ * the universal `Stella.app` into `/Applications` (or `$STELLA_APPS_DIR`,
+ * falling back to `~/Applications` when `/Applications` is not writable) and
+ * opens it.
  */
 export const INSTALL_SCRIPT = `#!/bin/sh
 # Stella installer. https://stella.sh
 set -eu
 
-MAC_ARM64_DMG="${RELEASE_ASSETS["mac-arm64"]}"
-MAC_X64_DMG="${RELEASE_ASSETS["mac-x64"]}"
-LINUX_APPIMAGE="${RELEASE_ASSETS.linux}"
-ARCH_PACKAGE="${RELEASE_ASSETS.arch}"
-ICON_URL="${SITE_ORIGIN}/stella-logo.png"
-
-DESKTOP_ID="stella-v2"
+MAC_APP_ZIP="${RELEASE_ASSETS["mac-arm64"]}"
+LINUX_X64="${RELEASE_ASSETS.linux}"
+LINUX_ARM64="${RELEASE_ASSETS["linux-arm64"]}"
+CHECKSUMS="${LAUNCHER_CHECKSUMS_URL}"
 
 die() {
   echo "stella-install: $1" >&2
@@ -36,7 +35,11 @@ have() {
 }
 
 tmpdir=""
+staged=""
 cleanup() {
+  if [ -n "$staged" ]; then
+    rm -f "$staged"
+  fi
   if [ -n "$tmpdir" ]; then
     rm -rf "$tmpdir"
   fi
@@ -56,132 +59,89 @@ download() {
   fi
 }
 
-run_as_root() {
-  if [ "$(id -u)" = "0" ]; then
-    "$@"
-  elif have sudo; then
-    echo "Installing with sudo; you may be prompted for your password."
-    sudo "$@"
+sha256_of() {
+  if have sha256sum; then
+    sha256sum "$1" | cut -d ' ' -f 1
+  elif have shasum; then
+    shasum -a 256 "$1" | cut -d ' ' -f 1
   else
-    die "root privileges are required and sudo was not found. Re-run this script as root."
+    die "sha256sum or shasum is required to verify the download."
+  fi
+}
+
+# verify <file> <published name>: compare against the published SHA256SUMS.
+verify() {
+  sums="$tmpdir/SHA256SUMS"
+  if ! curl -fsSL "$CHECKSUMS" -o "$sums"; then
+    die "download failed: $CHECKSUMS"
+  fi
+  expected="$(awk -v name="$2" '{ file = $2; sub(/^\\*/, "", file); if (file == name) { print $1; exit } }' "$sums")"
+  if [ -z "$expected" ]; then
+    die "$2 is missing from SHA256SUMS."
+  fi
+  if [ "$(sha256_of "$1")" != "$expected" ]; then
+    die "$2 failed its checksum; try again."
   fi
 }
 
 install_macos() {
-  arch="$(uname -m)"
-  case "$arch" in
-    arm64) url="$MAC_ARM64_DMG" ;;
-    x86_64) url="$MAC_X64_DMG" ;;
-    *) die "unsupported macOS architecture: $arch. Visit https://stella.sh to download." ;;
-  esac
-
-  make_tmpdir
-  dmg="$tmpdir/Stella.dmg"
-  echo "Downloading Stella for macOS ($arch)..."
-  download "$url" "$dmg"
-  echo "Opening installer..."
-  open "$dmg"
-  # Leave the mounted image in place for Finder; skip cleanup.
-  tmpdir=""
-}
-
-is_arch_linux() {
-  if have pacman; then
-    return 0
-  fi
-  if [ -f /etc/arch-release ]; then
-    return 0
-  fi
-  return 1
-}
-
-install_arch_package() {
-  if ! have pacman; then
-    die "this looks like Arch Linux but pacman was not found."
+  apps="\${STELLA_APPS_DIR:-/Applications}"
+  if ! { mkdir -p "$apps" 2>/dev/null && [ -w "$apps" ]; }; then
+    apps="$HOME/Applications"
+    mkdir -p "$apps" || die "could not create $apps."
   fi
 
   make_tmpdir
-  pkg="$tmpdir/stella.pkg.tar.xz"
-  echo "Downloading the Stella Arch package..."
-  download "$ARCH_PACKAGE" "$pkg"
-  echo "Installing Stella with pacman..."
-  run_as_root pacman -U --noconfirm "$pkg"
-  echo "Stella is installed. Launch it from your application menu."
-}
+  zip="$tmpdir/Stella-macos.zip"
+  echo "Downloading Stella for macOS..."
+  download "$MAC_APP_ZIP" "$zip"
+  verify "$zip" Stella-macos.zip
 
-install_appimage() {
-  data_home="\${XDG_DATA_HOME:-$HOME/.local/share}"
-  bin_dir="$HOME/.local/bin"
-  apps_dir="$data_home/applications"
-  icon_dir="$data_home/icons/hicolor/512x512/apps"
-  target="$bin_dir/Stella.AppImage"
-  desktop_file="$apps_dir/$DESKTOP_ID.desktop"
-
-  if ! mkdir -p "$bin_dir" "$apps_dir" "$icon_dir"; then
-    die "could not create the install directories under $HOME/.local."
+  mkdir "$tmpdir/unpacked"
+  ditto -x -k "$zip" "$tmpdir/unpacked" || die "could not unpack Stella-macos.zip."
+  if [ ! -d "$tmpdir/unpacked/Stella.app" ]; then
+    die "Stella-macos.zip does not contain Stella.app."
   fi
+  rm -rf "$apps/Stella.app" || die "could not replace $apps/Stella.app. Quit Stella and try again."
+  ditto "$tmpdir/unpacked/Stella.app" "$apps/Stella.app" || die "could not write $apps/Stella.app."
 
-  make_tmpdir
-  staged="$tmpdir/Stella.AppImage"
-  echo "Downloading Stella for Linux..."
-  download "$LINUX_APPIMAGE" "$staged"
-  chmod +x "$staged"
-  if ! mv -f "$staged" "$target"; then
-    die "could not write $target. Quit Stella if it is running and try again."
-  fi
-
-  # Icon and menu entry are best effort; a failure here must not fail install.
-  if [ ! -f "$icon_dir/$DESKTOP_ID.png" ]; then
-    curl -fsSL "$ICON_URL" -o "$icon_dir/$DESKTOP_ID.png" ||
-      rm -f "$icon_dir/$DESKTOP_ID.png"
-  fi
-
-  cat > "$desktop_file" <<DESKTOP_ENTRY
-[Desktop Entry]
-Name=Stella
-Comment=Stella desktop assistant
-Exec="$target" %U
-Terminal=false
-Type=Application
-Icon=$DESKTOP_ID
-StartupWMClass=Stella
-Categories=Utility;
-MimeType=x-scheme-handler/stella;
-X-AppImage-Integrated-By=Stella
-DESKTOP_ENTRY
-
-  if have update-desktop-database; then
-    update-desktop-database "$apps_dir" >/dev/null 2>&1 || true
-  fi
-  if have xdg-mime; then
-    xdg-mime default "$DESKTOP_ID.desktop" x-scheme-handler/stella >/dev/null 2>&1 || true
-  fi
-
-  echo "Installed Stella to $target"
-  case ":$PATH:" in
-    *":$bin_dir:"*)
-      echo "Launch Stella from your application menu, or run: Stella.AppImage"
-      ;;
-    *)
-      echo "Launch Stella from your application menu. ($bin_dir is not on your PATH.)"
-      ;;
-  esac
+  echo "Installed Stella to $apps/Stella.app"
+  open "$apps/Stella.app"
 }
 
 install_linux() {
   arch="$(uname -m)"
   case "$arch" in
-    x86_64 | amd64) ;;
+    x86_64 | amd64) url="$LINUX_X64"; name="stella-launcher-linux-x64" ;;
+    aarch64 | arm64) url="$LINUX_ARM64"; name="stella-launcher-linux-arm64" ;;
     *)
-      die "Stella for Linux is published for x86_64 only (this machine is $arch). Visit https://stella.sh for details."
+      die "Stella for Linux is published for x86_64 and arm64 only (this machine is $arch). Visit https://stella.sh for details."
       ;;
   esac
 
-  if is_arch_linux; then
-    install_arch_package
-  else
-    install_appimage
+  data_home="\${XDG_DATA_HOME:-$HOME/.local/share}"
+  bin_dir="$data_home/stella/bin"
+  target="$bin_dir/stella-launcher"
+  if ! mkdir -p "$bin_dir"; then
+    die "could not create $bin_dir."
   fi
+
+  make_tmpdir
+  # Staged next to the target so the final rename is atomic and safe even
+  # while an older launcher is running.
+  staged="$bin_dir/.stella-launcher.download"
+  echo "Downloading the Stella launcher for Linux ($arch)..."
+  download "$url" "$staged"
+  verify "$staged" "$name"
+  chmod +x "$staged"
+  if ! mv -f "$staged" "$target"; then
+    die "could not write $target."
+  fi
+  staged=""
+
+  echo "Installed the Stella launcher to $target"
+  echo "Starting Stella. It finishes installing and adds Stella to your application menu."
+  nohup "$target" </dev/null >/dev/null 2>&1 &
 }
 
 if ! have curl; then

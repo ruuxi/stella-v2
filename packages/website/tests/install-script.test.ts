@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   chmodSync,
   existsSync,
@@ -12,15 +13,15 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { INSTALL_SCRIPT } from "@/lib/install-script";
-import { RELEASE_ASSETS } from "@/lib/downloads";
+import { LAUNCHER_CHECKSUMS_URL, RELEASE_ASSETS } from "@/lib/downloads";
 
 /**
  * The installer is shipped as text, so the only meaningful test is to actually
  * execute it under `/bin/sh` with the outside world stubbed: `uname` reports
- * the OS/arch we want to exercise, `curl` writes a placeholder file instead of
- * downloading, and `pacman`/`sudo`/`update-desktop-database` record their
- * arguments. HOME is redirected into a temp dir so the AppImage branch writes
- * its real files and we can assert on them.
+ * the OS/arch we want to exercise, `curl` serves a placeholder launcher (a
+ * script that records it was started) and a SHA256SUMS covering it, and
+ * `open`/`ditto` record or fake the macOS steps. HOME is redirected into a
+ * temp dir so the script writes its real files and we can assert on them.
  */
 
 const created: string[] = [];
@@ -37,19 +38,21 @@ function shim(dir: string, name: string, body: string) {
   chmodSync(file, 0o755);
 }
 
+const ASSET_NAMES = [
+  "Stella-macos.zip",
+  "Stella.exe",
+  "stella-launcher-linux-x64",
+  "stella-launcher-linux-arm64",
+];
+
 type RunOptions = {
   unameS: string;
   unameM: string;
-  withPacman?: boolean;
   home?: string;
+  badChecksum?: boolean;
 };
 
-function runInstaller({
-  unameS,
-  unameM,
-  withPacman = false,
-  home,
-}: RunOptions) {
+function runInstaller({ unameS, unameM, home, badChecksum = false }: RunOptions) {
   const root = mkdtempSync(path.join(os.tmpdir(), "stella-install-"));
   created.push(root);
 
@@ -59,6 +62,15 @@ function runInstaller({
   mkdirSync(binDir, { recursive: true });
   mkdirSync(homeDir, { recursive: true });
   writeFileSync(log, "");
+
+  // Every launcher download is this script; started, it records itself.
+  const payload = path.join(root, "payload");
+  writeFileSync(payload, `#!/bin/sh\necho "launched $0" >> "${log}"\n`);
+  const hash = badChecksum
+    ? "0".repeat(64)
+    : createHash("sha256").update(readFileSync(payload)).digest("hex");
+  const sums = path.join(root, "SHA256SUMS");
+  writeFileSync(sums, ASSET_NAMES.map((name) => `${hash}  ${name}\n`).join(""));
 
   shim(
     binDir,
@@ -80,21 +92,22 @@ function runInstaller({
       '    *) url="$1"; shift ;;',
       "  esac",
       "done",
-      'if [ -n "$dest" ]; then printf "payload of %s" "$url" > "$dest"; fi',
+      'case "$url" in',
+      `  *SHA256SUMS) cp "${sums}" "$dest" ;;`,
+      `  *) cp "${payload}" "$dest" ;;`,
+      "esac",
     ].join("\n"),
   );
-  shim(binDir, "id", "echo 0");
-  shim(binDir, "sudo", `echo "sudo $*" >> "${log}"; exec "$@"`);
+  shim(binDir, "open", `echo "open $*" >> "${log}"`);
+  // `ditto -x -k <zip> <dir>` unpacks a Stella.app; `ditto <src> <dst>` copies.
   shim(
     binDir,
-    "update-desktop-database",
-    `echo "update-desktop-database $*" >> "${log}"`,
+    "ditto",
+    [
+      `echo "ditto $*" >> "${log}"`,
+      'if [ "$1" = "-x" ]; then mkdir -p "$4/Stella.app/Contents"; else cp -R "$1" "$2"; fi',
+    ].join("\n"),
   );
-  shim(binDir, "xdg-mime", `echo "xdg-mime $*" >> "${log}"`);
-  shim(binDir, "open", `echo "open $*" >> "${log}"`);
-  if (withPacman) {
-    shim(binDir, "pacman", `echo "pacman $*" >> "${log}"`);
-  }
 
   const scriptPath = path.join(root, "install.sh");
   writeFileSync(scriptPath, INSTALL_SCRIPT);
@@ -105,103 +118,107 @@ function runInstaller({
       PATH: `${binDir}:/usr/bin:/bin`,
       HOME: homeDir,
       XDG_DATA_HOME: path.join(homeDir, ".local", "share"),
+      STELLA_APPS_DIR: path.join(homeDir, "Apps"),
     },
     encoding: "utf8",
   });
 
   return {
-    root,
     homeDir,
+    log,
     status: result.status,
     stdout: String(result.stdout ?? ""),
     stderr: String(result.stderr ?? ""),
-    calls: readFileSync(log, "utf8"),
+    calls: () => readFileSync(log, "utf8"),
   };
 }
 
+const waitFor = async (check: () => boolean) => {
+  for (let i = 0; i < 50 && !check(); i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  return check();
+};
+
 describe("install.sh", () => {
-  test("Arch: downloads the pacman package and installs it with pacman -U", () => {
-    const run = runInstaller({
-      unameS: "Linux",
-      unameM: "x86_64",
-      withPacman: true,
-    });
-
-    expect(run.stderr).toBe("");
-    expect(run.status).toBe(0);
-    expect(run.calls).toContain(RELEASE_ASSETS.arch);
-    expect(run.calls).toMatch(/pacman -U --noconfirm .*stella\.pkg\.tar\.xz/);
-    // The Arch branch must never fall through to the AppImage branch.
-    expect(
-      existsSync(path.join(run.homeDir, ".local/bin/Stella.AppImage")),
-    ).toBe(false);
-  });
-
-  test("non-Arch: installs the AppImage on PATH with an executable bit, icon and menu entry", () => {
+  test("Linux x64: installs the verified launcher where it installs itself and starts it", async () => {
     const run = runInstaller({ unameS: "Linux", unameM: "x86_64" });
 
     expect(run.stderr).toBe("");
     expect(run.status).toBe(0);
-    expect(run.calls).toContain(RELEASE_ASSETS.linux);
+    expect(run.calls()).toContain(RELEASE_ASSETS.linux);
+    expect(run.calls()).toContain(LAUNCHER_CHECKSUMS_URL);
 
-    const appImage = path.join(run.homeDir, ".local/bin/Stella.AppImage");
-    expect(existsSync(appImage)).toBe(true);
-    expect(spawnSync("test", ["-x", appImage]).status).toBe(0);
-
-    const desktopFile = path.join(
+    const launcher = path.join(
       run.homeDir,
-      ".local/share/applications/stella-v2.desktop",
+      ".local/share/stella/bin/stella-launcher",
     );
-    const entry = readFileSync(desktopFile, "utf8");
-    expect(entry).toContain("[Desktop Entry]");
-    expect(entry).toContain(`Exec="${appImage}" %U`);
-    expect(entry).toContain("Icon=stella-v2");
-    expect(entry).toContain("MimeType=x-scheme-handler/stella;");
-
+    expect(spawnSync("test", ["-x", launcher]).status).toBe(0);
     expect(
       existsSync(
-        path.join(
-          run.homeDir,
-          ".local/share/icons/hicolor/512x512/apps/stella-v2.png",
-        ),
+        path.join(run.homeDir, ".local/share/stella/bin/.stella-launcher.download"),
       ),
+    ).toBe(false);
+    expect(
+      await waitFor(() => run.calls().includes(`launched ${launcher}`)),
     ).toBe(true);
-    expect(run.calls).toContain("update-desktop-database");
   });
 
-  test("non-Arch: re-running is idempotent", () => {
+  test("Linux arm64: installs the arm64 launcher", () => {
+    const run = runInstaller({ unameS: "Linux", unameM: "aarch64" });
+
+    expect(run.status).toBe(0);
+    expect(run.calls()).toContain(RELEASE_ASSETS["linux-arm64"]);
+  });
+
+  test("Linux: re-running replaces the launcher in place", () => {
     const home = mkdtempSync(path.join(os.tmpdir(), "stella-home-"));
     created.push(home);
 
     const first = runInstaller({ unameS: "Linux", unameM: "x86_64", home });
-    const desktopFile = path.join(
-      home,
-      ".local/share/applications/stella-v2.desktop",
-    );
-    const firstEntry = readFileSync(desktopFile, "utf8");
-
     const second = runInstaller({ unameS: "Linux", unameM: "x86_64", home });
 
     expect(first.status).toBe(0);
     expect(second.status).toBe(0);
     expect(second.stderr).toBe("");
-    expect(readFileSync(desktopFile, "utf8")).toBe(firstEntry);
+  });
+
+  test("a checksum mismatch fails and leaves nothing installed", () => {
+    const run = runInstaller({
+      unameS: "Linux",
+      unameM: "x86_64",
+      badChecksum: true,
+    });
+
+    expect(run.status).not.toBe(0);
+    expect(run.stderr).toContain("failed its checksum");
+    expect(
+      existsSync(path.join(run.homeDir, ".local/share/stella/bin/stella-launcher")),
+    ).toBe(false);
+    expect(
+      existsSync(
+        path.join(run.homeDir, ".local/share/stella/bin/.stella-launcher.download"),
+      ),
+    ).toBe(false);
   });
 
   test("Linux on an unpublished architecture fails with a clear error", () => {
-    const run = runInstaller({ unameS: "Linux", unameM: "aarch64" });
+    const run = runInstaller({ unameS: "Linux", unameM: "riscv64" });
 
     expect(run.status).not.toBe(0);
-    expect(run.stderr).toContain("x86_64 only");
-    expect(run.stderr).toContain("aarch64");
+    expect(run.stderr).toContain("x86_64 and arm64 only");
+    expect(run.stderr).toContain("riscv64");
   });
 
-  test("macOS still downloads and opens the architecture-matched DMG", () => {
+  test("macOS installs the verified universal app and opens it", () => {
     const run = runInstaller({ unameS: "Darwin", unameM: "arm64" });
 
+    expect(run.stderr).toBe("");
     expect(run.status).toBe(0);
-    expect(run.calls).toContain(RELEASE_ASSETS["mac-arm64"]);
-    expect(run.calls).toContain("open ");
+    expect(run.calls()).toContain(RELEASE_ASSETS["mac-arm64"]);
+    const app = path.join(run.homeDir, "Apps/Stella.app");
+    expect(existsSync(app)).toBe(true);
+    expect(run.calls()).toContain(`open ${app}`);
   });
 
   test("unsupported operating systems fail with a clear error", () => {

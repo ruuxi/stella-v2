@@ -19,10 +19,10 @@ describe("Linux download options", () => {
     );
   });
 
-  test("keeps the AppImage and Arch package as secondary links", () => {
+  test("keeps the raw launchers as secondary links", () => {
     expect(markup).toContain('href="/download/linux"');
-    expect(markup).toContain('href="/download/arch"');
-    expect(markup).toContain("AppImage");
-    expect(markup).toContain("Arch / Omarchy package");
+    expect(markup).toContain('href="/download/linux-arm64"');
+    expect(markup).toContain("Launcher (x64)");
+    expect(markup).toContain("Launcher (arm64)");
   });
 });

@@ -1,33 +1,36 @@
 /**
- * Single source of truth for where the published desktop release assets live.
+ * Single source of truth for where the published desktop launchers live.
  *
- * The release workflow (`.github/workflows/build-desktop-release.yml`) writes
- * stable aliases under `desktop-v2/stable/`; every user-facing entry point —
- * the `/download/<platform>` redirect route, the download button, and the
- * `curl … | sh` installer script — resolves its URLs from here so a rename of
- * a release alias only has to happen in one place.
+ * Stella desktop ships as a native launcher per OS
+ * (`.github/workflows/build-launchers.yml` publishes them under
+ * `launcher/stable/` with a `SHA256SUMS` file); the launcher installs and runs
+ * the app itself. Every user-facing entry point — the `/download/<platform>`
+ * redirect route, the download button, and the `install.sh` / `install.ps1`
+ * scripts — resolves its URLs from here so a rename only happens in one place.
  */
 
-export const R2_STABLE_BASE =
-  "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/desktop-v2/stable";
+export const LAUNCHER_STABLE_BASE =
+  "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/launcher/stable";
 
-/** Canonical site origin used by the installer script for static assets. */
+/** `sha256sum` output covering every launcher asset. */
+export const LAUNCHER_CHECKSUMS_URL = `${LAUNCHER_STABLE_BASE}/SHA256SUMS`;
+
+/** Canonical site origin used by the installer scripts. */
 export const SITE_ORIGIN = "https://stella.sh";
 
 /**
- * Stable release asset aliases keyed by the `/download/<slug>` platform slug.
- *
- * Linux is published for x64 only (the release workflow builds
- * `--linux AppImage pacman --x64`), so there is deliberately no arm64 alias:
- * the installer script fails loudly on other architectures rather than
- * downloading an incompatible binary.
+ * Launcher assets keyed by the `/download/<slug>` platform slug. The macOS
+ * launcher is one universal app (zipped `.app`), so both Mac slugs share it.
+ * The Linux launchers are raw executables; `arch` stays a working slug and
+ * gets the x64 launcher, which installs the same way on Arch/Omarchy.
  */
 export const RELEASE_ASSETS = {
-  windows: `${R2_STABLE_BASE}/Stella.exe`,
-  "mac-arm64": `${R2_STABLE_BASE}/Stella-darwin-arm64.dmg`,
-  "mac-x64": `${R2_STABLE_BASE}/Stella-darwin-x64.dmg`,
-  linux: `${R2_STABLE_BASE}/Stella-linux-x64.AppImage`,
-  arch: `${R2_STABLE_BASE}/Stella-arch-x64.pkg.tar.xz`,
+  windows: `${LAUNCHER_STABLE_BASE}/Stella.exe`,
+  "mac-arm64": `${LAUNCHER_STABLE_BASE}/Stella-macos.zip`,
+  "mac-x64": `${LAUNCHER_STABLE_BASE}/Stella-macos.zip`,
+  linux: `${LAUNCHER_STABLE_BASE}/stella-launcher-linux-x64`,
+  "linux-arm64": `${LAUNCHER_STABLE_BASE}/stella-launcher-linux-arm64`,
+  arch: `${LAUNCHER_STABLE_BASE}/stella-launcher-linux-x64`,
 } as const satisfies Record<string, string>;
 
 export type ReleaseAssetSlug = keyof typeof RELEASE_ASSETS;

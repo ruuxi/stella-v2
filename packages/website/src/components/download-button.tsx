@@ -49,14 +49,13 @@ function LinuxIcon({ size = 18 }: { size?: number }) {
 // User-facing download URLs live on the trusted stella.sh domain (handled by
 // `src/app/download/[platform]/route.ts`) instead of the raw, no-reputation
 // Cloudflare R2 bucket host. The route 302-redirects to the real R2 asset, so
-// the bytes are unchanged but the click origin the browser sees is stella.sh —
-// which reduces SmartScreen friction for the still-unsigned Windows build.
+// the bytes are unchanged but the click origin the browser sees is stella.sh.
 const DOWNLOADS = {
   macArm64: "/download/mac-arm64",
   macX64: "/download/mac-x64",
   windows: "/download/windows",
   linux: "/download/linux",
-  arch: "/download/arch",
+  linuxArm64: "/download/linux-arm64",
 } as const;
 
 type Platform = "macArm64" | "macX64" | "windows" | "linux";
@@ -110,13 +109,11 @@ export function usePlatform(): Platform {
 /**
  * Linux install choices.
  *
- * The primary action is the copyable `curl … | sh` one-liner, the closest
- * Linux equivalent of the Windows NSIS one-click installer: it installs the
- * native pacman package on Arch/Omarchy and otherwise puts the AppImage on
- * PATH with an application-menu entry and icon. The raw asset downloads stay
- * available as secondary links, but they are no longer the default because
- * both need manual steps (chmod +x, or a file manager that treats the
- * pkg.tar.xz as a plain tarball).
+ * The primary action is the copyable `curl … | sh` one-liner: it installs the
+ * architecture-matched launcher, verified against the published checksums,
+ * and starts it, and the launcher adds Stella to the application menu. The
+ * raw launcher downloads stay available as secondary links; they need a
+ * manual `chmod +x` before the first run.
  *
  * Exported separately from `DownloadButton` so it can be rendered — and
  * asserted on — without user-agent platform detection.
@@ -143,7 +140,7 @@ export function LinuxInstallOptions({
     <>
       <div className="download-menu__install">
         <strong>One-line install</strong>
-        <span>Arch/Omarchy package, or AppImage with a menu entry.</span>
+        <span>Installs the launcher and adds Stella to your app menu.</span>
         <code data-testid="linux-install-command">{INSTALL_COMMAND}</code>
         <button
           type="button"
@@ -163,19 +160,19 @@ export function LinuxInstallOptions({
           onSelectAsset?.(DOWNLOADS.linux);
         }}
       >
-        <strong>AppImage</strong>
+        <strong>Launcher (x64)</strong>
         <span>Direct download — you run chmod +x yourself</span>
       </a>
       <a
         className="download-menu__option"
-        href={DOWNLOADS.arch}
+        href={DOWNLOADS.linuxArm64}
         onClick={(event) => {
           event.preventDefault();
-          onSelectAsset?.(DOWNLOADS.arch);
+          onSelectAsset?.(DOWNLOADS.linuxArm64);
         }}
       >
-        <strong>Arch / Omarchy package</strong>
-        <span>Direct .pkg.tar.xz for pacman -U</span>
+        <strong>Launcher (arm64)</strong>
+        <span>Direct download — you run chmod +x yourself</span>
       </a>
     </>
   );

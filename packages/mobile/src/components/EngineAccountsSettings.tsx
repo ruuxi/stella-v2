@@ -140,27 +140,20 @@ export function EngineAccountsSettings({ onBack }: { onBack: () => void }) {
   );
 }
 
-function ProviderSection({
-  section,
-  settings,
-  styles,
-  settingsStyles,
-  colors,
-}: {
-  section: Section;
-  settings: EngineSettings | undefined;
-  styles: ReturnType<typeof makeStyles>;
-  settingsStyles: ReturnType<typeof makeSettingsStyles>;
-  colors: Colors;
-}) {
+/**
+ * The paste-back connect flow for one provider, shared by Settings and the
+ * onboarding: `startConnect` opens the provider's page in the in-app browser
+ * (and picks a likely code up off the clipboard on return), `finishConnect`
+ * hands the pasted code or address to the server. Errors surface as an alert.
+ */
+export function useEngineConnect(
+  provider: EngineProvider,
+  { onConnected }: { onConnected?: () => void } = {},
+) {
   const t = useT();
   const [busy, setBusy] = useState(false);
   const [connectId, setConnectId] = useState<string | null>(null);
   const [pasted, setPasted] = useState("");
-  const accounts = (settings?.connections ?? []).filter(
-    (row) => row.provider === section.provider,
-  );
-  const autoSwitch = settings?.autoSwitch?.[section.provider] ?? false;
 
   const run = async (action: () => Promise<unknown>): Promise<boolean> => {
     setBusy(true);
@@ -181,7 +174,7 @@ function ProviderSection({
   const startConnect = () =>
     void run(async () => {
       const result = await getBackendClient().call("engines.startConnect", {
-        provider: section.provider,
+        provider,
       });
       setConnectId(result.connectId);
       setPasted("");
@@ -204,8 +197,63 @@ function ProviderSection({
       });
       setConnectId(null);
       setPasted("");
+    }).then((ok) => {
+      if (ok) onConnected?.();
     });
   };
+
+  const cancelConnect = () => {
+    setConnectId(null);
+    setPasted("");
+  };
+
+  const pasteFromClipboard = async () => {
+    const clip = await Clipboard.getStringAsync().catch(() => "");
+    if (clip) setPasted(clip.trim());
+  };
+
+  return {
+    busy,
+    connectId,
+    pasted,
+    setPasted,
+    run,
+    startConnect,
+    finishConnect,
+    cancelConnect,
+    pasteFromClipboard,
+  };
+}
+
+function ProviderSection({
+  section,
+  settings,
+  styles,
+  settingsStyles,
+  colors,
+}: {
+  section: Section;
+  settings: EngineSettings | undefined;
+  styles: ReturnType<typeof makeStyles>;
+  settingsStyles: ReturnType<typeof makeSettingsStyles>;
+  colors: Colors;
+}) {
+  const t = useT();
+  const {
+    busy,
+    connectId,
+    pasted,
+    setPasted,
+    run,
+    startConnect,
+    finishConnect,
+    cancelConnect,
+    pasteFromClipboard,
+  } = useEngineConnect(section.provider);
+  const accounts = (settings?.connections ?? []).filter(
+    (row) => row.provider === section.provider,
+  );
+  const autoSwitch = settings?.autoSwitch?.[section.provider] ?? false;
 
   const useAccount = (row: EngineConnection) => {
     tapLight();
@@ -399,10 +447,7 @@ function ProviderSection({
               style={styles.pasteInput}
             />
             <Pressable
-              onPress={async () => {
-                const clip = await Clipboard.getStringAsync().catch(() => "");
-                if (clip) setPasted(clip.trim());
-              }}
+              onPress={() => void pasteFromClipboard()}
               hitSlop={8}
               accessibilityRole="button"
             >
@@ -413,10 +458,7 @@ function ProviderSection({
           </View>
           <View style={styles.pasteActions}>
             <Pressable
-              onPress={() => {
-                setConnectId(null);
-                setPasted("");
-              }}
+              onPress={cancelConnect}
               disabled={busy}
               hitSlop={8}
               accessibilityRole="button"

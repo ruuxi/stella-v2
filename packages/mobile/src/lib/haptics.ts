@@ -11,3 +11,6 @@ export const notifySuccess = () => void Haptics.notificationAsync(Haptics.Notifi
 
 /** Error notification — pairing failed, connection error. */
 export const notifyError = () => void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+
+/** Selection tick — a choice landing (a theme swatch, a chapter, a demo approval). */
+export const selectionTick = () => void Haptics.selectionAsync();

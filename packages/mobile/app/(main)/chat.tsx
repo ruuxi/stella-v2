@@ -29,6 +29,11 @@ import {
   consumePendingShare,
   subscribePendingShare,
 } from "../../src/lib/pending-share";
+import {
+  clearPendingComposerDraft,
+  peekPendingComposerDraft,
+} from "../../src/lib/onboarding-handoff";
+import { hasAiConsent } from "../../src/lib/ai-consent";
 import { type ChatThread } from "../../src/lib/use-chat-thread";
 import {
   useCloudCanonicalChatThread,
@@ -75,6 +80,9 @@ const STATUS_POLL_LIVE_MS = 120_000;
 /** Faster cadence while a wake request is in flight. */
 const WAKE_POLL_MS = 3_000;
 const WAKE_WINDOW_MS = 30_000;
+/** How often a parked onboarding message retries its send, and for how long. */
+const HANDOFF_SEND_RETRY_MS = 400;
+const HANDOFF_SEND_MAX_ATTEMPTS = 150;
 
 type DeviceStatus = {
   checking: boolean;
@@ -313,6 +321,21 @@ function ChatSurface(props: {
     return subscribePendingShare(applyShare);
   }, [addAttachments, setDraft]);
 
+  // The first message from onboarding (a starter, or what the user typed
+  // there): prefill it at once, then send it as soon as the conversation can
+  // take a turn. Until the AI-data consent is granted the send would only
+  // re-raise the consent sheet, so it waits for that too; if it never
+  // becomes sendable the text simply stays in the composer.
+  const [handoffDraft] = useState(peekPendingComposerDraft);
+  const sendRef = useRef(thread.send);
+  sendRef.current = thread.send;
+  const draftStore = thread.draftStore;
+  useEffect(() => {
+    if (!handoffDraft) return;
+    clearPendingComposerDraft();
+    setDraft(handoffDraft.text);
+  }, [handoffDraft, setDraft]);
+
   const checkStatus = useCallback(async (desktopDeviceId: string) => {
     try {
       const next = await getDesktopBridgeStatus(desktopDeviceId);
@@ -527,6 +550,29 @@ function ChatSurface(props: {
     !offline &&
     thread.storageLoaded &&
     thread.authorityReady !== false;
+  const handoffSentRef = useRef(false);
+  useEffect(() => {
+    if (!handoffDraft?.send || handoffSentRef.current || !sendReady) return;
+    let attempts = 0;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const attempt = () => {
+      attempts += 1;
+      // The user took over the composer (edited or cleared it): leave it.
+      const settled =
+        draftStore.get().trim() !== handoffDraft.text ||
+        attempts > HANDOFF_SEND_MAX_ATTEMPTS ||
+        (hasAiConsent() && sendRef.current() !== null);
+      if (!settled) return;
+      handoffSentRef.current = true;
+      if (timer) clearInterval(timer);
+    };
+    attempt();
+    if (handoffSentRef.current) return;
+    timer = setInterval(attempt, HANDOFF_SEND_RETRY_MS);
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [draftStore, handoffDraft, sendReady]);
   const sendRealtimePrompt = thread.sendPrompt;
   const performRealtimeVoiceAction = useCallback(
     async (request: string) => sendRealtimePrompt?.(request) ?? null,

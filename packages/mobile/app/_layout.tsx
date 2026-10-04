@@ -19,13 +19,18 @@ import {
   registerForPushNotifications,
 } from "../src/lib/notifications";
 import { installTextDefaults } from "../src/lib/setup-text-defaults";
+import { markSplashHidden } from "../src/lib/splash-state";
 
 installTextDefaults();
 import { loadGuestMode, isGuest, setGuestMode } from "../src/lib/guest-mode";
 import { signInMobileAnonymous } from "../src/lib/anonymous-sign-in";
 import { loadAiConsent } from "../src/lib/ai-consent";
 import { loadNotificationsMuted } from "../src/lib/notifications-prefs";
-import { hasSeenOnboarding, loadOnboardingSeen } from "../src/lib/onboarding";
+import {
+  hasSeenOnboarding,
+  loadOnboardingProgress,
+  loadOnboardingSeen,
+} from "../src/lib/onboarding";
 import {
   enterMainShell,
   loadLastMainTabHref,
@@ -174,8 +179,9 @@ function AuthenticatedLayout() {
       loadAiConsent(),
       loadNotificationsMuted(),
       loadOnboardingSeen(),
+      loadOnboardingProgress(),
       loadLastMainTabHref(),
-    ]).then(([, , , , href]) => {
+    ]).then(([, , , , , href]) => {
       setInitialMainHref(href);
       setGuestReady(true);
     });
@@ -362,7 +368,7 @@ function AuthenticatedLayout() {
     splashHiddenRef.current = true;
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        void SplashScreen.hideAsync();
+        void SplashScreen.hideAsync().finally(markSplashHidden);
       });
     });
   }, [
@@ -404,7 +410,7 @@ function AppLayout() {
  */
 function HideSplashWhenThemed() {
   useEffect(() => {
-    void SplashScreen.hideAsync();
+    void SplashScreen.hideAsync().finally(markSplashHidden);
   }, []);
   return null;
 }

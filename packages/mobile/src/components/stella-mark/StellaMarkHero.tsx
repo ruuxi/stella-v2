@@ -40,15 +40,18 @@ export function StellaMarkHero({
   energy,
   faceColor,
   shape = "star",
+  paused = false,
 }: {
   size: number;
   energy?: SharedValue<number>;
   faceColor?: string;
   /** `soft` sits halfway between the star and the fully inflated orb. */
   shape?: "star" | "soft" | "orb";
+  /** Holds the breathe and the face still, e.g. while scrolled out of view. */
+  paused?: boolean;
 }) {
   const reduceMotion = useReducedMotion();
-  const appVisible = useAppVisible();
+  const appVisible = useAppVisible() && !paused;
   // Gradient ids are per-instance: two marks sharing an id make the second
   // resolve against the first one's gradient (see StellaMark.tsx).
   const uid = useId().replace(/[^a-zA-Z0-9-]/g, "");

@@ -4,10 +4,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import {
   Keyboard,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -34,11 +32,7 @@ import { type Colors } from "../../src/theme/colors";
 import { useColors, useTheme } from "../../src/theme/theme-context";
 import { fadeHex } from "../../src/theme/oklch";
 import { fonts } from "../../src/theme/fonts";
-import {
-  LEGAL_TITLES,
-  TERMS_OF_SERVICE,
-  PRIVACY_POLICY,
-} from "../../src/lib/legal-text";
+import { LegalSheet } from "../../src/components/LegalSheet";
 import {
   enterMainShell,
   loadLastMainTabHref,
@@ -572,40 +566,7 @@ export default function LoginScreen() {
         </View>
       </KeyboardAvoidingView>
 
-      <Modal
-        visible={activeLegal !== null}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setActiveLegal(null)}
-      >
-        <SafeAreaView style={styles.legalModal}>
-          <View style={styles.legalModalHeader}>
-            <Text style={styles.legalModalTitle}>
-              {activeLegal ? LEGAL_TITLES[activeLegal] : ""}
-            </Text>
-            <Pressable
-              onPress={() => setActiveLegal(null)}
-              style={styles.legalModalClose}
-            >
-              <Text style={styles.legalModalCloseText}>
-                {t("mobile.common.done")}
-              </Text>
-            </Pressable>
-          </View>
-          <ScrollView
-            style={styles.legalModalScroll}
-            contentContainerStyle={styles.legalModalContent}
-          >
-            <Text style={styles.legalModalBody}>
-              {activeLegal === "terms"
-                ? TERMS_OF_SERVICE
-                : activeLegal === "privacy"
-                  ? PRIVACY_POLICY
-                  : ""}
-            </Text>
-          </ScrollView>
-        </SafeAreaView>
-      </Modal>
+      <LegalSheet document={activeLegal} onClose={() => setActiveLegal(null)} />
     </SafeAreaView>
   );
 }
@@ -815,51 +776,5 @@ const makeStyles = (colors: Colors) =>
       fontFamily: fonts.sans.medium,
       fontSize: 15,
       letterSpacing: -0.2,
-    },
-    legalModal: {
-      flex: 1,
-      backgroundColor: colors.background,
-      // Soft hairline on the leading (top) edge so the sheet reads against the
-      // page beneath, matching the TopSheet primitive's edge treatment.
-      borderTopColor: colors.border,
-      borderTopWidth: StyleSheet.hairlineWidth,
-    },
-    legalModalHeader: {
-      alignItems: "center",
-      borderBottomColor: colors.border,
-      borderBottomWidth: 1,
-      flexDirection: "row",
-      justifyContent: "space-between",
-      paddingHorizontal: 20,
-      paddingVertical: 14,
-    },
-    legalModalTitle: {
-      color: colors.text,
-      fontFamily: fonts.sans.semiBold,
-      fontSize: 18,
-      letterSpacing: -0.4,
-    },
-    legalModalClose: {
-      paddingHorizontal: 8,
-      paddingVertical: 4,
-    },
-    legalModalCloseText: {
-      color: colors.accent,
-      fontFamily: fonts.sans.semiBold,
-      fontSize: 16,
-    },
-    legalModalScroll: {
-      flex: 1,
-    },
-    legalModalContent: {
-      padding: 20,
-      paddingBottom: 40,
-    },
-    legalModalBody: {
-      color: colors.text,
-      fontFamily: fonts.sans.regular,
-      fontSize: 13,
-      lineHeight: 20,
-      opacity: 0.8,
     },
   } as const);

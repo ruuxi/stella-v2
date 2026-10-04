@@ -102,8 +102,6 @@ export const turnRequestFromAgentStart = (
   audience: start.audience as ManagedModelAudience,
   budgetMicroCents: start.budgetMicroCents,
   source: start.source,
-  ...(start.workspace ? { workspace: start.workspace } : {}),
-  ...(start.workspaceForkId ? { workspaceForkId: start.workspaceForkId } : {}),
   ...(start.clientMsgId ? { clientMsgId: start.clientMsgId } : {}),
   ...(start.parentTurnId ? { parentTurnId: start.parentTurnId } : {}),
   ...(start.parentThreadId ? { parentThreadId: start.parentThreadId } : {}),
@@ -400,10 +398,6 @@ const projectAgentTurnStart = async (
       prompt: turn.prompt,
       execution: turn.execution!,
       placement: "cloud",
-      ...(turn.workspace ? { workspace: turn.workspace } : {}),
-      ...(turn.workspaceForkId
-        ? { workspaceForkId: turn.workspaceForkId }
-        : {}),
       ...(turn.originDeviceId ? { originDeviceId: turn.originDeviceId } : {}),
       ...(turn.originConversationId
         ? { originConversationId: turn.originConversationId }

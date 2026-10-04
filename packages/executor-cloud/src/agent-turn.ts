@@ -82,7 +82,7 @@ import {
 import {
   toolStateDir,
   worldDriveWorkspace,
-  worldRootForFork,
+  WORLD_ROOT,
 } from "./workspace-paths.js";
 import {
   pullWorldProjection,
@@ -496,12 +496,10 @@ export const CLOUD_GENERAL_PROMPT = (options: {
   office: boolean;
   drive?: DriveSyncResult;
   skills?: GeneralAgentPromptSkills;
-  workspaceRoot?: string;
 }): string =>
   buildGeneralAgentPrompt({
     workspace: "materialized",
     office: options.office,
-    ...(options.workspaceRoot ? { workspaceRoot: options.workspaceRoot } : {}),
     ...(options.drive ? { drive: options.drive } : {}),
     ...(options.skills ? { skills: options.skills } : {}),
   });
@@ -611,7 +609,7 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
           checkpointPolicy: "preserve_prior",
         };
       }
-      const workspaceRoot = worldRootForFork(input.world.fork);
+      const workspaceRoot = WORLD_ROOT;
       const workspaceStateDir = toolStateDir(workspaceRoot);
       const driveWorkspace = worldDriveWorkspace(workspaceRoot);
       const toolHome = CLOUD_TOOL_HOME;
@@ -691,7 +689,6 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
       const officeBinPath = resolveOfficeBinPath();
       const cloudSystemPrompt = CLOUD_GENERAL_PROMPT({
         office: Boolean(officeBinPath),
-        workspaceRoot,
         ...(input.skills ? { skills: input.skills } : {}),
         drive: driveSync,
       });

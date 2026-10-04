@@ -56,7 +56,7 @@ import { deliverWorldLinkedFiles } from "./world-linked-files.js";
 import {
   agentTurnSessionId,
   worldName,
-  worldRootForFork,
+  WORLD_ROOT,
   worldSandboxId,
 } from "../workspace.js";
 import type { createAgentControlPlane } from "../agent-control-plane.js";
@@ -533,7 +533,6 @@ export const prepareAgentBrokerHandoff = async (
       origin: host.env.CLOUD_BUILDER_PUBLIC_URL.replace(/\/+$/u, ""),
       name,
       capability: worldCapability,
-      ...(turn.workspaceForkId ? { fork: turn.workspaceForkId } : {}),
     },
   };
 };
@@ -748,12 +747,8 @@ export const runResidentAgentTurn = async (
       threadId: turn.threadId!,
       agentDepth: turn.agentDepth,
       execution: plan.execution,
-      ...(turn.workspaceForkId
-        ? { workspaceForkId: turn.workspaceForkId }
-        : {}),
     },
   });
-  const forkScope = turn.workspaceForkId ? { fork: turn.workspaceForkId } : {};
   let driveKnown = new Map<string, number>();
   let hydration: Promise<boolean> | undefined;
   const prepareWorkspace = (): Promise<boolean> => {
@@ -765,14 +760,12 @@ export const runResidentAgentTurn = async (
           prompt: turn.prompt,
           signal: execution.signal,
           world: {
-            head: () => world.head(forkScope),
-            stat: (path) => world.stat(path, forkScope),
-            list: (prefix, options) =>
-              world.list(prefix, { ...options, ...forkScope }),
-            readFile: (path) => world.readFile(path, forkScope),
+            head: () => world.head(),
+            stat: (path) => world.stat(path),
+            list: (prefix, options) => world.list(prefix, options),
+            readFile: (path) => world.readFile(path),
             putBlob: (stream, input) => world.putBlob(stream, input),
-            commitShell: (change) =>
-              world.commitShell({ ...change, ...forkScope }),
+            commitShell: (change) => world.commitShell(change),
           },
           post: async (body, signal) => {
             signal.throwIfAborted();
@@ -810,7 +803,7 @@ export const runResidentAgentTurn = async (
             ? { ok: true, output: result.outcome.text }
             : { ok: false, output: result.outcome.message };
         }
-        return world.tool({ ...call, ...forkScope });
+        return world.tool(call);
       },
     },
     signal: execution.signal,
@@ -869,10 +862,9 @@ export const runResidentAgentTurn = async (
 
   // exec_command runs in the just-bash worker shell until this turn attaches
   // a sandbox, and in the sandbox from then on. The shell reads the world
-  // through a loopback scoped to this owner world and fork; only this
+  // through a loopback scoped to this owner world; only this
   // Durable Object commits what a run changed.
-  const workspaceFork = turn.workspaceForkId;
-  const workspaceRoot = worldRootForFork(workspaceFork);
+  const workspaceRoot = WORLD_ROOT;
   const compute = createWorkerShellRouter({
     ladder,
     root: workspaceRoot,
@@ -889,15 +881,14 @@ export const runResidentAgentTurn = async (
             loader: host.env.LOADER,
             loopback: () =>
               host.ctx.exports.WorldShellFs({
-                props: { worldName: ownerWorldName, ...forkScope },
+                props: { worldName: ownerWorldName },
               }),
             world: {
-              head: () => world.head(forkScope),
-              commitShell: (change) =>
-                world.commitShell({ ...change, ...forkScope }),
+              head: () => world.head(),
+              commitShell: (change) => world.commitShell(change),
             },
             root: workspaceRoot,
-            scope: `${ownerWorldName}:${workspaceFork ?? "shared"}`,
+            scope: ownerWorldName,
           }),
         }
       : {}),
@@ -961,7 +952,6 @@ export const runResidentAgentTurn = async (
       },
       workspacePrompt: {
         office: false,
-        workspaceRoot,
         history: Boolean(jsSandbox && history),
       },
       now: () => Date.now(),

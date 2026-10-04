@@ -174,7 +174,6 @@ const RESIDENT_TOOLS = createResidentGeneralAgentTools(
     ["send_input", noopDoLocalTool("send_input")],
     ["pause_agent", noopDoLocalTool("pause_agent")],
     ["agent_status", noopDoLocalTool("agent_status")],
-    ["merge_workspace", noopDoLocalTool("merge_workspace")],
   ]),
 );
 

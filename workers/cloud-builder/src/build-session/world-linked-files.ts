@@ -21,7 +21,7 @@ import { worldRelativeToolPath } from "../world/path.js";
 import {
   driveRootForWorld,
   worldName,
-  worldRootForFork,
+  WORLD_ROOT,
 } from "../workspace.js";
 import type { TurnRequest } from "./shared/types.js";
 import type { BuildSessionInternals } from "./host.js";
@@ -129,14 +129,8 @@ export type DeliveredWorldFile = {
 };
 
 type WorldFileReader = {
-  stat(
-    path: string,
-    options?: { fork?: string },
-  ): Promise<{ kind: string; size: number } | null>;
-  readFile(
-    path: string,
-    options?: { fork?: string },
-  ): Promise<Uint8Array | null>;
+  stat(path: string): Promise<{ kind: string; size: number } | null>;
+  readFile(path: string): Promise<Uint8Array | null>;
 };
 
 export type WorldLinkedFilesHost = Pick<
@@ -164,14 +158,10 @@ export const deliverWorldLinkedFiles = async (
 ): Promise<string[]> => {
   const { turn } = args;
   const log = args.log ?? (() => undefined);
-  const targets = worldLinkedDriveTargets(
-    args.finalText,
-    worldRootForFork(turn.workspaceForkId),
-  );
+  const targets = worldLinkedDriveTargets(args.finalText, WORLD_ROOT);
   if (targets.length === 0) return [];
   const world: WorldFileReader =
     args.world ?? host.env.WORLDS.getByName(await worldName(turn.ownerId));
-  const fork = turn.workspaceForkId ? { fork: turn.workspaceForkId } : {};
 
   const files: Array<{
     path: string;
@@ -182,7 +172,7 @@ export const deliverWorldLinkedFiles = async (
     knownUpdatedAt?: number;
   }> = [];
   for (const target of targets) {
-    const entry = await world.stat(target.worldPath, fork).catch(() => null);
+    const entry = await world.stat(target.worldPath).catch(() => null);
     if (!entry || entry.kind !== "file") continue;
     const file = {
       path: target.drivePath,
@@ -195,7 +185,7 @@ export const deliverWorldLinkedFiles = async (
     };
     if (entry.size < INLINE_LIMIT_BYTES) {
       const bytes = await world
-        .readFile(target.worldPath, fork)
+        .readFile(target.worldPath)
         .catch(() => null);
       if (bytes && bytes.byteLength === entry.size) {
         files.push({ ...file, contentBase64: toBase64(bytes) });

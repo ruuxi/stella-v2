@@ -171,7 +171,6 @@ const DO_LOCAL = new Map([
   ["send_input", doLocalTool("send_input")],
   ["pause_agent", doLocalTool("pause_agent")],
   ["agent_status", doLocalTool("agent_status")],
-  ["merge_workspace", doLocalTool("merge_workspace")],
 ]);
 
 /** Names only; the executable catalog is built per turn with the loader. */

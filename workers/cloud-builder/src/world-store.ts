@@ -17,20 +17,20 @@ export class WorldStore extends DurableObject<Env> {
     });
   }
 
-  stat(path: string, options: { fork?: string } = {}) {
-    return this.world.stat(path, options);
+  stat(path: string) {
+    return this.world.stat(path);
   }
 
   list(
     prefix: string,
-    options: { cursor?: string; limit?: number; fork?: string } = {},
+    options: { cursor?: string; limit?: number } = {},
   ) {
     return this.world.list(prefix, options);
   }
 
   readFile(
     path: string,
-    options: { offset?: number; length?: number; fork?: string } = {},
+    options: { offset?: number; length?: number } = {},
   ) {
     return this.world.readFile(path, options);
   }
@@ -38,7 +38,7 @@ export class WorldStore extends DurableObject<Env> {
   writeFile(
     path: string,
     bytes: Uint8Array,
-    options: { mode?: number; mtime?: number; fork?: string } = {},
+    options: { mode?: number; mtime?: number } = {},
   ) {
     return this.ctx.blockConcurrencyWhile(() =>
       this.world.writeFile(path, bytes, options),
@@ -56,27 +56,25 @@ export class WorldStore extends DurableObject<Env> {
     return this.world.putBlob(stream, input);
   }
 
-  mkdir(path: string, options: { mode?: number; fork?: string } = {}) {
+  mkdir(path: string, options: { mode?: number } = {}) {
     return this.ctx.blockConcurrencyWhile(() =>
       this.world.mkdir(path, options),
     );
   }
 
-  remove(path: string, options: { recursive?: boolean; fork?: string } = {}) {
+  remove(path: string, options: { recursive?: boolean } = {}) {
     return this.ctx.blockConcurrencyWhile(() =>
       this.world.remove(path, options),
     );
   }
 
-  rename(from: string, to: string, options: { fork?: string } = {}) {
-    return this.ctx.blockConcurrencyWhile(() =>
-      this.world.rename(from, to, options),
-    );
+  rename(from: string, to: string) {
+    return this.ctx.blockConcurrencyWhile(() => this.world.rename(from, to));
   }
 
-  symlink(path: string, target: string, options: { fork?: string } = {}) {
+  symlink(path: string, target: string) {
     return this.ctx.blockConcurrencyWhile(() =>
-      this.world.symlink(path, target, options),
+      this.world.symlink(path, target),
     );
   }
 
@@ -88,7 +86,6 @@ export class WorldStore extends DurableObject<Env> {
       : this.ctx.blockConcurrencyWhile(() => this.world.tool(call)));
     if (
       result.ok &&
-      (!call.fork || call.fork === "shared") &&
       call.name !== "Read" &&
       call.name !== "Grep" &&
       call.name !== "glob" &&
@@ -116,7 +113,7 @@ export class WorldStore extends DurableObject<Env> {
     return this.apps.fetch(slug, request);
   }
 
-  async checkpoint(options: { historyCursor: string; fork?: string }) {
+  async checkpoint(options: { historyCursor: string }) {
     const result = await this.ctx.blockConcurrencyWhile(() =>
       this.world.checkpoint(options),
     );
@@ -131,8 +128,8 @@ export class WorldStore extends DurableObject<Env> {
     return this.world.manifest(manifestId, options);
   }
 
-  head(options: { fork?: string } = {}) {
-    return this.world.head(options);
+  head() {
+    return this.world.head();
   }
 
   selectContainerSize(initial: "small" | "large") {
@@ -143,32 +140,28 @@ export class WorldStore extends DurableObject<Env> {
     return this.world.rememberContainerSize(size);
   }
 
-  diff(listing: WorldListingEntry[], options: { fork?: string } = {}) {
-    return this.world.diff(listing, options);
+  diff(listing: WorldListingEntry[]) {
+    return this.world.diff(listing);
   }
 
   async pushDiff(input: {
     entries: WorldListingEntry[];
     deleted: string[];
-    fork?: string;
   }) {
     const result = await this.ctx.blockConcurrencyWhile(() =>
       this.world.pushDiff(input),
     );
-    if (
-      (!input.fork || input.fork === "shared") &&
-      input.entries.some((e) => e.path.endsWith("/stella.app.json"))
-    )
+    if (input.entries.some((e) => e.path.endsWith("/stella.app.json")))
       await this.apps.reconcile();
     return result;
   }
 
-  statMany(paths: readonly string[], options: { fork?: string } = {}) {
-    return this.world.statMany(paths, options);
+  statMany(paths: readonly string[]) {
+    return this.world.statMany(paths);
   }
 
-  children(path: string, options: { fork?: string } = {}) {
-    return this.world.children(path, options);
+  children(path: string) {
+    return this.world.children(path);
   }
 
   async commitShell(input: Parameters<WorldSqlStore["commitShell"]>[0]) {
@@ -177,7 +170,6 @@ export class WorldStore extends DurableObject<Env> {
     );
     if (
       result.status === "committed" &&
-      (!input.fork || input.fork === "shared") &&
       input.entries.some(
         (entry) =>
           entry.path === "stella.app.json" ||
@@ -188,44 +180,16 @@ export class WorldStore extends DurableObject<Env> {
     return result;
   }
 
-  changesSince(revision: number, options: { fork?: string } = {}) {
-    return this.world.changesSince(revision, options);
+  changesSince(revision: number) {
+    return this.world.changesSince(revision);
   }
 
   exportBlob(sha256: string) {
     return this.world.exportBlob(sha256);
   }
 
-  exportTar(manifestId?: string, options: { fork?: string } = {}) {
-    return this.world.exportTar(manifestId, options);
-  }
-
-  fork(input: { from?: string; kind: "fork" | "new"; threadId: string }) {
-    return this.ctx.blockConcurrencyWhile(() => this.world.fork(input));
-  }
-
-  async merge(input: {
-    from: string;
-    into?: string;
-    strategy: "last_writer_wins";
-  }) {
-    const result = await this.ctx.blockConcurrencyWhile(() =>
-      this.world.merge(input),
-    );
-    if (!input.into || input.into === "shared") await this.apps.reconcile();
-    return result;
-  }
-
-  forkStatus(forkId: string) {
-    return this.world.forkStatus(forkId);
-  }
-
-  async dropFork(forkId: string) {
-    const result = await this.ctx.blockConcurrencyWhile(() =>
-      this.world.dropFork(forkId),
-    );
-    await this.ctx.storage.setAlarm(Date.now() + 1_000);
-    return result;
+  exportTar(manifestId?: string) {
+    return this.world.exportTar(manifestId);
   }
 
   async alarm(): Promise<void> {

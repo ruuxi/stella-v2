@@ -52,7 +52,6 @@ type ThreadRow = {
   owner_generation: string | null;
   parent_turn_id: string | null;
   parent_thread_id: string | null;
-  workspace_fork_id: string | null;
   origin_device_id: string | null;
   origin_conversation_id: string | null;
   origin_delivery_ack_at: number | null;
@@ -149,6 +148,12 @@ const DISPATCH_RETRY_MS = 15_000;
 const TERMINAL_STATUSES = new Set(["completed", "failed", "canceled"]);
 const ACTIVE_STATUSES = new Set(["running", "resuming"]);
 
+/** Agents no longer get isolated world forks. */
+export const AGENT_THREADS_DROP_WORKSPACE_FORK_MIGRATION = {
+  id: "agent-threads.3-drop-workspace-fork",
+  statements: ["ALTER TABLE agent_threads DROP COLUMN workspace_fork_id"],
+};
+
 // ── Projections ───────────────────────────────────────────────────────────
 
 const summary = (row: ThreadRow, ownerId: string): AgentThreadSummary => ({
@@ -157,7 +162,6 @@ const summary = (row: ThreadRow, ownerId: string): AgentThreadSummary => ({
   conversationId: row.conversation_id,
   ...(row.parent_turn_id !== null ? { parentTurnId: row.parent_turn_id } : {}),
   ...(row.parent_thread_id !== null ? { parentThreadId: row.parent_thread_id } : {}),
-  ...(row.workspace_fork_id !== null ? { workspaceForkId: row.workspace_fork_id } : {}),
   description: row.description,
   placement: row.placement === "computer" ? "computer" : "cloud",
   agentType: row.agent_type,
@@ -1007,15 +1011,14 @@ export const applyAgentThreadEvent = (
         db.run(
           `INSERT INTO agent_threads
              (thread_id, conversation_id, owner_generation, parent_turn_id, parent_thread_id,
-              workspace_fork_id, origin_device_id, origin_conversation_id, description, placement,
+              origin_device_id, origin_conversation_id, description, placement,
               agent_type, execution_json, attempt_generation, status, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'cloud', 'general', ?, ?, 'running', ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'cloud', 'general', ?, ?, 'running', ?, ?)`,
           event.threadId,
           event.conversationId,
           event.ownerGeneration,
           event.parentTurnId,
           event.parentThreadId ?? null,
-          event.workspaceForkId ?? null,
           event.originDeviceId ?? null,
           event.originConversationId ?? null,
           clip(event.description, 1_000),
@@ -1041,14 +1044,12 @@ export const applyAgentThreadEvent = (
       db.run(
         `UPDATE agent_threads SET
            status = 'running', attempt_generation = ?, description = ?, execution_json = ?,
-           workspace_fork_id = COALESCE(?, workspace_fork_id),
            origin_delivery_ack_at = NULL, result_json = NULL, error_message = NULL,
            updated_at = MAX(updated_at, ?)
          WHERE thread_id = ?`,
         event.attemptGeneration,
         clip(event.description, 1_000),
         JSON.stringify(event.execution),
-        event.workspaceForkId ?? null,
         event.createdAt,
         thread.thread_id,
       );
@@ -1176,6 +1177,7 @@ export const agentThreadsDomain = {
         "CREATE TABLE agent_dispatch_prompts (turn_id TEXT PRIMARY KEY, prompt TEXT NOT NULL)",
       ],
     },
+    AGENT_THREADS_DROP_WORKSPACE_FORK_MIGRATION,
   ],
   calls: {
     "agentThreads.page": {

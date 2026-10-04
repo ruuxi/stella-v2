@@ -58,7 +58,6 @@ export type GeneralAgentPromptOptions = {
   /** `history` works inside this turn's `code`. */
   history?: boolean;
   skills?: GeneralAgentPromptSkills;
-  workspaceRoot?: string;
 } & GeneralAgentPromptWorkspace;
 
 /**
@@ -195,7 +194,7 @@ returns full records.`;
 export const buildGeneralAgentPrompt = (
   options: GeneralAgentPromptOptions,
 ): string => {
-  const workspaceRoot = options.workspaceRoot ?? WORLD_ROOT;
+  const workspaceRoot = WORLD_ROOT;
   const workspaceLines =
     options.workspace === "lazy"
       ? `\n\n${lazyWorkspaceSentence(workspaceRoot)}`
@@ -211,10 +210,6 @@ sandbox — do not plan around them.`
 video: \`mediainfo\`. There is no LibreOffice, ffmpeg or Python in this \
 sandbox — do not plan around them.`;
   const skillLines = skillSection(options.skills);
-  const isolationLines =
-    workspaceRoot === WORLD_ROOT
-      ? ""
-      : "\nThis is an isolated workspace. Its files do not enter the shared world automatically; your completion report tells the parent what changed so the parent can decide whether to merge it.";
   return `You are a Stella background agent running in a cloud sandbox. \
 Complete the task you were given, then stop — your final message is delivered \
 to the orchestrator as your report, so make it a concise, self-contained \
@@ -225,12 +220,13 @@ this way in your final message are delivered.
 
 ${workspaceRoot} is the user's whole world and your current working directory. \
 Everything you write inside it is checkpointed and persists across turns; \
-anything outside it is discarded when the sandbox stops.${isolationLines} It holds \`drive/\` \
+anything outside it is discarded when the sandbox stops. It holds \`drive/\` \
 (the user's files), \`projects/<slug>/\` (repository checkouts), \`apps/<slug>/\` \
 (hosted app sources). Put new work where it belongs among those; deliverables the user should receive go \
 in \`drive/\` under the name they should see — up to 25 of them per turn, so \
-bundle a larger set into one archive. You have bun, node, and git available via \
-exec_command.
+bundle a larger set into one archive. When work must stay separate from what \
+others are using, do it in a git worktree or a separate folder and say in your \
+report where it is. You have bun, node, and git available via exec_command.
 
 ${documents}
 

@@ -41,8 +41,8 @@ const post = async <T>(path: string, body: Record<string, unknown>): Promise<T> 
   return response.body as T;
 };
 
-const seed = (world: string, files: Record<string, unknown>, fork?: string) =>
-  post("/seed", { world, files, ...(fork ? { fork } : {}) });
+const seed = (world: string, files: Record<string, unknown>) =>
+  post("/seed", { world, files });
 
 const exec = (
   world: string,
@@ -50,11 +50,11 @@ const exec = (
   extra: Record<string, unknown> = {},
 ) => post<ExecResponse>("/exec", { world, cmd, ...extra });
 
-const read = async (world: string, path: string, fork?: string) =>
+const read = async (world: string, path: string) =>
   (
     await post<{ text: string | null; entry: Record<string, unknown> | null }>(
       "/read",
-      { world, path, ...(fork ? { fork } : {}) },
+      { world, path },
     )
   );
 
@@ -185,20 +185,6 @@ describe("worker shell in workerd", () => {
         reason,
       });
     }
-  });
-
-  test("keeps a fork's writes in the fork", async () => {
-    await seed("forked", { "counter.txt": "0\n" });
-    const { forkId } = await post<{ forkId: string }>("/fork", {
-      world: "forked",
-      threadId: "thread-fork",
-    });
-    const response = await exec("forked", "pwd; echo fork >> counter.txt", {
-      fork: forkId,
-    });
-    expect(output(response)).toBe(`/workspace/forks/${forkId}/world\n`);
-    expect((await read("forked", "counter.txt", forkId)).text).toBe("0\nfork\n");
-    expect((await read("forked", "counter.txt")).text).toBe("0\n");
   });
 
   test("a cancelled call returns promptly and changes nothing", async () => {

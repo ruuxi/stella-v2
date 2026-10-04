@@ -202,7 +202,6 @@ describe("resident general-agent turn in workerd", () => {
       "send_input",
       "pause_agent",
       "agent_status",
-      "merge_workspace",
     ]);
   }, 90_000);
 

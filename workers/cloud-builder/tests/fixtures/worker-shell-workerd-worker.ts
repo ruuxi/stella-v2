@@ -7,7 +7,7 @@
 
 import { DurableObject } from "cloudflare:workers";
 import type { SerializedAgentToolResult } from "@stella/executor-cloud/attached-tool-protocol";
-import { worldRootForFork } from "../../src/workspace.js";
+import { WORLD_ROOT } from "../../src/workspace.js";
 import { createWorkerShellRouter } from "../../src/worker-shell-router.js";
 import { createWorkerShellRunner } from "../../src/worker-shell-runner.js";
 import { WorldShellFs } from "../../src/world-shell-fs.js";
@@ -23,7 +23,6 @@ type Env = {
 
 type ExecInput = {
   world: string;
-  fork?: string;
   cmd: string;
   params?: Record<string, unknown>;
   /** The sandbox is already attached when the call arrives. */
@@ -37,9 +36,8 @@ const decoder = new TextDecoder();
 
 export class ShellHost extends DurableObject<Env> {
   async exec(input: ExecInput) {
-    const scope = input.fork ? { fork: input.fork } : {};
     const world = this.env.WORLDS.getByName(input.world);
-    const root = worldRootForFork(input.fork);
+    const root = WORLD_ROOT;
     const sandboxCalls: Array<{ toolName: string; params: unknown }> = [];
     const events: Array<{ kind: string; payload: unknown }> = [];
     let attached = input.attached === true;
@@ -63,14 +61,14 @@ export class ShellHost extends DurableObject<Env> {
         loader: this.env.LOADER,
         loopback: () =>
           this.ctx.exports.WorldShellFs({
-            props: { worldName: input.world, ...scope },
+            props: { worldName: input.world },
           }),
         world: {
-          head: () => world.head(scope),
-          commitShell: (change) => world.commitShell({ ...change, ...scope }),
+          head: () => world.head(),
+          commitShell: (change) => world.commitShell(change),
         },
         root,
-        scope: `${input.world}:${input.fork ?? "shared"}`,
+        scope: input.world,
       }),
     });
     const signal =
@@ -96,7 +94,7 @@ export class ShellHost extends DurableObject<Env> {
   /** Two commands in one turn, sharing its attach state. */
   async sequence(input: { world: string; commands: string[] }) {
     const world = this.env.WORLDS.getByName(input.world);
-    const root = worldRootForFork(undefined);
+    const root = WORLD_ROOT;
     const sandboxCalls: string[] = [];
     let attached = false;
     const router = createWorkerShellRouter({
@@ -158,37 +156,28 @@ export default {
       switch (url.pathname) {
         case "/seed": {
           const world = env.WORLDS.getByName(String(body.world));
-          const scope = body.fork ? { fork: String(body.fork) } : {};
           for (const [path, value] of Object.entries(
             body.files as Record<string, string | { symlink: string } | { mode: number; text: string }>,
           )) {
             if (typeof value === "string") {
-              await world.writeFile(path, encoder.encode(value), scope);
+              await world.writeFile(path, encoder.encode(value));
             } else if ("symlink" in value) {
-              await world.symlink(path, value.symlink, scope);
+              await world.symlink(path, value.symlink);
             } else {
               await world.writeFile(path, encoder.encode(value.text), {
-                ...scope,
                 mode: value.mode,
               });
             }
           }
           return json({ ok: true });
         }
-        case "/fork": {
-          const world = env.WORLDS.getByName(String(body.world));
-          return json(
-            await world.fork({ kind: "fork", threadId: String(body.threadId) }),
-          );
-        }
         case "/read": {
           const world = env.WORLDS.getByName(String(body.world));
-          const scope = body.fork ? { fork: String(body.fork) } : {};
-          const entry = await world.stat(String(body.path), scope);
+          const entry = await world.stat(String(body.path));
           if (!entry) return json({ entry: null });
           const bytes =
             entry.kind === "file"
-              ? await world.readFile(String(body.path), scope)
+              ? await world.readFile(String(body.path))
               : null;
           return json({
             entry,

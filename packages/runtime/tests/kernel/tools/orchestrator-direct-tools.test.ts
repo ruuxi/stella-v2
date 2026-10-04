@@ -171,7 +171,6 @@ describe("working orchestrator surface", () => {
       "send_input",
       "pause_agent",
       "agent_status",
-      "merge_workspace",
     ]) {
       expect(orchestrator.has(toolName), toolName).toBe(true);
     }
@@ -184,7 +183,6 @@ describe("working orchestrator surface", () => {
     expect(topLevelGeneral.has("send_input")).toBe(true);
     expect(topLevelGeneral.has("pause_agent")).toBe(true);
     expect(topLevelGeneral.has("agent_status")).toBe(true);
-    expect(topLevelGeneral.has("merge_workspace")).toBe(true);
 
     const childGeneral = advertised(AGENT_IDS.GENERAL, true);
     expect(childGeneral.has("exec_command")).toBe(true);
@@ -194,7 +192,6 @@ describe("working orchestrator surface", () => {
     expect(childGeneral.has("send_input")).toBe(false);
     expect(childGeneral.has("pause_agent")).toBe(false);
     expect(childGeneral.has("agent_status")).toBe(false);
-    expect(childGeneral.has("merge_workspace")).toBe(false);
   });
 
   it("builds the real orchestrated provider request with only the bounded deferred surface", async () => {
@@ -227,7 +224,6 @@ describe("working orchestrator surface", () => {
       "code",
       "html",
       "image_gen",
-      "merge_workspace",
       "pause_agent",
       "send_input",
       "spawn_agent",
@@ -258,7 +254,6 @@ describe("working orchestrator surface", () => {
       "html",
       "image_gen",
       "map",
-      "merge_workspace",
       "pause_agent",
       "schedule_add",
       "schedule_list",
@@ -280,8 +275,8 @@ describe("working orchestrator surface", () => {
       },
       1,
     );
-    expect(providerTools).toHaveLength(11);
-    expect(fallbackTools).toHaveLength(17);
+    expect(providerTools).toHaveLength(10);
+    expect(fallbackTools).toHaveLength(16);
     expect(deferredTokens).toBeLessThan(fallbackTokens);
     expect(fallbackTokens - deferredTokens).toBeGreaterThan(1_000);
 
@@ -689,34 +684,4 @@ describe("working orchestrator surface", () => {
     });
   });
 
-  it("advertises isolation arguments but refuses cloud-only workspace operations", async () => {
-    const { host } = await createTestHost();
-    const catalog = host.getToolCatalog(AGENT_IDS.ORCHESTRATOR);
-    const spawn = catalog.find((tool) => tool.name === "spawn_agent");
-    expect(spawn?.parameters).toMatchObject({
-      properties: {
-        workspace: { enum: ["shared", "new", "fork"] },
-      },
-    });
-    expect(catalog.some((tool) => tool.name === "merge_workspace")).toBe(true);
-
-    const isolated = await host.executeTool(
-      "spawn_agent",
-      {
-        description: "Isolated review",
-        prompt: "Inspect it.",
-        workspace: "fork",
-      },
-      makeOrchestratorContext(),
-    );
-    expect(isolated.error).toContain("supported only by cloud agents");
-    const merged = await host.executeTool(
-      "merge_workspace",
-      { thread_id: "thread-1" },
-      makeOrchestratorContext(),
-    );
-    expect(merged.error).toBe(
-      "merge_workspace is supported only by cloud agents.",
-    );
-  });
 });

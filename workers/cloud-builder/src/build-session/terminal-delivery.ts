@@ -13,8 +13,6 @@ import {
   steerCloudAgent,
 } from "../cloud-agent-dispatch.js";
 import { HEADER_OWNER } from "../conversation-hub.js";
-import { worldName } from "../workspace.js";
-import type { WorldListingEntry } from "../world/types.js";
 import type {
   ExactTurnCancellation,
   ExactTurnCancellationRequest,
@@ -359,47 +357,9 @@ const agentCompletionText = async (
         ? "[Agent canceled]"
         : "[Agent failed]";
   const description = turn.description?.trim() || turn.threadId;
-  let forkText = "";
-  if (turn.workspaceForkId) {
-    const world = host.env.WORLDS.getByName(await worldName(turn.ownerId));
-    const status = await world.forkStatus(turn.workspaceForkId);
-    let changedPaths: string[] = [];
-    if (status.baseManifestId) {
-      const baseEntries: WorldListingEntry[] = [];
-      let cursor: string | undefined;
-      for (;;) {
-        const page = await world.manifest(status.baseManifestId, {
-          ...(cursor ? { cursor } : {}),
-          limit: 10_000,
-        });
-        if (!page) break;
-        baseEntries.push(...page.entries);
-        if (!page.cursor) break;
-        cursor = page.cursor;
-      }
-      const delta = await world.diff(baseEntries, {
-        fork: turn.workspaceForkId,
-      });
-      changedPaths = [...new Set([...delta.changed, ...delta.deleted])]
-        .sort()
-        .slice(0, 50);
-    } else {
-      changedPaths = (
-        await world.list("", { fork: turn.workspaceForkId, limit: 50 })
-      ).entries.map((entry) => entry.path);
-    }
-    forkText = `\n\nforkStatus: ${JSON.stringify({
-      forkId: turn.workspaceForkId,
-      changedSinceBase: status.changedSinceBase,
-      changedPaths,
-    })}`;
-  }
   const heading = `${label} ${description} (thread ${turn.threadId})\n\n`;
-  const bodyLimit = Math.max(
-    0,
-    TURN_PROMPT_MAX_CHARS - heading.length - forkText.length,
-  );
-  return `${heading}${(resultText || "No result was reported.").slice(0, bodyLimit)}${forkText}`;
+  const bodyLimit = Math.max(0, TURN_PROMPT_MAX_CHARS - heading.length);
+  return `${heading}${(resultText || "No result was reported.").slice(0, bodyLimit)}`;
 };
 
 export const wakeParentAgentOrConversation = async (
@@ -1167,11 +1127,6 @@ export const cancelForOwnerPurge = async (
   }
 
   await host.cleanupTransientWrites(turn);
-  if (turn.workspaceForkId) {
-    await host.env.WORLDS.getByName(await worldName(turn.ownerId)).dropFork(
-      turn.workspaceForkId,
-    );
-  }
   await host.deleteTurnStoragePreservingExactCancellations(turn, true);
   // The thread transcript is this owner's private job state and lives in
   // SQL tables the key-value sweep above cannot see.

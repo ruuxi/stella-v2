@@ -22,12 +22,6 @@ export const SPAWN_AGENT_TOOL_DESCRIPTOR = {
         type: "string",
         description: SPAWN_AGENT_MODEL_DESCRIPTION,
       },
-      workspace: {
-        type: "string",
-        enum: ["shared", "new", "fork"],
-        description:
-          "Workspace isolation for this cloud agent. shared edits the owner's world directly, fork starts from the current world, and new starts empty. Defaults to shared. new and fork are cloud-only.",
-      },
     },
     required: ["description", "prompt"],
   },
@@ -89,33 +83,11 @@ export const AGENT_STATUS_TOOL_DESCRIPTOR = {
   },
 } as const;
 
-export const MERGE_WORKSPACE_TOOL_DESCRIPTOR = {
-  name: "merge_workspace",
-  description:
-    "Merge an isolated cloud agent workspace into the shared world. Nothing merges automatically. Conflicts are reported and the isolated workspace wins each conflict.",
-  parameters: {
-    type: "object",
-    properties: {
-      thread_id: {
-        type: "string",
-        description: "Thread id whose isolated workspace should be merged.",
-      },
-      into: {
-        type: "string",
-        enum: ["shared"],
-        description: "Merge destination. Only shared is currently supported.",
-      },
-    },
-    required: ["thread_id"],
-  },
-} as const;
-
 export const AGENT_ORCHESTRATION_TOOL_DESCRIPTORS = [
   SPAWN_AGENT_TOOL_DESCRIPTOR,
   SEND_INPUT_TOOL_DESCRIPTOR,
   PAUSE_AGENT_TOOL_DESCRIPTOR,
   AGENT_STATUS_TOOL_DESCRIPTOR,
-  MERGE_WORKSPACE_TOOL_DESCRIPTOR,
 ] as const;
 
 export const AGENT_ORCHESTRATION_TOOL_NAMES: readonly string[] = [
@@ -123,7 +95,6 @@ export const AGENT_ORCHESTRATION_TOOL_NAMES: readonly string[] = [
   "send_input",
   "pause_agent",
   "agent_status",
-  "merge_workspace",
 ];
 
 /**
@@ -142,5 +113,3 @@ export const PAUSE_AGENT_TOOL_REPLAY = "safe" as const;
  * the instruction twice.
  */
 export const SEND_INPUT_TOOL_REPLAY = "unsafe" as const;
-/** A merge mutates the shared world; a rerun merges whatever changed since. */
-export const MERGE_WORKSPACE_TOOL_REPLAY = "unsafe" as const;

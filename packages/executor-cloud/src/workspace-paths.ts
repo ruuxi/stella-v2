@@ -12,9 +12,6 @@ import path from "node:path";
 /** The single checkpointed root, mirrored from the builder worker. */
 export const WORLD_ROOT = "/workspace/world";
 
-export const worldRootForFork = (fork?: string): string =>
-  !fork || fork === "shared" ? WORLD_ROOT : `/workspace/forks/${fork}/world`;
-
 /** Stella's own editable renderer source, a plain directory in the world. */
 
 /**

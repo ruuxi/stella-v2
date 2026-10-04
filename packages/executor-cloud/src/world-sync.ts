@@ -25,7 +25,6 @@ export type WorldSyncAccess = Readonly<{
   origin: string;
   name: string;
   capability: string;
-  fork?: string;
 }>;
 
 export type WorldMarker = Readonly<{
@@ -340,7 +339,6 @@ const routeUrl = (access: WorldSyncAccess, route: string): string => {
   const url = new URL(
     `${access.origin.replace(/\/+$/u, "")}/internal/worlds/${access.name}/${route}`,
   );
-  if (access.fork) url.searchParams.set("fork", access.fork);
   return url.toString();
 };
 

@@ -20,8 +20,6 @@ import {
   AGENT_ORCHESTRATION_TOOL_NAMES,
   AGENT_STATUS_TOOL_DESCRIPTOR,
   AGENT_STATUS_TOOL_REPLAY,
-  MERGE_WORKSPACE_TOOL_DESCRIPTOR,
-  MERGE_WORKSPACE_TOOL_REPLAY,
   PAUSE_AGENT_TOOL_DESCRIPTOR,
   PAUSE_AGENT_TOOL_REPLAY,
   SEND_INPUT_TOOL_DESCRIPTOR,
@@ -31,7 +29,6 @@ import {
 } from "./agent-orchestration-def.js";
 import {
   handleAgentStatus,
-  handleMergeWorkspace,
   handleSendInput,
   handleSpawnAgent,
 } from "../state.js";
@@ -70,11 +67,5 @@ export const createAgentTools = (stateContext) => [
     agentTypes: AGENT_SPAWNERS,
     execute: async (args, context) =>
       handleAgentStatus(stateContext, args, context),
-  },
-  {
-    ...MERGE_WORKSPACE_TOOL_DESCRIPTOR,
-    replay: MERGE_WORKSPACE_TOOL_REPLAY,
-    agentTypes: AGENT_SPAWNERS,
-    execute: async () => handleMergeWorkspace(),
   },
 ];

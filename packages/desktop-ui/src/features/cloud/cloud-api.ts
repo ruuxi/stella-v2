@@ -18,7 +18,6 @@ export type CloudAgentThread = {
   conversationId: string;
   /** Absent when the desktop dispatched the agent — no cloud turn above it. */
   parentTurnId?: string;
-  workspaceForkId?: string;
   description: string;
   /** Where the thread runs: "cloud" or "computer". */
   placement: string;

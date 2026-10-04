@@ -1,6 +1,5 @@
 import type { CloudExecutionSelection } from "../agent-engine.js";
 import type {
-  CloudAgentWorkspace,
   CloudTurnLane,
   CloudTurnSource,
 } from "./turn-start.js";
@@ -105,8 +104,6 @@ export type ThreadSpawnedEvent = OwnerEventBase & {
   prompt: string;
   execution: CloudExecutionSelection;
   placement: "cloud";
-  workspace?: CloudAgentWorkspace;
-  workspaceForkId?: string;
   originDeviceId?: string;
   originConversationId?: string;
   createdAt: number;

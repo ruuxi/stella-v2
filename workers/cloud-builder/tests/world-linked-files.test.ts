@@ -18,15 +18,6 @@ describe("worldLinkedDriveTargets", () => {
     ]);
   });
 
-  test("resolves a forked world root", () => {
-    expect(
-      worldLinkedDriveTargets(
-        "[x](/workspace/forks/f1/world/drive/x.csv)",
-        "/workspace/forks/f1/world",
-      ),
-    ).toEqual([{ worldPath: "drive/x.csv", drivePath: "x.csv", name: "x.csv" }]);
-  });
-
   test("names content types by extension", () => {
     expect(contentTypeForName("a.md")).toBe("text/markdown; charset=utf-8");
     expect(contentTypeForName("deck.pptx")).toContain("presentationml");

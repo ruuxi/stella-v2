@@ -112,8 +112,6 @@ import {
 import {
   AGENT_STATUS_TOOL_DESCRIPTOR,
   AGENT_STATUS_TOOL_REPLAY,
-  MERGE_WORKSPACE_TOOL_DESCRIPTOR,
-  MERGE_WORKSPACE_TOOL_REPLAY,
   PAUSE_AGENT_TOOL_DESCRIPTOR,
   PAUSE_AGENT_TOOL_REPLAY,
   SEND_INPUT_TOOL_DESCRIPTOR,
@@ -9407,7 +9405,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
    * The cloud orchestrator's tool catalog: the desktop orchestrator's exact
    * model-visible contract (`orchestrator.md`'s allowlist — code, html,
    * image_gen, web, map, Read, Remember, spawn_agent, send_input,
-   * pause_agent, agent_status, merge_workspace — plus the demoted
+   * pause_agent, agent_status — plus the demoted
    * schedule_* and connector_status tools reachable inside code, and the
    * `connect` and `history` clients inside code). The model reads one description and
    * calls one shape on either host; only the execution behind each tool
@@ -9498,8 +9496,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         description: string;
         prompt: string;
         execution: CloudExecutionSelection;
-        workspace?: "shared" | "new" | "fork";
-        workspaceForkId?: string;
       },
       signal?: AbortSignal,
     ): Promise<CloudAgentControlReceipt> =>
@@ -9559,18 +9555,8 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             description: string;
             prompt: string;
             model?: string;
-            workspace?: "shared" | "new" | "fork";
           };
-          if (
-            args.workspace !== undefined &&
-            args.workspace !== "shared" &&
-            args.workspace !== "new" &&
-            args.workspace !== "fork"
-          ) {
-            throw new Error('workspace must be "shared", "new", or "fork".');
-          }
           const model = args.model?.trim();
-          const workspace = args.workspace ?? "shared";
           // Parsed before the replay read so an invalid override fails the
           // same way every time, without consulting the ledger.
           const execution = resolveCloudSpawnExecution(model, turn.execution);
@@ -9578,7 +9564,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             description: args.description,
             prompt: args.prompt,
             model: model && model !== "default" ? model : null,
-            workspace,
           });
           let outcome = await this.readCloudAgentToolOutcome(
             turn,
@@ -9596,7 +9581,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
                 description: args.description,
                 prompt: args.prompt,
                 execution,
-                workspace,
               },
               signal,
             );
@@ -9622,10 +9606,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
               description: args.description,
               attempt_generation: control.attemptGeneration,
               thread_updated_at: control.threadUpdatedAt,
-              workspace,
-              ...(control.workspaceForkId
-                ? { workspace_fork_id: control.workspaceForkId }
-                : {}),
             },
           };
         },
@@ -9696,10 +9676,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
                     description: prior.description ?? "Continued task",
                     prompt: args.message,
                     execution: prior.execution ?? turn.execution,
-                    workspace: prior.workspace ?? "shared",
-                    ...(prior.workspaceForkId
-                      ? { workspaceForkId: prior.workspaceForkId }
-                      : {}),
                   },
                   signal,
                 );
@@ -9715,10 +9691,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
                   description: prior.description ?? "Continued task",
                   prompt: args.message,
                   execution: prior.execution ?? turn.execution,
-                  workspace: prior.workspace ?? "shared",
-                  ...(prior.workspaceForkId
-                    ? { workspaceForkId: prior.workspaceForkId }
-                    : {}),
                 },
                 signal,
               );
@@ -9899,50 +9871,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
               ? outcome.disposition
               : disposition,
           );
-        },
-      },
-      {
-        ...MERGE_WORKSPACE_TOOL_DESCRIPTOR,
-        label: "Merge workspace",
-        replay: MERGE_WORKSPACE_TOOL_REPLAY,
-        parameters:
-          MERGE_WORKSPACE_TOOL_DESCRIPTOR.parameters as unknown as TSchema,
-        execute: async (_toolCallId, params) => {
-          const args = params as { thread_id?: string; into?: string };
-          const threadId = (args.thread_id ?? "").trim();
-          if (args.into !== undefined && args.into !== "shared") {
-            throw new Error('merge_workspace into must be "shared".');
-          }
-          const control = await this.requireCloudAgentControlReceipt(
-            threadId,
-            "any",
-          );
-          if (!control.workspaceForkId) {
-            throw new Error(`${threadId} does not have an isolated workspace.`);
-          }
-          const merged = await this.env.WORLDS.getByName(
-            await worldName(turn.ownerId),
-          ).merge({
-            from: control.workspaceForkId,
-            into: "shared",
-            strategy: "last_writer_wins",
-          });
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Merged ${threadId}'s workspace into shared: ${merged.applied.length} applied, ${merged.deleted.length} deleted, ${merged.conflicts.length} conflicts.`,
-              },
-            ],
-            details: {
-              thread_id: threadId,
-              into: "shared",
-              applied_count: merged.applied.length,
-              deleted_count: merged.deleted.length,
-              conflict_count: merged.conflicts.length,
-              conflicts: merged.conflicts,
-            },
-          };
         },
       },
       // The desktop `web` tool's exact surface (web-def) and fetch pipeline

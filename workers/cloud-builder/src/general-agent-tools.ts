@@ -25,7 +25,6 @@ import {
   AGENT_ORCHESTRATION_TOOL_DESCRIPTORS,
   AGENT_ORCHESTRATION_TOOL_NAMES,
   AGENT_STATUS_TOOL_REPLAY,
-  MERGE_WORKSPACE_TOOL_REPLAY,
   PAUSE_AGENT_TOOL_REPLAY,
   SEND_INPUT_TOOL_REPLAY,
 } from "@stella/runtime/kernel/tools/defs/agent-orchestration-def.js";
@@ -123,7 +122,6 @@ const GENERAL_AGENT_TOOL_COMPUTE = {
   send_input: "do_local",
   pause_agent: "do_local",
   agent_status: "do_local",
-  merge_workspace: "do_local",
 } as const satisfies Record<string, GeneralAgentToolCompute>;
 
 export type GeneralAgentToolName = keyof typeof GENERAL_AGENT_TOOL_COMPUTE;
@@ -149,7 +147,6 @@ const GENERAL_AGENT_TOOL_REPLAY = {
   send_input: SEND_INPUT_TOOL_REPLAY,
   pause_agent: PAUSE_AGENT_TOOL_REPLAY,
   agent_status: AGENT_STATUS_TOOL_REPLAY,
-  merge_workspace: MERGE_WORKSPACE_TOOL_REPLAY,
 } as const satisfies Record<GeneralAgentToolName, ToolReplayPolicy>;
 
 export const replayForGeneralAgentTool = (

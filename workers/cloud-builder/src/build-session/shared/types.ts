@@ -50,8 +50,6 @@ export type TurnRequest = {
   conversationId?: string;
   sessionId?: string;
   threadId?: string;
-  workspace?: "shared" | "new" | "fork";
-  workspaceForkId?: string;
   /** Exact immutable route selected by the owner gate for this turn. */
   execution?: CloudExecutionSelection;
   /** Managed-model audience the owner gate resolved for the owner at dispatch. */

@@ -21,14 +21,11 @@ import {
   type WorldBlobPutOutcome,
   type WorldEntry,
   type WorldChanges,
-  type WorldForkKind,
-  type WorldForkStatus,
   type WorldListingEntry,
-  type WorldMergeResult,
   type WorldToolCall,
   type WorldToolResult,
 } from "./types.js";
-import { worldRootForFork } from "../workspace.js";
+import { WORLD_ROOT } from "../workspace.js";
 
 type NodeRow = {
   node_id: number;
@@ -53,7 +50,7 @@ type ManifestRow = {
 };
 type ForkRow = {
   fork_id: string;
-  kind: WorldForkKind;
+  kind: string;
   head_manifest_id: string;
   base_manifest_id: string | null;
   revision: number;
@@ -237,7 +234,9 @@ const tarHeader = (
   // before applying the authoritative PAX linkpath (notably libarchive).
   header.set(
     tarString(
-      encoder.encode(linkTarget).byteLength <= 100 ? linkTarget : "PaxLinks/stella",
+      encoder.encode(linkTarget).byteLength <= 100
+        ? linkTarget
+        : "PaxLinks/stella",
       100,
     ),
     157,
@@ -330,7 +329,7 @@ export class WorldSqlStore implements WorldToolFileApi {
   }
 
   private normalizeForkId(fork = "shared"): string {
-    if (!/^(?:shared|fork-[0-9a-f-]{36})$/u.test(fork)) {
+    if (fork !== "shared") {
       throw new Error(`Invalid world fork: ${fork}`);
     }
     return fork;
@@ -485,20 +484,17 @@ export class WorldSqlStore implements WorldToolFileApi {
     );
   }
 
-  async stat(
-    input: string,
-    options: { fork?: string } = {},
-  ): Promise<WorldEntry | null> {
+  async stat(input: string): Promise<WorldEntry | null> {
     const path = normalizeWorldPath(input, { allowRoot: true });
     if (path === "")
       return { path: "", kind: "dir", mode: 0o755, mtime: 0, size: 0 };
-    const row = this.entryRow(path, this.liveManifest(options.fork));
+    const row = this.entryRow(path, this.liveManifest());
     return row ? rowEntry(row) : null;
   }
 
   async list(
     input: string,
-    options: { cursor?: string; limit?: number; fork?: string } = {},
+    options: { cursor?: string; limit?: number } = {},
   ): Promise<{ entries: WorldEntry[]; cursor?: string }> {
     const prefix = normalizeWorldPath(input, { allowRoot: true });
     const cursor = options.cursor ? normalizeWorldPath(options.cursor) : "";
@@ -506,7 +502,7 @@ export class WorldSqlStore implements WorldToolFileApi {
       1,
       Math.min(10_000, Math.floor(options.limit ?? 1_000)),
     );
-    const manifest = this.liveManifest(options.fork);
+    const manifest = this.liveManifest();
     const rows = this.sql
       .exec<EntryRow>(
         `SELECT CASE WHEN d.parent_path = '' THEN d.name ELSE d.parent_path || '/' || d.name END AS path,
@@ -533,13 +529,12 @@ export class WorldSqlStore implements WorldToolFileApi {
 
   private async allEntries(
     prefix: string,
-    fork = "shared",
+    _forkId = "shared",
   ): Promise<WorldEntry[]> {
     const entries: WorldEntry[] = [];
     let cursor: string | undefined;
     for (;;) {
       const page = await this.list(prefix, {
-        fork,
         ...(cursor ? { cursor } : {}),
         limit: 10_000,
       });
@@ -655,10 +650,10 @@ export class WorldSqlStore implements WorldToolFileApi {
 
   async readFile(
     input: string,
-    options: { offset?: number; length?: number; fork?: string } = {},
+    options: { offset?: number; length?: number } = {},
   ): Promise<Uint8Array | null> {
     const path = normalizeWorldPath(input);
-    const row = this.entryRow(path, this.liveManifest(options.fork));
+    const row = this.entryRow(path, this.liveManifest());
     if (!row) return null;
     if (row.kind !== "file" || !row.blob_sha256)
       throw new Error(`Path is not a file: ${path}`);
@@ -767,9 +762,9 @@ export class WorldSqlStore implements WorldToolFileApi {
   async writeFile(
     input: string,
     bytes: Uint8Array,
-    options: { mode?: number; mtime?: number; fork?: string } = {},
+    options: { mode?: number; mtime?: number } = {},
   ): Promise<WorldEntry & { revision: number }> {
-    const forkId = this.forkRow(options.fork).fork_id;
+    const forkId = this.forkRow().fork_id;
     const mutation = await this.mutate(forkId, async () => {
       const path = normalizeWorldPath(input);
       if (bytes.byteLength > WORLD_READ_LIMIT_BYTES)
@@ -804,9 +799,9 @@ export class WorldSqlStore implements WorldToolFileApi {
 
   async mkdir(
     input: string,
-    options: { mode?: number; fork?: string } = {},
+    options: { mode?: number } = {},
   ): Promise<{ revision: number }> {
-    const forkId = this.forkRow(options.fork).fork_id;
+    const forkId = this.forkRow().fork_id;
     const mutation = await this.mutate(forkId, async () => {
       const path = normalizeWorldPath(input);
       const existing = this.entryRow(path, this.liveManifest(forkId));
@@ -834,9 +829,9 @@ export class WorldSqlStore implements WorldToolFileApi {
 
   async remove(
     input: string,
-    options: { recursive?: boolean; fork?: string } = {},
+    options: { recursive?: boolean } = {},
   ): Promise<{ revision: number }> {
-    const forkId = this.forkRow(options.fork).fork_id;
+    const forkId = this.forkRow().fork_id;
     const mutation = await this.mutate(forkId, async () => {
       const path = normalizeWorldPath(input);
       const manifest = this.liveManifest(forkId);
@@ -882,9 +877,8 @@ export class WorldSqlStore implements WorldToolFileApi {
   async rename(
     fromInput: string,
     toInput: string,
-    options: { fork?: string } = {},
   ): Promise<{ revision: number }> {
-    const forkId = this.forkRow(options.fork).fork_id;
+    const forkId = this.forkRow().fork_id;
     const mutation = await this.mutate(forkId, async () => {
       const from = normalizeWorldPath(fromInput);
       const to = normalizeWorldPath(toInput);
@@ -892,8 +886,7 @@ export class WorldSqlStore implements WorldToolFileApi {
         throw new Error("Cannot rename a path into itself.");
       const entries = await this.allEntries(from, forkId);
       if (entries.length === 0) throw new Error(`Path not found: ${from}`);
-      if (await this.stat(to, { fork: forkId }))
-        throw new Error(`Path already exists: ${to}`);
+      if (await this.stat(to)) throw new Error(`Path already exists: ${to}`);
       const manifest = this.liveManifest(forkId);
       this.ensureParents(to, manifest, forkId);
       for (const entry of entries) {
@@ -911,17 +904,13 @@ export class WorldSqlStore implements WorldToolFileApi {
         );
         this.noteChange(forkId, nextPath, "upsert");
       }
-      await this.remove(from, { recursive: true, fork: forkId });
+      await this.remove(from, { recursive: true });
     });
     return { revision: mutation.revision };
   }
 
-  async symlink(
-    input: string,
-    target: string,
-    options: { fork?: string } = {},
-  ): Promise<{ revision: number }> {
-    const forkId = this.forkRow(options.fork).fork_id;
+  async symlink(input: string, target: string): Promise<{ revision: number }> {
+    const forkId = this.forkRow().fork_id;
     const mutation = await this.mutate(forkId, async () => {
       const path = normalizeWorldPath(input);
       const manifest = this.liveManifest(forkId);
@@ -1162,24 +1151,17 @@ export class WorldSqlStore implements WorldToolFileApi {
   }
 
   async tool(call: WorldToolCall): Promise<WorldToolResult> {
-    const forkId = this.forkRow(call.fork).fork_id;
+    const forkId = this.forkRow().fork_id;
     const scoped: WorldToolFileApi = {
-      stat: (path) => this.stat(path, { fork: forkId }),
-      list: (prefix, options = {}) =>
-        this.list(prefix, { ...options, fork: forkId }),
-      readFile: (path, options = {}) =>
-        this.readFile(path, { ...options, fork: forkId }),
+      stat: (path) => this.stat(path),
+      list: (prefix, options = {}) => this.list(prefix, options),
+      readFile: (path, options = {}) => this.readFile(path, options),
       writeFile: (path, bytes, options = {}) =>
-        this.writeFile(path, bytes, { ...options, fork: forkId }),
-      remove: (path, options = {}) =>
-        this.remove(path, { ...options, fork: forkId }),
-      rename: (from, to) => this.rename(from, to, { fork: forkId }),
+        this.writeFile(path, bytes, options),
+      remove: (path, options = {}) => this.remove(path, options),
+      rename: (from, to) => this.rename(from, to),
     };
-    const result = await executeWorldTool(
-      scoped,
-      call,
-      worldRootForFork(forkId),
-    );
+    const result = await executeWorldTool(scoped, call, WORLD_ROOT);
     return { ...result, revision: this.revision(forkId) };
   }
 
@@ -1202,306 +1184,10 @@ export class WorldSqlStore implements WorldToolFileApi {
       .toArray();
   }
 
-  private manifestMap(manifestId: string | null): Map<string, WorldEntry> {
-    if (!manifestId) return new Map();
-    return new Map(
-      this.manifestEntries(manifestId, "", 1_000_000)
-        .map(rowEntry)
-        .map((entry) => [entry.path, entry]),
-    );
-  }
-
-  private entryVersion(entry: WorldEntry | undefined): string | null {
-    return entry
-      ? JSON.stringify([
-          entry.kind,
-          entry.mode,
-          entry.mtime,
-          entry.size,
-          entry.sha256 ?? null,
-          entry.target ?? null,
-        ])
-      : null;
-  }
-
-  private changedPaths(
-    baseManifestId: string | null,
-    headManifestId: string,
-  ): { upserted: string[]; deleted: string[]; all: string[] } {
-    const base = this.manifestMap(baseManifestId);
-    const head = this.manifestMap(headManifestId);
-    const paths = new Set([...base.keys(), ...head.keys()]);
-    const upserted: string[] = [];
-    const deleted: string[] = [];
-    for (const path of paths) {
-      if (
-        this.entryVersion(base.get(path)) === this.entryVersion(head.get(path))
-      ) {
-        continue;
-      }
-      if (head.has(path)) upserted.push(path);
-      else deleted.push(path);
-    }
-    upserted.sort();
-    deleted.sort();
-    return { upserted, deleted, all: [...upserted, ...deleted].sort() };
-  }
-
-  private async sealedSnapshot(
-    manifestId: string,
-    forkId: string,
-  ): Promise<string> {
-    const manifest = this.sql
-      .exec<ManifestRow>(
-        "SELECT * FROM world_manifests WHERE manifest_id = ?",
-        manifestId,
-      )
-      .toArray()[0];
-    if (!manifest) throw new Error(`World manifest not found: ${manifestId}`);
-    if (manifest.fork_id !== forkId) {
-      throw new Error("World manifest does not belong to the requested fork.");
-    }
-    if (manifest.sealed === 1) return manifestId;
-    if (this.pendingChanges) {
-      throw new Error(
-        "World live manifest cannot be sealed during a mutation.",
-      );
-    }
-    const fork = this.forkRow(forkId);
-    if (fork.head_manifest_id !== manifestId) {
-      throw new Error("Only the current live world manifest can be sealed.");
-    }
-    const revision = fork.revision;
-    const entries = [...this.manifestMap(manifestId).values()];
-    const snapshotId = await sha256Hex(
-      JSON.stringify([
-        forkId,
-        entries.map((entry) => [
-          entry.path,
-          entry.kind,
-          entry.mode,
-          entry.mtime,
-          entry.size,
-          entry.sha256 ?? null,
-          entry.target ?? null,
-        ]),
-      ]),
-    );
-    const currentFork = this.forkRow(forkId);
-    const currentManifest = this.sql
-      .exec<ManifestRow>(
-        "SELECT * FROM world_manifests WHERE manifest_id = ?",
-        manifestId,
-      )
-      .toArray()[0];
-    if (
-      this.pendingChanges ||
-      currentFork.head_manifest_id !== manifestId ||
-      currentFork.revision !== revision ||
-      !currentManifest ||
-      currentManifest.sealed === 1 ||
-      currentManifest.revision !== revision
-    ) {
-      throw new Error("World changed while sealing its live manifest.");
-    }
-    this.sql.exec(
-      "INSERT OR IGNORE INTO world_manifests(manifest_id, parent_manifest_id, fork_id, history_cursor, created_at, revision, sealed) VALUES (?, ?, ?, NULL, ?, ?, 1)",
-      snapshotId,
-      manifest.parent_manifest_id,
-      forkId,
-      this.now(),
-      revision,
-    );
-    this.sql.exec(
-      "UPDATE world_manifests SET revision = COALESCE(revision, ?) WHERE manifest_id = ?",
-      revision,
-      snapshotId,
-    );
-    this.sql.exec(
-      "INSERT OR IGNORE INTO world_dirents(manifest_id, parent_path, name, node_id) SELECT ?, parent_path, name, node_id FROM world_dirents WHERE manifest_id = ?",
-      snapshotId,
-      manifestId,
-    );
-    return snapshotId;
-  }
-
-  async fork(input: {
-    from?: string;
-    kind: "fork" | "new";
-    threadId: string;
-  }): Promise<{ forkId: string; headManifestId: string }> {
-    if (!input.threadId.trim() || input.threadId.length > 256) {
-      throw new Error("A valid thread id is required to create a world fork.");
-    }
-    if (input.kind !== "fork" && input.kind !== "new") {
-      throw new Error("World fork kind must be fork or new.");
-    }
-    const existing = this.sql
-      .exec<ForkRow>(
-        "SELECT * FROM world_forks WHERE created_by_thread_id = ? AND kind IN ('fork','new')",
-        input.threadId,
-      )
-      .toArray()[0];
-    if (existing) {
-      if (existing.kind !== input.kind) {
-        throw new Error("This thread already owns a different workspace kind.");
-      }
-      return {
-        forkId: existing.fork_id,
-        headManifestId: existing.head_manifest_id,
-      };
-    }
-    let baseManifestId: string | null = null;
-    if (input.kind === "fork") {
-      const sourceFork = this.sql
-        .exec<ForkRow>(
-          "SELECT * FROM world_forks WHERE fork_id = ?",
-          input.from ?? "shared",
-        )
-        .toArray()[0];
-      if (sourceFork) {
-        baseManifestId = await this.sealedSnapshot(
-          sourceFork.head_manifest_id,
-          sourceFork.fork_id,
-        );
-      } else if (input.from) {
-        const sourceManifest = this.sql
-          .exec<ManifestRow>(
-            "SELECT * FROM world_manifests WHERE manifest_id = ?",
-            input.from,
-          )
-          .toArray()[0];
-        if (!sourceManifest) {
-          throw new Error(`World fork source not found: ${input.from}`);
-        }
-        baseManifestId = await this.sealedSnapshot(
-          sourceManifest.manifest_id,
-          sourceManifest.fork_id,
-        );
-      } else {
-        throw new Error("The shared world fork is missing.");
-      }
-    }
-    const forkId = `fork-${crypto.randomUUID()}`;
-    const headManifestId = `live:${crypto.randomUUID()}`;
-    this.sql.exec(
-      "INSERT INTO world_manifests(manifest_id, parent_manifest_id, fork_id, history_cursor, created_at, revision, sealed) VALUES (?, ?, ?, NULL, ?, 0, 0)",
-      headManifestId,
-      baseManifestId,
-      forkId,
-      this.now(),
-    );
-    if (baseManifestId) {
-      this.sql.exec(
-        "INSERT INTO world_dirents(manifest_id, parent_path, name, node_id) SELECT ?, parent_path, name, node_id FROM world_dirents WHERE manifest_id = ?",
-        headManifestId,
-        baseManifestId,
-      );
-    }
-    this.sql.exec(
-      "INSERT INTO world_forks(fork_id, kind, head_manifest_id, base_manifest_id, revision, created_by_thread_id, created_at) VALUES (?, ?, ?, ?, 0, ?, ?)",
-      forkId,
-      input.kind,
-      headManifestId,
-      baseManifestId,
-      input.threadId,
-      this.now(),
-    );
-    this.sql.exec(
-      "INSERT INTO world_meta(key, value) VALUES (?, '0')",
-      `change_floor:${forkId}`,
-    );
-    return { forkId, headManifestId };
-  }
-
-  async merge(input: {
-    from: string;
-    into?: string;
-    strategy: "last_writer_wins";
-  }): Promise<WorldMergeResult> {
-    if (input.strategy !== "last_writer_wins") {
-      throw new Error("World merge strategy must be last_writer_wins.");
-    }
-    const source = this.forkRow(input.from);
-    if (source.kind === "shared") {
-      throw new Error("The shared world is not a merge source.");
-    }
-    const target = this.forkRow(input.into);
-    const sourceChanges = this.changedPaths(
-      source.base_manifest_id,
-      source.head_manifest_id,
-    );
-    const targetChanges = new Set(
-      this.changedPaths(source.base_manifest_id, target.head_manifest_id).all,
-    );
-    const conflicts = sourceChanges.all
-      .filter((path) => targetChanges.has(path))
-      .sort();
-    const sourceEntries = this.manifestMap(source.head_manifest_id);
-    await this.mutate(target.fork_id, async () => {
-      for (const path of [...sourceChanges.deleted].sort(
-        (left, right) => right.length - left.length,
-      )) {
-        if (await this.stat(path, { fork: target.fork_id })) {
-          await this.remove(path, { recursive: true, fork: target.fork_id });
-        }
-      }
-      for (const path of [...sourceChanges.upserted].sort(
-        (left, right) => left.length - right.length,
-      )) {
-        const entry = sourceEntries.get(path);
-        if (!entry) continue;
-        const existing = await this.stat(path, { fork: target.fork_id });
-        if (existing && existing.kind !== entry.kind) {
-          await this.remove(path, { recursive: true, fork: target.fork_id });
-        }
-        this.putNode(entry, target.head_manifest_id, target.fork_id);
-      }
-    });
-    return {
-      applied: sourceChanges.upserted,
-      deleted: sourceChanges.deleted,
-      conflicts,
-    };
-  }
-
-  async forkStatus(forkId: string): Promise<WorldForkStatus> {
-    const fork = this.forkRow(forkId);
-    return {
-      kind: fork.kind,
-      baseManifestId: fork.base_manifest_id,
-      headManifestId: fork.head_manifest_id,
-      changedSinceBase: this.changedPaths(
-        fork.base_manifest_id,
-        fork.head_manifest_id,
-      ).all.length,
-      revision: fork.revision,
-    };
-  }
-
-  async dropFork(forkId: string): Promise<{ dropped: boolean }> {
-    const normalized = this.normalizeForkId(forkId);
-    const fork = this.sql
-      .exec<ForkRow>("SELECT * FROM world_forks WHERE fork_id = ?", normalized)
-      .toArray()[0];
-    if (!fork) return { dropped: false };
-    if (fork.kind === "shared")
-      throw new Error("The shared world cannot be dropped.");
-    this.sql.exec("DELETE FROM world_changes WHERE fork_id = ?", fork.fork_id);
-    this.sql.exec(
-      "DELETE FROM world_meta WHERE key = ?",
-      `change_floor:${fork.fork_id}`,
-    );
-    this.sql.exec("DELETE FROM world_forks WHERE fork_id = ?", fork.fork_id);
-    await this.collectGarbage(100);
-    return { dropped: true };
-  }
-
   async checkpoint(options: {
     historyCursor: string;
-    fork?: string;
   }): Promise<{ manifestId: string; forkId: string }> {
-    const fork = this.forkRow(options.fork);
+    const fork = this.forkRow();
     const forkId = fork.fork_id;
     const revision = fork.revision;
     const live = fork.head_manifest_id;
@@ -1610,12 +1296,12 @@ export class WorldSqlStore implements WorldToolFileApi {
     return { entries, ...(cursor ? { cursor } : {}) };
   }
 
-  async head(options: { fork?: string } = {}): Promise<{
+  async head(): Promise<{
     manifestId: string;
     parentManifestId?: string;
     revision: number;
   }> {
-    const fork = this.forkRow(options.fork);
+    const fork = this.forkRow();
     const live = fork.head_manifest_id;
     const row = this.sql
       .exec<ManifestRow>(
@@ -1634,9 +1320,8 @@ export class WorldSqlStore implements WorldToolFileApi {
 
   async diff(
     listing: WorldListingEntry[],
-    options: { fork?: string } = {},
   ): Promise<{ changed: string[]; deleted: string[] }> {
-    const forkId = this.forkRow(options.fork).fork_id;
+    const forkId = this.forkRow().fork_id;
     const current = new Map(
       (await this.allEntries("", forkId)).map((entry) => [entry.path, entry]),
     );
@@ -1664,9 +1349,8 @@ export class WorldSqlStore implements WorldToolFileApi {
   async pushDiff(input: {
     entries: WorldListingEntry[];
     deleted: string[];
-    fork?: string;
   }): Promise<{ missingBlobs: string[]; revision: number }> {
-    const forkId = this.forkRow(input.fork).fork_id;
+    const forkId = this.forkRow().fork_id;
     const missing = new Set<string>();
     for (const entry of input.entries) {
       normalizeWorldPath(entry.path);
@@ -1715,8 +1399,8 @@ export class WorldSqlStore implements WorldToolFileApi {
       for (const path of input.deleted.sort(
         (left, right) => right.length - left.length,
       )) {
-        if (await this.stat(path, { fork: forkId })) {
-          await this.remove(path, { recursive: true, fork: forkId });
+        if (await this.stat(path)) {
+          await this.remove(path, { recursive: true });
         }
       }
       for (const entry of [...input.entries].sort(
@@ -1735,14 +1419,11 @@ export class WorldSqlStore implements WorldToolFileApi {
   }
 
   /** Exact-path lookups in one call, without following any symlink. */
-  async statMany(
-    inputs: readonly string[],
-    options: { fork?: string } = {},
-  ): Promise<(WorldEntry | null)[]> {
+  async statMany(inputs: readonly string[]): Promise<(WorldEntry | null)[]> {
     if (inputs.length > 256) {
       throw new Error("statMany accepts at most 256 paths.");
     }
-    const manifest = this.liveManifest(options.fork);
+    const manifest = this.liveManifest();
     return inputs.map((input) => {
       const path = normalizeWorldPath(input, { allowRoot: true });
       if (path === "")
@@ -1753,10 +1434,7 @@ export class WorldSqlStore implements WorldToolFileApi {
   }
 
   /** A directory's direct children, by name. Deeper entries are not listed. */
-  async children(
-    input: string,
-    options: { fork?: string } = {},
-  ): Promise<WorldEntry[]> {
+  async children(input: string): Promise<WorldEntry[]> {
     const parent = normalizeWorldPath(input, { allowRoot: true });
     return this.sql
       .exec<EntryRow>(
@@ -1766,7 +1444,7 @@ export class WorldSqlStore implements WorldToolFileApi {
         WHERE d.manifest_id = ? AND d.parent_path = ?
         ORDER BY d.name LIMIT 10001`,
         parent,
-        this.liveManifest(options.fork),
+        this.liveManifest(),
         parent,
       )
       .toArray()
@@ -1785,7 +1463,6 @@ export class WorldSqlStore implements WorldToolFileApi {
     reads: { paths: readonly string[]; children: readonly string[] };
     entries: WorldListingEntry[];
     deleted: string[];
-    fork?: string;
   }): Promise<
     | { status: "committed"; revision: number }
     | { status: "conflict"; paths: string[] }
@@ -1794,7 +1471,7 @@ export class WorldSqlStore implements WorldToolFileApi {
     if (!Number.isSafeInteger(input.baseRevision) || input.baseRevision < 0) {
       throw new Error("World revision must be a non-negative integer.");
     }
-    const forkId = this.forkRow(input.fork).fork_id;
+    const forkId = this.forkRow().fork_id;
     if (input.baseRevision < this.changeFloor(forkId)) {
       return { status: "conflict", paths: [] };
     }
@@ -1833,7 +1510,6 @@ export class WorldSqlStore implements WorldToolFileApi {
     const pushed = await this.pushDiff({
       entries: input.entries,
       deleted: input.deleted,
-      fork: forkId,
     });
     if (pushed.missingBlobs.length > 0) {
       return { status: "missing_blobs", missingBlobs: pushed.missingBlobs };
@@ -1841,14 +1517,11 @@ export class WorldSqlStore implements WorldToolFileApi {
     return { status: "committed", revision: pushed.revision };
   }
 
-  async changesSince(
-    revision: number,
-    options: { fork?: string } = {},
-  ): Promise<WorldChanges> {
+  async changesSince(revision: number): Promise<WorldChanges> {
     if (!Number.isSafeInteger(revision) || revision < 0) {
       throw new Error("World revision must be a non-negative integer.");
     }
-    const forkId = this.forkRow(options.fork).fork_id;
+    const forkId = this.forkRow().fork_id;
     const current = this.revision(forkId);
     const floor = this.changeFloor(forkId);
     if (revision < floor) {
@@ -1934,17 +1607,14 @@ export class WorldSqlStore implements WorldToolFileApi {
     };
   }
 
-  exportTar(
-    manifestId?: string,
-    options: { fork?: string } = {},
-  ): {
+  exportTar(manifestId?: string): {
     revision: number;
     body: ReadableStream<Uint8Array>;
   } {
     if (this.pendingChanges) {
       throw new Error("World cannot be exported during a mutation.");
     }
-    const fork = this.forkRow(options.fork);
+    const fork = this.forkRow();
     const forkId = fork.fork_id;
     const exportedManifestId = manifestId ?? fork.head_manifest_id;
     const manifest = this.sql

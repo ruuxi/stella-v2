@@ -2,8 +2,8 @@
  * The worker shell's only way into the world.
  *
  * A BuildSession mints this loopback through `ctx.exports` with props naming
- * one owner world and one fork, and hands it to the shell's Dynamic Worker as
- * its sole binding. The shell cannot choose a different world or fork, cannot
+ * one owner world, and hands it to the shell's Dynamic Worker as its sole
+ * binding. The shell cannot choose a different world, cannot
  * reach any other binding, and cannot change the world at all: it may read,
  * list, and upload unreferenced blobs. Committing a run's changes is the
  * BuildSession's decision, made with `WorldStore.commitShell`.
@@ -20,8 +20,6 @@ import type { WorldEntry } from "./world/types.js";
 
 export type WorldShellFsProps = Readonly<{
   worldName: string;
-  /** Absent for the shared world. */
-  fork?: string;
 }>;
 
 const MAX_STAT_PATHS = 256;
@@ -39,19 +37,15 @@ export class WorldShellFs
     return this.env.WORLDS.getByName(this.ctx.props.worldName);
   }
 
-  #scope(): { fork?: string } {
-    return this.ctx.props.fork ? { fork: this.ctx.props.fork } : {};
-  }
-
   async stat(paths: readonly string[]): Promise<(WorldEntry | null)[]> {
     if (!Array.isArray(paths) || paths.length > MAX_STAT_PATHS) {
       throw new TypeError(`stat takes at most ${MAX_STAT_PATHS} paths.`);
     }
-    return await this.#world().statMany(paths.map(assertPath), this.#scope());
+    return await this.#world().statMany(paths.map(assertPath));
   }
 
   async children(path: string): Promise<WorldEntry[]> {
-    return await this.#world().children(assertPath(path), this.#scope());
+    return await this.#world().children(assertPath(path));
   }
 
   async read(
@@ -71,7 +65,6 @@ export class WorldShellFs
     return await this.#world().readFile(assertPath(path), {
       offset,
       length,
-      ...this.#scope(),
     });
   }
 

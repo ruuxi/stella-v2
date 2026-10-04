@@ -74,7 +74,7 @@ import { cloudAgentToolContext } from "./cloud-tool-context.js";
 import {
   toolStateDir,
   worldDriveWorkspace,
-  worldRootForFork,
+  WORLD_ROOT,
 } from "./workspace-paths.js";
 import { pullWorldProjection, pushWorldProjection } from "./world-sync.js";
 
@@ -89,7 +89,6 @@ export type AttachedToolHostInput = Readonly<{
     origin: string;
     name: string;
     capability: string;
-    fork?: string;
   }>;
 }>;
 
@@ -152,7 +151,7 @@ export const parseAttachedToolHostInput = (
   const row = value as Record<string, unknown>;
   const broker = row.turnBroker as { credentialsPath?: unknown } | undefined;
   const world = row.world as
-    | { origin?: unknown; name?: unknown; capability?: unknown; fork?: unknown }
+    | { origin?: unknown; name?: unknown; capability?: unknown }
     | undefined;
   if (
     !boundedText(row.turnId, 256) ||
@@ -168,10 +167,7 @@ export const parseAttachedToolHostInput = (
     !boundedText(world.origin, 2_048) ||
     typeof world.name !== "string" ||
     !/^[0-9a-f]{64}:[0-9a-f]{64}$/u.test(world.name) ||
-    !boundedText(world.capability, 4_096) ||
-    (world.fork !== undefined &&
-      (typeof world.fork !== "string" ||
-        !/^fork-[0-9a-f-]{36}$/u.test(world.fork)))
+    !boundedText(world.capability, 4_096)
   ) {
     throw new Error("Attached tool host input is invalid.");
   }
@@ -186,7 +182,6 @@ export const parseAttachedToolHostInput = (
       origin: world.origin,
       name: world.name,
       capability: world.capability,
-      ...(typeof world.fork === "string" ? { fork: world.fork } : {}),
     },
   };
 };
@@ -441,7 +436,7 @@ export const runAttachedToolHost = (
         body: unknown,
       ): Promise<Response> => await broker.postJson(route, body);
 
-      const workspaceRoot = worldRootForFork(input.world.fork);
+      const workspaceRoot = WORLD_ROOT;
       const workspaceStateDir = toolStateDir(workspaceRoot);
       const driveWorkspace = worldDriveWorkspace(workspaceRoot);
       yield* Effect.tryPromise({

@@ -720,7 +720,6 @@ export type ResidentStellaLoopInput = Readonly<{
   workspacePrompt: Readonly<{
     office: boolean;
     skills?: GeneralAgentPromptSkills;
-    workspaceRoot?: string;
     /** `history` works inside this turn's `code`. */
     history?: boolean;
   }>;
@@ -1017,9 +1016,6 @@ export const runResidentStellaLoop = async (
           office: input.workspacePrompt.office,
           threadId: turn.identity.threadId,
           history: input.workspacePrompt.history === true,
-          ...(input.workspacePrompt.workspaceRoot
-            ? { workspaceRoot: input.workspacePrompt.workspaceRoot }
-            : {}),
           ...(input.workspacePrompt.skills
             ? { skills: input.workspacePrompt.skills }
             : {}),

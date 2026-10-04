@@ -200,6 +200,8 @@ compatibility paths, no migrations):
 5. `c5332b5df` isolation on request: world forks, `spawn_agent.workspace`,
    forked agents under `/workspace/forks/<forkId>/world`, terminals report
    `forkStatus`, explicit `merge_workspace`.
+   Removed 2026-10-03: agents isolate work themselves with a git worktree or
+   a separate folder, so world forks and `merge_workspace` are gone.
 
 Between 3 and 4, `src/index.ts` was split into `src/build-session/*`
 (`f1c47aa59`..`a88fab371`; plan in

@@ -157,7 +157,6 @@ export type AttachedToolHostHandoff = Readonly<{
     origin: string;
     name: string;
     capability: string;
-    fork?: string;
   }>;
 }>;
 

@@ -49,7 +49,7 @@ import type {
 } from "../turn-state-registry.js";
 import {
   agentTurnSessionId,
-  worldRootForFork,
+  WORLD_ROOT,
   worldName,
 } from "../workspace.js";
 import { issueWorldCapability } from "../world-capability.js";
@@ -1149,7 +1149,7 @@ export const attachAgentWorld = async (
   restoreMs: number;
 }> => {
   const { turn, execution: turnExecution, sandbox } = args;
-  const worldRoot = worldRootForFork(turn.workspaceForkId);
+  const worldRoot = WORLD_ROOT;
   const attachStarted = performance.now();
   const phaseMs = (started: number): number =>
     Math.min(60 * 60_000, Math.max(0, Math.round(performance.now() - started)));
@@ -1198,13 +1198,10 @@ export const attachAgentWorld = async (
   let head: { manifestId: string; revision: number };
   try {
     const world = host.env.WORLDS.getByName(name);
-    const forkOptions = turn.workspaceForkId
-      ? { fork: turn.workspaceForkId }
-      : {};
     // Keep this read immediately before export. The current WorldStore API does
     // not transactionally bind a live head's contents to its revision; moving
     // it ahead of provisioning widens a checkpoint+write data-loss race.
-    head = await world.head(forkOptions);
+    head = await world.head();
   } catch (error) {
     await sandbox.deleteSession(args.sessionId).catch(() => undefined);
     throw error;
@@ -1223,9 +1220,6 @@ export const attachAgentWorld = async (
   const origin = host.env.CLOUD_BUILDER_PUBLIC_URL.replace(/\/+$/u, "");
   const exportUrl = new URL(`${origin}/internal/worlds/${name}/export`);
   exportUrl.searchParams.set("manifest", head.manifestId);
-  if (turn.workspaceForkId) {
-    exportUrl.searchParams.set("fork", turn.workspaceForkId);
-  }
   const materializationStarted = performance.now();
   const materialized = await session.exec(
     worldMaterializationCommand({
@@ -1431,7 +1425,6 @@ export const runAgentAttempt = async (
         world: {
           origin: host.env.CLOUD_BUILDER_PUBLIC_URL.replace(/\/+$/u, ""),
           name: await worldName(turn.ownerId),
-          ...(turn.workspaceForkId ? { fork: turn.workspaceForkId } : {}),
           capability: await issueWorldCapability({
             secret: host.env.BUILDER_SERVICE_SECRET,
             worldName: await worldName(turn.ownerId),

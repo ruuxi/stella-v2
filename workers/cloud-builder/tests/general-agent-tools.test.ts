@@ -51,7 +51,6 @@ describe("pinned resident catalog", () => {
     expect(catalog.map((tool) => tool.name)).not.toContain("send_input");
     expect(catalog.map((tool) => tool.name)).not.toContain("pause_agent");
     expect(catalog.map((tool) => tool.name)).not.toContain("agent_status");
-    expect(catalog.map((tool) => tool.name)).not.toContain("merge_workspace");
   });
 
   test("refuses to build a catalog missing a do-local implementation", () => {

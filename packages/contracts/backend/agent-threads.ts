@@ -15,7 +15,6 @@ export type AgentThreadSummary = {
   conversationId: string;
   parentTurnId?: string;
   parentThreadId?: string;
-  workspaceForkId?: string;
   description: string;
   placement: AgentThreadPlacement;
   agentType: string;

@@ -56,7 +56,7 @@ type ShellEntrypoint = {
   ): Promise<WorkerShellOutcome>;
 };
 
-/** The WorldStore calls a run needs, for one world and fork. */
+/** The WorldStore calls a run needs, for one world. */
 export type WorkerShellWorldCommit = Readonly<{
   head(): Promise<{ revision: number }>;
   commitShell(input: {
@@ -78,12 +78,12 @@ export type WorkerShellBundle = Readonly<{
 
 export type WorkerShellRunnerInput = Readonly<{
   loader: WorkerLoader;
-  /** The scoped loopback for this world and fork, e.g. from `ctx.exports`. */
+  /** The scoped loopback for this world, e.g. from `ctx.exports`. */
   loopback: () => WorldShellFsRpc;
   world: WorkerShellWorldCommit;
   /** Absolute shell path of the workspace root. */
   root: string;
-  /** Names the cached isolate; runs for one world and fork may share it. */
+  /** Names the cached isolate; runs for one world may share it. */
   scope: string;
   bundle?: () => Promise<WorkerShellBundle>;
 }>;

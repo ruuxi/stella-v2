@@ -744,60 +744,6 @@ describe("the parent conversation wake", () => {
     h.close();
   });
 
-  test("includes fork status and changed paths in an isolated completion", async () => {
-    const h = await harness({
-      world: {
-        forkStatus: async () => ({
-          kind: "fork",
-          baseManifestId: "base-manifest",
-          headManifestId: "live:fork",
-          changedSinceBase: 3,
-          revision: 2,
-        }),
-        manifest: async () => ({
-          entries: [
-            {
-              path: "base.txt",
-              kind: "file",
-              mode: 0o644,
-              mtime: 1,
-              size: 4,
-              sha256: "a".repeat(64),
-            },
-          ],
-        }),
-        diff: async () => ({
-          changed: ["added.txt", "base.txt"],
-          deleted: ["removed.txt"],
-        }),
-      },
-    });
-    const workspaceForkId = `fork-${crypto.randomUUID()}`;
-
-    await invoke<Promise<void>>(
-      h.instance,
-      "wakeParentConversation",
-      { ...completedTurn, workspace: "fork", workspaceForkId },
-      {
-        status: "completed",
-        threadUpdatedAt: 1_800_000_000_000,
-        resultJson: JSON.stringify({ finalText: "isolated report" }),
-      },
-    );
-
-    const prompt = (h.orchestratorCalls[0]!.body as CloudTurnStartRequest)
-      .prompt;
-    expect(prompt).toContain("isolated report");
-    expect(prompt).toContain(
-      `forkStatus: ${JSON.stringify({
-        forkId: workspaceForkId,
-        changedSinceBase: 3,
-        changedPaths: ["added.txt", "base.txt", "removed.txt"],
-      })}`,
-    );
-    h.close();
-  });
-
   test("labels a failure and falls back to its error message", async () => {
     const h = await harness();
 

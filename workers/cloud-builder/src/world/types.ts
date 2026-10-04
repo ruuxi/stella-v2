@@ -15,7 +15,6 @@ export type WorldListingEntry = Omit<WorldEntry, "mtime"> & { mtime?: number };
 export type WorldToolCall = {
   name: "Read" | "Write" | "Edit" | "Grep" | "apply_patch" | "glob";
   arguments: Record<string, unknown>;
-  fork?: string;
 };
 
 export type WorldToolResult = { ok: boolean; output: string; revision: number };
@@ -25,22 +24,6 @@ export type WorldChanges = {
   entries: WorldEntry[];
   deleted: string[];
   resync: boolean;
-};
-
-export type WorldForkKind = "shared" | "fork" | "new";
-
-export type WorldForkStatus = {
-  kind: WorldForkKind;
-  baseManifestId: string | null;
-  headManifestId: string;
-  changedSinceBase: number;
-  revision: number;
-};
-
-export type WorldMergeResult = {
-  applied: string[];
-  deleted: string[];
-  conflicts: string[];
 };
 
 export type WorldBlobPutOutcome =

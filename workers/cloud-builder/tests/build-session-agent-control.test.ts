@@ -40,7 +40,7 @@ const memoryStorage = () => {
   };
 };
 
-const parent = (agentDepth = 1, workspaceForkId?: string) => ({
+const parent = (agentDepth = 1) => ({
   ownerId: "owner-1",
   ownerGeneration: "generation-1",
   conversationId: "conversation-1",
@@ -48,7 +48,6 @@ const parent = (agentDepth = 1, workspaceForkId?: string) => ({
   threadId: "parent-thread",
   agentDepth,
   execution: EXECUTION,
-  ...(workspaceForkId ? { workspaceForkId } : {}),
 });
 
 describe("BuildSession agent orchestration", () => {
@@ -226,88 +225,4 @@ describe("BuildSession agent orchestration", () => {
     ).rejects.toThrow(CLOUD_AGENT_DEPTH_LIMIT_ERROR);
   });
 
-  test("forks from the parent workspace and explicitly merges a child fork", async () => {
-    const { storage } = memoryStorage();
-    const parentForkId = `fork-${crypto.randomUUID()}`;
-    const childForkId = `fork-${crypto.randomUUID()}`;
-    const forkCalls: unknown[] = [];
-    const mergeCalls: unknown[] = [];
-    const env = {
-      CLOUD_BUILDER_PUBLIC_URL: "https://builder.example",
-      BUILD_SESSIONS: {
-        getByName: () => ({
-          fetch: async (_input: RequestInfo | URL, init?: RequestInit) => {
-            const body = JSON.parse(String(init?.body)) as Record<
-              string,
-              unknown
-            >;
-            return Response.json({
-              accepted: true,
-              turnId: body.turnId,
-              attemptGeneration: body.attemptGeneration,
-            });
-          },
-        }),
-      },
-      WORLDS: {
-        getByName: () => ({
-          fork: async (input: unknown) => {
-            forkCalls.push(input);
-            return { forkId: childForkId, headManifestId: "live:child" };
-          },
-          merge: async (input: unknown) => {
-            mergeCalls.push(input);
-            return {
-              applied: ["added.txt", "changed.txt"],
-              deleted: ["removed.txt"],
-              conflicts: ["changed.txt"],
-            };
-          },
-        }),
-      },
-    };
-    const dispatch: CloudAgentDispatchDependencies = {
-      env: env as never,
-      ownerGateAdmit: async () => ({
-        ok: true,
-        snapshot: sampleOwnerSnapshot(),
-      }),
-      releaseOwnerGate: async () => undefined,
-      deliverOwnerEvents: async () => undefined,
-    };
-    const control = createBuildSessionAgentControl({
-      storage: storage as never,
-      env: env as never,
-      dispatch,
-      parent: parent(1, parentForkId),
-    });
-
-    const spawned = await control.execute("spawn_agent", "tool-fork", {
-      description: "Fork child",
-      prompt: "Work in isolation.",
-      workspace: "fork",
-    });
-    const threadId = (spawned.details as { thread_id: string }).thread_id;
-    expect(forkCalls).toEqual([{ kind: "fork", threadId, from: parentForkId }]);
-
-    const merged = await control.execute("merge_workspace", "tool-merge", {
-      thread_id: threadId,
-      into: "shared",
-    });
-    expect(mergeCalls).toEqual([
-      {
-        from: childForkId,
-        into: "shared",
-        strategy: "last_writer_wins",
-      },
-    ]);
-    expect(merged.details).toEqual({
-      thread_id: threadId,
-      into: "shared",
-      applied_count: 2,
-      deleted_count: 1,
-      conflict_count: 1,
-      conflicts: ["changed.txt"],
-    });
-  });
 });

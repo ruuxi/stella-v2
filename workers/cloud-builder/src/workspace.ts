@@ -17,9 +17,6 @@ export const WORLD_ROOT = "/workspace/world";
 /** The optional user Drive materialized for a cloud turn. */
 export const WORLD_DRIVE_ROOT = `${WORLD_ROOT}/drive`;
 
-export const worldRootForFork = (fork?: string): string =>
-  !fork || fork === "shared" ? WORLD_ROOT : `/workspace/forks/${fork}/world`;
-
 export const driveRootForWorld = (worldRoot: string): string =>
   `${worldRoot}/drive`;
 

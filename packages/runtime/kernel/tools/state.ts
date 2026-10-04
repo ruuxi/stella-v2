@@ -1,6 +1,5 @@
 /**
- * State tools: spawn_agent / pause_agent / send_input / agent_status /
- * merge_workspace handlers.
+ * State tools: spawn_agent / pause_agent / send_input / agent_status handlers.
  */
 
 import type {
@@ -476,16 +475,6 @@ export const handleSpawnAgent = async (
 ): Promise<ToolResult> => {
   const action = toOptionalString(args.action)?.toLowerCase();
   const explicitThreadId = toOptionalString(args.thread_id);
-  const workspace = toOptionalString(args.workspace) || "shared";
-
-  if (workspace !== "shared" && workspace !== "new" && workspace !== "fork") {
-    return { error: 'workspace must be "shared", "new", or "fork".' };
-  }
-  if (workspace !== "shared") {
-    return {
-      error: `workspace "${workspace}" is supported only by cloud agents; desktop agents currently require workspace "shared".`,
-    };
-  }
 
   if ((action === "cancel" || action === "stop") && explicitThreadId) {
     // Pin the cancel reason to a sentinel so the runner can recognize
@@ -855,7 +844,3 @@ export const handleSpawnAgent = async (
     },
   };
 };
-
-export const handleMergeWorkspace = async (): Promise<ToolResult> => ({
-  error: "merge_workspace is supported only by cloud agents.",
-});

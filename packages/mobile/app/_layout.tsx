@@ -267,6 +267,7 @@ function AuthenticatedLayout() {
       "/files",
       "/settings",
       "/cloud-home",
+      "/engine-accounts",
     ].some((route) => pathname.startsWith(route));
 
     if (onOnboarding) {

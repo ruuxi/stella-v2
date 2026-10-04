@@ -2239,6 +2239,36 @@
     "sidebar": {
       "searchPlaceholder": "Zoek in activiteit en bestanden",
       "signedOutHint": "Log in om te zien waar Stella op de achtergrond aan werkt."
+    },
+    "engineAccounts": {
+      "settingsRowTitle": "Claude en ChatGPT",
+      "settingsRowBody": "Accounts voor chat en agents in de cloud",
+      "openSettingsLabel": "Claude- en ChatGPT-accounts openen",
+      "title": "Claude en ChatGPT",
+      "subtitle": "Accounts voor chat en agents in de cloud",
+      "backLabel": "Terug naar Instellingen",
+      "claudeSection": "Claude",
+      "chatgptSection": "ChatGPT",
+      "addAccount": "Account toevoegen",
+      "active": "In gebruik",
+      "useAccount": "Dit account gebruiken",
+      "signOut": "Afmelden",
+      "moreLabel": "Opties voor {name}",
+      "signOutTitle": "Afmelden bij {name}?",
+      "signOutBody": "Stella gebruikt dit account niet meer. Je kunt het altijd opnieuw toevoegen.",
+      "limitReached": "Limiet bereikt · wordt {time} gereset",
+      "autoSwitchLabel": "Wissel van account bij de limiet",
+      "autoSwitchClaude": "Als het gebruikte account zijn 5-uurs- of weeklimiet bereikt, gaat Stella naar het volgende tot de limiet is gereset.",
+      "autoSwitchChatgpt": "Als het gebruikte account zijn Codex-gebruikslimiet bereikt, gaat Stella naar het volgende tot de limiet is gereset.",
+      "pasteHintClaude": "Nadat je toegang hebt gegeven, toont Claude een code. Kopieer die en plak hem hier.",
+      "pasteHintChatgpt": "Nadat je toestemming hebt gegeven, laadt de pagina niet. Kopieer het adres van die pagina (Deel › Kopieer) en plak het hier.",
+      "pastePlaceholder": "Code of URL",
+      "pasteFromClipboard": "Plakken",
+      "finish": "Verbinden",
+      "connecting": "Verbinden…",
+      "errorTitle": "Kan accounts niet bijwerken",
+      "errorBody": "Er ging iets mis. Probeer het opnieuw.",
+      "localNote": "Deze accounts worden in de cloud gebruikt. Op je computer gebruikt Stella de accounts die in de desktop-app zijn ingesteld."
     }
   },
   "companion": {

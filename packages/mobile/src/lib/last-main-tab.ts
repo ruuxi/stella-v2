@@ -21,7 +21,13 @@ export function readMainTabFromPath(pathname: string): MainTabId | null {
   if (pathname === "/schedule") return "schedule";
   if (pathname === "/apps") return "apps";
   if (pathname === "/files") return "files";
-  if (pathname === "/settings" || pathname === "/cloud-home") return "settings";
+  if (
+    pathname === "/settings" ||
+    pathname === "/cloud-home" ||
+    pathname === "/engine-accounts"
+  ) {
+    return "settings";
+  }
   return null;
 }
 

@@ -2216,6 +2216,36 @@
     "sidebar": {
       "searchPlaceholder": "搜尋活動與檔案",
       "signedOutHint": "登入以查看 Stella 正在背景處理的工作。"
+    },
+    "engineAccounts": {
+      "settingsRowTitle": "Claude 和 ChatGPT",
+      "settingsRowBody": "用於雲端聊天和代理的帳號",
+      "openSettingsLabel": "開啟 Claude 和 ChatGPT 帳號",
+      "title": "Claude 和 ChatGPT",
+      "subtitle": "用於雲端聊天和代理的帳號",
+      "backLabel": "返回設定",
+      "claudeSection": "Claude",
+      "chatgptSection": "ChatGPT",
+      "addAccount": "新增帳號",
+      "active": "使用中",
+      "useAccount": "使用此帳號",
+      "signOut": "登出",
+      "moreLabel": "{name} 的選項",
+      "signOutTitle": "要登出 {name} 嗎?",
+      "signOutBody": "Stella 將不再使用此帳號。你可以隨時重新新增。",
+      "limitReached": "已達上限 · {time} 重設",
+      "autoSwitchLabel": "達到上限時切換帳號",
+      "autoSwitchClaude": "當使用中的帳號達到 5 小時或每週上限時,Stella 會切換到下一個帳號,直到上限重設。",
+      "autoSwitchChatgpt": "當使用中的帳號達到 Codex 使用上限時,Stella 會切換到下一個帳號,直到上限重設。",
+      "pasteHintClaude": "授權存取後,Claude 會顯示一組代碼。複製後貼到這裡。",
+      "pasteHintChatgpt": "授權後頁面將無法載入。複製該頁面的網址(分享 › 拷貝)並貼到這裡。",
+      "pastePlaceholder": "代碼或 URL",
+      "pasteFromClipboard": "貼上",
+      "finish": "連線",
+      "connecting": "正在連線…",
+      "errorTitle": "無法更新帳號",
+      "errorBody": "發生錯誤,請再試一次。",
+      "localNote": "這些帳號用於雲端。在你的電腦上,Stella 會使用在桌面 App 中設定的帳號。"
     }
   },
   "companion": {

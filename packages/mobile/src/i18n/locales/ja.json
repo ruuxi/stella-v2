@@ -2216,6 +2216,36 @@
     "sidebar": {
       "searchPlaceholder": "アクティビティとファイルを検索",
       "signedOutHint": "ログインすると、Stellaがバックグラウンドで行っている作業を確認できます。"
+    },
+    "engineAccounts": {
+      "settingsRowTitle": "Claude と ChatGPT",
+      "settingsRowBody": "クラウドのチャットとエージェントで使うアカウント",
+      "openSettingsLabel": "Claude と ChatGPT のアカウントを開く",
+      "title": "Claude と ChatGPT",
+      "subtitle": "クラウドのチャットとエージェントで使うアカウント",
+      "backLabel": "設定に戻る",
+      "claudeSection": "Claude",
+      "chatgptSection": "ChatGPT",
+      "addAccount": "アカウントを追加",
+      "active": "使用中",
+      "useAccount": "このアカウントを使う",
+      "signOut": "サインアウト",
+      "moreLabel": "{name} のオプション",
+      "signOutTitle": "{name} からサインアウトしますか?",
+      "signOutBody": "Stella はこのアカウントの使用を停止します。いつでも再度追加できます。",
+      "limitReached": "上限に達しました · {time} にリセット",
+      "autoSwitchLabel": "上限に達したらアカウントを切り替える",
+      "autoSwitchClaude": "使用中のアカウントが 5 時間または週間の上限に達すると、リセットされるまで Stella は次のアカウントに切り替えます。",
+      "autoSwitchChatgpt": "使用中のアカウントが Codex の利用上限に達すると、リセットされるまで Stella は次のアカウントに切り替えます。",
+      "pasteHintClaude": "アクセスを許可すると、Claude にコードが表示されます。コピーしてここに貼り付けてください。",
+      "pasteHintChatgpt": "許可した後、ページは読み込まれません。そのページのアドレスをコピー(共有 › コピー)して、ここに貼り付けてください。",
+      "pastePlaceholder": "コードまたは URL",
+      "pasteFromClipboard": "貼り付け",
+      "finish": "接続",
+      "connecting": "接続中…",
+      "errorTitle": "アカウントを更新できませんでした",
+      "errorBody": "問題が発生しました。もう一度お試しください。",
+      "localNote": "これらのアカウントはクラウドで使われます。コンピュータでは、Stella はデスクトップアプリで設定したアカウントを使います。"
     }
   },
   "companion": {

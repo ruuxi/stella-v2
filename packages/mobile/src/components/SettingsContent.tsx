@@ -368,6 +368,16 @@ export function SettingsContent() {
               colors={colors}
               onPress={() => router.push("/cloud-home")}
             />
+            <LinkRow
+              icon="cpu"
+              label={t("mobile.engineAccounts.settingsRowTitle")}
+              sub={t("mobile.engineAccounts.settingsRowBody")}
+              accessibilityLabel={t("mobile.engineAccounts.openSettingsLabel")}
+              divided
+              styles={settingsStyles}
+              colors={colors}
+              onPress={() => router.push("/engine-accounts")}
+            />
             <View style={[settingsStyles.row, settingsStyles.rowDivider]}>
               <Icon
                 name="globe"

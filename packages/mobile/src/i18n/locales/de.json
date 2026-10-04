@@ -2239,6 +2239,36 @@
     "sidebar": {
       "searchPlaceholder": "Aktivität und Dateien durchsuchen",
       "signedOutHint": "Melde dich an, um zu sehen, woran Stella im Hintergrund arbeitet."
+    },
+    "engineAccounts": {
+      "settingsRowTitle": "Claude & ChatGPT",
+      "settingsRowBody": "Konten für Cloud-Chat und Agenten",
+      "openSettingsLabel": "Claude- und ChatGPT-Konten öffnen",
+      "title": "Claude & ChatGPT",
+      "subtitle": "Konten für Cloud-Chat und Agenten",
+      "backLabel": "Zurück zu den Einstellungen",
+      "claudeSection": "Claude",
+      "chatgptSection": "ChatGPT",
+      "addAccount": "Konto hinzufügen",
+      "active": "In Verwendung",
+      "useAccount": "Dieses Konto verwenden",
+      "signOut": "Abmelden",
+      "moreLabel": "Optionen für {name}",
+      "signOutTitle": "Von {name} abmelden?",
+      "signOutBody": "Stella verwendet dieses Konto nicht mehr. Du kannst es jederzeit wieder hinzufügen.",
+      "limitReached": "Limit erreicht · wird {time} zurückgesetzt",
+      "autoSwitchLabel": "Beim Limit Konto wechseln",
+      "autoSwitchClaude": "Wenn das verwendete Konto sein 5-Stunden- oder Wochenlimit erreicht, wechselt Stella zum nächsten, bis es zurückgesetzt wird.",
+      "autoSwitchChatgpt": "Wenn das verwendete Konto sein Codex-Nutzungslimit erreicht, wechselt Stella zum nächsten, bis es zurückgesetzt wird.",
+      "pasteHintClaude": "Nach der Freigabe zeigt Claude einen Code an. Kopiere ihn und füge ihn hier ein.",
+      "pasteHintChatgpt": "Nach der Freigabe lädt die Seite nicht. Kopiere die Adresse dieser Seite (Teilen › Kopieren) und füge sie hier ein.",
+      "pastePlaceholder": "Code oder URL",
+      "pasteFromClipboard": "Einfügen",
+      "finish": "Verbinden",
+      "connecting": "Wird verbunden…",
+      "errorTitle": "Konten konnten nicht aktualisiert werden",
+      "errorBody": "Etwas ist schiefgelaufen. Versuche es erneut.",
+      "localNote": "Diese Konten werden in der Cloud verwendet. Auf deinem Computer nutzt Stella die in der Desktop-App eingerichteten Konten."
     }
   },
   "companion": {

@@ -2239,6 +2239,36 @@
     "sidebar": {
       "searchPlaceholder": "गतिविधि और फ़ाइलों में खोजें",
       "signedOutHint": "Stella बैकग्राउंड में क्या काम कर रही है, यह देखने के लिए साइन इन करें।"
+    },
+    "engineAccounts": {
+      "settingsRowTitle": "Claude और ChatGPT",
+      "settingsRowBody": "क्लाउड चैट और एजेंट के लिए खाते",
+      "openSettingsLabel": "Claude और ChatGPT खाते खोलें",
+      "title": "Claude और ChatGPT",
+      "subtitle": "क्लाउड चैट और एजेंट के लिए खाते",
+      "backLabel": "सेटिंग्स पर वापस जाएं",
+      "claudeSection": "Claude",
+      "chatgptSection": "ChatGPT",
+      "addAccount": "खाता जोड़ें",
+      "active": "उपयोग में",
+      "useAccount": "यह खाता इस्तेमाल करें",
+      "signOut": "साइन आउट करें",
+      "moreLabel": "{name} के विकल्प",
+      "signOutTitle": "{name} से साइन आउट करें?",
+      "signOutBody": "Stella इस खाते का इस्तेमाल बंद कर देगी। आप इसे कभी भी फिर से जोड़ सकते हैं।",
+      "limitReached": "सीमा पूरी हुई · {time} पर रीसेट",
+      "autoSwitchLabel": "सीमा पर खाता बदलें",
+      "autoSwitchClaude": "जब उपयोग में मौजूद खाता अपनी 5-घंटे या साप्ताहिक सीमा तक पहुंचता है, तो Stella रीसेट होने तक अगले खाते पर चली जाती है।",
+      "autoSwitchChatgpt": "जब उपयोग में मौजूद खाता अपनी Codex उपयोग सीमा तक पहुंचता है, तो Stella रीसेट होने तक अगले खाते पर चली जाती है।",
+      "pasteHintClaude": "एक्सेस की अनुमति देने के बाद Claude एक कोड दिखाता है। उसे कॉपी करके यहां पेस्ट करें।",
+      "pasteHintChatgpt": "अनुमति देने के बाद पेज लोड नहीं होगा। उस पेज का पता कॉपी करें (शेयर › कॉपी) और यहां पेस्ट करें।",
+      "pastePlaceholder": "कोड या URL",
+      "pasteFromClipboard": "पेस्ट करें",
+      "finish": "कनेक्ट करें",
+      "connecting": "कनेक्ट हो रहा है…",
+      "errorTitle": "खाते अपडेट नहीं हो सके",
+      "errorBody": "कुछ गलत हो गया। फिर से कोशिश करें।",
+      "localNote": "ये खाते क्लाउड में इस्तेमाल होते हैं। आपके कंप्यूटर पर, Stella डेस्कटॉप ऐप में सेट किए गए खातों का इस्तेमाल करती है।"
     }
   },
   "companion": {

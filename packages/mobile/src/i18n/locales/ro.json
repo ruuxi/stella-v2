@@ -2259,6 +2259,36 @@
     "sidebar": {
       "searchPlaceholder": "Caută în activitate și fișiere",
       "signedOutHint": "Conectează-te pentru a vedea la ce lucrează Stella în fundal."
+    },
+    "engineAccounts": {
+      "settingsRowTitle": "Claude și ChatGPT",
+      "settingsRowBody": "Conturi pentru chatul și agenții din cloud",
+      "openSettingsLabel": "Deschide conturile Claude și ChatGPT",
+      "title": "Claude și ChatGPT",
+      "subtitle": "Conturi pentru chatul și agenții din cloud",
+      "backLabel": "Înapoi la Setări",
+      "claudeSection": "Claude",
+      "chatgptSection": "ChatGPT",
+      "addAccount": "Adaugă un cont",
+      "active": "În uz",
+      "useAccount": "Folosește acest cont",
+      "signOut": "Deconectează-te",
+      "moreLabel": "Opțiuni pentru {name}",
+      "signOutTitle": "Te deconectezi de la {name}?",
+      "signOutBody": "Stella nu va mai folosi acest cont. Îl poți adăuga din nou oricând.",
+      "limitReached": "Limită atinsă · se resetează {time}",
+      "autoSwitchLabel": "Schimbă contul la atingerea limitei",
+      "autoSwitchClaude": "Când contul folosit atinge limita de 5 ore sau săptămânală, Stella trece la următorul până la resetare.",
+      "autoSwitchChatgpt": "Când contul folosit atinge limita de utilizare Codex, Stella trece la următorul până la resetare.",
+      "pasteHintClaude": "După ce acorzi accesul, Claude afișează un cod. Copiază-l și lipește-l aici.",
+      "pasteHintChatgpt": "După aprobare, pagina nu se încarcă. Copiază adresa acelei pagini (Distribuie › Copiază) și lipește-o aici.",
+      "pastePlaceholder": "Cod sau URL",
+      "pasteFromClipboard": "Lipește",
+      "finish": "Conectează",
+      "connecting": "Se conectează…",
+      "errorTitle": "Conturile nu au putut fi actualizate",
+      "errorBody": "Ceva nu a mers bine. Încearcă din nou.",
+      "localNote": "Aceste conturi sunt folosite în cloud. Pe computerul tău, Stella folosește conturile configurate în aplicația desktop."
     }
   },
   "companion": {

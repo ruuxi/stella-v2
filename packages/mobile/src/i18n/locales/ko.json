@@ -2216,6 +2216,36 @@
     "sidebar": {
       "searchPlaceholder": "활동과 파일 검색",
       "signedOutHint": "로그인하여 Stella가 백그라운드에서 진행 중인 작업을 확인하세요."
+    },
+    "engineAccounts": {
+      "settingsRowTitle": "Claude 및 ChatGPT",
+      "settingsRowBody": "클라우드 채팅과 에이전트에 사용할 계정",
+      "openSettingsLabel": "Claude 및 ChatGPT 계정 열기",
+      "title": "Claude 및 ChatGPT",
+      "subtitle": "클라우드 채팅과 에이전트에 사용할 계정",
+      "backLabel": "설정으로 돌아가기",
+      "claudeSection": "Claude",
+      "chatgptSection": "ChatGPT",
+      "addAccount": "계정 추가",
+      "active": "사용 중",
+      "useAccount": "이 계정 사용",
+      "signOut": "로그아웃",
+      "moreLabel": "{name} 옵션",
+      "signOutTitle": "{name}에서 로그아웃할까요?",
+      "signOutBody": "Stella가 더 이상 이 계정을 사용하지 않습니다. 언제든지 다시 추가할 수 있습니다.",
+      "limitReached": "한도 도달 · {time}에 재설정",
+      "autoSwitchLabel": "한도에 도달하면 계정 전환",
+      "autoSwitchClaude": "사용 중인 계정이 5시간 또는 주간 한도에 도달하면 Stella가 재설정될 때까지 다음 계정으로 전환합니다.",
+      "autoSwitchChatgpt": "사용 중인 계정이 Codex 사용 한도에 도달하면 Stella가 재설정될 때까지 다음 계정으로 전환합니다.",
+      "pasteHintClaude": "액세스를 허용하면 Claude가 코드를 표시합니다. 코드를 복사해 여기에 붙여 넣으세요.",
+      "pasteHintChatgpt": "승인한 후에는 페이지가 로드되지 않습니다. 해당 페이지의 주소를 복사(공유 › 복사)해 여기에 붙여 넣으세요.",
+      "pastePlaceholder": "코드 또는 URL",
+      "pasteFromClipboard": "붙여넣기",
+      "finish": "연결",
+      "connecting": "연결 중…",
+      "errorTitle": "계정을 업데이트할 수 없습니다",
+      "errorBody": "문제가 발생했습니다. 다시 시도하세요.",
+      "localNote": "이 계정은 클라우드에서 사용됩니다. 컴퓨터에서는 Stella가 데스크톱 앱에 설정된 계정을 사용합니다."
     }
   },
   "companion": {

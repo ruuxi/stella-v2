@@ -2259,6 +2259,36 @@
     "sidebar": {
       "searchPlaceholder": "חיפוש בפעילות ובקבצים",
       "signedOutHint": "יש להתחבר כדי לראות על מה Stella עובדת ברקע."
+    },
+    "engineAccounts": {
+      "settingsRowTitle": "Claude ו-ChatGPT",
+      "settingsRowBody": "חשבונות לצ'אט ולסוכנים בענן",
+      "openSettingsLabel": "פתיחת חשבונות Claude ו-ChatGPT",
+      "title": "Claude ו-ChatGPT",
+      "subtitle": "חשבונות לצ'אט ולסוכנים בענן",
+      "backLabel": "חזרה להגדרות",
+      "claudeSection": "Claude",
+      "chatgptSection": "ChatGPT",
+      "addAccount": "הוספת חשבון",
+      "active": "בשימוש",
+      "useAccount": "שימוש בחשבון הזה",
+      "signOut": "יציאה",
+      "moreLabel": "אפשרויות עבור {name}",
+      "signOutTitle": "לצאת מ-{name}?",
+      "signOutBody": "Stella תפסיק להשתמש בחשבון הזה. אפשר להוסיף אותו שוב בכל עת.",
+      "limitReached": "הגעת למגבלה · מתאפס {time}",
+      "autoSwitchLabel": "החלפת חשבון בהגעה למגבלה",
+      "autoSwitchClaude": "כשהחשבון שבשימוש מגיע למגבלת 5 השעות או המגבלה השבועית, Stella עוברת לחשבון הבא עד שהמגבלה מתאפסת.",
+      "autoSwitchChatgpt": "כשהחשבון שבשימוש מגיע למגבלת השימוש ב-Codex, Stella עוברת לחשבון הבא עד שהמגבלה מתאפסת.",
+      "pasteHintClaude": "אחרי שתאשרו גישה, Claude יציג קוד. העתיקו אותו והדביקו כאן.",
+      "pasteHintChatgpt": "אחרי האישור, הדף לא ייטען. העתיקו את כתובת הדף (שיתוף › העתקה) והדביקו אותה כאן.",
+      "pastePlaceholder": "קוד או כתובת URL",
+      "pasteFromClipboard": "הדבקה",
+      "finish": "חיבור",
+      "connecting": "מתחבר…",
+      "errorTitle": "לא ניתן לעדכן את החשבונות",
+      "errorBody": "משהו השתבש. נסו שוב.",
+      "localNote": "החשבונות האלה משמשים בענן. במחשב שלכם, Stella משתמשת בחשבונות שהוגדרו באפליקציה למחשב."
     }
   },
   "companion": {

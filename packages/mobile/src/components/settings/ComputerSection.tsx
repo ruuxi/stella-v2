@@ -50,10 +50,13 @@ export function ComputerSection({
   control,
   signedIn,
   styles,
+  onManageAccounts,
 }: {
   control: ComputerControl | null;
   signedIn: boolean;
   styles: SettingsStyles;
+  /** Opens Settings › Claude & ChatGPT accounts. */
+  onManageAccounts?: () => void;
 }) {
   const colors = useColors();
   const t = useT();
@@ -276,6 +279,7 @@ export function ComputerSection({
           composerModelPinned={control.composerModelPinned}
           onComposerModelPinnedChange={control.onComposerModelPinnedChange}
           styles={styles}
+          {...(onManageAccounts ? { onManageAccounts } : {})}
         />
       ) : null}
 

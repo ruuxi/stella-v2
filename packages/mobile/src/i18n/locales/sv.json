@@ -2240,6 +2240,36 @@
     "sidebar": {
       "searchPlaceholder": "Sök i aktivitet och filer",
       "signedOutHint": "Logga in för att se vad Stella arbetar med i bakgrunden."
+    },
+    "engineAccounts": {
+      "settingsRowTitle": "Claude och ChatGPT",
+      "settingsRowBody": "Konton för chatt och agenter i molnet",
+      "openSettingsLabel": "Öppna Claude- och ChatGPT-konton",
+      "title": "Claude och ChatGPT",
+      "subtitle": "Konton för chatt och agenter i molnet",
+      "backLabel": "Tillbaka till Inställningar",
+      "claudeSection": "Claude",
+      "chatgptSection": "ChatGPT",
+      "addAccount": "Lägg till konto",
+      "active": "Används",
+      "useAccount": "Använd det här kontot",
+      "signOut": "Logga ut",
+      "moreLabel": "Alternativ för {name}",
+      "signOutTitle": "Logga ut från {name}?",
+      "signOutBody": "Stella slutar använda det här kontot. Du kan lägga till det igen när som helst.",
+      "limitReached": "Gränsen nådd · återställs {time}",
+      "autoSwitchLabel": "Byt konto vid gränsen",
+      "autoSwitchClaude": "När kontot som används når sin 5-timmars- eller veckogräns byter Stella till nästa tills gränsen återställs.",
+      "autoSwitchChatgpt": "När kontot som används når sin användningsgräns för Codex byter Stella till nästa tills gränsen återställs.",
+      "pasteHintClaude": "När du har gett åtkomst visar Claude en kod. Kopiera den och klistra in den här.",
+      "pasteHintChatgpt": "När du har godkänt laddas inte sidan. Kopiera sidans adress (Dela › Kopiera) och klistra in den här.",
+      "pastePlaceholder": "Kod eller URL",
+      "pasteFromClipboard": "Klistra in",
+      "finish": "Anslut",
+      "connecting": "Ansluter…",
+      "errorTitle": "Det gick inte att uppdatera kontona",
+      "errorBody": "Något gick fel. Försök igen.",
+      "localNote": "De här kontona används i molnet. På din dator använder Stella kontona som är konfigurerade i skrivbordsappen."
     }
   },
   "companion": {

@@ -28,6 +28,8 @@ type Props = {
   composerModelPinned: boolean;
   onComposerModelPinnedChange: (next: boolean) => void;
   styles: SettingsStyles;
+  /** Opens the accounts page where the cloud engine can be connected. */
+  onManageAccounts?: () => void;
 };
 
 /**
@@ -41,6 +43,7 @@ export function ModelSettingsPanel({
   composerModelPinned,
   onComposerModelPinnedChange,
   styles,
+  onManageAccounts,
 }: Props) {
   const colors = useColors();
   const local = useMemo(() => makeStyles(colors), [colors]);
@@ -141,10 +144,22 @@ export function ModelSettingsPanel({
 
       {ready && cloudDisconnected ? (
         <Text style={local.note}>
-          Your computer uses its own{" "}
-          {engine === "anthropic" ? "Claude Code" : "Codex"} login. To run this
-          engine in the cloud, connect{" "}
-          {engine === "anthropic" ? "Claude" : "ChatGPT"} in Settings.
+          Your computer uses the{" "}
+          {engine === "anthropic" ? "Claude" : "ChatGPT"} accounts set up on
+          it. To run this engine in the cloud, connect a{" "}
+          {engine === "anthropic" ? "Claude" : "ChatGPT"} account.
+          {onManageAccounts ? (
+            <>
+              {" "}
+              <Text
+                style={local.noteLink}
+                onPress={onManageAccounts}
+                accessibilityRole="link"
+              >
+                Connect account
+              </Text>
+            </>
+          ) : null}
         </Text>
       ) : null}
 
@@ -186,5 +201,6 @@ const makeStyles = (colors: Colors) =>
       marginHorizontal: 4,
       marginTop: 8,
     },
+    noteLink: { color: colors.accent, fontFamily: fonts.sans.medium },
     flex: { flex: 1 },
   });

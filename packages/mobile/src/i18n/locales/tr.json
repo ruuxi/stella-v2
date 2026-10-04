@@ -2239,6 +2239,36 @@
     "sidebar": {
       "searchPlaceholder": "Etkinlik ve dosyalarda ara",
       "signedOutHint": "Stella’nın arka planda ne üzerinde çalıştığını görmek için giriş yapın."
+    },
+    "engineAccounts": {
+      "settingsRowTitle": "Claude ve ChatGPT",
+      "settingsRowBody": "Bulut sohbeti ve aracılar için hesaplar",
+      "openSettingsLabel": "Claude ve ChatGPT hesaplarını aç",
+      "title": "Claude ve ChatGPT",
+      "subtitle": "Bulut sohbeti ve aracılar için hesaplar",
+      "backLabel": "Ayarlar'a dön",
+      "claudeSection": "Claude",
+      "chatgptSection": "ChatGPT",
+      "addAccount": "Hesap ekle",
+      "active": "Kullanımda",
+      "useAccount": "Bu hesabı kullan",
+      "signOut": "Oturumu kapat",
+      "moreLabel": "{name} seçenekleri",
+      "signOutTitle": "{name} oturumu kapatılsın mı?",
+      "signOutBody": "Stella bu hesabı kullanmayı bırakacak. İstediğin zaman yeniden ekleyebilirsin.",
+      "limitReached": "Limite ulaşıldı · sıfırlanma {time}",
+      "autoSwitchLabel": "Limitte hesap değiştir",
+      "autoSwitchClaude": "Kullanımdaki hesap 5 saatlik veya haftalık limitine ulaştığında Stella, limit sıfırlanana kadar bir sonrakine geçer.",
+      "autoSwitchChatgpt": "Kullanımdaki hesap Codex kullanım limitine ulaştığında Stella, limit sıfırlanana kadar bir sonrakine geçer.",
+      "pasteHintClaude": "Erişime izin verdikten sonra Claude bir kod gösterir. Kodu kopyalayıp buraya yapıştır.",
+      "pasteHintChatgpt": "Onayladıktan sonra sayfa yüklenmez. O sayfanın adresini kopyalayıp (Paylaş › Kopyala) buraya yapıştır.",
+      "pastePlaceholder": "Kod veya URL",
+      "pasteFromClipboard": "Yapıştır",
+      "finish": "Bağlan",
+      "connecting": "Bağlanıyor…",
+      "errorTitle": "Hesaplar güncellenemedi",
+      "errorBody": "Bir sorun oluştu. Tekrar dene.",
+      "localNote": "Bu hesaplar bulutta kullanılır. Bilgisayarında Stella, masaüstü uygulamasında ayarlanan hesapları kullanır."
     }
   },
   "companion": {

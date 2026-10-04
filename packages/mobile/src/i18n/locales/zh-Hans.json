@@ -2216,6 +2216,36 @@
     "sidebar": {
       "searchPlaceholder": "搜索活动和文件",
       "signedOutHint": "登录以查看 Stella 正在后台处理的任务。"
+    },
+    "engineAccounts": {
+      "settingsRowTitle": "Claude 和 ChatGPT",
+      "settingsRowBody": "用于云端聊天和智能体的账号",
+      "openSettingsLabel": "打开 Claude 和 ChatGPT 账号",
+      "title": "Claude 和 ChatGPT",
+      "subtitle": "用于云端聊天和智能体的账号",
+      "backLabel": "返回设置",
+      "claudeSection": "Claude",
+      "chatgptSection": "ChatGPT",
+      "addAccount": "添加账号",
+      "active": "使用中",
+      "useAccount": "使用此账号",
+      "signOut": "退出登录",
+      "moreLabel": "{name} 的选项",
+      "signOutTitle": "要退出 {name} 吗?",
+      "signOutBody": "Stella 将不再使用此账号。你可以随时重新添加。",
+      "limitReached": "已达上限 · {time} 重置",
+      "autoSwitchLabel": "达到上限时切换账号",
+      "autoSwitchClaude": "当使用中的账号达到 5 小时或每周上限时,Stella 会切换到下一个账号,直到上限重置。",
+      "autoSwitchChatgpt": "当使用中的账号达到 Codex 使用上限时,Stella 会切换到下一个账号,直到上限重置。",
+      "pasteHintClaude": "授权访问后,Claude 会显示一个代码。复制后粘贴到这里。",
+      "pasteHintChatgpt": "授权后页面将无法加载。复制该页面的地址(分享 › 复制)并粘贴到这里。",
+      "pastePlaceholder": "代码或 URL",
+      "pasteFromClipboard": "粘贴",
+      "finish": "连接",
+      "connecting": "正在连接…",
+      "errorTitle": "无法更新账号",
+      "errorBody": "出了点问题,请重试。",
+      "localNote": "这些账号用于云端。在你的电脑上,Stella 使用在桌面应用中设置的账号。"
     }
   },
   "companion": {

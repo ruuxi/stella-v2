@@ -2279,6 +2279,36 @@
     "sidebar": {
       "searchPlaceholder": "Искать в активности и файлах",
       "signedOutHint": "Войдите, чтобы увидеть, над чем Stella работает в фоновом режиме."
+    },
+    "engineAccounts": {
+      "settingsRowTitle": "Claude и ChatGPT",
+      "settingsRowBody": "Аккаунты для чата и агентов в облаке",
+      "openSettingsLabel": "Открыть аккаунты Claude и ChatGPT",
+      "title": "Claude и ChatGPT",
+      "subtitle": "Аккаунты для чата и агентов в облаке",
+      "backLabel": "Назад к настройкам",
+      "claudeSection": "Claude",
+      "chatgptSection": "ChatGPT",
+      "addAccount": "Добавить аккаунт",
+      "active": "Используется",
+      "useAccount": "Использовать этот аккаунт",
+      "signOut": "Выйти",
+      "moreLabel": "Параметры для {name}",
+      "signOutTitle": "Выйти из {name}?",
+      "signOutBody": "Stella перестанет использовать этот аккаунт. Вы сможете добавить его снова в любое время.",
+      "limitReached": "Лимит исчерпан · сброс {time}",
+      "autoSwitchLabel": "Переключать аккаунт при лимите",
+      "autoSwitchClaude": "Когда используемый аккаунт исчерпает 5-часовой или недельный лимит, Stella перейдёт к следующему до сброса.",
+      "autoSwitchChatgpt": "Когда используемый аккаунт исчерпает лимит использования Codex, Stella перейдёт к следующему до сброса.",
+      "pasteHintClaude": "После предоставления доступа Claude покажет код. Скопируйте его и вставьте сюда.",
+      "pasteHintChatgpt": "После подтверждения страница не загрузится. Скопируйте адрес этой страницы (Поделиться › Скопировать) и вставьте сюда.",
+      "pastePlaceholder": "Код или URL",
+      "pasteFromClipboard": "Вставить",
+      "finish": "Подключить",
+      "connecting": "Подключение…",
+      "errorTitle": "Не удалось обновить аккаунты",
+      "errorBody": "Что-то пошло не так. Попробуйте ещё раз.",
+      "localNote": "Эти аккаунты используются в облаке. На вашем компьютере Stella использует аккаунты, настроенные в настольном приложении."
     }
   },
   "companion": {

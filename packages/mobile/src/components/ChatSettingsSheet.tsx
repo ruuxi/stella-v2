@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 import { TopSheet } from "./TopSheet";
 import { ComputerSection } from "./settings/ComputerSection";
 import { makeSettingsStyles } from "./settings/settings-styles";
@@ -28,6 +29,7 @@ export function ChatSettingsSheet({
   const session = authClient.useSession();
   const computer = useComputerControl();
   const signedIn = Boolean(session.data?.user) && !isGuest();
+  const router = useRouter();
 
   return (
     <TopSheet visible={visible} onClose={onClose} contentSized>
@@ -37,6 +39,10 @@ export function ChatSettingsSheet({
             control={computer}
             signedIn={signedIn}
             styles={settingsStyles}
+            onManageAccounts={() => {
+              onClose();
+              router.push("/engine-accounts");
+            }}
           />
         </ScrollView>
       </View>

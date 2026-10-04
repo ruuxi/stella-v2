@@ -2259,6 +2259,36 @@
     "sidebar": {
       "searchPlaceholder": "Cerca in attività e file",
       "signedOutHint": "Accedi per vedere a cosa sta lavorando Stella in background."
+    },
+    "engineAccounts": {
+      "settingsRowTitle": "Claude e ChatGPT",
+      "settingsRowBody": "Account per chat e agenti nel cloud",
+      "openSettingsLabel": "Apri gli account Claude e ChatGPT",
+      "title": "Claude e ChatGPT",
+      "subtitle": "Account per chat e agenti nel cloud",
+      "backLabel": "Torna alle Impostazioni",
+      "claudeSection": "Claude",
+      "chatgptSection": "ChatGPT",
+      "addAccount": "Aggiungi account",
+      "active": "In uso",
+      "useAccount": "Usa questo account",
+      "signOut": "Esci",
+      "moreLabel": "Opzioni per {name}",
+      "signOutTitle": "Uscire da {name}?",
+      "signOutBody": "Stella smetterà di usare questo account. Puoi aggiungerlo di nuovo in qualsiasi momento.",
+      "limitReached": "Limite raggiunto · si azzera {time}",
+      "autoSwitchLabel": "Cambia account al limite",
+      "autoSwitchClaude": "Quando l'account in uso raggiunge il limite di 5 ore o settimanale, Stella passa al successivo finché non si azzera.",
+      "autoSwitchChatgpt": "Quando l'account in uso raggiunge il limite di utilizzo di Codex, Stella passa al successivo finché non si azzera.",
+      "pasteHintClaude": "Dopo aver autorizzato l'accesso, Claude mostra un codice. Copialo e incollalo qui.",
+      "pasteHintChatgpt": "Dopo l'autorizzazione, la pagina non si carica. Copia l'indirizzo di quella pagina (Condividi › Copia) e incollalo qui.",
+      "pastePlaceholder": "Codice o URL",
+      "pasteFromClipboard": "Incolla",
+      "finish": "Connetti",
+      "connecting": "Connessione…",
+      "errorTitle": "Impossibile aggiornare gli account",
+      "errorBody": "Qualcosa è andato storto. Riprova.",
+      "localNote": "Questi account vengono usati nel cloud. Sul tuo computer, Stella usa gli account configurati nell'app desktop."
     }
   },
   "companion": {

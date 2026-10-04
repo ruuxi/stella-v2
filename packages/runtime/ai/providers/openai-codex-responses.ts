@@ -478,8 +478,13 @@ function getServiceTierCostMultiplier(
 	switch (serviceTier) {
 		case "flex":
 			return 0.5;
+		// "fast" is OpenAI's 2026 name for priority processing, billed the same.
 		case "priority":
+		case "fast":
 			return model.id === "gpt-5.5" ? 2.5 : 2;
+		// Ultrafast (gpt-6-astra only) bills every token type at 6x Standard.
+		case "ultrafast":
+			return 6;
 		default:
 			return 1;
 	}
@@ -504,7 +509,13 @@ function resolveCodexServiceTier(
 	responseServiceTier: ResponseCreateParamsStreaming["service_tier"] | undefined,
 	requestServiceTier: ResponseCreateParamsStreaming["service_tier"] | undefined,
 ): ResponseCreateParamsStreaming["service_tier"] | undefined {
-	if (responseServiceTier === "default" && (requestServiceTier === "flex" || requestServiceTier === "priority")) {
+	if (
+		responseServiceTier === "default" &&
+		(requestServiceTier === "flex" ||
+			requestServiceTier === "priority" ||
+			requestServiceTier === "fast" ||
+			requestServiceTier === "ultrafast")
+	) {
 		return requestServiceTier;
 	}
 	return responseServiceTier ?? requestServiceTier;

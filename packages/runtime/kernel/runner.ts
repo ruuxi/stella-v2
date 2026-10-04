@@ -18,7 +18,10 @@ import { createAgentOrchestration } from "./runner/agent-orchestration.js";
 import { createCloudAgentLifecycleMonitor } from "./runner/cloud-agent-lifecycle.js";
 import { createComputerAgentCloudRecords } from "./runner/computer-agent-cloud-records.js";
 import { parseCanonicalCloudHistory } from "./runner/orchestrator-launch.js";
-import { buildRuntimeSystemPrompt } from "./agent-runtime/run-preparation.js";
+import {
+  buildRuntimeSystemPrompt,
+  renderSystemPrompt,
+} from "./agent-runtime/run-preparation.js";
 import { decorateUserTranscriptContent } from "./agent-runtime/transcript-decoration.js";
 import { getRuntimeToolMetadata } from "./agent-runtime/tool-adapters.js";
 import { loadGoogleWorkspaceTools } from "./google-workspace/load-google-workspace-tools.js";
@@ -727,7 +730,7 @@ export const createStellaHostRunner = (
           ? { threadHistory: parseCanonicalCloudHistory(cloudHistory.history) }
           : {}),
       };
-      const instructions = await buildRuntimeSystemPrompt({
+      const instructionSections = await buildRuntimeSystemPrompt({
         executionHost: "device",
         runId,
         conversationId,
@@ -757,6 +760,7 @@ export const createStellaHostRunner = (
         stellaAppDir: context.stellaAppDir,
         hookEmitter: context.hookEmitter,
       });
+      const instructions = renderSystemPrompt(instructionSections);
       const toolCatalog = context.toolHost
         .getToolCatalog(agentType, {
           model:

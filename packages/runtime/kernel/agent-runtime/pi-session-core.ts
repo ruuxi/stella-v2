@@ -7,6 +7,7 @@ import type { LocalAgentContext } from "../agents/local-agent-manager.js";
 import type { RuntimeStore } from "../storage/runtime-store.js";
 import type { HookEmitter } from "../extensions/hook-emitter.js";
 import type { RuntimePromptMessage } from "@stella/contracts/protocol";
+import { wrapSystemReminder } from "@stella/contracts/system-reminders";
 import {
   buildSafetyAbortSwapRoute,
   isProviderContentAbortMessage,
@@ -42,6 +43,10 @@ import {
   withForcedThreadCompaction,
 } from "./context-budget.js";
 import { runCompactionWithHooks } from "./run-completion.js";
+import {
+  renderSystemPrompt,
+  type SystemPromptSection,
+} from "./run-preparation.js";
 import type { BackgroundCompactionScheduler } from "./compaction-scheduler.js";
 import type { OrchestratorRunOptions } from "./types.js";
 import {
@@ -63,18 +68,6 @@ type PiSessionCoreOptions = {
 };
 
 type SessionLogContext = Record<string, unknown>;
-
-/**
- * Fraction of the model's real context window at which the orchestrator's
- * non-blocking "compact-while-you-talk" path degrades to blocking: if a
- * background compaction is still in flight AND the (un-compacted) thread has
- * already accumulated this share of the hard window, dispatching the next turn
- * risks overflowing the provider limit before the compaction that would
- * relieve it lands. At that point we wait for compaction instead. Sits above
- * the 0.7 compaction trigger so the common case stays non-blocking; the
- * remaining headroom to 1.0 covers the incoming turn's own output.
- */
-const ORCHESTRATOR_COMPACTION_BLOCK_WINDOW_FRACTION = 0.9;
 
 const awaitUnlessAborted = async (
   promise: Promise<unknown>,
@@ -275,7 +268,12 @@ export class PiSessionCore {
   private adoptFreshContextSnapshot = false;
   /** Signature of the last announced frozen-tools drift (dedup). */
   private announcedToolDriftSignature: string | null = null;
-  private latestSystemPrompt: string | null = null;
+  /**
+   * Each system prompt section as the model last saw it: the frozen prompt
+   * plus every section update appended since. Drift is announced per section
+   * against this, so a change re-sends only the sections that changed.
+   */
+  private announcedSections = new Map<string, string>();
   /**
    * Hidden `runtime.context_delta.*` messages queued by the freeze logic,
    * consumed into the next prompt build so the model hears about resident
@@ -386,6 +384,11 @@ export class PiSessionCore {
    * only after the completed assistant/tool-result group has synchronously
    * emitted `message_end` and immediately before another provider call.
    *
+   * Two thresholds, as in Pi's durable harness: past the compaction trigger
+   * a background compaction starts and the loop keeps working; a later
+   * boundary pages the finished compaction in. Only a request that would
+   * exceed the provider input budget (or image pressure) waits for one.
+   *
    * SQLite stays authoritative: compaction appends its overlay first, then
    * this method reloads the checkpoint + exact post-checkpoint tail. Until
    * both steps succeed it returns no replacement, leaving the live mirror
@@ -457,49 +460,66 @@ export class PiSessionCore {
         args.opts.agentType,
       );
       if (!imagePressure && measuredTokens < triggerTokens) return undefined;
+      const inputBudget = providerInputBudgetTokens(
+        args.opts.resolvedLlm.model.contextWindow,
+      );
+      if (!imagePressure && !(inputBudget && measuredTokens >= inputBudget)) {
+        // One background pass at a time; a later boundary applies it.
+        if (!scheduler.pending(this.threadKey)) {
+          this.logger.debug("active-working-set.background-compaction", {
+            threadKey: this.threadKey,
+            measuredTokens,
+            triggerTokens,
+            ...args.logContext,
+          });
+          void scheduler.schedule({
+            threadKey: this.threadKey,
+            run: (signal) =>
+              this.runBoundaryCompaction(args, false, signal).then(
+                () => undefined,
+              ),
+          });
+        }
+        return undefined;
+      }
       args.onCompacting?.();
+
+      try {
+        // Serialize with any compaction already running. The scheduler can
+        // coalesce queued callbacks, so drain first and schedule our own
+        // forced pass only once it is idle.
+        let pending = scheduler.pending(this.threadKey);
+        while (pending) {
+          if (!(await awaitUnlessAborted(pending, args.signal))) {
+            return undefined;
+          }
+          pending = scheduler.pending(this.threadKey);
+        }
+        if (this.agent !== agent || args.signal?.aborted) return undefined;
+        if (!this.pendingHistoryRefresh) {
+          let compacted = false;
+          const scheduled = scheduler.schedule({
+            threadKey: this.threadKey,
+            run: async (signal) => {
+              compacted = await this.runBoundaryCompaction(args, true, signal);
+            },
+          });
+          if (!(await awaitUnlessAborted(scheduled, args.signal))) {
+            return undefined;
+          }
+          if (!compacted || !this.pendingHistoryRefresh) return undefined;
+        }
+      } catch (error) {
+        this.logger.warn("active-working-set-compaction-failed", {
+          threadKey: this.threadKey,
+          error: error instanceof Error ? error.message : String(error),
+          ...args.logContext,
+        });
+        return undefined;
+      }
     }
 
     try {
-      // Serialize with any compaction scheduled by an immediately-prior
-      // outer turn. The scheduler can coalesce queued callbacks, so drain
-      // first and schedule our own pass only once it is idle.
-      let pending = scheduler.pending(this.threadKey);
-      while (pending) {
-        if (!(await awaitUnlessAborted(pending, args.signal))) return undefined;
-        pending = scheduler.pending(this.threadKey);
-      }
-      if (this.agent !== agent || args.signal?.aborted) return undefined;
-
-      if (!this.pendingHistoryRefresh) {
-        let compacted = false;
-        const inputBudget = providerInputBudgetTokens(
-          args.opts.resolvedLlm.model.contextWindow,
-        );
-        const runCompaction = () =>
-          runCompactionWithHooks({
-            opts: args.opts,
-            threadKey: this.threadKey,
-            runId: args.runId,
-            messageCount: args.messages.length,
-          });
-        const scheduled = scheduler.schedule({
-          threadKey: this.threadKey,
-          run: async () => {
-            const result =
-              imagePressure || (inputBudget && measuredTokens >= inputBudget)
-                ? await withForcedThreadCompaction(
-                    this.threadKey,
-                    runCompaction,
-                  )
-                : await runCompaction();
-            compacted = result.compacted;
-            if (compacted) this.notifyCompacted();
-          },
-        });
-        if (!(await awaitUnlessAborted(scheduled, args.signal))) return undefined;
-        if (!compacted || !this.pendingHistoryRefresh) return undefined;
-      }
       if (this.agent !== agent || args.signal?.aborted) return undefined;
 
       // A live steer can arrive while async compaction is running. Its row is
@@ -578,6 +598,31 @@ export class PiSessionCore {
       });
       return undefined;
     }
+  }
+
+  /** One compaction pass for the active run; a forced pass ignores hook vetoes. */
+  private async runBoundaryCompaction(
+    args: {
+      opts: OrchestratorRunOptions;
+      runId: string;
+      messages: AgentMessage[];
+    },
+    forced: boolean,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    const run = () =>
+      runCompactionWithHooks({
+        opts: args.opts,
+        threadKey: this.threadKey,
+        runId: args.runId,
+        messageCount: args.messages.length,
+        ...(signal ? { abortSignal: signal } : {}),
+      });
+    const { compacted } = forced
+      ? await withForcedThreadCompaction(this.threadKey, run)
+      : await run();
+    if (compacted) this.notifyCompacted();
+    return compacted;
   }
 
   /**
@@ -716,9 +761,9 @@ export class PiSessionCore {
    *   - `mode: "guard"` (orchestrator): keep the non-blocking
    *     compact-while-you-talk UX for the common case, but fall back to
    *     blocking when a real overflow is imminent — i.e. the uncompacted
-   *     thread has already reached
-   *     {@link ORCHESTRATOR_COMPACTION_BLOCK_WINDOW_FRACTION} of the hard
-   *     window while a compaction is still in flight.
+   *     thread has already reached the provider input budget (the bound
+   *     preflight enforces, and the one the in-run boundary blocks at) while
+   *     a compaction is still in flight.
    *
    * A rejected wait never fails the turn: background compaction failures are
    * logged by the scheduler, and the normal pre-generation overflow recovery
@@ -769,10 +814,7 @@ export class PiSessionCore {
         // and let pre-generation overflow recovery catch a genuine overflow.
         return;
       }
-      if (
-        !imagePressure &&
-        estimate < window * ORCHESTRATOR_COMPACTION_BLOCK_WINDOW_FRACTION
-      ) {
+      if (!imagePressure && estimate < providerInputBudgetTokens(window)!) {
         return;
       }
       this.logger.warn("compaction.block-imminent-overflow", {
@@ -1115,15 +1157,49 @@ export class PiSessionCore {
   }
 
   private freezeContextSnapshot(
-    systemPrompt: string,
+    sections: readonly SystemPromptSection[],
     tools: RuntimeAgentTools,
   ): void {
-    this.frozenSystemPrompt = systemPrompt;
-    this.latestSystemPrompt = systemPrompt;
+    this.frozenSystemPrompt = renderSystemPrompt(sections);
+    this.announcedSections = new Map(
+      sections.map((section) => [section.id, section.text]),
+    );
     this.pendingContextDeltaMessages = [];
     this.frozenToolSchemas = snapshotToolSchemas(tools);
     this.announcedToolDriftSignature = null;
     this.adoptFreshContextSnapshot = false;
+  }
+
+  /**
+   * The appended update for system prompt sections that changed since the
+   * model last saw them, or undefined when none did. Records the new texts as
+   * announced, so each change is sent once.
+   */
+  private takeSystemPromptSectionUpdate(
+    sections: readonly SystemPromptSection[],
+  ): string | undefined {
+    const changed = sections.filter(
+      (section) => this.announcedSections.get(section.id) !== section.text,
+    );
+    const live = new Set(sections.map((section) => section.id));
+    const removed = [...this.announcedSections].filter(([id]) => !live.has(id));
+    if (changed.length === 0 && removed.length === 0) return undefined;
+    this.announcedSections = new Map(
+      sections.map((section) => [section.id, section.text]),
+    );
+    return wrapSystemReminder(
+      [
+        "Part of your system prompt changed. Each section below replaces the earlier version of the same section; the rest of your instructions still apply.",
+        ...changed.map(
+          (section) =>
+            `<section name="${section.id}">\n${section.text}\n</section>`,
+        ),
+        ...removed.map(
+          ([id, text]) =>
+            `<section name="${id}" removed="true">No longer applies: ${text.split("\n", 1)[0]}</section>`,
+        ),
+      ].join("\n"),
+    );
   }
 
   /** Drain the queued resident-context delta messages for this turn's prompt. */
@@ -1146,7 +1222,7 @@ export class PiSessionCore {
    *     change as an append. The real bytes swap at the next boundary.
    */
   private applyFrozenContext(args: {
-    systemPrompt: string;
+    systemPromptSections: SystemPromptSection[];
     tools: RuntimeAgentTools;
     logContext: SessionLogContext;
   }): void {
@@ -1155,9 +1231,9 @@ export class PiSessionCore {
     const frozen = this.frozenToolSchemas;
     const frozenSystemPrompt = this.frozenSystemPrompt;
     if (this.adoptFreshContextSnapshot || !frozen || !frozenSystemPrompt) {
-      agent.state.systemPrompt = args.systemPrompt;
+      agent.state.systemPrompt = renderSystemPrompt(args.systemPromptSections);
       agent.state.tools = args.tools;
-      this.freezeContextSnapshot(args.systemPrompt, args.tools);
+      this.freezeContextSnapshot(args.systemPromptSections, args.tools);
       checkPromptPrefixStability({
         threadKey: this.threadKey,
         systemPrompt: agent.state.systemPrompt,
@@ -1169,28 +1245,34 @@ export class PiSessionCore {
       return;
     }
     agent.state.systemPrompt = frozenSystemPrompt;
-    const driftedToolNames: string[] = [];
     const liveTools = new Map(args.tools.map((tool) => [tool.name, tool]));
+    const toolsAdded = args.tools
+      .filter((tool) => !frozen.has(tool.name))
+      .map((tool) => tool.name);
+    const toolsRemoved: string[] = [];
+    const toolsChanged: string[] = [];
     agent.state.tools = [...frozen].map(([name, snapshot]): RuntimeAgentTool => {
       const tool = liveTools.get(name);
       if (!tool) {
-        driftedToolNames.push(name);
+        toolsRemoved.push(name);
         return { name, label: name, description: snapshot.description, parameters: snapshot.parameters,
           execute: async () => ({ content: [{ type: "text", text: "This tool is no longer available. Use another available tool." }], details: { unavailable: true } }),
         };
       }
-      if (tool.description !== snapshot.description || safeSchemaJson(tool.parameters) !== snapshot.parametersJson) driftedToolNames.push(name);
+      if (tool.description !== snapshot.description || safeSchemaJson(tool.parameters) !== snapshot.parametersJson) toolsChanged.push(name);
       return { ...tool, description: snapshot.description, parameters: snapshot.parameters };
     });
-    for (const tool of args.tools) if (!frozen.has(tool.name)) driftedToolNames.push(tool.name);
-    if (args.systemPrompt !== this.latestSystemPrompt) {
-      this.latestSystemPrompt = args.systemPrompt;
+    const sectionUpdate = this.takeSystemPromptSectionUpdate(
+      args.systemPromptSections,
+    );
+    if (sectionUpdate) {
       this.pendingContextDeltaMessages.push({
-        text: `<system-reminder>Stella's current instructions or environment changed. Use this updated context for subsequent work:\n${args.systemPrompt}\n</system-reminder>`,
+        text: sectionUpdate,
         uiVisibility: "hidden", messageType: "message",
         customType: `${CONTEXT_DELTA_CUSTOM_TYPE_PREFIX}system`,
       });
     }
+    const driftedToolNames = [...toolsAdded, ...toolsRemoved, ...toolsChanged];
     if (driftedToolNames.length > 0) {
       const signature = safeSchemaJson(
         args.tools.map((tool) => [tool.name, tool.description, safeSchemaJson(tool.parameters)]),
@@ -1198,7 +1280,7 @@ export class PiSessionCore {
       if (this.announcedToolDriftSignature !== signature) {
         this.announcedToolDriftSignature = signature;
         this.pendingContextDeltaMessages.push({
-          text: `<system-reminder>Available tool definitions changed mid-conversation (${driftedToolNames.join(", ")}) — for example the set of integration tools reachable from the current delivery surface. Your visible tool schemas are a thread-start snapshot and refresh at the next context compaction; current callable names and compact signatures are discoverable inside code via await tools.$search({ query: "<capability>" }), and one selected live schema is available via await tools.$describe(name).</system-reminder>`,
+          text: `<system-reminder>Available tools changed mid-conversation — for example the integration tools reachable from the current delivery surface.${toolsAdded.length > 0 ? ` Added: ${toolsAdded.join(", ")}.` : ""}${toolsRemoved.length > 0 ? ` Removed (calls now fail): ${toolsRemoved.join(", ")}.` : ""}${toolsChanged.length > 0 ? ` Changed: ${toolsChanged.join(", ")}.` : ""} Your visible tool schemas are a thread-start snapshot and refresh at the next context compaction; current callable names and compact signatures are discoverable inside code via await tools.$search({ query: "<capability>" }), and one selected live schema is available via await tools.$describe(name).</system-reminder>`,
           uiVisibility: "hidden",
           messageType: "message",
           customType: `${CONTEXT_DELTA_CUSTOM_TYPE_PREFIX}tools`,
@@ -1229,7 +1311,7 @@ export class PiSessionCore {
 
   protected createOrReuseAgent(args: {
     agentType: string;
-    systemPrompt: string;
+    systemPromptSections: SystemPromptSection[];
     resolvedLlm: ResolvedLlmRoute;
     agentContext: LocalAgentContext;
     hookEmitter?: HookEmitter;
@@ -1246,9 +1328,10 @@ export class PiSessionCore {
     const memoryEnabled = args.agentContext.memoryEnabled !== false;
     if (!this.agent) {
       const historySource = buildHistorySource(args.agentContext);
+      const systemPrompt = renderSystemPrompt(args.systemPromptSections);
       this.agent = createRuntimeAgent({
         agentType: args.agentType,
-        systemPrompt: args.systemPrompt,
+        systemPrompt,
         resolvedLlm: args.resolvedLlm,
         resolvedLlmOverride: () => this.currentResolvedLlm ?? args.resolvedLlm,
         reasoningEffort: resolveAgentThinkingLevel({
@@ -1278,10 +1361,10 @@ export class PiSessionCore {
         ...args.logContext,
       });
       this.lastMemoryEnabled = memoryEnabled;
-      this.freezeContextSnapshot(args.systemPrompt, args.tools);
+      this.freezeContextSnapshot(args.systemPromptSections, args.tools);
       checkPromptPrefixStability({
         threadKey: this.threadKey,
-        systemPrompt: args.systemPrompt,
+        systemPrompt,
         tools: args.tools,
         messages: this.agent.state.messages,
         boundary: true,
@@ -1336,6 +1419,7 @@ export class PiSessionCore {
     this.lastMemoryEnabled = null;
     this.frozenSystemPrompt = null;
     this.frozenToolSchemas = null;
+    this.announcedSections = new Map();
     this.adoptFreshContextSnapshot = false;
     this.announcedToolDriftSignature = null;
     this.pendingContextDeltaMessages = [];

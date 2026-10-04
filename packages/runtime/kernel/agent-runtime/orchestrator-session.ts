@@ -468,8 +468,8 @@ export class OrchestratorSession extends PiSessionCore {
     // Non-blocking compact-while-you-talk stays the norm, but degrade to
     // blocking if a real overflow is imminent: when a background compaction
     // is still in flight and the uncompacted thread has already reached the
-    // hard-window guard fraction, wait for it rather than dispatch a turn
-    // that could overflow before the compaction lands.
+    // provider input budget, wait for it rather than dispatch a turn that
+    // could overflow before the compaction lands.
     await this.awaitPendingCompactionBeforeTurn({
       compactionScheduler: opts.compactionScheduler,
       store: opts.store,
@@ -528,7 +528,7 @@ export class OrchestratorSession extends PiSessionCore {
 
     const agent = this.createOrReuseAgent({
       agentType: opts.agentType,
-      systemPrompt: effectiveSystemPrompt,
+      systemPromptSections: effectiveSystemPrompt,
       resolvedLlm: opts.resolvedLlm,
       agentContext: opts.agentContext,
       ...(opts.hookEmitter ? { hookEmitter: opts.hookEmitter } : {}),

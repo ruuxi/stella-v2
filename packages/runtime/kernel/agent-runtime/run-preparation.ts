@@ -14,7 +14,7 @@ import type {
   RuntimePromptMessage,
 } from "@stella/contracts/protocol";
 import { resolveAgentWorkingDirectory } from "./shared.js";
-import { buildSystemPrompt } from "./thread-memory.js";
+import { buildSystemPromptSections } from "./thread-memory.js";
 import type { OrchestratorRunOptions, SubagentRunOptions } from "./types.js";
 import { resizeImage } from "../shared/image-resize.js";
 
@@ -147,46 +147,53 @@ export const createRuntimePromptAgentMessage = (
   };
 };
 
-const appendCurrentWorkingDirectory = (
-  systemPrompt: string,
+/** One named part of a system prompt; see `buildSystemPromptSections`. */
+export type SystemPromptSection = { id: string; text: string };
+
+export const renderSystemPrompt = (
+  sections: readonly SystemPromptSection[],
+): string => sections.map((section) => section.text).join("\n\n");
+
+const workingDirectorySection = (
   opts: Pick<
     OrchestratorRunOptions,
     "agentType" | "stellaAppDir" | "toolWorkspaceRoot"
   >,
-): string => {
+): SystemPromptSection[] => {
   const cwd = resolveAgentWorkingDirectory({
     agentType: opts.agentType,
     stellaAppDir: opts.stellaAppDir,
     workingDirectory: opts.toolWorkspaceRoot,
   });
-  if (!cwd) {
-    return systemPrompt;
-  }
-  return `${systemPrompt}\n\nCurrent working directory: ${cwd}`;
+  return cwd
+    ? [{ id: "working-directory", text: `Current working directory: ${cwd}` }]
+    : [];
 };
 
-/** The thread this prompt serves; it never changes for the thread's life. */
-const appendThreadId = (systemPrompt: string, threadId: string): string =>
-  `${systemPrompt}\n\nThread ID: ${threadId}`;
-
-export const buildRuntimeSystemPrompt = async (
-  opts: OrchestratorRunOptions & { runId?: string },
-): Promise<string> => {
-  const effectiveSystemPrompt = appendThreadId(
-    appendCurrentWorkingDirectory(buildSystemPrompt(opts.agentContext), opts),
-    opts.conversationId,
-  );
+/**
+ * The run's system prompt sections: the agent's own, the working directory,
+ * the thread id when there is one (it never changes for the thread's life),
+ * then each `before_agent_start` extension's addition in registration order.
+ */
+const buildRunSystemPromptSections = async (
+  opts: (OrchestratorRunOptions | SubagentRunOptions) & { runId?: string },
+  threadId: string | undefined,
+): Promise<SystemPromptSection[]> => {
+  const sections: SystemPromptSection[] = [
+    ...buildSystemPromptSections(opts.agentContext),
+    ...workingDirectorySection(opts),
+    ...(threadId ? [{ id: "thread-id", text: `Thread ID: ${threadId}` }] : []),
+  ];
   if (!opts.hookEmitter) {
-    return effectiveSystemPrompt;
+    return sections;
   }
-
   // Compose every hook result in registration order; `emit` would only keep
   // the last non-empty result.
   const hookResults = await opts.hookEmitter.emitAll(
     "before_agent_start",
     {
       agentType: opts.agentType,
-      systemPrompt: effectiveSystemPrompt,
+      systemPrompt: renderSystemPrompt(sections),
       conversationId: opts.conversationId,
       ...(opts.runId ? { runId: opts.runId } : {}),
       ...(opts.uiVisibility ? { uiVisibility: opts.uiVisibility } : {}),
@@ -194,56 +201,32 @@ export const buildRuntimeSystemPrompt = async (
     },
     { agentType: opts.agentType },
   );
-  let prompt = effectiveSystemPrompt;
-  for (const result of hookResults) {
+  let prompt = sections;
+  hookResults.forEach((result, index) => {
     if (result?.systemPromptReplace) {
-      prompt = result.systemPromptReplace;
+      prompt = [{ id: "instructions", text: result.systemPromptReplace }];
     }
     if (result?.systemPromptAppend) {
-      prompt = `${prompt}\n${result.systemPromptAppend}`;
+      prompt = [
+        ...prompt,
+        { id: `extension-${index}`, text: result.systemPromptAppend },
+      ];
     }
-  }
+  });
   return prompt;
 };
 
-export const buildSubagentSystemPrompt = async (
+export const buildRuntimeSystemPrompt = (
+  opts: OrchestratorRunOptions & { runId?: string },
+): Promise<SystemPromptSection[]> =>
+  buildRunSystemPromptSections(opts, opts.conversationId);
+
+// Symmetric with `buildRuntimeSystemPrompt` (orchestrator). Subagents get the
+// same `before_agent_start` fan-out so user extensions that subscribe to the
+// event for a subagent agentType (e.g. layering additional system-prompt
+// context onto General/Explore runs) are invoked without extensions needing
+// engine-specific knowledge.
+export const buildSubagentSystemPrompt = (
   opts: SubagentRunOptions & { runId?: string },
-): Promise<string> => {
-  const withCwd = appendCurrentWorkingDirectory(
-    buildSystemPrompt(opts.agentContext),
-    opts,
-  );
-  const effectiveSystemPrompt = opts.agentId
-    ? appendThreadId(withCwd, opts.agentId)
-    : withCwd;
-  // Symmetric with `buildRuntimeSystemPrompt` (orchestrator). Subagents
-  // get the same `before_agent_start` fan-out so user extensions that
-  // subscribe to the event for a subagent agentType (e.g. layering
-  // additional system-prompt context onto General/Explore runs) are
-  // actually invoked without extensions needing engine-specific knowledge.
-  if (!opts.hookEmitter) {
-    return effectiveSystemPrompt;
-  }
-  const hookResults = await opts.hookEmitter.emitAll(
-    "before_agent_start",
-    {
-      agentType: opts.agentType,
-      systemPrompt: effectiveSystemPrompt,
-      conversationId: opts.conversationId,
-      ...(opts.runId ? { runId: opts.runId } : {}),
-      ...(opts.uiVisibility ? { uiVisibility: opts.uiVisibility } : {}),
-      isUserTurn: opts.uiVisibility !== "hidden",
-    },
-    { agentType: opts.agentType },
-  );
-  let prompt = effectiveSystemPrompt;
-  for (const result of hookResults) {
-    if (result?.systemPromptReplace) {
-      prompt = result.systemPromptReplace;
-    }
-    if (result?.systemPromptAppend) {
-      prompt = `${prompt}\n${result.systemPromptAppend}`;
-    }
-  }
-  return prompt;
-};
+): Promise<SystemPromptSection[]> =>
+  buildRunSystemPromptSections(opts, opts.agentId);

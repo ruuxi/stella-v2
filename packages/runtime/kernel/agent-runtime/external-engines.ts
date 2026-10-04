@@ -26,6 +26,7 @@ import {
   buildRuntimeSystemPrompt,
   buildSubagentSystemPrompt,
   createRuntimePromptAgentMessage,
+  renderSystemPrompt,
 } from "./run-preparation.js";
 import {
   collectDemotedToolNames,
@@ -1593,10 +1594,9 @@ export const runExternalOrchestratorTurn = async (
   try {
     // Thread `session.runId` into the prompt build so lifecycle hooks receive
     // the same run identity as the native engine path.
-    const systemPrompt = await buildRuntimeSystemPrompt({
-      ...opts,
-      runId: session.runId,
-    });
+    const systemPrompt = renderSystemPrompt(
+      await buildRuntimeSystemPrompt({ ...opts, runId: session.runId }),
+    );
     const promptMessages = await buildOrchestratorPromptMessages({
       context: opts.agentContext,
       userPrompt: opts.userPrompt,
@@ -1703,10 +1703,9 @@ export const runExternalSubagentTurn = async (
       },
     });
     // Thread session.runId so subagent hooks receive stable run identity.
-    const systemPrompt = await buildSubagentSystemPrompt({
-      ...opts,
-      runId: session.runId,
-    });
+    const systemPrompt = renderSystemPrompt(
+      await buildSubagentSystemPrompt({ ...opts, runId: session.runId }),
+    );
     // The engine turn supervises as a child resource of the run's scope:
     // fiber interruption drives the runtime's abort teardown (MCP reset +
     // kill ladder) through the relay signal, and cancel joins the turn's

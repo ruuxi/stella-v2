@@ -172,7 +172,7 @@ describe("Pi active-turn working set", () => {
       {
         entryId: "old-1",
         role: "user",
-        content: "x".repeat(40_000),
+        content: "x".repeat(60_000),
         timestamp: 1,
       },
     ];
@@ -238,7 +238,7 @@ describe("Pi active-turn working set", () => {
         {
           entryId: "old-1",
           role: "user",
-          content: "x".repeat(40_000),
+          content: "x".repeat(60_000),
           timestamp: 1,
         },
       ])
@@ -339,7 +339,7 @@ describe("Pi active-turn working set", () => {
       {
         entryId: "old-1",
         role: "user",
-        content: "x".repeat(40_000),
+        content: "x".repeat(60_000),
         timestamp: 1,
       },
     ]);
@@ -369,7 +369,7 @@ describe("Pi active-turn working set", () => {
         {
           entryId: "old-1",
           role: "user",
-          content: "x".repeat(40_000),
+          content: "x".repeat(60_000),
           timestamp: 1,
         },
       ])
@@ -397,7 +397,7 @@ describe("Pi active-turn working set", () => {
         {
           entryId: "old-1",
           role: "user",
-          content: "x".repeat(40_000),
+          content: "x".repeat(60_000),
           timestamp: 1,
         },
       ])
@@ -458,7 +458,7 @@ describe("Pi active-turn working set", () => {
         {
           entryId: "old-1",
           role: "user",
-          content: "x".repeat(40_000),
+          content: "x".repeat(60_000),
           timestamp: 1,
         },
       ])
@@ -514,7 +514,7 @@ describe("Pi active-turn working set", () => {
         role: "toolResult",
         toolCallId: "large-call",
         toolName: "Read",
-        content: [{ type: "text", text: "x".repeat(40_000) }],
+        content: [{ type: "text", text: "x".repeat(60_000) }],
         isError: false,
         timestamp: 20,
       },
@@ -531,7 +531,7 @@ describe("Pi active-turn working set", () => {
       {
         entryId: "large-result",
         role: "toolResult",
-        content: "x".repeat(40_000),
+        content: "x".repeat(60_000),
         toolCallId: "large-call",
         timestamp: 20,
         payload: args.completedMessages[1],
@@ -552,7 +552,7 @@ describe("Pi active-turn working set", () => {
       {
         entryId: "old-1",
         role: "user",
-        content: "x".repeat(40_000),
+        content: "x".repeat(60_000),
         timestamp: 1,
       },
     ]);
@@ -586,7 +586,7 @@ describe("Pi active-turn working set", () => {
       {
         entryId: "old-1",
         role: "user",
-        content: "x".repeat(40_000),
+        content: "x".repeat(60_000),
         timestamp: 1,
       },
     ]);

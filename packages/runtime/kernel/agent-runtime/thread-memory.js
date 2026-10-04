@@ -338,24 +338,28 @@ const buildFileEditingPrompt = (context) => {
     "- Do not use shell heredocs or `cat > file` for source edits when `apply_patch` can express the change.",
   ].join("\n");
 };
-export const buildSystemPrompt = (context) => {
-  const sections = [context.systemPrompt.trim()];
-  if (context.dynamicContext?.trim()) {
-    sections.push(context.dynamicContext.trim());
-  }
+/**
+ * The system prompt as named sections, in order. Sections let a resident
+ * thread announce only the parts that changed (see `pi-session-core`).
+ */
+export const buildSystemPromptSections = (context) => {
+  const sections = [
+    { id: "instructions", text: context.systemPrompt.trim() },
+    ...(context.dynamicContextSections ?? []),
+  ];
   const fileEditingPrompt = buildFileEditingPrompt(context);
   if (fileEditingPrompt) {
-    sections.push(fileEditingPrompt);
+    sections.push({ id: "file-edits", text: fileEditingPrompt });
   }
   const platformIdentityPrompt = getPlatformIdentityPrompt();
   if (platformIdentityPrompt && hasShellToolGuidance(context)) {
-    sections.push(platformIdentityPrompt);
+    sections.push({ id: "platform", text: platformIdentityPrompt });
   }
   const backgroundWaitPrompt = buildBackgroundWaitPrompt(context);
   if (backgroundWaitPrompt) {
-    sections.push(backgroundWaitPrompt);
+    sections.push({ id: "background-wait", text: backgroundWaitPrompt });
   }
-  return sections.filter(Boolean).join("\n\n");
+  return sections.filter((section) => section.text);
 };
 /**
  * Resident-block delta step. All resident context blocks (personality,

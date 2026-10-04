@@ -279,7 +279,7 @@ export class SubagentSession extends PiSessionCore {
 
     const agent = this.createOrReuseAgent({
       agentType: opts.agentType,
-      systemPrompt: effectiveSystemPrompt,
+      systemPromptSections: effectiveSystemPrompt,
       resolvedLlm: opts.resolvedLlm,
       agentContext: opts.agentContext,
       ...(opts.hookEmitter ? { hookEmitter: opts.hookEmitter } : {}),

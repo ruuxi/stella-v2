@@ -1397,7 +1397,7 @@ export const buildAgentContext = async (
         context.runtimeStore.listActiveThreads(args.conversationId),
       )
     : "";
-  const dynamicContextSections: string[] = [];
+  const dynamicContextSections: Array<{ id: string; text: string }> = [];
 
   // Inject the user's response-language directive at the top of the
   // dynamic context. It's a single line, comes from the latest
@@ -1405,20 +1405,22 @@ export const buildAgentContext = async (
   // English so we don't waste tokens on a no-op directive.
   const responseLanguageDirective = getResponseLanguageSystemPrompt(userLocale);
   if (responseLanguageDirective) {
-    dynamicContextSections.push(
-      `## User Language\n${responseLanguageDirective}`,
-    );
+    dynamicContextSections.push({
+      id: "user-language",
+      text: `## User Language\n${responseLanguageDirective}`,
+    });
   }
 
   if (args.toolWorkspaceRoot?.trim()) {
-    dynamicContextSections.push(
-      [
+    dynamicContextSections.push({
+      id: "workspace",
+      text: [
         "## Shared Session Workspace",
         `Workspace root: ${args.toolWorkspaceRoot.trim()}`,
         "Use relative paths unless an absolute path under this workspace is already shown by a tool.",
         "File tools are restricted to this workspace root.",
       ].join("\n"),
-    );
+    });
   }
   const reminderState =
     injectsRuntimeReminders && activeThreadsPrompt
@@ -1460,21 +1462,23 @@ export const buildAgentContext = async (
     fileEditToolFamily,
   );
   if (fileEditToolFamily === "write_edit") {
-    dynamicContextSections.push(
-      [
+    dynamicContextSections.push({
+      id: "file-editing-tools",
+      text: [
         "## File Editing Tools",
         "This run is using a non-OpenAI model. Use `Write` for new or full-file edits and `Edit` for targeted replacements.",
         "`apply_patch` is not available in this run.",
       ].join("\n"),
-    );
+    });
   } else if (toolsAllowlist?.includes(APPLY_PATCH_TOOL_NAME)) {
-    dynamicContextSections.push(
-      [
+    dynamicContextSections.push({
+      id: "file-editing-tools",
+      text: [
         "## File Editing Tools",
         "Use `apply_patch` for manual code edits. Do not create or edit files with `cat` or other shell write tricks. Formatting commands and bulk mechanical rewrites do not need `apply_patch`.",
         "Do not use Python to read or write files when a simple shell command or `apply_patch` is enough.",
       ].join("\n"),
-    );
+    });
   }
   // The skill catalog is a message-resident block now, NOT a system-prompt
   // section: rendering it into the system prompt meant any mid-thread skill
@@ -1524,7 +1528,7 @@ export const buildAgentContext = async (
       bundledSystemPrompt ??
       agent?.systemPrompt ??
       defaultPromptForAgentType(args.agentType, context.stellaDataDir),
-    dynamicContext: dynamicContextSections.join("\n\n"),
+    dynamicContextSections,
     orchestratorReminderText: activeThreadsPrompt || undefined,
     shouldInjectDynamicReminder: reminderState.shouldInjectDynamicReminder,
     staleUserReminderText,

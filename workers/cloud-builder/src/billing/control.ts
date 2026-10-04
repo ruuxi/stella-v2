@@ -6,6 +6,8 @@ import type {
   SessionCapabilityRequest,
   EngineAccessRequest,
   EngineAccessResponse,
+  EngineLimitReport,
+  EngineLimitResult,
   GatewayConfigSnapshot,
   GatewayUsageBatch,
   GatewayUsageBatchResult,
@@ -129,6 +131,54 @@ export class BillingControl extends WorkerEntrypoint<Env> implements BillingCont
       console.error(
         JSON.stringify({
           event: "billing_engine_access_failed",
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
+      return { ok: false, status: null, code: null, retryable: true };
+    }
+  }
+
+  /**
+   * The native lane saw a connected account hit its subscription limit: cool
+   * it down in the owner's engines domain, which may switch to another account.
+   */
+  async engineLimit(
+    report: EngineLimitReport,
+  ): Promise<BillingControlResult<EngineLimitResult>> {
+    if (
+      typeof report?.ownerId !== "string" ||
+      !report.ownerId ||
+      report.ownerId.length > 512 ||
+      typeof report.ownerGeneration !== "string" ||
+      !report.ownerGeneration ||
+      (report.provider !== "anthropic" && report.provider !== "openai-codex") ||
+      typeof report.engineAccountId !== "string" ||
+      !report.engineAccountId ||
+      report.engineAccountId.length > 64 ||
+      (report.resetsAt !== undefined &&
+        (typeof report.resetsAt !== "number" || !Number.isFinite(report.resetsAt)))
+    ) {
+      return { ok: false, status: 400, code: "bad_request", retryable: false };
+    }
+    try {
+      const response = (await this.env.OWNER_GATES.getByName(report.ownerId).ownerInternal({
+        name: "engines.limit",
+        args: {
+          provider: report.provider,
+          engineAccountId: report.engineAccountId,
+          ...(report.resetsAt !== undefined ? { resetsAt: report.resetsAt } : {}),
+        },
+        ownerGeneration: report.ownerGeneration,
+      })) as unknown as RpcResponse;
+      if (response.ok) return { ok: true, body: response.value as EngineLimitResult };
+      if (response.error.reason === "owner_generation_stale") {
+        return { ok: false, status: 409, code: "generation_stale", retryable: false };
+      }
+      return { ok: false, status: 503, code: null, retryable: response.error.retryable };
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          event: "billing_engine_limit_failed",
           message: error instanceof Error ? error.message : String(error),
         }),
       );

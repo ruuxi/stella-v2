@@ -19,9 +19,12 @@ import {
   type EngineProvider,
   type EngineSettings,
 } from "@stella/contracts/backend/engines";
-import type { EngineAccessResponse } from "@stella/contracts/gateway/usage";
+import type {
+  EngineAccessResponse,
+  EngineLimitResult,
+} from "@stella/contracts/gateway/usage";
 import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
-import { empty, literal, object, string } from "../args.js";
+import { boolean, empty, literal, number, object, optional, string } from "../args.js";
 import { RpcError } from "../errors.js";
 import { enforceOwnerRateLimit } from "../rate-limit.js";
 import type { OwnerContext, OwnerDbReader, OwnerDomain } from "../registry.js";
@@ -51,7 +54,48 @@ export const ENGINES_MIGRATION = {
   ],
 };
 
+/**
+ * Several accounts per provider. Each existing single credential becomes that
+ * provider's first, active account; its ciphertext is unchanged (the
+ * additional data is owner + provider, not the row).
+ */
+export const ENGINE_ACCOUNTS_MIGRATION = {
+  id: "engines.2-accounts",
+  statements: [
+    `CREATE TABLE engine_accounts (
+       account_id TEXT PRIMARY KEY,
+       provider TEXT NOT NULL,
+       payload TEXT NOT NULL,
+       label TEXT NOT NULL,
+       identity TEXT,
+       email TEXT,
+       plan TEXT,
+       limited_until INTEGER,
+       created_at INTEGER NOT NULL,
+       updated_at INTEGER NOT NULL
+     )`,
+    `CREATE INDEX engine_accounts_by_provider ON engine_accounts (provider, created_at)`,
+    `CREATE TABLE engine_provider_settings (
+       provider TEXT PRIMARY KEY,
+       active_account_id TEXT,
+       auto_switch INTEGER NOT NULL DEFAULT 0,
+       updated_at INTEGER NOT NULL
+     )`,
+    `INSERT INTO engine_accounts (account_id, provider, payload, label, created_at, updated_at)
+       SELECT lower(hex(randomblob(16))), provider, payload, label, created_at, updated_at
+       FROM engine_credentials`,
+    `INSERT INTO engine_provider_settings (provider, active_account_id, auto_switch, updated_at)
+       SELECT provider, account_id, 0, updated_at FROM engine_accounts`,
+    `DROP TABLE engine_credentials`,
+  ],
+};
+
 const CONNECT_TTL_MS = 15 * 60_000;
+/** Accounts one provider may hold. */
+const MAX_ACCOUNTS_PER_PROVIDER = 10;
+/** Cooldown when the provider hit a limit but did not say when it resets. */
+const UNKNOWN_RESET_COOLDOWN_MS = 60 * 60_000;
+const MAX_COOLDOWN_MS = 8 * 24 * 60 * 60_000;
 
 const PROVIDER_LABELS: Record<EngineProvider, string> = {
   anthropic: "Claude (Pro/Max subscription)",
@@ -224,7 +268,23 @@ const parseExecution = (value: unknown, path?: string): CloudExecutionSelection 
 };
 
 type SettingsRow = { execution: string; updated_at: number };
-type CredentialRow = { provider: string; payload: string; label: string; updated_at: number };
+type AccountRow = {
+  account_id: string;
+  provider: string;
+  payload: string;
+  label: string;
+  identity: string | null;
+  email: string | null;
+  plan: string | null;
+  limited_until: number | null;
+  created_at: number;
+  updated_at: number;
+};
+type ProviderSettingsRow = {
+  provider: string;
+  active_account_id: string | null;
+  auto_switch: number;
+};
 type ConnectRow = { provider: string; verifier: string; state: string; expires_at: number };
 
 const isProvider = (value: string): value is EngineProvider =>
@@ -240,18 +300,57 @@ const readSelection = (db: OwnerDbReader): { execution: CloudExecutionSelection;
   }
 };
 
-const readConnections = (db: OwnerDbReader): EngineConnection[] =>
-  db
-    .all<CredentialRow>("SELECT provider, label, updated_at FROM engine_credentials ORDER BY provider")
-    .flatMap((row) =>
-      isProvider(row.provider)
-        ? [{ provider: row.provider, label: row.label, updatedAt: row.updated_at }]
-        : [],
-    );
+const ACCOUNT_COLUMNS =
+  "account_id, provider, payload, label, identity, email, plan, limited_until, created_at, updated_at";
+
+const accountsOf = (db: OwnerDbReader, provider: EngineProvider): AccountRow[] =>
+  db.all<AccountRow>(
+    // Connection order; rowid breaks ties between same-millisecond connects.
+    `SELECT ${ACCOUNT_COLUMNS} FROM engine_accounts WHERE provider = ? ORDER BY created_at, rowid`,
+    provider,
+  );
+
+const providerSettings = (db: OwnerDbReader, provider: EngineProvider): ProviderSettingsRow | null =>
+  db.one<ProviderSettingsRow>(
+    "SELECT provider, active_account_id, auto_switch FROM engine_provider_settings WHERE provider = ?",
+    provider,
+  );
+
+/** The account that serves turns: the chosen one, else the oldest. */
+const activeAccountOf = (
+  accounts: readonly AccountRow[],
+  settings: ProviderSettingsRow | null,
+): AccountRow | undefined =>
+  accounts.find((row) => row.account_id === settings?.active_account_id) ?? accounts[0];
+
+const isLimited = (row: AccountRow, now: number): boolean =>
+  row.limited_until !== null && row.limited_until > now;
+
+const readConnections = (db: OwnerDbReader, now = Date.now()): EngineConnection[] =>
+  ENGINE_PROVIDERS.flatMap((provider) => {
+    const accounts = accountsOf(db, provider);
+    const active = activeAccountOf(accounts, providerSettings(db, provider));
+    return accounts.map((row) => ({
+      provider,
+      accountId: row.account_id,
+      label: row.label,
+      ...(row.email ? { email: row.email } : {}),
+      ...(row.plan ? { plan: row.plan } : {}),
+      active: row.account_id === active?.account_id,
+      ...(isLimited(row, now) ? { limitedUntil: row.limited_until! } : {}),
+      updatedAt: row.updated_at,
+    }));
+  });
+
+const readAutoSwitch = (db: OwnerDbReader): Record<EngineProvider, boolean> =>
+  Object.fromEntries(
+    ENGINE_PROVIDERS.map((provider) => [provider, providerSettings(db, provider)?.auto_switch === 1]),
+  ) as Record<EngineProvider, boolean>;
 
 const readSettings = (db: OwnerDbReader): EngineSettings => ({
   ...readSelection(db),
   connections: readConnections(db),
+  autoSwitch: readAutoSwitch(db),
 });
 
 /**
@@ -262,7 +361,9 @@ const readSettings = (db: OwnerDbReader): EngineSettings => ({
 export const snapshotEngines = (
   db: OwnerDbReader,
 ): Pick<OwnerSnapshot, "execution" | "connectedEngines"> => {
-  const connectedEngines = readConnections(db).map((row) => row.provider);
+  const connectedEngines = ENGINE_PROVIDERS.filter((provider) =>
+    Boolean(db.one("SELECT 1 AS present FROM engine_accounts WHERE provider = ? LIMIT 1", provider)),
+  );
   const { execution } = readSelection(db);
   return {
     execution:
@@ -279,6 +380,22 @@ const writeSelection = (ctx: OwnerContext, execution: CloudExecutionSelection): 
      ON CONFLICT (id) DO UPDATE SET execution = excluded.execution, updated_at = excluded.updated_at`,
     JSON.stringify(execution),
     ctx.now,
+  );
+};
+
+const writeActiveAccount = (
+  ctx: OwnerContext,
+  provider: EngineProvider,
+  accountId: string | null,
+): void => {
+  ctx.db.run(
+    `INSERT INTO engine_provider_settings (provider, active_account_id, auto_switch, updated_at)
+     VALUES (?, ?, 0, ?)
+     ON CONFLICT (provider) DO UPDATE SET active_account_id = excluded.active_account_id,
+       updated_at = excluded.updated_at`,
+    provider,
+    accountId,
+    Date.now(),
   );
 };
 
@@ -370,10 +487,18 @@ const codexAccountId = (access: string): string | undefined => {
   }
 };
 
-const exchangeToken = async (
+type TokenResponse = {
+  access_token?: string;
+  refresh_token?: string;
+  expires_in?: number;
+  id_token?: string;
+  account?: { uuid?: unknown; email_address?: unknown };
+};
+
+const exchangeTokenResponse = async (
   url: string,
   body: Record<string, string>,
-): Promise<Omit<StoredEnginePayload, "accountId">> => {
+): Promise<{ tokens: Omit<StoredEnginePayload, "accountId">; raw: TokenResponse }> => {
   const response = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json" },
@@ -383,19 +508,111 @@ const exchangeToken = async (
   if (!response.ok) {
     throw badRequest("The provider rejected the authorization. Start the connect flow again.");
   }
-  const json = (await response.json()) as {
-    access_token?: string;
-    refresh_token?: string;
-    expires_in?: number;
-  };
+  const json = (await response.json()) as TokenResponse;
   if (!json.access_token || !json.refresh_token || !json.expires_in) {
     throw badRequest("The provider returned an unexpected response. Try connecting again.");
   }
   return {
-    access: json.access_token,
-    refresh: json.refresh_token,
-    // 5-minute early-refresh margin, matching the desktop store.
-    expires: Date.now() + json.expires_in * 1000 - 5 * 60_000,
+    tokens: {
+      access: json.access_token,
+      refresh: json.refresh_token,
+      // 5-minute early-refresh margin, matching the desktop store.
+      expires: Date.now() + json.expires_in * 1000 - 5 * 60_000,
+    },
+    raw: json,
+  };
+};
+
+const exchangeToken = async (
+  url: string,
+  body: Record<string, string>,
+): Promise<Omit<StoredEnginePayload, "accountId">> =>
+  (await exchangeTokenResponse(url, body)).tokens;
+
+// --- Account identity -------------------------------------------------------
+
+type AccountIdentity = { identity?: string; email?: string; plan?: string };
+
+const jwtClaims = (token: string | undefined): Record<string, unknown> => {
+  const part = token?.split(".")[1];
+  if (!part) return {};
+  try {
+    const padded = part.replaceAll("-", "+").replaceAll("_", "/");
+    const claims = JSON.parse(atob(padded + "=".repeat((4 - (padded.length % 4)) % 4))) as unknown;
+    return claims && typeof claims === "object" ? (claims as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+};
+
+const text = (value: unknown, max = 320): string | undefined =>
+  typeof value === "string" && value.trim() ? value.trim().slice(0, max) : undefined;
+
+const planLabel = (value: string | undefined): string | undefined => {
+  if (!value) return undefined;
+  const plan = value.replace(/^claude_/u, "").replaceAll("_", " ").trim();
+  return plan ? plan.replace(/\b\w/gu, (char) => char.toUpperCase()).slice(0, 40) : undefined;
+};
+
+/** ChatGPT: the id and access tokens carry the user, email, and plan. */
+const codexIdentity = (raw: TokenResponse, access: string): AccountIdentity => {
+  const claims = [jwtClaims(raw.id_token), jwtClaims(access)];
+  const auth = claims
+    .map((entry) => entry[CODEX_JWT_CLAIM_PATH] as Record<string, unknown> | undefined)
+    .find(Boolean);
+  const profile = claims
+    .map((entry) => entry["https://api.openai.com/profile"] as Record<string, unknown> | undefined)
+    .find(Boolean);
+  const email = text(claims[0]?.email) ?? text(profile?.email);
+  return {
+    identity:
+      text(auth?.chatgpt_user_id) ?? text(auth?.user_id) ?? text(claims[0]?.sub) ?? email,
+    ...(email ? { email } : {}),
+    ...(planLabel(text(auth?.chatgpt_plan_type))
+      ? { plan: planLabel(text(auth?.chatgpt_plan_type)) }
+      : {}),
+  };
+};
+
+/**
+ * Claude: the token response names the account; the OAuth profile adds the
+ * plan. Best effort — a profile failure never blocks connecting.
+ */
+const anthropicIdentity = async (raw: TokenResponse, access: string): Promise<AccountIdentity> => {
+  let identity = text(raw.account?.uuid);
+  let email = text(raw.account?.email_address);
+  let plan: string | undefined;
+  try {
+    const response = await fetch("https://api.anthropic.com/api/oauth/profile", {
+      headers: {
+        authorization: `Bearer ${access}`,
+        "anthropic-beta": "oauth-2025-04-20",
+        accept: "application/json",
+      },
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (response.ok) {
+      const profile = (await response.json()) as {
+        account?: Record<string, unknown>;
+        organization?: Record<string, unknown>;
+      };
+      identity ??= text(profile.account?.uuid);
+      email ??= text(profile.account?.email) ?? text(profile.account?.email_address);
+      plan =
+        planLabel(text(profile.organization?.organization_type)) ??
+        (profile.account?.has_claude_max === true
+          ? "Max"
+          : profile.account?.has_claude_pro === true
+            ? "Pro"
+            : undefined);
+    }
+  } catch {
+    // The account is still connected without its plan.
+  }
+  return {
+    ...(identity ?? email ? { identity: identity ?? email } : {}),
+    ...(email ? { email } : {}),
+    ...(plan ? { plan } : {}),
   };
 };
 
@@ -426,23 +643,59 @@ const startConnect = async (
   return { connectId, authorizeUrl };
 };
 
-const writeCredential = (
+/**
+ * Store a connected login. The same provider login reconnecting replaces its
+ * own account (and clears any cooldown); a new login is added. Either way it
+ * becomes the provider's active account, as signing in does in Claude's app.
+ */
+const writeAccount = (
   ctx: OwnerContext,
   provider: EngineProvider,
   payload: string,
-): void => {
+  identity: AccountIdentity,
+): string => {
   const now = Date.now();
+  const existing = identity.identity
+    ? ctx.db.one<{ account_id: string }>(
+        "SELECT account_id FROM engine_accounts WHERE provider = ? AND identity = ?",
+        provider,
+        identity.identity,
+      )
+    : null;
+  if (existing) {
+    ctx.db.run(
+      `UPDATE engine_accounts SET payload = ?, email = COALESCE(?, email), plan = COALESCE(?, plan),
+         limited_until = NULL, updated_at = ? WHERE account_id = ?`,
+      payload,
+      identity.email ?? null,
+      identity.plan ?? null,
+      now,
+      existing.account_id,
+    );
+    writeActiveAccount(ctx, provider, existing.account_id);
+    return existing.account_id;
+  }
+  if (accountsOf(ctx.db, provider).length >= MAX_ACCOUNTS_PER_PROVIDER) {
+    throw badRequest(
+      `You can connect up to ${MAX_ACCOUNTS_PER_PROVIDER} accounts per provider. Sign one out first.`,
+    );
+  }
+  const accountId = crypto.randomUUID().replaceAll("-", "");
   ctx.db.run(
-    `INSERT INTO engine_credentials (provider, payload, label, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT (provider) DO UPDATE SET payload = excluded.payload, label = excluded.label,
-       updated_at = excluded.updated_at`,
+    `INSERT INTO engine_accounts (${ACCOUNT_COLUMNS})
+     VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+    accountId,
     provider,
     payload,
     PROVIDER_LABELS[provider],
+    identity.identity ?? null,
+    identity.email ?? null,
+    identity.plan ?? null,
     now,
     now,
   );
+  writeActiveAccount(ctx, provider, accountId);
+  return accountId;
 };
 
 const finishConnect = async (
@@ -467,8 +720,9 @@ const finishConnect = async (
     throw badRequest("The pasted code belongs to a different connect attempt. Start again from Settings.");
   }
   let payload: StoredEnginePayload;
+  let identity: AccountIdentity;
   if (provider === "anthropic") {
-    payload = await exchangeToken(ANTHROPIC_TOKEN_URL, {
+    const { tokens, raw } = await exchangeTokenResponse(ANTHROPIC_TOKEN_URL, {
       grant_type: "authorization_code",
       client_id: ANTHROPIC_CLIENT_ID,
       code: parsed.code,
@@ -476,8 +730,10 @@ const finishConnect = async (
       redirect_uri: ANTHROPIC_REDIRECT_URI,
       code_verifier: connect.verifier,
     });
+    payload = tokens;
+    identity = await anthropicIdentity(raw, tokens.access);
   } else {
-    const tokens = await exchangeToken(CODEX_TOKEN_URL, {
+    const { tokens, raw } = await exchangeTokenResponse(CODEX_TOKEN_URL, {
       grant_type: "authorization_code",
       client_id: CODEX_CLIENT_ID,
       code: parsed.code,
@@ -485,8 +741,9 @@ const finishConnect = async (
       code_verifier: connect.verifier,
     });
     payload = { ...tokens, accountId: codexAccountId(tokens.access) };
+    identity = codexIdentity(raw, tokens.access);
   }
-  writeCredential(ctx, provider, await encryptPayload(ctx, provider, payload));
+  writeAccount(ctx, provider, await encryptPayload(ctx, provider, payload), identity);
   ctx.db.run("DELETE FROM engine_connects WHERE connect_id = ?", args.connectId);
   return { ok: true };
 };
@@ -495,11 +752,57 @@ const disconnect = (
   ctx: OwnerContext,
   args: EngineCalls["engines.disconnect"]["args"],
 ): null => {
-  ctx.db.run("DELETE FROM engine_credentials WHERE provider = ?", args.provider);
-  // Fall back to the managed engine if the disconnected one was selected.
-  if (readSelection(ctx.db).execution.engine === args.provider) {
+  if (args.accountId) {
+    ctx.db.run(
+      "DELETE FROM engine_accounts WHERE provider = ? AND account_id = ?",
+      args.provider,
+      args.accountId,
+    );
+  } else {
+    ctx.db.run("DELETE FROM engine_accounts WHERE provider = ?", args.provider);
+  }
+  const remaining = accountsOf(ctx.db, args.provider);
+  const settings = providerSettings(ctx.db, args.provider);
+  if (!remaining.some((row) => row.account_id === settings?.active_account_id)) {
+    // The next account (oldest, preferring one not on cooldown) takes over.
+    const next =
+      remaining.find((row) => !isLimited(row, ctx.now)) ?? remaining[0];
+    writeActiveAccount(ctx, args.provider, next?.account_id ?? null);
+  }
+  // Fall back to the managed engine if the provider's last account went.
+  if (remaining.length === 0 && readSelection(ctx.db).execution.engine === args.provider) {
     writeSelection(ctx, DEFAULT_EXECUTION);
   }
+  return null;
+};
+
+const setActiveAccount = (
+  ctx: OwnerContext,
+  args: EngineCalls["engines.setActiveAccount"]["args"],
+): null => {
+  const account = ctx.db.one<{ account_id: string }>(
+    "SELECT account_id FROM engine_accounts WHERE provider = ? AND account_id = ?",
+    args.provider,
+    args.accountId,
+  );
+  if (!account) throw new RpcError("NOT_FOUND", "That account isn't connected anymore.");
+  writeActiveAccount(ctx, args.provider, account.account_id);
+  return null;
+};
+
+const setAutoSwitch = (
+  ctx: OwnerContext,
+  args: EngineCalls["engines.setAutoSwitch"]["args"],
+): null => {
+  ctx.db.run(
+    `INSERT INTO engine_provider_settings (provider, active_account_id, auto_switch, updated_at)
+     VALUES (?, NULL, ?, ?)
+     ON CONFLICT (provider) DO UPDATE SET auto_switch = excluded.auto_switch,
+       updated_at = excluded.updated_at`,
+    args.provider,
+    args.enabled ? 1 : 0,
+    ctx.now,
+  );
   return null;
 };
 
@@ -526,20 +829,46 @@ const setExecution = (
  */
 const resolving = new Map<string, Promise<EngineAccessResponse | null>>();
 
-const toAccess = (payload: StoredEnginePayload): EngineAccessResponse => ({
+const toAccess = (payload: StoredEnginePayload, engineAccountId: string): EngineAccessResponse => ({
   accessToken: payload.access,
   ...(payload.accountId ? { accountId: payload.accountId } : {}),
+  engineAccountId,
   expiresAt: payload.expires,
 });
+
+/**
+ * The account that serves the next request: the active one, unless it is on
+ * cooldown and auto-switch is on, in which case the next available account
+ * becomes active. With every account limited, the active one still answers so
+ * the provider's own limit message reaches the user.
+ */
+const servingAccount = (ctx: OwnerContext, provider: EngineProvider): AccountRow | undefined => {
+  const accounts = accountsOf(ctx.db, provider);
+  const settings = providerSettings(ctx.db, provider);
+  const active = activeAccountOf(accounts, settings);
+  if (!active || !isLimited(active, Date.now()) || settings?.auto_switch !== 1) return active;
+  const next = nextAvailableAccount(accounts, active, Date.now());
+  if (!next) return active;
+  writeActiveAccount(ctx, provider, next.account_id);
+  return next;
+};
+
+/** The first account after `current`, in connection order, that is not limited. */
+const nextAvailableAccount = (
+  accounts: readonly AccountRow[],
+  current: AccountRow,
+  now: number,
+): AccountRow | undefined => {
+  const start = accounts.findIndex((row) => row.account_id === current.account_id);
+  const ordered = [...accounts.slice(start + 1), ...accounts.slice(0, Math.max(start, 0))];
+  return ordered.find((row) => row.account_id !== current.account_id && !isLimited(row, now));
+};
 
 const resolveAccess = async (
   ctx: OwnerContext,
   provider: EngineProvider,
 ): Promise<EngineAccessResponse | null> => {
-  const row = ctx.db.one<CredentialRow>(
-    "SELECT payload FROM engine_credentials WHERE provider = ?",
-    provider,
-  );
+  const row = servingAccount(ctx, provider);
   if (!row) return null;
   let payload: StoredEnginePayload;
   try {
@@ -548,7 +877,7 @@ const resolveAccess = async (
     if (error instanceof RpcError) throw error;
     return null;
   }
-  if (payload.expires > Date.now()) return toAccess(payload);
+  if (payload.expires > Date.now()) return toAccess(payload, row.account_id);
 
   let refreshed: Omit<StoredEnginePayload, "accountId">;
   try {
@@ -570,20 +899,64 @@ const resolveAccess = async (
       : {}),
   };
   const encrypted = await encryptPayload(ctx, provider, next);
-  // A disconnect or reconnect during the refresh wins: never recreate or
+  // A sign-out or reconnect during the refresh wins: never recreate or
   // overwrite a row that is no longer the one refreshed.
-  const current = ctx.db.one<CredentialRow>(
-    "SELECT payload FROM engine_credentials WHERE provider = ?",
-    provider,
+  const current = ctx.db.one<{ payload: string }>(
+    "SELECT payload FROM engine_accounts WHERE account_id = ?",
+    row.account_id,
   );
   if (current?.payload !== row.payload) return null;
   ctx.db.run(
-    "UPDATE engine_credentials SET payload = ?, updated_at = ? WHERE provider = ?",
+    "UPDATE engine_accounts SET payload = ?, updated_at = ? WHERE account_id = ?",
     encrypted,
     Date.now(),
-    provider,
+    row.account_id,
   );
-  return toAccess(next);
+  return toAccess(next, row.account_id);
+};
+
+const parseLimitArgs = object({
+  provider: literal(...ENGINE_PROVIDERS),
+  engineAccountId: string({ min: 1, max: 64 }),
+  resetsAt: optional(number()),
+});
+
+/**
+ * `engines.limit`: the native lane saw this account hit its subscription
+ * limit. The account cools down until the provider's reset; with auto-switch
+ * on and the account active, the next available account takes over.
+ */
+const engineLimit = (ctx: OwnerContext, raw: unknown): EngineLimitResult => {
+  const { provider, engineAccountId, resetsAt } = parseLimitArgs(raw);
+  const now = Date.now();
+  const until = Math.min(
+    Math.max(resetsAt ?? now + UNKNOWN_RESET_COOLDOWN_MS, now + 60_000),
+    now + MAX_COOLDOWN_MS,
+  );
+  ctx.db.run(
+    "UPDATE engine_accounts SET limited_until = ? WHERE provider = ? AND account_id = ?",
+    until,
+    provider,
+    engineAccountId,
+  );
+  const accounts = accountsOf(ctx.db, provider);
+  const settings = providerSettings(ctx.db, provider);
+  const active = activeAccountOf(accounts, settings);
+  if (settings?.auto_switch !== 1 || active?.account_id !== engineAccountId) {
+    // Another account already serves (a concurrent report switched), so a
+    // retry is still worthwhile when auto-switch is on.
+    return {
+      switched:
+        settings?.auto_switch === 1 &&
+        Boolean(active) &&
+        active!.account_id !== engineAccountId &&
+        !isLimited(active!, now),
+    };
+  }
+  const next = nextAvailableAccount(accounts, active, now);
+  if (!next) return { switched: false };
+  writeActiveAccount(ctx, provider, next.account_id);
+  return { switched: true };
 };
 
 const parseAccessArgs = object({ provider: literal(...ENGINE_PROVIDERS) });
@@ -604,7 +977,7 @@ const engineAccess = async (
 
 export const enginesDomain = {
   name: "engines",
-  migrations: [ENGINES_MIGRATION],
+  migrations: [ENGINES_MIGRATION, ENGINE_ACCOUNTS_MIGRATION],
   views: {
     "engines.get": {
       parse: empty(),
@@ -627,8 +1000,24 @@ export const enginesDomain = {
     },
     "engines.disconnect": {
       scope: "owner",
-      parse: object({ provider: literal(...ENGINE_PROVIDERS) }),
+      parse: object({
+        provider: literal(...ENGINE_PROVIDERS),
+        accountId: optional(string({ min: 1, max: 64 })),
+      }),
       handler: disconnect,
+    },
+    "engines.setActiveAccount": {
+      scope: "owner",
+      parse: object({
+        provider: literal(...ENGINE_PROVIDERS),
+        accountId: string({ min: 1, max: 64 }),
+      }),
+      handler: setActiveAccount,
+    },
+    "engines.setAutoSwitch": {
+      scope: "owner",
+      parse: object({ provider: literal(...ENGINE_PROVIDERS), enabled: boolean() }),
+      handler: setAutoSwitch,
     },
     "engines.setExecution": {
       scope: "owner",
@@ -638,9 +1027,11 @@ export const enginesDomain = {
   },
   internal: {
     "engines.access": engineAccess,
+    "engines.limit": engineLimit,
   },
   purge: (ctx) => {
-    ctx.db.run("DELETE FROM engine_credentials");
+    ctx.db.run("DELETE FROM engine_accounts");
+    ctx.db.run("DELETE FROM engine_provider_settings");
     ctx.db.run("DELETE FROM engine_connects");
     ctx.db.run("DELETE FROM engine_settings");
     return { pending: false };

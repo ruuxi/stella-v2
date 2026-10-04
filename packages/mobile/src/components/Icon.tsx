@@ -61,6 +61,8 @@ export type IconName =
   | "rotate-ccw"
   | "text-cursor"
   | "quote"
+  | "reply"
+  | "select"
   | "alert-circle"
   | "chat"
   | "apps"
@@ -126,6 +128,8 @@ const FEATHER_NAMES: Record<
   // text, and "corner-up-left" is the closest reply/quote affordance.
   "text-cursor": "type",
   quote: "corner-up-left",
+  reply: "corner-up-left",
+  select: "crop",
   "alert-circle": "alert-circle",
   chat: "message-circle",
   // Feather has no round dot grid; its square grid is the nearest glyph.
@@ -186,6 +190,8 @@ const SYMBOL_NAMES: Record<IconName, SymbolViewProps["name"]> = {
   "rotate-ccw": "arrow.counterclockwise",
   "text-cursor": "textformat",
   quote: "text.quote",
+  reply: "arrowshape.turn.up.left",
+  select: "crop",
   "alert-circle": "exclamationmark.circle",
   chat: "bubble.left",
   apps: "circle.grid.2x2",

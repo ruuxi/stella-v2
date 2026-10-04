@@ -21,6 +21,7 @@ import {
   Dimensions,
   Easing,
   FlatList,
+  type GestureResponderEvent,
   Keyboard,
   LayoutChangeEvent,
   LayoutAnimation,
@@ -79,6 +80,17 @@ import { GlassSurface, liquidGlassSupported } from "./glass";
 import { AssistantMarkdown } from "./AssistantMarkdown";
 import { assistantBubbleNeedsBoundedWidth } from "../lib/assistant-bubble-layout";
 import { AssistantTextSelection } from "./AssistantTextSelection";
+import { extractPlainText } from "react-native-nitro-markdown";
+import {
+  formatTimestampHeader,
+  readReceipt,
+  timestampHeaders,
+} from "../lib/message-time-labels";
+import {
+  MESSAGE_PRESS_SCALE,
+  MessageContextMenu,
+  type MessageMenuAction,
+} from "./MessageContextMenu";
 import { AppBackdrop, TOP_BAR_BAR_HEIGHT } from "./AppBackdrop";
 import { ArtifactCard } from "./ArtifactCard";
 import { stellaFileChatArtifact } from "../lib/stella-file-links";
@@ -1008,26 +1020,6 @@ const quoteMessageText = (text: string): string =>
     .map((line) => `> ${line}`)
     .join("\n");
 
-/**
- * The context-menu timestamp header, e.g. "Aug 7, 12:56 PM". Mirrors ChatGPT's
- * long-press menu, which floats the message time above the action rows. Returns
- * null when the row has no local timestamp (in-flight/legacy rows) so the header
- * is simply omitted.
- */
-const formatMessageTimestamp = (createdAt?: number): string | null => {
-  if (typeof createdAt !== "number" || !Number.isFinite(createdAt)) return null;
-  try {
-    return new Date(createdAt).toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    });
-  } catch {
-    return null;
-  }
-};
-
 type ChatStyles = ReturnType<typeof makeStyles>;
 
 /**
@@ -1450,12 +1442,17 @@ const ChatMessageRow = memo(function ChatMessageRow({
   onOpenReply,
   onOpenReport,
   desktopAccess,
+  menuClone = false,
+  receiptLabel,
 }: {
   item: ChatMessage;
   styles: ChatStyles;
   colors: Colors;
   animate: boolean;
-  /** True while this row's long-press menu is open — drives the focus lift. */
+  /**
+   * True while this row's long-press menu is open. The menu draws its own copy
+   * of the bubble above the scrim, so the original steps aside.
+   */
   menuActive: boolean;
   /** True while this row is in native text-selection mode. */
   isSelecting: boolean;
@@ -1479,57 +1476,50 @@ const ChatMessageRow = memo(function ChatMessageRow({
   onOpenReply?: (ref: ReplyRef) => void;
   onOpenReport?: (ref: AgentReplyRef) => void;
   desktopAccess?: StoredPhoneAccess | null;
+  /** Render only the bubble, for the long-press menu's lifted copy. */
+  menuClone?: boolean;
+  /** "Delivered" / "Read" under the latest user message. */
+  receiptLabel?: string | null;
 }) {
-  // The user bubble lifts (scales up + rises) while its long-press menu is open,
-  // to mirror an iOS context menu. Driven by `menuActive`, which only reaches
-  // this memoized row because the LegendList is given `extraData` keyed on the
-  // active message — without that, the virtualized row never re-renders and the
-  // spring stays inert (the bug where the bubble looked "exactly the same").
-  // The scale/translate are deliberately generous so the lift reads under the
-  // scrim. Spring settles back on dismiss.
-  const lift = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    Animated.spring(lift, {
-      toValue: menuActive ? 1 : 0,
-      damping: 16,
-      stiffness: 220,
-      mass: 0.7,
+  // iOS press feedback: the held bubble eases down while the long-press
+  // builds, then the menu lifts a copy of it (see MessageContextMenu).
+  const pressScale = useRef(new Animated.Value(1)).current;
+  const bubbleRef = useRef<View>(null);
+  const pressIn = () => {
+    Animated.sequence([
+      Animated.delay(90),
+      Animated.timing(pressScale, {
+        toValue: MESSAGE_PRESS_SCALE,
+        duration: 260,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+  const pressOut = () => {
+    pressScale.stopAnimation();
+    Animated.spring(pressScale, {
+      toValue: 1,
+      stiffness: 420,
+      damping: 30,
       useNativeDriver: true,
     }).start();
-  }, [menuActive, lift]);
-  const liftStyle = useMemo(
-    () => ({
-      transform: [
-        {
-          scale: lift.interpolate({
-            inputRange: [0, 1],
-            outputRange: [1, 1.06],
-          }),
-        },
-        {
-          translateY: lift.interpolate({
-            inputRange: [0, 1],
-            outputRange: [0, -6],
-          }),
-        },
-      ],
-    }),
-    [lift],
+  };
+  const pressStyle = useMemo(
+    () => ({ transform: [{ scale: pressScale }] }),
+    [pressScale],
   );
-  const openMenu = (e: { nativeEvent: { pageX: number; pageY: number } }) => {
-    // Open for a message with text OR attachments. The popover hides itself
-    // when a message yields no applicable options.
-    if (!item.text.trim() && (item.thumbnailUris?.length ?? 0) === 0) return;
-    // Medium impact for the "lift" moment; action taps then fire a light tap.
-    tapMedium();
-    onOpenMessageMenu({
-      message: item,
-      anchor: {
-        x: e.nativeEvent.pageX,
-        y: e.nativeEvent.pageY,
-        width: 0,
-        height: 0,
-      },
+  const openMenu = () => {
+    // Every menu action works on text; an attachment-only bubble has none.
+    if (!item.text.trim()) return;
+    const bubble = bubbleRef.current;
+    if (!bubble) return;
+    // The frame is measured on an unscaled wrapper, so it is the bubble's
+    // resting size even while the press shrink is showing.
+    bubble.measureInWindow((x, y, width, height) => {
+      // Medium impact for the lift; action taps then fire a light tap.
+      tapMedium();
+      onOpenMessageMenu({ message: item, anchor: { x, y, width, height } });
     });
   };
 
@@ -1573,6 +1563,74 @@ const ChatMessageRow = memo(function ChatMessageRow({
     const documentNames = item.documentNames ?? [];
     const showText = item.text.trim().length > 0;
     const quotedText = item.quotedText?.trim();
+    const userBubbleBody = (
+      <>
+        {attachmentPreviews.length > 0 ? (
+          <View style={[styles.userThumbStrip, showText && styles.userThumbsAbove]}>
+            {attachmentPreviews.slice(0, 3).map(preview => (
+              <View key={preview.path} style={styles.userThumbImage}>
+                {preview.imageUri ? (
+                  <Image source={{ uri: preview.imageUri }} style={styles.userThumbImage}
+                    contentFit="cover" accessibilityLabel={preview.name} />
+                ) : (
+                  <View style={styles.userAttachmentPlaceholder}>
+                    <Icon name="file-text" size={20} color={colors.textMuted} />
+                    <Text style={styles.userDocumentName} numberOfLines={2}>{preview.name}</Text>
+                  </View>
+                )}
+              </View>
+            ))}
+          </View>
+        ) : showThumbs ? (
+          <View
+            style={[
+              styles.userThumbStrip,
+              showText && styles.userThumbsAbove,
+            ]}
+          >
+            {thumbs.slice(0, 3).map((uri) => (
+              <Image
+                key={uri}
+                source={{ uri }}
+                style={styles.userThumbImage}
+                contentFit="cover"
+              />
+            ))}
+          </View>
+        ) : null}
+        {attachmentPreviews.length === 0 && documentNames.length > 0 ? (
+          <View
+            style={[
+              styles.userDocumentStrip,
+              showText && styles.userThumbsAbove,
+            ]}
+          >
+            {documentNames.map((name) => (
+              <View key={name} style={styles.userDocumentChip}>
+                <Icon
+                  name="file-text"
+                  size={12}
+                  color={colors.textMuted}
+                />
+                <Text
+                  style={styles.userDocumentName}
+                  numberOfLines={1}
+                  maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+                >
+                  {name}
+                </Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+        {showText ? (
+          <UserMessageText text={item.text} styles={styles} />
+        ) : null}
+      </>
+    );
+    if (menuClone) {
+      return <View style={styles.userBubble}>{userBubbleBody}</View>;
+    }
     return (
       <View style={styles.userRow}>
         <View style={styles.userColumn}>
@@ -1597,7 +1655,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
             </View>
           ) : null}
           {isSelecting && showText ? (
-            // "Select text" mode: the bubble body becomes a native selection
+            // "Select" mode: the bubble body becomes a native selection
             // surface (with a Copy pill), so a substring can be lifted out.
             <View style={styles.userBubble}>
               <AssistantTextSelection
@@ -1607,80 +1665,36 @@ const ChatMessageRow = memo(function ChatMessageRow({
               />
             </View>
           ) : (
-            <Animated.View style={liftStyle}>
-              <Pressable
-                onLongPress={openMenu}
-                // While another message is selecting, a tap here exits selection
-                // (and otherwise does nothing), so tapping away always dismisses.
-                onPress={anySelecting ? onEndSelecting : undefined}
-                delayLongPress={350}
-                accessibilityLabel="Long press for message actions"
-                style={styles.userBubble}
-              >
-                {attachmentPreviews.length > 0 ? (
-                  <View style={[styles.userThumbStrip, showText && styles.userThumbsAbove]}>
-                    {attachmentPreviews.slice(0, 3).map(preview => (
-                      <View key={preview.path} style={styles.userThumbImage}>
-                        {preview.imageUri ? (
-                          <Image source={{ uri: preview.imageUri }} style={styles.userThumbImage}
-                            contentFit="cover" accessibilityLabel={preview.name} />
-                        ) : (
-                          <View style={styles.userAttachmentPlaceholder}>
-                            <Icon name="file-text" size={20} color={colors.textMuted} />
-                            <Text style={styles.userDocumentName} numberOfLines={2}>{preview.name}</Text>
-                          </View>
-                        )}
-                      </View>
-                    ))}
-                  </View>
-                ) : showThumbs ? (
-                  <View
-                    style={[
-                      styles.userThumbStrip,
-                      showText && styles.userThumbsAbove,
-                    ]}
-                  >
-                    {thumbs.slice(0, 3).map((uri) => (
-                      <Image
-                        key={uri}
-                        source={{ uri }}
-                        style={styles.userThumbImage}
-                        contentFit="cover"
-                      />
-                    ))}
-                  </View>
-                ) : null}
-                {attachmentPreviews.length === 0 && documentNames.length > 0 ? (
-                  <View
-                    style={[
-                      styles.userDocumentStrip,
-                      showText && styles.userThumbsAbove,
-                    ]}
-                  >
-                    {documentNames.map((name) => (
-                      <View key={name} style={styles.userDocumentChip}>
-                        <Icon
-                          name="file-text"
-                          size={12}
-                          color={colors.textMuted}
-                        />
-                        <Text
-                          style={styles.userDocumentName}
-                          numberOfLines={1}
-                          maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-                        >
-                          {name}
-                        </Text>
-                      </View>
-                    ))}
-                  </View>
-                ) : null}
-                {showText ? (
-                  <UserMessageText text={item.text} styles={styles} />
-                ) : null}
-              </Pressable>
-            </Animated.View>
+            <View
+              ref={bubbleRef}
+              collapsable={false}
+              style={menuActive ? styles.bubbleHidden : null}
+            >
+              <Animated.View style={pressStyle}>
+                <Pressable
+                  onLongPress={openMenu}
+                  onPressIn={pressIn}
+                  onPressOut={pressOut}
+                  // While another message is selecting, a tap here exits
+                  // selection, so tapping away always dismisses.
+                  onPress={anySelecting ? onEndSelecting : undefined}
+                  delayLongPress={350}
+                  accessibilityHint="Long press for message actions"
+                  style={styles.userBubble}
+                >
+                  {userBubbleBody}
+                </Pressable>
+              </Animated.View>
+            </View>
           )}
+          {receiptLabel ? (
+            <Text
+              style={styles.receipt}
+              maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+            >
+              {receiptLabel}
+            </Text>
+          ) : null}
           {item.stopped ? (
             <Text
               style={styles.stoppedTag}
@@ -1788,26 +1802,20 @@ const ChatMessageRow = memo(function ChatMessageRow({
     });
   });
   const quotedThreadIds = new Set(completionQuotes.map((quote) => quote.ref.threadId));
-  const renderAssistantMarkdown = (text: string) => {
-    const markdown = (
+  const assistantBubble = (
+    <AssistantBubble
+      style={[styles.assistantBubble, boundedAssistantBubble && styles.assistantBlockBubble]}
+      animate={!menuClone && (animate || mountedEmptyRef.current)}
+    >
       <AssistantMarkdown
-        text={text}
+        text={item.text}
         colors={colors}
-        selectable
         fill={boundedAssistantBubble}
         onStellaFileLink={onOpenStellaFile}
-        onAskStella={onAskStella}
       />
-    );
-    // Keep the rendered text itself as the selection surface. A wrapper only
-    // exists while a user-message selection is active so tapping away retains
-    // that existing dismiss behavior without competing with markdown gestures.
-    return anySelecting ? (
-      <Pressable onPress={onEndSelecting}>{markdown}</Pressable>
-    ) : (
-      markdown
-    );
-  };
+    </AssistantBubble>
+  );
+  if (menuClone) return assistantBubble;
   return (
     <View style={styles.assistantRow}>
       {onOpenReply
@@ -1848,13 +1856,39 @@ const ChatMessageRow = memo(function ChatMessageRow({
             <ArtifactCard key={artifact.id} artifact={artifact} colors={colors} onPress={onOpenArtifact} />
           ))
         : null}
-      {hasText ? (
-        <AssistantBubble
-          style={[styles.assistantBubble, boundedAssistantBubble && styles.assistantBlockBubble]}
-          animate={animate || mountedEmptyRef.current}
+      {hasText && isSelecting ? (
+        // "Select" mode: the reply's plain text in a selection surface with
+        // everything selected and a Copy / Ask Stella pill.
+        <View style={[styles.assistantBubble, styles.assistantSelectBubble]}>
+          <AssistantTextSelection
+            text={extractPlainText(item.text).trim()}
+            colors={{ ...colors, text: colors.assistantBubbleText }}
+            onAskStella={onAskStella}
+            onDismiss={onEndSelecting}
+          />
+        </View>
+      ) : hasText ? (
+        <View
+          ref={bubbleRef}
+          collapsable={false}
+          style={[
+            boundedAssistantBubble ? styles.assistantBubbleSlotFill : styles.assistantBubbleSlot,
+            menuActive && styles.bubbleHidden,
+          ]}
         >
-          {renderAssistantMarkdown(item.text)}
-        </AssistantBubble>
+          <Animated.View style={pressStyle}>
+            <Pressable
+              onLongPress={openMenu}
+              onPressIn={pressIn}
+              onPressOut={pressOut}
+              onPress={anySelecting ? onEndSelecting : undefined}
+              delayLongPress={350}
+              accessibilityHint="Long press for message actions"
+            >
+              {assistantBubble}
+            </Pressable>
+          </Animated.View>
+        </View>
       ) : null}
       {scheduleReceipts.map((receipt) => (
         <Text
@@ -3933,64 +3967,83 @@ export function ChatPane({
     [draftStore, onAddQuote],
   );
 
-  // Long-press action menu for USER messages (assistant long-press does native
-  // text selection instead). Copy / Select text / Share / Quote apply to any
-  // message with text. Each action fires a light tap on selection (the
-  // menu-open medium tap is in ChatMessageRow.openMenu).
-  const messageMenuOptions = useMemo<PlusMenuOption[]>(() => {
+  // The long-press menu, the same for both speakers (iOS Messages order).
+  // Each action fires a light tap; the open itself is a medium tap in
+  // ChatMessageRow.openMenu.
+  const messageMenuActions = useMemo<MessageMenuAction[]>(() => {
     if (!messageMenu) return [];
     const message = messageMenu.message;
     const text = message.text;
-    const options: PlusMenuOption[] = [];
-    // Copy / Select text / Share / Quote all act on text, so they're offered
-    // only when there is any (both roles).
-    if (text.trim()) {
-      options.push(
-        {
-          id: "copy",
-          label: "Copy",
-          icon: "copy",
-          onSelect: () => {
-            tapLight();
-            copyMessageText(text);
-          },
+    if (!text.trim()) return [];
+    return [
+      {
+        id: "reply",
+        label: "Reply",
+        icon: "reply",
+        onSelect: () => {
+          tapLight();
+          quoteMessage(text);
         },
-        {
-          id: "select-text",
-          label: "Select text",
-          icon: "text-cursor",
-          onSelect: () => {
-            tapLight();
-            startSelectingMessage(message.id);
-          },
+      },
+      {
+        id: "copy",
+        label: "Copy",
+        icon: "copy",
+        onSelect: () => {
+          tapLight();
+          copyMessageText(text);
         },
-        {
-          id: "share",
-          label: "Share…",
-          icon: "share",
-          onSelect: () => {
-            tapLight();
-            shareMessageText(text);
-          },
+      },
+      {
+        id: "select",
+        label: "Select",
+        icon: "select",
+        onSelect: () => {
+          tapLight();
+          startSelectingMessage(message.id);
         },
-        {
-          id: "quote",
-          label: "Quote",
-          icon: "quote",
-          onSelect: () => {
-            tapLight();
-            quoteMessage(text);
-          },
+      },
+      {
+        id: "share",
+        label: "Share",
+        icon: "share",
+        onSelect: () => {
+          tapLight();
+          shareMessageText(text);
         },
-      );
-    }
-    return options;
+      },
+    ];
   }, [messageMenu, quoteMessage, startSelectingMessage]);
 
   // The list's handlers are stable so a composer keystroke — which re-renders
   // this pane — leaves the memoized LegendList (and its rows) alone.
   const selectingMessageIdRef = useRef<string | null>(null);
   selectingMessageIdRef.current = selectingMessageId;
+  // A quick tap anywhere in the transcript leaves Select mode. The selection
+  // field never raises a keyboard, so the list's tap-to-dismiss never blurs
+  // it; drags (moving the selection handles) are left alone.
+  const viewportTouchRef = useRef<{ x: number; y: number; at: number } | null>(
+    null,
+  );
+  const handleViewportTouchStart = useCallback(
+    (e: GestureResponderEvent) => {
+      if (selectingMessageIdRef.current == null) return;
+      const { pageX, pageY } = e.nativeEvent;
+      viewportTouchRef.current = { x: pageX, y: pageY, at: Date.now() };
+    },
+    [],
+  );
+  const handleViewportTouchEnd = useCallback(
+    (e: GestureResponderEvent) => {
+      const start = viewportTouchRef.current;
+      viewportTouchRef.current = null;
+      if (!start || selectingMessageIdRef.current == null) return;
+      const { pageX, pageY } = e.nativeEvent;
+      const moved = Math.hypot(pageX - start.x, pageY - start.y);
+      if (moved < 8 && Date.now() - start.at < 350) stopSelectingMessage();
+    },
+    [stopSelectingMessage],
+  );
   const handleListScrollBeginDrag = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
       // Scrolling the transcript exits any active text selection before the
@@ -4042,6 +4095,16 @@ export function ChatPane({
   }, [activeAssistantId, scroll.clearActiveAssistantLayout]);
 
   const activeMenuMessageId = messageMenu?.message.id ?? null;
+  // iMessage time labels: a centered time after a long quiet gap, and a read
+  // receipt under the latest message once the model has it.
+  const timeHeaders = useMemo(
+    () => timestampHeaders(visibleMessages),
+    [visibleMessages],
+  );
+  const receipt = useMemo(
+    () => readReceipt(visibleMessages),
+    [visibleMessages],
+  );
   // Tapped `stella://file/<path>` links in assistant markdown resolve into
   // the same artifact shape inline cards carry, then open the same viewer.
   const onOpenStellaFile = useMemo(
@@ -4087,6 +4150,14 @@ export function ChatPane({
                 : undefined
           }
         >
+          {timeHeaders.has(item.id) ? (
+            <Text
+              style={styles.timestampHeader}
+              maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+            >
+              {formatTimestampHeader(timeHeaders.get(item.id)!)}
+            </Text>
+          ) : null}
           <ChatMessageRow
             item={item}
             animate={animate && item.id === lastMessage?.id && !historyLoading}
@@ -4107,11 +4178,14 @@ export function ChatPane({
             contextStatus={contextStatusFor(replyContexts, replyContexts.contexts.get(item.id))}
             replyCount={replyCountFor(replyContexts.counts, [item.id, item.canonicalId])}
             desktopAccess={desktopAccess}
+            receiptLabel={receipt?.id === item.id ? receipt.label : null}
           />
         </MessageEntry>
       );
     },
     [
+      timeHeaders,
+      receipt,
       replyContexts,
       contextStatusFor,
       lastMessage?.id,
@@ -4363,7 +4437,11 @@ export function ChatPane({
   );
   return (
     <View ref={rootRef} collapsable={false} style={styles.screen}>
-      <View style={styles.viewport}>
+      <View
+        style={styles.viewport}
+        onTouchStart={handleViewportTouchStart}
+        onTouchEnd={handleViewportTouchEnd}
+      >
         {historyLoading ? (
           // Hold a stable blank surface while history hydrates so the empty
           // state never flashes during a tab transition.
@@ -4902,24 +4980,31 @@ export function ChatPane({
         readAloud={readAloud.enabled}
         onReadAloudChange={(next) => void readAloud.setEnabled(next)}
       />
-      <PlusMenuPopover
-        // Guard against an empty menu: an attachment-only message yields no
-        // options, so the popover stays hidden rather than flashing a blank
-        // sheet.
-        visible={Boolean(messageMenu) && messageMenuOptions.length > 0}
-        anchor={messageMenu?.anchor ?? null}
-        options={messageMenuOptions}
-        onDismiss={dismissMessageMenu}
-        colors={colors}
-        containerRef={rootRef}
-        headerLabel={
-          messageMenu
-            ? formatMessageTimestamp(messageMenu.message.createdAt)
-            : null
-        }
-        scrim
-        large
-      />
+      {messageMenu && messageMenuActions.length > 0 ? (
+        <MessageContextMenu
+          key={messageMenu.message.id}
+          rect={messageMenu.anchor}
+          side={messageMenu.message.role === "user" ? "right" : "left"}
+          bubble={
+            <ChatMessageRow
+              item={messageMenu.message}
+              animate={false}
+              styles={styles}
+              colors={colors}
+              menuActive={false}
+              isSelecting={false}
+              anySelecting={false}
+              onOpenMessageMenu={setMessageMenu}
+              onEndSelecting={stopSelectingMessage}
+              onAskStella={quoteMessage}
+              menuClone
+            />
+          }
+          actions={messageMenuActions}
+          colors={colors}
+          onDismiss={dismissMessageMenu}
+        />
+      ) : null}
       <PlusMenuPopover
         visible={Boolean(modelPickerAnchor) && modelPickerOptions.length > 0}
         anchor={modelPickerAnchor}
@@ -5145,11 +5230,32 @@ const makeStyles = (colors: Colors) =>
 
     userRow: { flexDirection: "row", justifyContent: "flex-end" },
     userColumn: { alignItems: "flex-end", maxWidth: "92%" },
+    // iMessage bubbles: one continuous (squircle) radius on every corner, so a
+    // one-line message reads as a pill and taller ones keep soft, even sides.
     userBubble: {
       backgroundColor: colors.userBubbleFill,
-      borderRadius: 18,
-      borderBottomRightRadius: 4,
-      padding: 12,
+      borderRadius: 22,
+      borderCurve: "continuous",
+      paddingHorizontal: 14,
+      paddingVertical: 9,
+    },
+    bubbleHidden: { opacity: 0 },
+    receipt: {
+      color: colors.textMuted,
+      fontFamily: fonts.sans.medium,
+      fontSize: 12,
+      letterSpacing: -0.1,
+      marginRight: 6,
+      marginTop: 4,
+    },
+    timestampHeader: {
+      alignSelf: "center",
+      color: colors.textMuted,
+      fontFamily: fonts.sans.medium,
+      fontSize: 12,
+      letterSpacing: -0.1,
+      paddingBottom: 10,
+      paddingTop: 14,
     },
     stoppedTag: {
       color: colors.textMuted,
@@ -5262,12 +5368,20 @@ const makeStyles = (colors: Colors) =>
     assistantBubble: {
       alignSelf: "flex-start",
       overflow: "hidden",
-      borderRadius: 18,
-      borderBottomLeftRadius: 4,
+      borderRadius: 22,
+      borderCurve: "continuous",
       maxWidth: "100%",
-      paddingBottom: 2,
-      paddingHorizontal: 13,
-      paddingTop: 10,
+      paddingBottom: 0,
+      paddingHorizontal: 14,
+      paddingTop: 9,
+    },
+    // The long-press target hugs the bubble so its measured frame is the
+    // bubble's own (the menu redraws the bubble at exactly that frame).
+    assistantBubbleSlot: { alignSelf: "flex-start", maxWidth: "100%" },
+    assistantBubbleSlotFill: { alignSelf: "stretch" },
+    assistantSelectBubble: {
+      backgroundColor: colors.assistantBubbleFillBottom,
+      paddingBottom: 10,
     },
     // Yoga stretches block Markdown to the measured list-cell width in the
     // same layout pass, giving nested list/scroller children a definite bound.

@@ -423,7 +423,6 @@
   align-self: flex-end;
   background: var(--chat-user-bubble-fill, var(--primary));
   color: var(--chat-user-bubble-text, var(--primary-foreground));
-  border-bottom-right-radius: 5px;
   transform-origin: 100% 100%;
 }
 
@@ -432,7 +431,6 @@
   background: var(--surface-inset, var(--card));
   border-color: var(--border);
   color: var(--text-strong);
-  border-bottom-left-radius: 5px;
   transform-origin: 0 100%;
 }
 

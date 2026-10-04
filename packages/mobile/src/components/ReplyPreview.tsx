@@ -66,7 +66,6 @@ export function ReplyPreview({
           onPress={onOpen}
           style={({ pressed }) => [
             styles.bubble,
-            reference.role === "user" ? styles.bubbleUser : styles.bubbleAssistant,
             pressed && styles.bubblePressed,
           ]}
         >
@@ -212,14 +211,13 @@ const makeStyles = (colors: Colors) =>
       paddingVertical: 6,
       paddingHorizontal: 12,
       borderRadius: 16,
+      borderCurve: "continuous",
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
       backgroundColor: colors.surfaceInset,
       gap: 2,
     },
     bubblePressed: { backgroundColor: fadeHex(colors.text, 0.06) },
-    bubbleUser: { borderBottomRightRadius: 4 },
-    bubbleAssistant: { borderBottomLeftRadius: 4 },
     label: {
       color: colors.textMuted,
       fontFamily: fonts.sans.semiBold,

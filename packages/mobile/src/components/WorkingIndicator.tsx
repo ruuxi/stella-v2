@@ -394,15 +394,15 @@ const makeStyles = (colors: Colors) =>
       paddingRight: 18,
       paddingTop: INDICATOR_PAD_TOP,
     },
-    // The assistant bubble treatment, squared off at the bottom-left the same
-    // way an incoming message is, sized to hug whatever the label currently is.
+    // The assistant bubble treatment (even, continuous corners like the reply
+    // bubble), sized to hug whatever the label currently is.
     bubble: {
       alignItems: "center",
       backgroundColor: colors.card,
       borderColor: colors.border,
       borderWidth: StyleSheet.hairlineWidth,
-      borderRadius: 18,
-      borderBottomLeftRadius: 4,
+      borderRadius: 22,
+      borderCurve: "continuous",
       flexDirection: "row",
       flexShrink: 1,
       gap: 8,

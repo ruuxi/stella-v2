@@ -37,7 +37,7 @@
   --compact-chat-assistant-border-width: 0px;
   --compact-chat-assistant-border-color: transparent;
   --compact-chat-assistant-radius: 14px;
-  --compact-chat-assistant-tail-radius: 4px;
+  --compact-chat-assistant-tail-radius: var(--compact-chat-assistant-radius);
   --compact-chat-assistant-max-width: 85%;
   --compact-chat-assistant-padding: 6px 12px;
 }
@@ -89,14 +89,14 @@
 .chat-conversation-surface--orb {
   --compact-chat-user-bg: color-mix(in srgb, var(--primary) 30%, var(--background));
   --compact-chat-user-radius: 14px;
-  --compact-chat-user-tail-radius: 4px;
+  --compact-chat-user-tail-radius: var(--compact-chat-user-radius);
   --compact-chat-user-max-width: 88%;
   --compact-chat-assistant-bg: var(--orb-assistant-surface, var(--surface-raised));
   --compact-chat-assistant-color: var(--text-strong);
   --compact-chat-assistant-border-width: 1px;
   --compact-chat-assistant-border-color: var(--orb-assistant-border-color, var(--border));
   --compact-chat-assistant-radius: 14px;
-  --compact-chat-assistant-tail-radius: 4px;
+  --compact-chat-assistant-tail-radius: var(--compact-chat-assistant-radius);
 }
 
 .chat-conversation-surface--sidebar {
@@ -106,7 +106,7 @@
   --compact-chat-user-bg: var(--chat-user-bubble-fill);
   --compact-chat-user-color: var(--chat-user-bubble-text);
   --compact-chat-user-radius: 14px;
-  --compact-chat-user-tail-radius: 4px;
+  --compact-chat-user-tail-radius: var(--compact-chat-user-radius);
   --compact-chat-user-max-width: 88%;
 }
 

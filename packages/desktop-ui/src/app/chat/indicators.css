@@ -1,6 +1,5 @@
 /* Working indicator — the character mark plus, while a tool runs, its label.
-   It wears the assistant bubble's own fill and radius (bottom-left squared off
-   the same way) so thinking and tool states read as an incoming message rather
+   It wears the assistant bubble's own fill and radius so thinking and tool states read as an incoming message rather
    than as separate chrome sitting under the conversation. */
 .working-indicator {
   display: inline-flex;
@@ -8,7 +7,6 @@
   gap: 8px;
   padding: 8px 14px;
   border-radius: var(--radius-3xl);
-  border-bottom-left-radius: 4px;
   background: var(--chat-assistant-bubble-fill);
   border: none;
   font-size: var(--font-size-md);

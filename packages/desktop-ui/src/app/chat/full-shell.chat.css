@@ -79,7 +79,6 @@
   min-width: 0;
   padding: 8px 14px;
   border-radius: var(--radius-3xl);
-  border-bottom-left-radius: 4px;
   background: var(--chat-assistant-bubble-fill);
   border: none;
   --chat-text-color: var(--chat-assistant-bubble-text);
@@ -296,7 +295,6 @@
   margin-left: auto;
   max-width: 85%;
   width: fit-content;
-  border-bottom-right-radius: 4px;
   scroll-margin-top: 2px;
   padding: 5px 12px;
 }

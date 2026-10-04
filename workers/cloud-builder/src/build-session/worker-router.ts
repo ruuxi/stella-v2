@@ -15,6 +15,7 @@ import { worldName } from "../workspace.js";
  * @see src/index.ts for `export default worker`.
  */
 
+import { Hono, type MiddlewareHandler } from "hono";
 import { GATEWAY_NETWORK_POLICY } from "@stella/contracts/gateway/api";
 import { TURN_BROKER_HEADERS } from "@stella/contracts/turn-credential-broker";
 import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
@@ -84,8 +85,6 @@ import { evaluateCloudBuilderReadiness } from "../readiness.js";
 import {
   boundedBodyStatus,
   CLOUD_BUILDER_BODY_LIMITS,
-  publicJsonBodyLimit,
-  serviceJsonBodyLimit,
 } from "../request-ingress.js";
 import { verifyServiceBearerRequest } from "../service-bearer.js";
 import { handleBillingRoute } from "../billing/routes.js";
@@ -110,7 +109,6 @@ import {
 import { retireSandboxInstance } from "./session-sandbox.js";
 import type { Env } from "./shared/env.js";
 import {
-  conversationName,
   HEADER_BUILD_SESSION_NAME,
   HEADER_CONVERSATION_ID,
   HEADER_PREVIEW_BASE_URL,
@@ -281,10 +279,9 @@ const forwardToConversation = async (
 const handleTurnStartRoute = async (
   request: Request,
   env: Env,
-  segment: string,
+  conversationId: string,
   requestId: string,
 ): Promise<Response> => {
-  const conversationId = conversationName(segment);
   if (!CONVERSATION_ID_PATTERN.test(conversationId)) {
     return turnStartErrorResponse(
       "bad_request",
@@ -808,611 +805,515 @@ const handleDispatchControlRoute = async (
   }
 };
 
-const router = {
-  async fetch(
-    request: Request,
-    env: Env,
-    ctx: ExecutionContext,
-  ): Promise<Response> {
-    const url = new URL(request.url);
-    const requestId = request.headers.get("cf-ray") ?? crypto.randomUUID();
-    log("info", "request_started", {
-      requestId,
-      method: request.method,
-      path: url.pathname.startsWith("/workspace-apps/")
-        ? "/workspace-apps/[session]"
-        : previewSafeRequestLogPath(url.pathname),
+// ---------------------------------------------------------------------------
+// The route table
+//
+// Hono runs handlers in registration order, and the order below is load
+// bearing: every self-authenticating route (user JWT, signed callback, public)
+// is registered before the service-secret gate, and every server-to-server
+// route after it. A request that matches nothing above the gate is answered
+// 401 unless it carries the service secret, so an unknown path never reveals
+// whether it exists.
+// ---------------------------------------------------------------------------
+
+type RouterEnv = {
+  Bindings: Env;
+  Variables: { requestId: string; caller: ConversationCaller };
+};
+
+type SubRouter = (
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+) => Promise<Response | null | undefined>;
+
+/** An area router that answers its own paths and returns null for the rest. */
+const mount = (handle: SubRouter): MiddlewareHandler<RouterEnv> =>
+  async (c, next) => {
+    // `executionCtx` throws when the caller passed none; read it only on use.
+    const ctx = {
+      waitUntil: (promise: Promise<unknown>) => c.executionCtx.waitUntil(promise),
+      passThroughOnException: () => c.executionCtx.passThroughOnException(),
+    } as ExecutionContext;
+    const response = await handle(c.req.raw, c.env, ctx);
+    if (response) return response;
+    await next();
+  };
+
+/**
+ * Verify the signed-in user's JWT and expose the proven identity as
+ * `c.var.caller`. `socket` shapes refusals for a WebSocket client.
+ */
+const userAuth = (
+  { socket }: { socket: boolean } = { socket: false },
+): MiddlewareHandler<RouterEnv> =>
+  async (c, next) => {
+    const auth = await authenticateConversationCaller(
+      c.req.raw,
+      c.env,
+      socket,
+      c.var.requestId,
+    );
+    if (!auth.ok) return auth.response;
+    c.set("caller", auth.caller);
+    await next();
+  };
+
+/** Buffer and validate a JSON body before the handler forwards it. */
+const jsonBody = (maxBytes: number): MiddlewareHandler<RouterEnv> =>
+  async (c, next) => {
+    const bounded = await boundedIngressRequest(c.req.raw, maxBytes);
+    if (bounded instanceof Response) return bounded;
+    c.req.raw = bounded;
+    await next();
+  };
+
+const socketOnly: MiddlewareHandler<RouterEnv> = async (c, next) => {
+  if (c.req.method !== "GET" || !isWebSocketUpgrade(c.req.raw)) {
+    return json({ error: "This endpoint speaks WebSocket only." }, 426);
+  }
+  await next();
+};
+
+const methodNotAllowed = (message = "Method not allowed.") => () =>
+  json({ error: message }, 405);
+
+const serviceSecret: MiddlewareHandler<RouterEnv> = async (c, next) => {
+  if (!(await verifyServiceBearerRequest(c.req.raw, c.env.BUILDER_SERVICE_SECRET))) {
+    return json({ error: "Unauthorized." }, 401);
+  }
+  await next();
+};
+
+/** Hand the buffered body to a Durable Object path with nothing else attached. */
+const forwardBody = async (
+  stub: { fetch(url: string, init: RequestInit): Promise<Response> },
+  url: string,
+  request: Request,
+  headers: Record<string, string> = {},
+): Promise<Response> =>
+  await stub.fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...headers },
+    body: await request.text(),
+  });
+
+const WORLD_KEY = "[0-9a-f]{64}:[0-9a-f]{64}";
+const APP_SLUG = "[a-z][a-z0-9-]{0,31}";
+const SESSION_ID = "[A-Za-z0-9._~-]{1,128}";
+const { tinyControl } = CLOUD_BUILDER_BODY_LIMITS;
+
+const app = new Hono<RouterEnv>();
+
+app.use(async (c, next) => {
+  const requestId = c.req.header("cf-ray") ?? crypto.randomUUID();
+  c.set("requestId", requestId);
+  log("info", "request_started", {
+    requestId,
+    method: c.req.method,
+    path: c.req.path.startsWith("/workspace-apps/")
+      ? "/workspace-apps/[session]"
+      : previewSafeRequestLogPath(new URL(c.req.url).pathname),
+  });
+  await next();
+});
+
+// ── Public ────────────────────────────────────────────────────────────────
+
+app.get("/healthz", () => json({ ok: true, service: "stella-v2-cloud-builder" }));
+app.get("/readyz", (c) => {
+  const readiness = evaluateCloudBuilderReadiness(c.env);
+  return json(
+    {
+      ok: readiness.ready,
+      service: "stella-v2-cloud-builder",
+      checks: { missing: readiness.missing, invalid: readiness.invalid },
+    },
+    readiness.ready ? 200 : 503,
+  );
+});
+app.get(STELLA_PROMPTS_PATH, (c) => stellaPromptsResponse(c.req.raw));
+// Identity: Better Auth, loaded on first use to keep it off other wakes.
+app.all("/api/auth/:rest{.*}", async (c) => {
+  const { handleAuthRoute } = await import("../auth/routes.js");
+  return await handleAuthRoute(c.req.raw, c.env);
+});
+
+// World sync carries its own capability; the handler checks it.
+app.all(`/internal/worlds/:world{${WORLD_KEY}}/:op{export|changes|push}`, (c) => {
+  const op = c.req.param("op") as "export" | "changes" | "push";
+  return handleWorldRoute(c.req.raw, c.env, c.req.param("world"), { kind: op });
+});
+app.all(`/internal/worlds/:world{${WORLD_KEY}}/blob/:sha256{[0-9a-f]{64}}`, (c) =>
+  handleWorldRoute(c.req.raw, c.env, c.req.param("world"), {
+    kind: "blob",
+    sha256: c.req.param("sha256"),
+  }),
+);
+
+app.all("/workspace-apps/:rest{.*}", (c) => serveWorkspaceApp(c.req.raw, c.env));
+
+// ── User-authenticated ────────────────────────────────────────────────────
+// A signed-in user presents a user JWT, not the shared secret. Each route
+// verifies it and forwards the proven identity to the DO in x-stella-*
+// headers, stripping whatever the client sent under those names first.
+
+const listOwnerApps = async (env: Env, ownerId: string, requestId: string) => {
+  const world = env.WORLDS.getByName(await worldName(ownerId));
+  const generation = await ownerAccess(env, ownerId);
+  const apps = await cloudHomeLeaseRunner(env)(
+    ownerId,
+    generation,
+    `apps:${requestId}`,
+    async (assertActive) => {
+      await assertActive();
+      return world.listWorkspaceApps();
+    },
+  );
+  return { world, apps };
+};
+app.get("/owners/me/apps", userAuth(), async (c) => {
+  const { apps } = await listOwnerApps(c.env, c.var.caller.ownerId, c.var.requestId);
+  return json({ apps });
+});
+app.all("/owners/me/apps", methodNotAllowed("Method not allowed"));
+app.post(`/owners/me/apps/:slug{${APP_SLUG}}/session`, userAuth(), async (c) => {
+  const { ownerId } = c.var.caller;
+  const slug = c.req.param("slug");
+  const { apps } = await listOwnerApps(c.env, ownerId, c.var.requestId);
+  if (!apps.some((app) => app.slug === slug && app.status === "ready"))
+    return json({ error: "App not found" }, 404);
+  return json(await mintWorkspaceAppAccess(c.env, ownerId, slug));
+});
+app.all(`/owners/me/apps/:slug{${APP_SLUG}}/session`, methodNotAllowed("Method not allowed"));
+app.get(`/owners/me/apps/:slug{${APP_SLUG}}/preview`, userAuth(), async (c) => {
+  const { ownerId } = c.var.caller;
+  const slug = c.req.param("slug");
+  const { world, apps } = await listOwnerApps(c.env, ownerId, c.var.requestId);
+  const app = apps.find((entry) => entry.slug === slug && entry.status === "ready");
+  if (!app) return json({ error: "App not found" }, 404);
+  return await serveWorkspaceAppPreview(c.env, ownerId, app, world);
+});
+app.all(`/owners/me/apps/:slug{${APP_SLUG}}/preview`, methodNotAllowed("Method not allowed"));
+
+// Area routers. Each authenticates its own routes: the owner store and voice
+// check the user's JWT; media, projects, billing and integrations also take
+// signed webhooks and callbacks; admin checks STELLA_ADMIN_API_SECRET; the
+// model catalog and app-source bootstrap are public.
+app.use(mount(handleBackendRoute));
+app.use(mount(handleStellaModelsRoute));
+app.use(mount(handleMediaRoute));
+app.use(mount(handleProjectsRoute));
+app.use(mount(handleAppSourceBootstrap));
+app.use(
+  mount((request, env, ctx) =>
+    handleWebRendererRoute(request, env, (promise) => ctx.waitUntil(promise)),
+  ),
+);
+app.use(mount(handleBillingRoute));
+app.use(mount(handleAdminRoute));
+app.use(mount(handleDevicesRoute));
+app.use(mount(handleVoiceRoute));
+app.use(mount(handleIntegrationsRoute));
+
+app.all("/dictation/socket", socketOnly, async (c) => {
+  const receivedAt = Date.now();
+  const auth = await authenticateConversationCaller(
+    c.req.raw,
+    c.env,
+    true,
+    c.var.requestId,
+  );
+  if (!auth.ok) return auth.response;
+  return await handleMuseTranscribeSocket({
+    request: c.req.raw,
+    env: c.env,
+    control: ownerDictationControl(c.env, auth.caller.ownerId),
+    waitUntil: (promise) => c.executionCtx.waitUntil(promise),
+    timing: {
+      requestId: c.var.requestId,
+      receivedAt,
+      authMs: Date.now() - receivedAt,
+    },
+  });
+});
+app.all(
+  "/owners/me/devices/:deviceId{[A-Za-z0-9._~-]{1,256}}/presence",
+  socketOnly,
+  userAuth({ socket: true }),
+  (c) =>
+    forwardToDevicePresence(c.req.raw, c.env, c.req.param("deviceId"), c.var.caller),
+);
+app.get(DEVICES_PATH, userAuth(), async (c) => {
+  try {
+    return Response.json(
+      await c.env.OWNER_GATES.getByName(c.var.caller.ownerId).devices(),
+      { headers: { "cache-control": "no-store" } },
+    );
+  } catch (error) {
+    log("error", "owner_devices_failed", {
+      requestId: c.var.requestId,
+      message: error instanceof Error ? error.message : String(error),
     });
-    if (request.method === "GET" && url.pathname === "/healthz") {
-      return json({ ok: true, service: "stella-v2-cloud-builder" });
-    }
-    if (request.method === "GET" && url.pathname === "/readyz") {
-      const readiness = evaluateCloudBuilderReadiness(env);
-      return json(
-        {
-          ok: readiness.ready,
-          service: "stella-v2-cloud-builder",
-          checks: {
-            missing: readiness.missing,
-            invalid: readiness.invalid,
-          },
-        },
-        readiness.ready ? 200 : 503,
-      );
-    }
-    if (request.method === "GET" && url.pathname === STELLA_PROMPTS_PATH) {
-      return stellaPromptsResponse(request);
-    }
-    // Identity: Better Auth, loaded on first use to keep it off other wakes.
-    if (url.pathname.startsWith("/api/auth/")) {
-      const { handleAuthRoute } = await import("../auth/routes.js");
-      return await handleAuthRoute(request, env);
-    }
+    return Response.json(
+      {
+        protocol: PLACEMENT_PROTOCOL,
+        error: "Stella can't list your computers right now.",
+      },
+      { status: 503, headers: { "cache-control": "no-store" } },
+    );
+  }
+});
 
-    const worldRoute =
-      /^\/internal\/worlds\/([0-9a-f]{64}:[0-9a-f]{64})\/(export|changes|push)$/u.exec(
-        url.pathname,
-      );
-    if (worldRoute) {
-      return await handleWorldRoute(
-        request,
-        env,
-        worldRoute[1]!,
-        worldRoute[2] === "export"
-          ? { kind: "export" }
-          : worldRoute[2] === "changes"
-            ? { kind: "changes" }
-            : { kind: "push" },
-      );
-    }
-    const worldBlobRoute =
-      /^\/internal\/worlds\/([0-9a-f]{64}:[0-9a-f]{64})\/blob\/([0-9a-f]{64})$/u.exec(
-        url.pathname,
-      );
-    if (worldBlobRoute) {
-      return await handleWorldRoute(request, env, worldBlobRoute[1]!, {
-        kind: "blob",
-        sha256: worldBlobRoute[2]!,
-      });
-    }
+// Placement and turn starts accept the service secret as well as a user JWT,
+// so they authenticate inside their handlers and sit above the gate.
+app.post(DISPATCH_SUBMIT_PATH, (c) =>
+  handleDispatchSubmitRoute(c.req.raw, c.env, c.var.requestId),
+);
+// Dispatch ids carry a colon (`dsp:<uuid>`), and every client builds this
+// path with `encodeURIComponent`, so the segment arrives as `dsp%3A…`. The
+// class admits the escape; the param arrives decoded.
+const DISPATCH_ID = "[A-Za-z0-9._:~%-]{1,96}";
+app.get(`${DISPATCH_SUBMIT_PATH}/:dispatchId{${DISPATCH_ID}}`, (c) =>
+  handleDispatchControlRoute(c.req.raw, c.env, c.req.param("dispatchId"), "status", c.var.requestId),
+);
+app.post(`${DISPATCH_SUBMIT_PATH}/:dispatchId{${DISPATCH_ID}}/cancel`, (c) =>
+  handleDispatchControlRoute(c.req.raw, c.env, c.req.param("dispatchId"), "cancel", c.var.requestId),
+);
+app.all(`${DISPATCH_SUBMIT_PATH}/:dispatchId{${DISPATCH_ID}}`, methodNotAllowed());
+app.all(`${DISPATCH_SUBMIT_PATH}/:dispatchId{${DISPATCH_ID}}/cancel`, methodNotAllowed());
 
-    if (url.pathname.startsWith("/workspace-apps/"))
-      return await serveWorkspaceApp(request, env);
-    const appPreview =
-      /^\/owners\/me\/apps\/([a-z][a-z0-9-]{0,31})\/preview$/.exec(
-        url.pathname,
-      );
+app.all("/conversations/:id/socket", socketOnly, userAuth({ socket: true }), (c) =>
+  forwardToConversation(c.req.raw, c.env, c.req.param("id"), "/socket", c.var.caller),
+);
+app.post("/conversations/:id/turns", (c) =>
+  handleTurnStartRoute(c.req.raw, c.env, c.req.param("id"), c.var.requestId),
+);
+app.get("/conversations/:id/history", userAuth(), (c) =>
+  forwardToConversation(c.req.raw, c.env, c.req.param("id"), "/history", c.var.caller),
+);
+app.post("/conversations/:id/history/query", userAuth(), jsonBody(tinyControl), (c) =>
+  forwardToConversation(c.req.raw, c.env, c.req.param("id"), "/history/query", c.var.caller),
+);
+app.post(
+  "/conversations/:id/journal",
+  userAuth(),
+  jsonBody(CLOUD_BUILDER_BODY_LIMITS.conversationAppend),
+  (c) => forwardToConversation(c.req.raw, c.env, c.req.param("id"), "/journal", c.var.caller),
+);
+const localTurn = (operation: "begin" | "finish", maxBytes: number) => {
+  app.post(`/conversations/:id/local-turns/${operation}`, async (c) => {
+    const timingStartedAt = performance.now();
+    const auth = await authenticateConversationCaller(
+      c.req.raw,
+      c.env,
+      false,
+      c.var.requestId,
+    );
+    if (!auth.ok) return auth.response;
+    const authMs = Math.round(performance.now() - timingStartedAt);
+    const bounded = await boundedIngressRequest(c.req.raw, maxBytes);
+    if (bounded instanceof Response) return bounded;
+    const forwardStartedAt = performance.now();
+    const response = await forwardToConversation(
+      bounded,
+      c.env,
+      c.req.param("id"),
+      `/local-turns/${operation}`,
+      auth.caller,
+    );
+    log("info", "conversation_local_turn_request_timing", {
+      requestId: c.var.requestId,
+      operation,
+      status: response.status,
+      authMs,
+      durableObjectMs: Math.round(performance.now() - forwardStartedAt),
+      totalMs: Math.round(performance.now() - timingStartedAt),
+    });
+    return response;
+  });
+};
+localTurn("begin", CLOUD_BUILDER_BODY_LIMITS.localTurnBegin);
+localTurn("finish", CLOUD_BUILDER_BODY_LIMITS.localTurnFinish);
+
+app.all("/cloud-home/:rest{.*}", userAuth(), async (c, next) => {
+  const response = await handleUserCloudHomeRoute({
+    request: c.req.raw,
+    env: c.env,
+    ownerId: c.var.caller.ownerId,
+    // `ownerId` is the JWT `sub`; the raw JWT `sub` is
+    // deliberately insufficient for a cross-issuer session fence.
+    subject: c.var.caller.ownerId,
+    withLease: cloudHomeLeaseRunner(c.env),
+  });
+  if (response) return response;
+  await next();
+});
+
+// Sandbox-originated broker calls authenticate with their one-time capability
+// inside the exact BuildSession. They intentionally sit above the
+// service-secret gate; no other route shares this exception.
+app.all(`/sessions/:sessionId{${SESSION_ID}}/turn-broker`, async (c) => {
+  const brokerSessionId = c.req.param("sessionId");
+  const request = c.req.raw;
+  const response = await c.env.BUILD_SESSIONS.getByName(brokerSessionId).fetch(
+    new Request("https://build-session/turn-broker", request),
+  );
+  if (devAcceptanceProbesEnabled(c.env)) {
+    const diagnosticTarget = validateTurnBrokerTarget(
+      request.headers.get(TURN_BROKER_HEADERS.targetMethod),
+      request.headers.get(TURN_BROKER_HEADERS.targetPath),
+    );
+    // The outer Worker sees only the broker's already-scrubbed response.
+    // Record an allowlisted target kind and numeric status for preview
+    // acceptance without reading token-bearing data or the response body.
+    log("info", "turn_broker_public_response", {
+      threadId: brokerSessionId,
+      targetKind: diagnosticTarget?.kind ?? "rejected",
+      status: response.status,
+    });
+  }
+  return response;
+});
+
+// ── Service-secret gate ───────────────────────────────────────────────────
+// Everything past this point is server-to-server. Nothing may be registered
+// below it without the gate in front.
+
+app.use(serviceSecret);
+
+app.post(
+  `/sessions/:sessionId{${SESSION_ID}}/turns`,
+  jsonBody(CLOUD_BUILDER_BODY_LIMITS.turn),
+  async (c) => {
+    const buildSessionName = c.req.param("sessionId");
+    const origin = new URL(c.req.url).origin;
+    const turnBrokerEndpoint = new URL(
+      `/sessions/${encodeURIComponent(buildSessionName)}/turn-broker`,
+      origin,
+    ).toString();
+    const previewBaseUrl = new URL(
+      `/internal/previews/${encodeURIComponent(buildSessionName)}/`,
+      origin,
+    ).toString();
+    const text = await c.req.raw.text();
+    // The desktop dispatch, execution placement's agent branch and a
+    // hosted-browser resume all arrive here. Refuse a malformed agent body at
+    // the edge rather than instantiating the session for it; the session
+    // repeats the same parse, because it trusts nothing it did not check.
+    const payload: unknown = JSON.parse(text);
     if (
-      url.pathname === "/owners/me/apps" ||
-      appPreview ||
-      /^\/owners\/me\/apps\/[a-z][a-z0-9-]{0,31}\/session$/.test(url.pathname)
+      payload &&
+      typeof payload === "object" &&
+      !Array.isArray(payload) &&
+      (payload as { kind?: unknown }).kind === "agent"
     ) {
-      if (
-        request.method !==
-        (url.pathname === "/owners/me/apps" || appPreview ? "GET" : "POST")
-      )
-        return json({ error: "Method not allowed" }, 405);
-      const auth = await authenticateConversationCaller(
-        request,
-        env,
-        false,
-        requestId,
-      );
-      if (!auth.ok) return auth.response;
-      const world = env.WORLDS.getByName(await worldName(auth.caller.ownerId));
-      const generation = await ownerAccess(env, auth.caller.ownerId);
-      const apps = await cloudHomeLeaseRunner(env)(
-        auth.caller.ownerId,
-        generation,
-        `apps:${requestId}`,
-        async (assertActive) => {
-          await assertActive();
-          return world.listWorkspaceApps();
-        },
-      );
-      if (url.pathname === "/owners/me/apps" && request.method === "GET")
-        return json({ apps });
-      if (appPreview) {
-        const app = apps.find(
-          (entry) => entry.slug === appPreview[1] && entry.status === "ready",
-        );
-        if (!app) return json({ error: "App not found" }, 404);
-        return await serveWorkspaceAppPreview(env, auth.caller.ownerId, app, world);
-      }
-      const slug = url.pathname.split("/")[4]!;
-      if (request.method !== "POST")
-        return json({ error: "Method not allowed" }, 405);
-      if (!apps.some((app) => app.slug === slug && app.status === "ready"))
-        return json({ error: "App not found" }, 404);
-      return json(await mintWorkspaceAppAccess(env, auth.caller.ownerId, slug));
-    }
-
-    // ── User-authenticated routes ─────────────────────────────────────────
-    // These MUST stay above the service-secret gate below: a signed-in user
-    // presents a user JWT, not the shared secret, so matching them after the
-    // gate would 401 every client. Both verify the JWT themselves and forward
-    // the proven identity to the DO in x-stella-* headers, stripping whatever
-    // the client sent under those names first.
-    const backendResponse = await handleBackendRoute(request, env);
-    if (backendResponse) return backendResponse;
-    // Public: the model catalog (an optional bearer picks the audience).
-    const modelsResponse = await handleStellaModelsRoute(request, env);
-    if (modelsResponse) return modelsResponse;
-    // Managed media and music; fal's webhook carries its own signed token.
-    const mediaResponse = await handleMediaRoute(request, env);
-    if (mediaResponse) return mediaResponse;
-    // GitHub App: the install callback carries a signed state, the webhook
-    // GitHub's own signature.
-    const projectsResponse = await handleProjectsRoute(request, env);
-    if (projectsResponse) return projectsResponse;
-    // Public: upstream read access for callers without an account.
-    const bootstrapResponse = await handleAppSourceBootstrap(request, env);
-    if (bootstrapResponse) return bootstrapResponse;
-    // Owner-uploaded browser renderers (signed-in PUT, public GET).
-    const webRendererResponse = await handleWebRendererRoute(request, env, (promise) => ctx.waitUntil(promise));
-    if (webRendererResponse) return webRendererResponse;
-    // Stripe signs its webhooks; the internal billing routes check the
-    // service secret themselves.
-    const billingResponse = await handleBillingRoute(request, env);
-    if (billingResponse) return billingResponse;
-    // Operator routes check STELLA_ADMIN_API_SECRET themselves.
-    const adminResponse = await handleAdminRoute(request, env);
-    if (adminResponse) return adminResponse;
-    const devicesResponse = await handleDevicesRoute(request, env);
-    if (devicesResponse) return devicesResponse;
-    // Voice checks the user's JWT itself; the HLS GETs carry a signed ticket.
-    const voiceResponse = await handleVoiceRoute(request, env);
-    if (voiceResponse) return voiceResponse;
-    // Store integrations and X check the user's JWT (or the admin secret)
-    // themselves; X's OAuth callback carries a signed state.
-    const integrationsResponse = await handleIntegrationsRoute(request, env);
-    if (integrationsResponse) return integrationsResponse;
-    if (url.pathname === "/dictation/socket") {
-      if (request.method !== "GET" || !isWebSocketUpgrade(request)) {
-        return json({ error: "This endpoint speaks WebSocket only." }, 426);
-      }
-      const receivedAt = Date.now();
-      const auth = await authenticateConversationCaller(
-        request,
-        env,
-        true,
-        requestId,
-      );
-      if (!auth.ok) return auth.response;
-      return await handleMuseTranscribeSocket({
-        request,
-        env,
-        control: ownerDictationControl(env, auth.caller.ownerId),
-        waitUntil: (promise) => ctx.waitUntil(promise),
-        timing: { requestId, receivedAt, authMs: Date.now() - receivedAt },
-      });
-    }
-    const presenceMatch = url.pathname.match(
-      /^\/owners\/me\/devices\/([A-Za-z0-9._~-]{1,256})\/presence$/,
-    );
-    if (presenceMatch) {
-      if (request.method !== "GET" || !isWebSocketUpgrade(request)) {
-        return json({ error: "This endpoint speaks WebSocket only." }, 426);
-      }
-      const auth = await authenticateConversationCaller(
-        request,
-        env,
-        true,
-        requestId,
-      );
-      if (!auth.ok) return auth.response;
-      return await forwardToDevicePresence(
-        request,
-        env,
-        presenceMatch[1]!,
-        auth.caller,
-      );
-    }
-    if (request.method === "GET" && url.pathname === DEVICES_PATH) {
-      const auth = await authenticateConversationCaller(
-        request,
-        env,
-        false,
-        requestId,
-      );
-      if (!auth.ok) return auth.response;
-      try {
-        return Response.json(
-          await env.OWNER_GATES.getByName(auth.caller.ownerId).devices(),
-          { headers: { "cache-control": "no-store" } },
-        );
-      } catch (error) {
-        log("error", "owner_devices_failed", {
-          requestId,
-          message: error instanceof Error ? error.message : String(error),
-        });
-        return Response.json(
-          {
-            protocol: PLACEMENT_PROTOCOL,
-            error: "Stella can't list your computers right now.",
-          },
-          { status: 503, headers: { "cache-control": "no-store" } },
-        );
+      const parsed = parseCloudAgentTurnStartRequest(payload);
+      if (!parsed.ok) return json({ error: parsed.message }, 400);
+      if (parsed.request.threadId !== buildSessionName) {
+        return json({ error: "threadId must match the session in the path." }, 400);
       }
     }
-    // Placement. `POST` accepts the service secret as well as a user JWT, so
-    // it sits here with the other self-authenticating routes rather than
-    // behind the shared-secret gate below.
-    if (request.method === "POST" && url.pathname === DISPATCH_SUBMIT_PATH) {
-      return await handleDispatchSubmitRoute(request, env, requestId);
-    }
-    // Dispatch ids carry a colon (`dsp:<uuid>`), and every client builds this
-    // path with `encodeURIComponent`, so the segment arrives as `dsp%3A…`.
-    // The class admits the escape and the handler decodes it; a pattern that
-    // rejected `%` let every status poll fall through to the service gate.
-    const dispatchMatch = url.pathname.match(
-      /^\/owners\/me\/dispatches\/([A-Za-z0-9._:~%-]{1,96})(\/cancel)?$/,
-    );
-    if (dispatchMatch) {
-      const cancel = Boolean(dispatchMatch[2]);
-      if (cancel ? request.method !== "POST" : request.method !== "GET") {
-        return json({ error: "Method not allowed." }, 405);
-      }
-      return await handleDispatchControlRoute(
-        request,
-        env,
-        decodeURIComponent(dispatchMatch[1]!),
-        cancel ? "cancel" : "status",
-        requestId,
-      );
-    }
-    const socketMatch = url.pathname.match(
-      /^\/conversations\/([^/]+)\/socket$/,
-    );
-    if (socketMatch) {
-      const conversationId = conversationName(socketMatch[1]!);
-      if (request.method !== "GET" || !isWebSocketUpgrade(request)) {
-        return json({ error: "This endpoint speaks WebSocket only." }, 426);
-      }
-      const auth = await authenticateConversationCaller(
-        request,
-        env,
-        true,
-        requestId,
-      );
-      if (!auth.ok) return auth.response;
-      return await forwardToConversation(
-        request,
-        env,
-        conversationId,
-        "/socket",
-        auth.caller,
-      );
-    }
-    const turnStartMatch = url.pathname.match(
-      /^\/conversations\/([^/]+)\/turns$/,
-    );
-    if (request.method === "POST" && turnStartMatch) {
-      return await handleTurnStartRoute(
-        request,
-        env,
-        turnStartMatch[1]!,
-        requestId,
-      );
-    }
-    const historyMatch = url.pathname.match(
-      /^\/conversations\/([^/]+)\/history$/,
-    );
-    if (request.method === "GET" && historyMatch) {
-      const auth = await authenticateConversationCaller(
-        request,
-        env,
-        false,
-        requestId,
-      );
-      if (!auth.ok) return auth.response;
-      return await forwardToConversation(
-        request,
-        env,
-        conversationName(historyMatch[1]!),
-        "/history",
-        auth.caller,
-      );
-    }
-    const historyQueryMatch = url.pathname.match(
-      /^\/conversations\/([^/]+)\/history\/query$/,
-    );
-    if (request.method === "POST" && historyQueryMatch) {
-      const auth = await authenticateConversationCaller(
-        request,
-        env,
-        false,
-        requestId,
-      );
-      if (!auth.ok) return auth.response;
-      const bodyLimit = publicJsonBodyLimit(request.method, url.pathname)!;
-      const bounded = await boundedIngressRequest(request, bodyLimit);
-      if (bounded instanceof Response) return bounded;
-      return await forwardToConversation(
-        bounded,
-        env,
-        conversationName(historyQueryMatch[1]!),
-        "/history/query",
-        auth.caller,
-      );
-    }
-    const journalAppendMatch = url.pathname.match(
-      /^\/conversations\/([^/]+)\/journal$/,
-    );
-    if (request.method === "POST" && journalAppendMatch) {
-      const auth = await authenticateConversationCaller(
-        request,
-        env,
-        false,
-        requestId,
-      );
-      if (!auth.ok) return auth.response;
-      const bodyLimit = publicJsonBodyLimit(request.method, url.pathname)!;
-      const bounded = await boundedIngressRequest(request, bodyLimit);
-      if (bounded instanceof Response) return bounded;
-      return await forwardToConversation(
-        bounded,
-        env,
-        conversationName(journalAppendMatch[1]!),
-        "/journal",
-        auth.caller,
-      );
-    }
-    const localTurnMatch = url.pathname.match(
-      /^\/conversations\/([^/]+)\/local-turns\/(begin|finish)$/,
-    );
-    if (request.method === "POST" && localTurnMatch) {
-      const timingStartedAt = performance.now();
-      const auth = await authenticateConversationCaller(
-        request,
-        env,
-        false,
-        requestId,
-      );
-      if (!auth.ok) return auth.response;
-      const authMs = Math.round(performance.now() - timingStartedAt);
-      const bodyLimit = publicJsonBodyLimit(request.method, url.pathname)!;
-      const bounded = await boundedIngressRequest(request, bodyLimit);
-      if (bounded instanceof Response) return bounded;
-      const forwardStartedAt = performance.now();
-      const response = await forwardToConversation(
-        bounded,
-        env,
-        conversationName(localTurnMatch[1]!),
-        `/local-turns/${localTurnMatch[2]!}`,
-        auth.caller,
-      );
-      log("info", "conversation_local_turn_request_timing", {
-        requestId,
-        operation: localTurnMatch[2]!,
-        status: response.status,
-        authMs,
-        durableObjectMs: Math.round(performance.now() - forwardStartedAt),
-        totalMs: Math.round(performance.now() - timingStartedAt),
-      });
-      return response;
-    }
-    if (url.pathname.startsWith("/cloud-home/")) {
-      const auth = await authenticateConversationCaller(
-        request,
-        env,
-        false,
-        requestId,
-      );
-      if (!auth.ok) return auth.response;
-      const response = await handleUserCloudHomeRoute({
-        request,
-        env,
-        ownerId: auth.caller.ownerId,
-        // `ownerId` is the JWT `sub`; the raw JWT `sub` is
-        // deliberately insufficient for a cross-issuer session fence.
-        subject: auth.caller.ownerId,
-        withLease: cloudHomeLeaseRunner(env),
-      });
-      if (response) return response;
-    }
-
-    // ── Service-secret gate ───────────────────────────────────────────────
-    // Sandbox-originated broker calls authenticate with their one-time
-    // capability inside the exact BuildSession. They intentionally sit above
-    // the service-secret gate; no other route shares this exception.
-    const publicTurnBrokerMatch = url.pathname.match(
-      /^\/sessions\/([A-Za-z0-9._~-]{1,128})\/turn-broker$/,
-    );
-    if (publicTurnBrokerMatch) {
-      const brokerSessionId = publicTurnBrokerMatch[1]!;
-      const response = await env.BUILD_SESSIONS.getByName(
-        brokerSessionId,
-      ).fetch(new Request("https://build-session/turn-broker", request));
-      if (devAcceptanceProbesEnabled(env)) {
-        const diagnosticTarget = validateTurnBrokerTarget(
-          request.headers.get(TURN_BROKER_HEADERS.targetMethod),
-          request.headers.get(TURN_BROKER_HEADERS.targetPath),
-        );
-        // The outer Worker sees only the broker's already-scrubbed response.
-        // Record an allowlisted target kind and numeric status for preview
-        // acceptance without reading token-bearing data or the response body.
-        log("info", "turn_broker_public_response", {
-          threadId: brokerSessionId,
-          targetKind: diagnosticTarget?.kind ?? "rejected",
-          status: response.status,
-        });
-      }
-      return response;
-    }
-    // Everything past this check is server-to-server. Nothing may fall
-    // through it without another explicit authentication boundary.
-    if (
-      !(await verifyServiceBearerRequest(request, env.BUILDER_SERVICE_SECRET))
-    ) {
-      return json({ error: "Unauthorized." }, 401);
-    }
-    const serviceBodyLimit = serviceJsonBodyLimit(request.method, url.pathname);
-    if (serviceBodyLimit !== null) {
-      const bounded = await boundedIngressRequest(request, serviceBodyLimit);
-      if (bounded instanceof Response) return bounded;
-      request = bounded;
-    }
-    const turnMatch = url.pathname.match(/^\/sessions\/([^/]+)\/turns$/);
-    if (request.method === "POST" && turnMatch) {
-      const buildSessionName = turnMatch[1]!;
-      if (!/^[A-Za-z0-9._~-]{1,128}$/.test(buildSessionName)) {
-        return json({ error: "Invalid build session name." }, 400);
-      }
-      const turnBrokerEndpoint = new URL(
-        `/sessions/${encodeURIComponent(buildSessionName)}/turn-broker`,
-        url.origin,
-      ).toString();
-      const previewBaseUrl = new URL(
-        `/internal/previews/${encodeURIComponent(buildSessionName)}/`,
-        url.origin,
-      ).toString();
-      const text = await request.text();
-      // The desktop dispatch, execution placement's agent branch and a
-      // hosted-browser resume all arrive here. Refuse a malformed agent body
-      // at the edge rather than instantiating the session for it; the session
-      // repeats the same parse, because it trusts nothing it did not check.
-      let payload: unknown;
-      try {
-        payload = JSON.parse(text);
-      } catch {
-        return json({ error: "Malformed JSON request." }, 400);
-      }
-      if (
-        payload &&
-        typeof payload === "object" &&
-        !Array.isArray(payload) &&
-        (payload as { kind?: unknown }).kind === "agent"
-      ) {
-        const parsed = parseCloudAgentTurnStartRequest(payload);
-        if (!parsed.ok) return json({ error: parsed.message }, 400);
-        if (parsed.request.threadId !== buildSessionName) {
-          return json(
-            { error: "threadId must match the session in the path." },
-            400,
-          );
-        }
-      }
-      // Built from scratch: nothing the caller sent may reach the session
-      // under a trusted name, including the orchestrator's gate-admitted
-      // marker — a turn that comes through this route is admitted there.
-      return env.BUILD_SESSIONS.getByName(buildSessionName).fetch(
-        "https://build-session/turn",
-        {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            [HEADER_BUILD_SESSION_NAME]: buildSessionName,
-            [HEADER_TURN_BROKER_ENDPOINT]: turnBrokerEndpoint,
-            [HEADER_PREVIEW_BASE_URL]: previewBaseUrl,
-          },
-          body: text,
-        },
-      );
-    }
-    const chatCancelMatch = url.pathname.match(
-      /^\/conversations\/([^/]+)\/cancel$/,
-    );
-    if (request.method === "POST" && chatCancelMatch) {
-      return env.ORCHESTRATOR_SESSIONS.getByName(
-        conversationName(chatCancelMatch[1]!),
-      ).fetch("https://orchestrator-session/cancel", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        // Exact placement turn + cancellation identity must survive the
-        // gateway. Dropping this body regresses to conversation-wide Stop and
-        // can cancel a newer turn after a delayed retry.
-        body: await request.text(),
-      });
-    }
-    const devAcceptanceProbeMatch = url.pathname.match(
-      /^\/internal\/dev-acceptance\/conversations\/([^/]+)\/probe$/,
-    );
-    if (request.method === "POST" && devAcceptanceProbeMatch) {
-      // Hide the route entirely unless this exact deployment was built as a
-      // non-production acceptance target. The DO repeats this gate and checks
-      // the disposable owner/conversation markers before any side effect.
-      if (!devAcceptanceProbesEnabled(env)) {
-        return json({ error: "Not found." }, 404);
-      }
-      return env.ORCHESTRATOR_SESSIONS.getByName(
-        conversationName(devAcceptanceProbeMatch[1]!),
-      ).fetch("https://orchestrator-session/internal/dev-acceptance/probe", {
+    // Built from scratch: nothing the caller sent may reach the session under
+    // a trusted name, including the orchestrator's gate-admitted marker — a
+    // turn that comes through this route is admitted there.
+    return c.env.BUILD_SESSIONS.getByName(buildSessionName).fetch(
+      "https://build-session/turn",
+      {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "x-stella-acceptance-service-secret": env.BUILDER_SERVICE_SECRET,
+          [HEADER_BUILD_SESSION_NAME]: buildSessionName,
+          [HEADER_TURN_BROKER_ENDPOINT]: turnBrokerEndpoint,
+          [HEADER_PREVIEW_BASE_URL]: previewBaseUrl,
         },
-        body: await request.text(),
-      });
-    }
-    // The journal probe reads the canonical journal exactly the way a client
-    // does, including through R2 segments.
-    const journalProbeMatch = url.pathname.match(
-      /^\/conversations\/([^/]+)\/journal$/,
+        body: text,
+      },
     );
-    if (request.method === "GET" && journalProbeMatch) {
-      const probe = new URL("https://orchestrator-session/journal");
-      probe.search = url.search;
-      return env.ORCHESTRATOR_SESSIONS.getByName(
-        conversationName(journalProbeMatch[1]!),
-      ).fetch(probe.toString(), { method: "GET" });
-    }
-    const steerMatch = url.pathname.match(/^\/sessions\/([^/]+)\/steer$/);
-    if (request.method === "POST" && steerMatch) {
-      return env.BUILD_SESSIONS.getByName(steerMatch[1]!).fetch(
-        "https://build-session/steer",
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: await request.text(),
-        },
-      );
-    }
-    const cancelMatch = url.pathname.match(/^\/sessions\/([^/]+)\/cancel$/);
-    if (request.method === "POST" && cancelMatch) {
-      return env.BUILD_SESSIONS.getByName(cancelMatch[1]!).fetch(
-        "https://build-session/cancel",
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: await request.text(),
-        },
-      );
-    }
-    // Operator surface for a thread stuck "running": expire its watchdog now.
-    // The DO interrupts a hung local fiber and re-arms its alarm so the
-    // ordinary timeout path delivers the terminal
-    // while the container's teardown stays alarm-owned debt.
-    const expireMatch = url.pathname.match(/^\/sessions\/([^/]+)\/expire$/);
-    if (request.method === "POST" && expireMatch) {
-      return env.BUILD_SESSIONS.getByName(expireMatch[1]!).fetch(
-        "https://build-session/expire-agent-turn",
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: await request.text(),
-        },
-      );
-    }
-    // Operator surface for a container the inventory says is live but no
-    // Durable Object still owns. Wrangler cannot stop one instance and only the
-    // sandbox object holds the container handle, so retirement is a keep-alive
-    // release plus destroy on the exact tuple, by name.
-    if (
-      request.method === "POST" &&
-      url.pathname === "/internal/sandboxes/retire"
-    ) {
-      return await retireSandboxInstance(env, request);
-    }
-    return json({ error: "Not found." }, 404);
   },
-} satisfies ExportedHandler<Env>;
+);
+app.post("/sessions/:sessionId/turns", () =>
+  json({ error: "Invalid build session name." }, 400),
+);
+// Exact placement turn + cancellation identity must survive the gateway.
+// Dropping this body regresses to conversation-wide Stop and can cancel a
+// newer turn after a delayed retry.
+app.post("/conversations/:id/cancel", jsonBody(tinyControl), (c) =>
+  forwardBody(
+    c.env.ORCHESTRATOR_SESSIONS.getByName(c.req.param("id")),
+    "https://orchestrator-session/cancel",
+    c.req.raw,
+  ),
+);
+app.post(
+  "/internal/dev-acceptance/conversations/:id/probe",
+  jsonBody(tinyControl),
+  (c) => {
+    // Hidden unless this exact deployment was built as a non-production
+    // acceptance target. The DO repeats this gate and checks the disposable
+    // owner/conversation markers before any side effect.
+    if (!devAcceptanceProbesEnabled(c.env)) return json({ error: "Not found." }, 404);
+    return forwardBody(
+      c.env.ORCHESTRATOR_SESSIONS.getByName(c.req.param("id")),
+      "https://orchestrator-session/internal/dev-acceptance/probe",
+      c.req.raw,
+      { "x-stella-acceptance-service-secret": c.env.BUILDER_SERVICE_SECRET },
+    );
+  },
+);
+// The journal probe reads the canonical journal exactly the way a client
+// does, including through R2 segments.
+app.get("/conversations/:id/journal", (c) => {
+  const probe = new URL("https://orchestrator-session/journal");
+  probe.search = new URL(c.req.url).search;
+  return c.env.ORCHESTRATOR_SESSIONS.getByName(c.req.param("id")).fetch(
+    probe.toString(),
+    { method: "GET" },
+  );
+});
+app.post("/sessions/:sessionId/steer", jsonBody(tinyControl), (c) =>
+  forwardBody(
+    c.env.BUILD_SESSIONS.getByName(c.req.param("sessionId")),
+    "https://build-session/steer",
+    c.req.raw,
+  ),
+);
+app.post("/sessions/:sessionId/cancel", jsonBody(tinyControl), (c) =>
+  forwardBody(
+    c.env.BUILD_SESSIONS.getByName(c.req.param("sessionId")),
+    "https://build-session/cancel",
+    c.req.raw,
+  ),
+);
+// Operator surface for a thread stuck "running": expire its watchdog now.
+// The DO interrupts a hung local fiber and re-arms its alarm so the ordinary
+// timeout path delivers the terminal while the container's teardown stays
+// alarm-owned debt.
+app.post("/sessions/:sessionId/expire", jsonBody(tinyControl), (c) =>
+  forwardBody(
+    c.env.BUILD_SESSIONS.getByName(c.req.param("sessionId")),
+    "https://build-session/expire-agent-turn",
+    c.req.raw,
+  ),
+);
+// Operator surface for a container the inventory says is live but no Durable
+// Object still owns. Wrangler cannot stop one instance and only the sandbox
+// object holds the container handle, so retirement is a keep-alive release
+// plus destroy on the exact tuple, by name.
+app.post("/internal/sandboxes/retire", jsonBody(tinyControl), (c) =>
+  retireSandboxInstance(c.env, c.req.raw),
+);
+
+app.notFound(() => json({ error: "Not found." }, 404));
+// Uncaught errors leave the Worker as they always have, so the runtime's
+// exception reporting still sees them.
+app.onError((error) => {
+  throw error;
+});
 
 export const worker = {
-  ...router,
   fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    return withBrowserCors(request, () => router.fetch(request, env, ctx));
+    return withBrowserCors(request, async () => await app.fetch(request, env, ctx));
   },
   async scheduled(controller, env, ctx) {
     const { runScheduled } = await import("../cron.js");

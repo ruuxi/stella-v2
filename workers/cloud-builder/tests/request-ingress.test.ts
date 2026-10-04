@@ -1,11 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { BoundedBodyError } from "../src/bounded-body.js";
 import {
-  CLOUD_BUILDER_BODY_LIMITS,
   boundedBodyStatus,
   bufferBoundedJsonRequest,
-  publicJsonBodyLimit,
-  serviceJsonBodyLimit,
 } from "../src/request-ingress.js";
 
 const chunkedJsonRequest = (chunks: string[]): Request => {
@@ -23,32 +20,6 @@ const chunkedJsonRequest = (chunks: string[]): Request => {
 };
 
 describe("Cloud Builder request ingress", () => {
-  test("assigns product-shaped limits and leaves unknown routes unconsumed", () => {
-    expect(
-      publicJsonBodyLimit(
-        "POST",
-        "/conversations/conversation-1/local-turns/begin",
-      ),
-    ).toBe(CLOUD_BUILDER_BODY_LIMITS.localTurnBegin);
-    expect(
-      publicJsonBodyLimit("POST", "/conversations/conversation-1/journal"),
-    ).toBe(CLOUD_BUILDER_BODY_LIMITS.conversationAppend);
-    expect(serviceJsonBodyLimit("POST", "/sessions/thread-1/turns")).toBe(
-      CLOUD_BUILDER_BODY_LIMITS.turn,
-    );
-    // Turn starts carry a user JWT or the service secret; the route owns
-    // its own bounded read, so the service ingress table must not claim it.
-    expect(
-      publicJsonBodyLimit("POST", "/conversations/conversation-1/turns"),
-    ).toBe(CLOUD_BUILDER_BODY_LIMITS.turn);
-    expect(
-      serviceJsonBodyLimit("POST", "/conversations/conversation-1/turns"),
-    ).toBeNull();
-    expect(serviceJsonBodyLimit("POST", "/not-a-route")).toBeNull();
-    expect(serviceJsonBodyLimit("POST", "/m0/echo")).toBeNull();
-    expect(CLOUD_BUILDER_BODY_LIMITS.localTurnBegin).toBe(8 * 1024 * 1024);
-  });
-
   test("accepts valid chunked JSON and preserves its exact text", async () => {
     const bounded = await bufferBoundedJsonRequest(
       chunkedJsonRequest(['{"hello":', '"world"}']),
@@ -88,22 +59,5 @@ describe("Cloud Builder request ingress", () => {
       "invalid_content_length",
     );
     expect(boundedBodyStatus(invalidLength)).toBe(400);
-  });
-});
-
-describe("operator lifecycle routes carry a tiny control body", () => {
-  test("bounds the expire and sandbox-retire routes", () => {
-    expect(serviceJsonBodyLimit("POST", "/sessions/thread-1/steer")).toBe(
-      CLOUD_BUILDER_BODY_LIMITS.tinyControl,
-    );
-    expect(serviceJsonBodyLimit("POST", "/sessions/thread-1/expire")).toBe(
-      CLOUD_BUILDER_BODY_LIMITS.tinyControl,
-    );
-    expect(serviceJsonBodyLimit("POST", "/internal/sandboxes/retire")).toBe(
-      CLOUD_BUILDER_BODY_LIMITS.tinyControl,
-    );
-    expect(
-      serviceJsonBodyLimit("GET", "/internal/sandboxes/retire"),
-    ).toBeNull();
   });
 });

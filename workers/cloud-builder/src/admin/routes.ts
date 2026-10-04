@@ -252,9 +252,11 @@ const testAccountSession = async (request: Request, env: AdminEnv): Promise<Resp
   const token = Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) =>
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".charAt(byte % 52),
   ).join("");
+  // Better Auth 1.7's magic-link record: a `magic-link:`-prefixed identifier
+  // (tokens are stored plain) and a typed value.
   await context.internalAdapter.createVerificationValue({
-    identifier: token,
-    value: JSON.stringify({ email, name: "" }),
+    identifier: `magic-link:${token}`,
+    value: JSON.stringify({ type: "magic-link", email, name: "" }),
     expiresAt: new Date(Date.now() + 5 * 60_000),
   });
   const verified = await auth.api.magicLinkVerify({ query: { token }, headers: new Headers(), returnHeaders: true });

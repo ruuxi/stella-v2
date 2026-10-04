@@ -1,11 +1,17 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { clipboard, ipcMain, nativeImage, } from "electron";
+import { clipboard, ClipboardItem, ipcMain, nativeImage, } from "electron";
 import { getBrowserCookieHeader } from "./browser-fetch-session.js";
 import { normalizeUrlForPrivilegedRendererFetch, PRIVILEGED_RENDERER_FETCH_TIMEOUT_MS, } from "./renderer-safe-url.js";
 import { IPC_BROWSER_FETCH_JSON, IPC_BROWSER_FETCH_TEXT, IPC_MEDIA_COPY_ATTACHMENT, IPC_MEDIA_COPY_IMAGE, IPC_MEDIA_GET_DIR, IPC_MEDIA_SAVE_OUTPUT, } from "@stella/contracts/desktop/ipc-channels";
 import { decodeAndValidateImage, decodeBase64ImageBounded, readResponseBodyBounded, validateDecodedImageFile, } from "@stella/runtime/kernel/tools/image-decode-validation";
 import { materializeMediaArtifact } from "@stella/runtime/kernel/tools/media-artifact-store";
+// Electron 44's clipboard takes W3C-style ClipboardItems; images go on as PNG.
+const writeImageToClipboard = (image) => clipboard.write([
+    new ClipboardItem({
+        "image/png": new Blob([image.toPNG()], { type: "image/png" }),
+    }),
+]);
 const fetchWithBrowserSession = async (payload) => {
     const url = await normalizeUrlForPrivilegedRendererFetch(payload.url);
     const cookieHeader = await getBrowserCookieHeader(url);
@@ -242,7 +248,7 @@ export const registerBrowserHandlers = (options) => {
             if (image.isEmpty()) {
                 return { ok: false, error: "Could not read image." };
             }
-            clipboard.writeImage(image);
+            await writeImageToClipboard(image);
             return { ok: true };
         }
         catch (error) {
@@ -284,12 +290,12 @@ export const registerBrowserHandlers = (options) => {
                     image = nativeImage.createFromDataURL(dataUrl);
                 }
                 if (image && !image.isEmpty()) {
-                    clipboard.writeImage(image);
+                    await writeImageToClipboard(image);
                     return { ok: true, mode: "image" };
                 }
             }
             if (filePath) {
-                clipboard.writeText(filePath);
+                await clipboard.writeText(filePath);
                 return { ok: true, mode: "path" };
             }
             return { ok: false, error: "No copyable attachment content." };

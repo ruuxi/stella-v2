@@ -2278,6 +2278,36 @@
     "sidebar": {
       "searchPlaceholder": "Hledat v aktivitě a souborech",
       "signedOutHint": "Přihlaste se a zjistěte, na čem Stella pracuje na pozadí."
+    },
+    "engineAccounts": {
+      "settingsRowTitle": "Claude a ChatGPT",
+      "settingsRowBody": "Účty pro chat a agenty v cloudu",
+      "openSettingsLabel": "Otevřít účty Claude a ChatGPT",
+      "title": "Claude a ChatGPT",
+      "subtitle": "Účty pro chat a agenty v cloudu",
+      "backLabel": "Zpět do Nastavení",
+      "claudeSection": "Claude",
+      "chatgptSection": "ChatGPT",
+      "addAccount": "Přidat účet",
+      "active": "Používá se",
+      "useAccount": "Použít tento účet",
+      "signOut": "Odhlásit se",
+      "moreLabel": "Možnosti pro {name}",
+      "signOutTitle": "Odhlásit se z {name}?",
+      "signOutBody": "Stella přestane tento účet používat. Kdykoli ho můžete znovu přidat.",
+      "limitReached": "Limit dosažen · obnoví se {time}",
+      "autoSwitchLabel": "Při dosažení limitu přepnout účet",
+      "autoSwitchClaude": "Když používaný účet dosáhne 5hodinového nebo týdenního limitu, Stella přepne na další, dokud se limit neobnoví.",
+      "autoSwitchChatgpt": "Když používaný účet dosáhne limitu využití Codexu, Stella přepne na další, dokud se limit neobnoví.",
+      "pasteHintClaude": "Po udělení přístupu Claude zobrazí kód. Zkopírujte ho a vložte sem.",
+      "pasteHintChatgpt": "Po schválení se stránka nenačte. Zkopírujte adresu této stránky (Sdílet › Kopírovat) a vložte ji sem.",
+      "pastePlaceholder": "Kód nebo URL",
+      "pasteFromClipboard": "Vložit",
+      "finish": "Připojit",
+      "connecting": "Připojování…",
+      "errorTitle": "Účty se nepodařilo aktualizovat",
+      "errorBody": "Něco se pokazilo. Zkuste to znovu.",
+      "localNote": "Tyto účty se používají v cloudu. Na vašem počítači Stella používá účty nastavené v desktopové aplikaci."
     }
   },
   "companion": {

@@ -2279,6 +2279,36 @@
     "sidebar": {
       "searchPlaceholder": "Szukaj w aktywności i plikach",
       "signedOutHint": "Zaloguj się, aby zobaczyć, nad czym Stella pracuje w tle."
+    },
+    "engineAccounts": {
+      "settingsRowTitle": "Claude i ChatGPT",
+      "settingsRowBody": "Konta do czatu i agentów w chmurze",
+      "openSettingsLabel": "Otwórz konta Claude i ChatGPT",
+      "title": "Claude i ChatGPT",
+      "subtitle": "Konta do czatu i agentów w chmurze",
+      "backLabel": "Wróć do Ustawień",
+      "claudeSection": "Claude",
+      "chatgptSection": "ChatGPT",
+      "addAccount": "Dodaj konto",
+      "active": "W użyciu",
+      "useAccount": "Użyj tego konta",
+      "signOut": "Wyloguj się",
+      "moreLabel": "Opcje dla {name}",
+      "signOutTitle": "Wylogować się z {name}?",
+      "signOutBody": "Stella przestanie używać tego konta. Możesz dodać je ponownie w każdej chwili.",
+      "limitReached": "Limit osiągnięty · reset {time}",
+      "autoSwitchLabel": "Zmieniaj konto po osiągnięciu limitu",
+      "autoSwitchClaude": "Gdy używane konto osiągnie limit 5-godzinny lub tygodniowy, Stella przełączy się na następne do czasu resetu.",
+      "autoSwitchChatgpt": "Gdy używane konto osiągnie limit użycia Codex, Stella przełączy się na następne do czasu resetu.",
+      "pasteHintClaude": "Po udzieleniu dostępu Claude pokaże kod. Skopiuj go i wklej tutaj.",
+      "pasteHintChatgpt": "Po zatwierdzeniu strona się nie załaduje. Skopiuj adres tej strony (Udostępnij › Kopiuj) i wklej go tutaj.",
+      "pastePlaceholder": "Kod lub URL",
+      "pasteFromClipboard": "Wklej",
+      "finish": "Połącz",
+      "connecting": "Łączenie…",
+      "errorTitle": "Nie udało się zaktualizować kont",
+      "errorBody": "Coś poszło nie tak. Spróbuj ponownie.",
+      "localNote": "Te konta są używane w chmurze. Na komputerze Stella używa kont skonfigurowanych w aplikacji na komputer."
     }
   },
   "companion": {

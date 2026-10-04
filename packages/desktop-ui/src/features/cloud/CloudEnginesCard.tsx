@@ -4,10 +4,14 @@ import type {
   AgentModelReasoningEffort,
   CloudExecutionSelection,
 } from "@stella/contracts/agent-engine";
-import type { EngineProvider } from "@stella/contracts/backend/engines";
+import type {
+  EngineProvider,
+  EngineSettings,
+} from "@stella/contracts/backend/engines";
 import { Button } from "@/ui/button";
 import { showToast } from "@/ui/toast";
 import { cloudEnginesApi, useCloudEngines } from "./cloud-engines-api";
+import { EngineAccountList, type EngineAccountRow } from "./EngineAccountList";
 import { publishCloudExecutionSelection } from "./cloud-execution-store";
 
 /**
@@ -30,6 +34,7 @@ type ProviderMeta = {
   provider: EngineProvider;
   name: string;
   pasteHint: string;
+  autoSwitchDescription: string;
 };
 
 const PROVIDERS: ProviderMeta[] = [
@@ -37,141 +42,145 @@ const PROVIDERS: ProviderMeta[] = [
     provider: "anthropic",
     name: "Claude (Pro/Max)",
     pasteHint: "Paste the code shown after you approve access",
+    autoSwitchDescription:
+      "When the checked account reaches its 5-hour or weekly limit, move to the next account until it resets.",
   },
   {
     provider: "openai-codex",
     name: "ChatGPT",
     pasteHint:
       "After approving, the browser opens a localhost page that won't load — paste that page's full URL here",
+    autoSwitchDescription:
+      "When the checked account reaches its Codex usage limit, move to the next account until it resets.",
   },
 ];
 
-function EngineConnectRow({
+function EngineProviderAccounts({
   meta,
-  connected,
+  settings,
   refreshing,
 }: {
   meta: ProviderMeta;
-  connected: boolean;
+  settings: EngineSettings | undefined;
   refreshing: boolean;
 }) {
   const [connectId, setConnectId] = useState<string | null>(null);
   const [pasted, setPasted] = useState("");
   const [busy, setBusy] = useState(false);
+  const accounts: EngineAccountRow[] = (settings?.connections ?? [])
+    .filter((row) => row.provider === meta.provider)
+    .map((row) => ({
+      id: row.accountId,
+      label: row.label,
+      ...(row.email ? { email: row.email } : {}),
+      ...(row.plan ? { plan: row.plan } : {}),
+      active: row.active,
+      ...(row.limitedUntil ? { limitedUntil: row.limitedUntil } : {}),
+    }));
 
-  const handleStart = useCallback(async () => {
+  const run = useCallback(async (action: () => Promise<unknown>, done?: string) => {
     setBusy(true);
     try {
-      const result = await cloudEnginesApi.startConnect(meta.provider);
-      setConnectId(result.connectId);
-      window.open(result.authorizeUrl, "_blank", "noopener");
+      await action();
+      if (done) showToast({ title: done });
     } catch (error) {
       showToast({ title: friendlyError(error), variant: "error" });
     } finally {
       setBusy(false);
     }
-  }, [meta.provider]);
+  }, []);
+
+  const handleStart = useCallback(
+    () =>
+      run(async () => {
+        const result = await cloudEnginesApi.startConnect(meta.provider);
+        setConnectId(result.connectId);
+        window.open(result.authorizeUrl, "_blank", "noopener");
+      }),
+    [meta.provider, run],
+  );
 
   const handleFinish = useCallback(async () => {
     if (!connectId || !pasted.trim()) return;
-    setBusy(true);
-    try {
+    await run(async () => {
       await cloudEnginesApi.finishConnect(connectId, pasted.trim());
       setConnectId(null);
       setPasted("");
-      showToast({ title: `${meta.name} connected.` });
-    } catch (error) {
-      showToast({ title: friendlyError(error), variant: "error" });
-    } finally {
-      setBusy(false);
-    }
-  }, [connectId, meta.name, pasted]);
-
-  const handleDisconnect = useCallback(async () => {
-    setBusy(true);
-    try {
-      await cloudEnginesApi.disconnect(meta.provider);
-      showToast({ title: `${meta.name} disconnected.` });
-    } catch (error) {
-      showToast({ title: friendlyError(error), variant: "error" });
-    } finally {
-      setBusy(false);
-    }
-  }, [meta.name, meta.provider]);
+    }, `${meta.name} account connected.`);
+  }, [connectId, meta.name, pasted, run]);
 
   return (
-    <>
-      <div className="settings-row">
-        <div className="settings-row-info">
-          <div className="settings-row-label">{meta.name}</div>
-          <div className="settings-row-sublabel">
-            {connected
-              ? "Connected — can power cloud chat and agents."
-              : "Use your subscription for cloud turns. Sign-in stays with the provider; Stella stores only an encrypted token."}
+    <EngineAccountList
+      title={meta.name}
+      description={
+        accounts.length > 0
+          ? "Powers cloud chat and agents. The checked account is used."
+          : "Use your subscription for cloud turns. Sign-in stays with the provider; Stella stores only an encrypted token."
+      }
+      accounts={accounts}
+      autoSwitch={settings?.autoSwitch?.[meta.provider] ?? false}
+      autoSwitchDescription={meta.autoSwitchDescription}
+      busy={busy || refreshing}
+      adding={connectId !== null}
+      addLabel="Add account"
+      onAdd={() => void handleStart()}
+      onUse={(accountId) =>
+        void run(() => cloudEnginesApi.setActiveAccount(meta.provider, accountId))
+      }
+      onSignOut={(accountId) =>
+        void run(
+          () => cloudEnginesApi.disconnect(meta.provider, accountId),
+          "Signed out.",
+        )
+      }
+      onToggleAutoSwitch={(enabled) =>
+        void run(() => cloudEnginesApi.setAutoSwitch(meta.provider, enabled))
+      }
+      addFlow={
+        connectId ? (
+          <div className="settings-row">
+            <div className="settings-row-info" style={{ flex: 1 }}>
+              <div className="settings-row-sublabel">{meta.pasteHint}</div>
+              <input
+                type="text"
+                value={pasted}
+                onChange={(event) => setPasted(event.target.value)}
+                placeholder="Paste the authorization code or URL"
+                autoComplete="off"
+                spellCheck={false}
+                style={{ width: "100%", marginTop: 6 }}
+              />
+            </div>
+            <div
+              className="settings-row-control"
+              style={{ display: "flex", gap: 6 }}
+            >
+              <Button
+                type="button"
+                variant="ghost"
+                className="pill-btn"
+                onClick={() => {
+                  setConnectId(null);
+                  setPasted("");
+                }}
+                disabled={busy}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                className="pill-btn"
+                onClick={() => void handleFinish()}
+                disabled={busy || !pasted.trim()}
+              >
+                {busy ? "Connecting…" : "Finish"}
+              </Button>
+            </div>
           </div>
-        </div>
-        <div className="settings-row-control">
-          {connected ? (
-            <Button
-              type="button"
-              variant="ghost"
-              className="pill-btn"
-              onClick={() => void handleDisconnect()}
-              disabled={busy || refreshing}
-            >
-              Disconnect
-            </Button>
-          ) : connectId ? (
-            <Button
-              type="button"
-              variant="ghost"
-              className="pill-btn"
-              onClick={() => setConnectId(null)}
-              disabled={busy}
-            >
-              Cancel
-            </Button>
-          ) : (
-            <Button
-              type="button"
-              variant="ghost"
-              className="pill-btn"
-              onClick={() => void handleStart()}
-              disabled={busy || refreshing}
-            >
-              Connect
-            </Button>
-          )}
-        </div>
-      </div>
-      {connectId && !connected ? (
-        <div className="settings-row">
-          <div className="settings-row-info" style={{ flex: 1 }}>
-            <div className="settings-row-sublabel">{meta.pasteHint}</div>
-            <input
-              type="text"
-              value={pasted}
-              onChange={(event) => setPasted(event.target.value)}
-              placeholder="Paste the authorization code or URL"
-              autoComplete="off"
-              spellCheck={false}
-              style={{ width: "100%", marginTop: 6 }}
-            />
-          </div>
-          <div className="settings-row-control">
-            <Button
-              type="button"
-              variant="ghost"
-              className="pill-btn"
-              onClick={() => void handleFinish()}
-              disabled={busy || !pasted.trim()}
-            >
-              {busy ? "Connecting…" : "Finish"}
-            </Button>
-          </div>
-        </div>
-      ) : null}
-    </>
+        ) : null
+      }
+    />
   );
 }
 
@@ -284,10 +293,10 @@ export function CloudEnginesCard() {
         </div>
       </div>
       {PROVIDERS.map((meta) => (
-        <EngineConnectRow
+        <EngineProviderAccounts
           key={meta.provider}
           meta={meta}
-          connected={connectedProviders.has(meta.provider)}
+          settings={connections}
           refreshing={connections === undefined}
         />
       ))}

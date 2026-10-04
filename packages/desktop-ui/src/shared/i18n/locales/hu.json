@@ -2239,6 +2239,36 @@
     "sidebar": {
       "searchPlaceholder": "Keresés a tevékenységben és a fájlokban",
       "signedOutHint": "Jelentkezz be, hogy lásd, min dolgozik Stella a háttérben."
+    },
+    "engineAccounts": {
+      "settingsRowTitle": "Claude és ChatGPT",
+      "settingsRowBody": "Fiókok a felhőbeli csevegéshez és ügynökökhöz",
+      "openSettingsLabel": "Claude- és ChatGPT-fiókok megnyitása",
+      "title": "Claude és ChatGPT",
+      "subtitle": "Fiókok a felhőbeli csevegéshez és ügynökökhöz",
+      "backLabel": "Vissza a Beállításokhoz",
+      "claudeSection": "Claude",
+      "chatgptSection": "ChatGPT",
+      "addAccount": "Fiók hozzáadása",
+      "active": "Használatban",
+      "useAccount": "Ennek a fióknak a használata",
+      "signOut": "Kijelentkezés",
+      "moreLabel": "{name} beállításai",
+      "signOutTitle": "Kijelentkezel innen: {name}?",
+      "signOutBody": "A Stella többé nem használja ezt a fiókot. Bármikor újra hozzáadhatod.",
+      "limitReached": "Korlát elérve · visszaáll: {time}",
+      "autoSwitchLabel": "Fiókváltás a korlát elérésekor",
+      "autoSwitchClaude": "Ha a használt fiók eléri az 5 órás vagy heti korlátját, a Stella a következőre vált, amíg a korlát vissza nem áll.",
+      "autoSwitchChatgpt": "Ha a használt fiók eléri a Codex használati korlátját, a Stella a következőre vált, amíg a korlát vissza nem áll.",
+      "pasteHintClaude": "A hozzáférés engedélyezése után a Claude megjelenít egy kódot. Másold ki, és illeszd be ide.",
+      "pasteHintChatgpt": "Az engedélyezés után az oldal nem töltődik be. Másold ki az oldal címét (Megosztás › Másolás), és illeszd be ide.",
+      "pastePlaceholder": "Kód vagy URL",
+      "pasteFromClipboard": "Beillesztés",
+      "finish": "Csatlakozás",
+      "connecting": "Csatlakozás…",
+      "errorTitle": "Nem sikerült frissíteni a fiókokat",
+      "errorBody": "Valami hiba történt. Próbáld újra.",
+      "localNote": "Ezeket a fiókokat a felhőben használjuk. A számítógépeden a Stella az asztali alkalmazásban beállított fiókokat használja."
     }
   },
   "companion": {

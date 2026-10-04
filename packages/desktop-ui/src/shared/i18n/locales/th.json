@@ -2216,6 +2216,36 @@
     "sidebar": {
       "searchPlaceholder": "ค้นหาในกิจกรรมและไฟล์",
       "signedOutHint": "ลงชื่อเข้าใช้เพื่อดูว่า Stella กำลังทำอะไรอยู่เบื้องหลัง"
+    },
+    "engineAccounts": {
+      "settingsRowTitle": "Claude และ ChatGPT",
+      "settingsRowBody": "บัญชีสำหรับแชตและเอเจนต์บนคลาวด์",
+      "openSettingsLabel": "เปิดบัญชี Claude และ ChatGPT",
+      "title": "Claude และ ChatGPT",
+      "subtitle": "บัญชีสำหรับแชตและเอเจนต์บนคลาวด์",
+      "backLabel": "กลับไปที่การตั้งค่า",
+      "claudeSection": "Claude",
+      "chatgptSection": "ChatGPT",
+      "addAccount": "เพิ่มบัญชี",
+      "active": "กำลังใช้",
+      "useAccount": "ใช้บัญชีนี้",
+      "signOut": "ออกจากระบบ",
+      "moreLabel": "ตัวเลือกสำหรับ {name}",
+      "signOutTitle": "ออกจากระบบ {name} ไหม",
+      "signOutBody": "Stella จะหยุดใช้บัญชีนี้ คุณเพิ่มบัญชีนี้กลับมาได้ทุกเมื่อ",
+      "limitReached": "ถึงขีดจำกัดแล้ว · รีเซ็ต {time}",
+      "autoSwitchLabel": "สลับบัญชีเมื่อถึงขีดจำกัด",
+      "autoSwitchClaude": "เมื่อบัญชีที่กำลังใช้ถึงขีดจำกัด 5 ชั่วโมงหรือรายสัปดาห์ Stella จะย้ายไปใช้บัญชีถัดไปจนกว่าจะรีเซ็ต",
+      "autoSwitchChatgpt": "เมื่อบัญชีที่กำลังใช้ถึงขีดจำกัดการใช้งาน Codex Stella จะย้ายไปใช้บัญชีถัดไปจนกว่าจะรีเซ็ต",
+      "pasteHintClaude": "หลังจากอนุญาตการเข้าถึง Claude จะแสดงรหัส คัดลอกแล้ววางที่นี่",
+      "pasteHintChatgpt": "หลังจากอนุมัติ หน้าเว็บจะโหลดไม่ขึ้น คัดลอกที่อยู่ของหน้านั้น (แชร์ › คัดลอก) แล้ววางที่นี่",
+      "pastePlaceholder": "รหัสหรือ URL",
+      "pasteFromClipboard": "วาง",
+      "finish": "เชื่อมต่อ",
+      "connecting": "กำลังเชื่อมต่อ…",
+      "errorTitle": "อัปเดตบัญชีไม่ได้",
+      "errorBody": "เกิดข้อผิดพลาด ลองอีกครั้ง",
+      "localNote": "บัญชีเหล่านี้ใช้บนคลาวด์ บนคอมพิวเตอร์ของคุณ Stella จะใช้บัญชีที่ตั้งค่าไว้ในแอปเดสก์ท็อป"
     }
   },
   "companion": {

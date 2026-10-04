@@ -17,8 +17,15 @@ export const cloudEnginesApi = {
     backendClient.call("engines.startConnect", { provider }),
   finishConnect: (connectId: string, pastedInput: string) =>
     backendClient.call("engines.finishConnect", { connectId, pastedInput }),
-  disconnect: (provider: EngineProvider) =>
-    backendClient.call("engines.disconnect", { provider }),
+  disconnect: (provider: EngineProvider, accountId?: string) =>
+    backendClient.call("engines.disconnect", {
+      provider,
+      ...(accountId ? { accountId } : {}),
+    }),
+  setActiveAccount: (provider: EngineProvider, accountId: string) =>
+    backendClient.call("engines.setActiveAccount", { provider, accountId }),
+  setAutoSwitch: (provider: EngineProvider, enabled: boolean) =>
+    backendClient.call("engines.setAutoSwitch", { provider, enabled }),
   setExecution: (execution: CloudExecutionSelection) =>
     backendClient.call("engines.setExecution", { execution }),
 };

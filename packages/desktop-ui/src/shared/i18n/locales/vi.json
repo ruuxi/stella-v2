@@ -2216,6 +2216,36 @@
     "sidebar": {
       "searchPlaceholder": "Tìm trong hoạt động và tệp",
       "signedOutHint": "Đăng nhập để xem Stella đang làm gì trong nền."
+    },
+    "engineAccounts": {
+      "settingsRowTitle": "Claude và ChatGPT",
+      "settingsRowBody": "Tài khoản cho trò chuyện và tác tử trên đám mây",
+      "openSettingsLabel": "Mở tài khoản Claude và ChatGPT",
+      "title": "Claude và ChatGPT",
+      "subtitle": "Tài khoản cho trò chuyện và tác tử trên đám mây",
+      "backLabel": "Quay lại Cài đặt",
+      "claudeSection": "Claude",
+      "chatgptSection": "ChatGPT",
+      "addAccount": "Thêm tài khoản",
+      "active": "Đang dùng",
+      "useAccount": "Dùng tài khoản này",
+      "signOut": "Đăng xuất",
+      "moreLabel": "Tùy chọn cho {name}",
+      "signOutTitle": "Đăng xuất khỏi {name}?",
+      "signOutBody": "Stella sẽ ngừng dùng tài khoản này. Bạn có thể thêm lại bất cứ lúc nào.",
+      "limitReached": "Đã đạt giới hạn · đặt lại lúc {time}",
+      "autoSwitchLabel": "Đổi tài khoản khi đạt giới hạn",
+      "autoSwitchClaude": "Khi tài khoản đang dùng đạt giới hạn 5 giờ hoặc hằng tuần, Stella chuyển sang tài khoản tiếp theo cho đến khi giới hạn được đặt lại.",
+      "autoSwitchChatgpt": "Khi tài khoản đang dùng đạt giới hạn sử dụng Codex, Stella chuyển sang tài khoản tiếp theo cho đến khi giới hạn được đặt lại.",
+      "pasteHintClaude": "Sau khi bạn cấp quyền, Claude sẽ hiện một mã. Sao chép và dán mã vào đây.",
+      "pasteHintChatgpt": "Sau khi bạn chấp thuận, trang sẽ không tải được. Sao chép địa chỉ của trang đó (Chia sẻ › Sao chép) và dán vào đây.",
+      "pastePlaceholder": "Mã hoặc URL",
+      "pasteFromClipboard": "Dán",
+      "finish": "Kết nối",
+      "connecting": "Đang kết nối…",
+      "errorTitle": "Không thể cập nhật tài khoản",
+      "errorBody": "Đã xảy ra lỗi. Hãy thử lại.",
+      "localNote": "Các tài khoản này được dùng trên đám mây. Trên máy tính của bạn, Stella dùng các tài khoản được thiết lập trong ứng dụng máy tính."
     }
   },
   "companion": {

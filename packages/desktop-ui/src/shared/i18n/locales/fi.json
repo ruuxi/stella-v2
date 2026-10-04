@@ -2239,6 +2239,36 @@
     "sidebar": {
       "searchPlaceholder": "Hae toiminnasta ja tiedostoista",
       "signedOutHint": "Kirjaudu sisään nähdäksesi, mitä Stella tekee taustalla."
+    },
+    "engineAccounts": {
+      "settingsRowTitle": "Claude ja ChatGPT",
+      "settingsRowBody": "Tilit pilvikeskusteluille ja agenteille",
+      "openSettingsLabel": "Avaa Claude- ja ChatGPT-tilit",
+      "title": "Claude ja ChatGPT",
+      "subtitle": "Tilit pilvikeskusteluille ja agenteille",
+      "backLabel": "Takaisin asetuksiin",
+      "claudeSection": "Claude",
+      "chatgptSection": "ChatGPT",
+      "addAccount": "Lisää tili",
+      "active": "Käytössä",
+      "useAccount": "Käytä tätä tiliä",
+      "signOut": "Kirjaudu ulos",
+      "moreLabel": "Tilin {name} valinnat",
+      "signOutTitle": "Kirjaudutaanko ulos tililtä {name}?",
+      "signOutBody": "Stella lakkaa käyttämästä tätä tiliä. Voit lisätä sen uudelleen milloin tahansa.",
+      "limitReached": "Raja saavutettu · nollautuu {time}",
+      "autoSwitchLabel": "Vaihda tiliä rajan täyttyessä",
+      "autoSwitchClaude": "Kun käytössä oleva tili saavuttaa 5 tunnin tai viikon rajansa, Stella siirtyy seuraavaan, kunnes raja nollautuu.",
+      "autoSwitchChatgpt": "Kun käytössä oleva tili saavuttaa Codexin käyttörajansa, Stella siirtyy seuraavaan, kunnes raja nollautuu.",
+      "pasteHintClaude": "Kun olet antanut käyttöoikeuden, Claude näyttää koodin. Kopioi se ja liitä se tähän.",
+      "pasteHintChatgpt": "Hyväksynnän jälkeen sivu ei lataudu. Kopioi sivun osoite (Jaa › Kopioi) ja liitä se tähän.",
+      "pastePlaceholder": "Koodi tai URL",
+      "pasteFromClipboard": "Liitä",
+      "finish": "Yhdistä",
+      "connecting": "Yhdistetään…",
+      "errorTitle": "Tilejä ei voitu päivittää",
+      "errorBody": "Jokin meni vikaan. Yritä uudelleen.",
+      "localNote": "Näitä tilejä käytetään pilvessä. Tietokoneellasi Stella käyttää työpöytäsovelluksessa määritettyjä tilejä."
     }
   },
   "companion": {

@@ -2318,6 +2318,36 @@
     "sidebar": {
       "searchPlaceholder": "البحث في النشاط والملفات",
       "signedOutHint": "سجّل الدخول لمعرفة ما تعمل عليه Stella في الخلفية."
+    },
+    "engineAccounts": {
+      "settingsRowTitle": "Claude وChatGPT",
+      "settingsRowBody": "حسابات للدردشة والوكلاء في السحابة",
+      "openSettingsLabel": "فتح حسابات Claude وChatGPT",
+      "title": "Claude وChatGPT",
+      "subtitle": "حسابات للدردشة والوكلاء في السحابة",
+      "backLabel": "العودة إلى الإعدادات",
+      "claudeSection": "Claude",
+      "chatgptSection": "ChatGPT",
+      "addAccount": "إضافة حساب",
+      "active": "قيد الاستخدام",
+      "useAccount": "استخدام هذا الحساب",
+      "signOut": "تسجيل الخروج",
+      "moreLabel": "خيارات {name}",
+      "signOutTitle": "هل تريد تسجيل الخروج من {name}؟",
+      "signOutBody": "ستتوقف Stella عن استخدام هذا الحساب. يمكنك إضافته مرة أخرى في أي وقت.",
+      "limitReached": "تم بلوغ الحد · يُعاد ضبطه {time}",
+      "autoSwitchLabel": "التبديل بين الحسابات عند بلوغ الحد",
+      "autoSwitchClaude": "عندما يبلغ الحساب المستخدم حد الخمس ساعات أو الحد الأسبوعي، تنتقل Stella إلى الحساب التالي حتى يُعاد ضبطه.",
+      "autoSwitchChatgpt": "عندما يبلغ الحساب المستخدم حد استخدام Codex، تنتقل Stella إلى الحساب التالي حتى يُعاد ضبطه.",
+      "pasteHintClaude": "بعد منح الإذن، يعرض Claude رمزًا. انسخه والصقه هنا.",
+      "pasteHintChatgpt": "بعد الموافقة، لن تُحمَّل الصفحة. انسخ عنوان تلك الصفحة (مشاركة › نسخ) والصقه هنا.",
+      "pastePlaceholder": "الرمز أو عنوان URL",
+      "pasteFromClipboard": "لصق",
+      "finish": "اتصال",
+      "connecting": "جارٍ الاتصال…",
+      "errorTitle": "تعذّر تحديث الحسابات",
+      "errorBody": "حدث خطأ ما. حاول مرة أخرى.",
+      "localNote": "تُستخدم هذه الحسابات في السحابة. على حاسوبك، تستخدم Stella الحسابات المُعدّة في تطبيق سطح المكتب."
     }
   },
   "companion": {

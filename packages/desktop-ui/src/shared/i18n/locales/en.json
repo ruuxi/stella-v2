@@ -2239,6 +2239,36 @@
     },
     "account": {
       "title": "Account"
+    },
+    "engineAccounts": {
+      "settingsRowTitle": "Claude & ChatGPT",
+      "settingsRowBody": "Accounts that power cloud chat and agents",
+      "openSettingsLabel": "Open Claude and ChatGPT accounts",
+      "title": "Claude & ChatGPT",
+      "subtitle": "Accounts that power cloud chat and agents",
+      "backLabel": "Back to Settings",
+      "claudeSection": "Claude",
+      "chatgptSection": "ChatGPT",
+      "addAccount": "Add account",
+      "active": "In use",
+      "useAccount": "Use this account",
+      "signOut": "Sign out",
+      "moreLabel": "Options for {name}",
+      "signOutTitle": "Sign out of {name}?",
+      "signOutBody": "Stella will stop using this account. You can add it again anytime.",
+      "limitReached": "Limit reached · resets {time}",
+      "autoSwitchLabel": "Switch accounts at the limit",
+      "autoSwitchClaude": "When the account in use hits its 5-hour or weekly limit, Stella moves to the next one until it resets.",
+      "autoSwitchChatgpt": "When the account in use hits its Codex usage limit, Stella moves to the next one until it resets.",
+      "pasteHintClaude": "After you approve access, Claude shows a code. Copy it and paste it here.",
+      "pasteHintChatgpt": "After you approve, the page fails to load. Copy that page's address (Share › Copy) and paste it here.",
+      "pastePlaceholder": "Code or URL",
+      "pasteFromClipboard": "Paste",
+      "finish": "Connect",
+      "connecting": "Connecting…",
+      "errorTitle": "Couldn't update accounts",
+      "errorBody": "Something went wrong. Try again.",
+      "localNote": "These accounts are used in the cloud. On your computer, Stella uses the accounts set up in its desktop app."
     }
   },
   "companion": {

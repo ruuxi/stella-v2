@@ -125,6 +125,21 @@ type MobileSyncArtifactForSync =
   | MobileAgentWorkPayloadForSync
   | { id: string; payload: DisplayPayload | MobileAgentWorkPayloadForSync };
 
+/** One provider's locally signed-in subscription accounts (no secrets). */
+export type LocalLlmOAuthProviderAccounts = {
+  provider: string;
+  autoSwitch: boolean;
+  accounts: Array<{
+    id: string;
+    label: string;
+    email?: string;
+    plan?: string;
+    active: boolean;
+    limitedUntil?: number;
+    updatedAt: number;
+  }>;
+};
+
 export type ChatContext = SharedChatContext;
 export type ChatContextFile = SharedChatContextFile;
 export type ChatContextUpdate = SharedChatContextUpdate;
@@ -910,6 +925,19 @@ export type ElectronSystemApi = {
     needsReauth: boolean;
   }>;
   deleteLlmOAuthCredential: (provider: string) => Promise<{ removed: boolean }>;
+  listLlmOAuthAccounts: () => Promise<LocalLlmOAuthProviderAccounts[]>;
+  setActiveLlmOAuthAccount: (
+    provider: string,
+    accountId: string,
+  ) => Promise<{ ok: true }>;
+  deleteLlmOAuthAccount: (
+    provider: string,
+    accountId: string,
+  ) => Promise<{ removed: boolean }>;
+  setLlmOAuthAutoSwitch: (
+    provider: string,
+    enabled: boolean,
+  ) => Promise<{ ok: true }>;
   saveLlmCredential: (payload: {
     provider: string;
     label: string;

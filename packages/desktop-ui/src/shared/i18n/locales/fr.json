@@ -2259,6 +2259,36 @@
     "sidebar": {
       "searchPlaceholder": "Rechercher dans l’activité et les fichiers",
       "signedOutHint": "Connectez-vous pour voir sur quoi Stella travaille en arrière-plan."
+    },
+    "engineAccounts": {
+      "settingsRowTitle": "Claude et ChatGPT",
+      "settingsRowBody": "Comptes pour le chat et les agents dans le cloud",
+      "openSettingsLabel": "Ouvrir les comptes Claude et ChatGPT",
+      "title": "Claude et ChatGPT",
+      "subtitle": "Comptes pour le chat et les agents dans le cloud",
+      "backLabel": "Retour aux réglages",
+      "claudeSection": "Claude",
+      "chatgptSection": "ChatGPT",
+      "addAccount": "Ajouter un compte",
+      "active": "Utilisé",
+      "useAccount": "Utiliser ce compte",
+      "signOut": "Se déconnecter",
+      "moreLabel": "Options pour {name}",
+      "signOutTitle": "Se déconnecter de {name} ?",
+      "signOutBody": "Stella n'utilisera plus ce compte. Vous pourrez l'ajouter à nouveau à tout moment.",
+      "limitReached": "Limite atteinte · réinitialisation {time}",
+      "autoSwitchLabel": "Changer de compte à la limite",
+      "autoSwitchClaude": "Lorsque le compte utilisé atteint sa limite de 5 heures ou hebdomadaire, Stella passe au suivant jusqu'à sa réinitialisation.",
+      "autoSwitchChatgpt": "Lorsque le compte utilisé atteint sa limite d'utilisation Codex, Stella passe au suivant jusqu'à sa réinitialisation.",
+      "pasteHintClaude": "Après avoir autorisé l'accès, Claude affiche un code. Copiez-le et collez-le ici.",
+      "pasteHintChatgpt": "Après autorisation, la page ne se charge pas. Copiez l'adresse de cette page (Partager › Copier) et collez-la ici.",
+      "pastePlaceholder": "Code ou URL",
+      "pasteFromClipboard": "Coller",
+      "finish": "Connecter",
+      "connecting": "Connexion…",
+      "errorTitle": "Impossible de mettre à jour les comptes",
+      "errorBody": "Une erreur s'est produite. Réessayez.",
+      "localNote": "Ces comptes sont utilisés dans le cloud. Sur votre ordinateur, Stella utilise les comptes configurés dans son app de bureau."
     }
   },
   "companion": {

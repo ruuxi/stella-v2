@@ -647,18 +647,17 @@
       "composerPlaceholder": "Or just ask me something to get started",
       "send": "Send",
       "messages": {
-        "discovery": "Hi, I'm Stella.\n\nI'm not a chatbot. I use this computer to actually get things done for you.\n\nOne quick thing before we start.",
-        "capabilities": "Here's what that looks like day to day.",
+        "capabilities": "היי, אני Stella.\n\nאני לא צ'אטבוט. אני משתמשת במחשב הזה כדי לבצע דברים באמת בשבילך, ברקע, בזמן שאתה ממשיך הלאה.\n\nכך זה נראה.",
         "theme": "Now, how should I look?",
         "extras": "Almost done. A little housekeeping, then we start.",
-        "readyGeneric": "That's it. I'll get to know you as we go.\n\nWhat do you want to do first?",
-        "readyPending": "That's everything. I'm still writing up what I noticed, so give me a moment, or just dive in.",
-        "readyFailed": "That's everything. I couldn't finish reading your browser this time, but we can start anyway and I'll learn as we go.",
-        "memory": "One more thing that makes me different."
+        "memory": "One more thing that makes me different.",
+        "selfmod": "ומכיוון שאני חיה על המחשב שלך, אני יכולה לשנות את עצמי.",
+        "signin": "עכשיו נתחבר. אפשר להשתמש בחשבון Stella, או במנוי Claude או ChatGPT שכבר יש לך.",
+        "quickstart": "זה הכול. עוד דבר אחד, והוא אופציונלי: התחלה מהירה.",
+        "quickstartDone": "סיימתי. הנה מה שלמדתי, וכמה דברים שאפשר להתחיל מהם.",
+        "quickstartFailed": "הפעם לא הצלחתי לסיים לקרוא את הדפדפן שלך. אפשר להתחיל בכל זאת, ואני אלמד תוך כדי תנועה."
       },
       "replies": {
-        "discoveryAccepted": "Go ahead, take a look.",
-        "discoverySkipped": "Not right now.",
         "capabilitiesDone": "Got it.",
         "capabilitiesSkipped": "Skip the tour.",
         "themeDone": "That one.",
@@ -666,29 +665,15 @@
         "extrasDone": "Done.",
         "extrasSkipped": "Skip for now.",
         "memoryDone": "Nice.",
-        "memorySkipped": "Skip it."
+        "memorySkipped": "Skip it.",
+        "selfmodDone": "מגניב מאוד.",
+        "signinDone": "בוצע.",
+        "signinSkipped": "אעשה את זה מאוחר יותר."
       },
       "discovery": {
-        "title": "Give me a head start",
-        "body": "Most assistants start from zero and learn you slowly, chat by chat. Point me at your browser and I'll build a starting memory from it, so I'm useful to you from day one instead of weeks in.",
         "browserLabel": "Your browser",
         "includeDev": "My coding setup",
-        "accept": "Get a head start",
-        "skip": "Not now",
         "hint": "About a minute, in the background.",
-        "settledTitle": "Building your memory from {target}",
-        "settledTitleGeneric": "Building your memory",
-        "settledDesc": "I'll keep going while we finish up.",
-        "settledSkippedTitle": "Skipped for now",
-        "settledSkippedDesc": "I'll build up memory from our conversations instead.",
-        "status": {
-          "idle": "Done",
-          "collecting": "Reading",
-          "synthesizing": "Writing your profile",
-          "saving": "Saving",
-          "done": "Done",
-          "failed": "Didn't finish"
-        },
         "alsoLabel": "Also include",
         "assurance": "A one-time read, kept on this computer. You can see and edit what I keep at any time."
       },
@@ -696,7 +681,7 @@
         "errands": {
           "word": "Errands",
           "title": "Ask once. Consider it handled.",
-          "caption": "I open the site, fill in the form, and finish the job, the same way you would."
+          "caption": "אני מוצאת את המקום הנכון, ממלאת את הטופס ומוסיפה ליומן, בדיוק כמו שהיית עושה."
         },
         "shopping": {
           "word": "Shopping",
@@ -705,22 +690,22 @@
         },
         "work": {
           "word": "Work",
-          "title": "Real files. Real apps.",
-          "caption": "Spreadsheets, documents, slides: I work inside the real apps on this computer."
+          "title": "קבצים אמיתיים. כמה משימות במקביל.",
+          "caption": "אני עובדת בתוך האפליקציות האמיתיות שבמחשב הזה, ויכולה להריץ יותר ממשימה אחת בו-זמנית."
         },
         "build": {
           "word": "Build",
           "title": "Say it. I'll build it.",
           "caption": "Apps and websites, made to order. Describe it in plain words and I'll build it, run it, and put it online."
         },
-        "games": {
-          "word": "Games",
-          "title": "Even your games.",
-          "caption": "Want something the game doesn't do? I'll write the mod and install it for you."
-        },
         "settledTitle": "The quick tour",
         "replay": "Replay this demo",
-        "tablist": "Capability demos"
+        "tablist": "Capability demos",
+        "routines": {
+          "word": "שגרות",
+          "title": "מבקשים פעם אחת. זה קורה כל יום.",
+          "caption": "תזמן כל דבר ואני אבצע אותו בזמן, גם כשאתה ישן."
+        }
       },
       "memory": {
         "titleChatbot": "You know this one",
@@ -783,15 +768,12 @@
         "settledMemory": "Memory"
       },
       "ready": {
-        "pendingLabel": "Still reading",
-        "pendingBody": "I'm writing up what I noticed. Your starters will personalize once that's done, or just start now.",
         "highlightsLabel": "What I picked up",
         "startersLabel": "Try one of these",
         "startersLabelPersonal": "Made for you",
         "notesSummary": "See everything I noted",
         "notesFoot": "You can read or edit this any time in Settings › Memory.",
         "start": "Start chatting",
-        "startAnyway": "Start anyway",
         "hint": "Or type anything below.",
         "generic": {
           "plan": {
@@ -811,6 +793,76 @@
             "prompt": "Keep an eye on a web page for me and tell me when it changes."
           }
         }
+      },
+      "progress": "התקדמות ההגדרה",
+      "selfmod": {
+        "title": "אני יכולה לשנות את עצמי",
+        "body": "חסר לך משהו, או שאתה רוצה שדבר מסוים יעבוד אחרת? פשוט בקש. אכתוב מחדש את הקוד של עצמי, תנסה אותו, ואתה מחליט אם לשמור.",
+        "steps": {
+          "ask": {
+            "title": "בקש",
+            "body": "תאר את השינוי במילים פשוטות."
+          },
+          "preview": {
+            "title": "תצוגה מקדימה",
+            "body": "סוכן בונה אותו ופותח תצוגה מקדימה חיה."
+          },
+          "update": {
+            "title": "עדכן",
+            "body": "לחיצה אחת כדי להחיל. אפשר לבטל בכל רגע."
+          }
+        },
+        "hint": "השינויים נשארים במחשב הזה.",
+        "settledTitle": "אני יכולה לשנות את עצמי",
+        "settledDesc": "בקש, צפה בתצוגה מקדימה, עדכן. אפשר לבטל בכל רגע."
+      },
+      "signin": {
+        "title": "התחברות",
+        "body": "אחת מהאפשרויות מספיקה. אפשר להוסיף את האחרות אחר כך.",
+        "options": {
+          "stella": {
+            "title": "חשבון Stella",
+            "body": "Google או אימייל. השיחות שלך מלוות אותך לטלפון."
+          },
+          "claude": {
+            "title": "Claude Code",
+            "body": "השתמש במנוי Claude Pro או Max שלך."
+          },
+          "codex": {
+            "title": "Codex",
+            "body": "השתמש במנוי ChatGPT Plus או Pro שלך."
+          }
+        },
+        "signIn": "התחבר",
+        "connect": "חבר",
+        "use": "השתמש",
+        "inUse": "בשימוש",
+        "waiting": "סיים את ההתחברות בדפדפן, ואז חזור לכאן.",
+        "error": "ההתחברות לא הצליחה. לנסות שוב?",
+        "fine": "אפשר לשנות זאת בכל רגע בהגדרות.",
+        "skip": "לא עכשיו",
+        "hint": "ההתחלה בחינם.",
+        "settledEngine": "משתמש ב-{name}",
+        "settledStella": "מחובר ל-Stella",
+        "settledSkipped": "עוד לא מחובר",
+        "settledDesc": "אפשר לשנות זאת בכל רגע בהגדרות."
+      },
+      "quickstart": {
+        "eyebrow": "התחלה מהירה",
+        "title": "תן לי יתרון בהתחלה",
+        "body": "רוב העוזרים מתחילים מאפס. הצג לי את הדפדפן שלך ואקרא אותו פעם אחת כדי לבנות זיכרון התחלתי, כך שאהיה שימושית כבר מהיום הראשון.",
+        "run": "הפעל התחלה מהירה",
+        "skip": "דלג",
+        "runningTitle": "מכירה אותך",
+        "runningBody": "כדקה. אפשר להיכנס מתי שתרצה, ואסיים ברקע.",
+        "stages": {
+          "read": "קוראת את מה שבחרת",
+          "notice": "מבחינה במה שחשוב לך",
+          "write": "כותבת את הזיכרון ההתחלתי שלך"
+        },
+        "continueInBackground": "התחל לשוחח, סיים ברקע",
+        "failedTitle": "זה לא הסתיים",
+        "failedBody": "משהו קטע את הקריאה. נסה שוב, או התחל לשוחח ואלמד תוך כדי תנועה."
       }
     }
   },

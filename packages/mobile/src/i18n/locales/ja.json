@@ -645,18 +645,17 @@
       "composerPlaceholder": "Or just ask me something to get started",
       "send": "Send",
       "messages": {
-        "discovery": "Hi, I'm Stella.\n\nI'm not a chatbot. I use this computer to actually get things done for you.\n\nOne quick thing before we start.",
-        "capabilities": "Here's what that looks like day to day.",
+        "capabilities": "こんにちは、Stella です。\n\n私はチャットボットではありません。このコンピューターを使って、あなたが別のことをしている間も、バックグラウンドで実際に作業を進めます。\n\nどんな感じか、お見せします。",
         "theme": "Now, how should I look?",
         "extras": "Almost done. A little housekeeping, then we start.",
-        "readyGeneric": "That's it. I'll get to know you as we go.\n\nWhat do you want to do first?",
-        "readyPending": "That's everything. I'm still writing up what I noticed, so give me a moment, or just dive in.",
-        "readyFailed": "That's everything. I couldn't finish reading your browser this time, but we can start anyway and I'll learn as we go.",
-        "memory": "One more thing that makes me different."
+        "memory": "One more thing that makes me different.",
+        "selfmod": "そして、あなたのコンピューターの中にいるので、私は自分自身を変えることもできます。",
+        "signin": "次はサインインです。Stella アカウント、またはお持ちの Claude か ChatGPT のプランを使えます。",
+        "quickstart": "以上です。最後にひとつだけ、任意ですがクイックスタートがあります。",
+        "quickstartDone": "完了しました。私が把握したことと、最初に取りかかれそうなことをいくつかご紹介します。",
+        "quickstartFailed": "今回はブラウザーを最後まで読み取れませんでした。このまま始めても大丈夫です。進めながら覚えていきます。"
       },
       "replies": {
-        "discoveryAccepted": "Go ahead, take a look.",
-        "discoverySkipped": "Not right now.",
         "capabilitiesDone": "Got it.",
         "capabilitiesSkipped": "Skip the tour.",
         "themeDone": "That one.",
@@ -664,29 +663,15 @@
         "extrasDone": "Done.",
         "extrasSkipped": "Skip for now.",
         "memoryDone": "Nice.",
-        "memorySkipped": "Skip it."
+        "memorySkipped": "Skip it.",
+        "selfmodDone": "すごいですね。",
+        "signinDone": "完了しました。",
+        "signinSkipped": "あとでやります。"
       },
       "discovery": {
-        "title": "Give me a head start",
-        "body": "Most assistants start from zero and learn you slowly, chat by chat. Point me at your browser and I'll build a starting memory from it, so I'm useful to you from day one instead of weeks in.",
         "browserLabel": "Your browser",
         "includeDev": "My coding setup",
-        "accept": "Get a head start",
-        "skip": "Not now",
         "hint": "About a minute, in the background.",
-        "settledTitle": "Building your memory from {target}",
-        "settledTitleGeneric": "Building your memory",
-        "settledDesc": "I'll keep going while we finish up.",
-        "settledSkippedTitle": "Skipped for now",
-        "settledSkippedDesc": "I'll build up memory from our conversations instead.",
-        "status": {
-          "idle": "Done",
-          "collecting": "Reading",
-          "synthesizing": "Writing your profile",
-          "saving": "Saving",
-          "done": "Done",
-          "failed": "Didn't finish"
-        },
         "alsoLabel": "Also include",
         "assurance": "A one-time read, kept on this computer. You can see and edit what I keep at any time."
       },
@@ -694,7 +679,7 @@
         "errands": {
           "word": "Errands",
           "title": "Ask once. Consider it handled.",
-          "caption": "I open the site, fill in the form, and finish the job, the same way you would."
+          "caption": "ふさわしい場所を見つけ、フォームに入力し、カレンダーに入れます。あなたがやるのと同じ手順です。"
         },
         "shopping": {
           "word": "Shopping",
@@ -703,22 +688,22 @@
         },
         "work": {
           "word": "Work",
-          "title": "Real files. Real apps.",
-          "caption": "Spreadsheets, documents, slides: I work inside the real apps on this computer."
+          "title": "本物のファイル。複数の作業を同時に。",
+          "caption": "このコンピューターにある本物のアプリの中で作業し、複数の作業を同時に進められます。"
         },
         "build": {
           "word": "Build",
           "title": "Say it. I'll build it.",
           "caption": "Apps and websites, made to order. Describe it in plain words and I'll build it, run it, and put it online."
         },
-        "games": {
-          "word": "Games",
-          "title": "Even your games.",
-          "caption": "Want something the game doesn't do? I'll write the mod and install it for you."
-        },
         "settledTitle": "The quick tour",
         "replay": "Replay this demo",
-        "tablist": "Capability demos"
+        "tablist": "Capability demos",
+        "routines": {
+          "word": "ルーティン",
+          "title": "一度頼むだけ。毎日、実行されます。",
+          "caption": "何でもスケジュールしてください。眠っている間も、時間どおりにこなします。"
+        }
       },
       "memory": {
         "titleChatbot": "You know this one",
@@ -781,15 +766,12 @@
         "settledMemory": "Memory"
       },
       "ready": {
-        "pendingLabel": "Still reading",
-        "pendingBody": "I'm writing up what I noticed. Your starters will personalize once that's done, or just start now.",
         "highlightsLabel": "What I picked up",
         "startersLabel": "Try one of these",
         "startersLabelPersonal": "Made for you",
         "notesSummary": "See everything I noted",
         "notesFoot": "You can read or edit this any time in Settings › Memory.",
         "start": "Start chatting",
-        "startAnyway": "Start anyway",
         "hint": "Or type anything below.",
         "generic": {
           "plan": {
@@ -809,6 +791,76 @@
             "prompt": "Keep an eye on a web page for me and tell me when it changes."
           }
         }
+      },
+      "progress": "セットアップの進行状況",
+      "selfmod": {
+        "title": "私は自分を変えられます",
+        "body": "足りない機能がある、または動きを変えたいときは、頼むだけです。私が自分のコードを書き直し、あなたが試して、残すかどうかを決めます。",
+        "steps": {
+          "ask": {
+            "title": "頼む",
+            "body": "変更内容を普通の言葉で伝えます。"
+          },
+          "preview": {
+            "title": "プレビュー",
+            "body": "エージェントが作成し、ライブプレビューを開きます。"
+          },
+          "update": {
+            "title": "アップデート",
+            "body": "ワンクリックで適用。いつでも元に戻せます。"
+          }
+        },
+        "hint": "変更はこのコンピューターの中だけに残ります。",
+        "settledTitle": "私は自分を変えられます",
+        "settledDesc": "頼む、プレビュー、アップデート。いつでも元に戻せます。"
+      },
+      "signin": {
+        "title": "サインイン",
+        "body": "どれかひとつで十分です。ほかはあとから追加できます。",
+        "options": {
+          "stella": {
+            "title": "Stella アカウント",
+            "body": "Google またはメールで。チャットはスマートフォンにも引き継がれます。"
+          },
+          "claude": {
+            "title": "Claude Code",
+            "body": "お使いの Claude Pro または Max プランを使います。"
+          },
+          "codex": {
+            "title": "Codex",
+            "body": "お使いの ChatGPT Plus または Pro プランを使います。"
+          }
+        },
+        "signIn": "サインイン",
+        "connect": "接続",
+        "use": "使う",
+        "inUse": "使用中",
+        "waiting": "ブラウザーでサインインを完了して、こちらに戻ってください。",
+        "error": "接続できませんでした。もう一度試しますか？",
+        "fine": "設定でいつでも変更できます。",
+        "skip": "今はしない",
+        "hint": "無料で始められます。",
+        "settledEngine": "{name} を使用中",
+        "settledStella": "Stella にサインイン済み",
+        "settledSkipped": "まだサインインしていません",
+        "settledDesc": "設定でいつでも変更できます。"
+      },
+      "quickstart": {
+        "eyebrow": "クイックスタート",
+        "title": "最初の一歩を手伝わせてください",
+        "body": "多くのアシスタントはゼロから始まります。ブラウザーを教えてもらえれば、一度だけ読み取って最初のメモリーを作り、初日からお役に立てるようにします。",
+        "run": "クイックスタートを実行",
+        "skip": "スキップ",
+        "runningTitle": "あなたを知っているところです",
+        "runningBody": "1分ほどかかります。いつでも先に進んでください。残りはバックグラウンドで仕上げます。",
+        "stages": {
+          "read": "選んだ内容を読み取っています",
+          "notice": "大切にしていることを見つけています",
+          "write": "最初のメモリーを書いています"
+        },
+        "continueInBackground": "チャットを始めて、残りはバックグラウンドで",
+        "failedTitle": "完了しませんでした",
+        "failedBody": "読み取りが途中で中断されました。もう一度試すか、チャットを始めてください。進めながら覚えていきます。"
       }
     }
   },

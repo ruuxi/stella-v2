@@ -127,3 +127,66 @@ export async function serveWorkspaceApp(
   if (contentType) headers.set("content-type", contentType);
   return new Response(response.body, { status: response.status, headers });
 }
+
+type PreviewWorld = {
+  workspaceAppPreview(slug: string, revision: string): Promise<Uint8Array | null>;
+  putWorkspaceAppPreview(
+    slug: string,
+    revision: string,
+    bytes: Uint8Array,
+  ): Promise<void>;
+};
+
+const previewResponse = (bytes: Uint8Array) =>
+  new Response(bytes, {
+    headers: {
+      "content-type": "image/jpeg",
+      // Clients key the URL by revision, so a stored still never changes.
+      "cache-control": "private, max-age=86400",
+      "x-content-type-options": "nosniff",
+    },
+  });
+
+/**
+ * The chat's app card still. The first request for a revision loads the app
+ * in the browser gateway through a fresh signed URL and keeps the JPEG next
+ * to the app's source; later requests serve the stored image.
+ */
+export async function serveWorkspaceAppPreview(
+  env: Env,
+  ownerId: string,
+  app: { slug: string; revision: string },
+  world: PreviewWorld,
+): Promise<Response> {
+  const stored = await world.workspaceAppPreview(app.slug, app.revision);
+  if (stored) return previewResponse(stored);
+  if (!env.BROWSER_GATEWAY)
+    return Response.json({ error: "Preview unavailable" }, { status: 503 });
+  const { url } = await mintWorkspaceAppAccess(env, ownerId, app.slug);
+  let upstream: Response;
+  try {
+    upstream = await env.BROWSER_GATEWAY.fetch(
+      "https://browser-gateway/internal/apps/preview",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url }),
+        signal: AbortSignal.timeout(45_000),
+      },
+    );
+  } catch {
+    return Response.json({ error: "Preview unavailable" }, { status: 503 });
+  }
+  if (
+    !upstream.ok ||
+    upstream.headers.get("content-type") !== "image/jpeg"
+  ) {
+    await upstream.body?.cancel().catch(() => undefined);
+    return Response.json({ error: "Preview unavailable" }, { status: 503 });
+  }
+  const bytes = new Uint8Array(await upstream.arrayBuffer());
+  await world
+    .putWorkspaceAppPreview(app.slug, app.revision, bytes)
+    .catch(() => undefined);
+  return previewResponse(bytes);
+}

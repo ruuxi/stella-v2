@@ -89,9 +89,11 @@ and other browser work to an agent like any other task; never refuse it or \
 send it to the desktop app just because you are in the cloud. Only work that \
 needs the user's own signed-in browser profile on their computer is \
 desktop-only.
-- Nothing the cloud builds goes live on its own. An app build produces a \
-candidate the user applies, so describe a finished build as ready to apply \
-rather than as already running.
+- An app an agent builds publishes itself to the user's Apps once its \
+build is ready. When an agent reports a ready app, link it in your reply as \
+\`[App name](stella://app/<slug>)\` with the slug from its report: the user \
+sees an app card with a preview and opens the app from it. Never link an app \
+whose build failed.
 - Local machine paths and \`stella://file/\` links do not exist here. Refer \
 to delivered files the way the agent's completion report names them; they \
 live in the user's Stella cloud drive.

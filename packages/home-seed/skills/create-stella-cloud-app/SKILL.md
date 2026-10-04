@@ -12,8 +12,10 @@ manual server, or deployment command is needed. Work in
 Write the app files first, then write `stella.app.json` LAST:
 
 ```json
-{ "schemaVersion": 1, "slug": "counter", "name": "Counter", "revision": "1" }
+{ "schemaVersion": 1, "slug": "counter", "name": "Counter", "icon": "🔢", "revision": "1" }
 ```
+
+`icon` is optional: one emoji that stands for the app on its tile.
 
 Each revision's files live in `revisions/<revision>/`. Use a NEW revision for
 every update, copy the complete app into it, and change the manifest last.
@@ -21,6 +23,11 @@ Never modify a published revision. Stella snapshots and bundles that revision,
 retains the last working build if the new one fails, and discovers the app in
 Apps automatically. Read `build-status.json` in the app folder after publishing;
 fix reported errors with a new revision. Do not claim success before it is ready.
+
+When the app is ready, link it in your final report as
+`[Counter](stella://app/counter)`, with its name and slug. Stella shows that
+link as an app card with a preview the user can tap to open. Never link an app
+whose latest build failed.
 
 ## Files
 

@@ -23,8 +23,26 @@ export function parseAppManifest(text: string, slug: string) {
     !REVISION.test(value.revision)
   )
     throw new Error("Invalid stella.app.json.");
-  return { slug, name: value.name.trim(), revision: value.revision };
+  // The optional icon is a short emoji for the app's tile; anything else is
+  // dropped rather than failing the build.
+  const icon =
+    typeof value.icon === "string" &&
+    value.icon.trim() &&
+    value.icon.trim().length <= 16 &&
+    !/[\p{L}\p{N}\p{Cc}]/u.test(value.icon)
+      ? value.icon.trim()
+      : undefined;
+  return {
+    slug,
+    name: value.name.trim(),
+    revision: value.revision,
+    ...(icon ? { icon } : {}),
+  };
 }
+
+/** Largest stored preview; a bigger capture is served once, never kept. */
+const MAX_PREVIEW_BYTES = 1_500_000;
+type StoredPreview = { revision: string; bytes: Uint8Array };
 
 /** One owner workspace supervises isolated app facets, never passing host bindings. */
 export class WorkspaceApps {
@@ -110,6 +128,7 @@ export class WorkspaceApps {
         appId: slug,
         slug,
         title: manifest.name,
+        ...(manifest.icon ? { icon: manifest.icon } : {}),
         revision: manifest.revision,
         status: "ready",
         createdAt: old?.app.createdAt ?? now,
@@ -199,6 +218,22 @@ export class WorkspaceApps {
       offset += chunk.length;
     }
     return JSON.parse(decoder.decode(bytes));
+  }
+
+  /** The stored still of `slug` at `revision`, if one was captured. */
+  async preview(slug: string, revision: string): Promise<Uint8Array | null> {
+    const stored = await this.ctx.storage.get<StoredPreview>(
+      `workspace-app-preview:${slug}`,
+    );
+    return stored?.revision === revision ? stored.bytes : null;
+  }
+
+  async putPreview(slug: string, revision: string, bytes: Uint8Array) {
+    if (!SLUG.test(slug) || bytes.byteLength > MAX_PREVIEW_BYTES) return;
+    await this.ctx.storage.put(`workspace-app-preview:${slug}`, {
+      revision,
+      bytes,
+    } satisfies StoredPreview);
   }
 
   async fetch(slug: string, request: Request): Promise<Response> {

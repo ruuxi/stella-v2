@@ -106,6 +106,12 @@ export class WorldStore extends DurableObject<Env> {
   listWorkspaceApps() {
     return this.apps.reconcile();
   }
+  workspaceAppPreview(slug: string, revision: string) {
+    return this.apps.preview(slug, revision);
+  }
+  putWorkspaceAppPreview(slug: string, revision: string, bytes: Uint8Array) {
+    return this.apps.putPreview(slug, revision, bytes);
+  }
   fetchWorkspaceApp(slug: string, request: Request) {
     return this.apps.fetch(slug, request);
   }

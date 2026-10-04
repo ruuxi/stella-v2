@@ -1,6 +1,7 @@
 import {
   mintWorkspaceAppAccess,
   serveWorkspaceApp,
+  serveWorkspaceAppPreview,
 } from "../workspace-app-access.js";
 import { worldName } from "../workspace.js";
 /**
@@ -877,12 +878,18 @@ const router = {
 
     if (url.pathname.startsWith("/workspace-apps/"))
       return await serveWorkspaceApp(request, env);
+    const appPreview =
+      /^\/owners\/me\/apps\/([a-z][a-z0-9-]{0,31})\/preview$/.exec(
+        url.pathname,
+      );
     if (
       url.pathname === "/owners/me/apps" ||
+      appPreview ||
       /^\/owners\/me\/apps\/[a-z][a-z0-9-]{0,31}\/session$/.test(url.pathname)
     ) {
       if (
-        request.method !== (url.pathname === "/owners/me/apps" ? "GET" : "POST")
+        request.method !==
+        (url.pathname === "/owners/me/apps" || appPreview ? "GET" : "POST")
       )
         return json({ error: "Method not allowed" }, 405);
       const auth = await authenticateConversationCaller(
@@ -905,6 +912,13 @@ const router = {
       );
       if (url.pathname === "/owners/me/apps" && request.method === "GET")
         return json({ apps });
+      if (appPreview) {
+        const app = apps.find(
+          (entry) => entry.slug === appPreview[1] && entry.status === "ready",
+        );
+        if (!app) return json({ error: "App not found" }, 404);
+        return await serveWorkspaceAppPreview(env, auth.caller.ownerId, app, world);
+      }
       const slug = url.pathname.split("/")[4]!;
       if (request.method !== "POST")
         return json({ error: "Method not allowed" }, 405);

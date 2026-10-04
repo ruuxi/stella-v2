@@ -84,6 +84,18 @@ jobs:
           xcrun stapler staple "$app"
           xcrun stapler validate "$app"
           spctl --assess --verbose --type exec "$app"
+          # The download: a disk image with the app and an Applications
+          # shortcut to drag it onto, itself signed, notarized and stapled.
+          staging="$RUNNER_TEMP/dmg"
+          rm -rf "$staging" && mkdir -p "$staging"
+          ditto "$app" "$staging/Stella.app"
+          ln -s /Applications "$staging/Applications"
+          hdiutil create -volname Stella -srcfolder "$staging" -ov -format UDZO "$RUNNER_TEMP/Stella-macos.dmg"
+          codesign --force --timestamp --keychain "$keychain_path" --sign "$identity" "$RUNNER_TEMP/Stella-macos.dmg"
+          xcrun notarytool submit "$RUNNER_TEMP/Stella-macos.dmg" \
+            --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+          xcrun stapler staple "$RUNNER_TEMP/Stella-macos.dmg"
+          spctl --assess --verbose --type open --context context:primary-signature "$RUNNER_TEMP/Stella-macos.dmg"
           security delete-keychain "$keychain_path"
 
       - name: Package
@@ -93,7 +105,9 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         with:
           name: launcher-macos
-          path: ${{ runner.temp }}/Stella-macos.zip
+          path: |
+            ${{ runner.temp }}/Stella-macos.zip
+            ${{ runner.temp }}/Stella-macos.dmg
           if-no-files-found: error
 
       - uses: actions/upload-artifact@v4
@@ -308,7 +322,7 @@ jobs:
       - name: Checksums
         run: |
           rm -rf launchers/*evidence* 2>/dev/null || true
-          cd launchers && ls -la && sha256sum Stella-macos.zip Stella.exe stella-launcher-linux-* | tee SHA256SUMS
+          cd launchers && ls -la && sha256sum Stella-macos.dmg Stella-macos.zip Stella.exe stella-launcher-linux-* | tee SHA256SUMS
 
       - name: Upload to R2 launcher/stable/
         if: env.R2_ACCESS_KEY_ID != '' && env.R2_SECRET_ACCESS_KEY != '' && env.R2_BUCKET != '' && env.R2_ENDPOINT != ''
@@ -317,7 +331,7 @@ jobs:
           export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
           export AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
           export AWS_DEFAULT_REGION="auto"
-          for file in Stella-macos.zip Stella.exe stella-launcher-linux-x64 stella-launcher-linux-arm64 SHA256SUMS; do
+          for file in Stella-macos.dmg Stella-macos.zip Stella.exe stella-launcher-linux-x64 stella-launcher-linux-arm64 SHA256SUMS; do
             aws s3 cp "launchers/$file" "s3://${R2_BUCKET}/launcher/stable/$file" \
               --cache-control "no-cache" --endpoint-url "$R2_ENDPOINT"
           done

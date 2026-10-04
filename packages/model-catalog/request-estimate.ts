@@ -26,6 +26,7 @@ const NON_VISION_TOOL_IMAGE_PLACEHOLDER =
 
 const IMAGE_CAPABLE_MANAGED_MODEL_PREFIXES = [
   "accounts/fireworks/models/kimi-k3",
+  "deepseek/deepseek-v4.1-flash",
   "anthropic/",
   "google/",
   "openai/",
@@ -192,8 +193,8 @@ export function estimateRequestTokens(
 }
 
 /** Whether a resolved managed model accepts image input parts.
- * Muse Spark Contributor accepts images through OpenRouter's Responses API:
- * https://openrouter.ai/meta/muse-spark-1.3-contributor
+ * DeepSeek V4.1 Flash accepts image input through OpenRouter:
+ * https://openrouter.ai/deepseek/deepseek-v4.1-flash
  * Keep this aligned with its multimodal pricing/catalog metadata so relay
  * shaping never silently discards images accepted by the client runtime.
  */

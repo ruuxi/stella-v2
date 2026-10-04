@@ -60,7 +60,6 @@ export const OWNER_ID = "user_test_1";
 export const SERVICE_SECRET = "gateway-service-secret-for-tests";
 export const PROBE_SECRET = "relay-probe-secret-for-tests";
 export const OPENROUTER_KEY = "sk-or-v1-openrouter-test-key-0123456789";
-export const FLASH_KEY = "wafer-test-key-0123456789abcdef";
 
 // ---------------------------------------------------------------------------
 // SqlStorage shim on bun:sqlite so the real DO class runs its real SQL.
@@ -283,10 +282,10 @@ export const jwks: GatewayJwks = {
   ],
 };
 
-export const MUSE_ALIAS = "stella/meta/muse-spark-1.3-contributor";
-export const FLASH_ALIAS = "stella/wafer/deepseek-v4-flash-0731-fast";
-export const MUSE_RESOLVED = "meta/muse-spark-1.3-contributor";
-export const FLASH_RESOLVED = "wafer/deepseek-v4-flash-0731-fast";
+export const DEFAULT_ALIAS = "stella/deepseek/deepseek-v4.1-flash";
+export const FLASH_ALIAS = "stella/deepseek/deepseek-v4.1-flash";
+export const DEFAULT_RESOLVED = "deepseek/deepseek-v4.1-flash";
+export const FLASH_RESOLVED = "deepseek/deepseek-v4.1-flash";
 
 const baseSessionClaims = (): UnsignedCapabilityClaims => ({
   iss: GATEWAY_CAPABILITY_ISSUERS.cloudBuilder,
@@ -409,7 +408,7 @@ export const signTurn = async (
         execution: {
           engine: "stella",
           provider: "stella",
-          model: MUSE_ALIAS,
+          model: DEFAULT_ALIAS,
           reasoningEffort: "xhigh",
         },
       },
@@ -480,21 +479,14 @@ export const configSnapshot = (
   v: 1,
   prices: [
     {
-      model: MUSE_RESOLVED,
+      model: DEFAULT_RESOLVED,
       inputPerMillionUsd: 0.1,
       outputPerMillionUsd: 0.2,
       cacheReadPerMillionUsd: 0.002,
       cacheWritePerMillionUsd: 0,
       reasoningPerMillionUsd: 0.2,
     },
-    {
-      model: FLASH_RESOLVED,
-      inputPerMillionUsd: 0.12,
-      outputPerMillionUsd: 0.21,
-      cacheReadPerMillionUsd: 0.003,
-      cacheWritePerMillionUsd: 0,
-      reasoningPerMillionUsd: 0.21,
-    },
+
   ],
   anonymous: { maxRequestsPerOwner: 20, maxRequestsPerIp: 60 },
   tierCeilings: [],
@@ -680,7 +672,6 @@ export const createTestEnv = (overrides: Record<string, unknown> = {}) => {
     OPENROUTER_API_KEY: OPENROUTER_KEY,
     FIREWORKS_API_KEY: "fw-test",
     DEEPSEEK_API_KEY: "sk-deepseek-test",
-    WAFER_API_KEY: FLASH_KEY,
     XAI_API_KEY: "xai-test",
     OPENAI_API_KEY: "sk-openai-test",
     ANTHROPIC_API_KEY: "sk-ant-test",

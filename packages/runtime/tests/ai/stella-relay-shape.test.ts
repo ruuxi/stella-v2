@@ -436,25 +436,16 @@ describe("Stella gateway route shape", () => {
     expect(model.baseUrl).toBe(RELAY);
   });
 
-  it("the explicit DeepSeek V4 Flash pick routes to the direct DeepSeek provider", () => {
-    const route = makeRoute("stella/deepseek/deepseek-v4-flash");
-    const model = route!.model;
-    expect(model.api).toBe("openai-responses");
-    expect(model.provider).toBe("deepseek");
-    expect(
-      (model as typeof model & { upstreamModelId?: string }).upstreamModelId,
-    ).toBe("deepseek-v4-flash");
-  });
-
-  it("the Wafer Fast variant routes to the Wafer provider", () => {
-    const route = makeRoute("stella/wafer/deepseek-v4-flash-0731-fast");
+  it("the explicit DeepSeek V4.1 Flash pick routes to OpenRouter", () => {
+    const route = makeRoute("stella/deepseek/deepseek-v4.1-flash");
     const model = route!.model;
     expect(model.api).toBe("openai-completions");
-    expect(model.provider).toBe("wafer");
+    expect(model.provider).toBe("openrouter");
     expect(
       (model as typeof model & { upstreamModelId?: string }).upstreamModelId,
-    ).toBe("deepseek-v4-flash-0731-fast");
+    ).toBe("deepseek/deepseek-v4.1-flash");
   });
+
 
   it("keeps the standard alias opaque without catalog metadata", () => {
     const route = makeRoute("stella/standard");
@@ -468,8 +459,7 @@ describe("Stella gateway route shape", () => {
   });
 
   it("the retained Fireworks spelling still routes to the Fireworks provider", () => {
-    // Rollback safety: flipping DEEPSEEK_V4_FLASH_ROUTE back must not need a
-    // client change, so the client still knows how to route this id.
+    // Older catalog entries can still advertise the legacy Fireworks route.
     const route = makeRoute(
       "stella/accounts/fireworks/models/deepseek-v4-flash-0731",
     );
@@ -598,7 +588,7 @@ describe("Stella gateway auth (baseUrl-based detection)", () => {
         usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
       }),
     );
-    const route = makeRoute("stella/wafer/deepseek-v4-flash-0731-fast")!;
+    const route = makeRoute("stella/deepseek/deepseek-v4.1-flash")!;
     const apiKey = (await route.getApiKey()) ?? "";
 
     const result = await streamSimple(route.model, userContext("hi"), {

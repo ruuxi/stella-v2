@@ -1,8 +1,8 @@
+import { STELLA_DEEPSEEK_V4_FLASH_UPSTREAM_MODEL } from "@stella/contracts/stella-api";
 export const MANAGED_GATEWAY_PROVIDERS = [
   "openrouter",
   "fireworks",
   "deepseek",
-  "wafer",
   "xai",
   "openai",
   "anthropic",
@@ -37,8 +37,7 @@ export type ManagedGatewayConfig = {
   apiKeyEnvVarFallbacks?: readonly string[];
   /**
    * Static headers sent on every request to this gateway. Used for
-   * provider-specific requirements like Wafer's per-request zero-data-
-   * retention opt-in, which has no request-body equivalent.
+   * provider-specific requirements with no request-body equivalent.
    */
   extraHeaders?: Record<string, string>;
 };
@@ -63,14 +62,6 @@ const MANAGED_GATEWAY_CONFIGS: Record<
     provider: "deepseek",
     baseURL: "https://api.deepseek.com",
     apiKeyEnvVar: "DEEPSEEK_API_KEY",
-  },
-  // Wafer exposes an OpenAI-compatible Chat Completions API. ZDR is opted
-  // into per request — every call must carry the header below.
-  wafer: {
-    provider: "wafer",
-    baseURL: "https://pass.wafer.ai/v1",
-    apiKeyEnvVar: "WAFER_API_KEY",
-    extraHeaders: { "Wafer-ZDR": "required" },
   },
   xai: {
     provider: "xai",
@@ -110,7 +101,6 @@ const FIREWORKS_MODEL_PREFIXES = [
 
 const DIRECT_MODEL_PROVIDER_PREFIXES = [
   ["deepseek/", "deepseek"],
-  ["wafer/", "wafer"],
   ["x-ai/", "xai"],
   ["xai/", "xai"],
   ["openai/", "openai"],
@@ -161,6 +151,7 @@ export function resolveManagedGatewayApiKeyFromEnv(
 export function inferManagedGatewayProviderFromModel(
   model: string,
 ): ManagedGatewayProvider | undefined {
+  if (model === STELLA_DEEPSEEK_V4_FLASH_UPSTREAM_MODEL) return "openrouter";
   const directProvider = DIRECT_MODEL_PROVIDER_PREFIXES.find(([prefix]) =>
     model.startsWith(prefix),
   )?.[1];
@@ -206,7 +197,6 @@ export const resolveManagedProtocol = (args: {
       return "anthropic-messages";
     case "google":
       return "google-generative-ai";
-    case "wafer":
     case "openrouter":
     case "meta":
       return "openai-completions";

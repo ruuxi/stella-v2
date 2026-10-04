@@ -1,3 +1,4 @@
+import { STELLA_DEEPSEEK_V4_FLASH_UPSTREAM_MODEL } from "@stella/contracts/stella-api";
 import { Buffer } from "node:buffer";
 import type { Api, Model } from "../ai/types.js";
 import {
@@ -75,12 +76,12 @@ const DIRECT_MODEL_PROVIDER_PREFIXES = [
   ["anthropic/", "anthropic"],
   ["google/", "google"],
   ["deepseek/", "deepseek"],
-  ["wafer/", "wafer"],
 ] as const satisfies readonly (readonly [string, ManagedGatewayProvider])[];
 
 export const inferManagedGatewayProviderFromModel = (
   model: string,
 ): ManagedGatewayProvider => {
+  if (model === STELLA_DEEPSEEK_V4_FLASH_UPSTREAM_MODEL) return "openrouter";
   const directProvider = DIRECT_MODEL_PROVIDER_PREFIXES.find(([prefix]) =>
     model.startsWith(prefix),
   )?.[1];
@@ -105,7 +106,6 @@ export const resolveManagedStellaRegistryMatches = (
       case "anthropic":
       case "google":
       case "deepseek":
-      case "wafer":
       case "openrouter":
         return [`${registryProvider}/${model.id}`];
       case "fireworks":
@@ -195,8 +195,7 @@ const providerNativeModelId = (
     (provider === "openai" ||
       provider === "anthropic" ||
       provider === "google" ||
-      provider === "deepseek" ||
-      provider === "wafer") &&
+      provider === "deepseek") &&
     resolvedModelId.startsWith(`${provider}/`)
   ) {
     return resolvedModelId.slice(provider.length + 1);
@@ -219,9 +218,6 @@ const apiForRelay = (
     case "fireworks":
     case "deepseek":
       return "openai-responses";
-    case "wafer":
-      // Wafer is OpenAI-compatible chat completions only.
-      return "openai-completions";
     case "openrouter":
       return "openai-completions";
     case "openai":

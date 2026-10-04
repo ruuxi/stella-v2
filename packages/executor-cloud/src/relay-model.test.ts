@@ -10,7 +10,7 @@ import { CLOUD_MODEL_DIAGNOSTIC_SENTINELS } from "@stella/contracts/cloud-model-
 import type { GatewayModelResolution } from "@stella/contracts/gateway/api";
 import {
   STELLA_DEFAULT_UPSTREAM_MODEL,
-  STELLA_WAFER_V4_FLASH_FAST_UPSTREAM_MODEL,
+  STELLA_DEEPSEEK_V4_FLASH_UPSTREAM_MODEL,
 } from "@stella/contracts/stella-api";
 import { loadModelRegistry } from "@stella/contracts/model-registry";
 import { findRegistryModel } from "@stella/runtime/kernel/model-routing-matching.js";
@@ -44,7 +44,7 @@ const resolution = (
   overrides: Partial<GatewayModelResolution> = {},
 ): GatewayModelResolution => ({
   requestedModel: "stella/default",
-  resolvedModel: "meta/muse-spark-1.3-contributor",
+  resolvedModel: "deepseek/deepseek-v4.1-flash",
   provider: "openrouter",
   protocol: "openai-responses",
   reasoning: true,
@@ -109,7 +109,7 @@ describe("cloud relay model selection", () => {
     expect(model.fetch).toBe(gateway.fetch);
     expect(
       (model as Model<Api> & { upstreamModelId?: string }).upstreamModelId,
-    ).toBe("meta/muse-spark-1.3-contributor");
+    ).toBe("deepseek/deepseek-v4.1-flash");
     expect(model.reasoning).toBe(false);
   });
 
@@ -117,7 +117,7 @@ describe("cloud relay model selection", () => {
     for (const [protocol, provider, resolvedModel] of [
       ["anthropic-messages", "anthropic", "anthropic/claude-sonnet-4-6"],
       ["openai-responses", "openai", "openai/gpt-5.6-sol"],
-      ["openai-completions", "wafer", "wafer/deepseek-v4-flash-0731-fast"],
+      ["openai-completions", "openrouter", "deepseek/deepseek-v4.1-flash"],
       ["google-generative-ai", "google", "google/gemini-3.1-pro"],
     ] as const) {
       const execution = managed(`stella/${resolvedModel}`);
@@ -317,12 +317,12 @@ describe("cloud relay model selection", () => {
     ).toBe("openrouter/x-ai/grok-4.5");
   });
 
-  test("accepts Wafer chat-completions routes returned by the gateway", () => {
+  test("accepts OpenRouter chat-completions routes returned by the gateway", () => {
     for (const [provider, resolvedModel, requestedModel] of [
       [
-        "wafer",
-        "wafer/deepseek-v4-flash-0731-fast",
-        "stella/wafer/deepseek-v4-flash-0731-fast",
+        "openrouter",
+        "deepseek/deepseek-v4.1-flash",
+        "stella/deepseek/deepseek-v4.1-flash",
       ],
     ] as const) {
       const model = createResolvedManagedRelayModel({
@@ -342,7 +342,7 @@ describe("cloud relay model selection", () => {
       expect(model.id).toBe(requestedModel);
       expect(
         (model as Model<Api> & { upstreamModelId?: string }).upstreamModelId,
-      ).toBe(resolvedModel.slice(provider.length + 1));
+      ).toBe(resolvedModel);
       expect(model.reasoning).toBe(false);
     }
   });
@@ -358,17 +358,14 @@ describe("cloud relay model selection", () => {
         expectedInput: ["text"],
       },
       {
-        provider: "wafer",
-        requestedModel: "stella/wafer/deepseek-v4-flash-0731-fast",
-        resolvedModel: STELLA_WAFER_V4_FLASH_FAST_UPSTREAM_MODEL,
+        provider: "openrouter",
+        requestedModel: "stella/deepseek/deepseek-v4.1-flash",
+        resolvedModel: STELLA_DEEPSEEK_V4_FLASH_UPSTREAM_MODEL,
         protocol: "openai-completions",
         expectedInput: ["text"],
       },
     ] as const) {
-      const nativeModelId =
-        descriptor.provider === "openrouter"
-          ? descriptor.resolvedModel
-          : descriptor.resolvedModel.slice(descriptor.provider.length + 1);
+      const nativeModelId = descriptor.resolvedModel;
       expect(
         findRegistryModel(descriptor.provider, [
           descriptor.resolvedModel,
@@ -527,20 +524,10 @@ describe("turn-local validated relay sessions", () => {
   test("skips resolution and sends the predicted descriptor revision on inference", async () => {
     const gateway = fetchRecorder(async () =>
       Response.json({
-        id: "resp_1",
-        object: "response",
-        status: "completed",
-        model: "meta/muse-spark-1.3-contributor",
-        output: [
-          {
-            type: "message",
-            id: "msg_1",
-            role: "assistant",
-            status: "completed",
-            content: [{ type: "output_text", text: "hello", annotations: [] }],
-          },
-        ],
-        usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+        id: "chat_1", object: "chat.completion", created: 1,
+        model: "deepseek/deepseek-v4.1-flash",
+        choices: [{ index: 0, message: { role: "assistant", content: "hello" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
       }),
     );
     const calls = gateway.requests;
@@ -572,7 +559,7 @@ describe("turn-local validated relay sessions", () => {
   });
 
   test("rebuilds protocol and context once from raw messages after a pre-provider mismatch", async () => {
-    const alias = "stella/wafer/deepseek-v4-flash-0731-fast";
+    const alias = "stella/deepseek/deepseek-v4.1-flash";
     const current = resolution({
       requestedModel: alias,
       resolvedModel: "anthropic/claude-sonnet-4-6",
@@ -727,7 +714,7 @@ test("older gateways refuse the versioned route before resolution and legacy inf
       id: "resp_1",
       object: "response",
       status: "completed",
-      model: "meta/muse-spark-1.3-contributor",
+      model: "deepseek/deepseek-v4.1-flash",
       output: [
         {
           type: "message",
@@ -755,7 +742,7 @@ test("older gateways refuse the versioned route before resolution and legacy inf
   );
   expect((await stream.result()).stopReason).toBe("stop");
   expect(gateway.requests.map((request) => request.url)).toEqual([
-    `${GATEWAY}/v2/relay/responses`,
+    `${GATEWAY}/v2/relay/chat/completions`,
     `${GATEWAY}/v1/models/resolve`,
     `${GATEWAY}/v1/relay/responses`,
   ]);

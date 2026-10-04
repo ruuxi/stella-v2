@@ -179,7 +179,7 @@ describe("createRelayUsageParser: google", () => {
 
 describe("createRelayUsageParser: openai-compatible", () => {
   it("exposes usage from complete events before the stream finishes", () => {
-    const parser = createRelayUsageParser("wafer");
+    const parser = createRelayUsageParser("openrouter");
     parser.pushText(
       `data: ${JSON.stringify({
         usage: { prompt_tokens: 3, completion_tokens: 5 },

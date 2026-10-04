@@ -64,7 +64,6 @@ export type GatewayProvider =
   | "google"
   | "fireworks"
   | "deepseek"
-  | "wafer"
   | "xai"
   | "openrouter"
   | "meta";
@@ -75,7 +74,6 @@ export const GATEWAY_PROVIDERS: readonly GatewayProvider[] = [
   "google",
   "fireworks",
   "deepseek",
-  "wafer",
   "xai",
   "openrouter",
   "meta",

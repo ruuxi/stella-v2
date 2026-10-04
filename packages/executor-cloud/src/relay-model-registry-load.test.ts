@@ -53,7 +53,7 @@ const resolution = (
   overrides: Partial<GatewayModelResolution> = {},
 ): GatewayModelResolution => ({
   requestedModel: "stella/default",
-  resolvedModel: "meta/muse-spark-1.3-contributor",
+  resolvedModel: "deepseek/deepseek-v4.1-flash",
   provider: "openrouter",
   protocol: "openai-responses",
   reasoning: true,
@@ -81,16 +81,16 @@ describe("managed relay registry loading", () => {
 
     expect(loadModelRegistryCalls).toBe(0);
     expect(session.model.id).toBe("stella/default");
-    expect(session.model.api).toBe("openai-responses");
+    expect(session.model.api).toBe("openai-completions");
     expect(session.model.baseUrl).toBe(`${GATEWAY}/v1/relay`);
   });
 
-  test("keeps Wafer V4 Flash descriptors on the registry-independent path", async () => {
+  test("keeps OpenRouter V4.1 Flash descriptors on the registry-independent path", async () => {
     for (const [provider, requestedModel, resolvedModel] of [
       [
-        "wafer",
-        "stella/wafer/deepseek-v4-flash-0731-fast",
-        "wafer/deepseek-v4-flash-0731-fast",
+        "openrouter",
+        "stella/deepseek/deepseek-v4.1-flash",
+        "deepseek/deepseek-v4.1-flash",
       ],
     ] as const) {
       loadModelRegistryCalls = 0;

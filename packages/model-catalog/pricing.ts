@@ -196,35 +196,15 @@ export const STATIC_MANAGED_MODEL_PRICE_OVERRIDES: Record<
   string,
   StaticManagedModelPrice
 > = {
-  // OpenRouter's Muse Spark 1.3 Contributor (not yet on models.dev). Rates
-  // verified against OpenRouter's live /api/v1/models catalog: the
-  // contributor tier is far cheaper than the first-party Muse Spark tier:
-  // $0.10 input / $0.20 output / $0.002 cache-read per 1M
-  // tokens, reasoning billed at the output rate. OpenRouter also documents
-  // full multimodal input (text, image, video, file, audio). models.dev wins
-  // once it lists the model.
-  "meta/muse-spark-1.3-contributor": {
+  // OpenRouter inference-net endpoint rates, verified 2026-10-04.
+  "deepseek/deepseek-v4.1-flash": {
     sourceProvider: "openrouter",
-    sourceModelId: "muse-spark-1.3-contributor",
-    inputPerMillionUsd: 0.1,
-    outputPerMillionUsd: 0.2,
-    cacheReadPerMillionUsd: 0.002,
-    reasoningPerMillionUsd: 0.2,
-    modalitiesInput: ["text", "image", "video", "file", "audio"],
-    modalitiesOutput: ["text"],
-  },
-  // Wafer's own /v1/models lists live rates for the Fast variant; this static
-  // entry mirrors them ($0.28 in / $0.56 out / $0.07 cache-read per 1M,
-  // reasoning billed within completion tokens at the output rate). Wafer
-  // publishes no separate cache-write price. Text-only upstream.
-  "wafer/deepseek-v4-flash-0731-fast": {
-    sourceProvider: "wafer",
-    sourceModelId: "deepseek-v4-flash-0731-fast",
-    inputPerMillionUsd: 0.28,
-    outputPerMillionUsd: 0.56,
-    cacheReadPerMillionUsd: 0.07,
-    reasoningPerMillionUsd: 0.56,
-    modalitiesInput: ["text"],
+    sourceModelId: "deepseek-v4.1-flash",
+    inputPerMillionUsd: 0.02,
+    outputPerMillionUsd: 0.45,
+    cacheReadPerMillionUsd: 0.003,
+    reasoningPerMillionUsd: 0.45,
+    modalitiesInput: ["text", "image"],
     modalitiesOutput: ["text"],
   },
   "meta/muse-spark-1.2": {

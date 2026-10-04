@@ -36,8 +36,8 @@ import {
   hangingSseResponse,
   issuers,
   json,
-  MUSE_ALIAS,
-  MUSE_RESOLVED,
+  DEFAULT_ALIAS,
+  DEFAULT_RESOLVED,
   OWNER_ID,
   OPENROUTER_KEY,
   PROBE_SECRET,
@@ -77,7 +77,7 @@ const responsesFixture = () =>
           id: "resp_1",
           object: "response",
           status: "completed",
-          model: "meta/muse-spark-1.3-contributor",
+          model: "deepseek/deepseek-v4.1-flash",
           output: [
             {
               type: "message",
@@ -168,8 +168,8 @@ const setup = (envOverrides: Record<string, unknown> = {}) => {
     )
     .on(
       (call) =>
-        call.url.host === "pass.wafer.ai" &&
-        call.url.pathname === "/v1/chat/completions",
+        call.url.host === "openrouter.ai" &&
+        call.url.pathname === "/api/v1/chat/completions",
       () => sseResponse(completionsFixture()),
     );
   harness.ownerGate.setFetch((request, owner, accounting) =>
@@ -202,8 +202,8 @@ const setup = (envOverrides: Record<string, unknown> = {}) => {
   return { harness, fetchMock, run, runRaw };
 };
 
-const museBody = (extra: Record<string, unknown> = {}) => ({
-  model: MUSE_ALIAS,
+const defaultBody = (extra: Record<string, unknown> = {}) => ({
+  model: DEFAULT_ALIAS,
   input: [{ role: "user", content: "hi" }],
   reasoning: { effort: "high" },
   max_output_tokens: 1024,
@@ -254,7 +254,7 @@ describe("managed lane: authorization matrix", () => {
   test("no bearer -> 401 unauthorized", async () => {
     const response = await ctx.run(
       relayRequest("/v1/relay/responses", {
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders(),
       }),
     );
@@ -269,7 +269,7 @@ describe("managed lane: authorization matrix", () => {
       const response = await ctx.run(
         relayRequest("/v1/relay/responses", {
           token,
-          body: museBody(),
+          body: defaultBody(),
           headers: agentHeaders(),
         }),
       );
@@ -286,7 +286,7 @@ describe("managed lane: authorization matrix", () => {
     const request = () =>
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders({ "x-stella-request-id": "dpop-refusal" }),
       });
 
@@ -329,7 +329,7 @@ describe("managed lane: authorization matrix", () => {
     const response = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders(),
       }),
     );
@@ -352,7 +352,7 @@ describe("managed lane: authorization matrix", () => {
     const valid = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers,
       }),
     );
@@ -382,7 +382,7 @@ describe("managed lane: authorization matrix", () => {
       const response = await ctx.run(
         relayRequest("/v1/relay/responses", {
           token,
-          body: museBody(),
+          body: defaultBody(),
           headers: agentHeaders({ "cf-connecting-ip": "203.0.113.32" }),
         }),
       );
@@ -404,7 +404,7 @@ describe("managed lane: authorization matrix", () => {
     const response = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders(),
       }),
     );
@@ -417,7 +417,7 @@ describe("managed lane: authorization matrix", () => {
     const rogueResponse = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token: rogue.token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders(),
       }),
     );
@@ -434,7 +434,7 @@ describe("managed lane: authorization matrix", () => {
     const crossedResponse = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token: crossed.token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders(),
       }),
     );
@@ -447,7 +447,7 @@ describe("managed lane: authorization matrix", () => {
   test("missing agent type header -> 400 bad_request", async () => {
     const { token } = await signSession();
     const response = await ctx.run(
-      relayRequest("/v1/relay/responses", { token, body: museBody() }),
+      relayRequest("/v1/relay/responses", { token, body: defaultBody() }),
     );
     expect(response.status).toBe(400);
     expect((await readError(response)).error.code).toBe("bad_request");
@@ -458,7 +458,7 @@ describe("managed lane: authorization matrix", () => {
     const response = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders(),
       }),
     );
@@ -474,7 +474,7 @@ describe("managed lane: authorization matrix", () => {
         execution: {
           engine: "stella",
           provider: "stella",
-          model: FLASH_ALIAS,
+          model: "stella/deepseek/deepseek-v4-flash",
           reasoningEffort: "high",
         },
       },
@@ -482,7 +482,7 @@ describe("managed lane: authorization matrix", () => {
     const response = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders(),
       }),
     );
@@ -494,13 +494,13 @@ describe("managed lane: authorization matrix", () => {
   test("uses Muse's catalog effort with and without a client effort", async () => {
     for (const clientBody of [
       {
-        model: MUSE_ALIAS,
+        model: DEFAULT_ALIAS,
         input: [{ role: "user", content: "hi" }],
         reasoning_effort: "low",
         max_output_tokens: 1024,
       },
       {
-        model: MUSE_ALIAS,
+        model: DEFAULT_ALIAS,
         input: [{ role: "user", content: "hi" }],
         max_output_tokens: 1024,
       },
@@ -513,7 +513,7 @@ describe("managed lane: authorization matrix", () => {
           execution: {
             engine: "stella",
             provider: "stella",
-            model: MUSE_ALIAS,
+            model: DEFAULT_ALIAS,
             reasoningEffort: "low",
           },
         },
@@ -538,7 +538,7 @@ describe("managed lane: authorization matrix", () => {
     const response = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody({ stream: true }),
+        body: defaultBody({ stream: true }),
         headers: agentHeaders(),
       }),
     );
@@ -551,7 +551,7 @@ describe("managed lane: authorization matrix", () => {
     const response = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders(),
       }),
     );
@@ -568,7 +568,7 @@ describe("managed lane: authorization matrix", () => {
     const first = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders({ "cf-connecting-ip": "203.0.113.9" }),
       }),
     );
@@ -576,7 +576,7 @@ describe("managed lane: authorization matrix", () => {
     const second = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders({ "cf-connecting-ip": "203.0.113.9" }),
       }),
     );
@@ -594,7 +594,7 @@ describe("managed lane: authorization matrix", () => {
     const response = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders(),
       }),
     );
@@ -610,7 +610,7 @@ describe("managed lane: authorization matrix", () => {
     const response = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders(),
         cf: { asn: 16_509, asOrganization: "Amazon.com, Inc." },
       }),
@@ -633,7 +633,7 @@ describe("managed lane: authorization matrix", () => {
     const response = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders(),
       }),
     );
@@ -641,19 +641,6 @@ describe("managed lane: authorization matrix", () => {
     const body = await readError(response);
     expect(body.error.code).toBe("internal");
     expect(body.error.message).toContain("has no price");
-  });
-
-  test("a relay path the model's provider does not serve -> 400 bad_request", async () => {
-    const { token } = await signSession();
-    const response = await ctx.run(
-      relayRequest("/v1/relay/responses", {
-        token,
-        body: { model: FLASH_ALIAS, input: [{ role: "user", content: "hi" }] },
-        headers: agentHeaders(),
-      }),
-    );
-    expect(response.status).toBe(400);
-    expect((await readError(response)).error.code).toBe("bad_request");
   });
 
   test("unknown relay path -> 404 bad_request", async () => {
@@ -680,7 +667,7 @@ describe("managed lane: completion, metering, replay", () => {
     const response = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders({ "x-stella-request-id": "req-abc" }),
       }),
     );
@@ -702,7 +689,7 @@ describe("managed lane: completion, metering, replay", () => {
     expect(upstream.headers.has("x-stella-request-id")).toBe(false);
     const sent = JSON.parse(upstream.body ?? "{}") as Record<string, unknown>;
     expect(sent.stream).toBe(true);
-    expect(sent.model).toBe(MUSE_RESOLVED);
+    expect(sent.model).toBe(DEFAULT_RESOLVED);
     expect(sent.reasoning).toEqual({ effort: "xhigh" });
 
     await ctx.harness.flush();
@@ -719,8 +706,8 @@ describe("managed lane: completion, metering, replay", () => {
       agentType: "orchestrator",
       provider: "openrouter",
       protocol: "openai-responses",
-      requestedModel: MUSE_ALIAS,
-      resolvedModel: MUSE_RESOLVED,
+      requestedModel: DEFAULT_ALIAS,
+      resolvedModel: DEFAULT_RESOLVED,
       usage: {
         inputTokens: 12,
         outputTokens: 7,
@@ -759,7 +746,7 @@ describe("managed lane: completion, metering, replay", () => {
     const response = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders({ "cf-connecting-ip": "203.0.113.50" }),
         cf: { asn: 16_509, asOrganization: "Amazon.com, Inc." },
       }),
@@ -778,7 +765,7 @@ describe("managed lane: completion, metering, replay", () => {
     const request = () =>
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders({ "x-stella-request-id": "req-replay" }),
       });
     const first = await ctx.run(request());
@@ -805,7 +792,7 @@ describe("managed lane: completion, metering, replay", () => {
     const request = () =>
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders({ "x-stella-request-id": "req-race" }),
       });
     const firstPromise = ctx.run(request());
@@ -822,14 +809,14 @@ describe("managed lane: completion, metering, replay", () => {
     const third = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders({ "x-stella-request-id": "req-after-race" }),
       }),
     );
     expect(third.status).toBe(200);
   });
 
-  test("assembles a ChatCompletion from Wafer and bills token usage", async () => {
+  test("assembles a ChatCompletion from OpenRouter and bills token usage", async () => {
     const { token, claims } = await signSession();
     const response = await ctx.run(
       relayRequest("/v1/relay/chat/completions", {
@@ -849,15 +836,16 @@ describe("managed lane: completion, metering, replay", () => {
     };
     expect(body.object).toBe("chat.completion");
     expect(body.choices[0]!.message.content).toBe("Hi there");
-    const upstream = ctx.fetchMock.callsTo("pass.wafer.ai")[0]!;
+    const upstream = ctx.fetchMock.callsTo("openrouter.ai")[0]!;
     const sent = JSON.parse(upstream.body ?? "{}") as Record<string, unknown>;
-    expect(sent.model).toBe("DeepSeek-V4-Flash-0731-Fast");
+    expect(sent.model).toBe("deepseek/deepseek-v4.1-flash");
+    expect(sent.provider).toEqual({ only: ["inference-net"], allow_fallbacks: false });
     expect(sent.stream).toBe(true);
     expect(sent.stream_options).toEqual({ include_usage: true });
     await ctx.harness.flush();
     const event = ctx.harness.usageEvents[0] as GatewayUsageEvent;
     expect(event).toMatchObject({
-      provider: "wafer",
+      provider: "openrouter",
       protocol: "openai-completions",
       resolvedModel: FLASH_RESOLVED,
       usage: {
@@ -865,12 +853,12 @@ describe("managed lane: completion, metering, replay", () => {
         outputTokens: 20,
         reported: true,
       },
-      chargedMicroCents: 540,
+      chargedMicroCents: 500,
       outcome: "succeeded",
     });
     const ledger = ctx.harness.ledger.namespace.get({ name: claims.jti });
     expect(await ledger.snapshot()).toMatchObject({
-      spentMicroCents: 540,
+      spentMicroCents: 500,
       reservedMicroCents: 0,
     });
   });
@@ -894,7 +882,7 @@ describe("managed lane: completion, metering, replay", () => {
     const response = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders(),
       }),
     );
@@ -939,7 +927,7 @@ describe("managed lane: completion, metering, replay", () => {
     const first = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders({ "x-stella-request-id": "refund-first" }),
       }),
     );
@@ -947,7 +935,7 @@ describe("managed lane: completion, metering, replay", () => {
     const second = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders({ "x-stella-request-id": "refund-second" }),
       }),
     );
@@ -984,7 +972,7 @@ describe("managed lane: completion, metering, replay", () => {
     const response = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody({ max_output_tokens: 1 }),
+        body: defaultBody({ max_output_tokens: 1 }),
         headers: agentHeaders({ "x-stella-request-id": "hard-stop" }),
       }),
     );
@@ -1089,7 +1077,7 @@ describe("managed lane: completion, metering, replay", () => {
     const response = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders({ "cf-connecting-ip": "203.0.113.44" }),
       }),
     );
@@ -1115,7 +1103,7 @@ describe("managed lane: completion, metering, replay", () => {
     const response = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders(),
       }),
     );
@@ -1143,7 +1131,7 @@ describe("managed lane: completion, metering, replay", () => {
     const response = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders({ "x-stella-request-id": "req-trunc" }),
       }),
     );
@@ -1177,7 +1165,7 @@ describe("managed lane: completion, metering, replay", () => {
     const response = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders({ "x-stella-request-id": "req-abort" }),
         signal: abort.signal,
       }),
@@ -1226,7 +1214,7 @@ describe("managed lane: completion, metering, replay", () => {
     const canceled = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders({ "x-stella-request-id": "abort-before-byte" }),
         signal: abort.signal,
       }),
@@ -1235,7 +1223,7 @@ describe("managed lane: completion, metering, replay", () => {
     const retry = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders({ "x-stella-request-id": "after-abort" }),
       }),
     );
@@ -1253,7 +1241,7 @@ describe("managed lane: completion, metering, replay", () => {
   test("the probe secret grants a synthetic pro capability with no ledger and no usage events", async () => {
     const response = await ctx.run(
       relayRequest("/v1/relay/responses", {
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders({ "x-stella-relay-probe-secret": PROBE_SECRET }),
       }),
     );
@@ -1264,7 +1252,7 @@ describe("managed lane: completion, metering, replay", () => {
 
     const wrong = await ctx.run(
       relayRequest("/v1/relay/responses", {
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders({ "x-stella-relay-probe-secret": "nope" }),
       }),
     );
@@ -1290,10 +1278,10 @@ describe("POST /v1/models/resolve", () => {
     expect((await response.json()) as GatewayModelResolution).toEqual({
       requestedModel: FLASH_ALIAS,
       resolvedModel: FLASH_RESOLVED,
-      provider: "wafer",
+      provider: "openrouter",
       protocol: "openai-completions",
       reasoning: true,
-      supportsImages: false,
+      supportsImages: true,
     });
   });
 
@@ -1333,15 +1321,15 @@ describe("POST /v1/models/resolve", () => {
     const fallback = await ctx.run(
       relayRequest("/v1/models/resolve", {
         token: free.token,
-        body: { model: FLASH_ALIAS, agentType: "orchestrator" },
+        body: { model: "stella/deepseek/deepseek-v4-flash", agentType: "orchestrator" },
       }),
     );
     expect(fallback.status).toBe(200);
     expect((await fallback.json()) as GatewayModelResolution).toMatchObject({
       requestedModel: "stella/default",
-      resolvedModel: MUSE_RESOLVED,
+      resolvedModel: DEFAULT_RESOLVED,
       provider: "openrouter",
-      protocol: "openai-responses",
+      protocol: "openai-completions",
       supportsImages: true,
     });
 
@@ -1349,7 +1337,7 @@ describe("POST /v1/models/resolve", () => {
     const fallbackPicker = await ctx.run(
       relayRequest("/v1/models/resolve", {
         token: proFallback.token,
-        body: { model: FLASH_ALIAS, agentType: "orchestrator" },
+        body: { model: "stella/deepseek/deepseek-v4-flash", agentType: "orchestrator" },
       }),
     );
     expect(fallbackPicker.status).toBe(200);
@@ -1357,14 +1345,14 @@ describe("POST /v1/models/resolve", () => {
       (await fallbackPicker.json()) as GatewayModelResolution,
     ).toMatchObject({
       requestedModel: "stella/default",
-      resolvedModel: MUSE_RESOLVED,
+      resolvedModel: DEFAULT_RESOLVED,
     });
 
     const turn = await signTurn();
     const mismatch = await ctx.run(
       relayRequest("/v1/models/resolve", {
         token: turn.token,
-        body: { model: FLASH_ALIAS, agentType: "orchestrator" },
+        body: { model: "stella/deepseek/deepseek-v4-flash", agentType: "orchestrator" },
       }),
     );
     expect(mismatch.status).toBe(403);
@@ -1373,7 +1361,7 @@ describe("POST /v1/models/resolve", () => {
     const pinned = await ctx.run(
       relayRequest("/v1/models/resolve", {
         token: turn.token,
-        body: { model: MUSE_ALIAS, agentType: "orchestrator" },
+        body: { model: DEFAULT_ALIAS, agentType: "orchestrator" },
       }),
     );
     expect(pinned.status).toBe(200);
@@ -1396,7 +1384,7 @@ describe("gateway phase timing", () => {
     const work = handleRequest(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders(),
       }),
       ctx.harness.env,
@@ -1452,7 +1440,7 @@ describe("gateway phase timing", () => {
       const responseWork = ctx.run(
         relayRequest("/v1/relay/responses", {
           token,
-          body: museBody(),
+          body: defaultBody(),
           headers: agentHeaders(),
         }),
       );
@@ -1497,7 +1485,7 @@ describe("gateway phase timing", () => {
     });
     try {
       const response = await ctx.run(
-        relayRequest("/v1/relay/responses", { body: museBody() }),
+        relayRequest("/v1/relay/responses", { body: defaultBody() }),
       );
       expect(response.status).toBe(401);
       expect(events[0]).toMatchObject({
@@ -1523,7 +1511,7 @@ describe("atomic owner relay accounting", () => {
       ctx.run(
         relayRequest("/v1/relay/responses", {
           token,
-          body: museBody(),
+          body: defaultBody(),
           headers: agentHeaders({ "x-stella-request-id": "same-id" }),
         }),
       );
@@ -1545,7 +1533,7 @@ describe("owner-local model execution", () => {
       ctx.run(
         relayRequest("/v1/relay/responses", {
           token,
-          body: museBody(),
+          body: defaultBody(),
           headers: agentHeaders(),
         }),
       );
@@ -1573,7 +1561,7 @@ describe("owner-local model execution", () => {
     const response = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders(),
       }),
     );
@@ -1605,7 +1593,7 @@ describe("owner-local model execution", () => {
         await ctx.run(
           relayRequest("/v1/relay/responses", {
             token,
-            body: museBody(),
+            body: defaultBody(),
             headers: agentHeaders(),
           }),
         )
@@ -1636,7 +1624,7 @@ describe("owner-local model execution", () => {
     const response = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders(),
       }),
     );
@@ -1663,7 +1651,7 @@ describe("owner-local model execution", () => {
         await ctx.run(
           relayRequest("/v1/relay/responses", {
             token,
-            body: museBody(),
+            body: defaultBody(),
             headers: agentHeaders(),
           }),
         )
@@ -1692,7 +1680,7 @@ describe("owner-local model execution", () => {
       const response = await ctx.run(
         relayRequest("/v1/relay/responses", {
           token,
-          body: museBody(),
+          body: defaultBody(),
           headers: agentHeaders(),
         }),
       );
@@ -1729,7 +1717,7 @@ describe("owner-local model execution", () => {
     const response = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders(),
       }),
     );
@@ -1762,7 +1750,7 @@ describe("owner-local model execution", () => {
         await ctx.run(
           relayRequest("/v1/relay/responses", {
             token,
-            body: museBody(),
+            body: defaultBody(),
             headers: agentHeaders(),
           }),
         )
@@ -1782,7 +1770,7 @@ describe("owner-local model execution", () => {
     const response = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders(),
       }),
     );
@@ -1805,7 +1793,7 @@ describe("owner-local model execution", () => {
     const pending = ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders(),
       }),
     );
@@ -1845,7 +1833,7 @@ describe("owner-local model execution", () => {
     const pending = ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders({ "x-stella-request-id": requestId }),
       }),
     );
@@ -1905,7 +1893,7 @@ describe("owner-local model execution", () => {
     const response = await wrong.fetch(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders(),
       }),
     );
@@ -1921,7 +1909,7 @@ describe("owner-local model execution", () => {
     const request = (bearer?: string) =>
       relayRequest("/v1/relay/responses", {
         token: bearer,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders({ "x-stella-request-id": "direct-owner-replay" }),
       });
     expect((await gate.fetch(request())).status).toBe(401);
@@ -1947,7 +1935,7 @@ describe("owner-local model execution", () => {
     const unscoped = await gate.fetch(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders(),
       }),
     );
@@ -1980,7 +1968,7 @@ describe("owner-local model execution", () => {
     const response = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders({ "x-stella-request-id": "owner-abort" }),
         signal: abort.signal,
       }),
@@ -2016,7 +2004,7 @@ describe("validated descriptor relay", () => {
     const response = await ctx.run(
       relayRequest("/v2/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders({ [GATEWAY_MODEL_REVISION_HEADER]: "v1:old" }),
       }),
     );
@@ -2028,7 +2016,7 @@ describe("validated descriptor relay", () => {
     const encoded = response.headers.get(GATEWAY_MODEL_RESOLUTION_HEADER);
     expect(encoded).toBeTruthy();
     const descriptor = JSON.parse(decodeURIComponent(encoded!));
-    expect(descriptor.requestedModel).toBe(MUSE_ALIAS);
+    expect(descriptor.requestedModel).toBe(DEFAULT_ALIAS);
     expect(ctx.harness.ownerGate.objects.size).toBe(0);
     expect(ctx.harness.networkGate.objects.size).toBe(0);
     expect(ctx.harness.ledger.objects.size).toBe(0);
@@ -2041,20 +2029,20 @@ describe("validated descriptor relay", () => {
     const missing = await ctx.run(
       relayRequest("/v2/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders(),
       }),
     );
     expect(missing.status).toBe(400);
     const descriptor = resolveManagedModelDescriptor({
       agentType: "orchestrator",
-      requestedModel: MUSE_ALIAS,
+      requestedModel: DEFAULT_ALIAS,
       audience: "pro",
     });
     const response = await ctx.run(
       relayRequest("/v2/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders({
           [GATEWAY_MODEL_REVISION_HEADER]:
             await gatewayModelResolutionRevision(descriptor),
@@ -2122,7 +2110,7 @@ describe("acknowledged owner preparation", () => {
         .run(
           relayRequest(path, {
             token,
-            body: { model: MUSE_ALIAS, agentType: "orchestrator" },
+            body: { model: DEFAULT_ALIAS, agentType: "orchestrator" },
           }),
         )
         .then((response) => {
@@ -2136,7 +2124,7 @@ describe("acknowledged owner preparation", () => {
       const response = await pending;
       expect(response.status).toBe(200);
       expect(await response.json()).toMatchObject({
-        requestedModel: MUSE_ALIAS,
+        requestedModel: DEFAULT_ALIAS,
       });
       expect(prepare).toHaveBeenCalledTimes(1);
       expect(admission).not.toHaveBeenCalled();
@@ -2165,7 +2153,7 @@ describe("acknowledged owner preparation", () => {
       const response = await ctx.run(
         relayRequest(GATEWAY_PREPARE_PATH, {
           token,
-          body: { model: MUSE_ALIAS, agentType: "orchestrator" },
+          body: { model: DEFAULT_ALIAS, agentType: "orchestrator" },
         }),
       );
       expect(response.status).toBe(503);
@@ -2182,21 +2170,21 @@ describe("acknowledged owner preparation", () => {
     const { token } = await signTurn({ ledgerScope: "owner-relay-v2" });
     const missing = await ctx.run(
       relayRequest(GATEWAY_PREPARE_PATH, {
-        body: { model: MUSE_ALIAS, agentType: "orchestrator" },
+        body: { model: DEFAULT_ALIAS, agentType: "orchestrator" },
       }),
     );
     expect(missing.status).toBe(401);
     const mismatch = await ctx.run(
       relayRequest(GATEWAY_PREPARE_PATH, {
         token,
-        body: { model: FLASH_ALIAS, agentType: "orchestrator" },
+        body: { model: "stella/deepseek/deepseek-v4-flash", agentType: "orchestrator" },
       }),
     );
     expect(mismatch.status).toBe(403);
     const forbidden = await ctx.run(
       relayRequest(GATEWAY_PREPARE_PATH, {
         token,
-        body: { model: MUSE_ALIAS, agentType: "general" },
+        body: { model: DEFAULT_ALIAS, agentType: "general" },
       }),
     );
     expect(forbidden.status).toBe(403);
@@ -2229,7 +2217,7 @@ test("cached owner result survives a paused tier", async () => {
     ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: museBody(),
+        body: defaultBody(),
         headers: agentHeaders({
           "x-stella-request-id": "review-replay-paused",
         }),

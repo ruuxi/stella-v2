@@ -27,14 +27,18 @@ pub fn all() -> Vec<Value> {
 pub fn managed_model(entry: &Value, origin: &str) -> Value {
     let id = entry["id"].as_str().unwrap_or_default();
     let upstream = entry["upstreamModel"].as_str().unwrap_or(id);
-    let provider = ["openai", "anthropic", "google", "deepseek", "wafer"]
+    let provider = if upstream == "deepseek/deepseek-v4.1-flash" {
+        "openrouter"
+    } else {
+        ["openai", "anthropic", "google", "deepseek"]
         .into_iter()
         .find(|p| upstream.starts_with(&format!("{p}/")))
         .unwrap_or(if upstream.starts_with("accounts/fireworks/") {
             "fireworks"
         } else {
             "openrouter"
-        });
+        })
+    };
     let native = if provider == "openrouter" || provider == "fireworks" {
         upstream
     } else {

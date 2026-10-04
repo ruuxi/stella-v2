@@ -24,8 +24,8 @@ describe("managed gateway", () => {
       inferManagedGatewayProviderFromModel("deepseek/deepseek-v4-flash"),
     ).toBe("deepseek");
     expect(
-      inferManagedGatewayProviderFromModel("wafer/deepseek-v4-flash-0731-fast"),
-    ).toBe("wafer");
+      inferManagedGatewayProviderFromModel("deepseek/deepseek-v4.1-flash"),
+    ).toBe("openrouter");
     expect(
       inferManagedGatewayProviderFromModel("openrouter/x-ai/grok-4.5"),
     ).toBe("openrouter");

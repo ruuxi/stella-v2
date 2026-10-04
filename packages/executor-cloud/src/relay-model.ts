@@ -21,10 +21,7 @@ import type {
   AgentModelReasoningEffort,
   CloudExecutionSelection,
 } from "@stella/contracts/agent-engine";
-import {
-  STELLA_DEFAULT_UPSTREAM_MODEL,
-  STELLA_WAFER_V4_FLASH_FAST_UPSTREAM_MODEL,
-} from "@stella/contracts/stella-api";
+import { STELLA_DEFAULT_UPSTREAM_MODEL } from "@stella/contracts/stella-api";
 import {
   getLoadedModelRegistry,
   isModelRegistryLoaded,
@@ -310,33 +307,13 @@ const optionalRegistryModel = (
     ? loadedRegistryModel(registryProvider, requestedCandidates)
     : null;
 
-const REGISTRY_INDEPENDENT_OPENROUTER_MODELS = new Set<string>([
-  STELLA_DEFAULT_UPSTREAM_MODEL,
-]);
-
-const REGISTRY_INDEPENDENT_CHAT_COMPLETION_MODELS = new Map<
-  GatewayProvider,
-  string
->([
-  ["wafer", STELLA_WAFER_V4_FLASH_FAST_UPSTREAM_MODEL],
-]);
-
 const isRegistryIndependentManagedResolution = (
   resolution: GatewayModelResolution,
-): boolean => {
-  if (
-    resolution.provider === "openrouter" &&
-    resolution.protocol === "openai-responses" &&
-    REGISTRY_INDEPENDENT_OPENROUTER_MODELS.has(resolution.resolvedModel)
-  ) {
-    return true;
-  }
-  return (
-    resolution.protocol === "openai-completions" &&
-    REGISTRY_INDEPENDENT_CHAT_COMPLETION_MODELS.get(resolution.provider) ===
-      resolution.resolvedModel
-  );
-};
+): boolean =>
+  resolution.provider === "openrouter" &&
+  (resolution.protocol === "openai-responses" ||
+    resolution.protocol === "openai-completions") &&
+  resolution.resolvedModel === STELLA_DEFAULT_UPSTREAM_MODEL;
 
 const loadRegistryIfUseful = async (
   resolution: GatewayModelResolution,

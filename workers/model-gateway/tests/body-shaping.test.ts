@@ -134,7 +134,7 @@ describe("managed output caps", () => {
   test("the upstream body receives the audience cap when callers omit it", () => {
     const { json } = shape(
       "openrouter",
-      "meta/muse-spark-1.3-contributor",
+      "deepseek/deepseek-v4.1-flash",
       "openai-responses",
       "/v1/relay/responses",
       { input: "hello" },
@@ -227,56 +227,10 @@ describe("body shaping parity: deepseek", () => {
   });
 });
 
-describe("body shaping parity: wafer", () => {
-  test("uses chat completions, the dated slug, Wafer's effort ladder, and include_usage", () => {
-    const { url, headers, json } = shape(
-      "wafer",
-      "wafer/deepseek-v4-flash-0731-fast",
-      "openai-completions",
-      "/v1/relay/chat/completions",
-      {
-        model: "stella/wafer/deepseek-v4-flash-0731-fast",
-        messages: [{ role: "user", content: "hi" }],
-        reasoning: { effort: "xhigh" },
-        thinking: { type: "enabled" },
-      },
-      { reasoningEffort: "xhigh" },
-    );
-    expect(url).toBe("https://pass.wafer.ai/v1/chat/completions");
-    expect(headers.get("authorization")).toBe("Bearer upstream-key");
-    expect(json.model).toBe("DeepSeek-V4-Flash-0731-Fast");
-    expect(json.reasoning_effort).toBe("high");
-    expect(json.reasoning).toBeUndefined();
-    expect(json.thinking).toBeUndefined();
-    expect(json.stream_options).toEqual({ include_usage: true });
-  });
-
-  test("a Responses-shaped body sent to Wafer's chat path is converted", () => {
-    const { json } = shape(
-      "wafer",
-      "wafer/deepseek-v4-flash-0731-fast",
-      "openai-completions",
-      "/v1/relay/chat/completions",
-      {
-        model: "stella/wafer/deepseek-v4-flash-0731-fast",
-        input: [{ role: "user", content: "hi" }],
-        max_output_tokens: 64,
-        text: { format: { type: "json_object" } },
-        reasoning: { effort: "none" },
-      },
-      { reasoningEffort: "none" },
-    );
-    expect(json.messages).toEqual([{ role: "user", content: "hi" }]);
-    expect(json.response_format).toEqual({ type: "json_object" });
-    expect(json.max_completion_tokens).toBe(64);
-    expect(json.reasoning_effort).toBe("none");
-    expect(json.text).toBeUndefined();
-  });
-});
 
 describe("body shaping parity: openrouter", () => {
-  test("Muse advertises vision and preserves the runtime's Responses image bytes", () => {
-    const model = "stella/meta/muse-spark-1.3-contributor";
+  test("Flash advertises vision and preserves the runtime's Responses image bytes", () => {
+    const model = "stella/deepseek/deepseek-v4.1-flash";
     const descriptor = resolveManagedModelDescriptor({
       agentType: "orchestrator",
       requestedModel: model,
@@ -298,7 +252,7 @@ describe("body shaping parity: openrouter", () => {
     ];
     const { json } = shape(
       "openrouter",
-      "meta/muse-spark-1.3-contributor",
+      "deepseek/deepseek-v4.1-flash",
       "openai-responses",
       "/v1/relay/responses",
       { model, input },
@@ -309,11 +263,11 @@ describe("body shaping parity: openrouter", () => {
   test("Responses path: chat-shaped input is normalized, reasoning stays nested, no store flag", () => {
     const { url, headers, json } = shape(
       "openrouter",
-      "meta/muse-spark-1.3-contributor",
+      "deepseek/deepseek-v4.1-flash",
       "openai-responses",
       "/v1/relay/responses",
       {
-        model: "stella/meta/muse-spark-1.3-contributor",
+        model: "stella/deepseek/deepseek-v4.1-flash",
         messages: [
           { role: "developer", content: "Follow the policy." },
           {
@@ -336,7 +290,7 @@ describe("body shaping parity: openrouter", () => {
     expect(url).toBe("https://openrouter.ai/api/v1/responses");
     expect(headers.get("HTTP-Referer")).toBe("https://stella.sh");
     expect(headers.get("X-OpenRouter-Title")).toBe("Stella");
-    expect(json.model).toBe("meta/muse-spark-1.3-contributor");
+    expect(json.model).toBe("deepseek/deepseek-v4.1-flash");
     expect(json.messages).toBeUndefined();
     expect(json.input).toEqual([
       { role: "developer", content: "Follow the policy." },

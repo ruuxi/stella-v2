@@ -143,14 +143,16 @@ describe("money helpers", () => {
 });
 
 describe("static price overrides", () => {
-  it("carries the Muse contributor and direct DeepSeek V4 Flash rates", () => {
+  it("carries the inference-net V4.1 Flash and legacy direct Flash rates", () => {
     expect(
-      STATIC_MANAGED_MODEL_PRICE_OVERRIDES["meta/muse-spark-1.3-contributor"],
+      STATIC_MANAGED_MODEL_PRICE_OVERRIDES["deepseek/deepseek-v4.1-flash"],
     ).toMatchObject({
       sourceProvider: "openrouter",
-      inputPerMillionUsd: 0.1,
-      outputPerMillionUsd: 0.2,
-      reasoningPerMillionUsd: 0.2,
+      inputPerMillionUsd: 0.02,
+      outputPerMillionUsd: 0.45,
+      cacheReadPerMillionUsd: 0.003,
+      reasoningPerMillionUsd: 0.45,
+      modalitiesInput: ["text", "image"],
     });
     expect(
       STATIC_MANAGED_MODEL_PRICE_OVERRIDES["deepseek/deepseek-v4-flash"],

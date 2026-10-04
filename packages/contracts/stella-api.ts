@@ -8,48 +8,25 @@ export const STELLA_MODELS_PATH = `${STELLA_API_BASE_PATH}/models`;
 export const STELLA_PROMPTS_PATH = `${STELLA_API_BASE_PATH}/prompts`;
 export const STELLA_DEFAULT_MODEL = "stella/default";
 export const STELLA_STANDARD_MODEL = "stella/standard";
-/**
- * Muse Spark 1.3 Contributor on OpenRouter. Released today, so it is not yet in
- * models.dev — the backend carries a static price override until catalogs
- * catch up (see `STATIC_MANAGED_MODEL_PRICE_OVERRIDES`).
- */
-export const STELLA_DEFAULT_UPSTREAM_MODEL = "meta/muse-spark-1.3-contributor";
-/**
- * Fallback: V4 Flash on DeepSeek. Fully supported and still selectable;
- * the older DeepSeek and Fireworks spellings
- * (`accounts/fireworks/models/deepseek-v4-flash-0731`) stay routable through
- * the verbatim `stella/<provider>/<model>` path — see
- * `DEEPSEEK_V4_FLASH_ROUTE` in `@stella/model-catalog/model`.
- */
+/** DeepSeek V4.1 Flash on OpenRouter, restricted to inference-net. */
+export const STELLA_DEFAULT_UPSTREAM_MODEL = "deepseek/deepseek-v4.1-flash";
+/** Shared Flash route identity for clients and the gateway. */
 export const STELLA_DEEPSEEK_V4_FLASH_UPSTREAM_MODEL =
-  "deepseek/deepseek-v4-flash";
-/**
- * Wafer-hosted Fast variant of V4 Flash 0731. A separate selectable option
- * (never a default); ZDR is enforced per request at the relay.
- */
-export const STELLA_WAFER_V4_FLASH_FAST_UPSTREAM_MODEL =
-  "wafer/deepseek-v4-flash-0731-fast";
+  "deepseek/deepseek-v4.1-flash";
 
 /** True for every routed spelling of the DeepSeek V4 Flash family. */
 export const isDeepSeekV4FlashModel = (
   modelId: string | null | undefined,
 ): boolean =>
   typeof modelId === "string" &&
-  modelId.toLowerCase().includes("deepseek-v4-flash");
+  /deepseek-v4(?:\.1)?-flash/i.test(modelId);
 
-/** True for the OpenRouter-hosted Muse Spark 1.3 Contributor default. */
-export const isMuseSpark13ContributorModel = (
-  modelId: string | null | undefined,
-): boolean =>
-  typeof modelId === "string" &&
-  modelId.toLowerCase().includes("muse-spark-1.3-contributor");
 export const STELLA_RELAY_PROVIDERS = [
   "anthropic",
   "openai",
   "google",
   "fireworks",
   "deepseek",
-  "wafer",
   "openrouter",
 ] as const;
 export type StellaRelayProvider = (typeof STELLA_RELAY_PROVIDERS)[number];

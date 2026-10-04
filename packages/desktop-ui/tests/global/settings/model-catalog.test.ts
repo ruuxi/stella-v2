@@ -19,16 +19,10 @@ describe("settings model catalog", () => {
   it("lists the fetched Stella models sorted by name", () => {
     const fetched = normalizeStellaCatalogModels([
       {
-        id: "stella/meta/muse-spark-1.3-contributor",
-        name: "Muse Spark 1.3 Contributor",
+        id: "stella/deepseek/deepseek-v4.1-flash",
+        name: "DeepSeek V4.1 Flash",
         provider: "stella",
-        upstreamModel: "meta/muse-spark-1.3-contributor",
-      },
-      {
-        id: "stella/deepseek/deepseek-v4-flash",
-        name: "DeepSeek V4 Flash",
-        provider: "stella",
-        upstreamModel: "deepseek/deepseek-v4-flash",
+        upstreamModel: "deepseek/deepseek-v4.1-flash",
       },
     ]);
 
@@ -40,27 +34,13 @@ describe("settings model catalog", () => {
     )?.models;
 
     expect(stellaRows?.map((model) => model.id)).toEqual([
-      "stella/deepseek/deepseek-v4-flash",
-      "stella/meta/muse-spark-1.3-contributor",
+      "stella/deepseek/deepseek-v4.1-flash",
     ]);
     expect(stellaRows?.map(getStellaResolvedModelName)).toEqual([
-      "DeepSeek V4 Flash",
-      "Muse Spark 1.3 Contributor",
+      "DeepSeek V4.1 Flash",
     ]);
   });
 
-  it("curates the Wafer Fast variant's display name", () => {
-    expect(
-      getStellaResolvedModelName({
-        id: "stella/wafer/deepseek-v4-flash-0731-fast",
-        name: "DeepSeek V4 Flash 0731 Fast",
-        provider: "stella",
-        providerName: "Stella",
-        source: "stella",
-        upstreamModel: "wafer/deepseek-v4-flash-0731-fast",
-      }),
-    ).toBe("DeepSeek V4 Flash 0731 Fast");
-  });
 
   it("shows resolved model names instead of Stella routing aliases", () => {
     expect(
@@ -176,7 +156,7 @@ describe("settings model catalog", () => {
       {
         agentType: "general",
         model: "stella/light",
-        resolvedModel: "deepseek/deepseek-v4-flash",
+        resolvedModel: "deepseek/deepseek-v4.1-flash",
       },
     ]);
     const defaultMap = buildModelDefaultsMap(defaults);

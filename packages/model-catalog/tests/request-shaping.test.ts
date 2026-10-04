@@ -19,7 +19,6 @@ const RESOLVED_MODELS: Record<ManagedGatewayProvider, string> = {
   meta: "meta/muse-spark-1.1",
   openai: "openai/gpt-5.5",
   openrouter: "x-ai/grok-4.5",
-  wafer: "wafer/deepseek-v4-flash-0731-fast",
   xai: "x-ai/grok-4.5",
 };
 
@@ -31,7 +30,6 @@ const UPSTREAM_MODELS: Record<ManagedGatewayProvider, string> = {
   meta: "muse-spark-1.1",
   openai: "gpt-5.5",
   openrouter: "x-ai/grok-4.5",
-  wafer: "DeepSeek-V4-Flash-0731-Fast",
   xai: "grok-4.5",
 };
 
@@ -106,16 +104,6 @@ describe("upstreamUrl", () => {
         "deepseek",
         "/api/stella/deepseek/v1/chat/completions",
         "https://api.deepseek.com/chat/completions",
-      ],
-      [
-        "wafer",
-        "/api/stella/wafer/v1/chat/completions",
-        "https://pass.wafer.ai/v1/chat/completions",
-      ],
-      [
-        "wafer",
-        "/api/stella/relay/responses",
-        "https://pass.wafer.ai/v1/chat/completions",
       ],
       [
         "xai",
@@ -204,8 +192,8 @@ describe("isResponsesRequest", () => {
       ),
     ).toBe(false);
     expect(
-      isResponsesRequest("wafer", requestFor("/api/stella/relay/responses")),
-    ).toBe(false);
+      isResponsesRequest("openrouter", requestFor("/api/stella/relay/responses")),
+    ).toBe(true);
   });
 });
 
@@ -229,8 +217,8 @@ describe("toProviderNativeModel", () => {
     );
     expect(toProviderNativeModel("x-ai/grok-4.5", "xai")).toBe("grok-4.5");
     expect(
-      toProviderNativeModel("wafer/deepseek-v4-flash-0731-fast", "wafer"),
-    ).toBe("DeepSeek-V4-Flash-0731-Fast");
+      toProviderNativeModel("deepseek/deepseek-v4.1-flash", "openrouter"),
+    ).toBe("deepseek/deepseek-v4.1-flash");
   });
 
   it("passes through ids that do not match the relay provider", () => {
@@ -262,7 +250,6 @@ describe("resolveCloudManagedProtocol", () => {
       );
     }
     for (const relayProvider of [
-      "wafer",
       "openrouter",
       "meta",
     ] as const) {
@@ -333,33 +320,7 @@ describe("cloneForwardHeaders", () => {
     expect(headers.get("user-agent")).toBe("stella-runtime");
   });
 
-  it("sends the Wafer-ZDR header on every wafer request by default and honors explicit extra headers", () => {
-    const wafer = cloneForwardHeaders(
-      requestFor("/api/stella/wafer/v1/chat/completions"),
-      "wafer",
-      "wafer-key",
-    );
-    expect(wafer.get("Wafer-ZDR")).toBe("required");
-    expect(wafer.get("authorization")).toBe("Bearer wafer-key");
 
-    // The header is wafer-specific; other gateways must not receive it.
-    const otherProvider = cloneForwardHeaders(
-      requestFor("/api/stella/deepseek/v1/chat/completions"),
-      "deepseek",
-      "deepseek-key",
-    );
-    expect(otherProvider.get("Wafer-ZDR")).toBeNull();
-
-    // An explicit table replaces the gateway default entirely.
-    const explicit = cloneForwardHeaders(
-      requestFor("/api/stella/wafer/v1/chat/completions"),
-      "wafer",
-      "wafer-key",
-      { "X-Custom": "1" },
-    );
-    expect(explicit.get("X-Custom")).toBe("1");
-    expect(explicit.get("Wafer-ZDR")).toBeNull();
-  });
 });
 
 describe("bodyForUpstream: deepseek", () => {
@@ -456,44 +417,6 @@ describe("bodyForUpstream: deepseek", () => {
   });
 });
 
-describe("bodyForUpstream: wafer", () => {
-  it("uses chat completions, the dated model slug, and Wafer reasoning levels", () => {
-    const body = shaped(
-      "wafer",
-      "/api/stella/wafer/v1/chat/completions",
-      {
-        model: "stella/default",
-        messages: [{ role: "user", content: "hi" }],
-        reasoning: { effort: "xhigh" },
-        stream: true,
-      },
-      "xhigh",
-    );
-    expect(body.model).toBe("DeepSeek-V4-Flash-0731-Fast");
-    expect(body.reasoning_effort).toBe("high");
-    expect(body.reasoning).toBeUndefined();
-    expect(body.thinking).toBeUndefined();
-    expect(body.stream_options).toEqual({ include_usage: true });
-  });
-
-  it("normalizes Wafer bodies for chat completions with the exact upstream casing", () => {
-    const body = shaped(
-      "wafer",
-      "/api/stella/wafer/v1/chat/completions",
-      {
-        model: "stella/wafer/deepseek-v4-flash-0731-fast",
-        messages: [{ role: "user", content: "hi" }],
-        reasoning: { effort: "xhigh" },
-        stream: true,
-      },
-      "xhigh",
-    );
-    expect(body.model).toBe("DeepSeek-V4-Flash-0731-Fast");
-    expect(body.reasoning_effort).toBe("high");
-    expect(body.reasoning).toBeUndefined();
-    expect(body.stream_options).toEqual({ include_usage: true });
-  });
-});
 
 describe("bodyForUpstream: openrouter responses", () => {
   it("normalizes chat-shaped bodies for the OpenRouter Responses path", () => {
@@ -767,5 +690,24 @@ describe("bodyForUpstream: other providers", () => {
       },
       { type: "text", text: "native" },
     ]);
+  });
+});
+
+
+describe("Flash provider restriction", () => {
+  it("forces inference-net even if a client supplies a different provider", () => {
+    for (const path of ["/v1/relay/chat/completions", "/v1/relay/responses"]) {
+      const body = JSON.parse(bodyForUpstream({
+        resolvedModel: "deepseek/deepseek-v4.1-flash",
+        upstreamModel: "deepseek/deepseek-v4.1-flash",
+        requestJson: {
+          model: "stella/default",
+          messages: [{ role: "user", content: "hi" }],
+          provider: { only: ["other-provider"], order: ["other-provider"], allow_fallbacks: true },
+        },
+      }, "openrouter", requestFor(path)));
+      expect(body.model).toBe("deepseek/deepseek-v4.1-flash");
+      expect(body.provider).toEqual({ only: ["inference-net"], allow_fallbacks: false });
+    }
   });
 });

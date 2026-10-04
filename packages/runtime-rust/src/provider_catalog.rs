@@ -549,7 +549,6 @@ impl Providers {
                     "google",
                     "fireworks",
                     "deepseek",
-                    "wafer",
                     "openrouter",
                 ]
                 .map(str::to_owned),

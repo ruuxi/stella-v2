@@ -9,6 +9,7 @@ import {
   type ManagedGatewayProvider,
   type ManagedProtocol,
 } from "./managed-gateway";
+import { STELLA_DEEPSEEK_V4_FLASH_UPSTREAM_MODEL } from "@stella/contracts/stella-api";
 import { downgradeUnsupportedRequestImages } from "./request-estimate";
 import {
   isInternalRelayRequestHeader,
@@ -27,21 +28,11 @@ export type RelayRequestShape = NativeRelayRequest & {
 
 const providerModelPrefix: Partial<Record<ManagedGatewayProvider, string>> = {
   deepseek: "deepseek/",
-  wafer: "wafer/",
   xai: "x-ai/",
   anthropic: "anthropic/",
   google: "google/",
   openai: "openai/",
   meta: "meta/",
-};
-
-/**
- * Wafer lists its models with capitalized slugs (e.g.
- * `DeepSeek-V4-Flash-0731-Fast`) while Stella's managed ids are lowercase.
- * Send the exact upstream casing wafer's catalog advertises.
- */
-const WAFER_NATIVE_MODEL_IDS: Record<string, string> = {
-  "deepseek-v4-flash-0731-fast": "DeepSeek-V4-Flash-0731-Fast",
 };
 
 export function toProviderNativeModel(
@@ -52,7 +43,6 @@ export function toProviderNativeModel(
   const stripped =
     prefix && model.startsWith(prefix) ? model.slice(prefix.length) : model;
   if (provider === "anthropic") return stripped.replace(/\./g, "-");
-  if (provider === "wafer") return WAFER_NATIVE_MODEL_IDS[stripped] ?? stripped;
   return stripped;
 }
 
@@ -94,7 +84,7 @@ export const cloneForwardHeaders = (
     headers.set("X-OpenRouter-Title", "Stella");
   }
 
-  // Per-gateway requirements (Wafer's per-request ZDR opt-in) default to the
+  // Per-gateway extra headers default to the
   // gateway config so the relay and runtime_ai share one definition.
   if (extraHeaders) {
     for (const [key, value] of Object.entries(extraHeaders)) {
@@ -137,19 +127,13 @@ export const upstreamUrl = (
       return requestUrl.pathname.endsWith("/chat/completions")
         ? `${base}/chat/completions`
         : `${base}/responses`;
-    case "wafer":
-      // Wafer is OpenAI-compatible chat completions only.
-      return `${base}/chat/completions`;
     case "xai":
       return requestUrl.pathname.endsWith("/chat/completions")
         ? `${base}/chat/completions`
         : `${base}/responses`;
     case "openrouter":
-      // OpenRouter serves both APIs under /api/v1. Muse Spark 1.2
-      // Contributor (the Stella default) goes through the Responses API;
-      // every other OpenRouter-hosted model stays on chat completions.
-      // Honor whichever the client asked for, mirroring the deepseek/xai
-      // dual-API handling.
+      // OpenRouter serves both APIs under /api/v1. Honor the client path,
+      // including Responses requests from older desktop builds.
       return requestUrl.pathname.endsWith("/chat/completions")
         ? `${base}/chat/completions`
         : `${base}/responses`;
@@ -176,8 +160,7 @@ export const isResponsesRequest = (
     provider !== "deepseek" &&
     provider !== "xai" &&
     provider !== "meta" &&
-    // OpenRouter hosts the Responses API for Muse Spark 1.3 Contributor;
-    // the request path (not the model) decides, so any OpenRouter client
+    // OpenRouter also serves Responses; the request path decides. Any client
     // that asks for /responses gets Responses end to end.
     provider !== "openrouter"
   ) {
@@ -488,42 +471,6 @@ export const deepSeekReasoningEffort = (raw: unknown): string | undefined => {
   }
 };
 
-export const waferReasoningEffort = (raw: unknown): string | undefined => {
-  const value = typeof raw === "string" ? raw.trim().toLowerCase() : "";
-  switch (value) {
-    case "none":
-    case "off":
-      return "none";
-    case "minimal":
-    case "low":
-      return "low";
-    case "medium":
-      return "medium";
-    case "high":
-    case "xhigh":
-    case "max":
-      return "high";
-    default:
-      return undefined;
-  }
-};
-
-export const normalizeWaferBody = (body: Record<string, unknown>): void => {
-  const reasoning =
-    body.reasoning &&
-    typeof body.reasoning === "object" &&
-    !Array.isArray(body.reasoning)
-      ? (body.reasoning as Record<string, unknown>)
-      : null;
-  const effort = waferReasoningEffort(
-    reasoning?.effort ?? body.reasoning_effort,
-  );
-  if (effort) body.reasoning_effort = effort;
-  else delete body.reasoning_effort;
-  delete body.reasoning;
-  delete body.thinking;
-};
-
 export const normalizeDeepSeekBody = (
   body: Record<string, unknown>,
   isResponses: boolean,
@@ -620,6 +567,13 @@ export const bodyForUpstream = (
     ...requestJson,
     model: toProviderNativeModel(authorized.resolvedModel, provider),
   };
+  if (
+    provider === "openrouter" &&
+    authorized.resolvedModel === STELLA_DEEPSEEK_V4_FLASH_UPSTREAM_MODEL
+  ) {
+    // Catalog-owned restriction wins over any routing supplied by a client.
+    body.provider = { only: ["inference-net"], allow_fallbacks: false };
+  }
   delete (body as Record<string, unknown>).agentType;
   // Service tier is a backend-owned billing/routing decision. Never forward a
   // caller-supplied tier to OpenAI-compatible gateways; add back only the
@@ -661,12 +615,6 @@ export const bodyForUpstream = (
       normalizeChatCompletionsBody(body);
     }
     normalizeDeepSeekBody(body, !pathIsChatCompletions);
-  } else if (provider === "wafer") {
-    // Wafer serves the same DeepSeek V4 Flash family over an OpenAI-
-    // compatible chat completions API, so it uses its own effort ladder
-    // and body normalization.
-    normalizeChatCompletionsBody(body);
-    normalizeWaferBody(body);
   } else if (
     (provider === "openrouter" && pathIsChatCompletions) ||
     ((provider === "meta" || provider === "xai" || provider === "openai") &&

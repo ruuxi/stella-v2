@@ -11,23 +11,22 @@ import {
   canOverrideStellaModel,
   DEEPSEEK_V4_FLASH_DIRECT_MODEL,
   DEEPSEEK_V4_FLASH_FIREWORKS_MODEL,
-  DEEPSEEK_V4_FLASH_WAFER_FAST_MODEL,
+  DEEPSEEK_V4_1_FLASH_MODEL,
   GEMINI_3_7_FLASH_OFFLINE_RESPONDER_MODEL,
   isPaidManagedAudience,
   isStellaModelAllowedForAudience,
   MANAGED_MODEL_AUDIENCES,
-  MUSE_SPARK_1_3_CONTRIBUTOR_MODEL,
   resolveManagedModelRouteAlias,
 } from "@stella/model-catalog/model";
 
-const FLASH_SELECTION = `stella/${DEEPSEEK_V4_FLASH_DIRECT_MODEL}`;
-const WAFER_FAST_SELECTION = `stella/${DEEPSEEK_V4_FLASH_WAFER_FAST_MODEL}`;
+const FLASH_SELECTION = `stella/${DEEPSEEK_V4_1_FLASH_MODEL}`;
 /** Pre-DeepSeek-direct spellings; still accepted, always coerced to DeepSeek. */
 const LEGACY_FIREWORKS_SELECTION = `stella/${DEEPSEEK_V4_FLASH_FIREWORKS_MODEL}`;
 const LEGACY_DIRECT_SELECTION = `stella/${DEEPSEEK_V4_FLASH_DIRECT_MODEL}`;
-const MUSE_SELECTION = `stella/${MUSE_SPARK_1_3_CONTRIBUTOR_MODEL}`;
+const RETIRED_MUSE_SELECTION = "stella/meta/muse-spark-1.3-contributor";
 
 const RETIRED_SELECTIONS = [
+  RETIRED_MUSE_SELECTION,
   "stella/standard",
   "stella/designer",
   "stella/openai/gpt-5.6-luna",
@@ -61,7 +60,7 @@ describe("parseStellaModelSelection", () => {
   it("parses explicit upstream pins", () => {
     expect(parseStellaModelSelection(FLASH_SELECTION)).toEqual({
       kind: "upstream",
-      model: DEEPSEEK_V4_FLASH_DIRECT_MODEL,
+      model: DEEPSEEK_V4_1_FLASH_MODEL,
     });
     expect(parseStellaModelSelection("stella/openai/gpt-5.5")).toEqual({
       kind: "upstream",
@@ -83,16 +82,13 @@ describe("resolveStellaModelSelection", () => {
       LEGACY_DIRECT_SELECTION,
     ]) {
       expect(resolveStellaModelSelection(selection, "pro")).toBe(
-        DEEPSEEK_V4_FLASH_DIRECT_MODEL,
+        DEEPSEEK_V4_1_FLASH_MODEL,
       );
     }
     expect(
       resolveManagedModelRouteAlias(DEEPSEEK_V4_FLASH_FIREWORKS_MODEL),
-    ).toBe(DEEPSEEK_V4_FLASH_DIRECT_MODEL);
-    // Only the V4 Flash spellings alias; everything else passes through.
-    expect(
-      resolveManagedModelRouteAlias(DEEPSEEK_V4_FLASH_WAFER_FAST_MODEL),
-    ).toBe(DEEPSEEK_V4_FLASH_WAFER_FAST_MODEL);
+    ).toBe(DEEPSEEK_V4_1_FLASH_MODEL);
+
   });
 
   it("rejects retired aliases and the default sentinel", () => {
@@ -114,47 +110,24 @@ describe("resolveStellaModelSelection", () => {
 });
 
 describe("resolveStellaModelConfigForSelection", () => {
-  it("pins the Wafer Fast variant onto the wafer gateway", () => {
-    expect(
-      resolveStellaModelConfigForSelection(
-        WAFER_FAST_SELECTION,
-        "general",
-        "pro",
-      ),
-    ).toMatchObject({
-      applied: true,
-      config: {
-        model: DEEPSEEK_V4_FLASH_WAFER_FAST_MODEL,
-        managedGatewayProvider: "wafer",
-      },
-    });
-  });
-
-  it("pins the Muse contributor slug onto OpenRouter Responses", () => {
-    expect(
-      resolveStellaModelConfigForSelection(MUSE_SELECTION, "general", "pro"),
-    ).toMatchObject({
-      applied: true,
-      config: {
-        model: MUSE_SPARK_1_3_CONTRIBUTOR_MODEL,
+  it("pins V4.1 Flash to OpenRouter and inference-net only", () => {
+    expect(resolveStellaModelConfigForSelection(FLASH_SELECTION, "general", "pro"))
+      .toMatchObject({ applied: true, config: {
+        model: DEEPSEEK_V4_1_FLASH_MODEL,
         managedGatewayProvider: "openrouter",
-        api: "openai-responses",
-      },
-    });
+        api: "openai-completions",
+        providerOptions: { gateway: { only: ["inference-net"], allow_fallbacks: false } },
+      } });
   });
 
-  it("does not let other pins inherit the Muse transport override", () => {
-    expect(
-      resolveStellaModelConfigForSelection(FLASH_SELECTION, "general", "pro")
-        .config.api,
-    ).toBeUndefined();
-    expect(
-      resolveStellaModelConfigForSelection(
-        WAFER_FAST_SELECTION,
-        "general",
-        "pro",
-      ).config.api,
-    ).toBeUndefined();
+  it("ignores the retired Muse selection and uses the Flash default", () => {
+    expect(resolveStellaModelConfigForSelection(RETIRED_MUSE_SELECTION, "general", "pro"))
+      .toMatchObject({ applied: false, config: { model: DEEPSEEK_V4_1_FLASH_MODEL } });
+  });
+
+  it("uses chat completions for Flash overrides", () => {
+    expect(resolveStellaModelConfigForSelection(FLASH_SELECTION, "general", "pro").config.api)
+      .toBe("openai-completions");
   });
 
   it("ignores overrides for locked agents", () => {
@@ -183,8 +156,8 @@ describe("resolveStellaModelConfigForSelection", () => {
     ).toMatchObject({
       applied: false,
       config: {
-        model: MUSE_SPARK_1_3_CONTRIBUTOR_MODEL,
-        fallback: DEEPSEEK_V4_FLASH_DIRECT_MODEL,
+        model: DEEPSEEK_V4_1_FLASH_MODEL,
+        fallback: undefined,
       },
     });
     // Retired ids are rejected product-wide, even for Pro.
@@ -197,8 +170,8 @@ describe("resolveStellaModelConfigForSelection", () => {
     ).toMatchObject({
       applied: false,
       config: {
-        model: MUSE_SPARK_1_3_CONTRIBUTOR_MODEL,
-        fallback: DEEPSEEK_V4_FLASH_DIRECT_MODEL,
+        model: DEEPSEEK_V4_1_FLASH_MODEL,
+        fallback: undefined,
       },
     });
     // Restricted audiences ignore raw picker rows and keep their default.
@@ -206,7 +179,7 @@ describe("resolveStellaModelConfigForSelection", () => {
       resolveStellaModelConfigForSelection(FLASH_SELECTION, "general", "free"),
     ).toMatchObject({
       applied: false,
-      config: { model: MUSE_SPARK_1_3_CONTRIBUTOR_MODEL },
+      config: { model: DEEPSEEK_V4_1_FLASH_MODEL },
     });
   });
 });
@@ -243,11 +216,9 @@ describe("audience allowlist", () => {
         true,
       );
       for (const pickerModel of [
-        MUSE_SELECTION,
         FLASH_SELECTION,
         LEGACY_FIREWORKS_SELECTION,
         LEGACY_DIRECT_SELECTION,
-        WAFER_FAST_SELECTION,
       ]) {
         expect(isStellaModelAllowedForAudience(pickerModel, audience)).toBe(
           audience === "pro",
@@ -264,32 +235,33 @@ describe("audience allowlist", () => {
       expect(listStellaCatalogModels(audience)).toEqual([
         {
           id: FLASH_SELECTION,
-          name: "DeepSeek V4 Flash",
+          name: "DeepSeek V4.1 Flash",
           provider: "stella",
-          upstreamModel: DEEPSEEK_V4_FLASH_DIRECT_MODEL,
-          api: "openai-responses",
-          type: "language",
-          allowedForAudience: audience === "pro",
-        },
-        {
-          id: WAFER_FAST_SELECTION,
-          name: "DeepSeek V4 Flash 0731 Fast",
-          provider: "stella",
-          upstreamModel: DEEPSEEK_V4_FLASH_WAFER_FAST_MODEL,
+          upstreamModel: DEEPSEEK_V4_1_FLASH_MODEL,
           api: "openai-completions",
           type: "language",
           allowedForAudience: audience === "pro",
         },
-        {
-          id: MUSE_SELECTION,
-          name: "Muse Spark 1.3 Contributor",
-          provider: "stella",
-          upstreamModel: MUSE_SPARK_1_3_CONTRIBUTOR_MODEL,
-          api: "openai-responses",
-          type: "language",
-          allowedForAudience: audience === "pro",
-        },
+
       ]);
     }
   });
+});
+
+
+it("defaults every audience to Flash with no model or provider fallback", () => {
+  for (const audience of MANAGED_MODEL_AUDIENCES) {
+    for (const agent of ["orchestrator", "general"]) {
+      const { config } = resolveStellaModelConfigForSelection("stella/default", agent, audience);
+      expect(config).toMatchObject({
+        model: DEEPSEEK_V4_1_FLASH_MODEL,
+        managedGatewayProvider: "openrouter",
+        api: "openai-completions",
+        providerOptions: { gateway: { only: ["inference-net"], allow_fallbacks: false } },
+      });
+      expect(config.fallback).toBeUndefined();
+    }
+    expect(listStellaCatalogModels(audience).map(row => row.upstreamModel))
+      .toEqual([DEEPSEEK_V4_1_FLASH_MODEL]);
+  }
 });

@@ -1,5 +1,7 @@
 import {
   AGENT_MODELS,
+  DEEPSEEK_V4_1_FLASH_MODEL,
+  DEEPSEEK_V4_1_FLASH_PROVIDER_OPTIONS,
   getModeConfig,
   getModelConfig,
   isModelMode,
@@ -25,14 +27,14 @@ export const STELLA_PROVIDER = "stella";
 // agent type + audience on the backend; this stays the per-agent *default*.
 export const STELLA_DEFAULT_MODEL = `${STELLA_PROVIDER}/default`;
 // Legacy branded aliases remain parseable for old clients. The public catalog
-// exposes Muse as the default plus the DeepSeek routes available for fallback
+// exposes DeepSeek V4.1 Flash as the selectable default
 // and explicit selection.
 export const STELLA_STANDARD_MODEL = `${STELLA_PROVIDER}/standard`;
 export const STELLA_PRIORITY_MODEL = `${STELLA_PROVIDER}/priority`;
 export const STELLA_LIGHT_MODEL = `${STELLA_PROVIDER}/light`;
 // Bump this whenever Stella default/model/mode mappings change. The catalog
 // route reports it as `updatedAt`; clients revalidate by ETag.
-export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 9, 3, 0, 0);
+export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 9, 4, 0, 0);
 
 export type StellaCatalogModel = {
   id: string;
@@ -58,8 +60,7 @@ export type StellaDefaultEntry = {
 };
 
 const DISPLAY_NAMES: Record<string, string> = {
-  "meta/muse-spark-1.3-contributor": "Muse Spark 1.3 Contributor",
-  "wafer/deepseek-v4-flash-0731-fast": "DeepSeek V4 Flash 0731 Fast",
+  "deepseek/deepseek-v4.1-flash": "DeepSeek V4.1 Flash",
   "accounts/fireworks/models/deepseek-v4-flash-0731": "DeepSeek V4 Flash 0731",
   "deepseek/deepseek-v4-flash": "DeepSeek V4 Flash",
 };
@@ -248,8 +249,13 @@ export const resolveStellaModelConfigForSelection = (
       config: {
         ...getModelConfig(agentType, audience),
         model,
-        // Prefix inference alone would send `meta/muse-spark-1.3-contributor`
-        // to the Meta first-party gateway; it is an OpenRouter-hosted slug
+        ...(model === DEEPSEEK_V4_1_FLASH_MODEL
+          ? {
+              providerOptions: structuredClone(DEEPSEEK_V4_1_FLASH_PROVIDER_OPTIONS),
+            }
+          : {}),
+        // Prefix inference alone would send `deepseek/deepseek-v4.1-flash`
+        // to the DeepSeek first-party gateway; it is an OpenRouter-hosted slug
         // (see MANAGED_MODEL_GATEWAY_OVERRIDES in agent/model.ts).
         managedGatewayProvider:
           MANAGED_MODEL_GATEWAY_OVERRIDES[model] ??

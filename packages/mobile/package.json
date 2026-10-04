@@ -100,10 +100,5 @@
       "IOS_SYNCHRONOUSLY_UPDATE_UI_PROPS": true,
       "ANDROID_SYNCHRONOUSLY_UPDATE_UI_PROPS": true
     }
-  },
-  "patchedDependencies": {
-    "react-native-carplay@2.3.0": "patches/react-native-carplay@2.3.0.patch",
-    "react-native-nitro-markdown@0.6.2": "patches/react-native-nitro-markdown@0.6.2.patch",
-    "react-native@0.86.3": "patches/react-native@0.86.3.patch"
   }
 }

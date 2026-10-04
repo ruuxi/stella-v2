@@ -13,6 +13,7 @@
  * Usage: bun scripts/resolve-public-mobile-builds.ts
  *          [--platform ios|android|all] [--channel <channel>]
  *          [--google-play-key <path>] [--verify-local-fingerprint]
+ *          [--native-match]
  *          [--ios-testflight-build <buildNumber>]
  */
 import { execFile } from "node:child_process";
@@ -368,6 +369,57 @@ const localFingerprint = async (platform: "ios" | "android"): Promise<string> =>
   return result.hash;
 };
 
+// The fingerprint also hashes bun's store paths (`+<peer-graph hash>`), so a
+// lockfile dedupe changes it with no native change. `--native-match` checks
+// the native side directly instead: the same versions of every native
+// package and the same native inputs as the store build's commit.
+const NATIVE_PACKAGE =
+  /^(?!react-native-web$)(react-native|react-native-[\w.-]+|@react-native(-[\w-]+)?\/[\w.-]+|expo|expo-[\w.-]+|@expo\/[\w.-]+|@siteed\/[\w.-]+|@shopify\/[\w.-]+|[\w@/.-]*(nitro|carplay|webrtc|worklets|reanimated)[\w.-]*)$/;
+
+const nativeVersions = (lock: string): Map<string, string> => {
+  const versions = new Map<string, Set<string>>();
+  for (const match of lock.matchAll(/^\s*"[^"]+": \["(@?[^@"]+)@([^"]+)"/gm)) {
+    const [, name, version] = match;
+    if (!NATIVE_PACKAGE.test(name!)) continue;
+    versions.set(name!, (versions.get(name!) ?? new Set()).add(version!));
+  }
+  return new Map([...versions].map(([name, set]) => [name, [...set].sort().join(",")]));
+};
+
+const verifyNativeMatch = async (target: PublicMobileTarget) => {
+  const repoRoot = resolve(mobileRoot, "../..");
+  const git = async (...args: string[]) =>
+    (await execFileAsync("git", args, { cwd: repoRoot, maxBuffer: 256 * 1024 * 1024 })).stdout;
+  const before = nativeVersions(await git("show", `${target.gitCommitHash}:bun.lock`));
+  const after = nativeVersions(readFileSync(join(repoRoot, "bun.lock"), "utf8"));
+  const changed = [...new Set([...before.keys(), ...after.keys()])].filter(
+    (name) => before.get(name) !== after.get(name),
+  );
+  const other = target.platform === "ios" ? "android" : "ios";
+  const nativeFiles = (
+    await git(
+      "diff", "--name-only", target.gitCommitHash, "HEAD", "--",
+      "packages/mobile/app.json", "packages/mobile/plugins", "packages/mobile/modules",
+      "packages/mobile/widgets", "packages/mobile/targets", "packages/mobile/patches", "patches",
+    )
+  )
+    .split("\n")
+    .filter(Boolean)
+    .filter((file) => !file.endsWith(".md") && !file.includes("/tests/"))
+    .filter((file) => !file.includes(`/${other}/`) && !(other === "ios" && file.endsWith(".swift")))
+    .filter(
+      (file) =>
+        !file.endsWith(".patch") ||
+        NATIVE_PACKAGE.test(decodeURIComponent(file.split("/").pop()!).replace(/@[^@]*\.patch$/, "")),
+    );
+  if (changed.length > 0 || nativeFiles.length > 0) {
+    throw new Error(
+      `${target.platform} native side differs from the store build's commit ${target.gitCommitHash}: ` +
+        [...changed.map((name) => `${name} ${before.get(name) ?? "-"} -> ${after.get(name) ?? "-"}`), ...nativeFiles].join("; "),
+    );
+  }
+};
+
 const readArg = (name: string): string | undefined => {
   const index = process.argv.indexOf(name);
   return index >= 0 ? process.argv[index + 1] : undefined;
@@ -377,6 +429,7 @@ const main = async () => {
   const platform = readArg("--platform") ?? "all";
   const expectedChannel = readArg("--channel") ?? "preview";
   const verifyFingerprint = process.argv.includes("--verify-local-fingerprint");
+  const nativeMatch = process.argv.includes("--native-match");
   const iosTestFlightBuild = readArg("--ios-testflight-build");
   if (iosTestFlightBuild !== undefined && !/^\d{1,10}$/.test(iosTestFlightBuild)) {
     throw new Error("--ios-testflight-build must be an App Store build number.");
@@ -405,6 +458,9 @@ const main = async () => {
         );
       }
     }
+  }
+  if (nativeMatch) {
+    for (const target of targets) await verifyNativeMatch(target);
   }
   console.log(JSON.stringify({ source: "public-store-status", targets }, null, 2));
 };

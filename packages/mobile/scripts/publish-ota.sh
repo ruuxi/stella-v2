@@ -16,6 +16,10 @@
 # TestFlight build that is live for testers before the store version is: the
 # build must still exist in App Store Connect and match this tree's
 # fingerprint, so the guarantees below are unchanged.
+# Set STELLA_OTA_PIN_STORE_RUNTIME=1 when only the fingerprint drifted (it
+# hashes bun's store paths, so a lockfile dedupe moves it): the store build's
+# commit is checked to have the same native package versions and native
+# inputs, and the update is published under the store build's runtime version.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -56,8 +60,26 @@ if [[ -n "${STELLA_OTA_IOS_TESTFLIGHT_BUILD:-}" ]]; then
   echo "Targeting iOS TestFlight build ${STELLA_OTA_IOS_TESTFLIGHT_BUILD} instead of the App Store live version."
   TESTFLIGHT_ARGS=(--ios-testflight-build "${STELLA_OTA_IOS_TESTFLIGHT_BUILD}")
 fi
-bun scripts/resolve-public-mobile-builds.ts --platform "${PLATFORM}" \
-  --channel "${CHANNEL}" --verify-local-fingerprint ${TESTFLIGHT_ARGS[@]+"${TESTFLIGHT_ARGS[@]}"}
+if [[ "${STELLA_OTA_PIN_STORE_RUNTIME:-}" == "1" ]]; then
+  TARGETS_JSON="$(bun scripts/resolve-public-mobile-builds.ts --platform "${PLATFORM}" \
+    --channel "${CHANNEL}" --native-match ${TESTFLIGHT_ARGS[@]+"${TESTFLIGHT_ARGS[@]}"})"
+  echo "${TARGETS_JSON}"
+  # Publish under the store builds' runtime versions; app.json is restored on exit.
+  cp app.json "${TMPDIR:-/tmp}/stella-ota-app.json"
+  trap 'cp "${TMPDIR:-/tmp}/stella-ota-app.json" app.json' EXIT
+  TARGETS_JSON="${TARGETS_JSON}" node -e '
+    const fs = require("fs");
+    const app = JSON.parse(fs.readFileSync("app.json", "utf8"));
+    for (const t of JSON.parse(process.env.TARGETS_JSON).targets) {
+      app.expo[t.platform] = { ...app.expo[t.platform], runtimeVersion: t.runtimeVersion };
+      console.log(`Pinning ${t.platform} to store runtime ${t.runtimeVersion} (${t.appVersion} build ${t.buildNumber})`);
+    }
+    fs.writeFileSync("app.json", JSON.stringify(app, null, 2) + "\n");
+  '
+else
+  bun scripts/resolve-public-mobile-builds.ts --platform "${PLATFORM}" \
+    --channel "${CHANNEL}" --verify-local-fingerprint ${TESTFLIGHT_ARGS[@]+"${TESTFLIGHT_ARGS[@]}"}
+fi
 
 if [[ "${PLATFORM}" == "all" ]]; then
   PLATFORMS=(ios android)

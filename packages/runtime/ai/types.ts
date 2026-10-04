@@ -74,6 +74,8 @@ export type ServiceTier =
   | "flex"
   | "scale"
   | "priority"
+  | "fast"
+  | "ultrafast"
   | null;
 
 export interface ProviderResponse {

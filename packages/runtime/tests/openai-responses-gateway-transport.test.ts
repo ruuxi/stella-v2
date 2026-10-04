@@ -304,6 +304,6 @@ describe("OpenAI Responses gateway transport", () => {
 
     const result = await stream.result();
     expect(result.stopReason).toBe("aborted");
-    expect(result.errorMessage).toBe("Aborted");
+    expect(result.errorMessage).toBe("Request was aborted.");
   });
 });

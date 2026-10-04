@@ -148,6 +148,11 @@ export const requestGatewayJson = async <T>(args: {
     if (response.ok) {
       try {
         return { response, data: await args.readResponse(response) };
+      } catch (error) {
+        // Match the SDK: a caller abort while the JSON body is arriving
+        // surfaces as APIUserAbortError, not the raw stream error.
+        if (args.signal?.aborted) throw new APIUserAbortError();
+        throw error;
       } finally {
         args.signal?.removeEventListener("abort", onAbort);
       }

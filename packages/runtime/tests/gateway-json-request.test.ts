@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import OpenAI from "openai";
+import OpenAI, { APIUserAbortError } from "openai";
 import {
   gatewayJsonHeaders,
   gatewayRetryDelay,
@@ -318,7 +318,7 @@ describe("gateway JSON transport parity with the installed OpenAI SDK", () => {
     ).toEqual(await run("sdk", [400, 200], { "x-should-retry": "true" }));
   });
   for (const implementation of ["sdk", "gateway"] as const)
-    test(`${implementation} retains the raw abort while response JSON is arriving`, async () => {
+    test(`${implementation} surfaces a caller abort while response JSON is arriving`, async () => {
       const abort = new AbortController();
       const entered = Promise.withResolvers<void>();
       const transport = Object.assign(
@@ -363,10 +363,7 @@ describe("gateway JSON transport parity with the installed OpenAI SDK", () => {
               fetch: transport,
               readResponse: (response) => response.json(),
             });
-      const failure = expect(work).rejects.toMatchObject({
-        name: "AbortError",
-        message: "Aborted",
-      });
+      const failure = expect(work).rejects.toBeInstanceOf(APIUserAbortError);
       await entered.promise;
       abort.abort();
       await failure;

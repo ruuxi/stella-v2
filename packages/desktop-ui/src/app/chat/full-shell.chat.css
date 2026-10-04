@@ -417,6 +417,10 @@
   font-weight: inherit;
 }
 
+.event-item.assistant .markdown [data-streamdown="table"] {
+  font-size: inherit;
+}
+
 .event-item.assistant .markdown :is(strong, b, th) {
   font-weight: var(--chat-text-strong-weight);
 }
@@ -427,7 +431,7 @@
    land at body size but stay distinct via the bold weight + base uppercase
    styling. Compact surfaces share this exact scale. */
 .event-item.assistant .markdown :is(h1, h2, h3, h4, h5, h6) {
-  font-weight: var(--weight-bold);
+  font-weight: var(--weight-semibold);
   line-height: 1.3;
   margin-top: 1rem;
   margin-bottom: 0.4rem;

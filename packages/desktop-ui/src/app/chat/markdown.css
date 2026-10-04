@@ -415,9 +415,15 @@
   }
 }
 
+/* Cells read at the surrounding prose size (Streamdown sets `text-sm`). */
 .markdown [data-streamdown="table"] {
   font-size: var(--font-size-md);
   border-collapse: collapse;
+}
+
+.markdown
+  :is([data-streamdown="table-header-cell"], [data-streamdown="table-cell"]) {
+  font-size: inherit;
 }
 
 /* Undo Streamdown's `divide-y` so the rules below are the only lines. */

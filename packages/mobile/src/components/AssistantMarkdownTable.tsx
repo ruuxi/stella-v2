@@ -228,7 +228,7 @@ const makeStyles = (colors: Colors) =>
     },
     headerText: {
       color: colors.textStrong,
-      fontFamily: fonts.sans.semiBold,
+      fontFamily: fonts.sans.medium,
       fontSize: 14,
       lineHeight: 20,
       ...(Platform.OS === "android" && { includeFontPadding: false }),

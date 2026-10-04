@@ -117,7 +117,7 @@ export function AssistantMarkdownTable({
         showsHorizontalScrollIndicator
         style={styles.scroller}
       >
-        <View style={[styles.table, { width: tableWidth }]}>
+        <View style={{ width: tableWidth }}>
           <View style={styles.headerRow}>
             {data.headers.map((cell, columnIndex) => (
               <View
@@ -148,11 +148,7 @@ export function AssistantMarkdownTable({
           {data.rows.map((row, rowIndex) => (
             <View
               key={`row-${rowIndex}`}
-              style={[
-                styles.bodyRow,
-                rowIndex % 2 === 0 ? styles.evenRow : styles.oddRow,
-                rowIndex === data.rows.length - 1 && styles.lastRow,
-              ]}
+              style={[styles.bodyRow, rowIndex === 0 && styles.firstBodyRow]}
             >
               {data.headers.map((_, columnIndex) => (
                 <View
@@ -186,6 +182,10 @@ export function AssistantMarkdownTable({
   );
 }
 
+// An open, rule-divided table matching desktop: no frame, fills or column
+// dividers; a firm rule under the header and hairlines between rows, with the
+// first column flush to the prose. Cell padding still totals 24pt so
+// `estimateMarkdownTableColumnWidths` stays accurate.
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     container: {
@@ -197,52 +197,40 @@ const makeStyles = (colors: Colors) =>
       flexGrow: 0,
       width: "100%",
     },
-    table: {
-      borderColor: colors.border,
-      borderRadius: 6,
-      borderWidth: 1,
-      overflow: "hidden",
-    },
     headerRow: {
-      backgroundColor: fadeHex(colors.muted, 0.4),
-      borderBottomColor: colors.border,
-      borderBottomWidth: 1,
+      borderBottomColor: fadeHex(colors.text, 0.32),
+      borderBottomWidth: StyleSheet.hairlineWidth * 2,
       flexDirection: "row",
     },
     bodyRow: {
-      borderBottomColor: colors.border,
-      borderBottomWidth: 1,
+      borderTopColor: fadeHex(colors.text, 0.12),
+      borderTopWidth: StyleSheet.hairlineWidth,
       flexDirection: "row",
     },
-    evenRow: {
-      backgroundColor: "transparent",
-    },
-    oddRow: {
-      backgroundColor: fadeHex(colors.muted, 0.2),
-    },
-    lastRow: {
-      borderBottomWidth: 0,
+    firstBodyRow: {
+      borderTopWidth: 0,
     },
     cell: {
-      borderRightColor: colors.border,
-      borderRightWidth: 1,
       flexShrink: 0,
-      paddingHorizontal: 12,
+      paddingLeft: 0,
+      paddingRight: 24,
       paddingVertical: 10,
     },
     headerCell: {
-      justifyContent: "center",
+      justifyContent: "flex-end",
+      paddingBottom: 8,
     },
     bodyCell: {
-      justifyContent: "center",
+      justifyContent: "flex-start",
     },
     lastCell: {
-      borderRightWidth: 0,
+      paddingRight: 0,
     },
     headerText: {
       color: colors.textStrong,
       fontFamily: fonts.sans.semiBold,
-      fontSize: 12,
+      fontSize: 14,
+      lineHeight: 20,
       ...(Platform.OS === "android" && { includeFontPadding: false }),
     },
     bodyText: {

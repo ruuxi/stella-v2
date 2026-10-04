@@ -370,22 +370,78 @@
 }
 
 /*
- * Tables — Streamdown owns the structural styling (row dividers via
- * `divide-y divide-border`, cell padding `px-4 py-2`, semibold header,
- * a `bg-sidebar` outer wrapper with `bg-background` inner). We only
- * undo the double-frame (since `--sidebar` aliases `--background` in
- * our themes) and let cell content wrap so narrow chat columns don't
- * force horizontal scroll.
+ * Tables — an open, rule-divided layout: no card, no header fill, no outer
+ * frame. A firm rule under the header, hairlines between rows, the first
+ * column flush with the surrounding prose. Streamdown's copy / download /
+ * fullscreen controls float over the header's trailing edge and only appear
+ * while the table is hovered or holds focus. `--markdown-table-controls-bg`
+ * masks header text under the controls; hosts with a tinted surface (the
+ * assistant bubble) set it to that surface.
  */
 .markdown [data-streamdown="table-wrapper"] {
-  /* Outer card collapses to invisible — inner border already frames the table. */
-  border-color: transparent;
+  position: relative;
+  gap: 0;
+  border: none;
+  border-radius: 0;
   background: transparent;
   padding: 0;
 }
 
+.markdown [data-streamdown="table-wrapper"] > div:has(> table) {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.markdown [data-streamdown="table-wrapper"] > div:not(:has(> table)) {
+  position: absolute;
+  top: 6px;
+  right: 0;
+  z-index: 1;
+  padding-left: 6px;
+  border-radius: var(--radius-sm);
+  background: var(--markdown-table-controls-bg, var(--background));
+  transition: opacity 120ms ease;
+}
+
+@media (hover: hover) {
+  .markdown [data-streamdown="table-wrapper"] > div:not(:has(> table)) {
+    opacity: 0;
+  }
+
+  .markdown [data-streamdown="table-wrapper"]:is(:hover, :focus-within)
+    > div:not(:has(> table)) {
+    opacity: 1;
+  }
+}
+
 .markdown [data-streamdown="table"] {
   font-size: var(--font-size-md);
+  border-collapse: collapse;
+}
+
+/* Undo Streamdown's `divide-y` so the rules below are the only lines. */
+.markdown
+  :is(
+    [data-streamdown="table"],
+    [data-streamdown="table-header"],
+    [data-streamdown="table-body"],
+    [data-streamdown="table-row"]
+  ) {
+  border-width: 0;
+}
+
+.markdown [data-streamdown="table-header"] {
+  background: transparent;
+}
+
+.markdown [data-streamdown="table-header"] [data-streamdown="table-row"] {
+  border-bottom: 1px solid
+    color-mix(in oklab, currentColor 32%, transparent);
+}
+
+.markdown [data-streamdown="table-body"] [data-streamdown="table-row"] + [data-streamdown="table-row"] {
+  border-top: 1px solid color-mix(in oklab, currentColor 12%, transparent);
 }
 
 .markdown [data-streamdown="table-header-cell"],
@@ -394,10 +450,17 @@
    * sideways for any table with multi-word headers — wrap instead. */
   white-space: normal;
   vertical-align: top;
+  padding: 10px 24px 10px 0;
+}
+
+.markdown
+  :is([data-streamdown="table-header-cell"], [data-streamdown="table-cell"]):last-child {
+  padding-right: 0;
 }
 
 .markdown [data-streamdown="table-header-cell"] {
   color: var(--text-strong, var(--foreground));
+  padding-bottom: 8px;
 }
 
 /* Images */

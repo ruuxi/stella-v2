@@ -82,6 +82,7 @@
   background: var(--chat-assistant-bubble-fill);
   border: none;
   --chat-text-color: var(--chat-assistant-bubble-text);
+  --markdown-table-controls-bg: var(--chat-assistant-bubble-fill);
   color: var(--chat-assistant-bubble-text);
 }
 
@@ -416,7 +417,7 @@
   font-weight: inherit;
 }
 
-.event-item.assistant .markdown :is(strong, b) {
+.event-item.assistant .markdown :is(strong, b, th) {
   font-weight: var(--chat-text-strong-weight);
 }
 

@@ -122,7 +122,18 @@ const finalizeWindowLaunch = (context) => {
             triggerDeferredStartup("first-paint");
         });
     }
-    state.windowManager.showWindow();
+    // After an update that restarted Stella, the window opens on the frosted
+    // frame the last process left (bounded, so a stuck hold never hides it).
+    const transition = state.updateTransition;
+    if (fullWindow && transition?.hasPendingHold()) {
+        void Promise.race([
+            transition.resumeAfterRelaunch(fullWindow),
+            new Promise((resolve) => setTimeout(resolve, 800)),
+        ]).finally(() => state.windowManager.showWindow());
+    }
+    else {
+        state.windowManager.showWindow();
+    }
     context.state.processRuntime.setManagedTimeout(() => {
         triggerDeferredStartup("fallback");
     }, config.startupFirstPaintFallbackMs);

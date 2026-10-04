@@ -1478,6 +1478,9 @@
     "oauth": {
       "xaiCodeMessage": "أدخل هذا الرمز لتوصيل xAI",
       "expectedValue": "القيمة المتوقعة: {value}"
+    },
+    "update": {
+      "holding": "جارٍ تحديث Stella"
     }
   },
   "features": {
@@ -1593,10 +1596,6 @@
     "appSource": {
       "update": "تحديث",
       "title": "تغييرات على Stella",
-      "ready": "جاهز",
-      "attention": "يحتاج إلى انتباه",
-      "recent": "التغييرات الأخيرة",
-      "apply": "تطبيق",
       "undo": "تراجع",
       "ask": "اسأل Stella",
       "fromOtherComputer": "تغييرات من جهاز الكمبيوتر الآخر",
@@ -1609,7 +1608,28 @@
       "askUndo": "تراجع عن \"{subject}\" (يتعارض مع تغييرات لاحقة).",
       "updateAvailable": "يتوفر تحديث",
       "updateNeedsMerge": "يحتاج إلى دمج مع تغييراتك",
-      "askUpdate": "حدّث Stella إلى أحدث إصدار"
+      "askUpdate": "حدّث Stella إلى أحدث إصدار",
+      "restarts": "يعيد تشغيل Stella",
+      "updatedJustNow": "تم التحديث للتو",
+      "updatedAgo": "تم التحديث {ago}",
+      "undoneJustNow": "تم التراجع للتو",
+      "undoneAgo": "تم التراجع {ago}",
+      "files": {
+        "few": "{count} ملفات",
+        "many": "{count} ملفًا",
+        "one": "ملف واحد",
+        "two": "ملفان",
+        "zero": "{count} ملف",
+        "other": "{count} ملف"
+      },
+      "changes": {
+        "few": "{count} تغييرات",
+        "many": "{count} تغييرًا",
+        "one": "تغيير واحد",
+        "two": "تغييران",
+        "zero": "{count} تغيير",
+        "other": "{count} تغيير"
+      }
     },
     "display": {
       "homeLauncher": {

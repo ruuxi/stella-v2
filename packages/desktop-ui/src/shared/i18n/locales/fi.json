@@ -1450,6 +1450,9 @@
     "oauth": {
       "xaiCodeMessage": "Syötä tämä koodi yhdistääksesi xAI:n",
       "expectedValue": "Odotettu arvo: {value}"
+    },
+    "update": {
+      "holding": "Päivitetään Stellaa"
     }
   },
   "features": {
@@ -1553,10 +1556,6 @@
     "appSource": {
       "update": "Päivitä",
       "title": "Muutokset Stellaan",
-      "ready": "Valmis",
-      "attention": "Vaatii huomiota",
-      "recent": "Viimeaikaiset muutokset",
-      "apply": "Ota käyttöön",
       "undo": "Kumoa",
       "ask": "Kysy Stellalta",
       "fromOtherComputer": "Muutokset toiselta tietokoneeltasi",
@@ -1569,7 +1568,20 @@
       "askUndo": "Kumoa \"{subject}\" (se on ristiriidassa myöhempien muutosten kanssa).",
       "updateAvailable": "Päivitys saatavilla",
       "updateNeedsMerge": "Täytyy yhdistää muutoksiisi",
-      "askUpdate": "Päivitä Stella uusimpaan versioon"
+      "askUpdate": "Päivitä Stella uusimpaan versioon",
+      "restarts": "Käynnistää Stellan uudelleen",
+      "updatedJustNow": "Päivitetty juuri",
+      "updatedAgo": "Päivitetty {ago}",
+      "undoneJustNow": "Kumottu juuri",
+      "undoneAgo": "Kumottu {ago}",
+      "files": {
+        "one": "{count} tiedosto",
+        "other": "{count} tiedostoa"
+      },
+      "changes": {
+        "one": "{count} muutos",
+        "other": "{count} muutosta"
+      }
     },
     "display": {
       "homeLauncher": {

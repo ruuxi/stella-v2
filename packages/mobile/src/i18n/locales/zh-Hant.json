@@ -1442,6 +1442,9 @@
     "oauth": {
       "xaiCodeMessage": "輸入此代碼以連接 xAI",
       "expectedValue": "預期值：{value}"
+    },
+    "update": {
+      "holding": "正在更新 Stella"
     }
   },
   "features": {
@@ -1542,10 +1545,6 @@
     "appSource": {
       "update": "更新",
       "title": "Stella 的變更",
-      "ready": "就緒",
-      "attention": "需要處理",
-      "recent": "最近的變更",
-      "apply": "套用",
       "undo": "復原",
       "ask": "詢問 Stella",
       "fromOtherComputer": "來自你另一台電腦的變更",
@@ -1558,7 +1557,18 @@
       "askUndo": "復原「{subject}」（它與之後的變更衝突）。",
       "updateAvailable": "有可用的更新",
       "updateNeedsMerge": "需要與你的變更合併",
-      "askUpdate": "把 Stella 更新到最新版本"
+      "askUpdate": "把 Stella 更新到最新版本",
+      "restarts": "將重新啟動 Stella",
+      "updatedJustNow": "剛剛更新",
+      "updatedAgo": "{ago}更新",
+      "undoneJustNow": "剛剛復原",
+      "undoneAgo": "{ago}復原",
+      "files": {
+        "other": "{count} 個檔案"
+      },
+      "changes": {
+        "other": "{count} 項變更"
+      }
     },
     "display": {
       "homeLauncher": {

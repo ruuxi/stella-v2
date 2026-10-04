@@ -1450,6 +1450,9 @@
     "oauth": {
       "xaiCodeMessage": "Voer deze code in om xAI te verbinden",
       "expectedValue": "Verwachte waarde: {value}"
+    },
+    "update": {
+      "holding": "Stella wordt bijgewerkt"
     }
   },
   "features": {
@@ -1553,10 +1556,6 @@
     "appSource": {
       "update": "Bijwerken",
       "title": "Wijzigingen in Stella",
-      "ready": "Klaar",
-      "attention": "Vraagt aandacht",
-      "recent": "Recente wijzigingen",
-      "apply": "Toepassen",
       "undo": "Ongedaan maken",
       "ask": "Vraag het Stella",
       "fromOtherComputer": "Wijzigingen van je andere computer",
@@ -1569,7 +1568,20 @@
       "askUndo": "Maak \"{subject}\" ongedaan (het conflicteert met latere wijzigingen).",
       "updateAvailable": "Update beschikbaar",
       "updateNeedsMerge": "Moet worden samengevoegd met je wijzigingen",
-      "askUpdate": "Werk Stella bij naar de nieuwste versie"
+      "askUpdate": "Werk Stella bij naar de nieuwste versie",
+      "restarts": "Start Stella opnieuw",
+      "updatedJustNow": "Zojuist bijgewerkt",
+      "updatedAgo": "Bijgewerkt {ago}",
+      "undoneJustNow": "Zojuist ongedaan gemaakt",
+      "undoneAgo": "Ongedaan gemaakt {ago}",
+      "files": {
+        "one": "{count} bestand",
+        "other": "{count} bestanden"
+      },
+      "changes": {
+        "one": "{count} wijziging",
+        "other": "{count} wijzigingen"
+      }
     },
     "display": {
       "homeLauncher": {

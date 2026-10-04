@@ -1,3 +1,5 @@
+import { promises as fs } from "node:fs";
+import path from "node:path";
 import { app } from "electron";
 import {
   BackendClient,
@@ -18,7 +20,8 @@ import {
   listWorktrees,
   run,
 } from "./git.js";
-import { installCheckoutGuard } from "./checkout-guard.js";
+import { DRAFT_AGENTS_DIR, installCheckoutGuard } from "./checkout-guard.js";
+import type { CoveredWindow } from "./update-transition.js";
 
 /**
  * Applies finished drafts to the app's own checkout, undoes recent commits,
@@ -54,6 +57,13 @@ type AppSourceServiceOptions = {
    * refuses the action (the launcher refuses to act on an unsigned HEAD).
    */
   beforeAction?: (cwd: string) => void | Promise<void>;
+  /**
+   * Picture and cover the window before a renderer swap; the covered window
+   * then runs the swap and reveals it. Null runs the swap plain.
+   */
+  coverRenderer?: () => Promise<CoveredWindow | null>;
+  /** Before a relaunch: hold the window on screen. Never throws. */
+  beforeRelaunch?: () => Promise<void>;
 };
 
 type ForkAccess = {
@@ -74,6 +84,10 @@ const FORK_SYNC_INTERVAL_MS = 30 * 60_000;
 const RECENT_COUNT = 8;
 const FORK_REF_PREFIX = "refs/remotes/stella-fork/";
 const UPSTREAM_REF = "refs/remotes/stella-upstream/main";
+/** Under the git common dir: the agent whose draft each applied commit was. */
+const COMMIT_AGENTS_DIR = "stella-commits";
+/** A change here takes a relaunch (main and preload build on launch). */
+const RESTART_PREFIX = "packages/desktop/electron/";
 /** Public: anonymous users read upstream with a shared, edge-cached token. */
 const BOOTSTRAP_PATH = "/api/app-source/bootstrap";
 const ACCESS_ATTEMPTS = 5;
@@ -185,8 +199,62 @@ export class AppSourceService {
       }
       await git(cwd, ["merge", "--ff-only", tip]);
       await git(cwd, ["branch", "-D", `draft/${name}`]);
+      await this.rememberAgent(cwd, name, tip);
       await this.swapIn(cwd, head, tip);
     });
+  }
+
+  /** Carry a draft's agent over to the commit that applied it. */
+  private async rememberAgent(cwd: string, name: string, sha: string) {
+    const from = path.join(await this.commonDir(cwd), DRAFT_AGENTS_DIR, name);
+    const agentId = await this.agentOf(cwd, DRAFT_AGENTS_DIR, name);
+    if (!agentId) return;
+    await this.writeChange(cwd, sha, agentId, false);
+    await fs.rm(from, { force: true });
+  }
+
+  /** Note a commit as applying (or undoing) an agent's change. */
+  private async writeChange(cwd: string, sha: string, agentId: string, undone: boolean) {
+    const dir = path.join(await this.commonDir(cwd), COMMIT_AGENTS_DIR);
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(path.join(dir, sha), `${agentId}\n${undone ? "undone\n" : ""}`);
+  }
+
+  /** The agent change a commit applied or undid, if it was one. */
+  private async changeOf(cwd: string, sha: string) {
+    const file = path.join(await this.commonDir(cwd), COMMIT_AGENTS_DIR, sha);
+    const [agentId = "", flag = ""] = (await fs.readFile(file, "utf8").catch(() => ""))
+      .split("\n")
+      .map((line) => line.trim());
+    return agentId ? { agentId, undone: flag === "undone" } : null;
+  }
+
+  private commonDirPath: string | null = null;
+  private async commonDir(cwd: string) {
+    this.commonDirPath ??= await git(cwd, [
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-common-dir",
+    ]);
+    return this.commonDirPath;
+  }
+
+  /** The agent noted in `dir` under `key`, if any. */
+  private async agentOf(cwd: string, dir: string, key: string) {
+    const file = path.join(await this.commonDir(cwd), dir, key);
+    const agentId = (await fs.readFile(file, "utf8").catch(() => "")).trim();
+    return agentId || undefined;
+  }
+
+  /** What a draft changes against `head`: file count, and whether it relaunches. */
+  private async draftShape(cwd: string, head: string, sha: string) {
+    const paths = (await git(cwd, ["diff", "--name-only", `${head}...${sha}`]))
+      .split("\n")
+      .filter(Boolean);
+    return {
+      files: paths.length,
+      restart: paths.some((file) => file.startsWith(RESTART_PREFIX)),
+    };
   }
 
   undo(sha: string) {
@@ -222,6 +290,9 @@ export class AppSourceService {
         { env: await this.identityEnv(cwd) },
       );
       await git(cwd, ["merge", "--ff-only", revert]);
+      // Undoing an agent's change (or an undo of it) stays that agent's.
+      const change = await this.changeOf(cwd, sha);
+      if (change) await this.writeChange(cwd, revert, change.agentId, !change.undone);
       await this.swapIn(cwd, head, revert);
     });
   }
@@ -296,36 +367,63 @@ export class AppSourceService {
 
   /** Make a change that just landed in the checkout take effect. */
   private async swapIn(cwd: string, from: string, to: string) {
-    await this.options.afterApply?.(cwd);
     const paths = (await git(cwd, ["diff", "--name-only", from, to]))
       .split("\n")
       .filter(Boolean);
+    const touches = (prefix: string) =>
+      paths.some((file) => file.startsWith(prefix));
+    const install = paths.some(
+      (file) => file === "bun.lock" || file.endsWith("package.json"),
+    );
+    const restart = touches(RESTART_PREFIX);
+    // Only changes the renderer can show get the transition: the runtime and
+    // the desktop shell aren't in the window.
+    const visible =
+      !restart &&
+      paths.some(
+        (file) =>
+          !file.startsWith("packages/runtime/") &&
+          !file.startsWith("packages/desktop/"),
+      );
+    // Picture the window while the launcher signs the change (nothing on
+    // screen moves meanwhile). Not across a dependency install: that can take
+    // minutes, and the window stays live for it.
+    let covering =
+      visible && !install ? this.options.coverRenderer?.() ?? null : null;
+    try {
+      await this.options.afterApply?.(cwd);
+    } catch (error) {
+      await (await covering)?.cancel();
+      throw error;
+    }
     this.options.log("app-source.applied", { files: paths.length });
-    if (
-      paths.some((file) => file === "bun.lock" || file.endsWith("package.json"))
-    ) {
+    if (install) {
       const bun = process.env.STELLA_BUN_PATH?.trim() || "bun";
-      const install = await run(bun, ["install"], {
+      const result = await run(bun, ["install"], {
         cwd,
         timeoutMs: 10 * 60_000,
       });
-      if (install.code !== 0) {
+      if (result.code !== 0) {
         throw new Error(
-          `The change is applied, but bun install failed: ${install.stderr.trim().slice(-400)}`,
+          `The change is applied, but bun install failed: ${result.stderr.trim().slice(-400)}`,
         );
       }
     }
-    const touches = (prefix: string) =>
-      paths.some((file) => file.startsWith(prefix));
     if (touches("packages/runtime/") || touches("packages/contracts/")) {
       this.options.requestRuntimeRestart();
     }
-    if (touches("packages/desktop/electron/")) {
+    if (restart) {
       // Main and preload are rebuilt from source on launch.
+      await this.options.beforeRelaunch?.();
       this.options.relaunch();
       return;
     }
-    await this.options.applyRendererChanges(paths);
+    if (visible && install) covering = this.options.coverRenderer?.() ?? null;
+    const covered = await covering;
+    const swap = async () => {
+      await this.options.applyRendererChanges(paths);
+    };
+    await (covered ? covered.reveal(swap) : swap());
   }
 
   private async identityEnv(
@@ -356,7 +454,10 @@ export class AppSourceService {
   }
 
   refresh(): Promise<void> {
-    if (this.disposed) return Promise.resolve();
+    // Mid-action the checkout is in flux (a draft's branch is already gone
+    // while its change is still swapping in); the action refreshes when it
+    // ends, so the chat never sees a half-applied state.
+    if (this.disposed || this.busy) return Promise.resolve();
     if (this.refreshing) {
       this.refreshAgain = true;
       return this.refreshing;
@@ -405,19 +506,38 @@ export class AppSourceService {
       const name = refname.slice(DRAFT_REF_PREFIX.length);
       if (!isDraftName(name) || inProgress.has(refname) || sha === head)
         continue;
-      if (await isAncestor(cwd, head, sha)) {
-        ready.push({ name, subject, sha });
-      } else if (!(await isAncestor(cwd, sha, head))) {
-        stale.push({ name, subject, sha });
-      }
-    }
-    const recent = log
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => {
-        const [sha = "", subject = "", seconds = "0"] = line.split("\0");
-        return { sha, subject, date: Number(seconds) * 1000 };
+      const list = (await isAncestor(cwd, head, sha))
+        ? ready
+        : (await isAncestor(cwd, sha, head))
+          ? null
+          : stale;
+      if (!list) continue;
+      const agentId = await this.agentOf(cwd, DRAFT_AGENTS_DIR, name);
+      list.push({
+        name,
+        subject,
+        sha,
+        ...(agentId ? { agentId } : {}),
+        ...(await this.draftShape(cwd, head, sha)),
       });
+    }
+    const recent = await Promise.all(
+      log
+        .split("\n")
+        .filter(Boolean)
+        .map(async (line) => {
+          const [sha = "", subject = "", seconds = "0"] = line.split("\0");
+          const change = await this.changeOf(cwd, sha);
+          return {
+            sha,
+            subject,
+            date: Number(seconds) * 1000,
+            ...(change
+              ? { agentId: change.agentId, ...(change.undone ? { undone: true } : {}) }
+              : {}),
+          };
+        }),
+    );
     const [remote, upstream] = await Promise.all([
       this.forkBranch
         ? this.compareRef(cwd, head, `${FORK_REF_PREFIX}${this.forkBranch}`)

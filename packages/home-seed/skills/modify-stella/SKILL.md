@@ -5,7 +5,7 @@ description: Change Stella itself (its UI, runtime, or desktop shell) by prepari
 
 # Modifying Stella
 
-Stella runs from its own git checkout at `$STELLA_APP_DIR`. That checkout is what runs, so never edit it, commit in it, merge into it, or push it. Every change is a **draft**: a worktree at `$STELLA_DRAFTS_DIR/<name>` on branch `draft/<name>`. The user applies finished drafts with the Update button in Stella's top bar.
+Stella runs from its own git checkout at `$STELLA_APP_DIR`. That checkout is what runs, so never edit it, commit in it, merge into it, or push it. Every change is a **draft**: a worktree at `$STELLA_DRAFTS_DIR/<name>` on branch `draft/<name>`. The user applies finished drafts with the Update button on the card Stella shows under your completion in the chat.
 
 ## Layout
 
@@ -62,7 +62,7 @@ What it takes to take effect after Update, so you can tell the user:
 
 ## Rebase, merge, or undo for the user
 
-The Update menu sends you these when git cannot do them alone. Do them in a draft and finish the same way.
+Stella's update cards send you these when git cannot do them alone. Do them in a draft and finish the same way.
 
 - **Stale draft** ("Rebase my draft X"): `git worktree add "$STELLA_DRAFTS_DIR/X" draft/X` (no `-b`), then rebase onto the current branch, resolve, check, finish.
 - **Changes from another computer diverged:** the fork is at `refs/remotes/stella-fork/<branch>`. Start a draft, `git merge refs/remotes/stella-fork/<branch>`, resolve, check, then finish (skip squashing: keep the merge commit, and do not rebase it).
@@ -72,7 +72,7 @@ If a worktree directory was deleted by hand, run `git -C "$STELLA_APP_DIR" workt
 
 ## Updates
 
-When the user has changed Stella and a new version is published, the Update menu sends "Update Stella to the latest version". The published version is at `refs/remotes/stella-upstream/main` (Stella fetches it; never fetch or pull yourself). Merge it in a draft:
+When the user has changed Stella and a new version is published, its update card sends "Update Stella to the latest version". The published version is at `refs/remotes/stella-upstream/main` (Stella fetches it; never fetch or pull yourself). Merge it in a draft:
 
 1. Name the draft `update-<sha12>`, the first 12 characters of `git -C "$STELLA_APP_DIR" rev-parse refs/remotes/stella-upstream/main`, and start it as usual.
 2. In the draft, `git merge refs/remotes/stella-upstream/main`. Resolve every conflict keeping the user's changes: take the new version's code, then carry the user's changes over onto it so both work.

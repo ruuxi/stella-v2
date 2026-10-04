@@ -1457,6 +1457,9 @@
     "oauth": {
       "xaiCodeMessage": "Introduce este código para conectar xAI",
       "expectedValue": "Valor esperado: {value}"
+    },
+    "update": {
+      "holding": "Actualizando Stella"
     }
   },
   "features": {
@@ -1563,10 +1566,6 @@
     "appSource": {
       "update": "Actualizar",
       "title": "Cambios en Stella",
-      "ready": "Listo",
-      "attention": "Requiere atención",
-      "recent": "Cambios recientes",
-      "apply": "Aplicar",
       "undo": "Deshacer",
       "ask": "Preguntar a Stella",
       "fromOtherComputer": "Cambios de tu otro ordenador",
@@ -1579,7 +1578,22 @@
       "askUndo": "Deshaz \"{subject}\" (entra en conflicto con cambios posteriores).",
       "updateAvailable": "Actualización disponible",
       "updateNeedsMerge": "Hay que fusionarla con tus cambios",
-      "askUpdate": "Actualiza Stella a la última versión"
+      "askUpdate": "Actualiza Stella a la última versión",
+      "restarts": "Reinicia Stella",
+      "updatedJustNow": "Actualizado ahora mismo",
+      "updatedAgo": "Actualizado {ago}",
+      "undoneJustNow": "Deshecho ahora mismo",
+      "undoneAgo": "Deshecho {ago}",
+      "files": {
+        "many": "{count} archivos",
+        "one": "{count} archivo",
+        "other": "{count} archivos"
+      },
+      "changes": {
+        "many": "{count} cambios",
+        "one": "{count} cambio",
+        "other": "{count} cambios"
+      }
     },
     "display": {
       "homeLauncher": {

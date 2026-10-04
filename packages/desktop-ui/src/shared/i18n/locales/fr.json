@@ -1457,6 +1457,9 @@
     "oauth": {
       "xaiCodeMessage": "Saisissez ce code pour connecter xAI",
       "expectedValue": "Valeur attendue : {value}"
+    },
+    "update": {
+      "holding": "Mise à jour de Stella"
     }
   },
   "features": {
@@ -1563,10 +1566,6 @@
     "appSource": {
       "update": "Mettre à jour",
       "title": "Modifications de Stella",
-      "ready": "Prêt",
-      "attention": "À vérifier",
-      "recent": "Modifications récentes",
-      "apply": "Appliquer",
       "undo": "Annuler",
       "ask": "Demander à Stella",
       "fromOtherComputer": "Modifications de votre autre ordinateur",
@@ -1579,7 +1578,22 @@
       "askUndo": "Annule « {subject} » (en conflit avec des modifications ultérieures).",
       "updateAvailable": "Mise à jour disponible",
       "updateNeedsMerge": "Doit être fusionnée avec vos modifications",
-      "askUpdate": "Mets Stella à jour vers la dernière version"
+      "askUpdate": "Mets Stella à jour vers la dernière version",
+      "restarts": "Redémarre Stella",
+      "updatedJustNow": "Mis à jour à l'instant",
+      "updatedAgo": "Mis à jour {ago}",
+      "undoneJustNow": "Annulé à l'instant",
+      "undoneAgo": "Annulé {ago}",
+      "files": {
+        "many": "{count} fichiers",
+        "one": "{count} fichier",
+        "other": "{count} fichiers"
+      },
+      "changes": {
+        "many": "{count} modifications",
+        "one": "{count} modification",
+        "other": "{count} modifications"
+      }
     },
     "display": {
       "homeLauncher": {

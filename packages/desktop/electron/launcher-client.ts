@@ -131,6 +131,22 @@ export const connectLauncher = () => {
   });
 };
 
+/**
+ * Hand the launcher the frosted frame of an update that restarts Stella, so
+ * it holds the window on screen between this process and the next (see
+ * UpdateTransition). The launcher lets go once the next window is ready.
+ */
+export const holdForRelaunch = (hold: {
+  image: string;
+  mark: string;
+  label: string;
+  since: number;
+  dark: boolean;
+  frame: { x: number; y: number; width: number; height: number };
+}) => {
+  send({ op: "hold", ...hold });
+};
+
 /** Tell the launcher Stella can't keep running; it shows the recovery screen. */
 export const reportFailed = (reason: string) => {
   send({ op: "failed", reason: reason.slice(0, 4_000) });

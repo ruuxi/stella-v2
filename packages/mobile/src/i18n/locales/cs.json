@@ -1464,6 +1464,9 @@
     "oauth": {
       "xaiCodeMessage": "Zadejte tento kód pro připojení xAI",
       "expectedValue": "Očekávaná hodnota: {value}"
+    },
+    "update": {
+      "holding": "Aktualizace Stelly"
     }
   },
   "features": {
@@ -1573,10 +1576,6 @@
     "appSource": {
       "update": "Aktualizovat",
       "title": "Změny ve Stelle",
-      "ready": "Připraveno",
-      "attention": "Vyžaduje pozornost",
-      "recent": "Nedávné změny",
-      "apply": "Použít",
       "undo": "Vrátit",
       "ask": "Zeptat se Stelly",
       "fromOtherComputer": "Změny z vašeho druhého počítače",
@@ -1589,7 +1588,24 @@
       "askUndo": "Vrať „{subject}“ (je v konfliktu s pozdějšími změnami).",
       "updateAvailable": "K dispozici je aktualizace",
       "updateNeedsMerge": "Je potřeba sloučit s vašimi změnami",
-      "askUpdate": "Aktualizuj Stellu na nejnovější verzi"
+      "askUpdate": "Aktualizuj Stellu na nejnovější verzi",
+      "restarts": "Restartuje Stellu",
+      "updatedJustNow": "Aktualizováno právě teď",
+      "updatedAgo": "Aktualizováno {ago}",
+      "undoneJustNow": "Vráceno právě teď",
+      "undoneAgo": "Vráceno {ago}",
+      "files": {
+        "few": "{count} soubory",
+        "many": "{count} souboru",
+        "one": "{count} soubor",
+        "other": "{count} souborů"
+      },
+      "changes": {
+        "few": "{count} změny",
+        "many": "{count} změny",
+        "one": "{count} změna",
+        "other": "{count} změn"
+      }
     },
     "display": {
       "homeLauncher": {

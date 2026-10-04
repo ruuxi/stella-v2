@@ -1450,6 +1450,9 @@
     "oauth": {
       "xaiCodeMessage": "Add meg ezt a kódot az xAI csatlakoztatásához",
       "expectedValue": "Várt érték: {value}"
+    },
+    "update": {
+      "holding": "A Stella frissítése"
     }
   },
   "features": {
@@ -1553,10 +1556,6 @@
     "appSource": {
       "update": "Frissítés",
       "title": "Stella módosításai",
-      "ready": "Kész",
-      "attention": "Figyelmet igényel",
-      "recent": "Legutóbbi módosítások",
-      "apply": "Alkalmaz",
       "undo": "Visszavonás",
       "ask": "Kérdezd Stellát",
       "fromOtherComputer": "Módosítások a másik számítógépedről",
@@ -1569,7 +1568,20 @@
       "askUndo": "Vond vissza: „{subject}” (ütközik későbbi módosításokkal).",
       "updateAvailable": "Frissítés érhető el",
       "updateNeedsMerge": "Egyesíteni kell a módosításaiddal",
-      "askUpdate": "Frissítsd a Stellát a legújabb verzióra"
+      "askUpdate": "Frissítsd a Stellát a legújabb verzióra",
+      "restarts": "Újraindítja a Stellát",
+      "updatedJustNow": "Épp most frissítve",
+      "updatedAgo": "Frissítve: {ago}",
+      "undoneJustNow": "Épp most visszavonva",
+      "undoneAgo": "Visszavonva: {ago}",
+      "files": {
+        "one": "{count} fájl",
+        "other": "{count} fájl"
+      },
+      "changes": {
+        "one": "{count} módosítás",
+        "other": "{count} módosítás"
+      }
     },
     "display": {
       "homeLauncher": {

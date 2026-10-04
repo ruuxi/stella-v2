@@ -1450,6 +1450,9 @@
     "oauth": {
       "xaiCodeMessage": "Ange den här koden för att ansluta xAI",
       "expectedValue": "Förväntat värde: {value}"
+    },
+    "update": {
+      "holding": "Uppdaterar Stella"
     }
   },
   "features": {
@@ -1553,10 +1556,6 @@
     "appSource": {
       "update": "Uppdatera",
       "title": "Ändringar i Stella",
-      "ready": "Klar",
-      "attention": "Behöver åtgärdas",
-      "recent": "Senaste ändringar",
-      "apply": "Tillämpa",
       "undo": "Ångra",
       "ask": "Fråga Stella",
       "fromOtherComputer": "Ändringar från din andra dator",
@@ -1569,7 +1568,20 @@
       "askUndo": "Ångra \"{subject}\" (den krockar med senare ändringar).",
       "updateAvailable": "Uppdatering tillgänglig",
       "updateNeedsMerge": "Måste slås ihop med dina ändringar",
-      "askUpdate": "Uppdatera Stella till den senaste versionen"
+      "askUpdate": "Uppdatera Stella till den senaste versionen",
+      "restarts": "Startar om Stella",
+      "updatedJustNow": "Uppdaterad nyss",
+      "updatedAgo": "Uppdaterad {ago}",
+      "undoneJustNow": "Ångrad nyss",
+      "undoneAgo": "Ångrad {ago}",
+      "files": {
+        "one": "{count} fil",
+        "other": "{count} filer"
+      },
+      "changes": {
+        "one": "{count} ändring",
+        "other": "{count} ändringar"
+      }
     },
     "display": {
       "homeLauncher": {

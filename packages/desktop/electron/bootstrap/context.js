@@ -50,6 +50,7 @@ export const createBootstrapContext = (config) => {
     const state = {
         appReady: false,
         appSourceService: null,
+        updateTransition: null,
         appSessionStartedAt: Date.now(),
         deferredStartupSequence: null,
         startHostRunner: null,

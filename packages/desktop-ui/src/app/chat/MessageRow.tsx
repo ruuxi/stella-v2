@@ -55,6 +55,7 @@ import { AppPreviewCard } from "@/features/cloud/AppPreviewCard";
 import { extractStellaAppLinkSlugs } from "@stella/contracts/workspace-apps";
 import { VoiceSessionCard } from "@/app/chat/VoiceSessionCard";
 import { ReplyPreview } from "@/app/chat/ReplyPreview";
+import { AgentUpdateCard } from "@/features/app-source/AppSourceCards";
 import { ReplyCountBadge } from "@/app/chat/ReplyCountBadge";
 import { openConversationFocus } from "@/features/chat/services/conversation-focus-store";
 import { sanitizeAttachmentImageUrl } from "@/shared/lib/url-safety";
@@ -692,6 +693,9 @@ export const AssistantMessageRow = memo(
                 <AppPreviewCard key={`app:${slug}`} slug={slug} />
               ))
             : null}
+          {row.agentCompletion?.sections.map((section) => (
+            <AgentUpdateCard key={`update:${section.agentId}`} agentId={section.agentId} />
+          ))}
           {hasBackgroundWork && row.backgroundWork ? (
             <BackgroundWorkCard
               threadIds={row.backgroundWork.threadIds}

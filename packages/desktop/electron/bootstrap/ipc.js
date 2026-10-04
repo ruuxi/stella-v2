@@ -12,7 +12,7 @@ import { registerLocalChatHandlers } from "../ipc/local-chat-handlers.js";
 import { registerMobileHelloHandlers } from "../ipc/mobile-hello-handlers.js";
 import { registerNativeIntegrationHandlers } from "../ipc/native-integration-handlers.js";
 import { registerOnboardingHandlers } from "../ipc/onboarding-handlers.js";
-import { BrowserWindow, ipcMain, shell } from "electron";
+import { app, BrowserWindow, ipcMain, shell } from "electron";
 import { toggleRealtimeVoice, } from "../services/realtime-voice-control.js";
 import { WakewordService } from "../services/wakeword-service.js";
 import { loadLocalPreferences, saveLocalPreferences, } from "@stella/runtime/kernel/preferences/local-preferences";
@@ -45,11 +45,13 @@ import path from "path";
 import { BROWSER_BRIDGE_MISSING_ERROR } from "../utils/register-stella-native-messaging-host.js";
 import { registerAppSourceHandlers } from "../ipc/app-source-handlers.js";
 import { AppSourceService } from "../services/app-source/app-source-service.js";
+import { UpdateTransition } from "../services/app-source/update-transition.js";
+import { t } from "../services/i18n-service.js";
 import { buildAndUploadWebRenderer } from "../services/app-source/web-renderer.js";
 import { assertHeadSigned, signHead } from "../launcher-client.js";
 import { getMainLogger } from "../observability/main-logger.js";
 import { openDraftPreview } from "../services/app-source/draft-preview.js";
-import { relaunchApp } from "../launcher-client.js";
+import { holdForRelaunch, relaunchApp } from "../launcher-client.js";
 const DEFAULT_STELLA_WEB_URL = "https://stella.sh";
 // Delay native-service startup ~4s past app-ready so the bridge/office-preview
 // spawns stay off the first-paint (TTI) path. Previously Windows-only; now
@@ -394,9 +396,27 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
     // Drafts, undo and fork sync for the app's own checkout (running from
     // source only). Deferred startup starts it.
     if (config.useDevServer && !state.appSourceService) {
+        // How a change shows on screen: a picture transition for renderer
+        // changes, a frosted hold across a relaunch.
+        const updateTransition = state.updateTransition ?? new UpdateTransition({
+            getWindow: () => state.windowManager?.getFullWindow() ?? null,
+            partition: config.sessionPartition,
+            holdDir: app.getPath("userData"),
+            holdLabel: () => t("desktop.update.holding"),
+            onHold: holdForRelaunch,
+            log: (event, data) => getMainLogger()?.process(event, data),
+        });
+        state.updateTransition = updateTransition;
         const appSourceService = new AppSourceService({
             stellaAppDir: state.stellaAppDir ?? config.stellaAppDir,
             broadcast: (next) => {
+                // An update is waiting: load the transition's overlay now so
+                // pressing Update doesn't pay for it.
+                if (next.ready.length > 0 ||
+                    next.remote.status === "ahead" ||
+                    next.upstream.status === "ahead") {
+                    updateTransition.prewarm();
+                }
                 for (const window of getAllWindows(context)) {
                     if (!window.isDestroyed()) {
                         window.webContents.send(IPC_APP_SOURCE_STATE, next);
@@ -406,6 +426,8 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
             isAnyWindowVisible: () => BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isVisible() && !window.isMinimized()),
             requestRuntimeRestart: () => state.stellaHostRunner?.requestRuntimeRestart(),
             applyRendererChanges: (paths) => state.rendererSource?.applyChanges(paths),
+            coverRenderer: () => updateTransition.cover(),
+            beforeRelaunch: () => updateTransition.holdForRelaunch(),
             relaunch: relaunchApp,
             hasConnectedAccount: () => services.authService.getHostHasConnectedAccount(),
             getBackendUrl: () => services.authService.getBackendUrl(),

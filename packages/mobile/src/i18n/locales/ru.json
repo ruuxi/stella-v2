@@ -1464,6 +1464,9 @@
     "oauth": {
       "xaiCodeMessage": "Введите этот код, чтобы подключить xAI",
       "expectedValue": "Ожидаемое значение: {value}"
+    },
+    "update": {
+      "holding": "Обновление Stella"
     }
   },
   "features": {
@@ -1573,10 +1576,6 @@
     "appSource": {
       "update": "Обновить",
       "title": "Изменения в Stella",
-      "ready": "Готово",
-      "attention": "Требует внимания",
-      "recent": "Недавние изменения",
-      "apply": "Применить",
       "undo": "Отменить",
       "ask": "Спросить Stella",
       "fromOtherComputer": "Изменения с другого компьютера",
@@ -1589,7 +1588,24 @@
       "askUndo": "Отмени «{subject}» (конфликтует с более поздними изменениями).",
       "updateAvailable": "Доступно обновление",
       "updateNeedsMerge": "Нужно объединить с вашими изменениями",
-      "askUpdate": "Обнови Stella до последней версии"
+      "askUpdate": "Обнови Stella до последней версии",
+      "restarts": "Перезапускает Stella",
+      "updatedJustNow": "Только что обновлено",
+      "updatedAgo": "Обновлено {ago}",
+      "undoneJustNow": "Только что отменено",
+      "undoneAgo": "Отменено {ago}",
+      "files": {
+        "few": "{count} файла",
+        "many": "{count} файлов",
+        "one": "{count} файл",
+        "other": "{count} файла"
+      },
+      "changes": {
+        "few": "{count} изменения",
+        "many": "{count} изменений",
+        "one": "{count} изменение",
+        "other": "{count} изменения"
+      }
     },
     "display": {
       "homeLauncher": {

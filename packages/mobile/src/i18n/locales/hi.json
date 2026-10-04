@@ -1450,6 +1450,9 @@
     "oauth": {
       "xaiCodeMessage": "xAI कनेक्ट करने के लिए यह कोड दर्ज करें",
       "expectedValue": "अपेक्षित मान: {value}"
+    },
+    "update": {
+      "holding": "Stella अपडेट हो रहा है"
     }
   },
   "features": {
@@ -1553,10 +1556,6 @@
     "appSource": {
       "update": "अपडेट करें",
       "title": "Stella में बदलाव",
-      "ready": "तैयार",
-      "attention": "ध्यान देने की ज़रूरत",
-      "recent": "हाल के बदलाव",
-      "apply": "लागू करें",
       "undo": "पूर्ववत करें",
       "ask": "Stella से पूछें",
       "fromOtherComputer": "आपके दूसरे कंप्यूटर से बदलाव",
@@ -1569,7 +1568,20 @@
       "askUndo": "\"{subject}\" को पूर्ववत करें (यह बाद के बदलावों से टकराता है)।",
       "updateAvailable": "अपडेट उपलब्ध है",
       "updateNeedsMerge": "आपके बदलावों के साथ मर्ज करना होगा",
-      "askUpdate": "Stella को नवीनतम संस्करण में अपडेट करें"
+      "askUpdate": "Stella को नवीनतम संस्करण में अपडेट करें",
+      "restarts": "Stella को रीस्टार्ट करता है",
+      "updatedJustNow": "अभी अपडेट हुआ",
+      "updatedAgo": "{ago} अपडेट हुआ",
+      "undoneJustNow": "अभी पूर्ववत हुआ",
+      "undoneAgo": "{ago} पूर्ववत हुआ",
+      "files": {
+        "one": "{count} फ़ाइल",
+        "other": "{count} फ़ाइलें"
+      },
+      "changes": {
+        "one": "{count} बदलाव",
+        "other": "{count} बदलाव"
+      }
     },
     "display": {
       "homeLauncher": {

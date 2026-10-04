@@ -1457,6 +1457,9 @@
     "oauth": {
       "xaiCodeMessage": "הזן את הקוד הזה כדי לחבר את xAI",
       "expectedValue": "ערך צפוי: {value}"
+    },
+    "update": {
+      "holding": "מעדכן את Stella"
     }
   },
   "features": {
@@ -1563,10 +1566,6 @@
     "appSource": {
       "update": "עדכן",
       "title": "שינויים ב-Stella",
-      "ready": "מוכן",
-      "attention": "דורש תשומת לב",
-      "recent": "שינויים אחרונים",
-      "apply": "החל",
       "undo": "בטל",
       "ask": "שאל את Stella",
       "fromOtherComputer": "שינויים מהמחשב השני שלך",
@@ -1579,7 +1578,22 @@
       "askUndo": "בטל את \"{subject}\" (מתנגש בשינויים מאוחרים יותר).",
       "updateAvailable": "עדכון זמין",
       "updateNeedsMerge": "צריך למזג עם השינויים שלך",
-      "askUpdate": "עדכן את Stella לגרסה האחרונה"
+      "askUpdate": "עדכן את Stella לגרסה האחרונה",
+      "restarts": "מפעיל מחדש את Stella",
+      "updatedJustNow": "עודכן הרגע",
+      "updatedAgo": "עודכן {ago}",
+      "undoneJustNow": "בוטל הרגע",
+      "undoneAgo": "בוטל {ago}",
+      "files": {
+        "one": "קובץ אחד",
+        "two": "{count} קבצים",
+        "other": "{count} קבצים"
+      },
+      "changes": {
+        "one": "שינוי אחד",
+        "two": "{count} שינויים",
+        "other": "{count} שינויים"
+      }
     },
     "display": {
       "homeLauncher": {

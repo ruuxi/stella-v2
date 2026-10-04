@@ -1442,6 +1442,9 @@
     "oauth": {
       "xaiCodeMessage": "Masukkan kode ini untuk menghubungkan xAI",
       "expectedValue": "Nilai yang diharapkan: {value}"
+    },
+    "update": {
+      "holding": "Memperbarui Stella"
     }
   },
   "features": {
@@ -1542,10 +1545,6 @@
     "appSource": {
       "update": "Perbarui",
       "title": "Perubahan pada Stella",
-      "ready": "Siap",
-      "attention": "Perlu perhatian",
-      "recent": "Perubahan terbaru",
-      "apply": "Terapkan",
       "undo": "Urungkan",
       "ask": "Tanya Stella",
       "fromOtherComputer": "Perubahan dari komputer Anda yang lain",
@@ -1558,7 +1557,18 @@
       "askUndo": "Urungkan \"{subject}\" (bertentangan dengan perubahan berikutnya).",
       "updateAvailable": "Pembaruan tersedia",
       "updateNeedsMerge": "Perlu digabungkan dengan perubahan Anda",
-      "askUpdate": "Perbarui Stella ke versi terbaru"
+      "askUpdate": "Perbarui Stella ke versi terbaru",
+      "restarts": "Memulai ulang Stella",
+      "updatedJustNow": "Baru saja diperbarui",
+      "updatedAgo": "Diperbarui {ago}",
+      "undoneJustNow": "Baru saja dibatalkan",
+      "undoneAgo": "Dibatalkan {ago}",
+      "files": {
+        "other": "{count} file"
+      },
+      "changes": {
+        "other": "{count} perubahan"
+      }
     },
     "display": {
       "homeLauncher": {

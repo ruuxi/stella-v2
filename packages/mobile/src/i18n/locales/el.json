@@ -1450,6 +1450,9 @@
     "oauth": {
       "xaiCodeMessage": "Εισαγάγετε αυτόν τον κωδικό για σύνδεση με το xAI",
       "expectedValue": "Αναμενόμενη τιμή: {value}"
+    },
+    "update": {
+      "holding": "Ενημέρωση της Stella"
     }
   },
   "features": {
@@ -1553,10 +1556,6 @@
     "appSource": {
       "update": "Ενημέρωση",
       "title": "Αλλαγές στη Stella",
-      "ready": "Έτοιμο",
-      "attention": "Χρειάζεται προσοχή",
-      "recent": "Πρόσφατες αλλαγές",
-      "apply": "Εφαρμογή",
       "undo": "Αναίρεση",
       "ask": "Ρώτα τη Stella",
       "fromOtherComputer": "Αλλαγές από τον άλλο σου υπολογιστή",
@@ -1569,7 +1568,20 @@
       "askUndo": "Αναίρεσε το «{subject}» (συγκρούεται με μεταγενέστερες αλλαγές).",
       "updateAvailable": "Διαθέσιμη ενημέρωση",
       "updateNeedsMerge": "Χρειάζεται συγχώνευση με τις αλλαγές σου",
-      "askUpdate": "Ενημέρωσε τη Stella στην τελευταία έκδοση"
+      "askUpdate": "Ενημέρωσε τη Stella στην τελευταία έκδοση",
+      "restarts": "Επανεκκινεί τη Stella",
+      "updatedJustNow": "Ενημερώθηκε μόλις τώρα",
+      "updatedAgo": "Ενημερώθηκε {ago}",
+      "undoneJustNow": "Αναιρέθηκε μόλις τώρα",
+      "undoneAgo": "Αναιρέθηκε {ago}",
+      "files": {
+        "one": "{count} αρχείο",
+        "other": "{count} αρχεία"
+      },
+      "changes": {
+        "one": "{count} αλλαγή",
+        "other": "{count} αλλαγές"
+      }
     },
     "display": {
       "homeLauncher": {

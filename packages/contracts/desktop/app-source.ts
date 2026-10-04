@@ -11,6 +11,15 @@ export type AppSourceDraft = {
   /** Subject of the draft's tip commit. */
   subject: string;
   sha: string;
+  /**
+   * The agent thread whose shell last moved the draft's branch, so the chat
+   * can offer it on that agent's completion. Absent for drafts made by hand.
+   */
+  agentId?: string;
+  /** Files the draft changes against the current version. */
+  files: number;
+  /** Taking the draft restarts Stella (it changes Electron main or preload). */
+  restart: boolean;
 };
 
 export type AppSourceCommit = {
@@ -18,6 +27,10 @@ export type AppSourceCommit = {
   subject: string;
   /** Commit time, ms since epoch. */
   date: number;
+  /** The agent whose change this commit applied or undid, when it was one. */
+  agentId?: string;
+  /** The commit undoes the agent's change (an Undo); Update takes it again. */
+  undone?: boolean;
 };
 
 export type AppSourceState = {

@@ -1457,6 +1457,9 @@
     "oauth": {
       "xaiCodeMessage": "Introdu acest cod pentru a conecta xAI",
       "expectedValue": "Valoare așteptată: {value}"
+    },
+    "update": {
+      "holding": "Se actualizează Stella"
     }
   },
   "features": {
@@ -1563,10 +1566,6 @@
     "appSource": {
       "update": "Actualizează",
       "title": "Modificări în Stella",
-      "ready": "Gata",
-      "attention": "Necesită atenție",
-      "recent": "Modificări recente",
-      "apply": "Aplică",
       "undo": "Anulează",
       "ask": "Întreab-o pe Stella",
       "fromOtherComputer": "Modificări de pe celălalt computer",
@@ -1579,7 +1578,22 @@
       "askUndo": "Anulează „{subject}” (intră în conflict cu modificări ulterioare).",
       "updateAvailable": "Actualizare disponibilă",
       "updateNeedsMerge": "Trebuie îmbinată cu modificările tale",
-      "askUpdate": "Actualizează Stella la cea mai nouă versiune"
+      "askUpdate": "Actualizează Stella la cea mai nouă versiune",
+      "restarts": "Repornește Stella",
+      "updatedJustNow": "Actualizat chiar acum",
+      "updatedAgo": "Actualizat {ago}",
+      "undoneJustNow": "Anulat chiar acum",
+      "undoneAgo": "Anulat {ago}",
+      "files": {
+        "few": "{count} fișiere",
+        "one": "{count} fișier",
+        "other": "{count} de fișiere"
+      },
+      "changes": {
+        "few": "{count} modificări",
+        "one": "{count} modificare",
+        "other": "{count} de modificări"
+      }
     },
     "display": {
       "homeLauncher": {

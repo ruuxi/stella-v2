@@ -1464,6 +1464,9 @@
     "oauth": {
       "xaiCodeMessage": "Wpisz ten kod, aby połączyć xAI",
       "expectedValue": "Oczekiwana wartość: {value}"
+    },
+    "update": {
+      "holding": "Aktualizowanie Stelli"
     }
   },
   "features": {
@@ -1573,10 +1576,6 @@
     "appSource": {
       "update": "Aktualizuj",
       "title": "Zmiany w Stelli",
-      "ready": "Gotowe",
-      "attention": "Wymaga uwagi",
-      "recent": "Ostatnie zmiany",
-      "apply": "Zastosuj",
       "undo": "Cofnij",
       "ask": "Zapytaj Stellę",
       "fromOtherComputer": "Zmiany z Twojego drugiego komputera",
@@ -1589,7 +1588,24 @@
       "askUndo": "Cofnij „{subject}” (koliduje z późniejszymi zmianami).",
       "updateAvailable": "Dostępna aktualizacja",
       "updateNeedsMerge": "Wymaga scalenia z Twoimi zmianami",
-      "askUpdate": "Zaktualizuj Stellę do najnowszej wersji"
+      "askUpdate": "Zaktualizuj Stellę do najnowszej wersji",
+      "restarts": "Uruchamia Stellę ponownie",
+      "updatedJustNow": "Zaktualizowano przed chwilą",
+      "updatedAgo": "Zaktualizowano {ago}",
+      "undoneJustNow": "Cofnięto przed chwilą",
+      "undoneAgo": "Cofnięto {ago}",
+      "files": {
+        "few": "{count} pliki",
+        "many": "{count} plików",
+        "one": "{count} plik",
+        "other": "{count} pliku"
+      },
+      "changes": {
+        "few": "{count} zmiany",
+        "many": "{count} zmian",
+        "one": "{count} zmiana",
+        "other": "{count} zmiany"
+      }
     },
     "display": {
       "homeLauncher": {

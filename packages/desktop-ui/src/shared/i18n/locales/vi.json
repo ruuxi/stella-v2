@@ -1442,6 +1442,9 @@
     "oauth": {
       "xaiCodeMessage": "Nhập mã này để kết nối xAI",
       "expectedValue": "Giá trị mong đợi: {value}"
+    },
+    "update": {
+      "holding": "Đang cập nhật Stella"
     }
   },
   "features": {
@@ -1542,10 +1545,6 @@
     "appSource": {
       "update": "Cập nhật",
       "title": "Thay đổi đối với Stella",
-      "ready": "Sẵn sàng",
-      "attention": "Cần chú ý",
-      "recent": "Thay đổi gần đây",
-      "apply": "Áp dụng",
       "undo": "Hoàn tác",
       "ask": "Hỏi Stella",
       "fromOtherComputer": "Thay đổi từ máy tính khác của bạn",
@@ -1558,7 +1557,18 @@
       "askUndo": "Hoàn tác \"{subject}\" (nó xung đột với các thay đổi sau đó).",
       "updateAvailable": "Có bản cập nhật",
       "updateNeedsMerge": "Cần hợp nhất với các thay đổi của bạn",
-      "askUpdate": "Cập nhật Stella lên phiên bản mới nhất"
+      "askUpdate": "Cập nhật Stella lên phiên bản mới nhất",
+      "restarts": "Khởi động lại Stella",
+      "updatedJustNow": "Vừa cập nhật",
+      "updatedAgo": "Đã cập nhật {ago}",
+      "undoneJustNow": "Vừa hoàn tác",
+      "undoneAgo": "Đã hoàn tác {ago}",
+      "files": {
+        "other": "{count} tệp"
+      },
+      "changes": {
+        "other": "{count} thay đổi"
+      }
     },
     "display": {
       "homeLauncher": {

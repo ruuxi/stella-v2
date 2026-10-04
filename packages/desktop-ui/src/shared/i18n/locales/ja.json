@@ -1442,6 +1442,9 @@
     "oauth": {
       "xaiCodeMessage": "このコードを入力して xAI を接続してください",
       "expectedValue": "想定される値: {value}"
+    },
+    "update": {
+      "holding": "Stella をアップデート中"
     }
   },
   "features": {
@@ -1542,10 +1545,6 @@
     "appSource": {
       "update": "アップデート",
       "title": "Stella への変更",
-      "ready": "準備完了",
-      "attention": "対応が必要",
-      "recent": "最近の変更",
-      "apply": "適用",
       "undo": "元に戻す",
       "ask": "Stella に頼む",
       "fromOtherComputer": "別のコンピューターからの変更",
@@ -1558,7 +1557,18 @@
       "askUndo": "「{subject}」を元に戻してください（後の変更と競合しています）。",
       "updateAvailable": "アップデートがあります",
       "updateNeedsMerge": "あなたの変更とのマージが必要です",
-      "askUpdate": "Stellaを最新バージョンにアップデートしてください"
+      "askUpdate": "Stellaを最新バージョンにアップデートしてください",
+      "restarts": "Stella を再起動します",
+      "updatedJustNow": "たった今更新",
+      "updatedAgo": "{ago}に更新",
+      "undoneJustNow": "たった今元に戻しました",
+      "undoneAgo": "{ago}に元に戻しました",
+      "files": {
+        "other": "{count} ファイル"
+      },
+      "changes": {
+        "other": "{count} 件の変更"
+      }
     },
     "display": {
       "homeLauncher": {

@@ -1442,6 +1442,9 @@
     "oauth": {
       "xaiCodeMessage": "ป้อนรหัสนี้เพื่อเชื่อมต่อ xAI",
       "expectedValue": "ค่าที่คาดไว้: {value}"
+    },
+    "update": {
+      "holding": "กำลังอัปเดต Stella"
     }
   },
   "features": {
@@ -1542,10 +1545,6 @@
     "appSource": {
       "update": "อัปเดต",
       "title": "การเปลี่ยนแปลงของ Stella",
-      "ready": "พร้อม",
-      "attention": "ต้องตรวจสอบ",
-      "recent": "การเปลี่ยนแปลงล่าสุด",
-      "apply": "ใช้",
       "undo": "เลิกทำ",
       "ask": "ถาม Stella",
       "fromOtherComputer": "การเปลี่ยนแปลงจากคอมพิวเตอร์อีกเครื่องของคุณ",
@@ -1558,7 +1557,18 @@
       "askUndo": "เลิกทำ \"{subject}\" (ขัดแย้งกับการเปลี่ยนแปลงภายหลัง)",
       "updateAvailable": "มีอัปเดต",
       "updateNeedsMerge": "ต้องรวมกับการเปลี่ยนแปลงของคุณ",
-      "askUpdate": "อัปเดต Stella เป็นเวอร์ชันล่าสุด"
+      "askUpdate": "อัปเดต Stella เป็นเวอร์ชันล่าสุด",
+      "restarts": "รีสตาร์ต Stella",
+      "updatedJustNow": "อัปเดตเมื่อสักครู่",
+      "updatedAgo": "อัปเดต{ago}",
+      "undoneJustNow": "ยกเลิกเมื่อสักครู่",
+      "undoneAgo": "ยกเลิก{ago}",
+      "files": {
+        "other": "{count} ไฟล์"
+      },
+      "changes": {
+        "other": "{count} การเปลี่ยนแปลง"
+      }
     },
     "display": {
       "homeLauncher": {

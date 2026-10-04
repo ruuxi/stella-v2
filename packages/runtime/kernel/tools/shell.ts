@@ -2238,6 +2238,9 @@ const resolveManagedShellCommand = (
         "drafts",
       );
     }
+    // Lets the checkout's git hook note which agent made a draft, so the
+    // chat offers Update on that agent's completion.
+    if (context?.agentId) envOverrides.STELLA_AGENT_ID = context.agentId;
   }
   const stellaComputerSessionId = getStellaComputerSessionId(context);
   const localBinPaths = [

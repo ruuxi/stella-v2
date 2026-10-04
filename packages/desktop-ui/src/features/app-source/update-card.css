@@ -1,0 +1,296 @@
+.app-update-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 420px;
+  margin-top: 12px;
+  padding: 11px 11px 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2xl);
+  animation: app-update-card-enter 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Same side padding as `.composer`, so a card lines up with the composer
+   shell at any width. */
+.app-update-offers {
+  width: 100%;
+  padding: 0 24px;
+}
+
+/* Pinned above the composer with the other offers there; GrowIn animates
+   it in and out, so it has no entrance of its own. */
+.app-update-card--composer {
+  /* The composer's own measure, so the two line up. */
+  max-width: min(var(--full-chat-composer-max-width, 50rem), calc(100% - 48px));
+  margin: 0 auto 10px;
+  background: var(--surface-inset);
+  animation: none;
+}
+
+@keyframes app-update-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.app-update-card__icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: color-mix(in oklch, var(--primary) 13%, transparent);
+  color: var(--primary);
+  transition:
+    background-color 320ms ease,
+    color 320ms ease;
+}
+
+.app-update-card[data-tone="done"] .app-update-card__icon {
+  background: color-mix(in oklch, var(--success) 15%, transparent);
+  color: var(--success);
+}
+
+.app-update-card[data-tone="attention"] .app-update-card__icon {
+  background: color-mix(in oklch, var(--foreground) 6%, transparent);
+  color: var(--text-weak);
+}
+
+.app-update-card__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.app-update-card__title {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text-strong);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.app-update-card__detail {
+  margin-top: 1px;
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--text-weak);
+}
+
+/* App Store-style capsule: tinted fill, accent label. */
+.app-update-card__button {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  height: 30px;
+  padding: 0 14px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--foreground) 6%, transparent);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    scale 350ms var(--app-update-press, ease-out);
+}
+
+.app-update-card__button[data-primary] {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.app-update-card__button:hover:not(:disabled) {
+  background: color-mix(in oklch, var(--foreground) 9%, transparent);
+}
+
+/* Gives under the finger, springs back on release. */
+.app-update-card__button:active:not(:disabled) {
+  scale: 0.94;
+  transition-duration: 150ms, 90ms;
+  transition-timing-function: ease, ease-out;
+}
+
+.app-update-card__button:disabled {
+  cursor: default;
+}
+
+.app-update-card__button:disabled:not([data-ring]) {
+  opacity: 0.5;
+}
+
+.app-update-card__button[data-ring] {
+  width: 30px;
+  padding: 0;
+}
+
+.app-update-card__ring {
+  width: 18px;
+  height: 18px;
+  animation: app-update-ring-spin 850ms linear infinite;
+}
+
+.app-update-card__ring circle {
+  fill: none;
+  stroke-width: 2.2;
+}
+
+.app-update-card__ring-track {
+  stroke: color-mix(in oklch, var(--primary) 20%, transparent);
+}
+
+.app-update-card__ring-arc {
+  stroke: var(--primary);
+  stroke-linecap: round;
+  stroke-dasharray: 28 100;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+}
+
+@keyframes app-update-ring-spin {
+  to {
+    rotate: 360deg;
+  }
+}
+
+/* Swaps: the leaving and entering layers share one grid cell. */
+.app-update-swap {
+  display: inline-grid;
+  grid-template-areas: "stack";
+  place-items: center start;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.app-update-swap--icon,
+.app-update-swap--label {
+  place-items: center;
+}
+
+.app-update-swap__layer {
+  grid-area: stack;
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  white-space: nowrap;
+}
+
+.app-update-swap__layer--out {
+  pointer-events: none;
+}
+
+/* Detail line: rolls up through a little blur. */
+.app-update-swap--text .app-update-swap__layer--in {
+  animation: app-update-roll-in 380ms cubic-bezier(0.22, 1, 0.36, 1) 50ms both;
+}
+
+.app-update-swap--text .app-update-swap__layer--out {
+  animation: app-update-roll-out 200ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+@keyframes app-update-roll-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+    filter: blur(3px);
+  }
+}
+
+@keyframes app-update-roll-out {
+  to {
+    opacity: 0;
+    transform: translateY(-6px);
+    filter: blur(3px);
+  }
+}
+
+/* Icon: replaced in place, the new one arriving with a little bounce. */
+.app-update-swap--icon .app-update-swap__layer--in {
+  animation: app-update-symbol-in 420ms cubic-bezier(0.34, 1.56, 0.64, 1) 60ms both;
+}
+
+.app-update-swap--icon .app-update-swap__layer--out {
+  animation: app-update-symbol-out 160ms ease-in both;
+}
+
+@keyframes app-update-symbol-in {
+  from {
+    opacity: 0;
+    transform: scale(0.5);
+    filter: blur(3px);
+  }
+}
+
+@keyframes app-update-symbol-out {
+  to {
+    opacity: 0;
+    transform: scale(0.5);
+    filter: blur(3px);
+  }
+}
+
+/* The check draws itself when it arrives. */
+.app-update-card__check path {
+  stroke-dasharray: 24;
+}
+
+.app-update-swap__layer--in .app-update-card__check path {
+  animation: app-update-check-draw 340ms cubic-bezier(0.3, 0, 0.2, 1) 120ms both;
+}
+
+@keyframes app-update-check-draw {
+  from {
+    stroke-dashoffset: 24;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Button label: opens up out of the ring. */
+.app-update-swap--label .app-update-swap__layer--in {
+  animation: app-update-label-in 360ms cubic-bezier(0.34, 1.3, 0.64, 1) 60ms both;
+}
+
+.app-update-swap--label .app-update-swap__layer--out {
+  animation: app-update-label-out 150ms ease-in both;
+}
+
+@keyframes app-update-label-in {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+    filter: blur(4px);
+  }
+}
+
+@keyframes app-update-label-out {
+  to {
+    opacity: 0;
+    transform: scale(0.8);
+    filter: blur(4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-update-card,
+  .app-update-swap__layer--in,
+  .app-update-swap__layer--out,
+  .app-update-swap__layer--in .app-update-card__check path {
+    animation-duration: 1ms;
+    animation-delay: 0ms;
+  }
+}

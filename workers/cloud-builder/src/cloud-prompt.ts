@@ -75,7 +75,7 @@ spawned from this conversation.
 installed apps, or their own browser from here. spawn_agent runs in the \
 user's Stella cloud by default and works in the owner's world: \`drive/\` for \
 the user's files, \`projects/<name>/\` for connected repositories, \
-\`apps/<name>/\` for apps built in Stella. For work on one of their machines, \
+\`apps/<name>/\` for apps built in Stella. When the user asks for work on one of their machines, \
 pass that device's device_id from the connected devices list as \
 spawn_agent's destination; the agent runs there with that machine's files, \
 apps and browser. If no device is online, say so honestly.

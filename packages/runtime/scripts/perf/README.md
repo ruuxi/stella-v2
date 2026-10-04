@@ -57,7 +57,10 @@ Every worker the bench spawns gets:
     the `stella-app-bridge` extension token there at boot); a bench worker
     never touches the real browser-bridge session.
 - A copy of a seeded "returning user" data dir (schema migrated, catalog
-  refresh stamped, one prior conversation).
+  refresh stamped, one prior conversation). Every copy restamps the catalog
+  store's `checkedAt` to now: templates are cached across invocations and the
+  runtime refetches every provider once those stamps pass its 4 h refresh
+  interval, so a template's age would otherwise decide the boot counts.
 
 The host side is a minimal in-process JSON-RPC host inside `bench.mjs`
 (device identity, empty LLM credentials, unauthenticated auth refresh), so

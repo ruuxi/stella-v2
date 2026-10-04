@@ -5,8 +5,8 @@ import styles from "./windows-install-note.module.css";
 
 /**
  * A small, calm helper shown only to Windows visitors near a download CTA.
- * The Windows build isn't code-signed yet, so browsers and SmartScreen can
- * flag the download; this explains that it's expected and how to proceed.
+ * The launcher is signed by FromYou, LLC, but SmartScreen can still flag a
+ * new download until the file builds reputation; this explains how to proceed.
  * Gated on the same client-side platform detection as the download button, so
  * Mac and Linux visitors never see the (irrelevant) warning copy.
  */
@@ -21,9 +21,9 @@ export function WindowsInstallNote({ className }: { className?: string }) {
       </summary>
       <div className={styles.body}>
         <p>
-          Stella for Windows isn&apos;t code-signed yet — our certificate is on
-          the way. Until it lands, Windows may flag the download. It&apos;s safe
-          to install; here&apos;s how to continue:
+          Stella for Windows is signed by FromYou, LLC. Windows can still flag a
+          new download until it&apos;s seen it more often. It&apos;s safe to
+          install; here&apos;s how to continue:
         </p>
         <ul>
           <li>

@@ -82,6 +82,7 @@ type StoredSpawnRequest = {
   originConversationId: string;
   execution: CloudDispatchRequest["execution"];
   conversationId?: string;
+  targetDeviceId?: string;
 };
 
 type StoredContinueRequest = {
@@ -406,6 +407,7 @@ export const createCloudSpawnDispatcher = (
         model: request.execution.model,
         reasoningEffort: request.execution.reasoningEffort,
       },
+      ...(request.targetDeviceId ? { targetDeviceId: request.targetDeviceId } : {}),
     });
     const persisted = options.store.getCloudAgentToolOperation(
       request.requestId,
@@ -420,7 +422,7 @@ export const createCloudSpawnDispatcher = (
       : null;
     if (!operation?.resultJson && !options.isSignedIn()) {
       throw new Error(
-        'This spawn runs in your Stella cloud, and this device is signed out. Sign in, or use placement "computer" to run the work here.',
+        "Running an agent in the cloud or on another device needs this computer to be signed in. Sign in, or leave destination empty to run the work here.",
       );
     }
     operation ??= await beginOperation(options, {
@@ -441,6 +443,9 @@ export const createCloudSpawnDispatcher = (
           originConversationId: request.conversationId,
           execution: request.execution,
           ...(conversationId ? { conversationId } : {}),
+          ...(request.targetDeviceId
+            ? { targetDeviceId: request.targetDeviceId }
+            : {}),
         } satisfies StoredSpawnRequest;
       },
     });

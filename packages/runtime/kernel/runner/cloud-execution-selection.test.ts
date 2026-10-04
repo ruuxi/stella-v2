@@ -90,7 +90,7 @@ const createStore = () => {
 };
 
 describe("desktop cloud execution selection", () => {
-  test("keeps omitted and computer placements on the local manager for a cloud-stored desktop conversation", async () => {
+  test("keeps an omitted destination and this device's own id on the local manager for a cloud-stored desktop conversation", async () => {
     const localCreates: unknown[] = [];
     const cloudDispatches: unknown[] = [];
     const state = createStateContext(
@@ -118,7 +118,7 @@ describe("desktop cloud execution selection", () => {
     const explicit = await handleSpawnAgent(
       state,
       {
-        placement: "computer",
+        destination: cloudStoredDesktopToolContext.deviceId,
         description: "Explicit local",
         prompt: "Run this explicitly on the computer.",
       },
@@ -171,7 +171,7 @@ describe("desktop cloud execution selection", () => {
     const result = await handleSpawnAgent(
       state,
       {
-        placement: "cloud",
+        destination: "cloud",
         description: "Research",
         prompt: "Research this subject.",
       },
@@ -228,7 +228,7 @@ describe("desktop cloud execution selection", () => {
     await handleSpawnAgent(
       state,
       {
-        placement: "cloud",
+        destination: "cloud",
         description: "Implement",
         prompt: "Implement the change.",
         model: "claude-code/claude-opus-4-6:high",
@@ -274,7 +274,7 @@ describe("desktop cloud execution selection", () => {
     await handleSpawnAgent(
       state,
       {
-        placement: "cloud",
+        destination: "cloud",
         description: "Analyze",
         prompt: "Analyze the issue.",
         model: "stella/openai/gpt-5.6",
@@ -314,7 +314,7 @@ describe("desktop cloud execution selection", () => {
     await handleSpawnAgent(
       state,
       {
-        placement: "cloud",
+        destination: "cloud",
         description: "Review",
         prompt: "Review the implementation.",
         model: "codex/gpt-5.6-sol:xhigh",

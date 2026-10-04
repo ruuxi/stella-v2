@@ -16,6 +16,7 @@ import {
 } from "../runtime-threads.js";
 import { AGENT_PAUSE_CANCEL_REASON } from "../agents/local-agent-manager.js";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
+import { parseSpawnDestination } from "./defs/agent-orchestration-def.js";
 import { STELLA_DEFAULT_MODEL } from "@stella/contracts/stella-api";
 import type {
   AgentModelConfigSnapshot,
@@ -66,8 +67,6 @@ const toOptionalString = (value: unknown): string | undefined => {
   return trimmed.length > 0 ? trimmed : undefined;
 };
 
-const isSpawnPlacement = (value: string): value is "cloud" | "computer" =>
-  value === "cloud" || value === "computer";
 
 /**
  * `send_input` no longer asks the caller for a description, but the cloud
@@ -581,23 +580,25 @@ export const handleSpawnAgent = async (
     };
   }
 
-  // Not exposed on the spawn schema. The placement router, or a cloud
-  // AgentToolApi implementation, sets it; a model-issued spawn stays on the
-  // computer it is already running on.
-  const requestedPlacement = toOptionalString(args.placement);
-  if (requestedPlacement && !isSpawnPlacement(requestedPlacement)) {
-    return { error: 'placement must be either "cloud" or "computer".' };
-  }
-  // A cloud placement leaves the device instead of running through
-  // LocalAgentManager. Without a dispatch capability there is nowhere honest
-  // to put the work — refuse rather than silently run it in the wrong place.
-  const cloudPlacement = requestedPlacement === "cloud";
+  // Blank, or this computer's own id, runs here. "cloud" or another
+  // device's id leaves this computer through the owner's agent-thread
+  // ledger instead of LocalAgentManager. Without a dispatch capability there
+  // is nowhere honest to put the work — refuse rather than silently run it in
+  // the wrong place.
+  const destination = parseSpawnDestination(args.destination);
+  const targetDeviceId =
+    destination.kind === "device" && destination.deviceId !== context.deviceId
+      ? destination.deviceId
+      : undefined;
+  const cloudPlacement = destination.kind === "cloud" || targetDeviceId !== undefined;
   if (cloudPlacement && context.conversationId.startsWith("local_")) {
-    return { error: "This chat is stored only on this computer. Run the task on this computer." };
+    return {
+      error: "This chat is stored only on this computer, so its agents run here too. Leave destination empty.",
+    };
   }
   if (cloudPlacement && !ctx.agentApi?.cloudDispatch) {
     return {
-      error: `A cloud placement runs in Stella's cloud, and this runtime has no cloud connection. Use placement "computer" to run it on this machine instead.`,
+      error: `This runtime has no cloud connection, so it can only run agents on this computer. Leave destination empty.`,
     };
   }
   let modelSelection: SpawnModelSelection;
@@ -661,7 +662,7 @@ export const handleSpawnAgent = async (
     const cloudDispatch = ctx.agentApi?.cloudDispatch;
     if (!cloudDispatch) {
       return {
-        error: `A cloud placement runs in Stella's cloud, and this runtime has no cloud connection. Use placement "computer" to run it on this machine instead.`,
+        error: `This runtime has no cloud connection, so it can only run agents on this computer. Leave destination empty.`,
       };
     }
     const resolveExecution = ctx.resolveCloudExecutionSelection;
@@ -700,6 +701,7 @@ export const handleSpawnAgent = async (
         description,
         prompt,
         execution,
+        ...(targetDeviceId ? { targetDeviceId } : {}),
       });
     } catch (error) {
       return { error: (error as Error).message };
@@ -709,12 +711,14 @@ export const handleSpawnAgent = async (
         thread_id: dispatched.threadId,
         created: true,
         running_in_background: true,
-        placement: "cloud",
+        ...(targetDeviceId
+          ? { placement: "device", device_id: targetDeviceId }
+          : { placement: "cloud" }),
         cloud_conversation_id: dispatched.conversationId,
         attempt_generation: dispatched.attemptGeneration,
         thread_updated_at: dispatched.threadUpdatedAt,
         thread_status: dispatched.status,
-        note: "Running in Stella's cloud. Its completion will return to this conversation, including after a desktop restart. Use send_input to continue this thread or pause_agent to stop its current turn.",
+        note: `${targetDeviceId ? `Running on device ${targetDeviceId}.` : "Running in Stella's cloud."} Its completion will return to this conversation, including after a desktop restart. Use send_input to continue this thread once it finishes, or pause_agent to stop it.`,
       },
     };
   }

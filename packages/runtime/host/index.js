@@ -13,7 +13,7 @@ import { LocalSchedulerService } from "../kernel/local-scheduler-service.js";
 import { createCloudSchedules, isCloudScheduleId, isCloudSchedulePayload, } from "./cloud-schedules.js";
 import { createScheduleScriptAuthEnv } from "../kernel/shared/schedule-scripts.js";
 import { AGENT_STREAM_EVENT_TYPES } from "@stella/contracts/agent-runtime";
-import { createExecutionPlacementBridge, placementLocalAgentThreadId, placementLocalChatRunId, } from "./execution-placement-bridge.js";
+import { createExecutionPlacementBridge, placementLocalAgentThreadId, placementLocalChatRunId, placementRemoteThreadAgentId, } from "./execution-placement-bridge.js";
 import { isExecutionPlacementEligible } from "./execution-placement-eligibility.js";
 import { isCloudHandedOff } from "./placed-dispatch.js";
 import { placementAttachmentPaths, resolvePlacementAttachments, } from "./placement-attachments.js";
@@ -731,27 +731,27 @@ export class StellaRuntimeHost {
                     resolve: async (path) => await client.call("drive.fileUrl", { path }),
                     onSkipped: (path, error) => console.warn(`[execution-placement] attachment ${path} could not be resolved from the drive.`, error),
                 });
-                await this.appendLocalChatEvent({
-                    conversationId: dispatch.conversationId,
-                    eventId: userMessageEventId,
-                    type: "user_message",
-                    payload: {
-                        text: prompt,
-                        source: "execution-placement",
-                        dispatchId: dispatch.dispatchId,
-                    },
-                });
                 if (dispatch.kind === "agent") {
+                    // An agent placed here is someone else's background work:
+                    // its brief is not a message the user typed in this chat.
                     const description = typeof payload.description === "string" &&
                         payload.description.trim()
                         ? payload.description.trim()
                         : prompt.slice(0, 160);
+                    const remoteThreadId = typeof payload.threadId === "string" && payload.threadId.trim()
+                        ? payload.threadId.trim()
+                        : null;
                     const result = await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_RUN_BLOCKING_AGENT, {
                         conversationId: dispatch.conversationId,
                         description,
                         prompt,
                         agentType: "general",
-                        threadId: placementLocalAgentThreadId(dispatch.dispatchId),
+                        ...(remoteThreadId
+                            ? {
+                                threadId: placementRemoteThreadAgentId(remoteThreadId),
+                                executionId: placementLocalAgentThreadId(dispatch.dispatchId),
+                            }
+                            : { threadId: placementLocalAgentThreadId(dispatch.dispatchId) }),
                     }, {
                         ensureWorker: true,
                         recordActivity: true,
@@ -764,6 +764,16 @@ export class StellaRuntimeHost {
                             error: result.error || "The local agent failed.",
                         };
                 }
+                await this.appendLocalChatEvent({
+                    conversationId: dispatch.conversationId,
+                    eventId: userMessageEventId,
+                    type: "user_message",
+                    payload: {
+                        text: prompt,
+                        source: "execution-placement",
+                        dispatchId: dispatch.dispatchId,
+                    },
+                });
                 const result = await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_RUN_AUTOMATION, {
                     conversationId: dispatch.conversationId,
                     userPrompt: prompt,
@@ -800,9 +810,14 @@ export class StellaRuntimeHost {
                     error: result.error || "The local execution failed.",
                 };
             },
-            cancelExecution: async ({ dispatchId, kind, conversationId }) => {
+            cancelExecution: async ({ dispatchId, kind, conversationId, payload }) => {
                 if (kind === "agent") {
-                    const result = await this.cancelBlockingLocalAgent(placementLocalAgentThreadId(dispatchId), "Canceled by execution placement.");
+                    const remoteThreadId = typeof payload?.threadId === "string" && payload.threadId.trim()
+                        ? payload.threadId.trim()
+                        : null;
+                    const result = remoteThreadId
+                        ? await this.cancelBlockingLocalAgent(placementRemoteThreadAgentId(remoteThreadId), "Canceled by execution placement.", placementLocalAgentThreadId(dispatchId))
+                        : await this.cancelBlockingLocalAgent(placementLocalAgentThreadId(dispatchId), "Canceled by execution placement.");
                     if (result?.canceled !== true) {
                         throw new Error("The exact local-agent cancellation was not acknowledged.");
                     }
@@ -1311,8 +1326,8 @@ export class StellaRuntimeHost {
             recordActivity: true,
         });
     }
-    async cancelBlockingLocalAgent(agentId, reason) {
-        return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_CANCEL_BLOCKING_AGENT, { agentId, reason }, {
+    async cancelBlockingLocalAgent(agentId, reason, executionId) {
+        return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_CANCEL_BLOCKING_AGENT, { agentId, reason, ...(executionId ? { executionId } : {}) }, {
             ensureWorker: true,
             recordActivity: true,
         });

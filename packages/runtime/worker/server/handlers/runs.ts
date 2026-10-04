@@ -209,6 +209,9 @@ export const runsHandlers: WorkerRpcHandlers = {
         runner.cancelBlockingLocalAgent(
           agentId,
           typeof payload.reason === "string" ? payload.reason : undefined,
+          typeof payload.executionId === "string"
+            ? payload.executionId
+            : undefined,
         ),
       );
     }),

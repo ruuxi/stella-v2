@@ -140,6 +140,8 @@ type PlacementBridgeOptions = {
     dispatchId: string;
     kind: PlacementKind;
     conversationId: string;
+    /** The accepted payload, for an agent thread's own local id. */
+    payload?: Record<string, unknown>;
   }) => Promise<void>;
   log?: (level: "warn" | "error", message: string, error?: unknown) => void;
   now?: () => number;
@@ -647,6 +649,14 @@ const sha256 = (value: string) =>
 /** Stable, dispatch-scoped ID for the exact blocking local-agent run. */
 export const placementLocalAgentThreadId = (dispatchId: string) =>
   `placement-agent:${sha256(dispatchId).slice(0, 32)}`;
+
+/**
+ * The local thread for a remote agent thread placed on this device. Every
+ * attempt of that thread continues the same local thread, so a follow-up
+ * keeps its history; the dispatch-scoped id above stays the attempt's fence.
+ */
+export const placementRemoteThreadAgentId = (threadId: string) =>
+  `placement-agent:thread:${sha256(threadId).slice(0, 32)}`;
 
 /** Stable, dispatch-scoped ID for the exact local automation/chat run. */
 export const placementLocalChatRunId = (dispatchId: string) =>
@@ -1860,10 +1870,17 @@ export class ExecutionPlacementBridge {
       const row = this.inbox.get(dispatchId);
       if (!row?.cancelRpcPending) return true;
       try {
+        let payload: Record<string, unknown> | undefined;
+        try {
+          payload = parseRecord(JSON.parse(row.payloadJson));
+        } catch {
+          payload = undefined;
+        }
         await this.options.cancelExecution({
           dispatchId: row.dispatchId,
           kind: row.kind,
           conversationId: row.conversationId,
+          ...(payload ? { payload } : {}),
         });
       } catch (error) {
         this.log(

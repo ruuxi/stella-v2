@@ -520,7 +520,7 @@ export type RunnerPublicApi = {
     payload: RuntimeAutomationTurnRequest,
   ) => Promise<RuntimeAutomationTurnResult>;
   runBlockingLocalAgent: (
-    request: Omit<AgentToolRequest, "storageMode">,
+    request: Omit<AgentToolRequest, "storageMode"> & { executionId?: string },
   ) => Promise<
     | { status: "ok"; finalText: string; threadId: string }
     | { status: "error"; finalText: ""; error: string; threadId?: string }
@@ -539,6 +539,7 @@ export type RunnerPublicApi = {
   cancelBlockingLocalAgent: (
     agentId: string,
     reason?: string,
+    executionId?: string,
   ) => Promise<{ canceled: boolean }>;
   /** Durable pre-cancel plus exact joining cancel for a placement chat run. */
   cancelPlacementAutomation: (

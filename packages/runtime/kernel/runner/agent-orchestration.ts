@@ -969,7 +969,7 @@ export const createAgentOrchestration = (
   });
 
   const runBlockingLocalAgent = async (
-    request: Omit<AgentToolRequest, "storageMode">,
+    request: Omit<AgentToolRequest, "storageMode"> & { executionId?: string },
   ): Promise<
     | { status: "ok"; finalText: string; threadId: string }
     | { status: "error"; finalText: ""; error: string; threadId?: string }
@@ -981,12 +981,14 @@ export const createAgentOrchestration = (
         error: "Local agent manager is unavailable.",
       };
     }
-    const requestedThreadId = request.threadId?.trim();
-    const cancellationReason = requestedThreadId
+    const { executionId: requestedExecutionId, ...agentRequest } = request;
+    const requestedThreadId = agentRequest.threadId?.trim();
+    const fenceId = requestedExecutionId?.trim() || requestedThreadId;
+    const cancellationReason = fenceId
       ? getPlacementCancellation({
           store: context.runtimeStore,
           kind: "agent",
-          executionId: requestedThreadId,
+          executionId: fenceId,
         })
       : null;
     if (requestedThreadId && cancellationReason) {
@@ -997,11 +999,27 @@ export const createAgentOrchestration = (
         threadId: requestedThreadId,
       };
     }
-    const { threadId } = await context.state.localAgentManager.createAgent({
-      ...request,
-      ...(requestedThreadId ? { threadId: requestedThreadId } : {}),
-      storageMode: "local",
-    });
+    const manager = context.state.localAgentManager;
+    // A remote thread's later attempt continues the local thread its first
+    // attempt created, with that thread's history, as a follow-up would.
+    const continued =
+      requestedThreadId &&
+      requestedExecutionId &&
+      context.runtimeStore.getAgentRecord?.(requestedThreadId)
+        ? await manager.sendAgentMessage(
+            requestedThreadId,
+            agentRequest.prompt,
+            "orchestrator",
+            { deliveryKind: "external-input" },
+          )
+        : null;
+    const { threadId } = continued?.delivered
+      ? { threadId: requestedThreadId! }
+      : await manager.createAgent({
+          ...agentRequest,
+          ...(requestedThreadId ? { threadId: requestedThreadId } : {}),
+          storageMode: "local",
+        });
     // Effect-native settlement (replaces the historical poll-until-terminal
     // loop): the manager's settlement latch wakes the wait on terminal
     // transitions, with the same 2s fallback re-read for rehydrated records
@@ -1009,8 +1027,7 @@ export const createAgentOrchestration = (
     // pairing: abandoning this wait never cancels the child; the parent
     // run's supervisor scope owns that (adoptChild's abort → cancelAgent,
     // joined on cancelRun/shutdown).
-    const settlement =
-      await context.state.localAgentManager.awaitAgentSettled(threadId);
+    const settlement = await manager.awaitAgentSettled(threadId);
     if (!settlement) {
       return {
         status: "error",
@@ -1069,6 +1086,7 @@ export const createAgentOrchestration = (
   const cancelBlockingLocalAgent = async (
     agentId: string,
     reason?: string,
+    executionId?: string,
   ): Promise<{ canceled: boolean }> => {
     const exactAgentId = agentId.trim();
     if (!exactAgentId) return { canceled: false };
@@ -1078,7 +1096,7 @@ export const createAgentOrchestration = (
     persistPlacementCancellation({
       store: context.runtimeStore,
       kind: "agent",
-      executionId: exactAgentId,
+      executionId: executionId?.trim() || exactAgentId,
       reason,
     });
 

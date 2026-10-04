@@ -1533,7 +1533,10 @@ export const buildAgentContext = async (
     shouldInjectDynamicReminder: reminderState.shouldInjectDynamicReminder,
     staleUserReminderText,
     connectorTransitionReminderText,
-    executionContext: injectsRuntimeReminders
+    executionContext: agentHasCapability(
+      args.agentType,
+      "injectsExecutionContext",
+    )
       ? await context.loadExecutionContext?.()
       : undefined,
     toolsAllowlist,

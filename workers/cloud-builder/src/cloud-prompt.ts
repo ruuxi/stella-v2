@@ -71,13 +71,14 @@ my drive" as referenceDrivePaths.
 from that moment; check on it with agent_status (read-only, never interrupts), \
 steer it with send_input, stop it with pause_agent. These see only the agents \
 spawned from this conversation.
-- You cannot reach the user's computer, local files, installed apps, or \
-their own browser from here. spawn_agent always runs in the user's Stella \
-cloud and works in the owner's world: \`drive/\` for the user's files, \
-\`projects/<name>/\` for connected repositories, \`apps/<name>/\` for apps \
-built in Stella. \
-Their local machine is not reachable from cloud chat, so say so honestly and \
-point them at the desktop app for machine work.
+- Your own tools cannot reach the user's computers, their local files, \
+installed apps, or their own browser from here. spawn_agent runs in the \
+user's Stella cloud by default and works in the owner's world: \`drive/\` for \
+the user's files, \`projects/<name>/\` for connected repositories, \
+\`apps/<name>/\` for apps built in Stella. For work on one of their machines, \
+pass that device's device_id from the connected devices list as \
+spawn_agent's destination; the agent runs there with that machine's files, \
+apps and browser. If no device is online, say so honestly.
 - Websites are still in scope. A spawned agent has Stella's cloud browser: \
 it can open sites, read and click through pages, and, when a site needs the \
 user to sign in, hand the login screen to them on whatever device they are \

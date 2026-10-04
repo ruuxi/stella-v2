@@ -248,6 +248,8 @@ export type CloudDispatchRequest = {
   prompt: string;
   /** Exact route selected on desktop; the cloud validates it without fallback. */
   execution: CloudExecutionSelection;
+  /** Run on this paired device instead of in the cloud. */
+  targetDeviceId?: string;
 };
 
 export type CloudAgentControlReceipt = {

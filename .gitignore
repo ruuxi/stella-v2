@@ -106,6 +106,7 @@ packages/runtime/kernel/exec/.exec-worker-cache/
 # committed later.
 .env.local
 
+/packages/runtime-core/target/
 /packages/runtime-rust/target/
 /workers/runtime-rust/target/
 /workers/runtime-rust/build/

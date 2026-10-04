@@ -414,6 +414,7 @@ const mergeCanonicalMessage = (
       ? { canonicalId: canonical.id }
       : {}),
     createdAt: existing.createdAt ?? canonical.createdAt,
+    ...(existing.sentWhileBusy ? { sentWhileBusy: true } : {}),
     ...(canonicalCreatedAt !== undefined ? { canonicalCreatedAt } : {}),
     ...(existing.requestId && !canonical.requestId
       ? { requestId: existing.requestId }

@@ -1332,7 +1332,7 @@ export function useChatThread(opts: {
           ? { documentNames: documents.map((entry) => entry.name) }
           : {}),
         ...(quotedPreview ? { quotedText: quotedPreview } : {}),
-        ...(admission === "queue" ? { queued: true } : {}),
+        ...(admission === "queue" ? { queued: true, sentWhileBusy: true } : {}),
       };
 
       LayoutAnimation.configureNext({

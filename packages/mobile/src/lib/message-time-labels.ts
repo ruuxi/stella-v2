@@ -3,7 +3,7 @@ import type { ChatMessage } from "../types";
 /**
  * iMessage-style time labels for the transcript: a centered time above a
  * message only when a long enough gap precedes it, and a "Read" receipt under
- * the latest user message once the model has it.
+ * the latest user message sent while busy, once the model has it.
  */
 
 /** A new centered time appears after this much quiet. */
@@ -73,6 +73,7 @@ export function timestampHeaders(
  * row when its own turn starts. Optimistic rows carry no journal identity.
  */
 const readAt = (message: ChatMessage): number | null => {
+  if (!message.sentWhileBusy) return null;
   if (message.queued) return null;
   if (message.sequence === undefined && !message.canonicalId) return null;
   return message.canonicalCreatedAt ?? message.createdAt ?? null;

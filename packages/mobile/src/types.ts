@@ -345,6 +345,8 @@ export type ChatMessage = {
    * not been dispatched yet. Renders exactly like a sent message.
    */
   queued?: boolean;
+  /** Keep a read receipt only for messages sent during an in-flight reply. */
+  sentWhileBusy?: boolean;
   /**
    * The user pressed Stop before this message completed or left the queue.
    * Renders with a trailing "Stopped" affordance.

@@ -255,7 +255,7 @@ function ProviderSection({
   );
   const autoSwitch = settings?.autoSwitch?.[section.provider] ?? false;
 
-  const useAccount = (row: EngineConnection) => {
+  const switchToAccount = (row: EngineConnection) => {
     tapLight();
     void run(() =>
       getBackendClient().call("engines.setActiveAccount", {
@@ -294,7 +294,7 @@ function ProviderSection({
         : [
             {
               text: t("mobile.engineAccounts.useAccount"),
-              onPress: () => useAccount(row),
+              onPress: () => switchToAccount(row),
             },
           ]),
       {
@@ -320,7 +320,7 @@ function ProviderSection({
           return (
             <Pressable
               key={row.accountId}
-              onPress={() => (row.active ? undefined : useAccount(row))}
+              onPress={() => (row.active ? undefined : switchToAccount(row))}
               disabled={busy}
               accessibilityRole="button"
               accessibilityState={{ selected: row.active }}
@@ -379,7 +379,7 @@ function ProviderSection({
                             id: "use",
                             title: t("mobile.engineAccounts.useAccount"),
                             systemImage: "checkmark.circle" as const,
-                            onPress: () => useAccount(row),
+                            onPress: () => switchToAccount(row),
                           },
                         ]),
                     {

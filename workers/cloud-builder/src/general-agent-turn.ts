@@ -992,13 +992,27 @@ export const runResidentStellaLoop = async (
     }
 
     context.assertActive();
-    const model = await (input.createModel ?? relayModelFactory)({
-      gatewayOrigin: input.modelGateway.origin,
-      capability: input.modelGateway.capability,
-      execution: input.execution,
-      signal: context.signal,
-      ...(input.modelGateway.fetch ? { fetch: input.modelGateway.fetch } : {}),
-    });
+    let model: Awaited<ReturnType<ResidentModelFactory>>;
+    try {
+      model = await (input.createModel ?? relayModelFactory)({
+        gatewayOrigin: input.modelGateway.origin,
+        capability: input.modelGateway.capability,
+        execution: input.execution,
+        signal: context.signal,
+        ...(input.modelGateway.fetch ? { fetch: input.modelGateway.fetch } : {}),
+      });
+    } catch (error) {
+      // A turn cancellation stays one; a model that can't be set up ends the
+      // turn now with its reason instead of being retried into a generic
+      // "stopped unexpectedly".
+      context.assertActive();
+      const reason = error instanceof Error ? error.message : String(error);
+      return preflightFailure(
+        reason.startsWith("STELLA_EXECUTOR_DIAGNOSTIC:")
+          ? `The model "${input.execution.model}" couldn't be reached. Try again shortly.`
+          : `The model "${input.execution.model}" can't be used: ${reason}`,
+      );
+    }
 
     // The model registry is a lazy import in the Worker (it is 433 KB of
     // catalog that must not be evaluated on every object wake). The relay

@@ -1315,12 +1315,26 @@ describe("POST /v1/models/resolve", () => {
     expect((await ctx.runRaw(noRequestId)).status).toBe(200);
   });
 
+  test("an unlisted Stella model is refused, not substituted", async () => {
+    const { token } = await signSession();
+    const response = await ctx.run(
+      relayRequest("/v1/models/resolve", {
+        token,
+        body: { model: "stella/openai/gpt-5.6", agentType: "orchestrator" },
+      }),
+    );
+    expect(response.status).toBe(400);
+    expect((await readError(response)).error.message).toContain(
+      "isn't an available Stella model",
+    );
+  });
+
   test("a restricted audience falls back to the agent default; a turn capability fails closed", async () => {
     const free = await signSession({ audience: "free" });
     const fallback = await ctx.run(
       relayRequest("/v1/models/resolve", {
         token: free.token,
-        body: { model: "stella/openai/gpt-5.6-sol", agentType: "orchestrator" },
+        body: { model: CROF_ALIAS, agentType: "orchestrator" },
       }),
     );
     expect(fallback.status).toBe(200);

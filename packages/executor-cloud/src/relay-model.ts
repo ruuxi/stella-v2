@@ -492,8 +492,21 @@ const resolveManagedRelayModel = async (args: {
     throw resolveTransportFailure(error);
   }
   if (!response.ok) {
-    await response.body?.cancel().catch(() => undefined);
-    throw new Error(CLOUD_MODEL_DIAGNOSTIC_SENTINELS.model_http_failure);
+    const refusal =
+      response.status >= 400 && response.status < 500
+        ? await response
+            .json()
+            .then((body) => (body as { error?: { message?: unknown } })?.error?.message)
+            .catch(() => undefined)
+        : (await response.body?.cancel().catch(() => undefined), undefined);
+    // Only the gateway's own unavailable-model refusal passes through; any
+    // other body text may carry upstream detail and stays a sentinel.
+    throw new Error(
+      typeof refusal === "string" &&
+        /^"stella\/[^"]{1,190}" isn't an available Stella model\./u.test(refusal)
+        ? refusal.slice(0, 300)
+        : CLOUD_MODEL_DIAGNOSTIC_SENTINELS.model_http_failure,
+    );
   }
   let payload: unknown;
   try {

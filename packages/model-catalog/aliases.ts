@@ -208,6 +208,19 @@ export const resolveStellaModelSelection = (
  * locked agent, or an override this audience may not pick — returns the agent's
  * backend default. `applied` is true only when an override was honored.
  */
+/**
+ * Whether a Stella id names a model Stella offers at all. Default and mode
+ * selections always do; an explicit `stella/<provider>/<model>` must be on the
+ * product allowlist. A listed model a plan can't use still falls back to the
+ * default; an unlisted one is refused rather than silently substituted.
+ */
+export const isListedStellaModel = (selection: string): boolean => {
+  const parsed = parseStellaModelSelection(selection);
+  if (!parsed) return false;
+  if (parsed.kind !== "upstream") return true;
+  return isStellaModelAllowedForAudience(selection.trim(), "pro");
+};
+
 export const resolveStellaModelConfigForSelection = (
   selection: string | null | undefined,
   agentType: string,

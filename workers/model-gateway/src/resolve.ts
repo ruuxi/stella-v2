@@ -8,6 +8,7 @@ import {
 } from "@stella/model-catalog/managed-gateway";
 import type { ModelConfig } from "@stella/model-catalog/model";
 import { resolveRequestedStellaModel } from "@stella/model-catalog/request-estimate";
+import { isListedStellaModel, isStellaModel } from "@stella/model-catalog/aliases";
 import {
   resolveCloudManagedProtocol,
   toProviderNativeModel,
@@ -68,6 +69,14 @@ export const resolveManagedRoute = (args: {
   agentType: string;
   requestedModel: string | undefined;
 }): ManagedRoute => {
+  const requested = args.requestedModel?.trim();
+  if (requested && isStellaModel(requested) && !isListedStellaModel(requested)) {
+    throw new GatewayError(
+      400,
+      "bad_request",
+      `"${requested}" isn't an available Stella model. Use stella/default or a model from the model list.`,
+    );
+  }
   let selection: ReturnType<typeof resolveRequestedStellaModel>;
   try {
     selection = resolveRequestedStellaModel(

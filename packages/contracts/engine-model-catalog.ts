@@ -51,8 +51,8 @@ export const CLAUDE_ENGINE_MODELS: readonly EngineModelOption[] = [
 /** Codex (ChatGPT subscription) models, newest family only. */
 export const CODEX_ENGINE_MODELS: readonly EngineModelOption[] = [
   {
-    id: "gpt-6-sol",
-    name: "GPT-6 Sol",
+    id: "gpt-6.1-sol",
+    name: "GPT-6.1 Sol",
     description: "Balanced default for everyday coding",
   },
   {

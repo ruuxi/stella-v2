@@ -256,10 +256,10 @@ describe("loadLocalPreferences", () => {
     const loaded = loadLocalPreferences(stellaDataDir);
     expect(loaded.codexModel).toBe("gpt-5.3-codex");
     expect(loaded.defaultModels).toEqual({
-      orchestrator: "openai-codex/gpt-6-sol",
+      orchestrator: "openai-codex/gpt-6.1-sol",
     });
     expect(loaded.modelOverrides).toEqual({
-      general: "openai-codex/gpt-6-sol",
+      general: "openai-codex/gpt-6.1-sol",
       explore: "openai-codex/custom-codex-model",
     });
   });

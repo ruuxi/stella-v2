@@ -12,7 +12,7 @@ const base = (
   stellaConversationModelOverrides: {},
   assistantPropagatedAgents: [],
   agentRuntimeEngine: "default",
-  codexModel: "gpt-6-sol",
+  codexModel: "gpt-6.1-sol",
   claudeCodeModel: "default",
   reasoningEfforts: {},
   stellaConversationReasoningEfforts: {},
@@ -102,10 +102,10 @@ describe("cloud model selection mirror", () => {
     const next = apply(base(), {
       engine: "openai-codex",
       provider: "openai-codex",
-      model: "gpt-6-sol",
+      model: "gpt-6.1-sol",
       reasoningEffort: "default",
     });
     expect(next.agentRuntimeEngine).toBe("codex_cli");
-    expect(next.modelOverrides.orchestrator).toBe("openai-codex/gpt-6-sol");
+    expect(next.modelOverrides.orchestrator).toBe("openai-codex/gpt-6.1-sol");
   });
 });

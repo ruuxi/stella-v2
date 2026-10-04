@@ -207,7 +207,7 @@ export function CloudEnginesCard() {
           ? "stella/anthropic/claude-sonnet-4.6"
           : engine === "anthropic"
             ? "claude-sonnet-4-6"
-            : "gpt-6-sol";
+            : "gpt-6.1-sol";
       const execution =
         engine === "stella"
           ? ({

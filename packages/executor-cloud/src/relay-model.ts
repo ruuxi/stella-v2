@@ -54,7 +54,7 @@ import { findModelCandidate } from "@stella/runtime/kernel/model-registry-view.j
 export const CLOUD_LLM_CREDENTIAL_HEADER = "x-stella-llm-credential";
 
 export const DEFAULT_CLOUD_ANTHROPIC_ENGINE_MODEL = "claude-sonnet-4-6";
-export const DEFAULT_CLOUD_CODEX_ENGINE_MODEL = "gpt-6-sol";
+export const DEFAULT_CLOUD_CODEX_ENGINE_MODEL = "gpt-6.1-sol";
 
 const RESOLVE_TIMEOUT_MS = 15_000;
 

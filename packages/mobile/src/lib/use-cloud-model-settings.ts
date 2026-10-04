@@ -68,7 +68,7 @@ const defaultModelFor = (
   engine === "stella"
     ? STELLA_DEFAULT_MODEL
     : (engineModelList(engineModels, engine)[0]?.id ??
-      (engine === "anthropic" ? "default" : "gpt-6-sol"));
+      (engine === "anthropic" ? "default" : "gpt-6.1-sol"));
 
 /**
  * The account's model selection. Lists and the saved choice both come from

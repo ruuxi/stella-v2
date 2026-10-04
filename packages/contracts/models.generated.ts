@@ -2795,9 +2795,9 @@ export const MODELS = {
 			contextWindow: 1050000,
 			maxTokens: 128000,
 		} satisfies Model<"openai-codex-responses">,
-		"gpt-6-sol": {
-			id: "gpt-6-sol",
-			name: "GPT-6 Sol",
+		"gpt-6.1-sol": {
+			id: "gpt-6.1-sol",
+			name: "GPT-6.1 Sol",
 			api: "openai-codex-responses",
 			provider: "openai-codex",
 			baseUrl: "https://chatgpt.com/backend-api",

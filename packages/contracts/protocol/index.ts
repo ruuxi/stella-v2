@@ -282,6 +282,16 @@ export type HostLlmCredentialsRequest =
        * after the provider rejected the cached token (401 / token_expired).
        */
       forceRefresh?: boolean;
+    }
+  | {
+      /**
+       * The active OAuth account hit its subscription limit. The host cools
+       * it down and, with auto-switch on, makes the next account active.
+       */
+      operation: "report-limit";
+      provider: string;
+      /** When the provider says the limit resets (ms), if it said. */
+      resetsAt?: number;
     };
 
 export type HostLlmCredentialsResult =
@@ -291,6 +301,7 @@ export type HostLlmCredentialsResult =
       oauthProviders: string[];
     }
   | { ok: true; value: string | null }
+  | { ok: true; switched: boolean }
   | { ok: false; reason: string };
 
 export type RuntimeAuthRefreshSource =

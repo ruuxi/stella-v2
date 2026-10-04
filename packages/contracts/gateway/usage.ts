@@ -188,6 +188,10 @@ export type BillingControlRpc = {
   engineAccess(
     request: EngineAccessRequest,
   ): Promise<BillingControlResult<EngineAccessResponse>>;
+  /** The native lane saw an account hit its subscription limit. */
+  engineLimit(
+    report: EngineLimitReport,
+  ): Promise<BillingControlResult<EngineLimitResult>>;
 };
 
 export type { IdentityLevel };
@@ -201,7 +205,25 @@ export type EngineAccessRequest = {
 
 export type EngineAccessResponse = {
   accessToken: string;
+  /** Codex only: the provider's chatgpt_account_id header value. */
   accountId?: string;
+  /** Stella's id for the connected account the token belongs to. */
+  engineAccountId?: string;
   /** Absolute ms timestamp; the gateway must not cache past this. */
   expiresAt: number;
+};
+
+/** `BillingControl.engineLimit`: an account's subscription limit was reached. */
+export type EngineLimitReport = {
+  ownerId: string;
+  ownerGeneration: string;
+  provider: "anthropic" | "openai-codex";
+  engineAccountId: string;
+  /** When the provider says the limit resets (ms), if it said. */
+  resetsAt?: number;
+};
+
+export type EngineLimitResult = {
+  /** Another account now serves the provider; the request may be retried. */
+  switched: boolean;
 };

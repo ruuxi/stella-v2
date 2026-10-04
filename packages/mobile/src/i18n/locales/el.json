@@ -1585,26 +1585,6 @@
         "other": "{count} more files"
       }
     },
-    "updatePill": {
-      "update": "Ενημέρωση",
-      "updateFallback": "ενημέρωση",
-      "availableFallback": "διαθέσιμη",
-      "downloading": "Λήψη {percent}%",
-      "restartToUpdate": "Επανεκκίνηση για ενημέρωση",
-      "restarting": "Επανεκκίνηση…",
-      "retryUpdate": "Επανάληψη ενημέρωσης",
-      "restartTitle": "Επανεκκινήστε τη Stella και εγκαταστήστε την έκδοση {version}",
-      "restartingTitle": "Επανεκκίνηση του Stella για εγκατάσταση της ενημέρωσης",
-      "retryTitle": "Επανάληψη του ελέγχου ενημερώσεων για υπολογιστή",
-      "downloadTitle": "Λήψη της Stella {version}",
-      "toasts": {
-        "downloadedTitle": "Η ενημέρωση κατέβηκε",
-        "downloadedDescription": "Επανεκκινήστε τη Stella για να εγκαταστήσετε την έκδοση {version}.",
-        "checkingTitle": "Έλεγχος για ενημερώσεις",
-        "checkingDescription": "Η Stella ελέγχει το απομονωμένο κανάλι desktop v2.",
-        "failedTitle": "Η ενημέρωση για υπολογιστή απέτυχε"
-      }
-    },
     "appSource": {
       "update": "Ενημέρωση",
       "title": "Αλλαγές στη Stella",

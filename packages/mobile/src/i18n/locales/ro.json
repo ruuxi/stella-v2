@@ -1595,26 +1595,6 @@
         "other": "{count} more files"
       }
     },
-    "updatePill": {
-      "update": "Actualizează",
-      "updateFallback": "actualizare",
-      "availableFallback": "disponibilă",
-      "downloading": "Se descarcă {percent}%",
-      "restartToUpdate": "Repornește pentru actualizare",
-      "restarting": "Se repornește…",
-      "retryUpdate": "Reîncearcă actualizarea",
-      "restartTitle": "Repornește Stella și instalează versiunea {version}",
-      "restartingTitle": "Se repornește Stella pentru a instala actualizarea",
-      "retryTitle": "Reîncearcă verificarea actualizărilor pentru desktop",
-      "downloadTitle": "Descarcă Stella {version}",
-      "toasts": {
-        "downloadedTitle": "Actualizare descărcată",
-        "downloadedDescription": "Repornește Stella pentru a instala versiunea {version}.",
-        "checkingTitle": "Se verifică actualizările",
-        "checkingDescription": "Stella verifică canalul izolat desktop v2.",
-        "failedTitle": "Actualizarea pentru desktop a eșuat"
-      }
-    },
     "appSource": {
       "update": "Actualizează",
       "title": "Modificări în Stella",

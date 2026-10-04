@@ -872,7 +872,7 @@ const cmdBoot = async () => {
   const results = {};
   for (const entryKind of entries) {
     if (entryKind === "bundle" && !fs.existsSync(BUNDLE_ENTRY)) {
-      log(`bundle entry missing (${BUNDLE_ENTRY}); build it with: node packages/desktop/scripts/dev-electron-build.mjs --once`);
+      log(`bundle entry missing (${BUNDLE_ENTRY}); skipping (the app runs the worker from source)`);
       continue;
     }
     // Prime the warm cache once, discarded.
@@ -1506,9 +1506,7 @@ const cmdBundle = async () => {
   } else {
     result.dist = { missing: distRuntime };
   }
-  // Replicates the worker build options of
-  // packages/desktop/scripts/dev-electron-build.mjs (read-only; that script
-  // does not export them) with write:false to obtain a metafile.
+  // A code-split worker build with write:false to obtain a metafile.
   const esbuild = await import("esbuild");
   const build = await esbuild.build({
     absWorkingDir: REPO,
@@ -1569,7 +1567,7 @@ const cmdBundle = async () => {
       .slice(0, 30)
       .map(([pkg, bytes]) => ({ pkg, bytes }));
   result.metafile = {
-    note: "fresh esbuild build of current sources with the worker options replicated from dev-electron-build.mjs",
+    note: "fresh esbuild build of current sources with code-split worker options",
     outputJsBytes: totalBytes,
     outputJsFiles: Object.keys(outputs).filter((o) => o.endsWith(".js")).length,
     bootReachableBytes: bootBytes,

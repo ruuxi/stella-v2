@@ -42,17 +42,8 @@ jobs:
           STELLA_SKIP_OFFICE_HYDRATE: "1"
         run: bun install --frozen-lockfile
 
-      - name: Build renderer
-        env:
-          VITE_STELLA_BACKEND_URL: https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev
-          # CI is a development-tier harness. Production packaging must never
-          # inherit this host; the release workflow requires its own reviewed
-          # VITE_STELLA_APPS_HOST repository variable.
-          VITE_STELLA_APPS_HOST: https://stella-v2-apps-host-dev.lolruuxi.workers.dev
-          VITE_STELLA_DEV_APPS_HOST_HARNESS: "1"
-        run: |
-          node packages/desktop/scripts/validate-cloud-apps-host.mjs --allow-development-host
-          bun run build
+      - name: Typecheck renderer
+        run: bun run routes:generate && node node_modules/typescript-7/bin/tsc --build packages/desktop-ui
 
       - name: Check generated route tree
         run: git diff --exit-code -- packages/desktop-ui/src/routeTree.gen.ts
@@ -75,7 +66,7 @@ jobs:
       - name: Test Electron services
         run: bun run test:electron
 
-      - name: Test packaging and verification scripts
+      - name: Test verification scripts
         run: bun run test:verification
 
   prompts:

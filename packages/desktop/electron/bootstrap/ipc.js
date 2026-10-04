@@ -25,7 +25,6 @@ import { registerSystemHandlers, setPreventComputerSleep, } from "../ipc/system-
 import { registerExternalOpenerHandlers } from "../ipc/external-opener-handlers.js";
 import { registerUiHandlers } from "../ipc/ui-handlers.js";
 import { registerUiStateKvHandlers } from "../ipc/ui-state-handlers.js";
-import { registerUpdatesHandlers } from "../ipc/updates-handlers.js";
 import { registerVoiceHandlers } from "../ipc/voice-handlers.js";
 import { registerDictationHandlers } from "../ipc/dictation-handlers.js";
 import { registerCompanionHandlers } from "../ipc/companion-handlers.js";
@@ -370,28 +369,6 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         getAuthToken: () => services.authService.getAuthToken(),
         getBackendUrl: () => services.authService.getBackendUrl(),
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
-    });
-    registerUpdatesHandlers({
-        getAllWindows: () => getAllWindows(context),
-        assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
-        // Fires the instant a restart-to-install is accepted, before the
-        // updater starts quitting. electron-updater/Squirrel closes every
-        // window and then waits for this process to exit before it swaps the
-        // bundle in and relaunches. The always-on-top overlay window vetoes
-        // its own `close` unless `isQuitting` is set, so if that sweep runs
-        // before `before-quit-for-update` lands it can strand a hidden,
-        // still-live app that never relaunches. Arm the quit flag and
-        // force-destroy the window now — `destroy()` tears the
-        // BrowserWindow down without emitting `close`, so nothing can veto it.
-        onBeforeRestart: () => {
-            state.isQuitting = true;
-            try {
-                state.overlayController?.destroy();
-            }
-            catch (error) {
-                console.error("Failed to destroy overlay window for update restart.", error);
-            }
-        },
     });
     // Drafts, undo and fork sync for the app's own checkout (running from
     // source only). Deferred startup starts it.

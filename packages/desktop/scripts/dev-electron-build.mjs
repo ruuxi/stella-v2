@@ -1,5 +1,5 @@
 /**
- * Electron-main / preload bundles, and the packaging build.
+ * Electron-main / preload bundles.
  *
  * Stella runs from its source tree. The renderer is served from source
  * (`electron/source/`) and the runtime is Bun running TypeScript, so the only
@@ -13,12 +13,10 @@
  * byte-identical outputs never touch disk, and stop the esbuild service
  * afterwards so nothing stays resident.
  *
- * Run directly (`--once`: postinstall, packaging, release CI) it does the
- * packaging build instead: clean outdir, main and preload plus the bundled
- * worker and sidecar CLIs and the runtime data assets, smoke tests, exit.
+ * Run directly (`--once`) it does a clean build of the same bundles and
+ * exits.
  */
 import { build as runEsbuildBuild, stop as stopEsbuildService } from "esbuild";
-import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   existsSync,
@@ -38,62 +36,6 @@ const desktopDir = path.resolve(scriptDir, "..");
 const repoRootDir = path.resolve(desktopDir, "..", "..");
 const outdir = "dist-electron";
 const nodeTarget = `node${process.versions.node.split(".")[0]}`;
-const includeLocalUpdateVerification = process.argv.includes(
-  "--local-update-verification",
-);
-const verifyIdentifiers = process.argv.includes("--verify-identifiers");
-/**
- * Runtime data files that are read from disk at runtime rather than bundled.
- * electron-builder ships `dist-electron/runtime/` into the packaged app's
- * Resources tree (see `build.extraResources` in the root package.json), so
- * anything the runtime resolves through `resolveRuntimeSourceAsset` has to be
- * assembled here first — a packaged build has no `packages/runtime/` source
- * tree to fall back to. Missing sources are a hard failure: shipping without
- * the OAuth catalog silently breaks every connector in the packaged app.
- */
-export const packagedOAuthProviderCatalogRelativePath =
-  "runtime/kernel/connectors/oauth-provider-catalog.json";
-export const packagedRuntimeAssetCopies = [
-  {
-    from: "packages/runtime/extensions/stella-runtime/agent-metadata",
-    to: "runtime/extensions/stella-runtime/agent-metadata",
-  },
-  {
-    from: "packages/runtime/kernel/connectors/oauth-provider-catalog.json",
-    to: packagedOAuthProviderCatalogRelativePath,
-  },
-  {
-    // Summary sidecar (catalog minus `tools`) that the connector list and
-    // keyword reminder read instead of parsing the full catalog.
-    from: "packages/runtime/kernel/connectors/oauth-provider-catalog.index.json",
-    to: "runtime/kernel/connectors/oauth-provider-catalog.index.json",
-  },
-];
-/**
- * Static assets copied next to the compiled electron-main bundle. The
- * renderer's `src/` tree is not part of a packaged build (electron-builder
- * ships `dist-electron/electron/**` plus the renderer's *built* output), so
- * the translation catalogs electron-main reads at runtime — tray menu, native
- * dialogs, notifications — have to land under `dist-electron/electron/`, which
- * `files` already includes. See `electron/services/i18n-service.ts`.
- */
-const electronStaticAssetCopies = [
-  {
-    from: "packages/desktop-ui/src/shared/i18n/locales",
-    to: "electron/i18n-locales",
-  },
-];
-// Sidecar CLIs the worker hands to shells by path (see
-// `resolveRuntimeCliPath` in packages/runtime/worker/server/session/runner.ts).
-// Packaged installs ship no runtime source, so every CLI the worker resolves
-// must be bundled here or its shell command silently disappears.
-export const runtimeCliNames = ["stella-computer", "stella-media", "stella-x-api"];
-const runtimeCliEntryPoints = Object.fromEntries(
-  runtimeCliNames.map((name) => [
-    `runtime/kernel/cli/${name}`,
-    `packages/runtime/kernel/cli/${name}.ts`,
-  ]),
-);
 const electronMainEntryPoints = {
   // `launch` enables the V8 compile cache, then imports the `main` bundle
   // through a computed specifier so it stays a separate output instead of
@@ -101,22 +43,6 @@ const electronMainEntryPoints = {
   "electron/launch": "packages/desktop/electron/launch.ts",
   "electron/main": "packages/desktop/electron/main.ts",
   "electron/cloud-conversation-cache-worker": "packages/desktop/electron/services/cloud-conversation-cache-worker.ts",
-  ...(includeLocalUpdateVerification
-    ? {
-        "electron/update-verification-main":
-          "packages/desktop/electron/update-verification-main.ts",
-      }
-    : {}),
-};
-// The worker builds on its own so we can code-split it: the heavy runner
-// subgraph is lazily imported in server.ts, and splitting lands it in a
-// separate chunk instead of inflating entry.js — so the worker reaches "ready"
-// without parsing it. Kept apart from main/CLIs to limit splitting's blast
-// radius to the worker.
-const workerEntryPoints = {
-  "runtime/worker/entry": "packages/runtime/worker/entry.ts",
-  "runtime/extensions/stella-runtime/index":
-    "packages/runtime/extensions/stella-runtime/index.ts",
 };
 const preloadEntryPoints = {
   "electron/preload": "packages/desktop/electron/preload.ts",
@@ -161,13 +87,12 @@ const fingerprintFilePath = path.join(
 );
 
 /**
- * Everything the four bundles can pull in. `desktop/src/shared/` is included
+ * Everything the bundles can pull in. `desktop/src/shared/` is included
  * because electron-main/preload import contracts and lib shims from there
  * (see e.g. `desktop/electron/preload.ts`). `runtime/home-seed/` is seed
  * data, never bundled, and excluded so seeding churn doesn't trigger builds.
  * `desktop-ui/src/shared/i18n` is the renderer-owned locale set: electron-main
- * imports `locales.ts` and copies the JSON catalogs out of it, so edits there
- * must invalidate the fingerprint and retrigger the copy.
+ * imports `locales.ts` from it.
  */
 const bundleSourceRoots = [
   "packages/contracts",
@@ -229,63 +154,19 @@ const pruneDependencyPackageMetadataPlugin = {
   },
 };
 
-const workerBuildOptions = {
-  absWorkingDir: repoRootDir,
-  alias: workspaceAliases,
-  bundle: true,
-  entryPoints: workerEntryPoints,
-  external: [
-    "electron",
-    "bun:*",
-    // Keep packages whose runtime behavior depends on their installed-file
-    // layout external. electron-builder copies these two small trees next
-    // to the packaged worker; everything else is bundled so the sidecar
-    // never depends on app.asar/node_modules.
-    "undici",
-    "@silvia-odwyer/photon-node",
-  ],
-  format: "esm",
-  // Split the lazily-imported runner subgraph into its own chunk(s). Chunks
-  // sit next to entry.js (under runtime/worker/chunks/) so Bun resolves them
-  // relatively at runtime; entry.js stays at its existing path.
-  splitting: true,
-  chunkNames: "runtime/worker/chunks/[name]-[hash]",
-  // Consumed by assertWorkerBundleBoundary after each build.
-  metafile: true,
-  logLevel: "warning",
-  plugins: [pruneDependencyPackageMetadataPlugin],
-  outdir: path.join("packages", "desktop", outdir),
-  platform: "node",
-  target: nodeTarget,
-  tsconfig: path.join("packages", "desktop", "tsconfig.electron.json"),
-};
-
-/**
- * The source launch builds main and preload. `packaging` adds the sidecar
- * CLIs to the main build and the code-split worker build, which a packaged
- * app ships because it has no runtime source.
- */
-const createBuildOptions = ({ packaging }) => [
+const buildOptions = [
   {
     absWorkingDir: repoRootDir,
     alias: workspaceAliases,
     bundle: true,
     define: {
-      // Manual verification installers must never replace themselves with a
-      // stable production build. Bake this in; runtime env cannot re-enable it.
-      "process.env.STELLA_DESKTOP_AUTO_UPDATE": JSON.stringify(
-        process.env.STELLA_DESKTOP_AUTO_UPDATE === "false" ? "false" : "true",
-      ),
       "process.env.VITE_TURNSTILE_SITE_KEY": JSON.stringify(
         publicTurnstileSiteKey,
       ),
     },
-    entryPoints: packaging
-      ? { ...electronMainEntryPoints, ...runtimeCliEntryPoints }
-      : electronMainEntryPoints,
+    entryPoints: electronMainEntryPoints,
     external: [
       "electron",
-      "electron-updater",
       ...rendererSourceExternals,
       "bun:*",
       "@silvia-odwyer/photon-node",
@@ -305,7 +186,6 @@ const createBuildOptions = ({ packaging }) => [
     target: nodeTarget,
     tsconfig: path.join("packages", "desktop", "tsconfig.electron.json"),
   },
-  ...(packaging ? [workerBuildOptions] : []),
   {
     absWorkingDir: repoRootDir,
     alias: workspaceAliases,
@@ -323,49 +203,13 @@ const createBuildOptions = ({ packaging }) => [
 ];
 
 /**
- * Modules that must never reach the worker bundle. The worker runs under
- * Bun, detached from Electron; these modules are Electron-main-owned (home
- * seeding, remote prompt sync + its sqlite update lock). In desktop-v0.0.409
- * a static `node:sqlite` import leaked in through this exact path — worker
- * tools imported path helpers from `stella-home.ts`, which statically drags
- * in the whole sync graph — and every new worker crashed on runner load
- * while its socket still looked healthy. Worker code needing path helpers
- * imports `runtime/kernel/home/stella-paths.ts` instead.
- */
-const workerBannedInputs = [
-  "packages/runtime/kernel/home/stella-home.ts",
-  "packages/runtime/kernel/home/skills-sync.ts",
-  "packages/runtime/kernel/home/legacy-migration.ts",
-];
-const workerBannedInputPrefixes = ["packages/desktop/electron/"];
-
-const assertWorkerBundleBoundary = (metafile) => {
-  const inputs = Object.keys(metafile?.inputs ?? {}).map((input) =>
-    toPosix(input),
-  );
-  const violations = inputs.filter(
-    (input) =>
-      workerBannedInputs.includes(input) ||
-      workerBannedInputPrefixes.some((prefix) => input.startsWith(prefix)),
-  );
-  if (violations.length > 0) {
-    throw new Error(
-      `Electron-only module(s) bundled into the Bun worker: ${violations.join(", ")}. ` +
-        "Import pure path helpers from runtime/kernel/home/stella-paths.ts instead of " +
-        "stella-home.ts, or move the shared code into a runtime-safe module.",
-    );
-  }
-};
-
-/**
  * Cold-start boundary for electron-main. esbuild hoists every external
  * `import` statement to the top of the ESM bundle, so a static import of one
  * of these anywhere in the graph — however deep or lazily initialized its
  * importer — is loaded on every launch before `ready`. They are loaded on
- * first use instead (see ipc/updates-handlers.ts, input/mouse-hook.js).
+ * first use instead (see input/mouse-hook.js).
  */
 export const mainStartupDeferredExternals = [
-  "electron-updater",
   "uiohook-napi",
   // The renderer source server's tooling (electron/source/tools.ts).
   ...rendererSourceExternals,
@@ -471,131 +315,19 @@ const writeOutputIfChanged = (absPath, contents) => {
 };
 
 /**
- * Copy the packaged runtime data assets into `dist-electron/`. Both files and
- * directories are supported; the destination's parent is created first so a
- * single-file copy into a fresh tree works. Roots are overridable so the
- * verification gate can exercise this against a temp fixture.
- */
-export const copyPackagedRuntimeAssets = async ({
-  sourceRoot = repoRootDir,
-  outputRoot = path.join(desktopDir, outdir),
-  copies = packagedRuntimeAssetCopies,
-} = {}) => {
-  await Promise.all(
-    copies.map(async ({ from, to }) => {
-      const sourcePath = path.join(sourceRoot, from);
-      const targetPath = path.join(outputRoot, to);
-      try {
-        await fsPromises.rm(targetPath, {
-          force: true,
-          recursive: true,
-        });
-        await fsPromises.mkdir(path.dirname(targetPath), { recursive: true });
-        await fsPromises.cp(sourcePath, targetPath, {
-          recursive: true,
-          force: true,
-        });
-      } catch (error) {
-        // Previously ENOENT was swallowed here, which let a renamed or moved
-        // source silently drop out of every packaged build.
-        throw new Error(
-          `Failed to copy required packaged runtime asset from ${sourcePath} to ${targetPath}: ${error instanceof Error ? error.message : String(error)}`,
-          { cause: error },
-        );
-      }
-    }),
-  );
-};
-
-/**
- * Post-copy gate on the OAuth provider catalog: the packaged app resolves it
- * lazily at first connector use, so a missing or truncated copy would only
- * surface as a runtime failure in a shipped build. Assert here that it landed
- * and still parses as a non-empty array of providers.
- */
-export const verifyPackagedOAuthProviderCatalog = async ({
-  outputRoot = path.join(desktopDir, outdir),
-} = {}) => {
-  const catalogPath = path.join(
-    outputRoot,
-    packagedOAuthProviderCatalogRelativePath,
-  );
-  let raw;
-  try {
-    raw = await fsPromises.readFile(catalogPath, "utf8");
-  } catch (error) {
-    throw new Error(
-      `Required packaged OAuth provider catalog is missing at ${catalogPath}: ${error instanceof Error ? error.message : String(error)}`,
-      { cause: error },
-    );
-  }
-  let catalog;
-  try {
-    catalog = JSON.parse(raw);
-  } catch (error) {
-    throw new Error(
-      `Required packaged OAuth provider catalog is invalid JSON at ${catalogPath}: ${error instanceof Error ? error.message : String(error)}`,
-      { cause: error },
-    );
-  }
-  if (
-    !Array.isArray(catalog) ||
-    catalog.length === 0 ||
-    catalog.some(
-      (entry) =>
-        !entry ||
-        typeof entry !== "object" ||
-        typeof entry.id !== "string" ||
-        !Array.isArray(entry.tools),
-    )
-  ) {
-    throw new Error(
-      `Required packaged OAuth provider catalog has an invalid provider shape at ${catalogPath}.`,
-    );
-  }
-  return { catalogPath, providerCount: catalog.length };
-};
-
-const copyElectronStaticAssets = async () => {
-  await Promise.all(
-    electronStaticAssetCopies.map(async ({ from, to }) => {
-      const sourceDir = path.join(repoRootDir, from);
-      const targetDir = path.join(desktopDir, outdir, to);
-      try {
-        await fsPromises.rm(targetDir, { force: true, recursive: true });
-        await fsPromises.cp(sourceDir, targetDir, {
-          recursive: true,
-          force: true,
-        });
-      } catch (error) {
-        if (error?.code !== "ENOENT") {
-          throw error;
-        }
-      }
-    }),
-  );
-};
-
-/**
  * One-shot build. Outputs are produced with `write: false` and written only
  * when their bytes differ from what's on disk, so watchers only ever see
  * genuine changes. The esbuild service is stopped afterwards so nothing stays
  * resident between builds.
  */
-export const buildElectronBundles = async ({ packaging = false } = {}) => {
+export const buildElectronBundles = async () => {
   try {
-    const optionsList = createBuildOptions({ packaging });
     const results = await Promise.all(
-      optionsList.map((options) =>
+      buildOptions.map((options) =>
         runEsbuildBuild({ ...options, write: false }),
       ),
     );
     assertMainBundleStartupBoundary(results[0].metafile);
-    if (packaging) {
-      assertWorkerBundleBoundary(
-        results[optionsList.indexOf(workerBuildOptions)].metafile,
-      );
-    }
     const changedOutputs = [];
     for (const result of results) {
       for (const file of result.outputFiles ?? []) {
@@ -604,11 +336,6 @@ export const buildElectronBundles = async ({ packaging = false } = {}) => {
         }
       }
     }
-    if (packaging) {
-      await copyPackagedRuntimeAssets();
-      await verifyPackagedOAuthProviderCatalog();
-    }
-    await copyElectronStaticAssets();
     return changedOutputs;
   } finally {
     await stopEsbuildService();
@@ -734,163 +461,6 @@ export const ensureElectronBundlesFresh = async ({ log } = {}) => {
   return { built: true };
 };
 
-// Same candidate order as the host's worker spawn (runtime/host/lifecycle.ts).
-const resolveBunBinary = () => {
-  const candidates = [
-    process.env.STELLA_BUN_PATH?.trim(),
-    process.env.BUN_PATH?.trim(),
-  ];
-  const homeDir = process.env.HOME || process.env.USERPROFILE;
-  if (homeDir) {
-    candidates.push(
-      path.join(
-        homeDir,
-        ".bun",
-        "bin",
-        process.platform === "win32" ? "bun.exe" : "bun",
-      ),
-    );
-  }
-  for (const candidate of candidates) {
-    if (candidate && existsSync(candidate)) {
-      return candidate;
-    }
-  }
-  return "bun";
-};
-
-/**
- * Import every worker chunk under Bun — the runtime the detached worker
- * actually runs on, unlike the Node-based test suite. Chunks execute their
- * module scope on import, which is exactly where the desktop-v0.0.409 outage
- * lived (a static `node:sqlite` import Node accepts but Bun rejects): the
- * worker's socket came up, but the lazy runner chunk crashed on load and
- * every send failed. `entry.js` is excluded — importing it starts the stdio
- * transport — and is covered by the static boundary check instead. One-shot
- * (postinstall/release) builds only; dev rebuilds skip this to keep worker
- * reloads fast.
- */
-const smokeTestWorkerChunksUnderBun = () => {
-  const chunksDir = path.join(
-    desktopDir,
-    outdir,
-    "runtime",
-    "worker",
-    "chunks",
-  );
-  let chunkFiles;
-  try {
-    chunkFiles = readdirSync(chunksDir).filter((f) => f.endsWith(".js"));
-  } catch {
-    return;
-  }
-  const chunkPaths = chunkFiles.map((f) => path.join(chunksDir, f));
-  // One Bun process for the whole set: chunks import each other anyway, and
-  // per-chunk spawns would add ~10s of process startup to release builds.
-  const importScript = [
-    `const chunks = ${JSON.stringify(chunkPaths)};`,
-    "for (const chunk of chunks) {",
-    "  try { await import(chunk); }",
-    "  catch (error) {",
-    '    console.error("CHUNK_IMPORT_FAILED " + chunk);',
-    "    console.error(error);",
-    "    process.exit(1);",
-    "  }",
-    "}",
-    "process.exit(0);",
-  ].join("\n");
-  const result = spawnSync(resolveBunBinary(), ["--eval", importScript], {
-    cwd: repoRootDir,
-    encoding: "utf8",
-    timeout: 120_000,
-  });
-  if (result.error?.code === "ENOENT") {
-    console.warn(
-      "[electron-build] bun not found; skipping worker chunk smoke test.",
-    );
-    return;
-  }
-  if (result.status !== 0) {
-    throw new Error(
-      "Worker chunk failed to import under Bun (would crash the detached worker):\n" +
-        `${result.stderr || result.stdout || result.error?.message || "unknown error"}`,
-    );
-  }
-  console.log(
-    `[electron-build] ${chunkFiles.length} worker chunk(s) import cleanly under Bun.`,
-  );
-};
-
-export const smokeTestNodeCliEntry = (
-  entryPath,
-  args = ["--help"],
-  { cwd = repoRootDir } = {},
-) => {
-  const result = spawnSync(process.execPath, [entryPath, ...args], {
-    cwd,
-    encoding: "utf8",
-    timeout: 30_000,
-  });
-  if (result.status !== 0) {
-    throw new Error(
-      `Node CLI smoke test failed for ${entryPath}:\n` +
-        `${result.stderr || result.stdout || result.error?.message || "unknown error"}`,
-    );
-  }
-  return result.stdout;
-};
-
-const runtimeCliHelpContracts = {
-  "stella-computer": "stella-computer - control",
-  "stella-media": "stella-media - submit",
-  "stella-x-api": "stella-x-api - use X",
-};
-
-const smokeTestNodeCliBundles = () => {
-  for (const name of runtimeCliNames) {
-    const cliPath = path.join(
-      desktopDir,
-      outdir,
-      "runtime",
-      "kernel",
-      "cli",
-      `${name}.js`,
-    );
-    const stdout = smokeTestNodeCliEntry(cliPath);
-    const contract = runtimeCliHelpContracts[name] ?? name;
-    if (!stdout.includes(contract)) {
-      throw new Error(
-        `Node CLI smoke test did not return the ${name} help contract.`,
-      );
-    }
-  }
-  console.log(
-    `[electron-build] ${runtimeCliNames.join(", ")} CLIs run cleanly under Node.`,
-  );
-};
-
-const verifyApplicationIdentifiersInChild = () => {
-  const verifierPath = path.join(scriptDir, "verify-packaged-identifiers.mjs");
-  const result = spawnSync(
-    process.execPath,
-    [verifierPath, "--source", "--packaged"],
-    {
-      cwd: repoRootDir,
-      encoding: "utf8",
-      timeout: 120_000,
-    },
-  );
-  if (result.status !== 0) {
-    throw new Error(
-      "Application identifier verification failed:\n" +
-        `${result.stderr || result.stdout || result.error?.message || "unknown error"}`,
-    );
-  }
-  if (result.stdout) {
-    process.stdout.write(result.stdout);
-  }
-};
-
 const isRunDirectly = (() => {
   const entry = process.argv[1];
   if (!entry) {
@@ -904,16 +474,11 @@ const isRunDirectly = (() => {
 })();
 
 if (isRunDirectly) {
-  // The packaging build: clean outdir, everything a packaged app ships,
-  // smoke tests, exit. `--once` is accepted for existing callers.
+  // A clean build of main and preload. `--once` is accepted for existing
+  // callers.
   try {
     await cleanOutdir();
-    await buildElectronBundles({ packaging: true });
-    if (verifyIdentifiers) {
-      verifyApplicationIdentifiersInChild();
-    }
-    smokeTestWorkerChunksUnderBun();
-    smokeTestNodeCliBundles();
+    await buildElectronBundles();
     writeBundleFingerprint(computeBundleInputsFingerprint());
     process.exit(0);
   } catch (error) {

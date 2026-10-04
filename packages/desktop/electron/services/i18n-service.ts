@@ -9,15 +9,8 @@
  *   - `{name}` placeholders interpolated from `params`
  *   - miss in the active catalog falls back to English, then the raw key
  *
- * Catalog files are read from `<compiled electron dir>/i18n-locales/`. The
- * renderer's `src/` tree is not part of a packaged build (electron-builder
- * only ships `dist-electron/electron/**` plus the renderer's *built* output),
- * so `dev-electron-build.mjs` copies `desktop-ui/src/shared/i18n/locales/`
- * there alongside the bundles — the same pattern `copyPackagedRuntimeAssets`
- * already uses for main-process static assets. That directory sits inside
- * `app.asar` in a packaged build, which `fs.readFileSync` reads transparently.
- * The renderer source directory is kept as a second candidate so a tree that
- * has bundles but no copied catalogs still resolves in dev.
+ * Catalog files are read straight from the renderer's source tree
+ * (`desktop-ui/src/shared/i18n/locales/`), which the app always runs from.
  *
  * The active locale is owned by the renderer and persisted in the shared UI
  * state store (`~/.stella/ui-state.json`, key `stella:locale`), which the main
@@ -41,7 +34,6 @@ export type MainTranslateParams = Record<string, string | number>;
 
 /** Directories searched, in order, for `<locale>.json`. */
 const catalogDirCandidates = (): string[] => [
-  path.join(__dirname, "i18n-locales"),
   path.resolve(
     __dirname,
     "..",

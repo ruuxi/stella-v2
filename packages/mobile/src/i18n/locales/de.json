@@ -1585,26 +1585,6 @@
         "other": "{count} more files"
       }
     },
-    "updatePill": {
-      "update": "Update",
-      "updateFallback": "Update",
-      "availableFallback": "verfügbar",
-      "downloading": "Wird geladen {percent}%",
-      "restartToUpdate": "Zum Aktualisieren neu starten",
-      "restarting": "Neustart…",
-      "retryUpdate": "Update erneut versuchen",
-      "restartTitle": "Stella neu starten und Version {version} installieren",
-      "restartingTitle": "Stella wird neu gestartet, um das Update zu installieren",
-      "retryTitle": "Desktop-Update-Prüfung erneut versuchen",
-      "downloadTitle": "Stella {version} herunterladen",
-      "toasts": {
-        "downloadedTitle": "Update heruntergeladen",
-        "downloadedDescription": "Starte Stella neu, um Version {version} zu installieren.",
-        "checkingTitle": "Nach Updates wird gesucht",
-        "checkingDescription": "Stella prüft den isolierten Desktop-v2-Kanal.",
-        "failedTitle": "Desktop-Update fehlgeschlagen"
-      }
-    },
     "appSource": {
       "update": "Update",
       "title": "Änderungen an Stella",

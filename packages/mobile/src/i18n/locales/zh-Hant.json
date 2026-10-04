@@ -1574,26 +1574,6 @@
         "other": "{count} more files"
       }
     },
-    "updatePill": {
-      "update": "更新",
-      "updateFallback": "更新",
-      "availableFallback": "可用",
-      "downloading": "正在下載 {percent}%",
-      "restartToUpdate": "重新啟動以更新",
-      "restarting": "正在重新啟動…",
-      "retryUpdate": "重試更新",
-      "restartTitle": "重新啟動 Stella 並安裝版本 {version}",
-      "restartingTitle": "正在重新啟動 Stella 以安裝更新",
-      "retryTitle": "重試桌面版更新檢查",
-      "downloadTitle": "下載 Stella {version}",
-      "toasts": {
-        "downloadedTitle": "更新已下載",
-        "downloadedDescription": "重新啟動 Stella 以安裝版本 {version}。",
-        "checkingTitle": "正在檢查更新",
-        "checkingDescription": "Stella 正在檢查獨立的桌面版 v2 管道。",
-        "failedTitle": "桌面版更新失敗"
-      }
-    },
     "appSource": {
       "update": "更新",
       "title": "Stella 的變更",

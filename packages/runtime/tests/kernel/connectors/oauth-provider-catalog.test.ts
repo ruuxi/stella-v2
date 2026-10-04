@@ -1,10 +1,6 @@
-// The catalog JSON is a runtime data asset, not a bundled import: a packaged
-// build has no `packages/runtime/` source tree, so it resolves through
-// `STELLA_APP_RESOURCES_PATH` into the `runtime/` tree that
-// `dev-electron-build.mjs` assembles and electron-builder ships as
-// extraResources. These tests pin that packaged lookup path — the failure
-// mode they guard is a shipped app where every OAuth connector throws on
-// first use because the copy never landed.
+// The catalog JSON is a runtime data asset, not a bundled import, resolved
+// through `STELLA_APP_RESOURCES_PATH`'s `runtime/` tree before the source
+// tree. These tests pin that lookup order and the error when it is absent.
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";

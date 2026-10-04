@@ -14,7 +14,6 @@ import { LocalChatHistoryService } from "../services/local-chat-history-service.
 import { SecurityPolicyService } from "../services/security-policy-service.js";
 import { UiStateService } from "../services/ui-state-service.js";
 import { RENDERER_ORIGIN } from "../source/origin.js";
-import { resolveRendererRoot } from "../renderer-location.js";
 import { initMainProcessTelemetry } from "../observability/main-telemetry.js";
 export const createBootstrapServices = (options) => {
     const { config, lifecycle, state } = options;
@@ -37,12 +36,7 @@ export const createBootstrapServices = (options) => {
         },
     });
     externalLinkService.setDevBuild(config.useDevServer);
-    if (config.useDevServer) {
-        externalLinkService.trustRendererOrigin(RENDERER_ORIGIN);
-    }
-    else {
-        externalLinkService.trustFileRendererRoot(resolveRendererRoot(config.electronDir));
-    }
+    externalLinkService.trustRendererOrigin(RENDERER_ORIGIN);
     // A canvas-share link (`<CANVAS_SHARE_BASE_URL>/c/<slug>`) clicked/opened
     // inside Stella is fetched + materialized in main and pushed to the Canvas
     // panel via the existing `display:update` path, instead of bouncing out to

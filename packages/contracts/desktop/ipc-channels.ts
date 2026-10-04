@@ -53,15 +53,6 @@ export const IPC_APP_RELOAD = "app:reload" as const;
 export const IPC_APP_RELAUNCH = "app:relaunch" as const;
 export const IPC_APP_HARD_RESET = "app:hardResetLocalState" as const;
 
-// ── Packaged desktop updates (electron-updater) ────────────────────────────
-
-export const IPC_UPDATES_GET_STATE = "updates:getState" as const;
-export const IPC_UPDATES_CHECK = "updates:check" as const;
-export const IPC_UPDATES_DOWNLOAD = "updates:download" as const;
-export const IPC_UPDATES_RESTART_AND_INSTALL =
-  "updates:restartAndInstall" as const;
-export const IPC_UPDATES_STATE_CHANGED = "updates:stateChanged" as const;
-
 // ── App source (drafts, undo, fork sync when running from source) ─────────
 
 export const IPC_APP_SOURCE_GET_STATE = "appSource:getState" as const;

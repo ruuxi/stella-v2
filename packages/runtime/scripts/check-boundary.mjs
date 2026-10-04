@@ -61,8 +61,8 @@ const ignoredDirectories = new Set([
   "dist",
   "dist-electron",
   "coverage",
-  // electron-builder output: packaged .app bundles carry the compiled
-  // runtime worker, where effect is legitimately inlined.
+  // Stale packaged-build output a checkout may still have from before the
+  // native launchers.
   "release",
 ]);
 const sourceSuffixes = new Set([

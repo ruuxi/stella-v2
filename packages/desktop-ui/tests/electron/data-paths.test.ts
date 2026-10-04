@@ -3,29 +3,11 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import {
-  resolveDesktopStellaDataDirPath,
-  resolvePackagedStellaAppDirPath,
-} from "@stella/desktop/electron/data-paths.js";
+import { resolveDesktopStellaDataDirPath } from "@stella/desktop/electron/data-paths.js";
 
 const HOME = path.join(path.sep, "Users", "tester");
 
 describe("resolveDesktopStellaDataDirPath", () => {
-  it("uses the Resources directory rather than packaged app.asar as the app root", () => {
-    const appAsar = path.join(
-      path.sep,
-      "Applications",
-      "Stella.app",
-      "Contents",
-      "Resources",
-      "app.asar",
-    );
-
-    expect(resolvePackagedStellaAppDirPath(appAsar)).toBe(
-      path.dirname(appAsar),
-    );
-  });
-
   it("defaults packaged durable data to ~/.stella", () => {
     expect(
       resolveDesktopStellaDataDirPath({

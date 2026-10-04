@@ -91,13 +91,6 @@ body[data-display-expanding="true"] .shell-topbar-full,
   -webkit-app-region: drag;
 }
 
-.shell-topbar-full__right .shell-topbar-update-pill {
-  flex: 0 0 auto;
-  margin-left: 0;
-  margin-top: 0;
-  align-self: center;
-}
-
 .shell-topbar-full__left .shell-topbar-nav {
   flex: 0 0 auto;
 }

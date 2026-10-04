@@ -1625,26 +1625,6 @@
         "other": "{count} more files"
       }
     },
-    "updatePill": {
-      "update": "تحديث",
-      "updateFallback": "تحديث",
-      "availableFallback": "متاح",
-      "downloading": "جارٍ التنزيل {percent}%",
-      "restartToUpdate": "أعد التشغيل للتحديث",
-      "restarting": "جارٍ إعادة التشغيل…",
-      "retryUpdate": "أعد محاولة التحديث",
-      "restartTitle": "أعد تشغيل Stella وثبّت الإصدار {version}",
-      "restartingTitle": "إعادة تشغيل Stella لتثبيت التحديث",
-      "retryTitle": "أعد التحقق من تحديث سطح المكتب",
-      "downloadTitle": "نزّل Stella {version}",
-      "toasts": {
-        "downloadedTitle": "تم تنزيل التحديث",
-        "downloadedDescription": "أعد تشغيل Stella لتثبيت الإصدار {version}.",
-        "checkingTitle": "جارٍ التحقق من التحديثات",
-        "checkingDescription": "تتحقق Stella من قناة سطح المكتب v2 المعزولة.",
-        "failedTitle": "فشل تحديث سطح المكتب"
-      }
-    },
     "appSource": {
       "update": "تحديث",
       "title": "تغييرات على Stella",

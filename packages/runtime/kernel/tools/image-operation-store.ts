@@ -13,8 +13,8 @@ import type { ManagedImageTerminalResult } from "./managed-image-job.js";
  * own copy. The detached worker runs
  * under Bun, which does NOT expose the Node sqlite builtin (the
  * desktop-v0.0.409 outage): a static top-level import of it crashes the
- * lazily loaded runner chunk, which the dev-electron-build chunk smoke
- * and the check-boundary node:sqlite rule both guard. Both drivers are
+ * lazily loaded runner, which the check-boundary node:sqlite rule guards.
+ * Both drivers are
  * SQLite over the same file format with compatible
  * `prepare/run/get/all/exec/close` surfaces, so persistence behavior and
  * the DB file are identical either way.

@@ -181,11 +181,7 @@ class OverlayWindow {
             console.error('Overlay failed to load:', errorCode, errorDescription, validatedURL);
             this.scheduleReload();
         });
-        loadWindow(this.window, {
-            electronDir: this.options.electronDir,
-            isDev: this.options.isDev,
-            mode: 'overlay',
-        });
+        loadWindow(this.window, { mode: 'overlay' });
         this.window.on('closed', () => {
             this.window = null;
             this.ready = false;
@@ -320,11 +316,7 @@ class OverlayWindow {
             if (!this.window || this.window.isDestroyed()) {
                 return;
             }
-            loadWindow(this.window, {
-                electronDir: this.options.electronDir,
-                isDev: this.options.isDev,
-                mode: 'overlay',
-            });
+            loadWindow(this.window, { mode: 'overlay' });
         }, delayMs);
     }
     clearReloadTimer() {

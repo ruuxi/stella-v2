@@ -10,7 +10,6 @@ import type {
   LocalChatUpdatedPayload,
   ThreadActivityUpdatedPayload,
 } from "@stella/contracts/local-chat";
-import type { DesktopUpdateSnapshot } from "@stella/contracts/desktop/update";
 import type { OfficePreviewSnapshot } from "@stella/contracts/office-preview";
 import type { RealtimeVoicePreferences } from "@stella/contracts/local-preferences";
 import type {
@@ -104,11 +103,6 @@ import {
   IPC_OFFICE_PREVIEW_LIST,
   IPC_OFFICE_PREVIEW_START,
   IPC_OFFICE_PREVIEW_UPDATE,
-  IPC_UPDATES_CHECK,
-  IPC_UPDATES_DOWNLOAD,
-  IPC_UPDATES_GET_STATE,
-  IPC_UPDATES_RESTART_AND_INSTALL,
-  IPC_UPDATES_STATE_CHANGED,
   IPC_APP_SOURCE_APPLY,
   IPC_APP_SOURCE_APPLY_REMOTE,
   IPC_APP_SOURCE_APPLY_UPSTREAM,
@@ -492,15 +486,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
     relaunch: () => ipcRenderer.send("app:relaunch"),
     hardReset: () =>
       ipcRenderer.invoke("app:hardResetLocalState") as Promise<{ ok: boolean }>,
-  },
-
-  updates: {
-    getState: () => invokeIpc<DesktopUpdateSnapshot>(IPC_UPDATES_GET_STATE),
-    check: () => invokeIpc<DesktopUpdateSnapshot>(IPC_UPDATES_CHECK),
-    download: () => invokeIpc<DesktopUpdateSnapshot>(IPC_UPDATES_DOWNLOAD),
-    restartAndInstall: () =>
-      invokeIpc<{ accepted: true }>(IPC_UPDATES_RESTART_AND_INSTALL),
-    onStateChanged: onIpc<DesktopUpdateSnapshot>(IPC_UPDATES_STATE_CHANGED),
   },
 
   /** The app's own checkout when running from source; state is null otherwise. */

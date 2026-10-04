@@ -1595,26 +1595,6 @@
         "other": "{count} more files"
       }
     },
-    "updatePill": {
-      "update": "Atualizar",
-      "updateFallback": "atualização",
-      "availableFallback": "disponível",
-      "downloading": "Baixando {percent}%",
-      "restartToUpdate": "Reinicie para atualizar",
-      "restarting": "Reiniciando…",
-      "retryUpdate": "Tentar atualizar de novo",
-      "restartTitle": "Reiniciar a Stella e instalar a versão {version}",
-      "restartingTitle": "Reiniciando o Stella para instalar a atualização",
-      "retryTitle": "Tentar de novo a verificação de atualizações do app para computador",
-      "downloadTitle": "Baixar a Stella {version}",
-      "toasts": {
-        "downloadedTitle": "Atualização baixada",
-        "downloadedDescription": "Reinicie a Stella para instalar a versão {version}.",
-        "checkingTitle": "Procurando atualizações",
-        "checkingDescription": "A Stella está verificando o canal isolado desktop v2.",
-        "failedTitle": "Falha na atualização do app para computador"
-      }
-    },
     "appSource": {
       "update": "Atualizar",
       "title": "Alterações no Stella",

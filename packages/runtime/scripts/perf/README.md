@@ -85,8 +85,8 @@ Spawn `bun <entry>` in stdio mode, write a probe request immediately, then
 Configurations: `--entry source` (`packages/runtime/worker/entry.ts`) and
 `--entry bundle` (`packages/desktop/dist-electron/runtime/worker/entry.js`,
 run with `STELLA_APP_RESOURCES_PATH` pointed at `dist-electron` so assets
-resolve as in a packaged app; build it with
-`node packages/desktop/scripts/dev-electron-build.mjs --once`), each with
+resolve as in a packaged app; the app runs the worker from source and no
+longer builds this bundle, so it is skipped when absent), each with
 `--cache warm` (shared transpiler cache, primed by a discarded run) and
 `--cache cold` (fresh empty cache dir per run). The OS page cache is always
 warm; true first-launch-after-install is not simulated.
@@ -173,9 +173,8 @@ GC. Reports growth per turn between the last two checkpoints.
 ### J7 bundle (`bundle`)
 
 Sizes of `dist-electron/runtime/**` by directory and largest files, and a
-fresh esbuild build (write:false) with the worker options replicated from
-`packages/desktop/scripts/dev-electron-build.mjs` (that script does not
-export them; keep the copy in `cmdBundle` in sync) to get a metafile: output
+fresh esbuild build (write:false) with the code-split worker options in
+`cmdBundle` to get a metafile: output
 bytes, bytes statically reachable from `entry.js` (parsed at boot), and the
 top 30 dependencies by bytes overall and in boot chunks. The metafile is
 written to `<lab-dir>/bundle-metafile.json` (load it in esbuild's analyzer).

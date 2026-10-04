@@ -18,10 +18,7 @@ import {
   getTotalSystemMemoryMb,
   isLowMemoryWindowsDevice,
 } from "./resource-profile.js";
-import {
-  resolveDesktopStellaDataDirPath,
-  resolvePackagedStellaAppDirPath,
-} from "./data-paths.js";
+import { resolveDesktopStellaDataDirPath } from "./data-paths.js";
 import {
   initializeBootstrapSingleInstance,
   registerBootstrapLifecycle,
@@ -35,9 +32,9 @@ const __dirname = import.meta.dirname;
 // app.isPackaged is the authority. Inherited environment variables must never
 // turn a signed build back into a Vite client.
 const isDev = !app.isPackaged;
-const stellaAppDir = app.isPackaged
-  ? resolvePackagedStellaAppDirPath(app.getAppPath())
-  : path.resolve(__dirname, "..", "..", "..", "..");
+// The app always runs from its source tree; main lives at
+// packages/desktop/dist-electron/electron/.
+const stellaAppDir = path.resolve(__dirname, "..", "..", "..", "..");
 const devHarnessOptions = resolveDevHarnessOptions({
   isPackaged: app.isPackaged,
   workspaceDir: stellaAppDir,

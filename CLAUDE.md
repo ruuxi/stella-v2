@@ -52,11 +52,11 @@ host and is unavailable from cloud environments; treat it as a valid blocker.
 - Keep heavy I/O and compute off the Electron renderer; 60fps / ~16ms per frame is the product bar for a smooth UI.
 - When given another product's process as an example, apply the intent (for example renderer/main isolation), not that product's CI or import-graph scaffolding, unless asked.
 - Uses `/poteto-mode` (pstack) for architecture and quality work.
-- Wants a one-click Linux/Omarchy install path comparable to the Windows NSIS installer, not a terminal-only `pacman -U` flow.
+- Wants a one-click Linux/Omarchy install path comparable to Windows, not a terminal-only flow.
 
 ## Learned Workspace Facts
 - Stella (this repo: stella-v2) is the user's Electron desktop product; it also has a mobile package.
-- Linux development and packaging target Omarchy (Arch + Hyprland). Ship Arch `.pkg.tar.xz` via pacman and AppImage, not `.deb`.
-- Windows already uses electron-builder NSIS with `oneClick`; the Arch package is an fpm/pacman archive with a desktop entry and is treated as a tarball on double-click.
+- Linux development targets Omarchy (Arch + Hyprland).
+- Desktop ships only through the native launchers (`launcher/{macos,windows,linux}`), which run the app from source; there is no electron-builder packaging or electron-updater.
 - Electron main vs renderer is not strictly bounded; heavy work pulled into the renderer is a known jank source.
 - File previews (including CSV from `display:readFile`) must be capped or parsed off the UI thread; unbounded parse on the renderer is a known jank source.

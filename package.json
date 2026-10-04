@@ -11,8 +11,6 @@
   "main": "packages/desktop/electron/start.mjs",
   "scripts": {
     "dev": "cd packages/desktop-ui && vite",
-    "preview": "cd packages/desktop-ui && vite preview",
-    "build": "bun run routes:generate && node node_modules/typescript-7/bin/tsc --build packages/desktop-ui && cd packages/desktop-ui && node ../../node_modules/vite/bin/vite.js build && node ../desktop/scripts/check-renderer-bundle-budget.mjs",
     "format": "bunx prettier@3.6.2 --write .",
     "format:check": "bunx prettier@3.6.2 --check .",
     "lint": "cd packages/desktop-ui && eslint .",
@@ -38,20 +36,13 @@
     "electron:typecheck:core": "node node_modules/typescript-7/bin/tsc -p packages/desktop/tsconfig.electron.json --pretty false --noEmit && node node_modules/typescript-7/bin/tsc -p packages/desktop/tsconfig.preload.json --pretty false --noEmit && bun run verify:source-exports && bun run verify:source-identifiers && bun run verify:local-named-imports",
     "electron:typecheck": "bun run electron:typecheck:core && bun run verify:ipc-handlers",
     "electron:typecheck:watch": "concurrently -k --kill-others-on-fail \"node node_modules/typescript-7/bin/tsc -w -p packages/desktop/tsconfig.electron.json --preserveWatchOutput --noEmit\" \"node node_modules/typescript-7/bin/tsc -w -p packages/desktop/tsconfig.preload.json --preserveWatchOutput --noEmit\"",
-    "electron:build": "bun run native:build && bun run packaging:prepare-runtimes && bun run stella-office:download -- --force && bun run build && bun run electron:typecheck && node packages/desktop/scripts/dev-electron-build.mjs --once --verify-identifiers && electron-builder",
-    "electron:pack": "bun run native:build && bun run packaging:prepare-runtimes && bun run stella-office:download -- --force && bun run build && bun run electron:typecheck && node packages/desktop/scripts/dev-electron-build.mjs --once --verify-identifiers && electron-builder --mac dir",
-    "electron:release:mac": "electron-builder --mac --publish never",
-    "electron:release:win": "electron-builder --win --publish never",
-    "updater:verify-local": "node packages/desktop/scripts/verify-local-electron-update.mjs",
-    "packaging:prepare-runtimes": "node packages/desktop/scripts/prepare-packaged-runtimes.mjs",
     "postinstall": "node packages/desktop/scripts/postinstall-workspace.mjs",
     "check:boundary": "node packages/runtime/scripts/check-boundary.mjs",
     "runtime:headless": "bun packages/runtime/headless/cli.ts",
     "verify:source-exports": "node packages/desktop/scripts/verify-source-package-exports.mjs",
-    "verify:source-identifiers": "node packages/desktop/scripts/verify-packaged-identifiers.mjs --source",
+    "verify:source-identifiers": "node packages/desktop/scripts/verify-source-identifiers.mjs",
     "verify:local-named-imports": "node packages/desktop/scripts/verify-local-named-imports.mjs",
     "verify:ipc-handlers": "cd packages/desktop-ui && vitest run --config vitest.electron.config.ts tests/electron/preload-handler-manifest.test.ts",
-    "verify:packaged-identifiers": "node packages/desktop/scripts/verify-packaged-identifiers.mjs",
     "website:dev": "cd packages/website && bun run dev",
     "website:build": "cd packages/website && bun run build",
     "website:lint": "cd packages/website && bun run lint",
@@ -149,7 +140,6 @@
     "partial-json": "^0.1.7",
     "picomatch": "^4.0.7",
     "qrcode": "^1.5.4",
-    "rcedit": "^5.0.2",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-pdf": "^11.0.0",
@@ -180,7 +170,6 @@
     "bun-types": "1.4.2",
     "concurrently": "^10.0.5",
     "electron": "44.5.1",
-    "electron-builder": "26.15.7",
     "eslint": "^10.12.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.7",
@@ -205,251 +194,12 @@
   "optionalDependencies": {
     "mac-screen-capture-permissions": "^2.1.0"
   },
-  "build": {
-    "appId": "com.stella.app",
-    "productName": "Stella",
-    "electronUpdaterCompatibility": ">=2.16",
-    "afterPack": "packages/desktop/scripts/prune-packaged-install-assets.mjs",
-    "afterSign": "packages/desktop/scripts/notarize.mjs",
-    "extraMetadata": {
-      "name": "stella-v2",
-      "productName": "Stella"
-    },
-    "protocols": {
-      "name": "Stella Auth",
-      "schemes": [
-        "Stella"
-      ]
-    },
-    "directories": {
-      "output": "packages/desktop/release",
-      "buildResources": "packages/desktop/build",
-      "app": "packages/desktop"
-    },
-    "files": [
-      "package.json",
-      "dist-electron/electron/**/*",
-      "electron/recovery.html",
-      {
-        "from": "../desktop-ui/dist",
-        "to": "renderer"
-      }
-    ],
-    "extraResources": [
-      {
-        "from": "packages/desktop/build/icon.ico",
-        "to": "stella-tray.ico"
-      },
-      {
-        "from": "packages/desktop-ui/public/stella-logo.png",
-        "to": "update-splash/stella-logo.png"
-      },
-      {
-        "from": "packages/desktop-ui/src/assets/fonts/cormorant-garamond-italic.ttf",
-        "to": "update-splash/cormorant-garamond-italic.ttf"
-      },
-      {
-        "from": "packages/desktop/resources/audio",
-        "to": "audio",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "packages/desktop/resources/models",
-        "to": "models",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "packages/desktop/resources/bun/current",
-        "to": "bin",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "packages/desktop/resources/git/current",
-        "to": "runtimes/git",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "packages/desktop/resources/node/current",
-        "to": "runtimes/node",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "packages/desktop/resources/python/current",
-        "to": "runtimes/python",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "packages/desktop/dist-electron/runtime",
-        "to": "runtime",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "node_modules/undici",
-        "to": "node_modules/undici",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "node_modules/@silvia-odwyer/photon-node",
-        "to": "node_modules/@silvia-odwyer/photon-node",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "packages/native/out",
-        "to": "native/out",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "packages/home-seed",
-        "to": "home-seed",
-        "filter": [
-          "skills/**",
-          "outputs/README.md"
-        ]
-      },
-      {
-        "from": "packages/stella-browser",
-        "to": "stella-browser",
-        "filter": [
-          "package.json",
-          "bin/stella-browser.js",
-          "out/**",
-          "extension/**"
-        ]
-      },
-      {
-        "from": "packages/stella-office",
-        "to": "stella-office",
-        "filter": [
-          "package.json",
-          "bin/**",
-          "scripts/**"
-        ]
-      }
-    ],
-    "win": {
-      "target": "nsis",
-      "icon": "icon.ico",
-      "artifactName": "Stella-${version}-Windows-${arch}.${ext}",
-      "signExts": [
-        "stella-browser"
-      ],
-      "signtoolOptions": {
-        "signingHashAlgorithms": [
-          "sha256"
-        ],
-        "rfc3161TimeStampServer": "http://timestamp.digicert.com",
-        "publisherName": "FromYou, LLC",
-        "sign": "packages/desktop/scripts/sign-windows.mjs"
-      }
-    },
-    "nsis": {
-      "oneClick": true,
-      "perMachine": false,
-      "include": "packages/desktop/build/installer.nsh",
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
-    },
-    "mac": {
-      "target": [
-        "dmg",
-        "zip"
-      ],
-      "icon": "icon.icns",
-      "hardenedRuntime": true,
-      "entitlements": "packages/desktop/build/entitlements.mac.plist",
-      "entitlementsInherit": "packages/desktop/build/entitlements.mac.inherit.plist",
-      "extendInfo": {
-        "NSMicrophoneUsageDescription": "Stella uses your microphone for voice conversations.",
-        "NSScreenCaptureUsageDescription": "Stella uses screen recording when you ask it to see or capture your screen.",
-        "NSAccessibilityUsageDescription": "Stella uses Accessibility when you enable global shortcuts and computer control."
-      }
-    },
-    "dmg": {
-      "artifactName": "Stella-${version}-macOS-${arch}.${ext}",
-      "contents": [
-        {
-          "x": 130,
-          "y": 220
-        },
-        {
-          "x": 410,
-          "y": 220,
-          "type": "link",
-          "path": "/Applications"
-        }
-      ]
-    },
-    "linux": {
-      "target": "AppImage",
-      "icon": "icon.png",
-      "artifactName": "Stella-${version}-Linux-${arch}.${ext}",
-      "category": "Utility",
-      "maintainer": "Stella <support@stella.app>",
-      "vendor": "Stella",
-      "synopsis": "Stella desktop assistant",
-      "description": "Stella is a personal AI assistant that lives on your computer.",
-      "mimeTypes": [
-        "x-scheme-handler/stella"
-      ],
-      "desktop": {
-        "entry": {
-          "StartupWMClass": "Stella",
-          "Keywords": "AI;Assistant;Agent;"
-        }
-      }
-    },
-    "pacman": {
-      "artifactName": "Stella-${version}-ArchLinux-${arch}.pkg.tar.xz",
-      "packageName": "stella",
-      "compression": "xz",
-      "depends": [
-        "at-spi2-core",
-        "git",
-        "gnome-keyring",
-        "gtk3",
-        "libnotify",
-        "libsecret",
-        "libxss",
-        "nss",
-        "xdg-utils"
-      ]
-    },
-    "publish": [
-      {
-        "provider": "generic",
-        "url": "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/desktop-v2/stable/${os}-${arch}",
-        "channel": "latest-v2",
-        "useMultipleRangeRequest": false
-      }
-    ]
-  },
   "trustedDependencies": [
     "@shopify/react-native-skia",
     "better-sqlite3",
     "bun",
     "cloudflared",
     "electron",
-    "electron-winstaller",
     "esbuild",
     "mac-screen-capture-permissions",
     "protobufjs",

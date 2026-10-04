@@ -104,60 +104,6 @@ export const verifyConvertedSourceIdentifiers = ({
   return files.length;
 };
 
-export const verifyPackagedIdentifierFiles = ({ filePaths }) => {
-  const failures = filePaths.flatMap((filePath) =>
-    findUndeclaredIdentifiers({
-      code: readFileSync(filePath, "utf8"),
-      filePath,
-    }),
-  );
-  throwIdentifierFailures(failures, "Packaged Electron main/runtime output");
-  return filePaths.length;
-};
-
-export const collectExistingPackagedApplicationFiles = (rootDir) => {
-  const mainPath = path.join(
-    rootDir,
-    "packages",
-    "desktop",
-    "dist-electron",
-    "electron",
-    "main.js",
-  );
-  const workerDir = path.join(
-    rootDir,
-    "packages",
-    "desktop",
-    "dist-electron",
-    "runtime",
-    "worker",
-  );
-  const files = [mainPath];
-  for (const filePath of walkFiles(workerDir).filter((file) =>
-    file.endsWith(".js"),
-  )) {
-    const code = readFileSync(filePath, "utf8");
-    if (/^\/\/ packages\/(?:runtime|desktop)\//m.test(code)) {
-      files.push(filePath);
-    }
-  }
-  return files;
-};
-
-export const verifyExistingPackagedIdentifiers = ({
-  rootDir = repoRootDir,
-} = {}) => {
-  const files = collectExistingPackagedApplicationFiles(rootDir);
-  const failures = files.flatMap((filePath) =>
-    findUndeclaredIdentifiers({
-      code: readFileSync(filePath, "utf8"),
-      filePath,
-    }),
-  );
-  throwIdentifierFailures(failures, "Packaged Electron main/runtime output");
-  return files.length;
-};
-
 const isRunDirectly = (() => {
   try {
     return (
@@ -175,34 +121,10 @@ if (isRunDirectly) {
       rootIndex === -1
         ? repoRootDir
         : path.resolve(process.argv[rootIndex + 1] ?? "");
-    let sourceCount = null;
-    let outputCount = null;
-    if (process.argv.includes("--source")) {
-      sourceCount = verifyConvertedSourceIdentifiers({ rootDir });
-    }
-    const filesJsonIndex = process.argv.indexOf("--files-json");
-    if (filesJsonIndex !== -1) {
-      const filePaths = JSON.parse(process.argv[filesJsonIndex + 1] ?? "[]");
-      if (!Array.isArray(filePaths)) {
-        throw new Error("--files-json must contain a JSON array of paths.");
-      }
-      outputCount = verifyPackagedIdentifierFiles({ filePaths });
-    } else if (
-      process.argv.includes("--packaged") ||
-      !process.argv.includes("--source")
-    ) {
-      outputCount = verifyExistingPackagedIdentifiers({ rootDir });
-    }
-    if (sourceCount !== null) {
-      console.log(
-        `[verify-packaged-identifiers] ${sourceCount} converted source file(s) have declared identifiers.`,
-      );
-    }
-    if (outputCount !== null) {
-      console.log(
-        `[verify-packaged-identifiers] ${outputCount} packaged application output file(s) have declared identifiers.`,
-      );
-    }
+    const sourceCount = verifyConvertedSourceIdentifiers({ rootDir });
+    console.log(
+      `[verify-source-identifiers] ${sourceCount} converted source file(s) have declared identifiers.`,
+    );
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;

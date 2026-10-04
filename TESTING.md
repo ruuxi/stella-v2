@@ -8,7 +8,7 @@ separate and **never replace `/Applications/Stella.app`**.
 
 The real Electron development command is `bun run electron:dev`. A normal
 launch uses the same `~/.stella` home, conversation database, configuration,
-credentials, and `electron-user-data` as Stella v1 and packaged v2:
+credentials, and `electron-user-data` as Stella v1 and the installed v2 app:
 
 ```sh
 bun run electron:dev
@@ -60,53 +60,13 @@ curl -sS -X POST \
 The dev deployment has `STELLA_TEST_ACCOUNTS=1`; production never does. The
 route accepts only addresses ending in `@test.stella.local`.
 
-## Packaged macOS test build
+## Installed builds
 
-The locally built app is staged at:
-
-```text
-~/Applications/Stella V2 Test/Stella.app
-```
-
-Before opening that copy, fully quit every other Stella instance. Do not drag it
-onto the DMG's `/Applications` alias, do not copy it into `/Applications`, and
-do not replace the daily-driver `/Applications/Stella.app`. The test copy has
-the same bundle ID as production; it must be run by itself, not over the live
-daily-driver process.
-
-For a fully isolated terminal smoke boot, use a v2-only state directory and a
-separate Chromium profile:
-
-```sh
-mkdir -p "$HOME/.stella-v2-packaged-test"
-STELLA_DATA_DIR="$HOME/.stella-v2-packaged-test/runtime" \
-"$HOME/Applications/Stella V2 Test/Stella.app/Contents/MacOS/Stella" \
-  --user-data-dir="$HOME/.stella-v2-packaged-test/chromium"
-```
-
-Quit it normally after the first-run/auth screen appears. This command avoids
-using v1's Stella runtime and Chromium profile. Do not set `STELLA_DATA_DIR`
-for `/Applications/Stella.app`.
-
-## Current capability checklist
-
-- macOS: Developer-ID signing and hardened runtime are expected. Confirm with
-  `codesign --verify --deep --strict --verbose=2 "$HOME/Applications/Stella V2 Test/Stella.app"`.
-- macOS notarization: check `spctl -a -vv "$HOME/Applications/Stella V2 Test/Stella.app"`.
-  Gatekeeper must report `accepted`; July 17 build notarized successfully (submission f55e00c9-bbc1-4b4f-a7f8-f76df8f17a63, Accepted, staple validate ok, spctl: accepted Notarized Developer ID, keychain profile `stella-notary`).
-- The public production backend URL is baked at renderer build time:
-  `https://stella-v2-cloud-builder-prod.lolruuxi.workers.dev`.
-  The first-run/auth flow should therefore be online, not the offline-only
-  shell.
-- Keychain: real Developer-ID signing should eliminate the prior unsigned-build
-  Keychain prompt. This remains a hands-on checklist item: after fully quitting
-  v1, record whether a new prompt appears during the first signed-package boot.
-  The July 17 local build verified the Developer-ID signature, but its normal
-  isolated launch could not reach UI while v1 was running because Electron
-  failed to reserve its V8 code range under machine memory pressure; this is
-  not a successful keychain-prompt verification.
-- Windows: the M4 artifact is intentionally unsigned; SmartScreen remains an
-  expected gap.
-- Updating: v2 has its own feed/channel protections, but local testing has no
-  published update feed. End-to-end updater testing still requires the CI
-  channel and two signed, published v2 builds.
+Desktop ships only through the native launchers in `launcher/macos`,
+`launcher/windows`, and `launcher/linux`. A launcher installs its managed
+runtimes and a checkout of this source tree, then runs it exactly as
+`electron:dev` does (renderer from source, main and preload rebuilt when stale,
+runtime under Bun) with `STELLA_LAUNCHER=1`, which gives the run Stella's own
+name, Electron user data, and `~/.stella` home. There is no packaged build or
+electron-updater feed: updates arrive as app source changes and are applied
+from the in-app Update card.

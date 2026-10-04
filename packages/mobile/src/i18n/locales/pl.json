@@ -1605,26 +1605,6 @@
         "other": "{count} more files"
       }
     },
-    "updatePill": {
-      "update": "Aktualizuj",
-      "updateFallback": "aktualizacja",
-      "availableFallback": "dostępna",
-      "downloading": "Pobieranie {percent}%",
-      "restartToUpdate": "Uruchom ponownie, aby zaktualizować",
-      "restarting": "Ponowne uruchamianie…",
-      "retryUpdate": "Ponów aktualizację",
-      "restartTitle": "Uruchom Stellę ponownie i zainstaluj wersję {version}",
-      "restartingTitle": "Ponowne uruchamianie Stelli w celu zainstalowania aktualizacji",
-      "retryTitle": "Ponów sprawdzanie aktualizacji aplikacji",
-      "downloadTitle": "Pobierz Stellę {version}",
-      "toasts": {
-        "downloadedTitle": "Aktualizacja pobrana",
-        "downloadedDescription": "Uruchom Stellę ponownie, aby zainstalować wersję {version}.",
-        "checkingTitle": "Sprawdzanie aktualizacji",
-        "checkingDescription": "Stella sprawdza odizolowany kanał desktop v2.",
-        "failedTitle": "Aktualizacja aplikacji nie powiodła się"
-      }
-    },
     "appSource": {
       "update": "Aktualizuj",
       "title": "Zmiany w Stelli",

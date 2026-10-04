@@ -8,7 +8,6 @@ import { defineConfig, searchForWorkspaceRoot, type Plugin } from "vite";
 import { uiStateSharedStore } from "./vite/ui-state-plugin.ts";
 
 const __dirname = import.meta.dirname;
-const WEBSITE_BUILD = process.env.VITE_STELLA_WEB_BUILD === "1";
 
 const ROUTER_CONFIG = JSON.parse(
   fs.readFileSync(path.resolve(__dirname, "tsr.config.json"), "utf8"),
@@ -43,14 +42,12 @@ const DIST_ELECTRON_DIR = path.resolve(
   "desktop",
   "dist-electron",
 );
-// Large build/artifact trees that never participate in renderer HMR. Without
-// these, Vite's chokidar root watcher (rooted at desktop/) subscribes to
-// ~14.5k files under native/ (5.8GB, incl. the 5.2GB wakeword model tree) and
-// release/ (1.2GB packaged installers) — a needless recursive readdirp walk +
-// stat-per-file at startup and (on Windows) ongoing ReadDirectoryChangesW churn.
-// Nothing under these is a renderer module, so prune them from the watch tree.
+// A large build/artifact tree that never participates in renderer HMR.
+// Without this, Vite's chokidar root watcher subscribes to ~14.5k files under
+// native/ (5.8GB, incl. the 5.2GB wakeword model tree) — a needless recursive
+// readdirp walk + stat-per-file at startup and (on Windows) ongoing
+// ReadDirectoryChangesW churn. Nothing under it is a renderer module.
 const NATIVE_DIR = path.resolve(__dirname, "..", "native");
-const RELEASE_DIR = path.resolve(__dirname, "..", "desktop", "release");
 const VITE_WORKSPACE_ROOT = searchForWorkspaceRoot(__dirname);
 const DEV_SERVER_URL = new URL(
   process.env.STELLA_DEV_SERVER_URL?.trim() || "http://127.0.0.1:57314",
@@ -72,8 +69,7 @@ const PDF_WORKER_PUBLIC_ABS = path.resolve(
 
 /**
  * Copies the pdfjs-dist worker into `public/vendor/pdfjs/` so the renderer
- * can load it as a static asset, served by Vite's dev server and emitted
- * verbatim into `dist/` at build time.
+ * can load it as a static asset served by Vite's dev server.
  *
  * We can't rely on Vite/Rolldown to resolve the deep package path with
  * `?url`: the bun-managed node_modules layout hides pdfjs-dist behind
@@ -177,20 +173,6 @@ function devCspRelax(): Plugin {
   };
 }
 
-/** The website opens directly into chat; native launch/recovery UI is desktop-only. */
-function websiteLaunchHtml(): Plugin {
-  return {
-    name: "website-launch-html",
-    transformIndexHtml(html) {
-      if (!WEBSITE_BUILD) return html;
-      return html.replace(
-        / {4}<div id="stella-launch"[\s\S]*?<script src="[^"\n]*\/stella-launch-rescue\.js"><\/script>\s*/,
-        "",
-      );
-    },
-  };
-}
-
 /**
  * Warm the connection to the Stella backend worker before any script runs:
  * backend calls, live views and (in the browser shell) Better Auth all go
@@ -276,48 +258,17 @@ function bunHttpServerCloseFix(): Plugin {
   };
 }
 
-const packageNameFromModuleId = (id: string): string | null => {
-  const normalized = id.replace(/\\/g, "/");
-  const marker = "/node_modules/";
-  const markerIndex = normalized.lastIndexOf(marker);
-  if (markerIndex === -1) return null;
-
-  let rest = normalized.slice(markerIndex + marker.length);
-  if (rest.startsWith(".bun/")) {
-    const nestedIndex = rest.indexOf(marker);
-    if (nestedIndex === -1) return null;
-    rest = rest.slice(nestedIndex + marker.length);
-  }
-
-  const [first, second] = rest.split("/");
-  if (!first) return null;
-  if (first.startsWith("@")) {
-    return second ? `${first}/${second}` : null;
-  }
-  return first;
-};
-
-// Packages left out of the per-package vendor chunks. They are only reached
-// through lazy imports (PDF preview, usage charts) and must not own shared
-// modules the entry needs.
-const LAZY_ONLY_PACKAGES = new Set(["pdfjs-dist", "recharts"]);
-
-const packageChunkName = (packageName: string): string =>
-  `vendor-${packageName.replace(/^@/, "").replace(/[^a-zA-Z0-9_-]+/g, "-")}`;
-
 export default defineConfig({
   plugins: [
     TanStackRouterVite(ROUTER_CONFIG),
     react(),
     tailwindcss(),
     devCspRelax(),
-    websiteLaunchHtml(),
     backendPreconnectHint(),
     bunHttpServerCloseFix(),
     uiStateSharedStore(),
     pdfWorkerAsset(),
   ],
-  base: WEBSITE_BUILD ? "/chat-app/" : "./",
   optimizeDeps: {
     // Front-load prebundling of the heavy/transitive deps deterministically on
     // first launch. Without this, dep discovery is entirely on-demand: a cold
@@ -347,51 +298,6 @@ export default defineConfig({
     rolldownOptions: {
       transform: {
         target: "esnext",
-      },
-    },
-  },
-  build: {
-    outDir: WEBSITE_BUILD
-      ? path.resolve(__dirname, "../website/public/chat-app")
-      : "dist",
-    emptyOutDir: true,
-    target: "esnext",
-    modulePreload: {
-      polyfill: false,
-    },
-    rolldownOptions: {
-      input: WEBSITE_BUILD
-        ? { main: path.resolve(__dirname, "index.html") }
-        : {
-            main: path.resolve(__dirname, "index.html"),
-            overlay: path.resolve(__dirname, "overlay.html"),
-            companion: path.resolve(__dirname, "companion.html"),
-          },
-      output: {
-        manualChunks(id: string) {
-          const normalized = id.replace(/\\/g, "/");
-          // Rolldown's manualChunks groups capture their dependencies
-          // recursively, so whichever vendor group reaches a shared module
-          // first owns it. The dynamic-import helper was landing in the
-          // pdfjs chunk (and recharts' store deps in the recharts chunk),
-          // which dragged ~1MB of lazy-only code onto the entry's static
-          // import graph. Pin the helper to its own chunk and leave the
-          // lazy-only heavyweights to rolldown's natural placement.
-          if (normalized.includes("vite/preload-helper")) {
-            return "preload-helper";
-          }
-          if (normalized.includes("/node_modules/react/")) {
-            return "vendor-react";
-          }
-          if (normalized.includes("/node_modules/react-dom/")) {
-            return "vendor-react-dom";
-          }
-          const packageName = packageNameFromModuleId(id);
-          if (packageName && LAZY_ONLY_PACKAGES.has(packageName)) {
-            return undefined;
-          }
-          return packageName ? packageChunkName(packageName) : undefined;
-        },
       },
     },
   },
@@ -443,12 +349,7 @@ export default defineConfig({
       ignored: [
         `${BUNDLED_STELLA_DATA_SEED_DIR.replace(/\\/g, "/")}/**`,
         `${DIST_ELECTRON_DIR.replace(/\\/g, "/")}/**`,
-        // Native build outputs (5.8GB, incl. the 5.2GB wakeword model tree) and
-        // packaged installers (1.2GB) — ~14.5k files that never participate in
-        // renderer HMR. Keeping Vite's watcher out of them avoids a large
-        // startup readdirp walk + stat-per-file and ongoing Windows watch churn.
         `${NATIVE_DIR.replace(/\\/g, "/")}/**`,
-        `${RELEASE_DIR.replace(/\\/g, "/")}/**`,
         normalizeWatchedFilePath(BUNDLE_FINGERPRINT_FILE),
       ],
     },

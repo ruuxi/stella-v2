@@ -1605,26 +1605,6 @@
         "other": "{count} more files"
       }
     },
-    "updatePill": {
-      "update": "Aktualizovat",
-      "updateFallback": "aktualizace",
-      "availableFallback": "k dispozici",
-      "downloading": "Stahování {percent} %",
-      "restartToUpdate": "Restartovat a aktualizovat",
-      "restarting": "Restartuje se…",
-      "retryUpdate": "Zkusit aktualizaci znovu",
-      "restartTitle": "Restartovat Stellu a nainstalovat verzi {version}",
-      "restartingTitle": "Restartuje se Stella, aby se nainstalovala aktualizace",
-      "retryTitle": "Zkusit znovu kontrolu aktualizací aplikace",
-      "downloadTitle": "Stáhnout Stellu {version}",
-      "toasts": {
-        "downloadedTitle": "Aktualizace stažena",
-        "downloadedDescription": "Restartujte Stellu, abyste nainstalovali verzi {version}.",
-        "checkingTitle": "Kontrola aktualizací",
-        "checkingDescription": "Stella kontroluje izolovaný kanál desktop v2.",
-        "failedTitle": "Aktualizace aplikace selhala"
-      }
-    },
     "appSource": {
       "update": "Aktualizovat",
       "title": "Změny ve Stelle",

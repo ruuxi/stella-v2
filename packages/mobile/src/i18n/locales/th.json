@@ -1574,26 +1574,6 @@
         "other": "{count} more files"
       }
     },
-    "updatePill": {
-      "update": "อัปเดต",
-      "updateFallback": "อัปเดต",
-      "availableFallback": "พร้อมใช้งาน",
-      "downloading": "กำลังดาวน์โหลด {percent}%",
-      "restartToUpdate": "รีสตาร์ทเพื่ออัปเดต",
-      "restarting": "กำลังรีสตาร์ท…",
-      "retryUpdate": "ลองอัปเดตอีกครั้ง",
-      "restartTitle": "รีสตาร์ท Stella และติดตั้งเวอร์ชัน {version}",
-      "restartingTitle": "กำลังรีสตาร์ท Stella เพื่อติดตั้งการอัปเดต",
-      "retryTitle": "ลองตรวจหาอัปเดตเดสก์ท็อปอีกครั้ง",
-      "downloadTitle": "ดาวน์โหลด Stella {version}",
-      "toasts": {
-        "downloadedTitle": "ดาวน์โหลดอัปเดตแล้ว",
-        "downloadedDescription": "รีสตาร์ท Stella เพื่อติดตั้งเวอร์ชัน {version}",
-        "checkingTitle": "กำลังตรวจหาอัปเดต",
-        "checkingDescription": "Stella กำลังตรวจสอบช่องทางเดสก์ท็อป v2 แบบแยกอิสระ",
-        "failedTitle": "อัปเดตเดสก์ท็อปไม่สำเร็จ"
-      }
-    },
     "appSource": {
       "update": "อัปเดต",
       "title": "การเปลี่ยนแปลงของ Stella",

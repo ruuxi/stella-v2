@@ -1605,26 +1605,6 @@
         "other": "{count} more files"
       }
     },
-    "updatePill": {
-      "update": "Обновить",
-      "updateFallback": "обновление",
-      "availableFallback": "доступно",
-      "downloading": "Загрузка {percent}%",
-      "restartToUpdate": "Перезапустить для обновления",
-      "restarting": "Перезапуск…",
-      "retryUpdate": "Повторить обновление",
-      "restartTitle": "Перезапустить Stella и установить версию {version}",
-      "restartingTitle": "Перезапуск Stella для установки обновления",
-      "retryTitle": "Повторить проверку обновлений",
-      "downloadTitle": "Скачать Stella {version}",
-      "toasts": {
-        "downloadedTitle": "Обновление загружено",
-        "downloadedDescription": "Перезапустите Stella, чтобы установить версию {version}.",
-        "checkingTitle": "Проверка обновлений",
-        "checkingDescription": "Stella проверяет изолированный канал desktop v2.",
-        "failedTitle": "Не удалось обновить приложение"
-      }
-    },
     "appSource": {
       "update": "Обновить",
       "title": "Изменения в Stella",

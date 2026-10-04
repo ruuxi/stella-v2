@@ -251,15 +251,6 @@ export const IPC_CREDENTIAL_REQUEST = "credential:request" as const;
 export const IPC_CREDENTIAL_SUBMIT = "credential:submit" as const;
 export const IPC_CREDENTIAL_CANCEL = "credential:cancel" as const;
 
-// ── Packaged desktop updates (electron-updater) ─────────────────────────────
-
-export const IPC_UPDATES_GET_STATE = "updates:getState" as const;
-export const IPC_UPDATES_CHECK = "updates:check" as const;
-export const IPC_UPDATES_DOWNLOAD = "updates:download" as const;
-export const IPC_UPDATES_RESTART_AND_INSTALL =
-  "updates:restartAndInstall" as const;
-export const IPC_UPDATES_STATE_CHANGED = "updates:stateChanged" as const;
-
 // ── Onboarding ──────────────────────────────────────────────────────────────
 
 export const IPC_ONBOARDING_SYNTHESIZE =

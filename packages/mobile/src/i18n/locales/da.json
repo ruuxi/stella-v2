@@ -1585,26 +1585,6 @@
         "other": "{count} more files"
       }
     },
-    "updatePill": {
-      "update": "Opdater",
-      "updateFallback": "opdatering",
-      "availableFallback": "tilgængelig",
-      "downloading": "Downloader {percent}%",
-      "restartToUpdate": "Genstart for at opdatere",
-      "restarting": "Genstarter…",
-      "retryUpdate": "Prøv opdatering igen",
-      "restartTitle": "Genstart Stella, og installer version {version}",
-      "restartingTitle": "Genstarter Stella for at installere opdateringen",
-      "retryTitle": "Prøv opdateringstjekket til computeren igen",
-      "downloadTitle": "Download Stella {version}",
-      "toasts": {
-        "downloadedTitle": "Opdatering downloadet",
-        "downloadedDescription": "Genstart Stella for at installere version {version}.",
-        "checkingTitle": "Søger efter opdateringer",
-        "checkingDescription": "Stella tjekker den isolerede desktop v2-kanal.",
-        "failedTitle": "Computeropdatering mislykkedes"
-      }
-    },
     "appSource": {
       "update": "Opdater",
       "title": "Ændringer i Stella",

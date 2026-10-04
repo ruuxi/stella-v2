@@ -1,11 +1,6 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { ExternalLinkService } from "@stella/desktop/electron/services/external-link-service";
-import { resolveRendererRoot } from "@stella/desktop/electron/renderer-location";
 
 
 describe("ExternalLinkService renderer trust", () => {
@@ -46,57 +41,5 @@ describe("ExternalLinkService renderer trust", () => {
 
     expect(service.isAppUrl("about:blank")).toBe(true);
     expect(service.isTrustedRendererUrl("about:blank")).toBe(false);
-  });
-
-  it("trusts the resolved packaged renderer root without trusting sibling files", () => {
-    const tempRoot = mkdtempSync(
-      path.join(os.tmpdir(), "stella-renderer-trust-"),
-    );
-    try {
-      const resourcesRoot = path.join(
-        tempRoot,
-        "Stella.app",
-        "Contents",
-        "Resources",
-      );
-      const electronDir = path.join(
-        resourcesRoot,
-        "app.asar",
-        "dist-electron",
-        "electron",
-      );
-      const rendererRoot = path.join(resourcesRoot, "app.asar", "renderer");
-      mkdirSync(electronDir, { recursive: true });
-      mkdirSync(rendererRoot, { recursive: true });
-
-      const resolvedRoot = resolveRendererRoot(electronDir);
-      expect(resolvedRoot).toBe(rendererRoot);
-
-      const service = new ExternalLinkService();
-      service.trustFileRendererRoot(resolvedRoot);
-
-      const entryUrl = pathToFileURL(path.join(rendererRoot, "index.html"));
-      entryUrl.searchParams.set("window", "full");
-      expect(service.isTrustedRendererUrl(entryUrl.toString())).toBe(true);
-      expect(
-        service.isTrustedRendererUrl(
-          pathToFileURL(path.join(rendererRoot, "assets", "app.js")).toString(),
-        ),
-      ).toBe(true);
-      expect(
-        service.isTrustedRendererUrl(
-          pathToFileURL(
-            path.join(resourcesRoot, "dist", "index.html"),
-          ).toString(),
-        ),
-      ).toBe(false);
-      expect(
-        service.isTrustedRendererUrl(
-          pathToFileURL(path.join(resourcesRoot, "outside.html")).toString(),
-        ),
-      ).toBe(false);
-    } finally {
-      rmSync(tempRoot, { recursive: true, force: true });
-    }
   });
 });

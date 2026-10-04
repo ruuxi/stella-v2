@@ -7,12 +7,10 @@ const __dirname = import.meta.dirname;
 /**
  * Locate the Stella browser service and extension directory.
  *
- * In development the service lives at `packages/stella-browser/`. Packaged
- * builds copy its command shim, native binaries, and extension into Electron's
- * resources directory.
- *
- * The source helper and bundled Electron main both sit three levels below the
- * `packages/` directory, so the workspace path is stable in both layouts.
+ * The service lives at `packages/stella-browser/` in the source tree the app
+ * runs from. The source helper and bundled Electron main both sit three levels
+ * below the `packages/` directory, so the workspace path is stable in both
+ * layouts.
  *
  *   packages/desktop/dist-electron/electron/stella-browser-paths.js
  *                                           ^ __dirname
@@ -28,24 +26,8 @@ const workspaceStellaBrowserRoot = path.resolve(
   "stella-browser",
 );
 
-export const resolveStellaBrowserRoot = (): string => {
-  if (existsSync(workspaceStellaBrowserRoot)) {
-    return workspaceStellaBrowserRoot;
-  }
-
-  // Production: electron-builder copies stella-browser next to the asar at
-  // Contents/Resources/stella-browser. `process.resourcesPath` is only defined
-  // inside the Electron main process, which is where this helper runs.
-  const resourcesPath = process.resourcesPath;
-  if (resourcesPath) {
-    const packaged = path.join(resourcesPath, "stella-browser");
-    if (existsSync(packaged)) {
-      return packaged;
-    }
-  }
-
-  return workspaceStellaBrowserRoot;
-};
+export const resolveStellaBrowserRoot = (): string =>
+  workspaceStellaBrowserRoot;
 
 export const currentStellaBrowserPlatformKey = (): string | null => {
   const platform = os.platform();

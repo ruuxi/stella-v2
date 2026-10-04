@@ -1,8 +1,6 @@
-import { app, autoUpdater, dialog, globalShortcut } from "electron";
+import { app, dialog, globalShortcut } from "electron";
 import { writeFileSync } from "node:fs";
 import { applyDockIcon } from "../app-icon.js";
-import { configurePackagedRuntimeEnvironment } from "../bundled-runtime-environment.js";
-import { registerLinuxDesktopIntegration, warnIfSystemGitMissing, } from "../linux-desktop-integration.js";
 import { getMainLogger } from "../observability/main-logger.js";
 import { t } from "../services/i18n-service.js";
 import { shutdownBootstrapRuntime } from "./resets.js";
@@ -119,29 +117,9 @@ export const registerBootstrapLifecycle = (context) => {
         }
         context.state.windowManager?.onActivate();
     });
-    // Electron's update restart closes every BrowserWindow before emitting the
-    // normal app `before-quit` event. Mark the process as quitting at the
-    // updater-specific boundary so auxiliary windows do not cancel that close
-    // sequence and strand the downloaded update in a hidden, still-live app.
-    autoUpdater.on("before-quit-for-update", () => {
-        context.state.isQuitting = true;
-    });
     app
         .whenReady()
         .then(async () => {
-        if (app.isPackaged) {
-            process.env.STELLA_APP_RESOURCES_PATH = process.resourcesPath;
-            configurePackagedRuntimeEnvironment({
-                resourcesPath: process.resourcesPath,
-            });
-            if (process.platform === "linux") {
-                // Best-effort AppImage integration (stella:// handler) and an
-                // early, explicit signal when the system-git fallback has no
-                // git to fall back to. Both are no-throw.
-                registerLinuxDesktopIntegration();
-                warnIfSystemGitMissing();
-            }
-        }
         if (process.platform === "darwin") {
             app.dock?.show();
         }

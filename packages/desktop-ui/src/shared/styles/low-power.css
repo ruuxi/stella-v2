@@ -89,11 +89,6 @@ html[data-low-power] .onboarding-enter-step__dots > span {
   opacity: 0.55;
 }
 
-/* Topbar update trace — decorative chrome */
-html[data-low-power] .shell-topbar-update-pill[data-state="active"]::before {
-  animation: none !important;
-}
-
 /* Launch splash dots */
 html[data-low-power] .stella-launch__dots span {
   animation: none !important;

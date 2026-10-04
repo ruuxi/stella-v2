@@ -3,11 +3,7 @@ import path from 'path';
 import { loadWindow } from './window-load.js';
 const shouldOpenDevTools = process.env.STELLA_OPEN_DEVTOOLS === '1';
 const loadShellMainWindow = (window, options) => {
-    loadWindow(window, {
-        electronDir: options.electronDir,
-        isDev: options.isDev,
-        mode: options.mode,
-    });
+    loadWindow(window, { mode: options.mode });
 };
 export const createShellWindow = (options) => {
     const window = options.createWindow();
@@ -51,25 +47,15 @@ export const reloadShellMainWindow = (window, options) => {
     loadShellMainWindow(window, options);
 };
 /**
- * Resolves a readable path to `recovery.html` from the running main process.
- *
- * `tsc` does not copy static assets into `dist-electron/`, so the historical
- * `loadFile(path.join(electronDir, 'recovery.html'))` always pointed at a
- * non-existent file. We instead resolve from the source tree at runtime:
- *
- *   - In dev, `electronDir` is `desktop/dist-electron/desktop/electron`, so
- *     `../../../electron/recovery.html` walks back to the source file.
- *   - In packaged builds, `electron-builder` ships the entire `desktop/`
- *     source tree (the `files` glob is `dist-electron/**`, but ASAR resolves
- *     relative paths within the bundle and we register the source layout via
- *     `extraFiles` below). We probe both the compiled-adjacent path and the
- *     dev fallback so packaging changes can't silently re-break recovery.
+ * Resolves `recovery.html` from the source tree. The esbuild bundle does not
+ * copy static assets, and `electronDir` is
+ * `packages/desktop/dist-electron/electron`, so the source file is
+ * `../../electron/recovery.html`.
  */
 const resolveRecoveryHtmlPath = (electronDir) => {
     const candidates = [
         path.join(electronDir, 'recovery.html'),
-        path.resolve(electronDir, '../../../electron/recovery.html'),
-        path.resolve(electronDir, '../../../../electron/recovery.html'),
+        path.resolve(electronDir, '../../electron/recovery.html'),
     ];
     for (const candidate of candidates) {
         try {

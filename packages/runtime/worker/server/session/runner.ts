@@ -260,9 +260,7 @@ export const layer = Layer.effect(
     // Build the runner in the background instead of on the worker-ready path:
     // initialize returns without awaiting this; turn handlers join the same
     // promise via `initialized`. The module comes from RunnerModule, which
-    // is usually already importing (prefetched at transport attach); its
-    // dynamic import() is also what lets esbuild split the runner into its
-    // own chunk (see dev-electron-build.mjs).
+    // is usually already importing (prefetched at transport attach).
     // Message of a failed background build; surfaced instead of the generic
     // "Runtime worker is not ready." and as the AgentHealth not-ready reason.
     let runnerReadyError: string | null = null;

@@ -10,8 +10,8 @@ import path from "node:path";
 
 const DEV_APP_NAME = "Stella";
 // Development runs under a distinct bundle id so dev TCC/LaunchServices grants
-// never pollute the packaged release's row. The release keeps com.stella.app
-// (see the electron-builder `build.appId`); only the ad-hoc dev bundle diverges.
+// never pollute the installed app's com.stella.app row; only the ad-hoc dev
+// bundle diverges.
 const DEV_BUNDLE_ID = "com.stella.app.dev";
 const MICROPHONE_USAGE_DESCRIPTION =
   "Stella uses your microphone for voice conversations.";

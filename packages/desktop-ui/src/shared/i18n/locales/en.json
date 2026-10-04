@@ -1585,26 +1585,6 @@
         "other": "{count} more files"
       }
     },
-    "updatePill": {
-      "update": "Update",
-      "updateFallback": "update",
-      "availableFallback": "available",
-      "downloading": "Downloading {percent}%",
-      "restartToUpdate": "Restart to update",
-      "restarting": "Restarting…",
-      "retryUpdate": "Retry update",
-      "restartTitle": "Restart Stella and install version {version}",
-      "restartingTitle": "Restarting Stella to install the update",
-      "retryTitle": "Retry the desktop update check",
-      "downloadTitle": "Download Stella {version}",
-      "toasts": {
-        "downloadedTitle": "Update downloaded",
-        "downloadedDescription": "Restart Stella to install version {version}.",
-        "checkingTitle": "Checking for updates",
-        "checkingDescription": "Stella is checking the isolated desktop v2 channel.",
-        "failedTitle": "Desktop update failed"
-      }
-    },
     "appSource": {
       "update": "Update",
       "title": "Changes to Stella",

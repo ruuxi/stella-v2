@@ -1585,26 +1585,6 @@
         "other": "{count} more files"
       }
     },
-    "updatePill": {
-      "update": "Oppdater",
-      "updateFallback": "oppdatering",
-      "availableFallback": "tilgjengelig",
-      "downloading": "Laster ned {percent} %",
-      "restartToUpdate": "Start på nytt for å oppdatere",
-      "restarting": "Starter på nytt…",
-      "retryUpdate": "Prøv oppdatering igjen",
-      "restartTitle": "Start Stella på nytt og installer versjon {version}",
-      "restartingTitle": "Starter Stella på nytt for å installere oppdateringen",
-      "retryTitle": "Prøv oppdateringssjekken for skrivebordet igjen",
-      "downloadTitle": "Last ned Stella {version}",
-      "toasts": {
-        "downloadedTitle": "Oppdatering lastet ned",
-        "downloadedDescription": "Start Stella på nytt for å installere versjon {version}.",
-        "checkingTitle": "Ser etter oppdateringer",
-        "checkingDescription": "Stella sjekker den isolerte desktop v2-kanalen.",
-        "failedTitle": "Skrivebordsoppdatering mislyktes"
-      }
-    },
     "appSource": {
       "update": "Oppdater",
       "title": "Endringer i Stella",

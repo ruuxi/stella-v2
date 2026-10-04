@@ -7,15 +7,6 @@ export const STELLA_DEVELOPMENT_DATA_DIR_NAME = ".stella-development";
 export type DesktopStellaDataMode = "development" | "production";
 
 /**
- * Electron's packaged app path normally points at `app.asar`, which is a
- * file. Runtime worker identities and child-process cwd fallbacks both require
- * a real directory, so the stable packaged install root is its parent
- * Resources directory.
- */
-export const resolvePackagedStellaAppDirPath = (appPath: string): string =>
-  path.dirname(path.resolve(appPath));
-
-/**
  * Durable Stella data root for the desktop app. Packaged builds keep the
  * production `~/.stella` home. Unpackaged development uses
  * `~/.stella-development`, so a dev migration, reset, runtime, or SQLite write

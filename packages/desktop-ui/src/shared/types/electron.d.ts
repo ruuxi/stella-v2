@@ -84,7 +84,6 @@ import type {
   OfficePreviewSnapshot as SharedOfficePreviewSnapshot,
 } from "@stella/contracts/office-preview";
 import type { DisplayPayload } from "@stella/contracts/display-payload";
-import type { DesktopUpdateSnapshot } from "@stella/contracts/desktop/update";
 import type {
   AppSourceActionResult,
   AppSourceState,
@@ -1614,16 +1613,6 @@ export type ElectronOfficePreviewApi = {
   onUpdate: (callback: (snapshot: OfficePreviewSnapshot) => void) => () => void;
 };
 
-export type ElectronUpdatesApi = {
-  getState: () => Promise<DesktopUpdateSnapshot>;
-  check: () => Promise<DesktopUpdateSnapshot>;
-  download: () => Promise<DesktopUpdateSnapshot>;
-  restartAndInstall: () => Promise<{ accepted: true }>;
-  onStateChanged: (
-    callback: (snapshot: DesktopUpdateSnapshot) => void,
-  ) => () => void;
-};
-
 /** The app's own checkout when running from source; state is null otherwise. */
 export type ElectronAppSourceApi = {
   getState: () => Promise<AppSourceState | null>;
@@ -1698,7 +1687,6 @@ export type ElectronApi = {
   companion: ElectronCompanionApi;
   agent: ElectronAgentApi;
   system: ElectronSystemApi;
-  updates: ElectronUpdatesApi;
   appSource: ElectronAppSourceApi;
   onboarding: ElectronOnboardingApi;
   discovery: ElectronDiscoveryApi;

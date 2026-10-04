@@ -1,8 +1,5 @@
 import type { BrowserWindow } from 'electron'
-import fs from 'fs'
-import path from 'path'
 import { isLowMemoryWindowsDevice } from '../resource-profile.js'
-import { resolveRendererRoot } from '../renderer-location.js'
 import { RENDERER_ORIGIN } from '../source/origin.js'
 
 export type WindowLoadMode = 'full' | 'overlay' | 'companion' | 'companion-panel'
@@ -36,34 +33,7 @@ export const getSourceUrl = (windowMode: WindowLoadMode) => {
 
 export const loadWindow = (
   window: BrowserWindow,
-  options: {
-    electronDir: string
-    isDev: boolean
-    mode: WindowLoadMode
-  },
+  options: { mode: WindowLoadMode },
 ) => {
-  if (options.isDev) {
-    window.loadURL(getSourceUrl(options.mode))
-    return
-  }
-
-  const entryFile = getWindowEntryFile(options.mode)
-  const candidates = [
-    path.join(resolveRendererRoot(options.electronDir), entryFile),
-    path.resolve(options.electronDir, '../dist', entryFile),
-  ]
-  const filePath =
-    candidates.find((candidate) => {
-      try {
-        return fs.statSync(candidate).isFile()
-      } catch {
-        return false
-      }
-    }) ?? candidates[0]
-  window.loadFile(filePath, {
-    query: {
-      window: options.mode,
-      ...(isLowMemoryWindowsDevice() ? { lowPower: '1' } : {}),
-    },
-  })
+  window.loadURL(getSourceUrl(options.mode))
 }

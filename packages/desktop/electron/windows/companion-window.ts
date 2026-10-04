@@ -437,11 +437,7 @@ export class CompanionWindowController {
       this.drag = null;
     });
 
-    loadWindow(win, {
-      electronDir: this.options.electronDir,
-      isDev: this.options.isDev,
-      mode: loadModeFor(slot.kind),
-    });
+    loadWindow(win, { mode: loadModeFor(slot.kind) });
     this.attachDisplayListeners();
     return win;
   }
@@ -452,11 +448,7 @@ export class CompanionWindowController {
       slot.reloadTimer = null;
       const win = this.live(slot);
       if (!win) return;
-      loadWindow(win, {
-        electronDir: this.options.electronDir,
-        isDev: this.options.isDev,
-        mode: loadModeFor(slot.kind),
-      });
+      loadWindow(win, { mode: loadModeFor(slot.kind) });
     }, 300);
   }
 

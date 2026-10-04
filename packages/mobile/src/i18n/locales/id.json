@@ -1574,26 +1574,6 @@
         "other": "{count} more files"
       }
     },
-    "updatePill": {
-      "update": "Perbarui",
-      "updateFallback": "pembaruan",
-      "availableFallback": "tersedia",
-      "downloading": "Mengunduh {percent}%",
-      "restartToUpdate": "Mulai ulang untuk memperbarui",
-      "restarting": "Memulai ulang…",
-      "retryUpdate": "Coba perbarui lagi",
-      "restartTitle": "Mulai ulang Stella dan pasang versi {version}",
-      "restartingTitle": "Memulai ulang Stella untuk memasang pembaruan",
-      "retryTitle": "Coba lagi pemeriksaan pembaruan desktop",
-      "downloadTitle": "Unduh Stella {version}",
-      "toasts": {
-        "downloadedTitle": "Pembaruan terunduh",
-        "downloadedDescription": "Mulai ulang Stella untuk memasang versi {version}.",
-        "checkingTitle": "Memeriksa pembaruan",
-        "checkingDescription": "Stella sedang memeriksa kanal desktop v2 yang terisolasi.",
-        "failedTitle": "Pembaruan desktop gagal"
-      }
-    },
     "appSource": {
       "update": "Perbarui",
       "title": "Perubahan pada Stella",

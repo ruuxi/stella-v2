@@ -19,15 +19,16 @@ import {
 
 const execFile = promisify(execFileCallback);
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
+// The runtime runs its CLIs from source under Bun, as the app does.
 const cliPath = path.join(
   repoRoot,
-  "packages/desktop/dist-electron/runtime/kernel/cli/stella-computer.js",
+  "packages/runtime/kernel/cli/stella-computer.ts",
 );
 const nativeHelperPath = path.join(
   repoRoot,
   "packages/native/out/darwin/desktop_automation",
 );
-const nodeExecutable = process.env.STELLA_NODE_EXECUTABLE?.trim() || "node";
+const cliExecutable = process.env.STELLA_BUN_PATH?.trim() || "bun";
 const calculator = "Calculator";
 const calculatorBundleId = "com.apple.calculator";
 const typedSessionId = `live-computer-acceptance-${process.pid}`;
@@ -39,11 +40,6 @@ const tempRoot = await mkdtemp(
 
 if (process.platform !== "darwin") {
   throw new Error("Live Computer Use acceptance requires macOS.");
-}
-if (!existsSync(cliPath)) {
-  throw new Error(
-    `Generated stella-computer CLI is missing at ${cliPath}. Run node packages/desktop/scripts/dev-electron-build.mjs --once first.`,
-  );
 }
 if (!existsSync(nativeHelperPath)) {
   throw new Error(
@@ -57,7 +53,7 @@ const delay = (milliseconds: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 
 const runCli = async (args: string[]) => {
-  const result = await execFile(nodeExecutable, [cliPath, ...args], {
+  const result = await execFile(cliExecutable, [cliPath, ...args], {
     cwd: repoRoot,
     env: process.env,
     maxBuffer: 4 * 1024 * 1024,
@@ -116,7 +112,7 @@ const diagnosticsSky = createSkyClientForCliDiagnostics({
   runner: async (request) =>
     await runComputerCommandSubprocess({
       ...request,
-      command: nodeExecutable,
+      command: cliExecutable,
     }),
   env: process.env,
   commandTimeoutMs: 30_000,

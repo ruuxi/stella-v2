@@ -1595,26 +1595,6 @@
         "other": "{count} more files"
       }
     },
-    "updatePill": {
-      "update": "Mettre à jour",
-      "updateFallback": "mise à jour",
-      "availableFallback": "disponible",
-      "downloading": "Téléchargement {percent} %",
-      "restartToUpdate": "Redémarrer pour mettre à jour",
-      "restarting": "Redémarrage…",
-      "retryUpdate": "Réessayer la mise à jour",
-      "restartTitle": "Redémarrer Stella et installer la version {version}",
-      "restartingTitle": "Redémarrage de Stella pour installer la mise à jour",
-      "retryTitle": "Relancer la vérification des mises à jour",
-      "downloadTitle": "Télécharger Stella {version}",
-      "toasts": {
-        "downloadedTitle": "Mise à jour téléchargée",
-        "downloadedDescription": "Redémarrez Stella pour installer la version {version}.",
-        "checkingTitle": "Recherche de mises à jour",
-        "checkingDescription": "Stella vérifie le canal isolé desktop v2.",
-        "failedTitle": "Échec de la mise à jour de l’app"
-      }
-    },
     "appSource": {
       "update": "Mettre à jour",
       "title": "Modifications de Stella",

@@ -452,6 +452,7 @@
     "@siteed/audio-studio@3.2.0": "patches/@siteed%2Faudio-studio@3.2.0.patch",
     "react-native@0.86.3": "patches/react-native@0.86.3.patch",
     "react-native-nitro-markdown@0.6.2": "patches/react-native-nitro-markdown@0.6.2.patch",
+    "streamdown@2.7.0": "patches/streamdown@2.7.0.patch",
   },
   "overrides": {
     "axios": "^1.13.5",

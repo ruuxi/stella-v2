@@ -458,6 +458,7 @@
     "uiohook-napi"
   ],
   "patchedDependencies": {
-    "@siteed/audio-studio@3.2.0": "patches/@siteed%2Faudio-studio@3.2.0.patch"
+    "@siteed/audio-studio@3.2.0": "patches/@siteed%2Faudio-studio@3.2.0.patch",
+    "streamdown@2.7.0": "patches/streamdown@2.7.0.patch"
   }
 }

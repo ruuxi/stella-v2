@@ -65,18 +65,13 @@ describe("markdown render cache", () => {
 
   it("re-mounting a row reuses the parsed tree and renders identical markup", () => {
     const first = mountHtml(<Markdown text={REPLY} cacheKey="row-a" />);
-    // Streamdown re-renders after mount, so a single mount can already
-    // record hits; what matters is that only the first one parses.
-    const afterFirst = getMarkdownRenderCacheStats();
-    expect(afterFirst.misses).toBe(1);
+    expect(getMarkdownRenderCacheStats()).toMatchObject({ hits: 0, misses: 1 });
 
     // A virtualized row scrolling back in: fresh instance, same text.
     const second = mountHtml(<Markdown text={REPLY} cacheKey="row-a" />);
     const third = mountHtml(<Markdown text={REPLY} cacheKey="row-b" />);
 
-    const afterRemounts = getMarkdownRenderCacheStats();
-    expect(afterRemounts.misses).toBe(1);
-    expect(afterRemounts.hits).toBeGreaterThan(afterFirst.hits);
+    expect(getMarkdownRenderCacheStats()).toMatchObject({ hits: 2, misses: 1 });
     expect(second).toBe(first);
     expect(third).toBe(first);
     // Guard against a Streamdown call-shape change silently emptying rows.

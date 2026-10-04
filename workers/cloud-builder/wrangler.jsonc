@@ -492,12 +492,19 @@
         "MODEL_GATEWAY_URL": "https://stella-v2-model-gateway.lolruuxi.workers.dev",
         "CAPABILITY_SIGNING_KID": "builder-prod-1",
         "CLOUD_BUILDER_PUBLIC_URL": "https://stella-v2-cloud-builder-prod.lolruuxi.workers.dev",
+        "R2_S3_ENDPOINT": "https://f34b91c9c7dc22f0aef0ba855a9f026f.r2.cloudflarestorage.com",
+        "R2_DRIVE_BUCKET": "stella-v2-drive-prod",
+        "R2_MEDIA_BUCKET": "stella-v2-media-prod",
+        "R2_CANVAS_SHARES_BUCKET": "stella-canvas-shares",
+        "CANVAS_SHARE_BASE_URL": "https://stellashare.app",
       },
       "secrets": {
         "required": [
           "BUILDER_SERVICE_SECRET",
           "META_MODEL_API_KEY",
           "CAPABILITY_SIGNING_KEY",
+          "R2_ACCESS_KEY_ID",
+          "R2_SECRET_ACCESS_KEY",
         ],
       },
       "artifacts": [
@@ -551,6 +558,26 @@
         {
           "binding": "WORLDS_BUCKET",
           "bucket_name": "stella-v2-worlds-prod",
+        },
+        {
+          "binding": "DRIVE",
+          "bucket_name": "stella-v2-drive-prod",
+        },
+        {
+          "binding": "MEDIA",
+          "bucket_name": "stella-v2-media-prod",
+        },
+        {
+          "binding": "CANVAS_SHARES",
+          "bucket_name": "stella-canvas-shares",
+        },
+      ],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "stella-v2-prod",
+          "database_id": "31ae3f9c-ee5b-4ab7-b8ef-969e14a71366",
+          "migrations_dir": "migrations",
         },
       ],
       "kv_namespaces": [

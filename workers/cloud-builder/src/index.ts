@@ -1,3 +1,6 @@
+// @peculiar/x509 2.x (App Attest) runs tsyringe, which needs a Reflect polyfill
+// loaded before its lazily imported chunk evaluates.
+import "reflect-metadata";
 import { DurableObject } from "cloudflare:workers";
 import { worker } from "./build-session/worker-router.js";
 import type { Env } from "./build-session/shared/env.js";

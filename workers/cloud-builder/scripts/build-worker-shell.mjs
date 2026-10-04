@@ -43,7 +43,6 @@ const EXCLUDED_CHUNKS = [
   "js-exec",
   "curl",
   "html-to-markdown",
-  "undici",
 ];
 const EXCLUDED_CHUNK_PATTERN = new RegExp(
   `[/\\\\]chunks[/\\\\](${EXCLUDED_CHUNKS.join("|")})-[A-Z0-9]+\\.js$`,

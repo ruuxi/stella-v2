@@ -21,26 +21,27 @@
     "shell:bundle": "node scripts/build-worker-shell.mjs"
   },
   "dependencies": {
-    "@better-auth/expo": "1.6.11",
+    "@better-auth/expo": "1.7.7",
     "@breezystack/lamejs": "1.2.7",
-    "@cloudflare/codemode": "0.5.1",
+    "@cloudflare/codemode": "0.5.3",
     "@cloudflare/sandbox": "1.0.0",
-    "@cloudflare/worker-bundler": "^0.2.3",
-    "@peculiar/x509": "1.14.3",
-    "@sinclair/typebox": "0.34.49",
+    "@cloudflare/worker-bundler": "^0.2.5",
+    "@peculiar/x509": "2.1.0",
+    "@sinclair/typebox": "0.34.52",
     "@stella/contracts": "workspace:*",
     "@stella/executor-cloud": "workspace:*",
     "@stella/model-catalog": "workspace:*",
     "@stella/runtime": "workspace:*",
-    "better-auth": "1.6.11",
+    "better-auth": "1.7.7",
     "effect": "4.0.0",
-    "jose": "^6.2.3",
-    "just-bash": "3.4.2"
+    "jose": "^6.2.12",
+    "just-bash": "3.6.0",
+    "reflect-metadata": "0.2.2"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "5.20261001.1",
+    "@cloudflare/workers-types": "5.20261004.1",
     "bun": "1.4.2",
     "typescript": "^6.0.3",
-    "wrangler": "4.145.0"
+    "wrangler": "4.147.0"
   }
 }

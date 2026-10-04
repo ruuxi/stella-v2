@@ -452,7 +452,6 @@
     "electron-winstaller",
     "esbuild",
     "mac-screen-capture-permissions",
-    "msgpackr-extract",
     "protobufjs",
     "sharp",
     "sqlite3",

@@ -33,7 +33,7 @@
     "@stella/model-catalog": "workspace:*",
     "@stella/runtime": "workspace:*",
     "better-auth": "1.6.11",
-    "effect": "4.0.0-beta.83",
+    "effect": "4.0.0",
     "jose": "^6.2.3",
     "just-bash": "3.4.2"
   },

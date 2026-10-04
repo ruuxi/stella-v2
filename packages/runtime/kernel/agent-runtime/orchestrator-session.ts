@@ -215,6 +215,14 @@ export class OrchestratorSession extends PiSessionCore {
     refreshBlocked: boolean;
   } | null = null;
   private hasUnresolvedThreadPersistenceFailure = false;
+  /**
+   * The full thread this session's last cloud turn ran: the canonical rows
+   * plus the hidden prompt rows the journal does not keep. The next cloud
+   * turn reuses it while the journal holds nothing else (see
+   * `cloudThreadExtendingCanonical`).
+   */
+  cloudThread: NonNullable<OrchestratorRunOptions["agentContext"]["threadHistory"]> | null =
+    null;
   /** Cache tier and time of the latest provider request this session sent. */
   private lastPromptCacheRequest: PromptCacheRequest | null = null;
   /** Store and route of the latest turn, read while the session idles. */
@@ -1115,6 +1123,7 @@ export class OrchestratorSession extends PiSessionCore {
     this.currentRetryStatusContext = null;
     this.currentImageDescriptionContext = null;
     this.currentActiveWorkingSetContext = null;
+    this.cloudThread = null;
   }
 }
 

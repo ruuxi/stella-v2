@@ -675,7 +675,14 @@ export const bodyForUpstream = (
     ((provider === "meta" || provider === "xai" || provider === "openai") &&
       pathIsChatCompletions)
   ) {
+    // OpenRouter routes by `prompt_cache_key` to the replica that holds the
+    // conversation's prompt cache; without it every turn lands on a random
+    // replica and reads almost nothing from cache.
+    const promptCacheKey = body.prompt_cache_key;
     normalizeChatCompletionsBody(body);
+    if (provider === "openrouter" && typeof promptCacheKey === "string") {
+      body.prompt_cache_key = promptCacheKey;
+    }
     if (provider === "meta" || provider === "xai" || provider === "openai") {
       // Direct Meta/xAI chat completions accept top-level `reasoning_effort`.
       delete body.reasoning;

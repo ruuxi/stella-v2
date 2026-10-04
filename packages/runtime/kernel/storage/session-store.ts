@@ -14,6 +14,7 @@
 
 import { ThreadSummaryStore } from "../memory/thread-summary-store.js";
 import { normalizeRuntimeThreadId } from "../runtime-threads.js";
+import { customMessageContentText } from "../agent-runtime/resident-context.js";
 import {
   asFiniteNumber,
   asTrimmedString,
@@ -2049,6 +2050,28 @@ export class SessionStore {
   appendThreadCustomMessage(
     message: Parameters<ThreadLog["appendThreadCustomMessage"]>[0],
   ): void {
+    const threadKey = normalizeRuntimeThreadId(message.threadKey);
+    const capture = threadKey
+      ? this.ephemeralThreadCaptures.get(threadKey)
+      : undefined;
+    if (capture && threadKey && !message.eventId?.trim()) {
+      // A cloud-owned turn keeps its hidden prompt rows with the rest of its
+      // transcript in process memory. Keyed events (task lifecycle) stay
+      // durable so `hasThreadCustomEvent` still dedupes them.
+      capture.appendedMessages.push({
+        threadKey,
+        entryId: `ephemeral:${capture.captureId}:${capture.appendedMessages.length}`,
+        timestamp: message.timestamp,
+        role: "runtimeInternal",
+        content: customMessageContentText(message.content),
+        customMessage: {
+          customType: message.customType.trim(),
+          content: message.content,
+          display: message.display,
+        },
+      } as EphemeralThreadMessage);
+      return;
+    }
     this.threads.appendThreadCustomMessage(message);
   }
 

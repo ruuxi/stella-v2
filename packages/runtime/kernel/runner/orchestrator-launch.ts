@@ -28,6 +28,8 @@ import type {
   RuntimePromptMessage,
 } from "@stella/contracts/protocol";
 import type { PersistedRuntimeThreadPayload } from "../storage/shared.js";
+import { MESSAGE_REF_TAG_RE } from "@stella/contracts/reply-refs";
+import { createRuntimeLogger } from "../debug.js";
 import {
   CloudTranscriptAlreadyAdmittedError,
   type CloudTranscriptBeginAck,
@@ -109,6 +111,69 @@ export const buildCloudUserMessage = (
     message: { ...message, ...(executionContext ? { executionContext } : {}) },
     hidden,
   };
+};
+
+const logger = createRuntimeLogger("orchestrator-launch");
+
+export type CloudThread = NonNullable<LocalAgentContext["threadHistory"]>;
+
+/**
+ * A row's model-visible identity. The journal stamps user rows with their
+ * `message #N` tag when it reads them, so the tag is left out.
+ */
+const modelRowKey = (entry: CloudThread[number]): string | null => {
+  const payload = (entry as { payload?: PersistedRuntimeThreadPayload })
+    .payload;
+  if (
+    !payload ||
+    (payload.role !== "user" &&
+      payload.role !== "assistant" &&
+      payload.role !== "toolResult")
+  ) {
+    return null;
+  }
+  const untag = (text: string) => text.replace(MESSAGE_REF_TAG_RE, "").trimEnd();
+  const content =
+    payload.role !== "user"
+      ? payload.content
+      : typeof payload.content === "string"
+        ? untag(payload.content)
+        : payload.content.map((block) =>
+            block.type === "text" ? { ...block, text: untag(block.text) } : block,
+          );
+  return JSON.stringify([
+    payload.role,
+    content,
+    payload.role === "toolResult" ? payload.toolCallId : null,
+  ]);
+};
+
+/**
+ * The thread this device's last cloud turn ran, when the canonical window
+ * holds nothing else: the window's rows are exactly the last model-visible
+ * rows of that thread. Null when another writer (a device, an agent, voice)
+ * advanced the journal or the thread is unknown.
+ */
+export const cloudThreadExtendingCanonical = (
+  remembered: CloudThread | null,
+  canonical: CloudThread,
+): CloudThread | null => {
+  if (!remembered) return null;
+  const rows = (thread: CloudThread): string[] =>
+    thread
+      .map((entry: CloudThread[number]) => modelRowKey(entry))
+      .filter((key: string | null): key is string => key !== null);
+  const keptRows = rows(remembered);
+  const windowRows = rows(canonical);
+  if (windowRows.length === 0 || windowRows.length > keptRows.length) {
+    return null;
+  }
+  const offset = keptRows.length - windowRows.length;
+  return windowRows.every(
+    (key: string, index: number) => key === keptRows[offset + index],
+  )
+    ? remembered
+    : null;
 };
 
 export const parseCanonicalCloudHistory = (
@@ -376,6 +441,7 @@ export const launchPreparedOrchestratorRun = (args: {
     }
     let leaseToken: string | null = null;
     let ephemeralCaptureStarted = false;
+    let seededCloudThread: CloudThread = [];
     let deferredTerminal: DeferredTerminalCallback | null = null;
     let runError: unknown;
     const callbacks: RuntimeRunCallbacks = isCloudTurn
@@ -421,21 +487,40 @@ export const launchPreparedOrchestratorRun = (args: {
           });
         const seedCloudHistory = (window: CloudTranscriptHistory): void => {
           const canonicalHistory = parseCanonicalCloudHistory(window.history);
+          // While nothing but this device's own last turn reached the journal,
+          // keep the thread that turn ran, hidden prompt rows included, so the
+          // request extends the last one byte for byte and the cache holds.
+          const kept = cloudThreadExtendingCanonical(
+            orchestratorSession.cloudThread,
+            canonicalHistory,
+          );
+          const threadHistory = kept ?? canonicalHistory;
+          seededCloudThread = threadHistory;
           prepared.agentContext = {
             ...prepared.agentContext,
-            threadHistory: canonicalHistory,
+            threadHistory,
           };
           context.runtimeStore.beginEphemeralThreadCapture({
             threadKey: orchestratorSession.threadKey,
             captureId: prepared.runId,
-            seedMessages: canonicalHistory,
+            seedMessages: threadHistory,
           });
           ephemeralCaptureStarted = true;
-          // The same long-lived native session may previously have been seeded
-          // from local SQLite. Force its next turn to replace that state with
-          // the Durable Object's canonical history. External engines read the
-          // overwritten agentContext directly.
-          orchestratorSession.notifyHistoryChanged();
+          // Otherwise the long-lived native session may hold state from local
+          // SQLite or another device's turns are missing from it. Force its
+          // next turn to replace that state with the Durable Object's
+          // canonical history. External engines read the overwritten
+          // agentContext directly.
+          if (!kept) {
+            if (orchestratorSession.cloudThread) {
+              logger.info("cloud-thread.reseeded", {
+                conversationId: prepared.conversationId,
+                canonicalRows: canonicalHistory.length,
+                keptRows: orchestratorSession.cloudThread.length,
+              });
+            }
+            orchestratorSession.notifyHistoryChanged();
+          }
           // Claude Code and Codex otherwise resume their own locally persisted
           // CLI transcript and skip Stella's supplied history. A cloud turn must
           // instead seed a fresh CLI session from the Durable Object window.
@@ -577,24 +662,24 @@ export const launchPreparedOrchestratorRun = (args: {
     }
     if (isCloudTurn && leaseToken) {
       try {
-        const records = !ephemeralCaptureStarted
+        const captured = !ephemeralCaptureStarted
           ? []
-          : context.runtimeStore
-              .readEphemeralThreadCapture({
-                threadKey: orchestratorSession.threadKey,
-                captureId: prepared.runId,
-              })
-              .filter(
-                (message) =>
-                  message.payload !== undefined &&
-                  (message.payload.role === "assistant" ||
-                    message.payload.role === "toolResult"),
-              )
-              .map((message, ordinal) => ({
-                ordinal,
-                role: message.payload!.role as "assistant" | "toolResult",
-                payloadJson: JSON.stringify(message.payload),
-              }));
+          : context.runtimeStore.readEphemeralThreadCapture({
+              threadKey: orchestratorSession.threadKey,
+              captureId: prepared.runId,
+            });
+        const records = captured
+          .filter(
+            (message) =>
+              message.payload !== undefined &&
+              (message.payload.role === "assistant" ||
+                message.payload.role === "toolResult"),
+          )
+          .map((message, ordinal) => ({
+            ordinal,
+            role: message.payload!.role as "assistant" | "toolResult",
+            payloadJson: JSON.stringify(message.payload),
+          }));
         const reportCloudSyncFailure = (message: string): void => {
           args.runtimeCallbacks.onError({
             runId: prepared.runId,
@@ -622,6 +707,16 @@ export const launchPreparedOrchestratorRun = (args: {
             "This response finished on this device but was too large to sync to your cloud conversation.",
           );
         }
+        // Only a completed turn the journal accepted is a thread the next
+        // turn can extend; anything else reseeds from canonical history.
+        // `deferredTerminal` is assigned from the run's callbacks.
+        const terminal = deferredTerminal as DeferredTerminalCallback | null;
+        orchestratorSession.cloudThread =
+          finishStatus.queued &&
+          runError === undefined &&
+          (terminal === null || terminal.kind === "end")
+            ? [...seededCloudThread, ...captured]
+            : null;
         flushDeferredTerminal(args.runtimeCallbacks, deferredTerminal);
       } finally {
         if (ephemeralCaptureStarted) {

@@ -949,10 +949,15 @@ export function buildOpenAICompletionsParams(
     model: model.id,
     messages,
     stream: true,
+    // OpenRouter routes by `prompt_cache_key` to the replica holding the
+    // cache (Meta's Muse Spark caches only per replica); `x-session-id`
+    // alone does not pin it.
     prompt_cache_key:
       ((model.baseUrl.includes("api.openai.com") ||
         model.provider === "fireworks" ||
-        model.baseUrl.includes("fireworks.ai")) &&
+        model.baseUrl.includes("fireworks.ai") ||
+        model.provider === "openrouter" ||
+        model.baseUrl.includes("openrouter.ai")) &&
         cacheRetention !== "none") ||
       (cacheRetention === "long" && compat.supportsLongCacheRetention)
         ? promptCacheKey

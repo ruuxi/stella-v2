@@ -30,7 +30,7 @@ export { summarizeBundledSync as summarizeSkillsSync } from "./bundled-sync.js";
 const USER_PROFILE_SKILL_ID = "user-profile";
 const PLATFORM_SKILL_IDS: Partial<Record<NodeJS.Platform, readonly string[]>> =
   {
-    darwin: ["stella-computer-macos", "apple-reminders", "apple-notes"],
+    darwin: ["stella-computer-macos"],
     win32: ["stella-computer-windows"],
   };
 const PLATFORM_EXCLUSIVE_SKILL_IDS = new Set(

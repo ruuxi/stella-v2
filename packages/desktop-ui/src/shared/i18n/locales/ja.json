@@ -1988,14 +1988,206 @@
     "onboarding": {
       "skip": "スキップ",
       "skipLabel": "紹介をスキップ",
-      "welcomeTitle": "Stella をご紹介",
-      "welcomeBody": "何でも聞いて、じっくり相談して、実際の作業も任せられます。Stella はここで答え、あなたのコンピュータで操作もできます。",
-      "themeTitle": "自分好みに",
-      "themeBody": "テーマを選びましょう。設定でいつでも変更できます。",
-      "connectTitle": "どこにいてもあなたのコンピュータを",
-      "connectBodyGuest": "後でサインインしてコンピュータの Stella とペアリングすると、外出先の携帯からブラウズやファイル整理、タスク実行を頼めます。",
-      "connectBodyPaired": "Stella デスクトップアプリと一度ペアリングすれば、離れた場所からでも携帯でブラウズやファイル整理、タスク実行を頼めます。",
-      "startChatting": "チャットを始める"
+      "progressLabel": "ステップ {current}/{total}",
+      "composerPlaceholder": "または、気軽に何か聞いてください",
+      "send": "送信",
+      "messages": {
+        "hello": "こんにちは、Stellaです。\n\n私はチャットボットではありません。必要なことを伝えてもらえれば、あなたが一日を過ごしている間に、バックグラウンドで片づけます。",
+        "showcase": "こんなふうに動きます。",
+        "computer": "MacやPCがあれば、そちらでも作業できます。",
+        "account": "ここまでの内容を残しておきませんか？ Stellaアカウントなら、どのデバイスにもついていきます。",
+        "accountSignedIn": "サインイン済みなので、すべてのデバイスで引き継がれます。もうひとつ、任意のおまけがあります。",
+        "theme": "さて、私の見た目はどうしましょう？",
+        "ready": "以上です。使いながら、あなたのことを知っていきますね。\n\nまず何から始めましょうか？"
+      },
+      "replies": {
+        "helloDone": "見せて。",
+        "showcaseDone": "わかった。",
+        "computerDone": "接続できた！",
+        "computerSkipped": "あとで。",
+        "accountDone": "完了。",
+        "accountSkipped": "今はやめておく。",
+        "themeDone": "これにする。",
+        "themeSkipped": "デフォルトのままで。"
+      },
+      "hello": {
+        "cta": "見てみる",
+        "settledTitle": "Stellaのご紹介",
+        "pillars": {
+          "done": {
+            "title": "きちんとやり遂げる",
+            "body": "予約も注文もファイルも調べものも、代わりに済ませます。"
+          },
+          "background": {
+            "title": "バックグラウンドで動く",
+            "body": "任せたら、あとは自分の時間へ。終わったらお知らせします。"
+          },
+          "asks": {
+            "title": "大事な場面では確認する",
+            "body": "お金がかかることは、あなたのOKを待ちます。"
+          }
+        }
+      },
+      "showcase": {
+        "settledTitle": "かんたんツアー",
+        "replay": "デモをもう一度見る",
+        "tablist": "Stellaにできること",
+        "placeholder": "Stellaに聞く",
+        "chapters": {
+          "errands": {
+            "word": "用事",
+            "title": "一度頼めば、もう任せて安心。",
+            "caption": "サイトを開いて、必要事項を入力し、最後までやり遂げます。あなたがするのと同じように。",
+            "prompt": "金曜の20時に2人で席を予約して",
+            "working": "席を予約しています",
+            "receipt1": "Osteria Lucia · 金 20:00 · 2名",
+            "receipt2": "カレンダーに追加しました",
+            "reply": "Osteria Luciaの金曜20時を予約しました。カレンダーにも入れてあります。",
+            "scene": {
+              "site": "osterialucia.com",
+              "party": "人数",
+              "partyValue": "2名",
+              "date": "日付",
+              "dateValue": "金曜日",
+              "time": "時間",
+              "timeValue": "20:00",
+              "reserve": "予約",
+              "reserved": "予約済み"
+            }
+          },
+          "shopping": {
+            "word": "買い物",
+            "title": "あなたのOKがあれば、買い物もします。",
+            "caption": "商品を見つけて、レジの手前まで進めます。合計金額を承認してもらってから、注文を確定します。",
+            "prompt": "いつものランニングシューズをサイズ10でもう一度注文して",
+            "working": "シューズを探しています",
+            "amount": "$129.99",
+            "confirmTitle": "購入を確定しますか？",
+            "confirmDetail": "Trail Runner 2 · サイズ10",
+            "confirm": "確定",
+            "confirmed": "確定済み",
+            "receipt1": "注文 #48213 · 木曜に到着",
+            "reply": "注文しました。木曜に届きます。",
+            "scene": {
+              "site": "trailco.com",
+              "product": "Trail Runner 2",
+              "addToCart": "追加",
+              "inCart": "カート内"
+            }
+          },
+          "work": {
+            "word": "仕事",
+            "title": "本物のファイルを、仕上げます。",
+            "caption": "ドキュメント、表計算、スライド。作業を済ませて、開ける場所にファイルを保存します。",
+            "prompt": "Q3のメモを月曜用のスライドにまとめて",
+            "working": "メモを読んでいます",
+            "receipt1": "Q3のメモ · 読み込み済み",
+            "receipt2": "Q3レビュー資料 · 12枚",
+            "reply": "資料ができました。12枚で、ファイルに保存してあります。",
+            "scene": {
+              "file": "Q3レビュー.pptx",
+              "slideTitle": "Q3レビュー"
+            }
+          },
+          "routines": {
+            "word": "日課",
+            "title": "一度設定すれば、あとは続けます。",
+            "caption": "リマインダーや確認、毎日のブリーフを、決まった時間に自動で実行します。",
+            "prompt": "毎朝8時に、その日の予定をまとめて教えて",
+            "working": "設定しています",
+            "receipt1": "毎日 8:00",
+            "reply": "設定しました。最初のブリーフは明日の8時に届きます。",
+            "scene": {
+              "when": "明日 8:00",
+              "day": "明日",
+              "time": "8:00",
+              "now": "今",
+              "title": "今朝のブリーフ",
+              "body": "会議3件、17時以降は雨、そしてSamの誕生日です。"
+            }
+          },
+          "research": {
+            "word": "調査",
+            "title": "読むのは、私におまかせ。",
+            "caption": "選択肢を比べて、レビューを読み、答えを持ち帰ります。",
+            "prompt": "$2,000以下でいちばんいい電動アシスト自転車を探して",
+            "working": "レビューを読んでいます",
+            "receipt1": "レビュー24件を読み込み済み",
+            "receipt2": "比較表をファイルに保存しました",
+            "reply": "Cityline 3です。フレームが最軽量で、ブレーキも最高、$1,799です。",
+            "scene": {
+              "title": "電動アシスト自転車を比較中",
+              "source1": "専門家のレビュー",
+              "source2": "オーナーの掲示板",
+              "source3": "スペック表",
+              "rank1": "Cityline 3",
+              "rank2": "Metro S",
+              "rank3": "Urban X"
+            }
+          }
+        }
+      },
+      "computer": {
+        "title": "あなたのコンピューターを、ポケットから",
+        "body": "このスマートフォンをコンピューターのStellaとペアリングすれば、外出中でもそちらで作業を進められます。",
+        "point1": "ファイルを探して送る",
+        "point2": "書き出しやダウンロードを仕上げる",
+        "point3": "お使いのアプリをそのまま使う",
+        "pair": "コンピューターをペアリング",
+        "signInToPair": "サインインしてペアリング",
+        "later": "あとで",
+        "hint": "コンピューターでStellaを開き、「スマートフォンをペアリング」を選んでください。",
+        "guestHint": "ペアリングは Stella アカウントに紐づくため、先にサインインしてください。ここから続きを再開します。",
+        "connectedTo": "{name} に接続しました",
+        "connectedBody": "どこからでも頼んでください。作業はコンピューターで行います。",
+        "settledConnectedDesc": "スマートフォンから、そちらで作業を実行できます。",
+        "settledSkippedTitle": "コンピューターは未接続",
+        "settledSkippedDesc": "設定からいつでもペアリングできます。"
+      },
+      "account": {
+        "signInTitle": "Stellaにサインイン",
+        "signInBody": "会話、設定、接続したコンピューターを、すべてのデバイスで引き継げます。",
+        "signIn": "サインイン",
+        "subscriptionsLabel": "任意",
+        "subscriptionsBody": "ClaudeやChatGPTをすでに契約していますか？ 接続すれば、クラウドでの作業に使わせてもらいます。",
+        "claudeDesc": "ProまたはMax、Claude Code経由",
+        "chatgptDesc": "PlusまたはPro、Codex経由",
+        "connect": "接続",
+        "connectLabel": "{name} を接続",
+        "connectedAs": "接続済み · {name}",
+        "skip": "今はスキップ",
+        "settledSignedIn": "サインイン済み",
+        "settledGuest": "ゲストとしてStellaを使用中",
+        "guestSettled": "設定からいつでもサインインできます"
+      },
+      "theme": {
+        "appearance": "外観",
+        "themes": "テーマ",
+        "confirm": "完了",
+        "reset": "デフォルトのまま"
+      },
+      "ready": {
+        "startersLabel": "こんなことから試してみてください",
+        "start": "チャットを始める",
+        "starters": {
+          "plan": {
+            "title": "今週の計画を立てる",
+            "prompt": "これからの予定に合わせて、今週の計画を立てるのを手伝って。"
+          },
+          "gift": {
+            "title": "ギフトを探す",
+            "prompt": "友達への誕生日プレゼントを、$50以下で心のこもったものから探して。"
+          },
+          "remind": {
+            "title": "リマインダーを設定",
+            "prompt": "日曜の18時に、お母さんに電話するよう知らせて。"
+          },
+          "explain": {
+            "title": "何かを説明してもらう",
+            "prompt": "複利のしくみを、やさしく説明して。"
+          }
+        }
+      }
     },
     "login": {
       "heroTitle": "あなたのアシスタントを、\nポケットに。",

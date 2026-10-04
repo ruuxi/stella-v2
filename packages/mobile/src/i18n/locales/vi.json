@@ -1936,14 +1936,206 @@
     "onboarding": {
       "skip": "Bỏ qua",
       "skipLabel": "Bỏ qua phần giới thiệu",
-      "welcomeTitle": "Làm quen với Stella",
-      "welcomeBody": "Hỏi bất cứ điều gì, trao đổi thoải mái hoặc giao việc thật — Stella trả lời ở đây và có thể thao tác trên máy tính của bạn.",
-      "themeTitle": "Theo phong cách của bạn",
-      "themeBody": "Chọn một chủ đề. Bạn có thể đổi bất cứ lúc nào trong Cài đặt.",
-      "connectTitle": "Máy tính của bạn, ở bất cứ đâu",
-      "connectBodyGuest": "Đăng nhập sau để ghép nối Stella trên máy tính — rồi nhờ điện thoại duyệt web, quản lý tệp và chạy tác vụ ở nhà.",
-      "connectBodyPaired": "Ghép nối một lần với ứng dụng Stella trên máy tính, rồi điện thoại có thể nhờ nó duyệt web, quản lý tệp và chạy tác vụ — kể cả khi bạn ở xa.",
-      "startChatting": "Bắt đầu trò chuyện"
+      "progressLabel": "Bước {current}/{total}",
+      "composerPlaceholder": "Hoặc cứ hỏi mình bất cứ điều gì",
+      "send": "Gửi",
+      "messages": {
+        "hello": "Xin chào, mình là Stella.\n\nMình không phải chatbot. Cứ nói bạn cần gì, mình sẽ lo xong ở chế độ nền, trong lúc bạn tiếp tục ngày của mình.",
+        "showcase": "Đây là cách mọi thứ diễn ra.",
+        "computer": "Nếu bạn có Mac hoặc PC, mình cũng làm việc được trên đó.",
+        "account": "Muốn giữ lại tất cả những điều này? Tài khoản Stella sẽ đi cùng bạn trên mọi thiết bị.",
+        "accountSignedIn": "Bạn đã đăng nhập, nên mọi thứ sẽ đi cùng bạn giữa các thiết bị. Còn một tùy chọn nữa:",
+        "theme": "Giờ thì, mình nên trông như thế nào?",
+        "ready": "Xong rồi. Mình sẽ dần hiểu bạn hơn trong lúc dùng.\n\nMình làm gì đầu tiên nhé?"
+      },
+      "replies": {
+        "helloDone": "Cho mình xem.",
+        "showcaseDone": "Hiểu rồi.",
+        "computerDone": "Đã kết nối!",
+        "computerSkipped": "Để sau nhé.",
+        "accountDone": "Xong rồi.",
+        "accountSkipped": "Bỏ qua lúc này.",
+        "themeDone": "Chọn cái này.",
+        "themeSkipped": "Giữ mặc định."
+      },
+      "hello": {
+        "cta": "Cho mình xem",
+        "settledTitle": "Làm quen với Stella",
+        "pillars": {
+          "done": {
+            "title": "Làm xong việc",
+            "body": "Đặt chỗ, đặt hàng, tệp và nghiên cứu, hoàn tất giúp bạn."
+          },
+          "background": {
+            "title": "Làm việc ở chế độ nền",
+            "body": "Giao việc rồi cứ tiếp tục. Xong là mình báo bạn."
+          },
+          "asks": {
+            "title": "Hỏi trước khi quan trọng",
+            "body": "Mọi khoản chi tiền đều chờ bạn đồng ý."
+          }
+        }
+      },
+      "showcase": {
+        "settledTitle": "Tham quan nhanh",
+        "replay": "Xem lại bản demo",
+        "tablist": "Stella có thể làm gì",
+        "placeholder": "Hỏi Stella",
+        "chapters": {
+          "errands": {
+            "word": "Việc vặt",
+            "title": "Nhờ một lần. Coi như xong.",
+            "caption": "Mình mở trang web, điền thông tin và làm xong việc, đúng như bạn vẫn làm.",
+            "prompt": "Đặt bàn cho 2 người tối thứ Sáu lúc 20:00",
+            "working": "Đang đặt bàn",
+            "receipt1": "Osteria Lucia · T6 20:00 · 2 người",
+            "receipt2": "Đã thêm vào lịch của bạn",
+            "reply": "Đã đặt Osteria Lucia lúc 20:00 thứ Sáu. Mình đã thêm vào lịch của bạn.",
+            "scene": {
+              "site": "osterialucia.com",
+              "party": "Số người",
+              "partyValue": "2 người",
+              "date": "Ngày",
+              "dateValue": "Thứ Sáu",
+              "time": "Giờ",
+              "timeValue": "20:00",
+              "reserve": "Đặt chỗ",
+              "reserved": "Đã đặt"
+            }
+          },
+          "shopping": {
+            "word": "Mua sắm",
+            "title": "Mình mua hàng được, khi bạn đồng ý.",
+            "caption": "Mình tìm món đồ và đưa tới bước thanh toán. Bạn duyệt tổng tiền, rồi mình đặt hàng.",
+            "prompt": "Đặt lại đôi giày chạy bộ của mình, cỡ 10",
+            "working": "Đang tìm giày của bạn",
+            "amount": "129,99 $",
+            "confirmTitle": "Xác nhận mua?",
+            "confirmDetail": "Trail Runner 2 · cỡ 10",
+            "confirm": "Xác nhận",
+            "confirmed": "Đã xác nhận",
+            "receipt1": "Order #48213 · giao thứ Năm",
+            "reply": "Đã đặt hàng. Thứ Năm là giày tới.",
+            "scene": {
+              "site": "trailco.com",
+              "product": "Trail Runner 2",
+              "addToCart": "Thêm vào giỏ",
+              "inCart": "Trong giỏ"
+            }
+          },
+          "work": {
+            "word": "Công việc",
+            "title": "Tệp thật, làm xong.",
+            "caption": "Tài liệu, bảng tính và bài thuyết trình: mình làm việc và lưu tệp ở nơi bạn mở được.",
+            "prompt": "Biến ghi chú Q3 của mình thành bài thuyết trình cho thứ Hai",
+            "working": "Đang đọc ghi chú của bạn",
+            "receipt1": "Ghi chú Q3 · đã đọc",
+            "receipt2": "Bài thuyết trình đánh giá Q3 · 12 slide",
+            "reply": "Bài thuyết trình của bạn đã xong: 12 slide, lưu trong Tệp.",
+            "scene": {
+              "file": "Đánh giá Q3.pptx",
+              "slideTitle": "Đánh giá Q3"
+            }
+          },
+          "routines": {
+            "word": "Định kỳ",
+            "title": "Đặt một lần. Mình lo tiếp.",
+            "caption": "Lời nhắc, kiểm tra định kỳ và bản tin hằng ngày tự chạy theo lịch riêng.",
+            "prompt": "Mỗi sáng lúc 8 giờ, tóm tắt ngày hôm nay cho mình",
+            "working": "Đang thiết lập",
+            "receipt1": "Mỗi ngày lúc 08:00",
+            "reply": "Xong rồi. Bản tin đầu tiên sẽ đến vào 8 giờ sáng mai.",
+            "scene": {
+              "when": "Ngày mai, 08:00",
+              "day": "Ngày mai",
+              "time": "8:00",
+              "now": "bây giờ",
+              "title": "Bản tin buổi sáng",
+              "body": "3 cuộc họp, mưa sau 17:00 và hôm nay là sinh nhật của Sam."
+            }
+          },
+          "research": {
+            "word": "Nghiên cứu",
+            "title": "Việc đọc để mình lo.",
+            "caption": "Mình so sánh các lựa chọn, đọc đánh giá rồi quay lại với câu trả lời.",
+            "prompt": "Tìm chiếc xe đạp điện tốt nhất dưới 2.000 $",
+            "working": "Đang đọc đánh giá",
+            "receipt1": "Đã đọc 24 đánh giá",
+            "receipt2": "Bản so sánh đã lưu vào Tệp",
+            "reply": "Cityline 3: khung nhẹ nhất, phanh tốt nhất, 1.799 $.",
+            "scene": {
+              "title": "So sánh xe đạp điện",
+              "source1": "Đánh giá chuyên gia",
+              "source2": "Diễn đàn người dùng",
+              "source3": "Bảng thông số",
+              "rank1": "Cityline 3",
+              "rank2": "Metro S",
+              "rank3": "Urban X"
+            }
+          }
+        }
+      },
+      "computer": {
+        "title": "Máy tính của bạn, ngay trong túi",
+        "body": "Ghép nối điện thoại này với Stella trên máy tính, rồi mình có thể chạy tác vụ ở đó khi bạn ra ngoài.",
+        "point1": "Tìm một tệp và gửi cho bạn",
+        "point2": "Hoàn tất một lần xuất hoặc tải xuống",
+        "point3": "Dùng các ứng dụng bạn đã có",
+        "pair": "Ghép nối máy tính",
+        "signInToPair": "Đăng nhập để ghép nối",
+        "later": "Để sau",
+        "hint": "Trên máy tính, mở Stella và chọn Ghép nối điện thoại.",
+        "guestHint": "Việc ghép nối gắn với tài khoản Stella của bạn, nên hãy đăng nhập trước. Mình sẽ tiếp tục ngay tại đây.",
+        "connectedTo": "Đã kết nối với {name}",
+        "connectedBody": "Cứ nhờ từ bất cứ đâu, mình sẽ làm việc trên máy tính của bạn.",
+        "settledConnectedDesc": "Mình có thể chạy tác vụ ở đó từ điện thoại của bạn.",
+        "settledSkippedTitle": "Chưa có máy tính",
+        "settledSkippedDesc": "Bạn có thể ghép nối bất cứ lúc nào trong Cài đặt."
+      },
+      "account": {
+        "signInTitle": "Đăng nhập vào Stella",
+        "signInBody": "Giữ cuộc trò chuyện, cài đặt và máy tính đã kết nối của bạn trên mọi thiết bị.",
+        "signIn": "Đăng nhập",
+        "subscriptionsLabel": "Tùy chọn",
+        "subscriptionsBody": "Bạn đã trả tiền cho Claude hoặc ChatGPT? Hãy kết nối, mình sẽ dùng nó cho công việc trên đám mây.",
+        "claudeDesc": "Pro hoặc Max, qua Claude Code",
+        "chatgptDesc": "Plus hoặc Pro, qua Codex",
+        "connect": "Kết nối",
+        "connectLabel": "Kết nối {name}",
+        "connectedAs": "Đã kết nối · {name}",
+        "skip": "Bỏ qua lúc này",
+        "settledSignedIn": "Đã đăng nhập",
+        "settledGuest": "Đang dùng Stella với tư cách khách",
+        "guestSettled": "Đăng nhập bất cứ lúc nào trong Cài đặt"
+      },
+      "theme": {
+        "appearance": "Giao diện",
+        "themes": "Chủ đề",
+        "confirm": "Xong",
+        "reset": "Giữ mặc định"
+      },
+      "ready": {
+        "startersLabel": "Thử một trong những gợi ý này",
+        "start": "Bắt đầu trò chuyện",
+        "starters": {
+          "plan": {
+            "title": "Lên kế hoạch tuần",
+            "prompt": "Giúp mình lên kế hoạch cho tuần này dựa trên những việc sắp tới."
+          },
+          "gift": {
+            "title": "Tìm quà",
+            "prompt": "Tìm một món quà sinh nhật chu đáo cho bạn mình, dưới 50 $."
+          },
+          "remind": {
+            "title": "Đặt lời nhắc",
+            "prompt": "Nhắc mình gọi cho mẹ vào Chủ nhật lúc 6 giờ chiều."
+          },
+          "explain": {
+            "title": "Giải thích điều gì đó",
+            "prompt": "Giải thích đơn giản lãi kép hoạt động thế nào."
+          }
+        }
+      }
     },
     "login": {
       "heroTitle": "Trợ lý của bạn,\ngọn trong túi.",

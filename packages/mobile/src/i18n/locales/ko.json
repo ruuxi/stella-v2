@@ -1936,14 +1936,206 @@
     "onboarding": {
       "skip": "건너뛰기",
       "skipLabel": "소개 건너뛰기",
-      "welcomeTitle": "Stella를 만나보세요",
-      "welcomeBody": "무엇이든 묻고, 함께 이야기하고, 실제 작업까지 맡겨 보세요. Stella는 여기서 답하고 컴퓨터에서 직접 처리할 수도 있습니다.",
-      "themeTitle": "나만의 스타일로",
-      "themeBody": "테마를 선택하세요. 설정에서 언제든 바꿀 수 있습니다.",
-      "connectTitle": "어디서나 내 컴퓨터를",
-      "connectBodyGuest": "나중에 로그인해 컴퓨터의 Stella와 페어링하면, 휴대폰으로 웹 탐색과 파일 관리, 작업 실행을 집에 있는 컴퓨터에 맡길 수 있습니다.",
-      "connectBodyPaired": "Stella 데스크톱 앱과 한 번만 페어링하면, 멀리 있어도 휴대폰으로 웹 탐색과 파일 관리, 작업 실행을 맡길 수 있습니다.",
-      "startChatting": "채팅 시작"
+      "progressLabel": "{total}단계 중 {current}단계",
+      "composerPlaceholder": "아니면 그냥 물어보세요",
+      "send": "보내기",
+      "messages": {
+        "hello": "안녕하세요, Stella예요.\n\n저는 챗봇이 아니에요. 필요한 걸 말씀해 주세요. 하루를 보내시는 동안 백그라운드에서 해낼게요.",
+        "showcase": "이런 식으로 일해요.",
+        "computer": "Mac이나 PC가 있다면 거기서도 일할 수 있어요.",
+        "account": "이 모든 걸 간직하고 싶으세요? Stella 계정이 있으면 모든 기기에서 이어져요.",
+        "accountSignedIn": "로그인되어 있어서 모든 게 기기 간에 이어져요. 선택 사항이 하나 더 있어요.",
+        "theme": "이제, 제 모습은 어떻게 할까요?",
+        "ready": "이제 끝났어요. 함께하면서 차차 알아갈게요.\n\n먼저 뭘 해 볼까요?"
+      },
+      "replies": {
+        "helloDone": "보여 주세요.",
+        "showcaseDone": "알겠어요.",
+        "computerDone": "연결했어요!",
+        "computerSkipped": "나중에요.",
+        "accountDone": "준비 완료.",
+        "accountSkipped": "나중에 할게요.",
+        "themeDone": "이걸로 할게요.",
+        "themeSkipped": "기본으로 둘게요."
+      },
+      "hello": {
+        "cta": "보여 주세요",
+        "settledTitle": "Stella를 만나 보세요",
+        "pillars": {
+          "done": {
+            "title": "일을 끝내줘요",
+            "body": "예약, 주문, 파일, 리서치까지 대신 끝내 드려요."
+          },
+          "background": {
+            "title": "백그라운드에서 일해요",
+            "body": "맡겨 두고 하던 일을 계속하세요. 끝나면 알려 드릴게요."
+          },
+          "asks": {
+            "title": "중요할 땐 먼저 물어봐요",
+            "body": "돈이 드는 일은 승인을 기다려요."
+          }
+        }
+      },
+      "showcase": {
+        "settledTitle": "간단히 둘러보기",
+        "replay": "데모 다시 보기",
+        "tablist": "Stella가 할 수 있는 일",
+        "placeholder": "Stella에게 물어보세요",
+        "chapters": {
+          "errands": {
+            "word": "심부름",
+            "title": "한 번만 말하세요. 끝난 걸로 치세요.",
+            "caption": "직접 하듯이 사이트를 열고, 정보를 채우고, 일을 끝내요.",
+            "prompt": "금요일 저녁 8시에 2명 자리 예약해 줘",
+            "working": "자리 예약 중",
+            "receipt1": "Osteria Lucia · 금요일 오후 8:00 · 2명",
+            "receipt2": "캘린더에 추가됨",
+            "reply": "금요일 오후 8시에 Osteria Lucia 예약했어요. 캘린더에도 넣어 뒀어요.",
+            "scene": {
+              "site": "osterialucia.com",
+              "party": "인원",
+              "partyValue": "2명",
+              "date": "날짜",
+              "dateValue": "금요일",
+              "time": "시간",
+              "timeValue": "오후 8:00",
+              "reserve": "예약",
+              "reserved": "예약됨"
+            }
+          },
+          "shopping": {
+            "word": "쇼핑",
+            "title": "사는 것도 해요, 승인하시면요.",
+            "caption": "상품을 찾아 결제 단계까지 가져가요. 총액을 승인하시면 제가 주문할게요.",
+            "prompt": "러닝화 사이즈 10으로 다시 주문해 줘",
+            "working": "러닝화 찾는 중",
+            "amount": "$129.99",
+            "confirmTitle": "구매할까요?",
+            "confirmDetail": "Trail Runner 2 · 사이즈 10",
+            "confirm": "확인",
+            "confirmed": "확인됨",
+            "receipt1": "주문 #48213 · 목요일 도착",
+            "reply": "주문했어요. 목요일에 도착해요.",
+            "scene": {
+              "site": "trailco.com",
+              "product": "Trail Runner 2",
+              "addToCart": "담기",
+              "inCart": "담김"
+            }
+          },
+          "work": {
+            "word": "업무",
+            "title": "진짜 파일을, 끝까지.",
+            "caption": "문서, 스프레드시트, 슬라이드까지. 제가 작업해서 바로 열 수 있는 곳에 저장해요.",
+            "prompt": "내 Q3 노트로 월요일 발표 자료 만들어 줘",
+            "working": "노트 읽는 중",
+            "receipt1": "Q3 노트 · 읽음",
+            "receipt2": "Q3 리뷰 발표 자료 · 슬라이드 12장",
+            "reply": "발표 자료가 준비됐어요. 슬라이드 12장이고, 파일에 저장해 뒀어요.",
+            "scene": {
+              "file": "Q3 리뷰.pptx",
+              "slideTitle": "Q3 리뷰"
+            }
+          },
+          "routines": {
+            "word": "루틴",
+            "title": "한 번 정해 두면, 계속 해요.",
+            "caption": "알림, 안부 확인, 매일 브리핑까지 정해진 시간에 알아서 실행돼요.",
+            "prompt": "매일 아침 8시에 오늘 일정 브리핑해 줘",
+            "working": "설정하는 중",
+            "receipt1": "매일 오전 8:00",
+            "reply": "완료했어요. 첫 브리핑은 내일 오전 8시에 도착해요.",
+            "scene": {
+              "when": "내일, 오전 8:00",
+              "day": "내일",
+              "time": "8:00",
+              "now": "지금",
+              "title": "아침 브리핑",
+              "body": "회의 3건, 5시 이후 비, 그리고 Sam의 생일이에요."
+            }
+          },
+          "research": {
+            "word": "리서치",
+            "title": "읽는 건 제가 할게요.",
+            "caption": "선택지를 비교하고 후기를 읽은 뒤, 답을 가지고 돌아와요.",
+            "prompt": "$2,000 이하 최고의 전기자전거 찾아 줘",
+            "working": "후기 읽는 중",
+            "receipt1": "후기 24개 읽음",
+            "receipt2": "비교 자료를 파일에 저장함",
+            "reply": "Cityline 3요. 가장 가벼운 프레임에 최고의 브레이크, $1,799예요.",
+            "scene": {
+              "title": "전기자전거 비교 중",
+              "source1": "전문가 리뷰",
+              "source2": "사용자 포럼",
+              "source3": "스펙 시트",
+              "rank1": "Cityline 3",
+              "rank2": "Metro S",
+              "rank3": "Urban X"
+            }
+          }
+        }
+      },
+      "computer": {
+        "title": "주머니 속의 내 컴퓨터",
+        "body": "이 휴대폰을 컴퓨터의 Stella와 페어링하면, 외출 중에도 제가 거기서 작업을 실행할 수 있어요.",
+        "point1": "파일을 찾아서 보내 드려요",
+        "point2": "내보내기나 다운로드를 마무리해요",
+        "point3": "이미 쓰는 앱을 그대로 써요",
+        "pair": "내 컴퓨터 페어링",
+        "signInToPair": "로그인하고 페어링",
+        "later": "나중에",
+        "hint": "컴퓨터에서 Stella를 열고 '휴대폰 페어링'을 선택하세요.",
+        "guestHint": "페어링은 Stella 계정에 연결되므로 먼저 로그인하세요. 바로 여기서 이어갈게요.",
+        "connectedTo": "{name}에 연결됨",
+        "connectedBody": "어디서든 말씀만 하세요. 컴퓨터에서 제가 작업할게요.",
+        "settledConnectedDesc": "휴대폰에서 거기에 작업을 시킬 수 있어요.",
+        "settledSkippedTitle": "아직 컴퓨터 없음",
+        "settledSkippedDesc": "설정에서 언제든 페어링할 수 있어요."
+      },
+      "account": {
+        "signInTitle": "Stella에 로그인",
+        "signInBody": "대화, 설정, 연결된 컴퓨터를 모든 기기에서 그대로 이어 가세요.",
+        "signIn": "로그인",
+        "subscriptionsLabel": "선택 사항",
+        "subscriptionsBody": "이미 Claude나 ChatGPT를 쓰고 계세요? 연결하면 클라우드 작업에 사용할게요.",
+        "claudeDesc": "Claude Code를 통한 Pro 또는 Max",
+        "chatgptDesc": "Codex를 통한 Plus 또는 Pro",
+        "connect": "연결",
+        "connectLabel": "{name} 연결",
+        "connectedAs": "연결됨 · {name}",
+        "skip": "나중에 하기",
+        "settledSignedIn": "로그인됨",
+        "settledGuest": "게스트로 Stella 사용 중",
+        "guestSettled": "설정에서 언제든 로그인할 수 있어요"
+      },
+      "theme": {
+        "appearance": "모양",
+        "themes": "테마",
+        "confirm": "완료",
+        "reset": "기본값 유지"
+      },
+      "ready": {
+        "startersLabel": "이 중에서 골라 보세요",
+        "start": "채팅 시작",
+        "starters": {
+          "plan": {
+            "title": "한 주 계획하기",
+            "prompt": "다가오는 일정에 맞춰 이번 주 계획을 세워 줘."
+          },
+          "gift": {
+            "title": "선물 찾기",
+            "prompt": "친구 생일 선물로 $50 이하의 정성 어린 걸 찾아 줘."
+          },
+          "remind": {
+            "title": "알림 설정",
+            "prompt": "일요일 6시에 엄마한테 전화하라고 알려 줘."
+          },
+          "explain": {
+            "title": "설명 듣기",
+            "prompt": "복리가 어떻게 작동하는지 쉽게 설명해 줘."
+          }
+        }
+      }
     },
     "login": {
       "heroTitle": "당신의 어시스턴트,\n주머니 속에.",

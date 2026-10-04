@@ -1958,14 +1958,206 @@
     "onboarding": {
       "skip": "Atla",
       "skipLabel": "Tanıtımı atla",
-      "welcomeTitle": "Stella ile tanışın",
-      "welcomeBody": "İstediğinizi sorun, konuyu birlikte düşünün ya da gerçek işleri devredin — Stella burada yanıt verir ve bilgisayarınızda işlem yapabilir.",
-      "themeTitle": "Size özel yapın",
-      "themeBody": "Bir tema seçin. İstediğiniz zaman Ayarlar'dan değiştirebilirsiniz.",
-      "connectTitle": "Bilgisayarınız, her yerde",
-      "connectBodyGuest": "Stella'yı bilgisayarınızla eşleştirmek için daha sonra giriş yapın — sonra telefonunuzdan web'de gezinmesini, dosyaları yönetmesini ve evdeki görevleri çalıştırmasını isteyebilirsiniz.",
-      "connectBodyPaired": "Stella masaüstü uygulamasıyla bir kez eşleştirin; telefonunuz ondan web'de gezinmesini, dosyaları yönetmesini ve görevleri çalıştırmasını isteyebilir — şehrin öbür ucundan bile.",
-      "startChatting": "Sohbete başla"
+      "progressLabel": "Adım {current} / {total}",
+      "composerPlaceholder": "Ya da bana bir şey sorun",
+      "send": "Gönder",
+      "messages": {
+        "hello": "Merhaba, ben Stella.\n\nSohbet botu değilim. Neye ihtiyacınız olduğunu söyleyin, siz gününüze devam ederken ben arka planda hallederim.",
+        "showcase": "İşte nasıl göründüğü.",
+        "computer": "Bir Mac'iniz ya da PC'niz varsa onda da çalışabilirim.",
+        "account": "Bunların hepsini saklamak ister misiniz? Bir Stella hesabı sizinle her cihaza gelir.",
+        "accountSignedIn": "Giriş yaptınız, yani her şey cihazlar arasında sizinle birlikte. İsteğe bağlı bir ekstra daha:",
+        "theme": "Şimdi, nasıl görünmemi istersiniz?",
+        "ready": "Hepsi bu. Zamanla sizi tanıyacağım.\n\nİlk olarak ne yapalım?"
+      },
+      "replies": {
+        "helloDone": "Göster.",
+        "showcaseDone": "Anladım.",
+        "computerDone": "Bağlandı!",
+        "computerSkipped": "Belki sonra.",
+        "accountDone": "Tamam.",
+        "accountSkipped": "Şimdilik geç.",
+        "themeDone": "Bu olsun.",
+        "themeSkipped": "Varsayılan kalsın."
+      },
+      "hello": {
+        "cta": "Göster",
+        "settledTitle": "Stella ile tanışın",
+        "pillars": {
+          "done": {
+            "title": "İşleri halleder",
+            "body": "Rezervasyonlar, siparişler, dosyalar ve araştırmalar, sizin için tamamlanır."
+          },
+          "background": {
+            "title": "Arka planda çalışır",
+            "body": "Bir işi devredin ve devam edin. Bitince size haber veririm."
+          },
+          "asks": {
+            "title": "Önemli olmadan sorar",
+            "body": "Para harcayan her şey onayınızı bekler."
+          }
+        }
+      },
+      "showcase": {
+        "settledTitle": "Hızlı tur",
+        "replay": "Demoyu yeniden oynat",
+        "tablist": "Stella neler yapabilir",
+        "placeholder": "Stella'ya sor",
+        "chapters": {
+          "errands": {
+            "word": "İşler",
+            "title": "Bir kez söyleyin. Halloldu sayın.",
+            "caption": "Siteyi açar, bilgileri doldurur ve işi sizin gibi sonuna kadar götürürüm.",
+            "prompt": "Cuma akşamı 20:00 için iki kişilik masa ayırt",
+            "working": "Masa ayırtılıyor",
+            "receipt1": "Osteria Lucia · Cum 20:00 · 2 kişi",
+            "receipt2": "Takviminize eklendi",
+            "reply": "Osteria Lucia'da cuma 20:00 için masa ayırttım. Takviminizde.",
+            "scene": {
+              "site": "osterialucia.com",
+              "party": "Kişi",
+              "partyValue": "2 kişi",
+              "date": "Tarih",
+              "dateValue": "Cuma",
+              "time": "Saat",
+              "timeValue": "20:00",
+              "reserve": "Ayırt",
+              "reserved": "Ayrıldı"
+            }
+          },
+          "shopping": {
+            "word": "Alışveriş",
+            "title": "Satın alabilirim, onayınızla.",
+            "caption": "Ürünü bulur, ödeme adımına getiririm. Toplamı siz onaylarsınız, siparişi ben veririm.",
+            "prompt": "Koşu ayakkabılarımı tekrar sipariş et, 10 numara",
+            "working": "Ayakkabılarınız bulunuyor",
+            "amount": "$129,99",
+            "confirmTitle": "Satın alma onaylansın mı?",
+            "confirmDetail": "Trail Runner 2 · 10 numara",
+            "confirm": "Onayla",
+            "confirmed": "Onaylandı",
+            "receipt1": "Order #48213 · perşembe günü gelir",
+            "reply": "Sipariş verildi. Perşembe günü elinizde.",
+            "scene": {
+              "site": "trailco.com",
+              "product": "Trail Runner 2",
+              "addToCart": "Sepete ekle",
+              "inCart": "Sepette"
+            }
+          },
+          "work": {
+            "word": "İş",
+            "title": "Gerçek dosyalar, tamamlanmış.",
+            "caption": "Belgeler, tablolar ve sunumlar: işi ben yaparım, dosyayı açabileceğiniz yere kaydederim.",
+            "prompt": "Q3 notlarımı pazartesi için bir sunuma dönüştür",
+            "working": "Notlarınız okunuyor",
+            "receipt1": "Q3 notları · okundu",
+            "receipt2": "Q3 değerlendirme sunumu · 12 slayt",
+            "reply": "Sunumunuz hazır: 12 slayt, Dosyalar'a kaydedildi.",
+            "scene": {
+              "file": "Q3 değerlendirme.pptx",
+              "slideTitle": "Q3 Değerlendirme"
+            }
+          },
+          "routines": {
+            "word": "Rutinler",
+            "title": "Bir kez kurun. Ben sürdürürüm.",
+            "caption": "Kendi programıyla çalışan hatırlatıcılar, yoklamalar ve günlük özetler.",
+            "prompt": "Her sabah 8'de günümü özetle",
+            "working": "Ayarlanıyor",
+            "receipt1": "Her gün 08:00",
+            "reply": "Tamam. İlk özetiniz yarın sabah 8'de geliyor.",
+            "scene": {
+              "when": "Yarın, 08:00",
+              "day": "Yarın",
+              "time": "8:00",
+              "now": "şimdi",
+              "title": "Sabah özetiniz",
+              "body": "3 toplantı, 17:00'den sonra yağmur ve bugün Sam'in doğum günü."
+            }
+          },
+          "research": {
+            "word": "Araştırma",
+            "title": "Okumayı ben yaparım.",
+            "caption": "Seçenekleri karşılaştırır, yorumları okur ve bir yanıtla dönerim.",
+            "prompt": "$2.000'ın altındaki en iyi e-bisikleti bul",
+            "working": "Yorumlar okunuyor",
+            "receipt1": "24 yorum okundu",
+            "receipt2": "Karşılaştırma Dosyalar'a kaydedildi",
+            "reply": "Cityline 3: en hafif gövde, en iyi frenler, $1.799.",
+            "scene": {
+              "title": "E-bisikletler karşılaştırılıyor",
+              "source1": "Uzman incelemeleri",
+              "source2": "Kullanıcı forumları",
+              "source3": "Teknik özellikler",
+              "rank1": "Cityline 3",
+              "rank2": "Metro S",
+              "rank3": "Urban X"
+            }
+          }
+        }
+      },
+      "computer": {
+        "title": "Bilgisayarınız, cebinizde",
+        "body": "Bu telefonu bilgisayarınızdaki Stella ile eşleştirin; siz dışarıdayken görevleri orada ben çalıştırayım.",
+        "point1": "Bir dosya bulup size göndermek",
+        "point2": "Bir dışa aktarmayı ya da indirmeyi tamamlamak",
+        "point3": "Zaten sahip olduğunuz uygulamaları kullanmak",
+        "pair": "Bilgisayarımı eşleştir",
+        "signInToPair": "Eşlemek için giriş yapın",
+        "later": "Sonra",
+        "hint": "Bilgisayarınızda Stella'yı açıp Telefonu eşleştir'i seçin.",
+        "guestHint": "Eşleme Stella hesabınıza bağlıdır, bu yüzden önce giriş yapın. Tam buradan devam edeceğim.",
+        "connectedTo": "{name} ile bağlandı",
+        "connectedBody": "Her yerden isteyin, işi bilgisayarınızda ben yapayım.",
+        "settledConnectedDesc": "Görevleri telefonunuzdan orada çalıştırabilirim.",
+        "settledSkippedTitle": "Henüz bilgisayar yok",
+        "settledSkippedDesc": "İstediğiniz zaman Ayarlar'dan eşleştirebilirsiniz."
+      },
+      "account": {
+        "signInTitle": "Stella'ya giriş yapın",
+        "signInBody": "Konuşmanızı, ayarlarınızı ve bağlı bilgisayarınızı her cihazda yanınızda tutun.",
+        "signIn": "Giriş yap",
+        "subscriptionsLabel": "İsteğe bağlı",
+        "subscriptionsBody": "Claude ya da ChatGPT için zaten ödeme yapıyor musunuz? Bağlayın, bulutta işler için onu kullanayım.",
+        "claudeDesc": "Claude Code üzerinden Pro veya Max",
+        "chatgptDesc": "Codex üzerinden Plus veya Pro",
+        "connect": "Bağla",
+        "connectLabel": "{name} bağla",
+        "connectedAs": "Bağlandı · {name}",
+        "skip": "Şimdilik geç",
+        "settledSignedIn": "Giriş yapıldı",
+        "settledGuest": "Stella misafir olarak kullanılıyor",
+        "guestSettled": "İstediğiniz zaman Ayarlar'dan giriş yapın"
+      },
+      "theme": {
+        "appearance": "Görünüm",
+        "themes": "Tema",
+        "confirm": "Bitti",
+        "reset": "Varsayılan kalsın"
+      },
+      "ready": {
+        "startersLabel": "Şunlardan birini deneyin",
+        "start": "Sohbete başla",
+        "starters": {
+          "plan": {
+            "title": "Haftamı planla",
+            "prompt": "Önümdeki işlere göre haftamı planlamama yardım et."
+          },
+          "gift": {
+            "title": "Hediye bul",
+            "prompt": "Bir arkadaşım için $50'ın altında, düşünceli bir doğum günü hediyesi bul."
+          },
+          "remind": {
+            "title": "Hatırlatıcı kur",
+            "prompt": "Pazar günü saat 6'da annemi aramamı hatırlat."
+          },
+          "explain": {
+            "title": "Bir şeyi açıkla",
+            "prompt": "Bileşik faizin nasıl işlediğini basitçe anlat."
+          }
+        }
+      }
     },
     "login": {
       "heroTitle": "Asistanınız,\ncebinizde.",

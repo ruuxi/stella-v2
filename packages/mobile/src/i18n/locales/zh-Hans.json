@@ -1936,14 +1936,206 @@
     "onboarding": {
       "skip": "跳过",
       "skipLabel": "跳过介绍",
-      "welcomeTitle": "认识 Stella",
-      "welcomeBody": "随便问、慢慢聊，也可以把实际工作交给它 —— Stella 在这里回答，还能在您的电脑上动手操作。",
-      "themeTitle": "打造专属风格",
-      "themeBody": "选一个主题。您随时可以在设置中更改。",
-      "connectTitle": "随时随地用您的电脑",
-      "connectBodyGuest": "稍后登录即可与电脑上的 Stella 配对，之后就能用手机让家里的电脑浏览网页、整理文件和执行任务。",
-      "connectBodyPaired": "与 Stella 桌面应用配对一次，手机就能让它浏览网页、整理文件和执行任务 —— 哪怕您在城市另一头。",
-      "startChatting": "开始聊天"
+      "progressLabel": "第 {current} 步，共 {total} 步",
+      "composerPlaceholder": "也可以直接问我点什么",
+      "send": "发送",
+      "messages": {
+        "hello": "您好，我是 Stella。\n\n我不是聊天机器人。告诉我您需要什么，我会在后台把事情办好，您只管继续过好这一天。",
+        "showcase": "来看看是什么样子。",
+        "computer": "如果您有 Mac 或 PC，我也能在上面工作。",
+        "account": "想把这一切都留下来吗？Stella 账户会跟着您出现在每台设备上。",
+        "accountSignedIn": "您已登录，所以一切都会在设备之间跟着您。还有一个可选项：",
+        "theme": "接下来，我该是什么样子？",
+        "ready": "就这些。相处久了，我会慢慢了解您。\n\n我们先做点什么？"
+      },
+      "replies": {
+        "helloDone": "给我看看。",
+        "showcaseDone": "明白了。",
+        "computerDone": "已连接！",
+        "computerSkipped": "以后再说。",
+        "accountDone": "搞定。",
+        "accountSkipped": "暂时跳过。",
+        "themeDone": "就这个。",
+        "themeSkipped": "保持默认。"
+      },
+      "hello": {
+        "cta": "给我看看",
+        "settledTitle": "认识 Stella",
+        "pillars": {
+          "done": {
+            "title": "把事办成",
+            "body": "预订、下单、文件和调研，都替您办妥。"
+          },
+          "background": {
+            "title": "后台运行",
+            "body": "交给我就行，您继续忙。办好了我会告诉您。"
+          },
+          "asks": {
+            "title": "要紧处先问您",
+            "body": "凡是要花钱的事，都会等您点头。"
+          }
+        }
+      },
+      "showcase": {
+        "settledTitle": "快速导览",
+        "replay": "重播演示",
+        "tablist": "Stella 能做什么",
+        "placeholder": "问问 Stella",
+        "chapters": {
+          "errands": {
+            "word": "跑腿",
+            "title": "说一次，就当办好了。",
+            "caption": "我会打开网站、填好信息、把事办完，就像您亲自来做一样。",
+            "prompt": "订一张周五晚上 8 点的双人桌",
+            "working": "正在订位",
+            "receipt1": "Osteria Lucia · 周五 20:00 · 2 位",
+            "receipt2": "已添加到您的日历",
+            "reply": "已订好 Osteria Lucia 周五晚上 8 点的位子，日历里也有了。",
+            "scene": {
+              "site": "osterialucia.com",
+              "party": "人数",
+              "partyValue": "2 位",
+              "date": "日期",
+              "dateValue": "周五",
+              "time": "时间",
+              "timeValue": "20:00",
+              "reserve": "预订",
+              "reserved": "已预订"
+            }
+          },
+          "shopping": {
+            "word": "购物",
+            "title": "您点头，我就能下单。",
+            "caption": "我找到商品，带到结账页。您确认总价，我再下单。",
+            "prompt": "再买一双我的跑鞋，10 码",
+            "working": "正在找您的鞋",
+            "amount": "$129.99",
+            "confirmTitle": "确认购买？",
+            "confirmDetail": "Trail Runner 2 · 10 码",
+            "confirm": "确认",
+            "confirmed": "已确认",
+            "receipt1": "Order #48213 · 周四送达",
+            "reply": "已下单，周四送到。",
+            "scene": {
+              "site": "trailco.com",
+              "product": "Trail Runner 2",
+              "addToCart": "加入购物车",
+              "inCart": "已加入"
+            }
+          },
+          "work": {
+            "word": "工作",
+            "title": "真正的文件，真正办完。",
+            "caption": "文档、表格和幻灯片：我来完成，并把文件存在您能打开的地方。",
+            "prompt": "把我的 Q3 笔记做成周一用的演示文稿",
+            "working": "正在阅读您的笔记",
+            "receipt1": "Q3 笔记 · 已阅读",
+            "receipt2": "Q3 复盘演示文稿 · 12 页",
+            "reply": "演示文稿做好了：共 12 页，已存入文件。",
+            "scene": {
+              "file": "Q3 复盘.pptx",
+              "slideTitle": "Q3 复盘"
+            }
+          },
+          "routines": {
+            "word": "定时",
+            "title": "设置一次，我来坚持。",
+            "caption": "提醒、跟进和每日简报，按各自的时间表自动运行。",
+            "prompt": "每天早上 8 点，给我讲讲今天的安排",
+            "working": "正在设置",
+            "receipt1": "每天 08:00",
+            "reply": "好了。第一份简报明天早上 8 点送到。",
+            "scene": {
+              "when": "明天 08:00",
+              "day": "明天",
+              "time": "8:00",
+              "now": "现在",
+              "title": "您的晨间简报",
+              "body": "3 场会议，下午 5 点后有雨，今天是 Sam 的生日。"
+            }
+          },
+          "research": {
+            "word": "调研",
+            "title": "读资料的事交给我。",
+            "caption": "我对比各个选项、阅读评测，然后带着答案回来。",
+            "prompt": "找出 $2,000 以内最好的电动自行车",
+            "working": "正在阅读评测",
+            "receipt1": "已阅读 24 条评测",
+            "receipt2": "对比结果已存入文件",
+            "reply": "Cityline 3：车架最轻，刹车最好，$1,799。",
+            "scene": {
+              "title": "正在对比电动自行车",
+              "source1": "专业评测",
+              "source2": "车主论坛",
+              "source3": "规格表",
+              "rank1": "Cityline 3",
+              "rank2": "Metro S",
+              "rank3": "Urban X"
+            }
+          }
+        }
+      },
+      "computer": {
+        "title": "您的电脑，装进口袋",
+        "body": "将这部手机与电脑上的 Stella 配对，您外出时，我可以在电脑上执行任务。",
+        "point1": "找到文件并发给您",
+        "point2": "完成一次导出或下载",
+        "point3": "使用您已有的应用",
+        "pair": "配对我的电脑",
+        "signInToPair": "登录后配对",
+        "later": "稍后",
+        "hint": "在电脑上打开 Stella，然后选择“配对手机”。",
+        "guestHint": "配对与您的 Stella 账户关联，请先登录。我会从这里继续。",
+        "connectedTo": "已连接到 {name}",
+        "connectedBody": "随时随地开口，我来在您的电脑上完成。",
+        "settledConnectedDesc": "我可以通过您的手机在那台电脑上执行任务。",
+        "settledSkippedTitle": "还没有电脑",
+        "settledSkippedDesc": "您可以随时在设置中配对。"
+      },
+      "account": {
+        "signInTitle": "登录 Stella",
+        "signInBody": "让您的对话、设置和已连接的电脑出现在每台设备上。",
+        "signIn": "登录",
+        "subscriptionsLabel": "可选",
+        "subscriptionsBody": "已经在为 Claude 或 ChatGPT 付费？连接它，我就用它来完成云端工作。",
+        "claudeDesc": "Pro 或 Max，通过 Claude Code",
+        "chatgptDesc": "Plus 或 Pro，通过 Codex",
+        "connect": "连接",
+        "connectLabel": "连接 {name}",
+        "connectedAs": "已连接 · {name}",
+        "skip": "暂时跳过",
+        "settledSignedIn": "已登录",
+        "settledGuest": "正以访客身份使用 Stella",
+        "guestSettled": "随时可在设置中登录"
+      },
+      "theme": {
+        "appearance": "外观",
+        "themes": "主题",
+        "confirm": "完成",
+        "reset": "保持默认"
+      },
+      "ready": {
+        "startersLabel": "试试这些",
+        "start": "开始聊天",
+        "starters": {
+          "plan": {
+            "title": "规划我的一周",
+            "prompt": "帮我根据接下来的安排规划这一周。"
+          },
+          "gift": {
+            "title": "挑选礼物",
+            "prompt": "为朋友挑一份有心意的生日礼物，$50 以内。"
+          },
+          "remind": {
+            "title": "设置提醒",
+            "prompt": "提醒我周日晚上 6 点给妈妈打电话。"
+          },
+          "explain": {
+            "title": "讲解点什么",
+            "prompt": "用简单的话讲讲复利是怎么回事。"
+          }
+        }
+      }
     },
     "login": {
       "heroTitle": "您的助手，\n口袋大小。",

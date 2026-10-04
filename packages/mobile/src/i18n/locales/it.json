@@ -1977,14 +1977,206 @@
     "onboarding": {
       "skip": "Salta",
       "skipLabel": "Salta l'introduzione",
-      "welcomeTitle": "Ti presentiamo Stella",
-      "welcomeBody": "Chiedi qualsiasi cosa, ragiona ad alta voce o delega lavoro vero: Stella risponde qui e può agire sul tuo computer.",
-      "themeTitle": "Rendila tua",
-      "themeBody": "Scegli un tema. Puoi cambiarlo quando vuoi nelle Impostazioni.",
-      "connectTitle": "Il tuo computer, ovunque",
-      "connectBodyGuest": "Accedi più tardi per associare Stella sul tuo computer, poi chiedi dal telefono di navigare, gestire file ed eseguire attività a casa.",
-      "connectBodyPaired": "Associa una volta l'app desktop di Stella e il telefono potrà chiederle di navigare, gestire file ed eseguire attività, anche dall'altra parte della città.",
-      "startChatting": "Inizia a chattare"
+      "progressLabel": "Passaggio {current} di {total}",
+      "composerPlaceholder": "Oppure chiedimi pure qualcosa",
+      "send": "Invia",
+      "messages": {
+        "hello": "Ciao, sono Stella.\n\nNon sono un chatbot. Dimmi di cosa hai bisogno e me ne occupo io, in background, mentre tu pensi alla tua giornata.",
+        "showcase": "Ecco come funziona.",
+        "computer": "Se hai un Mac o un PC, posso lavorare anche lì.",
+        "account": "Vuoi conservare tutto? Un account Stella ti segue su ogni dispositivo.",
+        "accountSignedIn": "Hai effettuato l'accesso, quindi tutto ti segue da un dispositivo all'altro. Un extra facoltativo:",
+        "theme": "E ora, che aspetto devo avere?",
+        "ready": "Ecco fatto. Ti conoscerò strada facendo.\n\nDa dove cominciamo?"
+      },
+      "replies": {
+        "helloDone": "Fammi vedere.",
+        "showcaseDone": "Chiaro.",
+        "computerDone": "Collegato!",
+        "computerSkipped": "Più tardi.",
+        "accountDone": "Fatto.",
+        "accountSkipped": "Per ora no.",
+        "themeDone": "Questo.",
+        "themeSkipped": "Tieni quello predefinito."
+      },
+      "hello": {
+        "cta": "Fammi vedere",
+        "settledTitle": "Ecco Stella",
+        "pillars": {
+          "done": {
+            "title": "Porta a termine le cose",
+            "body": "Prenotazioni, ordini, file e ricerche, sbrigati al posto tuo."
+          },
+          "background": {
+            "title": "Lavora in background",
+            "body": "Affidami un compito e vai avanti con la tua giornata. Ti avviso quando è finito."
+          },
+          "asks": {
+            "title": "Chiede prima che conti",
+            "body": "Tutto ciò che costa denaro aspetta il tuo via libera."
+          }
+        }
+      },
+      "showcase": {
+        "settledTitle": "Il tour veloce",
+        "replay": "Rivedi questa demo",
+        "tablist": "Cosa sa fare Stella",
+        "placeholder": "Chiedi a Stella",
+        "chapters": {
+          "errands": {
+            "word": "Faccende",
+            "title": "Chiedi una volta. Considerala fatta.",
+            "caption": "Apro il sito, compilo i dati e porto a termine il lavoro, proprio come faresti tu.",
+            "prompt": "Prenota un tavolo per due venerdì alle 20",
+            "working": "Prenoto un tavolo",
+            "receipt1": "Osteria Lucia · ven 20:00 · 2 persone",
+            "receipt2": "Aggiunto al tuo calendario",
+            "reply": "Prenotato all'Osteria Lucia per venerdì alle 20. È nel tuo calendario.",
+            "scene": {
+              "site": "osterialucia.com",
+              "party": "Persone",
+              "partyValue": "2 persone",
+              "date": "Data",
+              "dateValue": "Venerdì",
+              "time": "Ora",
+              "timeValue": "20:00",
+              "reserve": "Prenota",
+              "reserved": "Prenotato"
+            }
+          },
+          "shopping": {
+            "word": "Acquisti",
+            "title": "Posso comprare, col tuo via libera.",
+            "caption": "Trovo ciò che cerchi e arrivo fino alla cassa. Tu approvi il totale, poi io completo l'ordine.",
+            "prompt": "Riordina le mie scarpe da corsa, numero 10",
+            "working": "Cerco le tue scarpe",
+            "amount": "129,99 $",
+            "confirmTitle": "Confermare l'acquisto?",
+            "confirmDetail": "Trail Runner 2 · numero 10",
+            "confirm": "Conferma",
+            "confirmed": "Confermato",
+            "receipt1": "Ordine #48213 · arriva giovedì",
+            "reply": "Ordinate. Arrivano giovedì.",
+            "scene": {
+              "site": "trailco.com",
+              "product": "Trail Runner 2",
+              "addToCart": "Aggiungi",
+              "inCart": "Nel carrello"
+            }
+          },
+          "work": {
+            "word": "Lavoro",
+            "title": "File veri, finiti.",
+            "caption": "Documenti, fogli e slide: faccio il lavoro e salvo il file dove puoi aprirlo.",
+            "prompt": "Trasforma i miei appunti del Q3 in una presentazione per lunedì",
+            "working": "Leggo i tuoi appunti",
+            "receipt1": "Appunti Q3 · letti",
+            "receipt2": "Presentazione revisione Q3 · 12 slide",
+            "reply": "La tua presentazione è pronta: 12 slide, salvata in File.",
+            "scene": {
+              "file": "Revisione Q3.pptx",
+              "slideTitle": "Revisione Q3"
+            }
+          },
+          "routines": {
+            "word": "Routine",
+            "title": "Impostala una volta. Al resto penso io.",
+            "caption": "Promemoria, check-in e riepiloghi quotidiani che partono da soli, secondo la loro pianificazione.",
+            "prompt": "Ogni mattina alle 8 fammi un riepilogo della mia giornata",
+            "working": "Preparo tutto",
+            "receipt1": "Ogni giorno alle 8:00",
+            "reply": "Fatto. Il tuo primo riepilogo arriva domani alle 8.",
+            "scene": {
+              "when": "Domani, 8:00",
+              "day": "Domani",
+              "time": "8:00",
+              "now": "ora",
+              "title": "Il tuo riepilogo del mattino",
+              "body": "3 riunioni, pioggia dopo le 17 e oggi è il compleanno di Sam."
+            }
+          },
+          "research": {
+            "word": "Ricerca",
+            "title": "La lettura la faccio io.",
+            "caption": "Confronto le opzioni, leggo le recensioni e torno con una risposta.",
+            "prompt": "Trova la migliore e-bike sotto i 2.000 $",
+            "working": "Leggo le recensioni",
+            "receipt1": "Lette 24 recensioni",
+            "receipt2": "Confronto salvato in File",
+            "reply": "La Cityline 3: telaio più leggero, freni migliori, 1.799 $.",
+            "scene": {
+              "title": "Confronto tra e-bike",
+              "source1": "Recensioni di esperti",
+              "source2": "Forum dei proprietari",
+              "source3": "Schede tecniche",
+              "rank1": "Cityline 3",
+              "rank2": "Metro S",
+              "rank3": "Urban X"
+            }
+          }
+        }
+      },
+      "computer": {
+        "title": "Il tuo computer, dalla tasca",
+        "body": "Associa questo telefono a Stella sul tuo computer e potrò eseguire compiti lì mentre sei in giro.",
+        "point1": "Trovare un file e mandartelo",
+        "point2": "Completare un'esportazione o un download",
+        "point3": "Usare le app che hai già",
+        "pair": "Associa il mio computer",
+        "signInToPair": "Accedi per abbinare",
+        "later": "Più tardi",
+        "hint": "Sul tuo computer apri Stella e scegli Associa telefono.",
+        "guestHint": "L'abbinamento è legato al tuo account Stella, quindi accedi prima. Riprendo esattamente da qui.",
+        "connectedTo": "Collegato a {name}",
+        "connectedBody": "Chiedi da dove vuoi e farò il lavoro sul tuo computer.",
+        "settledConnectedDesc": "Posso eseguire compiti lì dal tuo telefono.",
+        "settledSkippedTitle": "Ancora nessun computer",
+        "settledSkippedDesc": "Puoi associarne uno in qualsiasi momento da Impostazioni."
+      },
+      "account": {
+        "signInTitle": "Accedi a Stella",
+        "signInBody": "Porta con te conversazione, impostazioni e computer collegato su ogni dispositivo.",
+        "signIn": "Accedi",
+        "subscriptionsLabel": "Facoltativo",
+        "subscriptionsBody": "Paghi già per Claude o ChatGPT? Collegalo e lo userò per il lavoro nel cloud.",
+        "claudeDesc": "Pro o Max, tramite Claude Code",
+        "chatgptDesc": "Plus o Pro, tramite Codex",
+        "connect": "Collega",
+        "connectLabel": "Collega {name}",
+        "connectedAs": "Collegato · {name}",
+        "skip": "Per ora no",
+        "settledSignedIn": "Accesso effettuato",
+        "settledGuest": "Stella come ospite",
+        "guestSettled": "Accedi quando vuoi da Impostazioni"
+      },
+      "theme": {
+        "appearance": "Aspetto",
+        "themes": "Tema",
+        "confirm": "Fatto",
+        "reset": "Tieni quello predefinito"
+      },
+      "ready": {
+        "startersLabel": "Prova una di queste",
+        "start": "Inizia a chattare",
+        "starters": {
+          "plan": {
+            "title": "Organizza la mia settimana",
+            "prompt": "Aiutami a organizzare la settimana in base a quello che ho in programma."
+          },
+          "gift": {
+            "title": "Trova un regalo",
+            "prompt": "Trova un regalo di compleanno ben pensato per un amico, sotto i 50 $."
+          },
+          "remind": {
+            "title": "Imposta un promemoria",
+            "prompt": "Ricordami di chiamare la mamma domenica alle 18."
+          },
+          "explain": {
+            "title": "Spiega qualcosa",
+            "prompt": "Spiegami in modo semplice come funziona l'interesse composto."
+          }
+        }
+      }
     },
     "login": {
       "heroTitle": "Il tuo assistente,\nin tasca.",

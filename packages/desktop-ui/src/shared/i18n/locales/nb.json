@@ -2010,14 +2010,206 @@
     "onboarding": {
       "skip": "Hopp over",
       "skipLabel": "Hopp over introduksjonen",
-      "welcomeTitle": "Møt Stella",
-      "welcomeBody": "Spør om hva som helst, snakk gjennom ting eller gi fra deg ekte arbeid — Stella svarer her og kan handle på datamaskinen din.",
-      "themeTitle": "Gjør den til din",
-      "themeBody": "Velg et tema. Du kan endre det når som helst i Innstillinger.",
-      "connectTitle": "Datamaskinen din, overalt",
-      "connectBodyGuest": "Logg inn senere for å koble Stella til datamaskinen din — da kan du be telefonen surfe på nettet, håndtere filer og kjøre oppgaver hjemme.",
-      "connectBodyPaired": "Koble til Stella-skrivebordsappen én gang, så kan telefonen din be den surfe på nettet, håndtere filer og kjøre oppgaver — selv fra andre siden av byen.",
-      "startChatting": "Begynn å chatte"
+      "progressLabel": "Trinn {current} av {total}",
+      "composerPlaceholder": "Eller bare spør meg om noe",
+      "send": "Send",
+      "messages": {
+        "hello": "Hei, jeg er Stella.\n\nJeg er ikke en chatbot. Si hva du trenger, så ordner jeg det i bakgrunnen mens du går videre med dagen din.",
+        "showcase": "Slik ser det ut.",
+        "computer": "Har du en Mac eller PC, kan jeg jobbe på den også.",
+        "account": "Vil du beholde alt dette? En Stella-konto følger deg til alle enhetene dine.",
+        "accountSignedIn": "Du er logget inn, så alt følger deg mellom enhetene. Ett valgfritt tillegg:",
+        "theme": "Nå, hvordan skal jeg se ut?",
+        "ready": "Det var det. Jeg blir kjent med deg etter hvert.\n\nHva skal vi gjøre først?"
+      },
+      "replies": {
+        "helloDone": "Vis meg.",
+        "showcaseDone": "Skjønner.",
+        "computerDone": "Tilkoblet!",
+        "computerSkipped": "Kanskje senere.",
+        "accountDone": "Klart.",
+        "accountSkipped": "Hopp over nå.",
+        "themeDone": "Den der.",
+        "themeSkipped": "Behold standard."
+      },
+      "hello": {
+        "cta": "Vis meg",
+        "settledTitle": "Møt Stella",
+        "pillars": {
+          "done": {
+            "title": "Får ting gjort",
+            "body": "Bestillinger, kjøp, filer og undersøkelser, ferdig for deg."
+          },
+          "background": {
+            "title": "Jobber i bakgrunnen",
+            "body": "Gi fra deg oppgaven og gå videre. Jeg sier fra når den er ferdig."
+          },
+          "asks": {
+            "title": "Spør før det gjelder",
+            "body": "Alt som koster penger venter på ditt OK."
+          }
+        }
+      },
+      "showcase": {
+        "settledTitle": "Rask omvisning",
+        "replay": "Spill av demoen på nytt",
+        "tablist": "Dette kan Stella gjøre",
+        "placeholder": "Spør Stella",
+        "chapters": {
+          "errands": {
+            "word": "Ærender",
+            "title": "Spør én gang. Anse det som ordnet.",
+            "caption": "Jeg åpner nettstedet, fyller ut detaljene og gjør jobben ferdig, akkurat som du ville gjort.",
+            "prompt": "Bestill bord til to på fredag klokka 20",
+            "working": "Bestiller bord",
+            "receipt1": "Osteria Lucia · fre 20:00 · 2 personer",
+            "receipt2": "Lagt til i kalenderen din",
+            "reply": "Bordet er booket på Osteria Lucia fredag klokka 20. Det ligger i kalenderen din.",
+            "scene": {
+              "site": "osterialucia.com",
+              "party": "Gjester",
+              "partyValue": "2 personer",
+              "date": "Dato",
+              "dateValue": "Fredag",
+              "time": "Tid",
+              "timeValue": "20:00",
+              "reserve": "Bestill",
+              "reserved": "Bestilt"
+            }
+          },
+          "shopping": {
+            "word": "Shopping",
+            "title": "Jeg kan kjøpe ting, med ditt OK.",
+            "caption": "Jeg finner det og tar det med til kassen. Du godkjenner totalen, så legger jeg inn bestillingen.",
+            "prompt": "Bestill løpeskoene mine på nytt, størrelse 10",
+            "working": "Finner skoene dine",
+            "amount": "$129,99",
+            "confirmTitle": "Bekrefte kjøpet?",
+            "confirmDetail": "Trail Runner 2 · størrelse 10",
+            "confirm": "Bekreft",
+            "confirmed": "Bekreftet",
+            "receipt1": "Ordre #48213 · kommer torsdag",
+            "reply": "Bestilt. De kommer torsdag.",
+            "scene": {
+              "site": "trailco.com",
+              "product": "Trail Runner 2",
+              "addToCart": "Legg i kurv",
+              "inCart": "I kurven"
+            }
+          },
+          "work": {
+            "word": "Jobb",
+            "title": "Ekte filer, ferdige.",
+            "caption": "Dokumenter, regneark og presentasjoner: Jeg gjør jobben og lagrer filen der du kan åpne den.",
+            "prompt": "Gjør Q3-notatene mine om til en presentasjon til mandag",
+            "working": "Leser notatene dine",
+            "receipt1": "Q3-notater · lest",
+            "receipt2": "Q3-gjennomgang · 12 lysbilder",
+            "reply": "Presentasjonen din er klar: 12 lysbilder, lagret i Filer.",
+            "scene": {
+              "file": "Q3-gjennomgang.pptx",
+              "slideTitle": "Q3-gjennomgang"
+            }
+          },
+          "routines": {
+            "word": "Rutiner",
+            "title": "Sett det opp én gang. Jeg holder det i gang.",
+            "caption": "Påminnelser, oppfølginger og daglige oppsummeringer som kjører etter sin egen timeplan.",
+            "prompt": "Gi meg en oppsummering av dagen hver morgen klokka 8",
+            "working": "Setter det opp",
+            "receipt1": "Hver dag klokka 08:00",
+            "reply": "Ferdig. Den første oppsummeringen kommer i morgen klokka 8.",
+            "scene": {
+              "when": "I morgen, 08:00",
+              "day": "I morgen",
+              "time": "8:00",
+              "now": "nå",
+              "title": "Morgenoppsummeringen din",
+              "body": "3 møter, regn etter klokka 17, og det er Sams bursdag."
+            }
+          },
+          "research": {
+            "word": "Søk",
+            "title": "Jeg gjør lesejobben.",
+            "caption": "Jeg sammenligner alternativene, leser anmeldelsene og kommer tilbake med et svar.",
+            "prompt": "Finn den beste elsykkelen under $2 000",
+            "working": "Leser anmeldelser",
+            "receipt1": "Leste 24 anmeldelser",
+            "receipt2": "Sammenligning lagret i Filer",
+            "reply": "Cityline 3: lettest ramme, best bremser, $1 799.",
+            "scene": {
+              "title": "Sammenligner elsykler",
+              "source1": "Ekspertanmeldelser",
+              "source2": "Eierforum",
+              "source3": "Datablad",
+              "rank1": "Cityline 3",
+              "rank2": "Metro S",
+              "rank3": "Urban X"
+            }
+          }
+        }
+      },
+      "computer": {
+        "title": "Datamaskinen din, rett fra lomma",
+        "body": "Koble denne telefonen til Stella på datamaskinen din, så kan jeg utføre oppgaver der mens du er ute.",
+        "point1": "Finne en fil og sende den til deg",
+        "point2": "Gjøre ferdig en eksport eller en nedlasting",
+        "point3": "Bruke appene du allerede har",
+        "pair": "Koble til datamaskinen min",
+        "signInToPair": "Logg inn for å koble til",
+        "later": "Senere",
+        "hint": "Åpne Stella på datamaskinen din og velg «Koble til telefonen din».",
+        "guestHint": "Tilkoblingen hører til Stella-kontoen din, så logg inn først. Jeg fortsetter akkurat her.",
+        "connectedTo": "Koblet til {name}",
+        "connectedBody": "Spør meg hvor som helst, så gjør jeg jobben på datamaskinen din.",
+        "settledConnectedDesc": "Jeg kan utføre oppgaver der fra telefonen din.",
+        "settledSkippedTitle": "Ingen datamaskin ennå",
+        "settledSkippedDesc": "Du kan koble til en når som helst i Innstillinger."
+      },
+      "account": {
+        "signInTitle": "Logg inn på Stella",
+        "signInBody": "Ha samtalen, innstillingene og den tilkoblede datamaskinen din på alle enheter.",
+        "signIn": "Logg inn",
+        "subscriptionsLabel": "Valgfritt",
+        "subscriptionsBody": "Betaler du allerede for Claude eller ChatGPT? Koble til, så bruker jeg det til jobber i skyen.",
+        "claudeDesc": "Pro eller Max, via Claude Code",
+        "chatgptDesc": "Plus eller Pro, via Codex",
+        "connect": "Koble til",
+        "connectLabel": "Koble til {name}",
+        "connectedAs": "Tilkoblet · {name}",
+        "skip": "Hopp over nå",
+        "settledSignedIn": "Logget inn",
+        "settledGuest": "Bruker Stella som gjest",
+        "guestSettled": "Logg inn når som helst fra Innstillinger"
+      },
+      "theme": {
+        "appearance": "Utseende",
+        "themes": "Tema",
+        "confirm": "Ferdig",
+        "reset": "Behold standard"
+      },
+      "ready": {
+        "startersLabel": "Prøv en av disse",
+        "start": "Begynn å chatte",
+        "starters": {
+          "plan": {
+            "title": "Planlegg uken min",
+            "prompt": "Hjelp meg å planlegge uken ut fra det jeg har i vente."
+          },
+          "gift": {
+            "title": "Finn en gave",
+            "prompt": "Finn en omtenksom bursdagsgave til en venn, under $50."
+          },
+          "remind": {
+            "title": "Sett en påminnelse",
+            "prompt": "Minn meg på å ringe mamma på søndag klokka 18."
+          },
+          "explain": {
+            "title": "Forklar noe",
+            "prompt": "Forklar enkelt hvordan rentes rente fungerer."
+          }
+        }
+      }
     },
     "login": {
       "heroTitle": "Assistenten din,\ni lommeformat.",

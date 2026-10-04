@@ -1996,14 +1996,206 @@
     "onboarding": {
       "skip": "Přeskočit",
       "skipLabel": "Přeskočit úvod",
-      "welcomeTitle": "Seznamte se se Stellou",
-      "welcomeBody": "Zeptejte se na cokoli, promluvte si o věcech nebo předejte skutečnou práci — Stella odpovídá tady a umí jednat i na vašem počítači.",
-      "themeTitle": "Přizpůsobte si to",
-      "themeBody": "Vyberte motiv. Kdykoli ho můžete změnit v Nastavení.",
-      "connectTitle": "Váš počítač kdekoli",
-      "connectBodyGuest": "Přihlaste se později a spárujte Stellu na svém počítači — pak můžete z telefonu požádat o prohlížení webu, správu souborů a spouštění úloh doma.",
-      "connectBodyPaired": "Stačí se jednou spárovat s desktopovou aplikací Stella a váš telefon ji může požádat o prohlížení webu, správu souborů i spouštění úloh — třeba z druhého konce města.",
-      "startChatting": "Začít chatovat"
+      "progressLabel": "Krok {current} z {total}",
+      "composerPlaceholder": "Nebo se mě prostě na něco zeptejte",
+      "send": "Odeslat",
+      "messages": {
+        "hello": "Dobrý den, jsem Stella.\n\nNejsem chatbot. Řekněte mi, co potřebujete, a já to zařídím, na pozadí, zatímco se věnujete svému dni.",
+        "showcase": "Takhle to vypadá.",
+        "computer": "Pokud máte Mac nebo PC, můžu pracovat i na něm.",
+        "account": "Chcete si to všechno zachovat? Účet Stella vás doprovází na každém zařízení.",
+        "accountSignedIn": "Jste přihlášeni, takže vás vše provází mezi zařízeními. Jedna volitelná věc navíc:",
+        "theme": "A teď: jak mám vypadat?",
+        "ready": "To je vše. Poznám vás postupně.\n\nCo uděláme jako první?"
+      },
+      "replies": {
+        "helloDone": "Ukaž mi to.",
+        "showcaseDone": "Rozumím.",
+        "computerDone": "Připojeno!",
+        "computerSkipped": "Možná později.",
+        "accountDone": "Hotovo.",
+        "accountSkipped": "Zatím přeskočit.",
+        "themeDone": "Tenhle.",
+        "themeSkipped": "Ponechat výchozí."
+      },
+      "hello": {
+        "cta": "Ukaž mi to",
+        "settledTitle": "Seznamte se se Stellou",
+        "pillars": {
+          "done": {
+            "title": "Zvládne to za vás",
+            "body": "Rezervace, objednávky, soubory a rešerše, vyřízené za vás."
+          },
+          "background": {
+            "title": "Pracuje na pozadí",
+            "body": "Předejte úkol a pokračujte. Dám vám vědět, až bude hotovo."
+          },
+          "asks": {
+            "title": "Zeptá se, než na tom záleží",
+            "body": "Cokoli, co stojí peníze, počká na vaše svolení."
+          }
+        }
+      },
+      "showcase": {
+        "settledTitle": "Rychlá prohlídka",
+        "replay": "Přehrát ukázku znovu",
+        "tablist": "Co Stella umí",
+        "placeholder": "Zeptejte se Stelly",
+        "chapters": {
+          "errands": {
+            "word": "Pochůzky",
+            "title": "Zeptejte se jednou. Pak je to vyřízené.",
+            "caption": "Otevřu web, vyplním údaje a dotáhnu to do konce, stejně jako vy.",
+            "prompt": "Zarezervuj stůl pro dva na pátek na 20:00",
+            "working": "Rezervuji stůl",
+            "receipt1": "Osteria Lucia · pá 20:00 · 2 osoby",
+            "receipt2": "Přidáno do vašeho kalendáře",
+            "reply": "Stůl v Osteria Lucia je zarezervovaný na pátek ve 20:00. Je ve vašem kalendáři.",
+            "scene": {
+              "site": "osterialucia.com",
+              "party": "Osoby",
+              "partyValue": "2 osoby",
+              "date": "Datum",
+              "dateValue": "Pátek",
+              "time": "Čas",
+              "timeValue": "20:00",
+              "reserve": "Rezervovat",
+              "reserved": "Rezervováno"
+            }
+          },
+          "shopping": {
+            "word": "Nákupy",
+            "title": "Umím nakupovat, s vaším svolením.",
+            "caption": "Najdu zboží a dovedu ho k pokladně. Vy schválíte celkovou částku a já objednávku odešlu.",
+            "prompt": "Objednej znovu moje běžecké boty, velikost 10",
+            "working": "Hledám vaše boty",
+            "amount": "129,99 $",
+            "confirmTitle": "Potvrdit nákup?",
+            "confirmDetail": "Trail Runner 2 · velikost 10",
+            "confirm": "Potvrdit",
+            "confirmed": "Potvrzeno",
+            "receipt1": "Objednávka #48213 · dorazí ve čtvrtek",
+            "reply": "Objednáno. Dorazí ve čtvrtek.",
+            "scene": {
+              "site": "trailco.com",
+              "product": "Trail Runner 2",
+              "addToCart": "Do košíku",
+              "inCart": "V košíku"
+            }
+          },
+          "work": {
+            "word": "Práce",
+            "title": "Skutečné soubory, hotové.",
+            "caption": "Dokumenty, tabulky a prezentace: odvedu práci a uložím soubor tam, kde ho otevřete.",
+            "prompt": "Udělej z mých poznámek ke Q3 prezentaci na pondělí",
+            "working": "Čtu vaše poznámky",
+            "receipt1": "Poznámky ke Q3 · přečteno",
+            "receipt2": "Prezentace Q3 · 12 snímků",
+            "reply": "Vaše prezentace je hotová: 12 snímků, uloženo do Souborů.",
+            "scene": {
+              "file": "Přehled Q3.pptx",
+              "slideTitle": "Přehled Q3"
+            }
+          },
+          "routines": {
+            "word": "Rutiny",
+            "title": "Nastavte jednou. Já to dotáhnu.",
+            "caption": "Připomínky, kontroly a denní přehledy, které běží podle vlastního plánu.",
+            "prompt": "Každé ráno v 8 mi shrň můj den",
+            "working": "Nastavuji",
+            "receipt1": "Každý den v 8:00",
+            "reply": "Hotovo. První přehled dorazí zítra v 8.",
+            "scene": {
+              "when": "Zítra, 8:00",
+              "day": "Zítra",
+              "time": "8:00",
+              "now": "teď",
+              "title": "Váš ranní přehled",
+              "body": "3 schůzky, po 17. hodině déšť a Sam má narozeniny."
+            }
+          },
+          "research": {
+            "word": "Rešerše",
+            "title": "Čtení nechte na mně.",
+            "caption": "Porovnám možnosti, přečtu recenze a vrátím se s odpovědí.",
+            "prompt": "Najdi nejlepší elektrokolo do 2 000 $",
+            "working": "Čtu recenze",
+            "receipt1": "Přečteno 24 recenzí",
+            "receipt2": "Srovnání uloženo do Souborů",
+            "reply": "Cityline 3: nejlehčí rám, nejlepší brzdy, 1 799 $.",
+            "scene": {
+              "title": "Porovnávám elektrokola",
+              "source1": "Odborné recenze",
+              "source2": "Fóra majitelů",
+              "source3": "Technické listy",
+              "rank1": "Cityline 3",
+              "rank2": "Metro S",
+              "rank3": "Urban X"
+            }
+          }
+        }
+      },
+      "computer": {
+        "title": "Váš počítač z kapsy",
+        "body": "Spárujte tento telefon se Stellou na počítači a můžu tam plnit úkoly, zatímco jste pryč.",
+        "point1": "Najít soubor a poslat vám ho",
+        "point2": "Dokončit export nebo stahování",
+        "point3": "Použít aplikace, které už máte",
+        "pair": "Spárovat můj počítač",
+        "signInToPair": "Přihlásit se a spárovat",
+        "later": "Později",
+        "hint": "Na počítači otevřete Stellu a zvolte Spárovat telefon.",
+        "guestHint": "Párování patří k vašemu účtu Stella, proto se nejdřív přihlaste. Navážu přesně tady.",
+        "connectedTo": "Připojeno: {name}",
+        "connectedBody": "Ptejte se odkudkoli a práci udělám na vašem počítači.",
+        "settledConnectedDesc": "Můžu tam plnit úkoly z vašeho telefonu.",
+        "settledSkippedTitle": "Zatím žádný počítač",
+        "settledSkippedDesc": "Můžete ho spárovat kdykoli v Nastavení."
+      },
+      "account": {
+        "signInTitle": "Přihlaste se ke Stelle",
+        "signInBody": "Mějte konverzaci, nastavení i připojený počítač na každém zařízení.",
+        "signIn": "Přihlásit se",
+        "subscriptionsLabel": "Volitelné",
+        "subscriptionsBody": "Už platíte za Claude nebo ChatGPT? Propojte to a použiju to pro práci v cloudu.",
+        "claudeDesc": "Pro nebo Max, přes Claude Code",
+        "chatgptDesc": "Plus nebo Pro, přes Codex",
+        "connect": "Připojit",
+        "connectLabel": "Připojit {name}",
+        "connectedAs": "Připojeno · {name}",
+        "skip": "Zatím přeskočit",
+        "settledSignedIn": "Přihlášeno",
+        "settledGuest": "Stellu používáte jako host",
+        "guestSettled": "Přihlásit se můžete kdykoli v Nastavení"
+      },
+      "theme": {
+        "appearance": "Vzhled",
+        "themes": "Motiv",
+        "confirm": "Hotovo",
+        "reset": "Ponechat výchozí"
+      },
+      "ready": {
+        "startersLabel": "Vyzkoušejte něco z toho",
+        "start": "Začít chatovat",
+        "starters": {
+          "plan": {
+            "title": "Naplánuj můj týden",
+            "prompt": "Pomoz mi naplánovat týden podle toho, co mě čeká."
+          },
+          "gift": {
+            "title": "Najdi dárek",
+            "prompt": "Najdi originální dárek k narozeninám pro kamaráda do 50 $."
+          },
+          "remind": {
+            "title": "Nastav připomínku",
+            "prompt": "Připomeň mi telefonát mámě v neděli v 18:00."
+          },
+          "explain": {
+            "title": "Něco mi vysvětli",
+            "prompt": "Jednoduše mi vysvětli, jak funguje složené úročení."
+          }
+        }
+      }
     },
     "login": {
       "heroTitle": "Váš asistent,\nkapesní velikosti.",

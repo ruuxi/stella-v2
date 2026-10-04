@@ -1977,14 +1977,206 @@
     "onboarding": {
       "skip": "Omite",
       "skipLabel": "Omite introducerea",
-      "welcomeTitle": "Fă cunoștință cu Stella",
-      "welcomeBody": "Întreabă orice, discută-ți ideile sau deleagă muncă adevărată — Stella răspunde aici și poate acționa pe computerul tău.",
-      "themeTitle": "Fă-o a ta",
-      "themeBody": "Alege o temă. O poți schimba oricând din Setări.",
-      "connectTitle": "Computerul tău, oriunde",
-      "connectBodyGuest": "Conectează-te mai târziu ca să asociezi Stella pe computerul tău — apoi cere-i de pe telefon să navigheze, să gestioneze fișiere și să ruleze sarcini acasă.",
-      "connectBodyPaired": "Asociază o singură dată aplicația desktop Stella, iar telefonul tău îi poate cere să navigheze, să gestioneze fișiere și să ruleze sarcini — chiar și din celălalt capăt al orașului.",
-      "startChatting": "Începe conversația"
+      "progressLabel": "Pasul {current} din {total}",
+      "composerPlaceholder": "Sau întreabă-mă pur și simplu ceva",
+      "send": "Trimite",
+      "messages": {
+        "hello": "Salut, sunt Stella.\n\nNu sunt un chatbot. Spune-mi ce ai nevoie și mă ocup eu, pe fundal, cât timp tu îți vezi de ziua ta.",
+        "showcase": "Uite cum arată asta.",
+        "computer": "Dacă ai un Mac sau un PC, pot lucra și pe el.",
+        "account": "Vrei să păstrezi tot ce vezi aici? Un cont Stella te urmează pe toate dispozitivele.",
+        "accountSignedIn": "Te-ai conectat, așa că totul te urmează de la un dispozitiv la altul. Încă un extra, opțional:",
+        "theme": "Acum, cum să arăt?",
+        "ready": "Asta e tot. Te voi cunoaște pe parcurs.\n\nCu ce începem?"
+      },
+      "replies": {
+        "helloDone": "Arată-mi.",
+        "showcaseDone": "Am înțeles.",
+        "computerDone": "Conectat!",
+        "computerSkipped": "Poate mai târziu.",
+        "accountDone": "Gata.",
+        "accountSkipped": "Omite deocamdată.",
+        "themeDone": "Pe acesta.",
+        "themeSkipped": "Las-o pe cea implicită."
+      },
+      "hello": {
+        "cta": "Arată-mi",
+        "settledTitle": "Fă cunoștință cu Stella",
+        "pillars": {
+          "done": {
+            "title": "Rezolvă lucrurile",
+            "body": "Rezervări, comenzi, fișiere și cercetare, duse la capăt pentru tine."
+          },
+          "background": {
+            "title": "Lucrează pe fundal",
+            "body": "Dă-mi o sarcină și mergi mai departe. Îți spun eu când e gata."
+          },
+          "asks": {
+            "title": "Întreabă înainte să conteze",
+            "body": "Orice costă bani așteaptă un OK de la tine."
+          }
+        }
+      },
+      "showcase": {
+        "settledTitle": "Turul rapid",
+        "replay": "Redă din nou demonstrația",
+        "tablist": "Ce poate face Stella",
+        "placeholder": "Întreab-o pe Stella",
+        "chapters": {
+          "errands": {
+            "word": "Treburi",
+            "title": "Cere o singură dată. Consideră rezolvat.",
+            "caption": "Deschid site-ul, completez detaliile și duc treaba la capăt, așa cum ai face tu.",
+            "prompt": "Rezervă o masă pentru doi vineri la 20:00",
+            "working": "Rezerv masa",
+            "receipt1": "Osteria Lucia · vin 20:00 · 2 persoane",
+            "receipt2": "Adăugat în calendarul tău",
+            "reply": "Am rezervat la Osteria Lucia vineri la 20:00. E în calendarul tău.",
+            "scene": {
+              "site": "osterialucia.com",
+              "party": "Persoane",
+              "partyValue": "2 persoane",
+              "date": "Data",
+              "dateValue": "Vineri",
+              "time": "Ora",
+              "timeValue": "20:00",
+              "reserve": "Rezervă",
+              "reserved": "Rezervat"
+            }
+          },
+          "shopping": {
+            "word": "Achiziții",
+            "title": "Pot cumpăra lucruri, cu OK-ul tău.",
+            "caption": "Găsesc produsul și îl duc până la casă. Tu aprobi totalul, iar eu plasez comanda.",
+            "prompt": "Comandă din nou pantofii mei de alergare, mărimea 10",
+            "working": "Caut pantofii tăi",
+            "amount": "$129,99",
+            "confirmTitle": "Confirmi achiziția?",
+            "confirmDetail": "Trail Runner 2 · mărimea 10",
+            "confirm": "Confirmă",
+            "confirmed": "Confirmat",
+            "receipt1": "Comanda #48213 · sosește joi",
+            "reply": "Comandat. Ajung joi.",
+            "scene": {
+              "site": "trailco.com",
+              "product": "Trail Runner 2",
+              "addToCart": "Adaugă",
+              "inCart": "În coș"
+            }
+          },
+          "work": {
+            "word": "Muncă",
+            "title": "Fișiere adevărate, duse la capăt.",
+            "caption": "Documente, foi de calcul și prezentări: fac eu treaba și salvez fișierul acolo unde îl poți deschide.",
+            "prompt": "Transformă notițele mele din Q3 într-o prezentare pentru luni",
+            "working": "Îți citesc notițele",
+            "receipt1": "Notițe Q3 · citite",
+            "receipt2": "Prezentare recapitulare Q3 · 12 diapozitive",
+            "reply": "Prezentarea ta e gata: 12 diapozitive, salvată în Fișiere.",
+            "scene": {
+              "file": "Recapitulare Q3.pptx",
+              "slideTitle": "Recapitulare Q3"
+            }
+          },
+          "routines": {
+            "word": "Rutine",
+            "title": "Setează o dată. Eu continui.",
+            "caption": "Mementouri, verificări și rezumate zilnice care rulează după propriul program.",
+            "prompt": "În fiecare dimineață la 8, fă-mi un rezumat al zilei",
+            "working": "Configurez",
+            "receipt1": "În fiecare zi la 8:00",
+            "reply": "Gata. Primul rezumat ajunge mâine la 8.",
+            "scene": {
+              "when": "Mâine, 8:00",
+              "day": "Mâine",
+              "time": "8:00",
+              "now": "acum",
+              "title": "Rezumatul tău de dimineață",
+              "body": "3 întâlniri, ploaie după 17:00 și e ziua lui Sam."
+            }
+          },
+          "research": {
+            "word": "Cercetare",
+            "title": "Citesc eu.",
+            "caption": "Compar opțiunile, citesc recenziile și revin cu un răspuns.",
+            "prompt": "Găsește cea mai bună bicicletă electrică sub $2.000",
+            "working": "Citesc recenzii",
+            "receipt1": "Am citit 24 de recenzii",
+            "receipt2": "Comparația a fost salvată în Fișiere",
+            "reply": "Cityline 3: cel mai ușor cadru, cele mai bune frâne, $1.799.",
+            "scene": {
+              "title": "Compar biciclete electrice",
+              "source1": "Recenzii de experți",
+              "source2": "Forumuri ale proprietarilor",
+              "source3": "Fișe tehnice",
+              "rank1": "Cityline 3",
+              "rank2": "Metro S",
+              "rank3": "Urban X"
+            }
+          }
+        }
+      },
+      "computer": {
+        "title": "Computerul tău, direct din buzunar",
+        "body": "Asociază acest telefon cu Stella de pe computer și pot rula sarcini acolo cât ești pe drum.",
+        "point1": "Găsesc un fișier și ți-l trimit",
+        "point2": "Termin un export sau o descărcare",
+        "point3": "Folosesc aplicațiile pe care le ai deja",
+        "pair": "Asociază computerul meu",
+        "signInToPair": "Conectează-te ca să asociezi",
+        "later": "Mai târziu",
+        "hint": "Pe computer, deschide Stella și alege „Asociază-ți telefonul”.",
+        "guestHint": "Asocierea ține de contul tău Stella, așa că mai întâi conectează-te. Continui exact de aici.",
+        "connectedTo": "Conectat la {name}",
+        "connectedBody": "Cere-mi ce vrei de oriunde și fac treaba pe computerul tău.",
+        "settledConnectedDesc": "Pot rula sarcini acolo de pe telefonul tău.",
+        "settledSkippedTitle": "Încă niciun computer",
+        "settledSkippedDesc": "Poți asocia unul oricând din Setări."
+      },
+      "account": {
+        "signInTitle": "Conectează-te la Stella",
+        "signInBody": "Păstrează-ți conversația, setările și computerul conectat pe toate dispozitivele.",
+        "signIn": "Conectează-te",
+        "subscriptionsLabel": "Opțional",
+        "subscriptionsBody": "Plătești deja pentru Claude sau ChatGPT? Conectează-l și îl folosesc pentru munca din cloud.",
+        "claudeDesc": "Pro sau Max, prin Claude Code",
+        "chatgptDesc": "Plus sau Pro, prin Codex",
+        "connect": "Conectează",
+        "connectLabel": "Conectează {name}",
+        "connectedAs": "Conectat · {name}",
+        "skip": "Omite deocamdată",
+        "settledSignedIn": "Te-ai conectat",
+        "settledGuest": "Folosești Stella fără cont",
+        "guestSettled": "Te poți conecta oricând din Setări"
+      },
+      "theme": {
+        "appearance": "Aspect",
+        "themes": "Temă",
+        "confirm": "Gata",
+        "reset": "Păstrează implicitul"
+      },
+      "ready": {
+        "startersLabel": "Încearcă una dintre acestea",
+        "start": "Începe conversația",
+        "starters": {
+          "plan": {
+            "title": "Planifică-mi săptămâna",
+            "prompt": "Ajută-mă să-mi planific săptămâna în funcție de ce am în față."
+          },
+          "gift": {
+            "title": "Găsește un cadou",
+            "prompt": "Găsește un cadou de ziua de naștere ales cu grijă pentru un prieten, sub $50."
+          },
+          "remind": {
+            "title": "Setează un memento",
+            "prompt": "Amintește-mi să o sun pe mama duminică la 18:00."
+          },
+          "explain": {
+            "title": "Explică ceva",
+            "prompt": "Explică-mi simplu cum funcționează dobânda compusă."
+          }
+        }
+      }
     },
     "login": {
       "heroTitle": "Asistentul tău,\nde buzunar.",

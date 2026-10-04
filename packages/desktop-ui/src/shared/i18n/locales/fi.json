@@ -2010,14 +2010,206 @@
     "onboarding": {
       "skip": "Ohita",
       "skipLabel": "Ohita esittely",
-      "welcomeTitle": "Tässä on Stella",
-      "welcomeBody": "Kysy mitä tahansa, pohdi asioita ääneen tai anna oikeita töitä hoidettavaksi — Stella vastaa täällä ja voi toimia tietokoneellasi.",
-      "themeTitle": "Tee siitä omasi",
-      "themeBody": "Valitse teema. Voit vaihtaa sen milloin tahansa asetuksista.",
-      "connectTitle": "Tietokoneesi kaikkialla",
-      "connectBodyGuest": "Kirjaudu sisään myöhemmin ja pariliitä Stella tietokoneellasi — sitten voit pyytää puhelinta selaamaan verkkoa, hallitsemaan tiedostoja ja suorittamaan tehtäviä kotona.",
-      "connectBodyPaired": "Muodosta pariliitos Stellan työpöytäsovelluksen kanssa kerran, niin puhelimesi voi pyytää sitä selaamaan verkkoa, hallitsemaan tiedostoja ja suorittamaan tehtäviä — vaikka kaupungin toiselta laidalta.",
-      "startChatting": "Aloita keskustelu"
+      "progressLabel": "Vaihe {current}/{total}",
+      "composerPlaceholder": "Tai kysy minulta jotain",
+      "send": "Lähetä",
+      "messages": {
+        "hello": "Hei, olen Stella.\n\nEn ole chatbot. Kerro, mitä tarvitset, niin hoidan sen taustalla, kun sinä jatkat päiväsi touhuja.",
+        "showcase": "Tältä se näyttää.",
+        "computer": "Jos sinulla on Mac tai PC, voin työskennellä myös sillä.",
+        "account": "Haluatko säilyttää kaiken tämän? Stella-tili seuraa sinua jokaiselle laitteelle.",
+        "accountSignedIn": "Olet kirjautunut sisään, joten kaikki seuraa sinua laitteelta toiselle. Yksi valinnainen lisä:",
+        "theme": "Entä miltä minun pitäisi näyttää?",
+        "ready": "Siinä kaikki. Opin tuntemaan sinut matkan varrella.\n\nMistä aloitetaan?"
+      },
+      "replies": {
+        "helloDone": "Näytä.",
+        "showcaseDone": "Selvä.",
+        "computerDone": "Yhdistetty!",
+        "computerSkipped": "Ehkä myöhemmin.",
+        "accountDone": "Valmista.",
+        "accountSkipped": "Ohita toistaiseksi.",
+        "themeDone": "Tämä.",
+        "themeSkipped": "Pidä oletus."
+      },
+      "hello": {
+        "cta": "Näytä",
+        "settledTitle": "Tässä on Stella",
+        "pillars": {
+          "done": {
+            "title": "Hoitaa asiat",
+            "body": "Varaukset, tilaukset, tiedostot ja selvitykset, hoidettuna puolestasi."
+          },
+          "background": {
+            "title": "Työskentelee taustalla",
+            "body": "Anna tehtävä ja jatka omia juttujasi. Kerron, kun se on valmis."
+          },
+          "asks": {
+            "title": "Kysyy ennen kuin sillä on väliä",
+            "body": "Kaikki, mikä maksaa rahaa, odottaa hyväksyntääsi."
+          }
+        }
+      },
+      "showcase": {
+        "settledTitle": "Pikakierros",
+        "replay": "Toista demo uudelleen",
+        "tablist": "Mitä Stella osaa",
+        "placeholder": "Kysy Stellalta",
+        "chapters": {
+          "errands": {
+            "word": "Asioinnit",
+            "title": "Pyydä kerran. Se on hoidettu.",
+            "caption": "Avaan sivuston, täytän tiedot ja hoidan homman loppuun, aivan kuten sinäkin.",
+            "prompt": "Varaa pöytä kahdelle perjantaiksi kello 20",
+            "working": "Varataan pöytää",
+            "receipt1": "Osteria Lucia · pe 20:00 · 2 henkilöä",
+            "receipt2": "Lisätty kalenteriisi",
+            "reply": "Pöytä varattu: Osteria Lucia perjantaina kello 20. Se on kalenterissasi.",
+            "scene": {
+              "site": "osterialucia.com",
+              "party": "Henkilöt",
+              "partyValue": "2 henkilöä",
+              "date": "Päivä",
+              "dateValue": "Perjantai",
+              "time": "Aika",
+              "timeValue": "20:00",
+              "reserve": "Varaa",
+              "reserved": "Varattu"
+            }
+          },
+          "shopping": {
+            "word": "Ostokset",
+            "title": "Voin ostaa asioita, luvallasi.",
+            "caption": "Löydän tuotteen ja vien sen kassalle. Sinä hyväksyt loppusumman, sitten teen tilauksen.",
+            "prompt": "Tilaa uudelleen juoksukenkäni, koko 10",
+            "working": "Etsitään kenkiäsi",
+            "amount": "129,99 $",
+            "confirmTitle": "Vahvistetaanko osto?",
+            "confirmDetail": "Trail Runner 2 · koko 10",
+            "confirm": "Vahvista",
+            "confirmed": "Vahvistettu",
+            "receipt1": "Tilaus #48213 · saapuu torstaina",
+            "reply": "Tilattu. Ne saapuvat torstaina.",
+            "scene": {
+              "site": "trailco.com",
+              "product": "Trail Runner 2",
+              "addToCart": "Koriin",
+              "inCart": "Korissa"
+            }
+          },
+          "work": {
+            "word": "Työ",
+            "title": "Oikeat tiedostot, valmiina.",
+            "caption": "Asiakirjat, taulukot ja diat: teen työn ja tallennan tiedoston sinne, mistä voit avata sen.",
+            "prompt": "Tee Q3-muistiinpanoistani esitys maanantaiksi",
+            "working": "Luetaan muistiinpanojasi",
+            "receipt1": "Q3-muistiinpanot · luettu",
+            "receipt2": "Q3-katsaus · 12 diaa",
+            "reply": "Esityksesi on valmis: 12 diaa, tallennettu Tiedostoihin.",
+            "scene": {
+              "file": "Q3-katsaus.pptx",
+              "slideTitle": "Q3-katsaus"
+            }
+          },
+          "routines": {
+            "word": "Rutiinit",
+            "title": "Aseta kerran. Minä pidän huolen.",
+            "caption": "Muistutukset, tarkistukset ja päivittäiset katsaukset, jotka toimivat omalla aikataulullaan.",
+            "prompt": "Anna minulle joka aamu kello 8 katsaus päivääni",
+            "working": "Asetetaan",
+            "receipt1": "Joka päivä kello 8:00",
+            "reply": "Valmis. Ensimmäinen katsauksesi saapuu huomenna kello 8.",
+            "scene": {
+              "when": "Huomenna, 8:00",
+              "day": "Huomenna",
+              "time": "8:00",
+              "now": "nyt",
+              "title": "Aamukatsauksesi",
+              "body": "3 tapaamista, sadetta kello 17 jälkeen, ja Samilla on syntymäpäivä."
+            }
+          },
+          "research": {
+            "word": "Selvitys",
+            "title": "Minä hoidan lukemisen.",
+            "caption": "Vertailen vaihtoehdot, luen arvostelut ja palaan vastauksen kanssa.",
+            "prompt": "Etsi paras sähköpyörä alle 2 000 $:n hintaan",
+            "working": "Luetaan arvosteluja",
+            "receipt1": "Luettu 24 arvostelua",
+            "receipt2": "Vertailu tallennettu Tiedostoihin",
+            "reply": "Cityline 3: kevein runko, parhaat jarrut, 1 799 $.",
+            "scene": {
+              "title": "Vertaillaan sähköpyöriä",
+              "source1": "Asiantuntija-arvostelut",
+              "source2": "Omistajafoorumit",
+              "source3": "Tekniset tiedot",
+              "rank1": "Cityline 3",
+              "rank2": "Metro S",
+              "rank3": "Urban X"
+            }
+          }
+        }
+      },
+      "computer": {
+        "title": "Tietokoneesi taskustasi",
+        "body": "Pariliitä tämä puhelin tietokoneesi Stellan kanssa, niin voin suorittaa siellä tehtäviä, kun olet liikkeellä.",
+        "point1": "Löytää tiedosto ja lähettää se sinulle",
+        "point2": "Saada vienti tai lataus valmiiksi",
+        "point3": "Käyttää jo olemassa olevia sovelluksiasi",
+        "pair": "Pariliitä tietokoneeni",
+        "signInToPair": "Kirjaudu ja pariliitä",
+        "later": "Myöhemmin",
+        "hint": "Avaa Stella tietokoneellasi ja valitse Pariliitä puhelin.",
+        "guestHint": "Pariliitos kuuluu Stella-tiliisi, joten kirjaudu ensin sisään. Jatkan tästä kohdasta.",
+        "connectedTo": "Yhdistetty: {name}",
+        "connectedBody": "Pyydä missä tahansa, niin teen työn tietokoneellasi.",
+        "settledConnectedDesc": "Voin suorittaa siellä tehtäviä puhelimestasi käsin.",
+        "settledSkippedTitle": "Ei vielä tietokonetta",
+        "settledSkippedDesc": "Voit pariliittää sellaisen milloin tahansa asetuksissa."
+      },
+      "account": {
+        "signInTitle": "Kirjaudu Stellaan",
+        "signInBody": "Pidä keskustelusi, asetuksesi ja yhdistetty tietokoneesi mukanasi jokaisella laitteella.",
+        "signIn": "Kirjaudu sisään",
+        "subscriptionsLabel": "Valinnainen",
+        "subscriptionsBody": "Maksatko jo Claudesta tai ChatGPT:stä? Yhdistä se, niin käytän sitä pilvessä tehtävään työhön.",
+        "claudeDesc": "Pro tai Max, Claude Coden kautta",
+        "chatgptDesc": "Plus tai Pro, Codexin kautta",
+        "connect": "Yhdistä",
+        "connectLabel": "Yhdistä {name}",
+        "connectedAs": "Yhdistetty · {name}",
+        "skip": "Ohita toistaiseksi",
+        "settledSignedIn": "Kirjautunut sisään",
+        "settledGuest": "Stellaa käytetään vieraana",
+        "guestSettled": "Kirjaudu sisään milloin tahansa asetuksista"
+      },
+      "theme": {
+        "appearance": "Ulkoasu",
+        "themes": "Teema",
+        "confirm": "Valmis",
+        "reset": "Pidä oletus"
+      },
+      "ready": {
+        "startersLabel": "Kokeile jotain näistä",
+        "start": "Aloita keskustelu",
+        "starters": {
+          "plan": {
+            "title": "Suunnittele viikkoni",
+            "prompt": "Auta minua suunnittelemaan viikkoni tulevien menojeni ympärille."
+          },
+          "gift": {
+            "title": "Etsi lahja",
+            "prompt": "Etsi harkittu syntymäpäivälahja ystävälle, alle 50 $."
+          },
+          "remind": {
+            "title": "Aseta muistutus",
+            "prompt": "Muistuta minua soittamasta äidille sunnuntaina kello 18."
+          },
+          "explain": {
+            "title": "Selitä jotain",
+            "prompt": "Selitä yksinkertaisesti, miten korkoa korolle toimii."
+          }
+        }
+      }
     },
     "login": {
       "heroTitle": "Avustajasi,\ntaskukokoisena.",

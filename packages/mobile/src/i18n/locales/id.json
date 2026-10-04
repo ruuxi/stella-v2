@@ -1935,15 +1935,207 @@
     },
     "onboarding": {
       "skip": "Lewati",
-      "skipLabel": "Lewati perkenalan",
-      "welcomeTitle": "Kenalan dengan Stella",
-      "welcomeBody": "Tanyakan apa saja, bahas sampai tuntas, atau serahkan pekerjaan sungguhan — Stella menjawab di sini dan bisa bertindak di komputer Anda.",
-      "themeTitle": "Buat jadi milik Anda",
-      "themeBody": "Pilih tema. Anda bisa mengubahnya kapan saja di Pengaturan.",
-      "connectTitle": "Komputer Anda, di mana saja",
-      "connectBodyGuest": "Masuk nanti untuk memasangkan Stella di komputer Anda — lalu minta ponsel Anda menjelajah web, mengelola berkas, dan menjalankan tugas di rumah.",
-      "connectBodyPaired": "Pasangkan sekali dengan aplikasi desktop Stella, dan ponsel Anda bisa memintanya menjelajah web, mengelola berkas, dan menjalankan tugas — bahkan dari seberang kota.",
-      "startChatting": "Mulai mengobrol"
+      "skipLabel": "Lewati pengenalan",
+      "progressLabel": "Langkah {current} dari {total}",
+      "composerPlaceholder": "Atau tanyakan saja sesuatu kepada saya",
+      "send": "Kirim",
+      "messages": {
+        "hello": "Hai, saya Stella.\n\nSaya bukan chatbot. Katakan apa yang Anda butuhkan, dan saya yang menyelesaikannya di latar belakang, selagi Anda menjalani hari.",
+        "showcase": "Seperti inilah wujudnya.",
+        "computer": "Kalau Anda punya Mac atau PC, saya bisa bekerja di sana juga.",
+        "account": "Ingin menyimpan semua ini? Akun Stella ikut bersama Anda ke setiap perangkat.",
+        "accountSignedIn": "Anda sudah masuk, jadi semuanya ikut berpindah antarperangkat. Satu tambahan opsional:",
+        "theme": "Sekarang, saya sebaiknya tampil seperti apa?",
+        "ready": "Itu saja. Saya akan mengenal Anda seiring waktu.\n\nApa yang sebaiknya kita kerjakan lebih dulu?"
+      },
+      "replies": {
+        "helloDone": "Tunjukkan.",
+        "showcaseDone": "Mengerti.",
+        "computerDone": "Terhubung!",
+        "computerSkipped": "Nanti saja.",
+        "accountDone": "Sudah siap.",
+        "accountSkipped": "Lewati dulu.",
+        "themeDone": "Yang itu.",
+        "themeSkipped": "Pakai bawaan."
+      },
+      "hello": {
+        "cta": "Tunjukkan",
+        "settledTitle": "Kenalan dengan Stella",
+        "pillars": {
+          "done": {
+            "title": "Menyelesaikan urusan",
+            "body": "Reservasi, pesanan, file, dan riset, beres untuk Anda."
+          },
+          "background": {
+            "title": "Bekerja di latar belakang",
+            "body": "Serahkan tugasnya dan lanjutkan aktivitas Anda. Saya kabari kalau sudah selesai."
+          },
+          "asks": {
+            "title": "Bertanya sebelum penting",
+            "body": "Apa pun yang menyangkut uang menunggu persetujuan Anda."
+          }
+        }
+      },
+      "showcase": {
+        "settledTitle": "Tur singkat",
+        "replay": "Putar ulang demo ini",
+        "tablist": "Yang bisa dilakukan Stella",
+        "placeholder": "Tanya Stella",
+        "chapters": {
+          "errands": {
+            "word": "Urusan",
+            "title": "Cukup minta sekali. Anggap beres.",
+            "caption": "Saya membuka situsnya, mengisi detailnya, dan menuntaskan pekerjaannya, seperti yang akan Anda lakukan.",
+            "prompt": "Pesankan meja untuk dua orang hari Jumat jam 8 malam",
+            "working": "Memesan meja",
+            "receipt1": "Osteria Lucia · Jum 20.00 · 2 orang",
+            "receipt2": "Ditambahkan ke kalender Anda",
+            "reply": "Sudah dipesan di Osteria Lucia untuk hari Jumat pukul 20.00. Sudah ada di kalender Anda.",
+            "scene": {
+              "site": "osterialucia.com",
+              "party": "Tamu",
+              "partyValue": "2 orang",
+              "date": "Tanggal",
+              "dateValue": "Jumat",
+              "time": "Jam",
+              "timeValue": "20.00",
+              "reserve": "Pesan",
+              "reserved": "Dipesan"
+            }
+          },
+          "shopping": {
+            "word": "Belanja",
+            "title": "Saya bisa membelikan, dengan persetujuan Anda.",
+            "caption": "Saya mencarinya dan membawanya sampai ke pembayaran. Anda menyetujui totalnya, lalu saya yang memesan.",
+            "prompt": "Pesan ulang sepatu lari saya, ukuran 10",
+            "working": "Mencari sepatu Anda",
+            "amount": "$129,99",
+            "confirmTitle": "Konfirmasi pembelian?",
+            "confirmDetail": "Trail Runner 2 · ukuran 10",
+            "confirm": "Konfirmasi",
+            "confirmed": "Dikonfirmasi",
+            "receipt1": "Pesanan #48213 · tiba hari Kamis",
+            "reply": "Sudah dipesan. Sepatunya tiba hari Kamis.",
+            "scene": {
+              "site": "trailco.com",
+              "product": "Trail Runner 2",
+              "addToCart": "Tambah",
+              "inCart": "Di keranjang"
+            }
+          },
+          "work": {
+            "word": "Kerja",
+            "title": "File sungguhan, tuntas.",
+            "caption": "Dokumen, spreadsheet, dan slide: saya yang mengerjakan dan menyimpan filenya di tempat yang bisa Anda buka.",
+            "prompt": "Ubah catatan Q3 saya jadi presentasi untuk hari Senin",
+            "working": "Membaca catatan Anda",
+            "receipt1": "Catatan Q3 · sudah dibaca",
+            "receipt2": "Presentasi tinjauan Q3 · 12 slide",
+            "reply": "Presentasi Anda sudah siap: 12 slide, tersimpan di File.",
+            "scene": {
+              "file": "Tinjauan Q3.pptx",
+              "slideTitle": "Tinjauan Q3"
+            }
+          },
+          "routines": {
+            "word": "Rutinitas",
+            "title": "Atur sekali. Sisanya urusan saya.",
+            "caption": "Pengingat, check-in, dan ringkasan harian yang berjalan sesuai jadwalnya sendiri.",
+            "prompt": "Setiap pagi jam 8, rangkum hari saya",
+            "working": "Menyiapkan",
+            "receipt1": "Setiap hari pukul 8.00",
+            "reply": "Beres. Ringkasan pertama Anda tiba besok pukul 8.",
+            "scene": {
+              "when": "Besok, 8.00",
+              "day": "Besok",
+              "time": "8.00",
+              "now": "sekarang",
+              "title": "Ringkasan pagi Anda",
+              "body": "3 rapat, hujan setelah jam 5 sore, dan hari ini ulang tahun Sam."
+            }
+          },
+          "research": {
+            "word": "Riset",
+            "title": "Biar saya yang membaca.",
+            "caption": "Saya membandingkan pilihan, membaca ulasan, lalu kembali dengan jawaban.",
+            "prompt": "Carikan sepeda listrik terbaik di bawah $2.000",
+            "working": "Membaca ulasan",
+            "receipt1": "24 ulasan dibaca",
+            "receipt2": "Perbandingan disimpan di File",
+            "reply": "Cityline 3: rangka paling ringan, rem terbaik, $1.799.",
+            "scene": {
+              "title": "Membandingkan sepeda listrik",
+              "source1": "Ulasan pakar",
+              "source2": "Forum pemilik",
+              "source3": "Lembar spesifikasi",
+              "rank1": "Cityline 3",
+              "rank2": "Metro S",
+              "rank3": "Urban X"
+            }
+          }
+        }
+      },
+      "computer": {
+        "title": "Komputer Anda, dari saku Anda",
+        "body": "Pasangkan ponsel ini dengan Stella di komputer Anda, dan saya bisa menjalankan tugas di sana selagi Anda bepergian.",
+        "point1": "Mencari file dan mengirimkannya kepada Anda",
+        "point2": "Menyelesaikan ekspor atau unduhan",
+        "point3": "Memakai aplikasi yang sudah Anda punya",
+        "pair": "Pasangkan komputer saya",
+        "signInToPair": "Masuk untuk memasangkan",
+        "later": "Nanti",
+        "hint": "Di komputer Anda, buka Stella lalu pilih Pasangkan ponsel.",
+        "guestHint": "Pemasangan terikat ke akun Stella Anda, jadi masuk dulu. Saya lanjutkan tepat dari sini.",
+        "connectedTo": "Terhubung ke {name}",
+        "connectedBody": "Minta dari mana saja, dan saya akan mengerjakannya di komputer Anda.",
+        "settledConnectedDesc": "Saya bisa menjalankan tugas di sana dari ponsel Anda.",
+        "settledSkippedTitle": "Belum ada komputer",
+        "settledSkippedDesc": "Anda bisa memasangkannya kapan saja di Pengaturan."
+      },
+      "account": {
+        "signInTitle": "Masuk ke Stella",
+        "signInBody": "Simpan percakapan, pengaturan, dan komputer terhubung Anda di setiap perangkat.",
+        "signIn": "Masuk",
+        "subscriptionsLabel": "Opsional",
+        "subscriptionsBody": "Sudah berlangganan Claude atau ChatGPT? Hubungkan, dan saya akan memakainya untuk pekerjaan di cloud.",
+        "claudeDesc": "Pro atau Max, lewat Claude Code",
+        "chatgptDesc": "Plus atau Pro, lewat Codex",
+        "connect": "Hubungkan",
+        "connectLabel": "Hubungkan {name}",
+        "connectedAs": "Terhubung · {name}",
+        "skip": "Lewati dulu",
+        "settledSignedIn": "Sudah masuk",
+        "settledGuest": "Memakai Stella sebagai tamu",
+        "guestSettled": "Masuk kapan saja dari Pengaturan"
+      },
+      "theme": {
+        "appearance": "Tampilan",
+        "themes": "Tema",
+        "confirm": "Selesai",
+        "reset": "Pakai bawaan"
+      },
+      "ready": {
+        "startersLabel": "Coba salah satu ini",
+        "start": "Mulai mengobrol",
+        "starters": {
+          "plan": {
+            "title": "Atur minggu saya",
+            "prompt": "Bantu saya menyusun rencana minggu ini sesuai agenda yang akan datang."
+          },
+          "gift": {
+            "title": "Cari hadiah",
+            "prompt": "Carikan hadiah ulang tahun yang berkesan untuk teman, di bawah $50."
+          },
+          "remind": {
+            "title": "Buat pengingat",
+            "prompt": "Ingatkan saya menelepon Ibu hari Minggu jam 6 sore."
+          },
+          "explain": {
+            "title": "Jelaskan sesuatu",
+            "prompt": "Jelaskan cara kerja bunga majemuk dengan sederhana."
+          }
+        }
+      }
     },
     "login": {
       "heroTitle": "Asisten Anda,\nseukuran saku.",

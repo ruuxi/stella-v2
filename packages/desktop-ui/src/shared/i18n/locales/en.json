@@ -2010,14 +2010,206 @@
     "onboarding": {
       "skip": "Skip",
       "skipLabel": "Skip introduction",
-      "welcomeTitle": "Meet Stella",
-      "welcomeBody": "Ask anything, talk things through, or hand off real work — Stella answers here and can act on your computer.",
-      "themeTitle": "Make it yours",
-      "themeBody": "Pick a theme. You can change it any time in Settings.",
-      "connectTitle": "Your computer, anywhere",
-      "connectBodyGuest": "Sign in later to pair Stella on your computer — then ask your phone to browse, manage files, and run tasks at home.",
-      "connectBodyPaired": "Pair once with the Stella desktop app and your phone can ask it to browse, manage files, and run tasks — even from across town.",
-      "startChatting": "Start chatting"
+      "progressLabel": "Step {current} of {total}",
+      "composerPlaceholder": "Or just ask me something",
+      "send": "Send",
+      "messages": {
+        "hello": "Hi, I'm Stella.\n\nI'm not a chatbot. Tell me what you need and I get it done, in the background, while you get on with your day.",
+        "showcase": "Here's what that looks like.",
+        "computer": "If you have a Mac or PC, I can work on it too.",
+        "account": "Want to keep all of this? A Stella account follows you to every device.",
+        "accountSignedIn": "You're signed in, so everything follows you between devices. One optional extra:",
+        "theme": "Now, how should I look?",
+        "ready": "That's it. I'll get to know you as we go.\n\nWhat should we do first?"
+      },
+      "replies": {
+        "helloDone": "Show me.",
+        "showcaseDone": "Got it.",
+        "computerDone": "Connected!",
+        "computerSkipped": "Maybe later.",
+        "accountDone": "All set.",
+        "accountSkipped": "Skip for now.",
+        "themeDone": "That one.",
+        "themeSkipped": "Keep the default."
+      },
+      "hello": {
+        "cta": "Show me",
+        "settledTitle": "Meet Stella",
+        "pillars": {
+          "done": {
+            "title": "Gets things done",
+            "body": "Bookings, orders, files and research, finished for you."
+          },
+          "background": {
+            "title": "Works in the background",
+            "body": "Hand something off and keep going. I'll tell you when it's done."
+          },
+          "asks": {
+            "title": "Asks before it matters",
+            "body": "Anything that spends money waits for your OK."
+          }
+        }
+      },
+      "showcase": {
+        "settledTitle": "The quick tour",
+        "replay": "Replay this demo",
+        "tablist": "What Stella can do",
+        "placeholder": "Ask Stella",
+        "chapters": {
+          "errands": {
+            "word": "Errands",
+            "title": "Ask once. Consider it handled.",
+            "caption": "I open the site, fill in the details and finish the job, the way you would.",
+            "prompt": "Book a table for two on Friday at 8",
+            "working": "Reserving a table",
+            "receipt1": "Osteria Lucia · Fri 8:00 PM · 2 people",
+            "receipt2": "Added to your calendar",
+            "reply": "Booked Osteria Lucia for Friday at 8. It's on your calendar.",
+            "scene": {
+              "site": "osterialucia.com",
+              "party": "Party",
+              "partyValue": "2 people",
+              "date": "Date",
+              "dateValue": "Friday",
+              "time": "Time",
+              "timeValue": "8:00 PM",
+              "reserve": "Reserve",
+              "reserved": "Reserved"
+            }
+          },
+          "shopping": {
+            "word": "Shopping",
+            "title": "I can buy things, with your OK.",
+            "caption": "I find it and take it to checkout. You approve the total, then I place the order.",
+            "prompt": "Reorder my running shoes, size 10",
+            "working": "Finding your shoes",
+            "amount": "$129.99",
+            "confirmTitle": "Confirm purchase?",
+            "confirmDetail": "Trail Runner 2 · size 10",
+            "confirm": "Confirm",
+            "confirmed": "Confirmed",
+            "receipt1": "Order #48213 · arrives Thursday",
+            "reply": "Ordered. They arrive Thursday.",
+            "scene": {
+              "site": "trailco.com",
+              "product": "Trail Runner 2",
+              "addToCart": "Add to cart",
+              "inCart": "In cart"
+            }
+          },
+          "work": {
+            "word": "Work",
+            "title": "Real files, finished.",
+            "caption": "Docs, sheets and slides: I do the work and save the file where you can open it.",
+            "prompt": "Turn my Q3 notes into a deck for Monday",
+            "working": "Reading your notes",
+            "receipt1": "Q3 notes · read",
+            "receipt2": "Q3 review deck · 12 slides",
+            "reply": "Your deck is ready: 12 slides, saved to Files.",
+            "scene": {
+              "file": "Q3 review.pptx",
+              "slideTitle": "Q3 Review"
+            }
+          },
+          "routines": {
+            "word": "Routines",
+            "title": "Set it once. I'll keep at it.",
+            "caption": "Reminders, check-ins and daily briefs that run on their own schedule.",
+            "prompt": "Every morning at 8, brief me on my day",
+            "working": "Setting it up",
+            "receipt1": "Every day at 8:00 AM",
+            "reply": "Done. Your first brief arrives tomorrow at 8.",
+            "scene": {
+              "when": "Tomorrow, 8:00 AM",
+              "day": "Tomorrow",
+              "time": "8:00",
+              "now": "now",
+              "title": "Your morning brief",
+              "body": "3 meetings, rain after 5, and it's Sam's birthday."
+            }
+          },
+          "research": {
+            "word": "Research",
+            "title": "I do the reading.",
+            "caption": "I compare the options, read the reviews and come back with an answer.",
+            "prompt": "Find the best e-bike under $2,000",
+            "working": "Reading reviews",
+            "receipt1": "Read 24 reviews",
+            "receipt2": "Comparison saved to Files",
+            "reply": "The Cityline 3: lightest frame, best brakes, $1,799.",
+            "scene": {
+              "title": "Comparing e-bikes",
+              "source1": "Expert reviews",
+              "source2": "Owner forums",
+              "source3": "Spec sheets",
+              "rank1": "Cityline 3",
+              "rank2": "Metro S",
+              "rank3": "Urban X"
+            }
+          }
+        }
+      },
+      "computer": {
+        "title": "Your computer, from your pocket",
+        "body": "Pair this phone with Stella on your computer and I can run tasks there while you're out.",
+        "point1": "Find a file and send it to you",
+        "point2": "Finish an export or a download",
+        "point3": "Use the apps you already have",
+        "pair": "Pair my computer",
+        "signInToPair": "Sign in to pair",
+        "later": "Later",
+        "hint": "On your computer, open Stella and choose Pair phone.",
+        "guestHint": "Pairing is tied to your Stella account, so sign in first. I'll pick up right here.",
+        "connectedTo": "Connected to {name}",
+        "connectedBody": "Ask from anywhere and I'll do the work on your computer.",
+        "settledConnectedDesc": "I can run tasks there from your phone.",
+        "settledSkippedTitle": "No computer yet",
+        "settledSkippedDesc": "You can pair one any time in Settings."
+      },
+      "account": {
+        "signInTitle": "Sign in to Stella",
+        "signInBody": "Keep your conversation, settings and connected computer on every device.",
+        "signIn": "Sign in",
+        "subscriptionsLabel": "Optional",
+        "subscriptionsBody": "Already pay for Claude or ChatGPT? Connect it and I'll use it for work in the cloud.",
+        "claudeDesc": "Pro or Max, through Claude Code",
+        "chatgptDesc": "Plus or Pro, through Codex",
+        "connect": "Connect",
+        "connectLabel": "Connect {name}",
+        "connectedAs": "Connected · {name}",
+        "skip": "Skip for now",
+        "settledSignedIn": "Signed in",
+        "settledGuest": "Using Stella as a guest",
+        "guestSettled": "Sign in any time from Settings"
+      },
+      "theme": {
+        "appearance": "Appearance",
+        "themes": "Theme",
+        "confirm": "Done",
+        "reset": "Keep the default"
+      },
+      "ready": {
+        "startersLabel": "Try one of these",
+        "start": "Start chatting",
+        "starters": {
+          "plan": {
+            "title": "Plan my week",
+            "prompt": "Help me plan my week around what I have coming up."
+          },
+          "gift": {
+            "title": "Find a gift",
+            "prompt": "Find a thoughtful birthday gift for a friend, under $50."
+          },
+          "remind": {
+            "title": "Set a reminder",
+            "prompt": "Remind me to call Mom on Sunday at 6."
+          },
+          "explain": {
+            "title": "Explain something",
+            "prompt": "Explain how compound interest works, simply."
+          }
+        }
+      }
     },
     "login": {
       "heroTitle": "Your assistant,\npocket-sized.",

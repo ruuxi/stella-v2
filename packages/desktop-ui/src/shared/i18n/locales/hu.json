@@ -2009,15 +2009,207 @@
     },
     "onboarding": {
       "skip": "Kihagyás",
-      "skipLabel": "Bevezető kihagyása",
-      "welcomeTitle": "Ismerd meg a Stellát",
-      "welcomeBody": "Kérdezz bármit, gondolkodj vele hangosan, vagy add át neki a valódi munkát — a Stella itt válaszol, és a számítógépeden is tud cselekedni.",
-      "themeTitle": "Tedd a magadévá",
-      "themeBody": "Válassz témát. Bármikor módosíthatod a Beállításokban.",
-      "connectTitle": "A számítógéped, bárhol",
-      "connectBodyGuest": "Jelentkezz be később, hogy párosítsd a Stellát a számítógépeden — utána a telefonodról kérheted, hogy böngésszen, kezelje a fájlokat és futtasson feladatokat otthon.",
-      "connectBodyPaired": "Párosítsd egyszer a Stella asztali alkalmazásával, és a telefonod kérheti tőle, hogy böngésszen, kezelje a fájlokat és futtasson feladatokat — akár a város másik végéről is.",
-      "startChatting": "Csevegés indítása"
+      "skipLabel": "Bemutatkozás kihagyása",
+      "progressLabel": "{current}. lépés, összesen {total}",
+      "composerPlaceholder": "Vagy kérdezz tőlem bármit",
+      "send": "Küldés",
+      "messages": {
+        "hello": "Szia, Stella vagyok.\n\nNem vagyok chatbot. Mondd el, mire van szükséged, és én elintézem a háttérben, amíg te a napoddal foglalkozol.",
+        "showcase": "Így néz ez ki a gyakorlatban.",
+        "computer": "Ha van Mac-ed vagy PC-d, azon is tudok dolgozni.",
+        "account": "Szeretnéd megőrizni mindezt? A Stella-fiók minden eszközödre elkísér.",
+        "accountSignedIn": "Be vagy jelentkezve, így minden követ az eszközeid között. Még egy opcionális dolog:",
+        "theme": "És most: hogyan nézzek ki?",
+        "ready": "Ennyi. Menet közben megismerlek.\n\nMivel kezdjük?"
+      },
+      "replies": {
+        "helloDone": "Mutasd.",
+        "showcaseDone": "Értem.",
+        "computerDone": "Csatlakoztatva!",
+        "computerSkipped": "Majd később.",
+        "accountDone": "Kész.",
+        "accountSkipped": "Most nem.",
+        "themeDone": "Ez lesz.",
+        "themeSkipped": "Maradjon az alapértelmezett."
+      },
+      "hello": {
+        "cta": "Mutasd",
+        "settledTitle": "Ő Stella",
+        "pillars": {
+          "done": {
+            "title": "Elvégzi a dolgokat",
+            "body": "Foglalások, rendelések, fájlok és kutatás, elintézve helyetted."
+          },
+          "background": {
+            "title": "A háttérben dolgozik",
+            "body": "Add át a feladatot, és csináld tovább a dolgod. Szólok, ha kész."
+          },
+          "asks": {
+            "title": "Rákérdez, mielőtt számít",
+            "body": "Ami pénzbe kerül, az megvárja a jóváhagyásodat."
+          }
+        }
+      },
+      "showcase": {
+        "settledTitle": "Gyors körséta",
+        "replay": "Demó újralejátszása",
+        "tablist": "Mit tud Stella",
+        "placeholder": "Kérdezd Stellát",
+        "chapters": {
+          "errands": {
+            "word": "Ügyek",
+            "title": "Egyszer kérd. Már el is van intézve.",
+            "caption": "Megnyitom az oldalt, kitöltöm az adatokat, és befejezem a munkát, pont úgy, ahogy te tennéd.",
+            "prompt": "Foglalj asztalt kettőre péntek este 8-ra",
+            "working": "Asztalfoglalás",
+            "receipt1": "Osteria Lucia · P 20:00 · 2 fő",
+            "receipt2": "Hozzáadva a naptáradhoz",
+            "reply": "Lefoglaltam az Osteria Luciában péntek 20:00-ra. Már a naptáradban van.",
+            "scene": {
+              "site": "osterialucia.com",
+              "party": "Létszám",
+              "partyValue": "2 fő",
+              "date": "Nap",
+              "dateValue": "Péntek",
+              "time": "Idő",
+              "timeValue": "20:00",
+              "reserve": "Foglalás",
+              "reserved": "Lefoglalva"
+            }
+          },
+          "shopping": {
+            "word": "Vásárlás",
+            "title": "Vásárolni is tudok, a jóváhagyásoddal.",
+            "caption": "Megkeresem, és elviszem a fizetésig. Te jóváhagyod a végösszeget, én pedig leadom a rendelést.",
+            "prompt": "Rendeld újra a futócipőmet, 10-es méretben",
+            "working": "A cipőd keresése",
+            "amount": "129,99 $",
+            "confirmTitle": "Megerősíted a vásárlást?",
+            "confirmDetail": "Trail Runner 2 · 10-es méret",
+            "confirm": "Megerősítés",
+            "confirmed": "Megerősítve",
+            "receipt1": "Rendelés #48213 · csütörtökön érkezik",
+            "reply": "Megrendeltem. Csütörtökön megérkezik.",
+            "scene": {
+              "site": "trailco.com",
+              "product": "Trail Runner 2",
+              "addToCart": "Kosárba",
+              "inCart": "Kosárban"
+            }
+          },
+          "work": {
+            "word": "Munka",
+            "title": "Valódi fájlok, késznek.",
+            "caption": "Dokumentumok, táblázatok és diák: elvégzem a munkát, és ott mentem el a fájlt, ahol meg tudod nyitni.",
+            "prompt": "Csinálj a Q3-as jegyzeteimből prezentációt hétfőre",
+            "working": "A jegyzeteid olvasása",
+            "receipt1": "Q3-as jegyzetek · elolvasva",
+            "receipt2": "Q3 értékelő prezentáció · 12 dia",
+            "reply": "Kész a prezentációd: 12 dia, elmentve a Fájlokba.",
+            "scene": {
+              "file": "Q3 értékelés.pptx",
+              "slideTitle": "Q3 értékelés"
+            }
+          },
+          "routines": {
+            "word": "Rutinok",
+            "title": "Egyszer állítsd be. Én folytatom.",
+            "caption": "Emlékeztetők, rendszeres ellenőrzések és napi összefoglalók, amelyek maguktól futnak a saját ütemezésük szerint.",
+            "prompt": "Minden reggel 8-kor foglald össze a napomat",
+            "working": "Beállítás",
+            "receipt1": "Minden nap 8:00-kor",
+            "reply": "Kész. Az első összefoglalód holnap 8-kor érkezik.",
+            "scene": {
+              "when": "Holnap, 8:00",
+              "day": "Holnap",
+              "time": "8:00",
+              "now": "most",
+              "title": "A reggeli összefoglalód",
+              "body": "3 megbeszélés, 17 óra után eső, és Sam szülinapja van."
+            }
+          },
+          "research": {
+            "word": "Kutatás",
+            "title": "Én elolvasom helyetted.",
+            "caption": "Összehasonlítom a lehetőségeket, elolvasom az értékeléseket, és válasszal jövök vissza.",
+            "prompt": "Keresd meg a legjobb e-biciklit 2000 dollár alatt",
+            "working": "Értékelések olvasása",
+            "receipt1": "24 értékelés elolvasva",
+            "receipt2": "Az összehasonlítás elmentve a Fájlokba",
+            "reply": "A Cityline 3: a legkönnyebb váz, a legjobb fékek, 1799 $.",
+            "scene": {
+              "title": "E-biciklik összehasonlítása",
+              "source1": "Szakértői értékelések",
+              "source2": "Tulajdonosi fórumok",
+              "source3": "Adatlapok",
+              "rank1": "Cityline 3",
+              "rank2": "Metro S",
+              "rank3": "Urban X"
+            }
+          }
+        }
+      },
+      "computer": {
+        "title": "A számítógéped, a zsebedből",
+        "body": "Párosítsd ezt a telefont a számítógépeden futó Stellával, és amíg úton vagy, ott futtathatok feladatokat.",
+        "point1": "Megkeresek egy fájlt, és elküldöm neked",
+        "point2": "Befejezek egy exportot vagy letöltést",
+        "point3": "A meglévő alkalmazásaidat használom",
+        "pair": "Számítógépem párosítása",
+        "signInToPair": "Jelentkezz be a párosításhoz",
+        "later": "Később",
+        "hint": "A számítógépeden nyisd meg a Stellát, és válaszd a Telefon párosítása lehetőséget.",
+        "guestHint": "A párosítás a Stella-fiókodhoz kötődik, ezért előbb jelentkezz be. Pontosan innen folytatom.",
+        "connectedTo": "Csatlakozva: {name}",
+        "connectedBody": "Kérj bárhonnan, és én elvégzem a munkát a számítógépeden.",
+        "settledConnectedDesc": "A telefonodról ott tudok feladatokat futtatni.",
+        "settledSkippedTitle": "Még nincs számítógép",
+        "settledSkippedDesc": "Bármikor párosíthatsz egyet a Beállításokban."
+      },
+      "account": {
+        "signInTitle": "Jelentkezz be a Stellába",
+        "signInBody": "Tartsd meg a beszélgetésedet, a beállításaidat és a csatlakoztatott számítógépedet minden eszközön.",
+        "signIn": "Bejelentkezés",
+        "subscriptionsLabel": "Opcionális",
+        "subscriptionsBody": "Már fizetsz a Claude-ért vagy a ChatGPT-ért? Csatlakoztasd, és a felhőbeli munkához azt használom.",
+        "claudeDesc": "Pro vagy Max, a Claude Code-on keresztül",
+        "chatgptDesc": "Plus vagy Pro, a Codexen keresztül",
+        "connect": "Csatlakoztatás",
+        "connectLabel": "{name} csatlakoztatása",
+        "connectedAs": "Csatlakoztatva · {name}",
+        "skip": "Most nem",
+        "settledSignedIn": "Bejelentkezve",
+        "settledGuest": "Stella vendégként",
+        "guestSettled": "Bármikor bejelentkezhetsz a Beállításokban"
+      },
+      "theme": {
+        "appearance": "Megjelenés",
+        "themes": "Téma",
+        "confirm": "Kész",
+        "reset": "Maradjon az alapértelmezett"
+      },
+      "ready": {
+        "startersLabel": "Próbáld ki valamelyiket",
+        "start": "Csevegés indítása",
+        "starters": {
+          "plan": {
+            "title": "Tervezd meg a hetem",
+            "prompt": "Segíts megtervezni a hetemet aszerint, ami előttem áll."
+          },
+          "gift": {
+            "title": "Ajándékötlet",
+            "prompt": "Keress egy átgondolt születésnapi ajándékot egy barátomnak, 50 dollár alatt."
+          },
+          "remind": {
+            "title": "Emlékeztető beállítása",
+            "prompt": "Emlékeztess, hogy vasárnap 6-kor felhívjam anyát."
+          },
+          "explain": {
+            "title": "Magyarázz el valamit",
+            "prompt": "Magyarázd el egyszerűen, hogyan működik a kamatos kamat."
+          }
+        }
+      }
     },
     "login": {
       "heroTitle": "Az asszisztensed,\nzsebméretben.",

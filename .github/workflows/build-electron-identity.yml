@@ -1,0 +1,121 @@
+name: Build Electron Identity
+
+# The macOS launcher runs Electron as Stella.app. Signed with the Developer ID
+# (identifier com.stella.app, team 7UVYHQ763X), its Keychain item and privacy
+# grants keep trusting it across Electron updates and launcher reinstalls; an
+# ad-hoc copy built on the user's Mac has a new identity for every version, so
+# macOS asks for the login password and resets permissions. This builds the
+# signed Stella.app for the Electron version the source pins and uploads it to
+# R2 electron-identity/<version>/, where the launcher downloads it.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "package.json"
+      - "packages/desktop/build/icon.icns"
+      - ".github/workflows/build-electron-identity.yml"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Rebuild even if this Electron version is already published"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-electron-identity
+  cancel-in-progress: false
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    env:
+      PUBLIC_BASE: https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/electron-identity
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Resolve the pinned Electron version
+        id: electron
+        run: |
+          set -euo pipefail
+          version="$(node -p "const p = require('./package.json'); (p.devDependencies || {}).electron || (p.dependencies || {}).electron")"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Electron must be pinned exactly, got $version" >&2; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [[ "${{ inputs.force }}" != "true" ]] && curl -sfI "$PUBLIC_BASE/$version/Stella-darwin-arm64.zip.sha256" > /dev/null \
+            && curl -sfI "$PUBLIC_BASE/$version/Stella-darwin-x64.zip.sha256" > /dev/null; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "Electron $version is already published."
+          fi
+
+      - name: Build and sign Stella.app
+        if: steps.electron.outputs.published != 'true'
+        env:
+          VERSION: ${{ steps.electron.outputs.version }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
+          cert_path="$RUNNER_TEMP/stella-certificate.p12"
+          keychain_path="$RUNNER_TEMP/stella-signing.keychain-db"
+          keychain_password="$(openssl rand -base64 32)"
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode -o "$cert_path"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$cert_path" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain_path"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain_path"
+          security list-keychains -d user -s "$keychain_path" login.keychain-db
+          rm -f "$cert_path"
+          identity="$APPLE_SIGNING_IDENTITY"
+          [[ "$identity" == "Developer ID Application:"* ]] || identity="Developer ID Application: $identity"
+          requirement='anchor apple generic and identifier "com.stella.app" and certificate leaf[subject.OU] = "7UVYHQ763X"'
+
+          mkdir -p out
+          for arch in arm64 x64; do
+            work="$RUNNER_TEMP/electron-$arch"
+            rm -rf "$work" && mkdir -p "$work"
+            curl -fsSL -o "$work/electron.zip" \
+              "https://github.com/electron/electron/releases/download/v$VERSION/electron-v$VERSION-darwin-$arch.zip"
+            ditto -x -k "$work/electron.zip" "$work/dist"
+            app="$work/Stella.app"
+            mv "$work/dist/Electron.app" "$app"
+            # Same identity patch as the launcher's local fallback
+            # (launcher/macos/Sources/StellaLauncher/Prepare.swift).
+            plist="$app/Contents/Info.plist"
+            plutil -replace CFBundleName -string Stella "$plist"
+            plutil -replace CFBundleDisplayName -string Stella "$plist"
+            plutil -replace CFBundleIdentifier -string com.stella.app "$plist"
+            plutil -replace NSMicrophoneUsageDescription -string "Stella uses your microphone for voice conversations." "$plist"
+            cp packages/desktop/build/icon.icns "$app/Contents/Resources/electron.icns"
+            codesign --force --deep --timestamp --keychain "$keychain_path" --sign "$identity" "$app"
+            codesign --verify --deep --strict --verbose=2 -R="$requirement" "$app"
+            ditto -c -k --keepParent "$app" "out/Stella-darwin-$arch.zip"
+            shasum -a 256 "out/Stella-darwin-$arch.zip" | awk '{print $1}' > "out/Stella-darwin-$arch.zip.sha256"
+          done
+          security delete-keychain "$keychain_path"
+          ls -la out
+
+      - name: Upload to R2 electron-identity/<version>/
+        if: steps.electron.outputs.published != 'true'
+        env:
+          VERSION: ${{ steps.electron.outputs.version }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+        run: |
+          set -euo pipefail
+          # Zips first, so a published checksum always has its zip.
+          for file in Stella-darwin-arm64.zip Stella-darwin-x64.zip Stella-darwin-arm64.zip.sha256 Stella-darwin-x64.zip.sha256; do
+            aws s3 cp "out/$file" "s3://${R2_BUCKET}/electron-identity/$VERSION/$file" \
+              --cache-control "public, max-age=31536000, immutable" --endpoint-url "$R2_ENDPOINT"
+          done
+          echo "Published signed Stella.app for Electron $VERSION"

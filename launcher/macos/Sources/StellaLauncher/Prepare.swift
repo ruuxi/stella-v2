@@ -62,18 +62,27 @@ enum Prepare {
     }
 }
 
-/// `bundles/electron-<v>/Stella.app`: a copy of the installed Electron.app
-/// that macOS knows as Stella (bundle id, name, icon, microphone string) with
-/// an ad-hoc signature. Keyed per Electron version, so permission grants
-/// survive source updates. Ported from
-/// packages/desktop/scripts/lib/macos-dev-permission-identity.mjs, with the
-/// product bundle id instead of the dev one.
+/// `bundles/electron-<v>/Stella.app`: Electron as macOS knows Stella (bundle
+/// id, name, icon, microphone string). Normally the Developer ID-signed copy
+/// CI publishes per Electron version (.github/workflows/build-electron-identity.yml):
+/// its identity is the same across versions and reinstalls, so the Keychain
+/// item and privacy grants keep trusting it. When that can't be fetched, a
+/// local copy of the installed Electron.app with an ad-hoc signature, which
+/// macOS treats as a new app for every Electron version.
 enum ElectronIdentity {
     static let bundleId = "com.stella.app"
     static let appName = "Stella"
     static let microphoneUsage = "Stella uses your microphone for voice conversations."
     /// Bump when the patch below changes, to rebuild existing bundles.
     static let revision = 1
+    static let signedBase = "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/electron-identity"
+    static let requirement =
+        "anchor apple generic and identifier \"com.stella.app\" and certificate leaf[subject.OU] = \"7UVYHQ763X\""
+    #if arch(arm64)
+    static let arch = "arm64"
+    #else
+    static let arch = "x64"
+    #endif
 
     static func ensure(paths: LauncherPaths, env: [String: String], progress: (String) -> Void) throws -> URL {
         let app = paths.app
@@ -92,9 +101,21 @@ enum ElectronIdentity {
         let dir = paths.bundles.appendingPathComponent("electron-\(version)")
         let target = dir.appendingPathComponent("Stella.app")
         let marker = dir.appendingPathComponent("identity.json")
+        let signedMarker = "{\"electron\":\"\(version)\",\"signed\":true}"
         let expected = "{\"electron\":\"\(version)\",\"icon\":\"\(iconHash)\",\"revision\":\(revision)}"
-        if FileManager.default.fileExists(atPath: target.path),
-           (try? String(contentsOf: marker, encoding: .utf8)) == expected {
+        let current = try? String(contentsOf: marker, encoding: .utf8)
+        if FileManager.default.fileExists(atPath: target.path), current == signedMarker {
+            return target
+        }
+        do {
+            try installSigned(version: version, dir: dir, target: target, env: env, progress: progress)
+            try signedMarker.write(to: marker, atomically: true, encoding: .utf8)
+            log("identity: \(target.path) ready (Developer ID)")
+            return target
+        } catch {
+            log("identity: signed Stella.app for Electron \(version) unavailable: \(error)")
+        }
+        if FileManager.default.fileExists(atPath: target.path), current == expected {
             return target
         }
 
@@ -136,5 +157,36 @@ enum ElectronIdentity {
         try expected.write(to: marker, atomically: true, encoding: .utf8)
         log("identity: \(target.path) ready")
         return target
+    }
+
+    /// Download CI's signed Stella.app for this Electron version and keep it
+    /// only if its checksum and Developer ID signature check out.
+    private static func installSigned(
+        version: String, dir: URL, target: URL, env: [String: String], progress: (String) -> Void
+    ) throws {
+        let name = "Stella-darwin-\(arch).zip"
+        guard let sumURL = URL(string: "\(signedBase)/\(version)/\(name).sha256"),
+              let zipURL = URL(string: "\(signedBase)/\(version)/\(name)")
+        else { throw LauncherError("Bad signed bundle URL.") }
+        let (sumData, sumResponse) = try Net.fetch(URLRequest(url: sumURL))
+        guard sumResponse.statusCode == 200 else { throw LauncherError("HTTP \(sumResponse.statusCode) for \(name).sha256") }
+        let sha = String(decoding: sumData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        progress("Setting up Stella.app…")
+        log("identity: downloading signed Stella.app for Electron \(version)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let zip = dir.appendingPathComponent(name)
+        try Net.download(zipURL, to: zip, sha256: sha)
+        defer { try? FileManager.default.removeItem(at: zip) }
+        let unpacked = dir.appendingPathComponent("signed.partial")
+        try? FileManager.default.removeItem(at: unpacked)
+        let unzip = try Shell.run("/usr/bin/ditto", ["-x", "-k", zip.path, unpacked.path], env: env)
+        guard unzip.code == 0 else { throw LauncherError("Could not unpack \(name): \(unzip.stderr)") }
+        defer { try? FileManager.default.removeItem(at: unpacked) }
+        let app = unpacked.appendingPathComponent("Stella.app")
+        let verify = try Shell.run(
+            "/usr/bin/codesign", ["--verify", "--deep", "--strict", "-R=\(requirement)", app.path], env: env)
+        guard verify.code == 0 else { throw LauncherError("Signature check failed: \(verify.stderr)") }
+        try? FileManager.default.removeItem(at: target)
+        try FileManager.default.moveItem(at: app, to: target)
     }
 }

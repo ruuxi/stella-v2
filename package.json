@@ -92,9 +92,6 @@
     "canvas-share:lint:promises": "eslint --config eslint.workers.config.js workers/canvas-share/src",
     "canvas-share:test": "cd workers/canvas-share && bun run test && bun run test:workerd",
     "canvas-share:build:dry-run": "cd workers/canvas-share && bun run build:dry-run",
-    "x-bot:typecheck": "cd workers/x-bot && bun run typecheck",
-    "x-bot:lint:promises": "eslint --config eslint.workers.config.js workers/x-bot/src",
-    "x-bot:build:dry-run": "cd workers/x-bot && bun run build:dry-run",
     "check:ratchet": "node packages/runtime/scripts/check-effect-ratchet.mjs"
   },
   "dependencies": {

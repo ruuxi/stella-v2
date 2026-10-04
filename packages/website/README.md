@@ -26,8 +26,6 @@ The build falls back to the tracked public backend URLs from
 `packages/desktop-ui/.env`. Set `NEXT_PUBLIC_STELLA_BACKEND_URL` in
 `packages/website/.env.local` to point at a different backend worker. It is a
 public client endpoint, not a secret.
-`NEXT_PUBLIC_X_BOT_URL` is the X bot worker's origin (`workers/x-bot`); the
-`/x/<handle>` pages read their runs from it and 404 when it is unset.
 
 ## Vercel
 

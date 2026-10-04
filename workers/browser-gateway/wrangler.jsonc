@@ -3,7 +3,11 @@
   "name": "stella-v2-browser-gateway-dev",
   "main": "src/index.ts",
   "compatibility_date": "2026-07-22",
-  "compatibility_flags": ["nodejs_compat"],
+  // Pending service-binding calls, RPC, waitUntil and timers keep a Durable
+  // Object alive (up to 15 minutes each). A resident agent turn waits on the
+  // model and browser gateways through bindings; without this it could be
+  // evicted mid-call. Default from compatibility date 2026-10-01.
+  "compatibility_flags": ["nodejs_compat", "durable_object_io_tasks_prevent_eviction"],
   "workers_dev": false,
   "preview_urls": false,
   "observability": {

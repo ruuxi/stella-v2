@@ -76,6 +76,14 @@ export type OwnerHost = {
    * dispatch. Throws `DispatchError` when the device cannot take it.
    */
   dispatchDeviceAgentTurn(input: DeviceAgentTurnDispatch): Promise<{ dispatchId: string }>;
+  /** New input for a cloud agent's running attempt; false when none is running. */
+  steerAgentTurn(input: { threadId: string; messageId: string; text: string }): Promise<boolean>;
+  /** New input for a device attempt that is running. */
+  steerDeviceAgentTurn(input: {
+    dispatchId: string;
+    messageId: string;
+    text: string;
+  }): Promise<{ delivered: boolean; reason?: "not_running" | "unreachable" }>;
   /** Stop a device attempt's dispatch. Idempotent per `cancelRequestId`. */
   cancelDeviceAgentTurn(input: {
     dispatchId: string;
@@ -163,6 +171,8 @@ export type DeviceAgentTurnDispatch = {
   targetDeviceId: string;
   /** The desktop that asked, if any; absent for a cloud requester. */
   requestingDeviceId?: string;
+  /** The requester's `spawn_agent` model the device runs the agent on. */
+  model?: string;
 };
 
 export type AgentCompletionDelivery = {

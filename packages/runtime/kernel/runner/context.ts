@@ -7,6 +7,7 @@ import {
 } from "./cloud-spawn-dispatch.js";
 import { createCloudTranscriptWriter } from "./cloud-transcript-write.js";
 import { createToolHost } from "../tools/host.js";
+import type { SpawnModelSupport } from "../tools/types.js";
 import { HookEmitter } from "../extensions/hook-emitter.js";
 import {
   getAgentRuntimeEngine,
@@ -583,6 +584,97 @@ export const createRunnerContext = ({
       : {}),
   });
 
+  /**
+   * How `spawn_agent` checks and captures a requested model. Shared with the
+   * runner so an agent placed on this device from elsewhere can honor the
+   * model its requester asked for.
+   */
+  const spawnModelSupport: SpawnModelSupport = {
+  // spawn_agent's `model` parameter: throws the standard route-failure
+  // message when a plain model reference can't be resolved, so the spawn
+  // fails loudly instead of silently falling back to the default.
+  validateSpawnModel: (modelName) => {
+    resolveRunnerLlmRoute(context, AGENT_IDS.GENERAL, modelName);
+  },
+  validateSpawnModelWithMetadata: async (modelName, reasoningEffort) => {
+    await resolveRunnerLlmRouteWithMetadata(
+      context,
+      AGENT_IDS.GENERAL,
+      modelName,
+      reasoningEffort,
+    );
+  },
+  captureSpawnModelConfig: async ({
+    agentType,
+    spawnEngine,
+    useConfiguredEngine,
+    model: spawnModel,
+    spawnReasoningEffort,
+  }) => {
+    const configuredEngine = getAgentRuntimeEngine(stellaDataDir);
+    const selectedEngine = useConfiguredEngine
+      ? configuredEngine
+      : spawnEngine.engine;
+    const subscriptionHarnessEnabled = getSubscriptionHarnessEnabled(
+      stellaDataDir,
+      selectedEngine,
+    );
+    const agent = resolveAgent(context, agentType);
+    const configuredModel =
+      spawnModel ?? getConfiguredModel(context, agentType, agent);
+    const configuredReasoningEffort = getReasoningEffort(
+      stellaDataDir,
+      agentType,
+    );
+    const sampledEngineConfig = sampleAgentEngineConfig({
+      stellaDataDir,
+      engine: selectedEngine,
+      configuredModel,
+      engineModelOverride: useConfiguredEngine
+        ? undefined
+        : spawnEngine.model,
+      reasoningEffort: spawnReasoningEffort ?? configuredReasoningEffort,
+    });
+    const sampledSpawnEngine: SpawnEngineSelection =
+      selectedEngine === "default"
+        ? { engine: "default" }
+        : {
+            engine: selectedEngine,
+            ...(sampledEngineConfig.engineModel
+              ? { model: sampledEngineConfig.engineModel }
+              : {}),
+          };
+    const harnessRouteModel = resolveSubscriptionHarnessRouteModel({
+      stellaDataDir,
+      agentType,
+      configuredEngine,
+      subscriptionHarnessEnabled,
+      configuredModel,
+      spawnEngine: sampledSpawnEngine,
+    });
+    const model = harnessRouteModel ?? configuredModel;
+    const resolvedLlm = await resolveRunnerLlmRouteWithMetadata(
+      context,
+      agentType,
+      model,
+      spawnReasoningEffort,
+    );
+    return captureEffectiveModelConfig({
+      stellaDataDir,
+      engine: selectedEngine,
+      subscriptionHarnessEnabled,
+      configuredModel: model,
+      engineModelOverride: sampledEngineConfig.engineModel,
+      ...(sampledEngineConfig.serviceTier
+        ? { serviceTierOverride: sampledEngineConfig.serviceTier }
+        : {}),
+      engineConfigSampled: true,
+      resolvedLlm,
+      reasoningEffort: sampledEngineConfig.reasoningEffort,
+    });
+  },
+  };
+
   const toolHost = createToolHost({
     stellaAppDir,
     stellaDataDir,
@@ -597,89 +689,7 @@ export const createRunnerContext = ({
       ? { requestBrowserExtensionConnect }
       : {}),
     ...(requestConnectorConnection ? { requestConnectorConnection } : {}),
-    // spawn_agent's `model` parameter: throws the standard route-failure
-    // message when a plain model reference can't be resolved, so the spawn
-    // fails loudly instead of silently falling back to the default.
-    validateSpawnModel: (modelName) => {
-      resolveRunnerLlmRoute(context, AGENT_IDS.GENERAL, modelName);
-    },
-    validateSpawnModelWithMetadata: async (modelName, reasoningEffort) => {
-      await resolveRunnerLlmRouteWithMetadata(
-        context,
-        AGENT_IDS.GENERAL,
-        modelName,
-        reasoningEffort,
-      );
-    },
-    captureSpawnModelConfig: async ({
-      agentType,
-      spawnEngine,
-      useConfiguredEngine,
-      model: spawnModel,
-      spawnReasoningEffort,
-    }) => {
-      const configuredEngine = getAgentRuntimeEngine(stellaDataDir);
-      const selectedEngine = useConfiguredEngine
-        ? configuredEngine
-        : spawnEngine.engine;
-      const subscriptionHarnessEnabled = getSubscriptionHarnessEnabled(
-        stellaDataDir,
-        selectedEngine,
-      );
-      const agent = resolveAgent(context, agentType);
-      const configuredModel =
-        spawnModel ?? getConfiguredModel(context, agentType, agent);
-      const configuredReasoningEffort = getReasoningEffort(
-        stellaDataDir,
-        agentType,
-      );
-      const sampledEngineConfig = sampleAgentEngineConfig({
-        stellaDataDir,
-        engine: selectedEngine,
-        configuredModel,
-        engineModelOverride: useConfiguredEngine
-          ? undefined
-          : spawnEngine.model,
-        reasoningEffort: spawnReasoningEffort ?? configuredReasoningEffort,
-      });
-      const sampledSpawnEngine: SpawnEngineSelection =
-        selectedEngine === "default"
-          ? { engine: "default" }
-          : {
-              engine: selectedEngine,
-              ...(sampledEngineConfig.engineModel
-                ? { model: sampledEngineConfig.engineModel }
-                : {}),
-            };
-      const harnessRouteModel = resolveSubscriptionHarnessRouteModel({
-        stellaDataDir,
-        agentType,
-        configuredEngine,
-        subscriptionHarnessEnabled,
-        configuredModel,
-        spawnEngine: sampledSpawnEngine,
-      });
-      const model = harnessRouteModel ?? configuredModel;
-      const resolvedLlm = await resolveRunnerLlmRouteWithMetadata(
-        context,
-        agentType,
-        model,
-        spawnReasoningEffort,
-      );
-      return captureEffectiveModelConfig({
-        stellaDataDir,
-        engine: selectedEngine,
-        subscriptionHarnessEnabled,
-        configuredModel: model,
-        engineModelOverride: sampledEngineConfig.engineModel,
-        ...(sampledEngineConfig.serviceTier
-          ? { serviceTierOverride: sampledEngineConfig.serviceTier }
-          : {}),
-        engineConfigSampled: true,
-        resolvedLlm,
-        reasoningEffort: sampledEngineConfig.reasoningEffort,
-      });
-    },
+    ...spawnModelSupport,
     resolveCloudExecutionSelection: async ({
       model: modelOverride,
       spawnEngine,
@@ -887,6 +897,7 @@ export const createRunnerContext = ({
     },
     hookEmitter,
     toolHost,
+    spawnModelSupport,
   });
 
   // Needs both halves: the tool host owns the shell sessions, the agent

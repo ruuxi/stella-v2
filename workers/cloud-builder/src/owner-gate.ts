@@ -382,6 +382,9 @@ const DDL = [
      ON dispatch_offers(device_id, status)`,
 ];
 
+/** How long a steer waits for the device to confirm the agent took it. */
+const STEER_ACK_TIMEOUT_MS = 10_000;
+
 /** How the snapshot fetch failed. `owner_purged` is definite; the rest are not. */
 export class OwnerGateSnapshotError extends Error {
   constructor(
@@ -728,6 +731,8 @@ const trustedOwnerCaller = (request: Request): OwnerCaller | null => {
 
 export class OwnerGate extends DurableObject<OwnerGateEnv> {
   private schemaReady = false;
+  /** Steers waiting for their device's `steer.ack`, by dispatch and message. */
+  private readonly steerAcks = new Map<string, (delivered: boolean) => void>();
   private ownerStoreState?: OwnerStore;
   private ownerHostState?: OwnerHost;
   /** The domains this object serves. Test fixtures substitute their own. */
@@ -743,6 +748,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       release: (input) => this.release(input),
       submit: (input) => this.submit(input),
       cancelDispatch: (input) => this.cancelDispatch(input),
+      steerDispatch: (input) => this.steerDispatch(input),
       devices: () => this.devices(),
       homeChanged: (ownerGeneration, revision) =>
         this.homeContextCache().changed(ownerGeneration, revision),
@@ -3378,6 +3384,50 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
    * canceled outright; work that is running somewhere becomes
    * `cancel_pending` and is settled by the terminal the executing side sends.
    */
+  /**
+   * Hand new input to an agent a device accepted and is running, and wait
+   * for the device to say whether the agent took it. `unreachable` means no
+   * live socket for that device; `not_running` that the run already ended.
+   */
+  async steerDispatch(input: {
+    dispatchId: string;
+    messageId: string;
+    text: string;
+  }): Promise<{ delivered: boolean; reason?: "not_running" | "unreachable" }> {
+    this.ensureSchema();
+    const row = this.dispatchRow(input.dispatchId.trim());
+    if (
+      !row ||
+      row.kind !== "agent" ||
+      !row.executor_device_id ||
+      (row.state !== "computer_accepted" && row.state !== "computer_running")
+    ) {
+      return { delivered: false, reason: "not_running" };
+    }
+    const socket = this.connectedSocket(row.executor_device_id);
+    if (!socket) return { delivered: false, reason: "unreachable" };
+    const key = `${row.dispatch_id}:${input.messageId}`;
+    const acknowledged = new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => {
+        if (this.steerAcks.delete(key)) resolve(false);
+      }, STEER_ACK_TIMEOUT_MS);
+      this.steerAcks.set(key, (delivered) => {
+        clearTimeout(timer);
+        this.steerAcks.delete(key);
+        resolve(delivered);
+      });
+    });
+    this.send(socket, {
+      type: "steer",
+      dispatchId: row.dispatch_id,
+      messageId: input.messageId,
+      text: input.text,
+    });
+    return (await acknowledged)
+      ? { delivered: true }
+      : { delivered: false, reason: "not_running" };
+  }
+
   async cancelDispatch(
     input: OwnerGateCancelInput,
   ): Promise<OwnerGateStatusResult> {
@@ -3534,6 +3584,14 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     }
     const deny = (code: string, message: string) =>
       this.send(socket, { type: "error", code, message, retryable: false });
+    if (frame.type === "steer.ack") {
+      if (row.executor_device_id === attachment.deviceId) {
+        this.steerAcks.get(`${dispatchId}:${frame.messageId}`)?.(
+          frame.delivered === true,
+        );
+      }
+      return;
+    }
     if (frame.type === "claim") {
       await this.handleClaim(socket, attachment, row, frame, now);
       return;

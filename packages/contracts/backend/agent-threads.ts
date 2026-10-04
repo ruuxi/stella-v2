@@ -74,6 +74,8 @@ export type AgentThreadCalls = {
       conversationId?: string;
       execution?: CloudExecutionSelection;
       targetDeviceId?: string;
+      /** Device target: the `spawn_agent` model that device runs the agent on. */
+      model?: string;
     };
     result: AgentThreadControl;
   };

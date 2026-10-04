@@ -60,6 +60,7 @@ type ThreadRow = {
   parent_turn_id: string | null;
   parent_thread_id: string | null;
   executor_device_id: string | null;
+  requested_model: string | null;
   origin_device_id: string | null;
   origin_conversation_id: string | null;
   origin_delivery_ack_at: number | null;
@@ -165,6 +166,12 @@ export const AGENT_THREADS_DEVICE_EXECUTOR_MIGRATION = {
     "ALTER TABLE agent_turns ADD COLUMN dispatch_id TEXT",
     "CREATE INDEX agent_turns_dispatch ON agent_turns (dispatch_id) WHERE dispatch_id IS NOT NULL",
   ],
+};
+
+/** The model a device thread's requester asked for; the device runs it or fails. */
+export const AGENT_THREADS_REQUESTED_MODEL_MIGRATION = {
+  id: "agent-threads.5-requested-model",
+  statements: ["ALTER TABLE agent_threads ADD COLUMN requested_model TEXT"],
 };
 
 /** Agents no longer get isolated world forks. */
@@ -324,13 +331,39 @@ const runDispatch = async (ctx: OwnerContext, job: DispatchJob): Promise<void> =
 
 // ── Device threads ────────────────────────────────────────────────────────
 
-/** A device agent runs to completion; it cannot be steered mid-run. */
-const deviceAgentRunning = (threadId: string): RpcError =>
-  new RpcError(
-    "CONFLICT",
-    `${threadId} is still running on its device and takes new input once it finishes. To change course now, pause_agent and then send_input.`,
-    { reason: "device_agent_running" },
+/**
+ * Hand new input to the device attempt a thread is running, as a cloud
+ * agent is steered: the running agent takes it before its next model call.
+ */
+const steerDeviceThread = async (
+  ctx: OwnerContext,
+  thread: ThreadRow,
+  messageId: string,
+  text: string,
+): Promise<AgentThreadControl> => {
+  const turn = ctx.db.one<TurnRow>(
+    `SELECT * FROM agent_turns WHERE thread_id = ? AND attempt_generation = ?
+       AND status IN ('running', 'resuming') ORDER BY created_at DESC LIMIT 1`,
+    thread.thread_id,
+    thread.attempt_generation,
   );
+  const steered = turn?.dispatch_id
+    ? await ctx.host.steerDeviceAgentTurn({ dispatchId: turn.dispatch_id, messageId, text })
+    : { delivered: false as const, reason: "not_running" as const };
+  if (steered.delivered) return control(thread);
+  if (steered.reason === "unreachable") {
+    throw new RpcError(
+      "UNAVAILABLE",
+      `The device running ${thread.thread_id} can't be reached right now. Try send_input again shortly.`,
+      { retryable: true, reason: "device_unreachable" },
+    );
+  }
+  throw new RpcError(
+    "CONFLICT",
+    `${thread.thread_id} is between runs on its device (starting up or just finishing). Check agent_status, then send_input again.`,
+    { reason: "thread_changed" },
+  );
+};
 
 /**
  * The device a spawn names, checked while the caller is still waiting so a
@@ -392,6 +425,7 @@ const runDeviceDispatch = async (
       prompt,
       targetDeviceId: thread.executor_device_id!,
       ...(thread.origin_device_id ? { requestingDeviceId: thread.origin_device_id } : {}),
+      ...(thread.requested_model ? { model: thread.requested_model } : {}),
     });
     ctx.db.run("UPDATE agent_turns SET dispatch_id = ? WHERE turn_id = ?", dispatchId, turn.turn_id);
     ctx.db.run("DELETE FROM agent_dispatch_prompts WHERE turn_id = ?", turn.turn_id);
@@ -533,11 +567,13 @@ const spawnOnDeviceForCloud = async (ctx: OwnerContext, raw: unknown): Promise<A
     targetDeviceId: id(256),
     description: string({ max: 2_000 }),
     prompt: string({ max: AGENT_PROMPT_MAX_CHARS }),
+    model: optional(string({ max: 256 })),
   })(raw);
   assertPrompt(args.prompt, args.description);
   const fingerprint = await sha256Hex(
     JSON.stringify([
       "device-agent-intent/v1",
+      args.model ?? null,
       args.conversationId,
       args.parentTurnId,
       args.parentThreadId ?? null,
@@ -563,15 +599,16 @@ const spawnOnDeviceForCloud = async (ctx: OwnerContext, raw: unknown): Promise<A
   ctx.db.run(
     `INSERT INTO agent_threads
        (thread_id, conversation_id, owner_generation, parent_turn_id, parent_thread_id,
-        executor_device_id, description, placement, agent_type, attempt_generation, status,
-        created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'computer', 'general', 1, 'running', ?, ?)`,
+        executor_device_id, requested_model, description, placement, agent_type,
+        attempt_generation, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'computer', 'general', 1, 'running', ?, ?)`,
     threadId,
     args.conversationId,
     args.ownerGeneration,
     args.parentTurnId,
     args.parentThreadId ?? null,
     args.targetDeviceId,
+    args.model?.trim() || null,
     clip(args.description.trim(), 1_000),
     ctx.now,
     ctx.now,
@@ -611,7 +648,9 @@ const continueDeviceForCloud = async (ctx: OwnerContext, raw: unknown): Promise<
   if (replay) return replay;
   await assertGeneration(ctx, args.ownerGeneration);
   const thread = readCloudDeviceThread(ctx, args);
-  if (ACTIVE_STATUSES.has(thread.status)) throw deviceAgentRunning(thread.thread_id);
+  if (ACTIVE_STATUSES.has(thread.status)) {
+    return await steerDeviceThread(ctx, thread, args.controlRequestId, args.prompt);
+  }
   await assertDeviceDestination(ctx, thread.executor_device_id!);
   ctx.db.run(
     `UPDATE agent_threads SET
@@ -816,6 +855,7 @@ const spawnFromDesktop = async (ctx: OwnerContext, args: SpawnArgs): Promise<Age
       args.originDeviceId,
       args.originConversationId,
       args.targetDeviceId ?? null,
+      args.model ?? null,
     ]),
   );
   const replay = replayAttempt(ctx.db, args.clientMsgId, fingerprint, args.ownerGeneration);
@@ -877,15 +917,16 @@ const spawnFromDesktop = async (ctx: OwnerContext, args: SpawnArgs): Promise<Age
   ctx.db.run(
     `INSERT INTO agent_threads
        (thread_id, conversation_id, owner_generation, origin_device_id, origin_conversation_id,
-        executor_device_id, description, placement, agent_type, execution_json, attempt_generation,
-        status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'general', ?, 1, 'running', ?, ?)`,
+        executor_device_id, requested_model, description, placement, agent_type, execution_json,
+        attempt_generation, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'general', ?, 1, 'running', ?, ?)`,
     threadId,
     conversationId,
     args.ownerGeneration,
     args.originDeviceId,
     args.originConversationId,
     targetDeviceId,
+    targetDeviceId ? (args.model?.trim() || null) : null,
     clip(args.description.trim(), 1_000),
     targetDeviceId ? "computer" : "cloud",
     JSON.stringify(execution),
@@ -937,13 +978,26 @@ const continueFromDesktop = async (
   ) {
     throw new RpcError("NOT_FOUND", "That cloud thread no longer exists.");
   }
-  if (thread.executor_device_id && ACTIVE_STATUSES.has(thread.status)) {
-    throw deviceAgentRunning(thread.thread_id);
+  // A running thread is steered: the attempt that is running takes the
+  // message before its next model call, wherever it runs.
+  if (ACTIVE_STATUSES.has(thread.status)) {
+    if (thread.attempt_generation !== args.expectedAttemptGeneration) {
+      throw threadChanged(thread.thread_id);
+    }
+    if (thread.executor_device_id) {
+      return await steerDeviceThread(ctx, thread, args.controlRequestId, args.prompt);
+    }
+    const steered = await ctx.host.steerAgentTurn({
+      threadId: thread.thread_id,
+      messageId: args.controlRequestId,
+      text: args.prompt,
+    });
+    if (!steered) throw threadChanged(thread.thread_id);
+    return control(thread);
   }
   if (
     thread.attempt_generation !== args.expectedAttemptGeneration ||
-    thread.updated_at !== args.expectedTerminalUpdatedAt ||
-    ACTIVE_STATUSES.has(thread.status)
+    thread.updated_at !== args.expectedTerminalUpdatedAt
   ) {
     throw threadChanged(thread.thread_id);
   }
@@ -1599,6 +1653,7 @@ export const agentThreadsDomain = {
     },
     AGENT_THREADS_DROP_WORKSPACE_FORK_MIGRATION,
     AGENT_THREADS_DEVICE_EXECUTOR_MIGRATION,
+    AGENT_THREADS_REQUESTED_MODEL_MIGRATION,
   ],
   calls: {
     "agentThreads.page": {
@@ -1622,6 +1677,7 @@ export const agentThreadsDomain = {
         conversationId: optional(id()),
         execution: optional(executionParser),
         targetDeviceId: optional(id(256)),
+        model: optional(string({ max: 256 })),
       }),
       handler: spawnFromDesktop,
     },

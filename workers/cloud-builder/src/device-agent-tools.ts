@@ -59,6 +59,8 @@ export const spawnDeviceAgent = async (
     targetDeviceId: string;
     description: string;
     prompt: string;
+    /** The `spawn_agent` model the device runs the agent on. */
+    model?: string;
   },
 ): Promise<CloudAgentControlReceipt> => {
   const control = (await caller.ownerInternal("agentThreads.spawnOnDevice", {
@@ -70,6 +72,7 @@ export const spawnDeviceAgent = async (
     targetDeviceId: input.targetDeviceId,
     description: input.description,
     prompt: input.prompt,
+    ...(input.model ? { model: input.model } : {}),
   })) as AgentThreadControl;
   return receiptOf(control, {
     description: input.description,
@@ -77,7 +80,7 @@ export const spawnDeviceAgent = async (
   });
 };
 
-/** A follow-up to a finished device agent; a running one refuses it. */
+/** Input for a device agent: steers a running one, continues a finished one. */
 export const continueDeviceAgent = async (
   caller: DeviceAgentCaller,
   prior: CloudAgentControlReceipt,

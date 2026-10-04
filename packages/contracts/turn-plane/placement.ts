@@ -146,6 +146,11 @@ export type DispatchPayload = {
    * continues with its history.
    */
   threadId?: string;
+  /**
+   * Agent dispatches only: the requester's `spawn_agent` model selector. The
+   * device runs the agent on it, or fails the agent saying why it can't.
+   */
+  model?: string;
 };
 
 export type DispatchSubmitRequest = {
@@ -279,6 +284,13 @@ export type DevicePresenceServerFrame =
       cancelRequestId: string;
       reason: string;
     }
+  | {
+      /** New input for an agent the device accepted and is running. */
+      type: "steer";
+      dispatchId: string;
+      messageId: string;
+      text: string;
+    }
   | { type: "dispatch"; dispatch: DispatchSummary }
   | { type: "pong"; serverTimeMs: number }
   | { type: "error"; code: string; message: string; retryable: boolean };
@@ -300,6 +312,13 @@ export type DevicePresenceDeviceFrame =
   | { type: "claim"; dispatchId: string; claimRequestId: string }
   | { type: "release"; dispatchId: string; reason?: string }
   | { type: "ack"; dispatchId: string }
+  | {
+      /** Whether a `steer` reached the running agent. */
+      type: "steer.ack";
+      dispatchId: string;
+      messageId: string;
+      delivered: boolean;
+    }
   | { type: "running"; dispatchId: string }
   | { type: "renew"; dispatchId: string }
   | {

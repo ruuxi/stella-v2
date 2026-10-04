@@ -80,9 +80,10 @@ type StoredSpawnRequest = {
   prompt: string;
   originDeviceId: string;
   originConversationId: string;
-  execution: CloudDispatchRequest["execution"];
+  execution?: CloudDispatchRequest["execution"];
   conversationId?: string;
   targetDeviceId?: string;
+  model?: string;
 };
 
 type StoredContinueRequest = {
@@ -401,13 +402,18 @@ export const createCloudSpawnDispatcher = (
       originConversationId: request.conversationId,
       description: request.description,
       prompt: request.prompt,
-      execution: {
-        engine: request.execution.engine,
-        provider: request.execution.provider,
-        model: request.execution.model,
-        reasoningEffort: request.execution.reasoningEffort,
-      },
+      ...(request.execution
+        ? {
+            execution: {
+              engine: request.execution.engine,
+              provider: request.execution.provider,
+              model: request.execution.model,
+              reasoningEffort: request.execution.reasoningEffort,
+            },
+          }
+        : {}),
       ...(request.targetDeviceId ? { targetDeviceId: request.targetDeviceId } : {}),
+      ...(request.requestedModel ? { requestedModel: request.requestedModel } : {}),
     });
     const persisted = options.store.getCloudAgentToolOperation(
       request.requestId,
@@ -441,11 +447,12 @@ export const createCloudSpawnDispatcher = (
           prompt: request.prompt,
           originDeviceId: options.deviceId,
           originConversationId: request.conversationId,
-          execution: request.execution,
+          ...(request.execution ? { execution: request.execution } : {}),
           ...(conversationId ? { conversationId } : {}),
           ...(request.targetDeviceId
             ? { targetDeviceId: request.targetDeviceId }
             : {}),
+          ...(request.requestedModel ? { model: request.requestedModel } : {}),
         } satisfies StoredSpawnRequest;
       },
     });
@@ -512,6 +519,7 @@ export const createCloudThreadController = (
     delivered: boolean;
     reason?: string;
     control?: CloudAgentControlReceipt;
+    steered?: boolean;
   }> => {
     try {
       const fingerprint = operationFingerprint({
@@ -556,11 +564,8 @@ export const createCloudThreadController = (
               `No durable cloud control receipt is available for thread ${request.threadId}.`,
             );
           }
-          if (current.status === "running") {
-            throw new Error(
-              `Thread ${request.threadId} is still running and cannot be continued yet.`,
-            );
-          }
+          // A running thread is steered: the server hands the message to
+          // the attempt that is running instead of starting another.
           return {
             ownerGeneration,
             threadId: request.threadId,
@@ -579,8 +584,13 @@ export const createCloudThreadController = (
           parseJsonRecord(operation.resultJson, "continuation result"),
           operation.ownerGeneration,
         );
+        const sentGeneration = readGeneration(
+          parseJsonRecord(operation.requestJson, "continuation request"),
+          "expectedAttemptGeneration",
+        );
         return {
           delivered: true,
+          steered: replay.attemptGeneration === sentGeneration,
           control: {
             threadId: replay.threadId,
             ownerGeneration: replay.ownerGeneration,
@@ -605,7 +615,8 @@ export const createCloudThreadController = (
       if (
         result.threadId !== request.threadId ||
         expectedAttemptGeneration === null ||
-        result.attemptGeneration !== expectedAttemptGeneration + 1
+        (result.attemptGeneration !== expectedAttemptGeneration + 1 &&
+          result.attemptGeneration !== expectedAttemptGeneration)
       ) {
         throw new Error(
           "Stella's cloud returned a continuation receipt for a different attempt.",
@@ -622,7 +633,11 @@ export const createCloudThreadController = (
       }
       const control = persistControl(options, result, request.conversationId);
       completeOperation(options, request.requestId, result);
-      return { delivered: true, control };
+      return {
+        delivered: true,
+        control,
+        steered: result.attemptGeneration === expectedAttemptGeneration,
+      };
     } catch (error) {
       return { delivered: false, reason: readServerErrorText(error) };
     }

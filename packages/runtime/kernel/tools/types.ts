@@ -246,10 +246,15 @@ export type CloudDispatchRequest = {
   ownerGeneration?: string;
   description: string;
   prompt: string;
-  /** Exact route selected on desktop; the cloud validates it without fallback. */
-  execution: CloudExecutionSelection;
+  /**
+   * Exact route selected on desktop; the cloud validates it without fallback.
+   * Absent for a device target, which runs on that device's own models.
+   */
+  execution?: CloudExecutionSelection;
   /** Run on this paired device instead of in the cloud. */
   targetDeviceId?: string;
+  /** Device target: the `spawn_agent` model that device runs the agent on. */
+  requestedModel?: string;
 };
 
 export type CloudAgentControlReceipt = {
@@ -384,6 +389,8 @@ export type AgentToolApi = {
     delivered: boolean;
     reason?: string;
     control?: CloudAgentControlReceipt;
+    /** The running attempt took the message instead of a new one starting. */
+    steered?: boolean;
   }>;
   /** Stop the current turn of an owned cloud thread. */
   cloudCancel?: (request: {
@@ -636,3 +643,13 @@ export type ToolDefinition = {
   /** Handler invoked when the model calls the tool. */
   execute: ToolHandler;
 };
+
+/** How a requested `spawn_agent` model is checked and captured. */
+export type SpawnModelSupport = Required<
+  Pick<
+    ToolHostOptions,
+    | "validateSpawnModel"
+    | "validateSpawnModelWithMetadata"
+    | "captureSpawnModelConfig"
+  >
+>;

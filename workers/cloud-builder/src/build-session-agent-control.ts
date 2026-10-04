@@ -167,8 +167,12 @@ export const createBuildSessionAgentControl = (
         const prompt = typeof params.prompt === "string" ? params.prompt : "";
         const model =
           typeof params.model === "string" ? params.model.trim() : "";
-        const execution = resolveCloudSpawnExecution(model, parent.execution);
         const destination = parseSpawnDestination(params.destination);
+        // A device checks the model against its own routes instead.
+        const execution =
+          destination.kind === "device"
+            ? parent.execution
+            : resolveCloudSpawnExecution(model, parent.execution);
         const value = await fingerprint("spawn_agent", {
           description,
           prompt,
@@ -186,6 +190,7 @@ export const createBuildSessionAgentControl = (
               targetDeviceId: destination.deviceId,
               description,
               prompt,
+              ...(model && model !== "default" ? { model } : {}),
             }),
           );
         }
@@ -244,7 +249,12 @@ export const createBuildSessionAgentControl = (
               controlRequestId: await scopedId("turn", toolCallId),
               message,
             });
-            disposition = "resumed";
+            // A running device agent is steered in place; a finished one
+            // starts its next attempt.
+            disposition =
+              control.attemptGeneration === prior.attemptGeneration
+                ? "steered"
+                : "resumed";
           } else if (isCloudAgentControlActive(prior.status)) {
             const steered = await steerCloudAgent({
               env: deps.env,

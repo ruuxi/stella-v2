@@ -9574,8 +9574,12 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           const model = args.model?.trim();
           const destination = parseSpawnDestination(args.destination);
           // Parsed before the replay read so an invalid override fails the
-          // same way every time, without consulting the ledger.
-          const execution = resolveCloudSpawnExecution(model, turn.execution);
+          // same way every time, without consulting the ledger. A device
+          // checks the model against its own routes instead.
+          const execution =
+            destination.kind === "device"
+              ? turn.execution
+              : resolveCloudSpawnExecution(model, turn.execution);
           const fingerprint = await toolFingerprint("spawn_agent", {
             description: args.description,
             prompt: args.prompt,
@@ -9594,6 +9598,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
               targetDeviceId: destination.deviceId,
               description: args.description,
               prompt: args.prompt,
+              ...(model && model !== "default" ? { model } : {}),
             });
             outcome = await this.commitCloudAgentToolOutcome(
               turn,
@@ -9678,7 +9683,12 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
                 controlRequestId: await toolScopedId("turn", toolCallId),
                 message: args.message,
               });
-              disposition = "resumed";
+              // A running device agent is steered in place; a finished one
+              // starts its next attempt.
+              disposition =
+                admitted.attemptGeneration === prior.attemptGeneration
+                  ? "steered"
+                  : "resumed";
             } else if (isCloudAgentControlActive(prior.status)) {
               const steered = await steerCloudAgent({
                 env: this.env,

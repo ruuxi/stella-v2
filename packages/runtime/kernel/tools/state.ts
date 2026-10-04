@@ -294,10 +294,7 @@ export const handleSendInput = async (
     },
   );
   if (!delivered.delivered) {
-    if (
-      context.agentType === AGENT_IDS.ORCHESTRATOR &&
-      ctx.agentApi.cloudContinue
-    ) {
+    if (ctx.agentApi.cloudContinue) {
       const continued = await ctx.agentApi.cloudContinue({
         threadId,
         description: cloudContinuationLabel(message),
@@ -322,7 +319,9 @@ export const handleSendInput = async (
                   thread_status: continued.control.status,
                 }
               : {}),
-            note: "The cloud thread is running again. Its terminal report will return to this conversation, including after a desktop restart.",
+            note: continued.steered
+              ? "Delivered to the running agent; it uses the message before its next step. Its report will return to this conversation, including after a desktop restart."
+              : "The thread is running again. Its report will return to this conversation, including after a desktop restart.",
           },
         };
       }
@@ -601,9 +600,11 @@ export const handleSpawnAgent = async (
       error: `This runtime has no cloud connection, so it can only run agents on this computer. Leave destination empty.`,
     };
   }
-  let modelSelection: SpawnModelSelection;
+  // Another device checks the model against its own routes and falls back
+  // to its own default, so this computer forwards it unchecked.
+  let modelSelection: SpawnModelSelection = { kind: "default" };
   try {
-    modelSelection = parseSpawnAgentModel(args.model, (modelName) => {
+    if (!targetDeviceId) modelSelection = parseSpawnAgentModel(args.model, (modelName) => {
       if (!ctx.validateSpawnModel) return false;
       try {
         ctx.validateSpawnModel(modelName);
@@ -666,14 +667,14 @@ export const handleSpawnAgent = async (
       };
     }
     const resolveExecution = ctx.resolveCloudExecutionSelection;
-    if (!resolveExecution) {
+    if (!resolveExecution && !targetDeviceId) {
       return {
         error: `A cloud placement cannot resolve this agent's cloud model selection in the current runtime.`,
       };
     }
-    let execution: CloudExecutionSelection;
+    let execution: CloudExecutionSelection | undefined;
     try {
-      execution = await resolveExecution({
+      if (resolveExecution && !targetDeviceId) execution = await resolveExecution({
         ...(modelSelection.kind === "model"
           ? {
               model: modelSelection.model,
@@ -700,8 +701,11 @@ export const handleSpawnAgent = async (
           : {}),
         description,
         prompt,
-        execution,
+        ...(execution ? { execution } : {}),
         ...(targetDeviceId ? { targetDeviceId } : {}),
+        ...(targetDeviceId && toOptionalString(args.model)
+          ? { requestedModel: toOptionalString(args.model)! }
+          : {}),
       });
     } catch (error) {
       return { error: (error as Error).message };

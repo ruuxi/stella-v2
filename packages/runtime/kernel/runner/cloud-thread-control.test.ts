@@ -242,6 +242,7 @@ describe("desktop cloud thread controls", () => {
       }),
     ).toEqual({
       delivered: true,
+      steered: false,
       control: {
         threadId: "thr-cloud",
         ownerGeneration: OWNER_GENERATION,

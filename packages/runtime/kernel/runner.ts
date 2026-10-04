@@ -674,6 +674,7 @@ export const createStellaHostRunner = (
     },
     cancelLocalAgent: taskOrchestration.cancelLocalAgent,
     cancelBlockingLocalAgent: taskOrchestration.cancelBlockingLocalAgent,
+    steerBlockingLocalAgent: taskOrchestration.steerBlockingLocalAgent,
     cancelPlacementAutomation: orchestratorController.cancelPlacementAutomation,
     cancelLocalChat: orchestratorController.cancelLocalChat,
     cancelLocalChatByConversation:

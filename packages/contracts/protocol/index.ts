@@ -156,6 +156,7 @@ export const METHOD_NAMES = {
     "internal.worker.cancelPlacementAutomation",
   INTERNAL_WORKER_RUN_BLOCKING_AGENT: "internal.worker.runBlockingAgent",
   INTERNAL_WORKER_CANCEL_BLOCKING_AGENT: "internal.worker.cancelBlockingAgent",
+  INTERNAL_WORKER_STEER_BLOCKING_AGENT: "internal.worker.steerBlockingAgent",
   INTERNAL_WORKER_CREATE_BACKGROUND_AGENT:
     "internal.worker.createBackgroundAgent",
   INTERNAL_WORKER_GET_AGENT_SNAPSHOT: "internal.worker.getAgentSnapshot",
@@ -569,6 +570,18 @@ export type RuntimeLocalAgentRequest = {
    * remote agent thread continued on this device). Defaults to `threadId`.
    */
   executionId?: string;
+  /**
+   * The requester's `spawn_agent` model selector. A selector this device
+   * cannot run fails the agent with the reason.
+   */
+  requestedModel?: string;
+};
+
+export type RuntimeLocalAgentSteerRequest = {
+  agentId: string;
+  text: string;
+  /** Stable across a retried steer, so the agent takes it once. */
+  messageId: string;
 };
 
 export type RuntimeLocalAgentCancellationRequest = {

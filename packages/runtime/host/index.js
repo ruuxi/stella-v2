@@ -741,11 +741,15 @@ export class StellaRuntimeHost {
                     const remoteThreadId = typeof payload.threadId === "string" && payload.threadId.trim()
                         ? payload.threadId.trim()
                         : null;
+                    const requestedModel = typeof payload.model === "string" && payload.model.trim()
+                        ? payload.model.trim()
+                        : null;
                     const result = await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_RUN_BLOCKING_AGENT, {
                         conversationId: dispatch.conversationId,
                         description,
                         prompt,
                         agentType: "general",
+                        ...(requestedModel ? { requestedModel } : {}),
                         ...(remoteThreadId
                             ? {
                                 threadId: placementRemoteThreadAgentId(remoteThreadId),
@@ -809,6 +813,23 @@ export class StellaRuntimeHost {
                     status: "error",
                     error: result.error || "The local execution failed.",
                 };
+            },
+            steerExecution: async ({ dispatchId, payload, messageId, text }) => {
+                const remoteThreadId = typeof payload.threadId === "string" && payload.threadId.trim()
+                    ? payload.threadId.trim()
+                    : null;
+                const result = await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_STEER_BLOCKING_AGENT, {
+                    agentId: remoteThreadId
+                        ? placementRemoteThreadAgentId(remoteThreadId)
+                        : placementLocalAgentThreadId(dispatchId),
+                    text,
+                    messageId,
+                }, {
+                    ensureWorker: true,
+                    recordActivity: true,
+                    retryOnceOnDisconnect: false,
+                });
+                return result?.delivered === true;
             },
             cancelExecution: async ({ dispatchId, kind, conversationId, payload }) => {
                 if (kind === "agent") {

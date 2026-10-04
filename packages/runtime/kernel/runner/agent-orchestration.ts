@@ -12,6 +12,7 @@ import { runSubagentTask, shutdownSubagentRuntimes } from "../agent-runtime.js";
 import { createAgentLifecycleResponseTarget } from "../agent-runtime/response-target.js";
 import { persistThreadCustomMessage } from "../agent-runtime/thread-memory.js";
 import { runExplore } from "../agent-runtime/explore.js";
+import { resolvePlacedAgentModel } from "./placed-agent-model.js";
 import { resolveOrchestratorThreadKey } from "../thread-runtime.js";
 import { shouldUseAutomaticSkillExplore } from "../shared/skill-catalog.js";
 import { LocalAgentManager } from "../agents/local-agent-manager.js";
@@ -969,7 +970,10 @@ export const createAgentOrchestration = (
   });
 
   const runBlockingLocalAgent = async (
-    request: Omit<AgentToolRequest, "storageMode"> & { executionId?: string },
+    request: Omit<AgentToolRequest, "storageMode"> & {
+      executionId?: string;
+      requestedModel?: string;
+    },
   ): Promise<
     | { status: "ok"; finalText: string; threadId: string }
     | { status: "error"; finalText: ""; error: string; threadId?: string }
@@ -981,7 +985,11 @@ export const createAgentOrchestration = (
         error: "Local agent manager is unavailable.",
       };
     }
-    const { executionId: requestedExecutionId, ...agentRequest } = request;
+    const {
+      executionId: requestedExecutionId,
+      requestedModel,
+      ...agentRequest
+    } = request;
     const requestedThreadId = agentRequest.threadId?.trim();
     const fenceId = requestedExecutionId?.trim() || requestedThreadId;
     const cancellationReason = fenceId
@@ -1013,10 +1021,32 @@ export const createAgentOrchestration = (
             { deliveryKind: "external-input" },
           )
         : null;
+    // A follow-up keeps the model its thread started on. A requested model
+    // this device can't run fails the agent with the reason; it never runs
+    // on something the requester didn't ask for.
+    let placedModel: Awaited<ReturnType<typeof resolvePlacedAgentModel>> = {};
+    if (!continued?.delivered) {
+      try {
+        placedModel = await resolvePlacedAgentModel(
+          context.spawnModelSupport,
+          requestedModel,
+        );
+      } catch (error) {
+        return {
+          status: "error",
+          finalText: "",
+          error: `The requested model "${requestedModel}" can't run on this device: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+          ...(requestedThreadId ? { threadId: requestedThreadId } : {}),
+        };
+      }
+    }
     const { threadId } = continued?.delivered
       ? { threadId: requestedThreadId! }
       : await manager.createAgent({
           ...agentRequest,
+          ...placedModel,
           ...(requestedThreadId ? { threadId: requestedThreadId } : {}),
           storageMode: "local",
         });
@@ -1126,6 +1156,26 @@ export const createAgentOrchestration = (
     return await manager.cancelAgentAndJoin(exactAgentId, reason);
   };
 
+  const steerBlockingLocalAgent = async (
+    agentId: string,
+    text: string,
+    messageId: string,
+  ): Promise<{ delivered: boolean }> => {
+    const manager = context.state.localAgentManager;
+    const exactAgentId = agentId.trim();
+    if (!manager || !exactAgentId || !text.trim()) return { delivered: false };
+    // Only a run that is going now: a message for a finished thread would
+    // resume it outside the placement that owns its attempts.
+    const running = manager
+      .listActiveAgentRuns()
+      .some((run) => run.runId === exactAgentId);
+    if (!running) return { delivered: false };
+    return await manager.sendAgentMessage(exactAgentId, text, "orchestrator", {
+      deliveryKind: "external-input",
+      ...(messageId.trim() ? { deliveryEventId: messageId.trim() } : {}),
+    });
+  };
+
   const shutdown = async (): Promise<void> => {
     await context.state.localAgentManager?.shutdown();
     shutdownSubagentRuntimes();
@@ -1136,6 +1186,7 @@ export const createAgentOrchestration = (
     createBackgroundAgent,
     cancelLocalAgent,
     cancelBlockingLocalAgent,
+    steerBlockingLocalAgent,
     handleExternalAgentLifecycleEvent: handleAgentLifecycleEvent,
     hasDurableExternalLifecycleEvent: (event: AgentLifecycleEvent) =>
       hasDurableAgentLifecycleEvent(context, event),

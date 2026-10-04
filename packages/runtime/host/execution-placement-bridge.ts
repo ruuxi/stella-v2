@@ -143,6 +143,16 @@ type PlacementBridgeOptions = {
     /** The accepted payload, for an agent thread's own local id. */
     payload?: Record<string, unknown>;
   }) => Promise<void>;
+  /**
+   * New input for an accepted agent run. Resolves whether the running agent
+   * took it; `messageId` is stable across a retried steer.
+   */
+  steerExecution?: (args: {
+    dispatchId: string;
+    payload: Record<string, unknown>;
+    messageId: string;
+    text: string;
+  }) => Promise<boolean>;
   log?: (level: "warn" | "error", message: string, error?: unknown) => void;
   now?: () => number;
   /** Test seam; production uses the accepted execution lease duration. */
@@ -1307,6 +1317,10 @@ export class ExecutionPlacementBridge {
         if (local) await this.cancelAccepted(local);
         return;
       }
+      case "steer": {
+        await this.steerAccepted(frame.dispatchId, frame.messageId, frame.text);
+        return;
+      }
       case "dispatch": {
         await this.applyDispatchUpdate(frame.dispatch);
         return;
@@ -1322,6 +1336,29 @@ export class ExecutionPlacementBridge {
       default:
         return;
     }
+  }
+
+  /** Hand a steer to the accepted agent run it names, then report back. */
+  private async steerAccepted(
+    dispatchId: string,
+    messageId: string,
+    text: string,
+  ): Promise<void> {
+    const local = this.inbox.get(dispatchId);
+    let delivered = false;
+    if (local?.kind === "agent" && this.options.steerExecution) {
+      try {
+        delivered = await this.options.steerExecution({
+          dispatchId,
+          payload: parseRecord(JSON.parse(local.payloadJson)),
+          messageId,
+          text,
+        });
+      } catch (error) {
+        this.log("warn", "Execution placement steer was not delivered.", error);
+      }
+    }
+    this.send({ type: "steer.ack", dispatchId, messageId, delivered });
   }
 
   private settleClaim(

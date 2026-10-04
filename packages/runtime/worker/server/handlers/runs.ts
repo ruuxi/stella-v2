@@ -3,6 +3,7 @@ import {
   METHOD_NAMES,
   type RuntimeAttachmentRef,
   type RuntimeLocalAgentCancellationRequest,
+  type RuntimeLocalAgentSteerRequest,
   type RuntimeLocalAgentRequest,
   type RuntimeOneShotCompletionRequest,
   type RuntimePlacementAutomationCancellationRequest,
@@ -186,6 +187,24 @@ export const runsHandlers: WorkerRpcHandlers = {
           ...payload,
           agentType: payload.agentType ?? "general",
         }),
+      );
+    }),
+
+  [METHOD_NAMES.INTERNAL_WORKER_STEER_BLOCKING_AGENT]: (params) =>
+    Effect.gen(function* () {
+      const session = yield* WorkerSessions.sessionOrFail(
+        () => new RunnerUnavailableError(),
+      );
+      const payload = params as RuntimeLocalAgentSteerRequest;
+      const runner = yield* fromPromise(() =>
+        session.runner.ensureInitialized(),
+      );
+      return yield* fromPromise(() =>
+        runner.steerBlockingLocalAgent(
+          String(payload.agentId ?? ""),
+          String(payload.text ?? ""),
+          String(payload.messageId ?? ""),
+        ),
       );
     }),
 

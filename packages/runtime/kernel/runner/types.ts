@@ -25,6 +25,7 @@ import type { LocalContextEvent } from "../storage/shared.js";
 import type { LocalChatEventWindow } from "../storage/event-window.js";
 import type {
   ScheduleToolApi,
+  SpawnModelSupport,
   AgentToolRequest,
   AgentToolSnapshot,
   ToolContext,
@@ -408,6 +409,8 @@ export type RunnerContext = {
   paths: RunnerPaths;
   state: RunnerState;
   hookEmitter: HookEmitter;
+  /** `spawn_agent`'s model check and capture, for agents placed on this device. */
+  spawnModelSupport: SpawnModelSupport;
   toolHost: {
     getToolCatalog: (
       agentType?: string,
@@ -520,7 +523,10 @@ export type RunnerPublicApi = {
     payload: RuntimeAutomationTurnRequest,
   ) => Promise<RuntimeAutomationTurnResult>;
   runBlockingLocalAgent: (
-    request: Omit<AgentToolRequest, "storageMode"> & { executionId?: string },
+    request: Omit<AgentToolRequest, "storageMode"> & {
+      executionId?: string;
+      requestedModel?: string;
+    },
   ) => Promise<
     | { status: "ok"; finalText: string; threadId: string }
     | { status: "error"; finalText: ""; error: string; threadId?: string }
@@ -535,6 +541,12 @@ export type RunnerPublicApi = {
     agentId: string,
     reason?: string,
   ) => Promise<{ canceled: boolean }>;
+  /** New input for a running placed agent; never resumes a finished one. */
+  steerBlockingLocalAgent: (
+    agentId: string,
+    text: string,
+    messageId: string,
+  ) => Promise<{ delivered: boolean }>;
   /** Exact local-only cancel with a pre-create tombstone; never falls to cloud. */
   cancelBlockingLocalAgent: (
     agentId: string,

@@ -67,6 +67,10 @@ export class OrchestratorSession extends DurableObject<Env> {
     return await (await this.loadImplementation()).freezeOwnerModelGrants(args);
   }
 
+  async queryHistory(ownerId: string, request: unknown): Promise<unknown> {
+    return await (await this.loadImplementation()).queryHistory(ownerId, request);
+  }
+
   async webSocketMessage(
     ws: WebSocket,
     message: string | ArrayBuffer,

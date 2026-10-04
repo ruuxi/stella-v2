@@ -351,7 +351,7 @@ export const createToolHost = ({
     // session DO, which answers both exactly as the cloud code tool does.
     queryHistory: async (args, context) => {
       const auth = getCloudBackendAuth?.();
-      if (!auth || context.agentType !== AGENT_IDS.ORCHESTRATOR) {
+      if (!auth) {
         throw new Error("history is unavailable in this session.");
       }
       const response = await fetch(

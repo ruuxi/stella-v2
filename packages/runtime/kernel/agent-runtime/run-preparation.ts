@@ -165,12 +165,16 @@ const appendCurrentWorkingDirectory = (
   return `${systemPrompt}\n\nCurrent working directory: ${cwd}`;
 };
 
+/** The thread this prompt serves; it never changes for the thread's life. */
+const appendThreadId = (systemPrompt: string, threadId: string): string =>
+  `${systemPrompt}\n\nThread ID: ${threadId}`;
+
 export const buildRuntimeSystemPrompt = async (
   opts: OrchestratorRunOptions & { runId?: string },
 ): Promise<string> => {
-  const effectiveSystemPrompt = appendCurrentWorkingDirectory(
-    buildSystemPrompt(opts.agentContext),
-    opts,
+  const effectiveSystemPrompt = appendThreadId(
+    appendCurrentWorkingDirectory(buildSystemPrompt(opts.agentContext), opts),
+    opts.conversationId,
   );
   if (!opts.hookEmitter) {
     return effectiveSystemPrompt;
@@ -205,10 +209,13 @@ export const buildRuntimeSystemPrompt = async (
 export const buildSubagentSystemPrompt = async (
   opts: SubagentRunOptions & { runId?: string },
 ): Promise<string> => {
-  const effectiveSystemPrompt = appendCurrentWorkingDirectory(
+  const withCwd = appendCurrentWorkingDirectory(
     buildSystemPrompt(opts.agentContext),
     opts,
   );
+  const effectiveSystemPrompt = opts.agentId
+    ? appendThreadId(withCwd, opts.agentId)
+    : withCwd;
   // Symmetric with `buildRuntimeSystemPrompt` (orchestrator). Subagents
   // get the same `before_agent_start` fan-out so user extensions that
   // subscribe to the event for a subagent agentType (e.g. layering

@@ -4731,6 +4731,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           residentSection: buildResidentMemorySection(memoryDocuments),
           skillSection: buildCloudSkillsBlock(skillCatalog),
           memoryEnabled,
+          threadId: turn.conversationId,
         });
         const compaction = await compactCloudHistory({
           messages: journalHistory,
@@ -4972,6 +4973,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             residentSection: buildResidentMemorySection(memoryDocuments),
             skillSection: buildCloudSkillsBlock(skillCatalog),
             memoryEnabled: memoryPreference.memoryEnabled,
+            threadId: turn.conversationId,
           }),
           tools: await this.createTools(
             turn,
@@ -7343,45 +7345,60 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
   private async handleHistoryQuery(request: Request): Promise<Response> {
     const owner = await this.localTurnOwner(request);
     if (owner instanceof Response) return owner;
-    const body = (await request.json().catch(() => null)) as {
+    const body = await request.json().catch(() => null);
+    try {
+      return json(await this.runHistoryOp(body));
+    } catch (error) {
+      return json({ error: errorMessage(error) }, 400);
+    }
+  }
+
+  /**
+   * `history.*` for a cloud agent spawned from this conversation. The
+   * BuildSession names the owner its turn was admitted under; a conversation
+   * bound to anyone else, or deleted, answers nothing.
+   */
+  async queryHistory(ownerId: string, request: unknown): Promise<unknown> {
+    if (this.purged() || !ownerId || this.journal.ownerId() !== ownerId) {
+      throw new Error("history is unavailable in this session.");
+    }
+    return await this.runHistoryOp(request);
+  }
+
+  private async runHistoryOp(request: unknown): Promise<unknown> {
+    const body = (request ?? null) as {
       op?: unknown;
       query?: unknown;
       params?: unknown;
       fromSeq?: unknown;
       toSeq?: unknown;
     } | null;
-    try {
-      if (body?.op === "sql") {
-        if (typeof body.query !== "string" || !body.query.trim()) {
-          throw new Error("history.sql requires a non-empty query string.");
-        }
-        const params = (Array.isArray(body.params) ? body.params : []).filter(
-          (value): value is string | number | null =>
-            value === null ||
-            typeof value === "string" ||
-            typeof value === "number",
-        );
-        return json(runHistoryQuery(this.ctx.storage, body.query, params));
+    if (body?.op === "sql") {
+      if (typeof body.query !== "string" || !body.query.trim()) {
+        throw new Error("history.sql requires a non-empty query string.");
       }
-      if (body?.op === "read") {
-        if (
-          !Number.isSafeInteger(body.fromSeq) ||
-          !Number.isSafeInteger(body.toSeq)
-        ) {
-          throw new Error("history.read requires integer fromSeq and toSeq.");
-        }
-        return json(
-          await this.archive.readRange(
-            Math.max(0, body.fromSeq as number),
-            body.toSeq as number,
-            BACKFILL_BATCH_RECORDS,
-          ),
-        );
-      }
-      throw new Error('history query op must be "sql" or "read".');
-    } catch (error) {
-      return json({ error: errorMessage(error) }, 400);
+      const params = (Array.isArray(body.params) ? body.params : []).filter(
+        (value): value is string | number | null =>
+          value === null ||
+          typeof value === "string" ||
+          typeof value === "number",
+      );
+      return runHistoryQuery(this.ctx.storage, body.query, params);
     }
+    if (body?.op === "read") {
+      if (
+        !Number.isSafeInteger(body.fromSeq) ||
+        !Number.isSafeInteger(body.toSeq)
+      ) {
+        throw new Error("history.read requires integer fromSeq and toSeq.");
+      }
+      return await this.archive.readRange(
+        Math.max(0, body.fromSeq as number),
+        body.toSeq as number,
+        BACKFILL_BATCH_RECORDS,
+      );
+    }
+    throw new Error('history query op must be "sql" or "read".');
   }
 
   /**

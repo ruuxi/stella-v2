@@ -113,6 +113,8 @@ export const buildCloudSystemPrompt = (args: {
   residentSection: string;
   skillSection?: string;
   memoryEnabled?: boolean;
+  /** The conversation id, which is the orchestrator's thread id. */
+  threadId: string;
 }): string => {
   const memoryEnabled = args.memoryEnabled !== false;
   const cloudOverlay = memoryEnabled
@@ -131,6 +133,7 @@ export const buildCloudSystemPrompt = (args: {
       : "",
     args.residentSection,
     args.skillSection ?? "",
+    `Thread ID: ${args.threadId}`,
   ]
     .filter((section) => section.length > 0)
     .join("\n\n");

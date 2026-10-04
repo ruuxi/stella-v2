@@ -11,6 +11,7 @@ describe("cloud prompt", () => {
       residentSection: "",
       skillSection: "",
       memoryEnabled: false,
+      threadId: "conversation-1",
     });
     expect(prompt).toContain("The owner has disabled cloud memory");
     expect(prompt).not.toContain("Read, Remember, spawn_agent");

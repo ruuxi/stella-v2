@@ -17,7 +17,10 @@ import {
 } from "../agent-compute-ladder.js";
 import { AgentTurnJournal } from "../agent-turn-journal.js";
 import { createBuildSessionAgentControl } from "../build-session-agent-control.js";
-import { createCloudCodeAgentTool } from "../cloud-code-tool.js";
+import {
+  createCloudCodeAgentTool,
+  type CloudHistoryClient,
+} from "../cloud-code-tool.js";
 import { executorSessionEnvironment } from "../executor-session-env.js";
 import { createGeneralAgentDoLocalTools } from "../general-agent-do-local-tools.js";
 import { createResidentGeneralAgentTools } from "../general-agent-tools.js";
@@ -832,6 +835,23 @@ export const runResidentAgentTurn = async (
   // reachable from inside code, and only the read-only ones among them, plus
   // the turn's cloud browser; a deployment without the loader keeps the
   // model-visible refusal instead.
+  // `history` reads the conversation this agent was spawned from, through
+  // that conversation's own Durable Object.
+  const conversationId = turn.conversationId;
+  const history: CloudHistoryClient | undefined = conversationId
+    ? {
+        sql: (query, params) =>
+          host.env.ORCHESTRATOR_SESSIONS.getByName(conversationId).queryHistory(
+            turn.ownerId,
+            { op: "sql", query, params },
+          ),
+        read: (fromSeq, toSeq) =>
+          host.env.ORCHESTRATOR_SESSIONS.getByName(conversationId).queryHistory(
+            turn.ownerId,
+            { op: "read", fromSeq, toSeq },
+          ),
+      }
+    : undefined;
   const jsSandbox = host.env.LOADER
     ? new Map([
         [
@@ -841,6 +861,7 @@ export const runResidentAgentTurn = async (
             tools: [...doLocal.values()],
             executionScope: `${turn.ownerGeneration}:${turn.threadId}:${turn.turnId}:${attemptGeneration}`,
             ...(browser ? { browser } : {}),
+            ...(history ? { history } : {}),
           }),
         ],
       ])
@@ -941,6 +962,7 @@ export const runResidentAgentTurn = async (
       workspacePrompt: {
         office: false,
         workspaceRoot,
+        history: Boolean(jsSandbox && history),
       },
       now: () => Date.now(),
       onAgentStarted: (abort) => {

@@ -18,7 +18,7 @@ import { getPromptPresetSelection, setPromptPresetSelection, } from "@stella/run
 import { getModels } from "@stella/runtime/ai/models";
 import { getSupportedThinkingLevels } from "@stella/runtime/ai/thinking-levels";
 import { deleteLocalLlmCredential, getLocalLlmCredential, listLocalLlmCredentials, saveLocalLlmCredential, } from "@stella/runtime/kernel/storage/llm-credentials";
-import { cleanupRetiredLocalLlmOAuthCredentials, deleteLocalLlmOAuthCredential, getLocalLlmOAuthApiKey, listLocalLlmOAuthCredentials, saveLocalLlmOAuthCredential, } from "@stella/runtime/kernel/storage/llm-oauth-credentials";
+import { cleanupRetiredLocalLlmOAuthCredentials, deleteLocalLlmOAuthAccount, deleteLocalLlmOAuthCredential, getLocalLlmOAuthApiKey, listLocalLlmOAuthAccounts, listLocalLlmOAuthCredentials, saveLocalLlmOAuthCredential, setActiveLocalLlmOAuthAccount, setLocalLlmOAuthAutoSwitch, } from "@stella/runtime/kernel/storage/llm-oauth-credentials";
 import { getOAuthProvider, getOAuthProviders, } from "@stella/runtime/ai/utils/oauth";
 import { isRuntimeUnavailableError } from "@stella/contracts/protocol/rpc-peer";
 import { IPC_APP_QUIT_FOR_RESTART, IPC_AUTH_APPLY_SESSION_TOKEN, IPC_AUTH_DELETE_USER, IPC_AUTH_GET_SESSION, IPC_AUTH_GET_TOKEN, IPC_AUTH_REVOKE_SESSIONS, IPC_AUTH_SIGN_IN_ANONYMOUS, IPC_AUTH_SIGN_OUT, IPC_DIAGNOSTICS_EXPORT_LOGS, IPC_DIAGNOSTICS_RECORD_HEAP_TRACE, IPC_DIAGNOSTICS_REPORT_ERROR, IPC_DIAGNOSTICS_REPORT_TIMING, IPC_DIAGNOSTICS_OPEN_LOGS, IPC_GLOBAL_SHORTCUTS_GET_SUSPENDED, IPC_GLOBAL_SHORTCUTS_SET_SUSPENDED, IPC_SYSTEM_OPEN_FDA, IPC_PERMISSIONS_GET_STATUS, IPC_PERMISSIONS_OPEN_SETTINGS, IPC_PERMISSIONS_REQUEST, IPC_PERMISSIONS_RESET, IPC_PERMISSIONS_RESET_MICROPHONE, IPC_SHELL_SAVE_FILE_AS, IPC_CUSTOMIZATIONS_RESET, IPC_PROMPT_PRESETS_LIST, IPC_PROMPT_PRESETS_READ, IPC_PROMPT_PRESETS_SAVE, IPC_PROMPT_PRESETS_DELETE, IPC_PROMPT_PRESETS_SELECT, IPC_PREFERENCES_GET_MODELS, IPC_PREFERENCES_LIST_CODEX_MODELS, IPC_PREFERENCES_LIST_CLAUDE_CODE_MODELS, IPC_PREFERENCES_LIST_MODELS, IPC_PREFERENCES_GET_ONBOARDING_COMPLETED, IPC_PREFERENCES_GET_PREVENT_SLEEP, IPC_PREFERENCES_GET_LOCKED_COMPUTER_USE, IPC_PREFERENCES_GET_SOUND_NOTIFICATIONS, IPC_PREFERENCES_SET_MODELS, IPC_PREFERENCES_SET_ONBOARDING_COMPLETED, IPC_PREFERENCES_SET_PREVENT_SLEEP, IPC_PREFERENCES_SET_LOCKED_COMPUTER_USE, IPC_PREFERENCES_SET_SOUND_NOTIFICATIONS, IPC_PREFERENCES_GET_READ_ALOUD, IPC_PREFERENCES_READ_ALOUD_CHANGED, IPC_PREFERENCES_SET_READ_ALOUD, IPC_VOICE_PREFERENCES_CHANGED, } from "@stella/contracts/desktop/ipc-channels";
@@ -1281,10 +1281,13 @@ export const registerSystemHandlers = (options) => {
         try {
             let savedCredential = null;
             const persistCredentials = async (credentials) => {
+                // A sign-in adds an account (or replaces the same login's) and
+                // makes it active; it never overwrites a different account.
                 savedCredential = saveLocalLlmOAuthCredential(stellaAppDir, {
                     provider: provider.id,
                     label: provider.name,
                     credentials,
+                    mode: "login",
                 });
                 refreshLocalLlmCredentials();
             };
@@ -1357,19 +1360,78 @@ export const registerSystemHandlers = (options) => {
         if (!listLocalLlmOAuthCredentials(stellaAppDir).some((entry) => entry.provider === provider)) {
             return { connected: false, needsReauth: false };
         }
+        // Only the active account failed: sign that one out and leave any
+        // other signed-in accounts of the provider in place.
+        const dropActiveAccount = () => {
+            const active = listLocalLlmOAuthAccounts(stellaAppDir)
+                .find((entry) => entry.provider === provider)
+                ?.accounts.find((account) => account.active);
+            if (active) {
+                deleteLocalLlmOAuthAccount(stellaAppDir, provider, active.id);
+            }
+            else {
+                deleteLocalLlmOAuthCredential(stellaAppDir, provider);
+            }
+            refreshLocalLlmCredentials();
+        };
         try {
             const key = await getLocalLlmOAuthApiKey(stellaAppDir, provider);
             if (key)
                 return { connected: true, needsReauth: false };
-            deleteLocalLlmOAuthCredential(stellaAppDir, provider);
-            refreshLocalLlmCredentials();
+            dropActiveAccount();
             return { connected: false, needsReauth: true };
         }
         catch {
-            deleteLocalLlmOAuthCredential(stellaAppDir, provider);
-            refreshLocalLlmCredentials();
+            dropActiveAccount();
             return { connected: false, needsReauth: true };
         }
+    });
+    ipcMain.handle("llmCredentials:listOAuthAccounts", (event) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, "llmCredentials:listOAuthAccounts")) {
+            throw new Error("Blocked untrusted OAuth account request.");
+        }
+        const stellaAppDir = options.getStellaAppDir();
+        if (!stellaAppDir) {
+            return [];
+        }
+        return listLocalLlmOAuthAccounts(stellaAppDir);
+    });
+    ipcMain.handle("llmCredentials:setActiveOAuthAccount", (event, payload) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, "llmCredentials:setActiveOAuthAccount")) {
+            throw new Error("Blocked untrusted OAuth account change.");
+        }
+        const stellaAppDir = options.getStellaAppDir();
+        if (!stellaAppDir) {
+            throw new Error("Local Stella root is unavailable.");
+        }
+        setActiveLocalLlmOAuthAccount(stellaAppDir, asTrimmedString(payload?.provider), asTrimmedString(payload?.accountId));
+        refreshLocalLlmCredentials();
+        return { ok: true };
+    });
+    ipcMain.handle("llmCredentials:deleteOAuthAccount", (event, payload) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, "llmCredentials:deleteOAuthAccount")) {
+            throw new Error("Blocked untrusted OAuth account delete.");
+        }
+        const stellaAppDir = options.getStellaAppDir();
+        if (!stellaAppDir) {
+            return { removed: false };
+        }
+        const result = deleteLocalLlmOAuthAccount(stellaAppDir, asTrimmedString(payload?.provider), asTrimmedString(payload?.accountId));
+        if (result.removed) {
+            refreshLocalLlmCredentials();
+        }
+        return result;
+    });
+    ipcMain.handle("llmCredentials:setOAuthAutoSwitch", (event, payload) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, "llmCredentials:setOAuthAutoSwitch")) {
+            throw new Error("Blocked untrusted OAuth setting change.");
+        }
+        const stellaAppDir = options.getStellaAppDir();
+        if (!stellaAppDir) {
+            throw new Error("Local Stella root is unavailable.");
+        }
+        setLocalLlmOAuthAutoSwitch(stellaAppDir, asTrimmedString(payload?.provider), payload?.enabled === true);
+        return { ok: true };
     });
     ipcMain.handle("llmCredentials:deleteOAuth", (event, payload) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, "llmCredentials:deleteOAuth")) {

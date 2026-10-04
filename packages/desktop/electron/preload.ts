@@ -1514,6 +1514,37 @@ contextBridge.exposeInMainWorld("electronAPI", {
       }) as Promise<{
         removed: boolean;
       }>,
+    listLlmOAuthAccounts: () =>
+      ipcRenderer.invoke("llmCredentials:listOAuthAccounts") as Promise<
+        Array<{
+          provider: string;
+          autoSwitch: boolean;
+          accounts: Array<{
+            id: string;
+            label: string;
+            email?: string;
+            plan?: string;
+            active: boolean;
+            limitedUntil?: number;
+            updatedAt: number;
+          }>;
+        }>
+      >,
+    setActiveLlmOAuthAccount: (provider: string, accountId: string) =>
+      ipcRenderer.invoke("llmCredentials:setActiveOAuthAccount", {
+        provider,
+        accountId,
+      }) as Promise<{ ok: true }>,
+    deleteLlmOAuthAccount: (provider: string, accountId: string) =>
+      ipcRenderer.invoke("llmCredentials:deleteOAuthAccount", {
+        provider,
+        accountId,
+      }) as Promise<{ removed: boolean }>,
+    setLlmOAuthAutoSwitch: (provider: string, enabled: boolean) =>
+      ipcRenderer.invoke("llmCredentials:setOAuthAutoSwitch", {
+        provider,
+        enabled,
+      }) as Promise<{ ok: true }>,
     saveLlmCredential: (payload: {
       provider: string;
       label: string;

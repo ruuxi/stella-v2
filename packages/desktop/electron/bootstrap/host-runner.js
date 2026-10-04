@@ -14,7 +14,7 @@ import { showStellaNotification } from "../services/notification-service.js";
 import { requestMacPermission } from "../utils/macos-permissions.js";
 import { getMainLogger } from "../observability/main-logger.js";
 import { getLocalLlmCredential, listLocalLlmCredentials, } from "@stella/runtime/kernel/storage/llm-credentials";
-import { getLocalLlmOAuthApiKey, listLocalLlmOAuthCredentials, } from "@stella/runtime/kernel/storage/llm-oauth-credentials";
+import { getLocalLlmOAuthApiKey, listLocalLlmOAuthCredentials, markLocalLlmOAuthAccountLimited, } from "@stella/runtime/kernel/storage/llm-oauth-credentials";
 import { retireRuntimeRoot } from "@stella/runtime/host/remote";
 // Module-level one-shot cache for the skills home reconciliation. This
 // seeding used to run on the pre-window path inside `resolveStellaDataDir`, where
@@ -205,6 +205,15 @@ export const createHostRunnerHandlers = (context, options) => ({
                 ok: true,
                 apiKeyProviders: listLocalLlmCredentials(stellaDataDir).map(({ provider }) => provider),
                 oauthProviders: listLocalLlmOAuthCredentials(stellaDataDir).map(({ provider }) => provider),
+            };
+        }
+        if (request.operation === "report-limit") {
+            const resetsAt = typeof request.resetsAt === "number" && Number.isFinite(request.resetsAt)
+                ? request.resetsAt
+                : undefined;
+            return {
+                ok: true,
+                ...markLocalLlmOAuthAccountLimited(stellaDataDir, request.provider, resetsAt),
             };
         }
         const value = request.kind === "api-key"

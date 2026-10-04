@@ -3,7 +3,10 @@ import type { GatewayUsageEvent } from "@stella/contracts/gateway/usage";
 import { CLAUDE_CODE_IDENTITY } from "@stella/model-catalog/native-relay";
 import { resetCapabilityKeysForTests } from "../src/capability.js";
 import { resetConfigCacheForTests } from "../src/config-cache.js";
-import { resetEngineAccessCacheForTests } from "../src/native-lane.js";
+import {
+  resetEngineAccessCacheForTests,
+  subscriptionLimitOf,
+} from "../src/native-lane.js";
 import { handleRequest } from "../src/router.js";
 import {
   chunkedStream,
@@ -290,6 +293,162 @@ describe("native lane", () => {
         reported: true,
       },
     });
+  });
+
+  test("Codex at its usage limit: cools the account down, switches, and retries once", async () => {
+    let accessCalls = 0;
+    const limits: unknown[] = [];
+    ctx.fetchMock
+      .on(
+        (call) => call.url.pathname === "/api/gateway/engine-access",
+        () => {
+          accessCalls += 1;
+          return json({
+            accessToken: accessCalls === 1 ? "token-a" : "token-b",
+            accountId: "acct_123",
+            engineAccountId: accessCalls === 1 ? "acct-a" : "acct-b",
+            expiresAt: Date.now() + 3_600_000,
+          });
+        },
+      )
+      .on(
+        (call) => call.url.pathname === "/api/gateway/engine-limit",
+        (call) => {
+          limits.push(JSON.parse(call.body ?? "{}"));
+          return json({ switched: true });
+        },
+      )
+      .on(
+        (call) =>
+          call.url.host === "chatgpt.com" &&
+          call.headers.get("authorization") === "Bearer token-a",
+        () =>
+          json(
+            {
+              error: {
+                type: "usage_limit_reached",
+                plan_type: "plus",
+                resets_at: 4_102_444_800,
+              },
+            },
+            429,
+          ),
+      );
+    const { token } = await codexTurn();
+    const response = await ctx.run(
+      relayRequest("/v1/relay/responses", {
+        token,
+        body: {
+          model: "gpt-5.6-sol",
+          input: [{ role: "user", content: "hi" }],
+          reasoning: { effort: "medium" },
+          stream: false,
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(limits).toEqual([
+      expect.objectContaining({
+        provider: "openai-codex",
+        engineAccountId: "acct-a",
+        resetsAt: 4_102_444_800_000,
+      }),
+    ]);
+    expect(
+      ctx.fetchMock
+        .callsTo("chatgpt.com")
+        .map((call) => call.headers.get("authorization")),
+    ).toEqual(["Bearer token-a", "Bearer token-b"]);
+  });
+
+  test("Claude at its 5-hour limit without auto-switch passes the 429 through", async () => {
+    const limits: unknown[] = [];
+    ctx.fetchMock
+      .on(
+        (call) => call.url.pathname === "/api/gateway/engine-access",
+        () =>
+          json({
+            accessToken: "sk-ant-oat01-owner-token",
+            engineAccountId: "acct-a",
+            expiresAt: Date.now() + 3_600_000,
+          }),
+      )
+      .on(
+        (call) => call.url.pathname === "/api/gateway/engine-limit",
+        (call) => {
+          limits.push(JSON.parse(call.body ?? "{}"));
+          return json({ switched: false });
+        },
+      )
+      .on(
+        (call) => call.url.host === "api.anthropic.com",
+        () =>
+          new Response(
+            JSON.stringify({
+              type: "error",
+              error: { type: "rate_limit_error", message: "Rate limited" },
+            }),
+            {
+              status: 429,
+              headers: {
+                "content-type": "application/json",
+                "anthropic-ratelimit-unified-status": "rejected",
+                "anthropic-ratelimit-unified-reset": "4102444800",
+              },
+            },
+          ),
+      );
+    const { token } = await anthropicTurn();
+    const response = await ctx.run(
+      relayRequest("/v1/relay/v1/messages", {
+        token,
+        body: { model: "claude-sonnet-4-6", max_tokens: 1, messages: [] },
+      }),
+    );
+
+    expect(response.status).toBe(429);
+    expect(((await response.json()) as { error: { type: string } }).error.type).toBe(
+      "rate_limit_error",
+    );
+    expect(limits).toEqual([
+      expect.objectContaining({ engineAccountId: "acct-a", resetsAt: 4_102_444_800_000 }),
+    ]);
+    expect(ctx.fetchMock.callsTo("api.anthropic.com")).toHaveLength(1);
+  });
+
+  test("an ordinary rate limit is not treated as a subscription limit", () => {
+    const now = 1_000;
+    expect(
+      subscriptionLimitOf(
+        "anthropic",
+        429,
+        new Headers({ "retry-after": "2" }),
+        JSON.stringify({ error: { type: "rate_limit_error", message: "Slow down" } }),
+        now,
+      ),
+    ).toBeNull();
+    expect(
+      subscriptionLimitOf(
+        "openai-codex",
+        429,
+        new Headers(),
+        JSON.stringify({ error: { code: "rate_limit_exceeded" } }),
+        now,
+      ),
+    ).toBeNull();
+    expect(
+      subscriptionLimitOf(
+        "openai-codex",
+        429,
+        new Headers(),
+        JSON.stringify({ error: { type: "usage_limit_reached", resets_in_seconds: 60 } }),
+        now,
+      ),
+    ).toEqual({ resetsAt: 61_000 });
+    expect(
+      subscriptionLimitOf("anthropic", 500, new Headers(), "{}", now),
+    ).toBeNull();
   });
 
   test("engine access is cached per owner+generation+provider until its expiry margin", async () => {

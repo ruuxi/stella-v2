@@ -62,13 +62,82 @@ export const resetEngineAccessCacheForTests = (): void => {
   engineAccessCache.clear();
 };
 
+const engineAccessKey = (
+  claims: GatewayCapabilityClaims,
+  provider: GatewayNativeCredentialProvider,
+): string => `${claims.sub}|${claims.gen}|${provider}`;
+
+/** Error bodies read to classify a limit; larger ones are passed through unread. */
+const MAX_LIMIT_BODY_BYTES = 64 * 1024;
+
+/**
+ * A subscription-limit rejection (Claude's 5-hour/weekly window, ChatGPT's
+ * Codex usage limit), as opposed to an ordinary rate limit that clears in
+ * seconds. Returns when the provider says it resets, if it said.
+ */
+export const subscriptionLimitOf = (
+  provider: GatewayNativeCredentialProvider,
+  status: number,
+  headers: Headers,
+  bodyText: string,
+  now: number,
+): { resetsAt?: number } | null => {
+  if (status !== 429 && status !== 403) return null;
+  let error: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(bodyText) as { error?: unknown; detail?: unknown };
+    const candidate = parsed.error ?? parsed.detail;
+    if (candidate && typeof candidate === "object") {
+      error = candidate as Record<string, unknown>;
+    }
+  } catch {
+    // Not JSON; headers alone decide.
+  }
+  const epochSeconds = (value: unknown): number | undefined => {
+    const seconds = typeof value === "string" ? Number(value) : value;
+    return typeof seconds === "number" && Number.isFinite(seconds) && seconds > 0
+      ? seconds * 1000
+      : undefined;
+  };
+  if (provider === "anthropic") {
+    const unified = headers.get("anthropic-ratelimit-unified-status");
+    const message = typeof error.message === "string" ? error.message : "";
+    if (status !== 429) return null;
+    if (unified !== "rejected" && !/usage limit/iu.test(message)) return null;
+    const resetsAt = epochSeconds(headers.get("anthropic-ratelimit-unified-reset"));
+    return resetsAt && resetsAt > now ? { resetsAt } : {};
+  }
+  const code = [error.code, error.type]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ");
+  if (/usage_not_included/u.test(code)) {
+    // The plan has no Codex access at all; check again tomorrow.
+    return { resetsAt: now + 24 * 60 * 60_000 };
+  }
+  if (!/usage_limit_reached/u.test(code)) return null;
+  const resetsAt =
+    epochSeconds(error.resets_at) ??
+    (typeof error.resets_in_seconds === "number" && error.resets_in_seconds > 0
+      ? now + error.resets_in_seconds * 1000
+      : undefined);
+  return resetsAt && resetsAt > now ? { resetsAt } : {};
+};
+
+const readBoundedText = async (response: Response): Promise<string | null> => {
+  const declared = Number(response.headers.get("content-length") ?? "0");
+  if (declared > MAX_LIMIT_BODY_BYTES) return null;
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.byteLength > MAX_LIMIT_BODY_BYTES) return null;
+  return new TextDecoder().decode(bytes);
+};
+
 const engineAccessFor = async (
   env: Pick<Env, "BILLING">,
   claims: GatewayCapabilityClaims,
   provider: GatewayNativeCredentialProvider,
   now: number,
 ): Promise<EngineAccessResponse> => {
-  const key = `${claims.sub}|${claims.gen}|${provider}`;
+  const key = engineAccessKey(claims, provider);
   const hit = engineAccessCache.get(key);
   if (hit && hit.validUntil > now) return hit.access;
   // BillingControl reports refusals as data; a throw is a transport failure.
@@ -213,15 +282,18 @@ export const handleNativeRelay = async (args: {
     );
   }
 
-  const access = await engineAccessFor(env, claims, credential, deps.now());
-  const userCredential: NativeRelayCredential = {
+  let access = await engineAccessFor(env, claims, credential, deps.now());
+  const credentialFor = (
+    current: EngineAccessResponse,
+  ): NativeRelayCredential => ({
     provider: credential,
-    accessToken: access.accessToken,
-    ...(access.accountId ? { accountId: access.accountId } : {}),
+    accessToken: current.accessToken,
+    ...(current.accountId ? { accountId: current.accountId } : {}),
     injectClaudeCodeIdentity:
       credential === "anthropic" &&
       requestedModel.startsWith("stella/anthropic/"),
-  };
+  });
+  let userCredential = credentialFor(access);
   const target = connectedCredentialUpstreamUrl(
     { userCredential },
     request,
@@ -234,19 +306,21 @@ export const handleNativeRelay = async (args: {
       "This path is not served on the native lane.",
     );
   }
-  let headers: Headers;
-  try {
-    headers = connectedCredentialForwardHeaders(request, userCredential);
-  } catch {
-    throw new GatewayError(
-      503,
-      "internal",
-      "Connected engine access is incomplete for this account.",
-      {
-        retryable: true,
-      },
-    );
-  }
+  const forwardHeaders = (current: NativeRelayCredential): Headers => {
+    try {
+      return connectedCredentialForwardHeaders(request, current);
+    } catch {
+      throw new GatewayError(
+        503,
+        "internal",
+        "Connected engine access is incomplete for this account.",
+        {
+          retryable: true,
+        },
+      );
+    }
+  };
+  let headers = forwardHeaders(userCredential);
   const body = nativeCredentialBody({
     requestJson,
     upstreamModel: binding.nativeModel,
@@ -316,6 +390,61 @@ export const handleNativeRelay = async (args: {
       body,
       signal: controller.signal,
     });
+    // At 100% of a subscription window: cool that account down and, when
+    // auto-switch moved the provider to another account, send the same
+    // request once more on it. Anything else passes through untouched.
+    if (!upstream.ok && !probe && access.engineAccountId) {
+      const errorText = await readBoundedText(upstream.clone()).catch(
+        () => null,
+      );
+      const limit =
+        errorText === null
+          ? null
+          : subscriptionLimitOf(
+              credential,
+              upstream.status,
+              upstream.headers,
+              errorText,
+              deps.now(),
+            );
+      if (limit) {
+        engineAccessCache.delete(engineAccessKey(claims, credential));
+        const report = await billingControl(env)
+          .engineLimit({
+            ownerId: claims.sub,
+            ownerGeneration: claims.gen,
+            provider: credential,
+            engineAccountId: access.engineAccountId,
+            ...(limit.resetsAt !== undefined
+              ? { resetsAt: limit.resetsAt }
+              : {}),
+          })
+          .catch(() => null);
+        console.log(
+          `[model-gateway] trace=${traceId} native=${credential} subscription limit reached switched=${report?.ok ? report.body.switched : "unknown"}`,
+        );
+        if (report?.ok && report.body.switched) {
+          const next = await engineAccessFor(
+            env,
+            claims,
+            credential,
+            deps.now(),
+          ).catch(() => null);
+          if (next && next.engineAccountId !== access.engineAccountId) {
+            await upstream.body?.cancel().catch(() => undefined);
+            access = next;
+            userCredential = credentialFor(access);
+            headers = forwardHeaders(userCredential);
+            upstream = await deps.fetch(target, {
+              method: "POST",
+              headers,
+              body,
+              signal: controller.signal,
+            });
+          }
+        }
+      }
+    }
   } catch (error) {
     controller.dispose();
     const cause = controller.cause();

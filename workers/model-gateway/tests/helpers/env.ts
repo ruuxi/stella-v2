@@ -641,6 +641,8 @@ export const createTestEnv = (overrides: Record<string, unknown> = {}) => {
       billingCall("/api/gateway/session-capability", request),
     engineAccess: (request: unknown) =>
       billingCall("/api/gateway/engine-access", request),
+    engineLimit: (request: unknown) =>
+      billingCall("/api/gateway/engine-limit", request),
     ingestUsage: async () => ({ accepted: [], duplicate: [], rejected: [] }),
     gatewayConfig: () => billingConfigLoader(billingFetch)(),
     ownerEnforcement: async (ownerId: string) => {

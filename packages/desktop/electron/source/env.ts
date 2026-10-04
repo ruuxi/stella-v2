@@ -8,7 +8,9 @@ import path from "node:path";
  * BASE_URL.
  */
 
-const parseEnvFile = (source: string): Record<string, string> => {
+export const BACKEND_SUFFIX = /^https:\/\/stella-v2-cloud-builder-([a-z0-9-]+)\.lolruuxi\.workers\.dev$/;
+
+const parseEnvFile =(source: string): Record<string, string> => {
   const values: Record<string, string> = {};
   for (const rawLine of source.split(/\r?\n/)) {
     const line = rawLine.trim();
@@ -42,6 +44,13 @@ export const loadRendererEnv = (uiRoot: string, mode: string): RendererEnv => {
   }
   for (const [key, value] of Object.entries(process.env)) {
     if (key.startsWith("VITE_") && value !== undefined) merged[key] = value;
+  }
+  // A `stella-v2-cloud-builder-<suffix>` backend pairs with the same-suffix
+  // Apps hosts, so a launcher that only names the backend gets its apps too.
+  const suffix = BACKEND_SUFFIX.exec(merged.VITE_STELLA_BACKEND_URL?.trim().replace(/\/+$/, "") ?? "")?.[1];
+  if (suffix) {
+    merged.VITE_STELLA_APPS_HOST ||= `https://stella-v2-apps-host-${suffix}.lolruuxi.workers.dev`;
+    merged.VITE_STELLA_APPS_AUTH_HOST ||= `https://stella-v2-apps-auth-${suffix}.lolruuxi.workers.dev`;
   }
   const env: RendererEnv = {};
   for (const [key, value] of Object.entries(merged)) {

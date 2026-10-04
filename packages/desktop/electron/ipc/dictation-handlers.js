@@ -14,7 +14,6 @@
 import { app, BrowserWindow, ipcMain } from "electron";
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import fs from "node:fs";
 import path from "node:path";
 import { getDictationSoundEffectsEnabled, loadLocalPreferences, saveLocalPreferences, } from "@stella/runtime/kernel/preferences/local-preferences";
 import { runNativeHelper } from "../native-helper.js";
@@ -33,20 +32,12 @@ const DICTATION_START_SOUND_MUTE_DELAY_MS = 220;
 const DICTATION_BRIDGE_TIMEOUT_MS = 2_000;
 const dictationBridgeIsSupported = () => process.platform === "darwin" || process.platform === "win32";
 const isUsableWindow = (window) => Boolean(window && !window.isDestroyed());
-const soundPath = (sound) => {
-    const packagedPath = path.join(process.resourcesPath, "audio", `${sound}.mp3`);
-    if (process.env.NODE_ENV !== "development")
-        return packagedPath;
-    const devCandidates = [
-        path.resolve(process.cwd(), "desktop", "resources", "audio", `${sound}.mp3`),
-        path.resolve(process.cwd(), "resources", "audio", `${sound}.mp3`),
-    ];
-    return (devCandidates.find((candidate) => fs.existsSync(candidate)) ?? packagedPath);
-};
-const playDictationSound = (sound) => {
+/** The app runs from its source tree, which carries the sounds. */
+const soundPath = (stellaAppDir, sound) => path.join(stellaAppDir, "packages", "desktop", "resources", "audio", `${sound}.mp3`);
+const playDictationSound = (stellaAppDir, sound) => {
     if (process.platform !== "darwin")
         return;
-    execFile("/usr/bin/afplay", ["-v", DICTATION_SOUND_VOLUME_BY_SOUND[sound], soundPath(sound)], (error) => {
+    execFile("/usr/bin/afplay", ["-v", DICTATION_SOUND_VOLUME_BY_SOUND[sound], soundPath(stellaAppDir, sound)], (error) => {
         if (error) {
             console.debug("[dictation] sound failed:", error.message);
         }
@@ -69,7 +60,7 @@ export const registerDictationHandlers = (options) => {
     const playEnabledDictationSound = (sound) => {
         if (!areDictationSoundsEnabled())
             return;
-        playDictationSound(sound);
+        playDictationSound(options.stellaAppDir, sound);
     };
     // ── System audio ducking (macOS/Windows native helper) ─────────────────
     // Recording while Stella (or anything else) plays audio pollutes the

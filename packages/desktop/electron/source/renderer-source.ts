@@ -27,6 +27,8 @@ export { RENDERER_ORIGIN, RENDERER_SCHEME } from "./origin.js";
 const HTML_ENTRIES = ["index.html", "overlay.html", "companion.html"];
 /** Loaded first in every window (see the file). */
 const HOT_CLIENT_URL = "/src/platform/hot/hot-client.ts";
+/** Where PdfViewerCard loads pdf.js's worker from. */
+const PDF_WORKER_URL = "/vendor/pdfjs/pdf.worker.min.mjs";
 /** Prefixed to every module but the hot client, on its first line. */
 const HOT_HEADER =
   "const __stella_hot = import.meta.hot = globalThis.__stellaHot.module(import.meta.url);";
@@ -306,6 +308,15 @@ export const createRendererSource = (options: RendererSourceOptions) => {
         const file = bundle ? path.join(bundle.dir, path.basename(pathname)) : null;
         return file && exists(file)
           ? javascript(await fs.promises.readFile(file, "utf8"))
+          : respond("Not found", "text/plain", 404);
+      }
+      if (pathname === PDF_WORKER_URL) {
+        // pdf.js's worker, from the copy react-pdf imports, so it always
+        // matches the API version (public/vendor/pdfjs is only Vite's copy).
+        const reactPdf = graph.resolveImport("react-pdf", path.join(uiRoot, "src", "main.tsx"));
+        const worker = reactPdf && graph.resolveImport("pdfjs-dist/build/pdf.worker.min.mjs", reactPdf.file);
+        return worker && exists(worker.file)
+          ? javascript(await fs.promises.readFile(worker.file, "utf8"))
           : respond("Not found", "text/plain", 404);
       }
       let file = graph.fileForUrlPath(pathname);

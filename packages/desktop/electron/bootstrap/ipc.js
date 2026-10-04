@@ -458,6 +458,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
     });
     const dictationTap = registerDictationHandlers({
         windowManager: state.windowManager,
+        stellaAppDir: config.stellaAppDir,
         getCompanionController: () => state.companionController ?? null,
         getStellaDataDir: lifecycle.getStellaDataDir,
         onDictationActiveChanged: (active) => {

@@ -15,10 +15,10 @@ import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 import "./pdf-viewer-card.css";
 
-// The pdf-worker-asset Vite plugin (see vite.config.ts) copies the pdfjs
-// worker into `public/vendor/pdfjs/` so we can serve it as a static asset.
-// `BASE_URL` is `./` for our build, so the resolved URL works under both
-// the dev server and the packaged Electron renderer.
+// pdf.js's worker is served at `vendor/pdfjs/`: the desktop renderer serves
+// it from node_modules (electron/source/renderer-source.ts), the web build
+// copies it there (build-web.ts), and Vite's pdf-worker-asset plugin copies
+// it into `public/vendor/pdfjs/` for the dev server.
 const PDF_WORKER_URL = `${import.meta.env.BASE_URL}vendor/pdfjs/pdf.worker.min.mjs`;
 
 if (pdfjs.GlobalWorkerOptions.workerSrc !== PDF_WORKER_URL) {

@@ -5,6 +5,7 @@
 
 import { promises as fs } from "fs";
 import path from "path";
+import { pathToFileURL } from "url";
 import { Effect } from "effect";
 import type {
   ToolDefinition,
@@ -56,12 +57,19 @@ const logError = (...args: unknown[]) =>
  * to restart Stella before memory becomes a problem. Bumping the
  * threshold here is fine — the trade-off is "surface a warning the
  * user might care about" vs. "let the leak grow silently."
+ *
+ * Bun (the runtime worker) keys its module registry by path and ignores
+ * the query, so there the file's registry entry is evicted instead;
+ * without it an edited extension reloads as its old code.
  */
 const cacheBusterEffect = (
   filePath: string,
   loadToken: string,
 ): Effect.Effect<string> =>
-  tryExtensionOp(() => fs.stat(filePath)).pipe(
+  Effect.sync(() => {
+    if (typeof Bun !== "undefined") delete require.cache[path.resolve(filePath)];
+  }).pipe(
+    Effect.andThen(tryExtensionOp(() => fs.stat(filePath))),
     Effect.map((stat) => stat.mtimeMs),
     // Falling back to loadToken alone keeps the cache-bust correct
     // even if stat fails for some reason.
@@ -97,7 +105,7 @@ const importModules = <T>(
         // with a cache-busting query string so F1 reload picks up edits.
         const resolvedPath = path.resolve(filePath);
         const fileUrl =
-          `file:///${resolvedPath.replace(/\\/g, "/")}` +
+          pathToFileURL(resolvedPath).href +
           (yield* cacheBusterEffect(filePath, loadToken));
         const mod = yield* tryExtensionOp(
           () => import(/* @vite-ignore */ fileUrl),
@@ -172,7 +180,7 @@ const loadExtensionFactories = (
       yield* Effect.gen(function* () {
         const resolvedPath = path.resolve(entryFilePath);
         const fileUrl =
-          `file:///${resolvedPath.replace(/\\/g, "/")}` +
+          pathToFileURL(resolvedPath).href +
           (yield* cacheBusterEffect(entryFilePath, loadToken));
         const mod = yield* tryExtensionOp(
           () => import(/* @vite-ignore */ fileUrl),

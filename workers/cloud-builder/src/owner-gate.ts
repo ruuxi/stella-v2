@@ -3407,15 +3407,18 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     const socket = this.connectedSocket(row.executor_device_id);
     if (!socket) return { delivered: false, reason: "unreachable" };
     const key = `${row.dispatch_id}:${input.messageId}`;
-    const acknowledged = new Promise<boolean>((resolve) => {
-      const timer = setTimeout(() => {
-        if (this.steerAcks.delete(key)) resolve(false);
-      }, STEER_ACK_TIMEOUT_MS);
-      this.steerAcks.set(key, (delivered) => {
-        clearTimeout(timer);
-        this.steerAcks.delete(key);
-        resolve(delivered);
-      });
+    const acknowledged = withTimeout(
+      new Promise<boolean>((resolve) => {
+        this.steerAcks.set(key, (delivered) => {
+          this.steerAcks.delete(key);
+          resolve(delivered);
+        });
+      }),
+      STEER_ACK_TIMEOUT_MS,
+      "steer acknowledgement timed out",
+    ).catch(() => {
+      this.steerAcks.delete(key);
+      return false;
     });
     this.send(socket, {
       type: "steer",

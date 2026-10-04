@@ -1010,7 +1010,9 @@ export const runResidentStellaLoop = async (
       return preflightFailure(
         reason.startsWith("STELLA_EXECUTOR_DIAGNOSTIC:")
           ? `The model "${input.execution.model}" couldn't be reached. Try again shortly.`
-          : `The model "${input.execution.model}" can't be used: ${reason}`,
+          : reason.includes(input.execution.model)
+            ? reason
+            : `The model "${input.execution.model}" can't be used: ${reason}`,
       );
     }
 

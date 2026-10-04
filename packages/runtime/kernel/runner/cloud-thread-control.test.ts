@@ -124,7 +124,6 @@ describe("desktop cloud thread controls", () => {
       result: {
         thread_id: "thr-cloud",
         delivered: true,
-        placement: "cloud",
         attempt_generation: 4,
         thread_updated_at: 400,
         thread_status: "running",

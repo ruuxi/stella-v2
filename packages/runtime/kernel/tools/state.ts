@@ -311,7 +311,6 @@ export const handleSendInput = async (
             thread_id: threadId,
             status: "updated",
             delivered: true,
-            placement: "cloud",
             ...(continued.control
               ? {
                   attempt_generation: continued.control.attemptGeneration,

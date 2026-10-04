@@ -142,6 +142,10 @@ const streamingRequestJson = (
   // Google streams by verb, not by body flag, and rejects unknown fields.
   if (protocol === "google-generative-ai") delete body.stream;
   else body.stream = true;
+  // Every managed Responses request stands alone: clients carry reasoning
+  // inline and never chain on a stored response, and some upstreams refuse
+  // `store: true` outright ("not supported on this proxy").
+  if (protocol === "openai-responses" && body.store === true) body.store = false;
   return body;
 };
 

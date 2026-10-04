@@ -70,7 +70,7 @@ using std::wstring;
 // ------------------------------------------------------------------ pins
 
 static const char *kBunVersion = "1.4.0";
-static const wchar_t *kDefaultBackendURL = L"https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev";
+static const wchar_t *kDefaultBackendURL = L"https://stella-v2-cloud-builder-prod.lolruuxi.workers.dev";
 static const char *kUpstreamBranch = "main";
 static const char *kUpstreamRemoteName = "stella-upstream";
 static const char *kKnownGoodRef = "refs/stella/known-good";
@@ -1147,6 +1147,8 @@ static Env baseEnvironment() {
 static Env electronEnvironment(const wstring &pipeName) {
     Env env = baseEnvironment();
     env[L"STELLA_LAUNCHER"] = L"1";
+    // The backend this launcher installs from is the one the app talks to.
+    env[L"VITE_STELLA_BACKEND_URL"] = O.backend;
     env[L"STELLA_LAUNCHER_PIPE"] = pipeName;
     if (!gBunBin.empty()) env[L"STELLA_BUN_PATH"] = gBunBin;
     if (gGit)

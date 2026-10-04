@@ -53,7 +53,7 @@ extern char **environ;
 /* ------------------------------------------------------------------ pins */
 
 #define BUN_VERSION "1.4.0"
-#define DEFAULT_BACKEND_URL "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev"
+#define DEFAULT_BACKEND_URL "https://stella-v2-cloud-builder-prod.lolruuxi.workers.dev"
 #define UPSTREAM_BRANCH "main"
 #define UPSTREAM_REMOTE_NAME "stella-upstream"
 #define KNOWN_GOOD_REF "refs/stella/known-good"
@@ -1444,6 +1444,8 @@ static StrList base_environment(void) {
 static StrList electron_environment(void) {
     StrList env = base_environment();
     env_set(&env, "STELLA_LAUNCHER", "1");
+    /* The backend this launcher installs from is the one the app talks to. */
+    env_set(&env, "VITE_STELLA_BACKEND_URL", O.backend);
     if (g_bun_bin) env_set(&env, "STELLA_BUN_PATH", g_bun_bin);
     if (g_git) env_set(&env, "STELLA_GIT_BIN", g_git->bin);
     if (g_signer) env_set(&env, "STELLA_LAUNCHER_PUBKEY", g_signer->spki_base64);

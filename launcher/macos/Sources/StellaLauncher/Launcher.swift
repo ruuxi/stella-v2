@@ -195,6 +195,8 @@ final class Launcher {
     private func electronEnvironment() -> [String: String] {
         var env = baseEnvironment()
         env["STELLA_LAUNCHER"] = "1"
+        // The backend this launcher installs from is the one the app talks to.
+        env["VITE_STELLA_BACKEND_URL"] = options.backend
         if let runtimes {
             env["STELLA_BUN_PATH"] = runtimes.bunBin.path
             for (key, value) in runtimes.git.runtimeEnv { env[key] = value }

@@ -87,7 +87,7 @@ enum Pins {
             member: nil),
     ]
 
-    static let defaultBackendURL = "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev"
+    static let defaultBackendURL = "https://stella-v2-cloud-builder-prod.lolruuxi.workers.dev"
     static let upstreamBranch = "main"
     static let upstreamRemoteName = "stella-upstream"
 }

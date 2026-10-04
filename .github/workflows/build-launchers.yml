@@ -45,9 +45,46 @@ jobs:
         env:
           STELLA_LAUNCHER_ROOT: ${{ runner.temp }}/stella-root
           STELLA_LAUNCHER_KEY_FILE: ${{ runner.temp }}/test-key/signing.pem
+          STELLA_LAUNCHER_BACKEND_URL: https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev
         run: |
           launcher/macos/build/Stella.app/Contents/MacOS/StellaLauncher \
             --self-test --source "$GITHUB_WORKSPACE" --capture-dir "$RUNNER_TEMP/capture"
+
+      - name: Sign with Developer ID and notarize
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          app=launcher/macos/build/Stella.app
+          cert_path="$RUNNER_TEMP/stella-certificate.p12"
+          keychain_path="$RUNNER_TEMP/stella-signing.keychain-db"
+          keychain_password="$(openssl rand -base64 32)"
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode -o "$cert_path"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$cert_path" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain_path"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain_path"
+          security list-keychains -d user -s "$keychain_path" login.keychain-db
+          rm -f "$cert_path"
+          identity="$APPLE_SIGNING_IDENTITY"
+          [[ "$identity" == "Developer ID Application:"* ]] || identity="Developer ID Application: $identity"
+          codesign --force --options runtime --timestamp --identifier com.stella.launcher \
+            --keychain "$keychain_path" --sign "$identity" "$app"
+          codesign --verify --strict --verbose=2 "$app"
+          ditto -c -k --keepParent "$app" "$RUNNER_TEMP/notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+            --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+          xcrun stapler staple "$app"
+          xcrun stapler validate "$app"
+          spctl --assess --verbose --type exec "$app"
+          security delete-keychain "$keychain_path"
 
       - name: Package
         run: ditto -c -k --keepParent launcher/macos/build/Stella.app "$RUNNER_TEMP/Stella-macos.zip"
@@ -92,13 +129,6 @@ jobs:
           key: launcher-windows-${{ github.run_id }}-${{ github.run_attempt }}
           enableCrossOsArchive: true
 
-      - uses: actions/upload-artifact@v4
-        if: github.event_name == 'workflow_dispatch'
-        with:
-          name: launcher-windows
-          path: launcher/windows/build/Stella.exe
-          if-no-files-found: error
-
   windows-self-test:
     needs: windows-build
     runs-on: windows-latest
@@ -120,12 +150,79 @@ jobs:
         run: |
           $env:STELLA_LAUNCHER_ROOT = "$env:RUNNER_TEMP\stella-root"
           $env:STELLA_LAUNCHER_KEY_FILE = "$env:RUNNER_TEMP\test-key\signing.pem"
+          $env:STELLA_LAUNCHER_BACKEND_URL = "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev"
           # Stella.exe is a GUI-subsystem program: wait on it explicitly.
           $p = Start-Process -FilePath "$env:GITHUB_WORKSPACE\launcher\windows\build\Stella.exe" -Wait -PassThru -ArgumentList @(
             '--self-test', '--source', "`"$env:GITHUB_WORKSPACE`"", '--capture-dir', "`"$env:RUNNER_TEMP\capture`"")
           Get-Content "$env:STELLA_LAUNCHER_ROOT\logs\launcher.log"
           Write-Host "self-test exit code: $($p.ExitCode)"
           exit $p.ExitCode
+
+      # Authenticode through DigiCert KeyLocker, the same certificate pinning
+      # as the old desktop release: certsync can return more than one, so the
+      # approved one is selected by thumbprint, serial and publisher.
+      - name: Reconstruct DigiCert client authentication certificate
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        env:
+          SM_CLIENT_CERT_FILE_B64: ${{ secrets.SM_CLIENT_CERT_FILE_B64 }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $certificatePath = Join-Path $env:RUNNER_TEMP "stella-digicert-client-auth.p12"
+          [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:SM_CLIENT_CERT_FILE_B64))
+          "SM_CLIENT_CERT_FILE=$certificatePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Install DigiCert Software Trust Manager tools
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        uses: digicert/code-signing-software-trust-action@fae23a455ba4bde62b64fd7cb2f81ade788f5a95
+        env:
+          SM_HOST: ${{ vars.SM_HOST }}
+          SM_API_KEY: ${{ secrets.SM_API_KEY }}
+          SM_CLIENT_CERT_FILE: ${{ env.SM_CLIENT_CERT_FILE }}
+          SM_CLIENT_CERT_PASSWORD: ${{ secrets.SM_CLIENT_CERT_PASSWORD }}
+
+      - name: Sign Stella.exe
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        env:
+          SM_HOST: ${{ vars.SM_HOST }}
+          SM_API_KEY: ${{ secrets.SM_API_KEY }}
+          SM_CLIENT_CERT_FILE: ${{ env.SM_CLIENT_CERT_FILE }}
+          SM_CLIENT_CERT_PASSWORD: ${{ secrets.SM_CLIENT_CERT_PASSWORD }}
+          SM_KEYPAIR_ALIAS: ${{ vars.SM_KEYPAIR_ALIAS }}
+          EXPECTED_THUMBPRINT: ${{ vars.STELLA_WINDOWS_CERT_SHA1 }}
+          EXPECTED_SERIAL: ${{ vars.STELLA_WINDOWS_CERT_SERIAL }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $false
+          Write-Output "::add-mask::$env:SM_KEYPAIR_ALIAS"
+          & smctl windows certsync --keypair-alias $env:SM_KEYPAIR_ALIAS 2>&1 | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "DigiCert certificate synchronization failed" }
+          $hex = { param($v) ($v -replace "[^0-9A-Fa-f]", "").ToUpperInvariant() }
+          $certificates = @(Get-ChildItem Cert:\CurrentUser\My | Where-Object { (& $hex $_.Thumbprint) -eq (& $hex $env:EXPECTED_THUMBPRINT) })
+          if ($certificates.Count -ne 1) { throw "Exactly one approved Windows signing certificate must be synchronized" }
+          $certificate = $certificates[0]
+          if ((& $hex $certificate.SerialNumber) -ne (& $hex $env:EXPECTED_SERIAL)) { throw "Wrong certificate serial" }
+          if ($certificate.GetNameInfo([System.Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false) -ne "FromYou, LLC") { throw "Wrong certificate publisher" }
+          $publicCertificatePath = Join-Path $env:RUNNER_TEMP "stella-windows-signing-public.cer"
+          Export-Certificate -Cert $certificate -FilePath $publicCertificatePath -Type CERT | Out-Null
+          $signTool = Get-ChildItem (Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\bin") -Filter signtool.exe -Recurse -File |
+            Where-Object { $_.FullName -match "\\x64\\signtool\.exe$" } | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $signTool) { throw "Microsoft SignTool was not found" }
+          $exe = "$env:GITHUB_WORKSPACE\launcher\windows\build\Stella.exe"
+          & $signTool.FullName sign /csp "DigiCert Signing Manager KSP" /kc $env:SM_KEYPAIR_ALIAS /f $publicCertificatePath `
+            /tr http://timestamp.digicert.com /td SHA256 /fd SHA256 /d Stella /du https://stella.sh $exe
+          if ($LASTEXITCODE -ne 0) { throw "SignTool failed" }
+          $signature = Get-AuthenticodeSignature $exe
+          if ($signature.Status -ne "Valid") { throw "Stella.exe signature is $($signature.Status)" }
+          Write-Output "Signed by $($signature.SignerCertificate.Subject)"
+
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          name: launcher-windows
+          path: launcher/windows/build/Stella.exe
+          if-no-files-found: error
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -166,6 +263,7 @@ jobs:
         env:
           STELLA_LAUNCHER_ROOT: ${{ runner.temp }}/stella-root
           STELLA_LAUNCHER_KEY_FILE: ${{ runner.temp }}/test-key/signing.pem
+          STELLA_LAUNCHER_BACKEND_URL: https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev
         run: |
           xvfb-run -a -s "-screen 0 1280x800x24" launcher/linux/build/stella-launcher \
             --self-test --source "$GITHUB_WORKSPACE" --capture-dir "$RUNNER_TEMP/capture"

@@ -35,6 +35,8 @@ final class Launcher {
     private let options: Options
     private let paths: LauncherPaths
     private let progress: ProgressWindow
+    /// An update that restarts Stella: the frosted frame held between processes.
+    private let hold = HoldWindow()
     private var state: LauncherState
     private var git: GitTool?
     private var signer: TreeSigner?
@@ -89,6 +91,7 @@ final class Launcher {
             }
 
             guard let failure else { continue }
+            hold.hide(after: 0)
             progress.hide()
             log("launcher: failure: \(failure.reason)")
             switch recover(reason: failure.reason, output: failure.output) {
@@ -252,10 +255,17 @@ final class Launcher {
                     guard readyAt == nil else { break }
                     readyAt = Date()
                     log("supervisor: ready")
+                    // The new window opened over the held frame; let go a beat later.
+                    hold.hide(after: 0.25)
                     process.after(options.stableSeconds, "stable")
                     if options.selfTest { process.after(options.hold, "self-test-quit") }
                 case "sign":
                     handleSign(message, process: process, git: git, signer: signer)
+                case "hold":
+                    if let update = UpdateHold(message) {
+                        log("supervisor: holding the window for a restart")
+                        hold.show(update, giveUpAfter: 30)
+                    }
                 case "exiting":
                     let code = (message["code"] as? NSNumber)?.int32Value ?? 0
                     announcedExit = code

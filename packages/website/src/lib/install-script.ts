@@ -1,4 +1,4 @@
-import { LAUNCHER_CHECKSUMS_URL, RELEASE_ASSETS } from "@/lib/downloads";
+import { LAUNCHER_CHECKSUMS_URL, MAC_APP_ZIP, RELEASE_ASSETS } from "@/lib/downloads";
 
 /**
  * `curl -fsSL https://stella.sh/install.sh | sh`
@@ -20,7 +20,7 @@ export const INSTALL_SCRIPT = `#!/bin/sh
 # Stella installer. https://stella.sh
 set -eu
 
-MAC_APP_ZIP="${RELEASE_ASSETS["mac-arm64"]}"
+MAC_APP_ZIP="${MAC_APP_ZIP}"
 LINUX_X64="${RELEASE_ASSETS.linux}"
 LINUX_ARM64="${RELEASE_ASSETS["linux-arm64"]}"
 CHECKSUMS="${LAUNCHER_CHECKSUMS_URL}"

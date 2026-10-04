@@ -13,7 +13,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { INSTALL_SCRIPT } from "@/lib/install-script";
-import { LAUNCHER_CHECKSUMS_URL, RELEASE_ASSETS } from "@/lib/downloads";
+import { LAUNCHER_CHECKSUMS_URL, MAC_APP_ZIP, RELEASE_ASSETS } from "@/lib/downloads";
 
 /**
  * The installer is shipped as text, so the only meaningful test is to actually
@@ -215,7 +215,7 @@ describe("install.sh", () => {
 
     expect(run.stderr).toBe("");
     expect(run.status).toBe(0);
-    expect(run.calls()).toContain(RELEASE_ASSETS["mac-arm64"]);
+    expect(run.calls()).toContain(MAC_APP_ZIP);
     const app = path.join(run.homeDir, "Apps/Stella.app");
     expect(existsSync(app)).toBe(true);
     expect(run.calls()).toContain(`open ${app}`);

@@ -24,149 +24,149 @@ const GIT_MANIFEST_URL = `https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/gi
 const PLATFORM_ASSETS = {
   "darwin-arm64": {
     bun: {
-      url: "https://github.com/oven-sh/bun/releases/download/bun-v1.4.0/bun-darwin-aarch64.zip",
+      url: "https://github.com/oven-sh/bun/releases/download/bun-v1.4.2/bun-darwin-aarch64.zip",
       sha256:
-        "c669e97f6164e1c96e0701748db98dfa77492908cbd8394c7557134a735de381",
+        "90987a3a16d7db556d886ac3d551e7b6d3edf0a1cf43acaed622e8676be1d12f",
       archive: "zip",
       executable: "bun-darwin-aarch64/bun",
     },
     node: {
-      url: "https://nodejs.org/dist/v24.14.1/node-v24.14.1-darwin-arm64.tar.gz",
+      url: "https://nodejs.org/dist/v24.21.0/node-v24.21.0-darwin-arm64.tar.gz",
       sha256:
-        "25495ff85bd89e2d8a24d88566d7e2f827c6b0d3d872b2cebf75371f93fcb1fe",
+        "bed7eea5325e1108f32ce5228ddd6a5f0f08a499ee42aa7442aea583702f6057",
       archive: "tar.gz",
-      root: "node-v24.14.1-darwin-arm64",
+      root: "node-v24.21.0-darwin-arm64",
     },
     python: {
-      url: "https://github.com/astral-sh/python-build-standalone/releases/download/20260211/cpython-3.12.12%2B20260211-aarch64-apple-darwin-install_only_stripped.tar.gz",
+      url: "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.12.15%2B20261003-aarch64-apple-darwin-install_only_stripped.tar.gz",
       sha256:
-        "22625deaf5757e7c266cf1a096c9151a06b598b1e14632a2ec9993d58ec5fe84",
+        "ad8d0c637c0a36b967b310e2c07254f4d2ca8cabaa7699e55ed6290aceb481a2",
       archive: "tar.gz",
       root: "python",
     },
     ripgrep: {
-      url: "https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-aarch64-apple-darwin.tar.gz",
+      url: "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-aarch64-apple-darwin.tar.gz",
       sha256:
-        "378e973289176ca0c6054054ee7f631a065874a352bf43f0fa60ef079b6ba715",
+        "3750b2e93f37e0c692657da574d7019a101c0084da05a790c83fd335bad973e4",
       archive: "tar.gz",
-      executable: "ripgrep-15.1.0-aarch64-apple-darwin/rg",
+      executable: "ripgrep-15.2.0-aarch64-apple-darwin/rg",
     },
     uv: {
-      url: "https://github.com/astral-sh/uv/releases/download/0.11.32/uv-aarch64-apple-darwin.tar.gz",
+      url: "https://github.com/astral-sh/uv/releases/download/0.12.23/uv-aarch64-apple-darwin.tar.gz",
       sha256:
-        "ed336d0ba49db8ef89b2b41fffa372ce63bd032f22a56f001c265891aec32829",
+        "50487ae565ccd96e499056b4674d438f4c53170202617b4c759defe0c6a1b544",
       archive: "tar.gz",
       executable: "uv-aarch64-apple-darwin/uv",
     },
   },
   "darwin-x64": {
     bun: {
-      url: "https://github.com/oven-sh/bun/releases/download/bun-v1.4.0/bun-darwin-x64.zip",
+      url: "https://github.com/oven-sh/bun/releases/download/bun-v1.4.2/bun-darwin-x64.zip",
       sha256:
-        "1d0211b8f1dc991182344687ad15e72ee86f154845a5f7fa477994cd341dd9b0",
+        "80520d7e17526308c9185d261679ac6d27798d3803a0e9f7ff9121ab8affb012",
       archive: "zip",
       executable: "bun-darwin-x64/bun",
     },
     node: {
-      url: "https://nodejs.org/dist/v24.14.1/node-v24.14.1-darwin-x64.tar.gz",
+      url: "https://nodejs.org/dist/v24.21.0/node-v24.21.0-darwin-x64.tar.gz",
       sha256:
-        "2526230ad7d922be82d4fdb1e7ee1e84303e133e3b4b0ec4c2897ab31de0253d",
+        "1462cb3b3046b815cf8ea436d3da450ec1a9f11dac7e5a46b0ada5305d7e8097",
       archive: "tar.gz",
-      root: "node-v24.14.1-darwin-x64",
+      root: "node-v24.21.0-darwin-x64",
     },
     python: {
-      url: "https://github.com/astral-sh/python-build-standalone/releases/download/20260211/cpython-3.12.12%2B20260211-x86_64-apple-darwin-install_only_stripped.tar.gz",
+      url: "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.12.15%2B20261003-x86_64-apple-darwin-install_only_stripped.tar.gz",
       sha256:
-        "a84ac7a36d465bc6eb68db84540fdb5da04333900e2c3cb34b5d454f2022048c",
+        "562c30864ece2cb1d3e0ad66a1acd498611a47e5a10ce81b99158bef1ccbd355",
       archive: "tar.gz",
       root: "python",
     },
     ripgrep: {
-      url: "https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-x86_64-apple-darwin.tar.gz",
+      url: "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-apple-darwin.tar.gz",
       sha256:
-        "64811cb24e77cac3057d6c40b63ac9becf9082eedd54ca411b475b755d334882",
+        "af7825fcc69a2afc7a7aea55fc9af90e26421d8f20fe59df32e233c0b8a231c1",
       archive: "tar.gz",
-      executable: "ripgrep-15.1.0-x86_64-apple-darwin/rg",
+      executable: "ripgrep-15.2.0-x86_64-apple-darwin/rg",
     },
     uv: {
-      url: "https://github.com/astral-sh/uv/releases/download/0.11.32/uv-x86_64-apple-darwin.tar.gz",
+      url: "https://github.com/astral-sh/uv/releases/download/0.12.23/uv-x86_64-apple-darwin.tar.gz",
       sha256:
-        "77f5ca26c0de20e992a3677a174fe1121ee25c36f9b1434a863f75bf077a05eb",
+        "960da44cb4b73685206ddd250b19e0a117fa41095710c1038f081f5cb613efb4",
       archive: "tar.gz",
       executable: "uv-x86_64-apple-darwin/uv",
     },
   },
   "win-x64": {
     bun: {
-      url: "https://github.com/oven-sh/bun/releases/download/bun-v1.4.0/bun-windows-x64.zip",
+      url: "https://github.com/oven-sh/bun/releases/download/bun-v1.4.2/bun-windows-x64.zip",
       sha256:
-        "e6f093d39da486b20262ca8cdd5ed6a9e8bc9c2f275b78e6d3a0c5b28cc95901",
+        "ce4c17497b2f29712a99d3d53f028de28cd42e3bacb8589599e7f000e49b6405",
       archive: "zip",
       executable: "bun-windows-x64/bun.exe",
     },
     node: {
-      url: "https://nodejs.org/dist/v24.14.1/node-v24.14.1-win-x64.zip",
+      url: "https://nodejs.org/dist/v24.21.0/node-v24.21.0-win-x64.zip",
       sha256:
-        "6e50ce5498c0cebc20fd39ab3ff5df836ed2f8a31aa093cecad8497cff126d70",
+        "158f7685b44de51f6c0df1d153526cbcd3e1bc739a8dfc607721cef75de9e541",
       archive: "zip",
-      root: "node-v24.14.1-win-x64",
+      root: "node-v24.21.0-win-x64",
     },
     python: {
-      url: "https://github.com/astral-sh/python-build-standalone/releases/download/20260211/cpython-3.12.12%2B20260211-x86_64-pc-windows-msvc-install_only_stripped.tar.gz",
+      url: "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.12.15%2B20261003-x86_64-pc-windows-msvc-install_only_stripped.tar.gz",
       sha256:
-        "93bf8e8c05ede0077b197a29c99ebdaf253497f27190097494265150b4e70ba8",
+        "6fba7f2ae506facf41d457ea8293c7497910a675c69a4e954875169410a50402",
       archive: "tar.gz",
       root: "python",
     },
     ripgrep: {
-      url: "https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-x86_64-pc-windows-msvc.zip",
+      url: "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-pc-windows-msvc.zip",
       sha256:
-        "124510b94b6baa3380d051fdf4650eaa80a302c876d611e9dba0b2e18d87493a",
+        "SHA256",
       archive: "zip",
-      executable: "ripgrep-15.1.0-x86_64-pc-windows-msvc/rg.exe",
+      executable: "ripgrep-15.2.0-x86_64-pc-windows-msvc/rg.exe",
     },
     uv: {
-      url: "https://github.com/astral-sh/uv/releases/download/0.11.32/uv-x86_64-pc-windows-msvc.zip",
+      url: "https://github.com/astral-sh/uv/releases/download/0.12.23/uv-x86_64-pc-windows-msvc.zip",
       sha256:
-        "acfde570451cfdb8689fa159a138ee805ba4e241c466432750302c86254b0984",
+        "75d05de6762778c31ee183398de7dd15093fad0ed90b1f236d8205ea5ec00c90",
       archive: "zip",
       executable: "uv.exe",
     },
   },
   "linux-x64": {
     bun: {
-      url: "https://github.com/oven-sh/bun/releases/download/bun-v1.4.0/bun-linux-x64.zip",
+      url: "https://github.com/oven-sh/bun/releases/download/bun-v1.4.2/bun-linux-x64.zip",
       sha256:
-        "2d03fb5fb83ac8b567aca0a281b2ce1a1a19d488f56c2968d88c3f25e92fe452",
+        "36368faef7527875d5ffa52e53cd48021741f2a83eb6208a8dd64068d422a913",
       archive: "zip",
       executable: "bun-linux-x64/bun",
     },
     node: {
-      url: "https://nodejs.org/dist/v24.14.1/node-v24.14.1-linux-x64.tar.gz",
+      url: "https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-x64.tar.gz",
       sha256:
-        "ace9fa104992ed0829642629c46ca7bd7fd6e76278cb96c958c4b387d29658ea",
+        "6e1db87ef58b8819e5d5402eff1536491b18edd8eb7bee5ef7897876e88dc5ff",
       archive: "tar.gz",
-      root: "node-v24.14.1-linux-x64",
+      root: "node-v24.21.0-linux-x64",
     },
     python: {
-      url: "https://github.com/astral-sh/python-build-standalone/releases/download/20260211/cpython-3.12.12%2B20260211-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+      url: "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.12.15%2B20261003-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
       sha256:
-        "1dbaa624a09e15afe7efbdac08d42993135a68db8d34f986ef6977a6d77bdc3c",
+        "731af898886c5f821890dc901eca3c651cca8e51fa7308c159d12a1194aeac91",
       archive: "tar.gz",
       root: "python",
     },
     // musl build for glibc-independent portability across distros.
     ripgrep: {
-      url: "https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-x86_64-unknown-linux-musl.tar.gz",
+      url: "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-unknown-linux-musl.tar.gz",
       sha256:
-        "1c9297be4a084eea7ecaedf93eb03d058d6faae29bbc57ecdaf5063921491599",
+        "33e15bcf1624b25cdd2a55813a47a2f95dbe126268203e76aa6a585d1e7b149c",
       archive: "tar.gz",
-      executable: "ripgrep-15.1.0-x86_64-unknown-linux-musl/rg",
+      executable: "ripgrep-15.2.0-x86_64-unknown-linux-musl/rg",
     },
     uv: {
-      url: "https://github.com/astral-sh/uv/releases/download/0.11.32/uv-x86_64-unknown-linux-gnu.tar.gz",
+      url: "https://github.com/astral-sh/uv/releases/download/0.12.23/uv-x86_64-unknown-linux-gnu.tar.gz",
       sha256:
-        "aab924fd522efd06f1c5f3b93a243864fc453132c94b2dc49f1371b528a4b967",
+        "9167d72b3319674b6303c4cbe071854bba13ebdf3d76b1a7cbdc175471fb66d6",
       archive: "tar.gz",
       executable: "uv-x86_64-unknown-linux-gnu/uv",
     },

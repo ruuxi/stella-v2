@@ -10,6 +10,8 @@ import {
 } from "@stella/runtime/ai/stream.js";
 import { AssistantMessageEventStream } from "@stella/runtime/ai/utils/event-stream.js";
 import { resolveManagedModelDescriptor } from "@stella/model-catalog/gateway-resolution";
+import { resolveClaudeCloudModel } from "@stella/model-catalog/claude-cloud-model";
+import { streamAnthropic } from "@stella/runtime/ai/providers/anthropic.js";
 import {
   GATEWAY_VALIDATED_RELAY_PREFIX,
   GATEWAY_RELAY_PREFIX,
@@ -220,13 +222,28 @@ const subscriptionRelayModel = (args: {
   transport: GatewayModelTransport;
 }): Model<Api> => {
   const provider = args.execution.engine as "anthropic" | "openai-codex";
-  const modelId = args.execution.model;
+  const modelId =
+    provider === "anthropic"
+      ? resolveClaudeCloudModel(args.execution.model)
+      : args.execution.model;
   const registryModel =
     loadedRegistryModel(provider, [modelId, modelId.replace(/\./g, "-")]) ??
     genericSubscriptionModel(provider, modelId);
   return withTransport(
     {
       ...registryModel,
+      ...(provider === "anthropic"
+        ? {
+            thinkingLevelMap: {
+              ...registryModel.thinkingLevelMap,
+              minimal: "low",
+              low: "low",
+              medium: "medium",
+              high: "high",
+              xhigh: modelId.includes("-4-6") ? "max" : "xhigh",
+            },
+          }
+        : {}),
       id: `stella/${provider}/${modelId}`,
       name:
         provider === "anthropic"
@@ -241,6 +258,9 @@ const subscriptionRelayModel = (args: {
         ...(registryModel.headers ?? {}),
         ...gatewayHeaders(args.transport, {
           [CLOUD_LLM_CREDENTIAL_HEADER]: provider,
+          ...(provider === "anthropic" && args.execution.model.endsWith("[1m]")
+            ? { "anthropic-beta": "context-1m-2025-08-07" }
+            : {}),
         }),
       },
     } as Model<Api>,
@@ -592,7 +612,29 @@ export const createCloudRelaySession = async (
               ? await streamOptions.transformContext(model, context, signal)
               : context;
             signal?.throwIfAborted();
-            return streamSimple(model, prepared, { ...options, signal });
+            // The admitted selection owns thinking, including callers whose
+            // Agent state still has its generic default. Auto leaves Claude's
+            // provider default intact rather than explicitly disabling it.
+            if (
+              execution.engine === "anthropic" &&
+              execution.reasoningEffort === "default"
+            ) {
+              return streamAnthropic(
+                model as Model<"anthropic-messages">,
+                prepared,
+                { ...options, signal },
+              );
+            }
+            return streamSimple(model, prepared, {
+              ...options,
+              signal,
+              reasoning:
+                execution.reasoningEffort === "none"
+                  ? undefined
+                  : execution.reasoningEffort === "default"
+                    ? options?.reasoning
+                    : execution.reasoningEffort,
+            });
           } catch (error) {
             return relaySessionErrorStream(
               model,

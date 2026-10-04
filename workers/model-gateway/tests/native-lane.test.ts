@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import type { GatewayUsageEvent } from "@stella/contracts/gateway/usage";
 import { GATEWAY_SUBSCRIPTION_LIMIT_HEADER } from "@stella/contracts/gateway/api";
 import { CLAUDE_CODE_IDENTITY } from "@stella/model-catalog/native-relay";
+import { createCloudRelaySession } from "../../../packages/executor-cloud/src/relay-model.js";
+import { registerCloudApiProviders } from "../../../packages/runtime/ai/providers/register-cloud.js";
 import { resetCapabilityKeysForTests } from "../src/capability.js";
 import { resetConfigCacheForTests } from "../src/config-cache.js";
 import {
@@ -26,7 +28,13 @@ import {
 
 const anthropicTurn = (
   model = "claude-sonnet-4-6",
-  reasoningEffort: "default" | "high" | "none" = "default",
+  reasoningEffort:
+    | "default"
+    | "high"
+    | "none"
+    | "minimal"
+    | "medium"
+    | "xhigh" = "default",
 ) =>
   signTurn({
     credential: "anthropic",
@@ -137,6 +145,113 @@ const setup = () => {
 };
 
 describe("native lane", () => {
+  test("Claude picker aliases send successfully through the runtime and turn-bound gateway", async () => {
+    registerCloudApiProviders();
+    ctx.fetchMock.on(
+      (call) => call.url.host === "api.anthropic.com",
+      () =>
+        json({
+          id: "m",
+          type: "message",
+          role: "assistant",
+          model: "claude-opus-5-5",
+          content: [{ type: "text", text: "HELLO" }],
+          stop_reason: "end_turn",
+          stop_sequence: null,
+          usage: { input_tokens: 1, output_tokens: 1 },
+        }),
+    );
+    for (const model of [
+      "default",
+      "best",
+      "fable",
+      "opus",
+      "sonnet",
+      "haiku",
+    ]) {
+      for (const reasoningEffort of [
+        "default",
+        "none",
+        "minimal",
+        "medium",
+        "high",
+        "xhigh",
+      ] as const) {
+        const { token } = await anthropicTurn(model, reasoningEffort);
+        const session = await createCloudRelaySession({
+          gatewayOrigin: "https://gateway.test",
+          capability: token,
+          audience: "pro",
+          agentType: "orchestrator",
+          execution: {
+            engine: "anthropic",
+            provider: "anthropic",
+            model,
+            reasoningEffort,
+          },
+          fetch: (async (input, init) =>
+            ctx.run(new Request(input, init))) as typeof fetch,
+        });
+        const stream = await session.createStreamFn({ reasoningEffort })(
+          session.model,
+          { messages: [{ role: "user", content: "Say HELLO", timestamp: 1 }] },
+          // Deliberately stale Agent state: the admitted effort must win.
+          { apiKey: token, reasoning: "high" },
+        );
+        const result = await stream.result();
+        expect(
+          result.stopReason,
+          `${model}/${reasoningEffort}: ${result.errorMessage}`,
+        ).toBe("stop");
+        expect(result.content).toContainEqual({ type: "text", text: "HELLO" });
+        const body = JSON.parse(
+          ctx.fetchMock.callsTo("api.anthropic.com").at(-1)!.body!,
+        );
+        expect(body.model).toStartWith("claude-");
+        if (reasoningEffort === "default") {
+          expect(body.thinking).toBeUndefined();
+          expect(body.output_config?.effort).toBeUndefined();
+        } else if (!["none"].includes(reasoningEffort) && model !== "haiku") {
+          expect(body.thinking.type).toBe("adaptive");
+          expect(body.output_config.effort).toBe(
+            reasoningEffort === "minimal" ? "low" : reasoningEffort,
+          );
+        }
+      }
+    }
+  });
+
+  test("older cloud clients' alias requests use the signed effort and cannot cross model families", async () => {
+    const { token } = await anthropicTurn("opus", "medium");
+    const response = await ctx.run(
+      relayRequest("/v1/relay/v1/messages", {
+        token,
+        body: {
+          model: "stella/anthropic/opus",
+          max_tokens: 16384,
+          temperature: 1,
+          thinking: { type: "enabled", budget_tokens: 32768 },
+          messages: [],
+        },
+      }),
+    );
+    expect(response.status).toBe(200);
+    const body = JSON.parse(
+      ctx.fetchMock.callsTo("api.anthropic.com")[0]!.body!,
+    );
+    expect(body.model).toBe("claude-opus-5-5");
+    expect(body.thinking).toEqual({ type: "adaptive" });
+    expect(body.output_config.effort).toBe("medium");
+    expect(body.temperature).toBeUndefined();
+    const crossed = await ctx.run(
+      relayRequest("/v1/relay/v1/messages", {
+        token,
+        body: { model: "sonnet", messages: [] },
+      }),
+    );
+    expect(crossed.status).toBe(403);
+    expect(ctx.fetchMock.callsTo("api.anthropic.com")).toHaveLength(1);
+  });
   let ctx: ReturnType<typeof setup>;
   beforeEach(() => {
     ctx = setup();
@@ -416,12 +531,17 @@ describe("native lane", () => {
     );
 
     expect(response.status).toBe(429);
-    expect(response.headers.get(GATEWAY_SUBSCRIPTION_LIMIT_HEADER)).toBe("anthropic");
-    expect(((await response.json()) as { error: { type: string } }).error.type).toBe(
-      "rate_limit_error",
+    expect(response.headers.get(GATEWAY_SUBSCRIPTION_LIMIT_HEADER)).toBe(
+      "anthropic",
     );
+    expect(
+      ((await response.json()) as { error: { type: string } }).error.type,
+    ).toBe("rate_limit_error");
     expect(limits).toEqual([
-      expect.objectContaining({ engineAccountId: "acct-a", resetsAt: 4_102_444_800_000 }),
+      expect.objectContaining({
+        engineAccountId: "acct-a",
+        resetsAt: 4_102_444_800_000,
+      }),
     ]);
     expect(ctx.fetchMock.callsTo("api.anthropic.com")).toHaveLength(1);
   });
@@ -433,7 +553,9 @@ describe("native lane", () => {
         "anthropic",
         429,
         new Headers({ "retry-after": "2" }),
-        JSON.stringify({ error: { type: "rate_limit_error", message: "Slow down" } }),
+        JSON.stringify({
+          error: { type: "rate_limit_error", message: "Slow down" },
+        }),
         now,
       ),
     ).toBeNull();
@@ -451,7 +573,9 @@ describe("native lane", () => {
         "openai-codex",
         429,
         new Headers(),
-        JSON.stringify({ error: { type: "usage_limit_reached", resets_in_seconds: 60 } }),
+        JSON.stringify({
+          error: { type: "usage_limit_reached", resets_in_seconds: 60 },
+        }),
         now,
       ),
     ).toEqual({ resetsAt: 61_000 });

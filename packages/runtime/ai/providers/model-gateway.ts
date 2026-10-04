@@ -19,9 +19,12 @@ export { isGatewayRelayBaseUrl };
 
 /** True only for Stella-managed model traffic, never the native relay lane. */
 export const isManagedStellaRelayModel = (
-  model: Pick<Model<Api>, "baseUrl" | "id">,
+  model: Pick<Model<Api>, "baseUrl" | "id" | "headers">,
 ): boolean =>
-  model.id.startsWith("stella/") && isGatewayRelayBaseUrl(model.baseUrl);
+  model.id.startsWith("stella/") &&
+  isGatewayRelayBaseUrl(model.baseUrl) &&
+  model.headers?.["x-stella-llm-credential"] !== "anthropic" &&
+  model.headers?.["x-stella-llm-credential"] !== "openai-codex";
 
 /**
  * Explicit per-request timeout for a gateway completion. The gateway holds

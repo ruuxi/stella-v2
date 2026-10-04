@@ -11,9 +11,9 @@ export type EngineModelOption = {
 };
 
 /**
- * Claude Code aliases. The `claude` CLI and the cloud binding both resolve
- * these to the newest model in each family, so the list stays current without
- * pinning versions.
+ * Claude Code aliases. The CLI resolves these for local execution; the cloud
+ * relay converts them to Messages API model IDs in model-catalog. Update that
+ * cloud mapping when Anthropic changes its recommended alias versions.
  */
 export const CLAUDE_ENGINE_MODELS: readonly EngineModelOption[] = [
   {

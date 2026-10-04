@@ -16,6 +16,10 @@ import {
   type GatewayUsageTokens,
 } from "@stella/contracts/gateway/usage";
 import { validateConnectedCloudBinding } from "@stella/model-catalog/cloud-binding";
+import {
+  isClaudeCloudAlias,
+  resolveClaudeCloudModel,
+} from "@stella/model-catalog/claude-cloud-model";
 import { getManagedGatewayConfig } from "@stella/model-catalog/managed-gateway";
 import {
   connectedCredentialForwardHeaders,
@@ -86,7 +90,10 @@ export const subscriptionLimitOf = (
   if (status !== 429 && status !== 403) return null;
   let error: Record<string, unknown> = {};
   try {
-    const parsed = JSON.parse(bodyText) as { error?: unknown; detail?: unknown };
+    const parsed = JSON.parse(bodyText) as {
+      error?: unknown;
+      detail?: unknown;
+    };
     const candidate = parsed.error ?? parsed.detail;
     if (candidate && typeof candidate === "object") {
       error = candidate as Record<string, unknown>;
@@ -96,7 +103,9 @@ export const subscriptionLimitOf = (
   }
   const epochSeconds = (value: unknown): number | undefined => {
     const seconds = typeof value === "string" ? Number(value) : value;
-    return typeof seconds === "number" && Number.isFinite(seconds) && seconds > 0
+    return typeof seconds === "number" &&
+      Number.isFinite(seconds) &&
+      seconds > 0
       ? seconds * 1000
       : undefined;
   };
@@ -105,7 +114,9 @@ export const subscriptionLimitOf = (
     const message = typeof error.message === "string" ? error.message : "";
     if (status !== 429) return null;
     if (unified !== "rejected" && !/usage limit/iu.test(message)) return null;
-    const resetsAt = epochSeconds(headers.get("anthropic-ratelimit-unified-reset"));
+    const resetsAt = epochSeconds(
+      headers.get("anthropic-ratelimit-unified-reset"),
+    );
     return resetsAt && resetsAt > now ? { resetsAt } : {};
   }
   const code = [error.code, error.type]
@@ -257,8 +268,8 @@ export const handleNativeRelay = async (args: {
     agentTypeFrom(request) ?? claims.agentTypes?.[0] ?? "general";
   assertAgentTypeAllowed(claims, agentType);
 
-  const requestJson = await readJsonObject(request);
-  const requestedModel =
+  let requestJson = await readJsonObject(request);
+  let requestedModel =
     typeof requestJson.model === "string" ? requestJson.model.trim() : "";
   if (!requestedModel) {
     throw new GatewayError(
@@ -266,6 +277,52 @@ export const handleNativeRelay = async (args: {
       "bad_request",
       "The request body must name a model.",
     );
+  }
+  // Existing mobile/cloud builds can still send CLI aliases and infer legacy
+  // thinking capabilities from them. Resolve before binding validation, using
+  // the signed turn's effort so this never grants a more powerful request.
+  const nativeSelection = requestedModel.replace(/^stella\/anthropic\//u, "");
+  if (credential === "anthropic" && isClaudeCloudAlias(nativeSelection)) {
+    requestedModel = resolveClaudeCloudModel(nativeSelection);
+    requestJson = { ...requestJson, model: requestedModel };
+    if (pathname.endsWith("/messages")) {
+      const effort = turn.execution.reasoningEffort;
+      const config = requestJson.output_config;
+      const outputConfig =
+        config && typeof config === "object" && !Array.isArray(config)
+          ? { ...(config as Record<string, unknown>) }
+          : {};
+      delete outputConfig.effort;
+      delete requestJson.thinking;
+      if (effort === "none") {
+        if (!requestedModel.includes("-fable-"))
+          requestJson.thinking = { type: "disabled" };
+      } else if (effort !== "default") {
+        const adaptive = !requestedModel.includes("-haiku-");
+        if (adaptive) {
+          requestJson.thinking = { type: "adaptive" };
+          outputConfig.effort = effort === "minimal" ? "low" : effort;
+        } else {
+          const budget = {
+            minimal: 1024,
+            low: 2048,
+            medium: 8192,
+            high: 16384,
+            xhigh: 16384,
+          }[effort];
+          requestJson.thinking = { type: "enabled", budget_tokens: budget };
+          requestJson.max_tokens = Math.max(
+            Number(requestJson.max_tokens) || 0,
+            budget + 1024,
+          );
+        }
+      }
+      if (Object.keys(outputConfig).length)
+        requestJson.output_config = outputConfig;
+      else delete requestJson.output_config;
+      // The latest Opus, Sonnet and Fable models reject temperature.
+      if (!requestedModel.includes("-haiku-")) delete requestJson.temperature;
+    }
   }
   const binding = validateConnectedCloudBinding({
     execution: turn.execution,
@@ -322,6 +379,12 @@ export const handleNativeRelay = async (args: {
     }
   };
   let headers = forwardHeaders(userCredential);
+  if (credential === "anthropic" && nativeSelection.endsWith("[1m]")) {
+    headers.set(
+      "anthropic-beta",
+      `${headers.get("anthropic-beta")},context-1m-2025-08-07`,
+    );
+  }
   const body = nativeCredentialBody({
     requestJson,
     upstreamModel: binding.nativeModel,
@@ -447,9 +510,15 @@ export const handleNativeRelay = async (args: {
             const retryError = upstream.ok
               ? null
               : await readBoundedText(upstream.clone()).catch(() => null);
-            subscriptionLimitReached = retryError !== null && subscriptionLimitOf(
-              credential, upstream.status, upstream.headers, retryError, deps.now(),
-            ) !== null;
+            subscriptionLimitReached =
+              retryError !== null &&
+              subscriptionLimitOf(
+                credential,
+                upstream.status,
+                upstream.headers,
+                retryError,
+                deps.now(),
+              ) !== null;
           }
         }
       }

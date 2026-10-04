@@ -28,7 +28,7 @@ const context = (
 });
 
 const detailsOf = (result: ToolResult): Record<string, unknown> => {
-  assert.equal(result.error, undefined, result.error);
+  assert.equal(result.error, undefined, result.error ?? "");
   assert.ok(result.details && typeof result.details === "object");
   return result.details as Record<string, unknown>;
 };
@@ -41,7 +41,7 @@ const sessionIdOf = (result: ToolResult): string => {
 };
 
 const outputOf = (result: ToolResult): string => {
-  assert.equal(result.error, undefined, result.error);
+  assert.equal(result.error, undefined, result.error ?? "");
   return String(result.result ?? "");
 };
 

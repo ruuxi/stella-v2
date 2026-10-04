@@ -37,9 +37,10 @@ afterEach(() => {
   vi.resetModules();
 });
 
-// Sequential: the catalog module memoizes on first access and both cases mutate
-// the same process-wide env, so they cannot share a module registry.
-describe.sequential("OAuth provider catalog resolution", () => {
+// Sequential (Vitest's default within a file): the catalog module memoizes on
+// first access and both cases mutate the same process-wide env, so they cannot
+// share a module registry.
+describe("OAuth provider catalog resolution", () => {
   it("loads immutable metadata from the packaged Resources runtime tree", async () => {
     const root = makeTempDir();
     const resourcesPath = path.join(root, "Resources");

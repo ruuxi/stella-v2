@@ -6,6 +6,8 @@
   "no_bundle": true,
   "find_additional_modules": true,
   "base_dir": ".wrangler/worker-build",
+  // The build emits minified modules with sibling .map files.
+  "upload_source_maps": true,
   "rules": [
     { "type": "ESModule", "globs": ["**/*.js"], "fallthrough": true },
     { "type": "CompiledWasm", "fallthrough": false, "globs": ["**/*.wasm"] },

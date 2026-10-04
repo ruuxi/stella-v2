@@ -55,6 +55,10 @@ export const buildWorker = async ({ outdir = workerBuildDirectory } = {}) => {
     // subscription dependencies with stubs to shrink the Worker.
     external: ["cloudflare:*", "node:*", ...builtinModules],
     define: { "process.env.NODE_ENV": '"production"' },
+    // Every isolate parses the eager modules at startup. Minified output keeps
+    // that parse small; keepNames preserves class and function names, and the
+    // uploaded source maps keep production stack traces readable.
+    minify: true,
     keepNames: true,
     sourcemap: true,
     sourcesContent: true,

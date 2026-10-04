@@ -5,7 +5,7 @@
  * round-trip through it.
  */
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import type { ScheduleRow } from "@stella/contracts/backend/schedules";
 import { getBackendClient, useBackendView } from "./backend";
 import {
@@ -65,7 +65,8 @@ export function useMobileSchedules(
   enabled: boolean,
 ): MobileSchedule[] | undefined {
   const rows = useBackendView("schedules.list", enabled ? {} : "skip").value;
-  return rows?.map(toMobileSchedule);
+  // Stable per backend snapshot: callers key effects on this array.
+  return useMemo(() => rows?.map(toMobileSchedule), [rows]);
 }
 
 const requestId = (action: string, id: string) =>

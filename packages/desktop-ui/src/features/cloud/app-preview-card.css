@@ -1,0 +1,120 @@
+/* App card under a reply that links a cloud app: still on top, then the
+   app's tile, name and "App", with a menu button over the footer's end. */
+.app-preview-card {
+  position: relative;
+  width: min(100%, 440px);
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--chat-assistant-bubble-fill);
+  overflow: hidden;
+}
+
+.app-preview-card__open {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 5px;
+  border: none;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.app-preview-card__open:disabled {
+  cursor: default;
+}
+
+.app-preview-card__preview {
+  position: relative;
+  display: block;
+  aspect-ratio: 16 / 10;
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--surface-inset, var(--card));
+}
+
+.app-preview-card__preview img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top;
+  animation: stream-fade-in 0.25s ease-out both;
+}
+
+.app-preview-card__placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.app-preview-card__placeholder .app-preview-card__emoji {
+  font-size: 40px;
+}
+
+.app-preview-card__footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 44px 5px 6px;
+}
+
+.app-preview-card__tile {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-inset, var(--card));
+}
+
+.app-preview-card__tile .app-preview-card__emoji {
+  font-size: 21px;
+}
+
+.app-preview-card__titles {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.app-preview-card__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--text-strong);
+}
+
+.app-preview-card__subtitle {
+  font-size: var(--font-size-sm, 12px);
+  color: var(--text-muted);
+}
+
+.app-preview-card__more {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 999px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.app-preview-card__more:hover {
+  background: color-mix(in srgb, var(--text-strong) 8%, transparent);
+}

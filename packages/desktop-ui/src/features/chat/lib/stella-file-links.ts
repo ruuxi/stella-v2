@@ -3,6 +3,7 @@ import type { Plugin } from "unified";
 import type { Link, Parent, Root, RootContent, Text } from "mdast";
 import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
 import { parseLocalFileLinkTarget } from "@stella/contracts/local-file-links";
+import { parseStellaAppUrl } from "@stella/contracts/workspace-apps";
 import {
   basenameOf,
   extensionOf,
@@ -11,6 +12,9 @@ import { buildPayloadFromBarePath } from "./derive-turn-resource";
 
 export const STELLA_FILE_TAG = "stella-file";
 export const STELLA_FILE_TAG_ATTRIBUTES = ["path", "label"] as const;
+/** `stella://app/<slug>` links become `<stella-app slug label>` the same way. */
+export const STELLA_APP_TAG = "stella-app";
+export const STELLA_APP_TAG_ATTRIBUTES = ["slug", "label"] as const;
 
 export const parseStellaFileUrl = parseLocalFileLinkTarget;
 
@@ -76,6 +80,20 @@ const transformChildren = (parent: Parent, hiddenPaths: ReadonlySet<string>): vo
   for (let index = parent.children.length - 1; index >= 0; index -= 1) {
     const child = parent.children[index]!;
     if (isLink(child as RootContent)) {
+      const appSlug = parseStellaAppUrl((child as Link).url ?? "");
+      if (appSlug) {
+        const label = textOfChildren(child as Parent).trim() || appSlug;
+        parent.children.splice(index, 1, {
+          type: "text",
+          value: label,
+          data: {
+            hName: STELLA_APP_TAG,
+            hProperties: { slug: appSlug, label },
+            hChildren: [{ type: "text", value: label }],
+          },
+        } as unknown as RootContent);
+        continue;
+      }
       const path = parseLocalFileLinkTarget((child as Link).url ?? "");
       if (path) {
         const identity = cloudWorldDrivePath(path) ? `cloud:${cloudWorldDrivePath(path)}` : `local:${path}`;

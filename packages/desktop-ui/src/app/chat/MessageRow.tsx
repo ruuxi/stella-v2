@@ -51,6 +51,8 @@ import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
 import { OfficePreviewCard } from "@/app/chat/OfficePreviewCard";
 import { BackgroundWorkCard } from "@/app/chat/BackgroundWorkCard";
 import { FilePills } from "@/app/chat/FilePills";
+import { AppPreviewCard } from "@/features/cloud/AppPreviewCard";
+import { extractStellaAppLinkSlugs } from "@stella/contracts/workspace-apps";
 import { VoiceSessionCard } from "@/app/chat/VoiceSessionCard";
 import { ReplyPreview } from "@/app/chat/ReplyPreview";
 import { ReplyCountBadge } from "@/app/chat/ReplyCountBadge";
@@ -685,6 +687,11 @@ export const AssistantMessageRow = memo(
           {row.linkedFiles && row.linkedFiles.length > 0 ? (
             <FilePills files={row.linkedFiles} />
           ) : null}
+          {hasText
+            ? extractStellaAppLinkSlugs(text).map((slug) => (
+                <AppPreviewCard key={`app:${slug}`} slug={slug} />
+              ))
+            : null}
           {hasBackgroundWork && row.backgroundWork ? (
             <BackgroundWorkCard
               threadIds={row.backgroundWork.threadIds}

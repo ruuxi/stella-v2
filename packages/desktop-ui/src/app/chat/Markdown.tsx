@@ -8,9 +8,12 @@ import { Streamdown, defaultRemarkPlugins } from "streamdown";
 import { cn } from "@/shared/lib/utils";
 import {
   remarkStellaFileLinks,
+  STELLA_APP_TAG,
+  STELLA_APP_TAG_ATTRIBUTES,
   STELLA_FILE_TAG,
   STELLA_FILE_TAG_ATTRIBUTES,
 } from "@/features/chat/lib/stella-file-links";
+import { openCloudAppPanel } from "@/features/cloud/open-cloud-app-panel";
 import {
   isUnmodifiedPrimaryClick,
   normalizedHttpUrl,
@@ -72,6 +75,7 @@ const DEFAULT_REMARK_PLUGINS = Object.values(defaultRemarkPlugins);
  */
 const ALLOWED_TAGS: Record<string, string[]> = {
   [STELLA_FILE_TAG]: [...STELLA_FILE_TAG_ATTRIBUTES],
+  [STELLA_APP_TAG]: [...STELLA_APP_TAG_ATTRIBUTES],
 };
 
 /*
@@ -188,6 +192,27 @@ const MarkdownLink = ({
   />
 );
 
+/** A reply's `stella://app/<slug>` link: opens the app in the side panel. */
+const StellaAppLink = ({ slug, label }: { slug?: unknown; label?: unknown; node?: unknown }) => {
+  const appId = typeof slug === "string" ? slug : "";
+  return (
+    <a
+      role="button"
+      tabIndex={0}
+      data-streamdown="link"
+      onClick={() => appId && openCloudAppPanel({ appId })}
+      onKeyDown={(event) => {
+        if ((event.key === "Enter" || event.key === " ") && appId) {
+          event.preventDefault();
+          openCloudAppPanel({ appId });
+        }
+      }}
+    >
+      {typeof label === "string" ? label : appId}
+    </a>
+  );
+};
+
 const HiddenHorizontalRule = () => null;
 
 // Module-level so every row shares the same component map (and Streamdown's
@@ -196,6 +221,7 @@ const COMPONENTS = {
   a: MarkdownLink,
   img: MarkdownImage,
   [STELLA_FILE_TAG]: StellaFileLink,
+  [STELLA_APP_TAG]: StellaAppLink,
 };
 const COMPONENTS_WITHOUT_RULES = { ...COMPONENTS, hr: HiddenHorizontalRule };
 

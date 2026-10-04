@@ -16,7 +16,7 @@ export type NativeRelayCredential = {
   accessToken: string;
   /** Required by ChatGPT's Codex backend; absent for Anthropic. */
   accountId?: string;
-  /** Compatibility only for legacy Stella-shaped Claude relay bodies. */
+  /** Add the subscription identity when the client only sees a capability. */
   injectClaudeCodeIdentity?: boolean;
 };
 

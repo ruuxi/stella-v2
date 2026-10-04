@@ -6,6 +6,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -102,6 +103,14 @@ export default function LoginScreen() {
   // Claim secret for the in-flight handoff. A ref so it never re-renders and
   // is never persisted.
   const claimSecretRef = useRef<string | null>(null);
+  const loginScrollRef = useRef<ScrollView>(null);
+
+  useEffect(() => {
+    const subscription = Keyboard.addListener("keyboardDidShow", () => {
+      loginScrollRef.current?.scrollToEnd({ animated: true });
+    });
+    return () => subscription.remove();
+  }, []);
   const [canResend, setCanResend] = useState(false);
 
   const continueAsGuest = async () => {
@@ -155,8 +164,7 @@ export default function LoginScreen() {
               body: await response.json().catch(() => null),
             };
           },
-          isIntegrityKeyUnknown: (result) =>
-            isIntegrityKeyUnknown(result.body),
+          isIntegrityKeyUnknown: (result) => isIntegrityKeyUnknown(result.body),
         });
       const result = readMagicLinkSendBody(body);
       if (!response.ok || !result.requestId) {
@@ -377,18 +385,54 @@ export default function LoginScreen() {
         style={styles.keyboardAvoid}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <Pressable style={styles.hero} onPress={Keyboard.dismiss}>
-          <Text style={styles.title} maxFontSizeMultiplier={1.2}>
-            {t("mobile.login.heroTitle")}
-          </Text>
-          <Text style={styles.body}>{t("mobile.login.heroBody")}</Text>
-        </Pressable>
+        <ScrollView
+          ref={loginScrollRef}
+          contentContainerStyle={styles.loginContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+          showsVerticalScrollIndicator={false}
+        >
+          <Pressable style={styles.hero} onPress={Keyboard.dismiss}>
+            <Text style={styles.title} maxFontSizeMultiplier={1.2}>
+              {t("mobile.login.heroTitle")}
+            </Text>
+            <Text style={styles.body}>{t("mobile.login.heroBody")}</Text>
+          </Pressable>
 
-        <View style={styles.formArea}>
-          {Platform.OS === "ios" ? (
+          <View style={styles.formArea}>
+            {Platform.OS === "ios" ? (
+              <Pressable
+                onPress={() => {
+                  void signInWithApple();
+                }}
+                disabled={
+                  submitState.type === "apple" ||
+                  submitState.type === "google" ||
+                  submitState.type === "sending" ||
+                  submitState.type === "verifying"
+                }
+                accessibilityLabel={t("mobile.login.continueWithApple")}
+                style={({ pressed }) => [
+                  styles.socialButton,
+                  styles.appleButton,
+                  pressed ? styles.socialButtonPressed : null,
+                  submitState.type === "apple"
+                    ? styles.primaryButtonDisabled
+                    : null,
+                ]}
+              >
+                <AppleIcon />
+                <Text style={styles.appleButtonText}>
+                  {submitState.type === "apple"
+                    ? t("mobile.login.openingApple")
+                    : t("mobile.login.continueWithApple")}
+                </Text>
+              </Pressable>
+            ) : null}
+
             <Pressable
               onPress={() => {
-                void signInWithApple();
+                void signInWithGoogle();
               }}
               disabled={
                 submitState.type === "apple" ||
@@ -396,174 +440,147 @@ export default function LoginScreen() {
                 submitState.type === "sending" ||
                 submitState.type === "verifying"
               }
-              accessibilityLabel={t("mobile.login.continueWithApple")}
+              accessibilityLabel={t("mobile.login.continueWithGoogle")}
               style={({ pressed }) => [
                 styles.socialButton,
-                styles.appleButton,
                 pressed ? styles.socialButtonPressed : null,
-                submitState.type === "apple"
+                submitState.type === "google"
                   ? styles.primaryButtonDisabled
                   : null,
               ]}
             >
-              <AppleIcon />
-              <Text style={styles.appleButtonText}>
-                {submitState.type === "apple"
-                  ? t("mobile.login.openingApple")
-                  : t("mobile.login.continueWithApple")}
+              <GoogleIcon />
+              <Text style={styles.googleButtonText}>
+                {submitState.type === "google"
+                  ? t("mobile.login.openingGoogle")
+                  : t("mobile.login.continueWithGoogle")}
               </Text>
             </Pressable>
-          ) : null}
 
-          <Pressable
-            onPress={() => {
-              void signInWithGoogle();
-            }}
-            disabled={
-              submitState.type === "apple" ||
-              submitState.type === "google" ||
-              submitState.type === "sending" ||
-              submitState.type === "verifying"
-            }
-            accessibilityLabel={t("mobile.login.continueWithGoogle")}
-            style={({ pressed }) => [
-              styles.socialButton,
-              pressed ? styles.socialButtonPressed : null,
-              submitState.type === "google"
-                ? styles.primaryButtonDisabled
-                : null,
-            ]}
-          >
-            <GoogleIcon />
-            <Text style={styles.googleButtonText}>
-              {submitState.type === "google"
-                ? t("mobile.login.openingGoogle")
-                : t("mobile.login.continueWithGoogle")}
-            </Text>
-          </Pressable>
-
-          <View style={styles.methodDivider}>
-            <View style={styles.methodDividerLine} />
-            <Text style={styles.methodDividerText}>
-              {t("mobile.login.orUseEmail")}
-            </Text>
-            <View style={styles.methodDividerLine} />
-          </View>
-
-          <TextInput
-            autoCapitalize="none"
-            autoComplete="email"
-            keyboardType="email-address"
-            onChangeText={setEmail}
-            placeholder={t("mobile.login.emailPlaceholder")}
-            placeholderTextColor={fadeHex(colors.textMuted, 0.4)}
-            style={styles.input}
-            value={email}
-          />
-
-          <Pressable
-            onPress={() => {
-              void sendMagicLink();
-            }}
-            disabled={
-              submitState.type === "sending" ||
-              submitState.type === "sent" ||
-              submitState.type === "verifying"
-            }
-            style={({ pressed }) => [
-              styles.primaryButton,
-              pressed ? styles.primaryButtonPressed : null,
-              submitState.type !== "idle" && submitState.type !== "error"
-                ? styles.primaryButtonDisabled
-                : null,
-            ]}
-          >
-            <Text style={styles.primaryButtonText}>
-              {submitState.type === "sending"
-                ? t("mobile.login.sending")
-                : submitState.type === "verifying"
-                  ? t("mobile.login.signingIn")
-                  : t("mobile.common.continue")}
-            </Text>
-          </Pressable>
-
-          {submitState.type === "sent" ? (
-            <View style={styles.sentBlock}>
-              <Text style={styles.successText}>
-                {t("mobile.login.checkInbox")}
+            <View style={styles.methodDivider}>
+              <View style={styles.methodDividerLine} />
+              <Text style={styles.methodDividerText}>
+                {t("mobile.login.orUseEmail")}
               </Text>
-              <View style={styles.sentActions}>
-                <Pressable
-                  onPress={editEmail}
-                  accessibilityLabel={t("mobile.login.useDifferentEmail")}
-                  style={({ pressed }) => [
-                    styles.inlineLink,
-                    pressed && styles.inlineLinkPressed,
-                  ]}
-                >
-                  <Text style={styles.inlineLinkText}>
-                    {t("mobile.login.useDifferentEmail")}
-                  </Text>
-                </Pressable>
-                {canResend ? (
+              <View style={styles.methodDividerLine} />
+            </View>
+
+            <TextInput
+              accessibilityLabel={t("mobile.login.emailPlaceholder")}
+              autoCapitalize="none"
+              autoComplete="email"
+              keyboardType="email-address"
+              onChangeText={setEmail}
+              placeholder={t("mobile.login.emailPlaceholder")}
+              placeholderTextColor={fadeHex(colors.textMuted, 0.4)}
+              style={styles.input}
+              value={email}
+            />
+
+            <Pressable
+              onPress={() => {
+                void sendMagicLink();
+              }}
+              disabled={
+                submitState.type === "sending" ||
+                submitState.type === "sent" ||
+                submitState.type === "verifying"
+              }
+              style={({ pressed }) => [
+                styles.primaryButton,
+                pressed ? styles.primaryButtonPressed : null,
+                submitState.type !== "idle" && submitState.type !== "error"
+                  ? styles.primaryButtonDisabled
+                  : null,
+              ]}
+            >
+              <Text style={styles.primaryButtonText}>
+                {submitState.type === "sending"
+                  ? t("mobile.login.sending")
+                  : submitState.type === "verifying"
+                    ? t("mobile.login.signingIn")
+                    : t("mobile.common.continue")}
+              </Text>
+            </Pressable>
+
+            {submitState.type === "sent" ? (
+              <View style={styles.sentBlock}>
+                <Text style={styles.successText}>
+                  {t("mobile.login.checkInbox")}
+                </Text>
+                <View style={styles.sentActions}>
                   <Pressable
-                    onPress={() => void sendMagicLink()}
-                    accessibilityLabel={t("mobile.login.resendLabel")}
+                    onPress={editEmail}
+                    accessibilityLabel={t("mobile.login.useDifferentEmail")}
                     style={({ pressed }) => [
                       styles.inlineLink,
                       pressed && styles.inlineLinkPressed,
                     ]}
                   >
                     <Text style={styles.inlineLinkText}>
-                      {t("mobile.login.resend")}
+                      {t("mobile.login.useDifferentEmail")}
                     </Text>
                   </Pressable>
-                ) : null}
+                  {canResend ? (
+                    <Pressable
+                      onPress={() => void sendMagicLink()}
+                      accessibilityLabel={t("mobile.login.resendLabel")}
+                      style={({ pressed }) => [
+                        styles.inlineLink,
+                        pressed && styles.inlineLinkPressed,
+                      ]}
+                    >
+                      <Text style={styles.inlineLinkText}>
+                        {t("mobile.login.resend")}
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </View>
               </View>
-            </View>
-          ) : null}
+            ) : null}
 
-          {submitState.type === "error" ? (
-            <Text style={styles.errorText}>{submitState.message}</Text>
-          ) : null}
+            {submitState.type === "error" ? (
+              <Text style={styles.errorText}>{submitState.message}</Text>
+            ) : null}
 
-          <Text style={styles.legalFooter}>
-            {t("mobile.login.legalPrefix")}
-            <Text
-              style={styles.legalLink}
-              onPress={() => setActiveLegal("terms")}
+            <Text style={styles.legalFooter}>
+              {t("mobile.login.legalPrefix")}
+              <Text
+                style={styles.legalLink}
+                onPress={() => setActiveLegal("terms")}
+              >
+                {t("mobile.login.legalTerms")}
+              </Text>
+              {t("mobile.login.legalConjunction")}
+              <Text
+                style={styles.legalLink}
+                onPress={() => setActiveLegal("privacy")}
+              >
+                {t("mobile.login.legalPrivacy")}
+              </Text>
+              {t("mobile.login.legalSuffix")}
+            </Text>
+
+            <Pressable
+              onPress={() => void continueAsGuest()}
+              accessibilityLabel={t("mobile.login.continueAsGuest")}
+              accessibilityRole="button"
+              disabled={submitState.type === "verifying"}
+              style={({ pressed }) => [
+                styles.guestButton,
+                pressed && styles.guestButtonPressed,
+                submitState.type === "verifying"
+                  ? styles.primaryButtonDisabled
+                  : null,
+              ]}
+              testID="continue-without-signing-in-button"
             >
-              {t("mobile.login.legalTerms")}
-            </Text>
-            {t("mobile.login.legalConjunction")}
-            <Text
-              style={styles.legalLink}
-              onPress={() => setActiveLegal("privacy")}
-            >
-              {t("mobile.login.legalPrivacy")}
-            </Text>
-            {t("mobile.login.legalSuffix")}
-          </Text>
-
-          <Pressable
-            onPress={() => void continueAsGuest()}
-            accessibilityLabel={t("mobile.login.continueAsGuest")}
-            accessibilityRole="button"
-            disabled={submitState.type === "verifying"}
-            style={({ pressed }) => [
-              styles.guestButton,
-              pressed && styles.guestButtonPressed,
-              submitState.type === "verifying"
-                ? styles.primaryButtonDisabled
-                : null,
-            ]}
-            testID="continue-without-signing-in-button"
-          >
-            <Text style={styles.guestButtonText}>
-              {t("mobile.login.continueAsGuest")}
-            </Text>
-          </Pressable>
-        </View>
+              <Text style={styles.guestButtonText}>
+                {t("mobile.login.continueAsGuest")}
+              </Text>
+            </Pressable>
+          </View>
+        </ScrollView>
       </KeyboardAvoidingView>
 
       <LegalSheet document={activeLegal} onClose={() => setActiveLegal(null)} />
@@ -614,10 +631,16 @@ const makeStyles = (colors: Colors) =>
     },
     keyboardAvoid: {
       flex: 1,
+    },
+    loginContent: {
+      flexGrow: 1,
       justifyContent: "space-between",
     },
     hero: {
-      flex: 1,
+      flexGrow: 1,
+      flexShrink: 0,
+      minHeight: 220,
+      paddingVertical: 24,
       justifyContent: "center",
       gap: 14,
     },

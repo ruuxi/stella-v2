@@ -1,5 +1,6 @@
 import {
   GATEWAY_TRACE_HEADER,
+  GATEWAY_SUBSCRIPTION_LIMIT_HEADER,
   GATEWAY_UPSTREAM_MAX_DURATION_MS,
   type GatewayProtocol,
   type GatewayProvider,
@@ -289,9 +290,9 @@ export const handleNativeRelay = async (args: {
     provider: credential,
     accessToken: current.accessToken,
     ...(current.accountId ? { accountId: current.accountId } : {}),
-    injectClaudeCodeIdentity:
-      credential === "anthropic" &&
-      requestedModel.startsWith("stella/anthropic/"),
+    // The cloud runtime carries a Stella capability, so its SDK cannot
+    // recognize the subscription token and add the required identity itself.
+    injectClaudeCodeIdentity: credential === "anthropic",
   });
   let userCredential = credentialFor(access);
   const target = connectedCredentialUpstreamUrl(
@@ -383,6 +384,7 @@ export const handleNativeRelay = async (args: {
     maxDurationMs: GATEWAY_UPSTREAM_MAX_DURATION_MS,
   });
   let upstream: Response;
+  let subscriptionLimitReached = false;
   try {
     upstream = await deps.fetch(target, {
       method: "POST",
@@ -408,6 +410,7 @@ export const handleNativeRelay = async (args: {
               deps.now(),
             );
       if (limit) {
+        subscriptionLimitReached = true;
         engineAccessCache.delete(engineAccessKey(claims, credential));
         const report = await billingControl(env)
           .engineLimit({
@@ -441,6 +444,12 @@ export const handleNativeRelay = async (args: {
               body,
               signal: controller.signal,
             });
+            const retryError = upstream.ok
+              ? null
+              : await readBoundedText(upstream.clone()).catch(() => null);
+            subscriptionLimitReached = retryError !== null && subscriptionLimitOf(
+              credential, upstream.status, upstream.headers, retryError, deps.now(),
+            ) !== null;
           }
         }
       }
@@ -471,6 +480,9 @@ export const handleNativeRelay = async (args: {
     "cache-control": "no-store",
     [GATEWAY_TRACE_HEADER]: traceId,
   });
+  if (subscriptionLimitReached) {
+    responseHeaders.set(GATEWAY_SUBSCRIPTION_LIMIT_HEADER, credential);
+  }
   for (const name of RESPONSE_HEADER_ALLOWLIST) {
     const value = upstream.headers.get(name);
     if (value) responseHeaders.set(name, value);

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { GatewayUsageEvent } from "@stella/contracts/gateway/usage";
+import { GATEWAY_SUBSCRIPTION_LIMIT_HEADER } from "@stella/contracts/gateway/api";
 import { CLAUDE_CODE_IDENTITY } from "@stella/model-catalog/native-relay";
 import { resetCapabilityKeysForTests } from "../src/capability.js";
 import { resetConfigCacheForTests } from "../src/config-cache.js";
@@ -203,7 +204,13 @@ describe("native lane", () => {
       expect(upstream.headers.has(name)).toBe(false);
     }
     // Native bodies are never run through cross-provider shaping.
-    expect(JSON.parse(upstream.body ?? "{}")).toEqual(body);
+    expect(JSON.parse(upstream.body ?? "{}")).toEqual({
+      ...body,
+      system: [
+        { type: "text", text: CLAUDE_CODE_IDENTITY },
+        { type: "text", text: body.system },
+      ],
+    });
 
     await ctx.harness.flush();
     expect(ctx.harness.usageEvents).toHaveLength(1);
@@ -355,6 +362,7 @@ describe("native lane", () => {
         resetsAt: 4_102_444_800_000,
       }),
     ]);
+    expect(response.headers.get(GATEWAY_SUBSCRIPTION_LIMIT_HEADER)).toBeNull();
     expect(
       ctx.fetchMock
         .callsTo("chatgpt.com")
@@ -408,6 +416,7 @@ describe("native lane", () => {
     );
 
     expect(response.status).toBe(429);
+    expect(response.headers.get(GATEWAY_SUBSCRIPTION_LIMIT_HEADER)).toBe("anthropic");
     expect(((await response.json()) as { error: { type: string } }).error.type).toBe(
       "rate_limit_error",
     );

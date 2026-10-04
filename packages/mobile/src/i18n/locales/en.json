@@ -2498,6 +2498,8 @@
       "autoSwitchChatgpt": "When the account in use hits its Codex usage limit, Stella moves to the next one until it resets.",
       "pasteHintClaude": "After you approve access, Claude shows a code. Copy it and paste it here.",
       "pasteHintChatgpt": "After you approve, the page fails to load. Copy that page's address (Share › Copy) and paste it here.",
+      "deviceHint": "Continue to ChatGPT and approve this one-time code. If prompted, enable device code sign-in in ChatGPT Security Settings. Stella connects automatically when you return. Continue copies the code.",
+      "deviceOpen": "Continue to ChatGPT",
       "pastePlaceholder": "Code or URL",
       "pasteFromClipboard": "Paste",
       "finish": "Connect",

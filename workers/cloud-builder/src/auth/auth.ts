@@ -52,9 +52,13 @@ const required = (env: unknown, name: string): string => {
   return value;
 };
 
-/** This worker's public origin: the JWT issuer and Better Auth's base URL. */
+/** This worker's public origin remains the JWT issuer across auth-domain changes. */
 export const backendUrl = (env: Pick<AuthEnv, "CLOUD_BUILDER_PUBLIC_URL">): string =>
   (env.CLOUD_BUILDER_PUBLIC_URL ?? "").trim().replace(/\/+$/, "");
+
+/** Branded browser callbacks and email links; independent of the JWT issuer. */
+export const authUrl = (env: AuthEnv): string =>
+  (configured(env, "STELLA_AUTH_URL") ?? backendUrl(env)).replace(/\/+$/, "");
 
 export const websiteUrl = (env: unknown): string =>
   (configured(env, "STELLA_WEBSITE_URL") ?? DEFAULT_WEBSITE_URL).replace(/\/+$/, "");
@@ -68,6 +72,7 @@ export const trustedOrigins = (env: AuthEnv): string[] => {
   return Array.from(
     new Set([
       backendUrl(env),
+      authUrl(env),
       websiteUrl(env),
       DEFAULT_WEBSITE_URL,
       // The website's dev server.
@@ -245,7 +250,7 @@ const upgradeAnonymousOnMagicLink = async (env: AuthEnv, ctx: {
   let requestId: string | null = null;
   try {
     const url = new URL(decodeURIComponent(callback), backendUrl(env));
-    if (url.origin === backendUrl(env) && url.pathname === "/api/auth/link/verify") {
+    if ([backendUrl(env), authUrl(env)].includes(url.origin) && url.pathname === "/api/auth/link/verify") {
       requestId = url.searchParams.get("requestId");
     }
   } catch {
@@ -291,7 +296,7 @@ const buildOptions = (env: AuthEnv) => {
   return {
     appName: "Stella",
     secret,
-    baseURL: backend,
+    baseURL: authUrl(env),
     basePath: "/api/auth",
     database: env.DB,
     trustedOrigins: trustedOrigins(env),
@@ -409,7 +414,7 @@ const buildOptions = (env: AuthEnv) => {
           }),
         },
       }),
-      stellaHandoff({ env, backendUrl: backend, websiteUrl: websiteUrl(env), secret, api }),
+      stellaHandoff({ env, backendUrl: authUrl(env), websiteUrl: websiteUrl(env), secret, api }),
     ],
   } satisfies BetterAuthOptions;
 };
@@ -422,4 +427,3 @@ let instance: Auth | undefined;
 
 /** The isolate's Better Auth instance. */
 export const createAuth = (env: AuthEnv): Auth => (instance ??= makeAuth(env));
-

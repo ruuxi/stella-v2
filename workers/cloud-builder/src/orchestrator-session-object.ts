@@ -133,6 +133,8 @@ import {
 import {
   GATEWAY_PREPARE_PATH,
   GATEWAY_RESOLVE_PATH,
+  GATEWAY_SUBSCRIPTION_LIMIT_HEADER,
+  nativeSubscriptionLimitNotice,
 } from "@stella/contracts/gateway/api";
 import { createCloudRelaySession } from "@stella/executor-cloud/relay-model";
 import {
@@ -4256,6 +4258,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       }
     };
     this.currentTurnCancellation = turnCancellation;
+    let subscriptionLimitNotice: string | undefined;
     try {
       // The queue boundary checked the live owner lease. The provider guard
       // checks it again with memory policy after read-only preparation.
@@ -4636,6 +4639,11 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
                           });
                         })()
                       : await guard(guardedRequest);
+                  if (!response.ok) {
+                    subscriptionLimitNotice = nativeSubscriptionLimitNotice(
+                      response.headers.get(GATEWAY_SUBSCRIPTION_LIMIT_HEADER),
+                    );
+                  }
                   return activeGrant
                     ? releaseOwnerModelGrantAfterBody(
                         response,
@@ -5276,6 +5284,9 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             return { ...completion, finalText: completion.finalText.trim() };
           },
           prepareResume: (reason, classification) => {
+            // A subscription reset is minutes or hours away; retrying this
+            // turn hides the actionable notice behind minute-long backoffs.
+            if (subscriptionLimitNotice) return false;
             const prepared = prepareTransientResumeTail(
               agent.state.messages,
               classification,
@@ -5398,7 +5409,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       const contextFailure = cloudContextFailure(error);
       const terminalNotice = contextFailure
         ? CLOUD_CONTEXT_NOTICE
-        : TERMINAL_NOTICE.failed;
+        : subscriptionLimitNotice ?? TERMINAL_NOTICE.failed;
       const terminalPayload = contextFailure
         ? {
             message: terminalNotice,

@@ -3,11 +3,10 @@
  * ChatGPT) and the account-wide execution selection every client picker
  * reads and writes.
  *
- * Connecting is paste-based so it works from any browser: `startConnect`
- * returns the provider's authorize URL, and the user pastes the code (Claude)
- * or the full localhost redirect URL (ChatGPT) into `finishConnect`. Tokens
- * are exchanged and stored encrypted in the owner's object; no client ever
- * sees them.
+ * Mobile ChatGPT sign-in uses device authorization and automatic polling.
+ * `startConnect` / `finishConnect` retain the pasted-code flow for Claude
+ * and existing desktop clients. Tokens are exchanged and stored encrypted
+ * in the owner's object; no client ever sees them.
  *
  * Each provider can hold several accounts. One is active and serves every
  * turn; with auto-switch on, an account that hits its subscription limit is
@@ -49,6 +48,19 @@ export type EngineSettings = {
 };
 
 export type EngineCalls = {
+  /** Mobile-safe ChatGPT login; no loopback callback or pasted URL. */
+  "engines.startDeviceConnect": {
+    args: Record<string, never>;
+    result: { connectId: string; authorizeUrl: string; userCode: string; intervalMs: number };
+  };
+  "engines.pollDeviceConnect": {
+    args: { connectId: string };
+    result: { status: "pending" | "connected" };
+  };
+  "engines.cancelConnect": {
+    args: { connectId: string };
+    result: null;
+  };
   "engines.startConnect": {
     args: { provider: EngineProvider };
     result: { connectId: string; authorizeUrl: string };

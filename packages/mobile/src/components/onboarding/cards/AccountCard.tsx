@@ -26,7 +26,7 @@ import { notifySuccess, tapLight } from "../../../lib/haptics";
 import { type Colors } from "../../../theme/colors";
 import { fonts } from "../../../theme/fonts";
 import { useColors } from "../../../theme/theme-context";
-import { useEngineConnect } from "../../EngineAccountsSettings";
+import { EngineDeviceConnectCard, useEngineConnect } from "../../EngineAccountsSettings";
 import { Icon, type IconName } from "../../Icon";
 import { fadeEntering, rowEntering, springLayout, SpringPressable } from "../motion";
 import {
@@ -244,7 +244,9 @@ function EngineRow({
         )}
       </View>
 
-      {connect.connectId && !connected ? (
+      {connect.deviceConnect && !connected ? (
+        <EngineDeviceConnectCard connect={connect} />
+      ) : connect.connectId && !connected ? (
         <Animated.View entering={fadeEntering(0, 220)} style={styles.paste}>
           <Text style={styles.rowDesc}>{t(spec.pasteHintKey)}</Text>
           <View style={styles.pasteRow}>

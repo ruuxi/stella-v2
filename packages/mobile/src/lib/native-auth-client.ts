@@ -138,7 +138,15 @@ export const nativeBearerClient = ({ scheme }: NativeAuthClientOptions) => {
         }
 
         const params = new URLSearchParams({ authorizationURL });
-        const proxyURL = `${context.request.baseURL}/expo-authorization-proxy?${params.toString()}`;
+        // Match the server's branded callback origin so iOS's sign-in consent
+        // sheet identifies Stella instead of the transport's workers.dev host.
+        const redirectURI = new URL(authorizationURL).searchParams.get("redirect_uri");
+        const callbackOrigin = redirectURI ? new URL(redirectURI).origin : null;
+        const proxyBaseURL = callbackOrigin &&
+          ["https://auth.stella.sh", "https://auth-dev.stella.sh"].includes(callbackOrigin)
+          ? `${callbackOrigin}/api/auth`
+          : context.request.baseURL;
+        const proxyURL = `${proxyBaseURL}/expo-authorization-proxy?${params.toString()}`;
         const result = await WebBrowser.openAuthSessionAsync(
           proxyURL,
           callbackURL,

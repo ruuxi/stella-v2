@@ -42,6 +42,23 @@ export const GATEWAY_MODEL_RESOLUTION_HEADER = "x-stella-model-resolution" as co
 export const GATEWAY_AGENT_TYPE_HEADER = "x-stella-agent-type" as const;
 /** Echoed on every response so logs on both sides can be joined. */
 export const GATEWAY_TRACE_HEADER = "x-stella-gateway-trace" as const;
+/** A confirmed subscription window limit, distinct from a transient HTTP 429. */
+export const GATEWAY_SUBSCRIPTION_LIMIT_HEADER =
+  "x-stella-subscription-limit" as const;
+
+export const nativeSubscriptionLimitNotice = (
+  provider: string | null,
+): string | undefined => {
+  const name =
+    provider === "anthropic"
+      ? "Claude"
+      : provider === "openai-codex"
+        ? "ChatGPT"
+        : undefined;
+  return name
+    ? `Your ${name} subscription has reached its usage limit. Wait for it to reset or choose another connected account.`
+    : undefined;
+};
 /** Capability travels as `Authorization: Bearer <jwt>`. */
 export const GATEWAY_AUTHORIZATION_HEADER = "authorization" as const;
 

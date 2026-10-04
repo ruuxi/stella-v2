@@ -1,6 +1,9 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "stella-v2-cloud-builder-dev",
+  "workers_dev": true,
+  "preview_urls": false,
+  "routes": [{ "pattern": "auth-dev.stella.sh", "custom_domain": true }],
   "main": ".wrangler/worker-build/index.js",
   // Preserve lazy SDK/tool modules instead of parsing them on every wake.
   "no_bundle": true,
@@ -48,6 +51,7 @@
     },
   },
   "vars": {
+    "STELLA_AUTH_URL": "https://auth-dev.stella.sh",
     "TELEMETRY_ENVIRONMENT": "development",
     "TURN_TIMEOUT_MS": "900000",
     "SANDBOX_IDLE_TIMEOUT_MS": "600000",
@@ -477,9 +481,11 @@
     },
     "production": {
       "name": "stella-v2-cloud-builder-prod",
+      "routes": [{ "pattern": "auth.stella.sh", "custom_domain": true }],
       "workers_dev": true,
       "preview_urls": false,
       "vars": {
+        "STELLA_AUTH_URL": "https://auth.stella.sh",
         "TELEMETRY_ENVIRONMENT": "production",
         "TURN_TIMEOUT_MS": "900000",
         "SANDBOX_IDLE_TIMEOUT_MS": "600000",

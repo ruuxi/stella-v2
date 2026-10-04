@@ -130,6 +130,8 @@ const CODEX_SCOPE = "openid profile email offline_access";
 // still carries the code) back. Exchange only needs the redirect_uri to match.
 const CODEX_REDIRECT_URI = "http://localhost:1455/auth/callback";
 const CODEX_JWT_CLAIM_PATH = "https://api.openai.com/auth";
+const CODEX_DEVICE_API = "https://auth.openai.com/api/accounts/deviceauth";
+const CODEX_DEVICE_PROVIDER = "openai-codex-device";
 
 // --- Encryption (AES-256-GCM under OWNER_SECRETS_KEK) ---------------------
 
@@ -748,6 +750,178 @@ const finishConnect = async (
   return { ok: true };
 };
 
+// OpenAI's device authorization keeps the browser on a real HTTPS page.
+// The private device id stays in this owner's object; clients only receive
+// the user code and an opaque, owner-scoped connect id.
+const startDeviceConnect = async (
+  ctx: OwnerContext,
+): Promise<EngineCalls["engines.startDeviceConnect"]["result"]> => {
+  enforceOwnerRateLimit(
+    ctx.db,
+    ctx.now,
+    "engines.startConnect",
+    { count: 20, windowMs: 10 * 60_000 },
+    "Too many connect attempts. Try again in a few minutes.",
+  );
+  await credentialKey(ctx.env);
+  const response = await fetch(`${CODEX_DEVICE_API}/usercode`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ client_id: CODEX_CLIENT_ID }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!response.ok)
+    throw badRequest("ChatGPT couldn't start sign-in. Please try again.");
+  const body = (await response.json()) as {
+    device_auth_id?: string;
+    user_code?: string;
+    usercode?: string;
+    interval?: string | number;
+  };
+  const userCode = text(body.user_code ?? body.usercode, 64);
+  const deviceId = text(body.device_auth_id, 512);
+  if (!userCode || !deviceId)
+    throw badRequest("ChatGPT returned an unexpected sign-in response.");
+  const intervalSeconds = Number(body.interval);
+  const intervalMs =
+    Math.min(
+      60,
+      Math.max(5, Number.isFinite(intervalSeconds) ? intervalSeconds : 5),
+    ) * 1000;
+  const connectId = crypto.randomUUID();
+  ctx.db.run("DELETE FROM engine_connects WHERE expires_at <= ?", ctx.now);
+  ctx.db.run(
+    "INSERT INTO engine_connects (connect_id, provider, verifier, state, expires_at) VALUES (?, ?, ?, ?, ?)",
+    connectId,
+    CODEX_DEVICE_PROVIDER,
+    deviceId,
+    JSON.stringify({ userCode, intervalMs, nextPollAt: ctx.now + intervalMs }),
+    ctx.now + CONNECT_TTL_MS,
+  );
+  return {
+    connectId,
+    authorizeUrl: "https://auth.openai.com/codex/device",
+    userCode,
+    intervalMs,
+  };
+};
+
+const pollDeviceConnect = async (
+  ctx: OwnerContext,
+  { connectId }: EngineCalls["engines.pollDeviceConnect"]["args"],
+): Promise<EngineCalls["engines.pollDeviceConnect"]["result"]> => {
+  const connect = ctx.db.one<ConnectRow>(
+    "SELECT provider, verifier, state, expires_at FROM engine_connects WHERE connect_id = ?",
+    connectId,
+  );
+  if (
+    !connect ||
+    connect.provider !== CODEX_DEVICE_PROVIDER ||
+    connect.expires_at <= ctx.now
+  ) {
+    throw badRequest(
+      "This connect attempt expired. Start it again from Settings.",
+    );
+  }
+  const state = JSON.parse(connect.state) as {
+    userCode: string;
+    intervalMs: number;
+    nextPollAt: number;
+    connected?: boolean;
+    authorizationCode?: string;
+    codeVerifier?: string;
+  };
+  if (state.connected) return { status: "connected" };
+  if (ctx.now < state.nextPollAt) return { status: "pending" };
+  // Reserve the polling slot before any await so concurrent clients cannot
+  // exchange the same one-time authorization twice.
+  // Both requests below have 30-second deadlines. Keep the durable lease
+  // longer than both, including across an isolate restart.
+  state.nextPollAt = ctx.now + 65_000;
+  ctx.db.run(
+    "UPDATE engine_connects SET state = ? WHERE connect_id = ?",
+    JSON.stringify(state),
+    connectId,
+  );
+  if (!state.authorizationCode) {
+    const response = await fetch(`${CODEX_DEVICE_API}/token`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        device_auth_id: connect.verifier,
+        user_code: state.userCode,
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    // OpenAI uses 403/404 while the user is still approving the device code.
+    if (response.status === 403 || response.status === 404) {
+      state.nextPollAt = Date.now() + state.intervalMs;
+      ctx.db.run(
+        "UPDATE engine_connects SET state = ? WHERE connect_id = ?",
+        JSON.stringify(state),
+        connectId,
+      );
+      return { status: "pending" };
+    }
+    if (!response.ok)
+      throw badRequest(
+        "ChatGPT couldn't complete sign-in. Please start again.",
+      );
+    const body = (await response.json()) as {
+      authorization_code?: string;
+      code_verifier?: string;
+    };
+    if (!body.authorization_code || !body.code_verifier) {
+      throw badRequest("ChatGPT returned an unexpected sign-in response.");
+    }
+    state.authorizationCode = body.authorization_code;
+    state.codeVerifier = body.code_verifier;
+    // Persist before exchange: a transient failure can retry the same code.
+    ctx.db.run(
+      "UPDATE engine_connects SET state = ? WHERE connect_id = ?",
+      JSON.stringify(state),
+      connectId,
+    );
+  }
+  if (!state.authorizationCode || !state.codeVerifier) {
+    throw badRequest("ChatGPT returned an unexpected sign-in response.");
+  }
+  const { tokens, raw } = await exchangeTokenResponse(CODEX_TOKEN_URL, {
+    grant_type: "authorization_code",
+    client_id: CODEX_CLIENT_ID,
+    code: state.authorizationCode,
+    code_verifier: state.codeVerifier,
+    redirect_uri: "https://auth.openai.com/deviceauth/callback",
+  });
+  const payload = { ...tokens, accountId: codexAccountId(tokens.access) };
+  if (!payload.accountId)
+    throw badRequest(
+      "ChatGPT did not return an account identity. Please reconnect.",
+    );
+  const encrypted = await encryptPayload(ctx, "openai-codex", payload);
+  if (
+    !ctx.db.one(
+      "SELECT connect_id FROM engine_connects WHERE connect_id = ?",
+      connectId,
+    )
+  ) {
+    throw badRequest("This connect attempt was cancelled.");
+  }
+  writeAccount(
+    ctx,
+    "openai-codex",
+    encrypted,
+    codexIdentity(raw, tokens.access),
+  );
+  // Keep a short-lived completion marker so a lost RPC response is retryable.
+  ctx.db.run(
+    "UPDATE engine_connects SET verifier = '', state = ? WHERE connect_id = ?",
+    JSON.stringify({ connected: true }),
+    connectId,
+  );
+  return { status: "connected" };
+};
+
 const disconnect = (
   ctx: OwnerContext,
   args: EngineCalls["engines.disconnect"]["args"],
@@ -985,6 +1159,24 @@ export const enginesDomain = {
     },
   },
   calls: {
+    "engines.cancelConnect": {
+      scope: "owner",
+      parse: object({ connectId: string({ min: 1, max: 64 }) }),
+      handler: (ctx, { connectId }) => {
+        ctx.db.run("DELETE FROM engine_connects WHERE connect_id = ?", connectId);
+        return null;
+      },
+    },
+    "engines.startDeviceConnect": {
+      scope: "owner",
+      parse: empty(),
+      handler: startDeviceConnect,
+    },
+    "engines.pollDeviceConnect": {
+      scope: "owner",
+      parse: object({ connectId: string({ min: 1, max: 64 }) }),
+      handler: pollDeviceConnect,
+    },
     "engines.startConnect": {
       scope: "owner",
       parse: object({ provider: literal(...ENGINE_PROVIDERS) }),

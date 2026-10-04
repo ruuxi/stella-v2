@@ -120,6 +120,69 @@ describe("engine accounts", () => {
     harness.fake.close();
   });
 
+  const makeDeviceReady = (connectId: string) => {
+    const row = harness.store.context(caller).db.one<{ state: string }>(
+      "SELECT state FROM engine_connects WHERE connect_id = ?", connectId,
+    )!;
+    const state = JSON.parse(row.state);
+    state.nextPollAt = 0;
+    harness.store.context(caller).db.run(
+      "UPDATE engine_connects SET state = ? WHERE connect_id = ?", JSON.stringify(state), connectId,
+    );
+  };
+
+  test("device approval connects once without exposing the private device id", async () => {
+    const requests: { url: string; body: any }[] = [];
+    let approvals = 0;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      requests.push({ url, body: JSON.parse(String(init?.body)) });
+      if (url.endsWith("/usercode")) return Response.json({
+        device_auth_id: "private-device-id", user_code: "ABCD-EFGH", interval: "5",
+      });
+      if (url.endsWith("/deviceauth/token")) {
+        if (++approvals === 1) return new Response(null, { status: 403 });
+        return Response.json({ authorization_code: "approved-code", code_verifier: "device-verifier" });
+      }
+      return Response.json(codexLogin("device-user", "device@example.com", "pro"));
+    }) as typeof fetch;
+    const started = await harness.call("engines.startDeviceConnect", {});
+    expect(started).toEqual({ connectId: expect.any(String),
+      authorizeUrl: "https://auth.openai.com/codex/device", userCode: "ABCD-EFGH", intervalMs: 5000 });
+    expect(JSON.stringify(started)).not.toContain("private-device-id");
+    expect(await harness.call("engines.pollDeviceConnect", { connectId: started.connectId })).toEqual({ status: "pending" });
+    expect(requests).toHaveLength(1);
+    makeDeviceReady(started.connectId);
+    expect(await harness.call("engines.pollDeviceConnect", { connectId: started.connectId })).toEqual({ status: "pending" });
+    makeDeviceReady(started.connectId);
+    expect(await harness.call("engines.pollDeviceConnect", { connectId: started.connectId })).toEqual({ status: "connected" });
+    expect(await harness.call("engines.pollDeviceConnect", { connectId: started.connectId })).toEqual({ status: "connected" });
+    expect(requests).toHaveLength(4);
+    expect(requests[3]?.body).toMatchObject({ code: "approved-code", code_verifier: "device-verifier",
+      redirect_uri: "https://auth.openai.com/deviceauth/callback" });
+    expect(harness.settings().connections).toEqual([expect.objectContaining({ email: "device@example.com", active: true })]);
+    expect((await harness.access("openai-codex")).accountId).toBe("workspace-device-user");
+  });
+
+  test("cancelling a device attempt during approval prevents a late account write", async () => {
+    let resolveApproval!: (value: Response) => void;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/usercode")) return Response.json({ device_auth_id: "private", user_code: "CODE", interval: 5 });
+      if (url.endsWith("/deviceauth/token")) return await new Promise<Response>((resolve) => { resolveApproval = resolve; });
+      return Response.json(codexLogin("late", "late@example.com", "plus"));
+    }) as typeof fetch;
+    const { connectId } = await harness.call("engines.startDeviceConnect", {});
+    makeDeviceReady(connectId);
+    const pending = harness.call("engines.pollDeviceConnect", { connectId });
+    await Promise.resolve();
+    expect(await harness.call("engines.pollDeviceConnect", { connectId })).toEqual({ status: "pending" });
+    await harness.call("engines.cancelConnect", { connectId });
+    resolveApproval(Response.json({ authorization_code: "code", code_verifier: "verifier" }));
+    await expect(pending).rejects.toThrow("cancelled");
+    expect(harness.settings().connections).toHaveLength(0);
+  });
+
   test("adds a second login as a new active account and keeps a reconnect as one", async () => {
     await connectCodex(harness, codexLogin("user-a", "a@example.com", "plus"));
     await connectCodex(harness, codexLogin("user-b", "b@example.com", "pro"));

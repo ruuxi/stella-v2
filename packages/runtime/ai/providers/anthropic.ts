@@ -627,6 +627,12 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
 					requestWithAuthRefresh({
 						apiKey,
 						refreshApiKey: options?.client ? undefined : options?.refreshApiKey,
+						// Only a direct subscription can switch accounts; the
+						// gateway lane fails over on the server.
+						onSubscriptionLimit:
+							options?.client || isGatewayRelayBaseUrl(model.baseUrl)
+								? undefined
+								: options?.onSubscriptionLimit,
 						request: (requestApiKey) =>
 							createRequestClient(requestApiKey).messages.create({ ...params, stream: true }, requestOptions).asResponse(),
 					}),

@@ -75,6 +75,14 @@ export const layer = Layer.effect(
           });
           return value.ok && "value" in value ? value.value : null;
         },
+        reportSubscriptionLimit: async (provider, resetsAt) => {
+          const result = await requestHostLlmCredentials({
+            operation: "report-limit",
+            provider,
+            ...(resetsAt !== undefined ? { resetsAt } : {}),
+          });
+          return { switched: result.ok && "switched" in result && result.switched };
+        },
       });
     };
 

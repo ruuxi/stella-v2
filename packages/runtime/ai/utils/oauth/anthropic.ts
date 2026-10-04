@@ -214,20 +214,64 @@ async function exchangeAuthorizationCode(
 		);
 	}
 
-	let tokenData: { access_token: string; refresh_token: string; expires_in: number };
+	type TokenData = {
+		access_token: string;
+		refresh_token: string;
+		expires_in: number;
+		account?: { uuid?: unknown; email_address?: unknown };
+	};
+	let tokenData: TokenData;
 	try {
-		tokenData = JSON.parse(responseBody) as { access_token: string; refresh_token: string; expires_in: number };
+		tokenData = JSON.parse(responseBody) as TokenData;
 	} catch (error) {
 		throw new Error(
 			`Token exchange returned invalid JSON. url=${TOKEN_URL}; body=${responseBody}; details=${formatErrorDetails(error)}`,
 		);
 	}
 
+	// Which Claude account signed in, so several can be kept apart.
+	const accountUuid =
+		typeof tokenData.account?.uuid === "string" ? tokenData.account.uuid : undefined;
+	const email =
+		typeof tokenData.account?.email_address === "string"
+			? tokenData.account.email_address
+			: undefined;
+	const plan = await fetchClaudePlan(tokenData.access_token);
 	return {
 		refresh: tokenData.refresh_token,
 		access: tokenData.access_token,
 		expires: Date.now() + tokenData.expires_in * 1000 - 5 * 60 * 1000,
+		...(accountUuid ? { accountUuid } : {}),
+		...(email ? { email } : {}),
+		...(plan ? { plan } : {}),
 	};
+}
+
+/** The subscription plan, best effort: a failure never blocks signing in. */
+async function fetchClaudePlan(accessToken: string): Promise<string | undefined> {
+	try {
+		const response = await fetch("https://api.anthropic.com/api/oauth/profile", {
+			headers: {
+				authorization: `Bearer ${accessToken}`,
+				"anthropic-beta": "oauth-2025-04-20",
+				accept: "application/json",
+			},
+			signal: AbortSignal.timeout(5_000),
+		});
+		if (!response.ok) return undefined;
+		const profile = (await response.json()) as {
+			account?: { has_claude_max?: unknown; has_claude_pro?: unknown };
+			organization?: { organization_type?: unknown };
+		};
+		if (typeof profile.organization?.organization_type === "string") {
+			return profile.organization.organization_type;
+		}
+		if (profile.account?.has_claude_max === true) return "Max";
+		if (profile.account?.has_claude_pro === true) return "Pro";
+	} catch {
+		// Signed in without the plan.
+	}
+	return undefined;
 }
 
 /**

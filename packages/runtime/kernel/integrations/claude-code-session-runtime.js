@@ -19,6 +19,11 @@ import {
   resolveExternalCliPath,
 } from "./external-cli-resolution.js";
 import { createClaudeCodeToolMcpHost } from "./claude-code-tool-mcp-host.js";
+import {
+  getAccessibleLocalLlmApiKey,
+  getAccessibleLocalLlmOAuthApiKey,
+  reportLocalLlmSubscriptionLimit,
+} from "../storage/local-llm-credential-access.js";
 import { forkCancelableTimeout } from "./effect-runtime.js";
 const CLAUDE_CODE_MODEL_PREFIX = "claude-code/";
 /**
@@ -200,6 +205,42 @@ export class ClaudeCodeCompactionLoopError extends Error {
     this.mcpCalls = mcpCalls;
   }
 }
+/**
+ * The Claude account signed in through Stella, if any. With one, the CLI runs
+ * on it (so several accounts can be switched between); without one, the CLI
+ * keeps its own login, exactly as before.
+ */
+const resolveStellaClaudeToken = async (stellaAppDir) => {
+  if (!stellaAppDir) return undefined;
+  try {
+    // A configured Anthropic API key is never handed to the CLI as a login.
+    if ((await getAccessibleLocalLlmApiKey(stellaAppDir, "anthropic"))?.trim()) {
+      return undefined;
+    }
+    const token = (
+      await getAccessibleLocalLlmOAuthApiKey(stellaAppDir, "anthropic")
+    )?.trim();
+    return token && token.startsWith("sk-ant-oat") ? token : undefined;
+  } catch {
+    return undefined;
+  }
+};
+/**
+ * A subscription limit (5-hour or weekly window) in a CLI result, with the
+ * reset time when the CLI printed one (`...limit reached|<epoch seconds>`).
+ */
+export const claudeCodeSubscriptionLimitOf = (error) => {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  if (
+    !/usage limit|limit reached|hit your (?:usage )?limit|out of (?:extra )?usage/i.test(
+      message,
+    )
+  ) {
+    return null;
+  }
+  const epoch = /\|(\d{10})\b/.exec(message)?.[1];
+  return epoch ? { resetsAt: Number(epoch) * 1000 } : {};
+};
 const asRecoverableStepError = (error) =>
   error instanceof ClaudeCodeProcessEndedError ||
   error instanceof ClaudeCodeMalformedResultError
@@ -1366,6 +1407,7 @@ class ClaudeCodeSessionRuntime {
     let currentPrompt = prompt;
     let currentPromptImages = promptImages;
     const failedAttemptMcpCalls = [];
+    let switchedAccount = false;
     for (;;) {
       try {
         const result = await this.executeStep(
@@ -1385,6 +1427,38 @@ class ClaudeCodeSessionRuntime {
         const hasPossibleSideEffects = Boolean(
           recoverable && recoverable.mcpCalls.length > 0,
         );
+        // The Stella-managed Claude account hit its limit: cool it down and,
+        // when auto-switch moved to another account, restart the CLI on it
+        // and carry on with this step (reconciling, never replaying, any
+        // tool work that already ran).
+        const limit =
+          !switchedAccount && session.stellaClaudeToken
+            ? claudeCodeSubscriptionLimitOf(error)
+            : null;
+        if (limit) {
+          const { switched } = await reportLocalLlmSubscriptionLimit(
+            request.stellaAppDir,
+            "anthropic",
+            limit.resetsAt,
+          );
+          if (switched) {
+            switchedAccount = true;
+            if (recoverable) mergeMcpCalls(failedAttemptMcpCalls, recoverable.mcpCalls);
+            this.resetStreamingProcess(request.sessionKey, session);
+            request.onStatusChange?.({
+              state: "running",
+              text: "Claude usage limit reached — continuing on your next account",
+            });
+            if (failedAttemptMcpCalls.length > 0) {
+              currentPrompt = buildSideEffectReconciliationPrompt(
+                failedAttemptMcpCalls,
+              );
+              currentPromptImages = [];
+            }
+            continue;
+          }
+          throw error;
+        }
         // A normal refusal/overload can retry the configured model and then
         // fall back. Once any tool call started, the same prompt is never
         // replayed: even an aborted/errored call may already have committed.
@@ -1707,6 +1781,9 @@ class ClaudeCodeSessionRuntime {
       effectiveSystemPrompt,
       mcpHost,
     );
+    const stellaClaudeToken = await resolveStellaClaudeToken(
+      request.stellaAppDir,
+    );
     if (
       session.process &&
       !session.process.closed &&
@@ -1719,7 +1796,10 @@ class ClaudeCodeSessionRuntime {
       !session.process.child.killed &&
       !processIsDead(session.process.child)
     ) {
-      if (session.process.launchConfig === launchConfig) {
+      if (
+        session.process.launchConfig === launchConfig &&
+        session.process.stellaClaudeToken === stellaClaudeToken
+      ) {
         return session.process;
       }
       if (session.process.pending.length > 0) {
@@ -1743,6 +1823,10 @@ class ClaudeCodeSessionRuntime {
     });
     if (effortLevel) {
       childEnv.CLAUDE_CODE_EFFORT_LEVEL = effortLevel;
+    }
+    session.stellaClaudeToken = stellaClaudeToken;
+    if (stellaClaudeToken) {
+      childEnv.CLAUDE_CODE_OAUTH_TOKEN = stellaClaudeToken;
     }
     if (
       Number.isFinite(request.autoCompactWindowTokens) &&
@@ -1788,6 +1872,7 @@ class ClaudeCodeSessionRuntime {
       compacting: false,
       compactionCount: 0,
       launchConfig,
+      stellaClaudeToken,
     };
     session.process = processState;
     this.activeProcesses.set(request.sessionKey, child);

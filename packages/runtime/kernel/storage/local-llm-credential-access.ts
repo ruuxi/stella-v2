@@ -2,6 +2,7 @@ import { getLocalLlmCredential } from "./llm-credentials.js";
 import {
   getLocalLlmOAuthApiKey,
   hasLocalLlmOAuthCredential,
+  markLocalLlmOAuthAccountLimited,
 } from "./llm-oauth-credentials.js";
 
 export type LocalLlmOAuthApiKeyAccessOptions = {
@@ -17,6 +18,11 @@ export type LocalLlmCredentialAccessBroker = {
     provider: string,
     options?: LocalLlmOAuthApiKeyAccessOptions,
   ): Promise<string | null>;
+  /** The active OAuth account hit its subscription limit. */
+  reportSubscriptionLimit?(
+    provider: string,
+    resetsAt?: number,
+  ): Promise<{ switched: boolean }>;
 };
 
 let broker: LocalLlmCredentialAccessBroker | null = null;
@@ -69,6 +75,29 @@ export const getAccessibleLocalLlmApiKey = async (
   return broker.hasApiKey(normalized)
     ? await broker.getApiKey(normalized)
     : null;
+};
+
+/**
+ * Tell the credential store the active OAuth account of `provider` hit its
+ * subscription limit. Resolves whether another account now serves it, in
+ * which case the caller may retry with a freshly fetched key.
+ */
+export const reportLocalLlmSubscriptionLimit = async (
+  stellaDataDirPath: string,
+  provider: string,
+  resetsAt?: number,
+): Promise<{ switched: boolean }> => {
+  const normalized = normalizeProvider(provider);
+  try {
+    if (broker) {
+      return (await broker.reportSubscriptionLimit?.(normalized, resetsAt)) ?? {
+        switched: false,
+      };
+    }
+    return markLocalLlmOAuthAccountLimited(stellaDataDirPath, normalized, resetsAt);
+  } catch {
+    return { switched: false };
+  }
 };
 
 export const getAccessibleLocalLlmOAuthApiKey = async (

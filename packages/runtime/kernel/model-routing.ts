@@ -15,6 +15,7 @@ import {
   getAccessibleLocalLlmOAuthApiKey,
   hasAccessibleLocalLlmApiKey,
   hasAccessibleLocalLlmOAuthCredential,
+  reportLocalLlmSubscriptionLimit,
 } from "./storage/local-llm-credential-access.js";
 import { STELLA_DEFAULT_MODEL } from "@stella/contracts/stella-api";
 import {
@@ -45,6 +46,10 @@ export type ResolvedLlmRoute = {
   credentialless?: boolean;
   getApiKey: () => Promise<string | undefined> | string | undefined;
   refreshApiKey?: () => Promise<string | undefined> | string | undefined;
+  /** See `StreamOptions.onSubscriptionLimit`. */
+  onSubscriptionLimit?: (info: {
+    resetsAt?: number;
+  }) => Promise<string | undefined> | string | undefined;
 };
 
 const LOCAL_PROVIDER = "local";
@@ -168,6 +173,35 @@ const refreshLocalProviderApiKey = async (
       })
     )?.trim();
     return oauthKey || undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * The signed-in subscription behind this provider hit its usage limit: cool
+ * that account down and, if another account took over, hand back its key.
+ * A static API key has no accounts to switch between.
+ */
+const switchLocalSubscriptionAccount = async (
+  stellaAppDir: string,
+  providerId: string,
+  resetsAt: number | undefined,
+): Promise<string | undefined> => {
+  if ((await getAccessibleLocalLlmApiKey(stellaAppDir, providerId))?.trim()) {
+    return undefined;
+  }
+  const { switched } = await reportLocalLlmSubscriptionLimit(
+    stellaAppDir,
+    providerId,
+    resetsAt,
+  );
+  if (!switched) return undefined;
+  try {
+    return (
+      (await getAccessibleLocalLlmOAuthApiKey(stellaAppDir, providerId))?.trim() ||
+      undefined
+    );
   } catch {
     return undefined;
   }
@@ -486,6 +520,22 @@ const resolveDirectProviderRoute = (args: {
             });
           }
           return refreshed;
+        },
+        onSubscriptionLimit: async ({ resetsAt }) => {
+          const next = await switchLocalSubscriptionAccount(
+            args.stellaAppDir,
+            directProvider.credentialProvider,
+            resetsAt,
+          );
+          if (
+            next &&
+            modelRuntime.usesConfiguredAuthHeader(directProvider.registryProvider)
+          ) {
+            routedModel.headers = mergeModelHeaders(routedModel.headers, {
+              Authorization: `Bearer ${next}`,
+            });
+          }
+          return next;
         },
       },
     };

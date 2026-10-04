@@ -43,7 +43,7 @@ import {
 import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { headersToRecord } from "../utils/headers.js";
 import { anomalousStreamStopError } from "../utils/provider-stop.js";
-import { requestWithAuthRefresh } from "./auth-refresh.js";
+import { requestWithAuthRefresh, subscriptionLimitOfError } from "./auth-refresh.js";
 import { convertResponsesMessages, convertResponsesTools, processResponsesStream } from "./openai-responses-shared.js";
 import { buildBaseOptions } from "./simple-options.js";
 
@@ -153,20 +153,20 @@ export const streamOpenAICodexResponses: StreamFunction<"openai-codex-responses"
 		};
 
 		try {
-			const apiKey = options?.apiKey || getEnvApiKey(model.provider) || "";
+			let apiKey = options?.apiKey || getEnvApiKey(model.provider) || "";
 			if (!apiKey) {
 				throw new Error(`No API key for provider: ${model.provider}`);
 			}
 
-			const accountId = extractAccountId(apiKey);
+			let accountId = extractAccountId(apiKey);
 			let body = buildOpenAICodexRequestBody(model, context, options);
 			const nextBody = await options?.onPayload?.(body, model);
 			if (nextBody !== undefined) {
 				body = nextBody as RequestBody;
 			}
 			const websocketRequestId = options?.sessionId || createCodexRequestId();
-			const sseHeaders = buildSSEHeaders(model.headers, options?.headers, accountId, apiKey, options?.sessionId);
-			const websocketHeaders = buildWebSocketHeaders(
+			let sseHeaders = buildSSEHeaders(model.headers, options?.headers, accountId, apiKey, options?.sessionId);
+			let websocketHeaders = buildWebSocketHeaders(
 				model.headers,
 				options?.headers,
 				accountId,
@@ -191,6 +191,7 @@ export const streamOpenAICodexResponses: StreamFunction<"openai-codex-responses"
 				//   continuation; resend the full context.
 				let retriedConnectionLimit = false;
 				let retriedMissingContinuation = false;
+				let retriedSubscriptionLimit = false;
 				while (true) {
 					websocketStarted = false;
 					try {
@@ -226,6 +227,33 @@ export const streamOpenAICodexResponses: StreamFunction<"openai-codex-responses"
 						const retryable = !aborted && !websocketStarted;
 						if (retryable && isCodexApiErrorCode(error, PREVIOUS_RESPONSE_NOT_FOUND_CODE) && !retriedMissingContinuation) {
 							retriedMissingContinuation = true;
+							continue;
+						}
+						// At the account's usage limit: one retry on another account,
+						// when the credential store moved the provider to one.
+						const usageLimit =
+							retryable && !retriedSubscriptionLimit && options?.onSubscriptionLimit
+								? subscriptionLimitOfError(error)
+								: null;
+						if (usageLimit) {
+							retriedSubscriptionLimit = true;
+							let next: string | undefined;
+							try {
+								next = (await options!.onSubscriptionLimit!(usageLimit))?.trim() || undefined;
+							} catch {
+								next = undefined;
+							}
+							if (!next || next === apiKey) throw error;
+							apiKey = next;
+							accountId = extractAccountId(apiKey);
+							sseHeaders = buildSSEHeaders(model.headers, options?.headers, accountId, apiKey, options?.sessionId);
+							websocketHeaders = buildWebSocketHeaders(
+								model.headers,
+								options?.headers,
+								accountId,
+								apiKey,
+								websocketRequestId,
+							);
 							continue;
 						}
 						const connectionLimit = retryable && isCodexApiErrorCode(error, WEBSOCKET_CONNECTION_LIMIT_REACHED_CODE);
@@ -295,7 +323,12 @@ export const streamOpenAICodexResponses: StreamFunction<"openai-codex-responses"
 						}
 
 						const errorText = await response.text();
-						if (attempt < MAX_RETRIES && isRetryableError(response.status, errorText)) {
+						if (
+							attempt < MAX_RETRIES &&
+							isRetryableError(response.status, errorText) &&
+							// A usage limit does not clear in seconds; retrying only delays it.
+							!/usage_limit_reached|usage_not_included/u.test(errorText)
+						) {
 							const delayMs = BASE_DELAY_MS * 2 ** attempt;
 							await sleep(delayMs, options?.signal);
 							continue;
@@ -313,6 +346,7 @@ export const streamOpenAICodexResponses: StreamFunction<"openai-codex-responses"
 						throw new CodexApiError(info.friendlyMessage || info.message, {
 							status: response.status,
 							code: info.code,
+							...(info.resetsAt !== undefined ? { resetsAt: info.resetsAt } : {}),
 						});
 					} catch (error) {
 						if (error instanceof Error) {
@@ -346,6 +380,7 @@ export const streamOpenAICodexResponses: StreamFunction<"openai-codex-responses"
 			const response = await requestWithAuthRefresh({
 				apiKey,
 				refreshApiKey: options?.refreshApiKey,
+				onSubscriptionLimit: options?.onSubscriptionLimit,
 				request: fetchCodexResponse,
 			});
 
@@ -559,16 +594,25 @@ class CodexApiError extends Error {
 	/** HTTP status of the rejected request; absent for in-stream errors. */
 	readonly status?: number;
 	readonly payload?: Record<string, unknown>;
+	/** When a usage limit resets (ms), if the provider said. */
+	readonly resetsAt?: number;
 
 	constructor(
 		message: string,
-		options?: { code?: string; status?: number; payload?: Record<string, unknown>; cause?: unknown },
+		options?: {
+			code?: string;
+			status?: number;
+			payload?: Record<string, unknown>;
+			cause?: unknown;
+			resetsAt?: number;
+		},
 	) {
 		super(message);
 		this.name = "CodexApiError";
 		this.code = options?.code;
 		this.status = options?.status;
 		this.payload = options?.payload;
+		this.resetsAt = options?.resetsAt;
 		this.cause = options?.cause;
 	}
 }
@@ -612,9 +656,13 @@ async function* mapCodexEvents(events: AsyncIterable<Record<string, unknown>>): 
 				(typeof nestedError?.message === "string" ? nestedError.message : undefined) ||
 				"";
 			const summary = message || code || JSON.stringify(event);
+			const resetsAtSeconds = (nestedError as { resets_at?: unknown } | undefined)?.resets_at;
 			throw new CodexApiError(`Codex error${code ? ` (${code})` : ""}: ${summary}`, {
 				code: code || undefined,
 				payload: event,
+				...(typeof resetsAtSeconds === "number" && resetsAtSeconds > 0
+					? { resetsAt: resetsAtSeconds * 1000 }
+					: {}),
 			});
 		}
 
@@ -1405,11 +1453,12 @@ async function processWebSocketStream(
 
 async function parseErrorResponse(
 	response: Response,
-): Promise<{ message: string; friendlyMessage?: string; code?: string }> {
+): Promise<{ message: string; friendlyMessage?: string; code?: string; resetsAt?: number }> {
 	const raw = await response.text();
 	let message = raw || response.statusText || "Request failed";
 	let friendlyMessage: string | undefined;
 	let code: string | undefined;
+	let resetsAt: number | undefined;
 
 	try {
 		const parsed = JSON.parse(raw) as {
@@ -1420,6 +1469,9 @@ async function parseErrorResponse(
 			code = err.code || err.type || undefined;
 			if (/usage_limit_reached|usage_not_included|rate_limit_exceeded/i.test(code ?? "") || response.status === 429) {
 				const plan = err.plan_type ? ` (${err.plan_type.toLowerCase()} plan)` : "";
+				if (typeof err.resets_at === "number" && err.resets_at > 0) {
+					resetsAt = err.resets_at * 1000;
+				}
 				const mins = err.resets_at
 					? Math.max(0, Math.round((err.resets_at * 1000 - Date.now()) / 60000))
 					: undefined;
@@ -1437,7 +1489,7 @@ async function parseErrorResponse(
 		}
 	} catch {}
 
-	return { message, friendlyMessage, code };
+	return { message, friendlyMessage, code, ...(resetsAt !== undefined ? { resetsAt } : {}) };
 }
 
 // ============================================================================

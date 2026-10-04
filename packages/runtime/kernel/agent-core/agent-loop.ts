@@ -571,6 +571,15 @@ const streamAssistantResponse = (
 						}
 					}
 				: undefined,
+			onSubscriptionLimit: config.onSubscriptionLimit
+				? async (info: { resetsAt?: number }) => {
+						try {
+							return await config.onSubscriptionLimit?.(info);
+						} catch {
+							return undefined;
+						}
+					}
+				: undefined,
 			signal,
 		};
 

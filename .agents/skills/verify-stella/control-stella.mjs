@@ -798,6 +798,10 @@ const cmdLaunch = async (options) => {
         ...isolatedElectronEnvironment(),
         ...(runtimeBinary ? { STELLA_RUNTIME_BINARY: runtimeBinary } : {}),
         ...(modelGateway ? { STELLA_MODEL_GATEWAY_URL: modelGateway } : {}),
+        // The app talks to the backend the harness signs in against.
+        ...(process.env.STELLA_BACKEND_URL?.trim()
+          ? { VITE_STELLA_BACKEND_URL: resolveSiteUrl() }
+          : {}),
         STELLA_SKIP_BROWSER_HYDRATE: "1",
         STELLA_DATA_DIR: dataDir,
         STELLA_V2_DEV_DATA_DIR: dataDir,

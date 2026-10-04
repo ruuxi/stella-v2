@@ -12,7 +12,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "bun test tests",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "node ../../node_modules/typescript-7/bin/tsc --noEmit",
     "optimize-canvas-demos": "bun scripts/optimize-canvas-screenshots.mjs"
   },
   "dependencies": {

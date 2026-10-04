@@ -64,7 +64,7 @@
     "mobile:start": "cd packages/mobile && bun run start",
     "mobile:ios": "cd packages/mobile && bun run ios",
     "mobile:android": "cd packages/mobile && bun run android",
-    "mobile:typecheck": "cd packages/mobile && bun run typecheck",
+    "mobile:typecheck": "cd packages/mobile && bun run i18n:sync && node ../../node_modules/typescript-7/bin/tsc --noEmit",
     "mobile:lint": "cd packages/mobile && bun run lint",
     "mobile:test": "cd packages/mobile && bun run test",
     "runtime:typecheck": "node node_modules/typescript-7/bin/tsc -p packages/runtime/tsconfig.json --pretty false --noEmit",

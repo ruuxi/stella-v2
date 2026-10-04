@@ -76,7 +76,7 @@
     "./electron/*": "./electron/*.ts"
   },
   "dependencies": {
-    "@zip.js/zip.js": "2.7.62",
+    "@zip.js/zip.js": "2.23.0",
     "@silvia-odwyer/photon-node": "0.3.4",
     "electron-log": "5.4.4",
     "electron-updater": "^6.8.9",

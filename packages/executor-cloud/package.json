@@ -18,7 +18,7 @@
     "test": "bun test src"
   },
   "dependencies": {
-    "@sinclair/typebox": "0.34.49",
+    "@sinclair/typebox": "0.34.52",
     "@stella/contracts": "workspace:*",
     "@stella/model-catalog": "workspace:*",
     "@stella/runtime": "workspace:*",

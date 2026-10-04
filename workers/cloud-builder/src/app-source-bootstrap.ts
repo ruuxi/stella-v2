@@ -17,7 +17,8 @@ const CACHE_TTL_MS = 50 * 60_000;
 /** A cached token is served only while it has at least this long left. */
 const MIN_REMAINING_MS = 10 * 60_000;
 const CACHE_NAME = "stella-app-source-bootstrap-v1";
-const CACHE_KEY = "https://app-source-bootstrap.internal/upstream";
+/** Per deployment: dev and prod workers share the workers.dev zone's cache. */
+const cacheKey = (host: string) => `https://app-source-bootstrap.internal/${host}/upstream`;
 
 let memo: AppSourceRemote | null = null;
 let minting: Promise<AppSourceRemote> | null = null;
@@ -33,8 +34,8 @@ const edgeCache = async (): Promise<Cache | null> => {
   }
 };
 
-const readEdge = async (cache: Cache | null): Promise<AppSourceRemote | null> => {
-  const hit = await cache?.match(CACHE_KEY).catch(() => undefined);
+const readEdge = async (cache: Cache | null, key: string): Promise<AppSourceRemote | null> => {
+  const hit = await cache?.match(key).catch(() => undefined);
   if (!hit) return null;
   const value = (await hit.json().catch(() => null)) as AppSourceRemote | null;
   return value &&
@@ -62,11 +63,11 @@ const mint = async (artifacts: Artifacts): Promise<AppSourceRemote> => {
   }
 };
 
-const upstreamAccess = async (artifacts: Artifacts): Promise<AppSourceRemote> => {
+const upstreamAccess = async (artifacts: Artifacts, host: string): Promise<AppSourceRemote> => {
   if (fresh(memo)) return memo!;
   minting ??= (async () => {
     const cache = await edgeCache();
-    const cached = await readEdge(cache);
+    const cached = await readEdge(cache, cacheKey(host));
     if (fresh(cached)) return cached!;
     const minted = await mint(artifacts);
     const maxAge = Math.max(
@@ -75,7 +76,7 @@ const upstreamAccess = async (artifacts: Artifacts): Promise<AppSourceRemote> =>
     );
     await cache
       ?.put(
-        CACHE_KEY,
+        cacheKey(host),
         new Response(JSON.stringify(minted), {
           headers: { "content-type": "application/json", "cache-control": `max-age=${maxAge}` },
         }),
@@ -94,12 +95,13 @@ export const handleAppSourceBootstrap = async (
   request: Request,
   env: { ARTIFACTS: Artifacts },
 ): Promise<Response | null> => {
-  if (new URL(request.url).pathname !== APP_SOURCE_BOOTSTRAP_PATH) return null;
+  const url = new URL(request.url);
+  if (url.pathname !== APP_SOURCE_BOOTSTRAP_PATH) return null;
   if (request.method !== "POST") {
     return Response.json({ error: "Method not allowed" }, { status: 405, headers: { allow: "POST" } });
   }
   try {
-    const upstream = await upstreamAccess(env.ARTIFACTS);
+    const upstream = await upstreamAccess(env.ARTIFACTS, url.host);
     return Response.json({ upstream }, { headers: { "cache-control": "no-store" } });
   } catch (error) {
     log("error", "app_source_bootstrap_failed", { message: errorMessage(error) });

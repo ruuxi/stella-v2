@@ -154,7 +154,10 @@ const createBrowserStorageAdapter = (): WriteAdapter | null => {
           if (!key.startsWith("better-auth")) storage.removeItem(key);
         }
         managedKeys.clear();
-      } catch {}
+      } catch {
+        // Storage access can throw (restricted/private browsing); clearing is
+        // best-effort.
+      }
     },
   };
 };

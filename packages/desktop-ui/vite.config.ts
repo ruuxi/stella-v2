@@ -184,7 +184,7 @@ function websiteLaunchHtml(): Plugin {
     transformIndexHtml(html) {
       if (!WEBSITE_BUILD) return html;
       return html.replace(
-        /    <div id="stella-launch"[\s\S]*?<script src="[^"\n]*\/stella-launch-rescue\.js"><\/script>\s*/,
+        / {4}<div id="stella-launch"[\s\S]*?<script src="[^"\n]*\/stella-launch-rescue\.js"><\/script>\s*/,
         "",
       );
     },

@@ -37,9 +37,14 @@ export function useBackendValue<K extends ViewName>(
     key: null,
   });
   useEffect(() => {
-    setState({ key });
     if (args === "skip" || key === null || !isBackendConfigured()) return;
-    return getBackendClient().watch(view, args, (value) => setState({ key, value }), () => {});
+    const unwatch = getBackendClient().watch(view, args, (value) => setState({ key, value }), () => {});
+    return () => {
+      unwatch();
+      // Drop the old view's value so a later return to the same key reads
+      // as loading until it is answered again.
+      setState({ key: null });
+    };
     // `key` captures `args`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, view]);

@@ -2,6 +2,7 @@
 
 import {
   startTransition,
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -13,9 +14,8 @@ function DeferredSelfModificationShowcase() {
   const [LoadedShowcase, setLoadedShowcase] = useState<ComponentType | null>(null);
   const loadedRef = useRef<ComponentType | null>(null);
   const loadingRef = useRef(false);
-  const activateRef = useRef<() => void>(() => {});
 
-  activateRef.current = () => {
+  const activate = useCallback(() => {
     if (loadedRef.current || loadingRef.current) return;
     loadingRef.current = true;
 
@@ -25,7 +25,7 @@ function DeferredSelfModificationShowcase() {
         setLoadedShowcase(() => mod.SelfModificationShowcase);
       });
     });
-  };
+  }, []);
 
   useEffect(() => {
     const requestIdle = window.requestIdleCallback?.bind(window);
@@ -35,11 +35,11 @@ function DeferredSelfModificationShowcase() {
 
     if (requestIdle) {
       idleId = requestIdle(() => {
-        activateRef.current();
+        activate();
       }, { timeout: 1800 });
     } else {
       timeoutId = globalThis.setTimeout(() => {
-        activateRef.current();
+        activate();
       }, 1200);
     }
 
@@ -51,14 +51,14 @@ function DeferredSelfModificationShowcase() {
         globalThis.clearTimeout(timeoutId);
       }
     };
-  }, []);
+  }, [activate]);
 
   return (
     <div
-      onPointerEnter={() => activateRef.current()}
-      onFocusCapture={() => activateRef.current()}
-      onTouchStart={() => activateRef.current()}
-      onClickCapture={() => activateRef.current()}
+      onPointerEnter={() => activate()}
+      onFocusCapture={() => activate()}
+      onTouchStart={() => activate()}
+      onClickCapture={() => activate()}
     >
       {LoadedShowcase ? <LoadedShowcase /> : <SelfModificationPoster />}
     </div>

@@ -28,12 +28,24 @@
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { createPortal } from "react-dom";
+
+const subscribeNoop = () => () => {};
+
+/** False during SSR and hydration, true once running on the client — the
+ *  portals below read `window` and `document.body`. */
+function useMounted(): boolean {
+  return useSyncExternalStore(
+    subscribeNoop,
+    () => true,
+    () => false,
+  );
+}
 
 type SuggestionKind = "app" | "tab";
 
@@ -200,11 +212,7 @@ export function ComposerMock() {
   // floor (~0.08) and loud sections spike to ~0.95, matching what real
   // microphone data tends to look like at this bar count.
   useEffect(() => {
-    if (!voiceActive) {
-      setVoiceElapsedMs(0);
-      setVoiceLevels([]);
-      return;
-    }
+    if (!voiceActive) return;
     const start = performance.now();
     const interval = window.setInterval(() => {
       const now = performance.now();
@@ -230,7 +238,12 @@ export function ComposerMock() {
           : updated;
       });
     }, 80);
-    return () => window.clearInterval(interval);
+    return () => {
+      window.clearInterval(interval);
+      // Dictation ended: reset the timer and levels for the next session.
+      setVoiceElapsedMs(0);
+      setVoiceLevels([]);
+    };
   }, [voiceActive]);
 
   // Close the add menu on outside click — the menu is portaled to body
@@ -610,8 +623,7 @@ function SuggestionHoverCardPortal({
   chip: SuggestionChip;
   anchorRect: DOMRect;
 }) {
-  const [mounted, setMounted] = useState(false);
-  useLayoutEffect(() => setMounted(true), []);
+  const mounted = useMounted();
   if (!mounted) return null;
 
   const viewportW = window.innerWidth;
@@ -799,8 +811,7 @@ function AddMenu({
   anchorRect: DOMRect;
   onClose: () => void;
 }) {
-  const [mounted, setMounted] = useState(false);
-  useLayoutEffect(() => setMounted(true), []);
+  const mounted = useMounted();
   // Items mirror `ComposerAddMenu.tsx`: Attach files / Capture / Select
   // area / Read aloud, then a "Recent" section with the last few files.
   const items: ReadonlyArray<{

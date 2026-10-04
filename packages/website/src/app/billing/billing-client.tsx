@@ -5,7 +5,13 @@ import {
   isBackendConfigured,
   useBackendValue,
 } from "@/lib/backend";
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+} from "react";
 import { openSignInDialog } from "@/components/auth/sign-in-dialog";
 
 type BillingPlan = "free" | "go" | "pro";
@@ -192,6 +198,11 @@ const openStripeCheckoutUrl = (url: string) => {
   anchor.remove();
 };
 
+const subscribeNoop = () => () => {};
+
+const readCheckoutStatus = (): string | null =>
+  new URLSearchParams(window.location.search).get("checkout");
+
 export function BillingClient() {
   // Skip the backend-bound interactive flow when no backend is configured
   // (e.g. preview builds without env vars). Lets `/billing` still SSG with a
@@ -237,20 +248,31 @@ function BillingInteractive() {
 
   // Stripe redirects back to /billing with ?checkout=success or
   // ?checkout=cancel — surface a friendly notice and clear the param so a
-  // page refresh doesn't keep showing it.
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const status = params.get("checkout");
-    if (!status) return;
-    if (status === "success") {
+  // page refresh doesn't keep showing it. The param is read on the client
+  // only (the server snapshot is null), and the notice is set while
+  // rendering the first time a status is seen.
+  const checkoutStatus = useSyncExternalStore(
+    subscribeNoop,
+    readCheckoutStatus,
+    () => null,
+  );
+  const [seenCheckoutStatus, setSeenCheckoutStatus] = useState<string | null>(
+    null,
+  );
+  if (checkoutStatus && checkoutStatus !== seenCheckoutStatus) {
+    setSeenCheckoutStatus(checkoutStatus);
+    if (checkoutStatus === "success") {
       setNotice("Payment received. Your updated plan will appear in a moment.");
-    } else if (status === "cancel") {
+    } else if (checkoutStatus === "cancel") {
       setNotice("Checkout cancelled. You can pick a plan whenever you're ready.");
     }
+  }
+  useEffect(() => {
+    if (!checkoutStatus) return;
     const url = new URL(window.location.href);
     url.searchParams.delete("checkout");
     window.history.replaceState(null, "", url.toString());
-  }, []);
+  }, [checkoutStatus]);
 
   // The owner's billing ledger, live; the clock only re-renders labels.
   void billingNowMs;

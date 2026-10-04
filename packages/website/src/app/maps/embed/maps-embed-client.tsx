@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   decodeMapArtifactParam,
@@ -211,32 +211,29 @@ const renderArtifact = (
 export function MapsEmbedClient() {
   const params = useSearchParams();
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const payload = params.get("d");
   const dark = params.get("mode") === "dark";
+  const artifact = useMemo(() => decodeMapArtifactParam(payload), [payload]);
+  const error = !artifact
+    ? "This map link is missing its location data."
+    : !BROWSER_KEY
+      ? "Maps are not configured on this server."
+      : loadError;
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) return;
-    const artifact = decodeMapArtifactParam(payload);
-    if (!artifact) {
-      setError("This map link is missing its location data.");
-      return;
-    }
-    if (!BROWSER_KEY) {
-      setError("Maps are not configured on this server.");
-      return;
-    }
+    if (!container || !artifact || !BROWSER_KEY) return;
     let cancelled = false;
     loadGoogleMaps()
       .then((maps) => {
         if (cancelled) return;
-        setError(null);
+        setLoadError(null);
         renderArtifact(maps, container, artifact, dark);
       })
       .catch(() => {
-        if (!cancelled) setError("The map could not be loaded.");
+        if (!cancelled) setLoadError("The map could not be loaded.");
       });
     return () => {
       cancelled = true;
@@ -244,7 +241,7 @@ export function MapsEmbedClient() {
       // documented teardown for an embedded map this small.
       container.replaceChildren();
     };
-  }, [payload, dark]);
+  }, [artifact, dark]);
 
   return (
     <div className="maps-embed-root" data-mode={dark ? "dark" : "light"}>

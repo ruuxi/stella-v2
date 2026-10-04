@@ -20,7 +20,7 @@ const values = new Map<string, unknown>();
 const errors = new Map<string, BackendError>();
 const listeners = new Map<string, Set<Listener>>();
 const calls: Array<{ name: string; args: unknown }> = [];
-const callHandlers = new Map<string, (args: any) => unknown>();
+const callHandlers = new Map<string, (args: unknown) => unknown>();
 let epoch = 0;
 const epochListeners = new Set<() => void>();
 
@@ -48,7 +48,7 @@ export const fakeBackend = {
       listener.onError?.(new BackendRequestError(error));
     }
   },
-  onCall(name: string, handler: (args: any) => unknown): void {
+  onCall(name: string, handler: (args: unknown) => unknown): void {
     callHandlers.set(name, handler);
   },
   calls,

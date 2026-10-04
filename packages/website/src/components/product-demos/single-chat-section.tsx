@@ -18,7 +18,7 @@
  * Distinct from the other dark/light themes already used on the site.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   STELLA_ICON_HOUSE,
   STELLA_ICON_STORE,
@@ -467,22 +467,22 @@ function InlineWorkingIndicator({ task }: { task: string }) {
     Array<{ id: number; text: string; phase: "in" | "out" }>
   >([{ id: 0, text: task, phase: "in" }]);
 
-  const handleNewTask = useCallback((next: string) => {
+  // Swap in the new task label during render when `task` changes, so the
+  // outgoing/incoming layers land in the same commit.
+  const [shownTask, setShownTask] = useState(task);
+  if (task !== shownTask) {
+    setShownTask(task);
     setLayers((prev) => {
-      if (prev.length > 0 && prev[prev.length - 1]!.text === next) return prev;
+      if (prev.length > 0 && prev[prev.length - 1]!.text === task) return prev;
       const outgoing = prev
         .filter((l) => l.phase === "in")
         .map((l) => ({ ...l, phase: "out" as const }));
       return [
         ...outgoing,
-        { id: Date.now(), text: next, phase: "in" as const },
+        { id: Date.now(), text: task, phase: "in" as const },
       ];
     });
-  }, []);
-
-  useEffect(() => {
-    handleNewTask(task);
-  }, [task, handleNewTask]);
+  }
 
   // Garbage-collect outgoing layers once their exit completes.
   useEffect(() => {

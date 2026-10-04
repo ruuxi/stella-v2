@@ -15,14 +15,14 @@ export const STELLA_STANDARD_MODEL = "stella/standard";
  */
 export const STELLA_DEFAULT_UPSTREAM_MODEL = "meta/muse-spark-1.3-contributor";
 /**
- * Fallback: V4 Flash 0731 on CrofAI. Fully supported and still selectable;
+ * Fallback: V4 Flash on DeepSeek. Fully supported and still selectable;
  * the older DeepSeek and Fireworks spellings
  * (`accounts/fireworks/models/deepseek-v4-flash-0731`) stay routable through
  * the verbatim `stella/<provider>/<model>` path — see
  * `DEEPSEEK_V4_FLASH_ROUTE` in `@stella/model-catalog/model`.
  */
 export const STELLA_DEEPSEEK_V4_FLASH_UPSTREAM_MODEL =
-  "crof/deepseek-v4-flash-0731";
+  "deepseek/deepseek-v4-flash";
 /**
  * Wafer-hosted Fast variant of V4 Flash 0731. A separate selectable option
  * (never a default); ZDR is enforced per request at the relay.
@@ -49,7 +49,6 @@ export const STELLA_RELAY_PROVIDERS = [
   "google",
   "fireworks",
   "deepseek",
-  "crof",
   "wafer",
   "openrouter",
 ] as const;

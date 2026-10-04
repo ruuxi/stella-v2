@@ -2,7 +2,6 @@ export const MANAGED_GATEWAY_PROVIDERS = [
   "openrouter",
   "fireworks",
   "deepseek",
-  "crof",
   "wafer",
   "xai",
   "openai",
@@ -65,12 +64,6 @@ const MANAGED_GATEWAY_CONFIGS: Record<
     baseURL: "https://api.deepseek.com",
     apiKeyEnvVar: "DEEPSEEK_API_KEY",
   },
-  // CrofAI (nahcrof) exposes an OpenAI-compatible Chat Completions API.
-  crof: {
-    provider: "crof",
-    baseURL: "https://crof.ai/v1",
-    apiKeyEnvVar: "CROF_API_KEY",
-  },
   // Wafer exposes an OpenAI-compatible Chat Completions API. ZDR is opted
   // into per request — every call must carry the header below.
   wafer: {
@@ -117,7 +110,6 @@ const FIREWORKS_MODEL_PREFIXES = [
 
 const DIRECT_MODEL_PROVIDER_PREFIXES = [
   ["deepseek/", "deepseek"],
-  ["crof/", "crof"],
   ["wafer/", "wafer"],
   ["x-ai/", "xai"],
   ["xai/", "xai"],
@@ -214,7 +206,6 @@ export const resolveManagedProtocol = (args: {
       return "anthropic-messages";
     case "google":
       return "google-generative-ai";
-    case "crof":
     case "wafer":
     case "openrouter":
     case "meta":

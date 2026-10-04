@@ -23,7 +23,6 @@ import type {
 } from "@stella/contracts/agent-engine";
 import {
   STELLA_DEFAULT_UPSTREAM_MODEL,
-  STELLA_DEEPSEEK_V4_FLASH_UPSTREAM_MODEL,
   STELLA_WAFER_V4_FLASH_FAST_UPSTREAM_MODEL,
 } from "@stella/contracts/stella-api";
 import {
@@ -319,7 +318,6 @@ const REGISTRY_INDEPENDENT_CHAT_COMPLETION_MODELS = new Map<
   GatewayProvider,
   string
 >([
-  ["crof", STELLA_DEEPSEEK_V4_FLASH_UPSTREAM_MODEL],
   ["wafer", STELLA_WAFER_V4_FLASH_FAST_UPSTREAM_MODEL],
 ]);
 

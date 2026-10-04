@@ -132,32 +132,19 @@ const gatewayOptions = (
  * needs no other model-routing edit. Inactive gateways stay registered but
  * idle.
  */
-type DeepSeekV4FlashRoute = "crof" | "deepseek" | "fireworks";
-const DEEPSEEK_V4_FLASH_ROUTE: DeepSeekV4FlashRoute = "crof";
+type DeepSeekV4FlashRoute = "deepseek" | "fireworks";
+const DEEPSEEK_V4_FLASH_ROUTE: DeepSeekV4FlashRoute = "deepseek";
 
 /** Fireworks-hosted V4 Flash. Retained as the one-constant rollback target. */
 export const DEEPSEEK_V4_FLASH_FIREWORKS_MODEL =
   "accounts/fireworks/models/deepseek-v4-flash-0731";
 /** DeepSeek first-party V4 Flash. DeepSeek rejects the dated `-0731` suffix. */
 export const DEEPSEEK_V4_FLASH_DIRECT_MODEL = "deepseek/deepseek-v4-flash";
-/** CrofAI-hosted V4 Flash 0731. */
-export const DEEPSEEK_V4_FLASH_CROF_MODEL = "crof/deepseek-v4-flash-0731";
 /** Wafer-hosted V4 Flash 0731 Fast variant. A distinct upstream model, not an
- * alias of the CrofAI row — it stays separately selectable and price-synced
+ * alias of the regular DeepSeek row — it stays separately selectable and price-synced
  * but is never any audience's default. */
 export const DEEPSEEK_V4_FLASH_WAFER_FAST_MODEL =
   "wafer/deepseek-v4-flash-0731-fast";
-
-const DEEPSEEK_V4_FLASH_CROF_CONFIG: ModeConfig = {
-  model: DEEPSEEK_V4_FLASH_CROF_MODEL,
-  managedGatewayProvider: "crof",
-  temperature: 1.0,
-  providerOptions: {
-    openai: {
-      reasoningEffort: "xhigh",
-    },
-  },
-};
 
 const DEEPSEEK_V4_FLASH_FIREWORKS_CONFIG: ModeConfig = {
   model: DEEPSEEK_V4_FLASH_FIREWORKS_MODEL,
@@ -186,7 +173,6 @@ const DEEPSEEK_V4_FLASH_DIRECT_CONFIG: ModeConfig = {
 };
 
 const DEEPSEEK_V4_FLASH_CONFIGS = {
-  crof: DEEPSEEK_V4_FLASH_CROF_CONFIG,
   fireworks: DEEPSEEK_V4_FLASH_FIREWORKS_CONFIG,
   deepseek: DEEPSEEK_V4_FLASH_DIRECT_CONFIG,
 } satisfies Record<DeepSeekV4FlashRoute, ModeConfig>;
@@ -392,7 +378,6 @@ const PAID_ONLY_STELLA_MODE_IDS: ReadonlySet<string> = new Set<string>([
 const PRO_ALLOWED_STELLA_MODEL_IDS: ReadonlySet<string> = new Set<string>([
   "stella/light",
   `stella/${MUSE_SPARK_1_3_CONTRIBUTOR_MODEL}`,
-  `stella/${DEEPSEEK_V4_FLASH_CROF_MODEL}`,
   `stella/${DEEPSEEK_V4_FLASH_FIREWORKS_MODEL}`,
   `stella/${DEEPSEEK_V4_FLASH_DIRECT_MODEL}`,
   `stella/${DEEPSEEK_V4_FLASH_WAFER_FAST_MODEL}`,
@@ -404,7 +389,6 @@ const PRO_ALLOWED_STELLA_MODEL_IDS: ReadonlySet<string> = new Set<string>([
  * idle one at a price row nothing keeps warm.
  */
 export const resolveManagedModelRouteAlias = (model: string): string =>
-  model === DEEPSEEK_V4_FLASH_CROF_MODEL ||
   model === DEEPSEEK_V4_FLASH_FIREWORKS_MODEL ||
   model === DEEPSEEK_V4_FLASH_DIRECT_MODEL
     ? DEEPSEEK_V4_FLASH_MODEL_CONFIG.model
@@ -628,11 +612,11 @@ export function isModelMode(value: string): value is ModelMode {
 // behind a mode/task selection when they are catalog defaults; use this list
 // only for extras that have no mode of their own.
 //
-// DeepSeek V4 Flash 0731 backs Muse's failover path and stays selectable and
-// price-synced via its active CrofAI route id. The legacy Fireworks and
-// DeepSeek-direct spellings alias onto that same row at request time.
+// DeepSeek V4 Flash backs Muse's failover path and stays selectable and
+// price-synced via its direct route id. The legacy Fireworks spelling aliases
+// onto that same row at request time.
 export const ADDITIONAL_MANAGED_MODEL_IDS = [
-  DEEPSEEK_V4_FLASH_CROF_MODEL,
+  DEEPSEEK_V4_FLASH_DIRECT_MODEL,
   // The Wafer-hosted Fast variant is selectable but backs no mode or task.
   DEEPSEEK_V4_FLASH_WAFER_FAST_MODEL,
 ] as const;

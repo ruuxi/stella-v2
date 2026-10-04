@@ -30,8 +30,8 @@ import {
   createFetchMock,
   type createDurableObjectState,
   createTestEnv,
-  CROF_ALIAS,
-  CROF_RESOLVED,
+  FLASH_ALIAS,
+  FLASH_RESOLVED,
   fakeExecutionContext,
   hangingSseResponse,
   issuers,
@@ -168,7 +168,7 @@ const setup = (envOverrides: Record<string, unknown> = {}) => {
     )
     .on(
       (call) =>
-        call.url.host === "crof.ai" &&
+        call.url.host === "pass.wafer.ai" &&
         call.url.pathname === "/v1/chat/completions",
       () => sseResponse(completionsFixture()),
     );
@@ -474,7 +474,7 @@ describe("managed lane: authorization matrix", () => {
         execution: {
           engine: "stella",
           provider: "stella",
-          model: CROF_ALIAS,
+          model: FLASH_ALIAS,
           reasoningEffort: "high",
         },
       },
@@ -648,7 +648,7 @@ describe("managed lane: authorization matrix", () => {
     const response = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
-        body: { model: CROF_ALIAS, input: [{ role: "user", content: "hi" }] },
+        body: { model: FLASH_ALIAS, input: [{ role: "user", content: "hi" }] },
         headers: agentHeaders(),
       }),
     );
@@ -829,13 +829,13 @@ describe("managed lane: completion, metering, replay", () => {
     expect(third.status).toBe(200);
   });
 
-  test("assembles a ChatCompletion from Crof and bills the provider-exact cost", async () => {
+  test("assembles a ChatCompletion from Wafer and bills token usage", async () => {
     const { token, claims } = await signSession();
     const response = await ctx.run(
       relayRequest("/v1/relay/chat/completions", {
         token,
         body: {
-          model: CROF_ALIAS,
+          model: FLASH_ALIAS,
           messages: [{ role: "user", content: "hi" }],
           reasoning_effort: "high",
         },
@@ -849,29 +849,28 @@ describe("managed lane: completion, metering, replay", () => {
     };
     expect(body.object).toBe("chat.completion");
     expect(body.choices[0]!.message.content).toBe("Hi there");
-    const upstream = ctx.fetchMock.callsTo("crof.ai")[0]!;
+    const upstream = ctx.fetchMock.callsTo("pass.wafer.ai")[0]!;
     const sent = JSON.parse(upstream.body ?? "{}") as Record<string, unknown>;
-    expect(sent.model).toBe("deepseek-v4-flash-0731");
+    expect(sent.model).toBe("DeepSeek-V4-Flash-0731-Fast");
     expect(sent.stream).toBe(true);
     expect(sent.stream_options).toEqual({ include_usage: true });
     await ctx.harness.flush();
     const event = ctx.harness.usageEvents[0] as GatewayUsageEvent;
     expect(event).toMatchObject({
-      provider: "crof",
+      provider: "wafer",
       protocol: "openai-completions",
-      resolvedModel: CROF_RESOLVED,
+      resolvedModel: FLASH_RESOLVED,
       usage: {
         inputTokens: 10,
         outputTokens: 20,
-        costMicroCents: 1_000,
         reported: true,
       },
-      chargedMicroCents: 1_000,
+      chargedMicroCents: 540,
       outcome: "succeeded",
     });
     const ledger = ctx.harness.ledger.namespace.get({ name: claims.jti });
     expect(await ledger.snapshot()).toMatchObject({
-      spentMicroCents: 1_000,
+      spentMicroCents: 540,
       reservedMicroCents: 0,
     });
   });
@@ -1284,14 +1283,14 @@ describe("POST /v1/models/resolve", () => {
     const response = await ctx.run(
       relayRequest("/v1/models/resolve", {
         token,
-        body: { model: CROF_ALIAS, agentType: "orchestrator" },
+        body: { model: FLASH_ALIAS, agentType: "orchestrator" },
       }),
     );
     expect(response.status).toBe(200);
     expect((await response.json()) as GatewayModelResolution).toEqual({
-      requestedModel: CROF_ALIAS,
-      resolvedModel: CROF_RESOLVED,
-      provider: "crof",
+      requestedModel: FLASH_ALIAS,
+      resolvedModel: FLASH_RESOLVED,
+      provider: "wafer",
       protocol: "openai-completions",
       reasoning: true,
       supportsImages: false,
@@ -1303,7 +1302,7 @@ describe("POST /v1/models/resolve", () => {
     const request = () =>
       relayRequest("/v1/models/resolve", {
         token,
-        body: { model: CROF_ALIAS, agentType: "orchestrator" },
+        body: { model: FLASH_ALIAS, agentType: "orchestrator" },
       });
 
     const missing = await ctx.runRaw(request());
@@ -1334,7 +1333,7 @@ describe("POST /v1/models/resolve", () => {
     const fallback = await ctx.run(
       relayRequest("/v1/models/resolve", {
         token: free.token,
-        body: { model: CROF_ALIAS, agentType: "orchestrator" },
+        body: { model: FLASH_ALIAS, agentType: "orchestrator" },
       }),
     );
     expect(fallback.status).toBe(200);
@@ -1350,7 +1349,7 @@ describe("POST /v1/models/resolve", () => {
     const fallbackPicker = await ctx.run(
       relayRequest("/v1/models/resolve", {
         token: proFallback.token,
-        body: { model: CROF_ALIAS, agentType: "orchestrator" },
+        body: { model: FLASH_ALIAS, agentType: "orchestrator" },
       }),
     );
     expect(fallbackPicker.status).toBe(200);
@@ -1365,7 +1364,7 @@ describe("POST /v1/models/resolve", () => {
     const mismatch = await ctx.run(
       relayRequest("/v1/models/resolve", {
         token: turn.token,
-        body: { model: CROF_ALIAS, agentType: "orchestrator" },
+        body: { model: FLASH_ALIAS, agentType: "orchestrator" },
       }),
     );
     expect(mismatch.status).toBe(403);
@@ -2190,7 +2189,7 @@ describe("acknowledged owner preparation", () => {
     const mismatch = await ctx.run(
       relayRequest(GATEWAY_PREPARE_PATH, {
         token,
-        body: { model: CROF_ALIAS, agentType: "orchestrator" },
+        body: { model: FLASH_ALIAS, agentType: "orchestrator" },
       }),
     );
     expect(mismatch.status).toBe(403);

@@ -143,7 +143,7 @@ describe("money helpers", () => {
 });
 
 describe("static price overrides", () => {
-  it("carries the Muse contributor and Crof V4 Flash rates", () => {
+  it("carries the Muse contributor and direct DeepSeek V4 Flash rates", () => {
     expect(
       STATIC_MANAGED_MODEL_PRICE_OVERRIDES["meta/muse-spark-1.3-contributor"],
     ).toMatchObject({
@@ -153,11 +153,11 @@ describe("static price overrides", () => {
       reasoningPerMillionUsd: 0.2,
     });
     expect(
-      STATIC_MANAGED_MODEL_PRICE_OVERRIDES["crof/deepseek-v4-flash-0731"],
+      STATIC_MANAGED_MODEL_PRICE_OVERRIDES["deepseek/deepseek-v4-flash"],
     ).toMatchObject({
-      sourceProvider: "crof",
-      inputPerMillionUsd: 0.12,
-      outputPerMillionUsd: 0.21,
+      sourceProvider: "deepseek",
+      inputPerMillionUsd: 0.14,
+      outputPerMillionUsd: 0.28,
     });
   });
 });

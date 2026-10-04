@@ -636,17 +636,6 @@ describe("openai-completions assembly", () => {
         .ok,
     ).toBe(false);
   });
-
-  test("Crof's exact cost survives to the usage parser", () => {
-    const parser = createRelayUsageParser("crof");
-    parser.pushText(sseText(fixture));
-    expect(parser.finish()).toMatchObject({
-      inputTokens: 10,
-      outputTokens: 20,
-      reasoningTokens: 5,
-      costMicroCents: 1_000,
-    });
-  });
 });
 
 describe("google-generative-ai assembly", () => {

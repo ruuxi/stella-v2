@@ -21,8 +21,8 @@ describe("managed gateway", () => {
       ),
     ).toBe("fireworks");
     expect(
-      inferManagedGatewayProviderFromModel("crof/deepseek-v4-flash-0731"),
-    ).toBe("crof");
+      inferManagedGatewayProviderFromModel("deepseek/deepseek-v4-flash"),
+    ).toBe("deepseek");
     expect(
       inferManagedGatewayProviderFromModel("wafer/deepseek-v4-flash-0731-fast"),
     ).toBe("wafer");

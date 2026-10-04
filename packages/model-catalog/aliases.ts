@@ -32,7 +32,7 @@ export const STELLA_PRIORITY_MODEL = `${STELLA_PROVIDER}/priority`;
 export const STELLA_LIGHT_MODEL = `${STELLA_PROVIDER}/light`;
 // Bump this whenever Stella default/model/mode mappings change. The catalog
 // route reports it as `updatedAt`; clients revalidate by ETag.
-export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 8, 2, 0, 0);
+export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 9, 3, 0, 0);
 
 export type StellaCatalogModel = {
   id: string;
@@ -59,7 +59,6 @@ export type StellaDefaultEntry = {
 
 const DISPLAY_NAMES: Record<string, string> = {
   "meta/muse-spark-1.3-contributor": "Muse Spark 1.3 Contributor",
-  "crof/deepseek-v4-flash-0731": "DeepSeek V4 Flash 0731",
   "wafer/deepseek-v4-flash-0731-fast": "DeepSeek V4 Flash 0731 Fast",
   "accounts/fireworks/models/deepseek-v4-flash-0731": "DeepSeek V4 Flash 0731",
   "deepseek/deepseek-v4-flash": "DeepSeek V4 Flash",

@@ -227,38 +227,38 @@ describe("body shaping parity: deepseek", () => {
   });
 });
 
-describe("body shaping parity: crof", () => {
-  test("uses chat completions, the dated slug, Crof's effort ladder, and include_usage", () => {
+describe("body shaping parity: wafer", () => {
+  test("uses chat completions, the dated slug, Wafer's effort ladder, and include_usage", () => {
     const { url, headers, json } = shape(
-      "crof",
-      "crof/deepseek-v4-flash-0731",
+      "wafer",
+      "wafer/deepseek-v4-flash-0731-fast",
       "openai-completions",
       "/v1/relay/chat/completions",
       {
-        model: "stella/crof/deepseek-v4-flash-0731",
+        model: "stella/wafer/deepseek-v4-flash-0731-fast",
         messages: [{ role: "user", content: "hi" }],
         reasoning: { effort: "xhigh" },
         thinking: { type: "enabled" },
       },
       { reasoningEffort: "xhigh" },
     );
-    expect(url).toBe("https://crof.ai/v1/chat/completions");
+    expect(url).toBe("https://pass.wafer.ai/v1/chat/completions");
     expect(headers.get("authorization")).toBe("Bearer upstream-key");
-    expect(json.model).toBe("deepseek-v4-flash-0731");
+    expect(json.model).toBe("DeepSeek-V4-Flash-0731-Fast");
     expect(json.reasoning_effort).toBe("high");
     expect(json.reasoning).toBeUndefined();
     expect(json.thinking).toBeUndefined();
     expect(json.stream_options).toEqual({ include_usage: true });
   });
 
-  test("a Responses-shaped body sent to Crof's chat path is converted", () => {
+  test("a Responses-shaped body sent to Wafer's chat path is converted", () => {
     const { json } = shape(
-      "crof",
-      "crof/deepseek-v4-flash-0731",
+      "wafer",
+      "wafer/deepseek-v4-flash-0731-fast",
       "openai-completions",
       "/v1/relay/chat/completions",
       {
-        model: "stella/crof/deepseek-v4-flash-0731",
+        model: "stella/wafer/deepseek-v4-flash-0731-fast",
         input: [{ role: "user", content: "hi" }],
         max_output_tokens: 64,
         text: { format: { type: "json_object" } },

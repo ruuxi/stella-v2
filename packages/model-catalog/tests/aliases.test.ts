@@ -9,7 +9,6 @@ import {
 } from "@stella/model-catalog/aliases";
 import {
   canOverrideStellaModel,
-  DEEPSEEK_V4_FLASH_CROF_MODEL,
   DEEPSEEK_V4_FLASH_DIRECT_MODEL,
   DEEPSEEK_V4_FLASH_FIREWORKS_MODEL,
   DEEPSEEK_V4_FLASH_WAFER_FAST_MODEL,
@@ -21,9 +20,9 @@ import {
   resolveManagedModelRouteAlias,
 } from "@stella/model-catalog/model";
 
-const FLASH_SELECTION = `stella/${DEEPSEEK_V4_FLASH_CROF_MODEL}`;
+const FLASH_SELECTION = `stella/${DEEPSEEK_V4_FLASH_DIRECT_MODEL}`;
 const WAFER_FAST_SELECTION = `stella/${DEEPSEEK_V4_FLASH_WAFER_FAST_MODEL}`;
-/** Pre-DeepSeek-direct spellings; still accepted, always coerced to Crof. */
+/** Pre-DeepSeek-direct spellings; still accepted, always coerced to DeepSeek. */
 const LEGACY_FIREWORKS_SELECTION = `stella/${DEEPSEEK_V4_FLASH_FIREWORKS_MODEL}`;
 const LEGACY_DIRECT_SELECTION = `stella/${DEEPSEEK_V4_FLASH_DIRECT_MODEL}`;
 const MUSE_SELECTION = `stella/${MUSE_SPARK_1_3_CONTRIBUTOR_MODEL}`;
@@ -62,7 +61,7 @@ describe("parseStellaModelSelection", () => {
   it("parses explicit upstream pins", () => {
     expect(parseStellaModelSelection(FLASH_SELECTION)).toEqual({
       kind: "upstream",
-      model: DEEPSEEK_V4_FLASH_CROF_MODEL,
+      model: DEEPSEEK_V4_FLASH_DIRECT_MODEL,
     });
     expect(parseStellaModelSelection("stella/openai/gpt-5.5")).toEqual({
       kind: "upstream",
@@ -84,12 +83,12 @@ describe("resolveStellaModelSelection", () => {
       LEGACY_DIRECT_SELECTION,
     ]) {
       expect(resolveStellaModelSelection(selection, "pro")).toBe(
-        DEEPSEEK_V4_FLASH_CROF_MODEL,
+        DEEPSEEK_V4_FLASH_DIRECT_MODEL,
       );
     }
     expect(
       resolveManagedModelRouteAlias(DEEPSEEK_V4_FLASH_FIREWORKS_MODEL),
-    ).toBe(DEEPSEEK_V4_FLASH_CROF_MODEL);
+    ).toBe(DEEPSEEK_V4_FLASH_DIRECT_MODEL);
     // Only the V4 Flash spellings alias; everything else passes through.
     expect(
       resolveManagedModelRouteAlias(DEEPSEEK_V4_FLASH_WAFER_FAST_MODEL),
@@ -185,7 +184,7 @@ describe("resolveStellaModelConfigForSelection", () => {
       applied: false,
       config: {
         model: MUSE_SPARK_1_3_CONTRIBUTOR_MODEL,
-        fallback: DEEPSEEK_V4_FLASH_CROF_MODEL,
+        fallback: DEEPSEEK_V4_FLASH_DIRECT_MODEL,
       },
     });
     // Retired ids are rejected product-wide, even for Pro.
@@ -199,7 +198,7 @@ describe("resolveStellaModelConfigForSelection", () => {
       applied: false,
       config: {
         model: MUSE_SPARK_1_3_CONTRIBUTOR_MODEL,
-        fallback: DEEPSEEK_V4_FLASH_CROF_MODEL,
+        fallback: DEEPSEEK_V4_FLASH_DIRECT_MODEL,
       },
     });
     // Restricted audiences ignore raw picker rows and keep their default.
@@ -265,10 +264,10 @@ describe("audience allowlist", () => {
       expect(listStellaCatalogModels(audience)).toEqual([
         {
           id: FLASH_SELECTION,
-          name: "DeepSeek V4 Flash 0731",
+          name: "DeepSeek V4 Flash",
           provider: "stella",
-          upstreamModel: DEEPSEEK_V4_FLASH_CROF_MODEL,
-          api: "openai-completions",
+          upstreamModel: DEEPSEEK_V4_FLASH_DIRECT_MODEL,
+          api: "openai-responses",
           type: "language",
           allowedForAudience: audience === "pro",
         },

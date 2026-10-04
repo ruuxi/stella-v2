@@ -27,7 +27,7 @@ pub fn all() -> Vec<Value> {
 pub fn managed_model(entry: &Value, origin: &str) -> Value {
     let id = entry["id"].as_str().unwrap_or_default();
     let upstream = entry["upstreamModel"].as_str().unwrap_or(id);
-    let provider = ["openai", "anthropic", "google", "deepseek", "crof", "wafer"]
+    let provider = ["openai", "anthropic", "google", "deepseek", "wafer"]
         .into_iter()
         .find(|p| upstream.starts_with(&format!("{p}/")))
         .unwrap_or(if upstream.starts_with("accounts/fireworks/") {

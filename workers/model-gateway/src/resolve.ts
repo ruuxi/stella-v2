@@ -42,7 +42,6 @@ export const PROTOCOLS_BY_PROVIDER: Record<
   anthropic: ["anthropic-messages"],
   google: ["google-generative-ai"],
   fireworks: ["openai-responses"],
-  crof: ["openai-completions"],
   wafer: ["openai-completions"],
   openai: ["openai-responses", "openai-completions"],
   deepseek: ["openai-responses", "openai-completions"],

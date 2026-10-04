@@ -25,10 +25,10 @@ describe("settings model catalog", () => {
         upstreamModel: "meta/muse-spark-1.3-contributor",
       },
       {
-        id: "stella/crof/deepseek-v4-flash-0731",
-        name: "DeepSeek V4 Flash 0731",
+        id: "stella/deepseek/deepseek-v4-flash",
+        name: "DeepSeek V4 Flash",
         provider: "stella",
-        upstreamModel: "crof/deepseek-v4-flash-0731",
+        upstreamModel: "deepseek/deepseek-v4-flash",
       },
     ]);
 
@@ -40,11 +40,11 @@ describe("settings model catalog", () => {
     )?.models;
 
     expect(stellaRows?.map((model) => model.id)).toEqual([
-      "stella/crof/deepseek-v4-flash-0731",
+      "stella/deepseek/deepseek-v4-flash",
       "stella/meta/muse-spark-1.3-contributor",
     ]);
     expect(stellaRows?.map(getStellaResolvedModelName)).toEqual([
-      "DeepSeek V4 Flash 0731",
+      "DeepSeek V4 Flash",
       "Muse Spark 1.3 Contributor",
     ]);
   });

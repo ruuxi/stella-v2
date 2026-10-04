@@ -213,20 +213,6 @@ export const STATIC_MANAGED_MODEL_PRICE_OVERRIDES: Record<
     modalitiesInput: ["text", "image", "video", "file", "audio"],
     modalitiesOutput: ["text"],
   },
-  // CrofAI's /v1/models rates for DeepSeek V4 Flash 0731. The relay prefers
-  // Crof's exact per-request `usage.cost`; these cover preflight reservations
-  // and responses that omit exact cost.
-  "crof/deepseek-v4-flash-0731": {
-    sourceProvider: "crof",
-    sourceModelId: "deepseek-v4-flash-0731",
-    inputPerMillionUsd: 0.12,
-    outputPerMillionUsd: 0.21,
-    cacheReadPerMillionUsd: 0.003,
-    cacheWritePerMillionUsd: 0,
-    reasoningPerMillionUsd: 0.21,
-    modalitiesInput: ["text"],
-    modalitiesOutput: ["text"],
-  },
   // Wafer's own /v1/models lists live rates for the Fast variant; this static
   // entry mirrors them ($0.28 in / $0.56 out / $0.07 cache-read per 1M,
   // reasoning billed within completion tokens at the output rate). Wafer

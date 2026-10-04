@@ -549,7 +549,6 @@ impl Providers {
                     "google",
                     "fireworks",
                     "deepseek",
-                    "crof",
                     "wafer",
                     "openrouter",
                 ]

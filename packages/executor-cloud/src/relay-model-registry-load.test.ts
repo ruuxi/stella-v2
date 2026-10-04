@@ -85,13 +85,8 @@ describe("managed relay registry loading", () => {
     expect(session.model.baseUrl).toBe(`${GATEWAY}/v1/relay`);
   });
 
-  test("keeps Crof and Wafer V4 Flash descriptors on the registry-independent path", async () => {
+  test("keeps Wafer V4 Flash descriptors on the registry-independent path", async () => {
     for (const [provider, requestedModel, resolvedModel] of [
-      [
-        "crof",
-        "stella/crof/deepseek-v4-flash-0731",
-        "crof/deepseek-v4-flash-0731",
-      ],
       [
         "wafer",
         "stella/wafer/deepseek-v4-flash-0731-fast",

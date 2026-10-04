@@ -15,7 +15,6 @@ const RESOLVED_MODELS: Record<ManagedGatewayProvider, string> = {
   anthropic: "anthropic/claude-opus-5",
   fireworks: "accounts/fireworks/models/kimi-k2p6",
   deepseek: "deepseek/deepseek-v4-flash",
-  crof: "crof/deepseek-v4-flash-0731",
   google: "google/gemini-3.6-flash",
   meta: "meta/muse-spark-1.1",
   openai: "openai/gpt-5.5",
@@ -28,7 +27,6 @@ const UPSTREAM_MODELS: Record<ManagedGatewayProvider, string> = {
   anthropic: "claude-opus-5",
   fireworks: "accounts/fireworks/models/kimi-k2p6",
   deepseek: "deepseek-v4-flash",
-  crof: "deepseek-v4-flash-0731",
   google: "gemini-3.6-flash",
   meta: "muse-spark-1.1",
   openai: "gpt-5.5",
@@ -110,18 +108,13 @@ describe("upstreamUrl", () => {
         "https://api.deepseek.com/chat/completions",
       ],
       [
-        "crof",
-        "/api/stella/crof/v1/chat/completions",
-        "https://crof.ai/v1/chat/completions",
-      ],
-      [
-        "crof",
-        "/api/stella/relay/responses",
-        "https://crof.ai/v1/chat/completions",
+        "wafer",
+        "/api/stella/wafer/v1/chat/completions",
+        "https://pass.wafer.ai/v1/chat/completions",
       ],
       [
         "wafer",
-        "/api/stella/wafer/v1/chat/completions",
+        "/api/stella/relay/responses",
         "https://pass.wafer.ai/v1/chat/completions",
       ],
       [
@@ -211,7 +204,7 @@ describe("isResponsesRequest", () => {
       ),
     ).toBe(false);
     expect(
-      isResponsesRequest("crof", requestFor("/api/stella/relay/responses")),
+      isResponsesRequest("wafer", requestFor("/api/stella/relay/responses")),
     ).toBe(false);
   });
 });
@@ -269,7 +262,6 @@ describe("resolveCloudManagedProtocol", () => {
       );
     }
     for (const relayProvider of [
-      "crof",
       "wafer",
       "openrouter",
       "meta",
@@ -351,12 +343,12 @@ describe("cloneForwardHeaders", () => {
     expect(wafer.get("authorization")).toBe("Bearer wafer-key");
 
     // The header is wafer-specific; other gateways must not receive it.
-    const crof = cloneForwardHeaders(
-      requestFor("/api/stella/crof/v1/chat/completions"),
-      "crof",
-      "crof-key",
+    const otherProvider = cloneForwardHeaders(
+      requestFor("/api/stella/deepseek/v1/chat/completions"),
+      "deepseek",
+      "deepseek-key",
     );
-    expect(crof.get("Wafer-ZDR")).toBeNull();
+    expect(otherProvider.get("Wafer-ZDR")).toBeNull();
 
     // An explicit table replaces the gateway default entirely.
     const explicit = cloneForwardHeaders(
@@ -464,11 +456,11 @@ describe("bodyForUpstream: deepseek", () => {
   });
 });
 
-describe("bodyForUpstream: crof", () => {
-  it("uses chat completions, the dated model slug, and Crof reasoning levels", () => {
+describe("bodyForUpstream: wafer", () => {
+  it("uses chat completions, the dated model slug, and Wafer reasoning levels", () => {
     const body = shaped(
-      "crof",
-      "/api/stella/crof/v1/chat/completions",
+      "wafer",
+      "/api/stella/wafer/v1/chat/completions",
       {
         model: "stella/default",
         messages: [{ role: "user", content: "hi" }],
@@ -477,14 +469,14 @@ describe("bodyForUpstream: crof", () => {
       },
       "xhigh",
     );
-    expect(body.model).toBe("deepseek-v4-flash-0731");
+    expect(body.model).toBe("DeepSeek-V4-Flash-0731-Fast");
     expect(body.reasoning_effort).toBe("high");
     expect(body.reasoning).toBeUndefined();
     expect(body.thinking).toBeUndefined();
     expect(body.stream_options).toEqual({ include_usage: true });
   });
 
-  it("normalizes Wafer bodies like Crof with the exact upstream casing", () => {
+  it("normalizes Wafer bodies for chat completions with the exact upstream casing", () => {
     const body = shaped(
       "wafer",
       "/api/stella/wafer/v1/chat/completions",

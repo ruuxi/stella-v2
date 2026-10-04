@@ -28,7 +28,7 @@ export type GatewayUsageTokens = {
   cachedInputTokens?: number;
   cacheWriteTokens?: number;
   reasoningTokens?: number;
-  /** Provider-reported exact cost when available (Crof); overrides token math. */
+  /** Provider-reported exact cost when available; overrides token math. */
   costMicroCents?: number;
   /** True when the provider reported usage; false when estimated. */
   reported: boolean;

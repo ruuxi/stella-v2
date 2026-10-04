@@ -39,7 +39,7 @@ Run in `workers/model-gateway`, once without `--env` and once with `--env produc
 
 | Setting | Kind | Value |
 | --- | --- | --- |
-| `STELLA_RELAY_PROBE_SECRET`, provider API keys (`OPENROUTER_API_KEY`, `FIREWORKS_API_KEY`, `DEEPSEEK_API_KEY`, `CROF_API_KEY`, `WAFER_API_KEY`, `XAI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_AI_API_KEY`, `META_MODEL_API_KEY`) | secret | already set |
+| `STELLA_RELAY_PROBE_SECRET`, provider API keys (`OPENROUTER_API_KEY`, `FIREWORKS_API_KEY`, `DEEPSEEK_API_KEY`, `WAFER_API_KEY`, `XAI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_AI_API_KEY`, `META_MODEL_API_KEY`) | secret | already set |
 | `STELLA_ALERT_WEBHOOK_URL` | secret, optional | A Slack-compatible incoming-webhook URL (the body is `{ "text": ... }`). Owner enforcement status changes post here. Skip to disable. |
 | `CAPABILITY_JWKS` | var | Public ES256 keys of cloud-builder's `CAPABILITY_SIGNING_KID` for that environment. Already set in `wrangler.jsonc`. |
 

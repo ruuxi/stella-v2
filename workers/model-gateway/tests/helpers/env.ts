@@ -60,7 +60,7 @@ export const OWNER_ID = "user_test_1";
 export const SERVICE_SECRET = "gateway-service-secret-for-tests";
 export const PROBE_SECRET = "relay-probe-secret-for-tests";
 export const OPENROUTER_KEY = "sk-or-v1-openrouter-test-key-0123456789";
-export const CROF_KEY = "crof-test-key-0123456789abcdef";
+export const FLASH_KEY = "wafer-test-key-0123456789abcdef";
 
 // ---------------------------------------------------------------------------
 // SqlStorage shim on bun:sqlite so the real DO class runs its real SQL.
@@ -284,9 +284,9 @@ export const jwks: GatewayJwks = {
 };
 
 export const MUSE_ALIAS = "stella/meta/muse-spark-1.3-contributor";
-export const CROF_ALIAS = "stella/crof/deepseek-v4-flash-0731";
+export const FLASH_ALIAS = "stella/wafer/deepseek-v4-flash-0731-fast";
 export const MUSE_RESOLVED = "meta/muse-spark-1.3-contributor";
-export const CROF_RESOLVED = "crof/deepseek-v4-flash-0731";
+export const FLASH_RESOLVED = "wafer/deepseek-v4-flash-0731-fast";
 
 const baseSessionClaims = (): UnsignedCapabilityClaims => ({
   iss: GATEWAY_CAPABILITY_ISSUERS.cloudBuilder,
@@ -488,7 +488,7 @@ export const configSnapshot = (
       reasoningPerMillionUsd: 0.2,
     },
     {
-      model: CROF_RESOLVED,
+      model: FLASH_RESOLVED,
       inputPerMillionUsd: 0.12,
       outputPerMillionUsd: 0.21,
       cacheReadPerMillionUsd: 0.003,
@@ -680,8 +680,7 @@ export const createTestEnv = (overrides: Record<string, unknown> = {}) => {
     OPENROUTER_API_KEY: OPENROUTER_KEY,
     FIREWORKS_API_KEY: "fw-test",
     DEEPSEEK_API_KEY: "sk-deepseek-test",
-    CROF_API_KEY: CROF_KEY,
-    WAFER_API_KEY: "wafer-test",
+    WAFER_API_KEY: FLASH_KEY,
     XAI_API_KEY: "xai-test",
     OPENAI_API_KEY: "sk-openai-test",
     ANTHROPIC_API_KEY: "sk-ant-test",

@@ -10,7 +10,6 @@ import { CLOUD_MODEL_DIAGNOSTIC_SENTINELS } from "@stella/contracts/cloud-model-
 import type { GatewayModelResolution } from "@stella/contracts/gateway/api";
 import {
   STELLA_DEFAULT_UPSTREAM_MODEL,
-  STELLA_DEEPSEEK_V4_FLASH_UPSTREAM_MODEL,
   STELLA_WAFER_V4_FLASH_FAST_UPSTREAM_MODEL,
 } from "@stella/contracts/stella-api";
 import { loadModelRegistry } from "@stella/contracts/model-registry";
@@ -118,7 +117,7 @@ describe("cloud relay model selection", () => {
     for (const [protocol, provider, resolvedModel] of [
       ["anthropic-messages", "anthropic", "anthropic/claude-sonnet-4-6"],
       ["openai-responses", "openai", "openai/gpt-5.6-sol"],
-      ["openai-completions", "crof", "crof/deepseek-v4-flash-0731"],
+      ["openai-completions", "wafer", "wafer/deepseek-v4-flash-0731-fast"],
       ["google-generative-ai", "google", "google/gemini-3.1-pro"],
     ] as const) {
       const execution = managed(`stella/${resolvedModel}`);
@@ -318,13 +317,8 @@ describe("cloud relay model selection", () => {
     ).toBe("openrouter/x-ai/grok-4.5");
   });
 
-  test("accepts Crof and Wafer chat-completions routes returned by the gateway", () => {
+  test("accepts Wafer chat-completions routes returned by the gateway", () => {
     for (const [provider, resolvedModel, requestedModel] of [
-      [
-        "crof",
-        "crof/deepseek-v4-flash-0731",
-        "stella/crof/deepseek-v4-flash-0731",
-      ],
       [
         "wafer",
         "wafer/deepseek-v4-flash-0731-fast",
@@ -361,13 +355,6 @@ describe("cloud relay model selection", () => {
         requestedModel: "stella/default",
         resolvedModel: STELLA_DEFAULT_UPSTREAM_MODEL,
         protocol: "openai-responses",
-        expectedInput: ["text"],
-      },
-      {
-        provider: "crof",
-        requestedModel: "stella/crof/deepseek-v4-flash-0731",
-        resolvedModel: STELLA_DEEPSEEK_V4_FLASH_UPSTREAM_MODEL,
-        protocol: "openai-completions",
         expectedInput: ["text"],
       },
       {
@@ -585,7 +572,7 @@ describe("turn-local validated relay sessions", () => {
   });
 
   test("rebuilds protocol and context once from raw messages after a pre-provider mismatch", async () => {
-    const alias = "stella/crof/deepseek-v4-flash-0731";
+    const alias = "stella/wafer/deepseek-v4-flash-0731-fast";
     const current = resolution({
       requestedModel: alias,
       resolvedModel: "anthropic/claude-sonnet-4-6",

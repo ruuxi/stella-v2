@@ -67,16 +67,6 @@ const parseOpenAIUsage = (usage: unknown): RelayUsage => {
   };
 };
 
-const parseCrofCost = (usage: unknown): Pick<RelayUsage, "costMicroCents"> => {
-  const record = asRecord(usage);
-  const costUsd = record?.cost;
-  if (typeof costUsd !== "number" || !Number.isFinite(costUsd) || costUsd < 0) {
-    return {};
-  }
-  // 1 USD = 100 cents = 100,000,000 micro-cents.
-  return { costMicroCents: Math.round(costUsd * 100_000_000) };
-};
-
 const parseResponsesUsage = (usage: unknown): RelayUsage => {
   const record = asRecord(usage);
   if (!record) return {};
@@ -270,14 +260,6 @@ export function createRelayUsageParser(
           : parseOpenAIUsage(usage)),
       };
     });
-  }
-
-  if (provider === "crof") {
-    return createSseParser((event) => ({
-      model: typeof event.model === "string" ? event.model : undefined,
-      ...parseOpenAIUsage(event.usage),
-      ...parseCrofCost(event.usage),
-    }));
   }
 
   if (provider === "openai" || provider === "fireworks") {

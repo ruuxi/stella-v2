@@ -179,7 +179,7 @@ describe("createRelayUsageParser: google", () => {
 
 describe("createRelayUsageParser: openai-compatible", () => {
   it("exposes usage from complete events before the stream finishes", () => {
-    const parser = createRelayUsageParser("crof");
+    const parser = createRelayUsageParser("wafer");
     parser.pushText(
       `data: ${JSON.stringify({
         usage: { prompt_tokens: 3, completion_tokens: 5 },
@@ -216,34 +216,6 @@ describe("createRelayUsageParser: openai-compatible", () => {
       outputTokens: 22,
       totalTokens: 33,
       reasoningTokens: 9,
-    });
-  });
-
-  it("captures Crof token buckets and exact provider-reported cost", () => {
-    const usage = feed(createRelayUsageParser("crof"), [
-      `data: ${JSON.stringify({
-        model: "deepseek-v4-flash-0731",
-        choices: [],
-        usage: {
-          prompt_tokens: 49,
-          completion_tokens: 4,
-          reasoning_tokens: 1,
-          total_tokens: 53,
-          prompt_tokens_details: { cached_tokens: 7 },
-          cost: 0.0000067536,
-        },
-      })}\n\n`,
-      "data: [DONE]\n\n",
-    ]);
-
-    expect(usage).toEqual({
-      model: "deepseek-v4-flash-0731",
-      inputTokens: 49,
-      outputTokens: 4,
-      totalTokens: 53,
-      cachedInputTokens: 7,
-      reasoningTokens: 1,
-      costMicroCents: 675,
     });
   });
 

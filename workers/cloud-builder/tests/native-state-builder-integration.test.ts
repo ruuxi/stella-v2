@@ -174,8 +174,8 @@ const builderHarness = async (
     attemptGeneration,
     execution: {
       engine: options.engine ?? "anthropic",
-      provider: options.engine === "stella" ? "crof" : "anthropic",
-      model: options.engine === "stella" ? "crof/stella" : "claude-sonnet-4-6",
+      provider: options.engine === "stella" ? "wafer" : "anthropic",
+      model: options.engine === "stella" ? "wafer/stella" : "claude-sonnet-4-6",
       reasoningEffort: "medium",
     },
     turnBrokerRoute: {

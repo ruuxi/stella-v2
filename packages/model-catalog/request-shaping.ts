@@ -27,7 +27,6 @@ export type RelayRequestShape = NativeRelayRequest & {
 
 const providerModelPrefix: Partial<Record<ManagedGatewayProvider, string>> = {
   deepseek: "deepseek/",
-  crof: "crof/",
   wafer: "wafer/",
   xai: "x-ai/",
   anthropic: "anthropic/",
@@ -138,8 +137,6 @@ export const upstreamUrl = (
       return requestUrl.pathname.endsWith("/chat/completions")
         ? `${base}/chat/completions`
         : `${base}/responses`;
-    case "crof":
-      return `${base}/chat/completions`;
     case "wafer":
       // Wafer is OpenAI-compatible chat completions only.
       return `${base}/chat/completions`;
@@ -491,7 +488,7 @@ export const deepSeekReasoningEffort = (raw: unknown): string | undefined => {
   }
 };
 
-export const crofReasoningEffort = (raw: unknown): string | undefined => {
+export const waferReasoningEffort = (raw: unknown): string | undefined => {
   const value = typeof raw === "string" ? raw.trim().toLowerCase() : "";
   switch (value) {
     case "none":
@@ -511,14 +508,14 @@ export const crofReasoningEffort = (raw: unknown): string | undefined => {
   }
 };
 
-export const normalizeCrofBody = (body: Record<string, unknown>): void => {
+export const normalizeWaferBody = (body: Record<string, unknown>): void => {
   const reasoning =
     body.reasoning &&
     typeof body.reasoning === "object" &&
     !Array.isArray(body.reasoning)
       ? (body.reasoning as Record<string, unknown>)
       : null;
-  const effort = crofReasoningEffort(
+  const effort = waferReasoningEffort(
     reasoning?.effort ?? body.reasoning_effort,
   );
   if (effort) body.reasoning_effort = effort;
@@ -664,12 +661,12 @@ export const bodyForUpstream = (
       normalizeChatCompletionsBody(body);
     }
     normalizeDeepSeekBody(body, !pathIsChatCompletions);
-  } else if (provider === "crof" || provider === "wafer") {
+  } else if (provider === "wafer") {
     // Wafer serves the same DeepSeek V4 Flash family over an OpenAI-
-    // compatible chat completions API, so it shares Crof's effort ladder
+    // compatible chat completions API, so it uses its own effort ladder
     // and body normalization.
     normalizeChatCompletionsBody(body);
-    normalizeCrofBody(body);
+    normalizeWaferBody(body);
   } else if (
     (provider === "openrouter" && pathIsChatCompletions) ||
     ((provider === "meta" || provider === "xai" || provider === "openai") &&

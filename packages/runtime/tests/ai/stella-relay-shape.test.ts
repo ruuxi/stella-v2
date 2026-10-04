@@ -436,14 +436,14 @@ describe("Stella gateway route shape", () => {
     expect(model.baseUrl).toBe(RELAY);
   });
 
-  it("the explicit DeepSeek V4 Flash pick still routes to the CrofAI provider", () => {
-    const route = makeRoute("stella/crof/deepseek-v4-flash-0731");
+  it("the explicit DeepSeek V4 Flash pick routes to the direct DeepSeek provider", () => {
+    const route = makeRoute("stella/deepseek/deepseek-v4-flash");
     const model = route!.model;
-    expect(model.api).toBe("openai-completions");
-    expect(model.provider).toBe("crof");
+    expect(model.api).toBe("openai-responses");
+    expect(model.provider).toBe("deepseek");
     expect(
       (model as typeof model & { upstreamModelId?: string }).upstreamModelId,
-    ).toBe("deepseek-v4-flash-0731");
+    ).toBe("deepseek-v4-flash");
   });
 
   it("the Wafer Fast variant routes to the Wafer provider", () => {
@@ -598,7 +598,7 @@ describe("Stella gateway auth (baseUrl-based detection)", () => {
         usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
       }),
     );
-    const route = makeRoute("stella/crof/deepseek-v4-flash-0731")!;
+    const route = makeRoute("stella/wafer/deepseek-v4-flash-0731-fast")!;
     const apiKey = (await route.getApiKey()) ?? "";
 
     const result = await streamSimple(route.model, userContext("hi"), {

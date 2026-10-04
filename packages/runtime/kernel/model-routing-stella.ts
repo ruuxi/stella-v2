@@ -75,7 +75,6 @@ const DIRECT_MODEL_PROVIDER_PREFIXES = [
   ["anthropic/", "anthropic"],
   ["google/", "google"],
   ["deepseek/", "deepseek"],
-  ["crof/", "crof"],
   ["wafer/", "wafer"],
 ] as const satisfies readonly (readonly [string, ManagedGatewayProvider])[];
 
@@ -106,7 +105,6 @@ export const resolveManagedStellaRegistryMatches = (
       case "anthropic":
       case "google":
       case "deepseek":
-      case "crof":
       case "wafer":
       case "openrouter":
         return [`${registryProvider}/${model.id}`];
@@ -198,7 +196,6 @@ const providerNativeModelId = (
       provider === "anthropic" ||
       provider === "google" ||
       provider === "deepseek" ||
-      provider === "crof" ||
       provider === "wafer") &&
     resolvedModelId.startsWith(`${provider}/`)
   ) {
@@ -222,8 +219,6 @@ const apiForRelay = (
     case "fireworks":
     case "deepseek":
       return "openai-responses";
-    case "crof":
-      return "openai-completions";
     case "wafer":
       // Wafer is OpenAI-compatible chat completions only.
       return "openai-completions";

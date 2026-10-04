@@ -3,6 +3,7 @@ import { Host, Picker, Text } from "@expo/ui/swift-ui";
 import {
   accessibilityLabel as a11yLabel,
   disabled as disabledModifier,
+  frame,
   pickerStyle,
   tag,
 } from "@expo/ui/swift-ui/modifiers";
@@ -23,15 +24,15 @@ export function SegmentedControl<T extends string>({
   disabled = false,
 }: SegmentedControlProps<T>) {
   const { isDark } = useTheme();
-  // The host's measured height can arrive as zero on first layout inside a
-  // sheet, which let the rows below slide under the control. A plain wrapper
-  // reserves the height; sizing the host itself stops SwiftUI drawing it.
+  // Keep Yoga's touch bounds and SwiftUI's drawing bounds identical. Intrinsic
+  // measurement inside a scrolling sheet can leave the Host at zero height
+  // even while SwiftUI paints the picker outside it.
   return (
     <View style={{ alignSelf: "stretch", height: SEGMENTED_HEIGHT }}>
       <Host
         colorScheme={isDark ? "dark" : "light"}
-        matchContents={{ vertical: true }}
-        style={{ alignSelf: "stretch" }}
+        ignoreSafeArea="all"
+        style={{ flex: 1 }}
       >
         <Picker<string>
           selection={value}
@@ -41,6 +42,7 @@ export function SegmentedControl<T extends string>({
           }}
           modifiers={[
             pickerStyle("segmented"),
+            frame({ height: SEGMENTED_HEIGHT }),
             a11yLabel(accessibilityLabel),
             disabledModifier(disabled),
           ]}

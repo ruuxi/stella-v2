@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { compileTailwind, cssModule, isTailwindStylesheet } from "./css.js";
+import { createTailwindBuild, cssModule, isTailwindStylesheet } from "./css.js";
 import { envDefines, loadRendererEnv, type RendererEnv } from "./env.js";
 import { createModuleGraph, isInNodeModules, SOURCE_EXTENSIONS } from "./modules.js";
 import { createRouteTreeGenerator } from "./routes.js";
@@ -137,7 +137,7 @@ export const buildWebRenderer = async (options: WebBuildOptions): Promise<{ file
   const stylesheet = async (file: string): Promise<string> => {
     const source = await fs.promises.readFile(file, "utf8");
     const css = isTailwindStylesheet(source)
-      ? (await compileTailwind({ tools, file, source, root: uiRoot })).css
+      ? await createTailwindBuild({ tools, file, root: uiRoot }).build(source)
       : source;
     return rewriteCssUrls(css, file);
   };

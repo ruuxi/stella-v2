@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import type { SourceTools } from "./tools.js";
 
@@ -13,30 +14,74 @@ const TAILWIND_ENTRY = /@import\s+["']tailwindcss["']|@tailwind\s|@theme\b|@appl
 
 export const isTailwindStylesheet = (source: string): boolean => TAILWIND_ENTRY.test(source);
 
-export const compileTailwind = async (options: {
+/**
+ * One Tailwind stylesheet, built incrementally the way Tailwind's own Vite
+ * plugin does: the compiler and scanner live across builds, each build
+ * rescans (the scanner rereads only what changed) and adds any new classes,
+ * and only a change to the stylesheet or one of its imports starts over.
+ * A cold build scans the whole UI (~250 ms); a warm one takes a few ms, so a
+ * change's hot update doesn't wait on Tailwind.
+ */
+export const createTailwindBuild = (options: {
   tools: SourceTools;
   file: string;
-  source: string;
   /** The project root Tailwind scans by default (Vite's root). */
   root: string;
-}): Promise<{ css: string; dependencies: string[] }> => {
-  const dependencies: string[] = [];
-  const compiler = await options.tools.compileTailwind(options.source, {
-    base: path.dirname(options.file),
-    from: options.file,
-    shouldRewriteUrls: true,
-    onDependency: (dependency) => dependencies.push(dependency),
-  });
-  const roots =
-    compiler.root === "none"
-      ? []
-      : compiler.root === null
-        ? [{ base: options.root, pattern: "**/*", negated: false }]
-        : [{ ...compiler.root, negated: false }];
-  const scanner = new options.tools.TailwindScanner({ sources: [...roots, ...compiler.sources] });
-  const css = compiler.build(scanner.scan());
-  return { css, dependencies };
+}) => {
+  type Compiler = Awaited<ReturnType<SourceTools["compileTailwind"]>>;
+  type Scanner = InstanceType<SourceTools["TailwindScanner"]>;
+  let state: {
+    compiler: Compiler;
+    scanner: Scanner;
+    candidates: Set<string>;
+    /** The stylesheet and its imports, with the mtime each was built from. */
+    inputs: Map<string, number | null>;
+  } | null = null;
+  const mtime = (file: string) =>
+    fs.promises.stat(file).then((stats) => stats.mtimeMs, () => null);
+  const stale = async () => {
+    if (!state) return true;
+    for (const [file, built] of state.inputs) {
+      if (built === null || (await mtime(file)) !== built) return true;
+    }
+    return false;
+  };
+  const inputs = new Set<string>();
+  return {
+    /** The stylesheet and the files it imports (as of the last build). */
+    inputs,
+    build: async (source: string): Promise<string> => {
+      if (await stale()) {
+        const files = [options.file];
+        const compiler = await options.tools.compileTailwind(source, {
+          base: path.dirname(options.file),
+          from: options.file,
+          shouldRewriteUrls: true,
+          onDependency: (dependency) => files.push(path.resolve(dependency)),
+        });
+        const roots =
+          compiler.root === "none"
+            ? []
+            : compiler.root === null
+              ? [{ base: options.root, pattern: "**/*", negated: false }]
+              : [{ ...compiler.root, negated: false }];
+        state = {
+          compiler,
+          scanner: new options.tools.TailwindScanner({ sources: [...roots, ...compiler.sources] }),
+          candidates: new Set(),
+          inputs: new Map(await Promise.all(files.map(async (file) => [file, await mtime(file)] as const))),
+        };
+        inputs.clear();
+        for (const file of files) inputs.add(file);
+      }
+      const current = state!;
+      for (const candidate of current.scanner.scan()) current.candidates.add(candidate);
+      return current.compiler.build([...current.candidates]);
+    },
+  };
 };
+
+export type TailwindBuild = ReturnType<typeof createTailwindBuild>;
 
 const URL_REFERENCE = /url\(\s*(['"]?)([^'")]+)\1\s*\)/g;
 

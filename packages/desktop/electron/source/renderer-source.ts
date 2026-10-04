@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { absolutizeCssUrls, compileTailwind, cssModule, isTailwindStylesheet } from "./css.js";
+import { absolutizeCssUrls, createTailwindBuild, cssModule, isTailwindStylesheet, type TailwindBuild } from "./css.js";
 import { bundleDependencies, type DepBundle } from "./deps.js";
 import { envDefines, loadRendererEnv } from "./env.js";
 import { createModuleGraph, isInNodeModules, isInside, SOURCE_EXTENSIONS } from "./modules.js";
@@ -143,6 +143,8 @@ export const createRendererSource = (options: RendererSourceOptions) => {
   };
 
   const tailwind = new Map<string, Promise<string>>();
+  /** Incremental Tailwind builds by stylesheet: they outlive `tailwind`'s cached output. */
+  const tailwindBuilds = new Map<string, TailwindBuild>();
   // What the windows were served, for hot updates: each module's resolved
   // source and stylesheet imports, the stylesheets loaded as modules, and
   // the version each updated file is now imported at (`?t=<version>`).
@@ -270,9 +272,12 @@ export const createRendererSource = (options: RendererSourceOptions) => {
       tailwindStylesheets.add(file);
       let compiled = tailwind.get(file);
       if (!compiled) {
-        compiled = compileTailwind({ tools, file, source, root: uiRoot }).then(
-          (result) => result.css,
-        );
+        let build = tailwindBuilds.get(file);
+        if (!build) {
+          build = createTailwindBuild({ tools, file, root: uiRoot });
+          tailwindBuilds.set(file, build);
+        }
+        compiled = build.build(source);
         tailwind.set(file, compiled);
         compiled.catch(() => tailwind.delete(file));
       }
@@ -372,7 +377,15 @@ export const createRendererSource = (options: RendererSourceOptions) => {
     );
     if (changed.size === 0) return { mode: "none" };
     for (const file of changed) graph.invalidate(file);
-    tailwind.clear();
+    // Tailwind reads every source file's class names and its own stylesheets'
+    // imports; a change to any other stylesheet can't change what it builds.
+    const tailwindChanged = [...changed].some(
+      (file) =>
+        path.extname(file) !== ".css" ||
+        tailwindStylesheets.has(file) ||
+        [...tailwindBuilds.values()].some((build) => build.inputs.has(file)),
+    );
+    if (tailwindChanged) tailwind.clear();
     if ([...changed].some((file) => isInside(routes.routesDirectory, file))) {
       await routes.run().catch((error) => log(`[source] route tree: ${String(error)}`));
       changed.add(routes.routeTreeFile);
@@ -448,8 +461,8 @@ export const createRendererSource = (options: RendererSourceOptions) => {
     if (stale.has(routes.routeTreeFile)) {
       for (const file of servedImports.get(routes.routeTreeFile) ?? []) stale.add(file);
     }
-    // Tailwind scans the sources for classes, so any change can change it.
-    for (const file of servedStylesheets) {
+    // Tailwind scans the sources for classes, so any such change can change it.
+    for (const file of tailwindChanged ? servedStylesheets : []) {
       if (!settled.has(file) && tailwindStylesheets.has(file)) {
         pendingSelf.push({ file, type: "css" });
         stale.add(file);

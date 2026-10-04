@@ -35,7 +35,10 @@ import {
 } from "./prompt-prefix-guard.js";
 import {
   clearProviderContextWindow,
+  clearProviderUsage,
   estimateProviderPayloadTokens,
+  getBilledContextTokens,
+  getLastBilledPromptTokens,
   getLastProviderPayloadTokens,
   getProviderPayloadImageStats,
   providerInputBudgetTokens,
@@ -345,6 +348,7 @@ export class PiSessionCore {
     const refreshed = buildHistorySource(agentContext);
     this.agent.state.messages = refreshed;
     this.pendingHistoryRefresh = false;
+    clearProviderUsage(this.threadKey);
     // The mirror swap already broke the prompt-cache prefix (that is the
     // point of the boundary), so the next createOrReuseAgent re-freezes
     // the system prompt + tools from current state — this is where the
@@ -420,7 +424,11 @@ export class PiSessionCore {
       liveImages.decodedBytes > ACTIVE_THREAD_IMAGE_DECODED_BYTE_BUDGET;
     if (!this.pendingHistoryRefresh) {
       try {
-        const lastProviderTokens = getLastProviderPayloadTokens(this.threadKey);
+        // The billed prompt of the response that ended this group is the
+        // real request size; the preflight estimate stands in without one.
+        const lastProviderTokens =
+          getLastBilledPromptTokens(this.threadKey) ??
+          getLastProviderPayloadTokens(this.threadKey);
         if (lastProviderTokens === undefined) {
           const narrow =
             typeof args.opts.store.getThreadContextPressureStats === "function"
@@ -440,7 +448,7 @@ export class PiSessionCore {
                   args.opts.store.loadThreadMessages(this.threadKey),
                 );
         } else {
-          // The last measured provider payload predates this completed
+          // The last measured provider request predates this completed
           // assistant/tool group. Include it so a large tool result can
           // trigger compaction before it reaches the next provider call.
           measuredTokens =
@@ -571,6 +579,8 @@ export class PiSessionCore {
 
       this.pendingHistoryRefresh = false;
       this.adoptFreshContextSnapshot = true;
+      // Usage billed before the swap measured the uncompacted history.
+      clearProviderUsage(this.threadKey);
       checkPromptPrefixStability({
         threadKey: this.threadKey,
         systemPrompt: agent.state.systemPrompt,
@@ -679,9 +689,9 @@ export class PiSessionCore {
       const historyTokens = getThreadTokenEstimate(
         args.opts.store.loadThreadMessages(this.threadKey),
       );
-      return Math.max(
-        historyTokens,
-        getLastProviderPayloadTokens(this.threadKey) ?? 0,
+      return (
+        getBilledContextTokens(this.threadKey) ??
+        Math.max(historyTokens, getLastProviderPayloadTokens(this.threadKey) ?? 0)
       );
     };
     let measuredTokens: number;

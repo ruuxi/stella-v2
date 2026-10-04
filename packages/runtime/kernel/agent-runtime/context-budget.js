@@ -2,6 +2,7 @@ import { Buffer } from "node:buffer";
 
 const providerBudgets = new Map();
 const providerPayloadEstimates = new Map();
+const providerUsageTokens = new Map();
 const forcedCompactions = new Map();
 
 const MAX_INPUT_FRACTION = 0.7;
@@ -14,6 +15,11 @@ const IMAGE_BASE_TOKENS = 85;
 const IMAGE_TILE_TOKENS = 170;
 const EXACT_INSPECTION_FRACTION = 0.75;
 const JSON_ESCAPE_RE = /["\\\u0000-\u001f\ud800-\udfff]/;
+// JSON.stringify writes these as two bytes (`\"`, `\n`, ...) and every other
+// control character or lone surrogate as a six-byte `\uXXXX`.
+const JSON_SHORT_ESCAPE_RE = /["\\\b\f\n\r\t]/g;
+const JSON_UNICODE_ESCAPE_RE =
+  /[\u0000-\u0007\u000b\u000e-\u001f]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g;
 
 export const setProviderContextWindow = (threadKey, contextWindow) => {
   const parsed = Number(contextWindow);
@@ -27,6 +33,44 @@ export const setProviderContextWindow = (threadKey, contextWindow) => {
 export const clearProviderContextWindow = (threadKey) => {
   providerBudgets.delete(threadKey);
   providerPayloadEstimates.delete(threadKey);
+  providerUsageTokens.delete(threadKey);
+};
+
+/**
+ * Record what the provider billed for a thread's finished response: its prompt
+ * (input plus cache reads and writes) and its output. Compaction decisions
+ * trust this over any estimate, as Pi does, until a compaction makes it stale.
+ */
+export const recordProviderUsage = (threadKey, usage) => {
+  if (!threadKey || !usage) return;
+  const prompt =
+    (Number(usage.input) || 0) +
+    (Number(usage.cacheRead) || 0) +
+    (Number(usage.cacheWrite) || 0);
+  if (prompt <= 0) return;
+  providerUsageTokens.set(threadKey, {
+    prompt,
+    output: Number(usage.output) || 0,
+  });
+};
+
+/** A compaction rewrote the thread: its last billed size no longer applies. */
+export const clearProviderUsage = (threadKey) => {
+  providerUsageTokens.delete(threadKey);
+};
+
+/** The prompt tokens the provider billed for the thread's last response. */
+export const getLastBilledPromptTokens = (threadKey) =>
+  providerUsageTokens.get(threadKey)?.prompt;
+
+/**
+ * The thread's context size as the provider billed it (prompt plus output of
+ * the last response since the last compaction), or undefined when unknown.
+ * Compaction decisions prefer it to any estimate.
+ */
+export const getBilledContextTokens = (threadKey) => {
+  const usage = providerUsageTokens.get(threadKey);
+  return usage ? usage.prompt + usage.output : undefined;
 };
 
 /**
@@ -156,8 +200,11 @@ const normalizeImageValue = (key, value, parent) => {
 };
 
 const addQuickString = (value, state) => {
-  const bytes = Buffer.byteLength(value, "utf8") + 2;
-  state.maxBytes += bytes + (JSON_ESCAPE_RE.test(value) ? value.length * 5 : 0);
+  state.maxBytes += Buffer.byteLength(value, "utf8") + 2;
+  if (!JSON_ESCAPE_RE.test(value)) return;
+  state.maxBytes +=
+    (value.match(JSON_SHORT_ESCAPE_RE)?.length ?? 0) +
+    5 * (value.match(JSON_UNICODE_ESCAPE_RE)?.length ?? 0);
 };
 
 const measureQuick = (value, key, state, parent) => {

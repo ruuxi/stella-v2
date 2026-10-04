@@ -16,6 +16,8 @@ import { readRuntimePrompt } from "./prompts/home-prompts.js";
 import {
   decodedBase64ByteLength,
   estimateModelVisibleImageTokens,
+  clearProviderUsage,
+  getBilledContextTokens,
   getLastProviderPayloadTokens,
   isThreadCompactionForced,
 } from "./agent-runtime/context-budget.js";
@@ -2009,10 +2011,11 @@ export const maybeCompactRuntimeThread = async (args: {
     narrowProbe.quarantineCount === 0 &&
     narrowProbe.imageCount <= MAX_ACTIVE_THREAD_IMAGES &&
     narrowProbe.imageDecodedBytes <= ACTIVE_THREAD_IMAGE_DECODED_BYTE_BUDGET &&
-    Math.max(
-      narrowProbe.estimatedTokens,
-      getLastProviderPayloadTokens(args.threadKey) ?? 0,
-    ) < getCompactionTriggerTokens(args.resolvedLlm, args.agentType)
+    (getBilledContextTokens(args.threadKey) ??
+      Math.max(
+        narrowProbe.estimatedTokens,
+        getLastProviderPayloadTokens(args.threadKey) ?? 0,
+      )) < getCompactionTriggerTokens(args.resolvedLlm, args.agentType)
   ) {
     return { compacted: false };
   }
@@ -2077,15 +2080,14 @@ export const maybeCompactRuntimeThread = async (args: {
   const totalTokens = getThreadTokenEstimate(storedMessages);
   const forced = forcedBeforeProbe;
   const imageHistory = getThreadImageHistoryStats(storedMessages);
-  // The trigger measures what the provider actually receives: the last
-  // preflight-measured full outbound payload (system prompt + tool schemas +
-  // resident context + history). The history-only estimate is the floor for
-  // threads with no measured dispatch yet (e.g. the first turn after a
-  // worker restart, where the in-memory payload estimate is gone).
-  const measuredTokens = Math.max(
-    totalTokens,
-    getLastProviderPayloadTokens(args.threadKey) ?? 0,
-  );
+  // The trigger measures what the provider actually received: its billed
+  // usage for the last response since the last compaction (as Pi does).
+  // Without one, the last preflight estimate of the full outbound payload
+  // (system prompt + tool schemas + resident context + history), floored by
+  // the history-only estimate (e.g. the first turn after a worker restart).
+  const measuredTokens =
+    getBilledContextTokens(args.threadKey) ??
+    Math.max(totalTokens, getLastProviderPayloadTokens(args.threadKey) ?? 0);
   if (
     !forced &&
     !imageHistory.overBudget &&
@@ -2411,6 +2413,7 @@ export const maybeCompactRuntimeThread = async (args: {
         ...(Object.keys(details).length > 0 ? { details } : {}),
       });
       args.store.updateThreadSummary(args.threadKey, summary);
+      clearProviderUsage(args.threadKey);
       const effectiveAfter = args.store.loadThreadMessages(args.threadKey);
       const imageHistoryAfter = getThreadImageHistoryStats(effectiveAfter);
       logger.info("thread.compaction.completed", {

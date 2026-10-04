@@ -15,6 +15,7 @@ import type { PersistedRuntimeThreadPayload } from "../storage/shared.js";
 import type { RuntimeStore } from "../storage/runtime-store.js";
 import type { RunTaskCapturedMessage } from "../storage/run-task.js";
 import { assistantMessageHasUsableOutput } from "./run-shared.js";
+import { recordProviderUsage } from "./context-budget.js";
 import {
   assistantMessageHasToolCall,
   extractAssistantText,
@@ -508,6 +509,9 @@ export const subscribeRuntimeAgentEvents = ({
     }
 
     if (event.type === "message_end") {
+      if (threadKey && event.message.role === "assistant") {
+        recordProviderUsage(threadKey, event.message.usage);
+      }
       if (threadStore && threadKey && agentType !== "orchestrator") {
         const payload = toPersistedThreadPayload(event.message);
         if (

@@ -1,3 +1,4 @@
+import { captureAppPreview } from "./app-preview.js";
 import { BrowserProfileSession } from "./browser-profile-session.js";
 import { GatewayError, publicErrorResponse, safeErrorCode } from "./errors.js";
 import type { BrowserGatewayEnv } from "./profile-session-core.js";
@@ -22,6 +23,7 @@ const ROUTES = new Set([
   "/internal/interactions/decision",
   "/internal/owners/profile/reset",
   "/internal/owners/purge",
+  "/internal/apps/preview",
 ]);
 
 const profileOwnerFromBody = (
@@ -56,6 +58,9 @@ export default {
         return publicErrorResponse(new GatewayError("not_found", 404));
       }
       const body = await readJsonBody(request);
+      // A profile-less page load; it never touches an owner's browser.
+      if (path === "/internal/apps/preview")
+        return await captureAppPreview(env, body);
       const { ownerId, parsed } = profileOwnerFromBody(path, body);
       const objectName = await profileObjectName(ownerId, PROFILE_ID);
       const stub = env.BROWSER_PROFILE_SESSIONS.getByName(objectName);

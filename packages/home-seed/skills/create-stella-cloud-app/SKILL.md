@@ -1,6 +1,6 @@
 ---
 name: create-stella-cloud-app
-description: Create and update apps during cloud execution. Write app files in the cloud workspace; Stella builds, hosts, and displays them in Apps on desktop, web, and mobile. Use for any request to build or update an app.
+description: Create and update cloud apps, which Stella hosts and shows in Apps on all the user's devices (desktop, web, and mobile). Write app files in the cloud workspace; Stella builds and hosts them. Use when building an app in the cloud, or one the user wants on their phone or across devices; on the desktop, an app usually belongs in Stella itself (see modify-stella).
 ---
 
 # Create a Stella cloud app

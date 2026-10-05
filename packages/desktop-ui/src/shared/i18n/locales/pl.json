@@ -468,6 +468,29 @@
         "other": "Sparowano {count} telefonu"
       }
     },
+    "executionDevices": {
+      "title": "Your computers",
+      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
+      "empty": "No computer is signed in to this account yet.",
+      "unnamed": "Computer",
+      "thisComputer": "This computer",
+      "online": "Online",
+      "offline": "Offline",
+      "enable": "Enable",
+      "enabling": "Enabling…",
+      "disable": "Turn off",
+      "disabling": "Turning off…",
+      "state": {
+        "enabled": "Accepting work",
+        "notEnabled": "Not enabled",
+        "asking": "Waiting for an answer there",
+        "declined": "Declined there"
+      },
+      "errors": {
+        "load": "Unable to read the computers on this account.",
+        "update": "That change didn't go through. Try again."
+      }
+    },
     "modelPicker": {
       "loadFailed": "Couldn't load models",
       "retry": "Retry",
@@ -1955,6 +1978,15 @@
         "saveFailed": "Nie udało się zapisać danych logowania."
       }
     },
+    "remoteExecutionConsent": {
+      "title": "Allow work from your other devices?",
+      "body": "Another of your devices asked to run work on this computer. Allowing lets work sent from your devices run here.",
+      "bodyFrom": "{requester} asked to run work on this computer. Allowing lets work sent from your devices run here.",
+      "note": "You can change this later in Connect, under your computers.",
+      "allow": "Allow",
+      "decline": "Not now",
+      "failed": "That answer didn't go through. Try again."
+    },
     "schedule": {
       "dialogTitle": "Harmonogram",
       "untitledTask": "Zadanie zaplanowane",
@@ -2364,6 +2396,25 @@
       "hideEmailLabel": "Ukryj e-mail",
       "appearanceSection": "Wygląd",
       "computerSection": "Komputer",
+      "computer": {
+        "sectionLabel": "Gdzie pracuje Stella",
+        "cloud": "Chmura",
+        "statusOnline": "Online",
+        "statusOffline": "Offline",
+        "statusNotReady": "Nie jest gotowy",
+        "statusNotEnabled": "Jeszcze nie włączono",
+        "statusAwaitingConsent": "Oczekiwanie na zgodę na tym komputerze",
+        "statusDeclined": "Odrzucono na tym komputerze",
+        "connecting": "Łączenie…",
+        "enable": "Włącz",
+        "enabling": "Włączanie…",
+        "enableLabel": "Włącz {name}",
+        "enableFailedTitle": "Nie udało się włączyć tego komputera",
+        "connectFailedTitle": "Nie udało się połączyć z tym komputerem",
+        "wake": "Wybudź",
+        "wakeLabel": "Wybudź {name}",
+        "pairingCode": "Użyj kodu parowania"
+      },
       "appearance": {
         "system": "Systemowy",
         "light": "Jasny",

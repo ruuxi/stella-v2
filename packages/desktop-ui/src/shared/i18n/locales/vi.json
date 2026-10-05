@@ -465,6 +465,29 @@
         "other": "Đã ghép nối {count} điện thoại"
       }
     },
+    "executionDevices": {
+      "title": "Your computers",
+      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
+      "empty": "No computer is signed in to this account yet.",
+      "unnamed": "Computer",
+      "thisComputer": "This computer",
+      "online": "Online",
+      "offline": "Offline",
+      "enable": "Enable",
+      "enabling": "Enabling…",
+      "disable": "Turn off",
+      "disabling": "Turning off…",
+      "state": {
+        "enabled": "Accepting work",
+        "notEnabled": "Not enabled",
+        "asking": "Waiting for an answer there",
+        "declined": "Declined there"
+      },
+      "errors": {
+        "load": "Unable to read the computers on this account.",
+        "update": "That change didn't go through. Try again."
+      }
+    },
     "modelPicker": {
       "loadFailed": "Couldn't load models",
       "retry": "Retry",
@@ -1899,6 +1922,15 @@
         "saveFailed": "Không lưu được thông tin đăng nhập."
       }
     },
+    "remoteExecutionConsent": {
+      "title": "Allow work from your other devices?",
+      "body": "Another of your devices asked to run work on this computer. Allowing lets work sent from your devices run here.",
+      "bodyFrom": "{requester} asked to run work on this computer. Allowing lets work sent from your devices run here.",
+      "note": "You can change this later in Connect, under your computers.",
+      "allow": "Allow",
+      "decline": "Not now",
+      "failed": "That answer didn't go through. Try again."
+    },
     "schedule": {
       "dialogTitle": "Lịch",
       "untitledTask": "Tác vụ theo lịch",
@@ -2302,6 +2334,25 @@
       "hideEmailLabel": "Ẩn email",
       "appearanceSection": "Giao diện",
       "computerSection": "Máy tính",
+      "computer": {
+        "sectionLabel": "Nơi Stella làm việc",
+        "cloud": "Đám mây",
+        "statusOnline": "Trực tuyến",
+        "statusOffline": "Ngoại tuyến",
+        "statusNotReady": "Chưa sẵn sàng",
+        "statusNotEnabled": "Chưa được bật",
+        "statusAwaitingConsent": "Đang chờ cho phép trên máy tính đó",
+        "statusDeclined": "Đã bị từ chối trên máy tính đó",
+        "connecting": "Đang kết nối…",
+        "enable": "Bật",
+        "enabling": "Đang bật…",
+        "enableLabel": "Bật {name}",
+        "enableFailedTitle": "Không thể bật máy tính đó",
+        "connectFailedTitle": "Không thể kết nối với máy tính đó",
+        "wake": "Đánh thức",
+        "wakeLabel": "Đánh thức {name}",
+        "pairingCode": "Dùng mã ghép nối"
+      },
       "appearance": {
         "system": "Hệ thống",
         "light": "Sáng",

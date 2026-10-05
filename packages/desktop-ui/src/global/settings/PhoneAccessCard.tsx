@@ -1,5 +1,6 @@
 import { type SVGProps, useCallback, useEffect, useState } from "react";
 import QRCode from "qrcode";
+import { ExecutionDevicesCard } from "@/global/settings/ExecutionDevicesCard";
 import { getPhoneAccessCharacterState } from "@/global/settings/phone-access-character-state";
 import { usePhoneAccessController } from "@/global/settings/hooks/use-phone-access-controller";
 import { Button } from "@/ui/button";
@@ -312,6 +313,8 @@ export function PhoneAccessConnectCard() {
             ))}
           </div>
         )}
+
+        <ExecutionDevicesCard />
       </div>
     </div>
   );

@@ -465,6 +465,29 @@
         "other": "已配对 {count} 部手机"
       }
     },
+    "executionDevices": {
+      "title": "Your computers",
+      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
+      "empty": "No computer is signed in to this account yet.",
+      "unnamed": "Computer",
+      "thisComputer": "This computer",
+      "online": "Online",
+      "offline": "Offline",
+      "enable": "Enable",
+      "enabling": "Enabling…",
+      "disable": "Turn off",
+      "disabling": "Turning off…",
+      "state": {
+        "enabled": "Accepting work",
+        "notEnabled": "Not enabled",
+        "asking": "Waiting for an answer there",
+        "declined": "Declined there"
+      },
+      "errors": {
+        "load": "Unable to read the computers on this account.",
+        "update": "That change didn't go through. Try again."
+      }
+    },
     "modelPicker": {
       "loadFailed": "Couldn't load models",
       "retry": "Retry",
@@ -1899,6 +1922,15 @@
         "saveFailed": "保存凭据失败。"
       }
     },
+    "remoteExecutionConsent": {
+      "title": "Allow work from your other devices?",
+      "body": "Another of your devices asked to run work on this computer. Allowing lets work sent from your devices run here.",
+      "bodyFrom": "{requester} asked to run work on this computer. Allowing lets work sent from your devices run here.",
+      "note": "You can change this later in Connect, under your computers.",
+      "allow": "Allow",
+      "decline": "Not now",
+      "failed": "That answer didn't go through. Try again."
+    },
     "schedule": {
       "dialogTitle": "日程",
       "untitledTask": "定时任务",
@@ -2302,6 +2334,25 @@
       "hideEmailLabel": "隐藏邮箱",
       "appearanceSection": "外观",
       "computerSection": "电脑",
+      "computer": {
+        "sectionLabel": "Stella 在哪里工作",
+        "cloud": "云端",
+        "statusOnline": "在线",
+        "statusOffline": "离线",
+        "statusNotReady": "尚未就绪",
+        "statusNotEnabled": "尚未启用",
+        "statusAwaitingConsent": "等待那台电脑上的许可",
+        "statusDeclined": "已在那台电脑上拒绝",
+        "connecting": "正在连接…",
+        "enable": "启用",
+        "enabling": "正在启用…",
+        "enableLabel": "启用 {name}",
+        "enableFailedTitle": "无法启用那台电脑",
+        "connectFailedTitle": "无法连接那台电脑",
+        "wake": "唤醒",
+        "wakeLabel": "唤醒 {name}",
+        "pairingCode": "使用配对码"
+      },
       "appearance": {
         "system": "系统",
         "light": "浅色",

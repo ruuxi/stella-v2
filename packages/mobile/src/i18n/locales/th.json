@@ -465,6 +465,29 @@
         "other": "จับคู่แล้ว {count} เครื่อง"
       }
     },
+    "executionDevices": {
+      "title": "Your computers",
+      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
+      "empty": "No computer is signed in to this account yet.",
+      "unnamed": "Computer",
+      "thisComputer": "This computer",
+      "online": "Online",
+      "offline": "Offline",
+      "enable": "Enable",
+      "enabling": "Enabling…",
+      "disable": "Turn off",
+      "disabling": "Turning off…",
+      "state": {
+        "enabled": "Accepting work",
+        "notEnabled": "Not enabled",
+        "asking": "Waiting for an answer there",
+        "declined": "Declined there"
+      },
+      "errors": {
+        "load": "Unable to read the computers on this account.",
+        "update": "That change didn't go through. Try again."
+      }
+    },
     "modelPicker": {
       "loadFailed": "Couldn't load models",
       "retry": "Retry",
@@ -1899,6 +1922,15 @@
         "saveFailed": "บันทึกข้อมูลรับรองไม่สำเร็จ"
       }
     },
+    "remoteExecutionConsent": {
+      "title": "Allow work from your other devices?",
+      "body": "Another of your devices asked to run work on this computer. Allowing lets work sent from your devices run here.",
+      "bodyFrom": "{requester} asked to run work on this computer. Allowing lets work sent from your devices run here.",
+      "note": "You can change this later in Connect, under your computers.",
+      "allow": "Allow",
+      "decline": "Not now",
+      "failed": "That answer didn't go through. Try again."
+    },
     "schedule": {
       "dialogTitle": "กำหนดการ",
       "untitledTask": "งานตามกำหนดการ",
@@ -2302,6 +2334,25 @@
       "hideEmailLabel": "ซ่อนอีเมล",
       "appearanceSection": "รูปลักษณ์",
       "computerSection": "คอมพิวเตอร์",
+      "computer": {
+        "sectionLabel": "ที่ที่ Stella ทำงาน",
+        "cloud": "คลาวด์",
+        "statusOnline": "ออนไลน์",
+        "statusOffline": "ออฟไลน์",
+        "statusNotReady": "ยังไม่พร้อม",
+        "statusNotEnabled": "ยังไม่ได้เปิดใช้",
+        "statusAwaitingConsent": "รอการอนุญาตบนคอมพิวเตอร์เครื่องนั้น",
+        "statusDeclined": "ถูกปฏิเสธบนคอมพิวเตอร์เครื่องนั้น",
+        "connecting": "กำลังเชื่อมต่อ…",
+        "enable": "เปิดใช้",
+        "enabling": "กำลังเปิดใช้…",
+        "enableLabel": "เปิดใช้ {name}",
+        "enableFailedTitle": "เปิดใช้คอมพิวเตอร์เครื่องนั้นไม่ได้",
+        "connectFailedTitle": "เชื่อมต่อคอมพิวเตอร์เครื่องนั้นไม่ได้",
+        "wake": "ปลุก",
+        "wakeLabel": "ปลุก {name}",
+        "pairingCode": "ใช้รหัสจับคู่"
+      },
       "appearance": {
         "system": "ระบบ",
         "light": "สว่าง",

@@ -1590,6 +1590,28 @@ export type ElectronOfficePreviewApi = {
   onUpdate: (callback: (snapshot: OfficePreviewSnapshot) => void) => () => void;
 };
 
+/**
+ * This computer's own say over whether work dispatched from the owner's other
+ * devices may run here.
+ *
+ * Being signed in lists this machine; agreeing is separate, and this is the
+ * surface that agreement is given on, on this machine's own screen. Main
+ * broadcasts the question on `execution:remoteExecutionRequest` when the owner
+ * gate raises it, and `execution:answerRemoteExecutionRequest` carries the
+ * answer back. A `false` answer is an answer — it records `declined` — so
+ * dismissing the prompt without choosing is not the same thing and must not
+ * call this.
+ */
+export type ElectronRemoteExecutionApi = {
+  onRequest: (
+    callback: (request: {
+      requestedAt: number;
+      requesterLabel?: string;
+    }) => void,
+  ) => () => void;
+  answer: (allow: boolean) => Promise<{ allow: boolean }>;
+};
+
 /** The app's own checkout when running from source; state is null otherwise. */
 export type ElectronAppSourceApi = {
   getState: () => Promise<AppSourceState | null>;
@@ -1664,6 +1686,7 @@ export type ElectronApi = {
   companion: ElectronCompanionApi;
   agent: ElectronAgentApi;
   system: ElectronSystemApi;
+  remoteExecution: ElectronRemoteExecutionApi;
   appSource: ElectronAppSourceApi;
   onboarding: ElectronOnboardingApi;
   discovery: ElectronDiscoveryApi;

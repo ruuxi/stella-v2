@@ -467,6 +467,29 @@
         "other": "{count} teléfonos vinculados"
       }
     },
+    "executionDevices": {
+      "title": "Your computers",
+      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
+      "empty": "No computer is signed in to this account yet.",
+      "unnamed": "Computer",
+      "thisComputer": "This computer",
+      "online": "Online",
+      "offline": "Offline",
+      "enable": "Enable",
+      "enabling": "Enabling…",
+      "disable": "Turn off",
+      "disabling": "Turning off…",
+      "state": {
+        "enabled": "Accepting work",
+        "notEnabled": "Not enabled",
+        "asking": "Waiting for an answer there",
+        "declined": "Declined there"
+      },
+      "errors": {
+        "load": "Unable to read the computers on this account.",
+        "update": "That change didn't go through. Try again."
+      }
+    },
     "modelPicker": {
       "loadFailed": "Couldn't load models",
       "retry": "Retry",
@@ -1937,6 +1960,15 @@
         "saveFailed": "No se pudo guardar la credencial."
       }
     },
+    "remoteExecutionConsent": {
+      "title": "Allow work from your other devices?",
+      "body": "Another of your devices asked to run work on this computer. Allowing lets work sent from your devices run here.",
+      "bodyFrom": "{requester} asked to run work on this computer. Allowing lets work sent from your devices run here.",
+      "note": "You can change this later in Connect, under your computers.",
+      "allow": "Allow",
+      "decline": "Not now",
+      "failed": "That answer didn't go through. Try again."
+    },
     "schedule": {
       "dialogTitle": "Programación",
       "untitledTask": "Tarea programada",
@@ -2344,6 +2376,25 @@
       "hideEmailLabel": "Ocultar el correo",
       "appearanceSection": "Apariencia",
       "computerSection": "Ordenador",
+      "computer": {
+        "sectionLabel": "Dónde trabaja Stella",
+        "cloud": "La nube",
+        "statusOnline": "En línea",
+        "statusOffline": "Sin conexión",
+        "statusNotReady": "No está listo",
+        "statusNotEnabled": "Aún no activado",
+        "statusAwaitingConsent": "Esperando permiso en ese ordenador",
+        "statusDeclined": "Rechazado en ese ordenador",
+        "connecting": "Conectando…",
+        "enable": "Activar",
+        "enabling": "Activando…",
+        "enableLabel": "Activar {name}",
+        "enableFailedTitle": "No se pudo activar ese ordenador",
+        "connectFailedTitle": "No se pudo conectar con ese ordenador",
+        "wake": "Despertar",
+        "wakeLabel": "Despertar {name}",
+        "pairingCode": "Usar un código de vinculación"
+      },
       "appearance": {
         "system": "Sistema",
         "light": "Claro",

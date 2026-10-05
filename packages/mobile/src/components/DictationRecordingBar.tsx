@@ -20,6 +20,7 @@ import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "reac
 import {
   Animated,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -59,6 +60,12 @@ type Props = {
   placeholder?: string;
   /** Extra layout for the transcript area (the composer's text-area inset). */
   transcriptStyle?: StyleProp<ViewStyle>;
+  /**
+   * Tallest the transcript area grows. Past it the transcript scrolls,
+   * following the newest words, so a long dictation never pushes the
+   * composer up the screen.
+   */
+  transcriptMaxHeight: number;
 };
 
 export const DictationRecordingBar = memo(function DictationRecordingBar({
@@ -68,6 +75,7 @@ export const DictationRecordingBar = memo(function DictationRecordingBar({
   leading,
   placeholder,
   transcriptStyle,
+  transcriptMaxHeight,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -81,6 +89,7 @@ export const DictationRecordingBar = memo(function DictationRecordingBar({
         placeholderColor={fadeHex(colors.textMuted, 0.35)}
         reduceMotion={reduceMotion}
         style={transcriptStyle}
+        maxHeight={transcriptMaxHeight}
       />
       <View style={styles.recordingRow}>
         {leading}
@@ -133,14 +142,17 @@ const LiveTranscript = memo(function LiveTranscript({
   placeholderColor,
   reduceMotion,
   style,
+  maxHeight,
 }: {
   color: string;
   placeholder?: string;
   placeholderColor: string;
   reduceMotion: boolean;
   style?: StyleProp<ViewStyle>;
+  maxHeight: number;
 }) {
   const { text, revision, stableWordCount } = useDictationTranscriptPreview();
+  const scrollRef = useRef<ScrollView>(null);
   if (!text) {
     if (!placeholder) return null;
     return (
@@ -153,25 +165,35 @@ const LiveTranscript = memo(function LiveTranscript({
   }
   const words = tokenizeDictationTranscript(text);
   return (
-    <View
-      style={[waveStyles.transcript, style]}
-      accessible
-      accessibilityLabel={text}
-      accessibilityLiveRegion="polite"
+    <ScrollView
+      ref={scrollRef}
+      style={[waveStyles.viewport, { maxHeight }]}
+      onContentSizeChange={() =>
+        scrollRef.current?.scrollToEnd({ animated: false })
+      }
+      showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
     >
-      {words.map((word, index) => (
-        <AnimatedWord
-          key={
-            index < stableWordCount
-              ? `${index}:${word}`
-              : `${revision}:${index}:${word}`
-          }
-          color={color}
-          animate={!reduceMotion}
-          word={word}
-        />
-      ))}
-    </View>
+      <View
+        style={[waveStyles.transcript, style]}
+        accessible
+        accessibilityLabel={text}
+        accessibilityLiveRegion="polite"
+      >
+        {words.map((word, index) => (
+          <AnimatedWord
+            key={
+              index < stableWordCount
+                ? `${index}:${word}`
+                : `${revision}:${index}:${word}`
+            }
+            color={color}
+            animate={!reduceMotion}
+            word={word}
+          />
+        ))}
+      </View>
+    </ScrollView>
   );
 });
 
@@ -293,6 +315,10 @@ const DictationWaveform = memo(function DictationWaveform({
 });
 
 const waveStyles = StyleSheet.create({
+  viewport: {
+    flexGrow: 0,
+    flexShrink: 0,
+  },
   transcript: {
     flexDirection: "row",
     flexWrap: "wrap",

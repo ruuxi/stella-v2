@@ -1,8 +1,5 @@
 import type { GatewayNativeCredentialProvider } from "@stella/contracts/gateway/capability";
 
-export const CLAUDE_CODE_IDENTITY =
-  "You are Claude Code, Anthropic's official CLI for Claude.";
-
 export const CODEX_UPSTREAM_BASE_URL = "https://chatgpt.com/backend-api/codex";
 
 export type NativeCredentialProvider = GatewayNativeCredentialProvider;
@@ -16,8 +13,6 @@ export type NativeRelayCredential = {
   accessToken: string;
   /** Required by ChatGPT's Codex backend; absent for Anthropic. */
   accountId?: string;
-  /** Add the subscription identity when the client only sees a capability. */
-  injectClaudeCodeIdentity?: boolean;
 };
 
 /** The fields of an authorized relay request the native lane reads. */
@@ -74,38 +69,10 @@ export const connectedCredentialForwardHeaders = (
       throw new Error("ChatGPT account identity is unavailable.");
     }
     headers.set("chatgpt-account-id", credential.accountId);
-    return headers;
   }
-
-  const incomingBetas = request.headers
-    .get("anthropic-beta")
-    ?.split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
-  const betas = new Set([
-    "claude-code-20250219",
-    "oauth-2025-04-20",
-    ...(incomingBetas ?? []),
-  ]);
-  headers.set("anthropic-beta", Array.from(betas).join(","));
-  if (!headers.has("x-app")) headers.set("x-app", "cli");
+  // Anthropic: the caller is the real Claude Code CLI, which sends its own
+  // anthropic-beta, x-app and anthropic-version headers. Pass them through.
   return headers;
-};
-
-export const withClaudeCodeIdentity = (
-  body: Record<string, unknown>,
-): Record<string, unknown> => {
-  const identityBlock = { type: "text", text: CLAUDE_CODE_IDENTITY };
-  const system = body.system;
-  if (typeof system === "string") {
-    return { ...body, system: [identityBlock, { type: "text", text: system }] };
-  }
-  if (Array.isArray(system)) {
-    const first = system[0] as { text?: unknown } | undefined;
-    if (first?.text === CLAUDE_CODE_IDENTITY) return body;
-    return { ...body, system: [identityBlock, ...system] };
-  }
-  return { ...body, system: [identityBlock] };
 };
 
 /**
@@ -120,12 +87,7 @@ export const nativeCredentialBody = (
     model: authorized.upstreamModel,
   };
   delete body.agentType;
-  return JSON.stringify(
-    authorized.userCredential?.provider === "anthropic" &&
-      authorized.userCredential.injectClaudeCodeIdentity === true
-      ? withClaudeCodeIdentity(body)
-      : body,
-  );
+  return JSON.stringify(body);
 };
 
 export const connectedCredentialUpstreamUrl = (

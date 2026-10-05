@@ -1,9 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { GatewayUsageEvent } from "@stella/contracts/gateway/usage";
 import { GATEWAY_SUBSCRIPTION_LIMIT_HEADER } from "@stella/contracts/gateway/api";
-import { CLAUDE_CODE_IDENTITY } from "@stella/model-catalog/native-relay";
-import { createCloudRelaySession } from "../../../packages/executor-cloud/src/relay-model.js";
-import { registerCloudApiProviders } from "../../../packages/runtime/ai/providers/register-cloud.js";
 import { resetCapabilityKeysForTests } from "../src/capability.js";
 import { resetConfigCacheForTests } from "../src/config-cache.js";
 import {
@@ -38,6 +35,7 @@ const anthropicTurn = (
 ) =>
   signTurn({
     credential: "anthropic",
+    nativeClient: "claude-code-cli",
     agentTypes: ["orchestrator", "general"],
     turn: {
       turnId: "turn_native",
@@ -145,124 +143,17 @@ const setup = () => {
 };
 
 describe("native lane", () => {
-  test("Claude picker aliases send successfully through the runtime and turn-bound gateway", async () => {
-    registerCloudApiProviders();
-    ctx.fetchMock.on(
-      (call) => call.url.host === "api.anthropic.com",
-      () =>
-        json({
-          id: "m",
-          type: "message",
-          role: "assistant",
-          model: "claude-opus-5-5",
-          content: [{ type: "text", text: "HELLO" }],
-          stop_reason: "end_turn",
-          stop_sequence: null,
-          usage: { input_tokens: 1, output_tokens: 1 },
-        }),
-    );
-    for (const model of [
-      "default",
-      "best",
-      "fable",
-      "opus",
-      "sonnet",
-      "haiku",
-    ]) {
-      for (const reasoningEffort of [
-        "default",
-        "none",
-        "minimal",
-        "medium",
-        "high",
-        "xhigh",
-      ] as const) {
-        const { token } = await anthropicTurn(model, reasoningEffort);
-        const session = await createCloudRelaySession({
-          gatewayOrigin: "https://gateway.test",
-          capability: token,
-          audience: "pro",
-          agentType: "orchestrator",
-          execution: {
-            engine: "anthropic",
-            provider: "anthropic",
-            model,
-            reasoningEffort,
-          },
-          fetch: (async (input, init) =>
-            ctx.run(new Request(input, init))) as typeof fetch,
-        });
-        const stream = await session.createStreamFn({ reasoningEffort })(
-          session.model,
-          { messages: [{ role: "user", content: "Say HELLO", timestamp: 1 }] },
-          // Deliberately stale Agent state: the admitted effort must win.
-          { apiKey: token, reasoning: "high" },
-        );
-        const result = await stream.result();
-        expect(
-          result.stopReason,
-          `${model}/${reasoningEffort}: ${result.errorMessage}`,
-        ).toBe("stop");
-        expect(result.content).toContainEqual({ type: "text", text: "HELLO" });
-        const body = JSON.parse(
-          ctx.fetchMock.callsTo("api.anthropic.com").at(-1)!.body!,
-        );
-        expect(body.model).toStartWith("claude-");
-        if (reasoningEffort === "default") {
-          expect(body.thinking).toBeUndefined();
-          expect(body.output_config?.effort).toBeUndefined();
-        } else if (!["none"].includes(reasoningEffort) && model !== "haiku") {
-          expect(body.thinking.type).toBe("adaptive");
-          expect(body.output_config.effort).toBe(
-            reasoningEffort === "minimal" ? "low" : reasoningEffort,
-          );
-        }
-      }
-    }
-  });
-
-  test("older cloud clients' alias requests use the signed effort and cannot cross model families", async () => {
-    const { token } = await anthropicTurn("opus", "medium");
-    const response = await ctx.run(
-      relayRequest("/v1/relay/v1/messages", {
-        token,
-        body: {
-          model: "stella/anthropic/opus",
-          max_tokens: 16384,
-          temperature: 1,
-          thinking: { type: "enabled", budget_tokens: 32768 },
-          messages: [],
-        },
-      }),
-    );
-    expect(response.status).toBe(200);
-    const body = JSON.parse(
-      ctx.fetchMock.callsTo("api.anthropic.com")[0]!.body!,
-    );
-    expect(body.model).toBe("claude-opus-5-5");
-    expect(body.thinking).toEqual({ type: "adaptive" });
-    expect(body.output_config.effort).toBe("medium");
-    expect(body.temperature).toBeUndefined();
-    const crossed = await ctx.run(
-      relayRequest("/v1/relay/v1/messages", {
-        token,
-        body: { model: "sonnet", messages: [] },
-      }),
-    );
-    expect(crossed.status).toBe(403);
-    expect(ctx.fetchMock.callsTo("api.anthropic.com")).toHaveLength(1);
-  });
   let ctx: ReturnType<typeof setup>;
   beforeEach(() => {
     ctx = setup();
   });
 
-  test("Claude: swaps credentials, adds the Claude Code betas, pipes SSE untouched", async () => {
+  test("Claude: swaps credentials, passes the CLI's own headers and body through, pipes SSE untouched", async () => {
     const { token, claims } = await anthropicTurn();
     const body = {
       model: "claude-sonnet-4-6",
       max_tokens: 100,
-      system: "You are helpful.",
+      system: [{ type: "text", text: "You are helpful." }],
       messages: [{ role: "user", content: "hi" }],
     };
     const response = await ctx.run(
@@ -271,7 +162,9 @@ describe("native lane", () => {
         body,
         headers: {
           "anthropic-version": "2023-06-01",
-          "anthropic-beta": "interleaved-thinking-2025-05-14",
+          "anthropic-beta":
+            "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14",
+          "x-app": "cli",
           "x-stella-request-id": "req-native-1",
           "cf-connecting-ip": "203.0.113.5",
         },
@@ -304,11 +197,9 @@ describe("native lane", () => {
     expect(upstream.headers.get("authorization")).toBe(
       "Bearer sk-ant-oat01-owner-token",
     );
-    expect(upstream.headers.get("anthropic-beta")!.split(",")).toEqual([
-      "claude-code-20250219",
-      "oauth-2025-04-20",
-      "interleaved-thinking-2025-05-14",
-    ]);
+    expect(upstream.headers.get("anthropic-beta")).toBe(
+      "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14",
+    );
     expect(upstream.headers.get("x-app")).toBe("cli");
     expect(upstream.headers.get("anthropic-version")).toBe("2023-06-01");
     for (const name of [
@@ -319,13 +210,7 @@ describe("native lane", () => {
       expect(upstream.headers.has(name)).toBe(false);
     }
     // Native bodies are never run through cross-provider shaping.
-    expect(JSON.parse(upstream.body ?? "{}")).toEqual({
-      ...body,
-      system: [
-        { type: "text", text: CLAUDE_CODE_IDENTITY },
-        { type: "text", text: body.system },
-      ],
-    });
+    expect(JSON.parse(upstream.body ?? "{}")).toEqual(body);
 
     await ctx.harness.flush();
     expect(ctx.harness.usageEvents).toHaveLength(1);
@@ -346,30 +231,6 @@ describe("native lane", () => {
       usage: { inputTokens: 0, outputTokens: 0, reported: false },
     });
     expect(ctx.harness.ledger.objects.size).toBe(0);
-  });
-
-  test("Claude: a stella/anthropic/ model gets the Claude Code identity prepended", async () => {
-    const { token } = await anthropicTurn();
-    const response = await ctx.run(
-      relayRequest("/v1/relay/v1/messages", {
-        token,
-        body: {
-          model: "stella/anthropic/claude-sonnet-4-6",
-          max_tokens: 10,
-          system: "Be brief.",
-          messages: [],
-        },
-      }),
-    );
-    expect(response.status).toBe(200);
-    const sent = JSON.parse(
-      ctx.fetchMock.callsTo("api.anthropic.com")[0]!.body ?? "{}",
-    ) as Record<string, unknown>;
-    expect(sent.model).toBe("claude-sonnet-4-6");
-    expect(sent.system).toEqual([
-      { type: "text", text: CLAUDE_CODE_IDENTITY },
-      { type: "text", text: "Be brief." },
-    ]);
   });
 
   test("Codex: sets chatgpt-account-id, targets the Codex backend, parses JSON usage best-effort", async () => {

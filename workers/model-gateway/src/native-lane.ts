@@ -16,10 +16,6 @@ import {
   type GatewayUsageTokens,
 } from "@stella/contracts/gateway/usage";
 import { validateConnectedCloudBinding } from "@stella/model-catalog/cloud-binding";
-import {
-  isClaudeCloudAlias,
-  resolveClaudeCloudModel,
-} from "@stella/model-catalog/claude-cloud-model";
 import { getManagedGatewayConfig } from "@stella/model-catalog/managed-gateway";
 import {
   connectedCredentialForwardHeaders,
@@ -47,7 +43,9 @@ import { assertAgentTypeAllowed } from "./resolve.js";
  * Native lane: the owner's connected subscription (Claude Code / Codex CLI).
  *
  * A byte pipe. The request goes upstream untouched apart from credentials and
- * the model pin the turn was admitted with; the response comes back untouched
+ * the model pin the turn was admitted with; an Anthropic subscription is only
+ * ever relayed for the real Claude Code CLI, which sends its own identity,
+ * betas and thinking controls; the response comes back untouched
  * (SSE or JSON) with the upstream status. Nothing here is billed to Stella —
  * the usage event is `billable: false` and usage is parsed only when the
  * response was JSON, best-effort, off the response path.
@@ -264,12 +262,19 @@ export const handleNativeRelay = async (args: {
       `This turn was admitted for engine "${turn.execution.engine}", not "${credential}".`,
     );
   }
+  if (credential === "anthropic" && claims.nativeClient !== "claude-code-cli") {
+    throw new GatewayError(
+      403,
+      "unauthorized",
+      "A Claude subscription is only relayed for the Claude Code CLI.",
+    );
+  }
   const agentType =
     agentTypeFrom(request) ?? claims.agentTypes?.[0] ?? "general";
   assertAgentTypeAllowed(claims, agentType);
 
-  let requestJson = await readJsonObject(request);
-  let requestedModel =
+  const requestJson = await readJsonObject(request);
+  const requestedModel =
     typeof requestJson.model === "string" ? requestJson.model.trim() : "";
   if (!requestedModel) {
     throw new GatewayError(
@@ -277,52 +282,6 @@ export const handleNativeRelay = async (args: {
       "bad_request",
       "The request body must name a model.",
     );
-  }
-  // Existing mobile/cloud builds can still send CLI aliases and infer legacy
-  // thinking capabilities from them. Resolve before binding validation, using
-  // the signed turn's effort so this never grants a more powerful request.
-  const nativeSelection = requestedModel.replace(/^stella\/anthropic\//u, "");
-  if (credential === "anthropic" && isClaudeCloudAlias(nativeSelection)) {
-    requestedModel = resolveClaudeCloudModel(nativeSelection);
-    requestJson = { ...requestJson, model: requestedModel };
-    if (pathname.endsWith("/messages")) {
-      const effort = turn.execution.reasoningEffort;
-      const config = requestJson.output_config;
-      const outputConfig =
-        config && typeof config === "object" && !Array.isArray(config)
-          ? { ...(config as Record<string, unknown>) }
-          : {};
-      delete outputConfig.effort;
-      delete requestJson.thinking;
-      if (effort === "none") {
-        if (!requestedModel.includes("-fable-"))
-          requestJson.thinking = { type: "disabled" };
-      } else if (effort !== "default") {
-        const adaptive = !requestedModel.includes("-haiku-");
-        if (adaptive) {
-          requestJson.thinking = { type: "adaptive" };
-          outputConfig.effort = effort === "minimal" ? "low" : effort;
-        } else {
-          const budget = {
-            minimal: 1024,
-            low: 2048,
-            medium: 8192,
-            high: 16384,
-            xhigh: 16384,
-          }[effort];
-          requestJson.thinking = { type: "enabled", budget_tokens: budget };
-          requestJson.max_tokens = Math.max(
-            Number(requestJson.max_tokens) || 0,
-            budget + 1024,
-          );
-        }
-      }
-      if (Object.keys(outputConfig).length)
-        requestJson.output_config = outputConfig;
-      else delete requestJson.output_config;
-      // The latest Opus, Sonnet and Fable models reject temperature.
-      if (!requestedModel.includes("-haiku-")) delete requestJson.temperature;
-    }
   }
   const binding = validateConnectedCloudBinding({
     execution: turn.execution,
@@ -347,9 +306,6 @@ export const handleNativeRelay = async (args: {
     provider: credential,
     accessToken: current.accessToken,
     ...(current.accountId ? { accountId: current.accountId } : {}),
-    // The cloud runtime carries a Stella capability, so its SDK cannot
-    // recognize the subscription token and add the required identity itself.
-    injectClaudeCodeIdentity: credential === "anthropic",
   });
   let userCredential = credentialFor(access);
   const target = connectedCredentialUpstreamUrl(
@@ -379,12 +335,6 @@ export const handleNativeRelay = async (args: {
     }
   };
   let headers = forwardHeaders(userCredential);
-  if (credential === "anthropic" && nativeSelection.endsWith("[1m]")) {
-    headers.set(
-      "anthropic-beta",
-      `${headers.get("anthropic-beta")},context-1m-2025-08-07`,
-    );
-  }
   const body = nativeCredentialBody({
     requestJson,
     upstreamModel: binding.nativeModel,

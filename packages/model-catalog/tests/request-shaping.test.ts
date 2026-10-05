@@ -674,7 +674,6 @@ describe("bodyForUpstream: other providers", () => {
           userCredential: {
             provider: "anthropic",
             accessToken: "oauth-token",
-            injectClaudeCodeIdentity: true,
           },
         },
         "anthropic",
@@ -683,13 +682,7 @@ describe("bodyForUpstream: other providers", () => {
     ) as Record<string, unknown>;
     expect(body.model).toBe("claude-opus-5");
     expect(body.agentType).toBeUndefined();
-    expect(body.system).toEqual([
-      {
-        type: "text",
-        text: "You are Claude Code, Anthropic's official CLI for Claude.",
-      },
-      { type: "text", text: "native" },
-    ]);
+    expect(body.system).toBe("native");
   });
 });
 

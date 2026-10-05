@@ -4655,7 +4655,12 @@ export function ChatPane({
                 <View style={styles.composerQuoteStrip}>
                   {quoteChips.map((quote) => (
                     <View key={quote.id} style={styles.composerQuote}>
-                      <View style={styles.composerQuoteBar} />
+                      <Icon
+                        name="reply"
+                        size={14}
+                        color={colors.textMuted}
+                        weight="regular"
+                      />
                       <Text
                         style={styles.composerQuoteText}
                         numberOfLines={2}
@@ -5387,12 +5392,6 @@ const makeStyles = (colors: Colors) =>
       paddingLeft: 8,
       paddingRight: 8,
       paddingVertical: 8,
-    },
-    composerQuoteBar: {
-      alignSelf: "stretch",
-      backgroundColor: colors.accent,
-      borderRadius: 2,
-      width: 3,
     },
     composerQuoteText: {
       color: colors.textMuted,

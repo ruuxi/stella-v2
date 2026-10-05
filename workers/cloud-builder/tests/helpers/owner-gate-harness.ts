@@ -301,13 +301,21 @@ export const createGateHarness = (
       snapshot.identityLevel,
     );
     for (const device of snapshot.devices ?? []) {
+      // Fixtures that only say `remoteExecutionEnabled` keep meaning what they
+      // meant before consent became its own state.
+      const remoteExecution =
+        device.remoteExecution ??
+        (device.remoteExecutionEnabled ? "enabled" : "unconfigured");
       db.run(
-        `INSERT INTO devices (device_id, public_key, name, platform, remote_execution_enabled, capabilities, registered_at, updated_at)
-         VALUES (?, ?, ?, NULL, ?, ?, 0, 0)`,
+        `INSERT INTO devices (device_id, public_key, name, platform, remote_execution_enabled,
+           remote_execution_state, remote_execution_asked_at, capabilities, registered_at, updated_at)
+         VALUES (?, ?, ?, NULL, ?, ?, ?, ?, 0, 0)`,
         device.deviceId,
         device.publicKey,
         device.label ?? null,
-        device.remoteExecutionEnabled ? 1 : 0,
+        remoteExecution === "enabled" ? 1 : 0,
+        remoteExecution,
+        device.remoteExecutionAskedAt ?? null,
         JSON.stringify(device.capabilities ?? []),
       );
     }

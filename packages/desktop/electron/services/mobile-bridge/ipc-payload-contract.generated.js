@@ -130,6 +130,7 @@ export const IPC_PAYLOAD_CONTRACT = {
     "engineAccounts:cancelConnectClaude": { kind: "none" },
     "engineAccounts:connectChatGptCloud": { kind: "object", fields: ["accountId", "enablePlanUsage"] },
     "engineAccounts:connectClaude": { kind: "none" },
+    "execution:answerRemoteExecutionRequest": { kind: "object", fields: ["allow"] },
     "globalShortcuts:getSuspended": { kind: "none" },
     "globalShortcuts:setSuspended": { kind: "passthrough" },
     "home:captureAppWindow": { kind: "passthrough" },

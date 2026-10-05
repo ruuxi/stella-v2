@@ -1,0 +1,37 @@
+.remote-execution-consent[data-slot="dialog-content"] {
+  max-width: 420px;
+}
+
+.remote-execution-consent-body[data-slot="dialog-body"] {
+  padding: 4px 24px 24px;
+  gap: 16px;
+  align-items: stretch;
+}
+
+.remote-execution-consent-text {
+  margin: 0;
+  color: var(--text-base);
+  font-size: var(--font-size-md);
+  line-height: 1.5;
+}
+
+.remote-execution-consent-note {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.remote-execution-consent-error {
+  font-size: var(--font-size-sm);
+  color: var(--destructive);
+  background: color-mix(in oklch, var(--destructive) 10%, transparent);
+  padding: 10px 14px;
+  border-radius: var(--radius-md, 6px);
+}
+
+.remote-execution-consent-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}

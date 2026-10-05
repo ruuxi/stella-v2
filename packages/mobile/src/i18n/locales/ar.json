@@ -470,6 +470,29 @@
         "other": "{count} هاتف مقترن"
       }
     },
+    "executionDevices": {
+      "title": "Your computers",
+      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
+      "empty": "No computer is signed in to this account yet.",
+      "unnamed": "Computer",
+      "thisComputer": "This computer",
+      "online": "Online",
+      "offline": "Offline",
+      "enable": "Enable",
+      "enabling": "Enabling…",
+      "disable": "Turn off",
+      "disabling": "Turning off…",
+      "state": {
+        "enabled": "Accepting work",
+        "notEnabled": "Not enabled",
+        "asking": "Waiting for an answer there",
+        "declined": "Declined there"
+      },
+      "errors": {
+        "load": "Unable to read the computers on this account.",
+        "update": "That change didn't go through. Try again."
+      }
+    },
     "modelPicker": {
       "loadFailed": "Couldn't load models",
       "retry": "Retry",
@@ -1988,6 +2011,15 @@
         "saveFailed": "تعذّر حفظ بيانات الاعتماد."
       }
     },
+    "remoteExecutionConsent": {
+      "title": "Allow work from your other devices?",
+      "body": "Another of your devices asked to run work on this computer. Allowing lets work sent from your devices run here.",
+      "bodyFrom": "{requester} asked to run work on this computer. Allowing lets work sent from your devices run here.",
+      "note": "You can change this later in Connect, under your computers.",
+      "allow": "Allow",
+      "decline": "Not now",
+      "failed": "That answer didn't go through. Try again."
+    },
     "schedule": {
       "dialogTitle": "الجدولة",
       "untitledTask": "مهمة مجدوَلة",
@@ -2400,6 +2432,25 @@
       "hideEmailLabel": "إخفاء البريد الإلكتروني",
       "appearanceSection": "المظهر",
       "computerSection": "الكمبيوتر",
+      "computer": {
+        "sectionLabel": "مكان عمل Stella",
+        "cloud": "السحابة",
+        "statusOnline": "متصل",
+        "statusOffline": "غير متصل",
+        "statusNotReady": "غير جاهز",
+        "statusNotEnabled": "لم يُفعَّل بعد",
+        "statusAwaitingConsent": "في انتظار الإذن على ذلك الكمبيوتر",
+        "statusDeclined": "تم الرفض على ذلك الكمبيوتر",
+        "connecting": "جارٍ الاتصال…",
+        "enable": "تفعيل",
+        "enabling": "جارٍ التفعيل…",
+        "enableLabel": "تفعيل {name}",
+        "enableFailedTitle": "تعذّر تفعيل ذلك الكمبيوتر",
+        "connectFailedTitle": "تعذّر الاتصال بذلك الكمبيوتر",
+        "wake": "إيقاظ",
+        "wakeLabel": "إيقاظ {name}",
+        "pairingCode": "استخدام رمز إقران"
+      },
       "appearance": {
         "system": "النظام",
         "light": "فاتح",

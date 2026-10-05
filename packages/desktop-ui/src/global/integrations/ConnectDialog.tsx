@@ -24,6 +24,10 @@ interface ConnectDialogProps {
  * straight onto the pair-your-phone surface (QR + connect code) with no
  * intermediate "Connect to Stella app" step. Signed-out visitors get the
  * sign-in prompt instead, since pairing requires an account.
+ *
+ * This is also where the account's computers are listed, under the phone
+ * steps: it is already the "your other devices" surface, and enabling one to
+ * accept work belongs next to the phone it would be driven from.
  */
 export const ConnectDialog = ({ open, onOpenChange }: ConnectDialogProps) => {
   const t = useT();

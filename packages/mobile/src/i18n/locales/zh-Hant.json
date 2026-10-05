@@ -465,6 +465,29 @@
         "other": "已配對 {count} 支手機"
       }
     },
+    "executionDevices": {
+      "title": "Your computers",
+      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
+      "empty": "No computer is signed in to this account yet.",
+      "unnamed": "Computer",
+      "thisComputer": "This computer",
+      "online": "Online",
+      "offline": "Offline",
+      "enable": "Enable",
+      "enabling": "Enabling…",
+      "disable": "Turn off",
+      "disabling": "Turning off…",
+      "state": {
+        "enabled": "Accepting work",
+        "notEnabled": "Not enabled",
+        "asking": "Waiting for an answer there",
+        "declined": "Declined there"
+      },
+      "errors": {
+        "load": "Unable to read the computers on this account.",
+        "update": "That change didn't go through. Try again."
+      }
+    },
     "modelPicker": {
       "loadFailed": "Couldn't load models",
       "retry": "Retry",
@@ -1896,6 +1919,15 @@
         "saveFailed": "儲存憑證失敗。"
       }
     },
+    "remoteExecutionConsent": {
+      "title": "Allow work from your other devices?",
+      "body": "Another of your devices asked to run work on this computer. Allowing lets work sent from your devices run here.",
+      "bodyFrom": "{requester} asked to run work on this computer. Allowing lets work sent from your devices run here.",
+      "note": "You can change this later in Connect, under your computers.",
+      "allow": "Allow",
+      "decline": "Not now",
+      "failed": "That answer didn't go through. Try again."
+    },
     "schedule": {
       "dialogTitle": "排程",
       "untitledTask": "排程工作",
@@ -2299,6 +2331,25 @@
       "hideEmailLabel": "隱藏電子郵件",
       "appearanceSection": "外觀",
       "computerSection": "電腦",
+      "computer": {
+        "sectionLabel": "Stella 在哪裡工作",
+        "cloud": "雲端",
+        "statusOnline": "線上",
+        "statusOffline": "離線",
+        "statusNotReady": "尚未就緒",
+        "statusNotEnabled": "尚未啟用",
+        "statusAwaitingConsent": "等待那台電腦上的許可",
+        "statusDeclined": "已在那台電腦上拒絕",
+        "connecting": "正在連線…",
+        "enable": "啟用",
+        "enabling": "正在啟用…",
+        "enableLabel": "啟用 {name}",
+        "enableFailedTitle": "無法啟用那台電腦",
+        "connectFailedTitle": "無法連線到那台電腦",
+        "wake": "喚醒",
+        "wakeLabel": "喚醒 {name}",
+        "pairingCode": "使用配對碼"
+      },
       "appearance": {
         "system": "系統",
         "light": "淺色",

@@ -153,6 +153,15 @@ type PlacementBridgeOptions = {
     messageId: string;
     text: string;
   }) => Promise<boolean>;
+  /**
+   * Something tried to dispatch work here and this computer has not agreed to
+   * accept any. The host shows the question on this machine's own screen and
+   * calls `answerRemoteExecutionRequest` with what its user said.
+   */
+  onRemoteExecutionRequest?: (request: {
+    requestedAt: number;
+    requesterLabel?: string;
+  }) => void;
   log?: (level: "warn" | "error", message: string, error?: unknown) => void;
   now?: () => number;
   /** Test seam; production uses the accepted execution lease duration. */
@@ -1318,6 +1327,18 @@ export class ExecutionPlacementBridge {
         await this.steerAccepted(frame.dispatchId, frame.messageId, frame.text);
         return;
       }
+      case "consent.request": {
+        // Only raise the question. This computer answers when its own user
+        // does, and the attempt that triggered the ask has already been told
+        // to come back later, so there is nothing here to keep waiting on.
+        this.options.onRemoteExecutionRequest?.({
+          requestedAt: frame.requestedAt,
+          ...(frame.requesterLabel
+            ? { requesterLabel: frame.requesterLabel }
+            : {}),
+        });
+        return;
+      }
       case "dispatch": {
         await this.applyDispatchUpdate(frame.dispatch);
         return;
@@ -1453,6 +1474,23 @@ export class ExecutionPlacementBridge {
       ready: availability.ready,
       capabilities: [...new Set(availability.capabilities)].sort(),
     };
+  }
+
+  /**
+   * Answer this computer's own "accept work from your other devices?" prompt.
+   *
+   * Sent on the presence socket when there is one, because that socket is
+   * already proven with the device key and so carries the fact that the answer
+   * came from this machine. With the socket down it falls back to the backend
+   * call, which is authorized by the account alone — weaker, but the honest
+   * alternative is losing the answer the user just gave.
+   */
+  async answerRemoteExecutionRequest(allow: boolean): Promise<void> {
+    if (this.socketProven && this.send({ type: "consent", allow })) return;
+    await this.client.call("devices.setRemoteExecution", {
+      deviceId: this.options.deviceIdentity.deviceId,
+      enabled: allow,
+    });
   }
 
   /** Publishes availability only when it actually changed. */

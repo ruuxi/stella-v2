@@ -468,6 +468,29 @@
         "other": "Привязано {count} телефона"
       }
     },
+    "executionDevices": {
+      "title": "Your computers",
+      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
+      "empty": "No computer is signed in to this account yet.",
+      "unnamed": "Computer",
+      "thisComputer": "This computer",
+      "online": "Online",
+      "offline": "Offline",
+      "enable": "Enable",
+      "enabling": "Enabling…",
+      "disable": "Turn off",
+      "disabling": "Turning off…",
+      "state": {
+        "enabled": "Accepting work",
+        "notEnabled": "Not enabled",
+        "asking": "Waiting for an answer there",
+        "declined": "Declined there"
+      },
+      "errors": {
+        "load": "Unable to read the computers on this account.",
+        "update": "That change didn't go through. Try again."
+      }
+    },
     "modelPicker": {
       "loadFailed": "Couldn't load models",
       "retry": "Retry",
@@ -1952,6 +1975,15 @@
         "saveFailed": "Не удалось сохранить учётные данные."
       }
     },
+    "remoteExecutionConsent": {
+      "title": "Allow work from your other devices?",
+      "body": "Another of your devices asked to run work on this computer. Allowing lets work sent from your devices run here.",
+      "bodyFrom": "{requester} asked to run work on this computer. Allowing lets work sent from your devices run here.",
+      "note": "You can change this later in Connect, under your computers.",
+      "allow": "Allow",
+      "decline": "Not now",
+      "failed": "That answer didn't go through. Try again."
+    },
     "schedule": {
       "dialogTitle": "Расписание",
       "untitledTask": "Задача по расписанию",
@@ -2361,6 +2393,25 @@
       "hideEmailLabel": "Скрыть эл. почту",
       "appearanceSection": "Оформление",
       "computerSection": "Компьютер",
+      "computer": {
+        "sectionLabel": "Где работает Stella",
+        "cloud": "Облако",
+        "statusOnline": "В сети",
+        "statusOffline": "Не в сети",
+        "statusNotReady": "Не готов",
+        "statusNotEnabled": "Пока не включено",
+        "statusAwaitingConsent": "Ожидание разрешения на том компьютере",
+        "statusDeclined": "Отклонено на том компьютере",
+        "connecting": "Подключение…",
+        "enable": "Включить",
+        "enabling": "Включение…",
+        "enableLabel": "Включить {name}",
+        "enableFailedTitle": "Не удалось включить этот компьютер",
+        "connectFailedTitle": "Не удалось подключиться к этому компьютеру",
+        "wake": "Разбудить",
+        "wakeLabel": "Разбудить {name}",
+        "pairingCode": "Использовать код сопряжения"
+      },
       "appearance": {
         "system": "Системная",
         "light": "Светлая",

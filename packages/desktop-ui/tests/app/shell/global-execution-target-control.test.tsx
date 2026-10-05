@@ -4,10 +4,31 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+type MockDevice = {
+  deviceId: string;
+  label: string;
+  online: boolean;
+  remoteExecutionEnabled: boolean;
+  remoteExecution: "unconfigured" | "asking" | "enabled" | "declined";
+  availability?: { ready: boolean; capabilities: string[] };
+};
+
+const READY_ENABLED_DEVICE: MockDevice = {
+  deviceId: "desktop-studio",
+  label: "Studio iMac",
+  online: true,
+  remoteExecutionEnabled: true,
+  remoteExecution: "enabled",
+  availability: { ready: true, capabilities: ["chat"] },
+};
+
 const mocks = vi.hoisted(() => ({
   hasConnectedAccount: false,
   isCloudConversationReady: true,
   deviceReads: [] as unknown[],
+  devices: [] as unknown[],
+  openConnectDialog: vi.fn(),
+  setTarget: vi.fn(),
 }));
 
 vi.mock("@/platform/backend/backend-client", () => ({
@@ -22,21 +43,14 @@ vi.mock("@/features/cloud/placement-client", async (importOriginal) => ({
     mocks.deviceReads.push(args);
     return {
       protocol: 1,
-      devices: [
-        {
-          deviceId: "desktop-studio",
-          label: "Studio iMac",
-          remoteExecutionEnabled: true,
-          online: true,
-          availability: {
-            ready: true,
-            capabilities: ["chat"],
-          },
-        },
-      ],
+      devices: mocks.devices,
       cloud: { capabilities: ["chat"] },
     };
   },
+}));
+
+vi.mock("@/global/integrations/connect-action", () => ({
+  openConnectDialog: mocks.openConnectDialog,
 }));
 
 vi.mock("@/global/auth/services/auth-token", () => ({
@@ -57,7 +71,7 @@ vi.mock("@/global/auth/hooks/use-auth-session-state", () => ({
 
 vi.mock("@/features/execution-placement/execution-target-store", () => ({
   AUTOMATIC_EXECUTION_TARGET: { mode: "automatic" as const },
-  executionTargetStore: { set: vi.fn() },
+  executionTargetStore: { set: mocks.setTarget },
   useExecutionTarget: () => ({ mode: "automatic" as const }),
 }));
 
@@ -104,6 +118,9 @@ describe("GlobalExecutionTargetControl", () => {
     mocks.hasConnectedAccount = false;
     mocks.isCloudConversationReady = true;
     mocks.deviceReads = [];
+    mocks.devices = [{ ...READY_ENABLED_DEVICE }];
+    mocks.openConnectDialog.mockClear();
+    mocks.setTarget.mockClear();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -161,5 +178,113 @@ describe("GlobalExecutionTargetControl", () => {
     );
     expect(studio?.disabled).toBe(false);
     expect(container.textContent).not.toContain("Busy");
+  });
+
+  const renderOpen = async () => {
+    mocks.hasConnectedAccount = true;
+    await act(async () => {
+      root.render(<GlobalExecutionTargetControl />);
+    });
+    await openPicker();
+  };
+
+  const optionFor = (label: string) =>
+    [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes(label),
+    );
+
+  it("names why each listed computer is refusing instead of calling it unavailable", async () => {
+    mocks.devices = [
+      {
+        ...READY_ENABLED_DEVICE,
+        deviceId: "desktop-fresh",
+        label: "Fresh Mac",
+        remoteExecutionEnabled: false,
+        remoteExecution: "unconfigured",
+        availability: undefined,
+      },
+      {
+        ...READY_ENABLED_DEVICE,
+        deviceId: "desktop-asked",
+        label: "Asked Mac",
+        remoteExecutionEnabled: false,
+        remoteExecution: "asking",
+        availability: undefined,
+      },
+      {
+        ...READY_ENABLED_DEVICE,
+        deviceId: "desktop-refused",
+        label: "Refused Mac",
+        remoteExecutionEnabled: false,
+        remoteExecution: "declined",
+        availability: undefined,
+      },
+      {
+        ...READY_ENABLED_DEVICE,
+        deviceId: "desktop-starting",
+        label: "Starting Mac",
+        availability: { ready: false, capabilities: [] },
+      },
+    ];
+    await renderOpen();
+
+    expect(container.textContent).not.toContain("Unavailable");
+    expect(optionFor("Fresh Mac")?.textContent).toContain("Not enabled");
+    expect(optionFor("Asked Mac")?.textContent).toContain(
+      "Waiting for approval",
+    );
+    expect(optionFor("Refused Mac")?.textContent).toContain("Declined");
+    expect(optionFor("Starting Mac")?.textContent).toContain("Not ready");
+  });
+
+  it("will not let a listed but unconfigured computer be chosen, or enable it by being picked", async () => {
+    mocks.devices = [
+      {
+        ...READY_ENABLED_DEVICE,
+        deviceId: "desktop-fresh",
+        label: "Fresh Mac",
+        remoteExecutionEnabled: false,
+        remoteExecution: "unconfigured",
+        availability: undefined,
+      },
+    ];
+    await renderOpen();
+
+    const fresh = optionFor("Fresh Mac");
+    expect(fresh?.disabled).toBe(true);
+
+    await act(async () => fresh?.click());
+
+    expect(mocks.setTarget).not.toHaveBeenCalled();
+    expect(mocks.openConnectDialog).not.toHaveBeenCalled();
+  });
+
+  it("sends enabling to the device list rather than doing it from the picker", async () => {
+    mocks.devices = [
+      {
+        ...READY_ENABLED_DEVICE,
+        deviceId: "desktop-fresh",
+        label: "Fresh Mac",
+        remoteExecutionEnabled: false,
+        remoteExecution: "unconfigured",
+        availability: undefined,
+      },
+    ];
+    await renderOpen();
+
+    const enable = optionFor("Enable a computer");
+    expect(enable).toBeDefined();
+
+    await act(async () => enable?.click());
+
+    expect(mocks.openConnectDialog).toHaveBeenCalledTimes(1);
+    expect(mocks.setTarget).not.toHaveBeenCalled();
+  });
+
+  it("keeps the offer out of the way once every computer has agreed", async () => {
+    await renderOpen();
+
+    expect(optionFor("Enable a computer")).toBeUndefined();
+    expect(optionFor("Studio iMac")?.disabled).toBe(false);
   });
 });

@@ -471,6 +471,29 @@
         "other": "{count} phones paired"
       }
     },
+    "executionDevices": {
+      "title": "Your computers",
+      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
+      "empty": "No computer is signed in to this account yet.",
+      "unnamed": "Computer",
+      "thisComputer": "This computer",
+      "online": "Online",
+      "offline": "Offline",
+      "enable": "Enable",
+      "enabling": "Enabling…",
+      "disable": "Turn off",
+      "disabling": "Turning off…",
+      "state": {
+        "enabled": "Accepting work",
+        "notEnabled": "Not enabled",
+        "asking": "Waiting for an answer there",
+        "declined": "Declined there"
+      },
+      "errors": {
+        "load": "Unable to read the computers on this account.",
+        "update": "That change didn't go through. Try again."
+      }
+    },
     "modelPicker": {
       "searchPlaceholder": "Search models…",
       "searchAriaLabel": "Search models",
@@ -1916,6 +1939,15 @@
         "saveFailed": "Failed to save credential."
       }
     },
+    "remoteExecutionConsent": {
+      "title": "Allow work from your other devices?",
+      "body": "Another of your devices asked to run work on this computer. Allowing lets work sent from your devices run here.",
+      "bodyFrom": "{requester} asked to run work on this computer. Allowing lets work sent from your devices run here.",
+      "note": "You can change this later in Connect, under your computers.",
+      "allow": "Allow",
+      "decline": "Not now",
+      "failed": "That answer didn't go through. Try again."
+    },
     "schedule": {
       "dialogTitle": "Schedule",
       "untitledTask": "Scheduled task",
@@ -2321,6 +2353,25 @@
       "hideEmailLabel": "Hide email",
       "appearanceSection": "Appearance",
       "computerSection": "Computer",
+      "computer": {
+        "sectionLabel": "Where Stella works",
+        "cloud": "Cloud",
+        "statusOnline": "Online",
+        "statusOffline": "Offline",
+        "statusNotReady": "Not ready",
+        "statusNotEnabled": "Not enabled yet",
+        "statusAwaitingConsent": "Waiting for permission on that computer",
+        "statusDeclined": "Declined on that computer",
+        "connecting": "Connecting…",
+        "enable": "Enable",
+        "enabling": "Enabling…",
+        "enableLabel": "Enable {name}",
+        "enableFailedTitle": "Couldn't enable that computer",
+        "connectFailedTitle": "Couldn't connect to that computer",
+        "wake": "Wake up",
+        "wakeLabel": "Wake {name}",
+        "pairingCode": "Use a pairing code"
+      },
       "appearance": {
         "system": "System",
         "light": "Light",

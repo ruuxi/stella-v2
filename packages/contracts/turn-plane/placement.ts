@@ -31,10 +31,56 @@ export const devicePresencePath = (deviceId: string): string =>
 /** `GET /owners/me/devices`: the owner's execution destinations with live presence. */
 export const DEVICES_PATH = "/owners/me/devices" as const;
 
+/**
+ * Whether a device has agreed to run work dispatched to it from elsewhere.
+ *
+ * Being listed and being willing are different facts, and this is the second
+ * one. Signing in puts a computer in `devices`; nothing may be dispatched to
+ * it until the owner has said yes once, either on that computer's own screen
+ * when something first tries (`asking`) or from any signed-in session with the
+ * enable control. Collapsing this into "is registered" would delete the only
+ * step that stops a fresh sign-in from silently becoming a remote shell.
+ *
+ * - `unconfigured`: listed, never asked, never answered.
+ * - `asking`: a consent prompt is open on that device's own screen.
+ * - `enabled`: the owner said yes; dispatch may offer work to it.
+ * - `declined`: the owner said no there; it stays listed and stays refused.
+ */
+export type DeviceRemoteExecution =
+  | "unconfigured"
+  | "asking"
+  | "enabled"
+  | "declined";
+
+/**
+ * A dispatch's `errorCode` when the only thing in the way is that the target
+ * device has not agreed to run remote work. Distinct from offline and from
+ * not-ready because it is the one case the owner can clear with a tap, and
+ * because agent work treats it as worth waiting for.
+ */
+export const SELECTED_DEVICE_NEEDS_CONSENT =
+  "SELECTED_DEVICE_NEEDS_CONSENT" as const;
+
+export const DEVICE_REMOTE_EXECUTION_STATES: readonly DeviceRemoteExecution[] = [
+  "unconfigured",
+  "asking",
+  "enabled",
+  "declined",
+];
+
 export type DeviceDestination = {
   deviceId: string;
   label?: string;
+  /**
+   * `remoteExecution === "enabled"`. Kept as its own field because every
+   * eligibility check reads it, and a boolean is what they mean: the four
+   * states exist to explain *why* a device is refusing, not to be re-derived
+   * at each call site.
+   */
   remoteExecutionEnabled: boolean;
+  remoteExecution: DeviceRemoteExecution;
+  /** When the prompt on that device's screen was last raised. */
+  remoteExecutionAskedAt?: number;
   online: boolean;
   presenceSessionId?: string;
   availability?: DeviceAvailability;
@@ -290,6 +336,20 @@ export type DevicePresenceServerFrame =
       text: string;
     }
   | { type: "dispatch"; dispatch: DispatchSummary }
+  | {
+      /**
+       * Something tried to dispatch work here and this device has not agreed
+       * to accept any. The device asks on its own screen and answers with a
+       * `consent` frame. The dispatch that triggered this does not wait on the
+       * socket: a human tap is not on the offer window's timescale, so the
+       * attempt is refused with `SELECTED_DEVICE_NEEDS_CONSENT` and agent work
+       * retries while the prompt is up.
+       */
+      type: "consent.request";
+      requestedAt: number;
+      /** What asked, when the gate knows it, for the prompt's wording. */
+      requesterLabel?: string;
+    }
   | { type: "pong"; serverTimeMs: number }
   | { type: "error"; code: string; message: string; retryable: boolean };
 
@@ -316,6 +376,15 @@ export type DevicePresenceDeviceFrame =
       dispatchId: string;
       messageId: string;
       delivered: boolean;
+    }
+  | {
+      /**
+       * The answer to `consent.request`, given on this device's own screen.
+       * It arrives on the proven presence socket, so the gate knows it came
+       * from the machine being asked about and not merely from the account.
+       */
+      type: "consent";
+      allow: boolean;
     }
   | { type: "running"; dispatchId: string }
   | { type: "renew"; dispatchId: string }

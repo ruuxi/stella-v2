@@ -467,6 +467,29 @@
         "other": "{count} telefoni abbinati"
       }
     },
+    "executionDevices": {
+      "title": "Your computers",
+      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
+      "empty": "No computer is signed in to this account yet.",
+      "unnamed": "Computer",
+      "thisComputer": "This computer",
+      "online": "Online",
+      "offline": "Offline",
+      "enable": "Enable",
+      "enabling": "Enabling…",
+      "disable": "Turn off",
+      "disabling": "Turning off…",
+      "state": {
+        "enabled": "Accepting work",
+        "notEnabled": "Not enabled",
+        "asking": "Waiting for an answer there",
+        "declined": "Declined there"
+      },
+      "errors": {
+        "load": "Unable to read the computers on this account.",
+        "update": "That change didn't go through. Try again."
+      }
+    },
     "modelPicker": {
       "loadFailed": "Couldn't load models",
       "retry": "Retry",
@@ -1934,6 +1957,15 @@
         "saveFailed": "Salvataggio della credenziale non riuscito."
       }
     },
+    "remoteExecutionConsent": {
+      "title": "Allow work from your other devices?",
+      "body": "Another of your devices asked to run work on this computer. Allowing lets work sent from your devices run here.",
+      "bodyFrom": "{requester} asked to run work on this computer. Allowing lets work sent from your devices run here.",
+      "note": "You can change this later in Connect, under your computers.",
+      "allow": "Allow",
+      "decline": "Not now",
+      "failed": "That answer didn't go through. Try again."
+    },
     "schedule": {
       "dialogTitle": "Pianificazione",
       "untitledTask": "Attività pianificata",
@@ -2341,6 +2373,25 @@
       "hideEmailLabel": "Nascondi l'email",
       "appearanceSection": "Aspetto",
       "computerSection": "Computer",
+      "computer": {
+        "sectionLabel": "Dove lavora Stella",
+        "cloud": "Cloud",
+        "statusOnline": "Online",
+        "statusOffline": "Offline",
+        "statusNotReady": "Non pronto",
+        "statusNotEnabled": "Non ancora abilitato",
+        "statusAwaitingConsent": "In attesa di autorizzazione su quel computer",
+        "statusDeclined": "Rifiutato su quel computer",
+        "connecting": "Connessione…",
+        "enable": "Abilita",
+        "enabling": "Abilitazione…",
+        "enableLabel": "Abilita {name}",
+        "enableFailedTitle": "Impossibile abilitare quel computer",
+        "connectFailedTitle": "Impossibile connettersi a quel computer",
+        "wake": "Risveglia",
+        "wakeLabel": "Risveglia {name}",
+        "pairingCode": "Usa un codice di associazione"
+      },
       "appearance": {
         "system": "Sistema",
         "light": "Chiaro",

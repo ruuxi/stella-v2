@@ -111,6 +111,8 @@ import {
   IPC_APP_SOURCE_APPLY_REMOTE,
   IPC_APP_SOURCE_APPLY_UPSTREAM,
   IPC_APP_SOURCE_GET_STATE,
+  IPC_EXECUTION_ANSWER_REMOTE_REQUEST,
+  IPC_EXECUTION_REMOTE_REQUEST,
   IPC_APP_SOURCE_STATE,
   IPC_APP_SOURCE_UNDO,
   IPC_WINDOW_SET_NATIVE_BUTTONS_VISIBLE,
@@ -490,6 +492,21 @@ contextBridge.exposeInMainWorld("electronAPI", {
     relaunch: () => ipcRenderer.send("app:relaunch"),
     hardReset: () =>
       ipcRenderer.invoke("app:hardResetLocalState") as Promise<{ ok: boolean }>,
+  },
+
+  /**
+   * This computer's own say over whether work sent from the owner's other
+   * devices may run here. Being signed in lists this machine; agreeing once is
+   * separate, and this is where that agreement is given on its own screen.
+   */
+  remoteExecution: {
+    onRequest: onIpc<{ requestedAt: number; requesterLabel?: string }>(
+      IPC_EXECUTION_REMOTE_REQUEST,
+    ),
+    answer: (allow: boolean) =>
+      invokeIpc<{ allow: boolean }>(IPC_EXECUTION_ANSWER_REMOTE_REQUEST, {
+        allow,
+      }),
   },
 
   /** The app's own checkout when running from source; state is null otherwise. */

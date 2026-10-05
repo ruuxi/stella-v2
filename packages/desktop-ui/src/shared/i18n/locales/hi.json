@@ -466,6 +466,29 @@
         "other": "{count} फ़ोन जुड़े"
       }
     },
+    "executionDevices": {
+      "title": "Your computers",
+      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
+      "empty": "No computer is signed in to this account yet.",
+      "unnamed": "Computer",
+      "thisComputer": "This computer",
+      "online": "Online",
+      "offline": "Offline",
+      "enable": "Enable",
+      "enabling": "Enabling…",
+      "disable": "Turn off",
+      "disabling": "Turning off…",
+      "state": {
+        "enabled": "Accepting work",
+        "notEnabled": "Not enabled",
+        "asking": "Waiting for an answer there",
+        "declined": "Declined there"
+      },
+      "errors": {
+        "load": "Unable to read the computers on this account.",
+        "update": "That change didn't go through. Try again."
+      }
+    },
     "modelPicker": {
       "loadFailed": "Couldn't load models",
       "retry": "Retry",
@@ -1916,6 +1939,15 @@
         "saveFailed": "क्रेडेंशियल सहेजने में विफल।"
       }
     },
+    "remoteExecutionConsent": {
+      "title": "Allow work from your other devices?",
+      "body": "Another of your devices asked to run work on this computer. Allowing lets work sent from your devices run here.",
+      "bodyFrom": "{requester} asked to run work on this computer. Allowing lets work sent from your devices run here.",
+      "note": "You can change this later in Connect, under your computers.",
+      "allow": "Allow",
+      "decline": "Not now",
+      "failed": "That answer didn't go through. Try again."
+    },
     "schedule": {
       "dialogTitle": "शेड्यूल",
       "untitledTask": "शेड्यूल किया गया कार्य",
@@ -2321,6 +2353,25 @@
       "hideEmailLabel": "ईमेल छिपाएँ",
       "appearanceSection": "दिखावट",
       "computerSection": "कंप्यूटर",
+      "computer": {
+        "sectionLabel": "Stella कहाँ काम करती है",
+        "cloud": "क्लाउड",
+        "statusOnline": "ऑनलाइन",
+        "statusOffline": "ऑफ़लाइन",
+        "statusNotReady": "तैयार नहीं",
+        "statusNotEnabled": "अभी सक्षम नहीं",
+        "statusAwaitingConsent": "उस कंप्यूटर पर अनुमति की प्रतीक्षा है",
+        "statusDeclined": "उस कंप्यूटर पर अस्वीकृत",
+        "connecting": "कनेक्ट हो रहा है…",
+        "enable": "सक्षम करें",
+        "enabling": "सक्षम कर रहे हैं…",
+        "enableLabel": "{name} को सक्षम करें",
+        "enableFailedTitle": "उस कंप्यूटर को सक्षम नहीं कर सके",
+        "connectFailedTitle": "उस कंप्यूटर से कनेक्ट नहीं कर सके",
+        "wake": "जगाएँ",
+        "wakeLabel": "{name} को जगाएँ",
+        "pairingCode": "पेयरिंग कोड का उपयोग करें"
+      },
       "appearance": {
         "system": "सिस्टम",
         "light": "लाइट",

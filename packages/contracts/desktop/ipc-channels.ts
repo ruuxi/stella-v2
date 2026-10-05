@@ -36,6 +36,18 @@ export const IPC_OFFICE_PREVIEW_LIST = "officePreview:list" as const;
 export const IPC_OFFICE_PREVIEW_START = "officePreview:start" as const;
 export const IPC_OFFICE_PREVIEW_UPDATE = "officePreview:update" as const;
 
+// ── Remote execution consent ────────────────────────────────────────────────
+
+/**
+ * Something tried to dispatch work to this computer and it has not agreed to
+ * accept any. Main broadcasts the question; the renderer asks on this
+ * machine's own screen and answers with the second channel.
+ */
+export const IPC_EXECUTION_REMOTE_REQUEST =
+  "execution:remoteExecutionRequest" as const;
+export const IPC_EXECUTION_ANSWER_REMOTE_REQUEST =
+  "execution:answerRemoteExecutionRequest" as const;
+
 // ── UI State ────────────────────────────────────────────────────────────────
 
 export const IPC_UI_GET_STATE = "ui:getState" as const;

@@ -693,6 +693,12 @@ export class StellaRuntimeHost {
             deviceName: hostname().trim().slice(0, 96) || undefined,
             platform: process.platform,
             getAuthToken: () => this.getConfiguredHostAuthToken(),
+            onRemoteExecutionRequest: (request) => {
+                // Raise it on this machine's screen and return. The dispatch
+                // that asked has already been refused with a retryable code;
+                // nothing is blocked on the user answering.
+                void Promise.resolve(this.options.hostHandlers.notifyRemoteExecutionRequest?.(request)).catch((error) => console.warn("[execution-placement] the remote execution prompt could not be shown.", error));
+            },
             getAvailability: async () => {
                 const platformCapabilities = process.platform === "darwin" || process.platform === "win32"
                     ? ["computer-use"]
@@ -1649,6 +1655,20 @@ export class StellaRuntimeHost {
     }
     async googleWorkspaceDisconnect() {
         return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_GOOGLE_WORKSPACE_DISCONNECT, undefined, { ensureWorker: true, recordActivity: true });
+    }
+    /**
+     * This computer's own answer to the "accept work from your other devices?"
+     * prompt. Goes out on the presence socket, which is proven with the device
+     * key, so the gate knows the machine itself answered.
+     */
+    async answerRemoteExecutionRequest(params) {
+        const allow = Boolean(params && params.allow);
+        const bridge = this.hostExecutionPlacementBridge;
+        if (!bridge) {
+            throw new Error("Execution placement is not running on this computer.");
+        }
+        await bridge.answerRemoteExecutionRequest(allow);
+        return { allow };
     }
     buildWorkerInitializationState() {
         return {

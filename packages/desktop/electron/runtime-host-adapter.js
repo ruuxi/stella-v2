@@ -768,4 +768,7 @@ export class RuntimeHostAdapter {
     googleWorkspaceDisconnect() {
         return this.host.googleWorkspaceDisconnect();
     }
+    answerRemoteExecutionRequest(params) {
+        return this.host.answerRemoteExecutionRequest(params);
+    }
 }

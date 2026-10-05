@@ -12,6 +12,12 @@ import {
   useExecutionTarget,
   type DesktopExecutionTarget,
 } from "@/features/execution-placement/execution-target-store";
+import {
+  executionDeviceBlocker,
+  isExecutionDeviceSelectable,
+  type DeviceExecutionBlocker,
+} from "@/features/execution-placement/device-remote-execution";
+import { openConnectDialog } from "@/global/integrations/connect-action";
 import { getDeviceIdOrNull } from "@/platform/electron/device";
 import {
   Popover,
@@ -25,6 +31,23 @@ import { SIGN_IN_TOAST_ACTION } from "@/shared/lib/auth-cta";
 
 /** Live presence goes stale quickly; refresh while the picker is open. */
 const DEVICE_POLL_INTERVAL_MS = 15_000;
+
+/**
+ * Why a listed computer cannot be picked, said plainly. "Unavailable" used to
+ * cover all of these, which told the user nothing and hid the one case they
+ * can clear themselves: a computer that is simply not enabled yet.
+ *
+ * Enabling happens in the device list (Connect), never here — the picker reads
+ * state and selects a target, and a tap meant as "run it there" must not be
+ * read as consent for that machine.
+ */
+const BLOCKER_LABELS: Record<DeviceExecutionBlocker, string> = {
+  offline: "Offline",
+  notEnabled: "Not enabled",
+  asking: "Waiting for approval",
+  declined: "Declined",
+  notReady: "Not ready",
+};
 
 export function GlobalExecutionTargetControl() {
   const isPrivate = useChatStorageMode() === "local";
@@ -83,15 +106,21 @@ export function GlobalExecutionTargetControl() {
     );
   }, []);
 
+  // Every other computer that is present, plus whichever one is selected even
+  // when it is not. Being listed here says only "signed in and reachable";
+  // whether anything may be sent to it is the label's job.
   const otherDevices = useMemo(
     () =>
       (destinations ?? []).filter(
         (device) =>
           device.deviceId !== currentDeviceId &&
-          ((device.online && device.remoteExecutionEnabled) ||
+          (device.online ||
             (target.mode === "device" && target.deviceId === device.deviceId)),
       ),
     [currentDeviceId, destinations, target],
+  );
+  const hasDeviceToEnable = otherDevices.some(
+    (device) => !device.remoteExecutionEnabled,
   );
   const selectedDevice =
     target.mode === "device"
@@ -169,15 +198,8 @@ export function GlobalExecutionTargetControl() {
             ) : null}
           </button>
           {otherDevices.map((device) => {
-            const selectable =
-              device.online &&
-              device.remoteExecutionEnabled &&
-              device.availability?.ready === true;
-            const unavailableLabel = !device.online
-              ? "Offline"
-              : !device.remoteExecutionEnabled
-                ? "Unavailable"
-                : "Not ready";
+            const blocker = executionDeviceBlocker(device);
+            const selectable = isExecutionDeviceSelectable(device);
             return (
               <button
                 key={device.deviceId}
@@ -190,8 +212,8 @@ export function GlobalExecutionTargetControl() {
               >
                 <AppWindowMac size={16} />
                 <span>{device.label ?? "Computer"}</span>
-                {!selectable ? (
-                  <small>{unavailableLabel}</small>
+                {blocker ? (
+                  <small>{BLOCKER_LABELS[blocker]}</small>
                 ) : target.mode === "device" &&
                   target.deviceId === device.deviceId ? (
                   <Check size={15} />
@@ -199,6 +221,22 @@ export function GlobalExecutionTargetControl() {
               </button>
             );
           })}
+          {hasConnectedAccount && hasDeviceToEnable ? (
+            // The answer lives in the device list, not here: enabling is a
+            // deliberate trip to Connect, never a side effect of a tap meant
+            // to choose where this message runs.
+            <button
+              type="button"
+              className="execution-target-option"
+              onClick={() => {
+                setOpen(false);
+                openConnectDialog();
+              }}
+            >
+              <AppWindowMac size={16} />
+              <span>Enable a computer…</span>
+            </button>
+          ) : null}
         </PopoverBody>
       </PopoverContent>
     </Popover>

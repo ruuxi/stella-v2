@@ -15,6 +15,7 @@ import type {
 } from "@stella/contracts/backend/devices";
 import { hmacSha256Hex, sha256Hex } from "@stella/contracts/turn-plane/pairing-proof";
 import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
+import type { DeviceRemoteExecution } from "@stella/contracts/turn-plane/placement";
 import {
   createTunnel,
   deleteTunnel,
@@ -24,7 +25,7 @@ import {
   tunnelNames,
   writeTunnelDns,
 } from "../../devices/cloudflare-tunnels.js";
-import { array, literal, object, optional, string } from "../args.js";
+import { array, boolean, literal, object, optional, string } from "../args.js";
 import { RpcError } from "../errors.js";
 import { enforceOwnerRateLimit } from "../rate-limit.js";
 import type { OwnerCaller, OwnerContext, OwnerDbReader, OwnerDomain } from "../registry.js";
@@ -136,12 +137,33 @@ export const DEVICES_MIGRATION = {
   ],
 };
 
+/**
+ * Split "listed" from "willing to run dispatched work".
+ *
+ * `remote_execution_enabled` has been written as 1 by every registration since
+ * the table existed, so it is not a setting anyone ever chose — it is just the
+ * absence of the question. The backfill therefore reads it as the migration
+ * input it is: every device already in the table, including every desktop a
+ * phone had paired with, arrives `enabled` and is never asked. Only devices
+ * that register *after* this migration start out `unconfigured`.
+ */
+export const DEVICES_REMOTE_EXECUTION_MIGRATION = {
+  id: "devices.2-remote-execution-consent",
+  statements: [
+    `ALTER TABLE devices ADD COLUMN remote_execution_state TEXT NOT NULL DEFAULT 'unconfigured'`,
+    `ALTER TABLE devices ADD COLUMN remote_execution_asked_at INTEGER`,
+    `UPDATE devices SET remote_execution_state = 'enabled' WHERE remote_execution_enabled = 1`,
+  ],
+};
+
 type DeviceRow = {
   device_id: string;
   public_key: string | null;
   name: string | null;
   platform: string | null;
   remote_execution_enabled: number;
+  remote_execution_state: string;
+  remote_execution_asked_at: number | null;
   capabilities: string;
   registered_at: number | null;
   updated_at: number;
@@ -283,6 +305,12 @@ const identity = async (
   };
 };
 
+/**
+ * Registering is being listed, nothing more. A device the account has never
+ * seen starts `unconfigured`; one that already answered keeps its answer, so
+ * launching Stella again neither re-asks nor quietly re-enables a machine the
+ * owner declined.
+ */
 const register = async (
   ctx: OwnerContext,
   args: DeviceCalls["devices.register"]["args"],
@@ -296,8 +324,9 @@ const register = async (
       throw new RpcError("RATE_LIMITED", "This account has registered too many devices.");
     }
     ctx.db.run(
-      `INSERT INTO devices (device_id, public_key, name, platform, remote_execution_enabled, capabilities, registered_at, updated_at)
-       VALUES (?, ?, ?, ?, 1, ?, ?, ?)`,
+      `INSERT INTO devices (device_id, public_key, name, platform, remote_execution_enabled,
+         remote_execution_state, capabilities, registered_at, updated_at)
+       VALUES (?, ?, ?, ?, 0, 'unconfigured', ?, ?, ?)`,
       args.deviceId,
       args.devicePublicKey,
       args.deviceName ?? null,
@@ -306,7 +335,13 @@ const register = async (
       ctx.now,
       ctx.now,
     );
-    return { deviceId: args.deviceId, ownerGeneration: snapshot.ownerGeneration, remoteExecutionEnabled: true, rotated: false };
+    return {
+      deviceId: args.deviceId,
+      ownerGeneration: snapshot.ownerGeneration,
+      remoteExecutionEnabled: false,
+      remoteExecution: "unconfigured",
+      rotated: false,
+    };
   }
   ctx.db.run(
     `UPDATE devices SET public_key = ?, name = COALESCE(?, name), platform = COALESCE(?, platform),
@@ -323,11 +358,105 @@ const register = async (
     deviceId: args.deviceId,
     ownerGeneration: snapshot.ownerGeneration,
     remoteExecutionEnabled: existing.remote_execution_enabled === 1,
+    remoteExecution: remoteExecutionOf(existing),
     rotated: Boolean(existing.public_key && existing.public_key !== args.devicePublicKey),
   };
 };
 
-/** Move a retired desktop id's pairings, bridge and tunnel onto its successor. */
+/**
+ * The stored consent, tolerating a row written before the consent migration
+ * (or by an older build) by falling back to the boolean it was derived from.
+ */
+const remoteExecutionOf = (
+  row: Pick<DeviceRow, "remote_execution_enabled" | "remote_execution_state">,
+): DeviceRemoteExecution => {
+  const state = row.remote_execution_state?.trim();
+  if (
+    state === "unconfigured" ||
+    state === "asking" ||
+    state === "enabled" ||
+    state === "declined"
+  ) {
+    return state;
+  }
+  return row.remote_execution_enabled === 1 ? "enabled" : "unconfigured";
+};
+
+const writeRemoteExecution = (
+  ctx: OwnerContext,
+  deviceId: string,
+  state: DeviceRemoteExecution,
+  askedAt: number | null,
+): void => {
+  ctx.db.run(
+    `UPDATE devices SET remote_execution_state = ?, remote_execution_enabled = ?,
+       remote_execution_asked_at = ?, updated_at = ? WHERE device_id = ?`,
+    state,
+    state === "enabled" ? 1 : 0,
+    askedAt,
+    ctx.now,
+    deviceId,
+  );
+};
+
+const requireDevice = (ctx: OwnerContext, deviceId: string): DeviceRow => {
+  const row = ctx.db.one<DeviceRow>(
+    "SELECT * FROM devices WHERE device_id = ?",
+    resolveCurrentDeviceId(ctx.db, deviceId),
+  );
+  if (!row) throw new RpcError("NOT_FOUND", "That device is not signed in to this account.");
+  return row;
+};
+
+/**
+ * Enable or disable a device's willingness to run dispatched work.
+ *
+ * Authorized by the account, which is the whole point of the enable control:
+ * the owner should not have to walk to the other machine. Cross-account reach
+ * is impossible here for a structural reason rather than a check — the row
+ * lives in the caller's own owner object, so there is no device of anyone
+ * else's to name.
+ */
+const setRemoteExecution = (
+  ctx: OwnerContext,
+  args: DeviceCalls["devices.setRemoteExecution"]["args"],
+): DeviceCalls["devices.setRemoteExecution"]["result"] => {
+  enforceOwnerRateLimit(ctx.db, ctx.now, "devices.setRemoteExecution", { count: 60, windowMs: 60_000 }, "Too many device permission changes. Please wait a minute and try again.");
+  const row = requireDevice(ctx, args.deviceId);
+  const before = remoteExecutionOf(row);
+  const after: DeviceRemoteExecution = args.enabled ? "enabled" : "declined";
+  if (before === after) {
+    return { deviceId: row.device_id, remoteExecution: before, changed: false };
+  }
+  writeRemoteExecution(ctx, row.device_id, after, null);
+  return { deviceId: row.device_id, remoteExecution: after, changed: true };
+};
+
+/**
+ * Something tried to dispatch here and this device has not agreed. Recorded so
+ * the device raises its own prompt and the list can say an answer is pending.
+ * A device that already said yes is left alone; a device that said no is asked
+ * again, because a later attempt is new information, not a replay.
+ */
+const requestRemoteExecution = (
+  ctx: OwnerContext,
+  args: DeviceCalls["devices.requestRemoteExecution"]["args"],
+): DeviceCalls["devices.requestRemoteExecution"]["result"] => {
+  const row = requireDevice(ctx, args.deviceId);
+  const before = remoteExecutionOf(row);
+  if (before === "enabled") {
+    return { deviceId: row.device_id, remoteExecution: before };
+  }
+  writeRemoteExecution(ctx, row.device_id, "asking", ctx.now);
+  return { deviceId: row.device_id, remoteExecution: "asking" };
+};
+
+/**
+ * Move a retired desktop id's pairings, bridge, tunnel and consent onto its
+ * successor. A desktop mints a new device id when its local keypair stops
+ * being readable; that is the same physical machine, so making the owner
+ * consent again because a key file moved would be a bug, not a safeguard.
+ */
 const adoptSuccession = (
   ctx: OwnerContext,
   args: DeviceCalls["devices.adoptSuccession"]["args"],
@@ -342,7 +471,13 @@ const adoptSuccession = (
   );
   if (existing) {
     if (existing.device_id === args.deviceId) {
-      return { ok: true, migratedPairings: 0, migratedRegistration: false, migratedTunnel: false };
+      return {
+        ok: true,
+        migratedPairings: 0,
+        migratedRegistration: false,
+        migratedTunnel: false,
+        migratedRemoteExecution: false,
+      };
     }
     throw new RpcError("CONFLICT", "This device id has already been succeeded.");
   }
@@ -384,13 +519,39 @@ const adoptSuccession = (
   };
   const migratedRegistration = move("bridge_registrations");
   const migratedTunnel = move("tunnels");
+  const retired = ctx.db.one<DeviceRow>(
+    "SELECT * FROM devices WHERE device_id = ?",
+    args.previousDeviceId,
+  );
+  const successor = ctx.db.one<DeviceRow>(
+    "SELECT * FROM devices WHERE device_id = ?",
+    args.deviceId,
+  );
+  // Only an answer is inherited. A successor that already carries one of its
+  // own keeps it, and `unconfigured` is the absence of an answer, so it has
+  // nothing to pass on.
+  const inherited = retired ? remoteExecutionOf(retired) : "unconfigured";
+  const migratedRemoteExecution = Boolean(
+    successor &&
+      inherited !== "unconfigured" &&
+      remoteExecutionOf(successor) === "unconfigured",
+  );
+  if (migratedRemoteExecution) {
+    writeRemoteExecution(ctx, args.deviceId, inherited, retired?.remote_execution_asked_at ?? null);
+  }
   ctx.db.run(
     "INSERT INTO device_successors (previous_device_id, device_id, rotated_at) VALUES (?, ?, ?)",
     args.previousDeviceId,
     args.deviceId,
     ctx.now,
   );
-  return { ok: true, migratedPairings, migratedRegistration, migratedTunnel };
+  return {
+    ok: true,
+    migratedPairings,
+    migratedRegistration,
+    migratedTunnel,
+    migratedRemoteExecution,
+  };
 };
 
 /** The devices and pairings the gate admits placements and proofs against. */
@@ -403,10 +564,15 @@ export const snapshotDevices = (
       const capabilities = (JSON.parse(row.capabilities) as string[]).filter(
         (entry): entry is ExecutionCapability => CAPABILITIES.includes(entry as ExecutionCapability),
       );
+      const remoteExecution = remoteExecutionOf(row);
       return {
         deviceId: row.device_id,
         publicKey: row.public_key!,
-        remoteExecutionEnabled: row.remote_execution_enabled === 1,
+        remoteExecutionEnabled: remoteExecution === "enabled",
+        remoteExecution,
+        ...(row.remote_execution_asked_at
+          ? { remoteExecutionAskedAt: row.remote_execution_asked_at }
+          : {}),
         ...(row.name?.trim() ? { label: row.name.trim() } : {}),
         ...(capabilities.length > 0 ? { capabilities } : {}),
       };
@@ -509,6 +675,83 @@ const connectIntent = (db: OwnerDbReader, desktopDeviceId: string): ConnectInten
     : null;
 };
 
+/**
+ * Issue this phone a credential for one of the account's desktops.
+ *
+ * The pair secret is not an authorization step; it is the phone's *transport*
+ * key. A phone has no Stella device key the cloud can verify, so this HMAC key
+ * is what stands in for one on the mobile dispatch proof and on the encrypted
+ * desktop bridge. Both callers below mint exactly the same row and differ only
+ * in what they accepted as evidence beforehand.
+ */
+const grantPhoneAccess = async (
+  ctx: OwnerContext,
+  input: {
+    desktopDeviceId: string;
+    mobileDeviceId: string;
+    displayName?: string;
+    platform?: string;
+  },
+) => {
+  const pairSecret = randomFrom(PAIR_SECRET_ALPHABET, PAIR_SECRET_LENGTH);
+  const pairSecretHash = await sha256Hex(pairSecret);
+  ctx.db.run(
+    `INSERT INTO paired_phones (desktop_device_id, mobile_device_id, pair_secret_hash, display_name, platform, approved_at, last_seen_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (desktop_device_id, mobile_device_id) DO UPDATE SET
+       pair_secret_hash = excluded.pair_secret_hash,
+       display_name = COALESCE(excluded.display_name, paired_phones.display_name),
+       platform = COALESCE(excluded.platform, paired_phones.platform),
+       last_seen_at = excluded.last_seen_at,
+       revoked_at = NULL`,
+    input.desktopDeviceId,
+    input.mobileDeviceId,
+    pairSecretHash,
+    input.displayName ?? null,
+    input.platform ?? null,
+    ctx.now,
+    ctx.now,
+  );
+  return { desktopDeviceId: input.desktopDeviceId, approvedAt: ctx.now, pairSecret };
+};
+
+/**
+ * A phone signed into this account asks for a credential for a desktop it can
+ * already see in the device list, with no code to carry between the two.
+ *
+ * This is the replacement for the pairing code, and it is a demotion rather
+ * than a removal: the code only ever proved that whoever held the phone could
+ * also see the desktop's screen, on top of an account check both ends already
+ * passed. Dropping it makes account access sufficient — the trade the owner
+ * chose — and it is still only a credential to *reach* that desktop. Whether
+ * the desktop will run anything is `remote_execution_state`, which this does
+ * not touch.
+ *
+ * The named desktop must be a registered device of this same owner. There is
+ * no cross-account reach to check for: the row lives in the caller's own owner
+ * object, so another account's desktop is not nameable from here.
+ */
+const attachPhone = async (
+  ctx: OwnerContext,
+  input: {
+    desktopDeviceId: string;
+    mobileDeviceId: string;
+    displayName?: string;
+    platform?: string;
+  },
+) => {
+  enforceOwnerRateLimit(ctx.db, ctx.now, "phone.attach", { count: 30, windowMs: 60_000 }, "Too many connection attempts. Please wait a minute and try again.");
+  const desktopDeviceId = resolveCurrentDeviceId(ctx.db, input.desktopDeviceId);
+  const desktop = ctx.db.one<{ device_id: string }>(
+    "SELECT device_id FROM devices WHERE device_id = ? AND public_key IS NOT NULL",
+    desktopDeviceId,
+  );
+  if (!desktop) {
+    throw new RpcError("NOT_FOUND", "That computer is not signed in to this account.");
+  }
+  return await grantPhoneAccess(ctx, { ...input, desktopDeviceId });
+};
+
 /** A phone signed into this account redeems a desktop's pairing code. */
 const completePairing = async (
   ctx: OwnerContext,
@@ -522,27 +765,12 @@ const completePairing = async (
   if (!session || session.used_at !== null || session.expires_at <= ctx.now) {
     throw new RpcError("BAD_REQUEST", "This pairing code is unavailable.");
   }
-  const pairSecret = randomFrom(PAIR_SECRET_ALPHABET, PAIR_SECRET_LENGTH);
-  const pairSecretHash = await sha256Hex(pairSecret);
-  ctx.db.run(
-    `INSERT INTO paired_phones (desktop_device_id, mobile_device_id, pair_secret_hash, display_name, platform, approved_at, last_seen_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT (desktop_device_id, mobile_device_id) DO UPDATE SET
-       pair_secret_hash = excluded.pair_secret_hash,
-       display_name = COALESCE(excluded.display_name, paired_phones.display_name),
-       platform = COALESCE(excluded.platform, paired_phones.platform),
-       last_seen_at = excluded.last_seen_at,
-       revoked_at = NULL`,
-    session.desktop_device_id,
-    input.mobileDeviceId,
-    pairSecretHash,
-    input.displayName ?? null,
-    input.platform ?? null,
-    ctx.now,
-    ctx.now,
-  );
+  const granted = await grantPhoneAccess(ctx, {
+    ...input,
+    desktopDeviceId: session.desktop_device_id,
+  });
   ctx.db.run("UPDATE pairing_codes SET used_at = ? WHERE code = ?", ctx.now, input.pairingCode);
-  return { desktopDeviceId: session.desktop_device_id, approvedAt: ctx.now, pairSecret };
+  return granted;
 };
 
 type PairProof = {
@@ -973,6 +1201,29 @@ export const handleMobileRoute = async (ctx: OwnerContext, input: MobileRouteInp
       ctx.db.run("DELETE FROM push_tokens WHERE mobile_device_id = ?", mobileDeviceId);
       return { status: 200, body: { ok: true } };
     }
+    case "POST pairing/attach": {
+      const desktopDeviceId = text(body.desktopDeviceId, 256);
+      const mobileDeviceId = text(body.mobileDeviceId, 256) || text(input.headers["x-stella-mobile-device-id"], 256);
+      if (!desktopDeviceId || !mobileDeviceId) {
+        return error(400, "desktopDeviceId and mobileDeviceId are required");
+      }
+      const displayName = optionalText(body.displayName, 64);
+      const platform = optionalText(body.platform, 64);
+      try {
+        return {
+          status: 200,
+          body: await attachPhone(ctx, {
+            desktopDeviceId,
+            mobileDeviceId,
+            ...(displayName ? { displayName } : {}),
+            ...(platform ? { platform } : {}),
+          }),
+        };
+      } catch (caught) {
+        if (caught instanceof RpcError && caught.code !== "RATE_LIMITED") return error(400, caught.message);
+        throw caught;
+      }
+    }
     case "POST pairing/complete": {
       const pairingCode = text(body.pairingCode, 12).toUpperCase();
       const mobileDeviceId = text(body.mobileDeviceId, 256);
@@ -1091,7 +1342,7 @@ const deviceIdArg = string({ min: 1, max: 256 });
 
 export const devicesDomain = {
   name: "devices",
-  migrations: [DEVICES_MIGRATION],
+  migrations: [DEVICES_MIGRATION, DEVICES_REMOTE_EXECUTION_MIGRATION],
   calls: {
     "devices.identity": {
       scope: "owner",
@@ -1110,6 +1361,18 @@ export const devicesDomain = {
         capabilities: optional(array(literal(...CAPABILITIES), { max: 8 })),
       }),
       handler: (ctx: OwnerContext, args: DeviceCalls["devices.register"]["args"]) => register(ctx, args),
+    },
+    "devices.setRemoteExecution": {
+      scope: "owner",
+      requireAccount: true,
+      parse: object({ deviceId: deviceIdArg, enabled: boolean() }),
+      handler: (ctx: OwnerContext, args: DeviceCalls["devices.setRemoteExecution"]["args"]) => setRemoteExecution(ctx, args),
+    },
+    "devices.requestRemoteExecution": {
+      scope: "owner",
+      requireAccount: true,
+      parse: object({ deviceId: deviceIdArg }),
+      handler: (ctx: OwnerContext, args: DeviceCalls["devices.requestRemoteExecution"]["args"]) => requestRemoteExecution(ctx, args),
     },
     "devices.adoptSuccession": {
       scope: "owner",
@@ -1148,6 +1411,22 @@ export const devicesDomain = {
       parse: object({ kind: literal("started", "completed", "failed") }),
       handler: (ctx: OwnerContext, args: DeviceCalls["phone.notifyActivity"]["args"]) => notifyPhones(ctx, args.kind),
     },
+  },
+  /**
+   * The gate owns the presence socket, so it is the gate that raises the
+   * consent question and the gate that receives the answer the device signs
+   * for on that socket. Both land here as internal writes rather than as
+   * account calls, because the authority in those two moments is the device
+   * key, not a user token.
+   */
+  internal: {
+    "devices.setRemoteExecution": (ctx: OwnerContext, raw: unknown) =>
+      setRemoteExecution(
+        ctx,
+        object({ deviceId: deviceIdArg, enabled: boolean() })(raw),
+      ),
+    "devices.requestRemoteExecution": (ctx: OwnerContext, raw: unknown) =>
+      requestRemoteExecution(ctx, object({ deviceId: deviceIdArg })(raw)),
   },
   views: {
     "phone.access": {

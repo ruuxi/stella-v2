@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import { hostname } from "node:os";
 import path from "node:path";
 import { app } from "electron";
 import {
@@ -9,8 +10,10 @@ import type { AppSourceRemote } from "@stella/contracts/backend/app-source";
 import type {
   AppSourceActionResult,
   AppSourceDraft,
+  AppSourceElsewhere,
   AppSourceState,
 } from "@stella/contracts/desktop/app-source";
+import { isUpdateDraft } from "@stella/contracts/desktop/app-source";
 import {
   DRAFT_REF_PREFIX,
   git,
@@ -86,6 +89,15 @@ const FORK_REF_PREFIX = "refs/remotes/stella-fork/";
 const UPSTREAM_REF = "refs/remotes/stella-upstream/main";
 /** Under the git common dir: the agent whose draft each applied commit was. */
 const COMMIT_AGENTS_DIR = "stella-commits";
+/**
+ * An agent's change applied here is tagged `stella-change/<hex agent id>`,
+ * annotated with this computer's name, and pushed to the fork with main, so
+ * the owner's other computers can offer it on that agent's completion.
+ */
+const CHANGE_TAG = "stella-change/";
+const CHANGE_TAG_PREFIX = `refs/tags/${CHANGE_TAG}`;
+/** Every computer's change tags, as last fetched from the fork. */
+const FORK_CHANGES_PREFIX = "refs/stella/fork-changes/";
 /** A change here takes a relaunch (main and preload build on launch). */
 const RESTART_PREFIX = "packages/desktop/electron/";
 /** Public: anonymous users read upstream with a shared, edge-cached token. */
@@ -104,8 +116,15 @@ const EMPTY_STATE: AppSourceState = {
   remote: { status: "none", count: 0 },
   upstream: NO_UPSTREAM,
   recent: [],
+  elsewhere: [],
   busy: false,
 };
+
+/** This computer, as the owner's other computers name it. */
+const deviceName = () =>
+  hostname()
+    .trim()
+    .replace(/\.(local|localdomain|lan|home)$/i, "");
 
 const errorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
@@ -213,7 +232,9 @@ export class AppSourceService {
       }
       await git(cwd, ["merge", "--ff-only", tip]);
       await git(cwd, ["branch", "-D", `draft/${name}`]);
-      await this.rememberAgent(cwd, name, tip);
+      // An official update merged with the user's changes isn't a change
+      // they asked for: it stays out of the chat and off their other computers.
+      if (!isUpdateDraft(name)) await this.rememberAgent(cwd, name, tip);
       await this.swapIn(cwd, head, tip);
     });
   }
@@ -225,6 +246,22 @@ export class AppSourceService {
     if (!agentId) return;
     await this.writeChange(cwd, sha, agentId, false);
     await fs.rm(from, { force: true });
+    // Best-effort: without the tag the change only goes unannounced elsewhere.
+    const tag = await gitRaw(
+      cwd,
+      [
+        "tag",
+        "--force",
+        "--annotate",
+        `--message=${deviceName()}`,
+        `${CHANGE_TAG}${Buffer.from(agentId).toString("hex")}`,
+        sha,
+      ],
+      { env: await this.identityEnv(cwd) },
+    );
+    if (tag.code !== 0) {
+      this.options.log("app-source.change-tag-failed", { message: tag.stderr.trim() });
+    }
   }
 
   /** Note a commit as applying (or undoing) an agent's change. */
@@ -552,21 +589,60 @@ export class AppSourceService {
           };
         }),
     );
-    const [remote, upstream] = await Promise.all([
+    const [remote, upstream, elsewhere] = await Promise.all([
       this.forkBranch
         ? this.compareRef(cwd, head, `${FORK_REF_PREFIX}${this.forkBranch}`)
         : null,
       this.upstreamTracked ? this.compareRef(cwd, head, UPSTREAM_REF) : null,
+      this.readElsewhere(cwd),
     ]);
+    // The other computer only took the official update: that is the top
+    // bar's Update here, not a change of the user's.
+    const officialOnly =
+      remote !== null &&
+      upstream !== null &&
+      (await isAncestor(cwd, `${FORK_REF_PREFIX}${this.forkBranch}`, UPSTREAM_REF));
     return {
       ready,
       stale,
-      remote: remote
-        ? { status: remote.status, count: remote.count }
-        : { status: "none", count: 0 },
+      remote:
+        remote && !officialOnly
+          ? { status: remote.status, count: remote.count }
+          : { status: "none", count: 0 },
       upstream: upstream ?? NO_UPSTREAM,
       recent,
+      elsewhere,
     };
+  }
+
+  /**
+   * Agents' changes tagged on the owner's other computers (fetched from the
+   * fork, minus this computer's own tags), and whether HEAD already has each.
+   */
+  private async readElsewhere(cwd: string): Promise<AppSourceElsewhere[]> {
+    const format = "--format=%(refname)%00%(*objectname)%00%(contents:subject)";
+    const [all, merged, own] = await Promise.all([
+      git(cwd, ["for-each-ref", format, FORK_CHANGES_PREFIX]),
+      git(cwd, ["for-each-ref", "--merged=HEAD", "--format=%(refname)", FORK_CHANGES_PREFIX]),
+      git(cwd, ["for-each-ref", "--format=%(refname)", CHANGE_TAG_PREFIX]),
+    ]);
+    const here = new Set(merged.split("\n"));
+    const mine = new Set(
+      own.split("\n").map((ref) => ref.slice(CHANGE_TAG_PREFIX.length)),
+    );
+    const changes: AppSourceElsewhere[] = [];
+    for (const line of all.split("\n").filter(Boolean)) {
+      const [refname = "", sha = "", device = ""] = line.split("\0");
+      const key = refname.slice(FORK_CHANGES_PREFIX.length);
+      if (!sha || mine.has(key) || !/^([0-9a-f]{2})+$/.test(key)) continue;
+      changes.push({
+        agentId: Buffer.from(key, "hex").toString("utf8"),
+        sha,
+        device,
+        here: here.has(refname),
+      });
+    }
+    return changes;
   }
 
   /** A remote-tracking ref that has commits HEAD lacks, or null. */
@@ -632,6 +708,7 @@ export class AppSourceService {
         "--no-write-fetch-head",
         fork.remote,
         `+refs/heads/${fork.branch}:${ref}`,
+        `+${CHANGE_TAG_PREFIX}*:${FORK_CHANGES_PREFIX}*`,
       ],
       { env: fetchEnv(fork.token), timeoutMs: 5 * 60_000 },
     );
@@ -688,22 +765,51 @@ export class AppSourceService {
     const head = await git(cwd, ["rev-parse", "HEAD"]);
     const forkTip = await git(cwd, ["rev-parse", "--verify", ref]);
     // Only fast-forwards: a diverged fork is merged by an agent, never forced.
-    if (forkTip === head || !(await isAncestor(cwd, forkTip, head))) return;
+    if (forkTip !== head && (await isAncestor(cwd, forkTip, head))) {
+      await git(
+        cwd,
+        ["push", "--quiet", fork.remote, `HEAD:refs/heads/${fork.branch}`],
+        { env: pushEnv(fork.token), timeoutMs: 5 * 60_000 },
+      );
+      await git(cwd, ["update-ref", ref, head]);
+      const onPushed = this.options.onPushed;
+      if (onPushed) {
+        void Promise.resolve()
+          .then(() => onPushed(cwd))
+          .catch((error) => {
+            this.options.log("app-source.on-pushed-failed", {
+              message: errorMessage(error),
+            });
+          });
+      }
+    }
+    await this.pushChangeTags(cwd, fork, ref);
+  }
+
+  /** Push this computer's change tags whose change the fork's main now has. */
+  private async pushChangeTags(cwd: string, fork: ForkAccess, forkRef: string) {
+    const format = "--format=%(refname)%00%(objectname)";
+    const [own, pushed] = await Promise.all([
+      git(cwd, ["for-each-ref", `--merged=${forkRef}`, format, CHANGE_TAG_PREFIX]),
+      git(cwd, ["for-each-ref", format, FORK_CHANGES_PREFIX]),
+    ]);
+    const onFork = new Set(
+      pushed.split("\n").map((line) => line.slice(FORK_CHANGES_PREFIX.length)),
+    );
+    // A tag moves when the same agent's next change is applied.
+    const tags = own
+      .split("\n")
+      .filter((line) => line && !onFork.has(line.slice(CHANGE_TAG_PREFIX.length)))
+      .map((line) => line.split("\0") as [string, string]);
+    if (tags.length === 0) return;
     await git(
       cwd,
-      ["push", "--quiet", fork.remote, `HEAD:refs/heads/${fork.branch}`],
+      ["push", "--quiet", fork.remote, ...tags.map(([name]) => `+${name}:${name}`)],
       { env: pushEnv(fork.token), timeoutMs: 5 * 60_000 },
     );
-    await git(cwd, ["update-ref", ref, head]);
-    const onPushed = this.options.onPushed;
-    if (onPushed) {
-      void Promise.resolve()
-        .then(() => onPushed(cwd))
-        .catch((error) => {
-          this.options.log("app-source.on-pushed-failed", {
-            message: errorMessage(error),
-          });
-        });
+    for (const [name, object] of tags) {
+      const key = name.slice(CHANGE_TAG_PREFIX.length);
+      await git(cwd, ["update-ref", `${FORK_CHANGES_PREFIX}${key}`, object]);
     }
   }
 

@@ -1,0 +1,86 @@
+/* Right-cluster action. Height matches the account / panel controls'
+   visual weight without the old left-cluster top offset. */
+.shell-topbar-update-pill {
+  --shell-topbar-update-pill-height: 22px;
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  flex: 0 0 auto;
+  height: var(--shell-topbar-update-pill-height);
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--foreground) 6%, transparent);
+  border: 1px solid color-mix(in oklch, var(--foreground) 10%, transparent);
+  color: var(--text-base);
+  -webkit-app-region: no-drag;
+  overflow: hidden;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.shell-topbar-update-pill[data-state="ready"] {
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+  border-color: color-mix(in oklch, var(--primary) 36%, transparent);
+  color: var(--text-strong);
+}
+
+/* The update is under way (applying, or merging with the user's changes) —
+   keep the pill in the primary colour so it reads as "in progress", but
+   dimmed and inert. */
+.shell-topbar-update-pill[data-state="updating"] {
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+  border-color: color-mix(in oklch, var(--primary) 36%, transparent);
+  color: var(--text-strong);
+  opacity: 0.7;
+  cursor: default;
+}
+
+.shell-topbar-update-pill[data-state="updating"]:hover {
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+  border-color: color-mix(in oklch, var(--primary) 36%, transparent);
+}
+
+.shell-topbar-update-pill:hover {
+  background: color-mix(in oklch, var(--foreground) 10%, transparent);
+  border-color: color-mix(in oklch, var(--foreground) 16%, transparent);
+  color: var(--text-strong);
+}
+
+.shell-topbar-update-pill__main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  padding: 0 16px 0 13px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: var(--font-size-2xs);
+  font-weight: var(--weight-semibold);
+  line-height: 1;
+  cursor: default;
+  -webkit-app-region: no-drag;
+}
+
+.shell-topbar-update-pill__main:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.shell-topbar-update-pill__main:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.shell-topbar-update-pill__label {
+  display: inline-flex;
+  align-items: baseline;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.shell-topbar-update-pill__icon {
+  flex-shrink: 0;
+  opacity: 0.88;
+}

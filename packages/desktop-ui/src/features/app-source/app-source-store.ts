@@ -3,8 +3,11 @@ import type {
   AppSourceActionResult,
   AppSourceCommit,
   AppSourceDraft,
+  AppSourceElsewhere,
   AppSourceState,
 } from "@stella/contracts/desktop/app-source";
+import { isUpdateDraft } from "@stella/contracts/desktop/app-source";
+import { dispatchStellaSendMessage } from "@/shared/lib/stella-send-message";
 
 /**
  * The app's own source state (drafts to apply, recent changes, the user's
@@ -49,6 +52,14 @@ export const useAppSourceState = () =>
 export const appSourceApi = () => window.electronAPI?.appSource ?? null;
 
 /**
+ * Hand git work Stella can't do alone (a rebase, a merge, an undo that
+ * conflicts) to an agent in the background. The message is hidden: pressing
+ * the button was the request, so the chat doesn't show the user asking.
+ */
+export const handOffToAgent = (text: string) =>
+  dispatchStellaSendMessage({ text, uiVisibility: "hidden" }, { openPanel: false });
+
+/**
  * The card whose action is running, by key. Shared, because the same card can
  * be mounted twice (the chat column under the home screen, and the home screen).
  */
@@ -86,21 +97,76 @@ export const runAppSourceAction = async (
 export type AgentChange =
   | { kind: "ready"; draft: AppSourceDraft }
   | { kind: "stale"; draft: AppSourceDraft }
-  | { kind: "applied"; commit: AppSourceCommit };
+  | { kind: "applied"; commit: AppSourceCommit }
+  | { kind: "elsewhere"; change: AppSourceElsewhere };
 
 /**
  * The newest thing an agent's change is: a draft to apply, a draft whose base
- * moved, or a commit already in the version (applied, or undone again).
+ * moved, a commit already in the version (applied, or undone again), or a
+ * change applied on another of the owner's computers. Official update merges
+ * are the top bar's, never the chat's.
  */
 export const agentChange = (
   state: AppSourceState,
   agentId: string,
 ): AgentChange | null => {
-  const ready = state.ready.find((draft) => draft.agentId === agentId);
+  const mine = (draft: AppSourceDraft) =>
+    draft.agentId === agentId && !isUpdateDraft(draft.name);
+  const ready = state.ready.find(mine);
   if (ready) return { kind: "ready", draft: ready };
-  const stale = state.stale.find((draft) => draft.agentId === agentId);
+  const stale = state.stale.find(mine);
   if (stale) return { kind: "stale", draft: stale };
   // `recent` is newest first.
   const commit = state.recent.find((entry) => entry.agentId === agentId);
-  return commit ? { kind: "applied", commit } : null;
+  if (commit) return { kind: "applied", commit };
+  const change = state.elsewhere.find((entry) => entry.agentId === agentId);
+  return change ? { kind: "elsewhere", change } : null;
 };
+
+/**
+ * The official update the top bar offers: a merge of it with the user's own
+ * changes that is ready to take, or the published version itself.
+ */
+export const officialUpdate = (state: AppSourceState) => {
+  const merged = state.ready.find((draft) => isUpdateDraft(draft.name));
+  if (merged) return { kind: "merged" as const, draft: merged };
+  if (state.upstream.status === "ahead") return { kind: "ahead" as const };
+  if (state.upstream.status === "diverged") return { kind: "diverged" as const };
+  return null;
+};
+
+/**
+ * The user pressed Update while the update has to be merged with their own
+ * changes: an agent merges it in the background, and the merge is taken the
+ * moment it is ready (pressing Update was the go-ahead). Forgotten after a
+ * while, so a merge that never lands doesn't leave Update stuck.
+ */
+const MERGE_WAIT_MS = 30 * 60_000;
+let mergeRequestedAt: number | null = null;
+const mergeListeners = new Set<() => void>();
+const setMergeRequestedAt = (next: number | null) => {
+  mergeRequestedAt = next;
+  for (const listener of mergeListeners) listener();
+};
+const subscribeMerge = (listener: () => void) => {
+  mergeListeners.add(listener);
+  return () => {
+    mergeListeners.delete(listener);
+  };
+};
+let mergeTimer: number | null = null;
+
+export const requestUpdateMerge = () => {
+  setMergeRequestedAt(Date.now());
+  if (mergeTimer !== null) window.clearTimeout(mergeTimer);
+  mergeTimer = window.setTimeout(() => setMergeRequestedAt(null), MERGE_WAIT_MS);
+};
+
+export const clearUpdateMerge = () => {
+  if (mergeTimer !== null) window.clearTimeout(mergeTimer);
+  mergeTimer = null;
+  setMergeRequestedAt(null);
+};
+
+export const useUpdateMergeRequested = () =>
+  useSyncExternalStore(subscribeMerge, () => mergeRequestedAt !== null);

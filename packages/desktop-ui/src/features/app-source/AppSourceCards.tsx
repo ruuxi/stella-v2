@@ -1,12 +1,16 @@
 import { memo, type ReactNode, useEffect, useState } from "react";
-import type { AppSourceActionResult } from "@stella/contracts/desktop/app-source";
+import {
+  type AppSourceActionResult,
+  type AppSourceDraft,
+  isUpdateDraft,
+} from "@stella/contracts/desktop/app-source";
 import { GrowIn } from "@/app/chat/GrowIn";
 import { showToast } from "@/ui/toast";
-import { dispatchStellaSendMessage } from "@/shared/lib/stella-send-message";
 import { useLocale, useT, useTPlural } from "@/shared/i18n";
 import {
   agentChange,
   appSourceApi,
+  handOffToAgent,
   runAppSourceAction,
   useAppSourceState,
   usePendingAppSourceAction,
@@ -14,14 +18,13 @@ import {
 import { UpdateCard } from "./UpdateCard";
 
 /**
- * Changes to Stella in the chat, where the user asked for them: an agent's
- * draft shows on the message that relays its completion (Update, then
- * Undo); changes no agent made here (the user's other computers, a new
- * published version) pin above the composer. Nothing renders unless Stella
- * runs from source.
+ * Changes the user asked Stella to make, in the chat: an agent's draft shows
+ * on the message that relays its completion (Update, then Undo), and on the
+ * user's other computers the same message offers to add the change there.
+ * Changes no agent here made (by hand, or from another computer outside this
+ * chat) pin above the composer. Official updates are the top bar's
+ * (`ShellTopBarUpdatePill`). Nothing renders unless Stella runs from source.
  */
-
-const ask = (text: string) => dispatchStellaSendMessage({ text }, { openPanel: false });
 
 /** Re-render every half minute so "Updated 3 minutes ago" stays true. */
 const useNow = () => {
@@ -86,12 +89,42 @@ export const AgentUpdateCard = memo(function AgentUpdateCard({
   const now = useNow();
   const state = useAppSourceState();
   const { pending: running, run } = useAction();
-  const [conflict, setConflict] = useState<string | null>(null);
   const api = appSourceApi();
   const change = state ? agentChange(state, agentId) : null;
   if (!state || !api || !change) return null;
   const pending = running === agentId;
   const blocked = (state.busy || running !== null) && !pending;
+
+  if (change.kind === "elsewhere") {
+    // Made on another computer: it never applies here on its own, and it isn't
+    // an official update, so it doesn't say Update.
+    const { change: other } = change;
+    const title = other.device
+      ? t("shell.appSource.changedOn", { device: other.device })
+      : t("shell.appSource.changedElsewhere");
+    if (other.here) {
+      return (
+        <UpdateCard tone="done" title={title} detail={t("shell.appSource.added")} action={null} />
+      );
+    }
+    return (
+      <UpdateCard
+        tone="update"
+        title={title}
+        detail={t("shell.appSource.addPrompt")}
+        busy={pending}
+        disabled={blocked}
+        action={{
+          label: t("shell.appSource.addHere"),
+          primary: true,
+          onClick: () =>
+            state.remote.status === "diverged"
+              ? handOffToAgent(t("shell.appSource.askMerge"))
+              : void run(agentId, () => api.applyRemote()),
+        }}
+      />
+    );
+  }
 
   if (change.kind === "ready" || change.kind === "stale") {
     const { draft } = change;
@@ -101,42 +134,26 @@ export const AgentUpdateCard = memo(function AgentUpdateCard({
       : tPlural("shell.appSource.files", draft.files);
     return (
       <UpdateCard
-        tone={stale ? "attention" : "update"}
+        tone="update"
         title={draft.subject || draft.name}
         detail={stale ? t("shell.appSource.outdated") : `${t("shell.appSource.title")} · ${shape}`}
         busy={pending}
         disabled={blocked}
-        action={
-          stale
-            ? {
-                label: t("shell.appSource.ask"),
-                onClick: () => ask(t("shell.appSource.askRebase", { name: draft.name })),
-              }
-            : {
-                label: t("shell.appSource.update"),
-                primary: true,
-                onClick: () => void run(agentId, () => api.apply(draft.name)),
-              }
-        }
+        action={{
+          label: t("shell.appSource.update"),
+          primary: true,
+          // A draft whose base moved goes to an agent to bring up to date.
+          onClick: () =>
+            stale
+              ? handOffToAgent(t("shell.appSource.askRebase", { name: draft.name }))
+              : void run(agentId, () => api.apply(draft.name)),
+        }}
       />
     );
   }
 
   const { commit } = change;
   const subject = subjectOf(commit.subject);
-  if (conflict === commit.sha) {
-    return (
-      <UpdateCard
-        tone="attention"
-        title={subject}
-        detail={t("shell.appSource.undoConflict")}
-        action={{
-          label: t("shell.appSource.ask"),
-          onClick: () => ask(t("shell.appSource.askUndo", { subject })),
-        }}
-      />
-    );
-  }
   const recent = now - commit.date < 60_000;
   const when = ago(locale, commit.date, now);
   return (
@@ -158,7 +175,11 @@ export const AgentUpdateCard = memo(function AgentUpdateCard({
         // Undoing an undo takes the change again.
         label: commit.undone ? t("shell.appSource.update") : t("shell.appSource.undo"),
         primary: commit.undone,
-        onClick: () => void run(agentId, () => api.undo(commit.sha), () => setConflict(commit.sha)),
+        // An undo later changes conflict with goes to an agent.
+        onClick: () =>
+          void run(agentId, () => api.undo(commit.sha), () =>
+            handOffToAgent(t("shell.appSource.askUndo", { subject })),
+          ),
       }}
     />
   );
@@ -200,7 +221,7 @@ const useLeavingOffers = (offers: Offer[]) => {
   ];
 };
 
-/** Changes no agent here made: drafts made by hand, other computers, published updates. */
+/** Changes no agent here made: drafts made by hand, other computers. */
 export const AppSourceOffers = memo(function AppSourceOffers() {
   const t = useT();
   const tPlural = useTPlural();
@@ -225,7 +246,8 @@ export const AppSourceOffers = memo(function AppSourceOffers() {
           />
         ),
       });
-    for (const draft of state.ready.filter((entry) => !entry.agentId)) {
+    const byHand = (entry: AppSourceDraft) => !entry.agentId && !isUpdateDraft(entry.name);
+    for (const draft of state.ready.filter(byHand)) {
       const key = `ready:${draft.sha}`;
       offer(key, {
         tone: "update",
@@ -242,47 +264,34 @@ export const AppSourceOffers = memo(function AppSourceOffers() {
         },
       });
     }
-    for (const draft of state.stale.filter((entry) => !entry.agentId)) {
+    for (const draft of state.stale.filter(byHand)) {
       offer(`stale:${draft.sha}`, {
-        tone: "attention",
+        tone: "update",
         title: draft.subject || draft.name,
         detail: t("shell.appSource.outdated"),
         action: {
-          label: t("shell.appSource.ask"),
-          onClick: () => ask(t("shell.appSource.askRebase", { name: draft.name })),
+          label: t("shell.appSource.update"),
+          primary: true,
+          onClick: () => handOffToAgent(t("shell.appSource.askRebase", { name: draft.name })),
         },
       });
     }
-    if (state.remote.status !== "none") {
+    // Another computer's changes, unless an agent's change in the chat
+    // already offers them (adding it takes them all).
+    if (state.remote.status !== "none" && !state.elsewhere.some((change) => !change.here)) {
       const diverged = state.remote.status === "diverged";
       offer("remote", {
-        tone: diverged ? "attention" : "update",
-        title: diverged
-          ? t("shell.appSource.diverged")
-          : t("shell.appSource.fromOtherComputer"),
+        tone: "update",
+        title: t("shell.appSource.changedElsewhere"),
         detail: tPlural("shell.appSource.changes", state.remote.count),
-        action: diverged
-          ? { label: t("shell.appSource.ask"), onClick: () => ask(t("shell.appSource.askMerge")) }
-          : {
-              label: t("shell.appSource.update"),
-              primary: true,
-              onClick: () => void run("remote", () => api.applyRemote()),
-            },
-      });
-    }
-    if (state.upstream.status !== "none") {
-      const diverged = state.upstream.status === "diverged";
-      offer("upstream", {
-        tone: diverged ? "attention" : "update",
-        title: t("shell.appSource.updateAvailable"),
-        detail: diverged ? t("shell.appSource.updateNeedsMerge") : state.upstream.subject,
-        action: diverged
-          ? { label: t("shell.appSource.ask"), onClick: () => ask(t("shell.appSource.askUpdate")) }
-          : {
-              label: t("shell.appSource.update"),
-              primary: true,
-              onClick: () => void run("upstream", () => api.applyUpstream()),
-            },
+        action: {
+          label: t("shell.appSource.addHere"),
+          primary: true,
+          onClick: () =>
+            diverged
+              ? handOffToAgent(t("shell.appSource.askMerge"))
+              : void run("remote", () => api.applyRemote()),
+        },
       });
     }
   }

@@ -33,6 +33,27 @@ export type AppSourceCommit = {
   undone?: boolean;
 };
 
+/**
+ * An agent's change applied on another of the owner's computers (shared
+ * through the fork). The chat shows it on that agent's completion, where the
+ * user adds it to this computer with a click; nothing applies it on its own.
+ */
+export type AppSourceElsewhere = {
+  agentId: string;
+  sha: string;
+  /** The computer it was applied on. */
+  device: string;
+  /** This computer already runs it. */
+  here: boolean;
+};
+
+/**
+ * A draft merging the published app (upstream) with the user's own changes
+ * (the modify-stella skill names it `update-<sha12>`). It is an official
+ * update, so it goes through the top bar's Update, never the chat.
+ */
+export const isUpdateDraft = (name: string) => name.startsWith("update-");
+
 export type AppSourceState = {
   /** Finished drafts that fast-forward the current branch. */
   ready: AppSourceDraft[];
@@ -52,6 +73,8 @@ export type AppSourceState = {
   };
   /** Recent first-parent commits on the current branch, newest first. */
   recent: AppSourceCommit[];
+  /** Agents' changes applied on the owner's other computers. */
+  elsewhere: AppSourceElsewhere[];
   /** An apply or undo is running. */
   busy: boolean;
 };

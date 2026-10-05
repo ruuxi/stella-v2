@@ -112,8 +112,9 @@ const AboveComposerCards = memo(function AboveComposerCards({
       {/* Sign-in / plan-limit / provider notices pin here too, so the
           thing blocking the composer sits right above it. */}
       <ComposerNotice conversationId={conversationId} />
-      {/* Changes to Stella no agent here made: the user's other computers,
-          published updates. Agents' changes show on their messages. */}
+      {/* Changes to Stella no agent here made (by hand, the user's other
+          computers). Agents' changes show on their messages; official
+          updates are the top bar's. */}
       <AppSourceOffers />
     </>
   );

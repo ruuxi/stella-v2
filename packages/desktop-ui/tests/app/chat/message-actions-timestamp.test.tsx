@@ -1,16 +1,15 @@
 // @vitest-environment jsdom
 /**
- * Hover timestamps on chat messages.
+ * Where a message's exact time lives.
  *
- * The per-message action strip (Copy / Read-aloud / Rewind / Fork) carries a
- * muted local-time "h:mm AM/PM" stamp derived from the message's persisted
- * created time (`row.timestampMs`). The strip itself only reveals on row
- * hover, so the stamp is hover-only for free — these tests pin that:
- *   1. Assistant + user rows thread `timestampMs` into the strip and render
- *      the locale-formatted time inside `.message-actions__timestamp`.
- *   2. A row without a created time renders no stamp element at all.
- * The message-row timestamp uses `toLocaleTimeString` (same
- * options), pinned by the CSS contract test alongside the glyph contract.
+ * Messages no longer carry a stamp under the bubble — the transcript shows a
+ * periodic centered divider instead (iMessage-style, see
+ * `timestampHeaders`/`ChatTimeDivider`). The exact minute of ONE message stays
+ * reachable as the header of its hover ellipsis menu. These tests pin that:
+ *   1. Assistant + user rows render no per-message stamp element.
+ *   2. The created time (`row.timestampMs`) shows up in the menu, formatted
+ *      with `toLocaleTimeString` (same options as before).
+ *   3. A row without a created time gets a menu with no time header.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { act } from "react";
@@ -26,7 +25,7 @@ const EXPECTED_LABEL = new Date(CREATED_AT).toLocaleTimeString([], {
   minute: "2-digit",
 });
 
-describe("message hover timestamps", () => {
+describe("message time in the actions menu", () => {
   let container: HTMLDivElement;
   let root: Root;
 
@@ -44,7 +43,21 @@ describe("message hover timestamps", () => {
     container.remove();
   });
 
-  it("renders the created time inside the assistant action strip", async () => {
+  /** Radix opens the menu on `pointerdown`, not `click`. */
+  const openMenu = async () => {
+    const trigger = container.querySelector<HTMLElement>(".message-actions");
+    expect(trigger).not.toBeNull();
+    await act(async () => {
+      trigger!.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+    });
+    const menu = document.querySelector(".message-actions-menu");
+    expect(menu).not.toBeNull();
+    return menu!;
+  };
+
+  it("keeps the assistant row free of a stamp and shows the time in its menu", async () => {
     await act(async () => {
       root.render(
         withI18n(
@@ -64,14 +77,14 @@ describe("message hover timestamps", () => {
         ),
       );
     });
-    const stamp = container.querySelector(
-      ".message-actions .message-actions__timestamp",
-    );
+    expect(container.querySelector(".message-actions__timestamp")).toBeNull();
+    const menu = await openMenu();
+    const stamp = menu.querySelector(".message-actions-menu__time");
     expect(stamp).not.toBeNull();
     expect(stamp!.textContent).toBe(EXPECTED_LABEL);
   });
 
-  it("renders the created time inside the user action strip", async () => {
+  it("keeps the user row free of a stamp and shows the time in its menu", async () => {
     await act(async () => {
       root.render(
         withI18n(
@@ -90,14 +103,18 @@ describe("message hover timestamps", () => {
         ),
       );
     });
-    const stamp = container.querySelector(
-      ".message-actions--end .message-actions__timestamp",
-    );
+    expect(container.querySelector(".message-actions__timestamp")).toBeNull();
+    // The control sits beside the right-aligned bubble, inside its line.
+    expect(
+      container.querySelector(".message-line--user > .message-actions--end"),
+    ).not.toBeNull();
+    const menu = await openMenu();
+    const stamp = menu.querySelector(".message-actions-menu__time");
     expect(stamp).not.toBeNull();
     expect(stamp!.textContent).toBe(EXPECTED_LABEL);
   });
 
-  it("renders no stamp when the row has no created time", async () => {
+  it("renders no time header when the row has no created time", async () => {
     await act(async () => {
       root.render(
         withI18n(
@@ -116,7 +133,7 @@ describe("message hover timestamps", () => {
         ),
       );
     });
-    expect(container.querySelector(".message-actions")).not.toBeNull();
-    expect(container.querySelector(".message-actions__timestamp")).toBeNull();
+    const menu = await openMenu();
+    expect(menu.querySelector(".message-actions-menu__time")).toBeNull();
   });
 });

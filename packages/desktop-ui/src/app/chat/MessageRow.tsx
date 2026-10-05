@@ -579,27 +579,31 @@ export const UserMessageRow = memo(
         data-chat-row-id={row.id}
       >
         {chips.length > 0 && <UserContextChips chips={chips} />}
-        {text.trim() && (
-          <div className="event-item user chat-bubble-text">
-            <UserMessageBody text={text} />
-          </div>
-        )}
-        {/* The action row (Copy + Rewind + Fork) mounts for any user
-            message that has visible content — text OR attachment/context
-            chips — so attachment-only messages get the same actions. Copy
-            no-ops gracefully when there is no text to copy; Rewind/Fork use
-            the attachment-restore path to bring the attachments back. */}
+        {/* Bubble + its hover control share one horizontal line: the ellipsis
+            sits to the LEFT of the right-aligned bubble and costs no vertical
+            space. It mounts for any user message that has visible content —
+            text OR attachment/context chips — so attachment-only messages keep
+            the same actions. Copy no-ops gracefully when there is no text to
+            copy; Rewind/Fork use the attachment-restore path to bring the
+            attachments back. */}
         {(text.trim() || chips.length > 0) && (
-          <MessageActions
-            text={text}
-            messageKey={row.id}
-            align="end"
-            timestampMs={row.timestampMs}
-            onRewind={messageActions ? handleRewind : undefined}
-            onFork={forkAction ? handleFork : undefined}
-            actionsDisabled={actionsBusy}
-            copyAttachment={copyAttachment ?? undefined}
-          />
+          <div className="message-line message-line--user">
+            <MessageActions
+              text={text}
+              messageKey={row.id}
+              align="end"
+              timestampMs={row.timestampMs}
+              onRewind={messageActions ? handleRewind : undefined}
+              onFork={forkAction ? handleFork : undefined}
+              actionsDisabled={actionsBusy}
+              copyAttachment={copyAttachment ?? undefined}
+            />
+            {text.trim() && (
+              <div className="event-item user chat-bubble-text">
+                <UserMessageBody text={text} />
+              </div>
+            )}
+          </div>
         )}
       </div>
     );
@@ -657,13 +661,28 @@ export const AssistantMessageRow = memo(
             <EndResourceCard payload={row.resourcePayload} />
           ) : null}
           {hasText && (
-            <div className="assistant-message-text chat-bubble-text">
-              <Markdown text={text} cacheKey={row.cacheKey} hideHorizontalRules
-                hiddenFilePaths={[
-                  ...(conversationId ? row.agentCompletion?.sections.slice(0, 3).flatMap((section) => section.files) ?? [] : []),
-                  ...(row.linkedFiles ?? []),
-                ].map((file) => file.cloudDriveFile ? `cloud:${file.cloudDriveFile.path}` : `local:${file.path}`)}
-              />
+            // Bubble + its hover control share one horizontal line, so the
+            // ellipsis sits to the RIGHT of the bubble and reserves no height.
+            // Only a turn's final assistant message carries it: mid-turn
+            // preambles render no control at all.
+            <div className="message-line message-line--assistant">
+              <div className="assistant-message-text chat-bubble-text">
+                <Markdown text={text} cacheKey={row.cacheKey} hideHorizontalRules
+                  hiddenFilePaths={[
+                    ...(conversationId ? row.agentCompletion?.sections.slice(0, 3).flatMap((section) => section.files) ?? [] : []),
+                    ...(row.linkedFiles ?? []),
+                  ].map((file) => file.cloudDriveFile ? `cloud:${file.cloudDriveFile.path}` : `local:${file.path}`)}
+                />
+              </div>
+              {!row.isIntraTurn && (
+                <MessageActions
+                  text={text}
+                  messageKey={row.id}
+                  showReadAloud
+                  align="start"
+                  timestampMs={row.timestampMs}
+                />
+              )}
             </div>
           )}
           {row.linkedFiles && row.linkedFiles.length > 0 ? (
@@ -731,17 +750,6 @@ export const AssistantMessageRow = memo(
             <EndResourceCard payload={row.resourcePayload} />
           ) : null}
           {row.customSlot ? row.customSlot : null}
-          {hasText && !row.isIntraTurn && (
-            // Only a turn's final assistant message carries the action strip.
-            // Mid-turn preambles render no strip or reserved action height.
-            <MessageActions
-              text={text}
-              messageKey={row.id}
-              showReadAloud
-              align="start"
-              timestampMs={row.timestampMs}
-            />
-          )}
         </div>
       </div>
     );

@@ -32,6 +32,11 @@ export const MoreHorizontal = createIcon("more-horizontal", <>
     <circle cx="12" cy="12" r="1.1" fill="currentColor" stroke="none"/>
     <circle cx="19" cy="12" r="1.1" fill="currentColor" stroke="none"/>
   </>);
+export const MoreVertical = createIcon("more-vertical", <>
+    <circle cx="12" cy="5" r="1.1" fill="currentColor" stroke="none"/>
+    <circle cx="12" cy="12" r="1.1" fill="currentColor" stroke="none"/>
+    <circle cx="12" cy="19" r="1.1" fill="currentColor" stroke="none"/>
+  </>);
 export const Search = createIcon("search", <>
     <circle cx="10.75" cy="10.75" r="6.25"/>
     <path d="M15.5 15.5 20.5 20.5"/>

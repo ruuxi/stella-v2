@@ -26,15 +26,24 @@ struct Options {
     }
 }
 
-/// Install → verify → prepare → spawn → supervise, looping on relaunch
-/// requests, crashes and recovery choices.
+enum RecoveryChoice: String {
+    case returnToKnownGood = "return"
+    case reinstall
+    case retry
+    case quit
+}
+
+/// Waits for Start, then install → verify → prepare → spawn → supervise,
+/// looping on relaunch requests, crashes and recovery choices.
 final class Launcher {
     static let relaunchExitCode: Int32 = 75
     static let knownGoodRef = "refs/stella/known-good"
 
     private let options: Options
     private let paths: LauncherPaths
-    private let progress: ProgressWindow
+    /// The launcher's window: Start, progress, running, failure, Settings.
+    let ui: LauncherWindow
+    private let commands = EventQueue<LauncherCommand>()
     /// An update that restarts Stella: the frosted frame held between processes.
     private let hold = HoldWindow()
     private var state: LauncherState
@@ -48,7 +57,7 @@ final class Launcher {
     init(options: Options, paths: LauncherPaths) {
         self.options = options
         self.paths = paths
-        progress = ProgressWindow(captureDir: options.captureDir)
+        ui = LauncherWindow(logs: paths.logs, captureDir: options.captureDir)
         state = LauncherState.load(paths)
     }
 
@@ -56,18 +65,58 @@ final class Launcher {
 
     func run() -> Int32 {
         log("launcher: start root=\(paths.root.path) selfTest=\(options.selfTest) pid=\(getpid())")
+        ui.onCommand = { [commands] in commands.post($0) }
+        ui.onShutdown = { [weak self] in self?.current?.events.post(.timer("shutdown")) }
+        let facts = installFacts()
+        ui.update(show: .front) {
+            $0.phase = .idle
+            $0.version = facts.version
+            $0.hasKnownGood = facts.hasKnownGood
+        }
+        // Self-test: the home screen, then Start as if pressed.
+        if options.selfTest {
+            ui.capture("home.png", after: 1) { [ui] in ui.perform("start", after: 0) }
+        }
+
+        // Closing the window quits: cleanly from idle, as a failure after one.
+        var closeCode: Int32 = 0
+        while let command = commands.next(until: nil) {
+            switch command {
+            case .close:
+                return closeCode
+            case .start:
+                break
+            case .returnToKnownGood:
+                do { try returnToKnownGood() } catch { log("recovery: return failed: \(error)") }
+            case .reinstall:
+                do { try reinstall() } catch { log("recovery: reinstall failed: \(error)") }
+            }
+            guard let failure = launch() else {
+                log("launcher: Stella quit; exiting")
+                return 0
+            }
+            closeCode = 1
+            recover(reason: failure.reason, output: failure.output)
+        }
+        return 1
+    }
+
+    /// Prepare, spawn and supervise until Stella quits (nil) or can't keep
+    /// running. Relaunch requests and a single early crash restart it without
+    /// showing the window.
+    private func launch() -> (reason: String, output: [String])? {
         while true {
-            var failure: (reason: String, output: [String])?
+            ui.update {
+                $0.phase = .starting
+                $0.status = "Starting Stella…"
+            }
             do {
                 let electronApp = try prepareForLaunch()
-                progress.hide()
                 switch supervise(electronApp: electronApp) {
                 case .quit:
-                    log("launcher: Stella quit; exiting")
-                    return 0
+                    return nil
                 case .relaunch:
                     log("launcher: relaunch requested")
-                    continue
                 case let .crashed(sinceReady, detail, output):
                     let now = Date()
                     if sinceReady < options.stableSeconds {
@@ -76,34 +125,25 @@ final class Launcher {
                     log("launcher: Stella crashed \(Int(sinceReady))s after ready (\(detail)); recent early crashes \(crashTimes.count)")
                     if crashTimes.count >= 2 {
                         crashTimes = []
-                        failure = ("Stella crashed twice shortly after starting (\(detail)).", output)
-                    } else {
-                        continue
+                        return ("Stella crashed twice shortly after starting (\(detail)).", output)
                     }
                 case let .failed(reason, output):
-                    failure = (reason, output)
+                    return (reason, output)
                 }
             } catch {
                 // First line is the message; any detail (a command's output)
-                // goes to the output pane.
+                // goes to Settings > Last error.
                 let lines = "\(error)".split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-                failure = (lines.first ?? "\(error)", Array(lines.dropFirst().suffix(40)))
+                return (lines.first ?? "\(error)", Array(lines.dropFirst().suffix(40)))
             }
+        }
+    }
 
-            guard let failure else { continue }
-            hold.hide(after: 0)
-            progress.hide()
-            log("launcher: failure: \(failure.reason)")
-            switch recover(reason: failure.reason, output: failure.output) {
-            case .quit:
-                return 1
-            case .retry:
-                continue
-            case .returnToKnownGood:
-                do { try returnToKnownGood() } catch { log("recovery: return failed: \(error)") }
-            case .reinstall:
-                do { try reinstall() } catch { log("recovery: reinstall failed: \(error)") }
-            }
+    /// Install progress; the slow steps bring a hidden window front.
+    private func status(_ text: String) {
+        ui.update(show: .reveal) {
+            $0.phase = .starting
+            $0.status = text
         }
     }
 
@@ -111,17 +151,11 @@ final class Launcher {
 
     private func prepareForLaunch() throws -> URL {
         let fm = FileManager.default
-        for dir in [paths.root, paths.logs, paths.runtimes, paths.bundles] {
-            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
-        }
+        let (git, signer) = try tools()
         let env = baseEnvironment()
-        let git = try self.git ?? Install.ensureGit(paths: paths, baseEnv: env, progress: progress.show)
-        self.git = git
-        let signer = try self.signer ?? TreeSigner(paths: paths)
-        self.signer = signer
 
         if !fm.fileExists(atPath: paths.app.appendingPathComponent(".git").path) {
-            try Install.cloneSource(paths: paths, git: git, source: source, progress: progress.show)
+            try Install.cloneSource(paths: paths, git: git, source: source, progress: status)
             // The initial clone is signed at install.
             try signer.signHead(git: git, app: paths.app, expected: nil)
             state = LauncherState()
@@ -137,11 +171,37 @@ final class Launcher {
         log("verify: HEAD signed and clean")
 
         let (bun, bunVersion) = try Install.ensureBun(
-            paths: paths, baseEnv: env, localBun: options.localBun, progress: progress.show)
+            paths: paths, baseEnv: env, localBun: options.localBun, progress: status)
         let runtimes = Runtimes(bunBin: bun, bunVersion: bunVersion, git: git)
         self.runtimes = runtimes
         return try Prepare.run(paths: paths, runtimes: runtimes, env: baseEnvironment(),
-                               state: &state, progress: progress.show)
+                               state: &state, progress: status)
+    }
+
+    /// The managed git and the tree signer, set up once.
+    private func tools() throws -> (GitTool, TreeSigner) {
+        for dir in [paths.root, paths.logs, paths.runtimes, paths.bundles] {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        let git = try self.git ?? Install.ensureGit(paths: paths, baseEnv: baseEnvironment(), progress: status)
+        self.git = git
+        let signer = try self.signer ?? TreeSigner(paths: paths)
+        self.signer = signer
+        return (git, signer)
+    }
+
+    /// What Settings shows before anything starts: the installed version and
+    /// whether there is a last working one. Never downloads anything.
+    private func installFacts() -> (version: String, hasKnownGood: Bool) {
+        let gitBin = paths.runtimes.appendingPathComponent("git-\(Pins.gitVersion)/bin/git")
+        if git == nil, FileManager.default.isExecutableFile(atPath: gitBin.path) {
+            git = try? Install.ensureGit(paths: paths, baseEnv: baseEnvironment(), progress: { _ in })
+        }
+        guard let git, FileManager.default.fileExists(atPath: paths.app.appendingPathComponent(".git").path) else {
+            return ("", false)
+        }
+        let version = (try? git.run(["rev-parse", "--short=7", "HEAD"], cwd: paths.app)) ?? ""
+        return (version, hasKnownGood())
     }
 
     private var source: Install.Source {
@@ -259,8 +319,16 @@ final class Launcher {
                     log("supervisor: ready")
                     // The new window opened over the held frame; let go a beat later.
                     hold.hide(after: 0.25)
+                    ui.update(show: .hide) {
+                        $0.phase = .running
+                        $0.version = String(spawnedHead.prefix(7))
+                    }
                     process.after(options.stableSeconds, "stable")
-                    if options.selfTest { process.after(options.hold, "self-test-quit") }
+                    if options.selfTest {
+                        // The running window and Settings are captured before Stella quits.
+                        if options.captureDir != nil { ui.captureRunning() }
+                        process.after(options.captureDir != nil ? max(options.hold, 4) : options.hold, "self-test-quit")
+                    }
                 case "sign":
                     handleSign(message, process: process, git: git, signer: signer)
                 case "hold":
@@ -296,8 +364,8 @@ final class Launcher {
                     } catch {
                         log("supervisor: could not mark known-good: \(error)")
                     }
-                case "self-test-quit":
-                    log("supervisor: self-test asks Electron to quit")
+                case "self-test-quit", "shutdown":
+                    log("supervisor: \(name == "shutdown" ? "Shut down" : "self-test") asks Electron to quit")
                     quitRequested = true
                     process.send(["op": "quit"])
                     process.after(30, "quit-timeout")
@@ -358,30 +426,41 @@ final class Launcher {
         return (try? git.raw(["rev-parse", "--verify", "--quiet", "\(Launcher.knownGoodRef)^{commit}"], cwd: paths.app).code) == 0
     }
 
-    private func recover(reason: String, output: [String]) -> RecoveryChoice {
+    /// "Stella couldn't start" in the window; the user's choice arrives as a
+    /// command. The self-test makes the choice itself.
+    private func recover(reason: String, output: [String]) {
         recoveryCount += 1
-        var automation: RecoveryWindow.Automation?
-        var forcedExit = false
-        if options.selfTest {
-            if let choice = options.recoveryChoice, recoveryCount == 1 {
-                automation = .init(choice: choice, delay: 2)
-            } else {
-                automation = .init(choice: .quit, delay: 1.5)
-                forcedExit = true
-            }
+        hold.hide(after: 0)
+        log("launcher: failure: \(reason)")
+        let facts = installFacts()
+        ui.update(show: .front) {
+            $0.phase = .failed
+            $0.reason = reason
+            $0.output = output
+            $0.hasKnownGood = facts.hasKnownGood
+            $0.version = facts.version
         }
-        let capture = options.captureDir?.appendingPathComponent("recovery-\(recoveryCount).png")
-        let choice = RecoveryWindow().present(
-            reason: reason, output: output, hasKnownGood: hasKnownGood(),
-            captureTo: capture, automation: automation)
-        if forcedExit { log("launcher: self-test failed: \(reason)") }
-        return choice
+        ui.capture("recovery-\(recoveryCount).png", after: 0.5)
+        guard options.selfTest else { return }
+        if let choice = options.recoveryChoice, recoveryCount == 1 {
+            switch choice {
+            // "return" is the primary recovery, a reinstall when there is no
+            // known-good version yet.
+            case .returnToKnownGood: ui.perform(facts.hasKnownGood ? "return" : "reinstall", after: 2)
+            case .reinstall: ui.perform("reinstall", after: 2)
+            case .retry: ui.perform("start", after: 2)
+            case .quit: ui.perform("close", after: 2)
+            }
+        } else {
+            log("launcher: self-test failed: \(reason)")
+            ui.perform("close", after: 1.5)
+        }
     }
 
     /// A forward commit back to the known-good tree: nothing is rewritten, so
     /// the fork still fast-forwards. Uncommitted edits are stashed, not lost.
     private func returnToKnownGood() throws {
-        guard let git, let signer else { return }
+        let (git, signer) = try tools()
         guard hasKnownGood() else {
             try reinstall()
             return
@@ -408,7 +487,7 @@ final class Launcher {
 
     /// No known-good version yet: move the checkout aside and clone again.
     private func reinstall() throws {
-        guard let git, let signer else { return }
+        let (git, signer) = try tools()
         let fm = FileManager.default
         if fm.fileExists(atPath: paths.app.path) {
             let stamp = Int(Date().timeIntervalSince1970)
@@ -416,7 +495,7 @@ final class Launcher {
             try fm.moveItem(at: paths.app, to: aside)
             log("recovery: moved the old checkout to \(aside.path)")
         }
-        try Install.cloneSource(paths: paths, git: git, source: source, progress: progress.show)
+        try Install.cloneSource(paths: paths, git: git, source: source, progress: status)
         try signer.signHead(git: git, app: paths.app, expected: nil)
         state = LauncherState()
         state.installedAt = ISO8601DateFormatter().string(from: Date())

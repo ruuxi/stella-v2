@@ -13,6 +13,8 @@ rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$bin_dir/StellaLauncher" "$app/Contents/MacOS/StellaLauncher"
 cp Resources/Info.plist "$app/Contents/Info.plist"
+# The launcher window's page, sealed into the bundle by codesign.
+cp ../common/launcher.html "$app/Contents/Resources/launcher.html"
 icon="../../packages/desktop/build/icon.icns"
 if [ -f "$icon" ]; then cp "$icon" "$app/Contents/Resources/Stella.icns"; fi
 

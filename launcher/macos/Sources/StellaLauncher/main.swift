@@ -80,11 +80,21 @@ for sig in [SIGTERM, SIGINT, SIGHUP] {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        launcher.ui.installMenu()
         Thread.detachNewThread {
             let code = launcher.run()
+            launcher.ui.waitForCaptures()
             log("launcher: exit \(code)")
             exit(code)
         }
+    }
+
+    /// Opened again from Finder, Launchpad or Spotlight while running: show
+    /// the window in its current phase (e.g. "Stella is running").
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        log("launcher: reopened")
+        launcher.ui.update(show: .front) { _ in }
+        return false
     }
 }
 

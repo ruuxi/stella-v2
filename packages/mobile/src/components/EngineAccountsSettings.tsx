@@ -10,13 +10,22 @@ import {
   View,
 } from "react-native";
 import * as Clipboard from "expo-clipboard";
+import { getRandomBytes } from "expo-crypto";
 import * as WebBrowser from "expo-web-browser";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { sha256 } from "@noble/hashes/sha2.js";
 import type {
   EngineConnection,
   EngineProvider,
   EngineSettings,
 } from "@stella/contracts/backend/engines";
+import {
+  ANTHROPIC_OAUTH,
+  anthropicAuthorizeUrl,
+  createPkce,
+  parseAuthorizationInput,
+} from "@stella/contracts/engine-oauth";
+import { exchangeAnthropicCode } from "@stella/contracts/engine-oauth-flows";
 import { Icon } from "./Icon";
 import { GlassToggle } from "./glass";
 import { NativeMenu } from "./NativeMenu";
@@ -34,8 +43,11 @@ import { useT } from "../i18n";
  * agents. Several accounts per provider, one in use (checked), and an option
  * to move on to the next account when the one in use hits its limit.
  *
- * Claude uses a pasted authorization code. ChatGPT uses device authorization
- * and connects automatically after approval. Tokens stay on the server.
+ * Claude signs in on this phone: the consent page shows a code the user
+ * pastes back, the phone exchanges it with Anthropic itself and uploads the
+ * tokens (`engines.addAccount`); Stella's server never contacts Anthropic.
+ * ChatGPT uses device authorization through the server and connects
+ * automatically after approval.
  */
 
 type Section = {
@@ -141,7 +153,9 @@ export function EngineAccountsSettings({ onBack }: { onBack: () => void }) {
 
 /**
  * Provider sign-in shared by Settings and onboarding. ChatGPT polls device
- * authorization; Claude exchanges a pasted code. Errors surface as an alert.
+ * authorization on the server; Claude exchanges a pasted code from this
+ * phone. Errors surface as an alert. `connectId` names the attempt waiting
+ * for the user (the server's for ChatGPT, a local one for Claude).
  */
 export function useEngineConnect(
   provider: EngineProvider,
@@ -159,6 +173,8 @@ export function useEngineConnect(
   } | null>(null);
   const onConnectedRef = useRef(onConnected);
   const deviceBrowserOpen = useRef(false);
+  /** Claude: the PKCE verifier (also the state) of the attempt in progress. */
+  const claudeVerifier = useRef<string | null>(null);
   onConnectedRef.current = onConnected;
 
   useEffect(() => {
@@ -245,12 +261,19 @@ export function useEngineConnect(
         setDeviceConnect(result);
         return;
       }
-      const result = await getBackendClient().call("engines.startConnect", {
-        provider,
+      const { verifier, challenge } = await createPkce({
+        randomBytes: getRandomBytes,
+        sha256: (data) => sha256(data),
       });
-      setConnectId(result.connectId);
+      claudeVerifier.current = verifier;
+      setConnectId(verifier);
       setPasted("");
-      await WebBrowser.openBrowserAsync(result.authorizeUrl, {
+      const authorizeUrl = anthropicAuthorizeUrl({
+        challenge,
+        state: verifier,
+        redirectUri: ANTHROPIC_OAUTH.pasteRedirectUri,
+      });
+      await WebBrowser.openBrowserAsync(authorizeUrl, {
         presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET,
       });
       // Back from the browser: most people have the code on the clipboard.
@@ -261,12 +284,31 @@ export function useEngineConnect(
     });
 
   const finishConnect = () => {
-    if (!connectId || !pasted.trim()) return;
+    const verifier = claudeVerifier.current;
+    if (!connectId || !verifier || !pasted.trim()) return;
     void run(async () => {
-      await getBackendClient().call("engines.finishConnect", {
-        connectId,
-        pastedInput: pasted.trim(),
+      const parsed = parseAuthorizationInput(pasted);
+      if (!parsed.code) throw new Error(t("mobile.engineAccounts.errorBody"));
+      if (parsed.state && parsed.state !== verifier) {
+        throw new Error("The pasted code belongs to a different sign-in. Start again.");
+      }
+      // Exchanged from this phone; only the tokens go to Stella.
+      const { tokens, identity } = await exchangeAnthropicCode({
+        code: parsed.code,
+        state: parsed.state ?? verifier,
+        verifier,
+        redirectUri: ANTHROPIC_OAUTH.pasteRedirectUri,
       });
+      await getBackendClient().call("engines.addAccount", {
+        provider: "anthropic",
+        tokens: {
+          access: tokens.access,
+          refresh: tokens.refresh,
+          expiresInMs: tokens.expiresAt - Date.now(),
+        },
+        ...identity,
+      });
+      claudeVerifier.current = null;
       setConnectId(null);
       setPasted("");
     }).then((ok) => {
@@ -275,7 +317,8 @@ export function useEngineConnect(
   };
 
   const cancelConnect = () => {
-    if (connectId) {
+    claudeVerifier.current = null;
+    if (connectId && provider === "openai-codex") {
       void getBackendClient()
         .call("engines.cancelConnect", { connectId })
         .catch(() => {});

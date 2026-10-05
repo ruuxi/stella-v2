@@ -904,6 +904,12 @@ export type ElectronSystemApi = {
   cancelLlmOAuthCredential: (
     provider: string,
   ) => Promise<{ canceled: boolean }>;
+  /**
+   * Add a Claude account to the owner's Stella account. Electron main runs
+   * the OAuth flow (browser + loopback) and the exchange on this computer.
+   */
+  connectClaudeAccount: () => Promise<{ accountId: string }>;
+  cancelClaudeAccountConnect: () => Promise<{ canceled: boolean }>;
   validateLlmOAuthCredential: (provider: string) => Promise<{
     connected: boolean;
     needsReauth: boolean;

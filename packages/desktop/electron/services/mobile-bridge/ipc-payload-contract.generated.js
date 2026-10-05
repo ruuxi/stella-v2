@@ -118,6 +118,8 @@ export const IPC_PAYLOAD_CONTRACT = {
     "display:readFile": { kind: "object", fields: ["filePath", "conversationId", "maxBytes"] },
     "displayTrash:forceDelete": { kind: "passthrough" },
     "displayTrash:list": { kind: "none" },
+    "engineAccounts:cancelConnectClaude": { kind: "none" },
+    "engineAccounts:connectClaude": { kind: "none" },
     "globalShortcuts:getSuspended": { kind: "none" },
     "globalShortcuts:setSuspended": { kind: "passthrough" },
     "home:captureAppWindow": { kind: "passthrough" },

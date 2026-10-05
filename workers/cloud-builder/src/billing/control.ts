@@ -6,6 +6,7 @@ import type {
   SessionCapabilityRequest,
   EngineAccessRequest,
   EngineAccessResponse,
+  EngineAccessResult,
   EngineLimitReport,
   EngineLimitResult,
   GatewayConfigSnapshot,
@@ -94,9 +95,11 @@ export class BillingControl extends WorkerEntrypoint<Env> implements BillingCont
   }
 
   /**
-   * A fresh access token for the owner's connected engine (the native lane),
-   * from the engines domain in the owner's object. Refused as
-   * `generation_stale` when the capability predates an owner reset.
+   * The current access token for the owner's connected engine (the native
+   * lane), from the engines domain in the owner's object. Refused as
+   * `generation_stale` when the capability predates an owner reset, and as
+   * `engine_refresh_required` when the token expired: only one of the
+   * owner's devices refreshes it.
    */
   async engineAccess(
     request: EngineAccessRequest,
@@ -118,7 +121,10 @@ export class BillingControl extends WorkerEntrypoint<Env> implements BillingCont
         ownerGeneration: request.ownerGeneration,
       })) as unknown as RpcResponse;
       if (response.ok) {
-        const access = response.value as EngineAccessResponse | null;
+        const access = response.value as EngineAccessResult;
+        if (access && "needsDeviceRefresh" in access) {
+          return { ok: false, status: 403, code: "engine_refresh_required", retryable: false };
+        }
         return access
           ? { ok: true, body: access }
           : { ok: false, status: 404, code: null, retryable: false };

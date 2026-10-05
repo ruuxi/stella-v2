@@ -1336,6 +1336,29 @@ export const registerSystemHandlers = (options) => {
             }
         }
     });
+    // Claude sign-in for the owner's Stella account. The OAuth exchange and
+    // profile lookup run here in main, from this computer, never on Stella's
+    // server; only the resulting tokens are uploaded (engines.addAccount).
+    ipcMain.handle("engineAccounts:connectClaude", async (event) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, "engineAccounts:connectClaude")) {
+            throw new Error("Blocked untrusted Claude sign-in request.");
+        }
+        const engineAccounts = options.engineAccountAccess;
+        const cancelOnSenderDestroyed = () => engineAccounts.cancelClaudeConnect();
+        event.sender.once("destroyed", cancelOnSenderDestroyed);
+        try {
+            return await engineAccounts.connectClaude((url) => void shell.openExternal(url));
+        }
+        finally {
+            event.sender.removeListener("destroyed", cancelOnSenderDestroyed);
+        }
+    });
+    ipcMain.handle("engineAccounts:cancelConnectClaude", (event) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, "engineAccounts:cancelConnectClaude")) {
+            throw new Error("Blocked untrusted Claude sign-in cancel.");
+        }
+        return { canceled: options.engineAccountAccess.cancelClaudeConnect() };
+    });
     ipcMain.handle("llmCredentials:cancelOAuth", (event, payload) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, "llmCredentials:cancelOAuth")) {
             throw new Error("Blocked untrusted OAuth cancel request.");

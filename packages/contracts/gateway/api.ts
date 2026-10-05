@@ -217,6 +217,11 @@ export type GatewayErrorCode =
   | "challenge_required"
   /** The request's device proof is missing, stale, or does not match `dpk`. */
   | "dpop_invalid"
+  /**
+   * The connected subscription's access token expired and only one of the
+   * owner's devices can refresh it; the message asks them to open Stella.
+   */
+  | "engine_refresh_required"
   | "body_too_large"
   | "bad_request"
   | "upstream_error"

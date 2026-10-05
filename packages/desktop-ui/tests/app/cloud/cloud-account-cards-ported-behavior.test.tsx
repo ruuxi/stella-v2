@@ -14,8 +14,6 @@ const mocks = vi.hoisted(() => ({
   publishExecution: vi.fn(),
   engines: undefined as unknown,
   enginesApi: {
-    startConnect: vi.fn(),
-    finishConnect: vi.fn(),
     disconnect: vi.fn(),
     setExecution: vi.fn(),
   },
@@ -124,11 +122,6 @@ describe("ported cloud account cards", () => {
     mocks.showToast.mockReset();
     mocks.publishExecution.mockReset();
     mocks.engines = undefined;
-    mocks.enginesApi.startConnect.mockReset().mockResolvedValue({
-      connectId: "connect-1",
-      authorizeUrl: "https://provider.example/authorize",
-    });
-    mocks.enginesApi.finishConnect.mockReset().mockResolvedValue({ ok: true });
     mocks.enginesApi.disconnect.mockReset().mockResolvedValue(null);
     mocks.enginesApi.setExecution.mockReset().mockResolvedValue(null);
     mocks.projects.list = undefined;

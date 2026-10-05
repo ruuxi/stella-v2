@@ -2,22 +2,30 @@ import {
   BackendClient,
   type TokenProvider,
 } from "@stella/contracts/backend/client";
+import { EngineTokenRefresher } from "@stella/contracts/backend/engine-refresher";
 import {
   ENGINE_PROVIDERS,
   type EngineClientAccess,
+  type EngineClientAccessResult,
   type EngineProvider,
   type EngineSettings,
 } from "@stella/contracts/backend/engines";
+import { loginAnthropic } from "@stella/runtime/ai/utils/oauth";
 
 /**
  * The owner's Claude and ChatGPT accounts, as this computer uses them. The
  * list lives in the owner's Stella account (`engines.get`), so an account
- * added on any device works here. The server keeps the refresh tokens and is
- * the only party that refreshes; this service only ever holds the active
- * account's short-lived access token (`engines.clientAccess`), cached until
- * shortly before it expires, and hands it to the runtime through the
- * credential broker: Claude Code gets it as CLAUDE_CODE_OAUTH_TOKEN, Codex
- * runs on Stella's harness with it.
+ * added on any device works here. This service holds the active account's
+ * short-lived access token (`engines.clientAccess`), cached until shortly
+ * before it expires, and hands it to the runtime through the credential
+ * broker: Claude Code gets it as CLAUDE_CODE_OAUTH_TOKEN, Codex runs on
+ * Stella's harness with it.
+ *
+ * Claude sign-in and refresh run here, never on Stella's server:
+ * `connectClaude` runs the loopback OAuth flow from this computer and uploads
+ * the tokens, and while signed in the refresher keeps every Claude account
+ * fresh, taking the account's refresh lease so only one device refreshes at
+ * a time. ChatGPT is still refreshed by the server.
  *
  * Signed out, offline before the first list, or with no account: no token,
  * and Claude Code keeps its own login.
@@ -25,6 +33,8 @@ import {
 
 /** Refetch this long before a cached token expires. */
 const EXPIRY_SKEW_MS = 60_000;
+/** How long a token request waits for another device's Claude refresh to land. */
+const PEER_REFRESH_WAIT_MS = 20_000;
 
 type CachedAccess = Pick<EngineClientAccess, "accessToken" | "expiresAt" | "engineAccountId">;
 
@@ -37,6 +47,8 @@ export type EngineAccountAccessOptions = {
 
 const isEngineProvider = (value: string): value is EngineProvider =>
   (ENGINE_PROVIDERS as readonly string[]).includes(value);
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 const tokenSubject = (token: string | null): string | null => {
   const payload = token?.split(".")[1];
@@ -63,8 +75,15 @@ export class EngineAccountAccess {
   private readonly fetching = new Map<EngineProvider, Promise<string | null>>();
   /** Bumped on account change, so a fetch for the previous account is dropped. */
   private epoch = 0;
+  private readonly refresher: EngineTokenRefresher;
+  private claudeConnect: AbortController | null = null;
 
-  constructor(private readonly options: EngineAccountAccessOptions) {}
+  constructor(private readonly options: EngineAccountAccessOptions) {
+    this.refresher = new EngineTokenRefresher({
+      client: () => (this.subject ? this.ensureClient() : null),
+      log: (message) => console.warn(message),
+    });
+  }
 
   /** Whether `provider` is one this service serves instead of the local store. */
   static serves(provider: string): provider is EngineProvider {
@@ -89,8 +108,59 @@ export class EngineAccountAccess {
     this.tokens.clear();
     this.served.clear();
     this.fetching.clear();
+    this.claudeConnect?.abort();
     this.applySettings(null);
     this.client?.value.reconnect();
+    // Signed in: follow the account list, so Claude sign-ins stay fresh even
+    // while nothing on this computer is using them.
+    if (next) this.ensureWatch();
+  }
+
+  /**
+   * Add a Claude account: the loopback OAuth flow runs on this computer (the
+   * browser opens through `openUrl`), the code exchange and profile lookup
+   * happen from here, and only then are the tokens uploaded to the owner's
+   * Stella account. A second call cancels the first.
+   */
+  async connectClaude(openUrl: (url: string) => void): Promise<{ accountId: string }> {
+    this.claudeConnect?.abort();
+    const controller = new AbortController();
+    this.claudeConnect = controller;
+    try {
+      const client = this.ensureClient();
+      if (!client || !this.subject) throw new Error("Sign in to Stella first.");
+      const credentials = await loginAnthropic({
+        onAuth: ({ url }) => openUrl(url),
+        onPrompt: async () => {
+          throw new Error("Claude sign-in was canceled.");
+        },
+        signal: controller.signal,
+      });
+      const text = (value: unknown) => (typeof value === "string" && value ? value : undefined);
+      const identity = text(credentials.identity);
+      const email = text(credentials.email);
+      const plan = text(credentials.plan);
+      return await client.call("engines.addAccount", {
+        provider: "anthropic",
+        tokens: {
+          access: credentials.access,
+          refresh: credentials.refresh,
+          expiresInMs: credentials.expires - Date.now(),
+        },
+        ...(identity ? { identity } : {}),
+        ...(email ? { email } : {}),
+        ...(plan ? { plan } : {}),
+      });
+    } finally {
+      if (this.claudeConnect === controller) this.claudeConnect = null;
+    }
+  }
+
+  /** Stop a Claude sign-in in progress; whether there was one. */
+  cancelClaudeConnect(): boolean {
+    const current = this.claudeConnect;
+    current?.abort(new Error("Claude sign-in was canceled."));
+    return Boolean(current);
   }
 
   async getAccessToken(
@@ -132,6 +202,8 @@ export class EngineAccountAccess {
   }
 
   dispose(): void {
+    this.claudeConnect?.abort();
+    this.refresher.dispose();
     this.unwatch?.();
     this.unwatch = null;
     this.client?.value.dispose();
@@ -146,12 +218,19 @@ export class EngineAccountAccess {
     const client = this.ensureClient();
     if (!client) return null;
     const epoch = this.epoch;
-    let access: EngineClientAccess | null;
-    try {
-      access = await client.call("engines.clientAccess", {
+    const rejected = forceRefresh ? this.tokens.get(provider)?.accessToken : undefined;
+    const read = () =>
+      client.call("engines.clientAccess", {
         provider,
-        ...(forceRefresh ? { forceRefresh: true } : {}),
+        // ChatGPT refreshes on the server; Claude refreshes on this device.
+        ...(forceRefresh && provider === "openai-codex" ? { forceRefresh: true } : {}),
       });
+    let access: EngineClientAccessResult | null;
+    try {
+      access = await read();
+      if (provider === "anthropic") {
+        access = await this.refreshClaudeIfNeeded(access, read, forceRefresh, rejected);
+      }
     } catch {
       // Offline or the backend is unavailable: a token that has not expired
       // still works against the provider.
@@ -159,7 +238,7 @@ export class EngineAccountAccess {
       return cached && cached.expiresAt > Date.now() ? cached.accessToken : null;
     }
     if (epoch !== this.epoch) return null;
-    if (!access) {
+    if (!access || access.status !== "ok") {
       this.tokens.delete(provider);
       return null;
     }
@@ -170,6 +249,44 @@ export class EngineAccountAccess {
     });
     this.served.set(provider, access.engineAccountId);
     return access.accessToken;
+  }
+
+  /**
+   * Claude's token as the server has it, refreshed on this device first when
+   * it expired, or when Anthropic rejected it (`forced`; `rejected` is the
+   * refused token, so a newer one another device stored is used as is).
+   * While another device holds the refresh lease, waits briefly for its
+   * result. A token merely due is served; the refresher renews it meanwhile.
+   */
+  private async refreshClaudeIfNeeded(
+    first: EngineClientAccessResult | null,
+    read: () => Promise<EngineClientAccessResult | null>,
+    forced: boolean,
+    rejected: string | undefined,
+  ): Promise<EngineClientAccessResult | null> {
+    const deadline = Date.now() + PEER_REFRESH_WAIT_MS;
+    let access = first;
+    let force = forced;
+    for (;;) {
+      if (!access) return null;
+      const stale =
+        access.status === "needs_device_refresh" ||
+        (force && (rejected === undefined || access.accessToken === rejected));
+      if (!stale) {
+        if (access.status === "ok" && (access.refreshAt ?? 0) <= Date.now()) {
+          void this.refresher.refreshNow("anthropic", access.engineAccountId);
+        }
+        return access;
+      }
+      const outcome = await this.refresher.refreshNow("anthropic", access.engineAccountId, {
+        force,
+      });
+      force = false;
+      if (outcome === "failed" || Date.now() >= deadline) return await read();
+      if (outcome === "busy") await sleep(2_000);
+      access = await read();
+      if (outcome !== "busy") return access;
+    }
   }
 
   private ensureClient(): BackendClient | null {
@@ -205,6 +322,7 @@ export class EngineAccountAccess {
 
   private applySettings(settings: EngineSettings | null): void {
     this.settings = settings;
+    this.refresher.update(settings);
     // A token for an account that no longer serves is dropped, so the next
     // request runs on the account now in use.
     for (const [provider, cached] of this.tokens) {

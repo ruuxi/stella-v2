@@ -184,7 +184,11 @@ export type BillingControlRpc = {
   gatewayConfig(): Promise<GatewayConfigSnapshot>;
   /** One owner's enforcement, seeding the gateway's owner object; throws while unavailable. */
   ownerEnforcement(ownerId: string): Promise<OwnerEnforcementState>;
-  /** A fresh access token for the owner's connected engine, for the native lane. */
+  /**
+   * The owner's connected engine's current access token, for the native
+   * lane. `engine_refresh_required` when it expired: the server never
+   * refreshes, one of the owner's devices must.
+   */
   engineAccess(
     request: EngineAccessRequest,
   ): Promise<BillingControlResult<EngineAccessResponse>>;
@@ -212,6 +216,15 @@ export type EngineAccessResponse = {
   /** Absolute ms timestamp; the gateway must not cache past this. */
   expiresAt: number;
 };
+
+/**
+ * The owner object's `engines.access`: the token, word that it expired and
+ * a device must refresh it, or null when no account is connected.
+ */
+export type EngineAccessResult =
+  | EngineAccessResponse
+  | { needsDeviceRefresh: true; engineAccountId: string }
+  | null;
 
 /** `BillingControl.engineLimit`: an account's subscription limit was reached. */
 export type EngineLimitReport = {

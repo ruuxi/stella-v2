@@ -164,6 +164,16 @@ const engineAccessFor = async (
       retryable: true,
     }));
   if (!result.ok) {
+    if (result.code === "engine_refresh_required") {
+      // Stella never refreshes a subscription itself; a signed-in device does.
+      throw new GatewayError(
+        403,
+        "engine_refresh_required",
+        `Open Stella on one of your devices to refresh your ${
+          provider === "anthropic" ? "Claude" : "ChatGPT"
+        } sign-in, then try again.`,
+      );
+    }
     if (result.code) {
       throw new GatewayError(
         result.code === "generation_stale" ? 403 : (result.status ?? 503),

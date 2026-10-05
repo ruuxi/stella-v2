@@ -2,12 +2,20 @@
  * Anthropic OAuth flow (Claude Pro/Max)
  *
  * NOTE: This module uses Node.js http.createServer for the OAuth callback server.
- * It is only intended for CLI use, not browser environments.
+ * It is only intended for CLI use, not browser environments. Constants, the
+ * token exchange and refresh are shared with every device that signs in
+ * (`@stella/contracts/engine-oauth*`).
  */
 
 import type { Server } from "node:http";
+import {
+	ANTHROPIC_OAUTH,
+	anthropicAuthorizeUrl,
+	createPkce,
+	parseAuthorizationInput,
+} from "@stella/contracts/engine-oauth";
+import { exchangeAnthropicCode, refreshAnthropicTokens } from "@stella/contracts/engine-oauth-flows";
 import { oauthErrorHtml, oauthSuccessHtml } from "./oauth-page.js";
-import { generatePKCE } from "./pkce.js";
 import type { OAuthCredentials, OAuthLoginCallbacks, OAuthPrompt, OAuthProviderInterface } from "./types.js";
 
 type CallbackServerInfo = {
@@ -24,16 +32,12 @@ type NodeApis = {
 let nodeApis: NodeApis | null = null;
 let nodeApisPromise: Promise<NodeApis> | null = null;
 
-const decode = (s: string) => atob(s);
-const CLIENT_ID = decode("OWQxYzI1MGEtZTYxYi00NGQ5LTg4ZWQtNTk0NGQxOTYyZjVl");
-const AUTHORIZE_URL = "https://claude.ai/oauth/authorize";
-const TOKEN_URL = "https://platform.claude.com/v1/oauth/token";
-const CALLBACK_HOST = "127.0.0.1";
-const CALLBACK_PORT = 53692;
-const CALLBACK_PATH = "/callback";
-const REDIRECT_URI = `http://localhost:${CALLBACK_PORT}${CALLBACK_PATH}`;
-const SCOPES =
-	"org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
+const CALLBACK_HOST = ANTHROPIC_OAUTH.loopbackHost;
+const CALLBACK_PORT = ANTHROPIC_OAUTH.loopbackPort;
+const CALLBACK_PATH = ANTHROPIC_OAUTH.loopbackPath;
+const REDIRECT_URI = ANTHROPIC_OAUTH.loopbackRedirectUri;
+/** Credentials are treated as expired this long before the provider says. */
+const EXPIRY_MARGIN_MS = 5 * 60 * 1000;
 
 const throwIfOAuthAborted = (signal?: AbortSignal): void => {
 	if (!signal?.aborted) return;
@@ -52,36 +56,6 @@ async function getNodeApis(): Promise<NodeApis> {
 	}
 	nodeApis = await nodeApisPromise;
 	return nodeApis;
-}
-
-function parseAuthorizationInput(input: string): { code?: string; state?: string } {
-	const value = input.trim();
-	if (!value) return {};
-
-	try {
-		const url = new URL(value);
-		return {
-			code: url.searchParams.get("code") ?? undefined,
-			state: url.searchParams.get("state") ?? undefined,
-		};
-	} catch {
-		// not a URL
-	}
-
-	if (value.includes("#")) {
-		const [code, state] = value.split("#", 2);
-		return { code, state };
-	}
-
-	if (value.includes("code=")) {
-		const params = new URLSearchParams(value);
-		return {
-			code: params.get("code") ?? undefined,
-			state: params.get("state") ?? undefined,
-		};
-	}
-
-	return { code: value };
 }
 
 function formatErrorDetails(error: unknown): string {
@@ -172,106 +146,27 @@ async function startCallbackServer(expectedState: string): Promise<CallbackServe
 	});
 }
 
-async function postJson(url: string, body: Record<string, string | number>): Promise<string> {
-	const response = await fetch(url, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			Accept: "application/json",
-		},
-		body: JSON.stringify(body),
-		signal: AbortSignal.timeout(30_000),
-	});
-
-	const responseBody = await response.text();
-
-	if (!response.ok) {
-		throw new Error(`HTTP request failed. status=${response.status}; url=${url}; body=${responseBody}`);
-	}
-
-	return responseBody;
-}
-
 async function exchangeAuthorizationCode(
 	code: string,
 	state: string,
 	verifier: string,
 	redirectUri: string,
 ): Promise<OAuthCredentials> {
-	let responseBody: string;
+	let signIn: Awaited<ReturnType<typeof exchangeAnthropicCode>>;
 	try {
-		responseBody = await postJson(TOKEN_URL, {
-			grant_type: "authorization_code",
-			client_id: CLIENT_ID,
-			code,
-			state,
-			redirect_uri: redirectUri,
-			code_verifier: verifier,
-		});
+		signIn = await exchangeAnthropicCode({ code, state, verifier, redirectUri });
 	} catch (error) {
 		throw new Error(
-			`Token exchange request failed. url=${TOKEN_URL}; redirect_uri=${redirectUri}; response_type=authorization_code; details=${formatErrorDetails(error)}`,
+			`Token exchange request failed. redirect_uri=${redirectUri}; details=${formatErrorDetails(error)}`,
 		);
 	}
-
-	type TokenData = {
-		access_token: string;
-		refresh_token: string;
-		expires_in: number;
-		account?: { uuid?: unknown; email_address?: unknown };
-	};
-	let tokenData: TokenData;
-	try {
-		tokenData = JSON.parse(responseBody) as TokenData;
-	} catch (error) {
-		throw new Error(
-			`Token exchange returned invalid JSON. url=${TOKEN_URL}; body=${responseBody}; details=${formatErrorDetails(error)}`,
-		);
-	}
-
 	// Which Claude account signed in, so several can be kept apart.
-	const accountUuid =
-		typeof tokenData.account?.uuid === "string" ? tokenData.account.uuid : undefined;
-	const email =
-		typeof tokenData.account?.email_address === "string"
-			? tokenData.account.email_address
-			: undefined;
-	const plan = await fetchClaudePlan(tokenData.access_token);
 	return {
-		refresh: tokenData.refresh_token,
-		access: tokenData.access_token,
-		expires: Date.now() + tokenData.expires_in * 1000 - 5 * 60 * 1000,
-		...(accountUuid ? { accountUuid } : {}),
-		...(email ? { email } : {}),
-		...(plan ? { plan } : {}),
+		refresh: signIn.tokens.refresh,
+		access: signIn.tokens.access,
+		expires: signIn.tokens.expiresAt - EXPIRY_MARGIN_MS,
+		...signIn.identity,
 	};
-}
-
-/** The subscription plan, best effort: a failure never blocks signing in. */
-async function fetchClaudePlan(accessToken: string): Promise<string | undefined> {
-	try {
-		const response = await fetch("https://api.anthropic.com/api/oauth/profile", {
-			headers: {
-				authorization: `Bearer ${accessToken}`,
-				"anthropic-beta": "oauth-2025-04-20",
-				accept: "application/json",
-			},
-			signal: AbortSignal.timeout(5_000),
-		});
-		if (!response.ok) return undefined;
-		const profile = (await response.json()) as {
-			account?: { has_claude_max?: unknown; has_claude_pro?: unknown };
-			organization?: { organization_type?: unknown };
-		};
-		if (typeof profile.organization?.organization_type === "string") {
-			return profile.organization.organization_type;
-		}
-		if (profile.account?.has_claude_max === true) return "Max";
-		if (profile.account?.has_claude_pro === true) return "Pro";
-	} catch {
-		// Signed in without the plan.
-	}
-	return undefined;
 }
 
 /**
@@ -285,7 +180,7 @@ export async function loginAnthropic(options: {
 	signal?: AbortSignal;
 }): Promise<OAuthCredentials> {
 	throwIfOAuthAborted(options.signal);
-	const { verifier, challenge } = await generatePKCE();
+	const { verifier, challenge } = await createPkce();
 	const server = await startCallbackServer(verifier);
 	const abortWait = () => server.cancelWait();
 	options.signal?.addEventListener("abort", abortWait, { once: true });
@@ -296,19 +191,8 @@ export async function loginAnthropic(options: {
 	let redirectUriForExchange = REDIRECT_URI;
 
 	try {
-		const authParams = new URLSearchParams({
-			code: "true",
-			client_id: CLIENT_ID,
-			response_type: "code",
-			redirect_uri: REDIRECT_URI,
-			scope: SCOPES,
-			code_challenge: challenge,
-			code_challenge_method: "S256",
-			state: verifier,
-		});
-
 		options.onAuth({
-			url: `${AUTHORIZE_URL}?${authParams.toString()}`,
+			url: anthropicAuthorizeUrl({ challenge, state: verifier, redirectUri: REDIRECT_URI }),
 			instructions:
 				"Complete login in your browser. If the browser is on another machine, paste the final redirect URL here.",
 		});
@@ -406,35 +290,16 @@ export async function loginAnthropic(options: {
  * Refresh Anthropic OAuth token
  */
 export async function refreshAnthropicToken(refreshToken: string): Promise<OAuthCredentials> {
-	let responseBody: string;
+	let tokens: Awaited<ReturnType<typeof refreshAnthropicTokens>>;
 	try {
-		responseBody = await postJson(TOKEN_URL, {
-			grant_type: "refresh_token",
-			client_id: CLIENT_ID,
-			refresh_token: refreshToken,
-		});
+		tokens = await refreshAnthropicTokens(refreshToken);
 	} catch (error) {
-		throw new Error(`Anthropic token refresh request failed. url=${TOKEN_URL}; details=${formatErrorDetails(error)}`);
+		throw new Error(`Anthropic token refresh request failed. details=${formatErrorDetails(error)}`);
 	}
-
-	let data: { access_token: string; refresh_token: string; expires_in: number; scope?: string };
-	try {
-		data = JSON.parse(responseBody) as {
-			access_token: string;
-			refresh_token: string;
-			expires_in: number;
-			scope?: string;
-		};
-	} catch (error) {
-		throw new Error(
-			`Anthropic token refresh returned invalid JSON. url=${TOKEN_URL}; body=${responseBody}; details=${formatErrorDetails(error)}`,
-		);
-	}
-
 	return {
-		refresh: data.refresh_token,
-		access: data.access_token,
-		expires: Date.now() + data.expires_in * 1000 - 5 * 60 * 1000,
+		refresh: tokens.refresh,
+		access: tokens.access,
+		expires: tokens.expiresAt - EXPIRY_MARGIN_MS,
 	};
 }
 

@@ -72,6 +72,7 @@ import {
   useBackOverride,
 } from "../../src/lib/main-shell-store";
 import { ShellBottomInsetProvider } from "../../src/lib/shell-bottom-inset";
+import { useEngineTokenRefresher } from "../../src/lib/use-engine-token-refresher";
 import { useT } from "../../src/i18n";
 import type { ChatArtifact } from "../../src/types";
 
@@ -137,6 +138,7 @@ export default function MainLayout() {
   const t = useT();
   const { isDark } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  useEngineTokenRefresher();
 
   useEffect(() => {
     if (!hasAiConsent()) {

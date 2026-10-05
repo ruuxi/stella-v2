@@ -1480,6 +1480,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
         status: "active";
         updatedAt: number;
       }>,
+    connectClaudeAccount: () =>
+      ipcRenderer.invoke("engineAccounts:connectClaude") as Promise<{
+        accountId: string;
+      }>,
+    cancelClaudeAccountConnect: () =>
+      ipcRenderer.invoke("engineAccounts:cancelConnectClaude") as Promise<{
+        canceled: boolean;
+      }>,
     cancelLlmOAuthCredential: (provider: string) =>
       ipcRenderer.invoke("llmCredentials:cancelOAuth", {
         provider,

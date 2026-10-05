@@ -23,9 +23,10 @@
    * budget lives there as JS separator heights):
    *
    *   --chat-item-part-gap — spacing between the parts of ONE row
-   *     (message text -> cards -> action strip, context chips ->
-   *     user bubble). Everything inside a row groups at this gap so
-   *     a turn reads as one block.
+   *     (message text -> cards, context chips -> user bubble).
+   *     Everything inside a row groups at this gap so a turn reads as
+   *     one block. The hover actions are NOT a part here: they sit
+   *     beside the bubble (`.message-line`) and cost no height.
    *
    * The assistant bubble is transparent/borderless, so it must NOT
    * carry the visible bubbles' 12px vertical padding — that used to
@@ -63,10 +64,61 @@
   display: flex;
   flex-direction: column;
   /* Intra-row gap between the row's own parts (context chips, bubble,
-     action strip). Spacing BETWEEN rows is the virtualized separator
+     inline cards). Spacing BETWEEN rows is the virtualized separator
      rendered by ChatTimeline (`gapAfterRow`), not this flex gap. */
   gap: var(--chat-item-part-gap);
   overflow-anchor: none;
+}
+
+/* A message bubble and its hover ellipsis on one horizontal line. The control
+   is placed to the SIDE of the bubble (never below it), which is what keeps
+   messages from each paying for a reserved action row. There is room because a
+   bubble never spans the full column (85-88% max); when the column gets narrow
+   enough that the bubble plus the 24px control would not fit, the bubble
+   shrinks (both bubbles carry `min-width: 0`) instead of the control
+   overlapping the text. */
+.message-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+}
+
+.message-line--assistant {
+  justify-content: flex-start;
+}
+
+.message-line--user {
+  justify-content: flex-end;
+}
+
+/* The line is right-justified, so the bubble drops its own `margin-left: auto`
+   (full and compact surfaces) — an auto margin would eat the free space and
+   push the control to the far edge of the row instead of beside the bubble. */
+.message-line.message-line--user > .event-item.user {
+  margin-left: 0;
+  min-width: 0;
+}
+
+.message-line > .assistant-message-text {
+  min-width: 0;
+}
+
+/* Periodic centered time between messages (see ChatTimeDivider / the shared
+   `timestampHeaders` rule). Replaces the per-message stamp that used to ride
+   the action strip: a label appears only where a long enough gap precedes a
+   message, the way iMessage does it. */
+.chat-time-divider {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0 12px;
+  color: var(--text-weaker);
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
 }
 
 /* The assistant's reply is a left bubble, painted with the composer's own
@@ -195,8 +247,8 @@
   animation: composer-queued-leave 90ms cubic-bezier(0.4, 0, 1, 1) both;
 }
 
-/* Hover-reveal cancel control, mirroring the per-message action buttons
-   (`.message-actions__btn`). Sits to the left of the right-aligned bubble
+/* Hover-reveal cancel control, mirroring the per-message action button
+   (`.message-actions`). Sits to the left of the right-aligned bubble
    and reserves its footprint so revealing it never reflows the stack. */
 .composer-queued-message__cancel {
   flex: none;

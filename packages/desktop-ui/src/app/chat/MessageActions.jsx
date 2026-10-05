@@ -1,20 +1,27 @@
 /**
- * Per-message action row rendered below a chat message.
+ * Per-message actions, as a vertical-ellipsis button beside the bubble.
  *
- * - User messages get a single Copy action.
- * - Assistant messages get Copy + Read aloud (on-demand TTS) — but only a
- *   turn's FINAL assistant message. Intra-turn segments (preambles that
- *   ended in a tool call) never mount this row at all (see the
- *   `isIntraTurn` gate in `AssistantMessageRow`).
+ * This used to be a row of icon buttons rendered BELOW the message. That row
+ * reserved its height at all times (the reveal had to not move the bubble, so
+ * it could not be `display: none`), which meant every single message paid ~32px
+ * of empty vertical space — the "huge gap between messages". The control is now
+ * one 24px button in the message's own horizontal line, to the side of the
+ * bubble: it costs nothing vertically, so the gap between messages is purely
+ * the timeline's own rhythm (see the ROW_GAP family in ChatTimeline.tsx).
  *
- * The row reserves its height at all times and only fades in on row hover /
- * keyboard focus (or while its read-aloud is active) so revealing it never
- * shifts surrounding row geometry, which the chat's scroll-follow logic
- * depends on.
+ * - User messages: Copy, Fork, Rewind (the two-step confirm now lives in the
+ *   menu item).
+ * - Assistant messages: Copy + Read aloud (on-demand TTS) — but only a turn's
+ *   FINAL assistant message. Intra-turn segments (preambles that ended in a
+ *   tool call) never mount this control at all (see the `isIntraTurn` gate in
+ *   `AssistantMessageRow`).
  *
- * It is mounted for an assistant message's whole lifetime, so its reserved
- * height is present from the first painted line and nothing later causes a
- * layout jump.
+ * The button only fades in on row hover / keyboard focus (or while its menu is
+ * open, or its read-aloud is active). It never changes its own footprint, so
+ * revealing it cannot shift row geometry, which the chat's scroll-follow logic
+ * depends on. The exact send time rides along as the menu's header — per-message
+ * stamps under the bubble are gone, replaced by the periodic centered divider
+ * the timeline renders (see ChatTimeDivider).
  */
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -23,10 +30,19 @@ import {
   Copy,
   GitBranch,
   LoaderCircle,
+  MoreVertical,
   RotateCcw,
   Square,
   Volume2,
 } from "@/ui/icons";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/ui/dropdown-menu";
 import {
   toggleManualReadAloud,
   useManualReadAloudStatus,
@@ -36,6 +52,9 @@ import { useT } from "@/shared/i18n";
 import "./message-actions.css";
 
 const COPIED_RESET_MS = 1600;
+
+/** How long "Copied" stays on screen before the menu dismisses itself. */
+const COPIED_MENU_CLOSE_MS = 700;
 
 // Rewind is destructive (drops the message + everything after it), so it
 // takes two clicks: the first arms a "Click again to rewind" state, the
@@ -47,12 +66,14 @@ const REWIND_CONFIRM_TIMEOUT_MS = 3000;
  * @property {string} text
  * @property {string} messageKey
  * @property {boolean} [showReadAloud]
- * @property {"start" | "end"} [align]
+ * @property {"start" | "end"} [align] Which side of the bubble the button sits
+ *   on: `start` (assistant, button right of the bubble) or `end` (user, button
+ *   left of the right-aligned bubble).
  * @property {(() => void)} [onRewind] Rewind action (user rows only).
  * @property {(() => void)} [onFork] Fork action (user rows only).
  * @property {boolean} [actionsDisabled] Greys out Rewind/Fork while a turn is busy.
- * @property {number} [timestampMs] Message created time (epoch ms); renders a
- *   muted local-time "h:mm AM/PM" stamp alongside the actions on hover.
+ * @property {number} [timestampMs] Message created time (epoch ms); shown as the
+ *   menu's header in local "h:mm AM/PM" form.
  * @property {{ path?: string, url?: string, mimeType?: string, kind?: string, name?: string }} [copyAttachment]
  *   Attachment to copy when the message has no text (image → clipboard image,
  *   file → path as text). Text always takes priority when present.
@@ -71,8 +92,10 @@ function MessageActionsImpl({
   copyAttachment = undefined,
 }) {
   const t = useT();
+  const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const copiedTimerRef = useRef(null);
+  const closeTimerRef = useRef(null);
   const readAloudStatus = useManualReadAloudStatus(messageKey);
 
   // Two-step confirm state for the destructive Rewind action.
@@ -82,6 +105,7 @@ function MessageActionsImpl({
   useEffect(
     () => () => {
       if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
       if (rewindTimerRef.current) clearTimeout(rewindTimerRef.current);
     },
     [],
@@ -95,38 +119,48 @@ function MessageActionsImpl({
     setRewindArmed(false);
   }, []);
 
-  // First click arms + shows the confirm state (auto-resets after the
-  // timeout); second click within the window performs the rewind.
-  const handleRewindClick = useCallback(() => {
-    if (!onRewind) return;
-    if (rewindTimerRef.current) {
-      clearTimeout(rewindTimerRef.current);
-      rewindTimerRef.current = null;
-    }
-    if (rewindArmed) {
-      setRewindArmed(false);
-      onRewind();
-      return;
-    }
-    setRewindArmed(true);
-    rewindTimerRef.current = setTimeout(() => {
-      rewindTimerRef.current = null;
-      setRewindArmed(false);
-    }, REWIND_CONFIRM_TIMEOUT_MS);
-  }, [onRewind, rewindArmed]);
-
-  // Escape disarms without executing (mirrors the top bar's armed confirm
-  // controls).
-  const handleRewindKeyDown = useCallback(
-    (event) => {
-      if (event.key === "Escape") disarmRewind();
+  // The armed confirm never outlives the menu it was armed in.
+  const handleOpenChange = useCallback(
+    (next) => {
+      setOpen(next);
+      if (!next) {
+        disarmRewind();
+        if (closeTimerRef.current) {
+          clearTimeout(closeTimerRef.current);
+          closeTimerRef.current = null;
+        }
+      }
     },
     [disarmRewind],
   );
 
-  // Reset the armed state when the turn becomes busy (the button also
-  // disables) or the window loses focus, matching "click away / lose
-  // focus / timeout" resets on the existing confirm controls.
+  // First select arms + holds the menu open (auto-resets after the timeout);
+  // the second select within the window performs the rewind and closes.
+  const handleRewindSelect = useCallback(
+    (event) => {
+      if (!onRewind) return;
+      if (rewindTimerRef.current) {
+        clearTimeout(rewindTimerRef.current);
+        rewindTimerRef.current = null;
+      }
+      if (rewindArmed) {
+        setRewindArmed(false);
+        onRewind();
+        return;
+      }
+      event.preventDefault();
+      setRewindArmed(true);
+      rewindTimerRef.current = setTimeout(() => {
+        rewindTimerRef.current = null;
+        setRewindArmed(false);
+      }, REWIND_CONFIRM_TIMEOUT_MS);
+    },
+    [onRewind, rewindArmed],
+  );
+
+  // Reset the armed state when the turn becomes busy (the item also disables)
+  // or the window loses focus, matching "click away / lose focus / timeout"
+  // resets on the existing confirm controls.
   useEffect(() => {
     if (actionsDisabled) disarmRewind();
   }, [actionsDisabled, disarmRewind]);
@@ -138,42 +172,54 @@ function MessageActionsImpl({
     return () => window.removeEventListener("blur", onWindowBlur);
   }, [rewindArmed, disarmRewind]);
 
-  const handleCopy = useCallback(async () => {
-    const value = text.trim();
-    let ok = false;
-    if (value) {
-      // Text takes priority, including mixed text + attachment messages.
-      ok = await copyTextToClipboard(value);
-    } else if (copyAttachment) {
-      // Attachment-only message: hand it to main, which writes an image
-      // (from the on-disk path or data URL) or falls back to the file
-      // path as text.
-      const result =
-        await window.electronAPI?.media?.copyAttachment?.(copyAttachment);
-      ok = Boolean(result?.ok);
-    } else {
-      return;
-    }
-    if (!ok) {
-      console.warn("[message-actions] copy failed");
-      return;
-    }
-    setCopied(true);
-    if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
-    copiedTimerRef.current = setTimeout(
-      () => setCopied(false),
-      COPIED_RESET_MS,
-    );
-  }, [text, copyAttachment]);
+  const handleCopySelect = useCallback(
+    async (event) => {
+      // Hold the menu open just long enough to show the "Copied" state.
+      event.preventDefault();
+      const value = text.trim();
+      let ok = false;
+      if (value) {
+        // Text takes priority, including mixed text + attachment messages.
+        ok = await copyTextToClipboard(value);
+      } else if (copyAttachment) {
+        // Attachment-only message: hand it to main, which writes an image
+        // (from the on-disk path or data URL) or falls back to the file
+        // path as text.
+        const result =
+          await window.electronAPI?.media?.copyAttachment?.(copyAttachment);
+        ok = Boolean(result?.ok);
+      } else {
+        return;
+      }
+      if (!ok) {
+        console.warn("[message-actions] copy failed");
+        setOpen(false);
+        return;
+      }
+      setCopied(true);
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+      copiedTimerRef.current = setTimeout(
+        () => setCopied(false),
+        COPIED_RESET_MS,
+      );
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = setTimeout(() => {
+        closeTimerRef.current = null;
+        setOpen(false);
+      }, COPIED_MENU_CLOSE_MS);
+    },
+    [text, copyAttachment],
+  );
 
-  const handleReadAloud = useCallback(() => {
+  const handleReadAloudSelect = useCallback(() => {
     void toggleManualReadAloud(messageKey, text);
   }, [messageKey, text]);
 
   const isPlaying = readAloudStatus !== "idle";
+  const hasCopyable = Boolean(text.trim() || copyAttachment);
 
-  // Local-timezone "h:mm AM/PM" (e.g. "3:07 PM"); the strip only reveals on
-  // hover, so the stamp inherits that hover-only visibility for free.
+  // Local-timezone "h:mm AM/PM" (e.g. "3:07 PM") for the menu header, so the
+  // exact time of one message stays reachable without a per-message stamp.
   const timestampLabel =
     typeof timestampMs === "number" && Number.isFinite(timestampMs)
       ? new Date(timestampMs).toLocaleTimeString([], {
@@ -183,127 +229,104 @@ function MessageActionsImpl({
       : null;
 
   return (
-    <div
-      className={`message-actions message-actions--${align}`}
-      data-active={isPlaying ? "true" : undefined}
-      // While the destructive Rewind is armed, hold the strip fully revealed
-      // (even off-hover) so the confirm affordance can't silently vanish.
-      data-confirming={rewindArmed ? "true" : undefined}
-      onMouseLeave={onRewind ? disarmRewind : undefined}
-    >
-      <button
-        type="button"
-        className="message-actions__btn"
-        onClick={handleCopy}
-        aria-label={
-          copied
-            ? t("app.chat.messageActions.copied")
-            : t("app.chat.messageActions.copy")
-        }
-        title={
-          copied
-            ? t("app.chat.messageActions.copied")
-            : t("app.chat.messageActions.copy")
-        }
+    <DropdownMenu open={open} onOpenChange={handleOpenChange}>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className={`message-actions message-actions--${align}`}
+          data-open={open ? "true" : undefined}
+          data-active={isPlaying ? "true" : undefined}
+          aria-label={t("app.chat.messageActions.more")}
+          title={t("app.chat.messageActions.more")}
+        >
+          <MoreVertical size={16} strokeWidth={2} aria-hidden="true" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        className="message-actions-menu"
+        align={align === "end" ? "end" : "start"}
+        sideOffset={6}
+        collisionPadding={12}
       >
-        {copied ? (
-          <Check size={14} strokeWidth={2} aria-hidden="true" />
-        ) : (
-          <Copy size={14} strokeWidth={2} aria-hidden="true" />
+        {timestampLabel && (
+          <DropdownMenuLabel className="message-actions-menu__time">
+            {timestampLabel}
+          </DropdownMenuLabel>
         )}
-      </button>
-      {onRewind && (
-        <button
-          type="button"
-          className="message-actions__btn"
-          data-action="rewind"
-          onClick={handleRewindClick}
-          onKeyDown={handleRewindKeyDown}
-          onBlur={disarmRewind}
-          disabled={actionsDisabled}
-          aria-disabled={actionsDisabled || undefined}
-          data-armed={rewindArmed ? "true" : undefined}
-          // Expose the two-step control to assistive tech.
-          aria-expanded={rewindArmed || undefined}
-          aria-label={
-            rewindArmed
-              ? t("app.chat.messageActions.rewindConfirm")
-              : t("app.chat.messageActions.rewind")
-          }
-          title={
-            rewindArmed
-              ? t("app.chat.messageActions.rewindConfirm")
-              : t("app.chat.messageActions.rewind")
-          }
-        >
-          {rewindArmed ? (
-            <>
-              <AlertCircle size={14} strokeWidth={2} aria-hidden="true" />
-              <span
-                className="message-actions__confirm-hint"
-                aria-hidden="true"
-              >
-                {t("app.chat.messageActions.rewindConfirm")}
-              </span>
-            </>
-          ) : (
-            <RotateCcw size={14} strokeWidth={2} aria-hidden="true" />
-          )}
-        </button>
-      )}
-      {onFork && (
-        <button
-          type="button"
-          className="message-actions__btn"
-          onClick={onFork}
-          disabled={actionsDisabled}
-          aria-disabled={actionsDisabled || undefined}
-          aria-label={t("app.chat.messageActions.fork")}
-          title={t("app.chat.messageActions.fork")}
-        >
-          <GitBranch size={14} strokeWidth={2} aria-hidden="true" />
-        </button>
-      )}
-      {showReadAloud && (
-        <button
-          type="button"
-          className="message-actions__btn"
-          onClick={handleReadAloud}
-          aria-label={
-            isPlaying
+        {hasCopyable && (
+          <DropdownMenuItem onSelect={handleCopySelect}>
+            <span data-slot="dropdown-menu-item-icon">
+              {copied ? (
+                <Check size={16} strokeWidth={2} aria-hidden="true" />
+              ) : (
+                <Copy size={16} strokeWidth={2} aria-hidden="true" />
+              )}
+            </span>
+            {copied
+              ? t("app.chat.messageActions.copied")
+              : t("app.chat.messageActions.copy")}
+          </DropdownMenuItem>
+        )}
+        {showReadAloud && (
+          <DropdownMenuItem onSelect={handleReadAloudSelect}>
+            <span data-slot="dropdown-menu-item-icon">
+              {readAloudStatus === "loading" ? (
+                <LoaderCircle
+                  className="message-actions__spinner"
+                  size={16}
+                  strokeWidth={2}
+                  aria-hidden="true"
+                />
+              ) : readAloudStatus === "playing" ? (
+                <Square
+                  size={14}
+                  strokeWidth={2}
+                  fill="currentColor"
+                  aria-hidden="true"
+                />
+              ) : (
+                <Volume2 size={16} strokeWidth={2} aria-hidden="true" />
+              )}
+            </span>
+            {isPlaying
               ? t("app.chat.messageActions.stopReading")
-              : t("app.chat.messageActions.readAloud")
-          }
-          title={
-            isPlaying
-              ? t("app.chat.messageActions.stopReading")
-              : t("app.chat.messageActions.readAloud")
-          }
-          aria-pressed={isPlaying}
-        >
-          {readAloudStatus === "loading" ? (
-            <LoaderCircle
-              className="message-actions__spinner"
-              size={14}
-              strokeWidth={2}
-              aria-hidden="true"
-            />
-          ) : readAloudStatus === "playing" ? (
-            <Square
-              size={12}
-              strokeWidth={2}
-              fill="currentColor"
-              aria-hidden="true"
-            />
-          ) : (
-            <Volume2 size={14} strokeWidth={2} aria-hidden="true" />
-          )}
-        </button>
-      )}
-      {timestampLabel && (
-        <span className="message-actions__timestamp">{timestampLabel}</span>
-      )}
-    </div>
+              : t("app.chat.messageActions.readAloud")}
+          </DropdownMenuItem>
+        )}
+        {(onFork || onRewind) && <DropdownMenuSeparator />}
+        {onFork && (
+          <DropdownMenuItem
+            disabled={actionsDisabled}
+            onSelect={() => onFork()}
+          >
+            <span data-slot="dropdown-menu-item-icon">
+              <GitBranch size={16} strokeWidth={2} aria-hidden="true" />
+            </span>
+            {t("app.chat.messageActions.fork")}
+          </DropdownMenuItem>
+        )}
+        {onRewind && (
+          <DropdownMenuItem
+            data-action="rewind"
+            data-variant="destructive"
+            data-armed={rewindArmed ? "true" : undefined}
+            disabled={actionsDisabled}
+            onSelect={handleRewindSelect}
+          >
+            <span data-slot="dropdown-menu-item-icon">
+              {rewindArmed ? (
+                <AlertCircle size={16} strokeWidth={2} aria-hidden="true" />
+              ) : (
+                <RotateCcw size={16} strokeWidth={2} aria-hidden="true" />
+              )}
+            </span>
+            {rewindArmed
+              ? t("app.chat.messageActions.rewindConfirm")
+              : t("app.chat.messageActions.rewind")}
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

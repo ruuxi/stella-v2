@@ -196,7 +196,7 @@ describe("MessageActions rewind confirm affordance", () => {
     container.remove();
   });
 
-  const renderStrip = async (onRewind: () => void) => {
+  const renderActions = async (onRewind: () => void) => {
     await act(async () => {
       root.render(
         withI18n(
@@ -206,85 +206,58 @@ describe("MessageActions rewind confirm affordance", () => {
     });
   };
 
-  const rewindButton = () =>
-    container.querySelector<HTMLButtonElement>('button[data-action="rewind"]');
+  /** Radix opens the menu on `pointerdown`, not `click`. */
+  const openMenu = async () => {
+    const trigger = container.querySelector<HTMLElement>(".message-actions")!;
+    expect(trigger).not.toBeNull();
+    await act(async () => {
+      trigger.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+    });
+  };
 
-  it("shows the confirm affordance on first click and executes on second", async () => {
+  const rewindItem = () =>
+    document.querySelector<HTMLElement>('[data-action="rewind"]');
+
+  it("arms on the first select and executes on the second", async () => {
     const rewinds: string[] = [];
-    await renderStrip(() => rewinds.push("rewound"));
-    const button = rewindButton();
-    expect(button).not.toBeNull();
+    await renderActions(() => rewinds.push("rewound"));
+    await openMenu();
+    const item = rewindItem();
+    expect(item).not.toBeNull();
 
-    // First click ARMS ONLY — no truncation call, no visual silence.
-    await act(async () => button!.click());
+    // First select ARMS ONLY — no truncation call, and the menu stays open so
+    // the confirm affordance can't silently vanish.
+    await act(async () => item!.click());
     expect(rewinds).toHaveLength(0);
-    const armed = rewindButton()!;
+    const armed = rewindItem()!;
     expect(armed.dataset.armed).toBe("true");
-    expect(armed.getAttribute("aria-expanded")).toBe("true");
-    expect(armed.getAttribute("title")).toBe("Click again to rewind");
     // Icon swapped to the "confirm?" affordance…
     expect(armed.querySelector(".stella-icon-alert-circle")).not.toBeNull();
     expect(armed.querySelector(".stella-icon-rotate-ccw")).toBeNull();
-    // …plus the inline hint next to the icon.
-    expect(container.textContent).toContain("Click again to rewind");
+    // …plus the spelled-out double-click intent.
+    expect(armed.textContent).toContain("Click again to rewind");
 
-    // Second click EXECUTES.
+    // Second select EXECUTES.
     await act(async () => armed.click());
     expect(rewinds).toHaveLength(1);
-    const disarmed = rewindButton()!;
-    expect(disarmed.dataset.armed).toBeUndefined();
-    expect(container.textContent).not.toContain("Click again to rewind");
-    expect(disarmed.querySelector(".stella-icon-rotate-ccw")).not.toBeNull();
   });
 
-  it("disarms without executing on blur or Escape", async () => {
+  it("disarms on the timeout without executing", async () => {
     const rewinds: string[] = [];
-    await renderStrip(() => rewinds.push("rewound"));
-    const button = rewindButton()!;
-    await act(async () => button.click());
-    expect(button.dataset.armed).toBe("true");
+    await renderActions(() => rewinds.push("rewound"));
+    await openMenu();
+    await act(async () => rewindItem()!.click());
+    expect(rewindItem()!.dataset.armed).toBe("true");
 
-    await act(async () => {
-      // The strip itself carries the disarm-on-leave handler; the button
-      // stays armed because jsdom never synthesizes blur from a synthetic
-      // mouseleave (real browsers do when focus leaves with the pointer).
-      container
-        .querySelector(".message-actions")!
-        .dispatchEvent(new MouseEvent("mouseleave", { bubbles: false }));
-    });
-    expect(rewindButton()).not.toBeNull();
-    expect(rewindButton()?.dataset.armed).toBe("true");
-    expect(container.textContent).toContain("Click again to rewind");
-
-    await act(async () => rewindButton()!.click());
-    const armedAgain = rewindButton()!;
-    expect(armedAgain.dataset.armed).toBeUndefined();
-    expect(container.textContent).not.toContain("Click again to rewind");
-
-    // Re-arm, then Escape disarms WITHOUT executing.
-    const rewindsBeforeEscape = rewinds.length;
-    await act(async () => armedAgain.click());
-    expect(rewindButton()?.dataset.armed).toBe("true");
-    await act(async () => {
-      rewindButton()!.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-      );
-    });
-    expect(rewindButton()?.dataset.armed).toBeUndefined();
-    expect(rewinds.length).toBe(rewindsBeforeEscape);
-  });
-
-  it("keeps the strip hover-revealed while armed so the confirm state stays visible", async () => {
-    await renderStrip(() => {});
-    const button = rewindButton()!;
-    await act(async () => button.click());
-    const row = container.querySelector<HTMLElement>(".message-actions");
-    expect(row?.dataset.confirming).toBe("true");
-
-    // Disarm via timeout path (fire the pending timer).
     await act(async () => {
       vi.advanceTimersByTime(3_500);
     });
-    expect(row?.dataset.confirming).toBeUndefined();
+    const disarmed = rewindItem()!;
+    expect(disarmed.dataset.armed).toBeUndefined();
+    expect(disarmed.textContent).not.toContain("Click again to rewind");
+    expect(disarmed.querySelector(".stella-icon-rotate-ccw")).not.toBeNull();
+    expect(rewinds).toHaveLength(0);
   });
 });

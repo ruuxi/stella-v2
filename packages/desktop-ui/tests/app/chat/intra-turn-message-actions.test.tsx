@@ -2,10 +2,9 @@
 /**
  * A turn that interleaves tool calls emits several short assistant
  * segments ("Let me try X…") before the final answer. Only the turn's
- * FINAL assistant message may carry the Copy / Read-aloud action strip —
- * mid-turn segments used to mount it too, showing actions where they
- * weren't wanted and reserving the strip's 24px + flex gap under every
- * preamble.
+ * FINAL assistant message may carry the Copy / Read-aloud actions —
+ * mid-turn segments used to mount them too, showing actions where they
+ * weren't wanted.
  *
  * Pins both halves of the fix:
  *   1. `isIntraTurnAssistantRuntime` — the projection predicate over the
@@ -13,8 +12,8 @@
  *      segment that handed off to a tool; `turnComplete` stamped on the
  *      run's last message and winning when both are set).
  *   2. `AssistantMessageRow` — an `isIntraTurn` row renders NO
- *      `.message-actions` element at all (nothing reserving height), while
- *      a final row keeps the strip with its read-aloud button.
+ *      `.message-actions` control at all, while a final row keeps the
+ *      ellipsis beside its bubble, holding copy + read-aloud.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { act } from "react";
@@ -51,7 +50,7 @@ describe("isIntraTurnAssistantRuntime", () => {
   });
 });
 
-describe("AssistantMessageRow action strip", () => {
+describe("AssistantMessageRow hover actions", () => {
   let container: HTMLDivElement;
   let root: Root;
 
@@ -92,23 +91,35 @@ describe("AssistantMessageRow action strip", () => {
     ...overrides,
   });
 
-  it("renders no action strip for an intra-turn segment", async () => {
+  it("renders no action control for an intra-turn segment", async () => {
     await renderRow(baseRow({ isIntraTurn: true }));
     // The message text still renders…
     expect(container.textContent).toContain("Let me try the other endpoint.");
-    // …but nothing mounts the strip, so there is no element reserving its
-    // 24px height between intra-turn messages.
+    // …but nothing mounts the control between intra-turn messages.
     expect(container.querySelector(".message-actions")).toBeNull();
   });
 
-  it("keeps the strip (copy + read-aloud) on the turn's final message", async () => {
+  it("keeps the ellipsis (copy + read-aloud) on the turn's final message", async () => {
     await renderRow(baseRow({ text: "Done — here's the summary." }));
-    const strip = container.querySelector(".message-actions");
-    expect(strip).not.toBeNull();
-    expect(strip!.querySelector('[aria-label="Copy"]')).not.toBeNull();
-    expect(strip!.querySelector('[aria-label="Read aloud"]')).not.toBeNull();
-    // Settled (non-streaming) strip stays hover-revealable: not inert.
-    expect(strip!.getAttribute("inert")).toBeNull();
-    expect(strip!.getAttribute("data-streaming")).toBeNull();
+    const trigger = container.querySelector<HTMLElement>(".message-actions");
+    expect(trigger).not.toBeNull();
+    // It sits beside the bubble, in the message's own horizontal line, so it
+    // costs no vertical space.
+    expect(
+      container.querySelector(
+        ".message-line--assistant > .message-actions--start",
+      ),
+    ).not.toBeNull();
+    expect(trigger!.getAttribute("inert")).toBeNull();
+    // Radix opens the menu on `pointerdown`, not `click`.
+    await act(async () => {
+      trigger!.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+    });
+    const menu = document.querySelector(".message-actions-menu");
+    expect(menu).not.toBeNull();
+    expect(menu!.textContent).toContain("Copy");
+    expect(menu!.textContent).toContain("Read aloud");
   });
 });

@@ -55,6 +55,7 @@ import {
   type LegendListRenderItemProps,
 } from "@legendapp/list/react";
 import { AssistantMessageRow, UserMessageRow } from "@/app/chat/MessageRow";
+import { ChatTimeDivider } from "@/app/chat/ChatTimeDivider";
 import { ComposerQueuedMessages } from "./ComposerQueuedMessages";
 import {
   InlineWorkingIndicator,
@@ -65,6 +66,7 @@ import {
   buildChatTimelineItems,
   type ChatTimelineItem,
 } from "@/features/chat/lib/chat-timeline-items";
+import { timestampHeaders } from "@/features/chat/lib/message-time-labels";
 import type { EventRowViewModel } from "@/features/chat/conversation-row-types";
 import type { AgentModelConfigsByThread } from "@/features/chat/hooks/use-agent-model-configs";
 import { LoaderCircle } from "@/ui/icons";
@@ -148,29 +150,32 @@ type ChatTimelineProps = {
  * These constants are THE definition of inter-row spacing for every
  * chat surface (full chat, sidebar, and orb all mount this
  * timeline). They render as virtualized separator heights below each
- * row. The WITHIN-row half (message -> cards -> action strip) is
+ * row. The WITHIN-row half (message -> cards) is
  * `--chat-item-part-gap` in full-shell.chat.css.
  *
- * When judging perceived spacing remember each text-bearing assistant
- * row ends with the part gap plus the reserved hover-action strip before
- * the between-row separator.
+ * These values ARE the whole gap now. A row used to end with the part gap
+ * plus a reserved 24px hover-action strip, so a turn boundary really read
+ * as ~62px; the actions moved beside the bubble (`.message-line`), so what
+ * is set here is what you see. The budget is deliberately iMessage-like:
+ * a clear but quiet break at a turn boundary, same-sender runs grouped
+ * tight — not collapsed to nothing.
  * ------------------------------------------------------------------ */
 
 /** Turn boundary: spacing across a sender change (user <-> assistant). */
-const ROW_GAP = 30;
+const ROW_GAP = 20;
 /**
  * Spacing between two consecutive assistant rows (no user message or
  * other content between them) — tightened so a multi-message assistant
  * reply reads as one continuous block rather than separate turns.
  */
-const ASSISTANT_RUN_GAP = 8;
+const ASSISTANT_RUN_GAP = 6;
 /**
  * Spacing between two consecutive user rows — tightened (vs the full
  * inter-turn `ROW_GAP`) so a burst of back-to-back user messages reads as
  * one grouped sequence rather than a stack of separate turns, while still
  * staying looser than the continuous assistant run.
  */
-const USER_RUN_GAP = 10;
+const USER_RUN_GAP = 8;
 /**
  * Spacing between two consecutive card/artifact-only assistant rows
  * (resource cards, source diffs, inline images, schedule receipts, …).
@@ -218,6 +223,12 @@ const gapAfterRow = (
 type TimelineListItem = ChatTimelineItem & {
   /** Pre-computed spacing rendered below this row by the separator. */
   gapAfter: number;
+  /**
+   * Created time of this row when it opens a new time group, i.e. when it
+   * gets the centered iMessage-style divider above it. Undefined on every
+   * other row — the whole point is that most messages carry no stamp.
+   */
+  timeHeaderMs?: number;
 };
 
 /**
@@ -331,14 +342,28 @@ export const ChatTimeline = memo(function ChatTimeline({
       queuedUserMessages: queuedUserMessages ?? [],
       includeWorkingIndicator: Boolean(indicator),
     });
+    // Which rows open a new time group, by the same rule mobile uses.
+    const timeHeaders = timestampHeaders(
+      items.flatMap((item) =>
+        item.type === "message"
+          ? [{ id: item.id, timestampMs: item.row.timestampMs }]
+          : [],
+      ),
+    );
     return items.map((item, index) => {
       const next = items[index + 1];
+      const timeHeaderMs =
+        item.type === "message" ? timeHeaders.get(item.id) : undefined;
       // Legend renders the separator after the final item too; the list's
       // bottom padding is the only gap between the tail and the composer.
-      if (!next) return { ...item, gapAfter: 0 };
+      if (!next) return { ...item, gapAfter: 0, timeHeaderMs };
       if (item.type === "message") {
         const nextRow = next?.type === "message" ? next.row : undefined;
-        return { ...item, gapAfter: gapAfterRow(item.row, nextRow) };
+        return {
+          ...item,
+          gapAfter: gapAfterRow(item.row, nextRow),
+          timeHeaderMs,
+        };
       }
       if (item.type === "working-indicator") {
         return { ...item, gapAfter: next?.type === "queued-users" ? 20 : 0 };
@@ -363,12 +388,21 @@ export const ChatTimeline = memo(function ChatTimeline({
           </div>
         ) : null;
       }
-      if (item.type === "queued-users" || item.row.kind === "user") {
-        return (
+      const row =
+        item.type === "queued-users" || item.row.kind === "user" ? (
           <TimelineUserItem item={item} onCancelQueued={onCancelQueued} />
+        ) : (
+          renderRow(item.row, conversationId, agentModelConfigByThread)
         );
-      }
-      return renderRow(item.row, conversationId, agentModelConfigByThread);
+      // The divider rides inside the row's own virtualized item, so it is
+      // measured and recycled with it (mobile nests it the same way).
+      if (item.timeHeaderMs === undefined) return row;
+      return (
+        <>
+          <ChatTimeDivider timestampMs={item.timeHeaderMs} />
+          {row}
+        </>
+      );
     },
     [agentModelConfigByThread, conversationId, indicator, onCancelQueued],
   );

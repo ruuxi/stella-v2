@@ -675,6 +675,83 @@ const connectIntent = (db: OwnerDbReader, desktopDeviceId: string): ConnectInten
     : null;
 };
 
+/**
+ * Issue this phone a credential for one of the account's desktops.
+ *
+ * The pair secret is not an authorization step; it is the phone's *transport*
+ * key. A phone has no Stella device key the cloud can verify, so this HMAC key
+ * is what stands in for one on the mobile dispatch proof and on the encrypted
+ * desktop bridge. Both callers below mint exactly the same row and differ only
+ * in what they accepted as evidence beforehand.
+ */
+const grantPhoneAccess = async (
+  ctx: OwnerContext,
+  input: {
+    desktopDeviceId: string;
+    mobileDeviceId: string;
+    displayName?: string;
+    platform?: string;
+  },
+) => {
+  const pairSecret = randomFrom(PAIR_SECRET_ALPHABET, PAIR_SECRET_LENGTH);
+  const pairSecretHash = await sha256Hex(pairSecret);
+  ctx.db.run(
+    `INSERT INTO paired_phones (desktop_device_id, mobile_device_id, pair_secret_hash, display_name, platform, approved_at, last_seen_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (desktop_device_id, mobile_device_id) DO UPDATE SET
+       pair_secret_hash = excluded.pair_secret_hash,
+       display_name = COALESCE(excluded.display_name, paired_phones.display_name),
+       platform = COALESCE(excluded.platform, paired_phones.platform),
+       last_seen_at = excluded.last_seen_at,
+       revoked_at = NULL`,
+    input.desktopDeviceId,
+    input.mobileDeviceId,
+    pairSecretHash,
+    input.displayName ?? null,
+    input.platform ?? null,
+    ctx.now,
+    ctx.now,
+  );
+  return { desktopDeviceId: input.desktopDeviceId, approvedAt: ctx.now, pairSecret };
+};
+
+/**
+ * A phone signed into this account asks for a credential for a desktop it can
+ * already see in the device list, with no code to carry between the two.
+ *
+ * This is the replacement for the pairing code, and it is a demotion rather
+ * than a removal: the code only ever proved that whoever held the phone could
+ * also see the desktop's screen, on top of an account check both ends already
+ * passed. Dropping it makes account access sufficient — the trade the owner
+ * chose — and it is still only a credential to *reach* that desktop. Whether
+ * the desktop will run anything is `remote_execution_state`, which this does
+ * not touch.
+ *
+ * The named desktop must be a registered device of this same owner. There is
+ * no cross-account reach to check for: the row lives in the caller's own owner
+ * object, so another account's desktop is not nameable from here.
+ */
+const attachPhone = async (
+  ctx: OwnerContext,
+  input: {
+    desktopDeviceId: string;
+    mobileDeviceId: string;
+    displayName?: string;
+    platform?: string;
+  },
+) => {
+  enforceOwnerRateLimit(ctx.db, ctx.now, "phone.attach", { count: 30, windowMs: 60_000 }, "Too many connection attempts. Please wait a minute and try again.");
+  const desktopDeviceId = resolveCurrentDeviceId(ctx.db, input.desktopDeviceId);
+  const desktop = ctx.db.one<{ device_id: string }>(
+    "SELECT device_id FROM devices WHERE device_id = ? AND public_key IS NOT NULL",
+    desktopDeviceId,
+  );
+  if (!desktop) {
+    throw new RpcError("NOT_FOUND", "That computer is not signed in to this account.");
+  }
+  return await grantPhoneAccess(ctx, { ...input, desktopDeviceId });
+};
+
 /** A phone signed into this account redeems a desktop's pairing code. */
 const completePairing = async (
   ctx: OwnerContext,
@@ -688,27 +765,12 @@ const completePairing = async (
   if (!session || session.used_at !== null || session.expires_at <= ctx.now) {
     throw new RpcError("BAD_REQUEST", "This pairing code is unavailable.");
   }
-  const pairSecret = randomFrom(PAIR_SECRET_ALPHABET, PAIR_SECRET_LENGTH);
-  const pairSecretHash = await sha256Hex(pairSecret);
-  ctx.db.run(
-    `INSERT INTO paired_phones (desktop_device_id, mobile_device_id, pair_secret_hash, display_name, platform, approved_at, last_seen_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT (desktop_device_id, mobile_device_id) DO UPDATE SET
-       pair_secret_hash = excluded.pair_secret_hash,
-       display_name = COALESCE(excluded.display_name, paired_phones.display_name),
-       platform = COALESCE(excluded.platform, paired_phones.platform),
-       last_seen_at = excluded.last_seen_at,
-       revoked_at = NULL`,
-    session.desktop_device_id,
-    input.mobileDeviceId,
-    pairSecretHash,
-    input.displayName ?? null,
-    input.platform ?? null,
-    ctx.now,
-    ctx.now,
-  );
+  const granted = await grantPhoneAccess(ctx, {
+    ...input,
+    desktopDeviceId: session.desktop_device_id,
+  });
   ctx.db.run("UPDATE pairing_codes SET used_at = ? WHERE code = ?", ctx.now, input.pairingCode);
-  return { desktopDeviceId: session.desktop_device_id, approvedAt: ctx.now, pairSecret };
+  return granted;
 };
 
 type PairProof = {
@@ -1138,6 +1200,29 @@ export const handleMobileRoute = async (ctx: OwnerContext, input: MobileRouteInp
       if (!mobileDeviceId) return error(400, "mobileDeviceId required");
       ctx.db.run("DELETE FROM push_tokens WHERE mobile_device_id = ?", mobileDeviceId);
       return { status: 200, body: { ok: true } };
+    }
+    case "POST pairing/attach": {
+      const desktopDeviceId = text(body.desktopDeviceId, 256);
+      const mobileDeviceId = text(body.mobileDeviceId, 256) || text(input.headers["x-stella-mobile-device-id"], 256);
+      if (!desktopDeviceId || !mobileDeviceId) {
+        return error(400, "desktopDeviceId and mobileDeviceId are required");
+      }
+      const displayName = optionalText(body.displayName, 64);
+      const platform = optionalText(body.platform, 64);
+      try {
+        return {
+          status: 200,
+          body: await attachPhone(ctx, {
+            desktopDeviceId,
+            mobileDeviceId,
+            ...(displayName ? { displayName } : {}),
+            ...(platform ? { platform } : {}),
+          }),
+        };
+      } catch (caught) {
+        if (caught instanceof RpcError && caught.code !== "RATE_LIMITED") return error(400, caught.message);
+        throw caught;
+      }
     }
     case "POST pairing/complete": {
       const pairingCode = text(body.pairingCode, 12).toUpperCase();

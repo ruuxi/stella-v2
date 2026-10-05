@@ -382,7 +382,12 @@ export const buildClaudeChildEnv = (options: {
     ANTHROPIC_BASE_URL: gatewayRelayBaseUrl(options.gatewayOrigin),
     CLAUDE_CODE_OAUTH_TOKEN: options.capability,
     CLAUDE_CONFIG_DIR: options.stateRoot,
-    CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1",
+    // Claude spawns no subprocess here: built-in tools are off (`--tools ""`),
+    // Stella's tools arrive over loopback HTTP MCP and run in the ToolHost's
+    // own isolation, and settings sources (hooks) are empty. Scrubbing would
+    // only demand bubblewrap, which the image cannot run (no user
+    // namespaces), and the CLI then exits before it starts.
+    CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0",
     ANTHROPIC_CUSTOM_HEADERS: [
       `${GATEWAY_AGENT_TYPE_HEADER}: ${options.agentType}`,
       "x-stella-llm-credential: anthropic",
@@ -426,7 +431,6 @@ export const buildCloudClaudeTakeoverArgs = (options: {
   ...(options.includePartialMessages ? ["--include-partial-messages"] : []),
   ...resolveClaudeModelArgs(options.model),
   ...resolveClaudeReasoningArgs(options.reasoningEffort),
-  "--dangerously-skip-permissions",
   // Match the desktop's configured Claude engine takeover: Claude owns the
   // native loop, but Stella owns its entire capability and instruction
   // surface. Ambient MCP servers, built-ins, and slash commands stay out.
@@ -436,9 +440,9 @@ export const buildCloudClaudeTakeoverArgs = (options: {
   "--disable-slash-commands",
   "--tools",
   "",
-  // CLAUDE_CODE_SUBPROCESS_ENV_SCRUB forces the default permission mode and
-  // ignores --dangerously-skip-permissions, which denies every MCP call that
-  // is not allowed explicitly. Allow exactly Stella's server.
+  // The CLI runs as root in the container, where it refuses
+  // --dangerously-skip-permissions. Built-ins are off, so the default
+  // permission mode plus this allowlist grants exactly Stella's server.
   "--allowedTools",
   `mcp__${CLOUD_CLAUDE_MCP_SERVER_NAME}`,
   // CLAUDE_CONFIG_DIR persists only conversation state. Never let a prior
@@ -750,7 +754,12 @@ export const runNativeAgentTurn = async (options: {
     ...(result.error ? { error: result.error } : {}),
   });
   if (!result.sessionId) {
-    throw new Error("Claude did not establish durable native session state.");
+    // The CLI exited before its init event; its own error says why.
+    throw new Error(
+      result.error
+        ? `Claude Code did not start: ${result.error.slice(-1_000)}`
+        : "Claude did not establish durable native session state.",
+    );
   }
   const checkpoint = await sealNativeState({
     stateRoot,

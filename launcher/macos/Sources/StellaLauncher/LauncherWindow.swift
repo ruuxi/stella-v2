@@ -8,8 +8,12 @@ struct LauncherViewState {
     }
 
     var phase = Phase.idle
-    /// starting/stopping: what is happening now.
+    /// starting/stopping: what is happening now, in plain words.
     var status = ""
+    /// starting: the part of setup that is done (0...1), and where the
+    /// current step ends; the page's bar eases between them.
+    var progress = 0.0
+    var progressTo = 0.0
     /// failed: one sentence.
     var reason = ""
     /// failed: Electron's last lines (Settings > Last error).
@@ -20,6 +24,7 @@ struct LauncherViewState {
 
     var json: [String: Any] {
         ["platform": "macos", "phase": phase.rawValue, "status": status, "reason": reason,
+         "progress": phase == .starting ? progress : 0, "progressTo": phase == .starting ? progressTo : 0,
          "output": output, "hasKnownGood": hasKnownGood, "version": version]
     }
 }
@@ -273,11 +278,11 @@ final class LauncherWindow: NSObject, WKScriptMessageHandler, NSWindowDelegate {
             log("ui: page loaded")
             pageLoaded()
         case "start" where waiting:
-            choose(.start, "Starting Stella…")
+            choose(.start, "Starting Stella…", to: 0.05)
         case "return" where waiting:
-            choose(.returnToKnownGood, "Returning to the last working version…")
+            choose(.returnToKnownGood, "Restoring the last working version…", to: 0.3)
         case "reinstall" where waiting:
-            choose(.reinstall, "Reinstalling Stella…")
+            choose(.reinstall, "Reinstalling Stella…", to: 0.1)
         case "shutdown" where state.phase == .running:
             log("ui: shut down")
             state.phase = .stopping
@@ -293,10 +298,12 @@ final class LauncherWindow: NSObject, WKScriptMessageHandler, NSWindowDelegate {
         }
     }
 
-    private func choose(_ command: LauncherCommand, _ status: String) {
+    private func choose(_ command: LauncherCommand, _ status: String, to: Double) {
         log("ui: \(command)")
         state.phase = .starting
         state.status = status
+        state.progress = 0
+        state.progressTo = to
         apply(.keep)
         onCommand?(command)
     }

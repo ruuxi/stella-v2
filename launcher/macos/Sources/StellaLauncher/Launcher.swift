@@ -109,9 +109,16 @@ final class Launcher {
             ui.update {
                 $0.phase = .starting
                 $0.status = "Starting Stella…"
+                $0.progress = 0
+                $0.progressTo = 0.05
             }
             do {
                 let electronApp = try prepareForLaunch()
+                ui.update {
+                    $0.status = "Starting Stella…"
+                    $0.progress = 0.94
+                    $0.progressTo = 1
+                }
                 switch supervise(electronApp: electronApp) {
                 case .quit:
                     return nil
@@ -139,11 +146,28 @@ final class Launcher {
         }
     }
 
-    /// Install progress; the slow steps bring a hidden window front.
+    /// Install progress; the slow steps bring a hidden window front. The
+    /// install steps report what they do in technical terms ("Downloading git
+    /// 2.53.0…"); the window says it in plain words, with the part of setup
+    /// each step covers, in the order they run.
     private func status(_ text: String) {
+        let steps: [(prefix: String, status: String, from: Double, to: Double)] = [
+            ("Downloading git", "Getting things ready…", 0.02, 0.10),
+            ("Downloading Stella", "Downloading Stella…", 0.10, 0.30),
+            ("Downloading Bun", "Getting things ready…", 0.30, 0.40),
+            ("Installing Stella's dependencies", "Installing Stella…", 0.40, 0.75),
+            ("Preparing Stella", "Finishing setup…", 0.75, 0.85),
+            ("Setting up Stella.app", "Finishing setup…", 0.85, 0.94),
+        ]
+        let step = steps.first { text.hasPrefix($0.prefix) }
+        log("progress: \(text)")
         ui.update(show: .reveal) {
             $0.phase = .starting
-            $0.status = text
+            $0.status = step?.status ?? text
+            if let step {
+                $0.progress = step.from
+                $0.progressTo = step.to
+            }
         }
     }
 

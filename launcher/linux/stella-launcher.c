@@ -1167,6 +1167,7 @@ typedef struct {
     /* Guarded by lock. */
     Phase phase;
     char *status, *reason, *version;
+    double progress, progress_to;   /* starting: done so far, and where this step ends */
     StrList output;
     int has_known_good;
     Command command;     /* the page's command, taken by ui_wait_command */
@@ -1191,8 +1192,9 @@ static char *ui_state_json(void) {
     char *version = mj_quote(U.version ? U.version : "");
     size_t i;
     g_string_append_printf(s, "{\"platform\":\"linux\",\"phase\":\"%s\",\"status\":%s,\"reason\":%s,"
-                              "\"hasKnownGood\":%s,\"version\":%s,\"output\":[",
-                           PHASE_NAMES[U.phase], status, reason, U.has_known_good ? "true" : "false", version);
+                              "\"progress\":%.3f,\"progressTo\":%.3f,\"hasKnownGood\":%s,\"version\":%s,\"output\":[",
+                           PHASE_NAMES[U.phase], status, reason, U.progress, U.progress_to,
+                           U.has_known_good ? "true" : "false", version);
     for (i = 0; i < U.output.count; i++) {
         char *q = mj_quote(U.output.items[i]);
         g_string_append_printf(s, "%s%s", i ? "," : "", q);
@@ -1526,14 +1528,25 @@ static void ui_set(Phase phase, const char *status) {
         U.reason = NULL;
     }
     if (!idle_or_failed(phase)) U.command = CMD_NONE;
+    if (phase != PHASE_STARTING) U.progress = U.progress_to = 0;
     g_mutex_unlock(&U.lock);
     if (g_ui) g_idle_add(ui_render_cb, NULL);
 }
 
-/* Install and prepare steps: the status, with the window in front. */
-static void progress_show(const char *status) {
-    LOG("progress: %s", status);
+/* Starting: what's happening in plain words, and the part of setup it covers
+ * (the bar shows from, easing toward to). */
+static void ui_step(const char *status, double from, double to) {
+    g_mutex_lock(&U.lock);
+    U.progress = from;
+    U.progress_to = to;
+    g_mutex_unlock(&U.lock);
     ui_set(PHASE_STARTING, status);
+}
+
+/* Install and prepare steps (slow): the step, with the window in front. */
+static void progress_show(const char *status, double from, double to) {
+    LOG("progress: %s", status);
+    ui_step(status, from, to);
     if (!g_ui) return;
     g_idle_add(ui_present_cb, NULL);
     if (O.capture_dir && !U.captured_starting) {
@@ -1813,7 +1826,7 @@ static int ensure_bun(void) {
         char *staging = xasprintf("%s/.bun-%s.partial", P.runtimes, version);
         char *member_path;
         if (!url || !sha) { set_error("No Bun %s for %s.", version, key); free(archive); free(staging); goto out; }
-        progress_show("Downloading Bun…");
+        progress_show("Getting things ready…", 0.30, 0.40);
         LOG("install: downloading bun %s from %s", version, url);
         mkdirs(P.runtimes, 0755);
         if (download(url, archive, sha) != 0) { free(archive); free(staging); goto out; }
@@ -1893,7 +1906,7 @@ static int clone_source(void) {
     StrList args = {0}, extra = {0};
     char *remote = NULL, *token = NULL, *out, *head;
     int rc = -1;
-    progress_show("Downloading Stella…");
+    progress_show("Downloading Stella…", 0.05, 0.30);
     remove_tree(staging);
     sl_push(&args, "clone");
     sl_push(&args, "--origin");
@@ -1997,7 +2010,7 @@ static char *prepare(void) {
         char *argv[] = {g_bun_bin, "install", "--frozen-lockfile", NULL};
         CmdResult r;
         double started = now_seconds();
-        progress_show("Installing Stella's dependencies…");
+        progress_show("Installing Stella…", 0.40, 0.82);
         LOG("prepare: bun install --frozen-lockfile (lock %.12s)", lock_hash);
         /* Dependencies only: the postinstall's asset downloads are prepare-install.mjs's job. */
         env_set(&env, "STELLA_SKIP_BROWSER_HYDRATE", "1");
@@ -2028,7 +2041,7 @@ static char *prepare(void) {
         char *argv[] = {g_bun_bin, script, NULL};
         double timeout = env_seconds("STELLA_LAUNCHER_PREPARE_TIMEOUT_SECONDS", 10 * 60);
         CmdResult r;
-        progress_show("Preparing Stella…");
+        progress_show("Finishing setup…", 0.82, 0.94);
         LOG("prepare: prepare-install.mjs for %.12s", head);
         if (run_cmd(argv, P.app, env.items, P.install_log, timeout, &r) == 0 && !r.timed_out && r.code == 0) {
             free(S.prepared_head);
@@ -2708,13 +2721,13 @@ static int launcher_run(void) {
         reason = NULL;
         sl_free(&output);
         if (command == CMD_RETURN) {
-            progress_show("Returning to the last working version…");
+            progress_show("Restoring the last working version…", 0, 0.30);
             if (return_to_known_good() != 0) LOG("recovery: return failed: %s", last_error());
         } else if (command == CMD_REINSTALL) {
-            progress_show("Reinstalling Stella…");
+            progress_show("Reinstalling Stella…", 0, 0.15);
             if (reinstall() != 0) LOG("recovery: reinstall failed: %s", last_error());
         } else {
-            ui_set(PHASE_STARTING, "Starting Stella…");
+            ui_step("Starting Stella…", 0, 0.05);
         }
         command = CMD_NONE;
 
@@ -2722,7 +2735,7 @@ static int launcher_run(void) {
         if (electron) {
             Outcome outcome;
             ui_refresh_version();
-            ui_set(PHASE_STARTING, "Starting Stella…");
+            ui_step("Starting Stella…", 0.94, 1);
             outcome = supervise(electron);
             free(electron);
             switch (outcome.kind) {

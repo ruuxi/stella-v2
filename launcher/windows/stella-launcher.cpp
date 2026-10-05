@@ -1188,7 +1188,9 @@ public:
     // Idle: wait for Start (Retry), Return, Reinstall or Quit.
     virtual Choice idle() = 0;
     // Starting: what is happening now; `show` brings a hidden window up.
-    virtual void starting(const string &status, bool show) = 0;
+    // Starting: what is happening in plain words, and the part of setup it
+    // covers (from..to, 0..1; the window's bar eases between them).
+    virtual void starting(const string &status, double from, double to, bool show) = 0;
     // Electron is ready.
     virtual void running() = 0;
     // Failed: show why, then wait for a choice.
@@ -1201,9 +1203,9 @@ static Ui *gUi = nullptr;
 
 // A step worth telling the user about; like the old progress dialog, it
 // brings the window up.
-static void progress(const string &status) {
+static void progress(const string &status, double from, double to) {
     LOG("progress: %s", status.c_str());
-    gUi->starting(status, true);
+    gUi->starting(status, from, to, true);
 }
 
 static void requestShutdown();
@@ -1371,7 +1373,7 @@ class DialogUi : public Ui {
 public:
     // No Start button here: start right away, as the launcher always did.
     Choice idle() override { return Choice::Retry; }
-    void starting(const string &status, bool show) override {
+    void starting(const string &status, double, double, bool show) override {
         if (show) gProgress.show(status);
     }
     void running() override { gProgress.hide(); }
@@ -1637,14 +1639,18 @@ public:
         update([&]() {
             phase_ = "starting";
             status_ = "Starting Stella…";
+            progress_ = 0;
+            progressTo_ = 0.05;
         });
         return Choice::Retry;
     }
 
-    void starting(const string &status, bool show) override {
+    void starting(const string &status, double from, double to, bool show) override {
         update([&]() {
             phase_ = "starting";
             status_ = status;
+            progress_ = from;
+            progressTo_ = to;
         });
         if (show) setVisible(true);
         bool captureNow;
@@ -1735,6 +1741,7 @@ private:
     std::mutex mutex_;
     std::condition_variable cond_;
     string phase_ = "idle", status_, reason_, version_;
+    double progress_ = 0, progressTo_ = 0;
     vector<string> output_;
     bool hasKnownGood_ = false, loaded_ = false, wantVisible_ = false;
     bool startingCaptured_ = false, toured_ = false;
@@ -1790,9 +1797,11 @@ private:
             command_ = Choice::None;
             if (choice != Choice::Quit) {
                 phase_ = "starting";
-                status_ = choice == Choice::Return      ? "Returning to the last working version…"
+                status_ = choice == Choice::Return      ? "Restoring the last working version…"
                           : choice == Choice::Reinstall ? "Reinstalling Stella…"
                                                         : "Starting Stella…";
+                progress_ = 0;
+                progressTo_ = 0.05;
             }
         }
         PostMessageW(hwnd_, WM_UI_RENDER, 0, 0);
@@ -2077,8 +2086,11 @@ private:
         {
             std::lock_guard<std::mutex> lock(mutex_);
             if (!loaded_) return;
+            bool starting = phase_ == "starting";
             json = "{\"platform\":\"windows\",\"phase\":" + jsonString(phase_) + ",\"status\":" + jsonString(status_) +
-                   ",\"reason\":" + jsonString(reason_) + ",\"output\":[";
+                   ",\"reason\":" + jsonString(reason_) + format(",\"progress\":%.3f,\"progressTo\":%.3f",
+                                                                   starting ? progress_ : 0, starting ? progressTo_ : 0) +
+                   ",\"output\":[";
             for (size_t i = 0; i < output_.size(); i++) json += (i ? "," : "") + jsonString(output_[i]);
             json += string("],\"hasKnownGood\":") + (hasKnownGood_ ? "true" : "false") + ",\"version\":" + jsonString(version_) + "}";
         }
@@ -2180,7 +2192,7 @@ static void ensureGit() {
     if (adoptGit()) return;
     wstring root = P.runtimes() + L"\\git-" + wide(kGitVersion);
     const Asset &asset = kGitAssets[nativeArm64() ? 1 : 0];
-    progress(format("Downloading git %s…", kGitVersion));
+    progress("Getting things ready…", 0.02, 0.10);
     LOG("install: downloading PortableGit %s from %s", kGitVersion, asset.url);
     mkdirs(P.runtimes());
     wstring archive = P.runtimes() + L"\\PortableGit-" + wide(kGitVersion) + L".7z.exe";
@@ -2250,7 +2262,7 @@ static void ensureBun() {
     wstring bin = dir + L"\\bun.exe";
     if (!exists(bin)) {
         if (url.empty()) fail("No Bun " + version + " for " + key + ".");
-        progress("Downloading Bun…");
+        progress("Getting things ready…", 0.30, 0.40);
         LOG("install: downloading bun %s from %s", version.c_str(), url.c_str());
         mkdirs(P.runtimes());
         wstring archive = P.runtimes() + L"\\bun-" + wide(version) + L".zip";
@@ -2297,7 +2309,7 @@ static void bootstrapAccess(string &remote, string &token) {
 // Clone into app\; staged beside it and renamed, so an interrupted install
 // never leaves half a tree.
 static void cloneSource() {
-    progress("Downloading Stella…");
+    progress("Downloading Stella…", 0.10, 0.30);
     wstring staging = P.root + L"\\app.partial";
     removeTree(staging);
     // LF working tree regardless of PortableGit's system autocrlf, so scripts
@@ -2422,7 +2434,7 @@ static wstring prepare() {
     wstring app = P.app();
     string lockHash = sha256File(app + L"\\bun.lock");
     if (S.bunLockHash != lockHash || !exists(app + L"\\node_modules\\electron\\package.json")) {
-        progress("Installing Stella's dependencies…");
+        progress("Installing Stella…", 0.40, 0.82);
         LOG("prepare: bun install --frozen-lockfile (lock %s)", short12(lockHash).c_str());
         ULONGLONG started = GetTickCount64();
         // Dependencies only: the postinstall's asset downloads are prepare-install.mjs's job.
@@ -2442,7 +2454,7 @@ static wstring prepare() {
     if (S.preparedHead != head && exists(script)) {
         // Optional features (computer use, the browser, office previews): a
         // failure or timeout is logged, not fatal, and retried next launch.
-        progress("Preparing Stella…");
+        progress("Finishing setup…", 0.82, 0.94);
         LOG("prepare: prepare-install.mjs for %s", short12(head).c_str());
         double timeout = envSeconds(L"STELLA_LAUNCHER_PREPARE_TIMEOUT_SECONDS", 10 * 60);
         try {
@@ -3089,7 +3101,8 @@ static int run() {
         vector<string> output;
         try {
             if (next == Choice::Return || next == Choice::Reinstall) {
-                gUi->starting(next == Choice::Return ? "Returning to the last working version…" : "Reinstalling Stella…", false);
+                gUi->starting(next == Choice::Return ? "Restoring the last working version…" : "Reinstalling Stella…", 0,
+                              next == Choice::Return ? 0.3 : 0.1, false);
                 ensureTools();
                 try {
                     if (next == Choice::Return) returnToKnownGood();
@@ -3101,8 +3114,9 @@ static int run() {
             next = Choice::Retry;
             // Relaunches and the crash restart stay hidden; the heavy steps
             // in prepareForLaunch bring the window up.
-            gUi->starting("Starting Stella…", false);
+            gUi->starting("Starting Stella…", 0, 0.05, false);
             wstring electron = prepareForLaunch();
+            gUi->starting("Starting Stella…", 0.94, 1, false);
             Outcome outcome = supervise(electron);
             switch (outcome.kind) {
             case OutcomeKind::Quit:

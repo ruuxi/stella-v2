@@ -11,7 +11,10 @@
     {
       platform: "linux" | "macos" | "windows",
       phase: "idle" | "starting" | "running" | "stopping" | "failed",
-      status: string,        // starting/stopping: what is happening now
+      status: string,        // starting: what is happening now, in plain words
+      progress: number,      // starting: 0..1, the part of setup that is done
+      progressTo: number,    // starting: 0..1, where the current step ends; the
+                             //   bar eases from progress toward it meanwhile
       reason: string,        // failed: one sentence
       output: string[],      // failed: Electron's last lines (Settings > Last error)
       hasKnownGood: boolean, // "Return to last working version" is possible
@@ -64,7 +67,6 @@
         --primary-bg: #141413;
         --primary-fg: #fdfdfb;
         --primary-hover: #2b2b29;
-        --ok: #2fb35a;
         --danger: #c8412f;
         --danger-ghost: rgba(200, 65, 47, 0.08);
       }
@@ -80,7 +82,6 @@
           --primary-bg: #f4f3ee;
           --primary-fg: #0f0f0d;
           --primary-hover: #ffffff;
-          --ok: #3ccf6a;
           --danger: #ef6b58;
           --danger-ghost: rgba(239, 107, 88, 0.12);
         }
@@ -153,17 +154,26 @@
       }
 
       /* ── Home ── */
+      /* Everything sits in fixed slots, so no state's text moves anything:
+         the brand (and a two-line reason under it) up top, and at the bottom
+         one line, one control (button or progress bar) and one row of links. */
       #home {
         align-items: center;
+        padding: 0 32px 46px;
+      }
+      .top {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
         justify-content: center;
-        padding: 28px 32px 40px;
+        padding-top: 18px;
       }
       .brand {
         display: flex;
         flex-direction: column;
         align-items: center;
         gap: 12px;
-        margin-top: 8px;
       }
       .mark {
         width: 68px;
@@ -177,20 +187,39 @@
         letter-spacing: -0.03em;
         line-height: 1;
       }
+      .reason {
+        height: 38px;
+        width: 290px;
+        margin-top: 16px;
+        color: var(--muted);
+        font-size: 12.5px;
+        line-height: 19px;
+        text-align: center;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        opacity: 0;
+        transition: opacity 220ms ease;
+      }
+      body[data-phase="failed"] .reason {
+        opacity: 1;
+      }
 
-      .stage {
+      .bottom {
         position: relative;
         width: 100%;
-        height: 146px;
-        margin-top: 30px;
+        height: 106px;
+        flex: none;
       }
       .panel {
         position: absolute;
         inset: 0;
-        display: flex;
-        flex-direction: column;
+        display: grid;
+        grid-template-rows: 20px 40px 18px;
+        row-gap: 14px;
+        justify-items: center;
         align-items: center;
-        gap: 12px;
         opacity: 0;
         visibility: hidden;
         transform: translateY(4px);
@@ -199,6 +228,15 @@
           opacity 220ms ease,
           transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
           visibility 0s 260ms;
+      }
+      .panel > .line {
+        grid-row: 1;
+      }
+      .panel > .control {
+        grid-row: 2;
+      }
+      .panel > .links {
+        grid-row: 3;
       }
       body[data-phase="idle"] .panel[data-for~="idle"],
       body[data-phase="starting"] .panel[data-for~="starting"],
@@ -213,8 +251,8 @@
       }
 
       .pill {
-        height: 36px;
-        min-width: 132px;
+        height: 40px;
+        min-width: 0;
         padding: 0 22px;
         border-radius: 999px;
         font-size: 13.5px;
@@ -245,73 +283,47 @@
         opacity: 0.4;
       }
 
-      .note {
-        color: var(--muted);
-        font-size: 12.5px;
-        line-height: 1.45;
-        text-align: center;
-        max-width: 290px;
-      }
-      .status {
-        display: inline-flex;
+      .line {
+        display: flex;
         align-items: center;
+        justify-content: center;
         gap: 8px;
-        height: 36px;
+        max-width: 300px;
+        height: 20px;
         color: var(--muted);
         font-size: 13px;
         font-weight: 500;
+        white-space: nowrap;
       }
-      .dot {
-        width: 7px;
-        height: 7px;
-        border-radius: 50%;
-        background: var(--ok);
-        box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 18%, transparent);
+      .line > span {
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
-      /* Light passing through the label, like the update hold. */
-      .shimmer {
-        background: linear-gradient(
-          90deg,
-          var(--faint) 0%,
-          var(--faint) 35%,
-          var(--fg) 50%,
-          var(--faint) 65%,
-          var(--faint) 100%
-        );
-        background-size: 250% 100%;
-        -webkit-background-clip: text;
-        background-clip: text;
-        color: transparent;
-        animation: shimmer 1.8s linear infinite;
+      .control.pill {
+        width: 220px;
       }
-      @keyframes shimmer {
-        from {
-          background-position: 100% 0;
-        }
-        to {
-          background-position: -50% 0;
-        }
+      .bar {
+        width: 220px;
+        height: 4px;
+        border-radius: 999px;
+        background: var(--ghost-hover);
+        overflow: hidden;
+      }
+      .bar > div {
+        height: 100%;
+        width: 0;
+        border-radius: inherit;
+        background: var(--fg);
+        transition: width 400ms ease-out;
       }
 
-      .panel[data-for="failed"] {
-        gap: 10px;
-        margin-top: -6px;
-      }
       .failed-title {
-        font-size: 13.5px;
+        color: var(--fg);
         font-weight: 600;
-      }
-      .reason {
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        -webkit-box-orient: vertical;
-        overflow: hidden;
-        margin: -6px 0 2px;
       }
       .links {
         display: flex;
-        gap: 14px;
-        margin-top: 2px;
+        gap: 16px;
       }
       .link {
         color: var(--muted);
@@ -413,6 +425,9 @@
         color: var(--muted);
         font-size: 11.5px;
         line-height: 1.4;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
       .value {
         color: var(--muted);
@@ -422,6 +437,7 @@
       .pill.small {
         height: 28px;
         min-width: 0;
+        min-width: 84px;
         padding: 0 13px;
         font-size: 12px;
         font-weight: 600;
@@ -467,78 +483,80 @@
           transition: none !important;
           animation: none !important;
         }
-        .shimmer {
-          color: var(--muted);
-          background: none;
-        }
       }
     </style>
   </head>
   <body data-phase="idle">
     <main class="view" id="home">
-      <div class="brand">
-        <svg class="mark" viewBox="0 0 1024 1024" aria-hidden="true">
-          <defs>
-            <path id="mark-shape" d="M474.1 154.1C269 172.2 211.6 334.4 372.3 442C377.4 445.4 377.7 445.3 362.3 447.8C215.3 471.8 127.8 569.9 162 672.2C210.1 816.2 463.2 910.8 632.5 848C759.2 801 768.8 684.2 653.7 590.5C642.2 581.1 641 582.3 665 579C815.2 558.3 903.1 453.7 861 345.6C815.4 228.5 636.1 139.7 474.1 154.1Z M601 245.4C860.8 283.4 917.2 523.1 678 572.4C638.3 580.6 643.8 581.7 610.7 558.7C582.1 538.9 559 531.1 522.5 529.1C490.2 527.2 464.6 518.6 442.6 502C436.1 497.1 435.7 497 438 501.8C453.8 534.5 450.4 575.2 427.6 626.2C424.8 632.5 425.3 633.5 429.1 629.4C490.6 562.9 565.8 559.2 635 619.2C762 729.4 590.3 855.3 383.2 803.9C190.7 756.1 118.4 604 241.5 505.5C284.9 470.7 369 441.2 388.8 453.8C393 456.5 399.3 460.3 402.8 462.4C406.3 464.4 412.6 468.7 416.8 471.9C454.3 500.4 484.7 512.2 527.5 515C547 516.2 560.7 519.2 575.9 525.4C582.1 527.9 587.3 530 587.5 530C587.7 530 586.3 526.7 584.5 522.7C569.2 489.7 572.5 449.2 594 403.3C597.9 394.9 597.9 394.9 592 400.2C588.7 403.1 582.1 409 577.3 413.3C527.7 457.5 472 461.5 420.7 424.6C326.8 357.2 382.1 259.5 523 244.1C535.9 242.7 588.4 243.6 601 245.4Z" />
-            <linearGradient id="mark-core" x1="0" y1="397" x2="0" y2="631" gradientUnits="userSpaceOnUse">
-              <stop offset="0" stop-color="#ff4ac0" />
-              <stop offset="0.1" stop-color="#ff45c3" />
-              <stop offset="0.2" stop-color="#ff46c0" />
-              <stop offset="0.3" stop-color="#a141ff" />
-              <stop offset="0.4" stop-color="#703cff" />
-              <stop offset="0.5" stop-color="#5243ff" />
-              <stop offset="0.6" stop-color="#3164ff" />
-              <stop offset="0.7" stop-color="#0e8aff" />
-              <stop offset="0.8" stop-color="#00b5ff" />
-              <stop offset="0.9" stop-color="#00eeff" />
-              <stop offset="1" stop-color="#4ffff7" />
-            </linearGradient>
-            <radialGradient
-              id="mark-fade"
-              cx="502"
-              cy="539"
-              r="112"
-              gradientUnits="userSpaceOnUse"
-              gradientTransform="translate(502 539) rotate(50) scale(1 3.05) translate(-502 -539)"
-            >
-              <stop offset="0" stop-color="currentColor" stop-opacity="0.0055" />
-              <stop offset="0.0714" stop-color="currentColor" stop-opacity="0.0061" />
-              <stop offset="0.1429" stop-color="currentColor" stop-opacity="0.0071" />
-              <stop offset="0.2143" stop-color="currentColor" stop-opacity="0.0151" />
-              <stop offset="0.2857" stop-color="currentColor" stop-opacity="0.0404" />
-              <stop offset="0.3571" stop-color="currentColor" stop-opacity="0.0872" />
-              <stop offset="0.4286" stop-color="currentColor" stop-opacity="0.164" />
-              <stop offset="0.5" stop-color="currentColor" stop-opacity="0.25" />
-              <stop offset="0.5714" stop-color="currentColor" stop-opacity="0.3639" />
-              <stop offset="0.6429" stop-color="currentColor" stop-opacity="0.5495" />
-              <stop offset="0.7143" stop-color="currentColor" stop-opacity="0.7111" />
-              <stop offset="0.7857" stop-color="currentColor" stop-opacity="0.8253" />
-              <stop offset="0.8571" stop-color="currentColor" stop-opacity="0.9155" />
-              <stop offset="0.9286" stop-color="currentColor" stop-opacity="0.9739" />
-              <stop offset="1" stop-color="currentColor" stop-opacity="0.9885" />
-            </radialGradient>
-          </defs>
-          <use href="#mark-shape" fill="url(#mark-core)" />
-          <use href="#mark-shape" fill="url(#mark-fade)" />
-        </svg>
-        <div class="wordmark">Stella</div>
+      <div class="top">
+        <div class="brand">
+          <svg class="mark" viewBox="0 0 1024 1024" aria-hidden="true">
+            <defs>
+              <path id="mark-shape" d="M474.1 154.1C269 172.2 211.6 334.4 372.3 442C377.4 445.4 377.7 445.3 362.3 447.8C215.3 471.8 127.8 569.9 162 672.2C210.1 816.2 463.2 910.8 632.5 848C759.2 801 768.8 684.2 653.7 590.5C642.2 581.1 641 582.3 665 579C815.2 558.3 903.1 453.7 861 345.6C815.4 228.5 636.1 139.7 474.1 154.1Z M601 245.4C860.8 283.4 917.2 523.1 678 572.4C638.3 580.6 643.8 581.7 610.7 558.7C582.1 538.9 559 531.1 522.5 529.1C490.2 527.2 464.6 518.6 442.6 502C436.1 497.1 435.7 497 438 501.8C453.8 534.5 450.4 575.2 427.6 626.2C424.8 632.5 425.3 633.5 429.1 629.4C490.6 562.9 565.8 559.2 635 619.2C762 729.4 590.3 855.3 383.2 803.9C190.7 756.1 118.4 604 241.5 505.5C284.9 470.7 369 441.2 388.8 453.8C393 456.5 399.3 460.3 402.8 462.4C406.3 464.4 412.6 468.7 416.8 471.9C454.3 500.4 484.7 512.2 527.5 515C547 516.2 560.7 519.2 575.9 525.4C582.1 527.9 587.3 530 587.5 530C587.7 530 586.3 526.7 584.5 522.7C569.2 489.7 572.5 449.2 594 403.3C597.9 394.9 597.9 394.9 592 400.2C588.7 403.1 582.1 409 577.3 413.3C527.7 457.5 472 461.5 420.7 424.6C326.8 357.2 382.1 259.5 523 244.1C535.9 242.7 588.4 243.6 601 245.4Z" />
+              <linearGradient id="mark-core" x1="0" y1="397" x2="0" y2="631" gradientUnits="userSpaceOnUse">
+                <stop offset="0" stop-color="#ff4ac0" />
+                <stop offset="0.1" stop-color="#ff45c3" />
+                <stop offset="0.2" stop-color="#ff46c0" />
+                <stop offset="0.3" stop-color="#a141ff" />
+                <stop offset="0.4" stop-color="#703cff" />
+                <stop offset="0.5" stop-color="#5243ff" />
+                <stop offset="0.6" stop-color="#3164ff" />
+                <stop offset="0.7" stop-color="#0e8aff" />
+                <stop offset="0.8" stop-color="#00b5ff" />
+                <stop offset="0.9" stop-color="#00eeff" />
+                <stop offset="1" stop-color="#4ffff7" />
+              </linearGradient>
+              <radialGradient
+                id="mark-fade"
+                cx="502"
+                cy="539"
+                r="112"
+                gradientUnits="userSpaceOnUse"
+                gradientTransform="translate(502 539) rotate(50) scale(1 3.05) translate(-502 -539)"
+              >
+                <stop offset="0" stop-color="currentColor" stop-opacity="0.0055" />
+                <stop offset="0.0714" stop-color="currentColor" stop-opacity="0.0061" />
+                <stop offset="0.1429" stop-color="currentColor" stop-opacity="0.0071" />
+                <stop offset="0.2143" stop-color="currentColor" stop-opacity="0.0151" />
+                <stop offset="0.2857" stop-color="currentColor" stop-opacity="0.0404" />
+                <stop offset="0.3571" stop-color="currentColor" stop-opacity="0.0872" />
+                <stop offset="0.4286" stop-color="currentColor" stop-opacity="0.164" />
+                <stop offset="0.5" stop-color="currentColor" stop-opacity="0.25" />
+                <stop offset="0.5714" stop-color="currentColor" stop-opacity="0.3639" />
+                <stop offset="0.6429" stop-color="currentColor" stop-opacity="0.5495" />
+                <stop offset="0.7143" stop-color="currentColor" stop-opacity="0.7111" />
+                <stop offset="0.7857" stop-color="currentColor" stop-opacity="0.8253" />
+                <stop offset="0.8571" stop-color="currentColor" stop-opacity="0.9155" />
+                <stop offset="0.9286" stop-color="currentColor" stop-opacity="0.9739" />
+                <stop offset="1" stop-color="currentColor" stop-opacity="0.9885" />
+              </radialGradient>
+            </defs>
+            <use href="#mark-shape" fill="url(#mark-core)" />
+            <use href="#mark-shape" fill="url(#mark-fade)" />
+          </svg>
+          <div class="wordmark">Stella</div>
+        </div>
+        <div class="reason" id="reason"></div>
       </div>
 
-      <div class="stage">
+      <div class="bottom">
         <div class="panel" data-for="idle">
-          <button class="pill primary" id="start" data-default>Start</button>
+          <button class="control pill primary" id="start" data-default>Start</button>
         </div>
-        <div class="panel" data-for="starting stopping">
-          <div class="status"><span class="shimmer" id="status">Starting Stella…</span></div>
+        <div class="panel" data-for="starting">
+          <div class="line"><span id="status">Starting Stella…</span></div>
+          <div class="control bar"><div id="bar"></div></div>
+        </div>
+        <div class="panel" data-for="stopping">
+          <div class="line"><span>Shutting down…</span></div>
         </div>
         <div class="panel" data-for="running">
-          <div class="status"><span class="dot"></span>Stella is running</div>
-          <button class="pill ghost" id="shutdown">Shut down</button>
+          <div class="line"><span>Stella is running</span></div>
+          <button class="control pill ghost" id="shutdown">Shut down</button>
         </div>
         <div class="panel" data-for="failed">
-          <div class="failed-title">Stella couldn’t start</div>
-          <div class="note reason" id="reason"></div>
-          <button class="pill primary" id="retry" data-default>Try again</button>
+          <div class="line failed-title"><span>Stella couldn’t start</span></div>
+          <button class="control pill primary" id="retry" data-default>Try again</button>
           <div class="links">
             <button class="link" id="failed-recover">Return to last working version</button>
             <button class="link" id="failed-details">Details</button>
@@ -610,12 +628,31 @@
           platform: "",
           phase: "idle",
           status: "",
+          progress: 0,
+          progressTo: 0,
           reason: "",
           output: [],
           hasKnownGood: false,
           version: "",
         };
         let confirmingReinstall = false;
+
+        // The bar: what's done, easing toward the current step's end while it
+        // runs (most steps can't report their own progress). It never goes
+        // backwards within one start.
+        let shown = 0;
+        let stepFrom = 0;
+        let stepTo = 0;
+        let stepAt = 0;
+        let lastPhase = "";
+        const tickBar = () => {
+          if (state.phase !== "starting") return;
+          const elapsed = (performance.now() - stepAt) / 1000;
+          const eased = stepFrom + (stepTo - stepFrom) * 0.9 * (1 - Math.exp(-elapsed / 14));
+          shown = Math.min(1, Math.max(shown, stepFrom, eased));
+          $("bar").style.width = `${(shown * 100).toFixed(2)}%`;
+        };
+        setInterval(tickBar, 250);
 
         const post = (message) => {
           const text = JSON.stringify(message);
@@ -643,7 +680,18 @@
           document.body.dataset.phase = state.phase;
           const busy = state.phase === "starting" || state.phase === "running" || state.phase === "stopping";
 
-          $("status").textContent = state.status || (state.phase === "stopping" ? "Shutting down…" : "Starting Stella…");
+          $("status").textContent = state.status || "Starting Stella…";
+          const entering = state.phase === "starting" && lastPhase !== "starting";
+          lastPhase = state.phase;
+          if (state.phase !== "starting") shown = 0;
+          const from = Math.max(0, Math.min(1, Number(state.progress) || 0));
+          const to = Math.max(from, Math.min(1, Number(state.progressTo) || from));
+          if (entering || from !== stepFrom || to !== stepTo) {
+            stepFrom = from;
+            stepTo = to;
+            stepAt = performance.now();
+          }
+          tickBar();
           $("reason").textContent = state.reason;
           $("failed-recover").textContent = state.hasKnownGood ? "Return to last working version" : "Reinstall";
           $("version").textContent = state.version || "—";

@@ -106,8 +106,10 @@ import {
   DISPATCH_OFFER_WINDOW_MS,
   DISPATCH_PAYLOAD_TTL_MS,
   PLACEMENT_PROTOCOL,
+  SELECTED_DEVICE_NEEDS_CONSENT,
   type DeviceAvailability,
   type DeviceDestination,
+  type DeviceRemoteExecution,
   type DevicePresenceDeviceFrame,
   type DevicePresenceServerFrame,
   type DevicesResponse,
@@ -2107,6 +2109,28 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       this.writePresence(attachment, now, true);
       return;
     }
+    if (frame.type === "consent") {
+      // The answer arrives on the proven presence socket, so it is the machine
+      // itself speaking, not merely someone holding the account. That is what
+      // makes this the on-device half of the decision rather than a second
+      // copy of the enable button.
+      if (typeof frame.allow !== "boolean") {
+        this.closeSocket(socket, DEVICE_PRESENCE_CLOSE.protocol, "bad_request");
+        return;
+      }
+      socket.serializeAttachment(attachment);
+      try {
+        await this.ownerStore().internalCall("devices.setRemoteExecution", {
+          deviceId: attachment.deviceId,
+          enabled: frame.allow,
+        });
+      } catch (error) {
+        log("error", "device_consent_write_failed", {
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return;
+    }
     socket.serializeAttachment(attachment);
     await this.handleExecutorFrame(socket, attachment, frame, now);
   }
@@ -2232,8 +2256,23 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   private selectedDeviceRefusal(args: {
     deviceId: string | null;
     now: number;
+    remoteExecution?: DeviceRemoteExecution;
   }): { fallbackReason: string; errorCode: string; errorMessage: string } | null {
     const presence = args.deviceId ? this.presenceRow(args.deviceId) : undefined;
+    // Consent comes first: a computer that has not agreed to run remote work
+    // is refusing for a reason the owner can fix in one tap, and saying
+    // "offline" or "not ready" instead would send them looking for the wrong
+    // problem. This code is also what keeps a waiting agent waiting.
+    if (args.remoteExecution && args.remoteExecution !== "enabled") {
+      return {
+        fallbackReason: `selected-device-${args.remoteExecution}`,
+        errorCode: SELECTED_DEVICE_NEEDS_CONSENT,
+        errorMessage:
+          args.remoteExecution === "declined"
+            ? "That computer is set not to accept work from your other devices. Enable it in the device list, or allow it on that computer."
+            : "That computer has not agreed to run work sent from elsewhere yet. It is asking on its own screen; you can also tap Enable for it in the device list.",
+      };
+    }
     if (
       !args.deviceId ||
       !presence?.connected ||
@@ -2256,7 +2295,49 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     return null;
   }
 
-  /** `GET /owners/me/devices`: registered destinations joined with presence. */
+  /**
+   * Ask a device, on its own screen, to start accepting dispatched work.
+   *
+   * Called when something was aimed at a device that has not agreed. The
+   * attempt it came from does not wait on the answer — a human tap is not on
+   * the offer window's timescale — so this only raises the prompt and records
+   * that it is up. Agent work retries for the next hour, which is what makes
+   * "wait for allow" work without holding a dispatch open.
+   */
+  private async requestDeviceConsent(args: {
+    deviceId: string;
+    remoteExecution: DeviceRemoteExecution;
+    requesterLabel?: string;
+    now: number;
+  }): Promise<void> {
+    if (args.remoteExecution === "enabled") return;
+    try {
+      await this.ownerStore().internalCall("devices.requestRemoteExecution", {
+        deviceId: args.deviceId,
+      });
+    } catch (error) {
+      log("error", "device_consent_request_failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+    const socket = this.connectedSocket(args.deviceId);
+    if (!socket) return;
+    this.send(socket, {
+      type: "consent.request",
+      requestedAt: args.now,
+      ...(args.requesterLabel ? { requesterLabel: args.requesterLabel } : {}),
+    });
+  }
+
+  /**
+   * `GET /owners/me/devices`: registered destinations joined with presence.
+   *
+   * Everything the owner is signed in on appears, whether or not it will take
+   * work. The list is the answer to "what machines do I have"; `remoteExecution`
+   * is the separate answer to "which of them will run something for me", and
+   * the clients need both to offer the enable control at all.
+   */
   async devices(now = Date.now()): Promise<DevicesResponse> {
     this.ensureSchema();
     const snapshot = await this.snapshot({ now });
@@ -2267,10 +2348,17 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         presence?.connected &&
         presence.lastSeenAt + DEVICE_PRESENCE_STALE_AFTER_MS > now,
       );
+      const remoteExecution =
+        device.remoteExecution ??
+        (device.remoteExecutionEnabled ? "enabled" : "unconfigured");
       devices.push({
         deviceId: device.deviceId,
         ...(device.label ? { label: device.label } : {}),
-        remoteExecutionEnabled: device.remoteExecutionEnabled,
+        remoteExecutionEnabled: remoteExecution === "enabled",
+        remoteExecution,
+        ...(device.remoteExecutionAskedAt
+          ? { remoteExecutionAskedAt: device.remoteExecutionAskedAt }
+          : {}),
         online,
         ...(presence
           ? {
@@ -2498,6 +2586,23 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     );
   }
 
+  /** The stored consent for a device id, defaulted for pre-consent rows. */
+  private async deviceRemoteExecution(
+    deviceId: string | null,
+    now: number,
+  ): Promise<DeviceRemoteExecution | undefined> {
+    if (!deviceId) return undefined;
+    const snapshot = await this.snapshot({ now });
+    const device = (snapshot.devices ?? []).find(
+      (candidate) => candidate.deviceId === deviceId,
+    );
+    if (!device) return undefined;
+    return (
+      device.remoteExecution ??
+      (device.remoteExecutionEnabled ? "enabled" : "unconfigured")
+    );
+  }
+
   private pushOffer(
     row: DispatchRow,
     deviceId: string,
@@ -2556,10 +2661,18 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       return await this.runCloudBranch(committed, now);
     }
     const explicitDevice = row.requested_target_mode === "device";
+    // No consent prompt is raised here. Reaching this path means an offer did
+    // go out, so the device had agreed at submit; a refusal now is the owner
+    // having just revoked it, and asking them again on the spot would be
+    // arguing with them. The message still says what happened.
     const refusal = explicitDevice
       ? this.selectedDeviceRefusal({
           deviceId: row.requested_executor_device_id,
           now,
+          ...(await this.deviceRemoteExecution(
+            row.requested_executor_device_id,
+            now,
+          ).then((state) => (state ? { remoteExecution: state } : {}))),
         })
       : null;
     const blocked = await this.patchDispatch(
@@ -3181,6 +3294,28 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         now,
       });
     }
+    /**
+     * The consent state of a device this dispatch was explicitly aimed at.
+     * Read whether or not the dispatch will end up refused, because the ask is
+     * owed to the owner either way: aiming portable work at an unconsented
+     * computer silently runs it in the cloud, and they would never learn that
+     * one tap was all that stood in the way.
+     */
+    const targetConsent =
+      targetMode === "device" && request.targetDeviceId
+        ? await this.deviceRemoteExecution(request.targetDeviceId, now)
+        : undefined;
+    if (
+      targetConsent !== undefined &&
+      targetConsent !== "enabled" &&
+      request.targetDeviceId
+    ) {
+      await this.requestDeviceConsent({
+        deviceId: request.targetDeviceId,
+        remoteExecution: targetConsent,
+        now,
+      });
+    }
     if (
       decision.kind === "commit" &&
       decision.placement === "computer" &&
@@ -3242,6 +3377,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
           ? this.selectedDeviceRefusal({
               deviceId: request.targetDeviceId ?? null,
               now,
+              ...(targetConsent ? { remoteExecution: targetConsent } : {}),
             })
           : null;
         fallbackReason = refusal

@@ -4,13 +4,13 @@ export type ExecutionDestination =
   | { kind: "cloud" }
   | { kind: "device"; deviceId: string; label: string };
 
+export type ExecutionContextDevice = Pick<
+  DeviceDestination,
+  "deviceId" | "label" | "online" | "remoteExecutionEnabled" | "remoteExecution"
+>;
+
 export type ExecutionContextSnapshot = {
-  devices: Array<
-    Pick<
-      DeviceDestination,
-      "deviceId" | "label" | "online" | "remoteExecutionEnabled"
-    >
-  >;
+  devices: ExecutionContextDevice[];
   destination: ExecutionDestination;
   devicesKnown: boolean;
 };
@@ -46,11 +46,21 @@ export const createExecutionContextSnapshot = (args: {
       ...(device.label ? { label: labelText(device.label) } : {}),
       online: device.online,
       remoteExecutionEnabled: device.remoteExecutionEnabled,
+      remoteExecution: device.remoteExecution,
     })),
 });
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+const remoteExecutionText = (
+  value: unknown,
+): DeviceDestination["remoteExecution"] | undefined =>
+  value === "unconfigured" ||
+  value === "asking" ||
+  value === "enabled" ||
+  value === "declined"
+    ? value
+    : undefined;
 const boundedString = (value: unknown): value is string =>
   typeof value === "string" && value.length > 0 && value.length <= 256;
 
@@ -81,7 +91,7 @@ export const readExecutionContextSnapshot = (
       label: snapshot.destination.label,
     };
   } else return undefined;
-  const devices: DeviceDestination[] = [];
+  const devices: ExecutionContextDevice[] = [];
   for (const device of snapshot.devices) {
     if (
       !isRecord(device) ||
@@ -96,12 +106,34 @@ export const readExecutionContextSnapshot = (
       ...(typeof device.label === "string" ? { label: device.label } : {}),
       online: device.online,
       remoteExecutionEnabled: device.remoteExecutionEnabled,
+      // Messages persisted before devices carried a consent state still parse;
+      // the boolean they did carry says which of the two ends it was at.
+      remoteExecution: remoteExecutionText(device.remoteExecution)
+        ?? (device.remoteExecutionEnabled ? "enabled" : "unconfigured"),
     });
   }
   return createExecutionContextSnapshot({
     devices: snapshot.devicesKnown ? devices : null,
     destination,
   });
+};
+
+/**
+ * Why a listed device will not take work, in the words an agent can act on.
+ * "Not set up" and "turned down" are different situations and the agent should
+ * not report one as the other.
+ */
+const remoteExecutionNote = (device: ExecutionContextDevice): string => {
+  switch (device.remoteExecution) {
+    case "enabled":
+      return "";
+    case "asking":
+      return "; waiting for permission on that device's screen";
+    case "declined":
+      return "; not accepting work from other devices";
+    default:
+      return "; has not been enabled to accept work from other devices yet";
+  }
 };
 
 export const renderExecutionDevices = (
@@ -112,7 +144,7 @@ export const renderExecutionDevices = (
     "- Cloud",
     ...snapshot.devices.map(
       (device) =>
-        `- ${device.label || device.deviceId} [device_id: ${device.deviceId}]: ${device.online ? "online" : "offline"}${device.remoteExecutionEnabled ? "" : "; remote execution disabled"}`,
+        `- ${device.label || device.deviceId} [device_id: ${device.deviceId}]: ${device.online ? "online" : "offline"}${remoteExecutionNote(device)}`,
     ),
     ...(!snapshot.devicesKnown
       ? ["The connected device list is currently unavailable."]

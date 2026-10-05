@@ -26,6 +26,7 @@ import type {
   ComputerThreadRecord,
   DeviceAgentThread,
 } from "@stella/contracts/backend/agent-threads";
+import { SELECTED_DEVICE_NEEDS_CONSENT } from "@stella/contracts/turn-plane/placement";
 import {
   AGENT_PROMPT_MAX_CHARS,
   AGENT_THREAD_PAGE_MAX,
@@ -158,9 +159,17 @@ const DISPATCH_MAX_ATTEMPTS = 3;
 const DISPATCH_RETRY_MS = 15_000;
 const DEVICE_AVAILABILITY_RETRY_MS = 10_000;
 const DEVICE_AVAILABILITY_WAIT_MS = 60 * 60_000;
-const DEVICE_AVAILABILITY_CODES = new Set([
+/**
+ * Blocked dispatches worth retrying rather than failing: the device may be
+ * about to come back, finish starting up, or — for consent — have someone tap
+ * allow on its screen. Waiting is what lets a spawn aimed at a computer that
+ * has not agreed yet simply start once it does, instead of making the
+ * requester notice the refusal and ask again.
+ */
+const DEVICE_AVAILABILITY_CODES = new Set<string>([
   "SELECTED_DEVICE_OFFLINE",
   "SELECTED_DEVICE_UNAVAILABLE",
+  SELECTED_DEVICE_NEEDS_CONSENT,
 ]);
 const TERMINAL_STATUSES = new Set(["completed", "failed", "canceled"]);
 const ACTIVE_STATUSES = new Set(["running", "resuming"]);
@@ -401,13 +410,20 @@ const assertDeviceDestination = async (
     );
   }
   const name = device.label || device.deviceId;
-  if (!device.remoteExecutionEnabled) {
-    throw new RpcError("CONFLICT", `${name} does not accept work from other devices.`, {
-      reason: "device_remote_execution_disabled",
+  // A device that has turned remote work down is a definite no, and failing
+  // the spawn now says so while the caller is still there to hear it. One that
+  // simply has not been asked is not a no: the gate raises the prompt on its
+  // screen when the attempt goes out, so this waits for the tap instead.
+  if (device.remoteExecution === "declined") {
+    throw new RpcError("CONFLICT", `${name} is set not to accept work from other devices.`, {
+      reason: "device_remote_execution_declined",
     });
   }
   return {
-    waiting: !device.online || Boolean(device.availability && !device.availability.ready),
+    waiting:
+      !device.remoteExecutionEnabled ||
+      !device.online ||
+      Boolean(device.availability && !device.availability.ready),
   };
 };
 

@@ -293,6 +293,12 @@ export const createHostRunnerHandlers = (context, options) => ({
         });
     },
     requestDesktopPermission: async (kind) => requestMacPermission(kind),
+    notifyRemoteExecutionRequest: (payload) => {
+        // Broadcast rather than await: the question belongs on this computer's
+        // screen, and the renderer answers whenever its user does through
+        // `execution:answerRemoteExecutionRequest`.
+        broadcastToWindows(context, "execution:remoteExecutionRequest", payload);
+    },
     spawnAutomationDaemon: (params) => spawnAutomationDaemonFromHost(params),
     openExternal: async (url) => {
         context.services.externalLinkService.openSafeExternalUrl(url);

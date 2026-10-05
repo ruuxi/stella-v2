@@ -3,6 +3,7 @@ import { registerRuntimeAvailabilityBridge } from "../ipc/runtime-availability-b
 import { registerBrowserHandlers } from "../ipc/browser-handlers.js";
 import { registerInAppBrowserHandlers, IN_APP_BROWSER_CHANNELS, } from "../ipc/in-app-browser-handlers.js";
 import { registerDiscoveryHandlers } from "../ipc/discovery-handlers.js";
+import { registerRemoteExecutionConsentHandlers } from "../ipc/remote-execution-consent-handlers.js";
 import { registerCaptureHandlers } from "../ipc/capture-handlers.js";
 import { registerCloudHomeSyncHandlers } from "../ipc/cloud-home-sync-handlers.js";
 import { registerMeetingCaptureHandlers } from "../ipc/meeting-capture-handlers.js";
@@ -317,6 +318,10 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
     });
     registerOnboardingHandlers({
+        getStellaHostRunner: lifecycle.getRunner,
+        assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
+    });
+    registerRemoteExecutionConsentHandlers({
         getStellaHostRunner: lifecycle.getRunner,
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
     });

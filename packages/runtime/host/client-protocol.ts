@@ -50,6 +50,8 @@ export const RUNTIME_HOST_CALLS = [
   "googleWorkspaceGetAuthStatus",
   "googleWorkspaceConnect",
   "googleWorkspaceDisconnect",
+  /** This computer's answer to its own "accept remote work?" prompt. */
+  "answerRemoteExecutionRequest",
 ] as const;
 
 export type RuntimeHostCall = (typeof RUNTIME_HOST_CALLS)[number];
@@ -82,6 +84,13 @@ export const RUNTIME_HOST_HANDLERS = [
   "displayUpdate",
   "showNotification",
   "requestDesktopPermission",
+  /**
+   * Something tried to dispatch work to this computer and it has not agreed to
+   * accept any. Fire and forget: the app raises the question on this machine's
+   * own screen and answers later through `answerRemoteExecutionRequest`, so
+   * nothing here is waiting on a person.
+   */
+  "notifyRemoteExecutionRequest",
   "spawnAutomationDaemon",
   "openExternal",
   "showWindow",

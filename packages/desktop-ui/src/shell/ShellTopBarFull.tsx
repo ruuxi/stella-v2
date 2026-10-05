@@ -20,8 +20,8 @@
  * Apps are deliberately absent from the nav: they now open inside the right
  * sidebar's Apps section rather than the main content area, so a nav entry
  * pointing at the `/apps` route would compete with the sidebar for the same
- * job. Home is also omitted from route navigation because its activity surface
- * is rendered independently by `WorkspaceHomeSurface`.
+ * job. Home is also omitted from route navigation: the standalone right-hand
+ * activity surface it used to lead to is gone.
  *
  * Stella is a single-chat product, so the bar carries no conversation tabs,
  * history or new-chat control: the active conversation is chosen by the

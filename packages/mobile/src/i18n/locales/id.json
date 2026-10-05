@@ -1811,10 +1811,6 @@
       "newTab": "Buka tab baru",
       "connecting": "Menunggu ekstensi…"
     },
-    "quickChat": {
-      "title": "Obrolan cepat",
-      "newChat": "Obrolan cepat baru"
-    },
     "connectors": {
       "title": "Konektor",
       "searchPlaceholder": "Cari",

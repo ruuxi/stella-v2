@@ -1847,10 +1847,6 @@
       "newTab": "Abrir uma nova aba",
       "connecting": "Aguardando a extensão…"
     },
-    "quickChat": {
-      "title": "Conversa rápida",
-      "newChat": "Nova conversa rápida"
-    },
     "connectors": {
       "title": "Conectores",
       "searchPlaceholder": "Pesquisar",

@@ -5,14 +5,7 @@
  * option list so both stay in sync. `home` is the launcher itself and never
  * appears as one of the launcher's own options.
  */
-import {
-  AppWindowMac,
-  Folder,
-  Globe,
-  House,
-  Lock,
-  MessageSquare,
-} from "@/ui/icons";
+import { AppWindowMac, Folder, Globe, House, Lock } from "@/ui/icons";
 import type { IconComponent } from "@/ui/icons";
 import type { SidebarSection } from "@/features/workspace-display/sidebar-sections";
 
@@ -24,7 +17,6 @@ export type SidebarSectionMeta = {
 export const SIDEBAR_SECTION_META: Record<SidebarSection, SidebarSectionMeta> =
   {
     home: { label: "Home", Icon: House },
-    quickchat: { label: "Quick chat", Icon: MessageSquare },
     files: { label: "Files", Icon: Folder },
     apps: { label: "Apps", Icon: AppWindowMac },
     browser: { label: "Browser", Icon: Globe },
@@ -34,4 +26,4 @@ export const SIDEBAR_SECTION_META: Record<SidebarSection, SidebarSectionMeta> =
 /** The destinations offered by the Home launcher, in display order. */
 export const HOME_LAUNCHER_SECTIONS: ReadonlyArray<
   Exclude<SidebarSection, "home" | "takeover">
-> = ["quickchat", "files", "apps", "browser"];
+> = ["files", "apps", "browser"];

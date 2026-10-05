@@ -74,7 +74,6 @@ describe("chat panel keystroke render budget", () => {
         withI18n(
           <UiStateProvider>
             <ChatPanelTab
-              isolated
               messages={messages}
               conversationId="panel-budget"
               isStreaming={false}

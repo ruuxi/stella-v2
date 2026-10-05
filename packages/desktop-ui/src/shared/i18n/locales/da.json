@@ -1830,10 +1830,6 @@
       "newTab": "Åbn et nyt faneblad",
       "connecting": "Venter på udvidelsen …"
     },
-    "quickChat": {
-      "title": "Hurtig chat",
-      "newChat": "Ny hurtig chat"
-    },
     "connectors": {
       "title": "Forbindelser",
       "searchPlaceholder": "Søg",

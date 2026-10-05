@@ -76,8 +76,6 @@ const SubscriptionUpgradeDialog = lazy(() =>
 );
 import { ShellTopBarFull } from "@/shell/ShellTopBarFull";
 import { GlobalModelsControl } from "@/shell/GlobalModelsControl";
-import { useActiveSidebarSection } from "@/features/workspace-display/sidebar-sections";
-import { shouldShowGlobalModelsControl } from "@/shell/global-models-control-visibility";
 import { DisplayPanelTopBar } from "@/shell/DisplayPanelTopBar";
 import { StellaContextMenu } from "@/shell/context-menu/StellaContextMenu";
 import {
@@ -672,11 +670,11 @@ function RootChrome({ conversationId }: { conversationId: string | null }) {
   const panelOpen = useDisplayPanelOpen();
   const panelExpanded = useDisplayPanelExpanded();
   const shellBreakpoints = useShellBreakpointState();
-  const activeSidebarSection = useActiveSidebarSection();
-  const modelControlVisible = shouldShowGlobalModelsControl({
-    panelOpen,
-    activeSidebarSection,
-  });
+  // The global Models control follows the display panel: it is only useful
+  // while a right-side surface is on screen. It never contributes to that
+  // state — it only reads it — so it can never force the right region into
+  // existence.
+  const modelControlVisible = panelOpen;
   const panelExpandedBeforeTakeoverRef = useRef<boolean | null>(null);
   const displayBreakpointTransitionTimeoutRef = useRef<number | null>(null);
 

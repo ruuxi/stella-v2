@@ -430,11 +430,11 @@ const orderCandidates = ({ apps, tab }: FetchSnapshotResult): SuggestionChip[] =
 // ---------------------------------------------------------------------------
 // Shared poller
 //
-// Every composer surface (main chat, the display-panel chat tab, each mounted
-// quick chat) shows the same recent-apps snapshot, so one renderer-wide loop
-// fetches it and broadcasts to whichever surfaces are active. Before this,
-// each active surface ran its own interval, multiplying the IPC calls and the
-// native helper spawns (AX enumeration + osascript) behind them.
+// Every composer surface (main chat, the display-panel chat tab) shows the
+// same recent-apps snapshot, so one renderer-wide loop fetches it and
+// broadcasts to whichever surfaces are active. Before this, each active
+// surface ran its own interval, multiplying the IPC calls and the native
+// helper spawns (AX enumeration + osascript) behind them.
 //
 // Perf: each poll spawns native helpers. The loop only runs while at least
 // one surface is active AND the window is focused and visible — the chips

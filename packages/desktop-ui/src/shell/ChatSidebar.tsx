@@ -129,12 +129,6 @@ interface ChatPanelTabProps {
   onStop?: () => void;
   /** When the display sidebar is expanded to full width. */
   wideLayout?: boolean;
-  /**
-   * Detach this surface from the shared main-chat runtime context: no activity
-   * pill, no cross-thread agent-model badges. Used
-   * by the ephemeral Quick chat so it stays a self-contained side conversation.
-   */
-  isolated?: boolean;
 }
 
 /**
@@ -192,7 +186,6 @@ function AccountScopedChatPanelTab({
   onLoadLatest,
   onSend,
   onStop,
-  isolated = false,
 }: ChatPanelTabProps) {
   // Input state + always-current mirror ref, synced at WRITE time. The
   // dictate-and-submit commit is rAF-deferred and can fire before React
@@ -236,10 +229,7 @@ function AccountScopedChatPanelTab({
       window.removeEventListener("blur", sync);
     };
   }, []);
-  const mainChatRuntime = useContext(ChatRuntimeContext);
-  // Isolated surfaces (Quick chat) ignore the shared main-chat runtime so they
-  // don't inherit its agents or activity pill.
-  const chatRuntime = isolated ? null : mainChatRuntime;
+  const chatRuntime = useContext(ChatRuntimeContext);
   const agentModelConfigByThread = useAgentModelConfigs(
     chatRuntime?.conversation.tasks ?? [],
   );

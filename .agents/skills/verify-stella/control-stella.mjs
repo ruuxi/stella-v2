@@ -2081,9 +2081,6 @@ try {
     case "nav-history":
       await cmdNavHistory();
       break;
-    case "nav-quick-chat":
-      await cmdNavDestination("nav.quick-chat", "Quick chat");
-      break;
     case "nav-files":
       await cmdNavDestination("nav.files", "Files");
       break;

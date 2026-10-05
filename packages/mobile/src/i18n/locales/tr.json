@@ -1830,10 +1830,6 @@
       "newTab": "Yeni sekme aç",
       "connecting": "Uzantı bekleniyor…"
     },
-    "quickChat": {
-      "title": "Hızlı sohbet",
-      "newChat": "Yeni hızlı sohbet"
-    },
     "connectors": {
       "title": "Bağlayıcılar",
       "searchPlaceholder": "Ara",

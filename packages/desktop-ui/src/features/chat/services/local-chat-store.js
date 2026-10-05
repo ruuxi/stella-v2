@@ -32,7 +32,6 @@ const getLocalChatApi = () => {
     return api;
 };
 export const getOrCreateLocalConversationId = async () => getLocalChatApi().getOrCreateDefaultConversationId();
-export const createNewLocalConversationId = async () => getLocalChatApi().createNewDefaultConversationId();
 /**
  * Record `conversationId` as the durable active-conversation pointer. This
  * is the single source of truth the app restores from on boot, so it's

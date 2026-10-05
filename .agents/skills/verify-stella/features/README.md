@@ -13,7 +13,6 @@ The [desktop reference](../references/desktop.md) covers harness setup and diagn
 - [Home](./home.md) covers the full-body Home overlay and its composer-driven exit.
 - [Conversation history](./conversation-history.md) covers the cloud-backed history popover and selection.
 - [Workspace display](./workspace-display.md) covers right-side tabs, top-bar controls, visibility, and close behavior.
-- [Quick chat](./quick-chat.md) covers the isolated sidebar conversation launched from New tab.
 - [Files and viewers](./files-and-viewers.md) covers Files navigation and file-preview tabs.
 - [Browser and takeover](./browser-and-takeover.md) covers browser tabs and cloud-browser user intervention.
 - [Agent cursor and computer use](./agent-cursor-and-computer-use.md) covers synchronized pointer presentation in browser and native computer-use actions.

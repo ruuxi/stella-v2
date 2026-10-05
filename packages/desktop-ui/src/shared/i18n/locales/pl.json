@@ -1864,10 +1864,6 @@
       "newTab": "Otwórz nową kartę",
       "connecting": "Oczekiwanie na rozszerzenie…"
     },
-    "quickChat": {
-      "title": "Szybki czat",
-      "newChat": "Nowy szybki czat"
-    },
     "connectors": {
       "title": "Łączniki",
       "searchPlaceholder": "Szukaj",

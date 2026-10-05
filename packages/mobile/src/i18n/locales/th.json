@@ -1811,10 +1811,6 @@
       "newTab": "เปิดแท็บใหม่",
       "connecting": "กำลังรอส่วนขยาย…"
     },
-    "quickChat": {
-      "title": "แชทด่วน",
-      "newChat": "แชทด่วนใหม่"
-    },
     "connectors": {
       "title": "ตัวเชื่อมต่อ",
       "searchPlaceholder": "ค้นหา",

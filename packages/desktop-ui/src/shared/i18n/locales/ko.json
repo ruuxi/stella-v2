@@ -1811,10 +1811,6 @@
       "newTab": "새 탭 열기",
       "connecting": "확장 프로그램 대기 중…"
     },
-    "quickChat": {
-      "title": "빠른 대화",
-      "newChat": "새 빠른 대화"
-    },
     "connectors": {
       "title": "커넥터",
       "searchPlaceholder": "검색",

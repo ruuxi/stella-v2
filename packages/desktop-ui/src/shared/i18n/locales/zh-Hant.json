@@ -1811,10 +1811,6 @@
       "newTab": "開啟新分頁",
       "connecting": "正在等待擴充功能…"
     },
-    "quickChat": {
-      "title": "快速對話",
-      "newChat": "新增快速對話"
-    },
     "connectors": {
       "title": "連接器",
       "searchPlaceholder": "搜尋",

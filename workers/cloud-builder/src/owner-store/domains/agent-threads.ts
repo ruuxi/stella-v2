@@ -155,9 +155,12 @@ const CONTROL_REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]{8,128}$/;
 const OUTPUT_FILE_CARD_MAX = 20;
 const DISPATCH_MAX_ATTEMPTS = 3;
 const DISPATCH_RETRY_MS = 15_000;
-const DEVICE_BUSY_RETRY_MS = 10_000;
-const DEVICE_BUSY_WAIT_MS = 60 * 60_000;
-const DEVICE_BUSY_CODE = "SELECTED_DEVICE_BUSY";
+const DEVICE_AVAILABILITY_RETRY_MS = 10_000;
+const DEVICE_AVAILABILITY_WAIT_MS = 60 * 60_000;
+const DEVICE_AVAILABILITY_CODES = new Set([
+  "SELECTED_DEVICE_OFFLINE",
+  "SELECTED_DEVICE_UNAVAILABLE",
+]);
 const TERMINAL_STATUSES = new Set(["completed", "failed", "canceled"]);
 const ACTIVE_STATUSES = new Set(["running", "resuming"]);
 
@@ -255,7 +258,7 @@ type DispatchJob = {
   attempt: number;
   /** The hosted-browser answer this attempt resumes with. */
   browserResume?: CloudBrowserResumeReceipt;
-  busyRequeues?: number;
+  availabilityRetries?: number;
 };
 
 const failAttempt = (db: OwnerDb, job: DispatchJob, message: string, now: number): void => {
@@ -378,7 +381,7 @@ const assertDeviceDestination = async (
   ctx: OwnerContext,
   targetDeviceId: string,
   requestingDeviceId?: string,
-): Promise<{ busy: boolean }> => {
+): Promise<{ waiting: boolean }> => {
   if (requestingDeviceId && targetDeviceId === requestingDeviceId) {
     throw new RpcError(
       "BAD_REQUEST",
@@ -402,48 +405,35 @@ const assertDeviceDestination = async (
       reason: "device_remote_execution_disabled",
     });
   }
-  if (!device.online) {
-    throw new RpcError(
-      "CONFLICT",
-      `${name} is offline. Run the work in the cloud or on another device.`,
-      { reason: "device_offline" },
-    );
-  }
-  if (device.busy) return { busy: true };
-  if (device.availability && !device.availability.ready) {
-    throw new RpcError(
-      "CONFLICT",
-      `${name} is online but isn't accepting work right now. It may still be starting up, be signed out, or have cloud sync off. Run the work in the cloud or on another device.`,
-      { reason: "device_not_ready" },
-    );
-  }
-  return { busy: false };
+  return {
+    waiting: !device.online || Boolean(device.availability && !device.availability.ready),
+  };
 };
 
-const waitForBusyDevice = (
+const waitForAvailableDevice = (
   ctx: OwnerContext,
   turn: TurnRow,
-  busyRequeues: number,
+  availabilityRetries: number,
 ): boolean => {
   if (!turn.thread_id || turn.attempt_generation === null) return false;
-  if (ctx.now - turn.created_at >= DEVICE_BUSY_WAIT_MS) return false;
+  if (ctx.now - turn.created_at >= DEVICE_AVAILABILITY_WAIT_MS) return false;
   ctx.jobs.schedule(
     "agentThreads.dispatch",
-    ctx.now + DEVICE_BUSY_RETRY_MS,
+    ctx.now + DEVICE_AVAILABILITY_RETRY_MS,
     {
       threadId: turn.thread_id,
       turnId: turn.turn_id,
       attemptGeneration: turn.attempt_generation,
       attempt: 1,
-      busyRequeues: busyRequeues + 1,
+      availabilityRetries: availabilityRetries + 1,
     } satisfies DispatchJob,
     { id: `dispatch:${turn.turn_id}` },
   );
   return true;
 };
 
-const busyWaitExpiredMessage = (message: string): string =>
-  `${message} It stayed busy for ${Math.round(DEVICE_BUSY_WAIT_MS / 60_000)} minutes, so this agent never started.`;
+const deviceWaitExpiredMessage = (message: string): string =>
+  `${message} It did not become available within ${Math.round(DEVICE_AVAILABILITY_WAIT_MS / 60_000)} minutes, so this agent never started.`;
 
 /** Offer one recorded attempt to the thread's device. */
 const runDeviceDispatch = async (
@@ -464,14 +454,14 @@ const runDeviceDispatch = async (
       targetDeviceId: thread.executor_device_id!,
       ...(thread.origin_device_id ? { requestingDeviceId: thread.origin_device_id } : {}),
       ...(thread.requested_model ? { model: thread.requested_model } : {}),
-      ...(job.busyRequeues ? { requeue: job.busyRequeues } : {}),
+      ...(job.availabilityRetries ? { requeue: job.availabilityRetries } : {}),
     });
     ctx.db.run("UPDATE agent_turns SET dispatch_id = ? WHERE turn_id = ?", dispatchId, turn.turn_id);
   } catch (error) {
     let message = error instanceof Error ? error.message : String(error);
-    if (error instanceof DispatchError && error.code === DEVICE_BUSY_CODE) {
-      if (waitForBusyDevice(ctx, turn, job.busyRequeues ?? 0)) return;
-      message = busyWaitExpiredMessage(message);
+    if (error instanceof DispatchError && DEVICE_AVAILABILITY_CODES.has(error.code ?? "")) {
+      if (waitForAvailableDevice(ctx, turn, job.availabilityRetries ?? 0)) return;
+      message = deviceWaitExpiredMessage(message);
     }
     const retryable = !(error instanceof DispatchError) || error.retryable;
     if (retryable && job.attempt < DISPATCH_MAX_ATTEMPTS) {
@@ -568,14 +558,14 @@ const deviceSettled = async (ctx: OwnerContext, raw: unknown): Promise<{ settled
   })(raw);
   const turn = readTurn(ctx.db, args.turnId);
   if (!turn || TERMINAL_STATUSES.has(turn.status)) return { settled: false };
-  const busy = args.state === "blocked" && args.errorCode === DEVICE_BUSY_CODE;
-  if (busy && waitForBusyDevice(ctx, turn, args.requeue ?? 0)) return { settled: false };
+  const unavailable = args.state === "blocked" && DEVICE_AVAILABILITY_CODES.has(args.errorCode ?? "");
+  if (unavailable && waitForAvailableDevice(ctx, turn, args.requeue ?? 0)) return { settled: false };
   await settleDeviceAttempt(ctx, args.turnId, args.state === "blocked" ? "failed" : args.state, {
     ...(args.resultJson ? { resultJson: args.resultJson } : {}),
     ...(args.errorMessage
-      ? { errorMessage: busy ? busyWaitExpiredMessage(args.errorMessage) : args.errorMessage }
+      ? { errorMessage: unavailable ? deviceWaitExpiredMessage(args.errorMessage) : args.errorMessage }
       : args.state === "blocked"
-        ? { errorMessage: "The device did not pick up the work. It may be offline or busy." }
+        ? { errorMessage: "The selected computer did not accept the request." }
         : {}),
   });
   return { settled: true };
@@ -668,7 +658,7 @@ const spawnOnDeviceForCloud = async (ctx: OwnerContext, raw: unknown): Promise<A
     fingerprint,
     prompt: args.prompt,
   });
-  return { ...control(thread), ...(destination.busy ? { waitingForDevice: true } : {}) };
+  return { ...control(thread), ...(destination.waiting ? { waitingForDevice: true } : {}) };
 };
 
 /** A cloud requester's view of its device thread. */
@@ -717,7 +707,7 @@ const continueDeviceForCloud = async (ctx: OwnerContext, raw: unknown): Promise<
     fingerprint,
     prompt: args.prompt,
   });
-  return { ...control(continued), ...(destination.busy ? { waitingForDevice: true } : {}) };
+  return { ...control(continued), ...(destination.waiting ? { waitingForDevice: true } : {}) };
 };
 
 /** Stop a cloud requester's running device thread. */
@@ -918,7 +908,7 @@ const spawnFromDesktop = async (ctx: OwnerContext, args: SpawnArgs): Promise<Age
   const targetDeviceId = args.targetDeviceId?.trim() || null;
   const destination = targetDeviceId
     ? await assertDeviceDestination(ctx, targetDeviceId, args.originDeviceId)
-    : { busy: false };
+    : { waiting: false };
   const conversation = args.conversationId
     ? ctx.db.one<{ conversation_id: string; execution_json: string | null }>(
         "SELECT conversation_id, execution_json FROM conversations WHERE conversation_id = ? AND deleted_at IS NULL",
@@ -990,7 +980,7 @@ const spawnFromDesktop = async (ctx: OwnerContext, args: SpawnArgs): Promise<Age
     fingerprint,
     prompt: args.prompt,
   });
-  return { ...control(thread), ...(destination.busy ? { waitingForDevice: true } : {}) };
+  return { ...control(thread), ...(destination.waiting ? { waitingForDevice: true } : {}) };
 };
 
 type ContinueArgs = AgentThreadCalls["agentThreads.continueFromDesktop"]["args"];

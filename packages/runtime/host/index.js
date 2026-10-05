@@ -701,8 +701,6 @@ export class StellaRuntimeHost {
                         this.hostReady &&
                         this.configCache.hasConnectedAccount &&
                         this.configCache.cloudSyncEnabled),
-                    chatSlots: 1,
-                    agentSlots: 1,
                     capabilities: [
                         "chat",
                         "agent",

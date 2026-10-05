@@ -337,10 +337,10 @@ describe("dispatch submission", () => {
     // No offer was made; the desktop is simply told what it now owns.
     expect(lastFrame(socket, "offer")).toBeUndefined();
     expect(lastFrame(socket, "dispatch")).toBeDefined();
-    // The slot it occupies is accounted for immediately.
+    // Accepted work does not make the device unavailable.
     expect(
-      (await harness.instance.devices(NOW)).devices[0].availability.chatSlots,
-    ).toBe(0);
+      (await harness.instance.devices(NOW)).devices[0].availability.ready,
+    ).toBe(true);
   });
 
   test("a desktop dispatch with no requesting device is a bad request", async () => {
@@ -665,11 +665,10 @@ describe("claim, ack, and completion", () => {
       resultJson: JSON.stringify({ finalText: "A different reply." }),
     }));
     expect(lastFrame(socket, "dispatch")?.dispatch).toEqual(done.response.dispatch);
-    // The slot and the owner-gate admission both came back.
+    // The device stays available and the owner-gate admission is released.
     expect(
-      (await harness.instance.devices(NOW + 500)).devices[0].availability
-        .chatSlots,
-    ).toBe(1);
+      (await harness.instance.devices(NOW + 500)).devices[0].availability.ready,
+    ).toBe(true);
     expect((await harness.instance.status(NOW + 500)).running).toHaveLength(0);
   });
 
@@ -729,8 +728,8 @@ describe("claim, ack, and completion", () => {
       "computer-claim-released:busy",
     );
     expect(
-      (await harness.instance.devices(NOW)).devices[0].availability.chatSlots,
-    ).toBe(1);
+      (await harness.instance.devices(NOW)).devices[0].availability.ready,
+    ).toBe(true);
   });
 
   test("a release cannot reroute work the computer already accepted", async () => {
@@ -1423,7 +1422,7 @@ describe("a computer named for device agent work", () => {
       },
     });
 
-  test("is reported busy, not offline, while it runs another handed-off task", async () => {
+  test("accepts another agent while an earlier task is unfinished", async () => {
     const desk = await generateDeviceKey("desk-1");
     const harness = open(OwnerGate, { snapshot: snapshotWith([desk]) });
     const { socket } = await withNow(NOW, () => harness.connect(desk));
@@ -1440,21 +1439,19 @@ describe("a computer named for device agent work", () => {
     );
     expect((await harness.instance.devices(NOW + 150)).devices[0]).toMatchObject({
       online: true,
-      busy: true,
+      availability: { ready: true },
     });
 
     const second = await withNow(NOW + 200, () =>
       harness.instance.submit({ request: deviceAgent(), now: NOW + 200 }),
     );
     expect(second.response.dispatch).toMatchObject({
-      state: "blocked",
-      errorCode: "SELECTED_DEVICE_BUSY",
-      fallbackReason: "selected-device-busy",
+      state: "offering",
     });
-    expect(second.response.dispatch.errorMessage).toContain("busy with another task");
+    expect(second.response.dispatch.errorMessage).toBeUndefined();
   });
 
-  test("an offer the busy computer let lapse is refused as busy", async () => {
+  test("a lapsed offer reports that the computer did not accept it", async () => {
     const desk = await generateDeviceKey("desk-1");
     const harness = open(OwnerGate, { snapshot: snapshotWith([desk]) });
     const { socket } = await withNow(NOW, () => harness.connect(desk));
@@ -1480,7 +1477,7 @@ describe("a computer named for device agent work", () => {
     );
     expect(status.response.dispatch).toMatchObject({
       state: "blocked",
-      errorCode: "SELECTED_DEVICE_BUSY",
+      errorCode: "SELECTED_DEVICE_UNAVAILABLE",
     });
   });
 

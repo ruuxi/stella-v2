@@ -544,7 +544,6 @@ const CAPABILITY_VALUES: readonly ExecutionCapability[] = [
 const parseAvailability = (value: unknown): DeviceAvailability | null => {
   if (!isRecord(value)) return null;
   if (typeof value.ready !== "boolean") return null;
-  if (!isCount(value.chatSlots) || !isCount(value.agentSlots)) return null;
   if (!Array.isArray(value.capabilities) || value.capabilities.length > 16) {
     return null;
   }
@@ -559,8 +558,6 @@ const parseAvailability = (value: unknown): DeviceAvailability | null => {
   }
   return {
     ready: value.ready,
-    chatSlots: Math.min(value.chatSlots, 64),
-    agentSlots: Math.min(value.agentSlots, 64),
     capabilities,
   };
 };
@@ -571,8 +568,6 @@ type PresenceRow = {
   connection_id: string;
   connected: number;
   ready: number;
-  chat_slots: number;
-  agent_slots: number;
   capabilities: string;
   protocol_version: number;
   last_seen_at: number;
@@ -583,8 +578,6 @@ const presenceState = (row: PresenceRow): DevicePresenceState => ({
   presenceSessionId: row.presence_session_id,
   connected: row.connected === 1,
   ready: row.ready === 1,
-  chatSlots: row.chat_slots,
-  agentSlots: row.agent_slots,
   capabilities: JSON.parse(row.capabilities) as ExecutionCapability[],
   protocolVersion: row.protocol_version,
   lastSeenAt: row.last_seen_at,
@@ -2161,8 +2154,6 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   ): void {
     const availability = attachment.availability ?? {
       ready: false,
-      chatSlots: 0,
-      agentSlots: 0,
       capabilities: [],
     };
     this.ctx.storage.sql.exec(
@@ -2187,8 +2178,9 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       attachment.connectionId,
       connected ? 1 : 0,
       availability.ready ? 1 : 0,
-      availability.chatSlots,
-      availability.agentSlots,
+      // Retained only for compatibility with existing SQLite tables.
+      0,
+      0,
       JSON.stringify(availability.capabilities),
       DEVICE_PRESENCE_PROTOCOL_VERSION,
       now,
@@ -2232,41 +2224,8 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     return row ? presenceState(row) : undefined;
   }
 
-  private adjustSlots(
-    deviceId: string,
-    kind: ExecutionKind,
-    delta: number,
-    now: number,
-  ): void {
-    const column = kind === "chat" ? "chat_slots" : "agent_slots";
-    this.ctx.storage.sql.exec(
-      `UPDATE device_presence
-         SET ${column} = MAX(0, ${column} + ?), updated_at = ?
-       WHERE device_id = ?`,
-      delta,
-      now,
-      deviceId,
-    );
-  }
-
-  private occupiedBy(deviceId: string, exceptDispatchId: string | null): number {
-    const row = this.ctx.storage.sql
-      .exec<{ n: number }>(
-        `SELECT COUNT(*) AS n FROM dispatches
-          WHERE executor_device_id = ? AND dispatch_id != ?
-            AND state IN ('computer_claimed', 'computer_accepted', 'computer_running',
-                          'cancel_pending', 'reconciliation_required')`,
-        deviceId,
-        exceptDispatchId ?? "",
-      )
-      .toArray()[0];
-    return row?.n ?? 0;
-  }
-
   private selectedDeviceRefusal(args: {
     deviceId: string | null;
-    kind: ExecutionKind;
-    exceptDispatchId: string | null;
     now: number;
   }): { fallbackReason: string; errorCode: string; errorMessage: string } | null {
     const presence = args.deviceId ? this.presenceRow(args.deviceId) : undefined;
@@ -2281,16 +2240,12 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         errorMessage: "The selected computer is offline.",
       };
     }
-    const slots = args.kind === "chat" ? presence.chatSlots : presence.agentSlots;
-    if (
-      this.occupiedBy(args.deviceId, args.exceptDispatchId) > 0 ||
-      (presence.ready && slots <= 0)
-    ) {
+    if (!presence.ready) {
       return {
-        fallbackReason: "selected-device-busy",
-        errorCode: "SELECTED_DEVICE_BUSY",
+        fallbackReason: "selected-device-unavailable",
+        errorCode: "SELECTED_DEVICE_UNAVAILABLE",
         errorMessage:
-          "The selected computer is online but busy with another task. It runs one handed-off task at a time.",
+          "The selected computer is online but isn't accepting work right now. It may still be starting up, be signed out, have cloud sync off, or not allow work from other devices.",
       };
     }
     return null;
@@ -2307,23 +2262,16 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         presence?.connected &&
         presence.lastSeenAt + DEVICE_PRESENCE_STALE_AFTER_MS > now,
       );
-      const busy =
-        online &&
-        (this.occupiedBy(device.deviceId, null) > 0 ||
-          (presence!.ready && presence!.agentSlots <= 0));
       devices.push({
         deviceId: device.deviceId,
         ...(device.label ? { label: device.label } : {}),
         remoteExecutionEnabled: device.remoteExecutionEnabled,
         online,
-        ...(busy ? { busy: true } : {}),
         ...(presence
           ? {
               presenceSessionId: presence.presenceSessionId,
               availability: {
                 ready: online && presence.ready,
-                chatSlots: presence.chatSlots,
-                agentSlots: presence.agentSlots,
                 capabilities: presence.capabilities,
               },
               lastSeenAt: presence.lastSeenAt,
@@ -2585,14 +2533,6 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     if (row.state !== "offering" && row.state !== "computer_claimed") {
       return row;
     }
-    if (row.state === "computer_claimed" && row.executor_device_id) {
-      this.adjustSlots(
-        row.executor_device_id,
-        row.kind as ExecutionKind,
-        1,
-        now,
-      );
-    }
     this.withdrawOffers(row.dispatch_id, null, fallbackReason, now);
     if (row.on_no_eligible_computer === "cloud") {
       const committed = await this.patchDispatch(
@@ -2614,8 +2554,6 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     const refusal = explicitDevice
       ? this.selectedDeviceRefusal({
           deviceId: row.requested_executor_device_id,
-          kind: row.kind as ExecutionKind,
-          exceptDispatchId: row.dispatch_id,
           now,
         })
       : null;
@@ -3298,8 +3236,6 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         const refusal = explicitDevice
           ? this.selectedDeviceRefusal({
               deviceId: request.targetDeviceId ?? null,
-              kind: request.kind,
-              exceptDispatchId: null,
               now,
             })
           : null;
@@ -3376,7 +3312,6 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     if (terminal) {
       if (gateHeld) await this.release({ turnId: dispatchId });
     } else if (state === "computer_accepted" && executorDeviceId) {
-      this.adjustSlots(executorDeviceId, request.kind, -1, now);
       this.notifyExecutor(row);
     } else if (state === "offering" && offerDeadlineAt !== null) {
       for (const candidate of candidates) {
@@ -3544,14 +3479,6 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       row.state === "offering" || row.state === "computer_claimed";
     const cloudNeverStarted =
       row.state === "cloud_committed" && !row.cloud_turn_id;
-    if (row.state === "computer_claimed" && row.executor_device_id) {
-      this.adjustSlots(
-        row.executor_device_id,
-        row.kind as ExecutionKind,
-        1,
-        now,
-      );
-    }
     this.withdrawOffers(row.dispatch_id, null, "canceled", now);
     const next = await this.patchDispatch(
       row,
@@ -3698,12 +3625,6 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         );
         return;
       }
-      this.adjustSlots(
-        row.executor_device_id,
-        row.kind as ExecutionKind,
-        1,
-        now,
-      );
       const released = await this.patchDispatch(
         row,
         {
@@ -3833,7 +3754,6 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         );
         return;
       }
-      this.adjustSlots(attachment.deviceId, row.kind as ExecutionKind, 1, now);
       const terminal = await this.patchDispatch(
         row,
         {
@@ -3934,7 +3854,6 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       });
       return;
     }
-    this.adjustSlots(attachment.deviceId, row.kind as ExecutionKind, -1, now);
     this.ctx.storage.sql.exec(
       `UPDATE dispatch_offers SET status = 'claimed', updated_at = ?
         WHERE dispatch_id = ? AND device_id = ?`,

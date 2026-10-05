@@ -1452,16 +1452,8 @@ export class ExecutionPlacementBridge {
 
   private async currentAvailability(): Promise<DeviceAvailability> {
     const availability = await this.options.getAvailability();
-    const busy =
-      this.inbox.listAllUnfinished().length > 0 ||
-      this.inbox.listCancellationPending().length > 0;
-    const ready = availability.ready && !busy;
-    const chatSlots = Math.max(0, Math.min(16, availability.chatSlots));
-    const agentSlots = Math.max(0, Math.min(16, availability.agentSlots));
     return {
-      ready,
-      chatSlots: ready ? chatSlots : 0,
-      agentSlots: ready ? agentSlots : 0,
+      ready: availability.ready,
       capabilities: [...new Set(availability.capabilities)].sort(),
     };
   }
@@ -1996,14 +1988,6 @@ export class ExecutionPlacementBridge {
   // Offers, claims, and the local run
   // -------------------------------------------------------------------------
 
-  /** The inbox is a single slot: one unfinished handoff at a time. */
-  private hasUnfinishedLocalWork() {
-    return (
-      this.inbox.listUnfinished(this.requireSession()).length > 0 ||
-      this.inbox.listCancellationPending().length > 0
-    );
-  }
-
   private async handleOffer(frame: {
     dispatch: DispatchSummary;
     payloadJson: string;
@@ -2025,7 +2009,6 @@ export class ExecutionPlacementBridge {
     ) {
       return;
     }
-    if (this.hasUnfinishedLocalWork()) return;
     if (typeof frame.payloadJson !== "string" || !frame.payloadJson) return;
     if (sha256(frame.payloadJson) !== frame.payloadHash) {
       this.log("warn", "Refused an offer whose payload hash did not match.");
@@ -2033,11 +2016,7 @@ export class ExecutionPlacementBridge {
     }
     const availability = await this.currentAvailability();
     if (!this.isLiveEpoch(epoch)) return;
-    const slots =
-      dispatch.kind === "chat"
-        ? availability.chatSlots
-        : availability.agentSlots;
-    if (!availability.ready || slots <= 0) return;
+    if (!availability.ready) return;
 
     const claimRequestId = `claim:${this.presenceSessionId}:${dispatch.dispatchId}`;
     const claimed = this.waitForClaim(dispatch.dispatchId);
@@ -2121,14 +2100,6 @@ export class ExecutionPlacementBridge {
       this.executing.has(dispatch.dispatchId) ||
       this.inbox.get(dispatch.dispatchId)
     ) {
-      return;
-    }
-    if (this.hasUnfinishedLocalWork()) {
-      this.send({
-        type: "release",
-        dispatchId: dispatch.dispatchId,
-        reason: "this computer is already running a placed execution",
-      });
       return;
     }
     const payloadJson = canonicalDispatchPayloadJson(payload);

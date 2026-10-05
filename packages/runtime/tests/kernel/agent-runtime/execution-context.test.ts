@@ -78,8 +78,6 @@ describe("execution resident context", () => {
           presenceSessionId: "new-session",
           availability: {
             ready: true,
-            chatSlots: 0,
-            agentSlots: 3,
             capabilities: ["chat"],
           },
         },

@@ -155,8 +155,6 @@ describe("isEligibleDevice", () => {
     presenceSessionId: "session-1",
     connected: true,
     ready: true,
-    chatSlots: 1,
-    agentSlots: 1,
     capabilities: ["chat", "agent", "attachments"],
     protocolVersion: 1,
     lastSeenAt: NOW,
@@ -186,14 +184,13 @@ describe("isEligibleDevice", () => {
       staleAfterMs: DEVICE_PRESENCE_STALE_AFTER_MS,
     });
 
-  test("accepts an online, ready, capable device with a free slot", () => {
+  test("accepts an online, ready, capable device", () => {
     expect(eligible()).toBe(true);
   });
 
   test("rejects every missing precondition on its own", () => {
     expect(eligible({ connected: false })).toBe(false);
     expect(eligible({ ready: false })).toBe(false);
-    expect(eligible({ chatSlots: 0 })).toBe(false);
     expect(eligible({ protocolVersion: 2 })).toBe(false);
     expect(eligible({ lastSeenAt: NOW - DEVICE_PRESENCE_STALE_AFTER_MS })).toBe(
       false,
@@ -213,15 +210,15 @@ describe("isEligibleDevice", () => {
     ).toBe(false);
   });
 
-  test("counts the slot of the kind being placed", () => {
+  test("accepts chat and agent work without a per-device capacity counter", () => {
     const args = {
-      presence: presence({ chatSlots: 0, agentSlots: 2 }),
+      presence: presence(),
       device: device(),
       requiredCapabilities: [] as never[],
       now: NOW,
       staleAfterMs: DEVICE_PRESENCE_STALE_AFTER_MS,
     };
-    expect(isEligibleDevice({ ...args, kind: "chat" })).toBe(false);
+    expect(isEligibleDevice({ ...args, kind: "chat" })).toBe(true);
     expect(isEligibleDevice({ ...args, kind: "agent" })).toBe(true);
   });
 });

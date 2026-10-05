@@ -36,7 +36,6 @@ export type DeviceDestination = {
   label?: string;
   remoteExecutionEnabled: boolean;
   online: boolean;
-  busy?: boolean;
   presenceSessionId?: string;
   availability?: DeviceAvailability;
   lastSeenAt?: number;
@@ -250,8 +249,6 @@ export const DEVICE_PRESENCE_MAX_FRAME_BYTES = 64 * 1024;
 
 export type DeviceAvailability = {
   ready: boolean;
-  chatSlots: number;
-  agentSlots: number;
   capabilities: ExecutionCapability[];
 };
 

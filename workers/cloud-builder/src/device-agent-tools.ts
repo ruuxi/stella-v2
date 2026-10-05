@@ -53,7 +53,7 @@ const receiptOf = (
 });
 
 export const DEVICE_AGENT_QUEUED_NOTE =
-  "That device is online but busy with another task, so this agent is queued: it starts on its own as soon as the device frees up, and fails if the device is still busy after 60 minutes.";
+  "That device is offline or isn't accepting work right now, so this agent is queued. It retries automatically for up to 60 minutes.";
 
 export const spawnDeviceAgent = async (
   caller: DeviceAgentCaller,

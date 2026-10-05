@@ -132,8 +132,6 @@ export type DevicePresenceState = {
   presenceSessionId: string;
   connected: boolean;
   ready: boolean;
-  chatSlots: number;
-  agentSlots: number;
   capabilities: ExecutionCapability[];
   protocolVersion: number;
   lastSeenAt: number;
@@ -153,8 +151,9 @@ export const hasCapabilities = (
 ): boolean => required.every((capability) => advertised.includes(capability));
 
 /**
- * Online, ready, protocol-current, capable, and holding a free slot of the
- * kind — plus remote execution enabled on the registration. Every clause is
+ * Online, ready, protocol-current, and capable, with remote execution
+ * enabled on the registration. Agent capacity belongs to the runtime
+ * scheduler, not the device handoff protocol. Every clause is
  * load-bearing; dropping any of them offers work to a device that
  * cannot run it and costs the user a four-second stall before the fallback.
  */
@@ -176,8 +175,7 @@ export const isEligibleDevice = (args: {
   if (!hasCapabilities(presence.capabilities, args.requiredCapabilities)) {
     return false;
   }
-  const slots = args.kind === "chat" ? presence.chatSlots : presence.agentSlots;
-  return slots > 0;
+  return true;
 };
 
 /** Requirements the cloud sandbox cannot honour; a fallback would lie. */

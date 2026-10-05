@@ -8,6 +8,7 @@ import {
   reusablePromptContext,
 } from "../src/prompt-context.js";
 import { stampUserMessageSequences } from "../src/journal.js";
+import { WORLD_DRIVE_ROOT } from "../src/workspace.js";
 import type {
   AgentMessage,
   AgentTool,
@@ -154,8 +155,17 @@ describe("cloud prompt context", () => {
       );
       expect(replay).toHaveLength(1);
       const content = replay[0]!.content as { type: string; text: string }[];
-      expect(content.at(-1)?.text).toContain(JSON.stringify(attachments));
-      expect(content.at(-1)?.text).toContain("pass these paths to any agent");
+      expect(content.at(-1)?.text).toContain(
+        JSON.stringify(
+          attachments.map((drivePath) => ({
+            drivePath,
+            readableAt: `${WORLD_DRIVE_ROOT}/${drivePath}`,
+          })),
+        ),
+      );
+      expect(content.at(-1)?.text).toContain(
+        "Do not substitute other files found by searching the Drive.",
+      );
       expect(content.at(-1)?.text).not.toContain("release-check.txt");
     }
     expect(canonical.content).toEqual([{ type: "text", text: "Read both attachments." }]);

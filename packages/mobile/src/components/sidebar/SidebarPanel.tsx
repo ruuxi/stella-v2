@@ -18,6 +18,7 @@ import {
 import { authClient } from "../../lib/auth-client";
 import { isGuest } from "../../lib/guest-mode";
 import { tapLight } from "../../lib/haptics";
+import type { MainTabId } from "../../lib/last-main-tab";
 import { useActivityHub } from "../../lib/main-shell-store";
 import { CONTENT_MAX_FONT_SCALE } from "../../lib/setup-text-defaults";
 import type { Colors } from "../../theme/colors";
@@ -31,6 +32,7 @@ import {
   makeActivityRowStyles,
   type GroupSubagent,
 } from "./activity-rows";
+import { SidebarNav } from "./SidebarNav";
 
 type ActivityListRow =
   | {
@@ -49,17 +51,20 @@ const EMPTY_ARTIFACTS: ChatArtifact[] = [];
 const EMPTY_BY_TASK: ReadonlyMap<string, ChatArtifact[]> = new Map();
 
 /**
- * The left sidebar: the conversation's background work. Each agent is a row
- * with the files it made nested underneath (subagents fold under their
- * parent), and the main thread's own files close the list. Navigation lives
- * in the shell's bottom tab bar, so the panel is only this list.
+ * The left sidebar. The shell's destinations (Chat, Schedule, Apps, Files,
+ * Settings) sit at the top, and the conversation's background work fills
+ * the rest: each agent is a row with the files it made nested underneath
+ * (subagents fold under their parent), and the main thread's own files close
+ * the list.
  *
- * Data arrives through the shell store the chat route publishes into, so the
- * panel needs no props from the router.
+ * Activity arrives through the shell store the chat route publishes into;
+ * the shell passes the current destination and handles selection.
  */
 export function SidebarPanel({
   width,
   contentInsetRight = 0,
+  activeTab,
+  onSelectTab,
   onOpenArtifact,
 }: {
   width: number;
@@ -68,6 +73,8 @@ export function SidebarPanel({
    * open (the rounded content edge overlaps it). Content stays clear of it.
    */
   contentInsetRight?: number;
+  activeTab: MainTabId | null;
+  onSelectTab: (tab: MainTabId) => void;
   onOpenArtifact: (artifact: ChatArtifact) => void;
 }) {
   const colors = useColors();
@@ -198,6 +205,9 @@ export function SidebarPanel({
           { paddingRight: contentInsetRight, paddingTop: insets.top + 10 },
         ]}
       >
+        <View style={styles.nav}>
+          <SidebarNav value={activeTab} onSelect={onSelectTab} />
+        </View>
         <Text
           style={styles.heading}
           accessibilityRole="header"
@@ -265,6 +275,10 @@ const makeStyles = (colors: Colors) =>
     body: {
       flex: 1,
       minHeight: 0,
+    },
+    nav: {
+      paddingBottom: 14,
+      paddingHorizontal: 16,
     },
     heading: {
       color: colors.textMuted,

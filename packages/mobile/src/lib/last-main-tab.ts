@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-/** The shell's bottom tabs, in bar order. */
+/** The shell's destinations, as the sidebar lists them. */
 export type MainTabId = "chat" | "schedule" | "apps" | "files" | "settings";
 
 export const MAIN_TAB_HREFS = {
@@ -74,7 +74,16 @@ export function enterMainShell(router: MainShellRouter, href: string): void {
   router.replace(MAIN_TAB_HREFS.chat);
 }
 
-/** The tab `enterMainShell` deferred, once; `null` when there is none. */
+/**
+ * Open `tab` over the chat once the shell is back on it. For leaving a page
+ * pushed from a tab: the stack drops to the chat first, so the new tab lands
+ * one level over it instead of on top of the old tab's page.
+ */
+export function queueMainTab(tab: MainTabId): void {
+  pendingMainTab = tab === "chat" ? null : tab;
+}
+
+/** The tab waiting to open over the chat, once; `null` when there is none. */
 export function takePendingMainTab(): MainTabId | null {
   const tab = pendingMainTab;
   pendingMainTab = null;

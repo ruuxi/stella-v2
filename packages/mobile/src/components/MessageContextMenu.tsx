@@ -32,7 +32,7 @@ export const MESSAGE_PRESS_SCALE = 0.96;
 /**
  * The iOS Messages context menu: the held bubble lifts out of a dimmed
  * screen and the actions sit under it, aligned to the bubble's side. It is a
- * modal so the dim also covers the native top bar, composer and tab bar. The
+ * modal so the dim also covers the native top bar and composer. The
  * bubble is re-rendered at its measured window position (the original is
  * hidden while the menu is up), then moved up just enough that bubble and menu
  * both fit on screen. A bubble too tall to fit is clipped, like iOS.

@@ -36,7 +36,7 @@ import {
   listStoredPairedPhoneAccess,
   type StoredPhoneAccess,
 } from "../lib/phone-access";
-import { useShellBottomInset } from "../lib/shell-bottom-inset";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { userFacingError } from "../lib/user-facing-error";
 import { type Colors } from "../theme/colors";
 import {
@@ -107,7 +107,7 @@ export function SettingsContent() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const settingsStyles = useMemo(() => makeSettingsStyles(colors), [colors]);
   const router = useRouter();
-  const bottomInset = useShellBottomInset();
+  const bottomInset = useSafeAreaInsets().bottom;
   const session = authClient.useSession();
   const guest = isGuest();
   const [isResettingCloudBrowser, setIsResettingCloudBrowser] = useState(false);

@@ -73,7 +73,6 @@ import Reanimated, {
   useSharedValue,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useShellBottomInset } from "../lib/shell-bottom-inset";
 import { AddContextSheet } from "./AddContextSheet";
 import { Icon, type IconName } from "./Icon";
 import { GlassSurface, liquidGlassSupported } from "./glass";
@@ -330,7 +329,7 @@ const CHAT_HORIZONTAL_INSET = 12;
 // ---------------------------------------------------------------------------
 
 function useKeyboardInset() {
-  const bottomInset = useShellBottomInset();
+  const bottomInset = useSafeAreaInsets().bottom;
   const [height, setHeight] = useState(0);
   // The height the keyboard is heading to, for the composer's UI-thread lift.
   const targetHeight = useSharedValue(0);
@@ -358,11 +357,11 @@ function useKeyboardInset() {
 
   const open = height > 0;
   // The composer's bottom pad is keyboard-independent: it always reserves the
-  // shell's bottom band (the tab bar and home indicator). When the keyboard is
-  // up the composer is lifted clear of it by `composerKeyboardStyle` (by
-  // `keyboardHeight - bottomInset`), so that reserved band lands inside the
-  // keyboard region — a constant 6pt gap sits above the keyboard either way,
-  // with no per-state padding swap to animate.
+  // home-indicator safe area. When the keyboard is up the composer is lifted
+  // clear of it by `composerKeyboardStyle` (by `keyboardHeight - bottomInset`),
+  // so that reserved band lands inside the keyboard region — a constant 6pt
+  // gap sits above the keyboard either way, with no per-state padding swap to
+  // animate.
   const composerBottomPad = 6 + bottomInset;
 
   return { height, open, composerBottomPad, targetHeight };
@@ -3110,8 +3109,9 @@ export function ChatPane({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const t = useT();
   const readAloud = useReadAloudPreference();
-  const bottomInset = useShellBottomInset();
-  const safeAreaTop = useSafeAreaInsets().top;
+  const insets = useSafeAreaInsets();
+  const bottomInset = insets.bottom;
+  const safeAreaTop = insets.top;
   const shellTopInset = useShellTopInset();
   const topInset = topInsetProp ?? shellTopInset;
   const { height: screenHeight } = useWindowDimensions();
@@ -3135,7 +3135,7 @@ export function ChatPane({
       if (settled > 0) keyboardTargetHeight.value = settled;
     },
   );
-  // The composer rests at `composerBottomPad` (the shell's bottom band) above
+  // The composer rests at `composerBottomPad` (the home-indicator band) above
   // the screen bottom, and must end a constant gap above the keyboard, so it
   // travels the keyboard height *minus* that band. Spread that travel over
   // the keyboard's whole motion rather than waiting for the keyboard to climb

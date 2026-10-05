@@ -30,12 +30,6 @@ import {
   TOP_BAR_BAR_HEIGHT,
 } from "../../src/components/AppBackdrop";
 import { SidebarPanel } from "../../src/components/sidebar/SidebarPanel";
-import { ShellTabBar } from "../../src/components/shell-tab-bar/ShellTabBar";
-import {
-  SHELL_TAB_BAR_RESERVE,
-  shellTabBarBase,
-  type ShellTabItem,
-} from "../../src/components/shell-tab-bar/shell-tab-bar-types";
 import {
   Keyboard,
   Pressable,
@@ -61,6 +55,7 @@ import { useChatSearch } from "../../src/lib/chat-search";
 import { tapLight } from "../../src/lib/haptics";
 import {
   MAIN_TAB_HREFS,
+  queueMainTab,
   readMainTabFromPath,
   saveLastMainTab,
   takePendingMainTab,
@@ -71,7 +66,6 @@ import {
   useActivityHub,
   useBackOverride,
 } from "../../src/lib/main-shell-store";
-import { ShellBottomInsetProvider } from "../../src/lib/shell-bottom-inset";
 import { useEngineTokenRefresher } from "../../src/lib/use-engine-token-refresher";
 import { useT } from "../../src/i18n";
 import type { ChatArtifact } from "../../src/types";
@@ -84,29 +78,6 @@ import type { ChatArtifact } from "../../src/types";
  * those tabs show (files, the paired computer).
  */
 export const unstable_settings = { anchor: "chat" };
-
-/** The bottom tab bar, in order. Settings stays rightmost. */
-const TAB_ORDER: readonly MainTabId[] = [
-  "chat",
-  "schedule",
-  "apps",
-  "files",
-  "settings",
-];
-const TAB_ICONS = {
-  chat: "chat",
-  schedule: "clock",
-  apps: "apps",
-  files: "artifacts",
-  settings: "user",
-} as const satisfies Record<MainTabId, ShellTabItem<MainTabId>["icon"]>;
-const TAB_LABEL_KEYS: Record<MainTabId, string> = {
-  chat: "mobile.nav.chat",
-  schedule: "mobile.activityHub.tabs.schedule",
-  apps: "mobile.nav.apps",
-  files: "mobile.activityHub.tabs.files",
-  settings: "mobile.nav.settings",
-};
 
 const SIDEBAR_WIDTH = 320;
 /** How far the foreground slides right when the drawer opens. Decoupled
@@ -203,23 +174,11 @@ export default function MainLayout() {
     if (pending) router.push(MAIN_TAB_HREFS[pending]);
   }, [onChatSurface, router]);
 
-  // The bar shows on the tab pages themselves. Pages pushed from a tab and a
-  // route's own in-place view (an open app) take the full screen behind the
-  // top-left back control instead.
-  const tabBarVisible = onTabRoot && !backOverride;
-  const backVisible = !onChatSurface && (!onTabRoot || Boolean(backOverride));
-  const shellBottomInset = tabBarVisible
-    ? shellTabBarBase(insets.bottom) + SHELL_TAB_BAR_RESERVE
-    : null;
-  const tabItems = useMemo(
-    () =>
-      TAB_ORDER.map((key) => ({
-        key,
-        label: t(TAB_LABEL_KEYS[key]),
-        icon: TAB_ICONS[key],
-      })),
-    [t],
-  );
+  // The sidebar, which carries the navigation, opens from the tab pages
+  // themselves. Pages pushed from a tab and a route's own in-place view (an
+  // open app) take the full screen behind the top-left back control instead.
+  const drawerAvailable = onChatSurface || (onTabRoot && !backOverride);
+  const backVisible = !drawerAvailable;
 
   const openSidebar = () => {
     Keyboard.dismiss();
@@ -241,26 +200,35 @@ export default function MainLayout() {
   // Tabs push over the chat rather than replacing it, so the chat keeps its
   // mount (scroll position, draft, journal socket) and coming back is a pop,
   // not a cold remount behind the authority spinner. Another tab swaps in
-  // place, so the stack is never deeper than the chat plus one tab (the bar
-  // is hidden on pages pushed from a tab, so a switch never starts there).
+  // place, so the stack is never deeper than the chat plus one tab. The
+  // wide layout keeps the sidebar on screen over pages pushed from a tab
+  // too; leaving one of those drops to the chat first and opens the tab
+  // from there.
   const selectTab = (tab: MainTabId) => {
     const destination = MAIN_TAB_HREFS[tab];
-    if (destination === pathname) return;
     tapLight();
+    if (!wide) closeSidebar(false);
+    if (destination === pathname) return;
     Keyboard.dismiss();
     if (destination === "/chat") {
       router.dismissTo("/chat");
     } else if (onChatSurface) {
       router.push(destination);
-    } else {
+    } else if (onTabRoot) {
       router.replace(destination);
+    } else if (activeTab === tab) {
+      router.dismissTo(destination);
+    } else {
+      queueMainTab(tab);
+      router.dismissTo("/chat");
     }
   };
 
-  // The top-left control is the drawer reveal on the chat and "back" on a
-  // page pushed from a tab (or a route's in-place view, like an open app).
+  // The top-left control is the drawer reveal on the chat and the other tab
+  // pages, and "back" on a page pushed from a tab (or a route's in-place
+  // view, like an open app).
   const onPressTopLeft = () => {
-    if (onChatSurface) {
+    if (drawerAvailable) {
       openSidebar();
       return;
     }
@@ -276,6 +244,14 @@ export default function MainLayout() {
   useEffect(() => {
     if (wide) closeSidebar(false);
   }, [wide]);
+
+  // A route that takes the drawer away (a pushed page, an open app) never
+  // inherits it open.
+  useEffect(() => {
+    if (drawerAvailable) return;
+    setSidebarOpen(false);
+    drawerProgress.value = withSpring(0, DRAWER_SPRING);
+  }, [drawerAvailable, drawerProgress]);
 
   // The chat's running-tasks pill asks for the drawer; the wide layout has
   // the sidebar on screen already, so there is nothing to reveal there.
@@ -293,14 +269,13 @@ export default function MainLayout() {
     setViewerArtifact(artifact);
   }, []);
 
-  // -- Gesture: swipe right anywhere on the chat to open --
+  // -- Gesture: swipe right anywhere on a tab page to open --
   // `Keyboard.dismiss` is a method on the native Keyboard module and isn't
   // serializable into the Worklets UI runtime, so wrap it in a plain JS
   // function before handing it to `runOnJS`.
   const dismissKeyboard = () => Keyboard.dismiss();
-  // The sidebar is the chat's activity, so only the chat reveals it.
   const openPan = Gesture.Pan()
-    .enabled(!sidebarOpen && onChatSurface)
+    .enabled(!sidebarOpen && drawerAvailable)
     .activeOffsetX(15)
     .failOffsetY([-20, 20])
     .onStart(() => {
@@ -406,10 +381,6 @@ export default function MainLayout() {
   // so the chat underneath never reflows as tabs swap over it.
   const topBarHeight = insets.top + TOP_BAR_BAR_HEIGHT;
 
-  const tabBar = tabBarVisible ? (
-    <ShellTabBar tabs={tabItems} value={activeTab ?? "chat"} onSelect={selectTab} />
-  ) : null;
-
   return (
     // edges=[] disables SafeAreaView's auto-padding so every layer below
     // (gradient, sidebar, foreground) can extend edge-to-edge through the
@@ -423,12 +394,15 @@ export default function MainLayout() {
         <>
           <AppBackdrop />
           <View style={styles.wideLayout}>
-            <SidebarPanel width={SIDEBAR_WIDTH} onOpenArtifact={openArtifact} />
+            <SidebarPanel
+              width={SIDEBAR_WIDTH}
+              activeTab={activeTab}
+              onSelectTab={selectTab}
+              onOpenArtifact={openArtifact}
+            />
             <View style={styles.content}>
               <View style={styles.contentSlot}>
-                <ShellBottomInsetProvider value={shellBottomInset}>
-                  <MainStack />
-                </ShellBottomInsetProvider>
+                <MainStack />
               </View>
               <View
                 pointerEvents="box-none"
@@ -448,7 +422,6 @@ export default function MainLayout() {
                   </View>
                 ) : null}
               </View>
-              {tabBar}
             </View>
           </View>
         </>
@@ -470,6 +443,8 @@ export default function MainLayout() {
             <SidebarPanel
               width={SIDEBAR_WIDTH}
               contentInsetRight={SIDEBAR_WIDTH - DRAWER_REVEAL}
+              activeTab={activeTab}
+              onSelectTab={selectTab}
               onOpenArtifact={openArtifact}
             />
           </Animated.View>
@@ -486,9 +461,7 @@ export default function MainLayout() {
                   fill. Clipped to the rounded corners via overflow:hidden. */}
               <AppBackdrop />
               <View style={styles.content}>
-                <ShellBottomInsetProvider value={shellBottomInset}>
-                  <MainStack />
-                </ShellBottomInsetProvider>
+                <MainStack />
               </View>
 
               {/* The top bar floats over the routes: the chat runs edge to
@@ -542,21 +515,19 @@ export default function MainLayout() {
                   </View>
                 ) : null}
                 {search.isOpen ? null : (
-                  onChatSurface || backVisible ? (
-                    <View style={styles.topBarSide}>
-                      <GlassIconButton
-                        icon="chevron-left"
-                        size={TOP_BAR_BUTTON}
-                        iconSize={20}
-                        accessibilityLabel={
-                          onChatSurface
-                            ? t("mobile.nav.openLabel")
-                            : (backOverride?.label ?? t("mobile.common.back"))
-                        }
-                        onPress={onPressTopLeft}
-                      />
-                    </View>
-                  ) : null
+                  <View style={styles.topBarSide}>
+                    <GlassIconButton
+                      icon="chevron-left"
+                      size={TOP_BAR_BUTTON}
+                      iconSize={20}
+                      accessibilityLabel={
+                        drawerAvailable
+                          ? t("mobile.nav.openLabel")
+                          : (backOverride?.label ?? t("mobile.common.back"))
+                      }
+                      onPress={onPressTopLeft}
+                    />
+                  </View>
                 )}
                 {!search.isOpen && onChatSurface ? (
                   <View style={[styles.topBarSide, styles.topBarEnd]}>
@@ -573,10 +544,6 @@ export default function MainLayout() {
                   </View>
                 ) : null}
               </View>
-
-              {/* The tab bar floats over the page's bottom edge and travels
-                  with the foreground, under the scrim, when the drawer opens. */}
-              {tabBar}
 
               {/* Scrim — sits on top of the foreground while the drawer is
                   open. Tap anywhere on the visible app area to close. */}

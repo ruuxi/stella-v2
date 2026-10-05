@@ -14,7 +14,7 @@ import {
 import { authClient } from "../lib/auth-client";
 import { isGuest } from "../lib/guest-mode";
 import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
-import { useShellBottomInset } from "../lib/shell-bottom-inset";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Colors } from "../theme/colors";
 import { fonts } from "../theme/fonts";
 import { useColors } from "../theme/theme-context";
@@ -30,7 +30,7 @@ export function SchedulePage() {
   const t = useT();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const rowStyles = useMemo(() => makeActivityRowStyles(colors), [colors]);
-  const bottomInset = useShellBottomInset();
+  const bottomInset = useSafeAreaInsets().bottom;
   const session = authClient.useSession();
   const signedIn = Boolean(session.data?.user) && !isGuest();
 

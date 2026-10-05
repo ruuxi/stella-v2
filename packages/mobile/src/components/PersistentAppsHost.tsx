@@ -22,7 +22,6 @@ import { useT } from "../i18n";
 import { MainDetailSurface, useShellTopInset } from "./MainScreenSurface";
 import { useColors } from "../theme/theme-context";
 import { getAuthTokenForSubject } from "../lib/auth-token";
-import { useShellBottomInset } from "../lib/shell-bottom-inset";
 import { fonts } from "../theme/fonts";
 import { authClient } from "../lib/auth-client";
 import { env } from "../config/env";
@@ -108,7 +107,6 @@ function AppsHost({
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const topInset = useShellTopInset();
-  const bottomInset = useShellBottomInset();
   const t = useT();
   const [apps, setApps] = useState<WorkspaceApp[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -340,7 +338,7 @@ function AppsHost({
             style={{ display: frame ? "none" : "flex" }}
             contentContainerStyle={{
               gap: 16,
-              paddingBottom: bottomInset + 24,
+              paddingBottom: insets.bottom + 24,
               paddingTop: 4,
             }}
             showsVerticalScrollIndicator={false}

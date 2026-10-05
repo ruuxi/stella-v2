@@ -14,6 +14,7 @@ import type {
   ToolUpdateCallback,
 } from "../tools/types.js";
 import {
+  checkClaudeCodeAuth,
   runClaudeCodeTurn,
   shutdownClaudeCodeRuntime,
 } from "../integrations/claude-code-session-runtime.js";
@@ -1119,6 +1120,19 @@ const runClaudeHostedTurn = async (args: {
   if (args.opts.abortSignal?.aborted) {
     throw new Error("Aborted");
   }
+
+  // Pre-flight the credential before launching a CLI that would 401. This is
+  // the knowable-up-front case (signed out of Stella, no mintable token); a
+  // token revoked upstream still passes here and is handled by the step's
+  // re-auth recovery instead.
+  const claudeAuth = await checkClaudeCodeAuth(args.opts.stellaAppDir);
+  if (claudeAuth.status === "reauth_required") {
+    const failure = new Error(claudeAuth.message);
+    (failure as { code?: string }).code = "CLAUDE_CODE_AUTH_REAUTH_REQUIRED";
+    (failure as { status?: number }).status = 401;
+    throw failure;
+  }
+
 
   const localCliCwd = resolveAgentWorkingDirectory({
     agentType: args.opts.agentType,

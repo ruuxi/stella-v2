@@ -241,6 +241,33 @@ const hasStellaClaudeAccount = (stellaAppDir) =>
   Boolean(stellaAppDir) &&
   hasAccessibleLocalLlmOAuthCredential(stellaAppDir, "anthropic");
 /**
+ * Pre-flight the credential Claude Code will actually run on, so a caller can
+ * say "this will fail, and here is what to do" BEFORE spawning an agent that
+ * would 401 and die.
+ *
+ * Deliberately bounded, and the limit matters: this proves only that a token
+ * can be obtained, not that Anthropic will accept it. A token revoked upstream
+ * but not yet expired still reads as `ok` here — detecting that without
+ * calling Anthropic is impossible, and calling Anthropic on every spawn is not
+ * worth it. Revocation is handled after the fact by the step's re-auth
+ * recovery; this probe catches the cases that are knowable up front (signed
+ * out of Stella, no mintable token, no account at all).
+ */
+export const checkClaudeCodeAuth = async (stellaAppDir) => {
+  if (!hasStellaClaudeAccount(stellaAppDir)) {
+    // The CLI will use its own keychain login, which Stella neither supplies
+    // nor can inspect. Not a problem, and not something to warn about.
+    return { status: "cli_login" };
+  }
+  if (await resolveStellaClaudeToken(stellaAppDir)) return { status: "ok" };
+  return {
+    status: "reauth_required",
+    message:
+      "Stella has a Claude account connected but cannot get an access token for it, so Claude Code agents will fail to authenticate. Check that you are signed in to Stella and online (Settings › Account), and reconnect Claude there if it stays broken. The `claude` CLI's own login is separate and will look healthy in a terminal.",
+  };
+};
+
+/**
  * A subscription limit (5-hour or weekly window) in a CLI result, with the
  * reset time when the CLI printed one (`...limit reached|<epoch seconds>`).
  */
@@ -336,10 +363,26 @@ const buildSideEffectReconciliationPrompt = (
 };
 const buildResultRetryPrompt = () =>
   "Your previous reply produced no result text. Provide your complete final answer to the pending request now.";
-const withStepRecoveryExhausted = (error) =>
-  new Error(
+/**
+ * The shared recovery budget ran out. "Check the CLI health" is only honest
+ * when the CLI is actually the suspect: an auth rejection that reaches here
+ * (a second one, after re-auth already ran this step) means the credential is
+ * the problem, and pointing at `claude --version` sends the reader to a tool
+ * that is working fine. Keep the two causes separate.
+ */
+const withStepRecoveryExhausted = (error) => {
+  if (claudeCodeAuthFailureOf(error)) {
+    const failure = new Error(
+      `${normalizeErrorMessage(error)} Stella refreshed the Claude credential and it was refused again, so this needs a human: reconnect Claude in Stella › Settings › Account. The \`claude\` CLI's own login is separate and is overridden while a Stella Claude account is connected, so testing the CLI in a terminal will not show this problem.`,
+    );
+    failure.code = "CLAUDE_CODE_AUTH_REAUTH_REQUIRED";
+    failure.status = 401;
+    return failure;
+  }
+  return new Error(
     `${normalizeErrorMessage(error)} Stella retried ${MAX_STEP_RECOVERIES_PER_TURN} time(s) but Claude Code kept ending the step without a usable result. Check the \`claude\` CLI health (\`claude --version\`, login status), then retry the request.`,
   );
+};
 /**
  * Terminal auth failure, after a re-mint was attempted and could not produce a
  * working credential. The three cases need three different actions, and

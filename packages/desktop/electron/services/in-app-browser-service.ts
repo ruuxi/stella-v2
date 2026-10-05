@@ -46,6 +46,39 @@ export type BrowserViewUnavailableReason =
   | "extension_disconnected"
   | StellaBrowserBridgeFailureReason;
 
+/**
+ * Why Stella Browser is not usable right now, as something the reader can act
+ * on. The service already distinguishes six reasons plus a still-connecting
+ * state; collapsing them all into "Connect the Stella browser extension" sent
+ * at least one investigation after an extension that was installed and fine.
+ * Each branch names the component that is actually wrong.
+ */
+export const describeBrowserUnavailable = (
+  connection: BrowserViewConnection,
+  reason?: BrowserViewUnavailableReason,
+): string => {
+  if (connection === "checking") {
+    return "Stella Browser is still connecting. Retry in a moment.";
+  }
+  switch (reason) {
+    case "extension_not_installed":
+      return "The Stella browser extension is not installed. Install it from Stella › Settings › Browser, then retry.";
+    case "extension_disconnected":
+      return "The Stella browser extension is installed but not connected. Open your browser (and make sure the extension is enabled there), then retry.";
+    case "bridge_missing":
+      return "Stella's native browser bridge is not installed, so the extension has nothing to talk to. Install it from Stella › Settings › Browser, then retry.";
+    case "authorization_failed":
+      return "The browser extension's delegation was rejected, expired, or belongs to a different Stella account. Reconnect the browser from Stella › Settings › Browser to issue a new one.";
+    case "connection_lost":
+      return "The connection to the Stella browser extension dropped and Stella is reconnecting. Retry in a moment; if it persists, reload the extension in your browser.";
+    case "transient_failure":
+      return "The Stella browser bridge hit a transient failure and is retrying. Retry in a moment.";
+    default:
+      return "Stella Browser is not connected. Check the browser bridge and extension in Stella › Settings › Browser, then retry.";
+  }
+};
+
+
 export type BrowserViewTabState = {
   id: string;
   ownerId: string;
@@ -734,11 +767,11 @@ export class InAppBrowserService {
     const state = await this.connect();
     if (state.connection !== "connected") {
       throw new Error(
-        state.error ??
-          "Connect the Stella browser extension before using Stella Browser.",
+        state.error ?? describeBrowserUnavailable(state.connection, state.unavailableReason),
       );
     }
   }
+
 
   async selectTab(options: {
     tabId: string;

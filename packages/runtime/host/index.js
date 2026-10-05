@@ -16,6 +16,7 @@ import { AGENT_STREAM_EVENT_TYPES } from "@stella/contracts/agent-runtime";
 import { createExecutionPlacementBridge, placementLocalAgentThreadId, placementLocalChatRunId, placementRemoteThreadAgentId, } from "./execution-placement-bridge.js";
 import { isExecutionPlacementEligible } from "./execution-placement-eligibility.js";
 import { isCloudHandedOff } from "./placed-dispatch.js";
+import { AGENT_RUN_RPC_OPTIONS } from "./agent-run-request.js";
 import { placementAttachmentPaths, resolvePlacementAttachments, } from "./placement-attachments.js";
 import { getDesktopDatabasePath, initializeDesktopDatabase, } from "../kernel/storage/database-init.js";
 import { METHOD_NAMES, NOTIFICATION_NAMES, STELLA_RUNTIME_PROTOCOL_VERSION, } from "@stella/contracts/protocol";
@@ -758,6 +759,7 @@ export class StellaRuntimeHost {
                         ensureWorker: true,
                         recordActivity: true,
                         retryOnceOnDisconnect: false,
+                        rpc: AGENT_RUN_RPC_OPTIONS,
                     });
                     return result.status === "ok"
                         ? { status: "ok", finalText: result.finalText }
@@ -1343,6 +1345,7 @@ export class StellaRuntimeHost {
         return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_RUN_BLOCKING_AGENT, payload, {
             ensureWorker: true,
             recordActivity: true,
+            rpc: AGENT_RUN_RPC_OPTIONS,
         });
     }
     async cancelBlockingLocalAgent(agentId, reason, executionId) {
@@ -1657,7 +1660,7 @@ export class StellaRuntimeHost {
     }
     async requestWorker(method, params, options) {
         return await this.workerController.request(async (peer) => {
-            const result = await peer.request(method, params);
+            const result = await peer.request(method, params, options?.rpc);
             this.workerHealthCache = null;
             return result;
         }, options);

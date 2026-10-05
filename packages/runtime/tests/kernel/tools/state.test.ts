@@ -12,6 +12,7 @@ import {
 } from "@stella/runtime/kernel/tools/state";
 import { AGENT_PAUSE_CANCEL_REASON } from "@stella/runtime/kernel/agents/local-agent-manager";
 import { createAgentTools } from "@stella/runtime/kernel/tools/defs/task.js";
+import type { AgentThreadLookup } from "@stella/contracts/backend/agent-threads";
 import type {
   AgentThreadStatusMessage,
   AgentThreadStatusRead,
@@ -1218,5 +1219,169 @@ describe("agent_status tool", () => {
     ).resolves.toEqual({
       error: "Agent status is not available on this device.",
     });
+  });
+});
+
+describe("agent tools on a thread this conversation started elsewhere", () => {
+  const THIS_COMPUTER = "desk-1";
+  const toolContext = {
+    conversationId: "conversation-1",
+    deviceId: THIS_COMPUTER,
+    requestId: "request-1",
+    agentType: AGENT_IDS.ORCHESTRATOR,
+  };
+  const ledger: Record<string, AgentThreadLookup> = {
+    "thr-device-started-here": {
+      ownerId: "owner-1",
+      threadId: "thr-device-started-here",
+      conversationId: "conversation-1",
+      originDeviceId: THIS_COMPUTER,
+      originDeviceLabel: "omarchy",
+      executorDeviceId: "mac-1",
+      executorDeviceLabel: "Rahul's Mac",
+      description: "Disk cleanup",
+      placement: "computer",
+      agentType: "general",
+      status: "completed",
+      attemptGeneration: 1,
+      resultJson: JSON.stringify({ finalText: "Freed 42 GB." }),
+      createdAt: 1_000,
+      updatedAt: 2_000,
+    },
+    "adobe-clones-survey-cloud": {
+      ownerId: "owner-1",
+      threadId: "adobe-clones-survey-cloud",
+      conversationId: "conversation-1",
+      description: "Adobe clones survey",
+      placement: "cloud",
+      agentType: "general",
+      status: "running",
+      attemptGeneration: 2,
+      createdAt: 1_000,
+      updatedAt: 3_000,
+    },
+    "thr-started-from-mac": {
+      ownerId: "owner-1",
+      threadId: "thr-started-from-mac",
+      conversationId: "conversation-1",
+      originDeviceId: "mac-1",
+      originDeviceLabel: "Rahul's Mac",
+      description: "Composer bugs",
+      placement: "computer",
+      agentType: "general",
+      status: "running",
+      attemptGeneration: 1,
+      createdAt: 1_000,
+      updatedAt: 4_000,
+    },
+  };
+  const lookups: Array<[string, string]> = [];
+  const sent: string[] = [];
+  const stateContext = () =>
+    createStateContext("/tmp", {
+      createAgent: async () => ({ threadId: "never" }),
+      getAgent: async () => null,
+      cancelAgent: async () => ({ canceled: false }),
+      readAgentThreadStatus: async () => null,
+      sendAgentMessage: async () => ({ delivered: false }),
+      cloudContinue: async (request) => {
+        sent.push(request.threadId);
+        return {
+          delivered: false,
+          reason: `No durable cloud control receipt is available for thread ${request.threadId}.`,
+        };
+      },
+      cloudCancel: async (request) => ({
+        canceled: false,
+        reason: `No durable cloud control receipt is available for thread ${request.threadId}.`,
+      }),
+      lookupConversationAgentThread: async (threadId, conversationId) => {
+        lookups.push([threadId, conversationId]);
+        const thread = ledger[threadId];
+        return thread ? { thread, thisDeviceId: THIS_COMPUTER } : null;
+      },
+    });
+
+  it("agent_status sees a device agent this computer started, with its report", async () => {
+    const result = await handleAgentStatus(
+      stateContext(),
+      { thread_id: "thr-device-started-here" },
+      toolContext,
+    );
+    expect(result.result).toMatchObject({
+      thread_id: "thr-device-started-here",
+      status: "paused",
+      status_detail: "completed",
+      placement: "device",
+      device_id: "mac-1",
+      started_from_device_id: THIS_COMPUTER,
+      result: "Freed 42 GB.",
+      controllable_here: true,
+    });
+    expect((result.result as { note: string }).note).toContain("runs on Rahul's Mac");
+    expect(lookups.at(-1)).toEqual(["thr-device-started-here", "conversation-1"]);
+  });
+
+  it("agent_status sees an agent the cloud orchestrator started for this conversation", async () => {
+    const result = await handleAgentStatus(
+      stateContext(),
+      { thread_id: "adobe-clones-survey-cloud" },
+      toolContext,
+    );
+    expect(result.result).toMatchObject({
+      thread_id: "adobe-clones-survey-cloud",
+      status: "active",
+      status_detail: "running",
+      placement: "cloud",
+      controllable_here: false,
+    });
+    expect((result.result as { note: string }).note).toContain(
+      "started by this conversation's orchestrator in Stella's cloud",
+    );
+  });
+
+  it("send_input and pause_agent say which computer can reach a thread another computer started", async () => {
+    const ctx = stateContext();
+    const input = await handleSendInput(
+      ctx,
+      { thread_id: "thr-started-from-mac", message: "Also check the drafts." },
+      toolContext,
+    );
+    expect(input.error).toContain("Thread thr-started-from-mac (Composer bugs) runs locally on Rahul's Mac and is running");
+    expect(input.error).toContain("only Rahul's Mac can send it input or pause it");
+    expect(input.error).toContain("so nothing was sent.");
+
+    const pause = await handleSpawnAgent(
+      ctx,
+      { action: "cancel", thread_id: "thr-started-from-mac" },
+      toolContext,
+    );
+    expect(pause.error).toContain("only Rahul's Mac can send it input or pause it");
+    expect(pause.error).toContain("so nothing was paused.");
+  });
+
+  it("send_input to a thread this computer started keeps the cloud's own answer", async () => {
+    const input = await handleSendInput(
+      stateContext(),
+      { thread_id: "thr-device-started-here", message: "Continue." },
+      toolContext,
+    );
+    expect(input.error).toBe(
+      "No durable cloud control receipt is available for thread thr-device-started-here.",
+    );
+  });
+
+  it("a thread no conversation knows stays not found", async () => {
+    await expect(
+      handleAgentStatus(stateContext(), { thread_id: "thread-9" }, toolContext),
+    ).resolves.toEqual({ error: "Thread not found: thread-9" });
+    const pause = await handleSpawnAgent(
+      stateContext(),
+      { action: "cancel", thread_id: "thread-9" },
+      toolContext,
+    );
+    expect(pause.error).toBe(
+      "No durable cloud control receipt is available for thread thread-9.",
+    );
   });
 });

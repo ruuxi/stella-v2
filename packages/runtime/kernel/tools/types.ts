@@ -3,6 +3,7 @@
  */
 
 import type { TaskLifecycleStatus } from "@stella/contracts/agent-runtime";
+import type { AgentThreadLookup } from "@stella/contracts/backend/agent-threads";
 import type {
   AgentModelConfigSnapshot,
   CloudExecutionSelection,
@@ -341,6 +342,10 @@ export type AgentToolApi = {
   readAgentThreadStatus?: (
     threadId: string,
   ) => Promise<AgentThreadStatusRead | null>;
+  lookupConversationAgentThread?: (
+    threadId: string,
+    conversationId: string,
+  ) => Promise<{ thread: AgentThreadLookup; thisDeviceId: string } | null>;
   createAgent: (request: AgentToolRequest) => Promise<{
     threadId: string;
     activeThreads?: RuntimeThreadRecord[];

@@ -21,6 +21,7 @@
 import type {
   AgentThreadCalls,
   AgentThreadControl,
+  AgentThreadLookup,
   AgentThreadSummary,
   ComputerThreadRecord,
   DeviceAgentThread,
@@ -665,6 +666,49 @@ const spawnOnDeviceForCloud = async (ctx: OwnerContext, raw: unknown): Promise<A
 const deviceThreadForCloud = (ctx: OwnerContext, raw: unknown): AgentThreadSummary => {
   const args = object({ ownerGeneration: generation, conversationId: id(), threadId: id() })(raw);
   return summary(readCloudDeviceThread(ctx, args), ctx.ownerId);
+};
+
+const lookupConversationThread = async (
+  ctx: OwnerContext,
+  args: { conversationId: string; threadId: string; ownerGeneration?: string },
+): Promise<AgentThreadLookup | null> => {
+  const thread = readThread(ctx.db, args.threadId);
+  if (
+    !thread ||
+    (thread.conversation_id !== args.conversationId &&
+      thread.origin_conversation_id !== args.conversationId) ||
+    (args.ownerGeneration !== undefined &&
+      thread.owner_generation !== null &&
+      thread.owner_generation !== args.ownerGeneration)
+  ) {
+    return null;
+  }
+  const labels = new Map<string, string>();
+  if (thread.executor_device_id || thread.origin_device_id) {
+    try {
+      for (const device of await ctx.host.deviceDestinations()) {
+        if (device.label) labels.set(device.deviceId, device.label);
+      }
+    } catch {
+      labels.clear();
+    }
+  }
+  const executorLabel = thread.executor_device_id ? labels.get(thread.executor_device_id) : undefined;
+  const originLabel = thread.origin_device_id ? labels.get(thread.origin_device_id) : undefined;
+  return {
+    ...summary(thread, ctx.ownerId),
+    ...(thread.origin_device_id ? { originDeviceId: thread.origin_device_id } : {}),
+    ...(originLabel ? { originDeviceLabel: originLabel } : {}),
+    ...(executorLabel ? { executorDeviceLabel: executorLabel } : {}),
+  };
+};
+
+const conversationThreadForCloud = async (
+  ctx: OwnerContext,
+  raw: unknown,
+): Promise<AgentThreadLookup | null> => {
+  const args = object({ ownerGeneration: generation, conversationId: id(), threadId: id() })(raw);
+  return await lookupConversationThread(ctx, args);
 };
 
 /** A follow-up to a finished device thread from its cloud requester. */
@@ -1704,6 +1748,11 @@ export const agentThreadsDomain = {
       }),
       handler: (ctx, args) => threadPage(ctx.db, ctx.ownerId, args),
     },
+    "agentThreads.lookup": {
+      scope: "owner",
+      parse: object({ conversationId: id(256), threadId: id(256) }),
+      handler: (ctx, args) => lookupConversationThread(ctx, args),
+    },
     "agentThreads.spawnFromDesktop": {
       scope: "owner",
       requireAccount: true,
@@ -1853,6 +1902,7 @@ export const agentThreadsDomain = {
   internal: {
     "agentThreads.spawnOnDevice": spawnOnDeviceForCloud,
     "agentThreads.deviceThread": deviceThreadForCloud,
+    "agentThreads.conversationThread": conversationThreadForCloud,
     "agentThreads.continueOnDevice": continueDeviceForCloud,
     "agentThreads.cancelOnDevice": cancelDeviceForCloud,
     "agentThreads.deviceSettled": deviceSettled,

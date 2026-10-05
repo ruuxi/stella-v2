@@ -22,6 +22,7 @@ import {
   type FakeOwnerGates,
 } from "./helpers/turn-plane-fakes.js";
 import { openSqlStorageFake } from "./fixtures/sql-storage.js";
+import { createOwnerStoreHarness, OWNER_ID } from "./helpers/owner-store-harness.js";
 import {
   startTurnExecution,
   type TurnExecutionContext,
@@ -4978,5 +4979,133 @@ describe("fresh chat admission reuse", () => {
       expect(remote).toBe(mode === "fresh" || mode === "retired" ? 0 : 1);
       expect(local).toBe(mode === "fresh" || mode === "retired" ? 1 : 0);
     }
+  });
+});
+
+describe("cloud agent tools for threads this conversation started elsewhere", () => {
+  const ownerStoreFor = async () => {
+    const steered: string[] = [];
+    const canceled: string[] = [];
+    let dispatches = 0;
+    const owner = createOwnerStoreHarness({
+      host: {
+        deviceDestinations: async () => [
+          { deviceId: "mac-1", label: "Rahul's Mac", remoteExecutionEnabled: true, online: true },
+          { deviceId: "desk-1", label: "omarchy", remoteExecutionEnabled: true, online: true },
+        ],
+        dispatchDeviceAgentTurn: async () => ({ dispatchId: `dsp-${++dispatches}` }),
+        steerDeviceAgentTurn: async (input) => {
+          steered.push(input.text);
+          return { delivered: true };
+        },
+        cancelDeviceAgentTurn: async (input) => {
+          canceled.push(input.dispatchId);
+        },
+      },
+    });
+    await owner.ownerEvents([
+      {
+        v: 1,
+        kind: "conversation.created",
+        key: "conversation-1",
+        ownerId: OWNER_ID,
+        ownerGeneration: "generation-1",
+        emittedAt: 1,
+        conversationId: "conversation-1",
+        createdAt: 1_000,
+        title: "Disk cleanup",
+      },
+    ]);
+    const session = sessionHarness();
+    Object.assign(session.instance, {
+      ownerGate: () => ({
+        ownerInternal: async (input: { name: string; args: unknown }) =>
+          await owner.store.internalCall(input.name, input.args),
+      }),
+    });
+    return { owner, session, steered, canceled };
+  };
+
+  test("a device agent whose receipt this orchestrator lost is found, steered and paused", async () => {
+    const { owner, session, steered, canceled } = await ownerStoreFor();
+    const spawned = await owner.store.internalCall("agentThreads.spawnOnDevice", {
+      ownerGeneration: "generation-1",
+      conversationId: "conversation-1",
+      parentTurnId: "turn-before-restart",
+      clientMsgId: "client-msg-before-restart",
+      targetDeviceId: "mac-1",
+      description: "Disk cleanup",
+      prompt: "Free disk space on the Mac and report what was removed.",
+    });
+    if (!spawned.ok) throw new Error(spawned.error.message);
+    const threadId = (spawned.value as { threadId: string }).threadId;
+    await owner.runJobs(Date.now() + 1_000);
+
+    const afterRestart = turn("turn-after-restart");
+    const status = await cloudAgentTool(session.instance, afterRestart, "agent_status");
+    const snapshot = await status.execute("tool-status-after-restart", { thread_id: threadId });
+    expect(snapshot.details).toMatchObject({
+      thread_id: threadId,
+      status: "active",
+      status_detail: "running",
+      description: "Disk cleanup",
+    });
+
+    const sendInput = await cloudAgentTool(session.instance, afterRestart, "send_input");
+    const delivered = await sendInput.execute("tool-input-after-restart", {
+      thread_id: threadId,
+      message: "Also empty the Downloads folder.",
+    });
+    expect(delivered.content[0]?.text).toContain(`Delivered to ${threadId}. It is still working`);
+    expect(steered).toEqual(["Also empty the Downloads folder."]);
+
+    const pause = await cloudAgentTool(session.instance, afterRestart, "pause_agent");
+    const paused = await pause.execute("tool-pause-after-restart", { thread_id: threadId });
+    expect(paused.details).toMatchObject({ thread_id: threadId, canceled: true });
+    expect(canceled).toEqual(["dsp-1"]);
+    owner.close();
+  });
+
+  test("a thread another computer started is reported with where it runs, and input or pause explain who can reach it", async () => {
+    const { owner, session, steered, canceled } = await ownerStoreFor();
+    const started = (await owner.call("agentThreads.spawnFromDesktop", {
+      ownerGeneration: "generation-1",
+      clientMsgId: "desktop-spawn-0001",
+      description: "Adobe clones survey",
+      prompt: "Survey the Adobe clone apps on the Mac.",
+      originDeviceId: "desk-1",
+      originConversationId: "conversation-1",
+      conversationId: "conversation-1",
+      targetDeviceId: "mac-1",
+    })) as { threadId: string };
+
+    const afterRestart = turn("turn-after-restart");
+    const status = await cloudAgentTool(session.instance, afterRestart, "agent_status");
+    const snapshot = await status.execute("tool-status-foreign", { thread_id: started.threadId });
+    expect(snapshot.details).toMatchObject({
+      thread_id: started.threadId,
+      status: "active",
+      device_id: "mac-1",
+      started_from_device_id: "desk-1",
+      controllable_here: false,
+    });
+    expect(snapshot.content[0]?.text).toContain("runs on Rahul's Mac");
+    expect(snapshot.content[0]?.text).toContain("only omarchy can send it input or pause it");
+
+    const sendInput = await cloudAgentTool(session.instance, afterRestart, "send_input");
+    await expect(
+      sendInput.execute("tool-input-foreign", { thread_id: started.threadId, message: "Hurry." }),
+    ).rejects.toThrow("so nothing was sent.");
+    const pause = await cloudAgentTool(session.instance, afterRestart, "pause_agent");
+    await expect(
+      pause.execute("tool-pause-foreign", { thread_id: started.threadId }),
+    ).rejects.toThrow("so nothing was paused.");
+    expect(steered).toEqual([]);
+    expect(canceled).toEqual([]);
+
+    await expect(
+      status.execute("tool-status-missing", { thread_id: "thr-missing" }),
+    ).rejects.toThrow("Thread not found in this conversation: thr-missing.");
+    owner.close();
   });
 });

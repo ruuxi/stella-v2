@@ -28,6 +28,12 @@ export type AgentThreadSummary = {
   updatedAt: number;
 };
 
+export type AgentThreadLookup = AgentThreadSummary & {
+  originDeviceId?: string;
+  originDeviceLabel?: string;
+  executorDeviceLabel?: string;
+};
+
 /** A thread the originating desktop has yet to persist locally. */
 export type DeviceAgentThread = AgentThreadSummary & {
   originDeviceId: string;
@@ -79,6 +85,10 @@ export type AgentThreadCalls = {
       model?: string;
     };
     result: AgentThreadControl;
+  };
+  "agentThreads.lookup": {
+    args: { conversationId: string; threadId: string };
+    result: AgentThreadLookup | null;
   };
   /** Send a follow-up to a finished desktop-dispatched cloud thread. */
   "agentThreads.continueFromDesktop": {

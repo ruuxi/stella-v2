@@ -9,7 +9,16 @@
  * `executorDeviceId`, so its replay ledger and lifecycle wakes work unchanged.
  */
 
-import type { AgentThreadControl, AgentThreadSummary } from "@stella/contracts/backend/agent-threads";
+import type {
+  AgentThreadControl,
+  AgentThreadLookup,
+  AgentThreadSummary,
+} from "@stella/contracts/backend/agent-threads";
+import {
+  agentThreadLookupReport,
+  describeAgentThreadLookup,
+  isAgentThreadLookupActive,
+} from "@stella/contracts/backend/agent-thread-lookup";
 import type {
   CloudAgentControlReceipt,
   CloudAgentControlStatus,
@@ -122,6 +131,82 @@ export const cancelDeviceAgent = async (
     executorDeviceId: prior.executorDeviceId!,
   });
 };
+
+export const lookupConversationAgentThread = async (
+  caller: DeviceAgentCaller,
+  threadId: string,
+): Promise<AgentThreadLookup | null> =>
+  ((await caller.ownerInternal("agentThreads.conversationThread", {
+    ownerGeneration: caller.ownerGeneration,
+    conversationId: caller.conversationId,
+    threadId,
+  })) as AgentThreadLookup | null) ?? null;
+
+export type ConversationAgentThreadResolution =
+  | { kind: "adopted"; control: CloudAgentControlReceipt }
+  | { kind: "elsewhere"; thread: AgentThreadLookup; text: string };
+
+export const resolveConversationAgentThread = async (
+  caller: DeviceAgentCaller,
+  threadId: string,
+): Promise<ConversationAgentThreadResolution | null> => {
+  const thread = await lookupConversationAgentThread(caller, threadId);
+  if (!thread) return null;
+  if (
+    thread.executorDeviceId &&
+    !thread.originDeviceId &&
+    !thread.parentThreadId &&
+    thread.conversationId === caller.conversationId
+  ) {
+    const report = isAgentThreadLookupActive(thread) ? undefined : agentThreadLookupReport(thread);
+    return {
+      kind: "adopted",
+      control: {
+        threadId: thread.threadId,
+        attemptGeneration: thread.attemptGeneration,
+        threadUpdatedAt: thread.updatedAt,
+        status: receiptStatus(thread.status),
+        description: thread.description,
+        executorDeviceId: thread.executorDeviceId,
+        ...(report !== undefined ? { lifecycleReport: report } : {}),
+      },
+    };
+  }
+  return {
+    kind: "elsewhere",
+    thread,
+    text: describeAgentThreadLookup(thread, { host: "cloud" }),
+  };
+};
+
+export const agentThreadElsewhereStatus = (
+  resolution: Extract<ConversationAgentThreadResolution, { kind: "elsewhere" }>,
+) => {
+  const { thread } = resolution;
+  const active = isAgentThreadLookupActive(thread);
+  return {
+    content: [{ type: "text" as const, text: resolution.text }],
+    details: {
+      thread_id: thread.threadId,
+      status: active ? "active" : "paused",
+      status_detail: thread.status,
+      description: thread.description,
+      attempt_generation: thread.attemptGeneration,
+      last_active_at: new Date(thread.updatedAt).toISOString(),
+      ...(thread.executorDeviceId ? { device_id: thread.executorDeviceId } : {}),
+      ...(thread.originDeviceId ? { started_from_device_id: thread.originDeviceId } : {}),
+      controllable_here: false,
+    },
+  };
+};
+
+export const agentThreadElsewhereError = (
+  resolution: Extract<ConversationAgentThreadResolution, { kind: "elsewhere" }>,
+  action: "send_input" | "pause_agent",
+): Error =>
+  new Error(
+    `${resolution.text} ${action} from this conversation's cloud orchestrator cannot reach it, so nothing was ${action === "send_input" ? "sent" : "paused"}.`,
+  );
 
 /** The ledger's current state of a device agent, as a receipt. */
 export const readDeviceAgent = async (

@@ -197,9 +197,12 @@ import { sha256Hex, stableValueMarker } from "./hash.js";
 import { worldName } from "./workspace.js";
 import {
   DEVICE_AGENT_QUEUED_NOTE,
+  agentThreadElsewhereError,
+  agentThreadElsewhereStatus,
   cancelDeviceAgent,
   continueDeviceAgent,
   readDeviceAgent,
+  resolveConversationAgentThread,
   spawnDeviceAgent,
   type DeviceAgentCaller,
 } from "./device-agent-tools.js";
@@ -10747,6 +10750,28 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       conversationId: turn.conversationId,
       parentTurnId: turn.turnId,
     };
+    const threadNotFound = (threadId: string) =>
+      new Error(
+        `Thread not found in this conversation: ${threadId}. agent_status only sees agents spawned from this conversation.`,
+      );
+    const requireConversationAgentControl = async (
+      threadId: string,
+      action: "send_input" | "pause_agent",
+    ): Promise<CloudAgentControlReceipt> => {
+      try {
+        return await this.requireCloudAgentControlReceipt(threadId, "any");
+      } catch {
+        const found = await resolveConversationAgentThread(
+          deviceCaller,
+          threadId,
+        ).catch(() => null);
+        if (!found) throw threadNotFound(threadId);
+        if (found.kind === "elsewhere") {
+          throw agentThreadElsewhereError(found, action);
+        }
+        return await this.rememberCloudAgentControlReceipt(found.control);
+      }
+    };
 
     /**
      * Dispatch one agent attempt straight to its BuildSession. Admission is
@@ -10931,9 +10956,9 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             fingerprint,
           );
           if (!outcome) {
-            const prior = await this.requireCloudAgentControlReceipt(
+            const prior = await requireConversationAgentControl(
               threadId,
-              "any",
+              "send_input",
             );
             let admitted: CloudAgentControlReceipt;
             let disposition: "steered" | "resumed";
@@ -11052,8 +11077,16 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
               "any",
             );
           } catch {
-            throw new Error(
-              `Thread not found in this conversation: ${threadId}. agent_status only sees agents spawned from this conversation.`,
+            const found = await resolveConversationAgentThread(
+              deviceCaller,
+              threadId,
+            ).catch(() => null);
+            if (!found) throw threadNotFound(threadId);
+            if (found.kind === "elsewhere") {
+              return agentThreadElsewhereStatus(found);
+            }
+            control = await this.rememberCloudAgentControlReceipt(
+              found.control,
             );
           }
           if (control.executorDeviceId) {
@@ -11092,9 +11125,9 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
                 : "paused",
             );
           }
-          const control = await this.requireCloudAgentControlReceipt(
+          const control = await requireConversationAgentControl(
             threadId,
-            "any",
+            "pause_agent",
           );
           let disposition: "paused" | "pending" | "already_terminal";
           let finalControl = control;

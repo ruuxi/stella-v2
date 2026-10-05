@@ -33,15 +33,26 @@ export const isRuntimeUnavailableError = (error: unknown): error is RpcError =>
 const toError = (value: unknown, fallback: () => Error): Error =>
   value instanceof Error ? value : fallback();
 
+export const DEFAULT_RPC_REQUEST_TIMEOUT_MS = 30 * 60 * 1000;
+
+export type RpcRequestOptions = {
+  timeoutMs?: number | null;
+  liveness?: {
+    method: string;
+    params?: unknown;
+    intervalMs: number;
+    unresponsiveMs: number;
+  };
+};
+
+type PendingRequest = {
+  resolve: (value: any) => void;
+  reject: (reason?: any) => void;
+  release: () => void;
+};
+
 export class JsonRpcPeer {
-  private readonly pending = new Map<
-    JsonRpcId,
-    {
-      resolve: (value: any) => void;
-      reject: (reason?: any) => void;
-      timeout: NodeJS.Timeout;
-    }
-  >();
+  private readonly pending = new Map<JsonRpcId, PendingRequest>();
   private readonly requestHandlers = new Map<string, RequestHandler>();
   private readonly notificationHandlers = new Map<string, NotificationHandler>();
   private nextId = 1;
@@ -77,7 +88,7 @@ export class JsonRpcPeer {
       () => new RpcError(RPC_ERROR_CODES.INTERNAL_ERROR, "RPC peer disposed."),
     );
     for (const [, pending] of this.pending) {
-      clearTimeout(pending.timeout);
+      pending.release();
       pending.reject(rejection);
     }
     this.pending.clear();
@@ -97,27 +108,102 @@ export class JsonRpcPeer {
     this.sendMessageSafely(message);
   }
 
-  request<TResult = unknown>(method: string, params?: unknown): Promise<TResult> {
+  request<TResult = unknown>(
+    method: string,
+    params?: unknown,
+    options: RpcRequestOptions = {},
+  ): Promise<TResult> {
     if (this.disposed) {
       return Promise.reject(createRuntimeUnavailableError("RPC peer is closed."));
     }
     const id = this.nextId++;
-    const timeoutMs = this.options.requestTimeoutMs ?? 30 * 60 * 1000;
+    const timeoutMs =
+      options.timeoutMs === undefined
+        ? (this.options.requestTimeoutMs ?? DEFAULT_RPC_REQUEST_TIMEOUT_MS)
+        : options.timeoutMs;
     const message: JsonRpcRequest = { id, method, ...(params === undefined ? {} : { params }) };
     return new Promise<TResult>((resolve, reject) => {
-      const timeout = setTimeout(() => {
+      const fail = (error: RpcError) => {
+        const pending = this.pending.get(id);
+        if (!pending) return;
         this.pending.delete(id);
-        reject(new RpcError(RPC_ERROR_CODES.INTERNAL_ERROR, `RPC request timed out: ${method}`));
-      }, timeoutMs);
-      this.pending.set(id, { resolve, reject, timeout });
+        pending.release();
+        reject(error);
+      };
+      const timeout =
+        timeoutMs === null
+          ? undefined
+          : setTimeout(
+              () =>
+                fail(
+                  new RpcError(RPC_ERROR_CODES.INTERNAL_ERROR, `RPC request timed out: ${method}`),
+                ),
+              timeoutMs,
+            );
+      const stopLiveness = options.liveness
+        ? this.watchLiveness(method, options.liveness, fail)
+        : undefined;
+      this.pending.set(id, {
+        resolve,
+        reject,
+        release: () => {
+          if (timeout) clearTimeout(timeout);
+          stopLiveness?.();
+        },
+      });
       try {
         this.sendMessageSafely(message);
       } catch (error) {
-        clearTimeout(timeout);
+        const pending = this.pending.get(id);
         this.pending.delete(id);
+        pending?.release();
         reject(error);
       }
     });
+  }
+
+  private watchLiveness(
+    method: string,
+    liveness: NonNullable<RpcRequestOptions["liveness"]>,
+    fail: (error: RpcError) => void,
+  ): () => void {
+    const allowedMisses = Math.max(1, Math.ceil(liveness.unresponsiveMs / liveness.intervalMs));
+    const probeTimeoutMs = Math.max(1, Math.floor(liveness.intervalMs / 2));
+    let misses = 0;
+    let probing = false;
+    let stopped = false;
+    const interval = setInterval(() => {
+      if (probing || stopped || this.disposed) return;
+      probing = true;
+      this.request(liveness.method, liveness.params, { timeoutMs: probeTimeoutMs })
+        .then(
+          () => {
+            misses = 0;
+          },
+          (error: unknown) => {
+            if (!(error instanceof RpcError) || !/^RPC request timed out:/.test(error.message)) {
+              misses = 0;
+              return;
+            }
+            misses += 1;
+            if (misses >= allowedMisses && !stopped) {
+              fail(
+                new RpcError(
+                  RPC_ERROR_CODES.INTERNAL_ERROR,
+                  `RPC peer stopped responding during ${method}: ${misses} ${liveness.method} checks in a row went unanswered.`,
+                ),
+              );
+            }
+          },
+        )
+        .finally(() => {
+          probing = false;
+        });
+    }, liveness.intervalMs);
+    return () => {
+      stopped = true;
+      clearInterval(interval);
+    };
   }
 
   private sendMessageSafely(message: JsonRpcMessage) {
@@ -239,7 +325,7 @@ export class JsonRpcPeer {
     if (!pending) {
       return;
     }
-    clearTimeout(pending.timeout);
+    pending.release();
     this.pending.delete(message.id);
     pending.resolve(message.result);
   }
@@ -249,7 +335,7 @@ export class JsonRpcPeer {
     if (!pending) {
       return;
     }
-    clearTimeout(pending.timeout);
+    pending.release();
     this.pending.delete(message.id);
     const safeError =
       message.error && typeof message.error === "object"

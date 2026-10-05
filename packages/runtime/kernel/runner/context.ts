@@ -105,6 +105,7 @@ import {
 import type { ResolvedLlmRoute } from "../model-routing.js";
 import { getResponseLanguageSystemPrompt } from "./locale-prompt.js";
 import { createBackendSession, initialBackendUrl } from "./backend-session.js";
+import { raceWithTimeoutError } from "./cloud-effect-runtime.js";
 import {
   APPLY_PATCH_TOOL_NAME,
   getFileEditToolFamily,
@@ -131,6 +132,7 @@ type ThreadHistoryEntry = {
 
 /** Newest chat events the orchestrator context build considers. */
 const ORCHESTRATOR_LOCAL_EVENT_WINDOW = 800;
+const CONVERSATION_THREAD_LOOKUP_TIMEOUT_MS = 5_000;
 const LOCAL_CONTEXT_EVENT_TYPE_LIST = [...LOCAL_CONTEXT_EVENT_TYPES];
 /** Newest context events read for the reminders and locale before widening. */
 const RECENT_CONTEXT_EVENT_READ = 16;
@@ -750,6 +752,18 @@ export const createRunnerContext = ({
       cloudDispatch,
       cloudContinue: cloudThreadController.continueThread,
       cloudCancel: cloudThreadController.cancelThread,
+      lookupConversationAgentThread: async (threadId, conversationId) => {
+        const client = backend.client();
+        if (!client || !isCloudSignedIn() || conversationId.startsWith("local_")) {
+          return null;
+        }
+        const thread = await raceWithTimeoutError(
+          client.call("agentThreads.lookup", { conversationId, threadId }),
+          CONVERSATION_THREAD_LOOKUP_TIMEOUT_MS,
+          () => new Error("Stella's cloud did not answer the thread lookup."),
+        ).catch(() => null);
+        return thread ? { thread, thisDeviceId: deviceId } : null;
+      },
       createAgent: async (request) => {
         if (!context.state.localAgentManager) {
           throw new Error("Local task manager not initialized");

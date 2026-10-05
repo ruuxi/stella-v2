@@ -18,6 +18,14 @@ import { AGENT_PAUSE_CANCEL_REASON } from "../agents/local-agent-manager.js";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { parseSpawnDestination } from "./defs/agent-orchestration-def.js";
 import { STELLA_DEFAULT_MODEL } from "@stella/contracts/stella-api";
+import {
+  agentThreadLookupController,
+  agentThreadLookupLocation,
+  agentThreadLookupReport,
+  agentThreadLookupStartedByViewer,
+  describeAgentThreadLookup,
+  isAgentThreadLookupActive,
+} from "@stella/contracts/backend/agent-thread-lookup";
 import type {
   AgentModelConfigSnapshot,
   CloudExecutionSelection,
@@ -263,6 +271,30 @@ export const createStateContext = (
   captureSpawnModelConfig,
 });
 
+const lookupConversationThread = async (
+  ctx: StateContext,
+  threadId: string,
+  conversationId: string | undefined,
+) => {
+  if (!ctx.agentApi?.lookupConversationAgentThread || !conversationId) return null;
+  return await ctx.agentApi
+    .lookupConversationAgentThread(threadId, conversationId)
+    .catch(() => null);
+};
+
+const unreachableThreadError = async (
+  ctx: StateContext,
+  threadId: string,
+  conversationId: string | undefined,
+  action: "send_input" | "pause_agent",
+): Promise<string | null> => {
+  const found = await lookupConversationThread(ctx, threadId, conversationId);
+  if (!found) return null;
+  const viewer = { host: "desktop" as const, deviceId: found.thisDeviceId };
+  if (agentThreadLookupStartedByViewer(found.thread, viewer)) return null;
+  return `${describeAgentThreadLookup(found.thread, viewer)} ${action} from this computer cannot reach it, so nothing was ${action === "send_input" ? "sent" : "paused"}.`;
+};
+
 export const handleSendInput = async (
   ctx: StateContext,
   args: Record<string, unknown>,
@@ -325,10 +357,28 @@ export const handleSendInput = async (
         };
       }
       return {
-        error: continued.reason ?? `Thread not found: ${threadId}`,
+        error:
+          (await unreachableThreadError(
+            ctx,
+            threadId,
+            context.conversationId,
+            "send_input",
+          )) ??
+          continued.reason ??
+          `Thread not found: ${threadId}`,
       };
     }
-    return { error: delivered.reason ?? `Thread not found: ${threadId}` };
+    return {
+      error:
+        (await unreachableThreadError(
+          ctx,
+          threadId,
+          context.conversationId,
+          "send_input",
+        )) ??
+        delivered.reason ??
+        `Thread not found: ${threadId}`,
+    };
   }
   return {
     result: {
@@ -369,6 +419,35 @@ const joinAssistantBlocks = (
     .join("\n\n")
     .trim();
 
+const conversationThreadStatus = (
+  found: NonNullable<Awaited<ReturnType<typeof lookupConversationThread>>>,
+): ToolResult => {
+  const { thread } = found;
+  const viewer = { host: "desktop" as const, deviceId: found.thisDeviceId };
+  const active = isAgentThreadLookupActive(thread);
+  const report = active ? undefined : agentThreadLookupReport(thread);
+  return {
+    result: {
+      thread_id: thread.threadId,
+      status: active ? "active" : "paused",
+      status_detail: thread.status,
+      description: thread.description,
+      placement: thread.executorDeviceId ? "device" : thread.placement,
+      ...(thread.executorDeviceId ? { device_id: thread.executorDeviceId } : {}),
+      ...(thread.originDeviceId
+        ? { started_from_device_id: thread.originDeviceId }
+        : {}),
+      attempt_generation: thread.attemptGeneration,
+      last_active_at: new Date(thread.updatedAt).toISOString(),
+      ...(report !== undefined ? { result: report } : {}),
+      ...(!active && thread.errorMessage ? { error: thread.errorMessage } : {}),
+      current_time: new Date().toISOString(),
+      controllable_here: agentThreadLookupStartedByViewer(thread, viewer),
+      note: `Read-only snapshot from Stella's cloud; the agent was NOT interrupted or messaged. It runs ${agentThreadLookupLocation(thread)}, not in this computer's runtime. ${agentThreadLookupController(thread, viewer)}`,
+    },
+  };
+};
+
 /**
  * Read-only `agent_status` handler. Projects a durable-thread snapshot into
  * the live status, the last few assistant messages (reasoning summaries for
@@ -378,16 +457,25 @@ const joinAssistantBlocks = (
 export const handleAgentStatus = async (
   ctx: StateContext,
   args: Record<string, unknown>,
+  context?: Pick<ToolContext, "conversationId">,
 ): Promise<ToolResult> => {
   const threadId = toOptionalString(args.thread_id);
   if (!threadId) {
     return { error: "thread_id is required" };
   }
-  if (!ctx.agentApi?.readAgentThreadStatus) {
-    return { error: "Agent status is not available on this device." };
-  }
-  const snapshot = await ctx.agentApi.readAgentThreadStatus(threadId);
+  const snapshot = ctx.agentApi?.readAgentThreadStatus
+    ? await ctx.agentApi.readAgentThreadStatus(threadId)
+    : null;
   if (!snapshot) {
+    const found = await lookupConversationThread(
+      ctx,
+      threadId,
+      context?.conversationId,
+    );
+    if (found) return conversationThreadStatus(found);
+    if (!ctx.agentApi?.readAgentThreadStatus) {
+      return { error: "Agent status is not available on this device." };
+    }
     return { error: `Thread not found: ${threadId}` };
   }
   // ChatGPT/Codex surfaces reasoning summaries as its visible narration;
@@ -517,10 +605,25 @@ export const handleSpawnAgent = async (
           }
           return {
             error:
-              cloudCanceled.reason ?? `Thread not found: ${explicitThreadId}`,
+              (await unreachableThreadError(
+                ctx,
+                explicitThreadId,
+                context.conversationId,
+                "pause_agent",
+              )) ??
+              cloudCanceled.reason ??
+              `Thread not found: ${explicitThreadId}`,
           };
         }
-        return { error: `Thread not found: ${explicitThreadId}` };
+        return {
+          error:
+            (await unreachableThreadError(
+              ctx,
+              explicitThreadId,
+              context.conversationId,
+              "pause_agent",
+            )) ?? `Thread not found: ${explicitThreadId}`,
+        };
       }
       return {
         result: {

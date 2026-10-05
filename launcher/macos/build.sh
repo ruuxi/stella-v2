@@ -13,6 +13,9 @@ rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$bin_dir/StellaLauncher" "$app/Contents/MacOS/StellaLauncher"
 cp Resources/Info.plist "$app/Contents/Info.plist"
+# CI's run number (0 for a local build): the launcher updates itself to a
+# higher one published in launcher/stable/VERSION.
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${STELLA_LAUNCHER_VERSION:-0}" "$app/Contents/Info.plist"
 # The launcher window's page, sealed into the bundle by codesign.
 cp ../common/launcher.html "$app/Contents/Resources/launcher.html"
 icon="../../packages/desktop/build/icon.icns"
@@ -21,4 +24,4 @@ if [ -f "$icon" ]; then cp "$icon" "$app/Contents/Resources/Stella.icns"; fi
 codesign --force --sign - --identifier com.stella.launcher "$app"
 codesign --verify --strict --verbose=1 "$app"
 lipo -info "$app/Contents/MacOS/StellaLauncher"
-echo "Built $(pwd)/$app"
+echo "Built $(pwd)/$app (version ${STELLA_LAUNCHER_VERSION:-0})"

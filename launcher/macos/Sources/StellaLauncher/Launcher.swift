@@ -3,6 +3,11 @@ import Foundation
 
 struct Options {
     var selfTest = false
+    /// `--start`: start Stella right away, window hidden (a launcher taking
+    /// over after an update). Slow steps still bring the window up.
+    var startNow = false
+    /// The update hold the previous launcher was showing, to keep on screen.
+    var holdWindow: URL?
     /// A local path or git URL to clone instead of the upstream bootstrap.
     var source: String?
     var sourceRef: String?
@@ -46,6 +51,10 @@ final class Launcher {
     private let commands = EventQueue<LauncherCommand>()
     /// An update that restarts Stella: the frosted frame held between processes.
     private let hold = HoldWindow()
+    /// The launcher's own updates, and the `hold` message that restarted
+    /// Stella, which a newer launcher taking over keeps showing.
+    private let updater: LauncherUpdater
+    private var lastHold: [String: Any]?
     private var state: LauncherState
     private var git: GitTool?
     private var signer: TreeSigner?
@@ -59,20 +68,32 @@ final class Launcher {
         self.paths = paths
         ui = LauncherWindow(logs: paths.logs, captureDir: options.captureDir)
         state = LauncherState.load(paths)
+        updater = LauncherUpdater(paths: paths, selfTest: options.selfTest)
     }
 
     // MARK: Main loop
 
     func run() -> Int32 {
-        log("launcher: start root=\(paths.root.path) selfTest=\(options.selfTest) pid=\(getpid())")
+        log("launcher: start root=\(paths.root.path) version=\(LauncherUpdater.ownVersion) selfTest=\(options.selfTest) start=\(options.startNow) pid=\(getpid())")
+        if let file = options.holdWindow {
+            // The previous launcher's update hold, until this one's Electron is ready.
+            if let data = try? Data(contentsOf: file),
+               let message = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+               let held = UpdateHold(message) {
+                hold.show(held, giveUpAfter: 30)
+            }
+            try? FileManager.default.removeItem(at: file)
+        }
         ui.onCommand = { [commands] in commands.post($0) }
         ui.onShutdown = { [weak self] in self?.current?.events.post(.timer("shutdown")) }
+        updater.start()
         let facts = installFacts()
-        ui.update(show: .front) {
-            $0.phase = .idle
+        ui.update(show: options.startNow ? .keep : .front) { [startNow = options.startNow] in
+            $0.phase = startNow ? .starting : .idle
             $0.version = facts.version
             $0.hasKnownGood = facts.hasKnownGood
         }
+        if options.startNow { commands.post(.start) }
         // Self-test: the home screen, then Start as if pressed.
         if options.selfTest {
             ui.capture("home.png", after: 1) { [ui] in ui.perform("start", after: 0) }
@@ -124,6 +145,11 @@ final class Launcher {
                     return nil
                 case .relaunch:
                     log("launcher: relaunch requested")
+                    // A newer launcher is on disk: it restarts Stella instead.
+                    if let version = updater.stagedVersion, updater.handOver(to: version, hold: lastHold) {
+                        log("launcher: exit 0 (handed over to \(version))")
+                        exit(0)
+                    }
                 case let .crashed(sinceReady, detail, output):
                     let now = Date()
                     if sinceReady < options.stableSeconds {
@@ -330,6 +356,7 @@ final class Launcher {
 
         var readyAt: Date?
         var pending: (String, [String])?
+        lastHold = nil
         var quitRequested = false
         /// The clean exit Electron announced; used if its teardown hangs.
         var announcedExit: Int32?
@@ -348,6 +375,7 @@ final class Launcher {
                         $0.version = String(spawnedHead.prefix(7))
                     }
                     process.after(options.stableSeconds, "stable")
+                    updater.startedSuccessfully()
                     if options.selfTest {
                         // The running window and Settings are captured before Stella quits.
                         if options.captureDir != nil { ui.captureRunning() }
@@ -358,6 +386,7 @@ final class Launcher {
                 case "hold":
                     if let update = UpdateHold(message) {
                         log("supervisor: holding the window for a restart")
+                        lastHold = message
                         hold.show(update, giveUpAfter: 30)
                     }
                 case "exiting":

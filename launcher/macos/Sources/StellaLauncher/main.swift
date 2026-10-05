@@ -2,15 +2,28 @@ import AppKit
 import Darwin
 import Foundation
 
+// The build number, before anything else: the updater probes a downloaded
+// launcher this way, so it must not touch the install, the lock or AppKit.
+if CommandLine.arguments.dropFirst().contains("--version") {
+    print(LauncherUpdater.ownVersion)
+    exit(0)
+}
+
 let usage = """
-usage: StellaLauncher [--self-test] [--source <path|git url>] [--source-ref <ref>]
-                      [--backend <url>] [--bun <path>] [--hold <seconds>]
+usage: StellaLauncher [--start] [--version] [--self-test] [--source <path|git url>]
+                      [--source-ref <ref>] [--backend <url>] [--bun <path>] [--hold <seconds>]
                       [--recovery-choice return|retry|quit] [--capture-dir <dir>]
+
+--start starts Stella right away with the window hidden (a launcher taking
+over after an update); --version prints the launcher's build number.
 
 Environment: STELLA_LAUNCHER_ROOT (install root, for testing),
 STELLA_LAUNCHER_KEY_FILE (0600 PEM instead of the keychain),
 STELLA_LAUNCHER_BACKEND_URL, STELLA_LAUNCHER_STABLE_SECONDS,
-STELLA_LAUNCHER_READY_TIMEOUT_SECONDS.
+STELLA_LAUNCHER_READY_TIMEOUT_SECONDS, STELLA_LAUNCHER_UPDATE_URL (check this
+launcher/stable/ instead, even for a local build or a test root),
+STELLA_LAUNCHER_UPDATE_DELAY_SECONDS, STELLA_LAUNCHER_UPDATE_REQUIREMENT (with
+STELLA_LAUNCHER_UPDATE_URL only: the code requirement an update must meet).
 """
 
 func parseOptions() -> Options {
@@ -27,6 +40,8 @@ func parseOptions() -> Options {
         let arg = args.removeFirst()
         switch arg {
         case "--self-test": options.selfTest = true
+        case "--start": options.startNow = true
+        case "--hold-window": options.holdWindow = URL(fileURLWithPath: value(arg))
         case "--source": options.source = value(arg)
         case "--source-ref": options.sourceRef = value(arg)
         case "--backend": options.backend = value(arg)
@@ -55,9 +70,9 @@ try? FileManager.default.createDirectory(at: paths.logs, withIntermediateDirecto
 Logger.shared = Logger(url: paths.launcherLog)
 let options = parseOptions()
 
-// One launcher per install root.
-let lockFd = open(paths.lockFile.path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
-if lockFd < 0 || flock(lockFd, LOCK_EX | LOCK_NB) != 0 {
+// One launcher per install root. With --start, the launcher handing over to
+// this one may still be exiting: wait for it a little.
+if !InstanceLock.acquire(paths.lockFile, wait: options.startNow ? 10 : 0) {
     log("launcher: another launcher owns \(paths.root.path); exiting")
     exit(options.selfTest ? 1 : 0)
 }

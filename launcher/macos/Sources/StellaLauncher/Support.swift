@@ -178,6 +178,7 @@ enum Shell {
         var errData = Data()
         let group = DispatchGroup()
         try process.run()
+        let timedOut = killAfter(timeout, process)
         group.enter()
         DispatchQueue.global().async {
             outData = outPipe.fileHandleForReading.readDataToEndOfFile()
@@ -190,6 +191,9 @@ enum Shell {
         }
         process.waitUntilExit()
         group.wait()
+        if timedOut.value {
+            throw LauncherError("\(URL(fileURLWithPath: executable).lastPathComponent) \(args.first ?? "") timed out after \(Int(timeout ?? 0))s.")
+        }
         return ShellResult(
             code: process.terminationStatus,
             stdout: String(decoding: outData, as: UTF8.self),

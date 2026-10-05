@@ -228,6 +228,32 @@ jobs:
             Write-Host "Get-MpThreatDetection unavailable: $_"
           }
 
+      # Nothing we ship installs the Visual C++ redistributable, so a helper
+      # that imports it fails to start on a clean Windows box and the feature
+      # dies silently. Assert the real import tables; a build flag that didn't
+      # take effect is exactly the kind of lie this job exists to catch.
+      - name: Verify helpers need no Visual C++ redistributable
+        shell: pwsh
+        working-directory: packages/native
+        run: |
+          $forbidden = @("VCRUNTIME140.dll", "VCRUNTIME140_1.dll", "MSVCP140.dll", "MSVCP140_1.dll")
+          $failed = $false
+          foreach ($exe in Get-ChildItem -Path "out\win32" -Filter *.exe) {
+            $deps = & dumpbin /nologo /dependents $exe.FullName
+            $imports = $deps |
+              Where-Object { $_ -match '^\s{4}\S+\.dll\s*$' } |
+              ForEach-Object { $_.Trim() }
+            Write-Host "$($exe.Name): $($imports -join ', ')"
+            foreach ($name in $forbidden) {
+              if ($imports -contains $name) {
+                Write-Host "::error::$($exe.Name) imports $name, so it needs the Visual C++ redistributable at runtime."
+                $failed = $true
+              }
+            }
+          }
+          if ($failed) { exit 1 }
+          Write-Host "No helper imports the Visual C++ redistributable."
+
       - name: Stage and tar Windows artifacts
         shell: bash
         run: |
@@ -242,7 +268,7 @@ jobs:
           # Hard-fail if Defender (or anything else) ate a binary the
           # build script said it produced; surface the regression in CI
           # rather than shipping a broken Windows tarball.
-          required=("window_info.exe" "recent_apps.exe" "window_text.exe" "selected_text.exe" "dictation_bridge.exe" "stella-computer-helper.exe" "meeting_capture.exe" "wakeword_listener.exe")
+          required=("window_info.exe" "recent_apps.exe" "window_text.exe" "selected_text.exe" "dictation_bridge.exe" "stella-computer-helper.exe" "meeting_capture.exe" "wakeword_listener.exe" "wakeword_models/hey_stella.onnx")
           missing=0
           for name in "${required[@]}"; do
             if [ ! -f "$OUT/$name" ]; then

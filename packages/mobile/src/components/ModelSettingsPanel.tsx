@@ -183,17 +183,19 @@ export function ModelSettingsPanel({
         ) : null}
       </View>
 
+      {/* The affordance without the sentence around it: tapping through is
+          the function, explaining what a plan is was the prose. */}
       {ready && engine === "chatgpt" && !cloudDisconnected ? (
-        <Text style={local.note}>
-          ChatGPT usage counts against your ChatGPT plan.{" "}
-          <Text
-            style={local.noteLink}
+        <View style={[styles.group, styles.groupGap]}>
+          <Pressable
             onPress={openChatGptUsage}
             accessibilityRole="link"
+            style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
           >
-            Manage usage
-          </Text>
-        </Text>
+            <Text style={[styles.rowLabel, local.flex]}>Manage usage</Text>
+            <Icon name="chevron-right" size={15} color={colors.textMuted} />
+          </Pressable>
+        </View>
       ) : null}
 
       {/* The engine control above already says which provider this is, so its
@@ -231,15 +233,6 @@ const makeStyles = (colors: Colors) =>
       marginLeft: 4,
     },
     modelRow: { minHeight: 48, paddingVertical: 10 },
-    note: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.regular,
-      fontSize: 13,
-      lineHeight: 18,
-      marginHorizontal: 4,
-      marginTop: 8,
-    },
-    noteLink: { color: colors.accent, fontFamily: fonts.sans.medium },
     moreLabel: {
       color: colors.textMuted,
       fontFamily: fonts.sans.medium,

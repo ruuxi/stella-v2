@@ -4,11 +4,14 @@ import { gitRaw } from "./git.js";
 
 /**
  * A `reference-transaction` hook that keeps agents out of the running
- * checkout. Agent shells carry `STELLA_DRAFTS_DIR` (runtime shell.ts); when a
- * git command run from one would move the branch the checkout has checked
- * out, the hook refuses the transaction and points the agent at the draft
- * flow. Stella itself (this service, the launchers) never sets that variable,
- * so applies, undos and syncs pass. Unlike pre-commit, `--no-verify` doesn't skip it, and
+ * checkout. Agent shells carry `STELLA_DRAFTS_DIR` and `STELLA_APP_DIR`, the
+ * checkout their own Stella runs from (runtime shell.ts); when a git command
+ * run from one would move the branch that checkout has checked out, the hook
+ * refuses the transaction and points the agent at the draft flow. A repo that
+ * isn't the shell's `STELLA_APP_DIR` passes, so a hook left behind in a
+ * checkout Stella no longer runs from blocks nobody. Stella itself (this
+ * service, the launchers) never sets `STELLA_DRAFTS_DIR`, so applies, undos
+ * and syncs pass. Unlike pre-commit, `--no-verify` doesn't skip it, and
  * it also covers merges, resets and fast-forwards.
  *
  * Once a transaction commits, it also notes which agent (`STELLA_AGENT_ID`,
@@ -17,7 +20,7 @@ import { gitRaw } from "./git.js";
  * that agent's completion.
  */
 
-const MARKER = "stella-checkout-guard v4";
+const MARKER = "stella-checkout-guard v5";
 
 /** Where the hook notes each draft's agent, under the git common dir. */
 export const DRAFT_AGENTS_DIR = "stella-drafts";
@@ -27,7 +30,11 @@ const HOOK = `#!/bin/sh
 common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || exit 0
 case "$1" in
 prepared)
-  [ -n "$STELLA_DRAFTS_DIR" ] || exit 0
+  [ -n "$STELLA_DRAFTS_DIR" ] && [ -n "$STELLA_APP_DIR" ] || exit 0
+  here=$(cd "$common" 2>/dev/null && pwd -P) || exit 0
+  app=$(unset GIT_DIR GIT_COMMON_DIR GIT_WORK_TREE; cd "$STELLA_APP_DIR" 2>/dev/null && git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || exit 0
+  app=$(cd "$app" 2>/dev/null && pwd -P) || exit 0
+  [ "$here" = "$app" ] || exit 0
   branch=$(sed -n 's/^ref: //p' "$common/HEAD")
   [ -n "$branch" ] || exit 0
   while read -r old new ref; do

@@ -658,4 +658,73 @@ describe("cloud agent lifecycle monitor", () => {
       },
     ]);
   });
+
+  test("delivers one completion once even when the subscription restarts mid-delivery", async () => {
+    const subscriptions: Array<{ update: (value: unknown) => void }> = [];
+    const durable = new Set<string>();
+    const events: AgentLifecycleEvent[] = [];
+    const acknowledgements: unknown[] = [];
+    let releaseDelivery: (() => void) | null = null;
+    const monitor = trackMonitor(
+      createCloudAgentLifecycleMonitor({
+        backendRefs: {
+          cloud_apps: {
+            listMyDeviceAgentThreads: "list",
+            acknowledgeMyDeviceAgentThreadDelivery: "ack",
+          },
+          execution_placement: {
+            getMyExecutionPlacementIdentity: "identity",
+          },
+        },
+        deviceId: "device-1",
+        subscribeQuery: (_query, _args, onUpdate) => {
+          subscriptions.push({ update: onUpdate });
+          return () => {};
+        },
+        query: async () => ({ ownerGeneration: OWNER_GENERATION }),
+        mutation: async (_ref, args) => {
+          acknowledgements.push(args);
+          return {};
+        },
+        hasDurableLifecycleEvent: (event) =>
+          Boolean(event.eventId && durable.has(event.eventId)),
+        onLifecycleEvent: async (event) => {
+          events.push(event);
+          // A real delivery is a turn admission: durable only once it lands.
+          await new Promise<void>((resolve) => {
+            releaseDelivery = () => {
+              if (event.eventId) durable.add(event.eventId);
+              resolve();
+            };
+          });
+        },
+      }),
+    );
+
+    monitor.start();
+    await flush();
+    const terminal = thread({
+      status: "completed",
+      updatedAt: 400,
+      resultJson: JSON.stringify({ finalText: "Cleaned the disk." }),
+    });
+    subscriptions[0]?.update([terminal]);
+    await flush();
+    expect(events).toHaveLength(1);
+
+    // The connection drops and comes back while that delivery is still in
+    // flight. The row is still unacknowledged, so it arrives again.
+    monitor.start();
+    await flush();
+    subscriptions[1]?.update([terminal]);
+    await flush();
+    expect(events).toHaveLength(1);
+
+    releaseDelivery?.();
+    await flush();
+    subscriptions[1]?.update([terminal]);
+    await flush();
+    expect(events).toHaveLength(1);
+    expect(acknowledgements).toHaveLength(1);
+  });
 });

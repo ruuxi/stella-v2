@@ -198,7 +198,14 @@ export const createCloudAgentLifecycleMonitor = (
   let stopped = false;
   let epoch = 0;
   let activeOwnerGeneration: string | null = null;
-  const processing = new Set<string>();
+  /**
+   * One in-flight delivery per lifecycle event, keyed by its event id. A row
+   * arrives again on every subscription update and on every resubscribe, so a
+   * second arrival must join the first delivery rather than start another:
+   * until the first one is durable, `hasDurableLifecycleEvent` still answers
+   * false and a parallel attempt would deliver the same report twice.
+   */
+  const inFlight = new Map<string, Promise<void>>();
   /** Cancel thunks for pending per-row retry fibers (the old timer Set). */
   const retryCancels = new Map<string, () => void>();
   let restartCancel: (() => void) | null = null;
@@ -236,19 +243,10 @@ export const createCloudAgentLifecycleMonitor = (
     }
   };
 
-  const processRow = async (row: CloudAgentThreadRow) => {
-    const event = toLifecycleEvent(row);
-    const processingKey =
-      event?.eventId ??
-      `${row.threadId}:${row.ownerGeneration}:${row.attemptGeneration}:${row.updatedAt}:control`;
-    if (
-      processing.has(processingKey) ||
-      stopped ||
-      row.ownerGeneration !== activeOwnerGeneration
-    ) {
-      return;
-    }
-    processing.add(processingKey);
+  const deliverRow = async (
+    row: CloudAgentThreadRow,
+    event: AgentLifecycleEvent | null,
+  ) => {
     try {
       await options.onControlReceipt?.(row);
       if (!event?.eventId) return;
@@ -265,15 +263,37 @@ export const createCloudAgentLifecycleMonitor = (
       }
     } catch {
       if (event) scheduleRetry(row);
-    } finally {
-      processing.delete(processingKey);
     }
   };
 
+  const processRow = async (row: CloudAgentThreadRow): Promise<void> => {
+    const event = toLifecycleEvent(row);
+    const processingKey =
+      event?.eventId ??
+      `${row.threadId}:${row.ownerGeneration}:${row.attemptGeneration}:${row.updatedAt}:control`;
+    const existing = inFlight.get(processingKey);
+    if (existing) {
+      await existing;
+      return;
+    }
+    if (stopped || row.ownerGeneration !== activeOwnerGeneration) return;
+    const delivery = deliverRow(row, event);
+    inFlight.set(processingKey, delivery);
+    try {
+      await delivery;
+    } finally {
+      inFlight.delete(processingKey);
+    }
+  };
+
+  /**
+   * Retries are owned by the subscription and are dropped when it restarts.
+   * In-flight deliveries are not: forgetting one while it is still running is
+   * what let the next update deliver the same completion a second time.
+   */
   const cancelRowRetries = () => {
     for (const cancel of retryCancels.values()) cancel();
     retryCancels.clear();
-    processing.clear();
   };
 
   const scheduleRestart = () => {

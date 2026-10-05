@@ -7,7 +7,6 @@ import type { Colors } from "../../theme/colors";
 import { fonts } from "../../theme/fonts";
 import { fadeHex } from "../../theme/oklch";
 import { useColors } from "../../theme/theme-context";
-import { GlassSurface } from "../glass";
 import { Icon, type IconName } from "../Icon";
 
 /** The shell's destinations, top to bottom. Settings stays last. */
@@ -36,13 +35,11 @@ const NAV_LABEL_KEYS: Record<MainTabId, string> = {
 };
 
 const ROW_HEIGHT = 44;
-const CARD_PADDING = 4;
-const CARD_RADIUS = (ROW_HEIGHT + CARD_PADDING * 2) / 2;
 
 /**
- * The sidebar's navigation: one glass card listing every shell destination
- * with its icon and name, the current one on a soft lozenge. Liquid Glass on
- * iOS 26, the frosted fallback tint everywhere else.
+ * The sidebar's navigation: every shell destination as an icon-and-name row
+ * sitting directly on the panel, the current one on a soft lozenge. It shares
+ * the Activity list's inset so both read as one list rather than two.
  */
 export function SidebarNav({
   value,
@@ -57,13 +54,7 @@ export function SidebarNav({
   const t = useT();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
-    <GlassSurface
-      glass="regular"
-      radius={CARD_RADIUS}
-      ringed
-      fallbackColor={fadeHex(colors.surface, 0.94)}
-      style={styles.card}
-    >
+    <View style={styles.list}>
       {NAV_ORDER.map((key) => {
         const active = key === value;
         return (
@@ -96,21 +87,21 @@ export function SidebarNav({
           </Pressable>
         );
       })}
-    </GlassSurface>
+    </View>
   );
 }
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    card: {
-      padding: CARD_PADDING,
+    list: {
+      alignSelf: "stretch",
     },
     row: {
       alignItems: "center",
       flexDirection: "row",
-      gap: 12,
+      gap: 10,
       height: ROW_HEIGHT,
-      paddingHorizontal: 12,
+      paddingHorizontal: 10,
     },
     pressed: {
       opacity: 0.7,

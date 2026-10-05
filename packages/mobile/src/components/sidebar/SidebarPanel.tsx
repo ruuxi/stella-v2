@@ -277,8 +277,8 @@ const makeStyles = (colors: Colors) =>
       minHeight: 0,
     },
     nav: {
-      paddingBottom: 14,
-      paddingHorizontal: 16,
+      paddingBottom: 16,
+      paddingHorizontal: 8,
     },
     heading: {
       color: colors.textMuted,

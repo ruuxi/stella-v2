@@ -121,13 +121,23 @@ export const materializeImageAttachments = async (
       continue;
     }
 
+    // Carry the composer's identity onto the materialized ref. Only `url` and
+    // `mimeType` reach the model as pixels, but `kind` is what tells the
+    // prompt builder this is a user-attached image rather than an ambient
+    // context capture (a window screenshot), so it can name the on-disk copy
+    // and let the turn delegate it.
+    const identity = {
+      kind: "image" as const,
+      ...(attachment.name ? { name: attachment.name } : {}),
+    };
+
     // Path-backed composer attachments: the renderer keeps only the
     // path + preview; the original bytes are read and resized here.
     if (isLocalFileAttachmentUrl(url)) {
       try {
         const localImage = await materializeLocalFileImage(url, caps);
         if (localImage) {
-          materialized.push({ index, attachment: localImage });
+          materialized.push({ index, attachment: { ...identity, ...localImage } });
         }
       } catch (error) {
         logger.warn("startChat.attachment-materialize-failed", {
@@ -150,6 +160,7 @@ export const materializeImageAttachments = async (
       materialized.push({
         index,
         attachment: {
+          ...identity,
           url: resizedUrl,
           mimeType:
             DATA_URL_RE.exec(resizedUrl)?.[1]?.toLowerCase() ?? mimeType,
@@ -192,6 +203,7 @@ export const materializeImageAttachments = async (
       materialized.push({
         index,
         attachment: {
+          ...identity,
           url: resizedUrl,
           mimeType:
             DATA_URL_RE.exec(resizedUrl)?.[1]?.toLowerCase() ?? mimeType,

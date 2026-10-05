@@ -388,6 +388,10 @@ export const buildClaudeChildEnv = (options: {
     // only demand bubblewrap, which the image cannot run (no user
     // namespaces), and the CLI then exits before it starts.
     CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0",
+    // The executor (and so the CLI) runs as root inside the per-owner
+    // sandbox container. Claude Code refuses --dangerously-skip-permissions
+    // as root unless told it is in a sandbox.
+    IS_SANDBOX: "1",
     ANTHROPIC_CUSTOM_HEADERS: [
       `${GATEWAY_AGENT_TYPE_HEADER}: ${options.agentType}`,
       "x-stella-llm-credential: anthropic",
@@ -431,6 +435,7 @@ export const buildCloudClaudeTakeoverArgs = (options: {
   ...(options.includePartialMessages ? ["--include-partial-messages"] : []),
   ...resolveClaudeModelArgs(options.model),
   ...resolveClaudeReasoningArgs(options.reasoningEffort),
+  "--dangerously-skip-permissions",
   // Match the desktop's configured Claude engine takeover: Claude owns the
   // native loop, but Stella owns its entire capability and instruction
   // surface. Ambient MCP servers, built-ins, and slash commands stay out.
@@ -440,9 +445,8 @@ export const buildCloudClaudeTakeoverArgs = (options: {
   "--disable-slash-commands",
   "--tools",
   "",
-  // The CLI runs as root in the container, where it refuses
-  // --dangerously-skip-permissions. Built-ins are off, so the default
-  // permission mode plus this allowlist grants exactly Stella's server.
+  // Stella's server is the only tool surface; allow it explicitly too, so a
+  // permission mode that overrides the bypass can't deny it.
   "--allowedTools",
   `mcp__${CLOUD_CLAUDE_MCP_SERVER_NAME}`,
   // CLAUDE_CONFIG_DIR persists only conversation state. Never let a prior

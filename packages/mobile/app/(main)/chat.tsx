@@ -61,7 +61,10 @@ import {
 import { useColors } from "../../src/theme/theme-context";
 import { fonts } from "../../src/theme/fonts";
 import { ChatPane } from "../../src/components/ChatPane";
-import { mainContentStyles } from "../../src/components/MainScreenSurface";
+import {
+  mainContentStyles,
+  useShellTopInset,
+} from "../../src/components/MainScreenSurface";
 import { ArtifactViewer } from "../../src/components/ArtifactViewer";
 import { CloudBrowserInterventionCard } from "../../src/components/CloudBrowserInterventionCard";
 import { CloudConnectorConnectCard } from "../../src/components/CloudConnectorConnectCard";
@@ -105,7 +108,7 @@ export default function ChatScreen() {
 function SignedInChatScreen() {
   const authority = useCloudConversationAuthority();
   return (
-    <View style={mainContentStyles.content}>
+    <View style={[mainContentStyles.content, chatContentStyle]}>
       {authority.status !== "ready" ? (
         <CloudAuthorityGate
           loading={authority.status === "loading"}
@@ -224,9 +227,10 @@ function CloudAuthorityGate(props: {
   const colors = useColors();
   const t = useT();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const topInset = useShellTopInset();
 
   return (
-    <View style={styles.centerSurface}>
+    <View style={[styles.centerSurface, { paddingTop: topInset }]}>
       {props.loading ? (
         <ActivityIndicator color={colors.textMuted} />
       ) : (
@@ -274,6 +278,7 @@ function ChatSurface(props: {
   const session = authClient.useSession();
   const anonymous = session.data?.user?.isAnonymous === true;
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const topInset = useShellTopInset();
   const offline = useIsOffline();
   const isFocused = useIsFocused();
   const composerModelPinned = useComposerModelPinned();
@@ -621,7 +626,7 @@ function ChatSurface(props: {
   return (
     <View style={styles.screen}>
       {thread.authorityIssue ? (
-        <View style={styles.authorityIssue}>
+        <View style={[styles.authorityIssue, { marginTop: topInset }]}>
           <Text style={styles.authorityIssueText}>
             {thread.authorityIssue.message}
           </Text>
@@ -691,6 +696,7 @@ function ChatSurface(props: {
         activityTasks={thread.conversationTasks}
         onOpenActivity={requestOpenSidebar}
         catchingUp={thread.catchingUp}
+        {...(thread.authorityIssue ? { topInset: 0 } : {})}
       />
       <ArtifactViewer
         visible={Boolean(selectedArtifact)}
@@ -701,6 +707,9 @@ function ChatSurface(props: {
     </View>
   );
 }
+
+/** The transcript runs edge to edge under the floating top bar. */
+const chatContentStyle = { paddingTop: 0 } as const;
 
 const makeStyles = (colors: {
   border: string;

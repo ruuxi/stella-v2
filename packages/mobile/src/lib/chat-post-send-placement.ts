@@ -19,24 +19,30 @@ export function shouldPlaceLatestTurn({
  * Frame the latest user row at the list tail. A row that fits above the
  * trailing slack lands with the list scrolled to its end; a user message
  * taller than the remaining reading area is aligned by its top instead, so
- * its opening lines stay in view.
+ * its opening lines stay in view. `leadingInsetPx` is the chrome floating
+ * over the list's top edge, which a top-aligned row lands below.
  */
 export function resolvePostSendTarget({
   rowTop,
   rowBottom,
   viewportHeight,
   trailingSlackPx,
+  leadingInsetPx = 0,
 }: {
   rowTop: number;
   rowBottom: number;
   viewportHeight: number;
   trailingSlackPx: number;
+  leadingInsetPx?: number;
 }) {
   const rowHeight = Math.max(0, rowBottom - rowTop);
-  const availableForRow = Math.max(0, viewportHeight - trailingSlackPx);
+  const availableForRow = Math.max(
+    0,
+    viewportHeight - trailingSlackPx - leadingInsetPx,
+  );
   return rowHeight <= availableForRow
     ? rowBottom - viewportHeight + trailingSlackPx
-    : rowTop;
+    : rowTop - leadingInsetPx;
 }
 
 /**
@@ -54,11 +60,13 @@ export function resolvePostSendPlacement({
   viewportHeightPx,
   trailingSlackPx,
   rowHeightPx,
+  leadingInsetPx = 0,
 }: {
   contentHeightPx: number;
   viewportHeightPx: number;
   trailingSlackPx: number;
   rowHeightPx: number;
+  leadingInsetPx?: number;
 }) {
   const rowBottom = Math.max(0, contentHeightPx - trailingSlackPx);
   const rowTop = Math.max(0, rowBottom - rowHeightPx);
@@ -67,6 +75,7 @@ export function resolvePostSendPlacement({
     rowBottom,
     viewportHeight: viewportHeightPx,
     trailingSlackPx,
+    leadingInsetPx,
   });
 }
 

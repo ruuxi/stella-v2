@@ -38,6 +38,8 @@ import { fadeHex } from "../theme/oklch";
 import { Icon } from "./Icon";
 import { replyTitle } from "./ReplyPreview";
 
+const REPORT_PANEL_TOP = 52;
+
 export { replyTitle } from "./ReplyPreview";
 
 export type AgentReplyRef = Extract<ReplyRef, { kind: "agent" }>;
@@ -106,11 +108,14 @@ export function AgentReportSheet({
   conversationId,
   colors,
   onClose,
+  topInset = 0,
 }: {
   reference: AgentReplyRef;
   conversationId: string;
   colors: Colors;
   onClose: () => void;
+  /** Room the chrome above takes; the panel opens below it. */
+  topInset?: number;
 }) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const report = useAgentReport(conversationId, reference.threadId);
@@ -129,7 +134,7 @@ export function AgentReportSheet({
         onPress={onClose}
         style={styles.reportBackdrop}
       />
-      <View style={styles.reportPanel}>
+      <View style={[styles.reportPanel, { top: topInset + REPORT_PANEL_TOP }]}>
         <View style={styles.reportHead}>
           <Text numberOfLines={1} style={styles.reportTitle}>
             {replyTitle(reference)}
@@ -162,6 +167,7 @@ export function AgentReportSheet({
 
 export function ReplyFocus({
   root,
+  topInset = 0,
   bottomInset,
   messages,
   colors,
@@ -171,6 +177,8 @@ export function ReplyFocus({
   hasOlder,
 }: {
   root: ReplyRef;
+  /** Room the chrome above takes; the focused chain starts below it. */
+  topInset?: number;
   bottomInset: number;
   messages: readonly ChatMessage[];
   colors: Colors;
@@ -201,7 +209,10 @@ export function ReplyFocus({
   } | null>(null);
   const [listReady, setListReady] = useState(false);
   return (
-    <View style={[styles.root, { bottom: bottomInset }]} accessibilityViewIsModal>
+    <View
+      style={[styles.root, { top: topInset, bottom: bottomInset }]}
+      accessibilityViewIsModal
+    >
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Close focused conversation"
@@ -334,7 +345,6 @@ const makeStyles = (colors: Colors) =>
     },
     reportPanel: {
       position: "absolute",
-      top: 52,
       left: 12,
       right: 12,
       maxHeight: "65%",

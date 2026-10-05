@@ -19,7 +19,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppBackdrop } from "./AppBackdrop";
 import { publishBackOverride } from "../lib/main-shell-store";
 import { useT } from "../i18n";
-import { MainDetailSurface } from "./MainScreenSurface";
+import { MainDetailSurface, useShellTopInset } from "./MainScreenSurface";
 import { useColors } from "../theme/theme-context";
 import { getAuthTokenForSubject } from "../lib/auth-token";
 import { useShellBottomInset } from "../lib/shell-bottom-inset";
@@ -107,6 +107,7 @@ function AppsHost({
 }) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const topInset = useShellTopInset();
   const bottomInset = useShellBottomInset();
   const t = useT();
   const [apps, setApps] = useState<WorkspaceApp[] | null>(null);
@@ -400,6 +401,7 @@ function AppsHost({
           style={{
             flex: 1,
             display: selected === entry.slug ? "flex" : "none",
+            paddingTop: topInset,
             paddingBottom: insets.bottom,
           }}
           accessibilityElementsHidden={selected !== entry.slug}

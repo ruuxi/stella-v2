@@ -141,6 +141,32 @@ export const collectConversationTasks = (
 };
 
 /**
+ * Join the tasks the conversation journal records with the ones the paired
+ * computer reports live. A task both know about keeps whichever snapshot is
+ * newer, so a computer's terminal row settles a mirrored spawn whose wake has
+ * not reached the journal yet, and a stale running row cannot revive a task
+ * the journal already saw finish.
+ */
+export const mergeJournalTasks = (
+  journal: readonly MobileTask[],
+  live: readonly MobileTask[],
+): MobileTask[] => {
+  if (journal.length === 0) return [...live];
+  const byId = new Map<string, MobileTask>();
+  for (const task of journal) byId.set(task.id, task);
+  for (const task of live) {
+    byId.set(task.id, mergeMobileTaskSnapshot(byId.get(task.id), task));
+  }
+  const rank = (task: MobileTask) => (task.status === "running" ? 0 : 1);
+  return selectRootMobileActivityTasks([...byId.values()]).sort(
+    (a, b) =>
+      rank(a) - rank(b) ||
+      b.createdAt - a.createdAt ||
+      a.id.localeCompare(b.id),
+  );
+};
+
+/**
  * Overlay the desktop's authoritative thread-activity rows and live
  * decoration onto the synced-message task fold.
  *

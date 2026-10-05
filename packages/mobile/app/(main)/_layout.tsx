@@ -425,7 +425,15 @@ export default function MainLayout() {
           <View style={styles.wideLayout}>
             <SidebarPanel width={SIDEBAR_WIDTH} onOpenArtifact={openArtifact} />
             <View style={styles.content}>
-              <View style={[styles.topBar, { height: topBarHeight }]}>
+              <View style={styles.contentSlot}>
+                <ShellBottomInsetProvider value={shellBottomInset}>
+                  <MainStack />
+                </ShellBottomInsetProvider>
+              </View>
+              <View
+                pointerEvents="box-none"
+                style={[styles.topBar, { height: topBarHeight }]}
+              >
                 {backVisible ? (
                   <View style={styles.topBarSide}>
                     <GlassIconButton
@@ -439,11 +447,6 @@ export default function MainLayout() {
                     />
                   </View>
                 ) : null}
-              </View>
-              <View style={styles.contentSlot}>
-                <ShellBottomInsetProvider value={shellBottomInset}>
-                  <MainStack />
-                </ShellBottomInsetProvider>
               </View>
               {tabBar}
             </View>
@@ -482,7 +485,20 @@ export default function MainLayout() {
                   sidebar stays hidden) instead of being covered by a flat
                   fill. Clipped to the rounded corners via overflow:hidden. */}
               <AppBackdrop />
-              <View style={[styles.topBar, { height: topBarHeight }]}>
+              <View style={styles.content}>
+                <ShellBottomInsetProvider value={shellBottomInset}>
+                  <MainStack />
+                </ShellBottomInsetProvider>
+              </View>
+
+              {/* The top bar floats over the routes: the chat runs edge to
+                  edge underneath it, and every other route starts below it
+                  (`useShellTopInset`). Taps between its controls pass through
+                  to the page. */}
+              <View
+                pointerEvents="box-none"
+                style={[styles.topBar, { height: topBarHeight }]}
+              >
                 {search.isOpen ? (
                   <View style={styles.searchRow}>
                     <View style={styles.searchField}>
@@ -556,12 +572,6 @@ export default function MainLayout() {
                     />
                   </View>
                 ) : null}
-              </View>
-
-              <View style={styles.content}>
-                <ShellBottomInsetProvider value={shellBottomInset}>
-                  <MainStack />
-                </ShellBottomInsetProvider>
               </View>
 
               {/* The tab bar floats over the page's bottom edge and travels
@@ -669,24 +679,29 @@ const makeStyles = (colors: Colors) =>
       flex: 1,
     },
 
-    // Top bar — phone and tablet action controls. Height is set inline
-    // as `insets.top + barHeight` so the safe-area inset is added on top of
-    // the bar's own height rather than eating into it (RN box model is
-    // border-box, so a fixed `height` would absorb the inset).
+    // Top bar — phone and tablet action controls, floating over the routes.
+    // Height is set inline as `insets.top + barHeight` so the safe-area inset
+    // is added on top of the bar's own height rather than eating into it (RN
+    // box model is border-box, so a fixed `height` would absorb the inset).
     topBar: {
       alignItems: "flex-end",
       flexDirection: "row",
+      left: 0,
       paddingHorizontal: 10,
+      position: "absolute",
+      right: 0,
+      top: 0,
       // Native glass shadows extend below this row. Paint the controls above
       // the route surface so its backdrop cannot cut them off at the seam.
       overflow: "visible",
       zIndex: 1,
     },
-    // Stella's status mark: spans the bar row beneath the status bar, drawn
-    // under the menu button so the button keeps its taps.
+    // Stella's status pill: spans the bar row beneath the status bar at the
+    // side buttons' height and baseline, drawn under the menu button so the
+    // button keeps its taps.
     statusLane: {
       bottom: 0,
-      height: TOP_BAR_BAR_HEIGHT,
+      height: TOP_BAR_BUTTON,
       left: 0,
       position: "absolute",
       right: 0,

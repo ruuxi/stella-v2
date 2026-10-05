@@ -91,7 +91,8 @@ import {
   MessageContextMenu,
   type MessageMenuAction,
 } from "./MessageContextMenu";
-import { AppBackdrop, TOP_BAR_BAR_HEIGHT } from "./AppBackdrop";
+import { AppBackdrop } from "./AppBackdrop";
+import { useShellTopInset } from "./MainScreenSurface";
 import { ArtifactCard } from "./ArtifactCard";
 import { AppPreviewCard } from "./AppPreviewCard";
 import { extractStellaAppLinkSlugs } from "@stella/contracts/workspace-apps";
@@ -102,12 +103,7 @@ import {
   useCloudDriveFileUri,
 } from "../lib/use-cloud-drive-file-uri";
 import { MapRouteCard } from "./MapRouteCard";
-import { RunningTasksPill, runningTaskCount } from "./RunningTasksPill";
 import { scheduleReceiptText } from "../lib/schedule-receipt-summary";
-import {
-  deriveFloatingHidden,
-  type FloatingScrollMetrics,
-} from "../lib/floating-button-visibility";
 import { useCatchUpIndicatorVisible } from "../lib/catch-up-indicator";
 import { ChatHistoryPaging } from "../lib/chat-history-paging";
 import {
@@ -281,6 +277,15 @@ const FOLLOW_GENTLE_LERP_FACTOR = 0.12;
 const POST_SEND_REANCHOR_WINDOW_MS = 1500;
 
 const EDGE_FADE = 48;
+/**
+ * Where the transcript's first row rests below the top bar: the list's own
+ * 80pt lead plus the 4pt the shell's content box used to add above the pane.
+ */
+const LIST_TOP_GAP = 84;
+/** How far below the top bar the scrolled-under fade reaches. */
+const TOP_TAPER_TAIL = 24;
+const CATCH_UP_PILL_GAP = 10;
+const SEARCH_DROPDOWN_GAP = 6;
 /** LegendList's data-change tail pin, hoisted so it keeps one identity. */
 const LEGEND_TAIL_SCROLL_AT_END = {
   animated: false,
@@ -308,13 +313,6 @@ const CHAT_TAIL_GAP = WORKING_INDICATOR_SLOT_HEIGHT + 12;
  * inset, so the buttons keep clearing the home indicator.
  */
 const FLOATING_CONTROL_LIFT = WORKING_INDICATOR_SLOT_HEIGHT;
-/**
- * Vertical gap between the activity-pill/settings row and the composer directly
- * below it. Halved from the previous `FLOATING_CONTROL_LIFT - 20` (14pt) so the
- * row sits noticeably closer to the composer. Scoped to that row only — the
- * scroll-to-bottom FAB keeps its own `- 24` offset.
- */
-const FLOATING_CONTROL_ROW_LIFT = (FLOATING_CONTROL_LIFT - 20) / 2;
 /** Cancels the shell `content` padding so chat owns its horizontal inset. */
 const SHELL_CONTENT_PADDING = 20;
 /** Horizontal inset from the true screen edge once shell padding is cancelled. */
@@ -378,10 +376,13 @@ function useKeyboardInset() {
 function useChatScroll(
   listTrailingSlackPx: number,
   trailingMessageId: string | null,
+  listLeadingInsetPx: number,
 ) {
   const listRef = useRef<LegendListRef>(null);
   const listTrailingSlackRef = useRef(listTrailingSlackPx);
   listTrailingSlackRef.current = listTrailingSlackPx;
+  const listLeadingInsetRef = useRef(listLeadingInsetPx);
+  listLeadingInsetRef.current = listLeadingInsetPx;
   const [awayFromBottom, setAwayFromBottom] = useState(false);
   const nearBottomLimit = SCROLL_NEAR_BOTTOM_BASE_PX + listTrailingSlackPx;
   const atBottomLimit = SCROLL_AT_BOTTOM_THRESHOLD + listTrailingSlackPx;
@@ -772,7 +773,10 @@ function useChatScroll(
     const rowBottom = Math.max(0, contentHeight - listTrailingSlackPx);
     const rowTop = Math.max(0, rowBottom - assistantHeight);
     const desiredScrollTop = Math.max(0, contentHeight - layoutHeight);
-    const pinnedTop = Math.max(0, rowTop - FOLLOW_TOP_PEEK_PX);
+    const pinnedTop = Math.max(
+      0,
+      rowTop - FOLLOW_TOP_PEEK_PX - listLeadingInsetRef.current,
+    );
     setFollowTarget(Math.min(pinnedTop, desiredScrollTop));
   }, [listTrailingSlackPx, setFollowTarget]);
 
@@ -851,6 +855,7 @@ function useChatScroll(
       viewportHeightPx: metrics.layoutHeight,
       trailingSlackPx: listTrailingSlackRef.current,
       rowHeightPx: measurement.height,
+      leadingInsetPx: listLeadingInsetRef.current,
     });
 
     // Gentle one-shot ease-out on the shared spring loop. If the reply starts
@@ -2116,10 +2121,12 @@ function StopButton({
  */
 function CatchUpPill({
   visible,
+  top,
   styles,
   colors,
 }: {
   visible: boolean;
+  top: number;
   styles: ChatStyles;
   colors: Colors;
 }) {
@@ -2141,6 +2148,7 @@ function CatchUpPill({
       style={[
         styles.catchUpPill,
         {
+          top,
           // Opacity on a Liquid Glass ancestor makes iOS drop the glass
           // material, so only fade the wrapper on the (non-glass) fallback.
           opacity: liquidGlassSupported ? 1 : anim,
@@ -3003,19 +3011,22 @@ export type ChatPaneProps = {
    */
   conversationId?: string | null;
 
-  /**
-   * Background tasks for the floating running-count pill. The cloud chat
-   * omits it.
-   */
+  /** Background tasks, for realtime voice's picture of what is running. */
   activityTasks?: MobileTask[];
 
   /**
    * Reveals the activity (the sidebar, where tasks, schedules and files
-   * live). While anything runs, a "N in progress" pill floats above the
-   * composer and taps through to it; message rows with agent work use it
-   * too. The cloud chat omits it.
+   * live). Message rows with agent work tap through to it. Running work
+   * itself shows in the top bar's status pill.
    */
   onOpenActivity?: () => void;
+
+  /**
+   * Height of the chrome floating over the pane's top edge (the safe area
+   * plus the shell's top bar). The transcript scrolls underneath it and rests
+   * below it. Defaults to the shell's own top bar.
+   */
+  topInset?: number;
 
   /**
    * True while a catch-up sync is pulling turns the phone may have missed
@@ -3090,6 +3101,7 @@ export function ChatPane({
   activityTasks,
   onOpenActivity,
   catchingUp = false,
+  topInset: topInsetProp,
 }: ChatPaneProps) {
   // Transcript file links open on the preferred paired computer even when the
   // voice route itself is the phone's cloud session.
@@ -3098,8 +3110,10 @@ export function ChatPane({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const t = useT();
   const readAloud = useReadAloudPreference();
-  const insets = useSafeAreaInsets();
   const bottomInset = useShellBottomInset();
+  const safeAreaTop = useSafeAreaInsets().top;
+  const shellTopInset = useShellTopInset();
+  const topInset = topInsetProp ?? shellTopInset;
   const { height: screenHeight } = useWindowDimensions();
 
   const inputRef = useRef<TextInput>(null);
@@ -3215,7 +3229,11 @@ export function ChatPane({
     [],
   );
   const lastMessage = visibleMessages[visibleMessages.length - 1];
-  const scroll = useChatScroll(listTrailingSlackPx, lastMessage?.id ?? null);
+  const scroll = useChatScroll(
+    listTrailingSlackPx,
+    lastMessage?.id ?? null,
+    topInset,
+  );
 
   const [unread, setUnread] = useState(false);
   const prevLenRef = useRef(0);
@@ -3759,43 +3777,6 @@ export function ChatPane({
   // instant no-op pulls on every tab return never flash the pill.
   const catchUpVisible = useCatchUpIndicatorVisible(catchingUp);
 
-  // Floating running-count pill: only while background work is in flight,
-  // and only when there is somewhere (the sidebar) to take it.
-  const runningTasks = runningTaskCount(activityTasks ?? []);
-  const hasRunningPill = Boolean(onOpenActivity) && runningTasks > 0;
-  const onPressRunningPill = useCallback(() => {
-    if (!onOpenActivity) return;
-    tapLight();
-    Keyboard.dismiss();
-    onOpenActivity();
-  }, [onOpenActivity]);
-
-  // Hide the floating button while scrolling up (reading back through
-  // history) and bring it back when scrolling down toward the latest. The
-  // derivation is position-first ("near bottom ⇒ visible", see
-  // `deriveFloatingHidden`) and is re-evaluated not only per scroll event but
-  // also when a gesture settles and when content grows — direction deltas
-  // alone are unreliable (slow drags emit sub-threshold deltas; flings and
-  // auto-scrolls can end without a final downward event).
-  const [floatingHidden, setFloatingHidden] = useState(false);
-  const floatingHiddenRef = useRef(false);
-  const floatingMetricsRef = useRef<FloatingScrollMetrics>({
-    offsetY: 0,
-    contentHeight: 0,
-    layoutHeight: 0,
-  });
-  const floatingAnim = useRef(new Animated.Value(1)).current;
-  useEffect(() => {
-    Animated.timing(floatingAnim, {
-      toValue: floatingHidden ? 0 : 1,
-      duration: 180,
-      useNativeDriver: true,
-    }).start();
-  }, [floatingHidden, floatingAnim]);
-  const applyFloatingHidden = useCallback((hidden: boolean) => {
-    floatingHiddenRef.current = hidden;
-    setFloatingHidden(hidden);
-  }, []);
   // Discard a previous conversation's gesture even if this pane stays mounted.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const historyPaging = useMemo(() => new ChatHistoryPaging(), [conversationId]);
@@ -3825,47 +3806,11 @@ export function ChatPane({
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
       scroll.onScroll(e);
       requestHistoryNearPosition(e.nativeEvent);
-      const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-      const prevOffsetY = floatingMetricsRef.current.offsetY;
-      floatingMetricsRef.current = {
-        offsetY: contentOffset.y,
-        contentHeight: contentSize.height,
-        layoutHeight: layoutMeasurement.height,
-      };
-      applyFloatingHidden(
-        deriveFloatingHidden(
-          floatingHiddenRef.current,
-          prevOffsetY,
-          floatingMetricsRef.current,
-        ),
-      );
     },
-    [applyFloatingHidden, scroll.onScroll, requestHistoryNearPosition],
+    [scroll.onScroll, requestHistoryNearPosition],
   );
-  // Re-derive from the resting position alone (zero-delta pass keeps the
-  // hidden latch mid-list but enforces the near-bottom invariant).
-  const refreshFloatingFromPosition = useCallback(() => {
-    const metrics = floatingMetricsRef.current;
-    applyFloatingHidden(
-      deriveFloatingHidden(floatingHiddenRef.current, metrics.offsetY, metrics),
-    );
-  }, [applyFloatingHidden]);
-  // Gesture settled (drag end / momentum end) — the last scroll event may not
-  // have fired or may have carried a sub-threshold delta.
-  const handleListScrollSettle = useCallback(() => {
-    scroll.onScrollSettle();
-    refreshFloatingFromPosition();
-  }, [refreshFloatingFromPosition, scroll.onScrollSettle]);
-  // Content growth (new/streamed messages) changes the distance from the
-  // bottom without a scroll event; keep the invariant honest here too.
-  const handleListContentSizeChange = useCallback(
-    (width: number, height: number) => {
-      scroll.onListContentSizeChange(width, height);
-      floatingMetricsRef.current.contentHeight = height;
-      refreshFloatingFromPosition();
-    },
-    [refreshFloatingFromPosition, scroll.onListContentSizeChange],
-  );
+  const handleListScrollSettle = scroll.onScrollSettle;
+  const handleListContentSizeChange = scroll.onListContentSizeChange;
 
   const onPressPlus = useCallback(() => {
     tapLight();
@@ -4293,10 +4238,14 @@ export function ChatPane({
       search.close();
       // Let the results overlay unmount before scrolling the list underneath.
       setTimeout(() => {
-        scroll.listRef.current?.scrollToIndex({ index, animated: true });
+        scroll.listRef.current?.scrollToIndex({
+          index,
+          animated: true,
+          viewOffset: topInset,
+        });
       }, 60);
     },
-    [search, scroll.listRef],
+    [search, scroll.listRef, topInset],
   );
 
   const renderSearchResult = useCallback(
@@ -4414,20 +4363,37 @@ export function ChatPane({
   const showQuoteStrip = quoteChips.length > 0;
 
   const listContentContainerStyle = useMemo(
-    () => [styles.list, { paddingBottom: listBottomInsetPx }],
-    [styles.list, listBottomInsetPx],
+    () => [
+      styles.list,
+      { paddingTop: topInset + LIST_TOP_GAP, paddingBottom: listBottomInsetPx },
+    ],
+    [styles.list, listBottomInsetPx, topInset],
   );
-  // Built once per geometry: the backdrop mask would otherwise re-render with
-  // every composer keystroke.
+  const emptyStateStyle = useMemo(
+    () => [styles.emptyState, { paddingTop: topInset }],
+    [styles.emptyState, topInset],
+  );
+  // The transcript runs under the top bar. The fade holds the backdrop solid
+  // behind the status bar and thins it across the bar, so rows passing under
+  // the controls dim instead of colliding with them. Built once per geometry:
+  // the backdrop mask would otherwise re-render with every composer keystroke.
+  const taperHeight = topInset + TOP_TAPER_TAIL;
+  const taperSolidStop =
+    topInset > 0 ? Math.min(1, safeAreaTop / taperHeight) : 0;
+  const taperBackdropOffset = shellTopInset - topInset;
   const topTaper = useMemo(
     () => (
-      <View style={styles.topTaper} pointerEvents="none" collapsable={false}>
+      <View
+        style={[styles.topTaper, { height: taperHeight }]}
+        pointerEvents="none"
+        collapsable={false}
+      >
         <MaskedView
           style={StyleSheet.absoluteFill}
           maskElement={
             <LinearGradient
-              colors={["#000", "rgba(0,0,0,0)"]}
-              locations={[0, 1]}
+              colors={["#000", "#000", "rgba(0,0,0,0)"]}
+              locations={[0, taperSolidStop, 1]}
               style={StyleSheet.absoluteFill}
             />
           }
@@ -4437,7 +4403,7 @@ export function ChatPane({
               position: "absolute",
               left: 0,
               right: 0,
-              top: -(insets.top + TOP_BAR_BAR_HEIGHT),
+              top: -taperBackdropOffset,
               height: screenHeight,
             }}
           >
@@ -4446,7 +4412,13 @@ export function ChatPane({
         </MaskedView>
       </View>
     ),
-    [insets.top, screenHeight, styles.topTaper],
+    [
+      screenHeight,
+      styles.topTaper,
+      taperBackdropOffset,
+      taperHeight,
+      taperSolidStop,
+    ],
   );
   return (
     <View ref={rootRef} collapsable={false} style={styles.screen}>
@@ -4458,10 +4430,10 @@ export function ChatPane({
         {historyLoading ? (
           // Hold a stable blank surface while history hydrates so the empty
           // state never flashes during a tab transition.
-          <View style={styles.emptyState} />
+          <View style={emptyStateStyle} />
         ) : empty ? (
           <Pressable
-            style={styles.emptyState}
+            style={emptyStateStyle}
             onPress={() => Keyboard.dismiss()}
           >
             {emptyContent}
@@ -4540,6 +4512,7 @@ export function ChatPane({
         )}
         {replyFocus && <ReplyFocus
           key={`${conversationId}:${replyFocus.kind === "agent" ? replyFocus.threadId : replyFocus.id}`}
+          topInset={topInset}
           bottomInset={footerHeight + keyboardExtra}
           root={replyFocus} messages={visibleMessages}
           colors={colors} onClose={closeReplyFocus}
@@ -4563,6 +4536,7 @@ export function ChatPane({
             conversationId={conversationId}
             colors={colors}
             onClose={closeReport}
+            topInset={topInset}
           />
         ) : null}
         {/* Floating glass controls (scroll-to-bottom FAB + computer-options
@@ -4583,6 +4557,7 @@ export function ChatPane({
           {!searchOpen ? (
             <CatchUpPill
               visible={catchUpVisible}
+              top={topInset + CATCH_UP_PILL_GAP}
               styles={styles}
               colors={colors}
             />
@@ -4597,44 +4572,15 @@ export function ChatPane({
               bottomOffset={footerHeight + FLOATING_CONTROL_LIFT - 24}
             />
           ) : null}
-          {hasRunningPill && !searchOpen ? (
-            <Animated.View
-              pointerEvents={floatingHidden ? "none" : "auto"}
-              style={[
-                styles.floatingRunningPill,
-                {
-                  bottom: footerHeight + FLOATING_CONTROL_ROW_LIFT,
-                  // See ScrollToBottomFab: never fade a Liquid Glass ancestor's
-                  // opacity (it drops the material). Fade only on the fallback;
-                  // on glass the material fades via `present` and the pill's
-                  // own content fade.
-                  opacity: liquidGlassSupported ? 1 : floatingAnim,
-                  transform: [
-                    {
-                      translateY: floatingAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [12, 0],
-                      }),
-                    },
-                  ],
-                },
-              ]}
-            >
-              <RunningTasksPill
-                running={runningTasks}
-                colors={colors}
-                onPress={onPressRunningPill}
-                present={!floatingHidden}
-                contentOpacity={floatingAnim}
-              />
-            </Animated.View>
-          ) : null}
         </View>
         {searchOpen && searchActive ? (
           <View
             style={[
               styles.searchDropdown,
-              { maxHeight: Math.max(160, screenHeight * 0.5) },
+              {
+                maxHeight: Math.max(160, screenHeight * 0.5),
+                top: topInset + SEARCH_DROPDOWN_GAP,
+              },
             ]}
           >
             <GlassSurface
@@ -5074,7 +5020,6 @@ const makeStyles = (colors: Colors) =>
     hiddenWhileFocused: { display: "none" },
     messageList: { flex: 1 },
     topTaper: {
-      height: EDGE_FADE,
       left: 0,
       position: "absolute",
       right: 0,
@@ -5111,17 +5056,6 @@ const makeStyles = (colors: Colors) =>
       borderWidth: StyleSheet.hairlineWidth,
     },
     scrollToBottomFabPressed: { opacity: 0.88 },
-    // Running-count pill: floats at the composer's trailing edge while
-    // background work is in flight.
-    floatingRunningPill: {
-      position: "absolute",
-      right: CHAT_HORIZONTAL_INSET,
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.06,
-      shadowRadius: 5,
-      elevation: 2,
-    },
     // "Catching up" pill — top-center, overlaid (no layout participation).
     catchUpPill: {
       alignSelf: "center",
@@ -5131,7 +5065,6 @@ const makeStyles = (colors: Colors) =>
       shadowOffset: { width: 0, height: 2 },
       shadowOpacity: 0.06,
       shadowRadius: 5,
-      top: 10,
     },
     catchUpPillGlass: {
       alignItems: "center",
@@ -5171,7 +5104,6 @@ const makeStyles = (colors: Colors) =>
     },
     list: {
       paddingHorizontal: CHAT_HORIZONTAL_INSET,
-      paddingTop: 80,
     },
     itemSeparator: { height: MESSAGE_LIST_GAP },
     // Fixed-height tail below the last message. Hosts the inline working
@@ -5203,7 +5135,6 @@ const makeStyles = (colors: Colors) =>
       shadowOffset: { width: 0, height: 4 },
       shadowOpacity: 0.08,
       shadowRadius: 12,
-      top: 6,
     },
     searchDropdownList: {
       flexGrow: 0,

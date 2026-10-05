@@ -120,6 +120,9 @@ fn retired(content: &Value) -> bool {
         "~/.stella/memories/MEMORY.md",
         "~/.stella/memories/memory_map.md",
         "~/.stella/memories/memory_summary.md",
+        "~/.stella/memories/memory_index.md",
+        "~/.stella/memories/memory_shadow.md",
+        "~/.stella/memories/raw_memories.md",
     ]
     .iter()
     .any(|p| text.contains(p))
@@ -186,7 +189,9 @@ pub fn project(entries: &[Value], checkpoint: Option<&Value>) -> Vec<Value> {
                 let source = doc["text"].as_str().unwrap_or("");
                 if matches!(
                     id.as_str(),
-                    "doc:~/.stella/core-memory.md" | "doc:~/.stella/memories/profile.md"
+                    "doc:~/.stella/core-memory.md"
+                        | "doc:~/.stella/memories/profile.md"
+                        | "doc:~/.stella/memories/index.md"
                 ) {
                     doc["text"] = json!(crate::redaction::memory(source));
                 }

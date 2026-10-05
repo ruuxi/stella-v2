@@ -189,6 +189,11 @@ type InAppBrowserServiceOptions = {
   sessionFromPath?: typeof session.fromPath;
   createView?: (browserSession: Session) => WebContentsView;
   createDrawableHost?: () => BrowserWindow;
+  /**
+   * Keep the drawable host unmapped and force frames on demand instead of
+   * showing it offscreen. Defaults to true on Linux (see `ensureDrawableHost`).
+   */
+  hideDrawableHost?: boolean;
   createId?: () => string;
   wait?: (delayMs: number) => Promise<void>;
   debuggerRecoveryTimeoutMs?: number;
@@ -211,6 +216,8 @@ const DRAWABLE_HOST_BOUNDS: Rectangle = {
   width: 1280,
   height: 720,
 };
+// Gap between forced frames while a command waits on an unmapped host.
+const DRAWABLE_HOST_FRAME_PUMP_MS = 16;
 const DEFAULT_CONNECTION_TIMEOUT_MS = 10_000;
 const DEFAULT_CONNECTION_POLL_MS = 250;
 const DEFAULT_DEBUGGER_RECOVERY_TIMEOUT_MS = 1_000;
@@ -319,6 +326,7 @@ export class InAppBrowserService {
     (event: InAppBrowserDebuggerEvent) => void
   >();
   private readonly profilePath: string;
+  private readonly hideDrawableHost: boolean;
 
   private state: BrowserViewState = {
     connection: "checking",
@@ -380,6 +388,8 @@ export class InAppBrowserService {
     this.profilePath =
       options.profilePath ??
       path.join(options.stellaDataDir, "browser", "profile-v1");
+    this.hideDrawableHost =
+      options.hideDrawableHost ?? process.platform === "linux";
   }
 
   async getState(ownerId?: string): Promise<BrowserViewState> {
@@ -883,7 +893,16 @@ export class InAppBrowserService {
     const lease = this.acquireDrawableHost(tabId, resolvedOwnerId);
     try {
       await this.settleDrawableHost(tabId);
-      return await tabDebugger.sendCommand(method, params, debuggerSessionId);
+      const command = Promise.resolve(
+        tabDebugger.sendCommand(method, params, debuggerSessionId),
+      );
+      if (
+        this.hideDrawableHost &&
+        this.drawableLeases.get(tabId)?.mountedInHiddenHost
+      ) {
+        this.pumpFramesUntilSettled(tab, command);
+      }
+      return await command;
     } finally {
       lease.release();
     }
@@ -2164,9 +2183,61 @@ export class InAppBrowserService {
         lease.mountedInHiddenHost = false;
       }
     });
-    host.showInactive();
+    // Linux never maps the host: Wayland compositors ignore client positions,
+    // setOpacity is a no-op there and focusable:false isn't honored, so a shown
+    // host is an empty floating window that takes focus (X11 WMs may clamp it
+    // on screen too). Unmapped, the mounted tab still gets a real viewport and
+    // script, DOM, clicks and keys work, but its compositor never ticks, so
+    // whatever waits on the next frame (mouseMoved and mouseWheel acks, every
+    // other Page.captureScreenshot, rAF) stalls. `pumpFramesUntilSettled`
+    // forces frames while a command is pending. The cost is ~16-30 ms of
+    // latency on those commands and a page that reads
+    // `visibilityState: "hidden"` during agent commands instead of "visible".
+    if (!this.hideDrawableHost) host.showInactive();
     this.drawableHost = host;
     return host;
+  }
+
+  private delay(delayMs: number) {
+    return (
+      this.options.wait?.(delayMs) ??
+      new Promise<void>((resolve) => setTimeout(resolve, delayMs))
+    );
+  }
+
+  /**
+   * Forces frames for a tab mounted in the unmapped host until `command`
+   * settles. Page.captureScreenshot renders a frame even for a hidden widget,
+   * which delivers acks (and rAF callbacks) that were waiting on one.
+   */
+  private pumpFramesUntilSettled(tab: ManagedTab, command: Promise<unknown>) {
+    let settled = false;
+    command.then(
+      () => (settled = true),
+      () => (settled = true),
+    );
+    const tabDebugger = tab.view.webContents.debugger;
+    void (async () => {
+      await this.delay(DRAWABLE_HOST_FRAME_PUMP_MS);
+      while (
+        !settled &&
+        !tab.view.webContents.isDestroyed() &&
+        tabDebugger.isAttached() &&
+        this.drawableLeases.get(tab.id)?.mountedInHiddenHost
+      ) {
+        await Promise.race([
+          Promise.resolve(
+            tabDebugger.sendCommand("Page.captureScreenshot", {
+              format: "jpeg",
+              quality: 1,
+              optimizeForSpeed: true,
+            }),
+          ).catch(() => {}),
+          this.delay(250),
+        ]);
+        if (!settled) await this.delay(DRAWABLE_HOST_FRAME_PUMP_MS);
+      }
+    })();
   }
 
   private drawableBounds(): Rectangle {
@@ -2211,10 +2282,7 @@ export class InAppBrowserService {
   }
 
   private async settleDrawableHost(tabId: string) {
-    const wait =
-      this.options.wait ??
-      ((delayMs: number) =>
-        new Promise<void>((resolve) => setTimeout(resolve, delayMs)));
+    const wait = (delayMs: number) => this.delay(delayMs);
     await wait(16);
     const tab = this.tabs.get(tabId);
     const lease = this.drawableLeases.get(tabId);

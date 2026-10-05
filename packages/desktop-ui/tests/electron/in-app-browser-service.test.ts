@@ -232,6 +232,7 @@ const createHarness = (
       return view as never;
     },
     createDrawableHost,
+    hideDrawableHost: false,
     createId: () => `tab-${views.length + 1}`,
     wait,
     connectionTimeoutMs: 50,

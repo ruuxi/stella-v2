@@ -16,7 +16,9 @@
 // how Windows gives Electron's windows the Stella name and icon.
 //
 // WinHTTP downloads, BCrypt SHA-256 and ECDSA P-256, DPAPI for the key,
-// tar.exe for zips, TaskDialogIndirect for the progress and recovery windows.
+// tar.exe for zips. The window is launcher/common/launcher.html in WebView2
+// (found without WebView2Loader.dll); without a WebView2 runtime, TaskDialogs
+// show progress and recovery instead.
 
 #ifndef UNICODE
 #define UNICODE
@@ -29,22 +31,28 @@
 #include <windows.h>
 #include <bcrypt.h>
 #include <commctrl.h>
+#include <dwmapi.h>
 #include <objbase.h>
 #include <sddl.h>
 #include <shellapi.h>
 #include <shlobj.h>
+#include <shlwapi.h>
 #include <shobjidl.h>
 #include <propkey.h>
 #include <propsys.h>
 #include <wincrypt.h>
 #include <winhttp.h>
 
+#include "WebView2.h"  // fetched by build.sh
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstdarg>
+#include <cstdint>
 #include <cstdio>
+#include <cwctype>
 #include <deque>
 #include <functional>
 #include <map>
@@ -56,9 +64,6 @@
 
 #include "../common/mini_json.h"
 
-#ifndef PW_RENDERFULLCONTENT
-#define PW_RENDERFULLCONTENT 0x00000002
-#endif
 #ifndef PF_AVX2_INSTRUCTIONS_AVAILABLE
 #define PF_AVX2_INSTRUCTIONS_AVAILABLE 40
 #endif
@@ -411,7 +416,7 @@ struct Options {
     wstring localBun;   // adopt this Bun instead of downloading
     double hold = 0;    // self-test: stay up this long after ready
     Choice recoveryChoice = Choice::None;
-    wstring captureDir; // save BMPs of the launcher's own windows here
+    wstring captureDir; // self-test: save PNGs of the launcher's window here
     double readyTimeout = envSeconds(L"STELLA_LAUNCHER_READY_TIMEOUT_SECONDS", 90);
     double stableSeconds = envSeconds(L"STELLA_LAUNCHER_STABLE_SECONDS", 60);
 };
@@ -1165,48 +1170,50 @@ static Env electronEnvironment(const wstring &pipeName) {
 
 // -------------------------------------------------------------------- UI
 
-static void saveWindowBitmap(HWND hwnd, const wstring &path) {
-    RECT rc;
-    if (!GetWindowRect(hwnd, &rc)) return;
-    int w = rc.right - rc.left, h = rc.bottom - rc.top;
-    if (w <= 0 || h <= 0) return;
-    HDC screen = GetDC(nullptr);
-    HDC mem = CreateCompatibleDC(screen);
-    BITMAPINFO bi;
-    ZeroMemory(&bi, sizeof(bi));
-    bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    bi.bmiHeader.biWidth = w;
-    bi.bmiHeader.biHeight = h;
-    bi.bmiHeader.biPlanes = 1;
-    bi.bmiHeader.biBitCount = 32;
-    bi.bmiHeader.biCompression = BI_RGB;
-    void *bits = nullptr;
-    HBITMAP bmp = CreateDIBSection(screen, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
-    HGDIOBJ old = SelectObject(mem, bmp);
-    PrintWindow(hwnd, mem, PW_RENDERFULLCONTENT);
-    GdiFlush();
-    BITMAPFILEHEADER fh;
-    ZeroMemory(&fh, sizeof(fh));
-    DWORD imageSize = (DWORD)w * h * 4;
-    fh.bfType = 0x4D42;
-    fh.bfOffBits = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER);
-    fh.bfSize = fh.bfOffBits + imageSize;
-    string data((char *)&fh, sizeof(fh));
-    data.append((char *)&bi.bmiHeader, sizeof(BITMAPINFOHEADER));
-    data.append((char *)bits, imageSize);
-    mkdirs(parentDir(path));
-    if (writeFileAtomic(path, data)) LOG("ui: captured %s", utf8(path).c_str());
-    SelectObject(mem, old);
-    DeleteObject(bmp);
-    DeleteDC(mem);
-    ReleaseDC(nullptr, screen);
+// What the work loop needs from a UI. WebUi (launcher/common/launcher.html in
+// WebView2) is the normal one; DialogUi, TaskDialogs, stands in when no
+// WebView2 runtime is installed. Every call comes from the work thread.
+struct Recovery {
+    string reason;
+    vector<string> output;
+    bool hasKnownGood = false;
+    Choice automation = Choice::None;  // self-test: choose this after automationDelay
+    double automationDelay = 0;
+    wstring capturePath;
+};
+
+class Ui {
+public:
+    virtual ~Ui() {}
+    // Idle: wait for Start (Retry), Return, Reinstall or Quit.
+    virtual Choice idle() = 0;
+    // Starting: what is happening now; `show` brings a hidden window up.
+    virtual void starting(const string &status, bool show) = 0;
+    // Electron is ready.
+    virtual void running() = 0;
+    // Failed: show why, then wait for a choice.
+    virtual Choice failed(const Recovery &recovery) = 0;
+    // Settings' Version and Return to last working version.
+    virtual void installInfo(const string &version, bool hasKnownGood) {}
+};
+
+static Ui *gUi = nullptr;
+
+// A step worth telling the user about; like the old progress dialog, it
+// brings the window up.
+static void progress(const string &status) {
+    LOG("progress: %s", status.c_str());
+    gUi->starting(status, true);
 }
+
+static void requestShutdown();
+
+// ------------------------------------------------- UI: TaskDialog fallback
 
 // The install/prepare progress panel: a marquee TaskDialog on its own thread.
 class ProgressWindow {
 public:
     void show(const string &status) {
-        LOG("progress: %s", status.c_str());
         std::unique_lock<std::mutex> lock(mutex_);
         status_ = wide(status);
         if (hwnd_) {
@@ -1236,10 +1243,10 @@ private:
     std::mutex mutex_;
     std::thread thread_;
     HWND hwnd_ = nullptr;
-    bool running_ = false, closing_ = false, captured_ = false;
+    bool running_ = false, closing_ = false;
     wstring status_;
 
-    static HRESULT CALLBACK callback(HWND hwnd, UINT msg, WPARAM wParam, LPARAM, LONG_PTR ref) {
+    static HRESULT CALLBACK callback(HWND hwnd, UINT msg, WPARAM, LPARAM, LONG_PTR ref) {
         auto self = (ProgressWindow *)ref;
         switch (msg) {
         case TDN_CREATED: {
@@ -1250,12 +1257,6 @@ private:
             SendMessageW(hwnd, TDM_SET_ELEMENT_TEXT, TDE_CONTENT, (LPARAM)self->status_.c_str());
             break;
         }
-        case TDN_TIMER:
-            if (!self->captured_ && !O.captureDir.empty() && wParam > 600) {
-                self->captured_ = true;
-                saveWindowBitmap(hwnd, O.captureDir + L"\\progress.bmp");
-            }
-            break;
         case TDN_BUTTON_CLICKED: {
             std::lock_guard<std::mutex> lock(self->mutex_);
             if (!self->closing_) {
@@ -1279,8 +1280,7 @@ private:
         ZeroMemory(&config, sizeof(config));
         config.cbSize = sizeof(config);
         config.hInstance = GetModuleHandleW(nullptr);
-        config.dwFlags = TDF_SHOW_MARQUEE_PROGRESS_BAR | TDF_CALLBACK_TIMER | TDF_POSITION_RELATIVE_TO_WINDOW |
-                         TDF_SIZE_TO_CONTENT;
+        config.dwFlags = TDF_SHOW_MARQUEE_PROGRESS_BAR | TDF_POSITION_RELATIVE_TO_WINDOW | TDF_SIZE_TO_CONTENT;
         config.dwCommonButtons = TDCBF_CANCEL_BUTTON;
         config.pszWindowTitle = L"Stella";
         config.pszMainInstruction = L"Getting Stella ready";
@@ -1300,43 +1300,36 @@ static ProgressWindow gProgress;
 // "Stella couldn't start": the reason, the last 40 lines Electron wrote, and
 // Return to last working / Try again / Quit. Blocks until a choice is made.
 struct RecoveryDialog {
-    Choice automation = Choice::None;
-    double automationDelay = 0;
-    wstring capturePath;
-    bool hasKnownGood = false;
-    bool captured = false, clicked = false;
+    const Recovery &recovery;
+    bool clicked = false;
 
     enum { kReturn = 101, kReinstall = 102, kRetry = 103, kQuit = 104 };
 
     static HRESULT CALLBACK callback(HWND hwnd, UINT msg, WPARAM wParam, LPARAM, LONG_PTR ref) {
         auto self = (RecoveryDialog *)ref;
+        const Recovery &r = self->recovery;
         if (msg == TDN_CREATED) {
             SetForegroundWindow(hwnd);
-        } else if (msg == TDN_TIMER) {
-            if (!self->captured && !self->capturePath.empty() && wParam > 700) {
-                self->captured = true;
-                saveWindowBitmap(hwnd, self->capturePath);
-            }
-            if (!self->clicked && self->automation != Choice::None && wParam > self->automationDelay * 1000) {
-                self->clicked = true;
-                // "return" means the primary button, "Reinstall" without a known-good version.
-                int id = self->automation == Choice::Return ? (self->hasKnownGood ? kReturn : kReinstall)
-                         : self->automation == Choice::Retry ? kRetry
-                                                             : kQuit;
-                LOG("recovery: self-test clicks %s", choiceName(self->automation));
-                PostMessageW(hwnd, TDM_CLICK_BUTTON, id, 0);
-            }
+        } else if (msg == TDN_TIMER && !self->clicked && r.automation != Choice::None && wParam > r.automationDelay * 1000) {
+            self->clicked = true;
+            // "return" means the primary button, "Reinstall" without a known-good version.
+            int id = r.automation == Choice::Return ? (r.hasKnownGood ? kReturn : kReinstall)
+                     : r.automation == Choice::Retry ? kRetry
+                                                     : kQuit;
+            LOG("recovery: self-test clicks %s", choiceName(r.automation));
+            PostMessageW(hwnd, TDM_CLICK_BUTTON, id, 0);
         }
         return S_OK;
     }
 
-    Choice present(const string &reason, const vector<string> &output) {
+    Choice present() {
+        const Recovery &r = recovery;
         string joined;
-        for (size_t i = 0; i < output.size(); i++) joined += (i ? "\n" : "") + output[i];
-        wstring content = wide(reason);
-        wstring details = wide(output.empty() ? string("(Stella wrote no output.)") : joined);
+        for (size_t i = 0; i < r.output.size(); i++) joined += (i ? "\n" : "") + r.output[i];
+        wstring content = wide(r.reason);
+        wstring details = wide(r.output.empty() ? string("(Stella wrote no output.)") : joined);
         TASKDIALOG_BUTTON buttons[] = {
-            {hasKnownGood ? kReturn : kReinstall, hasKnownGood ? L"Return to last working version" : L"Reinstall"},
+            {r.hasKnownGood ? kReturn : kReinstall, r.hasKnownGood ? L"Return to last working version" : L"Reinstall"},
             {kRetry, L"Try again"},
             {kQuit, L"Quit"},
         };
@@ -1358,33 +1351,836 @@ struct RecoveryDialog {
         config.cxWidth = 320;
         config.pfCallback = callback;
         config.lpCallbackData = (LONG_PTR)this;
-        LOG("recovery: shown reason: %s", reason.c_str());
+        LOG("recovery: shown reason: %s", r.reason.c_str());
         int pressed = kQuit;
         if (FAILED(TaskDialogIndirect(&config, &pressed, nullptr, nullptr))) {
             LOG("recovery: the dialog could not be shown");
-            pressed = automation == Choice::Retry ? kRetry : automation == Choice::Return ? kReturn : kQuit;
+            pressed = r.automation == Choice::Retry ? kRetry : r.automation == Choice::Return ? kReturn : kQuit;
         }
         Choice choice = pressed == kReturn ? Choice::Return
                         : pressed == kReinstall ? Choice::Reinstall
                         : pressed == kRetry ? Choice::Retry
                                             : Choice::Quit;
-        if (choice == Choice::Return && !hasKnownGood) choice = Choice::Reinstall;
+        if (choice == Choice::Return && !r.hasKnownGood) choice = Choice::Reinstall;
         LOG("recovery: chose %s", choiceName(choice));
         return choice;
     }
 };
 
+class DialogUi : public Ui {
+public:
+    // No Start button here: start right away, as the launcher always did.
+    Choice idle() override { return Choice::Retry; }
+    void starting(const string &status, bool show) override {
+        if (show) gProgress.show(status);
+    }
+    void running() override { gProgress.hide(); }
+    Choice failed(const Recovery &recovery) override {
+        gProgress.hide();
+        RecoveryDialog dialog{recovery};
+        return dialog.present();
+    }
+};
+
+// ------------------------------------------------------- UI: WebView2 loader
+
+// Stella.exe ships no WebView2Loader.dll; it does the loader's job for the
+// installed Evergreen runtime. EdgeUpdate records the runtime's directory
+// under ClientState\{stable channel} (EBWebView) and its version under
+// Clients\{stable channel} (pv); the runtime's EmbeddedBrowserWebView.dll
+// exports the factory that CreateCoreWebView2EnvironmentWithOptions calls.
+typedef HRESULT(STDMETHODCALLTYPE *CreateWebViewEnvironmentFn)(
+    bool checkRunningInstance, int runtimeType /* 0: installed */, PCWSTR userDataFolder, IUnknown *options,
+    ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler *handler);
+
+static wstring registryString(HKEY root, const wstring &key, const wchar_t *name) {
+    wchar_t buf[1024];
+    DWORD size = sizeof(buf);
+    // EdgeUpdate is a 32-bit program: its HKLM keys are under WOW6432Node.
+    if (RegGetValueW(root, key.c_str(), name, RRF_RT_REG_SZ | RRF_SUBKEY_WOW6432KEY, nullptr, buf, &size) != ERROR_SUCCESS)
+        return wstring();
+    return buf;
+}
+
+static CreateWebViewEnvironmentFn loadWebView2(string &dllPath) {
+    static const wstring kStableChannel = L"{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}";
+#if defined(__aarch64__)
+    static const wchar_t *kArch = L"arm64";
+#else
+    static const wchar_t *kArch = L"x64";
+#endif
+    vector<wstring> dirs;
+    for (HKEY root : {HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER}) {
+        wstring dir = registryString(root, L"SOFTWARE\\Microsoft\\EdgeUpdate\\ClientState\\" + kStableChannel, L"EBWebView");
+        if (!dir.empty()) dirs.push_back(dir);
+        // Per-machine installs live under Program Files (x86), per-user ones under LocalAppData.
+        wstring pv = registryString(root, L"SOFTWARE\\Microsoft\\EdgeUpdate\\Clients\\" + kStableChannel, L"pv");
+        if (!pv.empty() && pv != L"0.0.0.0")
+            dirs.push_back((root == HKEY_LOCAL_MACHINE ? envVar(L"ProgramFiles(x86)") : knownFolder(FOLDERID_LocalAppData)) +
+                           L"\\Microsoft\\EdgeWebView\\Application\\" + pv);
+    }
+    for (auto &dir : dirs) {
+        wstring dll = dir + L"\\EBWebView\\" + kArch + L"\\EmbeddedBrowserWebView.dll";
+        if (!exists(dll)) continue;
+        HMODULE module = LoadLibraryExW(dll.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+        auto fn = module ? (CreateWebViewEnvironmentFn)(void *)GetProcAddress(module, "CreateWebViewEnvironmentWithOptionsInternal")
+                         : nullptr;
+        if (fn) {
+            dllPath = utf8(dll);
+            return fn;
+        }
+        LOG("ui: could not load %s (error %lu)", utf8(dll).c_str(), GetLastError());
+    }
+    return nullptr;
+}
+
+// WebView2.h declares its IIDs for WebView2LoaderStatic.lib to define; these
+// are the ones Stella.exe needs, from the header's MIDL_INTERFACE lines.
+static const IID kIID_EnvironmentCompleted = {0x4e8a3389, 0xc9d8, 0x4bd2, {0xb6, 0xb5, 0x12, 0x4f, 0xee, 0x6c, 0xc1, 0x4d}};
+static const IID kIID_ControllerCompleted = {0x6c4819f3, 0xc9b7, 0x4260, {0x81, 0x27, 0xc9, 0xf5, 0xbd, 0xe7, 0xf6, 0x8c}};
+static const IID kIID_WebMessageReceived = {0x57213f19, 0x00e6, 0x49fa, {0x8e, 0x07, 0x89, 0x8e, 0xa0, 0x1e, 0xcb, 0xd2}};
+static const IID kIID_NavigationCompleted = {0xd33a35bf, 0x1c49, 0x4f98, {0x93, 0xab, 0x00, 0x6e, 0x05, 0x33, 0xfe, 0x1c}};
+static const IID kIID_CapturePreviewCompleted = {0x697e05e9, 0x3d8f, 0x45fa, {0x96, 0xf4, 0x8f, 0xfe, 0x1e, 0xde, 0xda, 0xf5}};
+static const IID kIID_Controller2 = {0xc979903e, 0xd4ca, 0x4228, {0x92, 0xeb, 0x47, 0xee, 0x3f, 0xa9, 0x6e, 0xab}};
+static const IID kIID_Settings3 = {0xfdb5ab74, 0xaf33, 0x4854, {0x84, 0xf0, 0x0a, 0x63, 0x1d, 0xeb, 0x5e, 0xba}};
+
+// A COM callback from a lambda: each WebView2 handler interface is IUnknown
+// plus one Invoke. Created with one reference, which the creator releases
+// after handing it to WebView2 (which holds its own).
+template <typename I, typename M = decltype(&I::Invoke)> class Callback;
+template <typename I, typename... A> class Callback<I, HRESULT (STDMETHODCALLTYPE I::*)(A...)> final : public I {
+public:
+    Callback(const IID &iid, std::function<HRESULT(A...)> fn) : iid_(iid), fn_(std::move(fn)) {}
+    ULONG STDMETHODCALLTYPE AddRef() override { return ++refs_; }
+    ULONG STDMETHODCALLTYPE Release() override {
+        ULONG n = --refs_;
+        if (n == 0) delete this;
+        return n;
+    }
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **out) override {
+        if (!IsEqualIID(riid, IID_IUnknown) && !IsEqualIID(riid, iid_)) {
+            *out = nullptr;
+            return E_NOINTERFACE;
+        }
+        *out = static_cast<I *>(this);
+        AddRef();
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE Invoke(A... args) override { return fn_(args...); }
+
+private:
+    const IID &iid_;
+    std::function<HRESULT(A...)> fn_;
+    std::atomic<ULONG> refs_{1};
+};
+
+// --------------------------------------------------------- UI: the window
+
+// The page, embedded as RCDATA (stella-launcher.rc), so the window never
+// depends on the checkout the launcher may be recovering.
+static string launcherPage() {
+    HRSRC res = FindResourceW(nullptr, L"LAUNCHER_HTML", RT_RCDATA);
+    HGLOBAL data = res ? LoadResource(nullptr, res) : nullptr;
+    if (!data) return string();
+    return string((const char *)LockResource(data), SizeofResource(nullptr, res));
+}
+
+static bool systemUsesDarkTheme() {
+    DWORD light = 1, size = sizeof(light);
+    RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", L"AppsUseLightTheme",
+                 RRF_RT_REG_DWORD, nullptr, &light, &size);
+    return light == 0;
+}
+
+static string jsonString(const string &s) {
+    char *q = mj_quote(s.c_str());
+    string out = q ? q : "\"\"";
+    free(q);
+    return out;
+}
+
+// A second Stella.exe finds the running launcher's window by its class and a
+// property naming the install root.
+static const wchar_t *kWindowClass = L"StellaLauncherWindow";
+static const wchar_t *kRootProperty = L"StellaLauncherRoot";
+
+static ULONG_PTR rootTag() {
+    // FNV-1a over the lowercased root.
+    uint32_t h = 2166136261u;
+    for (wchar_t c : P.root) {
+        h ^= (uint32_t)towlower(c);
+        h *= 16777619u;
+    }
+    return h | 1;
+}
+
+enum : UINT {
+    WM_UI_RENDER = WM_APP + 1,  // the state changed
+    WM_UI_VISIBLE,              // show or hide, as wantVisible_ says
+    WM_UI_SCRIPT,               // lParam: a new'd wstring of script to run
+    WM_UI_CAPTURE,              // wParam: request id; lParam: a new'd wstring PNG path
+    WM_UI_DONE,                 // the work loop returned
+    WM_UI_ACTIVATE,             // show the window (a second Stella.exe sends this)
+};
+
+// One window with the shared page in WebView2. The UI thread owns the window
+// and the WebView; the work thread changes the state under mutex_ and posts
+// WM_UI_* messages, and blocks on cond_ for the user's commands.
+class WebUi : public Ui {
+public:
+    // UI thread: create the window and the WebView, pumping messages until
+    // the WebView is ready. False: use the fallback.
+    bool create() {
+        string dll;
+        CreateWebViewEnvironmentFn createEnvironment = loadWebView2(dll);
+        if (!createEnvironment) {
+            LOG("ui: no WebView2 runtime; using the TaskDialog fallback");
+            return false;
+        }
+        LOG("ui: WebView2 runtime %s", dll.c_str());
+
+        HINSTANCE instance = GetModuleHandleW(nullptr);
+        WNDCLASSEXW wc;
+        ZeroMemory(&wc, sizeof(wc));
+        wc.cbSize = sizeof(wc);
+        wc.lpfnWndProc = windowProc;
+        wc.hInstance = instance;
+        wc.hIcon = LoadIconW(instance, MAKEINTRESOURCEW(1));
+        wc.hIconSm = (HICON)LoadImageW(instance, MAKEINTRESOURCEW(1), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON),
+                                       GetSystemMetrics(SM_CYSMICON), 0);
+        wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        wc.lpszClassName = kWindowClass;
+        RegisterClassExW(&wc);
+
+        // 380x460 client at 96 DPI, scaled for and centered on the monitor
+        // under the pointer. Hidden until the page has rendered.
+        POINT cursor = {0, 0};
+        GetCursorPos(&cursor);
+        MONITORINFO monitor;
+        monitor.cbSize = sizeof(monitor);
+        GetMonitorInfoW(MonitorFromPoint(cursor, MONITOR_DEFAULTTOPRIMARY), &monitor);
+        const RECT &work = monitor.rcWork;
+        DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+        hwnd_ = CreateWindowExW(0, kWindowClass, L"Stella", style, work.left, work.top, 380, 460, nullptr, nullptr, instance, this);
+        if (!hwnd_) {
+            LOG("ui: could not create the window (error %lu); using the TaskDialog fallback", GetLastError());
+            return false;
+        }
+        SetPropW(hwnd_, kRootProperty, (HANDLE)rootTag());
+        UINT dpi = GetDpiForWindow(hwnd_);
+        RECT rc = {0, 0, MulDiv(380, dpi, 96), MulDiv(460, dpi, 96)};
+        AdjustWindowRectExForDpi(&rc, style, FALSE, 0, dpi);
+        int w = rc.right - rc.left, h = rc.bottom - rc.top;
+        SetWindowPos(hwnd_, nullptr, (work.left + work.right - w) / 2, (work.top + work.bottom - h) / 2, w, h,
+                     SWP_NOZORDER | SWP_NOACTIVATE);
+        applyTheme();
+
+        wstring userData = P.root + L"\\webview";
+        mkdirs(userData);
+        auto *handler = new Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
+            kIID_EnvironmentCompleted,
+            [this](HRESULT hr, ICoreWebView2Environment *env) -> HRESULT { return environmentCreated(hr, env); });
+        HRESULT hr = createEnvironment(true, 0, userData.c_str(), nullptr, handler);
+        handler->Release();
+        if (FAILED(hr)) {
+            LOG("ui: WebView2 could not start (0x%08lx); using the TaskDialog fallback", (unsigned long)hr);
+        } else {
+            SetTimer(hwnd_, kCreateTimer, 30000, nullptr);
+            MSG msg;
+            while (creating_ == 0 && GetMessageW(&msg, nullptr, 0, 0) > 0) {
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+            KillTimer(hwnd_, kCreateTimer);
+            if (creating_ == 1) return true;
+            LOG("ui: WebView2 did not start; using the TaskDialog fallback");
+        }
+        creating_ = -1;
+        if (controller_) controller_->Close();
+        DestroyWindow(hwnd_);
+        hwnd_ = nullptr;
+        return false;
+    }
+
+    // UI thread: run the work loop on its own thread, pumping messages until it returns.
+    int run(int (*work)()) {
+        int code = 1;
+        std::thread worker([&]() {
+            CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+            code = work();
+            CoUninitialize();
+            PostMessageW(hwnd_, WM_UI_DONE, 0, 0);
+        });
+        MSG msg;
+        while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+        worker.join();
+        return code;
+    }
+
+    // ---- the work thread
+
+    Choice idle() override {
+        update([&]() {
+            phase_ = "idle";
+            status_.clear();
+            command_ = Choice::None;
+        });
+        setVisible(true);
+        if (!O.selfTest) return waitCommand();
+        waitLoaded();
+        pause(1);
+        capture(L"home.png");
+        LOG("ui: self-test presses Start");
+        update([&]() {
+            phase_ = "starting";
+            status_ = "Starting Stella…";
+        });
+        return Choice::Retry;
+    }
+
+    void starting(const string &status, bool show) override {
+        update([&]() {
+            phase_ = "starting";
+            status_ = status;
+        });
+        if (show) setVisible(true);
+        bool captureNow;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            captureNow = !O.captureDir.empty() && wantVisible_ && !startingCaptured_;
+            if (captureNow) startingCaptured_ = true;
+        }
+        if (captureNow) {
+            waitLoaded();
+            pause(0.5);
+            capture(L"starting.png");
+        }
+    }
+
+    void running() override {
+        bool tour;
+        update([&]() {
+            phase_ = "running";
+            status_.clear();
+            tour = O.selfTest && !toured_;
+            toured_ = true;
+        });
+        if (tour) {
+            // The window a second Stella.exe brings up, then its Settings.
+            PostMessageW(hwnd_, WM_UI_ACTIVATE, 0, 0);
+            waitLoaded();
+            pause(0.7);
+            capture(L"running.png");
+            script(L"window.stellaLauncher.showSettings(true)");
+            pause(0.5);
+            capture(L"settings.png");
+            script(L"window.stellaLauncher.showSettings(false)");
+        }
+        setVisible(false);
+    }
+
+    Choice failed(const Recovery &r) override {
+        update([&]() {
+            phase_ = "failed";
+            reason_ = r.reason;
+            output_ = r.output;
+            hasKnownGood_ = r.hasKnownGood;
+            command_ = Choice::None;
+        });
+        setVisible(true);
+        LOG("recovery: shown reason: %s", r.reason.c_str());
+        ULONGLONG shown = GetTickCount64();
+        Choice choice;
+        if (!r.capturePath.empty() || r.automation != Choice::None) waitLoaded();
+        if (!r.capturePath.empty()) {
+            pause(0.7);
+            capture(r.capturePath);
+        }
+        if (r.automation != Choice::None) {
+            double waited = (GetTickCount64() - shown) / 1000.0;
+            if (waited < r.automationDelay) pause(r.automationDelay - waited);
+            LOG("recovery: self-test clicks %s", choiceName(r.automation));
+            choice = r.automation;
+        } else {
+            choice = waitCommand();
+        }
+        if (choice == Choice::Return && !r.hasKnownGood) choice = Choice::Reinstall;
+        LOG("recovery: chose %s", choiceName(choice));
+        return choice;
+    }
+
+    void installInfo(const string &version, bool hasKnownGood) override {
+        update([&]() {
+            version_ = version;
+            hasKnownGood_ = hasKnownGood;
+        });
+    }
+
+private:
+    enum { kCreateTimer = 1, kLoadTimer = 2 };
+
+    // UI thread only.
+    HWND hwnd_ = nullptr;
+    ICoreWebView2Controller *controller_ = nullptr;
+    ICoreWebView2 *webview_ = nullptr;
+    HBRUSH background_ = nullptr;
+    COLORREF backgroundColor_ = 0;
+    int creating_ = 0;  // 1 ready, -1 failed
+    vector<wstring> pendingScripts_;
+
+    // Shared with the work thread.
+    std::mutex mutex_;
+    std::condition_variable cond_;
+    string phase_ = "idle", status_, reason_, version_;
+    vector<string> output_;
+    bool hasKnownGood_ = false, loaded_ = false, wantVisible_ = false;
+    bool startingCaptured_ = false, toured_ = false;
+    Choice command_ = Choice::None;
+    int captureRequests_ = 0, capturesDone_ = 0;
+
+    // ---- work thread helpers
+
+    void update(const std::function<void()> &change) {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            change();
+        }
+        PostMessageW(hwnd_, WM_UI_RENDER, 0, 0);
+    }
+
+    void setVisible(bool visible) {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            wantVisible_ = visible;
+        }
+        PostMessageW(hwnd_, WM_UI_VISIBLE, 0, 0);
+    }
+
+    void waitLoaded() {
+        std::unique_lock<std::mutex> lock(mutex_);
+        if (!cond_.wait_for(lock, std::chrono::seconds(30), [&]() { return loaded_; })) LOG("ui: the page has not loaded");
+    }
+
+    static void pause(double seconds) { Sleep((DWORD)(seconds * 1000)); }
+
+    void script(const wstring &code) { PostMessageW(hwnd_, WM_UI_SCRIPT, 0, (LPARAM) new wstring(code)); }
+
+    // A PNG of the page (a bare name goes in --capture-dir); waits for it.
+    void capture(const wstring &name) {
+        if (O.captureDir.empty()) return;
+        wstring path = name.find(L'\\') == wstring::npos ? O.captureDir + L"\\" + name : name;
+        std::unique_lock<std::mutex> lock(mutex_);
+        int id = ++captureRequests_;
+        PostMessageW(hwnd_, WM_UI_CAPTURE, (WPARAM)id, (LPARAM) new wstring(path));
+        if (!cond_.wait_for(lock, std::chrono::seconds(10), [&]() { return capturesDone_ >= id; }))
+            LOG("ui: capture of %s timed out", utf8(path).c_str());
+    }
+
+    // Start, Try again, Return, Reinstall or closing the window. The phase
+    // leaves idle/failed in the same step, so a second click isn't queued.
+    Choice waitCommand() {
+        Choice choice;
+        {
+            std::unique_lock<std::mutex> lock(mutex_);
+            cond_.wait(lock, [&]() { return command_ != Choice::None; });
+            choice = command_;
+            command_ = Choice::None;
+            if (choice != Choice::Quit) {
+                phase_ = "starting";
+                status_ = choice == Choice::Return      ? "Returning to the last working version…"
+                          : choice == Choice::Reinstall ? "Reinstalling Stella…"
+                                                        : "Starting Stella…";
+            }
+        }
+        PostMessageW(hwnd_, WM_UI_RENDER, 0, 0);
+        return choice;
+    }
+
+    // ---- UI thread
+
+    static LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+        if (msg == WM_NCCREATE)
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)((CREATESTRUCTW *)lParam)->lpCreateParams);
+        auto self = (WebUi *)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+        return self ? self->handle(hwnd, msg, wParam, lParam) : DefWindowProcW(hwnd, msg, wParam, lParam);
+    }
+
+    LRESULT handle(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+        switch (msg) {
+        case WM_SIZE:
+            if (controller_) {
+                RECT rc;
+                GetClientRect(hwnd, &rc);
+                controller_->put_Bounds(rc);
+            }
+            return 0;
+        case WM_DPICHANGED: {
+            const RECT *r = (const RECT *)lParam;
+            SetWindowPos(hwnd, nullptr, r->left, r->top, r->right - r->left, r->bottom - r->top, SWP_NOZORDER | SWP_NOACTIVATE);
+            return 0;
+        }
+        case WM_ERASEBKGND: {
+            RECT rc;
+            GetClientRect(hwnd, &rc);
+            FillRect((HDC)wParam, &rc, background_);
+            return 1;
+        }
+        case WM_SETTINGCHANGE:
+            if (lParam && !wcscmp((const wchar_t *)lParam, L"ImmersiveColorSet")) applyTheme();
+            break;
+        case WM_CLOSE:
+            closeRequested();
+            return 0;
+        case WM_TIMER:
+            KillTimer(hwnd, wParam);
+            if (wParam == kCreateTimer && creating_ == 0) {
+                LOG("ui: WebView2 took over 30s to start");
+                creating_ = -1;
+            } else if (wParam == kLoadTimer && !isLoaded()) {
+                LOG("ui: the page never said it loaded; showing it anyway");
+                pageLoaded();
+            }
+            return 0;
+        case WM_UI_RENDER:
+            render();
+            return 0;
+        case WM_UI_VISIBLE:
+            applyVisibility();
+            return 0;
+        case WM_UI_SCRIPT: {
+            std::unique_ptr<wstring> code((wstring *)lParam);
+            if (isLoaded()) webview_->ExecuteScript(code->c_str(), nullptr);
+            else pendingScripts_.push_back(*code);
+            return 0;
+        }
+        case WM_UI_CAPTURE: {
+            std::unique_ptr<wstring> path((wstring *)lParam);
+            capturePreview((int)wParam, *path);
+            return 0;
+        }
+        case WM_UI_ACTIVATE:
+            LOG("ui: asked to show the window");
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                wantVisible_ = true;
+            }
+            applyVisibility();
+            return 0;
+        case WM_UI_DONE:
+            if (controller_) controller_->Close();
+            DestroyWindow(hwnd);
+            PostQuitMessage(0);
+            return 0;
+        }
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
+    }
+
+    bool isLoaded() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return loaded_;
+    }
+
+    HRESULT environmentCreated(HRESULT hr, ICoreWebView2Environment *env) {
+        if (creating_ != 0) return S_OK;
+        if (FAILED(hr) || !env) {
+            LOG("ui: WebView2 environment failed (0x%08lx)", (unsigned long)hr);
+            creating_ = -1;
+            return S_OK;
+        }
+        auto *handler = new Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
+            kIID_ControllerCompleted,
+            [this](HRESULT hr, ICoreWebView2Controller *controller) -> HRESULT { return controllerCreated(hr, controller); });
+        hr = env->CreateCoreWebView2Controller(hwnd_, handler);
+        handler->Release();
+        if (FAILED(hr)) {
+            LOG("ui: WebView2 controller failed (0x%08lx)", (unsigned long)hr);
+            creating_ = -1;
+        }
+        return S_OK;
+    }
+
+    HRESULT controllerCreated(HRESULT hr, ICoreWebView2Controller *controller) {
+        if (FAILED(hr) || !controller) {
+            LOG("ui: WebView2 controller failed (0x%08lx)", (unsigned long)hr);
+            if (creating_ == 0) creating_ = -1;
+            return S_OK;
+        }
+        if (creating_ != 0) {  // gave up waiting meanwhile
+            controller->Close();
+            return S_OK;
+        }
+        controller_ = controller;
+        controller_->AddRef();
+        controller_->get_CoreWebView2(&webview_);
+        applyTheme();
+
+        // A launcher window, not a browser: no context menu, dev tools, zoom,
+        // status bar or browser shortcuts (F5, Ctrl+R, Ctrl+F, ...).
+        ICoreWebView2Settings *settings = nullptr;
+        if (SUCCEEDED(webview_->get_Settings(&settings))) {
+            settings->put_AreDefaultContextMenusEnabled(FALSE);
+            settings->put_AreDevToolsEnabled(FALSE);
+            settings->put_IsZoomControlEnabled(FALSE);
+            settings->put_IsStatusBarEnabled(FALSE);
+            ICoreWebView2Settings3 *settings3 = nullptr;
+            if (SUCCEEDED(settings->QueryInterface(kIID_Settings3, (void **)&settings3))) {
+                settings3->put_AreBrowserAcceleratorKeysEnabled(FALSE);
+                settings3->Release();
+            }
+            settings->Release();
+        }
+        RECT rc;
+        GetClientRect(hwnd_, &rc);
+        controller_->put_Bounds(rc);
+
+        EventRegistrationToken token;
+        auto *onMessage = new Callback<ICoreWebView2WebMessageReceivedEventHandler>(
+            kIID_WebMessageReceived, [this](ICoreWebView2 *, ICoreWebView2WebMessageReceivedEventArgs *args) -> HRESULT {
+                LPWSTR text = nullptr;
+                if (SUCCEEDED(args->TryGetWebMessageAsString(&text)) && text) pageMessage(utf8(text));
+                CoTaskMemFree(text);
+                return S_OK;
+            });
+        webview_->add_WebMessageReceived(onMessage, &token);
+        onMessage->Release();
+        // The page posts "loaded" once its fonts are ready; if that never
+        // comes, show what there is shortly after the navigation.
+        auto *onNavigated = new Callback<ICoreWebView2NavigationCompletedEventHandler>(
+            kIID_NavigationCompleted, [this](ICoreWebView2 *, ICoreWebView2NavigationCompletedEventArgs *args) -> HRESULT {
+                BOOL ok = FALSE;
+                args->get_IsSuccess(&ok);
+                if (!ok) {
+                    COREWEBVIEW2_WEB_ERROR_STATUS status = COREWEBVIEW2_WEB_ERROR_STATUS_UNKNOWN;
+                    args->get_WebErrorStatus(&status);
+                    LOG("ui: the page failed to load (status %d)", (int)status);
+                }
+                SetTimer(hwnd_, kLoadTimer, 3000, nullptr);
+                return S_OK;
+            });
+        webview_->add_NavigationCompleted(onNavigated, &token);
+        onNavigated->Release();
+
+        string page = launcherPage();
+        if (page.empty() || FAILED(webview_->NavigateToString(wide(page).c_str()))) {
+            LOG("ui: the launcher page could not be shown");
+            creating_ = -1;
+            return S_OK;
+        }
+        creating_ = 1;
+        return S_OK;
+    }
+
+    // The title bar, the window background and the WebView's default
+    // background all match the page's (#fdfdfb light, #0f0f0d dark), so
+    // nothing flashes white and the caption blends in. Caption and border
+    // colors need Windows 11; Windows 10 ignores them.
+    void applyTheme() {
+        bool dark = systemUsesDarkTheme();
+        backgroundColor_ = dark ? RGB(0x0f, 0x0f, 0x0d) : RGB(0xfd, 0xfd, 0xfb);
+        BOOL immersiveDark = dark;
+        DwmSetWindowAttribute(hwnd_, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, &immersiveDark, sizeof(immersiveDark));
+        DwmSetWindowAttribute(hwnd_, 35 /* DWMWA_CAPTION_COLOR */, &backgroundColor_, sizeof(backgroundColor_));
+        DwmSetWindowAttribute(hwnd_, 34 /* DWMWA_BORDER_COLOR */, &backgroundColor_, sizeof(backgroundColor_));
+        if (background_) DeleteObject(background_);
+        background_ = CreateSolidBrush(backgroundColor_);
+        ICoreWebView2Controller2 *controller2 = nullptr;
+        if (controller_ && SUCCEEDED(controller_->QueryInterface(kIID_Controller2, (void **)&controller2))) {
+            COREWEBVIEW2_COLOR color = {255, GetRValue(backgroundColor_), GetGValue(backgroundColor_), GetBValue(backgroundColor_)};
+            controller2->put_DefaultBackgroundColor(color);
+            controller2->Release();
+        }
+        InvalidateRect(hwnd_, nullptr, TRUE);
+    }
+
+    void pageMessage(const string &text) {
+        mj_value *json = mj_parse(text.data(), text.size());
+        const char *raw = mj_get_string(json, "action");
+        string action = raw ? raw : "";
+        mj_free(json);
+        if (action == "loaded") {
+            pageLoaded();
+        } else if (action == "start") {
+            command(Choice::Retry, action);
+        } else if (action == "return") {
+            command(Choice::Return, action);
+        } else if (action == "reinstall") {
+            command(Choice::Reinstall, action);
+        } else if (action == "shutdown") {
+            bool running;
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                running = phase_ == "running";
+                if (running) {
+                    phase_ = "stopping";
+                    status_ = "Shutting down…";
+                }
+            }
+            if (!running) return;
+            LOG("ui: shut down");
+            render();
+            requestShutdown();
+        } else if (action == "openLogs") {
+            ShellExecuteW(hwnd_, L"open", P.logs().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        } else if (action == "close") {
+            PostMessageW(hwnd_, WM_CLOSE, 0, 0);
+        } else if (action != "drag") {
+            LOG("ui: ignored page message %s", text.substr(0, 200).c_str());
+        }
+    }
+
+    // Commands only count while the work loop is idle or failed.
+    void command(Choice choice, const string &action) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if ((phase_ != "idle" && phase_ != "failed") || command_ != Choice::None) return;
+        LOG("ui: %s", action.c_str());
+        command_ = choice;
+        cond_.notify_all();
+    }
+
+    // The X or Alt+F4: idle or failed quits; otherwise Stella keeps running
+    // and the window only hides.
+    void closeRequested() {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (phase_ == "idle" || phase_ == "failed") {
+                LOG("ui: closed; quitting");
+                command_ = Choice::Quit;
+                cond_.notify_all();
+                return;
+            }
+            wantVisible_ = false;
+        }
+        applyVisibility();
+    }
+
+    void pageLoaded() {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (loaded_) return;
+            loaded_ = true;
+            cond_.notify_all();
+        }
+        KillTimer(hwnd_, kLoadTimer);
+        LOG("ui: page loaded");
+        render();
+        for (auto &code : pendingScripts_) webview_->ExecuteScript(code.c_str(), nullptr);
+        pendingScripts_.clear();
+        applyVisibility();
+    }
+
+    // The whole state, every time.
+    void render() {
+        string json;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (!loaded_) return;
+            json = "{\"platform\":\"windows\",\"phase\":" + jsonString(phase_) + ",\"status\":" + jsonString(status_) +
+                   ",\"reason\":" + jsonString(reason_) + ",\"output\":[";
+            for (size_t i = 0; i < output_.size(); i++) json += (i ? "," : "") + jsonString(output_[i]);
+            json += string("],\"hasKnownGood\":") + (hasKnownGood_ ? "true" : "false") + ",\"version\":" + jsonString(version_) + "}";
+        }
+        webview_->ExecuteScript(wide("window.stellaLauncher.render(" + json + ")").c_str(), nullptr);
+    }
+
+    // Shown only once the page has rendered.
+    void applyVisibility() {
+        bool want, loaded;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            want = wantVisible_;
+            loaded = loaded_;
+        }
+        if (want && loaded) {
+            ShowWindow(hwnd_, IsIconic(hwnd_) ? SW_RESTORE : SW_SHOW);
+            SetForegroundWindow(hwnd_);
+            controller_->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+        } else if (!want && IsWindowVisible(hwnd_)) {
+            ShowWindow(hwnd_, SW_HIDE);
+        }
+    }
+
+    void capturePreview(int id, const wstring &path) {
+        auto finish = [this, id]() {
+            std::lock_guard<std::mutex> lock(mutex_);
+            capturesDone_ = std::max(capturesDone_, id);
+            cond_.notify_all();
+        };
+        mkdirs(parentDir(path));
+        IStream *stream = nullptr;
+        HRESULT hr = SHCreateStreamOnFileEx(path.c_str(), STGM_CREATE | STGM_WRITE, FILE_ATTRIBUTE_NORMAL, TRUE, nullptr, &stream);
+        if (FAILED(hr)) {
+            LOG("ui: could not write %s (0x%08lx)", utf8(path).c_str(), (unsigned long)hr);
+            finish();
+            return;
+        }
+        auto *done = new Callback<ICoreWebView2CapturePreviewCompletedHandler>(
+            kIID_CapturePreviewCompleted, [stream, path, finish](HRESULT hr) -> HRESULT {
+                stream->Release();
+                if (SUCCEEDED(hr)) LOG("ui: captured %s", utf8(path).c_str());
+                else LOG("ui: capture of %s failed (0x%08lx)", utf8(path).c_str(), (unsigned long)hr);
+                finish();
+                return S_OK;
+            });
+        hr = webview_->CapturePreview(COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, stream, done);
+        // CapturePreview takes the next frame, and a still page draws none
+        // (it would capture whatever the page shows next): keep it drawing
+        // for a second with an invisible change.
+        webview_->ExecuteScript(L"(() => { let n = 0; const s = document.body.style;"
+                                L" const t = setInterval(() => { s.opacity = ++n % 2 ? '0.999' : '';"
+                                L" if (n >= 40) { clearInterval(t); s.opacity = ''; } }, 25); })()",
+                                nullptr);
+        done->Release();
+        if (FAILED(hr)) {
+            LOG("ui: capture of %s failed (0x%08lx)", utf8(path).c_str(), (unsigned long)hr);
+            stream->Release();
+            finish();
+        }
+    }
+};
+
+// A second Stella.exe for the same root: ask the running launcher to show
+// its window. False when there is none (or it uses the fallback).
+static bool showRunningLauncher() {
+    struct Search {
+        ULONG_PTR tag;
+        HWND found;
+    } search = {rootTag(), nullptr};
+    EnumWindows(
+        [](HWND hwnd, LPARAM param) -> BOOL {
+            auto s = (Search *)param;
+            wchar_t name[64];
+            if (GetClassNameW(hwnd, name, 64) && !wcscmp(name, kWindowClass) && (ULONG_PTR)GetPropW(hwnd, kRootProperty) == s->tag) {
+                s->found = hwnd;
+                return FALSE;
+            }
+            return TRUE;
+        },
+        (LPARAM)&search);
+    if (!search.found) return false;
+    DWORD pid = 0;
+    GetWindowThreadProcessId(search.found, &pid);
+    AllowSetForegroundWindow(pid);
+    return PostMessageW(search.found, WM_UI_ACTIVATE, 0, 0) != 0;
+}
+
 // --------------------------------------------------------------- install
 
+// The managed git, when it is already installed.
+static bool adoptGit() {
+    GitTool git{P.runtimes() + L"\\git-" + wide(kGitVersion)};
+    if (!exists(git.bin())) return false;
+    gGit.reset(new GitTool(git));
+    return true;
+}
+
 static void ensureGit() {
+    if (adoptGit()) return;
     wstring root = P.runtimes() + L"\\git-" + wide(kGitVersion);
-    GitTool git{root};
-    if (exists(git.bin())) {
-        gGit.reset(new GitTool(git));
-        return;
-    }
     const Asset &asset = kGitAssets[nativeArm64() ? 1 : 0];
-    gProgress.show(format("Downloading git %s…", kGitVersion));
+    progress(format("Downloading git %s…", kGitVersion));
     LOG("install: downloading PortableGit %s from %s", kGitVersion, asset.url);
     mkdirs(P.runtimes());
     wstring archive = P.runtimes() + L"\\PortableGit-" + wide(kGitVersion) + L".7z.exe";
@@ -1398,8 +2194,7 @@ static void ensureGit() {
         fail(format("Could not unpack git (exit %lu):\n%s", r.code, lastLines(r.err, 10).c_str()));
     DeleteFileW(archive.c_str());
     removeTree(root);
-    if (!MoveFileExW(staging.c_str(), root.c_str(), 0)) fail("Could not move git into place.");
-    gGit.reset(new GitTool(git));
+    if (!MoveFileExW(staging.c_str(), root.c_str(), 0) || !adoptGit()) fail("Could not move git into place.");
     LOG("install: git ready: %s", gGit->run({"--version"}, L"").c_str());
 }
 
@@ -1455,7 +2250,7 @@ static void ensureBun() {
     wstring bin = dir + L"\\bun.exe";
     if (!exists(bin)) {
         if (url.empty()) fail("No Bun " + version + " for " + key + ".");
-        gProgress.show("Downloading Bun…");
+        progress("Downloading Bun…");
         LOG("install: downloading bun %s from %s", version.c_str(), url.c_str());
         mkdirs(P.runtimes());
         wstring archive = P.runtimes() + L"\\bun-" + wide(version) + L".zip";
@@ -1502,7 +2297,7 @@ static void bootstrapAccess(string &remote, string &token) {
 // Clone into app\; staged beside it and renamed, so an interrupted install
 // never leaves half a tree.
 static void cloneSource() {
-    gProgress.show("Downloading Stella…");
+    progress("Downloading Stella…");
     wstring staging = P.root + L"\\app.partial";
     removeTree(staging);
     // LF working tree regardless of PortableGit's system autocrlf, so scripts
@@ -1627,7 +2422,7 @@ static wstring prepare() {
     wstring app = P.app();
     string lockHash = sha256File(app + L"\\bun.lock");
     if (S.bunLockHash != lockHash || !exists(app + L"\\node_modules\\electron\\package.json")) {
-        gProgress.show("Installing Stella's dependencies…");
+        progress("Installing Stella's dependencies…");
         LOG("prepare: bun install --frozen-lockfile (lock %s)", short12(lockHash).c_str());
         ULONGLONG started = GetTickCount64();
         // Dependencies only: the postinstall's asset downloads are prepare-install.mjs's job.
@@ -1647,7 +2442,7 @@ static wstring prepare() {
     if (S.preparedHead != head && exists(script)) {
         // Optional features (computer use, the browser, office previews): a
         // failure or timeout is logged, not fatal, and retried next launch.
-        gProgress.show("Preparing Stella…");
+        progress("Preparing Stella…");
         LOG("prepare: prepare-install.mjs for %s", short12(head).c_str());
         double timeout = envSeconds(L"STELLA_LAUNCHER_PREPARE_TIMEOUT_SECONDS", 10 * 60);
         try {
@@ -2016,6 +2811,28 @@ static void handleSign(const mj_value *message, ElectronProcess &process) {
     }
 }
 
+// The running Electron's events, so the window's Shut down can reach it.
+static std::mutex gSupervisedLock;
+static EventQueue *gSupervised = nullptr;
+
+struct SupervisedRegistration {
+    explicit SupervisedRegistration(EventQueue *events) {
+        std::lock_guard<std::mutex> lock(gSupervisedLock);
+        gSupervised = events;
+    }
+    ~SupervisedRegistration() {
+        std::lock_guard<std::mutex> lock(gSupervisedLock);
+        gSupervised = nullptr;
+    }
+};
+
+static void requestShutdown() {
+    std::lock_guard<std::mutex> lock(gSupervisedLock);
+    if (gSupervised) gSupervised->post({Event::Timer, "shutdown"});
+}
+
+static void refreshInstallInfo();
+
 static Outcome supervise(const wstring &electron) {
     string spawnedHead;
     try { spawnedHead = gGit->run({"rev-parse", "HEAD"}, P.app()); } catch (const LauncherError &) {}
@@ -2025,6 +2842,7 @@ static Outcome supervise(const wstring &electron) {
     } catch (const LauncherError &e) {
         return {OutcomeKind::Failed, 0, string(), "Stella could not be started: " + e.message, {}};
     }
+    SupervisedRegistration registration(&process->events);
     process->events.after(O.readyTimeout, "ready-timeout");
 
     bool ready = false;
@@ -2045,6 +2863,9 @@ static Outcome supervise(const wstring &electron) {
                     readyAt = GetTickCount64();
                     LOG("supervisor: ready");
                     process->events.after(O.stableSeconds, "stable");
+                    // Hides the window; in the self-test, after its running
+                    // and Settings captures, so the quit timer starts after them.
+                    gUi->running();
                     if (O.selfTest) process->events.after(O.hold, "self-test-quit");
                 }
             } else if (op && !strcmp(op, "sign")) {
@@ -2079,11 +2900,12 @@ static Outcome supervise(const wstring &electron) {
                 try {
                     gGit->run({"update-ref", kKnownGoodRef, spawnedHead}, P.app());
                     LOG("supervisor: %ds stable; %s = %s", (int)O.stableSeconds, kKnownGoodRef, short12(spawnedHead).c_str());
+                    refreshInstallInfo();
                 } catch (const LauncherError &e) {
                     LOG("supervisor: could not mark known-good: %s", e.message.c_str());
                 }
-            } else if (name == "self-test-quit") {
-                LOG("supervisor: self-test asks Electron to quit");
+            } else if ((name == "self-test-quit" || name == "shutdown") && !quitRequested) {
+                LOG("supervisor: %s asks Electron to quit", name == "shutdown" ? "Shut down" : "self-test");
                 quitRequested = true;
                 process->send("{\"op\":\"quit\"}");
                 process->events.after(30, "quit-timeout");
@@ -2175,23 +2997,40 @@ static void returnToKnownGood() {
 
 static int gRecoveryCount = 0;
 
+// Settings' Version (short HEAD, "" before install) and whether there is a
+// last working version to return to.
+static void refreshInstallInfo() {
+    string version;
+    if (gGit && exists(P.app() + L"\\.git")) {
+        try {
+            CmdResult r = gGit->raw({"rev-parse", "--short=7", "HEAD"}, P.app());
+            if (r.code == 0) version = trim(r.out);
+        } catch (const LauncherError &) {
+        }
+    }
+    gUi->installInfo(version, hasKnownGood());
+}
+
 static Choice recover(const string &reason, const vector<string> &output) {
     gRecoveryCount++;
-    RecoveryDialog dialog;
+    Recovery recovery;
+    recovery.reason = reason;
+    recovery.output = output;
     bool forcedExit = false;
     if (O.selfTest) {
         if (O.recoveryChoice != Choice::None && gRecoveryCount == 1) {
-            dialog.automation = O.recoveryChoice;
-            dialog.automationDelay = 2;
+            recovery.automation = O.recoveryChoice;
+            recovery.automationDelay = 2;
         } else {
-            dialog.automation = Choice::Quit;
-            dialog.automationDelay = 1.5;
+            recovery.automation = Choice::Quit;
+            recovery.automationDelay = 1.5;
             forcedExit = true;
         }
     }
-    if (!O.captureDir.empty()) dialog.capturePath = O.captureDir + L"\\recovery-" + std::to_wstring(gRecoveryCount) + L".bmp";
-    dialog.hasKnownGood = hasKnownGood();
-    Choice choice = dialog.present(reason, output);
+    if (!O.captureDir.empty()) recovery.capturePath = O.captureDir + L"\\recovery-" + std::to_wstring(gRecoveryCount) + L".png";
+    refreshInstallInfo();
+    recovery.hasKnownGood = hasKnownGood();
+    Choice choice = gUi->failed(recovery);
     if (forcedExit) LOG("launcher: self-test failed: %s", reason.c_str());
     return choice;
 }
@@ -2210,10 +3049,14 @@ static string refusalMessage(Verdict verdict, const vector<string> &dirty) {
     }
 }
 
-static wstring prepareForLaunch() {
+static void ensureTools() {
     for (auto &dir : {P.root, P.logs(), P.runtimes()}) mkdirs(dir);
     if (!gGit) ensureGit();
     if (!gSigner) gSigner.reset(new TreeSigner());
+}
+
+static wstring prepareForLaunch() {
+    ensureTools();
     if (!exists(P.app() + L"\\.git")) {
         cloneSource();
         // The initial clone is signed at install.
@@ -2227,20 +3070,39 @@ static wstring prepareForLaunch() {
         fail(refusalMessage(verdict, dirty));
     }
     LOG("verify: HEAD signed and clean");
+    refreshInstallInfo();
     ensureBun();
     return prepare();
 }
 
 static int run() {
     LOG("launcher: start root=%s selfTest=%d pid=%lu", utf8(P.root).c_str(), O.selfTest ? 1 : 0, GetCurrentProcessId());
+    adoptGit();
+    refreshInstallInfo();
+    // Nothing starts until the user presses Start (the self-test presses it).
+    Choice next = gUi->idle();
+    if (next == Choice::Quit || next == Choice::None) return 0;
     vector<ULONGLONG> crashTimes;
     for (;;) {
         bool failed = false;
         string reason;
         vector<string> output;
         try {
+            if (next == Choice::Return || next == Choice::Reinstall) {
+                gUi->starting(next == Choice::Return ? "Returning to the last working version…" : "Reinstalling Stella…", false);
+                ensureTools();
+                try {
+                    if (next == Choice::Return) returnToKnownGood();
+                    else reinstall();
+                } catch (const LauncherError &e) {
+                    LOG("recovery: %s failed: %s", choiceName(next), e.message.c_str());
+                }
+            }
+            next = Choice::Retry;
+            // Relaunches and the crash restart stay hidden; the heavy steps
+            // in prepareForLaunch bring the window up.
+            gUi->starting("Starting Stella…", false);
             wstring electron = prepareForLaunch();
-            gProgress.hide();
             Outcome outcome = supervise(electron);
             switch (outcome.kind) {
             case OutcomeKind::Quit:
@@ -2285,21 +3147,9 @@ static int run() {
             if (output.size() > kOutputLines) output.erase(output.begin(), output.end() - kOutputLines);
         }
         if (!failed) continue;
-        gProgress.hide();
         LOG("launcher: failure: %s", reason.c_str());
-        switch (recover(reason, output)) {
-        case Choice::Quit:
-        case Choice::None:
-            return 1;
-        case Choice::Retry:
-            continue;
-        case Choice::Return:
-            try { returnToKnownGood(); } catch (const LauncherError &e) { LOG("recovery: return failed: %s", e.message.c_str()); }
-            break;
-        case Choice::Reinstall:
-            try { reinstall(); } catch (const LauncherError &e) { LOG("recovery: reinstall failed: %s", e.message.c_str()); }
-            break;
-        }
+        next = recover(reason, output);
+        if (next == Choice::Quit || next == Choice::None) return 1;
     }
 }
 
@@ -2317,18 +3167,31 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
                            FILE_ATTRIBUTE_NORMAL, nullptr);
     parseOptions();
 
-    // One launcher per install root.
+    // One launcher per install root; opening Stella again shows its window.
     HANDLE lock = CreateFileW(P.lockFile().c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_ALWAYS,
                               FILE_ATTRIBUTE_NORMAL, nullptr);
     if (lock == INVALID_HANDLE_VALUE) {
+        if (showRunningLauncher()) {
+            LOG("launcher: another launcher owns %s; showed its window", utf8(P.root).c_str());
+            return 0;
+        }
         LOG("launcher: another launcher owns %s; exiting", utf8(P.root).c_str());
         return O.selfTest ? 1 : 0;
     }
     S = State::load();
     if (!P.isolated && !O.selfTest) installSelf();
 
-    int code = run();
+    static WebUi web;
+    static DialogUi dialogs;
+    int code;
+    if (web.create()) {
+        gUi = &web;
+        code = web.run(run);
+    } else {
+        gUi = &dialogs;
+        code = run();
+        gProgress.hide();
+    }
     LOG("launcher: exit %d", code);
-    gProgress.hide();
     return code;
 }

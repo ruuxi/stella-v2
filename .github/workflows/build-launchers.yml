@@ -132,7 +132,7 @@ jobs:
             packages/desktop/build
 
       - name: Install MinGW-w64
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends g++-mingw-w64-x86-64 binutils-mingw-w64-x86-64
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends g++-mingw-w64-x86-64 binutils-mingw-w64-x86-64 curl unzip
 
       - name: Build Stella.exe
         run: launcher/windows/build.sh

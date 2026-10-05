@@ -1,8 +1,9 @@
-// Icon, manifest and version information for Stella.exe (the launcher).
+// Icon, manifest, launcher page and version information for Stella.exe (the launcher).
 #include <windows.h>
 
 1 ICON "../../packages/desktop/build/icon.ico"
 CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "stella-launcher.manifest"
+LAUNCHER_HTML RCDATA "../common/launcher.html"
 
 VS_VERSION_INFO VERSIONINFO
 FILEVERSION 1,0,0,0

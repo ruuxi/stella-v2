@@ -2,23 +2,32 @@
  * The top-bar activity indicator, as behaviour rather than pixels.
  *
  * Mobile grew this first: Stella's mark sits in the top bar, and while
- * background work runs the mark moves aside and a label reads the work out —
+ * background work runs the mark glides aside and a label reads the work out —
  * the single running agent's own description, or a count once several are
  * going. Desktop now shows the same thing in its own top bar, so the parts
  * that decide WHAT is shown and WHEN it moves live here instead of being
  * written twice. Each platform keeps only its own rendering: Reanimated and
- * the glass pill on mobile, `motion/react` and the DOM on desktop.
+ * `GlassSurface` on mobile, `motion/react` and the DOM on desktop.
  *
  * Nothing here imports React or a renderer, so the module is safe for any
  * consumer of `@stella/contracts`.
  */
 
-/** One in-progress agent, as the indicator sees it. */
+/** One in-progress agent, as the indicator and its menu see it. */
 export type ActivityIndicatorEntry = {
   id: string;
   /** The agent's own description — never live tool narration. */
   title: string;
 };
+
+/**
+ * How many rows the indicator's menu lists before it stops.
+ *
+ * Carried over from the activity panel the desktop top bar replaced, whose
+ * overview capped its agent list at the same number. Both platforms use it so
+ * the menu is the same list everywhere.
+ */
+export const ACTIVITY_INDICATOR_MENU_MAX_ROWS = 9;
 
 /**
  * `spawn` plays the thinking bounce for a newly started agent before the mark
@@ -89,3 +98,9 @@ export const selectActivityIndicatorLabel = (
   if (running.length === 1) return running[0]!.title;
   return formatCount(running.length);
 };
+
+/** The rows the menu lists, capped. */
+export const activityIndicatorMenuEntries = (
+  running: readonly ActivityIndicatorEntry[],
+): ActivityIndicatorEntry[] =>
+  running.slice(0, ACTIVITY_INDICATOR_MENU_MAX_ROWS);

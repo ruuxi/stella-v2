@@ -69,17 +69,19 @@ const NO_RUNNING_AGENTS: ActivityIndicatorEntry[] = [];
  * the work beside the mark: the task's own description for one, a short
  * count for several. A new task plays the thinking bounce before settling
  * into a work pose; when everything finishes the mark pops once and the
- * pill closes back around it.
+ * pill closes back around it. Pressing it opens the menu of what is running.
  *
  * The timings, the phase machine and the choice of label come from
  * `@stella/contracts/activity-indicator`; desktop's own top-bar indicator
  * reads the same module, so the two can't drift into different behaviour.
  * Desktop renders without the pill — the window chrome stands in for it.
- *
- * Which agents count is the owner-governed top-level set, matching the
- * Activity list's groups rather than every raw task.
  */
-export function StellaStatusHeader({ onPress }: { onPress: () => void }) {
+export function StellaStatusHeader({
+  onPress,
+}: {
+  /** Opens the menu of in-progress agents. Inert while nothing runs. */
+  onPress: (running: readonly ActivityIndicatorEntry[]) => void;
+}) {
   const t = useT();
   const colors = useColors();
   const hub = useActivityHub();
@@ -210,7 +212,9 @@ export function StellaStatusHeader({ onPress }: { onPress: () => void }) {
       <StatusPill
         width={width}
         slotWidth={slotWidth}
-        onPress={onPress}
+        onPress={() => {
+          if (busy) onPress(running);
+        }}
         accessibilityLabel={busy && label ? label : "Stella"}
       >
         <Animated.View style={[styles.mark, markStyle]}>

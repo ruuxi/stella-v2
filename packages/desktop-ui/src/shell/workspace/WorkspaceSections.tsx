@@ -72,14 +72,22 @@ import { ActivityTaskShimmer } from "@/shell/ActivityTaskShimmer";
 import { AgentAssistantUpdates } from "@/shell/AgentAssistantUpdates";
 import { CompactChildState } from "@/features/chat/components/CompactSubagentSummary";
 import { useContinuousAnimationGate } from "@/shared/hooks/use-continuous-animation-gate";
+import { ACTIVITY_INDICATOR_MENU_MAX_ROWS } from "@stella/contracts/activity-indicator";
 import "@/app/chat/chat-workspace-strip.css";
 
 // Default per-section caps. The compact strip shows a small preview; the
 // group overview shows more. An active search ignores caps entirely
 // (see `caps` below) and pages in the full dataset.
+//
+// The overview's activity cap is the shared indicator-menu cap: this overview
+// IS the menu the top-bar indicator opens, on desktop and on mobile alike.
 const SECTION_CAPS = {
   strip: { activity: 8, files: 5, schedule: 4 },
-  overview: { activity: 9, files: 6, schedule: 6 },
+  overview: {
+    activity: ACTIVITY_INDICATOR_MENU_MAX_ROWS,
+    files: 6,
+    schedule: 6,
+  },
 } as const;
 // Search still scans every loaded record, but rendering an unbounded match
 // set made a common query mount hundreds of rows at once.

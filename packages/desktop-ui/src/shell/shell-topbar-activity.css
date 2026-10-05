@@ -25,7 +25,7 @@
   -webkit-app-region: no-drag;
 }
 
-.shell-topbar-activity__group {
+.shell-topbar-activity__trigger {
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -33,8 +33,31 @@
   min-width: 0;
   height: 26px;
   padding: 0 6px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
   color: var(--text-base);
   font: inherit;
+  cursor: default;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+  transition: color 120ms ease;
+}
+
+.shell-topbar-activity__trigger:disabled {
+  /* Idle: the mark is presentation, not a control. */
+  cursor: default;
+  pointer-events: none;
+}
+
+.shell-topbar-activity__trigger:not(:disabled):hover,
+.shell-topbar-activity__trigger[data-open] {
+  color: var(--text-strong);
+}
+
+.shell-topbar-activity__trigger:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
 }
 
 .shell-topbar-activity__mark {
@@ -54,4 +77,34 @@
   line-height: 1.3;
   letter-spacing: -0.01em;
   color: inherit;
+}
+
+/* The menu — the agent list the right-hand activity panel used to show,
+   including its cap, now opened from the bar. */
+
+[data-component="popover-content"].shell-topbar-activity-menu-popover {
+  width: 22rem;
+  max-width: calc(100vw - 32px);
+  overflow: hidden;
+  background: var(--panel-surface-bg-gradient), var(--background);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: 1px solid var(--panel-surface-border);
+  box-shadow: var(--shadow-overlay), var(--panel-surface-highlight);
+}
+
+/* Sized to the row count rather than a fixed box: a short list stays compact,
+   and only once the content passes the cap does the menu settle at its max
+   height and scroll (through `.sidebar-search__body`'s own overflow). */
+.shell-topbar-activity-menu {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: min(60vh, 32rem);
+  overflow: hidden;
+}
+
+.shell-topbar-activity-menu > .sidebar-search {
+  flex: 1 1 auto;
+  min-height: 0;
 }

@@ -10,6 +10,31 @@ does not perform work directly. It spawns agents to perform work either locally
 on the user's computer or in the cloud. All agents run in the background, so
 Stella is always able to respond without being blocked.
 
+### Stella modifies itself
+
+The differentiator: users change Stella itself by asking Stella. The desktop
+app runs from its own source (a git checkout in the app dir, renderer served
+from source, runtime on Bun, no packaging), started by the native launchers in
+`launcher/`. The source lives on Cloudflare Artifacts: one `upstream` repo
+that we publish, plus a private fork per user.
+
+- A change the user asks for is made by an agent in a draft (a git worktree
+  under the drafts dir), checked in a preview window inside the running app,
+  and applied only when the user clicks Update. Applying fast-forwards the
+  checkout and pushes it to the user's fork; Undo reverts. The agent workflow
+  is the seeded skill `packages/home-seed/skills/modify-stella/SKILL.md`.
+- The user's other computers fetch the fork and offer "Add to this computer";
+  nothing is applied on a device without a click there.
+- Our official updates are merges from `upstream`, offered by the Update pill
+  in the top bar. When they conflict with the user's own changes, an agent
+  merges in the background.
+- The app only ever fast-forwards; any divergence is merged by an agent, never
+  by git's automatic three-way merge.
+- Code lives in `packages/desktop/electron/services/app-source/` and
+  `packages/desktop-ui/src/features/app-source/`; publishing upstream is
+  `bun run app-source:publish -- --namespace <ns>`. Fetch from Artifacts over
+  git protocol v2 (its v1 fetch is broken); push over v1.
+
 ## Cloud agents: required environment
 
 The clone plus `bun install --frozen-lockfile` is enough to typecheck and run

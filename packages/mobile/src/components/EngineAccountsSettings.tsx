@@ -63,6 +63,8 @@ import { useT } from "../i18n";
 type Section = {
   provider: EngineProvider;
   titleKey: string;
+  /** The connect row names its own provider, so it reads alone. */
+  connectKey: string;
   autoSwitchKey: string;
   pasteHintKey: string;
 };
@@ -71,12 +73,14 @@ const SECTIONS: Section[] = [
   {
     provider: "anthropic",
     titleKey: "mobile.engineAccounts.claudeSection",
+    connectKey: "mobile.engineAccounts.connectClaude",
     autoSwitchKey: "mobile.engineAccounts.autoSwitchClaude",
     pasteHintKey: "mobile.engineAccounts.pasteHintClaude",
   },
   {
     provider: "chatgpt",
     titleKey: "mobile.engineAccounts.chatgptSection",
+    connectKey: "mobile.engineAccounts.connectChatgpt",
     autoSwitchKey: "mobile.engineAccounts.autoSwitchChatgpt",
     pasteHintKey: "mobile.engineAccounts.pasteHintChatgpt",
   },
@@ -205,6 +209,7 @@ export function EngineAccountSection({
       styles={styles}
       settingsStyles={settingsStyles}
       colors={colors}
+      showHeader={false}
     />
   );
 }
@@ -467,12 +472,20 @@ function ProviderSection({
   styles,
   settingsStyles,
   colors,
+  showHeader = true,
 }: {
   section: Section;
   settings: EngineSettings | undefined;
   styles: ReturnType<typeof makeStyles>;
   settingsStyles: ReturnType<typeof makeSettingsStyles>;
   colors: Colors;
+  /**
+   * Off where only one provider can be on screen and something else already
+   * named it — the connect row says "Connect Claude account" under an engine
+   * control that says Claude, so a "Claude" header is the word three times.
+   * On where both providers stack and the headers are what tells them apart.
+   */
+  showHeader?: boolean;
 }) {
   const t = useT();
   const connect = useEngineConnect(section.provider);
@@ -662,7 +675,9 @@ function ProviderSection({
 
   return (
     <View style={settingsStyles.section}>
-      <Text style={settingsStyles.sectionLabel}>{t(section.titleKey)}</Text>
+      {showHeader ? (
+        <Text style={settingsStyles.sectionLabel}>{t(section.titleKey)}</Text>
+      ) : null}
       <View style={settingsStyles.group}>
         {accounts.map((row, index) => {
           const name = row.email ?? row.name ?? row.label;
@@ -769,11 +784,7 @@ function ProviderSection({
           <View style={[styles.avatar, styles.addAvatar]}>
             <Icon name="plus" size={18} color={colors.text} />
           </View>
-          <Text style={settingsStyles.rowLabel}>
-            {chatgpt
-              ? t("mobile.engineAccounts.continueWithChatgpt")
-              : t("mobile.engineAccounts.addAccount")}
-          </Text>
+          <Text style={settingsStyles.rowLabel}>{t(section.connectKey)}</Text>
         </Pressable>
       </View>
 

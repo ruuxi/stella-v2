@@ -2483,7 +2483,6 @@
       "backLabel": "Back to Settings",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
-      "addAccount": "Add account",
       "active": "In use",
       "useAccount": "Use this account",
       "signOut": "Sign out",
@@ -2505,7 +2504,6 @@
       "pastePlaceholderUrl": "Paste the address here",
       "openChatgptAgain": "Open ChatGPT again",
       "chatgptBrowserWaiting": "Finish signing in to ChatGPT in your browser.",
-      "continueWithChatgpt": "Continue with ChatGPT",
       "signInAgain": "Sign in again",
       "enablePlanUsage": "Enable ChatGPT plan use",
       "remove": "Remove",
@@ -2518,7 +2516,9 @@
       "manageUsage": "Manage usage",
       "revokeUnconfirmed": "ChatGPT didn't confirm the sign-out. You can disconnect Stella in ChatGPT Settings.",
       "planWelcomeTitle": "You're using your ChatGPT plan",
-      "planWelcomeBody": "ChatGPT requests in Stella's cloud count against your ChatGPT plan. Review usage and set Stella's limit in ChatGPT Settings."
+      "planWelcomeBody": "ChatGPT requests in Stella's cloud count against your ChatGPT plan. Review usage and set Stella's limit in ChatGPT Settings.",
+      "connectClaude": "Connect Claude account",
+      "connectChatgpt": "Connect ChatGPT account"
     }
   },
   "companion": {

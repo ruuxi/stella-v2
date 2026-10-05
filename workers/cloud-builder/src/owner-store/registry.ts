@@ -173,6 +173,13 @@ export type DeviceAgentTurnDispatch = {
   requestingDeviceId?: string;
   /** The requester's `spawn_agent` model the device runs the agent on. */
   model?: string;
+  /**
+   * Drive paths of the spawning turn's attachments. The device resolves these
+   * to signed GETs and materializes them into its own attachment cache, so the
+   * agent is handed an absolute local path rather than a drive path it has no
+   * way to interpret.
+   */
+  attachments?: readonly string[];
   requeue?: number;
 };
 

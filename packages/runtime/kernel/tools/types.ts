@@ -21,6 +21,7 @@ import type {
   RuntimeThreadLiveState,
   RuntimeThreadRecord,
 } from "../runtime-threads.js";
+import type { RuntimeAttachmentRef } from "@stella/contracts/protocol";
 import type { PersistedRuntimeThreadPayload } from "../storage/shared.js";
 import type { ToolReplayPolicy } from "./defs/replay-policy.js";
 
@@ -204,6 +205,12 @@ export type AgentToolRequest = {
   description: string;
   prompt: string;
   agentType: string;
+  /**
+   * Attachments the agent inherits, already materialized into local files with
+   * a `sourcePath`. Named in the agent's brief so it can Read them and pass
+   * the paths on; an agent never receives the conversation's image blocks.
+   */
+  attachments?: RuntimeAttachmentRef[];
   /**
    * Per-spawn model override (plain model-reference string, e.g.
    * `stella/light` or `anthropic/claude-...`). Resolved through the normal

@@ -755,6 +755,11 @@ export class StellaRuntimeHost {
                                 executionId: placementLocalAgentThreadId(dispatch.dispatchId),
                             }
                             : { threadId: placementLocalAgentThreadId(dispatch.dispatchId) }),
+                        // Resolved above for both dispatch kinds. The chat
+                        // branch has always used them; discarding them here is
+                        // what left a placed agent searching the local
+                        // filesystem for a drive path it could not resolve.
+                        ...(attachments.length > 0 ? { attachments } : {}),
                     }, {
                         ensureWorker: true,
                         recordActivity: true,

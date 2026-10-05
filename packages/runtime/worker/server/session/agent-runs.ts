@@ -92,6 +92,16 @@ export interface Interface {
     };
     userMessageEventId?: string;
   }) => Promise<unknown>;
+  /**
+   * Turn a placed agent's attachments into real local files before the agent
+   * starts. The host resolved each one to a short-lived signed drive GET; the
+   * bytes land in this profile's conversation attachment cache and the agent
+   * is handed absolute paths, which is the only form it can act on.
+   */
+  readonly materializeAgentAttachments: (payload: {
+    conversationId: string;
+    attachments?: RuntimeAttachmentRef[];
+  }) => Promise<RuntimeAttachmentRef[]>;
   readonly oneShotCompletion: (
     request: RuntimeOneShotCompletionRequest,
   ) => Promise<RuntimeOneShotCompletionResult>;
@@ -1242,6 +1252,17 @@ export const layer = Layer.effect(
       });
     };
 
+    const materializeAgentAttachments: Interface["materializeAgentAttachments"] =
+      async (payload) =>
+        payload.attachments?.length
+          ? await materializeFileAttachments({
+              attachments: payload.attachments,
+              stellaDataDirPath: config.get().stellaDataDirPath,
+              conversationId: payload.conversationId,
+              includeImages: true,
+            })
+          : [];
+
     const oneShotCompletion: Interface["oneShotCompletion"] = async (
       request,
     ) => {
@@ -1324,6 +1345,7 @@ export const layer = Layer.effect(
       startChat,
       sendAgentInput,
       runAutomation,
+      materializeAgentAttachments,
       oneShotCompletion,
       resumeInterruptedRuns,
     };

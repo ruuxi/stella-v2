@@ -576,6 +576,13 @@ export type RuntimeLocalAgentRequest = {
    * cannot run fails the agent with the reason.
    */
   requestedModel?: string;
+  /**
+   * The spawning turn's attachments, already resolved by the host to
+   * short-lived signed drive GETs. The worker downloads them into the
+   * conversation's attachment cache and gives the agent absolute paths; a
+   * drive path on its own means nothing on a device.
+   */
+  attachments?: RuntimeAttachmentRef[];
 };
 
 export type RuntimeLocalAgentSteerRequest = {

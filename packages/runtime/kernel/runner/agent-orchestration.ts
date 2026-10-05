@@ -592,6 +592,7 @@ export const createAgentOrchestration = (
       agentContext,
       taskDescription,
       taskPrompt,
+      attachments,
       persistToCloud,
       ownerGeneration,
       abortSignal,
@@ -680,6 +681,12 @@ export const createAgentOrchestration = (
         rootRunId,
         agentType,
         userPrompt: composedUserPrompt,
+        // Already materialized into local files with a `sourcePath`, so the
+        // run names the paths in the brief rather than inlining pixels the
+        // agent may not need.
+        ...(Array.isArray(attachments) && attachments.length > 0
+          ? { attachments }
+          : {}),
         agentContext,
         toolCatalog: context.toolHost.getToolCatalog(agentType, {
           model: resolvedLlm.toolPolicyModel ?? resolvedLlm.model,

@@ -10890,6 +10890,12 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
               description: args.description,
               prompt: args.prompt,
               ...(model && model !== "default" ? { model } : {}),
+              // Inherited from the turn, not asked of the model. Telling it to
+              // forward drive paths is what produced an agent hunting a local
+              // filesystem for `uploads/...`; the device resolves these itself.
+              ...(turn.attachments?.length
+                ? { attachments: turn.attachments }
+                : {}),
             });
             waitingForDevice = admitted.waitingForDevice === true;
             outcome = await this.commitCloudAgentToolOutcome(

@@ -223,19 +223,29 @@ export const materializeImageAttachments = async (
 /** Documents are downloaded by the worker, never decoded in the renderer.
  * Hosted URLs are owner-authorized signed URLs resolved by the placement host.
  * Keep the resulting files under this profile's conversation attachment cache.
+ *
+ * `includeImages` is what a placed agent needs. A chat turn inlines its images
+ * as pixels and only documents need a path, but an agent receives a prompt and
+ * nothing else, so every attachment has to become a file it can Read. Images
+ * keep `kind: "image"` so the announcement names them accurately.
  */
 export const MAX_FILE_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 export const materializeFileAttachments = async (args: {
   attachments?: RuntimeAttachmentRef[];
   stellaDataDirPath: string;
   conversationId: string;
+  includeImages?: boolean;
 }): Promise<RuntimeAttachmentRef[]> => {
   const files: RuntimeAttachmentRef[] = [];
   for (const attachment of args.attachments ?? []) {
     const url = asTrimmedString(attachment.url);
     const mimeType = normalizeAttachmentMimeType(attachment.mimeType);
-    if (!url || attachment.kind === "image") continue;
-    if (attachment.kind !== "file" && (!mimeType || mimeType.startsWith("image/"))) continue;
+    const isImage =
+      attachment.kind === "image" ||
+      (attachment.kind !== "file" && Boolean(mimeType) && mimeType.startsWith("image/"));
+    if (!url) continue;
+    if (isImage && !args.includeImages) continue;
+    if (!isImage && attachment.kind !== "file" && !mimeType) continue;
     const name = attachment.name || "attachment";
     try {
       let sourcePath: string;
@@ -284,7 +294,13 @@ export const materializeFileAttachments = async (args: {
         sourcePath = path.join(dir, `${randomUUID()}-${safeName}`);
         await fsPromises.writeFile(sourcePath, data, { flag: "wx", mode: 0o600 });
       }
-      files.push({ ...attachment, url: sourcePath, sourcePath, size, kind: "file" });
+      files.push({
+        ...attachment,
+        url: sourcePath,
+        sourcePath,
+        size,
+        kind: isImage ? "image" : "file",
+      });
     } catch (error) {
       // Fail explicitly rather than silently claiming an inaccessible document
       // was supplied. Never log a signed download URL.

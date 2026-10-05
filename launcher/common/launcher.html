@@ -691,8 +691,11 @@
 
         window.stellaLauncher = { render, showSettings };
         render();
-        // Fonts are data URIs; wait for them so the first frame is the real one.
-        document.fonts.ready.then(() => requestAnimationFrame(() => act("loaded")));
+        // Load the fonts before the window shows, so its first frame is the
+        // real one. No requestAnimationFrame: a hidden webview never runs it.
+        Promise.all([document.fonts.load('40px "Stella Display"'), document.fonts.load('600 13px "Stella Text"')])
+          .catch(() => {})
+          .then(() => act("loaded"));
       })();
     </script>
   </body>

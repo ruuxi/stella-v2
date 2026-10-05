@@ -204,5 +204,7 @@ export const publicTurnStateCheckpointReceipt = (
 ): TurnBrokerTurnStateCheckpointReceipt => ({
   operationId: candidate.operationId,
   historyCursor: candidate.historyCursor,
-  manifestId: candidate.workspace.manifestId,
+  ...(candidate.workspace
+    ? { manifestId: candidate.workspace.manifestId }
+    : {}),
 });

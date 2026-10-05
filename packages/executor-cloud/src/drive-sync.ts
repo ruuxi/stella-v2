@@ -33,7 +33,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { lstat } from "node:fs/promises";
+import { lstat, readdir } from "node:fs/promises";
 import path from "node:path";
 import {
   readWorkspaceFileNoFollow,
@@ -709,6 +709,20 @@ type Hydration =
   | { kind: "conflict"; path: string; driveMoved: true }
   | { kind: "skipped"; path: string; reason: string };
 
+/**
+ * Whether the drive tree holds anything besides its hydration state: the
+ * disk itself, not the agent-writable ledger, is what can prove that a
+ * restored tree has no copy to go stale.
+ */
+const driveTreeHoldsFiles = async (
+  workspaceRoot: string,
+  stateRelative: string,
+): Promise<boolean> => {
+  const stateEntry = stateRelative.split(path.sep)[0];
+  const entries = await readdir(workspaceRoot);
+  return entries.some((entry) => entry !== stateEntry);
+};
+
 export const materializeDriveFiles = async (options: {
   turnId: string;
   prompt: string;
@@ -808,7 +822,12 @@ export const materializeDriveFiles = async (options: {
   }
   if (
     manifest.deletedComplete === false &&
-    options.workspaceRestored !== false
+    options.workspaceRestored !== false &&
+    // A restored tree with nothing in it but hydration state holds no copy
+    // that could be stale, so this full sync is already the complete
+    // authoritative resync. That is the workspace an owner has when the
+    // builder restored a world no agent ever hydrated a drive into.
+    (await driveTreeHoldsFiles(workspaceRoot, stateRelative))
   ) {
     // The restored checkpoint may contain a file deleted before the server's
     // retained tombstone window. Running an agent now would present that stale

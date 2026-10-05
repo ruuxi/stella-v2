@@ -161,7 +161,7 @@ export interface BuildSessionInternals {
     turn: TurnRequest,
     canonicalHistoryCursor: string,
     operationId: string,
-  ): Promise<TurnStateWorkspaceHead>;
+  ): Promise<TurnStateWorkspaceHead | undefined>;
   confirmAgentTurnStateRestore(
     turn: TurnRequest,
     canonicalHistoryCursor: string,

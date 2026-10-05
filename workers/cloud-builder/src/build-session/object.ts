@@ -377,7 +377,7 @@ export class BuildSessionObject extends DurableObject<Env> {
     turn: TurnRequest,
     canonicalHistoryCursor: string,
     operationId: string,
-  ): Promise<TurnStateWorkspaceHead> {
+  ): Promise<TurnStateWorkspaceHead | undefined> {
     return publishAgentTurnWorkspace(
       this.self,
       turn,

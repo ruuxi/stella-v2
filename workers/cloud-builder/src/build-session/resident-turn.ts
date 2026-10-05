@@ -1269,6 +1269,12 @@ export const commitResidentTurnDurability = async (
     });
     return { kind: "transcript_only", transcript };
   }
+  // Only the orchestrator's native-only checkpoint names no world, and the
+  // orchestrator never runs as a resident agent.
+  const manifestId = checkpoint.manifestId;
+  if (manifestId === undefined) {
+    throw new Error("A resident turn's checkpoint named no world manifest.");
+  }
   const transcript = await control.appendAndVerifyTranscript(sealed);
   try {
     await host.publishResidentTurnWorkspace(turn, execution, checkpoint);
@@ -1294,7 +1300,7 @@ export const commitResidentTurnDurability = async (
     kind: "workspace_manifest",
     transcript,
     historyCursor: checkpoint.historyCursor,
-    manifestId: checkpoint.manifestId,
+    manifestId,
   };
 };
 

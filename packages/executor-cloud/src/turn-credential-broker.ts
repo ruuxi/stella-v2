@@ -383,14 +383,19 @@ const parseCheckpointReceipt = (
   }
   const candidate = value as Record<string, unknown>;
   const keys = Object.keys(candidate).sort();
-  const expectedKeys = "historyCursor,manifestId,operationId";
+  // A native-only (orchestrator) checkpoint names no world manifest.
+  const nativeOnly = !Object.hasOwn(candidate, "manifestId");
+  const expectedKeys = nativeOnly
+    ? "historyCursor,operationId"
+    : "historyCursor,manifestId,operationId";
   if (
     keys.join(",") !== expectedKeys ||
     typeof candidate.operationId !== "string" ||
     !/^[0-9a-f]{64}$/.test(candidate.operationId) ||
     candidate.historyCursor !== request.historyCursor ||
-    typeof candidate.manifestId !== "string" ||
-    !/^[0-9a-f]{64}$/.test(candidate.manifestId)
+    (!nativeOnly &&
+      (typeof candidate.manifestId !== "string" ||
+        !/^[0-9a-f]{64}$/.test(candidate.manifestId)))
   ) {
     throw new Error("Native state checkpoint receipt is invalid.");
   }

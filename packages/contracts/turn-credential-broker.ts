@@ -83,5 +83,9 @@ export type TurnBrokerTurnStateCheckpointRequest = {
 export type TurnBrokerTurnStateCheckpointReceipt = {
   operationId: string;
   historyCursor: string;
-  manifestId: string;
+  /**
+   * The world manifest the checkpoint sealed. Absent for the orchestrator's
+   * native-only checkpoint, which never has the world on disk.
+   */
+  manifestId?: string;
 };

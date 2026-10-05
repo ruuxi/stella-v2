@@ -55,7 +55,7 @@ export const isTurnStateAuthorityError = (error: unknown): boolean =>
 export class TurnStateRegistryBookkeepingError extends Error {
   constructor(
     readonly historyCursor: string,
-    readonly manifestId: string,
+    readonly manifestId: string | undefined,
     cause: unknown,
   ) {
     super(

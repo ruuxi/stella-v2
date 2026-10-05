@@ -108,7 +108,7 @@ type RegistryOperationRecord = {
   operationId: string;
   requestFingerprint: string;
   historyCursor: string;
-  manifestId: string;
+  manifestId?: string;
   nativeCheckpoint?: TurnStateNativeCheckpoint;
   objectKeys: { native?: string };
   state: "prepared" | "committed";
@@ -823,7 +823,7 @@ const candidateReceipt = async (
       candidate.operationId,
       candidate.requestFingerprint,
       candidate.historyCursor,
-      candidate.workspace.manifestId,
+      candidate.workspace?.manifestId ?? null,
       candidate.native ?? null,
       candidate.nativeCheckpoint ?? null,
     ]),
@@ -971,7 +971,7 @@ const abortUnpublishedTurnState = async (
     !sameJson(operation.objectKeys, {
       ...(threadCandidate.native ? { native: threadCandidate.native.key } : {}),
     }) ||
-    operation.manifestId !== threadCandidate.workspace.manifestId
+    operation.manifestId !== threadCandidate.workspace?.manifestId
   ) {
     throw new TurnStateOwnerRouteError(
       "Turn state unpublished candidate is no longer abortable.",
@@ -1338,10 +1338,9 @@ export const handleTurnStateOwnerRoute = async (args: {
           "attemptGeneration",
           "requestFingerprint",
           "historyCursor",
-          "manifestId",
           "createdAt",
         ],
-        ["nativeCheckpoint", "nativeOnly"],
+        ["manifestId", "nativeCheckpoint", "nativeOnly"],
       );
       validateSchemaVersion(row);
       const lease = parseCommonLease(row);
@@ -1367,6 +1366,15 @@ export const handleTurnStateOwnerRoute = async (args: {
         );
       }
       const nativeOnly = row.nativeOnly === true;
+      // A native-only operation names no world; every other one names the
+      // manifest it sealed.
+      if (nativeOnly === Object.hasOwn(row, "manifestId")) {
+        throw new TurnStateOwnerRouteError(
+          "manifestId is invalid.",
+          400,
+          "invalid_request",
+        );
+      }
       const prepared = await withCurrentOpenLeaseTransaction(
         args,
         lease,
@@ -1375,8 +1383,9 @@ export const handleTurnStateOwnerRoute = async (args: {
             identity,
             requestFingerprint,
             historyCursor,
-            manifestId: requiredHex(row, "manifestId"),
-            ...(nativeOnly ? { nativeOnly: true as const } : {}),
+            ...(nativeOnly
+              ? { nativeOnly: true as const }
+              : { manifestId: requiredHex(row, "manifestId") }),
             ...(nativeCheckpoint ? { nativeCheckpoint } : {}),
             createdAt,
           });

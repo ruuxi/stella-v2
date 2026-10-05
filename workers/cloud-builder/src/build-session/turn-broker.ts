@@ -124,7 +124,7 @@ const BROWSER_GATEWAY_RESPONSE_MAX_BYTES = 16 * 1024 * 1024;
 
 const registryBookkeepingAfterCheckpoint = async <T>(
   historyCursor: string,
-  manifestId: string,
+  manifestId: string | undefined,
   operation: () => Promise<T>,
 ): Promise<T> => {
   try {
@@ -283,7 +283,7 @@ export const publishAgentTurnWorkspace = async (
   turn: TurnRequest,
   canonicalHistoryCursor: string,
   operationId: string,
-): Promise<TurnStateWorkspaceHead> => {
+): Promise<TurnStateWorkspaceHead | undefined> => {
   const published = await host.callOwnerTurnState<{
     workspaceHead?: TurnStateWorkspaceHead;
     publicationReceipt?: unknown;
@@ -295,9 +295,13 @@ export const publishAgentTurnWorkspace = async (
   });
   const head = published?.workspaceHead;
   if (
-    !head ||
-    head.historyCursor !== canonicalHistoryCursor ||
-    !/^[0-9a-f]{64}$/u.test(head.manifestId) ||
+    !published ||
+    // The orchestrator's native-only operation publishes no head.
+    (turn.agentRole === "orchestrator"
+      ? head !== undefined
+      : !head ||
+        head.historyCursor !== canonicalHistoryCursor ||
+        !/^[0-9a-f]{64}$/u.test(head.manifestId)) ||
     typeof published.publicationReceipt !== "string" ||
     !/^[0-9a-f]{64}$/u.test(published.publicationReceipt) ||
     typeof published.replayed !== "boolean"
@@ -400,6 +404,9 @@ export const abortUnpublishedTurnStateOperation = async (
         attemptGeneration: turn.attemptGeneration,
         requestFingerprint: operation.requestFingerprint,
         historyCursor: operation.payload.historyCursor,
+        ...(turn.agentRole === "orchestrator"
+          ? { nativeOnly: true as const }
+          : {}),
         createdAt: operation.createdAt,
         ...(operation.payload.nativeCheckpoint
           ? { nativeCheckpoint: operation.payload.nativeCheckpoint }
@@ -490,34 +497,24 @@ export const executeTurnStateCheckpoint = async (
   const { turn, operationKey, operation } = args;
   await host.assertTurnWritable(turn);
   host.assertAgentTurnIdentity(turn);
-  // The orchestrator's CLI thread never has the world materialized, so its
-  // checkpoint is native state only: it names the owner's published
-  // workspace head instead of sealing the shared world at its own cursor,
-  // and its publication never moves that head.
+  // The orchestrator's CLI thread never has the world on disk, so its
+  // checkpoint is native state only: it never seals the shared world, names
+  // no manifest, and its publication never creates or moves the owner's
+  // workspace head. A head is what tells the next agent turn its workspace
+  // is a restored checkpoint, so one seeded here would send that agent's
+  // Drive hydration into a world that never held a drive ledger.
   const nativeOnly = turn.agentRole === "orchestrator";
-  const publishedHead = nativeOnly
-    ? (
-        await host.callOwnerTurnState<{
-          workspace?: { manifestId?: unknown };
-        }>(turn, "resolve", {
-          threadId: turn.threadId,
-          canonicalHistoryCursor: operation.payload.historyCursor,
-          requireNative: false,
-        })
-      )?.workspace?.manifestId
-    : undefined;
-  const worldCheckpoint =
-    typeof publishedHead === "string" && /^[0-9a-f]{64}$/u.test(publishedHead)
-      ? { manifestId: publishedHead }
-      : // An owner with no published head yet: seal the world once so the
-        // operation names a real manifest. Nothing in it came from this turn.
+  const manifestId = nativeOnly
+    ? undefined
+    : (
         await host.env.WORLDS.getByName(
           await worldName(turn.ownerId),
-        ).checkpoint({ historyCursor: operation.payload.historyCursor });
+        ).checkpoint({ historyCursor: operation.payload.historyCursor })
+      ).manifestId;
 
   const prepared = await registryBookkeepingAfterCheckpoint(
     operation.payload.historyCursor,
-    worldCheckpoint.manifestId,
+    manifestId,
     async () =>
       await host.callOwnerTurnState<PreparedTurnStateOperation>(
         turn,
@@ -527,8 +524,7 @@ export const executeTurnStateCheckpoint = async (
           attemptGeneration: turn.attemptGeneration,
           requestFingerprint: operation.requestFingerprint,
           historyCursor: operation.payload.historyCursor,
-          manifestId: worldCheckpoint.manifestId,
-          ...(nativeOnly ? { nativeOnly: true } : {}),
+          ...(nativeOnly ? { nativeOnly: true } : { manifestId }),
           createdAt: operation.createdAt,
           ...(operation.payload.nativeCheckpoint
             ? { nativeCheckpoint: operation.payload.nativeCheckpoint }
@@ -539,14 +535,14 @@ export const executeTurnStateCheckpoint = async (
   if (
     !prepared ||
     !/^[0-9a-f]{64}$/u.test(prepared.operationId) ||
-    prepared.manifestId !== worldCheckpoint.manifestId ||
+    prepared.manifestId !== manifestId ||
     (operation.payload.nativeCheckpoint
       ? typeof prepared.objectKeys.native !== "string"
       : prepared.objectKeys.native !== undefined)
   ) {
     throw new TurnStateRegistryBookkeepingError(
       operation.payload.historyCursor,
-      worldCheckpoint.manifestId,
+      manifestId,
       new Error("Turn state preparation receipt was invalid."),
     );
   }
@@ -608,7 +604,7 @@ export const executeTurnStateCheckpoint = async (
       const archive = nativeUpload.archive;
       await registryBookkeepingAfterCheckpoint(
         operation.payload.historyCursor,
-        worldCheckpoint.manifestId,
+        manifestId,
         async () =>
           await host.callOwnerTurnState(turn, "mark-uploaded", {
             operationId: prepared.operationId,
@@ -621,11 +617,11 @@ export const executeTurnStateCheckpoint = async (
     host.assertAgentTurnIdentity(turn);
     const committed = await registryBookkeepingAfterCheckpoint(
       operation.payload.historyCursor,
-      worldCheckpoint.manifestId,
+      manifestId,
       async () =>
         await host.callOwnerTurnState<{
           candidate: TurnStateCandidate;
-          workspaceHead: TurnStateWorkspaceHead;
+          workspaceHead?: TurnStateWorkspaceHead;
           replayed: boolean;
         }>(turn, "commit", { operationId: prepared.operationId }),
     );
@@ -633,25 +629,27 @@ export const executeTurnStateCheckpoint = async (
     const workspaceHead = committed?.workspaceHead;
     if (
       !candidate ||
-      !workspaceHead ||
       candidate.schemaVersion !== 1 ||
       candidate.operationId !== prepared.operationId ||
       candidate.requestFingerprint !== operation.requestFingerprint ||
       candidate.historyCursor !== operation.payload.historyCursor ||
       candidate.createdAt !== operation.createdAt ||
       !/^[0-9a-f]{64}$/u.test(candidate.receipt) ||
-      candidate.workspace.historyCursor !== operation.payload.historyCursor ||
-      candidate.workspace.manifestId !== worldCheckpoint.manifestId ||
+      (manifestId === undefined
+        ? candidate.workspace !== undefined || workspaceHead !== undefined
+        : candidate.workspace?.historyCursor !==
+            operation.payload.historyCursor ||
+          candidate.workspace.manifestId !== manifestId ||
+          workspaceHead?.historyCursor !== operation.payload.historyCursor ||
+          workspaceHead.manifestId !== manifestId) ||
       JSON.stringify(candidate.native) !==
         JSON.stringify(nativeUpload?.archive) ||
       JSON.stringify(candidate.nativeCheckpoint) !==
-        JSON.stringify(operation.payload.nativeCheckpoint) ||
-      workspaceHead.historyCursor !== operation.payload.historyCursor ||
-      workspaceHead.manifestId !== worldCheckpoint.manifestId
+        JSON.stringify(operation.payload.nativeCheckpoint)
     ) {
       throw new TurnStateRegistryBookkeepingError(
         operation.payload.historyCursor,
-        worldCheckpoint.manifestId,
+        manifestId,
         new Error("Turn state commit receipt was invalid."),
       );
     }

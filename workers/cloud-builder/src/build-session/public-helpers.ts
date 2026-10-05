@@ -46,8 +46,9 @@ export const validTurnStateCheckpointReceipt = (
     /^[0-9a-f]{64}$/u.test(receipt.operationId) &&
     typeof receipt.historyCursor === "string" &&
     /^(?:v1:empty|v1:[0-9a-f]{64})$/u.test(receipt.historyCursor) &&
-    typeof receipt.manifestId === "string" &&
-    /^[0-9a-f]{64}$/u.test(receipt.manifestId)
+    (!Object.hasOwn(receipt, "manifestId") ||
+      (typeof receipt.manifestId === "string" &&
+        /^[0-9a-f]{64}$/u.test(receipt.manifestId)))
   );
 };
 

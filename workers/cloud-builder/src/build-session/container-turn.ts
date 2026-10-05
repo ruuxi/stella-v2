@@ -722,9 +722,11 @@ export const runContainerAgentTurn = async (
           );
           if (
             published.workspacePublication ||
-            !published.workspace ||
+            // A native-only (orchestrator) checkpoint names no world, so
+            // it neither needs nor creates a workspace head.
+            (checkpoint.manifestId !== undefined && !published.workspace) ||
             !published.restore ||
-            published.restore.workspace.manifestId !== checkpoint.manifestId
+            published.restore.workspace?.manifestId !== checkpoint.manifestId
           ) {
             throw new Error(
               "The canonical turn state did not match its checkpoint receipt.",

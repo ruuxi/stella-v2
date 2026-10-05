@@ -53,7 +53,8 @@ export type TurnStateCandidate = {
   operationId: string;
   requestFingerprint: string;
   historyCursor: string;
-  workspace: { historyCursor: string; manifestId: string };
+  /** The world manifest this state ran against; a native-only one has none. */
+  workspace?: { historyCursor: string; manifestId: string };
   native?: TurnStateArchive;
   nativeCheckpoint?: TurnStateNativeCheckpoint;
   receipt: string;
@@ -87,11 +88,12 @@ type OperationRecord = {
   operationId: string;
   requestFingerprint: string;
   historyCursor: string;
-  manifestId: string;
+  /** Absent exactly when `nativeOnly`. */
+  manifestId?: string;
   /**
-   * The operation names the workspace head it ran against but never moves
-   * it: the orchestrator's CLI thread checkpoints native state only, since
-   * no world is materialized for it.
+   * Native state only, with no world: the orchestrator's CLI thread never has
+   * the world materialized, so its operation names no manifest and its
+   * publication never touches the owner's workspace head.
    */
   nativeOnly?: true;
   nativeCheckpoint?: TurnStateNativeCheckpoint;
@@ -232,7 +234,7 @@ export type PreparedTurnStateOperation = {
   ownerHash: string;
   workspaceHash: string;
   threadHash: string;
-  manifestId: string;
+  manifestId?: string;
   objectKeys: { native?: string };
   replayed: boolean;
 };
@@ -243,7 +245,7 @@ export const prepareTurnStateOperation = async (
     identity: TurnStateIdentity;
     requestFingerprint: string;
     historyCursor: string;
-    manifestId: string;
+    manifestId?: string;
     nativeOnly?: true;
     nativeCheckpoint?: TurnStateNativeCheckpoint;
     createdAt: number;
@@ -252,7 +254,9 @@ export const prepareTurnStateOperation = async (
   if (
     !/^[0-9a-f]{64}$/u.test(args.requestFingerprint) ||
     !exactText(args.historyCursor, 1_024) ||
-    !/^[0-9a-f]{64}$/u.test(args.manifestId) ||
+    (args.nativeOnly
+      ? args.manifestId !== undefined
+      : !/^[0-9a-f]{64}$/u.test(args.manifestId ?? "")) ||
     !Number.isSafeInteger(args.createdAt) ||
     args.createdAt < 0
   ) {
@@ -269,7 +273,7 @@ export const prepareTurnStateOperation = async (
       args.identity.attemptGeneration,
       args.requestFingerprint,
       args.historyCursor,
-      args.manifestId,
+      args.manifestId ?? null,
     ]),
   );
   const base = `${TURN_STATE_OBJECT_PREFIX}/${hashes.ownerHash}/${hashes.workspaceHash}/${hashes.threadHash}/${hashes.turnHash}/${args.identity.attemptGeneration}-${operationId}`;
@@ -283,7 +287,7 @@ export const prepareTurnStateOperation = async (
     operationId,
     requestFingerprint: args.requestFingerprint,
     historyCursor: args.historyCursor,
-    manifestId: args.manifestId,
+    ...(args.manifestId !== undefined ? { manifestId: args.manifestId } : {}),
     ...(args.nativeOnly ? { nativeOnly: true as const } : {}),
     ...(args.nativeCheckpoint
       ? { nativeCheckpoint: args.nativeCheckpoint }
@@ -366,7 +370,7 @@ export const prepareTurnStateOperation = async (
     ownerHash: hashes.ownerHash,
     workspaceHash: hashes.workspaceHash,
     threadHash: hashes.threadHash,
-    manifestId: args.manifestId,
+    ...(args.manifestId !== undefined ? { manifestId: args.manifestId } : {}),
     objectKeys,
     replayed,
   };
@@ -429,7 +433,8 @@ export const commitTurnStateOperation = async (
   args: { operationId: string },
 ): Promise<{
   candidate: TurnStateCandidate;
-  workspaceHead: TurnStateWorkspaceHead;
+  /** Absent for a native-only operation, which names no world. */
+  workspaceHead?: TurnStateWorkspaceHead;
   replayed: boolean;
 }> => {
   if (!/^[0-9a-f]{64}$/u.test(args.operationId)) {
@@ -475,17 +480,20 @@ export const commitTurnStateOperation = async (
       ...(thread.committed ? [thread.committed] : []),
       ...thread.candidates,
     ].find((candidate) => candidate.operationId === args.operationId);
-    const workspaceHead: TurnStateWorkspaceHead = {
-      historyCursor: operation.historyCursor,
-      manifestId: operation.manifestId,
-    };
+    const workspaceHead: TurnStateWorkspaceHead | undefined =
+      operation.manifestId !== undefined
+        ? {
+            historyCursor: operation.historyCursor,
+            manifestId: operation.manifestId,
+          }
+        : undefined;
     if (operation.state === "committed") {
       if (!existing || existing.receipt !== operation.receipt) {
         throw new Error("Turn state committed receipt is inconsistent.");
       }
       return {
         candidate: existing,
-        workspaceHead,
+        ...(workspaceHead ? { workspaceHead } : {}),
         replayed: true,
       };
     }
@@ -516,7 +524,7 @@ export const commitTurnStateOperation = async (
         operation.operationId,
         operation.requestFingerprint,
         operation.historyCursor,
-        operation.manifestId,
+        operation.manifestId ?? null,
         nativeRecord?.descriptor ?? null,
         operation.nativeCheckpoint ?? null,
       ]),
@@ -526,10 +534,7 @@ export const commitTurnStateOperation = async (
       operationId: operation.operationId,
       requestFingerprint: operation.requestFingerprint,
       historyCursor: operation.historyCursor,
-      workspace: {
-        historyCursor: operation.historyCursor,
-        manifestId: operation.manifestId,
-      },
+      ...(workspaceHead ? { workspace: workspaceHead } : {}),
       ...(nativeRecord?.descriptor ? { native: nativeRecord.descriptor } : {}),
       ...(operation.nativeCheckpoint
         ? { nativeCheckpoint: operation.nativeCheckpoint }
@@ -553,7 +558,11 @@ export const commitTurnStateOperation = async (
       state: "committed",
       receipt,
     } satisfies OperationRecord);
-    return { candidate, workspaceHead, replayed: false };
+    return {
+      candidate,
+      ...(workspaceHead ? { workspaceHead } : {}),
+      replayed: false,
+    };
   });
 };
 
@@ -627,7 +636,8 @@ const retireThreadCandidates = async (
 };
 
 export type PublishedTurnStateWorkspace = {
-  workspaceHead: TurnStateWorkspaceHead;
+  /** Absent for a native-only operation, which never touches the head. */
+  workspaceHead?: TurnStateWorkspaceHead;
   publicationReceipt: string;
   replayed: boolean;
 };
@@ -717,17 +727,26 @@ export const publishTurnStateWorkspace = async (
           "workspace-published",
         ]),
       ));
-    const workspaceHead: TurnStateWorkspaceHead = {
-      historyCursor: operation.historyCursor,
-      manifestId: operation.manifestId,
-    };
+    // A native-only operation publishes its transcript authority and nothing
+    // else. The workspace head says which world an agent last left behind,
+    // and an agent turn that finds one treats its workspace as a restored
+    // checkpoint; a thread that never had the world on disk must never
+    // create or move it.
+    const workspaceHead: TurnStateWorkspaceHead | undefined =
+      operation.nativeOnly || operation.manifestId === undefined
+        ? undefined
+        : {
+            historyCursor: operation.historyCursor,
+            manifestId: operation.manifestId,
+          };
     if (operation.publicationReceipt) {
-      return { workspaceHead, publicationReceipt, replayed: true };
+      return {
+        ...(workspaceHead ? { workspaceHead } : {}),
+        publicationReceipt,
+        replayed: true,
+      };
     }
-    // A native-only operation publishes its transcript authority but leaves
-    // the workspace head alone, so it can never regress a head an agent
-    // published meanwhile. It seeds the head only when there is none yet.
-    if (!operation.nativeOnly || !workspaceState.head) {
+    if (workspaceHead) {
       await tx.put(workspaceKey, {
         ...workspaceState,
         head: workspaceHead,
@@ -737,7 +756,11 @@ export const publishTurnStateWorkspace = async (
       ...operation,
       publicationReceipt,
     } satisfies OperationRecord);
-    return { workspaceHead, publicationReceipt, replayed: false };
+    return {
+      ...(workspaceHead ? { workspaceHead } : {}),
+      publicationReceipt,
+      replayed: false,
+    };
   });
 };
 

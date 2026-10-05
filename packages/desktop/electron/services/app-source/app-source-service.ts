@@ -113,15 +113,29 @@ const errorMessage = (error: unknown) =>
 const delay = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms).unref?.());
 
-/** Git config through the environment keeps the token out of argv. */
-const forkAuthEnv = (token: string): NodeJS.ProcessEnv => ({
+/**
+ * Git config through the environment keeps the token out of argv.
+ *
+ * Fetches use protocol v2. Artifacts' v1 upload-pack answers a stateless
+ * negotiation round with a bare "ACK <oid>" instead of multi_ack_detailed's
+ * "ACK <oid> common", so git takes it as the final ACK, and the NAK the server
+ * then puts before the pack fails as "bad band #78" (N). That happens whenever
+ * a common commit turns up in a round before git runs out of haves (rounds
+ * are 16+ haves), so any checkout with real history hits it. Pushes stay on
+ * v1.
+ */
+const remoteEnv = (
+  token: string,
+  protocolVersion: "1" | "2",
+): NodeJS.ProcessEnv => ({
   GIT_CONFIG_COUNT: "2",
   GIT_CONFIG_KEY_0: "http.extraHeader",
   GIT_CONFIG_VALUE_0: `Authorization: Bearer ${token}`,
-  // Artifacts accepts pushes over protocol v1 only.
   GIT_CONFIG_KEY_1: "protocol.version",
-  GIT_CONFIG_VALUE_1: "1",
+  GIT_CONFIG_VALUE_1: protocolVersion,
 });
+const fetchEnv = (token: string) => remoteEnv(token, "2");
+const pushEnv = (token: string) => remoteEnv(token, "1");
 
 export class AppSourceService {
   private readonly options: AppSourceServiceOptions;
@@ -619,7 +633,7 @@ export class AppSourceService {
         fork.remote,
         `+refs/heads/${fork.branch}:${ref}`,
       ],
-      { env: forkAuthEnv(fork.token), timeoutMs: 5 * 60_000 },
+      { env: fetchEnv(fork.token), timeoutMs: 5 * 60_000 },
     );
     // The dev repo's history is unrelated to the published fork; only
     // checkouts cloned from the fork sync with it.
@@ -643,7 +657,7 @@ export class AppSourceService {
         upstream.remote,
         `+refs/heads/main:${UPSTREAM_REF}`,
       ],
-      { env: forkAuthEnv(upstream.token), timeoutMs: 5 * 60_000 },
+      { env: fetchEnv(upstream.token), timeoutMs: 5 * 60_000 },
     );
     if ((await gitRaw(cwd, ["merge-base", "HEAD", UPSTREAM_REF])).code !== 0) {
       this.upstreamUnrelated = true;
@@ -678,7 +692,7 @@ export class AppSourceService {
     await git(
       cwd,
       ["push", "--quiet", fork.remote, `HEAD:refs/heads/${fork.branch}`],
-      { env: forkAuthEnv(fork.token), timeoutMs: 5 * 60_000 },
+      { env: pushEnv(fork.token), timeoutMs: 5 * 60_000 },
     );
     await git(cwd, ["update-ref", ref, head]);
     const onPushed = this.options.onPushed;

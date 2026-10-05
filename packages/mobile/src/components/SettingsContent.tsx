@@ -252,15 +252,14 @@ export function SettingsContent() {
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
     >
+      {/* Same key as the sidebar's destination, so the two can't drift. */}
       <Text style={styles.title} accessibilityRole="header">
-        {t("mobile.settings.title")}
+        {t("mobile.nav.account")}
       </Text>
 
-      {/* Account: who you are and what you pay for. */}
+      {/* Account: who you are and what you pay for. The page title already
+          says Account, so this first group needs no label of its own. */}
       <View style={settingsStyles.section}>
-        <Text style={settingsStyles.sectionLabel}>
-          {t("mobile.account.title")}
-        </Text>
         <View style={settingsStyles.group}>
           {isSignedIn ? (
             <View style={settingsStyles.row}>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { useIsFocused } from "expo-router";
 import { ModelSettingsPanel } from "../ModelSettingsPanel";
@@ -90,7 +90,17 @@ export function ComputerSection({
         .then((devices) => {
           if (active) setDestinations(devices);
         })
-        .catch(() => undefined);
+        .catch((error: unknown) => {
+          if (controller.signal.aborted) return;
+          // Deliberately no `setDestinations`: a failed read must not
+          // overwrite the last good answer, and must never be rendered as
+          // "offline". Rows fall back to `unknown` only while nothing has
+          // ever landed.
+          console.warn(
+            "[execution-devices] presence read failed; reachability stays unknown rather than offline",
+            error,
+          );
+        });
     };
     read();
     const timer = setInterval(read, EXECUTION_DEVICE_POLL_MS);
@@ -100,6 +110,31 @@ export function ComputerSection({
       clearInterval(timer);
     };
   }, [focused, hasControl]);
+
+  // A paired computer that never appears in the owner's device list reads as
+  // `unknown` forever, which is honest but silent. The join is between two id
+  // spaces (the stored pairing id and the presence id), so if they ever drift
+  // nothing would surface it. Log both sides once per distinct miss so the
+  // mismatch is greppable instead of invisible.
+  const reportedJoinMissRef = useRef("");
+  useEffect(() => {
+    if (destinations === undefined) return;
+    const present = new Set(destinations.map((device) => device.deviceId));
+    const missing = pairedDesktops
+      .map((access) => access.desktopDeviceId)
+      .filter((id) => !present.has(id));
+    const signature = missing.join(",");
+    if (signature === reportedJoinMissRef.current) return;
+    reportedJoinMissRef.current = signature;
+    if (missing.length === 0) return;
+    console.warn(
+      "[execution-devices] paired computer absent from the owner's device list; " +
+        "treating reachability as unknown, not offline. " +
+        `paired=[${missing.join(", ")}] returned=[${destinations
+          .map((device) => device.deviceId)
+          .join(", ")}]`,
+    );
+  }, [destinations, pairedDesktops]);
 
   const confirmForgetDesktop = (access: StoredPhoneAccess) => {
     const label = platformLabelFor(
@@ -137,11 +172,15 @@ export function ComputerSection({
     labelFor: (access) =>
       platformLabelFor(t, access, desktopPlatforms[access.desktopDeviceId]),
   });
-  // A computer that can't take work isn't a real choice, so Cloud carries
-  // the check (and the turn) whenever the picked computer is unavailable.
+  // A computer known to be unable to take work isn't a real choice, so Cloud
+  // carries the check (and the turn). A computer we simply haven't heard about
+  // keeps the user's choice: a slow or failed poll must not reassign where
+  // their work runs.
   const selectedDeviceId =
     target.mode === "device" &&
-    rows.some((row) => row.deviceId === target.deviceId && row.available)
+    rows.some(
+      (row) => row.deviceId === target.deviceId && row.reach !== "unavailable",
+    )
       ? target.deviceId
       : null;
   const choose = (next: AutomaticExecutionTarget) => {
@@ -183,9 +222,9 @@ export function ComputerSection({
                 accessibilityRole="button"
                 accessibilityState={{
                   selected: selectedDeviceId === row.deviceId,
-                  disabled: !row.available,
+                  disabled: row.reach === "unavailable",
                 }}
-                disabled={!control || !row.available}
+                disabled={!control || row.reach === "unavailable"}
                 onPress={() =>
                   choose({ mode: "device", deviceId: row.deviceId })
                 }
@@ -201,9 +240,16 @@ export function ComputerSection({
                   color={colors.textMuted}
                   style={styles.rowIcon}
                 />
-                {/* Reachability is carried by ghosting the row. A dot, a
-                    word and a button all restating it was noise. */}
-                <View style={[styles.rowCopy, !row.available && local.dim]}>
+                {/* Ghosting carries reachability, so it only appears for a
+                    computer we know can't take work. An unknown one renders
+                    at full strength: dimming it would assert an outage we
+                    haven't actually been told about. */}
+                <View
+                  style={[
+                    styles.rowCopy,
+                    row.reach === "unavailable" && local.dim,
+                  ]}
+                >
                   <Text style={styles.rowLabel} numberOfLines={1}>
                     {row.label}
                   </Text>
@@ -321,11 +367,22 @@ function NavRow({
   );
 }
 
+/**
+ * What this surface knows about a paired computer right now.
+ *
+ * `unknown` is not a quieter `unavailable`. It means we have no fresh answer:
+ * the first presence read hasn't landed, the last one failed, or the computer
+ * is absent from the owner's device list. Collapsing it into `unavailable`
+ * would state a fact we don't hold — and would quietly move the user's saved
+ * choice to Cloud because a request was slow.
+ */
+type Reachability = "ready" | "unavailable" | "unknown";
+
 type ComputerRow = {
   deviceId: string;
   access: StoredPhoneAccess;
   label: string;
-  available: boolean;
+  reach: Reachability;
 };
 
 /** Every paired computer, reachable or not, with what it can do right now. */
@@ -337,16 +394,21 @@ function computerRows(props: {
   return props.paired.map((access) => {
     const deviceId = access.desktopDeviceId;
     const device = props.destinations?.find((d) => d.deviceId === deviceId);
-    const available = Boolean(
-      device?.online &&
-        device.remoteExecutionEnabled &&
-        device.availability?.ready === true,
-    );
+    // No list yet (or the read failed), or a paired computer the list doesn't
+    // mention: both are "we don't know", never "offline".
+    const reach: Reachability =
+      props.destinations === undefined || device === undefined
+        ? "unknown"
+        : device.online &&
+            device.remoteExecutionEnabled &&
+            device.availability?.ready === true
+          ? "ready"
+          : "unavailable";
     return {
       deviceId,
       access,
       label: device?.label ?? props.labelFor(access),
-      available,
+      reach,
     };
   });
 }

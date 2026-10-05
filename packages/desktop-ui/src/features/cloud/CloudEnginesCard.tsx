@@ -245,11 +245,13 @@ export function CloudEnginesCard() {
           ? {
               engine,
               provider: engine,
-              model: "stella/anthropic/claude-sonnet-4.6",
+              // The backend resolves Stella's default model per audience.
+              model: "stella/default",
               reasoningEffort,
             }
           : engine === "anthropic"
-            ? { engine, provider: engine, model: "claude-sonnet-4-6", reasoningEffort }
+            ? // Claude Code's own alias: the recommended model for the account.
+              { engine, provider: engine, model: "default", reasoningEffort }
             : { engine, provider: engine, model: "gpt-6.1-sol", reasoningEffort };
       await cloudEnginesApi.setExecution(execution);
       publishCloudExecutionSelection(execution);

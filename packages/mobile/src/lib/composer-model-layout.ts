@@ -4,6 +4,7 @@ export function resolveComposerExpanded({
   dictationInline,
   modelPickerPinned,
   hasAttachments = false,
+  hasQuotes = false,
 }: {
   expanded: boolean;
   /** Dictation running underneath typed text. */
@@ -21,12 +22,18 @@ export function resolveComposerExpanded({
    * takes its expanded (toolbar) shape whenever any are pending.
    */
   hasAttachments?: boolean;
+  /**
+   * A pending reply quote sits inside the composer above the text, and the
+   * expanded toolbar keeps the mic beside send while it is there.
+   */
+  hasQuotes?: boolean;
 }): boolean {
   return (
     expanded ||
     dictationBelow ||
     dictationInline ||
     hasAttachments ||
+    hasQuotes ||
     modelPickerPinned
   );
 }

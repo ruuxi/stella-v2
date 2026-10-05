@@ -4314,7 +4314,8 @@ export function ChatPane({
   );
 
   const empty = visibleMessages.length === 0;
-  const composerHasContent = !draftEmpty || (attachments?.length ?? 0) > 0;
+  const composerHasContent =
+    !draftEmpty || (attachments?.length ?? 0) > 0 || (quotes?.length ?? 0) > 0;
   const canSubmit =
     sendReady &&
     (hasText || (attachments?.length ?? 0) > 0 || (quotes?.length ?? 0) > 0);
@@ -4333,6 +4334,7 @@ export function ChatPane({
     dictationInline,
     modelPickerPinned: Boolean(composerModelPicker?.pinned),
     hasAttachments: (attachments?.length ?? 0) > 0,
+    hasQuotes: (quotes?.length ?? 0) > 0,
   });
 
   const hasPlusMenu = composerEnabled;
@@ -4690,36 +4692,6 @@ export function ChatPane({
           style={[styles.composerWrap, { paddingBottom: composerBottomPad }]}
         >
           {composerIntervention}
-          {showQuoteStrip && (
-            <View style={styles.quoteStrip}>
-              {quoteChips.map((quote) => (
-                <View key={quote.id} style={styles.quoteChip}>
-                  <Icon
-                    name="quote"
-                    size={13}
-                    color={colors.textMuted}
-                    style={styles.quoteChipIcon}
-                  />
-                  <Text
-                    style={styles.quoteChipText}
-                    numberOfLines={1}
-                    maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-                  >
-                    {quote.text}
-                  </Text>
-                  <Pressable
-                    style={styles.quoteChipRemove}
-                    accessibilityRole="button"
-                    accessibilityLabel="Remove quoted text"
-                    onPress={() => onRemoveQuote?.(quote.id)}
-                    hitSlop={8}
-                  >
-                    <Icon name="x" size={13} color={colors.textMuted} />
-                  </Pressable>
-                </View>
-              ))}
-            </View>
-          )}
           <Pressable
             accessible={false}
             style={styles.composerFocusTarget}
@@ -4740,6 +4712,39 @@ export function ChatPane({
               fallbackColor={colors.surface}
               style={styles.shell}
             >
+              {showQuoteStrip ? (
+                <View style={styles.composerQuoteStrip}>
+                  {quoteChips.map((quote) => (
+                    <View key={quote.id} style={styles.composerQuote}>
+                      <View style={styles.composerQuoteBar} />
+                      <Text
+                        style={styles.composerQuoteText}
+                        numberOfLines={2}
+                        maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+                      >
+                        {quote.text}
+                      </Text>
+                      <Pressable
+                        style={({ pressed }) => [
+                          styles.composerQuoteRemove,
+                          pressed && styles.composerQuoteRemovePressed,
+                        ]}
+                        accessibilityRole="button"
+                        accessibilityLabel="Remove quoted text"
+                        onPress={() => onRemoveQuote?.(quote.id)}
+                        hitSlop={10}
+                      >
+                        <Icon
+                          name="x"
+                          size={10}
+                          color={colors.textMuted}
+                          weight="bold"
+                        />
+                      </Pressable>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
               {showAttachmentStrip ? (
                 // Pending attachments sit inside the composer, above the text,
                 // in a horizontal rail so any number of them stays one row.
@@ -5457,21 +5462,50 @@ const makeStyles = (colors: Colors) =>
       paddingHorizontal: 12,
       paddingTop: 12,
     },
-    // Removable quoted-text chips (message-menu Quote / assistant "Ask Stella").
-    // Stretched left like the attachment strip; each chip collapses the quote to
-    // a single line so the composer never fills with a pasted paragraph.
-    quoteStrip: {
-      alignSelf: "stretch",
-      flexDirection: "column",
+    composerQuoteStrip: {
       gap: 6,
-      paddingBottom: 10,
-      paddingHorizontal: 4,
+      paddingHorizontal: 10,
+      paddingTop: 10,
+    },
+    composerQuote: {
+      alignItems: "center",
+      backgroundColor: fadeHex(colors.textMuted, 0.1),
+      borderCurve: "continuous",
+      borderRadius: 12,
+      flexDirection: "row",
+      gap: 10,
+      paddingLeft: 8,
+      paddingRight: 8,
+      paddingVertical: 8,
+    },
+    composerQuoteBar: {
+      alignSelf: "stretch",
+      backgroundColor: colors.accent,
+      borderRadius: 2,
+      width: 3,
+    },
+    composerQuoteText: {
+      color: colors.textMuted,
+      flex: 1,
+      fontFamily: fonts.sans.regular,
+      fontSize: 14,
+      letterSpacing: -0.15,
+      lineHeight: 19,
+    },
+    composerQuoteRemove: {
+      alignItems: "center",
+      backgroundColor: fadeHex(colors.textMuted, 0.16),
+      borderRadius: 999,
+      height: 20,
+      justifyContent: "center",
+      width: 20,
+    },
+    composerQuoteRemovePressed: {
+      backgroundColor: fadeHex(colors.textMuted, 0.28),
     },
     quoteChip: {
       alignItems: "center",
       alignSelf: "flex-start",
-      // Opaque solid surface (not translucent) so the chip reads as a distinct
-      // panel over the glass composer, matching the app's other solid surfaces.
       backgroundColor: colors.surface,
       borderColor: colors.border,
       borderRadius: 12,
@@ -5490,12 +5524,6 @@ const makeStyles = (colors: Colors) =>
       fontFamily: fonts.sans.regular,
       fontSize: 13,
       letterSpacing: -0.1,
-    },
-    quoteChipRemove: {
-      alignItems: "center",
-      justifyContent: "center",
-      height: 20,
-      width: 20,
     },
     // Sent-message variant of the quote chip: right-aligned above the user
     // bubble (matching the bubble's trailing edge) with a little breathing room.

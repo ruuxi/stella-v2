@@ -393,6 +393,13 @@ const BROWSER_OWNER_LIFECYCLE_ACTIONS = new Set<string>([
   "close_owner",
   "release_owner_lease",
 ]);
+// Budget for the external backend's "is an extension actually attached?"
+// preflight. It is one local round trip to the daemon, so it must be short
+// enough that paying it is never worse than the hang it prevents.
+const EXTERNAL_ATTACH_PREFLIGHT_TIMEOUT_MS = 2_000;
+// How long a positive answer is trusted, so a burst of commands in one turn
+// does not pay for the probe every time.
+const EXTERNAL_ATTACH_PREFLIGHT_CACHE_MS = 5_000;
 // These requests can be repeated after a managed daemon is replaced without
 // changing page/browser state. Mutations and arbitrary evaluation are
 // deliberately absent: the old daemon may have executed them before its
@@ -1086,6 +1093,8 @@ export class BrowserSession implements BrowserSessionClient {
     config: ResolvedExecutionConfig;
   }>;
   private recoverInAppBrowserCapability = false;
+  /** Until when a positive external-attachment preflight is trusted (ms). */
+  private externalAttachCheckedUntil = 0;
   private queue: Promise<void> = Promise.resolve();
   private disposed = false;
   private disposePromise?: Promise<void>;
@@ -1645,6 +1654,12 @@ export class BrowserSession implements BrowserSessionClient {
             );
           }
           await this.ensureConnected(signal, deadline, timeoutMs);
+          if (
+            backend === "external" &&
+            !BROWSER_OWNER_LIFECYCLE_ACTIONS.has(action)
+          ) {
+            await this.assertExternalBrowserAttached(signal, deadline);
+          }
           requestDispatched = true;
           response = (await this.roundTrip(
             request,
@@ -1797,6 +1812,70 @@ export class BrowserSession implements BrowserSessionClient {
       });
     }
     return receipt as BrowserCommandReceipt<TData>;
+  }
+
+  /**
+   * The external backend drives the user's real browser through the Stella
+   * browser extension, so it only works while an extension is attached to
+   * this bridge daemon. Nothing used to check: the command was written to the
+   * daemon, the daemon had nothing to forward it to, and the call sat until
+   * the whole command budget expired and was reported as
+   * `dispatched=true outcome=unknown`. That is the honest description of what
+   * had happened, but it left the caller unable to tell a no-op from a
+   * completed side effect — harmless for tab_new, not harmless for anything
+   * that writes.
+   *
+   * Ask first, over the connection we already hold, and refuse before
+   * dispatching. The command then provably never ran (`outcome=not-started`)
+   * and the error names the real condition instead of timing out.
+   *
+   * Only an explicit "not connected" blocks. An older daemon that does not
+   * know the action, a transport error, or any other shape of answer is
+   * inconclusive and falls through to the normal dispatch path, so this can
+   * never turn a working setup into a refused one.
+   */
+  private async assertExternalBrowserAttached(
+    signal: AbortSignal | undefined,
+    deadline: number,
+  ): Promise<void> {
+    if (Date.now() < this.externalAttachCheckedUntil) return;
+    const budgetMs = Math.min(
+      EXTERNAL_ATTACH_PREFLIGHT_TIMEOUT_MS,
+      this.remainingTime(deadline),
+    );
+    if (budgetMs <= 0) return;
+    const requestId = randomUUID();
+    let response: BrowserCommandResult;
+    try {
+      response = await this.roundTrip(
+        { id: requestId, action: "extension_status" },
+        requestId,
+        signal,
+        Date.now() + budgetMs,
+        budgetMs,
+      );
+    } catch {
+      return;
+    }
+    if (!response.success) return;
+    const data = response.data as { connected?: unknown } | null | undefined;
+    if (!data || typeof data !== "object" || !("connected" in data)) return;
+    if (data.connected === true) {
+      this.externalAttachCheckedUntil =
+        Date.now() + EXTERNAL_ATTACH_PREFLIGHT_CACHE_MS;
+      return;
+    }
+    if (data.connected !== false) return;
+    throw new Error(
+      "Stella's external browser backend needs the Stella browser extension " +
+        "attached to this bridge, and none is. The command was not sent, so " +
+        "nothing happened. If the extension is installed and enabled, this " +
+        "Stella instance is most likely running an isolated browser bridge " +
+        "that the extension cannot reach; run the installed Stella app, or " +
+        "start this instance with STELLA_BROWSER_BRIDGE=shared. Otherwise " +
+        "open or focus a tab in the browser where the extension is " +
+        'installed, or switch to the in-app backend with browser.use("in-app").',
+    );
   }
 
   private remainingTime(deadline: number): number {

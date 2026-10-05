@@ -32,6 +32,7 @@ import { registerCompanionHandlers } from "../ipc/companion-handlers.js";
 import { startCapturingHandlers } from "../services/mobile-bridge/handler-registry.js";
 import { getAllWindows, getMobileBroadcast, } from "./context.js";
 import { startMobileBridge, startStellaBrowserBridge, stopMobileBridge, } from "./aux-runtime.js";
+import { getBrowserBridgeNamespace } from "../services/stella-browser-bridge-namespace.js";
 import { isBrowserBridgeEagerStartWorthwhile, isStellaBrowserBridgeBinaryInstalled, isStellaExtensionInstalled, } from "../services/stella-browser-bridge-service.js";
 import { InAppBrowserService } from "../services/in-app-browser-service.js";
 import { InAppBrowserCdpAdapter } from "../services/in-app-browser-cdp-adapter.js";
@@ -84,6 +85,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
                 extensionInstalled: isStellaExtensionInstalled(),
             }),
             getBrowserBridgeStatus: () => state.stellaBrowserBridgeService?.getStatus?.(),
+            getBrowserBridgeNamespace: () => getBrowserBridgeNamespace(),
             getExtensionStatus: async () => {
                 const resource = state.stellaBrowserBridgeService;
                 if (!resource?.getExtensionStatus)

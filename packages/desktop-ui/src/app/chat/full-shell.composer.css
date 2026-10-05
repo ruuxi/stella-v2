@@ -48,13 +48,8 @@
   align-items: center;
   gap: 6px;
   width: 100%;
-  /* Nudge the whole row (pill + suggestions) in from the shell's left edge. */
+  /* Nudge the whole row in from the shell's left edge. */
   padding-left: 12px;
-}
-
-.composer-context-lead-row .composer-activity-pill-slot {
-  /* Match the suggestion row's bottom padding so both sit on one baseline. */
-  margin-bottom: 4px;
 }
 
 .composer-context-lead-row .composer-context-actions--suggestions {

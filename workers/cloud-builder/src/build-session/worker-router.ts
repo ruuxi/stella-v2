@@ -901,6 +901,12 @@ const forwardBody = async (
 const WORLD_KEY = "[0-9a-f]{64}:[0-9a-f]{64}";
 const APP_SLUG = "[a-z][a-z0-9-]{0,31}";
 const SESSION_ID = "[A-Za-z0-9._~-]{1,128}";
+/**
+ * A broker session may also be the orchestrator's `orch:<conversationId>`
+ * thread, whose name reaches this route percent-encoded
+ * (`encodeURIComponent`); the parameter decodes back to the exact name.
+ */
+const BROKER_SESSION_ID = "(?:[A-Za-z0-9._~-]|%3[Aa]){1,160}";
 const { tinyControl } = CLOUD_BUILDER_BODY_LIMITS;
 
 const app = new Hono<RouterEnv>();
@@ -1153,7 +1159,7 @@ app.all("/cloud-home/:rest{.*}", userAuth(), async (c, next) => {
 // Sandbox-originated broker calls authenticate with their one-time capability
 // inside the exact BuildSession. They intentionally sit above the
 // service-secret gate; no other route shares this exception.
-app.all(`/sessions/:sessionId{${SESSION_ID}}/turn-broker`, async (c) => {
+app.all(`/sessions/:sessionId{${BROKER_SESSION_ID}}/turn-broker`, async (c) => {
   const brokerSessionId = c.req.param("sessionId");
   const request = c.req.raw;
   const response = await c.env.BUILD_SESSIONS.getByName(brokerSessionId).fetch(

@@ -12,7 +12,16 @@ import {
   rememberCloudAgentControlReceipt,
   steerCloudAgent,
 } from "../cloud-agent-dispatch.js";
+import {
+  CLOUD_CLI_TURN_DO_PATHS,
+  type CloudCliTurnTerminal,
+} from "@stella/contracts/cloud-orchestrator-cli";
 import { HEADER_OWNER } from "../conversation-hub.js";
+import {
+  purgeOrchestratorCliTurnStore,
+  readOrchestratorCliTerminal,
+  recordOrchestratorCliTerminal,
+} from "../orchestrator-cli-turn-store.js";
 import type {
   ExactTurnCancellation,
   ExactTurnCancellationRequest,
@@ -35,6 +44,7 @@ import {
   ORCHESTRATOR_INTERNAL_ORIGIN,
   OWNER_PURGE_STALE_LEASE_GRACE_MS,
   PENDING_BROWSER_SUSPENSION_KEY,
+  callOrchestratorCliTurnRoute,
   errorMessage,
   exactTurnIdentityMatches,
   json,
@@ -207,6 +217,8 @@ export const deliverTerminal = async (
   try {
     // Turn-scoped and unconditional: this is what gives the turn — orphaned
     // or not — its one terminal state, and the thread record rejects a second one.
+    // (An orchestrator turn's event stays here: its conversation owns the
+    // projection, see `emitTurnEvent`.)
     await host.event(
       turn,
       pending.eventSeq ?? "auto",
@@ -214,7 +226,11 @@ export const deliverTerminal = async (
       pending.payload,
       true,
     );
-    if (turn.kind === "agent" && turn.threadId) {
+    if (turn.agentRole === "orchestrator") {
+      // No agent thread to complete and no parent to wake: the outcome goes
+      // straight back to the conversation whose chat turn this is.
+      await deliverOrchestratorCliTerminal(host, turn, pending);
+    } else if (turn.kind === "agent" && turn.threadId) {
       if (supersededThread) {
         log("info", "terminal_thread_completion_skipped", {
           turnId: turn.turnId,
@@ -301,7 +317,12 @@ export const deliverTerminal = async (
       }
       attempts = ((await txn.get<number>("alarmAttempts")) ?? 0) + 1;
       await txn.put("alarmAttempts", attempts);
-      await txn.setAlarm(Date.now() + 30_000);
+      // A chat reply is waiting on an orchestrator turn's frame: its first
+      // retries come quickly.
+      await txn.setAlarm(
+        Date.now() +
+          (turn.agentRole === "orchestrator" && attempts <= 5 ? 2_000 : 30_000),
+      );
       return true;
     });
     if (!retained) return false;
@@ -314,6 +335,155 @@ export const deliverTerminal = async (
     }
     return false;
   }
+};
+
+const usageCount = (value: unknown): number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value > 0
+    ? value
+    : 0;
+
+/** The `CloudCliTurnTerminal` frame for one decided orchestrator attempt. */
+export const orchestratorCliTerminal = (
+  turn: TurnRequest,
+  pending: PendingTerminal,
+): CloudCliTurnTerminal => {
+  const usage =
+    pending.payload.usage && typeof pending.payload.usage === "object"
+      ? (pending.payload.usage as Record<string, unknown>)
+      : {};
+  const message =
+    typeof pending.payload.message === "string" && pending.payload.message
+      ? pending.payload.message
+      : (pending.threadError ?? "Stella hit a problem and stopped. Try again.");
+  return {
+    conversationId: turn.conversationId ?? "",
+    threadId: turn.threadId ?? "",
+    turnId: turn.turnId,
+    attemptGeneration: turn.attemptGeneration ?? 1,
+    outcome: pending.kind,
+    finalText:
+      pending.kind === "completed" &&
+      typeof pending.payload.finalText === "string"
+        ? pending.payload.finalText
+        : "",
+    ...(pending.kind === "failed" ? { error: message } : {}),
+    usage: {
+      inputTokens: usageCount(usage.inputTokens),
+      outputTokens: usageCount(usage.outputTokens),
+      llmCalls: usageCount(usage.llmCalls),
+    },
+  };
+};
+
+/**
+ * Hand a decided orchestrator attempt back to its conversation. The frame is
+ * recorded first, so `/orchestrator-turn/status` can answer for it after the
+ * turn record is gone. Thrown means "retry": `deliverTerminal` keeps the
+ * decision and re-arms its alarm. A refusal that names this frame as one
+ * the conversation will never take (any 4xx but an edit lock) is final.
+ */
+export const deliverOrchestratorCliTerminal = async (
+  host: TerminalDeliveryHost,
+  turn: TurnRequest,
+  pending: PendingTerminal,
+): Promise<void> => {
+  const terminal = orchestratorCliTerminal(turn, pending);
+  recordOrchestratorCliTerminal(
+    host.ctx.storage.sql,
+    terminal,
+    pending.completedAt ?? Date.now(),
+  );
+  const response = await callOrchestratorCliTurnRoute(
+    host.env,
+    turn,
+    CLOUD_CLI_TURN_DO_PATHS.terminal,
+    terminal,
+  );
+  const body = (await response.json().catch(() => null)) as {
+    code?: unknown;
+  } | null;
+  if (response.ok) return;
+  const transient =
+    response.status >= 500 ||
+    response.status === 408 ||
+    response.status === 429 ||
+    body?.code === "conversation_edit_in_progress";
+  if (transient) {
+    throw new Error(
+      `Orchestrator CLI terminal was not taken (${response.status}).`,
+    );
+  }
+  log("error", "orchestrator_cli_terminal_refused", {
+    turnId: turn.turnId,
+    threadId: turn.threadId,
+    attemptGeneration: turn.attemptGeneration,
+    status: response.status,
+  });
+};
+
+/**
+ * `POST /orchestrator-turn/status` `{ threadId, turnId, attemptGeneration }`:
+ * how an orchestrator attempt stands, for a conversation that lost track of
+ * it (DO eviction). Never starts or changes anything, except that a decided
+ * but undelivered frame has its delivery retried now.
+ *
+ *   200 { state: "running" }
+ *   200 { state: "terminal", terminal: CloudCliTurnTerminal }
+ *   200 { state: "unknown" }  this session has no record of the attempt
+ *   400 malformed body
+ */
+export const handleOrchestratorTurnStatus = async (
+  host: TerminalDeliveryHost,
+  request: Request,
+): Promise<Response> => {
+  const raw = (await request.json().catch(() => null)) as Record<
+    string,
+    unknown
+  > | null;
+  const threadId = typeof raw?.threadId === "string" ? raw.threadId : "";
+  const turnId = typeof raw?.turnId === "string" ? raw.turnId : "";
+  const attemptGeneration = raw?.attemptGeneration;
+  if (
+    !threadId ||
+    !turnId ||
+    typeof attemptGeneration !== "number" ||
+    !Number.isSafeInteger(attemptGeneration) ||
+    attemptGeneration < 1
+  ) {
+    return json({ error: "threadId, turnId and attemptGeneration are required." }, 400);
+  }
+  const [stored, terminal, pending] = await Promise.all([
+    host.ctx.storage.get<TurnRequest>("turn"),
+    host.ctx.storage.get<boolean>("terminal"),
+    host.ctx.storage.get<PendingTerminal>("pendingTerminal"),
+  ]);
+  if (
+    stored?.agentRole === "orchestrator" &&
+    stored.threadId === threadId &&
+    stored.turnId === turnId &&
+    stored.attemptGeneration === attemptGeneration
+  ) {
+    if (terminal !== true) return json({ state: "running" });
+    if (
+      pending &&
+      pending.turnId === turnId &&
+      pending.attemptGeneration === attemptGeneration
+    ) {
+      await host.setExactTurnAlarm(stored, Date.now());
+      return json({
+        state: "terminal",
+        terminal: orchestratorCliTerminal(stored, pending),
+      });
+    }
+  }
+  const recorded = readOrchestratorCliTerminal(host.ctx.storage.sql, {
+    turnId,
+    attemptGeneration,
+  });
+  if (recorded && recorded.threadId === threadId) {
+    return json({ state: "terminal", terminal: recorded });
+  }
+  return json({ state: "unknown" });
 };
 
 export const agentLifecycleReport = (completion: {
@@ -1145,6 +1315,7 @@ export const cancelForOwnerPurge = async (
   // The thread transcript is this owner's private job state and lives in
   // SQL tables the key-value sweep above cannot see.
   purgeThreadTranscript(host.ctx.storage.sql);
+  purgeOrchestratorCliTurnStore(host.ctx.storage.sql);
   await host.releaseOwnerGate(turn);
   // Do not depend on a vanished run's `finally`: remove the exact durable
   // lease idempotently from the owner fence here.

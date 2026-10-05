@@ -39,10 +39,12 @@ import {
   agentExecutionMarkerKey,
   builderFallbackTranscriptKey,
   errorMessage,
+  durableTurnRecord,
   exactTurnIdentityMatches,
   json,
   log,
 } from "./shared/keys.js";
+import { storeOrchestratorCliSpec } from "../orchestrator-cli-turn-store.js";
 import type {
   AgentExecutionMarker,
   AgentTurnRunOptions,
@@ -363,6 +365,9 @@ const projectAgentTurnStart = async (
   host: AdmissionHost,
   turn: TurnRequest,
 ): Promise<void> => {
+  // The orchestrator's own chat turn is projected by its conversation, under
+  // the same turn id; an agent-thread row for it would be a phantom agent.
+  if (turn.agentRole === "orchestrator") return;
   const attemptGeneration = turn.attemptGeneration ?? 1;
   const createdAt = Date.now();
   const source = CLOUD_TURN_SOURCES.includes(turn.source as CloudTurnSource)
@@ -511,7 +516,7 @@ export const acceptAgentTurn = async (
         const ownsStorage = !current || current.turnId === turn.turnId;
         if (ownsStorage && cancellation.state === "pending") {
           await host.ctx.storage.put({
-            turn,
+            turn: durableTurnRecord(turn),
             turnId: turn.turnId,
             terminal: false,
             terminalDelivered: false,
@@ -538,6 +543,19 @@ export const acceptAgentTurn = async (
       const orphanTurn = orphan
         ? await host.ctx.storage.get<TurnRequest>("turn")
         : undefined;
+      // The spec goes to SQLite (see `durableTurnRecord`). Written in the
+      // same critical section, so a recovering isolate never finds the turn
+      // without it.
+      if (turn.orchestratorCli) {
+        storeOrchestratorCliSpec(
+          host.ctx.storage.sql,
+          {
+            turnId: turn.turnId,
+            attemptGeneration: turn.attemptGeneration!,
+          },
+          turn.orchestratorCli,
+        );
+      }
       await host.ctx.storage.put({
         ...(sandboxId ? { sandboxId } : {}),
         ...(computePlan
@@ -546,7 +564,7 @@ export const acceptAgentTurn = async (
                 computePlan,
             }
           : {}),
-        turn,
+        turn: durableTurnRecord(turn),
         turnId: turn.turnId,
         terminal: false,
         terminalDelivered: false,

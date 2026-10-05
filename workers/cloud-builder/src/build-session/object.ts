@@ -101,6 +101,7 @@ import {
   currentSandbox,
   currentSandboxTarget,
   destroySandboxDurably,
+  prewarmOrchestratorContainer,
   releaseAgentSessionResources,
   retryDueSandboxDestroyDebts,
   sandbox,
@@ -143,6 +144,7 @@ import {
   deliverExecutorLossTerminal,
   deliverTerminal,
   expireCurrentAgentTurn,
+  handleOrchestratorTurnStatus,
   handleSteer,
   wakeParentAgentOrConversation,
   wakeParentConversation,
@@ -172,6 +174,7 @@ import type {
 import type { InstanceSize } from "../instance-size.js";
 import { normalizeOwnerGeneration } from "../owner-generation.js";
 import { stableValueMarker } from "../hash.js";
+import { orchestratorCliSpecDigest } from "../orchestrator-cli-turn-store.js";
 import type { SandboxTarget, SandboxWorkload } from "../sandbox-lifecycle.js";
 import type { ThreadMessageInput } from "../thread-transcript.js";
 import type {
@@ -950,6 +953,14 @@ export class BuildSessionObject extends DurableObject<Env> {
       return await this.expireCurrentAgentTurn(request);
     }
     if (url.pathname === "/steer") return await this.handleSteer(request);
+    // The OrchestratorSession's own CLI turn: its status after the DO lost
+    // track of it, and a container start ahead of the next one.
+    if (url.pathname === "/orchestrator-turn/status") {
+      return await handleOrchestratorTurnStatus(this.self, request);
+    }
+    if (url.pathname === "/orchestrator-turn/prewarm") {
+      return await prewarmOrchestratorContainer(this.self, request);
+    }
     if (url.pathname === "/cancel") {
       const raw = await request.json().catch(() => null);
       const cancellation = parseExactTurnCancellationRequest(raw);
@@ -1000,6 +1011,20 @@ export class BuildSessionObject extends DurableObject<Env> {
     // its forwarded headers from scratch and never copies it.
     if (request.headers.get(HEADER_GATE_ADMITTED)?.trim() === "1") {
       turn.gateAdmittedByCaller = true;
+    }
+    if (turn.agentRole === "orchestrator") {
+      // Only the conversation's own OrchestratorSession runs its chat turn,
+      // inside a chat-lane admission it holds itself. The public turn route
+      // never stamps this header, so a service caller cannot start one.
+      if (!turn.gateAdmittedByCaller) {
+        return json(
+          { error: "An orchestrator turn is dispatched by its conversation." },
+          403,
+        );
+      }
+      turn.orchestratorCliDigest = await orchestratorCliSpecDigest(
+        turn.orchestratorCli!,
+      );
     }
     const brokerSessionId =
       request.headers.get(HEADER_BUILD_SESSION_NAME)?.trim() ?? "";

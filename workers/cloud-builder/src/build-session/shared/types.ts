@@ -45,8 +45,15 @@ export type TurnRequest = {
    * materialization, and reports its terminal to the DO.
    */
   agentRole?: "orchestrator";
-  /** Present exactly when `agentRole` is `"orchestrator"`. */
+  /**
+   * Present on the admitted dispatch when `agentRole` is `"orchestrator"`.
+   * Never part of the stored `turn` record (see `durableTurnRecord`): the
+   * spec lives in `orchestrator-cli-turn-store.ts` and is read back when
+   * turn-input.json is written.
+   */
   orchestratorCli?: CloudOrchestratorCliTurnSpec;
+  /** `orchestratorCliSpecDigest` of the spec; kept in the stored record. */
+  orchestratorCliDigest?: string;
   /**
    * Desktop that owns this thread's delivery. Present means the owner's
    * projection wakes the parent conversation, so the session must not.

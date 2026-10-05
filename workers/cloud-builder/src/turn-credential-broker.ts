@@ -7,6 +7,11 @@ import {
   type TurnBrokerHandoff,
   type TurnBrokerIdentity,
 } from "@stella/contracts/turn-credential-broker";
+import {
+  CLOUD_ORCHESTRATOR_BROKER_PATHS,
+  CLOUD_ORCHESTRATOR_EVENTS_REQUEST_MAX_BYTES,
+  CLOUD_ORCHESTRATOR_TOOL_REQUEST_MAX_BYTES,
+} from "@stella/contracts/cloud-orchestrator-cli";
 import { sha256Hex } from "./hash.js";
 
 /**
@@ -83,7 +88,9 @@ export type TurnBrokerTarget = {
     | "drive"
     | "search"
     | "turn-event"
-    | "thread-messages";
+    | "thread-messages"
+    | "orchestrator-tool"
+    | "orchestrator-events";
   method: "POST";
   path: string;
   maxBodyBytes: number;
@@ -389,6 +396,22 @@ export const validateTurnBrokerTarget = (
       maxBodyBytes: MAX_TURN_STATE_CHECKPOINT_BODY_BYTES,
     };
   }
+  if (parsed.pathname === CLOUD_ORCHESTRATOR_BROKER_PATHS.tool) {
+    return {
+      kind: "orchestrator-tool",
+      method: "POST",
+      path: parsed.pathname,
+      maxBodyBytes: CLOUD_ORCHESTRATOR_TOOL_REQUEST_MAX_BYTES,
+    };
+  }
+  if (parsed.pathname === CLOUD_ORCHESTRATOR_BROKER_PATHS.events) {
+    return {
+      kind: "orchestrator-events",
+      method: "POST",
+      path: parsed.pathname,
+      maxBodyBytes: CLOUD_ORCHESTRATOR_EVENTS_REQUEST_MAX_BYTES,
+    };
+  }
   if (parsed.pathname === "/api/cloud/browser/command") {
     return {
       kind: "browser-gateway",
@@ -402,13 +425,21 @@ export const validateTurnBrokerTarget = (
 
 /**
  * Engine-scoped targets. Callbacks are engine-agnostic; the Browser Gateway
- * belongs to Stella's own tool loop and is refused for connected engines.
+ * belongs to Stella's own tool loop and is refused for connected engines,
+ * and the orchestrator routes exist only for the Claude Code CLI's turn
+ * (the session also requires the turn's `agentRole`).
  */
 export const turnBrokerTargetMatchesEngine = (
   target: TurnBrokerTarget,
   engine: TurnBrokerEngine,
 ): boolean => {
   if (target.kind === "browser-gateway") return engine === "stella";
+  if (
+    target.kind === "orchestrator-tool" ||
+    target.kind === "orchestrator-events"
+  ) {
+    return engine === "anthropic";
+  }
   return true;
 };
 

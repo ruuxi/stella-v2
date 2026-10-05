@@ -62,6 +62,7 @@ import {
 import {
   OBSERVED_BROWSER_SUSPENSION_KEY,
   PENDING_BROWSER_SUSPENSION_KEY,
+  callOrchestratorCliTurnRoute,
   canonicalToolCallId,
   cloudBrowserSuspensionMarker,
   errorMessage,
@@ -80,6 +81,12 @@ import type {
   TurnStateCheckpointOperation,
 } from "./shared/types.js";
 import { isCloudBrowserSuspension } from "@stella/contracts/cloud-browser";
+import {
+  CLOUD_CLI_TURN_DO_PATHS,
+  type CloudCliTurnEventsForward,
+  type CloudCliTurnIdentity,
+  type CloudCliTurnToolForward,
+} from "@stella/contracts/cloud-orchestrator-cli";
 import type { CloudBrowserSuspension } from "@stella/contracts/cloud-browser";
 import { TURN_BROKER_RESPONSE_HEADERS } from "@stella/contracts/turn-credential-broker";
 import { rpcErrorStatus, type RpcResponse } from "@stella/contracts/backend/protocol";
@@ -931,6 +938,153 @@ export const serveTurnSearchRequest = async (
   return driveJson(response.value);
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+/** Last event batch the conversation acknowledged, per exact attempt. */
+const orchestratorEventBatchSeqKey = (turn: TurnRequest): string =>
+  `orchestratorEventBatchSeq:${turn.turnId}:${turn.attemptGeneration}`;
+
+/**
+ * A conversation that could not take the frame right now. Not a broker
+ * denial: the executor keeps its credential and may send again.
+ */
+const orchestratorUnavailable = (): Response =>
+  Response.json(
+    { error: "The conversation is unavailable. Try again." },
+    { status: 503, headers: { "cache-control": "no-store" } },
+  );
+
+/**
+ * The orchestrator CLI turn's two broker targets: a tool call the CLI made
+ * through the executor's MCP host, and a batch of its stream events. Both
+ * go to the conversation's OrchestratorSession, which owns the tools and the
+ * journal. The identity on the forwarded frame is this session's own: the
+ * stored turn whose exact attempt the claim's live fence just proved is
+ * running. Nothing the executor sent names the turn.
+ *
+ * A conversation that answers 4xx no longer runs this attempt (or refused
+ * the frame outright), so the broker is denied and the executor stops; a
+ * 5xx, an edit lock or an unreachable object is answered 503 without the
+ * denial, so the executor can retry (the DO de-duplicates tool calls by
+ * `toolCallId` and batches by `batchSeq`).
+ */
+const forwardOrchestratorBrokerRequest = async (
+  host: TurnBrokerHost,
+  turn: TurnRequest,
+  target: TurnBrokerTarget,
+  body: Record<string, unknown>,
+  signal: AbortSignal,
+): Promise<Response> => {
+  if (!turn.conversationId || !turn.threadId) return brokerFailure(410);
+  const identity: CloudCliTurnIdentity = {
+    conversationId: turn.conversationId,
+    threadId: turn.threadId,
+    turnId: turn.turnId,
+    attemptGeneration: turn.attemptGeneration!,
+  };
+  let path: string;
+  let forwarded: CloudCliTurnToolForward | CloudCliTurnEventsForward;
+  let batchSeq: number | undefined;
+  if (target.kind === "orchestrator-tool") {
+    const { toolCallId, name, args } = body;
+    if (
+      typeof toolCallId !== "string" ||
+      !toolCallId ||
+      toolCallId.length > 256 ||
+      typeof name !== "string" ||
+      !name ||
+      name.length > 128 ||
+      !isRecord(args)
+    ) {
+      return brokerFailure(400);
+    }
+    path = CLOUD_CLI_TURN_DO_PATHS.tool;
+    forwarded = { ...identity, toolCallId, name, args };
+  } else {
+    const seq = body.batchSeq;
+    if (
+      typeof seq !== "number" ||
+      !Number.isSafeInteger(seq) ||
+      seq < 1 ||
+      !Array.isArray(body.events)
+    ) {
+      return brokerFailure(400);
+    }
+    // Batches are applied strictly in order. A replay of an acknowledged one
+    // still goes through (the conversation acks it again); a gap never does.
+    const acknowledged =
+      (await host.ctx.storage.get<number>(orchestratorEventBatchSeqKey(turn))) ??
+      0;
+    if (seq > acknowledged + 1) return brokerFailure(409);
+    batchSeq = seq;
+    path = CLOUD_CLI_TURN_DO_PATHS.events;
+    forwarded = {
+      ...identity,
+      batchSeq: seq,
+      events: body.events as CloudCliTurnEventsForward["events"],
+    };
+  }
+  let response: Response;
+  try {
+    response = await callOrchestratorCliTurnRoute(
+      host.env,
+      turn,
+      path,
+      forwarded,
+      signal,
+    );
+  } catch (error) {
+    if (signal.aborted) return brokerFailure(410);
+    log("error", "orchestrator_cli_forward_failed", {
+      turnId: turn.turnId,
+      targetKind: target.kind,
+      message: errorMessage(error),
+    });
+    return orchestratorUnavailable();
+  }
+  const text = await response.text().catch(() => "");
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(text) as unknown;
+  } catch {
+    decoded = undefined;
+  }
+  if (!response.ok) {
+    const editLocked =
+      isRecord(decoded) && decoded.code === "conversation_edit_in_progress";
+    if (response.status >= 500 || response.status === 429 || editLocked) {
+      return orchestratorUnavailable();
+    }
+    log("info", "orchestrator_cli_forward_refused", {
+      turnId: turn.turnId,
+      targetKind: target.kind,
+      status: response.status,
+    });
+    return brokerFailure(410);
+  }
+  if (target.kind === "orchestrator-tool") {
+    // `CloudOrchestratorToolCallResponse`: both arms are HTTP 200.
+    if (!isRecord(decoded) || typeof decoded.ok !== "boolean") {
+      return orchestratorUnavailable();
+    }
+    return Response.json(decoded, {
+      headers: { "cache-control": "no-store" },
+    });
+  }
+  if (batchSeq !== undefined) {
+    const key = orchestratorEventBatchSeqKey(turn);
+    await host.ctx.storage.transaction(async (txn) => {
+      if ((((await txn.get<number>(key)) ?? 0) as number) < batchSeq!) {
+        await txn.put(key, batchSeq!);
+      }
+    });
+  }
+  return Response.json(isRecord(decoded) ? decoded : { ok: true }, {
+    headers: { "cache-control": "no-store" },
+  });
+};
+
 /**
  * The broker targets the BuildSession answers itself.
  *
@@ -960,6 +1114,18 @@ const handleBrokerLocalRequest = async (
     // search body names only its query.
     if (target.kind === "search") {
       return await serveTurnSearchRequest(host.env, turn, body);
+    }
+    if (
+      target.kind === "orchestrator-tool" ||
+      target.kind === "orchestrator-events"
+    ) {
+      return await forwardOrchestratorBrokerRequest(
+        host,
+        turn,
+        target,
+        body,
+        signal,
+      );
     }
     if (typeof body.turnId !== "string" || body.turnId !== turn.turnId) {
       return brokerFailure(403);
@@ -1068,6 +1234,14 @@ export const handleTurnBroker = async (
       brokerEngine !== "anthropic" &&
       brokerEngine !== "openai-codex") ||
     !turnBrokerTargetMatchesEngine(preflight.target, brokerEngine)
+  ) {
+    return brokerFailure(403);
+  }
+  // The conversation's tools and journal answer only its own CLI turn.
+  if (
+    (preflight.target.kind === "orchestrator-tool" ||
+      preflight.target.kind === "orchestrator-events") &&
+    turn.agentRole !== "orchestrator"
   ) {
     return brokerFailure(403);
   }
@@ -1190,7 +1364,9 @@ export const handleTurnBroker = async (
       claimed.target.kind === "turn-event" ||
       claimed.target.kind === "thread-messages" ||
       claimed.target.kind === "drive" ||
-      claimed.target.kind === "search"
+      claimed.target.kind === "search" ||
+      claimed.target.kind === "orchestrator-tool" ||
+      claimed.target.kind === "orchestrator-events"
     ) {
       // The turn's events and its thread transcript are this object's own
       // state now, and the drive and web search are the owner object's. The

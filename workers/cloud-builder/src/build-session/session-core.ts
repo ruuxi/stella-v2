@@ -210,6 +210,9 @@ export const releaseOwnerGate = async (
   turn: TurnRequest,
 ): Promise<void> => {
   if (turn.kind !== "agent" || !turn.ownerId) return;
+  // The OrchestratorSession admitted its chat turn on the chat lane and
+  // releases that slot when it settles the turn itself.
+  if (turn.agentRole === "orchestrator") return;
   try {
     await host.ownerGateFor(turn.ownerId).release({ turnId: turn.turnId });
   } catch (error) {
@@ -389,7 +392,12 @@ export const emitTurnEvent = async (
     ...(options.resultJson ? { resultJson: options.resultJson } : {}),
     createdAt: Date.now(),
   };
-  await host.deliverOwnerEventsDurable([event]);
+  // An orchestrator CLI turn shares its id with the conversation's chat
+  // turn, which owns that turn's events; the DO hears this attempt through
+  // the CLI turn routes instead.
+  if (turn.agentRole !== "orchestrator") {
+    await host.deliverOwnerEventsDurable([event]);
+  }
   return eventSeq;
 };
 

@@ -2,7 +2,11 @@ import { Effect } from "effect";
 import { runToolEffect } from "@stella/runtime/kernel/tools/effect-runtime.js";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import type { ExecutionSession } from "../../sandbox-client.js";
-import type { CloudTurnSource } from "@stella/contracts/turn-plane/turn-start";
+import {
+  TURN_OWNER_GENERATION_HEADER,
+  type CloudTurnSource,
+} from "@stella/contracts/turn-plane/turn-start";
+import { HEADER_OWNER } from "../../conversation-types.js";
 import type { TurnEventEvent } from "@stella/contracts/turn-plane/owner-events";
 import { classifyAgentFailureDiagnostic } from "../../agent-failure-diagnostic.js";
 import { mintTurnCapability } from "../../capability-signer.js";
@@ -80,6 +84,8 @@ export const turnDispatchIdentity = (
   // after a plan change into an idempotency conflict.
   delete identity.audience;
   delete identity.budgetMicroCents;
+  // Never stored (see `durableTurnRecord`); `orchestratorCliDigest` stands in.
+  delete identity.orchestratorCli;
   return identity as Omit<
     TurnRequest,
     | "ownerPurgeGeneration"
@@ -88,6 +94,47 @@ export const turnDispatchIdentity = (
     | "audience"
     | "budgetMicroCents"
   >;
+};
+
+/**
+ * The `turn` key-value record. An orchestrator turn's spec is left out: it
+ * can pass the per-value limit, and the record is read on nearly every
+ * lifecycle step. `orchestrator-cli-turn-store.ts` holds it instead.
+ */
+export const durableTurnRecord = (turn: TurnRequest): TurnRequest => {
+  if (turn.orchestratorCli === undefined) return turn;
+  const { orchestratorCli: _spec, ...record } = turn;
+  return record;
+};
+
+/**
+ * One call to the conversation's OrchestratorSession on a
+ * `CLOUD_CLI_TURN_DO_PATHS` route. Durable Object stubs are the only way in;
+ * the headers repeat the trusted identity the agent wake sends.
+ */
+export const callOrchestratorCliTurnRoute = async (
+  env: Pick<Env, "ORCHESTRATOR_SESSIONS">,
+  turn: Pick<TurnRequest, "ownerId" | "ownerGeneration" | "conversationId">,
+  path: string,
+  body: unknown,
+  signal?: AbortSignal,
+): Promise<Response> => {
+  const conversationId = turn.conversationId?.trim() ?? "";
+  if (!conversationId) throw new AgentTurnAuthorityLostError();
+  return await env.ORCHESTRATOR_SESSIONS.getByName(conversationId).fetch(
+    `${ORCHESTRATOR_INTERNAL_ORIGIN}${path}`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        [HEADER_OWNER]: turn.ownerId,
+        [HEADER_CONVERSATION_ID]: conversationId,
+        [TURN_OWNER_GENERATION_HEADER]: turn.ownerGeneration,
+      },
+      body: JSON.stringify(body),
+      ...(signal ? { signal } : {}),
+    },
+  );
 };
 
 /**

@@ -41,6 +41,7 @@ import {
   turnBrokerStorageKey,
 } from "../turn-credential-broker.js";
 import type { TurnBrokerRecord } from "../turn-credential-broker.js";
+import { readOrchestratorCliSpec } from "../orchestrator-cli-turn-store.js";
 import { restoreTurnStateArchive } from "../turn-state-archive.js";
 import { parseTurnStateCheckpointRequest } from "../turn-state-checkpoint.js";
 import type {
@@ -436,15 +437,17 @@ export const runContainerAgentTurn = async (
     // The mirror snapshot is pinned once for the logical turn, before either
     // sandbox attempt. An OOM retry therefore cannot silently pick up a
     // device-side skill edit that landed halfway through the turn.
-    const cloudSkillHome = host.env.AGENT_HOME
-      ? new CloudHomeStore(host.env.AGENT_HOME, {
-          control: gateHomeControl(host.env.OWNER_GATES, turn.ownerId),
-          ownerId: turn.ownerId,
-          ownerGeneration: turn.ownerGeneration,
-          assertExternalWrite: async () =>
-            await host.assertAgentExecutionActive(turn, execution),
-        })
-      : undefined;
+    // The orchestrator CLI turn runs the DO's prompt and tools, never skills.
+    const cloudSkillHome =
+      host.env.AGENT_HOME && turn.agentRole !== "orchestrator"
+        ? new CloudHomeStore(host.env.AGENT_HOME, {
+            control: gateHomeControl(host.env.OWNER_GATES, turn.ownerId),
+            ownerId: turn.ownerId,
+            ownerGeneration: turn.ownerGeneration,
+            assertExternalWrite: async () =>
+              await host.assertAgentExecutionActive(turn, execution),
+          })
+        : undefined;
     const cloudSkillCatalog = cloudSkillHome
       ? await cloudSkillHome.loadSkillCatalog("general")
       : undefined;
@@ -1189,6 +1192,10 @@ export const attachAgentWorld = async (
   const initialNormalizeMs = phaseMs(initialNormalizeStarted);
   turnExecution.assertActive();
   const restoreStarted = performance.now();
+  // The orchestrator's CLI has no file tools and works in an empty
+  // directory of its own: the world is not put on disk for it, and the
+  // shared world root other threads use is left exactly as it is.
+  const materializeWorld = turn.agentRole !== "orchestrator";
   const worldMetadataStarted = performance.now();
   const preparedName = await worldNamePreparation;
   if (!preparedName.ok) {
@@ -1197,48 +1204,55 @@ export const attachAgentWorld = async (
   }
   const worldNameMs = phaseMs(worldNameStarted);
   const { name } = preparedName;
-  let head: { manifestId: string; revision: number };
-  try {
-    const world = host.env.WORLDS.getByName(name);
-    // Keep this read immediately before export. The current WorldStore API does
-    // not transactionally bind a live head's contents to its revision; moving
-    // it ahead of provisioning widens a checkpoint+write data-loss race.
-    head = await world.head();
-  } catch (error) {
-    await sandbox.deleteSession(args.sessionId).catch(() => undefined);
-    throw error;
+  let head: { manifestId: string; revision: number } | undefined;
+  let worldMetadataMs = 0;
+  let capabilityMs = 0;
+  let materializationMs = 0;
+  if (materializeWorld) {
+    try {
+      const world = host.env.WORLDS.getByName(name);
+      // Keep this read immediately before export. The current WorldStore API
+      // does not transactionally bind a live head's contents to its
+      // revision; moving it ahead of provisioning widens a checkpoint+write
+      // data-loss race.
+      head = await world.head();
+    } catch (error) {
+      await sandbox.deleteSession(args.sessionId).catch(() => undefined);
+      throw error;
+    }
+    worldMetadataMs = phaseMs(worldMetadataStarted);
+    const capabilityStarted = performance.now();
+    const capability = await issueWorldCapability({
+      secret: host.env.BUILDER_SERVICE_SECRET,
+      worldName: name,
+      turnId: turn.turnId,
+      attemptGeneration: turn.attemptGeneration!,
+      now: Date.now(),
+      ttlMs: Math.max(1, Math.min(30 * 60_000, args.commandTimeoutMs)),
+    });
+    capabilityMs = phaseMs(capabilityStarted);
+    const origin = host.env.CLOUD_BUILDER_PUBLIC_URL.replace(/\/+$/u, "");
+    const exportUrl = new URL(`${origin}/internal/worlds/${name}/export`);
+    exportUrl.searchParams.set("manifest", head.manifestId);
+    const materializationStarted = performance.now();
+    const materialized = await session.exec(
+      worldMaterializationCommand({
+        worldRoot,
+        manifestId: head.manifestId,
+        exportUrl: exportUrl.toString(),
+        capability,
+      }),
+      { origin: "internal", timeout: args.commandTimeoutMs },
+    );
+    if (!materialized.success)
+      throw new AgentTurnError("Stella could not materialize this world.");
+    // Materialization replaces everything under the world root, including
+    // the drive directory the daemon expects, so the boundary is normalized
+    // again.
+    await normalizeToolWorkspaceRoot(session, worldRoot);
+    turnExecution.assertActive();
+    materializationMs = phaseMs(materializationStarted);
   }
-  const worldMetadataMs = phaseMs(worldMetadataStarted);
-  const capabilityStarted = performance.now();
-  const capability = await issueWorldCapability({
-    secret: host.env.BUILDER_SERVICE_SECRET,
-    worldName: name,
-    turnId: turn.turnId,
-    attemptGeneration: turn.attemptGeneration!,
-    now: Date.now(),
-    ttlMs: Math.max(1, Math.min(30 * 60_000, args.commandTimeoutMs)),
-  });
-  const capabilityMs = phaseMs(capabilityStarted);
-  const origin = host.env.CLOUD_BUILDER_PUBLIC_URL.replace(/\/+$/u, "");
-  const exportUrl = new URL(`${origin}/internal/worlds/${name}/export`);
-  exportUrl.searchParams.set("manifest", head.manifestId);
-  const materializationStarted = performance.now();
-  const materialized = await session.exec(
-    worldMaterializationCommand({
-      worldRoot,
-      manifestId: head.manifestId,
-      exportUrl: exportUrl.toString(),
-      capability,
-    }),
-    { origin: "internal", timeout: args.commandTimeoutMs },
-  );
-  if (!materialized.success)
-    throw new AgentTurnError("Stella could not materialize this world.");
-  // Materialization replaces everything under the world root, including the
-  // drive directory the daemon expects, so the boundary is normalized again.
-  await normalizeToolWorkspaceRoot(session, worldRoot);
-  turnExecution.assertActive();
-  const materializationMs = phaseMs(materializationStarted);
   restoreMs = phaseMs(restoreStarted);
 
   let nativeRestoreMs = 0;
@@ -1280,7 +1294,7 @@ export const attachAgentWorld = async (
     nativeRestoreMs,
     restoreConfirmationMs: phaseMs(confirmationStarted),
     totalAttachMs: phaseMs(attachStarted),
-    observedHeadRevision: head.revision,
+    ...(head ? { observedHeadRevision: head.revision } : {}),
   });
   return { session, coldContainerStartMs, restoreMs };
 };
@@ -1398,10 +1412,12 @@ export const runAgentAttempt = async (
     // and right before the executor is admitted, so the capability's
     // lifetime tracks the attempt as closely as possible.
     if (!turn.execution) throw new AgentTurnAuthorityLostError();
+    const orchestrator = turn.agentRole === "orchestrator";
     const modelGateway = await mintAgentTurnModelGateway(
       host.env,
       turn,
       turn.execution,
+      orchestrator ? ["orchestrator"] : ["general"],
     );
     turnExecution.assertActive();
 
@@ -1410,10 +1426,23 @@ export const runAgentAttempt = async (
     // backup. The executor unlinks it before any model or tool process
     // exists, so the capability never becomes readable by agent shells.
     turnExecution.assertActive();
-    const roleInput: CloudCliTurnRoleInput =
-      turn.agentRole === "orchestrator" && turn.orchestratorCli
-        ? { role: "orchestrator", ...turn.orchestratorCli }
-        : { role: "agent" };
+    let roleInput: CloudCliTurnRoleInput = { role: "agent" };
+    if (orchestrator) {
+      // The admitted dispatch carries the spec; the stored copy covers a
+      // turn object rebuilt from the durable record.
+      const spec =
+        turn.orchestratorCli ??
+        readOrchestratorCliSpec(host.ctx.storage.sql, {
+          turnId: turn.turnId,
+          attemptGeneration: turn.attemptGeneration!,
+        });
+      if (!spec) {
+        throw new AgentTurnError(
+          "Stella lost this message's instructions before it could run. Try again.",
+        );
+      }
+      roleInput = { role: "orchestrator", ...spec };
+    }
     await session.writeFile(
       "/workspace/turn-input.json",
       JSON.stringify({

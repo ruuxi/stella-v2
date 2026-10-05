@@ -28,7 +28,8 @@ import {
 } from "../sandbox-lifecycle.js";
 import { PREVIEW_ACCESS_STORAGE_KEY } from "../vite-preview-access.js";
 import { sandboxClient } from "../sandbox-client.js";
-import { agentTurnSessionId } from "../workspace.js";
+import { agentTurnSessionId, worldName, worldSandboxId } from "../workspace.js";
+import { initialInstanceSize } from "../instance-size.js";
 import type { InstanceSize } from "../instance-size.js";
 import type {
   SandboxDestroyDebt,
@@ -145,6 +146,65 @@ export const retireSandboxInstance = async (
     instanceSize: target.size,
   });
   return json({ ok: true, target });
+};
+
+/**
+ * `POST /orchestrator-turn/prewarm` `{ ownerId }`: start the owner's shared
+ * world container ahead of an orchestrator CLI turn, without running one.
+ * The OrchestratorSession calls it when an `anthropic` conversation is about
+ * to need the container (admission, socket connect), so the turn itself
+ * pays only for attach. Starts the exact container the turn would use
+ * (`worldSandboxId`, the world's remembered size); a running one is left
+ * alone. Never touches this session's turn state.
+ *
+ *   200 { prewarmed: true, alreadyRunning: boolean, startMs?: number }
+ *   502 { prewarmed: false, reason: "start_failed" }
+ *   400 / 409 malformed, or another owner's session
+ */
+export const prewarmOrchestratorContainer = async (
+  host: SessionSandboxHost,
+  request: Request,
+): Promise<Response> => {
+  const raw = (await request.json().catch(() => null)) as Record<
+    string,
+    unknown
+  > | null;
+  const ownerId = typeof raw?.ownerId === "string" ? raw.ownerId.trim() : "";
+  if (!ownerId || ownerId.length > 512) {
+    return json({ error: "ownerId is required." }, 400);
+  }
+  const stored = await host.ctx.storage.get<TurnRequest>("turn");
+  if (stored && stored.ownerId !== ownerId) {
+    return json({ prewarmed: false, reason: "owner_mismatch" }, 409);
+  }
+  const world = host.env.WORLDS.getByName(await worldName(ownerId));
+  const size = await world.selectContainerSize(
+    initialInstanceSize({ prompt: "" }),
+  );
+  const handle = host.sandbox(await worldSandboxId(ownerId), size, "world");
+  if (await host.sandboxContainerRunning(handle)) {
+    return json({ prewarmed: true, alreadyRunning: true });
+  }
+  const started = performance.now();
+  try {
+    // Every container RPC starts the instance; this one does nothing else.
+    await withInfrastructureDeadline(
+      handle.exec("true", { origin: "internal" }),
+      120_000,
+      "Orchestrator container prewarm did not settle.",
+    );
+  } catch (error) {
+    log("error", "orchestrator_container_prewarm_failed", {
+      ...sandboxLifecycleFailureFields(error),
+    });
+    return json({ prewarmed: false, reason: "start_failed" }, 502);
+  }
+  const startMs = Math.round(performance.now() - started);
+  log("info", "orchestrator_container_prewarmed", {
+    instanceSize: size,
+    startMs,
+  });
+  return json({ prewarmed: true, alreadyRunning: false, startMs });
 };
 
 export const sandbox = (

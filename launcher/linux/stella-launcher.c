@@ -55,6 +55,10 @@ extern char **environ;
 
 /* ------------------------------------------------------------------ pins */
 
+/* CI's run number (build.sh passes STELLA_LAUNCHER_VERSION); 0 for a local build. */
+#ifndef LAUNCHER_VERSION
+#define LAUNCHER_VERSION 0
+#endif
 #define BUN_VERSION "1.4.0"
 #define DEFAULT_BACKEND_URL "https://stella-v2-cloud-builder-prod.lolruuxi.workers.dev"
 #define UPSTREAM_BRANCH "main"
@@ -298,7 +302,8 @@ static void logf_(const char *fmt, ...) {
 
 /* The last error, set by any function that returns failure. One worker thread
  * does all the launcher work, so a plain global is enough. */
-static char *g_error;
+/* Per thread: the updater runs beside the launcher's work. */
+static __thread char *g_error;
 static void set_error(const char *fmt, ...) {
     va_list ap;
     char *msg;
@@ -440,6 +445,7 @@ static double env_seconds(const char *name, double fallback) {
 
 typedef struct {
     int self_test;
+    int start;           /* --start: start right away, without waiting for Start */
     char *source;        /* a local path or git URL instead of the upstream bootstrap */
     char *source_ref;
     char *backend;
@@ -454,8 +460,8 @@ typedef struct {
 static Options O;
 
 static const char *USAGE =
-    "usage: stella-launcher [--self-test] [--source <path|git url>] [--source-ref <ref>]\n"
-    "                       [--backend <url>] [--bun <path>] [--hold <seconds>]\n"
+    "usage: stella-launcher [--start] [--version] [--self-test] [--source <path|git url>]\n"
+    "                       [--source-ref <ref>] [--backend <url>] [--bun <path>] [--hold <seconds>]\n"
     "                       [--recovery-choice return|retry|quit] [--capture-dir <dir>]\n"
     "\n"
     "Environment: STELLA_LAUNCHER_ROOT (install root, for testing),\n"
@@ -473,6 +479,7 @@ static void parse_options(int argc, char **argv) {
         const char *a = argv[i];
 #define VALUE() (i + 1 < argc ? argv[++i] : (fprintf(stderr, "%s needs a value\n%s", a, USAGE), exit(64), (char *)NULL))
         if (!strcmp(a, "--self-test")) O.self_test = 1;
+        else if (!strcmp(a, "--start")) O.start = 1;
         else if (!strcmp(a, "--source")) O.source = xstrdup(VALUE());
         else if (!strcmp(a, "--source-ref")) O.source_ref = xstrdup(VALUE());
         else if (!strcmp(a, "--backend")) { free(O.backend); O.backend = xstrdup(VALUE()); }
@@ -1948,7 +1955,10 @@ out:
     return rc;
 }
 
-/* The .desktop entry, pointing at an installed copy of this launcher. */
+static int probe_version(const char *binary);
+
+/* The .desktop entry, pointing at an installed copy of this launcher (never
+ * replacing a newer one the updater installed). */
 static void install_desktop_entry(void) {
     char self[PATH_MAX], *installed, *apps, *entry_path, *entry, *icon_src, *icon, *existing;
     const char *xdg = getenv("XDG_DATA_HOME");
@@ -1957,7 +1967,7 @@ static void install_desktop_entry(void) {
     self[n] = 0;
     mkdirs(P.bin_dir, 0755);
     installed = xasprintf("%s/stella-launcher", P.bin_dir);
-    if (strcmp(self, installed) != 0) {
+    if (strcmp(self, installed) != 0 && (!file_exists(installed) || probe_version(installed) <= LAUNCHER_VERSION)) {
         if (copy_file(self, installed, 0755) == 0) LOG("install: copied the launcher to %s", installed);
         else LOG("install: could not copy the launcher to %s", installed);
     }
@@ -2589,6 +2599,178 @@ static int return_to_known_good(void) {
     return 0;
 }
 
+/* ---------------------------------------------------------------- update */
+
+/*
+ * The launcher updates itself: about a minute after start and then every six
+ * hours it reads launcher/stable/VERSION (CI's run number; LAUNCHER_VERSION is
+ * this build's, 0 for a local build, which never updates). A higher one is
+ * downloaded, checked against SHA256SUMS, made to run `--version` (which also
+ * proves it finds its libraries) and renamed over bin/stella-launcher: the
+ * next start runs it. When Electron restarts for an app update, the running
+ * launcher hands over to it then (execv), so a launcher that is never quit
+ * still updates. Linux builds aren't code-signed; HTTPS and the published
+ * checksum are what install.sh trusts too.
+ */
+
+#define UPDATE_BASE_URL "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/launcher/stable"
+
+static volatile int g_staged_version;
+
+static const char *update_asset(void) {
+#if defined(__aarch64__)
+    return "stella-launcher-linux-arm64";
+#else
+    return "stella-launcher-linux-x64";
+#endif
+}
+
+static char *installed_launcher(void) { return xasprintf("%s/stella-launcher", P.bin_dir); }
+
+/* `<binary> --version`, or -1. */
+static int probe_version(const char *binary) {
+    char *argv[] = {(char *)binary, "--version", NULL};
+    StrList env = base_environment();
+    CmdResult r;
+    int version = -1;
+    if (run_cmd(argv, NULL, env.items, NULL, 20, &r) == 0) {
+        if (!r.timed_out && r.code == 0) {
+            char *end;
+            long v = strtol(r.out, &end, 10);
+            if (end != r.out && v >= 0) version = (int)v;
+        }
+        cmd_free(&r);
+    }
+    sl_free(&env);
+    return version;
+}
+
+/* curl's body, trimmed, or NULL. */
+static char *fetch_text(const char *url) {
+    char *argv[] = {"curl", "-fsSL", "--retry", "2", "--connect-timeout", "30", "--max-time", "60", (char *)url, NULL};
+    StrList env = base_environment();
+    CmdResult r;
+    char *text = NULL;
+    if (run_cmd(argv, NULL, env.items, NULL, 90, &r) == 0) {
+        if (!r.timed_out && r.code == 0) text = trimmed(r.out);
+        else LOG("update: %s failed: %.200s", url, r.err);
+        cmd_free(&r);
+    }
+    sl_free(&env);
+    return text;
+}
+
+/* The sha256 for name in a `sha256sum` listing, or NULL. */
+static char *sum_for(const char *sums, const char *name) {
+    const char *line = sums;
+    size_t name_len = strlen(name);
+    while (line && *line) {
+        const char *nl = strchr(line, '\n'), *end = nl ? nl : line + strlen(line), *file;
+        const char *space = memchr(line, ' ', (size_t)(end - line));
+        if (space && space - line == 64) {
+            file = space;
+            while (file < end && (*file == ' ' || *file == '*')) file++;
+            if ((size_t)(end - file) == name_len && !strncmp(file, name, name_len)) {
+                char *sum = calloc(65, 1);
+                memcpy(sum, line, 64);
+                return sum;
+            }
+        }
+        line = nl ? nl + 1 : NULL;
+    }
+    return NULL;
+}
+
+static void update_check(const char *base) {
+    char *url = xasprintf("%s/VERSION", base), *text = fetch_text(url), *end;
+    long published = text ? strtol(text, &end, 10) : -1;
+    char *sums = NULL, *sum = NULL, *staged = NULL, *installed = NULL;
+    int probed;
+    free(url);
+    if (!text || end == text || published <= 0) {
+        LOG("update: no published version (%s)", text ? text : "unreachable");
+        goto out;
+    }
+    if (published <= LAUNCHER_VERSION || published <= g_staged_version) {
+        LOG("update: %ld is current", published);
+        goto out;
+    }
+    LOG("update: %ld available (running %d)", published, LAUNCHER_VERSION);
+    url = xasprintf("%s/SHA256SUMS", base);
+    sums = fetch_text(url);
+    free(url);
+    if (!sums || !(sum = sum_for(sums, update_asset()))) {
+        LOG("update: %s isn't in SHA256SUMS", update_asset());
+        goto out;
+    }
+    mkdirs(P.bin_dir, 0755);
+    staged = xasprintf("%s/.stella-launcher.update", P.bin_dir);
+    url = xasprintf("%s/%s", base, update_asset());
+    if (download(url, staged, sum) != 0) {
+        LOG("update: %s", last_error());
+        free(url);
+        unlink(staged);
+        goto out;
+    }
+    free(url);
+    chmod(staged, 0755);
+    probed = probe_version(staged);
+    if (probed != (int)published) {
+        LOG("update: the download reports version %d, not %ld; discarded", probed, published);
+        unlink(staged);
+        goto out;
+    }
+    LOG("update: verified %ld", published);
+    installed = installed_launcher();
+    if (rename(staged, installed) != 0) {
+        LOG("update: could not install %s: %s", installed, strerror(errno));
+        unlink(staged);
+        goto out;
+    }
+    g_staged_version = (int)published;
+    LOG("update: staged %ld at %s; it runs from the next start", published, installed);
+out:
+    free(text);
+    free(sums);
+    free(sum);
+    free(staged);
+    free(installed);
+}
+
+static gpointer updater(gpointer data) {
+    const char *base = data;
+    unsigned delay = (unsigned)env_seconds("STELLA_LAUNCHER_UPDATE_DELAY_SECONDS", 60);
+    sleep(delay);
+    for (;;) {
+        LOG("update: checking %s", base);
+        update_check(base);
+        sleep(6 * 60 * 60);
+    }
+    return NULL;
+}
+
+/* Released builds of the installed launcher only; a test root opts in with its own URL. */
+static void updater_start(void) {
+    const char *url = getenv("STELLA_LAUNCHER_UPDATE_URL");
+    int custom = url && *url;
+    if (LAUNCHER_VERSION <= 0 || O.self_test || (P.isolated && !custom)) return;
+    g_thread_new("update", updater, xstrdup(custom ? url : UPDATE_BASE_URL));
+}
+
+/* An app update restarts Stella; a newer launcher takes over then. Returns only if it can't. */
+static void hand_over_if_updated(void) {
+    char *installed;
+    if (g_staged_version <= LAUNCHER_VERSION) return;
+    installed = installed_launcher();
+    LOG("update: handing over to %d", g_staged_version);
+    {
+        char *argv[] = {installed, "--start", NULL};
+        execv(installed, argv);
+    }
+    LOG("update: could not start %s: %s", installed, strerror(errno));
+    free(installed);
+}
+
 /* ---------------------------------------------------------------- launcher */
 
 static int g_recovery_count;
@@ -2686,10 +2868,10 @@ static char *prepare_for_launch(void) {
 static int launcher_run(void) {
     double crash_times[8];
     int crash_count = 0;
-    Command command = g_ui ? CMD_NONE : CMD_START;
+    Command command = g_ui && !O.start ? CMD_NONE : CMD_START;
     char *reason = NULL;
     StrList output = {0};
-    LOG("launcher: start root=%s selfTest=%d pid=%d", P.root, O.self_test, (int)getpid());
+    LOG("launcher: start version=%d root=%s selfTest=%d pid=%d", LAUNCHER_VERSION, P.root, O.self_test, (int)getpid());
     if (ensure_git() == 0) ui_refresh_version();
     if (O.self_test && g_ui) {
         /* The window as the user first sees it, then Start. */
@@ -2748,6 +2930,7 @@ static int launcher_run(void) {
                 LOG("launcher: relaunch requested");
                 sl_free(&outcome.output);
                 free(outcome.detail);
+                hand_over_if_updated();
                 command = CMD_START;
                 continue;
             case OUT_CRASHED: {
@@ -2823,6 +3006,11 @@ int main(int argc, char **argv) {
     int lock_fd;
     struct sigaction sa;
 
+    /* The updater's probe of a download: answer before touching anything. */
+    if (argc == 2 && !strcmp(argv[1], "--version")) {
+        printf("%d\n", LAUNCHER_VERSION);
+        return 0;
+    }
     paths_resolve();
     mkdirs(P.logs, 0755);
     log_file = fopen(P.launcher_log, "a");
@@ -2838,6 +3026,7 @@ int main(int argc, char **argv) {
         return 0;
     }
     state_load();
+    updater_start();
 
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = on_signal;

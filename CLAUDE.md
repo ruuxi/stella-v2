@@ -35,6 +35,11 @@ that we publish, plus a private fork per user.
   `bun run app-source:publish -- --namespace <ns>`. Fetch from Artifacts over
   git protocol v2 (its v1 fetch is broken); push over v1.
 
+## Deploying
+
+The dev and prod release flow (Cloudflare workers, app source, launchers,
+website, mobile OTA) is in `DEPLOY.md`. Follow it as written.
+
 ## Cloud agents: required environment
 
 The clone plus `bun install --frozen-lockfile` is enough to typecheck and run

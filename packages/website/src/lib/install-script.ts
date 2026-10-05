@@ -109,6 +109,25 @@ install_macos() {
   open "$apps/Stella.app"
 }
 
+# The launcher's window is a WebKitGTK view; install it when it's missing.
+ensure_linux_libraries() {
+  if ! have ldd || ! ldd "$1" 2>/dev/null | grep -q "not found"; then
+    return 0
+  fi
+  echo "Stella needs WebKitGTK 4.1. Installing it (this asks for your password)..."
+  if have pacman; then
+    sudo pacman -S --needed --noconfirm webkit2gtk-4.1 || die "could not install webkit2gtk-4.1."
+  elif have apt-get; then
+    sudo apt-get install -y libwebkit2gtk-4.1-0 || die "could not install libwebkit2gtk-4.1-0."
+  elif have dnf; then
+    sudo dnf install -y webkit2gtk4.1 || die "could not install webkit2gtk4.1."
+  elif have zypper; then
+    sudo zypper --non-interactive install libwebkit2gtk-4_1-0 || die "could not install libwebkit2gtk-4_1-0."
+  else
+    die "install WebKitGTK 4.1 with your package manager, then run this again."
+  fi
+}
+
 install_linux() {
   arch="$(uname -m)"
   case "$arch" in
@@ -140,6 +159,7 @@ install_linux() {
   staged=""
 
   echo "Installed the Stella launcher to $target"
+  ensure_linux_libraries "$target"
   echo "Starting Stella. It finishes installing and adds Stella to your application menu."
   nohup "$target" </dev/null >/dev/null 2>&1 &
 }

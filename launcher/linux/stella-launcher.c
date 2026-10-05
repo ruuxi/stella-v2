@@ -13,8 +13,8 @@
  *
  * Shells out to curl, tar/unzip and git; uses libcrypto for SHA-256 and
  * ECDSA P-256; keeps the signing key in the Secret Service (libsecret,
- * loaded at runtime) or a 0600 file; GTK3 for the progress and recovery
- * windows (headless runs log instead).
+ * loaded at runtime) or a 0600 file; GTK3 and WebKitGTK for the launcher
+ * window, launcher/common/launcher.html (headless runs log instead).
  */
 #define _GNU_SOURCE
 #include <dlfcn.h>
@@ -36,11 +36,14 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#include <sys/un.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
+#include <glib-unix.h>
 #include <gtk/gtk.h>
+#include <webkit2/webkit2.h>
 #include <openssl/bio.h>
 #include <openssl/evp.h>
 #include <openssl/pem.h>
@@ -1133,267 +1136,479 @@ static char *sign_head(const char *expected) {
 /* ------------------------------------------------------------------- UI */
 
 /*
- * GTK runs on the main thread; the launcher's work runs on a worker thread and
- * hops to the main loop for every window operation. Without a display the
- * windows are skipped and everything is logged.
+ * The launcher window is launcher/common/launcher.html in a WebKitGTK view;
+ * that file documents the page protocol. GTK runs on the main thread. The
+ * launcher's work runs on a worker thread, which publishes its phase here and
+ * waits here for the page's commands. Without a display there is no window
+ * and everything is logged.
  */
+
+/* The page, embedded at build time (build.sh passes its path). */
+__asm__(".section .rodata\n"
+        ".global launcher_html\n"
+        "launcher_html:\n"
+        ".incbin \"" LAUNCHER_HTML "\"\n"
+        ".byte 0\n"
+        ".previous\n");
+extern const char launcher_html[];
+
+typedef enum { PHASE_IDLE, PHASE_STARTING, PHASE_RUNNING, PHASE_STOPPING, PHASE_FAILED } Phase;
+static const char *const PHASE_NAMES[] = {"idle", "starting", "running", "stopping", "failed"};
+
+typedef enum { CMD_NONE, CMD_START, CMD_RETURN, CMD_REINSTALL, CMD_QUIT } Command;
+
 static int g_ui;
+/* The page's Shut down: the supervisor sends Electron {"op":"quit"}. */
+static volatile sig_atomic_t g_shutdown;
 
 typedef struct {
-    GtkWidget *window, *label, *bar;
-    guint pulse;
-    int captured;
-} Progress;
-static Progress g_progress;
-
-static void capture_window(GtkWidget *window, const char *path) {
-    GdkWindow *gw = gtk_widget_get_window(window);
-    GdkPixbuf *pb;
-    char *dir, *slash;
-    if (!gw) return;
-    pb = gdk_pixbuf_get_from_window(gw, 0, 0, gdk_window_get_width(gw), gdk_window_get_height(gw));
-    if (!pb) return;
-    dir = xstrdup(path);
-    if ((slash = strrchr(dir, '/'))) { *slash = 0; mkdirs(dir, 0755); }
-    free(dir);
-    if (gdk_pixbuf_save(pb, path, "png", NULL, NULL)) LOG("ui: captured %s", path);
-    g_object_unref(pb);
-}
-
-static gboolean pulse_cb(gpointer data) {
-    (void)data;
-    if (g_progress.bar) gtk_progress_bar_pulse(GTK_PROGRESS_BAR(g_progress.bar));
-    return G_SOURCE_CONTINUE;
-}
-
-static gboolean capture_progress_cb(gpointer data) {
-    char *path = data;
-    if (g_progress.window && gtk_widget_get_visible(g_progress.window)) capture_window(g_progress.window, path);
-    free(path);
-    return G_SOURCE_REMOVE;
-}
-
-static gboolean progress_show_idle(gpointer data) {
-    char *status = data;
-    if (!g_progress.window) {
-        GtkWidget *box, *title;
-        g_progress.window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-        gtk_window_set_title(GTK_WINDOW(g_progress.window), "Stella");
-        gtk_window_set_default_size(GTK_WINDOW(g_progress.window), 380, 120);
-        gtk_window_set_resizable(GTK_WINDOW(g_progress.window), FALSE);
-        gtk_window_set_position(GTK_WINDOW(g_progress.window), GTK_WIN_POS_CENTER);
-        gtk_window_set_deletable(GTK_WINDOW(g_progress.window), FALSE);
-        box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
-        gtk_container_set_border_width(GTK_CONTAINER(box), 20);
-        title = gtk_label_new(NULL);
-        gtk_label_set_markup(GTK_LABEL(title), "<b>Getting Stella ready</b>");
-        gtk_widget_set_halign(title, GTK_ALIGN_START);
-        g_progress.label = gtk_label_new("");
-        gtk_widget_set_halign(g_progress.label, GTK_ALIGN_START);
-        gtk_style_context_add_class(gtk_widget_get_style_context(g_progress.label), "dim-label");
-        g_progress.bar = gtk_progress_bar_new();
-        gtk_box_pack_start(GTK_BOX(box), title, FALSE, FALSE, 0);
-        gtk_box_pack_start(GTK_BOX(box), g_progress.label, FALSE, FALSE, 0);
-        gtk_box_pack_start(GTK_BOX(box), g_progress.bar, FALSE, FALSE, 0);
-        gtk_container_add(GTK_CONTAINER(g_progress.window), box);
-        g_progress.pulse = g_timeout_add(120, pulse_cb, NULL);
-    }
-    gtk_label_set_text(GTK_LABEL(g_progress.label), status);
-    gtk_widget_show_all(g_progress.window);
-    gtk_window_present(GTK_WINDOW(g_progress.window));
-    if (O.capture_dir && !g_progress.captured) {
-        g_progress.captured = 1;
-        g_timeout_add(500, capture_progress_cb, xasprintf("%s/progress.png", O.capture_dir));
-    }
-    free(status);
-    return G_SOURCE_REMOVE;
-}
-
-static void progress_show(const char *status) {
-    LOG("progress: %s", status);
-    if (g_ui) g_idle_add(progress_show_idle, xstrdup(status));
-}
-
-static gboolean progress_hide_idle(gpointer data) {
-    (void)data;
-    if (g_progress.window) gtk_widget_hide(g_progress.window);
-    return G_SOURCE_REMOVE;
-}
-
-static void progress_hide(void) {
-    if (g_ui) g_idle_add(progress_hide_idle, NULL);
-}
-
-typedef struct {
-    const char *reason;
-    const StrList *output;
-    int has_known_good;
-    char *capture_path;
-    Choice automation;
-    double automation_delay;
-    GtkWidget *window;
-    GtkWidget *buttons[5];
-    Choice choice;
-    int done;
     GMutex lock;
     GCond cond;
-} Recovery;
+    /* Guarded by lock. */
+    Phase phase;
+    char *status, *reason, *version;
+    StrList output;
+    int has_known_good;
+    Command command;     /* the page's command, taken by ui_wait_command */
+    int loaded;
+    int captures;        /* snapshots in flight */
+    /* Main thread only. */
+    GtkWidget *window;
+    WebKitWebView *view;
+    int want_visible;
+    int captured_starting;
+} Ui;
+static Ui U;
 
-static void recovery_finish(Recovery *r, Choice choice) {
-    if (r->window) { gtk_widget_destroy(r->window); r->window = NULL; }
-    g_mutex_lock(&r->lock);
-    if (!r->done) { r->choice = choice; r->done = 1; }
-    g_cond_signal(&r->cond);
-    g_mutex_unlock(&r->lock);
+static int has_known_good(void);
+
+static int idle_or_failed(Phase p) { return p == PHASE_IDLE || p == PHASE_FAILED; }
+
+/* With U.lock held. */
+static char *ui_state_json(void) {
+    GString *s = g_string_new(NULL);
+    char *status = mj_quote(U.status ? U.status : ""), *reason = mj_quote(U.reason ? U.reason : "");
+    char *version = mj_quote(U.version ? U.version : "");
+    size_t i;
+    g_string_append_printf(s, "{\"platform\":\"linux\",\"phase\":\"%s\",\"status\":%s,\"reason\":%s,"
+                              "\"hasKnownGood\":%s,\"version\":%s,\"output\":[",
+                           PHASE_NAMES[U.phase], status, reason, U.has_known_good ? "true" : "false", version);
+    for (i = 0; i < U.output.count; i++) {
+        char *q = mj_quote(U.output.items[i]);
+        g_string_append_printf(s, "%s%s", i ? "," : "", q);
+        free(q);
+    }
+    g_string_append(s, "]}");
+    free(status);
+    free(reason);
+    free(version);
+    return g_string_free(s, FALSE);
 }
 
-static void recovery_clicked(GtkButton *button, gpointer data) {
-    Recovery *r = data;
-    Choice c = (Choice)GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "choice"));
-    recovery_finish(r, c);
+static void ui_eval_main(const char *script) {
+    webkit_web_view_evaluate_javascript(U.view, script, -1, NULL, NULL, NULL, NULL, NULL);
 }
 
-static gboolean recovery_deleted(GtkWidget *w, GdkEvent *e, gpointer data) {
-    (void)w; (void)e;
-    recovery_finish(data, CHOICE_QUIT);
+static void ui_render_main(void) {
+    char *json, *script;
+    g_mutex_lock(&U.lock);
+    if (!U.loaded) {
+        g_mutex_unlock(&U.lock);
+        return;
+    }
+    json = ui_state_json();
+    g_mutex_unlock(&U.lock);
+    script = xasprintf("window.stellaLauncher.render(%s)", json);
+    ui_eval_main(script);
+    free(script);
+    g_free(json);
+}
+
+static void ui_present_main(void) {
+    int loaded;
+    U.want_visible = 1;
+    g_mutex_lock(&U.lock);
+    loaded = U.loaded;
+    g_mutex_unlock(&U.lock);
+    /* Before the page has painted, "loaded" presents it. */
+    if (loaded) gtk_window_present(GTK_WINDOW(U.window));
+}
+
+static void ui_hide_main(void) {
+    U.want_visible = 0;
+    gtk_widget_hide(U.window);
+}
+
+static void ui_snapshot_done(GObject *source, GAsyncResult *result, gpointer data) {
+    char *path = data, *dir = xstrdup(path), *slash;
+    GError *error = NULL;
+    cairo_surface_t *surface = webkit_web_view_get_snapshot_finish(WEBKIT_WEB_VIEW(source), result, &error);
+    if ((slash = strrchr(dir, '/'))) { *slash = 0; mkdirs(dir, 0755); }
+    if (surface && cairo_surface_write_to_png(surface, path) == CAIRO_STATUS_SUCCESS) LOG("ui: captured %s", path);
+    else LOG("ui: could not capture %s: %s", path, error ? error->message : "write failed");
+    if (surface) cairo_surface_destroy(surface);
+    g_clear_error(&error);
+    free(dir);
+    free(path);
+    g_mutex_lock(&U.lock);
+    U.captures--;
+    g_cond_broadcast(&U.cond);
+    g_mutex_unlock(&U.lock);
+}
+
+/* data: the PNG path (owned). U.captures was counted by the caller. */
+static gboolean ui_capture_cb(gpointer data) {
+    webkit_web_view_get_snapshot(U.view, WEBKIT_SNAPSHOT_REGION_VISIBLE, WEBKIT_SNAPSHOT_OPTIONS_NONE, NULL,
+                                 ui_snapshot_done, data);
+    return G_SOURCE_REMOVE;
+}
+
+/* Self-test: save a PNG of the page after delay_ms (main thread). */
+static void ui_capture_later(const char *name, guint delay_ms) {
+    g_mutex_lock(&U.lock);
+    U.captures++;
+    g_mutex_unlock(&U.lock);
+    g_timeout_add(delay_ms, ui_capture_cb, xasprintf("%s/%s", O.capture_dir, name));
+}
+
+/* Self-test, after ready: the window as a reopen shows it, then Settings. */
+static gboolean tour_settings_closed(gpointer data) {
+    (void)data;
+    ui_eval_main("window.stellaLauncher.showSettings(false)");
+    ui_hide_main();
+    return G_SOURCE_REMOVE;
+}
+static gboolean tour_settings(gpointer data) {
+    (void)data;
+    ui_eval_main("window.stellaLauncher.showSettings(true)");
+    ui_capture_later("settings.png", 700);
+    g_timeout_add(1400, tour_settings_closed, NULL);
+    return G_SOURCE_REMOVE;
+}
+static gboolean ui_tour_cb(gpointer data) {
+    (void)data;
+    ui_present_main();
+    ui_capture_later("running.png", 900);
+    g_timeout_add(1300, tour_settings, NULL);
+    return G_SOURCE_REMOVE;
+}
+
+/* The page's commands. Start, return and reinstall only mean something while
+ * the launcher is waiting for one. */
+static void ui_command_main(Command c) {
+    g_mutex_lock(&U.lock);
+    if (idle_or_failed(U.phase) && U.command == CMD_NONE) {
+        U.command = c;
+        g_cond_broadcast(&U.cond);
+    }
+    g_mutex_unlock(&U.lock);
+}
+
+/* The close button: quits while nothing is running, otherwise just hides. */
+static void ui_close_main(void) {
+    int quit;
+    g_mutex_lock(&U.lock);
+    quit = idle_or_failed(U.phase);
+    g_mutex_unlock(&U.lock);
+    if (quit) ui_command_main(CMD_QUIT);
+    else ui_hide_main();
+}
+
+static void ui_message(WebKitUserContentManager *manager, WebKitJavascriptResult *result, gpointer data) {
+    char *text = jsc_value_to_string(webkit_javascript_result_get_js_value(result));
+    mj_value *msg = text ? mj_parse(text, strlen(text)) : NULL;
+    const char *action = mj_get_string(msg, "action");
+    (void)manager;
+    (void)data;
+    if (!action) {
+        LOG("ui: ignored message %.200s", text ? text : "");
+    } else if (!strcmp(action, "loaded")) {
+        g_mutex_lock(&U.lock);
+        U.loaded = 1;
+        g_cond_broadcast(&U.cond);
+        g_mutex_unlock(&U.lock);
+        ui_render_main();
+        if (U.want_visible) gtk_window_present(GTK_WINDOW(U.window));
+    } else if (!strcmp(action, "start")) {
+        ui_command_main(CMD_START);
+    } else if (!strcmp(action, "return")) {
+        ui_command_main(CMD_RETURN);
+    } else if (!strcmp(action, "reinstall")) {
+        ui_command_main(CMD_REINSTALL);
+    } else if (!strcmp(action, "shutdown")) {
+        int running;
+        g_mutex_lock(&U.lock);
+        running = U.phase == PHASE_RUNNING;
+        if (running) {
+            U.phase = PHASE_STOPPING;
+            free(U.status);
+            U.status = xstrdup("Shutting down…");
+        }
+        g_mutex_unlock(&U.lock);
+        if (running) {
+            LOG("ui: shut down");
+            g_shutdown = 1;
+            ui_render_main();
+        }
+    } else if (!strcmp(action, "openLogs")) {
+        char *uri = g_filename_to_uri(P.logs, NULL, NULL);
+        if (!uri || !g_app_info_launch_default_for_uri(uri, NULL, NULL)) LOG("ui: could not open %s", P.logs);
+        g_free(uri);
+    } else if (!strcmp(action, "close")) {
+        ui_close_main();
+    } else if (!strcmp(action, "drag")) {
+        /* The window is undecorated: a press on the page's background moves it. */
+        GdkSeat *seat = gdk_display_get_default_seat(gdk_display_get_default());
+        GdkDevice *pointer = seat ? gdk_seat_get_pointer(seat) : NULL;
+        int x = 0, y = 0;
+        if (pointer) gdk_device_get_position(pointer, NULL, &x, &y);
+        gtk_window_begin_move_drag(GTK_WINDOW(U.window), 1, x, y, GDK_CURRENT_TIME);
+    } else {
+        LOG("ui: ignored action %s", action);
+    }
+    mj_free(msg);
+    g_free(text);
+}
+
+static gboolean ui_deleted(GtkWidget *w, GdkEvent *e, gpointer data) {
+    (void)w; (void)e; (void)data;
+    ui_close_main();
     return TRUE;
 }
 
-static gboolean recovery_capture_cb(gpointer data) {
-    Recovery *r = data;
-    if (r->window && r->capture_path) capture_window(r->window, r->capture_path);
-    return G_SOURCE_REMOVE;
+/* Only the embedded page itself; anything else (a stray link) stays out. */
+static gboolean ui_decide_policy(WebKitWebView *view, WebKitPolicyDecision *decision, WebKitPolicyDecisionType type,
+                                 gpointer data) {
+    (void)view; (void)data;
+    if (type == WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION) {
+        WebKitNavigationAction *action = webkit_navigation_policy_decision_get_navigation_action(
+            WEBKIT_NAVIGATION_POLICY_DECISION(decision));
+        const char *uri = webkit_uri_request_get_uri(webkit_navigation_action_get_request(action));
+        if (uri && strcmp(uri, "about:blank") != 0) {
+            webkit_policy_decision_ignore(decision);
+            return TRUE;
+        }
+    }
+    return FALSE;
 }
 
-static gboolean recovery_auto_cb(gpointer data) {
-    Recovery *r = data;
-    GtkWidget *target = r->buttons[r->automation];
-    /* "return" means the primary button, which reads "Reinstall" without a known-good version. */
-    if (!target && r->automation == CHOICE_RETURN) target = r->buttons[CHOICE_REINSTALL];
-    LOG("recovery: self-test clicks %s", choice_name(r->automation));
-    if (target && r->window) gtk_button_clicked(GTK_BUTTON(target));
-    else recovery_finish(r, r->automation);
-    return G_SOURCE_REMOVE;
+/* The page follows the GTK theme; carry the desktop's dark preference into it. */
+static int ui_prefers_dark(void) {
+    GtkSettings *settings = gtk_settings_get_default();
+    GSettingsSchemaSource *source = g_settings_schema_source_get_default();
+    GSettingsSchema *schema = source ? g_settings_schema_source_lookup(source, "org.gnome.desktop.interface", TRUE) : NULL;
+    gboolean prefer_dark = FALSE;
+    char *theme = NULL;
+    int dark;
+    g_object_get(settings, "gtk-application-prefer-dark-theme", &prefer_dark, "gtk-theme-name", &theme, NULL);
+    dark = prefer_dark || (theme && g_str_has_suffix(theme, "-dark"));
+    if (schema && g_settings_schema_has_key(schema, "color-scheme")) {
+        GSettings *gs = g_settings_new("org.gnome.desktop.interface");
+        char *scheme = g_settings_get_string(gs, "color-scheme");
+        if (!strcmp(scheme, "prefer-dark")) dark = 1;
+        else if (!strcmp(scheme, "prefer-light")) dark = 0;
+        g_free(scheme);
+        g_object_unref(gs);
+    }
+    if (schema) g_settings_schema_unref(schema);
+    g_free(theme);
+    if (dark) g_object_set(settings, "gtk-application-prefer-dark-theme", TRUE, NULL);
+    return dark;
 }
 
-static GtkWidget *recovery_button(Recovery *r, const char *label, Choice choice) {
-    GtkWidget *b = gtk_button_new_with_label(label);
-    g_object_set_data(G_OBJECT(b), "choice", GINT_TO_POINTER(choice));
-    g_signal_connect(b, "clicked", G_CALLBACK(recovery_clicked), r);
-    r->buttons[choice] = b;
-    return b;
+/* A second launcher asks this one to show its window by connecting. */
+static gboolean ui_socket_ready(gint fd, GIOCondition condition, gpointer data) {
+    int client = accept4(fd, NULL, NULL, SOCK_CLOEXEC);
+    (void)condition; (void)data;
+    if (client >= 0) {
+        close(client);
+        LOG("ui: another launcher asked for the window");
+        ui_present_main();
+    }
+    return G_SOURCE_CONTINUE;
 }
 
-static gboolean scroll_to_end_cb(gpointer data) {
-    GtkTextView *view = data;
-    GtkTextMark *mark = gtk_text_buffer_get_mark(gtk_text_view_get_buffer(view), "end");
-    if (mark) gtk_text_view_scroll_to_mark(view, mark, 0, TRUE, 0, 1);
-    return G_SOURCE_REMOVE;
+/* In the runtime dir, named for the install root: a root's own path can be
+ * longer than a socket path may be. */
+static char *socket_path(void) {
+    const char *runtime = getenv("XDG_RUNTIME_DIR");
+    char *hash, *path;
+    if (!runtime || !*runtime) return xasprintf("%s/launcher.sock", P.root);
+    hash = g_compute_checksum_for_string(G_CHECKSUM_SHA256, P.root, -1);
+    path = xasprintf("%s/stella-launcher-%.16s.sock", runtime, hash);
+    g_free(hash);
+    return path;
 }
 
-static gboolean recovery_show_idle(gpointer data) {
-    Recovery *r = data;
-    GtkWidget *box, *title, *message, *scroll, *text, *row, *primary, *retry, *quit;
-    GtkTextBuffer *buffer;
-    GtkTextIter end;
-    GString *joined = g_string_new(NULL);
+static void ui_listen(void) {
+    struct sockaddr_un addr;
+    char *path = socket_path();
+    int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    if (fd >= 0 && strlen(path) < sizeof(addr.sun_path)) {
+        strcpy(addr.sun_path, path);
+        unlink(path);
+        if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) == 0 && listen(fd, 4) == 0) {
+            g_unix_fd_add(fd, G_IO_IN, ui_socket_ready, NULL);
+            fd = -1;
+        }
+    }
+    if (fd >= 0) {
+        LOG("ui: could not listen on %s", path);
+        close(fd);
+    }
+    free(path);
+}
+
+/* The other side: tell the running launcher to show its window. */
+static void ask_running_launcher_to_show(void) {
+    struct sockaddr_un addr;
+    char *path = socket_path();
+    int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    if (fd >= 0 && strlen(path) < sizeof(addr.sun_path)) {
+        strcpy(addr.sun_path, path);
+        if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) == 0) LOG("launcher: asked the running launcher to show");
+    }
+    if (fd >= 0) close(fd);
+    free(path);
+}
+
+/* Main thread, before the main loop: the window, hidden until the page loads. */
+static void ui_build(void) {
+    WebKitUserContentManager *content = webkit_user_content_manager_new();
+    WebKitSettings *settings;
+    GdkRGBA background;
+    int dark = ui_prefers_dark();
+
+    U.window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_window_set_title(GTK_WINDOW(U.window), "Stella");
+    gtk_window_set_default_size(GTK_WINDOW(U.window), 380, 460);
+    gtk_window_set_resizable(GTK_WINDOW(U.window), FALSE);
+    gtk_window_set_decorated(GTK_WINDOW(U.window), FALSE);
+    gtk_window_set_position(GTK_WINDOW(U.window), GTK_WIN_POS_CENTER);
+    g_signal_connect(U.window, "delete-event", G_CALLBACK(ui_deleted), NULL);
+
+    g_signal_connect(content, "script-message-received::stella", G_CALLBACK(ui_message), NULL);
+    webkit_user_content_manager_register_script_message_handler(content, "stella");
+    U.view = WEBKIT_WEB_VIEW(webkit_web_view_new_with_user_content_manager(content));
+    settings = webkit_web_view_get_settings(U.view);
+    webkit_settings_set_enable_developer_extras(settings, FALSE);
+    webkit_settings_set_enable_write_console_messages_to_stdout(settings, FALSE);
+    gdk_rgba_parse(&background, dark ? "#0f0f0d" : "#fdfdfb");
+    webkit_web_view_set_background_color(U.view, &background);
+    g_signal_connect(U.view, "decide-policy", G_CALLBACK(ui_decide_policy), NULL);
+    gtk_container_add(GTK_CONTAINER(U.window), GTK_WIDGET(U.view));
+    gtk_widget_show(GTK_WIDGET(U.view));
+    webkit_web_view_load_html(U.view, launcher_html, NULL);
+    ui_listen();
+}
+
+/* ---- worker side ---- */
+
+static gboolean ui_render_cb(gpointer data) { (void)data; ui_render_main(); return G_SOURCE_REMOVE; }
+static gboolean ui_present_cb(gpointer data) { (void)data; ui_present_main(); return G_SOURCE_REMOVE; }
+static gboolean ui_hide_cb(gpointer data) { (void)data; ui_hide_main(); return G_SOURCE_REMOVE; }
+
+static void ui_show(void) { if (g_ui) g_idle_add(ui_present_cb, NULL); }
+static void ui_hide(void) { if (g_ui) g_idle_add(ui_hide_cb, NULL); }
+
+/* Publishes the launcher's phase and what is happening now. */
+static void ui_set(Phase phase, const char *status) {
+    g_mutex_lock(&U.lock);
+    U.phase = phase;
+    free(U.status);
+    U.status = xstrdup(status ? status : "");
+    if (phase != PHASE_FAILED) {
+        free(U.reason);
+        U.reason = NULL;
+    }
+    if (!idle_or_failed(phase)) U.command = CMD_NONE;
+    g_mutex_unlock(&U.lock);
+    if (g_ui) g_idle_add(ui_render_cb, NULL);
+}
+
+/* Install and prepare steps: the status, with the window in front. */
+static void progress_show(const char *status) {
+    LOG("progress: %s", status);
+    ui_set(PHASE_STARTING, status);
+    if (!g_ui) return;
+    g_idle_add(ui_present_cb, NULL);
+    if (O.capture_dir && !U.captured_starting) {
+        U.captured_starting = 1;
+        g_mutex_lock(&U.lock);
+        U.captures++;
+        g_mutex_unlock(&U.lock);
+        g_timeout_add(600, ui_capture_cb, xasprintf("%s/starting.png", O.capture_dir));
+    }
+}
+
+static void ui_fail(const char *reason, const StrList *output) {
+    int known_good = has_known_good();
     size_t i;
-    Choice primary_choice = r->has_known_good ? CHOICE_RETURN : CHOICE_REINSTALL;
-
-    r->window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-    gtk_window_set_title(GTK_WINDOW(r->window), "Stella");
-    gtk_window_set_default_size(GTK_WINDOW(r->window), 640, 460);
-    gtk_window_set_position(GTK_WINDOW(r->window), GTK_WIN_POS_CENTER);
-    g_signal_connect(r->window, "delete-event", G_CALLBACK(recovery_deleted), r);
-
-    box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
-    gtk_container_set_border_width(GTK_CONTAINER(box), 20);
-    title = gtk_label_new(NULL);
-    gtk_label_set_markup(GTK_LABEL(title), "<span size='large' weight='bold'>Stella couldn't start</span>");
-    gtk_widget_set_halign(title, GTK_ALIGN_START);
-    message = gtk_label_new(r->reason);
-    gtk_label_set_line_wrap(GTK_LABEL(message), TRUE);
-    gtk_label_set_xalign(GTK_LABEL(message), 0);
-    gtk_style_context_add_class(gtk_widget_get_style_context(message), "dim-label");
-
-    text = gtk_text_view_new();
-    gtk_text_view_set_editable(GTK_TEXT_VIEW(text), FALSE);
-    gtk_text_view_set_monospace(GTK_TEXT_VIEW(text), TRUE);
-    gtk_text_view_set_left_margin(GTK_TEXT_VIEW(text), 6);
-    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(text), GTK_WRAP_WORD_CHAR);
-    buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(text));
-    for (i = 0; i < r->output->count; i++) {
-        if (i) g_string_append_c(joined, '\n');
-        g_string_append(joined, r->output->items[i]);
+    g_mutex_lock(&U.lock);
+    U.phase = PHASE_FAILED;
+    free(U.status);
+    U.status = xstrdup("");
+    free(U.reason);
+    U.reason = xstrdup(reason);
+    sl_free(&U.output);
+    for (i = 0; i < output->count; i++) sl_push(&U.output, output->items[i]);
+    U.has_known_good = known_good;
+    g_mutex_unlock(&U.lock);
+    if (g_ui) {
+        g_idle_add(ui_render_cb, NULL);
+        g_idle_add(ui_present_cb, NULL);
     }
-    gtk_text_buffer_set_text(buffer, r->output->count ? joined->str : "(Stella wrote no output.)", -1);
-    g_string_free(joined, TRUE);
-    scroll = gtk_scrolled_window_new(NULL, NULL);
-    gtk_scrolled_window_set_shadow_type(GTK_SCROLLED_WINDOW(scroll), GTK_SHADOW_IN);
-    gtk_widget_set_size_request(scroll, -1, 260);
-    gtk_container_add(GTK_CONTAINER(scroll), text);
-
-    row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-    quit = recovery_button(r, "Quit", CHOICE_QUIT);
-    retry = recovery_button(r, "Try again", CHOICE_RETRY);
-    primary = recovery_button(r, r->has_known_good ? "Return to last working version" : "Reinstall", primary_choice);
-    gtk_style_context_add_class(gtk_widget_get_style_context(primary), "suggested-action");
-    gtk_box_pack_start(GTK_BOX(row), quit, FALSE, FALSE, 0);
-    gtk_box_pack_end(GTK_BOX(row), primary, FALSE, FALSE, 0);
-    gtk_box_pack_end(GTK_BOX(row), retry, FALSE, FALSE, 0);
-
-    gtk_box_pack_start(GTK_BOX(box), title, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(box), message, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(box), scroll, TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(box), row, FALSE, FALSE, 0);
-    gtk_container_add(GTK_CONTAINER(r->window), box);
-    gtk_widget_show_all(r->window);
-    gtk_widget_set_can_default(primary, TRUE);
-    gtk_widget_grab_default(primary);
-    gtk_widget_grab_focus(primary);
-    gtk_window_present(GTK_WINDOW(r->window));
-    /* Show the newest output once the view has its size. */
-    gtk_text_buffer_get_end_iter(buffer, &end);
-    gtk_text_buffer_create_mark(buffer, "end", &end, FALSE);
-    g_timeout_add(100, scroll_to_end_cb, text);
-    LOG("recovery: shown reason: %s", r->reason);
-    if (r->capture_path) g_timeout_add(700, recovery_capture_cb, r);
-    if (r->automation != CHOICE_NONE) g_timeout_add((guint)(r->automation_delay * 1000), recovery_auto_cb, r);
-    return G_SOURCE_REMOVE;
 }
 
-/* "Stella couldn't start": blocks the worker until a choice is made. */
-static Choice recovery_present(const char *reason, const StrList *output, int has_known_good,
-                               const char *capture_path, Choice automation, double delay) {
-    Recovery r;
-    memset(&r, 0, sizeof(r));
-    r.reason = reason;
-    r.output = output;
-    r.has_known_good = has_known_good;
-    r.capture_path = capture_path ? xstrdup(capture_path) : NULL;
-    r.automation = automation;
-    r.automation_delay = delay;
-    if (!g_ui) {
-        size_t i;
-        LOG("recovery: (no display) %s", reason);
-        for (i = 0; i < output->count; i++) LOG("recovery: | %s", output->items[i]);
-        r.choice = automation != CHOICE_NONE ? automation : CHOICE_QUIT;
-        if (r.choice == CHOICE_RETURN && !has_known_good) r.choice = CHOICE_REINSTALL;
-    } else {
-        g_mutex_init(&r.lock);
-        g_cond_init(&r.cond);
-        g_idle_add(recovery_show_idle, &r);
-        g_mutex_lock(&r.lock);
-        while (!r.done) g_cond_wait(&r.cond, &r.lock);
-        g_mutex_unlock(&r.lock);
-        /* Let the main loop finish any callback still holding &r. */
-        usleep(200 * 1000);
-        g_mutex_clear(&r.lock);
-        g_cond_clear(&r.cond);
-    }
-    free(r.capture_path);
-    LOG("recovery: chose %s", choice_name(r.choice));
-    return r.choice;
+static void ui_refresh_version(void) {
+    char *head = g_git && file_exists(P.app) ? GIT("rev-parse", "--short=7", "HEAD") : NULL;
+    int known_good = has_known_good();
+    g_mutex_lock(&U.lock);
+    free(U.version);
+    U.version = head ? head : xstrdup("");
+    U.has_known_good = known_good;
+    g_mutex_unlock(&U.lock);
+    if (g_ui) g_idle_add(ui_render_cb, NULL);
+}
+
+/* Blocks the worker until the page sends start, return, reinstall or close. */
+static Command ui_wait_command(void) {
+    Command c;
+    g_mutex_lock(&U.lock);
+    while (U.command == CMD_NONE) g_cond_wait(&U.cond, &U.lock);
+    c = U.command;
+    U.command = CMD_NONE;
+    g_mutex_unlock(&U.lock);
+    return c;
+}
+
+/* Self-test: wait for the page, then for any snapshot in flight. */
+static void ui_wait_loaded(void) {
+    gint64 deadline = g_get_monotonic_time() + 20 * G_TIME_SPAN_SECOND;
+    g_mutex_lock(&U.lock);
+    while (!U.loaded && g_cond_wait_until(&U.cond, &U.lock, deadline)) {}
+    g_mutex_unlock(&U.lock);
+}
+
+static void ui_wait_captures(void) {
+    gint64 deadline = g_get_monotonic_time() + 10 * G_TIME_SPAN_SECOND;
+    g_mutex_lock(&U.lock);
+    while (U.captures > 0 && g_cond_wait_until(&U.cond, &U.lock, deadline)) {}
+    g_mutex_unlock(&U.lock);
+}
+
+/* Self-test: capture name after delay_ms and wait for it. */
+static void ui_capture(const char *name, guint delay_ms) {
+    if (!g_ui || !O.capture_dir) return;
+    g_mutex_lock(&U.lock);
+    U.captures++;
+    g_mutex_unlock(&U.lock);
+    g_timeout_add(delay_ms, ui_capture_cb, xasprintf("%s/%s", O.capture_dir, name));
+    ui_wait_captures();
 }
 
 /* --------------------------------------------------------- environments */
@@ -1408,7 +1623,8 @@ static StrList base_environment(void) {
     const char *stripped[] = {"STELLA_LAUNCHER_KEY_FILE", "STELLA_LAUNCHER_ROOT", "ELECTRON_RUN_AS_NODE",
                               "STELLA_V2_DEV_DATA_DIR", "STELLA_APP_DIR", "STELLA_RUNTIME_STATE_DIR",
                               "STELLA_DEV_RESTART_REQUEST_FILE", "STELLA_DEV_USER_QUIT_REQUEST_FILE",
-                              "STELLA_ELECTRON_DEV_RUNNER_PID", "STELLA_ELECTRON_READY_FILE", "NODE_OPTIONS", NULL};
+                              "STELLA_ELECTRON_DEV_RUNNER_PID", "STELLA_ELECTRON_READY_FILE", "NODE_OPTIONS",
+                              "WEBKIT_DISABLE_DMABUF_RENDERER", NULL};
     /* The dev harness opens Electron to debugging, so it passes through only
      * for a test root signed with a test key file. */
     const char *harness[] = {"STELLA_DEV_HARNESS", "STELLA_DEV_HARNESS_STORAGE_KEY", "STELLA_V2_DEV_USER_DATA_DIR",
@@ -2102,6 +2318,7 @@ static Outcome supervise(const char *electron_bin) {
         return result;
     }
     g_current = e;
+    g_shutdown = 0;
     timers[T_READY_TIMEOUT] = now_seconds() + O.ready_timeout;
 
     while (!exited) {
@@ -2139,7 +2356,15 @@ static Outcome supervise(const char *electron_bin) {
                             ready_at = now_seconds();
                             LOG("supervisor: ready");
                             timers[T_STABLE] = ready_at + O.stable_seconds;
-                            if (O.self_test) timers[T_SELF_TEST_QUIT] = ready_at + O.hold;
+                            ui_set(PHASE_RUNNING, NULL);
+                            if (O.self_test && g_ui && O.capture_dir) {
+                                /* The running window and Settings first (about 3 s). */
+                                g_idle_add(ui_tour_cb, NULL);
+                                timers[T_SELF_TEST_QUIT] = ready_at + (O.hold > 4 ? O.hold : 4);
+                            } else {
+                                ui_hide();
+                                if (O.self_test) timers[T_SELF_TEST_QUIT] = ready_at + O.hold;
+                            }
                         }
                     } else if (op && !strcmp(op, "sign")) {
                         handle_sign(e, msg);
@@ -2168,6 +2393,12 @@ static Outcome supervise(const char *electron_bin) {
         }
 
         now = now_seconds();
+        if (g_shutdown && !quit_requested) {
+            LOG("supervisor: the window asks Stella to quit");
+            quit_requested = 1;
+            electron_send(e, "{\"op\":\"quit\"}\n");
+            timers[T_QUIT_TIMEOUT] = now + 30;
+        }
         for (i = 0; i < T_COUNT; i++) {
             if (timers[i] == 0 || now < timers[i]) continue;
             timers[i] = 0;
@@ -2349,21 +2580,34 @@ static int return_to_known_good(void) {
 
 static int g_recovery_count;
 
-static Choice recover(const char *reason, const StrList *output) {
-    Choice automation = CHOICE_NONE, choice;
-    double delay = 0;
-    int forced_exit = 0;
-    char *capture = NULL;
+/* A failure: the window shows it and the user picks what's next (CMD_NONE).
+ * A self-test captures it and answers with --recovery-choice once. */
+static Command recover(const char *reason, const StrList *output) {
+    size_t i;
     g_recovery_count++;
-    if (O.self_test) {
-        if (O.recovery_choice != CHOICE_NONE && g_recovery_count == 1) { automation = O.recovery_choice; delay = 2; }
-        else { automation = CHOICE_QUIT; delay = 1.5; forced_exit = 1; }
+    ui_fail(reason, output);
+    if (!g_ui) {
+        LOG("recovery: (no display) %s", reason);
+        for (i = 0; i < output->count; i++) LOG("recovery: | %s", output->items[i]);
     }
-    if (O.capture_dir) capture = xasprintf("%s/recovery-%d.png", O.capture_dir, g_recovery_count);
-    choice = recovery_present(reason, output, has_known_good(), capture, automation, delay);
-    free(capture);
-    if (forced_exit) LOG("launcher: self-test failed: %s", reason);
-    return choice;
+    if (O.self_test) {
+        char *name = xasprintf("recovery-%d.png", g_recovery_count);
+        if (g_ui) ui_wait_loaded();
+        ui_capture(name, 1200);
+        free(name);
+        if (O.recovery_choice == CHOICE_NONE || g_recovery_count > 1) {
+            LOG("launcher: self-test failed: %s", reason);
+            return CMD_QUIT;
+        }
+        LOG("recovery: self-test chooses %s", choice_name(O.recovery_choice));
+        switch (O.recovery_choice) {
+        case CHOICE_RETURN: return has_known_good() ? CMD_RETURN : CMD_REINSTALL;
+        case CHOICE_REINSTALL: return CMD_REINSTALL;
+        case CHOICE_RETRY: return CMD_START;
+        default: return CMD_QUIT;
+        }
+    }
+    return g_ui ? CMD_NONE : CMD_QUIT;
 }
 
 static char *refusal_message(Verdict v, const StrList *dirty) {
@@ -2420,28 +2664,78 @@ static char *prepare_for_launch(void) {
     return prepare();
 }
 
+/*
+ * The window waits on Start (a headless run starts right away). Start,
+ * return and reinstall prepare and launch Stella; a relaunch request or a
+ * single early crash starts it again without asking; any failure goes back to
+ * the window with the reason.
+ */
 static int launcher_run(void) {
     double crash_times[8];
     int crash_count = 0;
+    Command command = g_ui ? CMD_NONE : CMD_START;
+    char *reason = NULL;
+    StrList output = {0};
     LOG("launcher: start root=%s selfTest=%d pid=%d", P.root, O.self_test, (int)getpid());
+    if (ensure_git() == 0) ui_refresh_version();
+    if (O.self_test && g_ui) {
+        /* The window as the user first sees it, then Start. */
+        ui_set(PHASE_IDLE, NULL);
+        ui_show();
+        ui_wait_loaded();
+        ui_capture("home.png", 1000);
+        command = CMD_START;
+    }
     for (;;) {
-        char *reason = NULL;
-        StrList output = {0};
-        char *electron = prepare_for_launch();
-        Choice choice;
+        char *electron;
+        if (command == CMD_NONE) {
+            if (!reason) {
+                ui_set(PHASE_IDLE, NULL);
+                ui_show();
+            }
+            command = ui_wait_command();
+            LOG("launcher: the window asks for %s",
+                command == CMD_START ? "start" : command == CMD_RETURN ? "return" :
+                command == CMD_REINSTALL ? "reinstall" : "quit");
+        }
+        if (command == CMD_QUIT) {
+            int code = reason ? 1 : 0;
+            free(reason);
+            sl_free(&output);
+            return code;
+        }
+        free(reason);
+        reason = NULL;
+        sl_free(&output);
+        if (command == CMD_RETURN) {
+            progress_show("Returning to the last working version…");
+            if (return_to_known_good() != 0) LOG("recovery: return failed: %s", last_error());
+        } else if (command == CMD_REINSTALL) {
+            progress_show("Reinstalling Stella…");
+            if (reinstall() != 0) LOG("recovery: reinstall failed: %s", last_error());
+        } else {
+            ui_set(PHASE_STARTING, "Starting Stella…");
+        }
+        command = CMD_NONE;
+
+        electron = prepare_for_launch();
         if (electron) {
             Outcome outcome;
-            progress_hide();
+            ui_refresh_version();
+            ui_set(PHASE_STARTING, "Starting Stella…");
             outcome = supervise(electron);
             free(electron);
             switch (outcome.kind) {
             case OUT_QUIT:
                 LOG("launcher: Stella quit; exiting");
+                sl_free(&outcome.output);
+                free(outcome.detail);
                 return 0;
             case OUT_RELAUNCH:
                 LOG("launcher: relaunch requested");
                 sl_free(&outcome.output);
                 free(outcome.detail);
+                command = CMD_START;
                 continue;
             case OUT_CRASHED: {
                 double now = now_seconds();
@@ -2462,6 +2756,7 @@ static int launcher_run(void) {
                 } else {
                     sl_free(&outcome.output);
                     free(outcome.detail);
+                    command = CMD_START;
                     continue;
                 }
                 break;
@@ -2489,24 +2784,8 @@ static int launcher_run(void) {
             free(copy);
         }
 
-        progress_hide();
         LOG("launcher: failure: %s", reason);
-        choice = recover(reason, &output);
-        free(reason);
-        sl_free(&output);
-        switch (choice) {
-        case CHOICE_QUIT:
-        case CHOICE_NONE:
-            return 1;
-        case CHOICE_RETRY:
-            continue;
-        case CHOICE_RETURN:
-            if (return_to_known_good() != 0) LOG("recovery: return failed: %s", last_error());
-            break;
-        case CHOICE_REINSTALL:
-            if (reinstall() != 0) LOG("recovery: reinstall failed: %s", last_error());
-            break;
-        }
+        command = recover(reason, &output);
     }
 }
 
@@ -2541,7 +2820,9 @@ int main(int argc, char **argv) {
     lock_fd = open(P.lock_file, O_CREAT | O_RDWR | O_CLOEXEC, 0600);
     if (lock_fd < 0 || flock(lock_fd, LOCK_EX | LOCK_NB) != 0) {
         LOG("launcher: another launcher owns %s; exiting", P.root);
-        return O.self_test ? 1 : 0;
+        if (O.self_test) return 1;
+        ask_running_launcher_to_show();
+        return 0;
     }
     state_load();
 
@@ -2553,6 +2834,9 @@ int main(int argc, char **argv) {
     signal(SIGPIPE, SIG_IGN);
 
     g_set_prgname("stella");
+    /* WebKit's DMA-BUF renderer kills the connection on some Wayland/NVIDIA
+     * setups (protocol error 71); this page doesn't need it. */
+    setenv("WEBKIT_DISABLE_DMABUF_RENDERER", "1", 0);
     g_ui = gtk_init_check(&argc, &argv);
     if (!g_ui) {
         LOG("launcher: no display; running without windows");
@@ -2561,6 +2845,7 @@ int main(int argc, char **argv) {
     }
     g_set_application_name("Stella");
     gtk_window_set_default_icon_name("stella");
+    ui_build();
     g_thread_new("launcher", worker, NULL);
     gtk_main();
     return 0;

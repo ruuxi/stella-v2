@@ -67,7 +67,6 @@
         --ok: #2fb35a;
         --danger: #c8412f;
         --danger-ghost: rgba(200, 65, 47, 0.08);
-        --mark-shadow: rgba(0, 0, 0, 0.08);
       }
       @media (prefers-color-scheme: dark) {
         :root {
@@ -84,7 +83,6 @@
           --ok: #3ccf6a;
           --danger: #ef6b58;
           --danger-ghost: rgba(239, 107, 88, 0.12);
-          --mark-shadow: rgba(0, 0, 0, 0.5);
         }
       }
 
@@ -140,7 +138,12 @@
       .view[hidden] {
         display: flex;
         opacity: 0;
+        visibility: hidden;
         pointer-events: none;
+        transition:
+          opacity 200ms ease,
+          transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
+          visibility 0s 240ms;
       }
       #home[hidden] {
         transform: translateX(-12px);
@@ -166,7 +169,6 @@
         width: 68px;
         height: 68px;
         color: var(--fg);
-        filter: drop-shadow(0 10px 18px var(--mark-shadow));
       }
       .wordmark {
         font-family: "Stella Display", Georgia, serif;
@@ -179,7 +181,7 @@
       .stage {
         position: relative;
         width: 100%;
-        height: 112px;
+        height: 146px;
         margin-top: 30px;
       }
       .panel {
@@ -190,11 +192,13 @@
         align-items: center;
         gap: 12px;
         opacity: 0;
+        visibility: hidden;
         transform: translateY(4px);
         pointer-events: none;
         transition:
           opacity 220ms ease,
-          transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+          transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+          visibility 0s 260ms;
       }
       body[data-phase="idle"] .panel[data-for~="idle"],
       body[data-phase="starting"] .panel[data-for~="starting"],
@@ -202,8 +206,10 @@
       body[data-phase="stopping"] .panel[data-for~="stopping"],
       body[data-phase="failed"] .panel[data-for~="failed"] {
         opacity: 1;
+        visibility: visible;
         transform: none;
         pointer-events: auto;
+        transition-delay: 0s;
       }
 
       .pill {
@@ -287,17 +293,20 @@
         }
       }
 
+      .panel[data-for="failed"] {
+        gap: 10px;
+        margin-top: -6px;
+      }
       .failed-title {
         font-size: 13.5px;
         font-weight: 600;
-        margin-top: -2px;
       }
       .reason {
         display: -webkit-box;
         -webkit-line-clamp: 2;
         -webkit-box-orient: vertical;
         overflow: hidden;
-        margin-top: -6px;
+        margin: -6px 0 2px;
       }
       .links {
         display: flex;
@@ -649,9 +658,11 @@
           $("reinstall-hint").textContent = busy ? "Shut Stella down first." : "Download Stella again. Your data stays.";
           if (busy) setConfirming(false);
 
+          // The whole reason (home shows two lines of it), then Stella's output.
           const lines = state.output || [];
-          $("log").hidden = lines.length === 0;
-          $("output").textContent = lines.join("\n");
+          const log = [state.reason, lines.join("\n")].filter(Boolean).join("\n\n");
+          $("log").hidden = !log;
+          $("output").textContent = log;
         };
 
         const act = (action) => post({ action });

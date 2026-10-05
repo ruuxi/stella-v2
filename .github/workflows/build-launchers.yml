@@ -267,7 +267,7 @@ jobs:
       - name: Install build and Electron runtime dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential pkg-config libgtk-3-dev libssl-dev \
+          sudo apt-get install -y --no-install-recommends build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev libssl-dev \
             xvfb xauth unzip libnss3 libgbm1 libasound2t64 libxss1 libxshmfence1 libsecret-1-0
 
       - name: Build stella-launcher

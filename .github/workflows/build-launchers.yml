@@ -39,6 +39,8 @@ jobs:
           fetch-depth: 1
 
       - name: Build Stella.app (universal launcher)
+        env:
+          STELLA_LAUNCHER_VERSION: ${{ github.run_number }}
         run: launcher/macos/build.sh
 
       - name: Self-test
@@ -135,6 +137,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends g++-mingw-w64-x86-64 binutils-mingw-w64-x86-64 curl unzip
 
       - name: Build Stella.exe
+        env:
+          STELLA_LAUNCHER_VERSION: ${{ github.run_number }}
         run: launcher/windows/build.sh
 
       - uses: actions/cache/save@v4
@@ -271,6 +275,8 @@ jobs:
             xvfb xauth unzip libnss3 libgbm1 libasound2t64 libxss1 libxshmfence1 libsecret-1-0
 
       - name: Build stella-launcher
+        env:
+          STELLA_LAUNCHER_VERSION: ${{ github.run_number }}
         run: launcher/linux/build.sh
 
       - name: Self-test
@@ -323,6 +329,9 @@ jobs:
         run: |
           rm -rf launchers/*evidence* 2>/dev/null || true
           cd launchers && ls -la && sha256sum Stella-macos.dmg Stella-macos.zip Stella.exe stella-launcher-linux-* | tee SHA256SUMS
+          # The build number every launcher in this run carries; installed
+          # launchers update themselves when it's higher than theirs.
+          echo "${{ github.run_number }}" > VERSION
 
       - name: Upload to R2 launcher/stable/
         if: env.R2_ACCESS_KEY_ID != '' && env.R2_SECRET_ACCESS_KEY != '' && env.R2_BUCKET != '' && env.R2_ENDPOINT != ''
@@ -331,7 +340,8 @@ jobs:
           export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
           export AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
           export AWS_DEFAULT_REGION="auto"
-          for file in Stella-macos.dmg Stella-macos.zip Stella.exe stella-launcher-linux-x64 stella-launcher-linux-arm64 SHA256SUMS; do
+          # VERSION last: a launcher that sees it finds the binaries and sums already there.
+          for file in Stella-macos.dmg Stella-macos.zip Stella.exe stella-launcher-linux-x64 stella-launcher-linux-arm64 SHA256SUMS VERSION; do
             aws s3 cp "launchers/$file" "s3://${R2_BUCKET}/launcher/stable/$file" \
               --cache-control "no-cache" --endpoint-url "$R2_ENDPOINT"
           done

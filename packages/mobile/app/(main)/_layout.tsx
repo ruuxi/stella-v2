@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StatusBar } from "expo-status-bar";
+import type { ActivityIndicatorEntry } from "@stella/contracts/activity-indicator";
 import {
   DefaultTheme,
   Stack,
@@ -24,6 +25,7 @@ import { Icon } from "../../src/components/Icon";
 import { ArtifactViewer } from "../../src/components/ArtifactViewer";
 import { GlassIconButton } from "../../src/components/GlassIconButton";
 import { StellaStatusHeader } from "../../src/components/StellaStatusHeader";
+import { StellaActivityMenu } from "../../src/components/StellaActivityMenu";
 import { ChatSettingsSheet } from "../../src/components/ChatSettingsSheet";
 import {
   AppBackdrop,
@@ -117,6 +119,8 @@ const SIDEBAR_WIDTH = 320;
 const DRAWER_REVEAL = 292;
 /** Diameter of the top bar's circular glass controls. */
 const TOP_BAR_BUTTON = 44;
+
+const EMPTY_RUNNING_AGENTS: readonly ActivityIndicatorEntry[] = [];
 /** Snappy, lightly-springy settle for the drawer — tuned to feel closer to
  * ChatGPT iOS: it starts moving instantly (unlike an ease-in curve) and rests
  * fast with just a hint of overshoot for tactility. `duration` is the
@@ -133,6 +137,12 @@ export default function MainLayout() {
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
+  // The in-progress agents the top-bar indicator was showing when it was
+  // pressed. Held rather than re-read so the menu keeps listing what the user
+  // tapped on even as work settles underneath it.
+  const [activityMenuRunning, setActivityMenuRunning] = useState<
+    readonly ActivityIndicatorEntry[] | null
+  >(null);
   const [consentVisible, setConsentVisible] = useState(false);
   const colors = useColors();
   const t = useT();
@@ -538,7 +548,7 @@ export default function MainLayout() {
                 ) : null}
                 {!search.isOpen && onChatSurface ? (
                   <View pointerEvents="box-none" style={styles.statusLane}>
-                    <StellaStatusHeader onPress={openSidebar} />
+                    <StellaStatusHeader onPress={setActivityMenuRunning} />
                   </View>
                 ) : null}
                 {search.isOpen ? null : (
@@ -605,6 +615,12 @@ export default function MainLayout() {
       <ChatSettingsSheet
         visible={chatSettingsOpen}
         onClose={() => setChatSettingsOpen(false)}
+      />
+      <StellaActivityMenu
+        visible={activityMenuRunning !== null}
+        running={activityMenuRunning ?? EMPTY_RUNNING_AGENTS}
+        onClose={() => setActivityMenuRunning(null)}
+        onOpenActivity={openSidebar}
       />
       <AiConsentModal
         visible={consentVisible}

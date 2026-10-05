@@ -37,7 +37,9 @@ const execFileAsync = promisify(execFile);
  *   checkout into the shared bridge (and claims it), `=isolated` isolates any
  *   instance. Windows addresses daemons by TCP ports derived from the session
  *   name, so a directory cannot isolate it there: Windows always uses the
- *   shared namespace and relies on ownership alone.
+ *   shared namespace and relies on ownership alone. Which of the two an
+ *   instance is comes from `isProductInstance`, not from packaging: Stella has
+ *   no packaging step, so `app.isPackaged` is false for the product as well.
  *
  * - Ownership. The launching instance records itself next to the daemon
  *   (`<session>.owner.json`). Before closing or killing anything, a launch
@@ -55,6 +57,11 @@ export type BrowserBridgeNamespace = Readonly<{
   socketDir: string;
   /** Opted in to take the shared bridge from another live instance. */
   claim: boolean;
+  /**
+   * This instance is the user's Stella rather than a dev checkout. Named for
+   * the packaged builds it once meant; Stella never packages, so it is now
+   * decided by `isProductInstance`.
+   */
   packaged: boolean;
   /** Fixed extension port, or null to pick a free loopback port per launch. */
   extPort: number | null;
@@ -63,7 +70,7 @@ export type BrowserBridgeNamespace = Readonly<{
   dataDir: string | null;
 }>;
 
-/** `shared` | `isolated`; unset picks by packaging. */
+/** `shared` | `isolated`; unset isolates everything but the user's Stella. */
 export const STELLA_BROWSER_BRIDGE_MODE_ENV = "STELLA_BROWSER_BRIDGE";
 /** Lets an opted-in claim replace a newer bridge binary. */
 export const STELLA_BROWSER_BRIDGE_ALLOW_DOWNGRADE_ENV =
@@ -83,6 +90,35 @@ const defaultSocketDir = (env: NodeJS.ProcessEnv): string => {
 const isolatedSocketDirName = (dataDir: string): string =>
   `i-${createHash("sha256").update(path.resolve(dataDir)).digest("hex").slice(0, 12)}`;
 
+/**
+ * Whether this instance IS the user's Stella, as opposed to a development
+ * checkout running alongside it.
+ *
+ * `app.isPackaged` cannot answer this. Stella has no packaging step at all:
+ * the installed desktop app runs from its own git checkout, started by the
+ * native launchers, so `isPackaged` is false for the real product too. Keying
+ * the bridge namespace off it therefore sent *every* installed app down the
+ * "dev checkout" branch, which isolates the bridge away from the extension
+ * channel — so the user's browser extension could never attach to the app that
+ * actually asks for it, and "connect the extension" was unfixable by the user.
+ *
+ * The launcher's `STELLA_LAUNCHER=1` is the existing signal for "this source
+ * tree is the product" (bootstrap uses it to pick Stella's name, userData and
+ * durable home). A dev harness sets `STELLA_DEV_HARNESS=1` and must stay
+ * isolated even though it is launcher-started.
+ */
+export const isProductInstance = (options: {
+  isPackaged: boolean;
+  env?: NodeJS.ProcessEnv;
+}): boolean => {
+  const env = options.env ?? process.env;
+  if (options.isPackaged) return true;
+  return (
+    env.STELLA_LAUNCHER?.trim() === "1" &&
+    env.STELLA_DEV_HARNESS?.trim() !== "1"
+  );
+};
+
 export const resolveBrowserBridgeNamespace = (options: {
   isPackaged: boolean;
   env?: NodeJS.ProcessEnv;
@@ -90,6 +126,7 @@ export const resolveBrowserBridgeNamespace = (options: {
 }): BrowserBridgeNamespace => {
   const env = options.env ?? process.env;
   const platform = options.platform ?? process.platform;
+  const product = isProductInstance({ isPackaged: options.isPackaged, env });
   const requested = env[STELLA_BROWSER_BRIDGE_MODE_ENV]?.trim().toLowerCase();
   const dataDir = resolveDesktopStellaDataDirPath({
     mode: options.isPackaged ? "production" : "development",
@@ -98,8 +135,7 @@ export const resolveBrowserBridgeNamespace = (options: {
       : env.STELLA_V2_DEV_DATA_DIR,
   });
   const wantsIsolated =
-    requested === "isolated" ||
-    (requested !== "shared" && !options.isPackaged);
+    requested === "isolated" || (requested !== "shared" && !product);
   const mode: BrowserBridgeMode =
     wantsIsolated && platform !== "win32" ? "isolated" : "shared";
   const explicitSocketDir = env.STELLA_BROWSER_SOCKET_DIR?.trim();
@@ -111,8 +147,8 @@ export const resolveBrowserBridgeNamespace = (options: {
   return Object.freeze({
     mode,
     socketDir,
-    claim: !options.isPackaged && requested === "shared",
-    packaged: options.isPackaged,
+    claim: !product && requested === "shared",
+    packaged: product,
     extPort: mode === "isolated" ? null : SHARED_EXTENSION_PORT,
     ownsExtensionChannel: mode === "shared",
     dataDir,

@@ -51,11 +51,6 @@ import type { RightSidebarHandle } from "@/shell/RightSidebar";
 const RightSidebar = lazy(() =>
   import("@/shell/RightSidebar").then((m) => ({ default: m.RightSidebar })),
 );
-const WorkspaceHomeSurface = lazy(() =>
-  import("@/shell/WorkspaceHomeSurface").then((m) => ({
-    default: m.WorkspaceHomeSurface,
-  })),
-);
 // These dialogs are rarely seen on first interaction (post-OAuth confirmation,
 // billing upgrade) and each already
 // renders null until its own open/visibility state flips. In a dev-server-in-prod
@@ -1046,17 +1041,12 @@ function RootChrome({ conversationId }: { conversationId: string | null }) {
           </div>
         </div>
 
-        {/* The top bar spans the whole shell while Activity is visible, then
-            follows the main column's right edge when the display panel opens.
-            It is rendered after the content area's drag strip so its
-            `no-drag` controls remain interactive. */}
+        {/* The top bar spans the whole shell, then follows the main column's
+            right edge when the display panel opens. It is rendered after the
+            content area's drag strip so its `no-drag` controls remain
+            interactive, and it carries the activity indicator that replaced
+            the standalone right-hand activity surface. */}
         <ShellTopBarFull onSignIn={showAuthDialog} />
-
-        <Suspense fallback={null}>
-          <WorkspaceHomeSurface
-            hidden={panelOpen || shellBreakpoints.hideWorkspaceStrip}
-          />
-        </Suspense>
 
         <DisplayPanelTopBar />
 

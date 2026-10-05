@@ -233,7 +233,6 @@ function AccountScopedChatPanelTab({
   const agentModelConfigByThread = useAgentModelConfigs(
     chatRuntime?.conversation.tasks ?? [],
   );
-  const showActivityPill = Boolean(chatRuntime);
 
   /*
    * Own scroll-management instance for the sidebar list. Mirrors the
@@ -512,10 +511,7 @@ function AccountScopedChatPanelTab({
                 conversationId={conversationId}
               />
               <ComposerNotice compact conversationId={conversationId} />
-              <ComposerLeadRow
-                replyPeek={replyPeek}
-                showActivityPill={showActivityPill}
-              />
+              <ComposerLeadRow replyPeek={replyPeek} />
 
               <div
                 ref={shellRef}

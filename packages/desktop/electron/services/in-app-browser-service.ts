@@ -38,6 +38,7 @@ import type {
   StellaBrowserBridgeStatus,
 } from "../process-resources/browser-bridge-resource.js";
 import { BROWSER_BRIDGE_MISSING_ERROR } from "../utils/register-stella-native-messaging-host.js";
+import { STELLA_BROWSER_EXTENSION_STORE_URL } from "@stella/runtime/kernel/tools/stella-browser-bridge-config";
 import { RENDERER_ORIGIN } from "../source/origin.js";
 
 export type BrowserViewConnection = "checking" | "disconnected" | "connected";
@@ -160,6 +161,16 @@ type InAppBrowserServiceOptions = {
     extensionInstalled: boolean;
   };
   getBrowserBridgeStatus?: () => StellaBrowserBridgeStatus | undefined;
+  /**
+   * Which bridge this instance runs. An isolated bridge has no
+   * native-messaging registration and a private loopback port, so the user's
+   * browser extension cannot attach to it at all — a state no amount of
+   * clicking "connect" can fix, and one the error text has to own up to
+   * instead of blaming the extension.
+   */
+  getBrowserBridgeNamespace?: () =>
+    | { mode: "shared" | "isolated"; ownsExtensionChannel: boolean }
+    | undefined;
   getExtensionStatus: () => Promise<boolean>;
   exportAllCookies: () => Promise<StellaBrowserExportedCookie[]>;
   exportCookiesForUrls?: (
@@ -179,6 +190,8 @@ type InAppBrowserServiceOptions = {
   connectionTimeoutMs?: number;
   connectionPollMs?: number;
   automaticConnectionTimeoutMs?: number;
+  /** Total budget for reconnect-on-demand, across retries. Defaults to 30s. */
+  demandConnectionTimeoutMs?: number;
   /** Continuous cookie-mirror cadence (ms). Defaults to 60s; floored at 5s. */
   cookieMirrorIntervalMs?: number;
   /** Min gap between navigation-triggered cookie reseeds (ms). Defaults to 5s. */
@@ -227,6 +240,17 @@ const DEFAULT_DEBUGGER_RECOVERY_TIMEOUT_MS = 1_000;
 // more forgiving window. Repeated getState polls also retry the seed, so this
 // is only the first-attempt budget.
 const DEFAULT_AUTOMATIC_CONNECTION_TIMEOUT_MS = 5_000;
+// Reconnect-on-demand: when something actually asks for a web tab, a cold or
+// dead transport is a thing to repair, not to report. The daemon is restarted
+// and the extension re-polled across this budget before the call gives up, so
+// a slept service worker, an exited daemon or an app that outlived its bridge
+// recovers without a browser restart or a fresh agent run.
+const DEFAULT_DEMAND_CONNECTION_TIMEOUT_MS = 30_000;
+// Per-attempt poll windows inside that budget. Short first so a merely-asleep
+// service worker costs little, longer after so a full daemon respawn fits.
+const DEMAND_ATTEMPT_WINDOWS_MS = [2_000, 5_000, 10_000] as const;
+// Gap between attempts, so a daemon that is still booting is not hammered.
+const DEMAND_RETRY_BACKOFF_MS = [250, 1_000, 2_000] as const;
 // Continuous cookie mirror: how often, once the initial seed has completed, the
 // in-app cookie store is refreshed from the real browser so it never goes
 // stale. Background, unref'd, single-flight.
@@ -314,6 +338,17 @@ const cookieUrl = (cookie: {
   return `${cookie.secure ? "https" : "http"}://${host}${
     cookie.path?.startsWith("/") ? cookie.path : "/"
   }`;
+};
+
+/** How hard one `connect()` should try, and whether it may re-handshake. */
+type ConnectionAttemptOptions = {
+  /** Poll window for this attempt; defaults to the automatic-connect budget. */
+  timeoutMs?: number;
+  /**
+   * Run the full handshake even though a seed already completed, so a bridge
+   * whose daemon died is restarted instead of merely re-probed.
+   */
+  recover?: boolean;
 };
 
 export class InAppBrowserService {
@@ -493,60 +528,78 @@ export class InAppBrowserService {
       browserType?: string;
       profileId?: string;
     } = {},
+    attempt: ConnectionAttemptOptions = {},
   ): Promise<BrowserViewState> {
     if (this.connectPromise) return this.connectPromise;
-    const promise = this.connectInternal(options).finally(() => {
+    const promise = this.connectInternal(options, attempt).finally(() => {
       if (this.connectPromise === promise) this.connectPromise = null;
     });
     this.connectPromise = promise;
     return promise;
   }
 
-  private async connectInternal(options: {
-    browserType?: string;
-    profileId?: string;
-  }): Promise<BrowserViewState> {
-    if (this.hasSeededOnce) {
+  private async connectInternal(
+    options: {
+      browserType?: string;
+      profileId?: string;
+    },
+    attempt: ConnectionAttemptOptions = {},
+  ): Promise<BrowserViewState> {
+    // A completed seed used to end this method: callers got a re-probe of the
+    // extension and nothing else, so a bridge whose daemon had since exited
+    // could never be restarted. `recover` is how a caller that needs the
+    // transport now asks for the real handshake again.
+    if (this.hasSeededOnce && !attempt.recover) {
       return await this.getState();
     }
+    await this.runConnectionAttempt(options, {
+      timeoutMs:
+        attempt.timeoutMs ??
+        this.options.automaticConnectionTimeoutMs ??
+        DEFAULT_AUTOMATIC_CONNECTION_TIMEOUT_MS,
+    });
+    return this.snapshot();
+  }
+
+  /**
+   * One full bridge handshake: start the daemon, wait for the extension, open
+   * the in-app session, then seed (or refresh) the cookie mirror. Idempotent
+   * and reusable, so recovering a bridge that was once up takes the same path
+   * as the first connect instead of a separate half-path that could only
+   * report failure.
+   */
+  private async runConnectionAttempt(
+    options: { browserType?: string; profileId?: string },
+    attempt: { timeoutMs: number },
+  ): Promise<boolean> {
     const setupRequirement = this.readSetupRequirement();
     if (setupRequirement) {
       this.updateUnavailableConnection(setupRequirement);
-      return this.snapshot();
+      return false;
     }
     try {
       await this.options.ensureBrowserBridgeStarted();
       const connected = await this.pollExtensionStatus(
-        this.options.automaticConnectionTimeoutMs ??
-          DEFAULT_AUTOMATIC_CONNECTION_TIMEOUT_MS,
+        attempt.timeoutMs,
         this.options.connectionPollMs ?? DEFAULT_CONNECTION_POLL_MS,
       );
       if (!connected) {
         this.updateUnavailableConnection(
           this.readConnectionFailure("extension_disconnected"),
         );
-        return this.snapshot();
+        return false;
       }
       this.updateConnection("checking");
       await this.ensureSessionInitialized(options);
-      let cookies: StellaBrowserExportedCookie[];
-      try {
-        cookies = await this.options.exportAllCookies();
-      } catch (error) {
-        const message = errorMessage(error);
-        if (
-          !/unknown (?:command|action): cookies_export_all/i.test(message) ||
-          !this.options.exportCookiesForUrls
-        ) {
-          throw error;
-        }
-        cookies = await this.options.exportCookiesForUrls(
-          readBrowserHistoryUrls(this.profilePath),
-        );
+      if (this.hasSeededOnce) {
+        // Already seeded once: the profile has cookies, they are just stale
+        // after the transport went away. Refresh instead of reseeding.
+        await this.reseedFromExtension();
+      } else {
+        await this.seedCookies(await this.exportCookiesForSeed());
+        this.hasSeededOnce = true;
+        this.lastReseedAt = Date.now();
       }
-      await this.seedCookies(cookies);
-      this.hasSeededOnce = true;
-      this.lastReseedAt = Date.now();
       this.updateConnection("connected");
       // Freshness from here on is real-time: the extension pushes every cookie
       // change and we apply it immediately (startCookieEventSubscription). The
@@ -554,12 +607,95 @@ export class InAppBrowserService {
       // the extension's service worker slept or the subscription reconnected.
       this.startCookieEventSubscription();
       this.startCookieMirror();
+      return true;
     } catch (error) {
       this.updateUnavailableConnection(
         this.readConnectionFailure("transient_failure", errorMessage(error)),
       );
+      return false;
     }
-    return this.snapshot();
+  }
+
+  /** Full cookie export, falling back to per-URL export on older daemons. */
+  private async exportCookiesForSeed(): Promise<StellaBrowserExportedCookie[]> {
+    try {
+      return await this.options.exportAllCookies();
+    } catch (error) {
+      const message = errorMessage(error);
+      if (
+        !/unknown (?:command|action): cookies_export_all/i.test(message) ||
+        !this.options.exportCookiesForUrls
+      ) {
+        throw error;
+      }
+      return await this.options.exportCookiesForUrls(
+        readBrowserHistoryUrls(this.profilePath),
+      );
+    }
+  }
+
+  /**
+   * Bring the bridge up for a caller that needs it right now, repairing a cold
+   * or dead transport rather than reporting it.
+   *
+   * Three things made the old path give up when it did not have to. It
+   * short-circuited on `hasSeededOnce`, so a bridge that had worked earlier and
+   * then lost its daemon was only ever re-probed, never restarted. It had a
+   * single poll window, so one unlucky window (an asleep MV3 service worker, a
+   * daemon mid-respawn) was a terminal answer. And `connect()`'s dedupe handed
+   * the caller whatever attempt happened to be in flight, including a
+   * background poll whose window opened before the extension woke up. Here the
+   * caller waits out any in-flight attempt, then drives its own attempts with
+   * backoff until the budget runs out.
+   */
+  private async ensureConnectionOnDemand(): Promise<boolean> {
+    if (this.disposed) return false;
+    const pending = this.connectPromise;
+    if (pending) {
+      await pending.catch(() => undefined);
+      if (this.state.connection === "connected") return true;
+    }
+    const budgetMs =
+      this.options.demandConnectionTimeoutMs ??
+      DEFAULT_DEMAND_CONNECTION_TIMEOUT_MS;
+    const deadline = Date.now() + Math.max(0, budgetMs);
+    const wait =
+      this.options.wait ??
+      ((delayMs: number) =>
+        new Promise<void>((resolve) => setTimeout(resolve, delayMs)));
+    for (let index = 0; !this.disposed; index += 1) {
+      const remainingMs = deadline - Date.now();
+      if (index > 0 && remainingMs <= 0) break;
+      const windowMs =
+        DEMAND_ATTEMPT_WINDOWS_MS[
+          Math.min(index, DEMAND_ATTEMPT_WINDOWS_MS.length - 1)
+        ]!;
+      const state = await this.connect(
+        {},
+        {
+          timeoutMs: Math.min(windowMs, Math.max(remainingMs, 0)),
+          recover: true,
+        },
+      );
+      if (state.connection === "connected") return true;
+      // A requirement the user has to satisfy (no bridge binary, no extension
+      // installed) does not become true by retrying.
+      if (!this.isRecoverableFailure()) return false;
+      const backoffMs =
+        DEMAND_RETRY_BACKOFF_MS[
+          Math.min(index, DEMAND_RETRY_BACKOFF_MS.length - 1)
+        ]!;
+      if (deadline - Date.now() <= backoffMs) break;
+      await wait(backoffMs);
+    }
+    return this.state.connection === "connected";
+  }
+
+  /** Whether another attempt could plausibly succeed. */
+  private isRecoverableFailure(): boolean {
+    const reason = this.connectionUnavailableReason;
+    if (!reason) return true;
+    return reason !== "bridge_missing" && reason !== "extension_not_installed";
   }
 
   async show(
@@ -731,12 +867,96 @@ export class InAppBrowserService {
 
   /** Agent web tabs need the extension's cookie mirror; previews do not. */
   private async requireAgentWebConnection() {
-    const state = await this.connect();
-    if (state.connection !== "connected") {
-      throw new Error(
-        state.error ??
-          "Connect the Stella browser extension before using Stella Browser.",
+    if (await this.ensureConnectionOnDemand()) return;
+    // `updateUnavailableConnection` already described the real failure, so
+    // there is no guess left to make here.
+    throw new Error(
+      this.connectionError ??
+        this.describeConnectionFailure(
+          this.connectionUnavailableReason,
+          undefined,
+        ),
+    );
+  }
+
+  /**
+   * What is actually wrong, in words the reader can act on.
+   *
+   * The old text was one hard-coded sentence — "Connect the Stella browser
+   * extension before using Stella Browser." — reached whenever the connection
+   * was not green and no error string happened to be set. Most failure reasons
+   * set no error string (`extension_disconnected` and friends pass `error:
+   * undefined`), so that one sentence was the normal output for a daemon that
+   * never started, a bridge the extension cannot reach, an authorization
+   * failure and a genuinely missing extension alike. It named the one cause
+   * that is usually NOT the problem, and the extension was often installed and
+   * enabled the whole time.
+   */
+  private describeConnectionFailure(
+    reason: BrowserViewUnavailableReason | undefined,
+    error: string | undefined,
+  ): string {
+    const detail = error?.trim();
+    const withDetail = (message: string) =>
+      detail && detail !== message ? `${message} (${detail})` : message;
+    const namespace = this.options.getBrowserBridgeNamespace?.();
+    // An isolated bridge has no native-messaging host and a private loopback
+    // port, so the extension cannot attach to it however many times it is
+    // reinstalled or reconnected. Say so instead of blaming the extension.
+    if (
+      namespace &&
+      namespace.mode === "isolated" &&
+      !namespace.ownsExtensionChannel &&
+      (reason === "extension_disconnected" ||
+        reason === "extension_not_installed" ||
+        reason === undefined)
+    ) {
+      return withDetail(
+        "Stella Browser is unavailable because this Stella instance runs an " +
+          "isolated browser bridge, which the browser extension cannot reach " +
+          "(no native-messaging host, private loopback port). This is a Stella " +
+          "instance configuration, not a problem with your extension. Run the " +
+          "installed Stella app, or start this instance with " +
+          "STELLA_BROWSER_BRIDGE=shared to claim the shared bridge.",
       );
+    }
+    switch (reason) {
+      case "bridge_missing":
+        return withDetail(
+          "Stella Browser is unavailable because the stella-browser bridge " +
+            "binary is not installed for this platform, so no bridge daemon " +
+            "can start. Reinstall or rehydrate stella-browser.",
+        );
+      case "extension_not_installed":
+        return withDetail(
+          "Stella Browser needs the Stella browser extension, which is not " +
+            `installed in any supported browser. Install it from ${STELLA_BROWSER_EXTENSION_STORE_URL}, ` +
+            "then open Browser in Stella's sidebar and press Connect.",
+        );
+      case "extension_disconnected":
+        return withDetail(
+          "Stella Browser could not reach the Stella browser extension: the " +
+            "bridge daemon is running but no extension attached within the " +
+            "retry window. The extension is installed, so this is usually its " +
+            "background service worker not waking. Open or focus a tab in the " +
+            "browser where it is installed, or open Browser in Stella's " +
+            "sidebar and press Connect.",
+        );
+      case "authorization_failed":
+        return withDetail(
+          "Stella Browser could not authorize against the browser bridge " +
+            "daemon, so its token is stale. Restarting Stella reissues it.",
+        );
+      case "connection_lost":
+        return withDetail(
+          "Stella Browser lost its connection to the browser bridge daemon " +
+            "and could not re-establish it within the retry window.",
+        );
+      default:
+        return withDetail(
+          "Stella Browser could not connect to the browser bridge. Stella " +
+            "restarted the bridge and retried; it did not come up.",
+        );
     }
   }
 
@@ -1905,7 +2125,14 @@ export class InAppBrowserService {
     error?: string;
   }) {
     this.state.connection = "disconnected";
-    this.connectionError = failure.error;
+    // Always carry a description of what is actually wrong. Most reasons
+    // arrive with no error string, which used to leave `state.error` empty —
+    // and an empty error is what made every caller fall back to its own
+    // guess ("connect the extension") regardless of the real reason.
+    this.connectionError = this.describeConnectionFailure(
+      failure.reason,
+      failure.error,
+    );
     this.connectionUnavailableReason = failure.reason;
     this.state.unavailableReason = failure.reason;
     this.syncErrorState();

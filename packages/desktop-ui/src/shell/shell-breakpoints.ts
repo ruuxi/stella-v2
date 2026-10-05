@@ -1,27 +1,22 @@
 /**
  * Width thresholds at which the shell changes presentation.
  *
- * The left sidebar is gone, so both remaining thresholds are now plain width
- * comparisons. They used to branch on whether the sidebar was docked (its
- * 252px shifted how much room the center column had left); without it there is
- * only one layout to measure.
+ * One threshold is left. The auto-hide width for the standalone activity
+ * surface went with that surface — activity now lives in the top bar, which
+ * costs no width at any size.
  */
 
 import { useSyncExternalStore } from "react";
 
-const SHELL_WORKSPACE_STRIP_AUTO_HIDE_WIDTH = 1120;
 const SHELL_DISPLAY_PANEL_TAKEOVER_WIDTH = 720;
 
 export type ShellBreakpointState = {
-  hideWorkspaceStrip: boolean;
   displayPanelTakeover: boolean;
 };
 
 export const getShellBreakpointState = (
   width: number,
 ): ShellBreakpointState => ({
-  hideWorkspaceStrip:
-    width > 0 && width <= SHELL_WORKSPACE_STRIP_AUTO_HIDE_WIDTH,
   displayPanelTakeover:
     width > 0 && width <= SHELL_DISPLAY_PANEL_TAKEOVER_WIDTH,
 });
@@ -34,9 +29,7 @@ const listeners = new Set<() => void>();
 const sameBreakpointState = (
   left: ShellBreakpointState,
   right: ShellBreakpointState,
-): boolean =>
-  left.hideWorkspaceStrip === right.hideWorkspaceStrip &&
-  left.displayPanelTakeover === right.displayPanelTakeover;
+): boolean => left.displayPanelTakeover === right.displayPanelTakeover;
 
 /**
  * RootChrome owns the ResizeObserver because it measures the actual shell,

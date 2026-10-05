@@ -1,8 +1,8 @@
 /* Full-window top bar — see `ShellTopBarFull.tsx`.
 
-   Transparent 38px strip positioned against `.full-body`, spanning both the
-   main column and standalone Activity surface. When the display panel opens,
-   its right edge follows the main column while the panel owns its own strip.
+   Transparent 38px strip positioned against `.full-body`, spanning the whole
+   shell. When the display panel opens, its right edge follows the main column
+   while the panel owns its own strip.
 
    It sits above the content (which reserves `--shell-topbar-height` of
    padding) rather than floating over it, because with the left sidebar gone

@@ -9,8 +9,14 @@
  * `openModelPicker()` and the `stella:open-model-picker` window event also flip.
  * The picker itself renders as a top-level portal popover (radix `Popover`)
  * above the whole app, so its lifecycle/anchor are not owned by the sidebar.
+ *
+ * This control also owns the `stella:open-model-picker` listener, because it
+ * is the one models surface mounted for the shell's whole life. The listener
+ * used to sit on the standalone Activity surface, which no longer exists.
  */
 import { lazy, Suspense, useEffect } from "react";
+import { openModelPicker } from "@/features/workspace-display/default-tabs";
+import { OPEN_MODEL_PICKER_EVENT } from "@/global/billing/byok-action";
 import {
   engineOverlay,
   useEngineOverlayOpen,
@@ -51,6 +57,17 @@ export function GlobalModelsControl({ visible = true }) {
   useEffect(() => {
     if (visible && open) preloadModelsPicker();
   }, [open, visible]);
+
+  useEffect(() => {
+    const handleOpenModelPicker = () => openModelPicker();
+    window.addEventListener(OPEN_MODEL_PICKER_EVENT, handleOpenModelPicker);
+    return () => {
+      window.removeEventListener(
+        OPEN_MODEL_PICKER_EVENT,
+        handleOpenModelPicker,
+      );
+    };
+  }, []);
 
   if (!visible) return null;
 

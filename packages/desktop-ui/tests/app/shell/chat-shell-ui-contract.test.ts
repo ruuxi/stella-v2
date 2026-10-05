@@ -1,20 +1,10 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 import { getContextSuggestionLabel } from "@/app/chat/ComposerAddMenu";
-import { shouldShowActivityPill } from "@/app/chat/ComposerActivityPill";
 import { isComposerContextMenuTarget } from "@/shell/context-menu/StellaContextMenu";
 import type { ComposerContextSuggestion } from "@/app/chat/ComposerContextRow";
 
 describe("chat shell UI contracts", () => {
-  it("shows the activity pill only when the workspace strip cannot carry it", () => {
-    // With the display panel open the pill rides alongside it; with the strip
-    // hidden the pill is the only surface left. No activity, no pill.
-    expect(shouldShowActivityPill(true, true, false)).toBe(true);
-    expect(shouldShowActivityPill(true, false, true)).toBe(true);
-    expect(shouldShowActivityPill(true, false, false)).toBe(false);
-    expect(shouldShowActivityPill(false, true, true)).toBe(false);
-  });
-
   it("labels app and browser context options for the + menu", () => {
     const app: ComposerContextSuggestion = {
       key: "app:42",

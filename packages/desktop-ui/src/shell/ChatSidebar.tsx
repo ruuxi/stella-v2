@@ -238,12 +238,11 @@ function AccountScopedChatPanelTab({
   }, []);
   const mainChatRuntime = useContext(ChatRuntimeContext);
   // Isolated surfaces (Quick chat) ignore the shared main-chat runtime so they
-  // don't inherit its agents or activity pill.
+  // don't inherit its agents.
   const chatRuntime = isolated ? null : mainChatRuntime;
   const agentModelConfigByThread = useAgentModelConfigs(
     chatRuntime?.conversation.tasks ?? [],
   );
-  const showActivityPill = Boolean(chatRuntime);
 
   /*
    * Own scroll-management instance for the sidebar list. Mirrors the
@@ -522,10 +521,7 @@ function AccountScopedChatPanelTab({
                 conversationId={conversationId}
               />
               <ComposerNotice compact conversationId={conversationId} />
-              <ComposerLeadRow
-                replyPeek={replyPeek}
-                showActivityPill={showActivityPill}
-              />
+              <ComposerLeadRow replyPeek={replyPeek} />
 
               <div
                 ref={shellRef}

@@ -4,6 +4,7 @@ import {
   type TaskToolActivity,
 } from "@stella/contracts/agent-runtime"
 import type { AgentModelConfigSnapshot } from "@stella/contracts/agent-engine"
+import type { ActivityIndicatorEntry } from "@stella/contracts/activity-indicator"
 import { normalizeDisplayStatusText } from '../status-utils'
 import type {
   Attachment,
@@ -709,15 +710,12 @@ export type TopLevelActivityWorkUnit = {
 }
 
 /**
- * The units represented by top-level Activity rows. A Manager hierarchy is
- * governed by its owner rather than its descendants: owned children never
- * become extra ambient work, even if one remains active while the Manager is
- * paused. Missing/detached parents already fail open as standalone rows in
- * `groupActivityTasks`, so adoption and detachment update the count naturally.
+ * The top-level Activity rows for a conversation, each built from the freshest
+ * attempt of its task. Shared by everything that counts or names ambient work.
  */
-export const deriveTopLevelActivityWorkUnits = (
+const latestTopLevelActivityRows = (
   tasks: readonly TaskItem[],
-): TopLevelActivityWorkUnit[] => {
+): ActivityRow[] => {
   const latestById = new Map<string, TaskItem>()
   for (const task of tasks) {
     if (!isActivityFeedTask(task) || !isManagedActivityTask(task)) continue
@@ -733,11 +731,23 @@ export const deriveTopLevelActivityWorkUnits = (
       latestById.set(task.id, task)
     }
   }
-  return groupActivityTasks([...latestById.values()]).map((row) => ({
+  return groupActivityTasks([...latestById.values()])
+}
+
+/**
+ * The units represented by top-level Activity rows. A Manager hierarchy is
+ * governed by its owner rather than its descendants: owned children never
+ * become extra ambient work, even if one remains active while the Manager is
+ * paused. Missing/detached parents already fail open as standalone rows in
+ * `groupActivityTasks`, so adoption and detachment update the count naturally.
+ */
+export const deriveTopLevelActivityWorkUnits = (
+  tasks: readonly TaskItem[],
+): TopLevelActivityWorkUnit[] =>
+  latestTopLevelActivityRows(tasks).map((row) => ({
     id: activityRowKey(row),
     status: getActivityRowStatus(row),
   }))
-}
 
 export const countActiveTopLevelActivityWorkUnits = (
   tasks: readonly TaskItem[],
@@ -745,6 +755,25 @@ export const countActiveTopLevelActivityWorkUnits = (
   deriveTopLevelActivityWorkUnits(tasks).filter(
     (unit) => unit.status === 'running',
   ).length
+
+/**
+ * The running top-level units, each named by the same description the Activity
+ * rows show. This is what the top-bar indicator reads out, so the bar and the
+ * Activity list can never disagree about what is running.
+ */
+export const deriveRunningActivityIndicatorEntries = (
+  tasks: readonly TaskItem[],
+): ActivityIndicatorEntry[] =>
+  latestTopLevelActivityRows(tasks)
+    .filter((row) => getActivityRowStatus(row) === 'running')
+    .sort(compareActivityRowsByLifecycleStart)
+    .map((row) => ({
+      id: activityRowKey(row),
+      title: (row.kind === 'task'
+        ? row.task.description
+        : row.hierarchy.owner.description
+      ).trim(),
+    }))
 
 export const getActivityRowStatus = (row: ActivityRow): TaskLifecycleStatus =>
   row.kind === 'task' ? row.task.status : row.hierarchy.status

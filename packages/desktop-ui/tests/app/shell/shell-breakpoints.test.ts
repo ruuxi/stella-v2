@@ -1,24 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { getShellBreakpointState } from "@/shell/shell-breakpoints";
 
-// The left sidebar is gone, so both thresholds are plain width comparisons —
-// there is no docked/undocked variant to measure any more.
+// The left sidebar is gone and so is the standalone activity surface, so the
+// one remaining threshold is a plain width comparison.
 describe("shell breakpoints", () => {
-  it("auto-hides the workspace strip at 1120 and below", () => {
-    expect(getShellBreakpointState(1121)).toMatchObject({
-      hideWorkspaceStrip: false,
-      displayPanelTakeover: false,
-    });
-    expect(getShellBreakpointState(1120)).toMatchObject({
-      hideWorkspaceStrip: true,
-      displayPanelTakeover: false,
-    });
-  });
-
   it("gives the display panel the whole shell at 720 and below", () => {
     expect(getShellBreakpointState(721).displayPanelTakeover).toBe(false);
     expect(getShellBreakpointState(720)).toMatchObject({
-      hideWorkspaceStrip: true,
       displayPanelTakeover: true,
     });
   });
@@ -27,7 +15,6 @@ describe("shell breakpoints", () => {
     // Width 0 is "no measurement yet" (pre-ResizeObserver). Collapsing then
     // would flash the takeover layout on every cold start.
     expect(getShellBreakpointState(0)).toMatchObject({
-      hideWorkspaceStrip: false,
       displayPanelTakeover: false,
     });
   });

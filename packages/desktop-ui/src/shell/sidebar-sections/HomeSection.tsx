@@ -1,12 +1,12 @@
 /**
- * Standalone Activity — the agent index beside the main app.
+ * Standalone Activity — the agent index.
  *
- * Search and agent-thread viewers live in the right sidebar's Work section;
- * this surface stays a lightweight ambient activity list.
+ * It used to be rendered by a permanent right-hand surface beside the chat.
+ * That surface is gone; the list now opens from the top bar's activity
+ * indicator, which is its only host. Search and agent-thread viewers still
+ * live in the right sidebar's Work section.
  */
 
-import { useEffect } from "react";
-import { openModelPicker } from "@/features/workspace-display/default-tabs";
 import { WorkspaceSections } from "@/shell/workspace/WorkspaceSections";
 import "./home-search.css";
 
@@ -26,18 +26,4 @@ export function ActivityOverview({
       </div>
     </div>
   );
-}
-
-export function HomeSection() {
-  useEffect(() => {
-    const handleOpenModelPicker = () => openModelPicker();
-    window.addEventListener("stella:open-model-picker", handleOpenModelPicker);
-    return () => {
-      window.removeEventListener(
-        "stella:open-model-picker",
-        handleOpenModelPicker,
-      );
-    };
-  }, []);
-  return <ActivityOverview />;
 }

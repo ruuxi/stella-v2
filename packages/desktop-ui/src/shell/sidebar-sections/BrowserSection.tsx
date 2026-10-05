@@ -264,7 +264,7 @@ function BrowserStatus({
     const copy = {
       extension_disconnected: {
         title: "Extension isn’t connected",
-        body: "Stella found the browser extension, but it isn’t currently connected. Enable it in Chrome, then try again.",
+        body: "Stella found the browser extension, but no extension attached to the bridge. Open or focus a tab in the browser where it is installed, then try again.",
       },
       bridge_missing: {
         title: "Browser service is missing",

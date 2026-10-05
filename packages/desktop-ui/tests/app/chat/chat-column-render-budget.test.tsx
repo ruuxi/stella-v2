@@ -204,7 +204,6 @@ describe("composer keystroke render budget", () => {
       "Harness",
       "ChatColumn",
       "ConversationEvents",
-      "ComposerActivityPill",
       "ComposerAddMenu",
       "ComposerLeadRow",
       "ComposerNotice",

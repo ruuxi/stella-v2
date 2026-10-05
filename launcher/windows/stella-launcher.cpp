@@ -15,10 +15,15 @@
 // and adds a Start Menu shortcut carrying Stella's AppUserModelID, which is
 // how Windows gives Electron's windows the Stella name and icon.
 //
+// The launcher updates itself from launcher/stable/ on R2 (see "update"):
+// a newer Stella.exe is verified and renamed over the installed copy, and
+// takes over at the next start or the next app update.
+//
 // WinHTTP downloads, BCrypt SHA-256 and ECDSA P-256, DPAPI for the key,
-// tar.exe for zips. The window is launcher/common/launcher.html in WebView2
-// (found without WebView2Loader.dll); without a WebView2 runtime, TaskDialogs
-// show progress and recovery instead.
+// WinVerifyTrust for the launcher's own updates, tar.exe for zips. The
+// window is launcher/common/launcher.html in WebView2 (found without
+// WebView2Loader.dll); without a WebView2 runtime, TaskDialogs show progress
+// and recovery instead.
 
 #ifndef UNICODE
 #define UNICODE
@@ -42,6 +47,8 @@
 #include <propsys.h>
 #include <wincrypt.h>
 #include <winhttp.h>
+#include <wintrust.h>
+#include <softpub.h>
 
 #include "WebView2.h"  // fetched by build.sh
 
@@ -64,6 +71,12 @@
 
 #include "../common/mini_json.h"
 
+// The build number (CI's run number, from build.sh); 0 for a local build,
+// which never updates itself.
+#ifndef STELLA_LAUNCHER_VERSION
+#define STELLA_LAUNCHER_VERSION 0
+#endif
+
 #ifndef PF_AVX2_INSTRUCTIONS_AVAILABLE
 #define PF_AVX2_INSTRUCTIONS_AVAILABLE 40
 #endif
@@ -83,6 +96,10 @@ static const char *kNotesRef = "stella-signed";
 static const DWORD kRelaunchExitCode = 75;
 static const size_t kOutputLines = 40;
 static const wchar_t *kAppUserModelID = L"com.stella.app";  // STELLA_WINDOWS_APP_USER_MODEL_ID
+static const unsigned long long kLauncherVersion = STELLA_LAUNCHER_VERSION;
+static const wchar_t *kDefaultUpdateURL = L"https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/launcher/stable";
+static const wchar_t *kUpdateSigner = L"FromYou, LLC";
+static const DWORD kUpdateIntervalMs = 6 * 60 * 60 * 1000;
 
 struct Asset {
     const char *key;
@@ -410,6 +427,9 @@ static double envSeconds(const wchar_t *name, double fallback) {
 
 struct Options {
     bool selfTest = false;
+    bool start = false;      // start right away, without waiting for Start
+    DWORD after = 0;         // wait for this launcher (handing over) to exit first
+    bool backendArg = false; // --backend was given (passed on at a handover)
     string source;      // a local path or git URL instead of the upstream bootstrap
     string sourceRef;
     wstring backend;
@@ -427,11 +447,16 @@ static const char *kUsage =
     "usage: Stella.exe [--self-test] [--source <path|git url>] [--source-ref <ref>]\n"
     "                  [--backend <url>] [--bun <path>] [--hold <seconds>]\n"
     "                  [--recovery-choice return|retry|quit] [--capture-dir <dir>]\n"
+    "                  [--start] [--after <pid>]\n"
+    "       Stella.exe --version\n"
     "\n"
     "Environment: STELLA_LAUNCHER_ROOT (install root, for testing),\n"
     "STELLA_LAUNCHER_KEY_FILE (PKCS#8 PEM instead of the DPAPI key),\n"
     "STELLA_LAUNCHER_BACKEND_URL, STELLA_LAUNCHER_STABLE_SECONDS,\n"
-    "STELLA_LAUNCHER_READY_TIMEOUT_SECONDS, STELLA_LAUNCHER_PREPARE_TIMEOUT_SECONDS.\n";
+    "STELLA_LAUNCHER_READY_TIMEOUT_SECONDS, STELLA_LAUNCHER_PREPARE_TIMEOUT_SECONDS,\n"
+    "STELLA_LAUNCHER_INSTALL_DIR (instead of %LOCALAPPDATA%\\Programs\\Stella),\n"
+    "STELLA_LAUNCHER_UPDATE_URL, STELLA_LAUNCHER_UPDATE_DELAY_SECONDS and\n"
+    "STELLA_LAUNCHER_UPDATE_SKIP_SIGNATURE=1 (with an update URL; for testing).\n";
 
 static void parseOptions() {
     int argc = 0;
@@ -450,7 +475,9 @@ static void parseOptions() {
         if (a == L"--self-test") O.selfTest = true;
         else if (a == L"--source") O.source = utf8(value());
         else if (a == L"--source-ref") O.sourceRef = utf8(value());
-        else if (a == L"--backend") O.backend = value();
+        else if (a == L"--backend") { O.backend = value(); O.backendArg = true; }
+        else if (a == L"--start") O.start = true;
+        else if (a == L"--after") O.after = wcstoul(value().c_str(), nullptr, 10);
         else if (a == L"--bun") O.localBun = value();
         else if (a == L"--hold") O.hold = _wtof(value().c_str());
         else if (a == L"--capture-dir") O.captureDir = value();
@@ -2341,15 +2368,50 @@ static void cloneSource() {
     LOG("install: source at %s", gGit->run({"rev-parse", "HEAD"}, P.app()).c_str());
 }
 
+// Where the installed launcher lives and the shortcuts point:
+// %LOCALAPPDATA%\Programs\Stella, or STELLA_LAUNCHER_INSTALL_DIR (testing).
+static wstring installDir() {
+    string t = trim(utf8(envVar(L"STELLA_LAUNCHER_INSTALL_DIR")));
+    wstring dir = t.empty() ? knownFolder(FOLDERID_LocalAppData) + L"\\Programs\\Stella" : wide(t);
+    while (dir.size() > 3 && (dir.back() == L'\\' || dir.back() == L'/')) dir.pop_back();
+    return dir;
+}
+
+static wstring installedLauncher() { return installDir() + L"\\Stella.exe"; }
+
+static bool parseVersion(const string &text, unsigned long long &out) {
+    string t = trim(text);
+    if (t.empty() || t.size() > 18 || t.find_first_not_of("0123456789") != string::npos) return false;
+    out = strtoull(t.c_str(), nullptr, 10);
+    return true;
+}
+
+// What `exe --version` says; 0 when it can't say (a launcher from before
+// versions ignores the flag, finds the lock taken and exits).
+static unsigned long long launcherVersionOf(const wstring &exe) {
+    try {
+        CmdResult r = runCmd({exe, L"--version"}, parentDir(exe), currentEnvironment(), L"", 10);
+        unsigned long long version = 0;
+        if (!r.timedOut && r.code == 0 && parseVersion(r.out, version)) return version;
+    } catch (const LauncherError &) {
+    }
+    return 0;
+}
+
 // First run: copy the launcher to %LOCALAPPDATA%\Programs\Stella\Stella.exe and
 // add a Start Menu shortcut with Stella's AppUserModelID, so the taskbar
 // groups Electron's windows (which set the same id) under Stella's icon.
 static void installSelf() {
-    wstring dir = knownFolder(FOLDERID_LocalAppData) + L"\\Programs\\Stella";
-    wstring target = dir + L"\\Stella.exe";
+    wstring dir = installDir();
+    wstring target = installedLauncher();
     wstring self = modulePath();
     mkdirs(dir);
-    if (_wcsicmp(self.c_str(), target.c_str()) != 0) {
+    unsigned long long installed = 0;
+    if (_wcsicmp(self.c_str(), target.c_str()) != 0 && exists(target) &&
+        (installed = launcherVersionOf(target)) > kLauncherVersion) {
+        // An older download opened again doesn't undo an update.
+        LOG("install: %s is %llu, newer than this %llu; leaving it", utf8(target).c_str(), installed, kLauncherVersion);
+    } else if (_wcsicmp(self.c_str(), target.c_str()) != 0) {
         wstring staging = target + L".new";
         if (CopyFileW(self.c_str(), staging.c_str(), FALSE) &&
             MoveFileExW(staging.c_str(), target.c_str(), MOVEFILE_REPLACE_EXISTING))
@@ -2385,6 +2447,231 @@ static void installSelf() {
         file->Release();
     }
     shell->Release();
+}
+
+// ---------------------------------------------------------------- update
+
+// The launcher updates itself from launcher/stable/ (CI's publish uploads
+// Stella.exe and SHA256SUMS, then VERSION, the build number). A background
+// thread checks VERSION a minute after start and every 6 hours; a newer build
+// is downloaded to Stella.exe.update, checked against SHA256SUMS, its
+// Authenticode signature (FromYou, LLC) and `--version`, and renamed over the
+// installed copy (a running exe can be renamed but not overwritten, so the
+// installed one moves to Stella.exe.old first). It takes over at the next
+// start, or when Electron exits for an app update (see handOverToUpdate).
+// Failures are logged and retried at the next check.
+
+static std::mutex gUpdateLock;                // staging and handing over
+static unsigned long long gStagedVersion = 0;  // under gUpdateLock
+
+// `sha256sum` output: "<hex>  <name>", or "<hex> *<name>" in binary mode.
+static string checksumFor(const string &sums, const string &name) {
+    for (auto &raw : splitLines(sums)) {
+        string line = trim(raw);
+        if (line.size() < 66 || line[64] != ' ') continue;
+        string file = trim(line.substr(65));
+        if (!file.empty() && file[0] == '*') file.erase(0, 1);
+        string hash = line.substr(0, 64);
+        if (file == name && hash.find_first_not_of("0123456789abcdefABCDEF") == string::npos) return hash;
+    }
+    return string();
+}
+
+// Authenticode: the signature must verify to a trusted root (revocation
+// checked) and the signing certificate's simple name must be FromYou, LLC.
+static void verifySigner(const wstring &path) {
+    WINTRUST_FILE_INFO file;
+    ZeroMemory(&file, sizeof(file));
+    file.cbStruct = sizeof(file);
+    file.pcwszFilePath = path.c_str();
+    WINTRUST_DATA data;
+    ZeroMemory(&data, sizeof(data));
+    data.cbStruct = sizeof(data);
+    data.dwUIChoice = WTD_UI_NONE;
+    data.fdwRevocationChecks = WTD_REVOKE_WHOLECHAIN;
+    data.dwUnionChoice = WTD_CHOICE_FILE;
+    data.pFile = &file;
+    data.dwStateAction = WTD_STATEACTION_VERIFY;
+    data.dwProvFlags = WTD_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT;
+    GUID action = WINTRUST_ACTION_GENERIC_VERIFY_V2;
+    LONG status = WinVerifyTrust((HWND)INVALID_HANDLE_VALUE, &action, &data);
+    wstring signer;
+    if (status == ERROR_SUCCESS) {
+        CRYPT_PROVIDER_DATA *provider = WTHelperProvDataFromStateData(data.hWVTStateData);
+        CRYPT_PROVIDER_SGNR *sgnr = provider ? WTHelperGetProvSignerFromChain(provider, 0, FALSE, 0) : nullptr;
+        CRYPT_PROVIDER_CERT *cert = sgnr ? WTHelperGetProvCertFromChain(sgnr, 0) : nullptr;
+        wchar_t name[256];
+        if (cert && cert->pCert && CertGetNameStringW(cert->pCert, CERT_NAME_SIMPLE_DISPLAY_TYPE, 0, nullptr, name, 256) > 1)
+            signer = name;
+    }
+    data.dwStateAction = WTD_STATEACTION_CLOSE;
+    WinVerifyTrust((HWND)INVALID_HANDLE_VALUE, &action, &data);
+    if (status != ERROR_SUCCESS) fail(format("its signature does not verify (0x%08lx)", (unsigned long)status));
+    if (signer != kUpdateSigner) fail("it is signed by \"" + utf8(signer) + "\", not " + utf8(kUpdateSigner));
+}
+
+// Make `update` the installed launcher. The installed copy (perhaps this
+// very process) moves to Stella.exe.old; when that name is taken by a
+// launcher still running from it, the installed copy isn't running and can
+// simply be deleted.
+static void stageUpdate(const wstring &update, unsigned long long version) {
+    std::lock_guard<std::mutex> lock(gUpdateLock);
+    wstring installed = installedLauncher(), old = installed + L".old";
+    bool movedAside = false;
+    if (exists(installed)) {
+        movedAside = MoveFileExW(installed.c_str(), old.c_str(), MOVEFILE_REPLACE_EXISTING) != 0;
+        if (!movedAside && !DeleteFileW(installed.c_str()))
+            fail(format("could not move %s aside (error %lu)", utf8(installed).c_str(), GetLastError()));
+    }
+    if (!MoveFileExW(update.c_str(), installed.c_str(), MOVEFILE_WRITE_THROUGH)) {
+        DWORD error = GetLastError();
+        if (movedAside) MoveFileExW(old.c_str(), installed.c_str(), 0);
+        fail(format("could not move the update into place (error %lu)", error));
+    }
+    gStagedVersion = version;
+    LOG("update: staged %llu at %s", version, utf8(installed).c_str());
+}
+
+static void checkForUpdate(const wstring &base, bool skipSignature) {
+    LOG("update: checking %s/VERSION (this is %llu)", utf8(base).c_str(), kLauncherVersion);
+    HttpResponse r = http(base + L"/VERSION", L"GET", string(), L"");
+    if (r.status != 200) fail(format("VERSION returned HTTP %lu", r.status));
+    unsigned long long available = 0, staged;
+    if (!parseVersion(r.body, available)) fail("VERSION is not a build number: " + trim(r.body).substr(0, 40));
+    {
+        std::lock_guard<std::mutex> lock(gUpdateLock);
+        staged = gStagedVersion;
+    }
+    if (available <= kLauncherVersion || available <= staged) {
+        LOG("update: up to date (available %llu%s)", available, staged ? format(", staged %llu", staged).c_str() : "");
+        return;
+    }
+    LOG("update: %llu available", available);
+    r = http(base + L"/SHA256SUMS", L"GET", string(), L"");
+    if (r.status != 200) fail(format("SHA256SUMS returned HTTP %lu", r.status));
+    string expected = checksumFor(r.body, "Stella.exe");
+    if (expected.empty()) fail("SHA256SUMS has no Stella.exe");
+
+    wstring dir = installDir();
+    mkdirs(dir);
+    wstring update = installedLauncher() + L".update";
+    DeleteFileW(update.c_str());
+    try {
+        r = http(base + L"/Stella.exe", L"GET", string(), update);
+        if (r.status != 200) fail(format("Stella.exe returned HTTP %lu", r.status));
+        string actual = sha256File(update);
+        if (_stricmp(actual.c_str(), expected.c_str()) != 0)
+            fail("Stella.exe's sha256 is " + actual + ", SHA256SUMS says " + expected);
+        if (skipSignature) LOG("update: not checking the signature (STELLA_LAUNCHER_UPDATE_SKIP_SIGNATURE)");
+        else verifySigner(update);
+        // It must run, and be the build VERSION promised.
+        CmdResult probe = runCmd({update, L"--version"}, dir, currentEnvironment(), L"", 30);
+        string said = trim(probe.out);
+        if (probe.timedOut || probe.code != 0 || said != format("%llu", available))
+            fail(format("Stella.exe --version printed \"%s\" (exit %lu%s), not %llu", said.substr(0, 40).c_str(), probe.code,
+                        probe.timedOut ? ", timed out" : "", available));
+        LOG("update: verified %llu (sha256 %s%s, --version %s)", available, short12(actual).c_str(),
+            skipSignature ? "" : ", signed by FromYou, LLC", said.c_str());
+        stageUpdate(update, available);
+    } catch (...) {
+        DeleteFileW(update.c_str());
+        throw;
+    }
+}
+
+// Checks run on their own thread and never touch the UI or Electron. Off for
+// a local build (version 0), the self-test and a test root, unless
+// STELLA_LAUNCHER_UPDATE_URL names where to look.
+static void startUpdateChecks() {
+    wstring base = wide(trim(utf8(envVar(L"STELLA_LAUNCHER_UPDATE_URL"))));
+    bool overridden = !base.empty();
+    if (!overridden && (kLauncherVersion == 0 || O.selfTest || P.isolated)) {
+        LOG("update: off (version %llu%s%s)", kLauncherVersion, O.selfTest ? ", self-test" : "", P.isolated ? ", test root" : "");
+        return;
+    }
+    if (!overridden) base = kDefaultUpdateURL;
+    while (!base.empty() && base.back() == L'/') base.pop_back();
+    bool skipSignature = overridden && trim(utf8(envVar(L"STELLA_LAUNCHER_UPDATE_SKIP_SIGNATURE"))) == "1";
+    double delay = envSeconds(L"STELLA_LAUNCHER_UPDATE_DELAY_SECONDS", 60);
+    std::thread([base, skipSignature, delay]() {
+        CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        Sleep((DWORD)(delay * 1000));
+        for (;;) {
+            try {
+                checkForUpdate(base, skipSignature);
+            } catch (const LauncherError &e) {
+                LOG("update: failed: %s", e.message.c_str());
+            } catch (const std::exception &e) {
+                LOG("update: failed: %s", e.what());
+            }
+            Sleep(kUpdateIntervalMs);
+        }
+    }).detach();
+}
+
+// Electron exited for an app update and a newer launcher is staged: start it
+// (--start, so it goes straight to Electron; --after, so it takes the
+// single-instance lock only once this process is gone) and let it take over.
+// False: relaunch Electron here as before.
+static bool handOverToUpdate() {
+    std::lock_guard<std::mutex> lock(gUpdateLock);
+    if (gStagedVersion <= kLauncherVersion) return false;
+    wstring exe = installedLauncher();
+    vector<wstring> argv = {exe, L"--start", L"--after", std::to_wstring(GetCurrentProcessId())};
+    if (O.backendArg) {
+        argv.push_back(L"--backend");
+        argv.push_back(O.backend);
+    }
+    wstring cmdline = commandLine(argv);
+    wstring cwd = installDir();
+    STARTUPINFOW si;
+    ZeroMemory(&si, sizeof(si));
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi;
+    ZeroMemory(&pi, sizeof(pi));
+    if (!CreateProcessW(exe.c_str(), &cmdline[0], nullptr, nullptr, FALSE, 0, nullptr, cwd.c_str(), &si, &pi)) {
+        LOG("update: could not start %s (error %lu); relaunching Stella here", utf8(exe).c_str(), GetLastError());
+        return false;
+    }
+    LOG("update: handing over to %llu (pid %lu)", gStagedVersion, pi.dwProcessId);
+    AllowSetForegroundWindow(pi.dwProcessId);
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return true;
+}
+
+// --version: the build number on stdout (the updater's probe passes pipes;
+// from a console, that console), before any UI, log or lock.
+static bool printVersion() {
+    int argc = 0;
+    LPWSTR *argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    bool asked = false;
+    for (int i = 1; argv && i < argc; i++)
+        if (!wcscmp(argv[i], L"--version")) asked = true;
+    LocalFree(argv);
+    if (!asked) return false;
+    HANDLE out = GetStdHandle(STD_OUTPUT_HANDLE);
+    if ((!out || out == INVALID_HANDLE_VALUE) && AttachConsole(ATTACH_PARENT_PROCESS)) out = GetStdHandle(STD_OUTPUT_HANDLE);
+    string text = format("%llu\n", kLauncherVersion);
+    DWORD n;
+    if (out && out != INVALID_HANDLE_VALUE) WriteFile(out, text.data(), (DWORD)text.size(), &n, nullptr);
+    return true;
+}
+
+// --after <pid>: the launcher handing over exits right after starting us;
+// wait (bounded) so its single-instance lock is released.
+static void waitForPreviousLauncher(DWORD pid) {
+    HANDLE process = OpenProcess(SYNCHRONIZE, FALSE, pid);
+    if (!process) return;
+    if (WaitForSingleObject(process, 60000) == WAIT_TIMEOUT) LOG("update: launcher %lu is still running after 60s", pid);
+    else LOG("update: launcher %lu has exited", pid);
+    CloseHandle(process);
+}
+
+// The copy a previous update moved aside, once nothing runs from it.
+static void removeOldLauncher() {
+    wstring old = installedLauncher() + L".old";
+    if (exists(old) && DeleteFileW(old.c_str())) LOG("update: removed %s", utf8(old).c_str());
 }
 
 // --------------------------------------------------------------- signing
@@ -3088,11 +3375,14 @@ static wstring prepareForLaunch() {
 }
 
 static int run() {
-    LOG("launcher: start root=%s selfTest=%d pid=%lu", utf8(P.root).c_str(), O.selfTest ? 1 : 0, GetCurrentProcessId());
+    LOG("launcher: start version=%llu root=%s selfTest=%d pid=%lu", kLauncherVersion, utf8(P.root).c_str(), O.selfTest ? 1 : 0,
+        GetCurrentProcessId());
     adoptGit();
     refreshInstallInfo();
-    // Nothing starts until the user presses Start (the self-test presses it).
-    Choice next = gUi->idle();
+    // Nothing starts until the user presses Start (the self-test presses it),
+    // except with --start (a launcher update taking over), which goes
+    // straight on with the window hidden, like a relaunch.
+    Choice next = O.start ? Choice::Retry : gUi->idle();
     if (next == Choice::Quit || next == Choice::None) return 0;
     vector<ULONGLONG> crashTimes;
     for (;;) {
@@ -3124,6 +3414,7 @@ static int run() {
                 return 0;
             case OutcomeKind::Relaunch:
                 LOG("launcher: relaunch requested");
+                if (handOverToUpdate()) return 0;
                 continue;
             case OutcomeKind::Crashed: {
                 ULONGLONG now = GetTickCount64();
@@ -3168,6 +3459,7 @@ static int run() {
 }
 
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
+    if (printVersion()) return 0;
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     INITCOMMONCONTROLSEX icc = {sizeof(icc), ICC_STANDARD_CLASSES | ICC_PROGRESS_CLASS};
     InitCommonControlsEx(&icc);
@@ -3180,10 +3472,18 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     gLogFile = CreateFileW(P.launcherLog().c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS,
                            FILE_ATTRIBUTE_NORMAL, nullptr);
     parseOptions();
+    if (O.after) waitForPreviousLauncher(O.after);
+    removeOldLauncher();
 
     // One launcher per install root; opening Stella again shows its window.
-    HANDLE lock = CreateFileW(P.lockFile().c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_ALWAYS,
-                              FILE_ATTRIBUTE_NORMAL, nullptr);
+    // A handover (--after) allows the exiting launcher a moment to let go.
+    HANDLE lock = INVALID_HANDLE_VALUE;
+    for (int attempt = 0;; attempt++) {
+        lock = CreateFileW(P.lockFile().c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL,
+                           nullptr);
+        if (lock != INVALID_HANDLE_VALUE || !O.after || attempt >= 40) break;
+        Sleep(250);
+    }
     if (lock == INVALID_HANDLE_VALUE) {
         if (showRunningLauncher()) {
             LOG("launcher: another launcher owns %s; showed its window", utf8(P.root).c_str());
@@ -3194,6 +3494,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     }
     S = State::load();
     if (!P.isolated && !O.selfTest) installSelf();
+    startUpdateChecks();
 
     static WebUi web;
     static DialogUi dialogs;

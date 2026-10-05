@@ -5,9 +5,17 @@
 CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "stella-launcher.manifest"
 LAUNCHER_HTML RCDATA "../common/launcher.html"
 
+// STELLA_LAUNCHER_VERSION, the build number, from build.sh.
+#ifndef STELLA_LAUNCHER_VERSION
+#define STELLA_LAUNCHER_VERSION 0
+#endif
+#define STELLA_STR_(x) #x
+#define STELLA_STR(x) STELLA_STR_(x)
+#define STELLA_VERSION_STRING "1.0." STELLA_STR(STELLA_LAUNCHER_VERSION) ".0"
+
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION 1,0,0,0
-PRODUCTVERSION 1,0,0,0
+FILEVERSION 1,0,STELLA_LAUNCHER_VERSION,0
+PRODUCTVERSION 1,0,STELLA_LAUNCHER_VERSION,0
 FILEOS VOS_NT_WINDOWS32
 FILETYPE VFT_APP
 BEGIN
@@ -17,11 +25,11 @@ BEGIN
     BEGIN
       VALUE "CompanyName", "Stella"
       VALUE "FileDescription", "Stella"
-      VALUE "FileVersion", "1.0.0.0"
+      VALUE "FileVersion", STELLA_VERSION_STRING
       VALUE "InternalName", "Stella"
       VALUE "OriginalFilename", "Stella.exe"
       VALUE "ProductName", "Stella"
-      VALUE "ProductVersion", "1.0.0.0"
+      VALUE "ProductVersion", STELLA_VERSION_STRING
     END
   END
   BLOCK "VarFileInfo"

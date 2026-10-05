@@ -30,11 +30,20 @@ fi
 printf '%s\n' '#pragma once' 'typedef struct EventRegistrationToken { __int64 value; } EventRegistrationToken;' \
   > build/include/EventToken.h
 
-"$triple-windres" stella-launcher.rc -O coff -o build/stella-launcher.res.o
+# The build number (CI passes the workflow's run number); the launcher
+# updates itself to a published build with a higher one, and 0 never updates.
+version="${STELLA_LAUNCHER_VERSION:-0}"
+case "$version" in
+  '' | *[!0-9]*) echo "STELLA_LAUNCHER_VERSION must be a whole number, not '$version'" >&2; exit 1 ;;
+esac
+version=$((10#$version))
+
+"$triple-windres" -DSTELLA_LAUNCHER_VERSION="$version" stella-launcher.rc -O coff -o build/stella-launcher.res.o
 "$cxx" -std=c++17 -O2 -Wall -Wextra -Wno-unused-parameter -Wno-cast-function-type -isystem build/include \
   -municode -mwindows -static -static-libgcc -static-libstdc++ \
-  -D_WIN32_WINNT=0x0A00 -DWINVER=0x0A00 \
+  -D_WIN32_WINNT=0x0A00 -DWINVER=0x0A00 -DSTELLA_LAUNCHER_VERSION="$version" \
   -o build/Stella.exe stella-launcher.cpp build/stella-launcher.res.o \
-  -lwinhttp -lbcrypt -lcrypt32 -lcomctl32 -lole32 -loleaut32 -lshell32 -lshlwapi -luuid -ladvapi32 -lpropsys -ldwmapi
+  -lwinhttp -lbcrypt -lcrypt32 -lcomctl32 -lole32 -loleaut32 -lshell32 -lshlwapi -luuid -ladvapi32 -lpropsys -ldwmapi \
+  -lwintrust
 "$triple-strip" build/Stella.exe
-echo "Built $(pwd)/build/Stella.exe"
+echo "Built $(pwd)/build/Stella.exe (version $version)"

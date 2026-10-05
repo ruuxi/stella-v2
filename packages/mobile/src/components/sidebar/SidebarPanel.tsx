@@ -208,13 +208,11 @@ export function SidebarPanel({
         <View style={styles.nav}>
           <SidebarNav value={activeTab} onSelect={onSelectTab} />
         </View>
-        <Text
-          style={styles.heading}
-          accessibilityRole="header"
-          maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-        >
-          {t("mobile.activityHub.tabs.activity")}
-        </Text>
+        {/* This line is the whole separation now that the Activity header is
+            gone, so it carries that job alone: inset to the inset both lists
+            already share, and given room on each side rather than inheriting
+            the hole the text left behind. */}
+        <View style={styles.divider} />
         <LegendList<ActivityListRow>
           style={styles.list}
           contentContainerStyle={listContentStyle}
@@ -277,18 +275,22 @@ const makeStyles = (colors: Colors) =>
       minHeight: 0,
     },
     nav: {
-      paddingBottom: 16,
+      paddingBottom: 10,
       paddingHorizontal: 8,
     },
-    heading: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.medium,
-      fontSize: 13,
-      letterSpacing: 0.3,
-      paddingBottom: 10,
-      paddingHorizontal: 20,
-      paddingTop: 8,
-      textTransform: "uppercase",
+    divider: {
+      // A painted line rather than a hairline border: a border on a
+      // zero-height view did not render here at all, which left the break as
+      // plain empty space. The colour comes off the text, like the nav's own
+      // active lozenge — `colors.border` is mixed for the opaque cards and
+      // vanishes against this translucent panel.
+      backgroundColor: fadeHex(colors.text, 0.12),
+      height: 1,
+      // 18pt is where the nav's icons and the activity rows' content both
+      // begin, so the break lines up with the columns instead of cutting
+      // across the panel.
+      marginHorizontal: 18,
+      marginVertical: 10,
     },
     list: {
       flexGrow: 1,
@@ -296,7 +298,7 @@ const makeStyles = (colors: Colors) =>
     },
     listContent: {
       paddingHorizontal: 16,
-      paddingTop: 4,
+      paddingTop: 10,
     },
     empty: {
       color: colors.textMuted,

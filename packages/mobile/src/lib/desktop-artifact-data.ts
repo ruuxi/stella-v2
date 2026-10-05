@@ -4,6 +4,7 @@ import {
   withDesktopBridgeRecovery,
   type DesktopBridgeConnection,
 } from "./desktop-bridge-chat";
+import { isCloudWorkspacePath } from "@stella/contracts/cloud-world-paths";
 import type { StoredPhoneAccess } from "./phone-access";
 import { isBridgeRecoveryError } from "./bridge-recovery";
 
@@ -36,6 +37,24 @@ const assertActive = (signal?: AbortSignal): void => {
   const error = new Error("Artifact loading cancelled.");
   error.name = "AbortError";
   throw error;
+};
+
+/**
+ * A cloud-world path reaching the bridge is a routing mistake, not a missing
+ * file. `/workspace/...` is the cloud sandbox; the paired computer has no such
+ * tree, so `display:readFile` would resolve it against the Mac's filesystem,
+ * find nothing and return `missing` — which the viewer renders as "this file is
+ * no longer available". The file is not gone; it was asked of the wrong
+ * machine. Drive files never get here: `stellaFileChatArtifact` routes them to
+ * the owner-scoped drive URL first, and only a world path the drive rule
+ * rejects (outside `world/drive/`, or a traversal/`.stella` segment inside it)
+ * falls through to this lane.
+ */
+const assertReadableOnPairedComputer = (filePath: string): void => {
+  if (!isCloudWorkspacePath(filePath)) return;
+  throw new Error(
+    "This file lives in Stella's cloud workspace, not on your computer, so it can't be opened from your phone. Ask Stella to put it in your Drive.",
+  );
 };
 
 const withArtifactBridge = async <T>(
@@ -156,15 +175,20 @@ async function readArtifactFileOnBridge(
   };
 }
 
-export const readDesktopArtifactFile = (
+// `async` so a refused path rejects rather than throwing synchronously: one
+// caller chains `.then().catch()` straight off this inside an effect, where a
+// synchronous throw would escape the catch and take the screen down.
+export const readDesktopArtifactFile = async (
   access: StoredPhoneAccess,
   conversationId: string,
   filePath: string,
   signal?: AbortSignal,
-): Promise<DesktopFileReadResult> =>
-  withArtifactBridge(access, signal, (bridge) =>
+): Promise<DesktopFileReadResult> => {
+  assertReadableOnPairedComputer(filePath);
+  return withArtifactBridge(access, signal, (bridge) =>
     readArtifactFileOnBridge(bridge, conversationId, filePath, signal),
   );
+};
 
 export const bytesToText = (bytes: Uint8Array): string => {
   if (typeof TextDecoder !== "undefined") {
@@ -255,15 +279,17 @@ async function existingOfficePreviewOnBridge(
   throw new Error("Office preview timed out.");
 }
 
-export const loadOfficePreviewHtml = (
+export const loadOfficePreviewHtml = async (
   access: StoredPhoneAccess,
   conversationId: string,
   filePath: string,
   signal?: AbortSignal,
-): Promise<string> =>
-  withArtifactBridge(access, signal, (bridge) =>
+): Promise<string> => {
+  assertReadableOnPairedComputer(filePath);
+  return withArtifactBridge(access, signal, (bridge) =>
     startOfficePreviewOnBridge(bridge, conversationId, filePath, signal),
   );
+};
 
 export const loadExistingOfficePreviewHtml = (
   access: StoredPhoneAccess,

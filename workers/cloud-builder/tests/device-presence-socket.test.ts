@@ -80,6 +80,7 @@ describe("device presence socket", () => {
         deviceId: "desk-1",
         label: "Desk desk-1",
         remoteExecutionEnabled: true,
+        remoteExecution: "enabled",
         online: true,
         presenceSessionId: "session-desk-1",
         availability: {

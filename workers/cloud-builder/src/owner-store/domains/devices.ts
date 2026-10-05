@@ -1412,6 +1412,22 @@ export const devicesDomain = {
       handler: (ctx: OwnerContext, args: DeviceCalls["phone.notifyActivity"]["args"]) => notifyPhones(ctx, args.kind),
     },
   },
+  /**
+   * The gate owns the presence socket, so it is the gate that raises the
+   * consent question and the gate that receives the answer the device signs
+   * for on that socket. Both land here as internal writes rather than as
+   * account calls, because the authority in those two moments is the device
+   * key, not a user token.
+   */
+  internal: {
+    "devices.setRemoteExecution": (ctx: OwnerContext, raw: unknown) =>
+      setRemoteExecution(
+        ctx,
+        object({ deviceId: deviceIdArg, enabled: boolean() })(raw),
+      ),
+    "devices.requestRemoteExecution": (ctx: OwnerContext, raw: unknown) =>
+      requestRemoteExecution(ctx, object({ deviceId: deviceIdArg })(raw)),
+  },
   views: {
     "phone.access": {
       requireAccount: true,

@@ -2119,14 +2119,20 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         return;
       }
       socket.serializeAttachment(attachment);
-      try {
-        await this.ownerStore().internalCall("devices.setRemoteExecution", {
-          deviceId: attachment.deviceId,
-          enabled: frame.allow,
-        });
-      } catch (error) {
+      const written = await this.ownerStore().internalCall(
+        "devices.setRemoteExecution",
+        { deviceId: attachment.deviceId, enabled: frame.allow },
+      );
+      if (!written.ok) {
         log("error", "device_consent_write_failed", {
-          message: error instanceof Error ? error.message : String(error),
+          deviceId: attachment.deviceId,
+          message: written.error.message,
+        });
+        this.send(socket, {
+          type: "error",
+          code: written.error.code,
+          message: written.error.message,
+          retryable: true,
         });
       }
       return;
@@ -2311,13 +2317,14 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     now: number;
   }): Promise<void> {
     if (args.remoteExecution === "enabled") return;
-    try {
-      await this.ownerStore().internalCall("devices.requestRemoteExecution", {
-        deviceId: args.deviceId,
-      });
-    } catch (error) {
+    const recorded = await this.ownerStore().internalCall(
+      "devices.requestRemoteExecution",
+      { deviceId: args.deviceId },
+    );
+    if (!recorded.ok) {
       log("error", "device_consent_request_failed", {
-        message: error instanceof Error ? error.message : String(error),
+        deviceId: args.deviceId,
+        message: recorded.error.message,
       });
       return;
     }

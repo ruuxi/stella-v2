@@ -130,12 +130,22 @@ export const resolvedLlmSupportsCredentiallessCalls = (
 ): boolean =>
   resolved.route === "direct-provider" && resolved.credentialless === true;
 
+/**
+ * Whether a signed-in subscription for this provider can power Stella's own
+ * model calls. A Claude subscription (provider "anthropic") is only ever
+ * handed to the Claude Code CLI; `anthropic/` routes need an API key. Other
+ * subscriptions (ChatGPT, Copilot, ...) run on Stella's harness by design.
+ */
+const subscriptionPowersDirectRoutes = (providerId: string): boolean =>
+  providerId !== "anthropic";
+
 const hasLocalProviderAuth = (
   stellaAppDir: string,
   providerId: string,
 ): boolean =>
   hasAccessibleLocalLlmApiKey(stellaAppDir, providerId) ||
-  hasAccessibleLocalLlmOAuthCredential(stellaAppDir, providerId) ||
+  (subscriptionPowersDirectRoutes(providerId) &&
+    hasAccessibleLocalLlmOAuthCredential(stellaAppDir, providerId)) ||
   modelRuntime.hasRuntimeManagedAuth(providerId);
 
 const getLocalProviderApiKey = async (
@@ -146,6 +156,9 @@ const getLocalProviderApiKey = async (
     await getAccessibleLocalLlmApiKey(stellaAppDir, providerId)
   )?.trim();
   if (apiKey) return apiKey;
+  if (!subscriptionPowersDirectRoutes(providerId)) {
+    return modelRuntime.getRuntimeManagedApiKey(providerId);
+  }
   const oauthKey = (
     await getAccessibleLocalLlmOAuthApiKey(stellaAppDir, providerId)
   )?.trim();
@@ -165,7 +178,7 @@ const refreshLocalProviderApiKey = async (
   const apiKey = (
     await getAccessibleLocalLlmApiKey(stellaAppDir, providerId)
   )?.trim();
-  if (apiKey) return undefined;
+  if (apiKey || !subscriptionPowersDirectRoutes(providerId)) return undefined;
   try {
     const oauthKey = (
       await getAccessibleLocalLlmOAuthApiKey(stellaAppDir, providerId, {
@@ -188,7 +201,10 @@ const switchLocalSubscriptionAccount = async (
   providerId: string,
   resetsAt: number | undefined,
 ): Promise<string | undefined> => {
-  if ((await getAccessibleLocalLlmApiKey(stellaAppDir, providerId))?.trim()) {
+  if (
+    !subscriptionPowersDirectRoutes(providerId) ||
+    (await getAccessibleLocalLlmApiKey(stellaAppDir, providerId))?.trim()
+  ) {
     return undefined;
   }
   const { switched } = await reportLocalLlmSubscriptionLimit(

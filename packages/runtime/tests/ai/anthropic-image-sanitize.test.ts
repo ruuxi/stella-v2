@@ -150,7 +150,7 @@ describe("anthropic image sanitization (tool-produced images)", () => {
 			{ type: "image", data: TRUNCATED_PNG_BASE64, mimeType: "image/png" },
 		]);
 
-		const params = convertMessages(messages, model, false);
+		const params = convertMessages(messages, model);
 		const result = firstToolResult(params);
 		const blocks = result.content as Array<TextBlockParam | ImageBlockParam>;
 
@@ -170,7 +170,7 @@ describe("anthropic image sanitization (tool-produced images)", () => {
 			{ type: "image", data: VALID_PNG_BASE64, mimeType: "image/png" },
 		]);
 
-		const params = convertMessages(messages, model, false);
+		const params = convertMessages(messages, model);
 		const blocks = firstToolResult(params).content as Array<
 			TextBlockParam | ImageBlockParam
 		>;
@@ -189,7 +189,7 @@ describe("anthropic image sanitization (tool-produced images)", () => {
 			{ type: "image", data: VALID_PNG_BASE64, mimeType: "image/gif" },
 		]);
 
-		const params = convertMessages(messages, model, false);
+		const params = convertMessages(messages, model);
 		const blocks = firstToolResult(params).content as Array<
 			TextBlockParam | ImageBlockParam
 		>;
@@ -204,7 +204,7 @@ describe("anthropic image sanitization (tool-produced images)", () => {
 			{ type: "image", data: PNG_WITH_TRAILING_BASE64, mimeType: "image/png" },
 		]);
 
-		const params = convertMessages(messages, model, false);
+		const params = convertMessages(messages, model);
 		const blocks = firstToolResult(params).content as Array<
 			TextBlockParam | ImageBlockParam
 		>;
@@ -225,7 +225,7 @@ describe("anthropic image sanitization (tool-produced images)", () => {
 			},
 		];
 
-		const params = convertMessages(messages, model, false);
+		const params = convertMessages(messages, model);
 		const user = params.find((p) => p.role === "user")!;
 		const blocks = user.content as Array<TextBlockParam | ImageBlockParam>;
 		const image = blocks.find((b): b is ImageBlockParam => b.type === "image");

@@ -13,11 +13,6 @@ export function getEnvApiKey(provider: any): string | undefined {
 		return process.env.COPILOT_GITHUB_TOKEN || process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
 	}
 
-	// ANTHROPIC_OAUTH_TOKEN takes precedence over ANTHROPIC_API_KEY
-	if (provider === "anthropic") {
-		return process.env.ANTHROPIC_OAUTH_TOKEN || process.env.ANTHROPIC_API_KEY;
-	}
-
 	// Meta documents MODEL_API_KEY for the Model API SDK and META_API_KEY for
 	// Muse Code/CI. Accept both names so the direct provider and Meta's own CLI
 	// can share the user's existing environment configuration.
@@ -26,6 +21,7 @@ export function getEnvApiKey(provider: any): string | undefined {
 	}
 
 	const envMap: Record<string, string> = {
+		anthropic: "ANTHROPIC_API_KEY",
 		openai: "OPENAI_API_KEY",
 		google: "GEMINI_API_KEY",
 		cerebras: "CEREBRAS_API_KEY",

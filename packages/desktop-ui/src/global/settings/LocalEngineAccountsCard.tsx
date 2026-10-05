@@ -28,7 +28,7 @@ const PROVIDERS: LocalProvider[] = [
     provider: "anthropic",
     name: "Claude (Pro/Max)",
     description:
-      "Powers Claude Code and Claude models on this computer. The checked account is used.",
+      "Powers Claude Code on this computer. The checked account is used.",
     emptyDescription:
       "Sign in to switch Claude Code between several Claude accounts. Without one, Claude Code uses its own login.",
     autoSwitchDescription:

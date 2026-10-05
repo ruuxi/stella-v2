@@ -1100,14 +1100,11 @@ export const registerSystemHandlers = (options) => {
         const apiKey = stellaAppDir
             ? getLocalLlmCredential(stellaAppDir, "anthropic")
             : null;
-        const oauthToken = stellaAppDir
-            ? await getLocalLlmOAuthApiKey(stellaAppDir, "anthropic")
-            : null;
         // Loaded on first use: the Claude Code runtime pulls in the MCP SDK,
         // turndown/domino and the local tool dispatch graph, which otherwise
         // evaluate on every launch before the window opens.
         const { listClaudeCodeModels } = await import("@stella/runtime/kernel/integrations/claude-code-session-runtime");
-        return listClaudeCodeModels({ apiKey, oauthToken }, stellaAppDir ?? undefined);
+        return listClaudeCodeModels({ apiKey }, stellaAppDir ?? undefined);
     });
     ipcMain.handle(IPC_PREFERENCES_LIST_MODELS, async (event, payload) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_PREFERENCES_LIST_MODELS)) {

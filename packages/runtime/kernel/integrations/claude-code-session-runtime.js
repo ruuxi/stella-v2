@@ -2574,22 +2574,15 @@ export const listClaudeCodeModels = async (auth, stellaAppDir) => {
       source: "alias",
     });
   }
+  // Only an API key lists the endpoint's models. A subscription sign-in
+  // belongs to the Claude Code CLI, so it gets the aliases above.
   const apiKey = auth?.apiKey?.trim() || process.env.ANTHROPIC_API_KEY?.trim();
-  const oauthToken =
-    auth?.oauthToken?.trim() || process.env.ANTHROPIC_OAUTH_TOKEN?.trim();
-  if (!apiKey && !oauthToken) return { models: [...models.values()] };
+  if (!apiKey) return { models: [...models.values()] };
   try {
     const response = await fetch("https://api.anthropic.com/v1/models", {
       headers: {
         "anthropic-version": "2023-06-01",
-        ...(oauthToken
-          ? {
-              authorization: `Bearer ${oauthToken}`,
-              "anthropic-beta": "claude-code-20250219,oauth-2025-04-20",
-              "anthropic-dangerous-direct-browser-access": "true",
-              "user-agent": "claude-cli/2.1.146",
-            }
-          : { "x-api-key": apiKey ?? "" }),
+        "x-api-key": apiKey,
       },
     });
     if (!response.ok) return { models: [...models.values()] };

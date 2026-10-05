@@ -23,7 +23,7 @@ import {
   isApiKeyOnlyPlaceholder,
   type LlmProviderEntry,
 } from "@/global/settings/lib/llm-providers";
-import { findApiKey, findOauthCredential, findOauthProvider, useLlmCredentials, } from "@/global/settings/hooks/use-llm-credentials";
+import { findApiKey, findOauthCredential, findOauthProvider, subscriptionConnectsProviderModels, useLlmCredentials, } from "@/global/settings/hooks/use-llm-credentials";
 import { useT } from "@/shared/i18n";
 import "./ProviderModelPicker.css";
 export type ReasoningEffort =
@@ -367,7 +367,8 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
             if (findApiKey(credentials.apiKeys, providerKey)) {
                 await credentials.removeApiKey(providerKey);
             }
-            if (findOauthCredential(credentials.oauthCredentials, providerKey)) {
+            if (subscriptionConnectsProviderModels(providerKey) &&
+                findOauthCredential(credentials.oauthCredentials, providerKey)) {
                 await credentials.logoutOAuth(providerKey);
             }
         }
@@ -475,8 +476,15 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
         const isLocal = tab.key === LOCAL_PROVIDER_KEY;
         const isOpenRouter = tab.key === "openrouter";
         const apiKey = findApiKey(credentials.apiKeys, tab.key);
-        const oauthCred = findOauthCredential(credentials.oauthCredentials, tab.key);
-        const oauthEntry = findOauthProvider(credentials.oauthProviders, tab.key);
+        // A Claude sign-in lives in Settings and powers Claude Code only, so
+        // the Anthropic section neither offers it nor counts it as connected.
+        const subscriptionConnects = subscriptionConnectsProviderModels(tab.key);
+        const oauthCred = subscriptionConnects
+            ? findOauthCredential(credentials.oauthCredentials, tab.key)
+            : undefined;
+        const oauthEntry = subscriptionConnects
+            ? findOauthProvider(credentials.oauthProviders, tab.key)
+            : undefined;
         const llmEntry = tab.llmEntry ??
             (!isStella
                 ? {

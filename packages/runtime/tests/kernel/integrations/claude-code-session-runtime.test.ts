@@ -63,7 +63,6 @@ describe("claude-code-session-runtime", () => {
 
   const originalFetch = globalThis.fetch;
   const originalAnthropicApiKey = process.env.ANTHROPIC_API_KEY;
-  const originalAnthropicOauthToken = process.env.ANTHROPIC_OAUTH_TOKEN;
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
@@ -71,11 +70,6 @@ describe("claude-code-session-runtime", () => {
       delete process.env.ANTHROPIC_API_KEY;
     } else {
       process.env.ANTHROPIC_API_KEY = originalAnthropicApiKey;
-    }
-    if (originalAnthropicOauthToken === undefined) {
-      delete process.env.ANTHROPIC_OAUTH_TOKEN;
-    } else {
-      process.env.ANTHROPIC_OAUTH_TOKEN = originalAnthropicOauthToken;
     }
   });
 
@@ -87,7 +81,6 @@ describe("claude-code-session-runtime", () => {
 
   it("lists Claude Code aliases without endpoint credentials", async () => {
     delete process.env.ANTHROPIC_API_KEY;
-    delete process.env.ANTHROPIC_OAUTH_TOKEN;
 
     const { models } = await listClaudeCodeModels({});
 
@@ -113,7 +106,6 @@ describe("claude-code-session-runtime", () => {
 
   it("labels the default alias with the CLI-reported resolved model", async () => {
     delete process.env.ANTHROPIC_API_KEY;
-    delete process.env.ANTHROPIC_OAUTH_TOKEN;
     const stellaAppDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "stella-claude-models-"),
     );
@@ -134,7 +126,6 @@ describe("claude-code-session-runtime", () => {
 
   it("merges Anthropic endpoint models into Claude Code aliases", async () => {
     delete process.env.ANTHROPIC_API_KEY;
-    delete process.env.ANTHROPIC_OAUTH_TOKEN;
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({

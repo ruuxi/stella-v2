@@ -5,15 +5,15 @@
   padding: 10px 0;
 }
 
-.engine-connect-prompt__code {
-  align-self: flex-start;
-  padding: 4px 10px;
+.engine-connect-prompt__input {
+  width: 100%;
+  padding: 6px 10px;
   border: 1px solid var(--border-weak);
   border-radius: 8px;
+  background: transparent;
+  color: inherit;
   font-family: var(--font-family-mono, ui-monospace, monospace);
-  font-size: var(--font-size-lg, 18px);
-  letter-spacing: 0.12em;
-  user-select: all;
+  font-size: var(--font-size-sm);
 }
 
 .engine-connect-prompt__hint {

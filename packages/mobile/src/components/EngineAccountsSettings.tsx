@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -12,13 +13,16 @@ import {
 import * as Clipboard from "expo-clipboard";
 import { getRandomBytes } from "expo-crypto";
 import * as WebBrowser from "expo-web-browser";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { sha256 } from "@noble/hashes/sha2.js";
-import type {
-  EngineConnection,
-  EngineProvider,
-  EngineSettings,
+import {
+  isEngineConnectionUsable,
+  type EngineConnection,
+  type EngineProvider,
+  type EngineSettings,
 } from "@stella/contracts/backend/engines";
+import { CHATGPT_SIWC } from "@stella/contracts/chatgpt-siwc";
 import {
   ANTHROPIC_OAUTH,
   anthropicAuthorizeUrl,
@@ -38,21 +42,27 @@ import { useColors } from "../theme/theme-context";
 import { useT } from "../i18n";
 
 /**
- * Settings › Claude & ChatGPT: the owner's one list of subscriptions, used by
- * Claude Code and Codex on every one of their computers and by cloud chat and
- * agents. Several accounts per provider, one in use (checked), and an option
+ * Settings › Claude & ChatGPT: the subscriptions kept with the Stella
+ * account. Several accounts per provider, one in use (checked), and an option
  * to move on to the next account when the one in use hits its limit.
  *
- * Claude signs in on this phone: the consent page shows a code the user
- * pastes back, the phone exchanges it with Anthropic itself and uploads the
- * tokens (`engines.addAccount`); Stella's server never contacts Anthropic.
- * ChatGPT uses device authorization through the server and connects
- * automatically after approval.
+ * Claude: one list for Claude Code on every computer and in the cloud. It
+ * signs in on this phone: the consent page shows a code the user pastes
+ * back, the phone exchanges it with Anthropic itself and uploads the tokens
+ * (`engines.addAccount`); Stella's server never contacts Anthropic, and the
+ * owner's devices keep the tokens refreshed.
+ *
+ * ChatGPT: Sign in with ChatGPT for Stella's cloud, which is its own host
+ * (each computer signs in separately in the desktop app). The server builds
+ * the authorization; ChatGPT redirects to a 127.0.0.1 address nothing on a
+ * phone answers, so the user pastes that address back and the server
+ * exchanges it, keeps the credentials and refreshes them.
  */
 
 type Section = {
   provider: EngineProvider;
   titleKey: string;
+  noteKey: string;
   autoSwitchKey: string;
   pasteHintKey: string;
 };
@@ -61,16 +71,47 @@ const SECTIONS: Section[] = [
   {
     provider: "anthropic",
     titleKey: "mobile.engineAccounts.claudeSection",
+    noteKey: "mobile.engineAccounts.claudeNote",
     autoSwitchKey: "mobile.engineAccounts.autoSwitchClaude",
     pasteHintKey: "mobile.engineAccounts.pasteHintClaude",
   },
   {
-    provider: "openai-codex",
+    provider: "chatgpt",
     titleKey: "mobile.engineAccounts.chatgptSection",
+    noteKey: "mobile.engineAccounts.chatgptNote",
     autoSwitchKey: "mobile.engineAccounts.autoSwitchChatgpt",
     pasteHintKey: "mobile.engineAccounts.pasteHintChatgpt",
   },
 ];
+
+const PLAN_WELCOME_KEY = "stella-mobile.chatgpt-plan-welcome-shown";
+
+/** "You're using your ChatGPT plan", once, after the first plan-enabled sign-in. */
+const announceChatGptPlanUse = async (t: ReturnType<typeof useT>) => {
+  try {
+    if (await AsyncStorage.getItem(PLAN_WELCOME_KEY)) return;
+    await AsyncStorage.setItem(PLAN_WELCOME_KEY, "1");
+  } catch {
+    // Storage unavailable: show it this time.
+  }
+  Alert.alert(
+    t("mobile.engineAccounts.planWelcomeTitle"),
+    t("mobile.engineAccounts.planWelcomeBody"),
+    [
+      { text: t("mobile.engineAccounts.manageUsage"), onPress: openChatGptUsage },
+      { text: t("mobile.common.done"), style: "cancel" },
+    ],
+  );
+};
+
+/** ChatGPT Settings › Usage: review usage and Stella's limit. */
+export const openChatGptUsage = () => {
+  void Linking.openURL(CHATGPT_SIWC.manageUsageUrl).catch(() => undefined);
+};
+
+/** A ChatGPT redirect URL on the clipboard (`…/auth/callback?code=…&state=…`). */
+const looksLikeChatGptCallback = (value: string): boolean =>
+  /[?&]code=/u.test(value) && /[?&]state=/u.test(value);
 
 export const accountInitials = (
   row: Pick<EngineConnection, "email" | "label">,
@@ -144,18 +185,16 @@ export function EngineAccountsSettings({ onBack }: { onBack: () => void }) {
           colors={colors}
         />
       ))}
-      <Text style={[settingsStyles.hint, styles.footnote]}>
-        {t("mobile.engineAccounts.localNote")}
-      </Text>
     </ScrollView>
   );
 }
 
 /**
- * Provider sign-in shared by Settings and onboarding. ChatGPT polls device
- * authorization on the server; Claude exchanges a pasted code from this
- * phone. Errors surface as an alert. `connectId` names the attempt waiting
- * for the user (the server's for ChatGPT, a local one for Claude).
+ * Provider sign-in shared by Settings and onboarding. Both paste back:
+ * Claude's consent page shows a code this phone exchanges itself; ChatGPT
+ * lands on an address that doesn't load, which the server exchanges for
+ * Stella's cloud. Errors surface as an alert. `connectId` names the attempt
+ * waiting for the paste (the server's for ChatGPT, a local one for Claude).
  */
 export function useEngineConnect(
   provider: EngineProvider,
@@ -165,74 +204,12 @@ export function useEngineConnect(
   const [busy, setBusy] = useState(false);
   const [connectId, setConnectId] = useState<string | null>(null);
   const [pasted, setPasted] = useState("");
-  const [deviceConnect, setDeviceConnect] = useState<{
-    connectId: string;
-    authorizeUrl: string;
-    userCode: string;
-    intervalMs: number;
-  } | null>(null);
   const onConnectedRef = useRef(onConnected);
-  const deviceBrowserOpen = useRef(false);
   /** Claude: the PKCE verifier (also the state) of the attempt in progress. */
   const claudeVerifier = useRef<string | null>(null);
+  /** ChatGPT: the authorization page of the attempt in progress. */
+  const chatGptAuthorizeUrl = useRef<string | null>(null);
   onConnectedRef.current = onConnected;
-
-  useEffect(() => {
-    if (!deviceConnect) return;
-    let cancelled = false;
-    let failures = 0;
-    const deadline = Date.now() + 15 * 60_000;
-    let timer: ReturnType<typeof setTimeout>;
-    const poll = async () => {
-      try {
-        const result = await getBackendClient().call(
-          "engines.pollDeviceConnect",
-          {
-            connectId: deviceConnect.connectId,
-          },
-        );
-        if (cancelled) return;
-        failures = 0;
-        if (result.status === "connected") {
-          setDeviceConnect(null);
-          setConnectId(null);
-          if (deviceBrowserOpen.current) {
-            try {
-              WebBrowser.dismissBrowser();
-            } catch {
-              /* Already closed. */
-            }
-          }
-          onConnectedRef.current?.();
-          return;
-        }
-      } catch (error) {
-        if (cancelled) return;
-        // Browser approval can outlast a brief connection loss or suspension.
-        if (++failures < 4 && Date.now() < deadline) {
-          timer = setTimeout(
-            () => void poll(),
-            Math.max(65_000, deviceConnect.intervalMs),
-          );
-          return;
-        }
-        setDeviceConnect(null);
-        setConnectId(null);
-        Alert.alert(
-          t("mobile.engineAccounts.errorTitle"),
-          errorMessage(error, t("mobile.engineAccounts.errorBody")),
-        );
-        return;
-      }
-      if (!cancelled)
-        timer = setTimeout(() => void poll(), deviceConnect.intervalMs);
-    };
-    timer = setTimeout(() => void poll(), deviceConnect.intervalMs);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [deviceConnect, t]);
 
   const run = async (action: () => Promise<unknown>): Promise<boolean> => {
     setBusy(true);
@@ -250,15 +227,33 @@ export function useEngineConnect(
     }
   };
 
-  const startConnect = () =>
+  const openChatGpt = async (authorizeUrl: string) => {
+    await WebBrowser.openBrowserAsync(authorizeUrl, {
+      presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET,
+    });
+    // Back from the browser: the copied address is usually on the clipboard.
+    const clip = await Clipboard.getStringAsync().catch(() => "");
+    if (clip && looksLikeChatGptCallback(clip.trim())) setPasted(clip.trim());
+  };
+
+  /**
+   * Begin adding an account. ChatGPT: `accountId` signs a saved cloud
+   * account in again; `enablePlanUsage` asks for plan-use consent again.
+   */
+  const startConnect = (
+    options: { accountId?: string; enablePlanUsage?: boolean } = {},
+  ) =>
     void run(async () => {
-      if (provider === "openai-codex") {
-        const result = await getBackendClient().call(
-          "engines.startDeviceConnect",
-          {},
-        );
-        setConnectId(result.connectId);
-        setDeviceConnect(result);
+      setPasted("");
+      if (provider === "chatgpt") {
+        const started = await getBackendClient().call("engines.startConnect", {
+          provider: "chatgpt",
+          ...(options.accountId ? { accountId: options.accountId } : {}),
+          ...(options.enablePlanUsage ? { enablePlanUsage: true } : {}),
+        });
+        chatGptAuthorizeUrl.current = started.authorizeUrl;
+        setConnectId(started.connectId);
+        await openChatGpt(started.authorizeUrl);
         return;
       }
       const { verifier, challenge } = await createPkce({
@@ -267,7 +262,6 @@ export function useEngineConnect(
       });
       claudeVerifier.current = verifier;
       setConnectId(verifier);
-      setPasted("");
       const authorizeUrl = anthropicAuthorizeUrl({
         challenge,
         state: verifier,
@@ -283,9 +277,34 @@ export function useEngineConnect(
       }
     });
 
+  const finishChatGpt = (attempt: string) =>
+    void run(async () => {
+      const result = await getBackendClient().call("engines.finishConnect", {
+        connectId: attempt,
+        pastedInput: pasted.trim(),
+      });
+      chatGptAuthorizeUrl.current = null;
+      setConnectId(null);
+      setPasted("");
+      onConnectedRef.current?.();
+      if (result.planUsage) {
+        await announceChatGptPlanUse(t);
+      } else {
+        Alert.alert(
+          t("mobile.engineAccounts.statusPlanUsageOff"),
+          t("mobile.engineAccounts.planUsageOffBody"),
+        );
+      }
+    });
+
   const finishConnect = () => {
+    if (!connectId || !pasted.trim()) return;
+    if (provider === "chatgpt") {
+      finishChatGpt(connectId);
+      return;
+    }
     const verifier = claudeVerifier.current;
-    if (!connectId || !verifier || !pasted.trim()) return;
+    if (!verifier) return;
     void run(async () => {
       const parsed = parseAuthorizationInput(pasted);
       if (!parsed.code) throw new Error(t("mobile.engineAccounts.errorBody"));
@@ -312,18 +331,18 @@ export function useEngineConnect(
       setConnectId(null);
       setPasted("");
     }).then((ok) => {
-      if (ok) onConnected?.();
+      if (ok) onConnectedRef.current?.();
     });
   };
 
   const cancelConnect = () => {
     claudeVerifier.current = null;
-    if (connectId && provider === "openai-codex") {
+    chatGptAuthorizeUrl.current = null;
+    if (connectId && provider === "chatgpt") {
       void getBackendClient()
         .call("engines.cancelConnect", { connectId })
         .catch(() => {});
     }
-    setDeviceConnect(null);
     setConnectId(null);
     setPasted("");
   };
@@ -335,21 +354,6 @@ export function useEngineConnect(
 
   return {
     busy,
-    deviceConnect,
-    openDeviceBrowser: () =>
-      void run(async () => {
-        if (!deviceConnect) return;
-        await Clipboard.setStringAsync(deviceConnect.userCode);
-        deviceBrowserOpen.current = true;
-        try {
-          await WebBrowser.openBrowserAsync(deviceConnect.authorizeUrl, {
-            presentationStyle:
-              WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET,
-          });
-        } finally {
-          deviceBrowserOpen.current = false;
-        }
-      }),
     connectId,
     pasted,
     setPasted,
@@ -358,45 +362,15 @@ export function useEngineConnect(
     finishConnect,
     cancelConnect,
     pasteFromClipboard,
+    /** ChatGPT: open the authorization page of the attempt again. */
+    reopenAuthorizePage:
+      provider === "chatgpt"
+        ? () => {
+            const url = chatGptAuthorizeUrl.current;
+            if (url) void run(() => openChatGpt(url));
+          }
+        : undefined,
   };
-}
-
-/** Shared by Settings and onboarding; completing approval connects automatically. */
-export function EngineDeviceConnectCard({
-  connect,
-}: {
-  connect: ReturnType<typeof useEngineConnect>;
-}) {
-  const t = useT();
-  const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
-  if (!connect.deviceConnect) return null;
-  return (
-    <View style={styles.pasteCard}>
-      <Text style={styles.subtitle}>
-        {t("mobile.engineAccounts.deviceHint")}
-      </Text>
-      <Text selectable style={styles.deviceCode}>
-        {connect.deviceConnect.userCode}
-      </Text>
-      <View style={styles.pasteActions}>
-        <Pressable onPress={connect.cancelConnect} accessibilityRole="button">
-          <Text style={styles.subtitle}>{t("mobile.common.cancel")}</Text>
-        </Pressable>
-        <Pressable
-          onPress={connect.openDeviceBrowser}
-          disabled={connect.busy}
-          accessibilityRole="button"
-        >
-          <Text
-            style={{ color: colors.accent, fontFamily: fonts.sans.semiBold }}
-          >
-            {t("mobile.engineAccounts.deviceOpen")}
-          </Text>
-        </Pressable>
-      </View>
-    </View>
-  );
 }
 
 function ProviderSection({
@@ -429,6 +403,7 @@ function ProviderSection({
     (row) => row.provider === section.provider,
   );
   const autoSwitch = settings?.autoSwitch?.[section.provider] ?? false;
+  const chatgpt = section.provider === "chatgpt";
 
   const switchToAccount = (row: EngineConnection) => {
     tapLight();
@@ -451,10 +426,40 @@ function ProviderSection({
           text: t("mobile.engineAccounts.signOut"),
           style: "destructive",
           onPress: () =>
+            void run(async () => {
+              const result = await getBackendClient().call("engines.disconnect", {
+                provider: section.provider,
+                accountId: row.accountId,
+              });
+              if (result && !result.revoked) {
+                Alert.alert(
+                  t("mobile.engineAccounts.statusSignedOut"),
+                  t("mobile.engineAccounts.revokeUnconfirmed"),
+                );
+              }
+            }),
+        },
+      ],
+    );
+  };
+
+  /** ChatGPT: forget the account, registration included. */
+  const remove = (row: EngineConnection) => {
+    const name = row.email ?? row.label;
+    Alert.alert(
+      t("mobile.engineAccounts.removeTitle", { name }),
+      t("mobile.engineAccounts.removeBody"),
+      [
+        { text: t("mobile.common.cancel"), style: "cancel" },
+        {
+          text: t("mobile.engineAccounts.remove"),
+          style: "destructive",
+          onPress: () =>
             void run(() =>
               getBackendClient().call("engines.disconnect", {
                 provider: section.provider,
                 accountId: row.accountId,
+                forget: true,
               }),
             ),
         },
@@ -462,21 +467,85 @@ function ProviderSection({
     );
   };
 
-  const openFallbackMenu = (row: EngineConnection) => {
-    Alert.alert(row.email ?? row.label, undefined, [
-      ...(row.active
+  /** What a row's menu offers, by the account's state. */
+  const rowActions = (row: EngineConnection) => {
+    const usable = isEngineConnectionUsable(row);
+    return [
+      ...(usable && !row.active
+        ? [
+            {
+              id: "use",
+              title: t("mobile.engineAccounts.useAccount"),
+              systemImage: "checkmark.circle" as const,
+              onPress: () => switchToAccount(row),
+            },
+          ]
+        : []),
+      ...(chatgpt && row.status
+        ? [
+            {
+              id: "sign-in-again",
+              title: t("mobile.engineAccounts.signInAgain"),
+              systemImage: "arrow.clockwise" as const,
+              onPress: () => startConnect({ accountId: row.accountId }),
+            },
+          ]
+        : []),
+      ...(chatgpt && !row.status && row.planUsage === false
+        ? [
+            {
+              id: "enable-plan-usage",
+              title: t("mobile.engineAccounts.enablePlanUsage"),
+              systemImage: "checkmark.shield" as const,
+              onPress: () =>
+                startConnect({ accountId: row.accountId, enablePlanUsage: true }),
+            },
+          ]
+        : []),
+      ...(row.status
         ? []
         : [
             {
-              text: t("mobile.engineAccounts.useAccount"),
-              onPress: () => switchToAccount(row),
+              id: "sign-out",
+              title: t("mobile.engineAccounts.signOut"),
+              systemImage: "rectangle.portrait.and.arrow.right" as const,
+              destructive: true,
+              onPress: () => signOut(row),
             },
           ]),
-      {
-        text: t("mobile.engineAccounts.signOut"),
-        style: "destructive" as const,
-        onPress: () => signOut(row),
-      },
+      ...(chatgpt
+        ? [
+            {
+              id: "remove",
+              title: t("mobile.engineAccounts.remove"),
+              systemImage: "trash" as const,
+              destructive: true,
+              onPress: () => remove(row),
+            },
+          ]
+        : []),
+    ];
+  };
+
+  const rowSubtitle = (row: EngineConnection): string | undefined => {
+    if (row.status === "signed_out") return t("mobile.engineAccounts.statusSignedOut");
+    if (row.status === "reauth_required") return t("mobile.engineAccounts.statusReauth");
+    if (row.planUsage === false) return t("mobile.engineAccounts.statusPlanUsageOff");
+    if (row.limitedUntil) {
+      return t("mobile.engineAccounts.limitReached", {
+        time: formatReset(row.limitedUntil),
+      });
+    }
+    return row.plan;
+  };
+
+  const openFallbackMenu = (row: EngineConnection) => {
+    Alert.alert(row.email ?? row.label, undefined, [
+      ...rowActions(row).map((action) => ({
+        text: action.title,
+        ...("destructive" in action ? { style: "destructive" as const } : {}),
+        onPress: action.onPress,
+      })),
       { text: t("mobile.common.cancel"), style: "cancel" as const },
     ]);
   };
@@ -486,16 +555,15 @@ function ProviderSection({
       <Text style={settingsStyles.sectionLabel}>{t(section.titleKey)}</Text>
       <View style={settingsStyles.group}>
         {accounts.map((row, index) => {
-          const name = row.email ?? row.label;
-          const sub = row.limitedUntil
-            ? t("mobile.engineAccounts.limitReached", {
-                time: formatReset(row.limitedUntil),
-              })
-            : row.plan;
+          const name = row.email ?? row.name ?? row.label;
+          const sub = rowSubtitle(row);
+          const usable = isEngineConnectionUsable(row);
           return (
             <Pressable
               key={row.accountId}
-              onPress={() => (row.active ? undefined : switchToAccount(row))}
+              onPress={() =>
+                row.active || !usable ? undefined : switchToAccount(row)
+              }
               disabled={busy}
               accessibilityRole="button"
               accessibilityState={{ selected: row.active }}
@@ -521,7 +589,7 @@ function ProviderSection({
                   <Text
                     style={[
                       settingsStyles.rowSub,
-                      row.limitedUntil ? styles.limited : null,
+                      row.limitedUntil || !usable ? styles.limited : null,
                     ]}
                     numberOfLines={1}
                   >
@@ -548,26 +616,14 @@ function ProviderSection({
                   height={36}
                   circular
                   disabled={busy}
-                  items={[
-                    ...(row.active
-                      ? []
-                      : [
-                          {
-                            id: "use",
-                            title: t("mobile.engineAccounts.useAccount"),
-                            systemImage: "checkmark.circle" as const,
-                            onPress: () => switchToAccount(row),
-                          },
-                        ]),
-                    {
-                      id: "sign-out",
-                      title: t("mobile.engineAccounts.signOut"),
-                      systemImage:
-                        "rectangle.portrait.and.arrow.right" as const,
-                      separatorBefore: !row.active,
-                      onPress: () => signOut(row),
-                    },
-                  ]}
+                  items={rowActions(row).map((action, actionIndex) => ({
+                    id: action.id,
+                    title: action.title,
+                    systemImage: action.systemImage,
+                    separatorBefore:
+                      actionIndex > 0 && "destructive" in action,
+                    onPress: action.onPress,
+                  }))}
                   onFallbackPress={() => openFallbackMenu(row)}
                 />
               ) : (
@@ -590,7 +646,7 @@ function ProviderSection({
           );
         })}
         <Pressable
-          onPress={startConnect}
+          onPress={() => startConnect()}
           disabled={busy || connectId !== null}
           accessibilityRole="button"
           style={({ pressed }) => [
@@ -604,14 +660,17 @@ function ProviderSection({
             <Icon name="plus" size={18} color={colors.text} />
           </View>
           <Text style={settingsStyles.rowLabel}>
-            {t("mobile.engineAccounts.addAccount")}
+            {chatgpt
+              ? t("mobile.engineAccounts.continueWithChatgpt")
+              : t("mobile.engineAccounts.addAccount")}
           </Text>
         </Pressable>
       </View>
+      <Text style={[settingsStyles.hint, styles.sectionNote]}>
+        {t(section.noteKey)}
+      </Text>
 
-      {connect.deviceConnect ? (
-        <EngineDeviceConnectCard connect={connect} />
-      ) : connectId ? (
+      {connectId ? (
         <View
           style={[
             settingsStyles.group,
@@ -624,7 +683,11 @@ function ProviderSection({
             <TextInput
               value={pasted}
               onChangeText={setPasted}
-              placeholder={t("mobile.engineAccounts.pastePlaceholder")}
+              placeholder={
+                chatgpt
+                  ? t("mobile.engineAccounts.pastePlaceholderUrl")
+                  : t("mobile.engineAccounts.pastePlaceholder")
+              }
               placeholderTextColor={colors.textMuted}
               autoCapitalize="none"
               autoCorrect={false}
@@ -652,6 +715,18 @@ function ProviderSection({
                 {t("mobile.common.cancel")}
               </Text>
             </Pressable>
+            {connect.reopenAuthorizePage ? (
+              <Pressable
+                onPress={connect.reopenAuthorizePage}
+                disabled={busy}
+                hitSlop={8}
+                accessibilityRole="button"
+              >
+                <Text style={settingsStyles.rowSub}>
+                  {t("mobile.engineAccounts.openChatgptAgain")}
+                </Text>
+              </Pressable>
+            ) : null}
             <Pressable
               onPress={finishConnect}
               disabled={busy || !pasted.trim()}
@@ -695,6 +770,22 @@ function ProviderSection({
               accessibilityLabel={t("mobile.engineAccounts.autoSwitchLabel")}
             />
           </View>
+          {chatgpt ? (
+            <Pressable
+              onPress={openChatGptUsage}
+              accessibilityRole="link"
+              style={({ pressed }) => [
+                settingsStyles.row,
+                settingsStyles.rowDivider,
+                pressed && settingsStyles.rowPressed,
+              ]}
+            >
+              <Text style={[settingsStyles.rowLabel, styles.flexLabel]}>
+                {t("mobile.engineAccounts.manageUsage")}
+              </Text>
+              <Icon name="arrow-up-right" size={16} color={colors.textMuted} />
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
     </View>
@@ -704,14 +795,6 @@ function ProviderSection({
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     screen: { flex: 1 },
-    deviceCode: {
-      color: colors.text,
-      fontFamily: fonts.mono.regular,
-      fontSize: 24,
-      letterSpacing: 2,
-      textAlign: "center",
-      paddingVertical: 12,
-    },
     content: { paddingTop: 8 },
     header: {
       alignItems: "center",
@@ -776,5 +859,6 @@ const makeStyles = (colors: Colors) =>
       gap: 20,
       justifyContent: "flex-end",
     },
-    footnote: { marginTop: 16 },
+    sectionNote: { marginTop: 8 },
+    flexLabel: { flex: 1 },
   });

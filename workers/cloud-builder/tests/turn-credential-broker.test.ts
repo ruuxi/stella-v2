@@ -179,7 +179,7 @@ describe("BuildSession turn credential broker", () => {
     if (!target) throw new Error("Expected Browser Gateway target");
     expect(turnBrokerTargetMatchesEngine(target, "stella")).toBe(true);
     expect(turnBrokerTargetMatchesEngine(target, "anthropic")).toBe(false);
-    expect(turnBrokerTargetMatchesEngine(target, "openai-codex")).toBe(false);
+    expect(turnBrokerTargetMatchesEngine(target, "chatgpt")).toBe(false);
     expect(
       validateTurnBrokerTarget("GET", "/api/cloud/browser/command"),
     ).toBeNull();

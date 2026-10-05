@@ -110,7 +110,7 @@ describe("thread candidate requirement", () => {
   test("only Claude restores from its thread candidate", () => {
     expect(requiresExactThreadCandidate(execution("stella"))).toBe(false);
     expect(requiresExactThreadCandidate(execution("anthropic"))).toBe(true);
-    expect(requiresExactThreadCandidate(execution("openai-codex"))).toBe(false);
+    expect(requiresExactThreadCandidate(execution("chatgpt"))).toBe(false);
     expect(requiresExactThreadCandidate(undefined)).toBe(true);
   });
 

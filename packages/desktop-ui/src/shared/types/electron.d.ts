@@ -38,6 +38,10 @@ import type {
 } from "@stella/contracts/reply-refs";
 import type { RealtimeVoicePreferences } from "@stella/contracts/local-preferences";
 import type {
+  ChatGptProfileSummary,
+  ChatGptProfilesState,
+} from "@stella/contracts/chatgpt-siwc-types";
+import type {
   ChatContext as SharedChatContext,
   ChatContextFile as SharedChatContextFile,
   ChatContextUpdate as SharedChatContextUpdate,
@@ -856,30 +860,9 @@ export type ElectronSystemApi = {
     realtimeVoice: RealtimeVoicePreferences;
     memoryEnabled: boolean;
   } | null>;
-  listCodexModels: () => Promise<{
-    models: Array<{
-      id: string;
-      model: string;
-      displayName: string;
-      description: string;
-      hidden: boolean;
-      supportedReasoningEfforts: Array<{
-        reasoningEffort:
-          "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
-        description: string;
-      }>;
-      defaultReasoningEffort:
-        "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
-      inputModalities: string[];
-      additionalSpeedTiers: string[];
-      serviceTiers: Array<{
-        id: string;
-        name: string;
-        description: string;
-      }>;
-      defaultServiceTier?: string | null;
-      isDefault: boolean;
-    }>;
+  listChatGptModels: () => Promise<{
+    source: "account" | "catalog";
+    models: Array<{ id: string; name: string }>;
   }>;
   listClaudeCodeModels: () => Promise<{
     models: Array<{
@@ -910,6 +893,22 @@ export type ElectronSystemApi = {
    */
   connectClaudeAccount: () => Promise<{ accountId: string }>;
   cancelClaudeAccountConnect: () => Promise<{ canceled: boolean }>;
+  connectChatGptCloud: (options?: {
+    accountId?: string;
+    enablePlanUsage?: boolean;
+  }) => Promise<{ accountId: string; planUsage: boolean }>;
+  cancelChatGptCloudConnect: () => Promise<{ canceled: boolean }>;
+  listChatGptProfiles: () => Promise<ChatGptProfilesState>;
+  signInChatGpt: (options?: {
+    profileId?: string;
+    enablePlanUsage?: boolean;
+  }) => Promise<ChatGptProfileSummary>;
+  cancelChatGptSignIn: () => Promise<{ canceled: boolean }>;
+  setActiveChatGptProfile: (profileId: string) => Promise<{ ok: true }>;
+  setChatGptAutoSwitch: (enabled: boolean) => Promise<{ ok: true }>;
+  signOutChatGptProfile: (profileId: string) => Promise<{ revoked: boolean }>;
+  removeChatGptProfile: (profileId: string) => Promise<{ revoked: boolean }>;
+  onChatGptProfilesChanged: (callback: () => void) => () => void;
   validateLlmOAuthCredential: (provider: string) => Promise<{
     connected: boolean;
     needsReauth: boolean;

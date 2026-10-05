@@ -73,10 +73,10 @@ export const captureEffectiveModelConfig = (args: {
       args.engineModelOverride,
     );
     const codexModel =
-      args.resolvedLlm.model.provider === "openai-codex"
+      args.resolvedLlm.model.provider === "chatgpt"
         ? args.resolvedLlm.model.id
         : codex.model;
-    const routeModel = `openai-codex/${codexModel}`;
+    const routeModel = `chatgpt/${codexModel}`;
     const effort =
       normalizeCapturedReasoningEffort(args.reasoningEffort) ??
       (args.engineConfigSampled
@@ -149,7 +149,7 @@ export const toCloudExecutionSelection = (
       "stella/local/",
       "stella/ollama/",
       "stella/lmstudio/",
-      "stella/openai-codex/",
+      "stella/chatgpt/",
     ].find((prefix) => model.startsWith(prefix));
     if (
       !model.startsWith("stella/") ||
@@ -182,8 +182,8 @@ export const toCloudExecutionSelection = (
     };
   }
   return {
-    engine: "openai-codex",
-    provider: "openai-codex",
+    engine: "chatgpt",
+    provider: "chatgpt",
     model,
     reasoningEffort,
   };

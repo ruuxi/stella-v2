@@ -330,7 +330,7 @@ export default {
         "anthropic-messages",
         "openai-completions",
         "openai-responses",
-        "openai-codex-responses",
+        "chatgpt-responses",
       ] as const;
       const providers = await Promise.all(
         apis.map(async (api) => {

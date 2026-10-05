@@ -6,6 +6,7 @@ import {
   type EngineModelCatalog,
   type EngineModelOption,
 } from "@stella/contracts/engine-model-catalog";
+import { isEngineConnectionUsable } from "@stella/contracts/backend/engines";
 import { useT } from "../i18n";
 import { getBackendClient, readBackendView } from "./backend";
 import { authClient } from "./auth-client";
@@ -27,11 +28,11 @@ export type ModelEngine = CloudExecutionSelection["engine"];
 export const MODEL_ENGINE_OPTIONS: ReadonlyArray<{ id: ModelEngine; label: string }> = [
   { id: "stella", label: "Stella" },
   { id: "anthropic", label: "Claude Code" },
-  { id: "openai-codex", label: "Codex" },
+  { id: "chatgpt", label: "ChatGPT" },
 ];
 
 const EMPTY_CATALOG: StellaCatalog = { models: [], agentKeys: [] };
-const EMPTY_ENGINE_MODELS: EngineModelCatalog = { claude: [], codex: [] };
+const EMPTY_ENGINE_MODELS: EngineModelCatalog = { claude: [], chatgpt: [] };
 
 export type ModelOption = {
   id: string;
@@ -56,8 +57,8 @@ const engineModelList = (
 ): EngineModelOption[] =>
   engine === "anthropic"
     ? engineModels.claude
-    : engine === "openai-codex"
-      ? engineModels.codex
+    : engine === "chatgpt"
+      ? engineModels.chatgpt
       : [];
 
 /** The first model an engine lands on when the user switches to it. */
@@ -113,14 +114,23 @@ export function useCloudModelSettings(active: boolean) {
         getToken: () => getAuthTokenForSubject(owner.expectedSubject),
         isCurrent: () => currentScope.current === scope && readRevision.current === revision,
         request: async (token) => {
-          const [settings, catalog] = await Promise.all([
+          const [settings, catalog, chatgptModels] = await Promise.all([
             readBackendView("engines.get", {}),
             fetchStellaCatalog({ headers: { Authorization: `Bearer ${token}` } }),
+            // The cloud's ChatGPT account's own list; Stella's catalog
+            // stands in while none is signed in or the list is unavailable.
+            getBackendClient()
+              .call("engines.listModels", { provider: "chatgpt" })
+              .catch(() => null),
           ]);
           return {
             execution: settings.execution,
-            connectedProviders: settings.connections.map((row) => row.provider),
-            engineModels: ENGINE_MODEL_CATALOG,
+            connectedProviders: settings.connections
+              .filter(isEngineConnectionUsable)
+              .map((row) => row.provider),
+            engineModels: chatgptModels?.models.length
+              ? { ...ENGINE_MODEL_CATALOG, chatgpt: chatgptModels.models }
+              : ENGINE_MODEL_CATALOG,
             catalog,
           };
         },
@@ -189,7 +199,7 @@ export function useCloudModelSettings(active: boolean) {
       void apply(
         targetEngine === "anthropic"
           ? { engine: "anthropic", provider: "anthropic", model, reasoningEffort }
-          : { engine: "openai-codex", provider: "openai-codex", model, reasoningEffort },
+          : { engine: "chatgpt", provider: "chatgpt", model, reasoningEffort },
       );
     },
     [apply, catalog.models, engineModels, execution],
@@ -267,7 +277,7 @@ export function useCloudModelSettings(active: boolean) {
       label,
       effort,
       // Stella-managed runs take their effort from the backend config; only
-      // the Claude Code / Codex engines expose one.
+      // the Claude Code / ChatGPT engines expose one.
       supportsEffortSelection: Boolean(execution && execution.engine !== "stella"),
       /** Providers connected for cloud runs; undefined until loaded. */
       connectedProviders,

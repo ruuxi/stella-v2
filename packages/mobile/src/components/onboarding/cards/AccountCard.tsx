@@ -16,9 +16,10 @@ import {
   View,
 } from "react-native";
 import Animated from "react-native-reanimated";
-import type {
-  EngineConnection,
-  EngineProvider,
+import {
+  isEngineConnectionUsable,
+  type EngineConnection,
+  type EngineProvider,
 } from "@stella/contracts/backend/engines";
 import { useT } from "../../../i18n";
 import { useBackendView } from "../../../lib/backend";
@@ -26,7 +27,7 @@ import { notifySuccess, tapLight } from "../../../lib/haptics";
 import { type Colors } from "../../../theme/colors";
 import { fonts } from "../../../theme/fonts";
 import { useColors } from "../../../theme/theme-context";
-import { EngineDeviceConnectCard, useEngineConnect } from "../../EngineAccountsSettings";
+import { useEngineConnect } from "../../EngineAccountsSettings";
 import { Icon, type IconName } from "../../Icon";
 import { fadeEntering, rowEntering, springLayout, SpringPressable } from "../motion";
 import {
@@ -54,7 +55,7 @@ const ENGINES: EngineSpec[] = [
     pasteHintKey: "mobile.engineAccounts.pasteHintClaude",
   },
   {
-    provider: "openai-codex",
+    provider: "chatgpt",
     icon: "message-square",
     name: "ChatGPT",
     descKey: "mobile.onboarding.account.chatgptDesc",
@@ -85,7 +86,8 @@ export function AccountCard({
   const cardStyles = useCardStyles();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { value: engines } = useBackendView("engines.get", {});
-  const connections = engines?.connections ?? [];
+  // A ChatGPT sign-in counts once Stella's cloud may use the plan.
+  const connections = (engines?.connections ?? []).filter(isEngineConnectionUsable);
   const connectedNames = ENGINES.filter((spec) =>
     connections.some((row) => row.provider === spec.provider),
   ).map((spec) => spec.name);
@@ -244,16 +246,18 @@ function EngineRow({
         )}
       </View>
 
-      {connect.deviceConnect && !connected ? (
-        <EngineDeviceConnectCard connect={connect} />
-      ) : connect.connectId && !connected ? (
+      {connect.connectId && !connected ? (
         <Animated.View entering={fadeEntering(0, 220)} style={styles.paste}>
           <Text style={styles.rowDesc}>{t(spec.pasteHintKey)}</Text>
           <View style={styles.pasteRow}>
             <TextInput
               value={connect.pasted}
               onChangeText={connect.setPasted}
-              placeholder={t("mobile.engineAccounts.pastePlaceholder")}
+              placeholder={
+                spec.provider === "chatgpt"
+                  ? t("mobile.engineAccounts.pastePlaceholderUrl")
+                  : t("mobile.engineAccounts.pastePlaceholder")
+              }
               placeholderTextColor={colors.textMuted}
               autoCapitalize="none"
               autoCorrect={false}
@@ -277,6 +281,16 @@ function EngineRow({
             >
               <Text style={styles.rowDesc}>{t("mobile.common.cancel")}</Text>
             </Pressable>
+            {connect.reopenAuthorizePage ? (
+              <Pressable
+                onPress={connect.reopenAuthorizePage}
+                disabled={connect.busy}
+                hitSlop={8}
+                accessibilityRole="button"
+              >
+                <Text style={styles.rowDesc}>{t("mobile.engineAccounts.openChatgptAgain")}</Text>
+              </Pressable>
+            ) : null}
             <Pressable
               onPress={connect.finishConnect}
               disabled={connect.busy || !connect.pasted.trim()}

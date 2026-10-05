@@ -13,20 +13,45 @@
 // account's refresh lease (`engines.beginRefresh`), because refresh tokens
 // rotate and two holders refreshing independently would revoke each other;
 // its upload is accepted only from that lease and only while the stored
-// tokens are still the ones handed out. ChatGPT's refresh token never leaves
-// this module: until its sign-in moves to the device too, the server runs
-// its connect flow and is the only party that refreshes it. The owner's own
-// signed-in clients (`engines.clientAccess`) and the native lane
-// (`engines.access`) may receive the ACTIVE account's short-lived access
-// token, so Claude Code and Codex talk to the provider directly. Nothing
-// else is ever returned.
+// tokens are still the ones handed out. The owner's own signed-in clients
+// (`engines.clientAccess`) and the native lane (`engines.access`) may
+// receive the ACTIVE Claude account's short-lived access token, so Claude
+// Code talks to Anthropic directly.
 //
-// This is the only store of these subscriptions: every client reads the one
-// account list here. ChatGPT's OAuth constants and exchange shapes mirror
-// packages/runtime/ai/utils/oauth/openai-codex.ts, whose callback server
-// can't run in a Worker.
+// ChatGPT (user-approved 2026-10-04): Sign in with ChatGPT for open-source
+// apps. The owner's cloud is its own agent host, with its own host id kept
+// here. A client starts the authorization this module builds and hands back
+// the redirect URL; this module, as the host that owns the credentials,
+// exchanges the code, validates the ID token, and is the only party that
+// refreshes or revokes them. No ChatGPT token (access, refresh or ID) is
+// ever returned to a client; only the native lane receives the ACTIVE
+// account's access token, to call api.openai.com for the owner's cloud
+// turns. Nothing else is ever returned.
 
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
+import {
+  CHATGPT_SIWC,
+  CHATGPT_UNUSABLE_REFRESH_CODES,
+  ChatGptError,
+  chatGptAuthorizeUrl,
+  chatGptLoopbackRedirectUri,
+  createChatGptHostId,
+  hasChatGptPlanUsage,
+  isChatGptHostId,
+  isIssuedChatGptClientId,
+  parseChatGptCallback,
+  type ChatGptCallback,
+  type ChatGptRegistration,
+  type ChatGptTokenSet,
+} from "@stella/contracts/chatgpt-siwc";
+import {
+  chatGptDiscovery,
+  completeChatGptSignIn,
+  createChatGptPendingSignIn,
+  listChatGptModels,
+  refreshChatGptTokens,
+  revokeChatGptRefreshToken,
+} from "@stella/contracts/chatgpt-siwc-flows";
 import {
   DEVICE_AUTH_PROVIDERS,
   ENGINE_PROVIDERS,
@@ -132,6 +157,40 @@ export const ENGINE_DEVICE_REFRESH_MIGRATION = {
   ],
 };
 
+/**
+ * ChatGPT moves to Sign in with ChatGPT: accounts connected through the old
+ * Codex client can't be refreshed or used on the public API, so they go
+ * (no users yet). Accounts gain a sign-in status, the holder's name and
+ * whether plan usage was granted; the provider settings row keeps the
+ * cloud's host id; a connect attempt keeps everything one authorization
+ * needs until its callback.
+ */
+export const ENGINE_CHATGPT_SIWC_MIGRATION = {
+  id: "engines.4-chatgpt-siwc",
+  statements: [
+    `DELETE FROM engine_refresh_leases
+       WHERE account_id IN (SELECT account_id FROM engine_accounts WHERE provider <> 'anthropic')`,
+    `DELETE FROM engine_accounts WHERE provider <> 'anthropic'`,
+    `DELETE FROM engine_provider_settings WHERE provider <> 'anthropic'`,
+    `ALTER TABLE engine_accounts ADD COLUMN status TEXT`,
+    `ALTER TABLE engine_accounts ADD COLUMN name TEXT`,
+    `ALTER TABLE engine_accounts ADD COLUMN plan_usage INTEGER`,
+    `ALTER TABLE engine_provider_settings ADD COLUMN host_id TEXT`,
+    `DROP TABLE engine_connects`,
+    `CREATE TABLE engine_connects (
+       connect_id TEXT PRIMARY KEY,
+       provider TEXT NOT NULL,
+       account_id TEXT,
+       client_id TEXT,
+       state TEXT NOT NULL,
+       nonce TEXT NOT NULL,
+       verifier TEXT NOT NULL,
+       redirect_uri TEXT NOT NULL,
+       expires_at INTEGER NOT NULL
+     )`,
+  ],
+};
+
 const CONNECT_TTL_MS = 15 * 60_000;
 /** Accounts one provider may hold. */
 const MAX_ACCOUNTS_PER_PROVIDER = 10;
@@ -152,7 +211,7 @@ const MAX_TOKEN_LIFETIME_MS = 400 * 24 * 60 * 60_000;
 
 const PROVIDER_LABELS: Record<EngineProvider, string> = {
   anthropic: "Claude (Pro/Max subscription)",
-  "openai-codex": "ChatGPT (Codex)",
+  chatgpt: "ChatGPT",
 };
 
 export const DEFAULT_EXECUTION: CloudExecutionSelection = {
@@ -162,20 +221,6 @@ export const DEFAULT_EXECUTION: CloudExecutionSelection = {
   model: "stella/default",
   reasoningEffort: "default",
 };
-
-// --- ChatGPT OAuth constants (mirror packages/runtime/ai/utils/oauth/openai-codex.ts)
-
-const CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
-const CODEX_AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize";
-const CODEX_TOKEN_URL = "https://auth.openai.com/oauth/token";
-const CODEX_SCOPE = "openid profile email offline_access";
-// OpenAI pins the registered redirect to localhost. Nothing listens there in
-// the web flow: the browser errors, and the user pastes the full URL (which
-// still carries the code) back. Exchange only needs the redirect_uri to match.
-const CODEX_REDIRECT_URI = "http://localhost:1455/auth/callback";
-const CODEX_JWT_CLAIM_PATH = "https://api.openai.com/auth";
-const CODEX_DEVICE_API = "https://auth.openai.com/api/accounts/deviceauth";
-const CODEX_DEVICE_PROVIDER = "openai-codex-device";
 
 // --- Encryption (AES-256-GCM under OWNER_SECRETS_KEK) ---------------------
 
@@ -190,8 +235,14 @@ type StoredEnginePayload = {
   refresh: string;
   /** Epoch ms (server clock) after which `access` must be refreshed. */
   expires: number;
-  /** Codex only: the chatgpt_account_id claim the backend requires. */
-  accountId?: string;
+  /** ChatGPT: the registration's issued client id (one per user and workspace). */
+  clientId?: string;
+  /** ChatGPT: the validated ID-token subject. */
+  subject?: string;
+  /** ChatGPT: granted scopes. */
+  scopes?: string[];
+  /** ChatGPT: epoch ms before which a refresh isn't needed. */
+  earliestRefreshAt?: number;
 };
 
 const base64ToBytes = (value: string): Uint8Array<ArrayBuffer> =>
@@ -202,9 +253,6 @@ const bytesToBase64 = (bytes: Uint8Array): string => {
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary);
 };
-
-const base64Url = (bytes: Uint8Array): string =>
-  bytesToBase64(bytes).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 
 let keyCache: { raw: string; key: Promise<CryptoKey> } | null = null;
 
@@ -267,7 +315,7 @@ const decryptPayload = async (
 
 // --- Execution selection ---------------------------------------------------
 
-const EXECUTION_ENGINES = ["stella", "anthropic", "openai-codex"] as const;
+const EXECUTION_ENGINES = ["stella", "anthropic", "chatgpt"] as const;
 const REASONING_EFFORTS = ["default", "none", "minimal", "low", "medium", "high", "xhigh"] as const;
 
 const MANAGED_MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,191}$/;
@@ -326,6 +374,11 @@ type AccountRow = {
   /** Claude only (device-refreshed); null for rows stored before: due now. */
   expires_at: number | null;
   refresh_at: number | null;
+  /** ChatGPT: null while signed in, else "signed_out" or "reauth_required". */
+  status: string | null;
+  name: string | null;
+  /** ChatGPT: 0 when the sign-in didn't grant plan usage. */
+  plan_usage: number | null;
   created_at: number;
   updated_at: number;
 };
@@ -334,7 +387,16 @@ type ProviderSettingsRow = {
   active_account_id: string | null;
   auto_switch: number;
 };
-type ConnectRow = { provider: string; verifier: string; state: string; expires_at: number };
+type ConnectRow = {
+  provider: string;
+  account_id: string | null;
+  client_id: string | null;
+  state: string;
+  nonce: string;
+  verifier: string;
+  redirect_uri: string;
+  expires_at: number;
+};
 
 const isDeviceAuthProvider = (value: string): value is DeviceAuthProvider =>
   (DEVICE_AUTH_PROVIDERS as readonly string[]).includes(value);
@@ -350,7 +412,7 @@ const readSelection = (db: OwnerDbReader): { execution: CloudExecutionSelection;
 };
 
 const ACCOUNT_COLUMNS =
-  "account_id, provider, payload, label, identity, email, plan, limited_until, expires_at, refresh_at, created_at, updated_at";
+  "account_id, provider, payload, label, identity, email, plan, limited_until, expires_at, refresh_at, status, name, plan_usage, created_at, updated_at";
 
 const accountsOf = (db: OwnerDbReader, provider: EngineProvider): AccountRow[] =>
   db.all<AccountRow>(
@@ -365,12 +427,20 @@ const providerSettings = (db: OwnerDbReader, provider: EngineProvider): Provider
     provider,
   );
 
-/** The account that serves turns: the chosen one, else the oldest. */
+/** Signed in, with plan usage granted (always, for Claude). */
+const isServable = (row: AccountRow): boolean => row.status === null && row.plan_usage !== 0;
+
+/**
+ * The account that serves turns: the chosen one, else the oldest. A ChatGPT
+ * account that is signed out or lacks plan usage never serves.
+ */
 const activeAccountOf = (
   accounts: readonly AccountRow[],
   settings: ProviderSettingsRow | null,
-): AccountRow | undefined =>
-  accounts.find((row) => row.account_id === settings?.active_account_id) ?? accounts[0];
+): AccountRow | undefined => {
+  const servable = accounts.filter(isServable);
+  return servable.find((row) => row.account_id === settings?.active_account_id) ?? servable[0];
+};
 
 const isLimited = (row: AccountRow, now: number): boolean =>
   row.limited_until !== null && row.limited_until > now;
@@ -385,6 +455,11 @@ const readConnections = (db: OwnerDbReader, now = Date.now()): EngineConnection[
       label: row.label,
       ...(row.email ? { email: row.email } : {}),
       ...(row.plan ? { plan: row.plan } : {}),
+      ...(row.name ? { name: row.name } : {}),
+      ...(row.status === "signed_out" || row.status === "reauth_required"
+        ? { status: row.status }
+        : {}),
+      ...(provider === "chatgpt" ? { planUsage: row.plan_usage !== 0 } : {}),
       active: row.account_id === active?.account_id,
       ...(isLimited(row, now) ? { limitedUntil: row.limited_until! } : {}),
       ...(isDeviceAuthProvider(provider)
@@ -414,7 +489,13 @@ export const snapshotEngines = (
   db: OwnerDbReader,
 ): Pick<OwnerSnapshot, "execution" | "connectedEngines"> => {
   const connectedEngines = ENGINE_PROVIDERS.filter((provider) =>
-    Boolean(db.one("SELECT 1 AS present FROM engine_accounts WHERE provider = ? LIMIT 1", provider)),
+    Boolean(
+      db.one(
+        `SELECT 1 AS present FROM engine_accounts
+         WHERE provider = ? AND status IS NULL AND (plan_usage IS NULL OR plan_usage <> 0) LIMIT 1`,
+        provider,
+      ),
+    ),
   );
   const { execution } = readSelection(db);
   return {
@@ -451,167 +532,139 @@ const writeActiveAccount = (
   );
 };
 
-// --- ChatGPT connect flow (on the server) -----------------------------------
+// --- Accounts ------------------------------------------------------------------
 
 const badRequest = (message: string) => new RpcError("BAD_REQUEST", message);
 
-const generatePkce = async (): Promise<{ verifier: string; challenge: string }> => {
-  const verifier = base64Url(crypto.getRandomValues(new Uint8Array(32)));
-  const digest = new Uint8Array(
-    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)),
-  );
-  return { verifier, challenge: base64Url(digest) };
-};
-
-const buildAuthorization = async (): Promise<{
-  verifier: string;
-  state: string;
-  authorizeUrl: string;
-}> => {
-  const { verifier, challenge } = await generatePkce();
-  const state = crypto.randomUUID().replaceAll("-", "");
-  const url = new URL(CODEX_AUTHORIZE_URL);
-  url.searchParams.set("response_type", "code");
-  url.searchParams.set("client_id", CODEX_CLIENT_ID);
-  url.searchParams.set("redirect_uri", CODEX_REDIRECT_URI);
-  url.searchParams.set("scope", CODEX_SCOPE);
-  url.searchParams.set("code_challenge", challenge);
-  url.searchParams.set("code_challenge_method", "S256");
-  url.searchParams.set("state", state);
-  url.searchParams.set("id_token_add_organizations", "true");
-  url.searchParams.set("codex_cli_simplified_flow", "true");
-  url.searchParams.set("originator", "stella");
-  return { verifier, state, authorizeUrl: url.toString() };
-};
-
-/** Accepts a raw code, `code#state`, `code=...` params, or a full URL. */
-const parseAuthorizationInput = (input: string): { code?: string; state?: string } => {
-  const value = input.trim();
-  if (!value) return {};
-  try {
-    const url = new URL(value);
-    return {
-      code: url.searchParams.get("code") ?? undefined,
-      state: url.searchParams.get("state") ?? undefined,
-    };
-  } catch {
-    // not a URL
-  }
-  if (value.includes("#")) {
-    const [code, state] = value.split("#", 2);
-    return { code, state };
-  }
-  if (value.includes("code=")) {
-    const params = new URLSearchParams(value);
-    return { code: params.get("code") ?? undefined, state: params.get("state") ?? undefined };
-  }
-  return { code: value };
-};
-
-const codexAccountId = (access: string): string | undefined => {
-  const part = access.split(".")[1];
-  if (!part) return undefined;
-  try {
-    const padded = part.replaceAll("-", "+").replaceAll("_", "/");
-    const claims = JSON.parse(atob(padded + "=".repeat((4 - (padded.length % 4)) % 4))) as Record<
-      string,
-      unknown
-    >;
-    const auth = claims[CODEX_JWT_CLAIM_PATH] as { chatgpt_account_id?: unknown } | undefined;
-    return typeof auth?.chatgpt_account_id === "string" && auth.chatgpt_account_id
-      ? auth.chatgpt_account_id
-      : undefined;
-  } catch {
-    return undefined;
-  }
-};
-
-type TokenResponse = {
-  access_token?: string;
-  refresh_token?: string;
-  expires_in?: number;
-  id_token?: string;
-};
-
-const exchangeTokenResponse = async (
-  url: string,
-  body: Record<string, string>,
-): Promise<{ tokens: Omit<StoredEnginePayload, "accountId">; raw: TokenResponse }> => {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json", accept: "application/json" },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (!response.ok) {
-    throw badRequest("The provider rejected the authorization. Start the connect flow again.");
-  }
-  const json = (await response.json()) as TokenResponse;
-  if (!json.access_token || !json.refresh_token || !json.expires_in) {
-    throw badRequest("The provider returned an unexpected response. Try connecting again.");
-  }
-  return {
-    tokens: {
-      access: json.access_token,
-      refresh: json.refresh_token,
-      // 5-minute early-refresh margin, matching the desktop store.
-      expires: Date.now() + json.expires_in * 1000 - 5 * 60_000,
-    },
-    raw: json,
-  };
-};
-
-const exchangeToken = async (
-  url: string,
-  body: Record<string, string>,
-): Promise<Omit<StoredEnginePayload, "accountId">> =>
-  (await exchangeTokenResponse(url, body)).tokens;
-
-// --- Account identity -------------------------------------------------------
-
-type AccountIdentity = { identity?: string; email?: string; plan?: string };
-
-const jwtClaims = (token: string | undefined): Record<string, unknown> => {
-  const part = token?.split(".")[1];
-  if (!part) return {};
-  try {
-    const padded = part.replaceAll("-", "+").replaceAll("_", "/");
-    const claims = JSON.parse(atob(padded + "=".repeat((4 - (padded.length % 4)) % 4))) as unknown;
-    return claims && typeof claims === "object" ? (claims as Record<string, unknown>) : {};
-  } catch {
-    return {};
-  }
-};
+type AccountIdentity = { identity?: string; email?: string; plan?: string; name?: string };
 
 const text = (value: unknown, max = 320): string | undefined =>
   typeof value === "string" && value.trim() ? value.trim().slice(0, max) : undefined;
 
-const planLabel = (value: string | undefined): string | undefined => {
-  if (!value) return undefined;
-  const plan = value.replace(/^claude_/u, "").replaceAll("_", " ").trim();
-  return plan ? plan.replace(/\b\w/gu, (char) => char.toUpperCase()).slice(0, 40) : undefined;
+/**
+ * Store a connected login. The same provider login reconnecting replaces its
+ * own account (and clears any cooldown); a new login is added. Either way it
+ * becomes the provider's active account, as signing in does in Claude's app
+ * (a ChatGPT sign-in without plan usage stays inactive). `expiresAt` /
+ * `refreshAt` are set for device-refreshed (Claude) tokens.
+ */
+const writeAccount = (
+  ctx: OwnerContext,
+  provider: EngineProvider,
+  stored: {
+    payload: string;
+    expiresAt: number | null;
+    refreshAt: number | null;
+    status?: "reauth_required";
+    planUsage?: boolean;
+  },
+  identity: AccountIdentity,
+): string => {
+  const now = Date.now();
+  const status = stored.status ?? null;
+  const planUsage = stored.planUsage === undefined ? null : stored.planUsage ? 1 : 0;
+  const makeActive = status === null && planUsage !== 0;
+  const existing = identity.identity
+    ? ctx.db.one<{ account_id: string }>(
+        "SELECT account_id FROM engine_accounts WHERE provider = ? AND identity = ?",
+        provider,
+        identity.identity,
+      )
+    : null;
+  if (existing) {
+    ctx.db.run(
+      `UPDATE engine_accounts SET payload = ?, expires_at = ?, refresh_at = ?, status = ?,
+         plan_usage = ?, email = COALESCE(?, email), plan = COALESCE(?, plan),
+         name = COALESCE(?, name), limited_until = NULL, updated_at = ? WHERE account_id = ?`,
+      stored.payload,
+      stored.expiresAt,
+      stored.refreshAt,
+      status,
+      planUsage,
+      identity.email ?? null,
+      identity.plan ?? null,
+      identity.name ?? null,
+      now,
+      existing.account_id,
+    );
+    // A refresh in flight for the replaced tokens can no longer land.
+    ctx.db.run("DELETE FROM engine_refresh_leases WHERE account_id = ?", existing.account_id);
+    if (makeActive) writeActiveAccount(ctx, provider, existing.account_id);
+    return existing.account_id;
+  }
+  if (accountsOf(ctx.db, provider).length >= MAX_ACCOUNTS_PER_PROVIDER) {
+    throw badRequest(
+      `You can connect up to ${MAX_ACCOUNTS_PER_PROVIDER} accounts per provider. Remove one first.`,
+    );
+  }
+  const accountId = crypto.randomUUID().replaceAll("-", "");
+  ctx.db.run(
+    `INSERT INTO engine_accounts (${ACCOUNT_COLUMNS})
+     VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)`,
+    accountId,
+    provider,
+    stored.payload,
+    PROVIDER_LABELS[provider],
+    identity.identity ?? null,
+    identity.email ?? null,
+    identity.plan ?? null,
+    stored.expiresAt,
+    stored.refreshAt,
+    status,
+    identity.name ?? null,
+    planUsage,
+    now,
+    now,
+  );
+  if (makeActive) writeActiveAccount(ctx, provider, accountId);
+  return accountId;
 };
 
-/** ChatGPT: the id and access tokens carry the user, email, and plan. */
-const codexIdentity = (raw: TokenResponse, access: string): AccountIdentity => {
-  const claims = [jwtClaims(raw.id_token), jwtClaims(access)];
-  const auth = claims
-    .map((entry) => entry[CODEX_JWT_CLAIM_PATH] as Record<string, unknown> | undefined)
-    .find(Boolean);
-  const profile = claims
-    .map((entry) => entry["https://api.openai.com/profile"] as Record<string, unknown> | undefined)
-    .find(Boolean);
-  const email = text(claims[0]?.email) ?? text(profile?.email);
-  return {
-    identity:
-      text(auth?.chatgpt_user_id) ?? text(auth?.user_id) ?? text(claims[0]?.sub) ?? email,
-    ...(email ? { email } : {}),
-    ...(planLabel(text(auth?.chatgpt_plan_type))
-      ? { plan: planLabel(text(auth?.chatgpt_plan_type)) }
-      : {}),
-  };
+// --- ChatGPT sign-in for the owner's cloud (Sign in with ChatGPT) --------------
+
+/** The cloud's `ext_agent_host_id`, created once and kept with its credentials. */
+const cloudHostId = (ctx: OwnerContext): string => {
+  const row = ctx.db.one<{ host_id: string | null }>(
+    "SELECT host_id FROM engine_provider_settings WHERE provider = 'chatgpt'",
+  );
+  if (isChatGptHostId(row?.host_id)) return row.host_id;
+  const hostId = createChatGptHostId();
+  ctx.db.run(
+    `INSERT INTO engine_provider_settings (provider, active_account_id, auto_switch, host_id, updated_at)
+     VALUES ('chatgpt', NULL, 0, ?, ?)
+     ON CONFLICT (provider) DO UPDATE SET host_id = excluded.host_id`,
+    hostId,
+    ctx.now,
+  );
+  return hostId;
 };
 
+const chatGptAccount = (db: OwnerDbReader, accountId: string): AccountRow | null =>
+  db.one<AccountRow>(
+    `SELECT ${ACCOUNT_COLUMNS} FROM engine_accounts WHERE provider = 'chatgpt' AND account_id = ?`,
+    accountId,
+  );
+
+/** A ChatGPT failure as the caller should see it. */
+const chatGptRpcError = (error: unknown): RpcError => {
+  if (error instanceof RpcError) return error;
+  if (error instanceof ChatGptError) {
+    return error.retryable
+      ? new RpcError("UNAVAILABLE", error.message, { retryable: true })
+      : badRequest(error.message);
+  }
+  return new RpcError("UNAVAILABLE", "ChatGPT sign-in is temporarily unavailable. Try again.", {
+    retryable: true,
+  });
+};
+
+/**
+ * Begin one authorization for the cloud host: fresh state, nonce and PKCE,
+ * the cloud's host id, and a 127.0.0.1 loopback redirect (the caller's
+ * listener port, or the documented default for a pasted URL). Signing a
+ * saved account in again reuses its issued client id with its email as
+ * `login_hint`; ID tokens stay here, so no `id_token_hint` is sent.
+ */
 const startConnect = async (
   ctx: OwnerContext,
   args: EngineCalls["engines.startConnect"]["args"],
@@ -625,291 +678,199 @@ const startConnect = async (
   );
   // Fail before the OAuth dance if the result couldn't be stored.
   await credentialKey(ctx.env);
-  const { verifier, state, authorizeUrl } = await buildAuthorization();
+  let saved: { accountId: string; clientId: string; loginHint?: string } | undefined;
+  if (args.accountId) {
+    const row = chatGptAccount(ctx.db, args.accountId);
+    if (!row) throw new RpcError("NOT_FOUND", "That ChatGPT account isn't saved anymore.");
+    let payload: StoredEnginePayload;
+    try {
+      payload = await decryptPayload(ctx, "chatgpt", row.payload);
+    } catch (error) {
+      if (error instanceof RpcError) throw error;
+      throw new RpcError("CONFLICT", "This ChatGPT account's registration is unreadable. Remove it and add it again.");
+    }
+    if (!isIssuedChatGptClientId(payload.clientId)) {
+      throw new RpcError("CONFLICT", "This ChatGPT account's registration is incomplete. Remove it and add it again.");
+    }
+    saved = {
+      accountId: row.account_id,
+      clientId: payload.clientId,
+      ...(row.email ? { loginHint: row.email } : {}),
+    };
+  }
+  let authorizationEndpoint: string;
+  try {
+    authorizationEndpoint = (await chatGptDiscovery()).authorization_endpoint;
+  } catch (error) {
+    throw chatGptRpcError(error);
+  }
+  const pending = await createChatGptPendingSignIn();
+  const redirectUri = chatGptLoopbackRedirectUri(
+    args.redirectPort ?? CHATGPT_SIWC.defaultLoopbackPort,
+  );
+  const authorizeUrl = chatGptAuthorizeUrl({
+    authorizationEndpoint,
+    ...(saved ? { clientId: saved.clientId } : {}),
+    hostId: cloudHostId(ctx),
+    redirectUri,
+    state: pending.state,
+    nonce: pending.nonce,
+    challenge: pending.challenge,
+    ...(saved?.loginHint ? { loginHint: saved.loginHint } : {}),
+    ...(args.enablePlanUsage ? { reconsent: true } : {}),
+  });
   const connectId = crypto.randomUUID();
   ctx.db.run("DELETE FROM engine_connects WHERE expires_at <= ?", ctx.now);
   ctx.db.run(
-    "INSERT INTO engine_connects (connect_id, provider, verifier, state, expires_at) VALUES (?, ?, ?, ?, ?)",
+    `INSERT INTO engine_connects
+       (connect_id, provider, account_id, client_id, state, nonce, verifier, redirect_uri, expires_at)
+     VALUES (?, 'chatgpt', ?, ?, ?, ?, ?, ?, ?)`,
     connectId,
-    args.provider,
-    verifier,
-    state,
+    saved?.accountId ?? null,
+    saved?.clientId ?? null,
+    pending.state,
+    pending.nonce,
+    pending.verifier,
+    redirectUri,
     ctx.now + CONNECT_TTL_MS,
   );
-  return { connectId, authorizeUrl };
+  return { connectId, authorizeUrl, redirectUri };
 };
+
+/** A registration with no usable tokens yet (or anymore): sign in again. */
+const reauthPayload = (clientId: string, subject?: string): StoredEnginePayload => ({
+  access: "",
+  refresh: "",
+  expires: 0,
+  clientId,
+  ...(subject ? { subject } : {}),
+});
 
 /**
- * Store a connected login. The same provider login reconnecting replaces its
- * own account (and clears any cooldown); a new login is added. Either way it
- * becomes the provider's active account, as signing in does in Claude's app.
- * `expiresAt` / `refreshAt` are set for device-refreshed (Claude) tokens.
+ * Finish the authorization with the URL the browser landed on: check the
+ * state and the issued client id, keep a new registration before the
+ * one-time code exchange (so a failed exchange signs in again with the same
+ * client instead of registering another), exchange the code, validate the ID
+ * token (and, signing a saved account in again, that it's the same account),
+ * and store the tokens encrypted. Without plan usage the sign-in is kept but
+ * never serves turns.
  */
-const writeAccount = (
-  ctx: OwnerContext,
-  provider: EngineProvider,
-  stored: { payload: string; expiresAt: number | null; refreshAt: number | null },
-  identity: AccountIdentity,
-): string => {
-  const now = Date.now();
-  const existing = identity.identity
-    ? ctx.db.one<{ account_id: string }>(
-        "SELECT account_id FROM engine_accounts WHERE provider = ? AND identity = ?",
-        provider,
-        identity.identity,
-      )
-    : null;
-  if (existing) {
-    ctx.db.run(
-      `UPDATE engine_accounts SET payload = ?, expires_at = ?, refresh_at = ?,
-         email = COALESCE(?, email), plan = COALESCE(?, plan),
-         limited_until = NULL, updated_at = ? WHERE account_id = ?`,
-      stored.payload,
-      stored.expiresAt,
-      stored.refreshAt,
-      identity.email ?? null,
-      identity.plan ?? null,
-      now,
-      existing.account_id,
-    );
-    // A refresh in flight for the replaced tokens can no longer land.
-    ctx.db.run("DELETE FROM engine_refresh_leases WHERE account_id = ?", existing.account_id);
-    writeActiveAccount(ctx, provider, existing.account_id);
-    return existing.account_id;
-  }
-  if (accountsOf(ctx.db, provider).length >= MAX_ACCOUNTS_PER_PROVIDER) {
-    throw badRequest(
-      `You can connect up to ${MAX_ACCOUNTS_PER_PROVIDER} accounts per provider. Sign one out first.`,
-    );
-  }
-  const accountId = crypto.randomUUID().replaceAll("-", "");
-  ctx.db.run(
-    `INSERT INTO engine_accounts (${ACCOUNT_COLUMNS})
-     VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`,
-    accountId,
-    provider,
-    stored.payload,
-    PROVIDER_LABELS[provider],
-    identity.identity ?? null,
-    identity.email ?? null,
-    identity.plan ?? null,
-    stored.expiresAt,
-    stored.refreshAt,
-    now,
-    now,
-  );
-  writeActiveAccount(ctx, provider, accountId);
-  return accountId;
-};
-
 const finishConnect = async (
   ctx: OwnerContext,
   args: EngineCalls["engines.finishConnect"]["args"],
 ): Promise<EngineCalls["engines.finishConnect"]["result"]> => {
   const connect = ctx.db.one<ConnectRow>(
-    "SELECT provider, verifier, state, expires_at FROM engine_connects WHERE connect_id = ?",
+    `SELECT provider, account_id, client_id, state, nonce, verifier, redirect_uri, expires_at
+     FROM engine_connects WHERE connect_id = ?`,
     args.connectId,
   );
-  if (!connect || connect.expires_at <= ctx.now || connect.provider !== "openai-codex") {
-    throw badRequest("This connect attempt expired. Start it again from Settings.");
+  if (!connect || connect.expires_at <= ctx.now || connect.provider !== "chatgpt") {
+    throw badRequest("This sign-in attempt expired. Start signing in to ChatGPT again.");
   }
-  const parsed = parseAuthorizationInput(args.pastedInput);
-  if (!parsed.code) {
-    throw badRequest(
-      "That didn't look like an authorization code. Paste the code (or the full URL) you were given.",
+  let callback: ChatGptCallback;
+  try {
+    callback = parseChatGptCallback(args.pastedInput, {
+      state: connect.state,
+      ...(connect.client_id ? { savedClientId: connect.client_id } : {}),
+    });
+  } catch (error) {
+    if (error instanceof ChatGptError && error.code !== "state_mismatch") {
+      ctx.db.run("DELETE FROM engine_connects WHERE connect_id = ?", args.connectId);
+    }
+    throw chatGptRpcError(error);
+  }
+  // One exchange per attempt, even when two clients finish it at once.
+  ctx.db.run("DELETE FROM engine_connects WHERE connect_id = ?", args.connectId);
+
+  // A registration this cloud already keeps signs in again in place.
+  let accountId =
+    connect.account_id ??
+    ctx.db.one<{ account_id: string }>(
+      "SELECT account_id FROM engine_accounts WHERE provider = 'chatgpt' AND identity = ?",
+      callback.clientId,
+    )?.account_id ??
+    null;
+  let expectedSubject: string | undefined;
+  if (accountId) {
+    const row = chatGptAccount(ctx.db, accountId);
+    if (!row) throw new RpcError("NOT_FOUND", "That ChatGPT account isn't saved anymore.");
+    expectedSubject = await decryptPayload(ctx, "chatgpt", row.payload)
+      .then((payload) => payload.subject)
+      .catch(() => undefined);
+  } else {
+    accountId = writeAccount(
+      ctx,
+      "chatgpt",
+      {
+        payload: await encryptPayload(ctx, "chatgpt", reauthPayload(callback.clientId)),
+        expiresAt: null,
+        refreshAt: null,
+        status: "reauth_required",
+      },
+      { identity: callback.clientId },
     );
   }
-  if (parsed.state && parsed.state !== connect.state) {
-    throw badRequest("The pasted code belongs to a different connect attempt. Start again from Settings.");
+
+  let registration: ChatGptRegistration;
+  try {
+    registration = await completeChatGptSignIn({
+      callback,
+      verifier: connect.verifier,
+      nonce: connect.nonce,
+      redirectUri: connect.redirect_uri,
+      ...(expectedSubject ? { expectedSubject } : {}),
+    });
+  } catch (error) {
+    throw chatGptRpcError(error);
   }
-  const { tokens, raw } = await exchangeTokenResponse(CODEX_TOKEN_URL, {
-    grant_type: "authorization_code",
-    client_id: CODEX_CLIENT_ID,
-    code: parsed.code,
-    redirect_uri: CODEX_REDIRECT_URI,
-    code_verifier: connect.verifier,
-  });
-  const payload = { ...tokens, accountId: codexAccountId(tokens.access) };
+  const payload: StoredEnginePayload = {
+    access: registration.tokens.access,
+    refresh: registration.tokens.refresh,
+    expires: registration.tokens.expiresAt,
+    clientId: registration.clientId,
+    subject: registration.subject,
+    scopes: registration.tokens.scopes,
+    ...(registration.tokens.earliestRefreshAt !== undefined
+      ? { earliestRefreshAt: registration.tokens.earliestRefreshAt }
+      : {}),
+  };
   writeAccount(
     ctx,
-    "openai-codex",
-    { payload: await encryptPayload(ctx, "openai-codex", payload), expiresAt: null, refreshAt: null },
-    codexIdentity(raw, tokens.access),
+    "chatgpt",
+    {
+      payload: await encryptPayload(ctx, "chatgpt", payload),
+      expiresAt: null,
+      refreshAt: null,
+      planUsage: registration.planUsage,
+    },
+    {
+      identity: registration.clientId,
+      ...(registration.email ? { email: registration.email } : {}),
+      ...(registration.name ? { name: registration.name } : {}),
+    },
   );
-  ctx.db.run("DELETE FROM engine_connects WHERE connect_id = ?", args.connectId);
-  return { ok: true };
+  return { accountId, planUsage: registration.planUsage };
 };
 
-// OpenAI's device authorization keeps the browser on a real HTTPS page.
-// The private device id stays in this owner's object; clients only receive
-// the user code and an opaque, owner-scoped connect id.
-const startDeviceConnect = async (
+/** `engines.listModels`: the cloud's active ChatGPT account's model list. */
+const listModels = async (
   ctx: OwnerContext,
-): Promise<EngineCalls["engines.startDeviceConnect"]["result"]> => {
+  _args: EngineCalls["engines.listModels"]["args"],
+): Promise<EngineCalls["engines.listModels"]["result"]> => {
   enforceOwnerRateLimit(
     ctx.db,
     ctx.now,
-    "engines.startConnect",
-    { count: 20, windowMs: 10 * 60_000 },
-    "Too many connect attempts. Try again in a few minutes.",
+    "engines.listModels",
+    { count: 30, windowMs: 60_000 },
+    "Too many model list requests. Please wait a moment.",
   );
-  await credentialKey(ctx.env);
-  const response = await fetch(`${CODEX_DEVICE_API}/usercode`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ client_id: CODEX_CLIENT_ID }),
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (!response.ok)
-    throw badRequest("ChatGPT couldn't start sign-in. Please try again.");
-  const body = (await response.json()) as {
-    device_auth_id?: string;
-    user_code?: string;
-    usercode?: string;
-    interval?: string | number;
-  };
-  const userCode = text(body.user_code ?? body.usercode, 64);
-  const deviceId = text(body.device_auth_id, 512);
-  if (!userCode || !deviceId)
-    throw badRequest("ChatGPT returned an unexpected sign-in response.");
-  const intervalSeconds = Number(body.interval);
-  const intervalMs =
-    Math.min(
-      60,
-      Math.max(5, Number.isFinite(intervalSeconds) ? intervalSeconds : 5),
-    ) * 1000;
-  const connectId = crypto.randomUUID();
-  ctx.db.run("DELETE FROM engine_connects WHERE expires_at <= ?", ctx.now);
-  ctx.db.run(
-    "INSERT INTO engine_connects (connect_id, provider, verifier, state, expires_at) VALUES (?, ?, ?, ?, ?)",
-    connectId,
-    CODEX_DEVICE_PROVIDER,
-    deviceId,
-    JSON.stringify({ userCode, intervalMs, nextPollAt: ctx.now + intervalMs }),
-    ctx.now + CONNECT_TTL_MS,
-  );
-  return {
-    connectId,
-    authorizeUrl: "https://auth.openai.com/codex/device",
-    userCode,
-    intervalMs,
-  };
-};
-
-const pollDeviceConnect = async (
-  ctx: OwnerContext,
-  { connectId }: EngineCalls["engines.pollDeviceConnect"]["args"],
-): Promise<EngineCalls["engines.pollDeviceConnect"]["result"]> => {
-  const connect = ctx.db.one<ConnectRow>(
-    "SELECT provider, verifier, state, expires_at FROM engine_connects WHERE connect_id = ?",
-    connectId,
-  );
-  if (
-    !connect ||
-    connect.provider !== CODEX_DEVICE_PROVIDER ||
-    connect.expires_at <= ctx.now
-  ) {
-    throw badRequest(
-      "This connect attempt expired. Start it again from Settings.",
-    );
+  const access = await sharedAccess(ctx, "chatgpt");
+  if (!access || "needsDeviceRefresh" in access || "needsSignIn" in access) return null;
+  try {
+    return { models: await listChatGptModels(access.accessToken) };
+  } catch (error) {
+    throw chatGptRpcError(error);
   }
-  const state = JSON.parse(connect.state) as {
-    userCode: string;
-    intervalMs: number;
-    nextPollAt: number;
-    connected?: boolean;
-    authorizationCode?: string;
-    codeVerifier?: string;
-  };
-  if (state.connected) return { status: "connected" };
-  if (ctx.now < state.nextPollAt) return { status: "pending" };
-  // Reserve the polling slot before any await so concurrent clients cannot
-  // exchange the same one-time authorization twice.
-  // Both requests below have 30-second deadlines. Keep the durable lease
-  // longer than both, including across an isolate restart.
-  state.nextPollAt = ctx.now + 65_000;
-  ctx.db.run(
-    "UPDATE engine_connects SET state = ? WHERE connect_id = ?",
-    JSON.stringify(state),
-    connectId,
-  );
-  if (!state.authorizationCode) {
-    const response = await fetch(`${CODEX_DEVICE_API}/token`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        device_auth_id: connect.verifier,
-        user_code: state.userCode,
-      }),
-      signal: AbortSignal.timeout(30_000),
-    });
-    // OpenAI uses 403/404 while the user is still approving the device code.
-    if (response.status === 403 || response.status === 404) {
-      state.nextPollAt = Date.now() + state.intervalMs;
-      ctx.db.run(
-        "UPDATE engine_connects SET state = ? WHERE connect_id = ?",
-        JSON.stringify(state),
-        connectId,
-      );
-      return { status: "pending" };
-    }
-    if (!response.ok)
-      throw badRequest(
-        "ChatGPT couldn't complete sign-in. Please start again.",
-      );
-    const body = (await response.json()) as {
-      authorization_code?: string;
-      code_verifier?: string;
-    };
-    if (!body.authorization_code || !body.code_verifier) {
-      throw badRequest("ChatGPT returned an unexpected sign-in response.");
-    }
-    state.authorizationCode = body.authorization_code;
-    state.codeVerifier = body.code_verifier;
-    // Persist before exchange: a transient failure can retry the same code.
-    ctx.db.run(
-      "UPDATE engine_connects SET state = ? WHERE connect_id = ?",
-      JSON.stringify(state),
-      connectId,
-    );
-  }
-  if (!state.authorizationCode || !state.codeVerifier) {
-    throw badRequest("ChatGPT returned an unexpected sign-in response.");
-  }
-  const { tokens, raw } = await exchangeTokenResponse(CODEX_TOKEN_URL, {
-    grant_type: "authorization_code",
-    client_id: CODEX_CLIENT_ID,
-    code: state.authorizationCode,
-    code_verifier: state.codeVerifier,
-    redirect_uri: "https://auth.openai.com/deviceauth/callback",
-  });
-  const payload = { ...tokens, accountId: codexAccountId(tokens.access) };
-  if (!payload.accountId)
-    throw badRequest(
-      "ChatGPT did not return an account identity. Please reconnect.",
-    );
-  const encrypted = await encryptPayload(ctx, "openai-codex", payload);
-  if (
-    !ctx.db.one(
-      "SELECT connect_id FROM engine_connects WHERE connect_id = ?",
-      connectId,
-    )
-  ) {
-    throw badRequest("This connect attempt was cancelled.");
-  }
-  writeAccount(
-    ctx,
-    "openai-codex",
-    { payload: encrypted, expiresAt: null, refreshAt: null },
-    codexIdentity(raw, tokens.access),
-  );
-  // Keep a short-lived completion marker so a lost RPC response is retryable.
-  ctx.db.run(
-    "UPDATE engine_connects SET verifier = '', state = ? WHERE connect_id = ?",
-    JSON.stringify({ connected: true }),
-    connectId,
-  );
-  return { status: "connected" };
 };
 
 // --- Claude sign-in (on the owner's devices) --------------------------------
@@ -968,35 +929,72 @@ const addAccount = async (
   return { accountId };
 };
 
-const disconnect = (
-  ctx: OwnerContext,
-  args: EngineCalls["engines.disconnect"]["args"],
-): null => {
-  if (args.accountId) {
+/**
+ * End a ChatGPT account's session: revoke its refresh token (best effort,
+ * retried once) and keep only the registration, so signing in later reuses
+ * the issued client id. Resolves whether the revocation was confirmed.
+ */
+const signOutChatGpt = async (ctx: OwnerContext, row: AccountRow): Promise<boolean> => {
+  let payload: StoredEnginePayload | null = null;
+  try {
+    payload = await decryptPayload(ctx, "chatgpt", row.payload);
+  } catch {
+    payload = null;
+  }
+  const revoked =
+    payload?.clientId && payload.refresh
+      ? await revokeChatGptRefreshToken({ clientId: payload.clientId, refreshToken: payload.refresh })
+      : true;
+  if (payload?.clientId) {
+    const kept = await encryptPayload(ctx, "chatgpt", reauthPayload(payload.clientId, payload.subject));
     ctx.db.run(
-      "DELETE FROM engine_accounts WHERE provider = ? AND account_id = ?",
-      args.provider,
-      args.accountId,
+      `UPDATE engine_accounts SET payload = ?, status = 'signed_out', limited_until = NULL,
+         updated_at = ? WHERE account_id = ? AND payload = ?`,
+      kept,
+      Date.now(),
+      row.account_id,
+      row.payload,
     );
   } else {
-    ctx.db.run("DELETE FROM engine_accounts WHERE provider = ?", args.provider);
+    ctx.db.run("DELETE FROM engine_accounts WHERE account_id = ?", row.account_id);
+  }
+  return revoked;
+};
+
+const disconnect = async (
+  ctx: OwnerContext,
+  args: EngineCalls["engines.disconnect"]["args"],
+): Promise<EngineCalls["engines.disconnect"]["result"]> => {
+  const targets = accountsOf(ctx.db, args.provider).filter(
+    (row) => !args.accountId || row.account_id === args.accountId,
+  );
+  let revoked = true;
+  if (args.provider === "chatgpt") {
+    for (const row of targets) {
+      if (row.status !== "signed_out" && !(await signOutChatGpt(ctx, row))) revoked = false;
+      if (args.forget) ctx.db.run("DELETE FROM engine_accounts WHERE account_id = ?", row.account_id);
+    }
+  } else {
+    for (const row of targets) {
+      ctx.db.run("DELETE FROM engine_accounts WHERE account_id = ?", row.account_id);
+    }
   }
   const remaining = accountsOf(ctx.db, args.provider);
   const settings = providerSettings(ctx.db, args.provider);
-  if (!remaining.some((row) => row.account_id === settings?.active_account_id)) {
+  const servable = remaining.filter(isServable);
+  if (!servable.some((row) => row.account_id === settings?.active_account_id)) {
     // The next account (oldest, preferring one not on cooldown) takes over.
-    const next =
-      remaining.find((row) => !isLimited(row, ctx.now)) ?? remaining[0];
+    const next = servable.find((row) => !isLimited(row, ctx.now)) ?? servable[0];
     writeActiveAccount(ctx, args.provider, next?.account_id ?? null);
   }
   ctx.db.run(
     "DELETE FROM engine_refresh_leases WHERE account_id NOT IN (SELECT account_id FROM engine_accounts)",
   );
-  // Fall back to the managed engine if the provider's last account went.
-  if (remaining.length === 0 && readSelection(ctx.db).execution.engine === args.provider) {
+  // Fall back to the managed engine if the provider's last usable account went.
+  if (servable.length === 0 && readSelection(ctx.db).execution.engine === args.provider) {
     writeSelection(ctx, DEFAULT_EXECUTION);
   }
-  return null;
+  return args.provider === "chatgpt" ? { revoked } : null;
 };
 
 const setActiveAccount = (
@@ -1052,11 +1050,7 @@ const setExecution = (
  */
 const resolving = new Map<string, Promise<EngineAccessResult>>();
 
-/**
- * A served ChatGPT token stays valid at least this long (on top of the
- * 5-minute margin `expires` already carries), so a client that caches it
- * until shortly before `expiresAt` gets real use out of it.
- */
+/** A ChatGPT token with less than this left is refreshed before it's served. */
 const ACCESS_MIN_VALIDITY_MS = 10 * 60_000;
 /**
  * A forced refresh this soon after the account's last token write serves that
@@ -1067,7 +1061,6 @@ const FORCED_REFRESH_REUSE_MS = 30_000;
 
 const toAccess = (payload: StoredEnginePayload, engineAccountId: string): EngineAccessResponse => ({
   accessToken: payload.access,
-  ...(payload.accountId ? { accountId: payload.accountId } : {}),
   engineAccountId,
   expiresAt: payload.expires,
 });
@@ -1089,7 +1082,7 @@ const servingAccount = (ctx: OwnerContext, provider: EngineProvider): AccountRow
   return next;
 };
 
-/** The first account after `current`, in connection order, that is not limited. */
+/** The first servable account after `current`, in connection order, that is not limited. */
 const nextAvailableAccount = (
   accounts: readonly AccountRow[],
   current: AccountRow,
@@ -1097,7 +1090,9 @@ const nextAvailableAccount = (
 ): AccountRow | undefined => {
   const start = accounts.findIndex((row) => row.account_id === current.account_id);
   const ordered = [...accounts.slice(start + 1), ...accounts.slice(0, Math.max(start, 0))];
-  return ordered.find((row) => row.account_id !== current.account_id && !isLimited(row, now));
+  return ordered.find(
+    (row) => row.account_id !== current.account_id && isServable(row) && !isLimited(row, now),
+  );
 };
 
 const isExpired = (row: AccountRow, now: number): boolean =>
@@ -1106,7 +1101,10 @@ const isExpired = (row: AccountRow, now: number): boolean =>
 /**
  * The serving account's access token. Claude's is served as stored and never
  * refreshed here: once expired it waits for one of the owner's devices.
- * ChatGPT's is refreshed on the server when close to expiry.
+ * ChatGPT's is refreshed here, the cloud being the host that owns it, when
+ * close to expiry (not before the token response's `earliest_refresh_at`
+ * unless forced). A refresh the provider refuses for good marks the account
+ * for a new sign-in.
  */
 const resolveAccess = async (
   ctx: OwnerContext,
@@ -1114,7 +1112,13 @@ const resolveAccess = async (
   forceRefresh = false,
 ): Promise<EngineAccessResult> => {
   const row = servingAccount(ctx, provider);
-  if (!row) return null;
+  if (!row) {
+    const stale =
+      provider === "chatgpt"
+        ? accountsOf(ctx.db, provider).find((account) => account.status === "reauth_required")
+        : undefined;
+    return stale ? { needsSignIn: true, engineAccountId: stale.account_id } : null;
+  }
   const deviceRefreshed = isDeviceAuthProvider(provider);
   if (deviceRefreshed && isExpired(row, Date.now())) {
     return { needsDeviceRefresh: true, engineAccountId: row.account_id };
@@ -1131,23 +1135,51 @@ const resolveAccess = async (
   }
   const now = Date.now();
   const forced = forceRefresh && now - row.updated_at >= FORCED_REFRESH_REUSE_MS;
-  if (!forced && payload.expires > now + ACCESS_MIN_VALIDITY_MS) {
-    return toAccess(payload, row.account_id);
+  const usable = payload.expires > now + ACCESS_EXPIRY_MARGIN_MS;
+  const due =
+    payload.expires <= now + ACCESS_MIN_VALIDITY_MS &&
+    (payload.earliestRefreshAt === undefined || payload.earliestRefreshAt <= now || !usable);
+  if (!forced && !due && usable) return toAccess(payload, row.account_id);
+  if (!payload.clientId || !payload.refresh || !payload.subject) {
+    return { needsSignIn: true, engineAccountId: row.account_id };
   }
 
-  let refreshed: Omit<StoredEnginePayload, "accountId">;
+  let refreshed: ChatGptTokenSet;
   try {
-    refreshed = await exchangeToken(CODEX_TOKEN_URL, {
-      grant_type: "refresh_token",
-      client_id: CODEX_CLIENT_ID,
-      refresh_token: payload.refresh,
+    refreshed = await refreshChatGptTokens({
+      clientId: payload.clientId,
+      refreshToken: payload.refresh,
+      scopes: payload.scopes ?? [],
+      subject: payload.subject,
     });
-  } catch {
-    return null;
+  } catch (error) {
+    const unusable =
+      error instanceof ChatGptError &&
+      (CHATGPT_UNUSABLE_REFRESH_CODES.has(error.code) ||
+        error.code === "invalid_client" ||
+        error.code === "account_mismatch");
+    if (!unusable) return usable ? toAccess(payload, row.account_id) : null;
+    const kept = await encryptPayload(ctx, provider, reauthPayload(payload.clientId, payload.subject));
+    ctx.db.run(
+      `UPDATE engine_accounts SET payload = ?, status = 'reauth_required', updated_at = ?
+       WHERE account_id = ? AND payload = ?`,
+      kept,
+      Date.now(),
+      row.account_id,
+      row.payload,
+    );
+    return { needsSignIn: true, engineAccountId: row.account_id };
   }
   const next: StoredEnginePayload = {
-    ...refreshed,
-    accountId: codexAccountId(refreshed.access) ?? payload.accountId,
+    access: refreshed.access,
+    refresh: refreshed.refresh,
+    expires: refreshed.expiresAt,
+    clientId: payload.clientId,
+    subject: payload.subject,
+    scopes: refreshed.scopes,
+    ...(refreshed.earliestRefreshAt !== undefined
+      ? { earliestRefreshAt: refreshed.earliestRefreshAt }
+      : {}),
   };
   const encrypted = await encryptPayload(ctx, provider, next);
   // A sign-out or reconnect during the refresh wins: never recreate or
@@ -1158,8 +1190,9 @@ const resolveAccess = async (
   );
   if (current?.payload !== row.payload) return null;
   ctx.db.run(
-    "UPDATE engine_accounts SET payload = ?, updated_at = ? WHERE account_id = ?",
+    "UPDATE engine_accounts SET payload = ?, plan_usage = ?, updated_at = ? WHERE account_id = ?",
     encrypted,
+    hasChatGptPlanUsage(refreshed.scopes) ? 1 : 0,
     Date.now(),
     row.account_id,
   );
@@ -1228,7 +1261,8 @@ const sharedAccess = async (
 /**
  * `engines.access`: the native lane's token; `needsDeviceRefresh` once a
  * Claude token expired (the gateway asks the user to open Stella on a
- * device); null when not connected or a ChatGPT refresh failed.
+ * device); `needsSignIn` once the cloud's ChatGPT sign-in ended; null when
+ * not connected or a ChatGPT refresh failed for now.
  */
 const engineAccess = async (ctx: OwnerContext, raw: unknown): Promise<EngineAccessResult> => {
   const { provider } = parseAccessArgs(raw);
@@ -1236,11 +1270,11 @@ const engineAccess = async (ctx: OwnerContext, raw: unknown): Promise<EngineAcce
 };
 
 /**
- * `engines.clientAccess`: the active account's short-lived access token for
- * one of the owner's signed-in clients, which runs Claude Code or Codex
- * against the provider itself, or word that this device should refresh the
- * Claude account first. Never a refresh token: Claude's only goes with a
- * refresh lease, ChatGPT's never leaves the server.
+ * `engines.clientAccess`: the active Claude account's short-lived access
+ * token for one of the owner's signed-in clients, which runs Claude Code
+ * against Anthropic itself, or word that this device should refresh the
+ * account first. Never a refresh token: Claude's only goes with a refresh
+ * lease. The cloud's ChatGPT credentials are never handed out.
  */
 const clientAccess = async (
   ctx: OwnerContext,
@@ -1253,24 +1287,22 @@ const clientAccess = async (
     { count: 120, windowMs: 60_000 },
     "Too many subscription token requests. Please wait a moment.",
   );
-  const access = await sharedAccess(ctx, args.provider, args.forceRefresh === true);
-  if (!access?.engineAccountId) return null;
+  const access = await sharedAccess(ctx, args.provider);
+  if (!access?.engineAccountId || "needsSignIn" in access) return null;
   if ("needsDeviceRefresh" in access) {
     return { status: "needs_device_refresh", engineAccountId: access.engineAccountId };
   }
-  const refreshAt = isDeviceAuthProvider(args.provider)
-    ? (ctx.db.one<{ refresh_at: number | null }>(
-        "SELECT refresh_at FROM engine_accounts WHERE account_id = ?",
-        access.engineAccountId,
-      )?.refresh_at ?? 0)
-    : undefined;
+  const refreshAt =
+    ctx.db.one<{ refresh_at: number | null }>(
+      "SELECT refresh_at FROM engine_accounts WHERE account_id = ?",
+      access.engineAccountId,
+    )?.refresh_at ?? 0;
   return {
     status: "ok",
     accessToken: access.accessToken,
     expiresAt: access.expiresAt,
-    ...(refreshAt !== undefined ? { refreshAt } : {}),
+    refreshAt,
     engineAccountId: access.engineAccountId,
-    ...(access.accountId ? { accountId: access.accountId } : {}),
   };
 };
 
@@ -1437,7 +1469,12 @@ const leaseAccountArgs = {
 
 export const enginesDomain = {
   name: "engines",
-  migrations: [ENGINES_MIGRATION, ENGINE_ACCOUNTS_MIGRATION, ENGINE_DEVICE_REFRESH_MIGRATION],
+  migrations: [
+    ENGINES_MIGRATION,
+    ENGINE_ACCOUNTS_MIGRATION,
+    ENGINE_DEVICE_REFRESH_MIGRATION,
+    ENGINE_CHATGPT_SIWC_MIGRATION,
+  ],
   views: {
     "engines.get": {
       parse: empty(),
@@ -1453,19 +1490,14 @@ export const enginesDomain = {
         return null;
       },
     },
-    "engines.startDeviceConnect": {
-      scope: "owner",
-      parse: empty(),
-      handler: startDeviceConnect,
-    },
-    "engines.pollDeviceConnect": {
-      scope: "owner",
-      parse: object({ connectId: string({ min: 1, max: 64 }) }),
-      handler: pollDeviceConnect,
-    },
     "engines.startConnect": {
       scope: "owner",
-      parse: object({ provider: literal("openai-codex") }),
+      parse: object({
+        provider: literal("chatgpt"),
+        redirectPort: optional(number({ int: true, min: 1024, max: 65_535 })),
+        accountId: optional(string({ min: 1, max: 64 })),
+        enablePlanUsage: optional(boolean()),
+      }),
       handler: startConnect,
     },
     "engines.finishConnect": {
@@ -1492,6 +1524,7 @@ export const enginesDomain = {
       parse: object({
         provider: literal(...ENGINE_PROVIDERS),
         accountId: optional(string({ min: 1, max: 64 })),
+        forget: optional(boolean()),
       }),
       handler: disconnect,
     },
@@ -1515,11 +1548,13 @@ export const enginesDomain = {
     },
     "engines.clientAccess": {
       scope: "owner",
-      parse: object({
-        provider: literal(...ENGINE_PROVIDERS),
-        forceRefresh: optional(boolean()),
-      }),
+      parse: object({ provider: literal(...DEVICE_AUTH_PROVIDERS) }),
       handler: clientAccess,
+    },
+    "engines.listModels": {
+      scope: "owner",
+      parse: object({ provider: literal("chatgpt") }),
+      handler: listModels,
     },
     "engines.beginRefresh": {
       scope: "owner",

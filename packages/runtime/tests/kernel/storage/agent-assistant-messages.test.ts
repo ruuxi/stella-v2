@@ -67,8 +67,8 @@ const appendAssistant = (
     payload: {
       role: "assistant",
       content: [{ type: "text", text }],
-      api: "openai-codex-responses",
-      provider: "openai-codex",
+      api: "chatgpt-responses",
+      provider: "chatgpt",
       model: "codex",
       usage: {
         input: 0,

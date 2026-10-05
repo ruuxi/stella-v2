@@ -594,7 +594,6 @@
       "voiceProviderAriaLabel": "Hangszolgáltató",
       "assistantPickerAriaLabel": "Asszisztensmodell-választó",
       "verifyingChatGpt": "ChatGPT-modellek ellenőrzése…",
-      "noChatGptCodexModels": "Jelenleg nincs olyan modell, amely a ChatGPT és a Codex számára is elérhető.",
       "savedModelUnavailable": "A mentett modell nem érhető el. Válassz másik modellt.",
       "tabs": {
         "assistant": "Asszisztens",
@@ -609,7 +608,7 @@
         "chatGptMigration": "A ChatGPT-átirányítás migrálása sikertelen.",
         "chatGptVerify": "A ChatGPT-modelleket nem sikerült ellenőrizni: {error}",
         "chatGptVerifying": "Várd meg, amíg a ChatGPT-modellek ellenőrzése befejeződik.",
-        "chatGptNotConnected": "A kiválasztás előtt csatlakoztatni kell a ChatGPT-t.",
+        "chatGptNotConnected": "Először jelentkezz be a ChatGPT-vel ezen a számítógépen.",
         "chatGptNoModels": "Jelenleg nem érhető el ChatGPT-modell.",
         "connectChatGpt": "Nem sikerült csatlakoztatni a ChatGPT-t.",
         "updateEngine": "Nem sikerült frissíteni a motort.",
@@ -623,8 +622,12 @@
         "updateReadAloud": "Nem sikerült frissíteni a felolvasás szolgáltatóját.",
         "updateReasoning": "Nem sikerült frissíteni a gondolkodási ráfordítást.",
         "updateChatGptSpeed": "Nem sikerült frissíteni a ChatGPT sebességét.",
-        "updateDirectRuntime": "Nem sikerült frissíteni a közvetlen {runtime} beállítást."
-      }
+        "updateDirectRuntime": "Nem sikerült frissíteni a közvetlen {runtime} beállítást.",
+        "chatGptPlanUsageOff": "A ChatGPT-előfizetés használata nincs engedélyezve ehhez a fiókhoz. Engedélyezd a Beállítások › Fiók menüben, vagy válassz másik modellt."
+      },
+      "noChatGptModels": "Ehhez a fiókhoz jelenleg nem érhető el ChatGPT-modell.",
+      "chatGptPlanInUse": "ChatGPT-előfizetés használatban",
+      "chatGptManageUsage": "Használat kezelése"
     },
     "onboardingReplay": {
       "title": "Onboarding",
@@ -827,9 +830,9 @@
             "title": "Claude Code",
             "body": "Használd a Claude Pro vagy Max előfizetésedet."
           },
-          "codex": {
-            "title": "Codex",
-            "body": "Használd a ChatGPT Plus vagy Pro előfizetésedet."
+          "chatgpt": {
+            "title": "ChatGPT",
+            "body": "Jelentkezz be a ChatGPT-vel az előfizetésed használatához."
           }
         },
         "signIn": "Bejelentkezés",
@@ -2153,7 +2156,7 @@
         "subscriptionsLabel": "Opcionális",
         "subscriptionsBody": "Már fizetsz a Claude-ért vagy a ChatGPT-ért? Csatlakoztasd, és a számítógépeiden és a felhőben is azt használom.",
         "claudeDesc": "Pro vagy Max, a Claude Code-on keresztül",
-        "chatgptDesc": "Plus vagy Pro, a Codexen keresztül",
+        "chatgptDesc": "A ChatGPT-előfizetésed a Stella felhőjéhez",
         "connect": "Csatlakoztatás",
         "connectLabel": "{name} csatlakoztatása",
         "connectedAs": "Csatlakoztatva · {name}",
@@ -2478,10 +2481,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude és ChatGPT",
-      "settingsRowBody": "Fiókok a számítógépeidhez és a felhőhöz",
+      "settingsRowBody": "Használd a Claude- vagy ChatGPT-előfizetést, amiért már fizetsz",
       "openSettingsLabel": "Claude- és ChatGPT-fiókok megnyitása",
       "title": "Claude és ChatGPT",
-      "subtitle": "Fiókok a számítógépeidhez és a felhőhöz",
+      "subtitle": "Használd a Claude- vagy ChatGPT-előfizetést, amiért már fizetsz",
       "backLabel": "Vissza a Beállításokhoz",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2495,16 +2498,34 @@
       "limitReached": "Korlát elérve · visszaáll: {time}",
       "autoSwitchLabel": "Fiókváltás a korlát elérésekor",
       "autoSwitchClaude": "Ha a használt fiók eléri az 5 órás vagy heti korlátját, a Stella a következőre vált, amíg a korlát vissza nem áll.",
-      "autoSwitchChatgpt": "Ha a használt fiók eléri a Codex használati korlátját, a Stella a következőre vált, amíg a korlát vissza nem áll.",
+      "autoSwitchChatgpt": "Ha a használt fiók eléri a ChatGPT használati korlátját, a Stella a következőre vált, amíg a korlát vissza nem áll.",
       "pasteHintClaude": "A hozzáférés engedélyezése után a Claude megjelenít egy kódot. Másold ki, és illeszd be ide.",
-      "pasteHintChatgpt": "Az engedélyezés után az oldal nem töltődik be. Másold ki az oldal címét (Megosztás › Másolás), és illeszd be ide.",
+      "pasteHintChatgpt": "A jóváhagyás után a ChatGPT egy olyan oldalra visz, amely nem töltődik be. Másold ki az oldal teljes címét, és illeszd be ide.",
       "pastePlaceholder": "Kód vagy URL",
       "pasteFromClipboard": "Beillesztés",
       "finish": "Csatlakozás",
       "connecting": "Csatlakozás…",
       "errorTitle": "Nem sikerült frissíteni a fiókokat",
       "errorBody": "Valami hiba történt. Próbáld újra.",
-      "localNote": "Ezek a fiókok működtetik a Claude Code-ot és a Codexet az összes számítógépeden és a felhőben. A Stella titkosított tokent tárol; a bejelentkezés a Claude-nál vagy a ChatGPT-nél marad."
+      "pastePlaceholderUrl": "Illeszd be ide a címet",
+      "openChatgptAgain": "ChatGPT megnyitása újra",
+      "chatgptBrowserWaiting": "Fejezd be a bejelentkezést a ChatGPT-be a böngésződben.",
+      "claudeNote": "A Claude Code a bejelölt fiókot használja minden számítógépeden és a felhőben. A saját eszközeid jelentkeznek be a Claude-ba, és frissen tartják a bejelentkezést; a Stella szervere csak a titkosított tokeneket tárolja.",
+      "chatgptNote": "A felhőalapú csevegés és a felhőügynökök a bejelölt fiókot használják, és ez a használat a ChatGPT-előfizetésedet terheli. A Stella felhője saját bejelentkezést használ; minden számítógép a Stella asztali alkalmazásában jelentkezik be a ChatGPT-be.",
+      "continueWithChatgpt": "Folytatás a ChatGPT-vel",
+      "signInAgain": "Újbóli bejelentkezés",
+      "enablePlanUsage": "ChatGPT-előfizetés használatának engedélyezése",
+      "remove": "Eltávolítás",
+      "removeTitle": "Eltávolítod: {name}?",
+      "removeBody": "A Stella elfelejti ezt a ChatGPT-fiókot. Később újra bejelentkezhetsz vele.",
+      "statusSignedOut": "Kijelentkezve",
+      "statusReauth": "Jelentkezz be újra a további használathoz",
+      "statusPlanUsageOff": "A ChatGPT-előfizetés használata nincs engedélyezve",
+      "planUsageOffBody": "A Stella csak akkor használhatja a ChatGPT-előfizetésedet, ha engedélyezed. Válaszd a fióknál a „ChatGPT-előfizetés használatának engedélyezése” lehetőséget.",
+      "manageUsage": "Használat kezelése",
+      "revokeUnconfirmed": "A ChatGPT nem erősítette meg a kijelentkezést. A Stellát a ChatGPT Beállításaiban választhatod le.",
+      "planWelcomeTitle": "A ChatGPT-előfizetésedet használod",
+      "planWelcomeBody": "A Stella felhőjében küldött ChatGPT-kérések a ChatGPT-előfizetésedet terhelik. A használatot és a Stella korlátját a ChatGPT Beállításaiban ellenőrizheted és állíthatod be."
     }
   },
   "companion": {

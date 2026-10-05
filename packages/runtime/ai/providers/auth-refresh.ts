@@ -15,8 +15,8 @@ const statusFromError = (error: unknown, depth = 0): number | null => {
 export const isUnauthorizedProviderError = (error: unknown): boolean => {
 	if (statusFromError(error) === 401) return true;
 	const message = error instanceof Error ? error.message : String(error ?? "");
-	// `token_expired` / `token_revoked` are ChatGPT OAuth's 401 codes; the
-	// Codex transport surfaces them in the message with no HTTP status.
+	// `token_expired` / `token_revoked` are OAuth 401 codes some transports
+	// surface only in the message, with no HTTP status.
 	return /(?:^|\b)401(?:\b|$)|\bunauthorized\b|\btoken_(?:expired|revoked)\b|authentication token is expired/i.test(
 		message,
 	);
@@ -24,8 +24,9 @@ export const isUnauthorizedProviderError = (error: unknown): boolean => {
 
 /**
  * A subscription usage-limit rejection, as opposed to a rate limit that
- * clears in seconds: ChatGPT's `usage_limit_reached` / `usage_not_included`,
- * or Claude's usage-limit message. Carries the reset time when known.
+ * clears in seconds: ChatGPT's `subscription_sharing_usage_limit_exceeded`
+ * (the plan's or Stella's own app limit, before or during a stream), or
+ * Claude's usage-limit message. Carries the reset time when known.
  */
 export const subscriptionLimitOfError = (
 	error: unknown,
@@ -50,10 +51,8 @@ export const subscriptionLimitOfError = (
 	const message = error instanceof Error ? error.message : String(error);
 	const resetsAt = Reflect.get(error, "resetsAt");
 	const known = typeof resetsAt === "number" && Number.isFinite(resetsAt) ? { resetsAt } : {};
-	if (typeof code === "string" && /usage_limit_reached|usage_not_included/u.test(code)) {
-		return known;
-	}
-	if (/usage limit|usage_limit_reached/iu.test(message)) return known;
+	if (code === "subscription_sharing_usage_limit_exceeded") return known;
+	if (/usage limit/iu.test(message)) return known;
 	return null;
 };
 

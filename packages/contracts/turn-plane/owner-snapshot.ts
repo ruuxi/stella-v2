@@ -79,7 +79,7 @@ export type OwnerSnapshot = {
    * before it mints a `credential` turn capability. Filled by the gate from
    * the owner's engines domain, like `execution`.
    */
-  connectedEngines?: Array<"anthropic" | "openai-codex">;
+  connectedEngines?: Array<"anthropic" | "chatgpt">;
   fetchedAt: number;
   ttlMs: number;
 };

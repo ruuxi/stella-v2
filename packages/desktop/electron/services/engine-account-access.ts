@@ -4,28 +4,32 @@ import {
 } from "@stella/contracts/backend/client";
 import { EngineTokenRefresher } from "@stella/contracts/backend/engine-refresher";
 import {
-  ENGINE_PROVIDERS,
+  DEVICE_AUTH_PROVIDERS,
   type EngineClientAccess,
   type EngineClientAccessResult,
-  type EngineProvider,
+  type DeviceAuthProvider,
   type EngineSettings,
 } from "@stella/contracts/backend/engines";
 import { loginAnthropic } from "@stella/runtime/ai/utils/oauth";
+import { listenForChatGptCallback } from "@stella/runtime/ai/utils/oauth/chatgpt";
 
 /**
- * The owner's Claude and ChatGPT accounts, as this computer uses them. The
- * list lives in the owner's Stella account (`engines.get`), so an account
- * added on any device works here. This service holds the active account's
- * short-lived access token (`engines.clientAccess`), cached until shortly
- * before it expires, and hands it to the runtime through the credential
- * broker: Claude Code gets it as CLAUDE_CODE_OAUTH_TOKEN, Codex runs on
- * Stella's harness with it.
+ * The owner's Claude accounts, as this computer uses them. The list lives in
+ * the owner's Stella account (`engines.get`), so an account added on any
+ * device works here. This service holds the active account's short-lived
+ * access token (`engines.clientAccess`), cached until shortly before it
+ * expires, and hands it to the runtime through the credential broker:
+ * Claude Code gets it as CLAUDE_CODE_OAUTH_TOKEN.
  *
  * Claude sign-in and refresh run here, never on Stella's server:
  * `connectClaude` runs the loopback OAuth flow from this computer and uploads
  * the tokens, and while signed in the refresher keeps every Claude account
  * fresh, taking the account's refresh lease so only one device refreshes at
- * a time. ChatGPT is still refreshed by the server.
+ * a time.
+ *
+ * ChatGPT on this computer has its own store (`chatgpt-profiles.ts`); here
+ * only the owner's cloud is signed in to ChatGPT (`connectChatGptCloud`),
+ * whose credentials stay on Stella's server.
  *
  * Signed out, offline before the first list, or with no account: no token,
  * and Claude Code keeps its own login.
@@ -45,8 +49,8 @@ export type EngineAccountAccessOptions = {
   onProvidersChanged: () => void;
 };
 
-const isEngineProvider = (value: string): value is EngineProvider =>
-  (ENGINE_PROVIDERS as readonly string[]).includes(value);
+const isDeviceAuthProvider = (value: string): value is DeviceAuthProvider =>
+  (DEVICE_AUTH_PROVIDERS as readonly string[]).includes(value);
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -69,14 +73,15 @@ export class EngineAccountAccess {
   private settings: EngineSettings | null = null;
   private reportedProviders = "";
   private subject: string | null = null;
-  private readonly tokens = new Map<EngineProvider, CachedAccess>();
+  private readonly tokens = new Map<DeviceAuthProvider, CachedAccess>();
   /** The account each provider's last token belonged to, for limit reports. */
-  private readonly served = new Map<EngineProvider, string>();
-  private readonly fetching = new Map<EngineProvider, Promise<string | null>>();
+  private readonly served = new Map<DeviceAuthProvider, string>();
+  private readonly fetching = new Map<DeviceAuthProvider, Promise<string | null>>();
   /** Bumped on account change, so a fetch for the previous account is dropped. */
   private epoch = 0;
   private readonly refresher: EngineTokenRefresher;
   private claudeConnect: AbortController | null = null;
+  private chatGptConnect: AbortController | null = null;
 
   constructor(private readonly options: EngineAccountAccessOptions) {
     this.refresher = new EngineTokenRefresher({
@@ -86,12 +91,12 @@ export class EngineAccountAccess {
   }
 
   /** Whether `provider` is one this service serves instead of the local store. */
-  static serves(provider: string): provider is EngineProvider {
-    return isEngineProvider(provider);
+  static serves(provider: string): provider is DeviceAuthProvider {
+    return isDeviceAuthProvider(provider);
   }
 
   /** Providers with at least one connected account; starts following the list. */
-  providers(): EngineProvider[] {
+  providers(): DeviceAuthProvider[] {
     this.ensureWatch();
     return this.connectedProviders();
   }
@@ -109,6 +114,7 @@ export class EngineAccountAccess {
     this.served.clear();
     this.fetching.clear();
     this.claudeConnect?.abort();
+    this.chatGptConnect?.abort();
     this.applySettings(null);
     this.client?.value.reconnect();
     // Signed in: follow the account list, so Claude sign-ins stay fresh even
@@ -156,6 +162,63 @@ export class EngineAccountAccess {
     }
   }
 
+  /**
+   * Sign the owner's cloud in to ChatGPT. The server builds the
+   * authorization for the cloud's own host id; this computer only catches
+   * the browser's 127.0.0.1 redirect on its loopback listener and hands the
+   * URL back, and the server exchanges the code and keeps the credentials.
+   * `accountId` signs a saved cloud account in again; `enablePlanUsage` asks
+   * for consent again after plan usage was declined. A second call cancels
+   * the first.
+   */
+  async connectChatGptCloud(
+    openUrl: (url: string) => void,
+    options: { accountId?: string; enablePlanUsage?: boolean } = {},
+  ): Promise<{ accountId: string; planUsage: boolean }> {
+    this.chatGptConnect?.abort();
+    const controller = new AbortController();
+    this.chatGptConnect = controller;
+    const client = this.ensureClient();
+    if (!client || !this.subject) throw new Error("Sign in to Stella first.");
+    const listener = await listenForChatGptCallback({ signal: controller.signal });
+    let connectId: string | null = null;
+    try {
+      const started = await client.call("engines.startConnect", {
+        provider: "chatgpt",
+        redirectPort: listener.port,
+        ...(options.accountId ? { accountId: options.accountId } : {}),
+        ...(options.enablePlanUsage ? { enablePlanUsage: true } : {}),
+      });
+      connectId = started.connectId;
+      const state = new URL(started.authorizeUrl).searchParams.get("state");
+      if (!state || started.redirectUri !== listener.redirectUri) {
+        throw new Error("ChatGPT sign-in couldn't start. Try again.");
+      }
+      openUrl(started.authorizeUrl);
+      const callbackUrl = await listener.waitForCallback(state);
+      const result = await client.call("engines.finishConnect", {
+        connectId,
+        pastedInput: callbackUrl,
+      });
+      connectId = null;
+      return result;
+    } finally {
+      listener.close();
+      const unfinished = connectId;
+      if (unfinished) {
+        client.call("engines.cancelConnect", { connectId: unfinished }).catch(() => undefined);
+      }
+      if (this.chatGptConnect === controller) this.chatGptConnect = null;
+    }
+  }
+
+  /** Stop a cloud ChatGPT sign-in in progress; whether there was one. */
+  cancelChatGptCloudConnect(): boolean {
+    const current = this.chatGptConnect;
+    current?.abort();
+    return Boolean(current);
+  }
+
   /** Stop a Claude sign-in in progress; whether there was one. */
   cancelClaudeConnect(): boolean {
     const current = this.claudeConnect;
@@ -164,7 +227,7 @@ export class EngineAccountAccess {
   }
 
   async getAccessToken(
-    provider: EngineProvider,
+    provider: DeviceAuthProvider,
     options: { forceRefresh?: boolean } = {},
   ): Promise<string | null> {
     const cached = this.tokens.get(provider);
@@ -184,7 +247,7 @@ export class EngineAccountAccess {
    * The account last served for `provider` hit its usage limit. Resolves
    * whether another account now serves it (fetch a new token and retry).
    */
-  async reportLimit(provider: EngineProvider, resetsAt?: number): Promise<{ switched: boolean }> {
+  async reportLimit(provider: DeviceAuthProvider, resetsAt?: number): Promise<{ switched: boolean }> {
     const engineAccountId = this.served.get(provider);
     const client = this.ensureClient();
     if (!engineAccountId || !client) return { switched: false };
@@ -203,6 +266,7 @@ export class EngineAccountAccess {
 
   dispose(): void {
     this.claudeConnect?.abort();
+    this.chatGptConnect?.abort();
     this.refresher.dispose();
     this.unwatch?.();
     this.unwatch = null;
@@ -212,19 +276,14 @@ export class EngineAccountAccess {
   }
 
   private async fetchAccessToken(
-    provider: EngineProvider,
+    provider: DeviceAuthProvider,
     forceRefresh: boolean,
   ): Promise<string | null> {
     const client = this.ensureClient();
     if (!client) return null;
     const epoch = this.epoch;
     const rejected = forceRefresh ? this.tokens.get(provider)?.accessToken : undefined;
-    const read = () =>
-      client.call("engines.clientAccess", {
-        provider,
-        // ChatGPT refreshes on the server; Claude refreshes on this device.
-        ...(forceRefresh && provider === "openai-codex" ? { forceRefresh: true } : {}),
-      });
+    const read = () => client.call("engines.clientAccess", { provider });
     let access: EngineClientAccessResult | null;
     try {
       access = await read();
@@ -313,9 +372,9 @@ export class EngineAccountAccess {
     );
   }
 
-  private connectedProviders(): EngineProvider[] {
+  private connectedProviders(): DeviceAuthProvider[] {
     const connections = this.settings?.connections ?? [];
-    return ENGINE_PROVIDERS.filter((provider) =>
+    return DEVICE_AUTH_PROVIDERS.filter((provider) =>
       connections.some((row) => row.provider === provider),
     );
   }

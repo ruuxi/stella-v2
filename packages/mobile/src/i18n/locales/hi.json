@@ -594,7 +594,6 @@
       "voiceProviderAriaLabel": "आवाज़ प्रदाता",
       "assistantPickerAriaLabel": "सहायक मॉडल पिकर",
       "verifyingChatGpt": "ChatGPT मॉडल सत्यापित हो रहे हैं…",
-      "noChatGptCodexModels": "अभी ChatGPT और Codex दोनों के लिए कोई मॉडल उपलब्ध नहीं है।",
       "savedModelUnavailable": "सहेजा गया मॉडल अनुपलब्ध है। दूसरा मॉडल चुनें।",
       "tabs": {
         "assistant": "सहायक",
@@ -609,7 +608,7 @@
         "chatGptMigration": "ChatGPT रूटिंग माइग्रेशन विफल।",
         "chatGptVerify": "ChatGPT मॉडल सत्यापित नहीं हो सके: {error}",
         "chatGptVerifying": "ChatGPT मॉडल का सत्यापन पूरा होने तक प्रतीक्षा करें।",
-        "chatGptNotConnected": "चयन से पहले ChatGPT को कनेक्ट करना ज़रूरी है।",
+        "chatGptNotConnected": "पहले इस कंप्यूटर पर ChatGPT से साइन इन करें।",
         "chatGptNoModels": "अभी कोई ChatGPT मॉडल उपलब्ध नहीं है।",
         "connectChatGpt": "ChatGPT कनेक्ट करने में विफल।",
         "updateEngine": "इंजन अपडेट करने में विफल।",
@@ -623,8 +622,12 @@
         "updateReadAloud": "ज़ोर से पढ़ने का प्रदाता अपडेट करने में विफल।",
         "updateReasoning": "तर्क प्रयास अपडेट करने में विफल।",
         "updateChatGptSpeed": "ChatGPT गति अपडेट करने में विफल।",
-        "updateDirectRuntime": "सीधी {runtime} सेटिंग अपडेट करने में विफल।"
-      }
+        "updateDirectRuntime": "सीधी {runtime} सेटिंग अपडेट करने में विफल।",
+        "chatGptPlanUsageOff": "इस खाते के लिए ChatGPT प्लान का उपयोग चालू नहीं है। इसे सेटिंग्स › खाता में चालू करें, या कोई दूसरा मॉडल चुनें।"
+      },
+      "noChatGptModels": "अभी इस खाते के लिए कोई ChatGPT मॉडल उपलब्ध नहीं है।",
+      "chatGptPlanInUse": "ChatGPT प्लान इस्तेमाल हो रहा है",
+      "chatGptManageUsage": "उपयोग प्रबंधित करें"
     },
     "onboardingReplay": {
       "title": "Onboarding",
@@ -827,9 +830,9 @@
             "title": "Claude Code",
             "body": "अपना Claude Pro या Max प्लान इस्तेमाल करें।"
           },
-          "codex": {
-            "title": "Codex",
-            "body": "अपना ChatGPT Plus या Pro प्लान इस्तेमाल करें।"
+          "chatgpt": {
+            "title": "ChatGPT",
+            "body": "अपना प्लान इस्तेमाल करने के लिए ChatGPT से साइन इन करें।"
           }
         },
         "signIn": "साइन इन करें",
@@ -2153,7 +2156,7 @@
         "subscriptionsLabel": "वैकल्पिक",
         "subscriptionsBody": "Claude या ChatGPT के लिए पहले से भुगतान करते हैं? उसे कनेक्ट करें और मैं उसे आपके कंप्यूटरों और क्लाउड में इस्तेमाल करूँगी।",
         "claudeDesc": "Pro या Max, Claude Code के ज़रिए",
-        "chatgptDesc": "Plus या Pro, Codex के ज़रिए",
+        "chatgptDesc": "Stella के क्लाउड के लिए आपका ChatGPT प्लान",
         "connect": "कनेक्ट करें",
         "connectLabel": "{name} कनेक्ट करें",
         "connectedAs": "कनेक्टेड · {name}",
@@ -2478,10 +2481,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude और ChatGPT",
-      "settingsRowBody": "आपके कंप्यूटरों और क्लाउड में इस्तेमाल होने वाले खाते",
+      "settingsRowBody": "Claude या ChatGPT का वह प्लान इस्तेमाल करें जिसके लिए आप पहले से भुगतान करते हैं",
       "openSettingsLabel": "Claude और ChatGPT खाते खोलें",
       "title": "Claude और ChatGPT",
-      "subtitle": "आपके कंप्यूटरों और क्लाउड में इस्तेमाल होने वाले खाते",
+      "subtitle": "Claude या ChatGPT का वह प्लान इस्तेमाल करें जिसके लिए आप पहले से भुगतान करते हैं",
       "backLabel": "सेटिंग्स पर वापस जाएं",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2495,16 +2498,34 @@
       "limitReached": "सीमा पूरी हुई · {time} पर रीसेट",
       "autoSwitchLabel": "सीमा पर खाता बदलें",
       "autoSwitchClaude": "जब उपयोग में मौजूद खाता अपनी 5-घंटे या साप्ताहिक सीमा तक पहुंचता है, तो Stella रीसेट होने तक अगले खाते पर चली जाती है।",
-      "autoSwitchChatgpt": "जब उपयोग में मौजूद खाता अपनी Codex उपयोग सीमा तक पहुंचता है, तो Stella रीसेट होने तक अगले खाते पर चली जाती है।",
+      "autoSwitchChatgpt": "जब उपयोग में मौजूद खाता ChatGPT की उपयोग सीमा तक पहुंचता है, तो Stella रीसेट होने तक अगले खाते पर चली जाती है।",
       "pasteHintClaude": "एक्सेस की अनुमति देने के बाद Claude एक कोड दिखाता है। उसे कॉपी करके यहां पेस्ट करें।",
-      "pasteHintChatgpt": "अनुमति देने के बाद पेज लोड नहीं होगा। उस पेज का पता कॉपी करें (शेयर › कॉपी) और यहां पेस्ट करें।",
+      "pasteHintChatgpt": "मंज़ूरी देने के बाद, ChatGPT आपको एक ऐसे पेज पर ले जाता है जो लोड नहीं होता। उस पेज का पूरा पता कॉपी करें और यहां पेस्ट करें।",
       "pastePlaceholder": "कोड या URL",
       "pasteFromClipboard": "पेस्ट करें",
       "finish": "कनेक्ट करें",
       "connecting": "कनेक्ट हो रहा है…",
       "errorTitle": "खाते अपडेट नहीं हो सके",
       "errorBody": "कुछ गलत हो गया। फिर से कोशिश करें।",
-      "localNote": "ये खाते आपके सभी कंप्यूटरों और क्लाउड में Claude Code और Codex चलाते हैं। Stella एक एन्क्रिप्टेड टोकन रखती है; साइन-इन Claude या ChatGPT के पास ही रहता है।"
+      "pastePlaceholderUrl": "पता यहां पेस्ट करें",
+      "openChatgptAgain": "ChatGPT फिर से खोलें",
+      "chatgptBrowserWaiting": "अपने ब्राउज़र में ChatGPT में साइन इन पूरा करें।",
+      "claudeNote": "Claude Code आपके सभी कंप्यूटरों और क्लाउड में चुने गए खाते का उपयोग करता है। आपके अपने डिवाइस Claude में साइन इन करते हैं और उसे रीफ़्रेश रखते हैं; Stella का सर्वर सिर्फ़ एन्क्रिप्ट किए गए टोकन संग्रहीत करता है।",
+      "chatgptNote": "क्लाउड चैट और क्लाउड एजेंट चुने गए खाते का उपयोग करते हैं, और यह उपयोग आपके ChatGPT प्लान में गिना जाता है। Stella के क्लाउड का अपना साइन-इन है; हर कंप्यूटर Stella डेस्कटॉप ऐप में ChatGPT में साइन इन करता है।",
+      "continueWithChatgpt": "ChatGPT के साथ जारी रखें",
+      "signInAgain": "फिर से साइन इन करें",
+      "enablePlanUsage": "ChatGPT प्लान का उपयोग चालू करें",
+      "remove": "हटाएं",
+      "removeTitle": "{name} हटाएं?",
+      "removeBody": "Stella यह ChatGPT खाता भूल जाएगी। आप बाद में इसमें फिर से साइन इन कर सकते हैं।",
+      "statusSignedOut": "साइन आउट है",
+      "statusReauth": "इसका उपयोग जारी रखने के लिए फिर से साइन इन करें",
+      "statusPlanUsageOff": "ChatGPT प्लान का उपयोग चालू नहीं है",
+      "planUsageOffBody": "जब तक आप अनुमति नहीं देते, Stella आपके ChatGPT प्लान का उपयोग नहीं कर सकती। खाते पर “ChatGPT प्लान का उपयोग चालू करें” चुनें।",
+      "manageUsage": "उपयोग प्रबंधित करें",
+      "revokeUnconfirmed": "ChatGPT ने साइन आउट की पुष्टि नहीं की। आप ChatGPT सेटिंग्स में Stella को डिस्कनेक्ट कर सकते हैं।",
+      "planWelcomeTitle": "आप अपना ChatGPT प्लान इस्तेमाल कर रहे हैं",
+      "planWelcomeBody": "Stella के क्लाउड में ChatGPT अनुरोध आपके ChatGPT प्लान में गिने जाते हैं। ChatGPT सेटिंग्स में उपयोग देखें और Stella की सीमा सेट करें।"
     }
   },
   "companion": {

@@ -593,7 +593,6 @@
       "voiceProviderAriaLabel": "语音提供商",
       "assistantPickerAriaLabel": "助手模型选择器",
       "verifyingChatGpt": "正在验证 ChatGPT 模型…",
-      "noChatGptCodexModels": "目前没有同时适用于 ChatGPT 和 Codex 的模型。",
       "savedModelUnavailable": "已保存的模型不可用。请另选一个模型。",
       "tabs": {
         "assistant": "助手",
@@ -608,7 +607,7 @@
         "chatGptMigration": "ChatGPT 路由迁移失败。",
         "chatGptVerify": "无法验证 ChatGPT 模型：{error}",
         "chatGptVerifying": "请等待 ChatGPT 模型验证完成。",
-        "chatGptNotConnected": "选择前需要先连接 ChatGPT。",
+        "chatGptNotConnected": "请先在这台电脑上使用 ChatGPT 登录。",
         "chatGptNoModels": "当前没有可用的 ChatGPT 模型。",
         "connectChatGpt": "连接 ChatGPT 失败。",
         "updateEngine": "更新引擎失败。",
@@ -622,8 +621,12 @@
         "updateReadAloud": "更新朗读提供商失败。",
         "updateReasoning": "更新推理强度失败。",
         "updateChatGptSpeed": "更新 ChatGPT 速度失败。",
-        "updateDirectRuntime": "更新直连 {runtime} 设置失败。"
-      }
+        "updateDirectRuntime": "更新直连 {runtime} 设置失败。",
+        "chatGptPlanUsageOff": "此账号未启用 ChatGPT 套餐使用。请在「设置 › 账户」中启用，或选择其他模型。"
+      },
+      "noChatGptModels": "此账号目前没有可用的 ChatGPT 模型。",
+      "chatGptPlanInUse": "正在使用 ChatGPT 套餐",
+      "chatGptManageUsage": "管理用量"
     },
     "onboardingReplay": {
       "title": "Onboarding",
@@ -826,9 +829,9 @@
             "title": "Claude Code",
             "body": "使用你的 Claude Pro 或 Max 套餐。"
           },
-          "codex": {
-            "title": "Codex",
-            "body": "使用你的 ChatGPT Plus 或 Pro 套餐。"
+          "chatgpt": {
+            "title": "ChatGPT",
+            "body": "使用 ChatGPT 登录，即可使用你的套餐。"
           }
         },
         "signIn": "登录",
@@ -2131,7 +2134,7 @@
         "subscriptionsLabel": "可选",
         "subscriptionsBody": "已经在为 Claude 或 ChatGPT 付费？连接它，我就在你的电脑和云端使用它。",
         "claudeDesc": "Pro 或 Max，通过 Claude Code",
-        "chatgptDesc": "Plus 或 Pro，通过 Codex",
+        "chatgptDesc": "你的 ChatGPT 套餐，用于 Stella 云端",
         "connect": "连接",
         "connectLabel": "连接 {name}",
         "connectedAs": "已连接 · {name}",
@@ -2453,10 +2456,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude 和 ChatGPT",
-      "settingsRowBody": "在你的电脑和云端使用的账号",
+      "settingsRowBody": "使用你已付费的 Claude 或 ChatGPT 套餐",
       "openSettingsLabel": "打开 Claude 和 ChatGPT 账号",
       "title": "Claude 和 ChatGPT",
-      "subtitle": "在你的电脑和云端使用的账号",
+      "subtitle": "使用你已付费的 Claude 或 ChatGPT 套餐",
       "backLabel": "返回设置",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2470,16 +2473,34 @@
       "limitReached": "已达上限 · {time} 重置",
       "autoSwitchLabel": "达到上限时切换账号",
       "autoSwitchClaude": "当使用中的账号达到 5 小时或每周上限时,Stella 会切换到下一个账号,直到上限重置。",
-      "autoSwitchChatgpt": "当使用中的账号达到 Codex 使用上限时,Stella 会切换到下一个账号,直到上限重置。",
+      "autoSwitchChatgpt": "当使用中的账号达到 ChatGPT 使用上限时，Stella 会切换到下一个账号，直到上限重置。",
       "pasteHintClaude": "授权访问后,Claude 会显示一个代码。复制后粘贴到这里。",
-      "pasteHintChatgpt": "授权后页面将无法加载。复制该页面的地址(分享 › 复制)并粘贴到这里。",
+      "pasteHintChatgpt": "批准后，ChatGPT 会将你带到一个无法加载的页面。复制该页面的完整地址并粘贴到这里。",
       "pastePlaceholder": "代码或 URL",
       "pasteFromClipboard": "粘贴",
       "finish": "连接",
       "connecting": "正在连接…",
       "errorTitle": "无法更新账号",
       "errorBody": "出了点问题,请重试。",
-      "localNote": "这些账号为你所有电脑和云端的 Claude Code 与 Codex 提供支持。Stella 保存一个加密令牌；登录仍由 Claude 或 ChatGPT 管理。"
+      "pastePlaceholderUrl": "在此粘贴地址",
+      "openChatgptAgain": "再次打开 ChatGPT",
+      "chatgptBrowserWaiting": "请在浏览器中完成 ChatGPT 登录。",
+      "claudeNote": "Claude Code 会在你的所有电脑和云端使用勾选的账号。由你自己的设备登录 Claude 并保持刷新；Stella 的服务器只存储加密的令牌。",
+      "chatgptNote": "云端聊天和云端代理使用勾选的账号，这些用量会计入你的 ChatGPT 套餐。Stella 云端有自己的登录；每台电脑在 Stella 桌面应用中登录 ChatGPT。",
+      "continueWithChatgpt": "使用 ChatGPT 继续",
+      "signInAgain": "重新登录",
+      "enablePlanUsage": "启用 ChatGPT 套餐使用",
+      "remove": "移除",
+      "removeTitle": "要移除 {name} 吗？",
+      "removeBody": "Stella 会忘记这个 ChatGPT 账号。你之后可以再次登录。",
+      "statusSignedOut": "已退出登录",
+      "statusReauth": "重新登录以继续使用",
+      "statusPlanUsageOff": "未启用 ChatGPT 套餐使用",
+      "planUsageOffBody": "在你允许之前，Stella 无法使用你的 ChatGPT 套餐。请在账号上选择「启用 ChatGPT 套餐使用」。",
+      "manageUsage": "管理用量",
+      "revokeUnconfirmed": "ChatGPT 未确认退出登录。你可以在 ChatGPT 设置中断开 Stella。",
+      "planWelcomeTitle": "你正在使用 ChatGPT 套餐",
+      "planWelcomeBody": "Stella 云端中的 ChatGPT 请求会计入你的 ChatGPT 套餐。请在 ChatGPT 设置中查看用量并设置 Stella 的上限。"
     }
   },
   "companion": {

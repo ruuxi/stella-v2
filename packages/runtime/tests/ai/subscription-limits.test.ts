@@ -8,7 +8,7 @@ describe("subscription limit detection", () => {
     expect(
       subscriptionLimitOfError(
         Object.assign(new Error("You have hit your ChatGPT usage limit."), {
-          code: "usage_limit_reached",
+          code: "subscription_sharing_usage_limit_exceeded",
           resetsAt: 5_000,
         }),
       ),

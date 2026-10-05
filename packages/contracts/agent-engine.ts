@@ -71,8 +71,8 @@ export type CloudExecutionSelection =
       provider: "anthropic";
     })
   | (CloudExecutionSelectionBase & {
-      engine: "openai-codex";
-      provider: "openai-codex";
+      engine: "chatgpt";
+      provider: "chatgpt";
     });
 
 export const AGENT_RUNTIME_ENGINES: readonly AgentRuntimeEngine[] = [

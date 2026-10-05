@@ -13,7 +13,7 @@ import { registerCloudApiProviders } from "@stella/runtime/ai/providers/register
 
 const CLOUD_APIS = [
   "anthropic-messages",
-  "openai-codex-responses",
+  "chatgpt-responses",
   "openai-completions",
   "openai-responses",
 ];

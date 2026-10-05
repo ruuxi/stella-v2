@@ -593,7 +593,6 @@
       "voiceProviderAriaLabel": "Nhà cung cấp giọng nói",
       "assistantPickerAriaLabel": "Bộ chọn mô hình trợ lý",
       "verifyingChatGpt": "Đang xác minh mô hình ChatGPT…",
-      "noChatGptCodexModels": "Hiện không có mô hình nào khả dụng cho cả ChatGPT và Codex.",
       "savedModelUnavailable": "Mô hình đã lưu không khả dụng. Hãy chọn mô hình khác.",
       "tabs": {
         "assistant": "Trợ lý",
@@ -608,7 +607,7 @@
         "chatGptMigration": "Chuyển đổi định tuyến ChatGPT thất bại.",
         "chatGptVerify": "Không thể xác minh các mô hình ChatGPT: {error}",
         "chatGptVerifying": "Hãy đợi quá trình xác minh mô hình ChatGPT hoàn tất.",
-        "chatGptNotConnected": "Cần kết nối ChatGPT trước khi chọn.",
+        "chatGptNotConnected": "Hãy đăng nhập bằng ChatGPT trên máy tính này trước.",
         "chatGptNoModels": "Hiện không có mô hình ChatGPT nào khả dụng.",
         "connectChatGpt": "Không kết nối được ChatGPT.",
         "updateEngine": "Không cập nhật được engine.",
@@ -622,8 +621,12 @@
         "updateReadAloud": "Không cập nhật được nhà cung cấp đọc to.",
         "updateReasoning": "Không cập nhật được mức độ suy luận.",
         "updateChatGptSpeed": "Không cập nhật được tốc độ ChatGPT.",
-        "updateDirectRuntime": "Không cập nhật được cài đặt {runtime} trực tiếp."
-      }
+        "updateDirectRuntime": "Không cập nhật được cài đặt {runtime} trực tiếp.",
+        "chatGptPlanUsageOff": "Tài khoản này chưa bật sử dụng gói ChatGPT. Hãy bật trong Cài đặt › Tài khoản hoặc chọn mô hình khác."
+      },
+      "noChatGptModels": "Hiện không có mô hình ChatGPT nào khả dụng cho tài khoản này.",
+      "chatGptPlanInUse": "Đang dùng gói ChatGPT",
+      "chatGptManageUsage": "Quản lý mức sử dụng"
     },
     "onboardingReplay": {
       "title": "Onboarding",
@@ -826,9 +829,9 @@
             "title": "Claude Code",
             "body": "Dùng gói Claude Pro hoặc Max của bạn."
           },
-          "codex": {
-            "title": "Codex",
-            "body": "Dùng gói ChatGPT Plus hoặc Pro của bạn."
+          "chatgpt": {
+            "title": "ChatGPT",
+            "body": "Đăng nhập bằng ChatGPT để dùng gói của bạn."
           }
         },
         "signIn": "Đăng nhập",
@@ -2131,7 +2134,7 @@
         "subscriptionsLabel": "Tùy chọn",
         "subscriptionsBody": "Bạn đã trả tiền cho Claude hoặc ChatGPT? Hãy kết nối, mình sẽ dùng nó trên máy tính của bạn và trên đám mây.",
         "claudeDesc": "Pro hoặc Max, qua Claude Code",
-        "chatgptDesc": "Plus hoặc Pro, qua Codex",
+        "chatgptDesc": "Gói ChatGPT của bạn, cho đám mây của Stella",
         "connect": "Kết nối",
         "connectLabel": "Kết nối {name}",
         "connectedAs": "Đã kết nối · {name}",
@@ -2453,10 +2456,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude và ChatGPT",
-      "settingsRowBody": "Tài khoản dùng trên máy tính của bạn và trên đám mây",
+      "settingsRowBody": "Dùng gói Claude hoặc ChatGPT bạn đã trả phí",
       "openSettingsLabel": "Mở tài khoản Claude và ChatGPT",
       "title": "Claude và ChatGPT",
-      "subtitle": "Tài khoản dùng trên máy tính của bạn và trên đám mây",
+      "subtitle": "Dùng gói Claude hoặc ChatGPT bạn đã trả phí",
       "backLabel": "Quay lại Cài đặt",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2470,16 +2473,34 @@
       "limitReached": "Đã đạt giới hạn · đặt lại lúc {time}",
       "autoSwitchLabel": "Đổi tài khoản khi đạt giới hạn",
       "autoSwitchClaude": "Khi tài khoản đang dùng đạt giới hạn 5 giờ hoặc hằng tuần, Stella chuyển sang tài khoản tiếp theo cho đến khi giới hạn được đặt lại.",
-      "autoSwitchChatgpt": "Khi tài khoản đang dùng đạt giới hạn sử dụng Codex, Stella chuyển sang tài khoản tiếp theo cho đến khi giới hạn được đặt lại.",
+      "autoSwitchChatgpt": "Khi tài khoản đang dùng đạt giới hạn sử dụng ChatGPT, Stella chuyển sang tài khoản tiếp theo cho đến khi giới hạn được đặt lại.",
       "pasteHintClaude": "Sau khi bạn cấp quyền, Claude sẽ hiện một mã. Sao chép và dán mã vào đây.",
-      "pasteHintChatgpt": "Sau khi bạn chấp thuận, trang sẽ không tải được. Sao chép địa chỉ của trang đó (Chia sẻ › Sao chép) và dán vào đây.",
+      "pasteHintChatgpt": "Sau khi bạn chấp thuận, ChatGPT sẽ chuyển bạn đến một trang không tải được. Hãy sao chép toàn bộ địa chỉ của trang đó và dán vào đây.",
       "pastePlaceholder": "Mã hoặc URL",
       "pasteFromClipboard": "Dán",
       "finish": "Kết nối",
       "connecting": "Đang kết nối…",
       "errorTitle": "Không thể cập nhật tài khoản",
       "errorBody": "Đã xảy ra lỗi. Hãy thử lại.",
-      "localNote": "Các tài khoản này chạy Claude Code và Codex trên mọi máy tính của bạn và trên đám mây. Stella giữ một token đã mã hóa; việc đăng nhập vẫn nằm ở Claude hoặc ChatGPT."
+      "pastePlaceholderUrl": "Dán địa chỉ vào đây",
+      "openChatgptAgain": "Mở lại ChatGPT",
+      "chatgptBrowserWaiting": "Hoàn tất đăng nhập ChatGPT trong trình duyệt của bạn.",
+      "claudeNote": "Claude Code dùng tài khoản được đánh dấu trên tất cả máy tính của bạn và trên đám mây. Chính các thiết bị của bạn đăng nhập vào Claude và giữ phiên luôn được làm mới; máy chủ của Stella chỉ lưu các token đã mã hóa.",
+      "chatgptNote": "Trò chuyện và tác nhân trên đám mây dùng tài khoản được đánh dấu, và mức sử dụng đó được tính vào gói ChatGPT của bạn. Đám mây của Stella có phiên đăng nhập riêng; mỗi máy tính đăng nhập ChatGPT trong ứng dụng Stella dành cho máy tính.",
+      "continueWithChatgpt": "Tiếp tục với ChatGPT",
+      "signInAgain": "Đăng nhập lại",
+      "enablePlanUsage": "Bật sử dụng gói ChatGPT",
+      "remove": "Xóa",
+      "removeTitle": "Xóa {name}?",
+      "removeBody": "Stella sẽ quên tài khoản ChatGPT này. Bạn có thể đăng nhập lại sau.",
+      "statusSignedOut": "Đã đăng xuất",
+      "statusReauth": "Đăng nhập lại để tiếp tục sử dụng",
+      "statusPlanUsageOff": "Chưa bật sử dụng gói ChatGPT",
+      "planUsageOffBody": "Stella không thể dùng gói ChatGPT của bạn cho đến khi bạn cho phép. Chọn “Bật sử dụng gói ChatGPT” trên tài khoản.",
+      "manageUsage": "Quản lý mức sử dụng",
+      "revokeUnconfirmed": "ChatGPT chưa xác nhận việc đăng xuất. Bạn có thể ngắt kết nối Stella trong Cài đặt ChatGPT.",
+      "planWelcomeTitle": "Bạn đang dùng gói ChatGPT của mình",
+      "planWelcomeBody": "Các yêu cầu ChatGPT trên đám mây của Stella được tính vào gói ChatGPT của bạn. Xem mức sử dụng và đặt giới hạn cho Stella trong Cài đặt ChatGPT."
     }
   },
   "companion": {

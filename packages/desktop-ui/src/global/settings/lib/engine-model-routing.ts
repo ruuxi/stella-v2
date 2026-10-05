@@ -28,7 +28,7 @@ export type EngineReasoningPreferences = {
   claudeCodeReasoningEffort: EngineReasoningEffort;
 };
 
-export const OPENAI_CODEX_PROVIDER = "openai-codex";
+export const CHATGPT_PROVIDER = "chatgpt";
 export const DEFAULT_CHATGPT_MODEL = DEFAULT_CODEX_MODEL;
 export const DEFAULT_CLAUDE_CODE_MODEL = "default";
 
@@ -37,7 +37,7 @@ const CONVERSATION_AGENT_KEYS = ["orchestrator", "general"] as const;
 export function listChatGptCatalogModels(
   models: readonly CatalogModel[],
 ): CatalogModel[] {
-  return models.filter((model) => model.provider === OPENAI_CODEX_PROVIDER);
+  return models.filter((model) => model.provider === CHATGPT_PROVIDER);
 }
 
 export type LiveCodexModel = {
@@ -141,15 +141,15 @@ export function normalizeClaudeCodeReasoningEffort(
   return effort === "minimal" ? "low" : effort;
 }
 
-export function toOpenAiCodexModelId(modelId: string): string {
+export function toChatGptModelId(modelId: string): string {
   const trimmed = modelId.trim();
-  return trimmed.startsWith(`${OPENAI_CODEX_PROVIDER}/`)
+  return trimmed.startsWith(`${CHATGPT_PROVIDER}/`)
     ? trimmed
-    : `${OPENAI_CODEX_PROVIDER}/${trimmed}`;
+    : `${CHATGPT_PROVIDER}/${trimmed}`;
 }
 
-export function fromOpenAiCodexModelId(modelId: string): string | null {
-  const prefix = `${OPENAI_CODEX_PROVIDER}/`;
+export function fromChatGptModelId(modelId: string): string | null {
+  const prefix = `${CHATGPT_PROVIDER}/`;
   return modelId.startsWith(prefix) ? modelId.slice(prefix.length) : null;
 }
 
@@ -180,7 +180,7 @@ export function buildEngineRoutingPatch(
     if (shouldCapture) {
       if (
         nextOverrides[key] &&
-        fromOpenAiCodexModelId(nextOverrides[key]) === null
+        fromChatGptModelId(nextOverrides[key]) === null
       ) {
         stellaOverrides[key] = nextOverrides[key];
       } else delete stellaOverrides[key];
@@ -189,7 +189,7 @@ export function buildEngineRoutingPatch(
 
   if (engine === "codex_cli") {
     const selectedModel = modelId?.trim() || preferences.codexModel;
-    const routeModel = toOpenAiCodexModelId(selectedModel);
+    const routeModel = toChatGptModelId(selectedModel);
     nextOverrides.orchestrator = routeModel;
     nextOverrides.general = routeModel;
     return {

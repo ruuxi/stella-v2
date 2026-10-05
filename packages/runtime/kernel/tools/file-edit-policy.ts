@@ -16,7 +16,7 @@ const hasOpenAiPrefix = (value: string): boolean => {
   const normalized = value.trim().toLowerCase();
   return (
     normalized === "openai" ||
-    normalized === "openai-codex" ||
+    normalized === "chatgpt" ||
     normalized.startsWith("openai/") ||
     normalized.startsWith("stella/openai/")
   );

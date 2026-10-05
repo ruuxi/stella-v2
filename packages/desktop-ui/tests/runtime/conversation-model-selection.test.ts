@@ -19,8 +19,8 @@ const codexSelection = {
   codexModel: "gpt-5.4",
   codexModelExplicit: true,
   modelOverrides: {
-    orchestrator: "openai-codex/gpt-5.4",
-    general: "openai-codex/gpt-5.4",
+    orchestrator: "chatgpt/gpt-5.4",
+    general: "chatgpt/gpt-5.4",
   },
 };
 

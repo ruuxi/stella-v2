@@ -465,15 +465,15 @@ describe("cloud relay model selection", () => {
 
   test("uses the existing Codex Responses adapter without exposing OAuth", async () => {
     const model = await create({
-      engine: "openai-codex",
-      provider: "openai-codex",
+      engine: "chatgpt",
+      provider: "chatgpt",
       model: "gpt-5.6-sol",
       reasoningEffort: "xhigh",
     });
-    expect(model.api).toBe("openai-codex-responses");
-    expect(model.id).toBe("stella/openai-codex/gpt-5.6-sol");
+    expect(model.api).toBe("chatgpt-responses");
+    expect(model.id).toBe("stella/chatgpt/gpt-5.6-sol");
     expect(model.baseUrl).toBe(`${GATEWAY}/v1/relay`);
-    expect(model.headers?.[CLOUD_LLM_CREDENTIAL_HEADER]).toBe("openai-codex");
+    expect(model.headers?.[CLOUD_LLM_CREDENTIAL_HEADER]).toBe("chatgpt");
     expect(model.headers?.authorization).toBe(`Bearer ${CAPABILITY}`);
     expect(JSON.stringify(model)).not.toContain("accessToken");
   });
@@ -505,8 +505,8 @@ describe("cloud relay model selection", () => {
     ).toThrow("engine-native model id");
     expect(() =>
       validateCloudExecutionSelection({
-        engine: "openai-codex",
-        provider: "openai-codex",
+        engine: "chatgpt",
+        provider: "chatgpt",
         model: "gpt-5.6-sol[1m]",
         reasoningEffort: "medium",
       }),

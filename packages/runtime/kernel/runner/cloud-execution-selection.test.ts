@@ -293,8 +293,8 @@ describe("desktop cloud execution selection", () => {
   test("carries a pinned Codex model and reasoning effort", async () => {
     const resolutions: unknown[] = [];
     const selection: CloudExecutionSelection = {
-      engine: "openai-codex",
-      provider: "openai-codex",
+      engine: "chatgpt",
+      provider: "chatgpt",
       model: "gpt-5.6-sol",
       reasoningEffort: "xhigh",
     };
@@ -366,7 +366,7 @@ describe("desktop cloud execution selection", () => {
     expect(() =>
       toCloudExecutionSelection({
         engine: "default",
-        routeModel: "stella/openai-codex/gpt-5.6-sol",
+        routeModel: "stella/chatgpt/gpt-5.6-sol",
         reasoningEffort: "high",
       }),
     ).toThrow("desktop-only model route");

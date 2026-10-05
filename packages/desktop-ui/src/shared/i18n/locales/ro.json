@@ -595,7 +595,6 @@
       "voiceProviderAriaLabel": "Furnizor de voce",
       "assistantPickerAriaLabel": "Selector de model pentru asistent",
       "verifyingChatGpt": "Se verifică modelele ChatGPT…",
-      "noChatGptCodexModels": "Momentan niciun model nu este disponibil atât pentru ChatGPT, cât și pentru Codex.",
       "savedModelUnavailable": "Modelul salvat este indisponibil. Alege alt model.",
       "tabs": {
         "assistant": "Asistent",
@@ -610,7 +609,7 @@
         "chatGptMigration": "Migrarea rutării ChatGPT a eșuat.",
         "chatGptVerify": "Modelele ChatGPT nu au putut fi verificate: {error}",
         "chatGptVerifying": "Așteaptă finalizarea verificării modelelor ChatGPT.",
-        "chatGptNotConnected": "ChatGPT trebuie conectat înainte de selecție.",
+        "chatGptNotConnected": "Mai întâi conectează-te cu ChatGPT pe acest computer.",
         "chatGptNoModels": "Momentan nu este disponibil niciun model ChatGPT.",
         "connectChatGpt": "Conectarea la ChatGPT a eșuat.",
         "updateEngine": "Actualizarea motorului a eșuat.",
@@ -624,8 +623,12 @@
         "updateReadAloud": "Actualizarea furnizorului pentru citirea cu voce tare a eșuat.",
         "updateReasoning": "Actualizarea efortului de raționare a eșuat.",
         "updateChatGptSpeed": "Actualizarea vitezei ChatGPT a eșuat.",
-        "updateDirectRuntime": "Actualizarea setării directe {runtime} a eșuat."
-      }
+        "updateDirectRuntime": "Actualizarea setării directe {runtime} a eșuat.",
+        "chatGptPlanUsageOff": "Utilizarea abonamentului ChatGPT nu este activată pentru acest cont. Activeaz-o din Setări › Cont sau alege alt model."
+      },
+      "noChatGptModels": "Momentan nu există modele ChatGPT disponibile pentru acest cont.",
+      "chatGptPlanInUse": "Se folosește abonamentul ChatGPT",
+      "chatGptManageUsage": "Gestionează utilizarea"
     },
     "onboardingReplay": {
       "title": "Onboarding",
@@ -828,9 +831,9 @@
             "title": "Claude Code",
             "body": "Folosește abonamentul tău Claude Pro sau Max."
           },
-          "codex": {
-            "title": "Codex",
-            "body": "Folosește abonamentul tău ChatGPT Plus sau Pro."
+          "chatgpt": {
+            "title": "ChatGPT",
+            "body": "Conectează-te cu ChatGPT ca să folosești abonamentul tău."
           }
         },
         "signIn": "Conectează-te",
@@ -2172,7 +2175,7 @@
         "subscriptionsLabel": "Opțional",
         "subscriptionsBody": "Plătești deja pentru Claude sau ChatGPT? Conectează-l și îl folosesc pe computerele tale și în cloud.",
         "claudeDesc": "Pro sau Max, prin Claude Code",
-        "chatgptDesc": "Plus sau Pro, prin Codex",
+        "chatgptDesc": "Abonamentul tău ChatGPT, pentru cloudul Stella",
         "connect": "Conectează",
         "connectLabel": "Conectează {name}",
         "connectedAs": "Conectat · {name}",
@@ -2500,10 +2503,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude și ChatGPT",
-      "settingsRowBody": "Conturi folosite pe computerele tale și în cloud",
+      "settingsRowBody": "Folosește abonamentul Claude sau ChatGPT pe care îl plătești deja",
       "openSettingsLabel": "Deschide conturile Claude și ChatGPT",
       "title": "Claude și ChatGPT",
-      "subtitle": "Conturi folosite pe computerele tale și în cloud",
+      "subtitle": "Folosește abonamentul Claude sau ChatGPT pe care îl plătești deja",
       "backLabel": "Înapoi la Setări",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2517,16 +2520,34 @@
       "limitReached": "Limită atinsă · se resetează {time}",
       "autoSwitchLabel": "Schimbă contul la atingerea limitei",
       "autoSwitchClaude": "Când contul folosit atinge limita de 5 ore sau săptămânală, Stella trece la următorul până la resetare.",
-      "autoSwitchChatgpt": "Când contul folosit atinge limita de utilizare Codex, Stella trece la următorul până la resetare.",
+      "autoSwitchChatgpt": "Când contul folosit atinge o limită de utilizare ChatGPT, Stella trece la următorul până la resetare.",
       "pasteHintClaude": "După ce acorzi accesul, Claude afișează un cod. Copiază-l și lipește-l aici.",
-      "pasteHintChatgpt": "După aprobare, pagina nu se încarcă. Copiază adresa acelei pagini (Distribuie › Copiază) și lipește-o aici.",
+      "pasteHintChatgpt": "După ce aprobi, ChatGPT te trimite la o pagină care nu se încarcă. Copiază adresa completă a paginii și lipește-o aici.",
       "pastePlaceholder": "Cod sau URL",
       "pasteFromClipboard": "Lipește",
       "finish": "Conectează",
       "connecting": "Se conectează…",
       "errorTitle": "Conturile nu au putut fi actualizate",
       "errorBody": "Ceva nu a mers bine. Încearcă din nou.",
-      "localNote": "Aceste conturi pun în funcțiune Claude Code și Codex pe toate computerele tale și în cloud. Stella păstrează un token criptat; autentificarea rămâne la Claude sau ChatGPT."
+      "pastePlaceholderUrl": "Lipește adresa aici",
+      "openChatgptAgain": "Deschide din nou ChatGPT",
+      "chatgptBrowserWaiting": "Finalizează conectarea la ChatGPT în browser.",
+      "claudeNote": "Claude Code folosește contul bifat pe toate computerele tale și în cloud. Propriile tale dispozitive se conectează la Claude și mențin conectarea actualizată; serverul Stella stochează doar tokenurile criptate.",
+      "chatgptNote": "Chatul și agenții din cloud folosesc contul bifat, iar această utilizare se scade din abonamentul tău ChatGPT. Cloudul Stella are propria conectare; fiecare computer se conectează la ChatGPT în aplicația desktop Stella.",
+      "continueWithChatgpt": "Continuă cu ChatGPT",
+      "signInAgain": "Conectează-te din nou",
+      "enablePlanUsage": "Activează utilizarea abonamentului ChatGPT",
+      "remove": "Elimină",
+      "removeTitle": "Elimini {name}?",
+      "removeBody": "Stella uită acest cont ChatGPT. Te poți conecta din nou la el mai târziu.",
+      "statusSignedOut": "Deconectat",
+      "statusReauth": "Conectează-te din nou ca să-l folosești în continuare",
+      "statusPlanUsageOff": "Utilizarea abonamentului ChatGPT nu este activată",
+      "planUsageOffBody": "Stella nu poate folosi abonamentul tău ChatGPT până nu îi permiți. Alege „Activează utilizarea abonamentului ChatGPT” la cont.",
+      "manageUsage": "Gestionează utilizarea",
+      "revokeUnconfirmed": "ChatGPT nu a confirmat deconectarea. Poți deconecta Stella din Setările ChatGPT.",
+      "planWelcomeTitle": "Folosești abonamentul tău ChatGPT",
+      "planWelcomeBody": "Solicitările ChatGPT din cloudul Stella se scad din abonamentul tău ChatGPT. Verifică utilizarea și setează limita pentru Stella în Setările ChatGPT."
     }
   },
   "companion": {

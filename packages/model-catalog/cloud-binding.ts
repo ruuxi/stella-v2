@@ -1,4 +1,5 @@
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
+import { chatGptRequestViolation } from "@stella/contracts/chatgpt-siwc";
 
 /**
  * The execution fields the binding validators read. Structurally satisfied
@@ -22,8 +23,7 @@ export type CloudBindingError = {
 export type ConnectedCloudRequestKind =
   | "anthropic_messages"
   | "anthropic_count_tokens"
-  | "codex_responses"
-  | "codex_compact";
+  | "chatgpt_responses";
 
 export type ConnectedCloudBinding =
   | {
@@ -39,7 +39,7 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
     : null;
 
 const connectedRequestKind = (
-  credentialProvider: "anthropic" | "openai-codex",
+  credentialProvider: "anthropic" | "chatgpt",
   pathname: string,
 ): ConnectedCloudRequestKind | null => {
   if (credentialProvider === "anthropic") {
@@ -48,19 +48,12 @@ const connectedRequestKind = (
     }
     return pathname.endsWith("/v1/messages") ? "anthropic_messages" : null;
   }
-  if (
-    pathname.endsWith("/responses/compact") ||
-    pathname.endsWith("/v1/responses/compact")
-  ) {
-    return "codex_compact";
-  }
-  return pathname.endsWith("/responses") || pathname.endsWith("/v1/responses")
-    ? "codex_responses"
-    : null;
+  // ChatGPT plan usage serves `POST /v1/responses` only (no compaction route).
+  return pathname.endsWith("/responses") ? "chatgpt_responses" : null;
 };
 
 const nativeRequestedModel = (
-  provider: "anthropic" | "openai-codex",
+  provider: "anthropic" | "chatgpt",
   requestedModel: string,
 ): string | null => {
   const wrappedPrefix = `stella/${provider}/`;
@@ -252,7 +245,7 @@ const validateNativeReasoning = (args: {
  */
 export const validateConnectedCloudBinding = (args: {
   execution?: CloudExecutionBinding;
-  credentialProvider: "anthropic" | "openai-codex";
+  credentialProvider: "anthropic" | "chatgpt";
   requestedModel: string;
   requestPathname: string;
   requestJson: Record<string, unknown>;
@@ -293,7 +286,7 @@ export const validateConnectedCloudBinding = (args: {
         message:
           args.credentialProvider === "anthropic"
             ? "Claude cloud turns may call only the native Messages API"
-            : "Codex cloud turns may call only the native Responses API",
+            : "ChatGPT cloud turns may call only the Responses API",
       },
     };
   }
@@ -326,6 +319,14 @@ export const validateConnectedCloudBinding = (args: {
         message: "This turn token is not authorized for the requested model",
       },
     };
+  }
+  if (args.credentialProvider === "chatgpt") {
+    // Sign in with ChatGPT's preview limits: store false, stream true, the
+    // whole history in `input`, no unsupported fields or hosted tools.
+    const violation = chatGptRequestViolation(args.requestJson);
+    if (violation) {
+      return { ok: false, error: { status: 400, message: violation } };
+    }
   }
   const reasoningError = validateNativeReasoning({
     execution: args.execution,

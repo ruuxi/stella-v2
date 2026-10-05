@@ -598,7 +598,6 @@
       "voiceProviderAriaLabel": "مزوّد الصوت",
       "assistantPickerAriaLabel": "منتقي نموذج المساعد",
       "verifyingChatGpt": "جارٍ التحقق من نماذج ChatGPT…",
-      "noChatGptCodexModels": "لا توجد حاليًا نماذج متاحة لكل من ChatGPT وCodex.",
       "savedModelUnavailable": "النموذج المحفوظ غير متاح. اختر نموذجًا آخر.",
       "tabs": {
         "assistant": "المساعد",
@@ -613,7 +612,7 @@
         "chatGptMigration": "فشل ترحيل توجيه ChatGPT.",
         "chatGptVerify": "تعذّر التحقق من نماذج ChatGPT: {error}",
         "chatGptVerifying": "انتظر حتى ينتهي التحقق من نماذج ChatGPT.",
-        "chatGptNotConnected": "يجب توصيل ChatGPT قبل الاختيار.",
+        "chatGptNotConnected": "سجّل الدخول باستخدام ChatGPT على هذا الكمبيوتر أولاً.",
         "chatGptNoModels": "لا تتوفر حاليًا أي نماذج ChatGPT.",
         "connectChatGpt": "تعذّر توصيل ChatGPT.",
         "updateEngine": "تعذّر تحديث المحرّك.",
@@ -627,8 +626,12 @@
         "updateReadAloud": "تعذّر تحديث مزوّد القراءة بصوت عالٍ.",
         "updateReasoning": "تعذّر تحديث مستوى التفكير.",
         "updateChatGptSpeed": "تعذّر تحديث سرعة ChatGPT.",
-        "updateDirectRuntime": "تعذّر تحديث إعداد {runtime} المباشر."
-      }
+        "updateDirectRuntime": "تعذّر تحديث إعداد {runtime} المباشر.",
+        "chatGptPlanUsageOff": "استخدام خطة ChatGPT غير مفعّل لهذا الحساب. فعّله من الإعدادات › الحساب، أو اختر نموذجًا آخر."
+      },
+      "noChatGptModels": "لا تتوفر نماذج ChatGPT لهذا الحساب حاليًا.",
+      "chatGptPlanInUse": "يتم استخدام خطة ChatGPT",
+      "chatGptManageUsage": "إدارة الاستخدام"
     },
     "onboardingReplay": {
       "title": "Onboarding",
@@ -831,9 +834,9 @@
             "title": "Claude Code",
             "body": "استخدم اشتراكك في Claude Pro أو Max."
           },
-          "codex": {
-            "title": "Codex",
-            "body": "استخدم اشتراكك في ChatGPT Plus أو Pro."
+          "chatgpt": {
+            "title": "ChatGPT",
+            "body": "سجّل الدخول باستخدام ChatGPT لاستخدام خطتك."
           }
         },
         "signIn": "تسجيل الدخول",
@@ -2229,7 +2232,7 @@
         "subscriptionsLabel": "اختياري",
         "subscriptionsBody": "هل تدفع بالفعل مقابل Claude أو ChatGPT؟ اربطه وسأستخدمه على حواسيبك وفي السحابة.",
         "claudeDesc": "Pro أو Max، عبر Claude Code",
-        "chatgptDesc": "Plus أو Pro، عبر Codex",
+        "chatgptDesc": "خطة ChatGPT الخاصة بك، لسحابة Stella",
         "connect": "ربط",
         "connectLabel": "ربط {name}",
         "connectedAs": "متصل · {name}",
@@ -2565,10 +2568,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude وChatGPT",
-      "settingsRowBody": "حسابات تُستخدم على حواسيبك وفي السحابة",
+      "settingsRowBody": "استخدم خطة Claude أو ChatGPT التي تدفع مقابلها بالفعل",
       "openSettingsLabel": "فتح حسابات Claude وChatGPT",
       "title": "Claude وChatGPT",
-      "subtitle": "حسابات تُستخدم على حواسيبك وفي السحابة",
+      "subtitle": "استخدم خطة Claude أو ChatGPT التي تدفع مقابلها بالفعل",
       "backLabel": "العودة إلى الإعدادات",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2582,16 +2585,34 @@
       "limitReached": "تم بلوغ الحد · يُعاد ضبطه {time}",
       "autoSwitchLabel": "التبديل بين الحسابات عند بلوغ الحد",
       "autoSwitchClaude": "عندما يبلغ الحساب المستخدم حد الخمس ساعات أو الحد الأسبوعي، تنتقل Stella إلى الحساب التالي حتى يُعاد ضبطه.",
-      "autoSwitchChatgpt": "عندما يبلغ الحساب المستخدم حد استخدام Codex، تنتقل Stella إلى الحساب التالي حتى يُعاد ضبطه.",
+      "autoSwitchChatgpt": "عندما يبلغ الحساب المستخدم حد استخدام ChatGPT، تنتقل Stella إلى الحساب التالي حتى يُعاد ضبطه.",
       "pasteHintClaude": "بعد منح الإذن، يعرض Claude رمزًا. انسخه والصقه هنا.",
-      "pasteHintChatgpt": "بعد الموافقة، لن تُحمَّل الصفحة. انسخ عنوان تلك الصفحة (مشاركة › نسخ) والصقه هنا.",
+      "pasteHintChatgpt": "بعد الموافقة، ينقلك ChatGPT إلى صفحة لا يتم تحميلها. انسخ العنوان الكامل لتلك الصفحة والصقه هنا.",
       "pastePlaceholder": "الرمز أو عنوان URL",
       "pasteFromClipboard": "لصق",
       "finish": "اتصال",
       "connecting": "جارٍ الاتصال…",
       "errorTitle": "تعذّر تحديث الحسابات",
       "errorBody": "حدث خطأ ما. حاول مرة أخرى.",
-      "localNote": "تشغّل هذه الحسابات Claude Code وCodex على جميع حواسيبك وفي السحابة. تحتفظ Stella برمز مشفّر، ويبقى تسجيل الدخول لدى Claude أو ChatGPT."
+      "pastePlaceholderUrl": "الصق العنوان هنا",
+      "openChatgptAgain": "فتح ChatGPT مرة أخرى",
+      "chatgptBrowserWaiting": "أكمل تسجيل الدخول إلى ChatGPT في متصفحك.",
+      "claudeNote": "يستخدم Claude Code الحساب المحدد على جميع أجهزة الكمبيوتر لديك وفي السحابة. تسجّل أجهزتك الدخول إلى Claude وتحافظ على تحديثه؛ ولا يخزّن خادم Stella سوى الرموز المميزة المشفرة.",
+      "chatgptNote": "تستخدم الدردشة والوكلاء في السحابة الحساب المحدد، ويُحتسب هذا الاستخدام من خطة ChatGPT الخاصة بك. لسحابة Stella تسجيل دخول خاص بها؛ ويسجّل كل كمبيوتر الدخول إلى ChatGPT في تطبيق Stella لسطح المكتب.",
+      "continueWithChatgpt": "المتابعة باستخدام ChatGPT",
+      "signInAgain": "تسجيل الدخول مرة أخرى",
+      "enablePlanUsage": "تفعيل استخدام خطة ChatGPT",
+      "remove": "إزالة",
+      "removeTitle": "هل تريد إزالة {name}؟",
+      "removeBody": "ستنسى Stella حساب ChatGPT هذا. يمكنك تسجيل الدخول إليه مرة أخرى لاحقًا.",
+      "statusSignedOut": "تم تسجيل الخروج",
+      "statusReauth": "سجّل الدخول مرة أخرى لمواصلة استخدامه",
+      "statusPlanUsageOff": "استخدام خطة ChatGPT غير مفعّل",
+      "planUsageOffBody": "لا يمكن لـ Stella استخدام خطة ChatGPT الخاصة بك حتى تسمح بذلك. اختر «تفعيل استخدام خطة ChatGPT» في الحساب.",
+      "manageUsage": "إدارة الاستخدام",
+      "revokeUnconfirmed": "لم يؤكد ChatGPT تسجيل الخروج. يمكنك فصل Stella من إعدادات ChatGPT.",
+      "planWelcomeTitle": "أنت تستخدم خطة ChatGPT الخاصة بك",
+      "planWelcomeBody": "تُحتسب طلبات ChatGPT في سحابة Stella من خطة ChatGPT الخاصة بك. راجع الاستخدام وحدّد حد Stella في إعدادات ChatGPT."
     }
   },
   "companion": {

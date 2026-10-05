@@ -593,7 +593,6 @@
       "voiceProviderAriaLabel": "음성 제공업체",
       "assistantPickerAriaLabel": "어시스턴트 모델 선택기",
       "verifyingChatGpt": "ChatGPT 모델 확인 중…",
-      "noChatGptCodexModels": "현재 ChatGPT와 Codex 모두에서 사용할 수 있는 모델이 없습니다.",
       "savedModelUnavailable": "저장된 모델을 사용할 수 없습니다. 다른 모델을 선택하세요.",
       "tabs": {
         "assistant": "어시스턴트",
@@ -608,7 +607,7 @@
         "chatGptMigration": "ChatGPT 라우팅 마이그레이션에 실패했습니다.",
         "chatGptVerify": "ChatGPT 모델을 확인할 수 없습니다: {error}",
         "chatGptVerifying": "ChatGPT 모델 확인이 끝날 때까지 기다리세요.",
-        "chatGptNotConnected": "선택하기 전에 ChatGPT를 연결해야 합니다.",
+        "chatGptNotConnected": "먼저 이 컴퓨터에서 ChatGPT로 로그인하세요.",
         "chatGptNoModels": "현재 사용할 수 있는 ChatGPT 모델이 없습니다.",
         "connectChatGpt": "ChatGPT를 연결하지 못했습니다.",
         "updateEngine": "엔진을 업데이트하지 못했습니다.",
@@ -622,8 +621,12 @@
         "updateReadAloud": "소리 내어 읽기 제공업체를 업데이트하지 못했습니다.",
         "updateReasoning": "추론 강도를 업데이트하지 못했습니다.",
         "updateChatGptSpeed": "ChatGPT 속도를 업데이트하지 못했습니다.",
-        "updateDirectRuntime": "직접 {runtime} 설정을 업데이트하지 못했습니다."
-      }
+        "updateDirectRuntime": "직접 {runtime} 설정을 업데이트하지 못했습니다.",
+        "chatGptPlanUsageOff": "이 계정에서 ChatGPT 요금제 사용이 활성화되어 있지 않습니다. 설정 › 계정에서 활성화하거나 다른 모델을 선택하세요."
+      },
+      "noChatGptModels": "현재 이 계정에서 사용할 수 있는 ChatGPT 모델이 없습니다.",
+      "chatGptPlanInUse": "ChatGPT 요금제 사용 중",
+      "chatGptManageUsage": "사용량 관리"
     },
     "onboardingReplay": {
       "title": "Onboarding",
@@ -826,9 +829,9 @@
             "title": "Claude Code",
             "body": "Claude Pro 또는 Max 요금제를 사용해요."
           },
-          "codex": {
-            "title": "Codex",
-            "body": "ChatGPT Plus 또는 Pro 요금제를 사용해요."
+          "chatgpt": {
+            "title": "ChatGPT",
+            "body": "ChatGPT로 로그인해 요금제를 사용하세요."
           }
         },
         "signIn": "로그인",
@@ -2131,7 +2134,7 @@
         "subscriptionsLabel": "선택 사항",
         "subscriptionsBody": "이미 Claude나 ChatGPT를 쓰고 계세요? 연결하면 컴퓨터와 클라우드에서 사용할게요.",
         "claudeDesc": "Claude Code를 통한 Pro 또는 Max",
-        "chatgptDesc": "Codex를 통한 Plus 또는 Pro",
+        "chatgptDesc": "Stella 클라우드용 ChatGPT 요금제",
         "connect": "연결",
         "connectLabel": "{name} 연결",
         "connectedAs": "연결됨 · {name}",
@@ -2453,10 +2456,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude 및 ChatGPT",
-      "settingsRowBody": "내 컴퓨터와 클라우드에서 사용하는 계정",
+      "settingsRowBody": "이미 결제 중인 Claude 또는 ChatGPT 요금제를 사용하세요",
       "openSettingsLabel": "Claude 및 ChatGPT 계정 열기",
       "title": "Claude 및 ChatGPT",
-      "subtitle": "내 컴퓨터와 클라우드에서 사용하는 계정",
+      "subtitle": "이미 결제 중인 Claude 또는 ChatGPT 요금제를 사용하세요",
       "backLabel": "설정으로 돌아가기",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2470,16 +2473,34 @@
       "limitReached": "한도 도달 · {time}에 재설정",
       "autoSwitchLabel": "한도에 도달하면 계정 전환",
       "autoSwitchClaude": "사용 중인 계정이 5시간 또는 주간 한도에 도달하면 Stella가 재설정될 때까지 다음 계정으로 전환합니다.",
-      "autoSwitchChatgpt": "사용 중인 계정이 Codex 사용 한도에 도달하면 Stella가 재설정될 때까지 다음 계정으로 전환합니다.",
+      "autoSwitchChatgpt": "사용 중인 계정이 ChatGPT 사용 한도에 도달하면 Stella가 재설정될 때까지 다음 계정으로 전환합니다.",
       "pasteHintClaude": "액세스를 허용하면 Claude가 코드를 표시합니다. 코드를 복사해 여기에 붙여 넣으세요.",
-      "pasteHintChatgpt": "승인한 후에는 페이지가 로드되지 않습니다. 해당 페이지의 주소를 복사(공유 › 복사)해 여기에 붙여 넣으세요.",
+      "pasteHintChatgpt": "승인하면 ChatGPT가 로드되지 않는 페이지로 이동합니다. 그 페이지의 전체 주소를 복사해 여기에 붙여넣으세요.",
       "pastePlaceholder": "코드 또는 URL",
       "pasteFromClipboard": "붙여넣기",
       "finish": "연결",
       "connecting": "연결 중…",
       "errorTitle": "계정을 업데이트할 수 없습니다",
       "errorBody": "문제가 발생했습니다. 다시 시도하세요.",
-      "localNote": "이 계정으로 모든 컴퓨터와 클라우드에서 Claude Code와 Codex가 실행됩니다. Stella는 암호화된 토큰을 보관하며, 로그인은 Claude 또는 ChatGPT에 그대로 남습니다."
+      "pastePlaceholderUrl": "여기에 주소 붙여넣기",
+      "openChatgptAgain": "ChatGPT 다시 열기",
+      "chatgptBrowserWaiting": "브라우저에서 ChatGPT 로그인을 완료하세요.",
+      "claudeNote": "Claude Code는 모든 컴퓨터와 클라우드에서 선택한 계정을 사용합니다. 내 기기가 직접 Claude에 로그인하고 갱신하며, Stella 서버는 암호화된 토큰만 저장합니다.",
+      "chatgptNote": "클라우드 채팅과 클라우드 에이전트는 선택한 계정을 사용하며, 그 사용량은 ChatGPT 요금제에서 차감됩니다. Stella 클라우드는 자체 로그인을 유지하고, 각 컴퓨터는 Stella 데스크톱 앱에서 ChatGPT에 로그인합니다.",
+      "continueWithChatgpt": "ChatGPT로 계속하기",
+      "signInAgain": "다시 로그인",
+      "enablePlanUsage": "ChatGPT 요금제 사용 활성화",
+      "remove": "삭제",
+      "removeTitle": "{name}을(를) 삭제할까요?",
+      "removeBody": "Stella에서 이 ChatGPT 계정을 지웁니다. 나중에 다시 로그인할 수 있습니다.",
+      "statusSignedOut": "로그아웃됨",
+      "statusReauth": "계속 사용하려면 다시 로그인하세요",
+      "statusPlanUsageOff": "ChatGPT 요금제 사용이 활성화되지 않음",
+      "planUsageOffBody": "허용하기 전까지 Stella는 ChatGPT 요금제를 사용할 수 없습니다. 계정에서 “ChatGPT 요금제 사용 활성화”를 선택하세요.",
+      "manageUsage": "사용량 관리",
+      "revokeUnconfirmed": "ChatGPT에서 로그아웃을 확인하지 않았습니다. ChatGPT 설정에서 Stella 연결을 해제할 수 있습니다.",
+      "planWelcomeTitle": "ChatGPT 요금제를 사용 중입니다",
+      "planWelcomeBody": "Stella 클라우드의 ChatGPT 요청은 ChatGPT 요금제에서 차감됩니다. ChatGPT 설정에서 사용량을 확인하고 Stella의 한도를 설정하세요."
     }
   },
   "companion": {

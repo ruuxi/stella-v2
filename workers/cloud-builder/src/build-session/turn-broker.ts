@@ -1254,7 +1254,7 @@ export const handleTurnBroker = async (
   if (
     (brokerEngine !== "stella" &&
       brokerEngine !== "anthropic" &&
-      brokerEngine !== "openai-codex") ||
+      brokerEngine !== "chatgpt") ||
     !turnBrokerTargetMatchesEngine(preflight.target, brokerEngine)
   ) {
     return brokerFailure(403);

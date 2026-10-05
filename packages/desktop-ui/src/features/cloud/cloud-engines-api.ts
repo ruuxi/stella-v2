@@ -13,10 +13,11 @@ export const useCloudEngines = (enabled: boolean): EngineSettings | undefined =>
   useBackendValue("engines.get", enabled ? {} : "skip");
 
 export const cloudEnginesApi = {
-  disconnect: (provider: EngineProvider, accountId?: string) =>
+  disconnect: (provider: EngineProvider, accountId?: string, options?: { forget?: boolean }) =>
     backendClient.call("engines.disconnect", {
       provider,
       ...(accountId ? { accountId } : {}),
+      ...(options?.forget ? { forget: true } : {}),
     }),
   setActiveAccount: (provider: EngineProvider, accountId: string) =>
     backendClient.call("engines.setActiveAccount", { provider, accountId }),

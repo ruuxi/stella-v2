@@ -270,7 +270,7 @@ const getDirectProviderCandidates = (
         ]),
       };
     case "openai":
-    case "openai-codex":
+    case "chatgpt":
     case "google":
     case "opencode":
     case "cerebras":
@@ -385,7 +385,11 @@ const synthesizeGatewayModelFromTemplate = (
   registryProvider: string,
   modelId: string,
 ): Model<Api> | null => {
-  if (!isOpenEndedGatewayProvider(registryProvider)) return null;
+  // ChatGPT's models are whatever the signed-in account lists
+  // (`GET /v1/models`), so a slug the static catalog doesn't know still routes.
+  if (!isOpenEndedGatewayProvider(registryProvider) && registryProvider !== "chatgpt") {
+    return null;
+  }
   const template = (getModels(registryProvider as never) as Model<Api>[])[0];
   if (!template) return null;
   return {
@@ -393,7 +397,7 @@ const synthesizeGatewayModelFromTemplate = (
     id: modelId,
     name: modelId,
     input: ["text", "image"],
-    maxTokens: 0,
+    maxTokens: registryProvider === "chatgpt" ? template.maxTokens : 0,
     // Prefer the model's real catalog window (a large-context model reached
     // through a gateway must not be pinned to the small floor — that spuriously
     // compacts/over-flows a conversation the real model holds). Fall back to a
@@ -582,7 +586,7 @@ const resolveDirectProviderRoute = (args: {
  * active engine is a desktop-local engine (Claude Code / Codex).
  *
  * The desktop model picker keeps `modelOverrides` resolvable — it stores a
- * Stella route for Claude Code and an `openai-codex/<model>` route for Codex,
+ * Stella route for Claude Code and an `chatgpt/<model>` route for Codex,
  * and carries the engine-native model in a dedicated preference field
  * (`claudeCodeModel` / `codexModel`). The mobile picker mirrors the same engine
  * plus engine-native model, but writes the engine-prefixed id straight into
@@ -609,7 +613,7 @@ const normalizeDesktopLocalEngineModelReference = (
   // Codex resolves its orchestrator/prep route through the OpenAI-Codex
   // provider on desktop; map the mobile engine prefix onto that same provider.
   if (parsed.provider === CODEX_CLI_ENGINE_PROVIDER) {
-    return `openai-codex/${parsed.modelId}`;
+    return `chatgpt/${parsed.modelId}`;
   }
   // Claude Code keeps a Stella conversation/prep route on desktop; fall back to
   // the default Stella route (no explicit model) so the engine executes the

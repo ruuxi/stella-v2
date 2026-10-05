@@ -98,8 +98,9 @@ export class BillingControl extends WorkerEntrypoint<Env> implements BillingCont
    * The current access token for the owner's connected engine (the native
    * lane), from the engines domain in the owner's object. Refused as
    * `generation_stale` when the capability predates an owner reset, and as
-   * `engine_refresh_required` when the token expired: only one of the
-   * owner's devices refreshes it.
+   * `engine_refresh_required` when a Claude token expired: only one of the
+   * owner's devices refreshes it; `engine_sign_in_required` when the cloud's
+   * ChatGPT sign-in ended.
    */
   async engineAccess(
     request: EngineAccessRequest,
@@ -110,7 +111,7 @@ export class BillingControl extends WorkerEntrypoint<Env> implements BillingCont
       request.ownerId.length > 512 ||
       typeof request.ownerGeneration !== "string" ||
       !request.ownerGeneration ||
-      (request.provider !== "anthropic" && request.provider !== "openai-codex")
+      (request.provider !== "anthropic" && request.provider !== "chatgpt")
     ) {
       return { ok: false, status: 400, code: "bad_request", retryable: false };
     }
@@ -124,6 +125,9 @@ export class BillingControl extends WorkerEntrypoint<Env> implements BillingCont
         const access = response.value as EngineAccessResult;
         if (access && "needsDeviceRefresh" in access) {
           return { ok: false, status: 403, code: "engine_refresh_required", retryable: false };
+        }
+        if (access && "needsSignIn" in access) {
+          return { ok: false, status: 403, code: "engine_sign_in_required", retryable: false };
         }
         return access
           ? { ok: true, body: access }
@@ -157,7 +161,7 @@ export class BillingControl extends WorkerEntrypoint<Env> implements BillingCont
       report.ownerId.length > 512 ||
       typeof report.ownerGeneration !== "string" ||
       !report.ownerGeneration ||
-      (report.provider !== "anthropic" && report.provider !== "openai-codex") ||
+      (report.provider !== "anthropic" && report.provider !== "chatgpt") ||
       typeof report.engineAccountId !== "string" ||
       !report.engineAccountId ||
       report.engineAccountId.length > 64 ||

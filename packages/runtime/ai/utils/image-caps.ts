@@ -149,7 +149,7 @@ const isAnthropicFamily = (provider: string, api: string): boolean =>
 
 const isOpenAIFamily = (provider: string, api: string): boolean =>
   provider === "openai" ||
-  provider === "openai-codex" ||
+  provider === "chatgpt" ||
   api.startsWith("openai-");
 
 const isGoogleFamily = (provider: string, api: string): boolean =>

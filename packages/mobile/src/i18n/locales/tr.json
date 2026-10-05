@@ -594,7 +594,6 @@
       "voiceProviderAriaLabel": "Ses sağlayıcısı",
       "assistantPickerAriaLabel": "Asistan modeli seçici",
       "verifyingChatGpt": "ChatGPT modelleri doğrulanıyor…",
-      "noChatGptCodexModels": "Şu anda hem ChatGPT hem de Codex için kullanılabilir model yok.",
       "savedModelUnavailable": "Kayıtlı model kullanılamıyor. Başka bir model seçin.",
       "tabs": {
         "assistant": "Asistan",
@@ -609,7 +608,7 @@
         "chatGptMigration": "ChatGPT yönlendirme geçişi başarısız oldu.",
         "chatGptVerify": "ChatGPT modelleri doğrulanamadı: {error}",
         "chatGptVerifying": "ChatGPT modellerinin doğrulanmasının bitmesini bekleyin.",
-        "chatGptNotConnected": "Seçim yapmadan önce ChatGPT bağlanmalıdır.",
+        "chatGptNotConnected": "Önce bu bilgisayarda ChatGPT ile oturum aç.",
         "chatGptNoModels": "Şu anda kullanılabilir ChatGPT modeli yok.",
         "connectChatGpt": "ChatGPT bağlanamadı.",
         "updateEngine": "Motor güncellenemedi.",
@@ -623,8 +622,12 @@
         "updateReadAloud": "Sesli okuma sağlayıcısı güncellenemedi.",
         "updateReasoning": "Akıl yürütme düzeyi güncellenemedi.",
         "updateChatGptSpeed": "ChatGPT hızı güncellenemedi.",
-        "updateDirectRuntime": "Doğrudan {runtime} ayarı güncellenemedi."
-      }
+        "updateDirectRuntime": "Doğrudan {runtime} ayarı güncellenemedi.",
+        "chatGptPlanUsageOff": "Bu hesap için ChatGPT planı kullanımı etkin değil. Ayarlar › Hesap bölümünden etkinleştir veya başka bir model seç."
+      },
+      "noChatGptModels": "Şu anda bu hesap için kullanılabilir ChatGPT modeli yok.",
+      "chatGptPlanInUse": "ChatGPT planı kullanılıyor",
+      "chatGptManageUsage": "Kullanımı yönet"
     },
     "onboardingReplay": {
       "title": "Onboarding",
@@ -827,9 +830,9 @@
             "title": "Claude Code",
             "body": "Claude Pro veya Max planını kullan."
           },
-          "codex": {
-            "title": "Codex",
-            "body": "ChatGPT Plus veya Pro planını kullan."
+          "chatgpt": {
+            "title": "ChatGPT",
+            "body": "Planını kullanmak için ChatGPT ile oturum aç."
           }
         },
         "signIn": "Oturum aç",
@@ -2153,7 +2156,7 @@
         "subscriptionsLabel": "İsteğe bağlı",
         "subscriptionsBody": "Claude ya da ChatGPT için zaten ödeme yapıyor musunuz? Bağlayın, bilgisayarlarınızda ve bulutta onu kullanayım.",
         "claudeDesc": "Claude Code üzerinden Pro veya Max",
-        "chatgptDesc": "Codex üzerinden Plus veya Pro",
+        "chatgptDesc": "Stella bulutu için ChatGPT planın",
         "connect": "Bağla",
         "connectLabel": "{name} bağla",
         "connectedAs": "Bağlandı · {name}",
@@ -2478,10 +2481,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude ve ChatGPT",
-      "settingsRowBody": "Bilgisayarlarında ve bulutta kullanılan hesaplar",
+      "settingsRowBody": "Zaten ödediğin Claude veya ChatGPT planını kullan",
       "openSettingsLabel": "Claude ve ChatGPT hesaplarını aç",
       "title": "Claude ve ChatGPT",
-      "subtitle": "Bilgisayarlarında ve bulutta kullanılan hesaplar",
+      "subtitle": "Zaten ödediğin Claude veya ChatGPT planını kullan",
       "backLabel": "Ayarlar'a dön",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2495,16 +2498,34 @@
       "limitReached": "Limite ulaşıldı · sıfırlanma {time}",
       "autoSwitchLabel": "Limitte hesap değiştir",
       "autoSwitchClaude": "Kullanımdaki hesap 5 saatlik veya haftalık limitine ulaştığında Stella, limit sıfırlanana kadar bir sonrakine geçer.",
-      "autoSwitchChatgpt": "Kullanımdaki hesap Codex kullanım limitine ulaştığında Stella, limit sıfırlanana kadar bir sonrakine geçer.",
+      "autoSwitchChatgpt": "Kullanımdaki hesap bir ChatGPT kullanım limitine ulaştığında Stella, limit sıfırlanana kadar bir sonrakine geçer.",
       "pasteHintClaude": "Erişime izin verdikten sonra Claude bir kod gösterir. Kodu kopyalayıp buraya yapıştır.",
-      "pasteHintChatgpt": "Onayladıktan sonra sayfa yüklenmez. O sayfanın adresini kopyalayıp (Paylaş › Kopyala) buraya yapıştır.",
+      "pasteHintChatgpt": "Onayladıktan sonra ChatGPT seni yüklenmeyen bir sayfaya yönlendirir. O sayfanın tam adresini kopyalayıp buraya yapıştır.",
       "pastePlaceholder": "Kod veya URL",
       "pasteFromClipboard": "Yapıştır",
       "finish": "Bağlan",
       "connecting": "Bağlanıyor…",
       "errorTitle": "Hesaplar güncellenemedi",
       "errorBody": "Bir sorun oluştu. Tekrar dene.",
-      "localNote": "Bu hesaplar tüm bilgisayarlarında ve bulutta Claude Code ile Codex'i çalıştırır. Stella şifreli bir belirteç saklar; oturum açma Claude veya ChatGPT'de kalır."
+      "pastePlaceholderUrl": "Adresi buraya yapıştır",
+      "openChatgptAgain": "ChatGPT'yi yeniden aç",
+      "chatgptBrowserWaiting": "Tarayıcında ChatGPT oturum açma işlemini tamamla.",
+      "claudeNote": "Claude Code, işaretli hesabı tüm bilgisayarlarında ve bulutta kullanır. Kendi cihazların Claude'da oturum açar ve oturumu güncel tutar; Stella'nın sunucusu yalnızca şifrelenmiş token'ları saklar.",
+      "chatgptNote": "Bulut sohbeti ve bulut ajanları işaretli hesabı kullanır ve bu kullanım ChatGPT planından düşülür. Stella bulutunun kendi oturumu vardır; her bilgisayar Stella masaüstü uygulamasında ChatGPT'de oturum açar.",
+      "continueWithChatgpt": "ChatGPT ile devam et",
+      "signInAgain": "Yeniden oturum aç",
+      "enablePlanUsage": "ChatGPT planı kullanımını etkinleştir",
+      "remove": "Kaldır",
+      "removeTitle": "{name} kaldırılsın mı?",
+      "removeBody": "Stella bu ChatGPT hesabını unutur. Daha sonra yeniden oturum açabilirsin.",
+      "statusSignedOut": "Oturum kapatıldı",
+      "statusReauth": "Kullanmaya devam etmek için yeniden oturum aç",
+      "statusPlanUsageOff": "ChatGPT planı kullanımı etkin değil",
+      "planUsageOffBody": "Sen izin verene kadar Stella ChatGPT planını kullanamaz. Hesapta “ChatGPT planı kullanımını etkinleştir” seçeneğini seç.",
+      "manageUsage": "Kullanımı yönet",
+      "revokeUnconfirmed": "ChatGPT oturumun kapatıldığını onaylamadı. Stella'nın bağlantısını ChatGPT Ayarları'ndan kesebilirsin.",
+      "planWelcomeTitle": "ChatGPT planını kullanıyorsun",
+      "planWelcomeBody": "Stella bulutundaki ChatGPT istekleri ChatGPT planından düşülür. Kullanımı incele ve Stella'nın limitini ChatGPT Ayarları'ndan belirle."
     }
   },
   "companion": {

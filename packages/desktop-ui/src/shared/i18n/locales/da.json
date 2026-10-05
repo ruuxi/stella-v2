@@ -594,7 +594,6 @@
       "voiceProviderAriaLabel": "Stemmeudbyder",
       "assistantPickerAriaLabel": "Modelvælger til assistent",
       "verifyingChatGpt": "Bekræfter ChatGPT-modeller…",
-      "noChatGptCodexModels": "Der er ingen modeller, der lige nu er tilgængelige for både ChatGPT og Codex.",
       "savedModelUnavailable": "Den gemte model er ikke tilgængelig. Vælg en anden model.",
       "tabs": {
         "assistant": "Assistent",
@@ -609,7 +608,7 @@
         "chatGptMigration": "Migrering af ChatGPT-routing mislykkedes.",
         "chatGptVerify": "ChatGPT-modeller kunne ikke bekræftes: {error}",
         "chatGptVerifying": "Vent, til ChatGPT-modellerne er bekræftet.",
-        "chatGptNotConnected": "ChatGPT skal tilsluttes før valg.",
+        "chatGptNotConnected": "Log først ind med ChatGPT på denne computer.",
         "chatGptNoModels": "Der er ingen ChatGPT-modeller tilgængelige lige nu.",
         "connectChatGpt": "Kunne ikke tilslutte ChatGPT.",
         "updateEngine": "Kunne ikke opdatere motoren.",
@@ -623,8 +622,12 @@
         "updateReadAloud": "Kunne ikke opdatere udbyderen til oplæsning.",
         "updateReasoning": "Kunne ikke opdatere ræsonneringsindsatsen.",
         "updateChatGptSpeed": "Kunne ikke opdatere ChatGPT-hastigheden.",
-        "updateDirectRuntime": "Kunne ikke opdatere den direkte {runtime}-indstilling."
-      }
+        "updateDirectRuntime": "Kunne ikke opdatere den direkte {runtime}-indstilling.",
+        "chatGptPlanUsageOff": "Brug af ChatGPT-abonnementet er ikke slået til for denne konto. Slå det til under Indstillinger › Konto, eller vælg en anden model."
+      },
+      "noChatGptModels": "Der er ingen ChatGPT-modeller tilgængelige for denne konto lige nu.",
+      "chatGptPlanInUse": "Bruger ChatGPT-abonnement",
+      "chatGptManageUsage": "Administrer forbrug"
     },
     "onboardingReplay": {
       "title": "Onboarding",
@@ -827,9 +830,9 @@
             "title": "Claude Code",
             "body": "Brug dit Claude Pro- eller Max-abonnement."
           },
-          "codex": {
-            "title": "Codex",
-            "body": "Brug dit ChatGPT Plus- eller Pro-abonnement."
+          "chatgpt": {
+            "title": "ChatGPT",
+            "body": "Log ind med ChatGPT for at bruge dit abonnement."
           }
         },
         "signIn": "Log ind",
@@ -2153,7 +2156,7 @@
         "subscriptionsLabel": "Valgfrit",
         "subscriptionsBody": "Betaler du allerede for Claude eller ChatGPT? Forbind det, så bruger jeg det på dine computere og i skyen.",
         "claudeDesc": "Pro eller Max, via Claude Code",
-        "chatgptDesc": "Plus eller Pro, via Codex",
+        "chatgptDesc": "Dit ChatGPT-abonnement til Stellas sky",
         "connect": "Forbind",
         "connectLabel": "Forbind {name}",
         "connectedAs": "Forbundet · {name}",
@@ -2479,10 +2482,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude og ChatGPT",
-      "settingsRowBody": "Konti, der bruges på dine computere og i skyen",
+      "settingsRowBody": "Brug det Claude- eller ChatGPT-abonnement, du allerede betaler for",
       "openSettingsLabel": "Åbn Claude- og ChatGPT-konti",
       "title": "Claude og ChatGPT",
-      "subtitle": "Konti, der bruges på dine computere og i skyen",
+      "subtitle": "Brug det Claude- eller ChatGPT-abonnement, du allerede betaler for",
       "backLabel": "Tilbage til Indstillinger",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2496,16 +2499,34 @@
       "limitReached": "Grænsen er nået · nulstilles {time}",
       "autoSwitchLabel": "Skift konto ved grænsen",
       "autoSwitchClaude": "Når kontoen i brug når sin 5-timers- eller ugegrænse, skifter Stella til den næste, indtil grænsen nulstilles.",
-      "autoSwitchChatgpt": "Når kontoen i brug når sin Codex-forbrugsgrænse, skifter Stella til den næste, indtil grænsen nulstilles.",
+      "autoSwitchChatgpt": "Når kontoen i brug når en ChatGPT-forbrugsgrænse, skifter Stella til den næste, indtil grænsen nulstilles.",
       "pasteHintClaude": "Når du har givet adgang, viser Claude en kode. Kopiér den, og indsæt den her.",
-      "pasteHintChatgpt": "Når du har godkendt, indlæses siden ikke. Kopiér sidens adresse (Del › Kopiér), og indsæt den her.",
+      "pasteHintChatgpt": "Når du har godkendt, sender ChatGPT dig til en side, der ikke indlæses. Kopiér sidens fulde adresse, og indsæt den her.",
       "pastePlaceholder": "Kode eller URL",
       "pasteFromClipboard": "Indsæt",
       "finish": "Forbind",
       "connecting": "Forbinder…",
       "errorTitle": "Kontiene kunne ikke opdateres",
       "errorBody": "Noget gik galt. Prøv igen.",
-      "localNote": "Disse konti driver Claude Code og Codex på alle dine computere og i skyen. Stella gemmer et krypteret token; login forbliver hos Claude eller ChatGPT."
+      "pastePlaceholderUrl": "Indsæt adressen her",
+      "openChatgptAgain": "Åbn ChatGPT igen",
+      "chatgptBrowserWaiting": "Gør login til ChatGPT færdigt i din browser.",
+      "claudeNote": "Claude Code bruger den markerede konto på alle dine computere og i skyen. Dine egne enheder logger ind på Claude og holder login opdateret; Stellas server gemmer kun de krypterede tokens.",
+      "chatgptNote": "Cloudchat og cloudagenter bruger den markerede konto, og forbruget trækkes fra dit ChatGPT-abonnement. Stellas sky har sit eget login; hver computer logger ind på ChatGPT i Stellas skrivebordsapp.",
+      "continueWithChatgpt": "Fortsæt med ChatGPT",
+      "signInAgain": "Log ind igen",
+      "enablePlanUsage": "Slå brug af ChatGPT-abonnement til",
+      "remove": "Fjern",
+      "removeTitle": "Fjern {name}?",
+      "removeBody": "Stella glemmer denne ChatGPT-konto. Du kan logge ind på den igen senere.",
+      "statusSignedOut": "Logget ud",
+      "statusReauth": "Log ind igen for at blive ved med at bruge den",
+      "statusPlanUsageOff": "Brug af ChatGPT-abonnement er ikke slået til",
+      "planUsageOffBody": "Stella kan ikke bruge dit ChatGPT-abonnement, før du tillader det. Vælg »Slå brug af ChatGPT-abonnement til« på kontoen.",
+      "manageUsage": "Administrer forbrug",
+      "revokeUnconfirmed": "ChatGPT bekræftede ikke udlogningen. Du kan afbryde forbindelsen til Stella i ChatGPT-indstillinger.",
+      "planWelcomeTitle": "Du bruger dit ChatGPT-abonnement",
+      "planWelcomeBody": "ChatGPT-forespørgsler i Stellas sky trækkes fra dit ChatGPT-abonnement. Se forbruget, og angiv Stellas grænse i ChatGPT-indstillinger."
     }
   },
   "companion": {

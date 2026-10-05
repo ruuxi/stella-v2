@@ -29,8 +29,8 @@ const persistAssistantUpdate = (args, preamble) => {
     payload: {
       role: "assistant",
       content: [{ type: "text", text }],
-      api: claude ? "anthropic-messages" : "openai-codex-responses",
-      provider: claude ? "anthropic" : "openai-codex",
+      api: claude ? "anthropic-messages" : "chatgpt-responses",
+      provider: claude ? "anthropic" : "chatgpt",
       model: claude ? "claude-code" : "codex",
       usage: EMPTY_USAGE,
       stopReason: "toolUse",

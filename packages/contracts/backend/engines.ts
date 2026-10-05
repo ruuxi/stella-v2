@@ -1,8 +1,8 @@
 /**
- * Engine accounts: the owner's one list of Claude (Pro/Max) and ChatGPT
- * subscriptions, used by every client (Claude Code and Codex on the owner's
- * computers, and cloud turns), plus the account-wide cloud execution
- * selection every client picker reads and writes.
+ * Engine accounts: the owner's Claude (Pro/Max) subscriptions, used by every
+ * client (Claude Code on the owner's computers, and cloud turns), the
+ * ChatGPT accounts signed in for the owner's cloud, plus the account-wide
+ * cloud execution selection every client picker reads and writes.
  *
  * Claude (`DEVICE_AUTH_PROVIDERS`): every Anthropic auth call happens on one
  * of the owner's own devices, from their own network: the sign-in exchange
@@ -17,12 +17,21 @@
  * Devices refresh proactively from an account's `refreshAt`; past
  * `expiresAt` the cloud cannot use the account until one of them does.
  *
- * ChatGPT still signs in through the server (device authorization with
- * automatic polling, or `startConnect` / `finishConnect` with a pasted
- * redirect URL), and the server refreshes its tokens.
+ * ChatGPT follows Sign in with ChatGPT for open-source apps
+ * (`@stella/contracts/chatgpt-siwc`). Every install is its own agent host
+ * with its own ChatGPT sign-ins (kept on that computer, never here); the
+ * owner's cloud is one more host, with its own persisted host id in this
+ * store. A client signs the cloud in: `engines.startConnect` builds the
+ * authorization (cloud host id, fresh state/nonce/PKCE, a 127.0.0.1 loopback
+ * redirect), the user approves in a browser, and the client hands the
+ * redirect URL back to `engines.finishConnect` (desktop catches it on its
+ * loopback listener; a browser or phone, where nothing listens, pastes it).
+ * The server, as the host that will own the credentials, exchanges the code,
+ * validates the ID token, stores the registration and tokens encrypted, and
+ * owns every later refresh. ChatGPT tokens never leave the server.
  *
- * A signed-in client asks `engines.clientAccess` for the active account's
- * short-lived access token and talks to the provider directly.
+ * A signed-in client asks `engines.clientAccess` for the active Claude
+ * account's short-lived access token and talks to Anthropic directly.
  *
  * Each provider can hold several accounts. One is active and serves every
  * turn; with auto-switch on, an account that hits its subscription limit is
@@ -32,7 +41,7 @@
 
 import type { CloudExecutionSelection } from "../agent-engine.js";
 
-export const ENGINE_PROVIDERS = ["anthropic", "openai-codex"] as const;
+export const ENGINE_PROVIDERS = ["anthropic", "chatgpt"] as const;
 export type EngineProvider = (typeof ENGINE_PROVIDERS)[number];
 
 /** Providers whose sign-in and refresh run only on the owner's devices. */
@@ -49,6 +58,16 @@ export type EngineConnection = {
   email?: string;
   /** The subscription plan, when known (e.g. "Max", "Pro", "Plus"). */
   plan?: string;
+  /** The account holder's name, when the provider shares it (ChatGPT). */
+  name?: string;
+  /**
+   * ChatGPT only. Absent while signed in; `signed_out` keeps the
+   * registration (issued client id) for a later sign-in; `reauth_required`
+   * means its tokens stopped working and it must sign in again.
+   */
+  status?: "signed_out" | "reauth_required";
+  /** ChatGPT only: false when the sign-in didn't grant ChatGPT plan usage. */
+  planUsage?: boolean;
   /** The account that serves this provider's turns. */
   active: boolean;
   /** Set while the account's subscription limit is exhausted: when it resets. */
@@ -74,7 +93,11 @@ export type EngineSettings = {
   autoSwitch: Record<EngineProvider, boolean>;
 };
 
-/** The active account's short-lived access token, for the owner's own clients. */
+/** Whether an account can serve turns: signed in, with plan usage granted. */
+export const isEngineConnectionUsable = (connection: EngineConnection): boolean =>
+  !connection.status && connection.planUsage !== false;
+
+/** The active Claude account's short-lived access token, for the owner's own clients. */
 export type EngineClientAccess = {
   accessToken: string;
   /** Epoch ms (server clock); refetch before this. */
@@ -83,8 +106,6 @@ export type EngineClientAccess = {
   refreshAt?: number;
   /** The connected account (`EngineConnection.accountId`) the token belongs to. */
   engineAccountId: string;
-  /** ChatGPT only: the chatgpt_account_id the Codex backend expects. */
-  accountId?: string;
 };
 
 /**
@@ -107,27 +128,31 @@ export type EngineTokenUpload = {
 };
 
 export type EngineCalls = {
-  /** Mobile-safe ChatGPT login; no loopback callback or pasted URL. */
-  "engines.startDeviceConnect": {
-    args: Record<string, never>;
-    result: { connectId: string; authorizeUrl: string; userCode: string; intervalMs: number };
-  };
-  "engines.pollDeviceConnect": {
-    args: { connectId: string };
-    result: { status: "pending" | "connected" };
-  };
   "engines.cancelConnect": {
     args: { connectId: string };
     result: null;
   };
-  /** ChatGPT with a pasted redirect URL. Claude signs in on the device. */
+  /**
+   * Start signing the owner's cloud in to ChatGPT. `redirectPort`: the
+   * caller's loopback listener (desktop); without it the redirect goes to
+   * the documented default port and the user pastes the URL it lands on.
+   * `accountId` signs a saved cloud account in again (its issued client id
+   * and identity hints) instead of registering a new one;
+   * `enablePlanUsage` asks for consent again after plan usage was declined.
+   */
   "engines.startConnect": {
-    args: { provider: "openai-codex" };
-    result: { connectId: string; authorizeUrl: string };
+    args: {
+      provider: "chatgpt";
+      redirectPort?: number;
+      accountId?: string;
+      enablePlanUsage?: boolean;
+    };
+    result: { connectId: string; authorizeUrl: string; redirectUri: string };
   };
+  /** The redirect URL (or its query) the browser landed on. */
   "engines.finishConnect": {
     args: { connectId: string; pastedInput: string };
-    result: { ok: true };
+    result: { accountId: string; planUsage: boolean };
   };
   /**
    * Store an account a device just signed in to. The same provider login
@@ -147,11 +172,14 @@ export type EngineCalls = {
   /**
    * Sign one account out (or, without `accountId`, every account of the
    * provider). Falls back to the managed engine when the provider's last
-   * account goes while it was selected.
+   * usable account goes while it was selected. ChatGPT: the session is
+   * revoked and its registration kept for a later sign-in unless `forget`;
+   * `revoked` is false when the revocation couldn't be confirmed (the user
+   * can disconnect Stella in ChatGPT Settings).
    */
   "engines.disconnect": {
-    args: { provider: EngineProvider; accountId?: string };
-    result: null;
+    args: { provider: EngineProvider; accountId?: string; forget?: boolean };
+    result: { revoked: boolean } | null;
   };
   /** Make one connected account serve the provider's turns. */
   "engines.setActiveAccount": {
@@ -172,15 +200,21 @@ export type EngineCalls = {
     result: null;
   };
   /**
-   * The provider's serving account's access token, or null when no account
-   * is connected (or a server-side ChatGPT refresh failed). Claude:
-   * `needs_device_refresh` once it expired. ChatGPT: refreshed on the server
-   * when close to expiry; `forceRefresh` when the provider rejected the last
-   * token (ignored for Claude, whose device takes the refresh lease instead).
+   * The serving Claude account's access token, or null when none is
+   * connected; `needs_device_refresh` once it expired (this device takes the
+   * refresh lease). The cloud's ChatGPT tokens are never handed out.
    */
   "engines.clientAccess": {
-    args: { provider: EngineProvider; forceRefresh?: boolean };
+    args: { provider: DeviceAuthProvider };
     result: EngineClientAccessResult | null;
+  };
+  /**
+   * The models the cloud's active ChatGPT account may use (`GET /v1/models`),
+   * for the cloud picker; null when no usable account is signed in.
+   */
+  "engines.listModels": {
+    args: { provider: "chatgpt" };
+    result: { models: Array<{ id: string; name: string }> } | null;
   };
   /**
    * Ask for an account's refresh lease. `granted` hands this device the

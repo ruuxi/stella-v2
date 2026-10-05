@@ -1,3 +1,4 @@
+import { CHATGPT_USAGE_LIMIT_CODE } from "@stella/contracts/chatgpt-siwc";
 import {
   GATEWAY_TRACE_HEADER,
   GATEWAY_SUBSCRIPTION_LIMIT_HEADER,
@@ -40,7 +41,8 @@ import {
 import { assertAgentTypeAllowed } from "./resolve.js";
 
 /**
- * Native lane: the owner's connected subscription (Claude Code / Codex CLI).
+ * Native lane: the owner's connected subscription (Claude Code, or a ChatGPT
+ * plan signed in for the owner's cloud through Sign in with ChatGPT).
  *
  * A byte pipe. The request goes upstream untouched apart from credentials and
  * the model pin the turn was admitted with; an Anthropic subscription is only
@@ -75,8 +77,8 @@ const MAX_LIMIT_BODY_BYTES = 64 * 1024;
 
 /**
  * A subscription-limit rejection (Claude's 5-hour/weekly window, ChatGPT's
- * Codex usage limit), as opposed to an ordinary rate limit that clears in
- * seconds. Returns when the provider says it resets, if it said.
+ * plan or per-app usage limit), as opposed to an ordinary rate limit that
+ * clears in seconds. Returns when the provider says it resets, if it said.
  */
 export const subscriptionLimitOf = (
   provider: GatewayNativeCredentialProvider,
@@ -117,20 +119,9 @@ export const subscriptionLimitOf = (
     );
     return resetsAt && resetsAt > now ? { resetsAt } : {};
   }
-  const code = [error.code, error.type]
-    .filter((value): value is string => typeof value === "string")
-    .join(" ");
-  if (/usage_not_included/u.test(code)) {
-    // The plan has no Codex access at all; check again tomorrow.
-    return { resetsAt: now + 24 * 60 * 60_000 };
-  }
-  if (!/usage_limit_reached/u.test(code)) return null;
-  const resetsAt =
-    epochSeconds(error.resets_at) ??
-    (typeof error.resets_in_seconds === "number" && error.resets_in_seconds > 0
-      ? now + error.resets_in_seconds * 1000
-      : undefined);
-  return resetsAt && resetsAt > now ? { resetsAt } : {};
+  // ChatGPT: the code alone says nothing about when the limit resets (it
+  // may be the plan's or Stella's own app limit), so no reset is inferred.
+  return status === 429 && error.code === CHATGPT_USAGE_LIMIT_CODE ? {} : null;
 };
 
 const readBoundedText = async (response: Response): Promise<string | null> => {
@@ -165,13 +156,18 @@ const engineAccessFor = async (
     }));
   if (!result.ok) {
     if (result.code === "engine_refresh_required") {
-      // Stella never refreshes a subscription itself; a signed-in device does.
+      // Stella never refreshes a Claude sign-in itself; a signed-in device does.
       throw new GatewayError(
         403,
         "engine_refresh_required",
-        `Open Stella on one of your devices to refresh your ${
-          provider === "anthropic" ? "Claude" : "ChatGPT"
-        } sign-in, then try again.`,
+        "Open Stella on one of your devices to refresh your Claude sign-in, then try again.",
+      );
+    }
+    if (result.code === "engine_sign_in_required") {
+      throw new GatewayError(
+        403,
+        "engine_sign_in_required",
+        "Your cloud's ChatGPT sign-in ended. Continue with ChatGPT again in Stella's settings.",
       );
     }
     if (result.code) {
@@ -315,7 +311,6 @@ export const handleNativeRelay = async (args: {
   ): NativeRelayCredential => ({
     provider: credential,
     accessToken: current.accessToken,
-    ...(current.accountId ? { accountId: current.accountId } : {}),
   });
   let userCredential = credentialFor(access);
   const target = connectedCredentialUpstreamUrl(

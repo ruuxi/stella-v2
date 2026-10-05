@@ -13,8 +13,8 @@ const frozenSubmission = {
   attachments: [{ path: "images/chart.png", name: "chart.png", sizeBytes: 42 }],
   locale: "fr",
   execution: {
-    engine: "openai-codex",
-    provider: "openai-codex",
+    engine: "chatgpt",
+    provider: "chatgpt",
     model: "gpt-5.6-sol",
     reasoningEffort: "high",
   },

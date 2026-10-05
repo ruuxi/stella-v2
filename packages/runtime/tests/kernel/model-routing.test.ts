@@ -79,7 +79,7 @@ const OPENROUTER_TEMPLATE = model(
 vi.mock("@stella/runtime/ai/models", () => ({
   getModelProviders: () => [
     "openai",
-    "openai-codex",
+    "chatgpt",
     "anthropic",
     "openrouter",
     "vercel-ai-gateway",
@@ -94,11 +94,11 @@ vi.mock("@stella/runtime/ai/models", () => ({
     model("openai", "gpt-5.1-codex"),
     model("openai", "managed-with-engine-shadow"),
     model("openai", "managed-provider-collision"),
-    model("openai-codex", "gpt-5.4", "openai-codex-responses"),
+    model("chatgpt", "gpt-5.4", "chatgpt-responses"),
     model(
-      "openai-codex",
+      "chatgpt",
       "managed-with-engine-shadow",
-      "openai-codex-responses",
+      "chatgpt-responses",
     ),
     model("anthropic", "claude-opus-4.6"),
     model("anthropic", "managed-provider-collision"),
@@ -120,13 +120,13 @@ vi.mock("@stella/runtime/ai/models", () => ({
           model("openai", "managed-with-engine-shadow"),
           model("openai", "managed-provider-collision"),
         ];
-      case "openai-codex":
+      case "chatgpt":
         return [
-          model("openai-codex", "gpt-5.4", "openai-codex-responses"),
+          model("chatgpt", "gpt-5.4", "chatgpt-responses"),
           model(
-            "openai-codex",
+            "chatgpt",
             "managed-with-engine-shadow",
-            "openai-codex-responses",
+            "chatgpt-responses",
           ),
         ];
       case "anthropic":
@@ -861,32 +861,32 @@ describe("resolveLlmRoute", () => {
   });
 
   it("routes the orchestrator through the existing ChatGPT OAuth credential", async () => {
-    oauthCredentials.add("openai-codex");
+    oauthCredentials.add("chatgpt");
     const { resolveLlmRoute } = await import(
       "@stella/runtime/kernel/model-routing"
     );
 
     const resolved = resolveLlmRoute({
       stellaAppDir: "/tmp/stella",
-      modelName: "openai-codex/gpt-5.4",
+      modelName: "chatgpt/gpt-5.4",
       agentType: "orchestrator",
       site,
     });
 
     expect(resolved.route).toBe("direct-provider");
-    expect(resolved.model.provider).toBe("openai-codex");
-    expect(resolved.model.api).toBe("openai-codex-responses");
+    expect(resolved.model.provider).toBe("chatgpt");
+    expect(resolved.model.api).toBe("chatgpt-responses");
     await expect(resolved.getApiKey()).resolves.toBe(
-      "openai-codex-oauth-token",
+      "chatgpt-oauth-token",
     );
   });
 
   it("routes a mobile Codex engine reference (codex-cli/<model>) through the OpenAI-Codex provider", async () => {
     // The mobile picker writes `codex-cli/<model>` into modelOverrides (the
-    // desktop picker writes `openai-codex/<model>`). A mobile-originated turn
+    // desktop picker writes `chatgpt/<model>`). A mobile-originated turn
     // must resolve to the same desktop-local engine route, not fail as an
     // unknown provider.
-    oauthCredentials.add("openai-codex");
+    oauthCredentials.add("chatgpt");
     const { resolveLlmRoute } = await import(
       "@stella/runtime/kernel/model-routing"
     );
@@ -899,10 +899,10 @@ describe("resolveLlmRoute", () => {
     });
 
     expect(resolved.route).toBe("direct-provider");
-    expect(resolved.model.provider).toBe("openai-codex");
+    expect(resolved.model.provider).toBe("chatgpt");
     expect(resolved.model.id).toBe("gpt-5.4");
     await expect(resolved.getApiKey()).resolves.toBe(
-      "openai-codex-oauth-token",
+      "chatgpt-oauth-token",
     );
   });
 

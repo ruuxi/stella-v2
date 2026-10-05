@@ -4,7 +4,7 @@
     "new AbortController": 1,
     "setTimeout(": 2
   },
-  "ai/utils/oauth/openai-codex.ts": 1,
+  "ai/utils/oauth/chatgpt.ts": 1,
   "headless/cli.ts": 1,
   "kernel/agent-core/agent-loop.ts": 1,
   "kernel/agent-core/explicit-model-agent.ts": 1,

@@ -44,20 +44,20 @@ describe("local LLM credential host round trips", () => {
   });
 
   it("still fetches listed providers through the host, normalized", async () => {
-    const calls = installBroker({ apiKey: ["anthropic"], oauth: ["openai-codex"] });
+    const calls = installBroker({ apiKey: ["anthropic"], oauth: ["chatgpt"] });
     await expect(
       getAccessibleLocalLlmApiKey("/unused", " Anthropic "),
     ).resolves.toBe("key-anthropic");
     await expect(
-      getAccessibleLocalLlmOAuthApiKey("/unused", "openai-codex", {
+      getAccessibleLocalLlmOAuthApiKey("/unused", "chatgpt", {
         forceRefresh: true,
       }),
-    ).resolves.toBe("oauth-openai-codex");
+    ).resolves.toBe("oauth-chatgpt");
     // Only the kind the list names is fetched.
     await expect(
       getAccessibleLocalLlmOAuthApiKey("/unused", "anthropic"),
     ).resolves.toBe(null);
-    expect(calls).toEqual(["api-key:anthropic", "oauth:openai-codex:force"]);
+    expect(calls).toEqual(["api-key:anthropic", "oauth:chatgpt:force"]);
   });
 
   it("follows a refreshed provider list on the next call", async () => {

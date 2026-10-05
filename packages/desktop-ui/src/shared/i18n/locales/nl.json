@@ -594,7 +594,6 @@
       "voiceProviderAriaLabel": "Spraakprovider",
       "assistantPickerAriaLabel": "Modelkiezer voor assistent",
       "verifyingChatGpt": "ChatGPT-modellen verifiëren…",
-      "noChatGptCodexModels": "Er zijn momenteel geen modellen beschikbaar voor zowel ChatGPT als Codex.",
       "savedModelUnavailable": "Het opgeslagen model is niet beschikbaar. Kies een ander model.",
       "tabs": {
         "assistant": "Assistent",
@@ -609,7 +608,7 @@
         "chatGptMigration": "Migratie van ChatGPT-routering mislukt.",
         "chatGptVerify": "ChatGPT-modellen konden niet worden geverifieerd: {error}",
         "chatGptVerifying": "Wacht tot de ChatGPT-modellen geverifieerd zijn.",
-        "chatGptNotConnected": "ChatGPT moet verbonden zijn voordat je kunt selecteren.",
+        "chatGptNotConnected": "Log eerst op deze computer in met ChatGPT.",
         "chatGptNoModels": "Er zijn momenteel geen ChatGPT-modellen beschikbaar.",
         "connectChatGpt": "Verbinden met ChatGPT mislukt.",
         "updateEngine": "Engine bijwerken mislukt.",
@@ -623,8 +622,12 @@
         "updateReadAloud": "Voorleesprovider bijwerken mislukt.",
         "updateReasoning": "Redeneerinspanning bijwerken mislukt.",
         "updateChatGptSpeed": "ChatGPT-snelheid bijwerken mislukt.",
-        "updateDirectRuntime": "Directe {runtime}-instelling bijwerken mislukt."
-      }
+        "updateDirectRuntime": "Directe {runtime}-instelling bijwerken mislukt.",
+        "chatGptPlanUsageOff": "Gebruik van het ChatGPT-abonnement is niet ingeschakeld voor dit account. Schakel het in via Instellingen › Account of kies een ander model."
+      },
+      "noChatGptModels": "Er zijn momenteel geen ChatGPT-modellen beschikbaar voor dit account.",
+      "chatGptPlanInUse": "ChatGPT-abonnement in gebruik",
+      "chatGptManageUsage": "Gebruik beheren"
     },
     "onboardingReplay": {
       "title": "Onboarding",
@@ -827,9 +830,9 @@
             "title": "Claude Code",
             "body": "Gebruik je Claude Pro- of Max-abonnement."
           },
-          "codex": {
-            "title": "Codex",
-            "body": "Gebruik je ChatGPT Plus- of Pro-abonnement."
+          "chatgpt": {
+            "title": "ChatGPT",
+            "body": "Log in met ChatGPT om je abonnement te gebruiken."
           }
         },
         "signIn": "Inloggen",
@@ -2153,7 +2156,7 @@
         "subscriptionsLabel": "Optioneel",
         "subscriptionsBody": "Betaal je al voor Claude of ChatGPT? Koppel het en ik gebruik het op je computers en in de cloud.",
         "claudeDesc": "Pro of Max, via Claude Code",
-        "chatgptDesc": "Plus of Pro, via Codex",
+        "chatgptDesc": "Je ChatGPT-abonnement, voor de cloud van Stella",
         "connect": "Koppelen",
         "connectLabel": "{name} koppelen",
         "connectedAs": "Gekoppeld · {name}",
@@ -2478,10 +2481,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude en ChatGPT",
-      "settingsRowBody": "Accounts voor je computers en de cloud",
+      "settingsRowBody": "Gebruik het Claude- of ChatGPT-abonnement waarvoor je al betaalt",
       "openSettingsLabel": "Claude- en ChatGPT-accounts openen",
       "title": "Claude en ChatGPT",
-      "subtitle": "Accounts voor je computers en de cloud",
+      "subtitle": "Gebruik het Claude- of ChatGPT-abonnement waarvoor je al betaalt",
       "backLabel": "Terug naar Instellingen",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2495,16 +2498,34 @@
       "limitReached": "Limiet bereikt · wordt {time} gereset",
       "autoSwitchLabel": "Wissel van account bij de limiet",
       "autoSwitchClaude": "Als het gebruikte account zijn 5-uurs- of weeklimiet bereikt, gaat Stella naar het volgende tot de limiet is gereset.",
-      "autoSwitchChatgpt": "Als het gebruikte account zijn Codex-gebruikslimiet bereikt, gaat Stella naar het volgende tot de limiet is gereset.",
+      "autoSwitchChatgpt": "Als het gebruikte account een ChatGPT-gebruikslimiet bereikt, gaat Stella naar het volgende tot de limiet is gereset.",
       "pasteHintClaude": "Nadat je toegang hebt gegeven, toont Claude een code. Kopieer die en plak hem hier.",
-      "pasteHintChatgpt": "Nadat je toestemming hebt gegeven, laadt de pagina niet. Kopieer het adres van die pagina (Deel › Kopieer) en plak het hier.",
+      "pasteHintChatgpt": "Na je goedkeuring stuurt ChatGPT je naar een pagina die niet laadt. Kopieer het volledige adres van die pagina en plak het hier.",
       "pastePlaceholder": "Code of URL",
       "pasteFromClipboard": "Plakken",
       "finish": "Verbinden",
       "connecting": "Verbinden…",
       "errorTitle": "Kan accounts niet bijwerken",
       "errorBody": "Er ging iets mis. Probeer het opnieuw.",
-      "localNote": "Deze accounts laten Claude Code en Codex draaien op al je computers en in de cloud. Stella bewaart een versleuteld token; inloggen blijft bij Claude of ChatGPT."
+      "pastePlaceholderUrl": "Plak het adres hier",
+      "openChatgptAgain": "ChatGPT opnieuw openen",
+      "chatgptBrowserWaiting": "Rond het inloggen bij ChatGPT af in je browser.",
+      "claudeNote": "Claude Code gebruikt het aangevinkte account op al je computers en in de cloud. Je eigen apparaten loggen in bij Claude en houden de aanmelding actueel; de server van Stella bewaart alleen de versleutelde tokens.",
+      "chatgptNote": "Cloudchat en cloudagents gebruiken het aangevinkte account, en dat gebruik telt mee voor je ChatGPT-abonnement. De cloud van Stella heeft een eigen aanmelding; elke computer logt in bij ChatGPT in de desktop-app van Stella.",
+      "continueWithChatgpt": "Doorgaan met ChatGPT",
+      "signInAgain": "Opnieuw inloggen",
+      "enablePlanUsage": "Gebruik van ChatGPT-abonnement inschakelen",
+      "remove": "Verwijderen",
+      "removeTitle": "{name} verwijderen?",
+      "removeBody": "Stella vergeet dit ChatGPT-account. Je kunt er later opnieuw mee inloggen.",
+      "statusSignedOut": "Afgemeld",
+      "statusReauth": "Log opnieuw in om het te blijven gebruiken",
+      "statusPlanUsageOff": "Gebruik van ChatGPT-abonnement is niet ingeschakeld",
+      "planUsageOffBody": "Stella kan je ChatGPT-abonnement pas gebruiken als je het toestaat. Kies ‘Gebruik van ChatGPT-abonnement inschakelen’ bij het account.",
+      "manageUsage": "Gebruik beheren",
+      "revokeUnconfirmed": "ChatGPT heeft het afmelden niet bevestigd. Je kunt Stella loskoppelen in de ChatGPT-instellingen.",
+      "planWelcomeTitle": "Je gebruikt je ChatGPT-abonnement",
+      "planWelcomeBody": "ChatGPT-verzoeken in de cloud van Stella tellen mee voor je ChatGPT-abonnement. Bekijk het gebruik en stel de limiet van Stella in bij de ChatGPT-instellingen."
     }
   },
   "companion": {

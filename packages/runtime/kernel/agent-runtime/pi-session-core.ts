@@ -100,7 +100,7 @@ const resolveCodexProviderServiceTier = (
   const snapshot = agentContext.modelConfigSnapshot;
   if (
     snapshot?.engine !== "codex_cli" ||
-    resolvedLlm.model.api !== "openai-codex-responses"
+    resolvedLlm.model.api !== "chatgpt-responses"
   ) {
     return undefined;
   }

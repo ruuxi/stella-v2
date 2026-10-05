@@ -22,7 +22,7 @@ const originalFetch = globalThis.fetch;
 const accessTokenFor = (accountId: string): string => {
   const payload = Buffer.from(
     JSON.stringify({
-      "https://api.openai.com/auth": { chatgpt_account_id: accountId },
+      sub: accountId,
     }),
   ).toString("base64url");
   return `header.${payload}.signature`;
@@ -100,9 +100,7 @@ describe("OAuth forced refresh", () => {
     const fetchSpy = vi.fn(async () => tokenResponse("account-rotated"));
     globalThis.fetch = fetchSpy as typeof fetch;
 
-    const result = await getOAuthApiKey("openai-codex", {
-      "openai-codex": creds,
-    });
+    const result = await getOAuthApiKey("xai", { xai: creds });
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(result?.apiKey).toBe(accessTokenFor("account-rotated"));

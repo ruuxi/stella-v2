@@ -49,15 +49,15 @@ const anthropicTurn = (
     },
   });
 
-const codexTurn = () =>
+const chatGptTurn = () =>
   signTurn({
-    credential: "openai-codex",
+    credential: "chatgpt",
     turn: {
-      turnId: "turn_codex",
-      conversationId: "conv_codex",
+      turnId: "turn_chatgpt",
+      conversationId: "conv_chatgpt",
       execution: {
-        engine: "openai-codex",
-        provider: "openai-codex",
+        engine: "chatgpt",
+        provider: "chatgpt",
         model: "gpt-5.6-sol",
         reasoningEffort: "medium",
       },
@@ -83,7 +83,6 @@ const setup = () => {
               }
             : {
                 accessToken: "chatgpt-oauth-token",
-                accountId: "acct_123",
                 expiresAt: now + 3_600_000,
               },
         );
@@ -112,11 +111,11 @@ const setup = () => {
         ),
     )
     .on(
-      (call) => call.url.host === "chatgpt.com",
+      (call) => call.url.host === "api.openai.com",
       () =>
         json(
           {
-            id: "resp_codex",
+            id: "resp_chatgpt",
             object: "response",
             status: "completed",
             output: [],
@@ -233,8 +232,8 @@ describe("native lane", () => {
     expect(ctx.harness.ledger.objects.size).toBe(0);
   });
 
-  test("Codex: sets chatgpt-account-id, targets the Codex backend, parses JSON usage best-effort", async () => {
-    const { token } = await codexTurn();
+  test("ChatGPT: bears the cloud's Sign in with ChatGPT token to the public Responses API, parses JSON usage best-effort", async () => {
+    const { token } = await chatGptTurn();
     const response = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
@@ -242,25 +241,24 @@ describe("native lane", () => {
           model: "gpt-5.6-sol",
           input: [{ role: "user", content: "hi" }],
           reasoning: { effort: "medium" },
-          stream: false,
+          store: false,
+          stream: true,
         },
       }),
     );
     expect(response.status).toBe(200);
     expect((await response.json()) as { id: string }).toMatchObject({
-      id: "resp_codex",
+      id: "resp_chatgpt",
     });
-    const upstream = ctx.fetchMock.callsTo("chatgpt.com")[0]!;
-    expect(upstream.url.href).toBe(
-      "https://chatgpt.com/backend-api/codex/responses",
-    );
+    const upstream = ctx.fetchMock.callsTo("api.openai.com")[0]!;
+    expect(upstream.url.href).toBe("https://api.openai.com/v1/responses");
     expect(upstream.headers.get("authorization")).toBe(
       "Bearer chatgpt-oauth-token",
     );
-    expect(upstream.headers.get("chatgpt-account-id")).toBe("acct_123");
     expect(JSON.parse(upstream.body ?? "{}")).toMatchObject({
       model: "gpt-5.6-sol",
-      stream: false,
+      store: false,
+      stream: true,
     });
 
     await ctx.harness.flush();
@@ -278,7 +276,7 @@ describe("native lane", () => {
     });
   });
 
-  test("Codex at its usage limit: cools the account down, switches, and retries once", async () => {
+  test("ChatGPT at its usage limit: cools the account down, switches, and retries once", async () => {
     let accessCalls = 0;
     const limits: unknown[] = [];
     ctx.fetchMock
@@ -288,7 +286,6 @@ describe("native lane", () => {
           accessCalls += 1;
           return json({
             accessToken: accessCalls === 1 ? "token-a" : "token-b",
-            accountId: "acct_123",
             engineAccountId: accessCalls === 1 ? "acct-a" : "acct-b",
             expiresAt: Date.now() + 3_600_000,
           });
@@ -303,21 +300,20 @@ describe("native lane", () => {
       )
       .on(
         (call) =>
-          call.url.host === "chatgpt.com" &&
+          call.url.host === "api.openai.com" &&
           call.headers.get("authorization") === "Bearer token-a",
         () =>
           json(
             {
               error: {
-                type: "usage_limit_reached",
-                plan_type: "plus",
-                resets_at: 4_102_444_800,
+                code: "subscription_sharing_usage_limit_exceeded",
+                message: "Usage limit reached.",
               },
             },
             429,
           ),
       );
-    const { token } = await codexTurn();
+    const { token } = await chatGptTurn();
     const response = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
@@ -325,23 +321,22 @@ describe("native lane", () => {
           model: "gpt-5.6-sol",
           input: [{ role: "user", content: "hi" }],
           reasoning: { effort: "medium" },
-          stream: false,
+          store: false,
+          stream: true,
         },
       }),
     );
 
     expect(response.status).toBe(200);
     expect(limits).toEqual([
-      expect.objectContaining({
-        provider: "openai-codex",
-        engineAccountId: "acct-a",
-        resetsAt: 4_102_444_800_000,
-      }),
+      expect.objectContaining({ provider: "chatgpt", engineAccountId: "acct-a" }),
     ]);
+    // The usage-limit code says nothing about when it resets.
+    expect(limits[0]).not.toHaveProperty("resetsAt");
     expect(response.headers.get(GATEWAY_SUBSCRIPTION_LIMIT_HEADER)).toBeNull();
     expect(
       ctx.fetchMock
-        .callsTo("chatgpt.com")
+        .callsTo("api.openai.com")
         .map((call) => call.headers.get("authorization")),
     ).toEqual(["Bearer token-a", "Bearer token-b"]);
   });
@@ -422,7 +417,7 @@ describe("native lane", () => {
     ).toBeNull();
     expect(
       subscriptionLimitOf(
-        "openai-codex",
+        "chatgpt",
         429,
         new Headers(),
         JSON.stringify({ error: { code: "rate_limit_exceeded" } }),
@@ -431,15 +426,15 @@ describe("native lane", () => {
     ).toBeNull();
     expect(
       subscriptionLimitOf(
-        "openai-codex",
+        "chatgpt",
         429,
         new Headers(),
         JSON.stringify({
-          error: { type: "usage_limit_reached", resets_in_seconds: 60 },
+          error: { code: "subscription_sharing_usage_limit_exceeded" },
         }),
         now,
       ),
-    ).toEqual({ resetsAt: 61_000 });
+    ).toEqual({});
     expect(
       subscriptionLimitOf("anthropic", 500, new Headers(), "{}", now),
     ).toBeNull();
@@ -494,8 +489,8 @@ describe("native lane", () => {
         turnId: "t",
         conversationId: "c",
         execution: {
-          engine: "openai-codex",
-          provider: "openai-codex",
+          engine: "chatgpt",
+          provider: "chatgpt",
           model: "gpt-5.6-sol",
           reasoningEffort: "default",
         },

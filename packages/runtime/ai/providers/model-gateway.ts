@@ -24,7 +24,7 @@ export const isManagedStellaRelayModel = (
   model.id.startsWith("stella/") &&
   isGatewayRelayBaseUrl(model.baseUrl) &&
   model.headers?.["x-stella-llm-credential"] !== "anthropic" &&
-  model.headers?.["x-stella-llm-credential"] !== "openai-codex";
+  model.headers?.["x-stella-llm-credential"] !== "chatgpt";
 
 /**
  * Explicit per-request timeout for a gateway completion. The gateway holds

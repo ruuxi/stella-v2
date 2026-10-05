@@ -596,7 +596,6 @@
       "voiceProviderAriaLabel": "Poskytovatel hlasu",
       "assistantPickerAriaLabel": "Výběr modelu asistenta",
       "verifyingChatGpt": "Ověřování modelů ChatGPT…",
-      "noChatGptCodexModels": "Momentálně není dostupný žádný model současně pro ChatGPT i Codex.",
       "savedModelUnavailable": "Uložený model není dostupný. Vyberte jiný model.",
       "tabs": {
         "assistant": "Asistent",
@@ -611,7 +610,7 @@
         "chatGptMigration": "Migrace směrování ChatGPT se nezdařila.",
         "chatGptVerify": "Modely ChatGPT nebylo možné ověřit: {error}",
         "chatGptVerifying": "Počkejte, až se ověření modelů ChatGPT dokončí.",
-        "chatGptNotConnected": "Před výběrem je nutné připojit ChatGPT.",
+        "chatGptNotConnected": "Nejdřív se na tomto počítači přihlaste přes ChatGPT.",
         "chatGptNoModels": "Momentálně nejsou dostupné žádné modely ChatGPT.",
         "connectChatGpt": "Nepodařilo se připojit ChatGPT.",
         "updateEngine": "Nepodařilo se aktualizovat engine.",
@@ -625,8 +624,12 @@
         "updateReadAloud": "Nepodařilo se aktualizovat poskytovatele čtení nahlas.",
         "updateReasoning": "Nepodařilo se aktualizovat míru uvažování.",
         "updateChatGptSpeed": "Nepodařilo se aktualizovat rychlost ChatGPT.",
-        "updateDirectRuntime": "Nepodařilo se aktualizovat přímé nastavení {runtime}."
-      }
+        "updateDirectRuntime": "Nepodařilo se aktualizovat přímé nastavení {runtime}.",
+        "chatGptPlanUsageOff": "Používání tarifu ChatGPT není pro tento účet povolené. Povolte ho v Nastavení › Účet, nebo vyberte jiný model."
+      },
+      "noChatGptModels": "Pro tento účet teď nejsou k dispozici žádné modely ChatGPT.",
+      "chatGptPlanInUse": "Používá se tarif ChatGPT",
+      "chatGptManageUsage": "Spravovat využití"
     },
     "onboardingReplay": {
       "title": "Onboarding",
@@ -829,9 +832,9 @@
             "title": "Claude Code",
             "body": "Použij své předplatné Claude Pro nebo Max."
           },
-          "codex": {
-            "title": "Codex",
-            "body": "Použij své předplatné ChatGPT Plus nebo Pro."
+          "chatgpt": {
+            "title": "ChatGPT",
+            "body": "Přihlaste se přes ChatGPT a používejte svůj tarif."
           }
         },
         "signIn": "Přihlásit se",
@@ -2191,7 +2194,7 @@
         "subscriptionsLabel": "Volitelné",
         "subscriptionsBody": "Už platíte za Claude nebo ChatGPT? Propojte to a použiju to na vašich počítačích i v cloudu.",
         "claudeDesc": "Pro nebo Max, přes Claude Code",
-        "chatgptDesc": "Plus nebo Pro, přes Codex",
+        "chatgptDesc": "Váš tarif ChatGPT pro cloud Stella",
         "connect": "Připojit",
         "connectLabel": "Připojit {name}",
         "connectedAs": "Připojeno · {name}",
@@ -2521,10 +2524,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude a ChatGPT",
-      "settingsRowBody": "Účty používané na vašich počítačích a v cloudu",
+      "settingsRowBody": "Použijte tarif Claude nebo ChatGPT, který už platíte",
       "openSettingsLabel": "Otevřít účty Claude a ChatGPT",
       "title": "Claude a ChatGPT",
-      "subtitle": "Účty používané na vašich počítačích a v cloudu",
+      "subtitle": "Použijte tarif Claude nebo ChatGPT, který už platíte",
       "backLabel": "Zpět do Nastavení",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2538,16 +2541,34 @@
       "limitReached": "Limit dosažen · obnoví se {time}",
       "autoSwitchLabel": "Při dosažení limitu přepnout účet",
       "autoSwitchClaude": "Když používaný účet dosáhne 5hodinového nebo týdenního limitu, Stella přepne na další, dokud se limit neobnoví.",
-      "autoSwitchChatgpt": "Když používaný účet dosáhne limitu využití Codexu, Stella přepne na další, dokud se limit neobnoví.",
+      "autoSwitchChatgpt": "Když používaný účet dosáhne limitu využití ChatGPT, Stella přepne na další, dokud se limit neobnoví.",
       "pasteHintClaude": "Po udělení přístupu Claude zobrazí kód. Zkopírujte ho a vložte sem.",
-      "pasteHintChatgpt": "Po schválení se stránka nenačte. Zkopírujte adresu této stránky (Sdílet › Kopírovat) a vložte ji sem.",
+      "pasteHintChatgpt": "Po schválení vás ChatGPT přesměruje na stránku, která se nenačte. Zkopírujte celou adresu této stránky a vložte ji sem.",
       "pastePlaceholder": "Kód nebo URL",
       "pasteFromClipboard": "Vložit",
       "finish": "Připojit",
       "connecting": "Připojování…",
       "errorTitle": "Účty se nepodařilo aktualizovat",
       "errorBody": "Něco se pokazilo. Zkuste to znovu.",
-      "localNote": "Tyto účty pohánějí Claude Code a Codex na všech vašich počítačích i v cloudu. Stella uchovává šifrovaný token; přihlášení zůstává u Claude nebo ChatGPT."
+      "pastePlaceholderUrl": "Sem vložte adresu",
+      "openChatgptAgain": "Znovu otevřít ChatGPT",
+      "chatgptBrowserWaiting": "Dokončete přihlášení do ChatGPT v prohlížeči.",
+      "claudeNote": "Claude Code používá zaškrtnutý účet na všech vašich počítačích i v cloudu. Vaše vlastní zařízení se přihlašují ke Claude a udržují přihlášení aktuální; server Stella ukládá jen šifrované tokeny.",
+      "chatgptNote": "Cloudový chat a cloudoví agenti používají zaškrtnutý účet a toto využití se započítává do vašeho tarifu ChatGPT. Cloud Stella má vlastní přihlášení; každý počítač se přihlašuje k ChatGPT v desktopové aplikaci Stella.",
+      "continueWithChatgpt": "Pokračovat přes ChatGPT",
+      "signInAgain": "Přihlásit se znovu",
+      "enablePlanUsage": "Povolit používání tarifu ChatGPT",
+      "remove": "Odebrat",
+      "removeTitle": "Odebrat {name}?",
+      "removeBody": "Stella tento účet ChatGPT zapomene. Později se k němu můžete znovu přihlásit.",
+      "statusSignedOut": "Odhlášeno",
+      "statusReauth": "Pokud ho chcete dál používat, přihlaste se znovu",
+      "statusPlanUsageOff": "Používání tarifu ChatGPT není povolené",
+      "planUsageOffBody": "Stella nemůže používat váš tarif ChatGPT, dokud to nepovolíte. U účtu zvolte „Povolit používání tarifu ChatGPT“.",
+      "manageUsage": "Spravovat využití",
+      "revokeUnconfirmed": "ChatGPT nepotvrdil odhlášení. Stellu můžete odpojit v Nastavení ChatGPT.",
+      "planWelcomeTitle": "Používáte svůj tarif ChatGPT",
+      "planWelcomeBody": "Požadavky ChatGPT v cloudu Stella se započítávají do vašeho tarifu ChatGPT. Využití zkontrolujete a limit pro Stellu nastavíte v Nastavení ChatGPT."
     }
   },
   "companion": {

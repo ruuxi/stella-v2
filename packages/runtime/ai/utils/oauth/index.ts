@@ -27,8 +27,6 @@ export {
 	normalizeDomain,
 	refreshGitHubCopilotToken,
 } from "./github-copilot.js";
-// OpenAI Codex (ChatGPT OAuth)
-export { loginOpenAICodex, openaiCodexOAuthProvider, refreshOpenAICodexToken } from "./openai-codex.js";
 // xAI (Grok/X subscription)
 export { xaiOAuthProvider } from "./xai.js";
 
@@ -40,14 +38,12 @@ export * from "./types.js";
 
 import { anthropicOAuthProvider } from "./anthropic.js";
 import { githubCopilotOAuthProvider } from "./github-copilot.js";
-import { openaiCodexOAuthProvider } from "./openai-codex.js";
 import { xaiOAuthProvider } from "./xai.js";
 import type { OAuthCredentials, OAuthProviderId, OAuthProviderInterface } from "./types.js";
 
 const BUILT_IN_OAUTH_PROVIDERS: OAuthProviderInterface[] = [
 	anthropicOAuthProvider,
 	githubCopilotOAuthProvider,
-	openaiCodexOAuthProvider,
 	xaiOAuthProvider,
 ];
 

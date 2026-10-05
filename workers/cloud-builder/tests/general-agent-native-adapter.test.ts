@@ -33,7 +33,7 @@ const context = () => {
 };
 
 const nativePlan = (
-  engine: "anthropic" | "openai-codex",
+  engine: "anthropic" | "chatgpt",
 ): Extract<GeneralAgentTurnPlan, { kind: "native_sandbox" }> => {
   const plan = selectGeneralAgentTurnPlan({
     execution: {
@@ -102,7 +102,7 @@ const attemptFromExecutorFile = (
 describe("native sandbox adapter", () => {
   test("places anthropic and codex turns on the container path", () => {
     expect(nativePlan("anthropic").reason).toBe("native_engine");
-    expect(nativePlan("openai-codex").reason).toBe("native_engine");
+    expect(nativePlan("chatgpt").reason).toBe("native_engine");
   });
 
   test("projects a completed executor result into the shared envelope", async () => {
@@ -193,7 +193,7 @@ describe("native sandbox adapter", () => {
     );
 
     const result = await runNativeSandboxTurn({
-      plan: nativePlan("openai-codex"),
+      plan: nativePlan("chatgpt"),
       context: context(),
       runAttempt: async () => attempt,
     });

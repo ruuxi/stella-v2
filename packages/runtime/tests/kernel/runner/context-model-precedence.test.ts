@@ -150,7 +150,7 @@ describe("legacy manager-typed spawn model inheritance snapshots", () => {
     ).toEqual({
       engine: "codex_cli",
       subscriptionHarnessEnabled: true,
-      routeModel: "openai-codex/gpt-5.6-codex",
+      routeModel: "chatgpt/gpt-5.6-codex",
       engineModel: "gpt-5.6-codex",
       reasoningEffort: "high",
       serviceTier: "standard",

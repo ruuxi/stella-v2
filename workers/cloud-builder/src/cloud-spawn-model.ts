@@ -27,8 +27,8 @@ const DEFAULT_CLOUD_ANTHROPIC_EXECUTION: CloudExecutionSelection = {
 };
 
 const DEFAULT_CLOUD_CODEX_EXECUTION: CloudExecutionSelection = {
-  engine: "openai-codex",
-  provider: "openai-codex",
+  engine: "chatgpt",
+  provider: "chatgpt",
   model: "gpt-6.1-sol",
   reasoningEffort: "default",
 };

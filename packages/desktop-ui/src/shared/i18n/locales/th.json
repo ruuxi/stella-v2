@@ -593,7 +593,6 @@
       "voiceProviderAriaLabel": "ผู้ให้บริการเสียง",
       "assistantPickerAriaLabel": "ตัวเลือกโมเดลผู้ช่วย",
       "verifyingChatGpt": "กำลังตรวจสอบโมเดล ChatGPT…",
-      "noChatGptCodexModels": "ขณะนี้ไม่มีโมเดลที่ใช้ได้ทั้งกับ ChatGPT และ Codex",
       "savedModelUnavailable": "โมเดลที่บันทึกไว้ไม่พร้อมใช้งาน เลือกโมเดลอื่น",
       "tabs": {
         "assistant": "ผู้ช่วย",
@@ -608,7 +607,7 @@
         "chatGptMigration": "การย้ายเส้นทาง ChatGPT ล้มเหลว",
         "chatGptVerify": "ไม่สามารถตรวจสอบโมเดล ChatGPT ได้: {error}",
         "chatGptVerifying": "รอให้การตรวจสอบโมเดล ChatGPT เสร็จสิ้น",
-        "chatGptNotConnected": "ต้องเชื่อมต่อ ChatGPT ก่อนจึงจะเลือกได้",
+        "chatGptNotConnected": "ลงชื่อเข้าใช้ด้วย ChatGPT บนคอมพิวเตอร์เครื่องนี้ก่อน",
         "chatGptNoModels": "ขณะนี้ไม่มีโมเดล ChatGPT ที่พร้อมใช้งาน",
         "connectChatGpt": "เชื่อมต่อ ChatGPT ไม่สำเร็จ",
         "updateEngine": "อัปเดตเอนจินไม่สำเร็จ",
@@ -622,8 +621,12 @@
         "updateReadAloud": "อัปเดตผู้ให้บริการอ่านออกเสียงไม่สำเร็จ",
         "updateReasoning": "อัปเดตระดับการให้เหตุผลไม่สำเร็จ",
         "updateChatGptSpeed": "อัปเดตความเร็ว ChatGPT ไม่สำเร็จ",
-        "updateDirectRuntime": "อัปเดตการตั้งค่า {runtime} แบบตรงไม่สำเร็จ"
-      }
+        "updateDirectRuntime": "อัปเดตการตั้งค่า {runtime} แบบตรงไม่สำเร็จ",
+        "chatGptPlanUsageOff": "บัญชีนี้ยังไม่ได้เปิดใช้แพ็กเกจ ChatGPT เปิดใช้ได้ที่ การตั้งค่า › บัญชี หรือเลือกโมเดลอื่น"
+      },
+      "noChatGptModels": "ขณะนี้ไม่มีโมเดล ChatGPT ที่ใช้ได้กับบัญชีนี้",
+      "chatGptPlanInUse": "กำลังใช้แพ็กเกจ ChatGPT",
+      "chatGptManageUsage": "จัดการการใช้งาน"
     },
     "onboardingReplay": {
       "title": "Onboarding",
@@ -826,9 +829,9 @@
             "title": "Claude Code",
             "body": "ใช้แพ็กเกจ Claude Pro หรือ Max ของคุณ"
           },
-          "codex": {
-            "title": "Codex",
-            "body": "ใช้แพ็กเกจ ChatGPT Plus หรือ Pro ของคุณ"
+          "chatgpt": {
+            "title": "ChatGPT",
+            "body": "ลงชื่อเข้าใช้ด้วย ChatGPT เพื่อใช้แพ็กเกจของคุณ"
           }
         },
         "signIn": "ลงชื่อเข้าใช้",
@@ -2131,7 +2134,7 @@
         "subscriptionsLabel": "ไม่บังคับ",
         "subscriptionsBody": "จ่ายค่า Claude หรือ ChatGPT อยู่แล้วใช่ไหม เชื่อมต่อเลย แล้วฉันจะใช้มันบนคอมพิวเตอร์ของคุณและบนคลาวด์",
         "claudeDesc": "Pro หรือ Max ผ่าน Claude Code",
-        "chatgptDesc": "Plus หรือ Pro ผ่าน Codex",
+        "chatgptDesc": "แพ็กเกจ ChatGPT ของคุณ สำหรับคลาวด์ของ Stella",
         "connect": "เชื่อมต่อ",
         "connectLabel": "เชื่อมต่อ {name}",
         "connectedAs": "เชื่อมต่อแล้ว · {name}",
@@ -2453,10 +2456,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude และ ChatGPT",
-      "settingsRowBody": "บัญชีที่ใช้บนคอมพิวเตอร์ของคุณและบนคลาวด์",
+      "settingsRowBody": "ใช้แพ็กเกจ Claude หรือ ChatGPT ที่คุณจ่ายอยู่แล้ว",
       "openSettingsLabel": "เปิดบัญชี Claude และ ChatGPT",
       "title": "Claude และ ChatGPT",
-      "subtitle": "บัญชีที่ใช้บนคอมพิวเตอร์ของคุณและบนคลาวด์",
+      "subtitle": "ใช้แพ็กเกจ Claude หรือ ChatGPT ที่คุณจ่ายอยู่แล้ว",
       "backLabel": "กลับไปที่การตั้งค่า",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2470,16 +2473,34 @@
       "limitReached": "ถึงขีดจำกัดแล้ว · รีเซ็ต {time}",
       "autoSwitchLabel": "สลับบัญชีเมื่อถึงขีดจำกัด",
       "autoSwitchClaude": "เมื่อบัญชีที่กำลังใช้ถึงขีดจำกัด 5 ชั่วโมงหรือรายสัปดาห์ Stella จะย้ายไปใช้บัญชีถัดไปจนกว่าจะรีเซ็ต",
-      "autoSwitchChatgpt": "เมื่อบัญชีที่กำลังใช้ถึงขีดจำกัดการใช้งาน Codex Stella จะย้ายไปใช้บัญชีถัดไปจนกว่าจะรีเซ็ต",
+      "autoSwitchChatgpt": "เมื่อบัญชีที่กำลังใช้ถึงขีดจำกัดการใช้งาน ChatGPT Stella จะย้ายไปใช้บัญชีถัดไปจนกว่าจะรีเซ็ต",
       "pasteHintClaude": "หลังจากอนุญาตการเข้าถึง Claude จะแสดงรหัส คัดลอกแล้ววางที่นี่",
-      "pasteHintChatgpt": "หลังจากอนุมัติ หน้าเว็บจะโหลดไม่ขึ้น คัดลอกที่อยู่ของหน้านั้น (แชร์ › คัดลอก) แล้ววางที่นี่",
+      "pasteHintChatgpt": "หลังจากอนุมัติ ChatGPT จะพาคุณไปยังหน้าที่โหลดไม่ขึ้น คัดลอกที่อยู่แบบเต็มของหน้านั้นแล้ววางที่นี่",
       "pastePlaceholder": "รหัสหรือ URL",
       "pasteFromClipboard": "วาง",
       "finish": "เชื่อมต่อ",
       "connecting": "กำลังเชื่อมต่อ…",
       "errorTitle": "อัปเดตบัญชีไม่ได้",
       "errorBody": "เกิดข้อผิดพลาด ลองอีกครั้ง",
-      "localNote": "บัญชีเหล่านี้ขับเคลื่อน Claude Code และ Codex บนคอมพิวเตอร์ทุกเครื่องของคุณและบนคลาวด์ Stella เก็บโทเค็นที่เข้ารหัสไว้ ส่วนการลงชื่อเข้าใช้ยังอยู่กับ Claude หรือ ChatGPT"
+      "pastePlaceholderUrl": "วางที่อยู่ที่นี่",
+      "openChatgptAgain": "เปิด ChatGPT อีกครั้ง",
+      "chatgptBrowserWaiting": "ลงชื่อเข้าใช้ ChatGPT ในเบราว์เซอร์ให้เสร็จ",
+      "claudeNote": "Claude Code ใช้บัญชีที่เลือกไว้บนคอมพิวเตอร์ทุกเครื่องของคุณและบนคลาวด์ อุปกรณ์ของคุณเองจะลงชื่อเข้าใช้ Claude และรีเฟรชให้เป็นปัจจุบันอยู่เสมอ ส่วนเซิร์ฟเวอร์ของ Stella เก็บเฉพาะโทเค็นที่เข้ารหัสไว้",
+      "chatgptNote": "แชทและเอเจนต์บนคลาวด์ใช้บัญชีที่เลือกไว้ และการใช้งานนั้นจะนับรวมในแพ็กเกจ ChatGPT ของคุณ คลาวด์ของ Stella มีการลงชื่อเข้าใช้ของตัวเอง ส่วนคอมพิวเตอร์แต่ละเครื่องลงชื่อเข้าใช้ ChatGPT ในแอป Stella บนเดสก์ท็อป",
+      "continueWithChatgpt": "ดำเนินการต่อด้วย ChatGPT",
+      "signInAgain": "ลงชื่อเข้าใช้อีกครั้ง",
+      "enablePlanUsage": "เปิดใช้แพ็กเกจ ChatGPT",
+      "remove": "ลบ",
+      "removeTitle": "ลบ {name} ไหม",
+      "removeBody": "Stella จะลืมบัญชี ChatGPT นี้ คุณลงชื่อเข้าใช้บัญชีนี้อีกครั้งได้ในภายหลัง",
+      "statusSignedOut": "ออกจากระบบแล้ว",
+      "statusReauth": "ลงชื่อเข้าใช้อีกครั้งเพื่อใช้งานต่อ",
+      "statusPlanUsageOff": "ยังไม่ได้เปิดใช้แพ็กเกจ ChatGPT",
+      "planUsageOffBody": "Stella ใช้แพ็กเกจ ChatGPT ของคุณไม่ได้จนกว่าคุณจะอนุญาต เลือก “เปิดใช้แพ็กเกจ ChatGPT” ที่บัญชี",
+      "manageUsage": "จัดการการใช้งาน",
+      "revokeUnconfirmed": "ChatGPT ไม่ได้ยืนยันการออกจากระบบ คุณยกเลิกการเชื่อมต่อ Stella ได้ในการตั้งค่า ChatGPT",
+      "planWelcomeTitle": "คุณกำลังใช้แพ็กเกจ ChatGPT ของคุณ",
+      "planWelcomeBody": "คำขอ ChatGPT บนคลาวด์ของ Stella จะนับรวมในแพ็กเกจ ChatGPT ของคุณ ตรวจสอบการใช้งานและตั้งขีดจำกัดของ Stella ในการตั้งค่า ChatGPT"
     }
   },
   "companion": {

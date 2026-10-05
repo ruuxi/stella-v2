@@ -41,8 +41,8 @@ describe("cloud native-state containment", () => {
   test("keeps Codex Responses in Stella's in-process agent loop", () => {
     expect(
       usesNativeCloudRuntime({
-        engine: "openai-codex",
-        provider: "openai-codex",
+        engine: "chatgpt",
+        provider: "chatgpt",
         model: "gpt-5.6-sol",
         reasoningEffort: "high",
       }),
@@ -183,7 +183,7 @@ describe("cloud native-state containment", () => {
 
   test("enables browser-backed code only for the Stella cloud engine", () => {
     expect(cloudGeneralToolNames("stella")).toContain("code");
-    for (const engine of ["anthropic", "openai-codex"] as const) {
+    for (const engine of ["anthropic", "chatgpt"] as const) {
       expect(cloudGeneralToolNames(engine)).not.toContain("code");
       expect(cloudGeneralToolNames(engine)).toContain("exec_command");
       expect(cloudGeneralToolNames(engine)).toContain("Write");

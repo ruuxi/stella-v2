@@ -4,26 +4,34 @@ import { backendClient } from "@/platform/backend/backend-client";
 import { openExternalUrl } from "@/platform/electron/open-external";
 
 /**
- * Adding a Claude or ChatGPT account to the owner's Stella account, where
- * every computer and the cloud read it. Claude signs in on this computer:
- * Electron main opens the browser, receives the code on its loopback
- * listener, exchanges it with Anthropic and uploads the tokens; this window
- * only waits. ChatGPT uses device authorization through the server and
- * connects by itself once the user approves the code.
+ * Adding an account to the owner's Stella account: a Claude subscription
+ * (used on every computer and in the cloud), or a ChatGPT sign-in for the
+ * owner's cloud (Sign in with ChatGPT; the cloud is its own host).
+ *
+ * In the desktop app Electron main runs the browser round trip and catches
+ * the 127.0.0.1 redirect on its loopback listener; this window only waits.
+ * Claude's tokens are exchanged there and uploaded; ChatGPT's redirect URL
+ * goes to the server, which exchanges the code and keeps the credentials.
+ * In a browser nothing can listen on 127.0.0.1, so ChatGPT sign-in opens
+ * the authorization page and the user pastes back the address the browser
+ * landed on; Claude sign-in needs the desktop app.
  */
 
 export type EngineConnectFlow =
-  | { kind: "browser"; provider: "anthropic" }
+  | { kind: "browser"; provider: EngineProvider }
   | {
-      kind: "device";
-      provider: EngineProvider;
+      kind: "paste";
+      provider: "chatgpt";
       connectId: string;
       authorizeUrl: string;
-      userCode: string;
-      intervalMs: number;
     };
 
-const DEVICE_DEADLINE_MS = 15 * 60_000;
+export type EngineConnectOptions = {
+  /** Sign a saved cloud ChatGPT account in again. */
+  accountId?: string;
+  /** Ask ChatGPT for consent to use the plan after it was declined. */
+  enablePlanUsage?: boolean;
+};
 
 const messageOf = (error: unknown): string | null =>
   error instanceof Error && error.message ? error.message : null;
@@ -48,56 +56,83 @@ export function useEngineConnect() {
 
   const cancel = useCallback(() => {
     const current = flowRef.current;
-    if (current?.kind === "device") {
+    if (current?.kind === "paste") {
       void backendClient
         .call("engines.cancelConnect", { connectId: current.connectId })
         .catch(() => undefined);
-    } else if (current?.kind === "browser") {
+    } else if (current?.provider === "anthropic") {
       void window.electronAPI?.system?.cancelClaudeAccountConnect?.().catch(() => undefined);
+    } else if (current?.provider === "chatgpt") {
+      void window.electronAPI?.system?.cancelChatGptCloudConnect?.().catch(() => undefined);
     }
+    setError(null);
     settle(false);
   }, [settle]);
 
+  /** Wait for the desktop app's own browser round trip to finish. */
+  const runInMain = useCallback(
+    (provider: EngineProvider, run: () => Promise<unknown>): Promise<boolean> => {
+      const next: EngineConnectFlow = { kind: "browser", provider };
+      flowRef.current = next;
+      setFlow(next);
+      return new Promise<boolean>((resolve, reject) => {
+        settleRef.current = (outcome) =>
+          outcome instanceof Error ? reject(outcome) : resolve(outcome);
+        run().then(
+          () => {
+            if (flowRef.current === next) settle(true);
+          },
+          (caught: unknown) => {
+            if (flowRef.current !== next) return;
+            const message = messageOf(caught);
+            if (message && /cancel/iu.test(message)) {
+              settle(false);
+              return;
+            }
+            settle(new Error(message ?? "That didn't connect. Try again."));
+          },
+        );
+      });
+    },
+    [settle],
+  );
+
   /**
-   * Begin adding an account. Resolves true once it is connected, false when
-   * the flow was cancelled; throws when the flow could not start, the Claude
-   * sign-in failed, or the ChatGPT approval could not be confirmed.
+   * Begin adding (or signing in again) an account. Resolves true once it is
+   * connected, false when cancelled; throws when the flow could not start
+   * or the sign-in failed.
    */
   const start = useCallback(
-    async (provider: EngineProvider): Promise<boolean> => {
+    async (provider: EngineProvider, options: EngineConnectOptions = {}): Promise<boolean> => {
       if (flowRef.current) cancel();
       setError(null);
       if (provider === "anthropic") {
         const connectClaude = window.electronAPI?.system?.connectClaudeAccount;
         if (!connectClaude) throw new Error("Claude sign-in needs the Stella desktop app.");
-        const next: EngineConnectFlow = { kind: "browser", provider };
-        flowRef.current = next;
-        setFlow(next);
-        return await new Promise<boolean>((resolve, reject) => {
-          settleRef.current = (outcome) =>
-            outcome instanceof Error ? reject(outcome) : resolve(outcome);
-          connectClaude().then(
-            () => {
-              if (flowRef.current === next) settle(true);
-            },
-            (caught: unknown) => {
-              if (flowRef.current !== next) return;
-              settle(new Error(messageOf(caught) ?? "That didn't connect. Try again."));
-            },
-          );
-        });
+        return await runInMain(provider, connectClaude);
+      }
+      const connectInMain = window.electronAPI?.system?.connectChatGptCloud;
+      if (connectInMain) {
+        return await runInMain(provider, () => connectInMain(options));
       }
       setBusy(true);
       let next: EngineConnectFlow;
       try {
+        const started = await backendClient.call("engines.startConnect", {
+          provider: "chatgpt",
+          ...(options.accountId ? { accountId: options.accountId } : {}),
+          ...(options.enablePlanUsage ? { enablePlanUsage: true } : {}),
+        });
         next = {
-          kind: "device",
-          provider,
-          ...(await backendClient.call("engines.startDeviceConnect", {})),
+          kind: "paste",
+          provider: "chatgpt",
+          connectId: started.connectId,
+          authorizeUrl: started.authorizeUrl,
         };
       } finally {
         setBusy(false);
       }
+      openExternalUrl(next.authorizeUrl);
       return await new Promise<boolean>((resolve, reject) => {
         settleRef.current = (outcome) =>
           outcome instanceof Error ? reject(outcome) : resolve(outcome);
@@ -105,63 +140,51 @@ export function useEngineConnect() {
         setFlow(next);
       });
     },
-    [cancel, settle],
+    [cancel, runInMain],
   );
 
-  /** ChatGPT: copy the one-time code and open the approval page. */
-  const openDevicePage = useCallback(() => {
+  /** ChatGPT in a browser: open the authorization page again. */
+  const openAuthorizePage = useCallback(() => {
     const current = flowRef.current;
-    if (!current || current.kind !== "device") return;
-    void navigator.clipboard?.writeText(current.userCode).catch(() => undefined);
-    openExternalUrl(current.authorizeUrl);
+    if (current?.kind === "paste") openExternalUrl(current.authorizeUrl);
   }, []);
 
-  useEffect(() => {
-    if (!flow || flow.kind !== "device") return;
-    let cancelled = false;
-    let failures = 0;
-    const deadline = Date.now() + DEVICE_DEADLINE_MS;
-    let timer: ReturnType<typeof setTimeout>;
-    const poll = async () => {
+  /** ChatGPT in a browser: the address the browser landed on after approval. */
+  const finish = useCallback(
+    async (pasted: string) => {
+      const current = flowRef.current;
+      if (current?.kind !== "paste" || !pasted.trim()) return;
+      setBusy(true);
+      setError(null);
       try {
-        const result = await backendClient.call("engines.pollDeviceConnect", {
-          connectId: flow.connectId,
+        await backendClient.call("engines.finishConnect", {
+          connectId: current.connectId,
+          pastedInput: pasted.trim(),
         });
-        if (cancelled) return;
-        failures = 0;
-        if (result.status === "connected") {
-          settle(true);
-          return;
-        }
+        if (flowRef.current === current) settle(true);
       } catch (caught) {
-        if (cancelled) return;
-        // Approval in the browser can outlast a brief connection loss.
-        if (++failures >= 4 || Date.now() >= deadline) {
-          settle(caught instanceof Error ? caught : new Error("That didn't connect."));
-          return;
-        }
+        setBusy(false);
+        setError(messageOf(caught) ?? "That didn't connect. Try again.");
       }
-      timer = setTimeout(() => void poll(), flow.intervalMs);
-    };
-    timer = setTimeout(() => void poll(), flow.intervalMs);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [flow, settle]);
+    },
+    [settle],
+  );
 
   // Leaving the surface abandons the attempt.
   useEffect(
     () => () => {
-      if (flowRef.current?.kind === "browser") {
+      const current = flowRef.current;
+      if (current?.kind === "browser" && current.provider === "anthropic") {
         void window.electronAPI?.system?.cancelClaudeAccountConnect?.().catch(() => undefined);
+      } else if (current?.kind === "browser") {
+        void window.electronAPI?.system?.cancelChatGptCloudConnect?.().catch(() => undefined);
       }
       settleRef.current?.(false);
     },
     [],
   );
 
-  return { flow, busy, error, start, cancel, openDevicePage };
+  return { flow, busy, error, start, cancel, finish, openAuthorizePage };
 }
 
 export type EngineConnect = ReturnType<typeof useEngineConnect>;

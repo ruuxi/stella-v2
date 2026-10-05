@@ -206,8 +206,8 @@ export class ClaudeCodeCompactionLoopError extends Error {
 }
 /**
  * The active Claude account of the owner's Stella account, if any: the host
- * serves its short-lived access token (the server keeps and refreshes the
- * login). With one, the CLI runs on it (so several accounts can be switched
+ * serves its short-lived access token (the server stores the encrypted
+ * tokens; the owner's devices refresh them). With one, the CLI runs on it (so several accounts can be switched
  * between); without one, or signed out, the CLI keeps its own login.
  */
 const resolveStellaClaudeToken = async (stellaAppDir) => {

@@ -61,7 +61,7 @@ const LOCAL_ONLY_STELLA_PREFIXES = [
   "stella/local/",
   "stella/ollama/",
   "stella/lmstudio/",
-  "stella/openai-codex/",
+  "stella/chatgpt/",
 ] as const;
 
 const REASONING_EFFORTS = new Set<AgentModelReasoningEffort>([
@@ -115,7 +115,7 @@ export const validateCloudExecutionSelection = (
     );
   }
   if (
-    execution.engine === "openai-codex" &&
+    execution.engine === "chatgpt" &&
     !ENGINE_MODEL_PATTERN.test(model)
   ) {
     throw new Error(
@@ -159,8 +159,8 @@ const withTransport = <T extends Model<Api>>(
 const genericSubscriptionModel = (modelId: string): Model<Api> => ({
   id: modelId,
   name: modelId,
-  api: "openai-codex-responses",
-  provider: "openai-codex",
+  api: "chatgpt-responses",
+  provider: "chatgpt",
   baseUrl: "",
   reasoning: true,
   input: ["text", "image"],
@@ -219,10 +219,10 @@ const CLAUDE_SUBSCRIPTION_HARNESS_ERROR =
  * credential selected by the capability's `credential` claim.
  */
 const subscriptionRelayModel = (args: {
-  execution: Extract<CloudExecutionSelection, { engine: "openai-codex" }>;
+  execution: Extract<CloudExecutionSelection, { engine: "chatgpt" }>;
   transport: GatewayModelTransport;
 }): Model<Api> => {
-  const provider = "openai-codex";
+  const provider = "chatgpt";
   const modelId = args.execution.model;
   const registryModel =
     loadedRegistryModel(provider, [modelId, modelId.replace(/\./g, "-")]) ??
@@ -233,7 +233,7 @@ const subscriptionRelayModel = (args: {
       id: `stella/${provider}/${modelId}`,
       name: "ChatGPT (subscription)",
       provider,
-      api: "openai-codex-responses",
+      api: "chatgpt-responses",
       headers: {
         ...(registryModel.headers ?? {}),
         ...gatewayHeaders(args.transport, {
@@ -537,7 +537,7 @@ export const createCloudRelayModel = async (
   if (execution.engine === "anthropic") {
     throw new Error(CLAUDE_SUBSCRIPTION_HARNESS_ERROR);
   }
-  if (execution.engine === "openai-codex") {
+  if (execution.engine === "chatgpt") {
     await loadModelRegistry();
     return subscriptionRelayModel({ execution, transport });
   }
@@ -583,7 +583,7 @@ export const createCloudRelaySession = async (
   if (execution.engine === "anthropic") {
     throw new Error(CLAUDE_SUBSCRIPTION_HARNESS_ERROR);
   }
-  if (execution.engine === "openai-codex") {
+  if (execution.engine === "chatgpt") {
     const model = await createCloudRelayModel(args);
     return {
       model,

@@ -24,25 +24,39 @@ const caller: OwnerCaller = {
   expiresAtMs: Date.now() + 30 * 60_000,
 };
 
-const jwt = (claims: Record<string, unknown>): string =>
-  `x.${btoa(JSON.stringify(claims)).replaceAll("=", "")}.y`;
-
-/** One ChatGPT login: its tokens name the user, email, and plan. */
-const codexLogin = (user: string, email: string, plan: string) => {
-  const access = jwt({
-    "https://api.openai.com/auth": {
-      chatgpt_account_id: `workspace-${user}`,
-      chatgpt_user_id: user,
-      chatgpt_plan_type: plan,
-    },
-  });
-  return {
-    access_token: access,
-    refresh_token: `refresh-${user}`,
-    expires_in: 3_600,
-    id_token: jwt({ sub: user, email }),
-  };
+const ISSUER = "https://auth.openai.com";
+const b64url = (bytes: Uint8Array | string): string => {
+  const binary =
+    typeof bytes === "string" ? bytes : String.fromCharCode(...bytes);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 };
+
+/** OpenAI's ID-token signing key, as the fake JWKS publishes it. */
+const signingKey = await crypto.subtle.generateKey(
+  { name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
+  true,
+  ["sign", "verify"],
+);
+const publicJwk = { ...(await crypto.subtle.exportKey("jwk", signingKey.publicKey)), kid: "test-key" };
+
+const signIdToken = async (claims: Record<string, unknown>): Promise<string> => {
+  const head = b64url(JSON.stringify({ alg: "RS256", kid: "test-key", typ: "JWT" }));
+  const body = b64url(JSON.stringify(claims));
+  const signature = await crypto.subtle.sign(
+    "RSASSA-PKCS1-v1_5",
+    signingKey.privateKey,
+    new TextEncoder().encode(`${head}.${body}`),
+  );
+  return `${head}.${body}.${b64url(new Uint8Array(signature))}`;
+};
+
+/** One ChatGPT login: the registration ChatGPT issues for it (one per user). */
+const chatGptLogin = (user: string, email: string) => ({
+  user,
+  email,
+  clientId: `client-${user}`,
+});
+type ChatGptLogin = ReturnType<typeof chatGptLogin>;
 
 type Harness = {
   store: OwnerStore;
@@ -89,30 +103,75 @@ const createHarness = (fake = openSqlStorageFake()): Harness => {
 };
 
 const originalFetch = globalThis.fetch;
-let tokenResponses: unknown[] = [];
+/** The login the next code exchange signs in, with the attempt's nonce. */
+let nextLogin: { login: ChatGptLogin; nonce: string } | null = null;
+let tokenRequests: URLSearchParams[] = [];
 
-const connectCodex = async (harness: Harness, login: ReturnType<typeof codexLogin>) => {
-  tokenResponses.push(login);
-  const { connectId } = await harness.call("engines.startConnect", {
-    provider: "openai-codex",
+const fakeOpenAi = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  const url = String(input instanceof Request ? input.url : input);
+  if (url.endsWith("/.well-known/openid-configuration")) {
+    return Response.json({
+      issuer: ISSUER,
+      authorization_endpoint: `${ISSUER}/api/accounts/authorize`,
+      token_endpoint: `${ISSUER}/api/accounts/oauth/token`,
+      jwks_uri: `${ISSUER}/.well-known/jwks.json`,
+      revocation_endpoint: `${ISSUER}/api/accounts/oauth/revoke`,
+    });
+  }
+  if (url.endsWith("/jwks.json")) return Response.json({ keys: [publicJwk] });
+  if (url.endsWith("/oauth/revoke")) return new Response(null, { status: 200 });
+  if (url.endsWith("/oauth/token")) {
+    const body = new URLSearchParams(String(init?.body));
+    tokenRequests.push(body);
+    const pending = nextLogin;
+    if (!pending || body.get("client_id") !== pending.login.clientId) {
+      return Response.json({ error: "invalid_grant" }, { status: 400 });
+    }
+    nextLogin = null;
+    const now = Math.floor(Date.now() / 1000);
+    return Response.json({
+      access_token: `access-${pending.login.user}`,
+      refresh_token: `refresh-${pending.login.user}`,
+      token_type: "Bearer",
+      expires_in: 3_600,
+      scope: "openid profile email offline_access chatgpt.tokens.use.direct",
+      id_token: await signIdToken({
+        iss: ISSUER,
+        aud: pending.login.clientId,
+        sub: pending.login.user,
+        email: pending.login.email,
+        nonce: pending.nonce,
+        iat: now,
+        exp: now + 3_600,
+      }),
+    });
+  }
+  return new Response("not found", { status: 404 });
+}) as typeof fetch;
+
+/** Sign the cloud in: authorize, approve as `login`, paste the redirect back. */
+const connectChatGpt = async (harness: Harness, login: ChatGptLogin) => {
+  const { connectId, authorizeUrl, redirectUri } = await harness.call("engines.startConnect", {
+    provider: "chatgpt",
   });
-  await harness.call("engines.finishConnect", {
+  const params = new URL(authorizeUrl).searchParams;
+  nextLogin = { login, nonce: params.get("nonce")! };
+  const callback = new URL(redirectUri);
+  callback.searchParams.set("code", `code-${login.user}`);
+  callback.searchParams.set("state", params.get("state")!);
+  callback.searchParams.set("client_id", login.clientId);
+  return await harness.call("engines.finishConnect", {
     connectId,
-    pastedInput: "http://localhost:1455/auth/callback?code=abc",
+    pastedInput: callback.toString(),
   });
 };
 
 describe("engine accounts", () => {
   let harness: Harness;
   beforeEach(() => {
-    tokenResponses = [];
-    globalThis.fetch = (async (input: RequestInfo | URL) => {
-      const url = String(input instanceof Request ? input.url : input);
-      if (url.includes("/oauth/token")) {
-        return Response.json(tokenResponses.shift());
-      }
-      return new Response("not found", { status: 404 });
-    }) as typeof fetch;
+    nextLogin = null;
+    tokenRequests = [];
+    globalThis.fetch = fakeOpenAi;
     harness = createHarness();
   });
   afterEach(() => {
@@ -120,114 +179,109 @@ describe("engine accounts", () => {
     harness.fake.close();
   });
 
-  const makeDeviceReady = (connectId: string) => {
-    const row = harness.store.context(caller).db.one<{ state: string }>(
-      "SELECT state FROM engine_connects WHERE connect_id = ?", connectId,
-    )!;
-    const state = JSON.parse(row.state);
-    state.nextPollAt = 0;
-    harness.store.context(caller).db.run(
-      "UPDATE engine_connects SET state = ? WHERE connect_id = ?", JSON.stringify(state), connectId,
-    );
-  };
+  test("signs the cloud in as its own host and exchanges with the issued client", async () => {
+    const { authorizeUrl, redirectUri } = await harness.call("engines.startConnect", {
+      provider: "chatgpt",
+    });
+    const params = new URL(authorizeUrl).searchParams;
+    expect(redirectUri).toBe("http://127.0.0.1:1455/auth/callback");
+    expect(params.get("client_id")).toBe("dynamic_agent_client");
+    expect(params.get("agent_name_hint")).toBe("Stella");
+    expect(params.get("ext_agent_host_id")).toMatch(/^urn:uuid:/u);
+    expect(params.get("resource")).toBe("https://api.openai.com/v1");
+    expect(params.get("scope")).toContain("chatgpt.tokens.use.direct");
+    expect(params.get("code_challenge_method")).toBe("S256");
 
-  test("device approval connects once without exposing the private device id", async () => {
-    const requests: { url: string; body: any }[] = [];
-    let approvals = 0;
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      requests.push({ url, body: JSON.parse(String(init?.body)) });
-      if (url.endsWith("/usercode")) return Response.json({
-        device_auth_id: "private-device-id", user_code: "ABCD-EFGH", interval: "5",
-      });
-      if (url.endsWith("/deviceauth/token")) {
-        if (++approvals === 1) return new Response(null, { status: 403 });
-        return Response.json({ authorization_code: "approved-code", code_verifier: "device-verifier" });
-      }
-      return Response.json(codexLogin("device-user", "device@example.com", "pro"));
-    }) as typeof fetch;
-    const started = await harness.call("engines.startDeviceConnect", {});
-    expect(started).toEqual({ connectId: expect.any(String),
-      authorizeUrl: "https://auth.openai.com/codex/device", userCode: "ABCD-EFGH", intervalMs: 5000 });
-    expect(JSON.stringify(started)).not.toContain("private-device-id");
-    expect(await harness.call("engines.pollDeviceConnect", { connectId: started.connectId })).toEqual({ status: "pending" });
-    expect(requests).toHaveLength(1);
-    makeDeviceReady(started.connectId);
-    expect(await harness.call("engines.pollDeviceConnect", { connectId: started.connectId })).toEqual({ status: "pending" });
-    makeDeviceReady(started.connectId);
-    expect(await harness.call("engines.pollDeviceConnect", { connectId: started.connectId })).toEqual({ status: "connected" });
-    expect(await harness.call("engines.pollDeviceConnect", { connectId: started.connectId })).toEqual({ status: "connected" });
-    expect(requests).toHaveLength(4);
-    expect(requests[3]?.body).toMatchObject({ code: "approved-code", code_verifier: "device-verifier",
-      redirect_uri: "https://auth.openai.com/deviceauth/callback" });
-    expect(harness.settings().connections).toEqual([expect.objectContaining({ email: "device@example.com", active: true })]);
-    expect((await harness.access("openai-codex")).accountId).toBe("workspace-device-user");
+    const result = await connectChatGpt(harness, chatGptLogin("user-a", "a@example.com"));
+    expect(result).toEqual({ accountId: expect.any(String), planUsage: true });
+    expect(Object.fromEntries(tokenRequests[0]!)).toMatchObject({
+      grant_type: "authorization_code",
+      client_id: "client-user-a",
+      code: "code-user-a",
+      redirect_uri: "http://127.0.0.1:1455/auth/callback",
+      resource: "https://api.openai.com/v1",
+    });
+    expect(harness.settings().connections).toEqual([
+      expect.objectContaining({ provider: "chatgpt", email: "a@example.com", active: true, planUsage: true }),
+    ]);
+    // The host id persists: a second attempt carries the same one.
+    const again = await harness.call("engines.startConnect", { provider: "chatgpt" });
+    expect(new URL(again.authorizeUrl).searchParams.get("ext_agent_host_id")).toBe(
+      params.get("ext_agent_host_id"),
+    );
   });
 
-  test("cancelling a device attempt during approval prevents a late account write", async () => {
-    let resolveApproval!: (value: Response) => void;
-    globalThis.fetch = (async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.endsWith("/usercode")) return Response.json({ device_auth_id: "private", user_code: "CODE", interval: 5 });
-      if (url.endsWith("/deviceauth/token")) return await new Promise<Response>((resolve) => { resolveApproval = resolve; });
-      return Response.json(codexLogin("late", "late@example.com", "plus"));
-    }) as typeof fetch;
-    const { connectId } = await harness.call("engines.startDeviceConnect", {});
-    makeDeviceReady(connectId);
-    const pending = harness.call("engines.pollDeviceConnect", { connectId });
-    await Promise.resolve();
-    expect(await harness.call("engines.pollDeviceConnect", { connectId })).toEqual({ status: "pending" });
-    await harness.call("engines.cancelConnect", { connectId });
-    resolveApproval(Response.json({ authorization_code: "code", code_verifier: "verifier" }));
-    await expect(pending).rejects.toThrow("cancelled");
+  test("refuses a pasted redirect from a different attempt", async () => {
+    const { connectId } = await harness.call("engines.startConnect", { provider: "chatgpt" });
+    await expect(
+      harness.call("engines.finishConnect", {
+        connectId,
+        pastedInput: "http://127.0.0.1:1455/auth/callback?code=x&state=other&client_id=client-x",
+      }),
+    ).rejects.toThrow("different attempt");
     expect(harness.settings().connections).toHaveLength(0);
   });
 
   test("adds a second login as a new active account and keeps a reconnect as one", async () => {
-    await connectCodex(harness, codexLogin("user-a", "a@example.com", "plus"));
-    await connectCodex(harness, codexLogin("user-b", "b@example.com", "pro"));
+    await connectChatGpt(harness, chatGptLogin("user-a", "a@example.com"));
+    await connectChatGpt(harness, chatGptLogin("user-b", "b@example.com"));
 
     let connections = harness.settings().connections;
-    expect(connections.map((row) => [row.email, row.plan, row.active])).toEqual([
-      ["a@example.com", "Plus", false],
-      ["b@example.com", "Pro", true],
+    expect(connections.map((row) => [row.email, row.active])).toEqual([
+      ["a@example.com", false],
+      ["b@example.com", true],
     ]);
 
     // The first login signing in again replaces itself and becomes active.
-    await connectCodex(harness, codexLogin("user-a", "a@example.com", "plus"));
+    await connectChatGpt(harness, chatGptLogin("user-a", "a@example.com"));
     connections = harness.settings().connections;
     expect(connections).toHaveLength(2);
     expect(connections.find((row) => row.active)?.email).toBe("a@example.com");
   });
 
   test("switches the serving account and signs one account out", async () => {
-    await connectCodex(harness, codexLogin("user-a", "a@example.com", "plus"));
-    await connectCodex(harness, codexLogin("user-b", "b@example.com", "pro"));
+    await connectChatGpt(harness, chatGptLogin("user-a", "a@example.com"));
+    await connectChatGpt(harness, chatGptLogin("user-b", "b@example.com"));
     const [first, second] = harness.settings().connections;
 
     await harness.call("engines.setActiveAccount", {
-      provider: "openai-codex",
+      provider: "chatgpt",
       accountId: first!.accountId,
     });
-    expect((await harness.access("openai-codex")).engineAccountId).toBe(first!.accountId);
+    expect((await harness.access("chatgpt")).engineAccountId).toBe(first!.accountId);
 
-    await harness.call("engines.disconnect", {
-      provider: "openai-codex",
-      accountId: first!.accountId,
-    });
-    const remaining = harness.settings().connections;
-    expect(remaining.map((row) => [row.accountId, row.active])).toEqual([
-      [second!.accountId, true],
+    // Signing out revokes the session but keeps the registration.
+    expect(
+      await harness.call("engines.disconnect", {
+        provider: "chatgpt",
+        accountId: first!.accountId,
+      }),
+    ).toEqual({ revoked: true });
+    expect(
+      harness.settings().connections.map((row) => [row.accountId, row.active, row.status]),
+    ).toEqual([
+      [first!.accountId, false, "signed_out"],
+      [second!.accountId, true, undefined],
     ]);
-    expect((await harness.access("openai-codex")).engineAccountId).toBe(second!.accountId);
+    expect((await harness.access("chatgpt")).engineAccountId).toBe(second!.accountId);
+
+    // Forgetting removes it.
+    await harness.call("engines.disconnect", {
+      provider: "chatgpt",
+      accountId: first!.accountId,
+      forget: true,
+    });
+    expect(harness.settings().connections.map((row) => row.accountId)).toEqual([
+      second!.accountId,
+    ]);
   });
 
   test("cools a limited account down and auto-switches only when enabled", async () => {
-    await connectCodex(harness, codexLogin("user-a", "a@example.com", "plus"));
-    await connectCodex(harness, codexLogin("user-b", "b@example.com", "pro"));
+    await connectChatGpt(harness, chatGptLogin("user-a", "a@example.com"));
+    await connectChatGpt(harness, chatGptLogin("user-b", "b@example.com"));
     const [first, second] = harness.settings().connections;
     await harness.call("engines.setActiveAccount", {
-      provider: "openai-codex",
+      provider: "chatgpt",
       accountId: first!.accountId,
     });
     const resetsAt = Date.now() + 2 * 60 * 60_000;
@@ -235,7 +289,7 @@ describe("engine accounts", () => {
     // Auto-switch off: the account cools down but keeps serving.
     expect(
       await harness.limit({
-        provider: "openai-codex",
+        provider: "chatgpt",
         engineAccountId: first!.accountId,
         resetsAt,
       }),
@@ -245,18 +299,18 @@ describe("engine accounts", () => {
 
     // Auto-switch on: the next request is served by the other account.
     await harness.call("engines.setAutoSwitch", {
-      provider: "openai-codex",
+      provider: "chatgpt",
       enabled: true,
     });
-    expect((await harness.access("openai-codex")).engineAccountId).toBe(second!.accountId);
+    expect((await harness.access("chatgpt")).engineAccountId).toBe(second!.accountId);
     rows = harness.settings().connections;
     expect(rows.map((row) => row.active)).toEqual([false, true]);
-    expect(harness.settings().autoSwitch["openai-codex"]).toBe(true);
+    expect(harness.settings().autoSwitch["chatgpt"]).toBe(true);
 
     // The second account hitting its limit with nothing left: no switch.
     expect(
       await harness.limit({
-        provider: "openai-codex",
+        provider: "chatgpt",
         engineAccountId: second!.accountId,
       }),
     ).toEqual({ switched: false });
@@ -289,7 +343,7 @@ describe("engine accounts", () => {
         updatedAt: 6,
       }),
     ]);
-    expect(settings.autoSwitch).toEqual({ anthropic: false, "openai-codex": false });
+    expect(settings.autoSwitch).toEqual({ anthropic: false, "chatgpt": false });
     fake.close();
   });
 });

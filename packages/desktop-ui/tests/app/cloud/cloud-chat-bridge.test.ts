@@ -223,8 +223,8 @@ describe("cloud chat bridge authority", () => {
       ],
       locale: "fr",
       execution: {
-        engine: "openai-codex",
-        provider: "openai-codex",
+        engine: "chatgpt",
+        provider: "chatgpt",
         model: "gpt-5.6-sol",
         reasoningEffort: "high",
       } as const,
@@ -277,8 +277,8 @@ describe("cloud chat bridge authority", () => {
       ],
       locale: "fr",
       execution: {
-        engine: "openai-codex",
-        provider: "openai-codex",
+        engine: "chatgpt",
+        provider: "chatgpt",
         model: "gpt-5.6-sol",
         reasoningEffort: "high",
       } as const,

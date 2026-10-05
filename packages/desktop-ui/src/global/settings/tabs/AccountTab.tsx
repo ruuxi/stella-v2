@@ -23,6 +23,7 @@ import {
 } from "@/features/cloud/cloud-home-sync";
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import { CloudAccountCards } from "@/features/cloud/CloudAccountCards";
+import { ChatGptComputerCard } from "@/features/chatgpt/ChatGptComputerCard";
 import { CloudHomeMemorySettings } from "@/features/cloud/CloudHomeMemorySettings";
 import { CloudMemoryWipeSettings } from "@/features/cloud/CloudMemoryWipeSettings";
 import { CloudMemoryReimportSettings } from "@/features/cloud/CloudMemoryReimportSettings";
@@ -295,6 +296,7 @@ export function AccountTab({ onSignOut, onOpenLegal }: AccountTabProps) {
         />
       ) : null}
       <CloudAccountCards />
+      <ChatGptComputerCard />
       <div className="settings-card">
         <h3 className="settings-card-title">{t("settings.account.title")}</h3>
         <div className="settings-row">

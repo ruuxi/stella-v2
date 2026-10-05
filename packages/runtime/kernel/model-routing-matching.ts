@@ -111,7 +111,7 @@ export const getEngineNativeStellaModelAlternative = (
   }
   const matches = findRegistryModelsById(parsed.modelId);
   const engine = matches.some(
-    ({ registryProvider }) => registryProvider === "openai-codex",
+    ({ registryProvider }) => registryProvider === "chatgpt",
   )
     ? "codex"
     : matches.some(({ registryProvider }) => registryProvider === "anthropic")

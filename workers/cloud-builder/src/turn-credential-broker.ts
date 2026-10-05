@@ -96,7 +96,7 @@ export type TurnBrokerTarget = {
   maxBodyBytes: number;
 };
 
-export type TurnBrokerEngine = "stella" | "anthropic" | "openai-codex";
+export type TurnBrokerEngine = "stella" | "anthropic" | "chatgpt";
 
 export type TurnBrokerClaimFailure = {
   ok: false;

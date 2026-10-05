@@ -2641,13 +2641,13 @@ export const MODELS = {
 	// `codexModels` build-time catalog. It is not sourced from models.dev or Codex
 	// app-server model/list. Keep its ids and supported flat metadata synchronized
 	// with pi's generator.
-	"openai-codex": {
+	"chatgpt": {
 		"gpt-5.3-codex-spark": {
 			id: "gpt-5.3-codex-spark",
 			name: "GPT-5.3 Codex Spark",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
+			api: "chatgpt-responses",
+			provider: "chatgpt",
+			baseUrl: "https://api.openai.com/v1",
 			reasoning: true,
 			input: ["text"],
 			cost: {
@@ -2658,13 +2658,13 @@ export const MODELS = {
 			},
 			contextWindow: 128000,
 			maxTokens: 128000,
-		} satisfies Model<"openai-codex-responses">,
+		} satisfies Model<"chatgpt-responses">,
 		"gpt-5.4": {
 			id: "gpt-5.4",
 			name: "GPT-5.4",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
+			api: "chatgpt-responses",
+			provider: "chatgpt",
+			baseUrl: "https://api.openai.com/v1",
 			reasoning: true,
 			input: ["text", "image"],
 			cost: {
@@ -2675,13 +2675,13 @@ export const MODELS = {
 			},
 			contextWindow: 272000,
 			maxTokens: 128000,
-		} satisfies Model<"openai-codex-responses">,
+		} satisfies Model<"chatgpt-responses">,
 		"gpt-5.4-mini": {
 			id: "gpt-5.4-mini",
 			name: "GPT-5.4 mini",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
+			api: "chatgpt-responses",
+			provider: "chatgpt",
+			baseUrl: "https://api.openai.com/v1",
 			reasoning: true,
 			input: ["text", "image"],
 			cost: {
@@ -2692,13 +2692,13 @@ export const MODELS = {
 			},
 			contextWindow: 272000,
 			maxTokens: 128000,
-		} satisfies Model<"openai-codex-responses">,
+		} satisfies Model<"chatgpt-responses">,
 		"gpt-5.5": {
 			id: "gpt-5.5",
 			name: "GPT-5.5",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
+			api: "chatgpt-responses",
+			provider: "chatgpt",
+			baseUrl: "https://api.openai.com/v1",
 			reasoning: true,
 			input: ["text", "image"],
 			cost: {
@@ -2709,13 +2709,13 @@ export const MODELS = {
 			},
 			contextWindow: 272000,
 			maxTokens: 128000,
-		} satisfies Model<"openai-codex-responses">,
+		} satisfies Model<"chatgpt-responses">,
 		"gpt-5.6-luna": {
 			id: "gpt-5.6-luna",
 			name: "GPT-5.6 Luna",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
+			api: "chatgpt-responses",
+			provider: "chatgpt",
+			baseUrl: "https://api.openai.com/v1",
 			reasoning: true,
 			input: ["text", "image"],
 			cost: {
@@ -2726,13 +2726,13 @@ export const MODELS = {
 			},
 			contextWindow: 272000,
 			maxTokens: 128000,
-		} satisfies Model<"openai-codex-responses">,
+		} satisfies Model<"chatgpt-responses">,
 		"gpt-5.6-sol": {
 			id: "gpt-5.6-sol",
 			name: "GPT-5.6 Sol",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
+			api: "chatgpt-responses",
+			provider: "chatgpt",
+			baseUrl: "https://api.openai.com/v1",
 			reasoning: true,
 			input: ["text", "image"],
 			cost: {
@@ -2743,13 +2743,13 @@ export const MODELS = {
 			},
 			contextWindow: 272000,
 			maxTokens: 128000,
-		} satisfies Model<"openai-codex-responses">,
+		} satisfies Model<"chatgpt-responses">,
 		"gpt-5.6-terra": {
 			id: "gpt-5.6-terra",
 			name: "GPT-5.6 Terra",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
+			api: "chatgpt-responses",
+			provider: "chatgpt",
+			baseUrl: "https://api.openai.com/v1",
 			reasoning: true,
 			input: ["text", "image"],
 			cost: {
@@ -2760,13 +2760,13 @@ export const MODELS = {
 			},
 			contextWindow: 272000,
 			maxTokens: 128000,
-		} satisfies Model<"openai-codex-responses">,
+		} satisfies Model<"chatgpt-responses">,
 		"gpt-6-astra": {
 			id: "gpt-6-astra",
 			name: "GPT-6 Astra",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
+			api: "chatgpt-responses",
+			provider: "chatgpt",
+			baseUrl: "https://api.openai.com/v1",
 			reasoning: true,
 			input: ["text", "image"],
 			cost: {
@@ -2777,13 +2777,13 @@ export const MODELS = {
 			},
 			contextWindow: 1050000,
 			maxTokens: 128000,
-		} satisfies Model<"openai-codex-responses">,
+		} satisfies Model<"chatgpt-responses">,
 		"gpt-6-luna": {
 			id: "gpt-6-luna",
 			name: "GPT-6 Luna",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
+			api: "chatgpt-responses",
+			provider: "chatgpt",
+			baseUrl: "https://api.openai.com/v1",
 			reasoning: true,
 			input: ["text", "image"],
 			cost: {
@@ -2794,13 +2794,13 @@ export const MODELS = {
 			},
 			contextWindow: 1050000,
 			maxTokens: 128000,
-		} satisfies Model<"openai-codex-responses">,
+		} satisfies Model<"chatgpt-responses">,
 		"gpt-6.1-sol": {
 			id: "gpt-6.1-sol",
 			name: "GPT-6.1 Sol",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: "https://chatgpt.com/backend-api",
+			api: "chatgpt-responses",
+			provider: "chatgpt",
+			baseUrl: "https://api.openai.com/v1",
 			reasoning: true,
 			input: ["text", "image"],
 			cost: {
@@ -2811,7 +2811,7 @@ export const MODELS = {
 			},
 			contextWindow: 1050000,
 			maxTokens: 128000,
-		} satisfies Model<"openai-codex-responses">,
+		} satisfies Model<"chatgpt-responses">,
 	},
 	"opencode": {
 		"big-pickle": {

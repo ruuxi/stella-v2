@@ -6,7 +6,7 @@ export type { AssistantMessageEventStream } from "./utils/event-stream.js";
 export type KnownApi =
   | "openai-completions"
   | "openai-responses"
-  | "openai-codex-responses"
+  | "chatgpt-responses"
   | "anthropic-messages"
   | "google-generative-ai";
 
@@ -16,7 +16,7 @@ export type KnownProvider =
   | "anthropic"
   | "google"
   | "openai"
-  | "openai-codex"
+  | "chatgpt"
   | "deepseek"
   | "github-copilot"
   | "xai"
@@ -670,7 +670,7 @@ export interface Model<TApi extends Api> {
   /** Compatibility overrides for OpenAI-compatible APIs. If not set, auto-detected from baseUrl. */
   compat?: TApi extends "openai-completions"
     ? OpenAICompletionsCompat
-    : TApi extends "openai-responses" | "openai-codex-responses"
+    : TApi extends "openai-responses" | "chatgpt-responses"
       ? OpenAIResponsesCompat
       : TApi extends "anthropic-messages"
         ? AnthropicMessagesCompat

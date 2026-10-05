@@ -595,7 +595,6 @@
       "voiceProviderAriaLabel": "Provider vocale",
       "assistantPickerAriaLabel": "Selettore del modello dell'assistente",
       "verifyingChatGpt": "Verifica dei modelli ChatGPT…",
-      "noChatGptCodexModels": "Al momento non ci sono modelli disponibili sia per ChatGPT sia per Codex.",
       "savedModelUnavailable": "Il modello salvato non è disponibile. Scegline un altro.",
       "tabs": {
         "assistant": "Assistente",
@@ -610,7 +609,7 @@
         "chatGptMigration": "Migrazione dell'instradamento ChatGPT non riuscita.",
         "chatGptVerify": "Impossibile verificare i modelli ChatGPT: {error}",
         "chatGptVerifying": "Attendi che la verifica dei modelli ChatGPT sia completata.",
-        "chatGptNotConnected": "ChatGPT deve essere connesso prima della selezione.",
+        "chatGptNotConnected": "Accedi prima con ChatGPT su questo computer.",
         "chatGptNoModels": "Al momento non è disponibile nessun modello ChatGPT.",
         "connectChatGpt": "Connessione a ChatGPT non riuscita.",
         "updateEngine": "Aggiornamento del motore non riuscito.",
@@ -624,8 +623,12 @@
         "updateReadAloud": "Aggiornamento del provider per la lettura ad alta voce non riuscito.",
         "updateReasoning": "Aggiornamento dell'impegno di ragionamento non riuscito.",
         "updateChatGptSpeed": "Aggiornamento della velocità di ChatGPT non riuscito.",
-        "updateDirectRuntime": "Aggiornamento dell'impostazione diretta di {runtime} non riuscito."
-      }
+        "updateDirectRuntime": "Aggiornamento dell'impostazione diretta di {runtime} non riuscito.",
+        "chatGptPlanUsageOff": "L'uso del piano ChatGPT non è attivo per questo account. Attivalo in Impostazioni › Account o scegli un altro modello."
+      },
+      "noChatGptModels": "Al momento nessun modello ChatGPT è disponibile per questo account.",
+      "chatGptPlanInUse": "Piano ChatGPT in uso",
+      "chatGptManageUsage": "Gestisci utilizzo"
     },
     "onboardingReplay": {
       "title": "Onboarding",
@@ -828,9 +831,9 @@
             "title": "Claude Code",
             "body": "Usa il tuo abbonamento Claude Pro o Max."
           },
-          "codex": {
-            "title": "Codex",
-            "body": "Usa il tuo abbonamento ChatGPT Plus o Pro."
+          "chatgpt": {
+            "title": "ChatGPT",
+            "body": "Accedi con ChatGPT per usare il tuo piano."
           }
         },
         "signIn": "Accedi",
@@ -2172,7 +2175,7 @@
         "subscriptionsLabel": "Facoltativo",
         "subscriptionsBody": "Paghi già per Claude o ChatGPT? Collegalo e lo userò sui tuoi computer e nel cloud.",
         "claudeDesc": "Pro o Max, tramite Claude Code",
-        "chatgptDesc": "Plus o Pro, tramite Codex",
+        "chatgptDesc": "Il tuo piano ChatGPT, per il cloud di Stella",
         "connect": "Collega",
         "connectLabel": "Collega {name}",
         "connectedAs": "Collegato · {name}",
@@ -2500,10 +2503,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude e ChatGPT",
-      "settingsRowBody": "Account usati sui tuoi computer e nel cloud",
+      "settingsRowBody": "Usa il piano Claude o ChatGPT che paghi già",
       "openSettingsLabel": "Apri gli account Claude e ChatGPT",
       "title": "Claude e ChatGPT",
-      "subtitle": "Account usati sui tuoi computer e nel cloud",
+      "subtitle": "Usa il piano Claude o ChatGPT che paghi già",
       "backLabel": "Torna alle Impostazioni",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2517,16 +2520,34 @@
       "limitReached": "Limite raggiunto · si azzera {time}",
       "autoSwitchLabel": "Cambia account al limite",
       "autoSwitchClaude": "Quando l'account in uso raggiunge il limite di 5 ore o settimanale, Stella passa al successivo finché non si azzera.",
-      "autoSwitchChatgpt": "Quando l'account in uso raggiunge il limite di utilizzo di Codex, Stella passa al successivo finché non si azzera.",
+      "autoSwitchChatgpt": "Quando l'account in uso raggiunge un limite di utilizzo di ChatGPT, Stella passa al successivo finché non si azzera.",
       "pasteHintClaude": "Dopo aver autorizzato l'accesso, Claude mostra un codice. Copialo e incollalo qui.",
-      "pasteHintChatgpt": "Dopo l'autorizzazione, la pagina non si carica. Copia l'indirizzo di quella pagina (Condividi › Copia) e incollalo qui.",
+      "pasteHintChatgpt": "Dopo l'approvazione, ChatGPT ti porta a una pagina che non si carica. Copia l'indirizzo completo di quella pagina e incollalo qui.",
       "pastePlaceholder": "Codice o URL",
       "pasteFromClipboard": "Incolla",
       "finish": "Connetti",
       "connecting": "Connessione…",
       "errorTitle": "Impossibile aggiornare gli account",
       "errorBody": "Qualcosa è andato storto. Riprova.",
-      "localNote": "Questi account fanno funzionare Claude Code e Codex su tutti i tuoi computer e nel cloud. Stella conserva un token crittografato; l'accesso resta su Claude o ChatGPT."
+      "pastePlaceholderUrl": "Incolla qui l'indirizzo",
+      "openChatgptAgain": "Apri di nuovo ChatGPT",
+      "chatgptBrowserWaiting": "Completa l'accesso a ChatGPT nel browser.",
+      "claudeNote": "Claude Code usa l'account selezionato su tutti i tuoi computer e nel cloud. I tuoi dispositivi accedono a Claude e mantengono l'accesso aggiornato; il server di Stella conserva solo i token cifrati.",
+      "chatgptNote": "La chat e gli agenti nel cloud usano l'account selezionato, e questo utilizzo viene conteggiato nel tuo piano ChatGPT. Il cloud di Stella ha un proprio accesso; ogni computer accede a ChatGPT nell'app desktop di Stella.",
+      "continueWithChatgpt": "Continua con ChatGPT",
+      "signInAgain": "Accedi di nuovo",
+      "enablePlanUsage": "Attiva l'uso del piano ChatGPT",
+      "remove": "Rimuovi",
+      "removeTitle": "Rimuovere {name}?",
+      "removeBody": "Stella dimentica questo account ChatGPT. Potrai accedervi di nuovo in seguito.",
+      "statusSignedOut": "Disconnesso",
+      "statusReauth": "Accedi di nuovo per continuare a usarlo",
+      "statusPlanUsageOff": "L'uso del piano ChatGPT non è attivo",
+      "planUsageOffBody": "Stella non può usare il tuo piano ChatGPT finché non lo consenti. Scegli «Attiva l'uso del piano ChatGPT» sull'account.",
+      "manageUsage": "Gestisci utilizzo",
+      "revokeUnconfirmed": "ChatGPT non ha confermato la disconnessione. Puoi scollegare Stella nelle Impostazioni di ChatGPT.",
+      "planWelcomeTitle": "Stai usando il tuo piano ChatGPT",
+      "planWelcomeBody": "Le richieste ChatGPT nel cloud di Stella vengono conteggiate nel tuo piano ChatGPT. Controlla l'utilizzo e imposta il limite di Stella nelle Impostazioni di ChatGPT."
     }
   },
   "companion": {

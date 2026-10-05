@@ -131,15 +131,15 @@ describe("turn capability signer", () => {
       env,
       input({
         execution: {
-          engine: "openai-codex",
-          provider: "openai-codex",
+          engine: "chatgpt",
+          provider: "chatgpt",
           model: "gpt-5.6-sol",
           reasoningEffort: "xhigh",
         },
         agentTypes: ["general"],
       }),
     );
-    expect(codex.claims.credential).toBe("openai-codex");
+    expect(codex.claims.credential).toBe("chatgpt");
     const verified = await verifyCapability(codex.token, verificationKeys, {
       now: NOW,
     });

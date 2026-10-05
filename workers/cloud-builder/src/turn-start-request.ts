@@ -81,7 +81,7 @@ export const parseCloudExecutionSelection = (
   if (
     pair !== "stella/stella" &&
     pair !== "anthropic/anthropic" &&
-    pair !== "openai-codex/openai-codex"
+    pair !== "chatgpt/chatgpt"
   ) {
     return null;
   }

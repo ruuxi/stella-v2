@@ -189,8 +189,7 @@ export const IPC_PREFERENCES_GET_MODELS =
 export const IPC_PREFERENCES_SET_MODELS =
   "preferences:setLocalModelPreferences" as const;
 export const IPC_PREFERENCES_LIST_MODELS = "preferences:listModels" as const;
-export const IPC_PREFERENCES_LIST_CODEX_MODELS =
-  "preferences:listCodexModels" as const;
+export const IPC_CHATGPT_LIST_MODELS = "chatgpt:listModels" as const;
 export const IPC_PREFERENCES_LIST_CLAUDE_CODE_MODELS =
   "preferences:listClaudeCodeModels" as const;
 export const IPC_PREFERENCES_GET_PREVENT_SLEEP =

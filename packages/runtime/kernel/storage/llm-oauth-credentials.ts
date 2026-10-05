@@ -25,17 +25,18 @@ import {
 const LLM_OAUTH_CREDENTIALS_FILE = "llm_oauth_credentials.json";
 const LLM_OAUTH_SCOPE_PREFIX = "llm-oauth-credential";
 /**
- * Claude and ChatGPT subscriptions live in the owner's Stella account, which
- * keeps the refresh tokens and hands this computer short-lived access tokens.
- * They are never stored here; leftovers are pruned like retired providers.
+ * Claude subscriptions live in the owner's Stella account, which hands this
+ * computer short-lived access tokens; ChatGPT accounts have their own store
+ * (`chatgpt-profiles.ts`, Sign in with ChatGPT). Neither is stored here;
+ * leftovers (including the retired Codex-client "openai-codex" login) are
+ * pruned like retired providers.
  */
-export const CLOUD_ENGINE_OAUTH_PROVIDERS: ReadonlySet<string> = new Set([
-  "anthropic",
-  "openai-codex",
-]);
+export const CLOUD_ENGINE_OAUTH_PROVIDERS: ReadonlySet<string> = new Set(["anthropic"]);
 const RETIRED_LLM_OAUTH_PROVIDERS = new Set([
   "google-antigravity",
   "google-gemini-cli",
+  "openai-codex",
+  "chatgpt",
   ...CLOUD_ENGINE_OAUTH_PROVIDERS,
 ]);
 
@@ -215,7 +216,7 @@ export const saveLocalLlmOAuthCredential = (
   }
   if (CLOUD_ENGINE_OAUTH_PROVIDERS.has(provider)) {
     throw new Error(
-      "Claude and ChatGPT accounts are added in Settings › Account and kept with your Stella account.",
+      "Claude accounts are added in Settings › Account and kept with your Stella account.",
     );
   }
 

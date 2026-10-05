@@ -39,7 +39,7 @@ export function parseCloudModelSelection(value: unknown): CloudExecutionSelectio
   switch (row.engine) {
     case "stella": return { engine: "stella", provider: "stella", model, reasoningEffort };
     case "anthropic": return { engine: "anthropic", provider: "anthropic", model, reasoningEffort };
-    case "openai-codex": return { engine: "openai-codex", provider: "openai-codex", model, reasoningEffort };
+    case "chatgpt": return { engine: "chatgpt", provider: "chatgpt", model, reasoningEffort };
     default: return undefined;
   }
 }

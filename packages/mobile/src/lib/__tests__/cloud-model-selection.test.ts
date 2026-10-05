@@ -11,7 +11,7 @@ describe("mobile cloud model settings", () => {
 
   test("choosing a Stella model changes the provider and preserves saved effort", () => {
     expect(managedCloudModelSelection("stella/sonnet", {
-      engine: "openai-codex", provider: "openai-codex", model: "gpt-5.5", reasoningEffort: "high",
+      engine: "chatgpt", provider: "chatgpt", model: "gpt-5.5", reasoningEffort: "high",
     })).toEqual({ engine: "stella", provider: "stella", model: "stella/sonnet", reasoningEffort: "high" });
   });
 

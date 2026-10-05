@@ -934,8 +934,8 @@ const normalizeModelPreferenceMap = (
     const [provider, ...modelParts] = trimmedModel.split("/");
     const modelId = modelParts.join("/");
     normalized[trimmedAgentType] =
-      provider === "openai-codex" && RETIRED_OPENAI_CODEX_MODELS.has(modelId)
-        ? `openai-codex/${DEFAULT_CODEX_MODEL}`
+      provider === "chatgpt" && RETIRED_OPENAI_CODEX_MODELS.has(modelId)
+        ? `chatgpt/${DEFAULT_CODEX_MODEL}`
         : trimmedModel;
   }
   return normalized;

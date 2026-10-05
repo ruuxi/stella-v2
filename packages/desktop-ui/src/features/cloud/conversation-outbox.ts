@@ -97,7 +97,7 @@ const isNullableBoundedString = (
   maximum: number,
 ): value is string | null => value === null || isBoundedString(value, maximum);
 
-const EXECUTION_ENGINES = new Set(["stella", "anthropic", "openai-codex"]);
+const EXECUTION_ENGINES = new Set(["stella", "anthropic", "chatgpt"]);
 const REASONING_EFFORTS = new Set([
   "default",
   "none",

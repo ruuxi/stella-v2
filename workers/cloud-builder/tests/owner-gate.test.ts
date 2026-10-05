@@ -212,7 +212,7 @@ describe("owner snapshot", () => {
     expect(
       snapshotAllowsExecutionEngine(
         { connectedEngines: ["anthropic"] },
-        "openai-codex",
+        "chatgpt",
       ),
     ).toBe(false);
   });

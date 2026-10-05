@@ -52,7 +52,7 @@ export const nativeSubscriptionLimitNotice = (
   const name =
     provider === "anthropic"
       ? "Claude"
-      : provider === "openai-codex"
+      : provider === "chatgpt"
         ? "ChatGPT"
         : undefined;
   return name
@@ -222,6 +222,8 @@ export type GatewayErrorCode =
    * owner's devices can refresh it; the message asks them to open Stella.
    */
   | "engine_refresh_required"
+  /** The cloud's ChatGPT sign-in ended; the owner must sign in again. */
+  | "engine_sign_in_required"
   | "body_too_large"
   | "bad_request"
   | "upstream_error"

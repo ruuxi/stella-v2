@@ -34,7 +34,7 @@ const normalizeCodexReasoningEffort = (
 /**
  * Resolve the ChatGPT subscription model settings used by Stella's in-process
  * agent harness. Authentication and inference still go through the dedicated
- * openai-codex OAuth/Responses transport; no Codex executable is involved.
+ * chatgpt OAuth/Responses transport; no Codex executable is involved.
  */
 export const getCodexSubscriptionPreferences = (
   stellaDataDir?: string,

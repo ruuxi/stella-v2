@@ -37,13 +37,13 @@ export function registerCloudApiProviders(): void {
   });
 
   registerLazyApiProvider({
-    api: "openai-codex-responses",
+    api: "chatgpt-responses",
     load: async () => {
-      const { streamOpenAICodexResponses, streamSimpleOpenAICodexResponses } =
-        await import("./openai-codex-responses.js");
+      const { streamChatGptResponses, streamSimpleChatGptResponses } =
+        await import("./chatgpt-responses.js");
       return {
-        stream: streamOpenAICodexResponses,
-        streamSimple: streamSimpleOpenAICodexResponses,
+        stream: streamChatGptResponses,
+        streamSimple: streamSimpleChatGptResponses,
       };
     },
   });

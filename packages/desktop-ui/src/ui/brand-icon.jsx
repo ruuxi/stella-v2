@@ -4,7 +4,7 @@ import { StellaLogoIcon } from "@/ui/stella-logo-icon";
 import { BRAND_ICON_COLOR_MARKUP, BRAND_ICON_MARKUP, } from "@/ui/brand-icon-paths";
 /** Provider key → brand glyph key. Unlisted keys use the key itself. */
 const BRAND_KEY_ALIASES = {
-    "openai-codex": "openai",
+    "chatgpt": "openai",
     "kimi-coding": "kimi",
     "vercel-ai-gateway": "vercel",
     "github-copilot": "githubcopilot",

@@ -593,7 +593,6 @@
       "voiceProviderAriaLabel": "Penyedia suara",
       "assistantPickerAriaLabel": "Pemilih model asisten",
       "verifyingChatGpt": "Memverifikasi model ChatGPT…",
-      "noChatGptCodexModels": "Saat ini tidak ada model yang tersedia untuk ChatGPT sekaligus Codex.",
       "savedModelUnavailable": "Model tersimpan tidak tersedia. Pilih model lain.",
       "tabs": {
         "assistant": "Asisten",
@@ -608,7 +607,7 @@
         "chatGptMigration": "Migrasi perutean ChatGPT gagal.",
         "chatGptVerify": "Model ChatGPT tidak dapat diverifikasi: {error}",
         "chatGptVerifying": "Tunggu hingga verifikasi model ChatGPT selesai.",
-        "chatGptNotConnected": "ChatGPT harus terhubung sebelum dipilih.",
+        "chatGptNotConnected": "Masuk dengan ChatGPT di komputer ini terlebih dahulu.",
         "chatGptNoModels": "Saat ini tidak ada model ChatGPT yang tersedia.",
         "connectChatGpt": "Gagal menghubungkan ChatGPT.",
         "updateEngine": "Gagal memperbarui mesin.",
@@ -622,8 +621,12 @@
         "updateReadAloud": "Gagal memperbarui penyedia bacakan.",
         "updateReasoning": "Gagal memperbarui upaya penalaran.",
         "updateChatGptSpeed": "Gagal memperbarui kecepatan ChatGPT.",
-        "updateDirectRuntime": "Gagal memperbarui pengaturan {runtime} langsung."
-      }
+        "updateDirectRuntime": "Gagal memperbarui pengaturan {runtime} langsung.",
+        "chatGptPlanUsageOff": "Penggunaan paket ChatGPT belum diaktifkan untuk akun ini. Aktifkan di Pengaturan › Akun, atau pilih model lain."
+      },
+      "noChatGptModels": "Saat ini tidak ada model ChatGPT yang tersedia untuk akun ini.",
+      "chatGptPlanInUse": "Menggunakan paket ChatGPT",
+      "chatGptManageUsage": "Kelola penggunaan"
     },
     "onboardingReplay": {
       "title": "Onboarding",
@@ -826,9 +829,9 @@
             "title": "Claude Code",
             "body": "Gunakan paket Claude Pro atau Max Anda."
           },
-          "codex": {
-            "title": "Codex",
-            "body": "Gunakan paket ChatGPT Plus atau Pro Anda."
+          "chatgpt": {
+            "title": "ChatGPT",
+            "body": "Masuk dengan ChatGPT untuk menggunakan paket Anda."
           }
         },
         "signIn": "Masuk",
@@ -2131,7 +2134,7 @@
         "subscriptionsLabel": "Opsional",
         "subscriptionsBody": "Sudah berlangganan Claude atau ChatGPT? Hubungkan, dan saya akan memakainya di komputer Anda dan di cloud.",
         "claudeDesc": "Pro atau Max, lewat Claude Code",
-        "chatgptDesc": "Plus atau Pro, lewat Codex",
+        "chatgptDesc": "Paket ChatGPT Anda, untuk cloud Stella",
         "connect": "Hubungkan",
         "connectLabel": "Hubungkan {name}",
         "connectedAs": "Terhubung · {name}",
@@ -2453,10 +2456,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude & ChatGPT",
-      "settingsRowBody": "Akun yang digunakan di komputer Anda dan di cloud",
+      "settingsRowBody": "Gunakan paket Claude atau ChatGPT yang sudah Anda bayar",
       "openSettingsLabel": "Buka akun Claude dan ChatGPT",
       "title": "Claude & ChatGPT",
-      "subtitle": "Akun yang digunakan di komputer Anda dan di cloud",
+      "subtitle": "Gunakan paket Claude atau ChatGPT yang sudah Anda bayar",
       "backLabel": "Kembali ke Pengaturan",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2470,16 +2473,34 @@
       "limitReached": "Batas tercapai · direset {time}",
       "autoSwitchLabel": "Ganti akun saat mencapai batas",
       "autoSwitchClaude": "Saat akun yang digunakan mencapai batas 5 jam atau mingguan, Stella beralih ke akun berikutnya hingga batas direset.",
-      "autoSwitchChatgpt": "Saat akun yang digunakan mencapai batas penggunaan Codex, Stella beralih ke akun berikutnya hingga batas direset.",
+      "autoSwitchChatgpt": "Saat akun yang digunakan mencapai batas penggunaan ChatGPT, Stella beralih ke akun berikutnya hingga batas direset.",
       "pasteHintClaude": "Setelah Anda memberi akses, Claude menampilkan kode. Salin dan tempel di sini.",
-      "pasteHintChatgpt": "Setelah Anda menyetujui, halaman tidak termuat. Salin alamat halaman itu (Bagikan › Salin) dan tempel di sini.",
+      "pasteHintChatgpt": "Setelah Anda menyetujui, ChatGPT mengarahkan Anda ke halaman yang tidak dapat dimuat. Salin alamat lengkap halaman itu dan tempel di sini.",
       "pastePlaceholder": "Kode atau URL",
       "pasteFromClipboard": "Tempel",
       "finish": "Hubungkan",
       "connecting": "Menghubungkan…",
       "errorTitle": "Tidak dapat memperbarui akun",
       "errorBody": "Terjadi kesalahan. Coba lagi.",
-      "localNote": "Akun ini menjalankan Claude Code dan Codex di semua komputer Anda dan di cloud. Stella menyimpan token terenkripsi; proses masuk tetap di Claude atau ChatGPT."
+      "pastePlaceholderUrl": "Tempel alamat di sini",
+      "openChatgptAgain": "Buka ChatGPT lagi",
+      "chatgptBrowserWaiting": "Selesaikan proses masuk ke ChatGPT di browser Anda.",
+      "claudeNote": "Claude Code menggunakan akun yang dicentang di semua komputer Anda dan di cloud. Perangkat Anda sendiri masuk ke Claude dan menjaga sesinya tetap diperbarui; server Stella hanya menyimpan token terenkripsi.",
+      "chatgptNote": "Chat cloud dan agen cloud menggunakan akun yang dicentang, dan penggunaan itu dihitung ke paket ChatGPT Anda. Cloud Stella memiliki proses masuk sendiri; setiap komputer masuk ke ChatGPT di aplikasi desktop Stella.",
+      "continueWithChatgpt": "Lanjutkan dengan ChatGPT",
+      "signInAgain": "Masuk lagi",
+      "enablePlanUsage": "Aktifkan penggunaan paket ChatGPT",
+      "remove": "Hapus",
+      "removeTitle": "Hapus {name}?",
+      "removeBody": "Stella akan melupakan akun ChatGPT ini. Anda dapat masuk ke akun ini lagi nanti.",
+      "statusSignedOut": "Sudah keluar",
+      "statusReauth": "Masuk lagi untuk terus menggunakannya",
+      "statusPlanUsageOff": "Penggunaan paket ChatGPT belum diaktifkan",
+      "planUsageOffBody": "Stella tidak dapat menggunakan paket ChatGPT Anda sampai Anda mengizinkannya. Pilih “Aktifkan penggunaan paket ChatGPT” pada akun.",
+      "manageUsage": "Kelola penggunaan",
+      "revokeUnconfirmed": "ChatGPT tidak mengonfirmasi proses keluar. Anda dapat memutuskan Stella di Pengaturan ChatGPT.",
+      "planWelcomeTitle": "Anda menggunakan paket ChatGPT Anda",
+      "planWelcomeBody": "Permintaan ChatGPT di cloud Stella dihitung ke paket ChatGPT Anda. Tinjau penggunaan dan atur batas Stella di Pengaturan ChatGPT."
     }
   },
   "companion": {

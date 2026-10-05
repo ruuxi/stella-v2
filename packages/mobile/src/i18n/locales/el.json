@@ -594,7 +594,6 @@
       "voiceProviderAriaLabel": "Πάροχος φωνής",
       "assistantPickerAriaLabel": "Επιλογέας μοντέλου βοηθού",
       "verifyingChatGpt": "Επαλήθευση μοντέλων ChatGPT…",
-      "noChatGptCodexModels": "Δεν υπάρχουν αυτή τη στιγμή μοντέλα διαθέσιμα ταυτόχρονα σε ChatGPT και Codex.",
       "savedModelUnavailable": "Το αποθηκευμένο μοντέλο δεν είναι διαθέσιμο. Επιλέξτε άλλο μοντέλο.",
       "tabs": {
         "assistant": "Βοηθός",
@@ -609,7 +608,7 @@
         "chatGptMigration": "Η μετάβαση δρομολόγησης ChatGPT απέτυχε.",
         "chatGptVerify": "Δεν ήταν δυνατή η επαλήθευση των μοντέλων ChatGPT: {error}",
         "chatGptVerifying": "Περιμένετε να ολοκληρωθεί η επαλήθευση των μοντέλων ChatGPT.",
-        "chatGptNotConnected": "Το ChatGPT πρέπει να συνδεθεί πριν από την επιλογή.",
+        "chatGptNotConnected": "Συνδεθείτε πρώτα με το ChatGPT σε αυτόν τον υπολογιστή.",
         "chatGptNoModels": "Δεν υπάρχουν αυτή τη στιγμή διαθέσιμα μοντέλα ChatGPT.",
         "connectChatGpt": "Αποτυχία σύνδεσης του ChatGPT.",
         "updateEngine": "Αποτυχία ενημέρωσης της μηχανής.",
@@ -623,8 +622,12 @@
         "updateReadAloud": "Αποτυχία ενημέρωσης του παρόχου ανάγνωσης φωναχτά.",
         "updateReasoning": "Αποτυχία ενημέρωσης της προσπάθειας συλλογισμού.",
         "updateChatGptSpeed": "Αποτυχία ενημέρωσης της ταχύτητας ChatGPT.",
-        "updateDirectRuntime": "Αποτυχία ενημέρωσης της απευθείας ρύθμισης {runtime}."
-      }
+        "updateDirectRuntime": "Αποτυχία ενημέρωσης της απευθείας ρύθμισης {runtime}.",
+        "chatGptPlanUsageOff": "Η χρήση του προγράμματος ChatGPT δεν είναι ενεργή για αυτόν τον λογαριασμό. Ενεργοποιήστε τη στις Ρυθμίσεις › Λογαριασμός ή επιλέξτε άλλο μοντέλο."
+      },
+      "noChatGptModels": "Δεν υπάρχουν διαθέσιμα μοντέλα ChatGPT για αυτόν τον λογαριασμό αυτή τη στιγμή.",
+      "chatGptPlanInUse": "Χρήση προγράμματος ChatGPT",
+      "chatGptManageUsage": "Διαχείριση χρήσης"
     },
     "onboardingReplay": {
       "title": "Onboarding",
@@ -827,9 +830,9 @@
             "title": "Claude Code",
             "body": "Χρησιμοποίησε το πλάνο Claude Pro ή Max."
           },
-          "codex": {
-            "title": "Codex",
-            "body": "Χρησιμοποίησε το πλάνο ChatGPT Plus ή Pro."
+          "chatgpt": {
+            "title": "ChatGPT",
+            "body": "Συνδεθείτε με το ChatGPT για να χρησιμοποιήσετε το πρόγραμμά σας."
           }
         },
         "signIn": "Σύνδεση",
@@ -2153,7 +2156,7 @@
         "subscriptionsLabel": "Προαιρετικό",
         "subscriptionsBody": "Πληρώνετε ήδη για Claude ή ChatGPT; Συνδέστε το και θα το χρησιμοποιώ στους υπολογιστές σας και στο cloud.",
         "claudeDesc": "Pro ή Max, μέσω Claude Code",
-        "chatgptDesc": "Plus ή Pro, μέσω Codex",
+        "chatgptDesc": "Το πρόγραμμα ChatGPT σας, για το cloud της Stella",
         "connect": "Συνδέστε",
         "connectLabel": "Συνδέστε το {name}",
         "connectedAs": "Συνδέθηκε · {name}",
@@ -2478,10 +2481,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude και ChatGPT",
-      "settingsRowBody": "Λογαριασμοί για τους υπολογιστές σας και το cloud",
+      "settingsRowBody": "Χρησιμοποιήστε το πρόγραμμα Claude ή ChatGPT που ήδη πληρώνετε",
       "openSettingsLabel": "Άνοιγμα λογαριασμών Claude και ChatGPT",
       "title": "Claude και ChatGPT",
-      "subtitle": "Λογαριασμοί για τους υπολογιστές σας και το cloud",
+      "subtitle": "Χρησιμοποιήστε το πρόγραμμα Claude ή ChatGPT που ήδη πληρώνετε",
       "backLabel": "Πίσω στις Ρυθμίσεις",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2495,16 +2498,34 @@
       "limitReached": "Συμπληρώθηκε το όριο · επαναφορά {time}",
       "autoSwitchLabel": "Αλλαγή λογαριασμού στο όριο",
       "autoSwitchClaude": "Όταν ο λογαριασμός σε χρήση φτάσει το 5ωρο ή εβδομαδιαίο όριό του, η Stella περνά στον επόμενο μέχρι την επαναφορά.",
-      "autoSwitchChatgpt": "Όταν ο λογαριασμός σε χρήση φτάσει το όριο χρήσης του Codex, η Stella περνά στον επόμενο μέχρι την επαναφορά.",
+      "autoSwitchChatgpt": "Όταν ο λογαριασμός σε χρήση φτάσει ένα όριο χρήσης του ChatGPT, η Stella περνά στον επόμενο μέχρι την επαναφορά.",
       "pasteHintClaude": "Αφού επιτρέψετε την πρόσβαση, το Claude εμφανίζει έναν κωδικό. Αντιγράψτε τον και επικολλήστε τον εδώ.",
-      "pasteHintChatgpt": "Αφού εγκρίνετε, η σελίδα δεν φορτώνει. Αντιγράψτε τη διεύθυνση της σελίδας (Κοινοποίηση › Αντιγραφή) και επικολλήστε την εδώ.",
+      "pasteHintChatgpt": "Μετά την έγκριση, το ChatGPT σας μεταφέρει σε μια σελίδα που δεν φορτώνει. Αντιγράψτε την πλήρη διεύθυνση αυτής της σελίδας και επικολλήστε την εδώ.",
       "pastePlaceholder": "Κωδικός ή URL",
       "pasteFromClipboard": "Επικόλληση",
       "finish": "Σύνδεση",
       "connecting": "Σύνδεση…",
       "errorTitle": "Δεν ήταν δυνατή η ενημέρωση των λογαριασμών",
       "errorBody": "Κάτι πήγε στραβά. Δοκιμάστε ξανά.",
-      "localNote": "Αυτοί οι λογαριασμοί τροφοδοτούν το Claude Code και το Codex σε όλους τους υπολογιστές σας και στο cloud. Η Stella κρατά ένα κρυπτογραφημένο token· η σύνδεση παραμένει στο Claude ή στο ChatGPT."
+      "pastePlaceholderUrl": "Επικολλήστε τη διεύθυνση εδώ",
+      "openChatgptAgain": "Άνοιγμα του ChatGPT ξανά",
+      "chatgptBrowserWaiting": "Ολοκληρώστε τη σύνδεση στο ChatGPT στο πρόγραμμα περιήγησης.",
+      "claudeNote": "Το Claude Code χρησιμοποιεί τον επιλεγμένο λογαριασμό σε όλους τους υπολογιστές σας και στο cloud. Οι δικές σας συσκευές συνδέονται στο Claude και διατηρούν τη σύνδεση ενημερωμένη· ο διακομιστής της Stella αποθηκεύει μόνο τα κρυπτογραφημένα tokens.",
+      "chatgptNote": "Η συνομιλία και οι πράκτορες στο cloud χρησιμοποιούν τον επιλεγμένο λογαριασμό, και αυτή η χρήση χρεώνεται στο πρόγραμμα ChatGPT σας. Το cloud της Stella έχει δική του σύνδεση· κάθε υπολογιστής συνδέεται στο ChatGPT από την εφαρμογή Stella για υπολογιστή.",
+      "continueWithChatgpt": "Συνέχεια με το ChatGPT",
+      "signInAgain": "Σύνδεση ξανά",
+      "enablePlanUsage": "Ενεργοποίηση χρήσης προγράμματος ChatGPT",
+      "remove": "Αφαίρεση",
+      "removeTitle": "Αφαίρεση του {name};",
+      "removeBody": "Η Stella ξεχνά αυτόν τον λογαριασμό ChatGPT. Μπορείτε να συνδεθείτε ξανά σε αυτόν αργότερα.",
+      "statusSignedOut": "Αποσυνδέθηκε",
+      "statusReauth": "Συνδεθείτε ξανά για να συνεχίσετε να τον χρησιμοποιείτε",
+      "statusPlanUsageOff": "Η χρήση του προγράμματος ChatGPT δεν είναι ενεργή",
+      "planUsageOffBody": "Η Stella δεν μπορεί να χρησιμοποιήσει το πρόγραμμα ChatGPT σας μέχρι να το επιτρέψετε. Επιλέξτε «Ενεργοποίηση χρήσης προγράμματος ChatGPT» στον λογαριασμό.",
+      "manageUsage": "Διαχείριση χρήσης",
+      "revokeUnconfirmed": "Το ChatGPT δεν επιβεβαίωσε την αποσύνδεση. Μπορείτε να αποσυνδέσετε τη Stella από τις Ρυθμίσεις του ChatGPT.",
+      "planWelcomeTitle": "Χρησιμοποιείτε το πρόγραμμα ChatGPT σας",
+      "planWelcomeBody": "Τα αιτήματα ChatGPT στο cloud της Stella χρεώνονται στο πρόγραμμα ChatGPT σας. Ελέγξτε τη χρήση και ορίστε το όριο της Stella στις Ρυθμίσεις του ChatGPT."
     }
   },
   "companion": {

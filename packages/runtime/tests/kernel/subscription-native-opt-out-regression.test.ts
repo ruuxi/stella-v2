@@ -34,7 +34,7 @@ afterEach(() => {
 });
 
 const resolvedRoute = (
-  provider: "stella" | "openai-codex",
+  provider: "stella" | "chatgpt",
   id: string,
 ): ResolvedLlmRoute =>
   ({
@@ -85,7 +85,7 @@ describe("subscription harness durability", () => {
   it("always keeps Codex on Stella's harness while Claude retains its opt-out", async () => {
     const stellaDataDir = makeDataDir();
     const context = contextFor(stellaDataDir);
-    const codex = resolvedRoute("openai-codex", "gpt-5.6-sol");
+    const codex = resolvedRoute("chatgpt", "gpt-5.6-sol");
     const stella = resolvedRoute("stella", "openai/gpt-5.6-sol");
 
     expect(getSubscriptionHarnessEnabled(stellaDataDir, "codex_cli")).toBe(
@@ -100,7 +100,7 @@ describe("subscription harness durability", () => {
       agentType: AGENT_IDS.GENERAL,
       runId: "run-harnessed-codex",
       configuredAgentEngine: "codex_cli",
-      model: "openai-codex/gpt-5.6-sol",
+      model: "chatgpt/gpt-5.6-sol",
       resolvedLlm: codex,
     });
     const harnessedClaude = await buildAgentContext(context, {
@@ -149,16 +149,16 @@ describe("subscription harness durability", () => {
     updateLocalModelPreferences(stellaDataDir, {
       useNativeClaudeCodeRuntime: false,
     });
-    const route = resolvedRoute("openai-codex", "gpt-5.6-sol");
+    const route = resolvedRoute("chatgpt", "gpt-5.6-sol");
     const explicitNative: AgentModelConfigSnapshot = {
       engine: "codex_cli",
       subscriptionHarnessEnabled: false,
-      routeModel: "openai-codex/gpt-5.6-sol",
+      routeModel: "chatgpt/gpt-5.6-sol",
       engineModel: "gpt-5.6-sol",
     };
     const legacyNative: AgentModelConfigSnapshot = {
       engine: "codex_cli",
-      routeModel: "openai-codex/gpt-5.4",
+      routeModel: "chatgpt/gpt-5.4",
       engineModel: "gpt-5.4",
     };
 
@@ -177,7 +177,7 @@ describe("subscription harness durability", () => {
       expect(built.modelConfigSnapshot).toEqual({
         ...snapshot,
         subscriptionHarnessEnabled: true,
-        routeModel: `openai-codex/${snapshot.engineModel}`,
+        routeModel: `chatgpt/${snapshot.engineModel}`,
       });
     }
   });
@@ -192,7 +192,7 @@ describe("subscription harness durability", () => {
       stellaDataDir,
       agentType: AGENT_IDS.GENERAL,
       configuredEngine: "codex_cli" as const,
-      configuredModel: "openai-codex/gpt-5.6-sol",
+      configuredModel: "chatgpt/gpt-5.6-sol",
     };
 
     expect(
@@ -200,7 +200,7 @@ describe("subscription harness durability", () => {
         ...common,
         subscriptionHarnessEnabled: true,
       }),
-    ).toBe("openai-codex/gpt-5.6-sol");
+    ).toBe("chatgpt/gpt-5.6-sol");
     expect(
       resolveSubscriptionHarnessRouteModel({
         ...common,
@@ -219,7 +219,7 @@ describe("subscription harness durability", () => {
     const persistedHarness: AgentModelConfigSnapshot = {
       engine: "codex_cli",
       subscriptionHarnessEnabled: true,
-      routeModel: "openai-codex/gpt-5.6-luna",
+      routeModel: "chatgpt/gpt-5.6-luna",
       engineModel: "gpt-5.6-luna",
     };
     expect(
@@ -228,7 +228,7 @@ describe("subscription harness durability", () => {
         subscriptionHarnessEnabled: false,
         modelConfigSnapshot: persistedHarness,
       }),
-    ).toBe("openai-codex/gpt-5.6-luna");
+    ).toBe("chatgpt/gpt-5.6-luna");
   });
 
   it("captures the exact resolved Codex harness model and mode", () => {
@@ -239,12 +239,12 @@ describe("subscription harness durability", () => {
         engine: "codex_cli",
         subscriptionHarnessEnabled: true,
         configuredModel: "stella/light",
-        resolvedLlm: resolvedRoute("openai-codex", "gpt-5.4-mini"),
+        resolvedLlm: resolvedRoute("chatgpt", "gpt-5.4-mini"),
       }),
     ).toMatchObject({
       engine: "codex_cli",
       subscriptionHarnessEnabled: true,
-      routeModel: "openai-codex/gpt-5.4-mini",
+      routeModel: "chatgpt/gpt-5.4-mini",
       engineModel: "gpt-5.4-mini",
     });
   });

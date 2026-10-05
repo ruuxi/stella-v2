@@ -55,8 +55,8 @@ export function cloudExecutionFromLocal(
       };
     case "codex_cli":
       return {
-        engine: "openai-codex",
-        provider: "openai-codex",
+        engine: "chatgpt",
+        provider: "chatgpt",
         model: preferences.codexModel || DEFAULT_CODEX_MODEL,
         reasoningEffort: preferences.codexReasoningEffort,
       };

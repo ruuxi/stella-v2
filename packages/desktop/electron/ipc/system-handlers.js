@@ -8,7 +8,8 @@ import { getMainLogger } from "../observability/main-logger.js";
 import { exportDesktopDebugLogs, getDesktopDebugPaths } from "../observability/desktop-debug-logging.js";
 import { resolveLogPaths } from "@stella/runtime/observability/log-paths";
 import { getLocalModelPreferences, getOnboardingCompleted, getPreventComputerSleep, getReadAloudEnabled, setReadAloudEnabled, getSoundNotificationsEnabled, loadLocalPreferences, normalizeImageGenerationPreferences, normalizeCodexServiceTier, normalizeRealtimeVoicePreferences, saveLocalPreferences, setOnboardingCompleted, updateLocalModelPreferences, } from "@stella/runtime/kernel/preferences/local-preferences";
-import { coerceAgentRuntimeEngine, DEFAULT_CODEX_MODEL } from "@stella/contracts/agent-engine";
+import { coerceAgentRuntimeEngine } from "@stella/contracts/agent-engine";
+import { listChatGptModels } from "@stella/contracts/chatgpt-siwc-flows";
 import { hasRealtimeVoiceSessionRouteChanged, } from "@stella/contracts/local-preferences";
 import { resetStellaCustomizations } from "@stella/runtime/kernel/home/reset-customizations";
 import { ensureStellaDataDirSeeded } from "@stella/runtime/kernel/home/stella-home";
@@ -16,12 +17,13 @@ import { loadAgentSystemPrompt } from "@stella/runtime/kernel/agents/home-agent-
 import { deletePromptPreset, isCustomizablePromptAgentId, listPromptPresets, readPromptPreset, savePromptPreset, } from "@stella/runtime/kernel/prompts/prompt-presets";
 import { getPromptPresetSelection, setPromptPresetSelection, } from "@stella/runtime/kernel/preferences/local-preferences";
 import { getModels } from "@stella/runtime/ai/models";
-import { getSupportedThinkingLevels } from "@stella/runtime/ai/thinking-levels";
 import { deleteLocalLlmCredential, getLocalLlmCredential, listLocalLlmCredentials, saveLocalLlmCredential, } from "@stella/runtime/kernel/storage/llm-credentials";
 import { CLOUD_ENGINE_OAUTH_PROVIDERS, cleanupRetiredLocalLlmOAuthCredentials, deleteLocalLlmOAuthCredential, getLocalLlmOAuthApiKey, listLocalLlmOAuthCredentials, saveLocalLlmOAuthCredential, } from "@stella/runtime/kernel/storage/llm-oauth-credentials";
 import { getOAuthProvider, getOAuthProviders, } from "@stella/runtime/ai/utils/oauth";
+import { loginChatGpt } from "@stella/runtime/ai/utils/oauth/chatgpt";
+import { beginChatGptRegistration, getChatGptAccessToken, getChatGptHostId, hasUsableChatGptProfile, listChatGptProfiles, removeChatGptProfile, saveChatGptRegistration, savedChatGptRegistration, setActiveChatGptProfile, setChatGptAutoSwitch, signOutChatGptProfile, } from "@stella/runtime/kernel/storage/chatgpt-profiles";
 import { isRuntimeUnavailableError } from "@stella/contracts/protocol/rpc-peer";
-import { IPC_APP_QUIT_FOR_RESTART, IPC_AUTH_APPLY_SESSION_TOKEN, IPC_AUTH_DELETE_USER, IPC_AUTH_GET_SESSION, IPC_AUTH_GET_TOKEN, IPC_AUTH_REVOKE_SESSIONS, IPC_AUTH_SIGN_IN_ANONYMOUS, IPC_AUTH_SIGN_OUT, IPC_DIAGNOSTICS_EXPORT_LOGS, IPC_DIAGNOSTICS_RECORD_HEAP_TRACE, IPC_DIAGNOSTICS_REPORT_ERROR, IPC_DIAGNOSTICS_REPORT_TIMING, IPC_DIAGNOSTICS_OPEN_LOGS, IPC_GLOBAL_SHORTCUTS_GET_SUSPENDED, IPC_GLOBAL_SHORTCUTS_SET_SUSPENDED, IPC_SYSTEM_OPEN_FDA, IPC_PERMISSIONS_GET_STATUS, IPC_PERMISSIONS_OPEN_SETTINGS, IPC_PERMISSIONS_REQUEST, IPC_PERMISSIONS_RESET, IPC_PERMISSIONS_RESET_MICROPHONE, IPC_SHELL_SAVE_FILE_AS, IPC_CUSTOMIZATIONS_RESET, IPC_PROMPT_PRESETS_LIST, IPC_PROMPT_PRESETS_READ, IPC_PROMPT_PRESETS_SAVE, IPC_PROMPT_PRESETS_DELETE, IPC_PROMPT_PRESETS_SELECT, IPC_PREFERENCES_GET_MODELS, IPC_PREFERENCES_LIST_CODEX_MODELS, IPC_PREFERENCES_LIST_CLAUDE_CODE_MODELS, IPC_PREFERENCES_LIST_MODELS, IPC_PREFERENCES_GET_ONBOARDING_COMPLETED, IPC_PREFERENCES_GET_PREVENT_SLEEP, IPC_PREFERENCES_GET_LOCKED_COMPUTER_USE, IPC_PREFERENCES_GET_SOUND_NOTIFICATIONS, IPC_PREFERENCES_SET_MODELS, IPC_PREFERENCES_SET_ONBOARDING_COMPLETED, IPC_PREFERENCES_SET_PREVENT_SLEEP, IPC_PREFERENCES_SET_LOCKED_COMPUTER_USE, IPC_PREFERENCES_SET_SOUND_NOTIFICATIONS, IPC_PREFERENCES_GET_READ_ALOUD, IPC_PREFERENCES_READ_ALOUD_CHANGED, IPC_PREFERENCES_SET_READ_ALOUD, IPC_VOICE_PREFERENCES_CHANGED, } from "@stella/contracts/desktop/ipc-channels";
+import { IPC_APP_QUIT_FOR_RESTART, IPC_AUTH_APPLY_SESSION_TOKEN, IPC_AUTH_DELETE_USER, IPC_AUTH_GET_SESSION, IPC_AUTH_GET_TOKEN, IPC_AUTH_REVOKE_SESSIONS, IPC_AUTH_SIGN_IN_ANONYMOUS, IPC_AUTH_SIGN_OUT, IPC_DIAGNOSTICS_EXPORT_LOGS, IPC_DIAGNOSTICS_RECORD_HEAP_TRACE, IPC_DIAGNOSTICS_REPORT_ERROR, IPC_DIAGNOSTICS_REPORT_TIMING, IPC_DIAGNOSTICS_OPEN_LOGS, IPC_GLOBAL_SHORTCUTS_GET_SUSPENDED, IPC_GLOBAL_SHORTCUTS_SET_SUSPENDED, IPC_SYSTEM_OPEN_FDA, IPC_PERMISSIONS_GET_STATUS, IPC_PERMISSIONS_OPEN_SETTINGS, IPC_PERMISSIONS_REQUEST, IPC_PERMISSIONS_RESET, IPC_PERMISSIONS_RESET_MICROPHONE, IPC_SHELL_SAVE_FILE_AS, IPC_CUSTOMIZATIONS_RESET, IPC_PROMPT_PRESETS_LIST, IPC_PROMPT_PRESETS_READ, IPC_PROMPT_PRESETS_SAVE, IPC_PROMPT_PRESETS_DELETE, IPC_PROMPT_PRESETS_SELECT, IPC_PREFERENCES_GET_MODELS, IPC_CHATGPT_LIST_MODELS, IPC_PREFERENCES_LIST_CLAUDE_CODE_MODELS, IPC_PREFERENCES_LIST_MODELS, IPC_PREFERENCES_GET_ONBOARDING_COMPLETED, IPC_PREFERENCES_GET_PREVENT_SLEEP, IPC_PREFERENCES_GET_LOCKED_COMPUTER_USE, IPC_PREFERENCES_GET_SOUND_NOTIFICATIONS, IPC_PREFERENCES_SET_MODELS, IPC_PREFERENCES_SET_ONBOARDING_COMPLETED, IPC_PREFERENCES_SET_PREVENT_SLEEP, IPC_PREFERENCES_SET_LOCKED_COMPUTER_USE, IPC_PREFERENCES_SET_SOUND_NOTIFICATIONS, IPC_PREFERENCES_GET_READ_ALOUD, IPC_PREFERENCES_READ_ALOUD_CHANGED, IPC_PREFERENCES_SET_READ_ALOUD, IPC_VOICE_PREFERENCES_CHANGED, } from "@stella/contracts/desktop/ipc-channels";
 import { resolveNativeHelperPath } from "../native-helper-path.js";
 import { hasMacPermission, clearPermissionCache, getMicrophonePermissionStatus, requestMacPermission, resetMacMicrophonePermissions, resetMacPermission, } from "../utils/macos-permissions.js";
 import { waitForConnectedRunner } from "./runtime-availability.js";
@@ -1070,27 +1072,26 @@ export const registerSystemHandlers = (options) => {
         }
         return getLocalModelPreferences(stellaAppDir);
     });
-    ipcMain.handle(IPC_PREFERENCES_LIST_CODEX_MODELS, async (event) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_PREFERENCES_LIST_CODEX_MODELS)) {
-            throw new Error("Blocked untrusted preferences:listCodexModels request.");
+    // The ChatGPT models this computer's active account may use
+    // (`GET /v1/models`, `visibility: "list"`, in the server's order), or
+    // Stella's catalog while no account is signed in here.
+    ipcMain.handle(IPC_CHATGPT_LIST_MODELS, async (event) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_CHATGPT_LIST_MODELS)) {
+            throw new Error("Blocked untrusted chatgpt:listModels request.");
         }
-        return {
-            models: getModels("openai-codex").map((model) => ({
-                id: model.id,
-                model: model.id,
-                displayName: model.name,
-                description: model.name,
-                hidden: false,
-                supportedReasoningEfforts: getSupportedThinkingLevels(model).map((effort) => ({
-                    reasoningEffort: effort === "off" ? "none" : effort,
-                    description: "",
-                })),
-                defaultReasoningEffort: model.reasoning ? "medium" : "none",
-                inputModalities: model.input,
-                additionalSpeedTiers: [],
-                isDefault: model.id === DEFAULT_CODEX_MODEL,
-            })),
-        };
+        const stellaAppDir = options.getStellaAppDir();
+        const catalog = () => ({
+            source: "catalog",
+            models: getModels("chatgpt").map((model) => ({ id: model.id, name: model.name })),
+        });
+        if (!stellaAppDir || !hasUsableChatGptProfile(stellaAppDir)) {
+            return catalog();
+        }
+        const accessToken = await getChatGptAccessToken(stellaAppDir);
+        if (!accessToken) {
+            return catalog();
+        }
+        return { source: "account", models: await listChatGptModels(accessToken) };
     });
     ipcMain.handle(IPC_PREFERENCES_LIST_CLAUDE_CODE_MODELS, async (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_PREFERENCES_LIST_CLAUDE_CODE_MODELS)) {
@@ -1358,6 +1359,120 @@ export const registerSystemHandlers = (options) => {
             throw new Error("Blocked untrusted Claude sign-in cancel.");
         }
         return { canceled: options.engineAccountAccess.cancelClaudeConnect() };
+    });
+    // ChatGPT on this computer (Sign in with ChatGPT): this install is its
+    // own agent host. Sign-in runs the loopback flow here in main; the
+    // credentials stay in this computer's keychain-protected store.
+    let activeChatGptSignIn = null;
+    const chatGptAppDir = () => {
+        const dir = options.getStellaAppDir();
+        if (!dir) {
+            throw new Error("Local Stella root is unavailable.");
+        }
+        return dir;
+    };
+    const chatGptProfilesChanged = () => {
+        refreshLocalLlmCredentials();
+        for (const window of BrowserWindow.getAllWindows()) {
+            if (!window.isDestroyed()) {
+                window.webContents.send("chatgpt:profilesChanged", {});
+            }
+        }
+    };
+    const guardChatGpt = (event, channel) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, channel)) {
+            throw new Error(`Blocked untrusted ${channel} request.`);
+        }
+    };
+    ipcMain.handle("chatgpt:listProfiles", (event) => {
+        guardChatGpt(event, "chatgpt:listProfiles");
+        const dir = options.getStellaAppDir();
+        return dir ? listChatGptProfiles(dir) : { autoSwitch: false, profiles: [] };
+    });
+    ipcMain.handle("chatgpt:signIn", async (event, payload) => {
+        guardChatGpt(event, "chatgpt:signIn");
+        const dir = chatGptAppDir();
+        const profileId = asTrimmedString(payload?.profileId);
+        activeChatGptSignIn?.abort();
+        const controller = new AbortController();
+        activeChatGptSignIn = controller;
+        const abortOnSenderDestroyed = () => controller.abort();
+        event.sender.once("destroyed", abortOnSenderDestroyed);
+        try {
+            const registration = await loginChatGpt({
+                hostId: getChatGptHostId(dir),
+                ...(profileId ? { saved: savedChatGptRegistration(dir, profileId) } : {}),
+                reconsent: payload?.enablePlanUsage === true,
+                openUrl: (url) => void shell.openExternal(url),
+                onRegistration: (clientId) => {
+                    beginChatGptRegistration(dir, clientId);
+                    chatGptProfilesChanged();
+                },
+                signal: controller.signal,
+            });
+            const saved = saveChatGptRegistration(dir, registration);
+            chatGptProfilesChanged();
+            return saved;
+        }
+        finally {
+            event.sender.removeListener("destroyed", abortOnSenderDestroyed);
+            if (activeChatGptSignIn === controller) {
+                activeChatGptSignIn = null;
+            }
+        }
+    });
+    ipcMain.handle("chatgpt:cancelSignIn", (event) => {
+        guardChatGpt(event, "chatgpt:cancelSignIn");
+        const current = activeChatGptSignIn;
+        current?.abort();
+        return { canceled: Boolean(current) };
+    });
+    ipcMain.handle("chatgpt:setActive", (event, payload) => {
+        guardChatGpt(event, "chatgpt:setActive");
+        setActiveChatGptProfile(chatGptAppDir(), asTrimmedString(payload?.profileId));
+        chatGptProfilesChanged();
+        return { ok: true };
+    });
+    ipcMain.handle("chatgpt:setAutoSwitch", (event, payload) => {
+        guardChatGpt(event, "chatgpt:setAutoSwitch");
+        setChatGptAutoSwitch(chatGptAppDir(), payload?.enabled === true);
+        chatGptProfilesChanged();
+        return { ok: true };
+    });
+    ipcMain.handle("chatgpt:signOut", async (event, payload) => {
+        guardChatGpt(event, "chatgpt:signOut");
+        const result = await signOutChatGptProfile(chatGptAppDir(), asTrimmedString(payload?.profileId));
+        chatGptProfilesChanged();
+        return result;
+    });
+    ipcMain.handle("chatgpt:remove", async (event, payload) => {
+        guardChatGpt(event, "chatgpt:remove");
+        const result = await removeChatGptProfile(chatGptAppDir(), asTrimmedString(payload?.profileId));
+        chatGptProfilesChanged();
+        return result;
+    });
+    // The owner's cloud is its own ChatGPT host: the server builds the
+    // authorization and keeps the credentials; this computer only catches
+    // the loopback redirect.
+    ipcMain.handle("engineAccounts:connectChatGptCloud", async (event, payload) => {
+        guardChatGpt(event, "engineAccounts:connectChatGptCloud");
+        const engineAccounts = options.engineAccountAccess;
+        const cancelOnSenderDestroyed = () => engineAccounts.cancelChatGptCloudConnect();
+        event.sender.once("destroyed", cancelOnSenderDestroyed);
+        try {
+            const accountId = asTrimmedString(payload?.accountId);
+            return await engineAccounts.connectChatGptCloud((url) => void shell.openExternal(url), {
+                ...(accountId ? { accountId } : {}),
+                ...(payload?.enablePlanUsage === true ? { enablePlanUsage: true } : {}),
+            });
+        }
+        finally {
+            event.sender.removeListener("destroyed", cancelOnSenderDestroyed);
+        }
+    });
+    ipcMain.handle("engineAccounts:cancelConnectChatGptCloud", (event) => {
+        guardChatGpt(event, "engineAccounts:cancelConnectChatGptCloud");
+        return { canceled: options.engineAccountAccess.cancelChatGptCloudConnect() };
     });
     ipcMain.handle("llmCredentials:cancelOAuth", (event, payload) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, "llmCredentials:cancelOAuth")) {

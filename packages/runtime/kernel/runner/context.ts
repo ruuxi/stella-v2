@@ -1112,10 +1112,10 @@ export const resolveSubscriptionHarnessRouteModel = (args: {
   if (args.modelConfigSnapshot) {
     const snapshotModel = args.modelConfigSnapshot.engineModel?.trim();
     return snapshotModel
-      ? `openai-codex/${snapshotModel}`
-      : args.modelConfigSnapshot.routeModel.startsWith("openai-codex/")
+      ? `chatgpt/${snapshotModel}`
+      : args.modelConfigSnapshot.routeModel.startsWith("chatgpt/")
         ? args.modelConfigSnapshot.routeModel
-        : `openai-codex/${getCodexSubscriptionPreferences(args.stellaDataDir).model}`;
+        : `chatgpt/${getCodexSubscriptionPreferences(args.stellaDataDir).model}`;
   }
   const codex = getCodexSubscriptionPreferences(
     args.stellaDataDir,
@@ -1124,7 +1124,7 @@ export const resolveSubscriptionHarnessRouteModel = (args: {
       ? args.spawnEngine.model
       : undefined,
   );
-  return `openai-codex/${codex.model}`;
+  return `chatgpt/${codex.model}`;
 };
 
 export const resolveSpawnReasoningEffortForModel = (
@@ -1248,7 +1248,7 @@ export const resolveEffectiveAgentExecutionConfig = (
       ? {
           ...args.modelConfigSnapshot,
           subscriptionHarnessEnabled: true,
-          routeModel: `openai-codex/${args.modelConfigSnapshot.engineModel}`,
+          routeModel: `chatgpt/${args.modelConfigSnapshot.engineModel}`,
         }
       : args.modelConfigSnapshot
     : captureEffectiveModelConfig({

@@ -593,7 +593,6 @@
       "voiceProviderAriaLabel": "音声プロバイダ",
       "assistantPickerAriaLabel": "アシスタントのモデルピッカー",
       "verifyingChatGpt": "ChatGPT のモデルを確認中…",
-      "noChatGptCodexModels": "現在、ChatGPT と Codex の両方で利用できるモデルはありません。",
       "savedModelUnavailable": "保存済みのモデルは利用できません。別のモデルを選択してください。",
       "tabs": {
         "assistant": "アシスタント",
@@ -608,7 +607,7 @@
         "chatGptMigration": "ChatGPT のルーティング移行に失敗しました。",
         "chatGptVerify": "ChatGPT のモデルを確認できませんでした: {error}",
         "chatGptVerifying": "ChatGPT のモデルの確認が終わるまでお待ちください。",
-        "chatGptNotConnected": "選択する前に ChatGPT を接続する必要があります。",
+        "chatGptNotConnected": "まずこのコンピュータで ChatGPT にサインインしてください。",
         "chatGptNoModels": "現在、利用できる ChatGPT のモデルはありません。",
         "connectChatGpt": "ChatGPT に接続できませんでした。",
         "updateEngine": "エンジンを更新できませんでした。",
@@ -622,8 +621,12 @@
         "updateReadAloud": "読み上げプロバイダを更新できませんでした。",
         "updateReasoning": "推論の強度を更新できませんでした。",
         "updateChatGptSpeed": "ChatGPT の速度を更新できませんでした。",
-        "updateDirectRuntime": "{runtime} の直接設定を更新できませんでした。"
-      }
+        "updateDirectRuntime": "{runtime} の直接設定を更新できませんでした。",
+        "chatGptPlanUsageOff": "このアカウントでは ChatGPT のプランの使用が有効になっていません。設定 › アカウントで有効にするか、別のモデルを選択してください。"
+      },
+      "noChatGptModels": "現在、このアカウントで利用できる ChatGPT のモデルはありません。",
+      "chatGptPlanInUse": "ChatGPT のプランを使用中",
+      "chatGptManageUsage": "使用量を管理"
     },
     "onboardingReplay": {
       "title": "Onboarding",
@@ -826,9 +829,9 @@
             "title": "Claude Code",
             "body": "お使いの Claude Pro または Max プランを使います。"
           },
-          "codex": {
-            "title": "Codex",
-            "body": "お使いの ChatGPT Plus または Pro プランを使います。"
+          "chatgpt": {
+            "title": "ChatGPT",
+            "body": "ChatGPT でサインインして、プランを利用しましょう。"
           }
         },
         "signIn": "サインイン",
@@ -2131,7 +2134,7 @@
         "subscriptionsLabel": "任意",
         "subscriptionsBody": "ClaudeやChatGPTをすでに契約していますか？ 接続すれば、お使いのコンピュータとクラウドで使わせてもらいます。",
         "claudeDesc": "ProまたはMax、Claude Code経由",
-        "chatgptDesc": "PlusまたはPro、Codex経由",
+        "chatgptDesc": "Stella のクラウドで使う ChatGPT のプラン",
         "connect": "接続",
         "connectLabel": "{name} を接続",
         "connectedAs": "接続済み · {name}",
@@ -2453,10 +2456,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude と ChatGPT",
-      "settingsRowBody": "お使いのコンピュータとクラウドで使うアカウント",
+      "settingsRowBody": "すでに契約している Claude または ChatGPT のプランを使う",
       "openSettingsLabel": "Claude と ChatGPT のアカウントを開く",
       "title": "Claude と ChatGPT",
-      "subtitle": "お使いのコンピュータとクラウドで使うアカウント",
+      "subtitle": "すでに契約している Claude または ChatGPT のプランを使う",
       "backLabel": "設定に戻る",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2470,16 +2473,34 @@
       "limitReached": "上限に達しました · {time} にリセット",
       "autoSwitchLabel": "上限に達したらアカウントを切り替える",
       "autoSwitchClaude": "使用中のアカウントが 5 時間または週間の上限に達すると、リセットされるまで Stella は次のアカウントに切り替えます。",
-      "autoSwitchChatgpt": "使用中のアカウントが Codex の利用上限に達すると、リセットされるまで Stella は次のアカウントに切り替えます。",
+      "autoSwitchChatgpt": "使用中のアカウントが ChatGPT の利用上限に達すると、リセットされるまで Stella は次のアカウントに切り替えます。",
       "pasteHintClaude": "アクセスを許可すると、Claude にコードが表示されます。コピーしてここに貼り付けてください。",
-      "pasteHintChatgpt": "許可した後、ページは読み込まれません。そのページのアドレスをコピー(共有 › コピー)して、ここに貼り付けてください。",
+      "pasteHintChatgpt": "許可すると、ChatGPT から読み込まれないページに移動します。そのページのアドレス全体をコピーして、ここに貼り付けてください。",
       "pastePlaceholder": "コードまたは URL",
       "pasteFromClipboard": "貼り付け",
       "finish": "接続",
       "connecting": "接続中…",
       "errorTitle": "アカウントを更新できませんでした",
       "errorBody": "問題が発生しました。もう一度お試しください。",
-      "localNote": "これらのアカウントで、すべてのコンピュータとクラウドの Claude Code と Codex が動きます。Stella は暗号化されたトークンを保管し、サインインは Claude または ChatGPT 側に残ります。"
+      "pastePlaceholderUrl": "ここにアドレスを貼り付け",
+      "openChatgptAgain": "ChatGPT をもう一度開く",
+      "chatgptBrowserWaiting": "ブラウザで ChatGPT へのサインインを完了してください。",
+      "claudeNote": "Claude Code は、お使いのすべてのコンピュータとクラウドでチェックしたアカウントを使用します。Claude へのサインインと更新はお使いのデバイス自身が行い、Stella のサーバーは暗号化されたトークンを保存するだけです。",
+      "chatgptNote": "クラウドのチャットとエージェントはチェックしたアカウントを使用し、その使用量は ChatGPT のプランから消費されます。Stella のクラウドには独自のサインインがあり、各コンピュータは Stella デスクトップアプリで ChatGPT にサインインします。",
+      "continueWithChatgpt": "ChatGPT で続ける",
+      "signInAgain": "もう一度サインイン",
+      "enablePlanUsage": "ChatGPT のプランの使用を有効にする",
+      "remove": "削除",
+      "removeTitle": "{name} を削除しますか?",
+      "removeBody": "Stella からこの ChatGPT アカウントが削除されます。後でもう一度サインインできます。",
+      "statusSignedOut": "サインアウト済み",
+      "statusReauth": "引き続き使うにはもう一度サインインしてください",
+      "statusPlanUsageOff": "ChatGPT のプランの使用が有効になっていません",
+      "planUsageOffBody": "許可するまで、Stella は ChatGPT のプランを使用できません。アカウントで「ChatGPT のプランの使用を有効にする」を選んでください。",
+      "manageUsage": "使用量を管理",
+      "revokeUnconfirmed": "ChatGPT でサインアウトが確認されませんでした。ChatGPT の設定で Stella の接続を解除できます。",
+      "planWelcomeTitle": "ChatGPT のプランを使用しています",
+      "planWelcomeBody": "Stella のクラウドでの ChatGPT リクエストは ChatGPT のプランから消費されます。ChatGPT の設定で使用量を確認し、Stella の上限を設定してください。"
     }
   },
   "companion": {

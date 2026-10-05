@@ -1,6 +1,5 @@
+import { CHATGPT_SIWC } from "@stella/contracts/chatgpt-siwc";
 import type { GatewayNativeCredentialProvider } from "@stella/contracts/gateway/capability";
-
-export const CODEX_UPSTREAM_BASE_URL = "https://chatgpt.com/backend-api/codex";
 
 export type NativeCredentialProvider = GatewayNativeCredentialProvider;
 
@@ -11,8 +10,6 @@ export type NativeCredentialProvider = GatewayNativeCredentialProvider;
 export type NativeRelayCredential = {
   provider: NativeCredentialProvider;
   accessToken: string;
-  /** Required by ChatGPT's Codex backend; absent for Anthropic. */
-  accountId?: string;
 };
 
 /** The fields of an authorized relay request the native lane reads. */
@@ -32,7 +29,6 @@ export const isInternalRelayRequestHeader = (name: string): boolean => {
     lower === "authorization" ||
     lower === "x-api-key" ||
     lower === "x-goog-api-key" ||
-    lower === "chatgpt-account-id" ||
     lower.startsWith("x-stella-") ||
     lower.startsWith("cf-") ||
     lower === "forwarded" ||
@@ -63,13 +59,8 @@ export const connectedCredentialForwardHeaders = (
   });
   headers.set("content-type", "application/json");
   headers.set("authorization", `Bearer ${credential.accessToken}`);
-
-  if (credential.provider === "openai-codex") {
-    if (!credential.accountId) {
-      throw new Error("ChatGPT account identity is unavailable.");
-    }
-    headers.set("chatgpt-account-id", credential.accountId);
-  }
+  // ChatGPT: the cloud host's Sign in with ChatGPT access token is the whole
+  // credential on the public Responses API.
   // Anthropic: the caller is the real Claude Code CLI, which sends its own
   // anthropic-beta, x-app and anthropic-version headers. Pass them through.
   return headers;
@@ -96,18 +87,10 @@ export const connectedCredentialUpstreamUrl = (
   anthropicBaseUrl: string,
 ): string | null => {
   const credentialProvider = authorized.userCredential?.provider;
-  if (credentialProvider === "openai-codex") {
+  if (credentialProvider === "chatgpt") {
+    // ChatGPT plan usage serves `POST /v1/responses` only.
     const pathname = new URL(request.url).pathname;
-    if (
-      pathname.endsWith("/responses/compact") ||
-      pathname.endsWith("/v1/responses/compact")
-    ) {
-      return `${CODEX_UPSTREAM_BASE_URL}/responses/compact`;
-    }
-    if (pathname.endsWith("/responses") || pathname.endsWith("/v1/responses")) {
-      return `${CODEX_UPSTREAM_BASE_URL}/responses`;
-    }
-    return null;
+    return pathname.endsWith("/responses") ? CHATGPT_SIWC.responsesUrl : null;
   }
   if (credentialProvider === "anthropic") {
     const pathname = new URL(request.url).pathname;

@@ -348,7 +348,7 @@ export async function* iterateSseMessages(
 	// the legacy pre-read abort throw byte-identically. The SSE line parsing
 	// below stays the same pure state machine, run between pulls, so event
 	// bytes and ordering are unchanged. Same pattern as
-	// openai-codex-responses' parseSSE.
+	// chatgpt-responses' parseSSE.
 	for await (const value of iterateStream(
 		scopedBodyChunks(body, {
 			beforeRead: () => (signal?.aborted ? new Error("Request was aborted") : undefined),

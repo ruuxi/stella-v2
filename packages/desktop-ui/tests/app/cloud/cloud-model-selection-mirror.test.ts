@@ -53,7 +53,7 @@ describe("cloud model selection mirror", () => {
       cloudExecutionFromLocal(
         base({ agentRuntimeEngine: "codex_cli", codexModel: "gpt-6-luna" }),
       ),
-    ).toMatchObject({ engine: "openai-codex", model: "gpt-6-luna" });
+    ).toMatchObject({ engine: "chatgpt", model: "gpt-6-luna" });
   });
 
   it("leaves bring-your-own-key picks local", () => {
@@ -73,8 +73,8 @@ describe("cloud model selection mirror", () => {
         reasoningEffort: "xhigh",
       },
       {
-        engine: "openai-codex",
-        provider: "openai-codex",
+        engine: "chatgpt",
+        provider: "chatgpt",
         model: "gpt-6-astra",
         reasoningEffort: "low",
       },
@@ -100,12 +100,12 @@ describe("cloud model selection mirror", () => {
 
   it("routes Codex conversation agents through the ChatGPT provider", () => {
     const next = apply(base(), {
-      engine: "openai-codex",
-      provider: "openai-codex",
+      engine: "chatgpt",
+      provider: "chatgpt",
       model: "gpt-6.1-sol",
       reasoningEffort: "default",
     });
     expect(next.agentRuntimeEngine).toBe("codex_cli");
-    expect(next.modelOverrides.orchestrator).toBe("openai-codex/gpt-6.1-sol");
+    expect(next.modelOverrides.orchestrator).toBe("chatgpt/gpt-6.1-sol");
   });
 });

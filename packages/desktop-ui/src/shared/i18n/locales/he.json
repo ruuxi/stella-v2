@@ -595,7 +595,6 @@
       "voiceProviderAriaLabel": "ספק קול",
       "assistantPickerAriaLabel": "בורר מודל העוזר",
       "verifyingChatGpt": "מאמת מודלים של ChatGPT…",
-      "noChatGptCodexModels": "כרגע אין מודלים הזמינים גם ל-ChatGPT וגם ל-Codex.",
       "savedModelUnavailable": "המודל השמור אינו זמין. בחר מודל אחר.",
       "tabs": {
         "assistant": "עוזר",
@@ -610,7 +609,7 @@
         "chatGptMigration": "העברת הניתוב של ChatGPT נכשלה.",
         "chatGptVerify": "לא ניתן היה לאמת את מודלי ChatGPT: {error}",
         "chatGptVerifying": "המתן לסיום האימות של מודלי ChatGPT.",
-        "chatGptNotConnected": "יש לחבר את ChatGPT לפני הבחירה.",
+        "chatGptNotConnected": "קודם צריך להתחבר עם ChatGPT במחשב הזה.",
         "chatGptNoModels": "כרגע אין מודלי ChatGPT זמינים.",
         "connectChatGpt": "חיבור ChatGPT נכשל.",
         "updateEngine": "עדכון המנוע נכשל.",
@@ -624,8 +623,12 @@
         "updateReadAloud": "עדכון ספק ההקראה נכשל.",
         "updateReasoning": "עדכון עומק החשיבה נכשל.",
         "updateChatGptSpeed": "עדכון מהירות ChatGPT נכשל.",
-        "updateDirectRuntime": "עדכון ההגדרה הישירה של {runtime} נכשל."
-      }
+        "updateDirectRuntime": "עדכון ההגדרה הישירה של {runtime} נכשל.",
+        "chatGptPlanUsageOff": "השימוש במינוי ChatGPT לא מופעל בחשבון הזה. אפשר להפעיל אותו בהגדרות › חשבון, או לבחור מודל אחר."
+      },
+      "noChatGptModels": "אין כרגע מודלים של ChatGPT שזמינים לחשבון הזה.",
+      "chatGptPlanInUse": "בשימוש: מינוי ChatGPT",
+      "chatGptManageUsage": "ניהול השימוש"
     },
     "onboardingReplay": {
       "title": "Onboarding",
@@ -828,9 +831,9 @@
             "title": "Claude Code",
             "body": "השתמש במנוי Claude Pro או Max שלך."
           },
-          "codex": {
-            "title": "Codex",
-            "body": "השתמש במנוי ChatGPT Plus או Pro שלך."
+          "chatgpt": {
+            "title": "ChatGPT",
+            "body": "התחברו עם ChatGPT כדי להשתמש במינוי שלכם."
           }
         },
         "signIn": "התחבר",
@@ -2172,7 +2175,7 @@
         "subscriptionsLabel": "אופציונלי",
         "subscriptionsBody": "כבר משלמים על Claude או ChatGPT? חברו אותו ואשתמש בו במחשבים שלכם ובענן.",
         "claudeDesc": "Pro או Max, דרך Claude Code",
-        "chatgptDesc": "Plus או Pro, דרך Codex",
+        "chatgptDesc": "מינוי ה-ChatGPT שלכם, לענן של Stella",
         "connect": "חיבור",
         "connectLabel": "חיבור {name}",
         "connectedAs": "מחובר · {name}",
@@ -2500,10 +2503,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude ו-ChatGPT",
-      "settingsRowBody": "חשבונות לשימוש במחשבים שלכם ובענן",
+      "settingsRowBody": "שימוש במינוי Claude או ChatGPT שאתם כבר משלמים עליו",
       "openSettingsLabel": "פתיחת חשבונות Claude ו-ChatGPT",
       "title": "Claude ו-ChatGPT",
-      "subtitle": "חשבונות לשימוש במחשבים שלכם ובענן",
+      "subtitle": "שימוש במינוי Claude או ChatGPT שאתם כבר משלמים עליו",
       "backLabel": "חזרה להגדרות",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2517,16 +2520,34 @@
       "limitReached": "הגעת למגבלה · מתאפס {time}",
       "autoSwitchLabel": "החלפת חשבון בהגעה למגבלה",
       "autoSwitchClaude": "כשהחשבון שבשימוש מגיע למגבלת 5 השעות או המגבלה השבועית, Stella עוברת לחשבון הבא עד שהמגבלה מתאפסת.",
-      "autoSwitchChatgpt": "כשהחשבון שבשימוש מגיע למגבלת השימוש ב-Codex, Stella עוברת לחשבון הבא עד שהמגבלה מתאפסת.",
+      "autoSwitchChatgpt": "כשהחשבון שבשימוש מגיע למגבלת שימוש של ChatGPT, Stella עוברת לחשבון הבא עד שהמגבלה מתאפסת.",
       "pasteHintClaude": "אחרי שתאשרו גישה, Claude יציג קוד. העתיקו אותו והדביקו כאן.",
-      "pasteHintChatgpt": "אחרי האישור, הדף לא ייטען. העתיקו את כתובת הדף (שיתוף › העתקה) והדביקו אותה כאן.",
+      "pasteHintChatgpt": "אחרי האישור, ChatGPT מעביר אתכם לדף שלא נטען. העתיקו את הכתובת המלאה של הדף והדביקו אותה כאן.",
       "pastePlaceholder": "קוד או כתובת URL",
       "pasteFromClipboard": "הדבקה",
       "finish": "חיבור",
       "connecting": "מתחבר…",
       "errorTitle": "לא ניתן לעדכן את החשבונות",
       "errorBody": "משהו השתבש. נסו שוב.",
-      "localNote": "החשבונות האלה מפעילים את Claude Code ו-Codex בכל המחשבים שלכם ובענן. Stella שומרת אסימון מוצפן; ההתחברות נשארת אצל Claude או ChatGPT."
+      "pastePlaceholderUrl": "הדביקו את הכתובת כאן",
+      "openChatgptAgain": "פתיחת ChatGPT שוב",
+      "chatgptBrowserWaiting": "סיימו את ההתחברות ל-ChatGPT בדפדפן.",
+      "claudeNote": "Claude Code משתמש בחשבון המסומן בכל המחשבים שלכם ובענן. המכשירים שלכם מתחברים ל-Claude ושומרים על החיבור מעודכן; השרת של Stella שומר רק את האסימונים המוצפנים.",
+      "chatgptNote": "צ'אט וסוכנים בענן משתמשים בחשבון המסומן, והשימוש הזה נספר במינוי ה-ChatGPT שלכם. לענן של Stella יש התחברות משלו; כל מחשב מתחבר ל-ChatGPT באפליקציית Stella למחשב.",
+      "continueWithChatgpt": "המשך עם ChatGPT",
+      "signInAgain": "התחברות מחדש",
+      "enablePlanUsage": "הפעלת השימוש במינוי ChatGPT",
+      "remove": "הסרה",
+      "removeTitle": "להסיר את {name}?",
+      "removeBody": "Stella תשכח את חשבון ה-ChatGPT הזה. אפשר להתחבר אליו שוב מאוחר יותר.",
+      "statusSignedOut": "מנותק",
+      "statusReauth": "צריך להתחבר מחדש כדי להמשיך להשתמש בו",
+      "statusPlanUsageOff": "השימוש במינוי ChatGPT לא מופעל",
+      "planUsageOffBody": "Stella לא יכולה להשתמש במינוי ה-ChatGPT שלכם עד שתאשרו זאת. בחרו ״הפעלת השימוש במינוי ChatGPT״ בחשבון.",
+      "manageUsage": "ניהול השימוש",
+      "revokeUnconfirmed": "ChatGPT לא אישר את היציאה. אפשר לנתק את Stella בהגדרות של ChatGPT.",
+      "planWelcomeTitle": "אתם משתמשים במינוי ה-ChatGPT שלכם",
+      "planWelcomeBody": "בקשות ChatGPT בענן של Stella נספרות במינוי ה-ChatGPT שלכם. אפשר לבדוק את השימוש ולהגדיר את המגבלה של Stella בהגדרות של ChatGPT."
     }
   },
   "companion": {

@@ -203,7 +203,7 @@ export const validateCapabilityClaims = (
   if (
     value.credential !== undefined &&
     value.credential !== "anthropic" &&
-    value.credential !== "openai-codex"
+    value.credential !== "chatgpt"
   ) {
     return false;
   }

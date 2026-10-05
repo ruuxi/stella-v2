@@ -44,7 +44,7 @@ export const MANAGED_MODEL_AUDIENCES = [
 
 export type ManagedModelAudience = (typeof MANAGED_MODEL_AUDIENCES)[number];
 
-export type GatewayNativeCredentialProvider = "anthropic" | "openai-codex";
+export type GatewayNativeCredentialProvider = "anthropic" | "chatgpt";
 
 /**
  * The program a native-lane capability is handed to. A Claude subscription is

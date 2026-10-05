@@ -10,8 +10,8 @@ import {
 } from "../../../src/features/cloud/cloud-execution-store";
 
 const SELECTED: CloudExecutionSelection = {
-  engine: "openai-codex",
-  provider: "openai-codex",
+  engine: "chatgpt",
+  provider: "chatgpt",
   model: "gpt-5.6-sol",
   reasoningEffort: "xhigh",
 };

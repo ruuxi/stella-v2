@@ -86,7 +86,7 @@ const engineConnections = () => ({
   },
   connections: [
     { provider: "anthropic", label: "Claude", updatedAt: 1 },
-    { provider: "openai-codex", label: "ChatGPT", updatedAt: 1 },
+    { provider: "chatgpt", label: "ChatGPT", updatedAt: 1 },
   ],
 });
 
@@ -164,7 +164,9 @@ describe("ported cloud account cards", () => {
     expect(card("Cloud projects")).toBeTruthy();
     const engineConnects = Array.from(
       card("Claude & ChatGPT accounts").querySelectorAll<HTMLButtonElement>("button"),
-    ).filter((button) => button.textContent?.trim() === "Connect");
+    ).filter((button) =>
+      ["Connect", "Continue with ChatGPT"].includes(button.textContent?.trim() ?? ""),
+    );
     expect(engineConnects).toHaveLength(2);
     expect(engineConnects.every((button) => button.disabled)).toBe(true);
   });
@@ -179,8 +181,8 @@ describe("ported cloud account cards", () => {
     });
 
     const expected = {
-      engine: "openai-codex",
-      provider: "openai-codex",
+      engine: "chatgpt",
+      provider: "chatgpt",
       model: "gpt-6.1-sol",
       reasoningEffort: "default",
     };

@@ -107,7 +107,7 @@ export type StellaExecution = Extract<
 
 export type NativeExecution = Extract<
   CloudExecutionSelection,
-  { engine: "anthropic" | "openai-codex" }
+  { engine: "anthropic" | "chatgpt" }
 >;
 
 export type GeneralAgentTurnPlan =
@@ -244,7 +244,7 @@ const executionSelection = (
   if (
     pair !== "stella/stella" &&
     pair !== "anthropic/anthropic" &&
-    pair !== "openai-codex/openai-codex"
+    pair !== "chatgpt/chatgpt"
   ) {
     return undefined;
   }

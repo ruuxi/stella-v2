@@ -13,13 +13,11 @@ import { buildModelDefaultsMap, buildResolvedModelDefaultsMap, getConfigurableAg
 import { listReasoningEffortOptions, supportsReasoningEffortSelection, type ReasoningEffortOptionId, } from "@/global/settings/lib/reasoning-effort-options";
 import { recordRecentModel } from "@/global/settings/lib/recent-models";
 import { getPlanLabel, isRestrictedModelOverrideAudience, } from "@/global/billing/audience";
-import { useAuthState } from "@/global/auth/BackendAuthProvider";
-import { useCloudEngines } from "@/features/cloud/cloud-engines-api";
-import { EngineConnectPrompt } from "@/features/cloud/EngineConnectPrompt";
-import { useEngineConnect } from "@/features/cloud/use-engine-connect";
+import { announceChatGptPlanUse, ChatGptPlanInUse } from "@/features/chatgpt/ChatGptBrand";
+import { useChatGptProfiles } from "@/features/chatgpt/use-chatgpt-profiles";
 import { showToast } from "@/ui/toast";
 import { useT } from "@/shared/i18n";
-import { buildEngineReasoningPatch, buildEngineRoutingPatch, buildEngineTransitionReasoningPatch, buildModelSelectionPatch, DEFAULT_CHATGPT_MODEL, DEFAULT_CLAUDE_CODE_MODEL, formatRecentEngineModelId, fromOpenAiCodexModelId, listChatGptCatalogModels, OPENAI_CODEX_PROVIDER, resolveChatGptEngineModel, type ModelPickerEngine, } from "@/global/settings/lib/engine-model-routing";
+import { buildEngineReasoningPatch, buildEngineRoutingPatch, buildEngineTransitionReasoningPatch, buildModelSelectionPatch, DEFAULT_CHATGPT_MODEL, DEFAULT_CLAUDE_CODE_MODEL, formatRecentEngineModelId, fromChatGptModelId, listChatGptCatalogModels, CHATGPT_PROVIDER, resolveChatGptEngineModel, type ModelPickerEngine, } from "@/global/settings/lib/engine-model-routing";
 import "./AgentModelPicker.css";
 import { isWebsiteHost } from "@/platform/capabilities";
 import { WebsiteModelPicker } from "./WebsiteModelPicker";
@@ -64,9 +62,9 @@ const NATIVE_CLAUDE_CODE_RUNTIME_PENDING_TARGET = "__native_claude_code_runtime_
 /** Section keys for the two engine entries in the single provider list. */
 const CHATGPT_SECTION_KEY = "chatgpt-engine";
 const CLAUDE_CODE_SECTION_KEY = "claude-code-engine";
-/** `openai-codex` is surfaced as the ChatGPT engine section, never as a
+/** `chatgpt` is surfaced as the ChatGPT engine section, never as a
  * second catalog "OpenAI" group. */
-const HIDDEN_CATALOG_PROVIDERS = ["openai-codex"];
+const HIDDEN_CATALOG_PROVIDERS = ["chatgpt"];
 /** Pinned front of the provider list; everything else keeps its catalog
  * (rail-priority) order after these. */
 const SECTION_ORDER = [
@@ -81,7 +79,7 @@ const SECTION_ORDER = [
 function sectionOfModelValue(value: string): string {
     if (!value || value.startsWith("stella/"))
         return "stella";
-    if (value.startsWith("codex-cli/") || value.startsWith("openai-codex/")) {
+    if (value.startsWith("codex-cli/") || value.startsWith("chatgpt/")) {
         return CHATGPT_SECTION_KEY;
     }
     if (value.startsWith("claude-code/"))
@@ -172,22 +170,38 @@ function DesktopAgentModelPicker({ active = true, onSelected, className, surface
     const [preferences, setPreferencesRaw] = useState<LocalModelPreferences | null>(() => cachedLocalPreferences);
     const [pendingAgent, setPendingAgent] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
-    // ChatGPT/Codex always uses Stella's static openai-codex registry and the
-    // subscription-authenticated Responses transport. It never probes a local
-    // Codex executable.
+    // The ChatGPT engine runs on this computer's own Sign in with ChatGPT
+    // account (Settings › Account) through the public Responses API.
     const [claudeCodeSectionOpen, setClaudeCodeSectionOpen] = useState(false);
     const committedEngine = preferences?.agentRuntimeEngine ?? "default";
-    // ChatGPT accounts live in the Stella account (Settings › Account), so a
-    // login added on any device counts here; connecting adds one there.
-    const { isAuthenticated } = useAuthState();
-    const engines = useCloudEngines(isAuthenticated);
-    const chatGptConnect = useEngineConnect();
-    const { start: startChatGptConnect, cancel: cancelChatGptConnect } = chatGptConnect;
-    const chatGptConnection: "checking" | "connected" | "disconnected" = isAuthenticated && engines === undefined
+    // ChatGPT is signed in per computer: this install's own accounts, kept
+    // and refreshed by Electron main. Signing in here adds one.
+    const chatGptProfiles = useChatGptProfiles();
+    const { signIn: signInChatGpt, cancelSignIn: cancelChatGptSignIn } = chatGptProfiles;
+    const chatGptConnection: "checking" | "connected" | "disconnected" = !chatGptProfiles.loaded
         ? "checking"
-        : engines?.connections.some((row) => row.provider === OPENAI_CODEX_PROVIDER)
+        : chatGptProfiles.usable
             ? "connected"
             : "disconnected";
+    // The active account's models (`GET /v1/models`) once signed in; until
+    // then Stella's catalog stands in.
+    const [chatGptAccountModels, setChatGptAccountModels] = useState<Array<{ id: string; name: string }> | null>(null);
+    const activeChatGptProfileId = chatGptProfiles.profiles.find((profile) => profile.active)?.id ?? null;
+    useEffect(() => {
+        setChatGptAccountModels(null);
+        if (chatGptConnection !== "connected")
+            return;
+        let cancelled = false;
+        void window.electronAPI?.system?.listChatGptModels?.()
+            .then((result) => {
+                if (!cancelled && result.source === "account")
+                    setChatGptAccountModels(result.models);
+            })
+            .catch(() => undefined);
+        return () => {
+            cancelled = true;
+        };
+    }, [activeChatGptProfileId, chatGptConnection]);
     // Soft status shown when a genuinely-gone saved ChatGPT model was rerouted
     // to an available one, so the switch is never silent.
     const [chatGptRoutedNotice, setChatGptRoutedNotice] = useState<string | null>(null);
@@ -251,17 +265,23 @@ function DesktopAgentModelPicker({ active = true, onSelected, className, surface
         return next;
     }, [allModels]);
     const chatGptCatalogModels = useMemo(() => listChatGptCatalogModels(allModels), [allModels]);
-    const chatGptModels = useMemo(() => chatGptCatalogModels.map((model) => ({
-        id: model.modelId,
-        label: model.name || model.modelId,
-        description: model.modelId,
-    })), [chatGptCatalogModels]);
-    // Every openai-codex id known to the static registry (independent of the
+    const chatGptModels = useMemo(() => chatGptAccountModels
+        ? chatGptAccountModels.map((model) => ({
+            id: model.id,
+            label: model.name || model.id,
+            description: model.id,
+        }))
+        : chatGptCatalogModels.map((model) => ({
+            id: model.modelId,
+            label: model.name || model.modelId,
+            description: model.modelId,
+        })), [chatGptAccountModels, chatGptCatalogModels]);
+    // Every chatgpt id known to the static registry (independent of the
     // live model/list) so we can tell a genuinely-removed model from a
     // transient live-list gap.
     const chatGptRegistryIds = useMemo(() => listChatGptCatalogModels(allModels).map((model) => model.modelId), [allModels]);
     const savedChatGptOverride = preferences
-        ? fromOpenAiCodexModelId(preferences.modelOverrides.orchestrator ??
+        ? fromChatGptModelId(preferences.modelOverrides.orchestrator ??
             preferences.modelOverrides.general ??
             "")
         : null;
@@ -282,8 +302,8 @@ function DesktopAgentModelPicker({ active = true, onSelected, className, surface
     const migrationAttemptedRef = useRef<string | null>(null);
     const cancelPendingOAuth = useCallback(async () => {
         setOauthPendingProvider(null);
-        cancelChatGptConnect();
-    }, [cancelChatGptConnect]);
+        cancelChatGptSignIn();
+    }, [cancelChatGptSignIn]);
     useEffect(() => {
         if (!preferences ||
             pendingAgent !== null ||
@@ -292,7 +312,7 @@ function DesktopAgentModelPicker({ active = true, onSelected, className, surface
             !chatGptModels.some((model) => model.id === selectedChatGptModel)) {
             return;
         }
-        const route = `${OPENAI_CODEX_PROVIDER}/${selectedChatGptModel}`;
+        const route = `${CHATGPT_PROVIDER}/${selectedChatGptModel}`;
         if (preferences.modelOverrides.orchestrator === route &&
             preferences.modelOverrides.general === route) {
             return;
@@ -490,12 +510,16 @@ function DesktopAgentModelPicker({ active = true, onSelected, className, surface
             if (engine === "codex_cli") {
                 const selectedModel = modelId?.trim() || preferences.codexModel;
                 if (chatGptConnection !== "connected") {
-                    setOauthPendingProvider(OPENAI_CODEX_PROVIDER);
-                    const connected = await startChatGptConnect(OPENAI_CODEX_PROVIDER).finally(() => setOauthPendingProvider(null));
-                    if (!connected) {
+                    setOauthPendingProvider(CHATGPT_PROVIDER);
+                    const profile = await signInChatGpt().finally(() => setOauthPendingProvider(null));
+                    if (!profile) {
                         connectCancelled = true;
                         throw new Error(t("settings.agentModelPicker.errors.chatGptNotConnected"));
                     }
+                    if (!profile.planUsage) {
+                        throw new Error(t("settings.agentModelPicker.errors.chatGptPlanUsageOff"));
+                    }
+                    announceChatGptPlanUse();
                 }
                 const resolution = resolveChatGptEngineModel(selectedModel, chatGptModels.map((model) => model.id), chatGptRegistryIds, DEFAULT_CHATGPT_MODEL);
                 if (resolution.kind === "unavailable") {
@@ -557,7 +581,7 @@ function DesktopAgentModelPicker({ active = true, onSelected, className, surface
         chatGptConnection,
         chatGptModels,
         chatGptRegistryIds,
-        startChatGptConnect,
+        signInChatGpt,
         pendingAgent,
         preferences,
         setPreferences,
@@ -883,6 +907,7 @@ function DesktopAgentModelPicker({ active = true, onSelected, className, surface
       </div>);
     const chatGptSelectionControls = (<div className="agent-model-picker-selected-controls">
         {reasoningControl}
+        {chatGptConnection === "connected" ? (<ChatGptPlanInUse label={t("settings.agentModelPicker.chatGptPlanInUse")} manageLabel={t("settings.agentModelPicker.chatGptManageUsage")}/>) : null}
       </div>);
     /**
      * ChatGPT and Claude Code are engines, not catalog providers. They render
@@ -950,7 +975,7 @@ function DesktopAgentModelPicker({ active = true, onSelected, className, surface
         </div>
 
       <div className="agent-model-picker-body">
-        {chatGptConnect.flow ? (<EngineConnectPrompt connect={chatGptConnect}/>) : pendingAgent === ENGINE_PENDING_TARGET && oauthPendingProvider ? (<p className="agent-model-picker-connection" role="status">
+        {pendingAgent === ENGINE_PENDING_TARGET && oauthPendingProvider ? (<p className="agent-model-picker-connection" role="status">
             {t("settings.agentModelPicker.waitingForChatGpt")}{" "}
             <button type="button" onClick={() => void cancelPendingOAuth()}>
               {t("common.cancel")}
@@ -979,12 +1004,12 @@ function DesktopAgentModelPicker({ active = true, onSelected, className, surface
                 },
                 {
                     key: CHATGPT_SECTION_KEY,
-                    label: "ChatGPT/Codex",
+                    label: "ChatGPT",
                     brandKey: "openai",
                     selected: committedEngine === "codex_cli",
                     content: () => (<>
                         {chatGptDisplayModels.length === 0 ? (<p className="agent-model-picker-connection" role="status">
-                            {t("settings.agentModelPicker.noChatGptCodexModels")}
+                            {t("settings.agentModelPicker.noChatGptModels")}
                           </p>) : chatGptRoutedNotice ? (<p className="agent-model-picker-connection" role="status">
                             {chatGptRoutedNotice}
                           </p>) : null}

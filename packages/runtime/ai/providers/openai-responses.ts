@@ -44,7 +44,7 @@ import { buildBaseOptions } from "./simple-options.js";
 
 const OPENAI_TOOL_CALL_PROVIDERS = new Set([
   "openai",
-  "openai-codex",
+  "chatgpt",
   "opencode",
 ]);
 

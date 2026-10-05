@@ -11,6 +11,10 @@ import type {
   ThreadActivityUpdatedPayload,
 } from "@stella/contracts/local-chat";
 import type { OfficePreviewSnapshot } from "@stella/contracts/office-preview";
+import type {
+  ChatGptProfileSummary,
+  ChatGptProfilesState,
+} from "@stella/contracts/chatgpt-siwc-types";
 import type { RealtimeVoicePreferences } from "@stella/contracts/local-preferences";
 import type {
   CompanionActivity,
@@ -140,7 +144,7 @@ import {
   IPC_PERMISSIONS_RESET,
   IPC_PERMISSIONS_RESET_MICROPHONE,
   IPC_PREFERENCES_GET_MODELS,
-  IPC_PREFERENCES_LIST_CODEX_MODELS,
+  IPC_CHATGPT_LIST_MODELS,
   IPC_PREFERENCES_LIST_CLAUDE_CODE_MODELS,
   IPC_PREFERENCES_LIST_MODELS,
   IPC_PREFERENCES_MODELS_UPDATED,
@@ -1414,25 +1418,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
         realtimeVoice: RealtimeVoicePreferences;
         memoryEnabled: boolean;
       } | null>,
-    listCodexModels: () =>
-      ipcRenderer.invoke(IPC_PREFERENCES_LIST_CODEX_MODELS) as Promise<{
-        models: Array<{
-          id: string;
-          model: string;
-          displayName: string;
-          description: string;
-          hidden: boolean;
-          supportedReasoningEfforts: Array<{
-            reasoningEffort:
-              "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
-            description: string;
-          }>;
-          defaultReasoningEffort:
-            "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
-          inputModalities: string[];
-          additionalSpeedTiers: string[];
-          isDefault: boolean;
-        }>;
+    listChatGptModels: () =>
+      ipcRenderer.invoke(IPC_CHATGPT_LIST_MODELS) as Promise<{
+        source: "account" | "catalog";
+        models: Array<{ id: string; name: string }>;
       }>,
     listClaudeCodeModels: () =>
       ipcRenderer.invoke(IPC_PREFERENCES_LIST_CLAUDE_CODE_MODELS) as Promise<{
@@ -1488,6 +1477,33 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("engineAccounts:cancelConnectClaude") as Promise<{
         canceled: boolean;
       }>,
+    connectChatGptCloud: (options?: { accountId?: string; enablePlanUsage?: boolean }) =>
+      ipcRenderer.invoke("engineAccounts:connectChatGptCloud", {
+        accountId: options?.accountId,
+        enablePlanUsage: options?.enablePlanUsage,
+      }) as Promise<{ accountId: string; planUsage: boolean }>,
+    cancelChatGptCloudConnect: () =>
+      ipcRenderer.invoke("engineAccounts:cancelConnectChatGptCloud") as Promise<{
+        canceled: boolean;
+      }>,
+    listChatGptProfiles: () =>
+      ipcRenderer.invoke("chatgpt:listProfiles") as Promise<ChatGptProfilesState>,
+    signInChatGpt: (options?: { profileId?: string; enablePlanUsage?: boolean }) =>
+      ipcRenderer.invoke("chatgpt:signIn", {
+        profileId: options?.profileId,
+        enablePlanUsage: options?.enablePlanUsage,
+      }) as Promise<ChatGptProfileSummary>,
+    cancelChatGptSignIn: () =>
+      ipcRenderer.invoke("chatgpt:cancelSignIn") as Promise<{ canceled: boolean }>,
+    setActiveChatGptProfile: (profileId: string) =>
+      ipcRenderer.invoke("chatgpt:setActive", { profileId }) as Promise<{ ok: true }>,
+    setChatGptAutoSwitch: (enabled: boolean) =>
+      ipcRenderer.invoke("chatgpt:setAutoSwitch", { enabled }) as Promise<{ ok: true }>,
+    signOutChatGptProfile: (profileId: string) =>
+      ipcRenderer.invoke("chatgpt:signOut", { profileId }) as Promise<{ revoked: boolean }>,
+    removeChatGptProfile: (profileId: string) =>
+      ipcRenderer.invoke("chatgpt:remove", { profileId }) as Promise<{ revoked: boolean }>,
+    onChatGptProfilesChanged: onIpcSignal("chatgpt:profilesChanged"),
     cancelLlmOAuthCredential: (provider: string) =>
       ipcRenderer.invoke("llmCredentials:cancelOAuth", {
         provider,

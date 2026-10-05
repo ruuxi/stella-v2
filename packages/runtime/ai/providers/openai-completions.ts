@@ -1271,7 +1271,7 @@ export function convertMessages(
   const normalizeToolCallId = (id: string): string => {
     // Handle pipe-separated IDs from OpenAI Responses API
     // Format: {call_id}|{id} where {id} can be 400+ chars with special chars (+, /, =)
-    // These come from providers like github-copilot, openai-codex, opencode.
+    // These come from providers like github-copilot, chatgpt, opencode.
     // Parallel calls in one turn can share a call_id and differ only by item
     // id, while Chat Completions requires distinct tool call ids, so keep the
     // item id (or a hash of the whole id once it exceeds the 40-char limit).

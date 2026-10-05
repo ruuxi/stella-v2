@@ -53,7 +53,7 @@ type TurnCapabilityInputBase = {
 /**
  * `credential` is the native credential lane. It defaults to the execution
  * engine when that engine is a connected subscription (`anthropic` /
- * `openai-codex`); a Stella execution never carries one. An `anthropic`
+ * `chatgpt`); a Stella execution never carries one. An `anthropic`
  * execution is a Claude subscription, which only the Claude Code CLI may
  * spend, so it only type-checks together with `nativeClient`, and nothing
  * else may name one.
@@ -119,7 +119,7 @@ export const resetCapabilitySigningKeyCache = (): void => {
 const nativeCredentialFor = (
   execution: CloudExecutionSelection,
 ): GatewayNativeCredentialProvider | undefined =>
-  execution.engine === "anthropic" || execution.engine === "openai-codex"
+  execution.engine === "anthropic" || execution.engine === "chatgpt"
     ? execution.engine
     : undefined;
 

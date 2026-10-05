@@ -82,8 +82,8 @@ describe("cloud turn start client", () => {
       attachments: [{ path: "a.png", name: "a.png", sizeBytes: 1 }],
       locale: "fr",
       execution: {
-        engine: "openai-codex",
-        provider: "openai-codex",
+        engine: "chatgpt",
+        provider: "chatgpt",
         model: "gpt-5.6-sol",
         reasoningEffort: "high",
       } as const,

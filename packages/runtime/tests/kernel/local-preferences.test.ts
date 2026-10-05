@@ -245,22 +245,22 @@ describe("loadLocalPreferences", () => {
     writePreferences(stellaDataDir, {
       codexModel: "gpt-5.3-codex",
       defaultModels: {
-        orchestrator: "openai-codex/gpt-5.2",
+        orchestrator: "chatgpt/gpt-5.2",
       },
       modelOverrides: {
-        general: "openai-codex/gpt-5.1-codex-max",
-        explore: "openai-codex/custom-codex-model",
+        general: "chatgpt/gpt-5.1-codex-max",
+        explore: "chatgpt/custom-codex-model",
       },
     });
 
     const loaded = loadLocalPreferences(stellaDataDir);
     expect(loaded.codexModel).toBe("gpt-5.3-codex");
     expect(loaded.defaultModels).toEqual({
-      orchestrator: "openai-codex/gpt-6.1-sol",
+      orchestrator: "chatgpt/gpt-6.1-sol",
     });
     expect(loaded.modelOverrides).toEqual({
-      general: "openai-codex/gpt-6.1-sol",
-      explore: "openai-codex/custom-codex-model",
+      general: "chatgpt/gpt-6.1-sol",
+      explore: "chatgpt/custom-codex-model",
     });
   });
 

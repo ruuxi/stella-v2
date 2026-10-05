@@ -97,8 +97,8 @@ describe("engine model routing", () => {
       codexModelExplicit: true,
       reasoningEfforts: { orchestrator: "high" },
       modelOverrides: {
-        orchestrator: "openai-codex/gpt-5.6-sol",
-        general: "openai-codex/gpt-5.6-sol",
+        orchestrator: "chatgpt/gpt-5.6-sol",
+        general: "chatgpt/gpt-5.6-sol",
       },
     });
     expect(
@@ -255,19 +255,19 @@ describe("engine model routing", () => {
     const models = [
       catalogModel("stella", "standard"),
       catalogModel("openai", "gpt-5.4"),
-      catalogModel("openai-codex", "gpt-5.4"),
+      catalogModel("chatgpt", "gpt-5.4"),
       catalogModel("anthropic", "claude-opus-4.8"),
     ];
 
     expect(listChatGptCatalogModels(models).map((model) => model.id)).toEqual([
-      "openai-codex/gpt-5.4",
+      "chatgpt/gpt-5.4",
     ]);
   });
 
   it("only shows models present in both the registry and live Codex list", () => {
     const models = [
-      catalogModel("openai-codex", "gpt-5.4"),
-      catalogModel("openai-codex", "gpt-5.4-mini"),
+      catalogModel("chatgpt", "gpt-5.4"),
+      catalogModel("chatgpt", "gpt-5.4-mini"),
     ];
     expect(
       intersectChatGptModels(models, [
@@ -285,8 +285,8 @@ describe("engine model routing", () => {
       agentRuntimeEngine: "codex_cli",
       codexModel: "gpt-5.4",
       modelOverrides: {
-        orchestrator: "openai-codex/gpt-5.4",
-        general: "openai-codex/gpt-5.4",
+        orchestrator: "chatgpt/gpt-5.4",
+        general: "chatgpt/gpt-5.4",
         explore: "stella/light",
       },
       assistantPropagatedAgents: ["explore"],
@@ -303,8 +303,8 @@ describe("engine model routing", () => {
       agentRuntimeEngine: "codex_cli" as const,
       modelOverrides: {
         ...preferences.modelOverrides,
-        orchestrator: "openai-codex/gpt-5.4",
-        general: "openai-codex/gpt-5.4",
+        orchestrator: "chatgpt/gpt-5.4",
+        general: "chatgpt/gpt-5.4",
       },
     };
 

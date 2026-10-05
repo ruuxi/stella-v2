@@ -160,7 +160,7 @@ describe("resident general-agent turn in workerd", () => {
         "anthropic-messages",
         "openai-completions",
         "openai-responses",
-        "openai-codex-responses",
+        "chatgpt-responses",
       ].map((api) => ({
         api,
         stream: "function",

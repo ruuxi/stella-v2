@@ -594,7 +594,6 @@
       "voiceProviderAriaLabel": "Äänen palveluntarjoaja",
       "assistantPickerAriaLabel": "Avustajan mallivalitsin",
       "verifyingChatGpt": "Vahvistetaan ChatGPT-malleja…",
-      "noChatGptCodexModels": "Yksikään malli ei ole tällä hetkellä käytettävissä sekä ChatGPT:ssä että Codexissa.",
       "savedModelUnavailable": "Tallennettu malli ei ole käytettävissä. Valitse toinen malli.",
       "tabs": {
         "assistant": "Avustaja",
@@ -609,7 +608,7 @@
         "chatGptMigration": "ChatGPT-ohjauksen siirto epäonnistui.",
         "chatGptVerify": "ChatGPT-malleja ei voitu vahvistaa: {error}",
         "chatGptVerifying": "Odota, että ChatGPT-mallien vahvistus valmistuu.",
-        "chatGptNotConnected": "ChatGPT on yhdistettävä ennen valintaa.",
+        "chatGptNotConnected": "Kirjaudu ensin ChatGPT:llä tällä tietokoneella.",
         "chatGptNoModels": "Yhtään ChatGPT-mallia ei ole tällä hetkellä käytettävissä.",
         "connectChatGpt": "ChatGPT:n yhdistäminen epäonnistui.",
         "updateEngine": "Moottorin päivitys epäonnistui.",
@@ -623,8 +622,12 @@
         "updateReadAloud": "Ääneen lukemisen palveluntarjoajan päivitys epäonnistui.",
         "updateReasoning": "Päättelyn tason päivitys epäonnistui.",
         "updateChatGptSpeed": "ChatGPT-nopeuden päivitys epäonnistui.",
-        "updateDirectRuntime": "Suoran {runtime}-asetuksen päivitys epäonnistui."
-      }
+        "updateDirectRuntime": "Suoran {runtime}-asetuksen päivitys epäonnistui.",
+        "chatGptPlanUsageOff": "ChatGPT-tilauksen käyttöä ei ole otettu käyttöön tällä tilillä. Ota se käyttöön kohdassa Asetukset › Tili tai valitse toinen malli."
+      },
+      "noChatGptModels": "Tälle tilille ei ole tällä hetkellä saatavilla ChatGPT-malleja.",
+      "chatGptPlanInUse": "ChatGPT-tilaus käytössä",
+      "chatGptManageUsage": "Hallitse käyttöä"
     },
     "onboardingReplay": {
       "title": "Onboarding",
@@ -827,9 +830,9 @@
             "title": "Claude Code",
             "body": "Käytä Claude Pro- tai Max-tilaustasi."
           },
-          "codex": {
-            "title": "Codex",
-            "body": "Käytä ChatGPT Plus- tai Pro-tilaustasi."
+          "chatgpt": {
+            "title": "ChatGPT",
+            "body": "Kirjaudu ChatGPT:llä, niin voit käyttää tilaustasi."
           }
         },
         "signIn": "Kirjaudu",
@@ -2153,7 +2156,7 @@
         "subscriptionsLabel": "Valinnainen",
         "subscriptionsBody": "Maksatko jo Claudesta tai ChatGPT:stä? Yhdistä se, niin käytän sitä tietokoneillasi ja pilvessä.",
         "claudeDesc": "Pro tai Max, Claude Coden kautta",
-        "chatgptDesc": "Plus tai Pro, Codexin kautta",
+        "chatgptDesc": "ChatGPT-tilauksesi Stellan pilveä varten",
         "connect": "Yhdistä",
         "connectLabel": "Yhdistä {name}",
         "connectedAs": "Yhdistetty · {name}",
@@ -2478,10 +2481,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude ja ChatGPT",
-      "settingsRowBody": "Tilit tietokoneillesi ja pilveen",
+      "settingsRowBody": "Käytä Claude- tai ChatGPT-tilausta, josta jo maksat",
       "openSettingsLabel": "Avaa Claude- ja ChatGPT-tilit",
       "title": "Claude ja ChatGPT",
-      "subtitle": "Tilit tietokoneillesi ja pilveen",
+      "subtitle": "Käytä Claude- tai ChatGPT-tilausta, josta jo maksat",
       "backLabel": "Takaisin asetuksiin",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2495,16 +2498,34 @@
       "limitReached": "Raja saavutettu · nollautuu {time}",
       "autoSwitchLabel": "Vaihda tiliä rajan täyttyessä",
       "autoSwitchClaude": "Kun käytössä oleva tili saavuttaa 5 tunnin tai viikon rajansa, Stella siirtyy seuraavaan, kunnes raja nollautuu.",
-      "autoSwitchChatgpt": "Kun käytössä oleva tili saavuttaa Codexin käyttörajansa, Stella siirtyy seuraavaan, kunnes raja nollautuu.",
+      "autoSwitchChatgpt": "Kun käytössä oleva tili saavuttaa ChatGPT:n käyttörajan, Stella siirtyy seuraavaan, kunnes raja nollautuu.",
       "pasteHintClaude": "Kun olet antanut käyttöoikeuden, Claude näyttää koodin. Kopioi se ja liitä se tähän.",
-      "pasteHintChatgpt": "Hyväksynnän jälkeen sivu ei lataudu. Kopioi sivun osoite (Jaa › Kopioi) ja liitä se tähän.",
+      "pasteHintChatgpt": "Hyväksymisen jälkeen ChatGPT ohjaa sinut sivulle, joka ei lataudu. Kopioi sivun koko osoite ja liitä se tähän.",
       "pastePlaceholder": "Koodi tai URL",
       "pasteFromClipboard": "Liitä",
       "finish": "Yhdistä",
       "connecting": "Yhdistetään…",
       "errorTitle": "Tilejä ei voitu päivittää",
       "errorBody": "Jokin meni vikaan. Yritä uudelleen.",
-      "localNote": "Nämä tilit pyörittävät Claude Codea ja Codexia kaikilla tietokoneillasi ja pilvessä. Stella säilyttää salatun tunnuksen; kirjautuminen pysyy Claudella tai ChatGPT:llä."
+      "pastePlaceholderUrl": "Liitä osoite tähän",
+      "openChatgptAgain": "Avaa ChatGPT uudelleen",
+      "chatgptBrowserWaiting": "Viimeistele kirjautuminen ChatGPT:hen selaimessasi.",
+      "claudeNote": "Claude Code käyttää valittua tiliä kaikilla tietokoneillasi ja pilvessä. Omat laitteesi kirjautuvat Claudeen ja pitävät kirjautumisen ajan tasalla; Stellan palvelin tallentaa vain salatut tunnukset.",
+      "chatgptNote": "Pilvichat ja pilviagentit käyttävät valittua tiliä, ja käyttö lasketaan ChatGPT-tilauksesi kiintiöön. Stellan pilvellä on oma kirjautumisensa; kukin tietokone kirjautuu ChatGPT:hen Stellan työpöytäsovelluksessa.",
+      "continueWithChatgpt": "Jatka ChatGPT:llä",
+      "signInAgain": "Kirjaudu uudelleen",
+      "enablePlanUsage": "Ota ChatGPT-tilauksen käyttö käyttöön",
+      "remove": "Poista",
+      "removeTitle": "Poistetaanko {name}?",
+      "removeBody": "Stella unohtaa tämän ChatGPT-tilin. Voit kirjautua siihen myöhemmin uudelleen.",
+      "statusSignedOut": "Kirjauduttu ulos",
+      "statusReauth": "Kirjaudu uudelleen, jotta voit jatkaa käyttöä",
+      "statusPlanUsageOff": "ChatGPT-tilauksen käyttöä ei ole otettu käyttöön",
+      "planUsageOffBody": "Stella voi käyttää ChatGPT-tilaustasi vasta, kun sallit sen. Valitse tililtä ”Ota ChatGPT-tilauksen käyttö käyttöön”.",
+      "manageUsage": "Hallitse käyttöä",
+      "revokeUnconfirmed": "ChatGPT ei vahvistanut uloskirjautumista. Voit katkaista Stellan yhteyden ChatGPT:n asetuksissa.",
+      "planWelcomeTitle": "Käytät ChatGPT-tilaustasi",
+      "planWelcomeBody": "Stellan pilven ChatGPT-pyynnöt lasketaan ChatGPT-tilauksesi kiintiöön. Tarkista käyttö ja aseta Stellan raja ChatGPT:n asetuksissa."
     }
   },
   "companion": {

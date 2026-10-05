@@ -122,7 +122,7 @@ export const toGatewayError = (error: unknown): GatewayError => {
 };
 
 const SECRET_KEY_PATTERN =
-  /^(headers?|authorization|x-api-key|x-goog-api-key|api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|cookie|set-cookie|chatgpt-account-id)$/iu;
+  /^(headers?|authorization|x-api-key|x-goog-api-key|api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|cookie|set-cookie)$/iu;
 const SECRET_VALUE_PATTERN =
   /\b(?:sk|rk|key|xai|fw|csk|AIza)[-_][A-Za-z0-9_-]{12,}|\bBearer\s+[A-Za-z0-9._-]{12,}/gu;
 

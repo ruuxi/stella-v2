@@ -6,6 +6,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { openChatGptUsage } from "./EngineAccountsSettings";
 import { Icon } from "./Icon";
 import { GlassToggle } from "./glass";
 import { SegmentedControl } from "./SegmentedControl";
@@ -142,12 +143,24 @@ export function ModelSettingsPanel({
         )}
       </View>
 
+      {ready && engine === "chatgpt" && !cloudDisconnected ? (
+        <Text style={local.note}>
+          ChatGPT usage counts against your ChatGPT plan.{" "}
+          <Text
+            style={local.noteLink}
+            onPress={openChatGptUsage}
+            accessibilityRole="link"
+          >
+            Manage usage
+          </Text>
+        </Text>
+      ) : null}
+
       {ready && cloudDisconnected ? (
         <Text style={local.note}>
-          Your computer uses the{" "}
-          {engine === "anthropic" ? "Claude" : "ChatGPT"} accounts set up on
-          it. To run this engine in the cloud, connect a{" "}
-          {engine === "anthropic" ? "Claude" : "ChatGPT"} account.
+          {engine === "anthropic"
+            ? "To run Claude in the cloud, connect a Claude account."
+            : "Your computer uses its own ChatGPT sign-in. To run ChatGPT in the cloud, sign Stella's cloud in to ChatGPT."}
           {onManageAccounts ? (
             <>
               {" "}

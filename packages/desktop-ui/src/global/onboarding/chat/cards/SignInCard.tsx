@@ -2,12 +2,13 @@
  * "Sign in" — how Stella thinks.
  *
  * Three ways in, any of which is enough: a Stella account (Google or email,
- * the same dialog as the top bar), or the Claude or ChatGPT subscription the
- * user already pays for, used through Claude Code or Codex. A subscription is
- * added to the Stella account (the same list Settings › Account shows), so it
- * works on every computer the user signs in on. Connecting one also makes it
- * the engine Stella runs on, the same switch the model picker makes; a lens
- * slides to whichever one is in use, and tapping another connected row
+ * the same dialog as the top bar), or the Claude or ChatGPT plan the user
+ * already pays for. A Claude subscription is added to the Stella account (the
+ * same list Settings › Account shows) and runs through Claude Code. ChatGPT
+ * is Sign in with ChatGPT: in the desktop app this computer signs in on its
+ * own; on the website it signs in Stella's cloud. Connecting one also makes
+ * it the engine Stella runs on, the same switch the model picker makes; a
+ * lens slides to whichever one is in use, and tapping another connected row
  * moves it.
  *
  * Nothing here blocks: every install already has an anonymous Stella
@@ -25,6 +26,9 @@ import type { EngineProvider } from "@stella/contracts/backend/engines";
 import { useCloudEngines } from "@/features/cloud/cloud-engines-api";
 import { EngineConnectPrompt } from "@/features/cloud/EngineConnectPrompt";
 import { useEngineConnect } from "@/features/cloud/use-engine-connect";
+import { isEngineConnectionUsable } from "@stella/contracts/backend/engines";
+import { announceChatGptPlanUse } from "@/features/chatgpt/ChatGptBrand";
+import { useChatGptProfiles } from "@/features/chatgpt/use-chatgpt-profiles";
 import {
   buildEngineRoutingPatch,
   buildEngineTransitionReasoningPatch,
@@ -38,7 +42,7 @@ type SignInCardProps = {
   onAnswer: (answer: OnboardingChatAnswer) => void;
 };
 
-type OptionId = "stella" | "claude" | "codex";
+type OptionId = "stella" | "claude" | "chatgpt";
 
 const OPTIONS: {
   id: OptionId;
@@ -48,13 +52,13 @@ const OPTIONS: {
 }[] = [
   { id: "stella", engine: "default", brand: "stella" },
   { id: "claude", engine: "claude_code_local", provider: "anthropic", brand: "anthropic" },
-  { id: "codex", engine: "codex_cli", provider: "openai-codex", brand: "openai" },
+  { id: "chatgpt", engine: "codex_cli", provider: "chatgpt", brand: "openai" },
 ];
 
 const ENGINE_TO_OPTION: Record<ModelPickerEngine, OptionId> = {
   default: "stella",
   claude_code_local: "claude",
-  codex_cli: "codex",
+  codex_cli: "chatgpt",
 };
 
 const readEngine = async (): Promise<ModelPickerEngine | null> => {
@@ -82,6 +86,9 @@ export function SignInCard({ active, answered, onAnswer }: SignInCardProps) {
   const { isAuthenticated } = useAuthState();
   const engines = useCloudEngines(isAuthenticated);
   const connect = useEngineConnect();
+  // ChatGPT: this computer's own sign-in in the desktop app; in a browser,
+  // the sign-in of Stella's cloud.
+  const chatgpt = useChatGptProfiles();
   const [authOpen, setAuthOpen] = useState(false);
   const [pending, setPending] = useState<OptionId | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -102,15 +109,18 @@ export function SignInCard({ active, answered, onAnswer }: SignInCardProps) {
     return {
       stella: session.hasConnectedAccount,
       claude: connections.some((row) => row.provider === "anthropic"),
-      codex: connections.some((row) => row.provider === "openai-codex"),
+      chatgpt: chatgpt.available
+        ? chatgpt.usable
+        : connections.some((row) => row.provider === "chatgpt" && isEngineConnectionUsable(row)),
     };
-  }, [engines?.connections, session.hasConnectedAccount]);
-  const anyConnected = connected.stella || connected.claude || connected.codex;
+  }, [chatgpt.available, chatgpt.usable, engines?.connections, session.hasConnectedAccount]);
+  const anyConnected = connected.stella || connected.claude || connected.chatgpt;
   const inUse: OptionId | null = engine ? ENGINE_TO_OPTION[engine] : null;
   // The lens only marks a choice the user can see is real.
   const lensOn: OptionId | null = inUse && connected[inUse] ? inUse : null;
 
   const { start: startConnect, cancel: cancelConnect } = connect;
+  const { signIn: signInChatGpt, cancelSignIn: cancelChatGptSignIn } = chatgpt;
 
   const applyEngine = useCallback(async (option: (typeof OPTIONS)[number]) => {
     if (await switchEngine(option.engine)) setEngine(option.engine);
@@ -130,9 +140,18 @@ export function SignInCard({ active, answered, onAnswer }: SignInCardProps) {
       }
       setPending(option.id);
       try {
-        // Resolves false when the user cancels; the live account list marks
-        // the row connected on its own.
-        if (await startConnect(option.provider!)) await applyEngine(option);
+        // Resolves false (null) when the user cancels; the live account
+        // list marks the row connected on its own.
+        if (option.id === "chatgpt" && chatgpt.available) {
+          const profile = await signInChatGpt();
+          if (profile?.planUsage) {
+            announceChatGptPlanUse();
+            await applyEngine(option);
+          }
+        } else if (await startConnect(option.provider!)) {
+          if (option.id === "chatgpt") announceChatGptPlanUse();
+          await applyEngine(option);
+        }
       } catch (caught) {
         console.warn("[onboarding-chat] Subscription sign-in failed", caught);
         setError(t("onboarding.chat.signin.error"));
@@ -140,12 +159,13 @@ export function SignInCard({ active, answered, onAnswer }: SignInCardProps) {
         setPending(null);
       }
     },
-    [applyEngine, connected, pending, startConnect, t],
+    [applyEngine, chatgpt.available, connected, pending, signInChatGpt, startConnect, t],
   );
 
   const handleCancel = useCallback(() => {
-    if (pending && pending !== "stella") cancelConnect();
-  }, [cancelConnect, pending]);
+    if (pending === "chatgpt" && chatgpt.available) cancelChatGptSignIn();
+    else if (pending && pending !== "stella") cancelConnect();
+  }, [cancelChatGptSignIn, cancelConnect, chatgpt.available, pending]);
 
   /* ── The lens: one highlight that glides to the row in use ─────── */
   const listRef = useRef<HTMLDivElement | null>(null);

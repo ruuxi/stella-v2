@@ -12,8 +12,9 @@ import { Check, MoreHorizontal } from "@/ui/icons";
 import { Switch } from "@/ui/switch";
 
 /**
- * One provider's connected accounts: who each account is, which one is in
- * use, and whether a limited account hands over to the next automatically.
+ * One provider's accounts: who each account is, which one is in use,
+ * whether a limited account hands over to the next automatically, and (for
+ * ChatGPT) which saved accounts are signed out or need a new sign-in.
  */
 export type EngineAccountRow = {
   id: string;
@@ -23,6 +24,15 @@ export type EngineAccountRow = {
   plan?: string;
   active: boolean;
   limitedUntil?: number;
+  /** Absent while signed in. */
+  status?: "signed_out" | "reauth_required";
+  /** ChatGPT: false when the sign-in didn't grant ChatGPT plan use. */
+  planUsage?: boolean;
+  /**
+   * Replaces the reset time while limited, for providers whose limit
+   * doesn't say when it resets (ChatGPT).
+   */
+  limitText?: string;
 };
 
 export const accountInitials = (row: Pick<EngineAccountRow, "email" | "label">): string => {
@@ -49,26 +59,67 @@ export const formatLimitReset = (limitedUntil: number, now = Date.now()): string
   }`;
 };
 
+const statusText = (row: EngineAccountRow): string | undefined =>
+  row.status === "signed_out"
+    ? "Signed out"
+    : row.status === "reauth_required"
+      ? "Sign-in ended · sign in again"
+      : row.planUsage === false
+        ? "ChatGPT plan use isn't enabled"
+        : undefined;
+
+export type EngineAccountActions = {
+  onUse: (id: string) => void;
+  onSignOut: (id: string) => void;
+  /** Sign a saved account in again (its registration is kept). */
+  onSignInAgain?: (id: string) => void;
+  /** Ask for consent to use the ChatGPT plan after it was declined. */
+  onEnablePlanUsage?: (id: string) => void;
+  /** Forget the account entirely. */
+  onRemove?: (id: string) => void;
+};
+
 function AccountRow({
   row,
   divided,
   busy,
-  onUse,
-  onSignOut,
+  actions,
 }: {
   row: EngineAccountRow;
   divided: boolean;
   busy: boolean;
-  onUse: () => void;
-  onSignOut: () => void;
+  actions: EngineAccountActions;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const usable = !row.status && row.planUsage !== false;
   const subtitle = [
     row.plan,
-    row.limitedUntil ? formatLimitReset(row.limitedUntil) : undefined,
+    statusText(row),
+    usable && row.limitedUntil ? (row.limitText ?? formatLimitReset(row.limitedUntil)) : undefined,
   ]
     .filter(Boolean)
     .join(" · ");
+  const items: Array<{ key: string; label: string; onSelect: () => void }> = [];
+  if (usable && !row.active) {
+    items.push({ key: "use", label: "Use this account", onSelect: () => actions.onUse(row.id) });
+  }
+  if (row.status && actions.onSignInAgain) {
+    items.push({ key: "again", label: "Sign in again", onSelect: () => actions.onSignInAgain!(row.id) });
+  }
+  if (!row.status && row.planUsage === false && actions.onEnablePlanUsage) {
+    items.push({
+      key: "enable",
+      label: "Enable ChatGPT plan use",
+      onSelect: () => actions.onEnablePlanUsage!(row.id),
+    });
+  }
+  const tail: Array<{ key: string; label: string; onSelect: () => void }> = [];
+  if (row.status !== "signed_out") {
+    tail.push({ key: "out", label: "Sign out", onSelect: () => actions.onSignOut(row.id) });
+  }
+  if (actions.onRemove) {
+    tail.push({ key: "remove", label: "Remove", onSelect: () => actions.onRemove!(row.id) });
+  }
   return (
     <div
       className="settings-row"
@@ -111,15 +162,17 @@ function AccountRow({
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" sideOffset={6} collisionPadding={12}>
-            {row.active ? null : (
-              <>
-                <DropdownMenuItem onSelect={onUse}>
-                  Use this account
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-              </>
-            )}
-            <DropdownMenuItem onSelect={onSignOut}>Sign out</DropdownMenuItem>
+            {items.map((item) => (
+              <DropdownMenuItem key={item.key} onSelect={item.onSelect}>
+                {item.label}
+              </DropdownMenuItem>
+            ))}
+            {items.length > 0 && tail.length > 0 ? <DropdownMenuSeparator /> : null}
+            {tail.map((item) => (
+              <DropdownMenuItem key={item.key} onSelect={item.onSelect}>
+                {item.label}
+              </DropdownMenuItem>
+            ))}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -137,13 +190,14 @@ export function EngineAccountList({
   adding,
   addLabel,
   onAdd,
-  onUse,
-  onSignOut,
+  addButton,
   onToggleAutoSwitch,
   addFlow,
+  footer,
+  ...actions
 }: {
   title: string;
-  description: string;
+  description: ReactNode;
   accounts: readonly EngineAccountRow[];
   autoSwitch: boolean;
   autoSwitchDescription: string;
@@ -151,12 +205,14 @@ export function EngineAccountList({
   adding: boolean;
   addLabel: string;
   onAdd: () => void;
-  onUse: (id: string) => void;
-  onSignOut: (id: string) => void;
+  /** Replaces the default add button (e.g. "Continue with ChatGPT"). */
+  addButton?: ReactNode;
   onToggleAutoSwitch: (enabled: boolean) => void;
   /** Extra UI while an account is being added (e.g. a paste-back field). */
   addFlow?: ReactNode;
-}) {
+  /** Shown under the list (e.g. a "Manage usage" link). */
+  footer?: ReactNode;
+} & EngineAccountActions) {
   return (
     <>
       <div className="settings-row">
@@ -165,15 +221,17 @@ export function EngineAccountList({
           <div className="settings-row-sublabel">{description}</div>
         </div>
         <div className="settings-row-control">
-          <Button
-            type="button"
-            variant="ghost"
-            className="pill-btn"
-            onClick={onAdd}
-            disabled={busy || adding}
-          >
-            {accounts.length === 0 ? "Connect" : addLabel}
-          </Button>
+          {addButton ?? (
+            <Button
+              type="button"
+              variant="ghost"
+              className="pill-btn"
+              onClick={onAdd}
+              disabled={busy || adding}
+            >
+              {accounts.length === 0 ? "Connect" : addLabel}
+            </Button>
+          )}
         </div>
       </div>
       {accounts.map((row, index) => (
@@ -182,8 +240,7 @@ export function EngineAccountList({
           row={row}
           divided={index > 0}
           busy={busy}
-          onUse={() => onUse(row.id)}
-          onSignOut={() => onSignOut(row.id)}
+          actions={actions}
         />
       ))}
       {addFlow}
@@ -204,6 +261,7 @@ export function EngineAccountList({
           </div>
         </div>
       ) : null}
+      {footer}
     </>
   );
 }

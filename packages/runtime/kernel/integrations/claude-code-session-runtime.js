@@ -21,6 +21,7 @@ import {
 import { createClaudeCodeToolMcpHost } from "./claude-code-tool-mcp-host.js";
 import {
   getAccessibleLocalLlmOAuthApiKey,
+  hasAccessibleLocalLlmOAuthCredential,
   reportLocalLlmSubscriptionLimit,
 } from "../storage/local-llm-credential-access.js";
 import { forkCancelableTimeout } from "./effect-runtime.js";
@@ -209,18 +210,36 @@ export class ClaudeCodeCompactionLoopError extends Error {
  * serves its short-lived access token (the server stores the encrypted
  * tokens; the owner's devices refresh them). With one, the CLI runs on it (so several accounts can be switched
  * between); without one, or signed out, the CLI keeps its own login.
+ *
+ * `forceRefresh` re-mints instead of reading the host's cache. The host caches
+ * an access token until shortly before its recorded expiry, so a token that
+ * was REVOKED upstream (an account switch, a sign-out elsewhere) stays
+ * "unexpired" and would otherwise be handed to the CLI over and over. The
+ * CLI's own keychain login is never consulted while a Stella token is
+ * injected, so Stella — not the CLI — owns refreshing this credential, and
+ * must force a mint whenever Anthropic rejects one.
  */
-const resolveStellaClaudeToken = async (stellaAppDir) => {
+const resolveStellaClaudeToken = async (stellaAppDir, options = {}) => {
   if (!stellaAppDir) return undefined;
   try {
     const token = (
-      await getAccessibleLocalLlmOAuthApiKey(stellaAppDir, "anthropic")
+      await getAccessibleLocalLlmOAuthApiKey(stellaAppDir, "anthropic", {
+        ...(options.forceRefresh ? { forceRefresh: true } : {}),
+      })
     )?.trim();
     return token && token.startsWith("sk-ant-oat") ? token : undefined;
   } catch {
     return undefined;
   }
 };
+/**
+ * Whether this computer has a Stella-managed Claude account at all. Without
+ * one the CLI runs on its own login, which changes both what recovery is
+ * possible and what the user has to do about a rejection.
+ */
+const hasStellaClaudeAccount = (stellaAppDir) =>
+  Boolean(stellaAppDir) &&
+  hasAccessibleLocalLlmOAuthCredential(stellaAppDir, "anthropic");
 /**
  * A subscription limit (5-hour or weekly window) in a CLI result, with the
  * reset time when the CLI printed one (`...limit reached|<epoch seconds>`).
@@ -1776,8 +1795,14 @@ class ClaudeCodeSessionRuntime {
       effectiveSystemPrompt,
       mcpHost,
     );
+    // `forceTokenRefresh` is set by auth recovery after Anthropic rejected the
+    // injected token: the host's cached copy is known bad, so this relaunch
+    // must mint a new one rather than read the cache back.
+    const forceTokenRefresh = session.forceTokenRefresh === true;
+    session.forceTokenRefresh = false;
     const stellaClaudeToken = await resolveStellaClaudeToken(
       request.stellaAppDir,
+      forceTokenRefresh ? { forceRefresh: true } : {},
     );
     if (
       session.process &&

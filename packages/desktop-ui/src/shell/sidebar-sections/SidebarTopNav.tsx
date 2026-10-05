@@ -2,8 +2,8 @@
  * The right-sidebar top bar's navigation — a genuine per-ITEM browser-tab strip.
  *
  * Each open item is its own tab and is titled by WHAT IT SHOWS, not the generic
- * surface: a file tab shows the file name, an app tab the app's name, quick chat
- * "Quick chat", the empty launcher "Home", and the (shared) browser "Browser".
+ * surface: a file tab shows the file name, an app tab the app's name, the empty
+ * launcher "Home", and the (shared) browser "Browser".
  * Click a tab to switch, X to close, and "+" opens a NEW empty Home tab.
  *
  * Selected-tab styling uses overlapping borders with the active tab going
@@ -38,8 +38,6 @@ export function SidebarTopNav() {
 
   const titleFor = (tab: SidebarTab): string => {
     switch (tab.kind) {
-      case "quickchat":
-        return "Quick chat";
       case "browser":
         return "Browser";
       case "takeover":

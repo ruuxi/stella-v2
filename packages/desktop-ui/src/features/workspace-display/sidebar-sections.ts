@@ -2,11 +2,11 @@
  * The right sidebar's browser-tab model.
  *
  * Every open destination is its OWN tab — a `{ id, kind, location }` triple.
- * `kind` is which surface it renders (home launcher, quick chat, a file, an
- * app, the browser); `location` is the specific item (a display-tab id for a
- * file, a `cloud:<appId>` location for an app, `null` for a
- * launcher/list/browser). Two files, two quick chats, two launchers can all
- * coexist as independent tabs, exactly like browser tabs.
+ * `kind` is which surface it renders (home launcher, a file, an app, the
+ * browser); `location` is the specific item (a display-tab id for a file, a
+ * `cloud:<appId>` location for an app, `null` for a launcher/list/browser).
+ * Two files, two launchers can all coexist as independent tabs, exactly like
+ * browser tabs.
  *
  * This sits beside `tab-store` (the artifact viewer registry + panel width)
  * because the two answer different questions: `tab-store` owns *which artifact
@@ -20,7 +20,6 @@ import { displayTabs } from "./tab-store";
 
 export const SIDEBAR_SECTIONS = [
   "home",
-  "quickchat",
   "files",
   "apps",
   "browser",
@@ -31,7 +30,6 @@ export const SIDEBAR_SECTIONS = [
 // view.
 export const PANEL_SIDEBAR_SECTIONS = [
   "home",
-  "quickchat",
   "files",
   "apps",
   "browser",
@@ -47,12 +45,16 @@ export const isSidebarSection = (value: unknown): value is SidebarSection =>
 
 /**
  * Older builds persisted section ids that no longer exist: `tasks` was renamed
- * to `home`, `search` folded into it, and `settings` dissolved into dialogs.
+ * to `home`, `search` folded into it, `settings` dissolved into dialogs, and
+ * `quickchat` (the ephemeral side conversation) was removed outright. They all
+ * resolve to the Home launcher so a restored layout keeps the tab — and its
+ * place in the strip — instead of silently losing it.
  */
 const LEGACY_SECTION_ALIASES: Readonly<Record<string, SidebarSection>> = {
   tasks: "home",
   search: "home",
   settings: "home",
+  quickchat: "home",
 };
 
 export const LEGACY_SIDEBAR_SECTION_IDS = Object.keys(
@@ -65,6 +67,20 @@ export const resolveSidebarSection = (value: unknown): SidebarSection => {
   if (typeof value === "string" && Object.hasOwn(LEGACY_SECTION_ALIASES, value))
     return LEGACY_SECTION_ALIASES[value];
   return "home";
+};
+
+/**
+ * A persisted tab's kind, resolved for restore. A retired id becomes its
+ * replacement and loses its `location` (that item no longer exists); anything
+ * unrecognisable is dropped rather than guessed at.
+ */
+const restoreTabKind = (
+  value: unknown,
+): { kind: SidebarSection; keepLocation: boolean } | null => {
+  if (isSidebarSection(value)) return { kind: value, keepLocation: true };
+  if (typeof value === "string" && Object.hasOwn(LEGACY_SECTION_ALIASES, value))
+    return { kind: LEGACY_SECTION_ALIASES[value], keepLocation: false };
+  return null;
 };
 
 /** A single open tab: a surface `kind` plus the specific item it shows. */
@@ -130,9 +146,12 @@ const migrateLegacyTabs = (): PersistedState | null => {
     );
     const tabs: SidebarTab[] = [];
     for (const item of parsedOpen) {
-      if (!isSidebarSection(item)) continue;
-      const loc = locations[item];
-      tabs.push(makeTab(item, typeof loc === "string" && loc ? loc : null));
+      const restored = restoreTabKind(item);
+      if (!restored) continue;
+      const loc = restored.keepLocation ? locations[item as string] : undefined;
+      tabs.push(
+        makeTab(restored.kind, typeof loc === "string" && loc ? loc : null),
+      );
     }
     if (tabs.length === 0) return null;
     const active =
@@ -158,22 +177,21 @@ const readPersistedState = (): PersistedState => {
           for (const entry of record.tabs) {
             if (!entry || typeof entry !== "object") continue;
             const candidate = entry as Partial<SidebarTab>;
-            if (
-              typeof candidate.id !== "string" ||
-              !isSidebarSection(candidate.kind)
-            ) {
-              continue;
-            }
+            if (typeof candidate.id !== "string") continue;
+            const restored = restoreTabKind(candidate.kind);
+            if (!restored) continue;
             // Human-takeover tabs are deliberately ephemeral. They contain only
             // a safe interaction id (never the capability URL), but restoring a
             // stale sign-in surface after relaunch is still misleading and can
             // accidentally mint fresh access without an explicit user action.
-            if (candidate.kind === "takeover") continue;
+            if (restored.kind === "takeover") continue;
             tabs.push({
               id: candidate.id,
-              kind: candidate.kind,
+              kind: restored.kind,
               location:
-                typeof candidate.location === "string" && candidate.location
+                restored.keepLocation &&
+                typeof candidate.location === "string" &&
+                candidate.location
                   ? candidate.location
                   : null,
             });
@@ -268,8 +286,8 @@ export const sidebarSections = {
    *   reused in place — selecting an item from a list/launcher is in-place
    *   navigation (Files list → click report.pdf → that tab becomes report.pdf),
    *   preserving its id / order / mounted state.
-   * - Otherwise (a concrete content tab is active: a specific file/app, quick
-   *   chat, browser) a brand-new tab is created, never overwriting it.
+   * - Otherwise (a concrete content tab is active: a specific file/app, the
+   *   browser) a brand-new tab is created, never overwriting it.
    *
    * Always activates the destination and opens the panel.
    */

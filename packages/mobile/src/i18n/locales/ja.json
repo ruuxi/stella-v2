@@ -1811,10 +1811,6 @@
       "newTab": "新しいタブを開く",
       "connecting": "拡張機能を待機中…"
     },
-    "quickChat": {
-      "title": "クイックチャット",
-      "newChat": "新しいクイックチャット"
-    },
     "connectors": {
       "title": "コネクタ",
       "searchPlaceholder": "検索",

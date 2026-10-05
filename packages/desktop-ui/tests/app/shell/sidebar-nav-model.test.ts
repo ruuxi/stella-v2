@@ -2,7 +2,7 @@
 
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   resolveSidebarSection,
   sidebarSections,
@@ -24,7 +24,38 @@ describe("right-sidebar navigation model (browser-tab style)", () => {
     expect(resolveSidebarSection("tasks")).toBe("home");
     expect(resolveSidebarSection("search")).toBe("home");
     expect(resolveSidebarSection("settings")).toBe("home");
+    expect(resolveSidebarSection("quickchat")).toBe("home");
     expect(resolveSidebarSection("nonsense")).toBe("home");
+  });
+
+  it("restores a retired quickchat tab as Home, keeping the strip intact", async () => {
+    // A fresh module graph reads persisted state at import time, and a fresh
+    // `uiState` seeds itself from this origin's storage.
+    window.localStorage.setItem(
+      "stella.sidebar.tabs",
+      JSON.stringify({
+        tabs: [
+          { id: "tab-1", kind: "files", location: "file-a" },
+          { id: "tab-2", kind: "quickchat", location: null },
+          { id: "tab-3", kind: "browser", location: null },
+        ],
+        activeTabId: "tab-2",
+      }),
+    );
+    vi.resetModules();
+    const restored = await import(
+      "@/features/workspace-display/sidebar-sections"
+    );
+    const snap = restored.sidebarSections.getSnapshot();
+    expect(snap.tabs.map((tab) => tab.kind)).toEqual([
+      "files",
+      "home",
+      "browser",
+    ]);
+    expect(snap.tabs.map((tab) => tab.id)).toEqual(["tab-1", "tab-2", "tab-3"]);
+    expect(snap.activeTabId).toBe("tab-2");
+    window.localStorage.clear();
+    vi.resetModules();
   });
 
   it("resets to a single Home tab", () => {
@@ -75,11 +106,11 @@ describe("right-sidebar navigation model (browser-tab style)", () => {
   });
 
   it("opening an item from a NON-home tab creates a new tab (no morph)", () => {
-    sidebarSections.openLocation("quickchat", null); // Home -> quickchat
-    sidebarSections.openLocation("files", "file-a"); // active is quickchat -> new tab
+    sidebarSections.openLocation("browser", null); // Home -> browser
+    sidebarSections.openLocation("files", "file-a"); // active is browser -> new tab
     expect(
       sidebarSections.getSnapshot().tabs.map((tab) => tab.kind),
-    ).toEqual(["quickchat", "files"]);
+    ).toEqual(["browser", "files"]);
   });
 
   it("activateTab switches by id; closeTab activates a neighbor / closes on last", () => {

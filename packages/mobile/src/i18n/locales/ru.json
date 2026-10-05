@@ -1864,10 +1864,6 @@
       "newTab": "Открыть новую вкладку",
       "connecting": "Ожидание расширения…"
     },
-    "quickChat": {
-      "title": "Быстрый чат",
-      "newChat": "Новый быстрый чат"
-    },
     "connectors": {
       "title": "Коннекторы",
       "searchPlaceholder": "Поиск",

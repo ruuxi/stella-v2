@@ -31,7 +31,7 @@ Preconditions:
 
 ## Gotchas
 
-- Control visibility changes with right-side surfaces, Quick chat, account state, and platform capability.
+- Control visibility changes with right-side surfaces, account state, and platform capability.
 - Model lists are scoped by provider and execution target. An absent model may be correctly filtered.
 - Billing and checkout are external side effects. Do not purchase, subscribe, or submit payment without explicit authorization.
 - A signed-out verifier can prove menus and blocked states but not authenticated account mutations.

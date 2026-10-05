@@ -1864,10 +1864,6 @@
       "newTab": "Otevřít novou kartu",
       "connecting": "Čekání na rozšíření…"
     },
-    "quickChat": {
-      "title": "Rychlý chat",
-      "newChat": "Nový rychlý chat"
-    },
     "connectors": {
       "title": "Konektory",
       "searchPlaceholder": "Hledat",

@@ -1,12 +1,11 @@
 /**
  * Renders the panel body for the open sidebar tabs (browser-tab model).
  *
- * Files, Quick chat and Home are genuinely per-item: each open tab of those
- * kinds gets its OWN mounted instance (its file viewer, its ephemeral
- * conversation, its launcher), so multiple can coexist and keep their state.
- * Every instance stays mounted and only the active one is visible — that is
- * load-bearing, not an optimization: a Files tab hosts canvas iframes whose
- * browsing context is destroyed by an unmount.
+ * Files and Home are genuinely per-item: each open tab of those kinds gets its
+ * OWN mounted instance (its file viewer, its launcher), so multiple can coexist
+ * and keep their state. Every instance stays mounted and only the active one is
+ * visible — that is load-bearing, not an optimization: a Files tab hosts canvas
+ * iframes whose browsing context is destroyed by an unmount.
  *
  * Apps and Browser are shared singletons — a running app process and the single
  * embedded browser webview can't be duplicated per tab — so one instance of
@@ -22,13 +21,11 @@ import { BrowserSection } from "./BrowserSection";
 import { FileSidebarTabExistenceReconciler } from "./FileSidebarTabExistenceReconciler";
 import { FilesSection } from "./FilesSection";
 import { HomeLauncherSection } from "./HomeLauncherSection";
-import { QuickChatSection } from "./QuickChatSection";
 import { CloudBrowserTakeoverSection } from "./CloudBrowserTakeoverSection";
 import "./sidebar-sections.css";
 
 const PER_ITEM_BODIES = {
   files: FilesSection,
-  quickchat: QuickChatSection,
   home: HomeLauncherSection,
   takeover: CloudBrowserTakeoverSection,
 };

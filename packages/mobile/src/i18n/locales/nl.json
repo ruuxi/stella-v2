@@ -1830,10 +1830,6 @@
       "newTab": "Een nieuw tabblad openen",
       "connecting": "Wachten op extensie…"
     },
-    "quickChat": {
-      "title": "Snelle chat",
-      "newChat": "Nieuwe snelle chat"
-    },
     "connectors": {
       "title": "Connectors",
       "searchPlaceholder": "Zoeken",

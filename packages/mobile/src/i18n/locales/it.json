@@ -1847,10 +1847,6 @@
       "newTab": "Apri una nuova scheda",
       "connecting": "In attesa dell'estensione…"
     },
-    "quickChat": {
-      "title": "Chat rapida",
-      "newChat": "Nuova chat rapida"
-    },
     "connectors": {
       "title": "Connettori",
       "searchPlaceholder": "Cerca",

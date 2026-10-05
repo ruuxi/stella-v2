@@ -1811,10 +1811,6 @@
       "newTab": "Mở tab mới",
       "connecting": "Đang chờ tiện ích…"
     },
-    "quickChat": {
-      "title": "Trò chuyện nhanh",
-      "newChat": "Cuộc trò chuyện nhanh mới"
-    },
     "connectors": {
       "title": "Trình kết nối",
       "searchPlaceholder": "Tìm kiếm",

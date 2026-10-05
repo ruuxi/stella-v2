@@ -1830,10 +1830,6 @@
       "newTab": "Új lap megnyitása",
       "connecting": "Várakozás a bővítményre…"
     },
-    "quickChat": {
-      "title": "Gyors beszélgetés",
-      "newChat": "Új gyors beszélgetés"
-    },
     "connectors": {
       "title": "Összekötők",
       "searchPlaceholder": "Keresés",

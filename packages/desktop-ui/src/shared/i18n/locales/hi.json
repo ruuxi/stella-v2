@@ -1830,10 +1830,6 @@
       "newTab": "नया टैब खोलें",
       "connecting": "एक्सटेंशन का इंतज़ार…"
     },
-    "quickChat": {
-      "title": "क्विक चैट",
-      "newChat": "नई क्विक चैट"
-    },
     "connectors": {
       "title": "कनेक्टर",
       "searchPlaceholder": "खोजें",

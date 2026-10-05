@@ -1811,10 +1811,6 @@
       "newTab": "打开新标签页",
       "connecting": "正在等待扩展…"
     },
-    "quickChat": {
-      "title": "快速对话",
-      "newChat": "新建快速对话"
-    },
     "connectors": {
       "title": "连接器",
       "searchPlaceholder": "搜索",

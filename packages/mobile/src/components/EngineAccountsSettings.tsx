@@ -62,7 +62,8 @@ import { useT } from "../i18n";
 type Section = {
   provider: EngineProvider;
   titleKey: string;
-  noteKey: string;
+  /** One line explains both providers, so only the first section carries it. */
+  noteKey?: string;
   autoSwitchKey: string;
   pasteHintKey: string;
 };
@@ -78,7 +79,6 @@ const SECTIONS: Section[] = [
   {
     provider: "chatgpt",
     titleKey: "mobile.engineAccounts.chatgptSection",
-    noteKey: "mobile.engineAccounts.chatgptNote",
     autoSwitchKey: "mobile.engineAccounts.autoSwitchChatgpt",
     pasteHintKey: "mobile.engineAccounts.pasteHintChatgpt",
   },
@@ -175,6 +175,23 @@ export function EngineAccountsSettings({ onBack }: { onBack: () => void }) {
           </Text>
         </View>
       </View>
+      <EngineAccountsSections />
+    </ScrollView>
+  );
+}
+
+/**
+ * Just the provider sections, with no screen chrome of their own, so the
+ * chat's settings sheet can host the connections inline rather than sending
+ * the user out to a separate screen for them.
+ */
+export function EngineAccountsSections() {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const settingsStyles = useMemo(() => makeSettingsStyles(colors), [colors]);
+  const { value: settings } = useBackendView("engines.get", {});
+  return (
+    <>
       {SECTIONS.map((section) => (
         <ProviderSection
           key={section.provider}
@@ -185,7 +202,7 @@ export function EngineAccountsSettings({ onBack }: { onBack: () => void }) {
           colors={colors}
         />
       ))}
-    </ScrollView>
+    </>
   );
 }
 
@@ -666,9 +683,11 @@ function ProviderSection({
           </Text>
         </Pressable>
       </View>
-      <Text style={[settingsStyles.hint, styles.sectionNote]}>
-        {t(section.noteKey)}
-      </Text>
+      {section.noteKey ? (
+        <Text style={[settingsStyles.hint, styles.sectionNote]}>
+          {t(section.noteKey)}
+        </Text>
+      ) : null}
 
       {connectId ? (
         <View

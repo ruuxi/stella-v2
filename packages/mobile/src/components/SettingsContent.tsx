@@ -368,16 +368,8 @@ export function SettingsContent() {
               colors={colors}
               onPress={() => router.push("/cloud-home")}
             />
-            <LinkRow
-              icon="cpu"
-              label={t("mobile.engineAccounts.settingsRowTitle")}
-              sub={t("mobile.engineAccounts.settingsRowBody")}
-              accessibilityLabel={t("mobile.engineAccounts.openSettingsLabel")}
-              divided
-              styles={settingsStyles}
-              colors={colors}
-              onPress={() => router.push("/engine-accounts")}
-            />
+            {/* Claude & ChatGPT now live in the chat's settings sheet, next
+                to the model that runs on them. */}
             <View style={[settingsStyles.row, settingsStyles.rowDivider]}>
               <Icon
                 name="globe"

@@ -31,7 +31,9 @@ const NAV_LABEL_KEYS: Record<MainTabId, string> = {
   schedule: "mobile.activityHub.tabs.schedule",
   apps: "mobile.nav.apps",
   files: "mobile.activityHub.tabs.files",
-  settings: "mobile.nav.settings",
+  // The destination is the account, not an app-settings catch-all, and
+  // `nav.account` is already translated everywhere.
+  settings: "mobile.nav.account",
 };
 
 const ROW_HEIGHT = 44;

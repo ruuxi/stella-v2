@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
 import { TopSheet } from "./TopSheet";
+import { EngineAccountsSections } from "./EngineAccountsSettings";
 import { ComputerSection } from "./settings/ComputerSection";
 import { makeSettingsStyles } from "./settings/settings-styles";
 import { authClient } from "../lib/auth-client";
@@ -12,9 +12,9 @@ import { useColors } from "../theme/theme-context";
 
 /**
  * The chat's own settings, opened from the gear at the top right of the chat:
- * the paired computer, where turns run, the model, and pairing. These belong
- * to the conversation rather than the app, so they live here instead of on
- * the Settings tab.
+ * the paired computer, where turns run, the model, pairing, and the Claude /
+ * ChatGPT accounts those models run on. These belong to the conversation
+ * rather than the app, so they live here instead of on the account tab.
  */
 export function ChatSettingsSheet({
   visible,
@@ -29,7 +29,6 @@ export function ChatSettingsSheet({
   const session = authClient.useSession();
   const computer = useComputerControl();
   const signedIn = Boolean(session.data?.user) && !isGuest();
-  const router = useRouter();
 
   return (
     <TopSheet visible={visible} onClose={onClose} contentSized>
@@ -39,11 +38,8 @@ export function ChatSettingsSheet({
             control={computer}
             signedIn={signedIn}
             styles={settingsStyles}
-            onManageAccounts={() => {
-              onClose();
-              router.push("/engine-accounts");
-            }}
           />
+          {signedIn ? <EngineAccountsSections /> : null}
         </ScrollView>
       </View>
     </TopSheet>

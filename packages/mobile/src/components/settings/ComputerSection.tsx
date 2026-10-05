@@ -50,13 +50,10 @@ export function ComputerSection({
   control,
   signedIn,
   styles,
-  onManageAccounts,
 }: {
   control: ComputerControl | null;
   signedIn: boolean;
   styles: SettingsStyles;
-  /** Opens Settings › Claude & ChatGPT accounts. */
-  onManageAccounts?: () => void;
 }) {
   const colors = useColors();
   const t = useT();
@@ -139,7 +136,6 @@ export function ComputerSection({
     destinations,
     labelFor: (access) =>
       platformLabelFor(t, access, desktopPlatforms[access.desktopDeviceId]),
-    active: control,
   });
   // A computer that can't take work isn't a real choice, so Cloud carries
   // the check (and the turn) whenever the picked computer is unavailable.
@@ -205,34 +201,13 @@ export function ComputerSection({
                   color={colors.textMuted}
                   style={styles.rowIcon}
                 />
+                {/* Reachability is carried by ghosting the row. A dot, a
+                    word and a button all restating it was noise. */}
                 <View style={[styles.rowCopy, !row.available && local.dim]}>
                   <Text style={styles.rowLabel} numberOfLines={1}>
                     {row.label}
                   </Text>
-                  <View style={local.statusRow}>
-                    <View
-                      style={[
-                        local.statusDot,
-                        {
-                          backgroundColor: row.available
-                            ? colors.ok
-                            : colors.textMuted,
-                        },
-                      ]}
-                    />
-                    <Text style={styles.rowSub}>{row.status}</Text>
-                  </View>
                 </View>
-                {row.onWake ? (
-                  <Pressable
-                    onPress={row.onWake}
-                    hitSlop={8}
-                    accessibilityLabel={`Wake ${row.label}`}
-                    style={({ pressed }) => pressed && local.pressed}
-                  >
-                    <Text style={styles.rowAction}>Wake up</Text>
-                  </Pressable>
-                ) : null}
                 {selectedDeviceId === row.deviceId ? (
                   <Icon name="check" size={17} color={colors.accent} />
                 ) : null}
@@ -279,7 +254,6 @@ export function ComputerSection({
           composerModelPinned={control.composerModelPinned}
           onComposerModelPinnedChange={control.onComposerModelPinnedChange}
           styles={styles}
-          {...(onManageAccounts ? { onManageAccounts } : {})}
         />
       ) : null}
 
@@ -351,9 +325,7 @@ type ComputerRow = {
   deviceId: string;
   access: StoredPhoneAccess;
   label: string;
-  status: string;
   available: boolean;
-  onWake?: () => void;
 };
 
 /** Every paired computer, reachable or not, with what it can do right now. */
@@ -361,35 +333,20 @@ function computerRows(props: {
   paired: StoredPhoneAccess[];
   destinations: ExecutionDeviceDestination[] | undefined;
   labelFor: (access: StoredPhoneAccess) => string;
-  active: ComputerControl | null;
 }): ComputerRow[] {
   return props.paired.map((access) => {
     const deviceId = access.desktopDeviceId;
     const device = props.destinations?.find((d) => d.deviceId === deviceId);
-    const isActive = props.active?.access?.desktopDeviceId === deviceId;
     const available = Boolean(
       device?.online &&
         device.remoteExecutionEnabled &&
         device.availability?.ready === true,
     );
-    const status = available
-      ? "Online"
-      : device?.online
-        ? device.remoteExecutionEnabled
-          ? "Not ready"
-          : "Unavailable"
-        : isActive && props.active
-          ? props.active.statusLabel
-          : "Offline";
     return {
       deviceId,
       access,
       label: device?.label ?? props.labelFor(access),
-      status,
       available,
-      ...(isActive && props.active?.showWake
-        ? { onWake: props.active.onWake }
-        : {}),
     };
   });
 }
@@ -410,16 +367,6 @@ const makeStyles = (colors: Colors) =>
       marginBottom: 8,
       marginLeft: 4,
       marginTop: 16,
-    },
-    statusRow: {
-      alignItems: "center",
-      flexDirection: "row",
-      gap: 6,
-    },
-    statusDot: {
-      borderRadius: 3,
-      height: 6,
-      width: 6,
     },
     pressed: {
       opacity: 0.6,

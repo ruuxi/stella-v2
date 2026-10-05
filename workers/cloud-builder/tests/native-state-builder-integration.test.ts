@@ -639,7 +639,7 @@ describe("native state Builder integration", () => {
           checkpoint,
           descriptor: {
             id: referencedId,
-            dir: "/home/stella-native-state/anthropic",
+            dir: `/home/stella-native-state/anthropic-${"c".repeat(64)}`,
             localBucket: true,
           },
           requestFingerprint: "a".repeat(64),

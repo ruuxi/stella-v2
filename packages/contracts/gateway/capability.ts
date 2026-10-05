@@ -46,6 +46,13 @@ export type ManagedModelAudience = (typeof MANAGED_MODEL_AUDIENCES)[number];
 
 export type GatewayNativeCredentialProvider = "anthropic" | "openai-codex";
 
+/**
+ * The program a native-lane capability is handed to. A Claude subscription is
+ * only ever used by the real Claude Code CLI, so every `anthropic` credential
+ * capability carries `claude-code-cli` and the gateway refuses one without it.
+ */
+export type GatewayNativeClient = "claude-code-cli";
+
 /** Budget sentinel: the capability may spend without a ceiling. */
 export const GATEWAY_BUDGET_UNLIMITED = -1;
 
@@ -90,6 +97,12 @@ export type GatewayCapabilityClaims = {
    * the owner's connected subscription credential. Never billed to Stella.
    */
   credential?: GatewayNativeCredentialProvider;
+  /**
+   * Set only when the capability is handed to the Claude Code CLI in a
+   * container (`mintAgentTurnModelGateway`); only valid with an `anthropic`
+   * credential.
+   */
+  nativeClient?: GatewayNativeClient;
   /**
    * Immutable signed routing marker. Capabilities without it keep the
    * per-capability ledger; owner-relay-v2 capabilities account on the owner gate.

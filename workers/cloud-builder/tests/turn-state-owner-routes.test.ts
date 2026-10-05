@@ -388,6 +388,10 @@ class FakeR2Bucket {
             httpMetadata: { contentType: "application/vnd.squashfs" },
             customMetadata: turnStateArchiveMetadata(archive, {
               kind: "native",
+              // owner/workspace/thread/turn hashes follow the prefix.
+              threadHash: key
+                .slice(TURN_STATE_OBJECT_PREFIX.length + 1)
+                .split("/")[2]!,
             }),
           }
         : {}),
@@ -749,7 +753,10 @@ describe("turn-state owner routes", () => {
       session: new RouteArchiveSession(archiveBytes("native")).asSession(),
       bucket: r2.asBucket(),
       key: prepared.objectKeys.native!,
-      target: { kind: "native" },
+      target: {
+        kind: "native",
+        threadHash: createHash("sha256").update(threadId).digest("hex"),
+      },
     });
 
     expect(await r2.asBucket().head(nativeUpload.archive.key)).not.toBeNull();

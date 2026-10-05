@@ -276,6 +276,14 @@ export const nativeStateIntegrityKeyFor = async (
     ].join("\u0000"),
   );
 
+/** Names this thread's own native state root (`cloudNativeStateRoot`). */
+export const nativeStateThreadHash = async (
+  turn: Pick<TurnRequest, "threadId">,
+): Promise<string> => {
+  if (!turn.threadId) throw new AgentTurnAuthorityLostError();
+  return await sha256Hex(turn.threadId);
+};
+
 export const AGENT_WATCHDOG_DEADLINE_KEY = "agentWatchdogDeadlineAt";
 
 /**
@@ -441,6 +449,10 @@ export const turnBrokerCredentialsPath = (): string =>
  * turn-scoped, pinned to the admitted execution, budgeted, expiring, and
  * meaningless anywhere but the gateway. The old reusable turn token never
  * accompanies model traffic.
+ *
+ * This is the one place an `anthropic` capability is minted: the container
+ * hands it to the Claude Code CLI and nothing else, which the
+ * `claude-code-cli` claim records for the gateway.
  */
 export const mintAgentTurnModelGateway = async (
   env: Pick<
@@ -449,20 +461,26 @@ export const mintAgentTurnModelGateway = async (
   >,
   turn: TurnRequest,
   execution: CloudExecutionSelection,
+  agentTypes: readonly string[] = ["general"],
 ): Promise<{ origin: string; capability: string; expiresAt: number }> => {
   const origin = env.MODEL_GATEWAY_URL?.trim() ?? "";
   if (!origin) throw new Error("Model gateway is not configured.");
   if (!turn.conversationId) throw new AgentTurnAuthorityLostError();
-  const minted = await mintTurnCapability(env, {
+  const base = {
     ownerId: turn.ownerId,
     ownerGeneration: turn.ownerGeneration,
     turnId: turn.turnId,
     conversationId: turn.conversationId,
-    execution,
     audience: turn.audience,
     budgetMicroCents: turn.budgetMicroCents,
-    agentTypes: ["general"],
-  });
+    agentTypes,
+  };
+  const minted = await mintTurnCapability(
+    env,
+    execution.engine === "anthropic"
+      ? { ...base, execution, nativeClient: "claude-code-cli" }
+      : { ...base, execution },
+  );
   return { origin, capability: minted.token, expiresAt: minted.expiresAt };
 };
 

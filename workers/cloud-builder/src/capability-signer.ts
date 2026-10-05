@@ -6,6 +6,7 @@ import {
   isManagedModelAudience,
   type CapabilityAudience,
   type GatewayCapabilityClaims,
+  type GatewayNativeClient,
   type GatewayNativeCredentialProvider,
   type ManagedModelAudience,
 } from "@stella/contracts/gateway/capability";
@@ -34,27 +35,42 @@ export type CapabilitySignerEnv = {
   CAPABILITY_SIGNING_KID?: string;
 };
 
-export type TurnCapabilityInput = {
+type TurnCapabilityInputBase = {
   ownerId: string;
   ownerGeneration: string;
   turnId: string;
   conversationId: string;
-  execution: CloudExecutionSelection;
   audience: ManagedModelAudience;
   budgetMicroCents: number;
   /** Agent types this turn may act as (`x-stella-agent-type`). */
   agentTypes: readonly string[];
   /** Defaults to the model-gateway audience. */
   aud?: CapabilityAudience;
-  /**
-   * Native credential lane. Defaults to the execution engine when that engine
-   * is a connected subscription (`anthropic` / `openai-codex`); a Stella
-   * execution never carries one.
-   */
-  credential?: GatewayNativeCredentialProvider;
   /** Test seam; defaults to `Date.now()`. */
   now?: number;
 };
+
+/**
+ * `credential` is the native credential lane. It defaults to the execution
+ * engine when that engine is a connected subscription (`anthropic` /
+ * `openai-codex`); a Stella execution never carries one. An `anthropic`
+ * execution is a Claude subscription, which only the Claude Code CLI may
+ * spend, so it only type-checks together with `nativeClient`, and nothing
+ * else may name one.
+ */
+export type TurnCapabilityInput = TurnCapabilityInputBase &
+  (
+    | {
+        execution: Exclude<CloudExecutionSelection, { engine: "anthropic" }>;
+        credential?: Exclude<GatewayNativeCredentialProvider, "anthropic">;
+        nativeClient?: never;
+      }
+    | {
+        execution: Extract<CloudExecutionSelection, { engine: "anthropic" }>;
+        credential?: "anthropic";
+        nativeClient: GatewayNativeClient;
+      }
+  );
 
 export type MintedTurnCapability = {
   /** Compact ES256 JWS; travels as `Authorization: Bearer <token>`. */
@@ -152,6 +168,11 @@ export const mintTurnCapability = async (
       "Turn capability credential must match the admitted engine.",
     );
   }
+  if (input.nativeClient !== undefined && credential !== "anthropic") {
+    throw new Error(
+      "Turn capability nativeClient requires the anthropic credential.",
+    );
+  }
   const signingKey = await capabilitySigningKey(env);
   const signed = await signCapability(
     {
@@ -175,6 +196,7 @@ export const mintTurnCapability = async (
         } as CloudExecutionSelection,
       },
       ...(credential ? { credential } : {}),
+      ...(input.nativeClient ? { nativeClient: input.nativeClient } : {}),
     },
     signingKey,
     {

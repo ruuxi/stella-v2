@@ -112,6 +112,9 @@ export const turnRequestFromAgentStart = (
   ...(start.browserResume !== undefined
     ? { browserResume: start.browserResume as TurnRequest["browserResume"] }
     : {}),
+  ...(start.agentRole === "orchestrator" && start.orchestratorCli
+    ? { agentRole: start.agentRole, orchestratorCli: start.orchestratorCli }
+    : {}),
 });
 
 export const startAgentTurn = (

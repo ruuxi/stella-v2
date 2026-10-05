@@ -170,6 +170,7 @@ import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot"
 import {
   mintTurnCapability,
   type MintedTurnCapability,
+  type TurnCapabilityInput,
 } from "./capability-signer.js";
 import {
   OwnerGateSnapshotError,
@@ -562,6 +563,28 @@ const CHAT_TURN_STARTED_AT_KEY = "turnStartedAt";
  * so the gateway's per-capability ledger keeps counting the turn's spend.
  */
 const CHAT_TURN_MODEL_CAPABILITY_KEY = "turnModelCapability";
+
+/**
+ * TODO(lane D): delete with the DO's own anthropic path. This mints for the
+ * DO's harness, and for an `anthropic` execution that is a Claude subscription
+ * capability without the `claude-code-cli` client, which `TurnCapabilityInput`
+ * forbids. The cast is the single place that still bypasses it, until
+ * anthropic chat turns run on the Claude Code CLI through a BuildSession.
+ */
+const mintOrchestratorTurnCapability = (
+  env: Env,
+  turn: ChatTurnRequest,
+): Promise<MintedTurnCapability> =>
+  mintTurnCapability(env, {
+    ownerId: turn.ownerId,
+    ownerGeneration: turn.ownerGeneration,
+    turnId: turn.turnId,
+    conversationId: turn.conversationId,
+    execution: turn.execution,
+    audience: turn.audience,
+    budgetMicroCents: turn.budgetMicroCents,
+    agentTypes: ["orchestrator"],
+  } as TurnCapabilityInput);
 
 type ChatTurnResumeRecord = { turnId: string; count: number };
 type PersistedChatTurnModelCapability = {
@@ -3593,16 +3616,9 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         Array.from(this.ctx.storage.kv.list({ prefix: "queued:", limit: 1 }))
           .length === 0
       ) {
-        const work = mintTurnCapability(this.env, {
-          ownerId: turn.ownerId,
-          ownerGeneration: turn.ownerGeneration,
-          turnId: turn.turnId,
-          conversationId: turn.conversationId,
-          execution: turn.execution,
-          audience: turn.audience,
-          budgetMicroCents: turn.budgetMicroCents,
-          agentTypes: ["orchestrator"],
-        }).then(() => this.prepareCloudHomeContext(turn, admittedHomeContext));
+        const work = mintOrchestratorTurnCapability(this.env, turn).then(() =>
+          this.prepareCloudHomeContext(turn, admittedHomeContext),
+        );
         void work.catch(() => undefined);
         this.cloudHomePreparations.set(turnId, {
           home: work,
@@ -4300,16 +4316,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             .catch(() => null),
       );
       const minted = await measurePreparation("capabilitiesMs", () =>
-        mintTurnCapability(this.env, {
-          ownerId: turn.ownerId,
-          ownerGeneration: turn.ownerGeneration,
-          turnId: turn.turnId,
-          conversationId: turn.conversationId,
-          execution: turn.execution,
-          audience: turn.audience,
-          budgetMicroCents: turn.budgetMicroCents,
-          agentTypes: ["orchestrator"],
-        }),
+        mintOrchestratorTurnCapability(this.env, turn),
       );
       // A resumed turn keeps presenting the capability its first isolate
       // minted while it outlives the watchdog: a fresh one is a fresh ledger,

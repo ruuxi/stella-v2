@@ -3,6 +3,7 @@ import type {
   CloudBrowserResumeReceipt,
   CloudBrowserSuspension,
 } from "@stella/contracts/cloud-browser";
+import type { CloudOrchestratorCliTurnSpec } from "@stella/contracts/cloud-orchestrator-cli";
 import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
 import type {
   TurnBrokerTurnStateCheckpointReceipt,
@@ -35,8 +36,17 @@ export type TurnRequest = {
   parentTurnId?: string;
   /** The direct parent agent thread, absent only for conversation spawns. */
   parentThreadId?: string;
-  /** One for conversation children, two for their children. */
+  /** One for conversation children, two for their children; zero for orchestrator turns. */
   agentDepth: number;
+  /**
+   * The OrchestratorSession's own chat turn, run by the Claude Code CLI with
+   * the DO's prompt and tools (`orchestratorCli`). Still `kind: "agent"`: it
+   * skips the spawned-thread projection, parent wake and world
+   * materialization, and reports its terminal to the DO.
+   */
+  agentRole?: "orchestrator";
+  /** Present exactly when `agentRole` is `"orchestrator"`. */
+  orchestratorCli?: CloudOrchestratorCliTurnSpec;
   /**
    * Desktop that owns this thread's delivery. Present means the owner's
    * projection wakes the parent conversation, so the session must not.

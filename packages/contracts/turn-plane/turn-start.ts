@@ -1,4 +1,5 @@
 import type { CloudExecutionSelection } from "../agent-engine.js";
+import type { CloudOrchestratorCliTurnSpec } from "../cloud-orchestrator-cli.js";
 
 /**
  * Turn starts on the cloud-builder worker.
@@ -160,7 +161,9 @@ export type CloudAgentTurnSource =
   | "desktop"
   | "placement"
   | "browser-resume"
-  | "agent-thread";
+  | "agent-thread"
+  /** The OrchestratorSession's own chat turn on the Claude Code CLI. */
+  | "orchestrator";
 
 export type CloudAgentTurnStartRequest = {
   protocol: typeof TURN_PLANE_PROTOCOL;
@@ -169,7 +172,10 @@ export type CloudAgentTurnStartRequest = {
   ownerGeneration: string;
   conversationId: string;
   threadId: string;
-  /** Root-spawned agents are depth 1; their children are depth 2. */
+  /**
+   * Root-spawned agents are depth 1; their children are depth 2. An
+   * orchestrator turn is depth 0.
+   */
   agentDepth: number;
   /** The BuildSession thread that spawned this one, absent for root spawns. */
   parentThreadId?: string;
@@ -195,6 +201,16 @@ export type CloudAgentTurnStartRequest = {
   originConversationId?: string;
   /** Hosted-browser resume receipt carried into the resumed attempt. */
   browserResume?: unknown;
+  /**
+   * Present only on the OrchestratorSession's own chat turn for an
+   * `anthropic` execution (see cloud-orchestrator-cli.ts). That dispatch has
+   * `source: "orchestrator"`, `agentDepth: 0`, no parent thread,
+   * `threadId: orchestratorCliThreadId(conversationId)` and the DO's chat
+   * turn id as `turnId`; each chat turn is the next attempt of that thread.
+   */
+  agentRole?: "orchestrator";
+  /** Present exactly when `agentRole` is `"orchestrator"`. */
+  orchestratorCli?: CloudOrchestratorCliTurnSpec;
 };
 
 export type CloudAgentTurnStartResponse = {

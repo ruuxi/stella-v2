@@ -848,7 +848,8 @@ const registryObjectKey = (key: string): string =>
   `turn-state:v1:object:${key}`;
 const archiveTarget = (
   _kind: TurnStateArchive["kind"],
-): TurnStateArchiveTarget => ({ kind: "native" });
+  threadHash: string,
+): TurnStateArchiveTarget => ({ kind: "native", threadHash });
 
 const sha256ArrayBufferHex = (
   value: ArrayBuffer | undefined,
@@ -1422,7 +1423,7 @@ export const handleTurnStateOwnerRoute = async (args: {
       await assertDurableArchiveObject(
         args.bucket,
         archive,
-        archiveTarget(archive.kind),
+        archiveTarget(archive.kind, authorization.threadHash),
       );
       const uploaded = await withCurrentOpenLeaseTransaction(
         args,

@@ -68,6 +68,7 @@ import {
   exactTurnIdentityMatches,
   log,
   nativeStateIntegrityKeyFor,
+  nativeStateThreadHash,
   sessionName,
   turnStateCheckpointOperationKey,
 } from "./shared/keys.js";
@@ -568,7 +569,10 @@ export const executeTurnStateCheckpoint = async (
         session,
         bucket: host.env.BACKUP_BUCKET,
         key: prepared.objectKeys.native,
-        target: { kind: "native" },
+        target: {
+          kind: "native",
+          threadHash: await nativeStateThreadHash(turn),
+        },
       });
       await host.assertTurnWritable(turn);
       host.assertAgentTurnIdentity(turn);

@@ -15,6 +15,7 @@ import type {
   AgentModelReasoningEffort,
   CloudExecutionSelection,
 } from "@stella/contracts/agent-engine";
+import { cloudNativeStateRoot } from "@stella/contracts/cloud-native-state";
 import {
   GATEWAY_AGENT_TYPE_HEADER,
   gatewayRelayBaseUrl,
@@ -80,7 +81,9 @@ export const createCloudClaudeMcpConfig = async (
   }
 };
 
-export const CLOUD_NATIVE_STATE_ROOT = "/home/stella-native-state/anthropic";
+/** This thread's own native state root; threads share the container, not state. */
+export const cloudNativeStateRootForThread = (threadId: string): string =>
+  cloudNativeStateRoot(createHash("sha256").update(threadId).digest("hex"));
 const EMPTY_NATIVE_HISTORY_CURSOR = "v1:empty";
 
 const historyCursor = (value: {
@@ -539,7 +542,8 @@ export const runNativeAgentTurn = async (options: {
   if (!mcpServerConfig) {
     throw new Error("Stella's Claude tool bridge is unavailable.");
   }
-  const stateRoot = options.nativeStateRoot ?? CLOUD_NATIVE_STATE_ROOT;
+  const stateRoot =
+    options.nativeStateRoot ?? cloudNativeStateRootForThread(options.threadId);
   const relativeToWorkspace = path.relative(WORLD_ROOT, stateRoot);
   if (
     !path.isAbsolute(stateRoot) ||

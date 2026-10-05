@@ -81,6 +81,7 @@ import {
   log,
   mintAgentTurnModelGateway,
   nativeStateIntegrityKeyFor,
+  nativeStateThreadHash,
   normalizeToolWorkspaceRoot,
   sessionName,
   turnBrokerCredentialsPath,
@@ -97,6 +98,7 @@ import type {
 } from "./shared/types.js";
 import type { ExecutionSession } from "../sandbox-client.js";
 import { isCloudBrowserSuspension } from "@stella/contracts/cloud-browser";
+import type { CloudCliTurnRoleInput } from "@stella/contracts/cloud-orchestrator-cli";
 import type { AgentHistoryRow } from "@stella/executor-cloud/agent-history";
 import { CLOUD_AGENT_TURN_RESULT_PATH } from "@stella/executor-cloud/agent-turn-result-file";
 import { attachedToolPaths } from "@stella/executor-cloud/attached-tool-protocol";
@@ -1247,7 +1249,7 @@ export const attachAgentWorld = async (
       session,
       bucket: host.env.BACKUP_BUCKET,
       archive: args.turnStateThreadRestore.native,
-      target: { kind: "native" },
+      target: { kind: "native", threadHash: await nativeStateThreadHash(turn) },
     });
     turnExecution.assertActive();
     nativeRestoreMs = phaseMs(nativeRestoreStarted);
@@ -1408,9 +1410,14 @@ export const runAgentAttempt = async (
     // backup. The executor unlinks it before any model or tool process
     // exists, so the capability never becomes readable by agent shells.
     turnExecution.assertActive();
+    const roleInput: CloudCliTurnRoleInput =
+      turn.agentRole === "orchestrator" && turn.orchestratorCli
+        ? { role: "orchestrator", ...turn.orchestratorCli }
+        : { role: "agent" };
     await session.writeFile(
       "/workspace/turn-input.json",
       JSON.stringify({
+        ...roleInput,
         kind: "agent",
         ownerId: turn.ownerId,
         ownerGeneration: turn.ownerGeneration,

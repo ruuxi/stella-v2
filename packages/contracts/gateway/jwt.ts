@@ -207,6 +207,13 @@ export const validateCapabilityClaims = (
   ) {
     return false;
   }
+  if (
+    value.nativeClient !== undefined &&
+    (value.nativeClient !== "claude-code-cli" ||
+      value.credential !== "anthropic")
+  ) {
+    return false;
+  }
   if (value.ledgerScope !== undefined && value.ledgerScope !== "owner-relay-v2") {
     return false;
   }

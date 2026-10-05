@@ -16,6 +16,8 @@ import {
 } from "../src/turn-state-registry.js";
 
 const encoder = new TextEncoder();
+const THREAD_HASH = "a".repeat(64);
+const NATIVE_TARGET = { kind: "native", threadHash: THREAD_HASH } as const;
 
 class TestFixedLengthStream {
   readonly readable: ReadableStream<Uint8Array>;
@@ -136,7 +138,7 @@ class FakeArchiveSession {
       timestamp: new Date(0).toISOString(),
     });
     const claimCreation =
-      /printf '%s\\n' ([0-9a-f]{64}) > (\/home\/stella-host-state\/turn-state-archive\/claim-[a-z-]+)/u.exec(
+      /printf '%s\\n' ([0-9a-f]{64}) > (\/home\/stella-host-state\/turn-state-archive\/claim-[a-z0-9-]+)/u.exec(
         command,
       );
     if (claimCreation) {
@@ -150,7 +152,7 @@ class FakeArchiveSession {
       this.claimManager.claims.set(claimPath!, scratchId!);
     }
     const claimOwnership =
-      /\/usr\/bin\/cat -- (\/home\/stella-host-state\/turn-state-archive\/claim-[a-z-]+)\)" = ([0-9a-f]{64})/u.exec(
+      /\/usr\/bin\/cat -- (\/home\/stella-host-state\/turn-state-archive\/claim-[a-z0-9-]+)\)" = ([0-9a-f]{64})/u.exec(
         command,
       );
     const releasesClaim = command.includes("then /usr/bin/rm -f --");
@@ -442,7 +444,7 @@ describe("turn state archive", () => {
       session: new FakeArchiveSession(bytes).asSession(),
       bucket: bucket.asUploadBucket(),
       key,
-      target: { kind: "native" },
+      target: NATIVE_TARGET,
     });
     bucket.corruptMetadata(key);
 
@@ -451,7 +453,7 @@ describe("turn state archive", () => {
         session: new FakeArchiveSession(bytes).asSession(),
         bucket: bucket.asUploadBucket(),
         key,
-        target: { kind: "native" },
+        target: NATIVE_TARGET,
       }),
     ).rejects.toThrow("conflicts with its reservation");
     expect(bucket.putCalls).toBe(1);
@@ -465,7 +467,7 @@ describe("turn state archive", () => {
       session: new FakeArchiveSession(bytes).asSession(),
       bucket: bucket.asUploadBucket(),
       key,
-      target: { kind: "native" },
+      target: NATIVE_TARGET,
     });
     const restoreSession = new FakeArchiveSession(bytes);
 
@@ -473,7 +475,7 @@ describe("turn state archive", () => {
       session: restoreSession.asSession(),
       bucket: bucket.asRestoreBucket(),
       archive: uploaded.archive,
-      target: { kind: "native" },
+      target: NATIVE_TARGET,
     });
 
     expect(bucket.getOptions).toEqual([
@@ -484,7 +486,7 @@ describe("turn state archive", () => {
       restoreSession.commands.some(
         (command) =>
           command.includes("unsquashfs -no-progress -no-xattrs") &&
-          command.includes("/home/stella-native-state/anthropic"),
+          command.includes(`/home/stella-native-state/anthropic-${THREAD_HASH}`),
       ),
     ).toBe(true);
     expect(restoreSession.commands.at(-1)).toContain(
@@ -500,7 +502,7 @@ describe("turn state archive", () => {
       session: new FakeArchiveSession(bytes).asSession(),
       bucket: bucket.asUploadBucket(),
       key,
-      target: { kind: "native" },
+      target: NATIVE_TARGET,
     });
     bucket.getBytesOverride = bytes.slice();
     bucket.getBytesOverride[0] ^= 0xff;
@@ -511,7 +513,7 @@ describe("turn state archive", () => {
         session: restoreSession.asSession(),
         bucket: bucket.asRestoreBucket(),
         archive: uploaded.archive,
-        target: { kind: "native" },
+        target: NATIVE_TARGET,
       }),
     ).rejects.toThrow("downloaded bytes failed integrity");
     expect(restoreSession.restoreCalls).toBe(0);
@@ -525,7 +527,7 @@ describe("turn state archive", () => {
       session: new FakeArchiveSession(bytes).asSession(),
       bucket: bucket.asUploadBucket(),
       key: archiveKey("native"),
-      target: { kind: "native" },
+      target: NATIVE_TARGET,
     });
     bucket.corruptGetMetadata = true;
     bucket.bodyCancelNeverSettles = true;
@@ -536,7 +538,7 @@ describe("turn state archive", () => {
         session: restoreSession.asSession(),
         bucket: bucket.asRestoreBucket(),
         archive: uploaded.archive,
-        target: { kind: "native" },
+        target: NATIVE_TARGET,
       }),
     ).rejects.toThrow("conflicts with its reservation");
     expect(bucket.bodyCancelCalls).toBe(1);
@@ -551,7 +553,7 @@ describe("turn state archive", () => {
       session: new FakeArchiveSession(bytes).asSession(),
       bucket: bucket.asUploadBucket(),
       key: archiveKey("native"),
-      target: { kind: "native" },
+      target: NATIVE_TARGET,
     });
     bucket.stallGetBody = true;
     const restoreSession = new FakeArchiveSession(bytes);
@@ -562,7 +564,7 @@ describe("turn state archive", () => {
         session: restoreSession.asSession(),
         bucket: bucket.asRestoreBucket(),
         archive: uploaded.archive,
-        target: { kind: "native" },
+        target: NATIVE_TARGET,
       }),
     ).rejects.toThrow("claim heartbeat failed");
     expect(bucket.bodyCancelCalls).toBe(1);
@@ -577,7 +579,7 @@ describe("turn state archive", () => {
       session: new FakeArchiveSession(bytes).asSession(),
       bucket: bucket.asUploadBucket(),
       key: archiveKey("native"),
-      target: { kind: "native" },
+      target: NATIVE_TARGET,
     });
     const restoreSession = new FakeArchiveSession(bytes);
     restoreSession.failWriteBeforeRead = true;
@@ -587,7 +589,7 @@ describe("turn state archive", () => {
         session: restoreSession.asSession(),
         bucket: bucket.asRestoreBucket(),
         archive: uploaded.archive,
-        target: { kind: "native" },
+        target: NATIVE_TARGET,
       }),
     ).rejects.toThrow("sandbox write was incomplete");
     expect(restoreSession.restoreCalls).toBe(0);
@@ -616,7 +618,7 @@ describe("turn state archive", () => {
       session: firstSession.asSession(),
       bucket: bucket.asUploadBucket(),
       key: archiveKey("native", "e"),
-      target: { kind: "native" },
+      target: NATIVE_TARGET,
     });
     await readStarted;
 
@@ -625,7 +627,7 @@ describe("turn state archive", () => {
         session: secondSession.asSession(),
         bucket: bucket.asUploadBucket(),
         key: archiveKey("native", "e"),
-        target: { kind: "native" },
+        target: NATIVE_TARGET,
       }),
     ).rejects.toThrow("archive creation failed");
 
@@ -649,7 +651,7 @@ describe("turn state archive", () => {
       "/dev/null /home/stella-host-state/turn-state-archive/lock-native",
     );
     const scratchPath = (command: string | undefined): string | undefined =>
-      /\/home\/stella-host-state\/turn-state-archive\/native-([0-9a-f]{64})\.sqsh/u.exec(
+      /\/home\/stella-host-state\/turn-state-archive\/native-[0-9a-f]{64}-([0-9a-f]{64})\.sqsh/u.exec(
         command ?? "",
       )?.[0];
     expect(scratchPath(firstBuild)).toBeDefined();
@@ -669,7 +671,7 @@ describe("turn state archive", () => {
         session: malformedSession.asSession(),
         bucket: bucket.asUploadBucket(),
         key: `${TURN_STATE_OBJECT_PREFIX}/workspace.sqsh`,
-        target: { kind: "native" },
+        target: NATIVE_TARGET,
       }),
     ).rejects.toThrow("was not pre-registered");
     expect(malformedSession.commands).toEqual([]);
@@ -681,7 +683,7 @@ describe("turn state archive", () => {
           session: controlSession.asSession(),
           bucket: bucket.asUploadBucket(),
           key: `${archiveKey("native")}${suffix}`,
-          target: { kind: "native" },
+          target: NATIVE_TARGET,
         }),
       ).rejects.toThrow("was not pre-registered");
       expect(controlSession.commands).toEqual([]);
@@ -694,7 +696,7 @@ describe("turn state archive", () => {
         session: oversizedSession.asSession(),
         bucket: bucket.asUploadBucket(),
         key: archiveKey("native"),
-        target: { kind: "native" },
+        target: NATIVE_TARGET,
       }),
     ).rejects.toThrow("exceeds its bounded object contract");
     expect(bucket.putCalls).toBe(0);
@@ -718,14 +720,14 @@ describe("archive scripts never leak shell state into the session", () => {
       session: uploadSession.asSession(),
       bucket: bucket.asUploadBucket(),
       key,
-      target: { kind: "native" },
+      target: NATIVE_TARGET,
     });
     const restoreSession = new FakeArchiveSession(bytes);
     await restoreTurnStateArchive({
       session: restoreSession.asSession(),
       bucket: bucket.asRestoreBucket(),
       archive: uploaded.archive,
-      target: { kind: "native" },
+      target: NATIVE_TARGET,
     });
 
     const commands = [...uploadSession.commands, ...restoreSession.commands];

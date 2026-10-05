@@ -32,6 +32,7 @@ import type {
 import type { TSchema } from "@sinclair/typebox";
 import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
+import type { CloudCliTurnRoleInput } from "@stella/contracts/cloud-orchestrator-cli";
 import type {
   CloudBrowserResumeReceipt,
   CloudBrowserSuspension,
@@ -175,7 +176,11 @@ export const parseCloudModelGatewayInput = (
   return { origin: origin.origin, capability: row.capability };
 };
 
-export type AgentTurnInput = {
+/**
+ * turn-input.json. `role` (from the shared contract) says which loop runs:
+ * an orchestrator turn also carries the DO's system prompt and tool catalog.
+ */
+export type AgentTurnInput = CloudCliTurnRoleInput & {
   kind: "agent";
   ownerId: string;
   ownerGeneration: string;
@@ -542,6 +547,17 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
         }),
         (client) => Effect.sync(() => client.close()),
       );
+      // This loop builds an agent's own prompt and tools; an orchestrator
+      // turn runs the DO's, in its own executor mode.
+      if (input.role !== "agent") {
+        return {
+          ok: false,
+          finalText: "",
+          error: "This executor cannot run an orchestrator turn.",
+          usage: { inputTokens: 0, outputTokens: 0, llmCalls: 0 },
+          checkpointPolicy: "preserve_prior",
+        };
+      }
       const modelGateway = parseCloudModelGatewayInput(input.modelGateway);
       if (!modelGateway) {
         return {

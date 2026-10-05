@@ -5,7 +5,10 @@ import {
   runToolEffect,
   toolsRuntime,
 } from "@stella/runtime/kernel/tools/effect-runtime.js";
-import { NATIVE_STATE_DIRECTORY } from "./native-state-checkpoint.js";
+import {
+  CLOUD_NATIVE_STATE_ANCHOR,
+  cloudNativeStateRoot,
+} from "@stella/contracts/cloud-native-state";
 import { inSubshell } from "./shell-subshell.js";
 import {
   TURN_STATE_OBJECT_FORMAT,
@@ -18,7 +21,12 @@ import {
 
 export { TURN_STATE_MAX_ARCHIVE_BYTES };
 
-export type TurnStateArchiveTarget = { kind: "native" };
+/**
+ * One thread's native state root (`cloudNativeStateRoot(threadHash)`). Its
+ * lock, claim and scratch paths are per thread too, so threads sharing a
+ * container archive and restore independently.
+ */
+export type TurnStateArchiveTarget = { kind: "native"; threadHash: string };
 
 export type TurnStateArchiveSession = Pick<
   ExecutionSession,
@@ -55,13 +63,19 @@ type ArchiveKeyParts = {
   kind: TurnStateObjectKind;
 };
 
-const targetSource = (_target: TurnStateArchiveTarget): string => NATIVE_STATE_DIRECTORY;
+const targetSource = (target: TurnStateArchiveTarget): string =>
+  cloudNativeStateRoot(target.threadHash);
 
-const targetParent = (_target: TurnStateArchiveTarget): string => "/home/stella-native-state";
+const targetParent = (_target: TurnStateArchiveTarget): string =>
+  CLOUD_NATIVE_STATE_ANCHOR;
 
 const targetOwnerMode = (_target: TurnStateArchiveTarget): string => "0:0:700";
 
-const targetPathSlug = (_target: TurnStateArchiveTarget): string => "native";
+const targetPathSlug = (target: TurnStateArchiveTarget): string => {
+  // Validates the hash before it reaches any shell command.
+  cloudNativeStateRoot(target.threadHash);
+  return `native-${target.threadHash}`;
+};
 
 const newScratchId = (): string =>
   Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) =>

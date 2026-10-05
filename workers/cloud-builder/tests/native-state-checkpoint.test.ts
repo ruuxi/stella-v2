@@ -56,7 +56,7 @@ const checkpoint = (
 const descriptor = (id: string): DirectoryBackup =>
   ({
     id,
-    dir: "/home/stella-native-state/anthropic",
+    dir: `/home/stella-native-state/anthropic-${"c".repeat(64)}`,
     localBucket: true,
   }) as DirectoryBackup;
 

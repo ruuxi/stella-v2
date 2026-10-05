@@ -1,9 +1,8 @@
 import type { LegacyDirectoryBackup as DirectoryBackup } from "./sandbox-client.js";
+import { CLOUD_NATIVE_STATE_ROOT_PATTERN } from "@stella/contracts/cloud-native-state";
 import { sha256Hex } from "./hash.js";
 
 export const NATIVE_STATE_CHECKPOINT_SCHEMA_VERSION = 1 as const;
-export const NATIVE_STATE_DIRECTORY =
-  "/home/stella-native-state/anthropic" as const;
 export const EMPTY_NATIVE_HISTORY_CURSOR = "v1:empty" as const;
 
 const HEX_SHA256 = /^[0-9a-f]{64}$/;
@@ -207,7 +206,8 @@ const parseDirectoryBackup = (value: unknown): DirectoryBackup | null => {
     keys !== "dir,id,localBucket" ||
     typeof candidate.id !== "string" ||
     !BACKUP_ID.test(candidate.id) ||
-    candidate.dir !== NATIVE_STATE_DIRECTORY ||
+    typeof candidate.dir !== "string" ||
+    !CLOUD_NATIVE_STATE_ROOT_PATTERN.test(candidate.dir) ||
     candidate.localBucket !== true
   ) {
     return null;

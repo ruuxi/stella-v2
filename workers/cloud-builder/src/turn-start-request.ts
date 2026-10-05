@@ -7,6 +7,10 @@
 
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import { isCloudBrowserResumeReceipt } from "@stella/contracts/cloud-browser";
+import {
+  orchestratorCliThreadId,
+  parseCloudOrchestratorCliTurnSpec,
+} from "@stella/contracts/cloud-orchestrator-cli";
 import { isManagedModelAudience } from "@stella/contracts/gateway/capability";
 import {
   CLIENT_MSG_ID_PATTERN,
@@ -321,6 +325,7 @@ const AGENT_SOURCES: readonly CloudAgentTurnSource[] = [
   "placement",
   "browser-resume",
   "agent-thread",
+  "orchestrator",
 ];
 
 const MAX_DESCRIPTION_CHARS = 2_000;
@@ -363,7 +368,15 @@ export const parseCloudAgentTurnStartRequest = (
   if (!ownerGeneration) return fail("ownerGeneration is required.");
   if (!conversationId) return fail("conversationId is required.");
   if (!threadId) return fail("threadId is required.");
-  if (
+  if (value.agentRole !== undefined && value.agentRole !== "orchestrator") {
+    return fail('agentRole must be "orchestrator" when present.');
+  }
+  const orchestratorRole = value.agentRole === "orchestrator";
+  if (orchestratorRole) {
+    if (value.agentDepth !== 0) {
+      return fail("An orchestrator turn has agentDepth 0.");
+    }
+  } else if (
     !Number.isSafeInteger(value.agentDepth) ||
     (value.agentDepth as number) < 1 ||
     (value.agentDepth as number) > 2
@@ -463,5 +476,33 @@ export const parseCloudAgentTurnStartRequest = (
     }
     request.browserResume = value.browserResume;
   }
+  if (!orchestratorRole) {
+    if (request.source === "orchestrator") {
+      return fail('source "orchestrator" requires agentRole "orchestrator".');
+    }
+    if (value.orchestratorCli !== undefined) {
+      return fail('orchestratorCli requires agentRole "orchestrator".');
+    }
+    return { ok: true, request };
+  }
+  // The orchestrator's own chat turn: the shape cloud-orchestrator-cli.ts
+  // fixes, and only for the engine whose CLI runs it.
+  const orchestratorCli = parseCloudOrchestratorCliTurnSpec(
+    value.orchestratorCli,
+  );
+  if (!orchestratorCli) return fail("orchestratorCli is malformed.");
+  if (
+    request.source !== "orchestrator" ||
+    request.execution.engine !== "anthropic" ||
+    request.turnId === undefined ||
+    request.parentThreadId !== undefined ||
+    request.parentTurnId !== undefined ||
+    request.browserResume !== undefined ||
+    request.threadId !== orchestratorCliThreadId(request.conversationId)
+  ) {
+    return fail("An orchestrator turn has a malformed identity.");
+  }
+  request.agentRole = "orchestrator";
+  request.orchestratorCli = orchestratorCli;
   return { ok: true, request };
 };

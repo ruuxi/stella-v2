@@ -10,16 +10,18 @@
 //   {"ok":true,"frontmostBundleId":"chrome.exe","frontmostPid":123,"focusedEditable":true}
 //
 // Compile (MSVC):
-//   cl /O2 /EHsc dictation_bridge.cpp /link ole32.lib oleaut32.lib uuid.lib user32.lib /OUT:dictation_bridge.exe
+//   cl /O2 /EHsc dictation_bridge.cpp /link ole32.lib oleaut32.lib uuid.lib user32.lib shell32.lib /OUT:dictation_bridge.exe
 // Compile (mingw-w64):
 //   x86_64-w64-mingw32-g++ -O2 -static dictation_bridge.cpp
-//       -o dictation_bridge.exe -lole32 -loleaut32 -luuid -luser32
+//       -o dictation_bridge.exe -lole32 -loleaut32 -luuid -luser32 -lshell32
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 
 #include <initguid.h>
 #include <windows.h>
+#include <objbase.h>
+#include <ole2.h>
 #include <shellapi.h>
 #include <psapi.h>
 #include <UIAutomationClient.h>

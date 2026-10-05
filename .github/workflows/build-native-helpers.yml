@@ -17,6 +17,11 @@ on:
         description: "Optional override sha/tag (defaults to commit SHA)"
         required: false
         default: ""
+      publish:
+        description: "Upload and repoint native-helpers/current.json. Turn off to validate a build without publishing."
+        type: boolean
+        required: false
+        default: true
 
 permissions:
   contents: read
@@ -199,10 +204,13 @@ jobs:
           }
           Get-MpPreference | Select-Object DisableRealtimeMonitoring,DisableBehaviorMonitoring,DisableIOAVProtection,DisableScriptScanning
 
+      # -Strict makes MSVC mandatory: without it an MSVC compile error is
+      # silently absorbed by the MinGW/clang fallbacks, which is how a helper
+      # that no compiler could build reached master unnoticed.
       - name: Build native helpers (Windows)
         shell: pwsh
         working-directory: packages/native
-        run: powershell -ExecutionPolicy Bypass -File build.ps1
+        run: powershell -ExecutionPolicy Bypass -File build.ps1 -Strict
 
       - name: Snapshot Defender threat detections
         if: always()
@@ -260,6 +268,7 @@ jobs:
     needs:
       - macos
       - windows
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.publish }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -409,3 +418,70 @@ jobs:
 
           echo "Published native helpers manifest:"
           cat "$manifest_path"
+
+          cp "$manifest_path" "$RUNNER_TEMP/published-manifest.json"
+
+      # A successful upload is not proof the manifest is actually being served.
+      # Read current.json back over the public URL and require it to match what
+      # we just pushed, including every asset digest.
+      - name: Verify published manifest is being served
+        env:
+          R2_PUBLIC_BASE_URL: https://pub-a319aaada8144dc9be5a83625033769c.r2.dev
+          NATIVE_HELPERS_SHA: ${{ steps.sha.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          fetched="$RUNNER_TEMP/current-fetched.json"
+          for attempt in 1 2 3 4 5; do
+            if curl -fsSL "${R2_PUBLIC_BASE_URL}/native-helpers/current.json" -o "$fetched"; then
+              break
+            fi
+            echo "current.json not readable yet (attempt $attempt); retrying..."
+            sleep 5
+          done
+          if [ ! -s "$fetched" ]; then
+            echo "::error::could not read native-helpers/current.json back after publishing"
+            exit 1
+          fi
+
+          node - "$RUNNER_TEMP/published-manifest.json" "$fetched" "$NATIVE_HELPERS_SHA" <<'NODE'
+          const { readFileSync } = require("node:fs");
+          const [expectedPath, actualPath, sha] = process.argv.slice(2);
+          const expected = JSON.parse(readFileSync(expectedPath, "utf8"));
+          const actual = JSON.parse(readFileSync(actualPath, "utf8"));
+
+          const problems = [];
+          if (actual.sha !== sha) {
+            problems.push(`served sha is ${actual.sha}, expected ${sha}`);
+          }
+          if (actual.builtAt !== expected.builtAt) {
+            problems.push(`served builtAt is ${actual.builtAt}, expected ${expected.builtAt}`);
+          }
+          for (const platform of Object.keys(expected.assets)) {
+            const want = expected.assets[platform];
+            const got = actual.assets?.[platform];
+            if (!got) {
+              problems.push(`served manifest is missing ${platform}`);
+              continue;
+            }
+            if (got.sha256 !== want.sha256) {
+              problems.push(`${platform} digest is ${got.sha256}, expected ${want.sha256}`);
+            }
+            if ((got.files?.length ?? 0) !== want.files.length) {
+              problems.push(
+                `${platform} lists ${got.files?.length ?? 0} files, expected ${want.files.length}`,
+              );
+            }
+          }
+
+          if (problems.length) {
+            for (const problem of problems) console.error(`::error::${problem}`);
+            process.exit(1);
+          }
+
+          console.log(`current.json verified: sha ${actual.sha}, built ${actual.builtAt}`);
+          for (const [platform, asset] of Object.entries(actual.assets)) {
+            console.log(`  ${platform}: ${asset.files.length} files, ${asset.size} bytes`);
+          }
+          NODE

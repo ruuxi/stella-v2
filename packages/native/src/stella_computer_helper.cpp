@@ -512,7 +512,7 @@ private:
         windowClass.hInstance = instance;
         windowClass.lpfnWndProc = &AgentCursorOverlay::windowProc;
         windowClass.lpszClassName = className;
-        windowClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        windowClass.hCursor = LoadCursorW(nullptr, reinterpret_cast<LPCWSTR>(IDC_ARROW));
         RegisterClassExW(&windowClass);
         hwnd_ = CreateWindowExW(
             WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
@@ -762,11 +762,23 @@ private:
 static AgentCursorOverlay* gAgentCursorOverlay = nullptr;
 
 static std::string readUtf8File(const std::wstring& path) {
-    std::ifstream input(path, std::ios::binary);
-    if (!input) return "";
-    std::ostringstream buffer;
-    buffer << input.rdbuf();
-    return buffer.str();
+    HANDLE file = CreateFileW(
+        path.c_str(),
+        GENERIC_READ,
+        FILE_SHARE_READ,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        nullptr);
+    if (file == INVALID_HANDLE_VALUE) return "";
+    std::string contents;
+    char chunk[8192];
+    DWORD read = 0;
+    while (ReadFile(file, chunk, (DWORD)sizeof(chunk), &read, nullptr) && read > 0) {
+        contents.append(chunk, read);
+    }
+    CloseHandle(file);
+    return contents;
 }
 
 static std::string appInstructionsFor(const std::wstring& processName) {

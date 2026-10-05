@@ -1,5 +1,20 @@
 # Build script for native helpers
-# Tries MSVC first, falls back to MinGW, then clang
+#
+# MSVC is the toolchain the shipped Windows helpers are built with. The MinGW
+# and clang fallbacks exist only so contributors without Visual Studio can get
+# a working local build.
+#
+# Pass -Strict (CI does) to require MSVC and refuse every fallback. Without it,
+# an MSVC compile error is silently papered over by whichever other compiler
+# happens to accept the file, which is how a helper that no compiler could
+# build reached master and stalled the publish for a month.
+
+[CmdletBinding()]
+param(
+    [switch]$Strict
+)
+
+if (-not $Strict -and $env:STELLA_NATIVE_STRICT) { $Strict = $true }
 
 $outputDir = Join-Path $PSScriptRoot "out\win32"
 New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
@@ -14,7 +29,7 @@ $targets = @(
     @{ kind = "cpp"; src = "src\recent_apps.cpp"; out = (Join-Path $outputDir "recent_apps.exe"); libs = @("user32.lib", "dwmapi.lib"); gccLibs = @("-luser32", "-ldwmapi") },
     @{ kind = "cpp"; src = "src\window_text.cpp"; out = (Join-Path $outputDir "window_text.exe"); libs = $defaultLibs; gccLibs = $defaultGccLibs },
     @{ kind = "cpp"; src = "src\selected_text.cpp"; out = (Join-Path $outputDir "selected_text.exe"); libs = $defaultLibs; gccLibs = $defaultGccLibs },
-    @{ kind = "cpp"; src = "src\dictation_bridge.cpp"; out = (Join-Path $outputDir "dictation_bridge.exe"); libs = @("ole32.lib", "oleaut32.lib", "uuid.lib", "user32.lib"); gccLibs = @("-lole32", "-loleaut32", "-luuid", "-luser32") },
+    @{ kind = "cpp"; src = "src\dictation_bridge.cpp"; out = (Join-Path $outputDir "dictation_bridge.exe"); libs = @("ole32.lib", "oleaut32.lib", "uuid.lib", "user32.lib", "shell32.lib"); gccLibs = @("-lole32", "-loleaut32", "-luuid", "-luser32", "-lshell32") },
     @{ kind = "cpp"; src = "src\stella_computer_helper.cpp"; out = (Join-Path $outputDir "stella-computer-helper.exe"); libs = @("ole32.lib", "oleaut32.lib", "uuid.lib", "user32.lib", "gdi32.lib", "gdiplus.lib", "shell32.lib", "advapi32.lib", "dwmapi.lib"); gccLibs = @("-lole32", "-loleaut32", "-luuid", "-luser32", "-lgdi32", "-lgdiplus", "-lshell32", "-ladvapi32", "-ldwmapi") },
     @{ kind = "cpp"; src = "src\meeting_capture.cpp"; out = (Join-Path $outputDir "meeting_capture.exe"); libs = @("ole32.lib", "oleaut32.lib", "uuid.lib", "shell32.lib"); gccLibs = @("-lole32", "-loleaut32", "-luuid", "-lshell32") }
 )
@@ -69,7 +84,13 @@ if (Test-Path $vsWhere) {
 $hasGpp = [bool](Get-Command g++ -ErrorAction SilentlyContinue)
 $hasClang = [bool](Get-Command clang++ -ErrorAction SilentlyContinue)
 
-if (-not $vcvars -and -not $hasGpp -and -not $hasClang) {
+if ($Strict) {
+    Write-Host "Strict mode: MSVC is required and fallback compilers are disabled."
+    if (-not $vcvars) {
+        Write-Host "ERROR: -Strict requires Visual Studio with the C++ workload, but vcvars64.bat was not found."
+        exit 1
+    }
+} elseif (-not $vcvars -and -not $hasGpp -and -not $hasClang) {
     Write-Host "ERROR: No C++ compiler found. Install one of:"
     Write-Host "  - Visual Studio with C++ workload"
     Write-Host "  - MinGW-w64 (g++)"
@@ -78,35 +99,63 @@ if (-not $vcvars -and -not $hasGpp -and -not $hasClang) {
 }
 
 $allOk = $true
-foreach ($t in $targets) {
-    Write-Host "Building $(Split-Path $t.out -Leaf)..."
-    $built = $false
+$compilerUsed = [ordered]@{}
 
-    if ($vcvars -and -not $built) {
+foreach ($t in $targets) {
+    $leaf = Split-Path $t.out -Leaf
+    Write-Host "Building $leaf..."
+    $built = $false
+    $with = $null
+
+    if ($vcvars) {
         Write-Host "  Using MSVC..."
         $built = Build-WithMSVC $vcvars $t.src $t.out $t.libs
+        if ($built) { $with = "MSVC" }
     }
+
+    if (-not $built -and $Strict) {
+        Write-Host "::error::MSVC failed to build $leaf. Strict mode does not fall back to another compiler."
+        $compilerUsed[$leaf] = "FAILED"
+        $allOk = $false
+        continue
+    }
+
     if ($hasGpp -and -not $built) {
         Write-Host "  Using MinGW g++..."
         $built = Build-WithGpp $t.src $t.out $t.gccLibs
+        if ($built) { $with = "MinGW g++" }
     }
     if ($hasClang -and -not $built) {
         Write-Host "  Using clang++..."
         $built = Build-WithClang $t.src $t.out $t.gccLibs
+        if ($built) { $with = "clang++" }
     }
 
     if ($built) {
-        Write-Host "  Build successful: $($t.out)"
+        Write-Host "  Build successful: $($t.out) [$with]"
+        if ($with -ne "MSVC") {
+            Write-Warning "$leaf was built with $with, not MSVC. Shipping builds use MSVC; re-run with -Strict to treat this as a failure."
+        }
+        $compilerUsed[$leaf] = $with
     } else {
         Write-Host "  ERROR: Failed to build $($t.out)"
+        $compilerUsed[$leaf] = "FAILED"
         $allOk = $false
     }
 }
 
+Write-Host ""
+Write-Host "Compiler summary:"
+foreach ($name in $compilerUsed.Keys) {
+    Write-Host ("  {0,-32} {1}" -f $name, $compilerUsed[$name])
+}
+Write-Host ""
+
 if (-not $allOk) { exit 1 }
 
 # wakeword_listener — Rust binary, x86_64 Windows via cargo. Skipped silently
-# when cargo is unavailable so non-Rust contributors aren't blocked.
+# when cargo is unavailable so non-Rust contributors aren't blocked, but it
+# ships in the helper set, so -Strict requires it.
 $cargo = Get-Command cargo -ErrorAction SilentlyContinue
 if ($cargo) {
     Write-Host "Building wakeword_listener.exe..."
@@ -128,6 +177,9 @@ if ($cargo) {
     } finally {
         Pop-Location
     }
+} elseif ($Strict) {
+    Write-Host "ERROR: cargo is required with -Strict; wakeword_listener.exe ships in the helper set."
+    exit 1
 } else {
     Write-Host "Skipping wakeword_listener: cargo not on PATH (install rustup to enable)."
 }

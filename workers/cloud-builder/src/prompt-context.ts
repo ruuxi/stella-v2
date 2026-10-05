@@ -4,6 +4,7 @@ import type {
 } from "@stella/runtime/kernel/agent-core/types.js";
 import type { MemoryPolicy } from "@stella/contracts/turn-plane/memory-policy";
 import type { ContextCheckpoint } from "./context-compaction.js";
+import { WORLD_ROOT } from "./workspace.js";
 
 export const PROMPT_CONTEXT_KEY = "cloudPromptContext:v1";
 type ToolSnapshot = Pick<AgentTool, "name" | "description" | "parameters">;
@@ -212,7 +213,26 @@ export const materializeProviderContext = (
           ...(metadata.attachments?.length
             ? [{
                 type: "text" as const,
-                text: `<attached-drive-files>\nThe user attached these exact Drive paths to this message. Read these files, and pass these paths to any agent handling the attachments. Do not substitute other files found by searching the Drive.\n${JSON.stringify(metadata.attachments)}\n</attached-drive-files>`,
+                // Two names for one file, each true where it is used. The
+                // absolute path is what Read takes in this session; the drive
+                // path is the file's stable name. The previous wording told
+                // the model to pass drive paths to "any agent handling the
+                // attachments", which is only meaningful to an agent that can
+                // resolve one — a computer-placed agent would search its own
+                // filesystem for `uploads/...` and find nothing. It no longer
+                // has to: it receives these attachments as real local files.
+                text: [
+                  "<attached-files>",
+                  "The user attached these exact files to this message. Do not substitute other files found by searching the Drive.",
+                  JSON.stringify(
+                    metadata.attachments.map((path) => ({
+                      drivePath: path,
+                      readableAt: `${WORLD_ROOT}/drive/${path}`,
+                    })),
+                  ),
+                  `Use Read on \`readableAt\` to open one here. An agent you start on one of the user's computers is given these same attachments as files on that computer, so it needs no path from you; \`readableAt\` is valid only in this session.`,
+                  "</attached-files>",
+                ].join("\n"),
               }]
             : []),
         ],

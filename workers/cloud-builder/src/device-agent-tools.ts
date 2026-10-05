@@ -73,6 +73,13 @@ export const spawnDeviceAgent = async (
     prompt: string;
     /** The `spawn_agent` model the device runs the agent on. */
     model?: string;
+    /**
+     * Drive paths of the spawning turn's attachments, inherited rather than
+     * chosen by the model. The orchestrator is told to pass attachment paths
+     * on, but a drive path means nothing on a device, so the handover happens
+     * here and the device materializes them into real local files.
+     */
+    attachments?: readonly string[];
   },
 ): Promise<CloudAgentControlReceipt & { waitingForDevice?: boolean }> => {
   const control = (await caller.ownerInternal("agentThreads.spawnOnDevice", {
@@ -85,6 +92,7 @@ export const spawnDeviceAgent = async (
     description: input.description,
     prompt: input.prompt,
     ...(input.model ? { model: input.model } : {}),
+    ...(input.attachments?.length ? { attachments: [...input.attachments] } : {}),
   })) as AgentThreadControl;
   return {
     ...receiptOf(control, {

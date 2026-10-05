@@ -123,6 +123,11 @@ export const createGateHost = (deps: GateHostDependencies): OwnerHost => ({
           description: input.description,
           threadId: input.threadId,
           ...(input.model ? { model: input.model } : {}),
+          // Same key and shape the chat placement uses, so the device's
+          // `placementAttachmentPaths` reads both dispatch kinds identically.
+          ...(input.attachments?.length
+            ? { attachments: [...input.attachments] }
+            : {}),
         },
       },
       expectedGeneration: input.ownerGeneration,

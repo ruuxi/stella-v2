@@ -7,9 +7,17 @@
  *  - `/workspace/world/...` — the owner's world (drive, projects, apps),
  *    read through the world Durable Object exactly as a cloud agent does.
  *
- * Images are the one gap: the world store rejects binaries and the skill
- * store hands back text only, so a photo reaches the model through the
- * attachment path instead.
+ * An image under the world root is read as pixels, which is what the shared
+ * description has always advertised: "inspect a local PNG, JPG, JPEG, GIF, or
+ * WEBP image. Image files are attached to the conversation as vision input."
+ * Both placements show the model that byte-identical sentence, so returning
+ * `Binary files are not supported` here made the tool's own contract false in
+ * the cloud. The orchestrator tool protocol already carries image blocks
+ * (`toolResultFromOrchestrator` turns them into authorized tool images), so
+ * this reads the bytes out of the world instead of handing them to the world's
+ * text-only Read.
+ *
+ * Skills stay text-only: that store hands back text and holds no binaries.
  */
 
 import type { TSchema } from "@sinclair/typebox";
@@ -20,6 +28,10 @@ import {
   READ_TOOL_REPLAY,
 } from "@stella/runtime/kernel/tools/defs/read-def.js";
 import { sanitizeToolVisibleText } from "@stella/runtime/kernel/tools/safety.js";
+import {
+  detectImageMimeTypeFromBytes,
+  imageMimeTypeFromPath,
+} from "@stella/runtime/kernel/shared/image-mime.js";
 import type { CloudCodeSourceAgentTool } from "./cloud-code-tool.js";
 import type {
   CloudHomeStore,
@@ -35,6 +47,25 @@ const MAX_SKILL_TEXT_CHARS = 120_000;
 const DEFAULT_READ_LIMIT = 2000;
 const MAX_READ_LINES = 5000;
 
+/**
+ * Decoded bytes of one image a cloud Read may inline. The refusal names this
+ * number, because the readable size is a property of the session rather than
+ * of the placement — a resident world hydrates at most 8MB per file, a
+ * container world materializes under its own export budget, and a device has
+ * the real filesystem. No prompt can state one limit truthfully, so the error
+ * carries it instead.
+ */
+const MAX_READ_IMAGE_BYTES = 5 * 1024 * 1024;
+
+const base64FromBytes = (bytes: Uint8Array): string => {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunk));
+  }
+  return btoa(binary);
+};
+
 export type CloudReadToolOptions = Readonly<{
   skills?: { home: CloudHomeStore; snapshot: CloudSkillCatalogSnapshot };
   world?: {
@@ -42,6 +73,16 @@ export type CloudReadToolOptions = Readonly<{
       name: "Read";
       arguments: Record<string, unknown>;
     }): Promise<{ ok: boolean; output: string }>;
+    /**
+     * Bytes for an image path. Absent on a world binding that predates this,
+     * in which case an image falls through to the text Read and reports the
+     * world's own refusal rather than crashing.
+     */
+    stat?(path: string): Promise<{ kind: string; size: number } | null>;
+    readFile?(
+      path: string,
+      options?: { offset?: number; length?: number },
+    ): Promise<Uint8Array | null>;
   };
 }>;
 
@@ -158,6 +199,43 @@ export const createCloudReadTool = (
         `File tool paths must be absolute. Received relative path '${filePath}'. The user's cloud files live under ${WORLD_ROOT}/ (drive/, projects/<name>/, apps/<name>/).`,
       );
     }
+
+    // An image is pixels, not lines, so `offset`/`limit` have no meaning and
+    // the world's line-windowing Read would only refuse the bytes. Extension
+    // first because it costs nothing; the magic numbers then decide, so a
+    // mislabeled `.png` is reported as what it actually is rather than sent
+    // to a provider that will reject it.
+    const world = options.world;
+    if (imageMimeTypeFromPath(filePath) && world.stat && world.readFile) {
+      const entry = await world.stat(filePath).catch(() => null);
+      if (entry && entry.kind === "file") {
+        if (entry.size > MAX_READ_IMAGE_BYTES) {
+          return failure(
+            `That image is ${entry.size} bytes, over this session's ${MAX_READ_IMAGE_BYTES}-byte limit for reading an image into the conversation: ${filePath}`,
+          );
+        }
+        const bytes = await world.readFile(filePath).catch(() => null);
+        if (bytes) {
+          const mimeType = detectImageMimeTypeFromBytes(bytes);
+          if (!mimeType) {
+            return failure(
+              `That file is named like an image but its bytes are not a complete PNG, JPEG, GIF, or WEBP: ${filePath}`,
+            );
+          }
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Image file: ${filePath} (${mimeType}, ${bytes.length} bytes)`,
+              },
+              { type: "image", data: base64FromBytes(bytes), mimeType },
+            ],
+            details: { path: filePath, mimeType, sizeBytes: bytes.length },
+          };
+        }
+      }
+    }
+
     const result = await options.world.tool({
       name: "Read",
       arguments: {

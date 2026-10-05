@@ -1393,6 +1393,19 @@ export const driveDomain = {
         deleted: deleteFileRow(ctx, normalizeDrivePath(args.path), Date.now()),
       }),
     },
+    // Same reader as the `drive.files` view. A tool call wants one answer, and
+    // a device should not open a subscription to get it.
+    "drive.list": {
+      scope: "owner",
+      parse: object({
+        prefix: optional(string({ max: 4_000 })),
+        limit: optional(number({ min: 1, max: 100_000 })),
+      }),
+      handler: (
+        ctx: OwnerContext,
+        args: { prefix?: string; limit?: number },
+      ) => ({ files: listFiles(ctx.db, args) }),
+    },
   },
   views: {
     "drive.files": {

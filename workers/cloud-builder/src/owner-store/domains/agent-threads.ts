@@ -42,8 +42,10 @@ import type {
   TurnEventEvent,
   TurnStartedEvent,
 } from "@stella/contracts/turn-plane/owner-events";
+import { TURN_ATTACHMENTS_MAX } from "@stella/contracts/turn-plane/turn-start";
 import { parseCloudExecutionSelection } from "../../turn-start-request.js";
-import { literal, number, object, optional, string, type Parser } from "../args.js";
+import { normalizeDrivePath } from "./drive.js";
+import { array, literal, number, object, optional, string, type Parser } from "../args.js";
 import { RpcError } from "../errors.js";
 import { enforceOwnerRateLimit } from "../rate-limit.js";
 import {
@@ -290,13 +292,20 @@ const runDispatch = async (ctx: OwnerContext, job: DispatchJob): Promise<void> =
   ) {
     return;
   }
-  const prompt =
-    ctx.db.one<{ prompt: string }>(
-      "SELECT prompt FROM agent_dispatch_prompts WHERE turn_id = ?",
-      turn.turn_id,
-    )?.prompt ?? thread.description;
+  const dispatchRow = ctx.db.one<{ prompt: string; attachments: string | null }>(
+    "SELECT prompt, attachments FROM agent_dispatch_prompts WHERE turn_id = ?",
+    turn.turn_id,
+  );
+  const prompt = dispatchRow?.prompt ?? thread.description;
   if (thread.executor_device_id) {
-    await runDeviceDispatch(ctx, job, thread, turn, prompt);
+    await runDeviceDispatch(
+      ctx,
+      job,
+      thread,
+      turn,
+      prompt,
+      dispatchAttachments(dispatchRow?.attachments),
+    );
     return;
   }
   const execution = thread.execution_json
@@ -437,12 +446,30 @@ const deviceWaitExpiredMessage = (message: string): string =>
   `${message} It did not become available within ${Math.round(DEVICE_AVAILABILITY_WAIT_MS / 60_000)} minutes, so this agent never started.`;
 
 /** Offer one recorded attempt to the thread's device. */
+/**
+ * The stored attachment list, or none. A row written before this column
+ * existed, or a value that no longer parses, degrades to an agent without
+ * attachments rather than failing a dispatch that is otherwise fine.
+ */
+const dispatchAttachments = (raw: string | null | undefined): string[] => {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((entry): entry is string => typeof entry === "string" && entry.length > 0)
+      : [];
+  } catch {
+    return [];
+  }
+};
+
 const runDeviceDispatch = async (
   ctx: OwnerContext,
   job: DispatchJob,
   thread: ThreadRow,
   turn: TurnRow,
   prompt: string,
+  attachments: readonly string[],
 ): Promise<void> => {
   try {
     const { dispatchId } = await ctx.host.dispatchDeviceAgentTurn({
@@ -455,6 +482,7 @@ const runDeviceDispatch = async (
       targetDeviceId: thread.executor_device_id!,
       ...(thread.origin_device_id ? { requestingDeviceId: thread.origin_device_id } : {}),
       ...(thread.requested_model ? { model: thread.requested_model } : {}),
+      ...(attachments.length > 0 ? { attachments } : {}),
       ...(job.availabilityRetries ? { requeue: job.availabilityRetries } : {}),
     });
     ctx.db.run("UPDATE agent_turns SET dispatch_id = ? WHERE turn_id = ?", dispatchId, turn.turn_id);
@@ -606,8 +634,16 @@ const spawnOnDeviceForCloud = async (ctx: OwnerContext, raw: unknown): Promise<A
     description: string({ max: 2_000 }),
     prompt: string({ max: AGENT_PROMPT_MAX_CHARS }),
     model: optional(string({ max: 256 })),
+    attachments: optional(
+      array(string({ min: 1, max: 1_024 }), { max: TURN_ATTACHMENTS_MAX }),
+    ),
   })(raw);
   assertPrompt(args.prompt, args.description);
+  // Validated here, where the owner is known, so a path that is not a drive
+  // path never reaches a device as something to resolve.
+  const attachments = (args.attachments ?? []).map((path) =>
+    normalizeDrivePath(path),
+  );
   const fingerprint = await sha256Hex(
     JSON.stringify([
       "device-agent-intent/v1",
@@ -618,6 +654,9 @@ const spawnOnDeviceForCloud = async (ctx: OwnerContext, raw: unknown): Promise<A
       args.targetDeviceId,
       args.description,
       args.prompt,
+      // In the fingerprint so a retry that would hand over a different set is
+      // a different intent rather than a replay of the first one.
+      attachments,
     ]),
   );
   const replay = replayAttempt(ctx.db, args.clientMsgId, fingerprint, args.ownerGeneration);
@@ -658,6 +697,7 @@ const spawnOnDeviceForCloud = async (ctx: OwnerContext, raw: unknown): Promise<A
     clientMsgId: args.clientMsgId,
     fingerprint,
     prompt: args.prompt,
+    ...(attachments.length > 0 ? { attachments } : {}),
   });
   return { ...control(thread), ...(destination.waiting ? { waitingForDevice: true } : {}) };
 };
@@ -824,6 +864,7 @@ const startAttempt = (
     clientMsgId: string;
     fingerprint: string;
     prompt: string;
+    attachments?: readonly string[];
     browserResume?: CloudBrowserResumeReceipt;
   },
 ): void => {
@@ -843,9 +884,10 @@ const startAttempt = (
     ctx.now,
   );
   ctx.db.run(
-    "INSERT INTO agent_dispatch_prompts (turn_id, prompt) VALUES (?, ?)",
+    "INSERT INTO agent_dispatch_prompts (turn_id, prompt, attachments) VALUES (?, ?, ?)",
     input.turnId,
     input.prompt,
+    input.attachments?.length ? JSON.stringify([...input.attachments]) : null,
   );
   ctx.jobs.schedule(
     "agentThreads.dispatch",
@@ -1737,6 +1779,15 @@ export const agentThreadsDomain = {
     AGENT_THREADS_DROP_WORKSPACE_FORK_MIGRATION,
     AGENT_THREADS_DEVICE_EXECUTOR_MIGRATION,
     AGENT_THREADS_REQUESTED_MODEL_MIGRATION,
+    {
+      // Alongside the prompt, with the same lifecycle: both are what the
+      // dispatch job still needs after the spawn call returned, and both are
+      // dropped once the attempt is dispatched or settled.
+      id: "agent-threads.3-dispatch-attachments",
+      statements: [
+        "ALTER TABLE agent_dispatch_prompts ADD COLUMN attachments TEXT",
+      ],
+    },
   ],
   calls: {
     "agentThreads.page": {

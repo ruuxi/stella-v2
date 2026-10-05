@@ -1715,6 +1715,12 @@ export class LocalAgentManager {
                 agentId: task.threadId,
                 rootRunId: task.rootRunId,
                 ...(task.toolWorkspaceRoot ? { toolWorkspaceRoot: task.toolWorkspaceRoot } : {}),
+                // Only with the opening prompt. They are named in the brief,
+                // not re-announced on every later turn, and a resume already
+                // has that turn in its thread.
+                ...(!resume && task.turnCount === 1 && task.attachments?.length
+                    ? { attachments: task.attachments }
+                    : {}),
                 taskDescription: task.description,
                 taskPrompt,
                 agentContext: context,
@@ -2133,6 +2139,7 @@ export class LocalAgentManager {
             ...(request.spawnReasoningEffort ? { spawnReasoningEffort: request.spawnReasoningEffort } : {}),
             ...(request.modelConfigSnapshot ? { modelConfigSnapshot: request.modelConfigSnapshot } : {}),
             ...(request.toolWorkspaceRoot ? { toolWorkspaceRoot: request.toolWorkspaceRoot } : {}),
+            ...(request.attachments?.length ? { attachments: request.attachments } : {}),
             agentDepth: Math.max(1, request.agentDepth ?? 1),
             maxAgentDepth:
                 typeof request.maxAgentDepth === "number" ? Math.max(1, Math.floor(request.maxAgentDepth)) : undefined,

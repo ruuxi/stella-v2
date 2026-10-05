@@ -66,6 +66,16 @@ export type DriveCalls = {
     args: { path: string };
     result: { deleted: boolean };
   };
+  /**
+   * One-shot form of the `drive.files` view, for a caller that wants an answer
+   * rather than a subscription. An agent tool is the case: it asks once, inside
+   * one tool call, and a device has no reason to hold a socket open for it.
+   * Same rows, same order.
+   */
+  "drive.list": {
+    args: { prefix?: string; limit?: number };
+    result: { files: DriveFile[] };
+  };
 };
 
 export type DriveViews = {

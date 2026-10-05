@@ -246,6 +246,7 @@ import {
 import { createCloudImageGenTool } from "./cloud-image-gen-tool.js";
 import { createCloudHtmlTool } from "./cloud-html-tool.js";
 import { unwrapRpc } from "./owner-store/errors.js";
+import { createCloudDriveTool } from "./cloud-drive-tool.js";
 import { createCloudReadTool } from "./cloud-read-tool.js";
 import { createCloudScheduleTools } from "./cloud-schedule-tools.js";
 import {
@@ -10707,6 +10708,17 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       ? {
           tool: async (call: { name: "Read"; arguments: Record<string, unknown> }) =>
             worldBinding.getByName(await worldName(turn.ownerId)).tool(call),
+          // Read's image branch: the world's own Read is line-oriented and
+          // refuses binaries, so pixels come from the store directly.
+          stat: async (path: string) =>
+            await worldBinding.getByName(await worldName(turn.ownerId)).stat(path),
+          readFile: async (
+            path: string,
+            options?: { offset?: number; length?: number },
+          ) =>
+            await worldBinding
+              .getByName(await worldName(turn.ownerId))
+              .readFile(path, options ?? {}),
         }
       : undefined;
     const declines = this.connectorDeclines();
@@ -10879,6 +10891,12 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
               description: args.description,
               prompt: args.prompt,
               ...(model && model !== "default" ? { model } : {}),
+              // Inherited from the turn, not asked of the model. Telling it to
+              // forward drive paths is what produced an agent hunting a local
+              // filesystem for `uploads/...`; the device resolves these itself.
+              ...(turn.attachments?.length
+                ? { attachments: turn.attachments }
+                : {}),
             });
             waitingForDevice = admitted.waitingForDevice === true;
             outcome = await this.commitCloudAgentToolOutcome(
@@ -11319,6 +11337,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           : {}),
         ...(world ? { world } : {}),
       }),
+      createCloudDriveTool({ ownerInternal: toolContext.ownerInternal }),
       ...createCloudScheduleTools(toolContext),
       createCloudConnectorStatusTool({
         directory: connectors,

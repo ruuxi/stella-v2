@@ -182,10 +182,20 @@ export const runsHandlers: WorkerRpcHandlers = {
       const runner = yield* fromPromise(() =>
         session.runner.ensureInitialized(),
       );
+      // Before the agent starts, so its brief can name real paths. A failed
+      // download fails the agent here rather than starting one that will
+      // report it cannot find the file the user attached.
+      const attachments = yield* fromPromise(() =>
+        session.agentRuns.materializeAgentAttachments({
+          conversationId: payload.conversationId,
+          ...(payload.attachments ? { attachments: payload.attachments } : {}),
+        }),
+      );
       return yield* fromPromise(() =>
         runner.runBlockingLocalAgent({
           ...payload,
           agentType: payload.agentType ?? "general",
+          ...(attachments.length > 0 ? { attachments } : {}),
         }),
       );
     }),

@@ -41,18 +41,41 @@ const toImageContent = (
   };
 };
 
-/** Keep tool paths in durable model context, separate from the visible user turn. */
+/**
+ * Keep tool paths in durable model context, separate from the visible user
+ * turn.
+ *
+ * Every attachment the worker put on disk is named here, images included. An
+ * image is already inlined as pixels, so this is not how the turn sees it —
+ * it is how the turn can *delegate* it: a subagent or a placed agent receives
+ * a prompt, never this turn's image blocks, so an absolute path is the only
+ * thing it can act on. Without it, "look at the screenshot I attached" worked
+ * for a document and silently lost an image.
+ *
+ * Keyed on an explicit `kind`, not on `sourcePath` alone: the ambient window
+ * screenshot is also persisted and also has a path, but the user never
+ * attached it and announcing it as an attachment would be a lie.
+ */
 export const createFileAttachmentPromptInput = (
   attachments?: RuntimeAttachmentRef[],
 ): RuntimePromptMessage | null => {
-  const files = (attachments ?? []).filter(
-    (attachment) => attachment.kind === "file" && attachment.sourcePath,
-  );
-  if (files.length === 0) return null;
+  const described = (attachments ?? []).flatMap((attachment) => {
+    if (!attachment.sourcePath) return [];
+    if (attachment.kind === "file") {
+      return [
+        `The user attached a file: ${JSON.stringify(attachment.name || "attachment")} (${attachment.mimeType || "application/octet-stream"}). The file is available locally at ${JSON.stringify(attachment.sourcePath)}. Use Read or delegate to an agent to inspect it. Pass this absolute path to any agent that needs its contents.`,
+      ];
+    }
+    if (attachment.kind === "image") {
+      return [
+        `The user attached an image: ${JSON.stringify(attachment.name || "image")} (${attachment.mimeType || "image/png"}). It is already attached to this message, and the same bytes are saved locally at ${JSON.stringify(attachment.sourcePath)}. Use Read with that path to look at it again, and pass this absolute path to any agent that needs to see it.`,
+      ];
+    }
+    return [];
+  });
+  if (described.length === 0) return null;
   return {
-    text: files.map((attachment) =>
-      `The user attached a file: ${JSON.stringify(attachment.name || "attachment")} (${attachment.mimeType || "application/octet-stream"}). The file is available locally at ${JSON.stringify(attachment.sourcePath)}. Use Read or delegate to an agent to inspect it. Pass this absolute path to any agent that needs its contents.`,
-    ).join("\n"),
+    text: described.join("\n"),
     messageType: "message",
     customType: "runtime.file_attachments",
     display: false,

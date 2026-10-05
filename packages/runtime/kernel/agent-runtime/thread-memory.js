@@ -8,6 +8,7 @@ import { now } from "./shared.js";
 import {
   BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE,
   LIFE_CORE_MEMORY_DISPLAY_PATH,
+  LIFE_MEMORY_INDEX_DISPLAY_PATH,
   LIFE_USER_PROFILE_DISPLAY_PATH,
   buildResidentContextMessages,
   customMessageContentText,
@@ -19,6 +20,7 @@ const logger = createRuntimeLogger("agent-runtime.thread-memory");
 const MEMORY_STARTUP_DOC_PATHS = [
   LIFE_CORE_MEMORY_DISPLAY_PATH,
   LIFE_USER_PROFILE_DISPLAY_PATH,
+  LIFE_MEMORY_INDEX_DISPLAY_PATH,
 ];
 /**
  * @param {{ conversationId: string, agentType: string, runId: string, threadId?: string }} args

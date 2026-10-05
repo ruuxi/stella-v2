@@ -10,6 +10,7 @@ export type ResidentContext = {
   personality?: string;
   coreMemory?: string;
   userProfile?: string;
+  memoryIndex?: string;
   skillsCatalog?: string;
   executionContext?: ExecutionContextSnapshot;
   threadHistory?: HistoryEntry[];
@@ -30,6 +31,7 @@ export const PINNED_INSTRUCTION_ENTRY_ID_MARKER: "::pinned-instruction";
 export const LIFE_PERSONALITY_DISPLAY_PATH: "~/.stella/PERSONALITY.md";
 export const LIFE_CORE_MEMORY_DISPLAY_PATH: "~/.stella/core-memory.md";
 export const LIFE_USER_PROFILE_DISPLAY_PATH: "~/.stella/memories/profile.md";
+export const LIFE_MEMORY_INDEX_DISPLAY_PATH: "~/.stella/memories/index.md";
 export const RETIRED_MEMORY_DISPLAY_PATHS: string[];
 export const RESIDENT_BLOCKS: ResidentBlock[];
 export function renderResidentBlockText(

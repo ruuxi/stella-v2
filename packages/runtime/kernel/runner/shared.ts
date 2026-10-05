@@ -31,7 +31,11 @@ export const defaultPromptForAgentType = (
 // Kept as runner/shared re-exports for existing context builders. The
 // dependency-light module is also used by thread-runtime at compaction
 // boundaries without creating a runner/session import cycle.
-export { readCoreMemory, readUserProfileDoc } from "../memory/resident-docs.js";
+export {
+  readCoreMemory,
+  readMemoryIndexDoc,
+  readUserProfileDoc,
+} from "../memory/resident-docs.js";
 
 const MAX_AGENT_EVENT_FIELD_CHARS = 30_000;
 

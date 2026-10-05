@@ -155,7 +155,6 @@ export interface BuildSessionInternals {
   resolveAgentTurnState(
     turn: TurnRequest,
     canonicalHistoryCursor: string,
-    options?: { allowMissingNative?: boolean },
   ): Promise<ResolvedTurnState>;
   publishAgentTurnWorkspace(
     turn: TurnRequest,

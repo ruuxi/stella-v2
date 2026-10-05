@@ -192,7 +192,6 @@ export const resolveAgentTurnState = async (
   host: TurnBrokerHost,
   turn: TurnRequest,
   canonicalHistoryCursor: string,
-  options: { allowMissingNative?: boolean } = {},
 ): Promise<ResolvedTurnState> => {
   const resolved = await host.callOwnerTurnState<ResolvedTurnState>(
     turn,
@@ -247,19 +246,13 @@ export const resolveAgentTurnState = async (
     ) {
       throw new Error("Canonical turn state candidate was invalid.");
     }
-    if (
-      turn.execution?.engine === "anthropic" &&
-      !(
-        options.allowMissingNative &&
-        !candidate.native &&
-        !candidate.nativeCheckpoint
-      )
-    ) {
-      if (!candidate.native || !candidate.nativeCheckpoint) {
+    if (turn.execution?.engine === "anthropic") {
+      if (Boolean(candidate.native) !== Boolean(candidate.nativeCheckpoint)) {
         throw new AgentTurnError(
-          "This agent's saved native session no longer matches its cloud conversation. Start a new agent thread to continue safely.",
+          "Stella couldn't validate this agent's saved native session. Try again.",
         );
       }
+      if (!candidate.nativeCheckpoint) return resolved;
       const integrityKey = await nativeStateIntegrityKeyFor(host.env, turn);
       if (
         candidate.nativeCheckpoint.cursor !== canonicalHistoryCursor ||

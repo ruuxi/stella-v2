@@ -189,6 +189,7 @@ export type AgentTurnInput = CloudCliTurnRoleInput & {
   workspaceRestored: boolean;
   /** Builder-derived HMAC key; consumed before any model/tool process exists. */
   nativeStateIntegrityKey: string;
+  rebuildNativeSession?: boolean;
   /** One-shot pointer to the Builder-owned, short-lived turn broker. */
   turnBroker: TurnBrokerInput;
   /** Short-lived capability for exporting and pushing this world's projection. */
@@ -912,6 +913,9 @@ export const runAgentTurn = (
                   input.history ?? [],
                 ),
                 stateIntegrityKey: input.nativeStateIntegrityKey,
+                ...(input.rebuildNativeSession === true
+                  ? { recoveryHistory: input.history ?? [] }
+                  : {}),
                 ...(claudeToolMcpHost
                   ? {
                       claudeMcpServerConfig: claudeToolMcpHost.mcpServerConfig,

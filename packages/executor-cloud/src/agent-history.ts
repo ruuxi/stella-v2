@@ -155,6 +155,23 @@ const isAgentMessage = (value: unknown): value is AgentMessage => {
 const parseAgentHistoryMessage = (value: string): AgentMessage | undefined => {
   try {
     const parsed: unknown = JSON.parse(value);
+    if (
+      isRecord(parsed) &&
+      parsed.role === "assistant" &&
+      parsed.api === "stella-cloud" &&
+      parsed.stopReason === "error" &&
+      typeof parsed.errorMessage === "string" &&
+      parsed.usage === undefined
+    ) {
+      parsed.usage = {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      };
+    }
     return isAgentMessage(parsed) ? parsed : undefined;
   } catch {
     return undefined;

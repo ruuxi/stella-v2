@@ -32,6 +32,7 @@ const { purgeNativeStateForWorkspace } =
   await import("../src/build-session/owner-purge-transfer.js");
 const { BuildSessionObject: BuildSession } =
   await import("../src/build-session/object.js");
+const { resolveAgentTurnState } = await import("../src/build-session/turn-broker.js");
 mock.restore();
 
 const ownerId = "owner-1";
@@ -311,6 +312,31 @@ const gatewaySuspensionResponse = (
 });
 
 describe("native state Builder integration", () => {
+  test("allows a recovered workspace-only checkpoint but rejects partial or corrupt Claude state", async () => {
+    const checkpoint = await checkpointFor();
+    const candidate = {
+      schemaVersion: 1 as const,
+      operationId: "1".repeat(64),
+      requestFingerprint: "2".repeat(64),
+      receipt: "3".repeat(64),
+      historyCursor: checkpoint.cursor,
+      createdAt: 1,
+      workspace: { manifestId: "4".repeat(64), historyCursor: checkpoint.cursor },
+    };
+    let restored: Record<string, unknown> = candidate;
+    const host = {
+      env: { BUILDER_SERVICE_SECRET: builderSecret },
+      callOwnerTurnState: async () => ({ registryPresent: true, threadRegistryPresent: true, confirmationRequired: false, workspace: candidate.workspace, restore: restored }),
+    } as unknown as Parameters<typeof resolveAgentTurnState>[0];
+    const turn = { ownerId, ownerGeneration, threadId, execution: { engine: "anthropic" } } as Parameters<typeof resolveAgentTurnState>[1];
+    expect((await resolveAgentTurnState(host, turn, checkpoint.cursor)).restore).toEqual(candidate);
+    restored = { ...candidate, nativeCheckpoint: checkpoint };
+    await expect(resolveAgentTurnState(host, turn, checkpoint.cursor)).rejects.toThrow("couldn't validate");
+    restored = { ...candidate, native: { objectKey: "native" }, nativeCheckpoint: { ...checkpoint, mac: "0".repeat(64) } };
+    await expect(resolveAgentTurnState(host, turn, checkpoint.cursor)).rejects.toThrow("couldn't validate");
+    restored = { ...restored, nativeCheckpoint: checkpoint };
+    expect((await resolveAgentTurnState(host, turn, checkpoint.cursor)).restore?.nativeCheckpoint).toEqual(checkpoint);
+  });
   test("retired preview routes cannot resolve a named DO and redact old capabilities", async () => {
     const fabricated = `pv1.AA.${"A".repeat(43)}`;
     let resolutions = 0;

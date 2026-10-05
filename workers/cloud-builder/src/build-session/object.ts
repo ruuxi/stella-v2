@@ -362,13 +362,11 @@ export class BuildSessionObject extends DurableObject<Env> {
   private resolveAgentTurnState(
     turn: TurnRequest,
     canonicalHistoryCursor: string,
-    options: { allowMissingNative?: boolean } = {},
   ): Promise<ResolvedTurnState> {
     return resolveAgentTurnState(
       this.self,
       turn,
       canonicalHistoryCursor,
-      options,
     );
   }
 

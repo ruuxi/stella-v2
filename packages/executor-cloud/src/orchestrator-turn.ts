@@ -724,6 +724,9 @@ export const runOrchestratorTurn = async (args: {
           input.history ?? [],
         ),
         stateIntegrityKey: input.nativeStateIntegrityKey,
+        ...(input.rebuildNativeSession === true
+          ? { recoveryHistory: input.history ?? [] }
+          : {}),
         claudeMcpServerConfig: mcpHost.mcpServerConfig,
         signal: turnAbort.signal,
         onStreamEvent: (event) => {

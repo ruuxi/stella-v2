@@ -107,9 +107,9 @@ const bricked = (
   requiresExactThreadCandidate(selection);
 
 describe("thread candidate requirement", () => {
-  test("only Claude restores from its thread candidate", () => {
+  test("explicit engines can rebuild context when their checkpoint is missing", () => {
     expect(requiresExactThreadCandidate(execution("stella"))).toBe(false);
-    expect(requiresExactThreadCandidate(execution("anthropic"))).toBe(true);
+    expect(requiresExactThreadCandidate(execution("anthropic"))).toBe(false);
     expect(requiresExactThreadCandidate(execution("chatgpt"))).toBe(false);
     expect(requiresExactThreadCandidate(undefined)).toBe(true);
   });
@@ -129,7 +129,7 @@ describe("thread candidate requirement", () => {
     expect(bricked(resolved, execution("stella"))).toBe(false);
   });
 
-  test("an anthropic turn still refuses a registry with no matching candidate", async () => {
+  test("an anthropic turn rebuilds from history when no candidate matches", async () => {
     const storage = new MemoryStorage();
     await seedCheckpointedTurn(storage, "v1:history:0");
 
@@ -139,7 +139,7 @@ describe("thread candidate requirement", () => {
       requireNative: false,
     });
 
-    expect(bricked(resolved, execution("anthropic"))).toBe(true);
+    expect(bricked(resolved, execution("anthropic"))).toBe(false);
   });
 
   test("both engines still restore from the candidate that does match", async () => {
@@ -174,7 +174,7 @@ describe("thread candidate requirement", () => {
       expect(resolved.threadRegistryPresent).toBe(true);
       expect(resolved.restore).toBeUndefined();
       expect(bricked(resolved, execution("stella"))).toBe(false);
-      expect(bricked(resolved, execution("anthropic"))).toBe(true);
+      expect(bricked(resolved, execution("anthropic"))).toBe(false);
     }
 
     expect(storage.size()).toBe(afterSeed);

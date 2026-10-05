@@ -14,6 +14,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { createClaudeCodeToolMcpHost } from "@stella/runtime/kernel/integrations/claude-code-tool-mcp-host.js";
 import {
   buildCloudClaudeTakeoverArgs,
+  buildNativeSessionRecoveryPrompt,
   buildClaudeChildEnv,
   cloudClaudeRoleProfile,
   assertNativeHistoryParity,
@@ -26,6 +27,20 @@ import {
 import { sealNativeState } from "./native-state-integrity.js";
 
 describe("native engine reasoning selection", () => {
+  it("recovers prior context and builder loss notices without repeating the request", () => {
+    const history = [
+      { seq: 1, turnId: "prior", role: "user" as const, payloadJson: JSON.stringify({ role: "user", content: "Remember recovery-739 and edit the existing project.", timestamp: 1 }) },
+      { seq: 2, turnId: "prior", role: "assistant" as const, payloadJson: JSON.stringify({ role: "assistant", content: [{ type: "text", text: "The agent stopped unexpectedly. Its workspace changes were saved, but its report could not be recovered." }], timestamp: 2, api: "stella-cloud", provider: "anthropic", model: "default", stopReason: "error", errorMessage: "executor lost" }) },
+    ];
+    const args = { history, expectedCursor: nativeHistoryCursorFromRows(history), prompt: "Hi" };
+    const prompt = buildNativeSessionRecoveryPrompt(args);
+    expect(prompt).toContain("recovery-739");
+    expect(prompt).toContain("workspace changes were saved");
+    expect(prompt).toEndWith("Current message:\n\nHi");
+    expect(() => buildNativeSessionRecoveryPrompt({ ...args, expectedCursor: "v1:empty" })).toThrow("canonical cursor");
+    expect(() => buildNativeSessionRecoveryPrompt({ ...args, history: [{ ...history[0]!, payloadJson: "{}" }] })).toThrow("invalid");
+    expect(buildNativeSessionRecoveryPrompt({ history: [], expectedCursor: "v1:empty", prompt: "Hi" })).toBe("Hi");
+  });
   it("fails closed when a restored native session is absent or behind canonical history", async () => {
     const testRoot = await mkdtemp(
       path.join(tmpdir(), "stella-native-parity-"),

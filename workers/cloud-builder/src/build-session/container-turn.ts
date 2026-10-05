@@ -16,6 +16,7 @@ import { materializeCloudSkillSnapshot } from "../cloud-skill-materializer.js";
 import { devAcceptanceProbesEnabled } from "../dev-acceptance-probes.js";
 import { executorSessionEnvironment } from "../executor-session-env.js";
 import { requiresExactThreadCandidate } from "../general-agent-turn.js";
+import { cloudNativeStateRoot } from "@stella/contracts/cloud-native-state";
 import {
   initialInstanceSize,
   INSTANCE_TIERS,
@@ -563,7 +564,6 @@ export const runContainerAgentTurn = async (
     }
     const { coldContainerStartMs, restoreMs } = attempt;
     let result = attempt.result;
-    let builderFallbackUsed = false;
     // A stale turn (alarm fired, or a successor continuation took over
     // this thread's DO) must not checkpoint over the successor's restore
     // or report on the shared thread.
@@ -621,9 +621,7 @@ export const runContainerAgentTurn = async (
             turnStateCheckpoint: fallbackReceipt,
             suspension: recoveredSuspension,
           };
-          builderFallbackUsed = false;
         } else {
-          builderFallbackUsed = true;
           result = {
             ...result,
             checkpointPolicy: undefined,
@@ -718,7 +716,6 @@ export const runContainerAgentTurn = async (
           const published = await host.resolveAgentTurnState(
             turn,
             checkpoint.historyCursor,
-            { allowMissingNative: builderFallbackUsed },
           );
           if (
             published.workspacePublication ||
@@ -1264,6 +1261,21 @@ export const attachAgentWorld = async (
   restoreMs = phaseMs(restoreStarted);
 
   let nativeRestoreMs = 0;
+  if (
+    turn.execution?.engine === "anthropic" &&
+    !args.turnStateThreadRestore?.native
+  ) {
+    const cleared = await session.exec(
+      `rm -rf -- ${cloudNativeStateRoot(await nativeStateThreadHash(turn))}`,
+      { origin: "internal", timeout: args.commandTimeoutMs },
+    );
+    if (!cleared.success) {
+      throw new AgentTurnError(
+        "Stella could not rebuild this thread's Claude session.",
+      );
+    }
+    turnExecution.assertActive();
+  }
   if (args.turnStateThreadRestore?.native) {
     const nativeRestoreStarted = performance.now();
     turnExecution.assertActive();
@@ -1482,6 +1494,9 @@ export const runAgentAttempt = async (
         prompt: turn.prompt,
         workspaceRestored: Boolean(args.turnStateWorkspaceRestore),
         nativeStateIntegrityKey,
+        rebuildNativeSession:
+          turn.execution?.engine === "anthropic" &&
+          !args.turnStateThreadRestore?.native,
         turnBroker: { credentialsPath: brokerCredentialsPath },
         world: {
           origin: host.env.CLOUD_BUILDER_PUBLIC_URL.replace(/\/+$/u, ""),

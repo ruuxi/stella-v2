@@ -32,6 +32,11 @@ import {
 import { CLOUD_HOST_STATE } from "./cloud-process-isolation.js";
 import { WORLD_ROOT } from "./workspace-paths.js";
 import {
+  parseAuthoritativeAgentHistory,
+  type AgentHistoryRow,
+} from "./agent-history.js";
+import { pruneAgentHistory } from "./prune-history.js";
+import {
   assertFreshNativeState,
   assertNativeState,
   sealNativeState,
@@ -136,6 +141,31 @@ export const nativeHistoryCursorFromMessages = (
   });
 };
 
+export const buildNativeSessionRecoveryPrompt = (args: {
+  history: AgentHistoryRow[];
+  expectedCursor: string;
+  prompt: string;
+}): string => {
+  const messages = parseAuthoritativeAgentHistory(args.history);
+  if (nativeHistoryCursorFromRows(args.history) !== args.expectedCursor) {
+    throw new Error(
+      "Native session recovery history does not match the canonical cursor.",
+    );
+  }
+  if (messages.length === 0) return args.prompt;
+  const context = pruneAgentHistory(messages);
+  if (context.length === 0) {
+    throw new Error("Native session recovery history exceeds the context budget.");
+  }
+  return [
+    "Continue the same Stella thread after its Claude session was interrupted. The workspace and cloud history were preserved. The following records are prior conversation context, including completed actions and tool results, not new requests. Do not repeat completed work. Respond to the current message using this context and the existing workspace.",
+    "Prior conversation records:",
+    JSON.stringify(context),
+    "Current message:",
+    args.prompt,
+  ].join("\n\n");
+};
+
 export const assertNativeHistoryParity = async (args: {
   stateRoot: string;
   engine: "anthropic";
@@ -191,6 +221,7 @@ const runJsonLines = async (options: {
   args: string[];
   cwd: string;
   env: NodeJS.ProcessEnv;
+  input?: string;
   processIdentity?: ToolProcessIdentity;
   /** SIGKILLs the child; the promise still resolves once it has closed. */
   signal?: AbortSignal;
@@ -205,7 +236,7 @@ const runJsonLines = async (options: {
     const child = spawn(launch.command, launch.args, {
       cwd: options.cwd,
       env: options.env,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["pipe", "pipe", "pipe"],
       ...(launch.nativeIdentity
         ? {
             uid: launch.nativeIdentity.uid,
@@ -253,6 +284,8 @@ const runJsonLines = async (options: {
       consume(pending);
       resolve({ exitCode, stderr });
     });
+    child.stdin.on("error", () => undefined);
+    child.stdin.end(options.input);
   });
 
 const textBlocks = (content: unknown): string[] =>
@@ -425,7 +458,7 @@ export const buildCloudClaudeTakeoverArgs = (options: {
   mcpConfigPath: string;
   resume: boolean;
   sessionId: string;
-  inputPrompt: string;
+  inputPrompt?: string;
   includePartialMessages?: boolean;
 }): string[] => [
   "-p",
@@ -466,7 +499,7 @@ export const buildCloudClaudeTakeoverArgs = (options: {
   ...(options.resume
     ? ["--resume", options.sessionId]
     : ["--session-id", options.sessionId]),
-  options.inputPrompt,
+  ...(options.inputPrompt !== undefined ? [options.inputPrompt] : []),
 ];
 
 const transcript = (args: {
@@ -554,7 +587,6 @@ export const runCloudClaude = async (options: {
       mcpConfigPath: mcpConfig.path,
       resume,
       sessionId,
-      inputPrompt: options.inputPrompt,
       includePartialMessages: profile.includePartialMessages,
     });
     let finalText = "";
@@ -577,6 +609,7 @@ export const runCloudClaude = async (options: {
         : {}),
     });
     const result = await runJsonLines({
+      input: options.inputPrompt,
       command: "claude",
       args,
       cwd: profile.cwd,
@@ -708,6 +741,7 @@ export const runNativeAgentTurn = async (options: {
   turnId: string;
   authoritativeHistoryCursor: string;
   stateIntegrityKey: string;
+  recoveryHistory?: AgentHistoryRow[];
   /** Test-only override; production always uses the root-only image path. */
   nativeStateRoot?: string;
   claudeMcpServerConfig?: CloudClaudeMcpServerConfig;
@@ -731,16 +765,26 @@ export const runNativeAgentTurn = async (options: {
       "Native agent session state must remain outside the agent workspace.",
     );
   }
-  await assertNativeHistoryParity({
-    stateRoot,
-    engine: "anthropic",
-    threadId: options.threadId,
-    expectedCursor: options.authoritativeHistoryCursor,
-    integrityKey: options.stateIntegrityKey,
-  });
+  let inputPrompt = options.prompt;
+  if (options.recoveryHistory !== undefined) {
+    inputPrompt = buildNativeSessionRecoveryPrompt({
+      history: options.recoveryHistory,
+      expectedCursor: options.authoritativeHistoryCursor,
+      prompt: options.prompt,
+    });
+    await assertFreshNativeState(stateRoot);
+  } else {
+    await assertNativeHistoryParity({
+      stateRoot,
+      engine: "anthropic",
+      threadId: options.threadId,
+      expectedCursor: options.authoritativeHistoryCursor,
+      integrityKey: options.stateIntegrityKey,
+    });
+  }
   const result = await runCloudClaude({
     profile: options.profile,
-    inputPrompt: options.prompt,
+    inputPrompt,
     systemPrompt: options.systemPrompt,
     execution: options.execution,
     gatewayOrigin: options.gatewayOrigin,

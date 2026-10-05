@@ -10707,6 +10707,17 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       ? {
           tool: async (call: { name: "Read"; arguments: Record<string, unknown> }) =>
             worldBinding.getByName(await worldName(turn.ownerId)).tool(call),
+          // Read's image branch: the world's own Read is line-oriented and
+          // refuses binaries, so pixels come from the store directly.
+          stat: async (path: string) =>
+            await worldBinding.getByName(await worldName(turn.ownerId)).stat(path),
+          readFile: async (
+            path: string,
+            options?: { offset?: number; length?: number },
+          ) =>
+            await worldBinding
+              .getByName(await worldName(turn.ownerId))
+              .readFile(path, options ?? {}),
         }
       : undefined;
     const declines = this.connectorDeclines();

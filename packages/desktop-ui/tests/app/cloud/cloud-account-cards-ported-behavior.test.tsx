@@ -167,10 +167,10 @@ describe("ported cloud account cards", () => {
   it("keeps loading surfaces and disables provider connects", async () => {
     await render();
 
-    expect(card("Cloud engines")).toBeTruthy();
+    expect(card("Claude & ChatGPT accounts")).toBeTruthy();
     expect(card("Cloud projects")).toBeTruthy();
     const engineConnects = Array.from(
-      card("Cloud engines").querySelectorAll<HTMLButtonElement>("button"),
+      card("Claude & ChatGPT accounts").querySelectorAll<HTMLButtonElement>("button"),
     ).filter((button) => button.textContent?.trim() === "Connect");
     expect(engineConnects).toHaveLength(2);
     expect(engineConnects.every((button) => button.disabled)).toBe(true);
@@ -181,7 +181,7 @@ describe("ported cloud account cards", () => {
     await render();
 
     await act(async () => {
-      findButton("ChatGPT", card("Cloud engines"))?.click();
+      findButton("ChatGPT", card("Claude & ChatGPT accounts"))?.click();
       await Promise.resolve();
     });
 

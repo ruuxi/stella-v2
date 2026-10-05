@@ -62,19 +62,18 @@ afterEach(async () => {
   );
 });
 
-const seedCodexCredential = async (expires: number) => {
+const seedStoredCredential = async (expires: number) => {
   const stellaDataDir = await mkdtemp(
-    path.join(os.tmpdir(), "stella-codex-oauth-"),
+    path.join(os.tmpdir(), "stella-oauth-refresh-"),
   );
   tempDirs.push(stellaDataDir);
   saveLocalLlmOAuthCredential(stellaDataDir, {
-    provider: "openai-codex",
-    label: "ChatGPT",
+    provider: "xai",
+    label: "xAI",
     credentials: {
       access: accessTokenFor("account-stored"),
       refresh: "refresh-stored",
       expires,
-      accountId: "account-stored",
     },
   });
   return stellaDataDir;
@@ -82,12 +81,12 @@ const seedCodexCredential = async (expires: number) => {
 
 describe("OAuth forced refresh", () => {
   it("returns the stored token untouched while it is comfortably fresh", async () => {
-    const stellaDataDir = await seedCodexCredential(Date.now() + 60 * 60_000);
+    const stellaDataDir = await seedStoredCredential(Date.now() + 60 * 60_000);
     const fetchSpy = vi.fn(async () => tokenResponse("account-rotated"));
     globalThis.fetch = fetchSpy as typeof fetch;
 
     await expect(
-      getLocalLlmOAuthApiKey(stellaDataDir, "openai-codex"),
+      getLocalLlmOAuthApiKey(stellaDataDir, "xai"),
     ).resolves.toBe(accessTokenFor("account-stored"));
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -110,12 +109,12 @@ describe("OAuth forced refresh", () => {
   });
 
   it("mints a new token on forceRefresh even when the stored one has not expired", async () => {
-    const stellaDataDir = await seedCodexCredential(Date.now() + 60 * 60_000);
+    const stellaDataDir = await seedStoredCredential(Date.now() + 60 * 60_000);
     const fetchSpy = vi.fn(async () => tokenResponse("account-rotated"));
     globalThis.fetch = fetchSpy as typeof fetch;
 
     await expect(
-      getLocalLlmOAuthApiKey(stellaDataDir, "openai-codex", {
+      getLocalLlmOAuthApiKey(stellaDataDir, "xai", {
         forceRefresh: true,
       }),
     ).resolves.toBe(accessTokenFor("account-rotated"));
@@ -123,18 +122,18 @@ describe("OAuth forced refresh", () => {
 
     // The rotation is persisted: a plain read now serves the new token.
     await expect(
-      getLocalLlmOAuthApiKey(stellaDataDir, "openai-codex"),
+      getLocalLlmOAuthApiKey(stellaDataDir, "xai"),
     ).resolves.toBe(accessTokenFor("account-rotated"));
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
   it("clears the stored expiry when a forced refresh is rejected, so validation reports reauth", async () => {
-    const stellaDataDir = await seedCodexCredential(Date.now() + 60 * 60_000);
+    const stellaDataDir = await seedStoredCredential(Date.now() + 60 * 60_000);
     const fetchSpy = vi.fn(async () => revokedResponse());
     globalThis.fetch = fetchSpy as typeof fetch;
 
     await expect(
-      getLocalLlmOAuthApiKey(stellaDataDir, "openai-codex", {
+      getLocalLlmOAuthApiKey(stellaDataDir, "xai", {
         forceRefresh: true,
       }),
     ).rejects.toThrow(/Failed to refresh OAuth token/);
@@ -143,7 +142,7 @@ describe("OAuth forced refresh", () => {
     // refresh and fails again, which is what the settings validator turns
     // into "needs reauth".
     await expect(
-      getLocalLlmOAuthApiKey(stellaDataDir, "openai-codex"),
+      getLocalLlmOAuthApiKey(stellaDataDir, "xai"),
     ).rejects.toThrow(/Failed to refresh OAuth token/);
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });

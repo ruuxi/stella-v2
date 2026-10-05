@@ -6,6 +6,7 @@ import { CredentialService } from "../services/credential-service.js";
 import { ConnectorCredentialService } from "../services/connector-credential-service.js";
 import { ConnectorOAuthService } from "../services/connector-oauth-service.js";
 import { ConnectorConnectService } from "../services/connector-connect-service.js";
+import { EngineAccountAccess } from "../services/engine-account-access.js";
 import { ExternalLinkService } from "../services/external-link-service.js";
 import { readConfiguredCanvasShareBaseUrl, resolveSharedCanvasPayload, } from "../services/canvas-share-service.js";
 import { isCanvasShareUrl } from "@stella/contracts/canvas-share";
@@ -106,6 +107,11 @@ export const createBootstrapServices = (options) => {
         getStellaAppDir: () => lifecycle.getStellaDataDir(),
         getBroadcastToMobile: () => options.getMobileBroadcast(),
     });
+    const engineAccountAccess = new EngineAccountAccess({
+        getBackendUrl: () => authService.getBackendUrl(),
+        getAuthToken: () => authService.getAuthToken(),
+        onProvidersChanged: () => lifecycle.getRunner()?.refreshLocalLlmCredentials?.(),
+    });
     const connectorOAuthService = new ConnectorOAuthService();
     connectorCredentialService = new ConnectorCredentialService({
         windowManagerTarget: lifecycle,
@@ -142,6 +148,7 @@ export const createBootstrapServices = (options) => {
         connectorCredentialService,
         connectorOAuthService,
         connectorConnectService,
+        engineAccountAccess,
         externalLinkService,
         localChatHistoryService,
         securityPolicyService,

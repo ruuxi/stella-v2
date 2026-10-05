@@ -2151,7 +2151,7 @@
         "signInBody": "Konuşmanızı, ayarlarınızı ve bağlı bilgisayarınızı her cihazda yanınızda tutun.",
         "signIn": "Giriş yap",
         "subscriptionsLabel": "İsteğe bağlı",
-        "subscriptionsBody": "Claude ya da ChatGPT için zaten ödeme yapıyor musunuz? Bağlayın, bulutta işler için onu kullanayım.",
+        "subscriptionsBody": "Claude ya da ChatGPT için zaten ödeme yapıyor musunuz? Bağlayın, bilgisayarlarınızda ve bulutta onu kullanayım.",
         "claudeDesc": "Claude Code üzerinden Pro veya Max",
         "chatgptDesc": "Codex üzerinden Plus veya Pro",
         "connect": "Bağla",
@@ -2478,10 +2478,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude ve ChatGPT",
-      "settingsRowBody": "Bulut sohbeti ve aracılar için hesaplar",
+      "settingsRowBody": "Bilgisayarlarında ve bulutta kullanılan hesaplar",
       "openSettingsLabel": "Claude ve ChatGPT hesaplarını aç",
       "title": "Claude ve ChatGPT",
-      "subtitle": "Bulut sohbeti ve aracılar için hesaplar",
+      "subtitle": "Bilgisayarlarında ve bulutta kullanılan hesaplar",
       "backLabel": "Ayarlar'a dön",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2504,7 +2504,7 @@
       "connecting": "Bağlanıyor…",
       "errorTitle": "Hesaplar güncellenemedi",
       "errorBody": "Bir sorun oluştu. Tekrar dene.",
-      "localNote": "Bu hesaplar bulutta kullanılır. Bilgisayarında Stella, masaüstü uygulamasında ayarlanan hesapları kullanır."
+      "localNote": "Bu hesaplar tüm bilgisayarlarında ve bulutta Claude Code ile Codex'i çalıştırır. Stella şifreli bir belirteç saklar; oturum açma Claude veya ChatGPT'de kalır."
     }
   },
   "companion": {

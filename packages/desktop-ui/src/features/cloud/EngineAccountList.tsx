@@ -12,9 +12,8 @@ import { Check, MoreHorizontal } from "@/ui/icons";
 import { Switch } from "@/ui/switch";
 
 /**
- * One provider's connected accounts, shared by the cloud engines card and the
- * local subscription logins: who each account is, which one serves turns, and
- * whether a limited account hands over to the next automatically.
+ * One provider's connected accounts: who each account is, which one is in
+ * use, and whether a limited account hands over to the next automatically.
  */
 export type EngineAccountRow = {
   id: string;

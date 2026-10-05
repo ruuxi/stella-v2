@@ -14,7 +14,8 @@ import { showStellaNotification } from "../services/notification-service.js";
 import { requestMacPermission } from "../utils/macos-permissions.js";
 import { getMainLogger } from "../observability/main-logger.js";
 import { getLocalLlmCredential, listLocalLlmCredentials, } from "@stella/runtime/kernel/storage/llm-credentials";
-import { getLocalLlmOAuthApiKey, listLocalLlmOAuthCredentials, markLocalLlmOAuthAccountLimited, } from "@stella/runtime/kernel/storage/llm-oauth-credentials";
+import { getLocalLlmOAuthApiKey, listLocalLlmOAuthCredentials, } from "@stella/runtime/kernel/storage/llm-oauth-credentials";
+import { EngineAccountAccess } from "../services/engine-account-access.js";
 import { retireRuntimeRoot } from "@stella/runtime/host/remote";
 // Module-level one-shot cache for the skills home reconciliation. This
 // seeding used to run on the pre-window path inside `resolveStellaDataDir`, where
@@ -200,11 +201,18 @@ export const createHostRunnerHandlers = (context, options) => ({
         if (!stellaDataDir) {
             return { ok: false, reason: "stella_data_dir_unavailable" };
         }
+        // Claude and ChatGPT subscriptions come from the owner's Stella
+        // account (short-lived access tokens only); every other OAuth login
+        // and every API key stays in this computer's store.
+        const engineAccounts = context.services.engineAccountAccess;
         if (request.operation === "list") {
             return {
                 ok: true,
                 apiKeyProviders: listLocalLlmCredentials(stellaDataDir).map(({ provider }) => provider),
-                oauthProviders: listLocalLlmOAuthCredentials(stellaDataDir).map(({ provider }) => provider),
+                oauthProviders: [
+                    ...listLocalLlmOAuthCredentials(stellaDataDir).map(({ provider }) => provider),
+                    ...engineAccounts.providers(),
+                ],
             };
         }
         if (request.operation === "report-limit") {
@@ -213,14 +221,17 @@ export const createHostRunnerHandlers = (context, options) => ({
                 : undefined;
             return {
                 ok: true,
-                ...markLocalLlmOAuthAccountLimited(stellaDataDir, request.provider, resetsAt),
+                ...(EngineAccountAccess.serves(request.provider)
+                    ? await engineAccounts.reportLimit(request.provider, resetsAt)
+                    : { switched: false }),
             };
         }
+        const forceRefresh = request.forceRefresh === true;
         const value = request.kind === "api-key"
             ? getLocalLlmCredential(stellaDataDir, request.provider)
-            : await getLocalLlmOAuthApiKey(stellaDataDir, request.provider, {
-                forceRefresh: request.forceRefresh === true,
-            });
+            : EngineAccountAccess.serves(request.provider)
+                ? await engineAccounts.getAccessToken(request.provider, { forceRefresh })
+                : await getLocalLlmOAuthApiKey(stellaDataDir, request.provider, { forceRefresh });
         return { ok: true, value };
     },
     requestConnectorTokenStore: async (request) => {
@@ -389,6 +400,7 @@ export const initializeStellaHostRunner = async (context) => {
             loadDeviceSigner,
             clearSupersededDeviceId,
         }),
+        onAuthTokenChanged: (token) => services.engineAccountAccess.noteAuthToken(token),
     }));
     await connectHostRunner(context);
     if (state.appReady && !state.officePreviewBridgeStop) {

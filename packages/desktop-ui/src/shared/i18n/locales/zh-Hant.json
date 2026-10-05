@@ -2129,7 +2129,7 @@
         "signInBody": "讓您的對話、設定和已連線的電腦出現在每台裝置上。",
         "signIn": "登入",
         "subscriptionsLabel": "選用",
-        "subscriptionsBody": "已經在為 Claude 或 ChatGPT 付費？連結它，我就用它來完成雲端工作。",
+        "subscriptionsBody": "已經在為 Claude 或 ChatGPT 付費？連結它，我就在你的電腦和雲端使用它。",
         "claudeDesc": "Pro 或 Max，透過 Claude Code",
         "chatgptDesc": "Plus 或 Pro，透過 Codex",
         "connect": "連結",
@@ -2453,10 +2453,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude 和 ChatGPT",
-      "settingsRowBody": "用於雲端聊天和代理的帳號",
+      "settingsRowBody": "在你的電腦和雲端使用的帳號",
       "openSettingsLabel": "開啟 Claude 和 ChatGPT 帳號",
       "title": "Claude 和 ChatGPT",
-      "subtitle": "用於雲端聊天和代理的帳號",
+      "subtitle": "在你的電腦和雲端使用的帳號",
       "backLabel": "返回設定",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2479,7 +2479,7 @@
       "connecting": "正在連線…",
       "errorTitle": "無法更新帳號",
       "errorBody": "發生錯誤,請再試一次。",
-      "localNote": "這些帳號用於雲端。在你的電腦上,Stella 會使用在桌面 App 中設定的帳號。"
+      "localNote": "這些帳號為你所有電腦和雲端的 Claude Code 與 Codex 提供支援。Stella 會保存一個加密權杖；登入仍由 Claude 或 ChatGPT 管理。"
     }
   },
   "companion": {

@@ -2227,7 +2227,7 @@
         "signInBody": "احتفظ بمحادثتك وإعداداتك وكمبيوترك المتصل على كل جهاز.",
         "signIn": "تسجيل الدخول",
         "subscriptionsLabel": "اختياري",
-        "subscriptionsBody": "هل تدفع بالفعل مقابل Claude أو ChatGPT؟ اربطه وسأستخدمه في العمل السحابي.",
+        "subscriptionsBody": "هل تدفع بالفعل مقابل Claude أو ChatGPT؟ اربطه وسأستخدمه على حواسيبك وفي السحابة.",
         "claudeDesc": "Pro أو Max، عبر Claude Code",
         "chatgptDesc": "Plus أو Pro، عبر Codex",
         "connect": "ربط",
@@ -2565,10 +2565,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude وChatGPT",
-      "settingsRowBody": "حسابات للدردشة والوكلاء في السحابة",
+      "settingsRowBody": "حسابات تُستخدم على حواسيبك وفي السحابة",
       "openSettingsLabel": "فتح حسابات Claude وChatGPT",
       "title": "Claude وChatGPT",
-      "subtitle": "حسابات للدردشة والوكلاء في السحابة",
+      "subtitle": "حسابات تُستخدم على حواسيبك وفي السحابة",
       "backLabel": "العودة إلى الإعدادات",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2591,7 +2591,7 @@
       "connecting": "جارٍ الاتصال…",
       "errorTitle": "تعذّر تحديث الحسابات",
       "errorBody": "حدث خطأ ما. حاول مرة أخرى.",
-      "localNote": "تُستخدم هذه الحسابات في السحابة. على حاسوبك، تستخدم Stella الحسابات المُعدّة في تطبيق سطح المكتب."
+      "localNote": "تشغّل هذه الحسابات Claude Code وCodex على جميع حواسيبك وفي السحابة. تحتفظ Stella برمز مشفّر، ويبقى تسجيل الدخول لدى Claude أو ChatGPT."
     }
   },
   "companion": {

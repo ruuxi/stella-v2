@@ -2170,7 +2170,7 @@
         "signInBody": "Păstrează-ți conversația, setările și computerul conectat pe toate dispozitivele.",
         "signIn": "Conectează-te",
         "subscriptionsLabel": "Opțional",
-        "subscriptionsBody": "Plătești deja pentru Claude sau ChatGPT? Conectează-l și îl folosesc pentru munca din cloud.",
+        "subscriptionsBody": "Plătești deja pentru Claude sau ChatGPT? Conectează-l și îl folosesc pe computerele tale și în cloud.",
         "claudeDesc": "Pro sau Max, prin Claude Code",
         "chatgptDesc": "Plus sau Pro, prin Codex",
         "connect": "Conectează",
@@ -2500,10 +2500,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude și ChatGPT",
-      "settingsRowBody": "Conturi pentru chatul și agenții din cloud",
+      "settingsRowBody": "Conturi folosite pe computerele tale și în cloud",
       "openSettingsLabel": "Deschide conturile Claude și ChatGPT",
       "title": "Claude și ChatGPT",
-      "subtitle": "Conturi pentru chatul și agenții din cloud",
+      "subtitle": "Conturi folosite pe computerele tale și în cloud",
       "backLabel": "Înapoi la Setări",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2526,7 +2526,7 @@
       "connecting": "Se conectează…",
       "errorTitle": "Conturile nu au putut fi actualizate",
       "errorBody": "Ceva nu a mers bine. Încearcă din nou.",
-      "localNote": "Aceste conturi sunt folosite în cloud. Pe computerul tău, Stella folosește conturile configurate în aplicația desktop."
+      "localNote": "Aceste conturi pun în funcțiune Claude Code și Codex pe toate computerele tale și în cloud. Stella păstrează un token criptat; autentificarea rămâne la Claude sau ChatGPT."
     }
   },
   "companion": {

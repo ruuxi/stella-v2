@@ -13,7 +13,10 @@ import { buildModelDefaultsMap, buildResolvedModelDefaultsMap, getConfigurableAg
 import { listReasoningEffortOptions, supportsReasoningEffortSelection, type ReasoningEffortOptionId, } from "@/global/settings/lib/reasoning-effort-options";
 import { recordRecentModel } from "@/global/settings/lib/recent-models";
 import { getPlanLabel, isRestrictedModelOverrideAudience, } from "@/global/billing/audience";
-import { useLlmCredentials } from "@/global/settings/hooks/use-llm-credentials";
+import { useAuthState } from "@/global/auth/BackendAuthProvider";
+import { useCloudEngines } from "@/features/cloud/cloud-engines-api";
+import { EngineConnectPrompt } from "@/features/cloud/EngineConnectPrompt";
+import { useEngineConnect } from "@/features/cloud/use-engine-connect";
 import { showToast } from "@/ui/toast";
 import { useT } from "@/shared/i18n";
 import { buildEngineReasoningPatch, buildEngineRoutingPatch, buildEngineTransitionReasoningPatch, buildModelSelectionPatch, DEFAULT_CHATGPT_MODEL, DEFAULT_CLAUDE_CODE_MODEL, formatRecentEngineModelId, fromOpenAiCodexModelId, listChatGptCatalogModels, OPENAI_CODEX_PROVIDER, resolveChatGptEngineModel, type ModelPickerEngine, } from "@/global/settings/lib/engine-model-routing";
@@ -172,13 +175,19 @@ function DesktopAgentModelPicker({ active = true, onSelected, className, surface
     // ChatGPT/Codex always uses Stella's static openai-codex registry and the
     // subscription-authenticated Responses transport. It never probes a local
     // Codex executable.
-    const [chatGptSectionOpen, setChatGptSectionOpen] = useState(false);
     const [claudeCodeSectionOpen, setClaudeCodeSectionOpen] = useState(false);
     const committedEngine = preferences?.agentRuntimeEngine ?? "default";
-    const credentials = useLlmCredentials();
-    const cancelOAuth = credentials.cancelOAuth;
-    const validateOAuth = credentials.validateOAuth;
-    const [chatGptConnection, setChatGptConnection] = useState<"checking" | "connected" | "disconnected" | "needs-reauth">("checking");
+    // ChatGPT accounts live in the Stella account (Settings › Account), so a
+    // login added on any device counts here; connecting adds one there.
+    const { isAuthenticated } = useAuthState();
+    const engines = useCloudEngines(isAuthenticated);
+    const chatGptConnect = useEngineConnect();
+    const { start: startChatGptConnect, cancel: cancelChatGptConnect } = chatGptConnect;
+    const chatGptConnection: "checking" | "connected" | "disconnected" = isAuthenticated && engines === undefined
+        ? "checking"
+        : engines?.connections.some((row) => row.provider === OPENAI_CODEX_PROVIDER)
+            ? "connected"
+            : "disconnected";
     // Soft status shown when a genuinely-gone saved ChatGPT model was rerouted
     // to an available one, so the switch is never silent.
     const [chatGptRoutedNotice, setChatGptRoutedNotice] = useState<string | null>(null);
@@ -270,25 +279,11 @@ function DesktopAgentModelPicker({ active = true, onSelected, className, surface
         : chatGptRegistryOptions;
     const selectedClaudeCodeModel = preferences?.claudeCodeModel || DEFAULT_CLAUDE_CODE_MODEL;
     const [oauthPendingProvider, setOauthPendingProvider] = useState<string | null>(null);
-    const oauthAttemptRef = useRef<{ provider: string; cancelled: boolean } | null>(null);
     const migrationAttemptedRef = useRef<string | null>(null);
-    useEffect(() => () => {
-        const attempt = oauthAttemptRef.current;
-        if (attempt) {
-            attempt.cancelled = true;
-            void cancelOAuth(attempt.provider);
-        }
-    }, [cancelOAuth]);
     const cancelPendingOAuth = useCallback(async () => {
-        const attempt = oauthAttemptRef.current;
-        if (!attempt)
-            return;
-        attempt.cancelled = true;
         setOauthPendingProvider(null);
-        await cancelOAuth(attempt.provider);
-    }, [cancelOAuth]);
-    // (The ChatGPT connection check is triggered below, once the ChatGPT
-    // section's expansion state is known.)
+        cancelChatGptConnect();
+    }, [cancelChatGptConnect]);
     useEffect(() => {
         if (!preferences ||
             pendingAgent !== null ||
@@ -415,28 +410,6 @@ function DesktopAgentModelPicker({ active = true, onSelected, className, surface
             variant: "error",
         });
     }, [active, error, t]);
-    // Check the ChatGPT OAuth session whenever its panel is on screen (so the
-    // connect notice is accurate before any commit), and always while the
-    // committed engine is ChatGPT (the auto-migration effect depends on it).
-    useEffect(() => {
-        if (!active ||
-            (!chatGptSectionOpen && committedEngine !== "codex_cli")) {
-            return;
-        }
-        let cancelled = false;
-        void validateOAuth(OPENAI_CODEX_PROVIDER).then((result) => {
-            if (!cancelled) {
-                setChatGptConnection(result.connected
-                    ? "connected"
-                    : result.needsReauth
-                        ? "needs-reauth"
-                        : "disconnected");
-            }
-        });
-        return () => {
-            cancelled = true;
-        };
-    }, [active, chatGptSectionOpen, committedEngine, validateOAuth]);
     /**
      * The sidebar Assistant tab writes to both orchestrator and general (and
      * reads from orchestrator with general as a fallback). Settings always
@@ -512,33 +485,18 @@ function DesktopAgentModelPicker({ active = true, onSelected, className, surface
         // into the routing patch is resolved below so selection never dead-ends
         // on a "choose a model" gate. Auth is the only real interruption.
         let effectiveModelId = modelId;
-        let oauthAttempt: { provider: string; cancelled: boolean } | null = null;
+        let connectCancelled = false;
         try {
             if (engine === "codex_cli") {
                 const selectedModel = modelId?.trim() || preferences.codexModel;
-                setChatGptConnection("checking");
-                let validation = await credentials.validateOAuth(OPENAI_CODEX_PROVIDER);
-                if (!validation.connected) {
-                    oauthAttempt = {
-                        provider: OPENAI_CODEX_PROVIDER,
-                        cancelled: false,
-                    };
-                    oauthAttemptRef.current = oauthAttempt;
+                if (chatGptConnection !== "connected") {
                     setOauthPendingProvider(OPENAI_CODEX_PROVIDER);
-                    await credentials.loginOAuth(OPENAI_CODEX_PROVIDER, {
-                        announceConnection: false,
-                    });
-                    if (oauthAttemptRef.current === oauthAttempt) {
-                        oauthAttemptRef.current = null;
-                        setOauthPendingProvider(null);
+                    const connected = await startChatGptConnect(OPENAI_CODEX_PROVIDER).finally(() => setOauthPendingProvider(null));
+                    if (!connected) {
+                        connectCancelled = true;
+                        throw new Error(t("settings.agentModelPicker.errors.chatGptNotConnected"));
                     }
-                    validation = await credentials.validateOAuth(OPENAI_CODEX_PROVIDER);
                 }
-                if (!validation.connected) {
-                    setChatGptConnection(validation.needsReauth ? "needs-reauth" : "disconnected");
-                    throw new Error(t("settings.agentModelPicker.errors.chatGptNotConnected"));
-                }
-                setChatGptConnection("connected");
                 const resolution = resolveChatGptEngineModel(selectedModel, chatGptModels.map((model) => model.id), chatGptRegistryIds, DEFAULT_CHATGPT_MODEL);
                 if (resolution.kind === "unavailable") {
                     throw new Error(t("settings.agentModelPicker.errors.chatGptNoModels"));
@@ -582,13 +540,8 @@ function DesktopAgentModelPicker({ active = true, onSelected, className, surface
             return true;
         }
         catch (caught) {
-            const oauthWasCancelled = oauthAttempt?.cancelled === true;
-            if (oauthAttemptRef.current === oauthAttempt) {
-                oauthAttemptRef.current = null;
-                setOauthPendingProvider(null);
-            }
             setPreferences(previous);
-            if (!oauthWasCancelled) {
+            if (!connectCancelled) {
                 setError(caught instanceof Error && caught.message.trim()
                     ? caught.message
                     : engine === "codex_cli"
@@ -598,16 +551,13 @@ function DesktopAgentModelPicker({ active = true, onSelected, className, surface
             return false;
         }
         finally {
-            if (oauthAttemptRef.current === oauthAttempt) {
-                oauthAttemptRef.current = null;
-                setOauthPendingProvider(null);
-            }
             setPendingAgent(null);
         }
     }, [
+        chatGptConnection,
         chatGptModels,
         chatGptRegistryIds,
-        credentials,
+        startChatGptConnect,
         pendingAgent,
         preferences,
         setPreferences,
@@ -944,7 +894,6 @@ function DesktopAgentModelPicker({ active = true, onSelected, className, surface
         if (key === CHATGPT_SECTION_KEY) {
             if (!expanded && oauthPendingProvider)
                 void cancelPendingOAuth();
-            setChatGptSectionOpen(expanded);
         }
         else if (key === CLAUDE_CODE_SECTION_KEY) {
             setClaudeCodeSectionOpen(expanded);
@@ -1001,7 +950,7 @@ function DesktopAgentModelPicker({ active = true, onSelected, className, surface
         </div>
 
       <div className="agent-model-picker-body">
-        {pendingAgent === ENGINE_PENDING_TARGET && oauthPendingProvider ? (<p className="agent-model-picker-connection" role="status">
+        {chatGptConnect.flow ? (<EngineConnectPrompt connect={chatGptConnect}/>) : pendingAgent === ENGINE_PENDING_TARGET && oauthPendingProvider ? (<p className="agent-model-picker-connection" role="status">
             {t("settings.agentModelPicker.waitingForChatGpt")}{" "}
             <button type="button" onClick={() => void cancelPendingOAuth()}>
               {t("common.cancel")}

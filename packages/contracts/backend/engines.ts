@@ -1,12 +1,15 @@
 /**
- * Cloud engines: the owner's connected subscriptions (Claude Pro/Max,
- * ChatGPT) and the account-wide execution selection every client picker
- * reads and writes.
+ * Engine accounts: the owner's one list of Claude (Pro/Max) and ChatGPT
+ * subscriptions, used by every client (Claude Code and Codex on the owner's
+ * computers, and cloud turns), plus the account-wide cloud execution
+ * selection every client picker reads and writes.
  *
- * Mobile ChatGPT sign-in uses device authorization and automatic polling.
- * `startConnect` / `finishConnect` retain the pasted-code flow for Claude
- * and existing desktop clients. Tokens are exchanged and stored encrypted
- * in the owner's object; no client ever sees them.
+ * ChatGPT sign-in uses device authorization and automatic polling.
+ * `startConnect` / `finishConnect` are the pasted-code flow for Claude.
+ * Tokens are exchanged and stored encrypted in the owner's object, which is
+ * the only party that refreshes them: refresh tokens never leave the server.
+ * A signed-in client asks `engines.clientAccess` for the active account's
+ * short-lived access token and talks to the provider directly.
  *
  * Each provider can hold several accounts. One is active and serves every
  * turn; with auto-switch on, an account that hits its subscription limit is
@@ -45,6 +48,17 @@ export type EngineSettings = {
   connections: EngineConnection[];
   /** Per provider: switch to the next account when the active one hits its limit. */
   autoSwitch: Record<EngineProvider, boolean>;
+};
+
+/** The active account's short-lived access token, for the owner's own clients. */
+export type EngineClientAccess = {
+  accessToken: string;
+  /** Epoch ms; refetch before this. */
+  expiresAt: number;
+  /** The connected account (`EngineConnection.accountId`) the token belongs to. */
+  engineAccountId: string;
+  /** ChatGPT only: the chatgpt_account_id the Codex backend expects. */
+  accountId?: string;
 };
 
 export type EngineCalls = {
@@ -95,6 +109,24 @@ export type EngineCalls = {
   "engines.setExecution": {
     args: { execution: CloudExecutionSelection };
     result: null;
+  };
+  /**
+   * The provider's serving account's access token (refreshed on the server
+   * when it is close to expiry), or null when no account is connected or its
+   * refresh failed. `forceRefresh`: the provider rejected the last token.
+   */
+  "engines.clientAccess": {
+    args: { provider: EngineProvider; forceRefresh?: boolean };
+    result: EngineClientAccess | null;
+  };
+  /**
+   * The account a client was served hit its subscription limit. It cools down
+   * until `resetsAt` (or an hour); with auto-switch on, the next available
+   * account takes over. `switched`: fetch a new token and retry.
+   */
+  "engines.reportLimit": {
+    args: { provider: EngineProvider; engineAccountId: string; resetsAt?: number };
+    result: { switched: boolean };
   };
 };
 

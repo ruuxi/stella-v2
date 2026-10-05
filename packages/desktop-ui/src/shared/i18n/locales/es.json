@@ -2170,7 +2170,7 @@
         "signInBody": "Conserva tu conversación, tus ajustes y tu ordenador conectado en todos tus dispositivos.",
         "signIn": "Iniciar sesión",
         "subscriptionsLabel": "Opcional",
-        "subscriptionsBody": "¿Ya pagas Claude o ChatGPT? Conéctalo y lo usaré para el trabajo en la nube.",
+        "subscriptionsBody": "¿Ya pagas Claude o ChatGPT? Conéctalo y lo usaré en tus computadoras y en la nube.",
         "claudeDesc": "Pro o Max, mediante Claude Code",
         "chatgptDesc": "Plus o Pro, mediante Codex",
         "connect": "Conectar",
@@ -2500,10 +2500,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude y ChatGPT",
-      "settingsRowBody": "Cuentas para el chat y los agentes en la nube",
+      "settingsRowBody": "Cuentas que se usan en tus computadoras y en la nube",
       "openSettingsLabel": "Abrir cuentas de Claude y ChatGPT",
       "title": "Claude y ChatGPT",
-      "subtitle": "Cuentas para el chat y los agentes en la nube",
+      "subtitle": "Cuentas que se usan en tus computadoras y en la nube",
       "backLabel": "Volver a Ajustes",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2526,7 +2526,7 @@
       "connecting": "Conectando…",
       "errorTitle": "No se pudieron actualizar las cuentas",
       "errorBody": "Algo salió mal. Inténtalo de nuevo.",
-      "localNote": "Estas cuentas se usan en la nube. En tu computadora, Stella usa las cuentas configuradas en su app de escritorio."
+      "localNote": "Estas cuentas hacen funcionar Claude Code y Codex en todas tus computadoras y en la nube. Stella guarda un token cifrado; el inicio de sesión queda en Claude o ChatGPT."
     }
   },
   "companion": {

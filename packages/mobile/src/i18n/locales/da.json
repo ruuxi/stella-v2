@@ -2151,7 +2151,7 @@
         "signInBody": "Behold din samtale, dine indstillinger og din forbundne computer på alle enheder.",
         "signIn": "Log ind",
         "subscriptionsLabel": "Valgfrit",
-        "subscriptionsBody": "Betaler du allerede for Claude eller ChatGPT? Forbind det, så bruger jeg det til arbejde i skyen.",
+        "subscriptionsBody": "Betaler du allerede for Claude eller ChatGPT? Forbind det, så bruger jeg det på dine computere og i skyen.",
         "claudeDesc": "Pro eller Max, via Claude Code",
         "chatgptDesc": "Plus eller Pro, via Codex",
         "connect": "Forbind",
@@ -2479,10 +2479,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude og ChatGPT",
-      "settingsRowBody": "Konti til chat og agenter i skyen",
+      "settingsRowBody": "Konti, der bruges på dine computere og i skyen",
       "openSettingsLabel": "Åbn Claude- og ChatGPT-konti",
       "title": "Claude og ChatGPT",
-      "subtitle": "Konti til chat og agenter i skyen",
+      "subtitle": "Konti, der bruges på dine computere og i skyen",
       "backLabel": "Tilbage til Indstillinger",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2505,7 +2505,7 @@
       "connecting": "Forbinder…",
       "errorTitle": "Kontiene kunne ikke opdateres",
       "errorBody": "Noget gik galt. Prøv igen.",
-      "localNote": "Disse konti bruges i skyen. På din computer bruger Stella de konti, der er sat op i desktopappen."
+      "localNote": "Disse konti driver Claude Code og Codex på alle dine computere og i skyen. Stella gemmer et krypteret token; login forbliver hos Claude eller ChatGPT."
     }
   },
   "companion": {

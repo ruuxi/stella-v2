@@ -12,17 +12,19 @@ import { Button } from "@/ui/button";
 import { showToast } from "@/ui/toast";
 import { cloudEnginesApi, useCloudEngines } from "./cloud-engines-api";
 import { EngineAccountList, type EngineAccountRow } from "./EngineAccountList";
+import { EngineConnectPrompt } from "./EngineConnectPrompt";
+import { useEngineConnect } from "./use-engine-connect";
 import { publishCloudExecutionSelection } from "./cloud-execution-store";
 
 /**
- * "Cloud engines" settings card: connect a Claude (Pro/Max) or ChatGPT
- * subscription for cloud turns, and choose which engine powers them.
+ * "Claude & ChatGPT accounts": the owner's one list of subscriptions, kept in
+ * the Stella account. They power Claude Code and Codex on every one of the
+ * owner's computers (even one where the account was never added) and cloud
+ * turns, whose engine is chosen here too.
  *
- * The OAuth dance is paste-based so it works from any browser (web/mobile
- * interior included): we open the provider's authorize URL, the user pastes
- * back the code (Claude) or the full localhost redirect URL (ChatGPT — the
- * page won't load, but the address bar still carries the code). Tokens are
- * exchanged and stored server-side; the browser never sees them.
+ * The server keeps an encrypted token and is the only party that refreshes
+ * it; a computer only ever receives the active account's short-lived access
+ * token.
  */
 
 const friendlyError = (error: unknown): string =>
@@ -33,7 +35,6 @@ const friendlyError = (error: unknown): string =>
 type ProviderMeta = {
   provider: EngineProvider;
   name: string;
-  pasteHint: string;
   autoSwitchDescription: string;
 };
 
@@ -41,15 +42,12 @@ const PROVIDERS: ProviderMeta[] = [
   {
     provider: "anthropic",
     name: "Claude (Pro/Max)",
-    pasteHint: "Paste the code shown after you approve access",
     autoSwitchDescription:
       "When the checked account reaches its 5-hour or weekly limit, move to the next account until it resets.",
   },
   {
     provider: "openai-codex",
     name: "ChatGPT",
-    pasteHint:
-      "After approving, the browser opens a localhost page that won't load — paste that page's full URL here",
     autoSwitchDescription:
       "When the checked account reaches its Codex usage limit, move to the next account until it resets.",
   },
@@ -64,8 +62,7 @@ function EngineProviderAccounts({
   settings: EngineSettings | undefined;
   refreshing: boolean;
 }) {
-  const [connectId, setConnectId] = useState<string | null>(null);
-  const [pasted, setPasted] = useState("");
+  const connect = useEngineConnect();
   const [busy, setBusy] = useState(false);
   const accounts: EngineAccountRow[] = (settings?.connections ?? [])
     .filter((row) => row.provider === meta.provider)
@@ -90,38 +87,30 @@ function EngineProviderAccounts({
     }
   }, []);
 
-  const handleStart = useCallback(
-    () =>
-      run(async () => {
-        const result = await cloudEnginesApi.startConnect(meta.provider);
-        setConnectId(result.connectId);
-        window.open(result.authorizeUrl, "_blank", "noopener");
-      }),
-    [meta.provider, run],
-  );
-
-  const handleFinish = useCallback(async () => {
-    if (!connectId || !pasted.trim()) return;
-    await run(async () => {
-      await cloudEnginesApi.finishConnect(connectId, pasted.trim());
-      setConnectId(null);
-      setPasted("");
-    }, `${meta.name} account connected.`);
-  }, [connectId, meta.name, pasted, run]);
+  const { start } = connect;
+  const handleStart = useCallback(async () => {
+    try {
+      if (await start(meta.provider)) {
+        showToast({ title: `${meta.name} account connected.` });
+      }
+    } catch (error) {
+      showToast({ title: friendlyError(error), variant: "error" });
+    }
+  }, [meta.name, meta.provider, start]);
 
   return (
     <EngineAccountList
       title={meta.name}
       description={
         accounts.length > 0
-          ? "Powers cloud chat and agents. The checked account is used."
-          : "Use your subscription for cloud turns. Sign-in stays with the provider; Stella stores only an encrypted token."
+          ? "The checked account is used on your computers and in the cloud."
+          : "Use your subscription on all your computers and in the cloud. Sign-in stays with the provider; Stella keeps an encrypted token."
       }
       accounts={accounts}
       autoSwitch={settings?.autoSwitch?.[meta.provider] ?? false}
       autoSwitchDescription={meta.autoSwitchDescription}
       busy={busy || refreshing}
-      adding={connectId !== null}
+      adding={connect.flow !== null}
       addLabel="Add account"
       onAdd={() => void handleStart()}
       onUse={(accountId) =>
@@ -136,50 +125,7 @@ function EngineProviderAccounts({
       onToggleAutoSwitch={(enabled) =>
         void run(() => cloudEnginesApi.setAutoSwitch(meta.provider, enabled))
       }
-      addFlow={
-        connectId ? (
-          <div className="settings-row">
-            <div className="settings-row-info" style={{ flex: 1 }}>
-              <div className="settings-row-sublabel">{meta.pasteHint}</div>
-              <input
-                type="text"
-                value={pasted}
-                onChange={(event) => setPasted(event.target.value)}
-                placeholder="Paste the authorization code or URL"
-                autoComplete="off"
-                spellCheck={false}
-                style={{ width: "100%", marginTop: 6 }}
-              />
-            </div>
-            <div
-              className="settings-row-control"
-              style={{ display: "flex", gap: 6 }}
-            >
-              <Button
-                type="button"
-                variant="ghost"
-                className="pill-btn"
-                onClick={() => {
-                  setConnectId(null);
-                  setPasted("");
-                }}
-                disabled={busy}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                className="pill-btn"
-                onClick={() => void handleFinish()}
-                disabled={busy || !pasted.trim()}
-              >
-                {busy ? "Connecting…" : "Finish"}
-              </Button>
-            </div>
-          </div>
-        ) : null
-      }
+      addFlow={connect.flow ? <EngineConnectPrompt connect={connect} /> : null}
     />
   );
 }
@@ -240,7 +186,22 @@ export function CloudEnginesCard() {
 
   return (
     <div className="settings-card">
-      <h3 className="settings-card-title">Cloud engines</h3>
+      <h3 className="settings-card-title">Claude &amp; ChatGPT accounts</h3>
+      <div className="settings-row">
+        <div className="settings-row-sublabel">
+          These accounts power Claude Code and Codex on all your computers and
+          cloud chat. Stella keeps an encrypted token and refreshes it on its
+          server; your computers only receive short-lived access.
+        </div>
+      </div>
+      {PROVIDERS.map((meta) => (
+        <EngineProviderAccounts
+          key={meta.provider}
+          meta={meta}
+          settings={connections}
+          refreshing={connections === undefined}
+        />
+      ))}
       <div className="settings-row">
         <div className="settings-row-info">
           <div className="settings-row-label">Cloud chat runs on</div>
@@ -292,14 +253,6 @@ export function CloudEnginesCard() {
           </Button>
         </div>
       </div>
-      {PROVIDERS.map((meta) => (
-        <EngineProviderAccounts
-          key={meta.provider}
-          meta={meta}
-          settings={connections}
-          refreshing={connections === undefined}
-        />
-      ))}
     </div>
   );
 }

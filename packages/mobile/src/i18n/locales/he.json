@@ -2170,7 +2170,7 @@
         "signInBody": "שמרו את השיחה, ההגדרות והמחשב המחובר שלכם בכל מכשיר.",
         "signIn": "התחברות",
         "subscriptionsLabel": "אופציונלי",
-        "subscriptionsBody": "כבר משלמים על Claude או ChatGPT? חברו אותו ואשתמש בו לעבודה בענן.",
+        "subscriptionsBody": "כבר משלמים על Claude או ChatGPT? חברו אותו ואשתמש בו במחשבים שלכם ובענן.",
         "claudeDesc": "Pro או Max, דרך Claude Code",
         "chatgptDesc": "Plus או Pro, דרך Codex",
         "connect": "חיבור",
@@ -2500,10 +2500,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude ו-ChatGPT",
-      "settingsRowBody": "חשבונות לצ'אט ולסוכנים בענן",
+      "settingsRowBody": "חשבונות לשימוש במחשבים שלכם ובענן",
       "openSettingsLabel": "פתיחת חשבונות Claude ו-ChatGPT",
       "title": "Claude ו-ChatGPT",
-      "subtitle": "חשבונות לצ'אט ולסוכנים בענן",
+      "subtitle": "חשבונות לשימוש במחשבים שלכם ובענן",
       "backLabel": "חזרה להגדרות",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2526,7 +2526,7 @@
       "connecting": "מתחבר…",
       "errorTitle": "לא ניתן לעדכן את החשבונות",
       "errorBody": "משהו השתבש. נסו שוב.",
-      "localNote": "החשבונות האלה משמשים בענן. במחשב שלכם, Stella משתמשת בחשבונות שהוגדרו באפליקציה למחשב."
+      "localNote": "החשבונות האלה מפעילים את Claude Code ו-Codex בכל המחשבים שלכם ובענן. Stella שומרת אסימון מוצפן; ההתחברות נשארת אצל Claude או ChatGPT."
     }
   },
   "companion": {

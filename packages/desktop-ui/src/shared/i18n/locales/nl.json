@@ -2151,7 +2151,7 @@
         "signInBody": "Houd je gesprek, instellingen en gekoppelde computer bij de hand op elk apparaat.",
         "signIn": "Inloggen",
         "subscriptionsLabel": "Optioneel",
-        "subscriptionsBody": "Betaal je al voor Claude of ChatGPT? Koppel het en ik gebruik het voor werk in de cloud.",
+        "subscriptionsBody": "Betaal je al voor Claude of ChatGPT? Koppel het en ik gebruik het op je computers en in de cloud.",
         "claudeDesc": "Pro of Max, via Claude Code",
         "chatgptDesc": "Plus of Pro, via Codex",
         "connect": "Koppelen",
@@ -2478,10 +2478,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude en ChatGPT",
-      "settingsRowBody": "Accounts voor chat en agents in de cloud",
+      "settingsRowBody": "Accounts voor je computers en de cloud",
       "openSettingsLabel": "Claude- en ChatGPT-accounts openen",
       "title": "Claude en ChatGPT",
-      "subtitle": "Accounts voor chat en agents in de cloud",
+      "subtitle": "Accounts voor je computers en de cloud",
       "backLabel": "Terug naar Instellingen",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2504,7 +2504,7 @@
       "connecting": "Verbinden…",
       "errorTitle": "Kan accounts niet bijwerken",
       "errorBody": "Er ging iets mis. Probeer het opnieuw.",
-      "localNote": "Deze accounts worden in de cloud gebruikt. Op je computer gebruikt Stella de accounts die in de desktop-app zijn ingesteld."
+      "localNote": "Deze accounts laten Claude Code en Codex draaien op al je computers en in de cloud. Stella bewaart een versleuteld token; inloggen blijft bij Claude of ChatGPT."
     }
   },
   "companion": {

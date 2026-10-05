@@ -2151,7 +2151,7 @@
         "signInBody": "Behåll din konversation, dina inställningar och din anslutna dator på alla enheter.",
         "signIn": "Logga in",
         "subscriptionsLabel": "Valfritt",
-        "subscriptionsBody": "Betalar du redan för Claude eller ChatGPT? Anslut det så använder jag det till arbete i molnet.",
+        "subscriptionsBody": "Betalar du redan för Claude eller ChatGPT? Anslut det så använder jag det på dina datorer och i molnet.",
         "claudeDesc": "Pro eller Max, via Claude Code",
         "chatgptDesc": "Plus eller Pro, via Codex",
         "connect": "Anslut",
@@ -2479,10 +2479,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude och ChatGPT",
-      "settingsRowBody": "Konton för chatt och agenter i molnet",
+      "settingsRowBody": "Konton som används på dina datorer och i molnet",
       "openSettingsLabel": "Öppna Claude- och ChatGPT-konton",
       "title": "Claude och ChatGPT",
-      "subtitle": "Konton för chatt och agenter i molnet",
+      "subtitle": "Konton som används på dina datorer och i molnet",
       "backLabel": "Tillbaka till Inställningar",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2505,7 +2505,7 @@
       "connecting": "Ansluter…",
       "errorTitle": "Det gick inte att uppdatera kontona",
       "errorBody": "Något gick fel. Försök igen.",
-      "localNote": "De här kontona används i molnet. På din dator använder Stella kontona som är konfigurerade i skrivbordsappen."
+      "localNote": "De här kontona driver Claude Code och Codex på alla dina datorer och i molnet. Stella sparar en krypterad token; inloggningen stannar hos Claude eller ChatGPT."
     }
   },
   "companion": {

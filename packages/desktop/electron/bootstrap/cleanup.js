@@ -7,6 +7,9 @@ export const registerBootstrapProcessCleanups = (context) => {
     processRuntime.registerCleanup("before-quit", "auth-refresh-loop", () => {
         context.services.authService.stopAuthRefreshLoop();
     });
+    processRuntime.registerCleanup("before-quit", "engine-account-access", () => {
+        context.services.engineAccountAccess.dispose();
+    });
     processRuntime.registerCleanup("before-quit", "remote-telemetry", async () => {
         await context.services.telemetry.record({
             type: "app.lifecycle",

@@ -2189,7 +2189,7 @@
         "signInBody": "Mějte konverzaci, nastavení i připojený počítač na každém zařízení.",
         "signIn": "Přihlásit se",
         "subscriptionsLabel": "Volitelné",
-        "subscriptionsBody": "Už platíte za Claude nebo ChatGPT? Propojte to a použiju to pro práci v cloudu.",
+        "subscriptionsBody": "Už platíte za Claude nebo ChatGPT? Propojte to a použiju to na vašich počítačích i v cloudu.",
         "claudeDesc": "Pro nebo Max, přes Claude Code",
         "chatgptDesc": "Plus nebo Pro, přes Codex",
         "connect": "Připojit",
@@ -2521,10 +2521,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude a ChatGPT",
-      "settingsRowBody": "Účty pro chat a agenty v cloudu",
+      "settingsRowBody": "Účty používané na vašich počítačích a v cloudu",
       "openSettingsLabel": "Otevřít účty Claude a ChatGPT",
       "title": "Claude a ChatGPT",
-      "subtitle": "Účty pro chat a agenty v cloudu",
+      "subtitle": "Účty používané na vašich počítačích a v cloudu",
       "backLabel": "Zpět do Nastavení",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2547,7 +2547,7 @@
       "connecting": "Připojování…",
       "errorTitle": "Účty se nepodařilo aktualizovat",
       "errorBody": "Něco se pokazilo. Zkuste to znovu.",
-      "localNote": "Tyto účty se používají v cloudu. Na vašem počítači Stella používá účty nastavené v desktopové aplikaci."
+      "localNote": "Tyto účty pohánějí Claude Code a Codex na všech vašich počítačích i v cloudu. Stella uchovává šifrovaný token; přihlášení zůstává u Claude nebo ChatGPT."
     }
   },
   "companion": {

@@ -2129,7 +2129,7 @@
         "signInBody": "Giữ cuộc trò chuyện, cài đặt và máy tính đã kết nối của bạn trên mọi thiết bị.",
         "signIn": "Đăng nhập",
         "subscriptionsLabel": "Tùy chọn",
-        "subscriptionsBody": "Bạn đã trả tiền cho Claude hoặc ChatGPT? Hãy kết nối, mình sẽ dùng nó cho công việc trên đám mây.",
+        "subscriptionsBody": "Bạn đã trả tiền cho Claude hoặc ChatGPT? Hãy kết nối, mình sẽ dùng nó trên máy tính của bạn và trên đám mây.",
         "claudeDesc": "Pro hoặc Max, qua Claude Code",
         "chatgptDesc": "Plus hoặc Pro, qua Codex",
         "connect": "Kết nối",
@@ -2453,10 +2453,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude và ChatGPT",
-      "settingsRowBody": "Tài khoản cho trò chuyện và tác tử trên đám mây",
+      "settingsRowBody": "Tài khoản dùng trên máy tính của bạn và trên đám mây",
       "openSettingsLabel": "Mở tài khoản Claude và ChatGPT",
       "title": "Claude và ChatGPT",
-      "subtitle": "Tài khoản cho trò chuyện và tác tử trên đám mây",
+      "subtitle": "Tài khoản dùng trên máy tính của bạn và trên đám mây",
       "backLabel": "Quay lại Cài đặt",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2479,7 +2479,7 @@
       "connecting": "Đang kết nối…",
       "errorTitle": "Không thể cập nhật tài khoản",
       "errorBody": "Đã xảy ra lỗi. Hãy thử lại.",
-      "localNote": "Các tài khoản này được dùng trên đám mây. Trên máy tính của bạn, Stella dùng các tài khoản được thiết lập trong ứng dụng máy tính."
+      "localNote": "Các tài khoản này chạy Claude Code và Codex trên mọi máy tính của bạn và trên đám mây. Stella giữ một token đã mã hóa; việc đăng nhập vẫn nằm ở Claude hoặc ChatGPT."
     }
   },
   "companion": {

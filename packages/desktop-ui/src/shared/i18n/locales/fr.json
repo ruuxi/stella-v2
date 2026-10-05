@@ -2170,7 +2170,7 @@
         "signInBody": "Retrouvez votre conversation, vos réglages et votre ordinateur connecté sur chaque appareil.",
         "signIn": "Se connecter",
         "subscriptionsLabel": "Facultatif",
-        "subscriptionsBody": "Vous payez déjà Claude ou ChatGPT ? Connectez-le et je m'en servirai pour le travail dans le cloud.",
+        "subscriptionsBody": "Vous payez déjà Claude ou ChatGPT ? Connectez-le et je m'en servirai sur vos ordinateurs et dans le cloud.",
         "claudeDesc": "Pro ou Max, via Claude Code",
         "chatgptDesc": "Plus ou Pro, via Codex",
         "connect": "Connecter",
@@ -2500,10 +2500,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude et ChatGPT",
-      "settingsRowBody": "Comptes pour le chat et les agents dans le cloud",
+      "settingsRowBody": "Comptes utilisés sur vos ordinateurs et dans le cloud",
       "openSettingsLabel": "Ouvrir les comptes Claude et ChatGPT",
       "title": "Claude et ChatGPT",
-      "subtitle": "Comptes pour le chat et les agents dans le cloud",
+      "subtitle": "Comptes utilisés sur vos ordinateurs et dans le cloud",
       "backLabel": "Retour aux réglages",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2526,7 +2526,7 @@
       "connecting": "Connexion…",
       "errorTitle": "Impossible de mettre à jour les comptes",
       "errorBody": "Une erreur s'est produite. Réessayez.",
-      "localNote": "Ces comptes sont utilisés dans le cloud. Sur votre ordinateur, Stella utilise les comptes configurés dans son app de bureau."
+      "localNote": "Ces comptes alimentent Claude Code et Codex sur tous vos ordinateurs et dans le cloud. Stella conserve un jeton chiffré ; la connexion reste chez Claude ou ChatGPT."
     }
   },
   "companion": {

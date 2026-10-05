@@ -2,7 +2,6 @@ import { getLocalLlmCredential } from "./llm-credentials.js";
 import {
   getLocalLlmOAuthApiKey,
   hasLocalLlmOAuthCredential,
-  markLocalLlmOAuthAccountLimited,
 } from "./llm-oauth-credentials.js";
 
 export type LocalLlmOAuthApiKeyAccessOptions = {
@@ -18,7 +17,11 @@ export type LocalLlmCredentialAccessBroker = {
     provider: string,
     options?: LocalLlmOAuthApiKeyAccessOptions,
   ): Promise<string | null>;
-  /** The active OAuth account hit its subscription limit. */
+  /**
+   * The subscription account behind `provider` hit its usage limit. Claude
+   * and ChatGPT accounts live in the owner's Stella account, so on desktop
+   * the host reports it there (`engines.reportLimit`).
+   */
   reportSubscriptionLimit?(
     provider: string,
     resetsAt?: number,
@@ -78,23 +81,21 @@ export const getAccessibleLocalLlmApiKey = async (
 };
 
 /**
- * Tell the credential store the active OAuth account of `provider` hit its
- * subscription limit. Resolves whether another account now serves it, in
- * which case the caller may retry with a freshly fetched key.
+ * Tell the account store the subscription behind `provider` hit its limit.
+ * Resolves whether another account now serves it, in which case the caller
+ * may retry with a freshly fetched key. Without a host there is only one
+ * account, so nothing switches.
  */
 export const reportLocalLlmSubscriptionLimit = async (
-  stellaDataDirPath: string,
   provider: string,
   resetsAt?: number,
 ): Promise<{ switched: boolean }> => {
-  const normalized = normalizeProvider(provider);
   try {
-    if (broker) {
-      return (await broker.reportSubscriptionLimit?.(normalized, resetsAt)) ?? {
+    return (
+      (await broker?.reportSubscriptionLimit?.(normalizeProvider(provider), resetsAt)) ?? {
         switched: false,
-      };
-    }
-    return markLocalLlmOAuthAccountLimited(stellaDataDirPath, normalized, resetsAt);
+      }
+    );
   } catch {
     return { switched: false };
   }

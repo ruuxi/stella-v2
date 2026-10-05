@@ -2129,7 +2129,7 @@
         "signInBody": "Simpan percakapan, pengaturan, dan komputer terhubung Anda di setiap perangkat.",
         "signIn": "Masuk",
         "subscriptionsLabel": "Opsional",
-        "subscriptionsBody": "Sudah berlangganan Claude atau ChatGPT? Hubungkan, dan saya akan memakainya untuk pekerjaan di cloud.",
+        "subscriptionsBody": "Sudah berlangganan Claude atau ChatGPT? Hubungkan, dan saya akan memakainya di komputer Anda dan di cloud.",
         "claudeDesc": "Pro atau Max, lewat Claude Code",
         "chatgptDesc": "Plus atau Pro, lewat Codex",
         "connect": "Hubungkan",
@@ -2453,10 +2453,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude & ChatGPT",
-      "settingsRowBody": "Akun untuk chat dan agen di cloud",
+      "settingsRowBody": "Akun yang digunakan di komputer Anda dan di cloud",
       "openSettingsLabel": "Buka akun Claude dan ChatGPT",
       "title": "Claude & ChatGPT",
-      "subtitle": "Akun untuk chat dan agen di cloud",
+      "subtitle": "Akun yang digunakan di komputer Anda dan di cloud",
       "backLabel": "Kembali ke Pengaturan",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2479,7 +2479,7 @@
       "connecting": "Menghubungkan…",
       "errorTitle": "Tidak dapat memperbarui akun",
       "errorBody": "Terjadi kesalahan. Coba lagi.",
-      "localNote": "Akun ini digunakan di cloud. Di komputer Anda, Stella menggunakan akun yang diatur di aplikasi desktopnya."
+      "localNote": "Akun ini menjalankan Claude Code dan Codex di semua komputer Anda dan di cloud. Stella menyimpan token terenkripsi; proses masuk tetap di Claude atau ChatGPT."
     }
   },
   "companion": {

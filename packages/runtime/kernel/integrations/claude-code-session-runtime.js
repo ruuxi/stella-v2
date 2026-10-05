@@ -20,7 +20,6 @@ import {
 } from "./external-cli-resolution.js";
 import { createClaudeCodeToolMcpHost } from "./claude-code-tool-mcp-host.js";
 import {
-  getAccessibleLocalLlmApiKey,
   getAccessibleLocalLlmOAuthApiKey,
   reportLocalLlmSubscriptionLimit,
 } from "../storage/local-llm-credential-access.js";
@@ -206,17 +205,14 @@ export class ClaudeCodeCompactionLoopError extends Error {
   }
 }
 /**
- * The Claude account signed in through Stella, if any. With one, the CLI runs
- * on it (so several accounts can be switched between); without one, the CLI
- * keeps its own login, exactly as before.
+ * The active Claude account of the owner's Stella account, if any: the host
+ * serves its short-lived access token (the server keeps and refreshes the
+ * login). With one, the CLI runs on it (so several accounts can be switched
+ * between); without one, or signed out, the CLI keeps its own login.
  */
 const resolveStellaClaudeToken = async (stellaAppDir) => {
   if (!stellaAppDir) return undefined;
   try {
-    // A configured Anthropic API key is never handed to the CLI as a login.
-    if ((await getAccessibleLocalLlmApiKey(stellaAppDir, "anthropic"))?.trim()) {
-      return undefined;
-    }
     const token = (
       await getAccessibleLocalLlmOAuthApiKey(stellaAppDir, "anthropic")
     )?.trim();
@@ -1437,7 +1433,6 @@ class ClaudeCodeSessionRuntime {
             : null;
         if (limit) {
           const { switched } = await reportLocalLlmSubscriptionLimit(
-            request.stellaAppDir,
             "anthropic",
             limit.resetsAt,
           );
@@ -1821,6 +1816,10 @@ class ClaudeCodeSessionRuntime {
         ? { cliBridgeSocketPath: request.cliBridgeSocketPath }
         : {}),
     });
+    // Claude Code prefers an API key over any login, so a stray one in the
+    // environment would bill API usage instead of the subscription.
+    delete childEnv.ANTHROPIC_API_KEY;
+    delete childEnv.ANTHROPIC_AUTH_TOKEN;
     if (effortLevel) {
       childEnv.CLAUDE_CODE_EFFORT_LEVEL = effortLevel;
     }

@@ -2129,7 +2129,7 @@
         "signInBody": "会話、設定、接続したコンピューターを、すべてのデバイスで引き継げます。",
         "signIn": "サインイン",
         "subscriptionsLabel": "任意",
-        "subscriptionsBody": "ClaudeやChatGPTをすでに契約していますか？ 接続すれば、クラウドでの作業に使わせてもらいます。",
+        "subscriptionsBody": "ClaudeやChatGPTをすでに契約していますか？ 接続すれば、お使いのコンピュータとクラウドで使わせてもらいます。",
         "claudeDesc": "ProまたはMax、Claude Code経由",
         "chatgptDesc": "PlusまたはPro、Codex経由",
         "connect": "接続",
@@ -2453,10 +2453,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude と ChatGPT",
-      "settingsRowBody": "クラウドのチャットとエージェントで使うアカウント",
+      "settingsRowBody": "お使いのコンピュータとクラウドで使うアカウント",
       "openSettingsLabel": "Claude と ChatGPT のアカウントを開く",
       "title": "Claude と ChatGPT",
-      "subtitle": "クラウドのチャットとエージェントで使うアカウント",
+      "subtitle": "お使いのコンピュータとクラウドで使うアカウント",
       "backLabel": "設定に戻る",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2479,7 +2479,7 @@
       "connecting": "接続中…",
       "errorTitle": "アカウントを更新できませんでした",
       "errorBody": "問題が発生しました。もう一度お試しください。",
-      "localNote": "これらのアカウントはクラウドで使われます。コンピュータでは、Stella はデスクトップアプリで設定したアカウントを使います。"
+      "localNote": "これらのアカウントで、すべてのコンピュータとクラウドの Claude Code と Codex が動きます。Stella は暗号化されたトークンを保管し、サインインは Claude または ChatGPT 側に残ります。"
     }
   },
   "companion": {

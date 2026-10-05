@@ -2129,7 +2129,7 @@
         "signInBody": "เก็บการสนทนา การตั้งค่า และคอมพิวเตอร์ที่เชื่อมต่อไว้ได้ในทุกอุปกรณ์",
         "signIn": "เข้าสู่ระบบ",
         "subscriptionsLabel": "ไม่บังคับ",
-        "subscriptionsBody": "จ่ายค่า Claude หรือ ChatGPT อยู่แล้วใช่ไหม เชื่อมต่อเลย แล้วฉันจะใช้มันทำงานบนคลาวด์",
+        "subscriptionsBody": "จ่ายค่า Claude หรือ ChatGPT อยู่แล้วใช่ไหม เชื่อมต่อเลย แล้วฉันจะใช้มันบนคอมพิวเตอร์ของคุณและบนคลาวด์",
         "claudeDesc": "Pro หรือ Max ผ่าน Claude Code",
         "chatgptDesc": "Plus หรือ Pro ผ่าน Codex",
         "connect": "เชื่อมต่อ",
@@ -2453,10 +2453,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude และ ChatGPT",
-      "settingsRowBody": "บัญชีสำหรับแชตและเอเจนต์บนคลาวด์",
+      "settingsRowBody": "บัญชีที่ใช้บนคอมพิวเตอร์ของคุณและบนคลาวด์",
       "openSettingsLabel": "เปิดบัญชี Claude และ ChatGPT",
       "title": "Claude และ ChatGPT",
-      "subtitle": "บัญชีสำหรับแชตและเอเจนต์บนคลาวด์",
+      "subtitle": "บัญชีที่ใช้บนคอมพิวเตอร์ของคุณและบนคลาวด์",
       "backLabel": "กลับไปที่การตั้งค่า",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2479,7 +2479,7 @@
       "connecting": "กำลังเชื่อมต่อ…",
       "errorTitle": "อัปเดตบัญชีไม่ได้",
       "errorBody": "เกิดข้อผิดพลาด ลองอีกครั้ง",
-      "localNote": "บัญชีเหล่านี้ใช้บนคลาวด์ บนคอมพิวเตอร์ของคุณ Stella จะใช้บัญชีที่ตั้งค่าไว้ในแอปเดสก์ท็อป"
+      "localNote": "บัญชีเหล่านี้ขับเคลื่อน Claude Code และ Codex บนคอมพิวเตอร์ทุกเครื่องของคุณและบนคลาวด์ Stella เก็บโทเค็นที่เข้ารหัสไว้ ส่วนการลงชื่อเข้าใช้ยังอยู่กับ Claude หรือ ChatGPT"
     }
   },
   "companion": {

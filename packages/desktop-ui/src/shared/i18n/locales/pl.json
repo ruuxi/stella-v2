@@ -2189,7 +2189,7 @@
         "signInBody": "Miej rozmowę, ustawienia i połączony komputer na każdym urządzeniu.",
         "signIn": "Zaloguj się",
         "subscriptionsLabel": "Opcjonalnie",
-        "subscriptionsBody": "Już płacisz za Claude albo ChatGPT? Połącz je, a użyję ich do pracy w chmurze.",
+        "subscriptionsBody": "Już płacisz za Claude albo ChatGPT? Połącz je, a użyję ich na Twoich komputerach i w chmurze.",
         "claudeDesc": "Pro lub Max, przez Claude Code",
         "chatgptDesc": "Plus lub Pro, przez Codex",
         "connect": "Połącz",
@@ -2522,10 +2522,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude i ChatGPT",
-      "settingsRowBody": "Konta do czatu i agentów w chmurze",
+      "settingsRowBody": "Konta używane na Twoich komputerach i w chmurze",
       "openSettingsLabel": "Otwórz konta Claude i ChatGPT",
       "title": "Claude i ChatGPT",
-      "subtitle": "Konta do czatu i agentów w chmurze",
+      "subtitle": "Konta używane na Twoich komputerach i w chmurze",
       "backLabel": "Wróć do Ustawień",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2548,7 +2548,7 @@
       "connecting": "Łączenie…",
       "errorTitle": "Nie udało się zaktualizować kont",
       "errorBody": "Coś poszło nie tak. Spróbuj ponownie.",
-      "localNote": "Te konta są używane w chmurze. Na komputerze Stella używa kont skonfigurowanych w aplikacji na komputer."
+      "localNote": "Te konta napędzają Claude Code i Codex na wszystkich Twoich komputerach i w chmurze. Stella przechowuje zaszyfrowany token; logowanie pozostaje po stronie Claude lub ChatGPT."
     }
   },
   "companion": {

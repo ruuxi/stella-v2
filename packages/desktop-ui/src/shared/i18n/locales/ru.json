@@ -2189,7 +2189,7 @@
         "signInBody": "Сохраните разговор, настройки и подключённый компьютер на всех своих устройствах.",
         "signIn": "Войти",
         "subscriptionsLabel": "По желанию",
-        "subscriptionsBody": "Уже платите за Claude или ChatGPT? Подключите, и я буду использовать это для работы в облаке.",
+        "subscriptionsBody": "Уже платите за Claude или ChatGPT? Подключите, и я буду использовать это на ваших компьютерах и в облаке.",
         "claudeDesc": "Pro или Max, через Claude Code",
         "chatgptDesc": "Plus или Pro, через Codex",
         "connect": "Подключить",
@@ -2522,10 +2522,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude и ChatGPT",
-      "settingsRowBody": "Аккаунты для чата и агентов в облаке",
+      "settingsRowBody": "Аккаунты для ваших компьютеров и облака",
       "openSettingsLabel": "Открыть аккаунты Claude и ChatGPT",
       "title": "Claude и ChatGPT",
-      "subtitle": "Аккаунты для чата и агентов в облаке",
+      "subtitle": "Аккаунты для ваших компьютеров и облака",
       "backLabel": "Назад к настройкам",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2548,7 +2548,7 @@
       "connecting": "Подключение…",
       "errorTitle": "Не удалось обновить аккаунты",
       "errorBody": "Что-то пошло не так. Попробуйте ещё раз.",
-      "localNote": "Эти аккаунты используются в облаке. На вашем компьютере Stella использует аккаунты, настроенные в настольном приложении."
+      "localNote": "Эти аккаунты используют Claude Code и Codex на всех ваших компьютерах и в облаке. Stella хранит зашифрованный токен; вход остаётся у Claude или ChatGPT."
     }
   },
   "companion": {

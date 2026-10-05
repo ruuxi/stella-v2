@@ -208,7 +208,6 @@ const switchLocalSubscriptionAccount = async (
     return undefined;
   }
   const { switched } = await reportLocalLlmSubscriptionLimit(
-    stellaAppDir,
     providerId,
     resetsAt,
   );

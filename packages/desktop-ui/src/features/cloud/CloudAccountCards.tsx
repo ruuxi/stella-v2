@@ -18,7 +18,7 @@ const unavailable = (label: string) => (
 function AccountScopedCloudCards() {
   return (
     <>
-      <CloudBoundary fallback={unavailable("Cloud engines")}>
+      <CloudBoundary fallback={unavailable("Claude & ChatGPT accounts")}>
         <CloudEnginesCard />
       </CloudBoundary>
       <CloudBoundary fallback={unavailable("Cloud projects")}>

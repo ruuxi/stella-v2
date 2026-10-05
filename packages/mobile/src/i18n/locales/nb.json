@@ -2151,7 +2151,7 @@
         "signInBody": "Ha samtalen, innstillingene og den tilkoblede datamaskinen din på alle enheter.",
         "signIn": "Logg inn",
         "subscriptionsLabel": "Valgfritt",
-        "subscriptionsBody": "Betaler du allerede for Claude eller ChatGPT? Koble til, så bruker jeg det til jobber i skyen.",
+        "subscriptionsBody": "Betaler du allerede for Claude eller ChatGPT? Koble til, så bruker jeg det på datamaskinene dine og i skyen.",
         "claudeDesc": "Pro eller Max, via Claude Code",
         "chatgptDesc": "Plus eller Pro, via Codex",
         "connect": "Koble til",
@@ -2479,10 +2479,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude og ChatGPT",
-      "settingsRowBody": "Kontoer for chat og agenter i skyen",
+      "settingsRowBody": "Kontoer som brukes på datamaskinene dine og i skyen",
       "openSettingsLabel": "Åpne Claude- og ChatGPT-kontoer",
       "title": "Claude og ChatGPT",
-      "subtitle": "Kontoer for chat og agenter i skyen",
+      "subtitle": "Kontoer som brukes på datamaskinene dine og i skyen",
       "backLabel": "Tilbake til Innstillinger",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2505,7 +2505,7 @@
       "connecting": "Kobler til…",
       "errorTitle": "Kunne ikke oppdatere kontoene",
       "errorBody": "Noe gikk galt. Prøv igjen.",
-      "localNote": "Disse kontoene brukes i skyen. På datamaskinen din bruker Stella kontoene som er satt opp i skrivebordsappen."
+      "localNote": "Disse kontoene driver Claude Code og Codex på alle datamaskinene dine og i skyen. Stella oppbevarer et kryptert token; påloggingen blir hos Claude eller ChatGPT."
     }
   },
   "companion": {

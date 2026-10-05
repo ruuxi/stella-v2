@@ -2151,7 +2151,7 @@
         "signInBody": "अपनी बातचीत, सेटिंग्स और कनेक्टेड कंप्यूटर हर डिवाइस पर अपने साथ रखें।",
         "signIn": "साइन इन",
         "subscriptionsLabel": "वैकल्पिक",
-        "subscriptionsBody": "Claude या ChatGPT के लिए पहले से भुगतान करते हैं? उसे कनेक्ट करें और मैं क्लाउड में काम के लिए उसका इस्तेमाल करूँगी।",
+        "subscriptionsBody": "Claude या ChatGPT के लिए पहले से भुगतान करते हैं? उसे कनेक्ट करें और मैं उसे आपके कंप्यूटरों और क्लाउड में इस्तेमाल करूँगी।",
         "claudeDesc": "Pro या Max, Claude Code के ज़रिए",
         "chatgptDesc": "Plus या Pro, Codex के ज़रिए",
         "connect": "कनेक्ट करें",
@@ -2478,10 +2478,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude और ChatGPT",
-      "settingsRowBody": "क्लाउड चैट और एजेंट के लिए खाते",
+      "settingsRowBody": "आपके कंप्यूटरों और क्लाउड में इस्तेमाल होने वाले खाते",
       "openSettingsLabel": "Claude और ChatGPT खाते खोलें",
       "title": "Claude और ChatGPT",
-      "subtitle": "क्लाउड चैट और एजेंट के लिए खाते",
+      "subtitle": "आपके कंप्यूटरों और क्लाउड में इस्तेमाल होने वाले खाते",
       "backLabel": "सेटिंग्स पर वापस जाएं",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2504,7 +2504,7 @@
       "connecting": "कनेक्ट हो रहा है…",
       "errorTitle": "खाते अपडेट नहीं हो सके",
       "errorBody": "कुछ गलत हो गया। फिर से कोशिश करें।",
-      "localNote": "ये खाते क्लाउड में इस्तेमाल होते हैं। आपके कंप्यूटर पर, Stella डेस्कटॉप ऐप में सेट किए गए खातों का इस्तेमाल करती है।"
+      "localNote": "ये खाते आपके सभी कंप्यूटरों और क्लाउड में Claude Code और Codex चलाते हैं। Stella एक एन्क्रिप्टेड टोकन रखती है; साइन-इन Claude या ChatGPT के पास ही रहता है।"
     }
   },
   "companion": {

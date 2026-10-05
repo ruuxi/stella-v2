@@ -2170,7 +2170,7 @@
         "signInBody": "Porta con te conversazione, impostazioni e computer collegato su ogni dispositivo.",
         "signIn": "Accedi",
         "subscriptionsLabel": "Facoltativo",
-        "subscriptionsBody": "Paghi già per Claude o ChatGPT? Collegalo e lo userò per il lavoro nel cloud.",
+        "subscriptionsBody": "Paghi già per Claude o ChatGPT? Collegalo e lo userò sui tuoi computer e nel cloud.",
         "claudeDesc": "Pro o Max, tramite Claude Code",
         "chatgptDesc": "Plus o Pro, tramite Codex",
         "connect": "Collega",
@@ -2500,10 +2500,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude e ChatGPT",
-      "settingsRowBody": "Account per chat e agenti nel cloud",
+      "settingsRowBody": "Account usati sui tuoi computer e nel cloud",
       "openSettingsLabel": "Apri gli account Claude e ChatGPT",
       "title": "Claude e ChatGPT",
-      "subtitle": "Account per chat e agenti nel cloud",
+      "subtitle": "Account usati sui tuoi computer e nel cloud",
       "backLabel": "Torna alle Impostazioni",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2526,7 +2526,7 @@
       "connecting": "Connessione…",
       "errorTitle": "Impossibile aggiornare gli account",
       "errorBody": "Qualcosa è andato storto. Riprova.",
-      "localNote": "Questi account vengono usati nel cloud. Sul tuo computer, Stella usa gli account configurati nell'app desktop."
+      "localNote": "Questi account fanno funzionare Claude Code e Codex su tutti i tuoi computer e nel cloud. Stella conserva un token crittografato; l'accesso resta su Claude o ChatGPT."
     }
   },
   "companion": {

@@ -2129,7 +2129,7 @@
         "signInBody": "让您的对话、设置和已连接的电脑出现在每台设备上。",
         "signIn": "登录",
         "subscriptionsLabel": "可选",
-        "subscriptionsBody": "已经在为 Claude 或 ChatGPT 付费？连接它，我就用它来完成云端工作。",
+        "subscriptionsBody": "已经在为 Claude 或 ChatGPT 付费？连接它，我就在你的电脑和云端使用它。",
         "claudeDesc": "Pro 或 Max，通过 Claude Code",
         "chatgptDesc": "Plus 或 Pro，通过 Codex",
         "connect": "连接",
@@ -2453,10 +2453,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude 和 ChatGPT",
-      "settingsRowBody": "用于云端聊天和智能体的账号",
+      "settingsRowBody": "在你的电脑和云端使用的账号",
       "openSettingsLabel": "打开 Claude 和 ChatGPT 账号",
       "title": "Claude 和 ChatGPT",
-      "subtitle": "用于云端聊天和智能体的账号",
+      "subtitle": "在你的电脑和云端使用的账号",
       "backLabel": "返回设置",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2479,7 +2479,7 @@
       "connecting": "正在连接…",
       "errorTitle": "无法更新账号",
       "errorBody": "出了点问题,请重试。",
-      "localNote": "这些账号用于云端。在你的电脑上,Stella 使用在桌面应用中设置的账号。"
+      "localNote": "这些账号为你所有电脑和云端的 Claude Code 与 Codex 提供支持。Stella 保存一个加密令牌；登录仍由 Claude 或 ChatGPT 管理。"
     }
   },
   "companion": {

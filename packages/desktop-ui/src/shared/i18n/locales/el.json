@@ -2151,7 +2151,7 @@
         "signInBody": "Κρατήστε τη συνομιλία, τις ρυθμίσεις και τον συνδεδεμένο υπολογιστή σας σε κάθε συσκευή.",
         "signIn": "Σύνδεση",
         "subscriptionsLabel": "Προαιρετικό",
-        "subscriptionsBody": "Πληρώνετε ήδη για Claude ή ChatGPT; Συνδέστε το και θα το χρησιμοποιώ για εργασίες στο cloud.",
+        "subscriptionsBody": "Πληρώνετε ήδη για Claude ή ChatGPT; Συνδέστε το και θα το χρησιμοποιώ στους υπολογιστές σας και στο cloud.",
         "claudeDesc": "Pro ή Max, μέσω Claude Code",
         "chatgptDesc": "Plus ή Pro, μέσω Codex",
         "connect": "Συνδέστε",
@@ -2478,10 +2478,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude και ChatGPT",
-      "settingsRowBody": "Λογαριασμοί για συνομιλία και πράκτορες στο cloud",
+      "settingsRowBody": "Λογαριασμοί για τους υπολογιστές σας και το cloud",
       "openSettingsLabel": "Άνοιγμα λογαριασμών Claude και ChatGPT",
       "title": "Claude και ChatGPT",
-      "subtitle": "Λογαριασμοί για συνομιλία και πράκτορες στο cloud",
+      "subtitle": "Λογαριασμοί για τους υπολογιστές σας και το cloud",
       "backLabel": "Πίσω στις Ρυθμίσεις",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2504,7 +2504,7 @@
       "connecting": "Σύνδεση…",
       "errorTitle": "Δεν ήταν δυνατή η ενημέρωση των λογαριασμών",
       "errorBody": "Κάτι πήγε στραβά. Δοκιμάστε ξανά.",
-      "localNote": "Αυτοί οι λογαριασμοί χρησιμοποιούνται στο cloud. Στον υπολογιστή σας, η Stella χρησιμοποιεί τους λογαριασμούς που έχουν ρυθμιστεί στην εφαρμογή υπολογιστή."
+      "localNote": "Αυτοί οι λογαριασμοί τροφοδοτούν το Claude Code και το Codex σε όλους τους υπολογιστές σας και στο cloud. Η Stella κρατά ένα κρυπτογραφημένο token· η σύνδεση παραμένει στο Claude ή στο ChatGPT."
     }
   },
   "companion": {

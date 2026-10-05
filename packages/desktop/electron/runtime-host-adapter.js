@@ -31,6 +31,8 @@ export class RuntimeHostAdapter {
     localChatSessions = new Map();
     availabilityListeners = new Set();
     constructor(options) {
+        // Main-side followers of the Stella session (engine account access).
+        this.onAuthTokenChanged = options.onAuthTokenChanged;
         // The host runs in the runtime process; this is the app's handle on it.
         this.host = new RemoteRuntimeHost(options);
         this.host.on("runtime-connected", () => {
@@ -433,6 +435,7 @@ export class RuntimeHostAdapter {
     }
     setAuthToken(value) {
         this.queueRuntimeConfigPatch({ authToken: value });
+        this.onAuthTokenChanged?.(value ?? null);
     }
     setHasConnectedAccount(value) {
         this.queueRuntimeConfigPatch({ hasConnectedAccount: value });

@@ -277,14 +277,6 @@ export const findOauthProvider = (
   provider: string,
 ) => providers.find((entry) => entry.provider === provider);
 
-/**
- * Whether a signed-in subscription connects this provider's models in the
- * picker. A Claude subscription only powers Claude Code; `anthropic/` models
- * need an API key. Other subscriptions (ChatGPT, Copilot, ...) run here.
- */
-export const subscriptionConnectsProviderModels = (provider: string) =>
-  provider !== "anthropic";
-
 export const findOauthCredential = (
   credentials: readonly LocalLlmCredentialSummary[],
   provider: string,

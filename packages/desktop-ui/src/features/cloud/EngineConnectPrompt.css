@@ -1,0 +1,36 @@
+.engine-connect-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 0;
+}
+
+.engine-connect-prompt__code {
+  align-self: flex-start;
+  padding: 4px 10px;
+  border: 1px solid var(--border-weak);
+  border-radius: 8px;
+  font-family: var(--font-family-mono, ui-monospace, monospace);
+  font-size: var(--font-size-lg, 18px);
+  letter-spacing: 0.12em;
+  user-select: all;
+}
+
+.engine-connect-prompt__hint {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+  color: color-mix(in oklch, var(--text-base) 70%, var(--text-weak));
+}
+
+.engine-connect-prompt__error {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--danger);
+}
+
+.engine-connect-prompt__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}

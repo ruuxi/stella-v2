@@ -29,7 +29,8 @@ import { useColors } from "../theme/theme-context";
 import { useT } from "../i18n";
 
 /**
- * Settings › Claude & ChatGPT: the subscriptions that power cloud chat and
+ * Settings › Claude & ChatGPT: the owner's one list of subscriptions, used by
+ * Claude Code and Codex on every one of their computers and by cloud chat and
  * agents. Several accounts per provider, one in use (checked), and an option
  * to move on to the next account when the one in use hits its limit.
  *

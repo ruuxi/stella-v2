@@ -2151,7 +2151,7 @@
         "signInBody": "Pidä keskustelusi, asetuksesi ja yhdistetty tietokoneesi mukanasi jokaisella laitteella.",
         "signIn": "Kirjaudu sisään",
         "subscriptionsLabel": "Valinnainen",
-        "subscriptionsBody": "Maksatko jo Claudesta tai ChatGPT:stä? Yhdistä se, niin käytän sitä pilvessä tehtävään työhön.",
+        "subscriptionsBody": "Maksatko jo Claudesta tai ChatGPT:stä? Yhdistä se, niin käytän sitä tietokoneillasi ja pilvessä.",
         "claudeDesc": "Pro tai Max, Claude Coden kautta",
         "chatgptDesc": "Plus tai Pro, Codexin kautta",
         "connect": "Yhdistä",
@@ -2478,10 +2478,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude ja ChatGPT",
-      "settingsRowBody": "Tilit pilvikeskusteluille ja agenteille",
+      "settingsRowBody": "Tilit tietokoneillesi ja pilveen",
       "openSettingsLabel": "Avaa Claude- ja ChatGPT-tilit",
       "title": "Claude ja ChatGPT",
-      "subtitle": "Tilit pilvikeskusteluille ja agenteille",
+      "subtitle": "Tilit tietokoneillesi ja pilveen",
       "backLabel": "Takaisin asetuksiin",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2504,7 +2504,7 @@
       "connecting": "Yhdistetään…",
       "errorTitle": "Tilejä ei voitu päivittää",
       "errorBody": "Jokin meni vikaan. Yritä uudelleen.",
-      "localNote": "Näitä tilejä käytetään pilvessä. Tietokoneellasi Stella käyttää työpöytäsovelluksessa määritettyjä tilejä."
+      "localNote": "Nämä tilit pyörittävät Claude Codea ja Codexia kaikilla tietokoneillasi ja pilvessä. Stella säilyttää salatun tunnuksen; kirjautuminen pysyy Claudella tai ChatGPT:llä."
     }
   },
   "companion": {

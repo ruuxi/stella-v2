@@ -3,10 +3,12 @@
  *
  * Three ways in, any of which is enough: a Stella account (Google or email,
  * the same dialog as the top bar), or the Claude or ChatGPT subscription the
- * user already pays for, used through Claude Code or Codex. Connecting one
- * of those also makes it the engine Stella runs on, the same switch the
- * model picker makes; a lens slides to whichever one is in use, and tapping
- * another connected row moves it.
+ * user already pays for, used through Claude Code or Codex. A subscription is
+ * added to the Stella account (the same list Settings › Account shows), so it
+ * works on every computer the user signs in on. Connecting one also makes it
+ * the engine Stella runs on, the same switch the model picker makes; a lens
+ * slides to whichever one is in use, and tapping another connected row
+ * moves it.
  *
  * Nothing here blocks: every install already has an anonymous Stella
  * session with free previews, so the step can be skipped.
@@ -18,10 +20,11 @@ import { Check, KeyRound, LogIn } from "@/ui/icons";
 import { useT } from "@/shared/i18n";
 import { AuthDialog } from "@/global/auth/AuthDialog";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
-import {
-  findOauthCredential,
-  useLlmCredentials,
-} from "@/global/settings/hooks/use-llm-credentials";
+import { useAuthState } from "@/global/auth/BackendAuthProvider";
+import type { EngineProvider } from "@stella/contracts/backend/engines";
+import { useCloudEngines } from "@/features/cloud/cloud-engines-api";
+import { EngineConnectPrompt } from "@/features/cloud/EngineConnectPrompt";
+import { useEngineConnect } from "@/features/cloud/use-engine-connect";
 import {
   buildEngineRoutingPatch,
   buildEngineTransitionReasoningPatch,
@@ -40,7 +43,7 @@ type OptionId = "stella" | "claude" | "codex";
 const OPTIONS: {
   id: OptionId;
   engine: ModelPickerEngine;
-  provider?: string;
+  provider?: EngineProvider;
   brand: string;
 }[] = [
   { id: "stella", engine: "default", brand: "stella" },
@@ -76,12 +79,13 @@ const switchEngine = async (engine: ModelPickerEngine): Promise<boolean> => {
 export function SignInCard({ active, answered, onAnswer }: SignInCardProps) {
   const t = useT();
   const session = useAuthSessionState();
-  const credentials = useLlmCredentials();
+  const { isAuthenticated } = useAuthState();
+  const engines = useCloudEngines(isAuthenticated);
+  const connect = useEngineConnect();
   const [authOpen, setAuthOpen] = useState(false);
   const [pending, setPending] = useState<OptionId | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [engine, setEngine] = useState<ModelPickerEngine | null>(null);
-  const cancelledRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -93,18 +97,20 @@ export function SignInCard({ active, answered, onAnswer }: SignInCardProps) {
     };
   }, []);
 
-  const connected = useMemo<Record<OptionId, boolean>>(
-    () => ({
+  const connected = useMemo<Record<OptionId, boolean>>(() => {
+    const connections = engines?.connections ?? [];
+    return {
       stella: session.hasConnectedAccount,
-      claude: Boolean(findOauthCredential(credentials.oauthCredentials, "anthropic")),
-      codex: Boolean(findOauthCredential(credentials.oauthCredentials, "openai-codex")),
-    }),
-    [credentials.oauthCredentials, session.hasConnectedAccount],
-  );
+      claude: connections.some((row) => row.provider === "anthropic"),
+      codex: connections.some((row) => row.provider === "openai-codex"),
+    };
+  }, [engines?.connections, session.hasConnectedAccount]);
   const anyConnected = connected.stella || connected.claude || connected.codex;
   const inUse: OptionId | null = engine ? ENGINE_TO_OPTION[engine] : null;
   // The lens only marks a choice the user can see is real.
   const lensOn: OptionId | null = inUse && connected[inUse] ? inUse : null;
+
+  const { start: startConnect, cancel: cancelConnect } = connect;
 
   const applyEngine = useCallback(async (option: (typeof OPTIONS)[number]) => {
     if (await switchEngine(option.engine)) setEngine(option.engine);
@@ -123,32 +129,23 @@ export function SignInCard({ active, answered, onAnswer }: SignInCardProps) {
         return;
       }
       setPending(option.id);
-      cancelledRef.current = false;
       try {
-        await credentials.loginOAuth(option.provider!, { announceConnection: false });
-        const validation = await credentials.validateOAuth(option.provider!);
-        if (!validation.connected) throw new Error("not connected");
-        await credentials.reload();
-        await applyEngine(option);
+        // Resolves false when the user cancels; the live account list marks
+        // the row connected on its own.
+        if (await startConnect(option.provider!)) await applyEngine(option);
       } catch (caught) {
-        if (!cancelledRef.current) {
-          console.warn("[onboarding-chat] Subscription sign-in failed", caught);
-          setError(t("onboarding.chat.signin.error"));
-        }
+        console.warn("[onboarding-chat] Subscription sign-in failed", caught);
+        setError(t("onboarding.chat.signin.error"));
       } finally {
         setPending(null);
       }
     },
-    [applyEngine, connected, credentials, pending, t],
+    [applyEngine, connected, pending, startConnect, t],
   );
 
   const handleCancel = useCallback(() => {
-    if (pending && pending !== "stella") {
-      cancelledRef.current = true;
-      const provider = OPTIONS.find((option) => option.id === pending)?.provider;
-      if (provider) void credentials.cancelOAuth(provider);
-    }
-  }, [credentials, pending]);
+    if (pending && pending !== "stella") cancelConnect();
+  }, [cancelConnect, pending]);
 
   /* ── The lens: one highlight that glides to the row in use ─────── */
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -272,7 +269,9 @@ export function SignInCard({ active, answered, onAnswer }: SignInCardProps) {
         })}
       </div>
 
-      {pending && pending !== "stella" ? (
+      {connect.flow ? (
+        <EngineConnectPrompt connect={connect} />
+      ) : pending && pending !== "stella" ? (
         <p className="obc-card__fine">
           {t("onboarding.chat.signin.waiting")}{" "}
           <button type="button" className="obc-link-btn" onClick={handleCancel}>

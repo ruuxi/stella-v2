@@ -2151,7 +2151,7 @@
         "signInBody": "Tartsd meg a beszélgetésedet, a beállításaidat és a csatlakoztatott számítógépedet minden eszközön.",
         "signIn": "Bejelentkezés",
         "subscriptionsLabel": "Opcionális",
-        "subscriptionsBody": "Már fizetsz a Claude-ért vagy a ChatGPT-ért? Csatlakoztasd, és a felhőbeli munkához azt használom.",
+        "subscriptionsBody": "Már fizetsz a Claude-ért vagy a ChatGPT-ért? Csatlakoztasd, és a számítógépeiden és a felhőben is azt használom.",
         "claudeDesc": "Pro vagy Max, a Claude Code-on keresztül",
         "chatgptDesc": "Plus vagy Pro, a Codexen keresztül",
         "connect": "Csatlakoztatás",
@@ -2478,10 +2478,10 @@
     },
     "engineAccounts": {
       "settingsRowTitle": "Claude és ChatGPT",
-      "settingsRowBody": "Fiókok a felhőbeli csevegéshez és ügynökökhöz",
+      "settingsRowBody": "Fiókok a számítógépeidhez és a felhőhöz",
       "openSettingsLabel": "Claude- és ChatGPT-fiókok megnyitása",
       "title": "Claude és ChatGPT",
-      "subtitle": "Fiókok a felhőbeli csevegéshez és ügynökökhöz",
+      "subtitle": "Fiókok a számítógépeidhez és a felhőhöz",
       "backLabel": "Vissza a Beállításokhoz",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
@@ -2504,7 +2504,7 @@
       "connecting": "Csatlakozás…",
       "errorTitle": "Nem sikerült frissíteni a fiókokat",
       "errorBody": "Valami hiba történt. Próbáld újra.",
-      "localNote": "Ezeket a fiókokat a felhőben használjuk. A számítógépeden a Stella az asztali alkalmazásban beállított fiókokat használja."
+      "localNote": "Ezek a fiókok működtetik a Claude Code-ot és a Codexet az összes számítógépeden és a felhőben. A Stella titkosított tokent tárol; a bejelentkezés a Claude-nál vagy a ChatGPT-nél marad."
     }
   },
   "companion": {

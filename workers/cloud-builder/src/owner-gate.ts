@@ -541,6 +541,11 @@ const CAPABILITY_VALUES: readonly ExecutionCapability[] = [
   "attachments",
 ];
 
+const withReleasedClientSelectability = (availability: DeviceAvailability) => {
+  const selectable = availability.ready ? 1 : 0;
+  return { ...availability, chatSlots: selectable, agentSlots: selectable };
+};
+
 const parseAvailability = (value: unknown): DeviceAvailability | null => {
   if (!isRecord(value)) return null;
   if (typeof value.ready !== "boolean") return null;
@@ -2270,10 +2275,10 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         ...(presence
           ? {
               presenceSessionId: presence.presenceSessionId,
-              availability: {
+              availability: withReleasedClientSelectability({
                 ready: online && presence.ready,
                 capabilities: presence.capabilities,
-              },
+              }),
               lastSeenAt: presence.lastSeenAt,
             }
           : {}),

@@ -370,14 +370,13 @@ function computerRows(props: {
     const available = Boolean(
       device?.online &&
         device.remoteExecutionEnabled &&
-        device.availability?.ready === true &&
-        (device.availability?.chatSlots ?? 0) > 0,
+        device.availability?.ready === true,
     );
     const status = available
       ? "Online"
       : device?.online
         ? device.remoteExecutionEnabled
-          ? "Busy"
+          ? "Not ready"
           : "Unavailable"
         : isActive && props.active
           ? props.active.statusLabel

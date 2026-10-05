@@ -1451,6 +1451,102 @@ describe("a computer named for device agent work", () => {
     expect(second.response.dispatch.errorMessage).toBeUndefined();
   });
 
+  const acceptOn = async (
+    harness: GateHarness,
+    socket: Parameters<GateHarness["sendFrame"]>[0],
+    at: number,
+  ) => {
+    const submitted = await withNow(at, () =>
+      harness.instance.submit({ request: deviceAgent(), now: at }),
+    );
+    expect(submitted.response.dispatch.state).toBe("offering");
+    const dispatchId = submitted.response.dispatch.dispatchId;
+    await withNow(at + 10, () =>
+      harness.sendFrame(socket, {
+        type: "claim",
+        dispatchId,
+        claimRequestId: `claim-${dispatchId}`,
+      }),
+    );
+    await withNow(at + 20, () =>
+      harness.sendFrame(socket, { type: "ack", dispatchId }),
+    );
+    return dispatchId;
+  };
+
+  const stateOf = async (harness: GateHarness, dispatchId: string) =>
+    (await harness.instance.dispatchStatus(dispatchId)).response.dispatch.state;
+
+  test("runs several agents on one computer at the same time", async () => {
+    const desk = await generateDeviceKey("desk-1");
+    const harness = open(OwnerGate, { snapshot: snapshotWith([desk]) });
+    const { socket } = await withNow(NOW, () => harness.connect(desk));
+    const dispatchIds: string[] = [];
+    for (const at of [NOW, NOW + 100, NOW + 200, NOW + 300]) {
+      const dispatchId = await acceptOn(harness, socket, at);
+      await withNow(at + 30, () =>
+        harness.sendFrame(socket, { type: "running", dispatchId }),
+      );
+      dispatchIds.push(dispatchId);
+    }
+    for (const dispatchId of dispatchIds) {
+      expect(await stateOf(harness, dispatchId)).toBe("computer_running");
+    }
+    expect((await harness.instance.devices(NOW + 400)).devices[0]).toMatchObject({
+      online: true,
+      availability: { ready: true },
+    });
+  });
+
+  test("a stuck or unacknowledged handoff never blocks new work", async () => {
+    const desk = await generateDeviceKey("desk-1");
+    const harness = open(OwnerGate, { snapshot: snapshotWith([desk]) });
+    const { socket } = await withNow(NOW, () => harness.connect(desk));
+    const lapsed = await acceptOn(harness, socket, NOW);
+    const stopping = await acceptOn(harness, socket, NOW + 100);
+    const cancel = await harness.instance.cancelDispatch({
+      dispatchId: stopping,
+      cancelRequestId: "cancel-never-acknowledged",
+      now: NOW + 200,
+    });
+    expect(cancel.response.dispatch.state).toBe("cancel_pending");
+
+    const later = NOW + 20 + DISPATCH_ACCEPTED_LEASE_MS + 1;
+    for (const at of [NOW + 50_000, NOW + 100_000, later]) {
+      await withNow(at, () => harness.sendFrame(socket, { type: "ping" }));
+    }
+    await withNow(later, () => harness.instance.alarm());
+    expect(await stateOf(harness, lapsed)).toBe("reconciliation_required");
+    expect(["cancel_pending", "reconciliation_required"]).toContain(
+      await stateOf(harness, stopping),
+    );
+    expect((await harness.instance.devices(later)).devices[0]).toMatchObject({
+      online: true,
+      availability: { ready: true },
+    });
+
+    const fresh = await acceptOn(harness, socket, later + 100);
+    expect(await stateOf(harness, fresh)).toBe("computer_accepted");
+  });
+
+  test("keeps device pickers on already released clients selectable", async () => {
+    const ready = await generateDeviceKey("desk-1");
+    const starting = await generateDeviceKey("desk-2");
+    const harness = open(OwnerGate, {
+      snapshot: snapshotWith([ready, starting]),
+    });
+    const { socket } = await withNow(NOW, () => harness.connect(ready));
+    await withNow(NOW, () =>
+      harness.connect(starting, { availability: { ready: false } }),
+    );
+    await acceptOn(harness, socket, NOW + 100);
+    const devices = (await harness.instance.devices(NOW + 200)).devices;
+    expect(devices.find((device) => device.deviceId === "desk-1")?.availability)
+      .toMatchObject({ ready: true, chatSlots: 1, agentSlots: 1 });
+    expect(devices.find((device) => device.deviceId === "desk-2")?.availability)
+      .toMatchObject({ ready: false, chatSlots: 0, agentSlots: 0 });
+  });
+
   test("a lapsed offer reports that the computer did not accept it", async () => {
     const desk = await generateDeviceKey("desk-1");
     const harness = open(OwnerGate, { snapshot: snapshotWith([desk]) });

@@ -140,8 +140,6 @@ export type GateHarness = {
     options?: {
       availability?: Partial<{
         ready: boolean;
-        chatSlots: number;
-        agentSlots: number;
         capabilities: string[];
       }>;
       presenceSessionId?: string;
@@ -375,8 +373,6 @@ export const createGateHarness = (
         protocolVersion: 1,
         availability: {
           ready: true,
-          chatSlots: 1,
-          agentSlots: 1,
           capabilities: ["chat", "agent", "attachments"],
           ...(connectOptions.availability ?? {}),
         } as never,

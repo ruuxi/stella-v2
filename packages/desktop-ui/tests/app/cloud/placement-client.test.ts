@@ -280,8 +280,6 @@ describe("owner gate placement client", () => {
             online: true,
             availability: {
               ready: true,
-              chatSlots: 1,
-              agentSlots: 1,
               capabilities: ["chat", "agent"],
             },
           },

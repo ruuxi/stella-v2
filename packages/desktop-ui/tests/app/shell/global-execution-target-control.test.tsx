@@ -30,8 +30,6 @@ vi.mock("@/features/cloud/placement-client", async (importOriginal) => ({
           online: true,
           availability: {
             ready: true,
-            chatSlots: 1,
-            agentSlots: 1,
             capabilities: ["chat"],
           },
         },
@@ -158,5 +156,10 @@ describe("GlobalExecutionTargetControl", () => {
       },
     ]);
     expect(container.textContent).toContain("Studio iMac");
+    const studio = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Studio iMac"),
+    );
+    expect(studio?.disabled).toBe(false);
+    expect(container.textContent).not.toContain("Busy");
   });
 });

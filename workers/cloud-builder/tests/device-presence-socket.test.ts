@@ -85,6 +85,8 @@ describe("device presence socket", () => {
         availability: {
           ready: true,
           capabilities: ["chat", "agent", "attachments"],
+          chatSlots: 1,
+          agentSlots: 1,
         },
         lastSeenAt: expect.any(Number),
       },
@@ -177,7 +179,7 @@ describe("device presence socket", () => {
     expect(devices.devices[0].lastSeenAt).toBe(NOW);
   });
 
-  test("an availability update replaces the advertised slots", async () => {
+  test("an availability update replaces the advertised availability", async () => {
     const { keys, snapshot } = await withDevices(["desk-1"]);
     const harness = open(OwnerGate, { snapshot });
     const { socket } = await harness.connect(keys[0]!);
@@ -192,6 +194,8 @@ describe("device presence socket", () => {
     expect(devices.devices[0].availability).toEqual({
       ready: false,
       capabilities: ["chat", "agent", "computer-use"],
+      chatSlots: 0,
+      agentSlots: 0,
     });
     // A malformed availability is a protocol error rather than a silent drop.
     await harness.sendFrame(socket, {

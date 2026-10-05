@@ -172,13 +172,12 @@ export function GlobalExecutionTargetControl() {
             const selectable =
               device.online &&
               device.remoteExecutionEnabled &&
-              device.availability?.ready === true &&
-              (device.availability?.chatSlots ?? 0) > 0;
+              device.availability?.ready === true;
             const unavailableLabel = !device.online
               ? "Offline"
               : !device.remoteExecutionEnabled
                 ? "Unavailable"
-                : "Busy";
+                : "Not ready";
             return (
               <button
                 key={device.deviceId}

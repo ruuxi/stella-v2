@@ -814,7 +814,8 @@ export class ExecutionPlacementBridge {
     string,
     { attempts: number; nextAt: number }
   >();
-  private offerQueue: Promise<void> = Promise.resolve();
+  private readonly offerTasks = new Set<Promise<void>>();
+  private readonly offersInFlight = new Set<string>();
   private readonly executing = new Set<string>();
   private readonly executionTasks = new Map<string, Promise<void>>();
   private readonly cancellationInFlight = new Map<string, Promise<boolean>>();
@@ -1289,15 +1290,11 @@ export class ExecutionPlacementBridge {
         return;
       }
       case "offer": {
-        this.offerQueue = this.offerQueue
-          .then(() => this.handleOffer(frame))
-          .catch((error) =>
-            this.log(
-              "error",
-              "Execution placement offer handling failed.",
-              error,
-            ),
-          );
+        const task = this.handleOffer(frame).catch((error) =>
+          this.log("error", "Execution placement offer handling failed.", error),
+        );
+        this.offerTasks.add(task);
+        void task.finally(() => this.offerTasks.delete(task));
         return;
       }
       case "offer.withdrawn": {
@@ -1586,7 +1583,7 @@ export class ExecutionPlacementBridge {
     // No replacement bridge may take over presence until every continuation
     // already admitted by this instance has crossed the stop fence.
     await this.heartbeatTask?.catch(() => undefined);
-    await this.offerQueue.catch(() => undefined);
+    await Promise.allSettled([...this.offerTasks]);
 
     const now = this.now();
     for (const row of this.inbox.listAllUnfinished()) {
@@ -1711,7 +1708,7 @@ export class ExecutionPlacementBridge {
     this.claimAckRetry.clear();
     this.sessionReady = false;
     this.lifecycleEpoch += 1;
-    await this.offerQueue.catch(() => undefined);
+    await Promise.allSettled([...this.offerTasks]);
     this.ownerId = identity.ownerId;
     this.ownerGeneration = identity.ownerGeneration;
     this.builderOrigin = identity.builderOrigin;
@@ -2005,10 +2002,24 @@ export class ExecutionPlacementBridge {
     }
     if (
       this.executing.has(dispatch.dispatchId) ||
+      this.offersInFlight.has(dispatch.dispatchId) ||
       this.inbox.get(dispatch.dispatchId)
     ) {
       return;
     }
+    this.offersInFlight.add(dispatch.dispatchId);
+    try {
+      await this.claimOffer(frame, dispatch, epoch);
+    } finally {
+      this.offersInFlight.delete(dispatch.dispatchId);
+    }
+  }
+
+  private async claimOffer(
+    frame: { payloadJson: string; payloadHash: string },
+    dispatch: DispatchSummary,
+    epoch: number,
+  ) {
     if (typeof frame.payloadJson !== "string" || !frame.payloadJson) return;
     if (sha256(frame.payloadJson) !== frame.payloadHash) {
       this.log("warn", "Refused an offer whose payload hash did not match.");

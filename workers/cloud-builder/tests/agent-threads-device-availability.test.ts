@@ -51,12 +51,12 @@ const open = (options: {
   return { harness, dispatched, delivered };
 };
 
-const spawn = async (harness: OwnerStoreHarness) => {
+const spawn = async (harness: OwnerStoreHarness, clientMsgId = "client-msg-0001") => {
   const response = await harness.store.internalCall("agentThreads.spawnOnDevice", {
     ownerGeneration: "generation-1",
     conversationId: "conversation-1",
     parentTurnId: "parent-turn-1",
-    clientMsgId: "client-msg-0001",
+    clientMsgId,
     targetDeviceId: "desk-1",
     description: "Survey the project",
     prompt: "Survey the project and report back.",
@@ -133,6 +133,31 @@ describe("a device agent spawned onto an offline computer", () => {
     expect((await threadOf(harness, spawned.threadId)).status).toBe("running");
     await harness.runJobs(start + 12_000);
     expect(dispatched[1]).toMatchObject({ requeue: 1 });
+  });
+});
+
+describe("several device agents spawned onto one online computer", () => {
+  test("all start right away instead of waiting for each other", async () => {
+    const { harness, dispatched } = open({
+      device: { availability: { ready: true, capabilities: ["agent"] } },
+      outcomes: ["accepted", "accepted", "accepted"],
+    });
+    const spawned = [
+      await spawn(harness, "client-msg-0001"),
+      await spawn(harness, "client-msg-0002"),
+      await spawn(harness, "client-msg-0003"),
+    ];
+    for (const thread of spawned) {
+      expect(thread.status).toBe("running");
+      expect(thread.waitingForDevice).toBeUndefined();
+    }
+    await harness.runJobs(Date.now() + 1_000);
+    expect(dispatched).toHaveLength(3);
+    expect(new Set(dispatched.map((input) => input.threadId)).size).toBe(3);
+    for (const input of dispatched) expect(input.requeue).toBeUndefined();
+    for (const thread of spawned) {
+      expect((await threadOf(harness, thread.threadId)).status).toBe("running");
+    }
   });
 });
 

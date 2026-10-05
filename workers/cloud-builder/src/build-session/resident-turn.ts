@@ -535,7 +535,7 @@ export const prepareAgentBrokerHandoff = async (
     turnBrokerStorageKey(brokerIdentity),
     issued.record,
   );
-  const credentialsPath = turnBrokerCredentialsPath();
+  const credentialsPath = turnBrokerCredentialsPath("/workspace");
   await args.session.writeFile(credentialsPath, JSON.stringify(issued.handoff));
   const protectedHandoff = await args.session.exec(
     `chmod 600 ${credentialsPath}`,

@@ -176,14 +176,22 @@ describe("agent executor result decoder", () => {
     const controller = new AbortController();
 
     await expect(
-      waitForCloudAgentTurnResultText(session as never, [controller.signal]),
+      waitForCloudAgentTurnResultText(
+        session as never,
+        "/workspace/.stella-turn-attempts/result.json",
+        [controller.signal],
+      ),
     ).resolves.toBe(expected);
     expect(reads).toBe(3);
 
     const canceled = new AbortController();
     canceled.abort(new Error("turn canceled"));
     await expect(
-      waitForCloudAgentTurnResultText(session as never, [canceled.signal]),
+      waitForCloudAgentTurnResultText(
+        session as never,
+        "/workspace/.stella-turn-attempts/result.json",
+        [canceled.signal],
+      ),
     ).rejects.toThrow("turn canceled");
   });
 });

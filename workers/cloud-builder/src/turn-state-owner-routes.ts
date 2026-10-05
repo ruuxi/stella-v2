@@ -1341,7 +1341,7 @@ export const handleTurnStateOwnerRoute = async (args: {
           "manifestId",
           "createdAt",
         ],
-        ["nativeCheckpoint"],
+        ["nativeCheckpoint", "nativeOnly"],
       );
       validateSchemaVersion(row);
       const lease = parseCommonLease(row);
@@ -1359,6 +1359,14 @@ export const handleTurnStateOwnerRoute = async (args: {
         : undefined;
       const requestFingerprint = requiredHex(row, "requestFingerprint");
       const createdAt = requiredSafeInteger(row, "createdAt", 0);
+      if (Object.hasOwn(row, "nativeOnly") && row.nativeOnly !== true) {
+        throw new TurnStateOwnerRouteError(
+          "nativeOnly is invalid.",
+          400,
+          "invalid_request",
+        );
+      }
+      const nativeOnly = row.nativeOnly === true;
       const prepared = await withCurrentOpenLeaseTransaction(
         args,
         lease,
@@ -1368,6 +1376,7 @@ export const handleTurnStateOwnerRoute = async (args: {
             requestFingerprint,
             historyCursor,
             manifestId: requiredHex(row, "manifestId"),
+            ...(nativeOnly ? { nativeOnly: true as const } : {}),
             ...(nativeCheckpoint ? { nativeCheckpoint } : {}),
             createdAt,
           });

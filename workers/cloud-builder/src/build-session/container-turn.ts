@@ -100,8 +100,12 @@ import type {
 import type { ExecutionSession } from "../sandbox-client.js";
 import { isCloudBrowserSuspension } from "@stella/contracts/cloud-browser";
 import type { CloudCliTurnRoleInput } from "@stella/contracts/cloud-orchestrator-cli";
+import {
+  CLOUD_TURN_ATTEMPT_ANCHOR,
+  CLOUD_TURN_ATTEMPT_DIRECTORY_FLAG,
+  cloudTurnAttemptPaths,
+} from "@stella/contracts/cloud-turn-attempt";
 import type { AgentHistoryRow } from "@stella/executor-cloud/agent-history";
-import { CLOUD_AGENT_TURN_RESULT_PATH } from "@stella/executor-cloud/agent-turn-result-file";
 import { attachedToolPaths } from "@stella/executor-cloud/attached-tool-protocol";
 import {
   runToolEffect,
@@ -149,9 +153,10 @@ export type ContainerTurnHost = Pick<
 
 const readCloudAgentTurnResultText = async (
   session: Pick<ExecutionSession, "readFile">,
+  resultPath: string,
 ): Promise<string | undefined> => {
   try {
-    const recorded = await session.readFile(CLOUD_AGENT_TURN_RESULT_PATH, {
+    const recorded = await session.readFile(resultPath, {
       encoding: "base64",
     });
     const bytes = Uint8Array.from(atob(recorded.content), (character) =>
@@ -173,6 +178,7 @@ const readCloudAgentTurnResultText = async (
 
 export const waitForCloudAgentTurnResultText = async (
   session: Pick<ExecutionSession, "readFile">,
+  resultPath: string,
   signals: readonly AbortSignal[],
   cancellation?: TurnRetryCancellation,
 ): Promise<string> => {
@@ -193,7 +199,7 @@ export const waitForCloudAgentTurnResultText = async (
   while (true) {
     const reason = abortError();
     if (reason) throw reason;
-    const recorded = await readCloudAgentTurnResultText(session);
+    const recorded = await readCloudAgentTurnResultText(session, resultPath);
     const afterReadReason = abortError();
     if (afterReadReason) throw afterReadReason;
     if (recorded !== undefined) {
@@ -1387,7 +1393,15 @@ export const runAgentAttempt = async (
   const brokerRecordKey = turnBrokerStorageKey(brokerIdentity);
   await host.ctx.storage.put(brokerRecordKey, issuedBroker.record);
   turnExecution.assertActive();
-  const brokerCredentialsPath = turnBrokerCredentialsPath();
+  // Every handoff file of this attempt lives in its own root-only
+  // directory: the container runs other threads' attempts beside this one.
+  const attemptPaths = cloudTurnAttemptPaths(
+    await nativeStateThreadHash(turn),
+    turn.attemptGeneration!,
+  );
+  const brokerCredentialsPath = turnBrokerCredentialsPath(
+    attemptPaths.directory,
+  );
   let credentialsPath: string | undefined;
   let projectInput: Record<string, unknown> | undefined;
   let execution: Execution | undefined;
@@ -1395,6 +1409,15 @@ export const runAgentAttempt = async (
   let recordedExecutorResultText: string | undefined;
   let recordedResultProcessQuiesced = false;
   try {
+    // A lost predecessor of this exact attempt may have left files behind;
+    // start from an empty directory so none of them is read as this one's.
+    const createdAttemptDirectory = await session.exec(
+      `mkdir -p ${CLOUD_TURN_ATTEMPT_ANCHOR} && chmod 700 ${CLOUD_TURN_ATTEMPT_ANCHOR} && rm -rf ${attemptPaths.directory} && mkdir -m 700 ${attemptPaths.directory}`,
+    );
+    if (!createdAttemptDirectory.success) {
+      throw new Error("Turn attempt directory could not be created.");
+    }
+    turnExecution.assertActive();
     await session.writeFile(
       brokerCredentialsPath,
       JSON.stringify(issuedBroker.handoff),
@@ -1421,10 +1444,10 @@ export const runAgentAttempt = async (
     );
     turnExecution.assertActive();
 
-    // turn-input.json sits above the world root on purpose: the
-    // checkpoint only covers the root, so nothing here reaches a durable
-    // backup. The executor unlinks it before any model or tool process
-    // exists, so the capability never becomes readable by agent shells.
+    // The turn input sits in the root-only attempt directory, above the
+    // world root on purpose: the checkpoint only covers the root, so
+    // nothing here reaches a durable backup. The executor unlinks it before
+    // any model or tool process exists.
     turnExecution.assertActive();
     let roleInput: CloudCliTurnRoleInput = { role: "agent" };
     if (orchestrator) {
@@ -1444,7 +1467,7 @@ export const runAgentAttempt = async (
       roleInput = { role: "orchestrator", ...spec };
     }
     await session.writeFile(
-      "/workspace/turn-input.json",
+      attemptPaths.input,
       JSON.stringify({
         ...roleInput,
         kind: "agent",
@@ -1481,13 +1504,6 @@ export const runAgentAttempt = async (
       }),
     );
     turnExecution.assertActive();
-    // Remove any result left by a lost predecessor before this exact
-    // executor is admitted. The file sits in root-owned /workspace, outside
-    // every checkpointed/model-writable workspace root.
-    await session
-      .deleteFile(CLOUD_AGENT_TURN_RESULT_PATH)
-      .catch(() => undefined);
-    turnExecution.assertActive();
     const markerKey = agentExecutionMarkerKey(
       turn.turnId,
       turn.attemptGeneration!,
@@ -1504,7 +1520,13 @@ export const runAgentAttempt = async (
     const resultPollCancellation = createTurnRetryCancellation();
     const captureOutcome = capturedSessionExec(
       sandbox,
-      ["bun", "packages/executor-cloud/src/cli.ts", "--agent-turn"],
+      [
+        "bun",
+        "packages/executor-cloud/src/cli.ts",
+        "--agent-turn",
+        CLOUD_TURN_ATTEMPT_DIRECTORY_FLAG,
+        attemptPaths.directory,
+      ],
       args.commandTimeoutMs,
       {
         cwd: "/opt/stella",
@@ -1627,6 +1649,7 @@ export const runAgentAttempt = async (
     );
     const resultFileOutcome = waitForCloudAgentTurnResultText(
       session,
+      attemptPaths.result,
       [turnExecution.signal],
       resultPollCancellation,
     ).then(
@@ -1686,10 +1709,10 @@ export const runAgentAttempt = async (
   } catch (error) {
     capturedExecutionError = error;
   } finally {
-    recordedExecutorResultText ??= await readCloudAgentTurnResultText(session);
-    await session
-      .deleteFile(CLOUD_AGENT_TURN_RESULT_PATH)
-      .catch(() => undefined);
+    recordedExecutorResultText ??= await readCloudAgentTurnResultText(
+      session,
+      attemptPaths.result,
+    );
     // The executor unlinks this the moment it has read it; this is the
     // backstop for an executor that died before it got that far, so the
     // token cannot outlive the process that needed it.
@@ -1697,6 +1720,12 @@ export const runAgentAttempt = async (
       await session.deleteFile(credentialsPath).catch(() => undefined);
     }
     await session.deleteFile(brokerCredentialsPath).catch(() => undefined);
+    // The finished attempt's directory goes with its input, result and
+    // handoff. If this fails the directory stays root-only, and a retry of
+    // this attempt clears it before writing anything.
+    await session
+      .exec(`rm -rf ${attemptPaths.directory}`)
+      .catch(() => undefined);
     await host.ctx.storage.transaction(async (txn) => {
       const current = await txn.get<TurnBrokerRecord>(brokerRecordKey);
       if (

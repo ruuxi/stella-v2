@@ -9,6 +9,7 @@
  * stdout is the structured report the DO parses.
  */
 
+import type { CloudTurnAttemptPaths } from "@stella/contracts/cloud-turn-attempt";
 import { constants as fsConstants, existsSync } from "node:fs";
 import {
   chmod,
@@ -127,14 +128,6 @@ import {
 import { createTurnBrokerBrowserSessionFactory } from "./cloud-browser-session.js";
 
 export { CLOUD_TOOL_PROCESS_IDENTITY } from "./cloud-process-isolation.js";
-
-/**
- * The turn input file sits above the workspace root and is readable by every
- * shell the agent runs, so the executor consumes it and immediately unlinks
- * it: the thread history and broker handoff it carries are executor inputs,
- * not the agent's context.
- */
-const TURN_INPUT_PATH = "/workspace/turn-input.json";
 
 export type CloudModelGatewayInput = {
   /** Public origin of the model gateway (`MODEL_GATEWAY_URL`). */
@@ -529,13 +522,21 @@ export const hydrateDriveForAgentTurn = async (
   }
 };
 
-export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
+/**
+ * The turn input sits in this attempt's root-only directory (see
+ * cloud-turn-attempt.ts). The executor still consumes it and unlinks it at
+ * once: the thread history, capabilities and broker handoff it carries are
+ * executor inputs, never the agent's context.
+ */
+export const runAgentTurn = (
+  attempt: CloudTurnAttemptPaths,
+): Effect.Effect<AgentTurnResult, Error> =>
   Effect.scoped(
     Effect.gen(function* () {
       const input = yield* Effect.tryPromise({
         try: async () => {
-          const raw = await readFile(TURN_INPUT_PATH, "utf8");
-          await rm(TURN_INPUT_PATH, { force: true });
+          const raw = await readFile(attempt.input, "utf8");
+          await rm(attempt.input, { force: true });
           return JSON.parse(raw) as AgentTurnInput;
         },
         catch: asError,

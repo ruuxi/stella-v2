@@ -490,9 +490,30 @@ export const executeTurnStateCheckpoint = async (
   const { turn, operationKey, operation } = args;
   await host.assertTurnWritable(turn);
   host.assertAgentTurnIdentity(turn);
-  const worldCheckpoint = await host.env.WORLDS.getByName(
-    await worldName(turn.ownerId),
-  ).checkpoint({ historyCursor: operation.payload.historyCursor });
+  // The orchestrator's CLI thread never has the world materialized, so its
+  // checkpoint is native state only: it names the owner's published
+  // workspace head instead of sealing the shared world at its own cursor,
+  // and its publication never moves that head.
+  const nativeOnly = turn.agentRole === "orchestrator";
+  const publishedHead = nativeOnly
+    ? (
+        await host.callOwnerTurnState<{
+          workspace?: { manifestId?: unknown };
+        }>(turn, "resolve", {
+          threadId: turn.threadId,
+          canonicalHistoryCursor: operation.payload.historyCursor,
+          requireNative: false,
+        })
+      )?.workspace?.manifestId
+    : undefined;
+  const worldCheckpoint =
+    typeof publishedHead === "string" && /^[0-9a-f]{64}$/u.test(publishedHead)
+      ? { manifestId: publishedHead }
+      : // An owner with no published head yet: seal the world once so the
+        // operation names a real manifest. Nothing in it came from this turn.
+        await host.env.WORLDS.getByName(
+          await worldName(turn.ownerId),
+        ).checkpoint({ historyCursor: operation.payload.historyCursor });
 
   const prepared = await registryBookkeepingAfterCheckpoint(
     operation.payload.historyCursor,
@@ -507,6 +528,7 @@ export const executeTurnStateCheckpoint = async (
           requestFingerprint: operation.requestFingerprint,
           historyCursor: operation.payload.historyCursor,
           manifestId: worldCheckpoint.manifestId,
+          ...(nativeOnly ? { nativeOnly: true } : {}),
           createdAt: operation.createdAt,
           ...(operation.payload.nativeCheckpoint
             ? { nativeCheckpoint: operation.payload.nativeCheckpoint }

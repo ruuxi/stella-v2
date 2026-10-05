@@ -88,6 +88,12 @@ type OperationRecord = {
   requestFingerprint: string;
   historyCursor: string;
   manifestId: string;
+  /**
+   * The operation names the workspace head it ran against but never moves
+   * it: the orchestrator's CLI thread checkpoints native state only, since
+   * no world is materialized for it.
+   */
+  nativeOnly?: true;
   nativeCheckpoint?: TurnStateNativeCheckpoint;
   objectKeys: { native?: string };
   state: "prepared" | "committed";
@@ -238,6 +244,7 @@ export const prepareTurnStateOperation = async (
     requestFingerprint: string;
     historyCursor: string;
     manifestId: string;
+    nativeOnly?: true;
     nativeCheckpoint?: TurnStateNativeCheckpoint;
     createdAt: number;
   },
@@ -277,6 +284,7 @@ export const prepareTurnStateOperation = async (
     requestFingerprint: args.requestFingerprint,
     historyCursor: args.historyCursor,
     manifestId: args.manifestId,
+    ...(args.nativeOnly ? { nativeOnly: true as const } : {}),
     ...(args.nativeCheckpoint
       ? { nativeCheckpoint: args.nativeCheckpoint }
       : {}),
@@ -301,6 +309,7 @@ export const prepareTurnStateOperation = async (
         existing.requestFingerprint !== args.requestFingerprint ||
         existing.historyCursor !== args.historyCursor ||
         existing.manifestId !== args.manifestId ||
+        existing.nativeOnly !== args.nativeOnly ||
         !sameJson(existing.identity, args.identity) ||
         !sameJson(existing.nativeCheckpoint, args.nativeCheckpoint) ||
         !sameJson(existing.objectKeys, objectKeys)
@@ -715,10 +724,15 @@ export const publishTurnStateWorkspace = async (
     if (operation.publicationReceipt) {
       return { workspaceHead, publicationReceipt, replayed: true };
     }
-    await tx.put(workspaceKey, {
-      ...workspaceState,
-      head: workspaceHead,
-    } satisfies WorkspaceRecord);
+    // A native-only operation publishes its transcript authority but leaves
+    // the workspace head alone, so it can never regress a head an agent
+    // published meanwhile. It seeds the head only when there is none yet.
+    if (!operation.nativeOnly || !workspaceState.head) {
+      await tx.put(workspaceKey, {
+        ...workspaceState,
+        head: workspaceHead,
+      } satisfies WorkspaceRecord);
+    }
     await tx.put(operationRecordKey(args.operationId), {
       ...operation,
       publicationReceipt,

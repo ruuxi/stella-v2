@@ -1,10 +1,13 @@
+import {
+  CLOUD_TURN_ATTEMPT_DIRECTORY_FLAG,
+  parseCloudTurnAttemptDirectory,
+} from "@stella/contracts/cloud-turn-attempt";
 import { loadModelRegistry } from "@stella/contracts/model-registry";
 import { registerBuiltInApiProviders } from "@stella/runtime/ai/providers/register-builtins.js";
 import "@stella/runtime/ai/utils/http-proxy.js";
 import { forkAbortTimer } from "@stella/runtime/kernel/tools/effect-runtime.js";
 import { Effect } from "effect";
 import { readFile, rm, writeFile } from "node:fs/promises";
-import { CLOUD_AGENT_TURN_RESULT_PATH } from "./agent-turn-result-file.js";
 import { runAgentTurn } from "./agent-turn.js";
 import {
   attachedToolClientPaths,
@@ -77,18 +80,29 @@ if (process.argv.includes("--attached-tool-client")) {
 }
 
 const agentTurn = process.argv.includes("--agent-turn");
+const attemptFlag = process.argv.indexOf(CLOUD_TURN_ATTEMPT_DIRECTORY_FLAG);
+const attempt = agentTurn
+  ? parseCloudTurnAttemptDirectory(
+      attemptFlag >= 0 ? process.argv[attemptFlag + 1] : undefined,
+    )
+  : null;
+if (agentTurn && !attempt) {
+  throw new Error(
+    `Agent turn requires ${CLOUD_TURN_ATTEMPT_DIRECTORY_FLAG} <attempt directory>.`,
+  );
+}
 const result = process.argv.includes("--stub")
   ? await Effect.runPromise(
       runStubTurn(process.env.STELLA_CLOUD_WORKSPACE_ROOT ?? "/workspace"),
     )
-  : agentTurn
-    ? await Effect.runPromise(runAgentTurn())
+  : attempt
+    ? await Effect.runPromise(runAgentTurn(attempt))
     : (() => {
         throw new Error("executor-cloud requires a supported command.");
       })();
 const serialized = JSON.stringify(result);
-if (agentTurn) {
-  await writeFile(CLOUD_AGENT_TURN_RESULT_PATH, `${serialized}\n`, {
+if (attempt) {
+  await writeFile(attempt.result, `${serialized}\n`, {
     encoding: "utf8",
     mode: 0o600,
   });

@@ -478,17 +478,18 @@ export const sweepR2Prefix = async (
 };
 
 /**
- * Where the broker credential is handed to the executor: a one-shot file that
- * sits in `/workspace`, above the checkpointed world, with a random name so
- * nothing can be waiting on a known path.
+ * Where the broker credential is handed to the executor: a one-shot file in
+ * `directory` (a container attempt's root-only directory, or `/workspace` for
+ * a resident turn's tool host), above the checkpointed world, with a random
+ * name so nothing can be waiting on a known path.
  *
  * Deliberately not an env var on the exec session: the executor's own
  * environment is inherited by every shell the agent spawns, and `unsetenv`
  * does not scrub `/proc/<pid>/environ`, so an env handoff stays readable for
  * the whole turn — which is the defect this avoids.
  */
-export const turnBrokerCredentialsPath = (): string =>
-  `/workspace/.turn-broker-${crypto.randomUUID()}.json`;
+export const turnBrokerCredentialsPath = (directory: string): string =>
+  `${directory}/.turn-broker-${crypto.randomUUID()}.json`;
 
 /**
  * Mint the model-gateway capability for one admitted agent turn. It is the

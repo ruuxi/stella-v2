@@ -2505,7 +2505,6 @@
       "pastePlaceholderUrl": "Paste the address here",
       "openChatgptAgain": "Open ChatGPT again",
       "chatgptBrowserWaiting": "Finish signing in to ChatGPT in your browser.",
-      "claudeNote": "Stella's server only stores encrypted tokens.",
       "continueWithChatgpt": "Continue with ChatGPT",
       "signInAgain": "Sign in again",
       "enablePlanUsage": "Enable ChatGPT plan use",

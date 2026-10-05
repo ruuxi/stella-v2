@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -6,7 +6,10 @@ import {
   Text,
   View,
 } from "react-native";
-import { openChatGptUsage } from "./EngineAccountsSettings";
+import {
+  EngineAccountSection,
+  openChatGptUsage,
+} from "./EngineAccountsSettings";
 import { Icon } from "./Icon";
 import { GlassToggle } from "./glass";
 import { SegmentedControl } from "./SegmentedControl";
@@ -23,6 +26,9 @@ import {
   type ModelEngine,
   type ModelSettings,
 } from "../lib/use-cloud-model-settings";
+
+/** Rows shown before "show more". Six at once was too many to scan. */
+const COLLAPSED_MODEL_COUNT = 3;
 
 type Props = {
   settings: ModelSettings;
@@ -54,6 +60,28 @@ export function ModelSettingsPanel({
   const ready = settings.execution !== null;
   const engine = settings.engine;
   const rows = settings.modelsFor(engine);
+
+  const [modelsExpanded, setModelsExpanded] = useState(false);
+
+  // A different engine is a different list; start it collapsed again.
+  useEffect(() => {
+    setModelsExpanded(false);
+  }, [engine]);
+
+  const visibleRows = useMemo(() => {
+    if (modelsExpanded || rows.length <= COLLAPSED_MODEL_COUNT) return rows;
+    const head = rows.slice(0, COLLAPSED_MODEL_COUNT);
+    // Never fold away the model actually in effect: hiding the checked row
+    // behind "show more" hides the current setting, which is the one thing
+    // this list exists to report.
+    if (!head.some((model) => model.selected)) {
+      const selected = rows.find((model) => model.selected);
+      if (selected) head.push(selected);
+    }
+    return head;
+  }, [rows, modelsExpanded]);
+
+  const hiddenCount = rows.length - visibleRows.length;
   const cloudDisconnected =
     engine !== "stella" &&
     settings.connectedProviders !== undefined &&
@@ -103,7 +131,7 @@ export function ModelSettingsPanel({
         ) : rows.length === 0 ? (
           <Text style={styles.hint}>No models available.</Text>
         ) : (
-          rows.map((model, index) => (
+          visibleRows.map((model, index) => (
             <Pressable
               key={model.id}
               onPress={() => settings.selectEngineModel(engine, model.id)}
@@ -138,6 +166,21 @@ export function ModelSettingsPanel({
             </Pressable>
           ))
         )}
+        {ready && (hiddenCount > 0 || modelsExpanded) ? (
+          <Pressable
+            onPress={() => setModelsExpanded((value) => !value)}
+            accessibilityRole="button"
+            style={({ pressed }) => [
+              styles.row,
+              styles.rowDivider,
+              pressed && styles.rowPressed,
+            ]}
+          >
+            <Text style={local.moreLabel}>
+              {modelsExpanded ? "Show fewer" : `Show ${hiddenCount} more`}
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
 
       {ready && engine === "chatgpt" && !cloudDisconnected ? (
@@ -153,13 +196,10 @@ export function ModelSettingsPanel({
         </Text>
       ) : null}
 
-      {ready && cloudDisconnected ? (
-        <Text style={local.note}>
-          {engine === "anthropic"
-            ? "To run Claude in the cloud, connect a Claude account."
-            : "Your computer uses its own ChatGPT sign-in. To run ChatGPT in the cloud, sign Stella's cloud in to ChatGPT."}
-        </Text>
-      ) : null}
+      {/* The engine control above already says which provider this is, so its
+          accounts belong here rather than in a second list further down. A
+          "Claude" header over an "Add account" row is the whole explanation. */}
+      <EngineAccountSection provider={engine} />
 
       <View style={[styles.group, styles.groupGap]}>
         <View style={styles.row}>
@@ -200,5 +240,11 @@ const makeStyles = (colors: Colors) =>
       marginTop: 8,
     },
     noteLink: { color: colors.accent, fontFamily: fonts.sans.medium },
+    moreLabel: {
+      color: colors.textMuted,
+      fontFamily: fonts.sans.medium,
+      fontSize: 15,
+      letterSpacing: -0.2,
+    },
     flex: { flex: 1 },
   });

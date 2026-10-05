@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { useIsFocused } from "expo-router";
-import { ModelSettingsPanel } from "../ModelSettingsPanel";
 import { Icon, type IconName } from "../Icon";
 import { PairPhoneSheet } from "../PairPhoneSheet";
 import { clearCachedDesktopBridge } from "../../lib/desktop-bridge-chat";
@@ -293,15 +292,6 @@ export function ComputerSection({
           </View>
         ) : null}
       </View>
-
-      {control?.model ? (
-        <ModelSettingsPanel
-          settings={control.model.settings}
-          composerModelPinned={control.composerModelPinned}
-          onComposerModelPinnedChange={control.onComposerModelPinnedChange}
-          styles={styles}
-        />
-      ) : null}
 
       {control ? (
         <>

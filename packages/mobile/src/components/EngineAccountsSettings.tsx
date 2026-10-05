@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  AppState,
   Linking,
   Platform,
   Pressable,
@@ -62,8 +63,6 @@ import { useT } from "../i18n";
 type Section = {
   provider: EngineProvider;
   titleKey: string;
-  /** One line explains both providers, so only the first section carries it. */
-  noteKey?: string;
   autoSwitchKey: string;
   pasteHintKey: string;
 };
@@ -72,7 +71,6 @@ const SECTIONS: Section[] = [
   {
     provider: "anthropic",
     titleKey: "mobile.engineAccounts.claudeSection",
-    noteKey: "mobile.engineAccounts.claudeNote",
     autoSwitchKey: "mobile.engineAccounts.autoSwitchClaude",
     pasteHintKey: "mobile.engineAccounts.pasteHintClaude",
   },
@@ -181,12 +179,43 @@ export function EngineAccountsSettings({ onBack }: { onBack: () => void }) {
 }
 
 /**
- * Just the provider sections, with no screen chrome of their own, so the
- * chat's settings sheet can host the connections inline rather than sending
- * the user out to a separate screen for them.
+ * One provider's accounts, with no screen chrome of its own.
+ *
+ * The sheet's engine control already says which provider the user means, so
+ * the accounts belong under that choice rather than as two stacked sections
+ * listing both. `stella` runs on Stella's own capacity and has nothing to
+ * connect, so it renders nothing.
+ */
+export function EngineAccountSection({
+  provider,
+}: {
+  provider: EngineProvider | "stella";
+}) {
+  const colors = useColors();
+  const t = useT();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const settingsStyles = useMemo(() => makeSettingsStyles(colors), [colors]);
+  const { value: settings } = useBackendView("engines.get", {});
+  const section = SECTIONS.find((entry) => entry.provider === provider);
+  if (!section) return null;
+  return (
+    <ProviderSection
+      section={section}
+      settings={settings}
+      styles={styles}
+      settingsStyles={settingsStyles}
+      colors={colors}
+    />
+  );
+}
+
+/**
+ * Both providers at once, for the standalone Claude & ChatGPT screen where
+ * there is no engine control to scope them.
  */
 export function EngineAccountsSections() {
   const colors = useColors();
+  const t = useT();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const settingsStyles = useMemo(() => makeSettingsStyles(colors), [colors]);
   const { value: settings } = useBackendView("engines.get", {});
@@ -221,6 +250,10 @@ export function useEngineConnect(
   const [busy, setBusy] = useState(false);
   const [connectId, setConnectId] = useState<string | null>(null);
   const [pasted, setPasted] = useState("");
+  /** The pasteboard holds something; what, we haven't looked. */
+  const [clipboardReady, setClipboardReady] = useState(false);
+  /** The user asked to type it themselves, or the clipboard let us down. */
+  const [manualEntry, setManualEntry] = useState(false);
   const onConnectedRef = useRef(onConnected);
   /** Claude: the PKCE verifier (also the state) of the attempt in progress. */
   const claudeVerifier = useRef<string | null>(null);
@@ -244,13 +277,23 @@ export function useEngineConnect(
     }
   };
 
+  /**
+   * Whether the pasteboard plausibly holds the thing we're waiting for.
+   *
+   * `hasStringAsync` answers from the pasteboard's declared types without
+   * reading it, so it never trips iOS's "Allow Paste?" banner. Reading only
+   * happens when the user commits, which is the one moment they expect it.
+   */
+  const refreshClipboardCandidate = useCallback(async () => {
+    const has = await Clipboard.hasStringAsync().catch(() => false);
+    setClipboardReady(has);
+  }, []);
+
   const openChatGpt = async (authorizeUrl: string) => {
     await WebBrowser.openBrowserAsync(authorizeUrl, {
       presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET,
     });
-    // Back from the browser: the copied address is usually on the clipboard.
-    const clip = await Clipboard.getStringAsync().catch(() => "");
-    if (clip && looksLikeChatGptCallback(clip.trim())) setPasted(clip.trim());
+    await refreshClipboardCandidate();
   };
 
   /**
@@ -287,18 +330,14 @@ export function useEngineConnect(
       await WebBrowser.openBrowserAsync(authorizeUrl, {
         presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET,
       });
-      // Back from the browser: most people have the code on the clipboard.
-      const clip = await Clipboard.getStringAsync().catch(() => "");
-      if (clip && /code|#|^[A-Za-z0-9_-]{20,}/u.test(clip.trim())) {
-        setPasted(clip.trim());
-      }
+      await refreshClipboardCandidate();
     });
 
-  const finishChatGpt = (attempt: string) =>
+  const finishChatGpt = (attempt: string, input: string) =>
     void run(async () => {
       const result = await getBackendClient().call("engines.finishConnect", {
         connectId: attempt,
-        pastedInput: pasted.trim(),
+        pastedInput: input,
       });
       chatGptAuthorizeUrl.current = null;
       setConnectId(null);
@@ -314,16 +353,17 @@ export function useEngineConnect(
       }
     });
 
-  const finishConnect = () => {
-    if (!connectId || !pasted.trim()) return;
+  const submitConnect = (input: string) => {
+    const value = input.trim();
+    if (!connectId || !value) return;
     if (provider === "chatgpt") {
-      finishChatGpt(connectId);
+      finishChatGpt(connectId, value);
       return;
     }
     const verifier = claudeVerifier.current;
     if (!verifier) return;
     void run(async () => {
-      const parsed = parseAuthorizationInput(pasted);
+      const parsed = parseAuthorizationInput(value);
       if (!parsed.code) throw new Error(t("mobile.engineAccounts.errorBody"));
       if (parsed.state && parsed.state !== verifier) {
         throw new Error("The pasted code belongs to a different sign-in. Start again.");
@@ -347,10 +387,13 @@ export function useEngineConnect(
       claudeVerifier.current = null;
       setConnectId(null);
       setPasted("");
+      setManualEntry(false);
     }).then((ok) => {
       if (ok) onConnectedRef.current?.();
     });
   };
+
+  const finishConnect = () => submitConnect(pasted);
 
   const cancelConnect = () => {
     claudeVerifier.current = null;
@@ -362,12 +405,35 @@ export function useEngineConnect(
     }
     setConnectId(null);
     setPasted("");
+    setManualEntry(false);
+    setClipboardReady(false);
   };
 
   const pasteFromClipboard = async () => {
     const clip = await Clipboard.getStringAsync().catch(() => "");
     if (clip) setPasted(clip.trim());
   };
+
+  /**
+   * Commit straight from the pasteboard. This is the only place the clipboard
+   * is actually read, and it is a direct response to the user pressing
+   * Connect. If it turns out to hold nothing usable, the field appears with
+   * whatever was there so they can fix it rather than being told off.
+   */
+  const connectFromClipboard = () => {
+    void (async () => {
+      const clip = (await Clipboard.getStringAsync().catch(() => "")).trim();
+      if (!clip) {
+        setClipboardReady(false);
+        setManualEntry(true);
+        return;
+      }
+      setPasted(clip);
+      submitConnect(clip);
+    })();
+  };
+
+  const revealManualEntry = () => setManualEntry(true);
 
   return {
     busy,
@@ -379,6 +445,11 @@ export function useEngineConnect(
     finishConnect,
     cancelConnect,
     pasteFromClipboard,
+    clipboardReady,
+    manualEntry,
+    revealManualEntry,
+    connectFromClipboard,
+    refreshClipboardCandidate,
     /** ChatGPT: open the authorization page of the attempt again. */
     reopenAuthorizePage:
       provider === "chatgpt"
@@ -414,8 +485,30 @@ function ProviderSection({
     startConnect,
     finishConnect,
     cancelConnect,
-    pasteFromClipboard,
+    clipboardReady,
+    manualEntry,
+    refreshClipboardCandidate,
   } = connect;
+
+  // The code is copied in another app, so re-check on the way back. This asks
+  // whether the pasteboard has anything, never what.
+  useEffect(() => {
+    if (!connectId) return;
+    void refreshClipboardCandidate();
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") void refreshClipboardCandidate();
+    });
+    return () => sub.remove();
+  }, [connectId, refreshClipboardCandidate]);
+
+  // Cancel replaced by dismissal, so an abandoned attempt has to clean itself
+  // up — otherwise ChatGPT's server-side attempt would be left dangling.
+  const cancelRef = useRef(cancelConnect);
+  cancelRef.current = cancelConnect;
+  useEffect(() => () => cancelRef.current(), []);
+
+  /** Nothing usable on the pasteboard, or they chose to type it themselves. */
+  const showField = manualEntry || !clipboardReady || pasted.trim().length > 0;
   const accounts = (settings?.connections ?? []).filter(
     (row) => row.provider === section.provider,
   );
@@ -683,11 +776,6 @@ function ProviderSection({
           </Text>
         </Pressable>
       </View>
-      {section.noteKey ? (
-        <Text style={[settingsStyles.hint, styles.sectionNote]}>
-          {t(section.noteKey)}
-        </Text>
-      ) : null}
 
       {connectId ? (
         <View
@@ -697,43 +785,31 @@ function ProviderSection({
             styles.pasteCard,
           ]}
         >
-          <Text style={settingsStyles.rowSub}>{t(section.pasteHintKey)}</Text>
-          <View style={styles.pasteRow}>
-            <TextInput
-              value={pasted}
-              onChangeText={setPasted}
-              placeholder={
-                chatgpt
-                  ? t("mobile.engineAccounts.pastePlaceholderUrl")
-                  : t("mobile.engineAccounts.pastePlaceholder")
-              }
-              placeholderTextColor={colors.textMuted}
-              autoCapitalize="none"
-              autoCorrect={false}
-              spellCheck={false}
-              style={styles.pasteInput}
-            />
-            <Pressable
-              onPress={() => void pasteFromClipboard()}
-              hitSlop={8}
-              accessibilityRole="button"
-            >
-              <Text style={settingsStyles.rowAction}>
-                {t("mobile.engineAccounts.pasteFromClipboard")}
-              </Text>
-            </Pressable>
-          </View>
+          {/* The provider's own page already said to copy the code, so the
+              card doesn't repeat it. When the pasteboard already holds
+              something there is nothing to fill in either: Connect reads it
+              on the way through, and the field only appears if that comes up
+              empty or the user asks to type it. */}
+          {showField ? (
+            <View style={styles.pasteRow}>
+              <TextInput
+                value={pasted}
+                onChangeText={setPasted}
+                placeholder={
+                  chatgpt
+                    ? t("mobile.engineAccounts.pastePlaceholderUrl")
+                    : t("mobile.engineAccounts.pastePlaceholder")
+                }
+                placeholderTextColor={colors.textMuted}
+                autoCapitalize="none"
+                autoCorrect={false}
+                spellCheck={false}
+                autoFocus={manualEntry}
+                style={styles.pasteInput}
+              />
+            </View>
+          ) : null}
           <View style={styles.pasteActions}>
-            <Pressable
-              onPress={cancelConnect}
-              disabled={busy}
-              hitSlop={8}
-              accessibilityRole="button"
-            >
-              <Text style={settingsStyles.rowSub}>
-                {t("mobile.common.cancel")}
-              </Text>
-            </Pressable>
             {connect.reopenAuthorizePage ? (
               <Pressable
                 onPress={connect.reopenAuthorizePage}
@@ -747,12 +823,13 @@ function ProviderSection({
               </Pressable>
             ) : null}
             <Pressable
-              onPress={finishConnect}
-              disabled={busy || !pasted.trim()}
+              onPress={showField ? finishConnect : connect.connectFromClipboard}
+              disabled={busy || (showField && !pasted.trim())}
               hitSlop={8}
               accessibilityRole="button"
               style={({ pressed }) => [
-                (pressed || busy || !pasted.trim()) && styles.pressed,
+                (pressed || busy || (showField && !pasted.trim())) &&
+                  styles.pressed,
               ]}
             >
               <Text style={settingsStyles.rowAction}>

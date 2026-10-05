@@ -333,7 +333,7 @@ const makeStyles = (colors) => ({
     fontSize: 13,
     letterSpacing: 0.3,
     marginBottom: 10,
-    textTransform: "uppercase",
+
   },
   card: {
     backgroundColor: colors.surface ?? colors.card ?? "transparent",

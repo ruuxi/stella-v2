@@ -278,6 +278,122 @@ export async function clearStoredPhoneAccess(desktopDeviceId: string) {
   }
 }
 
+/**
+ * File a freshly granted credential exactly where every reader looks for it.
+ *
+ * Both ways in (a redeemed pairing code and a codeless attach) end here, so
+ * the two cannot drift in what they store: the access record under the
+ * desktop's id, the id in the paired-ids index, and this desktop as the
+ * preferred one.
+ */
+const storeGrantedPhoneAccess = async (args: {
+  desktopDeviceId: string;
+  mobileDeviceId: string;
+  pairSecret: string;
+  approvedAt: number;
+}): Promise<StoredPhoneAccess> => {
+  const access: StoredPhoneAccess = {
+    desktopDeviceId: args.desktopDeviceId,
+    mobileDeviceId: args.mobileDeviceId,
+    pairSecret: args.pairSecret,
+    approvedAt: args.approvedAt,
+  };
+
+  await SecureStore.setItemAsync(
+    desktopAccessKey(access.desktopDeviceId),
+    JSON.stringify(access),
+  );
+  const ids = await readPairedDesktopIds();
+  if (!ids.includes(access.desktopDeviceId)) {
+    ids.push(access.desktopDeviceId);
+  }
+  await writePairedDesktopIds(ids);
+  await SecureStore.setItemAsync(
+    PREFERRED_DESKTOP_DEVICE_ID_KEY,
+    access.desktopDeviceId,
+  );
+
+  return access;
+};
+
+/** This phone's stored credential for one desktop, if it holds one. */
+export async function getStoredPhoneAccess(
+  desktopDeviceId: string,
+): Promise<StoredPhoneAccess | null> {
+  const id = desktopDeviceId.trim();
+  if (!id) return null;
+  return readStoredPhoneAccess(
+    await SecureStore.getItemAsync(desktopAccessKey(id)),
+  );
+}
+
+/**
+ * Ask the backend for this phone's transport credential for one of the
+ * account's computers, with no code to carry between the two screens.
+ *
+ * What this grants is *reach*: the pair secret is the HMAC key for the mobile
+ * dispatch proof and the encrypted desktop bridge, standing in for the device
+ * key a phone cannot have. It says nothing about whether that computer will
+ * run anything — that is its remote-execution state, which only an explicit
+ * enable (here or the prompt on its own screen) may change. Attaching must
+ * never be read as consent.
+ */
+export async function attachPhoneAccess(
+  desktopDeviceId: string,
+  options?: { displayName?: string },
+): Promise<StoredPhoneAccess> {
+  const id = desktopDeviceId.trim();
+  assert(Boolean(id), "A computer is required to connect this phone.");
+  const mobileDeviceId = await getOrCreateMobileDeviceId();
+  const result = readPairingResult(
+    await postJson(
+      "/api/mobile/pairing/attach",
+      {
+        desktopDeviceId: id,
+        mobileDeviceId,
+        ...(options?.displayName?.trim()
+          ? { displayName: options.displayName.trim().slice(0, 64) }
+          : {}),
+        platform: readPlatformLabel(),
+      },
+      { origin: backendOrigin() },
+    ),
+  );
+
+  return await storeGrantedPhoneAccess({ ...result, mobileDeviceId });
+}
+
+/**
+ * The credential for a desktop this phone is about to address, attaching on
+ * demand when it holds none. Selecting or dispatching to a listed computer
+ * goes through here, which is why there is no pairing step in the way.
+ *
+ * A failure keeps the message the old pairing check used, because callers
+ * classify it: "not paired" is a permanent admission failure rather than
+ * something to retry forever.
+ */
+export async function ensurePhoneAccess(
+  desktopDeviceId: string,
+): Promise<StoredPhoneAccess> {
+  const existing = await getStoredPhoneAccess(desktopDeviceId);
+  if (existing) return existing;
+  try {
+    return await attachPhoneAccess(desktopDeviceId);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `The selected computer is not paired with this phone. ${detail}`.trim(),
+    );
+  }
+}
+
+/**
+ * Redeem a desktop's pairing code.
+ *
+ * Kept alongside `attachPhoneAccess` rather than replaced by it: builds
+ * already in the field use this route, and a typed code is still the way in
+ * when the phone cannot see the computer in the account's device list.
+ */
 export async function completePhonePairing(args: {
   pairingCode: string;
   displayName?: string;
@@ -294,28 +410,7 @@ export async function completePhonePairing(args: {
     }, { origin: backendOrigin() }),
   );
 
-  const access: StoredPhoneAccess = {
-    desktopDeviceId: result.desktopDeviceId,
-    mobileDeviceId,
-    pairSecret: result.pairSecret,
-    approvedAt: result.approvedAt,
-  };
-
-  await SecureStore.setItemAsync(
-    desktopAccessKey(result.desktopDeviceId),
-    JSON.stringify(access),
-  );
-  const ids = await readPairedDesktopIds();
-  if (!ids.includes(result.desktopDeviceId)) {
-    ids.push(result.desktopDeviceId);
-  }
-  await writePairedDesktopIds(ids);
-  await SecureStore.setItemAsync(
-    PREFERRED_DESKTOP_DEVICE_ID_KEY,
-    result.desktopDeviceId,
-  );
-
-  return access;
+  return await storeGrantedPhoneAccess({ ...result, mobileDeviceId });
 }
 
 export async function requestDesktopConnection(access: StoredPhoneAccess) {

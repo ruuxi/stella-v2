@@ -14,37 +14,61 @@ import { tapLight } from "../../lib/haptics";
 import type { ComputerControl } from "../../lib/main-shell-store";
 import {
   clearStoredPhoneAccess,
+  ensurePhoneAccess,
   listStoredPairedPhoneAccess,
   type StoredPhoneAccess,
 } from "../../lib/phone-access";
 import { useDesktopPlatforms } from "../../lib/use-desktop-platforms";
+import { userFacingError } from "../../lib/user-facing-error";
 import { useT } from "../../i18n";
 import type { Colors } from "../../theme/colors";
 import { fonts } from "../../theme/fonts";
 import { useColors } from "../../theme/theme-context";
+import {
+  applyRemoteExecution,
+  enableRemoteExecution,
+} from "./computer-actions";
+import {
+  buildComputerRows,
+  type ComputerRow,
+  type ComputerRowStatusKind,
+} from "./computer-rows";
 import type { SettingsStyles } from "./settings-styles";
 
 /** Live presence goes stale quickly; refresh while Settings is on screen. */
 const EXECUTION_DEVICE_POLL_MS = 15_000;
 
-function platformLabelFor(
+const STATUS_KEYS: Readonly<Record<ComputerRowStatusKind, string>> = {
+  online: "mobile.settings.computer.statusOnline",
+  notReady: "mobile.settings.computer.statusNotReady",
+  notEnabled: "mobile.settings.computer.statusNotEnabled",
+  awaitingConsent: "mobile.settings.computer.statusAwaitingConsent",
+  declined: "mobile.settings.computer.statusDeclined",
+  offline: "mobile.settings.computer.statusOffline",
+};
+
+function fallbackLabelFor(
   t: (key: string, params?: Record<string, string | number>) => string,
-  access: StoredPhoneAccess,
-  platform: string | null | undefined,
+  deviceId: string,
 ): string {
-  const base = platform?.trim();
-  if (base) return base;
   return t("mobile.settings.paired.unnamedComputer", {
-    id: access.desktopDeviceId.slice(0, 4).toUpperCase(),
+    id: deviceId.slice(0, 4).toUpperCase(),
   });
 }
 
 /**
- * Settings' Computer section: the paired computer's status, where turns run,
- * its model, pairing, and the list of paired computers. The live state
- * belongs to the chat (which stays mounted under every tab) and arrives as
- * `control`; it is `null` until the chat has resolved its pairing, when only
- * the stored paired list shows.
+ * Settings' Computer section: where turns run, the model, and every computer
+ * signed into this account.
+ *
+ * The list is the account's device list rather than this phone's pairings, so
+ * a computer the owner has never paired with this phone still appears — with
+ * what it is doing about dispatched work, which is a separate fact from being
+ * listed. Reaching one is a credential this phone attaches on demand; running
+ * work there is consent, and only the Enable tap below (or the prompt on that
+ * computer's own screen) grants it.
+ *
+ * The live state belongs to the chat (which stays mounted under every tab) and
+ * arrives as `control`; it is `null` until the chat has resolved its access.
  */
 export function ComputerSection({
   control,
@@ -82,10 +106,13 @@ export function ComputerSection({
   }, [refreshPaired, chatPaired]);
 
   // Device presence lives on the owner gate, so this is a poll while
-  // Settings is on screen rather than a backend subscription.
+  // Settings is on screen rather than a backend subscription. It is a read:
+  // nothing here may move a computer's consent, however often it runs.
   const hasControl = control !== null;
+  const canListDevices = hasControl || signedIn;
+  const [refreshToken, setRefreshToken] = useState(0);
   useEffect(() => {
-    if (!focused || !hasControl) return;
+    if (!focused || !canListDevices) return;
     let active = true;
     const controller = new AbortController();
     const read = () => {
@@ -102,14 +129,16 @@ export function ComputerSection({
       controller.abort();
       clearInterval(timer);
     };
-  }, [focused, hasControl]);
+  }, [focused, canListDevices, refreshToken]);
 
-  const confirmForgetDesktop = (access: StoredPhoneAccess) => {
-    const label = platformLabelFor(
-      t,
-      access,
-      desktopPlatforms[access.desktopDeviceId],
-    );
+  // One computer at a time is mid-operation, and which operation it is decides
+  // the status line while it runs.
+  const [busy, setBusy] = useState<{
+    deviceId: string;
+    kind: "connecting" | "enabling";
+  } | null>(null);
+
+  const confirmForgetDesktop = (access: StoredPhoneAccess, label: string) => {
     Alert.alert(
       t("mobile.settings.forgetConfirmTitle", { name: label }),
       t("mobile.settings.forgetConfirmBody"),
@@ -130,17 +159,28 @@ export function ComputerSection({
     );
   };
 
-  // Nothing to show until the chat has resolved pairing (or for a guest).
+  // Nothing to show until the chat has resolved its access (or for a guest).
   if (!control && !signedIn) return null;
 
   const target = control?.executionTarget ?? { mode: "cloud" as const };
-  const rows = computerRows({
-    paired: pairedDesktops,
-    destinations,
-    labelFor: (access) =>
-      platformLabelFor(t, access, desktopPlatforms[access.desktopDeviceId]),
-    active: control,
+  const rows = buildComputerRows({
+    devices: destinations,
+    stored: pairedDesktops,
+    activeDeviceId: control?.access?.desktopDeviceId ?? null,
   });
+  const labelFor = (row: ComputerRow) =>
+    row.label ??
+    desktopPlatforms[row.deviceId] ??
+    fallbackLabelFor(t, row.deviceId);
+  const statusTextFor = (row: ComputerRow) => {
+    if (busy?.deviceId === row.deviceId) {
+      return busy.kind === "enabling"
+        ? t("mobile.settings.computer.enabling")
+        : t("mobile.settings.computer.connecting");
+    }
+    if (row.preferActiveStatusLabel && control) return control.statusLabel;
+    return t(STATUS_KEYS[row.statusKind]);
+  };
   // A computer that can't take work isn't a real choice, so Cloud carries
   // the check (and the turn) whenever the picked computer is unavailable.
   const selectedDeviceId =
@@ -153,11 +193,69 @@ export function ComputerSection({
     tapLight();
     control.onExecutionTargetChange(next);
   };
+  /**
+   * Pick a computer, attaching this phone to it first when it holds no
+   * credential for it. That is a transport credential and nothing else: the
+   * computer still has to have agreed to run work, which is why an
+   * unconsented row is not selectable in the first place.
+   */
+  const selectComputer = (row: ComputerRow) => {
+    if (!control) return;
+    if (row.access) {
+      choose({ mode: "device", deviceId: row.deviceId });
+      return;
+    }
+    tapLight();
+    setBusy({ deviceId: row.deviceId, kind: "connecting" });
+    void ensurePhoneAccess(row.deviceId)
+      .then(async (access) => {
+        control.onRepaired(access);
+        control.onExecutionTargetChange({
+          mode: "device",
+          deviceId: row.deviceId,
+        });
+        await refreshPaired();
+      })
+      .catch((error: unknown) => {
+        Alert.alert(
+          t("mobile.settings.computer.connectFailedTitle"),
+          userFacingError(error),
+        );
+      })
+      .finally(() => setBusy(null));
+  };
+  /**
+   * Say yes on this computer's behalf from a session that is already signed
+   * into the account, instead of waiting for the prompt on its own screen.
+   * This is the only thing on this screen that may change consent, and it
+   * only ever runs from a tap.
+   */
+  const enableComputer = (row: ComputerRow) => {
+    tapLight();
+    setBusy({ deviceId: row.deviceId, kind: "enabling" });
+    void enableRemoteExecution(row.deviceId)
+      .then((result) => {
+        setDestinations((current) =>
+          applyRemoteExecution(current, row.deviceId, result.remoteExecution),
+        );
+        // Readiness is the device's own report, so re-read rather than guess.
+        setRefreshToken((value) => value + 1);
+      })
+      .catch((error: unknown) => {
+        Alert.alert(
+          t("mobile.settings.computer.enableFailedTitle"),
+          userFacingError(error),
+        );
+      })
+      .finally(() => setBusy(null));
+  };
 
   return (
     <>
       <View style={styles.section}>
-        <Text style={styles.sectionLabel}>Where Stella works</Text>
+        <Text style={styles.sectionLabel}>
+          {t("mobile.settings.computer.sectionLabel")}
+        </Text>
 
         <View style={styles.group}>
           <Pressable
@@ -173,7 +271,9 @@ export function ComputerSection({
               color={colors.textMuted}
               style={styles.rowIcon}
             />
-            <Text style={[styles.rowLabel, local.flex]}>Cloud</Text>
+            <Text style={[styles.rowLabel, local.flex]}>
+              {t("mobile.settings.computer.cloud")}
+            </Text>
             {selectedDeviceId === null ? (
               <Icon name="check" size={17} color={colors.accent} />
             ) : null}
@@ -181,6 +281,15 @@ export function ComputerSection({
 
           {rows.map((row) => {
             const removing = removingDesktopId === row.deviceId;
+            const working = busy?.deviceId === row.deviceId;
+            const label = labelFor(row);
+            const access = row.access;
+            const onWake =
+              row.preferActiveStatusLabel &&
+              control?.showWake === true &&
+              row.deviceId === control.access?.desktopDeviceId
+                ? control.onWake
+                : null;
             return (
               <Pressable
                 key={row.deviceId}
@@ -189,10 +298,8 @@ export function ComputerSection({
                   selected: selectedDeviceId === row.deviceId,
                   disabled: !row.available,
                 }}
-                disabled={!control || !row.available}
-                onPress={() =>
-                  choose({ mode: "device", deviceId: row.deviceId })
-                }
+                disabled={!control || !row.available || working}
+                onPress={() => selectComputer(row)}
                 style={({ pressed }) => [
                   styles.row,
                   styles.rowDivider,
@@ -207,7 +314,7 @@ export function ComputerSection({
                 />
                 <View style={[styles.rowCopy, !row.available && local.dim]}>
                   <Text style={styles.rowLabel} numberOfLines={1}>
-                    {row.label}
+                    {label}
                   </Text>
                   <View style={local.statusRow}>
                     <View
@@ -220,36 +327,66 @@ export function ComputerSection({
                         },
                       ]}
                     />
-                    <Text style={styles.rowSub}>{row.status}</Text>
+                    <Text style={styles.rowSub}>{statusTextFor(row)}</Text>
                   </View>
                 </View>
-                {row.onWake ? (
+                {row.canEnable ? (
                   <Pressable
-                    onPress={row.onWake}
+                    onPress={() => enableComputer(row)}
+                    disabled={working}
                     hitSlop={8}
-                    accessibilityLabel={`Wake ${row.label}`}
+                    accessibilityRole="button"
+                    accessibilityLabel={t(
+                      "mobile.settings.computer.enableLabel",
+                      {
+                        name: label,
+                      },
+                    )}
+                    style={({ pressed }) =>
+                      (pressed || working) && local.pressed
+                    }
+                  >
+                    <Text style={styles.rowAction}>
+                      {t("mobile.settings.computer.enable")}
+                    </Text>
+                  </Pressable>
+                ) : null}
+                {onWake ? (
+                  <Pressable
+                    onPress={onWake}
+                    hitSlop={8}
+                    accessibilityLabel={t(
+                      "mobile.settings.computer.wakeLabel",
+                      {
+                        name: label,
+                      },
+                    )}
                     style={({ pressed }) => pressed && local.pressed}
                   >
-                    <Text style={styles.rowAction}>Wake up</Text>
+                    <Text style={styles.rowAction}>
+                      {t("mobile.settings.computer.wake")}
+                    </Text>
                   </Pressable>
                 ) : null}
                 {selectedDeviceId === row.deviceId ? (
                   <Icon name="check" size={17} color={colors.accent} />
                 ) : null}
-                <Pressable
-                  onPress={() => confirmForgetDesktop(row.access)}
-                  disabled={removing}
-                  hitSlop={8}
-                  accessibilityLabel={t("mobile.settings.forgetLabel", {
-                    name: row.label,
-                  })}
-                  style={({ pressed }) => [
-                    local.remove,
-                    (pressed || removing) && local.pressed,
-                  ]}
-                >
-                  <Icon name="trash" size={17} color={colors.textMuted} />
-                </Pressable>
+                {access ? (
+                  <Pressable
+                    onPress={() => confirmForgetDesktop(access, label)}
+                    disabled={removing}
+                    hitSlop={8}
+                    accessibilityLabel={t("mobile.settings.forgetLabel", {
+                      name: label,
+                    })}
+                    style={({ pressed }) => [
+                      local.remove,
+                      (pressed || removing) && local.pressed,
+                    ]}
+                  >
+                    <Icon name="trash" size={17} color={colors.textMuted} />
+                  </Pressable>
+                ) : null}
               </Pressable>
             );
           })}
@@ -259,9 +396,7 @@ export function ComputerSection({
           <View style={[styles.group, styles.groupGap]}>
             <NavRow
               icon="smartphone"
-              label={
-                rows.length > 0 ? "Pair another computer" : "Pair a computer"
-              }
+              label={t("mobile.settings.computer.pairingCode")}
               styles={styles}
               colors={colors}
               onPress={() => {
@@ -345,53 +480,6 @@ function NavRow({
       <Icon name="chevron-right" size={15} color={colors.textMuted} />
     </Pressable>
   );
-}
-
-type ComputerRow = {
-  deviceId: string;
-  access: StoredPhoneAccess;
-  label: string;
-  status: string;
-  available: boolean;
-  onWake?: () => void;
-};
-
-/** Every paired computer, reachable or not, with what it can do right now. */
-function computerRows(props: {
-  paired: StoredPhoneAccess[];
-  destinations: ExecutionDeviceDestination[] | undefined;
-  labelFor: (access: StoredPhoneAccess) => string;
-  active: ComputerControl | null;
-}): ComputerRow[] {
-  return props.paired.map((access) => {
-    const deviceId = access.desktopDeviceId;
-    const device = props.destinations?.find((d) => d.deviceId === deviceId);
-    const isActive = props.active?.access?.desktopDeviceId === deviceId;
-    const available = Boolean(
-      device?.online &&
-        device.remoteExecutionEnabled &&
-        device.availability?.ready === true,
-    );
-    const status = available
-      ? "Online"
-      : device?.online
-        ? device.remoteExecutionEnabled
-          ? "Not ready"
-          : "Unavailable"
-        : isActive && props.active
-          ? props.active.statusLabel
-          : "Offline";
-    return {
-      deviceId,
-      access,
-      label: device?.label ?? props.labelFor(access),
-      status,
-      available,
-      ...(isActive && props.active?.showWake
-        ? { onWake: props.active.onWake }
-        : {}),
-    };
-  });
 }
 
 const makeStyles = (colors: Colors) =>

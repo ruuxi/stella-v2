@@ -235,7 +235,88 @@ describe("mobile execution placement client", () => {
     expect(calls[0]!.body).not.toHaveProperty("requestingDeviceId");
   });
 
-  test("refuses a computer the phone has not paired with", async () => {
+  test("attaches this phone on demand for a computer it holds no credential for", async () => {
+    // The pairing step is gone: a computer the account lists but this phone
+    // has never paired with is reachable by minting the transport credential
+    // first, then dispatching with a proof keyed by it.
+    respond = (call) =>
+      call.path === "/api/mobile/pairing/attach"
+        ? {
+            desktopDeviceId: "desktop-fresh",
+            approvedAt: 2,
+            pairSecret: "attached-secret",
+          }
+        : { protocol: 1, dispatch: dispatch({ state: "computer_claimed" }) };
+    const input = {
+      idempotencyKey: "mobile:one",
+      conversationId: "conv:mobile",
+      kind: "chat" as const,
+      prompt: "open my notes",
+      target: { mode: "device" as const, deviceId: "desktop-fresh" },
+    };
+    await submitAutomaticExecution(input);
+
+    expect(calls.map((call) => call.path)).toEqual([
+      "/api/mobile/pairing/attach",
+      "/owners/me/dispatches",
+    ]);
+    const attach = calls[0]!;
+    expect(attach.method).toBe("POST");
+    expect(attach.options.origin).toBe("https://backend.example");
+    expect(attach.body).toMatchObject({
+      desktopDeviceId: "desktop-fresh",
+      platform: "iPhone",
+    });
+    // Attaching grants reach, never consent: no pairing code, and nothing in
+    // this path asks the backend to enlist the computer for remote work.
+    expect(attach.body).not.toHaveProperty("pairingCode");
+    expect(attach.body).not.toHaveProperty("enabled");
+    expect(attach.body).not.toHaveProperty("remoteExecution");
+    expect(backendCalls.map((call) => call.name)).not.toContain(
+      "devices.setRemoteExecution",
+    );
+    expect(backendCalls.map((call) => call.name)).not.toContain(
+      "devices.requestRemoteExecution",
+    );
+
+    // The dispatch is signed with the secret the attach just minted.
+    const admission = buildAutomaticExecutionAdmission(input);
+    const headers = headersOf(calls[1]!);
+    const mobileDeviceId = headers["x-stella-mobile-device-id"]!;
+    expect(mobileDeviceId).toBeTruthy();
+    expect(headers["x-stella-mobile-desktop-device-id"]).toBe("desktop-fresh");
+    const verified = await verifyMobilePairingProof({
+      fields: {
+        mobileDeviceId,
+        desktopDeviceId: "desktop-fresh",
+        challenge: headers["x-stella-mobile-pair-proof-challenge"]!,
+        proof: headers["x-stella-mobile-pair-proof"]!,
+        issuedAt: Number(headers["x-stella-mobile-pair-proof-issued-at"]),
+      },
+      publicKey: await deriveMobilePairingKey("attached-secret"),
+      expectedChallenge: buildMobilePairingChallenge({
+        idempotencyKey: "mobile:one",
+        conversationId: "conv:mobile",
+        payloadHash: admission.payloadHash,
+        kind: "chat",
+        subject: "portable",
+        targetMode: "device",
+        targetDeviceId: "desktop-fresh",
+      }),
+    });
+    expect(verified.ok).toBe(true);
+    expect(calls[1]!.body).toMatchObject({
+      targetMode: "device",
+      targetDeviceId: "desktop-fresh",
+      requestingDeviceId: mobileDeviceId,
+    });
+  });
+
+  test("refuses a computer this phone cannot be attached to", async () => {
+    respond = (call) =>
+      call.path === "/api/mobile/pairing/attach"
+        ? new Error("That computer is not signed in to this account.")
+        : { protocol: 1, dispatch: dispatch() };
     await expect(
       submitAutomaticExecution({
         idempotencyKey: "mobile:one",
@@ -246,7 +327,11 @@ describe("mobile execution placement client", () => {
         access,
       }),
     ).rejects.toThrow("not paired with this phone");
-    expect(calls).toHaveLength(0);
+    // Nothing was dispatched, and the refusal keeps the wording callers
+    // classify as permanent rather than worth retrying forever.
+    expect(calls.map((call) => call.path)).toEqual([
+      "/api/mobile/pairing/attach",
+    ]);
   });
 
   test("reads status from the builder's dispatch route", async () => {

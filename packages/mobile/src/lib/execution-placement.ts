@@ -14,7 +14,7 @@ import {
   mobilePairingProofHeaders,
 } from "@stella/contracts/turn-plane/pairing-proof";
 import { getJson, postJson } from "./http";
-import { type StoredPhoneAccess } from "./phone-access";
+import { ensurePhoneAccess, type StoredPhoneAccess } from "./phone-access";
 import { env } from "../config/env";
 import { getBackendClient } from "./backend";
 import {
@@ -352,13 +352,16 @@ export const submitAutomaticExecution = async (
   const { access, builderOrigin, ...admissionInput } = input;
   const admission = buildAutomaticExecutionAdmission(admissionInput);
   const target = admissionInput.target ?? AUTOMATIC_EXECUTION_TARGET;
-  if (
+  // A named computer the phone holds no credential for is attached here rather
+  // than refused: the pair secret is this proof's key, not permission to run.
+  // Whether that computer accepts the work is its own remote-execution state,
+  // which the gate answers for — attaching never moves it.
+  const deviceAccess =
     target.mode === "device" &&
     (!access || access.desktopDeviceId !== target.deviceId.trim())
-  ) {
-    throw new Error("The selected computer is not paired with this phone.");
-  }
-  const pairedAccess = target.mode === "cloud" ? undefined : access;
+      ? await ensurePhoneAccess(target.deviceId)
+      : access;
+  const pairedAccess = target.mode === "cloud" ? undefined : deviceAccess;
   // Unchanged proof scheme, now addressed to the builder: HMAC-SHA256 keyed by
   // sha256hex(pairSecret) over the same message, in the contract's header set.
   // The HMAC itself stays on @noble because React Native has no WebCrypto.

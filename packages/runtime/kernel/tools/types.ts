@@ -271,6 +271,12 @@ export type CloudDispatchResult = CloudAgentControlReceipt & {
   threadId: string;
   /** Cloud conversation the agent reports into. */
   conversationId: string;
+  /**
+   * The named device could not take the attempt yet, so it is queued rather
+   * than running. The thread row still says "running" because the attempt is
+   * recorded and retried; this is what the caller must be told instead.
+   */
+  waitingForDevice?: boolean;
 };
 
 export type AgentToolSnapshot = {

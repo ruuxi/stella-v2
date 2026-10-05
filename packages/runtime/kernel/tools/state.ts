@@ -21,11 +21,13 @@ import { STELLA_DEFAULT_MODEL } from "@stella/contracts/stella-api";
 import {
   agentThreadLookupController,
   agentThreadLookupLocation,
+  agentThreadLookupProgress,
   agentThreadLookupReport,
   agentThreadLookupStartedByViewer,
   describeAgentThreadLookup,
   isAgentThreadLookupActive,
 } from "@stella/contracts/backend/agent-thread-lookup";
+import { DEVICE_AGENT_QUEUED_NOTE } from "@stella/contracts/backend/agent-threads";
 import type {
   AgentModelConfigSnapshot,
   CloudExecutionSelection,
@@ -426,6 +428,7 @@ const conversationThreadStatus = (
   const viewer = { host: "desktop" as const, deviceId: found.thisDeviceId };
   const active = isAgentThreadLookupActive(thread);
   const report = active ? undefined : agentThreadLookupReport(thread);
+  const progress = agentThreadLookupProgress(thread);
   return {
     result: {
       thread_id: thread.threadId,
@@ -439,11 +442,24 @@ const conversationThreadStatus = (
         : {}),
       attempt_generation: thread.attemptGeneration,
       last_active_at: new Date(thread.updatedAt).toISOString(),
+      ...(thread.activity && active
+        ? {
+            last_activity_at: new Date(
+              thread.activity.lastActivityAt,
+            ).toISOString(),
+            ...(thread.activity.label
+              ? { current_operation: thread.activity.label }
+              : {}),
+            ...(thread.activity.activeToolCount !== undefined
+              ? { active_tool_count: thread.activity.activeToolCount }
+              : {}),
+          }
+        : {}),
       ...(report !== undefined ? { result: report } : {}),
       ...(!active && thread.errorMessage ? { error: thread.errorMessage } : {}),
       current_time: new Date().toISOString(),
       controllable_here: agentThreadLookupStartedByViewer(thread, viewer),
-      note: `Read-only snapshot from Stella's cloud; the agent was NOT interrupted or messaged. It runs ${agentThreadLookupLocation(thread)}, not in this computer's runtime. ${agentThreadLookupController(thread, viewer)}`,
+      note: `Read-only snapshot from Stella's cloud; the agent was NOT interrupted or messaged. It runs ${agentThreadLookupLocation(thread)}, not in this computer's runtime.${progress ? ` ${progress}` : ""} ${agentThreadLookupController(thread, viewer)}`,
     },
   };
 };
@@ -812,6 +828,7 @@ export const handleSpawnAgent = async (
     } catch (error) {
       return { error: (error as Error).message };
     }
+    const queuedForDevice = dispatched.waitingForDevice === true;
     return {
       result: {
         thread_id: dispatched.threadId,
@@ -823,8 +840,10 @@ export const handleSpawnAgent = async (
         cloud_conversation_id: dispatched.conversationId,
         attempt_generation: dispatched.attemptGeneration,
         thread_updated_at: dispatched.threadUpdatedAt,
-        thread_status: dispatched.status,
-        note: `${targetDeviceId ? `Running on device ${targetDeviceId}.` : "Running in Stella's cloud."} Its completion will return to this conversation, including after a desktop restart. Use send_input to continue this thread once it finishes, or pause_agent to stop it.`,
+        thread_status: queuedForDevice ? "queued" : dispatched.status,
+        note: queuedForDevice
+          ? `Queued for device ${targetDeviceId}. ${DEVICE_AGENT_QUEUED_NOTE} Either way its completion will return to this conversation, including after a desktop restart. Use send_input to continue this thread once it finishes, or pause_agent to stop it.`
+          : `${targetDeviceId ? `Running on device ${targetDeviceId}.` : "Running in Stella's cloud."} Its completion will return to this conversation, including after a desktop restart. Use send_input to continue this thread once it finishes, or pause_agent to stop it.`,
       },
     };
   }

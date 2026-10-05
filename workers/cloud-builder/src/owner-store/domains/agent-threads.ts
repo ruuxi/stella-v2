@@ -19,6 +19,7 @@
  */
 
 import type {
+  AgentThreadActivity,
   AgentThreadCalls,
   AgentThreadControl,
   AgentThreadLookup,
@@ -73,6 +74,7 @@ type ThreadRow = {
   status: string;
   result_json: string | null;
   error_message: string | null;
+  activity_json: string | null;
   created_at: number;
   updated_at: number;
 };
@@ -162,6 +164,33 @@ const DEVICE_AVAILABILITY_CODES = new Set([
   "SELECTED_DEVICE_OFFLINE",
   "SELECTED_DEVICE_UNAVAILABLE",
 ]);
+/**
+ * Gate refusals that mean "this attempt could not be placed yet", not "this
+ * agent can never run". They come from the admission vocabulary, which is
+ * disjoint from a dispatch record's `error_code`, so a queue that matched only
+ * the latter treated every one of them as fatal.
+ */
+const DEVICE_PLACEMENT_RETRY_CODES = new Set([
+  "internal",
+  "capability_unavailable",
+  "conflict",
+]);
+
+/**
+ * Whether a failed offer should keep the agent queued. The availability window
+ * is the single authority on how long that lasts: a fixed attempt cap used to
+ * expire a queued agent in well under a minute while the thread still claimed
+ * an hour of waiting.
+ */
+const placementMayRecover = (error: unknown): boolean => {
+  if (!(error instanceof DispatchError)) return true;
+  if (error.retryable) return true;
+  const code = error.code ?? "";
+  return (
+    DEVICE_AVAILABILITY_CODES.has(code) ||
+    DEVICE_PLACEMENT_RETRY_CODES.has(code)
+  );
+};
 const TERMINAL_STATUSES = new Set(["completed", "failed", "canceled"]);
 const ACTIVE_STATUSES = new Set(["running", "resuming"]);
 
@@ -172,6 +201,36 @@ export const AGENT_THREADS_DEVICE_EXECUTOR_MIGRATION = {
     "ALTER TABLE agent_threads ADD COLUMN executor_device_id TEXT",
     "ALTER TABLE agent_turns ADD COLUMN dispatch_id TEXT",
     "CREATE INDEX agent_turns_dispatch ON agent_turns (dispatch_id) WHERE dispatch_id IS NOT NULL",
+  ],
+};
+
+/**
+ * Input handed to an attempt that has no live dispatch yet. An attempt is
+ * recorded the moment it starts but only gets a dispatch id once a device has
+ * taken it, and a queued attempt has none for as long as it waits — so a
+ * `send_input` in that window used to be refused as "between runs" instead of
+ * reaching the agent at all.
+ */
+/**
+ * The running attempt's progress, reported by whatever executes it. Held on
+ * the thread so every projection that already reads the row gets it without a
+ * second query, and cleared whenever an attempt starts or settles.
+ */
+export const AGENT_THREADS_ACTIVITY_MIGRATION = {
+  id: "agent-threads.7-activity",
+  statements: ["ALTER TABLE agent_threads ADD COLUMN activity_json TEXT"],
+};
+
+export const AGENT_THREADS_PENDING_INPUT_MIGRATION = {
+  id: "agent-threads.6-pending-input",
+  statements: [
+    `CREATE TABLE agent_pending_inputs (
+       turn_id TEXT NOT NULL,
+       message_id TEXT NOT NULL,
+       text TEXT NOT NULL,
+       created_at INTEGER NOT NULL,
+       PRIMARY KEY (turn_id, message_id)
+     )`,
   ],
 };
 
@@ -189,6 +248,21 @@ export const AGENT_THREADS_DROP_WORKSPACE_FORK_MIGRATION = {
 
 // ── Projections ───────────────────────────────────────────────────────────
 
+/**
+ * A running attempt's reported progress. Only an active thread has any: a
+ * terminal one's last activity is its own result, and showing a stale
+ * timestamp next to a finished agent would read as a stall.
+ */
+const activityOf = (row: ThreadRow): AgentThreadActivity | undefined => {
+  if (!row.activity_json || !ACTIVE_STATUSES.has(row.status)) return undefined;
+  try {
+    const parsed = JSON.parse(row.activity_json) as AgentThreadActivity;
+    return typeof parsed?.lastActivityAt === "number" ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 const summary = (row: ThreadRow, ownerId: string): AgentThreadSummary => ({
   ownerId,
   threadId: row.thread_id,
@@ -203,6 +277,10 @@ const summary = (row: ThreadRow, ownerId: string): AgentThreadSummary => ({
   attemptGeneration: row.attempt_generation,
   ...(row.result_json !== null ? { resultJson: row.result_json } : {}),
   ...(row.error_message !== null ? { errorMessage: row.error_message } : {}),
+  ...(() => {
+    const activity = activityOf(row);
+    return activity ? { activity } : {};
+  })(),
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });
@@ -339,6 +417,57 @@ const runDispatch = async (ctx: OwnerContext, job: DispatchJob): Promise<void> =
 
 // ── Device threads ────────────────────────────────────────────────────────
 
+type PendingInputRow = { message_id: string; text: string };
+
+/** Hold input for an attempt no device has taken yet. */
+const queuePendingInput = (
+  ctx: OwnerContext,
+  turnId: string,
+  messageId: string,
+  text: string,
+): void => {
+  ctx.db.run(
+    `INSERT INTO agent_pending_inputs (turn_id, message_id, text, created_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT (turn_id, message_id) DO NOTHING`,
+    turnId,
+    messageId,
+    text,
+    ctx.now,
+  );
+};
+
+/**
+ * Hand everything held for this attempt to the device that just took it, in
+ * the order it arrived. A message the device refuses stays queued for the
+ * next offer instead of being dropped.
+ */
+const flushPendingInputs = async (
+  ctx: OwnerContext,
+  turnId: string,
+  dispatchId: string,
+): Promise<void> => {
+  const pending = ctx.db.all<PendingInputRow>(
+    "SELECT message_id, text FROM agent_pending_inputs WHERE turn_id = ? ORDER BY created_at, message_id",
+    turnId,
+  );
+  for (const input of pending) {
+    const steered = await ctx.host
+      .steerDeviceAgentTurn({
+        dispatchId,
+        messageId: input.message_id,
+        text: input.text,
+      })
+      .catch(() => ({ delivered: false as const }));
+    if (!steered.delivered) return;
+    ctx.db.run(
+      "DELETE FROM agent_pending_inputs WHERE turn_id = ? AND message_id = ?",
+      turnId,
+      input.message_id,
+    );
+  }
+};
+
 /**
  * Hand new input to the device attempt a thread is running, as a cloud
  * agent is steered: the running agent takes it before its next model call.
@@ -355,6 +484,14 @@ const steerDeviceThread = async (
     thread.thread_id,
     thread.attempt_generation,
   );
+  // An attempt exists but no device holds it yet: it is starting up, or it is
+  // queued for a device that is not available. Keep the message with the
+  // attempt and hand it over the moment the dispatch is offered, rather than
+  // refusing input for as long as the attempt waits.
+  if (turn && !turn.dispatch_id) {
+    queuePendingInput(ctx, turn.turn_id, messageId, text);
+    return control(thread);
+  }
   const steered = turn?.dispatch_id
     ? await ctx.host.steerDeviceAgentTurn({ dispatchId: turn.dispatch_id, messageId, text })
     : { delivered: false as const, reason: "not_running" as const };
@@ -458,21 +595,16 @@ const runDeviceDispatch = async (
       ...(job.availabilityRetries ? { requeue: job.availabilityRetries } : {}),
     });
     ctx.db.run("UPDATE agent_turns SET dispatch_id = ? WHERE turn_id = ?", dispatchId, turn.turn_id);
+    // Handing queued input over must never fail the offer that just landed;
+    // anything undelivered stays queued for the next one.
+    await flushPendingInputs(ctx, turn.turn_id, dispatchId).catch(
+      () => undefined,
+    );
   } catch (error) {
     let message = error instanceof Error ? error.message : String(error);
-    if (error instanceof DispatchError && DEVICE_AVAILABILITY_CODES.has(error.code ?? "")) {
+    if (placementMayRecover(error)) {
       if (waitForAvailableDevice(ctx, turn, job.availabilityRetries ?? 0)) return;
       message = deviceWaitExpiredMessage(message);
-    }
-    const retryable = !(error instanceof DispatchError) || error.retryable;
-    if (retryable && job.attempt < DISPATCH_MAX_ATTEMPTS) {
-      ctx.jobs.schedule(
-        "agentThreads.dispatch",
-        ctx.now + DISPATCH_RETRY_MS,
-        { ...job, attempt: job.attempt + 1 },
-        { id: `dispatch:${job.turnId}` },
-      );
-      return;
     }
     ctx.db.run("DELETE FROM agent_dispatch_prompts WHERE turn_id = ?", turn.turn_id);
     await settleDeviceAttempt(ctx, turn.turn_id, "failed", { errorMessage: message });
@@ -499,6 +631,11 @@ const settleDeviceAttempt = async (
     turnId,
   );
   ctx.db.run("DELETE FROM agent_dispatch_prompts WHERE turn_id = ?", turnId);
+  ctx.db.run("DELETE FROM agent_pending_inputs WHERE turn_id = ?", turnId);
+  ctx.db.run(
+    "UPDATE agent_threads SET activity_json = NULL WHERE thread_id = ?",
+    turn.thread_id,
+  );
   const thread = readThread(ctx.db, turn.thread_id);
   if (
     !thread ||
@@ -547,6 +684,47 @@ const settleDeviceAttempt = async (
   }
 };
 
+/**
+ * The gate reports the progress a device sends with its lease renewal. Only
+ * the attempt the thread is actually on may stamp it, so a late report for a
+ * superseded attempt cannot make a new one look busy.
+ */
+const deviceActivity = (ctx: OwnerContext, raw: unknown): { recorded: boolean } => {
+  const args = object({
+    turnId: id(),
+    lastActivityAt: number({ int: true, min: 0 }),
+    label: optional(string({ max: 500 })),
+    activeToolCount: optional(number({ int: true, min: 0, max: 10_000 })),
+  })(raw);
+  const turn = readTurn(ctx.db, args.turnId);
+  if (!turn?.thread_id || TERMINAL_STATUSES.has(turn.status)) {
+    return { recorded: false };
+  }
+  const thread = readThread(ctx.db, turn.thread_id);
+  if (
+    !thread ||
+    thread.attempt_generation !== turn.attempt_generation ||
+    !ACTIVE_STATUSES.has(thread.status)
+  ) {
+    return { recorded: false };
+  }
+  const activity: AgentThreadActivity = {
+    lastActivityAt: args.lastActivityAt,
+    ...(args.label ? { label: args.label } : {}),
+    ...(args.activeToolCount !== undefined
+      ? { activeToolCount: args.activeToolCount }
+      : {}),
+  };
+  // Progress is not a thread change: stamping `updated_at` here would restart
+  // every watcher and every delivery sweep once a minute per running agent.
+  ctx.db.run(
+    "UPDATE agent_threads SET activity_json = ? WHERE thread_id = ?",
+    JSON.stringify(activity),
+    thread.thread_id,
+  );
+  return { recorded: true };
+};
+
 /** The gate reports every terminal dispatch it ran for a device thread. */
 const deviceSettled = async (ctx: OwnerContext, raw: unknown): Promise<{ settled: boolean }> => {
   const args = object({
@@ -559,7 +737,10 @@ const deviceSettled = async (ctx: OwnerContext, raw: unknown): Promise<{ settled
   })(raw);
   const turn = readTurn(ctx.db, args.turnId);
   if (!turn || TERMINAL_STATUSES.has(turn.status)) return { settled: false };
-  const unavailable = args.state === "blocked" && DEVICE_AVAILABILITY_CODES.has(args.errorCode ?? "");
+  // A blocked offer never ran. While the availability window is open it goes
+  // back on the queue whichever placement reason the gate reported; only the
+  // window's end turns it into a failure, with the wording that promised it.
+  const unavailable = args.state === "blocked";
   if (unavailable && waitForAvailableDevice(ctx, turn, args.requeue ?? 0)) return { settled: false };
   await settleDeviceAttempt(ctx, args.turnId, args.state === "blocked" ? "failed" : args.state, {
     ...(args.resultJson ? { resultJson: args.resultJson } : {}),
@@ -846,6 +1027,12 @@ const startAttempt = (
     "INSERT INTO agent_dispatch_prompts (turn_id, prompt) VALUES (?, ?)",
     input.turnId,
     input.prompt,
+  );
+  // A fresh attempt has made no progress yet and must not read as if it
+  // inherited the previous one's.
+  ctx.db.run(
+    "UPDATE agent_threads SET activity_json = NULL WHERE thread_id = ?",
+    input.thread.thread_id,
   );
   ctx.jobs.schedule(
     "agentThreads.dispatch",
@@ -1737,6 +1924,8 @@ export const agentThreadsDomain = {
     AGENT_THREADS_DROP_WORKSPACE_FORK_MIGRATION,
     AGENT_THREADS_DEVICE_EXECUTOR_MIGRATION,
     AGENT_THREADS_REQUESTED_MODEL_MIGRATION,
+    AGENT_THREADS_PENDING_INPUT_MIGRATION,
+    AGENT_THREADS_ACTIVITY_MIGRATION,
   ],
   calls: {
     "agentThreads.page": {
@@ -1905,6 +2094,7 @@ export const agentThreadsDomain = {
     "agentThreads.conversationThread": conversationThreadForCloud,
     "agentThreads.continueOnDevice": continueDeviceForCloud,
     "agentThreads.cancelOnDevice": cancelDeviceForCloud,
+    "agentThreads.deviceActivity": deviceActivity,
     "agentThreads.deviceSettled": deviceSettled,
   },
   jobs: {

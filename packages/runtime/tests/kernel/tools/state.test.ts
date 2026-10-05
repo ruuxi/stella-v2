@@ -1260,6 +1260,42 @@ describe("agent tools on a thread this conversation started elsewhere", () => {
       createdAt: 1_000,
       updatedAt: 3_000,
     },
+    "thr-device-working": {
+      ownerId: "owner-1",
+      threadId: "thr-device-working",
+      conversationId: "conversation-1",
+      originDeviceId: THIS_COMPUTER,
+      executorDeviceId: "mac-1",
+      executorDeviceLabel: "Rahul's Mac",
+      description: "Disk cleanup",
+      placement: "computer",
+      agentType: "general",
+      status: "running",
+      attemptGeneration: 1,
+      activity: {
+        lastActivityAt: 2_000,
+        label: "Running exec_command",
+        activeToolCount: 1,
+      },
+      createdAt: 1_000,
+      updatedAt: 1_000,
+    },
+    "thr-device-silent": {
+      ownerId: "owner-1",
+      threadId: "thr-device-silent",
+      conversationId: "conversation-1",
+      originDeviceId: THIS_COMPUTER,
+      executorDeviceId: "mac-1",
+      executorDeviceLabel: "Rahul's Mac",
+      description: "Disk cleanup",
+      placement: "computer",
+      agentType: "general",
+      status: "running",
+      attemptGeneration: 1,
+      activity: { lastActivityAt: 2_000, activeToolCount: 0 },
+      createdAt: 1_000,
+      updatedAt: 1_000,
+    },
     "thr-started-from-mac": {
       ownerId: "owner-1",
       threadId: "thr-started-from-mac",
@@ -1369,6 +1405,46 @@ describe("agent tools on a thread this conversation started elsewhere", () => {
     expect(input.error).toBe(
       "No durable cloud control receipt is available for thread thr-device-started-here.",
     );
+  });
+
+  it("agent_status answers whether a running device agent is working or wedged", async () => {
+    const working = await handleAgentStatus(
+      stateContext(),
+      { thread_id: "thr-device-working" },
+      toolContext,
+    );
+    expect(working.result).toMatchObject({
+      status: "active",
+      last_activity_at: new Date(2_000).toISOString(),
+      current_operation: "Running exec_command",
+      active_tool_count: 1,
+    });
+    expect((working.result as { note: string }).note).toContain("Last activity");
+
+    // The same shape with nothing outstanding: still reported, still no
+    // verdict, because only the reader can judge the gap.
+    const silent = await handleAgentStatus(
+      stateContext(),
+      { thread_id: "thr-device-silent" },
+      toolContext,
+    );
+    expect(silent.result).toMatchObject({
+      last_activity_at: new Date(2_000).toISOString(),
+      active_tool_count: 0,
+    });
+    expect((silent.result as { note: string }).note).toContain(
+      "No tool call outstanding",
+    );
+  });
+
+  it("agent_status does not show progress for a finished thread", async () => {
+    const result = await handleAgentStatus(
+      stateContext(),
+      { thread_id: "thr-device-started-here" },
+      toolContext,
+    );
+    expect(result.result).not.toHaveProperty("last_activity_at");
+    expect(result.result).not.toHaveProperty("active_tool_count");
   });
 
   it("a thread no conversation knows stays not found", async () => {

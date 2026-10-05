@@ -640,9 +640,34 @@ describe("claim, ack, and completion", () => {
       (await harness.instance.dispatchStatus(dispatchId)).response.dispatch
         .state,
     ).toBe("computer_running");
+    // A renewal may carry the agent's progress. It is advisory, so the lease
+    // renews exactly as before whether or not it is attached or usable.
     await withNow(NOW + 400, () =>
-      harness.sendFrame(socket, { type: "renew", dispatchId }),
+      harness.sendFrame(socket, {
+        type: "renew",
+        dispatchId,
+        activity: {
+          lastActivityAt: NOW + 350,
+          label: "Running exec_command",
+          activeToolCount: 1,
+        },
+      }),
     );
+    expect(
+      (await harness.instance.dispatchStatus(dispatchId)).response.dispatch
+        .state,
+    ).toBe("computer_running");
+    await withNow(NOW + 450, () =>
+      harness.sendFrame(socket, {
+        type: "renew",
+        dispatchId,
+        activity: { lastActivityAt: "not-a-number" } as never,
+      }),
+    );
+    expect(
+      (await harness.instance.dispatchStatus(dispatchId)).response.dispatch
+        .state,
+    ).toBe("computer_running");
     await withNow(NOW + 500, () =>
       harness.sendFrame(socket, {
         type: "complete",

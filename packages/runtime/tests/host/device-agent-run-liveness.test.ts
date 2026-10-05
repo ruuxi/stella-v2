@@ -163,6 +163,53 @@ describe("an agent handed to this computer", () => {
     expect((outcome() as Error).message).toBe("Runtime worker exited.");
   });
 
+  it("keeps a chat turn handed from another device running past 30 minutes too", async () => {
+    const { host, worker, workerPeer } = connect();
+    const chatRuns: Array<{ finish: (value: unknown) => void }> = [];
+    workerPeer.registerRequestHandler(
+      METHOD_NAMES.INTERNAL_WORKER_RUN_AUTOMATION,
+      () =>
+        new Promise((resolve) => {
+          chatRuns.push({ finish: resolve });
+        }),
+    );
+    Object.assign(host, {
+      appendLocalChatEvent: async () => {},
+    });
+    await StellaRuntimeHost.prototype.syncHostExecutionPlacementNow.call(host);
+    const options = bridgeOptions.current;
+    if (!options) throw new Error("The placement bridge was not created.");
+    let outcome: unknown = "pending";
+    void options
+      .runExecution({
+        dispatch: {
+          dispatchId: "dispatch-chat-1",
+          kind: "chat",
+          conversationId: "conversation-1",
+        },
+        payload: { prompt: "Summarise today's releases." },
+        ownerGeneration: "generation-1",
+      })
+      .then(
+        (value) => {
+          outcome = value;
+        },
+        (error: unknown) => {
+          outcome = error instanceof Error ? error : new Error(String(error));
+        },
+      );
+    await vi.advanceTimersByTimeAsync(1);
+    expect(chatRuns).toHaveLength(1);
+    expect(worker.runs).toHaveLength(0);
+
+    await vi.advanceTimersByTimeAsync(3 * 60 * MINUTE);
+    expect(outcome).toBe("pending");
+
+    chatRuns[0]!.finish({ status: "ok", finalText: "Three releases shipped." });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(outcome).toMatchObject({ status: "ok" });
+  });
+
   it("leaves the 30-minute deadline on ordinary worker requests", async () => {
     const { host, workerPeer } = connect();
     workerPeer.registerRequestHandler("internal.worker.slow", () => new Promise(() => {}));

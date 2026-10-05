@@ -76,6 +76,55 @@ const agentApi = (overrides: Partial<AgentToolApi>): AgentToolApi =>
     ...overrides,
   }) as AgentToolApi;
 
+describe("a device agent spawned from a desktop", () => {
+  const spawnOnDevice = async (waitingForDevice: boolean) => {
+    const state = createStateContext(
+      "/tmp/stella-cloud-spawn-test",
+      agentApi({
+        cloudDispatch: async () => ({
+          threadId: "thr-device",
+          conversationId: "cloud-conversation",
+          ownerGeneration: OWNER_GENERATION,
+          attemptGeneration: 1,
+          threadUpdatedAt: 100,
+          status: "running",
+          ...(waitingForDevice ? { waitingForDevice: true } : {}),
+        }),
+      }),
+    );
+    return await handleSpawnAgent(
+      state,
+      {
+        description: "Clean the disk",
+        prompt: "Clean the disk and report back.",
+        destination: "mac-1",
+      },
+      { ...toolContext, conversationId: "cloud-conversation", deviceId: "device-1" },
+    );
+  };
+
+  test("reports it as queued, not running, while its computer cannot take it", async () => {
+    const result = await spawnOnDevice(true);
+    expect(result.result).toMatchObject({
+      thread_id: "thr-device",
+      placement: "device",
+      device_id: "mac-1",
+      thread_status: "queued",
+    });
+    expect((result.result as { note: string }).note).toContain(
+      "retries automatically for up to 60 minutes",
+    );
+  });
+
+  test("reports it as running once its computer has taken it", async () => {
+    const result = await spawnOnDevice(false);
+    expect(result.result).toMatchObject({ thread_status: "running" });
+    expect((result.result as { note: string }).note).toContain(
+      "Running on device mac-1.",
+    );
+  });
+});
+
 describe("desktop cloud thread controls", () => {
   test("send_input falls through to an owned cloud continuation", async () => {
     const requests: unknown[] = [];
@@ -346,6 +395,96 @@ describe("desktop cloud thread controls", () => {
       reason: expect.stringContaining("No durable cloud control receipt"),
     });
     expect({ mutations, actions }).toEqual({ mutations: 0, actions: 0 });
+  });
+
+  test("rebuilds a lost receipt from the ledger instead of stranding the agent", async () => {
+    const { store } = createStore();
+    const sent: unknown[] = [];
+    const controller = createCloudThreadController({
+      backendRefs: {
+        cloud_apps: {
+          continueMyCloudAgentFromDesktop: "continue-ref",
+          cancelMyCloudAgentThread: "cancel-ref",
+        },
+      },
+      deviceId: "device-1",
+      mutation: async (_ref, args) => {
+        sent.push(args);
+        return {
+          threadId: "thr-adopted",
+          conversationId: "cloud-conversation",
+          attemptGeneration: 8,
+          threadUpdatedAt: 900,
+          status: "running",
+        };
+      },
+      action: async () => ({}),
+      getOwnerGeneration: async () => OWNER_GENERATION,
+      store,
+      isSignedIn: () => true,
+      adoptThreadControl: async (request) =>
+        store.putCloudAgentThreadControl({
+          threadId: request.threadId,
+          ownerGeneration: request.ownerGeneration,
+          cloudConversationId: "cloud-conversation",
+          originConversationId: request.originConversationId,
+          attemptGeneration: 7,
+          threadUpdatedAt: 700,
+          status: "running",
+        }),
+    });
+
+    expect(
+      await controller.continueThread({
+        threadId: "thr-adopted",
+        description: "Continue",
+        message: "Keep going.",
+        conversationId: "local-conversation",
+        requestId: "adopted-continue",
+      }),
+    ).toMatchObject({ delivered: true, steered: false });
+    // The adopted receipt is what the request names, so the server still
+    // fences this call against a newer attempt.
+    expect(sent).toMatchObject([
+      { threadId: "thr-adopted", expectedAttemptGeneration: 7 },
+    ]);
+  });
+
+  test("keeps failing closed when the ledger does not own the thread here", async () => {
+    const { store } = createStore();
+    let mutations = 0;
+    const controller = createCloudThreadController({
+      backendRefs: {
+        cloud_apps: {
+          continueMyCloudAgentFromDesktop: "continue-ref",
+          cancelMyCloudAgentThread: "cancel-ref",
+        },
+      },
+      deviceId: "device-1",
+      mutation: async () => {
+        mutations += 1;
+        return {};
+      },
+      action: async () => ({}),
+      getOwnerGeneration: async () => OWNER_GENERATION,
+      store,
+      isSignedIn: () => true,
+      adoptThreadControl: async () => null,
+    });
+
+    expect(
+      await controller.continueThread({
+        threadId: "thr-elsewhere",
+        description: "Continue",
+        message: "Keep going.",
+        conversationId: "local-conversation",
+        requestId: "elsewhere-continue",
+      }),
+    ).toMatchObject({
+      delivered: false,
+      reason: expect.stringContaining("No durable cloud control receipt"),
+    });
+    expect(mutations).toBe(0);
   });
 
   test("restarts a lost continuation response with the immutable generation and terminal receipt", async () => {

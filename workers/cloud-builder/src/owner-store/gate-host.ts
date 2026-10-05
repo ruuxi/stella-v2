@@ -128,7 +128,14 @@ export const createGateHost = (deps: GateHostDependencies): OwnerHost => ({
       expectedGeneration: input.ownerGeneration,
     });
     if (!result.ok) {
-      throw new DispatchError(result.error.message, result.error.retryable);
+      // The gate's refusal code travels with the error. Dropping it made every
+      // pre-routing refusal indistinguishable from a permanent failure, so the
+      // queue could never recognise one and the stated wait never applied.
+      throw new DispatchError(
+        result.error.message,
+        result.error.retryable,
+        result.error.code,
+      );
     }
     const dispatch = result.response.dispatch;
     if (dispatch.state === "blocked" || dispatch.state === "failed") {

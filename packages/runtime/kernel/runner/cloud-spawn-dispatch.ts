@@ -71,6 +71,17 @@ export type CloudSpawnDispatcherOptions = {
   /** Reads the active epoch once; the operation ledger makes it immutable. */
   getOwnerGeneration: () => Promise<string>;
   store: CloudAgentControlStore;
+  /**
+   * The owner's agent-thread ledger, asked for a thread this device has no
+   * local receipt for. It answers only for threads this device started, so a
+   * receipt lost with the session store — or never written because the thread
+   * was started before this store existed — stops stranding a live agent.
+   */
+  adoptThreadControl?: (request: {
+    threadId: string;
+    originConversationId: string;
+    ownerGeneration: string;
+  }) => Promise<CloudAgentThreadControlRecord | null>;
 };
 
 type StoredSpawnRequest = {
@@ -259,6 +270,7 @@ const parseRunningResult = (
     attemptGeneration,
     threadUpdatedAt,
     status,
+    ...(result?.waitingForDevice === true ? { waitingForDevice: true } : {}),
   };
 };
 
@@ -310,6 +322,35 @@ const parseCancelResponse = (raw: unknown): CancelResponse => {
       status: currentStatus,
     },
   };
+};
+
+/**
+ * The exact control authority for a thread of this conversation: the local
+ * receipt when there is one, otherwise the ledger's, adopted and persisted so
+ * every later request in this operation reads the same row.
+ */
+const requireThreadControl = async (
+  options: CloudSpawnDispatcherOptions,
+  threadId: string,
+  originConversationId: string,
+  ownerGeneration: string,
+): Promise<CloudAgentThreadControlRecord> => {
+  const current = options.store.getCloudAgentThreadControl(
+    threadId,
+    ownerGeneration,
+  );
+  if (current && current.originConversationId === originConversationId) {
+    return current;
+  }
+  const adopted = await options.adoptThreadControl?.({
+    threadId,
+    originConversationId,
+    ownerGeneration,
+  });
+  if (adopted) return adopted;
+  throw new Error(
+    `No durable cloud control receipt is available for thread ${threadId}.`,
+  );
 };
 
 const persistControl = (
@@ -555,15 +596,12 @@ export const createCloudThreadController = (
           ? { explicitOwnerGeneration: request.ownerGeneration }
           : {}),
         buildRequest: async (ownerGeneration) => {
-          const current = options.store.getCloudAgentThreadControl(
+          const current = await requireThreadControl(
+            options,
             request.threadId,
+            request.conversationId,
             ownerGeneration,
           );
-          if (!current || current.originConversationId !== request.conversationId) {
-            throw new Error(
-              `No durable cloud control receipt is available for thread ${request.threadId}.`,
-            );
-          }
           // A running thread is steered: the server hands the message to
           // the attempt that is running instead of starting another.
           return {
@@ -622,11 +660,13 @@ export const createCloudThreadController = (
           "Stella's cloud returned a continuation receipt for a different attempt.",
         );
       }
-      const previous = options.store.getCloudAgentThreadControl(
+      const previous = await requireThreadControl(
+        options,
         request.threadId,
+        request.conversationId,
         operation.ownerGeneration,
       );
-      if (!previous || previous.cloudConversationId !== result.conversationId) {
+      if (previous.cloudConversationId !== result.conversationId) {
         throw new Error(
           "Stella's cloud returned a continuation in a different conversation.",
         );
@@ -685,15 +725,12 @@ export const createCloudThreadController = (
           ? { explicitOwnerGeneration: request.ownerGeneration }
           : {}),
         buildRequest: async (ownerGeneration) => {
-          const current = options.store.getCloudAgentThreadControl(
+          const current = await requireThreadControl(
+            options,
             request.threadId,
+            request.conversationId,
             ownerGeneration,
           );
-          if (!current || current.originConversationId !== request.conversationId) {
-            throw new Error(
-              `No durable cloud control receipt is available for thread ${request.threadId}.`,
-            );
-          }
           return {
             ownerGeneration,
             threadId: request.threadId,
@@ -731,15 +768,12 @@ export const createCloudThreadController = (
             "Stella's cloud returned a pause receipt for a different attempt.",
           );
         }
-        const previous = options.store.getCloudAgentThreadControl(
+        const previous = await requireThreadControl(
+          options,
           request.threadId,
+          request.conversationId,
           operation.ownerGeneration,
         );
-        if (!previous) {
-          throw new Error(
-            `No durable cloud control receipt is available for thread ${request.threadId}.`,
-          );
-        }
         options.store.putCloudAgentThreadControl({
           threadId: request.threadId,
           ownerGeneration: operation.ownerGeneration,

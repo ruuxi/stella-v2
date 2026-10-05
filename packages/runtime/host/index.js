@@ -16,7 +16,7 @@ import { AGENT_STREAM_EVENT_TYPES } from "@stella/contracts/agent-runtime";
 import { createExecutionPlacementBridge, placementLocalAgentThreadId, placementLocalChatRunId, placementRemoteThreadAgentId, } from "./execution-placement-bridge.js";
 import { isExecutionPlacementEligible } from "./execution-placement-eligibility.js";
 import { isCloudHandedOff } from "./placed-dispatch.js";
-import { AGENT_RUN_RPC_OPTIONS } from "./agent-run-request.js";
+import { AGENT_RUN_RPC_OPTIONS, BLOCKING_RUN_RPC_OPTIONS } from "./agent-run-request.js";
 import { placementAttachmentPaths, resolvePlacementAttachments, } from "./placement-attachments.js";
 import { getDesktopDatabasePath, initializeDesktopDatabase, } from "../kernel/storage/database-init.js";
 import { METHOD_NAMES, NOTIFICATION_NAMES, STELLA_RUNTIME_PROTOCOL_VERSION, } from "@stella/contracts/protocol";
@@ -793,6 +793,9 @@ export class StellaRuntimeHost {
                     ensureWorker: true,
                     recordActivity: true,
                     retryOnceOnDisconnect: false,
+                    // A chat turn handed to this computer is a blocking run
+                    // like a placed agent: it takes as long as the work takes.
+                    rpc: BLOCKING_RUN_RPC_OPTIONS,
                 });
                 if (result.status === "ok") {
                     if (result.finalText) {
@@ -830,6 +833,33 @@ export class StellaRuntimeHost {
                     retryOnceOnDisconnect: false,
                 });
                 return result?.delivered === true;
+            },
+            readExecutionActivity: async ({ dispatchId, kind, payload }) => {
+                // Only an agent has an agent's progress; a placed chat turn is
+                // the conversation's own and is already visible there.
+                if (kind !== "agent")
+                    return null;
+                const remoteThreadId = typeof payload?.threadId === "string" && payload.threadId.trim()
+                    ? payload.threadId.trim()
+                    : null;
+                const agentId = remoteThreadId
+                    ? placementRemoteThreadAgentId(remoteThreadId)
+                    : placementLocalAgentThreadId(dispatchId);
+                const snapshot = await this.getLocalAgentSnapshot(agentId).catch(() => null);
+                const lastActivityAt = snapshot?.lastActivityAt;
+                if (typeof lastActivityAt !== "number" || !Number.isFinite(lastActivityAt)) {
+                    return null;
+                }
+                const label = Array.isArray(snapshot?.recentActivity)
+                    ? snapshot.recentActivity.find((entry) => typeof entry === "string" && entry.trim())
+                    : undefined;
+                return {
+                    lastActivityAt,
+                    ...(label ? { label: label.trim().slice(0, 500) } : {}),
+                    ...(typeof snapshot?.activeToolCount === "number"
+                        ? { activeToolCount: snapshot.activeToolCount }
+                        : {}),
+                };
             },
             cancelExecution: async ({ dispatchId, kind, conversationId, payload }) => {
                 if (kind === "agent") {
@@ -1339,6 +1369,7 @@ export class StellaRuntimeHost {
         return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_RUN_AUTOMATION, payload, {
             ensureWorker: true,
             recordActivity: true,
+            rpc: BLOCKING_RUN_RPC_OPTIONS,
         });
     }
     async runBlockingLocalAgent(payload) {

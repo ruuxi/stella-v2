@@ -23,6 +23,7 @@ import {
   type ExecutionKind,
   type ExecutionSubject,
   type ExecutionTargetMode,
+  type PlacementActivity,
 } from "@stella/contracts/turn-plane/placement";
 import { canonicalDispatchPayloadJson } from "@stella/contracts/turn-plane/pairing-proof";
 import { getFileLogger } from "../observability/file-logger.js";
@@ -153,6 +154,15 @@ type PlacementBridgeOptions = {
     messageId: string;
     text: string;
   }) => Promise<boolean>;
+  /**
+   * How the running execution is doing, read when the lease is renewed and
+   * sent with it. Null when there is nothing to report.
+   */
+  readExecutionActivity?: (args: {
+    dispatchId: string;
+    kind: PlacementKind;
+    payload: Record<string, unknown>;
+  }) => Promise<PlacementActivity | null>;
   log?: (level: "warn" | "error", message: string, error?: unknown) => void;
   now?: () => number;
   /** Test seam; production uses the accepted execution lease duration. */
@@ -2424,7 +2434,29 @@ export class ExecutionPlacementBridge {
   }
 
   private async renew(row: ExecutionPlacementInboxRow) {
-    if (!this.send({ type: "renew", dispatchId: row.dispatchId })) {
+    // The renewal already runs on a timer while the work runs, so it is the
+    // cheapest honest place to tell the owner how the agent is doing. A
+    // reading that cannot be taken just renews the lease as before.
+    let payload: Record<string, unknown> = {};
+    try {
+      payload = parseRecord(JSON.parse(row.payloadJson));
+    } catch {
+      payload = {};
+    }
+    const activity = await this.options
+      .readExecutionActivity?.({
+        dispatchId: row.dispatchId,
+        kind: row.kind,
+        payload,
+      })
+      .catch(() => null);
+    if (
+      !this.send({
+        type: "renew",
+        dispatchId: row.dispatchId,
+        ...(activity ? { activity } : {}),
+      })
+    ) {
       throw new Error("The presence socket is not connected.");
     }
   }

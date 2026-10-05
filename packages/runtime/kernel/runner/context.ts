@@ -528,6 +528,53 @@ export const createRunnerContext = ({
       context.state?.backendUrl &&
         (context.state?.authToken ?? envAuthToken ?? "").trim(),
     );
+  /**
+   * Rebuild this device's control receipt for one of its own threads from the
+   * owner's ledger. Only a thread this device started is adopted: a thread
+   * the cloud orchestrator or another computer owns stays unreachable from
+   * here, and the caller reports who can reach it instead.
+   */
+  const adoptCloudThreadControl = async (request: {
+    threadId: string;
+    originConversationId: string;
+    ownerGeneration: string;
+  }) => {
+    const client = backend.client();
+    if (
+      !client ||
+      !isCloudSignedIn() ||
+      request.originConversationId.startsWith("local_")
+    ) {
+      return null;
+    }
+    const thread = await raceWithTimeoutError(
+      client.call("agentThreads.lookup", {
+        conversationId: request.originConversationId,
+        threadId: request.threadId,
+      }),
+      CONVERSATION_THREAD_LOOKUP_TIMEOUT_MS,
+      () => new Error("Stella's cloud did not answer the thread lookup."),
+    ).catch(() => null);
+    if (!thread || thread.originDeviceId !== deviceId) return null;
+    const status = thread.status;
+    if (
+      status !== "running" &&
+      status !== "completed" &&
+      status !== "failed" &&
+      status !== "canceled"
+    ) {
+      return null;
+    }
+    return runtimeStore.putCloudAgentThreadControl({
+      threadId: thread.threadId,
+      ownerGeneration: request.ownerGeneration,
+      cloudConversationId: thread.conversationId,
+      originConversationId: request.originConversationId,
+      attemptGeneration: thread.attemptGeneration,
+      threadUpdatedAt: thread.updatedAt,
+      status,
+    });
+  };
   const cloudDispatch = createCloudSpawnDispatcher({
     backend: cloudAgentBackend,
     deviceId,
@@ -541,6 +588,7 @@ export const createRunnerContext = ({
     getOwnerGeneration: getCloudOwnerGeneration,
     store: runtimeStore,
     isSignedIn: isCloudSignedIn,
+    adoptThreadControl: adoptCloudThreadControl,
   });
 
   /** The conversation Durable Objects live on the backend worker. */

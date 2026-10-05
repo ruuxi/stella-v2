@@ -1,6 +1,7 @@
 import type { AgentToolResult } from "@stella/runtime/kernel/agent-core/types.js";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import type { CloudBrowserResumeReceipt } from "@stella/contracts/cloud-browser";
+import type { AgentThreadActivity } from "@stella/contracts/backend/agent-threads";
 import {
   OWNER_EVENT_VERSION,
   type ThreadSpawnedEvent,
@@ -52,6 +53,8 @@ export type CloudAgentControlReceipt = {
   description?: string;
   /** Set when the thread runs on one of the owner's devices, not in a BuildSession. */
   executorDeviceId?: string;
+  /** The running attempt's reported progress, when the ledger has one. */
+  activity?: AgentThreadActivity;
 };
 
 export type CloudAgentToolKind = "spawn_agent" | "send_input" | "pause_agent";
@@ -608,6 +611,36 @@ export const steerCloudAgent = async (args: {
   };
 };
 
+/**
+ * How the running attempt is doing, for a caller that can only see the
+ * ledger. States the facts and draws no conclusion: no threshold can separate
+ * a long build from a hang, so the gap and the outstanding tool count are
+ * reported and the reader decides.
+ */
+const cloudAgentProgressText = (
+  control: CloudAgentControlReceipt,
+  now: number,
+): string | undefined => {
+  const activity = control.activity;
+  if (!activity) return undefined;
+  const elapsedMs = Math.max(0, now - activity.lastActivityAt);
+  const minutes = Math.floor(elapsedMs / 60_000);
+  const since =
+    minutes < 1
+      ? "less than a minute ago"
+      : minutes < 60
+        ? `${minutes}m ago`
+        : `${Math.floor(minutes / 60)}h ${minutes % 60}m ago`;
+  const tools = activity.activeToolCount;
+  const outstanding =
+    tools === undefined
+      ? ""
+      : tools > 0
+        ? ` ${tools} tool call${tools === 1 ? "" : "s"} still outstanding.`
+        : " No tool call outstanding.";
+  return `Last activity ${since}${activity.label ? ` (${activity.label})` : ""}.${outstanding}`;
+};
+
 export const agentStatusResult = (
   control: CloudAgentControlReceipt,
   now: number = Date.now(),
@@ -627,10 +660,12 @@ export const agentStatusResult = (
     : undefined;
   const reportTruncated =
     terminal && (control.lifecycleReport?.length ?? 0) > TURN_PROMPT_MAX_CHARS;
+  const progress = active ? cloudAgentProgressText(control, now) : undefined;
   const text = [
     `Thread ${control.threadId}: ${status} (${control.status}).`,
     control.description ? `Description: ${control.description}.` : "",
     `Last lifecycle change: ${lastActiveAt}. Current time: ${currentTime}.`,
+    progress ?? "",
     active
       ? "It is executing a turn right now; its report arrives as an [Agent completed] message. This snapshot did not interrupt it."
       : report !== undefined

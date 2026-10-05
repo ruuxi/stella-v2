@@ -46,6 +46,41 @@ export const agentThreadLookupController = (
     : "It was started by this conversation.";
 };
 
+const MINUTE_MS = 60_000;
+
+const sinceLabel = (ms: number): string => {
+  if (ms < MINUTE_MS) return "just now";
+  const minutes = Math.floor(ms / MINUTE_MS);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m ago`;
+};
+
+/**
+ * What the running attempt is doing, for a reader who can only see the ledger.
+ * Without this an active thread looks the same whether it is working or wedged,
+ * which is the one question a status check is usually asked to answer. There is
+ * deliberately no verdict here: the gap between "last did something" and now,
+ * next to whether a tool is still outstanding, is what a human or an
+ * orchestrator needs, and no threshold could tell a long build from a hang.
+ */
+export const agentThreadLookupProgress = (
+  thread: AgentThreadLookup,
+  now = Date.now(),
+): string | undefined => {
+  const activity = thread.activity;
+  if (!activity || !isAgentThreadLookupActive(thread)) return undefined;
+  const since = sinceLabel(Math.max(0, now - activity.lastActivityAt));
+  const tools = activity.activeToolCount;
+  const outstanding =
+    tools === undefined
+      ? ""
+      : tools > 0
+        ? ` ${tools} tool call${tools === 1 ? "" : "s"} still outstanding.`
+        : " No tool call outstanding.";
+  return `Last activity ${since}${activity.label ? ` (${activity.label})` : ""}.${outstanding}`;
+};
+
 export const agentThreadLookupReport = (thread: AgentThreadLookup): string | undefined => {
   if (!thread.resultJson) return undefined;
   let text = thread.resultJson;
@@ -76,6 +111,7 @@ export const describeAgentThreadLookup = (
   const report = active ? undefined : agentThreadLookupReport(thread);
   return [
     `Thread ${thread.threadId} (${thread.description}) runs ${agentThreadLookupLocation(thread)} and is ${thread.status} (attempt ${thread.attemptGeneration}, last change ${new Date(thread.updatedAt).toISOString()}).`,
+    agentThreadLookupProgress(thread) ?? "",
     agentThreadLookupController(thread, viewer),
     report !== undefined
       ? `Report for this attempt:\n${report}`

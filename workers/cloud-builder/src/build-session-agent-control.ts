@@ -9,10 +9,14 @@ import {
 } from "@stella/runtime/kernel/tools/defs/agent-orchestration-def.js";
 import {
   DEVICE_AGENT_QUEUED_NOTE,
+  agentThreadElsewhereError,
+  agentThreadElsewhereStatus,
   cancelDeviceAgent,
   continueDeviceAgent,
   readDeviceAgent,
+  resolveConversationAgentThread,
   spawnDeviceAgent,
+  type ConversationAgentThreadResolution,
   type DeviceAgentCaller,
 } from "./device-agent-tools.js";
 import { unwrapRpc } from "./owner-store/errors.js";
@@ -157,6 +161,48 @@ export const createBuildSessionAgentControl = (
     parentThreadId: parent.threadId,
   };
 
+  /**
+   * The owner's agent-thread ledger, consulted when this agent holds no
+   * receipt for a thread. A device agent this agent started is taken over and
+   * really reached, so a receipt lost between runs no longer strands it; a
+   * thread someone else owns is reported with where it runs and who can reach
+   * it. Without this, an agent executing in the cloud could only ever see the
+   * threads still in its own storage.
+   */
+  const lookupOwnedThread = async (
+    threadId: string,
+  ): Promise<ConversationAgentThreadResolution | null> =>
+    await resolveConversationAgentThread(deviceCaller, threadId, {
+      parentThreadId: parent.threadId,
+    }).catch(() => null);
+
+  const threadNotFound = (threadId: string) =>
+    new Error(
+      `Thread not found in this agent: ${threadId}. agent_status only sees agents spawned from this agent thread.`,
+    );
+
+  const requireControlOrLedger = async (
+    threadId: string,
+    action: "send_input" | "pause_agent",
+  ): Promise<CloudAgentControlReceipt> => {
+    try {
+      return await requireCloudAgentControlReceipt({
+        storage: deps.storage,
+        threadId,
+      });
+    } catch {
+      const found = await lookupOwnedThread(threadId);
+      if (!found) throw threadNotFound(threadId);
+      if (found.kind === "elsewhere") {
+        throw agentThreadElsewhereError(found, action, "this agent");
+      }
+      return await rememberCloudAgentControlReceipt(
+        deps.storage,
+        found.control,
+      );
+    }
+  };
+
   return {
     execute: async (toolName, toolCallId, params, signal) => {
       if (toolName === SPAWN_AGENT_TOOL_DESCRIPTOR.name) {
@@ -245,10 +291,7 @@ export const createBuildSessionAgentControl = (
         const value = await fingerprint("send_input", { threadId, message });
         let outcome = await readOutcome(toolCallId, "send_input", value);
         if (!outcome) {
-          const prior = await requireCloudAgentControlReceipt({
-            storage: deps.storage,
-            threadId,
-          });
+          const prior = await requireControlOrLedger(threadId, "send_input");
           let control: CloudAgentControlReceipt;
           let disposition: "steered" | "resumed";
           if (prior.executorDeviceId) {
@@ -351,8 +394,14 @@ export const createBuildSessionAgentControl = (
             threadId,
           });
         } catch {
-          throw new Error(
-            `Thread not found in this agent: ${threadId}. agent_status only sees agents spawned from this agent thread.`,
+          const found = await lookupOwnedThread(threadId);
+          if (!found) throw threadNotFound(threadId);
+          if (found.kind === "elsewhere") {
+            return agentThreadElsewhereStatus(found);
+          }
+          control = await rememberCloudAgentControlReceipt(
+            deps.storage,
+            found.control,
           );
         }
         if (control.executorDeviceId) {
@@ -383,10 +432,7 @@ export const createBuildSessionAgentControl = (
               : "paused",
           );
         }
-        const control = await requireCloudAgentControlReceipt({
-          storage: deps.storage,
-          threadId,
-        });
+        const control = await requireControlOrLedger(threadId, "pause_agent");
         let finalControl = control;
         let disposition: "paused" | "pending" | "already_terminal";
         if (!isCloudAgentControlActive(control.status)) {

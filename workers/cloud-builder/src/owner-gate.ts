@@ -118,6 +118,7 @@ import {
   type DispatchSubmitRequest,
   type DispatchSubmitResponse,
   type DispatchSummary,
+  type PlacementActivity,
   type ExecutionCapability,
   type ExecutionIngress,
   type ExecutionKind,
@@ -2343,6 +2344,38 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
    * A device attempt of an owner agent thread ended: hand the outcome to the
    * thread ledger, which records it and wakes a cloud requester.
    */
+  /**
+   * A device reported how its agent is doing on the lease renewal it already
+   * sends. Progress is advisory: a failed report must never fail the renewal
+   * and strand a healthy run, so it is logged and dropped.
+   */
+  private async reportDeviceAgentActivity(
+    row: DispatchRow,
+    activity: PlacementActivity,
+  ): Promise<void> {
+    const key = row.kind === "agent" ? parseDeviceAgentDispatchKey(row.idempotency_key) : null;
+    if (!key) return;
+    const response = await this.ownerStore()
+      .internalCall("agentThreads.deviceActivity", {
+        turnId: key.turnId,
+        lastActivityAt: activity.lastActivityAt,
+        ...(activity.label ? { label: activity.label } : {}),
+        ...(activity.activeToolCount !== undefined
+          ? { activeToolCount: activity.activeToolCount }
+          : {}),
+      })
+      .catch((error: unknown) => ({
+        ok: false as const,
+        error: { message: error instanceof Error ? error.message : String(error) },
+      }));
+    if (!response.ok) {
+      log("error", "device_agent_activity_failed", {
+        dispatchId: row.dispatch_id,
+        message: response.error.message,
+      });
+    }
+  }
+
   private async reportDeviceAgentSettled(row: DispatchRow): Promise<void> {
     const key = row.kind === "agent" ? parseDeviceAgentDispatchKey(row.idempotency_key) : null;
     if (!key) return;
@@ -3717,6 +3750,9 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       ) {
         deny("conflict", "Execution is not renewable.");
         return;
+      }
+      if (frame.activity) {
+        await this.reportDeviceAgentActivity(row, frame.activity);
       }
       await this.patchDispatch(
         row,

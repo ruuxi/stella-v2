@@ -293,6 +293,21 @@ export type DevicePresenceServerFrame =
   | { type: "pong"; serverTimeMs: number }
   | { type: "error"; code: string; message: string; retryable: boolean };
 
+/**
+ * What the executing device knows about its agent's progress, carried on the
+ * lease renewal it already sends. A renewed lease only proves the device is
+ * reachable; this is what separates an agent that is working from one that is
+ * wedged inside a runtime that still answers.
+ */
+export type PlacementActivity = {
+  /** When the agent last emitted anything: output, a tool start, a tool end. */
+  lastActivityAt: number;
+  /** The operation it is in, e.g. "Running exec_command". */
+  label?: string;
+  /** Tool calls outstanding right now; 0 means it is between tools. */
+  activeToolCount?: number;
+};
+
 /** Device -> server. Every frame after `proof` is bound to the proven session. */
 export type DevicePresenceDeviceFrame =
   | {
@@ -318,7 +333,7 @@ export type DevicePresenceDeviceFrame =
       delivered: boolean;
     }
   | { type: "running"; dispatchId: string }
-  | { type: "renew"; dispatchId: string }
+  | { type: "renew"; dispatchId: string; activity?: PlacementActivity }
   | {
       type: "complete";
       dispatchId: string;

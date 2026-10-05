@@ -24,6 +24,8 @@ export type AgentThreadSummary = {
   attemptGeneration: number;
   resultJson?: string;
   errorMessage?: string;
+  /** Progress of the running attempt; absent once the thread is terminal. */
+  activity?: AgentThreadActivity;
   createdAt: number;
   updatedAt: number;
 };
@@ -54,6 +56,26 @@ export type AgentThreadControl = {
   status: string;
   waitingForDevice?: boolean;
 };
+
+/**
+ * The running attempt's own progress, as last reported by whatever is
+ * executing it. The thread row's `updatedAt` only moves at attempt
+ * boundaries, so without this a running thread read through the ledger is
+ * indistinguishable from a wedged one.
+ */
+export type AgentThreadActivity = {
+  lastActivityAt: number;
+  label?: string;
+  activeToolCount?: number;
+};
+
+/**
+ * What a caller is told when its agent was accepted but its device could not
+ * take the work yet. Shared so the cloud and a desktop describe the same
+ * queued agent the same way instead of one of them calling it "running".
+ */
+export const DEVICE_AGENT_QUEUED_NOTE =
+  "That device is offline or isn't accepting work right now, so this agent is queued. It retries automatically for up to 60 minutes.";
 
 type Origin = { originDeviceId: string; originConversationId: string };
 

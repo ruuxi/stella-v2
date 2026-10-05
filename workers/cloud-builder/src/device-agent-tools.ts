@@ -10,10 +10,12 @@
  */
 
 import type {
+  AgentThreadActivity,
   AgentThreadControl,
   AgentThreadLookup,
   AgentThreadSummary,
 } from "@stella/contracts/backend/agent-threads";
+import { DEVICE_AGENT_QUEUED_NOTE } from "@stella/contracts/backend/agent-threads";
 import {
   agentThreadLookupReport,
   describeAgentThreadLookup,
@@ -51,7 +53,11 @@ const receiptStatus = (status: string): CloudAgentControlStatus =>
 
 const receiptOf = (
   control: AgentThreadControl,
-  base: { description?: string; executorDeviceId: string },
+  base: {
+    description?: string;
+    executorDeviceId: string;
+    activity?: AgentThreadActivity;
+  },
 ): CloudAgentControlReceipt => ({
   threadId: control.threadId,
   attemptGeneration: control.attemptGeneration,
@@ -59,10 +65,10 @@ const receiptOf = (
   status: receiptStatus(control.status),
   ...(base.description ? { description: base.description } : {}),
   executorDeviceId: base.executorDeviceId,
+  ...(base.activity ? { activity: base.activity } : {}),
 });
 
-export const DEVICE_AGENT_QUEUED_NOTE =
-  "That device is offline or isn't accepting work right now, so this agent is queued. It retries automatically for up to 60 minutes.";
+export { DEVICE_AGENT_QUEUED_NOTE };
 
 export const spawnDeviceAgent = async (
   caller: DeviceAgentCaller,
@@ -146,16 +152,27 @@ export type ConversationAgentThreadResolution =
   | { kind: "adopted"; control: CloudAgentControlReceipt }
   | { kind: "elsewhere"; thread: AgentThreadLookup; text: string };
 
+/**
+ * Which threads the asking cloud caller may take over. The conversation's
+ * orchestrator owns the conversation's own top-level threads; a cloud agent
+ * owns the ones it spawned itself, named by its own thread id.
+ */
+export type ConversationAgentThreadOwner = { parentThreadId?: string };
+
 export const resolveConversationAgentThread = async (
   caller: DeviceAgentCaller,
   threadId: string,
+  owner: ConversationAgentThreadOwner = {},
 ): Promise<ConversationAgentThreadResolution | null> => {
   const thread = await lookupConversationAgentThread(caller, threadId);
   if (!thread) return null;
+  const ownedHere = owner.parentThreadId
+    ? thread.parentThreadId === owner.parentThreadId
+    : !thread.parentThreadId;
   if (
     thread.executorDeviceId &&
     !thread.originDeviceId &&
-    !thread.parentThreadId &&
+    ownedHere &&
     thread.conversationId === caller.conversationId
   ) {
     const report = isAgentThreadLookupActive(thread) ? undefined : agentThreadLookupReport(thread);
@@ -193,6 +210,19 @@ export const agentThreadElsewhereStatus = (
       description: thread.description,
       attempt_generation: thread.attemptGeneration,
       last_active_at: new Date(thread.updatedAt).toISOString(),
+      ...(thread.activity && active
+        ? {
+            last_activity_at: new Date(
+              thread.activity.lastActivityAt,
+            ).toISOString(),
+            ...(thread.activity.label
+              ? { current_operation: thread.activity.label }
+              : {}),
+            ...(thread.activity.activeToolCount !== undefined
+              ? { active_tool_count: thread.activity.activeToolCount }
+              : {}),
+          }
+        : {}),
       ...(thread.executorDeviceId ? { device_id: thread.executorDeviceId } : {}),
       ...(thread.originDeviceId ? { started_from_device_id: thread.originDeviceId } : {}),
       controllable_here: false,
@@ -203,9 +233,10 @@ export const agentThreadElsewhereStatus = (
 export const agentThreadElsewhereError = (
   resolution: Extract<ConversationAgentThreadResolution, { kind: "elsewhere" }>,
   action: "send_input" | "pause_agent",
+  viewer = "this conversation's cloud orchestrator",
 ): Error =>
   new Error(
-    `${resolution.text} ${action} from this conversation's cloud orchestrator cannot reach it, so nothing was ${action === "send_input" ? "sent" : "paused"}.`,
+    `${resolution.text} ${action} from ${viewer} cannot reach it, so nothing was ${action === "send_input" ? "sent" : "paused"}.`,
   );
 
 /** The ledger's current state of a device agent, as a receipt. */
@@ -229,6 +260,7 @@ export const readDeviceAgent = async (
     {
       ...(prior.description ? { description: prior.description } : {}),
       executorDeviceId: prior.executorDeviceId!,
+      ...(thread.activity ? { activity: thread.activity } : {}),
     },
   );
 };

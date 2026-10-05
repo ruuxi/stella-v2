@@ -208,6 +208,102 @@ describe("BuildSession agent orchestration", () => {
     expect(admissions).toBe(1);
   });
 
+  test("an agent in the cloud finds its own device thread through the ledger", async () => {
+    const { storage } = memoryStorage();
+    const asked: Array<{ name: string; args: unknown }> = [];
+    const ledgerThread = {
+      ownerId: "owner-1",
+      threadId: "child-device",
+      conversationId: "conversation-1",
+      parentThreadId: "parent-thread",
+      executorDeviceId: "mac-1",
+      executorDeviceLabel: "Rahul's Mac",
+      description: "Clean the disk",
+      placement: "computer",
+      agentType: "general",
+      status: "completed",
+      attemptGeneration: 2,
+      resultJson: JSON.stringify({ finalText: "Freed 42 GB." }),
+      createdAt: 1,
+      updatedAt: 50,
+    };
+    const env = {
+      OWNER_GATES: {
+        getByName: () => ({
+          ownerInternal: async (request: { name: string; args: unknown }) => {
+            asked.push(request);
+            if (request.name === "agentThreads.conversationThread") {
+              return { ok: true, value: ledgerThread };
+            }
+            return { ok: true, value: ledgerThread };
+          },
+        }),
+      },
+    };
+    const control = createBuildSessionAgentControl({
+      storage: storage as never,
+      env: env as never,
+      dispatch: {} as never,
+      parent: parent(),
+      now: () => 100,
+    });
+
+    const status = await control.execute("agent_status", "tool-status", {
+      thread_id: "child-device",
+    });
+    expect(status.details).toMatchObject({
+      thread_id: "child-device",
+      status_detail: "completed",
+    });
+    expect(asked[0]?.name).toBe("agentThreads.conversationThread");
+  });
+
+  test("an agent in the cloud reports a thread it does not own as unreachable", async () => {
+    const { storage } = memoryStorage();
+    const env = {
+      OWNER_GATES: {
+        getByName: () => ({
+          ownerInternal: async () => ({
+            ok: true,
+            value: {
+              ownerId: "owner-1",
+              threadId: "someone-elses",
+              conversationId: "conversation-1",
+              parentThreadId: "another-agent-thread",
+              executorDeviceId: "mac-1",
+              executorDeviceLabel: "Rahul's Mac",
+              description: "Composer bugs",
+              placement: "computer",
+              agentType: "general",
+              status: "running",
+              attemptGeneration: 1,
+              createdAt: 1,
+              updatedAt: 2,
+            },
+          }),
+        }),
+      },
+    };
+    const control = createBuildSessionAgentControl({
+      storage: storage as never,
+      env: env as never,
+      dispatch: {} as never,
+      parent: parent(),
+      now: () => 100,
+    });
+
+    const status = await control.execute("agent_status", "tool-status", {
+      thread_id: "someone-elses",
+    });
+    expect(status.details).toMatchObject({ controllable_here: false });
+    await expect(
+      control.execute("send_input", "tool-send", {
+        thread_id: "someone-elses",
+        message: "Stop that.",
+      }),
+    ).rejects.toThrow(/send_input from this agent cannot reach it/);
+  });
+
   test("refuses spawn at depth two even if called outside the catalog", async () => {
     const { storage } = memoryStorage();
     const deps = {

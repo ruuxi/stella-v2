@@ -6,6 +6,7 @@ import {
   resolveSpawnReasoningEffortForModel,
 } from "@stella/runtime/kernel/runner/context";
 import type { ResolvedLlmRoute } from "@stella/runtime/kernel/model-routing";
+import { STELLA_DEFAULT_MODEL } from "@stella/contracts/stella-api";
 
 describe("spawn_agent engine precedence", () => {
   it("lets an explicit plain-model spawn override a saved Codex engine", () => {
@@ -155,5 +156,89 @@ describe("legacy manager-typed spawn model inheritance snapshots", () => {
       reasoningEffort: "high",
       serviceTier: "standard",
     });
+  });
+});
+
+describe("managed default spawn snapshots", () => {
+  const stellaDefaultRoute = (): ResolvedLlmRoute => {
+    const route = {
+      model: { id: STELLA_DEFAULT_MODEL, provider: "stella" },
+      route: "stella",
+      getApiKey: () => "test-key",
+    } as ResolvedLlmRoute;
+    // Exactly what `/api/stella/models` answers for the sentinel: a gateway
+    // routing id carrying the relay-provider prefix, not a selectable model.
+    (
+      route.model as ResolvedLlmRoute["model"] & { upstreamModelId?: string }
+    ).upstreamModelId = "openrouter/deepseek/deepseek-v4.1-flash";
+    route.toolPolicyModel = {
+      id: "openrouter/deepseek/deepseek-v4.1-flash",
+      provider: "openrouter",
+      api: "openai-completions",
+      name: "deepseek/deepseek-v4.1-flash",
+    };
+    return route;
+  };
+
+  it("captures the managed default sentinel instead of the gateway routing id", () => {
+    expect(
+      captureEffectiveModelConfig({
+        stellaDataDir: "/tmp/stella-managed-default",
+        engine: "default",
+        configuredModel: STELLA_DEFAULT_MODEL,
+        resolvedLlm: stellaDefaultRoute(),
+      }),
+    ).toEqual({ engine: "default", routeModel: STELLA_DEFAULT_MODEL });
+  });
+
+  it("captures the same reference whether the model was omitted or given explicitly", () => {
+    const omitted = captureEffectiveModelConfig({
+      stellaDataDir: "/tmp/stella-managed-default",
+      engine: "default",
+      resolvedLlm: stellaDefaultRoute(),
+    });
+    const explicit = captureEffectiveModelConfig({
+      stellaDataDir: "/tmp/stella-managed-default",
+      engine: "default",
+      configuredModel: STELLA_DEFAULT_MODEL,
+      resolvedLlm: stellaDefaultRoute(),
+    });
+    expect(explicit).toEqual(omitted);
+  });
+
+  it("keeps a spawn reasoning effort while the model stays the default", () => {
+    for (const effort of ["low", "medium", "high", "xhigh"] as const) {
+      expect(
+        captureEffectiveModelConfig({
+          stellaDataDir: "/tmp/stella-managed-default",
+          engine: "default",
+          configuredModel: STELLA_DEFAULT_MODEL,
+          resolvedLlm: stellaDefaultRoute(),
+          reasoningEffort: effort,
+        }),
+      ).toEqual({
+        engine: "default",
+        routeModel: STELLA_DEFAULT_MODEL,
+        reasoningEffort: effort,
+      });
+    }
+  });
+
+  it("never double-prefixes a branded alias that resolves to itself offline", () => {
+    const alias = {
+      model: { id: "stella/light", provider: "stella" },
+      route: "stella",
+      getApiKey: () => "test-key",
+    } as ResolvedLlmRoute;
+    (
+      alias.model as ResolvedLlmRoute["model"] & { upstreamModelId?: string }
+    ).upstreamModelId = "stella/light";
+    expect(
+      captureEffectiveModelConfig({
+        stellaDataDir: "/tmp/stella-managed-default",
+        engine: "default",
+        resolvedLlm: alias,
+      }),
+    ).toEqual({ engine: "default", routeModel: "stella/light" });
   });
 });

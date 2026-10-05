@@ -1,4 +1,5 @@
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
+import { STELLA_DEFAULT_MODEL } from "@stella/contracts/stella-api";
 import type {
   AgentModelConfigSnapshot,
   AgentModelReasoningEffort,
@@ -30,11 +31,22 @@ export const normalizeCapturedReasoningEffort = (
   return undefined;
 };
 
+const STELLA_MODEL_PREFIX = "stella/";
+
 export const exactRouteModelReference = (
   resolvedLlm: ResolvedLlmRoute,
   configuredModel: string | undefined,
 ): string => {
   if (resolvedLlm.route === "stella") {
+    const requestedModel = resolvedLlm.model.id.trim();
+    // `stella/default` is the backend-owned "let Stella pick" sentinel, and the
+    // catalog answers it with a gateway ROUTING id (`openrouter/<provider>/...`,
+    // carrying the relay-provider prefix the route needs) rather than with a
+    // selectable Stella model. Pinning `stella/<that id>` hands the next turn a
+    // model the gateway refuses outright. Capture the sentinel verbatim instead,
+    // so the backend picks again for whichever agent type and audience actually
+    // runs — exactly what omitting the model does.
+    if (requestedModel === STELLA_DEFAULT_MODEL) return STELLA_DEFAULT_MODEL;
     const upstreamModel = (
       resolvedLlm.model as ResolvedLlmRoute["model"] & {
         upstreamModelId?: string;
@@ -43,8 +55,13 @@ export const exactRouteModelReference = (
     const resolvedModel =
       resolvedLlm.toolPolicyModel?.id.trim() ||
       upstreamModel?.trim() ||
-      resolvedLlm.model.id.trim();
-    return `stella/${resolvedModel}`;
+      requestedModel;
+    // Branded aliases (`stella/light`, `stella/designer`, …) are opaque to the
+    // client: offline resolution hands the alias straight back, so prefixing it
+    // again would emit `stella/stella/<alias>`.
+    return resolvedModel.startsWith(STELLA_MODEL_PREFIX)
+      ? resolvedModel
+      : `${STELLA_MODEL_PREFIX}${resolvedModel}`;
   }
   if (configuredModel?.trim()) return configuredModel.trim();
   const id = resolvedLlm.model.id.trim();

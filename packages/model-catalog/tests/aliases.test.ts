@@ -1,7 +1,9 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  isListedStellaModel,
   listStellaCatalogModels,
+  listStellaDefaultSelections,
   parseStellaModelSelection,
   resolveStellaModelConfigForSelection,
   resolveStellaModelSelection,
@@ -264,4 +266,32 @@ it("defaults every audience to Flash with no model or provider fallback", () => 
     expect(listStellaCatalogModels(audience).map(row => row.upstreamModel))
       .toEqual([DEEPSEEK_V4_1_FLASH_MODEL]);
   }
+});
+
+describe("catalog default selections", () => {
+  it("keeps the opaque sentinel as the only selectable id for a default", () => {
+    for (const audience of MANAGED_MODEL_AUDIENCES) {
+      for (const entry of listStellaDefaultSelections(audience)) {
+        expect(entry.model).toBe(STELLA_DEFAULT_MODEL);
+        expect(isListedStellaModel(entry.model)).toBe(true);
+      }
+    }
+  });
+
+  // `resolvedModel` is a gateway ROUTING id: it carries the relay-provider
+  // prefix a Stella route needs to reach the right upstream. It is not a
+  // selectable Stella model, so no client may turn it back into one by
+  // prefixing `stella/` — that yields an id the gateway refuses outright.
+  it("never yields a selectable Stella id when its routing id is re-prefixed", () => {
+    const routingIds = listStellaDefaultSelections("pro").map(
+      (entry) => entry.resolvedModel,
+    );
+    expect(routingIds.some((model) => model.startsWith("openrouter/"))).toBe(
+      true,
+    );
+    for (const model of routingIds) {
+      if (!model.startsWith("openrouter/")) continue;
+      expect(isListedStellaModel(`stella/${model}`)).toBe(false);
+    }
+  });
 });

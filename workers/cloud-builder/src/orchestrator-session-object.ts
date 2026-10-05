@@ -79,6 +79,7 @@ import type {
   AgentEvent,
   AgentMessage,
   AgentTool,
+  AgentToolResult,
 } from "@stella/runtime/kernel/agent-core/types.js";
 import type { ImageContent } from "@stella/runtime/ai/types.js";
 import {
@@ -170,7 +171,6 @@ import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot"
 import {
   mintTurnCapability,
   type MintedTurnCapability,
-  type TurnCapabilityInput,
 } from "./capability-signer.js";
 import {
   OwnerGateSnapshotError,
@@ -193,7 +193,7 @@ import { AgentHome, buildResidentMemorySection } from "./agent-home.js";
 import type { CloudSkillCatalogSnapshot } from "./cloud-home-store.js";
 import { buildCloudSkillsBlock } from "./cloud-skills.js";
 import { resolveCloudSpawnExecution } from "./cloud-spawn-model.js";
-import { sha256Hex } from "./hash.js";
+import { sha256Hex, stableValueMarker } from "./hash.js";
 import { worldName } from "./workspace.js";
 import {
   cancelDeviceAgent,
@@ -339,6 +339,42 @@ import {
   type RewindConversationEditRequest,
   type RewindConversationEditResult,
 } from "./conversation-edit-protocol.js";
+import {
+  CLOUD_CLI_TURN_DO_PATHS,
+  orchestratorCliThreadId,
+  parseCloudOrchestratorCliTurnSpec,
+  type CloudCliTurnIdentity,
+  type CloudCliTurnTerminal,
+  type CloudOrchestratorToolCallResponse,
+} from "@stella/contracts/cloud-orchestrator-cli";
+import {
+  ORCHESTRATOR_CLI_CONTEXT_MAX_CHARS,
+  ORCHESTRATOR_CLI_DELIVERED_KEY,
+  ORCHESTRATOR_CLI_TURN_KEY,
+  ORCHESTRATOR_CLI_WRITER,
+  cancelOrchestratorCliTurn,
+  cliFinalReplyMessage,
+  cliFinalReplyMissing,
+  cliToolResultFromMessage,
+  composeOrchestratorCliPrompt,
+  dispatchOrchestratorCliTurn,
+  OrchestratorCliPreviousTurnBusy,
+  orchestratorCliFinalWriterKey,
+  orchestratorCliToolCallKey,
+  orchestratorCliToolCatalog,
+  orchestratorCliToolResultWriterKey,
+  parseCliTurnEventsForward,
+  parseCliTurnTerminal,
+  parseCliTurnToolForward,
+  pollOrchestratorCliTurn,
+  prewarmOrchestratorCli,
+  renderOrchestratorCliContextBlock,
+  sameCliTurnIdentity,
+  serializeCliToolResult,
+  type OrchestratorCliDelivered,
+  type OrchestratorCliToolCallRecord,
+  type OrchestratorCliTurnRecord,
+} from "./orchestrator-cli-turn.js";
 import {
   ExactTurnCancellationLedger,
   parseExactTurnCancellationRequest,
@@ -564,33 +600,78 @@ const CHAT_TURN_STARTED_AT_KEY = "turnStartedAt";
  */
 const CHAT_TURN_MODEL_CAPABILITY_KEY = "turnModelCapability";
 
+/** An execution Stella's own loop runs here; `anthropic` runs on Claude Code. */
+type HarnessExecution = Exclude<
+  CloudExecutionSelection,
+  { engine: "anthropic" }
+>;
+
 /**
- * TODO(lane D): delete with the DO's own anthropic path. This mints for the
- * DO's harness, and for an `anthropic` execution that is a Claude subscription
- * capability without the `claude-code-cli` client, which `TurnCapabilityInput`
- * forbids. The cast is the single place that still bypasses it, until
- * anthropic chat turns run on the Claude Code CLI through a BuildSession.
+ * The model capability for a turn this object's own loop runs. Never called
+ * for an `anthropic` execution: a Claude subscription is spent only by the
+ * Claude Code CLI, whose capability its BuildSession mints.
  */
 const mintOrchestratorTurnCapability = (
   env: Env,
   turn: ChatTurnRequest,
+  execution: HarnessExecution,
 ): Promise<MintedTurnCapability> =>
   mintTurnCapability(env, {
     ownerId: turn.ownerId,
     ownerGeneration: turn.ownerGeneration,
     turnId: turn.turnId,
     conversationId: turn.conversationId,
-    execution: turn.execution,
+    execution,
     audience: turn.audience,
     budgetMicroCents: turn.budgetMicroCents,
     agentTypes: ["orchestrator"],
-  } as TurnCapabilityInput);
+  });
 
 type ChatTurnResumeRecord = { turnId: string; count: number };
 type PersistedChatTurnModelCapability = {
   turnId: string;
   capability: MintedTurnCapability;
 };
+
+/**
+ * A Claude Code turn the BuildSession reported failed. `userMessage` is the
+ * contract's user-safe failure text (e.g. a subscription limit), shown in
+ * place of the generic notice; the raw detail stays in logs.
+ */
+class CliTurnFailedError extends Error {
+  constructor(
+    message: string,
+    readonly userMessage?: string,
+  ) {
+    super(message);
+    this.name = "CliTurnFailedError";
+  }
+}
+
+/** What a forwarded CLI tool call runs against; see `cliRuntimes`. */
+type CliTurnRuntime = {
+  identity: CloudCliTurnIdentity;
+  turn: ChatTurnRequest;
+  tools: AgentTool[];
+  /** The turn's execution signal: Stop and the watchdog abort tool work. */
+  signal: AbortSignal;
+  /** Sequential, as Stella's own loop runs tools. */
+  toolChain: Promise<unknown>;
+};
+
+/** Poll the BuildSession this often while a CLI turn waits for its terminal. */
+const CLI_TURN_POLL_MS = 20_000;
+/** A tool forward waits this long for a resumed turn to rebuild its tools. */
+const CLI_RUNTIME_WAIT_MS = 60_000;
+/** A dispatch refused while the previous attempt unwinds is resent this often. */
+const CLI_DISPATCH_BUSY_RETRY_MS = 2_000;
+const CLI_DISPATCH_BUSY_RETRIES = 10;
+/** Socket-connect prewarm is at most this frequent per isolate. */
+const CLI_PREWARM_INTERVAL_MS = 60_000;
+/** Rows one CLI context block considers before its character budget. */
+const CLI_CONTEXT_ROW_LIMIT = 400;
+/** The terminal's reply text as stored durably (DO values cap at 128 KiB). */
+const CLI_TERMINAL_DURABLE_TEXT_MAX = 24_000;
 
 /** A resume that cannot rebuild the turn's exact context fails the turn. */
 class ChatTurnNotResumableError extends Error {
@@ -950,6 +1031,25 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
   /** Persisted with accepted turns so cold-start index flushes stay fenced. */
   private ownerGeneration?: string;
 
+  /**
+   * The Claude Code turn running in this isolate (`runCliTurn`), keyed by
+   * turn id: the tools its forwarded calls run against. In memory only; a
+   * resumed turn rebuilds it before it waits.
+   */
+  private readonly cliRuntimes = new Map<string, CliTurnRuntime>();
+  /** Tool forwards that arrived before a resumed turn rebuilt its tools. */
+  private readonly cliRuntimeWaiters = new Map<string, Array<() => void>>();
+  /** Wakes the waiting `runCliTurn` when its terminal frame lands. */
+  private readonly cliTerminalWaiters = new Map<string, () => void>();
+  /** Terminal frames, full text, for the turn waiting in this isolate. */
+  private readonly cliTerminals = new Map<string, CloudCliTurnTerminal>();
+  /** In-flight CLI tool calls, so a replayed forward joins the first one. */
+  private readonly cliToolCalls = new Map<
+    string,
+    Promise<CloudOrchestratorToolCallResponse>
+  >();
+  private cliPrewarmedAt = 0;
+
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.exactTurnCancellations = new ExactTurnCancellationLedger(ctx.storage);
@@ -973,7 +1073,10 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       reader: this.reader(),
       lookupOwner: (identity) => this.resolveOwnerForCaller(identity),
       cancelTurn: (turnId) => this.cancelTurn(turnId),
-      onConnect: () => this.flushIndexIfLagging(),
+      onConnect: () => {
+        this.flushIndexIfLagging();
+        this.prewarmCliOnConnect();
+      },
       conversationId: () => this.conversationId(),
       log,
       verifyToken: (token) => verifyUserToken(token, this.env as unknown as Cloudflare.Env),
@@ -2891,6 +2994,18 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     if (url.pathname === "/history/query") {
       return this.handleHistoryQuery(request);
     }
+    // Frames of the running Claude Code turn, from its BuildSession. Ahead
+    // of the edit lock: an edit cannot start while a turn runs, and these
+    // only ever touch the exact active turn.
+    if (url.pathname === CLOUD_CLI_TURN_DO_PATHS.tool) {
+      return this.handleCliTurnTool(request);
+    }
+    if (url.pathname === CLOUD_CLI_TURN_DO_PATHS.events) {
+      return this.handleCliTurnEvents(request);
+    }
+    if (url.pathname === CLOUD_CLI_TURN_DO_PATHS.terminal) {
+      return this.handleCliTurnTerminal(request);
+    }
     const conversationEdit = await this.activeConversationEditLock();
     // `/turn` re-checks the lock inside its own admission critical section
     // and answers with the turn-start contract's `conversation_locked`.
@@ -3616,9 +3731,18 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         Array.from(this.ctx.storage.kv.list({ prefix: "queued:", limit: 1 }))
           .length === 0
       ) {
-        const work = mintOrchestratorTurnCapability(this.env, turn).then(() =>
-          this.prepareCloudHomeContext(turn, admittedHomeContext),
-        );
+        const harnessExecution =
+          turn.execution.engine === "anthropic" ? undefined : turn.execution;
+        if (!harnessExecution) {
+          // Claude Code runs this turn in the orchestrator container; wake it
+          // while admission commits instead of minting a capability here.
+          this.prewarmCliContainer(turn.ownerId, turn.conversationId, true);
+        }
+        const work = (
+          harnessExecution
+            ? mintOrchestratorTurnCapability(this.env, turn, harnessExecution)
+            : Promise.resolve()
+        ).then(() => this.prepareCloudHomeContext(turn, admittedHomeContext));
         void work.catch(() => undefined);
         this.cloudHomePreparations.set(turnId, {
           home: work,
@@ -4280,11 +4404,17 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       // checks it again with memory policy after read-only preparation.
       await assertExactTurnActive();
       this.activeTurnId = turn.turnId;
+      // An `anthropic` turn runs on the Claude Code CLI in the orchestrator
+      // container (`runCliTurn`); only the other engines run this loop.
+      const harnessExecution =
+        turn.execution.engine === "anthropic" ? undefined : turn.execution;
       // The durable turn is claimed before the heavy loop implementation is
       // evaluated. Load it alongside read-only preparation on actual turns;
       // object wake, admission, status, and cancellation stay on the lean path.
-      const agentRuntimeWork = loadRuntimeAgent();
-      void agentRuntimeWork.catch(() => undefined);
+      const agentRuntimeWork = harnessExecution
+        ? loadRuntimeAgent()
+        : undefined;
+      void agentRuntimeWork?.catch(() => undefined);
       // Admission already bound the owner; this only re-asserts it and sets
       // the title on a turn that carried one.
       this.bindConversation(turn);
@@ -4315,8 +4445,24 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             .devices()
             .catch(() => null),
       );
+      const agentHome = this.turnAgentHome(turn, assertExactTurnActive);
+      if (!harnessExecution) {
+        return await this.runCliTurn({
+          turn,
+          turnCancellation,
+          executionSignal,
+          resumeTurn,
+          started,
+          agentHome,
+          preparationTimings,
+          measurePreparation,
+          canonicalPromptsWork,
+          destinationsWork,
+          assertExactTurnActive,
+        });
+      }
       const minted = await measurePreparation("capabilitiesMs", () =>
-        mintOrchestratorTurnCapability(this.env, turn),
+        mintOrchestratorTurnCapability(this.env, turn, harnessExecution),
       );
       // A resumed turn keeps presenting the capability its first isolate
       // minted while it outlives the watchdog: a fresh one is a fresh ledger,
@@ -4348,27 +4494,11 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       }
       await assertExactTurnActive();
 
-      const agentHome = new AgentHome(
-        this.env.AGENT_HOME,
-        turn.ownerId,
-        turn.ownerGeneration,
-        {
-          control: (op, body) => this.ownerGate(turn.ownerId).homeControl({ op, body }),
-          ownerGeneration: turn.ownerGeneration,
-          // The orchestrator turn holds this activity lease until its terminal
-          // finally block. Reassert it immediately before each R2 PUT so reset
-          // cannot finish its owner-prefix sweep ahead of an in-flight writer.
-          assertExternalWrite: async () => {
-            await this.assertOwnerTurn(turn);
-            await assertExactTurnActive();
-          },
-        },
-      );
       // Resolve the owner's control-plane preference before any Agent Home
       // content. Disabled means no resident-memory/personality read and no
       // memory tools; unavailable or corrupt authoritative context blocks the
       // turn instead of producing a normal-looking memoryless reply.
-      const executionSelection = turn.execution;
+      const executionSelection = harnessExecution;
       const modelGatewayOrigin = this.env.MODEL_GATEWAY_URL?.trim() ?? "";
       const modelGateway = this.env.MODEL_GATEWAY;
       if (!modelGatewayOrigin || !modelGateway) {
@@ -4760,7 +4890,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           checkpoint: previousCheckpoint,
           summarize: async (prompt) => {
             await assertExactTurnActive();
-            const Agent = await agentRuntimeWork;
+            const Agent = await agentRuntimeWork!;
             const summarizer = new Agent({
               initialState: {
                 model: relaySession.model,
@@ -5147,7 +5277,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       }
 
       await assertExactTurnActive();
-      const Agent = await agentRuntimeWork;
+      const Agent = await agentRuntimeWork!;
       // No await is allowed between this local latch and constructing the
       // Agent. The next async admission boundary repeats the same check.
       assertTurnExecutionActive(turnCancellation, executionSignal);
@@ -5344,79 +5474,15 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       if (execution.errorMessage) {
         throw new Error(execution.errorMessage);
       }
-      const wallClockMs = Math.round(performance.now() - started);
-      // `terminal` and what is owed, in ONE durable write BEFORE delivery —
-      // the same ordering the cancel and failed paths use. The watchdog reads
-      // `terminal` to decide whether a turn is still owed one, so writing it
-      // after the owner round trip left a window (widened by the retry
-      // ladder, which pushes completions toward the deadline) where an alarm
-      // firing mid-delivery declared a finished turn timed out, and clients
-      // group on the last row per turn — so the user saw "timed out" over a
-      // reply that had actually arrived.
-      const completedOwed: OwedTerminal = {
-        kind: "completed",
-        message: "",
-        payload: { text: finalText, wallClockMs },
-        eventSeq: await this.nextTurnEventSeq(turn.turnId),
-      };
-      await this.ctx.storage.put({
-        terminal: true,
-        terminalOwed: completedOwed,
-      });
-      this.recordTerminal(turn, "completed", undefined, wallClockMs);
-      try {
-        await this.emitTurnEvent(
-          turn,
-          "completed",
-          { text: finalText, wallClockMs },
-          {
-            terminal: true,
-            eventSeq: completedOwed.eventSeq,
-            resultJson: JSON.stringify({ finalText }),
-          },
-        );
-        await this.ctx.storage.put("terminalDelivered", true);
-      } catch {
-        // Same pairing as the other terminal paths: the re-armed alarm
-        // redelivers exactly what `terminalOwed` says is owed, reply text
-        // included, instead of stranding a completed turn as "running".
-        await this.ctx.storage.setAlarm(Date.now() + 30_000);
-      }
-      await this.afterTerminal(turn);
-      // Keep the alarm alive while queued turns remain: it is the wake
-      // guarantee that lets a restarted DO drain the durable queue. The read
-      // and the delete are one step against `/turn`'s enqueue — otherwise a
-      // turn accepted between them is left durable under `queued:` with the
-      // alarm it was promised already deleted.
-      await this.ctx.blockConcurrencyWhile(async () => {
-        const queued = await this.ctx.storage.list({
-          prefix: "queued:",
-          limit: 1,
-        });
-        if (queued.size === 0) {
-          if (
-            !(await this.getTurnState<boolean>("terminalDelivered")) ||
-            (await this.hasMaintenanceDebt())
-          ) {
-            const retryAt = Date.now() + 30_000;
-            await this.armAlarmNoLaterThan(retryAt);
-          } else {
-            await this.ctx.storage.deleteAlarm();
-          }
-        }
-      });
-      log("info", "chat_turn_completed", {
-        turnId: turn.turnId,
-        conversationId: turn.conversationId,
-        wallClockMs: Math.round(performance.now() - started),
-      });
-      return json({ ok: true, text: finalText });
+      return await this.completeChatTurn(turn, finalText, started);
     } catch (error) {
       const message = errorMessage(error);
       const contextFailure = cloudContextFailure(error);
       const terminalNotice = contextFailure
         ? CLOUD_CONTEXT_NOTICE
-        : subscriptionLimitNotice ?? TERMINAL_NOTICE.failed;
+        : error instanceof CliTurnFailedError && error.userMessage
+          ? error.userMessage
+          : subscriptionLimitNotice ?? TERMINAL_NOTICE.failed;
       const terminalPayload = contextFailure
         ? {
             message: terminalNotice,
@@ -5507,6 +5573,1156 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         releaseGateMs: Math.round(performance.now() - releaseAt),
       });
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Claude Code orchestrator turns (execution engine `anthropic`)
+  // ---------------------------------------------------------------------------
+
+  private turnAgentHome(
+    turn: ChatTurnRequest,
+    assertExactTurnActive: () => Promise<void>,
+  ): AgentHome {
+    return new AgentHome(this.env.AGENT_HOME, turn.ownerId, turn.ownerGeneration, {
+      control: (op, body) => this.ownerGate(turn.ownerId).homeControl({ op, body }),
+      ownerGeneration: turn.ownerGeneration,
+      // The orchestrator turn holds this activity lease until its terminal
+      // finally block. Reassert it immediately before each R2 PUT so reset
+      // cannot finish its owner-prefix sweep ahead of an in-flight writer.
+      assertExternalWrite: async () => {
+        await this.assertOwnerTurn(turn);
+        await assertExactTurnActive();
+      },
+    });
+  }
+
+  /**
+   * Wake the conversation's orchestrator container so a Claude Code turn
+   * does not pay a cold start. Fire and forget, at most once a minute unless
+   * `force` (admission of an actual turn).
+   */
+  private prewarmCliContainer(
+    ownerId: string,
+    conversationId: string,
+    force = false,
+  ): void {
+    const now = Date.now();
+    if (!conversationId) return;
+    if (!force && now - this.cliPrewarmedAt < CLI_PREWARM_INTERVAL_MS) return;
+    this.cliPrewarmedAt = now;
+    const startedAt = performance.now();
+    this.ctx.waitUntil(
+      prewarmOrchestratorCli({
+        env: this.env,
+        ownerId,
+        conversationId,
+      }).then((result) => {
+        log("info", "orchestrator_cli_prewarm", {
+          conversationId,
+          ok: result.ok,
+          status: result.status ?? null,
+          alreadyRunning: result.alreadyRunning ?? null,
+          startMs: result.startMs ?? null,
+          elapsedMs: Math.round(performance.now() - startedAt),
+        });
+      }),
+    );
+  }
+
+  /** A socket connect warms the container when the last turn ran on Claude Code. */
+  private prewarmCliOnConnect(): void {
+    if (this.activeTurnId || this.purged() || !this.ctx.storage.kv) return;
+    const last = this.ctx.storage.kv.get<ChatTurnRequest>("turn");
+    if (last?.execution?.engine !== "anthropic") return;
+    this.prewarmCliContainer(last.ownerId, last.conversationId);
+  }
+
+  /**
+   * One chat turn on the Claude Code CLI. Same claim, preparation, prompt
+   * row, terminal ladder and post-terminal work as Stella's own loop; what
+   * differs is who runs the model. No model capability is minted here, no
+   * relay session or summarizer exists (Claude Code compacts its own
+   * session), and the turn is dispatched once: a resumed turn that finds its
+   * dispatch record waits for that exact attempt's terminal instead.
+   */
+  private async runCliTurn(args: {
+    turn: ChatTurnRequest;
+    turnCancellation: TurnRetryCancellation;
+    executionSignal: AbortSignal;
+    resumeTurn: boolean;
+    started: number;
+    agentHome: AgentHome;
+    preparationTimings: Record<string, number>;
+    measurePreparation: <T>(name: string, work: () => Promise<T>) => Promise<T>;
+    canonicalPromptsWork: Promise<CanonicalPrompts>;
+    destinationsWork: Promise<DevicesResponse | null>;
+    assertExactTurnActive: () => Promise<void>;
+  }): Promise<Response> {
+    const { turn, turnCancellation, executionSignal, assertExactTurnActive } =
+      args;
+    const execution = turn.execution;
+    if (execution.engine !== "anthropic") {
+      throw new Error("Only an anthropic execution runs on Claude Code.");
+    }
+    const stored = await this.getTurnState<OrchestratorCliTurnRecord>(
+      ORCHESTRATOR_CLI_TURN_KEY,
+    );
+    // A record for this turn means its dispatch may already have left this
+    // object. Never dispatch it again; wait for that attempt.
+    const prior = stored?.turnId === turn.turnId ? stored : undefined;
+    const identity: CloudCliTurnIdentity = prior
+      ? {
+          conversationId: prior.conversationId,
+          threadId: prior.threadId,
+          turnId: prior.turnId,
+          attemptGeneration: prior.attemptGeneration,
+        }
+      : {
+          conversationId: turn.conversationId,
+          threadId: orchestratorCliThreadId(turn.conversationId),
+          turnId: turn.turnId,
+          attemptGeneration: (stored?.attemptGeneration ?? 0) + 1,
+        };
+
+    const prefetchedHome = this.cloudHomePreparations.get(turn.turnId)?.home;
+    const loadHome = () => this.prepareCloudHomeContext(turn);
+    const homeWork = prefetchedHome ? prefetchedHome.catch(loadHome) : loadHome();
+    this.cloudHomePreparations.delete(turn.turnId);
+    const [home, canonicalPrompts, locale, destinations] = await Promise.all([
+      homeWork.then((context) => {
+        Object.assign(args.preparationTimings, context.timings);
+        return context;
+      }),
+      args.canonicalPromptsWork,
+      args.measurePreparation("localeMs", () =>
+        this.resolveTurnLocale(turn, () =>
+          assertTurnExecutionActive(turnCancellation, executionSignal),
+        ),
+      ),
+      args.destinationsWork,
+    ]);
+    await assertExactTurnActive();
+    const { memoryPreference, memoryDocuments, personalityOverride, skillCatalog } =
+      home;
+    const systemPrompt = buildCloudSystemPrompt({
+      canonicalBody: canonicalPrompts.orchestratorBody,
+      personalityBody: personalityOverride ?? canonicalPrompts.personalityBody,
+      localeDirective: getResponseLanguageSystemPrompt(locale),
+      residentSection: buildResidentMemorySection(memoryDocuments),
+      skillSection: buildCloudSkillsBlock(skillCatalog),
+      memoryEnabled: memoryPreference.memoryEnabled,
+      threadId: turn.conversationId,
+    });
+    const tools = await args.measurePreparation("toolsMs", () =>
+      this.createTools(
+        turn,
+        args.agentHome,
+        skillCatalog,
+        memoryPreference.memoryEnabled,
+      ),
+    );
+    const spec = parseCloudOrchestratorCliTurnSpec({
+      systemPrompt,
+      toolCatalog: orchestratorCliToolCatalog(tools),
+    });
+    if (!spec) {
+      throw new Error(
+        "The orchestrator prompt or tool catalog does not fit a Claude Code turn.",
+      );
+    }
+    await assertExactTurnActive();
+
+    // Forwarded tool calls run against exactly these tools from here on.
+    this.cliRuntimes.set(turn.turnId, {
+      identity,
+      turn,
+      tools,
+      signal: executionSignal,
+      toolChain: Promise.resolve(),
+    });
+    for (const wake of this.cliRuntimeWaiters.get(turn.turnId) ?? []) wake();
+    this.cliRuntimeWaiters.delete(turn.turnId);
+
+    let dispatched = Boolean(prior);
+    let completed = false;
+    let deliveredThrough: number | undefined;
+    try {
+      if (!prior) {
+        const promptKey = `turn:${turn.turnId}:prompt`;
+        const promptSeq =
+          args.resumeTurn && this.journal.hasRow(promptKey)
+            ? this.journal.selectTurnMessages(turn.turnId).rows[0]?.seq
+            : this.journalCliPrompt(turn, destinations);
+        if (promptSeq === undefined) {
+          throw new ChatTurnNotResumableError("prompt_row");
+        }
+        const context = await this.cliPromptContext(promptSeq);
+        this.journal.setTurnContext(turn.turnId, context.startSeq, promptSeq);
+        this.live = {
+          turnId: turn.turnId,
+          streamId: null,
+          partialText: "",
+          tools: [],
+        };
+        void this.index
+          .flush({ activity: "running", updatedAt: Date.now() })
+          .catch(() => undefined);
+        // What the provider guard checks before every request of Stella's
+        // own loop, checked once before the turn leaves this object: Claude
+        // Code's requests never pass through here.
+        if (!turn.ownerPurgeGeneration || !turn.ownerPurgeLeaseId) {
+          throw new OwnerPurgeFenceError();
+        }
+        await requireCloudContext(
+          "agent_home_memory",
+          this.ownerGate(turn.ownerId).assertMemoryPolicy(
+            memoryPreference,
+            turn.ownerPurgeGeneration,
+            turn.ownerPurgeLeaseId,
+            turn.turnId,
+          ),
+        );
+        const prompt = composeOrchestratorCliPrompt({
+          context: context.block,
+          text: turn.prompt,
+          promptSeq,
+          hidden: turn.hiddenMessage === true,
+          clock: new Date().toISOString(),
+          ...(turn.attachments?.length
+            ? { attachments: turn.attachments }
+            : {}),
+        });
+        await assertExactTurnActive();
+        await this.putTurnState({
+          [ORCHESTRATOR_CLI_TURN_KEY]: {
+            ...identity,
+            promptSeq,
+            appliedBatchSeq: 0,
+            dispatchedAt: Date.now(),
+          } satisfies OrchestratorCliTurnRecord,
+        });
+        dispatched = true;
+        assertTurnExecutionActive(turnCancellation, executionSignal);
+        const dispatchStartedAt = performance.now();
+        // The session refuses a new attempt while its previous one is still
+        // unwinding (a just-stopped turn's kill ladder). Nothing was admitted
+        // then, so the same dispatch is sent again, briefly.
+        for (let busy = 0; ; busy += 1) {
+          try {
+            await dispatchOrchestratorCliTurn({
+              env: this.env,
+              ownerId: turn.ownerId,
+              ownerGeneration: turn.ownerGeneration,
+              audience: turn.audience,
+              budgetMicroCents: turn.budgetMicroCents,
+              identity,
+              execution,
+              prompt,
+              spec,
+              clientMsgId: turn.clientMsgId,
+              signal: executionSignal,
+            });
+            break;
+          } catch (error) {
+            if (
+              !(error instanceof OrchestratorCliPreviousTurnBusy) ||
+              busy >= CLI_DISPATCH_BUSY_RETRIES
+            ) {
+              throw error;
+            }
+            await turnCancellation.sleep(CLI_DISPATCH_BUSY_RETRY_MS);
+            await assertExactTurnActive();
+          }
+        }
+        log("info", "orchestrator_cli_turn_dispatched", {
+          turnId: turn.turnId,
+          conversationId: turn.conversationId,
+          attemptGeneration: identity.attemptGeneration,
+          context: context.kind,
+          contextRows: context.rows,
+          promptChars: prompt.length,
+          systemPromptChars: spec.systemPrompt.length,
+          tools: spec.toolCatalog.length,
+          dispatchMs: Math.round(performance.now() - dispatchStartedAt),
+          totalPreparationMs: Math.round(performance.now() - args.started),
+          ...args.preparationTimings,
+        });
+      } else {
+        this.live = {
+          turnId: turn.turnId,
+          streamId: null,
+          partialText: "",
+          tools: [],
+        };
+        log("info", "orchestrator_cli_turn_resumed", {
+          turnId: turn.turnId,
+          conversationId: turn.conversationId,
+          attemptGeneration: identity.attemptGeneration,
+          appliedBatchSeq: prior.appliedBatchSeq,
+          terminalLanded: Boolean(prior.terminal),
+        });
+      }
+
+      let terminal: CloudCliTurnTerminal;
+      try {
+        terminal = await this.awaitCliTerminal(
+          turn,
+          identity,
+          turnCancellation,
+          executionSignal,
+        );
+      } catch (error) {
+        deliveredThrough = this.journal.meta().next_seq - 1;
+        if (
+          turnCancellation.aborted ||
+          executionSignal.aborted ||
+          (await this.getTurnState<boolean>("terminal"))
+        ) {
+          // Stop or the watchdog: whichever path marked the turn terminal
+          // wrote its terminal; the container attempt still has to stop.
+          this.cancelCliAttempt(turn, identity);
+          await this.afterTerminal(turn);
+          return json({ ok: false, canceled: true });
+        }
+        throw error;
+      }
+      deliveredThrough = this.journal.meta().next_seq - 1;
+      log("info", "orchestrator_cli_turn_terminal", {
+        turnId: turn.turnId,
+        conversationId: turn.conversationId,
+        attemptGeneration: identity.attemptGeneration,
+        outcome: terminal.outcome,
+        inputTokens: terminal.usage.inputTokens,
+        outputTokens: terminal.usage.outputTokens,
+        llmCalls: terminal.usage.llmCalls,
+        wallClockMs: Math.round(performance.now() - args.started),
+      });
+      if (await this.getTurnState<boolean>("terminal")) {
+        await this.afterTerminal(turn);
+        return json({ ok: false, canceled: true });
+      }
+      if (terminal.outcome === "failed") {
+        throw new CliTurnFailedError(
+          `Claude Code turn failed: ${terminal.error ?? "no detail"}`,
+          terminal.error?.trim() || undefined,
+        );
+      }
+      if (terminal.outcome === "canceled") {
+        // Stopped from the session's side (an owner purge, a lost container).
+        await this.finishCliTurnCanceled(turn);
+        return json({ ok: false, canceled: true });
+      }
+      completed = true;
+      const finalText = terminal.finalText.trim();
+      this.repairCliFinalReply(turn, finalText);
+      return await this.completeChatTurn(turn, finalText, args.started);
+    } catch (error) {
+      if (dispatched && !completed) this.cancelCliAttempt(turn, identity);
+      throw error;
+    } finally {
+      this.cliRuntimes.delete(turn.turnId);
+      for (const wake of this.cliRuntimeWaiters.get(turn.turnId) ?? []) wake();
+      this.cliRuntimeWaiters.delete(turn.turnId);
+      if (dispatched) {
+        await this.settleCliTurn(identity, completed, deliveredThrough).catch(
+          (error: unknown) => {
+            log("error", "orchestrator_cli_turn_settle_failed", {
+              turnId: turn.turnId,
+              message: errorMessage(error),
+            });
+          },
+        );
+      }
+    }
+  }
+
+  /**
+   * The CLI turn's prompt row and `started` phase, the same rows Stella's
+   * own loop writes. Its provider context names an epoch no Stella prompt
+   * context ever has, so a later Stella turn replays it with its clock and
+   * attachments but no stale system reminders.
+   */
+  private journalCliPrompt(
+    turn: ChatTurnRequest,
+    destinations: DevicesResponse | null,
+  ): number {
+    const now = Date.now();
+    for (const repaired of this.journal.repairTail(now)) {
+      this.publish(repaired.record);
+    }
+    this.drainInbox();
+    const durablePrompt = {
+      role: "user",
+      content: [{ type: "text", text: turn.prompt }],
+      timestamp: now,
+      executionContext: createExecutionContextSnapshot({
+        devices: destinations?.devices ?? null,
+        destination: { kind: "cloud" },
+      }),
+      ...(turn.originUserMessageId
+        ? { originUserMessageId: turn.originUserMessageId }
+        : {}),
+      providerContext: {
+        version: 1,
+        epoch: `claude-code:${turn.turnId}`,
+        prepend: [],
+        clock: new Date(now).toISOString(),
+        ...(turn.attachments?.length
+          ? { attachments: [...turn.attachments] }
+          : {}),
+      },
+      ...(turn.source ? { source: turn.source } : {}),
+    } as AgentMessage;
+    const promptRow = this.journal.appendMessage({
+      turnId: turn.turnId,
+      writer: "orchestrator",
+      writerKey: `turn:${turn.turnId}:prompt`,
+      role: "user",
+      hidden: turn.hiddenMessage === true,
+      clientMsgId: turn.clientMsgId,
+      createdAt: now,
+      message: durablePrompt,
+    });
+    this.journal.setTurnSpan(turn.turnId, promptRow.seq);
+    this.publish(promptRow.record);
+    this.publishAgentTerminal(turn);
+    const startedRow = this.journal.appendTurn({
+      turnId: turn.turnId,
+      writer: "orchestrator",
+      writerKey: `turn:${turn.turnId}:phase:started`,
+      phase: "started",
+      lane: turn.lane ?? "chat",
+      source: turn.source,
+      promptSeq: promptRow.seq,
+      createdAt: now,
+    });
+    this.journal.setTurnSpan(turn.turnId, startedRow.seq);
+    this.publish(startedRow.record);
+    return promptRow.seq;
+  }
+
+  /**
+   * What the CLI session has not seen, ending just before this turn's
+   * prompt: the model rows after the delivered seq that the CLI did not write
+   * itself (other engines' turns, desktop turns, voice rows), or, for a
+   * session that has never seen this conversation, a character-capped tail of
+   * it. Desktop's `buildExternalThreadUpdatesDelta`, journal-shaped.
+   */
+  private async cliPromptContext(promptSeq: number): Promise<{
+    block: string | null;
+    kind: "history" | "updates";
+    rows: number;
+    /** Lowest seq the turn's context depends on; keeps rollover above it. */
+    startSeq: number;
+  }> {
+    const journalEpoch = this.journal.meta().epoch;
+    const [delivered, storedContext] = await Promise.all([
+      this.getTurnState<OrchestratorCliDelivered>(
+        ORCHESTRATOR_CLI_DELIVERED_KEY,
+      ),
+      this.getTurnState<PromptContext>(PROMPT_CONTEXT_KEY),
+    ]);
+    const seed =
+      !delivered ||
+      delivered.journalEpoch !== journalEpoch ||
+      delivered.seq >= promptSeq;
+    const selection = this.journal.cliContextRows({
+      afterSeq: seed ? -1 : delivered.seq,
+      beforeSeq: promptSeq,
+      // A repair row only closes a dangling call of a turn that ended; a
+      // seed keeps the CLI's own rows because its session state is gone.
+      excludeWriters: seed ? ["repair"] : [ORCHESTRATOR_CLI_WRITER, "repair"],
+      limit: CLI_CONTEXT_ROW_LIMIT,
+    });
+    const block = renderOrchestratorCliContextBlock({
+      kind: seed ? "history" : "updates",
+      rows: selection.rows,
+      olderOmitted: selection.more,
+      maxChars: ORCHESTRATOR_CLI_CONTEXT_MAX_CHARS,
+    });
+    // A later turn on another engine still finds its own window resident.
+    const startSeq = Math.min(
+      promptSeq,
+      selection.rows[0]?.seq ?? promptSeq,
+      reusablePromptContext({
+        storedContext,
+        journalEpoch,
+        ownerGeneration: this.ownerGeneration ?? "",
+      })?.startSeq ?? promptSeq,
+    );
+    return {
+      block,
+      kind: seed ? "history" : "updates",
+      rows: selection.rows.length,
+      startSeq,
+    };
+  }
+
+  /**
+   * Wait for the attempt's terminal: the BuildSession's push (woken through
+   * `cliTerminalWaiters`, durable in the record for a resumed turn), with a
+   * poll as the fallback for a push lost to an eviction. Throws on Stop, the
+   * watchdog, or an attempt the session no longer knows.
+   */
+  private async awaitCliTerminal(
+    turn: ChatTurnRequest,
+    identity: CloudCliTurnIdentity,
+    turnCancellation: TurnRetryCancellation,
+    executionSignal: AbortSignal,
+  ): Promise<CloudCliTurnTerminal> {
+    let onAbort: (() => void) | undefined;
+    const aborted = new Promise<never>((_, reject) => {
+      onAbort = () =>
+        reject(
+          executionSignal.reason instanceof Error
+            ? executionSignal.reason
+            : new Error("The chat turn was stopped."),
+        );
+      if (executionSignal.aborted) onAbort();
+      else executionSignal.addEventListener("abort", onAbort, { once: true });
+    });
+    aborted.catch(() => undefined);
+    let nextPollAt = Date.now() + CLI_TURN_POLL_MS;
+    try {
+      for (;;) {
+        assertTurnExecutionActive(turnCancellation, executionSignal);
+        // Registered before the read, so a terminal landing in between
+        // still wakes this wait.
+        const landed = new Promise<void>((resolve) =>
+          this.cliTerminalWaiters.set(identity.turnId, resolve),
+        );
+        const inMemory = this.cliTerminals.get(identity.turnId);
+        if (inMemory && sameCliTurnIdentity(inMemory, identity)) return inMemory;
+        const record = await this.getTurnState<OrchestratorCliTurnRecord>(
+          ORCHESTRATOR_CLI_TURN_KEY,
+        );
+        if (!record || !sameCliTurnIdentity(record, identity)) {
+          throw new Error("The Claude Code turn record was replaced.");
+        }
+        if (record.terminal) return record.terminal;
+        if (Date.now() >= nextPollAt) {
+          const status = await pollOrchestratorCliTurn({
+            env: this.env,
+            identity,
+            signal: executionSignal,
+          });
+          nextPollAt = Date.now() + CLI_TURN_POLL_MS;
+          if (status.state === "terminal") return status.terminal;
+          if (status.state === "unknown") {
+            throw new Error(
+              "The orchestrator session has no record of this Claude Code turn.",
+            );
+          }
+          continue;
+        }
+        await Promise.race([
+          landed,
+          turnCancellation.sleep(Math.max(1, nextPollAt - Date.now())),
+          aborted,
+        ]);
+      }
+    } finally {
+      this.cliTerminalWaiters.delete(identity.turnId);
+      this.cliTerminals.delete(identity.turnId);
+      if (onAbort) executionSignal.removeEventListener("abort", onAbort);
+    }
+  }
+
+  /** Stop the container attempt through the BuildSession. Fire and forget. */
+  private cancelCliAttempt(
+    turn: ChatTurnRequest,
+    identity: CloudCliTurnIdentity,
+  ): void {
+    this.ctx.waitUntil(
+      cancelOrchestratorCliTurn({
+        env: this.env,
+        ownerId: turn.ownerId,
+        ownerGeneration: turn.ownerGeneration,
+        identity,
+        cancelRequestId: `chat:${identity.turnId}:${identity.attemptGeneration}`,
+      })
+        .then(({ status }) => {
+          log("info", "orchestrator_cli_turn_cancel_sent", {
+            turnId: identity.turnId,
+            attemptGeneration: identity.attemptGeneration,
+            status,
+          });
+        })
+        .catch((error: unknown) => {
+          log("error", "orchestrator_cli_turn_cancel_failed", {
+            turnId: identity.turnId,
+            attemptGeneration: identity.attemptGeneration,
+            message: errorMessage(error),
+          });
+        }),
+    );
+  }
+
+  /**
+   * The CLI's reply when its last event batch never arrived: the terminal's
+   * `finalText` as the turn's closing assistant row.
+   */
+  private repairCliFinalReply(turn: ChatTurnRequest, finalText: string): void {
+    const own = this.journal.selectTurnMessages(turn.turnId);
+    if (!cliFinalReplyMissing(own.messages.at(-1), finalText)) return;
+    const appended = this.appendProduced(
+      turn,
+      cliFinalReplyMessage({
+        finalText,
+        model: turn.execution.model,
+        now: Date.now(),
+      }) as AgentMessage,
+      {
+        writer: ORCHESTRATOR_CLI_WRITER,
+        writerKey: orchestratorCliFinalWriterKey(turn.turnId),
+        streamId: newStreamId(),
+      },
+    );
+    if (appended) {
+      this.publish(appended.record);
+      log("info", "orchestrator_cli_final_reply_repaired", {
+        turnId: turn.turnId,
+        seq: appended.seq,
+      });
+    }
+  }
+
+  /** A canceled terminal the session decided; same writes as `/cancel`. */
+  private async finishCliTurnCanceled(turn: ChatTurnRequest): Promise<void> {
+    const owed: OwedTerminal = {
+      kind: "canceled",
+      message: TERMINAL_NOTICE.canceled,
+      eventSeq: await this.nextTurnEventSeq(turn.turnId),
+    };
+    await this.ctx.storage.put({ terminal: true, terminalOwed: owed });
+    this.recordTerminal(turn, "canceled", TERMINAL_NOTICE.canceled);
+    try {
+      await this.emitTurnEvent(
+        turn,
+        "canceled",
+        { message: TERMINAL_NOTICE.canceled },
+        {
+          terminal: true,
+          eventSeq: owed.eventSeq,
+          errorMessage: TERMINAL_NOTICE.canceled,
+        },
+      );
+      await this.ctx.storage.put("terminalDelivered", true);
+    } catch {
+      await this.ctx.storage.setAlarm(Date.now() + 30_000);
+    }
+    await this.afterTerminal(turn);
+  }
+
+  /**
+   * Close the attempt's record so no later frame is accepted for it, and
+   * advance what the CLI session has seen: through this turn when the CLI
+   * answered at all (a completed turn, or any applied event batch). A turn
+   * that failed before the CLI produced anything leaves the mark, so its
+   * prompt rides in the next turn's delta.
+   */
+  private async settleCliTurn(
+    identity: CloudCliTurnIdentity,
+    completed: boolean,
+    deliveredThrough: number | undefined,
+  ): Promise<void> {
+    const record = await this.getTurnState<OrchestratorCliTurnRecord>(
+      ORCHESTRATOR_CLI_TURN_KEY,
+    );
+    if (!record || !sameCliTurnIdentity(record, identity)) return;
+    const entries: Record<string, unknown> = {
+      [ORCHESTRATOR_CLI_TURN_KEY]: {
+        ...record,
+        finished: true,
+      } satisfies OrchestratorCliTurnRecord,
+    };
+    if (
+      deliveredThrough !== undefined &&
+      (completed || record.appliedBatchSeq > 0)
+    ) {
+      entries[ORCHESTRATOR_CLI_DELIVERED_KEY] = {
+        journalEpoch: this.journal.meta().epoch,
+        seq: deliveredThrough,
+      } satisfies OrchestratorCliDelivered;
+    }
+    await this.putTurnState(entries);
+  }
+
+  /** Whether frames for this identity still belong to the running turn. */
+  private async cliTurnAccepting(
+    identity: CloudCliTurnIdentity,
+  ): Promise<OrchestratorCliTurnRecord | null> {
+    if (this.purged()) return null;
+    const [record, current, terminal] = await Promise.all([
+      this.getTurnState<OrchestratorCliTurnRecord>(ORCHESTRATOR_CLI_TURN_KEY),
+      this.getTurnState<ChatTurnRequest>("turn"),
+      this.getTurnState<boolean>("terminal"),
+    ]);
+    if (
+      !record ||
+      record.finished ||
+      !sameCliTurnIdentity(record, identity) ||
+      current?.turnId !== identity.turnId ||
+      current.conversationId !== identity.conversationId ||
+      terminal
+    ) {
+      return null;
+    }
+    return record;
+  }
+
+  /**
+   * The running turn's tools. A forward can wake an evicted object before
+   * its resumed turn has rebuilt them; it waits (bounded) for that turn,
+   * and only while one is actually queued or running here.
+   */
+  private async waitForCliRuntime(
+    identity: CloudCliTurnIdentity,
+  ): Promise<CliTurnRuntime | null> {
+    const deadline = Date.now() + CLI_RUNTIME_WAIT_MS;
+    for (;;) {
+      const runtime = this.cliRuntimes.get(identity.turnId);
+      if (runtime) {
+        return sameCliTurnIdentity(runtime.identity, identity) ? runtime : null;
+      }
+      const remaining = deadline - Date.now();
+      if (remaining <= 0 || !this.turnExecutions.has(identity.turnId)) {
+        return null;
+      }
+      await new Promise<void>((resolve) => {
+        const waiters = this.cliRuntimeWaiters.get(identity.turnId) ?? [];
+        waiters.push(resolve);
+        this.cliRuntimeWaiters.set(identity.turnId, waiters);
+        setTimeout(resolve, Math.min(remaining, 5_000));
+      });
+    }
+  }
+
+  private noteCliTool(
+    turn: ChatTurnRequest,
+    call: { toolCallId: string; name: string; args: unknown },
+    phase: "start" | "end",
+    isError?: boolean,
+  ): void {
+    if (this.live?.turnId === turn.turnId) {
+      if (phase === "start") {
+        this.live.tools.push({
+          toolCallId: call.toolCallId,
+          name: call.name,
+          phase: "start",
+        });
+        if (this.live.tools.length > LIVE_TOOL_LIMIT) this.live.tools.shift();
+      } else {
+        const entry = this.live.tools.find(
+          (tool) => tool.toolCallId === call.toolCallId,
+        );
+        if (entry) {
+          entry.phase = "end";
+          entry.isError = isError === true;
+        }
+      }
+    }
+    this.hub.broadcastTool({
+      turnId: turn.turnId,
+      toolCallId: call.toolCallId,
+      name: call.name,
+      phase,
+      ...(phase === "start"
+        ? { argsPreview: previewArgs(call.args) }
+        : { isError: isError === true }),
+    });
+  }
+
+  /**
+   * `CLOUD_CLI_TURN_DO_PATHS.tool`: run one of this turn's tools for the
+   * CLI. Exactly-once per tool call id: a replay with the same arguments
+   * joins the call in flight or returns the journaled result; different
+   * arguments are a conflict. A call whose first execution was lost to an
+   * eviction is answered by its replay policy (`resolveOpenToolCall`).
+   */
+  private async handleCliTurnTool(request: Request): Promise<Response> {
+    const forward = parseCliTurnToolForward(
+      await request.json().catch(() => null),
+    );
+    if (!forward) return json({ error: "Malformed CLI tool call." }, 400);
+    const refuse = (
+      code: "turn_inactive" | "unknown_tool" | "conflict",
+      message: string,
+    ): Response =>
+      json({
+        ok: false,
+        error: { code, message },
+      } satisfies CloudOrchestratorToolCallResponse);
+    const inactive = () =>
+      refuse("turn_inactive", "This chat turn is no longer running.");
+    if (!(await this.cliTurnAccepting(forward))) return inactive();
+    const runtime = await this.waitForCliRuntime(forward);
+    if (!runtime) return inactive();
+    const tool = runtime.tools.find((candidate) => candidate.name === forward.name);
+    if (!tool) {
+      return refuse(
+        "unknown_tool",
+        `${forward.name} is not one of this turn's tools.`,
+      );
+    }
+    const key = orchestratorCliToolCallKey(forward.turnId, forward.toolCallId);
+    const fingerprint = await stableValueMarker([
+      "orchestrator-cli-tool/v1",
+      forward.name,
+      forward.args,
+    ]);
+    const recorded =
+      await this.getTurnState<OrchestratorCliToolCallRecord>(key);
+    if (recorded && recorded.fingerprint !== fingerprint) {
+      return refuse(
+        "conflict",
+        "That tool call id was already used with different arguments.",
+      );
+    }
+    const inflight = this.cliToolCalls.get(key);
+    if (inflight) return json(await inflight);
+    const journaled = this.journal.messageByWriterKey(
+      orchestratorCliToolResultWriterKey(forward.turnId, forward.toolCallId),
+    );
+    const replayed = journaled ? cliToolResultFromMessage(journaled) : null;
+    if (replayed) {
+      return json({
+        ok: true,
+        result: replayed,
+      } satisfies CloudOrchestratorToolCallResponse);
+    }
+    const work = this.runCliToolCall(runtime, forward, {
+      key,
+      fingerprint,
+      lostExecution: Boolean(recorded),
+    });
+    this.cliToolCalls.set(key, work);
+    try {
+      return json(await work);
+    } finally {
+      if (this.cliToolCalls.get(key) === work) this.cliToolCalls.delete(key);
+    }
+  }
+
+  private runCliToolCall(
+    runtime: CliTurnRuntime,
+    forward: CloudCliTurnIdentity & {
+      toolCallId: string;
+      name: string;
+      args: Record<string, unknown>;
+    },
+    call: { key: string; fingerprint: string; lostExecution: boolean },
+  ): Promise<CloudOrchestratorToolCallResponse> {
+    const inactive: CloudOrchestratorToolCallResponse = {
+      ok: false,
+      error: {
+        code: "turn_inactive",
+        message: "This chat turn is no longer running.",
+      },
+    };
+    const { turn } = runtime;
+    const run = runtime.toolChain.then(
+      async (): Promise<CloudOrchestratorToolCallResponse> => {
+        if (runtime.signal.aborted || !(await this.cliTurnAccepting(forward))) {
+          return inactive;
+        }
+        await this.putTurnState({
+          [call.key]: {
+            fingerprint: call.fingerprint,
+            startedAt: Date.now(),
+          } satisfies OrchestratorCliToolCallRecord,
+        });
+        this.noteCliTool(turn, forward, "start");
+        let message: AgentMessage;
+        if (call.lostExecution) {
+          // Its first execution started in an isolate that is gone: rerun a
+          // safe/keyed tool, or report an unsafe one as interrupted.
+          const resolved = await resolveOpenToolCall({
+            tools: runtime.tools,
+            call: {
+              toolCallId: forward.toolCallId,
+              toolName: forward.name,
+              params: forward.args,
+            },
+            started: true,
+            signal: runtime.signal,
+            now: () => Date.now(),
+          });
+          message = resolved.message;
+        } else {
+          const tool = runtime.tools.find(
+            (candidate) => candidate.name === forward.name,
+          )!;
+          let result: Pick<
+            AgentToolResult<unknown>,
+            "content" | "details" | "isError"
+          >;
+          try {
+            result = await tool.execute(
+              forward.toolCallId,
+              forward.args as never,
+              runtime.signal,
+            );
+          } catch (error) {
+            if (runtime.signal.aborted) return inactive;
+            result = {
+              content: [{ type: "text", text: errorMessage(error) }],
+              details: null,
+              isError: true,
+            };
+          }
+          message = {
+            role: "toolResult",
+            toolCallId: forward.toolCallId,
+            toolName: forward.name,
+            content: result.content,
+            details: result.details,
+            isError: result.isError === true,
+            timestamp: Date.now(),
+          } as AgentMessage;
+        }
+        if (runtime.signal.aborted || !(await this.cliTurnAccepting(forward))) {
+          return inactive;
+        }
+        const writerKey = orchestratorCliToolResultWriterKey(
+          forward.turnId,
+          forward.toolCallId,
+        );
+        const appended = this.appendProduced(turn, message, {
+          writer: ORCHESTRATOR_CLI_WRITER,
+          writerKey,
+          streamId: null,
+        });
+        if (appended) this.publish(appended.record);
+        const isError =
+          (message as { isError?: boolean }).isError === true;
+        this.noteCliTool(turn, forward, "end", isError);
+        const stored = this.journal.messageByWriterKey(writerKey) ?? message;
+        return {
+          ok: true,
+          result:
+            cliToolResultFromMessage(stored) ??
+            serializeCliToolResult({
+              content: [],
+              details: null,
+              isError,
+            }),
+        };
+      },
+    );
+    runtime.toolChain = run.catch(() => undefined);
+    return run;
+  }
+
+  /**
+   * `CLOUD_CLI_TURN_DO_PATHS.events`: one ordered batch of the CLI's stream.
+   * Finalized assistant messages are journaled and published exactly as
+   * Stella's own loop does on `message_end` (writer `orchestrator-cli`), in
+   * one transaction with the batch cursor, so a replayed batch is a no-op.
+   *
+   * `text_delta` is ignored: this object has never broadcast reply deltas
+   * (assistant text is delivered whole, `LiveTurnSnapshot.partialText` stays
+   * empty) and every client already renders cloud turns from committed rows.
+   * `status` is logged; there is no client frame for it yet.
+   */
+  private async handleCliTurnEvents(request: Request): Promise<Response> {
+    const forward = parseCliTurnEventsForward(
+      await request.json().catch(() => null),
+    );
+    if (!forward) return json({ error: "Malformed CLI event batch." }, 400);
+    const record = await this.cliTurnAccepting(forward);
+    if (!record) {
+      return json(
+        { ok: false, code: "turn_inactive", message: "This chat turn is no longer running." },
+        409,
+      );
+    }
+    if (forward.batchSeq <= record.appliedBatchSeq) {
+      return json({ ok: true, replayed: true });
+    }
+    if (forward.batchSeq !== record.appliedBatchSeq + 1) {
+      return json(
+        {
+          ok: false,
+          code: "batch_out_of_order",
+          expectedBatchSeq: record.appliedBatchSeq + 1,
+        },
+        409,
+      );
+    }
+    const turn = await this.getTurnState<ChatTurnRequest>("turn");
+    if (!turn) {
+      return json({ ok: false, code: "turn_inactive" }, 409);
+    }
+    let usage = record.usage;
+    for (const event of forward.events) {
+      if (event.type === "usage") {
+        usage = {
+          inputTokens: event.inputTokens,
+          outputTokens: event.outputTokens,
+          llmCalls: event.llmCalls,
+        };
+      } else if (event.type === "status") {
+        log("info", "orchestrator_cli_turn_status", {
+          turnId: turn.turnId,
+          state: event.state,
+        });
+      }
+    }
+    let appended: Array<ReturnType<Journal["appendMessage"]>>;
+    try {
+      appended = this.ctx.storage.transactionSync(() => {
+        const rows: Array<ReturnType<Journal["appendMessage"]>> = [];
+        let index = this.journal.maxProducedIndex(turn.turnId) + 1;
+        for (const event of forward.events) {
+          if (event.type !== "assistant_message") continue;
+          const row = this.appendProduced(
+            turn,
+            event.message as unknown as AgentMessage,
+            {
+              writer: ORCHESTRATOR_CLI_WRITER,
+              writerKey: `turn:${turn.turnId}:msg:${index}`,
+              streamId: newStreamId(),
+            },
+          );
+          index += 1;
+          if (row) rows.push(row);
+        }
+        this.ctx.storage.kv.put(ORCHESTRATOR_CLI_TURN_KEY, {
+          ...record,
+          appliedBatchSeq: forward.batchSeq,
+          ...(usage ? { usage } : {}),
+        } satisfies OrchestratorCliTurnRecord);
+        return rows;
+      });
+    } catch (error) {
+      log("error", "orchestrator_cli_events_failed", {
+        turnId: turn.turnId,
+        batchSeq: forward.batchSeq,
+        message: errorMessage(error),
+      });
+      return json({ ok: false, code: "persist_failed" }, 503);
+    }
+    for (const row of appended) this.publish(row.record);
+    return json({ ok: true });
+  }
+
+  /**
+   * `CLOUD_CLI_TURN_DO_PATHS.terminal`: the attempt is over. Durable in the
+   * record before the waiting turn is woken, so a resumed turn finds it. A
+   * repeat, or a terminal for an attempt this object no longer runs, is
+   * acknowledged as a no-op so the BuildSession stops retrying.
+   */
+  private async handleCliTurnTerminal(request: Request): Promise<Response> {
+    const terminal = parseCliTurnTerminal(
+      await request.json().catch(() => null),
+    );
+    if (!terminal) return json({ error: "Malformed CLI turn terminal." }, 400);
+    const record = await this.getTurnState<OrchestratorCliTurnRecord>(
+      ORCHESTRATOR_CLI_TURN_KEY,
+    );
+    if (!record || record.finished || !sameCliTurnIdentity(record, terminal)) {
+      log("info", "orchestrator_cli_terminal_ignored", {
+        turnId: terminal.turnId,
+        attemptGeneration: terminal.attemptGeneration,
+        outcome: terminal.outcome,
+      });
+      return json({ ok: true, ignored: true });
+    }
+    if (!record.terminal) {
+      // The full reply stays in memory for the waiting turn; the durable
+      // copy, read only after an eviction, is capped under the value limit.
+      await this.putTurnState({
+        [ORCHESTRATOR_CLI_TURN_KEY]: {
+          ...record,
+          terminal: {
+            ...terminal,
+            finalText: terminal.finalText.slice(0, CLI_TERMINAL_DURABLE_TEXT_MAX),
+          },
+        } satisfies OrchestratorCliTurnRecord,
+      });
+    }
+    this.cliTerminals.set(terminal.turnId, terminal);
+    this.cliTerminalWaiters.get(terminal.turnId)?.();
+    return json({ ok: true });
+  }
+
+  /**
+   * The completed terminal, shared by Stella's own loop and a Claude Code
+   * turn: everything the turn produced is already journaled.
+   */
+  private async completeChatTurn(
+    turn: ChatTurnRequest,
+    finalText: string,
+    started: number,
+  ): Promise<Response> {
+    const wallClockMs = Math.round(performance.now() - started);
+    // `terminal` and what is owed, in ONE durable write BEFORE delivery —
+    // the same ordering the cancel and failed paths use. The watchdog reads
+    // `terminal` to decide whether a turn is still owed one, so writing it
+    // after the owner round trip left a window (widened by the retry
+    // ladder, which pushes completions toward the deadline) where an alarm
+    // firing mid-delivery declared a finished turn timed out, and clients
+    // group on the last row per turn — so the user saw "timed out" over a
+    // reply that had actually arrived.
+    const completedOwed: OwedTerminal = {
+      kind: "completed",
+      message: "",
+      payload: { text: finalText, wallClockMs },
+      eventSeq: await this.nextTurnEventSeq(turn.turnId),
+    };
+    await this.ctx.storage.put({
+      terminal: true,
+      terminalOwed: completedOwed,
+    });
+    this.recordTerminal(turn, "completed", undefined, wallClockMs);
+    try {
+      await this.emitTurnEvent(
+        turn,
+        "completed",
+        { text: finalText, wallClockMs },
+        {
+          terminal: true,
+          eventSeq: completedOwed.eventSeq,
+          resultJson: JSON.stringify({ finalText }),
+        },
+      );
+      await this.ctx.storage.put("terminalDelivered", true);
+    } catch {
+      // Same pairing as the other terminal paths: the re-armed alarm
+      // redelivers exactly what `terminalOwed` says is owed, reply text
+      // included, instead of stranding a completed turn as "running".
+      await this.ctx.storage.setAlarm(Date.now() + 30_000);
+    }
+    await this.afterTerminal(turn);
+    // Keep the alarm alive while queued turns remain: it is the wake
+    // guarantee that lets a restarted DO drain the durable queue. The read
+    // and the delete are one step against `/turn`'s enqueue — otherwise a
+    // turn accepted between them is left durable under `queued:` with the
+    // alarm it was promised already deleted.
+    await this.ctx.blockConcurrencyWhile(async () => {
+      const queued = await this.ctx.storage.list({
+        prefix: "queued:",
+        limit: 1,
+      });
+      if (queued.size === 0) {
+        if (
+          !(await this.getTurnState<boolean>("terminalDelivered")) ||
+          (await this.hasMaintenanceDebt())
+        ) {
+          const retryAt = Date.now() + 30_000;
+          await this.armAlarmNoLaterThan(retryAt);
+        } else {
+          await this.ctx.storage.deleteAlarm();
+        }
+      }
+    });
+    log("info", "chat_turn_completed", {
+      turnId: turn.turnId,
+      conversationId: turn.conversationId,
+      wallClockMs: Math.round(performance.now() - started),
+    });
+    return json({ ok: true, text: finalText });
   }
 
   /**
@@ -5697,9 +6913,28 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     index: number,
     streamId: string | null,
   ): void {
+    const appended = this.appendProduced(turn, message, {
+      writer: "orchestrator",
+      writerKey: `turn:${turn.turnId}:msg:${index}`,
+      streamId,
+    });
+    if (appended) this.publish(appended.record);
+  }
+
+  /**
+   * Journal one produced message without publishing it, so a caller can
+   * commit several rows (and its own cursor) in one transaction first. Null
+   * when the message is never journaled.
+   */
+  private appendProduced(
+    turn: ChatTurnRequest,
+    message: AgentMessage,
+    target: { writer: string; writerKey: string; streamId: string | null },
+  ): ReturnType<Journal["appendMessage"]> | null {
+    const { streamId } = target;
     const role = (message as { role?: string }).role;
     if (role !== "user" && role !== "assistant" && role !== "toolResult")
-      return;
+      return null;
     // An assistant message with no usable output is never persisted: ONE such
     // row poisons every future Anthropic request for this conversation. The
     // predicate is the retry ladder's own — a message it would pop from the
@@ -5708,7 +6943,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     // rebuilds history with two consecutive assistant messages. This covers
     // the errored placeholder (empty text) and the thinking-only completion
     // that hit the output cap while reasoning.
-    if (!assistantMessageHasUsableOutput(message)) return;
+    if (!assistantMessageHasUsableOutput(message)) return null;
     let stored = message;
     let payloadJson = JSON.stringify(message);
     if (utf8Length(payloadJson) > MAX_ROW_BYTES) {
@@ -5726,15 +6961,15 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     }
     const appended = this.journal.appendMessage({
       turnId: turn.turnId,
-      writer: "orchestrator",
-      writerKey: `turn:${turn.turnId}:msg:${index}`,
+      writer: target.writer,
+      writerKey: target.writerKey,
       role: role as MessageRole,
       message: stored,
       payloadJson,
       ...(role === "assistant" && streamId ? { streamId } : {}),
     });
     this.journal.setTurnSpan(turn.turnId, appended.seq);
-    this.publish(appended.record);
+    return appended;
   }
 
   /**

@@ -10,8 +10,6 @@ import {
 } from "@stella/runtime/ai/stream.js";
 import { AssistantMessageEventStream } from "@stella/runtime/ai/utils/event-stream.js";
 import { resolveManagedModelDescriptor } from "@stella/model-catalog/gateway-resolution";
-import { resolveClaudeCloudModel } from "@stella/model-catalog/claude-cloud-model";
-import { streamAnthropic } from "@stella/runtime/ai/providers/anthropic.js";
 import {
   GATEWAY_VALIDATED_RELAY_PREFIX,
   GATEWAY_RELAY_PREFIX,
@@ -51,7 +49,6 @@ import { findModelCandidate } from "@stella/runtime/kernel/model-registry-view.j
  */
 export const CLOUD_LLM_CREDENTIAL_HEADER = "x-stella-llm-credential";
 
-export const DEFAULT_CLOUD_ANTHROPIC_ENGINE_MODEL = "claude-sonnet-4-6";
 export const DEFAULT_CLOUD_CODEX_ENGINE_MODEL = "gpt-6.1-sol";
 
 const RESOLVE_TIMEOUT_MS = 15_000;
@@ -159,15 +156,11 @@ const withTransport = <T extends Model<Api>>(
   ...(transport.fetch ? { fetch: transport.fetch } : {}),
 });
 
-const genericSubscriptionModel = (
-  provider: "anthropic" | "openai-codex",
-  modelId: string,
-): Model<Api> => ({
+const genericSubscriptionModel = (modelId: string): Model<Api> => ({
   id: modelId,
   name: modelId,
-  api:
-    provider === "anthropic" ? "anthropic-messages" : "openai-codex-responses",
-  provider,
+  api: "openai-codex-responses",
+  provider: "openai-codex",
   baseUrl: "",
   reasoning: true,
   input: ["text", "image"],
@@ -213,54 +206,38 @@ const gatewayError = (
 };
 
 /**
- * Connected Claude / ChatGPT subscriptions keep their native adapters; the
+ * A Claude subscription is spent only by the real Claude Code CLI (the
+ * container's native agent turn, and the orchestrator's CLI turn); Stella's
+ * own harness never sends a request on it.
+ */
+const CLAUDE_SUBSCRIPTION_HARNESS_ERROR =
+  "Claude subscription turns run only on the Claude Code CLI.";
+
+/**
+ * A connected ChatGPT subscription keeps its native Codex adapter; the
  * gateway forwards the bytes on its native lane using the owner's connected
  * credential selected by the capability's `credential` claim.
  */
 const subscriptionRelayModel = (args: {
-  execution: CloudExecutionSelection;
+  execution: Extract<CloudExecutionSelection, { engine: "openai-codex" }>;
   transport: GatewayModelTransport;
 }): Model<Api> => {
-  const provider = args.execution.engine as "anthropic" | "openai-codex";
-  const modelId =
-    provider === "anthropic"
-      ? resolveClaudeCloudModel(args.execution.model)
-      : args.execution.model;
+  const provider = "openai-codex";
+  const modelId = args.execution.model;
   const registryModel =
     loadedRegistryModel(provider, [modelId, modelId.replace(/\./g, "-")]) ??
-    genericSubscriptionModel(provider, modelId);
+    genericSubscriptionModel(modelId);
   return withTransport(
     {
       ...registryModel,
-      ...(provider === "anthropic"
-        ? {
-            thinkingLevelMap: {
-              ...registryModel.thinkingLevelMap,
-              minimal: "low",
-              low: "low",
-              medium: "medium",
-              high: "high",
-              xhigh: modelId.includes("-4-6") ? "max" : "xhigh",
-            },
-          }
-        : {}),
       id: `stella/${provider}/${modelId}`,
-      name:
-        provider === "anthropic"
-          ? "Claude (subscription)"
-          : "ChatGPT (subscription)",
+      name: "ChatGPT (subscription)",
       provider,
-      api:
-        provider === "anthropic"
-          ? "anthropic-messages"
-          : "openai-codex-responses",
+      api: "openai-codex-responses",
       headers: {
         ...(registryModel.headers ?? {}),
         ...gatewayHeaders(args.transport, {
           [CLOUD_LLM_CREDENTIAL_HEADER]: provider,
-          ...(provider === "anthropic" && args.execution.model.endsWith("[1m]")
-            ? { "anthropic-beta": "context-1m-2025-08-07" }
-            : {}),
         }),
       },
     } as Model<Api>,
@@ -536,8 +513,9 @@ export type CloudRelayModelArgs = {
 /**
  * Create the exact gateway-bound adapter selected at dispatch. Managed routes
  * are resolved through `POST /v1/models/resolve` so the sandbox learns which
- * provider protocol to speak; connected subscriptions keep their native
- * Anthropic/Codex adapters on the gateway's native lane.
+ * provider protocol to speak; a connected ChatGPT subscription keeps its
+ * native Codex adapter on the gateway's native lane. A Claude subscription is
+ * refused: only the Claude Code CLI spends it.
  */
 export const createCloudRelayModel = async (
   args: CloudRelayModelArgs,
@@ -556,7 +534,10 @@ export const createCloudRelayModel = async (
     agentType: args.agentType,
     ...(args.fetch ? { fetch: args.fetch } : {}),
   };
-  if (execution.engine !== "stella") {
+  if (execution.engine === "anthropic") {
+    throw new Error(CLAUDE_SUBSCRIPTION_HARNESS_ERROR);
+  }
+  if (execution.engine === "openai-codex") {
     await loadModelRegistry();
     return subscriptionRelayModel({ execution, transport });
   }
@@ -599,7 +580,10 @@ export const createCloudRelaySession = async (
   }) => StreamFn;
 }> => {
   const execution = validateCloudExecutionSelection(args.execution);
-  if (execution.engine !== "stella") {
+  if (execution.engine === "anthropic") {
+    throw new Error(CLAUDE_SUBSCRIPTION_HARNESS_ERROR);
+  }
+  if (execution.engine === "openai-codex") {
     const model = await createCloudRelayModel(args);
     return {
       model,
@@ -613,18 +597,7 @@ export const createCloudRelaySession = async (
               : context;
             signal?.throwIfAborted();
             // The admitted selection owns thinking, including callers whose
-            // Agent state still has its generic default. Auto leaves Claude's
-            // provider default intact rather than explicitly disabling it.
-            if (
-              execution.engine === "anthropic" &&
-              execution.reasoningEffort === "default"
-            ) {
-              return streamAnthropic(
-                model as Model<"anthropic-messages">,
-                prepared,
-                { ...options, signal },
-              );
-            }
+            // Agent state still has its generic default.
             return streamSimple(model, prepared, {
               ...options,
               signal,

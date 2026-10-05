@@ -1446,6 +1446,88 @@ export class Journal {
   }
 
   /**
+   * Model rows strictly between two seqs that a Claude Code orchestrator
+   * session has not seen: everything except rows that session wrote itself
+   * (`excludeWriters`). Newest `limit` rows, returned oldest first, with
+   * `more` set when older qualifying rows were left out. A spilled payload
+   * comes back as `message: null`; the caller names it instead of hydrating.
+   */
+  cliContextRows(args: {
+    afterSeq: number;
+    beforeSeq: number;
+    excludeWriters: readonly string[];
+    limit: number;
+  }): {
+    rows: Array<{
+      seq: number;
+      role: string;
+      hidden: boolean;
+      message: AgentMessage | null;
+    }>;
+    more: boolean;
+  } {
+    const placeholders = args.excludeWriters.map(() => "?").join(", ");
+    const selected = this.sql
+      .exec<{
+        seq: number;
+        role: string | null;
+        hidden: number;
+        payload_json: string;
+        spill_key: string | null;
+      }>(
+        `SELECT seq, role, hidden, payload_json, spill_key FROM journal
+          WHERE seq > ? AND seq < ? AND kind = 'message' AND model_skip = 0
+            ${args.excludeWriters.length > 0 ? `AND writer NOT IN (${placeholders})` : ""}
+          ORDER BY seq DESC LIMIT ?`,
+        args.afterSeq,
+        args.beforeSeq,
+        ...args.excludeWriters,
+        args.limit + 1,
+      )
+      .toArray();
+    const more = selected.length > args.limit;
+    const rows = selected.slice(0, args.limit).reverse();
+    return {
+      more,
+      rows: rows.map((row) => {
+        let message: AgentMessage | null = null;
+        try {
+          const parsed = JSON.parse(row.payload_json) as unknown;
+          message =
+            row.spill_key && isSpillStub(parsed)
+              ? null
+              : (parsed as AgentMessage);
+        } catch {
+          message = null;
+        }
+        return {
+          seq: row.seq,
+          role: row.role ?? "user",
+          hidden: row.hidden === 1,
+          message,
+        };
+      }),
+    };
+  }
+
+  /** The message journaled under one writer key, or null. */
+  messageByWriterKey(writerKey: string): AgentMessage | null {
+    const row = this.sql
+      .exec<{ payload_json: string }>(
+        `SELECT payload_json FROM journal
+          WHERE writer_key = ? AND kind = 'message' LIMIT 1`,
+        writerKey,
+      )
+      .toArray()[0];
+    if (!row) return null;
+    try {
+      return JSON.parse(row.payload_json) as AgentMessage;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * The highest `turn:<id>:msg:<n>` index a turn's loop used, or -1. A resume
    * numbers its own rows after it so none collides with (and is silently
    * deduplicated against) a row the lost isolate already wrote.

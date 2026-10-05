@@ -437,28 +437,22 @@ describe("cloud relay model selection", () => {
     expect(model.maxTokens).toBe(4_321);
   });
 
-  test("keeps connected Anthropic pins on the Anthropic adapter against the gateway native lane", async () => {
+  test("refuses a Claude subscription: only the Claude Code CLI spends it", async () => {
     const gateway = fakeGateway(() => {
-      throw new Error("subscriptions never resolve through the gateway");
+      throw new Error("a Claude subscription never reaches the gateway here");
     });
-    const model = await create(
-      {
-        engine: "anthropic",
-        provider: "anthropic",
-        model: "claude-opus-4-6",
-        reasoningEffort: "high",
-      },
-      gateway,
-    );
+    await expect(
+      create(
+        {
+          engine: "anthropic",
+          provider: "anthropic",
+          model: "claude-opus-4-6",
+          reasoningEffort: "high",
+        },
+        gateway,
+      ),
+    ).rejects.toThrow("only on the Claude Code CLI");
     expect(gateway.calls).toHaveLength(0);
-    expect(model.api).toBe("anthropic-messages");
-    expect(model.id).toBe("stella/anthropic/claude-opus-4-6");
-    expect(model.baseUrl).toBe(`${GATEWAY}/v1/relay`);
-    expect(model.fetch).toBe(gateway.fetch);
-    expect(model.headers?.[CLOUD_LLM_CREDENTIAL_HEADER]).toBe("anthropic");
-    expect(model.headers?.authorization).toBe(`Bearer ${CAPABILITY}`);
-    expect(model.headers?.["x-stella-agent-type"]).toBe("general");
-    expect(model.headers?.["x-stella-turn-token"]).toBeUndefined();
     expect(
       validateCloudExecutionSelection({
         engine: "anthropic",
@@ -746,59 +740,6 @@ test("older gateways refuse the versioned route before resolution and legacy inf
     `${GATEWAY}/v1/models/resolve`,
     `${GATEWAY}/v1/relay/responses`,
   ]);
-});
-
-test("connected subscriptions keep their original adapter and context transformation", async () => {
-  let transformations = 0;
-  const gateway = fetchRecorder(async (request) => {
-    expect(request.url).toContain("/v1/relay/");
-    expect(request.headers.has(GATEWAY_MODEL_REVISION_HEADER)).toBe(false);
-    expect(JSON.stringify(await request.json())).toContain(
-      "transformed native context",
-    );
-    return Response.json({
-      id: "msg_2",
-      type: "message",
-      role: "assistant",
-      model: "claude-sonnet-4-6",
-      content: [{ type: "text", text: "hello" }],
-      stop_reason: "end_turn",
-      stop_sequence: null,
-      usage: { input_tokens: 1, output_tokens: 1 },
-    });
-  });
-  const session = await createCloudRelaySession({
-    gatewayOrigin: GATEWAY,
-    capability: CAPABILITY,
-    agentType: "orchestrator",
-    audience: "pro",
-    execution: {
-      engine: "anthropic",
-      provider: "anthropic",
-      model: "claude-sonnet-4-6",
-      reasoningEffort: "none",
-    },
-    fetch: gateway.fetch,
-  });
-  const stream = await session.createStreamFn({
-    reasoningEffort: "none",
-    transformContext: async (_model, context) => {
-      transformations += 1;
-      return {
-        ...context,
-        messages: [
-          { role: "user", content: "transformed native context", timestamp: 1 },
-        ],
-      };
-    },
-  })(
-    session.model,
-    { messages: [{ role: "user", content: "untransformed", timestamp: 1 }] },
-    { apiKey: CAPABILITY },
-  );
-  expect((await stream.result()).stopReason).toBe("stop");
-  expect(transformations).toBe(1);
-  expect(gateway.requests).toHaveLength(1);
 });
 
 test("cancellation during a context transform prevents inference", async () => {

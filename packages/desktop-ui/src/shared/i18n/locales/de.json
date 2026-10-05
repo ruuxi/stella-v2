@@ -1319,12 +1319,6 @@
         "cancel": "Wartende Nachricht abbrechen",
         "cancelAndEdit": "Abbrechen und bearbeiten"
       },
-      "replyCount": {
-        "label": {
-          "one": "{count} reply",
-          "other": "{count} replies"
-        }
-      },
       "replyPeek": {
         "dismiss": "Vorschau schließen",
         "jumpToLatest": "Zur neuesten Antwort springen"

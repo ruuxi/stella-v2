@@ -1,5 +1,9 @@
 import { journalLifecycleEvent } from "./journal-activity-files";
-import type { EventRecord, MessageRecord } from "@stella/contracts/local-chat";
+import type {
+  Attachment,
+  EventRecord,
+  MessageRecord,
+} from "@stella/contracts/local-chat";
 import { groupEventsIntoMessages } from "@/features/chat/lib/group-events-into-messages";
 import type { JournalRecord } from "./conversation-protocol";
 import { messageText } from "./conversation-protocol";
@@ -268,6 +272,48 @@ const contentBlocks = (
         .filter((entry): entry is Record<string, unknown> => entry !== null)
     : [];
 
+const userAttachments = (
+  payload: AgentMessagePayload,
+): Attachment[] => {
+  const images = contentBlocks(payload).flatMap((block): Attachment[] =>
+    block.type === "image" &&
+    typeof block.data === "string" &&
+    typeof block.mimeType === "string"
+      ? [
+          {
+            url: `data:${block.mimeType};base64,${block.data}`,
+            mimeType: block.mimeType,
+          },
+        ]
+      : [],
+  );
+  const declared = (payload as { attachments?: unknown }).attachments;
+  const files = (Array.isArray(declared) ? declared : []).flatMap(
+    (entry): Attachment[] => {
+      const record = asRecord(entry);
+      if (record?.kind !== "file") return [];
+      const path =
+        typeof record.path === "string"
+          ? record.path
+          : typeof record.sourcePath === "string"
+            ? record.sourcePath
+            : undefined;
+      return [
+        {
+          kind: "file",
+          ...(typeof record.name === "string" ? { name: record.name } : {}),
+          ...(typeof record.mimeType === "string"
+            ? { mimeType: record.mimeType }
+            : {}),
+          ...(typeof record.size === "number" ? { size: record.size } : {}),
+          ...(path ? { path, url: path } : {}),
+        },
+      ];
+    },
+  );
+  return [...images, ...files];
+};
+
 const textPayload = (
   record: Extract<JournalRecord, { kind: "message" }>,
   text: string,
@@ -466,20 +512,25 @@ export const journalRecordsToMessageRecords = (
         userMessageId =
           record.clientMsgId ?? `cloud:${turnId}:message:${record.seq}`;
         const userText = messageText(record.payload);
+        const attachments = userAttachments(record.payload);
         // A prompt with nothing to show (older desktop turns mirrored their
         // lifecycle wake as an empty, unflagged user record) renders like a
         // hidden one: no bubble, no slot.
         const blank =
           !userText.trim() &&
+          attachments.length === 0 &&
           !contentBlocks(record.payload).some((block) => block.type !== "text");
         events.push({
           _id: userMessageId,
           timestamp,
           type: "user_message",
-          payload: textPayload(
-            blank && !record.hidden ? { ...record, hidden: true } : record,
-            userText,
-          ),
+          payload: {
+            ...textPayload(
+              blank && !record.hidden ? { ...record, hidden: true } : record,
+              userText,
+            ),
+            ...(attachments.length > 0 ? { attachments } : {}),
+          },
         });
         // The wake's completion precedes the reply that relays it, so the
         // grouping hands it to that reply.

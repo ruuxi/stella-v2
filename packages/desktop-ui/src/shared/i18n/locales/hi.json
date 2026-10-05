@@ -1319,12 +1319,6 @@
         "cancel": "कतार में लगा संदेश रद्द करें",
         "cancelAndEdit": "रद्द करें और संपादित करें"
       },
-      "replyCount": {
-        "label": {
-          "one": "{count} reply",
-          "other": "{count} replies"
-        }
-      },
       "replyPeek": {
         "dismiss": "पूर्वावलोकन हटाएँ",
         "jumpToLatest": "नवीनतम उत्तर पर जाएँ"

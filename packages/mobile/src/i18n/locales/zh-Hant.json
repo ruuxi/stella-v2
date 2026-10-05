@@ -1312,11 +1312,6 @@
         "cancel": "取消排入佇列的訊息",
         "cancelAndEdit": "取消並編輯"
       },
-      "replyCount": {
-        "label": {
-          "other": "{count} replies"
-        }
-      },
       "replyPeek": {
         "dismiss": "關閉預覽",
         "jumpToLatest": "跳到最新回覆"

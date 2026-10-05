@@ -1326,12 +1326,6 @@
         "cancel": "Anulează mesajul din coadă",
         "cancelAndEdit": "Anulează și editează"
       },
-      "replyCount": {
-        "label": {
-          "one": "{count} reply",
-          "other": "{count} replies"
-        }
-      },
       "replyPeek": {
         "dismiss": "Închide previzualizarea",
         "jumpToLatest": "Sari la cel mai recent răspuns"

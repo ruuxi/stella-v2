@@ -1319,12 +1319,6 @@
         "cancel": "Cancel queued message",
         "cancelAndEdit": "Cancel and edit"
       },
-      "replyCount": {
-        "label": {
-          "one": "{count} reply",
-          "other": "{count} replies"
-        }
-      },
       "replyPeek": {
         "dismiss": "Dismiss preview",
         "jumpToLatest": "Jump to latest reply"

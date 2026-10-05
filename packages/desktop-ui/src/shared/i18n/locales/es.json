@@ -1326,12 +1326,6 @@
         "cancel": "Cancelar el mensaje en cola",
         "cancelAndEdit": "Cancelar y editar"
       },
-      "replyCount": {
-        "label": {
-          "one": "{count} reply",
-          "other": "{count} replies"
-        }
-      },
       "replyPeek": {
         "dismiss": "Descartar la vista previa",
         "jumpToLatest": "Ir a la última respuesta"

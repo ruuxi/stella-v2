@@ -1333,12 +1333,6 @@
         "cancel": "Отменить сообщение из очереди",
         "cancelAndEdit": "Отменить и изменить"
       },
-      "replyCount": {
-        "label": {
-          "one": "{count} reply",
-          "other": "{count} replies"
-        }
-      },
       "replyPeek": {
         "dismiss": "Скрыть предпросмотр",
         "jumpToLatest": "Перейти к последнему ответу"

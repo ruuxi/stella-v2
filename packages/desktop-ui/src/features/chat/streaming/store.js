@@ -331,6 +331,12 @@ export function attachmentsForStartChat(attachments) {
             item.name = a.name;
         if (a.previewUrl)
             item.previewUrl = a.previewUrl;
+        if (a.kind)
+            item.kind = a.kind;
+        if (typeof a.size === 'number')
+            item.size = a.size;
+        if (a.path)
+            item.path = a.path;
         return item;
     });
     return mapped.length ? mapped : undefined;

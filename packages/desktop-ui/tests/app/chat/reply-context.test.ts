@@ -15,14 +15,12 @@ const reply = (
 const message = { kind: "message", id: "u1", sequence: 1, role: "user", preview: "Request" } as const;
 const agent = { kind: "agent", threadId: "a1", title: "Research" } as const;
 const refs = (row: EventRowViewModel) => (row.kind === "assistant" ? row.replyRefs : undefined);
-const count = (row: EventRowViewModel) => (row.kind === "user" ? row.replyCount : undefined);
 
-it("hides adjacent answers, keeps a return after unrelated conversation, and counts it on the ask", () => {
+it("hides adjacent answers and keeps a return after unrelated conversation", () => {
   const rows = withReplyContext([user("u1"), reply("r1", [message]), user("u2"), reply("r2", [message])]);
   expect(refs(rows[1]!)).toEqual([]);
   expect(refs(rows[3]!)).toEqual([message]);
-  expect(count(rows[0]!)).toBe(1);
-  expect(count(rows[2]!)).toBeUndefined();
+  expect(rows[0]).not.toHaveProperty("replyCount");
 });
 
 it("prefers the work label over a repeated quotation and suppresses repeated labels", () => {
@@ -38,7 +36,6 @@ it("treats a completion as adjacent to the exchange that spawned its task", () =
     reply("done", [agent]),
   ]);
   expect(refs(rows[2]!)).toEqual([]);
-  expect(count(rows[0]!)).toBeUndefined();
 });
 
 it("leaves rows untouched when nothing changes", () => {
@@ -60,7 +57,6 @@ it("keeps a completion quiet when its spawn was anchored on the ask and a hidden
   ]);
   expect(refs(rows[3]!)).toEqual([]);
   expect(refs(rows[6]!)).toEqual([agent]);
-  expect(count(rows[0]!)).toBe(1);
 });
 
 it("matches a spawn that only recorded its description to the task a later report cites by title", () => {
@@ -75,7 +71,6 @@ it("matches a spawn that only recorded its description to the task a later repor
   ]);
   expect(refs(rows[3]!)).toEqual([]);
   expect(refs(rows[6]!)).toEqual([agent]);
-  expect(count(rows[0]!)).toBe(1);
 });
 
 it("treats a content-less user row as a wake prompt and matches a spawn description to a slugged thread id", () => {

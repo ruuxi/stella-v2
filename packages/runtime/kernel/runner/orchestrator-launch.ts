@@ -11,7 +11,10 @@ import type {
 } from "../agent-runtime/types.js";
 import type { LocalAgentContext } from "../agents/local-agent-manager.js";
 import { getOrCreateOrchestratorSession } from "../agent-runtime/orchestrator-session.js";
-import { createRuntimePromptAgentMessage } from "../agent-runtime/run-preparation.js";
+import {
+  createFileAttachmentPromptInput,
+  createRuntimePromptAgentMessage,
+} from "../agent-runtime/run-preparation.js";
 import { buildThreadMessagePreview } from "../agent-runtime/thread-memory.js";
 import { executionContextHistoryEntries } from "../agent-runtime/execution-context-history.js";
 import {
@@ -103,14 +106,73 @@ export const buildCloudUserMessage = (
     throw new Error("Cloud local turns require a user message.");
   }
   const executionContext = prepared.agentContext.executionContext;
+  const fileAttachments = cloudFileAttachmentMetadata(promptInput.attachments);
   const hidden =
     runtimePrompt ||
     prepared.uiVisibility === "hidden" ||
     chosen?.uiVisibility === "hidden";
   return {
-    message: { ...message, ...(executionContext ? { executionContext } : {}) },
+    message: {
+      ...message,
+      ...(executionContext ? { executionContext } : {}),
+      ...(fileAttachments.length > 0 ? { attachments: fileAttachments } : {}),
+    },
     hidden,
   };
+};
+
+export type CloudFileAttachmentMetadata = {
+  kind: "file";
+  name: string;
+  mimeType: string;
+  size?: number;
+  sourcePath: string;
+  path?: string;
+};
+
+const cloudFileAttachmentMetadata = (
+  attachments: RuntimeAttachmentRef[] | undefined,
+): CloudFileAttachmentMetadata[] =>
+  (attachments ?? []).flatMap((attachment) =>
+    attachment.kind === "file" && attachment.sourcePath
+      ? [
+          {
+            kind: "file" as const,
+            name: attachment.name || "attachment",
+            mimeType: attachment.mimeType || "application/octet-stream",
+            ...(typeof attachment.size === "number"
+              ? { size: attachment.size }
+              : {}),
+            sourcePath: attachment.sourcePath,
+            ...(attachment.path ? { path: attachment.path } : {}),
+          },
+        ]
+      : [],
+  );
+
+const fileAttachmentsFromCloudUserPayload = (
+  payload: unknown,
+): RuntimeAttachmentRef[] => {
+  const attachments = (payload as { attachments?: unknown }).attachments;
+  if (!Array.isArray(attachments)) return [];
+  return attachments.flatMap((entry): RuntimeAttachmentRef[] => {
+    if (!entry || typeof entry !== "object") return [];
+    const record = entry as Record<string, unknown>;
+    if (record.kind !== "file" || typeof record.sourcePath !== "string") {
+      return [];
+    }
+    return [
+      {
+        url: record.sourcePath,
+        sourcePath: record.sourcePath,
+        kind: "file",
+        ...(typeof record.name === "string" ? { name: record.name } : {}),
+        ...(typeof record.mimeType === "string"
+          ? { mimeType: record.mimeType }
+          : {}),
+      },
+    ];
+  });
 };
 
 const logger = createRuntimeLogger("orchestrator-launch");
@@ -198,32 +260,51 @@ export const parseCanonicalCloudHistory = (
     const payload = parsed as PersistedRuntimeThreadPayload;
     return payload;
   });
-  return executionContextHistoryEntries(messages).map((entry) => {
+  const toHistoryRow = (
+    payload: ReturnType<typeof createRuntimePromptAgentMessage> | PersistedRuntimeThreadPayload,
+  ) => ({
+    timestamp:
+      typeof (payload as { timestamp?: unknown }).timestamp === "number"
+        ? (payload as { timestamp: number }).timestamp
+        : undefined,
+    role: payload.role,
+    content: buildThreadMessagePreview(payload),
+    ...(payload.role === "runtimeInternal"
+      ? {
+          customMessage: {
+            customType: payload.customType,
+            content: payload.content,
+            display: false,
+          },
+        }
+      : {}),
+    ...(payload.role === "toolResult"
+      ? { toolCallId: payload.toolCallId }
+      : {}),
+    payload,
+  });
+  return executionContextHistoryEntries(messages).flatMap((entry) => {
     const payload =
       entry.kind === "resident"
         ? createRuntimePromptAgentMessage(entry.prompt, entry.timestamp)
         : entry.message;
-    return {
-      timestamp:
-        typeof (payload as { timestamp?: unknown }).timestamp === "number"
-          ? (payload as { timestamp: number }).timestamp
-          : undefined,
-      role: payload.role,
-      content: buildThreadMessagePreview(payload),
-      ...(payload.role === "runtimeInternal"
-        ? {
-            customMessage: {
-              customType: payload.customType,
-              content: payload.content,
-              display: false,
-            },
-          }
-        : {}),
-      ...(payload.role === "toolResult"
-        ? { toolCallId: payload.toolCallId }
-        : {}),
-      payload,
-    };
+    const fileAttachmentPrompt =
+      payload.role === "user"
+        ? createFileAttachmentPromptInput(
+            fileAttachmentsFromCloudUserPayload(payload),
+          )
+        : null;
+    if (!fileAttachmentPrompt) return [toHistoryRow(payload)];
+    const timestamp =
+      typeof (payload as { timestamp?: unknown }).timestamp === "number"
+        ? (payload as { timestamp: number }).timestamp
+        : Date.now();
+    return [
+      toHistoryRow(payload),
+      toHistoryRow(
+        createRuntimePromptAgentMessage(fileAttachmentPrompt, timestamp + 1),
+      ),
+    ];
   });
 };
 

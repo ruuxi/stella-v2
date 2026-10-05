@@ -1326,12 +1326,6 @@
         "cancel": "Annulla il messaggio in coda",
         "cancelAndEdit": "Annulla e modifica"
       },
-      "replyCount": {
-        "label": {
-          "one": "{count} reply",
-          "other": "{count} replies"
-        }
-      },
       "replyPeek": {
         "dismiss": "Chiudi l'anteprima",
         "jumpToLatest": "Vai all'ultima risposta"

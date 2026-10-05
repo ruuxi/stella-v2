@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import type { RuntimeEndEvent } from "../agent-runtime/types.js";
 import {
+  createFileAttachmentPromptInput,
   createRuntimePromptAgentMessage,
   prepareRuntimeAttachments,
 } from "../agent-runtime/run-preparation.js";
@@ -508,6 +509,30 @@ export const createOrchestratorController = (
         );
       }
       args.session.queueMessage(message, delivery);
+    }
+    const fileAttachmentPrompt = createFileAttachmentPromptInput(attachments);
+    if (fileAttachmentPrompt) {
+      const message = createRuntimePromptAgentMessage(
+        fileAttachmentPrompt,
+        timestamp + promptInputs.length,
+      );
+      if (message.role === "runtimeInternal" && message.customType) {
+        persistThreadCustomMessage(context.runtimeStore, {
+          threadKey: args.session.threadKey,
+          customType: message.customType,
+          content: message.content,
+          display: message.display === true,
+          timestamp: message.timestamp,
+          preservePayloadExactly: true,
+        });
+      }
+      args.session.queueMessage(
+        message,
+        resolveLiveChatMessageDelivery({
+          role: message.role,
+          engine: args.session.engine,
+        }),
+      );
     }
   };
 

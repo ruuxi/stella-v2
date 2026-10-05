@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { materializeFileAttachments, MAX_FILE_ATTACHMENT_BYTES } from "@stella/runtime/worker/server/attachments";
+import { materializeFileAttachments, materializeImageAttachments, MAX_FILE_ATTACHMENT_BYTES } from "@stella/runtime/worker/server/attachments";
 import { createUserPromptMessage, createRuntimePromptAgentMessage, createFileAttachmentPromptInput } from "@stella/runtime/kernel/agent-runtime/run-preparation";
 const dirs: string[] = [];
 afterEach(async () => {
@@ -42,6 +42,16 @@ describe("local document attachments", () => {
     expect(files).toHaveLength(2);
     expect(files[0].sourcePath).toBe(localPath);
     expect(await fs.readFile(files[1].sourcePath!, "utf8")).toBe("Hello");
+  });
+  it("treats any composer file as a file, including image types the composer does not inline", async () => {
+    const args = await setup();
+    const attachments = [
+      { url: "data:image/bmp;base64,Qk0=", mimeType: "image/bmp", kind: "file", name: "scan.bmp" },
+      { url: "data:application/x-weird;base64,AAEC", mimeType: "application/x-weird", kind: "file", name: "thing.weird" },
+    ];
+    const files = await materializeFileAttachments({ ...args, attachments });
+    expect(files.map((file) => file.name)).toEqual(["scan.bmp", "thing.weird"]);
+    expect(await materializeImageAttachments(attachments)).toEqual([]);
   });
   it("rejects oversized streams without persisting or silently dropping the document", async () => {
     const args = await setup();

@@ -1312,11 +1312,6 @@
         "cancel": "キューのメッセージをキャンセル",
         "cancelAndEdit": "キャンセルして編集"
       },
-      "replyCount": {
-        "label": {
-          "other": "{count} replies"
-        }
-      },
       "replyPeek": {
         "dismiss": "プレビューを閉じる",
         "jumpToLatest": "最新の返信へ移動"

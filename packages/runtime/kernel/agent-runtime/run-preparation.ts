@@ -60,6 +60,14 @@ export const createFileAttachmentPromptInput = (
   };
 };
 
+export const withFileAttachmentPromptInput = (
+  promptMessages: RuntimePromptMessage[],
+  attachments?: RuntimeAttachmentRef[],
+): RuntimePromptMessage[] => {
+  const fileContext = createFileAttachmentPromptInput(attachments);
+  return fileContext ? [...promptMessages, fileContext] : promptMessages;
+};
+
 /**
  * Validate and resize inline images before they enter native agent history.
  * Invalid or unshrinkable images are omitted instead of becoming permanent,

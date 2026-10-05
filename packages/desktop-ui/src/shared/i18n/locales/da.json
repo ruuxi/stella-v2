@@ -1319,12 +1319,6 @@
         "cancel": "Annuller besked i kø",
         "cancelAndEdit": "Annuller og rediger"
       },
-      "replyCount": {
-        "label": {
-          "one": "{count} reply",
-          "other": "{count} replies"
-        }
-      },
       "replyPeek": {
         "dismiss": "Afvis forhåndsvisning",
         "jumpToLatest": "Gå til seneste svar"

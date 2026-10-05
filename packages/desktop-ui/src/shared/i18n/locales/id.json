@@ -1312,11 +1312,6 @@
         "cancel": "Batalkan pesan dalam antrean",
         "cancelAndEdit": "Batalkan dan edit"
       },
-      "replyCount": {
-        "label": {
-          "other": "{count} replies"
-        }
-      },
       "replyPeek": {
         "dismiss": "Tutup pratinjau",
         "jumpToLatest": "Lompat ke balasan terbaru"

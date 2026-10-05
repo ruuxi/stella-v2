@@ -100,4 +100,7 @@ export declare function attachmentsForStartChat(attachments: AttachmentRef[] | u
     mimeType?: string;
     name?: string;
     previewUrl?: string;
+    kind?: string;
+    size?: number;
+    path?: string;
 }[] | undefined;

@@ -40,12 +40,6 @@ export type UserRowViewModel = {
   attachments: Attachment[];
   channelEnvelope?: ChannelEnvelope;
   /**
-   * Distant replies that cite this message (see
-   * `@stella/contracts/reply-context`). Drives the "N replies" badge under
-   * the bubble; adjacent answers are not counted.
-   */
-  replyCount?: number;
-  /**
    * Runtime wake prompt (`[Agent completed]` and friends) that renders no
    * bubble. It must not start a new exchange for reply context.
    */

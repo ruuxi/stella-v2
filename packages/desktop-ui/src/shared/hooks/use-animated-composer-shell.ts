@@ -19,13 +19,10 @@ export const resolveComposerShellHeight = (
   measuredHeight: number,
   previousHeight: number,
 ): number => {
-  if (
-    Number.isFinite(measuredHeight) &&
-    measuredHeight >= MIN_COMPOSER_SHELL_HEIGHT_PX
-  ) {
-    return measuredHeight;
+  if (!Number.isFinite(measuredHeight) || measuredHeight <= 0) {
+    return Math.max(previousHeight, MIN_COMPOSER_SHELL_HEIGHT_PX);
   }
-  return Math.max(previousHeight, MIN_COMPOSER_SHELL_HEIGHT_PX);
+  return Math.max(measuredHeight, MIN_COMPOSER_SHELL_HEIGHT_PX);
 };
 
 const getTargetRadius = (

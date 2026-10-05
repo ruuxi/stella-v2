@@ -117,7 +117,7 @@ export const materializeImageAttachments = async (
     }
 
     const declaredMimeType = normalizeAttachmentMimeType(attachment.mimeType);
-    if ((declaredMimeType && !isImageMimeType(declaredMimeType)) || (attachment.kind === "file" && !declaredMimeType)) {
+    if (attachment.kind === "file" || (declaredMimeType && !isImageMimeType(declaredMimeType))) {
       continue;
     }
 
@@ -222,8 +222,8 @@ export const materializeFileAttachments = async (args: {
   for (const attachment of args.attachments ?? []) {
     const url = asTrimmedString(attachment.url);
     const mimeType = normalizeAttachmentMimeType(attachment.mimeType);
-    if (!url || mimeType.startsWith("image/") || attachment.kind === "image") continue;
-    if (attachment.kind !== "file" && !mimeType) continue;
+    if (!url || attachment.kind === "image") continue;
+    if (attachment.kind !== "file" && (!mimeType || mimeType.startsWith("image/"))) continue;
     const name = attachment.name || "attachment";
     try {
       let sourcePath: string;

@@ -56,8 +56,6 @@ import { extractStellaAppLinkSlugs } from "@stella/contracts/workspace-apps";
 import { VoiceSessionCard } from "@/app/chat/VoiceSessionCard";
 import { ReplyPreview } from "@/app/chat/ReplyPreview";
 import { AgentUpdateCard } from "@/features/app-source/AppSourceCards";
-import { ReplyCountBadge } from "@/app/chat/ReplyCountBadge";
-import { openConversationFocus } from "@/features/chat/services/conversation-focus-store";
 import { sanitizeAttachmentImageUrl } from "@/shared/lib/url-safety";
 import { UserMessageBody } from "@/app/chat/UserMessageBody";
 import { MessageActions } from "@/app/chat/MessageActions";
@@ -440,12 +438,11 @@ function AttachmentImage({
 }
 
 type UserRowProps = {
-  conversationId?: string | null;
   row: UserRowViewModel;
 };
 
 export const UserMessageRow = memo(
-  function UserMessageRow({ row, conversationId }: UserRowProps) {
+  function UserMessageRow({ row }: UserRowProps) {
     const t = useT();
     const messageActions = useUserMessageActions();
     const actionsBusy = useUserMessageActionsBusy();
@@ -459,17 +456,6 @@ export const UserMessageRow = memo(
       [forkAction, row],
     );
     const { text, windowLabel, attachments, channelEnvelope } = row;
-    const replyCount = row.replyCount ?? 0;
-    // "N replies" opens focus on this message: the ask plus every distant
-    // reply that came back to it, without scrolling the whole timeline.
-    const openReplies = useCallback(() => {
-      if (!conversationId) return;
-      openConversationFocus({
-        conversationId,
-        root: { kind: "message", id: row.id },
-        title: text,
-      });
-    }, [conversationId, row.id, text]);
     // Attachment the Copy action falls back to when the message has no text
     // (image → clipboard image; other file → path as text). Memoized so the
     // memoized action row isn't re-rendered by busy-state toggles.
@@ -615,15 +601,10 @@ export const UserMessageRow = memo(
             copyAttachment={copyAttachment ?? undefined}
           />
         )}
-        {replyCount > 0 && conversationId ? (
-          <ReplyCountBadge count={replyCount} onOpen={openReplies} align="end" />
-        ) : null}
       </div>
     );
   },
-  (prev, next) =>
-    prev.conversationId === next.conversationId &&
-    eventRowEqual(prev.row, next.row),
+  (prev, next) => eventRowEqual(prev.row, next.row),
 );
 
 type AssistantRowProps = {

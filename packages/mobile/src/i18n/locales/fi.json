@@ -1319,12 +1319,6 @@
         "cancel": "Peruuta jonossa oleva viesti",
         "cancelAndEdit": "Peruuta ja muokkaa"
       },
-      "replyCount": {
-        "label": {
-          "one": "{count} reply",
-          "other": "{count} replies"
-        }
-      },
       "replyPeek": {
         "dismiss": "Hylkää esikatselu",
         "jumpToLatest": "Siirry uusimpaan vastaukseen"

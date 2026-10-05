@@ -7,11 +7,13 @@ import { describe, expect, it, vi } from "vitest";
 import { createRunEventRecorder } from "@stella/runtime/kernel/agent-runtime/run-events";
 import { SubagentSession } from "@stella/runtime/kernel/agent-runtime/subagent-session";
 import {
+  buildClaudePromptFromMessages,
   buildPreambleToolBoundaryMessage,
   buildToolResultContent,
   createExternalLiveAgent,
   publishQueuedUserMessageStarts,
 } from "@stella/runtime/kernel/agent-runtime/external-engines";
+import { withFileAttachmentPromptInput } from "@stella/runtime/kernel/agent-runtime/run-preparation";
 
 const makeRecorder = () => {
   return createRunEventRecorder({
@@ -50,6 +52,37 @@ describe("external-engine preamble→tool boundary", () => {
     expect(event).toBeNull();
   });
 
+});
+
+describe("external-engine file attachments", () => {
+  it("tells the engine where a non-image attachment lives", () => {
+    const prompt = buildClaudePromptFromMessages(
+      withFileAttachmentPromptInput(
+        [{ text: "do u see this file", messageType: "user" }],
+        [
+          {
+            url: "/cache/chat-attachments/c/abc-level.html",
+            sourcePath: "/cache/chat-attachments/c/abc-level.html",
+            kind: "file",
+            name: "level.html",
+            mimeType: "text/html",
+          },
+        ],
+      ),
+    );
+    expect(prompt).toContain("do u see this file");
+    expect(prompt).toContain('customType="runtime.file_attachments"');
+    expect(prompt).toContain("/cache/chat-attachments/c/abc-level.html");
+  });
+
+  it("leaves prompts without file attachments untouched", () => {
+    const messages = [{ text: "hi", messageType: "user" as const }];
+    expect(
+      withFileAttachmentPromptInput(messages, [
+        { url: "data:image/png;base64,AAAA", mimeType: "image/png" },
+      ]),
+    ).toBe(messages);
+  });
 });
 
 describe("external-engine sandbox image authority", () => {

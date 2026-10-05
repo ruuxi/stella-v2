@@ -273,9 +273,7 @@ const renderRow = (
   agentModelConfigByThread?: AgentModelConfigsByThread,
 ) => {
   if (row.kind === "user") {
-    return (
-      <UserMessageRow key={row.id} row={row} conversationId={conversationId} />
-    );
+    return <UserMessageRow key={row.id} row={row} />;
   }
   return (
     <AssistantMessageRow
@@ -289,11 +287,9 @@ const renderRow = (
 
 const TimelineUserItem = ({
   item,
-  conversationId,
   onCancelQueued,
 }: {
   item: Extract<ChatTimelineItem, { type: "message" | "queued-users" }>;
-  conversationId?: string | null;
   onCancelQueued?: (message: QueuedUserMessage) => void;
 }) => {
   if (item.type === "queued-users") {
@@ -305,7 +301,7 @@ const TimelineUserItem = ({
     );
   }
   return item.row.kind === "user" ? (
-    <UserMessageRow row={item.row} conversationId={conversationId} />
+    <UserMessageRow row={item.row} />
   ) : null;
 };
 
@@ -369,11 +365,7 @@ export const ChatTimeline = memo(function ChatTimeline({
       }
       if (item.type === "queued-users" || item.row.kind === "user") {
         return (
-          <TimelineUserItem
-            item={item}
-            conversationId={conversationId}
-            onCancelQueued={onCancelQueued}
-          />
+          <TimelineUserItem item={item} onCancelQueued={onCancelQueued} />
         );
       }
       return renderRow(item.row, conversationId, agentModelConfigByThread);

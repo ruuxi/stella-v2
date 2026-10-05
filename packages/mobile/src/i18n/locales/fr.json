@@ -1326,12 +1326,6 @@
         "cancel": "Annuler le message en file d’attente",
         "cancelAndEdit": "Annuler et modifier"
       },
-      "replyCount": {
-        "label": {
-          "one": "{count} reply",
-          "other": "{count} replies"
-        }
-      },
       "replyPeek": {
         "dismiss": "Masquer l’aperçu",
         "jumpToLatest": "Aller à la dernière réponse"

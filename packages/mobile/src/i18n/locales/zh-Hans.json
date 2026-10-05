@@ -1312,11 +1312,6 @@
         "cancel": "取消排队的消息",
         "cancelAndEdit": "取消并编辑"
       },
-      "replyCount": {
-        "label": {
-          "other": "{count} replies"
-        }
-      },
       "replyPeek": {
         "dismiss": "关闭预览",
         "jumpToLatest": "跳到最新回复"

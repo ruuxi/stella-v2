@@ -1,7 +1,6 @@
 import type { EventRowViewModel, UserRowViewModel } from "../conversation-row-types";
 import {
   projectReplyContexts,
-  replyCountFor,
   titleNamesThread,
   type ReplyContextRow,
 } from "@stella/contracts/reply-context";
@@ -31,11 +30,9 @@ const rendersNothing = (row: UserRowViewModel): boolean =>
 /**
  * Apply the shared reply-context rule (`@stella/contracts/reply-context`) to
  * the projected timeline. Persisted references stay intact for lineage and
- * focus; this changes display rows only:
- *   - an assistant row keeps at most one quotable reference, and only when
- *     it reaches outside the exchange the reader is already in;
- *   - a user row learns how many distant replies cite it, for the
- *     "N replies" badge that opens its chain.
+ * focus; this changes display rows only: an assistant row keeps at most one
+ * quotable reference, and only when it reaches outside the exchange the
+ * reader is already in.
  */
 export function withReplyContext(
   rows: EventRowViewModel[],
@@ -103,13 +100,8 @@ export function withReplyContext(
       ...(ownsAgentIds.length ? { ownsAgentIds } : {}),
     };
   });
-  const { contexts, counts } = projectReplyContexts(input);
+  const { contexts } = projectReplyContexts(input);
   return rows.map((row) => {
-    if (row.kind === "user") {
-      const replyCount = replyCountFor(counts, [row.id]);
-      if (replyCount === (row.replyCount ?? 0)) return row;
-      return { ...row, replyCount };
-    }
     if (row.kind !== "assistant" || !row.replyRefs?.length) return row;
     const visible = contexts.get(row.id);
     return { ...row, replyRefs: visible ? [visible] : [] };

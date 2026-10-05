@@ -1319,12 +1319,6 @@
         "cancel": "Sıradaki mesajı iptal et",
         "cancelAndEdit": "İptal et ve düzenle"
       },
-      "replyCount": {
-        "label": {
-          "one": "{count} reply",
-          "other": "{count} replies"
-        }
-      },
       "replyPeek": {
         "dismiss": "Önizlemeyi kapat",
         "jumpToLatest": "En son yanıta git"

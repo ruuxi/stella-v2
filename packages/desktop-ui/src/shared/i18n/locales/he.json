@@ -1326,12 +1326,6 @@
         "cancel": "בטל הודעה בתור",
         "cancelAndEdit": "בטל וערוך"
       },
-      "replyCount": {
-        "label": {
-          "one": "{count} reply",
-          "other": "{count} replies"
-        }
-      },
       "replyPeek": {
         "dismiss": "סגור תצוגה מקדימה",
         "jumpToLatest": "עבור לתשובה האחרונה"

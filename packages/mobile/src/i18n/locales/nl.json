@@ -1319,12 +1319,6 @@
         "cancel": "Bericht in wachtrij annuleren",
         "cancelAndEdit": "Annuleren en bewerken"
       },
-      "replyCount": {
-        "label": {
-          "one": "{count} reply",
-          "other": "{count} replies"
-        }
-      },
       "replyPeek": {
         "dismiss": "Voorbeeld sluiten",
         "jumpToLatest": "Naar nieuwste antwoord"

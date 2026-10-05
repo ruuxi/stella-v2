@@ -364,7 +364,6 @@ const userRowEqual = (a: UserRowViewModel, b: UserRowViewModel): boolean =>
   (a.activityLabel ?? null) === (b.activityLabel ?? null) &&
   (a.pastedTexts?.length ?? 0) === (b.pastedTexts?.length ?? 0) &&
   (a.quotedText ?? null) === (b.quotedText ?? null) &&
-  (a.replyCount ?? 0) === (b.replyCount ?? 0) &&
   Boolean(a.hidden) === Boolean(b.hidden) &&
   (a.spawnedThreadIds ?? []).join(" ") === (b.spawnedThreadIds ?? []).join(" ") &&
   (a.spawnedDescriptions ?? []).join("\u001f") === (b.spawnedDescriptions ?? []).join("\u001f") &&

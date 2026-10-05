@@ -1333,12 +1333,6 @@
         "cancel": "Zrušit zprávu ve frontě",
         "cancelAndEdit": "Zrušit a upravit"
       },
-      "replyCount": {
-        "label": {
-          "one": "{count} reply",
-          "other": "{count} replies"
-        }
-      },
       "replyPeek": {
         "dismiss": "Zavřít náhled",
         "jumpToLatest": "Přejít na nejnovější odpověď"

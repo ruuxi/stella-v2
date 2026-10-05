@@ -17,4 +17,13 @@ describe("animated composer shell height", () => {
     expect(resolveComposerShellHeight(46, 0)).toBe(46);
     expect(resolveComposerShellHeight(128, 46)).toBe(128);
   });
+
+  it("collapses to the pill when fractional scaling rounds the form just under the minimum", () => {
+    expect(resolveComposerShellHeight(45.984375, 83.96875)).toBe(
+      MIN_COMPOSER_SHELL_HEIGHT_PX,
+    );
+    expect(resolveComposerShellHeight(45.5, 247.96875)).toBe(
+      MIN_COMPOSER_SHELL_HEIGHT_PX,
+    );
+  });
 });

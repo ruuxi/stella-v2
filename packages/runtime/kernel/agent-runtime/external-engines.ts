@@ -27,6 +27,7 @@ import {
   buildSubagentSystemPrompt,
   createRuntimePromptAgentMessage,
   renderSystemPrompt,
+  withFileAttachmentPromptInput,
 } from "./run-preparation.js";
 import {
   collectDemotedToolNames,
@@ -1098,6 +1099,13 @@ const runClaudeHostedTurn = async (args: {
   sessionId: string;
   latestAttempt: boolean;
 }> => {
+  args = {
+    ...args,
+    promptMessages: withFileAttachmentPromptInput(
+      args.promptMessages,
+      args.opts.attachments,
+    ),
+  };
   const { runId, threadKey, runEvents } = args.session;
   // Orchestrator sessions own the response-target tracker; subagent sessions
   // do not (they don't drive the user-facing chat surface).

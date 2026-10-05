@@ -1319,12 +1319,6 @@
         "cancel": "Ακύρωση μηνύματος σε αναμονή",
         "cancelAndEdit": "Ακύρωση και επεξεργασία"
       },
-      "replyCount": {
-        "label": {
-          "one": "{count} reply",
-          "other": "{count} replies"
-        }
-      },
       "replyPeek": {
         "dismiss": "Απόρριψη προεπισκόπησης",
         "jumpToLatest": "Μετάβαση στην τελευταία απάντηση"

@@ -1333,12 +1333,6 @@
         "cancel": "Anuluj wiadomość z kolejki",
         "cancelAndEdit": "Anuluj i edytuj"
       },
-      "replyCount": {
-        "label": {
-          "one": "{count} reply",
-          "other": "{count} replies"
-        }
-      },
       "replyPeek": {
         "dismiss": "Zamknij podgląd",
         "jumpToLatest": "Przejdź do najnowszej odpowiedzi"

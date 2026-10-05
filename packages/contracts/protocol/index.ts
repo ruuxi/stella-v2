@@ -354,6 +354,7 @@ export type RuntimeAttachmentRef = {
   kind?: string;
   name?: string;
   size?: number;
+  path?: string;
   transcript?: string;
   extractedText?: string;
   /**

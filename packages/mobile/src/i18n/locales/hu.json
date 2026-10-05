@@ -1319,12 +1319,6 @@
         "cancel": "Sorba állított üzenet visszavonása",
         "cancelAndEdit": "Visszavonás és szerkesztés"
       },
-      "replyCount": {
-        "label": {
-          "one": "{count} reply",
-          "other": "{count} replies"
-        }
-      },
       "replyPeek": {
         "dismiss": "Előnézet elvetése",
         "jumpToLatest": "Ugrás a legutóbbi válaszra"

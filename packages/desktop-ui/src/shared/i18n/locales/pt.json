@@ -1326,12 +1326,6 @@
         "cancel": "Cancelar a mensagem na fila",
         "cancelAndEdit": "Cancelar e editar"
       },
-      "replyCount": {
-        "label": {
-          "one": "{count} reply",
-          "other": "{count} replies"
-        }
-      },
       "replyPeek": {
         "dismiss": "Dispensar a prévia",
         "jumpToLatest": "Ir para a resposta mais recente"

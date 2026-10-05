@@ -284,3 +284,80 @@ describe("activeCloudUserMessageIds", () => {
     );
   });
 });
+
+describe("journal user attachments", () => {
+  test("projects image blocks and file attachments onto the user row", () => {
+    const [message] = journalRecordsToMessageRecords([
+      {
+        kind: "message",
+        seq: 1,
+        turnId: "desktop:mac:files",
+        createdAtMs: 10,
+        role: "user",
+        hidden: false,
+        clientMsgId: "local-files",
+        payload: {
+          role: "user",
+          content: [
+            { type: "text", text: "do u see these" },
+            { type: "image", mimeType: "image/png", data: "AAAA" },
+          ],
+          timestamp: 10,
+          attachments: [
+            {
+              kind: "file",
+              name: "clip.mp4",
+              mimeType: "video/mp4",
+              size: 42,
+              sourcePath: "/cache/clip.mp4",
+              path: "/home/me/clip.mp4",
+            },
+          ],
+        },
+      },
+    ]);
+    expect(message?._id).toBe("local-files");
+    expect(message?.payload?.attachments).toEqual([
+      { url: "data:image/png;base64,AAAA", mimeType: "image/png" },
+      {
+        kind: "file",
+        name: "clip.mp4",
+        mimeType: "video/mp4",
+        size: 42,
+        path: "/home/me/clip.mp4",
+        url: "/home/me/clip.mp4",
+      },
+    ]);
+  });
+
+  test("keeps a file-only user row visible", () => {
+    const [message] = journalRecordsToMessageRecords([
+      {
+        kind: "message",
+        seq: 1,
+        turnId: "desktop:mac:file-only",
+        createdAtMs: 10,
+        role: "user",
+        hidden: false,
+        clientMsgId: "local-file-only",
+        payload: {
+          role: "user",
+          content: [{ type: "text", text: "" }],
+          timestamp: 10,
+          attachments: [
+            { kind: "file", name: "notes.xyz", sourcePath: "/cache/notes.xyz" },
+          ],
+        },
+      },
+    ]);
+    expect(message?.payload?.metadata).toBeUndefined();
+    expect(message?.payload?.attachments).toEqual([
+      {
+        kind: "file",
+        name: "notes.xyz",
+        path: "/cache/notes.xyz",
+        url: "/cache/notes.xyz",
+      },
+    ]);
+  });
+});

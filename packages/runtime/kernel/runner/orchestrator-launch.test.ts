@@ -416,4 +416,66 @@ describe("buildCloudUserMessage", () => {
     expect(JSON.stringify(message)).toContain("[Agent completed]");
     expect(JSON.stringify(message)).toContain("thread_id: t");
   });
+
+  test("keeps a non-image file attachment on the journal user row", () => {
+    const { message, hidden } = buildCloudUserMessage({
+      ...base,
+      userPrompt: "do u see this file",
+      uiVisibility: "visible",
+      attachments: [
+        {
+          url: "/cache/chat-attachments/c/abc-clip.mp4",
+          sourcePath: "/cache/chat-attachments/c/abc-clip.mp4",
+          kind: "file",
+          name: "clip.mp4",
+          mimeType: "video/mp4",
+          size: 42,
+          path: "/home/me/Videos/clip.mp4",
+        },
+      ],
+    });
+    expect(hidden).toBe(false);
+    expect((message as { attachments?: unknown }).attachments).toEqual([
+      {
+        kind: "file",
+        name: "clip.mp4",
+        mimeType: "video/mp4",
+        size: 42,
+        sourcePath: "/cache/chat-attachments/c/abc-clip.mp4",
+        path: "/home/me/Videos/clip.mp4",
+      },
+    ]);
+  });
+});
+
+test("cloud history re-adds the model-facing note for a user row's file attachments", () => {
+  const history = parseCanonicalCloudHistory([
+    JSON.stringify({
+      role: "user",
+      content: [{ type: "text", text: "do u see this file" }],
+      timestamp: 5,
+      attachments: [
+        {
+          kind: "file",
+          name: "level.html",
+          mimeType: "text/html",
+          sourcePath: "/cache/chat-attachments/c/level.html",
+        },
+      ],
+    }),
+    JSON.stringify({
+      role: "assistant",
+      content: [{ type: "text", text: "yep" }],
+      timestamp: 6,
+    }),
+  ]);
+  expect(history.map((entry) => entry.role)).toEqual([
+    "user",
+    "runtimeInternal",
+    "assistant",
+  ]);
+  expect(history[1]?.customMessage?.customType).toBe("runtime.file_attachments");
+  expect(JSON.stringify(history[1]?.payload)).toContain(
+    "/cache/chat-attachments/c/level.html",
+  );
 });

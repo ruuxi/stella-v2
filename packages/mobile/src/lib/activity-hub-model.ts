@@ -1,3 +1,4 @@
+import type { ActivityIndicatorEntry } from "@stella/contracts/activity-indicator";
 import {
   agentWorkCardSections,
   isAgentWorkArtifact,
@@ -186,6 +187,20 @@ export const groupActivityHubTasks = (
 export const activityHubGroupRowKey = (group: {
   owner: Pick<MobileTask, "id">;
 }): string => activityHubTaskRowKey(group.owner);
+
+/**
+ * The running top-level agents, as the top-bar indicator reads them out.
+ * Governed by the owner, like the groups the Activity list shows and like
+ * desktop's top-level work units: an owned subagent is never counted as
+ * separate work, so the indicator and the Activity list agree on what is
+ * running.
+ */
+export const runningActivityIndicatorEntries = (
+  tasks: readonly MobileTask[],
+): ActivityIndicatorEntry[] =>
+  groupActivityHubTasks(sortHubTasksByRecency(tasks))
+    .filter((group) => group.owner.status === "running")
+    .map((group) => ({ id: group.owner.id, title: group.owner.title.trim() }));
 
 /** Counts used by the collapsed "N subagents · M done" summary bar. */
 export const summarizeHubSubagents = (

@@ -20,8 +20,9 @@
  * Apps are deliberately absent from the nav: they now open inside the right
  * sidebar's Apps section rather than the main content area, so a nav entry
  * pointing at the `/apps` route would compete with the sidebar for the same
- * job. Home is also omitted from route navigation: the standalone right-hand
- * activity surface it used to lead to is gone.
+ * job. Home is also omitted from route navigation: background work is read
+ * from the centred activity indicator here, which replaced the standalone
+ * right-hand activity surface.
  *
  * Stella is a single-chat product, so the bar carries no conversation tabs,
  * history or new-chat control: the active conversation is chosen by the
@@ -35,6 +36,7 @@ import {
   useDisplayPanelOpen,
 } from "@/features/workspace-display/tab-store";
 import { SettingsMenuButton } from "@/shell/SettingsMenuButton";
+import { ShellTopBarActivity } from "@/shell/ShellTopBarActivity";
 import { ShellTopBarAccount } from "@/shell/sidebar/ShellTopBarAccount";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
 import { ShellTopBarPrimaryNav } from "@/shell/sidebar/ShellTopBarNav";
@@ -75,6 +77,8 @@ export const ShellTopBarFull = memo(function ShellTopBarFull({ onSignIn }: Shell
       </div>
 
       <div className="shell-topbar-full__spacer" aria-hidden="true" />
+
+      <ShellTopBarActivity />
 
       <div className="shell-topbar-full__right">
         <ShellTopBarUpdatePill />

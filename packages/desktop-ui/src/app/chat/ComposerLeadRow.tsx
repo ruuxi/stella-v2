@@ -1,15 +1,11 @@
 /**
  * The above-composer lead row shared by every chat composer surface (full
- * shell + sidebar/wide panel). It stacks the optional assistant reply peek
- * over the conditional Activity pill.
+ * shell + sidebar/wide panel). It carries the optional assistant reply peek.
  *
- * Keeping this in one place is deliberate: the row used to be duplicated in
- * the full-shell `Composer` and the sidebar `ChatPanelTab`, which is how the
- * `ComposerActivityPill` drifted onto one surface but not the other.
- * Surfaces without `ChatRuntimeProvider` pass
- * `showActivityPill={false}`, since the pill reads the shared runtime.
- * The pill stands down while the standalone Activity surface is visible and
- * returns when the right sidebar or a narrow-width breakpoint hides it.
+ * It used to carry an Activity pill as well, as a stand-in for the standalone
+ * Activity surface whenever that surface was hidden. Background work is now
+ * read from the top bar on every surface and at every width, so a second
+ * running-work marker above the composer would only say the same thing twice.
  */
 
 import { memo } from "react";
@@ -17,25 +13,19 @@ import {
   AssistantReplyPeek,
   type AssistantReplyPeekProps,
 } from "@/app/chat/AssistantReplyPeek";
-import { ComposerActivityPill } from "@/app/chat/ComposerActivityPill";
 
 type ComposerLeadRowProps = {
   /** When present, the assistant reply peek renders flush above the row. */
   replyPeek?: AssistantReplyPeekProps | null;
-  /** Pill is gated off where there is no chat runtime. */
-  showActivityPill?: boolean;
 };
 
 export const ComposerLeadRow = memo(function ComposerLeadRow({
   replyPeek,
-  showActivityPill = false,
 }: ComposerLeadRowProps) {
   return (
     <div className="composer-context-peek-anchor">
       {replyPeek ? <AssistantReplyPeek {...replyPeek} /> : null}
-      <div className="composer-context-lead-row">
-        {showActivityPill ? <ComposerActivityPill /> : null}
-      </div>
+      <div className="composer-context-lead-row" />
     </div>
   );
 });

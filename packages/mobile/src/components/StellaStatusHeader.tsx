@@ -16,6 +16,21 @@ import Animated, {
   withSpring,
   withTiming,
 } from "react-native-reanimated";
+import {
+  ACTIVITY_INDICATOR_LABEL_IN_DELAY_MS,
+  ACTIVITY_INDICATOR_LABEL_IN_MS,
+  ACTIVITY_INDICATOR_LABEL_OUT_MS,
+  ACTIVITY_INDICATOR_MARK_IN_MS,
+  ACTIVITY_INDICATOR_MARK_OUT_MS,
+  ACTIVITY_INDICATOR_POP_RISE_MS,
+  ACTIVITY_INDICATOR_POP_SCALE,
+  ACTIVITY_INDICATOR_POP_SETTLE_SPRING,
+  ACTIVITY_INDICATOR_SPAWN_BEAT_MS,
+  activityIndicatorTransition,
+  selectActivityIndicatorLabel,
+  type ActivityIndicatorEntry,
+  type ActivityIndicatorPhase,
+} from "@stella/contracts/activity-indicator";
 import { StellaMarkHero } from "./stella-mark/StellaMarkHero";
 import { StellaMarkIndicator } from "./stella-mark/StellaMarkIndicator";
 import {
@@ -28,6 +43,7 @@ import {
   STATUS_PILL_INSET,
   STATUS_PILL_SPRING,
 } from "./StatusPill.types";
+import { runningActivityIndicatorEntries } from "../lib/activity-hub-model";
 import { useActivityHub } from "../lib/main-shell-store";
 import { useColors } from "../theme/theme-context";
 import { fonts } from "../theme/fonts";
@@ -41,12 +57,10 @@ const LABEL_TRAILING = 16;
  * room from the menu button on the left and the settings button on the right.
  */
 const SIDE_CLEARANCE = 10 + 44 + 8;
-/** How long the spawn beat (the thinking bounce) plays before a work pose. */
-const SPAWN_BEAT_MS = 1100;
 /** Long enough for a shrinking pill to settle before its slot narrows. */
 const SLOT_SETTLE_MS = 560;
 
-type Phase = "idle" | "spawn" | "working";
+const NO_RUNNING_AGENTS: ActivityIndicatorEntry[] = [];
 
 /**
  * Stella's presence in the chat's top bar: the mark inside a glass pill
@@ -56,40 +70,57 @@ type Phase = "idle" | "spawn" | "working";
  * count for several. A new task plays the thinking bounce before settling
  * into a work pose; when everything finishes the mark pops once and the
  * pill closes back around it.
+ *
+ * The timings, the phase machine and the choice of label come from
+ * `@stella/contracts/activity-indicator`; desktop's own top-bar indicator
+ * reads the same module, so the two can't drift into different behaviour.
+ * Desktop renders without the pill — the window chrome stands in for it.
+ *
+ * Which agents count is the owner-governed top-level set, matching the
+ * Activity list's groups rather than every raw task.
  */
 export function StellaStatusHeader({ onPress }: { onPress: () => void }) {
   const t = useT();
   const colors = useColors();
   const hub = useActivityHub();
   const running = useMemo(
-    () => (hub?.tasks ?? []).filter((task) => task.status === "running"),
+    () =>
+      hub?.tasks
+        ? runningActivityIndicatorEntries(hub.tasks)
+        : NO_RUNNING_AGENTS,
     [hub?.tasks],
   );
   const count = running.length;
-  const label =
-    count === 0
-      ? null
-      : count === 1
-        ? running[0]!.title
-        : t("mobile.chat.workingMany", { count });
+  const label = selectActivityIndicatorLabel(running, (total) =>
+    t("mobile.chat.workingMany", { count: total }),
+  );
 
-  const [phase, setPhase] = useState<Phase>(count > 0 ? "working" : "idle");
+  const [phase, setPhase] = useState<ActivityIndicatorPhase>(
+    count > 0 ? "working" : "idle",
+  );
   const previousCount = useRef(count);
   const pop = useSharedValue(1);
 
   useEffect(() => {
     const previous = previousCount.current;
     previousCount.current = count;
-    if (count > previous) {
+    const transition = activityIndicatorTransition(count, previous);
+    if (transition === "spawn") {
       setPhase("spawn");
-      const timer = setTimeout(() => setPhase("working"), SPAWN_BEAT_MS);
+      const timer = setTimeout(
+        () => setPhase("working"),
+        ACTIVITY_INDICATOR_SPAWN_BEAT_MS,
+      );
       return () => clearTimeout(timer);
     }
-    if (count === 0 && previous > 0) {
+    if (transition === "settle") {
       setPhase("idle");
       pop.value = withSequence(
-        withTiming(1.14, { duration: 160, easing: Easing.out(Easing.cubic) }),
-        withSpring(1, { damping: 12, stiffness: 180 }),
+        withTiming(ACTIVITY_INDICATOR_POP_SCALE, {
+          duration: ACTIVITY_INDICATOR_POP_RISE_MS,
+          easing: Easing.out(Easing.cubic),
+        }),
+        withSpring(1, { ...ACTIVITY_INDICATOR_POP_SETTLE_SPRING }),
       );
     }
     return undefined;
@@ -186,8 +217,8 @@ export function StellaStatusHeader({ onPress }: { onPress: () => void }) {
           {busy ? (
             <Animated.View
               key="working"
-              entering={FadeIn.duration(220)}
-              exiting={FadeOut.duration(160)}
+              entering={FadeIn.duration(ACTIVITY_INDICATOR_MARK_IN_MS)}
+              exiting={FadeOut.duration(ACTIVITY_INDICATOR_MARK_OUT_MS)}
               style={StyleSheet.absoluteFill}
             >
               <StellaMarkIndicator
@@ -200,8 +231,8 @@ export function StellaStatusHeader({ onPress }: { onPress: () => void }) {
           ) : (
             <Animated.View
               key="idle"
-              entering={FadeIn.duration(220)}
-              exiting={FadeOut.duration(160)}
+              entering={FadeIn.duration(ACTIVITY_INDICATOR_MARK_IN_MS)}
+              exiting={FadeOut.duration(ACTIVITY_INDICATOR_MARK_OUT_MS)}
               style={StyleSheet.absoluteFill}
             >
               <StellaMarkHero
@@ -218,8 +249,10 @@ export function StellaStatusHeader({ onPress }: { onPress: () => void }) {
           >
             <Animated.Text
               key={label}
-              entering={FadeIn.duration(260).delay(120)}
-              exiting={FadeOut.duration(140)}
+              entering={FadeIn.duration(ACTIVITY_INDICATOR_LABEL_IN_MS).delay(
+                ACTIVITY_INDICATOR_LABEL_IN_DELAY_MS,
+              )}
+              exiting={FadeOut.duration(ACTIVITY_INDICATOR_LABEL_OUT_MS)}
               numberOfLines={1}
               style={styles.label}
             >

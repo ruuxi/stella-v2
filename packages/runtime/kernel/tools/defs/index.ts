@@ -28,6 +28,7 @@ import { editTool } from "./edit.js";
 import { createExecCommandTool } from "./exec-command.js";
 import { grepTool } from "./grep.js";
 import { createHtmlTool } from "./html.js";
+import { createDriveTool } from "./drive.js";
 import { createImageGenTool } from "./image-gen.js";
 import { createMapTool } from "./map.js";
 import { createMultiToolUseParallelTool } from "./multi-tool-use-parallel.js";
@@ -167,6 +168,17 @@ export const buildBuiltinTools = (
         : {}),
       ...(options.requestConnectorConnection
         ? { requestConnectorConnection: options.requestConnectorConnection }
+        : {}),
+    }),
+  );
+
+  // The owner's drive, alongside the local file surface: a file attached
+  // earlier in the conversation, or saved by previous work, is reachable by
+  // name from either placement rather than only where it was uploaded.
+  tools.push(
+    createDriveTool({
+      ...(options.getCloudBackendAuth
+        ? { getCloudBackendAuth: options.getCloudBackendAuth }
         : {}),
     }),
   );

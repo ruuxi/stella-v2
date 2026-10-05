@@ -246,6 +246,7 @@ import {
 import { createCloudImageGenTool } from "./cloud-image-gen-tool.js";
 import { createCloudHtmlTool } from "./cloud-html-tool.js";
 import { unwrapRpc } from "./owner-store/errors.js";
+import { createCloudDriveTool } from "./cloud-drive-tool.js";
 import { createCloudReadTool } from "./cloud-read-tool.js";
 import { createCloudScheduleTools } from "./cloud-schedule-tools.js";
 import {
@@ -11336,6 +11337,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           : {}),
         ...(world ? { world } : {}),
       }),
+      createCloudDriveTool({ ownerInternal: toolContext.ownerInternal }),
       ...createCloudScheduleTools(toolContext),
       createCloudConnectorStatusTool({
         directory: connectors,

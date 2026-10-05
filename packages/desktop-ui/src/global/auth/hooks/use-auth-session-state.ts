@@ -19,13 +19,19 @@ type AuthSessionData =
   | null
   | undefined;
 
+/** A real (non-anonymous) account is signed in. Readable outside React. */
+export const isConnectedAccountSession = (data: unknown): boolean => {
+  const sessionData = data as AuthSessionData;
+  return Boolean(sessionData) && sessionData?.user?.isAnonymous !== true;
+};
+
 export function useAuthSessionState() {
   const session = useDesktopAuthSession();
   const sessionData = session.data as AuthSessionData;
   const user = sessionData?.user ?? null;
   const hasSession = Boolean(sessionData);
   const isAnonymous = user?.isAnonymous === true;
-  const hasConnectedAccount = hasSession && !isAnonymous;
+  const hasConnectedAccount = isConnectedAccountSession(sessionData);
   const cacheScope = resolveAuthSessionCacheScope(sessionData);
 
   return useMemo(

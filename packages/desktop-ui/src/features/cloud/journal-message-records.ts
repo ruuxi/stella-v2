@@ -362,6 +362,45 @@ export const activeCloudUserMessageIds = (
 };
 
 /**
+ * A turn that ended any way but `completed` carries its user-facing notice
+ * on the terminal `turn` record. Render it as the turn's closing reply row
+ * (the same inline assistant row a rejected local delivery leaves), unless
+ * the turn already wrote that text as a reply. Without it a failed turn
+ * shows only the user's bubble. Mobile projects the same row.
+ */
+const terminalNoticeEvent = (
+  turnId: string,
+  turnRecords: readonly JournalRecord[],
+  userMessageId: string | undefined,
+): EventRecord | null => {
+  let terminal: Extract<JournalRecord, { kind: "turn" }> | undefined;
+  for (const record of turnRecords) {
+    if (record.kind === "turn" && record.phase !== "started") terminal = record;
+  }
+  if (!terminal || terminal.phase === "completed" || !terminal.notice) {
+    return null;
+  }
+  const notice = terminal.notice;
+  const alreadyReplied = turnRecords.some(
+    (record) =>
+      record.kind === "message" &&
+      record.role === "assistant" &&
+      messageText(record.payload) === notice,
+  );
+  if (alreadyReplied) return null;
+  return {
+    _id: `cloud:${turnId}:notice:${terminal.seq}`,
+    timestamp: terminal.createdAtMs,
+    type: "assistant_message",
+    payload: {
+      text: notice,
+      ...(userMessageId ? { userMessageId } : {}),
+      source: "cloud-turn-notice",
+    },
+  };
+};
+
+/**
  * Projects the Durable Object's canonical AgentMessage journal into the
  * renderer's existing timeline contract.
  *
@@ -527,6 +566,8 @@ export const journalRecordsToMessageRecords = (
       const spawn = mirrored.spawns.get(record.seq);
       if (spawn) events.push(spawn);
     }
+    const notice = terminalNoticeEvent(turnId, turnRecords, userMessageId);
+    if (notice) events.push(notice);
     messages.push(...groupEventsIntoMessages(events));
   }
   return messages;

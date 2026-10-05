@@ -58,6 +58,7 @@ vi.mock("@/global/auth/hooks/use-auth-session-state", () => ({
 }));
 
 vi.mock("@/features/execution-placement/execution-target-store", () => ({
+  AUTOMATIC_EXECUTION_TARGET: { mode: "automatic" as const },
   executionTargetStore: { set: vi.fn() },
   useExecutionTarget: () => ({ mode: "automatic" as const }),
 }));
@@ -132,6 +133,7 @@ describe("GlobalExecutionTargetControl", () => {
     expect(mocks.deviceReads).toEqual([]);
     expect(container.textContent).toContain("This computer");
     expect(container.textContent).toContain("Cloud");
+    expect(container.textContent).toContain("Sign in");
   });
 
   it("reads devices only while the picker is open", async () => {

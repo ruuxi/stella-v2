@@ -1,4 +1,6 @@
 import { useSyncExternalStore } from "react";
+import { getAuthSessionSnapshot } from "@/global/auth/services/auth-session";
+import { isConnectedAccountSession } from "@/global/auth/hooks/use-auth-session-state";
 
 export type DesktopExecutionTarget =
   | { mode: "automatic" }
@@ -6,7 +8,10 @@ export type DesktopExecutionTarget =
   | { mode: "device"; deviceId: string };
 
 const STORAGE_KEY = "stella.execution-target.v1";
-const AUTOMATIC: DesktopExecutionTarget = Object.freeze({ mode: "automatic" });
+export const AUTOMATIC_EXECUTION_TARGET: DesktopExecutionTarget = Object.freeze({
+  mode: "automatic",
+});
+const AUTOMATIC = AUTOMATIC_EXECUTION_TARGET;
 let current: DesktopExecutionTarget = AUTOMATIC;
 const listeners = new Set<() => void>();
 
@@ -63,7 +68,13 @@ export const executionTargetStore = {
   },
 };
 
-export const getExecutionTargetSnapshot = () => current;
+/**
+ * The target a send carries. Cloud and other computers run under a signed-in
+ * account (the runtime's placement bridge refuses anonymous sessions), so a
+ * signed-out send runs here; the stored choice applies again after sign-in.
+ */
+export const getExecutionTargetSnapshot = (): DesktopExecutionTarget =>
+  isConnectedAccountSession(getAuthSessionSnapshot().data) ? current : AUTOMATIC;
 
 export const useExecutionTarget = (): DesktopExecutionTarget =>
   useSyncExternalStore(

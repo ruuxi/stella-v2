@@ -7,6 +7,7 @@ import { getAuthToken } from "@/global/auth/services/auth-token";
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
 import {
+  AUTOMATIC_EXECUTION_TARGET,
   executionTargetStore,
   useExecutionTarget,
   type DesktopExecutionTarget,
@@ -20,6 +21,7 @@ import {
 } from "@/ui/popover";
 import { AppWindowMac, Check, Globe } from "@/ui/icons";
 import { platformCapabilities } from "@/platform/capabilities";
+import { SIGN_IN_TOAST_ACTION } from "@/shared/lib/auth-cta";
 
 /** Live presence goes stale quickly; refresh while the picker is open. */
 const DEVICE_POLL_INTERVAL_MS = 15_000;
@@ -31,7 +33,10 @@ export function GlobalExecutionTargetControl() {
   const { hasConnectedAccount } = useAuthSessionState();
   const [open, setOpen] = useState(false);
   const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(null);
-  const target = useExecutionTarget();
+  const storedTarget = useExecutionTarget();
+  // Cloud and other computers need a signed-in account; signed out, sends
+  // run here (see `getExecutionTargetSnapshot`), so the picker says so.
+  const target = hasConnectedAccount ? storedTarget : AUTOMATIC_EXECUTION_TARGET;
   // Placement lives on the backend worker; the device list is an HTTPS read
   // of the owner's gate there.
   const socketOrigin =
@@ -146,11 +151,22 @@ export function GlobalExecutionTargetControl() {
           <button
             type="button"
             className="execution-target-option"
-            onClick={() => choose({ mode: "cloud" })}
+            onClick={() => {
+              if (hasConnectedAccount) {
+                choose({ mode: "cloud" });
+                return;
+              }
+              setOpen(false);
+              SIGN_IN_TOAST_ACTION.onClick();
+            }}
           >
             <Globe size={16} />
             <span>Cloud</span>
-            {target.mode === "cloud" ? <Check size={15} /> : null}
+            {!hasConnectedAccount ? (
+              <small>Sign in</small>
+            ) : target.mode === "cloud" ? (
+              <Check size={15} />
+            ) : null}
           </button>
           {otherDevices.map((device) => {
             const selectable =

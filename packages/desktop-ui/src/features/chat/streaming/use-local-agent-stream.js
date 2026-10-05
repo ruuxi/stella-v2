@@ -9,7 +9,8 @@ import { useApplyResumeSnapshot } from "./use-resume-snapshot";
 import { reconcileStreamingAssistantCanonicalMessage, streamingAssistantOverlayId, } from "./streaming-types";
 import { notifyChatContentGrowth } from "@/shell/chat-scroll-follow";
 import { resolveAgentNotReadyToast } from "./agent-stream-errors";
-import { getExecutionTargetSnapshot } from "@/features/execution-placement/execution-target-store";
+import { executionTargetStore, getExecutionTargetSnapshot, } from "@/features/execution-placement/execution-target-store";
+import { presentComposerNotice } from "@/features/chat/composer-notice-store";
 import { isStellaLimitOrAuthReason, resolveStellaProviderErrorToast, } from "./stella-provider-error-toast";
 export function useLocalAgentStream({ activeConversationId, storageMode, onRunStarted, onRunFinished, }) {
     const [storeState, dispatch] = useReducer(streamStoreReducer, initialStoreState);
@@ -293,6 +294,21 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
             // carries the Sign in / Upgrade / BYOK CTAs).
             if (isStellaLimitOrAuthReason(reason)) {
                 showToast(resolveStellaProviderErrorToast(reason));
+            }
+            else if (reason && /cross-device execution is not ready/i.test(reason)) {
+                // The picked destination (Cloud or another computer) could not
+                // take the send. Pin it above the composer, which still holds
+                // the message, with a way to run it here instead.
+                presentComposerNotice({
+                    conversationId: activeConversationId,
+                    kind: "limit",
+                    title: "Couldn't send to the selected destination",
+                    description: "This computer isn't connected for Cloud or other computers yet. Try again in a moment, or run it on this computer.",
+                    action: {
+                        label: "Run on this computer",
+                        onClick: () => executionTargetStore.set({ mode: "automatic" }),
+                    },
+                });
             }
             else {
                 const toast = resolveAgentNotReadyToast(reason);

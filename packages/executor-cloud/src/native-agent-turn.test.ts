@@ -15,6 +15,7 @@ import { createClaudeCodeToolMcpHost } from "@stella/runtime/kernel/integrations
 import {
   buildCloudClaudeTakeoverArgs,
   buildClaudeChildEnv,
+  cloudClaudeRoleProfile,
   assertNativeHistoryParity,
   createCloudClaudeMcpConfig,
   nativeHistoryCursorFromRows,
@@ -144,6 +145,7 @@ describe("native engine reasoning selection", () => {
       stateRoot: "/workspace/drive/.stella/claude",
       capability: "turn-capability-jwt",
       reasoningEffort: "none",
+      agentType: "general",
     });
     expect(env.STELLA_TURN_TOKEN).toBeUndefined();
     expect(env.STELLA_CODEX_TURN_TOKEN).toBeUndefined();
@@ -262,7 +264,11 @@ describe("native engine reasoning selection", () => {
         turnId: "turn",
         authoritativeHistoryCursor: nativeHistoryCursorFromRows([]),
         stateIntegrityKey: "b".repeat(64),
-        emitEvent: () => undefined,
+        profile: cloudClaudeRoleProfile({
+          role: "agent",
+          threadId: "thread",
+          conversationId: "conversation",
+        }),
       }),
     ).rejects.toThrow("Stella's Claude tool bridge is unavailable.");
   });

@@ -16,6 +16,7 @@ import type {
   CloudExecutionSelection,
 } from "@stella/contracts/agent-engine";
 import { cloudNativeStateRoot } from "@stella/contracts/cloud-native-state";
+import type { CloudCliTurnRole } from "@stella/contracts/cloud-orchestrator-cli";
 import {
   GATEWAY_AGENT_TYPE_HEADER,
   gatewayRelayBaseUrl,
@@ -23,6 +24,12 @@ import {
 import type { AgentMessage } from "@stella/runtime/kernel/agent-core/types.js";
 import { isolateToolProcessLaunch } from "@stella/runtime/kernel/tools/process-isolation.js";
 import type { ToolProcessIdentity } from "@stella/runtime/kernel/tools/types.js";
+import {
+  ClaudeCodeCompactionLoopError,
+  getClaudeCodeStatusChangeFromStreamEvent,
+  MAX_COMPACTIONS_PER_TURN,
+} from "@stella/runtime/kernel/integrations/claude-code-session-runtime.js";
+import { CLOUD_HOST_STATE } from "./cloud-process-isolation.js";
 import { WORLD_ROOT } from "./workspace-paths.js";
 import {
   assertFreshNativeState,
@@ -50,6 +57,9 @@ type NativeCliTurnResult = Omit<
 
 type NativeEvent = (kind: string, payload: unknown) => void;
 
+/** The MCP server name; Claude exposes its tools as `mcp__stella__<name>`. */
+export const CLOUD_CLAUDE_MCP_SERVER_NAME = "stella";
+
 export type CloudClaudeMcpServerConfig = {
   type: "http";
   url: string;
@@ -67,7 +77,9 @@ export const createCloudClaudeMcpConfig = async (
     const configPath = path.join(directory, "mcp.json");
     await writeFile(
       configPath,
-      JSON.stringify({ mcpServers: { stella: serverConfig } }),
+      JSON.stringify({
+        mcpServers: { [CLOUD_CLAUDE_MCP_SERVER_NAME]: serverConfig },
+      }),
       { mode: 0o600 },
     );
     await chmod(configPath, 0o600);
@@ -180,6 +192,8 @@ const runJsonLines = async (options: {
   cwd: string;
   env: NodeJS.ProcessEnv;
   processIdentity?: ToolProcessIdentity;
+  /** SIGKILLs the child; the promise still resolves once it has closed. */
+  signal?: AbortSignal;
   onJson: (value: Record<string, unknown>) => void;
 }): Promise<ProcessResult> =>
   new Promise((resolve, reject) => {
@@ -223,8 +237,19 @@ const runJsonLines = async (options: {
     child.stderr.on("data", (chunk: Buffer) => {
       stderr = `${stderr}${chunk.toString()}`.slice(-32_000);
     });
-    child.on("error", reject);
+    const onAbort = () => {
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill("SIGKILL");
+      }
+    };
+    options.signal?.addEventListener("abort", onAbort, { once: true });
+    if (options.signal?.aborted) onAbort();
+    child.on("error", (error) => {
+      options.signal?.removeEventListener("abort", onAbort);
+      reject(error);
+    });
     child.on("close", (exitCode) => {
+      options.signal?.removeEventListener("abort", onAbort);
       consume(pending);
       resolve({ exitCode, stderr });
     });
@@ -272,6 +297,72 @@ export const resolveClaudeModelArgs = (model: string): string[] =>
   model === "default" ? [] : ["--model", model];
 
 /**
+ * What differs between the two cloud CLI roles. Everything else (flags,
+ * gateway wiring, native state, compaction guard) is one shared runner.
+ */
+export type CloudClaudeRoleProfile = {
+  role: CloudCliTurnRole;
+  /** Seed of the deterministic Claude session id (`--session-id`/`--resume`). */
+  sessionKey: string;
+  /** Gateway agent type; the turn capability's `agentTypes` must allow it. */
+  agentType: "general" | "orchestrator";
+  /**
+   * Claude keys its on-disk sessions by cwd under CLAUDE_CONFIG_DIR, so the
+   * path must be the same in every container for `--resume` to find them.
+   */
+  cwd: string;
+  /** Stream `stream_event` deltas (live text, tool-use correlation). */
+  includePartialMessages: boolean;
+  /** Hard and idle MCP tool-call bound; unset keeps the CLI defaults. */
+  mcpToolTimeoutMs?: number;
+};
+
+/**
+ * Root-only (inside the 0700 host-state directory) and always empty: an
+ * orchestrator turn has no workspace, and no model-authored process can plant
+ * a CLAUDE.md or `.claude` directory anywhere on its lookup path.
+ */
+export const CLOUD_ORCHESTRATOR_CLI_CWD = path.join(
+  CLOUD_HOST_STATE,
+  "orchestrator-cwd",
+);
+
+/**
+ * An orchestrator tool call is one held broker request (BuildSession -> DO)
+ * that sends no MCP progress while the DO runs the tool, which may wait on a
+ * user approval. Claude Code 2.1.220 aborts a silent HTTP MCP call after 5
+ * minutes (`CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT` default 300000) and has a
+ * ~28 h hard cap (`MCP_TOOL_TIMEOUT` default 1e8). Both are set to 30
+ * minutes: the turn's broker capability (TURN_BROKER_MAX_TTL_MS) and gateway
+ * capability expire by then anyway, so the CLI never gives up on a tool the
+ * DO is still running and journaling, and the turn's own bounds (DO watchdog,
+ * BuildSession cancel ladder) stay the ones that end a wedged call.
+ */
+export const CLOUD_ORCHESTRATOR_MCP_TOOL_TIMEOUT_MS = 30 * 60_000;
+
+export const cloudClaudeRoleProfile = (args: {
+  role: CloudCliTurnRole;
+  threadId: string;
+  conversationId: string;
+}): CloudClaudeRoleProfile =>
+  args.role === "orchestrator"
+    ? {
+        role: "orchestrator",
+        sessionKey: `stella-cloud:claude:orch:${args.conversationId}`,
+        agentType: "orchestrator",
+        cwd: CLOUD_ORCHESTRATOR_CLI_CWD,
+        includePartialMessages: true,
+        mcpToolTimeoutMs: CLOUD_ORCHESTRATOR_MCP_TOOL_TIMEOUT_MS,
+      }
+    : {
+        role: "agent",
+        sessionKey: `stella-cloud:claude:${args.threadId}`,
+        agentType: "general",
+        cwd: WORLD_ROOT,
+        includePartialMessages: false,
+      };
+
+/**
  * Claude Code talks to the model gateway's native lane directly: its base URL
  * is the gateway relay prefix and its OAuth bearer is the turn capability.
  * The gateway swaps that bearer for the owner's connected Anthropic
@@ -283,6 +374,8 @@ export const buildClaudeChildEnv = (options: {
   stateRoot: string;
   capability: string;
   reasoningEffort: AgentModelReasoningEffort;
+  agentType: CloudClaudeRoleProfile["agentType"];
+  mcpToolTimeoutMs?: number;
 }): NodeJS.ProcessEnv => {
   const childEnv: NodeJS.ProcessEnv = {
     ...options.initialEnv,
@@ -291,7 +384,7 @@ export const buildClaudeChildEnv = (options: {
     CLAUDE_CONFIG_DIR: options.stateRoot,
     CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1",
     ANTHROPIC_CUSTOM_HEADERS: [
-      `${GATEWAY_AGENT_TYPE_HEADER}: general`,
+      `${GATEWAY_AGENT_TYPE_HEADER}: ${options.agentType}`,
       "x-stella-llm-credential: anthropic",
     ].join("\n"),
   };
@@ -305,6 +398,14 @@ export const buildClaudeChildEnv = (options: {
   if (options.reasoningEffort === "none") {
     childEnv.CLAUDE_CODE_EFFORT_LEVEL = "unset";
   }
+  delete childEnv.MCP_TOOL_TIMEOUT;
+  delete childEnv.CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT;
+  if (options.mcpToolTimeoutMs !== undefined) {
+    childEnv.MCP_TOOL_TIMEOUT = String(options.mcpToolTimeoutMs);
+    childEnv.CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT = String(
+      options.mcpToolTimeoutMs,
+    );
+  }
   return childEnv;
 };
 
@@ -316,11 +417,13 @@ export const buildCloudClaudeTakeoverArgs = (options: {
   resume: boolean;
   sessionId: string;
   inputPrompt: string;
+  includePartialMessages?: boolean;
 }): string[] => [
   "-p",
   "--verbose",
   "--output-format",
   "stream-json",
+  ...(options.includePartialMessages ? ["--include-partial-messages"] : []),
   ...resolveClaudeModelArgs(options.model),
   ...resolveClaudeReasoningArgs(options.reasoningEffort),
   "--dangerously-skip-permissions",
@@ -333,6 +436,11 @@ export const buildCloudClaudeTakeoverArgs = (options: {
   "--disable-slash-commands",
   "--tools",
   "",
+  // CLAUDE_CODE_SUBPROCESS_ENV_SCRUB forces the default permission mode and
+  // ignores --dangerously-skip-permissions, which denies every MCP call that
+  // is not allowed explicitly. Allow exactly Stella's server.
+  "--allowedTools",
+  `mcp__${CLOUD_CLAUDE_MCP_SERVER_NAME}`,
   // CLAUDE_CONFIG_DIR persists only conversation state. Never let a prior
   // turn or project file turn that persistence into executable hooks,
   // plugins, permissions, or other settings outside Stella's ToolHost.
@@ -389,29 +497,47 @@ const transcript = (args: {
   ];
 };
 
-const runClaude = async (options: {
+/** One stream-json event from the CLI, as parsed from its stdout. */
+export type ClaudeStreamJsonEvent = Record<string, unknown>;
+
+/**
+ * Runs one `claude -p` turn for either role and returns its outcome. Callers
+ * observe the raw stream through `onStreamEvent`; this owns the session
+ * marker, final text, usage, the compaction-loop breaker, and cancellation.
+ */
+export const runCloudClaude = async (options: {
+  profile: CloudClaudeRoleProfile;
   inputPrompt: string;
   systemPrompt: string;
   execution: Extract<CloudExecutionSelection, { engine: "anthropic" }>;
   gatewayOrigin: string;
   capability: string;
   stateRoot: string;
-  threadId: string;
   mcpServerConfig: CloudClaudeMcpServerConfig;
-  emitEvent: NativeEvent;
+  onStreamEvent?: (event: ClaudeStreamJsonEvent) => void;
+  /** Kills the CLI; the turn then fails with the abort reason. */
+  signal?: AbortSignal;
 }): Promise<NativeCliTurnResult> => {
+  const { profile } = options;
   const stateRoot = options.stateRoot;
   await mkdir(stateRoot, { recursive: true, mode: 0o700 });
   await chmod(stateRoot, 0o700);
-  const sessionId = deterministicUuid(
-    `stella-cloud:claude:${options.threadId}`,
-  );
+  if (profile.role === "orchestrator") {
+    await mkdir(profile.cwd, { recursive: true, mode: 0o700 });
+  }
+  const sessionId = deterministicUuid(profile.sessionKey);
   const markerPath = path.join(stateRoot, "session-started");
   const resume = await stat(markerPath).then(
     () => true,
     () => false,
   );
   const mcpConfig = await createCloudClaudeMcpConfig(options.mcpServerConfig);
+  // Seam controller: the CLI dies on the caller's abort or on our own
+  // compaction-loop verdict, and both must reach one child process.
+  const kill = new AbortController();
+  const forwardAbort = () => kill.abort(options.signal?.reason);
+  options.signal?.addEventListener("abort", forwardAbort, { once: true });
+  if (options.signal?.aborted) forwardAbort();
   try {
     const args = buildCloudClaudeTakeoverArgs({
       model: options.execution.model,
@@ -421,6 +547,7 @@ const runClaude = async (options: {
       resume,
       sessionId,
       inputPrompt: options.inputPrompt,
+      includePartialMessages: profile.includePartialMessages,
     });
     let finalText = "";
     let error: string | undefined;
@@ -428,56 +555,59 @@ const runClaude = async (options: {
     let outputTokens = 0;
     let llmCalls = 0;
     let initialized = resume;
+    let compacting = false;
+    let compactions = 0;
     const childEnv = buildClaudeChildEnv({
       initialEnv: process.env,
       gatewayOrigin: options.gatewayOrigin,
       stateRoot,
       capability: options.capability,
       reasoningEffort: options.execution.reasoningEffort,
+      agentType: profile.agentType,
+      ...(profile.mcpToolTimeoutMs !== undefined
+        ? { mcpToolTimeoutMs: profile.mcpToolTimeoutMs }
+        : {}),
     });
     const result = await runJsonLines({
       command: "claude",
       args,
-      cwd: WORLD_ROOT,
+      cwd: profile.cwd,
       env: childEnv,
+      signal: kill.signal,
       onJson: (event) => {
+        options.onStreamEvent?.(event);
         const type = event.type;
         if (type === "system" && event.subtype === "init") {
           initialized = true;
           void writeFile(markerPath, `${sessionId}\n`, { mode: 0o600 });
           return;
         }
+        const status = getClaudeCodeStatusChangeFromStreamEvent(event);
+        if (status) {
+          // Count discrete compactions, as the desktop runtime does. A turn
+          // that keeps re-compacting can no longer fit its context.
+          if (status.state === "compacting" && !compacting) {
+            compacting = true;
+            compactions += 1;
+            if (
+              compactions > MAX_COMPACTIONS_PER_TURN &&
+              !kill.signal.aborted
+            ) {
+              const loop = new ClaudeCodeCompactionLoopError();
+              error = loop.message;
+              kill.abort(loop);
+            }
+          } else if (status.state === "running") {
+            compacting = false;
+          }
+          return;
+        }
         if (type === "assistant") {
           llmCalls += 1;
-          const message = event.message as
-            | { content?: unknown; usage?: Record<string, unknown> }
-            | undefined;
-          const texts = textBlocks(message?.content);
-          for (const text of texts) {
-            finalText = text;
-            options.emitEvent("assistant_message", {
-              text: text.slice(0, 8_000),
-            });
-          }
-          if (Array.isArray(message?.content)) {
-            for (const block of message.content) {
-              if (
-                block &&
-                typeof block === "object" &&
-                (block as { type?: unknown }).type === "tool_use"
-              ) {
-                const tool = block as {
-                  name?: unknown;
-                  input?: unknown;
-                };
-                options.emitEvent("tool_call", {
-                  name:
-                    typeof tool.name === "string" ? tool.name : "Claude tool",
-                  args: JSON.stringify(tool.input ?? {}).slice(0, 1_000),
-                });
-              }
-            }
-          }
+          const texts = textBlocks(
+            (event.message as { content?: unknown } | undefined)?.content,
+          );
+          for (const text of texts) finalText = text;
           return;
         }
         if (type === "result") {
@@ -503,6 +633,13 @@ const runClaude = async (options: {
     if (initialized) {
       await writeFile(markerPath, `${sessionId}\n`, { mode: 0o600 });
     }
+    if (kill.signal.aborted && !error) {
+      const reason: unknown = kill.signal.reason;
+      error =
+        reason instanceof Error && reason.message
+          ? reason.message
+          : "Claude Code turn was canceled.";
+    }
     if (result.exitCode !== 0 && !error) {
       error =
         result.stderr.trim().slice(-4_000) ||
@@ -515,13 +652,43 @@ const runClaude = async (options: {
       sessionId: initialized ? sessionId : "",
     };
   } finally {
+    options.signal?.removeEventListener("abort", forwardAbort);
     // This directory contains the private loopback MCP bearer. It lives
     // outside every checkpoint root and exists only while Claude is alive.
     await mcpConfig.cleanup();
   }
 };
 
+/**
+ * The general agent's coarse progress events (`/api/cloud/events`): one per
+ * assistant text and one per tool call, as the agent loop reports them.
+ */
+export const cloudAgentProgressFromStream =
+  (emitEvent: NativeEvent) =>
+  (event: ClaudeStreamJsonEvent): void => {
+    if (event.type !== "assistant") return;
+    const message = event.message as { content?: unknown } | undefined;
+    for (const text of textBlocks(message?.content)) {
+      emitEvent("assistant_message", { text: text.slice(0, 8_000) });
+    }
+    if (!Array.isArray(message?.content)) return;
+    for (const block of message.content) {
+      if (
+        block &&
+        typeof block === "object" &&
+        (block as { type?: unknown }).type === "tool_use"
+      ) {
+        const tool = block as { name?: unknown; input?: unknown };
+        emitEvent("tool_call", {
+          name: typeof tool.name === "string" ? tool.name : "Claude tool",
+          args: JSON.stringify(tool.input ?? {}).slice(0, 1_000),
+        });
+      }
+    }
+  };
+
 export const runNativeAgentTurn = async (options: {
+  profile: CloudClaudeRoleProfile;
   prompt: string;
   systemPrompt: string;
   execution: Extract<CloudExecutionSelection, { engine: "anthropic" }>;
@@ -536,7 +703,8 @@ export const runNativeAgentTurn = async (options: {
   /** Test-only override; production always uses the root-only image path. */
   nativeStateRoot?: string;
   claudeMcpServerConfig?: CloudClaudeMcpServerConfig;
-  emitEvent: NativeEvent;
+  onStreamEvent?: (event: ClaudeStreamJsonEvent) => void;
+  signal?: AbortSignal;
 }): Promise<NativeAgentTurnResult> => {
   const mcpServerConfig = options.claudeMcpServerConfig;
   if (!mcpServerConfig) {
@@ -562,16 +730,17 @@ export const runNativeAgentTurn = async (options: {
     expectedCursor: options.authoritativeHistoryCursor,
     integrityKey: options.stateIntegrityKey,
   });
-  const result = await runClaude({
+  const result = await runCloudClaude({
+    profile: options.profile,
     inputPrompt: options.prompt,
     systemPrompt: options.systemPrompt,
     execution: options.execution,
     gatewayOrigin: options.gatewayOrigin,
     capability: options.capability,
     stateRoot,
-    threadId: options.threadId,
     mcpServerConfig,
-    emitEvent: options.emitEvent,
+    ...(options.onStreamEvent ? { onStreamEvent: options.onStreamEvent } : {}),
+    ...(options.signal ? { signal: options.signal } : {}),
   });
   const messages = transcript({
     prompt: options.prompt,

@@ -91,10 +91,13 @@ import {
   type WorldSyncAccess,
 } from "./world-sync.js";
 import {
+  cloudAgentProgressFromStream,
+  cloudClaudeRoleProfile,
   nativeHistoryCursorFromMessages,
   nativeHistoryCursorFromRows,
   runNativeAgentTurn,
 } from "./native-agent-turn.js";
+import { runOrchestratorTurn } from "./orchestrator-turn.js";
 import {
   parseAuthoritativeAgentHistory,
   type AgentHistoryRow,
@@ -549,14 +552,10 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
       );
       // This loop builds an agent's own prompt and tools; an orchestrator
       // turn runs the DO's, in its own executor mode.
-      if (input.role !== "agent") {
-        return {
-          ok: false,
-          finalText: "",
-          error: "This executor cannot run an orchestrator turn.",
-          usage: { inputTokens: 0, outputTokens: 0, llmCalls: 0 },
-          checkpointPolicy: "preserve_prior",
-        };
+      if (input.role === "orchestrator") {
+        return yield* Effect.promise(() =>
+          runOrchestratorTurn({ input, broker }),
+        );
       }
       const modelGateway = parseCloudModelGatewayInput(input.modelGateway);
       if (!modelGateway) {
@@ -896,6 +895,11 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
             return {
               ok: true as const,
               value: await runNativeAgentTurn({
+                profile: cloudClaudeRoleProfile({
+                  role: "agent",
+                  threadId: input.threadId,
+                  conversationId: input.conversationId,
+                }),
                 prompt: input.prompt,
                 systemPrompt: cloudSystemPrompt,
                 execution: nativeExecution,
@@ -912,7 +916,7 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
                       claudeMcpServerConfig: claudeToolMcpHost.mcpServerConfig,
                     }
                   : {}),
-                emitEvent,
+                onStreamEvent: cloudAgentProgressFromStream(emitEvent),
               }),
             };
           } catch (error) {

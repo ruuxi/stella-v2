@@ -41,6 +41,13 @@ export type ClaudeCodeToolMcpActiveTurn = {
     signal: AbortSignal,
   ) => Promise<string>;
   /**
+   * Every call executes under Claude's own `tool_use` id, claimed through
+   * `claimNativeToolUseId` and passed to `executeTool` unchanged, so an
+   * executor that journals calls elsewhere matches the CLI transcript.
+   * Without it only `image_gen` claims a native id.
+   */
+  nativeToolCallIds?: boolean;
+  /**
    * Resolves to a truncation when the model's stream ended mid-argument for
    * this call (safety refusal, output budget), or undefined when the arguments
    * are whole or unadjudicated. Truncated calls are rejected, never executed.
@@ -409,8 +416,16 @@ export const createClaudeCodeToolMcpHost = async (
           .update("\0")
           .update(stableJson(request.params.arguments ?? {}))
           .digest("hex");
+        // With native ids for every call, the claim happens inside the
+        // execution below (after the transport-retry ledger) instead.
+        const claimNativeId =
+          turn?.nativeToolCallIds === true && turn.claimNativeToolUseId
+            ? turn.claimNativeToolUseId
+            : undefined;
+        const durableImageGen =
+          request.params.name === "image_gen" && !claimNativeId;
         const nativeToolUseId =
-          request.params.name === "image_gen" && turn?.claimNativeToolUseId
+          durableImageGen && turn?.claimNativeToolUseId
             ? await awaitWithAbort(
                 turn.claimNativeToolUseId(
                   request.params.name,
@@ -420,19 +435,18 @@ export const createClaudeCodeToolMcpHost = async (
                 extra.signal,
               )
             : undefined;
-        if (request.params.name === "image_gen" && !nativeToolUseId) {
+        if (durableImageGen && !nativeToolUseId) {
           throw new McpError(
             ErrorCode.InternalError,
             "Claude did not expose a durable tool_use identity for image_gen; refusing an unsafe submission.",
           );
         }
-        const toolCallId = nativeToolUseId
+        let toolCallId = nativeToolUseId
           ? `claude:${durableScope}:${nativeToolUseId}:${canonicalRequestHash.slice(0, 24)}`
           : `mcp:${clientSessionId}:${String(extra.requestId)}`;
-        const ledgerKey =
-          request.params.name === "image_gen"
-            ? `${durableScope}:${nativeToolUseId}:${request.params.name}:${canonicalRequestHash}`
-            : `${clientSessionId}:${String(extra.requestId)}:${request.params.name}`;
+        const ledgerKey = durableImageGen
+          ? `${durableScope}:${nativeToolUseId}:${request.params.name}:${canonicalRequestHash}`
+          : `${clientSessionId}:${String(extra.requestId)}:${request.params.name}`;
         const registerDeliveryAcknowledgement = () => {
           if (request.params.name !== "image_gen") return;
           const acknowledgement = turn?.onToolResponseWritten;
@@ -499,6 +513,16 @@ export const createClaudeCodeToolMcpHost = async (
           };
 
           try {
+            if (claimNativeId) {
+              toolCallId = await awaitWithAbort(
+                claimNativeId(
+                  request.params.name,
+                  request.params.arguments ?? {},
+                  callAbort.signal,
+                ),
+                callAbort.signal,
+              );
+            }
             const result = await awaitWithAbort(
               turn.executeTool(
                 toolCallId,

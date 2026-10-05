@@ -117,7 +117,7 @@ const CLAUDE_CODE_RUNNING_TEXT = "Working";
  * fresh session seeded from `resumeFallbackPrompt` (the checkpoint-compacted
  * Stella history).
  */
-const MAX_COMPACTIONS_PER_TURN = 3;
+export const MAX_COMPACTIONS_PER_TURN = 3;
 const CLAUDE_CODE_COMPACTION_LOOP_MESSAGE =
   "Claude Code entered a compaction loop.";
 /**

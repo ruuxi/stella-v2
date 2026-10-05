@@ -52,6 +52,9 @@ const receiptOf = (
   executorDeviceId: base.executorDeviceId,
 });
 
+export const DEVICE_AGENT_QUEUED_NOTE =
+  "That device is online but busy with another task, so this agent is queued: it starts on its own as soon as the device frees up, and fails if the device is still busy after 60 minutes.";
+
 export const spawnDeviceAgent = async (
   caller: DeviceAgentCaller,
   input: {
@@ -62,7 +65,7 @@ export const spawnDeviceAgent = async (
     /** The `spawn_agent` model the device runs the agent on. */
     model?: string;
   },
-): Promise<CloudAgentControlReceipt> => {
+): Promise<CloudAgentControlReceipt & { waitingForDevice?: boolean }> => {
   const control = (await caller.ownerInternal("agentThreads.spawnOnDevice", {
     ownerGeneration: caller.ownerGeneration,
     conversationId: caller.conversationId,
@@ -74,10 +77,13 @@ export const spawnDeviceAgent = async (
     prompt: input.prompt,
     ...(input.model ? { model: input.model } : {}),
   })) as AgentThreadControl;
-  return receiptOf(control, {
-    description: input.description,
-    executorDeviceId: input.targetDeviceId,
-  });
+  return {
+    ...receiptOf(control, {
+      description: input.description,
+      executorDeviceId: input.targetDeviceId,
+    }),
+    ...(control.waitingForDevice ? { waitingForDevice: true } : {}),
+  };
 };
 
 /** Input for a device agent: steers a running one, continues a finished one. */

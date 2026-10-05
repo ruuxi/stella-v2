@@ -8,7 +8,7 @@ import { verifyUserToken } from "./auth-jwt.js";
 import { OwnerStore } from "./owner-store/store.js";
 import { ownerRegistry } from "./owner-store/domains.js";
 import type { OwnerCaller, OwnerHost, OwnerPurgeMode, OwnerRegistry } from "./owner-store/registry.js";
-import { DEVICE_AGENT_DISPATCH_PREFIX, createGateHost } from "./owner-store/gate-host.js";
+import { createGateHost, parseDeviceAgentDispatchKey } from "./owner-store/gate-host.js";
 import { RpcError, toBackendError } from "./owner-store/errors.js";
 import { applyOwnerEventsToStore } from "./owner-store/owner-events.js";
 import type { RpcResponse } from "@stella/contracts/backend/protocol";
@@ -2249,6 +2249,53 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     );
   }
 
+  private occupiedBy(deviceId: string, exceptDispatchId: string | null): number {
+    const row = this.ctx.storage.sql
+      .exec<{ n: number }>(
+        `SELECT COUNT(*) AS n FROM dispatches
+          WHERE executor_device_id = ? AND dispatch_id != ?
+            AND state IN ('computer_claimed', 'computer_accepted', 'computer_running',
+                          'cancel_pending', 'reconciliation_required')`,
+        deviceId,
+        exceptDispatchId ?? "",
+      )
+      .toArray()[0];
+    return row?.n ?? 0;
+  }
+
+  private selectedDeviceRefusal(args: {
+    deviceId: string | null;
+    kind: ExecutionKind;
+    exceptDispatchId: string | null;
+    now: number;
+  }): { fallbackReason: string; errorCode: string; errorMessage: string } | null {
+    const presence = args.deviceId ? this.presenceRow(args.deviceId) : undefined;
+    if (
+      !args.deviceId ||
+      !presence?.connected ||
+      presence.lastSeenAt + DEVICE_PRESENCE_STALE_AFTER_MS <= args.now
+    ) {
+      return {
+        fallbackReason: "selected-device-offline",
+        errorCode: "SELECTED_DEVICE_OFFLINE",
+        errorMessage: "The selected computer is offline.",
+      };
+    }
+    const slots = args.kind === "chat" ? presence.chatSlots : presence.agentSlots;
+    if (
+      this.occupiedBy(args.deviceId, args.exceptDispatchId) > 0 ||
+      (presence.ready && slots <= 0)
+    ) {
+      return {
+        fallbackReason: "selected-device-busy",
+        errorCode: "SELECTED_DEVICE_BUSY",
+        errorMessage:
+          "The selected computer is online but busy with another task. It runs one handed-off task at a time.",
+      };
+    }
+    return null;
+  }
+
   /** `GET /owners/me/devices`: registered destinations joined with presence. */
   async devices(now = Date.now()): Promise<DevicesResponse> {
     this.ensureSchema();
@@ -2260,11 +2307,16 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         presence?.connected &&
         presence.lastSeenAt + DEVICE_PRESENCE_STALE_AFTER_MS > now,
       );
+      const busy =
+        online &&
+        (this.occupiedBy(device.deviceId, null) > 0 ||
+          (presence!.ready && presence!.agentSlots <= 0));
       devices.push({
         deviceId: device.deviceId,
         ...(device.label ? { label: device.label } : {}),
         remoteExecutionEnabled: device.remoteExecutionEnabled,
         online,
+        ...(busy ? { busy: true } : {}),
         ...(presence
           ? {
               presenceSessionId: presence.presenceSessionId,
@@ -2339,12 +2391,13 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
    * thread ledger, which records it and wakes a cloud requester.
    */
   private async reportDeviceAgentSettled(row: DispatchRow): Promise<void> {
-    if (row.kind !== "agent" || !row.idempotency_key.startsWith(DEVICE_AGENT_DISPATCH_PREFIX)) {
-      return;
-    }
+    const key = row.kind === "agent" ? parseDeviceAgentDispatchKey(row.idempotency_key) : null;
+    if (!key) return;
     const response = await this.ownerStore().internalCall("agentThreads.deviceSettled", {
-      turnId: row.idempotency_key.slice(DEVICE_AGENT_DISPATCH_PREFIX.length),
+      turnId: key.turnId,
+      requeue: key.requeue,
       state: row.state,
+      ...(row.error_code ? { errorCode: row.error_code } : {}),
       ...(row.result_json ? { resultJson: row.result_json } : {}),
       ...(row.error_message ? { errorMessage: row.error_message } : {}),
     });
@@ -2558,6 +2611,14 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       return await this.runCloudBranch(committed, now);
     }
     const explicitDevice = row.requested_target_mode === "device";
+    const refusal = explicitDevice
+      ? this.selectedDeviceRefusal({
+          deviceId: row.requested_executor_device_id,
+          kind: row.kind as ExecutionKind,
+          exceptDispatchId: row.dispatch_id,
+          now,
+        })
+      : null;
     const blocked = await this.patchDispatch(
       row,
       {
@@ -2568,15 +2629,21 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         lease_expires_at: null,
         payload_json: null,
         payload_expires_at: null,
-        fallback_reason: explicitDevice
-          ? "selected-device-unavailable"
-          : "no-eligible-paired-computer",
-        error_code: explicitDevice
-          ? "SELECTED_DEVICE_UNAVAILABLE"
-          : "COMPUTER_REQUIRED_UNAVAILABLE",
-        error_message: explicitDevice
-          ? "The selected computer did not accept the request."
-          : "This work requires your paired computer, but no eligible computer is reachable.",
+        fallback_reason: refusal
+          ? refusal.fallbackReason
+          : explicitDevice
+            ? "selected-device-unavailable"
+            : "no-eligible-paired-computer",
+        error_code: refusal
+          ? refusal.errorCode
+          : explicitDevice
+            ? "SELECTED_DEVICE_UNAVAILABLE"
+            : "COMPUTER_REQUIRED_UNAVAILABLE",
+        error_message: refusal
+          ? refusal.errorMessage
+          : explicitDevice
+            ? "The selected computer did not accept the request."
+            : "This work requires your paired computer, but no eligible computer is reachable.",
       },
       now,
     );
@@ -3228,15 +3295,29 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       } else {
         state = "blocked";
         const explicitDevice = targetMode === "device";
-        fallbackReason = explicitDevice
-          ? "selected-device-unavailable"
-          : "no-eligible-paired-computer";
-        errorCode = explicitDevice
-          ? "SELECTED_DEVICE_UNAVAILABLE"
-          : "COMPUTER_REQUIRED_UNAVAILABLE";
-        errorMessage = explicitDevice
-          ? "The selected computer is offline, busy, or unavailable."
-          : "This work requires your paired computer, but no eligible computer is reachable.";
+        const refusal = explicitDevice
+          ? this.selectedDeviceRefusal({
+              deviceId: request.targetDeviceId ?? null,
+              kind: request.kind,
+              exceptDispatchId: null,
+              now,
+            })
+          : null;
+        fallbackReason = refusal
+          ? refusal.fallbackReason
+          : explicitDevice
+            ? "selected-device-unavailable"
+            : "no-eligible-paired-computer";
+        errorCode = refusal
+          ? refusal.errorCode
+          : explicitDevice
+            ? "SELECTED_DEVICE_UNAVAILABLE"
+            : "COMPUTER_REQUIRED_UNAVAILABLE";
+        errorMessage = refusal
+          ? refusal.errorMessage
+          : explicitDevice
+            ? "The selected computer is online but isn't accepting work right now. It may still be starting up, be signed out, have cloud sync off, or not allow work from other devices."
+            : "This work requires your paired computer, but no eligible computer is reachable.";
       }
     }
 

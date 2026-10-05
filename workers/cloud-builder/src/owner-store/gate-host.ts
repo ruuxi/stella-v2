@@ -46,6 +46,20 @@ import { startScheduledTurn } from "./scheduled-turn.js";
 /** Idempotency keys of the dispatches the agent-thread ledger submits. */
 export const DEVICE_AGENT_DISPATCH_PREFIX = "agent-thread:";
 
+export const deviceAgentDispatchKey = (turnId: string, requeue = 0): string =>
+  requeue > 0
+    ? `${DEVICE_AGENT_DISPATCH_PREFIX}${turnId}:r${requeue}`
+    : `${DEVICE_AGENT_DISPATCH_PREFIX}${turnId}`;
+
+export const parseDeviceAgentDispatchKey = (
+  key: string,
+): { turnId: string; requeue: number } | null => {
+  if (!key.startsWith(DEVICE_AGENT_DISPATCH_PREFIX)) return null;
+  const match = /^([^:]+)(?::r(\d+))?$/u.exec(key.slice(DEVICE_AGENT_DISPATCH_PREFIX.length));
+  if (!match) return null;
+  return { turnId: match[1]!, requeue: match[2] ? Number(match[2]) : 0 };
+};
+
 type GateHostEnv = Pick<
   Cloudflare.Env,
   "BUILD_SESSIONS" | "WORLDS" | "ORCHESTRATOR_SESSIONS"
@@ -90,7 +104,7 @@ export const createGateHost = (deps: GateHostDependencies): OwnerHost => ({
       request: {
         protocol: PLACEMENT_PROTOCOL,
         // One dispatch per recorded attempt, so a retried job replays it.
-        idempotencyKey: `${DEVICE_AGENT_DISPATCH_PREFIX}${input.turnId}`,
+        idempotencyKey: deviceAgentDispatchKey(input.turnId, input.requeue ?? 0),
         kind: "agent",
         ingress: input.requestingDeviceId ? "desktop" : "cloud",
         // The requester named this device; never hand the work to the cloud.
@@ -121,6 +135,7 @@ export const createGateHost = (deps: GateHostDependencies): OwnerHost => ({
       throw new DispatchError(
         dispatch.errorMessage ?? "The device could not take the work. It may be offline or busy.",
         false,
+        dispatch.errorCode,
       );
     }
     return { dispatchId: dispatch.dispatchId };

@@ -36,6 +36,7 @@ export type DeviceDestination = {
   label?: string;
   remoteExecutionEnabled: boolean;
   online: boolean;
+  busy?: boolean;
   presenceSessionId?: string;
   availability?: DeviceAvailability;
   lastSeenAt?: number;

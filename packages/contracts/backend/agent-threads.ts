@@ -46,6 +46,7 @@ export type AgentThreadControl = {
   attemptGeneration: number;
   threadUpdatedAt: number;
   status: string;
+  waitingForDevice?: boolean;
 };
 
 type Origin = { originDeviceId: string; originConversationId: string };

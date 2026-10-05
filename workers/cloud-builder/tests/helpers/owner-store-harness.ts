@@ -55,7 +55,11 @@ export type OwnerStoreHarness = {
 };
 
 export const createOwnerStoreHarness = (
-  options: { registry?: OwnerRegistry; snapshot?: Partial<OwnerSnapshot> } = {},
+  options: {
+    registry?: OwnerRegistry;
+    snapshot?: Partial<OwnerSnapshot>;
+    host?: Partial<OwnerHost>;
+  } = {},
 ): OwnerStoreHarness => {
   const fake = openSqlStorageFake();
   const accepted: Array<{ socket: FakeSocket; tags: string[] }> = [];
@@ -88,7 +92,8 @@ export const createOwnerStoreHarness = (
     homeChanged: async () => {},
     changeMemoryPolicy: async () => {},
     startScheduledTurn: async () => {},
-  };
+    ...options.host,
+  } as OwnerHost;
   const store = new OwnerStore({
     ctx: {
       storage: { sql: fake.sql, transactionSync: <T>(fn: () => T) => fn() },

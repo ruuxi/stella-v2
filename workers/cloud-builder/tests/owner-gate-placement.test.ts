@@ -1404,3 +1404,96 @@ describe("cloud chat handoff races", () => {
     expect(h.values.get(`cloudChatHandoff:${a.clientMsgId}`)).toMatchObject({ phase: "retired", leaseId: a.leaseId });
   });
 });
+
+describe("a computer named for device agent work", () => {
+  const deviceAgent = () =>
+    submitBody({
+      kind: "agent",
+      ingress: "cloud",
+      subject: "computer",
+      targetMode: "device",
+      targetDeviceId: "desk-1",
+      requestingDeviceId: undefined,
+      requiredCapabilities: ["agent"],
+      payload: {
+        schemaVersion: 1,
+        prompt: "Survey the project",
+        conversationId: "conversation-1",
+        clientMsgId: "client-msg-0001",
+      },
+    });
+
+  test("is reported busy, not offline, while it runs another handed-off task", async () => {
+    const desk = await generateDeviceKey("desk-1");
+    const harness = open(OwnerGate, { snapshot: snapshotWith([desk]) });
+    const { socket } = await withNow(NOW, () => harness.connect(desk));
+    const first = await withNow(NOW, () =>
+      harness.instance.submit({ request: deviceAgent(), now: NOW }),
+    );
+    expect(first.response.dispatch.state).toBe("offering");
+    await withNow(NOW + 100, () =>
+      harness.sendFrame(socket, {
+        type: "claim",
+        dispatchId: first.response.dispatch.dispatchId,
+        claimRequestId: "claim-1",
+      }),
+    );
+    expect((await harness.instance.devices(NOW + 150)).devices[0]).toMatchObject({
+      online: true,
+      busy: true,
+    });
+
+    const second = await withNow(NOW + 200, () =>
+      harness.instance.submit({ request: deviceAgent(), now: NOW + 200 }),
+    );
+    expect(second.response.dispatch).toMatchObject({
+      state: "blocked",
+      errorCode: "SELECTED_DEVICE_BUSY",
+      fallbackReason: "selected-device-busy",
+    });
+    expect(second.response.dispatch.errorMessage).toContain("busy with another task");
+  });
+
+  test("an offer the busy computer let lapse is refused as busy", async () => {
+    const desk = await generateDeviceKey("desk-1");
+    const harness = open(OwnerGate, { snapshot: snapshotWith([desk]) });
+    const { socket } = await withNow(NOW, () => harness.connect(desk));
+    const first = await withNow(NOW, () =>
+      harness.instance.submit({ request: deviceAgent(), now: NOW }),
+    );
+    const second = await withNow(NOW + 10, () =>
+      harness.instance.submit({ request: deviceAgent(), now: NOW + 10 }),
+    );
+    expect(second.response.dispatch.state).toBe("offering");
+    await withNow(NOW + 100, () =>
+      harness.sendFrame(socket, {
+        type: "claim",
+        dispatchId: first.response.dispatch.dispatchId,
+        claimRequestId: "claim-1",
+      }),
+    );
+    await withNow(NOW + 10 + DISPATCH_OFFER_WINDOW_MS + 1, () =>
+      harness.instance.alarm(),
+    );
+    const status = await harness.instance.dispatchStatus(
+      second.response.dispatch.dispatchId,
+    );
+    expect(status.response.dispatch).toMatchObject({
+      state: "blocked",
+      errorCode: "SELECTED_DEVICE_BUSY",
+    });
+  });
+
+  test("an unconnected computer is reported offline", async () => {
+    const desk = await generateDeviceKey("desk-1");
+    const harness = open(OwnerGate, { snapshot: snapshotWith([desk]) });
+    const result = await withNow(NOW, () =>
+      harness.instance.submit({ request: deviceAgent(), now: NOW }),
+    );
+    expect(result.response.dispatch).toMatchObject({
+      state: "blocked",
+      errorCode: "SELECTED_DEVICE_OFFLINE",
+      errorMessage: "The selected computer is offline.",
+    });
+  });
+});

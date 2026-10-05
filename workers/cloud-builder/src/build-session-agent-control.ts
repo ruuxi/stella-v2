@@ -8,6 +8,7 @@ import {
   parseSpawnDestination,
 } from "@stella/runtime/kernel/tools/defs/agent-orchestration-def.js";
 import {
+  DEVICE_AGENT_QUEUED_NOTE,
   cancelDeviceAgent,
   continueDeviceAgent,
   readDeviceAgent,
@@ -180,18 +181,21 @@ export const createBuildSessionAgentControl = (
           device: destination.kind === "device" ? destination.deviceId : null,
         });
         let outcome = await readOutcome(toolCallId, "spawn_agent", value);
+        let waitingForDevice = false;
         if (!outcome && destination.kind === "device") {
+          const spawned = await spawnDeviceAgent(deviceCaller, {
+            clientMsgId: await scopedId("turn", toolCallId),
+            targetDeviceId: destination.deviceId,
+            description,
+            prompt,
+            ...(model && model !== "default" ? { model } : {}),
+          });
+          waitingForDevice = spawned.waitingForDevice === true;
           outcome = await commitOutcome(
             toolCallId,
             "spawn_agent",
             value,
-            await spawnDeviceAgent(deviceCaller, {
-              clientMsgId: await scopedId("turn", toolCallId),
-              targetDeviceId: destination.deviceId,
-              description,
-              prompt,
-              ...(model && model !== "default" ? { model } : {}),
-            }),
+            spawned,
           );
         }
         if (!outcome) {
@@ -216,10 +220,13 @@ export const createBuildSessionAgentControl = (
           );
         }
         return textResult(
-          `Spawned agent (thread_id: ${outcome.control.threadId}, status: running, description: "${description}"${outcome.control.executorDeviceId ? `, device_id: ${outcome.control.executorDeviceId}` : ""}). It is running in the background and has NOT finished — an [Agent completed] message will arrive on this agent thread with its report. Check on it with agent_status, steer it with send_input, or stop it with pause_agent.`,
+          waitingForDevice
+            ? `Queued agent (thread_id: ${outcome.control.threadId}, status: queued, description: "${description}", device_id: ${outcome.control.executorDeviceId}). ${DEVICE_AGENT_QUEUED_NOTE} Either way an [Agent completed] or [Agent failed] message will arrive on this agent thread. Stop it with pause_agent.`
+            : `Spawned agent (thread_id: ${outcome.control.threadId}, status: running, description: "${description}"${outcome.control.executorDeviceId ? `, device_id: ${outcome.control.executorDeviceId}` : ""}). It is running in the background and has NOT finished — an [Agent completed] message will arrive on this agent thread with its report. Check on it with agent_status, steer it with send_input, or stop it with pause_agent.`,
           {
             thread_id: outcome.control.threadId,
             status: "running",
+            ...(waitingForDevice ? { waiting_for_device: true } : {}),
             description,
             ...(outcome.control.executorDeviceId
               ? { device_id: outcome.control.executorDeviceId }

@@ -155,6 +155,9 @@ const CONTROL_REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]{8,128}$/;
 const OUTPUT_FILE_CARD_MAX = 20;
 const DISPATCH_MAX_ATTEMPTS = 3;
 const DISPATCH_RETRY_MS = 15_000;
+const DEVICE_BUSY_RETRY_MS = 10_000;
+const DEVICE_BUSY_WAIT_MS = 60 * 60_000;
+const DEVICE_BUSY_CODE = "SELECTED_DEVICE_BUSY";
 const TERMINAL_STATUSES = new Set(["completed", "failed", "canceled"]);
 const ACTIVE_STATUSES = new Set(["running", "resuming"]);
 
@@ -252,6 +255,7 @@ type DispatchJob = {
   attempt: number;
   /** The hosted-browser answer this attempt resumes with. */
   browserResume?: CloudBrowserResumeReceipt;
+  busyRequeues?: number;
 };
 
 const failAttempt = (db: OwnerDb, job: DispatchJob, message: string, now: number): void => {
@@ -374,7 +378,7 @@ const assertDeviceDestination = async (
   ctx: OwnerContext,
   targetDeviceId: string,
   requestingDeviceId?: string,
-): Promise<void> => {
+): Promise<{ busy: boolean }> => {
   if (requestingDeviceId && targetDeviceId === requestingDeviceId) {
     throw new RpcError(
       "BAD_REQUEST",
@@ -405,7 +409,41 @@ const assertDeviceDestination = async (
       { reason: "device_offline" },
     );
   }
+  if (device.busy) return { busy: true };
+  if (device.availability && !device.availability.ready) {
+    throw new RpcError(
+      "CONFLICT",
+      `${name} is online but isn't accepting work right now. It may still be starting up, be signed out, or have cloud sync off. Run the work in the cloud or on another device.`,
+      { reason: "device_not_ready" },
+    );
+  }
+  return { busy: false };
 };
+
+const waitForBusyDevice = (
+  ctx: OwnerContext,
+  turn: TurnRow,
+  busyRequeues: number,
+): boolean => {
+  if (!turn.thread_id || turn.attempt_generation === null) return false;
+  if (ctx.now - turn.created_at >= DEVICE_BUSY_WAIT_MS) return false;
+  ctx.jobs.schedule(
+    "agentThreads.dispatch",
+    ctx.now + DEVICE_BUSY_RETRY_MS,
+    {
+      threadId: turn.thread_id,
+      turnId: turn.turn_id,
+      attemptGeneration: turn.attempt_generation,
+      attempt: 1,
+      busyRequeues: busyRequeues + 1,
+    } satisfies DispatchJob,
+    { id: `dispatch:${turn.turn_id}` },
+  );
+  return true;
+};
+
+const busyWaitExpiredMessage = (message: string): string =>
+  `${message} It stayed busy for ${Math.round(DEVICE_BUSY_WAIT_MS / 60_000)} minutes, so this agent never started.`;
 
 /** Offer one recorded attempt to the thread's device. */
 const runDeviceDispatch = async (
@@ -426,11 +464,15 @@ const runDeviceDispatch = async (
       targetDeviceId: thread.executor_device_id!,
       ...(thread.origin_device_id ? { requestingDeviceId: thread.origin_device_id } : {}),
       ...(thread.requested_model ? { model: thread.requested_model } : {}),
+      ...(job.busyRequeues ? { requeue: job.busyRequeues } : {}),
     });
     ctx.db.run("UPDATE agent_turns SET dispatch_id = ? WHERE turn_id = ?", dispatchId, turn.turn_id);
-    ctx.db.run("DELETE FROM agent_dispatch_prompts WHERE turn_id = ?", turn.turn_id);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    let message = error instanceof Error ? error.message : String(error);
+    if (error instanceof DispatchError && error.code === DEVICE_BUSY_CODE) {
+      if (waitForBusyDevice(ctx, turn, job.busyRequeues ?? 0)) return;
+      message = busyWaitExpiredMessage(message);
+    }
     const retryable = !(error instanceof DispatchError) || error.retryable;
     if (retryable && job.attempt < DISPATCH_MAX_ATTEMPTS) {
       ctx.jobs.schedule(
@@ -465,6 +507,7 @@ const settleDeviceAttempt = async (
     ctx.now,
     turnId,
   );
+  ctx.db.run("DELETE FROM agent_dispatch_prompts WHERE turn_id = ?", turnId);
   const thread = readThread(ctx.db, turn.thread_id);
   if (
     !thread ||
@@ -517,16 +560,20 @@ const settleDeviceAttempt = async (
 const deviceSettled = async (ctx: OwnerContext, raw: unknown): Promise<{ settled: boolean }> => {
   const args = object({
     turnId: id(),
+    requeue: optional(number({ int: true, min: 0, max: 100_000 })),
     state: literal("completed", "failed", "canceled", "blocked"),
     resultJson: optional(string({ max: 1_000_000 })),
+    errorCode: optional(string({ max: 128 })),
     errorMessage: optional(string({ max: 4_000 })),
   })(raw);
   const turn = readTurn(ctx.db, args.turnId);
   if (!turn || TERMINAL_STATUSES.has(turn.status)) return { settled: false };
+  const busy = args.state === "blocked" && args.errorCode === DEVICE_BUSY_CODE;
+  if (busy && waitForBusyDevice(ctx, turn, args.requeue ?? 0)) return { settled: false };
   await settleDeviceAttempt(ctx, args.turnId, args.state === "blocked" ? "failed" : args.state, {
     ...(args.resultJson ? { resultJson: args.resultJson } : {}),
     ...(args.errorMessage
-      ? { errorMessage: args.errorMessage }
+      ? { errorMessage: busy ? busyWaitExpiredMessage(args.errorMessage) : args.errorMessage }
       : args.state === "blocked"
         ? { errorMessage: "The device did not pick up the work. It may be offline or busy." }
         : {}),
@@ -592,7 +639,7 @@ const spawnOnDeviceForCloud = async (ctx: OwnerContext, raw: unknown): Promise<A
     { count: 30, windowMs: 10 * 60_000 },
     "Too many agents started at once. Wait a moment and try again.",
   );
-  await assertDeviceDestination(ctx, args.targetDeviceId);
+  const destination = await assertDeviceDestination(ctx, args.targetDeviceId);
   const raced = replayAttempt(ctx.db, args.clientMsgId, fingerprint, args.ownerGeneration);
   if (raced) return raced;
   const threadId = `thr-${crypto.randomUUID().replaceAll("-", "").slice(0, 18)}`;
@@ -621,7 +668,7 @@ const spawnOnDeviceForCloud = async (ctx: OwnerContext, raw: unknown): Promise<A
     fingerprint,
     prompt: args.prompt,
   });
-  return control(thread);
+  return { ...control(thread), ...(destination.busy ? { waitingForDevice: true } : {}) };
 };
 
 /** A cloud requester's view of its device thread. */
@@ -651,7 +698,7 @@ const continueDeviceForCloud = async (ctx: OwnerContext, raw: unknown): Promise<
   if (ACTIVE_STATUSES.has(thread.status)) {
     return await steerDeviceThread(ctx, thread, args.controlRequestId, args.prompt);
   }
-  await assertDeviceDestination(ctx, thread.executor_device_id!);
+  const destination = await assertDeviceDestination(ctx, thread.executor_device_id!);
   ctx.db.run(
     `UPDATE agent_threads SET
        status = 'running', attempt_generation = ?, description = ?,
@@ -670,7 +717,7 @@ const continueDeviceForCloud = async (ctx: OwnerContext, raw: unknown): Promise<
     fingerprint,
     prompt: args.prompt,
   });
-  return control(continued);
+  return { ...control(continued), ...(destination.busy ? { waitingForDevice: true } : {}) };
 };
 
 /** Stop a cloud requester's running device thread. */
@@ -869,7 +916,9 @@ const spawnFromDesktop = async (ctx: OwnerContext, args: SpawnArgs): Promise<Age
     "Too many cloud agents started at once. Wait a moment and try again.",
   );
   const targetDeviceId = args.targetDeviceId?.trim() || null;
-  if (targetDeviceId) await assertDeviceDestination(ctx, targetDeviceId, args.originDeviceId);
+  const destination = targetDeviceId
+    ? await assertDeviceDestination(ctx, targetDeviceId, args.originDeviceId)
+    : { busy: false };
   const conversation = args.conversationId
     ? ctx.db.one<{ conversation_id: string; execution_json: string | null }>(
         "SELECT conversation_id, execution_json FROM conversations WHERE conversation_id = ? AND deleted_at IS NULL",
@@ -941,7 +990,7 @@ const spawnFromDesktop = async (ctx: OwnerContext, args: SpawnArgs): Promise<Age
     fingerprint,
     prompt: args.prompt,
   });
-  return control(thread);
+  return { ...control(thread), ...(destination.busy ? { waitingForDevice: true } : {}) };
 };
 
 type ContinueArgs = AgentThreadCalls["agentThreads.continueFromDesktop"]["args"];

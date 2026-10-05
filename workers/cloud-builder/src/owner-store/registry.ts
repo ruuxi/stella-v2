@@ -173,6 +173,7 @@ export type DeviceAgentTurnDispatch = {
   requestingDeviceId?: string;
   /** The requester's `spawn_agent` model the device runs the agent on. */
   model?: string;
+  requeue?: number;
 };
 
 export type AgentCompletionDelivery = {
@@ -191,10 +192,12 @@ export type AgentCompletionDelivery = {
 
 export class DispatchError extends Error {
   readonly retryable: boolean;
-  constructor(message: string, retryable: boolean) {
+  readonly code: string | undefined;
+  constructor(message: string, retryable: boolean, code?: string) {
     super(message);
     this.name = "DispatchError";
     this.retryable = retryable;
+    this.code = code;
   }
 }
 

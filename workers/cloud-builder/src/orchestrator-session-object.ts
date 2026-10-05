@@ -196,6 +196,7 @@ import { resolveCloudSpawnExecution } from "./cloud-spawn-model.js";
 import { sha256Hex, stableValueMarker } from "./hash.js";
 import { worldName } from "./workspace.js";
 import {
+  DEVICE_AGENT_QUEUED_NOTE,
   cancelDeviceAgent,
   continueDeviceAgent,
   readDeviceAgent,
@@ -10845,6 +10846,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             "spawn_agent",
             fingerprint,
           );
+          let waitingForDevice = false;
           if (!outcome && destination.kind === "device") {
             const admitted = await spawnDeviceAgent(deviceCaller, {
               clientMsgId: await toolScopedId("turn", toolCallId),
@@ -10853,6 +10855,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
               prompt: args.prompt,
               ...(model && model !== "default" ? { model } : {}),
             });
+            waitingForDevice = admitted.waitingForDevice === true;
             outcome = await this.commitCloudAgentToolOutcome(
               turn,
               toolCallId,
@@ -10887,12 +10890,15 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             content: [
               {
                 type: "text",
-                text: `Spawned agent (thread_id: ${control.threadId}, status: running, description: "${args.description}"${control.executorDeviceId ? `, device_id: ${control.executorDeviceId}` : ""}). It is running in the background and has NOT finished — an [Agent completed] message will arrive on this conversation with its report. Check on it with agent_status, steer it with send_input, or stop it with pause_agent.`,
+                text: waitingForDevice
+                  ? `Queued agent (thread_id: ${control.threadId}, status: queued, description: "${args.description}", device_id: ${control.executorDeviceId}). ${DEVICE_AGENT_QUEUED_NOTE} Either way an [Agent completed] or [Agent failed] message will arrive on this conversation. Stop it with pause_agent.`
+                  : `Spawned agent (thread_id: ${control.threadId}, status: running, description: "${args.description}"${control.executorDeviceId ? `, device_id: ${control.executorDeviceId}` : ""}). It is running in the background and has NOT finished — an [Agent completed] message will arrive on this conversation with its report. Check on it with agent_status, steer it with send_input, or stop it with pause_agent.`,
               },
             ],
             details: {
               thread_id: control.threadId,
               status: "running",
+              ...(waitingForDevice ? { waiting_for_device: true } : {}),
               description: args.description,
               attempt_generation: control.attemptGeneration,
               thread_updated_at: control.threadUpdatedAt,

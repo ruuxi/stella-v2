@@ -265,7 +265,7 @@ import {
   type CloudConnectorConnectionOutcome,
   type CloudConnectorConnectionRequest,
 } from "./cloud-connector-status-tool.js";
-import { createCloudMapTool } from "./cloud-map-tool.js";
+import { configuredWebsiteUrl, createCloudMapTool } from "./cloud-map-tool.js";
 import { toolRequiresExplicitApproval } from "@stella/runtime/kernel/tools/code-tool.js";
 import { sleepWithAbort } from "@stella/runtime/kernel/tools/effect-runtime.js";
 import "./conversation-hub.js";
@@ -11345,7 +11345,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         publishFiles: (writerKey, files) =>
           this.publishTurnFilesCard(turn.turnId, writerKey, files),
       }),
-      createCloudMapTool(),
+      createCloudMapTool({ siteBaseUrl: configuredWebsiteUrl(this.env) }),
       createCloudReadTool({
         ...(agentHome.available
           ? { skills: { home: agentHome.cloudStore(), snapshot: skillCatalog } }

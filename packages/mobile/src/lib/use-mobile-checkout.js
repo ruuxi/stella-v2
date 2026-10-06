@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import * as WebBrowser from "expo-web-browser";
 import * as Crypto from "expo-crypto";
+import { env } from "../config/env";
 import { getBackendClient } from "./backend";
 import { userFacingError } from "./user-facing-error";
 
@@ -9,7 +10,7 @@ import { userFacingError } from "./user-facing-error";
 // depend on reading that redirect: entitlement is confirmed by the live
 // `billing.status` view once Stripe's webhook lands, never by the client's
 // browser result.
-const CHECKOUT_RETURN_URL = "https://stella.sh/billing";
+const CHECKOUT_RETURN_URL = `${env.siteUrl}/billing`;
 
 /** The backend's `{ code, message }` for a refused call. */
 function backendErrorData(error) {

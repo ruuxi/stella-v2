@@ -22,8 +22,14 @@ import {
 } from "@stella/runtime/kernel/tools/defs/map-resolve.js";
 import type { CloudCodeSourceAgentTool } from "./cloud-code-tool.js";
 
+/** STELLA_WEBSITE_URL, the website whose maps endpoint resolves map requests. */
+export const configuredWebsiteUrl = (env: unknown): string | undefined => {
+  const value = (env as { STELLA_WEBSITE_URL?: unknown }).STELLA_WEBSITE_URL;
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+};
+
 export type CloudMapToolOptions = Readonly<{
-  siteBaseUrl?: string;
+  siteBaseUrl?: string | undefined;
   fetchImpl?: typeof fetch;
 }>;
 

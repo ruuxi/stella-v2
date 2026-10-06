@@ -1319,7 +1319,7 @@ app.onError((error) => {
 
 export const worker = {
   fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    return withBrowserCors(request, async () => await app.fetch(request, env, ctx));
+    return withBrowserCors(request, async () => await app.fetch(request, env, ctx), env);
   },
   async scheduled(controller, env, ctx) {
     const { runScheduled } = await import("../cron.js");

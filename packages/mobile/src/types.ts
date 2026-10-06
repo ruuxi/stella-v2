@@ -340,6 +340,8 @@ export type ChatMessage = {
    * the visible text; the quote reached the model as a dedicated context field.
    */
   quotedText?: string;
+  /** User message: one entry per "Pasted text" chip sent with this turn. */
+  pastedTexts?: { lines: number; chars: number; text?: string }[];
   /**
    * User message: the message is queued behind an in-flight reply and has
    * not been dispatched yet. Renders exactly like a sent message.

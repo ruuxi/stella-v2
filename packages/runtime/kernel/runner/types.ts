@@ -157,6 +157,7 @@ export type ChatPayload = {
   userMessageId: string;
   userPrompt: string;
   promptMessages?: RuntimePromptMessage[];
+  userMessageMetadata?: { context: Record<string, unknown> };
   attachments?: RuntimeAttachmentRef[];
   agentType?: string;
   storageMode?: "cloud" | "local";

@@ -579,6 +579,18 @@ function parseRow(row: unknown): ChatMessage | null {
     ...(typeof o.quotedText === "string" && o.quotedText.trim()
       ? { quotedText: o.quotedText }
       : {}),
+    ...(Array.isArray(o.pastedTexts)
+      ? {
+          pastedTexts: o.pastedTexts.flatMap((value) =>
+            value &&
+            typeof value === "object" &&
+            typeof value.lines === "number" &&
+            typeof value.chars === "number"
+              ? [{ lines: value.lines, chars: value.chars }]
+              : [],
+          ),
+        }
+      : {}),
     ...(o.cloudFallback === true ? { cloudFallback: true } : {}),
     // A queued-but-unsent bubble must reload as queued, never as a delivered
     // message. The hook re-enqueues these on hydration so a restart actually

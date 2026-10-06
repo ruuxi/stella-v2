@@ -178,6 +178,7 @@ export const createOrchestratorController = (
     userPrompt: string;
     uiVisibility?: "visible" | "hidden";
     promptMessages?: ChatPayload["promptMessages"];
+    userMessageMetadata?: ChatPayload["userMessageMetadata"];
     attachments: StartPreparedRunArgs["attachments"];
     userMessageId: string;
     responseTarget?: StartPreparedRunArgs["responseTarget"];
@@ -248,6 +249,9 @@ export const createOrchestratorController = (
         ...(args.uiVisibility ? { uiVisibility: args.uiVisibility } : {}),
         ...(args.promptMessages?.length
           ? { promptMessages: args.promptMessages }
+          : {}),
+        ...(args.userMessageMetadata
+          ? { userMessageMetadata: args.userMessageMetadata }
           : {}),
         attachments: args.attachments,
         userMessageId: args.userMessageId,
@@ -877,6 +881,9 @@ export const createOrchestratorController = (
       ...(ownerGeneration ? { ownerGeneration } : {}),
       userPrompt,
       ...(promptMessages?.length ? { promptMessages } : {}),
+      ...(payload.userMessageMetadata
+        ? { userMessageMetadata: payload.userMessageMetadata }
+        : {}),
       attachments,
       userMessageId: payload.userMessageId,
       callbacks,

@@ -314,6 +314,66 @@ const userAttachments = (
   return [...images, ...files];
 };
 
+const nonEmptyStrings = (value: unknown): string[] =>
+  Array.isArray(value)
+    ? value.filter(
+        (entry): entry is string =>
+          typeof entry === "string" && entry.trim().length > 0,
+      )
+    : [];
+
+const userDisplayContext = (
+  payload: AgentMessagePayload,
+): Record<string, unknown> | undefined => {
+  const context = asRecord(
+    asRecord((payload as { metadata?: unknown }).metadata)?.context,
+  );
+  if (!context) return undefined;
+  const pastedTexts = (
+    Array.isArray(context.pastedTexts) ? context.pastedTexts : []
+  ).flatMap((entry) => {
+    const descriptor = asRecord(entry);
+    if (
+      !descriptor ||
+      typeof descriptor.lines !== "number" ||
+      typeof descriptor.chars !== "number"
+    ) {
+      return [];
+    }
+    return [
+      {
+        lines: descriptor.lines,
+        chars: descriptor.chars,
+        ...(typeof descriptor.text === "string"
+          ? { text: descriptor.text }
+          : {}),
+      },
+    ];
+  });
+  const appSelectionLabels = nonEmptyStrings(context.appSelectionLabels);
+  const text = (key: string): string | undefined =>
+    typeof context[key] === "string" && (context[key] as string).trim()
+      ? (context[key] as string)
+      : undefined;
+  const appSelectionLabel = text("appSelectionLabel");
+  const activityLabel = text("activityLabel");
+  const quotedText = text("quotedText");
+  const result = {
+    ...(pastedTexts.length > 0 ? { pastedTexts } : {}),
+    ...(appSelectionLabels.length > 0 ? { appSelectionLabels } : {}),
+    ...(appSelectionLabel ? { appSelectionLabel } : {}),
+    ...(activityLabel ? { activityLabel } : {}),
+    ...(quotedText ? { quotedText } : {}),
+  };
+  return Object.keys(result).length > 0 ? result : undefined;
+};
+
+const userDisplayText = (payload: AgentMessagePayload): string | undefined => {
+  const displayText = asRecord((payload as { metadata?: unknown }).metadata)
+    ?.displayText;
+  return typeof displayText === "string" ? displayText : undefined;
+};
+
 const textPayload = (
   record: Extract<JournalRecord, { kind: "message" }>,
   text: string,
@@ -321,8 +381,11 @@ const textPayload = (
   replyRefs?: ReplyRef[],
 ): Record<string, unknown> => {
   const voiceSession = asRecord(record.payload.voiceSession);
+  const displayContext =
+    record.role === "user" ? userDisplayContext(record.payload) : undefined;
   const metadata = {
     ...(record.hidden ? { ui: { visibility: "hidden" as const } } : {}),
+    ...(displayContext ? { context: displayContext } : {}),
     ...(voiceSession ? { voiceSession } : {}),
     ...(replyRefs && replyRefs.length > 0
       ? { runtime: { replyRefs } }
@@ -511,7 +574,8 @@ export const journalRecordsToMessageRecords = (
         turnUserRecord = record;
         userMessageId =
           record.clientMsgId ?? `cloud:${turnId}:message:${record.seq}`;
-        const userText = messageText(record.payload);
+        const userText =
+          userDisplayText(record.payload) ?? messageText(record.payload);
         const attachments = userAttachments(record.payload);
         // A prompt with nothing to show (older desktop turns mirrored their
         // lifecycle wake as an empty, unflagged user record) renders like a
@@ -519,6 +583,7 @@ export const journalRecordsToMessageRecords = (
         const blank =
           !userText.trim() &&
           attachments.length === 0 &&
+          !userDisplayContext(record.payload) &&
           !contentBlocks(record.payload).some((block) => block.type !== "text");
         events.push({
           _id: userMessageId,

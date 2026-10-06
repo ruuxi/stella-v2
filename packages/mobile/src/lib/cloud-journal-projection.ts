@@ -42,6 +42,27 @@ const isBlankUserRecord = (
   );
 };
 
+const userDisplayContext = (payload: Record<string, unknown>) => {
+  const metadata = asRecord(payload.metadata);
+  const context = asRecord(metadata?.context);
+  const pastedTexts = (Array.isArray(context?.pastedTexts) ? context.pastedTexts : [])
+    .flatMap((entry) => {
+      const descriptor = asRecord(entry);
+      return descriptor &&
+        typeof descriptor.lines === "number" &&
+        typeof descriptor.chars === "number"
+        ? [{ lines: descriptor.lines, chars: descriptor.chars }]
+        : [];
+    });
+  const quotedText =
+    typeof context?.quotedText === "string" && context.quotedText.trim()
+      ? context.quotedText
+      : undefined;
+  const displayText =
+    typeof metadata?.displayText === "string" ? metadata.displayText : undefined;
+  return { pastedTexts, quotedText, displayText };
+};
+
 const timestampOf = (record: JournalMessageRecord): number =>
   typeof record.payload.timestamp === "number" &&
   Number.isFinite(record.payload.timestamp)
@@ -278,12 +299,25 @@ export const projectCloudConversationMessages = (args: {
         userMessageId = projectedMessageId(record);
         // A prompt with nothing to show (older desktop turns mirrored their
         // lifecycle wake as an empty, unflagged user record) is a hidden one.
-        if (record.hidden || isBlankUserRecord(record)) continue;
+        const display = userDisplayContext(record.payload);
+        const hasDisplayContext =
+          display.pastedTexts.length > 0 || Boolean(display.quotedText);
+        if (record.hidden || (isBlankUserRecord(record) && !hasDisplayContext)) {
+          continue;
+        }
+        const presentation = userAttachmentPresentation(record.payload);
         messages.push({
           id: userMessageId,
           canonicalId: `cloud:${turnId}:message:${record.seq}`,
           role: "user",
-          ...userAttachmentPresentation(record.payload),
+          ...presentation,
+          ...(display.displayText !== undefined
+            ? { text: display.displayText }
+            : {}),
+          ...(display.pastedTexts.length > 0
+            ? { pastedTexts: display.pastedTexts }
+            : {}),
+          ...(display.quotedText ? { quotedText: display.quotedText } : {}),
           createdAt,
           canonicalCreatedAt: record.createdAtMs,
           sequence: record.seq,

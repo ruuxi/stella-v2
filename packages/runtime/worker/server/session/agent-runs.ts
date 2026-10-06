@@ -880,6 +880,7 @@ export const layer = Layer.effect(
         appSelectionLabels,
         activityLabel,
         quotedText,
+        pastedTexts,
         promptMessages,
         windowScreenshotAttachment,
       } = buildChatPromptMessages({
@@ -889,6 +890,17 @@ export const layer = Layer.effect(
         chatContext: payload.chatContext ?? null,
         explicitImageAttachmentCount: modelImageAttachments.length,
       });
+      const journalDisplayContext = {
+        ...(appSelectionLabel ? { appSelectionLabel } : {}),
+        ...(appSelectionLabels?.length ? { appSelectionLabels } : {}),
+        ...(activityLabel ? { activityLabel } : {}),
+        ...(quotedText ? { quotedText } : {}),
+        ...(pastedTexts?.length ? { pastedTexts } : {}),
+      };
+      const userMessageMetadata =
+        Object.keys(journalDisplayContext).length > 0
+          ? { context: journalDisplayContext }
+          : undefined;
       let modelWindowScreenshotAttachment = windowScreenshotAttachment;
       if (modelWindowScreenshotAttachment) {
         const persistedWindowScreenshot = await spillImageAttachmentsToDisk({
@@ -979,57 +991,26 @@ export const layer = Layer.effect(
               ...(payload.messageMetadata ||
               windowContextLabel ||
               browserUrl ||
-              appSelectionLabel ||
-              activityLabel ||
-              quotedText ||
-              windowPreviewImageUrl
+              windowPreviewImageUrl ||
+              userMessageMetadata
                 ? {
                     metadata: {
                       ...(payload.messageMetadata ?? {}),
                       ...(windowContextLabel ||
                       browserUrl ||
-                      appSelectionLabel ||
-                      activityLabel ||
-                      quotedText ||
-                      windowPreviewImageUrl
+                      windowPreviewImageUrl ||
+                      userMessageMetadata
                         ? {
                             context: {
                               ...(payload.messageMetadata?.context ?? {}),
                               ...(windowContextLabel
-                                ? {
-                                    windowLabel: windowContextLabel,
-                                  }
+                                ? { windowLabel: windowContextLabel }
                                 : {}),
-                              ...(browserUrl
-                                ? {
-                                    browserUrl,
-                                  }
-                                : {}),
+                              ...(browserUrl ? { browserUrl } : {}),
                               ...(windowPreviewImageUrl
-                                ? {
-                                    windowPreviewImageUrl,
-                                  }
+                                ? { windowPreviewImageUrl }
                                 : {}),
-                              ...(appSelectionLabel
-                                ? {
-                                    appSelectionLabel,
-                                  }
-                                : {}),
-                              ...(appSelectionLabels?.length
-                                ? {
-                                    appSelectionLabels,
-                                  }
-                                : {}),
-                              ...(activityLabel
-                                ? {
-                                    activityLabel,
-                                  }
-                                : {}),
-                              ...(quotedText
-                                ? {
-                                    quotedText,
-                                  }
-                                : {}),
+                              ...journalDisplayContext,
                             },
                           }
                         : {}),
@@ -1091,6 +1072,7 @@ export const layer = Layer.effect(
           ...(runPromptMessages.length
             ? { promptMessages: runPromptMessages }
             : {}),
+          ...(userMessageMetadata ? { userMessageMetadata } : {}),
           attachments:
             mergedAttachments.length > 0 ? mergedAttachments : undefined,
           agentType: payload.agentType,

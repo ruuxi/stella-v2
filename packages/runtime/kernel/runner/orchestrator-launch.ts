@@ -73,6 +73,7 @@ export const buildCloudUserMessage = (
     | "agentContext"
     | "uiVisibility"
     | "userAuthoredPrompt"
+    | "userMessageMetadata"
   >,
 ): { message: PersistedRuntimeThreadPayload; hidden: boolean } => {
   const promptMessages = prepared.promptMessages ?? [];
@@ -123,7 +124,12 @@ export const buildCloudUserMessage = (
   const fileAttachments = cloudFileAttachmentMetadata(promptInput.attachments);
   // A runtime prompt is never user-authored: it has no typed text at all, so
   // it stays hidden even when the caller claims authorship for the turn.
-  const userAuthored = prepared.userAuthoredPrompt === true && !runtimePrompt;
+  // The exception is a send that carried only composer context (a pasted-text
+  // chip, a quote): the person did send it, so the row stays visible with an
+  // empty display body while its text keeps the context for the model.
+  const contextOnlySend = runtimePrompt && Boolean(prepared.userMessageMetadata);
+  const userAuthored =
+    (prepared.userAuthoredPrompt === true && !runtimePrompt) || contextOnlySend;
   const hidden =
     !userAuthored &&
     (runtimePrompt ||
@@ -134,6 +140,14 @@ export const buildCloudUserMessage = (
       ...message,
       ...(executionContext ? { executionContext } : {}),
       ...(fileAttachments.length > 0 ? { attachments: fileAttachments } : {}),
+      ...(prepared.userMessageMetadata
+        ? {
+            metadata: {
+              ...prepared.userMessageMetadata,
+              ...(contextOnlySend ? { displayText: "" } : {}),
+            },
+          }
+        : {}),
     },
     hidden,
   };
@@ -476,6 +490,11 @@ export type PreparedOrchestratorRun = {
    * own `uiVisibility`, which also drives local run/event publication.
    */
   userAuthoredPrompt?: boolean;
+  /**
+   * Display-only metadata for the journal user row (pasted-text and other
+   * context chips), so every client renders what the sender saw.
+   */
+  userMessageMetadata?: { context: Record<string, unknown> };
   promptMessages?: RuntimePromptMessage[];
   responseTarget?: Parameters<typeof runOrchestratorTurn>[0]["responseTarget"];
   attachments: RuntimeAttachmentRef[];
@@ -507,6 +526,7 @@ export const prepareOrchestratorRun = async (args: {
   userPrompt: string;
   uiVisibility?: "visible" | "hidden";
   userAuthoredPrompt?: boolean;
+  userMessageMetadata?: PreparedOrchestratorRun["userMessageMetadata"];
   promptMessages?: RuntimePromptMessage[];
   responseTarget?: Parameters<typeof runOrchestratorTurn>[0]["responseTarget"];
   attachments: RuntimeAttachmentRef[];
@@ -581,6 +601,9 @@ export const prepareOrchestratorRun = async (args: {
       userPrompt: args.userPrompt,
       ...(args.uiVisibility ? { uiVisibility: args.uiVisibility } : {}),
       ...(args.userAuthoredPrompt ? { userAuthoredPrompt: true } : {}),
+      ...(args.userMessageMetadata
+        ? { userMessageMetadata: args.userMessageMetadata }
+        : {}),
       promptMessages: args.promptMessages,
       ...(args.responseTarget ? { responseTarget: args.responseTarget } : {}),
       attachments: args.attachments,
@@ -983,6 +1006,7 @@ export const startPreparedOrchestratorRun = async (args: {
   userPrompt: string;
   uiVisibility?: "visible" | "hidden";
   userAuthoredPrompt?: boolean;
+  userMessageMetadata?: PreparedOrchestratorRun["userMessageMetadata"];
   promptMessages?: RuntimePromptMessage[];
   responseTarget?: Parameters<typeof runOrchestratorTurn>[0]["responseTarget"];
   attachments: RuntimeAttachmentRef[];
@@ -1014,6 +1038,9 @@ export const startPreparedOrchestratorRun = async (args: {
     userPrompt: args.userPrompt,
     ...(args.uiVisibility ? { uiVisibility: args.uiVisibility } : {}),
     ...(args.userAuthoredPrompt ? { userAuthoredPrompt: true } : {}),
+    ...(args.userMessageMetadata
+      ? { userMessageMetadata: args.userMessageMetadata }
+      : {}),
     promptMessages: args.promptMessages,
     ...(args.responseTarget ? { responseTarget: args.responseTarget } : {}),
     attachments: args.attachments,

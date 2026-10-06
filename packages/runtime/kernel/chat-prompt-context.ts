@@ -178,6 +178,26 @@ const escapeXmlText = (value: string) =>
  */
 const QUOTED_TEXT_PREVIEW_MAX_CHARS = 4_000;
 
+const PASTED_TEXT_PREVIEW_MAX_CHARS = 4_000;
+
+export type PastedTextDescriptor = {
+  text?: string;
+  lines: number;
+  chars: number;
+};
+
+const buildPastedTextDescriptors = (
+  chatContext: ChatContext | null | undefined,
+): PastedTextDescriptor[] =>
+  (chatContext?.pastedTexts ?? [])
+    .map((text) => text?.trim() ?? "")
+    .filter((text) => text.length > 0)
+    .map((text) => ({
+      text: text.slice(0, PASTED_TEXT_PREVIEW_MAX_CHARS),
+      lines: text.split(/\r\n|\r|\n/).length,
+      chars: text.length,
+    }));
+
 export const buildChatPromptMessages = ({
   userPrompt,
   selectedText,
@@ -194,6 +214,8 @@ export const buildChatPromptMessages = ({
   activityLabel?: string;
   /** Bounded preview of quoted / "Ask Stella" context for the sent-message chip. */
   quotedText?: string;
+  /** One descriptor per pasted-text chip, for the sent-message chip. */
+  pastedTexts?: PastedTextDescriptor[];
   promptMessages?: RuntimePromptMessage[];
   windowScreenshotAttachment?: RuntimeAttachmentRef;
 } => {
@@ -213,6 +235,7 @@ export const buildChatPromptMessages = ({
   const activitySnippet = buildActivitySnippet(chatContext);
   const activityLabel = chatContext?.activity?.label?.trim();
   const pastedTextSnippets = buildPastedTextSnippets(chatContext);
+  const pastedTextDescriptors = buildPastedTextDescriptors(chatContext);
   const delegatedModelMention = findDelegatedModelMention(cleanedUserPrompt);
   const browserUrl = chatContext?.browserUrl?.trim();
   const visibleParts: string[] = [];
@@ -346,6 +369,9 @@ export const buildChatPromptMessages = ({
     ...(appSelectionLabels.length > 0 ? { appSelectionLabels } : {}),
     ...(activityLabel ? { activityLabel } : {}),
     ...(quotedText ? { quotedText } : {}),
+    ...(pastedTextDescriptors.length > 0
+      ? { pastedTexts: pastedTextDescriptors }
+      : {}),
     ...(promptMessages.length > 0 ? { promptMessages } : {}),
     ...(windowScreenshotAttachment ? { windowScreenshotAttachment } : {}),
   };

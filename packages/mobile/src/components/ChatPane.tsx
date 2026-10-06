@@ -167,6 +167,11 @@ import type {
   MobileTask,
 } from "../types";
 
+const describePastedText = (pasted: { lines: number; chars: number }): string =>
+  pasted.lines > 1
+    ? `${pasted.lines.toLocaleString()} lines`
+    : `${pasted.chars.toLocaleString()} chars`;
+
 // Required for LayoutAnimation on Android.
 if (
   Platform.OS === "android" &&
@@ -1575,6 +1580,12 @@ const ChatMessageRow = memo(function ChatMessageRow({
     const documentNames = item.documentNames ?? [];
     const showText = item.text.trim().length > 0;
     const quotedText = item.quotedText?.trim();
+    const pastedTexts = item.pastedTexts ?? [];
+    const hasBubbleBody =
+      showText ||
+      showThumbs ||
+      attachmentPreviews.length > 0 ||
+      documentNames.length > 0;
     const userBubbleBody = (
       <>
         {attachmentPreviews.length > 0 ? (
@@ -1666,7 +1677,28 @@ const ChatMessageRow = memo(function ChatMessageRow({
               </Text>
             </View>
           ) : null}
-          {isSelecting && showText ? (
+          {pastedTexts.map((pasted, index) => (
+            <View
+              key={`pasted-${index}`}
+              style={[styles.quoteChip, styles.userQuoteChip]}
+              accessibilityLabel={`Pasted text, ${describePastedText(pasted)}`}
+            >
+              <Icon
+                name="file-text"
+                size={13}
+                color={colors.textMuted}
+                style={styles.quoteChipIcon}
+              />
+              <Text
+                style={styles.quoteChipText}
+                numberOfLines={1}
+                maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+              >
+                {`Pasted text · ${describePastedText(pasted)}`}
+              </Text>
+            </View>
+          ))}
+          {!hasBubbleBody ? null : isSelecting && showText ? (
             // "Select" mode: the bubble body becomes a native selection
             // surface (with a Copy pill), so a substring can be lifted out.
             <View style={styles.userBubble}>

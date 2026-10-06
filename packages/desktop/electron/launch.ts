@@ -18,8 +18,6 @@ import {
 } from "node:module";
 import { readdir, rm } from "node:fs/promises";
 import path from "node:path";
-import { app } from "electron";
-import { isInstalledProduct } from "./app-identity.js";
 
 // Persist once startup has settled rather than only at exit: a crash or a
 // force-kill before a clean quit would otherwise drop the whole cache.
@@ -28,18 +26,16 @@ const COMPILE_CACHE_DIR_NAME = "Main Compile Cache";
 
 const enableMainCompileCache = (): void => {
   try {
-    // The user's Stella keeps the cache in its own userData so it survives
-    // reboots and temp cleaners — the startup cost this cache exists to cut is
-    // paid on every launch, and the product launches far more often than a
-    // checkout does. A developer checkout uses Node's default temp location
-    // rather than creating a profile under the pre-rename app name.
-    if (isInstalledProduct({ isPackaged: app.isPackaged })) {
-      enableCompileCache(
-        path.join(app.getPath("userData"), COMPILE_CACHE_DIR_NAME),
-      );
-    } else {
-      enableCompileCache();
-    }
+    // Node's default temp location, in every install. Stella's own userData
+    // would survive temp cleaners, but this module runs before the bundle it
+    // loads, and it is that bundle (bootstrap) which renames the app and points
+    // userData at Stella's profile: `app.getPath("userData")` here is still the
+    // pre-rename default and would plant a stray profile directory. This was an
+    // `app.isPackaged` branch that no install has taken since packaging was
+    // removed; moving the cache needs a path the launcher hands us, and this
+    // module may not import one to derive it (electron/launch.js must inline
+    // nothing — see assertMainBundleStartupBoundary).
+    enableCompileCache();
   } catch {
     // Startup must never depend on the cache.
   }

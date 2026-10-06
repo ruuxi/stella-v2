@@ -72,6 +72,10 @@ const ELECTRON_SYSTEM_ENV_KEYS = [
   "TZ",
   "DISPLAY",
   "XDG_RUNTIME_DIR",
+  // The harness is a developer instance, so it serves the renderer in
+  // development mode. Pass this through to verify the production build the
+  // installed product serves (see resolveRendererBuildMode).
+  "STELLA_RENDERER_MODE",
 ];
 
 const usage = helpText();

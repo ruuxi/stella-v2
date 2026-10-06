@@ -2,7 +2,7 @@ import { memo, type ReactNode, useEffect, useState } from "react";
 import {
   type AppSourceActionResult,
   type AppSourceDraft,
-  isUpdateDraft,
+  isStellaDraft,
 } from "@stella/contracts/desktop/app-source";
 import { GrowIn } from "@/app/chat/GrowIn";
 import { showToast } from "@/ui/toast";
@@ -10,7 +10,6 @@ import { useLocale, useT, useTPlural } from "@/shared/i18n";
 import {
   agentChange,
   appSourceApi,
-  handOffToAgent,
   runAppSourceAction,
   updateProgress,
   useAppSourceState,
@@ -54,7 +53,8 @@ const subjectOf = (subject: string): string => {
 
 /**
  * Runs card actions: `pending` names the card whose action is running (in any
- * mounted copy). Failures toast; conflicts go to `onConflict`.
+ * mounted copy). Only a real failure is shown; work that moved to the
+ * background succeeded, and the state says so.
  */
 const useAction = () => {
   const t = useT();
@@ -62,14 +62,9 @@ const useAction = () => {
   const run = async (
     key: string,
     action: () => Promise<AppSourceActionResult>,
-    onConflict?: () => void,
   ) => {
     const result = await runAppSourceAction(key, action);
     if (result.ok) return;
-    if (result.conflict && onConflict) {
-      onConflict();
-      return;
-    }
     showToast({
       title: t("shell.appSource.failed"),
       description: result.error,
@@ -94,7 +89,11 @@ export const AgentUpdateCard = memo(function AgentUpdateCard({
   const change = state ? agentChange(state, agentId) : null;
   if (!state || !api || !change) return null;
   const pending = running === agentId;
-  const blocked = (state.busy || running !== null) && !pending;
+  // Nothing else goes in while Stella is settling its own version: a change
+  // applied into the middle of that merge is a conflict nobody asked for.
+  const blocked =
+    updateProgress(state)?.state === "merging" ||
+    ((state.busy || running !== null) && !pending);
 
   if (change.kind === "elsewhere") {
     // Made on another computer: it never applies here on its own, and it isn't
@@ -118,10 +117,7 @@ export const AgentUpdateCard = memo(function AgentUpdateCard({
         action={{
           label: t("shell.appSource.addHere"),
           primary: true,
-          onClick: () =>
-            state.remote.status === "diverged"
-              ? handOffToAgent(t("shell.appSource.askMerge"))
-              : void run(agentId, () => api.applyRemote()),
+          onClick: () => void run(agentId, () => api.applyRemote()),
         }}
       />
     );
@@ -143,11 +139,9 @@ export const AgentUpdateCard = memo(function AgentUpdateCard({
         action={{
           label: t("shell.appSource.update"),
           primary: true,
-          // A draft whose base moved goes to an agent to bring up to date.
-          onClick: () =>
-            stale
-              ? handOffToAgent(t("shell.appSource.askRebase", { name: draft.name }))
-              : void run(agentId, () => api.apply(draft.name)),
+          // Including a draft whose base moved: the main process merges it,
+          // and only involves an agent if that genuinely conflicts.
+          onClick: () => void run(agentId, () => api.apply(draft.name)),
         }}
       />
     );
@@ -176,11 +170,9 @@ export const AgentUpdateCard = memo(function AgentUpdateCard({
         // Undoing an undo takes the change again.
         label: commit.undone ? t("shell.appSource.update") : t("shell.appSource.undo"),
         primary: commit.undone,
-        // An undo later changes conflict with goes to an agent.
-        onClick: () =>
-          void run(agentId, () => api.undo(commit.sha), () =>
-            handOffToAgent(t("shell.appSource.askUndo", { subject })),
-          ),
+        // An undo later work conflicts with goes to an agent, which finishes
+        // it as a draft this card then offers.
+        onClick: () => void run(agentId, () => api.undo(commit.sha)),
       }}
     />
   );
@@ -224,7 +216,7 @@ const useLeavingOffers = (offers: Offer[]) => {
 
 /**
  * Changes no agent here made: drafts made by hand, other computers. Plus the
- * one line an official update gets while Stella takes it — updating is
+ * one line Stella's own version work gets while it happens — that is
  * genuinely unlike updating anything else, so it says the least it can: that
  * it is happening, and then that it is done. Never why it takes a while, and
  * never that anything clashed.
@@ -264,53 +256,50 @@ export const AppSourceOffers = memo(function AppSourceOffers() {
         action: null,
       });
     }
-    const byHand = (entry: AppSourceDraft) => !entry.agentId && !isUpdateDraft(entry.name);
-    for (const draft of state.ready.filter(byHand)) {
-      const key = `ready:${draft.sha}`;
-      offer(key, {
-        tone: "update",
-        title: draft.subject || draft.name,
-        detail: `${t("shell.appSource.title")} · ${
-          draft.restart
-            ? t("shell.appSource.restarts")
-            : tPlural("shell.appSource.files", draft.files)
-        }`,
-        action: {
-          label: t("shell.appSource.update"),
-          primary: true,
-          onClick: () => void run(key, () => api.apply(draft.name)),
-        },
-      });
-    }
-    for (const draft of state.stale.filter(byHand)) {
-      offer(`stale:${draft.sha}`, {
-        tone: "update",
-        title: draft.subject || draft.name,
-        detail: t("shell.appSource.outdated"),
-        action: {
-          label: t("shell.appSource.update"),
-          primary: true,
-          onClick: () => handOffToAgent(t("shell.appSource.askRebase", { name: draft.name })),
-        },
-      });
-    }
-    // Another computer's changes, unless an agent's change in the chat
-    // already offers them (adding it takes them all).
-    if (state.remote.status !== "none" && !state.elsewhere.some((change) => !change.here)) {
-      const diverged = state.remote.status === "diverged";
-      offer("remote", {
-        tone: "update",
-        title: t("shell.appSource.changedElsewhere"),
-        detail: tPlural("shell.appSource.changes", state.remote.count),
-        action: {
-          label: t("shell.appSource.addHere"),
-          primary: true,
-          onClick: () =>
-            diverged
-              ? handOffToAgent(t("shell.appSource.askMerge"))
-              : void run("remote", () => api.applyRemote()),
-        },
-      });
+    // While that merge is going on, nothing else is offered: applying another
+    // change into the middle of it is how you get a conflict nobody asked for.
+    if (progress?.state !== "merging") {
+      const byHand = (entry: AppSourceDraft) =>
+        !entry.agentId && !isStellaDraft(entry.name);
+      // A draft whose base moved offers the same button: the main process
+      // merges it, and only a real conflict in it reaches an agent.
+      for (const draft of [...state.ready, ...state.stale].filter(byHand)) {
+        const outdated = state.stale.includes(draft);
+        const key = `${outdated ? "stale" : "ready"}:${draft.sha}`;
+        offer(key, {
+          tone: "update",
+          title: draft.subject || draft.name,
+          detail: outdated
+            ? t("shell.appSource.outdated")
+            : `${t("shell.appSource.title")} · ${
+                draft.restart
+                  ? t("shell.appSource.restarts")
+                  : tPlural("shell.appSource.files", draft.files)
+              }`,
+          action: {
+            label: t("shell.appSource.update"),
+            primary: true,
+            onClick: () => void run(key, () => api.apply(draft.name)),
+          },
+        });
+      }
+      // Another computer's changes, unless an agent's change in the chat
+      // already offers them (adding it takes them all).
+      if (
+        state.remote.status !== "none" &&
+        !state.elsewhere.some((change) => !change.here)
+      ) {
+        offer("remote", {
+          tone: "update",
+          title: t("shell.appSource.changedElsewhere"),
+          detail: tPlural("shell.appSource.changes", state.remote.count),
+          action: {
+            label: t("shell.appSource.addHere"),
+            primary: true,
+            onClick: () => void run("remote", () => api.applyRemote()),
+          },
+        });
+      }
     }
   }
   return <OffersList offers={offers} />;

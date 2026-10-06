@@ -6,8 +6,10 @@ import type {
   AppSourceElsewhere,
   AppSourceState,
 } from "@stella/contracts/desktop/app-source";
-import { isUpdateDraft } from "@stella/contracts/desktop/app-source";
-import { dispatchStellaSendMessage } from "@/shared/lib/stella-send-message";
+import {
+  isStellaDraft,
+  isUpdateDraft,
+} from "@stella/contracts/desktop/app-source";
 
 /**
  * The app's own source state (drafts to apply, recent changes, the user's
@@ -52,12 +54,14 @@ export const useAppSourceState = () =>
 export const appSourceApi = () => window.electronAPI?.appSource ?? null;
 
 /**
- * Hand git work Stella can't do alone (a rebase, a merge, an undo that
- * conflicts) to an agent in the background. The message is hidden: pressing
- * the button was the request, so the chat doesn't show the user asking.
+ * Every button here calls one method and is finished with it. Git work the
+ * app cannot do alone — a stale draft, a diverged merge, an undo later work
+ * conflicts with — is recognised and handed to an agent by the main process,
+ * which has the shas and the conflicts in hand. The renderer used to do that
+ * by dispatching a sentence into the chat as a hidden user message, so the
+ * user read themselves asking for something they had only pressed a button
+ * for. Nothing here writes to the conversation now.
  */
-export const handOffToAgent = (text: string) =>
-  dispatchStellaSendMessage({ text, uiVisibility: "hidden" }, { openPanel: false });
 
 /**
  * The card whose action is running, by key. Shared, because the same card can
@@ -111,7 +115,7 @@ export const agentChange = (
   agentId: string,
 ): AgentChange | null => {
   const mine = (draft: AppSourceDraft) =>
-    draft.agentId === agentId && !isUpdateDraft(draft.name);
+    draft.agentId === agentId && !isStellaDraft(draft.name);
   const ready = state.ready.find(mine);
   if (ready) return { kind: "ready", draft: ready };
   const stale = state.stale.find(mine);

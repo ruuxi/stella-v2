@@ -128,12 +128,17 @@ const sendMagicLinkEmail = async (env: AuthEnv, email: string, url: string): Pro
     console.log(JSON.stringify({ event: "auth_magic_link_test_account", email, url }));
     return;
   }
+  const apiKey = configured(env, "RESEND_API_KEY");
+  const from = configured(env, "RESEND_FROM");
+  if (!apiKey || !from) {
+    throw new APIError("SERVICE_UNAVAILABLE", { message: "Email sign-in isn't set up on this Stella." });
+  }
   const logo = configured(env, "STELLA_EMAIL_LOGO_URL") ?? `${websiteUrl(env)}/stella-logo.png`;
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
-    headers: { authorization: `Bearer ${required(env, "RESEND_API_KEY")}`, "content-type": "application/json" },
+    headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
     body: JSON.stringify({
-      from: required(env, "RESEND_FROM"),
+      from,
       to: email,
       subject: getMagicLinkSubject(undefined),
       html: buildMagicLinkEmail(escapeHtmlAttribute(logo), escapeHtmlAttribute(url), undefined),

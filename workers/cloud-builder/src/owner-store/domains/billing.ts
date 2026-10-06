@@ -652,6 +652,13 @@ const stripeUnavailable = (error: unknown): RpcError =>
     { retryable: !(error instanceof StripeError && error.status < 500) },
   );
 
+/** Purchases need billing; a deployment without it says so instead of "try again". */
+const requireBilling = (env: Cloudflare.Env): void => {
+  if (!billingConfig(env).enabled) {
+    throw new RpcError("UNAVAILABLE", "Billing isn't set up on this Stella.", { retryable: false });
+  }
+};
+
 /** The owner's Stripe customer, created on first use with the owner id attached. */
 const ensureCustomer = async (ctx: OwnerContext): Promise<string> => {
   const row = ensureAccount(ctx.db, ctx.now);
@@ -671,6 +678,7 @@ const checkout = async (
   ctx: OwnerContext,
   args: BillingCalls["billing.checkout"]["args"],
 ): Promise<{ url: string; sessionId: string }> => {
+  requireBilling(ctx.env);
   const source = args.source?.trim().toLowerCase() || "web";
   if (source === "ios" && args.appStoreCountry?.trim().toUpperCase() !== "USA") {
     throw new RpcError("FORBIDDEN", "In-app subscriptions aren't available in your App Store region.");
@@ -715,6 +723,7 @@ const creditCheckout = async (
   ctx: OwnerContext,
   args: BillingCalls["billing.creditCheckout"]["args"],
 ): Promise<{ url: string; sessionId: string }> => {
+  requireBilling(ctx.env);
   const amountCents = Math.floor(args.amountCents);
   if (amountCents < CREDIT_MIN_CENTS || amountCents > CREDIT_MAX_CENTS) {
     throw new RpcError(

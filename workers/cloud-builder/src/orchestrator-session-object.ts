@@ -164,6 +164,7 @@ import {
 import {
   TURN_OWNER_GENERATION_HEADER,
   TURN_PLANE_PROTOCOL,
+  TURN_PROMPT_MAX_CHARS,
   type CloudTurnLane,
   type CloudTurnSource,
   type CloudTurnStartRequest,
@@ -397,6 +398,9 @@ import {
 /** Desktop keeps a connect card up about this long before giving up. */
 const CONNECT_CARD_WAIT_MS = 5 * 60_000;
 const CONNECT_CARD_POLL_MS = 2_000;
+const WAKE_REPORT_INLINE_MAX_BYTES = 512 * 1024;
+
+type WakeReport = { prompt: string; lifecycleReport?: string };
 
 type Env = Pick<
   Cloudflare.Env,
@@ -470,6 +474,7 @@ export type ChatTurnRequest = {
    * rebound to whichever mutable attempt happens to be current.
    */
   agentThreadControl?: CloudAgentControlReceipt;
+  wakeReportSpillKey?: string;
   watchdogMs?: number;
   /** Worker-issued owner purge lease generation. */
   ownerPurgeGeneration?: string;
@@ -3412,6 +3417,15 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         false,
       );
     }
+    const wakeReportSpillKey = await this.spillLargeWakeReport(start);
+    if (wakeReportSpillKey === null) {
+      return turnStartErrorResponse(
+        "internal",
+        "The agent report could not be stored yet.",
+        true,
+        5_000,
+      );
+    }
     const conversationId = this.conversationId();
     const admissionFingerprint = await sha256Hex(
       chatTurnFingerprintSource(ownerId, conversationId, start),
@@ -3689,7 +3703,9 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         conversationId,
         turnId,
         sessionId: `chat-${conversationId.slice(0, 8)}`,
-        prompt: start.prompt,
+        prompt: wakeReportSpillKey
+          ? `${start.prompt.slice(0, TURN_PROMPT_MAX_CHARS)}\n\n[The full report is stored with this turn.]`
+          : start.prompt,
         execution,
         audience: snapshot.allowance.audience,
         budgetMicroCents: snapshot.allowance.budgetMicroCents,
@@ -3704,8 +3720,24 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         ...(start.locale ? { locale: start.locale } : {}),
         ...(start.attachments ? { attachments: start.attachments } : {}),
         ...(start.agentThreadControl
-          ? { agentThreadControl: start.agentThreadControl }
+          ? {
+              agentThreadControl: wakeReportSpillKey
+                ? {
+                    ...start.agentThreadControl,
+                    ...(start.agentThreadControl.lifecycleReport !== undefined
+                      ? {
+                          lifecycleReport:
+                            start.agentThreadControl.lifecycleReport.slice(
+                              0,
+                              TURN_PROMPT_MAX_CHARS + 1,
+                            ),
+                        }
+                      : {}),
+                  }
+                : start.agentThreadControl,
+            }
           : {}),
+        ...(wakeReportSpillKey ? { wakeReportSpillKey } : {}),
         ownerPurgeLeaseId: leaseId,
         queuedAt,
       };
@@ -3981,6 +4013,17 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
   ): Promise<Response> {
     try {
       const now = Date.now();
+      const report = await this.wakeReport(turn);
+      const promptMessage = {
+        role: "user",
+        content: [{ type: "text", text: report.prompt }],
+        timestamp: now,
+        ...(turn.source ? { source: turn.source } : {}),
+      } as AgentMessage;
+      const promptPayload = await this.spillOversizePrompt(
+        turn.turnId,
+        promptMessage,
+      );
       const owed: OwedTerminal = {
         kind: "canceled",
         message: TERMINAL_NOTICE.canceled,
@@ -4014,16 +4057,12 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         hidden: turn.hiddenMessage === true,
         clientMsgId: turn.clientMsgId,
         createdAt: now,
-        message: {
-          role: "user",
-          content: [{ type: "text", text: turn.prompt }],
-          timestamp: now,
-          ...(turn.source ? { source: turn.source } : {}),
-        } as AgentMessage,
+        message: promptMessage,
+        ...promptPayload,
       });
       this.journal.setTurnSpan(turn.turnId, prompt.seq);
       this.publish(prompt.record);
-      this.publishAgentTerminal(turn);
+      this.publishAgentTerminal(turn, report);
       this.recordTerminal(turn, "canceled", TERMINAL_NOTICE.canceled);
       try {
         await this.emitTurnEvent(
@@ -4948,6 +4987,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         });
         turnContext = context;
         const prepend = context.deltas;
+        const report = await this.wakeReport(turn);
         await assertExactTurnActive();
         const executionContext = createExecutionContextSnapshot({
           devices: destinations?.devices ?? null,
@@ -4955,7 +4995,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         });
         const durablePrompt = {
           role: "user",
-          content: [{ type: "text", text: turn.prompt }],
+          content: [{ type: "text", text: report.prompt }],
           timestamp: now,
           executionContext,
           ...(turn.originUserMessageId
@@ -4972,6 +5012,11 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           },
           ...(turn.source ? { source: turn.source } : {}),
         } as AgentMessage;
+        const promptPayload = await this.spillOversizePrompt(
+          turn.turnId,
+          durablePrompt,
+        );
+        if (promptPayload.spillKey) await assertExactTurnActive();
         // The prompt, its hidden updates, and the adopted checkpoint commit
         // together. A restart cannot remember an update that was never appended.
         const contextStateChanged = context.state !== previousContext;
@@ -4991,6 +5036,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             clientMsgId: turn.clientMsgId,
             createdAt: now,
             message: durablePrompt,
+            ...promptPayload,
           });
           if (contextStateChanged)
             this.ctx.storage.kv.put(PROMPT_CONTEXT_KEY, context.state);
@@ -5006,7 +5052,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         });
         this.journal.setTurnSpan(turn.turnId, promptRow.seq);
         this.publish(promptRow.record);
-        this.publishAgentTerminal(turn);
+        this.publishAgentTerminal(turn, report);
 
         const startedRow = this.journal.appendTurn({
           turnId: turn.turnId,
@@ -5760,11 +5806,12 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     let deliveredThrough: number | undefined;
     try {
       if (!prior) {
+        const report = await this.wakeReport(turn);
         const promptKey = `turn:${turn.turnId}:prompt`;
         const promptSeq =
           args.resumeTurn && this.journal.hasRow(promptKey)
             ? this.journal.selectTurnMessages(turn.turnId).rows[0]?.seq
-            : this.journalCliPrompt(turn, destinations);
+            : await this.journalCliPrompt(turn, destinations, report);
         if (promptSeq === undefined) {
           throw new ChatTurnNotResumableError("prompt_row");
         }
@@ -5796,7 +5843,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         );
         const prompt = composeOrchestratorCliPrompt({
           context: context.block,
-          text: turn.prompt,
+          text: report.prompt,
           promptSeq,
           hidden: turn.hiddenMessage === true,
           clock: new Date().toISOString(),
@@ -5956,18 +6003,15 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
    * context ever has, so a later Stella turn replays it with its clock and
    * attachments but no stale system reminders.
    */
-  private journalCliPrompt(
+  private async journalCliPrompt(
     turn: ChatTurnRequest,
     destinations: DevicesResponse | null,
-  ): number {
+    report: WakeReport,
+  ): Promise<number> {
     const now = Date.now();
-    for (const repaired of this.journal.repairTail(now)) {
-      this.publish(repaired.record);
-    }
-    this.drainInbox();
     const durablePrompt = {
       role: "user",
-      content: [{ type: "text", text: turn.prompt }],
+      content: [{ type: "text", text: report.prompt }],
       timestamp: now,
       executionContext: createExecutionContextSnapshot({
         devices: destinations?.devices ?? null,
@@ -5987,6 +6031,14 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       },
       ...(turn.source ? { source: turn.source } : {}),
     } as AgentMessage;
+    const promptPayload = await this.spillOversizePrompt(
+      turn.turnId,
+      durablePrompt,
+    );
+    for (const repaired of this.journal.repairTail(now)) {
+      this.publish(repaired.record);
+    }
+    this.drainInbox();
     const promptRow = this.journal.appendMessage({
       turnId: turn.turnId,
       writer: "orchestrator",
@@ -5996,10 +6048,11 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       clientMsgId: turn.clientMsgId,
       createdAt: now,
       message: durablePrompt,
+      ...promptPayload,
     });
     this.journal.setTurnSpan(turn.turnId, promptRow.seq);
     this.publish(promptRow.record);
-    this.publishAgentTerminal(turn);
+    this.publishAgentTerminal(turn, report);
     const startedRow = this.journal.appendTurn({
       turnId: turn.turnId,
       writer: "orchestrator",
@@ -10583,9 +10636,85 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     return outcome;
   }
 
-  private publishAgentTerminal(turn: ChatTurnRequest): void {
+  private async spillLargeWakeReport(
+    start: CloudTurnStartRequest,
+  ): Promise<string | undefined | null> {
+    const control = start.agentThreadControl;
+    if (!control) return undefined;
+    const bytes =
+      utf8Length(start.prompt) + utf8Length(control.lifecycleReport ?? "");
+    if (bytes <= WAKE_REPORT_INLINE_MAX_BYTES) return undefined;
+    const report: WakeReport = {
+      prompt: start.prompt,
+      ...(control.lifecycleReport !== undefined
+        ? { lifecycleReport: control.lifecycleReport }
+        : {}),
+    };
+    const key = await this.archive
+      .writeSpill(`wake:${start.clientMsgId}`, JSON.stringify(report))
+      .catch((error: unknown) => {
+        log("error", "wake_report_spill_failed", {
+          clientMsgId: start.clientMsgId,
+          message: errorMessage(error),
+        });
+        return null;
+      });
+    return key ?? null;
+  }
+
+  private async wakeReport(turn: ChatTurnRequest): Promise<WakeReport> {
+    const inline: WakeReport = {
+      prompt: turn.prompt,
+      ...(turn.agentThreadControl?.lifecycleReport !== undefined
+        ? { lifecycleReport: turn.agentThreadControl.lifecycleReport }
+        : {}),
+    };
+    if (!turn.wakeReportSpillKey) return inline;
+    const stored = (await this.archive.readSpill(turn.wakeReportSpillKey)) as {
+      prompt?: unknown;
+      lifecycleReport?: unknown;
+    } | null;
+    if (!stored || typeof stored.prompt !== "string") {
+      throw new Error("The stored agent report could not be read.");
+    }
+    return {
+      prompt: stored.prompt,
+      ...(typeof stored.lifecycleReport === "string"
+        ? { lifecycleReport: stored.lifecycleReport }
+        : {}),
+    };
+  }
+
+  private async spillOversizePrompt(
+    turnId: string,
+    message: AgentMessage,
+  ): Promise<{ payloadJson: string; spillKey?: string }> {
+    const payloadJson = JSON.stringify(message);
+    if (utf8Length(payloadJson) <= MAX_ROW_BYTES) return { payloadJson };
+    const spillKey = await this.archive.writeSpill(
+      `turn:${turnId}:prompt`,
+      payloadJson,
+    );
+    if (!spillKey) throw new Error("The oversize prompt could not be stored.");
+    return { payloadJson, spillKey };
+  }
+
+  private publishAgentTerminal(
+    turn: ChatTurnRequest,
+    report?: WakeReport,
+  ): void {
     if (!turn.agentThreadControl) return;
-    const card = cloudAgentTerminalCard(turn.agentThreadControl);
+    const full =
+      report?.lifecycleReport !== undefined
+        ? cloudAgentTerminalCard({
+            ...turn.agentThreadControl,
+            lifecycleReport: report.lifecycleReport,
+          })
+        : null;
+    const card =
+      full && utf8Length(JSON.stringify(full)) <= MAX_ROW_BYTES
+        ? full
+        : cloudAgentTerminalCard(turn.agentThreadControl);
     if (card) {
       this.publishAgentLifecycleCard(
         turn.turnId,

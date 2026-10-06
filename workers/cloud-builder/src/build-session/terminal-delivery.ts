@@ -4,7 +4,6 @@ import type { ThreadCompletedEvent } from "@stella/contracts/turn-plane/owner-ev
 import {
   TURN_OWNER_GENERATION_HEADER,
   TURN_PLANE_PROTOCOL,
-  TURN_PROMPT_MAX_CHARS,
   type CloudTurnStartRequest,
 } from "@stella/contracts/turn-plane/turn-start";
 import { runToolEffect } from "@stella/runtime/kernel/tools/effect-runtime.js";
@@ -30,7 +29,11 @@ import {
   SandboxLifecycleDeferredError,
   sandboxLifecycleFailureFields,
 } from "../sandbox-lifecycle.js";
-import { SteerMailbox, parseSteerMessage } from "../steer-mailbox.js";
+import {
+  SteerMailbox,
+  parseSteerMessage,
+  steerMessageFitsAgentHistory,
+} from "../steer-mailbox.js";
 import {
   nextTurnEventSeq,
   purgeThreadTranscript,
@@ -504,10 +507,7 @@ export const agentLifecycleReport = (completion: {
       resultText = completion.resultJson;
     }
   }
-  return (resultText || "No result was reported.").slice(
-    0,
-    TURN_PROMPT_MAX_CHARS,
-  );
+  return resultText || "No result was reported.";
 };
 
 /** The hidden prompt that hands one finished thread to its requester. */
@@ -526,9 +526,7 @@ export const agentCompletionPromptText = (args: {
         ? "[Agent canceled]"
         : "[Agent failed]";
   const description = args.description?.trim() || args.threadId;
-  const heading = `${label} ${description} (thread ${args.threadId})\n\n`;
-  const bodyLimit = Math.max(0, TURN_PROMPT_MAX_CHARS - heading.length);
-  return `${heading}${(resultText || "No result was reported.").slice(0, bodyLimit)}`;
+  return `${label} ${description} (thread ${args.threadId})\n\n${resultText}`;
 };
 
 const agentCompletionText = async (
@@ -752,6 +750,9 @@ export const handleSteer = async (
 ): Promise<Response> => {
   const message = parseSteerMessage(await request.json().catch(() => null));
   if (!message) return json({ error: "Invalid steer message." }, 400);
+  if (!steerMessageFitsAgentHistory(message)) {
+    return json({ accepted: false, reason: "too_large" }, 409);
+  }
   return await host.ctx.blockConcurrencyWhile(async () => {
     const [turn, terminal] = await Promise.all([
       host.ctx.storage.get<TurnRequest>("turn"),

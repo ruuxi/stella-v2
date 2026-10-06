@@ -112,8 +112,7 @@ export const parseAgentThreadControl = (
   }
   if (
     value.lifecycleReport !== undefined &&
-    (typeof value.lifecycleReport !== "string" ||
-      value.lifecycleReport.length > TURN_PROMPT_MAX_CHARS)
+    typeof value.lifecycleReport !== "string"
   )
     return null;
   return {
@@ -149,9 +148,6 @@ export const parseCloudTurnStartRequest = (
   }
   const prompt = typeof value.prompt === "string" ? value.prompt : "";
   if (!prompt.trim()) return fail("prompt is required.");
-  if (prompt.length > TURN_PROMPT_MAX_CHARS) {
-    return fail(`prompt must be at most ${TURN_PROMPT_MAX_CHARS} characters.`);
-  }
   const request: CloudTurnStartRequest = {
     protocol: TURN_PLANE_PROTOCOL,
     clientMsgId,
@@ -225,6 +221,13 @@ export const parseCloudTurnStartRequest = (
     const control = parseAgentThreadControl(value.agentThreadControl);
     if (!control) return fail("agentThreadControl is malformed.");
     request.agentThreadControl = control;
+  }
+  const agentReport =
+    request.lane === "wake" &&
+    request.source === "agent-thread" &&
+    request.agentThreadControl !== undefined;
+  if (!agentReport && prompt.length > TURN_PROMPT_MAX_CHARS) {
+    return fail(`prompt must be at most ${TURN_PROMPT_MAX_CHARS} characters.`);
   }
   return { ok: true, request };
 };

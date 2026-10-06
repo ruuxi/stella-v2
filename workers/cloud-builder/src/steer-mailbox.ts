@@ -2,6 +2,7 @@ import type {
   CloudAgentSteerKind,
   CloudAgentSteerMessage,
 } from "@stella/contracts/turn-plane/turn-start";
+import { AGENT_HISTORY_ROW_MAX_BYTES } from "@stella/executor-cloud/agent-history";
 
 export type SteerMessageKind = CloudAgentSteerKind;
 export type SteerMessage = Readonly<CloudAgentSteerMessage>;
@@ -23,7 +24,8 @@ const STEER_KINDS: readonly SteerMessageKind[] = [
 ];
 
 const MAX_STEER_ID_CHARS = 256;
-const MAX_STEER_TEXT_CHARS = 8_000;
+const MAX_STEER_INPUT_CHARS = 8_000;
+const STEER_ROW_ENVELOPE_BYTES = 1_024;
 const MAX_STEER_ROWS = 128;
 const MAX_STEER_BYTES = 2 * 1024 * 1024;
 
@@ -42,6 +44,10 @@ const DDL = `CREATE TABLE IF NOT EXISTS agent_steer_mailbox (
 const utf8Bytes = (value: string): number =>
   new TextEncoder().encode(value).byteLength;
 
+export const steerMessageFitsAgentHistory = (message: SteerMessage): boolean =>
+  utf8Bytes(JSON.stringify(message.text)) + STEER_ROW_ENVELOPE_BYTES <=
+  Math.min(AGENT_HISTORY_ROW_MAX_BYTES, MAX_STEER_BYTES);
+
 export const parseSteerMessage = (value: unknown): SteerMessage | null => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const row = value as Record<string, unknown>;
@@ -51,7 +57,7 @@ export const parseSteerMessage = (value: unknown): SteerMessage | null => {
     !id ||
     id.length > MAX_STEER_ID_CHARS ||
     !text ||
-    text.length > MAX_STEER_TEXT_CHARS ||
+    (row.kind === "input" && text.length > MAX_STEER_INPUT_CHARS) ||
     !STEER_KINDS.includes(row.kind as SteerMessageKind) ||
     !Number.isSafeInteger(row.createdAt) ||
     (row.createdAt as number) < 0

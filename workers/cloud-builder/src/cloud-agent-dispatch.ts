@@ -563,7 +563,7 @@ export type SteerAgentResult =
       turnId: string;
       attemptGeneration: number;
     }>
-  | Readonly<{ accepted: false; reason: "not_running" }>;
+  | Readonly<{ accepted: false; reason: "not_running" | "too_large" }>;
 
 export const steerCloudAgent = async (args: {
   env: Pick<Cloudflare.Env, "BUILD_SESSIONS">;
@@ -589,9 +589,9 @@ export const steerCloudAgent = async (args: {
   if (
     response.status === 409 &&
     body?.accepted === false &&
-    body.reason === "not_running"
+    (body.reason === "not_running" || body.reason === "too_large")
   ) {
-    return { accepted: false, reason: "not_running" };
+    return { accepted: false, reason: body.reason };
   }
   if (
     !response.ok ||

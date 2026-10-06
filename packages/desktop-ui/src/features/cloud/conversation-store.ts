@@ -535,6 +535,8 @@ export const pendingPrompts = {
 
 /** How long a scrollback request may sit unanswered before the spinner stops. */
 const OLDER_TIMEOUT_MS = 15_000;
+const OLDER_CONTINUE_RETRY_MS = 3_500;
+const OLDER_CONTINUE_RETRIES = 20;
 /** How long the socket outlives its last watcher, to survive a remount. */
 const TEARDOWN_GRACE_MS = 5_000;
 const CACHE_WRITE_DEBOUNCE_MS = 50;
@@ -562,6 +564,12 @@ class ConversationStore {
   private subscribers = 0;
   private baseUrl: string | null = null;
   private olderTimer: ReturnType<typeof setTimeout> | null = null;
+  private olderPartial: {
+    nextSeq: number;
+    toSeq: number;
+    records: JournalRecord[];
+  } | null = null;
+  private olderRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private teardownTimer: ReturnType<typeof setTimeout> | null = null;
   private authorityRetired = false;
   private cacheHydrationStarted = false;
@@ -793,6 +801,7 @@ class ConversationStore {
     this.baseUrl = null;
     if (this.olderTimer) clearTimeout(this.olderTimer);
     this.olderTimer = null;
+    this.dropOlderPartial();
     if (this.cacheWriteTimer) clearTimeout(this.cacheWriteTimer);
     this.cacheWriteTimer = null;
     this.cacheOperationGeneration += 1;
@@ -838,13 +847,47 @@ class ConversationStore {
       });
       return;
     }
+    this.dropOlderPartial();
     if (!this.socket?.requestOlder(oldest)) return;
     this.patch({ loadingOlder: true, olderNotice: null });
+    this.armOlderTimer();
+  }
+
+  private armOlderTimer(): void {
     if (this.olderTimer) clearTimeout(this.olderTimer);
     this.olderTimer = setTimeout(() => {
       this.olderTimer = null;
+      this.dropOlderPartial();
       if (this.state.loadingOlder) this.patch({ loadingOlder: false });
     }, OLDER_TIMEOUT_MS);
+  }
+
+  private dropOlderPartial(): void {
+    this.olderPartial = null;
+    if (this.olderRetryTimer) clearTimeout(this.olderRetryTimer);
+    this.olderRetryTimer = null;
+  }
+
+  private requestOlderRemainder(attempt: number): void {
+    const partial = this.olderPartial;
+    if (!partial) return;
+    this.armOlderTimer();
+    if (this.socket?.requestOlderRange(partial.nextSeq, partial.toSeq)) return;
+    if (this.socket && attempt < OLDER_CONTINUE_RETRIES) {
+      this.olderRetryTimer = setTimeout(() => {
+        this.olderRetryTimer = null;
+        this.requestOlderRemainder(attempt + 1);
+      }, OLDER_CONTINUE_RETRY_MS);
+      return;
+    }
+    if (this.olderTimer) clearTimeout(this.olderTimer);
+    this.olderTimer = null;
+    this.dropOlderPartial();
+    this.patch({
+      hasOlder: true,
+      loadingOlder: false,
+      olderNotice: "Couldn't load that part of this conversation. Try again.",
+    });
   }
 
   private ensureSocket(): void {
@@ -882,6 +925,7 @@ class ConversationStore {
     this.socket = null;
     if (this.olderTimer) clearTimeout(this.olderTimer);
     this.olderTimer = null;
+    this.dropOlderPartial();
     // Records stay: remounting the same conversation should not blank the
     // view, and the socket resumes from the cursor it kept.
     this.patch({
@@ -998,6 +1042,7 @@ class ConversationStore {
         });
         return;
       case "reset":
+        this.dropOlderPartial();
         this.purgeCache();
         this.patch({
           records: EMPTY_RECORDS,
@@ -1080,23 +1125,55 @@ class ConversationStore {
     incoming: readonly JournalRecord[],
     range?: { complete?: boolean; fromSeq?: number; toSeq?: number },
   ): void {
+    const partial = this.olderPartial;
+    const continuesPartial =
+      partial !== null &&
+      range?.fromSeq === partial.nextSeq &&
+      range.toSeq === partial.toSeq;
+    if (partial !== null && !continuesPartial) return;
     if (this.olderTimer) clearTimeout(this.olderTimer);
     this.olderTimer = null;
     if (this.cacheContainsUnverifiedRecords) {
       // A backfill cannot be joined to unverified cache bytes without silently
       // manufacturing a canonical window. Wait for the live replay to replace
       // the cache first.
+      this.dropOlderPartial();
       this.patch({ loadingOlder: false });
+      return;
+    }
+    if (continuesPartial) this.dropOlderPartial();
+    const fromSeq = range?.fromSeq;
+    const toSeq = range?.toSeq;
+    const contiguousFromStart =
+      fromSeq !== undefined &&
+      incoming.every((record, index) => record.seq === fromSeq + index);
+    const lastSeq = incoming.at(-1)?.seq;
+    if (
+      range?.complete === false &&
+      fromSeq !== undefined &&
+      toSeq !== undefined &&
+      contiguousFromStart &&
+      lastSeq !== undefined &&
+      lastSeq < toSeq
+    ) {
+      this.dropOlderPartial();
+      this.olderPartial = {
+        nextSeq: lastSeq + 1,
+        toSeq,
+        records: (continuesPartial ? partial.records : []).concat(incoming),
+      };
+      this.requestOlderRemainder(0);
       return;
     }
     const claimedRangeIsComplete =
       range?.complete !== false &&
-      (range?.fromSeq === undefined ||
-        range.toSeq === undefined ||
-        (incoming.length === range.toSeq - range.fromSeq + 1 &&
-          incoming.every(
-            (record, index) => record.seq === range.fromSeq! + index,
-          )));
+      (fromSeq === undefined ||
+        toSeq === undefined ||
+        (incoming.length === toSeq - fromSeq + 1 && contiguousFromStart));
+    const page =
+      claimedRangeIsComplete && continuesPartial
+        ? partial.records.concat(incoming)
+        : incoming;
     if (!claimedRangeIsComplete) {
       // Never splice a partial archive page beside the retained window. That
       // would turn missing canonical rows into an invisible transcript hole.
@@ -1109,7 +1186,7 @@ class ConversationStore {
       return;
     }
     const oldest = this.state.records[0]?.seq ?? Number.POSITIVE_INFINITY;
-    const older = incoming
+    const older = page
       .filter((record) => record.seq < oldest)
       .sort((a, b) => a.seq - b.seq);
     if (!older.length) {

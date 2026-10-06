@@ -278,7 +278,14 @@ export class ConversationSocket {
   requestOlder(oldestHeldSeq: number): boolean {
     if (oldestHeldSeq <= this.floorSeq) return false;
     const toSeq = oldestHeldSeq - 1;
-    const fromSeq = Math.max(this.floorSeq, toSeq - BACKFILL_BATCH_RECORDS + 1);
+    return this.requestOlderRange(
+      Math.max(this.floorSeq, toSeq - BACKFILL_BATCH_RECORDS + 1),
+      toSeq,
+    );
+  }
+
+  requestOlderRange(fromSeq: number, toSeq: number): boolean {
+    if (fromSeq > toSeq || fromSeq < this.floorSeq) return false;
     if (!this.budget.take(4)) return false;
     const requestId = this.nextRequestId("o");
     if (!this.send({ type: "backfill", requestId, fromSeq, toSeq })) {

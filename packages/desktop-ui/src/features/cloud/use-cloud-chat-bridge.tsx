@@ -517,6 +517,7 @@ export function useCloudChatBridge({
     provideLineageSource(conversationId, {
       messages: persistedMessages,
       hasOlder: conversation.state.hasOlder,
+      isLoadingOlder: conversation.state.loadingOlder,
       loadOlder: conversation.loadOlder,
       tasks,
     });
@@ -526,6 +527,7 @@ export function useCloudChatBridge({
   }, [
     conversation.loadOlder,
     conversation.state.hasOlder,
+    conversation.state.loadingOlder,
     conversationId,
     enabled,
     persistedMessages,

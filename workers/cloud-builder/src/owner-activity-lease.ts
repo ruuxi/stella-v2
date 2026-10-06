@@ -22,7 +22,9 @@ export const withOwnerActivityLease = async <T>(
   // Activity leases cannot be canceled by owner purge, so every one needs a
   // durable crash expiry. Thirty minutes leaves ample room for large world
   // operations while guaranteeing an evicted isolate cannot wedge the owner.
-  const expiresAt = Date.now() + 30 * 60_000;
+  // The fence caps leases at thirty minutes from its own clock, which can
+  // trail this isolate's, so ask for a minute less than the cap.
+  const expiresAt = Date.now() + 29 * 60_000;
   const registered = await fence("register", {
     leaseId,
     sessionId,

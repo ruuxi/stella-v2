@@ -1,0 +1,93 @@
+[data-slot="dialog-content"].dictation-key-dialog {
+  --dictation-key-pad-x: 24px;
+  max-width: 420px;
+  background: var(--panel-glass-bg);
+  backdrop-filter: var(--panel-glass-blur);
+  -webkit-backdrop-filter: var(--panel-glass-blur);
+  background-clip: padding-box;
+  border: 1px solid var(--border-weak);
+}
+
+.dictation-key-dialog [data-slot="dialog-header"] {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 20px var(--dictation-key-pad-x) 14px;
+  border-bottom: 1px solid var(--border-weak);
+}
+
+.dictation-key-dialog [data-slot="dialog-title"] {
+  font-family: var(--font-family-display);
+  font-size: 1.4rem;
+  font-weight: var(--weight-regular);
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+  color: var(--text-strong);
+}
+
+.dictation-key-dialog [data-slot="dialog-description"] {
+  display: block;
+  padding: 0;
+  margin: 6px 0 0;
+  font-size: var(--font-size-base);
+  line-height: 1.55;
+  color: var(--text-base);
+}
+
+.dictation-key-dialog [data-slot="dialog-body"] {
+  padding: 14px var(--dictation-key-pad-x) 20px;
+}
+
+.dictation-key-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dictation-key-dialog-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 3px 12px;
+  border-radius: var(--radius-full);
+  background: color-mix(in oklch, var(--foreground) 5%, transparent);
+  color: var(--text-weak);
+}
+
+.dictation-key-dialog-field input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-strong);
+  font-size: var(--font-size-base);
+}
+
+.dictation-key-dialog-link {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-weak);
+  font-size: var(--font-size-sm);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.dictation-key-dialog-error {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: var(--font-size-sm);
+  color: var(--destructive);
+  background: color-mix(in oklch, var(--destructive) 10%, transparent);
+}
+
+.dictation-key-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 6px;
+}

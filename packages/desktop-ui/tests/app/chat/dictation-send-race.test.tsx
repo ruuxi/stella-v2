@@ -80,6 +80,13 @@ vi.mock("@/features/dictation/services/dictation-session", () => ({
   ensureDictationSuperFastWarm: async () => undefined,
 }));
 
+vi.mock("@/features/dictation/services/dictation-transcriber", () => ({
+  cachedDictationRoute: () => "managed",
+  resolveDictationRoute: async () => "managed",
+  prewarmDictation: () => undefined,
+  invalidateDictationRoute: () => undefined,
+}));
+
 vi.mock("@/ui/toast", () => ({
   showToast: () => undefined,
 }));

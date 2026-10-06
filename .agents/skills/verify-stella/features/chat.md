@@ -8,8 +8,10 @@ Chat is Stella's primary desktop surface. A user opens or creates a conversation
 - `chat-new` creates and selects a distinct conversation.
 - `chat-draft` accepts text without mutating the timeline.
 - `chat-send` shows the user turn or a visible provider/runtime failure.
-- `chat-dictation` expands the recording pill with Muse's cumulative live
-  transcript; appended or corrected words fade in without repainting the chat.
+- `chat-dictation` records with a waveform pill, then transcribes the whole
+  recording when stopped (managed `/api/dictation/transcribe`, or the user's
+  own OpenRouter key through Electron main). A Stella without managed
+  dictation and no saved OpenRouter key opens "Turn on dictation" instead.
 
 ## How to get to it (user POV)
 
@@ -31,10 +33,13 @@ Preconditions:
 - **Send.** Run `node .agents/skills/verify-stella/control-stella.mjs chat send --text "hello from verify-stella"`. Require the user message or a bounded visible provider/runtime error. Do not wait indefinitely for model output.
 - **Cloud working state.** Select Cloud from the execution control beside Models at the bottom of the workspace panel and send a turn that delegates a delayed task. Require Stop while Stella is responding, then no Stop or trailing working indicator after its acknowledgment, even while the background task runs. Require the same idle state after the task completion reply and after reloading. During another active cloud response, press Stop and require the turn to settle.
 - **New conversation.** Run `node .agents/skills/verify-stella/control-stella.mjs chat new`. Require a conversation id different from the recorded id.
-- **Dictation.** Activate the visible microphone with a signed-in cloud session,
-  speak a short sentence, and require words to appear before stopping. Continue
-  speaking and require the same preview to grow or correct its tail without the
-  earlier words flashing. Confirm once and require the final text in the composer.
+- **Dictation.** Launch with `--fake-mic <16 kHz WAV of speech>` (Chromium
+  loops it as the microphone), activate "Start dictation" with a signed-in
+  cloud session, wait a few seconds, then "Stop dictation and transcribe" and
+  require the spoken words in the composer. There is no live preview. For the
+  own-key path, run against a backend without `OPENROUTER_API_KEY` (or block
+  `/api/dictation/transcribe`), require the key dialog on the first press, save
+  a key, and require recording to start and transcribe.
 
 ## Gotchas
 

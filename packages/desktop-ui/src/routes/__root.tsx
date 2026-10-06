@@ -64,6 +64,11 @@ const ProviderConnectedDialog = lazy(() =>
     default: m.ProviderConnectedDialog,
   })),
 );
+const DictationKeyDialog = lazy(() =>
+  import("@/features/dictation/components/DictationKeyDialog").then((m) => ({
+    default: m.DictationKeyDialog,
+  })),
+);
 const SubscriptionUpgradeDialog = lazy(() =>
   import("@/global/billing/SubscriptionUpgradeDialog").then((m) => ({
     default: m.SubscriptionUpgradeDialog,
@@ -1072,6 +1077,10 @@ function RootChrome({ conversationId }: { conversationId: string | null }) {
 
       <Suspense fallback={null}>
         <ProviderConnectedDialog />
+      </Suspense>
+
+      <Suspense fallback={null}>
+        <DictationKeyDialog />
       </Suspense>
 
       <Suspense fallback={null}>

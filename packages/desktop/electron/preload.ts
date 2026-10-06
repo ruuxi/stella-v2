@@ -848,6 +848,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
         "dictation:setSoundEffectsEnabled",
         enabled,
       ) as Promise<{ enabled: boolean }>,
+    hasOpenRouterKey: () =>
+      ipcRenderer.invoke("dictation:hasOpenRouterKey") as Promise<boolean>,
+    transcribeWithOpenRouter: (wav: ArrayBuffer) =>
+      ipcRenderer.invoke("dictation:transcribeWithOpenRouter", wav) as Promise<{
+        text: string;
+      }>,
     activeChanged: (payload: { active: boolean }) =>
       ipcRenderer.send("dictation:activeChanged", payload),
     playSound: (payload: {

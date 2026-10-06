@@ -5,10 +5,11 @@
  *   - First toggle: start recording. The composer swaps in a recording
  *     bar (waveform + timer + cancel/confirm) driven by the `levels`,
  *     `elapsedMs`, and `cancel` values returned here.
- *   - Confirm (or the shortcut again): stop. The service finalizes the cumulative
- *     transcript it has built while the user speaks, then we append it to
- *     whatever the composer text was at the
+ *   - Confirm (or the shortcut again): stop. The whole recording is
+ *     transcribed, then we append it to whatever the composer text was at the
  *     moment we started recording.
+ *   - A Stella without managed dictation and no saved OpenRouter key opens
+ *     the key dialog instead of recording; saving the key starts recording.
  *   - Cancel (X): tear down the stream without appending anything.
  *
  * The global dictation shortcut dispatches a window event the hook listens
@@ -25,9 +26,14 @@ import {
   type DictationSessionState,
 } from "@/features/dictation/services/dictation-session";
 import {
+  cachedDictationRoute,
   prewarmDictation,
-  prewarmDictationSocket,
-} from "@/features/dictation/services/dictation-stream";
+  resolveDictationRoute,
+} from "@/features/dictation/services/dictation-transcriber";
+import {
+  DICTATION_KEY_SAVED_EVENT,
+  requestDictationKey,
+} from "@/features/dictation/components/DictationKeyDialog";
 import { appendRollingLevel } from "@/features/dictation/rolling-levels";
 import {
   createDictationTranscriptPreview,
@@ -146,6 +152,8 @@ export const useDictation = ({
    */
   const sendAfterCommitRef = useRef(false);
   const warmedRef = useRef(false);
+  /** This composer's press opened the key dialog; start once a key is saved. */
+  const awaitingKeyRef = useRef(false);
 
   messageRef.current = message;
   setMessageRef.current = setMessage;
@@ -172,9 +180,8 @@ export const useDictation = ({
 
   stateRef.current = state;
 
-  // Keep the relay config and auth token warm while the composer is up, and
-  // again whenever the window regains focus (the token lasts ~30 minutes), so
-  // a press only pays for the socket handshake.
+  // Keep the dictation route (managed or own key) and auth token warm while
+  // the composer is up, and again whenever the window regains focus.
   useEffect(() => {
     if (disabled) return;
     prewarmDictation();
@@ -221,6 +228,23 @@ export const useDictation = ({
     async (source: "button" | "shortcut") => {
       if (sessionRef.current) return;
       if (disabled) return;
+      const cached = cachedDictationRoute();
+      const route =
+        cached === "managed" || cached === "openrouter"
+          ? cached
+          : await resolveDictationRoute().catch(() => "needs-key" as const);
+      if (route === "needs-key") {
+        if (requestDictationKey()) {
+          awaitingKeyRef.current = true;
+        } else {
+          const message = t("features.dictation.keyDialog.openStella");
+          setError(message);
+          onErrorRef.current?.(message);
+          showToast({ title: t("features.dictation.keyDialog.title"), description: message });
+        }
+        return;
+      }
+      if (sessionRef.current) return;
       if (!warmedRef.current) {
         warmedRef.current = true;
         if (isDictationSuperFastEnabled()) {
@@ -320,6 +344,17 @@ export const useDictation = ({
     [disabled, fireCommitIfPending, t, transcriptPreview],
   );
 
+  useEffect(() => {
+    const onKeySaved = () => {
+      if (!awaitingKeyRef.current) return;
+      awaitingKeyRef.current = false;
+      window.electronAPI?.dictation?.playSound({ sound: "startRecording" });
+      void start("button");
+    };
+    window.addEventListener(DICTATION_KEY_SAVED_EVENT, onKeySaved);
+    return () => window.removeEventListener(DICTATION_KEY_SAVED_EVENT, onKeySaved);
+  }, [start]);
+
   const toggle = useCallback(() => {
     const current = stateRef.current;
     if (current === "listening") {
@@ -417,7 +452,7 @@ export const useDictation = ({
     showControls,
     state,
     toggle,
-    prewarm: prewarmDictationSocket,
+    prewarm: prewarmDictation,
     cancel,
     commitAndSend,
     levels,

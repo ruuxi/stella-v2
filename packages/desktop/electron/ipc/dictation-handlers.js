@@ -17,6 +17,7 @@ import { execFile } from "node:child_process";
 import path from "node:path";
 import { getDictationSoundEffectsEnabled, loadLocalPreferences, saveLocalPreferences, } from "@stella/runtime/kernel/preferences/local-preferences";
 import { runNativeHelper } from "../native-helper.js";
+import { hasOpenRouterDictationKey, transcribeWithOpenRouter, } from "../services/dictation-openrouter.js";
 import { applyShortcutRegistration, } from "./shortcut-registration.js";
 const DEFAULT_DICTATION_SHORTCUT = "Alt";
 const DEFAULT_NON_MAC_DICTATION_SHORTCUT = "Control+M";
@@ -283,6 +284,13 @@ export const registerDictationHandlers = (options) => {
         return result;
     });
     ipcMain.handle("dictation:getShortcut", () => currentShortcut);
+    ipcMain.handle("dictation:hasOpenRouterKey", () => hasOpenRouterDictationKey(options.stellaAppDir));
+    ipcMain.handle("dictation:transcribeWithOpenRouter", (_event, wav) => {
+        if (!(wav instanceof ArrayBuffer) && !(wav instanceof Uint8Array)) {
+            throw new Error("Dictation audio was empty.");
+        }
+        return transcribeWithOpenRouter(options.stellaAppDir, wav);
+    });
     ipcMain.handle("dictation:getSoundEffectsEnabled", () => areDictationSoundsEnabled());
     ipcMain.handle("dictation:setSoundEffectsEnabled", (_event, enabled) => {
         const nextEnabled = enabled === true;

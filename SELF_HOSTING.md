@@ -344,7 +344,7 @@ Secrets go on **cloud-builder** unless noted.
 | Music | `GOOGLE_AI_API_KEY` | Google AI Studio (Lyria) | Unavailable |
 | Read-aloud (TTS) | `GOOGLE_AI_API_KEY` (Gemini TTS) or `OPENAI_API_KEY`; mobile streaming also `MEDIA_SIGNING_SECRET` | Google AI Studio / OpenAI | 503 "read-aloud is not configured yet" |
 | Realtime voice | `OPENAI_API_KEY` | OpenAI Realtime | Unavailable (users can still bring their own xAI / Inworld keys on desktop) |
-| Dictation | `META_MODEL_API_KEY` | Meta Model API (Muse) | 503 |
+| Dictation | `OPENROUTER_API_KEY` (cloud-builder's own copy); optional var `STELLA_DICTATION_MODEL` (default `meta/muse-voice-transcribe-1.0`) | OpenRouter | Desktop users are asked for their own OpenRouter key on their first mic press; it stays on their computer. `META_MODEL_API_KEY` only serves the legacy realtime socket for older clients |
 | Speech-to-text media capability | `OPENROUTER_API_KEY` (cloud-builder's own copy) | OpenRouter | Unavailable |
 | Image description in chat | `GOOGLE_AI_API_KEY` on **model-gateway** | Google AI Studio | That model call fails |
 | Other managed models | `FIREWORKS_API_KEY`, `DEEPSEEK_API_KEY`, `XAI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `META_MODEL_API_KEY` on **model-gateway** | as named | Only models routed to that provider fail ("The model provider is not configured"); the defaults use OpenRouter |

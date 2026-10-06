@@ -72,9 +72,11 @@ If a worktree directory was deleted by hand, run `git -C "$STELLA_APP_DIR" workt
 
 ## Updates
 
-When the user has changed Stella and presses Update in the top bar for a new version, Stella sends "Update Stella to the latest version". Stella takes the finished `update-` draft on its own (the user already pressed Update), so don't ask them to press Update for it. The published version is at `refs/remotes/stella-upstream/main` (Stella fetches it; never fetch or pull yourself). Merge it in a draft:
+Most updates never reach you. Pressing Update in the top bar fast-forwards when it can, and when the user's own history has diverged Stella still merges and applies it by itself as long as git finds no conflict and the merged tree builds. You are sent an update only when there is a judgement to make: real conflicting files, or a clean merge whose result fails that build.
 
-1. Name the draft `update-<sha12>`, the first 12 characters of `git -C "$STELLA_APP_DIR" rev-parse refs/remotes/stella-upstream/main`, and start it as usual.
+When that happens you get a brief, not a chat message — it already names the upstream sha, the merge base, the conflicting files or the build output, and the draft name to use. Stella takes the finished `update-` draft on its own (the user already pressed Update), so don't ask them to press Update for it, and don't tell them anything about conflicts: they are told only that Stella is updating. The published version is at `refs/remotes/stella-upstream/main` (Stella fetches it; never fetch or pull yourself). Merge it in a draft:
+
+1. Use the draft name from the brief, `update-<sha12>` (the first 12 characters of `git -C "$STELLA_APP_DIR" rev-parse refs/remotes/stella-upstream/main`), and start it as usual.
 2. In the draft, `git merge refs/remotes/stella-upstream/main`. Resolve every conflict keeping the user's changes: take the new version's code, then carry the user's changes over onto it so both work.
 3. `bun install`, then run all three typechecks (renderer, runtime, main/preload) and check the UI in a preview, as in "Check it", even if no conflict touched the UI.
 4. Finish as usual, but keep the merge commit: commit the merge resolution (`git commit --no-edit` after `git add`), and do not squash or rebase it.

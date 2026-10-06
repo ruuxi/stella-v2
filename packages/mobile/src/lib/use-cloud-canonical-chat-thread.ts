@@ -902,18 +902,23 @@ export const useCloudCanonicalChatThread = (
     replyHaptics.reset();
     localStop();
     if (!runningDispatchId) return;
-    if (canonicalCancellationRef.current?.dispatchId === runningDispatchId) {
+    // A turn run on a computer journals this phone's own message id (the
+    // dispatch's idempotency key) where a cloud turn echoes the server
+    // dispatch id, so map it through this phone's admission binding first.
+    const dispatchId =
+      dispatchBindings.get(runningDispatchId) ?? runningDispatchId;
+    if (canonicalCancellationRef.current?.dispatchId === dispatchId) {
       return;
     }
     canonicalCancellationRef.current?.controller.abort();
     const controller = new AbortController();
     canonicalCancellationRef.current = {
-      dispatchId: runningDispatchId,
+      dispatchId,
       controller,
     };
     setPlacementIssue(null);
     void cancelCanonicalCloudExecution({
-      dispatchId: runningDispatchId,
+      dispatchId,
       conversationId: authority.conversationId,
       readStatus: (dispatchId) =>
         getAutomaticExecutionStatus(dispatchId, {
@@ -942,6 +947,7 @@ export const useCloudCanonicalChatThread = (
   }, [
     authority.conversationId,
     authority.socketOrigin,
+    dispatchBindings,
     localStop,
     replyHaptics,
     runningDispatchId,

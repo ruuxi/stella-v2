@@ -63,7 +63,9 @@ export type AppSourceState = {
   remote: { status: "none" | "ahead" | "diverged"; count: number };
   /**
    * The published app (upstream `main`) compared with the current branch:
-   * "ahead" fast-forwards, "diverged" needs an agent to merge it.
+   * "ahead" fast-forwards, "diverged" has to be merged with the user's own
+   * changes. A diverged update that git merges cleanly is still taken without
+   * asking anyone (see `update`); only a real conflict reaches an agent.
    */
   upstream: {
     status: "none" | "ahead" | "diverged";
@@ -71,6 +73,13 @@ export type AppSourceState = {
     /** Subject of upstream's newest commit. */
     subject: string;
   };
+  /**
+   * An official update Stella is taking by itself, for the one line the chat
+   * shows about it: "merging" while it runs, "done" for a short while after
+   * it lands. There is nothing for the user to do in either state, and the
+   * reason it takes a while is never shown to them.
+   */
+  update?: { state: "merging" | "done" };
   /** Recent first-parent commits on the current branch, newest first. */
   recent: AppSourceCommit[];
   /** Agents' changes applied on the owner's other computers. */
@@ -80,5 +89,13 @@ export type AppSourceState = {
 };
 
 export type AppSourceActionResult =
-  | { ok: true }
+  | {
+      ok: true;
+      /**
+       * The action did not finish in place: it is going on in the background
+       * and the state's `update` reports it. The caller shows no progress of
+       * its own.
+       */
+      background?: boolean;
+    }
   | { ok: false; error: string; conflict?: boolean };

@@ -413,6 +413,26 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
             coverRenderer: () => updateTransition.cover(),
             beforeRelaunch: () => updateTransition.holdForRelaunch(),
             relaunch: relaunchApp,
+            // Checking a merged update happens on a scratch worktree here,
+            // never in the checkout that is running.
+            updateScratchDir: path.join(app.getPath("userData"), "update-merge"),
+            // An update that needs a judgement goes straight to a background
+            // agent with what the app already knows. No user message is
+            // synthesized for it: the user pressed a button, they did not
+            // type a request, and nothing should file one against them.
+            dispatchUpdateMerge: async (brief) => {
+                const runner = lifecycle.getRunner();
+                const conversationId = services.uiStateService.state.conversationId;
+                if (!runner || !conversationId) {
+                    throw new Error("Stella isn't ready to install this update yet.");
+                }
+                await runner.createBackgroundAgent({
+                    conversationId,
+                    description: brief.description,
+                    prompt: brief.prompt,
+                    agentType: "general",
+                });
+            },
             hasConnectedAccount: () => services.authService.getHostHasConnectedAccount(),
             getBackendUrl: () => services.authService.getBackendUrl(),
             getAuthToken: () => services.authService.getAuthToken(),

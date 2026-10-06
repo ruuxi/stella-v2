@@ -25,6 +25,9 @@ import {
 } from "./git.js";
 import { DRAFT_AGENTS_DIR, installCheckoutGuard } from "./checkout-guard.js";
 import type { CoveredWindow } from "./update-transition.js";
+import { classifyUpdate, type UpdatePlan } from "./update-plan.js";
+import { checkMergedUpdate } from "./update-gate.js";
+import { updateBrief, updateDraftName, type UpdateBrief } from "./update-brief.js";
 
 /**
  * Applies finished drafts to the app's own checkout, undoes recent commits,
@@ -67,6 +70,14 @@ type AppSourceServiceOptions = {
   coverRenderer?: () => Promise<CoveredWindow | null>;
   /** Before a relaunch: hold the window on screen. Never throws. */
   beforeRelaunch?: () => Promise<void>;
+  /** Scratch worktree for checking a merged update. Removed after each check. */
+  updateScratchDir: string;
+  /**
+   * Hand an update that needs a judgement to a background agent. Absent when
+   * no runtime is up, which leaves such an update unavailable rather than
+   * applied unchecked.
+   */
+  dispatchUpdateMerge?: (brief: UpdateBrief) => Promise<void>;
 };
 
 type ForkAccess = {
@@ -82,6 +93,10 @@ type SourceAccess = { fork: ForkAccess | null; upstream: AppSourceRemote };
 class ConflictError extends Error {}
 
 const STATE_POLL_MS = 10_000;
+/** How long "Stella is up to date" stays in the chat after an update lands. */
+const UPDATE_DONE_MS = 20_000;
+/** A merge that never arrives stops being announced after this. */
+const UPDATE_MERGE_WAIT_MS = 60 * 60_000;
 const FORK_FIRST_SYNC_DELAY_MS = 20_000;
 const FORK_SYNC_INTERVAL_MS = 30 * 60_000;
 const RECENT_COUNT = 8;
@@ -174,6 +189,16 @@ export class AppSourceService {
   /** Upstream was fetched and shares history with HEAD. */
   private upstreamTracked = false;
   private upstreamUnrelated = false;
+  /**
+   * An official update Stella is taking by itself. "merging" names the draft
+   * an agent is preparing; "done" is the short line after one landed.
+   */
+  private updateState:
+    | { state: "merging"; name: string; since: number }
+    | { state: "done"; since: number }
+    | null = null;
+  private updateTimer: NodeJS.Timeout | null = null;
+  private takingUpdate = false;
   private disposed = false;
   private readonly onFocus = () => void this.refresh();
 
@@ -206,6 +231,7 @@ export class AppSourceService {
   dispose() {
     this.disposed = true;
     app.removeListener("browser-window-focus", this.onFocus);
+    if (this.updateTimer) clearTimeout(this.updateTimer);
     for (const timer of this.timers) clearTimeout(timer);
     this.timers = [];
     this.backend?.client.dispose();
@@ -368,36 +394,156 @@ export class AppSourceService {
   }
 
   /**
-   * Take the published app's update when this checkout has no changes of its
-   * own. With changes, an agent merges upstream in a draft instead.
+   * Take the published app's update.
+   *
+   * A fast-forward applies. A diverged update that git merges without a
+   * conflict also applies, by itself: the merge is computed into the object
+   * database, checked on a scratch worktree, and only then fast-forwarded in.
+   * Divergence on its own is not a reason to involve anybody — a checkout
+   * whose tree already matches the upstream commit it last merged has no
+   * merge judgement in it to make. Only a real textual conflict, or a merge
+   * that does not build, goes to an agent.
    */
   applyUpstream() {
     return this.exclusive(async (cwd) => {
       if (!this.upstreamTracked) throw new Error("No update is available.");
       const head = await git(cwd, ["rev-parse", "HEAD"]);
-      const tip = await git(cwd, [
-        "rev-parse",
-        "--verify",
-        `${UPSTREAM_REF}^{commit}`,
-      ]);
-      if (!(await isAncestor(cwd, head, tip))) {
-        throw new Error("This update has to be merged with your changes.");
+      const plan = await classifyUpdate(cwd, head, UPSTREAM_REF);
+      this.options.log("app-source.update-planned", {
+        kind: plan.kind,
+        ...(plan.kind === "clean"
+          ? { identical: plan.identical, localChanges: plan.localChanges }
+          : {}),
+        ...(plan.kind === "conflict" ? { conflicts: plan.conflicts.length } : {}),
+      });
+      if (plan.kind === "none") throw new Error("No update is available.");
+      if (plan.kind === "fast-forward") {
+        await git(cwd, ["merge", "--ff-only", plan.tip]);
+        await this.swapIn(cwd, head, plan.tip);
+        return;
       }
-      await git(cwd, ["merge", "--ff-only", tip]);
-      await this.swapIn(cwd, head, tip);
+      if (plan.kind === "conflict") return await this.escalateUpdate(cwd, plan, head);
+      // The merge exists as objects only: nothing is checked out and the
+      // checkout's branch has not moved, so giving up here leaves no state.
+      const merged = await git(
+        cwd,
+        [
+          "commit-tree",
+          plan.tree,
+          "-p",
+          head,
+          "-p",
+          plan.tip,
+          "-m",
+          `Merge the published Stella update ${plan.tip.slice(0, 12)}`,
+        ],
+        { env: await this.identityEnv(cwd) },
+      );
+      // Nothing of the user's survived into the result that upstream has not
+      // already published and shipped: there is nothing left to check.
+      if (!plan.identical) {
+        const gate = await checkMergedUpdate(
+          cwd,
+          merged,
+          this.options.updateScratchDir,
+          this.options.log,
+        );
+        if (!gate.ok) {
+          return await this.escalateUpdate(cwd, plan, head, gate.output);
+        }
+      }
+      // No line in the chat for this: it applied while the user watched the
+      // button, exactly like a fast-forward. The two lines belong to the
+      // update that had to go on in the background.
+      await git(cwd, ["merge", "--ff-only", merged]);
+      await this.swapIn(cwd, head, merged);
     });
   }
 
+  /**
+   * Hand the merge to a background agent and report the action as going on in
+   * the background. No user turn is fabricated for it: the agent's brief
+   * carries the shas, the divergence and the conflicting files the app
+   * already knows, so nothing has to be re-derived from a sentence the user
+   * never typed.
+   */
+  private async escalateUpdate(
+    cwd: string,
+    plan: Extract<UpdatePlan, { kind: "clean" | "conflict" }>,
+    head: string,
+    gateOutput?: string,
+  ): Promise<{ background: true }> {
+    const dispatch = this.options.dispatchUpdateMerge;
+    if (!dispatch) {
+      throw new Error("This update isn't ready to install yet.");
+    }
+    const name = updateDraftName(plan.tip);
+    // A merge for this very version is already under way (an earlier press,
+    // or a relaunch that forgot it): wait for that one instead of a second
+    // agent on the same work.
+    const existing =
+      (await gitRaw(cwd, [
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        `${DRAFT_REF_PREFIX}${name}^{commit}`,
+      ])).code === 0;
+    if (!existing) {
+      await dispatch(updateBrief(plan, head, gateOutput));
+      this.options.log("app-source.update-dispatched", {
+        tip: plan.tip,
+        reason: plan.kind === "conflict" ? "conflict" : "check-failed",
+      });
+    }
+    this.updateState = { state: "merging", name, since: Date.now() };
+    return { background: true };
+  }
+
+  /** The update landed: say so once, briefly, then stop saying anything. */
+  private finishUpdate() {
+    if (this.updateTimer) clearTimeout(this.updateTimer);
+    this.updateState = { state: "done", since: Date.now() };
+    this.updateTimer = setTimeout(() => {
+      this.updateState = null;
+      void this.refresh();
+    }, UPDATE_DONE_MS);
+    this.updateTimer.unref?.();
+  }
+
+  /**
+   * The agent's merge is ready: take it. Pressing Update was the go-ahead, so
+   * nothing asks again. A merge that never arrives is forgotten after a while
+   * rather than leaving the chat saying Stella is updating forever.
+   */
+  private takeFinishedUpdate(state: Omit<AppSourceState, "busy">) {
+    const pending = this.updateState;
+    if (pending?.state !== "merging") return;
+    if (Date.now() - pending.since > UPDATE_MERGE_WAIT_MS) {
+      this.updateState = null;
+      return;
+    }
+    if (this.takingUpdate) return;
+    if (!state.ready.some((draft) => draft.name === pending.name)) return;
+    this.takingUpdate = true;
+    void this.applyDraft(pending.name)
+      .then((result) => {
+        if (result.ok) this.finishUpdate();
+      })
+      .finally(() => {
+        this.takingUpdate = false;
+      });
+  }
+
   private exclusive(
-    task: (cwd: string) => Promise<void>,
+    task: (cwd: string) => Promise<void | { background: true }>,
   ): Promise<AppSourceActionResult> {
     const result = this.queue.then(async (): Promise<AppSourceActionResult> => {
       this.setBusy(true);
       try {
         await this.options.beforeAction?.(this.options.stellaAppDir);
-        await task(this.options.stellaAppDir);
+        const outcome = await task(this.options.stellaAppDir);
         this.pushToFork();
-        return { ok: true };
+        return { ok: true, ...(outcome ?? {}) };
       } catch (error) {
         this.options.log("app-source.action-failed", {
           message: errorMessage(error),
@@ -517,7 +663,9 @@ export class AppSourceService {
       do {
         this.refreshAgain = false;
         try {
-          this.publish({ ...(await this.readState()), busy: this.busy });
+          const next = await this.readState();
+          this.publish({ ...next, busy: this.busy });
+          this.takeFinishedUpdate(next);
         } catch (error) {
           this.options.log("app-source.refresh-failed", {
             message: errorMessage(error),
@@ -612,6 +760,9 @@ export class AppSourceService {
       upstream: upstream ?? NO_UPSTREAM,
       recent,
       elsewhere,
+      ...(this.updateState
+        ? { update: { state: this.updateState.state } }
+        : {}),
     };
   }
 

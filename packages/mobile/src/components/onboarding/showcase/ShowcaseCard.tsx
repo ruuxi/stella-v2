@@ -159,7 +159,7 @@ export function ShowcaseCard({
           {chapterDone || reducedMotion ? (
             <Animated.View
               entering={ZoomIn.springify()
-                .damping(15)
+                .damping(32)
                 .stiffness(260)
                 .reduceMotion(ReduceMotion.System)}
               exiting={fadeExiting(120)}

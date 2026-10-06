@@ -417,7 +417,7 @@ function RankRow({
   return (
     <Animated.View
       entering={FadeInRight.springify()
-        .damping(18)
+        .damping(30)
         .stiffness(220)
         .delay(index * 90)
         .reduceMotion(ReduceMotion.System)}

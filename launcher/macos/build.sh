@@ -16,6 +16,17 @@ cp Resources/Info.plist "$app/Contents/Info.plist"
 # CI's run number (0 for a local build): the launcher updates itself to a
 # higher one published in launcher/stable/VERSION.
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${STELLA_LAUNCHER_VERSION:-0}" "$app/Contents/Info.plist"
+# A self-hosted build names its own deployment (Deployment in Support.swift):
+# STELLA_BACKEND_URL, STELLA_RELEASES_URL and STELLA_APPLE_TEAM_ID.
+if [ -n "${STELLA_BACKEND_URL:-}" ]; then
+  /usr/libexec/PlistBuddy -c "Add :StellaBackendURL string $STELLA_BACKEND_URL" "$app/Contents/Info.plist"
+fi
+if [ -n "${STELLA_RELEASES_URL:-}" ]; then
+  /usr/libexec/PlistBuddy -c "Add :StellaReleasesURL string ${STELLA_RELEASES_URL%/}" "$app/Contents/Info.plist"
+fi
+if [ -n "${STELLA_APPLE_TEAM_ID:-}" ]; then
+  /usr/libexec/PlistBuddy -c "Add :StellaAppleTeamID string $STELLA_APPLE_TEAM_ID" "$app/Contents/Info.plist"
+fi
 # The launcher window's page, sealed into the bundle by codesign.
 cp ../common/launcher.html "$app/Contents/Resources/launcher.html"
 icon="../../packages/desktop/build/icon.icns"

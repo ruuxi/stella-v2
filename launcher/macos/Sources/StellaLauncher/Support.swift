@@ -42,6 +42,23 @@ struct LauncherPaths {
     var isolatedHome: URL { root.appendingPathComponent("stella-home") }
 }
 
+/// The deployment this launcher belongs to. A fork's build.sh writes its own
+/// values into Info.plist (StellaBackendURL, StellaReleasesURL,
+/// StellaAppleTeamID); without them the launcher is Stella's.
+enum Deployment {
+    private static func value(_ key: String, _ fallback: String) -> String {
+        let configured = (Bundle.main.object(forInfoDictionaryKey: key) as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return configured.isEmpty ? fallback : configured
+    }
+
+    static let backendURL = value("StellaBackendURL", "https://stella-v2-cloud-builder-prod.lolruuxi.workers.dev")
+    /// Public base of the releases bucket: launcher/stable, electron-identity, git-runtime.
+    static let releasesURL = value("StellaReleasesURL", "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev")
+    /// The Developer ID team that signs the launcher and Stella.app.
+    static let appleTeamID = value("StellaAppleTeamID", "7UVYHQ763X")
+}
+
 /// Versions baked into this launcher build. A signed tree may ask for a newer
 /// Bun through `packages/desktop/launcher.json`.
 enum Pins {
@@ -78,16 +95,16 @@ enum Pins {
     static let gitVersion = "2.53.0"
     static let git: [String: Asset] = [
         "darwin-arm64": Asset(
-            url: "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/git-runtime/objects/40b8edd68fa4f93cd150009a4de58aa94a41c714f848404d6de1b9ee6d3e8107.tar.gz",
+            url: "\(Deployment.releasesURL)/git-runtime/objects/40b8edd68fa4f93cd150009a4de58aa94a41c714f848404d6de1b9ee6d3e8107.tar.gz",
             sha256: "40b8edd68fa4f93cd150009a4de58aa94a41c714f848404d6de1b9ee6d3e8107",
             member: nil),
         "darwin-x64": Asset(
-            url: "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/git-runtime/objects/62b488592a272a3e5b4435351b085839227b6c6b781d7a883dfa89427a6ffd66.tar.gz",
+            url: "\(Deployment.releasesURL)/git-runtime/objects/62b488592a272a3e5b4435351b085839227b6c6b781d7a883dfa89427a6ffd66.tar.gz",
             sha256: "62b488592a272a3e5b4435351b085839227b6c6b781d7a883dfa89427a6ffd66",
             member: nil),
     ]
 
-    static let defaultBackendURL = "https://stella-v2-cloud-builder-prod.lolruuxi.workers.dev"
+    static let defaultBackendURL = Deployment.backendURL
     static let upstreamBranch = "main"
     static let upstreamRemoteName = "stella-upstream"
 }

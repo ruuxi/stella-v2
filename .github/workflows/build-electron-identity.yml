@@ -34,7 +34,10 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 30
     env:
-      PUBLIC_BASE: https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/electron-identity
+      # A fork sets the STELLA_RELEASES_URL and STELLA_APPLE_TEAM_ID repository
+      # variables (SELF_HOSTING.md).
+      PUBLIC_BASE: ${{ vars.STELLA_RELEASES_URL || 'https://pub-a319aaada8144dc9be5a83625033769c.r2.dev' }}/electron-identity
+      APPLE_TEAM: ${{ vars.STELLA_APPLE_TEAM_ID || '7UVYHQ763X' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -75,7 +78,7 @@ jobs:
           rm -f "$cert_path"
           identity="$APPLE_SIGNING_IDENTITY"
           [[ "$identity" == "Developer ID Application:"* ]] || identity="Developer ID Application: $identity"
-          requirement='anchor apple generic and identifier "com.stella.app" and certificate leaf[subject.OU] = "7UVYHQ763X"'
+          requirement="anchor apple generic and identifier \"com.stella.app\" and certificate leaf[subject.OU] = \"$APPLE_TEAM\""
 
           mkdir -p out
           for arch in arm64 x64; do

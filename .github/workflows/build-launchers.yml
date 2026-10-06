@@ -25,6 +25,16 @@ on:
 permissions:
   contents: read
 
+# The deployment these launchers belong to (read by each build.sh). A fork
+# sets repository variables instead of editing this file; unset ones keep
+# Stella's values. See SELF_HOSTING.md.
+env:
+  STELLA_BACKEND_URL: ${{ vars.STELLA_BACKEND_URL }}
+  STELLA_RELEASES_URL: ${{ vars.STELLA_RELEASES_URL }}
+  STELLA_APPLE_TEAM_ID: ${{ vars.STELLA_APPLE_TEAM_ID }}
+  STELLA_UPDATE_SIGNER: ${{ vars.STELLA_UPDATE_SIGNER || 'FromYou, LLC' }}
+  STELLA_DEV_BACKEND_URL: ${{ vars.STELLA_DEV_BACKEND_URL || 'https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev' }}
+
 concurrency:
   group: build-launchers-${{ github.ref }}
   cancel-in-progress: false
@@ -47,7 +57,7 @@ jobs:
         env:
           STELLA_LAUNCHER_ROOT: ${{ runner.temp }}/stella-root
           STELLA_LAUNCHER_KEY_FILE: ${{ runner.temp }}/test-key/signing.pem
-          STELLA_LAUNCHER_BACKEND_URL: https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev
+          STELLA_LAUNCHER_BACKEND_URL: ${{ env.STELLA_DEV_BACKEND_URL }}
         run: |
           launcher/macos/build/Stella.app/Contents/MacOS/StellaLauncher \
             --self-test --source "$GITHUB_WORKSPACE" --capture-dir "$RUNNER_TEMP/capture"
@@ -168,7 +178,7 @@ jobs:
         run: |
           $env:STELLA_LAUNCHER_ROOT = "$env:RUNNER_TEMP\stella-root"
           $env:STELLA_LAUNCHER_KEY_FILE = "$env:RUNNER_TEMP\test-key\signing.pem"
-          $env:STELLA_LAUNCHER_BACKEND_URL = "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev"
+          $env:STELLA_LAUNCHER_BACKEND_URL = $env:STELLA_DEV_BACKEND_URL
           # Stella.exe is a GUI-subsystem program: wait on it explicitly.
           $p = Start-Process -FilePath "$env:GITHUB_WORKSPACE\launcher\windows\build\Stella.exe" -Wait -PassThru -ArgumentList @(
             '--self-test', '--source', "`"$env:GITHUB_WORKSPACE`"", '--capture-dir', "`"$env:RUNNER_TEMP\capture`"")
@@ -221,7 +231,7 @@ jobs:
           if ($certificates.Count -ne 1) { throw "Exactly one approved Windows signing certificate must be synchronized" }
           $certificate = $certificates[0]
           if ((& $hex $certificate.SerialNumber) -ne (& $hex $env:EXPECTED_SERIAL)) { throw "Wrong certificate serial" }
-          if ($certificate.GetNameInfo([System.Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false) -ne "FromYou, LLC") { throw "Wrong certificate publisher" }
+          if ($certificate.GetNameInfo([System.Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false) -ne $env:STELLA_UPDATE_SIGNER) { throw "Wrong certificate publisher" }
           $publicCertificatePath = Join-Path $env:RUNNER_TEMP "stella-windows-signing-public.cer"
           Export-Certificate -Cert $certificate -FilePath $publicCertificatePath -Type CERT | Out-Null
           $signTool = Get-ChildItem (Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\bin") -Filter signtool.exe -Recurse -File |
@@ -283,7 +293,7 @@ jobs:
         env:
           STELLA_LAUNCHER_ROOT: ${{ runner.temp }}/stella-root
           STELLA_LAUNCHER_KEY_FILE: ${{ runner.temp }}/test-key/signing.pem
-          STELLA_LAUNCHER_BACKEND_URL: https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev
+          STELLA_LAUNCHER_BACKEND_URL: ${{ env.STELLA_DEV_BACKEND_URL }}
         run: |
           xvfb-run -a -s "-screen 0 1280x800x24" launcher/linux/build/stella-launcher \
             --self-test --source "$GITHUB_WORKSPACE" --capture-dir "$RUNNER_TEMP/capture"

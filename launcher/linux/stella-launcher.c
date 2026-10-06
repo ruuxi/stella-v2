@@ -60,7 +60,14 @@ extern char **environ;
 #define LAUNCHER_VERSION 0
 #endif
 #define BUN_VERSION "1.4.0"
+/* A fork builds its own defaults: build.sh passes STELLA_BACKEND_URL and
+ * STELLA_RELEASES_URL (the public base of its releases bucket). */
+#ifndef DEFAULT_BACKEND_URL
 #define DEFAULT_BACKEND_URL "https://stella-v2-cloud-builder-prod.lolruuxi.workers.dev"
+#endif
+#ifndef RELEASES_URL
+#define RELEASES_URL "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev"
+#endif
 #define UPSTREAM_BRANCH "main"
 #define UPSTREAM_REMOTE_NAME "stella-upstream"
 #define KNOWN_GOOD_REF "refs/stella/known-good"
@@ -2613,7 +2620,7 @@ static int return_to_known_good(void) {
  * checksum are what install.sh trusts too.
  */
 
-#define UPDATE_BASE_URL "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/launcher/stable"
+#define UPDATE_BASE_URL RELEASES_URL "/launcher/stable"
 
 static volatile int g_staged_version;
 

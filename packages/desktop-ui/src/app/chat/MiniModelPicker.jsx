@@ -20,7 +20,7 @@ import { openModelPicker } from "@/features/workspace-display/default-tabs";
 import { useModelCatalog } from "@/global/settings/hooks/use-model-catalog";
 import { getStellaResolvedModelName } from "@/global/settings/lib/model-catalog";
 import { buildModelDefaultsMap, buildResolvedModelDefaultsMap, getConfigurableAgents, getLocalModelDefaults, getModelPickerDisplayLabel, normalizeModelOverrides, } from "@/global/settings/lib/model-defaults";
-import { buildEngineReasoningPatch, buildRecentModelSelectionPatch, DEFAULT_CHATGPT_MODEL, DEFAULT_CLAUDE_CODE_MODEL, } from "@/global/settings/lib/engine-model-routing";
+import { buildEngineReasoningPatch, buildRecentModelSelectionPatch, getActiveEngineModelId, } from "@/global/settings/lib/engine-model-routing";
 import { listReasoningEffortOptions, supportsReasoningEffortSelection, } from "@/global/settings/lib/reasoning-effort-options";
 import { buildRecentModelRows, createKnownModelIdPredicate, readRecentModels, recordRecentModel, } from "@/global/settings/lib/recent-models";
 import { showToast } from "@/ui/toast";
@@ -121,12 +121,10 @@ export function MiniModelPicker() {
     }, [preferences]);
     const committedEngine = preferences?.agentRuntimeEngine ?? "default";
     /** Current selection as an override id, engine routes included — the
-     * same id family the recents store persists. */
-    const currentId = committedEngine === "codex_cli"
-        ? `codex-cli/${preferences?.codexModel || DEFAULT_CHATGPT_MODEL}`
-        : committedEngine === "claude_code_local"
-            ? `claude-code/${preferences?.claudeCodeModel || DEFAULT_CLAUDE_CODE_MODEL}`
-            : (overrides.orchestrator ?? overrides.general ?? "");
+     * same id family the recents store persists. A committed engine owns the
+     * selection; the Stella override it remembers is not a second pick. */
+    const currentId = getActiveEngineModelId(preferences) ??
+        (overrides.orchestrator ?? overrides.general ?? "");
     const defaultModelId = useMemo(() => buildResolvedModelDefaultsMap(modelDefaults).orchestrator ??
         buildModelDefaultsMap(modelDefaults).orchestrator ??
         "", [modelDefaults]);

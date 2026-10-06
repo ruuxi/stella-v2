@@ -262,6 +262,44 @@ export function formatRecentEngineModelId(
   return `${RECENT_ENGINE_PREFIXES[engine]}${trimmed}`;
 }
 
+export type ActiveEngineModelPreferences = {
+  agentRuntimeEngine: ModelPickerEngine;
+  codexModel?: string;
+  claudeCodeModel?: string;
+};
+
+/**
+ * The model a committed engine will actually run, as an engine-prefixed id
+ * (`claude-code/…`, `codex-cli/…`), or null when Stella's own runtime owns
+ * the selection.
+ *
+ * Every picker surface has to derive "what is selected" from this rather
+ * than from `modelOverrides`. Each engine remembers its own model so that
+ * switching back restores it — `buildEngineRoutingPatch` even writes the
+ * remembered Stella override back into `modelOverrides` while a local engine
+ * is committed — so reading the overrides alone reports an inactive model as
+ * a second, equally-checked selection.
+ */
+export function getActiveEngineModelId(
+  preferences: ActiveEngineModelPreferences | null | undefined,
+): string | null {
+  const engine = preferences?.agentRuntimeEngine ?? "default";
+  if (engine === "codex_cli") {
+    return formatRecentEngineModelId(
+      engine,
+      preferences?.codexModel || DEFAULT_CHATGPT_MODEL,
+    );
+  }
+  if (engine === "claude_code_local") {
+    return formatRecentEngineModelId(
+      engine,
+      preferences?.claudeCodeModel || DEFAULT_CLAUDE_CODE_MODEL,
+    );
+  }
+  return null;
+}
+
+
 type ModelSelectionTarget =
   | { assistant: true; configurableAgentKeys: readonly string[] }
   | { assistant?: false; agentKey: string };

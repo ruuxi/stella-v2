@@ -17,7 +17,7 @@ import { announceChatGptPlanUse, ChatGptPlanInUse } from "@/features/chatgpt/Cha
 import { useChatGptProfiles } from "@/features/chatgpt/use-chatgpt-profiles";
 import { showToast } from "@/ui/toast";
 import { useT } from "@/shared/i18n";
-import { buildEngineReasoningPatch, buildEngineRoutingPatch, buildEngineTransitionReasoningPatch, buildModelSelectionPatch, DEFAULT_CHATGPT_MODEL, DEFAULT_CLAUDE_CODE_MODEL, formatRecentEngineModelId, fromChatGptModelId, listChatGptCatalogModels, CHATGPT_PROVIDER, resolveChatGptEngineModel, type ModelPickerEngine, } from "@/global/settings/lib/engine-model-routing";
+import { buildEngineReasoningPatch, buildEngineRoutingPatch, buildEngineTransitionReasoningPatch, buildModelSelectionPatch, DEFAULT_CHATGPT_MODEL, DEFAULT_CLAUDE_CODE_MODEL, formatRecentEngineModelId, fromChatGptModelId, getActiveEngineModelId, listChatGptCatalogModels, CHATGPT_PROVIDER, resolveChatGptEngineModel, type ModelPickerEngine, } from "@/global/settings/lib/engine-model-routing";
 import "./AgentModelPicker.css";
 import { isWebsiteHost } from "@/platform/capabilities";
 import { WebsiteModelPicker } from "./WebsiteModelPicker";
@@ -817,18 +817,29 @@ function DesktopAgentModelPicker({ active = true, onSelected, className, surface
     const imagePreferences = preferences?.imageGeneration ?? DEFAULT_IMAGE_GENERATION;
     const voicePreferences = preferences?.realtimeVoice ?? DEFAULT_REALTIME_VOICE;
     /**
-     * Selected value for the active tab. For the assistant tab we prefer the
-     * orchestrator key, falling back to general so a "split" Advanced setup
-     * still shows something coherent. For image/voice we surface the provider
-     * key directly (no model id) because those tabs are provider-only.
+     * Selected value for the active tab — the model that is actually in use,
+     * never a merely remembered one. A committed ChatGPT / Claude Code engine
+     * owns the conversation agents, so its engine-prefixed id IS the
+     * selection; the Stella override it left behind in `modelOverrides` (kept
+     * so switching back restores it) must not read as a second pick. Tabs the
+     * engines don't route keep their own override. For the assistant tab we
+     * prefer the orchestrator key, falling back to general so a "split"
+     * Advanced setup still shows something coherent. For image/voice we
+     * surface the provider key directly (no model id) because those tabs are
+     * provider-only.
      */
-    const current = activeAssistant
-        ? (overrides.orchestrator ?? overrides.general ?? "")
-        : activeImage
-            ? imagePreferences.provider
-            : activeVoice
-                ? voicePreferences.provider
-                : (overrides[activeAgent] ?? "");
+    const engineGovernsActiveTab = activeAssistant ||
+        ASSISTANT_AGENT_KEYS.some((key) => key === activeAgent);
+    const activeEngineModelId = getActiveEngineModelId(preferences);
+    const current = activeImage
+        ? imagePreferences.provider
+        : activeVoice
+            ? voicePreferences.provider
+            : engineGovernsActiveTab && activeEngineModelId
+                ? activeEngineModelId
+                : activeAssistant
+                    ? (overrides.orchestrator ?? overrides.general ?? "")
+                    : (overrides[activeAgent] ?? "");
     // The default row is a routing choice, not another copy of its currently
     // resolved model. Keep its label stable while the explicit model rows below
     // show the actual choices.

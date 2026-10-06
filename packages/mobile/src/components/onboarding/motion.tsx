@@ -29,16 +29,20 @@ import Animated, {
   type WithSpringConfig,
 } from "react-native-reanimated";
 
-/** Settles quickly with a hint of overshoot: cards, rows, chips. */
+/**
+ * Critically damped: settles into place without overshoot. Cards, rows, chips.
+ * Damping is 2*sqrt(stiffness * mass), so raising stiffness means raising this
+ * to match; drop it below that and the spring starts to wobble again.
+ */
 export const SPRING_SOFT: WithSpringConfig = {
-  damping: 17,
+  damping: 26,
   stiffness: 170,
   mass: 1,
 };
 
 /** Tight and quick: presses, toggles, small pops. */
 export const SPRING_SNAPPY: WithSpringConfig = {
-  damping: 20,
+  damping: 31,
   stiffness: 340,
   mass: 0.7,
 };
@@ -46,7 +50,7 @@ export const SPRING_SNAPPY: WithSpringConfig = {
 /** A card or block arriving under a message. */
 export const cardEntering = (delay = 0) =>
   FadeInDown.springify()
-    .damping(19)
+    .damping(25)
     .stiffness(150)
     .mass(1)
     .withInitialValues({ opacity: 0, transform: [{ translateY: 18 }] })
@@ -56,7 +60,7 @@ export const cardEntering = (delay = 0) =>
 /** Rows inside a card, staggered by index. */
 export const rowEntering = (index: number, base = 0) =>
   FadeInDown.springify()
-    .damping(18)
+    .damping(28)
     .stiffness(200)
     .withInitialValues({ opacity: 0, transform: [{ translateY: 10 }] })
     .delay(base + index * 55)
@@ -78,7 +82,7 @@ export const popEntering =
   () => {
     "worklet";
     const spring = {
-      damping: 16,
+      damping: 32,
       stiffness: 260,
       mass: 1,
       reduceMotion: ReduceMotion.System,
@@ -103,7 +107,7 @@ export const popEntering =
 
 /** Siblings sliding to make room for a row that arrived or left. */
 export const springLayout = LinearTransition.springify()
-  .damping(20)
+  .damping(28)
   .stiffness(190)
   .reduceMotion(ReduceMotion.System);
 

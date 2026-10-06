@@ -1712,19 +1712,10 @@
     },
     "appSource": {
       "update": "Обновить",
-      "updating": "Обновление…",
       "title": "Изменения в Stella",
       "undo": "Отменить",
       "outdated": "Сделано на старой версии",
       "failed": "Не удалось применить изменение",
-      "updateAvailable": "Доступно обновление",
-      "changedOn": "Вы изменили Stella на {device}",
-      "changedElsewhere": "Вы изменили Stella на другом компьютере",
-      "addPrompt": "Добавить это изменение и сюда?",
-      "addHere": "Добавить на этот компьютер",
-      "added": "Добавлено на этот компьютер",
-      "updatingInBackground": "Stella обновляется в фоне",
-      "upToDate": "Stella обновлена",
       "restarts": "Перезапускает Stella",
       "updatedJustNow": "Только что обновлено",
       "updatedAgo": "Обновлено {ago}",
@@ -1736,11 +1727,28 @@
         "one": "{count} файл",
         "other": "{count} файла"
       },
-      "changes": {
-        "few": "{count} изменения",
-        "many": "{count} изменений",
-        "one": "{count} изменение",
-        "other": "{count} изменения"
+      "updates": {
+        "pill": {
+          "few": "{count} обновления",
+          "many": "{count} обновлений",
+          "one": "{count} обновление",
+          "other": "{count} обновления"
+        },
+        "newVersion": "Новая версия Stella",
+        "newVersionDetail": "Улучшения и исправления от команды Stella",
+        "fromDevice": "Изменение, сделанное на {device}",
+        "fromOtherComputer": "Изменение, сделанное на другом компьютере",
+        "fromOtherComputers": "Изменения с другого компьютера",
+        "readyChange": "Изменение готово к добавлению",
+        "add": "Добавить",
+        "adding": "Добавление…",
+        "skip": "Пропустить",
+        "undoing": "Отмена…",
+        "removed": "Удалено: {change}",
+        "justNow": "Только что",
+        "waiting": "Ожидают",
+        "history": "История",
+        "upToDate": "Ничего не ожидает. Stella обновлена."
       }
     },
     "display": {

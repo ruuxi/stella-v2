@@ -114,6 +114,7 @@ import {
   IPC_OFFICE_PREVIEW_UPDATE,
   IPC_APP_SOURCE_APPLY,
   IPC_APP_SOURCE_APPLY_REMOTE,
+  IPC_APP_SOURCE_SKIP,
   IPC_APP_SOURCE_APPLY_UPSTREAM,
   IPC_APP_SOURCE_GET_STATE,
   IPC_EXECUTION_ANSWER_REMOTE_REQUEST,
@@ -536,6 +537,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       invokeIpc<AppSourceActionResult>(IPC_APP_SOURCE_APPLY_REMOTE),
     applyUpstream: () =>
       invokeIpc<AppSourceActionResult>(IPC_APP_SOURCE_APPLY_UPSTREAM),
+    skip: (key: string) =>
+      invokeIpc<AppSourceActionResult>(IPC_APP_SOURCE_SKIP, key),
   },
 
   capture: {

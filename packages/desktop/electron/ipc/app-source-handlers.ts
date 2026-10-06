@@ -4,6 +4,7 @@ import {
   IPC_APP_SOURCE_APPLY_REMOTE,
   IPC_APP_SOURCE_APPLY_UPSTREAM,
   IPC_APP_SOURCE_GET_STATE,
+  IPC_APP_SOURCE_SKIP,
   IPC_APP_SOURCE_UNDO,
 } from "@stella/contracts/desktop/ipc-channels";
 import type { AppSourceActionResult } from "@stella/contracts/desktop/app-source";
@@ -62,5 +63,13 @@ export const registerAppSourceHandlers = (
     options,
     IPC_APP_SOURCE_APPLY_UPSTREAM,
     (event) => service(event)?.applyUpstream() ?? unavailable,
+  );
+  registerPrivilegedHandle(
+    options,
+    IPC_APP_SOURCE_SKIP,
+    (event, key: unknown) =>
+      typeof key === "string"
+        ? (service(event)?.skip(key) ?? unavailable)
+        : unavailable,
   );
 };

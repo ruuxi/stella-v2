@@ -23,6 +23,7 @@ export const SIDEBAR_SECTIONS = [
   "files",
   "apps",
   "browser",
+  "updates",
   "takeover",
 ] as const;
 // Kept for the sections that render inside the panel body. Home is a real
@@ -33,6 +34,7 @@ export const PANEL_SIDEBAR_SECTIONS = [
   "files",
   "apps",
   "browser",
+  "updates",
   "takeover",
 ] as const;
 

@@ -40,7 +40,6 @@ import { ShellTopBarActivity } from "@/shell/ShellTopBarActivity";
 import { ShellTopBarAccount } from "@/shell/sidebar/ShellTopBarAccount";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
 import { ShellTopBarPrimaryNav } from "@/shell/sidebar/ShellTopBarNav";
-import { ShellTopBarUpdatePill } from "@/shell/ShellTopBarUpdatePill";
 import { WindowControls } from "@/shell/WindowControls";
 import { PanelRight } from "@/ui/icons";
 import { useT } from "@/shared/i18n";
@@ -81,7 +80,6 @@ export const ShellTopBarFull = memo(function ShellTopBarFull({ onSignIn }: Shell
       <ShellTopBarActivity />
 
       <div className="shell-topbar-full__right">
-        <ShellTopBarUpdatePill />
         <ShellTopBarAccount onSignIn={onSignIn} />
         {!panelOpen ? (
           <>

@@ -1682,19 +1682,10 @@
     },
     "appSource": {
       "update": "อัปเดต",
-      "updating": "กำลังอัปเดต…",
       "title": "การเปลี่ยนแปลงของ Stella",
       "undo": "เลิกทำ",
       "outdated": "สร้างบนเวอร์ชันเก่า",
       "failed": "ไม่สามารถใช้การเปลี่ยนแปลงได้",
-      "updateAvailable": "มีอัปเดต",
-      "changedOn": "คุณเปลี่ยน Stella บน {device}",
-      "changedElsewhere": "คุณเปลี่ยน Stella บนคอมพิวเตอร์เครื่องอื่น",
-      "addPrompt": "เพิ่มการเปลี่ยนแปลงนี้ที่นี่ด้วยไหม",
-      "addHere": "เพิ่มลงในคอมพิวเตอร์เครื่องนี้",
-      "added": "เพิ่มลงในคอมพิวเตอร์เครื่องนี้แล้ว",
-      "updatingInBackground": "Stella กำลังอัปเดตอยู่เบื้องหลัง",
-      "upToDate": "Stella เป็นเวอร์ชันล่าสุดแล้ว",
       "restarts": "รีสตาร์ต Stella",
       "updatedJustNow": "อัปเดตเมื่อสักครู่",
       "updatedAgo": "อัปเดต{ago}",
@@ -1703,8 +1694,25 @@
       "files": {
         "other": "{count} ไฟล์"
       },
-      "changes": {
-        "other": "{count} การเปลี่ยนแปลง"
+      "updates": {
+        "pill": {
+          "other": "อัปเดต {count} รายการ"
+        },
+        "newVersion": "Stella เวอร์ชันใหม่",
+        "newVersionDetail": "การปรับปรุงและการแก้ไขจากทีม Stella",
+        "fromDevice": "การเปลี่ยนแปลงที่คุณทำบน {device}",
+        "fromOtherComputer": "การเปลี่ยนแปลงที่คุณทำบนคอมพิวเตอร์อีกเครื่อง",
+        "fromOtherComputers": "การเปลี่ยนแปลงจากคอมพิวเตอร์อีกเครื่องของคุณ",
+        "readyChange": "การเปลี่ยนแปลงที่พร้อมเพิ่ม",
+        "add": "เพิ่ม",
+        "adding": "กำลังเพิ่ม…",
+        "skip": "ข้าม",
+        "undoing": "กำลังเลิกทำ…",
+        "removed": "นำออกแล้ว: {change}",
+        "justNow": "เมื่อสักครู่",
+        "waiting": "รออยู่",
+        "history": "ประวัติ",
+        "upToDate": "ไม่มีอะไรรออยู่ Stella เป็นเวอร์ชันล่าสุดแล้ว"
       }
     },
     "display": {

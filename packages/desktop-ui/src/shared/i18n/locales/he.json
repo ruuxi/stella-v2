@@ -1702,19 +1702,10 @@
     },
     "appSource": {
       "update": "עדכן",
-      "updating": "מעדכן…",
       "title": "שינויים ב-Stella",
       "undo": "בטל",
       "outdated": "נוצר בגרסה ישנה יותר",
       "failed": "לא ניתן היה להחיל את השינוי",
-      "updateAvailable": "עדכון זמין",
-      "changedOn": "שינית את Stella במחשב {device}",
-      "changedElsewhere": "שינית את Stella במחשב אחר",
-      "addPrompt": "להוסיף את השינוי הזה גם כאן?",
-      "addHere": "הוספה למחשב הזה",
-      "added": "נוסף למחשב הזה",
-      "updatingInBackground": "Stella מתעדכנת ברקע",
-      "upToDate": "Stella מעודכנת",
       "restarts": "מפעיל מחדש את Stella",
       "updatedJustNow": "עודכן הרגע",
       "updatedAgo": "עודכן {ago}",
@@ -1725,10 +1716,27 @@
         "two": "{count} קבצים",
         "other": "{count} קבצים"
       },
-      "changes": {
-        "one": "שינוי אחד",
-        "two": "{count} שינויים",
-        "other": "{count} שינויים"
+      "updates": {
+        "pill": {
+          "one": "עדכון אחד",
+          "two": "שני עדכונים",
+          "other": "{count} עדכונים"
+        },
+        "newVersion": "גרסה חדשה של Stella",
+        "newVersionDetail": "שיפורים ותיקונים מצוות Stella",
+        "fromDevice": "שינוי שביצעת ב-{device}",
+        "fromOtherComputer": "שינוי שביצעת במחשב האחר שלך",
+        "fromOtherComputers": "שינויים מהמחשב האחר שלך",
+        "readyChange": "שינוי מוכן להוספה",
+        "add": "הוספה",
+        "adding": "מוסיף…",
+        "skip": "דילוג",
+        "undoing": "מבטל…",
+        "removed": "הוסר: {change}",
+        "justNow": "עכשיו",
+        "waiting": "ממתין",
+        "history": "היסטוריה",
+        "upToDate": "אין דבר שממתין. Stella מעודכנת."
       }
     },
     "display": {

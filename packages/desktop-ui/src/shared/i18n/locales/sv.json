@@ -1692,19 +1692,10 @@
     },
     "appSource": {
       "update": "Uppdatera",
-      "updating": "Uppdaterar…",
       "title": "Ändringar i Stella",
       "undo": "Ångra",
       "outdated": "Gjord på en äldre version",
       "failed": "Det gick inte att tillämpa ändringen",
-      "updateAvailable": "Uppdatering tillgänglig",
-      "changedOn": "Du ändrade Stella på {device}",
-      "changedElsewhere": "Du ändrade Stella på en annan dator",
-      "addPrompt": "Vill du lägga till ändringen här också?",
-      "addHere": "Lägg till på den här datorn",
-      "added": "Tillagd på den här datorn",
-      "updatingInBackground": "Stella uppdaterar i bakgrunden",
-      "upToDate": "Stella är uppdaterad",
       "restarts": "Startar om Stella",
       "updatedJustNow": "Uppdaterad nyss",
       "updatedAgo": "Uppdaterad {ago}",
@@ -1714,9 +1705,26 @@
         "one": "{count} fil",
         "other": "{count} filer"
       },
-      "changes": {
-        "one": "{count} ändring",
-        "other": "{count} ändringar"
+      "updates": {
+        "pill": {
+          "one": "{count} uppdatering",
+          "other": "{count} uppdateringar"
+        },
+        "newVersion": "Ny version av Stella",
+        "newVersionDetail": "Förbättringar och korrigeringar från Stella-teamet",
+        "fromDevice": "En ändring du gjorde på {device}",
+        "fromOtherComputer": "En ändring du gjorde på din andra dator",
+        "fromOtherComputers": "Ändringar från din andra dator",
+        "readyChange": "En ändring redo att läggas till",
+        "add": "Lägg till",
+        "adding": "Lägger till…",
+        "skip": "Hoppa över",
+        "undoing": "Ångrar…",
+        "removed": "Borttaget: {change}",
+        "justNow": "Just nu",
+        "waiting": "Väntar",
+        "history": "Historik",
+        "upToDate": "Inget väntar. Stella är uppdaterad."
       }
     },
     "display": {

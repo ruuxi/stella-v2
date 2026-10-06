@@ -1682,19 +1682,10 @@
     },
     "appSource": {
       "update": "アップデート",
-      "updating": "アップデート中…",
       "title": "Stella への変更",
       "undo": "元に戻す",
       "outdated": "古いバージョンで作成",
       "failed": "変更を適用できませんでした",
-      "updateAvailable": "アップデートがあります",
-      "changedOn": "{device} で Stella を変更しました",
-      "changedElsewhere": "別のコンピューターで Stella を変更しました",
-      "addPrompt": "この変更をこのコンピューターにも追加しますか？",
-      "addHere": "このコンピューターに追加",
-      "added": "このコンピューターに追加済み",
-      "updatingInBackground": "Stella をバックグラウンドで更新しています",
-      "upToDate": "Stella は最新です",
       "restarts": "Stella を再起動します",
       "updatedJustNow": "たった今更新",
       "updatedAgo": "{ago}に更新",
@@ -1703,8 +1694,25 @@
       "files": {
         "other": "{count} ファイル"
       },
-      "changes": {
-        "other": "{count} 件の変更"
+      "updates": {
+        "pill": {
+          "other": "{count} 件のアップデート"
+        },
+        "newVersion": "Stella の新しいバージョン",
+        "newVersionDetail": "Stella チームによる改善と修正",
+        "fromDevice": "{device} で行った変更",
+        "fromOtherComputer": "別のコンピュータで行った変更",
+        "fromOtherComputers": "別のコンピュータからの変更",
+        "readyChange": "追加できる変更",
+        "add": "追加",
+        "adding": "追加中…",
+        "skip": "スキップ",
+        "undoing": "取り消し中…",
+        "removed": "削除済み: {change}",
+        "justNow": "たった今",
+        "waiting": "待機中",
+        "history": "履歴",
+        "upToDate": "待機中のものはありません。Stella は最新です。"
       }
     },
     "display": {

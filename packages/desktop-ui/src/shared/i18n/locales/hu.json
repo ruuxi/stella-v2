@@ -1692,19 +1692,10 @@
     },
     "appSource": {
       "update": "Frissítés",
-      "updating": "Frissítés…",
       "title": "Stella módosításai",
       "undo": "Visszavonás",
       "outdated": "Régebbi verzión készült",
       "failed": "Nem sikerült alkalmazni a módosítást",
-      "updateAvailable": "Frissítés érhető el",
-      "changedOn": "Módosítottad a Stellát ezen: {device}",
-      "changedElsewhere": "Módosítottad a Stellát egy másik számítógépen",
-      "addPrompt": "Ezt a módosítást ide is hozzáadod?",
-      "addHere": "Hozzáadás ehhez a számítógéphez",
-      "added": "Hozzáadva ehhez a számítógéphez",
-      "updatingInBackground": "A Stella a háttérben frissül",
-      "upToDate": "A Stella naprakész",
       "restarts": "Újraindítja a Stellát",
       "updatedJustNow": "Épp most frissítve",
       "updatedAgo": "Frissítve: {ago}",
@@ -1714,9 +1705,26 @@
         "one": "{count} fájl",
         "other": "{count} fájl"
       },
-      "changes": {
-        "one": "{count} módosítás",
-        "other": "{count} módosítás"
+      "updates": {
+        "pill": {
+          "one": "{count} frissítés",
+          "other": "{count} frissítés"
+        },
+        "newVersion": "A Stella új verziója",
+        "newVersionDetail": "Fejlesztések és javítások a Stella csapatától",
+        "fromDevice": "Egy változtatás, amit itt végeztél: {device}",
+        "fromOtherComputer": "Egy változtatás, amit a másik számítógépeden végeztél",
+        "fromOtherComputers": "Változtatások a másik számítógépedről",
+        "readyChange": "Hozzáadásra kész változtatás",
+        "add": "Hozzáadás",
+        "adding": "Hozzáadás…",
+        "skip": "Kihagyás",
+        "undoing": "Visszavonás…",
+        "removed": "Eltávolítva: {change}",
+        "justNow": "Épp most",
+        "waiting": "Várakozik",
+        "history": "Előzmények",
+        "upToDate": "Semmi sem várakozik. A Stella naprakész."
       }
     },
     "display": {

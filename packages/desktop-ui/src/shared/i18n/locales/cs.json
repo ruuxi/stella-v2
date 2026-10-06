@@ -1712,19 +1712,10 @@
     },
     "appSource": {
       "update": "Aktualizovat",
-      "updating": "Aktualizace…",
       "title": "Změny ve Stelle",
       "undo": "Vrátit",
       "outdated": "Vytvořeno ve starší verzi",
       "failed": "Změnu se nepodařilo použít",
-      "updateAvailable": "K dispozici je aktualizace",
-      "changedOn": "Změnili jste Stellu na zařízení {device}",
-      "changedElsewhere": "Změnili jste Stellu na jiném počítači",
-      "addPrompt": "Přidat tuto změnu i sem?",
-      "addHere": "Přidat do tohoto počítače",
-      "added": "Přidáno do tohoto počítače",
-      "updatingInBackground": "Stella se aktualizuje na pozadí",
-      "upToDate": "Stella je aktuální",
       "restarts": "Restartuje Stellu",
       "updatedJustNow": "Aktualizováno právě teď",
       "updatedAgo": "Aktualizováno {ago}",
@@ -1736,11 +1727,28 @@
         "one": "{count} soubor",
         "other": "{count} souborů"
       },
-      "changes": {
-        "few": "{count} změny",
-        "many": "{count} změny",
-        "one": "{count} změna",
-        "other": "{count} změn"
+      "updates": {
+        "pill": {
+          "few": "{count} aktualizace",
+          "many": "{count} aktualizace",
+          "one": "{count} aktualizace",
+          "other": "{count} aktualizací"
+        },
+        "newVersion": "Nová verze Stelly",
+        "newVersionDetail": "Vylepšení a opravy od týmu Stelly",
+        "fromDevice": "Změna, kterou jste udělali na {device}",
+        "fromOtherComputer": "Změna, kterou jste udělali na svém druhém počítači",
+        "fromOtherComputers": "Změny z vašeho druhého počítače",
+        "readyChange": "Změna připravená k přidání",
+        "add": "Přidat",
+        "adding": "Přidávání…",
+        "skip": "Přeskočit",
+        "undoing": "Vracení…",
+        "removed": "Odebráno: {change}",
+        "justNow": "Právě teď",
+        "waiting": "Čeká",
+        "history": "Historie",
+        "upToDate": "Nic nečeká. Stella je aktuální."
       }
     },
     "display": {

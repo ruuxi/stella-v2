@@ -1558,6 +1558,7 @@ export type ElectronAppSourceApi = {
   undo: (sha: string) => Promise<AppSourceActionResult>;
   applyRemote: () => Promise<AppSourceActionResult>;
   applyUpstream: () => Promise<AppSourceActionResult>;
+  skip: (key: string) => Promise<AppSourceActionResult>;
 };
 
 export type ElectronApi = {

@@ -1,6 +1,7 @@
 /**
  * The above-composer lead row shared by every chat composer surface (full
- * shell + sidebar/wide panel). It carries the optional assistant reply peek.
+ * shell + sidebar/wide panel). It carries the optional assistant reply peek,
+ * and the Updates pill while something can be added to this computer.
  *
  * It used to carry an Activity pill as well, as a stand-in for the standalone
  * Activity surface whenever that surface was hidden. Background work is now
@@ -13,6 +14,7 @@ import {
   AssistantReplyPeek,
   type AssistantReplyPeekProps,
 } from "@/app/chat/AssistantReplyPeek";
+import { UpdatesPill } from "@/features/app-source/UpdatesPill";
 
 type ComposerLeadRowProps = {
   /** When present, the assistant reply peek renders flush above the row. */
@@ -25,7 +27,9 @@ export const ComposerLeadRow = memo(function ComposerLeadRow({
   return (
     <div className="composer-context-peek-anchor">
       {replyPeek ? <AssistantReplyPeek {...replyPeek} /> : null}
-      <div className="composer-context-lead-row" />
+      <div className="composer-context-lead-row">
+        <UpdatesPill />
+      </div>
     </div>
   );
 });

@@ -3,19 +3,25 @@
  *
  * It keeps the shared search field at the top (owned here; results render in
  * place) and, when nothing is being searched, offers a vertically-centered
- * list of destinations: Files, Apps, Browser. Picking one swaps the panel to
+ * list of destinations: Files, Apps, Browser, and Updates when Stella runs
+ * from its own source. Picking one swaps the panel to
  * that section, mirroring opening a new browser tab.
  */
 import { sidebarSections } from "@/features/workspace-display/sidebar-sections";
+import { useAppSourceState } from "@/features/app-source/app-source-store";
 import { WorkList } from "./FilesSection";
 import { HOME_LAUNCHER_SECTIONS, SIDEBAR_SECTION_META } from "./section-meta";
 import "./home-launcher.css";
 
 function LauncherOptions() {
+  const fromSource = useAppSourceState() !== null;
+  const sections = HOME_LAUNCHER_SECTIONS.filter(
+    (section) => section !== "updates" || fromSource,
+  );
   return (
     <div className="home-launcher">
       <ul className="home-launcher__list">
-        {HOME_LAUNCHER_SECTIONS.map((section) => {
+        {sections.map((section) => {
           const { label, Icon } = SIDEBAR_SECTION_META[section];
           return (
             <li key={section}>

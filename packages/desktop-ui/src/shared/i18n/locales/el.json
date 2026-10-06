@@ -1692,19 +1692,10 @@
     },
     "appSource": {
       "update": "Ενημέρωση",
-      "updating": "Ενημέρωση…",
       "title": "Αλλαγές στη Stella",
       "undo": "Αναίρεση",
       "outdated": "Δημιουργήθηκε σε παλαιότερη έκδοση",
       "failed": "Δεν ήταν δυνατή η εφαρμογή της αλλαγής",
-      "updateAvailable": "Διαθέσιμη ενημέρωση",
-      "changedOn": "Άλλαξες τη Stella στο {device}",
-      "changedElsewhere": "Άλλαξες τη Stella σε άλλον υπολογιστή",
-      "addPrompt": "Να προστεθεί αυτή η αλλαγή και εδώ;",
-      "addHere": "Προσθήκη σε αυτόν τον υπολογιστή",
-      "added": "Προστέθηκε σε αυτόν τον υπολογιστή",
-      "updatingInBackground": "Η Stella ενημερώνεται στο παρασκήνιο",
-      "upToDate": "Η Stella είναι ενημερωμένη",
       "restarts": "Επανεκκινεί τη Stella",
       "updatedJustNow": "Ενημερώθηκε μόλις τώρα",
       "updatedAgo": "Ενημερώθηκε {ago}",
@@ -1714,9 +1705,26 @@
         "one": "{count} αρχείο",
         "other": "{count} αρχεία"
       },
-      "changes": {
-        "one": "{count} αλλαγή",
-        "other": "{count} αλλαγές"
+      "updates": {
+        "pill": {
+          "one": "{count} ενημέρωση",
+          "other": "{count} ενημερώσεις"
+        },
+        "newVersion": "Νέα έκδοση του Stella",
+        "newVersionDetail": "Βελτιώσεις και διορθώσεις από την ομάδα του Stella",
+        "fromDevice": "Μια αλλαγή που κάνατε στο {device}",
+        "fromOtherComputer": "Μια αλλαγή που κάνατε στον άλλο σας υπολογιστή",
+        "fromOtherComputers": "Αλλαγές από τον άλλο σας υπολογιστή",
+        "readyChange": "Μια αλλαγή έτοιμη για προσθήκη",
+        "add": "Προσθήκη",
+        "adding": "Προσθήκη…",
+        "skip": "Παράλειψη",
+        "undoing": "Αναίρεση…",
+        "removed": "Αφαιρέθηκε: {change}",
+        "justNow": "Μόλις τώρα",
+        "waiting": "Σε αναμονή",
+        "history": "Ιστορικό",
+        "upToDate": "Τίποτα σε αναμονή. Το Stella είναι ενημερωμένο."
       }
     },
     "display": {

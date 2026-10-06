@@ -1692,19 +1692,10 @@
     },
     "appSource": {
       "update": "Bijwerken",
-      "updating": "Bijwerken…",
       "title": "Wijzigingen in Stella",
       "undo": "Ongedaan maken",
       "outdated": "Gemaakt op een oudere versie",
       "failed": "Kan de wijziging niet toepassen",
-      "updateAvailable": "Update beschikbaar",
-      "changedOn": "Je hebt Stella gewijzigd op {device}",
-      "changedElsewhere": "Je hebt Stella gewijzigd op een andere computer",
-      "addPrompt": "Deze wijziging hier ook toevoegen?",
-      "addHere": "Toevoegen aan deze computer",
-      "added": "Toegevoegd aan deze computer",
-      "updatingInBackground": "Stella wordt op de achtergrond bijgewerkt",
-      "upToDate": "Stella is up-to-date",
       "restarts": "Start Stella opnieuw",
       "updatedJustNow": "Zojuist bijgewerkt",
       "updatedAgo": "Bijgewerkt {ago}",
@@ -1714,9 +1705,26 @@
         "one": "{count} bestand",
         "other": "{count} bestanden"
       },
-      "changes": {
-        "one": "{count} wijziging",
-        "other": "{count} wijzigingen"
+      "updates": {
+        "pill": {
+          "one": "{count} update",
+          "other": "{count} updates"
+        },
+        "newVersion": "Nieuwe versie van Stella",
+        "newVersionDetail": "Verbeteringen en oplossingen van het Stella-team",
+        "fromDevice": "Een wijziging die je op {device} hebt gemaakt",
+        "fromOtherComputer": "Een wijziging die je op je andere computer hebt gemaakt",
+        "fromOtherComputers": "Wijzigingen van je andere computer",
+        "readyChange": "Een wijziging klaar om toe te voegen",
+        "add": "Toevoegen",
+        "adding": "Toevoegen…",
+        "skip": "Overslaan",
+        "undoing": "Ongedaan maken…",
+        "removed": "Verwijderd: {change}",
+        "justNow": "Zojuist",
+        "waiting": "Wachtend",
+        "history": "Geschiedenis",
+        "upToDate": "Niets in afwachting. Stella is up-to-date."
       }
     },
     "display": {

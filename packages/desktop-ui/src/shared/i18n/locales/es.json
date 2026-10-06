@@ -1702,19 +1702,10 @@
     },
     "appSource": {
       "update": "Actualizar",
-      "updating": "Actualizando…",
       "title": "Cambios en Stella",
       "undo": "Deshacer",
       "outdated": "Hecho sobre una versión anterior",
       "failed": "No se pudo aplicar el cambio",
-      "updateAvailable": "Actualización disponible",
-      "changedOn": "Cambiaste Stella en {device}",
-      "changedElsewhere": "Cambiaste Stella en otro ordenador",
-      "addPrompt": "¿Añadir este cambio aquí también?",
-      "addHere": "Añadir a este ordenador",
-      "added": "Añadido a este ordenador",
-      "updatingInBackground": "Stella se está actualizando en segundo plano",
-      "upToDate": "Stella está actualizada",
       "restarts": "Reinicia Stella",
       "updatedJustNow": "Actualizado ahora mismo",
       "updatedAgo": "Actualizado {ago}",
@@ -1725,10 +1716,27 @@
         "one": "{count} archivo",
         "other": "{count} archivos"
       },
-      "changes": {
-        "many": "{count} cambios",
-        "one": "{count} cambio",
-        "other": "{count} cambios"
+      "updates": {
+        "pill": {
+          "many": "{count} actualizaciones",
+          "one": "{count} actualización",
+          "other": "{count} actualizaciones"
+        },
+        "newVersion": "Nueva versión de Stella",
+        "newVersionDetail": "Mejoras y correcciones del equipo de Stella",
+        "fromDevice": "Un cambio que hiciste en {device}",
+        "fromOtherComputer": "Un cambio que hiciste en tu otro ordenador",
+        "fromOtherComputers": "Cambios de tu otro ordenador",
+        "readyChange": "Un cambio listo para añadir",
+        "add": "Añadir",
+        "adding": "Añadiendo…",
+        "skip": "Omitir",
+        "undoing": "Deshaciendo…",
+        "removed": "Quitado: {change}",
+        "justNow": "Ahora mismo",
+        "waiting": "Pendiente",
+        "history": "Historial",
+        "upToDate": "No hay nada pendiente. Stella está al día."
       }
     },
     "display": {

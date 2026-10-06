@@ -22,6 +22,7 @@ import { FileSidebarTabExistenceReconciler } from "./FileSidebarTabExistenceReco
 import { FilesSection } from "./FilesSection";
 import { HomeLauncherSection } from "./HomeLauncherSection";
 import { CloudBrowserTakeoverSection } from "./CloudBrowserTakeoverSection";
+import { UpdatesSection } from "./UpdatesSection";
 import "./sidebar-sections.css";
 
 const PER_ITEM_BODIES = {
@@ -51,13 +52,14 @@ export function SidebarSectionBody() {
   const activeSection = useActiveSidebarSection();
   const appsActive = activeSection === "apps";
   const browserActive = activeSection === "browser";
+  const updatesActive = activeSection === "updates";
 
   return (
     <>
       <FileSidebarTabExistenceReconciler />
       {tabs.map((tab) => {
         const Body = PER_ITEM_BODIES[tab.kind];
-        if (!Body) return null; // apps / browser handled by shared instances
+        if (!Body) return null; // apps / browser / updates handled by shared instances
         return (
           <SectionHost
             key={tab.id}
@@ -76,6 +78,9 @@ export function SidebarSectionBody() {
       </SectionHost>
       <SectionHost section="browser" active={browserActive}>
         <BrowserSection />
+      </SectionHost>
+      <SectionHost section="updates" active={updatesActive}>
+        <UpdatesSection />
       </SectionHost>
     </>
   );

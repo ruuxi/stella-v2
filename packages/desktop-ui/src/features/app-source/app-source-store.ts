@@ -3,13 +3,11 @@ import type {
   AppSourceActionResult,
   AppSourceCommit,
   AppSourceDraft,
-  AppSourceElsewhere,
   AppSourceState,
 } from "@stella/contracts/desktop/app-source";
-import {
-  isStellaDraft,
-  isUpdateDraft,
-} from "@stella/contracts/desktop/app-source";
+import { isStellaDraft } from "@stella/contracts/desktop/app-source";
+import { sidebarSections } from "@/features/workspace-display/sidebar-sections";
+import { displayTabs } from "@/features/workspace-display/tab-store";
 
 /**
  * The app's own source state (drafts to apply, recent changes, the user's
@@ -101,14 +99,13 @@ export const runAppSourceAction = async (
 export type AgentChange =
   | { kind: "ready"; draft: AppSourceDraft }
   | { kind: "stale"; draft: AppSourceDraft }
-  | { kind: "applied"; commit: AppSourceCommit }
-  | { kind: "elsewhere"; change: AppSourceElsewhere };
+  | { kind: "applied"; commit: AppSourceCommit };
 
 /**
- * The newest thing an agent's change is: a draft to apply, a draft whose base
- * moved, a commit already in the version (applied, or undone again), or a
- * change applied on another of the owner's computers. Official update merges
- * are the top bar's, never the chat's.
+ * The newest thing an agent's change is on this computer: a draft to apply, a
+ * draft whose base moved, or a commit already in the version (applied, or
+ * undone again). A change made on another computer is offered by the Updates
+ * list, never by the chat.
  */
 export const agentChange = (
   state: AppSourceState,
@@ -122,21 +119,16 @@ export const agentChange = (
   if (stale) return { kind: "stale", draft: stale };
   // `recent` is newest first.
   const commit = state.recent.find((entry) => entry.agentId === agentId);
-  if (commit) return { kind: "applied", commit };
-  const change = state.elsewhere.find((entry) => entry.agentId === agentId);
-  return change ? { kind: "elsewhere", change } : null;
+  return commit ? { kind: "applied", commit } : null;
 };
 
-/**
- * The official update the top bar offers: a merge of it with the user's own
- * changes that is ready to take, or the published version itself.
- */
-export const officialUpdate = (state: AppSourceState) => {
-  const merged = state.ready.find((draft) => isUpdateDraft(draft.name));
-  if (merged) return { kind: "merged" as const, draft: merged };
-  if (state.upstream.status === "ahead") return { kind: "ahead" as const };
-  if (state.upstream.status === "diverged") return { kind: "diverged" as const };
-  return null;
+/** Offers still waiting for a click: one already being added is not. */
+export const waitingCount = (state: AppSourceState) =>
+  state.waiting.filter((offer) => !offer.adding).length;
+
+export const openUpdates = () => {
+  sidebarSections.selectSection("updates");
+  displayTabs.setPanelOpen(true);
 };
 
 /**

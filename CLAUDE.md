@@ -23,11 +23,15 @@ that we publish, plus a private fork per user.
   and applied only when the user clicks Update. Applying fast-forwards the
   checkout and pushes it to the user's fork; Undo reverts. The agent workflow
   is the seeded skill `packages/home-seed/skills/modify-stella/SKILL.md`.
-- The user's other computers fetch the fork and offer "Add to this computer";
-  nothing is applied on a device without a click there.
-- Our official updates are merges from `upstream`, offered by the Update pill
-  in the top bar. When they conflict with the user's own changes, an agent
-  merges in the background.
+- The user's other computers fetch the fork and offer what it would actually
+  change there; a fork whose files this computer already has (duplicate merge
+  history) is joined silently and never offered. Nothing is applied on a
+  device without a click there.
+- Our official updates are merges from `upstream`. Everything that can be
+  added shows as an "N updates" pill above the composer, which opens the
+  Updates section of the right sidebar (Add / Skip, then history with Undo).
+  When an update conflicts with the user's own changes, an agent merges in the
+  background.
 - The app only ever fast-forwards; any divergence is merged by an agent, never
   by git's automatic three-way merge.
 - Code lives in `packages/desktop/electron/services/app-source/` and

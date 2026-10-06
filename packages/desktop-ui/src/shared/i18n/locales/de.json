@@ -1692,19 +1692,10 @@
     },
     "appSource": {
       "update": "Update",
-      "updating": "Wird aktualisiert…",
       "title": "Änderungen an Stella",
       "undo": "Rückgängig",
       "outdated": "Auf einer älteren Version erstellt",
       "failed": "Die Änderung konnte nicht übernommen werden",
-      "updateAvailable": "Update verfügbar",
-      "changedOn": "Du hast Stella auf {device} geändert",
-      "changedElsewhere": "Du hast Stella auf einem anderen Computer geändert",
-      "addPrompt": "Diese Änderung auch hier übernehmen?",
-      "addHere": "Auf diesem Computer hinzufügen",
-      "added": "Auf diesem Computer hinzugefügt",
-      "updatingInBackground": "Stella aktualisiert sich im Hintergrund",
-      "upToDate": "Stella ist auf dem neuesten Stand",
       "restarts": "Startet Stella neu",
       "updatedJustNow": "Gerade aktualisiert",
       "updatedAgo": "Aktualisiert {ago}",
@@ -1714,9 +1705,26 @@
         "one": "{count} Datei",
         "other": "{count} Dateien"
       },
-      "changes": {
-        "one": "{count} Änderung",
-        "other": "{count} Änderungen"
+      "updates": {
+        "pill": {
+          "one": "{count} Update",
+          "other": "{count} Updates"
+        },
+        "newVersion": "Neue Version von Stella",
+        "newVersionDetail": "Verbesserungen und Fehlerbehebungen vom Stella-Team",
+        "fromDevice": "Eine Änderung, die du auf {device} gemacht hast",
+        "fromOtherComputer": "Eine Änderung, die du auf deinem anderen Computer gemacht hast",
+        "fromOtherComputers": "Änderungen von deinem anderen Computer",
+        "readyChange": "Eine Änderung, bereit zum Hinzufügen",
+        "add": "Hinzufügen",
+        "adding": "Wird hinzugefügt…",
+        "skip": "Überspringen",
+        "undoing": "Wird rückgängig gemacht…",
+        "removed": "Entfernt: {change}",
+        "justNow": "Gerade eben",
+        "waiting": "Wartet",
+        "history": "Verlauf",
+        "upToDate": "Nichts wartet. Stella ist auf dem neuesten Stand."
       }
     },
     "display": {

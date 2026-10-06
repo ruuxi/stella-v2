@@ -1682,19 +1682,10 @@
     },
     "appSource": {
       "update": "更新",
-      "updating": "正在更新…",
       "title": "Stella 的更改",
       "undo": "撤销",
       "outdated": "基于旧版本创建",
       "failed": "无法应用此更改",
-      "updateAvailable": "有可用更新",
-      "changedOn": "你在 {device} 上更改了 Stella",
-      "changedElsewhere": "你在另一台电脑上更改了 Stella",
-      "addPrompt": "也要在这台电脑上添加这项更改吗？",
-      "addHere": "添加到这台电脑",
-      "added": "已添加到这台电脑",
-      "updatingInBackground": "Stella 正在后台更新",
-      "upToDate": "Stella 已是最新版本",
       "restarts": "将重启 Stella",
       "updatedJustNow": "刚刚更新",
       "updatedAgo": "{ago}更新",
@@ -1703,8 +1694,25 @@
       "files": {
         "other": "{count} 个文件"
       },
-      "changes": {
-        "other": "{count} 项更改"
+      "updates": {
+        "pill": {
+          "other": "{count} 个更新"
+        },
+        "newVersion": "Stella 新版本",
+        "newVersionDetail": "来自 Stella 团队的改进和修复",
+        "fromDevice": "你在 {device} 上做的更改",
+        "fromOtherComputer": "你在另一台电脑上做的更改",
+        "fromOtherComputers": "来自你另一台电脑的更改",
+        "readyChange": "可以添加的更改",
+        "add": "添加",
+        "adding": "正在添加…",
+        "skip": "跳过",
+        "undoing": "正在撤销…",
+        "removed": "已移除：{change}",
+        "justNow": "刚刚",
+        "waiting": "待添加",
+        "history": "历史",
+        "upToDate": "没有待添加的内容。Stella 已是最新版本。"
       }
     },
     "display": {

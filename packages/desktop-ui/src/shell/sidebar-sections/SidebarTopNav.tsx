@@ -40,6 +40,8 @@ export function SidebarTopNav() {
     switch (tab.kind) {
       case "browser":
         return "Browser";
+      case "updates":
+        return "Updates";
       case "takeover":
         return "Sign in";
       case "home":

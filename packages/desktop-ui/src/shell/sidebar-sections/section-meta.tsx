@@ -5,7 +5,7 @@
  * option list so both stay in sync. `home` is the launcher itself and never
  * appears as one of the launcher's own options.
  */
-import { AppWindowMac, Folder, Globe, House, Lock } from "@/ui/icons";
+import { AppWindowMac, Folder, Globe, House, Lock, RefreshCw } from "@/ui/icons";
 import type { IconComponent } from "@/ui/icons";
 import type { SidebarSection } from "@/features/workspace-display/sidebar-sections";
 
@@ -20,10 +20,15 @@ export const SIDEBAR_SECTION_META: Record<SidebarSection, SidebarSectionMeta> =
     files: { label: "Files", Icon: Folder },
     apps: { label: "Apps", Icon: AppWindowMac },
     browser: { label: "Browser", Icon: Globe },
+    updates: { label: "Updates", Icon: RefreshCw },
     takeover: { label: "Sign in", Icon: Lock },
   };
 
-/** The destinations offered by the Home launcher, in display order. */
+/**
+ * The destinations offered by the Home launcher, in display order. Updates
+ * is offered only while Stella runs from its own source, the one case where
+ * it has anything to list.
+ */
 export const HOME_LAUNCHER_SECTIONS: ReadonlyArray<
   Exclude<SidebarSection, "home" | "takeover">
-> = ["files", "apps", "browser"];
+> = ["files", "apps", "browser", "updates"];

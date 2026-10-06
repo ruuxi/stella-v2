@@ -76,7 +76,7 @@ If a worktree directory was deleted by hand, run `git -C "$STELLA_APP_DIR" workt
 
 ## Updates
 
-Most updates never reach you. Pressing Update in the top bar fast-forwards when it can, and when the user's own history has diverged Stella still merges and applies it by itself as long as git finds no conflict and the merged tree builds. You are sent an update only when there is a judgement to make: real conflicting files, or a clean merge whose result fails that build.
+Most updates never reach you. Pressing Add on the new version in the Updates list (opened from the pill above the composer) fast-forwards when it can, and when the user's own history has diverged Stella still merges and applies it by itself as long as git finds no conflict and the merged tree builds. You are sent an update only when there is a judgement to make: real conflicting files, or a clean merge whose result fails that build.
 
 When that happens you get a brief, not a chat message — it already names the upstream sha, the merge base, the conflicting files or the build output, and the draft name to use. Stella takes the finished `update-` draft on its own (the user already pressed Update), so don't ask them to press Update for it, and don't tell them anything about conflicts: they are told only that Stella is updating. The published version is at `refs/remotes/stella-upstream/main` (Stella fetches it; never fetch or pull yourself). Merge it in a draft:
 

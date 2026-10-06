@@ -31,21 +31,33 @@ export type AppSourceCommit = {
   agentId?: string;
   /** The commit undoes the agent's change (an Undo); Update takes it again. */
   undone?: boolean;
+  /**
+   * What the commit brought, for the Updates list: a new published version,
+   * changes taken from the owner's other computer, or a change of their own.
+   * Only the last two can be undone from there.
+   */
+  kind: "version" | "other-computer" | "change";
 };
 
 /**
- * An agent's change applied on another of the owner's computers (shared
- * through the fork). The chat shows it on that agent's completion, where the
- * user adds it to this computer with a click; nothing applies it on its own.
+ * Something this computer can add, as the Updates list shows it. Each has a
+ * `key` that names exactly this offer: skipping it hides that key, and a newer
+ * version or another change arriving makes a new key, so it shows again.
+ * `adding` is one already added whose work is still going on in the
+ * background; it no longer counts as waiting.
  */
-export type AppSourceElsewhere = {
-  agentId: string;
-  sha: string;
-  /** The computer it was applied on. */
-  device: string;
-  /** This computer already runs it. */
-  here: boolean;
-};
+export type AppSourceWaiting =
+  | { kind: "version"; key: string; adding: boolean; draft?: string }
+  | {
+      kind: "other-computer";
+      key: string;
+      adding: boolean;
+      /** The computer it was made on, when the change says. */
+      device: string;
+      /** One line on what it changes. */
+      summary: string;
+    }
+  | { kind: "draft"; key: string; adding: false; name: string; summary: string };
 
 /**
  * A draft merging the published app (upstream) with the user's own changes
@@ -71,7 +83,10 @@ export type AppSourceState = {
   ready: AppSourceDraft[];
   /** Finished drafts whose base moved; an agent has to rebase them. */
   stale: AppSourceDraft[];
-  /** The fork compared with the current branch. */
+  /**
+   * The fork compared with the current branch, counting only a fork that
+   * would change files here beyond the published version.
+   */
   remote: { status: "none" | "ahead" | "diverged"; count: number };
   /**
    * The published app (upstream `main`) compared with the current branch:
@@ -92,10 +107,13 @@ export type AppSourceState = {
    * reason it takes a while is never shown to them.
    */
   update?: { state: "merging" | "done" };
-  /** Recent first-parent commits on the current branch, newest first. */
+  /**
+   * Recent first-parent commits on the current branch, newest first, leaving
+   * out ones that changed no files.
+   */
   recent: AppSourceCommit[];
-  /** Agents' changes applied on the owner's other computers. */
-  elsewhere: AppSourceElsewhere[];
+  /** What this computer can add now, minus what the user skipped. */
+  waiting: AppSourceWaiting[];
   /** An apply or undo is running. */
   busy: boolean;
 };

@@ -9,11 +9,15 @@ import {
 import type { AppSourceRemote } from "@stella/contracts/backend/app-source";
 import type {
   AppSourceActionResult,
+  AppSourceCommit,
   AppSourceDraft,
-  AppSourceElsewhere,
   AppSourceState,
+  AppSourceWaiting,
 } from "@stella/contracts/desktop/app-source";
-import { isStellaDraft } from "@stella/contracts/desktop/app-source";
+import {
+  isStellaDraft,
+  isUpdateDraft,
+} from "@stella/contracts/desktop/app-source";
 import {
   DRAFT_REF_PREFIX,
   git,
@@ -149,7 +153,13 @@ const UPDATE_DONE_MS = 20_000;
 const UPDATE_MERGE_WAIT_MS = 60 * 60_000;
 const FORK_FIRST_SYNC_DELAY_MS = 20_000;
 const FORK_SYNC_INTERVAL_MS = 30 * 60_000;
-const RECENT_COUNT = 8;
+const RECENT_COUNT = 20;
+/** Under the git common dir: offers the user skipped, by key. */
+const SKIPPED_FILE = "stella-updates-skipped.json";
+const UPSTREAM_MERGE_SUBJECT = "Merge the published Stella update";
+const REMOTE_MERGE_SUBJECT = "Merge the changes from another computer";
+const CATCH_UP_SUBJECT = "Catch up with Stella on your other computers";
+const SKIP_KEY = /^(version|other|draft):[0-9a-f]{40}([0-9a-f]{24})?$/;
 const FORK_REF_PREFIX = "refs/remotes/stella-fork/";
 const UPSTREAM_REF = "refs/remotes/stella-upstream/main";
 /** Under the git common dir: the agent whose draft each applied commit was. */
@@ -181,9 +191,17 @@ const EMPTY_STATE: AppSourceState = {
   remote: { status: "none", count: 0 },
   upstream: NO_UPSTREAM,
   recent: [],
-  elsewhere: [],
+  waiting: [],
   busy: false,
 };
+
+/**
+ * Another version, judged by the files taking it would change here rather
+ * than by its history. `real` is false when it brings nothing this computer
+ * lacks; `catchUp` then says the history alone can be joined, silently,
+ * because the result is this computer's own tree.
+ */
+type Offer = { tip: string; real: boolean; catchUp: boolean };
 
 /** This computer, as the owner's other computers name it. */
 const deviceName = () =>
@@ -244,9 +262,14 @@ export class AppSourceService {
    * an agent is preparing; "done" is the short line after one landed.
    */
   private updateState:
-    | { state: "merging"; name: string; since: number }
+    | { state: "merging"; name: string; since: number; from: TakeSource["kind"] }
     | { state: "done"; since: number }
     | null = null;
+  private offers = new Map<string, Offer>();
+  private catchingUp = false;
+  private caughtUp = new Set<string>();
+  private skipped: Set<string> | null = null;
+  private offeredKeys: string[] = [];
   private updateTimer: NodeJS.Timeout | null = null;
   private takingUpdate = false;
   private disposed = false;
@@ -589,7 +612,12 @@ export class AppSourceService {
         draft: name,
       });
     }
-    this.updateState = { state: "merging", name, since: Date.now() };
+    this.updateState = {
+      state: "merging",
+      name,
+      since: Date.now(),
+      from: source.kind,
+    };
     return { background: true };
   }
 
@@ -835,8 +863,8 @@ export class AppSourceService {
       git(cwd, [
         "log",
         "--first-parent",
-        `-n${RECENT_COUNT}`,
-        "--format=%H%x00%s%x00%ct",
+        `-n${RECENT_COUNT * 2}`,
+        "--format=%H%x00%s%x00%ct%x00%T%x00%P",
         "HEAD",
       ]),
     ]);
@@ -863,46 +891,76 @@ export class AppSourceService {
         ...(await this.draftShape(cwd, head, sha)),
       });
     }
-    const recent = await Promise.all(
-      log
-        .split("\n")
-        .filter(Boolean)
-        .map(async (line) => {
-          const [sha = "", subject = "", seconds = "0"] = line.split("\0");
-          const change = await this.changeOf(cwd, sha);
-          return {
-            sha,
-            subject,
-            date: Number(seconds) * 1000,
-            ...(change
-              ? { agentId: change.agentId, ...(change.undone ? { undone: true } : {}) }
-              : {}),
-          };
-        }),
+    const recent = await this.readRecent(cwd, log);
+    const forkRef = this.forkBranch ? `${FORK_REF_PREFIX}${this.forkBranch}` : null;
+    const upstreamOffer = this.upstreamTracked
+      ? await this.offerFrom(cwd, head, UPSTREAM_REF, null)
+      : null;
+    // What the other computer would bring beyond the published version: a
+    // fork that only took the official update is that update, not a change
+    // of the user's.
+    const forkOffer = forkRef
+      ? await this.offerFrom(
+          cwd,
+          head,
+          forkRef,
+          upstreamOffer?.real ? UPSTREAM_REF : null,
+        )
+      : null;
+    this.catchUpLater(
+      forkOffer?.catchUp ? forkRef : upstreamOffer?.catchUp ? UPSTREAM_REF : null,
+      head,
     );
-    const [remote, upstream, elsewhere] = await Promise.all([
-      this.forkBranch
-        ? this.compareRef(cwd, head, `${FORK_REF_PREFIX}${this.forkBranch}`)
-        : null,
-      this.upstreamTracked ? this.compareRef(cwd, head, UPSTREAM_REF) : null,
-      this.readElsewhere(cwd),
+    const [remote, upstream] = await Promise.all([
+      forkRef && forkOffer?.real ? this.compareRef(cwd, head, forkRef) : null,
+      upstreamOffer?.real ? this.compareRef(cwd, head, UPSTREAM_REF) : null,
     ]);
-    // The other computer only took the official update: that is the top
-    // bar's Update here, not a change of the user's.
-    const officialOnly =
-      remote !== null &&
-      upstream !== null &&
-      (await isAncestor(cwd, `${FORK_REF_PREFIX}${this.forkBranch}`, UPSTREAM_REF));
+    const merging =
+      this.updateState?.state === "merging" ? this.updateState.from : null;
+    const offered: AppSourceWaiting[] = [];
+    const updateDraft = ready.find((draft) => isUpdateDraft(draft.name));
+    if (upstreamOffer?.real || updateDraft) {
+      offered.push({
+        kind: "version",
+        key: `version:${upstreamOffer?.real ? upstreamOffer.tip : updateDraft!.sha}`,
+        adding: merging === "upstream",
+        ...(updateDraft ? { draft: updateDraft.name } : {}),
+      });
+    }
+    if (forkRef && forkOffer?.real) {
+      const [summary, device] = await Promise.all([
+        this.forkSummary(cwd, head, forkOffer.tip),
+        this.forkDevice(cwd),
+      ]);
+      offered.push({
+        kind: "other-computer",
+        key: `other:${forkOffer.tip}`,
+        adding: merging === "remote",
+        device,
+        summary,
+      });
+    }
+    for (const draft of [...ready, ...stale]) {
+      if (isStellaDraft(draft.name)) continue;
+      offered.push({
+        kind: "draft",
+        key: `draft:${draft.sha}`,
+        adding: false,
+        name: draft.name,
+        summary: draft.subject || draft.name,
+      });
+    }
+    this.offeredKeys = offered.map((offer) => offer.key);
+    const skipped = await this.skippedKeys(cwd);
     return {
       ready,
       stale,
-      remote:
-        remote && !officialOnly
-          ? { status: remote.status, count: remote.count }
-          : { status: "none", count: 0 },
+      remote: remote
+        ? { status: remote.status, count: remote.count }
+        : { status: "none", count: 0 },
       upstream: upstream ?? NO_UPSTREAM,
       recent,
-      elsewhere,
+      waiting: offered.filter((offer) => offer.adding || !skipped.has(offer.key)),
       ...(this.updateState
         ? { update: { state: this.updateState.state } }
         : {}),
@@ -910,13 +968,166 @@ export class AppSourceService {
   }
 
   /**
-   * Agents' changes tagged on the owner's other computers (fetched from the
-   * fork, minus this computer's own tags), and whether HEAD already has each.
+   * First-parent history in the user's terms, leaving out commits that
+   * changed no files: catching up with another computer's history, or a
+   * merge of a version this computer already had, is nothing to them.
    */
-  private async readElsewhere(cwd: string): Promise<AppSourceElsewhere[]> {
-    const format = "--format=%(refname)%00%(*objectname)%00%(contents:subject)";
+  private async readRecent(cwd: string, log: string): Promise<AppSourceCommit[]> {
+    const published = this.upstreamTracked
+      ? new Set(
+          (
+            await gitRaw(cwd, ["rev-list", "-n", "5000", UPSTREAM_REF])
+          ).stdout.split("\n"),
+        )
+      : new Set<string>();
+    // When the checkout arrived at each commit, where git noted it: a
+    // version published days ago but taken just now was applied just now.
+    const arrived = new Map<string, number>();
+    const reflog = await gitRaw(cwd, ["reflog", "-n200", "--date=unix", "--format=%H %gd", "HEAD"]);
+    for (const line of reflog.stdout.split("\n")) {
+      const match = /^([0-9a-f]+) \S*@\{(\d+)\}$/.exec(line.trim());
+      if (match && !arrived.has(match[1]!)) arrived.set(match[1]!, Number(match[2]) * 1000);
+    }
+    const lines = log.split("\n").filter(Boolean).map((line) => line.split("\0"));
+    const commits: AppSourceCommit[] = [];
+    for (const [index, line] of lines.entries()) {
+      if (commits.length >= RECENT_COUNT) break;
+      const [sha = "", subject = "", seconds = "0", tree = "", parents = ""] = line;
+      const parentTree = lines[index + 1]?.[3];
+      if (parentTree !== undefined && parentTree === tree) continue;
+      const others = parents.split(" ").filter(Boolean).slice(1);
+      const kind: AppSourceCommit["kind"] =
+        subject.startsWith(REMOTE_MERGE_SUBJECT)
+          ? "other-computer"
+          : subject.startsWith(UPSTREAM_MERGE_SUBJECT) ||
+              published.has(sha) ||
+              others.some((parent) => published.has(parent))
+            ? "version"
+            : "change";
+      // Published versions taken one after another are one new version.
+      if (kind === "version" && commits.at(-1)?.kind === "version") continue;
+      const change = await this.changeOf(cwd, sha);
+      commits.push({
+        sha,
+        subject,
+        date: arrived.get(sha) ?? Number(seconds) * 1000,
+        kind,
+        ...(change
+          ? { agentId: change.agentId, ...(change.undone ? { undone: true } : {}) }
+          : {}),
+      });
+    }
+    return commits;
+  }
+
+  /** The tree taking `tip` onto `onto` makes, or null when it conflicts. */
+  private async mergedTree(cwd: string, onto: string, tip: string) {
+    if (await isAncestor(cwd, tip, onto)) {
+      return await git(cwd, ["rev-parse", `${onto}^{tree}`]);
+    }
+    if (await isAncestor(cwd, onto, tip)) {
+      return await git(cwd, ["rev-parse", `${tip}^{tree}`]);
+    }
+    const merge = await gitRaw(cwd, ["merge-tree", "--write-tree", onto, tip]);
+    if (merge.code === 1) return null;
+    if (merge.code !== 0) {
+      throw new Error(merge.stderr.trim() || "Could not work out the merge.");
+    }
+    return merge.stdout.split("\n")[0]!.trim();
+  }
+
+  /**
+   * What taking `ref` would really change here. Commits HEAD lacks are not
+   * enough: two computers that each merged the same official update hold
+   * different commits with the same files. Only a different resulting tree
+   * is something to offer. With `published`, a ref whose every change is
+   * already in the published version offers nothing of its own either.
+   */
+  private async offerFrom(
+    cwd: string,
+    head: string,
+    ref: string,
+    published: string | null,
+  ): Promise<Offer | null> {
+    const tip = (
+      await gitRaw(cwd, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`])
+    ).stdout.trim();
+    if (!tip || tip === head || (await isAncestor(cwd, tip, head))) return null;
+    const publishedTip = published
+      ? (await gitRaw(cwd, ["rev-parse", "--verify", "--quiet", `${published}^{commit}`]))
+          .stdout.trim()
+      : "";
+    const key = `${head}:${tip}:${publishedTip}`;
+    const known = this.offers.get(key);
+    if (known) return known;
+    const headTree = await git(cwd, ["rev-parse", `${head}^{tree}`]);
+    const merged = await this.mergedTree(cwd, head, tip);
+    const offer: Offer =
+      merged === headTree
+        ? { tip, real: false, catchUp: true }
+        : merged !== null &&
+            publishedTip &&
+            (await this.coveredBy(cwd, head, publishedTip, tip))
+          ? { tip, real: false, catchUp: false }
+          : { tip, real: true, catchUp: false };
+    if (this.offers.size > 16) this.offers.clear();
+    this.offers.set(key, offer);
+    return offer;
+  }
+
+  /** Everything `tip` would bring here is in the published version. */
+  private async coveredBy(cwd: string, head: string, published: string, tip: string) {
+    const withPublished = await this.mergedTree(cwd, head, published);
+    if (withPublished === null) return false;
+    // The published version taken here, as objects only, so the other side
+    // can be merged onto it.
+    const onto = (await isAncestor(cwd, published, head))
+      ? head
+      : (await isAncestor(cwd, head, published))
+        ? published
+        : await git(
+            cwd,
+            [
+              "commit-tree",
+              withPublished,
+              "-p",
+              head,
+              "-p",
+              published,
+              "-m",
+              UPSTREAM_MERGE_SUBJECT,
+            ],
+            { env: await this.identityEnv(cwd) },
+          );
+    return (await this.mergedTree(cwd, onto, tip)) === withPublished;
+  }
+
+  /** The newest change the other computer has that is not the published app. */
+  private async forkSummary(cwd: string, head: string, tip: string) {
+    const out = await git(cwd, [
+      "log",
+      "--no-merges",
+      "-n1",
+      "--format=%s",
+      tip,
+      `^${head}`,
+      ...(this.upstreamTracked ? [`^${UPSTREAM_REF}`] : []),
+    ]);
+    return out.trim();
+  }
+
+  /**
+   * The computer the newest change came from, as its change tag names it.
+   * Empty when the other computer's changes weren't made by an agent there.
+   */
+  private async forkDevice(cwd: string) {
     const [all, merged, own] = await Promise.all([
-      git(cwd, ["for-each-ref", format, FORK_CHANGES_PREFIX]),
+      git(cwd, [
+        "for-each-ref",
+        "--sort=-*committerdate",
+        "--format=%(refname)%00%(contents:subject)",
+        FORK_CHANGES_PREFIX,
+      ]),
       git(cwd, ["for-each-ref", "--merged=HEAD", "--format=%(refname)", FORK_CHANGES_PREFIX]),
       git(cwd, ["for-each-ref", "--format=%(refname)", CHANGE_TAG_PREFIX]),
     ]);
@@ -924,19 +1135,92 @@ export class AppSourceService {
     const mine = new Set(
       own.split("\n").map((ref) => ref.slice(CHANGE_TAG_PREFIX.length)),
     );
-    const changes: AppSourceElsewhere[] = [];
     for (const line of all.split("\n").filter(Boolean)) {
-      const [refname = "", sha = "", device = ""] = line.split("\0");
+      const [refname = "", device = ""] = line.split("\0");
       const key = refname.slice(FORK_CHANGES_PREFIX.length);
-      if (!sha || mine.has(key) || !/^([0-9a-f]{2})+$/.test(key)) continue;
-      changes.push({
-        agentId: Buffer.from(key, "hex").toString("utf8"),
-        sha,
-        device,
-        here: here.has(refname),
-      });
+      if (here.has(refname) || mine.has(key)) continue;
+      if (device.trim()) return device.trim();
     }
-    return changes;
+    return "";
+  }
+
+  /**
+   * Join another side's history when it brings no files this computer lacks,
+   * so it never shows as something to add. The checkout ends on its own tree:
+   * nothing on screen changes and nothing restarts. Once per head and tip, so
+   * a refused attempt is not retried on every poll.
+   */
+  private catchUpLater(ref: string | null, head: string) {
+    if (!ref || this.catchingUp || this.busy || this.disposed) return;
+    if (this.updateState?.state === "merging") return;
+    const attempt = `${head}:${ref}`;
+    if (this.caughtUp.has(attempt)) return;
+    this.caughtUp.add(attempt);
+    this.catchingUp = true;
+    void this.exclusive((cwd) => this.catchUp(cwd, ref)).finally(() => {
+      this.catchingUp = false;
+    });
+  }
+
+  private async catchUp(cwd: string, ref: string) {
+    // A draft in progress: its base must not move under the agent.
+    const worktrees = await listWorktrees(cwd);
+    if (worktrees.some((tree) => tree.branch?.startsWith(DRAFT_REF_PREFIX))) return;
+    const head = await git(cwd, ["rev-parse", "HEAD"]);
+    const tip = await git(cwd, ["rev-parse", "--verify", `${ref}^{commit}`]);
+    if (await isAncestor(cwd, tip, head)) return;
+    const tree = await git(cwd, ["rev-parse", `${head}^{tree}`]);
+    if ((await this.mergedTree(cwd, head, tip)) !== tree) return;
+    const to = (await isAncestor(cwd, head, tip))
+      ? tip
+      : await git(
+          cwd,
+          ["commit-tree", tree, "-p", head, "-p", tip, "-m", CATCH_UP_SUBJECT],
+          { env: await this.identityEnv(cwd) },
+        );
+    await git(cwd, ["merge", "--ff-only", to]);
+    await this.options.afterApply?.(cwd);
+    this.options.log("app-source.caught-up", {
+      from: ref === UPSTREAM_REF ? "upstream" : "remote",
+    });
+  }
+
+  private async skippedKeys(cwd: string) {
+    if (!this.skipped) {
+      const file = path.join(await this.commonDir(cwd), SKIPPED_FILE);
+      const saved: unknown = JSON.parse(
+        await fs.readFile(file, "utf8").catch(() => "[]"),
+      );
+      this.skipped = new Set(
+        Array.isArray(saved)
+          ? saved.filter((key): key is string => typeof key === "string")
+          : [],
+      );
+    }
+    return this.skipped;
+  }
+
+  /**
+   * Hide one offer until something newer arrives. Only what is offered now is
+   * kept, so the list never outgrows the offers themselves.
+   */
+  async skip(key: string): Promise<AppSourceActionResult> {
+    if (!SKIP_KEY.test(key)) return { ok: false, error: "Unknown update." };
+    const cwd = this.options.stellaAppDir;
+    try {
+      const skipped = await this.skippedKeys(cwd);
+      skipped.add(key);
+      const offered = new Set(this.offeredKeys);
+      this.skipped = new Set([...skipped].filter((entry) => entry === key || offered.has(entry)));
+      await fs.writeFile(
+        path.join(await this.commonDir(cwd), SKIPPED_FILE),
+        JSON.stringify([...this.skipped]),
+      );
+    } catch (error) {
+      return { ok: false, error: errorMessage(error) };
+    }
+    void this.refresh();
+    return { ok: true };
   }
 
   /** A remote-tracking ref that has commits HEAD lacks, or null. */

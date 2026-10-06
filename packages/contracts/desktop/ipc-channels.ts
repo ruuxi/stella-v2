@@ -76,6 +76,7 @@ export const IPC_APP_SOURCE_UNDO = "appSource:undo" as const;
 export const IPC_APP_SOURCE_APPLY_REMOTE = "appSource:applyRemote" as const;
 export const IPC_APP_SOURCE_APPLY_UPSTREAM =
   "appSource:applyUpstream" as const;
+export const IPC_APP_SOURCE_SKIP = "appSource:skip" as const;
 
 // ── Capture ─────────────────────────────────────────────────────────────────
 

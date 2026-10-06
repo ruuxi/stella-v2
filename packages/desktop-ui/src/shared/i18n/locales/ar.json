@@ -1732,19 +1732,10 @@
     },
     "appSource": {
       "update": "تحديث",
-      "updating": "جارٍ التحديث…",
       "title": "تغييرات على Stella",
       "undo": "تراجع",
       "outdated": "أُنشئ على إصدار أقدم",
       "failed": "تعذّر تطبيق التغيير",
-      "updateAvailable": "يتوفر تحديث",
-      "changedOn": "لقد غيّرت Stella على {device}",
-      "changedElsewhere": "لقد غيّرت Stella على كمبيوتر آخر",
-      "addPrompt": "هل تريد إضافة هذا التغيير هنا أيضًا؟",
-      "addHere": "إضافة إلى هذا الكمبيوتر",
-      "added": "تمت الإضافة إلى هذا الكمبيوتر",
-      "updatingInBackground": "تُحدَّث Stella في الخلفية",
-      "upToDate": "Stella محدَّثة",
       "restarts": "يعيد تشغيل Stella",
       "updatedJustNow": "تم التحديث للتو",
       "updatedAgo": "تم التحديث {ago}",
@@ -1758,13 +1749,30 @@
         "zero": "{count} ملف",
         "other": "{count} ملف"
       },
-      "changes": {
-        "few": "{count} تغييرات",
-        "many": "{count} تغييرًا",
-        "one": "تغيير واحد",
-        "two": "تغييران",
-        "zero": "{count} تغيير",
-        "other": "{count} تغيير"
+      "updates": {
+        "pill": {
+          "few": "{count} تحديثات",
+          "many": "{count} تحديثًا",
+          "one": "تحديث واحد",
+          "two": "تحديثان",
+          "zero": "لا تحديثات",
+          "other": "{count} تحديث"
+        },
+        "newVersion": "إصدار جديد من Stella",
+        "newVersionDetail": "تحسينات وإصلاحات من فريق Stella",
+        "fromDevice": "تغيير أجريته على {device}",
+        "fromOtherComputer": "تغيير أجريته على جهازك الآخر",
+        "fromOtherComputers": "تغييرات من جهازك الآخر",
+        "readyChange": "تغيير جاهز للإضافة",
+        "add": "إضافة",
+        "adding": "جارٍ الإضافة…",
+        "skip": "تخطٍّ",
+        "undoing": "جارٍ التراجع…",
+        "removed": "تمت الإزالة: {change}",
+        "justNow": "الآن",
+        "waiting": "بانتظارك",
+        "history": "السجل",
+        "upToDate": "لا شيء بانتظارك. Stella محدّث."
       }
     },
     "display": {

@@ -1692,19 +1692,10 @@
     },
     "appSource": {
       "update": "Güncelle",
-      "updating": "Güncelleniyor…",
       "title": "Stella'daki değişiklikler",
       "undo": "Geri al",
       "outdated": "Eski bir sürümde yapıldı",
       "failed": "Değişiklik uygulanamadı",
-      "updateAvailable": "Güncelleme mevcut",
-      "changedOn": "Stella'yı {device} üzerinde değiştirdiniz",
-      "changedElsewhere": "Stella'yı başka bir bilgisayarda değiştirdiniz",
-      "addPrompt": "Bu değişiklik buraya da eklensin mi?",
-      "addHere": "Bu bilgisayara ekle",
-      "added": "Bu bilgisayara eklendi",
-      "updatingInBackground": "Stella arka planda güncelleniyor",
-      "upToDate": "Stella güncel",
       "restarts": "Stella'yı yeniden başlatır",
       "updatedJustNow": "Az önce güncellendi",
       "updatedAgo": "{ago} güncellendi",
@@ -1714,9 +1705,26 @@
         "one": "{count} dosya",
         "other": "{count} dosya"
       },
-      "changes": {
-        "one": "{count} değişiklik",
-        "other": "{count} değişiklik"
+      "updates": {
+        "pill": {
+          "one": "{count} güncelleme",
+          "other": "{count} güncelleme"
+        },
+        "newVersion": "Stella'nın yeni sürümü",
+        "newVersionDetail": "Stella ekibinden iyileştirmeler ve düzeltmeler",
+        "fromDevice": "{device} üzerinde yaptığınız bir değişiklik",
+        "fromOtherComputer": "Diğer bilgisayarınızda yaptığınız bir değişiklik",
+        "fromOtherComputers": "Diğer bilgisayarınızdan değişiklikler",
+        "readyChange": "Eklenmeye hazır bir değişiklik",
+        "add": "Ekle",
+        "adding": "Ekleniyor…",
+        "skip": "Atla",
+        "undoing": "Geri alınıyor…",
+        "removed": "Kaldırıldı: {change}",
+        "justNow": "Az önce",
+        "waiting": "Bekliyor",
+        "history": "Geçmiş",
+        "upToDate": "Bekleyen bir şey yok. Stella güncel."
       }
     },
     "display": {

@@ -1712,19 +1712,10 @@
     },
     "appSource": {
       "update": "Aktualizuj",
-      "updating": "Aktualizowanie…",
       "title": "Zmiany w Stelli",
       "undo": "Cofnij",
       "outdated": "Utworzone w starszej wersji",
       "failed": "Nie udało się zastosować zmiany",
-      "updateAvailable": "Dostępna aktualizacja",
-      "changedOn": "Zmieniono Stellę na urządzeniu {device}",
-      "changedElsewhere": "Zmieniono Stellę na innym komputerze",
-      "addPrompt": "Dodać tę zmianę również tutaj?",
-      "addHere": "Dodaj do tego komputera",
-      "added": "Dodano do tego komputera",
-      "updatingInBackground": "Stella aktualizuje się w tle",
-      "upToDate": "Stella jest aktualna",
       "restarts": "Uruchamia Stellę ponownie",
       "updatedJustNow": "Zaktualizowano przed chwilą",
       "updatedAgo": "Zaktualizowano {ago}",
@@ -1736,11 +1727,28 @@
         "one": "{count} plik",
         "other": "{count} pliku"
       },
-      "changes": {
-        "few": "{count} zmiany",
-        "many": "{count} zmian",
-        "one": "{count} zmiana",
-        "other": "{count} zmiany"
+      "updates": {
+        "pill": {
+          "few": "{count} aktualizacje",
+          "many": "{count} aktualizacji",
+          "one": "{count} aktualizacja",
+          "other": "{count} aktualizacji"
+        },
+        "newVersion": "Nowa wersja Stelli",
+        "newVersionDetail": "Ulepszenia i poprawki od zespołu Stelli",
+        "fromDevice": "Zmiana wprowadzona na {device}",
+        "fromOtherComputer": "Zmiana wprowadzona na Twoim drugim komputerze",
+        "fromOtherComputers": "Zmiany z Twojego drugiego komputera",
+        "readyChange": "Zmiana gotowa do dodania",
+        "add": "Dodaj",
+        "adding": "Dodawanie…",
+        "skip": "Pomiń",
+        "undoing": "Cofanie…",
+        "removed": "Usunięto: {change}",
+        "justNow": "Przed chwilą",
+        "waiting": "Oczekuje",
+        "history": "Historia",
+        "upToDate": "Nic nie oczekuje. Stella jest aktualna."
       }
     },
     "display": {

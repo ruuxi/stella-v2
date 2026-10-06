@@ -1649,7 +1649,18 @@
       "signInTitle": "Pro diktování se přihlaste",
       "failedTitle": "Diktování nefungovalo",
       "failedBody": "Stella to nedokázala přepsat. Zkuste to prosím znovu.",
-      "signInBody": "Pro diktování se přihlaste"
+      "signInBody": "Pro diktování se přihlaste",
+      "keyDialog": {
+        "title": "Zapnout diktování",
+        "description": "Tato instalace Stelly diktování nezahrnuje. Přidejte vlastní klíč OpenRouter API a Stella s ním bude přepisovat. Klíč zůstane v tomto počítači.",
+        "inputLabel": "Klíč OpenRouter API",
+        "getKey": "Získat klíč na openrouter.ai/keys",
+        "save": "Uložit a začít",
+        "saving": "Ukládání…",
+        "saveFailed": "Stella nedokázala tento klíč uložit.",
+        "unavailable": "Ukládání klíčů není v tomto okně dostupné.",
+        "openStella": "Otevřete Stellu a stiskněte tam mikrofon, abyste přidali klíč OpenRouter pro diktování."
+      }
     },
     "voice": {
       "signInTitle": "Pro hlas se přihlaste",

@@ -1625,7 +1625,18 @@
       "signInTitle": "Đăng nhập để dùng đọc chính tả",
       "failedTitle": "Đọc chính tả không thành công",
       "failedBody": "Stella không chuyển được nội dung đó thành văn bản. Vui lòng thử lại.",
-      "signInBody": "Đăng nhập để dùng đọc chính tả"
+      "signInBody": "Đăng nhập để dùng đọc chính tả",
+      "keyDialog": {
+        "title": "Bật đọc chính tả",
+        "description": "Stella này không có tính năng đọc chính tả. Thêm khóa OpenRouter API của bạn và Stella sẽ dùng nó để chép lời. Khóa được giữ trên máy tính này.",
+        "inputLabel": "Khóa OpenRouter API",
+        "getKey": "Lấy khóa tại openrouter.ai/keys",
+        "save": "Lưu và bắt đầu",
+        "saving": "Đang lưu…",
+        "saveFailed": "Stella không thể lưu khóa đó.",
+        "unavailable": "Không thể lưu khóa trong cửa sổ này.",
+        "openStella": "Mở Stella và nhấn micrô ở đó để thêm khóa OpenRouter cho đọc chính tả."
+      }
     },
     "voice": {
       "signInTitle": "Đăng nhập để dùng giọng nói",

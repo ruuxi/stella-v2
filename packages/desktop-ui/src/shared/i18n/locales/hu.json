@@ -1633,7 +1633,18 @@
       "signInTitle": "Jelentkezz be a diktálás használatához",
       "failedTitle": "A diktálás nem sikerült",
       "failedBody": "A Stella nem tudta átírni. Próbáld újra.",
-      "signInBody": "Jelentkezz be a diktálás használatához"
+      "signInBody": "Jelentkezz be a diktálás használatához",
+      "keyDialog": {
+        "title": "Diktálás bekapcsolása",
+        "description": "Ez a Stella nem tartalmaz diktálást. Add meg a saját OpenRouter API-kulcsodat, és a Stella azzal ír át. A kulcs ezen a számítógépen marad.",
+        "inputLabel": "OpenRouter API-kulcs",
+        "getKey": "Kulcs igénylése: openrouter.ai/keys",
+        "save": "Mentés és indítás",
+        "saving": "Mentés…",
+        "saveFailed": "A Stella nem tudta menteni a kulcsot.",
+        "unavailable": "Ebben az ablakban nem lehet kulcsot menteni.",
+        "openStella": "Nyisd meg a Stellát, és ott nyomd meg a mikrofont, hogy OpenRouter-kulcsot adj meg a diktáláshoz."
+      }
     },
     "voice": {
       "signInTitle": "Jelentkezz be a hang használatához",

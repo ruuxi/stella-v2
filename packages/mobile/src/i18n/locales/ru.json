@@ -1649,7 +1649,18 @@
       "signInTitle": "Войдите, чтобы использовать диктовку",
       "failedTitle": "Диктовка не сработала",
       "failedBody": "Stella не смогла это расшифровать. Попробуйте ещё раз.",
-      "signInBody": "Войдите, чтобы использовать диктовку"
+      "signInBody": "Войдите, чтобы использовать диктовку",
+      "keyDialog": {
+        "title": "Включить диктовку",
+        "description": "Этот Stella не включает диктовку. Добавьте свой ключ OpenRouter API, и Stella будет расшифровывать речь с ним. Ключ остаётся на этом компьютере.",
+        "inputLabel": "Ключ OpenRouter API",
+        "getKey": "Получить ключ на openrouter.ai/keys",
+        "save": "Сохранить и начать",
+        "saving": "Сохранение…",
+        "saveFailed": "Stella не удалось сохранить этот ключ.",
+        "unavailable": "Сохранение ключей недоступно в этом окне.",
+        "openStella": "Откройте Stella и нажмите там микрофон, чтобы добавить ключ OpenRouter для диктовки."
+      }
     },
     "voice": {
       "signInTitle": "Войдите, чтобы использовать голос",
@@ -1712,19 +1723,10 @@
     },
     "appSource": {
       "update": "Обновить",
-      "updating": "Обновление…",
       "title": "Изменения в Stella",
       "undo": "Отменить",
       "outdated": "Сделано на старой версии",
       "failed": "Не удалось применить изменение",
-      "updateAvailable": "Доступно обновление",
-      "changedOn": "Вы изменили Stella на {device}",
-      "changedElsewhere": "Вы изменили Stella на другом компьютере",
-      "addPrompt": "Добавить это изменение и сюда?",
-      "addHere": "Добавить на этот компьютер",
-      "added": "Добавлено на этот компьютер",
-      "updatingInBackground": "Stella обновляется в фоне",
-      "upToDate": "Stella обновлена",
       "restarts": "Перезапускает Stella",
       "updatedJustNow": "Только что обновлено",
       "updatedAgo": "Обновлено {ago}",
@@ -1736,11 +1738,28 @@
         "one": "{count} файл",
         "other": "{count} файла"
       },
-      "changes": {
-        "few": "{count} изменения",
-        "many": "{count} изменений",
-        "one": "{count} изменение",
-        "other": "{count} изменения"
+      "updates": {
+        "pill": {
+          "few": "{count} обновления",
+          "many": "{count} обновлений",
+          "one": "{count} обновление",
+          "other": "{count} обновления"
+        },
+        "newVersion": "Новая версия Stella",
+        "newVersionDetail": "Улучшения и исправления от команды Stella",
+        "fromDevice": "Изменение, сделанное на {device}",
+        "fromOtherComputer": "Изменение, сделанное на другом компьютере",
+        "fromOtherComputers": "Изменения с другого компьютера",
+        "readyChange": "Изменение готово к добавлению",
+        "add": "Добавить",
+        "adding": "Добавление…",
+        "skip": "Пропустить",
+        "undoing": "Отмена…",
+        "removed": "Удалено: {change}",
+        "justNow": "Только что",
+        "waiting": "Ожидают",
+        "history": "История",
+        "upToDate": "Ничего не ожидает"
       }
     },
     "display": {

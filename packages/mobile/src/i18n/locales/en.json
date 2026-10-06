@@ -1633,7 +1633,18 @@
       "signInTitle": "Sign in to use dictation",
       "signInBody": "Sign in to Stella to use dictation.",
       "failedTitle": "Dictation didn't work",
-      "failedBody": "Stella couldn't transcribe that. Please try again."
+      "failedBody": "Stella couldn't transcribe that. Please try again.",
+      "keyDialog": {
+        "title": "Turn on dictation",
+        "description": "This Stella doesn't include dictation. Add your own OpenRouter API key and Stella transcribes with it. The key stays on this computer.",
+        "inputLabel": "OpenRouter API key",
+        "getKey": "Get a key at openrouter.ai/keys",
+        "save": "Save and start",
+        "saving": "Saving…",
+        "saveFailed": "Stella couldn't save that key.",
+        "unavailable": "Saving keys isn't available in this window.",
+        "openStella": "Open Stella and press the mic there to add an OpenRouter key for dictation."
+      }
     },
     "voice": {
       "signInTitle": "Sign in to use voice",
@@ -1692,19 +1703,10 @@
     },
     "appSource": {
       "update": "Update",
-      "updating": "Updating…",
       "title": "Changes to Stella",
       "undo": "Undo",
       "outdated": "Made on an older version",
       "failed": "Couldn't apply the change",
-      "updateAvailable": "Update available",
-      "changedOn": "You changed Stella on {device}",
-      "changedElsewhere": "You changed Stella on another computer",
-      "addPrompt": "Add this change here too?",
-      "addHere": "Add to this computer",
-      "added": "Added to this computer",
-      "updatingInBackground": "Stella is updating in the background",
-      "upToDate": "Stella is up to date",
       "restarts": "Restarts Stella",
       "updatedJustNow": "Updated just now",
       "updatedAgo": "Updated {ago}",
@@ -1714,9 +1716,26 @@
         "one": "{count} file",
         "other": "{count} files"
       },
-      "changes": {
-        "one": "{count} change",
-        "other": "{count} changes"
+      "updates": {
+        "pill": {
+          "one": "{count} update",
+          "other": "{count} updates"
+        },
+        "newVersion": "New version of Stella",
+        "newVersionDetail": "Improvements and fixes from the Stella team",
+        "fromDevice": "A change you made on {device}",
+        "fromOtherComputer": "A change you made on your other computer",
+        "fromOtherComputers": "Changes from your other computer",
+        "readyChange": "A change ready to add",
+        "add": "Add",
+        "adding": "Adding…",
+        "skip": "Skip",
+        "undoing": "Undoing…",
+        "removed": "Removed: {change}",
+        "justNow": "Just now",
+        "waiting": "Waiting",
+        "history": "History",
+        "upToDate": "Nothing waiting"
       }
     },
     "display": {

@@ -1633,7 +1633,18 @@
       "signInTitle": "Logg på for å bruke diktering",
       "failedTitle": "Dikteringen fungerte ikke",
       "failedBody": "Stella klarte ikke å transkribere det. Prøv igjen.",
-      "signInBody": "Logg på for å bruke diktering"
+      "signInBody": "Logg på for å bruke diktering",
+      "keyDialog": {
+        "title": "Slå på diktering",
+        "description": "Denne Stella inkluderer ikke diktering. Legg til din egen OpenRouter API-nøkkel, så transkriberer Stella med den. Nøkkelen blir på denne datamaskinen.",
+        "inputLabel": "OpenRouter API-nøkkel",
+        "getKey": "Få en nøkkel på openrouter.ai/keys",
+        "save": "Lagre og start",
+        "saving": "Lagrer…",
+        "saveFailed": "Stella kunne ikke lagre nøkkelen.",
+        "unavailable": "Lagring av nøkler er ikke tilgjengelig i dette vinduet.",
+        "openStella": "Åpne Stella og trykk på mikrofonen der for å legge til en OpenRouter-nøkkel for diktering."
+      }
     },
     "voice": {
       "signInTitle": "Logg på for å bruke stemme",
@@ -1692,19 +1703,10 @@
     },
     "appSource": {
       "update": "Oppdater",
-      "updating": "Oppdaterer…",
       "title": "Endringer i Stella",
       "undo": "Angre",
       "outdated": "Laget på en eldre versjon",
       "failed": "Kunne ikke bruke endringen",
-      "updateAvailable": "Oppdatering tilgjengelig",
-      "changedOn": "Du endret Stella på {device}",
-      "changedElsewhere": "Du endret Stella på en annen datamaskin",
-      "addPrompt": "Vil du legge til endringen her også?",
-      "addHere": "Legg til på denne datamaskinen",
-      "added": "Lagt til på denne datamaskinen",
-      "updatingInBackground": "Stella oppdaterer i bakgrunnen",
-      "upToDate": "Stella er oppdatert",
       "restarts": "Starter Stella på nytt",
       "updatedJustNow": "Oppdatert nå nettopp",
       "updatedAgo": "Oppdatert {ago}",
@@ -1714,9 +1716,26 @@
         "one": "{count} fil",
         "other": "{count} filer"
       },
-      "changes": {
-        "one": "{count} endring",
-        "other": "{count} endringer"
+      "updates": {
+        "pill": {
+          "one": "{count} oppdatering",
+          "other": "{count} oppdateringer"
+        },
+        "newVersion": "Ny versjon av Stella",
+        "newVersionDetail": "Forbedringer og rettelser fra Stella-teamet",
+        "fromDevice": "En endring du gjorde på {device}",
+        "fromOtherComputer": "En endring du gjorde på den andre datamaskinen din",
+        "fromOtherComputers": "Endringer fra den andre datamaskinen din",
+        "readyChange": "En endring klar til å legges til",
+        "add": "Legg til",
+        "adding": "Legger til…",
+        "skip": "Hopp over",
+        "undoing": "Angrer…",
+        "removed": "Fjernet: {change}",
+        "justNow": "Akkurat nå",
+        "waiting": "Venter",
+        "history": "Historikk",
+        "upToDate": "Ingenting venter"
       }
     },
     "display": {

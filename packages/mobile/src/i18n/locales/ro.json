@@ -1641,7 +1641,18 @@
       "signInTitle": "Conectează-te pentru a folosi dictarea",
       "failedTitle": "Dictarea nu a funcționat",
       "failedBody": "Stella nu a putut transcrie asta. Încearcă din nou.",
-      "signInBody": "Conectează-te pentru a folosi dictarea"
+      "signInBody": "Conectează-te pentru a folosi dictarea",
+      "keyDialog": {
+        "title": "Activează dictarea",
+        "description": "Acest Stella nu include dictarea. Adaugă propria cheie API OpenRouter și Stella va transcrie cu ea. Cheia rămâne pe acest computer.",
+        "inputLabel": "Cheie API OpenRouter",
+        "getKey": "Obține o cheie de la openrouter.ai/keys",
+        "save": "Salvează și începe",
+        "saving": "Se salvează…",
+        "saveFailed": "Stella nu a putut salva cheia.",
+        "unavailable": "Salvarea cheilor nu este disponibilă în această fereastră.",
+        "openStella": "Deschide Stella și apasă microfonul acolo pentru a adăuga o cheie OpenRouter pentru dictare."
+      }
     },
     "voice": {
       "signInTitle": "Conectează-te pentru a folosi vocea",
@@ -1702,19 +1713,10 @@
     },
     "appSource": {
       "update": "Actualizează",
-      "updating": "Se actualizează…",
       "title": "Modificări în Stella",
       "undo": "Anulează",
       "outdated": "Făcută pe o versiune mai veche",
       "failed": "Modificarea nu a putut fi aplicată",
-      "updateAvailable": "Actualizare disponibilă",
-      "changedOn": "Ai modificat Stella pe {device}",
-      "changedElsewhere": "Ai modificat Stella pe alt computer",
-      "addPrompt": "Adaugi această modificare și aici?",
-      "addHere": "Adaugă pe acest computer",
-      "added": "Adăugată pe acest computer",
-      "updatingInBackground": "Stella se actualizează în fundal",
-      "upToDate": "Stella este la zi",
       "restarts": "Repornește Stella",
       "updatedJustNow": "Actualizat chiar acum",
       "updatedAgo": "Actualizat {ago}",
@@ -1725,10 +1727,27 @@
         "one": "{count} fișier",
         "other": "{count} de fișiere"
       },
-      "changes": {
-        "few": "{count} modificări",
-        "one": "{count} modificare",
-        "other": "{count} de modificări"
+      "updates": {
+        "pill": {
+          "few": "{count} actualizări",
+          "one": "{count} actualizare",
+          "other": "{count} de actualizări"
+        },
+        "newVersion": "Versiune nouă de Stella",
+        "newVersionDetail": "Îmbunătățiri și remedieri de la echipa Stella",
+        "fromDevice": "O modificare făcută pe {device}",
+        "fromOtherComputer": "O modificare făcută pe celălalt computer",
+        "fromOtherComputers": "Modificări de pe celălalt computer",
+        "readyChange": "O modificare gata de adăugat",
+        "add": "Adaugă",
+        "adding": "Se adaugă…",
+        "skip": "Omite",
+        "undoing": "Se anulează…",
+        "removed": "Eliminat: {change}",
+        "justNow": "Chiar acum",
+        "waiting": "În așteptare",
+        "history": "Istoric",
+        "upToDate": "Nimic în așteptare"
       }
     },
     "display": {

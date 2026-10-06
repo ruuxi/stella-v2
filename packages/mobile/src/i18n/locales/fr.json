@@ -1641,7 +1641,18 @@
       "signInTitle": "Connectez-vous pour utiliser la dictée",
       "failedTitle": "La dictée n’a pas fonctionné",
       "failedBody": "Stella n’a pas pu transcrire cela. Veuillez réessayer.",
-      "signInBody": "Connectez-vous pour utiliser la dictée"
+      "signInBody": "Connectez-vous pour utiliser la dictée",
+      "keyDialog": {
+        "title": "Activer la dictée",
+        "description": "Ce Stella n'inclut pas la dictée. Ajoutez votre propre clé d'API OpenRouter et Stella transcrira avec. La clé reste sur cet ordinateur.",
+        "inputLabel": "Clé d'API OpenRouter",
+        "getKey": "Obtenir une clé sur openrouter.ai/keys",
+        "save": "Enregistrer et commencer",
+        "saving": "Enregistrement…",
+        "saveFailed": "Stella n'a pas pu enregistrer cette clé.",
+        "unavailable": "L'enregistrement de clés n'est pas disponible dans cette fenêtre.",
+        "openStella": "Ouvrez Stella et appuyez sur le micro pour ajouter une clé OpenRouter pour la dictée."
+      }
     },
     "voice": {
       "signInTitle": "Connectez-vous pour utiliser la voix",
@@ -1702,19 +1713,10 @@
     },
     "appSource": {
       "update": "Mettre à jour",
-      "updating": "Mise à jour…",
       "title": "Modifications de Stella",
       "undo": "Annuler",
       "outdated": "Faite sur une version antérieure",
       "failed": "Impossible d'appliquer la modification",
-      "updateAvailable": "Mise à jour disponible",
-      "changedOn": "Vous avez modifié Stella sur {device}",
-      "changedElsewhere": "Vous avez modifié Stella sur un autre ordinateur",
-      "addPrompt": "Ajouter aussi cette modification ici ?",
-      "addHere": "Ajouter à cet ordinateur",
-      "added": "Ajoutée à cet ordinateur",
-      "updatingInBackground": "Stella se met à jour en arrière-plan",
-      "upToDate": "Stella est à jour",
       "restarts": "Redémarre Stella",
       "updatedJustNow": "Mis à jour à l'instant",
       "updatedAgo": "Mis à jour {ago}",
@@ -1725,10 +1727,27 @@
         "one": "{count} fichier",
         "other": "{count} fichiers"
       },
-      "changes": {
-        "many": "{count} modifications",
-        "one": "{count} modification",
-        "other": "{count} modifications"
+      "updates": {
+        "pill": {
+          "many": "{count} mises à jour",
+          "one": "{count} mise à jour",
+          "other": "{count} mises à jour"
+        },
+        "newVersion": "Nouvelle version de Stella",
+        "newVersionDetail": "Améliorations et corrections de l’équipe Stella",
+        "fromDevice": "Une modification faite sur {device}",
+        "fromOtherComputer": "Une modification faite sur votre autre ordinateur",
+        "fromOtherComputers": "Modifications de votre autre ordinateur",
+        "readyChange": "Une modification prête à ajouter",
+        "add": "Ajouter",
+        "adding": "Ajout…",
+        "skip": "Ignorer",
+        "undoing": "Annulation…",
+        "removed": "Retiré : {change}",
+        "justNow": "À l’instant",
+        "waiting": "En attente",
+        "history": "Historique",
+        "upToDate": "Rien en attente"
       }
     },
     "display": {

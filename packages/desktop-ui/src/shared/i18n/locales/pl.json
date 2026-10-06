@@ -1649,7 +1649,18 @@
       "signInTitle": "Zaloguj się, aby używać dyktowania",
       "failedTitle": "Dyktowanie nie zadziałało",
       "failedBody": "Stella nie mogła tego przepisać. Spróbuj ponownie.",
-      "signInBody": "Zaloguj się, aby używać dyktowania"
+      "signInBody": "Zaloguj się, aby używać dyktowania",
+      "keyDialog": {
+        "title": "Włącz dyktowanie",
+        "description": "Ta Stella nie zawiera dyktowania. Dodaj własny klucz API OpenRouter, a Stella będzie z nim transkrybować. Klucz zostaje na tym komputerze.",
+        "inputLabel": "Klucz API OpenRouter",
+        "getKey": "Uzyskaj klucz na openrouter.ai/keys",
+        "save": "Zapisz i zacznij",
+        "saving": "Zapisywanie…",
+        "saveFailed": "Stella nie mogła zapisać tego klucza.",
+        "unavailable": "Zapisywanie kluczy nie jest dostępne w tym oknie.",
+        "openStella": "Otwórz Stellę i naciśnij tam mikrofon, aby dodać klucz OpenRouter do dyktowania."
+      }
     },
     "voice": {
       "signInTitle": "Zaloguj się, aby używać głosu",

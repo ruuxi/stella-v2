@@ -1641,7 +1641,18 @@
       "signInTitle": "Connectez-vous pour utiliser la dictée",
       "failedTitle": "La dictée n’a pas fonctionné",
       "failedBody": "Stella n’a pas pu transcrire cela. Veuillez réessayer.",
-      "signInBody": "Connectez-vous pour utiliser la dictée"
+      "signInBody": "Connectez-vous pour utiliser la dictée",
+      "keyDialog": {
+        "title": "Activer la dictée",
+        "description": "Ce Stella n'inclut pas la dictée. Ajoutez votre propre clé d'API OpenRouter et Stella transcrira avec. La clé reste sur cet ordinateur.",
+        "inputLabel": "Clé d'API OpenRouter",
+        "getKey": "Obtenir une clé sur openrouter.ai/keys",
+        "save": "Enregistrer et commencer",
+        "saving": "Enregistrement…",
+        "saveFailed": "Stella n'a pas pu enregistrer cette clé.",
+        "unavailable": "L'enregistrement de clés n'est pas disponible dans cette fenêtre.",
+        "openStella": "Ouvrez Stella et appuyez sur le micro pour ajouter une clé OpenRouter pour la dictée."
+      }
     },
     "voice": {
       "signInTitle": "Connectez-vous pour utiliser la voix",

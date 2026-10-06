@@ -1633,7 +1633,18 @@
       "signInTitle": "Kirjaudu sisään käyttääksesi sanelua",
       "failedTitle": "Sanelu ei toiminut",
       "failedBody": "Stella ei pystynyt litteroimaan sitä. Yritä uudelleen.",
-      "signInBody": "Kirjaudu sisään käyttääksesi sanelua"
+      "signInBody": "Kirjaudu sisään käyttääksesi sanelua",
+      "keyDialog": {
+        "title": "Ota sanelu käyttöön",
+        "description": "Tähän Stellaan ei sisälly sanelua. Lisää oma OpenRouter API -avaimesi, niin Stella litteroi sillä. Avain pysyy tällä tietokoneella.",
+        "inputLabel": "OpenRouter API -avain",
+        "getKey": "Hanki avain osoitteesta openrouter.ai/keys",
+        "save": "Tallenna ja aloita",
+        "saving": "Tallennetaan…",
+        "saveFailed": "Stella ei voinut tallentaa avainta.",
+        "unavailable": "Avainten tallennus ei ole käytettävissä tässä ikkunassa.",
+        "openStella": "Avaa Stella ja paina siellä mikrofonia lisätäksesi OpenRouter-avaimen sanelua varten."
+      }
     },
     "voice": {
       "signInTitle": "Kirjaudu sisään käyttääksesi ääntä",
@@ -1692,19 +1703,10 @@
     },
     "appSource": {
       "update": "Päivitä",
-      "updating": "Päivitetään…",
       "title": "Muutokset Stellaan",
       "undo": "Kumoa",
       "outdated": "Tehty vanhempaan versioon",
       "failed": "Muutosta ei voitu ottaa käyttöön",
-      "updateAvailable": "Päivitys saatavilla",
-      "changedOn": "Muutit Stellaa laitteella {device}",
-      "changedElsewhere": "Muutit Stellaa toisella tietokoneella",
-      "addPrompt": "Lisätäänkö tämä muutos myös tänne?",
-      "addHere": "Lisää tähän tietokoneeseen",
-      "added": "Lisätty tähän tietokoneeseen",
-      "updatingInBackground": "Stella päivittyy taustalla",
-      "upToDate": "Stella on ajan tasalla",
       "restarts": "Käynnistää Stellan uudelleen",
       "updatedJustNow": "Päivitetty juuri",
       "updatedAgo": "Päivitetty {ago}",
@@ -1714,9 +1716,26 @@
         "one": "{count} tiedosto",
         "other": "{count} tiedostoa"
       },
-      "changes": {
-        "one": "{count} muutos",
-        "other": "{count} muutosta"
+      "updates": {
+        "pill": {
+          "one": "{count} päivitys",
+          "other": "{count} päivitystä"
+        },
+        "newVersion": "Uusi Stella-versio",
+        "newVersionDetail": "Parannuksia ja korjauksia Stella-tiimiltä",
+        "fromDevice": "Muutos, jonka teit laitteella {device}",
+        "fromOtherComputer": "Muutos, jonka teit toisella tietokoneellasi",
+        "fromOtherComputers": "Muutoksia toiselta tietokoneeltasi",
+        "readyChange": "Lisättävä muutos",
+        "add": "Lisää",
+        "adding": "Lisätään…",
+        "skip": "Ohita",
+        "undoing": "Kumotaan…",
+        "removed": "Poistettu: {change}",
+        "justNow": "Juuri nyt",
+        "waiting": "Odottaa",
+        "history": "Historia",
+        "upToDate": "Mitään ei odota"
       }
     },
     "display": {

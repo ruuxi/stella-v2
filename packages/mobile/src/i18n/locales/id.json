@@ -1625,7 +1625,18 @@
       "signInTitle": "Masuk untuk memakai dikte",
       "failedTitle": "Dikte tidak berhasil",
       "failedBody": "Stella tidak dapat mentranskripsikannya. Silakan coba lagi.",
-      "signInBody": "Masuk untuk memakai dikte"
+      "signInBody": "Masuk untuk memakai dikte",
+      "keyDialog": {
+        "title": "Aktifkan dikte",
+        "description": "Stella ini tidak menyertakan dikte. Tambahkan kunci API OpenRouter milik Anda dan Stella akan mentranskripsi dengannya. Kunci tetap di komputer ini.",
+        "inputLabel": "Kunci API OpenRouter",
+        "getKey": "Dapatkan kunci di openrouter.ai/keys",
+        "save": "Simpan dan mulai",
+        "saving": "Menyimpan…",
+        "saveFailed": "Stella tidak dapat menyimpan kunci itu.",
+        "unavailable": "Menyimpan kunci tidak tersedia di jendela ini.",
+        "openStella": "Buka Stella dan tekan mikrofon di sana untuk menambahkan kunci OpenRouter untuk dikte."
+      }
     },
     "voice": {
       "signInTitle": "Masuk untuk memakai suara",
@@ -1682,19 +1693,10 @@
     },
     "appSource": {
       "update": "Perbarui",
-      "updating": "Memperbarui…",
       "title": "Perubahan pada Stella",
       "undo": "Urungkan",
       "outdated": "Dibuat pada versi lama",
       "failed": "Tidak dapat menerapkan perubahan",
-      "updateAvailable": "Pembaruan tersedia",
-      "changedOn": "Anda mengubah Stella di {device}",
-      "changedElsewhere": "Anda mengubah Stella di komputer lain",
-      "addPrompt": "Tambahkan perubahan ini di sini juga?",
-      "addHere": "Tambahkan ke komputer ini",
-      "added": "Ditambahkan ke komputer ini",
-      "updatingInBackground": "Stella sedang memperbarui di latar belakang",
-      "upToDate": "Stella sudah versi terbaru",
       "restarts": "Memulai ulang Stella",
       "updatedJustNow": "Baru saja diperbarui",
       "updatedAgo": "Diperbarui {ago}",
@@ -1703,8 +1705,25 @@
       "files": {
         "other": "{count} file"
       },
-      "changes": {
-        "other": "{count} perubahan"
+      "updates": {
+        "pill": {
+          "other": "{count} pembaruan"
+        },
+        "newVersion": "Versi baru Stella",
+        "newVersionDetail": "Peningkatan dan perbaikan dari tim Stella",
+        "fromDevice": "Perubahan yang Anda buat di {device}",
+        "fromOtherComputer": "Perubahan yang Anda buat di komputer Anda yang lain",
+        "fromOtherComputers": "Perubahan dari komputer Anda yang lain",
+        "readyChange": "Perubahan siap ditambahkan",
+        "add": "Tambahkan",
+        "adding": "Menambahkan…",
+        "skip": "Lewati",
+        "undoing": "Membatalkan…",
+        "removed": "Dihapus: {change}",
+        "justNow": "Baru saja",
+        "waiting": "Menunggu",
+        "history": "Riwayat",
+        "upToDate": "Tidak ada yang menunggu"
       }
     },
     "display": {

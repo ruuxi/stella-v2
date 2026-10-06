@@ -1641,7 +1641,18 @@
       "signInTitle": "Conectează-te pentru a folosi dictarea",
       "failedTitle": "Dictarea nu a funcționat",
       "failedBody": "Stella nu a putut transcrie asta. Încearcă din nou.",
-      "signInBody": "Conectează-te pentru a folosi dictarea"
+      "signInBody": "Conectează-te pentru a folosi dictarea",
+      "keyDialog": {
+        "title": "Activează dictarea",
+        "description": "Acest Stella nu include dictarea. Adaugă propria cheie API OpenRouter și Stella va transcrie cu ea. Cheia rămâne pe acest computer.",
+        "inputLabel": "Cheie API OpenRouter",
+        "getKey": "Obține o cheie de la openrouter.ai/keys",
+        "save": "Salvează și începe",
+        "saving": "Se salvează…",
+        "saveFailed": "Stella nu a putut salva cheia.",
+        "unavailable": "Salvarea cheilor nu este disponibilă în această fereastră.",
+        "openStella": "Deschide Stella și apasă microfonul acolo pentru a adăuga o cheie OpenRouter pentru dictare."
+      }
     },
     "voice": {
       "signInTitle": "Conectează-te pentru a folosi vocea",

@@ -1641,7 +1641,18 @@
       "signInTitle": "Accedi per usare la dettatura",
       "failedTitle": "La dettatura non ha funzionato",
       "failedBody": "Stella non è riuscita a trascriverlo. Riprova.",
-      "signInBody": "Accedi per usare la dettatura"
+      "signInBody": "Accedi per usare la dettatura",
+      "keyDialog": {
+        "title": "Attiva la dettatura",
+        "description": "Questo Stella non include la dettatura. Aggiungi la tua chiave API OpenRouter e Stella trascriverà con quella. La chiave resta su questo computer.",
+        "inputLabel": "Chiave API OpenRouter",
+        "getKey": "Ottieni una chiave su openrouter.ai/keys",
+        "save": "Salva e inizia",
+        "saving": "Salvataggio…",
+        "saveFailed": "Stella non è riuscita a salvare la chiave.",
+        "unavailable": "Il salvataggio delle chiavi non è disponibile in questa finestra.",
+        "openStella": "Apri Stella e premi il microfono lì per aggiungere una chiave OpenRouter per la dettatura."
+      }
     },
     "voice": {
       "signInTitle": "Accedi per usare la voce",

@@ -1633,7 +1633,18 @@
       "signInTitle": "श्रुतलेखन उपयोग करने के लिए साइन इन करें",
       "failedTitle": "श्रुतलेखन काम नहीं आया",
       "failedBody": "Stella उसे लिख नहीं सकी। कृपया फिर कोशिश करें।",
-      "signInBody": "श्रुतलेखन उपयोग करने के लिए साइन इन करें"
+      "signInBody": "श्रुतलेखन उपयोग करने के लिए साइन इन करें",
+      "keyDialog": {
+        "title": "डिक्टेशन चालू करें",
+        "description": "इस Stella में डिक्टेशन शामिल नहीं है। अपनी OpenRouter API कुंजी जोड़ें और Stella उसी से ट्रांसक्राइब करेगा। कुंजी इसी कंप्यूटर पर रहती है।",
+        "inputLabel": "OpenRouter API कुंजी",
+        "getKey": "openrouter.ai/keys पर कुंजी पाएँ",
+        "save": "सहेजें और शुरू करें",
+        "saving": "सहेजा जा रहा है…",
+        "saveFailed": "Stella वह कुंजी सहेज नहीं सका।",
+        "unavailable": "इस विंडो में कुंजियाँ सहेजना उपलब्ध नहीं है।",
+        "openStella": "डिक्टेशन के लिए OpenRouter कुंजी जोड़ने हेतु Stella खोलें और वहाँ माइक दबाएँ।"
+      }
     },
     "voice": {
       "signInTitle": "आवाज़ उपयोग करने के लिए साइन इन करें",
@@ -1692,19 +1703,10 @@
     },
     "appSource": {
       "update": "अपडेट करें",
-      "updating": "अपडेट हो रहा है…",
       "title": "Stella में बदलाव",
       "undo": "पूर्ववत करें",
       "outdated": "पुराने संस्करण पर बनाया गया",
       "failed": "बदलाव लागू नहीं हो सका",
-      "updateAvailable": "अपडेट उपलब्ध है",
-      "changedOn": "आपने {device} पर Stella बदला",
-      "changedElsewhere": "आपने किसी दूसरे कंप्यूटर पर Stella बदला",
-      "addPrompt": "यह बदलाव यहाँ भी जोड़ें?",
-      "addHere": "इस कंप्यूटर में जोड़ें",
-      "added": "इस कंप्यूटर में जोड़ा गया",
-      "updatingInBackground": "Stella पृष्ठभूमि में अपडेट हो रही है",
-      "upToDate": "Stella अप टू डेट है",
       "restarts": "Stella को रीस्टार्ट करता है",
       "updatedJustNow": "अभी अपडेट हुआ",
       "updatedAgo": "{ago} अपडेट हुआ",
@@ -1714,9 +1716,26 @@
         "one": "{count} फ़ाइल",
         "other": "{count} फ़ाइलें"
       },
-      "changes": {
-        "one": "{count} बदलाव",
-        "other": "{count} बदलाव"
+      "updates": {
+        "pill": {
+          "one": "{count} अपडेट",
+          "other": "{count} अपडेट"
+        },
+        "newVersion": "Stella का नया संस्करण",
+        "newVersionDetail": "Stella टीम की ओर से सुधार और फ़िक्स",
+        "fromDevice": "{device} पर आपके द्वारा किया गया बदलाव",
+        "fromOtherComputer": "आपके दूसरे कंप्यूटर पर किया गया बदलाव",
+        "fromOtherComputers": "आपके दूसरे कंप्यूटर से बदलाव",
+        "readyChange": "जोड़ने के लिए तैयार बदलाव",
+        "add": "जोड़ें",
+        "adding": "जोड़ा जा रहा है…",
+        "skip": "छोड़ें",
+        "undoing": "पूर्ववत किया जा रहा है…",
+        "removed": "हटाया गया: {change}",
+        "justNow": "अभी",
+        "waiting": "प्रतीक्षा में",
+        "history": "इतिहास",
+        "upToDate": "कुछ भी प्रतीक्षा में नहीं है"
       }
     },
     "display": {

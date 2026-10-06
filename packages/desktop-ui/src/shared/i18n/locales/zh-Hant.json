@@ -1625,7 +1625,18 @@
       "signInTitle": "登入以使用聽寫",
       "failedTitle": "聽寫沒有成功",
       "failedBody": "Stella 無法轉錄該內容。請再試一次。",
-      "signInBody": "登入以使用聽寫"
+      "signInBody": "登入以使用聽寫",
+      "keyDialog": {
+        "title": "開啟聽寫",
+        "description": "此 Stella 不包含聽寫功能。加入你自己的 OpenRouter API 金鑰，Stella 會用它轉寫。金鑰只會保存在這台電腦上。",
+        "inputLabel": "OpenRouter API 金鑰",
+        "getKey": "在 openrouter.ai/keys 取得金鑰",
+        "save": "儲存並開始",
+        "saving": "正在儲存…",
+        "saveFailed": "Stella 無法儲存該金鑰。",
+        "unavailable": "此視窗無法儲存金鑰。",
+        "openStella": "開啟 Stella 並在那裡點按麥克風，為聽寫加入 OpenRouter 金鑰。"
+      }
     },
     "voice": {
       "signInTitle": "登入以使用語音",

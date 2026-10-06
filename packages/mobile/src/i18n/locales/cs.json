@@ -1649,7 +1649,18 @@
       "signInTitle": "Pro diktování se přihlaste",
       "failedTitle": "Diktování nefungovalo",
       "failedBody": "Stella to nedokázala přepsat. Zkuste to prosím znovu.",
-      "signInBody": "Pro diktování se přihlaste"
+      "signInBody": "Pro diktování se přihlaste",
+      "keyDialog": {
+        "title": "Zapnout diktování",
+        "description": "Tato instalace Stelly diktování nezahrnuje. Přidejte vlastní klíč OpenRouter API a Stella s ním bude přepisovat. Klíč zůstane v tomto počítači.",
+        "inputLabel": "Klíč OpenRouter API",
+        "getKey": "Získat klíč na openrouter.ai/keys",
+        "save": "Uložit a začít",
+        "saving": "Ukládání…",
+        "saveFailed": "Stella nedokázala tento klíč uložit.",
+        "unavailable": "Ukládání klíčů není v tomto okně dostupné.",
+        "openStella": "Otevřete Stellu a stiskněte tam mikrofon, abyste přidali klíč OpenRouter pro diktování."
+      }
     },
     "voice": {
       "signInTitle": "Pro hlas se přihlaste",
@@ -1712,19 +1723,10 @@
     },
     "appSource": {
       "update": "Aktualizovat",
-      "updating": "Aktualizace…",
       "title": "Změny ve Stelle",
       "undo": "Vrátit",
       "outdated": "Vytvořeno ve starší verzi",
       "failed": "Změnu se nepodařilo použít",
-      "updateAvailable": "K dispozici je aktualizace",
-      "changedOn": "Změnili jste Stellu na zařízení {device}",
-      "changedElsewhere": "Změnili jste Stellu na jiném počítači",
-      "addPrompt": "Přidat tuto změnu i sem?",
-      "addHere": "Přidat do tohoto počítače",
-      "added": "Přidáno do tohoto počítače",
-      "updatingInBackground": "Stella se aktualizuje na pozadí",
-      "upToDate": "Stella je aktuální",
       "restarts": "Restartuje Stellu",
       "updatedJustNow": "Aktualizováno právě teď",
       "updatedAgo": "Aktualizováno {ago}",
@@ -1736,11 +1738,28 @@
         "one": "{count} soubor",
         "other": "{count} souborů"
       },
-      "changes": {
-        "few": "{count} změny",
-        "many": "{count} změny",
-        "one": "{count} změna",
-        "other": "{count} změn"
+      "updates": {
+        "pill": {
+          "few": "{count} aktualizace",
+          "many": "{count} aktualizace",
+          "one": "{count} aktualizace",
+          "other": "{count} aktualizací"
+        },
+        "newVersion": "Nová verze Stelly",
+        "newVersionDetail": "Vylepšení a opravy od týmu Stelly",
+        "fromDevice": "Změna, kterou jste udělali na {device}",
+        "fromOtherComputer": "Změna, kterou jste udělali na svém druhém počítači",
+        "fromOtherComputers": "Změny z vašeho druhého počítače",
+        "readyChange": "Změna připravená k přidání",
+        "add": "Přidat",
+        "adding": "Přidávání…",
+        "skip": "Přeskočit",
+        "undoing": "Vracení…",
+        "removed": "Odebráno: {change}",
+        "justNow": "Právě teď",
+        "waiting": "Čeká",
+        "history": "Historie",
+        "upToDate": "Nic nečeká"
       }
     },
     "display": {

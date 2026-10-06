@@ -1641,7 +1641,18 @@
       "signInTitle": "Inicia sesión para usar el dictado",
       "failedTitle": "El dictado no funcionó",
       "failedBody": "Stella no pudo transcribir eso. Inténtalo de nuevo.",
-      "signInBody": "Inicia sesión para usar el dictado"
+      "signInBody": "Inicia sesión para usar el dictado",
+      "keyDialog": {
+        "title": "Activar el dictado",
+        "description": "Este Stella no incluye dictado. Añade tu propia clave de API de OpenRouter y Stella transcribirá con ella. La clave se queda en este ordenador.",
+        "inputLabel": "Clave de API de OpenRouter",
+        "getKey": "Consigue una clave en openrouter.ai/keys",
+        "save": "Guardar y empezar",
+        "saving": "Guardando…",
+        "saveFailed": "Stella no pudo guardar esa clave.",
+        "unavailable": "No se pueden guardar claves en esta ventana.",
+        "openStella": "Abre Stella y pulsa el micrófono allí para añadir una clave de OpenRouter para el dictado."
+      }
     },
     "voice": {
       "signInTitle": "Inicia sesión para usar la voz",

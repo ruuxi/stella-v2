@@ -1665,7 +1665,18 @@
       "signInTitle": "سجّل الدخول لاستخدام الإملاء",
       "failedTitle": "لم ينجح الإملاء",
       "failedBody": "تعذّر على Stella نسخ ذلك. حاول مرة أخرى.",
-      "signInBody": "سجّل الدخول لاستخدام الإملاء"
+      "signInBody": "سجّل الدخول لاستخدام الإملاء",
+      "keyDialog": {
+        "title": "تفعيل الإملاء",
+        "description": "لا يتضمن Stella هذا الإملاء. أضف مفتاح OpenRouter API الخاص بك وسيستخدمه Stella للنسخ. يبقى المفتاح على هذا الكمبيوتر.",
+        "inputLabel": "مفتاح OpenRouter API",
+        "getKey": "احصل على مفتاح من openrouter.ai/keys",
+        "save": "حفظ والبدء",
+        "saving": "جارٍ الحفظ…",
+        "saveFailed": "تعذّر على Stella حفظ هذا المفتاح.",
+        "unavailable": "حفظ المفاتيح غير متاح في هذه النافذة.",
+        "openStella": "افتح Stella واضغط على الميكروفون هناك لإضافة مفتاح OpenRouter للإملاء."
+      }
     },
     "voice": {
       "signInTitle": "سجّل الدخول لاستخدام الصوت",

@@ -1633,7 +1633,18 @@
       "signInTitle": "Dikteyi kullanmak için giriş yapın",
       "failedTitle": "Dikte çalışmadı",
       "failedBody": "Stella bunu yazıya dökemedi. Lütfen tekrar deneyin.",
-      "signInBody": "Dikteyi kullanmak için giriş yapın"
+      "signInBody": "Dikteyi kullanmak için giriş yapın",
+      "keyDialog": {
+        "title": "Dikteyi aç",
+        "description": "Bu Stella dikte içermiyor. Kendi OpenRouter API anahtarınızı ekleyin, Stella onunla yazıya döksün. Anahtar bu bilgisayarda kalır.",
+        "inputLabel": "OpenRouter API anahtarı",
+        "getKey": "openrouter.ai/keys adresinden anahtar alın",
+        "save": "Kaydet ve başlat",
+        "saving": "Kaydediliyor…",
+        "saveFailed": "Stella bu anahtarı kaydedemedi.",
+        "unavailable": "Bu pencerede anahtar kaydedilemiyor.",
+        "openStella": "Dikte için OpenRouter anahtarı eklemek üzere Stella'yı açın ve oradaki mikrofona basın."
+      }
     },
     "voice": {
       "signInTitle": "Sesi kullanmak için giriş yapın",

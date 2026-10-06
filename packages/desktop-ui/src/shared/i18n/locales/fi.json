@@ -1633,7 +1633,18 @@
       "signInTitle": "Kirjaudu sisään käyttääksesi sanelua",
       "failedTitle": "Sanelu ei toiminut",
       "failedBody": "Stella ei pystynyt litteroimaan sitä. Yritä uudelleen.",
-      "signInBody": "Kirjaudu sisään käyttääksesi sanelua"
+      "signInBody": "Kirjaudu sisään käyttääksesi sanelua",
+      "keyDialog": {
+        "title": "Ota sanelu käyttöön",
+        "description": "Tähän Stellaan ei sisälly sanelua. Lisää oma OpenRouter API -avaimesi, niin Stella litteroi sillä. Avain pysyy tällä tietokoneella.",
+        "inputLabel": "OpenRouter API -avain",
+        "getKey": "Hanki avain osoitteesta openrouter.ai/keys",
+        "save": "Tallenna ja aloita",
+        "saving": "Tallennetaan…",
+        "saveFailed": "Stella ei voinut tallentaa avainta.",
+        "unavailable": "Avainten tallennus ei ole käytettävissä tässä ikkunassa.",
+        "openStella": "Avaa Stella ja paina siellä mikrofonia lisätäksesi OpenRouter-avaimen sanelua varten."
+      }
     },
     "voice": {
       "signInTitle": "Kirjaudu sisään käyttääksesi ääntä",

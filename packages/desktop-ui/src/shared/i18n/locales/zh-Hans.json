@@ -1625,7 +1625,18 @@
       "signInTitle": "登录以使用听写",
       "failedTitle": "听写未成功",
       "failedBody": "Stella 无法转写该内容。请重试。",
-      "signInBody": "登录以使用听写"
+      "signInBody": "登录以使用听写",
+      "keyDialog": {
+        "title": "开启听写",
+        "description": "此 Stella 不包含听写功能。添加你自己的 OpenRouter API 密钥，Stella 会用它进行转写。密钥只保存在这台电脑上。",
+        "inputLabel": "OpenRouter API 密钥",
+        "getKey": "在 openrouter.ai/keys 获取密钥",
+        "save": "保存并开始",
+        "saving": "正在保存…",
+        "saveFailed": "Stella 无法保存该密钥。",
+        "unavailable": "此窗口无法保存密钥。",
+        "openStella": "打开 Stella 并在那里点按麦克风，为听写添加 OpenRouter 密钥。"
+      }
     },
     "voice": {
       "signInTitle": "登录以使用语音",

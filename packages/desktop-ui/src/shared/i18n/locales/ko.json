@@ -1625,7 +1625,18 @@
       "signInTitle": "받아쓰기를 사용하려면 로그인하세요",
       "failedTitle": "받아쓰기가 되지 않았습니다",
       "failedBody": "Stella가 그 내용을 전사하지 못했습니다. 다시 시도해 주세요.",
-      "signInBody": "받아쓰기를 사용하려면 로그인하세요"
+      "signInBody": "받아쓰기를 사용하려면 로그인하세요",
+      "keyDialog": {
+        "title": "받아쓰기 켜기",
+        "description": "이 Stella에는 받아쓰기가 포함되어 있지 않습니다. 본인의 OpenRouter API 키를 추가하면 Stella가 그 키로 받아씁니다. 키는 이 컴퓨터에만 저장됩니다.",
+        "inputLabel": "OpenRouter API 키",
+        "getKey": "openrouter.ai/keys에서 키 받기",
+        "save": "저장하고 시작",
+        "saving": "저장 중…",
+        "saveFailed": "Stella가 키를 저장하지 못했습니다.",
+        "unavailable": "이 창에서는 키를 저장할 수 없습니다.",
+        "openStella": "Stella를 열고 마이크를 눌러 받아쓰기용 OpenRouter 키를 추가하세요."
+      }
     },
     "voice": {
       "signInTitle": "음성을 사용하려면 로그인하세요",

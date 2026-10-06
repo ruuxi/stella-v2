@@ -1633,7 +1633,18 @@
       "signInTitle": "Log in om dictee te gebruiken",
       "failedTitle": "Dictee werkte niet",
       "failedBody": "Stella kon dat niet transcriberen. Probeer het opnieuw.",
-      "signInBody": "Log in om dictee te gebruiken"
+      "signInBody": "Log in om dictee te gebruiken",
+      "keyDialog": {
+        "title": "Dicteren inschakelen",
+        "description": "Deze Stella heeft geen dicteren. Voeg je eigen OpenRouter API-sleutel toe en Stella transcribeert ermee. De sleutel blijft op deze computer.",
+        "inputLabel": "OpenRouter API-sleutel",
+        "getKey": "Vraag een sleutel aan op openrouter.ai/keys",
+        "save": "Opslaan en starten",
+        "saving": "Opslaan…",
+        "saveFailed": "Stella kon die sleutel niet opslaan.",
+        "unavailable": "Sleutels opslaan is niet beschikbaar in dit venster.",
+        "openStella": "Open Stella en druk daar op de microfoon om een OpenRouter-sleutel voor dicteren toe te voegen."
+      }
     },
     "voice": {
       "signInTitle": "Log in om stem te gebruiken",

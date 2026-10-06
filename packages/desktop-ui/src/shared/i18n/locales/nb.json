@@ -1633,7 +1633,18 @@
       "signInTitle": "Logg på for å bruke diktering",
       "failedTitle": "Dikteringen fungerte ikke",
       "failedBody": "Stella klarte ikke å transkribere det. Prøv igjen.",
-      "signInBody": "Logg på for å bruke diktering"
+      "signInBody": "Logg på for å bruke diktering",
+      "keyDialog": {
+        "title": "Slå på diktering",
+        "description": "Denne Stella inkluderer ikke diktering. Legg til din egen OpenRouter API-nøkkel, så transkriberer Stella med den. Nøkkelen blir på denne datamaskinen.",
+        "inputLabel": "OpenRouter API-nøkkel",
+        "getKey": "Få en nøkkel på openrouter.ai/keys",
+        "save": "Lagre og start",
+        "saving": "Lagrer…",
+        "saveFailed": "Stella kunne ikke lagre nøkkelen.",
+        "unavailable": "Lagring av nøkler er ikke tilgjengelig i dette vinduet.",
+        "openStella": "Åpne Stella og trykk på mikrofonen der for å legge til en OpenRouter-nøkkel for diktering."
+      }
     },
     "voice": {
       "signInTitle": "Logg på for å bruke stemme",

@@ -1625,7 +1625,18 @@
       "signInTitle": "音声入力を使うにはサインインしてください",
       "failedTitle": "音声入力できませんでした",
       "failedBody": "Stella はそれを文字起こしできませんでした。もう一度お試しください。",
-      "signInBody": "音声入力を使うにはサインインしてください"
+      "signInBody": "音声入力を使うにはサインインしてください",
+      "keyDialog": {
+        "title": "音声入力をオンにする",
+        "description": "この Stella には音声入力が含まれていません。ご自身の OpenRouter API キーを追加すると、Stella がそれを使って文字起こしします。キーはこのコンピュータに保存されます。",
+        "inputLabel": "OpenRouter API キー",
+        "getKey": "openrouter.ai/keys でキーを取得",
+        "save": "保存して開始",
+        "saving": "保存中…",
+        "saveFailed": "Stella はこのキーを保存できませんでした。",
+        "unavailable": "このウィンドウではキーを保存できません。",
+        "openStella": "Stella を開いてマイクを押し、音声入力用の OpenRouter キーを追加してください。"
+      }
     },
     "voice": {
       "signInTitle": "音声を使うにはサインインしてください",
@@ -1682,19 +1693,10 @@
     },
     "appSource": {
       "update": "アップデート",
-      "updating": "アップデート中…",
       "title": "Stella への変更",
       "undo": "元に戻す",
       "outdated": "古いバージョンで作成",
       "failed": "変更を適用できませんでした",
-      "updateAvailable": "アップデートがあります",
-      "changedOn": "{device} で Stella を変更しました",
-      "changedElsewhere": "別のコンピューターで Stella を変更しました",
-      "addPrompt": "この変更をこのコンピューターにも追加しますか？",
-      "addHere": "このコンピューターに追加",
-      "added": "このコンピューターに追加済み",
-      "updatingInBackground": "Stella をバックグラウンドで更新しています",
-      "upToDate": "Stella は最新です",
       "restarts": "Stella を再起動します",
       "updatedJustNow": "たった今更新",
       "updatedAgo": "{ago}に更新",
@@ -1703,8 +1705,25 @@
       "files": {
         "other": "{count} ファイル"
       },
-      "changes": {
-        "other": "{count} 件の変更"
+      "updates": {
+        "pill": {
+          "other": "{count} 件のアップデート"
+        },
+        "newVersion": "Stella の新しいバージョン",
+        "newVersionDetail": "Stella チームによる改善と修正",
+        "fromDevice": "{device} で行った変更",
+        "fromOtherComputer": "別のコンピュータで行った変更",
+        "fromOtherComputers": "別のコンピュータからの変更",
+        "readyChange": "追加できる変更",
+        "add": "追加",
+        "adding": "追加中…",
+        "skip": "スキップ",
+        "undoing": "取り消し中…",
+        "removed": "削除済み: {change}",
+        "justNow": "たった今",
+        "waiting": "待機中",
+        "history": "履歴",
+        "upToDate": "待機中のものはありません"
       }
     },
     "display": {

@@ -1625,7 +1625,18 @@
       "signInTitle": "Đăng nhập để dùng đọc chính tả",
       "failedTitle": "Đọc chính tả không thành công",
       "failedBody": "Stella không chuyển được nội dung đó thành văn bản. Vui lòng thử lại.",
-      "signInBody": "Đăng nhập để dùng đọc chính tả"
+      "signInBody": "Đăng nhập để dùng đọc chính tả",
+      "keyDialog": {
+        "title": "Bật đọc chính tả",
+        "description": "Stella này không có tính năng đọc chính tả. Thêm khóa OpenRouter API của bạn và Stella sẽ dùng nó để chép lời. Khóa được giữ trên máy tính này.",
+        "inputLabel": "Khóa OpenRouter API",
+        "getKey": "Lấy khóa tại openrouter.ai/keys",
+        "save": "Lưu và bắt đầu",
+        "saving": "Đang lưu…",
+        "saveFailed": "Stella không thể lưu khóa đó.",
+        "unavailable": "Không thể lưu khóa trong cửa sổ này.",
+        "openStella": "Mở Stella và nhấn micrô ở đó để thêm khóa OpenRouter cho đọc chính tả."
+      }
     },
     "voice": {
       "signInTitle": "Đăng nhập để dùng giọng nói",
@@ -1682,19 +1693,10 @@
     },
     "appSource": {
       "update": "Cập nhật",
-      "updating": "Đang cập nhật…",
       "title": "Thay đổi đối với Stella",
       "undo": "Hoàn tác",
       "outdated": "Được tạo trên phiên bản cũ hơn",
       "failed": "Không thể áp dụng thay đổi",
-      "updateAvailable": "Có bản cập nhật",
-      "changedOn": "Bạn đã thay đổi Stella trên {device}",
-      "changedElsewhere": "Bạn đã thay đổi Stella trên một máy tính khác",
-      "addPrompt": "Thêm thay đổi này vào đây nữa?",
-      "addHere": "Thêm vào máy tính này",
-      "added": "Đã thêm vào máy tính này",
-      "updatingInBackground": "Stella đang cập nhật ở chế độ nền",
-      "upToDate": "Stella đã ở bản mới nhất",
       "restarts": "Khởi động lại Stella",
       "updatedJustNow": "Vừa cập nhật",
       "updatedAgo": "Đã cập nhật {ago}",
@@ -1703,8 +1705,25 @@
       "files": {
         "other": "{count} tệp"
       },
-      "changes": {
-        "other": "{count} thay đổi"
+      "updates": {
+        "pill": {
+          "other": "{count} bản cập nhật"
+        },
+        "newVersion": "Phiên bản Stella mới",
+        "newVersionDetail": "Cải tiến và bản sửa lỗi từ nhóm Stella",
+        "fromDevice": "Thay đổi bạn đã thực hiện trên {device}",
+        "fromOtherComputer": "Thay đổi bạn đã thực hiện trên máy tính khác",
+        "fromOtherComputers": "Thay đổi từ máy tính khác của bạn",
+        "readyChange": "Thay đổi sẵn sàng để thêm",
+        "add": "Thêm",
+        "adding": "Đang thêm…",
+        "skip": "Bỏ qua",
+        "undoing": "Đang hoàn tác…",
+        "removed": "Đã gỡ: {change}",
+        "justNow": "Vừa xong",
+        "waiting": "Đang chờ",
+        "history": "Lịch sử",
+        "upToDate": "Không có gì đang chờ"
       }
     },
     "display": {

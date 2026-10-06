@@ -1625,7 +1625,18 @@
       "signInTitle": "Masuk untuk memakai dikte",
       "failedTitle": "Dikte tidak berhasil",
       "failedBody": "Stella tidak dapat mentranskripsikannya. Silakan coba lagi.",
-      "signInBody": "Masuk untuk memakai dikte"
+      "signInBody": "Masuk untuk memakai dikte",
+      "keyDialog": {
+        "title": "Aktifkan dikte",
+        "description": "Stella ini tidak menyertakan dikte. Tambahkan kunci API OpenRouter milik Anda dan Stella akan mentranskripsi dengannya. Kunci tetap di komputer ini.",
+        "inputLabel": "Kunci API OpenRouter",
+        "getKey": "Dapatkan kunci di openrouter.ai/keys",
+        "save": "Simpan dan mulai",
+        "saving": "Menyimpan…",
+        "saveFailed": "Stella tidak dapat menyimpan kunci itu.",
+        "unavailable": "Menyimpan kunci tidak tersedia di jendela ini.",
+        "openStella": "Buka Stella dan tekan mikrofon di sana untuk menambahkan kunci OpenRouter untuk dikte."
+      }
     },
     "voice": {
       "signInTitle": "Masuk untuk memakai suara",

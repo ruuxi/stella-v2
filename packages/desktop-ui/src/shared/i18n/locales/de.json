@@ -1633,7 +1633,18 @@
       "signInTitle": "Melde dich an, um das Diktat zu nutzen",
       "failedTitle": "Das Diktat hat nicht funktioniert",
       "failedBody": "Stella konnte das nicht transkribieren. Bitte versuch es erneut.",
-      "signInBody": "Melde dich an, um das Diktat zu nutzen"
+      "signInBody": "Melde dich an, um das Diktat zu nutzen",
+      "keyDialog": {
+        "title": "Diktat aktivieren",
+        "description": "Diese Stella enthält kein Diktat. Füge deinen eigenen OpenRouter-API-Schlüssel hinzu, dann transkribiert Stella damit. Der Schlüssel bleibt auf diesem Computer.",
+        "inputLabel": "OpenRouter-API-Schlüssel",
+        "getKey": "Schlüssel unter openrouter.ai/keys holen",
+        "save": "Speichern und starten",
+        "saving": "Wird gespeichert…",
+        "saveFailed": "Stella konnte den Schlüssel nicht speichern.",
+        "unavailable": "In diesem Fenster können keine Schlüssel gespeichert werden.",
+        "openStella": "Öffne Stella und tippe dort auf das Mikrofon, um einen OpenRouter-Schlüssel fürs Diktat hinzuzufügen."
+      }
     },
     "voice": {
       "signInTitle": "Melde dich an, um die Sprachfunktion zu nutzen",

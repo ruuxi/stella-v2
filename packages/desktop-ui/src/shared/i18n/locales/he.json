@@ -1641,7 +1641,18 @@
       "signInTitle": "התחבר כדי להשתמש בהכתבה",
       "failedTitle": "ההכתבה לא עבדה",
       "failedBody": "Stella לא הצליחה לתמלל את זה. נסה שוב.",
-      "signInBody": "התחבר כדי להשתמש בהכתבה"
+      "signInBody": "התחבר כדי להשתמש בהכתבה",
+      "keyDialog": {
+        "title": "הפעלת הכתבה",
+        "description": "Stella הזה לא כולל הכתבה. הוסיפו מפתח OpenRouter API משלכם ו-Stella יתמלל באמצעותו. המפתח נשאר במחשב הזה.",
+        "inputLabel": "מפתח OpenRouter API",
+        "getKey": "קבלו מפתח ב-openrouter.ai/keys",
+        "save": "שמירה והתחלה",
+        "saving": "שומר…",
+        "saveFailed": "Stella לא הצליח לשמור את המפתח.",
+        "unavailable": "שמירת מפתחות אינה זמינה בחלון הזה.",
+        "openStella": "פתחו את Stella ולחצו שם על המיקרופון כדי להוסיף מפתח OpenRouter להכתבה."
+      }
     },
     "voice": {
       "signInTitle": "התחבר כדי להשתמש בקול",

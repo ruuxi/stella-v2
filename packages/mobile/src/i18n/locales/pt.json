@@ -1641,7 +1641,18 @@
       "signInTitle": "Entre para usar o ditado",
       "failedTitle": "O ditado não funcionou",
       "failedBody": "A Stella não conseguiu transcrever isso. Tente novamente.",
-      "signInBody": "Entre para usar o ditado"
+      "signInBody": "Entre para usar o ditado",
+      "keyDialog": {
+        "title": "Ativar o ditado",
+        "description": "Este Stella não inclui ditado. Adicione sua própria chave de API do OpenRouter e o Stella transcreverá com ela. A chave fica neste computador.",
+        "inputLabel": "Chave de API do OpenRouter",
+        "getKey": "Obtenha uma chave em openrouter.ai/keys",
+        "save": "Salvar e começar",
+        "saving": "Salvando…",
+        "saveFailed": "O Stella não conseguiu salvar essa chave.",
+        "unavailable": "Salvar chaves não está disponível nesta janela.",
+        "openStella": "Abra o Stella e toque no microfone lá para adicionar uma chave do OpenRouter para o ditado."
+      }
     },
     "voice": {
       "signInTitle": "Entre para usar a voz",
@@ -1702,19 +1713,10 @@
     },
     "appSource": {
       "update": "Atualizar",
-      "updating": "Atualizando…",
       "title": "Alterações no Stella",
       "undo": "Desfazer",
       "outdated": "Feito numa versão anterior",
       "failed": "Não foi possível aplicar a alteração",
-      "updateAvailable": "Atualização disponível",
-      "changedOn": "Você alterou o Stella em {device}",
-      "changedElsewhere": "Você alterou o Stella em outro computador",
-      "addPrompt": "Adicionar esta alteração aqui também?",
-      "addHere": "Adicionar a este computador",
-      "added": "Adicionada a este computador",
-      "updatingInBackground": "A Stella está a atualizar em segundo plano",
-      "upToDate": "A Stella está atualizada",
       "restarts": "Reinicia a Stella",
       "updatedJustNow": "Atualizado agora mesmo",
       "updatedAgo": "Atualizado {ago}",
@@ -1725,10 +1727,27 @@
         "one": "{count} arquivo",
         "other": "{count} arquivos"
       },
-      "changes": {
-        "many": "{count} alterações",
-        "one": "{count} alteração",
-        "other": "{count} alterações"
+      "updates": {
+        "pill": {
+          "many": "{count} atualizações",
+          "one": "{count} atualização",
+          "other": "{count} atualizações"
+        },
+        "newVersion": "Nova versão do Stella",
+        "newVersionDetail": "Melhorias e correções da equipe do Stella",
+        "fromDevice": "Uma alteração que você fez em {device}",
+        "fromOtherComputer": "Uma alteração que você fez no seu outro computador",
+        "fromOtherComputers": "Alterações do seu outro computador",
+        "readyChange": "Uma alteração pronta para adicionar",
+        "add": "Adicionar",
+        "adding": "Adicionando…",
+        "skip": "Pular",
+        "undoing": "Desfazendo…",
+        "removed": "Removido: {change}",
+        "justNow": "Agora mesmo",
+        "waiting": "Aguardando",
+        "history": "Histórico",
+        "upToDate": "Nada aguardando"
       }
     },
     "display": {

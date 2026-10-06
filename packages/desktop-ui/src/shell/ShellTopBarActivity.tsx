@@ -2,11 +2,16 @@
  * Stella's presence in the desktop top bar — the DOM half of the indicator
  * mobile already carries (`StellaStatusHeader`).
  *
- * At rest the mark sits centred with idle eyes. While background work runs it
- * glides aside and the work reads out beside it: the single running agent's
- * own description, or a count once several are going. A new agent plays the
- * thinking beat before the mark settles into a work pose; when the last one
- * finishes the mark pops once and the label leaves.
+ * The mark sits centred and plays its own resting animation — the blob's
+ * breathe and idle eyes — at all times. While background work runs it glides
+ * aside and the work reads out beside it: the single running agent's own
+ * description, or a count once several are going; when the last one finishes
+ * the mark pops once and the label leaves.
+ *
+ * The mark deliberately does NOT change character while work runs. The rig's
+ * activity states (the thinking ellipsis, the twinkle and orbit poses) are the
+ * chat working indicator's language — `WorkingIndicator` is where a run is
+ * narrated. Up here the label carries the state and the mark stays Stella.
  *
  * The timings, the phase machine and the choice of label are not written twice
  * — they live in `@stella/contracts/activity-indicator` and mobile reads the
@@ -52,7 +57,6 @@ import {
 } from "@/app/chat/TextShimmer";
 import { useChatRuntime } from "@/context/use-chat-runtime";
 import { deriveRunningActivityIndicatorEntries } from "@/features/chat/lib/event-transforms";
-import { pickWorkingIndicatorToolPose } from "@/features/chat/working-indicator-state";
 import { useWindowFocus } from "@/shared/hooks/use-window-focus";
 import { useT, useTPlural } from "@/shared/i18n";
 import { Popover, PopoverContent, PopoverTrigger } from "@/ui/popover";
@@ -145,10 +149,6 @@ export const ShellTopBarActivity = memo(function ShellTopBarActivity() {
   }, [count, popScale, reduceMotion]);
 
   const busy = phase !== "idle" && label !== null;
-  const pose =
-    phase === "spawn"
-      ? ("thinking" as const)
-      : pickWorkingIndicatorToolPose(running[0]?.id ?? "stella");
 
   const [open, setOpen] = useState(false);
   useEffect(() => {
@@ -190,7 +190,7 @@ export const ShellTopBarActivity = memo(function ShellTopBarActivity() {
             >
               <StellaCharacter
                 size={MARK_SIZE_PX}
-                state={busy ? pose : "idle"}
+                state="idle"
                 eyeColor={MARK_EYE_COLOR}
                 paused={!windowFocused}
               />

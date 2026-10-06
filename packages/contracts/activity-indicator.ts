@@ -44,10 +44,6 @@ export const ACTIVITY_INDICATOR_LABEL_IN_MS = 260;
 export const ACTIVITY_INDICATOR_LABEL_IN_DELAY_MS = 120;
 export const ACTIVITY_INDICATOR_LABEL_OUT_MS = 140;
 
-/** Mark cross-fade between the resting mark and the working one. */
-export const ACTIVITY_INDICATOR_MARK_IN_MS = 220;
-export const ACTIVITY_INDICATOR_MARK_OUT_MS = 160;
-
 /**
  * The barely-overshooting settle the indicator travels on, as a duration and
  * a damping ratio rather than a physical spring: that is the one description

@@ -20,8 +20,6 @@ import {
   ACTIVITY_INDICATOR_LABEL_IN_DELAY_MS,
   ACTIVITY_INDICATOR_LABEL_IN_MS,
   ACTIVITY_INDICATOR_LABEL_OUT_MS,
-  ACTIVITY_INDICATOR_MARK_IN_MS,
-  ACTIVITY_INDICATOR_MARK_OUT_MS,
   ACTIVITY_INDICATOR_POP_RISE_MS,
   ACTIVITY_INDICATOR_POP_SCALE,
   ACTIVITY_INDICATOR_POP_SETTLE_SPRING,
@@ -32,11 +30,6 @@ import {
   type ActivityIndicatorPhase,
 } from "@stella/contracts/activity-indicator";
 import { StellaMarkHero } from "./stella-mark/StellaMarkHero";
-import { StellaMarkIndicator } from "./stella-mark/StellaMarkIndicator";
-import {
-  pickWorkingIndicatorToolPose,
-  type WorkingIndicatorCharacterState,
-} from "./working-indicator-character";
 import { StatusPill } from "./StatusPill";
 import {
   STATUS_PILL_HEIGHT,
@@ -64,12 +57,18 @@ const NO_RUNNING_AGENTS: ActivityIndicatorEntry[] = [];
 
 /**
  * Stella's presence in the chat's top bar: the mark inside a glass pill
- * that matches the side buttons. At rest the pill is a circle around the
- * mark's idle eyes. While background work runs it grows, centred, to carry
- * the work beside the mark: the task's own description for one, a short
- * count for several. A new task plays the thinking bounce before settling
- * into a work pose; when everything finishes the mark pops once and the
- * pill closes back around it. Pressing it opens the menu of what is running.
+ * that matches the side buttons. The mark plays its own resting animation —
+ * the blob's breathe and idle eyes — at all times. While background work runs
+ * the pill grows, centred, to carry the work beside the mark: the task's own
+ * description for one, a short count for several; when everything finishes the
+ * mark pops once and the pill closes back around it. Pressing it opens the
+ * menu of what is running.
+ *
+ * The mark deliberately does NOT change character while work runs.
+ * `StellaMarkIndicator` — the thinking ellipsis and the tool poses — is the
+ * chat working indicator's language, and `WorkingIndicator` is where a run is
+ * narrated. Up here the pill's label carries the state and the mark stays
+ * Stella.
  *
  * The timings, the phase machine and the choice of label come from
  * `@stella/contracts/activity-indicator`; desktop's own top-bar indicator
@@ -128,10 +127,6 @@ export function StellaStatusHeader({
     return undefined;
   }, [count, pop]);
 
-  const pose: WorkingIndicatorCharacterState =
-    phase === "spawn"
-      ? "thinking"
-      : pickWorkingIndicatorToolPose(running[0]?.id ?? "stella");
   const busy = phase !== "idle" && label !== null;
 
   const { width: windowWidth } = useWindowDimensions();
@@ -218,34 +213,11 @@ export function StellaStatusHeader({
         accessibilityLabel={busy && label ? label : "Stella"}
       >
         <Animated.View style={[styles.mark, markStyle]}>
-          {busy ? (
-            <Animated.View
-              key="working"
-              entering={FadeIn.duration(ACTIVITY_INDICATOR_MARK_IN_MS)}
-              exiting={FadeOut.duration(ACTIVITY_INDICATOR_MARK_OUT_MS)}
-              style={StyleSheet.absoluteFill}
-            >
-              <StellaMarkIndicator
-                active
-                size={MARK_SIZE}
-                state={pose}
-                faceColor={colors.background}
-              />
-            </Animated.View>
-          ) : (
-            <Animated.View
-              key="idle"
-              entering={FadeIn.duration(ACTIVITY_INDICATOR_MARK_IN_MS)}
-              exiting={FadeOut.duration(ACTIVITY_INDICATOR_MARK_OUT_MS)}
-              style={StyleSheet.absoluteFill}
-            >
-              <StellaMarkHero
-                size={MARK_SIZE}
-                faceColor={colors.background}
-                shape="soft"
-              />
-            </Animated.View>
-          )}
+          <StellaMarkHero
+            size={MARK_SIZE}
+            faceColor={colors.background}
+            shape="soft"
+          />
         </Animated.View>
         {showLabel ? (
           <View

@@ -5,10 +5,10 @@ import type { EngineConnect } from "./use-engine-connect";
 import "./EngineConnectPrompt.css";
 
 /**
- * The step of adding an account that needs the user: waiting while the
- * browser sign-in finishes (desktop), or pasting back the address ChatGPT
- * redirected to (a browser, where nothing listens on 127.0.0.1). Shared by
- * Settings, onboarding and the model picker.
+ * The step of signing the cloud in to ChatGPT that needs the user: waiting
+ * while the browser sign-in finishes (desktop), or pasting back the address
+ * ChatGPT redirected to (a browser, where nothing listens on 127.0.0.1).
+ * Shared by Settings and onboarding.
  */
 export function EngineConnectPrompt({ connect }: { connect: EngineConnect }) {
   const t = useT();
@@ -20,7 +20,7 @@ export function EngineConnectPrompt({ connect }: { connect: EngineConnect }) {
     return (
       <div className="engine-connect-prompt" role="group">
         <p className="engine-connect-prompt__hint">
-          {t("mobile.engineAccounts.pasteHintChatgpt")}
+          {t("settings.engineAccounts.pasteHintChatgpt")}
         </p>
         <input
           className="engine-connect-prompt__input"
@@ -30,8 +30,8 @@ export function EngineConnectPrompt({ connect }: { connect: EngineConnect }) {
           onKeyDown={(event) => {
             if (event.key === "Enter") void connect.finish(pasted);
           }}
-          placeholder={t("mobile.engineAccounts.pastePlaceholderUrl")}
-          aria-label={t("mobile.engineAccounts.pastePlaceholderUrl")}
+          placeholder={t("settings.engineAccounts.pastePlaceholderUrl")}
+          aria-label={t("settings.engineAccounts.pastePlaceholderUrl")}
           autoComplete="off"
           spellCheck={false}
           disabled={busy}
@@ -46,7 +46,7 @@ export function EngineConnectPrompt({ connect }: { connect: EngineConnect }) {
             {t("common.cancel")}
           </Button>
           <Button type="button" variant="ghost" onClick={connect.openAuthorizePage}>
-            {t("mobile.engineAccounts.openChatgptAgain")}
+            {t("settings.engineAccounts.openChatgptAgain")}
           </Button>
           <Button
             type="button"
@@ -54,7 +54,7 @@ export function EngineConnectPrompt({ connect }: { connect: EngineConnect }) {
             onClick={() => void connect.finish(pasted)}
             disabled={busy || !pasted.trim()}
           >
-            {busy ? t("mobile.engineAccounts.connecting") : t("mobile.engineAccounts.finish")}
+            {busy ? t("settings.engineAccounts.connecting") : t("settings.engineAccounts.finish")}
           </Button>
         </div>
       </div>
@@ -65,9 +65,7 @@ export function EngineConnectPrompt({ connect }: { connect: EngineConnect }) {
   return (
     <div className="engine-connect-prompt" role="group">
       <p className="engine-connect-prompt__hint" aria-live="polite">
-        {flow.provider === "chatgpt"
-          ? t("mobile.engineAccounts.chatgptBrowserWaiting")
-          : t("mobile.engineAccounts.connecting")}
+        {t("settings.engineAccounts.chatgptBrowserWaiting")}
       </p>
       <div className="engine-connect-prompt__actions">
         <Button type="button" variant="ghost" onClick={connect.cancel}>

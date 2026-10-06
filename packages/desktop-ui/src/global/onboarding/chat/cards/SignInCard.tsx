@@ -3,10 +3,12 @@
  *
  * Three ways in, any of which is enough: a Stella account (Google or email,
  * the same dialog as the top bar), or the Claude or ChatGPT plan the user
- * already pays for. A Claude subscription is added to the Stella account (the
- * same list Settings › Account shows) and runs through Claude Code. ChatGPT
- * is Sign in with ChatGPT: in the desktop app this computer signs in on its
- * own; on the website it signs in Stella's cloud. Connecting one also makes
+ * already pays for. Claude runs through Claude Code on Claude Code's own
+ * sign-in: in the desktop app this computer's `claude` signs in (Anthropic's
+ * page, then the code it shows pasted here); on the website the owner's
+ * cloud signs in the same way. ChatGPT is Sign in with ChatGPT: in the
+ * desktop app this computer signs in on its own; on the website it signs in
+ * Stella's cloud. Connecting one also makes
  * it the engine Stella runs on, the same switch the model picker makes; a
  * lens slides to whichever one is in use, and tapping another connected row
  * moves it.
@@ -22,8 +24,10 @@ import { useT } from "@/shared/i18n";
 import { AuthDialog } from "@/global/auth/AuthDialog";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
 import { useAuthState } from "@/global/auth/BackendAuthProvider";
-import type { EngineProvider } from "@stella/contracts/backend/engines";
 import { useCloudEngines } from "@/features/cloud/cloud-engines-api";
+import { ClaudeLoginPrompt } from "@/features/claude/ClaudeLoginPrompt";
+import { useClaudeLocalAccounts } from "@/features/claude/use-claude-local-accounts";
+import { useClaudeLogin } from "@/features/claude/use-claude-login";
 import { EngineConnectPrompt } from "@/features/cloud/EngineConnectPrompt";
 import { useEngineConnect } from "@/features/cloud/use-engine-connect";
 import { isEngineConnectionUsable } from "@stella/contracts/backend/engines";
@@ -47,12 +51,11 @@ type OptionId = "stella" | "claude" | "chatgpt";
 const OPTIONS: {
   id: OptionId;
   engine: ModelPickerEngine;
-  provider?: EngineProvider;
   brand: string;
 }[] = [
   { id: "stella", engine: "default", brand: "stella" },
-  { id: "claude", engine: "claude_code_local", provider: "anthropic", brand: "anthropic" },
-  { id: "chatgpt", engine: "codex_cli", provider: "chatgpt", brand: "openai" },
+  { id: "claude", engine: "claude_code_local", brand: "anthropic" },
+  { id: "chatgpt", engine: "codex_cli", brand: "openai" },
 ];
 
 const ENGINE_TO_OPTION: Record<ModelPickerEngine, OptionId> = {
@@ -89,6 +92,9 @@ export function SignInCard({ active, answered, onAnswer }: SignInCardProps) {
   // ChatGPT: this computer's own sign-in in the desktop app; in a browser,
   // the sign-in of Stella's cloud.
   const chatgpt = useChatGptProfiles();
+  // Claude: this computer's Claude Code in the desktop app; in a browser,
+  // the owner's cloud.
+  const claudeLocal = useClaudeLocalAccounts();
   const [authOpen, setAuthOpen] = useState(false);
   const [pending, setPending] = useState<OptionId | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -108,12 +114,21 @@ export function SignInCard({ active, answered, onAnswer }: SignInCardProps) {
     const connections = engines?.connections ?? [];
     return {
       stella: session.hasConnectedAccount,
-      claude: connections.some((row) => row.provider === "anthropic"),
+      claude: claudeLocal.available
+        ? claudeLocal.signedIn
+        : connections.some((row) => row.provider === "anthropic" && isEngineConnectionUsable(row)),
       chatgpt: chatgpt.available
         ? chatgpt.usable
         : connections.some((row) => row.provider === "chatgpt" && isEngineConnectionUsable(row)),
     };
-  }, [chatgpt.available, chatgpt.usable, engines?.connections, session.hasConnectedAccount]);
+  }, [
+    chatgpt.available,
+    chatgpt.usable,
+    claudeLocal.available,
+    claudeLocal.signedIn,
+    engines?.connections,
+    session.hasConnectedAccount,
+  ]);
   const anyConnected = connected.stella || connected.claude || connected.chatgpt;
   const inUse: OptionId | null = engine ? ENGINE_TO_OPTION[engine] : null;
   // The lens only marks a choice the user can see is real.
@@ -126,9 +141,20 @@ export function SignInCard({ active, answered, onAnswer }: SignInCardProps) {
     if (await switchEngine(option.engine)) setEngine(option.engine);
   }, []);
 
+  const { reload: reloadClaudeLocal } = claudeLocal;
+  const claudeLogin = useClaudeLogin({
+    onSignedIn: () => {
+      void reloadClaudeLocal();
+      void applyEngine(OPTIONS[1]!);
+    },
+  });
+  const { start: startClaudeLogin } = claudeLogin;
+  // A Claude sign-in waits on the pasted code rather than on a promise.
+  const busyOption: OptionId | null = pending ?? (claudeLogin.open ? "claude" : null);
+
   const handleRow = useCallback(
     async (option: (typeof OPTIONS)[number]) => {
-      if (pending) return;
+      if (busyOption) return;
       setError(null);
       if (connected[option.id]) {
         await applyEngine(option);
@@ -136,6 +162,18 @@ export function SignInCard({ active, answered, onAnswer }: SignInCardProps) {
       }
       if (option.id === "stella") {
         setAuthOpen(true);
+        return;
+      }
+      if (option.id === "claude") {
+        if (claudeLocal.available && !claudeLocal.cliInstalled) {
+          setError(t("onboarding.chat.signin.claudeCliMissing"));
+          return;
+        }
+        void startClaudeLogin(
+          claudeLocal.available
+            ? { place: "local", ...(claudeLocal.defaultSignedOut ? { configId: "default" } : {}) }
+            : { place: "cloud" },
+        );
         return;
       }
       setPending(option.id);
@@ -148,8 +186,8 @@ export function SignInCard({ active, answered, onAnswer }: SignInCardProps) {
             announceChatGptPlanUse();
             await applyEngine(option);
           }
-        } else if (await startConnect(option.provider!)) {
-          if (option.id === "chatgpt") announceChatGptPlanUse();
+        } else if (await startConnect()) {
+          announceChatGptPlanUse();
           await applyEngine(option);
         }
       } catch (caught) {
@@ -159,12 +197,24 @@ export function SignInCard({ active, answered, onAnswer }: SignInCardProps) {
         setPending(null);
       }
     },
-    [applyEngine, chatgpt.available, connected, pending, signInChatGpt, startConnect, t],
+    [
+      applyEngine,
+      busyOption,
+      chatgpt.available,
+      claudeLocal.available,
+      claudeLocal.cliInstalled,
+      claudeLocal.defaultSignedOut,
+      connected,
+      signInChatGpt,
+      startClaudeLogin,
+      startConnect,
+      t,
+    ],
   );
 
   const handleCancel = useCallback(() => {
     if (pending === "chatgpt" && chatgpt.available) cancelChatGptSignIn();
-    else if (pending && pending !== "stella") cancelConnect();
+    else if (pending === "chatgpt") cancelConnect();
   }, [cancelChatGptSignIn, cancelConnect, chatgpt.available, pending]);
 
   /* ── The lens: one highlight that glides to the row in use ─────── */
@@ -221,7 +271,7 @@ export function SignInCard({ active, answered, onAnswer }: SignInCardProps) {
         />
         {OPTIONS.map((option, index) => {
           const isConnected = connected[option.id];
-          const isPending = pending === option.id;
+          const isPending = busyOption === option.id;
           const isInUse = lensOn === option.id;
           const detail =
             option.id === "stella" && isConnected && session.user?.email
@@ -236,7 +286,7 @@ export function SignInCard({ active, answered, onAnswer }: SignInCardProps) {
               data-connected={isConnected || undefined}
               data-in-use={isInUse || undefined}
               data-pending={isPending || undefined}
-              disabled={!active || (pending !== null && !isPending)}
+              disabled={!active || (busyOption !== null && !isPending)}
               aria-pressed={isInUse}
               aria-label={`${t(`onboarding.chat.signin.options.${option.id}.title`)}, ${
                 isPending
@@ -289,7 +339,9 @@ export function SignInCard({ active, answered, onAnswer }: SignInCardProps) {
         })}
       </div>
 
-      {connect.flow ? (
+      {claudeLogin.open ? (
+        <ClaudeLoginPrompt login={claudeLogin} />
+      ) : connect.flow ? (
         <EngineConnectPrompt connect={connect} />
       ) : pending && pending !== "stella" ? (
         <p className="obc-card__fine">
@@ -310,7 +362,7 @@ export function SignInCard({ active, answered, onAnswer }: SignInCardProps) {
         <Button
           type="button"
           variant="primary"
-          disabled={!active || pending !== null}
+          disabled={!active || busyOption !== null}
           onClick={() => onAnswer(anyConnected ? "done" : "skipped")}
         >
           {anyConnected ? t("common.continue") : t("onboarding.chat.signin.skip")}

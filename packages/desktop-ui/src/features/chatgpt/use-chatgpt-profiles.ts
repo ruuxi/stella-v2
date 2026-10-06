@@ -41,12 +41,14 @@ export function useChatGptProfiles() {
   }, [reload]);
 
   /**
-   * Sign in: a new account (dynamic registration), or `profileId` again.
+   * Sign in: a new account (dynamic registration), `profileId` again, or
+   * with `sharedClientId`, a registration another of the owner's hosts made.
    * Resolves the saved account, or null when the sign-in was cancelled.
    */
   const signIn = useCallback(
     async (options?: {
       profileId?: string;
+      sharedClientId?: string;
       enablePlanUsage?: boolean;
     }): Promise<ChatGptProfileSummary | null> => {
       const run = window.electronAPI?.system?.signInChatGpt;
@@ -90,7 +92,6 @@ export function useChatGptProfiles() {
     available,
     loaded: state !== null,
     profiles,
-    autoSwitch: state?.autoSwitch ?? false,
     /** A signed-in account with plan usage serves ChatGPT on this computer. */
     usable,
     signingIn,
@@ -98,8 +99,6 @@ export function useChatGptProfiles() {
     cancelSignIn,
     setActive: (profileId: string) =>
       act(() => window.electronAPI?.system?.setActiveChatGptProfile?.(profileId)),
-    setAutoSwitch: (enabled: boolean) =>
-      act(() => window.electronAPI?.system?.setChatGptAutoSwitch?.(enabled)),
     signOut: (profileId: string) =>
       act(() => window.electronAPI?.system?.signOutChatGptProfile?.(profileId)),
     remove: (profileId: string) =>

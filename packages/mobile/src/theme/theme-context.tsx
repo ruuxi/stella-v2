@@ -247,7 +247,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   );
   const colors = useMemo(
     () =>
-      loaded ? makeColors(palette, tokens) : isDark ? darkColors : lightColors,
+      loaded
+        ? makeColors(palette, tokens, isDark)
+        : isDark
+          ? darkColors
+          : lightColors,
     [loaded, palette, tokens, isDark],
   );
   // Flat themes paint no blob regardless of preference, same as desktop.

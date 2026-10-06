@@ -82,10 +82,23 @@ export type Colors = {
   overlay: string;
 };
 
-/** Map the shared palette + tokens onto the mobile key set. */
-export function makeColors(palette: ThemeColors, tokens: ThemeTokens): Colors {
+/**
+ * Map the shared palette + tokens onto the mobile key set.
+ *
+ * `isDark` exists for one reason: the phone's substrate goes to true black
+ * rather than the palette's dark grey. This is a mobile-only decision and
+ * stays here rather than in `@stella/theme`, which desktop reads too — the
+ * shared palettes are untouched. Only the base page/chat surface moves;
+ * everything layered on it (card, muted, overlay surface, bubbles, borders)
+ * keeps its palette value and so gains contrast rather than losing it.
+ */
+export function makeColors(
+  palette: ThemeColors,
+  tokens: ThemeTokens,
+  isDark: boolean,
+): Colors {
   return {
-    background: palette.background,
+    background: isDark ? "#000000" : palette.background,
     backgroundWeak: palette.backgroundWeak,
     backgroundStrong: palette.backgroundStrong,
     surface: tokens.overlaySurface,
@@ -140,7 +153,7 @@ export function makeColors(palette: ThemeColors, tokens: ThemeTokens): Colors {
 function fallbackFor(isDark: boolean): Colors {
   const theme = getThemeById("default")!;
   const { colors, flat } = resolveThemeColors(theme, isDark);
-  return makeColors(colors, deriveTokens(colors, isDark, { flat }));
+  return makeColors(colors, deriveTokens(colors, isDark, { flat }), isDark);
 }
 
 /** Pre-load palettes — the Default theme, so the frame before AsyncStorage

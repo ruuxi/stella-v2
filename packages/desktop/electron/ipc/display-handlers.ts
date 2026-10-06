@@ -253,7 +253,10 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
   ) => {
     const locator = options.deviceFileLocator;
     if (!locator) return null;
-    const location = await locator.locate(requestedPath);
+    const location = await locator.locate(
+      requestedPath,
+      options.getDeviceId?.() ?? null,
+    );
     if (!location) return null;
     if (location.drivePath) {
       const plan = planDisplayFileRead(location.sizeBytes, maxBytes);

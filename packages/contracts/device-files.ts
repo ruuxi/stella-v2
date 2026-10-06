@@ -34,5 +34,26 @@ export const deviceFileCopyDrivePath = (args: {
     driveSegment(args.fileName, "file"),
   ].join("/");
 
+export type DeviceFileCandidate = {
+  sourcePath: string;
+  deviceId: string;
+  drivePath: string | null;
+  updatedAt: number;
+};
+
+export const pickDeviceFileLocation = <T extends DeviceFileCandidate>(
+  candidates: readonly T[],
+  sourcePath: string,
+  readerDeviceId?: string | null,
+): T | null => {
+  const matching = candidates
+    .filter((candidate) => candidate.sourcePath === sourcePath)
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+  const elsewhere = matching.filter(
+    (candidate) => candidate.deviceId !== readerDeviceId,
+  );
+  return elsewhere[0] ?? matching[0] ?? null;
+};
+
 export const deviceFileElsewhereMessage = (deviceName: string): string =>
   `This file is on ${friendlyDeviceName(deviceName)}. Open it on that computer.`;

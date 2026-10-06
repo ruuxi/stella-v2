@@ -1,5 +1,8 @@
 import { backendClient } from "@/platform/backend/backend-client";
-import { deviceFileElsewhereMessage } from "@stella/contracts/device-files";
+import {
+  deviceFileElsewhereMessage,
+  pickDeviceFileLocation,
+} from "@stella/contracts/device-files";
 
 const DEFAULT_MAX_BYTES = 32 * 1024 * 1024;
 
@@ -17,7 +20,7 @@ export const readDeviceFileCopy = async (
   const { files } = await backendClient.call("drive.locateDeviceFiles", {
     paths: [filePath],
   });
-  const location = files.find((file) => file.sourcePath === filePath);
+  const location = pickDeviceFileLocation(files, filePath);
   if (!location) return null;
   if (!location.drivePath) {
     throw new Error(deviceFileElsewhereMessage(location.deviceName));

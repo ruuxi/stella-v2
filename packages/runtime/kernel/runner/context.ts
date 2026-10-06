@@ -107,6 +107,7 @@ import type { ResolvedLlmRoute } from "../model-routing.js";
 import { getResponseLanguageSystemPrompt } from "./locale-prompt.js";
 import { createBackendSession, initialBackendUrl } from "./backend-session.js";
 import { hostname } from "node:os";
+import { resolveJwtOwnerScope } from "./computer-agent-cloud-records.js";
 import {
   assistantPayloadText,
   createLinkedFilePublisher,
@@ -557,8 +558,10 @@ export const createRunnerContext = ({
   const linkedFilePublisher = createLinkedFilePublisher({
     deviceId,
     deviceName: hostname().trim().slice(0, 96) || deviceId,
-    getClient: () => backend.client(),
-    isSignedIn: isCloudSignedIn,
+    getBackendUrl: () => context.state?.backendUrl ?? null,
+    getAuthToken: () =>
+      (context.state?.authToken ?? envAuthToken ?? "").trim() || null,
+    ownerScopeOf: resolveJwtOwnerScope,
     onLog: (event, fields) => {
       if (event !== "device_files_recorded") {
         console.warn(`[device-files] ${event}`, fields);

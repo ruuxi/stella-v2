@@ -160,6 +160,7 @@ export const DRIVE_DEVICE_FILES_MIGRATION = {
 const MAX_DEVICE_FILE_SOURCE_CHARS = 4_000;
 const MAX_DEVICE_FILES_PER_RECORD = 50;
 const MAX_DEVICE_FILE_ROWS = 20_000;
+const MAX_DEVICES_PER_SOURCE_PATH = 8;
 
 type DeviceFileRow = {
   device_id: string;
@@ -769,7 +770,7 @@ const recordDeviceFiles = (
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (device_id, source_path) DO UPDATE SET
          device_name = excluded.device_name,
-         drive_path = COALESCE(excluded.drive_path, drive_device_files.drive_path),
+         drive_path = excluded.drive_path,
          name = excluded.name,
          size_bytes = excluded.size_bytes,
          content_type = excluded.content_type,
@@ -804,26 +805,28 @@ const locateDeviceFiles = (
     const sourcePath = raw.trim();
     if (!sourcePath || seen.has(sourcePath)) continue;
     seen.add(sourcePath);
-    const row = db.one<DeviceFileRow & { current_name: string | null }>(
+    const rows = db.all<DeviceFileRow & { current_name: string | null }>(
       `SELECT f.*, d.name AS current_name FROM drive_device_files f
          LEFT JOIN devices d ON d.device_id = f.device_id
         WHERE f.source_path = ?
-        ORDER BY f.updated_at DESC LIMIT 1`,
+        ORDER BY f.updated_at DESC LIMIT ?`,
       sourcePath,
+      MAX_DEVICES_PER_SOURCE_PATH,
     );
-    if (!row) continue;
-    const copy = row.drive_path ? getFile(db, row.drive_path) : null;
-    const usableCopy = copy && copy.source !== "workspace" ? copy : null;
-    files.push({
-      sourcePath: row.source_path,
-      deviceId: row.device_id,
-      deviceName: row.current_name?.trim() || row.device_name || "another computer",
-      drivePath: usableCopy ? usableCopy.path : null,
-      name: row.name,
-      sizeBytes: usableCopy ? usableCopy.size_bytes : row.size_bytes,
-      contentType: usableCopy ? usableCopy.content_type : row.content_type,
-      updatedAt: row.updated_at,
-    });
+    for (const row of rows) {
+      const copy = row.drive_path ? getFile(db, row.drive_path) : null;
+      const usableCopy = copy && copy.source !== "workspace" ? copy : null;
+      files.push({
+        sourcePath: row.source_path,
+        deviceId: row.device_id,
+        deviceName: row.current_name?.trim() || row.device_name || "another computer",
+        drivePath: usableCopy ? usableCopy.path : null,
+        name: row.name,
+        sizeBytes: usableCopy ? usableCopy.size_bytes : row.size_bytes,
+        contentType: usableCopy ? usableCopy.content_type : row.content_type,
+        updatedAt: row.updated_at,
+      });
+    }
   }
   return { files };
 };

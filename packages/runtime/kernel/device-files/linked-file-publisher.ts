@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import type { BackendClient } from "@stella/contracts/backend/client";
+import { BackendClient } from "@stella/contracts/backend/client";
 import type { DeviceFileRecordInput } from "@stella/contracts/backend/drive";
 import { isCloudWorkspacePath } from "@stella/contracts/cloud-world-paths";
 import {
@@ -68,20 +68,49 @@ export type LinkedFilePublisher = {
   idle: () => Promise<void>;
 };
 
+type CopyResult =
+  | { kind: "copied"; drivePath: string; sizeBytes: number }
+  | { kind: "oversized"; sizeBytes: number };
+
+const readBounded = async (
+  sourcePath: string,
+  maxBytes: number,
+): Promise<Buffer | null> => {
+  const handle = await fs.open(sourcePath, "r");
+  try {
+    const buffer = Buffer.alloc(maxBytes + 1);
+    let offset = 0;
+    while (offset < buffer.byteLength) {
+      const { bytesRead } = await handle.read(
+        buffer,
+        offset,
+        buffer.byteLength - offset,
+        offset,
+      );
+      if (bytesRead === 0) break;
+      offset += bytesRead;
+    }
+    return offset > maxBytes ? null : buffer.subarray(0, offset);
+  } finally {
+    await handle.close();
+  }
+};
+
 export const createLinkedFilePublisher = (deps: {
   deviceId: string;
   deviceName: string;
-  getClient: () => BackendClient | null;
-  isSignedIn: () => boolean;
+  getBackendUrl: () => string | null;
+  getAuthToken: () => string | null;
+  ownerScopeOf: (token: string) => string | null;
   fetchImpl?: typeof fetch;
   onLog?: (event: string, fields: Record<string, unknown>) => void;
 }): LinkedFilePublisher => {
   const published = new Map<string, string>();
   let queue: Promise<void> = Promise.resolve();
 
-  const remember = (sourcePath: string, signature: string) => {
-    published.delete(sourcePath);
-    published.set(sourcePath, signature);
+  const remember = (key: string, signature: string) => {
+    published.delete(key);
+    published.set(key, signature);
     while (published.size > PUBLISHED_MEMORY) {
       const oldest = published.keys().next().value;
       if (oldest === undefined) break;
@@ -93,8 +122,17 @@ export const createLinkedFilePublisher = (deps: {
     client: BackendClient,
     sourcePath: string,
     contentType: string,
-  ): Promise<{ drivePath: string; sizeBytes: number }> => {
-    const bytes = await fs.readFile(sourcePath);
+  ): Promise<CopyResult> => {
+    const bytes = await readBounded(
+      sourcePath,
+      DEVICE_FILE_COPY_LIMITS.maxFileBytes,
+    );
+    if (!bytes) {
+      return {
+        kind: "oversized",
+        sizeBytes: DEVICE_FILE_COPY_LIMITS.maxFileBytes + 1,
+      };
+    }
     const prepared = await client.call("drive.prepareUpload", {
       path: deviceFileCopyDrivePath({
         deviceName: deps.deviceName,
@@ -120,58 +158,85 @@ export const createLinkedFilePublisher = (deps: {
       contentType: prepared.contentType,
       source: "agent",
     });
-    return { drivePath: record.path, sizeBytes: record.sizeBytes };
+    return { kind: "copied", drivePath: record.path, sizeBytes: record.sizeBytes };
   };
 
-  const publishPaths = async (paths: string[]): Promise<void> => {
-    const client = deps.getClient();
-    if (!client || !deps.isSignedIn()) return;
-    const records: DeviceFileRecordInput[] = [];
-    const signatures = new Map<string, string>();
-    for (const sourcePath of paths) {
-      let stat: Awaited<ReturnType<typeof fs.stat>>;
+  const copyWithRetry = async (
+    client: BackendClient,
+    sourcePath: string,
+    contentType: string,
+  ): Promise<CopyResult | null> => {
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
       try {
-        stat = await fs.stat(sourcePath);
-      } catch {
-        continue;
+        return await copyToDrive(client, sourcePath, contentType);
+      } catch (error) {
+        deps.onLog?.("device_file_copy_failed", {
+          file: path.basename(sourcePath),
+          attempt,
+          message: error instanceof Error ? error.message : String(error),
+        });
       }
-      if (!stat.isFile()) continue;
-      const signature = `${stat.size}:${stat.mtimeMs}`;
-      if (published.get(sourcePath) === signature) continue;
-      const contentType = contentTypeFor(sourcePath);
-      let copy: { drivePath: string; sizeBytes: number } | null = null;
-      if (stat.size > 0 && stat.size <= DEVICE_FILE_COPY_LIMITS.maxFileBytes) {
-        copy = await copyToDrive(client, sourcePath, contentType).catch(
-          (error: unknown) => {
-            deps.onLog?.("device_file_copy_failed", {
-              file: path.basename(sourcePath),
-              message: error instanceof Error ? error.message : String(error),
-            });
-            return null;
-          },
-        );
+    }
+    return null;
+  };
+
+  const publishPaths = async (
+    paths: string[],
+    job: { baseUrl: string; token: string; ownerScope: string },
+  ): Promise<void> => {
+    const stillSameOwner = () => {
+      const token = deps.getAuthToken();
+      return Boolean(token && deps.ownerScopeOf(token) === job.ownerScope);
+    };
+    if (!stillSameOwner()) return;
+    const client = new BackendClient({
+      baseUrl: job.baseUrl,
+      getToken: async () => job.token,
+    });
+    try {
+      const records: DeviceFileRecordInput[] = [];
+      const settled = new Map<string, string>();
+      for (const sourcePath of paths) {
+        let stat: Awaited<ReturnType<typeof fs.stat>>;
+        try {
+          stat = await fs.stat(sourcePath);
+        } catch {
+          continue;
+        }
+        if (!stat.isFile()) continue;
+        const key = `${job.ownerScope}\0${sourcePath}`;
+        const signature = `${stat.size}:${stat.mtimeMs}`;
+        if (published.get(key) === signature) continue;
+        if (!stillSameOwner()) return;
+        const contentType = contentTypeFor(sourcePath);
+        const copy =
+          stat.size > 0 && stat.size <= DEVICE_FILE_COPY_LIMITS.maxFileBytes
+            ? await copyWithRetry(client, sourcePath, contentType)
+            : ({ kind: "oversized", sizeBytes: stat.size } as const);
+        records.push({
+          sourcePath,
+          ...(copy?.kind === "copied" ? { drivePath: copy.drivePath } : {}),
+          sizeBytes: copy?.sizeBytes ?? stat.size,
+          contentType,
+        });
+        if (copy) settled.set(key, signature);
       }
-      records.push({
-        sourcePath,
-        ...(copy ? { drivePath: copy.drivePath } : {}),
-        sizeBytes: copy?.sizeBytes ?? stat.size,
-        contentType,
+      if (records.length === 0 || !stillSameOwner()) return;
+      await client.call("drive.recordDeviceFiles", {
+        deviceId: deps.deviceId,
+        deviceName: deps.deviceName,
+        files: records,
       });
-      signatures.set(sourcePath, signature);
+      for (const [key, signature] of settled) {
+        remember(key, signature);
+      }
+      deps.onLog?.("device_files_recorded", {
+        files: records.length,
+        copied: records.filter((record) => record.drivePath).length,
+      });
+    } finally {
+      client.dispose();
     }
-    if (records.length === 0) return;
-    await client.call("drive.recordDeviceFiles", {
-      deviceId: deps.deviceId,
-      deviceName: deps.deviceName,
-      files: records,
-    });
-    for (const [sourcePath, signature] of signatures) {
-      remember(sourcePath, signature);
-    }
-    deps.onLog?.("device_files_recorded", {
-      files: records.length,
-      copied: records.filter((record) => record.drivePath).length,
-    });
   };
 
   return {
@@ -185,8 +250,13 @@ export const createLinkedFilePublisher = (deps: {
         return;
       }
       if (paths.length === 0) return;
+      const baseUrl = deps.getBackendUrl()?.trim();
+      const token = deps.getAuthToken()?.trim();
+      const ownerScope = token ? deps.ownerScopeOf(token) : null;
+      if (!baseUrl || !token || !ownerScope) return;
+      const job = { baseUrl, token, ownerScope };
       queue = queue
-        .then(() => publishPaths(paths))
+        .then(() => publishPaths(paths, job))
         .catch((error: unknown) => {
           deps.onLog?.("device_files_record_failed", {
             message: error instanceof Error ? error.message : String(error),

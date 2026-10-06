@@ -29,8 +29,10 @@ import {
   bytesToText,
   loadExistingOfficePreviewHtml,
   loadOfficePreviewHtml,
+  locateDeviceFile,
   readLinkedArtifactFile,
 } from "../lib/desktop-artifact-data";
+import { deviceFileElsewhereMessage } from "@stella/contracts/device-files";
 import { sharePdf } from "../lib/chat-pdf";
 import {
   writeArtifactMediaFile,
@@ -422,8 +424,22 @@ export function ArtifactViewerContent({
         payload.kind === "file-artifact" &&
         payload.artifactKind !== "delimited-table"
       ) {
+        const located = await locateDeviceFile(payload.filePath);
+        if (
+          located?.drivePath &&
+          (!access || located.deviceId !== access.desktopDeviceId)
+        ) {
+          return {
+            kind: "url" as const,
+            uri: await resolveCloudDriveFileUri(located.drivePath),
+          };
+        }
         if (!access) {
-          throw new Error("Pair this phone with your desktop again.");
+          throw new Error(
+            located
+              ? deviceFileElsewhereMessage(located.deviceName)
+              : "Pair this phone with your desktop again.",
+          );
         }
         return {
           kind: "html-document" as const,

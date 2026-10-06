@@ -1,6 +1,9 @@
 import { isCloudWorkspacePath } from "@stella/contracts/cloud-world-paths";
 import type { DeviceFileLocation } from "@stella/contracts/backend/drive";
-import { deviceFileElsewhereMessage } from "@stella/contracts/device-files";
+import {
+  deviceFileElsewhereMessage,
+  pickDeviceFileLocation,
+} from "@stella/contracts/device-files";
 import { getBackendClient } from "./backend";
 import {
   decodeUtf8,
@@ -89,17 +92,37 @@ export const readDesktopArtifactFile = async (
   }
 };
 
-const locateDeviceFile = async (
+export const locateDeviceFile = async (
   filePath: string,
 ): Promise<DeviceFileLocation | null> => {
   try {
     const { files } = await getBackendClient().call("drive.locateDeviceFiles", {
       paths: [filePath],
     });
-    return files.find((file) => file.sourcePath === filePath) ?? null;
+    return pickDeviceFileLocation(files, filePath);
   } catch {
     return null;
   }
+};
+
+const readDriveCopy = async (
+  drivePath: string,
+  signal?: AbortSignal,
+): Promise<DesktopFileReadResult> => {
+  const file = await getBackendClient().call("drive.fileUrl", {
+    path: drivePath,
+  });
+  const response = await fetch(file.url, { signal });
+  if (!response.ok) {
+    throw new Error("Couldn't load the copy of this file in your Drive.");
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  return {
+    missing: false,
+    bytes,
+    sizeBytes: bytes.byteLength,
+    mimeType: file.contentType || "application/octet-stream",
+  };
 };
 
 export const readLinkedArtifactFile = async (
@@ -111,22 +134,19 @@ export const readLinkedArtifactFile = async (
   assertReadableOnPairedComputer(filePath);
   const location = await locateDeviceFile(filePath);
   assertActive(signal);
+  let copyError: unknown = null;
   if (location?.drivePath) {
-    const file = await getBackendClient().call("drive.fileUrl", {
-      path: location.drivePath,
-    });
-    const response = await fetch(file.url, { signal });
-    if (!response.ok) {
-      throw new Error("Couldn't load the copy of this file in your Drive.");
+    try {
+      const copy = await readDriveCopy(location.drivePath, signal);
+      assertActive(signal);
+      return copy;
+    } catch (error) {
+      assertActive(signal);
+      copyError = error;
     }
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    assertActive(signal);
-    return {
-      missing: false,
-      bytes,
-      sizeBytes: bytes.byteLength,
-      mimeType: file.contentType || "application/octet-stream",
-    };
+  }
+  if (copyError && (!access || location?.deviceId !== access.desktopDeviceId)) {
+    throw copyError;
   }
   const elsewhere =
     location && location.deviceId !== access?.desktopDeviceId

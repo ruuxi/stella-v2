@@ -1,5 +1,6 @@
 import type { DeviceFileLocation, DriveFileUrl } from "@stella/contracts/backend/drive";
 import { rpcPath, type RpcResponse } from "@stella/contracts/backend/protocol";
+import { pickDeviceFileLocation } from "@stella/contracts/device-files";
 
 const REQUEST_TIMEOUT_MS = 15_000;
 const DOWNLOAD_TIMEOUT_MS = 120_000;
@@ -12,7 +13,10 @@ type Deps = {
 };
 
 export type DeviceFileLocator = {
-  locate: (sourcePath: string) => Promise<DeviceFileLocation | null>;
+  locate: (
+    sourcePath: string,
+    readerDeviceId?: string | null,
+  ) => Promise<DeviceFileLocation | null>;
   readCopy: (
     drivePath: string,
     maxBytes: number,
@@ -21,7 +25,7 @@ export type DeviceFileLocator = {
 
 export const createDeviceFileLocator = (deps: Deps): DeviceFileLocator => {
   const fetchImpl = deps.fetchImpl ?? fetch;
-  const cache = new Map<string, { at: number; value: Promise<DeviceFileLocation | null> }>();
+  const cache = new Map<string, { at: number; value: Promise<DeviceFileLocation[]> }>();
 
   const call = async <T>(name: string, args: unknown): Promise<T> => {
     const baseUrl = deps.getBackendUrl()?.trim().replace(/\/+$/, "");
@@ -42,21 +46,21 @@ export const createDeviceFileLocator = (deps: Deps): DeviceFileLocator => {
     return body.value;
   };
 
-  const locate = (sourcePath: string): Promise<DeviceFileLocation | null> => {
+  const candidates = (sourcePath: string): Promise<DeviceFileLocation[]> => {
     const now = Date.now();
     const cached = cache.get(sourcePath);
     if (cached && now - cached.at < LOCATION_CACHE_TTL_MS) return cached.value;
     const value = call<{ files: DeviceFileLocation[] }>("drive.locateDeviceFiles", {
       paths: [sourcePath],
     })
-      .then((result) => result.files.find((file) => file.sourcePath === sourcePath) ?? null)
+      .then((result) => result.files)
       .catch((error: unknown) => {
         cache.delete(sourcePath);
         console.warn(
           "[device-files] Could not look up where this file lives:",
           error instanceof Error ? error.message : String(error),
         );
-        return null;
+        return [] as DeviceFileLocation[];
       });
     cache.set(sourcePath, { at: now, value });
     for (const [key, entry] of cache) {
@@ -64,6 +68,9 @@ export const createDeviceFileLocator = (deps: Deps): DeviceFileLocator => {
     }
     return value;
   };
+
+  const locate = async (sourcePath: string, readerDeviceId?: string | null) =>
+    pickDeviceFileLocation(await candidates(sourcePath), sourcePath, readerDeviceId);
 
   const readCopy = async (drivePath: string, maxBytes: number) => {
     const file = await call<DriveFileUrl>("drive.fileUrl", { path: drivePath });

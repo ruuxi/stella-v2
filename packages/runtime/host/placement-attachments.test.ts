@@ -65,6 +65,7 @@ describe("desktop-placed resolution", () => {
         kind: "image",
         name: "receipt.png",
         size: 24_512,
+        drivePath: IMAGE,
       },
       {
         url: "https://r2.example/signed/lease.pdf?sig=b",
@@ -72,6 +73,7 @@ describe("desktop-placed resolution", () => {
         kind: "file",
         name: "lease.pdf",
         size: 91_004,
+        drivePath: DOCUMENT,
       },
     ]);
     // The runtime materializes a remote image into a data URL only when it can
@@ -87,6 +89,9 @@ describe("desktop-placed resolution", () => {
       resolve: resolveFromDrive,
     });
     expect(refs[0]).not.toHaveProperty("sourcePath");
+    // The drive-relative path still travels, as the durable identity the
+    // journal persists for clients that never see the signed URL.
+    expect(refs[0]?.drivePath).toBe(IMAGE);
   });
 
   test("normalizes a content type the drive row spelled loudly", async () => {

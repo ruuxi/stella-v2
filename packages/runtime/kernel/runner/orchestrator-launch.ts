@@ -14,6 +14,7 @@ import { getOrCreateOrchestratorSession } from "../agent-runtime/orchestrator-se
 import {
   createFileAttachmentPromptInput,
   createRuntimePromptAgentMessage,
+  isInlineImageAttachment,
 } from "../agent-runtime/run-preparation.js";
 import { buildThreadMessagePreview } from "../agent-runtime/thread-memory.js";
 import { executionContextHistoryEntries } from "../agent-runtime/execution-context-history.js";
@@ -143,15 +144,35 @@ export type CloudFileAttachmentMetadata = {
   name: string;
   mimeType: string;
   size?: number;
-  sourcePath: string;
+  /** Absolute path on the device that ran the turn, when there is one. */
+  sourcePath?: string;
   path?: string;
+  /** Owner-drive location: durable, and the only form other clients resolve. */
+  drivePath?: string;
 };
 
+/**
+ * The attachments a journal user row names in metadata.
+ *
+ * `kind: "file"` for everything listed here, because that is the shape every
+ * client reads: an image that could be inlined is already carried by the
+ * message as an image block and is skipped, so nothing is presented twice.
+ *
+ * An attachment is listed when it has a durable locator — a local absolute
+ * `sourcePath`, or the drive-relative `drivePath` of a turn sent from another
+ * device. A relayed attachment used to satisfy neither (the host leaves
+ * `sourcePath` unset on purpose, and an image is turned into a data URL whose
+ * origin was forgotten), so a message sent from the phone reached the model
+ * but left the journal with no record of its files at all, and no client
+ * could show them. The short-lived signed drive `url` is deliberately never
+ * written here: it would be a dead link in a permanent row.
+ */
 const cloudFileAttachmentMetadata = (
   attachments: RuntimeAttachmentRef[] | undefined,
 ): CloudFileAttachmentMetadata[] =>
   (attachments ?? []).flatMap((attachment) =>
-    attachment.kind === "file" && attachment.sourcePath
+    !isInlineImageAttachment(attachment) &&
+    (attachment.sourcePath || attachment.drivePath)
       ? [
           {
             kind: "file" as const,
@@ -160,13 +181,24 @@ const cloudFileAttachmentMetadata = (
             ...(typeof attachment.size === "number"
               ? { size: attachment.size }
               : {}),
-            sourcePath: attachment.sourcePath,
+            ...(attachment.sourcePath
+              ? { sourcePath: attachment.sourcePath }
+              : {}),
             ...(attachment.path ? { path: attachment.path } : {}),
+            ...(attachment.drivePath
+              ? { drivePath: attachment.drivePath }
+              : {}),
           },
         ]
       : [],
   );
 
+/**
+ * The model-facing attachments a journaled user row can be replayed with:
+ * only an absolute `sourcePath` this machine can Read. An entry that carries
+ * just a `drivePath` is for clients to display; handing a drive-relative path
+ * to the model as a file to open would be a broken instruction.
+ */
 const fileAttachmentsFromCloudUserPayload = (
   payload: unknown,
 ): RuntimeAttachmentRef[] => {

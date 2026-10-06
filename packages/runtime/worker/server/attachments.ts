@@ -125,10 +125,13 @@ export const materializeImageAttachments = async (
     // `mimeType` reach the model as pixels, but `kind` is what tells the
     // prompt builder this is a user-attached image rather than an ambient
     // context capture (a window screenshot), so it can name the on-disk copy
-    // and let the turn delegate it.
+    // and let the turn delegate it. `drivePath` survives for the same reason
+    // a name does: the bytes become a data URL here, and that path is the only
+    // durable record of where this image actually lives.
     const identity = {
       kind: "image" as const,
       ...(attachment.name ? { name: attachment.name } : {}),
+      ...(attachment.drivePath ? { drivePath: attachment.drivePath } : {}),
     };
 
     // Path-backed composer attachments: the renderer keeps only the

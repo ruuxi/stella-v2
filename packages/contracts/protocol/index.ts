@@ -355,6 +355,14 @@ export type RuntimeAttachmentRef = {
   name?: string;
   size?: number;
   path?: string;
+  /**
+   * Drive-relative location of an attachment that came from the owner's Stella
+   * Drive (a turn sent from another device). Durable and device-independent,
+   * unlike `url` (a short-lived signed GET) and `sourcePath` (one machine's
+   * cache), so it is the only form of this attachment safe to persist in the
+   * cloud journal and resolvable by every client.
+   */
+  drivePath?: string;
   transcript?: string;
   extractedText?: string;
   /**

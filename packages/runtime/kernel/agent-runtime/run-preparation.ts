@@ -42,6 +42,17 @@ const toImageContent = (
 };
 
 /**
+ * Whether this attachment is carried by the message itself, as an inline
+ * image block. The journal mirrors those blocks verbatim, so a caller that
+ * also lists attachments as metadata must exclude these or the same file is
+ * presented twice. Shares `toImageContent` with the message builder so the
+ * two cannot disagree about what inlines.
+ */
+export const isInlineImageAttachment = (
+  attachment: RuntimeAttachmentRef,
+): boolean => toImageContent(attachment) !== null;
+
+/**
  * Keep tool paths in durable model context, separate from the visible user
  * turn.
  *

@@ -17,7 +17,10 @@
  * reference design exists to prevent.
  *
  * `sourcePath` stays unset. The runtime hands it to the model as an absolute
- * path to Read, so a drive-relative path there is a broken instruction.
+ * path to Read, so a drive-relative path there is a broken instruction. The
+ * drive-relative path travels as `drivePath` instead: nothing model-facing
+ * reads it, and it is the attachment's only durable identity once the signed
+ * URL expires, so it is what the cloud journal can persist for other clients.
  */
 import type { RuntimeAttachmentRef } from "@stella/contracts/protocol";
 
@@ -65,6 +68,7 @@ export const resolvePlacementAttachments = async (args: {
         kind: contentType.startsWith("image/") ? "image" : "file",
         name: file.name,
         size: file.sizeBytes,
+        drivePath: file.path,
       });
     } catch (error) {
       args.onSkipped?.(path, error);

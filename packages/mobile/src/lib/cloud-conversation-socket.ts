@@ -21,6 +21,7 @@ import {
   BACKFILL_BATCH_RECORDS,
   INITIAL_WINDOW_RECORDS,
   MAX_BUFFERED_AHEAD,
+  MAX_CATCHUP_RESUME_RECORDS,
   MAX_RESUME_RECORDS,
   PROTOCOL_VERSION,
   RATE_BACKFILL_PER_MIN,
@@ -656,11 +657,17 @@ export class ConversationSocket {
       this.resetStream(epochChanged ? "epoch" : "window");
     }
 
-    // After a long absence, replaying every missed record would walk the
-    // entire journal in successive repair requests, even though the view only
-    // retains a bounded tail. Reopen without a cursor for the newest window;
-    // earlier history remains available through explicit scrollback.
-    if (this.lastSeq >= 0 && ready.headSeq - this.lastSeq > MAX_RESUME_RECORDS) {
+    // After a long absence, replaying every missed record walks a stretch of
+    // journal the view does not even retain, and does it oldest first — so the
+    // one thing the user is waiting for, the latest messages, arrives last.
+    // Reopen without a cursor for the newest window instead; earlier history
+    // remains available through explicit scrollback. The server caps the same
+    // way, so normally this never fires; it is what makes a client talking to
+    // an older server behave.
+    if (
+      this.lastSeq >= 0 &&
+      ready.headSeq - this.lastSeq > MAX_CATCHUP_RESUME_RECORDS
+    ) {
       this.resetStream("window");
       this.forceReconnect();
       return;

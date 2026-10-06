@@ -17,8 +17,26 @@ export function canonicalWorkingState(args: {
   activeSendMessageId?: string | null;
   /** Unsent user rows waiting behind the active placement waiter. */
   hasQueuedSend?: boolean;
+  /**
+   * Whether every row the journal has promised is applied. While it is not,
+   * the retained records are a prefix of the truth, and a turn that looks
+   * unfinished in them may have ended a thousand rows later.
+   */
+  caughtUp?: boolean;
+  /** The journal owner's own answer to "is this conversation working?". */
+  authoritativeActivity?: "idle" | "running";
 }): { sending: boolean; workingIndicator: WorkingIndicatorState } {
-  const runningTurnId = activeCloudTurnId(args.records, args.live);
+  // Mid-replay the record fold is not evidence: every `started` row without its
+  // terminal row yet reads as running, so deriving the button from it made the
+  // composer flip between send and stop for as long as catching up took. The
+  // conversation's owner knows the answer without the transcript, so take it
+  // from there until the view is whole.
+  const trustRecords = args.caughtUp !== false;
+  const runningTurnId = trustRecords
+    ? activeCloudTurnId(args.records, args.live)
+    : args.authoritativeActivity === "running"
+      ? (args.live?.turnId ?? activeCloudTurnId(args.records, args.live))
+      : null;
   const localTurnId = args.activeDispatchId || args.activeSendMessageId
     ? args.records.find((record) =>
         record.kind === "message" && record.role === "user" &&

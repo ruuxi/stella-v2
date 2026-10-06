@@ -67,7 +67,11 @@ import {
 } from "./execution-placement";
 import { collectActivityHubArtifacts, groupActivityArtifacts } from "./activity-hub-model";
 import { canonicalWorkingState } from "./canonical-working-state";
-import { collectJournalTasks } from "./journal-tasks";
+import {
+  agentSnapshotTasks,
+  collectJournalTasks,
+  markAuthoritativeRunning,
+} from "./journal-tasks";
 import { mergeJournalTasks } from "./mobile-task-merge";
 import { planCloudTranscriptDisplay } from "./cloud-transcript-display";
 import { useChatAttachmentPreviews } from "./use-chat-attachment-previews";
@@ -303,6 +307,8 @@ const EMPTY_STATE: ConversationState = {
   headSeq: -1,
   records: [],
   live: null,
+  activity: "idle",
+  runningAgents: [],
   title: "",
   floorSeq: 0,
   hasOlder: false,
@@ -859,6 +865,8 @@ export const useCloudCanonicalChatThread = (
       live: state.live,
       localSending: local.sending,
       localIndicator: local.workingIndicator,
+      caughtUp,
+      authoritativeActivity: state.activity,
       hasQueuedSend: local.messages.some((message) =>
         message.role === "user" && message.queued && !message.stopped),
       activeSendMessageId: local.activeSendMessageId,
@@ -866,8 +874,9 @@ export const useCloudCanonicalChatThread = (
         ? dispatchBindings.get(local.activeSendMessageId) ?? null
         : null,
     }),
-    [dispatchBindings, local.activeSendMessageId, local.sending,
-      local.workingIndicator, local.messages, state.live, state.records],
+    [caughtUp, dispatchBindings, local.activeSendMessageId, local.sending,
+      local.workingIndicator, local.messages, state.activity, state.live,
+      state.records],
   );
   const conversationArtifacts = useMemo(
     () => collectActivityHubArtifacts(messages),
@@ -879,10 +888,32 @@ export const useCloudCanonicalChatThread = (
     () => collectJournalTasks(state.records),
     [state.records],
   );
+  // What the journal's own owner says is running, folded over the whole journal
+  // rather than the tail this device holds. Merged under the record fold so a
+  // terminal row this device has already seen still wins, but an agent whose
+  // start is below the window is named instead of missing — which is what made
+  // a cold open claim nothing was in progress while agents started elsewhere
+  // were working.
+  const snapshotTasks = useMemo(
+    () => agentSnapshotTasks(state.runningAgents),
+    [state.runningAgents],
+  );
+  const authoritativeTasks = useMemo(
+    () =>
+      markAuthoritativeRunning(
+        mergeJournalTasks(snapshotTasks, journalTasks),
+        state.runningAgents,
+      ),
+    [journalTasks, snapshotTasks, state.runningAgents],
+  );
   const localConversationTasks = local.conversationTasks;
   const conversationTasks = useMemo(
-    () => mergeJournalTasks(journalTasks, localConversationTasks),
-    [journalTasks, localConversationTasks],
+    () =>
+      markAuthoritativeRunning(
+        mergeJournalTasks(authoritativeTasks, localConversationTasks),
+        state.runningAgents,
+      ),
+    [authoritativeTasks, localConversationTasks, state.runningAgents],
   );
   // The activity hub groups files by owning task, and the journal projection —
   // not the optimistic overlay — is what carries them.

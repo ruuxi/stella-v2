@@ -1,3 +1,4 @@
+import type { AgentActivityEntry } from "@stella/contracts/conversation-agent-activity";
 import type { MobileTask } from "../types";
 import {
   messageText,
@@ -83,6 +84,54 @@ const toolCallsById = (records: readonly JournalRecord[]) => {
  * the outcome. Both read into the same task rows, so the chat can tell what
  * is running without a live connection to the computer that runs it.
  */
+/**
+ * The server's running-agent snapshot as task rows.
+ *
+ * This is the only source that can name an agent whose start row sits below the
+ * records this view holds — which, after any real time away, is most of them.
+ * Marked `authoritativeRunning` so the chrome's staleness rule leaves them
+ * alone: silence in the retained window is not evidence about an agent the
+ * journal itself just said is working.
+ */
+export const agentSnapshotTasks = (
+  agents: readonly AgentActivityEntry[],
+): MobileTask[] =>
+  agents.map((agent) => ({
+    id: agent.agentId,
+    title: agent.title,
+    status: "running" as const,
+    authoritativeRunning: true as const,
+    createdAt: agent.createdAtMs,
+    updatedAt: agent.updatedAtMs,
+    ...(agent.agentType ? { agentType: agent.agentType } : {}),
+    ...(agent.statusText ? { statusText: agent.statusText } : {}),
+  }));
+
+/**
+ * Re-stamps `authoritativeRunning` after a merge.
+ *
+ * The merge rules prefer whichever snapshot is newer and copy only a few named
+ * fields forward, so a row the server named as running can come out of a merge
+ * carrying a local fold's shape instead. The server's word is about the agent,
+ * not about one snapshot of it, so it is applied again afterwards — and only to
+ * rows the merge still considers running, because a terminal row this device
+ * genuinely saw is newer evidence than the list.
+ */
+export const markAuthoritativeRunning = (
+  tasks: readonly MobileTask[],
+  agents: readonly AgentActivityEntry[],
+): MobileTask[] => {
+  if (agents.length === 0) return [...tasks];
+  const running = new Set(agents.map((agent) => agent.agentId));
+  return tasks.map((task) =>
+    task.status === "running" &&
+    !task.authoritativeRunning &&
+    running.has(task.id)
+      ? { ...task, authoritativeRunning: true as const }
+      : task,
+  );
+};
+
 export const collectJournalTasks = (
   records: readonly JournalRecord[],
 ): MobileTask[] => {

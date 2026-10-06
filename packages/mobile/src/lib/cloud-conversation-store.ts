@@ -6,6 +6,7 @@
  * discard a cache, because reconnecting the socket reconstructs the view.
  */
 
+import type { AgentActivityEntry } from "@stella/contracts/conversation-agent-activity";
 import {
   BACKFILL_BATCH_RECORDS,
   MAX_CLIENT_RECORDS,
@@ -49,6 +50,18 @@ export type ConversationState = {
   /** Ascending by `seq`, contiguous. */
   records: readonly JournalRecord[];
   live: LiveTurn | null;
+  /**
+   * Whether the conversation itself is working, as the journal's own owner
+   * reports it. Independent of how much transcript this view holds, so it is
+   * the one honest answer while a replay is still in flight.
+   */
+  activity: "idle" | "running";
+  /**
+   * Agents the journal still shows as working, named by the server over the
+   * whole journal. The retained records can only confirm this list, never
+   * shorten it: an agent started below the window leaves no trace in it.
+   */
+  runningAgents: readonly AgentActivityEntry[];
   title: string;
   /** Lowest seq that still exists. Nothing below it is ever fetchable. */
   floorSeq: number;
@@ -60,6 +73,19 @@ export type ConversationState = {
 };
 
 const EMPTY_RECORDS: readonly JournalRecord[] = [];
+const EMPTY_AGENTS: readonly AgentActivityEntry[] = [];
+
+/**
+ * How long consecutive journal updates may collapse into one notification.
+ *
+ * A resume arrives as one frame per record, each its own task on the JS thread,
+ * so every record used to cost a render and a fresh whole-journal projection —
+ * which is what made catching up slow enough to sit and watch, and what made
+ * the composer flip between send and stop as intermediate turn states went by.
+ * One frame of coalescing bounds a burst to ~60 renders a second; a single
+ * record arriving into a quiet view still lands immediately.
+ */
+const EMIT_COALESCE_MS = 16;
 
 const initialState = (conversationId: string): ConversationState => ({
   conversationId,
@@ -70,6 +96,8 @@ const initialState = (conversationId: string): ConversationState => ({
   headSeq: -1,
   records: EMPTY_RECORDS,
   live: null,
+  activity: "idle",
+  runningAgents: EMPTY_AGENTS,
   title: "",
   floorSeq: 0,
   hasOlder: false,
@@ -113,6 +141,8 @@ class ConversationStore {
   /** Pending disk read the first socket waits on; null once settled. */
   private hydration: Promise<void> | null = null;
   private hydrateRequested = false;
+  private emitTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastEmitMs = 0;
 
   constructor(
     conversationId: string,
@@ -356,6 +386,20 @@ class ConversationStore {
   }
 
   private emit(): void {
+    if (this.emitTimer) return;
+    const sinceLast = Date.now() - this.lastEmitMs;
+    if (sinceLast >= EMIT_COALESCE_MS) {
+      this.notify();
+      return;
+    }
+    this.emitTimer = setTimeout(() => {
+      this.emitTimer = null;
+      this.notify();
+    }, EMIT_COALESCE_MS - sinceLast);
+  }
+
+  private notify(): void {
+    this.lastEmitMs = Date.now();
     for (const listener of this.listeners) listener();
   }
 
@@ -398,6 +442,9 @@ class ConversationStore {
           epoch: event.ready.epoch,
           headSeq: event.ready.headSeq,
           floorSeq: event.ready.floorSeq,
+          activity: event.ready.activity === "running" ? "running" : "idle",
+          runningAgents:
+            event.ready.agents.length > 0 ? event.ready.agents : EMPTY_AGENTS,
           hasOlder: oldest > event.ready.floorSeq,
           ...(epochChanged
             ? {

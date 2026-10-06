@@ -28,6 +28,7 @@ const ready = (epoch: number, headSeq: number): ConversationSocketEvent => ({
     floorSeq: 0,
     title: "Store test",
     activity: "idle",
+    agents: [],
     authExpiresAtMs: 3_600_000,
     serverTimeMs: 0,
     live: null,

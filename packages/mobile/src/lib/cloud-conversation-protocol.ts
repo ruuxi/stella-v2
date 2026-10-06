@@ -1,4 +1,8 @@
 import { parseCloudAgentLifecycleCard, type CloudAgentLifecycleCard } from "@stella/contracts/cloud-agent-lifecycle";
+import {
+  parseAgentActivityEntry,
+  type AgentActivityEntry,
+} from "@stella/contracts/conversation-agent-activity";
 /**
  * The conversation socket's wire contract, client side.
  *
@@ -20,6 +24,18 @@ export const PROTOCOL_VERSION = 1;
 export const INITIAL_WINDOW_RECORDS = 100;
 /** Server cap on one resume; the client never asks for more in one request. */
 export const MAX_RESUME_RECORDS = 2_000;
+/**
+ * How far behind the head a cursor may be and still be worth replaying.
+ *
+ * Past this, catching up record by record is slower than simply reading the
+ * newest window — and it is also the wrong thing to show: the rows arrive
+ * oldest first, so the view would spend the whole replay displaying history the
+ * user has already read while the messages they opened the app for are still on
+ * the wire. Beyond the limit the view takes the newest window immediately and
+ * earlier history comes back through scrollback. The server applies the same
+ * limit; this copy is what protects a client talking to an older one.
+ */
+export const MAX_CATCHUP_RESUME_RECORDS = 300;
 /** Server cap on one backfill response. */
 export const BACKFILL_BATCH_RECORDS = 200;
 /** Server's socket-liveness window; the client probes rather than assumes. */
@@ -184,6 +200,13 @@ export type ReadyFrame = {
   authExpiresAtMs: number;
   serverTimeMs: number;
   live: LiveTurnSnapshot | null;
+  /**
+   * Every agent the journal still shows as working, folded server-side over the
+   * whole journal. Authoritative: it names agents whose `agent-started` row is
+   * far below anything this client holds, including ones started on another
+   * device. Empty from a server that predates the field.
+   */
+  agents: AgentActivityEntry[];
 };
 
 export type ServerFrame =
@@ -431,6 +454,7 @@ export const decodeServerFrame = (data: string): ServerFrame | null => {
         authExpiresAtMs: num(raw.authExpiresAtMs) ?? 0,
         serverTimeMs: num(raw.serverTimeMs) ?? Date.now(),
         live: decodeLive(raw.live),
+        agents: decodeAgents(raw.agents),
       };
     }
     case "record": {
@@ -497,6 +521,16 @@ export const decodeServerFrame = (data: string): ServerFrame | null => {
     default:
       return null;
   }
+};
+
+const decodeAgents = (value: unknown): AgentActivityEntry[] => {
+  if (!Array.isArray(value)) return [];
+  const agents: AgentActivityEntry[] = [];
+  for (const entry of value) {
+    const agent = parseAgentActivityEntry(entry);
+    if (agent) agents.push(agent);
+  }
+  return agents;
 };
 
 const decodeLive = (value: unknown): LiveTurnSnapshot | null => {

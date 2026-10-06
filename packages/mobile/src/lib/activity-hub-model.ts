@@ -45,6 +45,11 @@ export const settleStaleHubTasks = (
 ): MobileTask[] =>
   tasks.map((task) => {
     if (task.status !== "running") return task;
+    // The journal itself says this agent is working. Silence in the rows this
+    // device happens to hold says nothing about that, and settling it here is
+    // exactly how a phone that had been closed for a while came back claiming
+    // nothing was in progress while several agents were.
+    if (task.authoritativeRunning) return task;
     if (nowMs - lastSeenAt(task) <= RUNNING_TASK_STALE_MS) return task;
     const { statusText: _statusText, ...rest } = task;
     return { ...rest, status: "completed" as const };

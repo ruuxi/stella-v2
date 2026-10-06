@@ -375,6 +375,13 @@ export type MobileTask = {
   /** Durable owning-agent edge. An unresolved first parent is the Orchestrator. */
   parentAgentId?: string;
   status: "running" | "completed" | "error" | "canceled";
+  /**
+   * Set when the conversation's own journal named this agent as running, rather
+   * than a fold of whatever rows this device holds. Such a row is never settled
+   * by the chrome's staleness rule: quiet is not evidence when the authority has
+   * spoken.
+   */
+  authoritativeRunning?: true;
   /** Last authoritative lifecycle update time, when exposed by the source. */
   updatedAt?: number;
   /** Live narration while running ("Reading file…"). */

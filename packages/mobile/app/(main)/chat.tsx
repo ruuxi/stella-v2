@@ -58,6 +58,7 @@ import {
   publishComputerControl,
   requestOpenSidebar,
 } from "../../src/lib/main-shell-store";
+import { settleStaleHubTasks } from "../../src/lib/activity-hub-model";
 import { useColors } from "../../src/theme/theme-context";
 import { fonts } from "../../src/theme/fonts";
 import { ChatPane } from "../../src/components/ChatPane";
@@ -84,6 +85,8 @@ const STATUS_POLL_LIVE_MS = 120_000;
 const WAKE_POLL_MS = 3_000;
 const WAKE_WINDOW_MS = 30_000;
 /** How often a parked onboarding message retries its send, and for how long. */
+/** Coarse enough to be free, fine enough that a settled task clears promptly. */
+const HUB_STALE_RECHECK_MS = 30_000;
 const HANDOFF_SEND_RETRY_MS = 400;
 const HANDOFF_SEND_MAX_ATTEMPTS = 150;
 
@@ -465,20 +468,35 @@ function ChatSurface(props: {
     activityArtifactsByTaskId,
     conversationOwnedArtifacts,
   } = thread;
+  // Stale `running` rows are settled on the way in (see `settleStaleHubTasks`),
+  // so the chrome never reports work the fold only *believes* is still going.
+  // Staleness is a function of elapsed time rather than of any state change, so
+  // a task can cross the window with nothing to re-render it — hence the coarse
+  // re-publish, armed only while something still claims to be running.
+  const hasRunningConversationTask = conversationTasks.some(
+    (task) => task.status === "running",
+  );
   useEffect(() => {
-    publishActivityHub({
-      tasks: conversationTasks,
-      artifacts: conversationArtifacts,
-      artifactsByTaskId: activityArtifactsByTaskId,
-      conversationArtifacts: conversationOwnedArtifacts,
-      access,
-    });
+    const publish = () => {
+      publishActivityHub({
+        tasks: settleStaleHubTasks(conversationTasks),
+        artifacts: conversationArtifacts,
+        artifactsByTaskId: activityArtifactsByTaskId,
+        conversationArtifacts: conversationOwnedArtifacts,
+        access,
+      });
+    };
+    publish();
+    if (!hasRunningConversationTask) return undefined;
+    const timer = setInterval(publish, HUB_STALE_RECHECK_MS);
+    return () => clearInterval(timer);
   }, [
     conversationTasks,
     conversationArtifacts,
     activityArtifactsByTaskId,
     conversationOwnedArtifacts,
     access,
+    hasRunningConversationTask,
   ]);
   // Leaving the chat (sign-out, authority swap) clears what the chrome shows.
   useEffect(

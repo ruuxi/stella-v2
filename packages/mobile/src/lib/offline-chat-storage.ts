@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { ChatMessage, MobileTask } from "../types";
+import { RUNNING_TASK_STALE_MS } from "./activity-hub-model";
 import type { ToolStep } from "./tool-activity";
 import {
   desktopChatOutboxStorageKeys,
@@ -381,11 +382,11 @@ export type ChatSyncState = {
 const TASK_STATUSES = new Set(["running", "completed", "error", "canceled"]);
 
 /**
- * A persisted `running` snapshot older than this loads as settled, mirroring
- * the desktop projection's stale-settle (`AGENT_WORK_STALE_MS`) so a task
- * that finished while the app was closed can't shimmer the pill forever.
+ * A persisted `running` snapshot that has gone quiet this long loads as
+ * settled, so a task that finished while the app was closed can't shimmer the
+ * pill forever. Shared with the hub's own stale-settle so a row can't be live
+ * on one path and finished on the other.
  */
-const STORED_RUNNING_TASK_STALE_MS = 5 * 60_000;
 
 function parseStoredToolSteps(value: unknown): ToolStep[] {
   if (!Array.isArray(value)) return [];
@@ -483,7 +484,8 @@ function parseStoredTasks(value: unknown): MobileTask[] {
       typeof record.errorMessage === "string" ? record.errorMessage.trim() : "";
     const settledStale =
       status === "running" &&
-      Date.now() - createdAt > STORED_RUNNING_TASK_STALE_MS;
+      Date.now() - (updatedAt ?? completedAt ?? createdAt) >
+        RUNNING_TASK_STALE_MS;
     tasks.push({
       id,
       title,

@@ -135,7 +135,13 @@
   flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
-  overflow: hidden;
+  /* `clip`, not `hidden`: a hidden box is still a scroll container, so
+     Chromium's "reveal the focused element" scroll can slide the picker's
+     tabs and search row out of the popover when a row near the bottom is
+     clicked — and nothing can scroll them back, because the user has no
+     scrollbar here. A clipped box is not scrollable, so that reveal goes to
+     the model list, which is the scroller that should move. */
+  overflow: clip;
 }
 
 /* The picker's own root is `flex-grow: 0` (it sizes to content in the
@@ -145,6 +151,17 @@
 .models-popover__panel > * {
   flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;
+}
+
+/* The picker and its list shell carry fixed heights so every tab and engine
+   panel fills one stable height on the Settings page. In the popover the
+   popover owns the height, and those fixed heights are taller than the panel
+   that clips them — so they have to shrink to it instead of overflowing. */
+.models-popover .agent-model-picker,
+.models-popover .model-picker-shell {
+  height: 100%;
+  min-height: 0;
 }
 
 .models-popover__footer {

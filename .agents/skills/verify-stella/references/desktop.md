@@ -23,7 +23,11 @@ The CLI uses grouped subcommands with machine-readable JSON. Named product journ
 - `diagnostics` captures owned logs and bounded redacted console/network events.
 - `cleanup` previews and applies exact helper-owned teardown.
 
-Use `capabilities` rather than parsing help when an agent needs discovery. Errors are JSON and include a recovery action where possible. Potentially destructive cleanup supports `--dry-run` and also has a dedicated `cleanup plan` command.
+Use `capabilities` rather than parsing help when an agent needs discovery; it lists each command's `usage`, accepted `flags`, boolean `switches`, and whether a `positional` value is allowed. `<group> <command> --help` prints the same for one command. Unknown options and unexpected positional arguments are rejected with `USAGE` before anything runs.
+
+Every command except `help` and `<command> --help` writes exactly one JSON envelope: `{ok: true, command, data, meta: {schemaVersion, runId, elapsedMs}}` on stdout, or `{ok: false, command, error: {code, message, recovery, retryable}}` on stderr with a non-zero exit. `ok: true` means the command ran, not that the product passed: `session doctor` and `chat ready` return their verdict in `data` (`data.ok`, `data.ready`) and exit 2 when it is negative, and `chat send` exits 2 on `no-new-evidence`. `inspect eval` returns `data.value`. Argument errors carry `code: USAGE` and point to the command's `--help`. Potentially destructive cleanup supports `--dry-run` and also has a dedicated `cleanup plan` command.
+
+Numeric ranges: `chat send --timeout` 500-120000 ms (default 10000); `drive settle --quiet` 100-5000 and `--timeout` up to 13000; `drive wait --timeout` default 10000; `performance trace|profile --duration` 250-10000; `diagnostics console|network-* --duration` 100-10000. `drive scroll [--selector <CSS>] [--x <px>] [--y <px>]` scrolls the document, or the element matched by `--selector`, by that offset and reports `moved` and `scrollable`; target the actual scroll container (Settings content scrolls in `.settings-panel`, not the tabpanel).
 
 ## Desktop launch and doctor
 
@@ -43,6 +47,12 @@ Every launch is a fresh profile, so an anonymous launch signs up a new anonymous
 Launch creates an isolated run under `.agents/skills/verify-stella/.run/<runId>/`, an isolated durable Stella data directory, and a temporary Chromium user-data directory. It seeds onboarding complete, allocates an ephemeral CDP port, and launches Electron from source (`electron <repo> --dev`) with `STELLA_DEV_HARNESS=1` and an allow-listed environment; there is no Vite or other dev server, and main/preload rebuild themselves when stale. Electron output goes to the owned `electron.log`. It preserves protected-storage behavior with a run-scoped key rather than using the developer's keyring. A launch takes a few seconds; the active conversation id can appear a moment after `session doctor` first passes, so retry `chat ready` once before treating `ready: false` as a failure.
 
 The temporary Chromium profile and the runtime IPC directory (`STELLA_RUNTIME_IPC_DIR`) live under `<tmp>/stella-verify-<runId>/`. On macOS, `<tmp>` is `/tmp/sv` and Electron's `TMPDIR` is shortened to it too: the per-user `/var/folders/.../T` path pushes the runtime and CLI-bridge Unix sockets (`<ipc>/stella-<uid>/<hash>/r.sock`, `<ipc>/stella-<uid>/<hash>/<nonce>/b.sock`) and Chromium's singleton socket past the 104-byte `sun_path` limit. Other platforms use the system temp directory.
+
+### What the run shares with the host
+
+Isolated per run: the Stella data directory (`~/.stella` equivalent: conversations, preferences, ChatGPT and API-key credentials, connectors), Electron user data and Chromium profile, protected storage (a run-scoped key, not the OS keyring), the runtime IPC sockets, the browser bridge (unless `--browser-bridge shared`), and the Claude Code and Codex CLI configs (`CLAUDE_CONFIG_DIR` and `CODEX_HOME` point at `.run/<runId>/provider-homes/`, so a fresh run shows "Claude Code on this computer isn't signed in"). Electron gets only an allow-listed environment, so host API keys and tokens in the shell do not reach it.
+
+Shared with the host: the user account and its home directory (`HOME` is not overridden, so agent shell commands and file tools run against the real home, and onboarding discovery would read host browser, shell, and project history if onboarding ran), the CLIs on `PATH` (the `claude`/`codex` binaries, git and its global config), the display and `XDG_RUNTIME_DIR`, and the network. On macOS, a CLI that keys the keychain by config directory stays isolated; anything that reads a fixed keychain item does not. Some copy is hard-coded for macOS ("this Mac" in Cloud Home import and Locked computer use) and appears on Linux too; it is not leaked state. Runs before this change saw the host's default Claude Code login.
 
 The harness runs an isolated browser bridge by default, so the Browser section shows "Extension isn't connected" and the user's Chrome extension cannot reach it. `--browser-bridge shared` sets `STELLA_BROWSER_BRIDGE=shared`, which claims the per-user shared bridge (fixed extension port and native-messaging host) from any running Stella, including the user's installed app. Use it only when an extension-backed browser claim needs proof and taking over the bridge on that machine is acceptable; relaunching the installed app reclaims it.
 
@@ -116,7 +126,7 @@ node .agents/skills/verify-stella/control-stella.mjs cleanup apply --dry-run
 node .agents/skills/verify-stella/control-stella.mjs cleanup apply
 ```
 
-Cleanup targets only the recorded Electron PID (its process group), verifier pointer, and temporary Chromium profile. It preserves the isolated durable data and proof artifacts. Do not kill by process name; the developer's own Stella window shares the `stella-v2` window class.
+Cleanup targets only the recorded Electron PID (its process group), verifier pointer, and temporary Chromium profile. It preserves the isolated durable data and proof artifacts. Do not kill by process name; the developer's own Stella window shares the `stella-v2` window class. The detached Bun runtime worker (`--listen unix:///…/stella-verify-<runId>/…/r.sock`) and Chromium's crashpad handler outlive the Electron PID by up to about a minute and a half, then exit on their own once their parent and socket are gone.
 
 
 ## Observation and interaction results
@@ -132,5 +142,7 @@ Cleanup targets only the recorded Electron PID (its process group), verifier poi
 `apps open`, `nav files`, and `nav browser` open the panel if needed, then use New tab and the launcher, so each call adds a tab. A transient menu or dialog left open (account menu, model picker) hides the launcher and makes these time out; press Escape first.
 
 `chat send` uses the Home composer while the chat layer is obscured and observes new messages after the overlay closes. It reports `action: enter-dispatched`, plus `observation: new-user-message`, `new-notice`, or `no-new-evidence`. It compares message IDs and notices in the active conversation against the pre-send state. Timeout returns observations with exit code 2. A new notice is not classified as a provider error; a visible user message does not prove backend acceptance or assistant completion. `responseCompletion` is explicitly `not-assessed`.
+
+`settings open|tab|state|close` return the shell state (`settingsOpen`, `selectedTabs`, composer), not the dialog's contents; `settings search` also returns the result text. Read dialog contents with `inspect observe`, `inspect components`, or a screenshot. Settings has no Stella plan field: the plan is on the top-bar account button (`Account, Pro plan`) and under that menu's **Plan & usage** ("CURRENT PLAN"). Clicking a Settings search result switches to its tab but does not scroll to the section; scroll `.settings-panel`.
 
 `apps open` and `apps state` return bounded surface text with `classification: not-assessed`; the previous inferred `state` field is removed. `chat send` no longer returns the broad page-text `providerErrorVisible` guess. `ok` means the command ran, not that the feature passed. Text redaction is best-effort and screenshots are unredacted; review artifacts before sharing.

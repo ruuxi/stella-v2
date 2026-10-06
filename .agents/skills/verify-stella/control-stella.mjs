@@ -24,9 +24,13 @@ import { fileURLToPath } from "node:url";
 import { randomBytes, randomUUID } from "node:crypto";
 import { WebSocket } from "ws";
 import {
+  BOOLEAN_FLAGS,
   capabilities,
+  commandHelp,
   helpText,
   resolveCommand,
+  unexpectedPositionals,
+  unknownOptions,
 } from "./cli/registry.mjs";
 
 import { DOM_TOOLS_JS, compareObservations } from "./cli/dom.mjs";
@@ -80,7 +84,9 @@ const ELECTRON_SYSTEM_ENV_KEYS = [
 ];
 
 const usage = helpText();
+const PROCESS_STARTED_AT = Date.now();
 let activeCommandId = "unknown";
+let activeHelpHint = "Run `help` or `capabilities` to inspect the supported command surface.";
 
 const fail = (message, code = 1, details = {}) => {
   process.stderr.write(
@@ -88,9 +94,9 @@ const fail = (message, code = 1, details = {}) => {
       ok: false,
       command: activeCommandId,
       error: {
-        code: details.errorCode ?? "COMMAND_FAILED",
+        code: details.errorCode ?? "USAGE",
         message,
-        recovery: details.recovery ?? null,
+        recovery: details.recovery ?? (details.errorCode ? null : activeHelpHint),
         retryable: details.retryable ?? false,
         ...(details.candidates ? { candidates: details.candidates, count: details.count } : {}),
       },
@@ -103,13 +109,8 @@ const parseArgs = (argv) => {
   const options = { _: [] };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (
-      arg === "--replace" ||
-      arg === "--reuse" ||
-      arg === "--dry-run" ||
-      arg === "--help"
-    ) {
-      options[arg.slice(2).replaceAll("-", "_")] = true;
+    if (arg.startsWith("--") && BOOLEAN_FLAGS.has(arg.slice(2))) {
+      options[arg.slice(2)] = true;
       continue;
     }
     if (arg.startsWith("--")) {
@@ -565,7 +566,9 @@ const mintTestAccount = async (runId, mode) => {
   // two checkouts acting as the same owner's two computers.
   const reuseEmail = process.env.STELLA_VERIFY_ACCOUNT_EMAIL?.trim();
   if (reuseEmail && !reuseEmail.endsWith(`@${TEST_ACCOUNT_EMAIL_DOMAIN}`)) {
-    fail(`STELLA_VERIFY_ACCOUNT_EMAIL must end with @${TEST_ACCOUNT_EMAIL_DOMAIN}.`, 2);
+    fail(`STELLA_VERIFY_ACCOUNT_EMAIL must end with @${TEST_ACCOUNT_EMAIL_DOMAIN}.`, 2, {
+      errorCode: "TEST_ACCOUNT_EMAIL_INVALID", recovery: `Use an address ending in @${TEST_ACCOUNT_EMAIL_DOMAIN}, or unset STELLA_VERIFY_ACCOUNT_EMAIL.`,
+    });
   }
   const body = { email: reuseEmail || `agent-${runId}@${TEST_ACCOUNT_EMAIL_DOMAIN}` };
   if (mode === "go" || mode === "pro") {
@@ -729,6 +732,8 @@ const cmdLaunch = async (options) => {
     if (!options.replace) {
       fail(
         `A verification instance is already running (runId ${existing.runId}). Pass --replace to stop it first, or drive that instance.`,
+        1,
+        { errorCode: "ALREADY_RUNNING", recovery: "Run `cleanup plan`, then `session launch --replace`, or keep driving the recorded run." },
       );
     }
     await cmdStop({ silent: true });
@@ -770,6 +775,11 @@ const cmdLaunch = async (options) => {
   );
   mkdirSync(userDataDir, { recursive: true });
   seedDataDir(dataDir);
+  const providerHomes = {
+    CLAUDE_CONFIG_DIR: path.join(runDir, "provider-homes", "claude"),
+    CODEX_HOME: path.join(runDir, "provider-homes", "codex"),
+  };
+  for (const dir of Object.values(providerHomes)) mkdirSync(dir, { recursive: true, mode: 0o700 });
 
   const cdpPort = await allocatePort();
   const sharedEnv = {
@@ -790,6 +800,7 @@ const cmdLaunch = async (options) => {
     evidenceDir: DEFAULT_EVIDENCE_DIR,
     account,
     browserBridge: browserBridge ?? "isolated",
+    providerHomes,
   };
   writeJson(POINTER_PATH, run);
   writeJson(path.join(runDir, "run.json"), run);
@@ -832,6 +843,7 @@ const cmdLaunch = async (options) => {
         ...(runtimeBinary ? { STELLA_RUNTIME_BINARY: runtimeBinary } : {}),
         ...(modelGateway ? { STELLA_MODEL_GATEWAY_URL: modelGateway } : {}),
         ...(browserBridge ? { STELLA_BROWSER_BRIDGE: browserBridge } : {}),
+        ...providerHomes,
         // The app talks to the backend the harness signs in against.
         ...(process.env.STELLA_BACKEND_URL?.trim()
           ? { VITE_STELLA_BACKEND_URL: resolveSiteUrl() }
@@ -917,30 +929,27 @@ const cmdLaunch = async (options) => {
     throw error;
   }
 
-  process.stdout.write(`${JSON.stringify(run, null, 2)}\n`);
+  respond(run, run);
 };
 
-const cmdStop = async ({ silent = false, dry_run: dryRun = false } = {}) => {
+const cmdStop = async ({ silent = false, "dry-run": dryRun = false } = {}) => {
   const run = currentRun();
   if (!run) {
-    if (!silent) process.stdout.write("No verification instance to stop.\n");
+    if (!silent) respond({ stopped: false, reason: "No verification instance is recorded." }, null);
     return;
   }
   if (dryRun) {
-    process.stdout.write(
-      `${JSON.stringify(
-        {
-          dryRun: true,
-          runId: run.runId,
-          wouldStop: {
-            electronPid: run.electronPid,
-          },
-          wouldRemove: [run.userDataDir, POINTER_PATH],
-          wouldKeep: [run.dataDir, run.evidenceDir],
+    respond(
+      {
+        dryRun: true,
+        runId: run.runId,
+        wouldStop: {
+          electronPid: run.electronPid,
         },
-        null,
-        2,
-      )}\n`,
+        wouldRemove: [run.userDataDir, POINTER_PATH],
+        wouldKeep: [run.dataDir, run.evidenceDir],
+      },
+      run,
     );
     return;
   }
@@ -948,17 +957,14 @@ const cmdStop = async ({ silent = false, dry_run: dryRun = false } = {}) => {
   removeTemporaryUserData(run);
   rmSync(POINTER_PATH, { force: true });
   if (!silent) {
-    process.stdout.write(
-      JSON.stringify(
-        {
-          stopped: true,
-          runId: run.runId,
-          evidenceDir: run.evidenceDir,
-          dataDirKept: run.dataDir,
-        },
-        null,
-        2,
-      ) + "\n",
+    respond(
+      {
+        stopped: true,
+        runId: run.runId,
+        evidenceDir: run.evidenceDir,
+        dataDirKept: run.dataDir,
+      },
+      run,
     );
   }
 };
@@ -966,13 +972,13 @@ const cmdStop = async ({ silent = false, dry_run: dryRun = false } = {}) => {
 const cmdDoctor = async () => {
   const run = requireRun();
   const report = await doctorReport(run);
-  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
-  if (!report.ok) process.exit(2);
+  respond(report, run);
+  if (!report.ok) process.exitCode = 2;
 };
 
 const cmdInfo = () => {
   const run = requireRun();
-  process.stdout.write(`${JSON.stringify(run, null, 2)}\n`);
+  respond(run, run);
 };
 
 const FIND_ELEMENT_JS = `(${DOM_TOOLS_JS}).find`;
@@ -1074,7 +1080,7 @@ const cmdClick = async (options) => {
     selector: options.selector ?? null,
     within: options.within ?? null,
   });
-  process.stdout.write(`${JSON.stringify(hit)}\n`);
+  respond(hit, run);
 };
 
 const cmdFill = async (options) => {
@@ -1094,7 +1100,7 @@ const cmdFill = async (options) => {
     },
     options.value,
   );
-  process.stdout.write(`${JSON.stringify(value)}\n`);
+  respond(value, run);
 };
 
 const KEY_CODES = {
@@ -1159,7 +1165,7 @@ const cmdPress = async (options) => {
   const run = requireRun();
   const spec = parseKeyChord(options.key);
   await dispatchKey(run, spec);
-  process.stdout.write(`${JSON.stringify({ key: options.key })}\n`);
+  respond({ key: options.key }, run);
 };
 
 const cmdWait = async (options) => {
@@ -1173,7 +1179,7 @@ const cmdWait = async (options) => {
     role: options.role ?? null,
   };
   const result = await waitQuery(run, query, Number(options.timeout) || 10_000);
-  process.stdout.write(`${JSON.stringify(result)}\n`);
+  respond(result, run);
 };
 
 const boundedInteger = (value, fallback, { min, max, label }) => {
@@ -1247,7 +1253,7 @@ const cmdWaitSettle = async (options) => {
       })`,
     ),
   );
-  process.stdout.write(`${JSON.stringify({ ok: true, ...result })}\n`);
+  respond({ settled: true, ...result }, run);
 };
 
 const emitSuccess = (command, data, run = null, startedAt = Date.now()) => {
@@ -1264,6 +1270,9 @@ const emitSuccess = (command, data, run = null, startedAt = Date.now()) => {
     })}\n`,
   );
 };
+
+const respond = (data, run = currentRun()) =>
+  emitSuccess(activeCommandId, data, run, PROCESS_STARTED_AT);
 
 const SHELL_STATE_JS = `(() => {
   const visible = (el) => {
@@ -1342,11 +1351,15 @@ const cmdChatSend = async (options, positionals) => {
       errorCode: "APP_NOT_READY", recovery: "Inspect the app and run `session doctor`.", retryable: true,
     });
   }
-  const timeoutMs = boundedInteger(options.timeout, 10_000, { min: 500, max: 13_000, label: "--timeout" });
+  const timeoutMs = boundedInteger(options.timeout, 10_000, { min: 500, max: 120_000, label: "--timeout" });
   const observe = () => withCdp(run, (ws) => runtimeEvaluate(ws,
     `(${DOM_TOOLS_JS}).chat(${JSON.stringify(text)}, ${JSON.stringify(before.activeConversationId)})`));
   const baseline = await observe();
-  if (!baseline.surfaceFound) fail("The active chat surface could not be identified.");
+  if (!baseline.surfaceFound) {
+    fail("The active chat surface could not be identified.", 2, {
+      errorCode: "APP_NOT_READY", recovery: "Close any open dialog or menu (drive press --key Escape), then run `chat ready`.", retryable: true,
+    });
+  }
   const within = baseline.composerScope;
   await fillQuery(run, { within, selector: "textarea.composer-input" }, text);
   await dispatchKey(run, KEY_CODES.Enter);
@@ -1559,7 +1572,7 @@ const cmdEval = async (options) => {
   const run = requireRun();
   if (!options.js) fail("eval requires --js");
   const value = await withCdp(run, (ws) => runtimeEvaluate(ws, options.js));
-  process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+  respond({ value: value ?? null }, run);
 };
 
 const cmdScreenshot = async (options) => {
@@ -1571,7 +1584,7 @@ const cmdScreenshot = async (options) => {
     cdpSend(ws, 20, "Page.captureScreenshot", { format: "png" }),
   );
   writeFileSync(outPath, Buffer.from(data.data, "base64"));
-  process.stdout.write(`${JSON.stringify({ path: outPath })}\n`);
+  respond({ path: outPath }, run);
 };
 
 const SNAPSHOT_JS = `(() => {
@@ -1627,9 +1640,7 @@ const cmdSnapshot = async (options) => {
   mkdirSync(path.dirname(outPath), { recursive: true });
   const text = await withCdp(run, (ws) => runtimeEvaluate(ws, SNAPSHOT_JS));
   writeFileSync(outPath, `${text}\n`);
-  process.stdout.write(
-    `${JSON.stringify({ path: outPath, bytes: Buffer.byteLength(text) })}\n`,
-  );
+  respond({ path: outPath, bytes: Buffer.byteLength(text) }, run);
 };
 
 const cmdComponents = async () => {
@@ -1710,8 +1721,16 @@ const cmdScroll = async (options) => {
       `(() => {
         const target = ${options.selector ? `document.querySelector(${JSON.stringify(options.selector)})` : "document.scrollingElement"};
         if (!target) throw new Error("Scroll target was not found.");
+        const before = { left: target.scrollLeft, top: target.scrollTop };
         target.scrollBy({ left: ${x}, top: ${y}, behavior: "instant" });
-        return { left: target.scrollLeft, top: target.scrollTop };
+        const after = { left: target.scrollLeft, top: target.scrollTop };
+        return {
+          ...after,
+          moved: after.left !== before.left || after.top !== before.top,
+          scrollable: target.scrollHeight > target.clientHeight || target.scrollWidth > target.clientWidth,
+          scrollHeight: target.scrollHeight,
+          clientHeight: target.clientHeight,
+        };
       })()`,
     ),
   );
@@ -1727,7 +1746,7 @@ const cmdPerfMetrics = async () => {
       (result.metrics ?? []).map(({ name, value }) => [name, value]),
     );
   });
-  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  respond(report, run);
 };
 
 const cmdTrace = async (options) => {
@@ -1791,9 +1810,7 @@ const cmdTrace = async (options) => {
       capturedAt: new Date().toISOString(),
     },
   });
-  process.stdout.write(
-    `${JSON.stringify({ path: outPath, events: traceEvents.length, durationMs })}\n`,
-  );
+  respond({ path: outPath, events: traceEvents.length, durationMs }, run);
 };
 
 const cmdProfile = async (options) => {
@@ -2011,16 +2028,13 @@ const cmdLogs = (options) => {
       .map(redactText);
   };
   const electronPath = path.join(run.runDir, "electron.log");
-  process.stdout.write(
-    `${JSON.stringify(
-      {
-        runId: run.runId,
-        tail,
-        electron: { path: electronPath, lines: readTail(electronPath) },
-      },
-      null,
-      2,
-    )}\n`,
+  respond(
+    {
+      runId: run.runId,
+      tail,
+      electron: { path: electronPath, lines: readTail(electronPath) },
+    },
+    run,
   );
 };
 
@@ -2042,7 +2056,7 @@ const cmdCleanupPlan = () => {
 };
 
 const options = parseArgs(process.argv.slice(2));
-const resolved = options.help
+const resolved = options._.length === 0 && options.help
   ? resolveCommand(["help"])
   : resolveCommand(options._);
 if (!resolved) {
@@ -2054,6 +2068,20 @@ if (!resolved) {
 const command = resolved.entry.handler;
 const positionals = resolved.positionals;
 activeCommandId = resolved.entry.id;
+if (resolved.entry.group !== "meta") {
+  activeHelpHint = `Run \`node .agents/skills/verify-stella/control-stella.mjs ${resolved.entry.group} ${resolved.entry.name} --help\` for its options.`;
+  if (options.help) {
+    process.stdout.write(commandHelp(resolved.entry));
+    process.exit(0);
+  }
+  const unknown = unknownOptions(resolved.entry, options);
+  if (unknown.length) {
+    const accepted = [...resolved.entry.flags, ...resolved.entry.switches].map((flag) => `--${flag}`);
+    fail(`Unknown option${unknown.length > 1 ? "s" : ""} ${unknown.map((key) => `--${key}`).join(", ")}. Accepted: ${accepted.join(", ") || "none"}.`);
+  }
+  const extra = unexpectedPositionals(resolved.entry, positionals);
+  if (extra.length) fail(`Unexpected argument${extra.length > 1 ? "s" : ""}: ${extra.join(" ")}.`);
+}
 try {
   switch (command) {
     case "help":

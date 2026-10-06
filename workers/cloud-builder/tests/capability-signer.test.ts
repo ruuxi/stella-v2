@@ -114,19 +114,20 @@ describe("turn capability signer", () => {
   });
 
   test("selects the native credential lane from a connected engine", async () => {
-    const anthropic = await mintTurnCapability(
-      env,
-      input({
-        execution: {
-          engine: "anthropic",
-          provider: "anthropic",
-          model: "claude-opus-4-6",
-          reasoningEffort: "high",
-        },
-        agentTypes: ["general"],
-      }),
-    );
-    expect(anthropic.claims.credential).toBe("anthropic");
+    await expect(
+      mintTurnCapability(
+        env,
+        input({
+          execution: {
+            engine: "anthropic",
+            provider: "anthropic",
+            model: "claude-opus-4-6",
+            reasoningEffort: "high",
+          } as never,
+          agentTypes: ["general"],
+        }),
+      ),
+    ).rejects.toThrow("never carry a gateway capability");
     const codex = await mintTurnCapability(
       env,
       input({
@@ -145,7 +146,7 @@ describe("turn capability signer", () => {
     });
     expect(verified.ok).toBe(true);
     await expect(
-      mintTurnCapability(env, input({ credential: "anthropic" })),
+      mintTurnCapability(env, input({ credential: "chatgpt" })),
     ).rejects.toThrow("credential must match");
   });
 

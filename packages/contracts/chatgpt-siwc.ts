@@ -14,7 +14,7 @@
  * api.openai.com live in `chatgpt-siwc-flows.ts`.
  */
 
-import { formEncode } from "./engine-oauth.js";
+import { formEncode } from "./oauth-pkce.js";
 
 export const CHATGPT_SIWC = {
   issuer: "https://auth.openai.com",
@@ -132,7 +132,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   subscription_sharing_user_not_eligible:
     "ChatGPT plan usage isn't available for this ChatGPT account or workspace.",
   [CHATGPT_USAGE_LIMIT_CODE]:
-    "You've reached a ChatGPT usage limit for Stella. Review your plan or Stella's limit in ChatGPT Settings › Usage.",
+    "ChatGPT usage limit reached. ChatGPT doesn't say when it resets; see your plan or Stella's limit in ChatGPT Settings › Usage.",
   [CHATGPT_USAGE_UNAVAILABLE_CODE]: "ChatGPT couldn't check your usage right now. Try again shortly.",
   subscription_sharing_unsupported_capability:
     "This request uses something ChatGPT plan usage doesn't support.",

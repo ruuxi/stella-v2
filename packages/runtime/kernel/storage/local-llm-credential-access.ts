@@ -17,15 +17,21 @@ export type LocalLlmCredentialAccessBroker = {
     provider: string,
     options?: LocalLlmOAuthApiKeyAccessOptions,
   ): Promise<string | null>;
-  /**
-   * The subscription account behind `provider` hit its usage limit. Claude
-   * and ChatGPT accounts live in the owner's Stella account, so on desktop
-   * the host reports it there (`engines.reportLimit`).
-   */
-  reportSubscriptionLimit?(
-    provider: string,
-    resetsAt?: number,
-  ): Promise<{ switched: boolean }>;
+  /** Which Claude Code config the next local Claude turn runs on (desktop host). */
+  getClaudeCodeConfig?(): Promise<ClaudeCodeConfigAccess>;
+};
+
+/**
+ * The Claude Code config a local turn runs on. Stella never holds a Claude
+ * credential: the CLI runs on its own login, in its default config
+ * (`configDir: null`) or in a Stella-managed `CLAUDE_CONFIG_DIR`.
+ * `signedIn: false` means the owner's active Claude account (`email`, when
+ * one is chosen) has no Claude Code login on this computer.
+ */
+export type ClaudeCodeConfigAccess = {
+  configDir: string | null;
+  email?: string;
+  signedIn: boolean;
 };
 
 let broker: LocalLlmCredentialAccessBroker | null = null;
@@ -81,23 +87,16 @@ export const getAccessibleLocalLlmApiKey = async (
 };
 
 /**
- * Tell the account store the subscription behind `provider` hit its limit.
- * Resolves whether another account now serves it, in which case the caller
- * may retry with a freshly fetched key. Without a host there is only one
- * account, so nothing switches.
+ * The Claude Code config for the next local Claude turn. Without a host
+ * (headless, tests, the cloud) the CLI runs on its own default login.
  */
-export const reportLocalLlmSubscriptionLimit = async (
-  provider: string,
-  resetsAt?: number,
-): Promise<{ switched: boolean }> => {
+export const getClaudeCodeConfig = async (): Promise<ClaudeCodeConfigAccess> => {
+  const fallback: ClaudeCodeConfigAccess = { configDir: null, signedIn: true };
+  if (!broker?.getClaudeCodeConfig) return fallback;
   try {
-    return (
-      (await broker?.reportSubscriptionLimit?.(normalizeProvider(provider), resetsAt)) ?? {
-        switched: false,
-      }
-    );
+    return await broker.getClaudeCodeConfig();
   } catch {
-    return { switched: false };
+    return fallback;
   }
 };
 

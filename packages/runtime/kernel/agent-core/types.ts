@@ -215,14 +215,6 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	refreshApiKey?: () => Promise<string | undefined> | string | undefined;
 
 	/**
-	 * The subscription behind the key hit its usage limit. Returns another
-	 * account's key to retry with, or undefined. Must not throw.
-	 */
-	onSubscriptionLimit?: (info: {
-		resetsAt?: number;
-	}) => Promise<string | undefined> | string | undefined;
-
-	/**
 	 * Returns steering messages to inject into the conversation mid-run.
 	 *
 	 * Called after the current model response and issued tool work finish.

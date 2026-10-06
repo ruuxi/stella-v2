@@ -10,15 +10,16 @@
  *
  * This module handles login, token refresh, and credential storage
  * for OAuth-based providers:
- * - Anthropic (Claude Pro/Max)
  * - GitHub Copilot
+ * - xAI
+ *
+ * Claude subscriptions are not here: Stella never holds Claude credentials;
+ * Claude Code runs on its own `claude auth login`.
  */
 
 // Set up HTTP proxy for fetch() calls (respects HTTP_PROXY, HTTPS_PROXY env vars)
 import "../http-proxy.js";
 
-// Anthropic
-export { anthropicOAuthProvider, loginAnthropic, refreshAnthropicToken } from "./anthropic.js";
 // GitHub Copilot
 export {
 	getGitHubCopilotBaseUrl,
@@ -36,13 +37,11 @@ export * from "./types.js";
 // Provider Registry
 // ============================================================================
 
-import { anthropicOAuthProvider } from "./anthropic.js";
 import { githubCopilotOAuthProvider } from "./github-copilot.js";
 import { xaiOAuthProvider } from "./xai.js";
 import type { OAuthCredentials, OAuthProviderId, OAuthProviderInterface } from "./types.js";
 
 const BUILT_IN_OAUTH_PROVIDERS: OAuthProviderInterface[] = [
-	anthropicOAuthProvider,
 	githubCopilotOAuthProvider,
 	xaiOAuthProvider,
 ];

@@ -149,30 +149,28 @@ describe("native engine reasoning selection", () => {
     ]);
   });
 
-  it("does not pass executor token variable names into Claude", () => {
+  it("runs Claude on its own login and passes no token or endpoint", () => {
     const env = buildClaudeChildEnv({
       initialEnv: {
         STELLA_TURN_TOKEN: "executor-token",
         STELLA_CODEX_TURN_TOKEN: "codex-token",
+        CLAUDE_CODE_OAUTH_TOKEN: "stray",
+        ANTHROPIC_BASE_URL: "https://elsewhere.example.test",
         KEEP_ME: "safe",
       },
-      gatewayOrigin: "https://gateway.example.test",
-      stateRoot: "/workspace/drive/.stella/claude",
-      capability: "turn-capability-jwt",
+      stateRoot: "/home/stella-native-state/anthropic-x",
+      accountDirectory: "/home/stella-host-state/claude-accounts/k",
       reasoningEffort: "none",
-      agentType: "general",
     });
     expect(env.STELLA_TURN_TOKEN).toBeUndefined();
     expect(env.STELLA_CODEX_TURN_TOKEN).toBeUndefined();
     expect(env.KEEP_ME).toBe("safe");
-    expect(env.ANTHROPIC_BASE_URL).toBe(
-      "https://gateway.example.test/v1/relay",
+    expect(env.ANTHROPIC_BASE_URL).toBeUndefined();
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+    expect(env.CLAUDE_CONFIG_DIR).toBe("/home/stella-native-state/anthropic-x");
+    expect(env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBe(
+      "/home/stella-host-state/claude-accounts/k",
     );
-    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe("turn-capability-jwt");
-    expect(env.ANTHROPIC_CUSTOM_HEADERS).toBe(
-      "x-stella-agent-type: general\nx-stella-llm-credential: anthropic",
-    );
-    expect(env.ANTHROPIC_CUSTOM_HEADERS).not.toContain("turn-token");
     expect(env.CLAUDE_CODE_EFFORT_LEVEL).toBe("unset");
   });
 
@@ -273,8 +271,7 @@ describe("native engine reasoning selection", () => {
           model: "claude-sonnet-4-6",
           reasoningEffort: "high",
         },
-        gatewayOrigin: "https://gateway.example.test",
-        capability: "turn-capability-jwt",
+        claudeAccount: { key: "c".repeat(64), email: "a@example.test" },
         threadId: "thread",
         turnId: "turn",
         authoritativeHistoryCursor: nativeHistoryCursorFromRows([]),

@@ -317,10 +317,6 @@ export const createRuntimeAgent = (args: {
     // versa). The inner `?.()` returns `undefined` when the route lacks
     // one, which the agent loop already handles.
     refreshApiKey: () => resolveLlm().refreshApiKey?.(),
-    // A local subscription at its usage limit hands over to the next
-    // signed-in account when auto-switch is on; see model-routing.
-    onSubscriptionLimit: (info: { resetsAt?: number }) =>
-      resolveLlm().onSubscriptionLimit?.(info),
     // Resolve the model on every provider round so a mid-session model swap
     // immediately updates both its context budget and legacy code-history
     // normalization at the provider edge.

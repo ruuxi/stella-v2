@@ -21,8 +21,16 @@ export const cloudEnginesApi = {
     }),
   setActiveAccount: (provider: EngineProvider, accountId: string) =>
     backendClient.call("engines.setActiveAccount", { provider, accountId }),
-  setAutoSwitch: (provider: EngineProvider, enabled: boolean) =>
-    backendClient.call("engines.setAutoSwitch", { provider, enabled }),
+  /** Start Claude Code's own sign-in in the owner's cloud container. */
+  startClaudeCloudLogin: (email?: string) =>
+    backendClient.call("engines.startClaudeCloudLogin", email ? { email } : {}),
+  /** Hand the code Anthropic showed to the cloud's waiting `claude auth login`. */
+  finishClaudeCloudLogin: (loginId: string, code: string) =>
+    backendClient.call("engines.finishClaudeCloudLogin", { loginId, code }),
+  cancelClaudeCloudLogin: (loginId: string) =>
+    backendClient.call("engines.cancelClaudeCloudLogin", { loginId }),
+  signOutClaudeCloud: (accountId: string) =>
+    backendClient.call("engines.signOutClaudeCloud", { accountId }),
   setExecution: (execution: CloudExecutionSelection) =>
     backendClient.call("engines.setExecution", { execution }),
 };

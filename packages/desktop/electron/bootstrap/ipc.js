@@ -256,6 +256,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         loadDeviceSigner: () => loadStellaDeviceSigner(context),
         authService: services.authService,
         engineAccountAccess: services.engineAccountAccess,
+        claudeLocalAccounts: services.claudeLocalAccounts,
         getStellaHostRunner: lifecycle.getRunner,
         onStellaHostRunnerChanged: lifecycle.onRunnerChanged,
         getStellaAppDir: lifecycle.getStellaDataDir,

@@ -87,6 +87,10 @@
     "R2_MEDIA_BUCKET": "stella-v2-media-dev",
     // The CANVAS_SHARES binding's bucket, by name.
     "R2_CANVAS_SHARES_BUCKET": "stella-canvas-shares",
+    // The BACKUP_BUCKET binding's bucket, by name: the owner's container
+    // uploads and restores its own opaque Claude Code login backup there with
+    // presigned URLs, so the Worker never carries those bytes.
+    "R2_BACKUP_BUCKET": "stella-v2-app-builds-dev",
     // Public origin of workers/canvas-share; share URLs are `<this>/c/<slug>`.
     "CANVAS_SHARE_BASE_URL": "https://stellashare.app",
   },
@@ -504,6 +508,7 @@
         "R2_DRIVE_BUCKET": "stella-v2-drive-prod",
         "R2_MEDIA_BUCKET": "stella-v2-media-prod",
         "R2_CANVAS_SHARES_BUCKET": "stella-canvas-shares",
+        "R2_BACKUP_BUCKET": "stella-v2-app-builds-prod",
         "CANVAS_SHARE_BASE_URL": "https://stellashare.app",
       },
       "secrets": {

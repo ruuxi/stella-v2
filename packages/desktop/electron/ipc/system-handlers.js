@@ -18,10 +18,10 @@ import { deletePromptPreset, isCustomizablePromptAgentId, listPromptPresets, rea
 import { getPromptPresetSelection, setPromptPresetSelection, } from "@stella/runtime/kernel/preferences/local-preferences";
 import { getModels } from "@stella/runtime/ai/models";
 import { deleteLocalLlmCredential, getLocalLlmCredential, listLocalLlmCredentials, saveLocalLlmCredential, } from "@stella/runtime/kernel/storage/llm-credentials";
-import { CLOUD_ENGINE_OAUTH_PROVIDERS, cleanupRetiredLocalLlmOAuthCredentials, deleteLocalLlmOAuthCredential, getLocalLlmOAuthApiKey, listLocalLlmOAuthCredentials, saveLocalLlmOAuthCredential, } from "@stella/runtime/kernel/storage/llm-oauth-credentials";
+import { cleanupRetiredLocalLlmOAuthCredentials, deleteLocalLlmOAuthCredential, getLocalLlmOAuthApiKey, listLocalLlmOAuthCredentials, saveLocalLlmOAuthCredential, } from "@stella/runtime/kernel/storage/llm-oauth-credentials";
 import { getOAuthProvider, getOAuthProviders, } from "@stella/runtime/ai/utils/oauth";
 import { loginChatGpt } from "@stella/runtime/ai/utils/oauth/chatgpt";
-import { beginChatGptRegistration, getChatGptAccessToken, getChatGptHostId, hasUsableChatGptProfile, listChatGptProfiles, removeChatGptProfile, saveChatGptRegistration, savedChatGptRegistration, setActiveChatGptProfile, setChatGptAutoSwitch, signOutChatGptProfile, } from "@stella/runtime/kernel/storage/chatgpt-profiles";
+import { beginChatGptRegistration, chatGptProfileIdForClient, getChatGptAccessToken, getChatGptHostId, hasUsableChatGptProfile, listChatGptProfiles, removeChatGptProfile, saveChatGptRegistration, savedChatGptRegistration, setActiveChatGptProfile, signOutChatGptProfile, } from "@stella/runtime/kernel/storage/chatgpt-profiles";
 import { isRuntimeUnavailableError } from "@stella/contracts/protocol/rpc-peer";
 import { isCloudWorkspacePath } from "@stella/contracts/cloud-world-paths";
 import { IPC_APP_QUIT_FOR_RESTART, IPC_AUTH_APPLY_SESSION_TOKEN, IPC_AUTH_DELETE_USER, IPC_AUTH_GET_SESSION, IPC_AUTH_GET_TOKEN, IPC_AUTH_REVOKE_SESSIONS, IPC_AUTH_SIGN_IN_ANONYMOUS, IPC_AUTH_SIGN_OUT, IPC_DIAGNOSTICS_EXPORT_LOGS, IPC_DIAGNOSTICS_RECORD_HEAP_TRACE, IPC_DIAGNOSTICS_REPORT_ERROR, IPC_DIAGNOSTICS_REPORT_TIMING, IPC_DIAGNOSTICS_OPEN_LOGS, IPC_GLOBAL_SHORTCUTS_GET_SUSPENDED, IPC_GLOBAL_SHORTCUTS_SET_SUSPENDED, IPC_SYSTEM_OPEN_FDA, IPC_PERMISSIONS_GET_STATUS, IPC_PERMISSIONS_OPEN_SETTINGS, IPC_PERMISSIONS_REQUEST, IPC_PERMISSIONS_RESET, IPC_PERMISSIONS_RESET_MICROPHONE, IPC_SHELL_SAVE_FILE_AS, IPC_CUSTOMIZATIONS_RESET, IPC_PROMPT_PRESETS_LIST, IPC_PROMPT_PRESETS_READ, IPC_PROMPT_PRESETS_SAVE, IPC_PROMPT_PRESETS_DELETE, IPC_PROMPT_PRESETS_SELECT, IPC_PREFERENCES_GET_MODELS, IPC_CHATGPT_LIST_MODELS, IPC_PREFERENCES_LIST_CLAUDE_CODE_MODELS, IPC_PREFERENCES_LIST_MODELS, IPC_PREFERENCES_GET_ONBOARDING_COMPLETED, IPC_PREFERENCES_GET_PREVENT_SLEEP, IPC_PREFERENCES_GET_LOCKED_COMPUTER_USE, IPC_PREFERENCES_GET_SOUND_NOTIFICATIONS, IPC_PREFERENCES_SET_MODELS, IPC_PREFERENCES_SET_ONBOARDING_COMPLETED, IPC_PREFERENCES_SET_PREVENT_SLEEP, IPC_PREFERENCES_SET_LOCKED_COMPUTER_USE, IPC_PREFERENCES_SET_SOUND_NOTIFICATIONS, IPC_PREFERENCES_GET_READ_ALOUD, IPC_PREFERENCES_READ_ALOUD_CHANGED, IPC_PREFERENCES_SET_READ_ALOUD, IPC_VOICE_PREFERENCES_CHANGED, } from "@stella/contracts/desktop/ipc-channels";
@@ -1238,10 +1238,9 @@ export const registerSystemHandlers = (options) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, "llmCredentials:listOAuthProviders")) {
             throw new Error("Blocked untrusted OAuth provider request.");
         }
-        // Claude and ChatGPT accounts are added to the Stella account
-        // (Settings › Account), never signed in on this computer.
+        // Claude (Claude Code's own login) and ChatGPT (Sign in with
+        // ChatGPT) are not providers of this store.
         return getOAuthProviders()
-            .filter((provider) => !CLOUD_ENGINE_OAUTH_PROVIDERS.has(provider.id))
             .map((provider) => ({
             provider: provider.id,
             label: provider.name,
@@ -1269,7 +1268,7 @@ export const registerSystemHandlers = (options) => {
         }
         const providerId = asTrimmedString(payload?.provider).toLowerCase();
         const provider = getOAuthProvider(providerId);
-        if (!provider || CLOUD_ENGINE_OAUTH_PROVIDERS.has(providerId)) {
+        if (!provider) {
             throw new Error("Unsupported OAuth provider.");
         }
         const loginKey = `${event.sender.id}:${providerId}`;
@@ -1335,28 +1334,42 @@ export const registerSystemHandlers = (options) => {
             }
         }
     });
-    // Claude sign-in for the owner's Stella account. The OAuth exchange and
-    // profile lookup run here in main, from this computer, never on Stella's
-    // server; only the resulting tokens are uploaded (engines.addAccount).
-    ipcMain.handle("engineAccounts:connectClaude", async (event) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "engineAccounts:connectClaude")) {
-            throw new Error("Blocked untrusted Claude sign-in request.");
+    // Claude Code logins on this computer. Main runs the real `claude` CLI
+    // (`claude auth login` / `auth status` / `auth logout`) with the chosen
+    // config dir; Stella never sees a Claude credential.
+    const claudeAccounts = options.claudeLocalAccounts;
+    const guardClaude = (event, channel) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, channel)) {
+            throw new Error(`Blocked untrusted ${channel} request.`);
         }
-        const engineAccounts = options.engineAccountAccess;
-        const cancelOnSenderDestroyed = () => engineAccounts.cancelClaudeConnect();
-        event.sender.once("destroyed", cancelOnSenderDestroyed);
-        try {
-            return await engineAccounts.connectClaude((url) => void shell.openExternal(url));
-        }
-        finally {
-            event.sender.removeListener("destroyed", cancelOnSenderDestroyed);
-        }
+    };
+    ipcMain.handle("claudeAccounts:list", async (event) => {
+        guardClaude(event, "claudeAccounts:list");
+        return await claudeAccounts.list();
     });
-    ipcMain.handle("engineAccounts:cancelConnectClaude", (event) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "engineAccounts:cancelConnectClaude")) {
-            throw new Error("Blocked untrusted Claude sign-in cancel.");
-        }
-        return { canceled: options.engineAccountAccess.cancelClaudeConnect() };
+    ipcMain.handle("claudeAccounts:startLogin", async (event, payload) => {
+        guardClaude(event, "claudeAccounts:startLogin");
+        const configId = asTrimmedString(payload?.configId);
+        const email = asTrimmedString(payload?.email);
+        const started = await claudeAccounts.startLogin({
+            ...(configId ? { configId } : {}),
+            ...(email ? { email } : {}),
+        });
+        // A window that goes away takes its waiting sign-in with it.
+        event.sender.once("destroyed", () => claudeAccounts.cancelLogin(started.loginId));
+        return started;
+    });
+    ipcMain.handle("claudeAccounts:finishLogin", async (event, payload) => {
+        guardClaude(event, "claudeAccounts:finishLogin");
+        return await claudeAccounts.finishLogin(asTrimmedString(payload?.loginId), typeof payload?.code === "string" ? payload.code : "");
+    });
+    ipcMain.handle("claudeAccounts:cancelLogin", (event, payload) => {
+        guardClaude(event, "claudeAccounts:cancelLogin");
+        return claudeAccounts.cancelLogin(asTrimmedString(payload?.loginId));
+    });
+    ipcMain.handle("claudeAccounts:signOut", async (event, payload) => {
+        guardClaude(event, "claudeAccounts:signOut");
+        return await claudeAccounts.signOut(asTrimmedString(payload?.configId));
     });
     // ChatGPT on this computer (Sign in with ChatGPT): this install is its
     // own agent host. Sign-in runs the loopback flow here in main; the
@@ -1385,12 +1398,21 @@ export const registerSystemHandlers = (options) => {
     ipcMain.handle("chatgpt:listProfiles", (event) => {
         guardChatGpt(event, "chatgpt:listProfiles");
         const dir = options.getStellaAppDir();
-        return dir ? listChatGptProfiles(dir) : { autoSwitch: false, profiles: [] };
+        return dir ? listChatGptProfiles(dir) : { profiles: [] };
     });
     ipcMain.handle("chatgpt:signIn", async (event, payload) => {
         guardChatGpt(event, "chatgpt:signIn");
         const dir = chatGptAppDir();
-        const profileId = asTrimmedString(payload?.profileId);
+        const sharedClientId = asTrimmedString(payload?.sharedClientId);
+        // Reusing a registration another host of the owner made: sign in
+        // with its issued client id under this install's own host id. When
+        // this computer already has that registration, sign it in again in
+        // place.
+        const profileId = asTrimmedString(payload?.profileId) ||
+            (sharedClientId ? chatGptProfileIdForClient(dir, sharedClientId) ?? "" : "");
+        const shared = !profileId && sharedClientId
+            ? { clientId: sharedClientId, email: options.engineAccountAccess.chatGptRegistration(sharedClientId)?.email }
+            : null;
         activeChatGptSignIn?.abort();
         const controller = new AbortController();
         activeChatGptSignIn = controller;
@@ -1399,7 +1421,11 @@ export const registerSystemHandlers = (options) => {
         try {
             const registration = await loginChatGpt({
                 hostId: getChatGptHostId(dir),
-                ...(profileId ? { saved: savedChatGptRegistration(dir, profileId) } : {}),
+                ...(profileId
+                    ? { saved: savedChatGptRegistration(dir, profileId) }
+                    : shared
+                        ? { saved: { clientId: shared.clientId, ...(shared.email ? { email: shared.email } : {}) } }
+                        : {}),
                 reconsent: payload?.enablePlanUsage === true,
                 openUrl: (url) => void shell.openExternal(url),
                 onRegistration: (clientId) => {
@@ -1410,6 +1436,13 @@ export const registerSystemHandlers = (options) => {
             });
             const saved = saveChatGptRegistration(dir, registration);
             chatGptProfilesChanged();
+            // Let the owner's other hosts reuse this registration (its
+            // issued client id only, never tokens). Best effort.
+            void options.engineAccountAccess.shareChatGptRegistration({
+                clientId: registration.clientId,
+                ...(registration.email ? { email: registration.email } : {}),
+                ...(registration.name ? { name: registration.name } : {}),
+            });
             return saved;
         }
         finally {
@@ -1428,12 +1461,6 @@ export const registerSystemHandlers = (options) => {
     ipcMain.handle("chatgpt:setActive", (event, payload) => {
         guardChatGpt(event, "chatgpt:setActive");
         setActiveChatGptProfile(chatGptAppDir(), asTrimmedString(payload?.profileId));
-        chatGptProfilesChanged();
-        return { ok: true };
-    });
-    ipcMain.handle("chatgpt:setAutoSwitch", (event, payload) => {
-        guardChatGpt(event, "chatgpt:setAutoSwitch");
-        setChatGptAutoSwitch(chatGptAppDir(), payload?.enabled === true);
         chatGptProfilesChanged();
         return { ok: true };
     });
@@ -1459,8 +1486,10 @@ export const registerSystemHandlers = (options) => {
         event.sender.once("destroyed", cancelOnSenderDestroyed);
         try {
             const accountId = asTrimmedString(payload?.accountId);
+            const clientId = asTrimmedString(payload?.clientId);
             return await engineAccounts.connectChatGptCloud((url) => void shell.openExternal(url), {
                 ...(accountId ? { accountId } : {}),
+                ...(clientId ? { clientId } : {}),
                 ...(payload?.enablePlanUsage === true ? { enablePlanUsage: true } : {}),
             });
         }

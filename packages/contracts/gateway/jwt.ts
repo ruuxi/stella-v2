@@ -200,18 +200,7 @@ export const validateCapabilityClaims = (
   if (value.maxRequests !== undefined && !isFiniteNumber(value.maxRequests)) {
     return false;
   }
-  if (
-    value.credential !== undefined &&
-    value.credential !== "anthropic" &&
-    value.credential !== "chatgpt"
-  ) {
-    return false;
-  }
-  if (
-    value.nativeClient !== undefined &&
-    (value.nativeClient !== "claude-code-cli" ||
-      value.credential !== "anthropic")
-  ) {
+  if (value.credential !== undefined && value.credential !== "chatgpt") {
     return false;
   }
   if (value.ledgerScope !== undefined && value.ledgerScope !== "owner-relay-v2") {

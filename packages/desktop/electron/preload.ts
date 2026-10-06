@@ -15,6 +15,11 @@ import type {
   ChatGptProfileSummary,
   ChatGptProfilesState,
 } from "@stella/contracts/chatgpt-siwc-types";
+import type {
+  ClaudeLocalAccountsState,
+  ClaudeLocalConfig,
+  ClaudeLocalLoginStart,
+} from "@stella/contracts/claude-local-accounts";
 import type { RealtimeVoicePreferences } from "@stella/contracts/local-preferences";
 import type {
   CompanionActivity,
@@ -1480,17 +1485,33 @@ contextBridge.exposeInMainWorld("electronAPI", {
         status: "active";
         updatedAt: number;
       }>,
-    connectClaudeAccount: () =>
-      ipcRenderer.invoke("engineAccounts:connectClaude") as Promise<{
-        accountId: string;
-      }>,
-    cancelClaudeAccountConnect: () =>
-      ipcRenderer.invoke("engineAccounts:cancelConnectClaude") as Promise<{
+    listClaudeLocalAccounts: () =>
+      ipcRenderer.invoke("claudeAccounts:list") as Promise<ClaudeLocalAccountsState>,
+    startClaudeLocalLogin: (options?: { configId?: string; email?: string }) =>
+      ipcRenderer.invoke("claudeAccounts:startLogin", {
+        configId: options?.configId,
+        email: options?.email,
+      }) as Promise<ClaudeLocalLoginStart>,
+    finishClaudeLocalLogin: (loginId: string, code: string) =>
+      ipcRenderer.invoke("claudeAccounts:finishLogin", {
+        loginId,
+        code,
+      }) as Promise<ClaudeLocalConfig>,
+    cancelClaudeLocalLogin: (loginId: string) =>
+      ipcRenderer.invoke("claudeAccounts:cancelLogin", { loginId }) as Promise<{
         canceled: boolean;
       }>,
-    connectChatGptCloud: (options?: { accountId?: string; enablePlanUsage?: boolean }) =>
+    signOutClaudeLocalConfig: (configId: string) =>
+      ipcRenderer.invoke("claudeAccounts:signOut", { configId }) as Promise<{ ok: true }>,
+    onClaudeLocalAccountsChanged: onIpcSignal("claudeAccounts:changed"),
+    connectChatGptCloud: (options?: {
+      accountId?: string;
+      clientId?: string;
+      enablePlanUsage?: boolean;
+    }) =>
       ipcRenderer.invoke("engineAccounts:connectChatGptCloud", {
         accountId: options?.accountId,
+        clientId: options?.clientId,
         enablePlanUsage: options?.enablePlanUsage,
       }) as Promise<{ accountId: string; planUsage: boolean }>,
     cancelChatGptCloudConnect: () =>
@@ -1499,17 +1520,20 @@ contextBridge.exposeInMainWorld("electronAPI", {
       }>,
     listChatGptProfiles: () =>
       ipcRenderer.invoke("chatgpt:listProfiles") as Promise<ChatGptProfilesState>,
-    signInChatGpt: (options?: { profileId?: string; enablePlanUsage?: boolean }) =>
+    signInChatGpt: (options?: {
+      profileId?: string;
+      sharedClientId?: string;
+      enablePlanUsage?: boolean;
+    }) =>
       ipcRenderer.invoke("chatgpt:signIn", {
         profileId: options?.profileId,
+        sharedClientId: options?.sharedClientId,
         enablePlanUsage: options?.enablePlanUsage,
       }) as Promise<ChatGptProfileSummary>,
     cancelChatGptSignIn: () =>
       ipcRenderer.invoke("chatgpt:cancelSignIn") as Promise<{ canceled: boolean }>,
     setActiveChatGptProfile: (profileId: string) =>
       ipcRenderer.invoke("chatgpt:setActive", { profileId }) as Promise<{ ok: true }>,
-    setChatGptAutoSwitch: (enabled: boolean) =>
-      ipcRenderer.invoke("chatgpt:setAutoSwitch", { enabled }) as Promise<{ ok: true }>,
     signOutChatGptProfile: (profileId: string) =>
       ipcRenderer.invoke("chatgpt:signOut", { profileId }) as Promise<{ revoked: boolean }>,
     removeChatGptProfile: (profileId: string) =>

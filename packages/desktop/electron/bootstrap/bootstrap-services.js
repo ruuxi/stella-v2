@@ -1,4 +1,5 @@
 import path from "path";
+import { app, shell } from "electron";
 import { AuthService } from "../services/auth-service.js";
 import { CaptureService } from "../services/capture-service.js";
 import { MouseHookManager } from "../input/mouse-hook.js";
@@ -7,6 +8,7 @@ import { ConnectorCredentialService } from "../services/connector-credential-ser
 import { ConnectorOAuthService } from "../services/connector-oauth-service.js";
 import { ConnectorConnectService } from "../services/connector-connect-service.js";
 import { EngineAccountAccess } from "../services/engine-account-access.js";
+import { ClaudeLocalAccounts } from "../services/claude-local-accounts.js";
 import { ExternalLinkService } from "../services/external-link-service.js";
 import { readConfiguredCanvasShareBaseUrl, resolveSharedCanvasPayload, } from "../services/canvas-share-service.js";
 import { isCanvasShareUrl } from "@stella/contracts/canvas-share";
@@ -102,8 +104,23 @@ export const createBootstrapServices = (options) => {
     const engineAccountAccess = new EngineAccountAccess({
         getBackendUrl: () => authService.getBackendUrl(),
         getAuthToken: () => authService.getAuthToken(),
-        onProvidersChanged: () => lifecycle.getRunner()?.refreshLocalLlmCredentials?.(),
     });
+    // Claude Code logins on this computer (the CLI's own; Stella holds no
+    // Claude credential). Re-read when a window gets focus, never polled.
+    const claudeLocalAccounts = new ClaudeLocalAccounts({
+        stellaDataDir: config.stellaDataDirPath,
+        engineAccounts: engineAccountAccess,
+        loadDeviceId: async () => (await options.loadDeviceId?.()) ?? null,
+        openUrl: (url) => void shell.openExternal(url),
+        onChanged: () => {
+            for (const window of options.getAllWindows()) {
+                if (!window.isDestroyed()) {
+                    window.webContents.send("claudeAccounts:changed", {});
+                }
+            }
+        },
+    });
+    app.on("browser-window-focus", () => claudeLocalAccounts.noteWindowFocus());
     const connectorOAuthService = new ConnectorOAuthService();
     connectorCredentialService = new ConnectorCredentialService({
         windowManagerTarget: lifecycle,
@@ -141,6 +158,7 @@ export const createBootstrapServices = (options) => {
         connectorOAuthService,
         connectorConnectService,
         engineAccountAccess,
+        claudeLocalAccounts,
         externalLinkService,
         localChatHistoryService,
         securityPolicyService,

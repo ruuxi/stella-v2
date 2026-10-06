@@ -16,8 +16,7 @@ import { requestMacPermission } from "../utils/macos-permissions.js";
 import { getMainLogger } from "../observability/main-logger.js";
 import { getLocalLlmCredential, listLocalLlmCredentials, } from "@stella/runtime/kernel/storage/llm-credentials";
 import { getLocalLlmOAuthApiKey, listLocalLlmOAuthCredentials, } from "@stella/runtime/kernel/storage/llm-oauth-credentials";
-import { EngineAccountAccess } from "../services/engine-account-access.js";
-import { getChatGptAccessToken, hasUsableChatGptProfile, markChatGptProfileLimited, } from "@stella/runtime/kernel/storage/chatgpt-profiles";
+import { getChatGptAccessToken, hasUsableChatGptProfile, } from "@stella/runtime/kernel/storage/chatgpt-profiles";
 // Module-level one-shot cache for the skills home reconciliation. This
 // seeding used to run on the pre-window path inside `resolveStellaDataDir`, where
 // its ~100 awaited fs ops + sha256 over hundreds of KB contended with first
@@ -202,44 +201,30 @@ export const createHostRunnerHandlers = (context, options) => ({
         if (!stellaDataDir) {
             return { ok: false, reason: "stella_data_dir_unavailable" };
         }
-        // Claude subscriptions come from the owner's Stella account
-        // (short-lived access tokens only); ChatGPT from this computer's own
-        // Sign in with ChatGPT accounts; every other OAuth login and every
-        // API key stays in this computer's store.
-        const engineAccounts = context.services.engineAccountAccess;
+        // ChatGPT comes from this computer's own Sign in with ChatGPT
+        // accounts; every other OAuth login and every API key stays in this
+        // computer's store. Claude is no credential at all: the host only
+        // says which Claude Code config (the CLI's own login) to run on.
         if (request.operation === "list") {
             return {
                 ok: true,
                 apiKeyProviders: listLocalLlmCredentials(stellaDataDir).map(({ provider }) => provider),
                 oauthProviders: [
                     ...listLocalLlmOAuthCredentials(stellaDataDir).map(({ provider }) => provider),
-                    ...engineAccounts.providers(),
                     ...(hasUsableChatGptProfile(stellaDataDir) ? ["chatgpt"] : []),
                 ],
             };
         }
-        if (request.operation === "report-limit") {
-            const resetsAt = typeof request.resetsAt === "number" && Number.isFinite(request.resetsAt)
-                ? request.resetsAt
-                : undefined;
-            const report = request.provider === "chatgpt"
-                ? markChatGptProfileLimited(stellaDataDir, resetsAt)
-                : EngineAccountAccess.serves(request.provider)
-                    ? await engineAccounts.reportLimit(request.provider, resetsAt)
-                    : { switched: false };
-            if (request.provider === "chatgpt") {
-                broadcastToWindows(context, "chatgpt:profilesChanged", {});
-            }
-            return { ok: true, ...report };
+        if (request.operation === "claude-config") {
+            const config = await context.services.claudeLocalAccounts.configForTurn();
+            return { ok: true, ...config };
         }
         const forceRefresh = request.forceRefresh === true;
         const value = request.kind === "api-key"
             ? getLocalLlmCredential(stellaDataDir, request.provider)
             : request.provider === "chatgpt"
                 ? await getChatGptAccessToken(stellaDataDir, { forceRefresh })
-                : EngineAccountAccess.serves(request.provider)
-                    ? await engineAccounts.getAccessToken(request.provider, { forceRefresh })
-                    : await getLocalLlmOAuthApiKey(stellaDataDir, request.provider, { forceRefresh });
+                : await getLocalLlmOAuthApiKey(stellaDataDir, request.provider, { forceRefresh });
         return { ok: true, value };
     },
     requestConnectorTokenStore: async (request) => {

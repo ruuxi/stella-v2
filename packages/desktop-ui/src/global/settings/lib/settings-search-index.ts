@@ -290,6 +290,25 @@ export const SETTINGS_SEARCH_ENTRY_DEFS: SettingsSearchEntryDef[] = [
   // ---------- Account & Legal ----------
   {
     tab: "account",
+    titleKey: "settings.engineAccounts.cardTitle",
+    descriptionKey: "settings.engineAccounts.cardIntro",
+    keywords: [
+      "claude",
+      "claude code",
+      "anthropic",
+      "chatgpt",
+      "openai",
+      "codex",
+      "subscription",
+      "pro",
+      "max",
+      "plus",
+      "sign in",
+      "switch account",
+    ],
+  },
+  {
+    tab: "account",
     titleKey: "settings.account.title",
     descriptionKey: "settings.search.descriptions.account",
     keywords: [

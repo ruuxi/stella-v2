@@ -59,10 +59,8 @@ export const connectedCredentialForwardHeaders = (
   });
   headers.set("content-type", "application/json");
   headers.set("authorization", `Bearer ${credential.accessToken}`);
-  // ChatGPT: the cloud host's Sign in with ChatGPT access token is the whole
+  // The cloud host's Sign in with ChatGPT access token is the whole
   // credential on the public Responses API.
-  // Anthropic: the caller is the real Claude Code CLI, which sends its own
-  // anthropic-beta, x-app and anthropic-version headers. Pass them through.
   return headers;
 };
 
@@ -84,21 +82,9 @@ export const nativeCredentialBody = (
 export const connectedCredentialUpstreamUrl = (
   authorized: Pick<NativeRelayRequest, "userCredential">,
   request: Request,
-  anthropicBaseUrl: string,
 ): string | null => {
-  const credentialProvider = authorized.userCredential?.provider;
-  if (credentialProvider === "chatgpt") {
-    // ChatGPT plan usage serves `POST /v1/responses` only.
-    const pathname = new URL(request.url).pathname;
-    return pathname.endsWith("/responses") ? CHATGPT_SIWC.responsesUrl : null;
-  }
-  if (credentialProvider === "anthropic") {
-    const pathname = new URL(request.url).pathname;
-    const base = anthropicBaseUrl.replace(/\/+$/u, "");
-    if (pathname.endsWith("/v1/messages/count_tokens")) {
-      return `${base}/messages/count_tokens`;
-    }
-    return pathname.endsWith("/v1/messages") ? `${base}/messages` : null;
-  }
-  return null;
+  if (authorized.userCredential?.provider !== "chatgpt") return null;
+  // ChatGPT plan usage serves `POST /v1/responses` only.
+  const pathname = new URL(request.url).pathname;
+  return pathname.endsWith("/responses") ? CHATGPT_SIWC.responsesUrl : null;
 };

@@ -12,28 +12,20 @@ import {
   View,
 } from "react-native";
 import * as Clipboard from "expo-clipboard";
-import { getRandomBytes } from "expo-crypto";
 import * as WebBrowser from "expo-web-browser";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { sha256 } from "@noble/hashes/sha2.js";
 import {
   isEngineConnectionUsable,
+  type ChatGptSharedRegistration,
   type EngineConnection,
   type EngineProvider,
   type EngineSettings,
 } from "@stella/contracts/backend/engines";
 import { CHATGPT_SIWC } from "@stella/contracts/chatgpt-siwc";
-import {
-  ANTHROPIC_OAUTH,
-  anthropicAuthorizeUrl,
-  createPkce,
-  parseAuthorizationInput,
-} from "@stella/contracts/engine-oauth";
-import { exchangeAnthropicCode } from "@stella/contracts/engine-oauth-flows";
 import { Icon } from "./Icon";
-import { GlassToggle } from "./glass";
 import { NativeMenu } from "./NativeMenu";
+import type { NativeMenuItem } from "./NativeMenu.types";
 import { makeSettingsStyles } from "./settings/settings-styles";
 import { getBackendClient, useBackendView } from "../lib/backend";
 import { tapLight } from "../lib/haptics";
@@ -44,20 +36,23 @@ import { useT } from "../i18n";
 
 /**
  * Settings › Claude & ChatGPT: the subscriptions kept with the Stella
- * account. Several accounts per provider, one in use (checked), and an option
- * to move on to the next account when the one in use hits its limit.
+ * account. Several accounts per provider, one in use (checked); the user
+ * switches by hand, nothing switches on its own.
  *
- * Claude: one list for Claude Code on every computer and in the cloud. It
- * signs in on this phone: the consent page shows a code the user pastes
- * back, the phone exchanges it with Anthropic itself and uploads the tokens
- * (`engines.addAccount`); Stella's server never contacts Anthropic, and the
- * owner's devices keep the tokens refreshed.
+ * Claude: Stella never holds a Claude credential. Every computer runs Claude
+ * Code on its own sign-in, and Stella's cloud signs in inside the owner's
+ * container. The phone never signs in to Claude itself: "Sign in in the
+ * cloud" starts `claude auth login` in the cloud
+ * (`engines.startClaudeCloudLogin`), opens Anthropic's own page, and hands
+ * the code Anthropic shows to that CLI (`engines.finishClaudeCloudLogin`).
+ * Each account lists the places it is signed in.
  *
  * ChatGPT: Sign in with ChatGPT for Stella's cloud, which is its own host
  * (each computer signs in separately in the desktop app). The server builds
  * the authorization; ChatGPT redirects to a 127.0.0.1 address nothing on a
  * phone answers, so the user pastes that address back and the server
- * exchanges it, keeps the credentials and refreshes them.
+ * finishes it. A client another of the owner's hosts registered can be
+ * reused ("Continue with ChatGPT as …").
  */
 
 type Section = {
@@ -65,8 +60,6 @@ type Section = {
   titleKey: string;
   /** The connect row names its own provider, so it reads alone. */
   connectKey: string;
-  autoSwitchKey: string;
-  pasteHintKey: string;
 };
 
 const SECTIONS: Section[] = [
@@ -74,15 +67,11 @@ const SECTIONS: Section[] = [
     provider: "anthropic",
     titleKey: "mobile.engineAccounts.claudeSection",
     connectKey: "mobile.engineAccounts.connectClaude",
-    autoSwitchKey: "mobile.engineAccounts.autoSwitchClaude",
-    pasteHintKey: "mobile.engineAccounts.pasteHintClaude",
   },
   {
     provider: "chatgpt",
     titleKey: "mobile.engineAccounts.chatgptSection",
     connectKey: "mobile.engineAccounts.connectChatgpt",
-    autoSwitchKey: "mobile.engineAccounts.autoSwitchChatgpt",
-    pasteHintKey: "mobile.engineAccounts.pasteHintChatgpt",
   },
 ];
 
@@ -111,10 +100,6 @@ export const openChatGptUsage = () => {
   void Linking.openURL(CHATGPT_SIWC.manageUsageUrl).catch(() => undefined);
 };
 
-/** A ChatGPT redirect URL on the clipboard (`…/auth/callback?code=…&state=…`). */
-const looksLikeChatGptCallback = (value: string): boolean =>
-  /[?&]code=/u.test(value) && /[?&]state=/u.test(value);
-
 export const accountInitials = (
   row: Pick<EngineConnection, "email" | "label">,
 ): string => {
@@ -125,27 +110,43 @@ export const accountInitials = (
   return letters.toUpperCase() || "?";
 };
 
-const formatReset = (limitedUntil: number): string => {
-  const reset = new Date(limitedUntil);
-  return reset.toDateString() === new Date().toDateString()
-    ? reset.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
-    : reset.toLocaleString([], {
-        weekday: "short",
-        hour: "numeric",
-        minute: "2-digit",
-      });
-};
-
 const errorMessage = (error: unknown, fallback: string): string =>
   error instanceof Error && error.message ? error.message : fallback;
+
+const hasCloudLogin = (row: EngineConnection): boolean =>
+  (row.places ?? []).some((place) => place.kind === "cloud");
+
+/**
+ * The owner's ChatGPT registrations this cloud could sign in with: those
+ * whose issued client id isn't already one of the cloud's ChatGPT accounts.
+ */
+type ReusableRegistration = ChatGptSharedRegistration & { who?: string };
+
+const reusableChatGptRegistrations = (
+  settings: EngineSettings | undefined,
+): ReusableRegistration[] => {
+  const known = new Set(
+    (settings?.connections ?? []).flatMap((row) =>
+      row.provider === "chatgpt" && row.clientId ? [row.clientId] : [],
+    ),
+  );
+  const result: ReusableRegistration[] = [];
+  for (const registration of settings?.chatGptRegistrations ?? []) {
+    if (known.has(registration.clientId)) continue;
+    known.add(registration.clientId);
+    result.push({
+      ...registration,
+      who: registration.email ?? registration.name,
+    });
+  }
+  return result;
+};
 
 export function EngineAccountsSettings({ onBack }: { onBack: () => void }) {
   const colors = useColors();
   const t = useT();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const settingsStyles = useMemo(() => makeSettingsStyles(colors), [colors]);
-  const { value: settings } = useBackendView("engines.get", {});
 
   return (
     <ScrollView
@@ -196,7 +197,6 @@ export function EngineAccountSection({
   provider: EngineProvider | "stella";
 }) {
   const colors = useColors();
-  const t = useT();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const settingsStyles = useMemo(() => makeSettingsStyles(colors), [colors]);
   const { value: settings } = useBackendView("engines.get", {});
@@ -220,7 +220,6 @@ export function EngineAccountSection({
  */
 export function EngineAccountsSections() {
   const colors = useColors();
-  const t = useT();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const settingsStyles = useMemo(() => makeSettingsStyles(colors), [colors]);
   const { value: settings } = useBackendView("engines.get", {});
@@ -240,12 +239,23 @@ export function EngineAccountsSections() {
   );
 }
 
+export type EngineConnectOptions = {
+  /** ChatGPT: sign a saved cloud account in again. */
+  accountId?: string;
+  /** ChatGPT: ask for plan-use consent again. */
+  enablePlanUsage?: boolean;
+  /** ChatGPT: reuse a client another of the owner's hosts registered. */
+  clientId?: string;
+  /** Claude: pre-fill Anthropic's sign-in page with this login. */
+  email?: string;
+};
+
 /**
- * Provider sign-in shared by Settings and onboarding. Both paste back:
- * Claude's consent page shows a code this phone exchanges itself; ChatGPT
- * lands on an address that doesn't load, which the server exchanges for
- * Stella's cloud. Errors surface as an alert. `connectId` names the attempt
- * waiting for the paste (the server's for ChatGPT, a local one for Claude).
+ * Cloud sign-in shared by Settings and onboarding. Both paste back:
+ * Claude: the cloud's `claude auth login` waits for the code Anthropic's page
+ * shows; ChatGPT lands on an address that doesn't load, which the server
+ * finishes for Stella's cloud. `connectId` names the attempt waiting for the
+ * paste (the cloud login's id for Claude, the server's attempt for ChatGPT).
  */
 export function useEngineConnect(
   provider: EngineProvider,
@@ -260,10 +270,10 @@ export function useEngineConnect(
   /** The user asked to type it themselves, or the clipboard let us down. */
   const [manualEntry, setManualEntry] = useState(false);
   const onConnectedRef = useRef(onConnected);
-  /** Claude: the PKCE verifier (also the state) of the attempt in progress. */
-  const claudeVerifier = useRef<string | null>(null);
-  /** ChatGPT: the authorization page of the attempt in progress. */
-  const chatGptAuthorizeUrl = useRef<string | null>(null);
+  /** The provider's sign-in page of the attempt in progress. */
+  const authorizeUrl = useRef<string | null>(null);
+  /** The options of the attempt in progress, for "Start again". */
+  const lastOptions = useRef<EngineConnectOptions>({});
   onConnectedRef.current = onConnected;
 
   const run = async (action: () => Promise<unknown>): Promise<boolean> => {
@@ -294,48 +304,56 @@ export function useEngineConnect(
     setClipboardReady(has);
   }, []);
 
-  const openChatGpt = async (authorizeUrl: string) => {
-    await WebBrowser.openBrowserAsync(authorizeUrl, {
+  const openAuthorizePage = async (url: string) => {
+    await WebBrowser.openBrowserAsync(url, {
       presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET,
     });
     await refreshClipboardCandidate();
   };
 
-  /**
-   * Begin adding an account. ChatGPT: `accountId` signs a saved cloud
-   * account in again; `enablePlanUsage` asks for plan-use consent again.
-   */
-  const startConnect = (
-    options: { accountId?: string; enablePlanUsage?: boolean } = {},
-  ) =>
+  const resetAttempt = () => {
+    authorizeUrl.current = null;
+    setConnectId(null);
+    setPasted("");
+    setManualEntry(false);
+    setClipboardReady(false);
+  };
+
+  /** Tell the server to drop an attempt; it may already be gone. */
+  const abandon = (attempt: string) => {
+    const client = getBackendClient();
+    void (
+      provider === "chatgpt"
+        ? client.call("engines.cancelConnect", { connectId: attempt })
+        : client.call("engines.cancelClaudeCloudLogin", { loginId: attempt })
+    ).catch(() => {});
+  };
+
+  /** Begin a cloud sign-in. */
+  const startConnect = (options: EngineConnectOptions = {}) =>
     void run(async () => {
+      lastOptions.current = options;
       setPasted("");
+      setManualEntry(false);
       if (provider === "chatgpt") {
         const started = await getBackendClient().call("engines.startConnect", {
           provider: "chatgpt",
           ...(options.accountId ? { accountId: options.accountId } : {}),
+          ...(options.clientId ? { clientId: options.clientId } : {}),
           ...(options.enablePlanUsage ? { enablePlanUsage: true } : {}),
         });
-        chatGptAuthorizeUrl.current = started.authorizeUrl;
+        authorizeUrl.current = started.authorizeUrl;
         setConnectId(started.connectId);
-        await openChatGpt(started.authorizeUrl);
+        await openAuthorizePage(started.authorizeUrl);
         return;
       }
-      const { verifier, challenge } = await createPkce({
-        randomBytes: getRandomBytes,
-        sha256: (data) => sha256(data),
-      });
-      claudeVerifier.current = verifier;
-      setConnectId(verifier);
-      const authorizeUrl = anthropicAuthorizeUrl({
-        challenge,
-        state: verifier,
-        redirectUri: ANTHROPIC_OAUTH.pasteRedirectUri,
-      });
-      await WebBrowser.openBrowserAsync(authorizeUrl, {
-        presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET,
-      });
-      await refreshClipboardCandidate();
+      const started = await getBackendClient().call(
+        "engines.startClaudeCloudLogin",
+        options.email ? { email: options.email } : {},
+      );
+      authorizeUrl.current = started.authorizeUrl;
+      setConnectId(started.loginId);
+      await openAuthorizePage(started.authorizeUrl);
     });
 
   const finishChatGpt = (attempt: string, input: string) =>
@@ -344,9 +362,7 @@ export function useEngineConnect(
         connectId: attempt,
         pastedInput: input,
       });
-      chatGptAuthorizeUrl.current = null;
-      setConnectId(null);
-      setPasted("");
+      resetAttempt();
       onConnectedRef.current?.();
       if (result.planUsage) {
         await announceChatGptPlanUse(t);
@@ -358,60 +374,62 @@ export function useEngineConnect(
       }
     });
 
+  /**
+   * Hand the code to the cloud's waiting `claude auth login`. A wrong code
+   * ends that login, so a failure shows the CLI's own message and offers to
+   * start again.
+   */
+  const finishClaude = (attempt: string, code: string) => {
+    void (async () => {
+      setBusy(true);
+      try {
+        await getBackendClient().call("engines.finishClaudeCloudLogin", {
+          loginId: attempt,
+          code,
+        });
+        resetAttempt();
+        onConnectedRef.current?.();
+      } catch (error) {
+        Alert.alert(
+          t("mobile.engineAccounts.errorTitle"),
+          errorMessage(error, t("mobile.engineAccounts.errorBody")),
+          [
+            {
+              text: t("mobile.common.cancel"),
+              style: "cancel",
+              onPress: () => {
+                abandon(attempt);
+                resetAttempt();
+              },
+            },
+            {
+              text: t("mobile.engineAccounts.startAgain"),
+              onPress: () => {
+                abandon(attempt);
+                resetAttempt();
+                startConnect(lastOptions.current);
+              },
+            },
+          ],
+        );
+      } finally {
+        setBusy(false);
+      }
+    })();
+  };
+
   const submitConnect = (input: string) => {
     const value = input.trim();
     if (!connectId || !value) return;
-    if (provider === "chatgpt") {
-      finishChatGpt(connectId, value);
-      return;
-    }
-    const verifier = claudeVerifier.current;
-    if (!verifier) return;
-    void run(async () => {
-      const parsed = parseAuthorizationInput(value);
-      if (!parsed.code) throw new Error(t("mobile.engineAccounts.errorBody"));
-      if (parsed.state && parsed.state !== verifier) {
-        throw new Error("The pasted code belongs to a different sign-in. Start again.");
-      }
-      // Exchanged from this phone; only the tokens go to Stella.
-      const { tokens, identity } = await exchangeAnthropicCode({
-        code: parsed.code,
-        state: parsed.state ?? verifier,
-        verifier,
-        redirectUri: ANTHROPIC_OAUTH.pasteRedirectUri,
-      });
-      await getBackendClient().call("engines.addAccount", {
-        provider: "anthropic",
-        tokens: {
-          access: tokens.access,
-          refresh: tokens.refresh,
-          expiresInMs: tokens.expiresAt - Date.now(),
-        },
-        ...identity,
-      });
-      claudeVerifier.current = null;
-      setConnectId(null);
-      setPasted("");
-      setManualEntry(false);
-    }).then((ok) => {
-      if (ok) onConnectedRef.current?.();
-    });
+    if (provider === "chatgpt") finishChatGpt(connectId, value);
+    else finishClaude(connectId, value);
   };
 
   const finishConnect = () => submitConnect(pasted);
 
   const cancelConnect = () => {
-    claudeVerifier.current = null;
-    chatGptAuthorizeUrl.current = null;
-    if (connectId && provider === "chatgpt") {
-      void getBackendClient()
-        .call("engines.cancelConnect", { connectId })
-        .catch(() => {});
-    }
-    setConnectId(null);
-    setPasted("");
-    setManualEntry(false);
-    setClipboardReady(false);
+    if (connectId) abandon(connectId);
+    resetAttempt();
   };
 
   const pasteFromClipboard = async () => {
@@ -440,6 +458,12 @@ export function useEngineConnect(
 
   const revealManualEntry = () => setManualEntry(true);
 
+  /** Open the sign-in page of the attempt again. */
+  const reopenAuthorizePage = () => {
+    const url = authorizeUrl.current;
+    if (url) void run(() => openAuthorizePage(url));
+  };
+
   return {
     busy,
     connectId,
@@ -455,16 +479,17 @@ export function useEngineConnect(
     revealManualEntry,
     connectFromClipboard,
     refreshClipboardCandidate,
-    /** ChatGPT: open the authorization page of the attempt again. */
-    reopenAuthorizePage:
-      provider === "chatgpt"
-        ? () => {
-            const url = chatGptAuthorizeUrl.current;
-            if (url) void run(() => openChatGpt(url));
-          }
-        : undefined,
+    reopenAuthorizePage,
   };
 }
+
+type RowAction = {
+  id: string;
+  title: string;
+  systemImage: NonNullable<NativeMenuItem["systemImage"]>;
+  destructive?: boolean;
+  onPress: () => void;
+};
 
 function ProviderSection({
   section,
@@ -481,7 +506,7 @@ function ProviderSection({
   colors: Colors;
   /**
    * Off where only one provider can be on screen and something else already
-   * named it — the connect row says "Connect Claude account" under an engine
+   * named it — the connect row says "Add Claude account" under an engine
    * control that says Claude, so a "Claude" header is the word three times.
    * On where both providers stack and the headers are what tells them apart.
    */
@@ -514,8 +539,8 @@ function ProviderSection({
     return () => sub.remove();
   }, [connectId, refreshClipboardCandidate]);
 
-  // Cancel replaced by dismissal, so an abandoned attempt has to clean itself
-  // up — otherwise ChatGPT's server-side attempt would be left dangling.
+  // An attempt abandoned by leaving the screen cleans itself up, so the
+  // server-side sign-in isn't left dangling.
   const cancelRef = useRef(cancelConnect);
   cancelRef.current = cancelConnect;
   useEffect(() => () => cancelRef.current(), []);
@@ -525,8 +550,8 @@ function ProviderSection({
   const accounts = (settings?.connections ?? []).filter(
     (row) => row.provider === section.provider,
   );
-  const autoSwitch = settings?.autoSwitch?.[section.provider] ?? false;
   const chatgpt = section.provider === "chatgpt";
+  const registrations = chatgpt ? reusableChatGptRegistrations(settings) : [];
 
   const switchToAccount = (row: EngineConnection) => {
     tapLight();
@@ -538,127 +563,167 @@ function ProviderSection({
     );
   };
 
-  const signOut = (row: EngineConnection) => {
+  /** Whether a row can become the account in use. */
+  const canUse = (row: EngineConnection): boolean =>
+    !row.active && (!chatgpt || isEngineConnectionUsable(row));
+
+  const confirm = (
+    title: string,
+    body: string,
+    actionLabel: string,
+    action: () => Promise<unknown>,
+  ) => {
+    Alert.alert(title, body, [
+      { text: t("mobile.common.cancel"), style: "cancel" },
+      {
+        text: actionLabel,
+        style: "destructive",
+        onPress: () => void run(action),
+      },
+    ]);
+  };
+
+  /** ChatGPT: sign the cloud out, keeping the registration. */
+  const signOutChatGpt = (row: EngineConnection) => {
     const name = row.email ?? row.label;
-    Alert.alert(
+    confirm(
       t("mobile.engineAccounts.signOutTitle", { name }),
       t("mobile.engineAccounts.signOutBody"),
-      [
-        { text: t("mobile.common.cancel"), style: "cancel" },
-        {
-          text: t("mobile.engineAccounts.signOut"),
-          style: "destructive",
-          onPress: () =>
-            void run(async () => {
-              const result = await getBackendClient().call("engines.disconnect", {
-                provider: section.provider,
-                accountId: row.accountId,
-              });
-              if (result && !result.revoked) {
-                Alert.alert(
-                  t("mobile.engineAccounts.statusSignedOut"),
-                  t("mobile.engineAccounts.revokeUnconfirmed"),
-                );
-              }
-            }),
-        },
-      ],
+      t("mobile.engineAccounts.signOut"),
+      async () => {
+        const result = await getBackendClient().call("engines.disconnect", {
+          provider: "chatgpt",
+          accountId: row.accountId,
+        });
+        if (result && !result.revoked) {
+          Alert.alert(
+            t("mobile.engineAccounts.statusSignedOut"),
+            t("mobile.engineAccounts.revokeUnconfirmed"),
+          );
+        }
+      },
     );
   };
 
-  /** ChatGPT: forget the account, registration included. */
+  /** Claude: `claude auth logout` for this account in the cloud. */
+  const signOutClaudeCloud = (row: EngineConnection) => {
+    const name = row.email ?? row.label;
+    confirm(
+      t("mobile.engineAccounts.signOutCloudTitle", { name }),
+      t("mobile.engineAccounts.signOutCloudBody"),
+      t("mobile.engineAccounts.signOutCloud"),
+      () =>
+        getBackendClient().call("engines.signOutClaudeCloud", {
+          accountId: row.accountId,
+        }),
+    );
+  };
+
+  /** Forget the account (ChatGPT: registration included). */
   const remove = (row: EngineConnection) => {
     const name = row.email ?? row.label;
-    Alert.alert(
+    confirm(
       t("mobile.engineAccounts.removeTitle", { name }),
-      t("mobile.engineAccounts.removeBody"),
-      [
-        { text: t("mobile.common.cancel"), style: "cancel" },
-        {
-          text: t("mobile.engineAccounts.remove"),
-          style: "destructive",
-          onPress: () =>
-            void run(() =>
-              getBackendClient().call("engines.disconnect", {
-                provider: section.provider,
-                accountId: row.accountId,
-                forget: true,
-              }),
-            ),
-        },
-      ],
+      chatgpt
+        ? t("mobile.engineAccounts.removeBody")
+        : t("mobile.engineAccounts.removeClaudeBody"),
+      t("mobile.engineAccounts.remove"),
+      () =>
+        getBackendClient().call("engines.disconnect", {
+          provider: section.provider,
+          accountId: row.accountId,
+          ...(chatgpt ? { forget: true } : {}),
+        }),
     );
   };
 
   /** What a row's menu offers, by the account's state. */
-  const rowActions = (row: EngineConnection) => {
-    const usable = isEngineConnectionUsable(row);
-    return [
-      ...(usable && !row.active
-        ? [
-            {
-              id: "use",
-              title: t("mobile.engineAccounts.useAccount"),
-              systemImage: "checkmark.circle" as const,
-              onPress: () => switchToAccount(row),
-            },
-          ]
-        : []),
-      ...(chatgpt && row.status
-        ? [
-            {
-              id: "sign-in-again",
-              title: t("mobile.engineAccounts.signInAgain"),
-              systemImage: "arrow.clockwise" as const,
-              onPress: () => startConnect({ accountId: row.accountId }),
-            },
-          ]
-        : []),
-      ...(chatgpt && !row.status && row.planUsage === false
-        ? [
-            {
-              id: "enable-plan-usage",
-              title: t("mobile.engineAccounts.enablePlanUsage"),
-              systemImage: "checkmark.shield" as const,
-              onPress: () =>
-                startConnect({ accountId: row.accountId, enablePlanUsage: true }),
-            },
-          ]
-        : []),
-      ...(row.status
-        ? []
-        : [
-            {
-              id: "sign-out",
-              title: t("mobile.engineAccounts.signOut"),
-              systemImage: "rectangle.portrait.and.arrow.right" as const,
-              destructive: true,
-              onPress: () => signOut(row),
-            },
-          ]),
-      ...(chatgpt
-        ? [
-            {
-              id: "remove",
-              title: t("mobile.engineAccounts.remove"),
-              systemImage: "trash" as const,
-              destructive: true,
-              onPress: () => remove(row),
-            },
-          ]
-        : []),
-    ];
+  const rowActions = (row: EngineConnection): RowAction[] => {
+    const actions: RowAction[] = [];
+    if (canUse(row)) {
+      actions.push({
+        id: "use",
+        title: t("mobile.engineAccounts.useAccount"),
+        systemImage: "checkmark.circle",
+        onPress: () => switchToAccount(row),
+      });
+    }
+    if (!chatgpt) {
+      if (!hasCloudLogin(row)) {
+        actions.push({
+          id: "sign-in-cloud",
+          title: t("mobile.engineAccounts.signInCloud"),
+          systemImage: "icloud",
+          onPress: () =>
+            startConnect(row.email ? { email: row.email } : {}),
+        });
+      } else {
+        actions.push({
+          id: "sign-out-cloud",
+          title: t("mobile.engineAccounts.signOutCloud"),
+          systemImage: "icloud.slash",
+          destructive: true,
+          onPress: () => signOutClaudeCloud(row),
+        });
+      }
+    }
+    if (chatgpt && row.status) {
+      actions.push({
+        id: "sign-in-again",
+        title: t("mobile.engineAccounts.signInAgain"),
+        systemImage: "arrow.clockwise",
+        onPress: () => startConnect({ accountId: row.accountId }),
+      });
+    }
+    if (chatgpt && !row.status && row.planUsage === false) {
+      actions.push({
+        id: "enable-plan-usage",
+        title: t("mobile.engineAccounts.enablePlanUsage"),
+        systemImage: "checkmark.shield",
+        onPress: () =>
+          startConnect({ accountId: row.accountId, enablePlanUsage: true }),
+      });
+    }
+    if (chatgpt && !row.status) {
+      actions.push({
+        id: "sign-out",
+        title: t("mobile.engineAccounts.signOut"),
+        systemImage: "rectangle.portrait.and.arrow.right",
+        destructive: true,
+        onPress: () => signOutChatGpt(row),
+      });
+    }
+    actions.push({
+      id: "remove",
+      title: t("mobile.engineAccounts.remove"),
+      systemImage: "trash",
+      destructive: true,
+      onPress: () => remove(row),
+    });
+    return actions;
+  };
+
+  /** Claude: where a Claude Code login for the account exists. */
+  const placesText = (row: EngineConnection): string => {
+    const places = [...(row.places ?? [])].sort(
+      (a, b) => (a.kind === "cloud" ? 0 : 1) - (b.kind === "cloud" ? 0 : 1),
+    );
+    if (places.length === 0) return t("mobile.engineAccounts.notSignedIn");
+    const names = places.map((place) =>
+      place.kind === "cloud"
+        ? t("mobile.engineAccounts.placeCloud")
+        : (place.deviceName ?? t("mobile.engineAccounts.placeComputer")),
+    );
+    return t("mobile.engineAccounts.signedInOn", { places: names.join(", ") });
   };
 
   const rowSubtitle = (row: EngineConnection): string | undefined => {
+    if (!chatgpt) {
+      return [row.plan, placesText(row)].filter(Boolean).join(" · ");
+    }
     if (row.status === "signed_out") return t("mobile.engineAccounts.statusSignedOut");
     if (row.status === "reauth_required") return t("mobile.engineAccounts.statusReauth");
     if (row.planUsage === false) return t("mobile.engineAccounts.statusPlanUsageOff");
-    if (row.limitedUntil) {
-      return t("mobile.engineAccounts.limitReached", {
-        time: formatReset(row.limitedUntil),
-      });
-    }
     return row.plan;
   };
 
@@ -666,7 +731,7 @@ function ProviderSection({
     Alert.alert(row.email ?? row.label, undefined, [
       ...rowActions(row).map((action) => ({
         text: action.title,
-        ...("destructive" in action ? { style: "destructive" as const } : {}),
+        ...(action.destructive ? { style: "destructive" as const } : {}),
         onPress: action.onPress,
       })),
       { text: t("mobile.common.cancel"), style: "cancel" as const },
@@ -682,13 +747,11 @@ function ProviderSection({
         {accounts.map((row, index) => {
           const name = row.email ?? row.name ?? row.label;
           const sub = rowSubtitle(row);
-          const usable = isEngineConnectionUsable(row);
+          const warn = chatgpt && !isEngineConnectionUsable(row);
           return (
             <Pressable
               key={row.accountId}
-              onPress={() =>
-                row.active || !usable ? undefined : switchToAccount(row)
-              }
+              onPress={() => (canUse(row) ? switchToAccount(row) : undefined)}
               disabled={busy}
               accessibilityRole="button"
               accessibilityState={{ selected: row.active }}
@@ -712,11 +775,8 @@ function ProviderSection({
                 </Text>
                 {sub ? (
                   <Text
-                    style={[
-                      settingsStyles.rowSub,
-                      row.limitedUntil || !usable ? styles.limited : null,
-                    ]}
-                    numberOfLines={1}
+                    style={[settingsStyles.rowSub, warn ? styles.warn : null]}
+                    numberOfLines={2}
                   >
                     {sub}
                   </Text>
@@ -745,8 +805,7 @@ function ProviderSection({
                     id: action.id,
                     title: action.title,
                     systemImage: action.systemImage,
-                    separatorBefore:
-                      actionIndex > 0 && "destructive" in action,
+                    separatorBefore: actionIndex > 0 && action.destructive,
                     onPress: action.onPress,
                   }))}
                   onFallbackPress={() => openFallbackMenu(row)}
@@ -770,13 +829,48 @@ function ProviderSection({
             </Pressable>
           );
         })}
+        {registrations.map((registration, index) => (
+          <Pressable
+            key={registration.clientId}
+            onPress={() => startConnect({ clientId: registration.clientId })}
+            disabled={busy || connectId !== null}
+            accessibilityRole="button"
+            style={({ pressed }) => [
+              settingsStyles.row,
+              (accounts.length > 0 || index > 0) && settingsStyles.rowDivider,
+              pressed && settingsStyles.rowPressed,
+              (busy || connectId !== null) && settingsStyles.rowDisabled,
+            ]}
+          >
+            <View style={[styles.avatar, styles.addAvatar]}>
+              {registration.who ? (
+                <Text style={styles.avatarText}>
+                  {accountInitials({
+                    email: registration.email,
+                    label: registration.who,
+                  })}
+                </Text>
+              ) : (
+                <Icon name="message-square" size={16} color={colors.text} />
+              )}
+            </View>
+            <Text style={[settingsStyles.rowLabel, styles.flexLabel]} numberOfLines={1}>
+              {registration.who
+                ? t("mobile.engineAccounts.continueAsChatgpt", {
+                    name: registration.who,
+                  })
+                : t("mobile.engineAccounts.continueWithChatgpt")}
+            </Text>
+          </Pressable>
+        ))}
         <Pressable
           onPress={() => startConnect()}
           disabled={busy || connectId !== null}
           accessibilityRole="button"
           style={({ pressed }) => [
             settingsStyles.row,
-            accounts.length > 0 && settingsStyles.rowDivider,
+            accounts.length + registrations.length > 0 &&
+              settingsStyles.rowDivider,
             pressed && settingsStyles.rowPressed,
             (busy || connectId !== null) && settingsStyles.rowDisabled,
           ]}
@@ -787,6 +881,11 @@ function ProviderSection({
           <Text style={settingsStyles.rowLabel}>{t(section.connectKey)}</Text>
         </Pressable>
       </View>
+      {!chatgpt ? (
+        <Text style={[settingsStyles.rowSub, styles.sectionNote]}>
+          {t("mobile.engineAccounts.claudeNote")}
+        </Text>
+      ) : null}
 
       {connectId ? (
         <View
@@ -821,18 +920,28 @@ function ProviderSection({
             </View>
           ) : null}
           <View style={styles.pasteActions}>
-            {connect.reopenAuthorizePage ? (
-              <Pressable
-                onPress={connect.reopenAuthorizePage}
-                disabled={busy}
-                hitSlop={8}
-                accessibilityRole="button"
-              >
-                <Text style={settingsStyles.rowSub}>
-                  {t("mobile.engineAccounts.openChatgptAgain")}
-                </Text>
-              </Pressable>
-            ) : null}
+            <Pressable
+              onPress={cancelConnect}
+              disabled={busy}
+              hitSlop={8}
+              accessibilityRole="button"
+            >
+              <Text style={settingsStyles.rowSub}>
+                {t("mobile.common.cancel")}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={connect.reopenAuthorizePage}
+              disabled={busy}
+              hitSlop={8}
+              accessibilityRole="button"
+            >
+              <Text style={settingsStyles.rowSub}>
+                {chatgpt
+                  ? t("mobile.engineAccounts.openChatgptAgain")
+                  : t("mobile.engineAccounts.openClaudeAgain")}
+              </Text>
+            </Pressable>
             <Pressable
               onPress={showField ? finishConnect : connect.connectFromClipboard}
               disabled={busy || (showField && !pasted.trim())}
@@ -853,46 +962,21 @@ function ProviderSection({
         </View>
       ) : null}
 
-      {accounts.length > 0 ? (
+      {chatgpt && accounts.length > 0 ? (
         <View style={[settingsStyles.group, settingsStyles.groupGap]}>
-          <View style={settingsStyles.row}>
-            <View style={settingsStyles.rowCopy}>
-              <Text style={settingsStyles.rowLabel}>
-                {t("mobile.engineAccounts.autoSwitchLabel")}
-              </Text>
-              <Text style={settingsStyles.rowSub}>
-                {t(section.autoSwitchKey)}
-              </Text>
-            </View>
-            <GlassToggle
-              value={autoSwitch}
-              onValueChange={(enabled: boolean) =>
-                void run(() =>
-                  getBackendClient().call("engines.setAutoSwitch", {
-                    provider: section.provider,
-                    enabled,
-                  }),
-                )
-              }
-              accessibilityLabel={t("mobile.engineAccounts.autoSwitchLabel")}
-            />
-          </View>
-          {chatgpt ? (
-            <Pressable
-              onPress={openChatGptUsage}
-              accessibilityRole="link"
-              style={({ pressed }) => [
-                settingsStyles.row,
-                settingsStyles.rowDivider,
-                pressed && settingsStyles.rowPressed,
-              ]}
-            >
-              <Text style={[settingsStyles.rowLabel, styles.flexLabel]}>
-                {t("mobile.engineAccounts.manageUsage")}
-              </Text>
-              <Icon name="arrow-up-right" size={16} color={colors.textMuted} />
-            </Pressable>
-          ) : null}
+          <Pressable
+            onPress={openChatGptUsage}
+            accessibilityRole="link"
+            style={({ pressed }) => [
+              settingsStyles.row,
+              pressed && settingsStyles.rowPressed,
+            ]}
+          >
+            <Text style={[settingsStyles.rowLabel, styles.flexLabel]}>
+              {t("mobile.engineAccounts.manageUsage")}
+            </Text>
+            <Icon name="arrow-up-right" size={16} color={colors.textMuted} />
+          </Pressable>
         </View>
       ) : null}
     </View>
@@ -947,7 +1031,7 @@ const makeStyles = (colors: Colors) =>
       fontFamily: fonts.sans.medium,
       fontSize: 14,
     },
-    limited: { color: colors.danger },
+    warn: { color: colors.danger },
     pasteCard: { gap: 10, padding: 16 },
     pasteRow: { alignItems: "center", flexDirection: "row", gap: 12 },
     pasteInput: {
@@ -966,6 +1050,6 @@ const makeStyles = (colors: Colors) =>
       gap: 20,
       justifyContent: "flex-end",
     },
-    sectionNote: { marginTop: 8 },
+    sectionNote: { marginTop: 8, paddingHorizontal: 16 },
     flexLabel: { flex: 1 },
   });

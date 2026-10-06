@@ -6,7 +6,6 @@ import {
   isManagedModelAudience,
   type CapabilityAudience,
   type GatewayCapabilityClaims,
-  type GatewayNativeClient,
   type GatewayNativeCredentialProvider,
   type ManagedModelAudience,
 } from "@stella/contracts/gateway/capability";
@@ -52,25 +51,15 @@ type TurnCapabilityInputBase = {
 
 /**
  * `credential` is the native credential lane. It defaults to the execution
- * engine when that engine is a connected subscription (`anthropic` /
- * `chatgpt`); a Stella execution never carries one. An `anthropic`
- * execution is a Claude subscription, which only the Claude Code CLI may
- * spend, so it only type-checks together with `nativeClient`, and nothing
- * else may name one.
+ * engine when that engine is the cloud's ChatGPT sign-in; a Stella execution
+ * never carries one. A Claude (`anthropic`) execution never gets a gateway
+ * capability: the cloud's Claude Code CLI talks to Anthropic on its own
+ * login.
  */
-export type TurnCapabilityInput = TurnCapabilityInputBase &
-  (
-    | {
-        execution: Exclude<CloudExecutionSelection, { engine: "anthropic" }>;
-        credential?: Exclude<GatewayNativeCredentialProvider, "anthropic">;
-        nativeClient?: never;
-      }
-    | {
-        execution: Extract<CloudExecutionSelection, { engine: "anthropic" }>;
-        credential?: "anthropic";
-        nativeClient: GatewayNativeClient;
-      }
-  );
+export type TurnCapabilityInput = TurnCapabilityInputBase & {
+  execution: Exclude<CloudExecutionSelection, { engine: "anthropic" }>;
+  credential?: GatewayNativeCredentialProvider;
+};
 
 export type MintedTurnCapability = {
   /** Compact ES256 JWS; travels as `Authorization: Bearer <token>`. */
@@ -119,9 +108,7 @@ export const resetCapabilitySigningKeyCache = (): void => {
 const nativeCredentialFor = (
   execution: CloudExecutionSelection,
 ): GatewayNativeCredentialProvider | undefined =>
-  execution.engine === "anthropic" || execution.engine === "chatgpt"
-    ? execution.engine
-    : undefined;
+  execution.engine === "chatgpt" ? execution.engine : undefined;
 
 export const mintTurnCapability = async (
   env: CapabilitySignerEnv,
@@ -152,7 +139,10 @@ export const mintTurnCapability = async (
   ) {
     throw new Error("Turn capability requires at least one agent type.");
   }
-  const execution = input.execution;
+  const execution = input.execution as CloudExecutionSelection;
+  if (execution?.engine === "anthropic") {
+    throw new Error("Claude turns never carry a gateway capability.");
+  }
   if (
     !execution ||
     execution.engine !== execution.provider ||
@@ -166,11 +156,6 @@ export const mintTurnCapability = async (
   if (credential !== undefined && credential !== execution.engine) {
     throw new Error(
       "Turn capability credential must match the admitted engine.",
-    );
-  }
-  if (input.nativeClient !== undefined && credential !== "anthropic") {
-    throw new Error(
-      "Turn capability nativeClient requires the anthropic credential.",
     );
   }
   const signingKey = await capabilitySigningKey(env);
@@ -196,7 +181,6 @@ export const mintTurnCapability = async (
         } as CloudExecutionSelection,
       },
       ...(credential ? { credential } : {}),
-      ...(input.nativeClient ? { nativeClient: input.nativeClient } : {}),
     },
     signingKey,
     {

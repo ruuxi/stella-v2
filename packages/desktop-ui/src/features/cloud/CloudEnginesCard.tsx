@@ -6,18 +6,21 @@ import type {
 } from "@stella/contracts/agent-engine";
 import {
   isEngineConnectionUsable,
+  type ChatGptSharedRegistration,
   type EngineConnection,
-  type EngineProvider,
   type EngineSettings,
 } from "@stella/contracts/backend/engines";
 import { Button } from "@/ui/button";
 import { showToast } from "@/ui/toast";
+import { useT } from "@/shared/i18n";
 import { isWebsiteHost } from "@/platform/capabilities";
 import {
   announceChatGptPlanUse,
   ContinueWithChatGptButton,
   ManageChatGptUsageLink,
 } from "@/features/chatgpt/ChatGptBrand";
+import { ChatGptSharedRegistrations } from "@/features/chatgpt/ChatGptSharedRegistrations";
+import { ClaudeAccountsSection } from "@/features/claude/ClaudeAccountsSection";
 import { cloudEnginesApi, useCloudEngines } from "./cloud-engines-api";
 import { EngineAccountList, type EngineAccountRow } from "./EngineAccountList";
 import { EngineConnectPrompt } from "./EngineConnectPrompt";
@@ -25,22 +28,21 @@ import { useEngineConnect, type EngineConnectOptions } from "./use-engine-connec
 import { publishCloudExecutionSelection } from "./cloud-execution-store";
 
 /**
- * "Claude & ChatGPT": the subscriptions kept with the Stella account.
+ * "Claude & ChatGPT accounts" for the Stella account.
  *
- * Claude: the owner's one list of Claude subscriptions, powering Claude Code
- * on every one of the owner's computers and cloud turns. Devices sign in and
- * refresh; the server keeps an encrypted token.
+ * Claude: Stella never holds a Claude credential. Each computer and the
+ * owner's cloud run Claude Code on Claude Code's own sign-in; Stella keeps
+ * only which accounts exist, where each is signed in, and which one is
+ * active.
  *
  * ChatGPT: Stella's cloud is its own Sign in with ChatGPT host, signed in
  * here and refreshed by the server; its tokens never reach a client. Each
  * computer signs in to ChatGPT separately (Settings › Account, on that
- * computer). The cloud's engine is chosen here too.
+ * computer), and any host can reuse a registration another host made. The
+ * cloud's engine is chosen here too.
  */
 
-const friendlyError = (error: unknown): string =>
-  error instanceof Error && error.message
-    ? error.message
-    : "That didn't work. Try again.";
+const K = "settings.engineAccounts";
 
 const rowOf = (row: EngineConnection): EngineAccountRow => ({
   id: row.accountId,
@@ -48,82 +50,9 @@ const rowOf = (row: EngineConnection): EngineAccountRow => ({
   ...(row.email ? { email: row.email } : {}),
   ...(row.plan ? { plan: row.plan } : {}),
   active: row.active,
-  ...(row.limitedUntil ? { limitedUntil: row.limitedUntil } : {}),
   ...(row.status ? { status: row.status } : {}),
   ...(row.planUsage !== undefined ? { planUsage: row.planUsage } : {}),
-  ...(row.provider === "chatgpt" ? { limitText: "Usage limit reached" } : {}),
 });
-
-function useAccountActions(provider: EngineProvider) {
-  const [busy, setBusy] = useState(false);
-  const run = useCallback(async (action: () => Promise<unknown>, done?: string) => {
-    setBusy(true);
-    try {
-      await action();
-      if (done) showToast({ title: done });
-    } catch (error) {
-      showToast({ title: friendlyError(error), variant: "error" });
-    } finally {
-      setBusy(false);
-    }
-  }, []);
-  return {
-    busy,
-    run,
-    onUse: (accountId: string) =>
-      void run(() => cloudEnginesApi.setActiveAccount(provider, accountId)),
-    onToggleAutoSwitch: (enabled: boolean) =>
-      void run(() => cloudEnginesApi.setAutoSwitch(provider, enabled)),
-  };
-}
-
-function ClaudeAccounts({
-  settings,
-  refreshing,
-}: {
-  settings: EngineSettings | undefined;
-  refreshing: boolean;
-}) {
-  const connect = useEngineConnect();
-  const actions = useAccountActions("anthropic");
-  const accounts = (settings?.connections ?? [])
-    .filter((row) => row.provider === "anthropic")
-    .map(rowOf);
-  const { start } = connect;
-  const handleStart = useCallback(async () => {
-    try {
-      if (await start("anthropic")) {
-        showToast({ title: "Claude (Pro/Max) account connected." });
-      }
-    } catch (error) {
-      showToast({ title: friendlyError(error), variant: "error" });
-    }
-  }, [start]);
-
-  return (
-    <EngineAccountList
-      title="Claude (Pro/Max)"
-      description={
-        accounts.length > 0
-          ? "The checked account runs Claude Code on all your computers and in the cloud. Your own devices sign in and refresh it; Stella's server only stores the encrypted token."
-          : "Use your Claude subscription on all your computers and in the cloud. You sign in on your own device, which also keeps it refreshed; Stella's server only stores the encrypted token."
-      }
-      accounts={accounts}
-      autoSwitch={settings?.autoSwitch?.anthropic ?? false}
-      autoSwitchDescription="When the checked account reaches its 5-hour or weekly limit, move to the next account until it resets."
-      busy={actions.busy || refreshing}
-      adding={connect.flow !== null}
-      addLabel="Add account"
-      onAdd={() => void handleStart()}
-      onUse={actions.onUse}
-      onSignOut={(accountId) =>
-        void actions.run(() => cloudEnginesApi.disconnect("anthropic", accountId), "Signed out.")
-      }
-      onToggleAutoSwitch={actions.onToggleAutoSwitch}
-      addFlow={connect.flow ? <EngineConnectPrompt connect={connect} /> : null}
-    />
-  );
-}
 
 function CloudChatGptAccounts({
   settings,
@@ -132,83 +61,114 @@ function CloudChatGptAccounts({
   settings: EngineSettings | undefined;
   refreshing: boolean;
 }) {
+  const t = useT();
   const connect = useEngineConnect();
-  const actions = useAccountActions("chatgpt");
-  const accounts = (settings?.connections ?? [])
-    .filter((row) => row.provider === "chatgpt")
-    .map(rowOf);
+  const [busy, setBusy] = useState(false);
+  const connections = (settings?.connections ?? []).filter(
+    (row) => row.provider === "chatgpt",
+  );
+  const accounts = connections.map(rowOf);
+  // Registrations another host made that the cloud hasn't signed in with.
+  const shared = (settings?.chatGptRegistrations ?? []).filter(
+    (registration: ChatGptSharedRegistration) =>
+      (registration.email || registration.name) &&
+      !connections.some((row) => row.clientId === registration.clientId),
+  );
   const { start } = connect;
+
+  const run = useCallback(
+    async (action: () => Promise<unknown>, done?: string) => {
+      setBusy(true);
+      try {
+        await action();
+        if (done) showToast({ title: done });
+      } catch (error) {
+        showToast({
+          title: error instanceof Error && error.message ? error.message : t(`${K}.errorGeneric`),
+          variant: "error",
+        });
+      } finally {
+        setBusy(false);
+      }
+    },
+    [t],
+  );
+
   const signIn = useCallback(
     async (options: EngineConnectOptions = {}) => {
       try {
-        if (!(await start("chatgpt", options))) return;
-        showToast({ title: "Stella's cloud is signed in to ChatGPT." });
+        if (!(await start(options))) return;
+        showToast({ title: t(`${K}.chatgptCloudSignedIn`) });
         announceChatGptPlanUse();
       } catch (error) {
-        showToast({ title: friendlyError(error), variant: "error" });
+        showToast({
+          title: error instanceof Error && error.message ? error.message : t(`${K}.errorGeneric`),
+          variant: "error",
+        });
       }
     },
-    [start],
+    [start, t],
   );
-  const website = isWebsiteHost();
+  const disabled = busy || refreshing || connect.flow !== null;
 
   return (
     <EngineAccountList
-      title="ChatGPT for your cloud"
-      description={
-        <>
-          Cloud chat and cloud agents use your ChatGPT plan, and that usage
-          counts against it. Stella's cloud keeps its own sign-in, separate
-          from your computers
-          {website
-            ? "; each computer signs in to ChatGPT in the Stella desktop app."
-            : "; this computer's ChatGPT sign-in is below."}
-        </>
-      }
+      title={t(`${K}.chatgptCloudTitle`)}
+      description={`${t(`${K}.chatgptCloudDescription`)} ${
+        isWebsiteHost()
+          ? t(`${K}.chatgptCloudComputersWebsite`)
+          : t(`${K}.chatgptCloudComputersDesktop`)
+      }`}
       accounts={accounts}
-      autoSwitch={settings?.autoSwitch?.chatgpt ?? false}
-      autoSwitchDescription="When the checked account reaches a ChatGPT usage limit, move to the next signed-in account."
-      busy={actions.busy || refreshing}
+      busy={busy || refreshing}
       adding={connect.flow !== null}
-      addLabel="Add account"
       onAdd={() => void signIn()}
       addButton={
         <ContinueWithChatGptButton
           onClick={() => void signIn()}
-          disabled={actions.busy || refreshing || connect.flow !== null}
+          disabled={disabled}
           loading={connect.busy}
+          {...(accounts.length + shared.length > 0
+            ? { label: t(`${K}.addAnotherChatgpt`) }
+            : {})}
         />
       }
-      onUse={actions.onUse}
+      onUse={(accountId) =>
+        void run(() => cloudEnginesApi.setActiveAccount("chatgpt", accountId))
+      }
       onSignOut={(accountId) =>
-        void actions.run(async () => {
+        void run(async () => {
           const result = await cloudEnginesApi.disconnect("chatgpt", accountId);
           if (result && !result.revoked) {
             showToast({
-              title: "Signed out of ChatGPT here",
-              description:
-                "ChatGPT didn't confirm the sign-out. You can disconnect Stella in ChatGPT Settings.",
+              title: t(`${K}.revokeTitleCloud`),
+              description: t(`${K}.revokeUnconfirmed`),
             });
           }
-        }, "Signed out.")
+        }, t(`${K}.signedOut`))
       }
       onSignInAgain={(accountId) => void signIn({ accountId })}
       onEnablePlanUsage={(accountId) => void signIn({ accountId, enablePlanUsage: true })}
       onRemove={(accountId) =>
-        void actions.run(
+        void run(
           () => cloudEnginesApi.disconnect("chatgpt", accountId, { forget: true }),
-          "Removed.",
+          t(`${K}.removed`),
         )
       }
-      onToggleAutoSwitch={actions.onToggleAutoSwitch}
-      addFlow={connect.flow ? <EngineConnectPrompt connect={connect} /> : null}
+      addFlow={
+        <>
+          <ChatGptSharedRegistrations
+            registrations={shared}
+            disabled={disabled}
+            onContinue={(clientId) => void signIn({ clientId })}
+          />
+          {connect.flow ? <EngineConnectPrompt connect={connect} /> : null}
+        </>
+      }
       footer={
         accounts.length > 0 ? (
           <div className="settings-row">
-            <div className="settings-row-sublabel">
-              Review your ChatGPT usage, or set how much of your plan Stella may
-              use, in ChatGPT Settings.
-            </div>
+            <div className="settings-row-sublabel">{t(`${K}.manageUsageHint`)}</div>
             <div className="settings-row-control">
               <ManageChatGptUsageLink />
             </div>
@@ -220,6 +180,7 @@ function CloudChatGptAccounts({
 }
 
 export function CloudEnginesCard() {
+  const t = useT();
   const { isAuthenticated } = useAuthState();
   const connections = useCloudEngines(isAuthenticated);
   const [switching, setSwitching] = useState(false);
@@ -256,7 +217,10 @@ export function CloudEnginesCard() {
       await cloudEnginesApi.setExecution(execution);
       publishCloudExecutionSelection(execution);
     } catch (error) {
-      showToast({ title: friendlyError(error), variant: "error" });
+      showToast({
+        title: error instanceof Error && error.message ? error.message : t(`${K}.errorGeneric`),
+        variant: "error",
+      });
     } finally {
       setSwitching(false);
     }
@@ -264,24 +228,16 @@ export function CloudEnginesCard() {
 
   return (
     <div className="settings-card">
-      <h3 className="settings-card-title">Claude &amp; ChatGPT accounts</h3>
+      <h3 className="settings-card-title">{t(`${K}.cardTitle`)}</h3>
       <div className="settings-row">
-        <div className="settings-row-sublabel">
-          Use the Claude or ChatGPT plan you already pay for. Claude accounts
-          are shared by all your computers and the cloud. ChatGPT is signed in
-          per place: each computer has its own sign-in, and Stella's cloud has
-          its own.
-        </div>
+        <div className="settings-row-sublabel">{t(`${K}.cardIntro`)}</div>
       </div>
-      <ClaudeAccounts settings={connections} refreshing={refreshing} />
+      <ClaudeAccountsSection settings={connections} refreshing={refreshing} />
       <CloudChatGptAccounts settings={connections} refreshing={refreshing} />
       <div className="settings-row">
         <div className="settings-row-info">
-          <div className="settings-row-label">Cloud chat runs on</div>
-          <div className="settings-row-sublabel">
-            Stella's built-in engine is metered by your Stella plan; Claude or
-            ChatGPT bills that subscription instead.
-          </div>
+          <div className="settings-row-label">{t(`${K}.runsOnLabel`)}</div>
+          <div className="settings-row-sublabel">{t(`${K}.runsOnDescription`)}</div>
         </div>
         <div
           className="settings-row-control"
@@ -302,7 +258,7 @@ export function CloudEnginesCard() {
             className={`pill-btn${chatEngine === "anthropic" ? " pill-btn--active" : ""}`}
             onClick={() => void chooseEngine("anthropic")}
             disabled={switching || !usableProviders.has("anthropic")}
-            title={usableProviders.has("anthropic") ? undefined : "Connect Claude first"}
+            title={usableProviders.has("anthropic") ? undefined : t(`${K}.needsClaudeCloud`)}
           >
             Claude
           </Button>
@@ -312,11 +268,7 @@ export function CloudEnginesCard() {
             className={`pill-btn${chatEngine === "chatgpt" ? " pill-btn--active" : ""}`}
             onClick={() => void chooseEngine("chatgpt")}
             disabled={switching || !usableProviders.has("chatgpt")}
-            title={
-              usableProviders.has("chatgpt")
-                ? undefined
-                : "Continue with ChatGPT for your cloud first"
-            }
+            title={usableProviders.has("chatgpt") ? undefined : t(`${K}.needsChatgptCloud`)}
           >
             ChatGPT
           </Button>

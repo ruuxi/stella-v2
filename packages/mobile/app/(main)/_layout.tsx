@@ -68,7 +68,6 @@ import {
   useActivityHub,
   useBackOverride,
 } from "../../src/lib/main-shell-store";
-import { useEngineTokenRefresher } from "../../src/lib/use-engine-token-refresher";
 import { useT } from "../../src/i18n";
 import type { ChatArtifact } from "../../src/types";
 
@@ -119,7 +118,6 @@ export default function MainLayout() {
   const t = useT();
   const { isDark } = useTheme();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
-  useEngineTokenRefresher();
 
   useEffect(() => {
     if (!hasAiConsent()) {

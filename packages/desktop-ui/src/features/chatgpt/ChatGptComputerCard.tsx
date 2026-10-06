@@ -1,60 +1,78 @@
 import { useCallback, useState } from "react";
 import { showToast } from "@/ui/toast";
+import { useT } from "@/shared/i18n";
+import { useAuthState } from "@/global/auth/BackendAuthProvider";
+import { useCloudEngines } from "@/features/cloud/cloud-engines-api";
 import { EngineAccountList, type EngineAccountRow } from "@/features/cloud/EngineAccountList";
 import {
   announceChatGptPlanUse,
   ContinueWithChatGptButton,
   ManageChatGptUsageLink,
 } from "./ChatGptBrand";
+import { ChatGptSharedRegistrations } from "./ChatGptSharedRegistrations";
 import { useChatGptProfiles } from "./use-chatgpt-profiles";
 
 /**
  * "ChatGPT on this computer": this install's own Sign in with ChatGPT
  * accounts. Desktop only. The computer signs in through the browser,
  * keeps the credentials in its keychain-protected store, refreshes them
- * itself, and calls OpenAI directly; Stella's server never sees them.
+ * itself, and calls OpenAI directly; Stella's server never sees them. A
+ * registration another of the owner's hosts made can be reused in one click.
  */
 
-const friendlyError = (error: unknown): string =>
-  error instanceof Error && error.message ? error.message : "That didn't work. Try again.";
+const K = "settings.engineAccounts";
+
+const sameEmail = (a: string | undefined, b: string | undefined) =>
+  Boolean(a && b && a.trim().toLowerCase() === b.trim().toLowerCase());
 
 export function ChatGptComputerCard() {
+  const t = useT();
   const chatgpt = useChatGptProfiles();
+  const { isAuthenticated } = useAuthState();
+  const engines = useCloudEngines(isAuthenticated && chatgpt.available);
   const [busy, setBusy] = useState(false);
   const { signIn } = chatgpt;
 
-  const run = useCallback(async (action: () => Promise<unknown>, done?: string) => {
-    setBusy(true);
-    try {
-      await action();
-      if (done) showToast({ title: done });
-    } catch (error) {
-      showToast({ title: friendlyError(error), variant: "error" });
-    } finally {
-      setBusy(false);
-    }
-  }, []);
+  const errorTitle = useCallback(
+    (error: unknown) =>
+      error instanceof Error && error.message ? error.message : t(`${K}.errorGeneric`),
+    [t],
+  );
+
+  const run = useCallback(
+    async (action: () => Promise<unknown>, done?: string) => {
+      setBusy(true);
+      try {
+        await action();
+        if (done) showToast({ title: done });
+      } catch (error) {
+        showToast({ title: errorTitle(error), variant: "error" });
+      } finally {
+        setBusy(false);
+      }
+    },
+    [errorTitle],
+  );
 
   const handleSignIn = useCallback(
-    async (options?: { profileId?: string; enablePlanUsage?: boolean }) => {
+    async (options?: { profileId?: string; sharedClientId?: string; enablePlanUsage?: boolean }) => {
       try {
         const profile = await signIn(options);
         if (!profile) return;
         if (profile.planUsage) {
-          showToast({ title: "This computer is signed in to ChatGPT." });
+          showToast({ title: t(`${K}.chatgptComputerSignedIn`) });
           announceChatGptPlanUse();
         } else {
           showToast({
-            title: "Signed in, but ChatGPT plan use isn't enabled",
-            description:
-              "Stella can't use your ChatGPT plan until you allow it. Choose “Enable ChatGPT plan use” on the account, or use another model.",
+            title: t(`${K}.planUsageOffTitle`),
+            description: t(`${K}.planUsageOffBody`),
           });
         }
       } catch (error) {
-        showToast({ title: friendlyError(error), variant: "error" });
+        showToast({ title: errorTitle(error), variant: "error" });
       }
     },
-    [signIn],
+    [errorTitle, signIn, t],
   );
 
   if (!chatgpt.available) return null;
@@ -64,73 +82,83 @@ export function ChatGptComputerCard() {
     label: profile.name ?? profile.label,
     ...(profile.email ? { email: profile.email } : {}),
     active: profile.active,
-    ...(profile.limitedUntil ? { limitedUntil: profile.limitedUntil } : {}),
     ...(profile.status !== "signed_in" ? { status: profile.status } : {}),
     planUsage: profile.planUsage,
-    limitText: "Usage limit reached",
   }));
+  // Registrations another host made that this computer has no account for.
+  const shared = (engines?.chatGptRegistrations ?? []).filter(
+    (registration) =>
+      (registration.email || registration.name) &&
+      !chatgpt.profiles.some(
+        (profile) =>
+          profile.clientId === registration.clientId ||
+          sameEmail(profile.email, registration.email),
+      ),
+  );
 
   const revokeNote = (result: { revoked: boolean } | undefined) => {
     if (result && !result.revoked) {
       showToast({
-        title: "Signed out on this computer",
-        description:
-          "ChatGPT didn't confirm the sign-out. You can disconnect Stella in ChatGPT Settings.",
+        title: t(`${K}.revokeTitleComputer`),
+        description: t(`${K}.revokeUnconfirmed`),
       });
     }
   };
 
   return (
     <div className="settings-card">
-      <h3 className="settings-card-title">ChatGPT on this computer</h3>
+      <h3 className="settings-card-title">{t(`${K}.chatgptComputerCardTitle`)}</h3>
       <EngineAccountList
         title="ChatGPT"
-        description="Stella on this computer uses your ChatGPT plan when you pick a ChatGPT model, and that usage counts against your plan. This computer keeps its own sign-in in its keychain and talks to OpenAI directly."
+        description={t(`${K}.chatgptComputerDescription`)}
         accounts={accounts}
-        autoSwitch={chatgpt.autoSwitch}
-        autoSwitchDescription="When the checked account reaches a ChatGPT usage limit, move to the next signed-in account on this computer."
         busy={busy || !chatgpt.loaded}
         adding={chatgpt.signingIn}
-        addLabel="Add account"
         onAdd={() => void handleSignIn()}
         addButton={
           <ContinueWithChatGptButton
             onClick={() => void handleSignIn()}
             disabled={busy}
             loading={chatgpt.signingIn}
+            {...(accounts.length + shared.length > 0
+              ? { label: t(`${K}.addAnotherChatgpt`) }
+              : {})}
           />
         }
         onUse={(profileId) => void run(() => chatgpt.setActive(profileId))}
         onSignOut={(profileId) =>
-          void run(async () => revokeNote(await chatgpt.signOut(profileId)), "Signed out.")
+          void run(async () => revokeNote(await chatgpt.signOut(profileId)), t(`${K}.signedOut`))
         }
         onSignInAgain={(profileId) => void handleSignIn({ profileId })}
         onEnablePlanUsage={(profileId) => void handleSignIn({ profileId, enablePlanUsage: true })}
         onRemove={(profileId) =>
-          void run(async () => revokeNote(await chatgpt.remove(profileId)), "Removed.")
+          void run(async () => revokeNote(await chatgpt.remove(profileId)), t(`${K}.removed`))
         }
-        onToggleAutoSwitch={(enabled) => void run(() => chatgpt.setAutoSwitch(enabled))}
         addFlow={
-          chatgpt.signingIn ? (
-            <div className="settings-row">
-              <div className="settings-row-sublabel" aria-live="polite">
-                Finish signing in to ChatGPT in your browser.
+          <>
+            <ChatGptSharedRegistrations
+              registrations={shared}
+              disabled={busy || chatgpt.signingIn}
+              onContinue={(sharedClientId) => void handleSignIn({ sharedClientId })}
+            />
+            {chatgpt.signingIn ? (
+              <div className="settings-row">
+                <div className="settings-row-sublabel" aria-live="polite">
+                  {t(`${K}.chatgptBrowserWaiting`)}
+                </div>
+                <div className="settings-row-control">
+                  <button type="button" className="pill-btn" onClick={chatgpt.cancelSignIn}>
+                    {t("common.cancel")}
+                  </button>
+                </div>
               </div>
-              <div className="settings-row-control">
-                <button type="button" className="pill-btn" onClick={chatgpt.cancelSignIn}>
-                  Cancel
-                </button>
-              </div>
-            </div>
-          ) : null
+            ) : null}
+          </>
         }
         footer={
           accounts.length > 0 ? (
             <div className="settings-row">
-              <div className="settings-row-sublabel">
-                Review your ChatGPT usage, or set how much of your plan Stella may use, in
-                ChatGPT Settings.
-              </div>
+              <div className="settings-row-sublabel">{t(`${K}.manageUsageHint`)}</div>
               <div className="settings-row-control">
                 <ManageChatGptUsageLink />
               </div>

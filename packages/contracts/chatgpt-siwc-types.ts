@@ -8,6 +8,8 @@
 export type ChatGptProfileSummary = {
   id: string;
   label: string;
+  /** The registration's issued client id (an identifier; other hosts may reuse it). */
+  clientId: string;
   email?: string;
   name?: string;
   /** Serves this host's ChatGPT turns. */
@@ -16,13 +18,9 @@ export type ChatGptProfileSummary = {
   status: "signed_in" | "signed_out" | "reauth_required";
   /** ChatGPT plan usage was granted. */
   planUsage: boolean;
-  /** Set while the account's usage limit applies: when to try it again. */
-  limitedUntil?: number;
   updatedAt: number;
 };
 
 export type ChatGptProfilesState = {
-  /** Switch to the next signed-in account when the active one hits a limit. */
-  autoSwitch: boolean;
   profiles: ChatGptProfileSummary[];
 };

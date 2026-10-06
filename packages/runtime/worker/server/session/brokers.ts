@@ -75,13 +75,19 @@ export const layer = Layer.effect(
           });
           return value.ok && "value" in value ? value.value : null;
         },
-        reportSubscriptionLimit: async (provider, resetsAt) => {
+        getClaudeCodeConfig: async () => {
           const result = await requestHostLlmCredentials({
-            operation: "report-limit",
-            provider,
-            ...(resetsAt !== undefined ? { resetsAt } : {}),
+            operation: "claude-config",
           });
-          return { switched: result.ok && "switched" in result && result.switched };
+          if (!result.ok || !("signedIn" in result)) {
+            // An older host, or none available: the CLI's own default login.
+            return { configDir: null, signedIn: true };
+          }
+          return {
+            configDir: result.configDir,
+            ...(result.email ? { email: result.email } : {}),
+            signedIn: result.signedIn,
+          };
         },
       });
     };

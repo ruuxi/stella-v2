@@ -13,8 +13,10 @@
  * validated identity, retained ID token, tokens), refreshes its own tokens
  * and never shares them. Several accounts can be saved; one is active.
  * Signing out revokes the session and keeps the registration, so a later
- * sign-in reuses its client id. With auto-switch on, an account that hits a
- * usage limit hands over to the next signed-in one.
+ * sign-in reuses its client id. A registration another host of the owner
+ * made (its issued client id) can be signed in here too, under this host's
+ * own id; the tokens stay per host. A usage limit is reported to the user;
+ * nothing switches accounts.
  *
  * Electron main is the only process that reads or writes this store, so
  * refreshes of one account are serialized here.
@@ -46,9 +48,6 @@ const SECRET_SCOPE = "chatgpt-profile";
 const REFRESH_WINDOW_MS = 5 * 60_000;
 /** A token this close to expiry isn't handed out. */
 const EXPIRY_MARGIN_MS = 60_000;
-/** Cooldown when a usage limit came without a reset time. */
-const UNKNOWN_RESET_COOLDOWN_MS = 60 * 60_000;
-const MAX_COOLDOWN_MS = 8 * 24 * 60 * 60_000;
 
 type StoredProfile = {
   id: string;
@@ -59,7 +58,6 @@ type StoredProfile = {
   name?: string;
   status: ChatGptProfileSummary["status"];
   planUsage: boolean;
-  limitedUntil?: number;
   /** Encrypted `ProfileSecrets`; absent once signed out or refused. */
   secretsProtected?: string;
   createdAt: number;
@@ -79,7 +77,6 @@ type ProfilesFile = {
   version: 1;
   hostId: string;
   activeProfileId?: string;
-  autoSwitch: boolean;
   profiles: StoredProfile[];
 };
 
@@ -89,7 +86,12 @@ const readFile = (stellaAppDir: string): ProfilesFile => {
   try {
     const parsed = JSON.parse(fs.readFileSync(filePath(stellaAppDir), "utf-8")) as ProfilesFile;
     if (parsed?.version === 1 && isChatGptHostId(parsed.hostId) && Array.isArray(parsed.profiles)) {
-      return { ...parsed, autoSwitch: parsed.autoSwitch === true };
+      return {
+        version: 1,
+        hostId: parsed.hostId,
+        ...(parsed.activeProfileId ? { activeProfileId: parsed.activeProfileId } : {}),
+        profiles: parsed.profiles,
+      };
     }
   } catch {
     // Missing or unreadable: a new host.
@@ -97,7 +99,6 @@ const readFile = (stellaAppDir: string): ProfilesFile => {
   const fresh: ProfilesFile = {
     version: 1,
     hostId: createChatGptHostId(),
-    autoSwitch: false,
     profiles: [],
   };
   writeFile(stellaAppDir, fresh);
@@ -133,24 +134,21 @@ const protectSecrets = (profileId: string, secrets: ProfileSecrets): string =>
 const isServable = (profile: StoredProfile): boolean =>
   profile.status === "signed_in" && profile.planUsage && Boolean(profile.secretsProtected);
 
-const isLimited = (profile: StoredProfile, now: number): boolean =>
-  profile.limitedUntil !== undefined && profile.limitedUntil > now;
-
 /** The chosen account when it can serve, else the oldest that can. */
 const activeProfile = (file: ProfilesFile): StoredProfile | undefined => {
   const servable = file.profiles.filter(isServable);
   return servable.find((profile) => profile.id === file.activeProfileId) ?? servable[0];
 };
 
-const summary = (file: ProfilesFile, profile: StoredProfile, now: number): ChatGptProfileSummary => ({
+const summary = (file: ProfilesFile, profile: StoredProfile): ChatGptProfileSummary => ({
   id: profile.id,
   label: profile.label,
+  clientId: profile.clientId,
   ...(profile.email ? { email: profile.email } : {}),
   ...(profile.name ? { name: profile.name } : {}),
   active: activeProfile(file)?.id === profile.id,
   status: profile.status,
   planUsage: profile.planUsage,
-  ...(isLimited(profile, now) ? { limitedUntil: profile.limitedUntil } : {}),
   updatedAt: profile.updatedAt,
 });
 
@@ -159,11 +157,7 @@ export const getChatGptHostId = (stellaAppDir: string): string => readFile(stell
 
 export const listChatGptProfiles = (stellaAppDir: string): ChatGptProfilesState => {
   const file = readFile(stellaAppDir);
-  const now = Date.now();
-  return {
-    autoSwitch: file.autoSwitch,
-    profiles: file.profiles.map((profile) => summary(file, profile, now)),
-  };
+  return { profiles: file.profiles.map((profile) => summary(file, profile)) };
 };
 
 /** Whether an account on this computer can serve ChatGPT requests. */
@@ -191,6 +185,10 @@ export const savedChatGptRegistration = (
     ...(profile.email ? { email: profile.email } : {}),
   };
 };
+
+/** The saved account signed in with `clientId`, if this computer has one. */
+export const chatGptProfileIdForClient = (stellaAppDir: string, clientId: string): string | null =>
+  readFile(stellaAppDir).profiles.find((profile) => profile.clientId === clientId)?.id ?? null;
 
 /**
  * Keep a new registration's issued client id before its code is exchanged,
@@ -245,7 +243,6 @@ export const saveChatGptRegistration = (
   if (registration.name) profile.name = registration.name;
   profile.status = "signed_in";
   profile.planUsage = registration.planUsage;
-  delete profile.limitedUntil;
   profile.secretsProtected = protectSecrets(profile.id, {
     access: registration.tokens.access,
     refresh: registration.tokens.refresh,
@@ -259,7 +256,7 @@ export const saveChatGptRegistration = (
   profile.updatedAt = now;
   if (registration.planUsage) file.activeProfileId = profile.id;
   writeFile(stellaAppDir, file);
-  return summary(file, profile, now);
+  return summary(file, profile);
 };
 
 export const setActiveChatGptProfile = (stellaAppDir: string, profileId: string): void => {
@@ -267,12 +264,6 @@ export const setActiveChatGptProfile = (stellaAppDir: string, profileId: string)
   const profile = findProfile(file, profileId);
   if (!isServable(profile)) throw new Error("Sign in to this ChatGPT account first.");
   file.activeProfileId = profile.id;
-  writeFile(stellaAppDir, file);
-};
-
-export const setChatGptAutoSwitch = (stellaAppDir: string, enabled: boolean): void => {
-  const file = readFile(stellaAppDir);
-  file.autoSwitch = enabled;
   writeFile(stellaAppDir, file);
 };
 
@@ -287,7 +278,6 @@ const dropSecrets = (
   const profile = file.profiles.find((entry) => entry.id === profileId);
   if (!profile || (onlyIf !== undefined && profile.secretsProtected !== onlyIf)) return;
   delete profile.secretsProtected;
-  delete profile.limitedUntil;
   profile.status = status;
   profile.updatedAt = Date.now();
   writeFile(stellaAppDir, file);
@@ -328,9 +318,8 @@ const refreshing = new Map<string, Promise<string | null>>();
 
 /**
  * The active account's access token, refreshed first when it is close to
- * expiry (or `forceRefresh`, after the provider rejected it). With
- * auto-switch on, a limited active account hands over to the next one. A
- * refresh refused for good marks the account for a new sign-in.
+ * expiry (or `forceRefresh`, after the provider rejected it). A refresh
+ * refused for good marks the account for a new sign-in.
  */
 export const getChatGptAccessToken = async (
   stellaAppDir: string,
@@ -338,16 +327,8 @@ export const getChatGptAccessToken = async (
 ): Promise<string | null> => {
   const file = readFile(stellaAppDir);
   const now = Date.now();
-  let profile = activeProfile(file);
+  const profile = activeProfile(file);
   if (!profile) return null;
-  if (file.autoSwitch && isLimited(profile, now)) {
-    const next = nextAvailable(file, profile, now);
-    if (next) {
-      file.activeProfileId = next.id;
-      writeFile(stellaAppDir, file);
-      profile = next;
-    }
-  }
   const secrets = readSecrets(profile);
   if (!secrets) return null;
   const usable = secrets.expiresAt - EXPIRY_MARGIN_MS > now;
@@ -403,40 +384,4 @@ export const getChatGptAccessToken = async (
   })();
   refreshing.set(profile.id, run);
   return await run;
-};
-
-/** The next signed-in, unlimited account after `current`, in saved order. */
-const nextAvailable = (
-  file: ProfilesFile,
-  current: StoredProfile,
-  now: number,
-): StoredProfile | undefined => {
-  const start = file.profiles.findIndex((profile) => profile.id === current.id);
-  const ordered = [...file.profiles.slice(start + 1), ...file.profiles.slice(0, Math.max(start, 0))];
-  return ordered.find(
-    (profile) => profile.id !== current.id && isServable(profile) && !isLimited(profile, now),
-  );
-};
-
-/**
- * The active account hit a ChatGPT usage limit: cool it down (until
- * `resetsAt`, else an hour, since the code alone says nothing about when it
- * resets) and, with auto-switch on, hand over to the next account.
- */
-export const markChatGptProfileLimited = (
-  stellaAppDir: string,
-  resetsAt?: number,
-): { switched: boolean } => {
-  const file = readFile(stellaAppDir);
-  const profile = activeProfile(file);
-  if (!profile) return { switched: false };
-  const now = Date.now();
-  profile.limitedUntil = Math.min(
-    Math.max(resetsAt ?? now + UNKNOWN_RESET_COOLDOWN_MS, now + 60_000),
-    now + MAX_COOLDOWN_MS,
-  );
-  const next = file.autoSwitch ? nextAvailable(file, profile, now) : undefined;
-  if (next) file.activeProfileId = next.id;
-  writeFile(stellaAppDir, file);
-  return { switched: Boolean(next) };
 };

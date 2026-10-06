@@ -1,0 +1,37 @@
+.engine-account-badge {
+  padding: 1px 8px;
+  border: 1px solid var(--border-weak);
+  border-radius: 999px;
+  font-size: var(--font-size-xs);
+  line-height: 1.6;
+  color: var(--text-base);
+  white-space: nowrap;
+}
+
+.engine-account-places {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 3px;
+  font-size: var(--font-size-xs);
+  color: var(--text-weak);
+}
+
+.engine-account-place {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.engine-account-place::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+}
+
+.engine-account-place[data-signed-in]::before {
+  border-color: var(--success);
+  background: var(--success);
+}

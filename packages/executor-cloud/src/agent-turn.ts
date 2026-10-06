@@ -96,7 +96,9 @@ import {
   cloudClaudeRoleProfile,
   nativeHistoryCursorFromMessages,
   nativeHistoryCursorFromRows,
+  parseCloudClaudeAccountInput,
   runNativeAgentTurn,
+  type CloudClaudeAccountInput,
 } from "./native-agent-turn.js";
 import { runOrchestratorTurn } from "./orchestrator-turn.js";
 import {
@@ -195,11 +197,17 @@ export type AgentTurnInput = CloudCliTurnRoleInput & {
   /** Short-lived capability for exporting and pushing this world's projection. */
   world: WorldSyncAccess;
   /**
-   * Model gateway access for this exact turn. The capability is a signed,
-   * turn-scoped, budgeted, expiring token that is only valid at the gateway;
-   * the sandbox sends model traffic there directly.
+   * Model gateway access for this exact turn (Stella and ChatGPT turns). The
+   * capability is a signed, turn-scoped, budgeted, expiring token that is
+   * only valid at the gateway; the sandbox sends model traffic there
+   * directly. Claude turns have none.
    */
-  modelGateway: CloudModelGatewayInput;
+  modelGateway?: CloudModelGatewayInput;
+  /**
+   * Claude turns: which of the owner's container Claude Code logins the CLI
+   * runs on (a directory key and the account's email, never a credential).
+   */
+  claudeAccount?: CloudClaudeAccountInput;
   /** Prior thread transcript rows, oldest first (send_input continuations). */
   history?: AgentHistoryRow[];
   /** Safe approval receipt used to resume a previously suspended code call. */
@@ -419,6 +427,14 @@ export const prepareCloudToolFilesystem = async (args: {
           CLOUD_TOOL_PROCESS_IDENTITY.gid,
         );
         await handle.chmod(0o700);
+      } else if (
+        details.uid === CLOUD_TOOL_PROCESS_IDENTITY.uid &&
+        details.gid === CLOUD_TOOL_PROCESS_IDENTITY.gid
+      ) {
+        // A world materialized from its export (or made by the worker shell)
+        // carries 0755 directories; the tool account's own state directory
+        // is tightened rather than refused. Ownership is still checked below.
+        await handle.chmod(0o700);
       }
     } finally {
       await handle.close();
@@ -559,8 +575,14 @@ export const runAgentTurn = (
           runOrchestratorTurn({ input, broker }),
         );
       }
-      const modelGateway = parseCloudModelGatewayInput(input.modelGateway);
-      if (!modelGateway) {
+      const native = usesNativeCloudRuntime(input.execution);
+      const modelGateway = native
+        ? null
+        : parseCloudModelGatewayInput(input.modelGateway);
+      const claudeAccount = native
+        ? parseCloudClaudeAccountInput(input.claudeAccount)
+        : null;
+      if (native ? !claudeAccount : !modelGateway) {
         return {
           ok: false,
           finalText: "",
@@ -905,8 +927,7 @@ export const runAgentTurn = (
                 prompt: input.prompt,
                 systemPrompt: cloudSystemPrompt,
                 execution: nativeExecution,
-                gatewayOrigin: modelGateway.origin,
-                capability: modelGateway.capability,
+                claudeAccount: claudeAccount!,
                 threadId: input.threadId,
                 turnId: input.turnId,
                 authoritativeHistoryCursor: nativeHistoryCursorFromRows(
@@ -964,8 +985,8 @@ export const runAgentTurn = (
         const model = yield* Effect.tryPromise({
           try: () =>
             createCloudRelayModel({
-              gatewayOrigin: modelGateway.origin,
-              capability: modelGateway.capability,
+              gatewayOrigin: modelGateway!.origin,
+              capability: modelGateway!.capability,
               agentType: "general",
               execution: input.execution,
             }),
@@ -979,7 +1000,7 @@ export const runAgentTurn = (
             messages: history,
           },
           sessionId: input.threadId,
-          getApiKey: () => modelGateway.capability,
+          getApiKey: () => modelGateway!.capability,
           toolExecution: "sequential",
           toolInactivityTimeoutMs: 5 * 60_000,
           // Same division of labor as the desktop runtime and the orchestrator

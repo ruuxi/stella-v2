@@ -120,14 +120,6 @@ export interface StreamOptions {
    */
   refreshApiKey?: () => Promise<string | undefined> | string | undefined;
   /**
-   * The subscription behind the API key hit its usage limit (Claude's 5-hour
-   * or weekly window, ChatGPT's Codex limit). Returns a key for another
-   * account to retry the request once with, or nothing to surface the error.
-   */
-  onSubscriptionLimit?: (info: {
-    resetsAt?: number;
-  }) => Promise<string | undefined> | string | undefined;
-  /**
    * Provider-specific extra body fields forwarded by the Stella runtime
    * proxy provider. Other providers ignore this.
    */

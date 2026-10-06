@@ -1216,22 +1216,6 @@ describe("resolveLlmRoute", () => {
     ).toBe(false);
   });
 
-  it("never routes anthropic/ models on a Claude subscription sign-in", async () => {
-    oauthCredentials.add("anthropic");
-    const { resolveLlmRoute } = await import(
-      "@stella/runtime/kernel/model-routing"
-    );
-
-    expect(() =>
-      resolveLlmRoute({
-        stellaAppDir: "/tmp/stella",
-        modelName: "anthropic/claude-opus-4.6",
-        agentType: "general",
-        site,
-      }),
-    ).toThrow(/no usable api key for anthropic/i);
-  });
-
   it("routes local OpenAI-compatible models directly without credentials", async () => {
     const { resolveLlmRoute } = await import(
       "@stella/runtime/kernel/model-routing"

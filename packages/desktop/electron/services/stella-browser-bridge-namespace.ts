@@ -12,7 +12,8 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { resolveDesktopStellaDataDirPath } from "../data-paths.js";
+import { isInstalledProduct } from "../app-identity.js";
+import { resolveDesktopStellaDataDirForInstall } from "../data-paths.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -92,32 +93,14 @@ const isolatedSocketDirName = (dataDir: string): string =>
 
 /**
  * Whether this instance IS the user's Stella, as opposed to a development
- * checkout running alongside it.
- *
- * `app.isPackaged` cannot answer this. Stella has no packaging step at all:
- * the installed desktop app runs from its own git checkout, started by the
- * native launchers, so `isPackaged` is false for the real product too. Keying
- * the bridge namespace off it therefore sent *every* installed app down the
- * "dev checkout" branch, which isolates the bridge away from the extension
- * channel — so the user's browser extension could never attach to the app that
- * actually asks for it, and "connect the extension" was unfixable by the user.
- *
- * The launcher's `STELLA_LAUNCHER=1` is the existing signal for "this source
- * tree is the product" (bootstrap uses it to pick Stella's name, userData and
- * durable home). A dev harness sets `STELLA_DEV_HARNESS=1` and must stay
- * isolated even though it is launcher-started.
+ * checkout running alongside it. One question, answered in one place: see
+ * `../app-identity.ts` for why `app.isPackaged` cannot answer it and what
+ * happened when the bridge namespace tried.
  */
 export const isProductInstance = (options: {
   isPackaged: boolean;
   env?: NodeJS.ProcessEnv;
-}): boolean => {
-  const env = options.env ?? process.env;
-  if (options.isPackaged) return true;
-  return (
-    env.STELLA_LAUNCHER?.trim() === "1" &&
-    env.STELLA_DEV_HARNESS?.trim() !== "1"
-  );
-};
+}): boolean => isInstalledProduct(options);
 
 export const resolveBrowserBridgeNamespace = (options: {
   isPackaged: boolean;
@@ -128,11 +111,9 @@ export const resolveBrowserBridgeNamespace = (options: {
   const platform = options.platform ?? process.platform;
   const product = isProductInstance({ isPackaged: options.isPackaged, env });
   const requested = env[STELLA_BROWSER_BRIDGE_MODE_ENV]?.trim().toLowerCase();
-  const dataDir = resolveDesktopStellaDataDirPath({
-    mode: options.isPackaged ? "production" : "development",
-    configuredStatePath: options.isPackaged
-      ? env.STELLA_DATA_DIR
-      : env.STELLA_V2_DEV_DATA_DIR,
+  const dataDir = resolveDesktopStellaDataDirForInstall({
+    isPackaged: options.isPackaged,
+    env,
   });
   const wantsIsolated =
     requested === "isolated" || (requested !== "shared" && !product);

@@ -339,6 +339,54 @@ describe("taking a draft whose base moved", () => {
   });
 });
 
+/**
+ * Three of these four buttons end with the app taking the agent's result;
+ * undo ends with the user taking it. That is deliberate and it is not
+ * tidiness waiting to happen, so it is asserted as a difference rather than
+ * only as two separate behaviours that happen to differ.
+ */
+describe("who takes the result", () => {
+  const conflictingRemote = async () => {
+    const { cwd, service } = await build();
+    const base = head(cwd);
+    git(cwd, ["checkout", "-q", "-b", "other", base]);
+    const tip = await commit(cwd, "app.ts", "export const app = 'phone';\n", "Elsewhere");
+    git(cwd, ["checkout", "-q", "main"]);
+    git(cwd, ["update-ref", "refs/remotes/stella-fork/main", tip]);
+    git(cwd, ["branch", "-D", "other"]);
+    await commit(cwd, "app.ts", "export const app = 'desk';\n", "Here");
+    trackFork(service, "main");
+    return { cwd, service };
+  };
+
+  const conflictingUndo = async () => {
+    const { cwd, service } = await build();
+    const change = await commit(cwd, "app.ts", "export const app = 2;\n", "Change it");
+    await commit(cwd, "app.ts", "export const app = 3;\n", "Build on it");
+    return { cwd, service, change };
+  };
+
+  it("takes a merge it asked for, and leaves an undo to the user", async () => {
+    const merge = await conflictingRemote();
+    await merge.service.applyRemote();
+    const undo = await conflictingUndo();
+    await undo.service.undo(undo.change);
+
+    // Reconciling a change the user asked for with the current version is not
+    // a decision about what they wanted, so the app finishes the job.
+    expect((await published(merge.service)).update).toEqual({ state: "merging" });
+
+    // Removing a change that later work was built on is a different kind of
+    // question. Pressing Undo is consent to remove the change; it is not
+    // consent to whatever an agent decides the work built on top of it should
+    // become, and that has no single right answer. So the agent's draft goes
+    // to the chat like any other change and the user applies it having seen
+    // it. If this ever starts matching the merge above, that decision was
+    // flattened for symmetry rather than changed on purpose.
+    expect((await published(undo.service)).update).toBeUndefined();
+  });
+});
+
 describe("undoing a change later work was built on", () => {
   it("sends a brief and claims nothing about doing it", async () => {
     const { cwd, service } = await build();

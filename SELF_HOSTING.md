@@ -133,6 +133,17 @@ cloud-builder deploy builds and pushes the image.
 
 ### 1.4 Secrets
 
+**The quick way:** `bun scripts/self-host-setup.mjs` shows what it would do;
+`bun scripts/self-host-setup.mjs --apply` (add `--env production` for prod)
+generates every internal secret below, sets them on their workers, creates the
+capability key pair, writes `CAPABILITY_JWKS` and `CAPABILITY_SIGNING_KID` into
+the wrangler configs, and saves `STELLA_ADMIN_API_SECRET` to
+`workers/cloud-builder/.dev.vars` (dev) or
+`~/.config/stella/admin-api-secret.production` (prod). It never replaces a
+secret a worker already has, and lists what is still yours to set (the R2 API
+token, `OPENROUTER_API_KEY`). Commit the wrangler.jsonc changes afterwards. The
+rest of this section is what it does, by hand.
+
 Every secret is set with `printf %s "$VALUE" | bunx wrangler secret put NAME --env=""`
 from the worker's directory (`--env production` for prod). Never commit them.
 

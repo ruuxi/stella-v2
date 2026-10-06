@@ -2532,7 +2532,6 @@
       "backLabel": "Back to Settings",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
-      "addAccount": "Add account",
       "active": "In use",
       "useAccount": "Use this account",
       "signOut": "Sign out",
@@ -2554,9 +2553,6 @@
       "pastePlaceholderUrl": "Paste the address here",
       "openChatgptAgain": "Open ChatGPT again",
       "chatgptBrowserWaiting": "Finish signing in to ChatGPT in your browser.",
-      "claudeNote": "Claude Code uses the checked account on all your computers and in the cloud. Your own devices sign in to Claude and keep it refreshed; Stella's server only stores the encrypted tokens.",
-      "chatgptNote": "Cloud chat and cloud agents use the checked account, and that usage counts against your ChatGPT plan. Stella's cloud keeps its own sign-in; each computer signs in to ChatGPT in the Stella desktop app.",
-      "continueWithChatgpt": "Continue with ChatGPT",
       "signInAgain": "Sign in again",
       "enablePlanUsage": "Enable ChatGPT plan use",
       "remove": "Remove",
@@ -2569,7 +2565,9 @@
       "manageUsage": "Manage usage",
       "revokeUnconfirmed": "ChatGPT didn't confirm the sign-out. You can disconnect Stella in ChatGPT Settings.",
       "planWelcomeTitle": "You're using your ChatGPT plan",
-      "planWelcomeBody": "ChatGPT requests in Stella's cloud count against your ChatGPT plan. Review usage and set Stella's limit in ChatGPT Settings."
+      "planWelcomeBody": "ChatGPT requests in Stella's cloud count against your ChatGPT plan. Review usage and set Stella's limit in ChatGPT Settings.",
+      "connectClaude": "Connect Claude account",
+      "connectChatgpt": "Connect ChatGPT account"
     }
   },
   "companion": {

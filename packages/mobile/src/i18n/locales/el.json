@@ -2532,7 +2532,6 @@
       "backLabel": "Πίσω στις Ρυθμίσεις",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
-      "addAccount": "Προσθήκη λογαριασμού",
       "active": "Σε χρήση",
       "useAccount": "Χρήση αυτού του λογαριασμού",
       "signOut": "Αποσύνδεση",
@@ -2554,9 +2553,6 @@
       "pastePlaceholderUrl": "Επικολλήστε τη διεύθυνση εδώ",
       "openChatgptAgain": "Άνοιγμα του ChatGPT ξανά",
       "chatgptBrowserWaiting": "Ολοκληρώστε τη σύνδεση στο ChatGPT στο πρόγραμμα περιήγησης.",
-      "claudeNote": "Το Claude Code χρησιμοποιεί τον επιλεγμένο λογαριασμό σε όλους τους υπολογιστές σας και στο cloud. Οι δικές σας συσκευές συνδέονται στο Claude και διατηρούν τη σύνδεση ενημερωμένη· ο διακομιστής της Stella αποθηκεύει μόνο τα κρυπτογραφημένα tokens.",
-      "chatgptNote": "Η συνομιλία και οι πράκτορες στο cloud χρησιμοποιούν τον επιλεγμένο λογαριασμό, και αυτή η χρήση χρεώνεται στο πρόγραμμα ChatGPT σας. Το cloud της Stella έχει δική του σύνδεση· κάθε υπολογιστής συνδέεται στο ChatGPT από την εφαρμογή Stella για υπολογιστή.",
-      "continueWithChatgpt": "Συνέχεια με το ChatGPT",
       "signInAgain": "Σύνδεση ξανά",
       "enablePlanUsage": "Ενεργοποίηση χρήσης προγράμματος ChatGPT",
       "remove": "Αφαίρεση",
@@ -2569,7 +2565,9 @@
       "manageUsage": "Διαχείριση χρήσης",
       "revokeUnconfirmed": "Το ChatGPT δεν επιβεβαίωσε την αποσύνδεση. Μπορείτε να αποσυνδέσετε τη Stella από τις Ρυθμίσεις του ChatGPT.",
       "planWelcomeTitle": "Χρησιμοποιείτε το πρόγραμμα ChatGPT σας",
-      "planWelcomeBody": "Τα αιτήματα ChatGPT στο cloud της Stella χρεώνονται στο πρόγραμμα ChatGPT σας. Ελέγξτε τη χρήση και ορίστε το όριο της Stella στις Ρυθμίσεις του ChatGPT."
+      "planWelcomeBody": "Τα αιτήματα ChatGPT στο cloud της Stella χρεώνονται στο πρόγραμμα ChatGPT σας. Ελέγξτε τη χρήση και ορίστε το όριο της Stella στις Ρυθμίσεις του ChatGPT.",
+      "connectClaude": "Σύνδεση λογαριασμού Claude",
+      "connectChatgpt": "Σύνδεση λογαριασμού ChatGPT"
     }
   },
   "companion": {

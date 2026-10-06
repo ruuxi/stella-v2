@@ -2532,7 +2532,6 @@
       "backLabel": "Takaisin asetuksiin",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
-      "addAccount": "Lisää tili",
       "active": "Käytössä",
       "useAccount": "Käytä tätä tiliä",
       "signOut": "Kirjaudu ulos",
@@ -2554,9 +2553,6 @@
       "pastePlaceholderUrl": "Liitä osoite tähän",
       "openChatgptAgain": "Avaa ChatGPT uudelleen",
       "chatgptBrowserWaiting": "Viimeistele kirjautuminen ChatGPT:hen selaimessasi.",
-      "claudeNote": "Claude Code käyttää valittua tiliä kaikilla tietokoneillasi ja pilvessä. Omat laitteesi kirjautuvat Claudeen ja pitävät kirjautumisen ajan tasalla; Stellan palvelin tallentaa vain salatut tunnukset.",
-      "chatgptNote": "Pilvichat ja pilviagentit käyttävät valittua tiliä, ja käyttö lasketaan ChatGPT-tilauksesi kiintiöön. Stellan pilvellä on oma kirjautumisensa; kukin tietokone kirjautuu ChatGPT:hen Stellan työpöytäsovelluksessa.",
-      "continueWithChatgpt": "Jatka ChatGPT:llä",
       "signInAgain": "Kirjaudu uudelleen",
       "enablePlanUsage": "Ota ChatGPT-tilauksen käyttö käyttöön",
       "remove": "Poista",
@@ -2569,7 +2565,9 @@
       "manageUsage": "Hallitse käyttöä",
       "revokeUnconfirmed": "ChatGPT ei vahvistanut uloskirjautumista. Voit katkaista Stellan yhteyden ChatGPT:n asetuksissa.",
       "planWelcomeTitle": "Käytät ChatGPT-tilaustasi",
-      "planWelcomeBody": "Stellan pilven ChatGPT-pyynnöt lasketaan ChatGPT-tilauksesi kiintiöön. Tarkista käyttö ja aseta Stellan raja ChatGPT:n asetuksissa."
+      "planWelcomeBody": "Stellan pilven ChatGPT-pyynnöt lasketaan ChatGPT-tilauksesi kiintiöön. Tarkista käyttö ja aseta Stellan raja ChatGPT:n asetuksissa.",
+      "connectClaude": "Yhdistä Claude-tili",
+      "connectChatgpt": "Yhdistä ChatGPT-tili"
     }
   },
   "companion": {

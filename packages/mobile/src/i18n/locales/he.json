@@ -2554,7 +2554,6 @@
       "backLabel": "חזרה להגדרות",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
-      "addAccount": "הוספת חשבון",
       "active": "בשימוש",
       "useAccount": "שימוש בחשבון הזה",
       "signOut": "יציאה",
@@ -2576,9 +2575,6 @@
       "pastePlaceholderUrl": "הדביקו את הכתובת כאן",
       "openChatgptAgain": "פתיחת ChatGPT שוב",
       "chatgptBrowserWaiting": "סיימו את ההתחברות ל-ChatGPT בדפדפן.",
-      "claudeNote": "Claude Code משתמש בחשבון המסומן בכל המחשבים שלכם ובענן. המכשירים שלכם מתחברים ל-Claude ושומרים על החיבור מעודכן; השרת של Stella שומר רק את האסימונים המוצפנים.",
-      "chatgptNote": "צ'אט וסוכנים בענן משתמשים בחשבון המסומן, והשימוש הזה נספר במינוי ה-ChatGPT שלכם. לענן של Stella יש התחברות משלו; כל מחשב מתחבר ל-ChatGPT באפליקציית Stella למחשב.",
-      "continueWithChatgpt": "המשך עם ChatGPT",
       "signInAgain": "התחברות מחדש",
       "enablePlanUsage": "הפעלת השימוש במינוי ChatGPT",
       "remove": "הסרה",
@@ -2591,7 +2587,9 @@
       "manageUsage": "ניהול השימוש",
       "revokeUnconfirmed": "ChatGPT לא אישר את היציאה. אפשר לנתק את Stella בהגדרות של ChatGPT.",
       "planWelcomeTitle": "אתם משתמשים במינוי ה-ChatGPT שלכם",
-      "planWelcomeBody": "בקשות ChatGPT בענן של Stella נספרות במינוי ה-ChatGPT שלכם. אפשר לבדוק את השימוש ולהגדיר את המגבלה של Stella בהגדרות של ChatGPT."
+      "planWelcomeBody": "בקשות ChatGPT בענן של Stella נספרות במינוי ה-ChatGPT שלכם. אפשר לבדוק את השימוש ולהגדיר את המגבלה של Stella בהגדרות של ChatGPT.",
+      "connectClaude": "חיבור חשבון Claude",
+      "connectChatgpt": "חיבור חשבון ChatGPT"
     }
   },
   "companion": {

@@ -2533,7 +2533,6 @@
       "backLabel": "Tillbaka till Inställningar",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
-      "addAccount": "Lägg till konto",
       "active": "Används",
       "useAccount": "Använd det här kontot",
       "signOut": "Logga ut",
@@ -2555,9 +2554,6 @@
       "pastePlaceholderUrl": "Klistra in adressen här",
       "openChatgptAgain": "Öppna ChatGPT igen",
       "chatgptBrowserWaiting": "Slutför inloggningen till ChatGPT i webbläsaren.",
-      "claudeNote": "Claude Code använder det markerade kontot på alla dina datorer och i molnet. Dina egna enheter loggar in på Claude och håller inloggningen uppdaterad; Stellas server lagrar bara de krypterade tokenerna.",
-      "chatgptNote": "Molnchatt och molnagenter använder det markerade kontot, och den användningen räknas mot ditt ChatGPT-abonnemang. Stellas moln har en egen inloggning; varje dator loggar in på ChatGPT i Stellas skrivbordsapp.",
-      "continueWithChatgpt": "Fortsätt med ChatGPT",
       "signInAgain": "Logga in igen",
       "enablePlanUsage": "Aktivera användning av ChatGPT-abonnemang",
       "remove": "Ta bort",
@@ -2570,7 +2566,9 @@
       "manageUsage": "Hantera användning",
       "revokeUnconfirmed": "ChatGPT bekräftade inte utloggningen. Du kan koppla från Stella i ChatGPT-inställningarna.",
       "planWelcomeTitle": "Du använder ditt ChatGPT-abonnemang",
-      "planWelcomeBody": "ChatGPT-förfrågningar i Stellas moln räknas mot ditt ChatGPT-abonnemang. Granska användningen och ange Stellas gräns i ChatGPT-inställningarna."
+      "planWelcomeBody": "ChatGPT-förfrågningar i Stellas moln räknas mot ditt ChatGPT-abonnemang. Granska användningen och ange Stellas gräns i ChatGPT-inställningarna.",
+      "connectClaude": "Anslut Claude-konto",
+      "connectChatgpt": "Anslut ChatGPT-konto"
     }
   },
   "companion": {

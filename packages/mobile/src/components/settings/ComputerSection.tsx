@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { useIsFocused } from "expo-router";
-import { ModelSettingsPanel } from "../ModelSettingsPanel";
 import { Icon, type IconName } from "../Icon";
 import { PairPhoneSheet } from "../PairPhoneSheet";
 import { clearCachedDesktopBridge } from "../../lib/desktop-bridge-chat";
@@ -74,13 +73,10 @@ export function ComputerSection({
   control,
   signedIn,
   styles,
-  onManageAccounts,
 }: {
   control: ComputerControl | null;
   signedIn: boolean;
   styles: SettingsStyles;
-  /** Opens Settings › Claude & ChatGPT accounts. */
-  onManageAccounts?: () => void;
 }) {
   const colors = useColors();
   const t = useT();
@@ -120,7 +116,16 @@ export function ComputerSection({
         .then((devices) => {
           if (active) setDestinations(devices);
         })
-        .catch(() => undefined);
+        .catch((error: unknown) => {
+          if (controller.signal.aborted) return;
+          // Deliberately no `setDestinations`: a failed read must not
+          // overwrite the last good answer, and must never be rendered as
+          // an outage we were not actually told about.
+          console.warn(
+            "[execution-devices] presence read failed; keeping the last good device list",
+            error,
+          );
+        });
     };
     read();
     const timer = setInterval(read, EXECUTION_DEVICE_POLL_MS);
@@ -130,6 +135,30 @@ export function ComputerSection({
       clearInterval(timer);
     };
   }, [focused, canListDevices, refreshToken]);
+
+  // A paired computer that never appears in the owner's device list reads as
+  // offline forever, which is silent. The join is between two id spaces (the
+  // stored pairing id and the presence id), so if they ever drift nothing
+  // would surface it. Log both sides once per distinct miss so the mismatch is
+  // greppable instead of invisible.
+  const reportedJoinMissRef = useRef("");
+  useEffect(() => {
+    if (destinations === undefined) return;
+    const present = new Set(destinations.map((device) => device.deviceId));
+    const missing = pairedDesktops
+      .map((access) => access.desktopDeviceId)
+      .filter((id) => !present.has(id));
+    const signature = missing.join(",");
+    if (signature === reportedJoinMissRef.current) return;
+    reportedJoinMissRef.current = signature;
+    if (missing.length === 0) return;
+    console.warn(
+      "[execution-devices] paired computer absent from the owner's device list. " +
+        `paired=[${missing.join(", ")}] returned=[${destinations
+          .map((device) => device.deviceId)
+          .join(", ")}]`,
+    );
+  }, [destinations, pairedDesktops]);
 
   // One computer at a time is mid-operation, and which operation it is decides
   // the status line while it runs.
@@ -316,19 +345,7 @@ export function ComputerSection({
                   <Text style={styles.rowLabel} numberOfLines={1}>
                     {label}
                   </Text>
-                  <View style={local.statusRow}>
-                    <View
-                      style={[
-                        local.statusDot,
-                        {
-                          backgroundColor: row.available
-                            ? colors.ok
-                            : colors.textMuted,
-                        },
-                      ]}
-                    />
-                    <Text style={styles.rowSub}>{statusTextFor(row)}</Text>
-                  </View>
+                  <Text style={styles.rowSub}>{statusTextFor(row)}</Text>
                 </View>
                 {row.canEnable ? (
                   <Pressable
@@ -407,16 +424,6 @@ export function ComputerSection({
           </View>
         ) : null}
       </View>
-
-      {control?.model ? (
-        <ModelSettingsPanel
-          settings={control.model.settings}
-          composerModelPinned={control.composerModelPinned}
-          onComposerModelPinnedChange={control.onComposerModelPinnedChange}
-          styles={styles}
-          {...(onManageAccounts ? { onManageAccounts } : {})}
-        />
-      ) : null}
 
       {control ? (
         <>
@@ -498,16 +505,6 @@ const makeStyles = (colors: Colors) =>
       marginBottom: 8,
       marginLeft: 4,
       marginTop: 16,
-    },
-    statusRow: {
-      alignItems: "center",
-      flexDirection: "row",
-      gap: 6,
-    },
-    statusDot: {
-      borderRadius: 3,
-      height: 6,
-      width: 6,
     },
     pressed: {
       opacity: 0.6,

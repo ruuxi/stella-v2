@@ -2576,7 +2576,6 @@
       "backLabel": "Назад к настройкам",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
-      "addAccount": "Добавить аккаунт",
       "active": "Используется",
       "useAccount": "Использовать этот аккаунт",
       "signOut": "Выйти",
@@ -2598,9 +2597,6 @@
       "pastePlaceholderUrl": "Вставьте адрес сюда",
       "openChatgptAgain": "Снова открыть ChatGPT",
       "chatgptBrowserWaiting": "Завершите вход в ChatGPT в браузере.",
-      "claudeNote": "Claude Code использует отмеченный аккаунт на всех ваших компьютерах и в облаке. Ваши собственные устройства входят в Claude и поддерживают вход актуальным; сервер Stella хранит только зашифрованные токены.",
-      "chatgptNote": "Облачный чат и облачные агенты используют отмеченный аккаунт, и это использование расходует ваш план ChatGPT. У облака Stella свой вход; каждый компьютер входит в ChatGPT в настольном приложении Stella.",
-      "continueWithChatgpt": "Продолжить с ChatGPT",
       "signInAgain": "Войти снова",
       "enablePlanUsage": "Включить использование плана ChatGPT",
       "remove": "Удалить",
@@ -2613,7 +2609,9 @@
       "manageUsage": "Управлять использованием",
       "revokeUnconfirmed": "ChatGPT не подтвердил выход. Вы можете отключить Stella в настройках ChatGPT.",
       "planWelcomeTitle": "Вы используете свой план ChatGPT",
-      "planWelcomeBody": "Запросы ChatGPT в облаке Stella расходуют ваш план ChatGPT. Проверьте использование и задайте лимит для Stella в настройках ChatGPT."
+      "planWelcomeBody": "Запросы ChatGPT в облаке Stella расходуют ваш план ChatGPT. Проверьте использование и задайте лимит для Stella в настройках ChatGPT.",
+      "connectClaude": "Подключить аккаунт Claude",
+      "connectChatgpt": "Подключить аккаунт ChatGPT"
     }
   },
   "companion": {

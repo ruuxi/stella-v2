@@ -73,7 +73,6 @@ import Reanimated, {
   useSharedValue,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useShellBottomInset } from "../lib/shell-bottom-inset";
 import { AddContextSheet } from "./AddContextSheet";
 import { Icon, type IconName } from "./Icon";
 import { GlassSurface, liquidGlassSupported } from "./glass";
@@ -147,8 +146,8 @@ import {
   speakReply,
   stopReadAloud,
   startAfterStoppingReadAloud,
+  getReadAloudPlaybackState,
   useReadAloudPreference,
-  useReadAloudState,
 } from "../lib/read-aloud";
 import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
 import {
@@ -187,6 +186,18 @@ if (
  * send button.
  */
 const EXPAND_THRESHOLD = 30;
+/** Tallest the typed text area grows before it scrolls inside the composer. */
+const COMPOSER_INPUT_MAX_HEIGHT = 200;
+/**
+ * Tallest a live dictation transcript grows in an empty composer (eight
+ * transcript lines, inside the typed area's cap) before it scrolls.
+ */
+const DICTATION_INLINE_MAX_HEIGHT = 168;
+/**
+ * Tallest a live transcript grows under already-typed text (three lines),
+ * which has its own cap above it.
+ */
+const DICTATION_BELOW_MAX_HEIGHT = 63;
 /** LayoutAnimation config matching the same 350ms critically-damped spring. */
 const LAYOUT_SPRING = {
   duration: 350,
@@ -317,6 +328,13 @@ const FLOATING_CONTROL_LIFT = WORKING_INDICATOR_SLOT_HEIGHT;
 const SHELL_CONTENT_PADDING = 20;
 /** Horizontal inset from the true screen edge once shell padding is cancelled. */
 const CHAT_HORIZONTAL_INSET = 12;
+/**
+ * How long a finger must rest on a message before its press shrink starts.
+ * Longer than a tap and than the moment a drag turns into a list scroll.
+ */
+const MESSAGE_HOLD_MS = 180;
+/** When the long-press menu opens; the shrink fills the time after the hold. */
+const MESSAGE_LONG_PRESS_MS = 420;
 
 // ---------------------------------------------------------------------------
 // Keyboard inset — keeps the composer and message list above the OS keyboard.
@@ -330,7 +348,7 @@ const CHAT_HORIZONTAL_INSET = 12;
 // ---------------------------------------------------------------------------
 
 function useKeyboardInset() {
-  const bottomInset = useShellBottomInset();
+  const bottomInset = useSafeAreaInsets().bottom;
   const [height, setHeight] = useState(0);
   // The height the keyboard is heading to, for the composer's UI-thread lift.
   const targetHeight = useSharedValue(0);
@@ -358,11 +376,11 @@ function useKeyboardInset() {
 
   const open = height > 0;
   // The composer's bottom pad is keyboard-independent: it always reserves the
-  // shell's bottom band (the tab bar and home indicator). When the keyboard is
-  // up the composer is lifted clear of it by `composerKeyboardStyle` (by
-  // `keyboardHeight - bottomInset`), so that reserved band lands inside the
-  // keyboard region — a constant 6pt gap sits above the keyboard either way,
-  // with no per-state padding swap to animate.
+  // home-indicator safe area. When the keyboard is up the composer is lifted
+  // clear of it by `composerKeyboardStyle` (by `keyboardHeight - bottomInset`),
+  // so that reserved band lands inside the keyboard region — a constant 6pt
+  // gap sits above the keyboard either way, with no per-state padding swap to
+  // animate.
   const composerBottomPad = 6 + bottomInset;
 
   return { height, open, composerBottomPad, targetHeight };
@@ -1030,101 +1048,60 @@ const quoteMessageText = (text: string): string =>
 type ChatStyles = ReturnType<typeof makeStyles>;
 
 /**
- * The always-visible action row under a finished assistant message: copy, read
- * aloud (a pause/play toggle while a clip is loaded), and share. These mirror
- * the long-press menu so the common actions are one tap away instead of a hold.
- * The row reads the singleton playback state directly so only it re-renders as
- * playback starts/pauses/stops, not the whole transcript.
+ * The long-press menu's read-aloud entry for an assistant reply. It reads the
+ * playback state when the menu opens, so while this reply's clip is loaded the
+ * same slot pauses, resumes or stops it instead of starting over.
  */
-const AssistantActions = memo(function AssistantActions({
-  text,
-  messageId,
-  styles,
-  colors,
-}: {
-  text: string;
-  messageId: string;
-  styles: ChatStyles;
-  colors: Colors;
-}) {
-  const playback = useReadAloudState();
+const speakAloudMenuAction = (
+  text: string,
+  messageId: string,
+): MessageMenuAction => {
+  const playback = getReadAloudPlaybackState();
   const status = playback?.messageId === messageId ? playback.status : null;
-  if (!text.trim()) return null;
-  // Idle/loading show a speaker so the button reads as "read this aloud";
-  // playing shows pause, and paused shows play to resume in place.
-  const soundIcon =
-    status === "playing" ? "pause" : status === "paused" ? "play" : "volume-2";
-  const soundLabel =
-    status === "playing"
-      ? "Pause reading aloud"
-      : status === "paused"
-        ? "Resume reading aloud"
-        : status === "loading"
-          ? "Stop reading aloud"
-          : "Read aloud";
-  return (
-    <View style={styles.messageActions}>
-      <Pressable
-        onPress={() => {
-          tapLight();
-          copyMessageText(text);
-        }}
-        hitSlop={8}
-        accessibilityRole="button"
-        accessibilityLabel="Copy message"
-        style={({ pressed }) => [
-          styles.messageActionButton,
-          pressed && styles.messageActionButtonPressed,
-        ]}
-      >
-        <Icon name="copy" size={16} color={colors.textMuted} />
-      </Pressable>
-      <Pressable
-        onPress={() => {
-          tapLight();
-          if (status === "playing") {
-            pauseReadAloud();
-          } else if (status === "paused") {
-            resumeReadAloud();
-          } else if (status === "loading") {
-            stopReadAloud();
-          } else {
-            void speakReply(text, messageId);
-          }
-        }}
-        hitSlop={8}
-        accessibilityRole="button"
-        accessibilityLabel={soundLabel}
-        style={({ pressed }) => [
-          styles.messageActionButton,
-          pressed && styles.messageActionButtonPressed,
-        ]}
-      >
-        <Icon
-          name={soundIcon}
-          size={16}
-          color={status ? colors.text : colors.textMuted}
-          effect={status === "loading" ? "pulse" : undefined}
-        />
-      </Pressable>
-      <Pressable
-        onPress={() => {
-          tapLight();
-          shareMessageText(text);
-        }}
-        hitSlop={8}
-        accessibilityRole="button"
-        accessibilityLabel="Share message"
-        style={({ pressed }) => [
-          styles.messageActionButton,
-          pressed && styles.messageActionButtonPressed,
-        ]}
-      >
-        <Icon name="share" size={16} color={colors.textMuted} />
-      </Pressable>
-    </View>
-  );
-});
+  if (status === "playing") {
+    return {
+      id: "speak",
+      label: "Pause speaking",
+      icon: "pause",
+      onSelect: () => {
+        tapLight();
+        pauseReadAloud();
+      },
+    };
+  }
+  if (status === "paused") {
+    return {
+      id: "speak",
+      label: "Resume speaking",
+      icon: "play",
+      onSelect: () => {
+        tapLight();
+        resumeReadAloud();
+      },
+    };
+  }
+  if (status === "loading") {
+    return {
+      id: "speak",
+      label: "Stop speaking",
+      icon: "stop",
+      onSelect: () => {
+        tapLight();
+        stopReadAloud();
+      },
+    };
+  }
+  return {
+    id: "speak",
+    label: "Speak aloud",
+    icon: "volume-2",
+    onSelect: () => {
+      tapLight();
+      void speakReply(text, messageId);
+    },
+  };
+};
+
 
 /** Anchor passed to the message-actions popover (the long-press point). */
 type MessageMenuRequest = { message: ChatMessage; anchor: AnchorRect };
@@ -1492,18 +1469,36 @@ const ChatMessageRow = memo(function ChatMessageRow({
   // builds, then the menu lifts a copy of it (see MessageContextMenu).
   const pressScale = useRef(new Animated.Value(1)).current;
   const bubbleRef = useRef<View>(null);
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelHold = () => {
+    if (holdTimerRef.current === null) return;
+    clearTimeout(holdTimerRef.current);
+    holdTimerRef.current = null;
+  };
+  useEffect(
+    () => () => {
+      if (holdTimerRef.current !== null) clearTimeout(holdTimerRef.current);
+    },
+    [],
+  );
+  // Nothing moves until the finger has stayed down for MESSAGE_HOLD_MS, so a
+  // tap, or a touch the list takes over as a scroll, never shows the press.
+  // The timer is cancelled on release; an `Animated.delay` would not be,
+  // because stopping `pressScale` leaves a sequence's pending delay running.
   const pressIn = () => {
-    Animated.sequence([
-      Animated.delay(90),
+    cancelHold();
+    holdTimerRef.current = setTimeout(() => {
+      holdTimerRef.current = null;
       Animated.timing(pressScale, {
         toValue: MESSAGE_PRESS_SCALE,
-        duration: 260,
+        duration: MESSAGE_LONG_PRESS_MS - MESSAGE_HOLD_MS,
         easing: Easing.out(Easing.quad),
         useNativeDriver: true,
-      }),
-    ]).start();
+      }).start();
+    }, MESSAGE_HOLD_MS);
   };
   const pressOut = () => {
+    cancelHold();
     pressScale.stopAnimation();
     Animated.spring(pressScale, {
       toValue: 1,
@@ -1690,7 +1685,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
                   // While another message is selecting, a tap here exits
                   // selection, so tapping away always dismisses.
                   onPress={anySelecting ? onEndSelecting : undefined}
-                  delayLongPress={350}
+                  delayLongPress={MESSAGE_LONG_PRESS_MS}
                   accessibilityHint="Long press for message actions"
                   style={styles.userBubble}
                 >
@@ -1895,7 +1890,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
               onPressIn={pressIn}
               onPressOut={pressOut}
               onPress={anySelecting ? onEndSelecting : undefined}
-              delayLongPress={350}
+              delayLongPress={MESSAGE_LONG_PRESS_MS}
               accessibilityHint="Long press for message actions"
             >
               {assistantBubble}
@@ -1971,12 +1966,6 @@ const ChatMessageRow = memo(function ChatMessageRow({
           Answered while your computer was offline
         </Text>
       ) : null}
-      <AssistantActions
-        text={item.text}
-        messageId={item.id}
-        styles={styles}
-        colors={colors}
-      />
     </View>
   );
 });
@@ -3110,8 +3099,9 @@ export function ChatPane({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const t = useT();
   const readAloud = useReadAloudPreference();
-  const bottomInset = useShellBottomInset();
-  const safeAreaTop = useSafeAreaInsets().top;
+  const insets = useSafeAreaInsets();
+  const bottomInset = insets.bottom;
+  const safeAreaTop = insets.top;
   const shellTopInset = useShellTopInset();
   const topInset = topInsetProp ?? shellTopInset;
   const { height: screenHeight } = useWindowDimensions();
@@ -3135,7 +3125,7 @@ export function ChatPane({
       if (settled > 0) keyboardTargetHeight.value = settled;
     },
   );
-  // The composer rests at `composerBottomPad` (the shell's bottom band) above
+  // The composer rests at `composerBottomPad` (the home-indicator band) above
   // the screen bottom, and must end a constant gap above the keyboard, so it
   // travels the keyboard height *minus* that band. Spread that travel over
   // the keyboard's whole motion rather than waiting for the keyboard to climb
@@ -3968,6 +3958,9 @@ export function ChatPane({
           shareMessageText(text);
         },
       },
+      ...(message.role === "assistant"
+        ? [speakAloudMenuAction(text, message.id)]
+        : []),
     ];
   }, [messageMenu, quoteMessage, startSelectingMessage]);
 
@@ -4662,7 +4655,12 @@ export function ChatPane({
                 <View style={styles.composerQuoteStrip}>
                   {quoteChips.map((quote) => (
                     <View key={quote.id} style={styles.composerQuote}>
-                      <View style={styles.composerQuoteBar} />
+                      <Icon
+                        name="reply"
+                        size={14}
+                        color={colors.textMuted}
+                        weight="regular"
+                      />
                       <Text
                         style={styles.composerQuoteText}
                         numberOfLines={2}
@@ -4775,6 +4773,7 @@ export function ChatPane({
                     leading={plusButton}
                     placeholder={"Listening\u2026"}
                     transcriptStyle={styles.dictationInlineTranscript}
+                    transcriptMaxHeight={DICTATION_INLINE_MAX_HEIGHT}
                     onCancel={() => void dictation.cancel()}
                     onConfirm={() => void dictation.stop()}
                     onSend={stopAndSendVoice}
@@ -4908,6 +4907,7 @@ export function ChatPane({
                   {dictationBelow ? (
                     <View style={styles.dictationRow}>
                       <DictationRecordingBar
+                        transcriptMaxHeight={DICTATION_BELOW_MAX_HEIGHT}
                         onCancel={() => void dictation.cancel()}
                         onConfirm={() => void dictation.stop()}
                         onSend={stopAndSendVoice}
@@ -5346,22 +5346,6 @@ const makeStyles = (colors: Colors) =>
     },
     artifactGroup: { gap: 10 },
     artifactGroupSpaced: { marginTop: 10 },
-    messageActions: {
-      flexDirection: "row",
-      gap: 2,
-      marginLeft: -8,
-      marginTop: 6,
-    },
-    messageActionButton: {
-      alignItems: "center",
-      borderRadius: 8,
-      height: 32,
-      justifyContent: "center",
-      width: 32,
-    },
-    messageActionButtonPressed: {
-      backgroundColor: colors.muted,
-    },
     assistantText: {
       color: colors.assistantBubbleText,
       fontFamily: fonts.sans.regular,
@@ -5408,12 +5392,6 @@ const makeStyles = (colors: Colors) =>
       paddingLeft: 8,
       paddingRight: 8,
       paddingVertical: 8,
-    },
-    composerQuoteBar: {
-      alignSelf: "stretch",
-      backgroundColor: colors.accent,
-      borderRadius: 2,
-      width: 3,
     },
     composerQuoteText: {
       color: colors.textMuted,
@@ -5530,9 +5508,9 @@ const makeStyles = (colors: Colors) =>
       alignItems: "center",
       flexDirection: "row",
       gap: 8,
-      minHeight: 50,
+      minHeight: 56,
       paddingHorizontal: 8,
-      paddingVertical: 8,
+      paddingVertical: 11,
     },
     expandedInputBlock: { flexDirection: "column" },
 
@@ -5556,7 +5534,7 @@ const makeStyles = (colors: Colors) =>
       fontSize: 16,
       letterSpacing: -0.2,
       lineHeight: 24,
-      maxHeight: 200,
+      maxHeight: COMPOSER_INPUT_MAX_HEIGHT,
       minHeight: 46,
       paddingHorizontal: 16,
       paddingTop: 14,

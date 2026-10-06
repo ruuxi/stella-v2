@@ -2508,7 +2508,6 @@
       "backLabel": "กลับไปที่การตั้งค่า",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
-      "addAccount": "เพิ่มบัญชี",
       "active": "กำลังใช้",
       "useAccount": "ใช้บัญชีนี้",
       "signOut": "ออกจากระบบ",
@@ -2530,9 +2529,6 @@
       "pastePlaceholderUrl": "วางที่อยู่ที่นี่",
       "openChatgptAgain": "เปิด ChatGPT อีกครั้ง",
       "chatgptBrowserWaiting": "ลงชื่อเข้าใช้ ChatGPT ในเบราว์เซอร์ให้เสร็จ",
-      "claudeNote": "Claude Code ใช้บัญชีที่เลือกไว้บนคอมพิวเตอร์ทุกเครื่องของคุณและบนคลาวด์ อุปกรณ์ของคุณเองจะลงชื่อเข้าใช้ Claude และรีเฟรชให้เป็นปัจจุบันอยู่เสมอ ส่วนเซิร์ฟเวอร์ของ Stella เก็บเฉพาะโทเค็นที่เข้ารหัสไว้",
-      "chatgptNote": "แชทและเอเจนต์บนคลาวด์ใช้บัญชีที่เลือกไว้ และการใช้งานนั้นจะนับรวมในแพ็กเกจ ChatGPT ของคุณ คลาวด์ของ Stella มีการลงชื่อเข้าใช้ของตัวเอง ส่วนคอมพิวเตอร์แต่ละเครื่องลงชื่อเข้าใช้ ChatGPT ในแอป Stella บนเดสก์ท็อป",
-      "continueWithChatgpt": "ดำเนินการต่อด้วย ChatGPT",
       "signInAgain": "ลงชื่อเข้าใช้อีกครั้ง",
       "enablePlanUsage": "เปิดใช้แพ็กเกจ ChatGPT",
       "remove": "ลบ",
@@ -2545,7 +2541,9 @@
       "manageUsage": "จัดการการใช้งาน",
       "revokeUnconfirmed": "ChatGPT ไม่ได้ยืนยันการออกจากระบบ คุณยกเลิกการเชื่อมต่อ Stella ได้ในการตั้งค่า ChatGPT",
       "planWelcomeTitle": "คุณกำลังใช้แพ็กเกจ ChatGPT ของคุณ",
-      "planWelcomeBody": "คำขอ ChatGPT บนคลาวด์ของ Stella จะนับรวมในแพ็กเกจ ChatGPT ของคุณ ตรวจสอบการใช้งานและตั้งขีดจำกัดของ Stella ในการตั้งค่า ChatGPT"
+      "planWelcomeBody": "คำขอ ChatGPT บนคลาวด์ของ Stella จะนับรวมในแพ็กเกจ ChatGPT ของคุณ ตรวจสอบการใช้งานและตั้งขีดจำกัดของ Stella ในการตั้งค่า ChatGPT",
+      "connectClaude": "เชื่อมต่อบัญชี Claude",
+      "connectChatgpt": "เชื่อมต่อบัญชี ChatGPT"
     }
   },
   "companion": {

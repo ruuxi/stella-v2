@@ -2575,7 +2575,6 @@
       "backLabel": "Zpět do Nastavení",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
-      "addAccount": "Přidat účet",
       "active": "Používá se",
       "useAccount": "Použít tento účet",
       "signOut": "Odhlásit se",
@@ -2597,9 +2596,6 @@
       "pastePlaceholderUrl": "Sem vložte adresu",
       "openChatgptAgain": "Znovu otevřít ChatGPT",
       "chatgptBrowserWaiting": "Dokončete přihlášení do ChatGPT v prohlížeči.",
-      "claudeNote": "Claude Code používá zaškrtnutý účet na všech vašich počítačích i v cloudu. Vaše vlastní zařízení se přihlašují ke Claude a udržují přihlášení aktuální; server Stella ukládá jen šifrované tokeny.",
-      "chatgptNote": "Cloudový chat a cloudoví agenti používají zaškrtnutý účet a toto využití se započítává do vašeho tarifu ChatGPT. Cloud Stella má vlastní přihlášení; každý počítač se přihlašuje k ChatGPT v desktopové aplikaci Stella.",
-      "continueWithChatgpt": "Pokračovat přes ChatGPT",
       "signInAgain": "Přihlásit se znovu",
       "enablePlanUsage": "Povolit používání tarifu ChatGPT",
       "remove": "Odebrat",
@@ -2612,7 +2608,9 @@
       "manageUsage": "Spravovat využití",
       "revokeUnconfirmed": "ChatGPT nepotvrdil odhlášení. Stellu můžete odpojit v Nastavení ChatGPT.",
       "planWelcomeTitle": "Používáte svůj tarif ChatGPT",
-      "planWelcomeBody": "Požadavky ChatGPT v cloudu Stella se započítávají do vašeho tarifu ChatGPT. Využití zkontrolujete a limit pro Stellu nastavíte v Nastavení ChatGPT."
+      "planWelcomeBody": "Požadavky ChatGPT v cloudu Stella se započítávají do vašeho tarifu ChatGPT. Využití zkontrolujete a limit pro Stellu nastavíte v Nastavení ChatGPT.",
+      "connectClaude": "Připojit účet Claude",
+      "connectChatgpt": "Připojit účet ChatGPT"
     }
   },
   "companion": {

@@ -2532,7 +2532,6 @@
       "backLabel": "Terug naar Instellingen",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
-      "addAccount": "Account toevoegen",
       "active": "In gebruik",
       "useAccount": "Dit account gebruiken",
       "signOut": "Afmelden",
@@ -2554,9 +2553,6 @@
       "pastePlaceholderUrl": "Plak het adres hier",
       "openChatgptAgain": "ChatGPT opnieuw openen",
       "chatgptBrowserWaiting": "Rond het inloggen bij ChatGPT af in je browser.",
-      "claudeNote": "Claude Code gebruikt het aangevinkte account op al je computers en in de cloud. Je eigen apparaten loggen in bij Claude en houden de aanmelding actueel; de server van Stella bewaart alleen de versleutelde tokens.",
-      "chatgptNote": "Cloudchat en cloudagents gebruiken het aangevinkte account, en dat gebruik telt mee voor je ChatGPT-abonnement. De cloud van Stella heeft een eigen aanmelding; elke computer logt in bij ChatGPT in de desktop-app van Stella.",
-      "continueWithChatgpt": "Doorgaan met ChatGPT",
       "signInAgain": "Opnieuw inloggen",
       "enablePlanUsage": "Gebruik van ChatGPT-abonnement inschakelen",
       "remove": "Verwijderen",
@@ -2569,7 +2565,9 @@
       "manageUsage": "Gebruik beheren",
       "revokeUnconfirmed": "ChatGPT heeft het afmelden niet bevestigd. Je kunt Stella loskoppelen in de ChatGPT-instellingen.",
       "planWelcomeTitle": "Je gebruikt je ChatGPT-abonnement",
-      "planWelcomeBody": "ChatGPT-verzoeken in de cloud van Stella tellen mee voor je ChatGPT-abonnement. Bekijk het gebruik en stel de limiet van Stella in bij de ChatGPT-instellingen."
+      "planWelcomeBody": "ChatGPT-verzoeken in de cloud van Stella tellen mee voor je ChatGPT-abonnement. Bekijk het gebruik en stel de limiet van Stella in bij de ChatGPT-instellingen.",
+      "connectClaude": "Claude-account verbinden",
+      "connectChatgpt": "ChatGPT-account verbinden"
     }
   },
   "companion": {

@@ -2508,7 +2508,6 @@
       "backLabel": "Kembali ke Pengaturan",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
-      "addAccount": "Tambah akun",
       "active": "Digunakan",
       "useAccount": "Gunakan akun ini",
       "signOut": "Keluar",
@@ -2530,9 +2529,6 @@
       "pastePlaceholderUrl": "Tempel alamat di sini",
       "openChatgptAgain": "Buka ChatGPT lagi",
       "chatgptBrowserWaiting": "Selesaikan proses masuk ke ChatGPT di browser Anda.",
-      "claudeNote": "Claude Code menggunakan akun yang dicentang di semua komputer Anda dan di cloud. Perangkat Anda sendiri masuk ke Claude dan menjaga sesinya tetap diperbarui; server Stella hanya menyimpan token terenkripsi.",
-      "chatgptNote": "Chat cloud dan agen cloud menggunakan akun yang dicentang, dan penggunaan itu dihitung ke paket ChatGPT Anda. Cloud Stella memiliki proses masuk sendiri; setiap komputer masuk ke ChatGPT di aplikasi desktop Stella.",
-      "continueWithChatgpt": "Lanjutkan dengan ChatGPT",
       "signInAgain": "Masuk lagi",
       "enablePlanUsage": "Aktifkan penggunaan paket ChatGPT",
       "remove": "Hapus",
@@ -2545,7 +2541,9 @@
       "manageUsage": "Kelola penggunaan",
       "revokeUnconfirmed": "ChatGPT tidak mengonfirmasi proses keluar. Anda dapat memutuskan Stella di Pengaturan ChatGPT.",
       "planWelcomeTitle": "Anda menggunakan paket ChatGPT Anda",
-      "planWelcomeBody": "Permintaan ChatGPT di cloud Stella dihitung ke paket ChatGPT Anda. Tinjau penggunaan dan atur batas Stella di Pengaturan ChatGPT."
+      "planWelcomeBody": "Permintaan ChatGPT di cloud Stella dihitung ke paket ChatGPT Anda. Tinjau penggunaan dan atur batas Stella di Pengaturan ChatGPT.",
+      "connectClaude": "Hubungkan akun Claude",
+      "connectChatgpt": "Hubungkan akun ChatGPT"
     }
   },
   "companion": {

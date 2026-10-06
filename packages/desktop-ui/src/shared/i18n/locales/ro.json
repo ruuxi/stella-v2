@@ -2554,7 +2554,6 @@
       "backLabel": "Înapoi la Setări",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
-      "addAccount": "Adaugă un cont",
       "active": "În uz",
       "useAccount": "Folosește acest cont",
       "signOut": "Deconectează-te",
@@ -2576,9 +2575,6 @@
       "pastePlaceholderUrl": "Lipește adresa aici",
       "openChatgptAgain": "Deschide din nou ChatGPT",
       "chatgptBrowserWaiting": "Finalizează conectarea la ChatGPT în browser.",
-      "claudeNote": "Claude Code folosește contul bifat pe toate computerele tale și în cloud. Propriile tale dispozitive se conectează la Claude și mențin conectarea actualizată; serverul Stella stochează doar tokenurile criptate.",
-      "chatgptNote": "Chatul și agenții din cloud folosesc contul bifat, iar această utilizare se scade din abonamentul tău ChatGPT. Cloudul Stella are propria conectare; fiecare computer se conectează la ChatGPT în aplicația desktop Stella.",
-      "continueWithChatgpt": "Continuă cu ChatGPT",
       "signInAgain": "Conectează-te din nou",
       "enablePlanUsage": "Activează utilizarea abonamentului ChatGPT",
       "remove": "Elimină",
@@ -2591,7 +2587,9 @@
       "manageUsage": "Gestionează utilizarea",
       "revokeUnconfirmed": "ChatGPT nu a confirmat deconectarea. Poți deconecta Stella din Setările ChatGPT.",
       "planWelcomeTitle": "Folosești abonamentul tău ChatGPT",
-      "planWelcomeBody": "Solicitările ChatGPT din cloudul Stella se scad din abonamentul tău ChatGPT. Verifică utilizarea și setează limita pentru Stella în Setările ChatGPT."
+      "planWelcomeBody": "Solicitările ChatGPT din cloudul Stella se scad din abonamentul tău ChatGPT. Verifică utilizarea și setează limita pentru Stella în Setările ChatGPT.",
+      "connectClaude": "Conectează contul Claude",
+      "connectChatgpt": "Conectează contul ChatGPT"
     }
   },
   "companion": {

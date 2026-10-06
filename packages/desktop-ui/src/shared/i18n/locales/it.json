@@ -2554,7 +2554,6 @@
       "backLabel": "Torna alle Impostazioni",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
-      "addAccount": "Aggiungi account",
       "active": "In uso",
       "useAccount": "Usa questo account",
       "signOut": "Esci",
@@ -2576,9 +2575,6 @@
       "pastePlaceholderUrl": "Incolla qui l'indirizzo",
       "openChatgptAgain": "Apri di nuovo ChatGPT",
       "chatgptBrowserWaiting": "Completa l'accesso a ChatGPT nel browser.",
-      "claudeNote": "Claude Code usa l'account selezionato su tutti i tuoi computer e nel cloud. I tuoi dispositivi accedono a Claude e mantengono l'accesso aggiornato; il server di Stella conserva solo i token cifrati.",
-      "chatgptNote": "La chat e gli agenti nel cloud usano l'account selezionato, e questo utilizzo viene conteggiato nel tuo piano ChatGPT. Il cloud di Stella ha un proprio accesso; ogni computer accede a ChatGPT nell'app desktop di Stella.",
-      "continueWithChatgpt": "Continua con ChatGPT",
       "signInAgain": "Accedi di nuovo",
       "enablePlanUsage": "Attiva l'uso del piano ChatGPT",
       "remove": "Rimuovi",
@@ -2591,7 +2587,9 @@
       "manageUsage": "Gestisci utilizzo",
       "revokeUnconfirmed": "ChatGPT non ha confermato la disconnessione. Puoi scollegare Stella nelle Impostazioni di ChatGPT.",
       "planWelcomeTitle": "Stai usando il tuo piano ChatGPT",
-      "planWelcomeBody": "Le richieste ChatGPT nel cloud di Stella vengono conteggiate nel tuo piano ChatGPT. Controlla l'utilizzo e imposta il limite di Stella nelle Impostazioni di ChatGPT."
+      "planWelcomeBody": "Le richieste ChatGPT nel cloud di Stella vengono conteggiate nel tuo piano ChatGPT. Controlla l'utilizzo e imposta il limite di Stella nelle Impostazioni di ChatGPT.",
+      "connectClaude": "Connetti l'account Claude",
+      "connectChatgpt": "Connetti l'account ChatGPT"
     }
   },
   "companion": {

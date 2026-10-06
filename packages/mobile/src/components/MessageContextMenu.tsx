@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import {
   Animated,
   Dimensions,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
+  View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useReducedMotion } from "react-native-reanimated";
@@ -24,18 +26,31 @@ export type MessageMenuAction = {
 };
 
 const MENU_WIDTH = 250;
+/** Every menu row is this tall, so the menu's height is known before layout. */
+const MENU_ITEM_HEIGHT = 48;
+const MENU_PADDING = 6;
+/** Caps label growth under large Dynamic Type so a row keeps its height. */
+const MENU_LABEL_MAX_FONT_SCALE = 1.3;
 const GAP = 8;
 const EDGE = 12;
+/** The least height kept for the message when the screen is short. */
+const MIN_BUBBLE_VIEWPORT = 80;
 /** The held bubble shrinks to this while the press is held (see ChatMessageRow). */
 export const MESSAGE_PRESS_SCALE = 0.96;
 
 /**
  * The iOS Messages context menu: the held bubble lifts out of a dimmed
  * screen and the actions sit under it, aligned to the bubble's side. It is a
- * modal so the dim also covers the native top bar, composer and tab bar. The
- * bubble is re-rendered at its measured window position (the original is
- * hidden while the menu is up), then moved up just enough that bubble and menu
- * both fit on screen. A bubble too tall to fit is clipped, like iOS.
+ * modal so the dim also covers the native top bar and composer. The bubble is
+ * re-rendered at its measured window position (the original is hidden while
+ * the menu is up), then moved up just enough that bubble and menu both fit on
+ * screen.
+ *
+ * A message taller than the room left keeps its normal size and scrolls in
+ * a viewport that fills that room, starting at the part that was on screen.
+ * It only slides into place: scaling a screen-sized text view every frame is
+ * what made long messages stutter, so the lift's scale is kept for bubbles
+ * that fit.
  */
 export function MessageContextMenu({
   rect,
@@ -56,13 +71,10 @@ export function MessageContextMenu({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
   const reducedMotion = useReducedMotion();
-  const [menuHeight, setMenuHeight] = useState<number | null>(null);
   const progress = useRef(new Animated.Value(0)).current;
   const closingRef = useRef(false);
 
-  const ready = menuHeight !== null;
   useEffect(() => {
-    if (!ready) return;
     if (reducedMotion) {
       progress.setValue(1);
       return;
@@ -74,7 +86,7 @@ export function MessageContextMenu({
       mass: 0.8,
       useNativeDriver: true,
     }).start();
-  }, [ready, progress, reducedMotion]);
+  }, [progress, reducedMotion]);
 
   const close = useCallback(
     (after?: () => void) => {
@@ -93,47 +105,55 @@ export function MessageContextMenu({
   const screen = Dimensions.get("window");
   const top = insets.top + EDGE;
   const bottom = screen.height - Math.max(insets.bottom, EDGE) - EDGE;
-  const menuH = menuHeight ?? 0;
+  const menuHeight = MENU_PADDING * 2 + actions.length * MENU_ITEM_HEIGHT;
+  const room = Math.max(MIN_BUBBLE_VIEWPORT, bottom - top - menuHeight - GAP);
+  const viewportHeight = Math.min(rect.height, room);
+  const scrolls = rect.height > viewportHeight;
   // The bubble keeps its place unless the menu would run off the bottom; then
-  // the pair moves up together, clipping a bubble taller than the room left.
-  const maxBubbleHeight = Math.max(80, bottom - top - menuH - GAP);
-  const bubbleHeight = Math.min(rect.height, maxBubbleHeight);
+  // the pair moves up together.
   const bubbleTop = Math.max(
     top,
-    Math.min(rect.y, bottom - menuH - GAP - bubbleHeight),
+    Math.min(rect.y, bottom - menuHeight - GAP - viewportHeight),
   );
-  const shift = bubbleTop - rect.y;
+  // A scrolling message opens on the part that was on screen, so the text
+  // under the finger stays where it was.
+  const initialOffset = scrolls
+    ? Math.min(Math.max(0, bubbleTop - rect.y), rect.height - viewportHeight)
+    : 0;
+  const startShift = rect.y + initialOffset - bubbleTop;
   const menuLeft =
     side === "left"
       ? Math.max(EDGE, Math.min(rect.x, screen.width - MENU_WIDTH - EDGE))
       : Math.max(EDGE, Math.min(rect.x + rect.width, screen.width - EDGE) - MENU_WIDTH);
 
+  const translateY = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [startShift, 0],
+  });
   const bubbleStyle = {
     left: rect.x,
-    top: rect.y,
+    top: bubbleTop,
     width: rect.width,
-    height: bubbleHeight,
+    height: viewportHeight,
     transformOrigin: side === "left" ? "bottom left" : "bottom right",
-    transform: [
-      {
-        translateY: progress.interpolate({
-          inputRange: [0, 1],
-          outputRange: [0, shift],
-        }),
-      },
-      {
-        scale: progress.interpolate({
-          inputRange: [0, 1],
-          outputRange: [MESSAGE_PRESS_SCALE, 1],
-        }),
-      },
-    ],
+    transform: scrolls
+      ? [{ translateY }]
+      : [
+          { translateY },
+          {
+            scale: progress.interpolate({
+              inputRange: [0, 1],
+              outputRange: [MESSAGE_PRESS_SCALE, 1],
+            }),
+          },
+        ],
   };
   const menuStyle = {
     left: menuLeft,
-    top: bubbleTop + bubbleHeight + GAP,
+    top: bubbleTop + viewportHeight + GAP,
     width: MENU_WIDTH,
-    opacity: ready ? progress : 0,
+    height: menuHeight,
+    opacity: progress,
     transformOrigin: side === "left" ? "top left" : "top right",
     transform: [
       {
@@ -161,13 +181,27 @@ export function MessageContextMenu({
         accessibilityRole="button"
         accessibilityLabel="Dismiss menu"
       />
-      <Animated.View pointerEvents="none" style={[styles.bubble, bubbleStyle]}>
-        {bubble}
-      </Animated.View>
       <Animated.View
-        style={[styles.menu, menuStyle]}
-        onLayout={(event) => setMenuHeight(event.nativeEvent.layout.height)}
+        style={[styles.bubble, bubbleStyle]}
+        // A bubble that fits is drawn once and its bitmap scaled through the
+        // lift, rather than re-masking its rounded corners on every frame.
+        shouldRasterizeIOS={!scrolls}
+        renderToHardwareTextureAndroid={!scrolls}
       >
+        <ScrollView
+          style={styles.bubbleViewport}
+          contentOffset={{ x: 0, y: initialOffset }}
+          scrollEnabled={scrolls}
+          showsVerticalScrollIndicator={scrolls}
+          bounces={scrolls}
+          overScrollMode={scrolls ? "auto" : "never"}
+        >
+          <Pressable onPress={() => close()} accessible={false}>
+            <View pointerEvents="none">{bubble}</View>
+          </Pressable>
+        </ScrollView>
+      </Animated.View>
+      <Animated.View style={[styles.menu, menuStyle]}>
         {actions.map((action) => (
           <Pressable
             key={action.id}
@@ -177,7 +211,11 @@ export function MessageContextMenu({
             style={({ pressed }) => [styles.item, pressed && styles.itemPressed]}
           >
             <Icon name={action.icon} size={21} color={colors.text} style={styles.itemIcon} />
-            <Text style={styles.itemLabel} numberOfLines={1}>
+            <Text
+              style={styles.itemLabel}
+              numberOfLines={1}
+              maxFontSizeMultiplier={MENU_LABEL_MAX_FONT_SCALE}
+            >
               {action.label}
             </Text>
           </Pressable>
@@ -195,9 +233,9 @@ const makeStyles = (colors: Colors) =>
     },
     bubble: {
       position: "absolute",
-      overflow: "hidden",
-      borderRadius: 22,
-      borderCurve: "continuous",
+    },
+    bubbleViewport: {
+      flex: 1,
     },
     menu: {
       position: "absolute",
@@ -207,14 +245,14 @@ const makeStyles = (colors: Colors) =>
       borderRadius: 22,
       borderCurve: "continuous",
       overflow: "hidden",
-      paddingVertical: 6,
+      paddingVertical: MENU_PADDING - StyleSheet.hairlineWidth,
     },
     item: {
       alignItems: "center",
       flexDirection: "row",
       gap: 14,
+      height: MENU_ITEM_HEIGHT,
       paddingHorizontal: 20,
-      paddingVertical: 13,
     },
     itemPressed: { backgroundColor: fadeHex(colors.text, 0.08) },
     itemIcon: { width: 24 },

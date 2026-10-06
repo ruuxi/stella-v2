@@ -2554,7 +2554,6 @@
       "backLabel": "Volver a Ajustes",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
-      "addAccount": "Añadir cuenta",
       "active": "En uso",
       "useAccount": "Usar esta cuenta",
       "signOut": "Cerrar sesión",
@@ -2576,9 +2575,6 @@
       "pastePlaceholderUrl": "Pega la dirección aquí",
       "openChatgptAgain": "Abrir ChatGPT de nuevo",
       "chatgptBrowserWaiting": "Termina de iniciar sesión en ChatGPT en tu navegador.",
-      "claudeNote": "Claude Code usa la cuenta marcada en todas tus computadoras y en la nube. Tus propios dispositivos inician sesión en Claude y la mantienen actualizada; el servidor de Stella solo guarda los tokens cifrados.",
-      "chatgptNote": "El chat y los agentes en la nube usan la cuenta marcada, y ese uso se descuenta de tu plan de ChatGPT. La nube de Stella tiene su propio inicio de sesión; cada computadora inicia sesión en ChatGPT desde la app de escritorio de Stella.",
-      "continueWithChatgpt": "Continuar con ChatGPT",
       "signInAgain": "Volver a iniciar sesión",
       "enablePlanUsage": "Activar el uso del plan de ChatGPT",
       "remove": "Eliminar",
@@ -2591,7 +2587,9 @@
       "manageUsage": "Gestionar uso",
       "revokeUnconfirmed": "ChatGPT no confirmó el cierre de sesión. Puedes desconectar Stella en los Ajustes de ChatGPT.",
       "planWelcomeTitle": "Estás usando tu plan de ChatGPT",
-      "planWelcomeBody": "Las solicitudes de ChatGPT en la nube de Stella se descuentan de tu plan de ChatGPT. Revisa el uso y establece el límite de Stella en los Ajustes de ChatGPT."
+      "planWelcomeBody": "Las solicitudes de ChatGPT en la nube de Stella se descuentan de tu plan de ChatGPT. Revisa el uso y establece el límite de Stella en los Ajustes de ChatGPT.",
+      "connectClaude": "Conectar cuenta de Claude",
+      "connectChatgpt": "Conectar cuenta de ChatGPT"
     }
   },
   "companion": {

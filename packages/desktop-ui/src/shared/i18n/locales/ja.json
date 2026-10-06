@@ -2508,7 +2508,6 @@
       "backLabel": "設定に戻る",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
-      "addAccount": "アカウントを追加",
       "active": "使用中",
       "useAccount": "このアカウントを使う",
       "signOut": "サインアウト",
@@ -2530,9 +2529,6 @@
       "pastePlaceholderUrl": "ここにアドレスを貼り付け",
       "openChatgptAgain": "ChatGPT をもう一度開く",
       "chatgptBrowserWaiting": "ブラウザで ChatGPT へのサインインを完了してください。",
-      "claudeNote": "Claude Code は、お使いのすべてのコンピュータとクラウドでチェックしたアカウントを使用します。Claude へのサインインと更新はお使いのデバイス自身が行い、Stella のサーバーは暗号化されたトークンを保存するだけです。",
-      "chatgptNote": "クラウドのチャットとエージェントはチェックしたアカウントを使用し、その使用量は ChatGPT のプランから消費されます。Stella のクラウドには独自のサインインがあり、各コンピュータは Stella デスクトップアプリで ChatGPT にサインインします。",
-      "continueWithChatgpt": "ChatGPT で続ける",
       "signInAgain": "もう一度サインイン",
       "enablePlanUsage": "ChatGPT のプランの使用を有効にする",
       "remove": "削除",
@@ -2545,7 +2541,9 @@
       "manageUsage": "使用量を管理",
       "revokeUnconfirmed": "ChatGPT でサインアウトが確認されませんでした。ChatGPT の設定で Stella の接続を解除できます。",
       "planWelcomeTitle": "ChatGPT のプランを使用しています",
-      "planWelcomeBody": "Stella のクラウドでの ChatGPT リクエストは ChatGPT のプランから消費されます。ChatGPT の設定で使用量を確認し、Stella の上限を設定してください。"
+      "planWelcomeBody": "Stella のクラウドでの ChatGPT リクエストは ChatGPT のプランから消費されます。ChatGPT の設定で使用量を確認し、Stella の上限を設定してください。",
+      "connectClaude": "Claude アカウントを接続",
+      "connectChatgpt": "ChatGPT アカウントを接続"
     }
   },
   "companion": {

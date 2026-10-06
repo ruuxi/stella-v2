@@ -2532,7 +2532,6 @@
       "backLabel": "Ayarlar'a dön",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
-      "addAccount": "Hesap ekle",
       "active": "Kullanımda",
       "useAccount": "Bu hesabı kullan",
       "signOut": "Oturumu kapat",
@@ -2554,9 +2553,6 @@
       "pastePlaceholderUrl": "Adresi buraya yapıştır",
       "openChatgptAgain": "ChatGPT'yi yeniden aç",
       "chatgptBrowserWaiting": "Tarayıcında ChatGPT oturum açma işlemini tamamla.",
-      "claudeNote": "Claude Code, işaretli hesabı tüm bilgisayarlarında ve bulutta kullanır. Kendi cihazların Claude'da oturum açar ve oturumu güncel tutar; Stella'nın sunucusu yalnızca şifrelenmiş token'ları saklar.",
-      "chatgptNote": "Bulut sohbeti ve bulut ajanları işaretli hesabı kullanır ve bu kullanım ChatGPT planından düşülür. Stella bulutunun kendi oturumu vardır; her bilgisayar Stella masaüstü uygulamasında ChatGPT'de oturum açar.",
-      "continueWithChatgpt": "ChatGPT ile devam et",
       "signInAgain": "Yeniden oturum aç",
       "enablePlanUsage": "ChatGPT planı kullanımını etkinleştir",
       "remove": "Kaldır",
@@ -2569,7 +2565,9 @@
       "manageUsage": "Kullanımı yönet",
       "revokeUnconfirmed": "ChatGPT oturumun kapatıldığını onaylamadı. Stella'nın bağlantısını ChatGPT Ayarları'ndan kesebilirsin.",
       "planWelcomeTitle": "ChatGPT planını kullanıyorsun",
-      "planWelcomeBody": "Stella bulutundaki ChatGPT istekleri ChatGPT planından düşülür. Kullanımı incele ve Stella'nın limitini ChatGPT Ayarları'ndan belirle."
+      "planWelcomeBody": "Stella bulutundaki ChatGPT istekleri ChatGPT planından düşülür. Kullanımı incele ve Stella'nın limitini ChatGPT Ayarları'ndan belirle.",
+      "connectClaude": "Claude hesabını bağla",
+      "connectChatgpt": "ChatGPT hesabını bağla"
     }
   },
   "companion": {

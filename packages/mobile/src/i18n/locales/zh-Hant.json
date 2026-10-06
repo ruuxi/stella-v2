@@ -2508,7 +2508,6 @@
       "backLabel": "返回設定",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
-      "addAccount": "新增帳號",
       "active": "使用中",
       "useAccount": "使用此帳號",
       "signOut": "登出",
@@ -2530,9 +2529,6 @@
       "pastePlaceholderUrl": "在此貼上網址",
       "openChatgptAgain": "再次開啟 ChatGPT",
       "chatgptBrowserWaiting": "請在瀏覽器中完成 ChatGPT 登入。",
-      "claudeNote": "Claude Code 會在你的所有電腦和雲端使用勾選的帳號。由你自己的裝置登入 Claude 並保持更新；Stella 的伺服器只儲存加密的權杖。",
-      "chatgptNote": "雲端聊天和雲端代理使用勾選的帳號，這些用量會計入你的 ChatGPT 方案。Stella 雲端有自己的登入；每台電腦會在 Stella 桌面應用程式中登入 ChatGPT。",
-      "continueWithChatgpt": "使用 ChatGPT 繼續",
       "signInAgain": "重新登入",
       "enablePlanUsage": "啟用 ChatGPT 方案使用",
       "remove": "移除",
@@ -2545,7 +2541,9 @@
       "manageUsage": "管理用量",
       "revokeUnconfirmed": "ChatGPT 未確認登出。你可以在 ChatGPT 設定中中斷 Stella 的連線。",
       "planWelcomeTitle": "你正在使用 ChatGPT 方案",
-      "planWelcomeBody": "Stella 雲端中的 ChatGPT 請求會計入你的 ChatGPT 方案。請在 ChatGPT 設定中查看用量並設定 Stella 的上限。"
+      "planWelcomeBody": "Stella 雲端中的 ChatGPT 請求會計入你的 ChatGPT 方案。請在 ChatGPT 設定中查看用量並設定 Stella 的上限。",
+      "connectClaude": "連線 Claude 帳號",
+      "connectChatgpt": "連線 ChatGPT 帳號"
     }
   },
   "companion": {

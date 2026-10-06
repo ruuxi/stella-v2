@@ -2576,7 +2576,6 @@
       "backLabel": "Wróć do Ustawień",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
-      "addAccount": "Dodaj konto",
       "active": "W użyciu",
       "useAccount": "Użyj tego konta",
       "signOut": "Wyloguj się",
@@ -2598,9 +2597,6 @@
       "pastePlaceholderUrl": "Wklej tutaj adres",
       "openChatgptAgain": "Otwórz ChatGPT ponownie",
       "chatgptBrowserWaiting": "Dokończ logowanie do ChatGPT w przeglądarce.",
-      "claudeNote": "Claude Code używa zaznaczonego konta na wszystkich Twoich komputerach i w chmurze. Twoje własne urządzenia logują się do Claude i odświeżają logowanie; serwer Stella przechowuje tylko zaszyfrowane tokeny.",
-      "chatgptNote": "Czat i agenci w chmurze używają zaznaczonego konta, a to użycie wlicza się do Twojego planu ChatGPT. Chmura Stella ma własne logowanie; każdy komputer loguje się do ChatGPT w aplikacji Stella na komputer.",
-      "continueWithChatgpt": "Kontynuuj z ChatGPT",
       "signInAgain": "Zaloguj się ponownie",
       "enablePlanUsage": "Włącz korzystanie z planu ChatGPT",
       "remove": "Usuń",
@@ -2613,7 +2609,9 @@
       "manageUsage": "Zarządzaj użyciem",
       "revokeUnconfirmed": "ChatGPT nie potwierdził wylogowania. Możesz odłączyć Stellę w Ustawieniach ChatGPT.",
       "planWelcomeTitle": "Korzystasz ze swojego planu ChatGPT",
-      "planWelcomeBody": "Żądania ChatGPT w chmurze Stella wliczają się do Twojego planu ChatGPT. Sprawdź użycie i ustaw limit Stelli w Ustawieniach ChatGPT."
+      "planWelcomeBody": "Żądania ChatGPT w chmurze Stella wliczają się do Twojego planu ChatGPT. Sprawdź użycie i ustaw limit Stelli w Ustawieniach ChatGPT.",
+      "connectClaude": "Połącz konto Claude",
+      "connectChatgpt": "Połącz konto ChatGPT"
     }
   },
   "companion": {

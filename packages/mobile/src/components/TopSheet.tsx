@@ -38,6 +38,16 @@ type TopSheetProps = {
    */
   contentSized?: boolean;
   glass?: boolean;
+  /**
+   * Controls that belong to the sheet but float just beneath its bottom edge,
+   * in the open screen this top-anchored sheet leaves below itself.
+   *
+   * Anchored to the sheet rather than the screen: it rides the same slide
+   * animation, keeps the same gap whatever the sheet's height, and never
+   * strands itself halfway down the page or drifts onto whatever the page
+   * behind is showing. Outside the scroll, so it never scrolls away.
+   */
+  floatingFooter?: React.ReactNode;
 };
 
 /**
@@ -54,6 +64,7 @@ export function TopSheet({
   heightFraction = TOP_SHEET_HEIGHT_FRACTION,
   contentSized = false,
   glass = false,
+  floatingFooter,
 }: TopSheetProps) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -116,14 +127,11 @@ export function TopSheet({
           onPress={onClose}
           accessibilityLabel="Close"
         />
+        {/* Auto-height: the sheet takes its own height and the floating
+            footer sits under it, so the pair slide together and the footer
+            always hugs the sheet's bottom edge. */}
         <Animated.View
-          style={[
-            styles.shadow,
-            contentSized
-              ? { maxHeight: maxSheetHeight }
-              : { height: maxSheetHeight },
-            { transform: [{ translateY }] },
-          ]}
+          style={[styles.shadow, { transform: [{ translateY }] }]}
           pointerEvents="box-none"
           onLayout={
             contentSized
@@ -135,7 +143,9 @@ export function TopSheet({
             style={[
               styles.sheet,
               glass && { backgroundColor: "transparent" },
-              contentSized ? { maxHeight: maxSheetHeight } : styles.sheetFill,
+              contentSized
+                ? { maxHeight: maxSheetHeight }
+                : { height: maxSheetHeight },
             ]}
           >
             {glass ? (
@@ -149,6 +159,11 @@ export function TopSheet({
             ) : null}
             {children}
           </View>
+          {floatingFooter ? (
+            <View style={styles.floatingFooter} pointerEvents="box-none">
+              {floatingFooter}
+            </View>
+          ) : null}
         </Animated.View>
       </View>
     </Modal>
@@ -188,5 +203,9 @@ const makeStyles = (colors: Colors) =>
     },
     sheetFill: {
       flex: 1,
+    },
+    floatingFooter: {
+      alignItems: "center",
+      paddingTop: 14,
     },
   });

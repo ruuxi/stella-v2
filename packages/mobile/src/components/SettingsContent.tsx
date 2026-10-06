@@ -36,7 +36,7 @@ import {
   listStoredPairedPhoneAccess,
   type StoredPhoneAccess,
 } from "../lib/phone-access";
-import { useShellBottomInset } from "../lib/shell-bottom-inset";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { userFacingError } from "../lib/user-facing-error";
 import { type Colors } from "../theme/colors";
 import {
@@ -107,7 +107,7 @@ export function SettingsContent() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const settingsStyles = useMemo(() => makeSettingsStyles(colors), [colors]);
   const router = useRouter();
-  const bottomInset = useShellBottomInset();
+  const bottomInset = useSafeAreaInsets().bottom;
   const session = authClient.useSession();
   const guest = isGuest();
   const [isResettingCloudBrowser, setIsResettingCloudBrowser] = useState(false);
@@ -252,15 +252,14 @@ export function SettingsContent() {
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
     >
+      {/* Same key as the sidebar's destination, so the two can't drift. */}
       <Text style={styles.title} accessibilityRole="header">
-        {t("mobile.settings.title")}
+        {t("mobile.nav.account")}
       </Text>
 
-      {/* Account: who you are and what you pay for. */}
+      {/* Account: who you are and what you pay for. The page title already
+          says Account, so this first group needs no label of its own. */}
       <View style={settingsStyles.section}>
-        <Text style={settingsStyles.sectionLabel}>
-          {t("mobile.account.title")}
-        </Text>
         <View style={settingsStyles.group}>
           {isSignedIn ? (
             <View style={settingsStyles.row}>
@@ -368,16 +367,8 @@ export function SettingsContent() {
               colors={colors}
               onPress={() => router.push("/cloud-home")}
             />
-            <LinkRow
-              icon="cpu"
-              label={t("mobile.engineAccounts.settingsRowTitle")}
-              sub={t("mobile.engineAccounts.settingsRowBody")}
-              accessibilityLabel={t("mobile.engineAccounts.openSettingsLabel")}
-              divided
-              styles={settingsStyles}
-              colors={colors}
-              onPress={() => router.push("/engine-accounts")}
-            />
+            {/* Claude & ChatGPT now live in the chat's settings sheet, next
+                to the model that runs on them. */}
             <View style={[settingsStyles.row, settingsStyles.rowDivider]}>
               <Icon
                 name="globe"

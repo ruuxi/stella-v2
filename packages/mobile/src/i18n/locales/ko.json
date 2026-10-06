@@ -2508,7 +2508,6 @@
       "backLabel": "설정으로 돌아가기",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
-      "addAccount": "계정 추가",
       "active": "사용 중",
       "useAccount": "이 계정 사용",
       "signOut": "로그아웃",
@@ -2530,9 +2529,6 @@
       "pastePlaceholderUrl": "여기에 주소 붙여넣기",
       "openChatgptAgain": "ChatGPT 다시 열기",
       "chatgptBrowserWaiting": "브라우저에서 ChatGPT 로그인을 완료하세요.",
-      "claudeNote": "Claude Code는 모든 컴퓨터와 클라우드에서 선택한 계정을 사용합니다. 내 기기가 직접 Claude에 로그인하고 갱신하며, Stella 서버는 암호화된 토큰만 저장합니다.",
-      "chatgptNote": "클라우드 채팅과 클라우드 에이전트는 선택한 계정을 사용하며, 그 사용량은 ChatGPT 요금제에서 차감됩니다. Stella 클라우드는 자체 로그인을 유지하고, 각 컴퓨터는 Stella 데스크톱 앱에서 ChatGPT에 로그인합니다.",
-      "continueWithChatgpt": "ChatGPT로 계속하기",
       "signInAgain": "다시 로그인",
       "enablePlanUsage": "ChatGPT 요금제 사용 활성화",
       "remove": "삭제",
@@ -2545,7 +2541,9 @@
       "manageUsage": "사용량 관리",
       "revokeUnconfirmed": "ChatGPT에서 로그아웃을 확인하지 않았습니다. ChatGPT 설정에서 Stella 연결을 해제할 수 있습니다.",
       "planWelcomeTitle": "ChatGPT 요금제를 사용 중입니다",
-      "planWelcomeBody": "Stella 클라우드의 ChatGPT 요청은 ChatGPT 요금제에서 차감됩니다. ChatGPT 설정에서 사용량을 확인하고 Stella의 한도를 설정하세요."
+      "planWelcomeBody": "Stella 클라우드의 ChatGPT 요청은 ChatGPT 요금제에서 차감됩니다. ChatGPT 설정에서 사용량을 확인하고 Stella의 한도를 설정하세요.",
+      "connectClaude": "Claude 계정 연결",
+      "connectChatgpt": "ChatGPT 계정 연결"
     }
   },
   "companion": {

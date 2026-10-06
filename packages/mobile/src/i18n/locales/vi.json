@@ -2508,7 +2508,6 @@
       "backLabel": "Quay lại Cài đặt",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
-      "addAccount": "Thêm tài khoản",
       "active": "Đang dùng",
       "useAccount": "Dùng tài khoản này",
       "signOut": "Đăng xuất",
@@ -2530,9 +2529,6 @@
       "pastePlaceholderUrl": "Dán địa chỉ vào đây",
       "openChatgptAgain": "Mở lại ChatGPT",
       "chatgptBrowserWaiting": "Hoàn tất đăng nhập ChatGPT trong trình duyệt của bạn.",
-      "claudeNote": "Claude Code dùng tài khoản được đánh dấu trên tất cả máy tính của bạn và trên đám mây. Chính các thiết bị của bạn đăng nhập vào Claude và giữ phiên luôn được làm mới; máy chủ của Stella chỉ lưu các token đã mã hóa.",
-      "chatgptNote": "Trò chuyện và tác nhân trên đám mây dùng tài khoản được đánh dấu, và mức sử dụng đó được tính vào gói ChatGPT của bạn. Đám mây của Stella có phiên đăng nhập riêng; mỗi máy tính đăng nhập ChatGPT trong ứng dụng Stella dành cho máy tính.",
-      "continueWithChatgpt": "Tiếp tục với ChatGPT",
       "signInAgain": "Đăng nhập lại",
       "enablePlanUsage": "Bật sử dụng gói ChatGPT",
       "remove": "Xóa",
@@ -2545,7 +2541,9 @@
       "manageUsage": "Quản lý mức sử dụng",
       "revokeUnconfirmed": "ChatGPT chưa xác nhận việc đăng xuất. Bạn có thể ngắt kết nối Stella trong Cài đặt ChatGPT.",
       "planWelcomeTitle": "Bạn đang dùng gói ChatGPT của mình",
-      "planWelcomeBody": "Các yêu cầu ChatGPT trên đám mây của Stella được tính vào gói ChatGPT của bạn. Xem mức sử dụng và đặt giới hạn cho Stella trong Cài đặt ChatGPT."
+      "planWelcomeBody": "Các yêu cầu ChatGPT trên đám mây của Stella được tính vào gói ChatGPT của bạn. Xem mức sử dụng và đặt giới hạn cho Stella trong Cài đặt ChatGPT.",
+      "connectClaude": "Kết nối tài khoản Claude",
+      "connectChatgpt": "Kết nối tài khoản ChatGPT"
     }
   },
   "companion": {

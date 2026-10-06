@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -6,7 +6,10 @@ import {
   Text,
   View,
 } from "react-native";
-import { openChatGptUsage } from "./EngineAccountsSettings";
+import {
+  EngineAccountSection,
+  openChatGptUsage,
+} from "./EngineAccountsSettings";
 import { Icon } from "./Icon";
 import { GlassToggle } from "./glass";
 import { SegmentedControl } from "./SegmentedControl";
@@ -24,13 +27,14 @@ import {
   type ModelSettings,
 } from "../lib/use-cloud-model-settings";
 
+/** Rows shown before "show more". Six at once was too many to scan. */
+const COLLAPSED_MODEL_COUNT = 3;
+
 type Props = {
   settings: ModelSettings;
   composerModelPinned: boolean;
   onComposerModelPinnedChange: (next: boolean) => void;
   styles: SettingsStyles;
-  /** Opens the accounts page where the cloud engine can be connected. */
-  onManageAccounts?: () => void;
 };
 
 /**
@@ -44,7 +48,6 @@ export function ModelSettingsPanel({
   composerModelPinned,
   onComposerModelPinnedChange,
   styles,
-  onManageAccounts,
 }: Props) {
   const colors = useColors();
   const local = useMemo(() => makeStyles(colors), [colors]);
@@ -57,6 +60,28 @@ export function ModelSettingsPanel({
   const ready = settings.execution !== null;
   const engine = settings.engine;
   const rows = settings.modelsFor(engine);
+
+  const [modelsExpanded, setModelsExpanded] = useState(false);
+
+  // A different engine is a different list; start it collapsed again.
+  useEffect(() => {
+    setModelsExpanded(false);
+  }, [engine]);
+
+  const visibleRows = useMemo(() => {
+    if (modelsExpanded || rows.length <= COLLAPSED_MODEL_COUNT) return rows;
+    const head = rows.slice(0, COLLAPSED_MODEL_COUNT);
+    // Never fold away the model actually in effect: hiding the checked row
+    // behind "show more" hides the current setting, which is the one thing
+    // this list exists to report.
+    if (!head.some((model) => model.selected)) {
+      const selected = rows.find((model) => model.selected);
+      if (selected) head.push(selected);
+    }
+    return head;
+  }, [rows, modelsExpanded]);
+
+  const hiddenCount = rows.length - visibleRows.length;
   const cloudDisconnected =
     engine !== "stella" &&
     settings.connectedProviders !== undefined &&
@@ -106,7 +131,7 @@ export function ModelSettingsPanel({
         ) : rows.length === 0 ? (
           <Text style={styles.hint}>No models available.</Text>
         ) : (
-          rows.map((model, index) => (
+          visibleRows.map((model, index) => (
             <Pressable
               key={model.id}
               onPress={() => settings.selectEngineModel(engine, model.id)}
@@ -141,40 +166,42 @@ export function ModelSettingsPanel({
             </Pressable>
           ))
         )}
+        {ready && (hiddenCount > 0 || modelsExpanded) ? (
+          <Pressable
+            onPress={() => setModelsExpanded((value) => !value)}
+            accessibilityRole="button"
+            style={({ pressed }) => [
+              styles.row,
+              styles.rowDivider,
+              pressed && styles.rowPressed,
+            ]}
+          >
+            <Text style={local.moreLabel}>
+              {modelsExpanded ? "Show fewer" : `Show ${hiddenCount} more`}
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
 
+      {/* The affordance without the sentence around it: tapping through is
+          the function, explaining what a plan is was the prose. */}
       {ready && engine === "chatgpt" && !cloudDisconnected ? (
-        <Text style={local.note}>
-          ChatGPT usage counts against your ChatGPT plan.{" "}
-          <Text
-            style={local.noteLink}
+        <View style={[styles.group, styles.groupGap]}>
+          <Pressable
             onPress={openChatGptUsage}
             accessibilityRole="link"
+            style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
           >
-            Manage usage
-          </Text>
-        </Text>
+            <Text style={[styles.rowLabel, local.flex]}>Manage usage</Text>
+            <Icon name="chevron-right" size={15} color={colors.textMuted} />
+          </Pressable>
+        </View>
       ) : null}
 
-      {ready && cloudDisconnected ? (
-        <Text style={local.note}>
-          {engine === "anthropic"
-            ? "To run Claude in the cloud, connect a Claude account."
-            : "Your computer uses its own ChatGPT sign-in. To run ChatGPT in the cloud, sign Stella's cloud in to ChatGPT."}
-          {onManageAccounts ? (
-            <>
-              {" "}
-              <Text
-                style={local.noteLink}
-                onPress={onManageAccounts}
-                accessibilityRole="link"
-              >
-                Connect account
-              </Text>
-            </>
-          ) : null}
-        </Text>
-      ) : null}
+      {/* The engine control above already says which provider this is, so its
+          accounts belong here rather than in a second list further down. A
+          "Claude" header over an "Add account" row is the whole explanation. */}
+      <EngineAccountSection provider={engine} />
 
       <View style={[styles.group, styles.groupGap]}>
         <View style={styles.row}>
@@ -206,14 +233,11 @@ const makeStyles = (colors: Colors) =>
       marginLeft: 4,
     },
     modelRow: { minHeight: 48, paddingVertical: 10 },
-    note: {
+    moreLabel: {
       color: colors.textMuted,
-      fontFamily: fonts.sans.regular,
-      fontSize: 13,
-      lineHeight: 18,
-      marginHorizontal: 4,
-      marginTop: 8,
+      fontFamily: fonts.sans.medium,
+      fontSize: 15,
+      letterSpacing: -0.2,
     },
-    noteLink: { color: colors.accent, fontFamily: fonts.sans.medium },
     flex: { flex: 1 },
   });

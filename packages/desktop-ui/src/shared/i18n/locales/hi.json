@@ -2532,7 +2532,6 @@
       "backLabel": "सेटिंग्स पर वापस जाएं",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
-      "addAccount": "खाता जोड़ें",
       "active": "उपयोग में",
       "useAccount": "यह खाता इस्तेमाल करें",
       "signOut": "साइन आउट करें",
@@ -2554,9 +2553,6 @@
       "pastePlaceholderUrl": "पता यहां पेस्ट करें",
       "openChatgptAgain": "ChatGPT फिर से खोलें",
       "chatgptBrowserWaiting": "अपने ब्राउज़र में ChatGPT में साइन इन पूरा करें।",
-      "claudeNote": "Claude Code आपके सभी कंप्यूटरों और क्लाउड में चुने गए खाते का उपयोग करता है। आपके अपने डिवाइस Claude में साइन इन करते हैं और उसे रीफ़्रेश रखते हैं; Stella का सर्वर सिर्फ़ एन्क्रिप्ट किए गए टोकन संग्रहीत करता है।",
-      "chatgptNote": "क्लाउड चैट और क्लाउड एजेंट चुने गए खाते का उपयोग करते हैं, और यह उपयोग आपके ChatGPT प्लान में गिना जाता है। Stella के क्लाउड का अपना साइन-इन है; हर कंप्यूटर Stella डेस्कटॉप ऐप में ChatGPT में साइन इन करता है।",
-      "continueWithChatgpt": "ChatGPT के साथ जारी रखें",
       "signInAgain": "फिर से साइन इन करें",
       "enablePlanUsage": "ChatGPT प्लान का उपयोग चालू करें",
       "remove": "हटाएं",
@@ -2569,7 +2565,9 @@
       "manageUsage": "उपयोग प्रबंधित करें",
       "revokeUnconfirmed": "ChatGPT ने साइन आउट की पुष्टि नहीं की। आप ChatGPT सेटिंग्स में Stella को डिस्कनेक्ट कर सकते हैं।",
       "planWelcomeTitle": "आप अपना ChatGPT प्लान इस्तेमाल कर रहे हैं",
-      "planWelcomeBody": "Stella के क्लाउड में ChatGPT अनुरोध आपके ChatGPT प्लान में गिने जाते हैं। ChatGPT सेटिंग्स में उपयोग देखें और Stella की सीमा सेट करें।"
+      "planWelcomeBody": "Stella के क्लाउड में ChatGPT अनुरोध आपके ChatGPT प्लान में गिने जाते हैं। ChatGPT सेटिंग्स में उपयोग देखें और Stella की सीमा सेट करें।",
+      "connectClaude": "Claude अकाउंट कनेक्ट करें",
+      "connectChatgpt": "ChatGPT अकाउंट कनेक्ट करें"
     }
   },
   "companion": {

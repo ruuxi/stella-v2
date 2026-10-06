@@ -18,6 +18,7 @@ import {
 import { authClient } from "../../lib/auth-client";
 import { isGuest } from "../../lib/guest-mode";
 import { tapLight } from "../../lib/haptics";
+import type { MainTabId } from "../../lib/last-main-tab";
 import { useActivityHub } from "../../lib/main-shell-store";
 import { CONTENT_MAX_FONT_SCALE } from "../../lib/setup-text-defaults";
 import type { Colors } from "../../theme/colors";
@@ -31,6 +32,7 @@ import {
   makeActivityRowStyles,
   type GroupSubagent,
 } from "./activity-rows";
+import { SidebarNav } from "./SidebarNav";
 
 type ActivityListRow =
   | {
@@ -49,17 +51,20 @@ const EMPTY_ARTIFACTS: ChatArtifact[] = [];
 const EMPTY_BY_TASK: ReadonlyMap<string, ChatArtifact[]> = new Map();
 
 /**
- * The left sidebar: the conversation's background work. Each agent is a row
- * with the files it made nested underneath (subagents fold under their
- * parent), and the main thread's own files close the list. Navigation lives
- * in the shell's bottom tab bar, so the panel is only this list.
+ * The left sidebar. The shell's destinations (Chat, Schedule, Apps, Files,
+ * Settings) sit at the top, and the conversation's background work fills
+ * the rest: each agent is a row with the files it made nested underneath
+ * (subagents fold under their parent), and the main thread's own files close
+ * the list.
  *
- * Data arrives through the shell store the chat route publishes into, so the
- * panel needs no props from the router.
+ * Activity arrives through the shell store the chat route publishes into;
+ * the shell passes the current destination and handles selection.
  */
 export function SidebarPanel({
   width,
   contentInsetRight = 0,
+  activeTab,
+  onSelectTab,
   onOpenArtifact,
 }: {
   width: number;
@@ -68,6 +73,8 @@ export function SidebarPanel({
    * open (the rounded content edge overlaps it). Content stays clear of it.
    */
   contentInsetRight?: number;
+  activeTab: MainTabId | null;
+  onSelectTab: (tab: MainTabId) => void;
   onOpenArtifact: (artifact: ChatArtifact) => void;
 }) {
   const colors = useColors();
@@ -198,13 +205,14 @@ export function SidebarPanel({
           { paddingRight: contentInsetRight, paddingTop: insets.top + 10 },
         ]}
       >
-        <Text
-          style={styles.heading}
-          accessibilityRole="header"
-          maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-        >
-          {t("mobile.activityHub.tabs.activity")}
-        </Text>
+        <View style={styles.nav}>
+          <SidebarNav value={activeTab} onSelect={onSelectTab} />
+        </View>
+        {/* This line is the whole separation now that the Activity header is
+            gone, so it carries that job alone: inset to the inset both lists
+            already share, and given room on each side rather than inheriting
+            the hole the text left behind. */}
+        <View style={styles.divider} />
         <LegendList<ActivityListRow>
           style={styles.list}
           contentContainerStyle={listContentStyle}
@@ -266,15 +274,23 @@ const makeStyles = (colors: Colors) =>
       flex: 1,
       minHeight: 0,
     },
-    heading: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.medium,
-      fontSize: 13,
-      letterSpacing: 0.3,
+    nav: {
       paddingBottom: 10,
-      paddingHorizontal: 20,
-      paddingTop: 8,
-      textTransform: "uppercase",
+      paddingHorizontal: 8,
+    },
+    divider: {
+      // A painted line rather than a hairline border: a border on a
+      // zero-height view did not render here at all, which left the break as
+      // plain empty space. The colour comes off the text, like the nav's own
+      // active lozenge — `colors.border` is mixed for the opaque cards and
+      // vanishes against this translucent panel.
+      backgroundColor: fadeHex(colors.text, 0.12),
+      height: 1,
+      // 18pt is where the nav's icons and the activity rows' content both
+      // begin, so the break lines up with the columns instead of cutting
+      // across the panel.
+      marginHorizontal: 18,
+      marginVertical: 10,
     },
     list: {
       flexGrow: 1,
@@ -282,7 +298,7 @@ const makeStyles = (colors: Colors) =>
     },
     listContent: {
       paddingHorizontal: 16,
-      paddingTop: 4,
+      paddingTop: 10,
     },
     empty: {
       color: colors.textMuted,

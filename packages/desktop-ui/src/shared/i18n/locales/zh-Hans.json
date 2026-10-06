@@ -2508,7 +2508,6 @@
       "backLabel": "返回设置",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
-      "addAccount": "添加账号",
       "active": "使用中",
       "useAccount": "使用此账号",
       "signOut": "退出登录",
@@ -2530,9 +2529,6 @@
       "pastePlaceholderUrl": "在此粘贴地址",
       "openChatgptAgain": "再次打开 ChatGPT",
       "chatgptBrowserWaiting": "请在浏览器中完成 ChatGPT 登录。",
-      "claudeNote": "Claude Code 会在你的所有电脑和云端使用勾选的账号。由你自己的设备登录 Claude 并保持刷新；Stella 的服务器只存储加密的令牌。",
-      "chatgptNote": "云端聊天和云端代理使用勾选的账号，这些用量会计入你的 ChatGPT 套餐。Stella 云端有自己的登录；每台电脑在 Stella 桌面应用中登录 ChatGPT。",
-      "continueWithChatgpt": "使用 ChatGPT 继续",
       "signInAgain": "重新登录",
       "enablePlanUsage": "启用 ChatGPT 套餐使用",
       "remove": "移除",
@@ -2545,7 +2541,9 @@
       "manageUsage": "管理用量",
       "revokeUnconfirmed": "ChatGPT 未确认退出登录。你可以在 ChatGPT 设置中断开 Stella。",
       "planWelcomeTitle": "你正在使用 ChatGPT 套餐",
-      "planWelcomeBody": "Stella 云端中的 ChatGPT 请求会计入你的 ChatGPT 套餐。请在 ChatGPT 设置中查看用量并设置 Stella 的上限。"
+      "planWelcomeBody": "Stella 云端中的 ChatGPT 请求会计入你的 ChatGPT 套餐。请在 ChatGPT 设置中查看用量并设置 Stella 的上限。",
+      "connectClaude": "连接 Claude 账号",
+      "connectChatgpt": "连接 ChatGPT 账号"
     }
   },
   "companion": {

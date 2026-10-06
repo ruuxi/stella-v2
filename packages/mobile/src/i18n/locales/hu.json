@@ -2532,7 +2532,6 @@
       "backLabel": "Vissza a Beállításokhoz",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
-      "addAccount": "Fiók hozzáadása",
       "active": "Használatban",
       "useAccount": "Ennek a fióknak a használata",
       "signOut": "Kijelentkezés",
@@ -2554,9 +2553,6 @@
       "pastePlaceholderUrl": "Illeszd be ide a címet",
       "openChatgptAgain": "ChatGPT megnyitása újra",
       "chatgptBrowserWaiting": "Fejezd be a bejelentkezést a ChatGPT-be a böngésződben.",
-      "claudeNote": "A Claude Code a bejelölt fiókot használja minden számítógépeden és a felhőben. A saját eszközeid jelentkeznek be a Claude-ba, és frissen tartják a bejelentkezést; a Stella szervere csak a titkosított tokeneket tárolja.",
-      "chatgptNote": "A felhőalapú csevegés és a felhőügynökök a bejelölt fiókot használják, és ez a használat a ChatGPT-előfizetésedet terheli. A Stella felhője saját bejelentkezést használ; minden számítógép a Stella asztali alkalmazásában jelentkezik be a ChatGPT-be.",
-      "continueWithChatgpt": "Folytatás a ChatGPT-vel",
       "signInAgain": "Újbóli bejelentkezés",
       "enablePlanUsage": "ChatGPT-előfizetés használatának engedélyezése",
       "remove": "Eltávolítás",
@@ -2569,7 +2565,9 @@
       "manageUsage": "Használat kezelése",
       "revokeUnconfirmed": "A ChatGPT nem erősítette meg a kijelentkezést. A Stellát a ChatGPT Beállításaiban választhatod le.",
       "planWelcomeTitle": "A ChatGPT-előfizetésedet használod",
-      "planWelcomeBody": "A Stella felhőjében küldött ChatGPT-kérések a ChatGPT-előfizetésedet terhelik. A használatot és a Stella korlátját a ChatGPT Beállításaiban ellenőrizheted és állíthatod be."
+      "planWelcomeBody": "A Stella felhőjében küldött ChatGPT-kérések a ChatGPT-előfizetésedet terhelik. A használatot és a Stella korlátját a ChatGPT Beállításaiban ellenőrizheted és állíthatod be.",
+      "connectClaude": "Claude-fiók csatlakoztatása",
+      "connectChatgpt": "ChatGPT-fiók csatlakoztatása"
     }
   },
   "companion": {

@@ -13,13 +13,15 @@ export const makeSettingsStyles = (colors: Colors) =>
     section: {
       marginTop: 28,
     },
+    // Sentence case, not all-caps: the platform moved its own settings
+    // headers off shouting a long time ago, and the catalog already stores
+    // these the way they should read.
     sectionLabel: {
       color: colors.textMuted,
       fontFamily: fonts.sans.medium,
       fontSize: 13,
-      letterSpacing: 0.3,
+      letterSpacing: 0,
       marginBottom: 10,
-      textTransform: "uppercase",
     },
     group: {
       backgroundColor: colors.surface,

@@ -2619,7 +2619,6 @@
       "backLabel": "العودة إلى الإعدادات",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
-      "addAccount": "إضافة حساب",
       "active": "قيد الاستخدام",
       "useAccount": "استخدام هذا الحساب",
       "signOut": "تسجيل الخروج",
@@ -2641,9 +2640,6 @@
       "pastePlaceholderUrl": "الصق العنوان هنا",
       "openChatgptAgain": "فتح ChatGPT مرة أخرى",
       "chatgptBrowserWaiting": "أكمل تسجيل الدخول إلى ChatGPT في متصفحك.",
-      "claudeNote": "يستخدم Claude Code الحساب المحدد على جميع أجهزة الكمبيوتر لديك وفي السحابة. تسجّل أجهزتك الدخول إلى Claude وتحافظ على تحديثه؛ ولا يخزّن خادم Stella سوى الرموز المميزة المشفرة.",
-      "chatgptNote": "تستخدم الدردشة والوكلاء في السحابة الحساب المحدد، ويُحتسب هذا الاستخدام من خطة ChatGPT الخاصة بك. لسحابة Stella تسجيل دخول خاص بها؛ ويسجّل كل كمبيوتر الدخول إلى ChatGPT في تطبيق Stella لسطح المكتب.",
-      "continueWithChatgpt": "المتابعة باستخدام ChatGPT",
       "signInAgain": "تسجيل الدخول مرة أخرى",
       "enablePlanUsage": "تفعيل استخدام خطة ChatGPT",
       "remove": "إزالة",
@@ -2656,7 +2652,9 @@
       "manageUsage": "إدارة الاستخدام",
       "revokeUnconfirmed": "لم يؤكد ChatGPT تسجيل الخروج. يمكنك فصل Stella من إعدادات ChatGPT.",
       "planWelcomeTitle": "أنت تستخدم خطة ChatGPT الخاصة بك",
-      "planWelcomeBody": "تُحتسب طلبات ChatGPT في سحابة Stella من خطة ChatGPT الخاصة بك. راجع الاستخدام وحدّد حد Stella في إعدادات ChatGPT."
+      "planWelcomeBody": "تُحتسب طلبات ChatGPT في سحابة Stella من خطة ChatGPT الخاصة بك. راجع الاستخدام وحدّد حد Stella في إعدادات ChatGPT.",
+      "connectClaude": "ربط حساب Claude",
+      "connectChatgpt": "ربط حساب ChatGPT"
     }
   },
   "companion": {

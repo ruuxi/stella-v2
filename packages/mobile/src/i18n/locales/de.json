@@ -2532,7 +2532,6 @@
       "backLabel": "Zurück zu den Einstellungen",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
-      "addAccount": "Konto hinzufügen",
       "active": "In Verwendung",
       "useAccount": "Dieses Konto verwenden",
       "signOut": "Abmelden",
@@ -2554,9 +2553,6 @@
       "pastePlaceholderUrl": "Adresse hier einfügen",
       "openChatgptAgain": "ChatGPT erneut öffnen",
       "chatgptBrowserWaiting": "Schließe die Anmeldung bei ChatGPT in deinem Browser ab.",
-      "claudeNote": "Claude Code verwendet das ausgewählte Konto auf all deinen Computern und in der Cloud. Deine eigenen Geräte melden sich bei Claude an und halten die Anmeldung aktuell; Stellas Server speichert nur die verschlüsselten Tokens.",
-      "chatgptNote": "Cloud-Chat und Cloud-Agenten verwenden das ausgewählte Konto, und diese Nutzung wird auf dein ChatGPT-Abo angerechnet. Stellas Cloud hat eine eigene Anmeldung; jeder Computer meldet sich in der Stella-Desktop-App bei ChatGPT an.",
-      "continueWithChatgpt": "Weiter mit ChatGPT",
       "signInAgain": "Erneut anmelden",
       "enablePlanUsage": "Nutzung des ChatGPT-Abos aktivieren",
       "remove": "Entfernen",
@@ -2569,7 +2565,9 @@
       "manageUsage": "Nutzung verwalten",
       "revokeUnconfirmed": "ChatGPT hat die Abmeldung nicht bestätigt. Du kannst Stella in den ChatGPT-Einstellungen trennen.",
       "planWelcomeTitle": "Du verwendest dein ChatGPT-Abo",
-      "planWelcomeBody": "ChatGPT-Anfragen in Stellas Cloud werden auf dein ChatGPT-Abo angerechnet. Prüfe die Nutzung und lege Stellas Limit in den ChatGPT-Einstellungen fest."
+      "planWelcomeBody": "ChatGPT-Anfragen in Stellas Cloud werden auf dein ChatGPT-Abo angerechnet. Prüfe die Nutzung und lege Stellas Limit in den ChatGPT-Einstellungen fest.",
+      "connectClaude": "Claude-Konto verbinden",
+      "connectChatgpt": "ChatGPT-Konto verbinden"
     }
   },
   "companion": {

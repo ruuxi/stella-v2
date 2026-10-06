@@ -2554,7 +2554,6 @@
       "backLabel": "Retour aux réglages",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
-      "addAccount": "Ajouter un compte",
       "active": "Utilisé",
       "useAccount": "Utiliser ce compte",
       "signOut": "Se déconnecter",
@@ -2576,9 +2575,6 @@
       "pastePlaceholderUrl": "Collez l'adresse ici",
       "openChatgptAgain": "Rouvrir ChatGPT",
       "chatgptBrowserWaiting": "Terminez la connexion à ChatGPT dans votre navigateur.",
-      "claudeNote": "Claude Code utilise le compte coché sur tous vos ordinateurs et dans le cloud. Vos propres appareils se connectent à Claude et maintiennent la connexion à jour ; le serveur de Stella ne stocke que les jetons chiffrés.",
-      "chatgptNote": "Le chat et les agents cloud utilisent le compte coché, et cette utilisation est décomptée de votre forfait ChatGPT. Le cloud de Stella a sa propre connexion ; chaque ordinateur se connecte à ChatGPT dans l'application de bureau Stella.",
-      "continueWithChatgpt": "Continuer avec ChatGPT",
       "signInAgain": "Se reconnecter",
       "enablePlanUsage": "Activer l'utilisation du forfait ChatGPT",
       "remove": "Supprimer",
@@ -2591,7 +2587,9 @@
       "manageUsage": "Gérer l'utilisation",
       "revokeUnconfirmed": "ChatGPT n'a pas confirmé la déconnexion. Vous pouvez déconnecter Stella dans les Paramètres de ChatGPT.",
       "planWelcomeTitle": "Vous utilisez votre forfait ChatGPT",
-      "planWelcomeBody": "Les requêtes ChatGPT dans le cloud de Stella sont décomptées de votre forfait ChatGPT. Consultez l'utilisation et définissez la limite de Stella dans les Paramètres de ChatGPT."
+      "planWelcomeBody": "Les requêtes ChatGPT dans le cloud de Stella sont décomptées de votre forfait ChatGPT. Consultez l'utilisation et définissez la limite de Stella dans les Paramètres de ChatGPT.",
+      "connectClaude": "Connecter le compte Claude",
+      "connectChatgpt": "Connecter le compte ChatGPT"
     }
   },
   "companion": {

@@ -2533,7 +2533,6 @@
       "backLabel": "Tilbake til Innstillinger",
       "claudeSection": "Claude",
       "chatgptSection": "ChatGPT",
-      "addAccount": "Legg til konto",
       "active": "I bruk",
       "useAccount": "Bruk denne kontoen",
       "signOut": "Logg ut",
@@ -2555,9 +2554,6 @@
       "pastePlaceholderUrl": "Lim inn adressen her",
       "openChatgptAgain": "Åpne ChatGPT igjen",
       "chatgptBrowserWaiting": "Fullfør påloggingen til ChatGPT i nettleseren.",
-      "claudeNote": "Claude Code bruker den avmerkede kontoen på alle datamaskinene dine og i skyen. Dine egne enheter logger på Claude og holder påloggingen oppdatert; Stellas server lagrer bare de krypterte tokenene.",
-      "chatgptNote": "Skychat og skyagenter bruker den avmerkede kontoen, og den bruken trekkes fra ChatGPT-abonnementet ditt. Stellas sky har sin egen pålogging; hver datamaskin logger på ChatGPT i Stellas skrivebordsapp.",
-      "continueWithChatgpt": "Fortsett med ChatGPT",
       "signInAgain": "Logg inn igjen",
       "enablePlanUsage": "Slå på bruk av ChatGPT-abonnement",
       "remove": "Fjern",
@@ -2570,7 +2566,9 @@
       "manageUsage": "Administrer bruk",
       "revokeUnconfirmed": "ChatGPT bekreftet ikke utloggingen. Du kan koble fra Stella i ChatGPT-innstillingene.",
       "planWelcomeTitle": "Du bruker ChatGPT-abonnementet ditt",
-      "planWelcomeBody": "ChatGPT-forespørsler i Stellas sky trekkes fra ChatGPT-abonnementet ditt. Se gjennom bruken og angi Stellas grense i ChatGPT-innstillingene."
+      "planWelcomeBody": "ChatGPT-forespørsler i Stellas sky trekkes fra ChatGPT-abonnementet ditt. Se gjennom bruken og angi Stellas grense i ChatGPT-innstillingene.",
+      "connectClaude": "Koble til Claude-konto",
+      "connectChatgpt": "Koble til ChatGPT-konto"
     }
   },
   "companion": {

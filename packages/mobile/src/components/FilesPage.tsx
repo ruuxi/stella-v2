@@ -11,7 +11,7 @@ import { isGuest } from "../lib/guest-mode";
 import { tapLight } from "../lib/haptics";
 import { useActivityHub } from "../lib/main-shell-store";
 import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
-import { useShellBottomInset } from "../lib/shell-bottom-inset";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Colors } from "../theme/colors";
 import { fonts } from "../theme/fonts";
 import { fadeHex } from "../theme/oklch";
@@ -34,7 +34,7 @@ export function FilesPage() {
   const colors = useColors();
   const t = useT();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const bottomInset = useShellBottomInset();
+  const bottomInset = useSafeAreaInsets().bottom;
   const hub = useActivityHub();
   const session = authClient.useSession();
   const signedIn = Boolean(session.data?.user) && !isGuest();

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
+import * as Effect from "effect/Effect";
 import {
   chmod,
   mkdtemp,
@@ -42,6 +43,10 @@ import {
   sealNativeState,
   type NativeStateAttestation,
 } from "./native-state-integrity.js";
+import {
+  createNativeTurnCancellation,
+  type NativeTurnCancellation,
+} from "./turn-cancellation.js";
 
 export type NativeAgentTurnResult = {
   finalText: string;
@@ -224,7 +229,7 @@ const runJsonLines = async (options: {
   input?: string;
   processIdentity?: ToolProcessIdentity;
   /** SIGKILLs the child; the promise still resolves once it has closed. */
-  signal?: AbortSignal;
+  cancellation?: NativeTurnCancellation;
   onJson: (value: Record<string, unknown>) => void;
 }): Promise<ProcessResult> =>
   new Promise((resolve, reject) => {
@@ -268,19 +273,26 @@ const runJsonLines = async (options: {
     child.stderr.on("data", (chunk: Buffer) => {
       stderr = `${stderr}${chunk.toString()}`.slice(-32_000);
     });
-    const onAbort = () => {
+    const sigkill = (): void => {
       if (child.exitCode === null && child.signalCode === null) {
         child.kill("SIGKILL");
       }
     };
-    options.signal?.addEventListener("abort", onAbort, { once: true });
-    if (options.signal?.aborted) onAbort();
+    // The latch is awaited on its own fiber rather than polled; an already
+    // settled latch kills the child on the next tick.
+    const killOnCancel = options.cancellation
+      ? Effect.runFork(
+          options.cancellation.awaitAborted.pipe(
+            Effect.catch(() => Effect.sync(sigkill)),
+          ),
+        )
+      : undefined;
     child.on("error", (error) => {
-      options.signal?.removeEventListener("abort", onAbort);
+      killOnCancel?.interruptUnsafe();
       reject(error);
     });
     child.on("close", (exitCode) => {
-      options.signal?.removeEventListener("abort", onAbort);
+      killOnCancel?.interruptUnsafe();
       consume(pending);
       resolve({ exitCode, stderr });
     });
@@ -557,7 +569,7 @@ export const runCloudClaude = async (options: {
   mcpServerConfig: CloudClaudeMcpServerConfig;
   onStreamEvent?: (event: ClaudeStreamJsonEvent) => void;
   /** Kills the CLI; the turn then fails with the abort reason. */
-  signal?: AbortSignal;
+  cancellation?: NativeTurnCancellation;
 }): Promise<NativeCliTurnResult> => {
   const { profile } = options;
   const stateRoot = options.stateRoot;
@@ -573,12 +585,10 @@ export const runCloudClaude = async (options: {
     () => false,
   );
   const mcpConfig = await createCloudClaudeMcpConfig(options.mcpServerConfig);
-  // Seam controller: the CLI dies on the caller's abort or on our own
-  // compaction-loop verdict, and both must reach one child process.
-  const kill = new AbortController();
-  const forwardAbort = () => kill.abort(options.signal?.reason);
-  options.signal?.addEventListener("abort", forwardAbort, { once: true });
-  if (options.signal?.aborted) forwardAbort();
+  // One latch, two sources: the caller's cancellation and our own
+  // compaction-loop verdict both have to reach one child process. A turn
+  // without a caller latch still owns one for the verdict.
+  const cancellation = options.cancellation ?? createNativeTurnCancellation();
   try {
     const args = buildCloudClaudeTakeoverArgs({
       model: options.execution.model,
@@ -614,7 +624,7 @@ export const runCloudClaude = async (options: {
       args,
       cwd: profile.cwd,
       env: childEnv,
-      signal: kill.signal,
+      cancellation,
       onJson: (event) => {
         options.onStreamEvent?.(event);
         const type = event.type;
@@ -632,11 +642,11 @@ export const runCloudClaude = async (options: {
             compactions += 1;
             if (
               compactions > MAX_COMPACTIONS_PER_TURN &&
-              !kill.signal.aborted
+              !cancellation.aborted
             ) {
               const loop = new ClaudeCodeCompactionLoopError();
               error = loop.message;
-              kill.abort(loop);
+              cancellation.abort(loop);
             }
           } else if (status.state === "running") {
             compacting = false;
@@ -674,12 +684,8 @@ export const runCloudClaude = async (options: {
     if (initialized) {
       await writeFile(markerPath, `${sessionId}\n`, { mode: 0o600 });
     }
-    if (kill.signal.aborted && !error) {
-      const reason: unknown = kill.signal.reason;
-      error =
-        reason instanceof Error && reason.message
-          ? reason.message
-          : "Claude Code turn was canceled.";
+    if (cancellation.aborted && !error) {
+      error = cancellation.reason?.message || "Claude Code turn was canceled.";
     }
     if (result.exitCode !== 0 && !error) {
       error =
@@ -693,7 +699,6 @@ export const runCloudClaude = async (options: {
       sessionId: initialized ? sessionId : "",
     };
   } finally {
-    options.signal?.removeEventListener("abort", forwardAbort);
     // This directory contains the private loopback MCP bearer. It lives
     // outside every checkpoint root and exists only while Claude is alive.
     await mcpConfig.cleanup();
@@ -746,7 +751,7 @@ export const runNativeAgentTurn = async (options: {
   nativeStateRoot?: string;
   claudeMcpServerConfig?: CloudClaudeMcpServerConfig;
   onStreamEvent?: (event: ClaudeStreamJsonEvent) => void;
-  signal?: AbortSignal;
+  cancellation?: NativeTurnCancellation;
 }): Promise<NativeAgentTurnResult> => {
   const mcpServerConfig = options.claudeMcpServerConfig;
   if (!mcpServerConfig) {
@@ -792,7 +797,7 @@ export const runNativeAgentTurn = async (options: {
     stateRoot,
     mcpServerConfig,
     ...(options.onStreamEvent ? { onStreamEvent: options.onStreamEvent } : {}),
-    ...(options.signal ? { signal: options.signal } : {}),
+    ...(options.cancellation ? { cancellation: options.cancellation } : {}),
   });
   const messages = transcript({
     prompt: options.prompt,

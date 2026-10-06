@@ -53,6 +53,7 @@ import {
   runNativeAgentTurn,
   type ClaudeStreamJsonEvent,
 } from "./native-agent-turn.js";
+import { createNativeTurnCancellation } from "./turn-cancellation.js";
 import type { TurnCredentialBrokerClient } from "./turn-credential-broker.js";
 
 export type OrchestratorTurnInput = Extract<
@@ -615,11 +616,12 @@ export const runOrchestratorTurn = async (args: {
     return failed("Stella couldn't validate this chat's history. Try again.");
   }
 
-  // Seam controller: the DO ending the turn (inactive / lost event stream)
-  // must kill the CLI from a tool call or the event lane.
-  const turnAbort = new AbortController();
+  // The DO ending the turn (inactive / lost event stream) must kill the CLI
+  // from a tool call or the event lane. The latch is one-shot, so the first
+  // reason is the one the turn reports.
+  const turnCancellation = createNativeTurnCancellation();
   const abortTurn = (error: Error): void => {
-    if (!turnAbort.signal.aborted) turnAbort.abort(error);
+    turnCancellation.abort(error);
   };
   const lane = new OrchestratorEventLane(broker, abortTurn);
   const assembler = new CliAssistantAssembler(
@@ -728,7 +730,7 @@ export const runOrchestratorTurn = async (args: {
           ? { recoveryHistory: input.history ?? [] }
           : {}),
         claudeMcpServerConfig: mcpHost.mcpServerConfig,
-        signal: turnAbort.signal,
+        cancellation: turnCancellation,
         onStreamEvent: (event) => {
           correlator.observeStreamEvent(event);
           if (event.type === "assistant") {

@@ -11,7 +11,7 @@ sessions deploy dev too. Never print secrets: pipe them into `wrangler secret pu
 | Model gateway | `stella-v2-model-gateway-dev` | `stella-v2-model-gateway` |
 | D1 | `stella-v2-dev` | `stella-v2-prod` |
 | App source (Artifacts) | `stella-app-dev` | `stella-app-prod` |
-| Website + web chat | Vercel preview | Vercel production (`stella.sh`) |
+| Website + web chat | Worker `stella-website-dev` (`stella-website-dev.lolruuxi.workers.dev`) | Worker `stella-website-prod`; `stella.sh` still on Vercel until the cutover below |
 | Mobile OTA channel | `preview` | `production` |
 | Desktop | source checkout / verify harness | native launchers from R2 `launcher/stable/` |
 
@@ -85,9 +85,66 @@ namespace can be many commits behind master.
 
 ## Website and web chat
 
-Vercel builds `packages/website` on every push to `master`; nothing to run.
-Env lives in Vercel (`vercel env ls`); prod uses
-`NEXT_PUBLIC_STELLA_BACKEND_URL` = the prod backend.
+`packages/website` runs on Cloudflare Workers through OpenNext. Nothing deploys
+on push; run it from `packages/website` after rebasing. Put `/usr/bin` first on
+`PATH` where `node` is an Electron shim, and keep the `VITE_*` and `NEXT_PUBLIC_*`
+values out of the way: `scripts/deploy-stella.sh` pins every public value itself
+(backend, site URL, Turnstile key; the Google Ads tag only in `production`). The
+Maps browser key is the one value it takes from the environment.
+
+```bash
+cd packages/website
+# dev → https://stella-website-dev.lolruuxi.workers.dev (dev backend, no Ads tag)
+NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY="$(cat <browser key file>)" env -u CLOUDFLARE_API_TOKEN bun run deploy:dev
+# prod → stella-website-prod (prod backend, Ads tag on); refuses without the browser key
+NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY="$(cat <browser key file>)" env -u CLOUDFLARE_API_TOKEN bun run deploy:production
+```
+
+The only runtime secret is `GOOGLE_MAPS_SERVER_API_KEY` (the legacy
+`POST /api/maps/resolve` for released desktops):
+`env -u CLOUDFLARE_API_TOKEN bunx wrangler secret put GOOGLE_MAPS_SERVER_API_KEY --env="" < <server key file>`
+(`--env production` for prod). The browser key is referrer-restricted to
+`stella.sh` and `localhost:3000`, so maps on a workers.dev URL show
+`RefererNotAllowedMapError`. The dev backend does not trust the workers.dev origin
+either, so sign-in and `/chat` there fail CORS. Test those against the built
+Worker locally on a trusted origin:
+`env -u CLOUDFLARE_API_TOKEN bunx wrangler dev --port 57314 --env=""` (use
+`--port 3000` for maps).
+
+`wrangler.jsonc` holds both Workers. `worker.mjs` wraps the OpenNext worker so
+responses match Vercel: prerendered HTML gets `public, max-age=0, must-revalidate`
+instead of Next's raw `s-maxage`, and `/_next/image` is cached for a day.
+`public/_headers` sets the static-asset headers (`/_next/static`, `/chat-app`,
+logos, mock images) that `next.config.ts` headers cannot reach on Workers. Pages
+are served from the build's static-assets cache, so there is no ISR: adding
+`revalidate` or `unstable_cache` needs the R2 incremental cache.
+
+### Cutover from Vercel (needs Rahul's sign-off)
+
+`stella.sh` is a DNS-only record to Vercel in the Cloudflare zone; `www` is a
+Vercel CNAME that Vercel redirects to the apex.
+
+1. Set the prod secret, deploy prod without a route, and check
+   `https://stella-website-prod.lolruuxi.workers.dev`: pages, `/download/*`,
+   `/install.sh`, `POST /api/maps/resolve`, and the `AW-18375048850` tag in the
+   HTML. Maps and sign-in fail there as on dev.
+2. In the `stella.sh` zone, delete the apex record pointing at Vercel. Then
+   uncomment `routes` in `env.production` and run `bun run deploy:production`
+   straight away; wrangler creates the proxied record and certificate. The site
+   is down between the delete and the deploy.
+3. `www.stella.sh`: replace the Vercel CNAME with a proxied `AAAA 100::` record
+   and a Redirect Rule `www.stella.sh/*` → `https://stella.sh/${1}` (301, keep
+   the query string).
+4. Check: `curl -sI https://stella.sh` shows `server: cloudflare` and no
+   `x-vercel-*`. Then a desktop browser sign-in lands on
+   `/auth/callback?done=true`, `/chat` signs in and answers, and a `map` card
+   renders.
+5. Rollback: remove the `stella.sh` custom domain from `stella-website-prod`
+   (dashboard → Workers → Settings → Domains & Routes), restore the Vercel record
+   (`A 216.150.16.193`, or the target Vercel shows), and comment `routes` again.
+6. After a week: in Vercel, disconnect the Git integration, remove the
+   `stella.sh` and `www.stella.sh` domains, then delete the project. Commit the
+   uncommented route.
 
 ## Mobile
 

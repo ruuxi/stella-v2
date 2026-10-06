@@ -293,11 +293,13 @@ public bucket unless `STELLA_NATIVE_HELPERS_MANIFEST_URL` /
 
 ### 1.9 The website (optional)
 
-`packages/website` is a Next.js app (Stella hosts it on Vercel). It is not
-needed for chat. It serves downloads and install scripts, the web chat, the
-interactive map behind the `map` tool's cards, the hosted OAuth callbacks for
-connectors that only accept https redirects, the sign-in landing page and the
-billing return page. Its env:
+`packages/website` is a Next.js app that runs on Cloudflare Workers through
+OpenNext (`@opennextjs/cloudflare`). It is not needed for chat. It serves
+downloads and install scripts, the web chat, the interactive map behind the
+`map` tool's cards, the sign-in landing page and the billing return page.
+
+`NEXT_PUBLIC_*` values are inlined at build time, so export them in the shell
+that builds:
 
 | Var | Value |
 |---|---|
@@ -308,8 +310,27 @@ billing return page. Its env:
 | `NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY` | optional (Part 2) |
 | `NEXT_PUBLIC_GOOGLE_ADS_ID`, `NEXT_PUBLIC_GOOGLE_ADS_DOWNLOAD_LABEL`, `NEXT_PUBLIC_GOOGLE_ADS_SIGNUP_LABEL` | optional: your Google Ads tag and conversion labels. Unset, no Google tag loads |
 
+The web chat is built from `packages/desktop-ui` in the same step and prefers
+`VITE_STELLA_BACKEND_URL` / `VITE_TURNSTILE_SITE_KEY` over the `NEXT_PUBLIC_*`
+values; unset them, or set them to the same values.
+
+```bash
+cd packages/website
+# Optional: the Maps server key for the legacy /api/maps/resolve route
+bunx wrangler secret put GOOGLE_MAPS_SERVER_API_KEY --env=""
+bun run cf:build
+bun run cf:deploy
+```
+
+That deploys the top-level Worker in `wrangler.jsonc` (`stella-website-dev`) to
+`https://stella-website-dev.<sub>.workers.dev`. For prod, use `--env production`
+on the secret and `bun run cf:deploy -- --env production` (`stella-website-prod`),
+and put your own domain in its `routes`. Don't run `deploy:dev` or
+`deploy:production`: those scripts build with Stella's values.
+
 Then set `STELLA_WEBSITE_URL` on cloud-builder, `STELLA_WEB_URL` for the
 desktop, and `EXPO_PUBLIC_STELLA_SITE_URL` for mobile to the same origin.
+cloud-builder trusts that origin for browser sign-in and the web chat.
 
 ### 1.10 Your own mobile app (optional)
 

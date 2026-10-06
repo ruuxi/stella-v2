@@ -10,6 +10,11 @@
     "build:chat": "bun ../desktop/scripts/build-web-renderer.ts",
     "build-google-ads-import": "bun scripts/build-google-ads-import.mjs",
     "start": "next start",
+    "cf:build": "opennextjs-cloudflare build",
+    "cf:preview": "opennextjs-cloudflare preview",
+    "cf:deploy": "opennextjs-cloudflare deploy",
+    "deploy:dev": "bash scripts/deploy-stella.sh dev",
+    "deploy:production": "bash scripts/deploy-stella.sh production",
     "lint": "eslint",
     "test": "bun test tests",
     "typecheck": "node ../../node_modules/typescript-7/bin/tsc --noEmit",
@@ -28,6 +33,7 @@
     "streamdown": "2.7.0"
   },
   "devDependencies": {
+    "@opennextjs/cloudflare": "^1.20.9",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^26.6.4",
     "@types/react": "^19.3.0",
@@ -35,7 +41,8 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.8",
     "tailwindcss": "^4.3.3",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "wrangler": "4.147.0"
   },
   "overrides": {
     "lightningcss": "1.32.0"

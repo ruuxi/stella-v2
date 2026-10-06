@@ -1,0 +1,32 @@
+/_next/static/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/chat-app/*
+  X-Content-Type-Options: nosniff
+
+/chat-app/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/stella-logo.png
+  Cache-Control: public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800
+
+/stella-logo.svg
+  Cache-Control: public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800
+
+/stella-logo-ui.png
+  Cache-Control: public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800
+
+/stella-wallpaper.jpg
+  Cache-Control: public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800
+
+/mock-app-icons/*
+  Cache-Control: public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800
+
+/doc-mocks/*
+  Cache-Control: public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800
+
+/app-mocks/*
+  Cache-Control: public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800
+
+/demos/*
+  Cache-Control: public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800

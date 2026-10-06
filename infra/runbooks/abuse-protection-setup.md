@@ -58,7 +58,7 @@ Turnstile protects anonymous sign-in and magic link for the website, the embedde
 2. Copy the **site key** (public) and **secret key**.
 3. Cloud builder (each env): `bunx wrangler secret put TURNSTILE_SECRET_KEY [--env production]`. When unset, Turnstile verification is OFF and a warning is logged once.
 4. Client builds (public site key):
-   - Website: `NEXT_PUBLIC_TURNSTILE_SITE_KEY` in the website's env (Vercel or wherever it builds). The website build also forwards it to the embedded chat app as `VITE_TURNSTILE_SITE_KEY`.
+   - Website: `NEXT_PUBLIC_TURNSTILE_SITE_KEY` in the website build's env (`packages/website/scripts/deploy-stella.sh` for Stella). The website build also forwards it to the embedded chat app as `VITE_TURNSTILE_SITE_KEY`.
    - Desktop: `VITE_TURNSTILE_SITE_KEY` in `packages/desktop-ui/.env` (or the CI env) for both the renderer bundle and the Electron main build (`packages/desktop/scripts/dev-electron-build.mjs` bakes it in). Optionally `STELLA_WEB_URL` / `VITE_STELLA_WEB_URL` if the hosted challenge page is not at the default `https://stella.sh`.
    When a client has no site key it sends no token and the server refuses account creation in production (fail closed), so set the key everywhere Turnstile is on.
 

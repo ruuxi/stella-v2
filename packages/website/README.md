@@ -27,8 +27,17 @@ The build falls back to the tracked public backend URLs from
 `packages/website/.env.local` to point at a different backend worker. It is a
 public client endpoint, not a secret.
 
-## Vercel
+## Cloudflare Workers
 
-The Vercel project's Root Directory must be `packages/website`. The root
-workspace postinstall automatically skips Electron and native helper setup in
-Vercel, while Next.js resolves dependencies from the monorepo lockfile.
+The site runs on Cloudflare Workers through OpenNext (`@opennextjs/cloudflare`).
+`wrangler.jsonc` defines the dev Worker (`stella-website-dev`) and the
+`production` env (`stella-website-prod`); `worker.mjs` wraps the generated
+OpenNext worker. `bun run cf:preview` runs the built Worker locally.
+
+Stella's own deploys: `bun run deploy:dev` / `bun run deploy:production`
+(`scripts/deploy-stella.sh`, see `DEPLOY.md`). Any other deployment sets its
+`NEXT_PUBLIC_*` values and runs `bun run cf:build && bun run cf:deploy`
+(`SELF_HOSTING.md` 1.9).
+
+Vercel (Root Directory `packages/website`) serves stella.sh until the cutover in
+`DEPLOY.md`.

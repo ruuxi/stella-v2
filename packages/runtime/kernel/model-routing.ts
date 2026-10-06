@@ -636,6 +636,7 @@ const resolveLlmRouteResult = (args: {
   reasoningEffort?: string;
   deferBareStellaModelFailure?: boolean;
 }): LlmRouteResolution => {
+  const requestedModel = args.modelName?.trim();
   const parsed = parseModelReference(
     normalizeDesktopLocalEngineModelReference(args.modelName),
   );
@@ -707,9 +708,26 @@ const resolveLlmRouteResult = (args: {
   if (direct.kind === "route") {
     return { ok: true, route: direct.route };
   }
-  // The three non-route outcomes all carry the same context; `direct.kind`
-  // (`unsupported-provider` | `unknown-model` | `missing-credential`) maps 1:1
-  // onto the failure kind.
+  // The three non-route outcomes map 1:1 onto the failure kind
+  // (`unsupported-provider` | `unknown-model` | `missing-credential`) and
+  // share the same provider/model context; only missing-credential also
+  // reports the pre-normalization selection.
+  if (direct.kind === "missing-credential") {
+    return {
+      ok: false,
+      failure: {
+        kind: "missing-credential",
+        provider: parsed.provider,
+        model: parsed.fullModelId,
+        // Carry the user's own reference so a normalized provider segment
+        // (`codex/` and `codex-cli/` both become `chatgpt/`) is reported as a
+        // rewrite rather than as the selection they made.
+        ...(requestedModel && requestedModel !== parsed.fullModelId
+          ? { requestedModel }
+          : {}),
+      },
+    };
+  }
   return {
     ok: false,
     failure: {

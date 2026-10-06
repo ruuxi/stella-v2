@@ -13,9 +13,6 @@
   justify-content: center;
   width: 24px;
   height: 24px;
-  /* Sit next to the bubble's FIRST line rather than its vertical middle, so a
-     long message's control stays where the pointer entered the row. */
-  margin-top: 2px;
   padding: 0;
   border: none;
   border-radius: 7px;
@@ -30,11 +27,45 @@
     opacity 0.12s ease;
 }
 
-/* Revealed by hovering/focusing anywhere in the row, while its menu is open,
-   and while its read-aloud is running (so the "stop" affordance can't vanish
-   under the pointer). */
+.message-actions-rail {
+  position: relative;
+  flex: none;
+  align-self: stretch;
+  width: 24px;
+  container-type: size;
+  container-name: message-actions-rail;
+}
+
+.message-actions-rail__stack {
+  position: absolute;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.message-actions-rail--start .message-actions-rail__stack {
+  left: 0;
+}
+
+.message-actions-rail--end .message-actions-rail__stack {
+  right: 0;
+}
+
+@container message-actions-rail (max-height: 49px) {
+  .message-actions-rail__stack {
+    flex-direction: row;
+  }
+  .message-actions-rail--end .message-actions-rail__stack {
+    flex-direction: row-reverse;
+  }
+}
+
 .event-row:hover .message-actions,
 .event-row:focus-within .message-actions,
+.message-actions-rail[data-open="true"] .message-actions,
 .message-actions[data-open="true"],
 .message-actions[data-active="true"] {
   opacity: 1;

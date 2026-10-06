@@ -106,7 +106,9 @@ describe("message time in the actions menu", () => {
     expect(container.querySelector(".message-actions__timestamp")).toBeNull();
     // The control sits beside the right-aligned bubble, inside its line.
     expect(
-      container.querySelector(".message-line--user > .message-actions--end"),
+      container.querySelector(
+        ".message-line--user > .message-actions-rail--end .message-actions",
+      ),
     ).not.toBeNull();
     const menu = await openMenu();
     const stamp = menu.querySelector(".message-actions-menu__time");

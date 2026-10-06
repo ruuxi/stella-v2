@@ -107,7 +107,7 @@ describe("AssistantMessageRow hover actions", () => {
     // costs no vertical space.
     expect(
       container.querySelector(
-        ".message-line--assistant > .message-actions--start",
+        ".message-line--assistant > .message-actions-rail--start .message-actions",
       ),
     ).not.toBeNull();
     expect(trigger!.getAttribute("inert")).toBeNull();

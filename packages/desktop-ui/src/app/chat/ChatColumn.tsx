@@ -30,6 +30,7 @@ import { ComposerNotice } from "./ComposerNotice";
 import { CloudBrowserInterventionCard } from "@/features/cloud/CloudBrowserInterventionCard";
 import { CloudConnectorConnectCard } from "@/features/cloud/CloudConnectorConnectCard";
 import { ConversationEvents } from "./ConversationEvents";
+import { MessageReplyContext } from "./message-reply-context";
 import { ConversationFocusOverlay } from "./ConversationFocusOverlay";
 import { useConversationFocus } from "@/features/chat/services/conversation-focus-store";
 import { useChatMessages } from "@/context/use-chat-messages";
@@ -286,6 +287,16 @@ export const ChatColumn = memo(function ChatColumn({
   const { removeQueuedUserMessage } = conversation.streaming;
   const { setMessage: setComposerMessage, requestFocus: requestComposerFocus } =
     composer;
+  const replyComposerRef = useRef(composer);
+  replyComposerRef.current = composer;
+  const handleReplyToMessage = useCallback((text: string) => {
+    const quoted = text.trim();
+    if (!quoted) return;
+    const current = replyComposerRef.current;
+    current.setSelectedText(quoted);
+    current.requestFocus?.();
+  }, []);
+
   const handleCancelQueued = useCallback(
     (message: QueuedUserMessage) => {
       removeQueuedUserMessage(message.id);
@@ -388,25 +399,27 @@ export const ChatColumn = memo(function ChatColumn({
             centered chat column. */}
           <div className="chat-viewport-region">
             <div style={{ height: "100%" }} inert={Boolean(focus) || undefined}>
-              <ConversationEvents
-                messages={messages}
-                conversationId={conversationId}
-                agentModelConfigByThread={agentModelConfigByThread}
-                pendingUserMessageId={
-                  conversation.streaming.pendingUserMessageId
-                }
-                queuedUserMessages={conversation.streaming.queuedUserMessages}
-                onCancelQueued={handleCancelQueued}
-                indicator={indicatorProps}
-                hasOlderMessages={conversation.history.hasOlderMessages}
-                isLoadingOlder={conversation.history.isLoadingOlder}
-                isLoadingHistory={conversation.history.isInitialLoading}
-                listRef={listRef}
-                className="session-content"
-                contentContainerStyle={FULL_CHAT_CONTENT_STYLE}
-                estimatedItemSize={140}
-                extraTail={conversation.extraTail}
-              />
+              <MessageReplyContext.Provider value={handleReplyToMessage}>
+                <ConversationEvents
+                  messages={messages}
+                  conversationId={conversationId}
+                  agentModelConfigByThread={agentModelConfigByThread}
+                  pendingUserMessageId={
+                    conversation.streaming.pendingUserMessageId
+                  }
+                  queuedUserMessages={conversation.streaming.queuedUserMessages}
+                  onCancelQueued={handleCancelQueued}
+                  indicator={indicatorProps}
+                  hasOlderMessages={conversation.history.hasOlderMessages}
+                  isLoadingOlder={conversation.history.isLoadingOlder}
+                  isLoadingHistory={conversation.history.isInitialLoading}
+                  listRef={listRef}
+                  className="session-content"
+                  contentContainerStyle={FULL_CHAT_CONTENT_STYLE}
+                  estimatedItemSize={140}
+                  extraTail={conversation.extraTail}
+                />
+              </MessageReplyContext.Provider>
 
               {showScrollButton && !assistantReplyPeek.visible && (
                 <button

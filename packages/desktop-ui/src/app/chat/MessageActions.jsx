@@ -31,6 +31,7 @@ import {
   GitBranch,
   LoaderCircle,
   MoreVertical,
+  Reply,
   RotateCcw,
   Square,
   Volume2,
@@ -77,6 +78,7 @@ const REWIND_CONFIRM_TIMEOUT_MS = 3000;
  * @property {{ path?: string, url?: string, mimeType?: string, kind?: string, name?: string }} [copyAttachment]
  *   Attachment to copy when the message has no text (image → clipboard image,
  *   file → path as text). Text always takes priority when present.
+ * @property {((text: string) => void)} [onReply]
  */
 
 /** @param {MessageActionsProps} props */
@@ -90,6 +92,7 @@ function MessageActionsImpl({
   actionsDisabled = false,
   timestampMs = undefined,
   copyAttachment = undefined,
+  onReply = undefined,
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -228,105 +231,129 @@ function MessageActionsImpl({
         })
       : null;
 
+  const handleReplyClick = useCallback(() => {
+    onReply?.(text);
+  }, [onReply, text]);
+
+  const canReply = Boolean(onReply && text.trim());
+
   return (
-    <DropdownMenu open={open} onOpenChange={handleOpenChange}>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          className={`message-actions message-actions--${align}`}
-          data-open={open ? "true" : undefined}
-          data-active={isPlaying ? "true" : undefined}
-          aria-label={t("app.chat.messageActions.more")}
-          title={t("app.chat.messageActions.more")}
-        >
-          <MoreVertical size={16} strokeWidth={2} aria-hidden="true" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        className="message-actions-menu"
-        align={align === "end" ? "end" : "start"}
-        sideOffset={6}
-        collisionPadding={12}
-      >
-        {timestampLabel && (
-          <DropdownMenuLabel className="message-actions-menu__time">
-            {timestampLabel}
-          </DropdownMenuLabel>
-        )}
-        {hasCopyable && (
-          <DropdownMenuItem onSelect={handleCopySelect}>
-            <span data-slot="dropdown-menu-item-icon">
-              {copied ? (
-                <Check size={16} strokeWidth={2} aria-hidden="true" />
-              ) : (
-                <Copy size={16} strokeWidth={2} aria-hidden="true" />
-              )}
-            </span>
-            {copied
-              ? t("app.chat.messageActions.copied")
-              : t("app.chat.messageActions.copy")}
-          </DropdownMenuItem>
-        )}
-        {showReadAloud && (
-          <DropdownMenuItem onSelect={handleReadAloudSelect}>
-            <span data-slot="dropdown-menu-item-icon">
-              {readAloudStatus === "loading" ? (
-                <LoaderCircle
-                  className="message-actions__spinner"
-                  size={16}
-                  strokeWidth={2}
-                  aria-hidden="true"
-                />
-              ) : readAloudStatus === "playing" ? (
-                <Square
-                  size={14}
-                  strokeWidth={2}
-                  fill="currentColor"
-                  aria-hidden="true"
-                />
-              ) : (
-                <Volume2 size={16} strokeWidth={2} aria-hidden="true" />
-              )}
-            </span>
-            {isPlaying
-              ? t("app.chat.messageActions.stopReading")
-              : t("app.chat.messageActions.readAloud")}
-          </DropdownMenuItem>
-        )}
-        {(onFork || onRewind) && <DropdownMenuSeparator />}
-        {onFork && (
-          <DropdownMenuItem
-            disabled={actionsDisabled}
-            onSelect={() => onFork()}
+    <div
+      className={`message-actions-rail message-actions-rail--${align}`}
+      data-open={open ? "true" : undefined}
+    >
+      <div className="message-actions-rail__stack">
+        {canReply && (
+          <button
+            type="button"
+            className="message-actions message-actions--reply"
+            aria-label={t("app.chat.messageActions.reply")}
+            title={t("app.chat.messageActions.reply")}
+            onClick={handleReplyClick}
           >
-            <span data-slot="dropdown-menu-item-icon">
-              <GitBranch size={16} strokeWidth={2} aria-hidden="true" />
-            </span>
-            {t("app.chat.messageActions.fork")}
-          </DropdownMenuItem>
+            <Reply size={15} strokeWidth={2} aria-hidden="true" />
+          </button>
         )}
-        {onRewind && (
-          <DropdownMenuItem
-            data-action="rewind"
-            data-variant="destructive"
-            data-armed={rewindArmed ? "true" : undefined}
-            disabled={actionsDisabled}
-            onSelect={handleRewindSelect}
+        <DropdownMenu open={open} onOpenChange={handleOpenChange}>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className={`message-actions message-actions--${align}`}
+              data-open={open ? "true" : undefined}
+              data-active={isPlaying ? "true" : undefined}
+              aria-label={t("app.chat.messageActions.more")}
+              title={t("app.chat.messageActions.more")}
+            >
+              <MoreVertical size={16} strokeWidth={2} aria-hidden="true" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            className="message-actions-menu"
+            align={align === "end" ? "end" : "start"}
+            sideOffset={6}
+            collisionPadding={12}
           >
-            <span data-slot="dropdown-menu-item-icon">
-              {rewindArmed ? (
-                <AlertCircle size={16} strokeWidth={2} aria-hidden="true" />
-              ) : (
-                <RotateCcw size={16} strokeWidth={2} aria-hidden="true" />
-              )}
-            </span>
-            {rewindArmed
-              ? t("app.chat.messageActions.rewindConfirm")
-              : t("app.chat.messageActions.rewind")}
-          </DropdownMenuItem>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
+            {timestampLabel && (
+              <DropdownMenuLabel className="message-actions-menu__time">
+                {timestampLabel}
+              </DropdownMenuLabel>
+            )}
+            {hasCopyable && (
+              <DropdownMenuItem onSelect={handleCopySelect}>
+                <span data-slot="dropdown-menu-item-icon">
+                  {copied ? (
+                    <Check size={16} strokeWidth={2} aria-hidden="true" />
+                  ) : (
+                    <Copy size={16} strokeWidth={2} aria-hidden="true" />
+                  )}
+                </span>
+                {copied
+                  ? t("app.chat.messageActions.copied")
+                  : t("app.chat.messageActions.copy")}
+              </DropdownMenuItem>
+            )}
+            {showReadAloud && (
+              <DropdownMenuItem onSelect={handleReadAloudSelect}>
+                <span data-slot="dropdown-menu-item-icon">
+                  {readAloudStatus === "loading" ? (
+                    <LoaderCircle
+                      className="message-actions__spinner"
+                      size={16}
+                      strokeWidth={2}
+                      aria-hidden="true"
+                    />
+                  ) : readAloudStatus === "playing" ? (
+                    <Square
+                      size={14}
+                      strokeWidth={2}
+                      fill="currentColor"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <Volume2 size={16} strokeWidth={2} aria-hidden="true" />
+                  )}
+                </span>
+                {isPlaying
+                  ? t("app.chat.messageActions.stopReading")
+                  : t("app.chat.messageActions.readAloud")}
+              </DropdownMenuItem>
+            )}
+            {(onFork || onRewind) && <DropdownMenuSeparator />}
+            {onFork && (
+              <DropdownMenuItem
+                disabled={actionsDisabled}
+                onSelect={() => onFork()}
+              >
+                <span data-slot="dropdown-menu-item-icon">
+                  <GitBranch size={16} strokeWidth={2} aria-hidden="true" />
+                </span>
+                {t("app.chat.messageActions.fork")}
+              </DropdownMenuItem>
+            )}
+            {onRewind && (
+              <DropdownMenuItem
+                data-action="rewind"
+                data-variant="destructive"
+                data-armed={rewindArmed ? "true" : undefined}
+                disabled={actionsDisabled}
+                onSelect={handleRewindSelect}
+              >
+                <span data-slot="dropdown-menu-item-icon">
+                  {rewindArmed ? (
+                    <AlertCircle size={16} strokeWidth={2} aria-hidden="true" />
+                  ) : (
+                    <RotateCcw size={16} strokeWidth={2} aria-hidden="true" />
+                  )}
+                </span>
+                {rewindArmed
+                  ? t("app.chat.messageActions.rewindConfirm")
+                  : t("app.chat.messageActions.rewind")}
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    </div>
   );
 }
 

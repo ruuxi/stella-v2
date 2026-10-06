@@ -59,6 +59,8 @@ import { AgentUpdateCard } from "@/features/app-source/AppSourceCards";
 import { sanitizeAttachmentImageUrl } from "@/shared/lib/url-safety";
 import { UserMessageBody } from "@/app/chat/UserMessageBody";
 import { MessageActions } from "@/app/chat/MessageActions";
+import { useMessageReply } from "@/app/chat/message-reply-context";
+import { truncateChipLabel } from "@/features/chat/composer-context";
 import { useUserMessageActions, useUserMessageActionsBusy, } from "@/app/chat/user-message-actions-context";
 import { primaryCopyAttachment } from "@/app/chat/message-composer-restore";
 import {
@@ -256,15 +258,18 @@ function UserQuotedTextChip({ quotedText }: { quotedText: string }) {
   const t = useT();
   const { triggerRef, open, previewProps } = useHoverPreview<HTMLSpanElement>();
   const preview = quotedText.trim();
+  const label = truncateChipLabel(preview.replace(/\s+/g, " "), 48);
   return (
     <span className="event-window-badge-hovercard">
       <ContextPill
         kind="selected-text"
         pillRef={triggerRef}
-        label={t("app.chat.messageRow.quotedTextLabel")}
+        label={
+          preview ? <>&quot;{label}&quot;</> : t("app.chat.messageRow.quotedTextLabel")
+        }
         data-has-preview={preview ? "true" : undefined}
         tabIndex={preview ? 0 : undefined}
-        title={t("app.chat.messageRow.quotedTextLabel")}
+        aria-label={t("app.chat.messageRow.quotedTextLabel")}
       />
       {preview && (
         <ChipPreviewPortal
@@ -446,6 +451,7 @@ export const UserMessageRow = memo(
     const t = useT();
     const messageActions = useUserMessageActions();
     const actionsBusy = useUserMessageActionsBusy();
+    const reply = useMessageReply();
     const forkAction = messageActions?.fork;
     const handleRewind = useCallback(
       () => messageActions?.rewind(row),
@@ -597,6 +603,7 @@ export const UserMessageRow = memo(
               onFork={forkAction ? handleFork : undefined}
               actionsDisabled={actionsBusy}
               copyAttachment={copyAttachment ?? undefined}
+              onReply={reply ?? undefined}
             />
             {text.trim() && (
               <div className="event-item user chat-bubble-text">
@@ -621,6 +628,7 @@ export const AssistantMessageRow = memo(
   // `agentModelConfigByThread` stays on the props (the memo comparator keys
   // on it) but the row no longer renders anything per-thread that needs it.
   function AssistantMessageRow({ row, conversationId }: AssistantRowProps) {
+    const reply = useMessageReply();
     const text = row.text;
     const hasText = text.trim().length > 0;
     const hasWebSearchResults = (row.webSearchResults?.length ?? 0) > 0;
@@ -681,6 +689,7 @@ export const AssistantMessageRow = memo(
                   showReadAloud
                   align="start"
                   timestampMs={row.timestampMs}
+                  onReply={reply ?? undefined}
                 />
               )}
             </div>

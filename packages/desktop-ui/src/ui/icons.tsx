@@ -37,6 +37,10 @@ export const MoreVertical = createIcon("more-vertical", <>
     <circle cx="12" cy="12" r="1.1" fill="currentColor" stroke="none"/>
     <circle cx="12" cy="19" r="1.1" fill="currentColor" stroke="none"/>
   </>);
+export const Reply = createIcon("reply", <>
+    <path d="M9.5 7.25 4.75 12l4.75 4.75"/>
+    <path d="M5 12h9.25a5 5 0 0 1 5 5v.75"/>
+  </>);
 export const Search = createIcon("search", <>
     <circle cx="10.75" cy="10.75" r="6.25"/>
     <path d="M15.5 15.5 20.5 20.5"/>

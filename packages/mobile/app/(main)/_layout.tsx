@@ -118,7 +118,7 @@ export default function MainLayout() {
   const colors = useColors();
   const t = useT();
   const { isDark } = useTheme();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
   useEngineTokenRefresher();
 
   useEffect(() => {
@@ -382,12 +382,19 @@ export default function MainLayout() {
     ],
   }));
 
-  // Soft scrim painted onto the foreground itself — a faint dim while the
-  // drawer is open, plus a tap-to-close target. Lives above content but
-  // travels with the foreground so it never covers the sidebar.
+  // Scrim painted onto the foreground itself, plus a tap-to-close target.
+  // Lives above content but travels with the foreground so it never covers
+  // the sidebar.
+  //
+  // This is the only thing separating the drawer from the page now that both
+  // sit on the base background, and it tracks `drawerProgress` rather than
+  // open state — drag halfway and you get half the lift, drag back and it
+  // unwinds. On a black substrate the page lifts *away* from the drawer;
+  // in light mode there is no headroom above white, so it keeps dimming.
   const scrimStyle = useAnimatedStyle(() => ({
-    opacity: drawerProgress.value * 0.18,
+    opacity: drawerProgress.value * (isDark ? 0.14 : 0.18),
   }));
+
 
   // Constant on every route (like the empty nav bar over an iOS large title),
   // so the chat underneath never reflows as tabs swap over it.
@@ -645,7 +652,7 @@ const TRANSPARENT_NAVIGATION_THEME = {
   colors: { ...DefaultTheme.colors, background: "transparent" },
 };
 
-const makeStyles = (colors: Colors) =>
+const makeStyles = (colors: Colors, isDark: boolean) =>
   StyleSheet.create({
     shell: {
       flex: 1,
@@ -774,7 +781,9 @@ const makeStyles = (colors: Colors) =>
     // app slightly and provides a tap target to close.
     foregroundScrim: {
       ...StyleSheet.absoluteFill,
-      backgroundColor: "#000",
+      // White on a dark substrate so opening the drawer lifts the page;
+      // black in light mode, where there is nothing above white to lift to.
+      backgroundColor: isDark ? "#fff" : "#000",
       zIndex: 3,
     },
 

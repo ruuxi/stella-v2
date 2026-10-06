@@ -268,7 +268,12 @@ const makeStyles = (colors: Colors) =>
       flex: 1,
     },
     panelFill: {
-      backgroundColor: fadeHex(colors.surface, 0.78),
+      // The drawer is the base surface, not a lifted one, and it reads that
+      // way whether it is parked, mid-drag or open — its colour never tracks
+      // open state. Separation from the content comes from the page lifting
+      // as the drawer opens (see `foregroundScrim`), not from the drawer
+      // sitting brighter than the page it covers.
+      backgroundColor: colors.background,
     },
     body: {
       flex: 1,

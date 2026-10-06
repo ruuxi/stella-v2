@@ -136,37 +136,9 @@ export const officialUpdate = (state: AppSourceState) => {
 };
 
 /**
- * The user pressed Update while the update has to be merged with their own
- * changes: an agent merges it in the background, and the merge is taken the
- * moment it is ready (pressing Update was the go-ahead). Forgotten after a
- * while, so a merge that never lands doesn't leave Update stuck.
+ * An update Stella is taking by itself, as the state reports it. Whether it
+ * needed a merge, and whether an agent is doing it, is the main process's
+ * business: the renderer only knows that one is running and then that it
+ * landed. There is nothing to press either way.
  */
-const MERGE_WAIT_MS = 30 * 60_000;
-let mergeRequestedAt: number | null = null;
-const mergeListeners = new Set<() => void>();
-const setMergeRequestedAt = (next: number | null) => {
-  mergeRequestedAt = next;
-  for (const listener of mergeListeners) listener();
-};
-const subscribeMerge = (listener: () => void) => {
-  mergeListeners.add(listener);
-  return () => {
-    mergeListeners.delete(listener);
-  };
-};
-let mergeTimer: number | null = null;
-
-export const requestUpdateMerge = () => {
-  setMergeRequestedAt(Date.now());
-  if (mergeTimer !== null) window.clearTimeout(mergeTimer);
-  mergeTimer = window.setTimeout(() => setMergeRequestedAt(null), MERGE_WAIT_MS);
-};
-
-export const clearUpdateMerge = () => {
-  if (mergeTimer !== null) window.clearTimeout(mergeTimer);
-  mergeTimer = null;
-  setMergeRequestedAt(null);
-};
-
-export const useUpdateMergeRequested = () =>
-  useSyncExternalStore(subscribeMerge, () => mergeRequestedAt !== null);
+export const updateProgress = (state: AppSourceState) => state.update ?? null;

@@ -1,18 +1,15 @@
-import { useCallback, useEffect } from "react";
+import { useCallback } from "react";
 import type { AppSourceActionResult } from "@stella/contracts/desktop/app-source";
 import { RefreshCw } from "@/ui/icons";
 import { showToast } from "@/ui/toast";
 import { useT } from "@/shared/i18n";
 import {
   appSourceApi,
-  clearUpdateMerge,
-  handOffToAgent,
   officialUpdate,
-  requestUpdateMerge,
   runAppSourceAction,
+  updateProgress,
   useAppSourceState,
   usePendingAppSourceAction,
-  useUpdateMergeRequested,
 } from "@/features/app-source/app-source-store";
 import "./shell-topbar-update-pill.css";
 
@@ -20,16 +17,16 @@ const KEY = "upstream";
 
 /**
  * Official Stella updates (the published app), one click: the pill shows
- * once a new version is fetched and pressing it takes it. When the user has
- * changed Stella, an agent merges the update with their changes in the
- * background and the merge is taken as soon as it is ready; nothing asks.
- * Changes the user asked Stella to make are the chat's (`AppSourceCards`).
+ * once a new version is fetched and pressing it takes it. Whether that means
+ * a fast-forward, a merge with the user's own changes, or a merge an agent
+ * has to look at is decided in the main process and never asked about here;
+ * pressing the pill is the whole conversation. Changes the user asked Stella
+ * to make are the chat's (`AppSourceCards`).
  */
 export const ShellTopBarUpdatePill = () => {
   const t = useT();
   const state = useAppSourceState();
   const pending = usePendingAppSourceAction();
-  const merging = useUpdateMergeRequested();
   const api = appSourceApi();
   const update = state ? officialUpdate(state) : null;
 
@@ -46,25 +43,16 @@ export const ShellTopBarUpdatePill = () => {
     [t],
   );
 
-  // The merge pressing Update started is ready: take it.
-  const merged = update?.kind === "merged" ? update.draft.name : null;
-  useEffect(() => {
-    if (!merging || !merged || !api) return;
-    clearUpdateMerge();
-    void take(() => api.apply(merged));
-  }, [api, merged, merging, take]);
-
   if (!state || !api || !update) return null;
-  const updating = pending === KEY || (merging && update.kind === "diverged");
+  const updating =
+    pending === KEY || updateProgress(state)?.state === "merging";
   const label = updating ? t("shell.appSource.updating") : t("shell.appSource.update");
-  const onClick = () => {
-    if (update.kind === "merged") void take(() => api.apply(update.draft.name));
-    else if (update.kind === "ahead") void take(() => api.applyUpstream());
-    else {
-      requestUpdateMerge();
-      handOffToAgent(t("shell.appSource.askUpdate"));
-    }
-  };
+  // A merge an agent finished while the app was restarted is sitting there as
+  // a draft; otherwise the main process works out what taking it means.
+  const onClick = () =>
+    update.kind === "merged"
+      ? void take(() => api.apply(update.draft.name))
+      : void take(() => api.applyUpstream());
 
   return (
     <div

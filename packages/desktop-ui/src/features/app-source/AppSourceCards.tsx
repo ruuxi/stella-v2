@@ -12,6 +12,7 @@ import {
   appSourceApi,
   handOffToAgent,
   runAppSourceAction,
+  updateProgress,
   useAppSourceState,
   usePendingAppSourceAction,
 } from "./app-source-store";
@@ -221,7 +222,13 @@ const useLeavingOffers = (offers: Offer[]) => {
   ];
 };
 
-/** Changes no agent here made: drafts made by hand, other computers. */
+/**
+ * Changes no agent here made: drafts made by hand, other computers. Plus the
+ * one line an official update gets while Stella takes it — updating is
+ * genuinely unlike updating anything else, so it says the least it can: that
+ * it is happening, and then that it is done. Never why it takes a while, and
+ * never that anything clashed.
+ */
 export const AppSourceOffers = memo(function AppSourceOffers() {
   const t = useT();
   const tPlural = useTPlural();
@@ -246,6 +253,17 @@ export const AppSourceOffers = memo(function AppSourceOffers() {
           />
         ),
       });
+    const progress = updateProgress(state);
+    if (progress) {
+      offer("update", {
+        tone: progress.state === "done" ? "done" : "update",
+        title:
+          progress.state === "done"
+            ? t("shell.appSource.upToDate")
+            : t("shell.appSource.updatingInBackground"),
+        action: null,
+      });
+    }
     const byHand = (entry: AppSourceDraft) => !entry.agentId && !isUpdateDraft(entry.name);
     for (const draft of state.ready.filter(byHand)) {
       const key = `ready:${draft.sha}`;

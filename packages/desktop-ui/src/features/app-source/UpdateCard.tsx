@@ -194,7 +194,8 @@ export const UpdateCard = ({
 }: {
   tone: UpdateCardTone;
   title: string;
-  detail: string;
+  /** Absent for a card that is one plain line and nothing else. */
+  detail?: string;
   action: UpdateCardAction | null;
   busy?: boolean;
   disabled?: boolean;
@@ -215,11 +216,13 @@ export const UpdateCard = ({
       <div className="app-update-card__title" title={title}>
         {title}
       </div>
-      <div className="app-update-card__detail">
-        <Swap value={detail} variant="text">
-          {detail}
-        </Swap>
-      </div>
+      {detail === undefined ? null : (
+        <div className="app-update-card__detail">
+          <Swap value={detail} variant="text">
+            {detail}
+          </Swap>
+        </div>
+      )}
     </div>
     {action ? <UpdateButton action={action} busy={busy} disabled={disabled} /> : null}
   </div>

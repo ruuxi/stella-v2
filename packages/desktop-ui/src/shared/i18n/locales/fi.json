@@ -1230,6 +1230,7 @@
         "video": "Video"
       },
       "fileLink": {
+        "cloudWorkspaceOnly": "Tämä tiedosto on Stellan pilvityötilassa, ei tällä tietokoneella. Pyydä Stellaa siirtämään se Driveen.",
         "openFailed": "Ei voitu avata: {filePath}"
       },
       "filePreview": {

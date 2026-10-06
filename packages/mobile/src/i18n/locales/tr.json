@@ -1230,6 +1230,7 @@
         "video": "Video"
       },
       "fileLink": {
+        "cloudWorkspaceOnly": "Bu dosya bu bilgisayarda değil, Stella’nın bulut çalışma alanında. Stella’dan dosyayı Drive’ınıza koymasını isteyin.",
         "openFailed": "{filePath} açılamadı"
       },
       "filePreview": {

@@ -1242,6 +1242,7 @@
         "video": "Wideo"
       },
       "fileLink": {
+        "cloudWorkspaceOnly": "Ten plik znajduje się w chmurowym obszarze roboczym Stelli, a nie na tym komputerze. Poproś Stellę, aby umieściła go na Twoim Dysku.",
         "openFailed": "Nie udało się otworzyć {filePath}"
       },
       "filePreview": {

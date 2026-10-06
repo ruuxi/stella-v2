@@ -1230,6 +1230,7 @@
         "video": "वीडियो"
       },
       "fileLink": {
+        "cloudWorkspaceOnly": "यह फ़ाइल Stella के क्लाउड वर्कस्पेस में है, इस कंप्यूटर पर नहीं। Stella से इसे अपने Drive में रखने को कहें।",
         "openFailed": "{filePath} नहीं खुल सका"
       },
       "filePreview": {

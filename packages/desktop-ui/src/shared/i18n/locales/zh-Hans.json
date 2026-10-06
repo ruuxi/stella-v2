@@ -1224,6 +1224,7 @@
         "video": "视频"
       },
       "fileLink": {
+        "cloudWorkspaceOnly": "此文件位于 Stella 的云工作区，而不在这台电脑上。请让 Stella 将它放入你的云端硬盘。",
         "openFailed": "无法打开 {filePath}"
       },
       "filePreview": {

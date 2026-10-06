@@ -1224,6 +1224,7 @@
         "video": "Video"
       },
       "fileLink": {
+        "cloudWorkspaceOnly": "Tệp này nằm trong không gian làm việc trên đám mây của Stella, không phải trên máy tính này. Hãy yêu cầu Stella đưa nó vào Drive của bạn.",
         "openFailed": "Không mở được {filePath}"
       },
       "filePreview": {

@@ -1242,6 +1242,7 @@
         "video": "Video"
       },
       "fileLink": {
+        "cloudWorkspaceOnly": "Tento soubor je v cloudovém pracovním prostoru Stelly, ne v tomto počítači. Požádejte Stellu, aby ho umístila na váš Disk.",
         "openFailed": "Nepodařilo se otevřít {filePath}"
       },
       "filePreview": {

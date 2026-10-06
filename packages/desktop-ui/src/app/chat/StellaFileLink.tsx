@@ -20,6 +20,7 @@ import type { KeyboardEvent } from "react";
 import {
   cloudWorldDriveName,
   cloudWorldDrivePath,
+  isCloudWorkspacePath,
 } from "@stella/contracts/cloud-world-paths";
 import { displayPayloadForStellaFile } from "@/features/chat/lib/stella-file-links";
 import { useOpenConversationFile } from "@/features/cloud/use-cloud-drive-open";
@@ -112,6 +113,10 @@ const LocalStellaFileLink = ({
   const t = useT();
   const [failed, setFailed] = useState(false);
   const display = rawLabel || (filePath ? basenameOf(filePath) : "");
+  // A world path the drive rule rejected (`/workspace/world/projects/x.md`,
+  // a fork's world, the app build root). It is still a cloud path, so it has
+  // no local file behind it — see `assertNotCloudWorkspacePath`.
+  const cloudOnly = filePath ? isCloudWorkspacePath(filePath) : false;
 
   const open = useCallback(() => {
     if (!filePath) return;
@@ -123,6 +128,14 @@ const LocalStellaFileLink = ({
     }
     // No in-app viewer for this type — hand it to the OS default app.
     // `openPath` reports missing/unopenable files as `ok: false`.
+    //
+    // A cloud path has no local file for the OS to open, and the main process
+    // refuses it. Failing here keeps the explanation specific instead of
+    // spending a round trip to arrive at a generic "couldn't open".
+    if (cloudOnly) {
+      setFailed(true);
+      return;
+    }
     const api = window.electronAPI?.system;
     if (!api?.openPath) {
       setFailed(true);
@@ -134,7 +147,7 @@ const LocalStellaFileLink = ({
         if (!result?.ok) setFailed(true);
       })
       .catch(() => setFailed(true));
-  }, [filePath]);
+  }, [cloudOnly, filePath]);
 
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLAnchorElement>) => {
@@ -159,7 +172,11 @@ const LocalStellaFileLink = ({
       className="markdown-stella-file"
       data-failed={failed || undefined}
       title={
-        failed ? t("app.chat.fileLink.openFailed", { filePath }) : filePath
+        failed
+          ? cloudOnly
+            ? t("app.chat.fileLink.cloudWorkspaceOnly")
+            : t("app.chat.fileLink.openFailed", { filePath })
+          : filePath
       }
       onClick={open}
       onKeyDown={handleKeyDown}

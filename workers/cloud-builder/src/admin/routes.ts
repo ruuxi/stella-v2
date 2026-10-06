@@ -286,6 +286,27 @@ const testAccountSession = async (request: Request, env: AdminEnv): Promise<Resp
   });
 };
 
+/**
+ * Dev test accounts only: drive the cloud Claude Code login backup with a
+ * FAKE login in a fixed probe account, to prove it survives a container
+ * replacement. Never touches a real account's directory.
+ */
+const claudeLoginProbeRoute = async (request: Request, env: AdminEnv): Promise<Response> => {
+  const { testAccountsEnabled } = await import("../auth/auth.js");
+  if (!testAccountsEnabled(env)) return fail(404, "Test accounts disabled.", { env: "STELLA_TEST_ACCOUNTS" });
+  const body = await readBody(request);
+  const ownerId = ownerIdOf(body?.ownerId);
+  const action = body?.action;
+  if (
+    !ownerId ||
+    (action !== "plant" && action !== "inspect" && action !== "backup" && action !== "restore" && action !== "replace")
+  ) {
+    return fail(400, "Need ownerId and action plant|inspect|backup|restore|replace.");
+  }
+  const { claudeLoginProbe } = await import("../claude-cloud-login.js");
+  return json(await claudeLoginProbe(env as unknown as Cloudflare.Env, ownerId, action));
+};
+
 // ── Routing ──────────────────────────────────────────────────────────────
 
 const ROUTES: Record<string, { method: "GET" | "POST"; run: (request: Request, url: URL, env: AdminEnv) => Promise<Response> }> = {
@@ -295,6 +316,10 @@ const ROUTES: Record<string, { method: "GET" | "POST"; run: (request: Request, u
   "/api/admin/billing/plan": { method: "POST", run: (request, _url, env) => billingPlan(request, env) },
   "/api/admin/delete": { method: "POST", run: (request, _url, env) => remove(request, env) },
   "/api/admin/test-accounts/session": { method: "POST", run: (request, _url, env) => testAccountSession(request, env) },
+  "/api/admin/test-accounts/claude-login-probe": {
+    method: "POST",
+    run: (request, _url, env) => claudeLoginProbeRoute(request, env),
+  },
 };
 
 /** Admin routes, or null when the request is not one. */

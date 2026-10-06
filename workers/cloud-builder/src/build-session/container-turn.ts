@@ -58,6 +58,10 @@ import { issueWorldCapability } from "../world-capability.js";
 import { worldMaterializationCommand } from "../world-materialization.js";
 import type { BuildSessionInternals } from "./host.js";
 import type { Env } from "./shared/env.js";
+import {
+  backupClaudeCloudLogins,
+  restoreClaudeCloudLogins,
+} from "../claude-cloud-login.js";
 import type { RpcResponse } from "@stella/contracts/backend/protocol";
 import {
   parseAgentExecutorResult,
@@ -1468,6 +1472,9 @@ export const runAgentAttempt = async (
       admitted.engine === "anthropic"
         ? await claudeCloudAccountFor(host.env, turn)
         : null;
+    // A container started from a new image gets the owner's Claude Code
+    // logins back before the CLI looks for them.
+    if (claudeAccount) await restoreClaudeCloudLogins(host.env, turn.ownerId);
     turnExecution.assertActive();
 
     // The turn input sits in the root-only attempt directory, above the
@@ -1760,6 +1767,10 @@ export const runAgentAttempt = async (
     await session
       .exec(`rm -rf ${attemptPaths.directory}`)
       .catch(() => undefined);
+    // The CLI may have rotated its refresh token during the turn.
+    if (turn.execution?.engine === "anthropic") {
+      await backupClaudeCloudLogins(host.env, turn.ownerId).catch(() => false);
+    }
     await host.ctx.storage.transaction(async (txn) => {
       const current = await txn.get<TurnBrokerRecord>(brokerRecordKey);
       if (

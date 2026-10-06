@@ -34,5 +34,11 @@ export const cloudNativeStateRoot = (threadHash: string): string => {
  */
 export const CLOUD_CLAUDE_ACCOUNTS_ROOT = "/home/stella-host-state/claude-accounts";
 
+/**
+ * Pending `claude auth login` attempts, beside the account directories
+ * (root-only, never backed up).
+ */
+export const CLOUD_CLAUDE_LOGINS_ROOT = "/home/stella-host-state/claude-logins";
+
 export const isCloudClaudeAccountKey = (value: unknown): value is string =>
   typeof value === "string" && /^[0-9a-f]{64}$/u.test(value);

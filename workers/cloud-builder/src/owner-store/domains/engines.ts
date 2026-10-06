@@ -65,6 +65,7 @@ import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot"
 import {
   cancelClaudeCloudLogin,
   claudeCloudAccountKey,
+  deleteClaudeCloudLoginBackup,
   finishClaudeCloudLogin,
   newClaudeCloudLoginId,
   signOutClaudeCloudAccount,
@@ -1554,7 +1555,8 @@ export const enginesDomain = {
     "engines.access": engineAccess,
     "engines.claudeCloudAccount": (ctx) => claudeCloudAccount(ctx),
   },
-  purge: (ctx) => {
+  purge: async (ctx) => {
+    await deleteClaudeCloudLoginBackup(ctx.env, ctx.ownerId);
     ctx.db.run("DELETE FROM engine_accounts");
     ctx.db.run("DELETE FROM engine_claude_places");
     ctx.db.run("DELETE FROM engine_claude_logins");

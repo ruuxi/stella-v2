@@ -25,12 +25,15 @@ import type { LocalChatEventRecord } from "@stella/runtime/kernel/storage/shared
 import { planDisplayFileRead } from "./display-read-limit.js";
 import { resolveJwtOwnerScope } from "@stella/runtime/kernel/runner/computer-agent-cloud-records";
 import { resolveCanonicalConversationFilePaths } from "../services/canonical-conversation-file-paths.js";
+import type { CloudConversationFileGrants } from "../services/cloud-conversation-file-grants.js";
 
 type DisplayHandlersOptions = {
   getStellaAppDir: () => string | null;
   getStellaDataDir: () => string | null;
   localChatHistoryService?: LocalChatHistoryService;
   getAuthToken?: () => Promise<string | null>;
+  /** Files Stella produced or displayed in a conversation, per its cloud journal. */
+  cloudFileGrants?: CloudConversationFileGrants;
   assertPrivilegedSender: (
     event: IpcMainEvent | IpcMainInvokeEvent,
     channel: string,
@@ -276,28 +279,42 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
             `${REMOTE_VIEW_DENIAL_PREFIX}this file is outside Stella's own outputs and media, and no conversation was supplied to check it against.`,
           );
         }
-        if (!options.localChatHistoryService) {
-          throw new Error("Local chat file history is unavailable.");
-        }
-        const { files } = options.localChatHistoryService.listFiles({
-          conversationId,
-          limit: 500,
-        });
-        const allowedByLocalHistory = isDisplayReadPathInLocalChatFiles(
-          files,
-          resolved,
-        );
-        const canonicalPaths = allowedByLocalHistory
-          ? new Set<string>()
-          : await resolveCanonicalConversationFilePaths(
-              options.localChatHistoryService.listCanonicalFilePaths(
+        const allowedByLocalHistory = options.localChatHistoryService
+          ? isDisplayReadPathInLocalChatFiles(
+              options.localChatHistoryService.listFiles({
                 conversationId,
-                resolveJwtOwnerScope(
-                  await options.getAuthToken?.().catch(() => null),
+                limit: 500,
+              }).files,
+              resolved,
+            )
+          : false;
+        const canonicalPaths =
+          allowedByLocalHistory || !options.localChatHistoryService
+            ? new Set<string>()
+            : await resolveCanonicalConversationFilePaths(
+                options.localChatHistoryService.listCanonicalFilePaths(
+                  conversationId,
+                  resolveJwtOwnerScope(
+                    await options.getAuthToken?.().catch(() => null),
+                  ),
                 ),
-              ),
-            );
-        if (!allowedByLocalHistory && !canonicalPaths.has(resolved)) {
+              );
+        // Any conversation of this owner, not just the one this window
+        // shows: a file Stella produced or displayed there, per the cloud
+        // journal, is one the user has already been shown.
+        const cloudPaths =
+          allowedByLocalHistory ||
+          canonicalPaths.has(resolved) ||
+          !options.cloudFileGrants
+            ? new Set<string>()
+            : await resolveCanonicalConversationFilePaths(
+                await options.cloudFileGrants.listPaths(conversationId),
+              );
+        if (
+          !allowedByLocalHistory &&
+          !canonicalPaths.has(resolved) &&
+          !cloudPaths.has(resolved)
+        ) {
           throw new Error(
             `${REMOTE_VIEW_DENIAL_PREFIX}reading this file needs your computer. Only Stella's own outputs and files from the current conversation can load here.`,
           );

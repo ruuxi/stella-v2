@@ -3,8 +3,10 @@
  *
  * A guest is offered a Stella account (the existing sign-in screen; the
  * onboarding resumes on this message when they come back), and everyone is
- * offered their own Claude or ChatGPT subscription through the same
- * paste-back flow Settings uses. All of it is optional.
+ * offered their own Claude or ChatGPT subscription for Stella's cloud
+ * through the same paste-back flow Settings uses (Claude: the cloud's own
+ * `claude auth login`; the phone never signs in to Claude itself). All of it
+ * is optional.
  */
 import { useMemo } from "react";
 import {
@@ -281,16 +283,18 @@ function EngineRow({
             >
               <Text style={styles.rowDesc}>{t("mobile.common.cancel")}</Text>
             </Pressable>
-            {connect.reopenAuthorizePage ? (
-              <Pressable
-                onPress={connect.reopenAuthorizePage}
-                disabled={connect.busy}
-                hitSlop={8}
-                accessibilityRole="button"
-              >
-                <Text style={styles.rowDesc}>{t("mobile.engineAccounts.openChatgptAgain")}</Text>
-              </Pressable>
-            ) : null}
+            <Pressable
+              onPress={connect.reopenAuthorizePage}
+              disabled={connect.busy}
+              hitSlop={8}
+              accessibilityRole="button"
+            >
+              <Text style={styles.rowDesc}>
+                {spec.provider === "chatgpt"
+                  ? t("mobile.engineAccounts.openChatgptAgain")
+                  : t("mobile.engineAccounts.openClaudeAgain")}
+              </Text>
+            </Pressable>
             <Pressable
               onPress={connect.finishConnect}
               disabled={connect.busy || !connect.pasted.trim()}

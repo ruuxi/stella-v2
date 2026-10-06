@@ -38,9 +38,6 @@ export type UiStateKvHandlersOptions = {
     event: IpcMainEvent | IpcMainInvokeEvent,
     channel: string,
   ) => boolean;
-  getBroadcastToMobile?: () =>
-    | ((channel: string, data: unknown) => void)
-    | null;
 };
 
 export const registerUiStateKvHandlers = (
@@ -71,7 +68,6 @@ export const registerUiStateKvHandlers = (
       }
       window.webContents.send(IPC_UI_STATE_KV_CHANGED, changes);
     }
-    options.getBroadcastToMobile?.()?.(IPC_UI_STATE_KV_CHANGED, changes);
   };
 
   ipcMain.on(IPC_UI_STATE_KV_SNAPSHOT, (event) => {

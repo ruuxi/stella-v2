@@ -28,12 +28,6 @@ export const createBootstrapServices = (options) => {
                     window.webContents.send("localChat:updated", payload ?? null);
                 }
             }
-            options.getMobileBroadcast()?.("localChat:updated", payload ?? null);
-        },
-        // Mobile-only: desktop windows maintain their own decoration stores from
-        // the live stream; the bridge snapshot exists for the phone's benefit.
-        onTaskDecorationUpdated: (payload) => {
-            options.getMobileBroadcast()?.("localChat:taskDecorationUpdated", payload);
         },
     });
     externalLinkService.setDevBuild(config.isDeveloperInstance);
@@ -104,7 +98,6 @@ export const createBootstrapServices = (options) => {
     const credentialService = new CredentialService({
         windowManagerTarget: lifecycle,
         getStellaAppDir: () => lifecycle.getStellaDataDir(),
-        getBroadcastToMobile: () => options.getMobileBroadcast(),
     });
     const engineAccountAccess = new EngineAccountAccess({
         getBackendUrl: () => authService.getBackendUrl(),

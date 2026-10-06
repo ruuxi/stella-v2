@@ -1748,14 +1748,6 @@ describe("session-store", () => {
     });
     expect(firstPage.sourceEvents).toHaveLength(4_000);
     expect(firstPage.nextCursor?.id).toBe("mobile-tail-3999");
-    expect(
-      store.hasMobileSyncEventsAfter(
-        conversationId,
-        firstPage.nextCursor!.timestamp,
-        firstPage.nextCursor!.id,
-        firstPage.nextCursor!.sequence,
-      ),
-    ).toBe(true);
 
     const secondPage = store.listMessagesAfter(conversationId, {
       afterTimestampMs: firstPage.nextCursor!.timestamp,
@@ -3472,18 +3464,6 @@ describe("thread activity rows", () => {
     expect(rows.some((row) => row.threadId === "old-active")).toBe(true);
     expect(rows.some((row) => row.threadId === "terminal-000")).toBe(false);
     expect(rows.some((row) => row.threadId === "terminal-500")).toBe(true);
-    const mobileRows = store.listThreadActivity("conv-bounded-activity", {
-      view: "mobile-summary",
-      maxItems: 500,
-    });
-    expect(mobileRows).toHaveLength(500);
-    expect(mobileRows.some((row) => row.threadId === "old-active")).toBe(true);
-    expect(mobileRows.some((row) => row.threadId === "terminal-000")).toBe(
-      false,
-    );
-    expect(mobileRows.some((row) => row.threadId === "terminal-500")).toBe(
-      true,
-    );
     const activePlan = db
       .prepare(
         `EXPLAIN QUERY PLAN SELECT thread_id FROM agent

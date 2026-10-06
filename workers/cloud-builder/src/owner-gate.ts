@@ -87,7 +87,13 @@ import {
   setEnforcement,
   type SetEnforcementInput,
 } from "./owner-store/domains/abuse.js";
-import { deleteTunnels, handleMobileRoute, snapshotDevices, type MobileRouteInput } from "./owner-store/domains/devices.js";
+import { handleMobileRoute, snapshotDevices, type MobileRouteInput } from "./owner-store/domains/devices.js";
+import { DeviceRequestRelay, deviceRequestErrorResponse } from "./device-request-relay.js";
+import {
+  DEVICE_REQUEST_LIMITS,
+  isDeviceRequestMethod,
+  type DeviceRequestDeviceFrame,
+} from "@stella/contracts/turn-plane/device-requests";
 import { snapshotEngines } from "./owner-store/domains/engines.js";
 import type { StripeEvent } from "./billing/stripe.js";
 import { BillingConfigError } from "./billing/plans.js";
@@ -192,6 +198,11 @@ export type OwnerGateEnv = Pick<
 
 /** Trusted headers the Worker stamps on a forwarded presence upgrade. */
 export const HEADER_PRESENCE_DEVICE_ID = "x-stella-device-id";
+
+/** Trusted headers the Worker stamps on a forwarded device request. */
+export const HEADER_DEVICE_REQUEST_MOBILE_ID = "x-stella-device-request-mobile-id";
+export const HEADER_DEVICE_REQUEST_ID = "x-stella-device-request-id";
+export const HEADER_DEVICE_REQUEST_METHOD = "x-stella-device-request-method";
 
 export type OwnerGateLane = "chat" | "agent";
 
@@ -733,6 +744,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   private schemaReady = false;
   /** Steers waiting for their device's `steer.ack`, by dispatch and message. */
   private readonly steerAcks = new Map<string, (delivered: boolean) => void>();
+  private deviceRequestRelayState?: DeviceRequestRelay;
   private ownerStoreState?: OwnerStore;
   private ownerHostState?: OwnerHost;
   /** The domains this object serves. Test fixtures substitute their own. */
@@ -1079,27 +1091,21 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
 
   // ── Devices ─────────────────────────────────────────────────────────────
 
-  /** `/api/mobile/*` for phones and the desktop's bridge, verified by the Worker. */
+  /** `/api/mobile/*` for phones, verified by the Worker. */
   async mobileRoute(input: MobileRouteInput): Promise<{ status: number; json: string }> {
     const result = await this.billingWrite((ctx) => handleMobileRoute(ctx, input));
     return { status: result.status, json: JSON.stringify(result.body) };
   }
 
-  /** Account deletion: delete the owner's Cloudflare tunnels. */
-  async closeDevices(): Promise<void> {
-    await this.billingWrite((ctx) => deleteTunnels(ctx, { idleOnly: false }));
-  }
-
   /**
    * Account deletion, before the auth user row goes: close the owner for
-   * good, end Stripe and the tunnels, then run the first delete pass of the
+   * good, end Stripe, then run the first delete pass of the
    * `account.purge` job now. A pass that leaves stores pending is retried by
    * the job.
    */
   async closeOwner(): Promise<{ pending: string[] }> {
     await this.billingWrite((ctx) => beginOwnerPurge(ctx, "delete"));
     await this.closeBilling();
-    await this.closeDevices();
     await this.ownerStore().runDueJobs();
     const store = this.ownerStore();
     const { purge } = readOwnerState(store.context(null).db);
@@ -1856,6 +1862,9 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       await this.scheduleAlarm(Date.now());
       return response;
     }
+    if (url.pathname === "/device-request") {
+      return await this.handleDeviceRequest(request);
+    }
     if (url.pathname !== "/presence") {
       return Response.json({ error: "Not found." }, { status: 404 });
     }
@@ -2069,6 +2078,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       // evict a working one.
       for (const other of this.sockets(attachment.deviceId)) {
         if (other === socket) continue;
+        this.deviceRequestRelay().onDeviceGone(attachment.deviceId, other);
         this.closeSocket(other, DEVICE_PRESENCE_CLOSE.replaced, "replaced");
       }
       attachment.phase = "connected";
@@ -2138,7 +2148,77 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       return;
     }
     socket.serializeAttachment(attachment);
+    if (
+      frame.type === "response.start" ||
+      frame.type === "response.chunk" ||
+      frame.type === "response.end" ||
+      frame.type === "response.error"
+    ) {
+      this.deviceRequestRelay().onFrame(
+        socket,
+        attachment.deviceId,
+        frame as DeviceRequestDeviceFrame,
+      );
+      return;
+    }
     await this.handleExecutorFrame(socket, attachment, frame, now);
+  }
+
+  private deviceRequestRelay(): DeviceRequestRelay {
+    return (this.deviceRequestRelayState ??= new DeviceRequestRelay({
+      liveSocket: (deviceId) => {
+        const socket = this.connectedSocket(deviceId);
+        if (!socket) return null;
+        const presence = this.presenceRow(deviceId);
+        return presence?.connected &&
+          presence.lastSeenAt + DEVICE_PRESENCE_STALE_AFTER_MS > Date.now()
+          ? socket
+          : null;
+      },
+      send: (socket, frame) => this.send(socket, frame),
+      log: (event, fields) =>
+        log("error", event, { ownerId: this.ownerId(), ...fields }),
+    }));
+  }
+
+  /**
+   * `POST /owners/me/devices/:deviceId/requests`, forwarded by the Worker
+   * after it verified the account and the phone's pairing proof. The body is
+   * the request's params JSON; the answer streams back from the computer.
+   */
+  private async handleDeviceRequest(request: Request): Promise<Response> {
+    if (request.method !== "POST") {
+      return Response.json({ error: "Method not allowed." }, { status: 405 });
+    }
+    const caller = trustedOwnerCaller(request);
+    if (!caller || caller.ownerId !== this.ownerId()) {
+      return deviceRequestErrorResponse("unauthorized", "Missing verified identity.");
+    }
+    const deviceId = request.headers.get(HEADER_PRESENCE_DEVICE_ID)?.trim() ?? "";
+    const mobileDeviceId =
+      request.headers.get(HEADER_DEVICE_REQUEST_MOBILE_ID)?.trim() ?? "";
+    const requestId = request.headers.get(HEADER_DEVICE_REQUEST_ID)?.trim() ?? "";
+    const method = request.headers.get(HEADER_DEVICE_REQUEST_METHOD)?.trim() ?? "";
+    const paramsJson = await request.text();
+    if (
+      !deviceId ||
+      deviceId.length > MAX_DEVICE_ID_CHARS ||
+      !mobileDeviceId ||
+      !requestId ||
+      requestId.length > DEVICE_REQUEST_LIMITS.requestId ||
+      !isDeviceRequestMethod(method) ||
+      paramsJson.length > DEVICE_REQUEST_LIMITS.paramsBytes
+    ) {
+      return deviceRequestErrorResponse("bad_request", "Malformed device request.");
+    }
+    this.ensureSchema();
+    return await this.deviceRequestRelay().open({
+      deviceId,
+      mobileDeviceId,
+      requestId,
+      method,
+      paramsJson,
+    });
   }
 
   async webSocketClose(socket: WebSocket, code: number): Promise<void> {
@@ -2151,6 +2231,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     if (attachment?.phase === "connected") {
       this.markDisconnected(attachment, now);
     }
+    if (attachment) this.deviceRequestRelay().onDeviceGone(attachment.deviceId, socket);
     this.closeSocket(socket, code >= 3000 && code <= 4999 ? code : 1000, "");
     await this.scheduleAlarm(now);
   }
@@ -2165,6 +2246,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     if (attachment?.phase === "connected") {
       this.markDisconnected(attachment, now);
     }
+    if (attachment) this.deviceRequestRelay().onDeviceGone(attachment.deviceId, socket);
     this.closeSocket(socket, 1011, "socket_error");
   }
 
@@ -2178,6 +2260,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     if (attachment.phase === "connected") {
       this.markDisconnected(attachment, now);
     }
+    this.deviceRequestRelay().onDeviceGone(attachment.deviceId, socket);
     this.closeSocket(socket, code, reason);
     await this.scheduleAlarm(now);
   }

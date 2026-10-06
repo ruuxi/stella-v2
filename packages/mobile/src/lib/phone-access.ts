@@ -1,13 +1,8 @@
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 import { assert, assertObject } from "./assert";
-import {
-  createBridgeProofChallenge,
-  createMobileBridgePairProof,
-} from "./bridge-crypto";
-import { backendOrigin, getJson, postJson } from "./http";
-import type { DesktopBridgeStatus } from "../types";
-import { readDesktopBridgeRegistrationDescriptor } from "./desktop-bridge-discovery";
+import { getBackendClient } from "./backend";
+import { backendOrigin, postJson } from "./http";
 
 const MOBILE_DEVICE_ID_KEY = "stella-mobile_phone-access.mobile-device-id";
 const PREFERRED_DESKTOP_DEVICE_ID_KEY =
@@ -124,42 +119,6 @@ const readPairingResult = (
   };
 };
 
-function readDesktopBridgeStatus(value: unknown): DesktopBridgeStatus {
-  assertObject(value, "Desktop bridge response must be an object.");
-  assert(
-    typeof value.available === "boolean",
-    "Desktop bridge availability is required.",
-  );
-  assert(
-    Array.isArray(value.baseUrls),
-    "Desktop bridge URLs must be an array.",
-  );
-  for (const item of value.baseUrls) {
-    assert(typeof item === "string", "Desktop bridge URL must be a string.");
-  }
-  assert(
-    value.platform === undefined ||
-      value.platform === null ||
-      typeof value.platform === "string",
-    "Desktop bridge platform must be a string.",
-  );
-  assert(
-    value.updatedAt === undefined ||
-      value.updatedAt === null ||
-      typeof value.updatedAt === "number",
-    "Desktop bridge updatedAt must be a number.",
-  );
-  return {
-    available: value.available,
-    baseUrls: value.baseUrls,
-    platform: value.platform ?? null,
-    updatedAt: value.updatedAt ?? null,
-    lastKnownRegistration: readDesktopBridgeRegistrationDescriptor(
-      value.lastKnownRegistration,
-    ),
-  };
-}
-
 const readPlatformLabel = () => {
   switch (Platform.OS) {
     case "ios":
@@ -169,29 +128,6 @@ const readPlatformLabel = () => {
     default:
       return "Phone";
   }
-};
-
-export const buildPhonePairProofHeaders = (
-  access: StoredPhoneAccess,
-  challenge: string,
-  mobilePublicKey?: string,
-) => {
-  const { issuedAt, proof } = createMobileBridgePairProof({
-    pairSecret: access.pairSecret,
-    desktopDeviceId: access.desktopDeviceId,
-    mobileDeviceId: access.mobileDeviceId,
-    challenge,
-    mobilePublicKey,
-  });
-  return {
-    "X-Stella-Mobile-Device-Id": access.mobileDeviceId,
-    "X-Stella-Mobile-Pair-Proof": proof,
-    "X-Stella-Mobile-Pair-Proof-Issued-At": String(issuedAt),
-    "X-Stella-Mobile-Pair-Proof-Challenge": challenge,
-    ...(mobilePublicKey
-      ? { "X-Stella-Mobile-Public-Key": mobilePublicKey }
-      : {}),
-  };
 };
 
 export async function getOrCreateMobileDeviceId() {
@@ -332,7 +268,7 @@ export async function getStoredPhoneAccess(
  * account's computers, with no code to carry between the two screens.
  *
  * What this grants is *reach*: the pair secret is the HMAC key for the mobile
- * dispatch proof and the encrypted desktop bridge, standing in for the device
+ * dispatch proof and for requests to that computer, standing in for the device
  * key a phone cannot have. It says nothing about whether that computer will
  * run anything — that is its remote-execution state, which only an explicit
  * enable (here or the prompt on its own screen) may change. Attaching must
@@ -413,22 +349,13 @@ export async function completePhonePairing(args: {
   return await storeGrantedPhoneAccess({ ...result, mobileDeviceId });
 }
 
-export async function requestDesktopConnection(access: StoredPhoneAccess) {
-  const challenge = createBridgeProofChallenge();
-  await postJson(
-    "/api/mobile/desktop-bridge/request",
-    { desktopDeviceId: access.desktopDeviceId },
-    { headers: buildPhonePairProofHeaders(access, challenge), origin: backendOrigin() },
-  );
-}
-
 /**
  * Re-file this phone's stored pairing under the desktop's current device id.
  *
  * A desktop mints a new device id whenever its local keypair stops being
  * readable, and the backend moves the pairing onto the replacement. Until the
- * phone follows, it keeps asking about an id that will never register a bridge
- * again — which reads here as a desktop that is permanently offline.
+ * phone follows, it keeps asking about an id that will never be online again —
+ * which reads here as a desktop that is permanently offline.
  */
 export async function adoptDesktopDeviceIdSuccession(
   previousDesktopDeviceId: string,
@@ -472,23 +399,19 @@ export async function adoptDesktopDeviceIdSuccession(
   return migrated;
 }
 
-export async function getDesktopBridgeStatus(desktopDeviceId?: string) {
-  const query = desktopDeviceId
-    ? `?desktopDeviceId=${encodeURIComponent(desktopDeviceId)}`
-    : "";
-  const status = readDesktopBridgeStatus(
-    await getJson(`/api/mobile/desktop-bridge${query}`, { origin: backendOrigin() }),
-  );
-
-  // Only meaningful when we asked about a specific desktop: with no id the
-  // backend answers with the account's latest desktop, which is not a
-  // succession and must not rewrite this phone's pairing.
-  const resolved = status.lastKnownRegistration?.desktopDeviceId;
-  if (desktopDeviceId && resolved && resolved !== desktopDeviceId) {
-    await adoptDesktopDeviceIdSuccession(desktopDeviceId, resolved).catch(
-      () => null,
-    );
-  }
-
-  return status;
+/**
+ * Follow a desktop's device-id succession: ask the backend what the stored id
+ * resolves to now and, when it moved, re-file this phone's pairing under the
+ * new id. Returns the access to use (the migrated one, or `null` when nothing
+ * moved).
+ */
+export async function followDesktopDeviceIdSuccession(
+  desktopDeviceId: string,
+): Promise<StoredPhoneAccess | null> {
+  const identity = await getBackendClient().call("devices.identity", {
+    deviceId: desktopDeviceId,
+  });
+  const resolved = identity.deviceId?.trim();
+  if (!resolved || resolved === desktopDeviceId) return null;
+  return await adoptDesktopDeviceIdSuccession(desktopDeviceId, resolved);
 }

@@ -1,12 +1,18 @@
-import {
-  fetchDesktopBridgeFileBytes,
-  invokeDesktopBridge,
-  withDesktopBridgeRecovery,
-  type DesktopBridgeConnection,
-} from "./desktop-bridge-chat";
 import { isCloudWorkspacePath } from "@stella/contracts/cloud-world-paths";
+import {
+  decodeUtf8,
+  isDeviceNotFoundError,
+  requestDevice,
+} from "./device-requests";
 import type { StoredPhoneAccess } from "./phone-access";
-import { isBridgeRecoveryError } from "./bridge-recovery";
+
+/**
+ * Files and office previews that live on the paired computer. The phone asks
+ * the cloud, the cloud asks the computer over its presence connection, and the
+ * bytes stream back through without being stored anywhere. The computer
+ * decides what may be read (Stella's own outputs and files from the
+ * conversation); see `device-requests.ts` for the offline and refusal errors.
+ */
 
 export type DesktopFileReadResult =
   | {
@@ -17,20 +23,8 @@ export type DesktopFileReadResult =
     }
   | { missing: true; mimeType: string; path: string };
 
-export type OfficePreviewSnapshot = {
-  sessionId: string;
-  title: string;
-  sourcePath: string;
-  format: "docx" | "xlsx" | "pptx" | null;
-  startedAt: number;
-  updatedAt: number;
-  status: "starting" | "ready" | "error" | "stopped";
-  html: string;
-  error?: string;
-};
-
-const OFFICE_PREVIEW_TIMEOUT_MS = 30_000;
-const OFFICE_PREVIEW_POLL_MS = 750;
+const FILE_READ_TIMEOUT_MS = 120_000;
+const OFFICE_PREVIEW_TIMEOUT_MS = 60_000;
 
 const assertActive = (signal?: AbortSignal): void => {
   if (!signal?.aborted) return;
@@ -40,15 +34,12 @@ const assertActive = (signal?: AbortSignal): void => {
 };
 
 /**
- * A cloud-world path reaching the bridge is a routing mistake, not a missing
+ * A cloud-world path asked of the computer is a routing mistake, not a missing
  * file. `/workspace/...` is the cloud sandbox; the paired computer has no such
- * tree, so `display:readFile` would resolve it against the Mac's filesystem,
- * find nothing and return `missing` — which the viewer renders as "this file is
- * no longer available". The file is not gone; it was asked of the wrong
+ * tree, so it would answer "missing" — which the viewer renders as "this file
+ * is no longer available". The file is not gone; it was asked of the wrong
  * machine. Drive files never get here: `stellaFileChatArtifact` routes them to
- * the owner-scoped drive URL first, and only a world path the drive rule
- * rejects (outside `world/drive/`, or a traversal/`.stella` segment inside it)
- * falls through to this lane.
+ * the owner-scoped drive URL first.
  */
 const assertReadableOnPairedComputer = (filePath: string): void => {
   if (!isCloudWorkspacePath(filePath)) return;
@@ -56,124 +47,6 @@ const assertReadableOnPairedComputer = (filePath: string): void => {
     "This file lives in Stella's cloud workspace, not on your computer, so it can't be opened from your phone. Ask Stella to put it in your Drive.",
   );
 };
-
-const withArtifactBridge = async <T>(
-  access: StoredPhoneAccess,
-  signal: AbortSignal | undefined,
-  operation: (bridge: DesktopBridgeConnection) => Promise<T>,
-): Promise<T> => {
-  assertActive(signal);
-  return withDesktopBridgeRecovery(access, async (bridge) => {
-    assertActive(signal);
-    try {
-      const result = await operation(bridge);
-      assertActive(signal);
-      return result;
-    } catch (error) {
-      // A cancelled read must not trigger a fresh handshake or another read.
-      assertActive(signal);
-      throw error;
-    }
-  });
-};
-
-const sleep = (ms: number, signal?: AbortSignal) =>
-  new Promise<void>((resolve, reject) => {
-    assertActive(signal);
-    const finish = () => {
-      signal?.removeEventListener("abort", abort);
-      resolve();
-    };
-    const timer = setTimeout(finish, ms);
-    const abort = () => {
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", abort);
-      try {
-        assertActive(signal);
-      } catch (error) {
-        reject(error);
-      }
-    };
-    signal?.addEventListener("abort", abort, { once: true });
-  });
-
-const normalizeBytes = (value: unknown): Uint8Array => {
-  if (value instanceof Uint8Array) return value;
-  if (Array.isArray(value)) return new Uint8Array(value as number[]);
-  if (value && typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    const keys = Object.keys(record)
-      .filter((key) => /^\d+$/.test(key))
-      .map(Number)
-      .sort((a, b) => a - b);
-    return new Uint8Array(
-      keys.map((key) =>
-        typeof record[String(key)] === "number"
-          ? (record[String(key)] as number)
-          : 0,
-      ),
-    );
-  }
-  return new Uint8Array();
-};
-
-async function readArtifactFileOnBridge(
-  bridge: DesktopBridgeConnection,
-  conversationId: string,
-  filePath: string,
-  signal?: AbortSignal,
-): Promise<DesktopFileReadResult> {
-  // Prefer the encrypted-binary lane (~1.0x wire size). Any failure — feature
-  // missing (returns null), transport hiccup — falls back to the legacy
-  // JSON-serialized `display:readFile` invoke below.
-  try {
-    const binary = await fetchDesktopBridgeFileBytes(
-      bridge,
-      conversationId,
-      filePath,
-    );
-    if (binary) {
-      return binary.missing
-        ? { missing: true, mimeType: binary.mimeType, path: binary.path }
-        : {
-            missing: false,
-            bytes: binary.bytes,
-            sizeBytes: binary.sizeBytes,
-            mimeType: binary.mimeType,
-          };
-    }
-  } catch (error) {
-    assertActive(signal);
-    if (isBridgeRecoveryError(error)) throw error;
-    // An unavailable binary capability can still use the legacy lane.
-  }
-
-  assertActive(signal);
-  const result = await invokeDesktopBridge<Record<string, unknown>>(
-    bridge,
-    "display:readFile",
-    [{ filePath, conversationId }],
-  );
-  if (result?.missing === true) {
-    return {
-      missing: true,
-      mimeType:
-        typeof result.mimeType === "string"
-          ? result.mimeType
-          : "application/octet-stream",
-      path: typeof result.path === "string" ? result.path : filePath,
-    };
-  }
-  return {
-    missing: false,
-    bytes: normalizeBytes(result?.bytes),
-    sizeBytes: typeof result?.sizeBytes === "number" ? result.sizeBytes : 0,
-    mimeType:
-      typeof result?.mimeType === "string"
-        ? result.mimeType
-        : "application/octet-stream",
-  };
-}
 
 // `async` so a refused path rejects rather than throwing synchronously: one
 // caller chains `.then().catch()` straight off this inside an effect, where a
@@ -185,23 +58,35 @@ export const readDesktopArtifactFile = async (
   signal?: AbortSignal,
 ): Promise<DesktopFileReadResult> => {
   assertReadableOnPairedComputer(filePath);
-  return withArtifactBridge(access, signal, (bridge) =>
-    readArtifactFileOnBridge(bridge, conversationId, filePath, signal),
-  );
+  assertActive(signal);
+  try {
+    const { bytes, contentType } = await requestDevice(
+      access,
+      "file.read",
+      { filePath, conversationId },
+      { signal, timeoutMs: FILE_READ_TIMEOUT_MS },
+    );
+    assertActive(signal);
+    return {
+      missing: false,
+      bytes,
+      sizeBytes: bytes.byteLength,
+      mimeType: contentType,
+    };
+  } catch (error) {
+    assertActive(signal);
+    if (isDeviceNotFoundError(error)) {
+      return {
+        missing: true,
+        mimeType: "application/octet-stream",
+        path: filePath,
+      };
+    }
+    throw error;
+  }
 };
 
-export const bytesToText = (bytes: Uint8Array): string => {
-  if (typeof TextDecoder !== "undefined") {
-    return new TextDecoder("utf-8").decode(bytes);
-  }
-  let out = "";
-  for (const byte of bytes) out += String.fromCharCode(byte);
-  try {
-    return decodeURIComponent(escape(out));
-  } catch {
-    return out;
-  }
-};
+export const bytesToText = (bytes: Uint8Array): string => decodeUtf8(bytes);
 
 const BASE64_CHARS =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -224,60 +109,19 @@ const bytesToBase64 = (bytes: Uint8Array): string => {
 export const bytesToDataUri = (bytes: Uint8Array, mimeType: string): string =>
   `data:${mimeType || "application/octet-stream"};base64,${bytesToBase64(bytes)}`;
 
-async function startOfficePreviewOnBridge(
-  bridge: DesktopBridgeConnection,
-  conversationId: string,
-  filePath: string,
+const renderOfficePreview = async (
+  access: StoredPhoneAccess,
+  params: Record<string, unknown>,
   signal?: AbortSignal,
-): Promise<string> {
-  const ref = await invokeDesktopBridge<{ sessionId: string }>(
-    bridge,
-    "officePreview:start",
-    [{ filePath, conversationId }],
-  );
-  const started = Date.now();
-  while (Date.now() - started < OFFICE_PREVIEW_TIMEOUT_MS) {
-    assertActive(signal);
-    const snapshots = await invokeDesktopBridge<OfficePreviewSnapshot[]>(
-      bridge,
-      "officePreview:list",
-      [{ conversationId }],
-    );
-    const snapshot = snapshots.find(
-      (entry) => entry.sessionId === ref.sessionId,
-    );
-    if (snapshot?.status === "ready" && snapshot.html) return snapshot.html;
-    if (snapshot?.status === "error") {
-      throw new Error(snapshot.error || "Office preview failed.");
-    }
-    await sleep(OFFICE_PREVIEW_POLL_MS, signal);
-  }
-  throw new Error("Office preview timed out.");
-}
-
-async function existingOfficePreviewOnBridge(
-  bridge: DesktopBridgeConnection,
-  conversationId: string,
-  sessionId: string,
-  signal?: AbortSignal,
-): Promise<string> {
-  const started = Date.now();
-  while (Date.now() - started < OFFICE_PREVIEW_TIMEOUT_MS) {
-    assertActive(signal);
-    const snapshots = await invokeDesktopBridge<OfficePreviewSnapshot[]>(
-      bridge,
-      "officePreview:list",
-      [{ conversationId }],
-    );
-    const snapshot = snapshots.find((entry) => entry.sessionId === sessionId);
-    if (snapshot?.status === "ready" && snapshot.html) return snapshot.html;
-    if (snapshot?.status === "error") {
-      throw new Error(snapshot.error || "Office preview failed.");
-    }
-    await sleep(OFFICE_PREVIEW_POLL_MS, signal);
-  }
-  throw new Error("Office preview timed out.");
-}
+): Promise<string> => {
+  assertActive(signal);
+  const { bytes } = await requestDevice(access, "officePreview.render", params, {
+    signal,
+    timeoutMs: OFFICE_PREVIEW_TIMEOUT_MS,
+  });
+  assertActive(signal);
+  return decodeUtf8(bytes);
+};
 
 export const loadOfficePreviewHtml = async (
   access: StoredPhoneAccess,
@@ -286,9 +130,7 @@ export const loadOfficePreviewHtml = async (
   signal?: AbortSignal,
 ): Promise<string> => {
   assertReadableOnPairedComputer(filePath);
-  return withArtifactBridge(access, signal, (bridge) =>
-    startOfficePreviewOnBridge(bridge, conversationId, filePath, signal),
-  );
+  return await renderOfficePreview(access, { filePath, conversationId }, signal);
 };
 
 export const loadExistingOfficePreviewHtml = (
@@ -297,6 +139,4 @@ export const loadExistingOfficePreviewHtml = (
   sessionId: string,
   signal?: AbortSignal,
 ): Promise<string> =>
-  withArtifactBridge(access, signal, (bridge) =>
-    existingOfficePreviewOnBridge(bridge, conversationId, sessionId, signal),
-  );
+  renderOfficePreview(access, { sessionId, conversationId }, signal);

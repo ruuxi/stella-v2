@@ -2316,7 +2316,6 @@
       "guestHeroBody": "Ask Stella to do things on your computer — browse the web, manage files, run tasks, and more.",
       "defaultDeviceLabel": "Your computer",
       "statusChecking": "Checking…",
-      "statusWaking": "Waking up…",
       "statusConnected": "Connected",
       "statusAsleep": "Asleep",
       "connectingLabel": "Connecting to your computer",
@@ -2367,8 +2366,6 @@
         "enableLabel": "Enable {name}",
         "enableFailedTitle": "Couldn't enable that computer",
         "connectFailedTitle": "Couldn't connect to that computer",
-        "wake": "Wake up",
-        "wakeLabel": "Wake {name}",
         "pairingCode": "Use a pairing code"
       },
       "appearance": {

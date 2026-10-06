@@ -868,7 +868,7 @@ export const useCloudCanonicalChatThread = (
     [messages],
   );
   // Background work is read from the journal, where every placement records
-  // it. The base hook only knows what a reachable paired computer reports.
+  // it, including agents running on a paired computer.
   const journalTasks = useMemo(
     () => collectJournalTasks(state.records),
     [state.records],

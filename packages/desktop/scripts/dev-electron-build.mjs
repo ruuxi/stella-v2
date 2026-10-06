@@ -222,7 +222,6 @@ export const mainStartupDeferredExternals = [
  */
 export const mainStartupDeferredInputs = [
   "packages/runtime/kernel/integrations/claude-code-session-runtime.js",
-  "packages/desktop/electron/process-resources/mobile-bridge-resource.js",
   "packages/desktop/electron/source/renderer-source.ts",
   "packages/desktop/electron/source/tools.ts",
 ];

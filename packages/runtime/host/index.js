@@ -580,13 +580,13 @@ export class StellaRuntimeHost {
         });
     }
     /**
-     * Hand the backend this machine's retired device id so its paired phones,
-     * bridge registration and tunnel move onto the current identity.
+     * Hand the backend this machine's retired device id so its paired phones
+     * and remote-execution answer move onto the current identity.
      *
      * A rotation happens whenever the local keypair stops being readable, and
      * every phone-facing record is keyed by the device id — without this, each
-     * rotation strands every paired phone on an id that will never register a
-     * bridge again, which reads on the phone as a permanently offline desktop.
+     * rotation strands every paired phone on an id that will never be online
+     * again, which reads on the phone as a permanently offline desktop.
      *
      * Best-effort and idempotent: the retired id stays on disk until the
      * backend acknowledges, so a claim that fails while offline is retried
@@ -698,6 +698,17 @@ export class StellaRuntimeHost {
                 // that asked has already been refused with a retryable code;
                 // nothing is blocked on the user answering.
                 void Promise.resolve(this.options.hostHandlers.notifyRemoteExecutionRequest?.(request)).catch((error) => console.warn("[execution-placement] the remote execution prompt could not be shown.", error));
+            },
+            serveDeviceRequest: async (request) => {
+                const serve = this.options.hostHandlers.serveDeviceRequest;
+                if (typeof serve !== "function") {
+                    return {
+                        ok: false,
+                        code: "failed",
+                        message: "This computer can't answer phone requests.",
+                    };
+                }
+                return await serve(request);
             },
             getAvailability: async () => {
                 const platformCapabilities = process.platform === "darwin" || process.platform === "win32"

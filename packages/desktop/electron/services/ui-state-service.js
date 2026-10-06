@@ -20,7 +20,6 @@ export class UiStateService {
         for (const window of targets) {
             window.webContents.send('ui:state', this.state);
         }
-        this.deps.getBroadcastToMobile?.()?.('ui:state', this.state);
     }
     onVoiceActiveChanged(listener) {
         this.voiceActiveListeners.add(listener);

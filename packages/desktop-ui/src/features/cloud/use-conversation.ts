@@ -369,7 +369,7 @@ export const useConversation = (
     pendingPrompts.getServerSnapshot,
   );
 
-  // A dropped socket is normal on a laptop lid or a phone leaving a tunnel.
+  // A dropped socket is normal on a laptop lid or a network change.
   // The browser tells us when that changed; asking then is what makes the
   // reconnect feel immediate without any polling.
   useEffect(() => {

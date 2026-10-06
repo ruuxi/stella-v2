@@ -1,9 +1,8 @@
 /**
  * The owner's devices, served from the owner's object: desktops that can run
  * work (their signing keys, capabilities and remote-execution consent), phones
- * attached to a desktop, the desktop's phone bridge, and push tokens. Phones
- * and the desktop's bridge reach the same data over `/api/mobile/*` on the
- * backend worker.
+ * attached to a desktop, and push tokens. Phones reach the same data over
+ * `/api/mobile/*` on the backend worker.
  *
  * Only machines running Stella's runtime host register here. Phones and
  * browser sessions are places the owner chats from; they appear as attached
@@ -34,13 +33,6 @@ export type PhoneAccessState = {
   activePairing: { pairingCode: string; expiresAt: number; createdAt: number } | null;
   pairedDevices: PairedPhone[];
 };
-
-export type ConnectIntent = {
-  intentId: string;
-  mobileDeviceId: string;
-  createdAt: number;
-  expiresAt: number;
-} | null;
 
 export type ActivityNotificationKind = "started" | "completed" | "failed";
 
@@ -106,14 +98,12 @@ export type DeviceCalls = {
     args: { deviceId: string };
     result: { deviceId: string; remoteExecution: DeviceRemoteExecution };
   };
-  /** Move a retired desktop id's pairings, bridge and tunnel to its successor. */
+  /** Move a retired desktop id's pairings and consent to its successor. */
   "devices.adoptSuccession": {
     args: { previousDeviceId: string; deviceId: string };
     result: {
       ok: true;
       migratedPairings: number;
-      migratedRegistration: boolean;
-      migratedTunnel: boolean;
       /** The successor inherited the retired id's remote-execution consent. */
       migratedRemoteExecution: boolean;
     };
@@ -127,13 +117,10 @@ export type DeviceCalls = {
     args: { desktopDeviceId: string; mobileDeviceId: string };
     result: null;
   };
-  "phone.acknowledgeIntent": { args: { intentId: string }; result: null };
   /** Tell the owner's phones about desktop activity. */
   "phone.notifyActivity": { args: { kind: ActivityNotificationKind }; result: null };
 };
 
 export type DeviceViews = {
   "phone.access": { args: { desktopDeviceId: string }; result: PhoneAccessState };
-  /** The newest unacknowledged request from a paired phone to connect. */
-  "phone.connectIntent": { args: { desktopDeviceId: string }; result: ConnectIntent };
 };

@@ -57,7 +57,6 @@ export class CredentialService {
         for (const window of targetWindows) {
             window.webContents.send('credential:request', request);
         }
-        this.options.getBroadcastToMobile?.()?.('credential:request', request);
         return new Promise((resolve, reject) => {
             const timeout = setTimeout(() => {
                 this.pending.reject(requestId, 'Credential request timed out.');

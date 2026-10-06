@@ -11,6 +11,7 @@ import { createStellaHostRunner, } from "../stella-host-runner.js";
 import { broadcastLocalChatUpdated, broadcastThreadActivityUpdated, broadcastScheduleUpdated, broadcastToWindows, } from "./context.js";
 import { startOfficePreviewBridge } from "./office-preview-bridge.js";
 import { showStellaNotification } from "../services/notification-service.js";
+import { serveDeviceRequest } from "../services/device-request-service.js";
 import { requestMacPermission } from "../utils/macos-permissions.js";
 import { getMainLogger } from "../observability/main-logger.js";
 import { getLocalLlmCredential, listLocalLlmCredentials, } from "@stella/runtime/kernel/storage/llm-credentials";
@@ -298,6 +299,9 @@ export const createHostRunnerHandlers = (context, options) => ({
         // `execution:answerRemoteExecutionRequest`.
         broadcastToWindows(context, "execution:remoteExecutionRequest", payload);
     },
+    // A paired phone's request, relayed by the cloud over the presence socket.
+    // The handlers carry the same remote policy the IPC handlers apply.
+    serveDeviceRequest: (request) => serveDeviceRequest(context.state.deviceRequestHandlers ?? null, request),
     spawnAutomationDaemon: (params) => spawnAutomationDaemonFromHost(params),
     openExternal: async (url) => {
         context.services.externalLinkService.openSafeExternalUrl(url);

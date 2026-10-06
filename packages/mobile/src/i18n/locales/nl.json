@@ -2316,7 +2316,6 @@
       "guestHeroBody": "Vraag Stella om dingen te doen op je computer — het web verkennen, bestanden beheren, taken uitvoeren en meer.",
       "defaultDeviceLabel": "Je computer",
       "statusChecking": "Controleren…",
-      "statusWaking": "Wakker worden…",
       "statusConnected": "Verbonden",
       "statusAsleep": "In slaapstand",
       "connectingLabel": "Verbinden met je computer",
@@ -2367,8 +2366,6 @@
         "enableLabel": "{name} inschakelen",
         "enableFailedTitle": "Kon die computer niet inschakelen",
         "connectFailedTitle": "Kon geen verbinding maken met die computer",
-        "wake": "Wekken",
-        "wakeLabel": "{name} wekken",
         "pairingCode": "Een koppelcode gebruiken"
       },
       "appearance": {

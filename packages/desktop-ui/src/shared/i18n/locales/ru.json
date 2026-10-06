@@ -2356,7 +2356,6 @@
       "guestHeroBody": "Попросите Stella сделать что-нибудь на вашем компьютере — открыть сайт, разобрать файлы, запустить задачи и не только.",
       "defaultDeviceLabel": "Ваш компьютер",
       "statusChecking": "Проверяем…",
-      "statusWaking": "Пробуждение…",
       "statusConnected": "Подключено",
       "statusAsleep": "Спит",
       "connectingLabel": "Подключение к вашему компьютеру",
@@ -2407,8 +2406,6 @@
         "enableLabel": "Включить {name}",
         "enableFailedTitle": "Не удалось включить этот компьютер",
         "connectFailedTitle": "Не удалось подключиться к этому компьютеру",
-        "wake": "Разбудить",
-        "wakeLabel": "Разбудить {name}",
         "pairingCode": "Использовать код сопряжения"
       },
       "appearance": {

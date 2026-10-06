@@ -4,7 +4,7 @@ import { WebView } from "react-native-webview";
 import { utf8ToBytes } from "@noble/hashes/utils.js";
 import { Icon } from "./Icon";
 import type { MobileDisplayPayload } from "../types";
-import { bytesToBase64Url } from "../lib/bridge-envelope";
+import { bytesToBase64Url } from "../lib/base64url";
 import { artifactSubtitle, artifactTitle } from "../lib/mobile-artifacts";
 import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
 import type { Colors } from "../theme/colors";

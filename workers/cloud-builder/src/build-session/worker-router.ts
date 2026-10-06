@@ -91,6 +91,8 @@ import { handleBillingRoute } from "../billing/routes.js";
 import { handleAdminRoute } from "../admin/routes.js";
 import { handleStellaModelsRoute } from "../catalog/models.js";
 import { handleDevicesRoute } from "../devices/routes.js";
+import { handleDeviceRequestRoute } from "../devices/device-request-route.js";
+import { DEVICE_REQUEST_LIMITS } from "@stella/contracts/turn-plane/device-requests";
 import { validateTurnBrokerTarget } from "../turn-credential-broker.js";
 import type { TurnAuthKind } from "../turn-start-request.js";
 import {
@@ -1049,6 +1051,13 @@ app.all(
   userAuth({ socket: true }),
   (c) =>
     forwardToDevicePresence(c.req.raw, c.env, c.req.param("deviceId"), c.var.caller),
+);
+app.post(
+  "/owners/me/devices/:deviceId{[A-Za-z0-9._~-]{1,256}}/requests",
+  userAuth(),
+  jsonBody(DEVICE_REQUEST_LIMITS.paramsBytes + 1024),
+  (c) =>
+    handleDeviceRequestRoute(c.req.raw, c.env, c.req.param("deviceId"), c.var.caller),
 );
 app.get(DEVICES_PATH, userAuth(), async (c) => {
   try {

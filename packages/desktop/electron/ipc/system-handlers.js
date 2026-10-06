@@ -512,18 +512,6 @@ export const registerSystemHandlers = (options) => {
         }, 50);
         return { ok: true };
     });
-    ipcMain.handle("phoneAccess:startSession", (event) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "phoneAccess:startSession")) {
-            throw new Error("Blocked untrusted phoneAccess:startSession request.");
-        }
-        return options.startPhoneAccessSession();
-    });
-    ipcMain.handle("phoneAccess:stopSession", async (event) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "phoneAccess:stopSession")) {
-            throw new Error("Blocked untrusted phoneAccess:stopSession request.");
-        }
-        return await options.stopPhoneAccessSession();
-    });
     ipcMain.handle("host:configurePiRuntime", (event, config) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, "host:configurePiRuntime")) {
             throw new Error("Blocked untrusted host configuration request.");

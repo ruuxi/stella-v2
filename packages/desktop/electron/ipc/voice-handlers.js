@@ -9,9 +9,8 @@ import { AGENT_STREAM_EVENT_TYPES } from "@stella/contracts/agent-runtime";
 import { getLocalLlmCredential } from "@stella/runtime/kernel/storage/llm-credentials";
 import { getLocalLlmOAuthApiKey } from "@stella/runtime/kernel/storage/llm-oauth-credentials";
 import { redactMemoryText } from "@stella/runtime/kernel/memory/redaction";
-import { IPC_VOICE_CREATE_OPENAI_SESSION, IPC_VOICE_EXECUTE_MOBILE_TOOL, IPC_VOICE_EXECUTE_TOOL, IPC_VOICE_ORCHESTRATOR_CONFIG, IPC_VOICE_CREATE_XAI_SESSION, IPC_VOICE_CREATE_INWORLD_SESSION, IPC_VOICE_REPORT_SESSION_ERROR, IPC_VOICE_RTC_TOGGLE, IPC_VOICE_SESSION_ERROR, } from "@stella/contracts/desktop/ipc-channels";
+import { IPC_VOICE_CREATE_OPENAI_SESSION, IPC_VOICE_EXECUTE_TOOL, IPC_VOICE_ORCHESTRATOR_CONFIG, IPC_VOICE_CREATE_XAI_SESSION, IPC_VOICE_CREATE_INWORLD_SESSION, IPC_VOICE_REPORT_SESSION_ERROR, IPC_VOICE_RTC_TOGGLE, IPC_VOICE_SESSION_ERROR, } from "@stella/contracts/desktop/ipc-channels";
 import { requireMatchingCloudConversationId, requireRequestedCloudConversationId, } from "../cloud-conversation-mode.js";
-import { isMobileBridgeIpcEvent } from "../services/mobile-bridge/bridge-policy.js";
 import { randomUUID } from "node:crypto";
 const DEFAULT_OPENAI_REALTIME_MODEL = "gpt-realtime-2.1";
 const DEFAULT_XAI_REALTIME_MODEL = "grok-voice-think-fast-1.0";
@@ -59,7 +58,6 @@ export const registerVoiceHandlers = (options) => {
         if (fullWindow && !fullWindow.isDestroyed()) {
             fullWindow.webContents.send("agent:event", eventPayload);
         }
-        options.getBroadcastToMobile?.()?.("agent:event", eventPayload);
     };
     const emitVoiceDisplayPayload = (payload) => {
         for (const window of options.windowManager.getAllWindows()) {
@@ -67,7 +65,6 @@ export const registerVoiceHandlers = (options) => {
                 continue;
             window.webContents.send("display:update", payload);
         }
-        options.getBroadcastToMobile?.()?.("display:update", payload);
     };
     const asRecord = (value) => value && typeof value === "object" && !Array.isArray(value)
         ? value
@@ -76,19 +73,19 @@ export const registerVoiceHandlers = (options) => {
     const requireCurrentVoiceConversation = (value) => requireMatchingCloudConversationId(value, options.uiState.conversationId);
     /**
      * The desktop renderer is fenced to the conversation main currently
-     * exposes (a stale renderer must not write elsewhere). A paired phone
-     * instead names its own conversation: it may talk to any owner
-     * conversation regardless of what the desktop window shows, and the
-     * cloud journal/history endpoints enforce ownership with this desktop's
-     * own token.
+     * exposes (a stale renderer must not write elsewhere). A paired phone,
+     * reaching this computer through the cloud relay, instead names its own
+     * conversation: it may talk to any owner conversation regardless of what
+     * the desktop window shows, and the cloud journal/history endpoints
+     * enforce ownership with this desktop's own token.
      */
-    const resolveVoiceConversation = (event, value) => isMobileBridgeIpcEvent(event)
+    const resolveVoiceConversation = (remote, value) => remote
         ? requireRequestedCloudConversationId(value, options.getActiveCloudConversationCacheAuthority?.() ?? null)
         : requireCurrentVoiceConversation(value);
     const CLOUD_VOICE_APPEND_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
     /**
      * Cloud-mode transcript persistence requires a stable append id and a
-     * timestamp. The phone supplies both (so bridge retries dedupe); the
+     * timestamp. The renderer may supply both (so retries dedupe); the
      * desktop renderer's fire-and-forget send historically supplied neither,
      * which made every desktop voice transcript append fail silently.
      */
@@ -163,7 +160,6 @@ export const registerVoiceHandlers = (options) => {
                 continue;
             window.webContents.send("voice:runtimeState", runtimeState);
         }
-        options.getBroadcastToMobile?.()?.("voice:runtimeState", runtimeState);
     };
     // The voice runtime lives in the hidden, screen-spanning overlay window, so
     // a toast raised there is painted where the user can never see it. Route
@@ -383,10 +379,10 @@ export const registerVoiceHandlers = (options) => {
             iceServers,
         };
     });
-    ipcMain.on("voice:persistTranscript", (event, payload) => {
+    ipcMain.on("voice:persistTranscript", (_event, payload) => {
         let conversationId;
         try {
-            conversationId = resolveVoiceConversation(event, payload?.conversationId);
+            conversationId = resolveVoiceConversation(false, payload?.conversationId);
         }
         catch (error) {
             console.warn("[voice] Rejected stale transcript:", errorMessage(error));
@@ -441,8 +437,8 @@ export const registerVoiceHandlers = (options) => {
             },
         });
     });
-    ipcMain.handle(IPC_VOICE_ORCHESTRATOR_CONFIG, async (event, payload) => {
-        const conversationId = resolveVoiceConversation(event, payload?.conversationId);
+    const voiceConfig = async (remote, payload) => {
+        const conversationId = resolveVoiceConversation(remote, payload?.conversationId);
         const stellaHostRunner = options.getStellaHostRunner();
         if (!stellaHostRunner) {
             throw new Error("Stella runtime not initialized");
@@ -451,9 +447,10 @@ export const registerVoiceHandlers = (options) => {
             ...payload,
             conversationId,
         });
-    });
-    const executeVoiceTool = async (event, payload) => {
-        const conversationId = resolveVoiceConversation(event, payload?.conversationId);
+    };
+    ipcMain.handle(IPC_VOICE_ORCHESTRATOR_CONFIG, async (_event, payload) => await voiceConfig(false, payload));
+    const executeVoiceTool = async (remote, payload) => {
+        const conversationId = resolveVoiceConversation(remote, payload?.conversationId);
         const currentPayload = { ...payload, conversationId };
         const stellaHostRunner = options.getStellaHostRunner();
         if (!stellaHostRunner) {
@@ -478,14 +475,11 @@ export const registerVoiceHandlers = (options) => {
             throw error;
         }
     };
-    ipcMain.handle(IPC_VOICE_EXECUTE_TOOL, async (event, payload) => {
+    ipcMain.handle(IPC_VOICE_EXECUTE_TOOL, async (_event, payload) => {
         if (!options.uiState.isVoiceRtcActive) {
             throw new Error("Voice mode is no longer active.");
         }
-        return await executeVoiceTool(event, payload);
-    });
-    ipcMain.handle(IPC_VOICE_EXECUTE_MOBILE_TOOL, async (event, payload) => {
-        return await executeVoiceTool(event, payload);
+        return await executeVoiceTool(false, payload);
     });
     ipcMain.handle("voice:webSearch", async (_event, payload) => {
         const stellaHostRunner = options.getStellaHostRunner();
@@ -510,4 +504,10 @@ export const registerVoiceHandlers = (options) => {
         };
         broadcastRuntimeState();
     });
+    return {
+        /** A paired phone's voice setup, relayed through the cloud. */
+        configForRequest: (payload) => voiceConfig(true, payload),
+        /** A paired phone's voice tool call, relayed through the cloud. */
+        executeToolForRequest: (payload) => executeVoiceTool(true, payload),
+    };
 };

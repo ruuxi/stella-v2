@@ -2316,7 +2316,6 @@
       "guestHeroBody": "Bitte Stella, Dinge auf deinem Computer zu erledigen — im Web surfen, Dateien verwalten, Aufgaben ausführen und mehr.",
       "defaultDeviceLabel": "Dein Computer",
       "statusChecking": "Wird geprüft…",
-      "statusWaking": "Wacht auf…",
       "statusConnected": "Verbunden",
       "statusAsleep": "Im Ruhezustand",
       "connectingLabel": "Verbindung zu deinem Computer",
@@ -2367,8 +2366,6 @@
         "enableLabel": "{name} aktivieren",
         "enableFailedTitle": "Computer konnte nicht aktiviert werden",
         "connectFailedTitle": "Verbindung zum Computer nicht möglich",
-        "wake": "Aufwecken",
-        "wakeLabel": "{name} aufwecken",
         "pairingCode": "Kopplungscode verwenden"
       },
       "appearance": {

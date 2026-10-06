@@ -1100,8 +1100,8 @@ export class AuthService {
 
   /**
    * Mint a fresh backend JWT from the stored bearer. Single-flight so
-   * concurrent callers (bridge auth sync, tunnel token fetch, runtime
-   * refresh, the scheduled timer) share one network round-trip.
+   * concurrent callers (runtime refresh, the scheduled timer) share one
+   * network round-trip.
    */
   private async mintHostAuthToken(): Promise<string | null> {
     if (this.hostAuthTokenMintPromise) {

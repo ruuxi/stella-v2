@@ -1,4 +1,4 @@
-import { isRawJsonParseErrorMessage } from "./bridge-http";
+import { isRawJsonParseErrorMessage } from "./raw-json-error";
 
 /**
  * Maps errors and raw API messages to short, user-facing copy (no stack traces).

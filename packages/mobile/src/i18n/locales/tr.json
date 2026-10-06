@@ -2316,7 +2316,6 @@
       "guestHeroBody": "Stella'dan bilgisayarınızda işler yapmasını isteyin — web'de gezinsin, dosyaları yönetsin, görevleri çalıştırsın ve daha fazlası.",
       "defaultDeviceLabel": "Bilgisayarınız",
       "statusChecking": "Denetleniyor…",
-      "statusWaking": "Uyandırılıyor…",
       "statusConnected": "Bağlandı",
       "statusAsleep": "Uykuda",
       "connectingLabel": "Bilgisayarınıza bağlanılıyor",
@@ -2367,8 +2366,6 @@
         "enableLabel": "{name} bilgisayarını etkinleştir",
         "enableFailedTitle": "O bilgisayar etkinleştirilemedi",
         "connectFailedTitle": "O bilgisayara bağlanılamadı",
-        "wake": "Uyandır",
-        "wakeLabel": "{name} bilgisayarını uyandır",
         "pairingCode": "Eşleştirme kodu kullan"
       },
       "appearance": {

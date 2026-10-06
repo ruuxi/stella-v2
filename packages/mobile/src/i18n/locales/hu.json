@@ -2316,7 +2316,6 @@
       "guestHeroBody": "Kérd meg a Stellát, hogy csináljon dolgokat a számítógépeden — böngésszen, kezelje a fájlokat, futtasson feladatokat és még sok mást.",
       "defaultDeviceLabel": "A számítógéped",
       "statusChecking": "Ellenőrzés…",
-      "statusWaking": "Ébresztés…",
       "statusConnected": "Csatlakoztatva",
       "statusAsleep": "Alvó állapotban",
       "connectingLabel": "Csatlakozás a számítógépedhez",
@@ -2367,8 +2366,6 @@
         "enableLabel": "{name} engedélyezése",
         "enableFailedTitle": "A számítógépet nem sikerült engedélyezni",
         "connectFailedTitle": "Nem sikerült csatlakozni a számítógéphez",
-        "wake": "Felébresztés",
-        "wakeLabel": "{name} felébresztése",
         "pairingCode": "Párosítási kód használata"
       },
       "appearance": {

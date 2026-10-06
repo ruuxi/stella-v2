@@ -2316,7 +2316,6 @@
       "guestHeroBody": "Ζητήστε από τη Stella να κάνει πράγματα στον υπολογιστή σας — να περιηγηθεί στο web, να διαχειριστεί αρχεία, να εκτελέσει εργασίες και άλλα.",
       "defaultDeviceLabel": "Ο υπολογιστής σας",
       "statusChecking": "Έλεγχος…",
-      "statusWaking": "Αφύπνιση…",
       "statusConnected": "Συνδεδεμένος",
       "statusAsleep": "Σε αναστολή",
       "connectingLabel": "Σύνδεση με τον υπολογιστή σας",
@@ -2367,8 +2366,6 @@
         "enableLabel": "Ενεργοποίηση του {name}",
         "enableFailedTitle": "Δεν ήταν δυνατή η ενεργοποίηση του υπολογιστή",
         "connectFailedTitle": "Δεν ήταν δυνατή η σύνδεση με τον υπολογιστή",
-        "wake": "Αφύπνιση",
-        "wakeLabel": "Αφύπνιση του {name}",
         "pairingCode": "Χρήση κωδικού σύζευξης"
       },
       "appearance": {

@@ -5,7 +5,7 @@ FROM docker.io/cloudflare/sandbox:1.0.0@sha256:5bc187515bad0d9d486a4f1476f7d8ad3
 # The Sandbox Durable Object drives this container directly through
 # `ctx.container`; nothing in the image serves a control plane. It keeps the
 # Ubuntu 22.04 userland the 0.12 `cloudflare/sandbox` base provided, minus that
-# base's command server, FUSE/s3fs mounts, and cloudflared, none of which the
+# base's command server, FUSE/s3fs mounts, and tunnel client, none of which the
 # Durable Object uses.
 FROM docker.io/library/ubuntu:22.04@sha256:b8b6ee6aa931ecd9d0d952abc34dc0e5f7c6a30c6bb71b079fe399fde0329c02
 

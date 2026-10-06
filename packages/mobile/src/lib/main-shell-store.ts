@@ -36,9 +36,6 @@ export type ComputerControl = {
   statusLabel: string;
   statusAvailable: boolean | null;
   connecting: boolean;
-  /** Show the inline "Wake up" affordance (computer asleep and not waking). */
-  showWake: boolean;
-  onWake: () => void;
   /** Bubble a freshly-paired computer up so the chat re-targets it. */
   onRepaired: (access: StoredPhoneAccess) => void;
   executionTarget: AutomaticExecutionTarget;

@@ -87,7 +87,6 @@ import type {
   OfficePreviewRef as SharedOfficePreviewRef,
   OfficePreviewSnapshot as SharedOfficePreviewSnapshot,
 } from "@stella/contracts/office-preview";
-import type { DisplayPayload } from "@stella/contracts/display-payload";
 import type {
   AppSourceActionResult,
   AppSourceState,
@@ -104,29 +103,6 @@ import type {
   CloudConversationCacheReplaceResult,
   CloudConversationCacheSnapshot,
 } from "@stella/contracts/cloud-conversation-cache";
-
-type MobileAgentWorkPayloadForSync = {
-  kind: "agent-work";
-  state: "running" | "done";
-  agentIds: string[];
-  total: number;
-  completed: number;
-  title: string;
-  subtitle: string;
-  createdAt: number;
-  /** Per-agent completion-file sections (see `MobileAgentWorkFileSection`
-   *  in `local-chat-artifacts.ts`). */
-  agents?: Array<{
-    agentId: string;
-    title: string;
-    files: DisplayPayload[];
-  }>;
-};
-
-type MobileSyncArtifactForSync =
-  | DisplayPayload
-  | MobileAgentWorkPayloadForSync
-  | { id: string; payload: DisplayPayload | MobileAgentWorkPayloadForSync };
 
 export type ChatContext = SharedChatContext;
 export type ChatContextFile = SharedChatContextFile;
@@ -624,8 +600,6 @@ export type ElectronSystemApi = {
     rawPublicKey: number[];
     signature: string;
   }>;
-  startPhoneAccessSession: () => Promise<{ ok: boolean }>;
-  stopPhoneAccessSession: () => Promise<{ ok: boolean }>;
   configurePiRuntime: (config: {
     backendUrl: string;
   }) => Promise<{ deviceId: string | null }>;
@@ -1310,80 +1284,6 @@ export type ElectronLocalChatApi = {
   persistDiscoveryWelcome: (payload: {
     conversationId: string;
     message: string;
-  }) => Promise<{ ok: true }>;
-  listSyncMessages: (payload: {
-    conversationId: string;
-    maxMessages?: number;
-    includeDeveloperArtifacts?: boolean;
-  }) => Promise<
-    Array<{
-      localMessageId: string;
-      role: "user" | "assistant";
-      text: string;
-      timestamp: number;
-      requestId?: string;
-      deviceId?: string;
-      artifacts?: MobileSyncArtifactForSync[];
-      toolSteps?: Array<{
-        id: string;
-        toolName: string;
-        status: "completed" | "error";
-        args?: Record<string, string>;
-      }>;
-      tasks?: Array<{
-        id: string;
-        title: string;
-        status: "running" | "completed" | "error" | "canceled";
-        statusText?: string;
-        createdAt: number;
-        completedAt?: number;
-        assistantMessages: string[];
-        reasoningSummaries: string[];
-      }>;
-    }>
-  >;
-  syncMessages: (payload: {
-    conversationId: string;
-    sinceCursor?: string | null;
-    maxMessages?: number;
-    includeDeveloperArtifacts?: boolean;
-  }) => Promise<{
-    cursor: string | null;
-    messages: Array<{
-      localMessageId: string;
-      role: "user" | "assistant";
-      text: string;
-      timestamp: number;
-      requestId?: string;
-      deviceId?: string;
-      artifacts?: MobileSyncArtifactForSync[];
-      toolSteps?: Array<{
-        id: string;
-        toolName: string;
-        status: "completed" | "error";
-        args?: Record<string, string>;
-      }>;
-      tasks?: Array<{
-        id: string;
-        title: string;
-        status: "running" | "completed" | "error" | "canceled";
-        statusText?: string;
-        createdAt: number;
-        completedAt?: number;
-        assistantMessages: string[];
-        reasoningSummaries: string[];
-      }>;
-    }>;
-  }>;
-  /**
-   * Mirror the renderer's per-thread mid-run statusText (task-decoration
-   * store) into the main-process snapshot behind the desktop→mobile sync:
-   * attached to running tasks on sync pages and broadcast to the phone as
-   * `localChat:taskDecorationUpdated`. Replaced wholesale per publish; only
-   * running threads are present.
-   */
-  publishTaskDecoration: (payload: {
-    statusTextByAgentId: Record<string, string>;
   }) => Promise<{ ok: true }>;
   onUpdated: (
     callback: (payload: LocalChatUpdatedPayload | null) => void,

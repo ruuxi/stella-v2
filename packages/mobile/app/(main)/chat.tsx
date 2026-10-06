@@ -10,11 +10,10 @@ import {
 import { useIsFocused } from "expo-router";
 import { authClient } from "../../src/lib/auth-client";
 import {
-  getDesktopBridgeStatus,
+  followDesktopDeviceIdSuccession,
   getPreferredPhoneAccess,
   listStoredPairedPhoneAccess,
   setPreferredDesktopDeviceId,
-  requestDesktopConnection,
   type StoredPhoneAccess,
 } from "../../src/lib/phone-access";
 import {
@@ -22,9 +21,12 @@ import {
   getMobileExecutionTarget,
   setMobileExecutionTarget,
 } from "../../src/lib/execution-target";
-import type { AutomaticExecutionTarget } from "../../src/lib/execution-placement";
+import {
+  listExecutionDevices,
+  type AutomaticExecutionTarget,
+} from "../../src/lib/execution-placement";
 import { updateStellaWidget } from "../../src/lib/home-widget";
-import { tapLight, notifySuccess } from "../../src/lib/haptics";
+import { notifySuccess } from "../../src/lib/haptics";
 import {
   consumePendingShare,
   subscribePendingShare,
@@ -39,7 +41,6 @@ import {
   useCloudCanonicalChatThread,
   useCloudConversationAuthority,
 } from "../../src/lib/use-cloud-canonical-chat-thread";
-import { shouldRunDesktopForegroundTimer } from "../../src/lib/desktop-sync-policy";
 import {
   setComposerModelPinned,
   useComposerModelPinned,
@@ -74,16 +75,8 @@ import { CloudBoundary } from "../../src/components/CloudBoundary";
 import type { ChatArtifact } from "../../src/types";
 import { useT } from "../../src/i18n";
 
+/** How often the paired computer's presence is re-read while chat is open. */
 const STATUS_POLL_MS = 20_000;
-/**
- * Slow verification cadence while the activity push socket is connected — the
- * live socket itself proves the computer is reachable, so the backend status
- * poll only needs to keep the platform label fresh.
- */
-const STATUS_POLL_LIVE_MS = 120_000;
-/** Faster cadence while a wake request is in flight. */
-const WAKE_POLL_MS = 3_000;
-const WAKE_WINDOW_MS = 30_000;
 /** How often a parked onboarding message retries its send, and for how long. */
 /** Coarse enough to be free, fine enough that a settled task clears promptly. */
 const HUB_STALE_RECHECK_MS = 30_000;
@@ -299,8 +292,6 @@ function ChatSurface(props: {
     available: null,
     platform: null,
   });
-  const [waking, setWaking] = useState(false);
-  const wakeUntilRef = useRef(0);
   const { setDraft, addAttachments } = thread;
 
   useEffect(() => {
@@ -344,72 +335,51 @@ function ChatSurface(props: {
     setDraft(handoffDraft.text);
   }, [handoffDraft, setDraft]);
 
+  // The computer is reachable exactly when its presence connection to the
+  // cloud is live, so the owner's device list is the status source.
   const checkStatus = useCallback(async (desktopDeviceId: string) => {
     try {
-      const next = await getDesktopBridgeStatus(desktopDeviceId);
-      setStatus({
-        checking: false,
-        available: next.available,
-        platform: next.platform,
-      });
+      const devices = await listExecutionDevices();
+      const device = devices.find((entry) => entry.deviceId === desktopDeviceId);
+      if (!device) {
+        // A computer that rotated its device id is listed under the new one;
+        // re-file the pairing there instead of reading it as offline forever.
+        const moved = await followDesktopDeviceIdSuccession(
+          desktopDeviceId,
+        ).catch(() => null);
+        if (moved) {
+          onAccessChange(moved);
+          return false;
+        }
+      }
+      const available = device?.online === true;
+      const label = device?.label?.trim() || null;
+      setStatus({ checking: false, available, platform: label });
       updateStellaWidget({
         paired: true,
-        online: next.available,
-        ...(next.platform ? { platform: next.platform } : {}),
+        online: available,
+        ...(label ? { platform: label } : {}),
       });
-      return next.available;
+      return available;
     } catch {
       setStatus((prev) => ({ ...prev, checking: false, available: false }));
       return false;
     }
-  }, []);
-
-  // An attached push socket is authoritative: reflect "connected" immediately
-  // instead of waiting out the current poll interval.
-  const livePushConnected = thread.livePushConnected;
-  const livePushConnectedRef = useRef(livePushConnected);
-  useEffect(() => {
-    livePushConnectedRef.current = livePushConnected;
-    if (!livePushConnected) return;
-    setStatus((prev) => {
-      updateStellaWidget({
-        paired: true,
-        online: true,
-        ...(prev.platform ? { platform: prev.platform } : {}),
-      });
-      return { ...prev, checking: false, available: true };
-    });
-    setWaking(false);
-  }, [livePushConnected]);
+  }, [onAccessChange]);
 
   useEffect(() => {
     if (!access) {
       setStatus({ checking: false, available: null, platform: null });
       return;
     }
-    if (!shouldRunDesktopForegroundTimer({ focused: isFocused, appActive })) {
-      return;
-    }
+    if (!isFocused || !appActive) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
-
     const tick = async () => {
-      // While push is live the socket is the liveness signal; skip the backend
-      // round-trip (and never let a stale lease read downgrade the badge).
-      if (livePushConnectedRef.current) {
-        timer = setTimeout(() => void tick(), STATUS_POLL_LIVE_MS);
-        return;
-      }
-      const available = await checkStatus(access.desktopDeviceId);
+      await checkStatus(access.desktopDeviceId);
       if (cancelled) return;
-      const wakePending = !available && Date.now() < wakeUntilRef.current;
-      if (available || !wakePending) setWaking(false);
-      timer = setTimeout(
-        () => void tick(),
-        wakePending ? WAKE_POLL_MS : STATUS_POLL_MS,
-      );
+      timer = setTimeout(() => void tick(), STATUS_POLL_MS);
     };
-
     void tick();
     return () => {
       cancelled = true;
@@ -417,48 +387,14 @@ function ChatSurface(props: {
     };
   }, [access, appActive, checkStatus, isFocused]);
 
+  // Celebrate the computer coming back while the user is looking.
+  const previousAvailableRef = useRef<boolean | null>(null);
   useEffect(() => {
-    if (status.available === true && waking) {
+    if (previousAvailableRef.current === false && status.available === true) {
       notifySuccess();
-      setWaking(false);
     }
-  }, [status.available, waking]);
-
-  const triggerWake = useCallback(() => {
-    if (!access) return;
-    setWaking(true);
-    wakeUntilRef.current = Date.now() + WAKE_WINDOW_MS;
-    void requestDesktopConnection(access).catch(() => setWaking(false));
-  }, [access]);
-
-  const wake = useCallback(() => {
-    tapLight();
-    triggerWake();
-  }, [triggerWake]);
-
-  // Auto-wake: a turn placed on a sleeping computer falls back to cloud, so
-  // landing here and finding the computer asleep should start a wake attempt on
-  // its own rather than quietly giving up the computer for the whole session.
-  // Fire once per asleep spell — re-armed only after it next comes online — so
-  // a computer that stays off isn't spammed; the device sheet's Wake button
-  // remains for an explicit retry.
-  const autoWokeRef = useRef(false);
-  useEffect(() => {
-    if (!isFocused || status.available === true) {
-      autoWokeRef.current = false;
-      return;
-    }
-    if (
-      access &&
-      !offline &&
-      status.available === false &&
-      !waking &&
-      !autoWokeRef.current
-    ) {
-      autoWokeRef.current = true;
-      triggerWake();
-    }
-  }, [access, isFocused, offline, status.available, triggerWake, waking]);
+    previousAvailableRef.current = status.available;
+  }, [status.available]);
 
   // The sidebar shows this conversation's background work, so it reads the
   // same rows the retired activity sheet did, published as they change.
@@ -511,19 +447,16 @@ function ChatSurface(props: {
     status.platform?.trim() || t("mobile.computer.defaultDeviceLabel");
   const statusLabel = status.checking
     ? t("mobile.computer.statusChecking")
-    : waking
-      ? t("mobile.computer.statusWaking")
-      : status.available
-        ? t("mobile.computer.statusConnected")
-        : t("mobile.computer.statusAsleep");
+    : status.available
+      ? t("mobile.computer.statusConnected")
+      : t("mobile.computer.statusAsleep");
 
   // The Settings tab shows the paired computer and where turns run, but that
   // state lives here, so it travels through the shell store. The chat stays
   // mounted under every tab, so what Settings shows stays live. Built from
   // the fields Settings reads (not the whole model-settings object, which is
   // new every render) so streaming doesn't re-render Settings per token.
-  const connecting = status.checking || waking;
-  const showWake = !status.checking && !status.available && !waking;
+  const connecting = status.checking;
   const computerModel = useMemo(
     () => ({ label: cloudModelSettings.label, settings: cloudModelSettings }),
     [cloudModelSettings],
@@ -537,8 +470,6 @@ function ChatSurface(props: {
       statusLabel,
       statusAvailable: status.available,
       connecting,
-      showWake,
-      onWake: wake,
       onRepaired: onAccessChange,
       executionTarget,
       onExecutionTargetChange,
@@ -554,8 +485,6 @@ function ChatSurface(props: {
     statusLabel,
     status.available,
     connecting,
-    showWake,
-    wake,
     onAccessChange,
     executionTarget,
     onExecutionTargetChange,

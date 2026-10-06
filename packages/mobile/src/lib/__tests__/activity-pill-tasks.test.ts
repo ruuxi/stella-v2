@@ -21,7 +21,6 @@ const memoryStore = new Map<string, string>();
 };
 
 import type { ChatMessage, MobileTask } from "../../types";
-import { mergeMessagesById } from "../chat-merge";
 import { collectConversationTasks } from "../mobile-task-merge";
 import {
   __setTranscriptDatabaseForTests,
@@ -56,58 +55,6 @@ describe("activity pill task derivation under push-connected sync", () => {
   beforeEach(async () => {
     memoryStore.clear();
     await __setTranscriptDatabaseForTests(null);
-  });
-
-  test("a push-delta anchor row re-delivers the running task to an already-synced transcript", () => {
-    // Phone state: rows already synced (e.g. reloaded from storage that
-    // predates the tasks fix), no task snapshots anywhere.
-    const current: ChatMessage[] = [
-      { id: "u1", role: "user", text: "do X in the background", createdAt: 900 },
-      { id: "a1", role: "assistant", text: "Working on it.", createdAt: 1_100 },
-    ];
-    expect(runningCount(current)).toBe(0);
-
-    // Push fires (agent-progress persisted on the desktop) → cursor delta
-    // re-emits the spawning assistant row, now carrying the task snapshot.
-    const delta: ChatMessage[] = [
-      {
-        id: "a1",
-        role: "assistant",
-        text: "Working on it.",
-        createdAt: 1_100,
-        tasks: [task({ statusText: "Halfway" })],
-      },
-    ];
-    const merged = mergeMessagesById(current, delta);
-    const tasks = collectConversationTasks(merged);
-    expect(tasks).toHaveLength(1);
-    expect(tasks[0]?.status).toBe("running");
-    expect(tasks[0]?.statusText).toBe("Halfway");
-  });
-
-  test("a later terminal snapshot beats the running one; the pill goes away", () => {
-    const withRunning: ChatMessage[] = [
-      {
-        id: "a1",
-        role: "assistant",
-        text: "Working on it.",
-        createdAt: 1_100,
-        tasks: [task()],
-      },
-    ];
-    expect(runningCount(withRunning)).toBe(1);
-
-    const merged = mergeMessagesById(withRunning, [
-      {
-        id: "a1",
-        role: "assistant",
-        text: "Working on it.",
-        createdAt: 1_100,
-        tasks: [task({ status: "completed", completedAt: 2_000 })],
-      },
-    ]);
-    expect(runningCount(merged)).toBe(0);
-    expect(collectConversationTasks(merged)[0]?.status).toBe("completed");
   });
 
   test("tasks survive the storage round-trip (pill persists across app relaunch)", async () => {

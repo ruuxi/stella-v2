@@ -35,8 +35,6 @@ const { createCloudHomeMemoryExportService } =
   await import("@stella/desktop/electron/services/cloud-home-memory-export.js");
 const { registerCloudHomeSyncHandlers } =
   await import("@stella/desktop/electron/ipc/cloud-home-sync-handlers.js");
-const { isMobileBridgeRequestChannel } =
-  await import("@stella/desktop/electron/services/mobile-bridge/bridge-policy.js");
 
 const fixtures: string[] = [];
 
@@ -352,18 +350,6 @@ describe("Cloud Home memory export", () => {
       });
     }
     expect(write).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not grant any native export phase to the mobile bridge", () => {
-    expect(
-      isMobileBridgeRequestChannel(IPC_CLOUD_HOME_BEGIN_MEMORY_EXPORT),
-    ).toBe(false);
-    expect(
-      isMobileBridgeRequestChannel(IPC_CLOUD_HOME_COMMIT_MEMORY_EXPORT),
-    ).toBe(false);
-    expect(
-      isMobileBridgeRequestChannel(IPC_CLOUD_HOME_CANCEL_MEMORY_EXPORT),
-    ).toBe(false);
   });
 
   it("registers privileged handlers and parents only the native picker", async () => {

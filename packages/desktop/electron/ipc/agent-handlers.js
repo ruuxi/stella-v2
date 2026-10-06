@@ -1,4 +1,3 @@
-import { isMobileBridgeIpcEvent } from "../services/mobile-bridge/bridge-policy.js";
 import { getFileLogger } from "@stella/runtime/observability/file-logger";
 import { ipcMain, webContents, } from "electron";
 import crypto from "node:crypto";
@@ -17,41 +16,12 @@ const AGENT_EVENT_BUFFER_LIMIT = 1000;
 const AGENT_EVENT_BUFFER_TTL_MS = 10 * 60 * 1000;
 /**
  * How long a client-supplied idempotency key (`clientRequestId`) maps to a
- * started run. A reconnecting client (e.g. mobile over a flaky tunnel) can
+ * started run. A reconnecting client can
  * safely re-send the same `startChat` within this window without spawning a
  * duplicate run; we just hand back the original `requestId`.
  */
 const CLIENT_REQUEST_DEDUPE_TTL_MS = 5 * 60 * 1000;
 const requestIdForClientSend = (clientRequestId) => `req:client:${crypto.createHash("sha256").update(clientRequestId).digest("hex").slice(0, 32)}`;
-/**
- * Mobile clients (the desktop-bridge chat) abort a run after a fixed window
- * of event silence (`BRIDGE_RUN_TIMEOUT_MS`, 45s) and, once their reconnect
- * attempts are exhausted, surface "Stella did not reply in time." Long silent
- * stretches are legitimate: a slow first token, a multi-minute shell/tool
- * call, or context compaction (worst on the Claude Code / Codex engines, but
- * possible on the default engine too) can all run well past 45s without
- * emitting any event. Since assistant text is delivered whole (one
- * `assistant-message` event per finished segment instead of a token stream),
- * even an ordinary long answer now produces no traffic while it generates,
- * which makes this ticker the only thing keeping mobile's inactivity timer
- * alive through it. While a user-visible run is active we broadcast a
- * lightweight keepalive to mobile so its inactivity timer keeps resetting
- * instead of tearing down a healthy run. The interval sits comfortably below
- * the mobile window so a couple of keepalives land before it would fire.
- */
-const MOBILE_KEEPALIVE_INTERVAL_MS = 15_000;
-export const pageMobileAgentReplayEvents = (events, requestedMaxEvents) => {
-    const maxEvents = typeof requestedMaxEvents === "number" &&
-        Number.isFinite(requestedMaxEvents)
-        ? Math.max(1, Math.min(250, Math.floor(requestedMaxEvents)))
-        : null;
-    if (maxEvents === null)
-        return { events: [...events], hasMore: false };
-    return {
-        events: events.slice(0, maxEvents),
-        hasMore: events.length > maxEvents,
-    };
-};
 export const registerAgentHandlers = (options) => {
     const runOwners = new Map();
     const requestOwners = new Map();
@@ -75,10 +45,6 @@ export const registerAgentHandlers = (options) => {
     // its root run id. Preserve Stop against that stable request identity and
     // apply it as soon as the delayed run-start boundary arrives.
     const pendingCancelRequestIds = new Set();
-    // Timestamp of the most recent frame pushed to mobile on the `agent:event`
-    // channel (real events and keepalives alike). The keepalive ticker uses it
-    // to avoid piling frames on top of an already-chatty run.
-    let lastMobileAgentBroadcastAt = 0;
     const pruneClientRequestIndex = () => {
         const now = Date.now();
         for (const [key, entry] of clientRequestIndex) {
@@ -172,11 +138,6 @@ export const registerAgentHandlers = (options) => {
         }
         bufferConversationEvent(normalizedEvent.conversationId, normalizedEvent);
         pruneConversationEventBuffers();
-        const broadcastToMobile = options.getBroadcastToMobile?.();
-        if (broadcastToMobile && !normalizedEvent.conversationId?.startsWith("local_")) {
-            broadcastToMobile("agent:event", normalizedEvent);
-            lastMobileAgentBroadcastAt = Date.now();
-        }
         const receiverId = resolveReceiverId(normalizedEvent, targetWebContentsId);
         if (receiverId == null) {
             return;
@@ -186,39 +147,6 @@ export const registerAgentHandlers = (options) => {
             receiver.send("agent:event", normalizedEvent);
         }
     };
-    // While a user-visible run is active and no real `agent:event` has been
-    // pushed to mobile within the interval, broadcast a benign keepalive so the
-    // mobile bridge's inactivity timer keeps resetting across long silent
-    // stretches. Keepalives go to mobile ONLY: they are not buffered for
-    // `agent:resume`, carry no recorder seq, and are never sent to the desktop
-    // renderer, so they cannot perturb replay ordering or the local UI. Mobile
-    // ignores the unknown `keepalive` type after resetting its timer.
-    const emitMobileKeepalives = () => {
-        const broadcastToMobile = options.getBroadcastToMobile?.();
-        if (!broadcastToMobile)
-            return;
-        if (activeRunByConversation.size === 0)
-            return;
-        if (Date.now() - lastMobileAgentBroadcastAt <
-            MOBILE_KEEPALIVE_INTERVAL_MS) {
-            return;
-        }
-        for (const activeRun of activeRunByConversation.values()) {
-            if (activeRun.conversationId.startsWith("local_")) continue;
-            broadcastToMobile("agent:event", {
-                type: "keepalive",
-                runId: activeRun.runId,
-                conversationId: activeRun.conversationId,
-                ...(activeRun.requestId ? { requestId: activeRun.requestId } : {}),
-                ...(activeRun.userMessageId
-                    ? { userMessageId: activeRun.userMessageId }
-                    : {}),
-            });
-        }
-        lastMobileAgentBroadcastAt = Date.now();
-    };
-    const mobileKeepaliveTimer = setInterval(emitMobileKeepalives, MOBILE_KEEPALIVE_INTERVAL_MS);
-    mobileKeepaliveTimer.unref?.();
     const scheduleRunCleanup = (runId, requestId) => {
         setTimeout(() => {
             const hasRunningTasks = (runningAgentsByRunId.get(runId)?.size ?? 0) > 0;
@@ -347,8 +275,6 @@ export const registerAgentHandlers = (options) => {
                 }
             }
         }
-        const page = pageMobileAgentReplayEvents(events, payload.maxEvents);
-        events = page.events;
         const resumedRequestId = activeRun?.requestId ??
             events.find((agentEvent) => typeof agentEvent.requestId === "string")
                 ?.requestId ??
@@ -502,7 +428,7 @@ export const registerAgentHandlers = (options) => {
         return {
             activeRun,
             events,
-            hasMore: page.hasMore,
+            hasMore: false,
         };
     });
     ipcMain.handle("agent:startChat", async (event, payload) => {
@@ -520,14 +446,14 @@ export const registerAgentHandlers = (options) => {
         const ownerGeneration = typeof cloudAuthority?.ownerGeneration === "string"
             ? cloudAuthority.ownerGeneration.trim()
             : "";
-        const isPrivate = !isMobileBridgeIpcEvent(event) && payload.storageMode === "local";
+        const isPrivate = payload.storageMode === "local";
         if (isPrivate !== conversationId.startsWith("local_")) {
             throw new Error("The chat storage setting changed. Try again.");
         }
         if (!isPrivate && !ownerGeneration) {
             throw new Error("Cloud conversation authority is not ready. Refresh and try again.");
         }
-        // Idempotent send: a client (e.g. mobile over a flaky tunnel) can retry
+        // Idempotent send: a client can retry
         // the same logical message with a stable `clientRequestId`. If we already
         // started a run for it, hand back the original `requestId` instead of
         // spawning a duplicate. Reserve the key before any await so two retries

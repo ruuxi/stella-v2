@@ -9,7 +9,7 @@ import {
   isCloudBrowserSessionCaptureAvailable,
   type CapturedCloudBrowserCookie,
 } from "../../modules/stella-cloud-browser-session";
-import { base64UrlToBytes, bytesToBase64Url } from "./bridge-envelope";
+import { base64UrlToBytes, bytesToBase64Url } from "./base64url";
 import type {
   CloudBrowserEncryptedSessionTransfer,
   CloudBrowserSessionTransferCapability,

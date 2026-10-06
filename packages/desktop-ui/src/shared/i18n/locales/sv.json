@@ -2317,7 +2317,6 @@
       "guestHeroBody": "Be Stella göra saker på din dator — surfa på webben, hantera filer, köra uppgifter och mycket mer.",
       "defaultDeviceLabel": "Din dator",
       "statusChecking": "Kontrollerar…",
-      "statusWaking": "Vaknar…",
       "statusConnected": "Ansluten",
       "statusAsleep": "I viloläge",
       "connectingLabel": "Ansluter till din dator",
@@ -2368,8 +2367,6 @@
         "enableLabel": "Aktivera {name}",
         "enableFailedTitle": "Kunde inte aktivera den datorn",
         "connectFailedTitle": "Kunde inte ansluta till den datorn",
-        "wake": "Väck",
-        "wakeLabel": "Väck {name}",
         "pairingCode": "Använd en parkopplingskod"
       },
       "appearance": {

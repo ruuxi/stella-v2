@@ -2317,7 +2317,6 @@
       "guestHeroBody": "Be Stella gjøre ting på datamaskinen din — surfe på nettet, håndtere filer, kjøre oppgaver og mer.",
       "defaultDeviceLabel": "Datamaskinen din",
       "statusChecking": "Sjekker…",
-      "statusWaking": "Vekker…",
       "statusConnected": "Tilkoblet",
       "statusAsleep": "Sover",
       "connectingLabel": "Kobler til datamaskinen din",
@@ -2368,8 +2367,6 @@
         "enableLabel": "Aktiver {name}",
         "enableFailedTitle": "Kunne ikke aktivere den datamaskinen",
         "connectFailedTitle": "Kunne ikke koble til den datamaskinen",
-        "wake": "Vekk",
-        "wakeLabel": "Vekk {name}",
         "pairingCode": "Bruk en tilkoblingskode"
       },
       "appearance": {

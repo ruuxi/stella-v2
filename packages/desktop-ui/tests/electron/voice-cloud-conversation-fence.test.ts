@@ -1,8 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  IPC_VOICE_EXECUTE_MOBILE_TOOL,
-  IPC_VOICE_ORCHESTRATOR_CONFIG,
-} from "@stella/contracts/desktop/ipc-channels";
+import { IPC_VOICE_EXECUTE_TOOL } from "@stella/contracts/desktop/ipc-channels";
 
 const electron = vi.hoisted(() => ({
   handles: new Map<string, (...args: any[]) => any>(),
@@ -27,14 +24,6 @@ vi.mock("electron", () => ({
 const { registerVoiceHandlers } = await import(
   "@stella/desktop/electron/ipc/voice-handlers.js"
 );
-const { MOBILE_BRIDGE_SENDER_URL } = await import(
-  "@stella/desktop/electron/services/mobile-bridge/bridge-policy.js"
-);
-
-const bridgeEvent = {
-  sender: { id: -1, getURL: () => MOBILE_BRIDGE_SENDER_URL },
-  senderFrame: { url: MOBILE_BRIDGE_SENDER_URL },
-};
 
 describe("voice IPC cloud conversation fence", () => {
   beforeEach(() => {
@@ -59,7 +48,7 @@ describe("voice IPC cloud conversation fence", () => {
       }),
       executeVoiceTool: vi.fn().mockResolvedValue({ output: "ok" }),
     };
-    registerVoiceHandlers({
+    const phone = registerVoiceHandlers({
       uiState,
       getAppReady: () => true,
       windowManager: {
@@ -73,7 +62,7 @@ describe("voice IPC cloud conversation fence", () => {
       stellaAppDir: "/tmp/stella-cloud-authority-test",
       stellaDataDirPath: "/tmp/stella-cloud-authority-test",
     });
-    return { runner, uiState };
+    return { runner, uiState, phone };
   };
 
   it("drops stale fire-and-forget transcript events", async () => {
@@ -105,7 +94,7 @@ describe("voice IPC cloud conversation fence", () => {
       }),
     ).rejects.toThrow("The active conversation changed");
     await expect(
-      electron.handles.get(IPC_VOICE_EXECUTE_MOBILE_TOOL)?.({}, {
+      electron.handles.get(IPC_VOICE_EXECUTE_TOOL)?.({}, {
         conversationId: "cloud-old",
         requestId: "voice-1",
         callId: "call-1",
@@ -119,16 +108,16 @@ describe("voice IPC cloud conversation fence", () => {
   });
 
   it("authorizes a paired phone against the conversation it requested", async () => {
-    const { runner } = register();
+    const { runner, phone } = register();
 
-    await electron.handles.get(IPC_VOICE_ORCHESTRATOR_CONFIG)?.(bridgeEvent, {
+    await phone.configForRequest({
       conversationId: " phone-selected ",
     });
     expect(runner.getVoiceOrchestratorConfig).toHaveBeenCalledWith({
       conversationId: "phone-selected",
     });
 
-    await electron.handles.get(IPC_VOICE_EXECUTE_MOBILE_TOOL)?.(bridgeEvent, {
+    await phone.executeToolForRequest({
       conversationId: "phone-selected",
       requestId: "voice-1",
       callId: "call-1",
@@ -138,34 +127,18 @@ describe("voice IPC cloud conversation fence", () => {
     expect(runner.executeVoiceTool).toHaveBeenCalledWith(
       expect.objectContaining({ conversationId: "phone-selected" }),
     );
-
-    electron.listeners.get("voice:persistTranscript")?.(bridgeEvent, {
-      conversationId: "phone-selected",
-      eventId: "voice:req:user:item-1",
-      timestamp: 1_700_000_000_000,
-      role: "user",
-      text: "from the phone",
-    });
-    await Promise.resolve();
-    expect(runner.persistVoiceTranscript).toHaveBeenCalledWith(
-      expect.objectContaining({
-        conversationId: "phone-selected",
-        eventId: "voice:req:user:item-1",
-        timestamp: 1_700_000_000_000,
-      }),
-    );
   });
 
   it("still requires a conversation id and a ready cloud authority for phone requests", async () => {
-    const { runner } = register(null);
+    const { runner, phone } = register(null);
 
     await expect(
-      electron.handles.get(IPC_VOICE_ORCHESTRATOR_CONFIG)?.(bridgeEvent, {
+      phone.configForRequest({
         conversationId: "phone-selected",
       }),
     ).rejects.toThrow("Cloud conversation authority is not ready");
     await expect(
-      electron.handles.get(IPC_VOICE_EXECUTE_MOBILE_TOOL)?.(bridgeEvent, {
+      phone.executeToolForRequest({
         conversationId: "  ",
         requestId: "voice-1",
         callId: "call-1",

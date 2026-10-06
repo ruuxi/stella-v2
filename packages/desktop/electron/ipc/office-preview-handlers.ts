@@ -21,10 +21,7 @@ import type {
 } from "@stella/contracts/office-preview";
 import { listOfficePreviewSnapshots } from "../bootstrap/office-preview-bridge.js";
 import type { LocalChatHistoryService } from "../services/local-chat-history-service.js";
-import {
-  isDisplayReadPathInLocalChatFiles,
-  isMobileBridgeSender,
-} from "./display-handlers.js";
+import { isDisplayReadPathInLocalChatFiles } from "./display-handlers.js";
 import type { LocalChatEventRecord } from "@stella/runtime/kernel/storage/shared";
 import { resolveJwtOwnerScope } from "@stella/runtime/kernel/runner/computer-agent-cloud-records";
 import { resolveCanonicalConversationFilePaths } from "../services/canonical-conversation-file-paths.js";
@@ -46,6 +43,9 @@ type MobileOfficePreviewPolicy = {
 };
 
 const PREVIEW_ROOT_DIRNAME = "office-previews";
+/** How long a phone's preview request waits for the render to finish. */
+const REMOTE_PREVIEW_TIMEOUT_MS = 40_000;
+const REMOTE_PREVIEW_POLL_MS = 500;
 const SESSION_MANIFEST_NAME = "session.json";
 const SESSION_HTML_NAME = "preview.html";
 
@@ -206,12 +206,14 @@ const isMobileOfficePreviewPathAllowed = (
 export const registerOfficePreviewHandlers = (
   options: OfficePreviewHandlersOptions,
 ) => {
-  const requireMobileConversationFileEvents = async (
-    event: IpcMainEvent | IpcMainInvokeEvent,
+  /**
+   * The remote (paired phone) policy: previews are limited to files Stella
+   * displayed or produced in the named conversation.
+   */
+  const requireRemoteConversationFileEvents = async (
     payload: { conversationId?: unknown } | undefined,
     channel: string,
-  ): Promise<MobileOfficePreviewPolicy | null> => {
-    if (!isMobileBridgeSender(event)) return null;
+  ): Promise<MobileOfficePreviewPolicy> => {
     const conversationId =
       typeof payload?.conversationId === "string"
         ? payload.conversationId.trim()
@@ -246,115 +248,138 @@ export const registerOfficePreviewHandlers = (
     return { fileEvents, artifactPaths };
   };
 
-  ipcMain.handle(
-    IPC_OFFICE_PREVIEW_LIST,
-    async (event, payload?: { conversationId?: unknown }) => {
-      if (!options.assertPrivilegedSender(event, IPC_OFFICE_PREVIEW_LIST)) {
-        throw new Error("Blocked untrusted office preview request.");
-      }
+  const listPreviews = async (
+    policy: MobileOfficePreviewPolicy | null,
+  ): Promise<OfficePreviewSnapshot[]> => {
+    const stellaDataDir = options.getStellaDataDir();
+    if (!stellaDataDir?.trim()) {
+      return [];
+    }
+    const snapshots = await listOfficePreviewSnapshots(stellaDataDir);
+    return policy
+      ? filterOfficePreviewSnapshotsForMobile(snapshots, policy)
+      : snapshots;
+  };
 
-      const stellaDataDir = options.getStellaDataDir();
-      if (!stellaDataDir?.trim()) {
-        return [];
-      }
+  const startPreview = async (
+    payload: { filePath?: unknown } | undefined,
+    policy: MobileOfficePreviewPolicy | null,
+  ): Promise<OfficePreviewRef> => {
+    const stellaAppDir = options.getStellaAppDir();
+    const stellaDataDir = options.getStellaDataDir();
+    if (!stellaAppDir?.trim() || !stellaDataDir?.trim()) {
+      throw new Error("Office preview requires an initialized Stella root.");
+    }
+    const requestedPath =
+      typeof payload?.filePath === "string" ? payload.filePath.trim() : "";
+    if (!requestedPath) {
+      throw new Error("officePreview:start requires a filePath.");
+    }
 
-      const mobilePolicy = await requireMobileConversationFileEvents(
-        event,
-        payload,
-        IPC_OFFICE_PREVIEW_LIST,
+    const sourcePath = path.resolve(requestedPath);
+    if (policy && !isMobileOfficePreviewPathAllowed(policy, sourcePath)) {
+      throw new Error(
+        "officePreview:start from mobile is limited to recent files Stella displayed for the active conversation.",
       );
-      const snapshots = await listOfficePreviewSnapshots(stellaDataDir);
-      return mobilePolicy
-        ? filterOfficePreviewSnapshotsForMobile(snapshots, mobilePolicy)
-        : snapshots;
-    },
-  );
+    }
+
+    const stats = await fs.stat(sourcePath);
+    if (!stats.isFile()) {
+      throw new Error(`Office preview target is not a file: ${sourcePath}`);
+    }
+
+    const format = formatForPath(sourcePath);
+    if (!format) {
+      throw new Error(
+        "Office preview supports .docx, .xlsx, .xlsm, and .pptx files.",
+      );
+    }
+
+    const sessionId = randomUUID();
+    const title = path.basename(sourcePath);
+    const ref: OfficePreviewRef = { sessionId, title, sourcePath };
+    const sessionDir = path.join(stellaDataDir, PREVIEW_ROOT_DIRNAME, sessionId);
+    const startedAt = Date.now();
+    await writeManifest(sessionDir, ref, format, "starting", startedAt);
+
+    const binaryPath = resolveOfficePreviewBinaryPath(
+      stellaAppDir,
+      getOfficeBinaryName(),
+    );
+    void (async () => {
+      try {
+        const html = await renderOfficeHtml(binaryPath, sourcePath);
+        await fs.writeFile(
+          path.join(sessionDir, SESSION_HTML_NAME),
+          html,
+          "utf-8",
+        );
+        await writeManifest(sessionDir, ref, format, "ready", startedAt);
+      } catch (caught) {
+        await writeManifest(
+          sessionDir,
+          ref,
+          format,
+          "error",
+          startedAt,
+          caught instanceof Error ? caught.message : String(caught),
+        );
+      }
+    })();
+
+    return ref;
+  };
+
+  ipcMain.handle(IPC_OFFICE_PREVIEW_LIST, async (event) => {
+    if (!options.assertPrivilegedSender(event, IPC_OFFICE_PREVIEW_LIST)) {
+      throw new Error("Blocked untrusted office preview request.");
+    }
+    return await listPreviews(null);
+  });
 
   ipcMain.handle(
     IPC_OFFICE_PREVIEW_START,
-    async (
-      event,
-      payload?: { filePath?: unknown; conversationId?: unknown },
-    ): Promise<OfficePreviewRef> => {
+    async (event, payload?: { filePath?: unknown }): Promise<OfficePreviewRef> => {
       if (!options.assertPrivilegedSender(event, IPC_OFFICE_PREVIEW_START)) {
         throw new Error("Blocked untrusted office preview request.");
       }
+      return await startPreview(payload, null);
+    },
+  );
 
-      const stellaAppDir = options.getStellaAppDir();
-      const stellaDataDir = options.getStellaDataDir();
-      if (!stellaAppDir?.trim() || !stellaDataDir?.trim()) {
-        throw new Error("Office preview requires an initialized Stella root.");
-      }
-      const requestedPath =
-        typeof payload?.filePath === "string" ? payload.filePath.trim() : "";
-      if (!requestedPath) {
-        throw new Error("officePreview:start requires a filePath.");
-      }
-
-      const sourcePath = path.resolve(requestedPath);
-      const mobilePolicy = await requireMobileConversationFileEvents(
-        event,
+  return {
+    /**
+     * A paired phone's `officePreview.render`, relayed through the cloud:
+     * start a preview of `filePath` (or follow an existing `sessionId`) under
+     * the remote policy and resolve with its HTML once it is ready.
+     */
+    renderForRequest: async (payload: {
+      filePath?: unknown;
+      sessionId?: unknown;
+      conversationId?: unknown;
+    }): Promise<string> => {
+      const policy = await requireRemoteConversationFileEvents(
         payload,
         IPC_OFFICE_PREVIEW_START,
       );
-      if (
-        mobilePolicy &&
-        !isMobileOfficePreviewPathAllowed(mobilePolicy, sourcePath)
-      ) {
-        throw new Error(
-          "officePreview:start from mobile is limited to recent files Stella displayed for the active conversation.",
+      const sessionId =
+        typeof payload.sessionId === "string" && payload.sessionId.trim()
+          ? payload.sessionId.trim()
+          : (await startPreview(payload, policy)).sessionId;
+      const deadline = Date.now() + REMOTE_PREVIEW_TIMEOUT_MS;
+      while (Date.now() < deadline) {
+        const snapshot = (await listPreviews(policy)).find(
+          (entry) => entry.sessionId === sessionId,
         );
-      }
-
-      const stats = await fs.stat(sourcePath);
-      if (!stats.isFile()) {
-        throw new Error(`Office preview target is not a file: ${sourcePath}`);
-      }
-
-      const format = formatForPath(sourcePath);
-      if (!format) {
-        throw new Error(
-          "Office preview supports .docx, .xlsx, .xlsm, and .pptx files.",
-        );
-      }
-
-      const sessionId = randomUUID();
-      const title = path.basename(sourcePath);
-      const ref: OfficePreviewRef = { sessionId, title, sourcePath };
-      const sessionDir = path.join(
-        stellaDataDir,
-        PREVIEW_ROOT_DIRNAME,
-        sessionId,
-      );
-      const startedAt = Date.now();
-      await writeManifest(sessionDir, ref, format, "starting", startedAt);
-
-      const binaryPath = resolveOfficePreviewBinaryPath(
-        stellaAppDir,
-        getOfficeBinaryName(),
-      );
-      void (async () => {
-        try {
-          const html = await renderOfficeHtml(binaryPath, sourcePath);
-          await fs.writeFile(
-            path.join(sessionDir, SESSION_HTML_NAME),
-            html,
-            "utf-8",
-          );
-          await writeManifest(sessionDir, ref, format, "ready", startedAt);
-        } catch (caught) {
-          await writeManifest(
-            sessionDir,
-            ref,
-            format,
-            "error",
-            startedAt,
-            caught instanceof Error ? caught.message : String(caught),
-          );
+        if (snapshot?.status === "ready" && snapshot.html) return snapshot.html;
+        if (snapshot?.status === "error") {
+          throw new Error(snapshot.error || "Office preview failed.");
         }
-      })();
-
-      return ref;
+        await new Promise((resolve) =>
+          setTimeout(resolve, REMOTE_PREVIEW_POLL_MS),
+        );
+      }
+      throw new Error("Office preview timed out.");
     },
-  );
+  };
 };

@@ -10,7 +10,7 @@ import { TrayController } from "../windows/tray-controller.js";
 import { configureNotificationActivationHandling } from "../services/notification-service.js";
 import { configureStellaSessionPermissions } from "./session-permissions.js";
 import { resolveRendererBuildMode, serveRendererSource, } from "../source/renderer-protocol.js";
-import { getAllWindows, getMobileBroadcast, } from "./context.js";
+import { getAllWindows, } from "./context.js";
 import { startDeferredStartup } from "./deferred-startup.js";
 import { getMainLogger } from "../observability/main-logger.js";
 const initializeBootstrapLocalState = async (context) => {
@@ -91,7 +91,6 @@ const initializeWindowShell = (context) => {
         broadcastTarget: {
             getAllWindows: () => getAllWindows(context),
         },
-        getBroadcastToMobile: () => getMobileBroadcast(context),
     });
 };
 const finalizeWindowLaunch = (context) => {

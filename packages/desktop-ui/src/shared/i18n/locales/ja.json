@@ -2294,7 +2294,6 @@
       "guestHeroBody": "ウェブの閲覧、ファイル整理、タスク実行など、コンピュータでの操作を Stella に頼めます。",
       "defaultDeviceLabel": "あなたのコンピュータ",
       "statusChecking": "確認中…",
-      "statusWaking": "起動中…",
       "statusConnected": "接続済み",
       "statusAsleep": "スリープ中",
       "connectingLabel": "コンピュータに接続しています",
@@ -2345,8 +2344,6 @@
         "enableLabel": "{name} を有効にする",
         "enableFailedTitle": "そのコンピュータを有効にできませんでした",
         "connectFailedTitle": "そのコンピュータに接続できませんでした",
-        "wake": "スリープ解除",
-        "wakeLabel": "{name} のスリープを解除",
         "pairingCode": "ペアリングコードを使う"
       },
       "appearance": {

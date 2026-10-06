@@ -29,7 +29,6 @@ import type {
   LocalChatAgentReport,
   LocalModelUsagePage,
   LocalChatUpdatedPayload,
-  TaskDecorationUpdatedPayload,
   ThreadActivityRecord,
 } from "@stella/contracts/local-chat";
 import type {
@@ -37,11 +36,7 @@ import type {
   ReplyCounts,
 } from "@stella/contracts/reply-refs";
 import {
-  buildMobileSyncMessagesPage,
   buildMobileSyncMessages,
-  decodeMobileSyncCursor,
-  type LocalChatMobileSyncResult,
-  type LocalChatMobileHistoryPage,
   type LocalChatSyncMessageWithArtifacts,
 } from "./local-chat-artifacts.js";
 import { CloudConversationCacheClient } from "./cloud-conversation-cache-client.js";
@@ -50,77 +45,10 @@ import { listCanonicalConversationFilePaths } from "./canonical-conversation-fil
 type LocalChatHistoryServiceOptions = {
   stellaAppDir: string;
   onUpdated?: (payload: LocalChatUpdatedPayload | null) => void;
-  /**
-   * Fired when the mirrored task decoration (statusText / reasoning
-   * summaries) changes. Wired to a mobile-only broadcast — desktop windows
-   * maintain their own decoration stores from the live stream.
-   */
-  onTaskDecorationUpdated?: (payload: TaskDecorationUpdatedPayload) => void;
 };
 
 const openNodeSqliteDatabase = (dbPath: string): SqliteDatabase =>
   new DatabaseSync(dbPath) as unknown as SqliteDatabase;
-
-const MOBILE_TASK_EVENT_TYPES = new Set([
-  "agent-started",
-  "agent-progress",
-  "agent-completed",
-  "agent-failed",
-  "agent-canceled",
-]);
-
-const taskAgentIdsInMessages = (
-  messages: readonly LocalChatMessageRecord[],
-) => {
-  const touched = new Set<string>();
-  const anchored = new Set<string>();
-  for (const message of messages) {
-    for (const event of message.toolEvents) {
-      if (!MOBILE_TASK_EVENT_TYPES.has(event.type)) continue;
-      const agentId =
-        typeof event.payload?.agentId === "string"
-          ? event.payload.agentId.trim()
-          : "";
-      if (!agentId) continue;
-      touched.add(agentId);
-      if (event.type === "agent-started") anchored.add(agentId);
-    }
-  }
-  return { touched, anchored };
-};
-
-const mergeTaskContextMessages = (
-  messages: readonly LocalChatMessageRecord[],
-  extra: readonly LocalChatMessageRecord[],
-): LocalChatMessageRecord[] => {
-  const byId = new Map<string, LocalChatMessageRecord>();
-  for (const message of [...extra, ...messages]) {
-    const existing = byId.get(message._id);
-    if (!existing) {
-      byId.set(message._id, message);
-      continue;
-    }
-    const events = new Map(
-      [...existing.toolEvents, ...message.toolEvents].map((event) => [
-        event._id,
-        event,
-      ]),
-    );
-    byId.set(message._id, {
-      ...existing,
-      ...message,
-      toolEvents: [...events.values()].sort(
-        (a, b) => a.timestamp - b.timestamp || a._id.localeCompare(b._id),
-      ),
-    });
-  }
-  return [...byId.values()].sort((a, b) => {
-    if (typeof a.sequence === "number" && typeof b.sequence === "number") {
-      return a.sequence - b.sequence;
-    }
-    return a.timestamp - b.timestamp || a._id.localeCompare(b._id);
-  });
-};
 
 export class LocalChatHistoryService {
   private db: SqliteDatabase | null = null;
@@ -131,25 +59,10 @@ export class LocalChatHistoryService {
   private readonly onUpdated?: (
     payload: LocalChatUpdatedPayload | null,
   ) => void;
-  private readonly onTaskDecorationUpdated?: (
-    payload: TaskDecorationUpdatedPayload,
-  ) => void;
   private resetInProgress = false;
-  /**
-   * Latest per-agent mid-run statusText mirrored from the renderer's
-   * task-decoration store via `publishTaskDecoration`. Same lifecycle as the
-   * reasoning summaries above: in-memory only, replaced wholesale per publish,
-   * present only for running threads (the renderer clears a thread's
-   * decoration on its terminal stream event).
-   */
-  private statusTextByAgent = new Map<string, string>();
-  /** Last decoration payload serialization, so repeat publishes don't re-broadcast. */
-  private lastTaskDecorationSerialized = "";
-
   constructor(options: LocalChatHistoryServiceOptions) {
     this.stellaAppDir = options.stellaAppDir;
     this.onUpdated = options.onUpdated;
-    this.onTaskDecorationUpdated = options.onTaskDecorationUpdated;
     this.open();
   }
 
@@ -385,13 +298,10 @@ export class LocalChatHistoryService {
 
   listThreadActivity(args: {
     conversationId: string;
-    view?: "mobile-summary";
-    maxItems?: number;
   }): ThreadActivityRecord[] {
-    return this.getStore().listThreadActivity(args.conversationId, {
-      view: args.view,
-      maxItems: args.maxItems,
-    }) as unknown as ThreadActivityRecord[];
+    return this.getStore().listThreadActivity(
+      args.conversationId,
+    ) as unknown as ThreadActivityRecord[];
   }
 
   /**
@@ -528,45 +438,6 @@ export class LocalChatHistoryService {
     return { ok: true };
   }
 
-  /**
-   * Mirror the renderer's per-thread mid-run statusText (the task-decoration
-   * store) into the in-memory snapshot the mobile sync serializer reads.
-   * Progress ticks are no longer persisted as message rows, so this mirror is
-   * the only bridge-side source of a running task's current statusText.
-   */
-  setTaskDecoration(args: { statusTextByAgentId: Record<string, string> }): {
-    ok: true;
-  } {
-    const next = new Map<string, string>();
-    for (const [rawAgentId, rawText] of Object.entries(
-      args.statusTextByAgentId ?? {},
-    )) {
-      const agentId = typeof rawAgentId === "string" ? rawAgentId.trim() : "";
-      const text = typeof rawText === "string" ? rawText.trim() : "";
-      if (agentId && text) next.set(agentId, text);
-    }
-    this.statusTextByAgent = next;
-    this.emitTaskDecorationUpdated();
-    return { ok: true };
-  }
-
-  /**
-   * Push the status decoration snapshot
-   * to the mobile bridge so the phone's activity pill updates mid-run without
-   * a persisted event to resync from. Deduped against the last broadcast —
-   * identical publishes stay silent.
-   */
-  private emitTaskDecorationUpdated(): void {
-    if (!this.onTaskDecorationUpdated) return;
-    const payload: TaskDecorationUpdatedPayload = {
-      statusTextByAgentId: Object.fromEntries(this.statusTextByAgent),
-    };
-    const serialized = JSON.stringify(payload);
-    if (serialized === this.lastTaskDecorationSerialized) return;
-    this.lastTaskDecorationSerialized = serialized;
-    this.onTaskDecorationUpdated(payload);
-  }
-
   listSyncMessages(args: {
     conversationId: string;
     maxMessages?: number;
@@ -584,203 +455,7 @@ export class LocalChatHistoryService {
       },
       this.getAssistantMessagesByAgent(args.conversationId),
       messages,
-      this.statusTextByAgent,
     );
-  }
-
-  listSyncMessagesBefore(args: {
-    conversationId: string;
-    beforeTimestampMs: number;
-    beforeId: string;
-    maxMessages?: number;
-    includeDeveloperArtifacts?: boolean;
-  }): LocalChatMobileHistoryPage {
-    const maxMessages = Math.max(1, Math.floor(args.maxMessages ?? 100));
-    const { messages, visibleMessageCount } =
-      this.getStore().listMessagesBefore(args.conversationId, {
-        beforeTimestampMs: args.beforeTimestampMs,
-        beforeId: args.beforeId,
-        maxVisibleMessages: maxMessages + 1,
-      });
-    // A historical page may contain an old task anchor whose completion is
-    // newer than the page cursor, or only a lifecycle row whose anchor is on
-    // an earlier page. Resolve just the touched task ids across the complete
-    // conversation so old pages project today's task/artifact state without a
-    // whole-transcript scan.
-    const { touched } = taskAgentIdsInMessages(messages);
-    const targetedTaskContext =
-      touched.size > 0
-        ? this.getStore().listMobileTaskContext(args.conversationId, [
-            ...touched,
-          ]).messages
-        : [];
-    const taskContextMessages = mergeTaskContextMessages(
-      messages,
-      targetedTaskContext,
-    );
-    const projected = buildMobileSyncMessages(
-      messages,
-      Math.max(1, messages.length * 2),
-      {
-        includeDeveloperArtifacts: args.includeDeveloperArtifacts === true,
-      },
-      this.getAssistantMessagesByAgent(args.conversationId),
-      taskContextMessages,
-      this.statusTextByAgent,
-    );
-    // One durable user row can project both its visible bubble and a synthetic
-    // agent-work bubble. Page whole source groups so a row is never split at
-    // the output limit (which would make the missing sibling unreachable).
-    const sourceIdsNewestFirst: string[] = [];
-    const seenSourceIds = new Set<string>();
-    const projectedCountBySource = new Map<string, number>();
-    for (const message of projected) {
-      projectedCountBySource.set(
-        message.sourceMessageId,
-        (projectedCountBySource.get(message.sourceMessageId) ?? 0) + 1,
-      );
-    }
-    let remainingProjectedRows = maxMessages;
-    for (let index = projected.length - 1; index >= 0; index -= 1) {
-      const sourceId = projected[index]!.sourceMessageId;
-      if (seenSourceIds.has(sourceId)) continue;
-      const groupSize = projectedCountBySource.get(sourceId) ?? 1;
-      if (
-        sourceIdsNewestFirst.length > 0 &&
-        groupSize > remainingProjectedRows
-      ) {
-        break;
-      }
-      seenSourceIds.add(sourceId);
-      sourceIdsNewestFirst.push(sourceId);
-      remainingProjectedRows -= groupSize;
-      if (remainingProjectedRows <= 0) break;
-    }
-    const keptSourceIds = new Set(sourceIdsNewestFirst);
-    const page = projected.filter((message) =>
-      keptSourceIds.has(message.sourceMessageId),
-    );
-    const oldestProjected = page[0];
-    const oldestRaw = messages[0];
-    const oldestSourceCursor = oldestProjected
-      ? {
-          timestamp: oldestProjected.sourceTimestamp,
-          id: oldestProjected.sourceMessageId,
-        }
-      : oldestRaw
-        ? { timestamp: oldestRaw.timestamp, id: oldestRaw._id }
-        : null;
-    return {
-      messages: page,
-      hasOlder:
-        visibleMessageCount > maxMessages ||
-        (Boolean(projected[0]) &&
-          projected[0]!.sourceMessageId !== page[0]?.sourceMessageId),
-      oldestSourceCursor,
-    };
-  }
-
-  syncMessages(args: {
-    conversationId: string;
-    sinceCursor?: string | null;
-    maxMessages?: number;
-    includeDeveloperArtifacts?: boolean;
-  }): LocalChatMobileSyncResult {
-    const maxMessages = Math.max(1, Math.floor(args.maxMessages ?? 100));
-    const artifactOptions = {
-      includeDeveloperArtifacts: args.includeDeveloperArtifacts === true,
-    };
-    const requestedCursor = args.sinceCursor?.trim() || null;
-    const cursor = decodeMobileSyncCursor(requestedCursor);
-    const cursorIsValid = Boolean(
-      cursor &&
-        this.getStore().isMobileSyncCursorValid(
-          args.conversationId,
-          cursor.timestamp,
-          cursor.id,
-          cursor.sequence,
-        ),
-    );
-    if (cursor && cursorIsValid) {
-      if (
-        !this.getStore().hasMobileSyncEventsAfter(
-          args.conversationId,
-          cursor.timestamp,
-          cursor.id,
-          cursor.sequence,
-        )
-      ) {
-        return {
-          messages: [],
-          cursor: requestedCursor,
-          cursorStatus: "valid",
-          hasMore: false,
-        };
-      }
-      const { messages, sourceEvents } = this.getStore().listMessagesAfter(
-        args.conversationId,
-        {
-          afterTimestampMs: cursor.timestamp,
-          afterId: cursor.id,
-          afterSequence: cursor.sequence,
-          maxVisibleMessages: maxMessages,
-          includeSourceEvents: true,
-        },
-      );
-      const { touched, anchored } = taskAgentIdsInMessages(messages);
-      const missingAnchors = [...touched].filter(
-        (agentId) => !anchored.has(agentId),
-      );
-      const targetedTaskContext =
-        missingAnchors.length > 0
-          ? this.getStore().listMobileTaskContext(
-              args.conversationId,
-              missingAnchors,
-            ).messages
-          : [];
-      const taskContextMessages = mergeTaskContextMessages(
-        messages,
-        targetedTaskContext,
-      );
-      const page = buildMobileSyncMessagesPage(
-        messages,
-        maxMessages,
-        sourceEvents,
-        artifactOptions,
-        this.getAssistantMessagesByAgent(args.conversationId),
-        taskContextMessages,
-        this.statusTextByAgent,
-      );
-      const pageCursor = decodeMobileSyncCursor(page.cursor);
-      const hasMore = Boolean(
-        pageCursor &&
-          this.getStore().hasMobileSyncEventsAfter(
-            args.conversationId,
-            pageCursor.timestamp,
-            pageCursor.id,
-            pageCursor.sequence,
-          ),
-      );
-      return { ...page, cursorStatus: "valid", hasMore };
-    }
-
-    const { messages } = this.getStore().listMessages(args.conversationId, {
-      maxVisibleMessages: maxMessages,
-    });
-    const page = buildMobileSyncMessagesPage(
-      messages,
-      maxMessages,
-      messages,
-      artifactOptions,
-      this.getAssistantMessagesByAgent(args.conversationId),
-      messages,
-      this.statusTextByAgent,
-    );
-    return {
-      ...page,
-      cursorStatus: requestedCursor ? "invalid" : "snapshot",
-      hasMore: false,
-    };
   }
 
   retainCloudConversationCacheAccount(

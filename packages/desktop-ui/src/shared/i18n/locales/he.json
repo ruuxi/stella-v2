@@ -2336,7 +2336,6 @@
       "guestHeroBody": "בקשו מ-Stella לעשות דברים במחשב שלכם — לגלוש ברשת, לנהל קבצים, להריץ משימות ועוד.",
       "defaultDeviceLabel": "המחשב שלכם",
       "statusChecking": "בודק…",
-      "statusWaking": "מעיר…",
       "statusConnected": "מחובר",
       "statusAsleep": "במצב שינה",
       "connectingLabel": "מתחבר למחשב שלכם",
@@ -2387,8 +2386,6 @@
         "enableLabel": "הפעלת {name}",
         "enableFailedTitle": "לא ניתן להפעיל את המחשב",
         "connectFailedTitle": "לא ניתן להתחבר למחשב",
-        "wake": "העָרה",
-        "wakeLabel": "העָרת {name}",
         "pairingCode": "שימוש בקוד צימוד"
       },
       "appearance": {

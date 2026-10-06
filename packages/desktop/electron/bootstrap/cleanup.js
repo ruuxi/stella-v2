@@ -49,9 +49,6 @@ export const registerBootstrapProcessCleanups = (context) => {
         context.state.trayController?.destroy();
         context.state.trayController = null;
     });
-    processRuntime.registerCleanup("before-quit", "mobile-bridge", async () => {
-        await context.state.mobileBridgeResource?.stop();
-    });
     processRuntime.registerCleanup("before-quit", "office-preview-bridge", async () => {
         context.state.officePreviewBridgeStop?.();
         context.state.officePreviewBridgeStop = null;

@@ -22,20 +22,6 @@ describe("ExternalLinkService renderer trust", () => {
     expect(service.isTrustedRendererUrl("file:///tmp/stella.html")).toBe(false);
   });
 
-  it("supports the exact internal mobile bridge sender without trusting the whole protocol", () => {
-    const service = new ExternalLinkService();
-
-    expect(service.isTrustedRendererUrl("stella-mobile-bridge://mobile")).toBe(
-      true,
-    );
-    expect(
-      service.isTrustedRendererUrl("stella-mobile-bridge://localhost"),
-    ).toBe(false);
-    expect(
-      service.isTrustedRendererUrl("stella-mobile-bridge://mobile/extra"),
-    ).toBe(false);
-  });
-
   it("allows about:blank navigation without granting privileged renderer trust", () => {
     const service = new ExternalLinkService();
 

@@ -26,6 +26,10 @@ import {
 } from "@stella/contracts/turn-plane/placement";
 import { canonicalDispatchPayloadJson } from "@stella/contracts/turn-plane/pairing-proof";
 import { getFileLogger } from "../observability/file-logger.js";
+import {
+  DeviceRequestServer,
+  type ServeDeviceRequest,
+} from "./device-request-server.js";
 import type { SqliteDatabase } from "../kernel/storage/shared.js";
 import {
   forkDelayed,
@@ -162,6 +166,12 @@ type PlacementBridgeOptions = {
     requestedAt: number;
     requesterLabel?: string;
   }) => void;
+  /**
+   * Answer a paired phone's request (a file, an office preview, voice tools)
+   * that the owner gate relayed over the presence socket. The app applies its
+   * own access policy; absent, every request is refused.
+   */
+  serveDeviceRequest?: ServeDeviceRequest;
   log?: (level: "warn" | "error", message: string, error?: unknown) => void;
   now?: () => number;
   /** Test seam; production uses the accepted execution lease duration. */
@@ -839,10 +849,17 @@ export class ExecutionPlacementBridge {
     Set<(dispatch: DispatchSummary) => void>
   >();
 
+  private readonly deviceRequests: DeviceRequestServer;
+
   constructor(private readonly options: PlacementBridgeOptions) {
     this.client = options.client;
     this.inbox = new ExecutionPlacementInbox(options.database);
     this.fetchImpl = options.fetch ?? globalThis.fetch;
+    this.deviceRequests = new DeviceRequestServer({
+      serve: options.serveDeviceRequest,
+      send: (frame) => this.send(frame),
+      log: (message, error) => this.log("warn", message, error),
+    });
   }
 
   get isRunning() {
@@ -1341,6 +1358,14 @@ export class ExecutionPlacementBridge {
       }
       case "dispatch": {
         await this.applyDispatchUpdate(frame.dispatch);
+        return;
+      }
+      case "request": {
+        this.deviceRequests.handle(frame);
+        return;
+      }
+      case "request.cancel": {
+        this.deviceRequests.cancel(frame.requestId);
         return;
       }
       case "error": {

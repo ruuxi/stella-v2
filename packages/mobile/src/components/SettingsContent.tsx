@@ -20,7 +20,6 @@ import {
 import { authClient } from "../lib/auth-client";
 import { clearAiConsent } from "../lib/ai-consent";
 import { clearCachedToken } from "../lib/auth-token";
-import { clearCachedDesktopBridge } from "../lib/desktop-bridge-chat";
 import { clearAccountChatData } from "../lib/chat-account-cleanup";
 import { isGuest } from "../lib/guest-mode";
 import { useCloudBrowserActions } from "../lib/cloud-browser";
@@ -195,7 +194,6 @@ export function SettingsContent() {
       await unregisterForPushNotifications();
       await authClient.signOut();
       clearCachedToken();
-      clearCachedDesktopBridge();
       await clearLocalAccountState();
     } catch (e) {
       Alert.alert(t("mobile.settings.signOutLabel"), userFacingError(e));
@@ -216,7 +214,6 @@ export function SettingsContent() {
       await unregisterForPushNotifications();
       await client.deleteUser({});
       clearCachedToken();
-      clearCachedDesktopBridge();
       await authClient.signOut();
       await clearLocalAccountState();
       clearAiConsent();

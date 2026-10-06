@@ -91,6 +91,12 @@ export const RUNTIME_HOST_HANDLERS = [
    * nothing here is waiting on a person.
    */
   "notifyRemoteExecutionRequest",
+  /**
+   * A paired phone's request (a file, an office preview, voice tools),
+   * relayed by the cloud over the presence socket. The app answers it under
+   * its own file-access policy.
+   */
+  "serveDeviceRequest",
   "spawnAutomationDaemon",
   "openExternal",
   "showWindow",

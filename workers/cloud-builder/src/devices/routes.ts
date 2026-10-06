@@ -1,7 +1,10 @@
 /**
  * Devices' HTTP surface on the Worker.
  *
- *   /api/mobile/<route>             phones and the desktop's bridge service, user JWT
+ *   /api/mobile/<route>             phones (pairing, push tokens), user JWT
+ *
+ * A phone's requests to one of the owner's computers are not here: they are
+ * `POST /owners/me/devices/:deviceId/requests` (device-request-route.ts).
  *
  * Desktop UI and runtime use backend calls (`devices.*`, `phone.*`) instead.
  */

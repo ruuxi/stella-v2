@@ -2294,7 +2294,6 @@
       "guestHeroBody": "Minta Stella melakukan berbagai hal di komputer Anda — menjelajah web, mengelola berkas, menjalankan tugas, dan lainnya.",
       "defaultDeviceLabel": "Komputer Anda",
       "statusChecking": "Memeriksa…",
-      "statusWaking": "Membangunkan…",
       "statusConnected": "Terhubung",
       "statusAsleep": "Tidur",
       "connectingLabel": "Menghubungkan ke komputer Anda",
@@ -2345,8 +2344,6 @@
         "enableLabel": "Aktifkan {name}",
         "enableFailedTitle": "Tidak dapat mengaktifkan komputer itu",
         "connectFailedTitle": "Tidak dapat terhubung ke komputer itu",
-        "wake": "Bangunkan",
-        "wakeLabel": "Bangunkan {name}",
         "pairingCode": "Gunakan kode pemasangan"
       },
       "appearance": {

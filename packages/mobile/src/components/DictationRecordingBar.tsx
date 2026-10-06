@@ -16,7 +16,7 @@
  * re-renders the words. Word fades run on the native driver.
  */
 
-import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   Pressable,
@@ -54,8 +54,7 @@ type Props = {
   onConfirm: () => void;
   /** When provided, stop dictation and auto-send once the transcript lands. */
   onSend?: () => void;
-  /** Rendered at the leading edge of the waveform row (the composer's +). */
-  leading?: ReactNode;
+
   /** Muted hint shown in the transcript area until the first words arrive. */
   placeholder?: string;
   /** Extra layout for the transcript area (the composer's text-area inset). */
@@ -72,7 +71,6 @@ export const DictationRecordingBar = memo(function DictationRecordingBar({
   onCancel,
   onConfirm,
   onSend,
-  leading,
   placeholder,
   transcriptStyle,
   transcriptMaxHeight,
@@ -92,22 +90,26 @@ export const DictationRecordingBar = memo(function DictationRecordingBar({
         maxHeight={transcriptMaxHeight}
       />
       <View style={styles.recordingRow}>
-        {leading}
-        <DictationWaveform color={fadeHex(colors.text, 0.7)} />
-        <ElapsedTimer style={styles.timer} />
+        {/* Cancel takes the slot the composer's + occupies at rest, so the
+            leading control is one place with one meaning: add something when
+            idle, back out when dictating. It carries the +'s footprint (32pt,
+            not the 26pt trailing controls) so the waveform starts at the same
+            x and the row does not shift as dictation begins or ends. */}
         <Pressable
           onPress={onCancel}
           accessibilityLabel="Cancel dictation"
           hitSlop={6}
-          style={styles.control}
+          style={styles.leadingControl}
         >
           <Icon
             name="x"
-            size={14}
+            size={15}
             color={fadeHex(colors.text, 0.75)}
             weight="semibold"
           />
         </Pressable>
+        <DictationWaveform color={fadeHex(colors.text, 0.7)} />
+        <ElapsedTimer style={styles.timer} />
         <Pressable
           onPress={onConfirm}
           accessibilityLabel="Stop dictation and transcribe"
@@ -376,6 +378,15 @@ const makeStyles = (colors: ColorMap) =>
       fontSize: 12,
       fontVariant: ["tabular-nums"],
       paddingHorizontal: 4,
+    },
+    leadingControl: {
+      flexShrink: 0,
+      alignItems: "center",
+      justifyContent: "center",
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: fadeHex(colors.text, 0.06),
     },
     control: {
       flexShrink: 0,

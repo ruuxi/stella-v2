@@ -4301,7 +4301,11 @@ export function ChatPane({
 
   const hasPlusMenu = composerEnabled;
 
-  const plusButton = hasPlusMenu ? (
+  // While dictating, the recording bar's leading slot carries cancel instead.
+  // Withheld here rather than only in the inline branch so the other dictation
+  // layout (recording bar below a composer that already has text) does not end
+  // up showing a + and an X at once — one leading control, one meaning.
+  const plusButton = hasPlusMenu && !isListening ? (
     <View collapsable={false}>
       <Pressable
         style={styles.addButton}

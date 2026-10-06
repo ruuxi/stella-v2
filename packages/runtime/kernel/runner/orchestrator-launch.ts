@@ -308,6 +308,64 @@ export const parseCanonicalCloudHistory = (
   });
 };
 
+/** Longest failure reason carried into a turn notice. */
+const CLOUD_FAILURE_NOTICE_REASON_CHARS = 400;
+
+/**
+ * Credential-shaped substrings that must never reach a transcript the cloud
+ * stores. Upstream engine errors quote request context, and an engine CLI can
+ * echo the token it was given; a notice is persisted and rendered, so redact
+ * before it is written rather than trusting every upstream message.
+ */
+const SECRET_LIKE_PATTERNS: readonly RegExp[] = [
+  /\b(?:sk|pk|rk)-[A-Za-z0-9_-]{8,}/g,
+  /\bey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}/g,
+  /\b(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi,
+  /\b(?:ghp|gho|ghu|ghs|ghr|github_pat)_[A-Za-z0-9_]{8,}/g,
+  /\b(?:xox[abposr]|xapp)-[A-Za-z0-9-]{8,}/g,
+];
+
+const redactSecretLike = (value: string): string =>
+  SECRET_LIKE_PATTERNS.reduce(
+    (text, pattern) => text.replace(pattern, "[redacted]"),
+    value,
+  );
+
+/**
+ * The failure reason as a single bounded, redacted line.
+ *
+ * A notice is the turn's closing reply row, so a stack trace or a multi-page
+ * provider payload would be the whole visible answer. Keep the first
+ * meaningful line.
+ */
+const cloudFailureReason = (error: unknown): string | undefined => {
+  const raw =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : error !== undefined && error !== null
+          ? String(error)
+          : "";
+  const line = redactSecretLike(raw)
+    .split("\n")
+    .map((part) => part.trim())
+    .find((part) => part.length > 0);
+  if (!line) return undefined;
+  return line.length > CLOUD_FAILURE_NOTICE_REASON_CHARS
+    ? `${line.slice(0, CLOUD_FAILURE_NOTICE_REASON_CHARS).trimEnd()}…`
+    : line;
+};
+
+/**
+ * Project a finished local turn onto the cloud journal's terminal phase.
+ *
+ * A failure notice carries WHY. The reason used to be dropped, so an expired
+ * token, an out-of-credit subscription, a usage limit, a crash and a stream
+ * abort all rendered as the same "The local turn did not finish." — leaving no
+ * way to tell a broken credential from an exhausted one, which is the
+ * difference between re-authenticating and switching accounts.
+ */
 const cloudFinishPhase = (
   terminal: DeferredTerminalCallback | null,
   error: unknown,
@@ -322,9 +380,18 @@ const cloudFinishPhase = (
       : { phase: "canceled", notice: "The local turn was canceled." };
   }
   if (terminal?.kind === "error" || error !== undefined) {
+    // Prefer the run's own rejection; fall back to the terminal error event,
+    // which is the only carrier when the failure arrived through callbacks.
+    const reason =
+      cloudFailureReason(error) ??
+      (terminal?.kind === "error"
+        ? cloudFailureReason(terminal.event.error)
+        : undefined);
     return {
       phase: "failed",
-      notice: "The local turn did not finish.",
+      notice: reason
+        ? `The local turn did not finish: ${reason}`
+        : "The local turn did not finish.",
     };
   }
   return { phase: "completed" };

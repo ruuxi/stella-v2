@@ -12,6 +12,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isEntryPoint } from "../../../scripts/lib/entry-point.mjs";
 import { buildWorkerShellModules } from "./build-worker-shell.mjs";
 
 const workerRoot = path.resolve(
@@ -144,10 +145,7 @@ export const buildWorker = async ({ outdir = workerBuildDirectory } = {}) => {
   return manifest;
 };
 
-if (
-  process.argv[1] &&
-  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
-) {
+if (isEntryPoint(import.meta.url)) {
   const manifest = await buildWorker();
   process.stdout.write(
     `${JSON.stringify({

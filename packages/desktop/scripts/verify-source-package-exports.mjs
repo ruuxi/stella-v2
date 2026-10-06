@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { isEntryPoint } from "../../../scripts/lib/entry-point.mjs";
 
 const scriptDir = import.meta.dirname;
 const repoRootDir = path.resolve(scriptDir, "..", "..", "..");
@@ -128,17 +128,7 @@ export const verifySourcePackageExports = ({ rootDir = repoRootDir } = {}) => {
   }
 };
 
-const isRunDirectly = (() => {
-  try {
-    return (
-      path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)
-    );
-  } catch {
-    return false;
-  }
-})();
-
-if (isRunDirectly) {
+if (isEntryPoint(import.meta.url)) {
   try {
     verifySourcePackageExports();
     console.log(

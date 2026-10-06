@@ -30,7 +30,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
-import { fileURLToPath } from "node:url";
+import { isEntryPoint } from "../../../scripts/lib/entry-point.mjs";
 import { DatabaseSync } from "node:sqlite";
 import { validateThreadSummary } from "../kernel/thread-summary-validation.js";
 
@@ -2079,10 +2079,7 @@ export const main = (argv = process.argv.slice(2)) => {
   }
 };
 
-const isMain =
-  process.argv[1] &&
-  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-if (isMain) {
+if (isEntryPoint(import.meta.url)) {
   try {
     main();
   } catch (error) {

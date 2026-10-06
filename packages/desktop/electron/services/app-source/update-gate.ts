@@ -38,11 +38,15 @@ const OUTPUT_LIMIT = 4_000;
 const RUNNER = "stella-update-gate.mjs";
 /**
  * Written into the scratch worktree and run there, rather than running the
- * build script as the entry point: the script only builds when it decides it
- * is the entry (`process.argv[1]` against its own URL), and a scratch path
- * under a symlinked directory makes that comparison fail, which would exit 0
- * having built nothing. Importing the export instead cannot pass vacuously,
- * and `built` plus the outputs are both asserted.
+ * build script as the entry point.
+ *
+ * Any entry-point guard decides whether to work from the shape of
+ * `process.argv[1]`, and this gate was where one got that wrong: a scratch
+ * path under a symlinked directory made the comparison fail, and the build
+ * exited 0 having built nothing. The guard is fixed (`scripts/lib/
+ * entry-point.mjs`), but a gate should not be taking anyone's word for it:
+ * importing the export and asserting both `built` and the outputs cannot
+ * pass vacuously, whatever the guard decides.
  */
 const RUNNER_SOURCE = `import {
   ensureElectronBundlesFresh,

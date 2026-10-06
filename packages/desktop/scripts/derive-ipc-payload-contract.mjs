@@ -24,6 +24,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isEntryPoint } from "../../../scripts/lib/entry-point.mjs";
 import ts from "typescript";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -287,11 +288,7 @@ export const writeOrCheckIpcPayloadContract = ({
   return true;
 };
 
-const isMain =
-  typeof process.argv[1] === "string" &&
-  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-
-if (isMain) {
+if (isEntryPoint(import.meta.url)) {
   const args = process.argv.slice(2);
   const check = args.length === 1 && args[0] === "--check";
   if (args.length > 0 && !check) {

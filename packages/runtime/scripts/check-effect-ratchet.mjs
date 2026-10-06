@@ -1,6 +1,6 @@
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { isEntryPoint } from "../../../scripts/lib/entry-point.mjs";
 
 // The Effect migration ratchet (M5 completion, phase 0 — see
 // ~/projects/stella-v2-effect-completion-plan.md "The ratchet"). Promise-land
@@ -226,10 +226,7 @@ const formatByPattern = (byPattern) =>
     .map(([label, count]) => `${label} x${count}`)
     .join(", ");
 
-const isMain =
-  process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
-
-if (isMain) {
+if (isEntryPoint(import.meta.url)) {
   const update = process.argv.includes("--update");
   const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..");
   const runtimeRoot = path.join(repoRoot, "packages", "runtime");

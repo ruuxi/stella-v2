@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { isEntryPoint } from "../../../scripts/lib/entry-point.mjs";
 import { Linter } from "eslint";
 import globals from "globals";
 
@@ -104,17 +104,7 @@ export const verifyConvertedSourceIdentifiers = ({
   return files.length;
 };
 
-const isRunDirectly = (() => {
-  try {
-    return (
-      path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)
-    );
-  } catch {
-    return false;
-  }
-})();
-
-if (isRunDirectly) {
+if (isEntryPoint(import.meta.url)) {
   try {
     const rootIndex = process.argv.indexOf("--root");
     const rootDir =

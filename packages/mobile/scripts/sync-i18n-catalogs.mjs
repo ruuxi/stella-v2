@@ -38,6 +38,7 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isEntryPoint } from "../../../scripts/lib/entry-point.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const mobileRoot = resolve(here, "..");
@@ -165,11 +166,7 @@ export const syncI18nCatalogs = ({
   return { ok: true, catalogCount: catalogFiles.length, drift: [] };
 };
 
-const isMain =
-  typeof process.argv[1] === "string" &&
-  resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-
-if (isMain) {
+if (isEntryPoint(import.meta.url)) {
   const args = process.argv.slice(2);
   const check = args.length === 1 && args[0] === "--check";
   if (args.length > 0 && !check) {

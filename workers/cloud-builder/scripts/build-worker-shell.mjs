@@ -21,6 +21,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isEntryPoint } from "../../../scripts/lib/entry-point.mjs";
 
 const workerRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -212,10 +213,7 @@ export const buildWorkerShellModules = async () => {
   };
 };
 
-if (
-  process.argv[1] &&
-  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
-) {
+if (isEntryPoint(import.meta.url)) {
   const summary = await buildWorkerShellModules();
   process.stdout.write(
     `${JSON.stringify({ event: "worker_shell_bundle", ...summary })}\n`,

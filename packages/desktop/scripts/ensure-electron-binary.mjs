@@ -9,6 +9,7 @@ import {
 } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { isEntryPoint } from "../../../scripts/lib/entry-point.mjs";
 
 // Electron's own postinstall (`node_modules/electron/install.js`) downloads the
 // binary fine but extracts it with `extract-zip`, which can die silently
@@ -219,10 +220,7 @@ export async function ensureElectronBinary() {
   log(`Repaired Electron ${version} (${platform}/${arch}).`);
 }
 
-const invokedDirectly =
-  process.argv[1] && path.resolve(process.argv[1]) === import.meta.filename;
-
-if (invokedDirectly) {
+if (isEntryPoint(import.meta.url)) {
   ensureElectronBinary().catch((error) => {
     console.error(
       `[ensure-electron-binary] ${error instanceof Error ? error.stack || error.message : String(error)}`,

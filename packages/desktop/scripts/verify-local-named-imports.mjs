@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { isEntryPoint } from "../../../scripts/lib/entry-point.mjs";
 import ts from "typescript";
 
 const scriptDir = import.meta.dirname;
@@ -207,17 +207,7 @@ export const verifyLocalNamedImports = ({ rootDir = repoRootDir } = {}) => {
   return sourceFiles.length;
 };
 
-const isRunDirectly = (() => {
-  try {
-    return (
-      path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)
-    );
-  } catch {
-    return false;
-  }
-})();
-
-if (isRunDirectly) {
+if (isEntryPoint(import.meta.url)) {
   try {
     const count = verifyLocalNamedImports();
     console.log(

@@ -1,6 +1,6 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { isEntryPoint } from "../../../scripts/lib/entry-point.mjs";
 
 // The Effect fence (M5): Effect implementation code lives in packages/runtime,
 // packages/executor-cloud, and workers/cloud-builder. Effect is still banned
@@ -308,10 +308,7 @@ export const checkBoundaries = async (repoRoot) => {
   return offenders;
 };
 
-const isMain =
-  process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
-
-if (isMain) {
+if (isEntryPoint(import.meta.url)) {
   const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..");
   const offenders = await checkBoundaries(repoRoot);
   if (offenders.length > 0) {

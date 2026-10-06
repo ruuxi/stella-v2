@@ -28,8 +28,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { parseEnv } from "node:util";
+import { isEntryPoint } from "../../../scripts/lib/entry-point.mjs";
 
 const scriptDir = import.meta.dirname;
 const desktopDir = path.resolve(scriptDir, "..");
@@ -461,19 +461,7 @@ export const ensureElectronBundlesFresh = async ({ log } = {}) => {
   return { built: true };
 };
 
-const isRunDirectly = (() => {
-  const entry = process.argv[1];
-  if (!entry) {
-    return false;
-  }
-  try {
-    return path.resolve(entry) === fileURLToPath(import.meta.url);
-  } catch {
-    return false;
-  }
-})();
-
-if (isRunDirectly) {
+if (isEntryPoint(import.meta.url)) {
   // A clean build of main and preload. `--once` is accepted for existing
   // callers.
   try {

@@ -72,6 +72,8 @@ import { executionContextHistoryEntries } from "@stella/runtime/kernel/agent-run
  * execution surface is never data-driven.
  */
 
+import * as Deferred from "effect/Deferred";
+import * as Effect from "effect/Effect";
 import { DurableObject } from "cloudflare:workers";
 import "./cloud-api-providers.js";
 import type { ExplicitModelAgent as RuntimeAgent } from "@stella/runtime/kernel/agent-core/explicit-model-agent.js";
@@ -1043,7 +1045,10 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
    */
   private readonly cliRuntimes = new Map<string, CliTurnRuntime>();
   /** Tool forwards that arrived before a resumed turn rebuilt its tools. */
-  private readonly cliRuntimeWaiters = new Map<string, Array<() => void>>();
+  private readonly cliRuntimeWaiters = new Map<
+    string,
+    Array<Deferred.Deferred<void>>
+  >();
   /** Wakes the waiting `runCliTurn` when its terminal frame lands. */
   private readonly cliTerminalWaiters = new Map<string, () => void>();
   /** Terminal frames, full text, for the turn waiting in this isolate. */
@@ -5745,7 +5750,9 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       signal: executionSignal,
       toolChain: Promise.resolve(),
     });
-    for (const wake of this.cliRuntimeWaiters.get(turn.turnId) ?? []) wake();
+    for (const waiter of this.cliRuntimeWaiters.get(turn.turnId) ?? []) {
+      Deferred.doneUnsafe(waiter, Effect.void);
+    }
     this.cliRuntimeWaiters.delete(turn.turnId);
 
     let dispatched = Boolean(prior);
@@ -5926,7 +5933,9 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       throw error;
     } finally {
       this.cliRuntimes.delete(turn.turnId);
-      for (const wake of this.cliRuntimeWaiters.get(turn.turnId) ?? []) wake();
+      for (const waiter of this.cliRuntimeWaiters.get(turn.turnId) ?? []) {
+        Deferred.doneUnsafe(waiter, Effect.void);
+      }
       this.cliRuntimeWaiters.delete(turn.turnId);
       if (dispatched) {
         await this.settleCliTurn(identity, completed, deliveredThrough).catch(
@@ -6294,12 +6303,18 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       if (remaining <= 0 || !this.turnExecutions.has(identity.turnId)) {
         return null;
       }
-      await new Promise<void>((resolve) => {
-        const waiters = this.cliRuntimeWaiters.get(identity.turnId) ?? [];
-        waiters.push(resolve);
-        this.cliRuntimeWaiters.set(identity.turnId, waiters);
-        setTimeout(resolve, Math.min(remaining, 5_000));
-      });
+      const woken = Deferred.makeUnsafe<void>();
+      const waiters = this.cliRuntimeWaiters.get(identity.turnId) ?? [];
+      waiters.push(woken);
+      this.cliRuntimeWaiters.set(identity.turnId, waiters);
+      // Whichever comes first: the turn publishing its runtime, or this slice
+      // of the wait expiring so the deadline is re-checked.
+      await Effect.runPromise(
+        Effect.raceFirst(
+          Deferred.await(woken),
+          Effect.sleep(Math.min(remaining, 5_000)),
+        ),
+      );
     }
   }
 

@@ -1,19 +1,38 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-skill_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+skill_dir="$(cd -P "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo_root="$(cd -P "$skill_dir/../../.." && pwd)"
 run_dir="$skill_dir/.run"
 sim_state="$run_dir/ios-simulator"
 source_state="$run_dir/ios-source"
-mac_host="${STELLA_IOS_SSH_HOST:-stella-mac}"
-mac_repo="${STELLA_IOS_MAC_REPO:-/Users/rahulnanda/projects/stella-v2}"
-mac_path="/Users/rahulnanda/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 xcodebuildmcp_version="${STELLA_XCODEBUILDMCP_VERSION:-2.7.0}"
 ssh_options=(-o BatchMode=yes -o ConnectTimeout=8)
+system_path="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+if [[ -n "${STELLA_IOS_SSH_HOST:-}" ]]; then
+  transport=ssh
+elif [[ "$(uname -s)" == Darwin ]]; then
+  transport=local
+else
+  transport=ssh
+fi
+if [[ "$transport" == local ]]; then
+  mac_host=""
+  mac_repo="${STELLA_IOS_MAC_REPO:-$repo_root}"
+  mac_path="$HOME/.bun/bin:$system_path"
+else
+  mac_host="${STELLA_IOS_SSH_HOST:-stella-mac}"
+  mac_repo="${STELLA_IOS_MAC_REPO:-/Users/rahulnanda/projects/stella-v2}"
+  mac_path="/Users/rahulnanda/.bun/bin:$system_path"
+fi
 
 usage() {
   cat <<'EOF'
 Usage: .agents/skills/verify-stella/scripts/control-stella-ios.sh <command> [options]
+
+Runs directly when invoked on macOS; from Linux it reaches the Mac over the
+`stella-mac` SSH alias (override with STELLA_IOS_SSH_HOST).
 
 Commands:
   doctor
@@ -23,6 +42,8 @@ Commands:
   source
   clean-source
   boot [udid]
+  build [--no-bundler]
+  sign-in [--plan pro|go|free] [--email <name>@test.stella.local]
   info
   frame --path <local-png>
   screen --path <local-png>
@@ -44,14 +65,51 @@ remote_zsh() {
     printf -v quoted '%q' "$argument"
     remote_command+=" $quoted"
   done
+  if [[ "$transport" == local ]]; then
+    {
+      printf 'export PATH=%q\n' "$mac_path"
+      /bin/cat
+    } | /bin/zsh -s -- "$@"
+    return
+  fi
   {
     printf 'export PATH=%q\n' "$mac_path"
     /bin/cat
   } | ssh "${ssh_options[@]}" "$mac_host" "$remote_command"
 }
 
+remote_raw() {
+  if [[ "$transport" == local ]]; then
+    "$@"
+    return
+  fi
+  local remote_command=""
+  local argument
+  local quoted
+  for argument in "$@"; do
+    printf -v quoted '%q' "$argument"
+    remote_command+=" $quoted"
+  done
+  ssh "${ssh_options[@]}" "$mac_host" "$remote_command"
+}
+
+fetch_remote_file() {
+  if [[ "$transport" == local ]]; then
+    /bin/cp -- "$1" "$2"
+  else
+    scp "${ssh_options[@]}" "$mac_host:$1" "$2" >/dev/null
+  fi
+}
+
+open_url() {
+  remote_zsh "$1" <<'REMOTE'
+set -eu
+/usr/bin/xcrun simctl openurl booted "$1"
+REMOTE
+}
+
 require_repo_root() {
-  git rev-parse --show-toplevel 2>/dev/null
+  git -C "$repo_root" rev-parse --show-toplevel 2>/dev/null
 }
 
 read_state_value() {
@@ -96,7 +154,7 @@ shift
 
 case "$command" in
   doctor)
-    remote_zsh "$mac_repo" "$mac_path" "$xcodebuildmcp_version" <<'REMOTE'
+    remote_zsh "$mac_repo" "$mac_path" "$xcodebuildmcp_version" "$mac_host" <<'REMOTE'
 set -eu
 repo="$1"
 export PATH="$2"
@@ -104,7 +162,7 @@ xcodebuildmcp_version="$3"
 test -d "$repo/.git"
 test -x /usr/bin/xcodebuild
 test -x /usr/bin/xcrun
-test -x /Users/rahulnanda/.bun/bin/bun
+command -v bun >/dev/null
 command -v node >/dev/null
 command -v npx >/dev/null
 device_count="$(xcrun simctl list devices available | awk '/iPhone/ { count += 1 } END { print count + 0 }')"
@@ -115,7 +173,7 @@ mcp_tools="$(cd /tmp && npx -y "xcodebuildmcp@$xcodebuildmcp_version" tools --js
 printf '%s' "$mcp_tools" | grep -Fq '"name": "snapshot-ui"'
 printf '%s' "$mcp_tools" | grep -Fq '"name": "tap"'
 printf '%s' "$mcp_tools" | grep -Fq '"name": "type-text"'
-printf 'ssh=ok\n'
+if test -n "$4"; then printf 'transport=ssh:%s\n' "$4"; else printf 'transport=local\n'; fi
 printf 'macos=%s\n' "$(sw_vers -productVersion)"
 printf 'xcode=%s\n' "$(xcodebuild -version | tr '\n' ' ' | sed 's/ $//')"
 printf 'bun=%s\n' "$(bun --version)"
@@ -139,7 +197,7 @@ fi
 REMOTE
     ;;
   mcp-doctor)
-    remote_zsh "$xcodebuildmcp_version" <<'REMOTE'
+    remote_zsh "$xcodebuildmcp_version" "$mac_host" <<'REMOTE'
 set -eu
 version="$1"
 command -v node >/dev/null
@@ -151,7 +209,7 @@ printf '%s' "$tools" | grep -Fq '"name": "snapshot-ui"'
 printf '%s' "$tools" | grep -Fq '"name": "tap"'
 printf '%s' "$tools" | grep -Fq '"name": "type-text"'
 printf 'xcodebuildmcp=%s\n' "$actual"
-printf 'mcp_transport=ssh-stdio\n'
+if test -n "$2"; then printf 'mcp_transport=ssh-stdio\n'; else printf 'mcp_transport=local-stdio\n'; fi
 printf 'workflows=simulator,ui-automation\n'
 printf 'semantic_input=yes\n'
 REMOTE
@@ -181,7 +239,7 @@ REMOTE
       fi
     done < <(git -C "$local_root" ls-files -co --exclude-standard -z) \
       | tar -C "$local_root" --null -T - -czf - \
-      | ssh "${ssh_options[@]}" "$mac_host" /usr/bin/tar -xzf - -C "$remote_source"; then
+      | remote_raw /usr/bin/tar -xzf - -C "$remote_source"; then
       remote_zsh "$remote_source" <<'REMOTE' || true
 path="$1"
 case "$path" in
@@ -250,7 +308,59 @@ REMOTE
     printf 'UDID=%s\nSTARTED=%s\n' "$boot_udid" "$boot_started" >"$sim_state"
     printf 'udid=%s\nstarted_by_helper=%s\n' "$boot_udid" "$boot_started"
     ;;
+  build)
+    no_bundler=""
+    if [[ "${1:-}" == "--no-bundler" ]]; then
+      no_bundler="--no-bundler"
+    fi
+    test -f "$source_state" || {
+      printf 'No staged source. Run stage first.\n' >&2
+      exit 2
+    }
+    test -f "$sim_state" || {
+      printf 'No simulator recorded. Run boot first.\n' >&2
+      exit 2
+    }
+    remote_source="$(read_state_value "$source_state" PATH)"
+    validate_scratch_path "$remote_source"
+    boot_udid="$(read_state_value "$sim_state" UDID)"
+    validate_udid "$boot_udid"
+    backend_url="${STELLA_BACKEND_URL:-https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev}"
+    remote_zsh "$mac_repo" "$remote_source" "$boot_udid" "$backend_url" "$no_bundler" <<'REMOTE'
+set -eu
+export LANG=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
+repo="$1"
+staged="$2"
+udid="$3"
+backend="$4"
+no_bundler="$5"
+env_file="$repo/packages/mobile/.env.local"
+if test -f "$env_file"; then
+  set -a
+  . "$env_file"
+  set +a
+fi
+export EXPO_PUBLIC_STELLA_BACKEND_URL="$backend"
+cd "$staged"
+bun install --frozen-lockfile
+cd packages/mobile
+bun run i18n:sync
+exec bunx expo run:ios --device "$udid" ${no_bundler:+--no-bundler}
+REMOTE
+    ;;
+  sign-in)
+    minted="$(node "$skill_dir/scripts/mobile-test-session.mjs" "$@")"
+    url="$(printf '%s' "$minted" | node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(0, "utf8")).url)')"
+    [[ "$url" == stella-mobile://dev-test-session\?ott=* ]] || {
+      printf 'Unexpected sign-in link.\n' >&2
+      exit 2
+    }
+    open_url "$url"
+    printf '%s' "$minted" | node -e 'const p = JSON.parse(require("fs").readFileSync(0, "utf8")); process.stdout.write(`email=${p.email}\nowner_id=${p.ownerId}\nplan=${p.plan}\n`)'
+    ;;
   info)
+    printf 'transport=%s\nmac_repo=%s\n' "${mac_host:-local}" "$mac_repo"
     if [[ -f "$sim_state" ]]; then
       cat "$sim_state"
     else
@@ -290,7 +400,7 @@ REMOTE
       printf 'Unexpected remote screenshot path: %s\n' "$remote_file" >&2
       exit 2
     }
-    scp "${ssh_options[@]}" "$mac_host:$remote_file" "$local_path" >/dev/null
+    fetch_remote_file "$remote_file" "$local_path"
     remote_zsh "$remote_file" <<'REMOTE'
 set -eu
 path="$1"
@@ -352,10 +462,7 @@ REMOTE
       printf 'Refusing unsupported URL scheme: %s\n' "$url" >&2
       exit 2
     }
-    remote_zsh "$url" <<'REMOTE'
-set -eu
-/usr/bin/xcrun simctl openurl booted "$1"
-REMOTE
+    open_url "$url"
     ;;
   launch)
     bundle_id="${1:-com.stella.mobile}"

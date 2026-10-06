@@ -265,7 +265,9 @@ const testAccountSession = async (request: Request, env: AdminEnv): Promise<Resp
   if (!sessionToken || typeof userId !== "string" || !userId) {
     return fail(500, "Better Auth did not return a test account session.");
   }
-  const minted = await auth.api.getToken({ headers: new Headers({ authorization: `Bearer ${sessionToken}` }) });
+  const sessionHeaders = new Headers({ authorization: `Bearer ${sessionToken}` });
+  const minted = await auth.api.getToken({ headers: sessionHeaders });
+  const oneTimeToken = await auth.api.generateOneTimeToken({ headers: sessionHeaders });
 
   const ownerId = userId;
   if (plan) {
@@ -281,6 +283,7 @@ const testAccountSession = async (request: Request, env: AdminEnv): Promise<Resp
     email,
     sessionToken,
     token: minted.token,
+    oneTimeToken: oneTimeToken.token,
     plan: plan || "free",
     siteUrl: backendUrl(fullEnv),
   });

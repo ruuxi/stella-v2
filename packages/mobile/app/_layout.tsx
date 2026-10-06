@@ -160,6 +160,7 @@ function RootStack() {
       <Stack.Screen name="onboarding" />
       <Stack.Screen name="(main)" />
       <Stack.Screen name="carplay-diagnostics" />
+      <Stack.Screen name="dev-test-session" />
     </Stack>
   );
 }

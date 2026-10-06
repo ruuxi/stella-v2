@@ -1962,6 +1962,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       newest: (limit): JournalRecord[] =>
         this.journal.newest(Math.min(limit, INITIAL_WINDOW_RECORDS)),
       liveTurn: () => this.live,
+      runningAgents: (limit) => this.journal.runningAgents(limit),
     };
   }
 

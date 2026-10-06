@@ -47,6 +47,7 @@ import {
   CLOSE_UNAUTHENTICATED,
   HEADER_ISSUER,
   INITIAL_WINDOW_RECORDS,
+  MAX_CATCH_UP_RECORDS,
   MAX_INCOMING_FRAME_BYTES,
   MAX_RESUME_RECORDS,
   MAX_SOCKETS_PER_CONVERSATION,
@@ -68,6 +69,7 @@ import {
   type SocketIdentity,
   type ToolInput,
 } from "./conversation-types.js";
+import { READY_RUNNING_AGENTS_LIMIT, type AgentActivityEntry } from "@stella/contracts/conversation-agent-activity";
 import { sha256Hex } from "./hash.js";
 
 // ---------------------------------------------------------------------------
@@ -92,6 +94,16 @@ export type ReadyFrame = {
   authExpiresAtMs: number;
   serverTimeMs: number;
   live: LiveTurnSnapshot | null;
+  /**
+   * Every agent this conversation's journal still shows as running, folded over
+   * the whole journal rather than over the window this connect delivers.
+   *
+   * A client cannot derive this for itself: an agent started before anything it
+   * holds leaves no row in its window, so folding what it has would report that
+   * nothing is in progress while several agents work. The authority knows, so
+   * the authority says.
+   */
+  agents: AgentActivityEntry[];
 };
 
 export type RecordFrame = { type: "record" } & JournalRecord;
@@ -550,6 +562,7 @@ class ConversationHubImpl implements ConversationHub {
       authExpiresAtMs: attachment.authExpiresAtMs,
       serverTimeMs: now,
       live: this.liveSnapshot(),
+      agents: this.runningAgents(),
     });
     if (opening.reset) {
       this.sendFrame(server, { type: "reset", reason: opening.reset });
@@ -656,6 +669,15 @@ class ConversationHubImpl implements ConversationHub {
     // previous incarnation of this object.
     if (since > head.headSeq) return { ...newest(), reset: "epoch" };
     if (since + 1 < head.floorSeq) return { ...newest(), reset: "window" };
+    // Too far behind to be worth replaying. Reading the delta row by row would
+    // hand the client its oldest unseen messages first and the ones it actually
+    // opened for last, over a window it does not even retain. `reset: "window"`
+    // plus the newest records is the same answer a compacted floor already
+    // gives, and the client lands on the latest immediately and pulls earlier
+    // history back through scrollback.
+    if (head.headSeq - since > MAX_CATCH_UP_RECORDS) {
+      return { ...newest(), reset: "window" };
+    }
     if (since >= head.headSeq) {
       return { records: [], reset: null, gap: null };
     }
@@ -837,6 +859,24 @@ class ConversationHubImpl implements ConversationHub {
       partialText: "",
       tools,
     };
+  }
+
+  /**
+   * The authoritative running-agent list for `ready`. Synchronous and bounded:
+   * it reads a cached fold over resident rows, which is why it can sit on the
+   * connect path with no await left to spend. A reader that cannot answer costs
+   * the client its activity list for one connect, never the connect itself.
+   */
+  private runningAgents(): AgentActivityEntry[] {
+    try {
+      return this.deps.reader.runningAgents(READY_RUNNING_AGENTS_LIMIT);
+    } catch (error) {
+      this.deps.log("error", "conversation_running_agents_failed", {
+        conversationId: this.deps.conversationId(),
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return [];
+    }
   }
 
   // ── Incoming ─────────────────────────────────────────────────────────────

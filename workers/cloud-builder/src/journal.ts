@@ -27,6 +27,18 @@ import type { AgentMessage } from "@stella/runtime/kernel/agent-core/types.js";
 import { formatMessageRefTag } from "@stella/contracts/reply-refs";
 import { estimateTokens } from "@stella/executor-cloud/prune-history";
 import {
+  READY_RUNNING_AGENTS_LIMIT,
+  emptyAgentActivityState,
+  foldAgentActivity,
+  runningAgentEntries,
+  trimAgentActivity,
+  type AgentActivityEntry,
+  type AgentActivityRecordInput,
+  type AgentActivityState,
+  type AgentActivityToolCall,
+} from "@stella/contracts/conversation-agent-activity";
+import {
+  AGENT_ACTIVITY_SCAN_ROWS,
   CONTEXT_SCAN_ROW_CAP,
   INITIAL_WINDOW_RECORDS,
   JOURNAL_SCHEMA_VERSION,
@@ -50,6 +62,20 @@ import {
 } from "./transcript-search.js";
 
 export { collapseWhitespace, extractMessageText } from "./transcript-search.js";
+
+/**
+ * A payload the activity fold can read. A spilled payload is a stub pointing at
+ * R2, and the fold runs where there is no await to spend resolving one — but a
+ * spawn result or a lifecycle wake prompt is far too small to have spilled, so
+ * nothing the fold cares about is ever behind one.
+ */
+const isAgentActivityPayload = (
+  payload: unknown,
+): payload is Record<string, unknown> =>
+  typeof payload === "object" &&
+  payload !== null &&
+  !Array.isArray(payload) &&
+  !isSpillStub(payload);
 
 const DDL = [
   `CREATE TABLE IF NOT EXISTS meta (
@@ -1968,6 +1994,93 @@ export class Journal {
     rows.reverse();
     return rows.map((row) => this.rowToRecord(row));
   }
+
+  // -------------------------------------------------------------------------
+  // Running agents
+  // -------------------------------------------------------------------------
+
+  /**
+   * The fold of this conversation's agent activity, kept in the object's
+   * memory. `ready` needs the authoritative answer on every connect and has no
+   * await left to spend on it, so the journal is scanned once per object
+   * lifetime and then carried forward by whatever rows were appended since.
+   * An eviction drops the field and the next reader pays for one scan again.
+   */
+  private agentActivity: {
+    state: AgentActivityState;
+    toolCalls: Map<string, AgentActivityToolCall>;
+    throughSeq: number;
+  } | null = null;
+
+  /** Every agent the journal still shows as running, oldest start first. */
+  runningAgents(limit = READY_RUNNING_AGENTS_LIMIT): AgentActivityEntry[] {
+    const headSeq = this.meta().next_seq - 1;
+    let cached = this.agentActivity;
+    // A head below what we already folded means the tail was rewound (an edit,
+    // a fork, a new epoch). Folding forward from a seq that no longer exists
+    // would keep agents alive that the rewind removed, so rebuild by scan.
+    if (!cached || cached.throughSeq > headSeq) {
+      const rows = this.selectRows(
+        `ORDER BY seq DESC LIMIT ?`,
+        AGENT_ACTIVITY_SCAN_ROWS,
+      );
+      rows.reverse();
+      cached = {
+        state: emptyAgentActivityState(),
+        toolCalls: new Map(),
+        throughSeq: -1,
+      };
+      this.foldAgentActivityRows(cached, rows, headSeq);
+      this.agentActivity = cached;
+    } else if (cached.throughSeq < headSeq) {
+      this.foldAgentActivityRows(
+        cached,
+        this.selectRows(
+          `WHERE seq > ? ORDER BY seq ASC LIMIT ?`,
+          cached.throughSeq,
+          AGENT_ACTIVITY_SCAN_ROWS,
+        ),
+        headSeq,
+      );
+    }
+    return runningAgentEntries(cached.state, limit);
+  }
+
+  private foldAgentActivityRows(
+    cached: {
+      state: AgentActivityState;
+      toolCalls: Map<string, AgentActivityToolCall>;
+      throughSeq: number;
+    },
+    rows: JournalRow[],
+    headSeq: number,
+  ): void {
+    const records: AgentActivityRecordInput[] = [];
+    let folded = cached.throughSeq;
+    for (const row of rows) {
+      const record = this.rowToRecord(row);
+      const payload =
+        record.kind === "message" && isAgentActivityPayload(record.payload)
+          ? record.payload
+          : undefined;
+      records.push({
+        kind: record.kind,
+        createdAtMs: record.createdAtMs,
+        ...(record.kind === "message" ? { role: record.role } : {}),
+        ...(record.kind === "message" ? { hidden: record.hidden } : {}),
+        ...(payload ? { payload } : {}),
+        ...(record.kind === "card" ? { card: record.card } : {}),
+      });
+      folded = Math.max(folded, row.seq);
+    }
+    foldAgentActivity(cached.state, records, { toolCalls: cached.toolCalls });
+    // The bounded scan may have stopped short of the head it was told about;
+    // only the rows actually read may be claimed as folded, or a row between
+    // would be skipped forever.
+    cached.throughSeq = rows.length > 0 ? folded : Math.max(folded, headSeq);
+    trimAgentActivity(cached.state, cached.toolCalls);
+  }
+
 
   /**
    * Resident rows in `[fromSeq, toSeq]`, bounded by both a row and a byte

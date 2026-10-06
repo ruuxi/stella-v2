@@ -1,3 +1,4 @@
+import type { AgentActivityEntry } from "@stella/contracts/conversation-agent-activity";
 import type { CloudAgentLifecycleCard } from "@stella/contracts/cloud-agent-lifecycle";
 /**
  * The conversation transcript's shared vocabulary: tuning constants, the wire
@@ -62,6 +63,25 @@ export const REPAIR_SCAN_ROW_CAP = 400;
 
 export const INITIAL_WINDOW_RECORDS = 100;
 export const MAX_RESUME_RECORDS = 2_000;
+/**
+ * How far behind a resuming client may be and still have its delta replayed
+ * exactly. Beyond this the hub serves the newest window with `reset: "window"`.
+ *
+ * A device away for a minute resumes seamlessly — that is the common case and
+ * it stays exact. A device away for hours used to watch its whole missed delta
+ * arrive oldest-first, which is both slow and backwards: the newest messages,
+ * the only ones it opened the app to read, came last. Past this many records a
+ * client is better served by landing on the latest window and pulling the rest
+ * back through scrollback, which it already does for a compacted floor.
+ */
+export const MAX_CATCH_UP_RECORDS = 300;
+/**
+ * Hot rows one running-agent rebuild reads. The fold is cached in the object's
+ * memory and carried forward by newly appended rows, so this scan runs once per
+ * object lifetime; it is capped at the resident hot set because anything older
+ * has rolled into R2 and cannot be waited on from the `ready` path.
+ */
+export const AGENT_ACTIVITY_SCAN_ROWS = 2_000;
 export const BACKFILL_BATCH_RECORDS = 200;
 export const BACKFILL_BATCH_BYTES = 512 * 1024;
 export const MAX_SOCKETS_PER_CONVERSATION = 16;
@@ -281,6 +301,12 @@ export interface JournalReader {
   ): Promise<JournalRange>;
   newest(limit: number): JournalRecord[];
   liveTurn(): LiveTurnSnapshot | null;
+  /**
+   * Every agent the whole journal still shows as running, oldest start first.
+   * Synchronous on purpose: `ready` is assembled with no await left to spend,
+   * and this answer comes from a cached fold over resident rows.
+   */
+  runningAgents(limit: number): AgentActivityEntry[];
 }
 
 // ---------------------------------------------------------------------------

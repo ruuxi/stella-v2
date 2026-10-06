@@ -142,7 +142,20 @@ const toolResultThreadId = (
   }
 };
 
-type ToolCall = { name: string; description?: string; threadId?: string };
+/**
+ * A `spawn_agent` / `send_input` call waiting for its result row.
+ *
+ * Exposed so a long-lived reader can keep the map across folds: the call and
+ * the tool result that names the agent are separate journal rows, and an
+ * incremental fold would otherwise lose the call before the result arrived.
+ */
+export type AgentActivityToolCall = {
+  name: string;
+  description?: string;
+  threadId?: string;
+};
+
+type ToolCall = AgentActivityToolCall;
 
 const collectToolCalls = (
   records: readonly AgentActivityRecordInput[],
@@ -312,6 +325,46 @@ export const foldAgentActivity = (
     );
   }
   return state;
+};
+
+/** Settled agents one folded state keeps for context before it forgets them. */
+const MAX_SETTLED_ENTRIES = 256;
+/** Unanswered tool calls one folded state holds open. */
+const MAX_PENDING_TOOL_CALLS = 512;
+
+/**
+ * Bounds a fold that is kept alive across appends.
+ *
+ * Running agents are never dropped — they are the answer. Settled ones are kept
+ * only so a later row about the same agent reads as a correction rather than a
+ * new start, and the oldest-settled are the least likely to see one. The tool
+ * call map is trimmed the same way: a call whose result never came is dead
+ * weight after enough rows have gone by.
+ */
+export const trimAgentActivity = (
+  state: AgentActivityState,
+  toolCalls?: Map<string, AgentActivityToolCall>,
+): void => {
+  const settled = [...state.entries.values()].filter(
+    (entry) => entry.status !== "running",
+  );
+  if (settled.length > MAX_SETTLED_ENTRIES) {
+    settled.sort((a, b) => a.updatedAtMs - b.updatedAtMs);
+    for (const entry of settled.slice(0, settled.length - MAX_SETTLED_ENTRIES)) {
+      state.entries.delete(entry.agentId);
+      state.generations.delete(entry.agentId);
+      state.carded.delete(entry.agentId);
+    }
+  }
+  if (toolCalls && toolCalls.size > MAX_PENDING_TOOL_CALLS) {
+    // Insertion order is journal order, so the first keys are the oldest.
+    for (const key of [...toolCalls.keys()].slice(
+      0,
+      toolCalls.size - MAX_PENDING_TOOL_CALLS,
+    )) {
+      toolCalls.delete(key);
+    }
+  }
 };
 
 /** Every agent the journal still shows as working, oldest start first. */

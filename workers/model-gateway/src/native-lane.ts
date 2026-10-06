@@ -17,7 +17,6 @@ import {
   type GatewayUsageTokens,
 } from "@stella/contracts/gateway/usage";
 import { validateConnectedCloudBinding } from "@stella/model-catalog/cloud-binding";
-import { getManagedGatewayConfig } from "@stella/model-catalog/managed-gateway";
 import {
   connectedCredentialForwardHeaders,
   connectedCredentialUpstreamUrl,
@@ -41,16 +40,17 @@ import {
 import { assertAgentTypeAllowed } from "./resolve.js";
 
 /**
- * Native lane: the owner's connected subscription (Claude Code, or a ChatGPT
- * plan signed in for the owner's cloud through Sign in with ChatGPT).
+ * Native lane: the ChatGPT plan signed in for the owner's cloud through Sign
+ * in with ChatGPT. Claude never passes through here: the cloud's Claude Code
+ * CLI talks to Anthropic directly on its own login.
  *
  * A byte pipe. The request goes upstream untouched apart from credentials and
- * the model pin the turn was admitted with; an Anthropic subscription is only
- * ever relayed for the real Claude Code CLI, which sends its own identity,
- * betas and thinking controls; the response comes back untouched
- * (SSE or JSON) with the upstream status. Nothing here is billed to Stella —
- * the usage event is `billable: false` and usage is parsed only when the
- * response was JSON, best-effort, off the response path.
+ * the model pin the turn was admitted with; the response comes back untouched
+ * (SSE or JSON) with the upstream status. A usage limit is passed through and
+ * marked for the client, which tells the user; nothing switches accounts.
+ * Nothing here is billed to Stella — the usage event is `billable: false` and
+ * usage is parsed only when the response was JSON, best-effort, off the
+ * response path.
  */
 export const ENGINE_ACCESS_MAX_CACHE_MS = 5 * 60_000;
 export const ENGINE_ACCESS_EXPIRY_MARGIN_MS = 60_000;
@@ -76,52 +76,22 @@ const engineAccessKey = (
 const MAX_LIMIT_BODY_BYTES = 64 * 1024;
 
 /**
- * A subscription-limit rejection (Claude's 5-hour/weekly window, ChatGPT's
- * plan or per-app usage limit), as opposed to an ordinary rate limit that
- * clears in seconds. Returns when the provider says it resets, if it said.
+ * A ChatGPT usage-limit rejection (the plan's or the per-app limit), as
+ * opposed to an ordinary rate limit that clears in seconds.
  */
-export const subscriptionLimitOf = (
-  provider: GatewayNativeCredentialProvider,
-  status: number,
-  headers: Headers,
-  bodyText: string,
-  now: number,
-): { resetsAt?: number } | null => {
-  if (status !== 429 && status !== 403) return null;
-  let error: Record<string, unknown> = {};
+export const subscriptionLimitOf = (status: number, bodyText: string): boolean => {
+  if (status !== 429) return false;
   try {
-    const parsed = JSON.parse(bodyText) as {
-      error?: unknown;
-      detail?: unknown;
-    };
+    const parsed = JSON.parse(bodyText) as { error?: unknown; detail?: unknown };
     const candidate = parsed.error ?? parsed.detail;
-    if (candidate && typeof candidate === "object") {
-      error = candidate as Record<string, unknown>;
-    }
-  } catch {
-    // Not JSON; headers alone decide.
-  }
-  const epochSeconds = (value: unknown): number | undefined => {
-    const seconds = typeof value === "string" ? Number(value) : value;
-    return typeof seconds === "number" &&
-      Number.isFinite(seconds) &&
-      seconds > 0
-      ? seconds * 1000
-      : undefined;
-  };
-  if (provider === "anthropic") {
-    const unified = headers.get("anthropic-ratelimit-unified-status");
-    const message = typeof error.message === "string" ? error.message : "";
-    if (status !== 429) return null;
-    if (unified !== "rejected" && !/usage limit/iu.test(message)) return null;
-    const resetsAt = epochSeconds(
-      headers.get("anthropic-ratelimit-unified-reset"),
+    return (
+      Boolean(candidate) &&
+      typeof candidate === "object" &&
+      (candidate as Record<string, unknown>).code === CHATGPT_USAGE_LIMIT_CODE
     );
-    return resetsAt && resetsAt > now ? { resetsAt } : {};
+  } catch {
+    return false;
   }
-  // ChatGPT: the code alone says nothing about when the limit resets (it
-  // may be the plan's or Stella's own app limit), so no reset is inferred.
-  return status === 429 && error.code === CHATGPT_USAGE_LIMIT_CODE ? {} : null;
 };
 
 const readBoundedText = async (response: Response): Promise<string | null> => {
@@ -155,14 +125,6 @@ const engineAccessFor = async (
       retryable: true,
     }));
   if (!result.ok) {
-    if (result.code === "engine_refresh_required") {
-      // Stella never refreshes a Claude sign-in itself; a signed-in device does.
-      throw new GatewayError(
-        403,
-        "engine_refresh_required",
-        "Open Stella on one of your devices to refresh your Claude sign-in, then try again.",
-      );
-    }
     if (result.code === "engine_sign_in_required") {
       throw new GatewayError(
         403,
@@ -225,7 +187,6 @@ const RESPONSE_HEADER_ALLOWLIST = [
   "retry-after",
   "request-id",
   "x-request-id",
-  "anthropic-request-id",
   "openai-processing-ms",
 ] as const;
 
@@ -268,13 +229,6 @@ export const handleNativeRelay = async (args: {
       `This turn was admitted for engine "${turn.execution.engine}", not "${credential}".`,
     );
   }
-  if (credential === "anthropic" && claims.nativeClient !== "claude-code-cli") {
-    throw new GatewayError(
-      403,
-      "unauthorized",
-      "A Claude subscription is only relayed for the Claude Code CLI.",
-    );
-  }
   const agentType =
     agentTypeFrom(request) ?? claims.agentTypes?.[0] ?? "general";
   assertAgentTypeAllowed(claims, agentType);
@@ -295,7 +249,6 @@ export const handleNativeRelay = async (args: {
     requestedModel,
     requestPathname: pathname,
     requestJson,
-    anthropicBeta: request.headers.get("anthropic-beta") ?? undefined,
   });
   if (!binding.ok) {
     throw new GatewayError(
@@ -305,19 +258,12 @@ export const handleNativeRelay = async (args: {
     );
   }
 
-  let access = await engineAccessFor(env, claims, credential, deps.now());
-  const credentialFor = (
-    current: EngineAccessResponse,
-  ): NativeRelayCredential => ({
+  const access = await engineAccessFor(env, claims, credential, deps.now());
+  const userCredential: NativeRelayCredential = {
     provider: credential,
-    accessToken: current.accessToken,
-  });
-  let userCredential = credentialFor(access);
-  const target = connectedCredentialUpstreamUrl(
-    { userCredential },
-    request,
-    getManagedGatewayConfig("anthropic").baseURL,
-  );
+    accessToken: access.accessToken,
+  };
+  const target = connectedCredentialUpstreamUrl({ userCredential }, request);
   if (!target) {
     throw new GatewayError(
       400,
@@ -325,31 +271,25 @@ export const handleNativeRelay = async (args: {
       "This path is not served on the native lane.",
     );
   }
-  const forwardHeaders = (current: NativeRelayCredential): Headers => {
-    try {
-      return connectedCredentialForwardHeaders(request, current);
-    } catch {
-      throw new GatewayError(
-        503,
-        "internal",
-        "Connected engine access is incomplete for this account.",
-        {
-          retryable: true,
-        },
-      );
-    }
-  };
-  let headers = forwardHeaders(userCredential);
+  let headers: Headers;
+  try {
+    headers = connectedCredentialForwardHeaders(request, userCredential);
+  } catch {
+    throw new GatewayError(
+      503,
+      "internal",
+      "Connected engine access is incomplete for this account.",
+      { retryable: true },
+    );
+  }
   const body = nativeCredentialBody({
     requestJson,
     upstreamModel: binding.nativeModel,
     userCredential,
   });
 
-  const provider: GatewayProvider =
-    credential === "anthropic" ? "anthropic" : "openai";
-  const protocol: GatewayProtocol =
-    credential === "anthropic" ? "anthropic-messages" : "openai-responses";
+  const provider: GatewayProvider = "openai";
+  const protocol: GatewayProtocol = "openai-responses";
   const { requestId } = requestIdFrom(request);
 
   const enqueue = (
@@ -410,72 +350,17 @@ export const handleNativeRelay = async (args: {
       body,
       signal: controller.signal,
     });
-    // At 100% of a subscription window: cool that account down and, when
-    // auto-switch moved the provider to another account, send the same
-    // request once more on it. Anything else passes through untouched.
-    if (!upstream.ok && !probe && access.engineAccountId) {
+    // A usage limit passes through untouched; the client tells the user.
+    if (upstream.status === 429 && !probe) {
       const errorText = await readBoundedText(upstream.clone()).catch(
         () => null,
       );
-      const limit =
-        errorText === null
-          ? null
-          : subscriptionLimitOf(
-              credential,
-              upstream.status,
-              upstream.headers,
-              errorText,
-              deps.now(),
-            );
-      if (limit) {
-        subscriptionLimitReached = true;
-        engineAccessCache.delete(engineAccessKey(claims, credential));
-        const report = await billingControl(env)
-          .engineLimit({
-            ownerId: claims.sub,
-            ownerGeneration: claims.gen,
-            provider: credential,
-            engineAccountId: access.engineAccountId,
-            ...(limit.resetsAt !== undefined
-              ? { resetsAt: limit.resetsAt }
-              : {}),
-          })
-          .catch(() => null);
+      subscriptionLimitReached =
+        errorText !== null && subscriptionLimitOf(upstream.status, errorText);
+      if (subscriptionLimitReached) {
         console.log(
-          `[model-gateway] trace=${traceId} native=${credential} subscription limit reached switched=${report?.ok ? report.body.switched : "unknown"}`,
+          `[model-gateway] trace=${traceId} native=${credential} usage limit reached`,
         );
-        if (report?.ok && report.body.switched) {
-          const next = await engineAccessFor(
-            env,
-            claims,
-            credential,
-            deps.now(),
-          ).catch(() => null);
-          if (next && next.engineAccountId !== access.engineAccountId) {
-            await upstream.body?.cancel().catch(() => undefined);
-            access = next;
-            userCredential = credentialFor(access);
-            headers = forwardHeaders(userCredential);
-            upstream = await deps.fetch(target, {
-              method: "POST",
-              headers,
-              body,
-              signal: controller.signal,
-            });
-            const retryError = upstream.ok
-              ? null
-              : await readBoundedText(upstream.clone()).catch(() => null);
-            subscriptionLimitReached =
-              retryError !== null &&
-              subscriptionLimitOf(
-                credential,
-                upstream.status,
-                upstream.headers,
-                retryError,
-                deps.now(),
-              ) !== null;
-          }
-        }
       }
     }
   } catch (error) {

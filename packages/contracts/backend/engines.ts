@@ -1,42 +1,37 @@
 /**
- * Engine accounts: the owner's Claude (Pro/Max) subscriptions, used by every
- * client (Claude Code on the owner's computers, and cloud turns), the
- * ChatGPT accounts signed in for the owner's cloud, plus the account-wide
- * cloud execution selection every client picker reads and writes.
+ * Engine accounts: the owner's Claude (Pro/Max) and ChatGPT subscriptions,
+ * plus the account-wide cloud execution selection every client picker reads
+ * and writes.
  *
- * Claude (`DEVICE_AUTH_PROVIDERS`): every Anthropic auth call happens on one
- * of the owner's own devices, from their own network: the sign-in exchange
- * and profile lookup (then `engines.addAccount` uploads the tokens) and every
- * refresh. The server stores the tokens encrypted and never contacts
- * Anthropic's auth endpoints. Refresh tokens rotate, so exactly one device
- * refreshes an account at a time: it takes the account's refresh lease
- * (`engines.beginRefresh`, the only call that returns a refresh token),
- * refreshes with Anthropic, and uploads the result
- * (`engines.completeRefresh`), which the server accepts only from the lease
- * holder and only while the stored tokens are still the ones it handed out.
- * Devices refresh proactively from an account's `refreshAt`; past
- * `expiresAt` the cloud cannot use the account until one of them does.
+ * Claude: Stella never holds a Claude credential. Every place that runs
+ * Claude (each of the owner's computers, and the owner's cloud container)
+ * runs the real `claude` CLI on that CLI's own login. Signing in is always
+ * the CLI's own `claude auth login`, against Anthropic's own page; the code
+ * Anthropic shows is pasted back into that CLI. This list keeps only
+ * identities (email, plan) and, per account, the places where a Claude Code
+ * login for it exists (`places`). The active account is the one every place
+ * uses when it has a login for it; nothing ever switches accounts on its own.
+ *
+ * - A computer reports the logins its Claude Code configs hold
+ *   (`engines.reportClaudeLogins`), which adds their identities here.
+ * - The cloud signs in inside the owner's container:
+ *   `engines.startClaudeCloudLogin` starts `claude auth login` there and
+ *   returns Anthropic's sign-in URL; `engines.finishClaudeCloudLogin` hands
+ *   the code the user pasted to that CLI. The credential stays in the
+ *   container's own disk state.
  *
  * ChatGPT follows Sign in with ChatGPT for open-source apps
  * (`@stella/contracts/chatgpt-siwc`). Every install is its own agent host
  * with its own ChatGPT sign-ins (kept on that computer, never here); the
  * owner's cloud is one more host, with its own persisted host id in this
- * store. A client signs the cloud in: `engines.startConnect` builds the
- * authorization (cloud host id, fresh state/nonce/PKCE, a 127.0.0.1 loopback
- * redirect), the user approves in a browser, and the client hands the
- * redirect URL back to `engines.finishConnect` (desktop catches it on its
- * loopback listener; a browser or phone, where nothing listens, pastes it).
- * The server, as the host that will own the credentials, exchanges the code,
- * validates the ID token, stores the registration and tokens encrypted, and
- * owns every later refresh. ChatGPT tokens never leave the server.
+ * store. One issued client id can be reused by every host of the same user
+ * and workspace, each with its own host id, so the hosts share plan usage
+ * settings and limits: hosts publish the issued client ids they registered
+ * (`engines.shareChatGptRegistration`, identifiers only, never tokens) and
+ * another host signs in with one of them instead of registering again.
  *
- * A signed-in client asks `engines.clientAccess` for the active Claude
- * account's short-lived access token and talks to Anthropic directly.
- *
- * Each provider can hold several accounts. One is active and serves every
- * turn; with auto-switch on, an account that hits its subscription limit is
- * put on cooldown until the limit resets and the next available account takes
- * over.
+ * Each provider can hold several accounts; the user picks the active one.
+ * A usage limit is reported to the user and never switches accounts.
  */
 
 import type { CloudExecutionSelection } from "../agent-engine.js";
@@ -44,41 +39,50 @@ import type { CloudExecutionSelection } from "../agent-engine.js";
 export const ENGINE_PROVIDERS = ["anthropic", "chatgpt"] as const;
 export type EngineProvider = (typeof ENGINE_PROVIDERS)[number];
 
-/** Providers whose sign-in and refresh run only on the owner's devices. */
-export const DEVICE_AUTH_PROVIDERS = ["anthropic"] as const;
-export type DeviceAuthProvider = (typeof DEVICE_AUTH_PROVIDERS)[number];
+/** Where a Claude Code login for an account exists. */
+export type ClaudeLoginPlace =
+  | { kind: "cloud"; updatedAt: number }
+  | { kind: "device"; deviceId: string; deviceName?: string; updatedAt: number };
 
 /** One connected account of a provider. */
 export type EngineConnection = {
   provider: EngineProvider;
-  /** Stella's id for this account; stable across reconnects of the same login. */
+  /** Stella's id for this account; stable across sign-ins of the same login. */
   accountId: string;
   label: string;
   /** The provider login's email, when the provider shares it. */
   email?: string;
-  /** The subscription plan, when known (e.g. "Max", "Pro", "Plus"). */
+  /** The subscription plan, when known (e.g. "max", "pro", "Plus"). */
   plan?: string;
   /** The account holder's name, when the provider shares it (ChatGPT). */
   name?: string;
   /**
-   * ChatGPT only. Absent while signed in; `signed_out` keeps the
-   * registration (issued client id) for a later sign-in; `reauth_required`
-   * means its tokens stopped working and it must sign in again.
+   * ChatGPT only (the cloud's sign-in). Absent while signed in; `signed_out`
+   * keeps the registration (issued client id) for a later sign-in;
+   * `reauth_required` means its tokens stopped working and it must sign in
+   * again.
    */
   status?: "signed_out" | "reauth_required";
   /** ChatGPT only: false when the sign-in didn't grant ChatGPT plan usage. */
   planUsage?: boolean;
-  /** The account that serves this provider's turns. */
+  /** ChatGPT only: the registration's issued client id (an identifier, not a credential). */
+  clientId?: string;
+  /** The account every place uses for this provider when it has a login for it. */
   active: boolean;
-  /** Set while the account's subscription limit is exhausted: when it resets. */
-  limitedUntil?: number;
-  /**
-   * Device-refreshed providers only. Server clock, epoch ms: when a signed-in
-   * device should refresh this account's tokens (half their lifetime in), and
-   * when the access token stops working. 0 when unknown, which is due now.
-   */
-  refreshAt?: number;
-  expiresAt?: number;
+  /** Claude only: the places that hold a Claude Code login for this account. */
+  places?: ClaudeLoginPlace[];
+  updatedAt: number;
+};
+
+/**
+ * A ChatGPT registration one of the owner's hosts made: the issued client id
+ * (an identifier, not a credential) and who it belongs to. Another host signs
+ * in with it under its own host id.
+ */
+export type ChatGptSharedRegistration = {
+  clientId: string;
+  email?: string;
+  name?: string;
   updatedAt: number;
 };
 
@@ -89,43 +93,18 @@ export type EngineSettings = {
   selectedAt: number | null;
   /** Every connected account, grouped by provider in connection order. */
   connections: EngineConnection[];
-  /** Per provider: switch to the next account when the active one hits its limit. */
-  autoSwitch: Record<EngineProvider, boolean>;
+  /** ChatGPT registrations the owner's hosts made, newest first. */
+  chatGptRegistrations: ChatGptSharedRegistration[];
 };
 
-/** Whether an account can serve turns: signed in, with plan usage granted. */
+/** Whether an account can serve the cloud's turns. */
 export const isEngineConnectionUsable = (connection: EngineConnection): boolean =>
-  !connection.status && connection.planUsage !== false;
+  connection.provider === "anthropic"
+    ? (connection.places ?? []).some((place) => place.kind === "cloud")
+    : !connection.status && connection.planUsage !== false;
 
-/** The active Claude account's short-lived access token, for the owner's own clients. */
-export type EngineClientAccess = {
-  accessToken: string;
-  /** Epoch ms (server clock); refetch before this. */
-  expiresAt: number;
-  /** Device-refreshed providers: epoch ms (server clock) from which to refresh. */
-  refreshAt?: number;
-  /** The connected account (`EngineConnection.accountId`) the token belongs to. */
-  engineAccountId: string;
-};
-
-/**
- * `engines.clientAccess`: the token, or word that the stored one has expired
- * and this device should refresh the account (take its lease) first.
- */
-export type EngineClientAccessResult =
-  | ({ status: "ok" } & EngineClientAccess)
-  | { status: "needs_device_refresh"; engineAccountId: string };
-
-/** Tokens a device obtained from the provider, as it uploads them. */
-export type EngineTokenUpload = {
-  access: string;
-  refresh: string;
-  /**
-   * How long `access` stays valid, in ms, as the provider said. Relative, so
-   * the server dates it on its own clock.
-   */
-  expiresInMs: number;
-};
+/** One login a computer's Claude Code configs hold (identity only). */
+export type ClaudeLocalLogin = { email: string; plan?: string };
 
 export type EngineCalls = {
   "engines.cancelConnect": {
@@ -136,15 +115,17 @@ export type EngineCalls = {
    * Start signing the owner's cloud in to ChatGPT. `redirectPort`: the
    * caller's loopback listener (desktop); without it the redirect goes to
    * the documented default port and the user pastes the URL it lands on.
-   * `accountId` signs a saved cloud account in again (its issued client id
-   * and identity hints) instead of registering a new one;
-   * `enablePlanUsage` asks for consent again after plan usage was declined.
+   * `accountId` signs a saved cloud account in again; `clientId` reuses a
+   * registration another host of the owner made (`chatGptRegistrations`)
+   * instead of registering a new one; `enablePlanUsage` asks for consent
+   * again after plan usage was declined.
    */
   "engines.startConnect": {
     args: {
       provider: "chatgpt";
       redirectPort?: number;
       accountId?: string;
+      clientId?: string;
       enablePlanUsage?: boolean;
     };
     result: { connectId: string; authorizeUrl: string; redirectUri: string };
@@ -155,39 +136,63 @@ export type EngineCalls = {
     result: { accountId: string; planUsage: boolean };
   };
   /**
-   * Store an account a device just signed in to. The same provider login
-   * (`identity`) signing in again replaces its own account; a new login is
-   * added. Either way it becomes the provider's active account.
+   * A host registered (or signed in with) a ChatGPT client: record its issued
+   * client id so the owner's other hosts can reuse it. Never tokens.
    */
-  "engines.addAccount": {
-    args: {
-      provider: DeviceAuthProvider;
-      tokens: EngineTokenUpload;
-      identity?: string;
-      email?: string;
-      plan?: string;
-    };
-    result: { accountId: string };
+  "engines.shareChatGptRegistration": {
+    args: { clientId: string; email?: string; name?: string };
+    result: null;
   };
   /**
-   * Sign one account out (or, without `accountId`, every account of the
-   * provider). Falls back to the managed engine when the provider's last
-   * usable account goes while it was selected. ChatGPT: the session is
-   * revoked and its registration kept for a later sign-in unless `forget`;
-   * `revoked` is false when the revocation couldn't be confirmed (the user
-   * can disconnect Stella in ChatGPT Settings).
+   * A computer's current Claude Code logins (identities only). Adds unknown
+   * identities as accounts and replaces this device's places.
+   */
+  "engines.reportClaudeLogins": {
+    args: { deviceId: string; deviceName?: string; logins: ClaudeLocalLogin[] };
+    result: null;
+  };
+  /**
+   * Start `claude auth login` in the owner's cloud container and return
+   * Anthropic's sign-in URL. `email` pre-fills the login page.
+   */
+  "engines.startClaudeCloudLogin": {
+    args: { email?: string };
+    result: { loginId: string; authorizeUrl: string };
+  };
+  /**
+   * Hand the code Anthropic showed to the cloud's waiting CLI. A wrong code
+   * fails with the CLI's own error.
+   */
+  "engines.finishClaudeCloudLogin": {
+    args: { loginId: string; code: string };
+    result: { accountId: string; email: string };
+  };
+  "engines.cancelClaudeCloudLogin": {
+    args: { loginId: string };
+    result: null;
+  };
+  /** `claude auth logout` for this account in the cloud container. */
+  "engines.signOutClaudeCloud": {
+    args: { accountId: string };
+    result: null;
+  };
+  /**
+   * Remove one account (or, without `accountId`, every account of the
+   * provider). Claude: forgets the identity and signs the cloud out of it;
+   * computers keep their own Claude Code logins. Falls back to the managed
+   * engine when the provider's last usable account goes while it was
+   * selected. ChatGPT: the session is revoked and its registration kept for
+   * a later sign-in unless `forget`; `revoked` is false when the revocation
+   * couldn't be confirmed (the user can disconnect Stella in ChatGPT
+   * Settings).
    */
   "engines.disconnect": {
     args: { provider: EngineProvider; accountId?: string; forget?: boolean };
     result: { revoked: boolean } | null;
   };
-  /** Make one connected account serve the provider's turns. */
+  /** Make one account the one every place uses. */
   "engines.setActiveAccount": {
     args: { provider: EngineProvider; accountId: string };
-    result: null;
-  };
-  "engines.setAutoSwitch": {
-    args: { provider: EngineProvider; enabled: boolean };
     result: null;
   };
   /**
@@ -200,63 +205,12 @@ export type EngineCalls = {
     result: null;
   };
   /**
-   * The serving Claude account's access token, or null when none is
-   * connected; `needs_device_refresh` once it expired (this device takes the
-   * refresh lease). The cloud's ChatGPT tokens are never handed out.
-   */
-  "engines.clientAccess": {
-    args: { provider: DeviceAuthProvider };
-    result: EngineClientAccessResult | null;
-  };
-  /**
    * The models the cloud's active ChatGPT account may use (`GET /v1/models`),
    * for the cloud picker; null when no usable account is signed in.
    */
   "engines.listModels": {
     args: { provider: "chatgpt" };
     result: { models: Array<{ id: string; name: string }> } | null;
-  };
-  /**
-   * Ask for an account's refresh lease. `granted` hands this device the
-   * refresh token, alone, until `leaseExpiresAt`; `fresh` means the account
-   * is not due (another device refreshed it; ask again after `retryInMs`);
-   * `busy` means another device holds the lease. `force`: the provider
-   * rejected the current access token before it was due.
-   */
-  "engines.beginRefresh": {
-    args: { provider: DeviceAuthProvider; engineAccountId: string; force?: boolean };
-    result:
-      | { status: "granted"; leaseId: string; refreshToken: string; leaseExpiresAt: number }
-      | { status: "fresh"; retryInMs: number }
-      | { status: "busy"; retryInMs: number };
-  };
-  /**
-   * Upload the refreshed tokens. Refused (CONFLICT) unless `leaseId` is the
-   * account's current lease and its stored tokens are still the ones handed
-   * out with it.
-   */
-  "engines.completeRefresh": {
-    args: {
-      provider: DeviceAuthProvider;
-      engineAccountId: string;
-      leaseId: string;
-      tokens: EngineTokenUpload;
-    };
-    result: { ok: true };
-  };
-  /** The refresh failed: release the lease so another attempt can start. */
-  "engines.abandonRefresh": {
-    args: { provider: DeviceAuthProvider; engineAccountId: string; leaseId: string };
-    result: null;
-  };
-  /**
-   * The account a client was served hit its subscription limit. It cools down
-   * until `resetsAt` (or an hour); with auto-switch on, the next available
-   * account takes over. `switched`: fetch a new token and retry.
-   */
-  "engines.reportLimit": {
-    args: { provider: EngineProvider; engineAccountId: string; resetsAt?: number };
-    result: { switched: boolean };
   };
 };
 

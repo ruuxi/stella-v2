@@ -42,7 +42,6 @@ import {
 import {
   commitTurnStateBeforeTranscript,
   createBuilderFallbackAgentTurnResult,
-  parseCloudModelGatewayInput,
   type AgentTurnInput,
   type AgentTurnResult,
 } from "./agent-turn.js";
@@ -52,6 +51,7 @@ import {
   cloudClaudeRoleProfile,
   nativeHistoryCursorFromMessages,
   nativeHistoryCursorFromRows,
+  parseCloudClaudeAccountInput,
   runNativeAgentTurn,
   type ClaudeStreamJsonEvent,
 } from "./native-agent-turn.js";
@@ -605,9 +605,9 @@ export const runOrchestratorTurn = async (args: {
       "Stella couldn't validate this chat turn's tools. Try again.",
     );
   }
-  const modelGateway = parseCloudModelGatewayInput(input.modelGateway);
+  const claudeAccount = parseCloudClaudeAccountInput(input.claudeAccount);
   const execution = input.execution;
-  if (!modelGateway || execution.engine !== "anthropic") {
+  if (!claudeAccount || execution.engine !== "anthropic") {
     return failed(
       "Stella couldn't validate this chat turn's Claude access. Try again.",
     );
@@ -728,8 +728,7 @@ export const runOrchestratorTurn = async (args: {
         prompt: input.prompt,
         systemPrompt: buildClaudeCodeNativeToolRuntimePrompt(spec.systemPrompt),
         execution,
-        gatewayOrigin: modelGateway.origin,
-        capability: modelGateway.capability,
+        claudeAccount,
         threadId: input.threadId,
         turnId: input.turnId,
         authoritativeHistoryCursor: nativeHistoryCursorFromRows(

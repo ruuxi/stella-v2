@@ -57,6 +57,8 @@ import {
 import { issueWorldCapability } from "../world-capability.js";
 import { worldMaterializationCommand } from "../world-materialization.js";
 import type { BuildSessionInternals } from "./host.js";
+import type { Env } from "./shared/env.js";
+import type { RpcResponse } from "@stella/contracts/backend/protocol";
 import {
   parseAgentExecutorResult,
   validBuilderFallbackMessages,
@@ -1444,18 +1446,28 @@ export const runAgentAttempt = async (
     }
     turnExecution.assertActive();
 
-    // The sandbox reaches the model gateway directly with a turn capability
-    // minted here. Minting happens after the broker handoff is protected
-    // and right before the executor is admitted, so the capability's
-    // lifetime tracks the attempt as closely as possible.
+    // A Stella or ChatGPT turn reaches the model gateway directly with a
+    // turn capability minted here, after the broker handoff is protected and
+    // right before the executor is admitted, so the capability's lifetime
+    // tracks the attempt as closely as possible. A Claude turn gets no
+    // capability: its Claude Code CLI runs on the login the owner's
+    // container holds for the active account, and talks to Anthropic itself.
     if (!turn.execution) throw new AgentTurnAuthorityLostError();
     const orchestrator = turn.agentRole === "orchestrator";
-    const modelGateway = await mintAgentTurnModelGateway(
-      host.env,
-      turn,
-      turn.execution,
-      orchestrator ? ["orchestrator"] : ["general"],
-    );
+    const admitted = turn.execution;
+    const modelGateway =
+      admitted.engine === "anthropic"
+        ? null
+        : await mintAgentTurnModelGateway(
+            host.env,
+            turn,
+            admitted,
+            orchestrator ? ["orchestrator"] : ["general"],
+          );
+    const claudeAccount =
+      admitted.engine === "anthropic"
+        ? await claudeCloudAccountFor(host.env, turn)
+        : null;
     turnExecution.assertActive();
 
     // The turn input sits in the root-only attempt directory, above the
@@ -1510,10 +1522,15 @@ export const runAgentAttempt = async (
             ttlMs: Math.max(1, Math.min(30 * 60_000, args.commandTimeoutMs)),
           }),
         },
-        modelGateway: {
-          origin: modelGateway.origin,
-          capability: modelGateway.capability,
-        },
+        ...(modelGateway
+          ? {
+              modelGateway: {
+                origin: modelGateway.origin,
+                capability: modelGateway.capability,
+              },
+            }
+          : {}),
+        ...(claudeAccount ? { claudeAccount } : {}),
         history: args.history,
         ...(turn.browserResume ? { browserResume: turn.browserResume } : {}),
         ...(cloudSkills ? { skills: cloudSkills } : {}),
@@ -1844,4 +1861,38 @@ export const runAgentAttempt = async (
     coldContainerStartMs,
     restoreMs,
   };
+};
+
+/**
+ * Which of the owner's container Claude Code logins a Claude turn runs on:
+ * the active account's, when the cloud holds one. Only a directory key and
+ * the email go into the turn input; the credential stays where the CLI
+ * wrote it.
+ */
+const claudeCloudAccountFor = async (
+  env: Env,
+  turn: TurnRequest,
+): Promise<{ key: string; email: string }> => {
+  const response = (await env.OWNER_GATES.getByName(turn.ownerId).ownerInternal({
+    name: "engines.claudeCloudAccount",
+    args: {},
+    ownerGeneration: turn.ownerGeneration,
+  })) as unknown as RpcResponse;
+  if (!response.ok) {
+    if (response.error.reason === "owner_generation_stale") {
+      throw new AgentTurnAuthorityLostError();
+    }
+    throw new Error("Your Claude account selection couldn't be read. Try again.");
+  }
+  const value = response.value as
+    | { key: string; email: string }
+    | { missing: true; email?: string };
+  if ("missing" in value) {
+    throw new AgentTurnError(
+      value.email
+        ? `Claude isn't signed in to ${value.email} in your cloud. Sign in under Settings > Account > Claude, or pick another model.`
+        : "No Claude account is signed in in your cloud. Sign in under Settings > Account > Claude, or pick another model.",
+    );
+  }
+  return value;
 };

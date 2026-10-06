@@ -16,17 +16,18 @@ import type {
   AgentModelReasoningEffort,
   CloudExecutionSelection,
 } from "@stella/contracts/agent-engine";
-import { cloudNativeStateRoot } from "@stella/contracts/cloud-native-state";
-import type { CloudCliTurnRole } from "@stella/contracts/cloud-orchestrator-cli";
 import {
-  GATEWAY_AGENT_TYPE_HEADER,
-  gatewayRelayBaseUrl,
-} from "@stella/contracts/gateway/api";
+  CLOUD_CLAUDE_ACCOUNTS_ROOT,
+  cloudNativeStateRoot,
+  isCloudClaudeAccountKey,
+} from "@stella/contracts/cloud-native-state";
+import type { CloudCliTurnRole } from "@stella/contracts/cloud-orchestrator-cli";
 import type { AgentMessage } from "@stella/runtime/kernel/agent-core/types.js";
 import { isolateToolProcessLaunch } from "@stella/runtime/kernel/tools/process-isolation.js";
 import type { ToolProcessIdentity } from "@stella/runtime/kernel/tools/types.js";
 import {
   ClaudeCodeCompactionLoopError,
+  claudeCodeSubscriptionLimitOf,
   getClaudeCodeStatusChangeFromStreamEvent,
   MAX_COMPACTIONS_PER_TURN,
 } from "@stella/runtime/kernel/integrations/claude-code-session-runtime.js";
@@ -408,25 +409,46 @@ export const cloudClaudeRoleProfile = (args: {
       };
 
 /**
- * Claude Code talks to the model gateway's native lane directly: its base URL
- * is the gateway relay prefix and its OAuth bearer is the turn capability.
- * The gateway swaps that bearer for the owner's connected Anthropic
- * credential; no provider secret ever enters this process tree.
+ * The owner's cloud Claude Code login a turn runs on: which account directory
+ * under the root-only accounts root (a key, never a credential).
+ */
+export type CloudClaudeAccountInput = { key: string; email: string };
+
+export const parseCloudClaudeAccountInput = (
+  value: unknown,
+): CloudClaudeAccountInput | null => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  return isCloudClaudeAccountKey(row.key) &&
+    typeof row.email === "string" &&
+    row.email.length > 0 &&
+    row.email.length <= 320
+    ? { key: row.key, email: row.email }
+    : null;
+};
+
+export const cloudClaudeAccountDirectory = (account: CloudClaudeAccountInput): string =>
+  path.join(CLOUD_CLAUDE_ACCOUNTS_ROOT, account.key);
+
+/**
+ * Claude Code talks to Anthropic directly on the login `claude auth login`
+ * left in the account's directory: `CLAUDE_SECURESTORAGE_CONFIG_DIR` is where
+ * the CLI keeps (and refreshes) that credential, while `CLAUDE_CONFIG_DIR`
+ * stays the thread's own native state root for its sessions. No base URL
+ * override, no token in the environment: nothing here ever reads, copies or
+ * relays the credential.
  */
 export const buildClaudeChildEnv = (options: {
   initialEnv: NodeJS.ProcessEnv;
-  gatewayOrigin: string;
   stateRoot: string;
-  capability: string;
+  accountDirectory: string;
   reasoningEffort: AgentModelReasoningEffort;
-  agentType: CloudClaudeRoleProfile["agentType"];
   mcpToolTimeoutMs?: number;
 }): NodeJS.ProcessEnv => {
   const childEnv: NodeJS.ProcessEnv = {
     ...options.initialEnv,
-    ANTHROPIC_BASE_URL: gatewayRelayBaseUrl(options.gatewayOrigin),
-    CLAUDE_CODE_OAUTH_TOKEN: options.capability,
     CLAUDE_CONFIG_DIR: options.stateRoot,
+    CLAUDE_SECURESTORAGE_CONFIG_DIR: options.accountDirectory,
     // Claude spawns no subprocess here: built-in tools are off (`--tools ""`),
     // Stella's tools arrive over loopback HTTP MCP and run in the ToolHost's
     // own isolation, and settings sources (hooks) are empty. Scrubbing would
@@ -437,11 +459,13 @@ export const buildClaudeChildEnv = (options: {
     // sandbox container. Claude Code refuses --dangerously-skip-permissions
     // as root unless told it is in a sandbox.
     IS_SANDBOX: "1",
-    ANTHROPIC_CUSTOM_HEADERS: [
-      `${GATEWAY_AGENT_TYPE_HEADER}: ${options.agentType}`,
-      "x-stella-llm-credential: anthropic",
-    ].join("\n"),
   };
+  // Nothing may point the CLI at another endpoint or another credential.
+  delete childEnv.ANTHROPIC_BASE_URL;
+  delete childEnv.ANTHROPIC_API_KEY;
+  delete childEnv.ANTHROPIC_AUTH_TOKEN;
+  delete childEnv.ANTHROPIC_CUSTOM_HEADERS;
+  delete childEnv.CLAUDE_CODE_OAUTH_TOKEN;
   // These are forbidden legacy executor credentials, not Claude credentials.
   // Neither name may enter Claude's environment and reach a tool subprocess.
   delete childEnv.STELLA_TURN_TOKEN;
@@ -563,8 +587,7 @@ export const runCloudClaude = async (options: {
   inputPrompt: string;
   systemPrompt: string;
   execution: Extract<CloudExecutionSelection, { engine: "anthropic" }>;
-  gatewayOrigin: string;
-  capability: string;
+  claudeAccount: CloudClaudeAccountInput;
   stateRoot: string;
   mcpServerConfig: CloudClaudeMcpServerConfig;
   onStreamEvent?: (event: ClaudeStreamJsonEvent) => void;
@@ -577,6 +600,21 @@ export const runCloudClaude = async (options: {
   await chmod(stateRoot, 0o700);
   if (profile.role === "orchestrator") {
     await mkdir(profile.cwd, { recursive: true, mode: 0o700 });
+  }
+  const accountDirectory = cloudClaudeAccountDirectory(options.claudeAccount);
+  const signedIn = await stat(path.join(accountDirectory, ".credentials.json")).then(
+    (details) => details.isFile(),
+    () => false,
+  );
+  if (!signedIn) {
+    // Only whether the CLI's credential file exists; its contents are the
+    // CLI's alone. A new container image starts without the old login.
+    return {
+      finalText: "",
+      error: `Claude isn't signed in to ${options.claudeAccount.email} in your cloud anymore. Sign in again under Settings > Account > Claude.`,
+      usage: { inputTokens: 0, outputTokens: 0, llmCalls: 0 },
+      sessionId: "",
+    };
   }
   const sessionId = deterministicUuid(profile.sessionKey);
   const markerPath = path.join(stateRoot, "session-started");
@@ -609,11 +647,9 @@ export const runCloudClaude = async (options: {
     let compactions = 0;
     const childEnv = buildClaudeChildEnv({
       initialEnv: process.env,
-      gatewayOrigin: options.gatewayOrigin,
       stateRoot,
-      capability: options.capability,
+      accountDirectory,
       reasoningEffort: options.execution.reasoningEffort,
-      agentType: profile.agentType,
       ...(profile.mcpToolTimeoutMs !== undefined
         ? { mcpToolTimeoutMs: profile.mcpToolTimeoutMs }
         : {}),
@@ -692,6 +728,14 @@ export const runCloudClaude = async (options: {
         result.stderr.trim().slice(-4_000) ||
         `Claude Code exited with status ${result.exitCode ?? "unknown"}.`;
     }
+    const limit = error ? claudeCodeSubscriptionLimitOf(error) : null;
+    if (limit) {
+      // Say so, with the reset when the CLI gave one. Nothing switches.
+      error =
+        limit.resetsAt !== undefined
+          ? `Claude usage limit reached for ${options.claudeAccount.email}. It resets at ${new Date(limit.resetsAt).toUTCString()}.`
+          : `Claude usage limit reached for ${options.claudeAccount.email}.`;
+    }
     return {
       finalText,
       ...(error ? { error } : {}),
@@ -738,10 +782,8 @@ export const runNativeAgentTurn = async (options: {
   prompt: string;
   systemPrompt: string;
   execution: Extract<CloudExecutionSelection, { engine: "anthropic" }>;
-  /** Public origin of the model gateway (`MODEL_GATEWAY_URL`). */
-  gatewayOrigin: string;
-  /** Turn capability; only valid at the gateway, budgeted, and expiring. */
-  capability: string;
+  /** The owner's cloud Claude Code login this turn runs on. */
+  claudeAccount: CloudClaudeAccountInput;
   threadId: string;
   turnId: string;
   authoritativeHistoryCursor: string;
@@ -792,8 +834,7 @@ export const runNativeAgentTurn = async (options: {
     inputPrompt,
     systemPrompt: options.systemPrompt,
     execution: options.execution,
-    gatewayOrigin: options.gatewayOrigin,
-    capability: options.capability,
+    claudeAccount: options.claudeAccount,
     stateRoot,
     mcpServerConfig,
     ...(options.onStreamEvent ? { onStreamEvent: options.onStreamEvent } : {}),

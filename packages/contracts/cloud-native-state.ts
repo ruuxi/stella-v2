@@ -23,3 +23,16 @@ export const cloudNativeStateRoot = (threadHash: string): string => {
   }
   return `${CLOUD_NATIVE_STATE_ANCHOR}/anthropic-${threadHash}`;
 };
+
+/**
+ * Root-only (0700) parent of the owner's cloud Claude Code logins, one
+ * `CLAUDE_CONFIG_DIR` per account named by the hex SHA-256 of the account's
+ * lowercased email. `claude auth login` writes its credential there and
+ * Claude turns point `CLAUDE_SECURESTORAGE_CONFIG_DIR` at it; Stella never
+ * reads what is inside. Model-authored commands run as `stella-tools` and
+ * cannot traverse `/home/stella-host-state`.
+ */
+export const CLOUD_CLAUDE_ACCOUNTS_ROOT = "/home/stella-host-state/claude-accounts";
+
+export const isCloudClaudeAccountKey = (value: unknown): value is string =>
+  typeof value === "string" && /^[0-9a-f]{64}$/u.test(value);

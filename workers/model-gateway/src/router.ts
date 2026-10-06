@@ -124,13 +124,11 @@ const releaseAfterBody = (
  *   GET  /healthz                    200 {ok:true}
  *   POST /v1/capabilities/session    Better Auth JWT -> session capability
  *   POST /v1/models/resolve          capability -> GatewayModelResolution
- *   HEAD /v1/relay/api/hello         200 empty (Claude Code CLI startup probe)
  *   POST /v1/relay/*                 capability -> managed lane or native lane
  *
  * Owner enforcement arrives over `ModelGatewayControl.applyOwnerEnforcement`.
  * Anything else is 404 `bad_request`; a wrong method is 405 `bad_request`.
  */
-const CLAUDE_CODE_CLI_HELLO_PATH = `${GATEWAY_RELAY_PREFIX}/api/hello`;
 const AGENT_TYPE_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$/u;
 const MAX_DEVICE_PUBLIC_KEY_CHARS = 128;
 const MAX_DEVICE_SIGNATURE_CHARS = 256;
@@ -599,18 +597,6 @@ export const handleRequest = async (
         throw new GatewayError(405, "bad_request", "Method not allowed.");
       }
       return jsonResponse(200, { ok: true }, traceId);
-    }
-    // The Claude Code CLI probes `HEAD <ANTHROPIC_BASE_URL>/api/hello`, with
-    // no credentials, as it starts. Answer that one probe before any auth or
-    // accounting; every other relay path still requires a capability.
-    if (
-      url.pathname === CLAUDE_CODE_CLI_HELLO_PATH &&
-      request.method === "HEAD"
-    ) {
-      return new Response(null, {
-        status: 200,
-        headers: { "cache-control": "no-store" },
-      });
     }
     if (url.pathname === GATEWAY_SESSION_CAPABILITY_PATH) {
       if (request.method !== "POST")

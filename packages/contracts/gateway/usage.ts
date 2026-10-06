@@ -185,18 +185,13 @@ export type BillingControlRpc = {
   /** One owner's enforcement, seeding the gateway's owner object; throws while unavailable. */
   ownerEnforcement(ownerId: string): Promise<OwnerEnforcementState>;
   /**
-   * The owner's connected engine's current access token, for the native
-   * lane. `engine_refresh_required` when a Claude token expired: the server
-   * never refreshes it, one of the owner's devices must;
-   * `engine_sign_in_required` when the cloud's ChatGPT sign-in ended.
+   * The cloud's active ChatGPT account's current access token, for the
+   * native lane; `engine_sign_in_required` when the cloud's ChatGPT sign-in
+   * ended. Claude credentials are never held by Stella.
    */
   engineAccess(
     request: EngineAccessRequest,
   ): Promise<BillingControlResult<EngineAccessResponse>>;
-  /** The native lane saw an account hit its subscription limit. */
-  engineLimit(
-    report: EngineLimitReport,
-  ): Promise<BillingControlResult<EngineLimitResult>>;
 };
 
 export type { IdentityLevel };
@@ -205,7 +200,7 @@ export type { IdentityLevel };
 export type EngineAccessRequest = {
   ownerId: string;
   ownerGeneration: string;
-  provider: "anthropic" | "chatgpt";
+  provider: "chatgpt";
 };
 
 export type EngineAccessResponse = {
@@ -217,28 +212,11 @@ export type EngineAccessResponse = {
 };
 
 /**
- * The owner object's `engines.access`: the token, word that it expired and
- * a device must refresh it (Claude), word that the cloud's sign-in ended and
- * the owner must sign in again (ChatGPT), or null when no account is
- * connected.
+ * The owner object's `engines.access`: the token, word that the cloud's
+ * ChatGPT sign-in ended and the owner must sign in again, or null when no
+ * account is connected.
  */
 export type EngineAccessResult =
   | EngineAccessResponse
-  | { needsDeviceRefresh: true; engineAccountId: string }
   | { needsSignIn: true; engineAccountId: string }
   | null;
-
-/** `BillingControl.engineLimit`: an account's subscription limit was reached. */
-export type EngineLimitReport = {
-  ownerId: string;
-  ownerGeneration: string;
-  provider: "anthropic" | "chatgpt";
-  engineAccountId: string;
-  /** When the provider says the limit resets (ms), if it said. */
-  resetsAt?: number;
-};
-
-export type EngineLimitResult = {
-  /** Another account now serves the provider; the request may be retried. */
-  switched: boolean;
-};

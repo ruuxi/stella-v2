@@ -25,7 +25,7 @@ describe("ModelGatewayControl", () => {
     const control = controlFor(createTestEnv().env);
     const session = await signSession();
     const native = await signTurn({
-      credential: "anthropic",
+      credential: "chatgpt",
       ledgerScope: "owner-relay-v2",
     });
     const unscoped = await signTurn();

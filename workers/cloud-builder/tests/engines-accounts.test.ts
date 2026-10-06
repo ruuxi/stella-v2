@@ -64,7 +64,6 @@ type Harness = {
   call: (name: string, args: unknown) => Promise<any>;
   settings: () => EngineSettings;
   access: (provider: string) => Promise<any>;
-  limit: (args: Record<string, unknown>) => Promise<any>;
 };
 
 const createHarness = (fake = openSqlStorageFake()): Harness => {
@@ -98,7 +97,6 @@ const createHarness = (fake = openSqlStorageFake()): Harness => {
       enginesDomain.views["engines.get"].read(store.context(caller)) as EngineSettings,
     access: async (provider) =>
       unwrap(await store.internalCall("engines.access", { provider })),
-    limit: async (args) => unwrap(await store.internalCall("engines.limit", args)),
   };
 };
 
@@ -276,47 +274,7 @@ describe("engine accounts", () => {
     ]);
   });
 
-  test("cools a limited account down and auto-switches only when enabled", async () => {
-    await connectChatGpt(harness, chatGptLogin("user-a", "a@example.com"));
-    await connectChatGpt(harness, chatGptLogin("user-b", "b@example.com"));
-    const [first, second] = harness.settings().connections;
-    await harness.call("engines.setActiveAccount", {
-      provider: "chatgpt",
-      accountId: first!.accountId,
-    });
-    const resetsAt = Date.now() + 2 * 60 * 60_000;
-
-    // Auto-switch off: the account cools down but keeps serving.
-    expect(
-      await harness.limit({
-        provider: "chatgpt",
-        engineAccountId: first!.accountId,
-        resetsAt,
-      }),
-    ).toEqual({ switched: false });
-    let rows = harness.settings().connections;
-    expect(rows[0]).toMatchObject({ active: true, limitedUntil: resetsAt });
-
-    // Auto-switch on: the next request is served by the other account.
-    await harness.call("engines.setAutoSwitch", {
-      provider: "chatgpt",
-      enabled: true,
-    });
-    expect((await harness.access("chatgpt")).engineAccountId).toBe(second!.accountId);
-    rows = harness.settings().connections;
-    expect(rows.map((row) => row.active)).toEqual([false, true]);
-    expect(harness.settings().autoSwitch["chatgpt"]).toBe(true);
-
-    // The second account hitting its limit with nothing left: no switch.
-    expect(
-      await harness.limit({
-        provider: "chatgpt",
-        engineAccountId: second!.accountId,
-      }),
-    ).toEqual({ switched: false });
-  });
-
-  test("an existing single credential becomes the provider's active account", async () => {
+  test("a stored Claude credential from before is dropped on upgrade", async () => {
     const fake = openSqlStorageFake();
     // A store from before multiple accounts: only the first migration ran.
     fake.sql.exec(
@@ -335,15 +293,10 @@ describe("engine accounts", () => {
     const upgraded = createHarness(fake);
 
     const settings = upgraded.settings();
-    expect(settings.connections).toEqual([
-      expect.objectContaining({
-        provider: "anthropic",
-        label: "Claude (Pro/Max subscription)",
-        active: true,
-        updatedAt: 6,
-      }),
-    ]);
-    expect(settings.autoSwitch).toEqual({ anthropic: false, "chatgpt": false });
+    expect(settings.connections).toEqual([]);
+    expect(
+      fake.sql.exec("SELECT COUNT(*) AS n FROM engine_accounts").one().n,
+    ).toBe(0);
     fake.close();
   });
 });

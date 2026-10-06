@@ -49,14 +49,8 @@ export const GATEWAY_SUBSCRIPTION_LIMIT_HEADER =
 export const nativeSubscriptionLimitNotice = (
   provider: string | null,
 ): string | undefined => {
-  const name =
-    provider === "anthropic"
-      ? "Claude"
-      : provider === "chatgpt"
-        ? "ChatGPT"
-        : undefined;
-  return name
-    ? `Your ${name} subscription has reached its usage limit. Wait for it to reset or choose another connected account.`
+  return provider === "chatgpt"
+    ? "Your ChatGPT plan has reached its usage limit. It will work again once the limit resets."
     : undefined;
 };
 /** Capability travels as `Authorization: Bearer <jwt>`. */
@@ -217,11 +211,6 @@ export type GatewayErrorCode =
   | "challenge_required"
   /** The request's device proof is missing, stale, or does not match `dpk`. */
   | "dpop_invalid"
-  /**
-   * The connected subscription's access token expired and only one of the
-   * owner's devices can refresh it; the message asks them to open Stella.
-   */
-  | "engine_refresh_required"
   /** The cloud's ChatGPT sign-in ended; the owner must sign in again. */
   | "engine_sign_in_required"
   | "body_too_large"

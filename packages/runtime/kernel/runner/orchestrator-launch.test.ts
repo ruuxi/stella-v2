@@ -417,6 +417,48 @@ describe("buildCloudUserMessage", () => {
     expect(JSON.stringify(message)).toContain("thread_id: t");
   });
 
+  // A chat relayed from another device runs as an automation turn, so its run
+  // is `uiVisibility: "hidden"` — the sending client owns its own presentation.
+  // The journal row must not inherit that: it is the only copy every other
+  // client reads, and a hidden one leaves the message visible on the phone
+  // that sent it (its optimistic bubble) and absent everywhere else, including
+  // on that same phone after a cold start.
+  test("keeps a relayed chat message visible even on a hidden run", () => {
+    const { message, hidden } = buildCloudUserMessage({
+      ...base,
+      userPrompt: "sent from my phone",
+      uiVisibility: "hidden",
+      userAuthoredPrompt: true,
+    });
+    expect(hidden).toBe(false);
+    expect(JSON.stringify(message)).toContain("sent from my phone");
+  });
+
+  test("keeps a scheduler turn hidden when nothing claims authorship", () => {
+    const { hidden } = buildCloudUserMessage({
+      ...base,
+      userPrompt: "scheduled check",
+      uiVisibility: "hidden",
+    });
+    expect(hidden).toBe(true);
+  });
+
+  test("keeps a runtime wake hidden even when the turn claims authorship", () => {
+    const { hidden } = buildCloudUserMessage({
+      ...base,
+      uiVisibility: "hidden",
+      userAuthoredPrompt: true,
+      promptMessages: [
+        {
+          text: "[Agent completed]\nthread_id: t\nresult: done",
+          messageType: "message",
+          customType: "runtime.task_lifecycle",
+        },
+      ],
+    });
+    expect(hidden).toBe(true);
+  });
+
   test("keeps a non-image file attachment on the journal user row", () => {
     const { message, hidden } = buildCloudUserMessage({
       ...base,

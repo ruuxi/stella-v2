@@ -25,11 +25,15 @@ const RUNNING_REST_ALPHA = AGENT_ACTIVITY_INK.runningRestAlpha;
 /**
  * One minimal, chrome-less agent activity line — the mobile analogue of the
  * desktop `agent-activity-row`. No card surface, no border, no badges, no
- * provider icons: a leading slot that doubles as the status tell (static
- * star while the shimmering title carries the running motion, a quiet grey
- * check once done, an arrow for `send_input` follow-ups; failed rows keep
+ * provider icons: an optional leading slot that doubles as the status tell
+ * (static star while the shimmering title carries the running motion, a quiet
+ * grey check once done, an arrow for `send_input` follow-ups; failed rows keep
  * the plain star), the task DESCRIPTION on a single line, and a trailing
  * chevron as the tap-through affordance.
+ *
+ * Both of those are earned rather than assumed: a row with nowhere to go drops
+ * the chevron, since it promises a tap that does nothing, and a row that needs
+ * no status tell omits the glyph.
  */
 export function AgentActivityRow({
   title,
@@ -39,7 +43,8 @@ export function AgentActivityRow({
   onPress,
 }: {
   title: string;
-  glyph: AgentActivityGlyph;
+  /** Omit for a plain read-out line with no status tell. */
+  glyph?: AgentActivityGlyph;
   working: boolean;
   colors: Colors;
   /** Opens the agent detail (activity hub). Row is inert when absent. */
@@ -58,17 +63,22 @@ export function AgentActivityRow({
       {/* Status glyph at FULL strength — solid strong ink, no dimming
           (desktop parity); only the description keeps the muted/shimmer
           treatment. */}
-      <View style={styles.glyph}>
-        {glyph === "star" ? (
-          <StellaStarGlyph size={13} color={colors[AGENT_ACTIVITY_INK.glyphInk]} />
-        ) : (
-          <Icon
-            name={glyph === "arrow" ? "arrow-right" : "check"}
-            size={13}
-            color={colors[AGENT_ACTIVITY_INK.glyphInk]}
-          />
-        )}
-      </View>
+      {glyph ? (
+        <View style={styles.glyph}>
+          {glyph === "star" ? (
+            <StellaStarGlyph
+              size={13}
+              color={colors[AGENT_ACTIVITY_INK.glyphInk]}
+            />
+          ) : (
+            <Icon
+              name={glyph === "arrow" ? "arrow-right" : "check"}
+              size={13}
+              color={colors[AGENT_ACTIVITY_INK.glyphInk]}
+            />
+          )}
+        </View>
+      ) : null}
       <View style={styles.titleWrap}>
         <ShimmerText
           text={title}
@@ -96,12 +106,14 @@ export function AgentActivityRow({
           dimAlpha={RUNNING_REST_ALPHA}
         />
       </View>
-      <Icon
-        name="chevron-right"
-        size={13}
-        color={colors.textMuted}
-        style={styles.chevron}
-      />
+      {onPress ? (
+        <Icon
+          name="chevron-right"
+          size={13}
+          color={colors.textMuted}
+          style={styles.chevron}
+        />
+      ) : null}
     </Pressable>
   );
 }

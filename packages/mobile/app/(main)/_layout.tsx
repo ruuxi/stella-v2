@@ -587,7 +587,6 @@ export default function MainLayout() {
         visible={activityMenuRunning !== null}
         running={activityMenuRunning ?? EMPTY_RUNNING_AGENTS}
         onClose={() => setActivityMenuRunning(null)}
-        onOpenActivity={openSidebar}
       />
       <AiConsentModal
         visible={consentVisible}

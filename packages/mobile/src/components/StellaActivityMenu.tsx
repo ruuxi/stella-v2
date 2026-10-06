@@ -1,13 +1,12 @@
 import { useMemo } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { activityIndicatorMenuEntries } from "@stella/contracts/activity-indicator";
 import type { ActivityIndicatorEntry } from "@stella/contracts/activity-indicator";
 import { AgentActivityRow } from "./AgentActivityRow";
 import { TopSheet } from "./TopSheet";
-import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
-import { useT } from "../i18n";
+import { TOP_BAR_BAR_HEIGHT } from "./AppBackdrop";
 import type { Colors } from "../theme/colors";
-import { fonts } from "../theme/fonts";
 import { useColors } from "../theme/theme-context";
 
 /**
@@ -17,23 +16,27 @@ import { useColors } from "../theme/theme-context";
  *
  * It lists only running work on purpose — it is the detail behind "N things in
  * progress", not the activity index. Everything else (settled agents, their
- * files, the conversation's own files) still lives in the sidebar, which a row
- * tap opens.
+ * files, the conversation's own files) still lives in the sidebar.
+ *
+ * The sheet itself is anchored to the very top of the screen, so its content
+ * is pushed clear of the status bar and the top bar — otherwise the first row
+ * draws under the notch and the clock.
+ *
+ * The rows are a read-out, not a menu: they name what is running and nothing
+ * more. They used to be buttons that closed the sheet and opened the sidebar,
+ * which is a surprising place to be sent from here.
  */
 export function StellaActivityMenu({
   visible,
   running,
   onClose,
-  onOpenActivity,
 }: {
   visible: boolean;
   running: readonly ActivityIndicatorEntry[];
   onClose: () => void;
-  /** Hands off to the sidebar, where the agent's own detail lives. */
-  onOpenActivity: () => void;
 }) {
   const colors = useColors();
-  const t = useT();
+  const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const entries = useMemo(
     () => activityIndicatorMenuEntries(running),
@@ -42,14 +45,12 @@ export function StellaActivityMenu({
 
   return (
     <TopSheet visible={visible} onClose={onClose} contentSized glass>
-      <View style={styles.sheet}>
-        <Text
-          style={styles.heading}
-          accessibilityRole="header"
-          maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-        >
-          {t("mobile.activityHub.tabs.activity")}
-        </Text>
+      <View
+        style={[
+          styles.sheet,
+          { paddingTop: insets.top + TOP_BAR_BAR_HEIGHT },
+        ]}
+      >
         <ScrollView
           style={styles.list}
           contentContainerStyle={styles.listContent}
@@ -59,13 +60,8 @@ export function StellaActivityMenu({
             <AgentActivityRow
               key={entry.id}
               title={entry.title}
-              glyph="star"
               working
               colors={colors}
-              onPress={() => {
-                onClose();
-                onOpenActivity();
-              }}
             />
           ))}
         </ScrollView>
@@ -80,14 +76,6 @@ const makeStyles = (colors: Colors) =>
       gap: 10,
       paddingBottom: 18,
       paddingHorizontal: 18,
-      paddingTop: 10,
-    },
-    heading: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.medium,
-      fontSize: 12,
-      letterSpacing: 0.6,
-      textTransform: "uppercase",
     },
     list: {
       flexGrow: 0,

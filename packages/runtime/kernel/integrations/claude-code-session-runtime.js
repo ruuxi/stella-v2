@@ -258,7 +258,7 @@ export const claudeCodeAuthFailureOf = (error) => {
   const message = error instanceof Error ? error.message : String(error ?? "");
   if (claudeCodeSubscriptionLimitOf(error)) return null;
   if (
-    !/\bOAuth access token has been revoked\b|\btoken_(?:expired|revoked)\b|\bfailed to authenticate\b|\bauthentication_error\b|\bapi error:?\s*401\b|\b401\s+unauthorized\b|\binvalid bearer token\b|\bOAuth authentication (?:failed|is currently not supported)\b/i.test(
+    !/\bOAuth access token has been revoked\b|\btoken_(?:expired|revoked)\b|\bfailed to authenticate\b|\bauthentication_error\b|\bapi error:?\s*401\b|\b401\s+unauthorized\b|\binvalid bearer token\b|\bnot logged in\b|\bOAuth authentication (?:failed|is currently not supported)\b/i.test(
       message,
     )
   ) {
@@ -331,7 +331,7 @@ const buildResultRetryPrompt = () =>
  */
 const withClaudeLoginRejected = (error, email) => {
   const failure = new Error(
-    `${normalizeErrorMessage(error)} Anthropic rejected ${claudeLoginLabel(email)}. Sign in again in Settings › Account.`,
+    `${withPeriod(normalizeErrorMessage(error))} Anthropic rejected ${claudeLoginLabel(email)}. Sign in again in Settings › Account.`,
   );
   failure.code = "CLAUDE_CODE_AUTH_REAUTH_REQUIRED";
   failure.status = 401;
@@ -748,6 +748,7 @@ export const createClaudeNativeToolUseCorrelator = () => {
 };
 const asNumber = (value) =>
   typeof value === "number" && Number.isFinite(value) ? value : undefined;
+const withPeriod = (text) => (/[.!?]$/u.test(text) ? text : `${text}.`);
 const normalizeErrorMessage = (error) => {
   if (error instanceof Error && error.message.trim())
     return error.message.trim();

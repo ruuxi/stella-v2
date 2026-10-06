@@ -26,7 +26,10 @@ export type ClaudeLoginResult = { email?: string };
 
 /** The error's own message (the CLI's, for a rejected code); null when it has none. */
 const messageOf = (error: unknown): string | null =>
-  error instanceof Error && error.message ? error.message : null;
+  error instanceof Error && error.message
+    ? // Electron wraps a main-process rejection in its own prefix.
+      error.message.replace(/^Error invoking remote method '[^']*': (?:\w*Error: )?/u, "")
+    : null;
 
 const cancelLogin = (flow: ClaudeLoginFlow) => {
   if (flow.target.place === "local") {

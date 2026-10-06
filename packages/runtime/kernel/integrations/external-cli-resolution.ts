@@ -232,5 +232,22 @@ export const buildExternalCliChildEnv = (
     return true;
   });
   childEnv[pathKey] = uniqueEntries.join(path.delimiter);
+  if (process.platform !== "win32") {
+    // CLIs find their config under HOME, and Claude Code on macOS names its
+    // keychain item's account after USER: an app launched without them
+    // would read the user's own CLI login as signed out.
+    try {
+      const user = os.userInfo();
+      childEnv.HOME ||= user.homedir;
+      // Bun reports "unknown" without a USER in its own environment.
+      const username =
+        user.username && user.username !== "unknown"
+          ? user.username
+          : path.basename(user.homedir || "");
+      if (username) childEnv.USER ||= username;
+    } catch {
+      // No passwd entry: leave the environment as it is.
+    }
+  }
   return childEnv;
 };

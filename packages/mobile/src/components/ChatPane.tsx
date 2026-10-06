@@ -107,6 +107,7 @@ import { useCatchUpIndicatorVisible } from "../lib/catch-up-indicator";
 import { ChatHistoryPaging } from "../lib/chat-history-paging";
 import {
   isStandInArtifactRow,
+  markPrependedMessagesSeen,
   shouldAnimateMessageEntry,
   visibleChatMessages,
 } from "../lib/message-row-identity";
@@ -3230,6 +3231,13 @@ export function ChatPane({
   const sawTurnRef = useRef(false);
   const spokenAssistantIdsRef = useRef<Set<string>>(new Set());
   const seenMessageIdsRef = useRef<Set<string>>(new Set());
+  /** Head of the rendered window, so a prepend can be told from an arrival. */
+  const headMessageIdRef = useRef<string | null>(null);
+  headMessageIdRef.current = markPrependedMessagesSeen(
+    seenMessageIdsRef.current,
+    visibleMessages,
+    headMessageIdRef.current,
+  );
 
   if (lastMessage?.role === "assistant") {
     const isNewAssistant = lastMessage.id !== assistantIdRef.current;
@@ -3332,17 +3340,27 @@ export function ChatPane({
   });
   const scrollOwnerRef = useRef(dataChangeScrollOwner);
   scrollOwnerRef.current = dataChangeScrollOwner;
+  const historyAnchored = dataChangeScrollOwner === "history-anchor";
   const maintainVisibleContentPosition = useMemo(
     () => ({
       // Keep native MVCP enabled for the lifetime of the ScrollView. Toggling
       // it during a drag lets iOS adjust from a stale pre-send native anchor.
-      // Legend's data restoration is still exclusive to history; the custom
-      // follow loop owns tail placement and streaming size changes.
+      // `data` is what holds that guarantee: Legend derives the ScrollView's
+      // own `maintainVisibleContentPosition` from `data || size`, so the
+      // native prop stays on no matter how `size` moves below.
       data: true,
-      size: false,
+      // An older page is laid out from estimated heights and then measures
+      // for real. Those re-measurements are *size* changes, not data changes,
+      // and Legend only compensates the axis that is enabled — so with `size`
+      // off, every older row that measured taller than its estimate shoved
+      // the content under the user's finger. That is the jagged scrollback.
+      // Compensate while history owns position, and only then: at the live
+      // tail the custom follow loop owns streaming growth and must not be
+      // fought by a second position owner.
+      size: historyAnchored,
       shouldRestorePosition: () => scrollOwnerRef.current === "history-anchor",
     }),
-    [],
+    [historyAnchored],
   );
   useEffect(() => {
     const grew = visibleMessages.length > prevLenRef.current;

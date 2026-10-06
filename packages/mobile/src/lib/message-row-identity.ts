@@ -40,3 +40,36 @@ export const shouldAnimateMessageEntry = (
   seenMessageIds.add(messageId);
   return true;
 };
+
+/**
+ * Register a prepended page of older messages as already seen, and return the
+ * window's new head id.
+ *
+ * Paging history in must not read as messages arriving. Every row of an older
+ * page is unseen, so `shouldAnimateMessageEntry` would play the entry pop for
+ * all of them as they scroll into view — the list appears to shake while the
+ * user is only scrolling back. Rows above the previous head are history by
+ * definition, so they are marked seen before the list ever renders them.
+ *
+ * Returns immediately when the head has not moved, which is every data change
+ * of a live stream; the scan costs only a real prepend. A head that is gone
+ * entirely (a different conversation, a trimmed window) is not a prepend and
+ * animates as before.
+ */
+export const markPrependedMessagesSeen = (
+  seenMessageIds: Set<string>,
+  messages: readonly Pick<ChatMessage, "id">[],
+  previousHeadId: string | null,
+): string | null => {
+  const nextHeadId = messages[0]?.id ?? null;
+  if (previousHeadId === null || previousHeadId === nextHeadId) {
+    return nextHeadId;
+  }
+  const previousHeadIndex = messages.findIndex(
+    (message) => message.id === previousHeadId,
+  );
+  for (let index = 0; index < previousHeadIndex; index += 1) {
+    seenMessageIds.add(messages[index]!.id);
+  }
+  return nextHeadId;
+};

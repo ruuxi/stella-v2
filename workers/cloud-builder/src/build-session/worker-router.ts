@@ -46,6 +46,7 @@ import { withBrowserCors } from "../browser-cors.js";
 import { handleVoiceRoute, ownerDictationControl } from "../voice/routes.js";
 import { handleBackendRoute } from "../owner-store/routes.js";
 import { handleMediaRoute } from "../media/routes.js";
+import { handleMapsRoute } from "../maps/routes.js";
 import { handleIntegrationsRoute } from "../integrations/routes.js";
 import { handleProjectsRoute } from "../projects/routes.js";
 import { handleAppSourceBootstrap } from "../app-source-bootstrap.js";
@@ -1011,6 +1012,7 @@ app.all(`/owners/me/apps/:slug{${APP_SLUG}}/preview`, methodNotAllowed("Method n
 app.use(mount(handleBackendRoute));
 app.use(mount(handleStellaModelsRoute));
 app.use(mount(handleMediaRoute));
+app.use(mount(handleMapsRoute));
 app.use(mount(handleProjectsRoute));
 app.use(mount(handleAppSourceBootstrap));
 app.use(

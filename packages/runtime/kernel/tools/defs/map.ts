@@ -3,7 +3,7 @@
  * places and/or a route with directions.
  *
  * The tool takes natural inputs (place names, addresses, "lat,lng" strings)
- * and POSTs them to the stella.sh maps resolve endpoint, which geocodes and
+ * and POSTs them to the Stella backend's maps resolver, which geocodes and
  * routes through Google APIs with a server-side key (zero keys and zero
  * setup on the user's machine — a hard product requirement). The resolved
  * `map-route` artifact lands on the tool_result `details`, where the desktop
@@ -17,7 +17,6 @@
  */
 
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
-import { MAPS_SITE_URL_ENV } from "@stella/contracts/map-artifact";
 import type { ToolDefinition } from "../types.js";
 import { forkAbortTimer } from "../effect-runtime.js";
 import {
@@ -36,16 +35,13 @@ import {
 } from "./map-resolve.js";
 
 export type MapToolOptions = {
-  /** Override the stella.sh base for self-hosted resolution. */
-  siteBaseUrl?: string;
+  /** The backend origin and the runtime's auth token, or null while signed out. */
+  getCloudBackendAuth?: () => { baseUrl: string; authToken: string } | null;
   /** Injectable fetch for tests. */
   fetchImpl?: typeof fetch;
 };
 
 export const createMapTool = (options: MapToolOptions = {}): ToolDefinition => {
-  const resolveBase = () =>
-    options.siteBaseUrl ?? process.env[MAPS_SITE_URL_ENV]?.trim() ?? undefined;
-
   return {
     name: MAP_TOOL_NAME,
     replay: MAP_TOOL_REPLAY,
@@ -60,6 +56,10 @@ export const createMapTool = (options: MapToolOptions = {}): ToolDefinition => {
     execute: async (args, _context, extras) => {
       const parsed = parseMapToolArgs(args);
       if ("error" in parsed) return { error: parsed.error };
+      const backend = options.getCloudBackendAuth?.() ?? null;
+      if (!backend) {
+        return { error: "Map lookup failed: sign in to Stella to use maps." };
+      }
 
       // The controller stays at the fetch seam (composing the caller's
       // cooperative AbortSignal with the resolve deadline); the deadline
@@ -72,7 +72,7 @@ export const createMapTool = (options: MapToolOptions = {}): ToolDefinition => {
       extras?.signal?.addEventListener("abort", onAbort, { once: true });
       try {
         const outcome = await resolveMapArtifact(parsed.request, {
-          ...(resolveBase() ? { siteBaseUrl: resolveBase() } : {}),
+          backend,
           ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
           signal: controller.signal,
         });

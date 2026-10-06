@@ -131,7 +131,13 @@ export const buildBuiltinTools = (
 
   // Orchestrator coordination surface
   tools.push(createHtmlTool({ stellaDataDir: options.stellaDataDir }));
-  tools.push(createMapTool());
+  tools.push(
+    createMapTool({
+      ...(options.getCloudBackendAuth
+        ? { getCloudBackendAuth: options.getCloudBackendAuth }
+        : {}),
+    }),
+  );
   tools.push(...createAgentTools(options.stateContext));
   tools.push(
     createSwitchDestinationTool({

@@ -1,9 +1,8 @@
 /**
  * `map` for the cloud orchestrator — the device tool's exact model-visible
- * surface (`defs/map-def.ts`) over the shared resolver (`defs/map-resolve.ts`).
- * Pure HTTP against the stella.sh maps endpoint, so nothing about it is
- * device-specific: the resolved `map-route` artifact lands on the tool
- * result's `details.map` and the chat renders the same card on every client.
+ * surface (`defs/map-def.ts`) over the backend's own Google resolver, called
+ * in-process. The resolved `map-route` artifact lands on the tool result's
+ * `details.map` and the chat renders the same card on every client.
  */
 
 import type { TSchema } from "@sinclair/typebox";
@@ -17,24 +16,19 @@ import {
 } from "@stella/runtime/kernel/tools/defs/map-def.js";
 import {
   MAP_RESOLVE_TIMEOUT_MS,
+  mapOutcomeFromResolver,
   parseMapToolArgs,
-  resolveMapArtifact,
 } from "@stella/runtime/kernel/tools/defs/map-resolve.js";
 import type { CloudCodeSourceAgentTool } from "./cloud-code-tool.js";
-
-/** STELLA_WEBSITE_URL, the website whose maps endpoint resolves map requests. */
-export const configuredWebsiteUrl = (env: unknown): string | undefined => {
-  const value = (env as { STELLA_WEBSITE_URL?: unknown }).STELLA_WEBSITE_URL;
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-};
+import { resolveMapRequest } from "./maps/google-resolve.js";
 
 export type CloudMapToolOptions = Readonly<{
-  siteBaseUrl?: string | undefined;
+  apiKey: string | undefined;
   fetchImpl?: typeof fetch;
 }>;
 
 export const createCloudMapTool = (
-  options: CloudMapToolOptions = {},
+  options: CloudMapToolOptions,
 ): CloudCodeSourceAgentTool => ({
   name: MAP_TOOL_NAME,
   replay: MAP_TOOL_REPLAY,
@@ -53,11 +47,21 @@ export const createCloudMapTool = (
       };
     }
     const timeout = AbortSignal.timeout(MAP_RESOLVE_TIMEOUT_MS);
-    const outcome = await resolveMapArtifact(parsed.request, {
-      ...(options.siteBaseUrl ? { siteBaseUrl: options.siteBaseUrl } : {}),
-      ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
-      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-    });
+    const { request } = parsed;
+    const result = await resolveMapRequest(
+      {
+        places: request.places,
+        ...(request.origin ? { origin: request.origin, destination: request.destination } : {}),
+        ...(request.mode ? { mode: request.mode } : {}),
+        ...(request.title ? { title: request.title } : {}),
+      },
+      options.apiKey,
+      {
+        ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+      },
+    );
+    const outcome = mapOutcomeFromResolver(result.status, result.body);
     if (!outcome.ok) {
       return {
         content: [{ type: "text", text: outcome.error }],

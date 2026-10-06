@@ -51,6 +51,8 @@ const placesArtifact: MapRouteArtifact = {
   ],
 };
 
+const backend = () => ({ baseUrl: "https://example.test", authToken: "token" });
+
 const fetchReturning = (
   status: number,
   body: unknown,
@@ -76,7 +78,7 @@ describe("map tool", () => {
       map: routeArtifact,
       unresolved: [],
     });
-    const tool = createMapTool({ fetchImpl: impl, siteBaseUrl: "https://example.test" });
+    const tool = createMapTool({ fetchImpl: impl, getCloudBackendAuth: backend });
     const result = await tool.execute(
       {
         origin: "Ferry Building",
@@ -103,7 +105,7 @@ describe("map tool", () => {
       map: placesArtifact,
       unresolved: ["Nonexistent Cafe"],
     });
-    const tool = createMapTool({ fetchImpl: impl });
+    const tool = createMapTool({ fetchImpl: impl, getCloudBackendAuth: backend });
     const result = await tool.execute(
       { places: ["Blue Bottle Coffee", "Nonexistent Cafe"] },
       context,
@@ -116,7 +118,7 @@ describe("map tool", () => {
 
   it("returns a clear error instead of a broken card when the service fails", async () => {
     const { impl } = fetchReturning(422, { error: "No driving route found." });
-    const tool = createMapTool({ fetchImpl: impl });
+    const tool = createMapTool({ fetchImpl: impl, getCloudBackendAuth: backend });
     const result = await tool.execute(
       { origin: "A", destination: "B" },
       context,
@@ -127,14 +129,14 @@ describe("map tool", () => {
 
   it("rejects malformed service payloads", async () => {
     const { impl } = fetchReturning(200, { map: { kind: "map-route", markers: [] } });
-    const tool = createMapTool({ fetchImpl: impl });
+    const tool = createMapTool({ fetchImpl: impl, getCloudBackendAuth: backend });
     const result = await tool.execute({ places: ["x"] }, context);
     expect(result.error).toContain("no usable map");
   });
 
   it("validates inputs before calling the service", async () => {
     const { impl, calls } = fetchReturning(200, {});
-    const tool = createMapTool({ fetchImpl: impl });
+    const tool = createMapTool({ fetchImpl: impl, getCloudBackendAuth: backend });
     expect((await tool.execute({}, context)).error).toContain("Provide places");
     expect((await tool.execute({ origin: "A" }, context)).error).toContain(
       "both origin and destination",

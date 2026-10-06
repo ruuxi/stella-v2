@@ -1,15 +1,14 @@
 /**
  * Pure resolution behind the `map` tool: validate the natural-language
- * request, POST it to the stella.sh maps resolver (Google Places /
- * Directions with a server-side key — zero keys on the user's side), and
- * summarize the resulting `map-route` artifact for the model. No host
+ * request, resolve it through the Stella backend's maps resolver (Google
+ * Places / Directions with a server-side key, so no key on the user's side),
+ * and summarize the resulting `map-route` artifact for the model. No host
  * dependencies, so the device kernel and the cloud Durable Object share it.
  */
 
 import {
   isMapRouteArtifact,
   MAPS_RESOLVE_PATH,
-  MAPS_SITE_BASE_URL,
   type MapRouteArtifact,
 } from "@stella/contracts/map-artifact";
 
@@ -125,25 +124,55 @@ export const summarizeMapArtifact = (
   return lines.join("\n");
 };
 
+/** Shape a resolver response (HTTP status + JSON body) into the tool outcome. */
+export const mapOutcomeFromResolver = (
+  status: number,
+  payload: unknown,
+): MapResolveOutcome => {
+  const record =
+    payload && typeof payload === "object"
+      ? (payload as Record<string, unknown>)
+      : {};
+  if (status < 200 || status >= 300) {
+    const message =
+      asTrimmedString(record.error) || `map service returned ${status}`;
+    return { ok: false, error: `Map lookup failed: ${message}` };
+  }
+  const map = record.map;
+  if (!isMapRouteArtifact(map)) {
+    return {
+      ok: false,
+      error: "Map lookup failed: the map service returned no usable map.",
+    };
+  }
+  const unresolved = Array.isArray(record.unresolved)
+    ? record.unresolved.map(asTrimmedString).filter(Boolean)
+    : [];
+  return { ok: true, map, summary: summarizeMapArtifact(map, unresolved) };
+};
+
 export type MapResolveOptions = {
-  /** stella.sh base (or a self-hosted override), no trailing slash. */
-  siteBaseUrl?: string;
+  /** The Stella backend origin and the caller's bearer token. */
+  backend: { baseUrl: string; authToken: string };
   fetchImpl?: typeof fetch;
   /** Composed with the resolve deadline by the caller. */
   signal?: AbortSignal;
 };
 
-/** POST the request to the resolver and shape the outcome. Never throws. */
+/** POST the request to the backend resolver and shape the outcome. Never throws. */
 export const resolveMapArtifact = async (
   request: MapResolveRequest,
-  options: MapResolveOptions = {},
+  options: MapResolveOptions,
 ): Promise<MapResolveOutcome> => {
   const fetchImpl = options.fetchImpl ?? fetch;
-  const base = (options.siteBaseUrl ?? MAPS_SITE_BASE_URL).replace(/\/+$/, "");
+  const base = options.backend.baseUrl.replace(/\/+$/, "");
   try {
     const response = await fetchImpl(`${base}${MAPS_RESOLVE_PATH}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${options.backend.authToken}`,
+      },
       body: JSON.stringify({
         ...(request.places.length > 0 ? { places: request.places } : {}),
         ...(request.origin
@@ -160,27 +189,7 @@ export const resolveMapArtifact = async (
     } catch {
       // Non-JSON error body; fall through to the status message.
     }
-    const record =
-      payload && typeof payload === "object"
-        ? (payload as Record<string, unknown>)
-        : {};
-    if (!response.ok) {
-      const message =
-        asTrimmedString(record.error) ||
-        `map service returned ${response.status}`;
-      return { ok: false, error: `Map lookup failed: ${message}` };
-    }
-    const map = record.map;
-    if (!isMapRouteArtifact(map)) {
-      return {
-        ok: false,
-        error: "Map lookup failed: the map service returned no usable map.",
-      };
-    }
-    const unresolved = Array.isArray(record.unresolved)
-      ? record.unresolved.map(asTrimmedString).filter(Boolean)
-      : [];
-    return { ok: true, map, summary: summarizeMapArtifact(map, unresolved) };
+    return mapOutcomeFromResolver(response.status, payload);
   } catch (error) {
     const message =
       (error as Error).name === "AbortError"

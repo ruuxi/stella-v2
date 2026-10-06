@@ -128,24 +128,50 @@ const sendMagicLinkEmail = async (env: AuthEnv, email: string, url: string): Pro
     console.log(JSON.stringify({ event: "auth_magic_link_test_account", email, url }));
     return;
   }
-  const apiKey = configured(env, "RESEND_API_KEY");
-  const from = configured(env, "RESEND_FROM");
-  if (!apiKey || !from) {
+  const binding = (env as { EMAIL?: SendEmail }).EMAIL;
+  const cloudflareFrom = binding ? configured(env, "STELLA_EMAIL_FROM") : undefined;
+  const resendKey = configured(env, "RESEND_API_KEY");
+  const resendFrom = resendKey ? configured(env, "RESEND_FROM") ?? configured(env, "STELLA_EMAIL_FROM") : undefined;
+  if (!cloudflareFrom && !resendFrom) {
     throw new APIError("SERVICE_UNAVAILABLE", { message: "Email sign-in isn't set up on this Stella." });
   }
   const logo = configured(env, "STELLA_EMAIL_LOGO_URL") ?? `${websiteUrl(env)}/stella-logo.png`;
+  const message = {
+    subject: getMagicLinkSubject(undefined),
+    html: buildMagicLinkEmail(escapeHtmlAttribute(logo), escapeHtmlAttribute(url), undefined),
+  };
+  if (binding && cloudflareFrom) {
+    try {
+      const sent = await binding.send({ from: parseMailbox(cloudflareFrom), to: email, ...message });
+      console.log(JSON.stringify({ event: "auth_magic_link_sent", provider: "cloudflare", messageId: sent.messageId }));
+      return;
+    } catch (error) {
+      const { code, message: detail } = error as { code?: unknown; message?: unknown };
+      console.error(JSON.stringify({
+        event: "auth_magic_link_email_service_failed",
+        code: typeof code === "string" ? code : null,
+        detail: typeof detail === "string" ? detail.slice(0, 300) : null,
+      }));
+      if (!resendFrom) {
+        throw new APIError("SERVICE_UNAVAILABLE", { message: "Stella couldn't send the sign-in email. Try again in a moment." });
+      }
+    }
+  }
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
-    headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
-    body: JSON.stringify({
-      from,
-      to: email,
-      subject: getMagicLinkSubject(undefined),
-      html: buildMagicLinkEmail(escapeHtmlAttribute(logo), escapeHtmlAttribute(url), undefined),
-    }),
+    headers: { authorization: `Bearer ${resendKey}`, "content-type": "application/json" },
+    body: JSON.stringify({ from: resendFrom, to: email, ...message }),
     signal: AbortSignal.timeout(15_000),
   });
   if (!response.ok) throw new Error(`Resend refused the magic link (${response.status}).`);
+  console.log(JSON.stringify({ event: "auth_magic_link_sent", provider: "resend" }));
+};
+
+const parseMailbox = (value: string): string | { email: string; name: string } => {
+  const match = /^\s*"?([^"<]*?)"?\s*<([^>]+)>\s*$/.exec(value);
+  if (!match) return value.trim();
+  const name = match[1]!.trim();
+  return name ? { email: match[2]!.trim(), name } : match[2]!.trim();
 };
 
 /**

@@ -93,6 +93,8 @@
     "R2_BACKUP_BUCKET": "stella-v2-app-builds-dev",
     // Public origin of workers/canvas-share; share URLs are `<this>/c/<slug>`.
     "CANVAS_SHARE_BASE_URL": "https://stellashare.app",
+    // Magic-link sender; its domain is enabled for Email Sending.
+    "STELLA_EMAIL_FROM": "Stella <noreply@stella.sh>",
   },
   "secrets": {
     // CAPABILITY_SIGNING_KEY is the PKCS8 PEM of the ES256 private key that
@@ -115,6 +117,9 @@
       "namespace": "stella-app-dev",
     },
   ],
+  // Cloudflare Email Service: magic-link mail. The sender is STELLA_EMAIL_FROM
+  // (or RESEND_FROM) and its domain must be enabled for Email Sending.
+  "send_email": [{ "name": "EMAIL" }],
   "worker_loaders": [
     {
       "binding": "LOADER",
@@ -336,6 +341,7 @@
           "namespace": "stella-app-acceptance",
         },
       ],
+      "send_email": [{ "name": "EMAIL" }],
       "worker_loaders": [
         {
           "binding": "LOADER",
@@ -510,6 +516,7 @@
         "R2_CANVAS_SHARES_BUCKET": "stella-canvas-shares",
         "R2_BACKUP_BUCKET": "stella-v2-app-builds-prod",
         "CANVAS_SHARE_BASE_URL": "https://stellashare.app",
+        "STELLA_EMAIL_FROM": "Stella <noreply@stella.sh>",
       },
       "secrets": {
         "required": [
@@ -526,6 +533,7 @@
           "namespace": "stella-app-prod",
         },
       ],
+      "send_email": [{ "name": "EMAIL" }],
       "worker_loaders": [
         {
           "binding": "LOADER",

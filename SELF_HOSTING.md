@@ -211,7 +211,12 @@ For prod, repeat 1.3–1.5 with the prod names, `--env production`, and the
 Anonymous sign-in works with no setup. Add these as you need them; each is
 optional (Part 2):
 
-- **Email (magic links):** `RESEND_API_KEY` and `RESEND_FROM` on cloud-builder.
+- **Email (magic links):** Cloudflare Email Service. Enable sending for a domain
+  on a zone in your account (`bunx wrangler email sending enable example.com`;
+  it publishes SPF, DKIM and a `p=reject` DMARC record) and set cloud-builder's
+  `vars.STELLA_EMAIL_FROM` to a sender on it, e.g. `"Stella <noreply@example.com>"`.
+  The `EMAIL` binding is already in `wrangler.jsonc`. Resend works instead or as
+  a fallback with `RESEND_API_KEY` and `RESEND_FROM`.
 - **Google:** an OAuth client with redirect URI
   `<STELLA_AUTH_URL or CLOUD_BUILDER_PUBLIC_URL>/api/auth/callback/google`, then
   `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
@@ -331,7 +336,7 @@ Secrets go on **cloud-builder** unless noted.
 | Feature | Keys | Provider | Without it |
 |---|---|---|---|
 | Billing (plans, limits, Stripe checkout) | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (webhook URL `<backend>/api/stripe/webhook`), `STRIPE_PRICE_GO`, `STRIPE_PRICE_PRO`, `STELLA_INCLUDED_USAGE_UTILIZATION_RATE`, `STELLA_GO_PRICE_CENTS`, `STELLA_PRO_PRICE_CENTS`, `STELLA_FREE_{ROLLING,WEEKLY,MONTHLY}_LIMIT_USD`, `STELLA_FREE_ROLLING_WINDOW_HOURS`, `STELLA_ANON_LIFETIME_LIMIT_USD`, `STELLA_ANON_MAX_REQUESTS`; optional overrides in `workers/cloud-builder/src/billing/plans.ts` | Stripe | Billing is off: every account is Pro, unlimited; checkout says billing isn't set up. Setting any one of `STELLA_INCLUDED_USAGE_UTILIZATION_RATE`, `STRIPE_SECRET_KEY`, `STRIPE_PRICE_GO`, `STRIPE_PRICE_PRO` turns billing on, and then all the required ones must be set or turns are refused |
-| Email sign-in (magic links) | `RESEND_API_KEY`, `RESEND_FROM`, optional `STELLA_EMAIL_LOGO_URL` | Resend | Magic links answer 503 "Email sign-in isn't set up" |
+| Email sign-in (magic links) | var `STELLA_EMAIL_FROM` on a domain enabled for Email Sending (see 1.6); or, instead or as a fallback, `RESEND_API_KEY`, `RESEND_FROM`; optional `STELLA_EMAIL_LOGO_URL` | Cloudflare Email Service (Resend fallback) | Magic links answer 503 "Email sign-in isn't set up" |
 | Google / Apple sign-in | see 1.6 | Google, Apple | The provider isn't offered |
 | Web search tool | `PARALLEL_API_KEY` | Parallel | The tool reports it isn't configured |
 | Image, video, audio, 3D generation | `FAL_KEY`, `MEDIA_SIGNING_SECRET` (`openssl rand -hex 32`) | fal.ai | 503 "Media generation is not configured yet" |

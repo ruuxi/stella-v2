@@ -160,6 +160,7 @@ export type CloudTranscriptWriterOptions = {
    * recovered as an interrupted (canceled) finish.
    */
   isResumableTurn?: (localTurnId: string) => boolean;
+  onAssistantRecords?: (payloadJsons: string[]) => void;
 };
 
 export type CloudTranscriptWriter = {
@@ -1505,6 +1506,16 @@ export const createCloudTranscriptWriter = (
         finishFailureCallbacks.set(finishId, request.onDeliveryFailure);
       }
       resume();
+      if (options.onAssistantRecords) {
+        const assistantPayloads = request.records
+          .filter((record) => record.role === "assistant")
+          .map((record) => record.payloadJson);
+        if (assistantPayloads.length > 0) {
+          try {
+            options.onAssistantRecords(assistantPayloads);
+          } catch {}
+        }
+      }
       return { queued: true };
     },
     append: async (request) => {

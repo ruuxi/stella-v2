@@ -1,10 +1,14 @@
 import { DisplayFileSourceContext } from "./display-file-source";
 import { useContext, useEffect, useMemo, useState } from "react";
 import { useOptionalUiState } from "@/context/ui-state";
+import { readDeviceFileCopy } from "@/features/cloud/device-file-copy";
 const isDisplayFileApiAvailable = () => typeof window !== "undefined" &&
     typeof window.electronAPI?.display?.readFile === "function";
 const readDisplayFileRaw = async (filePath, unavailableMessage, conversationId, maxBytes) => {
     if (!isDisplayFileApiAvailable()) {
+        const copy = await readDeviceFileCopy(filePath, maxBytes);
+        if (copy)
+            return copy;
         throw new Error(unavailableMessage ?? "File preview requires the Electron host runtime.");
     }
     return await window.electronAPI.display.readFile(filePath, {

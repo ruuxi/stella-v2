@@ -106,6 +106,11 @@ import {
 import type { ResolvedLlmRoute } from "../model-routing.js";
 import { getResponseLanguageSystemPrompt } from "./locale-prompt.js";
 import { createBackendSession, initialBackendUrl } from "./backend-session.js";
+import { hostname } from "node:os";
+import {
+  assistantPayloadText,
+  createLinkedFilePublisher,
+} from "../device-files/linked-file-publisher.js";
 import { raceWithTimeoutError } from "./cloud-effect-runtime.js";
 import {
   APPLY_PATCH_TOOL_NAME,
@@ -549,9 +554,26 @@ export const createRunnerContext = ({
   const cloudRealtimeBaseUrl = async (): Promise<string | null> =>
     context.state?.backendUrl ?? null;
 
+  const linkedFilePublisher = createLinkedFilePublisher({
+    deviceId,
+    deviceName: hostname().trim().slice(0, 96) || deviceId,
+    getClient: () => backend.client(),
+    isSignedIn: isCloudSignedIn,
+    onLog: (event, fields) => {
+      if (event !== "device_files_recorded") {
+        console.warn(`[device-files] ${event}`, fields);
+      }
+    },
+  });
+
   const cloudTranscript = createCloudTranscriptWriter({
     deviceId,
     store: runtimeStore,
+    onAssistantRecords: (payloadJsons: string[]) => {
+      for (const payloadJson of payloadJsons) {
+        linkedFilePublisher.publishText(assistantPayloadText(payloadJson));
+      }
+    },
     getAuthToken: () =>
       (context.state?.authToken ?? envAuthToken ?? "").trim() || null,
     getBaseUrl: cloudRealtimeBaseUrl,
@@ -870,6 +892,7 @@ export const createRunnerContext = ({
     notifyThreadActivityUpdated,
     getDefaultConversationId,
     cloudTranscript,
+    linkedFilePublisher,
     loadExecutionContext: async () => {
       const authToken = context.state.authToken;
       return loadDeviceExecutionContext({

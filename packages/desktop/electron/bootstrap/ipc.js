@@ -19,6 +19,7 @@ import { loadLocalPreferences, saveLocalPreferences, } from "@stella/runtime/ker
 import { IPC_APP_SOURCE_STATE, IPC_PREFERENCES_GET_WAKE_WORD, IPC_PREFERENCES_SET_WAKE_WORD, } from "@stella/contracts/desktop/ipc-channels";
 import { registerOfficePreviewHandlers } from "../ipc/office-preview-handlers.js";
 import { createCloudConversationFileGrants } from "../services/cloud-conversation-file-grants.js";
+import { createDeviceFileLocator } from "../services/device-file-locator.js";
 import { registerScheduleHandlers } from "../ipc/schedule-handlers.js";
 import { registerThemeHandlers } from "../ipc/theme-handlers.js";
 import { registerWebsiteHandlers } from "../ipc/website-handlers.js";
@@ -330,6 +331,11 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
     });
     const display = registerDisplayHandlers({
         cloudFileGrants,
+        deviceFileLocator: createDeviceFileLocator({
+            getBackendUrl: () => services.authService.getBackendUrl(),
+            getAuthToken: () => services.authService.getAuthToken(),
+        }),
+        getDeviceId: () => state.deviceId,
         getAuthToken: () => services.authService.getAuthToken(),
         getStellaAppDir: lifecycle.getStellaAppDir,
         getStellaDataDir: lifecycle.getStellaDataDir,

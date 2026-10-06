@@ -408,6 +408,7 @@ export type RunnerContext = {
   getDefaultConversationId?: StellaHostRunnerOptions["getDefaultConversationId"];
   /** Desktop's writer into a cloud conversation's DO-resident transcript. */
   cloudTranscript: import("./cloud-transcript-write.js").CloudTranscriptWriter;
+  linkedFilePublisher: import("../device-files/linked-file-publisher.js").LinkedFilePublisher;
   paths: RunnerPaths;
   state: RunnerState;
   hookEmitter: HookEmitter;

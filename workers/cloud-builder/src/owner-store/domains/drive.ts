@@ -21,13 +21,15 @@
  */
 
 import type {
+  DeviceFileLocation,
   DriveFile,
   DriveFileRecord,
   DriveFileUrl,
 } from "@stella/contracts/backend/drive";
+import { DEVICE_FILE_COPY_LIMITS } from "@stella/contracts/device-files";
 import { copyR2Object, presignR2Url, r2Signer, type R2Signer } from "../../r2-presign.js";
 import { sha256Hex } from "../../hash.js";
-import { number, object, optional, string } from "../args.js";
+import { array, number, object, optional, string } from "../args.js";
 import { RpcError } from "../errors.js";
 import { enforceOwnerRateLimit } from "../rate-limit.js";
 import type { OwnerContext, OwnerDbReader, OwnerDomain } from "../registry.js";
@@ -135,6 +137,39 @@ export const DRIVE_MIGRATION = {
      )`,
     `CREATE INDEX drive_deletions_deleted_at ON drive_deletions (deleted_at)`,
   ],
+};
+
+export const DRIVE_DEVICE_FILES_MIGRATION = {
+  id: "drive.2-device-files",
+  statements: [
+    `CREATE TABLE drive_device_files (
+       device_id TEXT NOT NULL,
+       source_path TEXT NOT NULL,
+       device_name TEXT NOT NULL,
+       drive_path TEXT,
+       name TEXT NOT NULL,
+       size_bytes INTEGER NOT NULL,
+       content_type TEXT NOT NULL,
+       updated_at INTEGER NOT NULL,
+       PRIMARY KEY (device_id, source_path)
+     )`,
+    `CREATE INDEX drive_device_files_source ON drive_device_files (source_path, updated_at)`,
+  ],
+};
+
+const MAX_DEVICE_FILE_SOURCE_CHARS = 4_000;
+const MAX_DEVICE_FILES_PER_RECORD = 50;
+const MAX_DEVICE_FILE_ROWS = 20_000;
+
+type DeviceFileRow = {
+  device_id: string;
+  source_path: string;
+  device_name: string;
+  drive_path: string | null;
+  name: string;
+  size_bytes: number;
+  content_type: string;
+  updated_at: number;
 };
 
 type FileRow = {
@@ -684,6 +719,113 @@ const listFiles = (
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
+};
+
+const sourcePathOf = (raw: string): string => {
+  const value = raw.trim();
+  if (
+    !value ||
+    value.length > MAX_DEVICE_FILE_SOURCE_CHARS ||
+    /[\u0000-\u001f\u007f]/.test(value) ||
+    !(value.startsWith("/") || /^[a-zA-Z]:[\\/]/.test(value))
+  ) {
+    throw invalid("A device file needs the absolute path it has on that computer.");
+  }
+  return value;
+};
+
+const recordDeviceFiles = (
+  ctx: OwnerContext,
+  args: {
+    deviceId: string;
+    deviceName?: string;
+    files: Array<{ sourcePath: string; drivePath?: string; sizeBytes: number; contentType?: string }>;
+  },
+): { recorded: number } => {
+  enforceOwnerRateLimit(
+    ctx.db,
+    ctx.now,
+    "drive.recordDeviceFiles",
+    { count: 120, windowMs: 60_000 },
+    "Too many device file records. Wait a moment and try again.",
+  );
+  const deviceId = args.deviceId.trim();
+  if (!deviceId) throw invalid("A device id is required.");
+  const deviceName =
+    args.deviceName?.trim().slice(0, 200) ||
+    ctx.db.one<{ name: string | null }>("SELECT name FROM devices WHERE device_id = ?", deviceId)?.name ||
+    "";
+  let recorded = 0;
+  for (const file of args.files) {
+    const sourcePath = sourcePathOf(file.sourcePath);
+    const drivePath = file.drivePath ? normalizeDrivePath(file.drivePath) : null;
+    if (drivePath && !getFile(ctx.db, drivePath)) {
+      throw invalid("A device file's drive copy must already be in the drive.");
+    }
+    const name = sourcePath.slice(Math.max(sourcePath.lastIndexOf("/"), sourcePath.lastIndexOf("\\")) + 1);
+    ctx.db.run(
+      `INSERT INTO drive_device_files
+         (device_id, source_path, device_name, drive_path, name, size_bytes, content_type, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (device_id, source_path) DO UPDATE SET
+         device_name = excluded.device_name,
+         drive_path = COALESCE(excluded.drive_path, drive_device_files.drive_path),
+         name = excluded.name,
+         size_bytes = excluded.size_bytes,
+         content_type = excluded.content_type,
+         updated_at = excluded.updated_at`,
+      deviceId,
+      sourcePath,
+      deviceName,
+      drivePath,
+      name || sourcePath,
+      normalizeSize(file.sizeBytes),
+      normalizeContentType(file.contentType),
+      ctx.now,
+    );
+    recorded += 1;
+  }
+  ctx.db.run(
+    `DELETE FROM drive_device_files WHERE rowid IN (
+       SELECT rowid FROM drive_device_files ORDER BY updated_at DESC LIMIT -1 OFFSET ?
+     )`,
+    MAX_DEVICE_FILE_ROWS,
+  );
+  return { recorded };
+};
+
+const locateDeviceFiles = (
+  db: OwnerDbReader,
+  args: { paths: string[] },
+): { files: DeviceFileLocation[] } => {
+  const files: DeviceFileLocation[] = [];
+  const seen = new Set<string>();
+  for (const raw of args.paths) {
+    const sourcePath = raw.trim();
+    if (!sourcePath || seen.has(sourcePath)) continue;
+    seen.add(sourcePath);
+    const row = db.one<DeviceFileRow & { current_name: string | null }>(
+      `SELECT f.*, d.name AS current_name FROM drive_device_files f
+         LEFT JOIN devices d ON d.device_id = f.device_id
+        WHERE f.source_path = ?
+        ORDER BY f.updated_at DESC LIMIT 1`,
+      sourcePath,
+    );
+    if (!row) continue;
+    const copy = row.drive_path ? getFile(db, row.drive_path) : null;
+    const usableCopy = copy && copy.source !== "workspace" ? copy : null;
+    files.push({
+      sourcePath: row.source_path,
+      deviceId: row.device_id,
+      deviceName: row.current_name?.trim() || row.device_name || "another computer",
+      drivePath: usableCopy ? usableCopy.path : null,
+      name: row.name,
+      sizeBytes: usableCopy ? usableCopy.size_bytes : row.size_bytes,
+      contentType: usableCopy ? usableCopy.content_type : row.content_type,
+      updatedAt: row.updated_at,
+    });
+  }
+  return { files };
 };
 
 // ── Server-internal input ────────────────────────────────────────────────
@@ -1344,6 +1486,7 @@ const purgeDrive = async (ctx: OwnerContext): Promise<{ pending: boolean }> => {
   ctx.db.run("DELETE FROM drive_files");
   ctx.db.run("DELETE FROM drive_uploads");
   ctx.db.run("DELETE FROM drive_deletions");
+  ctx.db.run("DELETE FROM drive_device_files");
   ctx.jobs.cancel(DRIVE_CLEANUP_JOB);
   ctx.jobs.cancel(DRIVE_PRUNE_JOB);
   const bucket = bucketOf(ctx);
@@ -1360,7 +1503,7 @@ const pathArg = string({ min: 1, max: 4_000 });
 
 export const driveDomain = {
   name: "drive",
-  migrations: [DRIVE_MIGRATION],
+  migrations: [DRIVE_MIGRATION, DRIVE_DEVICE_FILES_MIGRATION],
   calls: {
     "drive.prepareUpload": {
       scope: "owner",
@@ -1405,6 +1548,32 @@ export const driveDomain = {
         ctx: OwnerContext,
         args: { prefix?: string; limit?: number },
       ) => ({ files: listFiles(ctx.db, args) }),
+    },
+    "drive.recordDeviceFiles": {
+      scope: "owner",
+      parse: object({
+        deviceId: string({ min: 1, max: 256 }),
+        deviceName: optional(string({ max: 1_000 })),
+        files: array(
+          object({
+            sourcePath: string({ min: 1, max: MAX_DEVICE_FILE_SOURCE_CHARS }),
+            drivePath: optional(pathArg),
+            sizeBytes: number({ min: 0 }),
+            contentType: optional(string({ max: 1_000 })),
+          }),
+          { max: MAX_DEVICE_FILES_PER_RECORD },
+        ),
+      }),
+      handler: recordDeviceFiles,
+    },
+    "drive.locateDeviceFiles": {
+      scope: "owner",
+      parse: object({
+        paths: array(string({ min: 1, max: MAX_DEVICE_FILE_SOURCE_CHARS }), {
+          max: DEVICE_FILE_COPY_LIMITS.maxLocatePaths,
+        }),
+      }),
+      handler: (ctx: OwnerContext, args: { paths: string[] }) => locateDeviceFiles(ctx.db, args),
     },
   },
   views: {

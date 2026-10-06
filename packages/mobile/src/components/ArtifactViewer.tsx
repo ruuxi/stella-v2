@@ -29,7 +29,7 @@ import {
   bytesToText,
   loadExistingOfficePreviewHtml,
   loadOfficePreviewHtml,
-  readDesktopArtifactFile,
+  readLinkedArtifactFile,
 } from "../lib/desktop-artifact-data";
 import { sharePdf } from "../lib/chat-pdf";
 import {
@@ -402,11 +402,10 @@ export function ArtifactViewerContent({
         }
         return { kind: "url" as const, uri };
       }
-      if (!access) {
-        throw new Error("Pair this phone with your desktop again.");
-      }
-
       if (payload.kind === "office") {
+        if (!access) {
+          throw new Error("Pair this phone with your desktop again.");
+        }
         return {
           kind: "html-document" as const,
           html: prepareDocumentHtml(
@@ -423,6 +422,9 @@ export function ArtifactViewerContent({
         payload.kind === "file-artifact" &&
         payload.artifactKind !== "delimited-table"
       ) {
+        if (!access) {
+          throw new Error("Pair this phone with your desktop again.");
+        }
         return {
           kind: "html-document" as const,
           html: prepareDocumentHtml(
@@ -440,7 +442,7 @@ export function ArtifactViewerContent({
       if (!filePath) {
         throw new Error("This artifact does not have a mobile preview yet.");
       }
-      const result = await readDesktopArtifactFile(
+      const result = await readLinkedArtifactFile(
         access,
         artifact.conversationId,
         filePath,

@@ -1954,6 +1954,16 @@ export class LocalAgentManager {
             // tools, remote terminal, and lifecycle delivery all remain zero.
             return;
         }
+        if (task.status === "completed" &&
+            task.storageMode === "cloud" &&
+            !task.descendantFinalParked &&
+            typeof task.result === "string" &&
+            task.result) {
+            try {
+                this.opts.onCloudReportText?.(task.result);
+            }
+            catch { }
+        }
         // The cloud terminal row is the restart-safe delivery receipt. Admit it
         // to the local SQLite outbox before the in-memory task can be evicted or
         // the direct orchestrator wake is attempted. The outbox preserves start

@@ -26,6 +26,8 @@ import { planDisplayFileRead } from "./display-read-limit.js";
 import { resolveJwtOwnerScope } from "@stella/runtime/kernel/runner/computer-agent-cloud-records";
 import { resolveCanonicalConversationFilePaths } from "../services/canonical-conversation-file-paths.js";
 import type { CloudConversationFileGrants } from "../services/cloud-conversation-file-grants.js";
+import type { DeviceFileLocator } from "../services/device-file-locator.js";
+import { deviceFileElsewhereMessage } from "@stella/contracts/device-files";
 
 type DisplayHandlersOptions = {
   getStellaAppDir: () => string | null;
@@ -34,6 +36,8 @@ type DisplayHandlersOptions = {
   getAuthToken?: () => Promise<string | null>;
   /** Files Stella produced or displayed in a conversation, per its cloud journal. */
   cloudFileGrants?: CloudConversationFileGrants;
+  deviceFileLocator?: DeviceFileLocator;
+  getDeviceId?: () => string | null;
   assertPrivilegedSender: (
     event: IpcMainEvent | IpcMainInvokeEvent,
     channel: string,
@@ -242,6 +246,33 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
    * paired phone's `file.read` relayed through the cloud (`remote: true`),
    * which is held to Stella's own outputs and the conversation's files.
    */
+  const readFromOwningDevice = async (
+    requestedPath: string,
+    maxBytes: unknown,
+    mimeType: string,
+  ) => {
+    const locator = options.deviceFileLocator;
+    if (!locator) return null;
+    const location = await locator.locate(requestedPath);
+    if (!location) return null;
+    if (location.drivePath) {
+      const plan = planDisplayFileRead(location.sizeBytes, maxBytes);
+      if (!plan.ok) {
+        throw new Error(plan.error);
+      }
+      const copy = await locator.readCopy(location.drivePath, plan.readBytes);
+      return {
+        bytes: copy.bytes,
+        sizeBytes: copy.sizeBytes,
+        mimeType,
+        truncated: copy.bytes.byteLength < copy.sizeBytes,
+        missing: false as const,
+      };
+    }
+    if (location.deviceId === options.getDeviceId?.()) return null;
+    throw new Error(deviceFileElsewhereMessage(location.deviceName));
+  };
+
   const readDisplayFile = async (
     payload:
       | {
@@ -345,6 +376,12 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
         typeof caught === "object" &&
         (caught as NodeJS.ErrnoException).code === "ENOENT"
       ) {
+        const elsewhere = await readFromOwningDevice(
+          requestedPath,
+          payload?.maxBytes,
+          mimeType,
+        );
+        if (elsewhere) return elsewhere;
         return { missing: true as const, mimeType, path: resolved };
       }
       throw caught;

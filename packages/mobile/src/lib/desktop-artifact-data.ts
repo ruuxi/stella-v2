@@ -1,4 +1,7 @@
 import { isCloudWorkspacePath } from "@stella/contracts/cloud-world-paths";
+import type { DeviceFileLocation } from "@stella/contracts/backend/drive";
+import { deviceFileElsewhereMessage } from "@stella/contracts/device-files";
+import { getBackendClient } from "./backend";
 import {
   decodeUtf8,
   isDeviceNotFoundError,
@@ -83,6 +86,67 @@ export const readDesktopArtifactFile = async (
       };
     }
     throw error;
+  }
+};
+
+const locateDeviceFile = async (
+  filePath: string,
+): Promise<DeviceFileLocation | null> => {
+  try {
+    const { files } = await getBackendClient().call("drive.locateDeviceFiles", {
+      paths: [filePath],
+    });
+    return files.find((file) => file.sourcePath === filePath) ?? null;
+  } catch {
+    return null;
+  }
+};
+
+export const readLinkedArtifactFile = async (
+  access: StoredPhoneAccess | null,
+  conversationId: string,
+  filePath: string,
+  signal?: AbortSignal,
+): Promise<DesktopFileReadResult> => {
+  assertReadableOnPairedComputer(filePath);
+  const location = await locateDeviceFile(filePath);
+  assertActive(signal);
+  if (location?.drivePath) {
+    const file = await getBackendClient().call("drive.fileUrl", {
+      path: location.drivePath,
+    });
+    const response = await fetch(file.url, { signal });
+    if (!response.ok) {
+      throw new Error("Couldn't load the copy of this file in your Drive.");
+    }
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    assertActive(signal);
+    return {
+      missing: false,
+      bytes,
+      sizeBytes: bytes.byteLength,
+      mimeType: file.contentType || "application/octet-stream",
+    };
+  }
+  const elsewhere =
+    location && location.deviceId !== access?.desktopDeviceId
+      ? new Error(deviceFileElsewhereMessage(location.deviceName))
+      : null;
+  if (!access) {
+    throw elsewhere ?? new Error("Pair this phone with your desktop again.");
+  }
+  try {
+    const result = await readDesktopArtifactFile(
+      access,
+      conversationId,
+      filePath,
+      signal,
+    );
+    if (result.missing && elsewhere) throw elsewhere;
+    return result;
+  } catch (error) {
+    assertActive(signal);
+    throw elsewhere ?? error;
   }
 };
 

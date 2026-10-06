@@ -129,7 +129,7 @@ import type { RealtimeVoiceActionDispatch } from "../lib/realtime-voice-protocol
 import type { StoredPhoneAccess } from "../lib/phone-access";
 import {
   bytesToDataUri,
-  readDesktopArtifactFile,
+  readLinkedArtifactFile,
 } from "../lib/desktop-artifact-data";
 import { isDeviceOfflineError } from "../lib/device-requests";
 import { useChatSearch } from "../lib/chat-search";
@@ -1262,12 +1262,8 @@ const GeneratedImageTile = memo(function GeneratedImageTile({
       setUri(filePath);
       return () => undefined;
     }
-    if (!access) {
-      setFailed(true);
-      return () => undefined;
-    }
     const controller = new AbortController();
-    void readDesktopArtifactFile(access, conversationId, filePath, controller.signal)
+    void readLinkedArtifactFile(access ?? null, conversationId, filePath, controller.signal)
       .then((result) => {
         if (cancelled) return;
         if (result.missing) {

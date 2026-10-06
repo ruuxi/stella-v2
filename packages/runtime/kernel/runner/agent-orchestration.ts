@@ -815,6 +815,8 @@ export const createAgentOrchestration = (
         signal,
         onUpdate,
       ),
+    onCloudReportText: (text: string) =>
+      context.linkedFilePublisher?.publishText(text),
     ...(deps.cloudAgentRecords
       ? {
           createCloudAgentRecord: deps.cloudAgentRecords.create,

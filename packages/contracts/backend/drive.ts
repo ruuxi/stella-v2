@@ -39,6 +39,24 @@ export type DriveFileUrl = {
   expiresAt: number;
 };
 
+export type DeviceFileLocation = {
+  sourcePath: string;
+  deviceId: string;
+  deviceName: string;
+  drivePath: string | null;
+  name: string;
+  sizeBytes: number;
+  contentType: string;
+  updatedAt: number;
+};
+
+export type DeviceFileRecordInput = {
+  sourcePath: string;
+  drivePath?: string;
+  sizeBytes: number;
+  contentType?: string;
+};
+
 export type DriveCalls = {
   /**
    * Claim an upload: a presigned PUT for `uploadUrl`, valid for an hour.
@@ -75,6 +93,14 @@ export type DriveCalls = {
   "drive.list": {
     args: { prefix?: string; limit?: number };
     result: { files: DriveFile[] };
+  };
+  "drive.recordDeviceFiles": {
+    args: { deviceId: string; deviceName?: string; files: DeviceFileRecordInput[] };
+    result: { recorded: number };
+  };
+  "drive.locateDeviceFiles": {
+    args: { paths: string[] };
+    result: { files: DeviceFileLocation[] };
   };
 };
 

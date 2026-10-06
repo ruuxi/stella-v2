@@ -1,6 +1,7 @@
 import type { DeviceFileLocation, DriveFileUrl } from "@stella/contracts/backend/drive";
 import { rpcPath, type RpcResponse } from "@stella/contracts/backend/protocol";
 import { pickDeviceFileLocation } from "@stella/contracts/device-files";
+import { resolveJwtOwnerScope } from "@stella/runtime/kernel/runner/computer-agent-cloud-records";
 
 const REQUEST_TIMEOUT_MS = 15_000;
 const DOWNLOAD_TIMEOUT_MS = 120_000;
@@ -46,27 +47,32 @@ export const createDeviceFileLocator = (deps: Deps): DeviceFileLocator => {
     return body.value;
   };
 
-  const candidates = (sourcePath: string): Promise<DeviceFileLocation[]> => {
+  const candidates = async (sourcePath: string): Promise<DeviceFileLocation[]> => {
+    const baseUrl = deps.getBackendUrl()?.trim() ?? "";
+    const token = await deps.getAuthToken().catch(() => null);
+    const owner = resolveJwtOwnerScope(token);
+    if (!baseUrl || !owner) return [];
+    const cacheKey = `${baseUrl}\0${owner}\0${sourcePath}`;
     const now = Date.now();
-    const cached = cache.get(sourcePath);
-    if (cached && now - cached.at < LOCATION_CACHE_TTL_MS) return cached.value;
+    const cached = cache.get(cacheKey);
+    if (cached && now - cached.at < LOCATION_CACHE_TTL_MS) return await cached.value;
     const value = call<{ files: DeviceFileLocation[] }>("drive.locateDeviceFiles", {
       paths: [sourcePath],
     })
       .then((result) => result.files)
       .catch((error: unknown) => {
-        cache.delete(sourcePath);
+        cache.delete(cacheKey);
         console.warn(
           "[device-files] Could not look up where this file lives:",
           error instanceof Error ? error.message : String(error),
         );
         return [] as DeviceFileLocation[];
       });
-    cache.set(sourcePath, { at: now, value });
+    cache.set(cacheKey, { at: now, value });
     for (const [key, entry] of cache) {
       if (now - entry.at >= LOCATION_CACHE_TTL_MS) cache.delete(key);
     }
-    return value;
+    return await value;
   };
 
   const locate = async (sourcePath: string, readerDeviceId?: string | null) =>

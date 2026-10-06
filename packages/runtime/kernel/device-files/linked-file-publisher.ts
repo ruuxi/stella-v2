@@ -191,7 +191,13 @@ export const createLinkedFilePublisher = (deps: {
     if (!stillSameOwner()) return;
     const client = new BackendClient({
       baseUrl: job.baseUrl,
-      getToken: async () => job.token,
+      getToken: async () => {
+        const token = deps.getAuthToken()?.trim();
+        if (!token || deps.ownerScopeOf(token) !== job.ownerScope) {
+          throw new Error("The signed-in account changed before these files were copied.");
+        }
+        return token;
+      },
     });
     try {
       const records: DeviceFileRecordInput[] = [];

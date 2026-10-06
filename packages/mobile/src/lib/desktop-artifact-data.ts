@@ -152,8 +152,9 @@ export const readLinkedArtifactFile = async (
     location && location.deviceId !== access?.desktopDeviceId
       ? new Error(deviceFileElsewhereMessage(location.deviceName))
       : null;
+  if (elsewhere) throw elsewhere;
   if (!access) {
-    throw elsewhere ?? new Error("Pair this phone with your desktop again.");
+    throw new Error("Pair this phone with your desktop again.");
   }
   try {
     const result = await readDesktopArtifactFile(

@@ -426,8 +426,7 @@ export function ArtifactViewerContent({
       ) {
         const located = await locateDeviceFile(payload.filePath);
         if (
-          located?.drivePath &&
-          (!access || located.deviceId !== access.desktopDeviceId)
+          located?.drivePath
         ) {
           return {
             kind: "url" as const,

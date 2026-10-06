@@ -130,6 +130,7 @@ export const DEEPSEEK_V4_FLASH_FIREWORKS_MODEL =
   "accounts/fireworks/models/deepseek-v4-flash-0731";
 export const DEEPSEEK_V4_FLASH_DIRECT_MODEL = "deepseek/deepseek-v4-flash";
 export const DEEPSEEK_V4_1_FLASH_MODEL = "deepseek/deepseek-v4.1-flash";
+export const DEEPSEEK_V4_1_FLASH_MAX_OUTPUT_TOKENS = 393_216;
 
 export const DEEPSEEK_V4_1_FLASH_PROVIDER_OPTIONS = {
   openai: { reasoningEffort: "xhigh" },
@@ -141,6 +142,7 @@ const DEEPSEEK_V4_FLASH_MODEL_CONFIG: ModeConfig = {
   managedGatewayProvider: "openrouter",
   api: "openai-completions",
   temperature: 1.0,
+  maxOutputTokens: DEEPSEEK_V4_1_FLASH_MAX_OUTPUT_TOKENS,
   providerOptions: DEEPSEEK_V4_1_FLASH_PROVIDER_OPTIONS,
 };
 

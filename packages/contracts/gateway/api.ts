@@ -280,8 +280,6 @@ export const GATEWAY_MAX_OUTPUT_TOKENS_BY_AUDIENCE: Readonly<
   Partial<Record<ManagedModelAudienceForLimits, number>>
 > = {
   anonymous: 2_048,
-  free: 4_096,
-  go: 8_192,
 };
 
 /** Per-network (client IP) ceilings enforced before any provider spend. */

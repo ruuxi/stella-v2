@@ -6,6 +6,7 @@ import {
   DEVICE_PRESENCE_PROOF_PREFIX,
   DEVICE_PRESENCE_PROTOCOL_VERSION,
   DEVICE_PRESENCE_SUBPROTOCOL,
+  DEVICE_TERMINAL_RESULT_MAX_BYTES,
   DISPATCH_OFFER_WINDOW_MS,
   DISPATCH_SUBMIT_PATH,
   PLACEMENT_PROTOCOL,
@@ -43,7 +44,6 @@ const PRESENCE_SOCKET_RECONNECT_MAX_MS = 30_000;
 const EXECUTION_LEASE_RENEWAL_FAILSAFE_MS = 2 * 60_000;
 const CLAIM_ACK_RETRY_BASE_MS = 1_000;
 const CLAIM_ACK_RETRY_MAX_MS = 15_000;
-const TERMINAL_RESULT_LIMIT = 110_000;
 /** A claim the gate does not answer inside the offer window lost its race. */
 const CLAIM_RESPONSE_TIMEOUT_MS = DISPATCH_OFFER_WINDOW_MS + 1_000;
 /** How long a `complete` frame waits for the owner gate's terminal echo. */
@@ -714,12 +714,38 @@ const parseDispatch = (value: unknown): DispatchSummary => {
 const isTerminalState = (state: string) =>
   (TERMINAL_DISPATCH_STATES as readonly string[]).includes(state);
 
-const boundedResult = (value: string | undefined) => {
-  if (!value) return undefined;
-  const bytes = Buffer.from(value, "utf8");
-  if (bytes.byteLength <= TERMINAL_RESULT_LIMIT) return value;
-  return bytes.subarray(0, TERMINAL_RESULT_LIMIT).toString("utf8");
+const utf8Bytes = (value: string) => Buffer.byteLength(value, "utf8");
+
+const fitWithinBytes = (
+  value: string,
+  render: (text: string, omittedChars: number) => string,
+): string => {
+  if (utf8Bytes(render(value, 0)) <= DEVICE_TERMINAL_RESULT_MAX_BYTES) {
+    return render(value, 0);
+  }
+  let low = 0;
+  let high = value.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    const candidate = render(value.slice(0, mid), value.length - mid);
+    if (utf8Bytes(candidate) <= DEVICE_TERMINAL_RESULT_MAX_BYTES) low = mid;
+    else high = mid - 1;
+  }
+  return render(value.slice(0, low), value.length - low);
 };
+
+const withOmissionNote = (text: string, omittedChars: number) =>
+  omittedChars > 0
+    ? `${text}\n\n[Report shortened for delivery: ${omittedChars} more characters exceeded the ${DEVICE_TERMINAL_RESULT_MAX_BYTES}-byte terminal record limit.]`
+    : text;
+
+const boundedResult = (value: string | undefined) =>
+  value ? fitWithinBytes(value, withOmissionNote) : undefined;
+
+const terminalResultJson = (finalText: string) =>
+  fitWithinBytes(finalText, (text, omittedChars) =>
+    JSON.stringify({ finalText: withOmissionNote(text, omittedChars) }),
+  );
 
 /** The owner gate refused this device's authority; only a fresh identity helps. */
 const isOwnerLifecycleFenceError = (error: unknown) => {
@@ -2425,11 +2451,7 @@ export class ExecutionPlacementBridge {
       const failed = result.status === "error";
       const resultJson =
         result.status === "ok"
-          ? boundedResult(
-              JSON.stringify({
-                finalText: boundedResult(result.finalText),
-              }),
-            )
+          ? terminalResultJson(result.finalText ?? "")
           : undefined;
       this.inbox.markTerminalPending(row.dispatchId, {
         outcome: canceled ? "canceled" : failed ? "failed" : "completed",

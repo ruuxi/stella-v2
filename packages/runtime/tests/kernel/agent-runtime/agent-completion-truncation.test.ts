@@ -60,9 +60,7 @@ describe("getAgentCompletion truncated-reasoning detection", () => {
     expect(completion.errorMessage).toMatch(/truncated/i);
   });
 
-  it("does not flag a length stop that still produced visible text", () => {
-    // Truncation mid-answer is degraded but not silent: the caller still gets
-    // the partial text. Keep the success path so the partial reply surfaces.
+  it("marks a length stop that still produced visible text as incomplete", () => {
     const completion = completionFor(
       assistantMessage({
         stopReason: "length",
@@ -73,7 +71,9 @@ describe("getAgentCompletion truncated-reasoning detection", () => {
       }),
     );
 
-    expect(completion.finalText).toBe("Partial answer before the cap.");
+    expect(completion.finalText).toMatch(
+      /^Partial answer before the cap\.\n\n\[This reply is incomplete: the model hit its output-token limit/,
+    );
     expect(completion.errorMessage).toBeUndefined();
   });
 

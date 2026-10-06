@@ -147,7 +147,7 @@ describe("device presence socket", () => {
     const { socket: big } = await second.connect(keys[0]!);
     await second.instance.webSocketMessage(
       big,
-      JSON.stringify({ type: "availability", pad: "x".repeat(70_000) }),
+      JSON.stringify({ type: "availability", pad: "x".repeat(1_600_000) }),
     );
     expect(big.closes).toEqual([
       { code: DEVICE_PRESENCE_CLOSE.protocol, reason: "frame_too_large" },

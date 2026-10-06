@@ -93,14 +93,14 @@ describe("managed output caps", () => {
           generationConfig: { maxOutputTokens: 99_999 },
         },
         protocol: "openai-responses",
-        audience: "free",
+        audience: "anonymous",
         modelCeiling: undefined,
       }),
     ).toMatchObject({
-      max_tokens: 4_096,
+      max_tokens: 2_048,
       max_output_tokens: 1_000,
-      max_completion_tokens: 4_096,
-      generationConfig: { maxOutputTokens: 4_096 },
+      max_completion_tokens: 2_048,
+      generationConfig: { maxOutputTokens: 2_048 },
     });
   });
 
@@ -125,7 +125,7 @@ describe("managed output caps", () => {
       clampOutputTokens({
         requestJson: { max_tokens: 100 },
         protocol: "openai-responses",
-        audience: "free",
+        audience: "anonymous",
         modelCeiling: undefined,
       }).max_output_tokens,
     ).toBe(100);
@@ -138,9 +138,9 @@ describe("managed output caps", () => {
       "openai-responses",
       "/v1/relay/responses",
       { input: "hello" },
-      { audience: "go" },
+      { audience: "anonymous" },
     );
-    expect(json.max_output_tokens).toBe(8_192);
+    expect(json.max_output_tokens).toBe(2_048);
   });
 });
 

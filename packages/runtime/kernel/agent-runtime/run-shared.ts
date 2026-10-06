@@ -398,6 +398,8 @@ export const getAgentCompletion = (
       };
     }
 
+    const cutAtOutputLimit = latestAssistant.stopReason === "length";
+    const cutOutputTokens = latestAssistant.usage?.output;
     if (isTruncatedReasoningCompletion(latestAssistant)) {
       const outputTokens = latestAssistant.usage?.output;
       return {
@@ -405,6 +407,15 @@ export const getAgentCompletion = (
         errorMessage: `Run truncated: model hit the output-token cap${
           outputTokens ? ` (${outputTokens} tokens)` : ""
         } while reasoning; no visible reply was produced.`,
+      };
+    }
+
+    if (cutAtOutputLimit && finalText.trim()) {
+      const outputTokens = cutOutputTokens;
+      return {
+        finalText: `${finalText}\n\n[This reply is incomplete: the model hit its output-token limit${
+          outputTokens ? ` (${outputTokens} tokens)` : ""
+        } and stopped mid-reply. Everything above is what it produced before the cut.]`,
       };
     }
   }

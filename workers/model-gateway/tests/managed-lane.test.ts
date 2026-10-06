@@ -1282,6 +1282,7 @@ describe("POST /v1/models/resolve", () => {
       protocol: "openai-completions",
       reasoning: true,
       supportsImages: true,
+      maxOutputTokens: 393_216,
     });
   });
 

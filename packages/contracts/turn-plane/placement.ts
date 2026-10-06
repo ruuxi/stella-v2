@@ -303,7 +303,8 @@ export type DispatchError = {
 
 export const DEVICE_PRESENCE_SUBPROTOCOL = "stella.v1" as const;
 export const DEVICE_PRESENCE_PROTOCOL_VERSION = 1 as const;
-export const DEVICE_PRESENCE_MAX_FRAME_BYTES = 64 * 1024;
+export const DEVICE_PRESENCE_MAX_FRAME_BYTES = 1536 * 1024;
+export const DEVICE_TERMINAL_RESULT_MAX_BYTES = 1_000_000;
 
 export type DeviceAvailability = {
   ready: boolean;

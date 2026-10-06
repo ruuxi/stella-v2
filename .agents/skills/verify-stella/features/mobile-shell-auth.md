@@ -6,6 +6,7 @@ The mobile shell resolves startup and onboarding before exposing the main naviga
 
 - `mobile-startup` resolves splash, stored theme, session, and initial route.
 - `mobile-login` accepts supported sign-in flows and visible failures.
+- `mobile-test-sign-in` signs a development build into a dev `@test.stella.local` account through `stella-mobile://dev-test-session`. Source: `app/dev-test-session.tsx`, `src/lib/dev-test-session.ts`.
 - `mobile-anonymous-entry` creates an anonymous session and reaches usable Chat without collecting account credentials.
 - `mobile-onboarding` steps through required first-run choices.
 - `mobile-navigation` exposes chat, search, account, and other main destinations.
@@ -22,11 +23,12 @@ The mobile shell resolves startup and onboarding before exposing the main naviga
 Preconditions:
 
 - Complete `control-stella-ios.sh doctor`, `stage`, `boot`, and the Expo build/launch recipe in [iOS](./ios.md).
-- A sign-in test needs an approved test account and reachable auth service.
+- An authenticated state needs a development build against the dev backend (`control-stella-ios.sh build`) and `control-stella-ios.sh sign-in`.
 - Anonymous entry needs the reachable auth service but no account credentials.
 
 - **Startup.** Capture `frame` immediately after launch and again after settling. Require splash to resolve to login, onboarding, or main shell.
-- **Login.** With `screen_input=yes`, capture `screen`, inspect coordinates, enter test credentials, submit once, and recapture `frame`.
+- **Signed-in state.** Run `control-stella-ios.sh sign-in --plan pro`, capture `frame` once the "Test-account sign-in" screen hands off, and require onboarding (fresh account) or the main shell. Open Settings and read the signed-in account back. This proves an authenticated session, not the interactive OAuth or Apple flows on the login screen.
+- **Interactive login.** OAuth and Apple sheets usually cannot complete in Simulator; capture the login screen and the sheet it opens, and report completion as blocked.
 - **Anonymous entry.** From a fresh login screen, use the current accessibility snapshot to tap **Continue without signing in**. Require onboarding or the main shell, then open Chat and require a visible enabled composer rather than `sign-in-prompt-button`.
 - **Onboarding.** Advance one visible step at a time, recapturing after every transition. Require the final action to reach the main shell.
 - **Navigation.** Tap each visible main destination from fresh inspected coordinates and capture its selected state.

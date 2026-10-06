@@ -60,6 +60,20 @@ curl -sS -X POST \
 The dev deployment has `STELLA_TEST_ACCOUNTS=1`; production never does. The
 route accepts only addresses ending in `@test.stella.local`.
 
+The iOS dev build signs into a test account through the same route:
+
+```sh
+.agents/skills/verify-stella/scripts/control-stella-ios.sh sign-in --plan pro
+```
+
+The response also carries a three-minute, single-use `oneTimeToken`. The helper
+opens `stella-mobile://dev-test-session?ott=…` in the booted Simulator, and the
+app exchanges it through Better Auth's one-time-token verify, the same exchange
+its OAuth callbacks use. The app refuses the link outside a development build
+(`__DEV__`), against any backend other than dev, and for any account outside
+`@test.stella.local` (it signs that session straight back out). Production
+never mints the token because it has no test-accounts route.
+
 ## Installed builds
 
 Desktop ships only through the native launchers in `launcher/macos`,

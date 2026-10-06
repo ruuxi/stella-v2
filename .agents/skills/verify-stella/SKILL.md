@@ -1,9 +1,11 @@
 ---
 name: verify-stella
-description: Verify Stella behavior through its real desktop Electron or iOS surfaces, with isolated harnesses and supporting cloud diagnostics.
+description: Prove a change to Stella itself works in the real product before calling it done. Use after changing Stella's desktop app, runtime, mobile app, or backend, or when asked to check, reproduce, or screenshot Stella behavior. Drives an isolated desktop Electron instance or the iOS Simulator app, each signed into a dev test account, and diagnoses cloud turns. Needs a stella-v2 checkout; iOS needs the Mac. Not for verifying the user's other apps or websites.
 ---
 
 # Verify Stella
+
+Run every command from the root of a stella-v2 checkout; paths below are relative to it. When this skill was loaded from `~/.stella/skills/verify-stella`, that folder links into the checkout it came from: `cd "$(dirname "$(realpath ~/.stella/skills/verify-stella/SKILL.md)")/../../.."`. To verify a draft or worktree instead, run the same paths from that tree.
 
 Establish whether the requested behavior works in the real product. Use your judgment to choose interactions, coverage, and evidence based on the change and what you observe. The feature map is product context and a collection of examples, not a required test suite.
 
@@ -33,7 +35,7 @@ Choose the account and initial state needed for the claim. `--account pro` uses 
 
 `session doctor` distinguishes shell, device identity, and runtime readiness. `diagnostics` and `performance` help explain failures and timing. DOM quietness from `drive settle` does not establish completion of network or agent work. `apps state` returns surface text without a readiness verdict. `chat send` distinguishes a new visible user message, a new notice, and a timeout; none establishes completion of an assistant response. Ambiguous click/fill targets return candidates; narrow them with `--within <CSS scope>` or a specific selector.
 
-For iOS, the [infrastructure reference](features/ios.md) describes the existing `stella-mac` SSH helper, disposable source staging, Simulator, and semantic input. Read it when using that path. Mobile feature notes describe product-specific context.
+For iOS, read the [infrastructure reference](features/ios.md). `scripts/control-stella-ios.sh` runs directly on the Mac, or from Linux over the `stella-mac` SSH alias; it stages disposable source, boots a simulator, builds the dev app against the dev backend (`build`), and signs it into a dev test account (`sign-in --plan pro`), then captures framebuffer proof. Semantic input comes from XcodeBuildMCP. Mobile feature notes describe product-specific context.
 
 For cloud-side behavior, [cloud verification](references/cloud.md) describes `cloud-turn.mjs` and executor diagnostics. Headless execution can prove a cloud claim; it cannot establish the desktop dispatch or browser handoff that it bypasses.
 
@@ -50,3 +52,5 @@ Keep feature notes focused on product behavior, entry points, non-obvious depend
 Improve the harness when a recurring mechanical problem needs deterministic handling. Prefer richer observations and general interaction capabilities; add a journey macro when it saves repetitive navigation without hiding evidence needed to judge the result.
 
 `node .agents/skills/verify-stella/scripts/check-feature-map.mjs` checks feature links and registered command references. It does not judge verification coverage or enforce a prose template.
+
+This folder is the only copy. Stella agents see it through `~/.stella/skills/verify-stella`, a real folder whose entries are symlinks into the checkout (Stella's skill catalog skips a symlinked skill folder, and a real folder keeps `.run/` and `artifacts/` out of `~/.stella`). After adding a top-level file or folder here, rerun `.agents/skills/verify-stella/scripts/install-stella-skill.sh` on each machine.

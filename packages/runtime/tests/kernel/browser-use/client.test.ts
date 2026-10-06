@@ -165,36 +165,56 @@ describe("BrowserSession direct daemon client", () => {
     }));
     const client = createClient(sharedDaemon, { initializeInAppBrowser });
 
+    // Every external-backend command is preceded by an `extension_status`
+    // preflight (see assertExternalBrowserAttached). The daemon fixture answers
+    // without a `connected` field, which is inconclusive, so the preflight
+    // falls through and the command still dispatches. Routing assertions below
+    // are about dispatched commands, so they ignore the preflight; the preflight
+    // itself is asserted separately.
+    const dispatched = () =>
+      inAppDaemon.requests.filter(
+        (request) => request.action !== "extension_status",
+      );
+    const preflights = () =>
+      inAppDaemon.requests.filter(
+        (request) => request.action === "extension_status",
+      );
+
     try {
       await client.command("tab_list");
 
       expect(initializeInAppBrowser).toHaveBeenCalledOnce();
-      expect(inAppDaemon.requests[0]).toMatchObject({ action: "tab_list" });
-      expect(inAppDaemon.requests[0]).not.toHaveProperty("browserBackend");
+      expect(dispatched()[0]).toMatchObject({ action: "tab_list" });
+      expect(dispatched()[0]).not.toHaveProperty("browserBackend");
       expect(sharedDaemon.requests).toHaveLength(0);
+      expect(preflights()).toHaveLength(0);
 
       await client.selectBackend("external");
       await client.command("tab_list");
 
       expect(initializeInAppBrowser).toHaveBeenCalledOnce();
-      expect(inAppDaemon.requests[1]).toMatchObject({
+      expect(dispatched()[1]).toMatchObject({
         action: "tab_list",
         browserBackend: "extension",
       });
       expect(sharedDaemon.requests).toHaveLength(0);
+      // Selecting external put a preflight in front of that command.
+      expect(preflights()).toHaveLength(1);
 
       await client.command("url", {
         tabId: 7,
         __stellaBrowserBackend: "in-app",
       });
-      expect(inAppDaemon.requests[2]).toMatchObject({
+      expect(dispatched()[2]).toMatchObject({
         action: "url",
         tabId: 7,
       });
-      expect(inAppDaemon.requests[2]).not.toHaveProperty("browserBackend");
-      expect(inAppDaemon.requests[2]).not.toHaveProperty(
+      expect(dispatched()[2]).not.toHaveProperty("browserBackend");
+      expect(dispatched()[2]).not.toHaveProperty(
         "__stellaBrowserBackend",
       );
+      // An in-app command is not preflighted.
+      expect(preflights()).toHaveLength(1);
 
       await Promise.all([
         client.chain([{ action: "tab_list" }], {
@@ -204,22 +224,22 @@ describe("BrowserSession direct daemon client", () => {
           __stellaBrowserBackend: "external",
         }),
       ]);
-      expect(inAppDaemon.requests[3]).toMatchObject({ action: "chain" });
-      expect(inAppDaemon.requests[3]).not.toHaveProperty("browserBackend");
-      expect(inAppDaemon.requests[3]).not.toHaveProperty(
+      expect(dispatched()[3]).toMatchObject({ action: "chain" });
+      expect(dispatched()[3]).not.toHaveProperty("browserBackend");
+      expect(dispatched()[3]).not.toHaveProperty(
         "__stellaBrowserBackend",
       );
-      expect(inAppDaemon.requests[4]).toMatchObject({
+      expect(dispatched()[4]).toMatchObject({
         action: "chain",
         browserBackend: "extension",
       });
-      expect(inAppDaemon.requests[4]).not.toHaveProperty(
+      expect(dispatched()[4]).not.toHaveProperty(
         "__stellaBrowserBackend",
       );
 
       // Per-chain routing must not disturb the selected external default.
       await client.command("tab_list");
-      expect(inAppDaemon.requests[5]).toMatchObject({
+      expect(dispatched()[5]).toMatchObject({
         action: "tab_list",
         browserBackend: "extension",
       });
@@ -228,8 +248,8 @@ describe("BrowserSession direct daemon client", () => {
       await client.command("tab_list");
 
       expect(initializeInAppBrowser).toHaveBeenCalledOnce();
-      expect(inAppDaemon.requests[6]).toMatchObject({ action: "tab_list" });
-      expect(inAppDaemon.requests[6]).not.toHaveProperty("browserBackend");
+      expect(dispatched()[6]).toMatchObject({ action: "tab_list" });
+      expect(dispatched()[6]).not.toHaveProperty("browserBackend");
     } finally {
       await client.dispose();
       await inAppDaemon.close();
@@ -1243,11 +1263,15 @@ describe("BrowserSession direct daemon client", () => {
       expect(initializeInAppBrowser.mock.calls[1]?.[0]?.ownerLeaseId).not.toBe(
         "lease-1",
       );
+      // `extension_status` is the external-backend attach preflight that runs
+      // over the connection already held, ahead of each dispatched command.
       expect(firstAgent.requests.map((request) => request.action)).toEqual([
+        "extension_status",
         "tab_list",
         "release_owner_lease",
       ]);
       expect(secondAgent.requests).toEqual([
+        expect.objectContaining({ action: "extension_status" }),
         expect.objectContaining({
           action: "tab_list",
           turnId: "test-turn-2",

@@ -29,6 +29,7 @@ import { stopReadAloudForDictation } from "./read-aloud";
 import { DictationStream } from "./dictation-stream";
 import { DictationIngressPacer } from "./dictation-pacer";
 import { HttpRequestError } from "./http";
+import { tapLight, tapMedium } from "./haptics";
 import {
   startDictationMeter,
   stopDictationMeter,
@@ -303,6 +304,11 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       cancelledRef.current = false;
       startedAtRef.current = Date.now();
       startDictationMeter(startedAtRef.current);
+      // The mic is live — speak now. This is the cue that matters: the user
+      // has to know the recorder is listening before they start talking, and
+      // it fires here rather than on the button press so it never promises a
+      // recording that consent or a denied mic then refuses.
+      tapMedium();
       safeSetStatus("recording");
       operationInFlightRef.current = false;
       if (stream.isComplete) void stopRecordingRef.current?.();
@@ -338,6 +344,10 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       operationInFlightRef.current = true;
       const durationMs = Date.now() - startedAtRef.current;
       cancelledRef.current = !commit;
+      // Recording ended. Lighter than the start: this one closes the gesture
+      // rather than opening it. `finalize` is the single exit for both stop
+      // and cancel, so every way out of recording is covered once.
+      tapLight();
       safeSetStatus(commit ? "transcribing" : "idle");
 
       let uri: string | null = null;

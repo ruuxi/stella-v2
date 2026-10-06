@@ -3534,7 +3534,9 @@ export function ChatPane({
 
   const toggleVoice = useCallback(async () => {
     if (dictation.status === "idle") {
-      tapLight();
+      // No tap here: `useDictation` fires on the real transition, once the
+      // mic is actually live. Buzzing on the press as well double-tapped the
+      // start and lied whenever consent or the mic permission refused.
       // In-flight progressive TTS can otherwise apply Expo's playback audio
       // mode after recording starts. On iOS that mode stops every recorder.
       await startAfterStoppingReadAloud(() => dictation.start());
@@ -4788,7 +4790,6 @@ export function ChatPane({
                 // row sits where the toolbar normally is.
                 <View style={styles.dictationInlineBlock}>
                   <DictationRecordingBar
-                    leading={plusButton}
                     placeholder={"Listening\u2026"}
                     transcriptStyle={styles.dictationInlineTranscript}
                     transcriptMaxHeight={DICTATION_INLINE_MAX_HEIGHT}

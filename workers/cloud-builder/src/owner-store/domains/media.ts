@@ -34,6 +34,7 @@ import type {
   MediaSourceReference,
 } from "@stella/contracts/backend/media";
 import { buildCapabilityDenial, hasCapability, toCapabilityAudience } from "@stella/contracts/capabilities";
+import { Effect } from "effect";
 import { sha256Hex } from "../../hash.js";
 import {
   getMediaCapability,
@@ -486,7 +487,7 @@ const admit = (ctx: OwnerContext, capabilityId: string): void => {
   enforceOwnerRateLimit(ctx.db, ctx.now, "media.generate", RATE_LIMIT, "Too many media requests. Try again in a few minutes.");
 };
 
-const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number) => Effect.runPromise(Effect.sleep(ms));
 
 /** Bytes a provider returned inline, stored as the job's `index`th output. */
 const storeBytes = async (

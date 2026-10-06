@@ -94,9 +94,11 @@
     // CAPABILITY_SIGNING_KEY is the PKCS8 PEM of the ES256 private key that
     // signs turn capabilities; it never leaves this Worker.
     // R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY sign presigned DRIVE URLs.
+    // BETTER_AUTH_SECRET signs sessions. Every other secret is optional and
+    // turns its feature on (SELF_HOSTING.md lists them).
     "required": [
       "BUILDER_SERVICE_SECRET",
-      "META_MODEL_API_KEY",
+      "BETTER_AUTH_SECRET",
       "CAPABILITY_SIGNING_KEY",
       "R2_ACCESS_KEY_ID",
       "R2_SECRET_ACCESS_KEY",
@@ -507,7 +509,7 @@
       "secrets": {
         "required": [
           "BUILDER_SERVICE_SECRET",
-          "META_MODEL_API_KEY",
+          "BETTER_AUTH_SECRET",
           "CAPABILITY_SIGNING_KEY",
           "R2_ACCESS_KEY_ID",
           "R2_SECRET_ACCESS_KEY",

@@ -32,10 +32,10 @@ enum InstanceLock {
 /// the next time the user opens Stella, or right away when Electron restarts
 /// for an app update. All of it runs in the background and only logs.
 final class LauncherUpdater {
-    static let defaultBase = "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/launcher/stable"
+    static let defaultBase = "\(Deployment.releasesURL)/launcher/stable"
     static let asset = "Stella-macos.zip"
     static let requirement =
-        "anchor apple generic and certificate leaf[subject.OU] = \"7UVYHQ763X\" and identifier \"com.stella.launcher\""
+        "anchor apple generic and certificate leaf[subject.OU] = \"\(Deployment.appleTeamID)\" and identifier \"com.stella.launcher\""
     static let interval: TimeInterval = 6 * 60 * 60
 
     /// CFBundleVersion, which build.sh sets to CI's run number; 0 for a local build.

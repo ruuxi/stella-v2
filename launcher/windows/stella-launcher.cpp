@@ -88,7 +88,21 @@ using std::wstring;
 // ------------------------------------------------------------------ pins
 
 static const char *kBunVersion = "1.4.0";
-static const wchar_t *kDefaultBackendURL = L"https://stella-v2-cloud-builder-prod.lolruuxi.workers.dev";
+// A fork builds its own defaults: build.sh passes STELLA_BACKEND_URL,
+// STELLA_RELEASES_URL (the public base of its releases bucket) and
+// STELLA_UPDATE_SIGNER (the Authenticode signer of its own builds).
+#ifndef STELLA_DEFAULT_BACKEND_URL
+#define STELLA_DEFAULT_BACKEND_URL "https://stella-v2-cloud-builder-prod.lolruuxi.workers.dev"
+#endif
+#ifndef STELLA_RELEASES_URL
+#define STELLA_RELEASES_URL "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev"
+#endif
+#ifndef STELLA_UPDATE_SIGNER
+#define STELLA_UPDATE_SIGNER "FromYou, LLC"
+#endif
+#define STELLA_WIDEN_(text) L##text
+#define STELLA_WIDEN(text) STELLA_WIDEN_(text)
+static const wchar_t *kDefaultBackendURL = STELLA_WIDEN(STELLA_DEFAULT_BACKEND_URL);
 static const char *kUpstreamBranch = "main";
 static const char *kUpstreamRemoteName = "stella-upstream";
 static const char *kKnownGoodRef = "refs/stella/known-good";
@@ -97,8 +111,8 @@ static const DWORD kRelaunchExitCode = 75;
 static const size_t kOutputLines = 40;
 static const wchar_t *kAppUserModelID = L"com.stella.app";  // STELLA_WINDOWS_APP_USER_MODEL_ID
 static const unsigned long long kLauncherVersion = STELLA_LAUNCHER_VERSION;
-static const wchar_t *kDefaultUpdateURL = L"https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/launcher/stable";
-static const wchar_t *kUpdateSigner = L"FromYou, LLC";
+static const wchar_t *kDefaultUpdateURL = STELLA_WIDEN(STELLA_RELEASES_URL "/launcher/stable");
+static const wchar_t *kUpdateSigner = STELLA_WIDEN(STELLA_UPDATE_SIGNER);
 static const DWORD kUpdateIntervalMs = 6 * 60 * 60 * 1000;
 
 struct Asset {
@@ -2571,7 +2585,7 @@ static void checkForUpdate(const wstring &base, bool skipSignature) {
             fail(format("Stella.exe --version printed \"%s\" (exit %lu%s), not %llu", said.substr(0, 40).c_str(), probe.code,
                         probe.timedOut ? ", timed out" : "", available));
         LOG("update: verified %llu (sha256 %s%s, --version %s)", available, short12(actual).c_str(),
-            skipSignature ? "" : ", signed by FromYou, LLC", said.c_str());
+            skipSignature ? "" : ", signed by " STELLA_UPDATE_SIGNER, said.c_str());
         stageUpdate(update, available);
     } catch (...) {
         DeleteFileW(update.c_str());

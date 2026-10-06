@@ -183,10 +183,13 @@ const constantTimeEqual = (a: string, b: string): boolean => {
   return diff === 0;
 };
 
+/** The optional ops secret; without it no probe is accepted. */
+type RelayProbeEnv = { STELLA_RELAY_PROBE_SECRET?: string };
+
 /** The synthetic capability granted by a matching relay probe secret. */
 export const probeCapability = (
   request: Request,
-  env: Pick<Env, "STELLA_RELAY_PROBE_SECRET">,
+  env: RelayProbeEnv,
   now: number,
 ): GatewayCapabilityClaims | null => {
   const header = request.headers.get(RELAY_PROBE_SECRET_HEADER)?.trim();
@@ -214,7 +217,7 @@ export const probeCapability = (
  */
 export const authenticateCapability = async (
   request: Request,
-  env: Pick<Env, "CAPABILITY_JWKS" | "STELLA_RELAY_PROBE_SECRET">,
+  env: Pick<Env, "CAPABILITY_JWKS"> & RelayProbeEnv,
   options: { now?: number; allowProbe?: boolean } = {},
 ): Promise<AuthenticatedCapability> => {
   const now = options.now ?? Date.now();

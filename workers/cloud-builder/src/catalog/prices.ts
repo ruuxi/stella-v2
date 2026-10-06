@@ -234,10 +234,18 @@ let pricesCache: { at: number; value: ManagedModelPrices } | null = null;
 export async function readManagedModelPrices(env: Pick<Cloudflare.Env, "DB">): Promise<ManagedModelPrices> {
   const now = Date.now();
   if (pricesCache && now - pricesCache.at < PRICES_CACHE_MS) return pricesCache.value;
-  const { results } = await database(env).prepare(
-    `SELECT model, input_per_million_usd, output_per_million_usd, cache_read_per_million_usd,
-       cache_write_per_million_usd, reasoning_per_million_usd, synced_at FROM model_prices`,
-  ).all<StoredPrice>();
+  const read = () =>
+    database(env).prepare(
+      `SELECT model, input_per_million_usd, output_per_million_usd, cache_read_per_million_usd,
+         cache_write_per_million_usd, reasoning_per_million_usd, synced_at FROM model_prices`,
+    ).all<StoredPrice>();
+  let { results } = await read();
+  // A new deployment has no rows until the daily Cron Trigger; sync now
+  // rather than refuse every managed request until then.
+  if (results.length === 0) {
+    await syncModelPrices(env).catch((error: unknown) => console.error("[prices] first sync failed", error));
+    ({ results } = await read());
+  }
   const stored = new Map(results.map((row) => [row.model, row]));
   const prices: GatewayModelPrice[] = [];
   let updatedAt = 0;

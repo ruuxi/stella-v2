@@ -102,8 +102,8 @@ describe("OwnerGate admission", () => {
     const first = await instance.admit(chat("turn-1"));
     expect(first).toMatchObject({ ok: true, replayed: false });
     if (!first.ok) return;
-    // Billing is unconfigured here, so the allowance fails closed.
-    expect(first.snapshot.allowance.audience).toBe("free");
+    // No billing secrets here: billing is off and every owner is Pro.
+    expect(first.snapshot.allowance.audience).toBe("pro");
     const replay = await instance.admit(chat("turn-1"));
     expect(replay).toMatchObject({ ok: true, replayed: true });
     const status = await instance.status(NOW);

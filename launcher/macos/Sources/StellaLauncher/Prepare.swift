@@ -75,9 +75,9 @@ enum ElectronIdentity {
     static let microphoneUsage = "Stella uses your microphone for voice conversations."
     /// Bump when the patch below changes, to rebuild existing bundles.
     static let revision = 1
-    static let signedBase = "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/electron-identity"
+    static let signedBase = "\(Deployment.releasesURL)/electron-identity"
     static let requirement =
-        "anchor apple generic and identifier \"com.stella.app\" and certificate leaf[subject.OU] = \"7UVYHQ763X\""
+        "anchor apple generic and identifier \"com.stella.app\" and certificate leaf[subject.OU] = \"\(Deployment.appleTeamID)\""
     #if arch(arm64)
     static let arch = "arm64"
     #else

@@ -38,10 +38,19 @@ case "$version" in
 esac
 version=$((10#$version))
 
+# A self-hosted build sets STELLA_BACKEND_URL (its prod backend),
+# STELLA_RELEASES_URL (its releases bucket's public base) and
+# STELLA_UPDATE_SIGNER (its Authenticode signer); see SELF_HOSTING.md.
+defaults=()
+if [ -n "${STELLA_BACKEND_URL:-}" ]; then defaults+=("-DSTELLA_DEFAULT_BACKEND_URL=\"$STELLA_BACKEND_URL\""); fi
+if [ -n "${STELLA_RELEASES_URL:-}" ]; then defaults+=("-DSTELLA_RELEASES_URL=\"${STELLA_RELEASES_URL%/}\""); fi
+if [ -n "${STELLA_UPDATE_SIGNER:-}" ]; then defaults+=("-DSTELLA_UPDATE_SIGNER=\"$STELLA_UPDATE_SIGNER\""); fi
+
 "$triple-windres" -DSTELLA_LAUNCHER_VERSION="$version" stella-launcher.rc -O coff -o build/stella-launcher.res.o
 "$cxx" -std=c++17 -O2 -Wall -Wextra -Wno-unused-parameter -Wno-cast-function-type -isystem build/include \
   -municode -mwindows -static -static-libgcc -static-libstdc++ \
   -D_WIN32_WINNT=0x0A00 -DWINVER=0x0A00 -DSTELLA_LAUNCHER_VERSION="$version" \
+  ${defaults[@]+"${defaults[@]}"} \
   -o build/Stella.exe stella-launcher.cpp build/stella-launcher.res.o \
   -lwinhttp -lbcrypt -lcrypt32 -lcomctl32 -lole32 -loleaut32 -lshell32 -lshlwapi -luuid -ladvapi32 -lpropsys -ldwmapi \
   -lwintrust

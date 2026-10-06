@@ -4,6 +4,8 @@ const cleanUrl = (value: string | undefined): string =>
 export const env = {
   /** The Stella backend worker: auth, backend calls, live views, sockets. */
   backendUrl: cleanUrl(process.env.EXPO_PUBLIC_STELLA_BACKEND_URL),
+  /** The website: map embeds and the billing return page. */
+  siteUrl: cleanUrl(process.env.EXPO_PUBLIC_STELLA_SITE_URL) || "https://stella.sh",
   playIntegrityProjectNumber:
     process.env.EXPO_PUBLIC_PLAY_INTEGRITY_PROJECT_NUMBER?.trim() ?? "",
   mobileScheme:

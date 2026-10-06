@@ -24,9 +24,21 @@ const isBrowserRoute = (path: string): boolean =>
   path.startsWith("/api/voice/");
 
 /** CORS grants browser access only; the router still authenticates every operation. */
+/** STELLA_WEBSITE_URL's origin, when this deployment's website is not stella.sh. */
+const websiteOrigin = (env: unknown): string | null => {
+  const value = (env as { STELLA_WEBSITE_URL?: unknown } | undefined)?.STELLA_WEBSITE_URL;
+  if (typeof value !== "string" || !value.trim()) return null;
+  try {
+    return new URL(value.trim()).origin;
+  } catch {
+    return null;
+  }
+};
+
 export async function withBrowserCors(
   request: Request,
   handle: () => Promise<Response>,
+  env?: unknown,
 ): Promise<Response> {
   const origin = request.headers.get("origin");
   if (!origin || !isBrowserRoute(new URL(request.url).pathname))
@@ -41,6 +53,7 @@ export async function withBrowserCors(
   // loopback ports. These routes require a bearer JWT and never use cookies.
   const allowed =
     BROWSER_ORIGINS.has(origin) ||
+    origin === websiteOrigin(env) ||
     (appRoute &&
       (origin === "null" ||
         /^http:\/\/(localhost|127\.0\.0\.1):[0-9]+$/.test(origin)));

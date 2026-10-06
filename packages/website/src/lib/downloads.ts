@@ -9,14 +9,20 @@
  * scripts — resolves its URLs from here so a rename only happens in one place.
  */
 
-export const LAUNCHER_STABLE_BASE =
-  "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/launcher/stable";
+import { PUBLIC_SITE } from "./site-url";
+
+/** Public base of the releases bucket; a self-hosted deployment sets NEXT_PUBLIC_STELLA_RELEASES_URL. */
+const RELEASES_URL = (
+  process.env.NEXT_PUBLIC_STELLA_RELEASES_URL?.trim() || "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev"
+).replace(/\/+$/, "");
+
+export const LAUNCHER_STABLE_BASE = `${RELEASES_URL}/launcher/stable`;
 
 /** `sha256sum` output covering every launcher asset. */
 export const LAUNCHER_CHECKSUMS_URL = `${LAUNCHER_STABLE_BASE}/SHA256SUMS`;
 
 /** Canonical site origin used by the installer scripts. */
-export const SITE_ORIGIN = "https://stella.sh";
+export const SITE_ORIGIN = PUBLIC_SITE;
 
 /**
  * Launcher assets keyed by the `/download/<slug>` platform slug. The macOS

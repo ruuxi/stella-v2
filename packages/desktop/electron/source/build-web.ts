@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { createTailwindBuild, cssModule, isTailwindStylesheet } from "./css.js";
-import { BACKEND_SUFFIX, envDefines, loadRendererEnv, type RendererEnv } from "./env.js";
+import { envDefines, loadRendererEnv, pairedAppsHosts, type RendererEnv } from "./env.js";
 import { createModuleGraph, isInNodeModules, SOURCE_EXTENSIONS } from "./modules.js";
 import { createRouteTreeGenerator } from "./routes.js";
 import type { SourceTools } from "./tools.js";
@@ -37,11 +37,12 @@ export const webBuildEnv = (
     processEnv[`NEXT_PUBLIC_${name}`] ||
     (typeof base[`VITE_${name}`] === "string" ? (base[`VITE_${name}`] as string) : "");
   const backendUrl = pick("STELLA_BACKEND_URL").trim().replace(/\/+$/, "");
-  const suffix = BACKEND_SUFFIX.exec(backendUrl)?.[1];
+  const paired = pairedAppsHosts(backendUrl);
   const appsHost =
     processEnv.VITE_STELLA_APPS_HOST ||
     processEnv.NEXT_PUBLIC_STELLA_APPS_HOST ||
-    (suffix ? `https://stella-v2-apps-host-${suffix}.lolruuxi.workers.dev` : pick("STELLA_APPS_HOST"));
+    paired?.appsHost ||
+    pick("STELLA_APPS_HOST");
   if (!backendUrl || !appsHost) {
     throw new Error("Configure the Stella backend and Apps host origins.");
   }
@@ -51,9 +52,7 @@ export const webBuildEnv = (
     VITE_STELLA_BACKEND_URL: backendUrl,
     VITE_TURNSTILE_SITE_KEY: pick("TURNSTILE_SITE_KEY"),
     VITE_STELLA_APPS_HOST: appsHost,
-    VITE_STELLA_APPS_AUTH_HOST: suffix
-      ? `https://stella-v2-apps-auth-${suffix}.lolruuxi.workers.dev`
-      : pick("STELLA_APPS_AUTH_HOST"),
+    VITE_STELLA_APPS_AUTH_HOST: paired?.appsAuthHost || pick("STELLA_APPS_AUTH_HOST"),
     BASE_URL: "./",
   };
 };

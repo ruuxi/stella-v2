@@ -3,6 +3,7 @@ import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import { WebView } from "react-native-webview";
 import { utf8ToBytes } from "@noble/hashes/utils.js";
 import { Icon } from "./Icon";
+import { env } from "../config/env";
 import type { MobileDisplayPayload } from "../types";
 import { bytesToBase64Url } from "../lib/base64url";
 import { artifactSubtitle, artifactTitle } from "../lib/mobile-artifacts";
@@ -26,7 +27,7 @@ export type MapRoutePayload = Extract<
   { kind: "map-route" }
 >;
 
-const MAPS_EMBED_BASE_URL = "https://stella.sh/maps/embed";
+const MAPS_EMBED_BASE_URL = `${env.siteUrl}/maps/embed`;
 
 const embedUrl = (payload: MapRoutePayload, dark: boolean): string => {
   // Steps aren't needed to draw the map and eat URL budget.

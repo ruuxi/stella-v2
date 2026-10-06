@@ -47,13 +47,25 @@ const DEFAULT_CALLBACK_URL =
   process.env.STELLA_NATIVE_OAUTH_CALLBACK_URL?.trim() ||
   "http://127.0.0.1:48743/callback";
 
+/**
+ * The website that hosts `/oauth/<provider>/callback` for providers that
+ * only accept https redirect URIs (STELLA_WEB_URL, as in Electron main).
+ */
+const HOSTED_OAUTH_ORIGIN = (() => {
+  try {
+    return new URL(process.env.STELLA_WEB_URL?.trim() || "https://stella.sh").origin;
+  } catch {
+    return "https://stella.sh";
+  }
+})();
+
 const isHostedOAuthCallbackUrl = (value?: string) => {
   if (!value) return false;
   try {
     const parsed = new URL(value);
     return (
       parsed.protocol === "https:" &&
-      parsed.hostname === "stella.sh" &&
+      parsed.origin === HOSTED_OAUTH_ORIGIN &&
       /^\/oauth\/[a-z0-9_-]+\/callback$/iu.test(parsed.pathname)
     );
   } catch {
@@ -888,7 +900,7 @@ const readSharedOAuthProviderConfig = (
       callbackId: "microsoft",
       callbackUrl: readEnvCallbackUrl(
         "microsoft",
-        "https://stella.sh/oauth/microsoft/callback",
+        `${HOSTED_OAUTH_ORIGIN}/oauth/microsoft/callback`,
       ),
       callbackMode: "external",
       scopes: readEnvScopesOrDefault("microsoft", MICROSOFT_GRAPH_SCOPES),
@@ -913,7 +925,7 @@ const readSharedOAuthProviderConfig = (
       callbackId: "meta",
       callbackUrl: readEnvCallbackUrl(
         "meta",
-        "https://stella.sh/oauth/meta/callback",
+        `${HOSTED_OAUTH_ORIGIN}/oauth/meta/callback`,
       ),
       callbackMode: "external",
       scopes: readEnvScopesOrDefault("meta", META_SCOPES),
@@ -943,7 +955,7 @@ const readSharedOAuthProviderConfig = (
       callbackId: "atlassian",
       callbackUrl: readEnvCallbackUrl(
         "atlassian",
-        "https://stella.sh/oauth/atlassian/callback",
+        `${HOSTED_OAUTH_ORIGIN}/oauth/atlassian/callback`,
       ),
       callbackMode: "external",
       scopes: readEnvScopesOrDefault("atlassian", ATLASSIAN_SCOPES),
@@ -973,7 +985,7 @@ const readSharedOAuthProviderConfig = (
       callbackId: "zoho",
       callbackUrl: readEnvCallbackUrl(
         "zoho",
-        "https://stella.sh/oauth/zoho/callback",
+        `${HOSTED_OAUTH_ORIGIN}/oauth/zoho/callback`,
       ),
       callbackMode: "external",
       scopes: readEnvScopesOrDefault("zoho", ZOHO_SCOPES),
@@ -1007,7 +1019,7 @@ const readSharedOAuthProviderConfig = (
       callbackId: "salesforce",
       callbackUrl: readEnvCallbackUrl(
         "salesforce",
-        "https://stella.sh/oauth/salesforce/callback",
+        `${HOSTED_OAUTH_ORIGIN}/oauth/salesforce/callback`,
       ),
       callbackMode: "external",
       scopes: readEnvScopesOrDefault("salesforce", SALESFORCE_SCOPES),
@@ -1086,7 +1098,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "bitbucket",
         callbackUrl: readEnvCallbackUrl(
           "bitbucket",
-          "https://stella.sh/oauth/bitbucket/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/bitbucket/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("bitbucket", BITBUCKET_SCOPES),
@@ -1104,7 +1116,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "box",
         callbackUrl: readEnvCallbackUrl(
           "box",
-          "https://stella.sh/oauth/box/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/box/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("box", BOX_SCOPES),
@@ -1121,7 +1133,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "hubspot",
         callbackUrl: readEnvCallbackUrl(
           "hubspot",
-          "https://stella.sh/oauth/hubspot/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/hubspot/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("hubspot", HUBSPOT_SCOPES),
@@ -1138,7 +1150,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "mailchimp",
         callbackUrl: readEnvCallbackUrl(
           "mailchimp",
-          "https://stella.sh/oauth/mailchimp/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/mailchimp/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("mailchimp", MAILCHIMP_SCOPES),
@@ -1155,7 +1167,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "clickup",
         callbackUrl: readEnvCallbackUrl(
           "clickup",
-          "https://stella.sh/oauth/clickup/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/clickup/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("clickup", CLICKUP_SCOPES),
@@ -1172,7 +1184,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "webflow",
         callbackUrl: readEnvCallbackUrl(
           "webflow",
-          "https://stella.sh/oauth/webflow/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/webflow/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("webflow", WEBFLOW_SCOPES),
@@ -1210,7 +1222,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "quickbooks",
         callbackUrl: readEnvCallbackUrl(
           "quickbooks",
-          "https://stella.sh/oauth/quickbooks/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/quickbooks/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("quickbooks", QUICKBOOKS_SCOPES),
@@ -1234,7 +1246,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "xero",
         callbackUrl: readEnvCallbackUrl(
           "xero",
-          "https://stella.sh/oauth/xero/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/xero/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("xero", XERO_SCOPES),
@@ -1269,7 +1281,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "zendesk",
         callbackUrl: readEnvCallbackUrl(
           "zendesk",
-          "https://stella.sh/oauth/zendesk/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/zendesk/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("zendesk", ZENDESK_SCOPES),
@@ -1289,7 +1301,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "linkedin",
         callbackUrl: readEnvCallbackUrl(
           "linkedin",
-          "https://stella.sh/oauth/linkedin/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/linkedin/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("linkedin", LINKEDIN_SCOPES),
@@ -1310,7 +1322,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "square",
         callbackUrl: readEnvCallbackUrl(
           "square",
-          "https://stella.sh/oauth/square/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/square/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("square", SQUARE_SCOPES),
@@ -1329,7 +1341,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "strava",
         callbackUrl: readEnvCallbackUrl(
           "strava",
-          "https://stella.sh/oauth/strava/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/strava/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("strava", STRAVA_SCOPES),
@@ -1349,7 +1361,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "survey_monkey",
         callbackUrl: readEnvCallbackUrl(
           "survey_monkey",
-          "https://stella.sh/oauth/survey_monkey/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/survey_monkey/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("survey_monkey", SURVEY_MONKEY_SCOPES),
@@ -1370,7 +1382,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "docusign",
         callbackUrl: readEnvCallbackUrl(
           "docusign",
-          "https://stella.sh/oauth/docusign/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/docusign/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("docusign", DOCUSIGN_SCOPES),
@@ -1391,7 +1403,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "digital_ocean",
         callbackUrl: readEnvCallbackUrl(
           "digital_ocean",
-          "https://stella.sh/oauth/digital_ocean/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/digital_ocean/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("digital_ocean", DIGITAL_OCEAN_SCOPES),
@@ -1410,7 +1422,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "mural",
         callbackUrl: readEnvCallbackUrl(
           "mural",
-          "https://stella.sh/oauth/mural/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/mural/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("mural", MURAL_SCOPES),
@@ -1441,7 +1453,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "canvas",
         callbackUrl: readEnvCallbackUrl(
           "canvas",
-          "https://stella.sh/oauth/canvas/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/canvas/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("canvas", CANVAS_SCOPES),
@@ -1474,7 +1486,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "datadog",
         callbackUrl: readEnvCallbackUrl(
           "datadog",
-          "https://stella.sh/oauth/datadog/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/datadog/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("datadog", DATADOG_SCOPES),
@@ -1493,7 +1505,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "wrike",
         callbackUrl: readEnvCallbackUrl(
           "wrike",
-          "https://stella.sh/oauth/wrike/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/wrike/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("wrike", WRIKE_SCOPES),
@@ -1513,7 +1525,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "intercom",
         callbackUrl: readEnvCallbackUrl(
           "intercom",
-          "https://stella.sh/oauth/intercom/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/intercom/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("intercom", INTERCOM_SCOPES),
@@ -1530,7 +1542,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "klaviyo",
         callbackUrl: readEnvCallbackUrl(
           "klaviyo",
-          "https://stella.sh/oauth/klaviyo/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/klaviyo/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("klaviyo", KLAVIYO_SCOPES),
@@ -1550,7 +1562,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "brevo",
         callbackUrl: readEnvCallbackUrl(
           "brevo",
-          "https://stella.sh/oauth/brevo/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/brevo/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("brevo", BREVO_SCOPES),
@@ -1567,7 +1579,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "ynab",
         callbackUrl: readEnvCallbackUrl(
           "ynab",
-          "https://stella.sh/oauth/ynab/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/ynab/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("ynab", YNAB_SCOPES),
@@ -1585,7 +1597,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "webex",
         callbackUrl: readEnvCallbackUrl(
           "webex",
-          "https://stella.sh/oauth/webex/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/webex/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("webex", WEBEX_SCOPES),
@@ -1602,7 +1614,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "productboard",
         callbackUrl: readEnvCallbackUrl(
           "productboard",
-          "https://stella.sh/oauth/productboard/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/productboard/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("productboard", PRODUCTBOARD_SCOPES),
@@ -1634,7 +1646,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "gorgias",
         callbackUrl: readEnvCallbackUrl(
           "gorgias",
-          "https://stella.sh/oauth/gorgias/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/gorgias/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("gorgias", GORGIAS_SCOPES),
@@ -1653,7 +1665,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "canva",
         callbackUrl: readEnvCallbackUrl(
           "canva",
-          "https://stella.sh/oauth/canva/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/canva/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("canva", CANVA_SCOPES),
@@ -1689,7 +1701,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "bamboohr",
         callbackUrl: readEnvCallbackUrl(
           "bamboohr",
-          "https://stella.sh/oauth/bamboohr/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/bamboohr/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("bamboohr", BAMBOOHR_SCOPES),
@@ -1711,7 +1723,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "twitter",
         callbackUrl: readEnvCallbackUrl(
           "twitter",
-          "https://stella.sh/oauth/twitter/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/twitter/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("twitter", X_SCOPES),
@@ -1728,7 +1740,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "tiktok",
         callbackUrl: readEnvCallbackUrl(
           "tiktok",
-          "https://stella.sh/oauth/tiktok/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/tiktok/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("tiktok", TIKTOK_SCOPES),
@@ -1747,7 +1759,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "dropbox_sign",
         callbackUrl: readEnvCallbackUrl(
           "dropbox_sign",
-          "https://stella.sh/oauth/dropbox_sign/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/dropbox_sign/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("dropbox_sign", DROPBOX_SIGN_SCOPES),
@@ -1768,7 +1780,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "storyblok",
         callbackUrl: readEnvCallbackUrl(
           "storyblok",
-          "https://stella.sh/oauth/storyblok/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/storyblok/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("storyblok", STORYBLOK_SCOPES),
@@ -1788,7 +1800,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "shippo",
         callbackUrl: readEnvCallbackUrl(
           "shippo",
-          "https://stella.sh/oauth/shippo/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/shippo/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("shippo", SHIPPO_SCOPES),
@@ -1805,7 +1817,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "boldsign",
         callbackUrl: readEnvCallbackUrl(
           "boldsign",
-          "https://stella.sh/oauth/boldsign/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/boldsign/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("boldsign", BOLDSIGN_SCOPES),
@@ -1825,7 +1837,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "follow_up_boss",
         callbackUrl: readEnvCallbackUrl(
           "follow_up_boss",
-          "https://stella.sh/oauth/follow_up_boss/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/follow_up_boss/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("follow_up_boss", FOLLOW_UP_BOSS_SCOPES),
@@ -1847,7 +1859,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "moneybird",
         callbackUrl: readEnvCallbackUrl(
           "moneybird",
-          "https://stella.sh/oauth/moneybird/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/moneybird/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("moneybird", MONEYBIRD_SCOPES),
@@ -1864,7 +1876,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "workable",
         callbackUrl: readEnvCallbackUrl(
           "workable",
-          "https://stella.sh/oauth/workable/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/workable/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("workable", WORKABLE_SCOPES),
@@ -1886,7 +1898,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "basecamp",
         callbackUrl: readEnvCallbackUrl(
           "basecamp",
-          "https://stella.sh/oauth/basecamp/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/basecamp/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("basecamp", BASECAMP_SCOPES),
@@ -1903,7 +1915,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "beeminder",
         callbackUrl: readEnvCallbackUrl(
           "beeminder",
-          "https://stella.sh/oauth/beeminder/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/beeminder/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("beeminder", BEEMINDER_SCOPES),
@@ -1919,7 +1931,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "fly",
         callbackUrl: readEnvCallbackUrl(
           "fly",
-          "https://stella.sh/oauth/fly/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/fly/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("fly", FLY_SCOPES),
@@ -1937,7 +1949,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "fathom",
         callbackUrl: readEnvCallbackUrl(
           "fathom",
-          "https://stella.sh/oauth/fathom/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/fathom/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("fathom", FATHOM_SCOPES),
@@ -1954,7 +1966,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "hugging_face",
         callbackUrl: readEnvCallbackUrl(
           "hugging_face",
-          "https://stella.sh/oauth/hugging_face/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/hugging_face/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("hugging_face", HUGGING_FACE_SCOPES),
@@ -1971,7 +1983,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "whop",
         callbackUrl: readEnvCallbackUrl(
           "whop",
-          "https://stella.sh/oauth/whop/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/whop/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("whop", WHOP_SCOPES),
@@ -1990,7 +2002,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "xata",
         callbackUrl: readEnvCallbackUrl(
           "xata",
-          "https://stella.sh/oauth/xata/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/xata/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("xata", XATA_SCOPES),
@@ -2008,7 +2020,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "pagerduty",
         callbackUrl: readEnvCallbackUrl(
           "pagerduty",
-          "https://stella.sh/oauth/pagerduty/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/pagerduty/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("pagerduty", PAGERDUTY_SCOPES),
@@ -2026,7 +2038,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "contentful",
         callbackUrl: readEnvCallbackUrl(
           "contentful",
-          "https://stella.sh/oauth/contentful/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/contentful/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("contentful", CONTENTFUL_SCOPES),
@@ -2077,7 +2089,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "egnyte",
         callbackUrl: readEnvCallbackUrl(
           "egnyte",
-          "https://stella.sh/oauth/egnyte/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/egnyte/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("egnyte", EGNYTE_SCOPES),
@@ -2097,7 +2109,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "apaleo",
         callbackUrl: readEnvCallbackUrl(
           "apaleo",
-          "https://stella.sh/oauth/apaleo/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/apaleo/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("apaleo", APALEO_SCOPES),
@@ -2118,7 +2130,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "dialpad",
         callbackUrl: readEnvCallbackUrl(
           "dialpad",
-          "https://stella.sh/oauth/dialpad/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/dialpad/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("dialpad", DIALPAD_SCOPES),
@@ -2136,7 +2148,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "servicem8",
         callbackUrl: readEnvCallbackUrl(
           "servicem8",
-          "https://stella.sh/oauth/servicem8/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/servicem8/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("servicem8", SERVICEM8_SCOPES),
@@ -2153,7 +2165,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "timely",
         callbackUrl: readEnvCallbackUrl(
           "timely",
-          "https://stella.sh/oauth/timely/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/timely/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("timely", TIMELY_SCOPES),
@@ -2185,7 +2197,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "kommo",
         callbackUrl: readEnvCallbackUrl(
           "kommo",
-          "https://stella.sh/oauth/kommo/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/kommo/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("kommo", KOMMO_SCOPES),
@@ -2205,7 +2217,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "gong",
         callbackUrl: readEnvCallbackUrl(
           "gong",
-          "https://stella.sh/oauth/gong/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/gong/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("gong", GONG_SCOPES),
@@ -2236,7 +2248,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "snowflake",
         callbackUrl: readEnvCallbackUrl(
           "snowflake",
-          "https://stella.sh/oauth/snowflake/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/snowflake/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("snowflake", SNOWFLAKE_SCOPES),
@@ -2280,7 +2292,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "netsuite",
         callbackUrl: readEnvCallbackUrl(
           "netsuite",
-          "https://stella.sh/oauth/netsuite/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/netsuite/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("netsuite", NETSUITE_SCOPES),
@@ -2315,7 +2327,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "coupa",
         callbackUrl: readEnvCallbackUrl(
           "coupa",
-          "https://stella.sh/oauth/coupa/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/coupa/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("coupa", COUPA_SCOPES),
@@ -2342,7 +2354,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "d2lbrightspace",
         callbackUrl: readEnvCallbackUrl(
           "d2lbrightspace",
-          "https://stella.sh/oauth/d2lbrightspace/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/d2lbrightspace/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault(
@@ -2375,7 +2387,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "blackboard",
         callbackUrl: readEnvCallbackUrl(
           "blackboard",
-          "https://stella.sh/oauth/blackboard/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/blackboard/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("blackboard", BLACKBOARD_SCOPES),
@@ -2397,7 +2409,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "dub",
         callbackUrl: readEnvCallbackUrl(
           "dub",
-          "https://stella.sh/oauth/dub/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/dub/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("dub", DUB_SCOPES),
@@ -2419,7 +2431,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "blackbaud",
         callbackUrl: readEnvCallbackUrl(
           "blackbaud",
-          "https://stella.sh/oauth/blackbaud/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/blackbaud/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("blackbaud", BLACKBAUD_SCOPES),
@@ -2436,7 +2448,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "exist",
         callbackUrl: readEnvCallbackUrl(
           "exist",
-          "https://stella.sh/oauth/exist/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/exist/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("exist", EXIST_SCOPES),
@@ -2457,7 +2469,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "omnisend",
         callbackUrl: readEnvCallbackUrl(
           "omnisend",
-          "https://stella.sh/oauth/omnisend/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/omnisend/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("omnisend", OMNISEND_SCOPES),
@@ -2478,7 +2490,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "ramp",
         callbackUrl: readEnvCallbackUrl(
           "ramp",
-          "https://stella.sh/oauth/ramp/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/ramp/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("ramp", RAMP_SCOPES),
@@ -2500,7 +2512,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "brex",
         callbackUrl: readEnvCallbackUrl(
           "brex",
-          "https://stella.sh/oauth/brex/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/brex/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("brex", BREX_SCOPES),
@@ -2533,7 +2545,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "workday",
         callbackUrl: readEnvCallbackUrl(
           "workday",
-          "https://stella.sh/oauth/workday/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/workday/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("workday", WORKDAY_SCOPES),
@@ -2558,7 +2570,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "yandex",
         callbackUrl: readEnvCallbackUrl(
           "yandex",
-          "https://stella.sh/oauth/yandex/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/yandex/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("yandex", YANDEX_SCOPES),
@@ -2590,7 +2602,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "dynamics365",
         callbackUrl: readEnvCallbackUrl(
           "dynamics365",
-          "https://stella.sh/oauth/dynamics365/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/dynamics365/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("dynamics365", [
@@ -2615,7 +2627,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "kit",
         callbackUrl: readEnvCallbackUrl(
           "kit",
-          "https://stella.sh/oauth/kit/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/kit/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("kit", KIT_SCOPES),
@@ -2637,7 +2649,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "lever",
         callbackUrl: readEnvCallbackUrl(
           "lever",
-          "https://stella.sh/oauth/lever/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/lever/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("lever", LEVER_SCOPES),
@@ -2661,7 +2673,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "linkhut",
         callbackUrl: readEnvCallbackUrl(
           "linkhut",
-          "https://stella.sh/oauth/linkhut/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/linkhut/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("linkhut", LINKHUT_SCOPES),
@@ -2682,7 +2694,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "prisma",
         callbackUrl: readEnvCallbackUrl(
           "prisma",
-          "https://stella.sh/oauth/prisma/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/prisma/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("prisma", PRISMA_SCOPES),
@@ -2704,7 +2716,7 @@ const readEnvBackedOAuthProviderConfig = (
         callbackId: "toneden",
         callbackUrl: readEnvCallbackUrl(
           "toneden",
-          "https://stella.sh/oauth/toneden/callback",
+          `${HOSTED_OAUTH_ORIGIN}/oauth/toneden/callback`,
         ),
         callbackMode: "external",
         scopes: readEnvScopesOrDefault("toneden", TONEDEN_SCOPES),
@@ -2803,7 +2815,7 @@ const BUILTIN_NATIVE_OAUTH: Record<string, NativeOAuthProviderConfig> = {
     authorizationEndpoint: "https://airtable.com/oauth2/v1/authorize",
     tokenEndpoint: "https://airtable.com/oauth2/v1/token",
     callbackId: "airtable",
-    callbackUrl: "https://stella.sh/oauth/airtable/callback",
+    callbackUrl: `${HOSTED_OAUTH_ORIGIN}/oauth/airtable/callback`,
     callbackMode: "external",
     scopes: [
       "data.recordComments:read",
@@ -2846,7 +2858,7 @@ const BUILTIN_NATIVE_OAUTH: Record<string, NativeOAuthProviderConfig> = {
     authorizationEndpoint: "https://api.notion.com/v1/oauth/authorize",
     tokenEndpoint: "https://api.notion.com/v1/oauth/token",
     callbackId: "notion",
-    callbackUrl: "https://stella.sh/oauth/notion/callback",
+    callbackUrl: `${HOSTED_OAUTH_ORIGIN}/oauth/notion/callback`,
     callbackMode: "external",
     resourceUrl: "https://api.notion.com/v1",
     tokenExchange: { type: "backend", provider: "notion" },
@@ -2858,7 +2870,7 @@ const BUILTIN_NATIVE_OAUTH: Record<string, NativeOAuthProviderConfig> = {
     authorizationEndpoint: "https://miro.com/oauth/authorize",
     tokenEndpoint: "https://api.miro.com/v1/oauth/token",
     callbackId: "miro",
-    callbackUrl: "https://stella.sh/oauth/miro/callback",
+    callbackUrl: `${HOSTED_OAUTH_ORIGIN}/oauth/miro/callback`,
     callbackMode: "external",
     scopes: ["boards:read", "boards:write", "identity:read", "team:read"],
     resourceUrl: "https://api.miro.com/v2",
@@ -2889,7 +2901,7 @@ const BUILTIN_NATIVE_OAUTH: Record<string, NativeOAuthProviderConfig> = {
     authorizationEndpoint: "https://www.pushbullet.com/authorize",
     tokenEndpoint: "https://api.pushbullet.com/oauth2/token",
     callbackId: "pushbullet",
-    callbackUrl: "https://stella.sh/oauth/pushbullet/callback",
+    callbackUrl: `${HOSTED_OAUTH_ORIGIN}/oauth/pushbullet/callback`,
     callbackMode: "external",
     scopes: ["everything"],
     usesPkce: false,
@@ -2904,7 +2916,7 @@ const BUILTIN_NATIVE_OAUTH: Record<string, NativeOAuthProviderConfig> = {
     authorizationEndpoint: "https://sentry.io/oauth/authorize/",
     tokenEndpoint: "https://sentry.io/oauth/token/",
     callbackId: "sentry",
-    callbackUrl: "https://stella.sh/oauth/sentry/callback",
+    callbackUrl: `${HOSTED_OAUTH_ORIGIN}/oauth/sentry/callback`,
     callbackMode: "external",
     scopes: [
       "event:admin",
@@ -2934,7 +2946,7 @@ const BUILTIN_NATIVE_OAUTH: Record<string, NativeOAuthProviderConfig> = {
     authorizationEndpoint: "https://auth.calendly.com/oauth/authorize",
     tokenEndpoint: "https://auth.calendly.com/oauth/token",
     callbackId: "calendly",
-    callbackUrl: "https://stella.sh/oauth/calendly/callback",
+    callbackUrl: `${HOSTED_OAUTH_ORIGIN}/oauth/calendly/callback`,
     callbackMode: "external",
     scopes: [
       "activity_log:read",
@@ -2968,7 +2980,7 @@ const BUILTIN_NATIVE_OAUTH: Record<string, NativeOAuthProviderConfig> = {
     authorizationEndpoint: "https://app.cal.com/auth/oauth2/authorize",
     tokenEndpoint: "https://api.cal.com/v2/auth/oauth2/token",
     callbackId: "cal",
-    callbackUrl: "https://stella.sh/oauth/cal/callback",
+    callbackUrl: `${HOSTED_OAUTH_ORIGIN}/oauth/cal/callback`,
     callbackMode: "external",
     scopes: [
       "EVENT_TYPE_READ",
@@ -2998,7 +3010,7 @@ const BUILTIN_NATIVE_OAUTH: Record<string, NativeOAuthProviderConfig> = {
     authorizationEndpoint: "https://api.capsulecrm.com/oauth/authorise",
     tokenEndpoint: "https://api.capsulecrm.com/oauth/token",
     callbackId: "capsule_crm",
-    callbackUrl: "https://stella.sh/oauth/capsule_crm/callback",
+    callbackUrl: `${HOSTED_OAUTH_ORIGIN}/oauth/capsule_crm/callback`,
     callbackMode: "external",
     scopes: ["read", "write", "user_preference"],
     resourceUrl: "https://api.capsulecrm.com/api/v2",
@@ -3010,7 +3022,7 @@ const BUILTIN_NATIVE_OAUTH: Record<string, NativeOAuthProviderConfig> = {
     authorizationEndpoint: "https://app.attio.com/authorize",
     tokenEndpoint: "https://app.attio.com/oauth/token",
     callbackId: "attio",
-    callbackUrl: "https://stella.sh/oauth/attio/callback",
+    callbackUrl: `${HOSTED_OAUTH_ORIGIN}/oauth/attio/callback`,
     callbackMode: "external",
     resourceUrl: "https://api.attio.com/v2",
     tokenExchange: { type: "backend", provider: "attio" },
@@ -3022,7 +3034,7 @@ const BUILTIN_NATIVE_OAUTH: Record<string, NativeOAuthProviderConfig> = {
     authorizationEndpoint: "https://www.eventbrite.com/oauth/authorize",
     tokenEndpoint: "https://www.eventbrite.com/oauth/token",
     callbackId: "eventbrite",
-    callbackUrl: "https://stella.sh/oauth/eventbrite/callback",
+    callbackUrl: `${HOSTED_OAUTH_ORIGIN}/oauth/eventbrite/callback`,
     callbackMode: "external",
     usesPkce: false,
     resourceUrl: "https://www.eventbriteapi.com/v3",
@@ -3035,7 +3047,7 @@ const BUILTIN_NATIVE_OAUTH: Record<string, NativeOAuthProviderConfig> = {
     authorizationEndpoint: "https://id.getharvest.com/oauth2/authorize",
     tokenEndpoint: "https://id.getharvest.com/api/v2/oauth2/token",
     callbackId: "harvest",
-    callbackUrl: "https://stella.sh/oauth/harvest/callback",
+    callbackUrl: `${HOSTED_OAUTH_ORIGIN}/oauth/harvest/callback`,
     callbackMode: "external",
     usesPkce: false,
     resourceUrl: "https://api.harvestapp.com/v2",
@@ -3048,7 +3060,7 @@ const BUILTIN_NATIVE_OAUTH: Record<string, NativeOAuthProviderConfig> = {
     authorizationEndpoint: "https://gumroad.com/oauth/authorize",
     tokenEndpoint: "https://api.gumroad.com/oauth/token",
     callbackId: "gumroad",
-    callbackUrl: "https://stella.sh/oauth/gumroad/callback",
+    callbackUrl: `${HOSTED_OAUTH_ORIGIN}/oauth/gumroad/callback`,
     callbackMode: "external",
     usesPkce: false,
     resourceUrl: "https://api.gumroad.com/v2",
@@ -3062,7 +3074,7 @@ const BUILTIN_NATIVE_OAUTH: Record<string, NativeOAuthProviderConfig> = {
     authorizationEndpoint: "https://auth.freshbooks.com/oauth/authorize",
     tokenEndpoint: "https://api.freshbooks.com/auth/oauth/token",
     callbackId: "freshbooks",
-    callbackUrl: "https://stella.sh/oauth/freshbooks/callback",
+    callbackUrl: `${HOSTED_OAUTH_ORIGIN}/oauth/freshbooks/callback`,
     callbackMode: "external",
     usesPkce: false,
     scopes: [
@@ -3124,7 +3136,7 @@ const BUILTIN_NATIVE_OAUTH: Record<string, NativeOAuthProviderConfig> = {
     authorizationEndpoint: "https://api.freeagent.com/v2/approve_app",
     tokenEndpoint: "https://api.freeagent.com/v2/token_endpoint",
     callbackId: "freeagent",
-    callbackUrl: "https://stella.sh/oauth/freeagent/callback",
+    callbackUrl: `${HOSTED_OAUTH_ORIGIN}/oauth/freeagent/callback`,
     callbackMode: "external",
     usesPkce: false,
     resourceUrl: "https://api.freeagent.com/v2",
@@ -3138,7 +3150,7 @@ const BUILTIN_NATIVE_OAUTH: Record<string, NativeOAuthProviderConfig> = {
     authorizationEndpoint: "https://secure.splitwise.com/oauth/authorize",
     tokenEndpoint: "https://secure.splitwise.com/oauth/token",
     callbackId: "splitwise",
-    callbackUrl: "https://stella.sh/oauth/splitwise/callback",
+    callbackUrl: `${HOSTED_OAUTH_ORIGIN}/oauth/splitwise/callback`,
     callbackMode: "external",
     usesPkce: false,
     resourceUrl: "https://secure.splitwise.com/api/v3.0",
@@ -3151,7 +3163,7 @@ const BUILTIN_NATIVE_OAUTH: Record<string, NativeOAuthProviderConfig> = {
     authorizationEndpoint: "https://stackoverflow.com/oauth",
     tokenEndpoint: "https://stackoverflow.com/oauth/access_token/json",
     callbackId: "stack_exchange",
-    callbackUrl: "https://stella.sh/oauth/stack_exchange/callback",
+    callbackUrl: `${HOSTED_OAUTH_ORIGIN}/oauth/stack_exchange/callback`,
     callbackMode: "external",
     scopes: ["read_inbox", "private_info"],
     usesPkce: true,
@@ -3169,7 +3181,7 @@ const BUILTIN_NATIVE_OAUTH: Record<string, NativeOAuthProviderConfig> = {
     authorizationEndpoint: "https://zoom.us/oauth/authorize",
     tokenEndpoint: "https://zoom.us/oauth/token",
     callbackId: "zoom",
-    callbackUrl: "https://stella.sh/oauth/zoom/callback",
+    callbackUrl: `${HOSTED_OAUTH_ORIGIN}/oauth/zoom/callback`,
     callbackMode: "external",
     usesPkce: false,
     resourceUrl: "https://api.zoom.us/v2",
@@ -3184,7 +3196,7 @@ const BUILTIN_NATIVE_OAUTH: Record<string, NativeOAuthProviderConfig> = {
     authorizationEndpoint: "https://oauth.pipedrive.com/oauth/authorize",
     tokenEndpoint: "https://oauth.pipedrive.com/oauth/token",
     callbackId: "pipedrive",
-    callbackUrl: "https://stella.sh/oauth/pipedrive/callback",
+    callbackUrl: `${HOSTED_OAUTH_ORIGIN}/oauth/pipedrive/callback`,
     callbackMode: "external",
     usesPkce: false,
     resourceUrl: "https://api.pipedrive.com/v1",
@@ -3199,7 +3211,7 @@ const BUILTIN_NATIVE_OAUTH: Record<string, NativeOAuthProviderConfig> = {
     authorizationEndpoint: "https://accounts.crowdin.com/oauth/authorize",
     tokenEndpoint: "https://accounts.crowdin.com/oauth/token",
     callbackId: "crowdin",
-    callbackUrl: "https://stella.sh/oauth/crowdin/callback",
+    callbackUrl: `${HOSTED_OAUTH_ORIGIN}/oauth/crowdin/callback`,
     callbackMode: "external",
     scopes: [
       "ai",
@@ -3237,7 +3249,7 @@ const BUILTIN_NATIVE_OAUTH: Record<string, NativeOAuthProviderConfig> = {
     authorizationEndpoint: "https://app.dartai.com/api/oauth/authorize/",
     tokenEndpoint: "https://app.dartai.com/api/oauth/token/",
     callbackId: "dart",
-    callbackUrl: "https://stella.sh/oauth/dart/callback",
+    callbackUrl: `${HOSTED_OAUTH_ORIGIN}/oauth/dart/callback`,
     callbackMode: "external",
     scopes: ["read", "write"],
     usesPkce: true,
@@ -3250,7 +3262,7 @@ const BUILTIN_NATIVE_OAUTH: Record<string, NativeOAuthProviderConfig> = {
     authorizationEndpoint: "https://api.supabase.com/v1/oauth/authorize",
     tokenEndpoint: "https://api.supabase.com/v1/oauth/token",
     callbackId: "supabase",
-    callbackUrl: "https://stella.sh/oauth/supabase/callback",
+    callbackUrl: `${HOSTED_OAUTH_ORIGIN}/oauth/supabase/callback`,
     callbackMode: "external",
     resourceUrl: "https://api.supabase.com",
     tokenAuth: "basic",
@@ -3263,7 +3275,7 @@ const BUILTIN_NATIVE_OAUTH: Record<string, NativeOAuthProviderConfig> = {
     authorizationEndpoint: "https://connect.stripe.com/oauth/authorize",
     tokenEndpoint: "https://connect.stripe.com/oauth/token",
     callbackId: "stripe",
-    callbackUrl: "https://stella.sh/oauth/stripe/callback",
+    callbackUrl: `${HOSTED_OAUTH_ORIGIN}/oauth/stripe/callback`,
     callbackMode: "external",
     scopes: ["read_write"],
     usesPkce: false,
@@ -3277,7 +3289,7 @@ const BUILTIN_NATIVE_OAUTH: Record<string, NativeOAuthProviderConfig> = {
     authorizationEndpoint: "https://api.typeform.com/oauth/authorize",
     tokenEndpoint: "https://api.typeform.com/oauth/token",
     callbackId: "typeform",
-    callbackUrl: "https://stella.sh/oauth/typeform/callback",
+    callbackUrl: `${HOSTED_OAUTH_ORIGIN}/oauth/typeform/callback`,
     callbackMode: "external",
     scopes: [
       "offline",
@@ -3305,7 +3317,7 @@ const BUILTIN_NATIVE_OAUTH: Record<string, NativeOAuthProviderConfig> = {
     authorizationEndpoint: "https://auth.monday.com/oauth2/authorize",
     tokenEndpoint: "https://auth.monday.com/oauth2/token",
     callbackId: "monday",
-    callbackUrl: "https://stella.sh/oauth/monday/callback",
+    callbackUrl: `${HOSTED_OAUTH_ORIGIN}/oauth/monday/callback`,
     callbackMode: "external",
     scopes: [
       "me:read",
@@ -3344,7 +3356,7 @@ const BUILTIN_NATIVE_OAUTH: Record<string, NativeOAuthProviderConfig> = {
     authorizationEndpoint: "https://api.zeplin.dev/v1/oauth/authorize",
     tokenEndpoint: "https://api.zeplin.dev/v1/oauth/token",
     callbackId: "zeplin",
-    callbackUrl: "https://stella.sh/oauth/zeplin/callback",
+    callbackUrl: `${HOSTED_OAUTH_ORIGIN}/oauth/zeplin/callback`,
     callbackMode: "external",
     usesPkce: true,
     resourceUrl: "https://api.zeplin.dev/v1",

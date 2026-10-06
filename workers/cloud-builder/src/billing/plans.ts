@@ -21,6 +21,9 @@ import type {
  *   STELLA_ANON_MAX_REQUESTS_PER_IP
  *   STELLA_GO_INTRO_FIRST_MONTH_PRICE_CENTS with STRIPE_COUPON_GO_FIRST_MONTH
  *
+ * With none of STELLA_INCLUDED_USAGE_UTILIZATION_RATE, STRIPE_SECRET_KEY,
+ * STRIPE_PRICE_GO and STRIPE_PRICE_PRO set, billing is off (see `enabled`).
+ *
  * Paid plans derive their monthly limit from price / utilization rate, and
  * their rolling and weekly limits as fixed shares of it, unless overridden.
  */
@@ -28,6 +31,12 @@ import type {
 export type PlanCatalog = Record<BillingPlan, BillingPlanConfig>;
 
 export type BillingConfig = {
+  /**
+   * False when the deployment sets none of the billing secrets (a
+   * self-hosted Stella): every account is Pro with unlimited usage and
+   * checkout is off.
+   */
+  enabled: boolean;
   plans: PlanCatalog;
   anonymous: BillingPlanConfig;
   anonymousMaxRequests: number;
@@ -91,8 +100,38 @@ const paidPlan = (
   };
 };
 
+/** Any of these set means billing is meant to be on, and must be complete. */
+const BILLING_SWITCHES = [
+  "STELLA_INCLUDED_USAGE_UTILIZATION_RATE",
+  "STRIPE_SECRET_KEY",
+  "STRIPE_PRICE_GO",
+  "STRIPE_PRICE_PRO",
+] as const;
+
+/** Limits no one reaches, for a deployment without billing. */
+const OPEN_LIMIT_USD = 1_000_000;
+const openPlan = (label: string): BillingPlanConfig => ({
+  label,
+  monthlyPriceCents: 0,
+  rollingLimitUsd: OPEN_LIMIT_USD,
+  rollingWindowHours: DEFAULT_ROLLING_WINDOW_HOURS,
+  weeklyLimitUsd: OPEN_LIMIT_USD,
+  monthlyLimitUsd: OPEN_LIMIT_USD,
+});
+
+const OPEN_BILLING_CONFIG: BillingConfig = {
+  enabled: false,
+  plans: { free: openPlan("Free"), go: openPlan("Go"), pro: openPlan("Pro") },
+  anonymous: openPlan("Anonymous"),
+  anonymousMaxRequests: 1_000_000_000,
+  anonymousMaxRequestsPerIp: 1_000_000_000,
+  freeEmailAllowanceShare: 1,
+  stripePrices: { go: "", pro: "" },
+};
+
 const loadBillingConfig = (env: Cloudflare.Env): BillingConfig => {
   const read = reader(env);
+  if (BILLING_SWITCHES.every((name) => read(name) === undefined)) return OPEN_BILLING_CONFIG;
   const utilizationRate = required(read, "STELLA_INCLUDED_USAGE_UTILIZATION_RATE");
   if (utilizationRate <= 0 || utilizationRate > 1) {
     throw new BillingConfigError("STELLA_INCLUDED_USAGE_UTILIZATION_RATE must be in (0, 1].");
@@ -115,6 +154,7 @@ const loadBillingConfig = (env: Cloudflare.Env): BillingConfig => {
     throw new BillingConfigError("Missing billing secret STRIPE_PRICE_GO or STRIPE_PRICE_PRO.");
   }
   return {
+    enabled: true,
     plans: {
       free: {
         label: "Free",
@@ -163,7 +203,7 @@ export const planForStripePrice = (
   config: BillingConfig,
   priceId: string | null | undefined,
 ): PaidBillingPlan | null => {
-  if (!priceId) return null;
+  if (!priceId || !config.enabled) return null;
   if (config.stripePrices.go === priceId) return "go";
   if (config.stripePrices.pro === priceId) return "pro";
   return null;

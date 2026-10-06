@@ -79,12 +79,14 @@ const createBinding = (
   const principalScope = resolveRuntimeTelemetryPrincipalScope(authToken);
   if (!authToken || !principalScope) return null;
   const environment = environmentFor(next);
+  const endpoint = telemetryHttpEndpoint(environment, authToken);
+  if (!endpoint) return null;
   return {
     root: path.resolve(next.stellaDataDirPath),
     principalScope,
     authToken,
     environment,
-    endpoint: telemetryHttpEndpoint(environment),
+    endpoint,
     ...(next.release ? { release: next.release } : {}),
   };
 };

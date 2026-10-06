@@ -39,6 +39,7 @@ that we publish, plus a private fork per user.
 
 The dev and prod release flow (Cloudflare workers, app source, launchers,
 website, mobile OTA) is in `DEPLOY.md`. Follow it as written.
+Running Stella on another Cloudflare account is `SELF_HOSTING.md`.
 
 ## Cloud agents: required environment
 

@@ -52,6 +52,7 @@ import {
   canonicalCloudDispatchIds,
   mergeCanonicalCloudMessages,
   projectCloudConversationMessages,
+  latestDestinationSwitch,
   rebindCanonicalCloudMessages,
 } from "./cloud-journal-projection";
 import { getBackendClient } from "./backend";
@@ -564,6 +565,11 @@ export const useCloudCanonicalChatThread = (
     });
   }, [local.messages, local.sending]);
 
+  const destinationSwitch = useMemo(
+    () => latestDestinationSwitch(state.records),
+    [state.records],
+  );
+
   const projected = useStableChatMessages(
     useMemo(
       () =>
@@ -975,5 +981,6 @@ export const useCloudCanonicalChatThread = (
     sendPrompt,
     stop,
     catchingUp: state.status === "connecting",
+    destinationSwitch,
   };
 };

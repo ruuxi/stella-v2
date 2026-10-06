@@ -252,6 +252,44 @@ const completeWindow = (
  * contributes nothing to the transcript — the working indicator stands in for
  * it until the reply's row commits whole.
  */
+export type DestinationSwitch = {
+  toolCallId: string;
+  destination: string;
+  at: number;
+};
+
+/**
+ * The newest `switch_destination` call the orchestrator made in this
+ * conversation that succeeded. The phone's picker follows it the same way
+ * the desktop's does.
+ */
+export const latestDestinationSwitch = (
+  records: readonly JournalRecord[],
+): DestinationSwitch | null => {
+  const results = new Map<string, number>();
+  for (const record of records) {
+    if (record.kind !== "message" || record.role !== "toolResult") continue;
+    const id = record.payload.toolCallId;
+    if (typeof id === "string" && id && record.payload.isError !== true) {
+      results.set(id, timestampOf(record));
+    }
+  }
+  let latest: DestinationSwitch | null = null;
+  for (const record of records) {
+    if (record.kind !== "message" || record.role !== "assistant") continue;
+    for (const call of toolCalls(record)) {
+      if (call.name !== "switch_destination") continue;
+      const at = results.get(call.id);
+      const destination = call.args?.destination?.trim();
+      if (at === undefined || !destination) continue;
+      if (!latest || at >= latest.at) {
+        latest = { toolCallId: call.id, destination, at };
+      }
+    }
+  }
+  return latest;
+};
+
 export const projectCloudConversationMessages = (args: {
   conversationId?: string;
   records: readonly JournalRecord[];

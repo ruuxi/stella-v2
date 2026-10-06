@@ -79,9 +79,9 @@ const deviceRefusal = (device: DeviceDestination, name: string): string | null =
     case "asking":
       return `${name} is still waiting for the user to allow work from other devices on its screen. Ask the user to approve it there, then try again.`;
     case "declined":
-      return `${name} has declined work from other devices. The user can change that in Connect on that computer.`;
+      return `${name} has declined work from other devices. To change that, on ${name} the user opens Account › "Stella on your phone" and presses Enable next to that computer.`;
     default:
-      return `${name} hasn't been enabled to accept work from other devices yet. The user can enable it from Connect in the app.`;
+      return `${name} hasn't been enabled to accept work from other devices yet. To enable it, on ${name} the user opens Account › "Stella on your phone" and presses Enable next to that computer.`;
   }
   if (device.availability && device.availability.ready !== true) {
     return `${name} is online but not ready to take work yet. Try again in a moment.`;

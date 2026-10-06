@@ -34,13 +34,31 @@ const parse = (value: string | null): AutomaticExecutionTarget => {
   }
 };
 
+const setAtOf = (value: string | null): number => {
+  if (!value) return 0;
+  try {
+    const setAt = (JSON.parse(value) as Record<string, unknown>).setAt;
+    return typeof setAt === "number" && Number.isFinite(setAt) ? setAt : 0;
+  } catch {
+    return 0;
+  }
+};
+
 export const getMobileExecutionTarget = async () =>
   parse(await SecureStore.getItemAsync(KEY));
 
+/** When the saved choice was made, so a later orchestrator switch can win. */
+export const getMobileExecutionTargetSetAt = async () =>
+  setAtOf(await SecureStore.getItemAsync(KEY));
+
 export const setMobileExecutionTarget = async (
   target: AutomaticExecutionTarget,
+  setAt: number = Date.now(),
 ) => {
   const normalized = parse(JSON.stringify(target));
-  await SecureStore.setItemAsync(KEY, JSON.stringify(normalized));
+  await SecureStore.setItemAsync(
+    KEY,
+    JSON.stringify({ ...normalized, setAt }),
+  );
   return normalized;
 };

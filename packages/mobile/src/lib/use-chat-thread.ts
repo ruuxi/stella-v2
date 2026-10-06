@@ -317,6 +317,8 @@ export type ChatThread = ChatComposerThread & {
    * though it were complete.
    */
   catchingUp: boolean;
+  /** The orchestrator's newest successful `switch_destination`, if any. */
+  destinationSwitch?: import("./cloud-journal-projection").DestinationSwitch | null;
 };
 
 /**

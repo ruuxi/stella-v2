@@ -19,6 +19,7 @@ import {
 import {
   CLOUD_EXECUTION_TARGET,
   getMobileExecutionTarget,
+  getMobileExecutionTargetSetAt,
   setMobileExecutionTarget,
 } from "../../src/lib/execution-target";
 import {
@@ -185,9 +186,9 @@ function SignedInCanonicalChat(props: {
   }, []);
 
   const updateExecutionTarget = useCallback(
-    (next: AutomaticExecutionTarget) => {
+    (next: AutomaticExecutionTarget, setAt?: number) => {
       setExecutionTarget(next);
-      void setMobileExecutionTarget(next);
+      void setMobileExecutionTarget(next, setAt);
       if (next.mode === "device") {
         const selected = pairedDesktops.find(
           (entry) => entry.desktopDeviceId === next.deviceId,
@@ -200,6 +201,29 @@ function SignedInCanonicalChat(props: {
     },
     [pairedDesktops],
   );
+
+  const destinationSwitch = thread.destinationSwitch;
+  useEffect(() => {
+    if (!pairingResolved || !destinationSwitch) return;
+    let active = true;
+    void getMobileExecutionTargetSetAt().then((setAt) => {
+      if (!active || destinationSwitch.at <= setAt) return;
+      const destination = destinationSwitch.destination;
+      if (destination.toLowerCase() === "cloud") {
+        updateExecutionTarget(CLOUD_EXECUTION_TARGET, destinationSwitch.at);
+      } else if (
+        pairedDesktops.some((entry) => entry.desktopDeviceId === destination)
+      ) {
+        updateExecutionTarget(
+          { mode: "device", deviceId: destination },
+          destinationSwitch.at,
+        );
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [destinationSwitch, pairedDesktops, pairingResolved, updateExecutionTarget]);
 
   return (
     <ChatSurface

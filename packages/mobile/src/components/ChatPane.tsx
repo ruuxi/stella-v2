@@ -1,8 +1,7 @@
 import { AssistantBubble, SENT_BUBBLE_POP, useBubblePop } from "./BubblePop";
-import { toReplyPreview, type ReplyRef } from "@stella/contracts/reply-refs";
-import { replyCountFor } from "@stella/contracts/reply-context";
+import type { ReplyRef } from "@stella/contracts/reply-refs";
 import { AgentReportSheet, ReplyFocus, type AgentReplyRef } from "./ReplyFocus";
-import { ReplyCountBadge, ReplyPreview, type ReplyAgentStatus } from "./ReplyPreview";
+import { ReplyPreview, type ReplyAgentStatus } from "./ReplyPreview";
 import { mobileReplyContexts, type MobileReplyContexts } from "../lib/mobile-reply-context";
 import {
   type ReactNode,
@@ -303,7 +302,7 @@ const LEGEND_TAIL_SCROLL_AT_END = {
   animated: false,
   on: { dataChange: true, itemLayout: false, layout: false },
 } as const;
-const MESSAGE_LIST_GAP = 20;
+const MESSAGE_LIST_GAP = 10;
 /**
  * Fixed reading-area floor below the last message (desktop's
  * `.event-list-trailing-region` `min-height`). The inline working indicator
@@ -1423,7 +1422,6 @@ const ChatMessageRow = memo(function ChatMessageRow({
   onOpenAgentActivity,
   contextRef,
   contextStatus,
-  replyCount,
   onOpenReply,
   onOpenReport,
   desktopAccess,
@@ -1456,8 +1454,6 @@ const ChatMessageRow = memo(function ChatMessageRow({
   contextRef?: ReplyRef;
   /** Live state of the quoted task, for its status glyph. */
   contextStatus?: ReplyAgentStatus;
-  /** Distant replies that cite this user message; drives the "N replies" badge. */
-  replyCount?: number;
   onOpenReply?: (ref: ReplyRef) => void;
   onOpenReport?: (ref: AgentReplyRef) => void;
   desktopAccess?: StoredPhoneAccess | null;
@@ -1710,23 +1706,6 @@ const ChatMessageRow = memo(function ChatMessageRow({
             >
               Stopped
             </Text>
-          ) : null}
-          {replyCount && replyCount > 0 && onOpenReply ? (
-            // "N replies" opens focus on this ask plus every distant reply
-            // that came back to it. References cite the canonical id.
-            <ReplyCountBadge
-              count={replyCount}
-              colors={colors}
-              onOpen={() =>
-                onOpenReply({
-                  kind: "message",
-                  id: item.canonicalId ?? item.id,
-                  sequence: item.sequence ?? 0,
-                  role: "user",
-                  preview: toReplyPreview(item.text),
-                })
-              }
-            />
           ) : null}
         </View>
       </View>
@@ -4150,7 +4129,6 @@ export function ChatPane({
             onOpenReport={setReportRef}
             contextRef={replyContexts.contexts.get(item.id)}
             contextStatus={contextStatusFor(replyContexts, replyContexts.contexts.get(item.id))}
-            replyCount={replyCountFor(replyContexts.counts, [item.id, item.canonicalId])}
             desktopAccess={desktopAccess}
             receiptLabel={receipt?.id === item.id ? receipt.label : null}
           />
@@ -5327,7 +5305,7 @@ const makeStyles = (colors: Colors) =>
       letterSpacing: -0.1,
     },
 
-    assistantRow: { paddingVertical: 4 },
+    assistantRow: { paddingVertical: 2 },
     /**
      * Mirror of `userBubble`, flipped: same radius family with the tightened
      * corner on the bottom LEFT, the quieter elevated surface (`card`) instead

@@ -1,8 +1,7 @@
 /**
- * iMessage-style reply preview above an assistant bubble, and the
- * "N replies" badge under an original message. Mirrors desktop's
- * `ReplyPreview` / `ReplyCountBadge`: a small muted bubble quotes what Stella
- * is replying to (the cited message, or the task with its live status), joined
+ * iMessage-style reply preview above an assistant bubble. A small muted
+ * bubble quotes what Stella is replying to (the cited message, or the task
+ * with its live status), joined
  * to the reply by a thin connector; tapping it opens focus on that target.
  *
  * Whether a bubble appears at all is decided upstream by the shared
@@ -158,32 +157,6 @@ export function ReplyPreview({
   );
 }
 
-export function ReplyCountBadge({
-  count,
-  colors,
-  onOpen,
-}: {
-  count: number;
-  colors: Colors;
-  onOpen: () => void;
-}) {
-  const styles = useMemo(() => makeStyles(colors), [colors]);
-  if (count <= 0) return null;
-  const label = count === 1 ? "1 reply" : `${count} replies`;
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${label}. Show this message and its replies`}
-      onPress={onOpen}
-      hitSlop={6}
-      style={({ pressed }) => [styles.count, pressed && styles.bubblePressed]}
-    >
-      <View style={styles.countDot} />
-      <Text style={styles.countText}>{label}</Text>
-    </Pressable>
-  );
-}
-
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     stack: {
@@ -303,26 +276,5 @@ const makeStyles = (colors: Colors) =>
       color: colors.textMuted,
       fontFamily: fonts.sans.regular,
       fontSize: 11,
-    },
-    count: {
-      alignSelf: "flex-end",
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 5,
-      paddingVertical: 5,
-      paddingHorizontal: 8,
-      borderRadius: 999,
-    },
-    countDot: {
-      width: 5,
-      height: 5,
-      borderRadius: 999,
-      backgroundColor: colors.textMuted,
-      opacity: 0.6,
-    },
-    countText: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.medium,
-      fontSize: 11.5,
     },
   });

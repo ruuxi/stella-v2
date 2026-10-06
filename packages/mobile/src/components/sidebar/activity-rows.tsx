@@ -20,15 +20,6 @@ import type { ChatArtifact, MobileTask } from "../../types";
 
 const SHIMMER_MS = 1900;
 
-const TERMINAL_SUBTITLE_KEY: Record<
-  Exclude<MobileTask["status"], "running">,
-  string
-> = {
-  completed: "mobile.activityHub.task.finished",
-  error: "mobile.activityHub.task.failed",
-  canceled: "mobile.activityHub.task.stopped",
-};
-
 export type GroupSubagent = { task: MobileTask; artifacts: ChatArtifact[] };
 
 export type ActivityRowStyles = ReturnType<typeof makeActivityRowStyles>;
@@ -36,7 +27,7 @@ export type ActivityRowStyles = ReturnType<typeof makeActivityRowStyles>;
 /**
  * The rows the sidebar's Activity, Schedule and Files lists are made of.
  * Ported from the retired activity-hub sheet and tightened for a 300pt
- * column: the same glyph/title/subtitle anatomy at one size step smaller.
+ * column: compact task titles with status glyphs and nested files.
  */
 export function TaskRow({
   task,
@@ -51,13 +42,8 @@ export function TaskRow({
   colors: Colors;
   styles: ActivityRowStyles;
 }) {
-  const t = useT();
   const running = task.status === "running";
   const isError = task.status === "error";
-  const subtitle =
-    task.status === "running"
-      ? task.statusText?.trim() || t("mobile.activityHub.task.working")
-      : t(TERMINAL_SUBTITLE_KEY[task.status]);
   // Newest reasoning summary (oldest→newest order), shown under the agent while
   // it's active. Defensive against the field being absent on older desktops.
   const reasoningSummary = running
@@ -99,13 +85,6 @@ export function TaskRow({
               {task.title}
             </Text>
           )}
-          <Text
-            style={styles.taskSub}
-            numberOfLines={1}
-            maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-          >
-            {subtitle}
-          </Text>
           {reasoningSummary ? (
             <Text
               style={styles.taskReasoning}

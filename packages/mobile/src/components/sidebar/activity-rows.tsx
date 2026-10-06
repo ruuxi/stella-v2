@@ -27,7 +27,7 @@ export type ActivityRowStyles = ReturnType<typeof makeActivityRowStyles>;
 /**
  * The rows the sidebar's Activity, Schedule and Files lists are made of.
  * Ported from the retired activity-hub sheet and tightened for a 300pt
- * column: compact task titles with status glyphs and nested files.
+ * column: compact task titles with a trailing status glyph and nested files.
  */
 export function TaskRow({
   task,
@@ -52,20 +52,7 @@ export function TaskRow({
 
   return (
     <View style={styles.taskGroup}>
-      <View style={styles.taskRow}>
-        <View style={styles.taskGlyph}>
-          {running ? (
-            <View style={styles.runningDot} />
-          ) : task.status === "canceled" ? (
-            <View style={styles.canceledDot} />
-          ) : (
-            <Icon
-              name={isError ? "alert-circle" : "check"}
-              size={14}
-              color={isError ? colors.danger : colors.text}
-            />
-          )}
-        </View>
+      <View style={[styles.taskRow, styles.taskRowTrailingGlyph]}>
         <View style={styles.taskText}>
           {running ? (
             <ShimmerText
@@ -94,6 +81,19 @@ export function TaskRow({
               {reasoningSummary}
             </Text>
           ) : null}
+        </View>
+        <View style={styles.taskGlyph}>
+          {running ? (
+            <View style={styles.runningDot} />
+          ) : task.status === "canceled" ? (
+            <View style={styles.canceledDot} />
+          ) : (
+            <Icon
+              name={isError ? "alert-circle" : "check"}
+              size={15}
+              color={isError ? colors.danger : colors.text}
+            />
+          )}
         </View>
       </View>
       {artifacts.length > 0 ? (
@@ -391,7 +391,12 @@ export const makeActivityRowStyles = (colors: Colors) =>
       flexDirection: "row",
       gap: 10,
       paddingHorizontal: 2,
-      paddingVertical: 7,
+      paddingVertical: 10,
+    },
+    // Status moved to the trailing edge, so the title keeps the leading inset
+    // the removed glyph used to hold and still lines up with the nav labels.
+    taskRowTrailingGlyph: {
+      paddingLeft: 32,
     },
     taskGlyph: {
       alignItems: "center",
@@ -424,22 +429,22 @@ export const makeActivityRowStyles = (colors: Colors) =>
     taskTitle: {
       color: colors.text,
       fontFamily: fonts.sans.medium,
-      fontSize: 13,
+      fontSize: 14.5,
       letterSpacing: -0.2,
     },
     taskSub: {
       color: colors.textMuted,
       fontFamily: fonts.sans.regular,
-      fontSize: 11.5,
+      fontSize: 12.5,
       letterSpacing: -0.1,
       marginTop: 1,
     },
     taskReasoning: {
       color: colors.textMuted,
       fontFamily: fonts.sans.regular,
-      fontSize: 11.5,
+      fontSize: 12.5,
       letterSpacing: -0.1,
-      lineHeight: 15,
+      lineHeight: 16,
       marginTop: 2,
     },
     scheduleRowBusy: {

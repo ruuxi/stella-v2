@@ -70,3 +70,13 @@ runtime under Bun) with `STELLA_LAUNCHER=1`, which gives the run Stella's own
 name, Electron user data, and `~/.stella` home. There is no packaged build or
 electron-updater feed: updates arrive as app source changes and are applied
 from the in-app Update card.
+
+Because of that, `app.isPackaged` is false in the installed product as well as
+in a checkout, and nothing may use it to ask "am I the shipped app". The one
+answer lives in `packages/desktop/electron/app-identity.ts`
+(`resolveAppInstall`, `isInstalledProduct`, `isDeveloperInstance`,
+`isDevHarness`), derived from `STELLA_LAUNCHER=1` and `STELLA_DEV_HARNESS=1`.
+Call it instead of adding a predicate. What it deliberately does not answer:
+whether the app runs from source (always true), and the renderer's build mode
+(`resolveRendererBuildMode`, overridable with `STELLA_RENDERER_MODE`, which is
+what `import.meta.env.DEV` reflects).

@@ -21,24 +21,11 @@ const snapshot = (
 });
 
 describe("mobile office preview policy", () => {
-  it("uses the monorepo binary in development and the shipped resource in packaged apps", () => {
+  it("uses the binary in the source tree the app runs from", () => {
     const binary = "stella-office-darwin-arm64";
-    expect(
-      resolveOfficePreviewBinaryPath(
-        "/repo",
-        false,
-        "/electron/resources",
-        binary,
-      ),
-    ).toBe("/repo/packages/stella-office/bin/" + binary);
-    expect(
-      resolveOfficePreviewBinaryPath(
-        "/App/Resources/app.asar",
-        true,
-        "/App/Resources",
-        binary,
-      ),
-    ).toBe("/App/Resources/stella-office/bin/" + binary);
+    expect(resolveOfficePreviewBinaryPath("/repo", binary)).toBe(
+      "/repo/packages/stella-office/bin/" + binary,
+    );
   });
   it("limits mobile office preview snapshots to recent conversation files", () => {
     const events: LocalChatEventRecord[] = [

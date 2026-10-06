@@ -49,18 +49,15 @@ const PREVIEW_ROOT_DIRNAME = "office-previews";
 const SESSION_MANIFEST_NAME = "session.json";
 const SESSION_HTML_NAME = "preview.html";
 
+/**
+ * The OfficeCLI binary ships in the source tree every install runs from; there
+ * is no packaged `resourcesPath` copy to prefer.
+ */
 export const resolveOfficePreviewBinaryPath = (
   stellaAppDir: string,
-  packaged: boolean,
-  resourcesPath: string,
   binaryName: string,
 ): string =>
-  path.join(
-    packaged ? resourcesPath : path.join(stellaAppDir, "packages"),
-    "stella-office",
-    "bin",
-    binaryName,
-  );
+  path.join(stellaAppDir, "packages", "stella-office", "bin", binaryName);
 
 const formatForPath = (filePath: string): OfficePreviewFormat => {
   const extension = path.extname(filePath).toLowerCase();
@@ -334,8 +331,6 @@ export const registerOfficePreviewHandlers = (
 
       const binaryPath = resolveOfficePreviewBinaryPath(
         stellaAppDir,
-        app.isPackaged,
-        process.resourcesPath,
         getOfficeBinaryName(),
       );
       void (async () => {

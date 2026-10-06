@@ -159,15 +159,13 @@ export const resolveStellaDataDirEffect = (
         stellaAppDir,
         explicitStatePath,
       );
-      // Development may load runtime code from the checkout, but user-created
-      // projects must always live in Stella's writable data root. Keeping the
-      // workspace under `stellaAppDir` in dev made the external-app scaffold and
-      // runtime look in different directories and reintroduced source-tree
-      // mutation in the one mode where it is easiest to miss.
-      const runtimeRoot = path.join(
-        app.isPackaged ? statePath : stellaAppDir,
-        "runtime",
-      );
+      // Runtime assets (the bundled extensions) are read from the source tree
+      // every install runs from; there is no packaged copy under the data root
+      // to prefer. User-created projects are the opposite case and must always
+      // live in Stella's writable data root: keeping the workspace under
+      // `stellaAppDir` made the external-app scaffold and the runtime look in
+      // different directories and reintroduced source-tree mutation.
+      const runtimeRoot = path.join(stellaAppDir, "runtime");
       const workspacePath = path.join(statePath, "workspace");
 
       const extensionsPath = path.join(runtimeRoot, "extensions");

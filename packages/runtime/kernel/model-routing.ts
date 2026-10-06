@@ -26,6 +26,7 @@ import {
   uniqueModelCandidates,
 } from "./model-routing-matching.js";
 import {
+  canonicalStellaModelReference,
   createStellaRoute,
   resolveOfflineStellaModelId,
   STELLA_PROVIDER,
@@ -638,7 +639,9 @@ const resolveLlmRouteResult = (args: {
 }): LlmRouteResolution => {
   const requestedModel = args.modelName?.trim();
   const parsed = parseModelReference(
-    normalizeDesktopLocalEngineModelReference(args.modelName),
+    canonicalStellaModelReference(
+      normalizeDesktopLocalEngineModelReference(args.modelName),
+    ),
   );
 
   // No model specified → let the backend choose from agent type + audience.

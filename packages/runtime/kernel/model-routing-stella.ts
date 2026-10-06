@@ -92,6 +92,21 @@ export const inferManagedGatewayProviderFromModel = (
   return "openrouter";
 };
 
+const STELLA_OPENROUTER_FLASH_REFERENCE = `stella/openrouter/${STELLA_DEEPSEEK_V4_FLASH_UPSTREAM_MODEL}`;
+
+/**
+ * The pinnable spelling of a Stella model reference. Catalogs before
+ * 2026-10-06 published the default as `openrouter/deepseek/deepseek-v4.1-flash`,
+ * so agent snapshots froze `stella/openrouter/...`, which the gateway rejects:
+ * only the catalog id `stella/deepseek/deepseek-v4.1-flash` is listed.
+ */
+export const canonicalStellaModelReference = <T extends string | undefined>(
+  reference: T,
+): T | string =>
+  reference?.trim() === STELLA_OPENROUTER_FLASH_REFERENCE
+    ? `stella/${STELLA_DEEPSEEK_V4_FLASH_UPSTREAM_MODEL}`
+    : reference;
+
 export const resolveManagedStellaRegistryMatches = (
   matches: ReturnType<typeof findRegistryModelsById>,
 ): string | null => {

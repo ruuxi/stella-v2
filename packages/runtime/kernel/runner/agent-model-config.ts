@@ -13,6 +13,7 @@ import {
   getClaudeCodeRuntimeEffortLevel,
 } from "../integrations/claude-code-agent-runtime.js";
 import type { ResolvedLlmRoute } from "../model-routing.js";
+import { canonicalStellaModelReference } from "../model-routing-stella.js";
 
 export const normalizeCapturedReasoningEffort = (
   value: string | undefined,
@@ -44,7 +45,7 @@ export const exactRouteModelReference = (
       resolvedLlm.toolPolicyModel?.id.trim() ||
       upstreamModel?.trim() ||
       resolvedLlm.model.id.trim();
-    return `stella/${resolvedModel}`;
+    return canonicalStellaModelReference(`stella/${resolvedModel}`);
   }
   if (configuredModel?.trim()) return configuredModel.trim();
   const id = resolvedLlm.model.id.trim();
@@ -144,7 +145,7 @@ export const toCloudExecutionSelection = (
 ): CloudExecutionSelection => {
   const reasoningEffort = snapshot.reasoningEffort ?? "default";
   if (snapshot.engine === "default") {
-    const model = snapshot.routeModel.trim();
+    const model = canonicalStellaModelReference(snapshot.routeModel.trim());
     const localOnlyManagedPrefix = [
       "stella/local/",
       "stella/ollama/",

@@ -412,7 +412,30 @@ const withClaudeAuthRecoveryFailed = (error, { stellaManaged, hadAccount }) => {
   failure.status = 401;
   return failure;
 };
-
+/**
+ * A Claude subscription usage limit that Stella could not route around, named
+ * as such.
+ *
+ * Detection used to be gated on Stella managing the account, so a limit hit on
+ * the CLI's own login was rethrown bare and reached the user as a generic
+ * "did not finish" — indistinguishable from a broken token, and the reason
+ * switching accounts by hand "just fixed it". The limit is a property of the
+ * account, not of who holds its token, so report it either way and say which
+ * account Stella can and cannot move.
+ */
+const withClaudeSubscriptionLimitReported = (error, limit, stellaManaged) => {
+  const resetsAt =
+    typeof limit.resetsAt === "number" && Number.isFinite(limit.resetsAt)
+      ? new Date(limit.resetsAt)
+      : null;
+  const when = resetsAt ? ` It resets at ${resetsAt.toLocaleString()}.` : "";
+  const remedy = stellaManaged
+    ? "No other signed-in Claude account was available to take over. Add or enable another Claude account in Settings › Account (auto-switch hands over automatically), or wait for the reset."
+    : "Claude Code is running on its own CLI login, which Stella cannot switch. Add a Claude account in Settings › Account so Stella can hand over between accounts, sign the CLI in to a different account, or wait for the reset.";
+  return new Error(
+    `Claude usage limit reached.${when} ${remedy} (${normalizeErrorMessage(error)})`,
+  );
+};
 const buildClaudeCodeHookSettings = () => {
   const command = `"${process.execPath}" -e ""`;
   return JSON.stringify({
@@ -1541,19 +1564,25 @@ class ClaudeCodeSessionRuntime {
         const hasPossibleSideEffects = Boolean(
           recoverable && recoverable.mcpCalls.length > 0,
         );
-        // The Stella-managed Claude account hit its limit: cool it down and,
-        // when auto-switch moved to another account, restart the CLI on it
-        // and carry on with this step (reconciling, never replaying, any
-        // tool work that already ran).
-        const limit =
-          !switchedAccount && session.stellaClaudeToken
-            ? claudeCodeSubscriptionLimitOf(error)
-            : null;
+        // The Claude account hit its limit: cool it down and, when
+        // auto-switch moved to another account, restart the CLI on it and
+        // carry on with this step (reconciling, never replaying, any tool
+        // work that already ran).
+        //
+        // Detection is NOT gated on Stella holding the token: a limit on the
+        // CLI's own login is the same user-visible event and must still be
+        // named. Only the hand-over is Stella-managed — there are no sibling
+        // accounts to move to behind a CLI login.
+        const limit = switchedAccount
+          ? null
+          : claudeCodeSubscriptionLimitOf(error);
         if (limit) {
-          const { switched } = await reportLocalLlmSubscriptionLimit(
-            "anthropic",
-            limit.resetsAt,
-          );
+          const { switched } = session.stellaClaudeToken
+            ? await reportLocalLlmSubscriptionLimit(
+                "anthropic",
+                limit.resetsAt,
+              )
+            : { switched: false };
           if (switched) {
             switchedAccount = true;
             if (recoverable) mergeMcpCalls(failedAttemptMcpCalls, recoverable.mcpCalls);
@@ -1570,7 +1599,11 @@ class ClaudeCodeSessionRuntime {
             }
             continue;
           }
-          throw error;
+          throw withClaudeSubscriptionLimitReported(
+            error,
+            limit,
+            Boolean(session.stellaClaudeToken),
+          );
         }
         // Anthropic refused the credential. When Stella injected it, Stella
         // owns refreshing it: re-mint once and relaunch the CLI on the new

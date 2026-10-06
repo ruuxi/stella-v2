@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import { loadWindow } from './window-load.js';
+// Explicit opt-in, available in any install: there is no packaging step whose
+// absence could stand in for "a human is debugging this".
 const shouldOpenDevTools = process.env.STELLA_OPEN_DEVTOOLS === '1';
 const loadShellMainWindow = (window, options) => {
     loadWindow(window, { mode: options.mode });
@@ -8,7 +10,7 @@ const loadShellMainWindow = (window, options) => {
 export const createShellWindow = (options) => {
     const window = options.createWindow();
     options.setupExternalLinkHandlers(window);
-    if (options.isDev && shouldOpenDevTools) {
+    if (shouldOpenDevTools) {
         window.webContents.openDevTools();
     }
     window.webContents.on('did-start-loading', () => {

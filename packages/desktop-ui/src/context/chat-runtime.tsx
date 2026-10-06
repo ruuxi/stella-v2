@@ -50,9 +50,8 @@ export function ChatRuntimeProvider({
     activeConversationId,
     isOnChatRoute,
     navigateToConversation,
-    // Stella ships as a Vite dev server, so `import.meta.env.DEV` is TRUE for
-    // real users — gating trace diagnostics on it would run (and leak) them in
-    // production. Use an explicit opt-in flag that defaults OFF instead.
+    // Trace diagnostics are an explicit opt-in that defaults OFF, not a
+    // build-mode consequence: see isTraceDiagnosticsEnabled.
     traceEnabled: isTraceDiagnosticsEnabled(),
   });
 

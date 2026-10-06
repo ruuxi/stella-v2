@@ -19,20 +19,23 @@ import {
 import { readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { app } from "electron";
+import { isInstalledProduct } from "./app-identity.js";
 
 // Persist once startup has settled rather than only at exit: a crash or a
 // force-kill before a clean quit would otherwise drop the whole cache.
 const COMPILE_CACHE_FLUSH_DELAY_MS = 15_000;
-const PACKAGED_COMPILE_CACHE_DIR_NAME = "Main Compile Cache";
+const COMPILE_CACHE_DIR_NAME = "Main Compile Cache";
 
 const enableMainCompileCache = (): void => {
   try {
-    // Packaged builds keep the cache in their own userData so it survives
-    // reboots and temp cleaners. Development uses Node's default temp
-    // location rather than creating a profile under the pre-rename app name.
-    if (app.isPackaged) {
+    // The user's Stella keeps the cache in its own userData so it survives
+    // reboots and temp cleaners — the startup cost this cache exists to cut is
+    // paid on every launch, and the product launches far more often than a
+    // checkout does. A developer checkout uses Node's default temp location
+    // rather than creating a profile under the pre-rename app name.
+    if (isInstalledProduct({ isPackaged: app.isPackaged })) {
       enableCompileCache(
-        path.join(app.getPath("userData"), PACKAGED_COMPILE_CACHE_DIR_NAME),
+        path.join(app.getPath("userData"), COMPILE_CACHE_DIR_NAME),
       );
     } else {
       enableCompileCache();
@@ -44,12 +47,12 @@ const enableMainCompileCache = (): void => {
 
 /**
  * Node versions each cache under a `v<node>-<arch>-<hash>` subdirectory, so an
- * Electron upgrade leaves the previous one behind. Only the packaged cache
- * root is Stella-owned; the shared development temp root is left alone.
+ * Electron upgrade leaves the previous one behind. Only Stella's own cache root
+ * is pruned; the shared development temp root is left alone.
  */
 const pruneStaleCompileCacheVersions = async (activeDir: string) => {
   const root = path.dirname(activeDir);
-  if (path.basename(root) !== PACKAGED_COMPILE_CACHE_DIR_NAME) {
+  if (path.basename(root) !== COMPILE_CACHE_DIR_NAME) {
     return;
   }
   const activeName = path.basename(activeDir);

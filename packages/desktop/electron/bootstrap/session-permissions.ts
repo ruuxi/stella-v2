@@ -29,19 +29,18 @@ const getWebContentsOrigin = (webContents: WebContents | null | undefined) => {
 
 type ConfigureStellaSessionPermissionsOptions = {
   appPartition: string;
-  isDev: boolean;
 };
 
 export const configureStellaSessionPermissions = ({
   appPartition,
-  isDev,
 }: ConfigureStellaSessionPermissionsOptions) => {
-  const devOrigin = isDev ? RENDERER_ORIGIN : null;
+  // The renderer is served from source under `RENDERER_ORIGIN` in every
+  // install, so this is the app's own origin rather than a development one.
   const isTrustedAppContents = (
     webContents: WebContents | null | undefined,
   ) => {
     const origin = getWebContentsOrigin(webContents);
-    return origin === "file://" || (devOrigin != null && origin === devOrigin);
+    return origin === "file://" || origin === RENDERER_ORIGIN;
   };
   const appSession = session.fromPartition(appPartition);
 

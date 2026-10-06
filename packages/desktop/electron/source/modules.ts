@@ -68,7 +68,11 @@ export type ModuleGraphOptions = {
   uiRoot: string;
   repoRoot: string;
   cacheDir: string;
-  isDev: boolean;
+  /**
+   * Build the development JSX transform (filenames in the output) and React
+   * Fast Refresh registrations. A build mode, not a claim about the install.
+   */
+  development: boolean;
   defines: Record<string, string>;
 };
 
@@ -244,9 +248,9 @@ export const createModuleGraph = (options: ModuleGraphOptions) => {
       jsx: {
         runtime: "automatic",
         importSource: "react",
-        development: options.isDev,
+        development: options.development,
         // React Fast Refresh registers through the module's hot context.
-        ...(options.isDev && langFor(file) !== "ts"
+        ...(options.development && langFor(file) !== "ts"
           ? { refresh: { refreshReg: "__stella_hot.register", refreshSig: "__stella_hot.signature" } }
           : {}),
       },

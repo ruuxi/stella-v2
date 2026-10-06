@@ -2,6 +2,7 @@ import { realpathSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
+import { isDevHarness } from "../app-identity.js";
 
 export const STELLA_DEV_HARNESS_ADDRESS = "127.0.0.1" as const;
 export const STELLA_DEV_HARNESS_APP_NAME_PREFIX = "Stella v2 Harness" as const;
@@ -36,11 +37,7 @@ export const resolveDevHarnessSessionToken = ({
   hasStoredBearer,
   env = process.env,
 }: ResolveDevHarnessSessionTokenInput): string | null => {
-  if (
-    isPackaged ||
-    env.STELLA_DEV_HARNESS !== "1" ||
-    hasStoredBearer
-  ) {
+  if (!isDevHarness({ isPackaged, env }) || hasStoredBearer) {
     return null;
   }
   return env.STELLA_DEV_HARNESS_SESSION_TOKEN?.trim() || null;
@@ -167,7 +164,7 @@ const resolveRemoteDebuggingPort = (rawValue: string | undefined): string => {
 
 /**
  * Resolve the opt-in dev-harness settings without importing or mutating
- * Electron. Packaged builds and ordinary development ignore every harness
+ * Electron. The user's Stella and ordinary development ignore every harness
  * variable, including malformed values.
  */
 export const resolveDevHarnessOptions = ({
@@ -177,7 +174,7 @@ export const resolveDevHarnessOptions = ({
   homeDir = os.homedir(),
   tempDir = os.tmpdir(),
 }: ResolveDevHarnessOptionsInput): DevHarnessOptions | null => {
-  if (isPackaged || env.STELLA_DEV_HARNESS !== "1") {
+  if (!isDevHarness({ isPackaged, env })) {
     return null;
   }
 

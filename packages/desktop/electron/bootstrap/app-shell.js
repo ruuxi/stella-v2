@@ -9,7 +9,7 @@ import { WindowManager } from "../windows/window-manager.js";
 import { TrayController } from "../windows/tray-controller.js";
 import { configureNotificationActivationHandling } from "../services/notification-service.js";
 import { configureStellaSessionPermissions } from "./session-permissions.js";
-import { serveRendererSource } from "../source/renderer-protocol.js";
+import { resolveRendererBuildMode, serveRendererSource, } from "../source/renderer-protocol.js";
 import { getAllWindows, getMobileBroadcast, } from "./context.js";
 import { startDeferredStartup } from "./deferred-startup.js";
 import { getMainLogger } from "../observability/main-logger.js";
@@ -28,31 +28,29 @@ const initializeWindowShell = (context) => {
     const preloadPath = path.join(config.electronDir, "preload.js");
     configureStellaSessionPermissions({
         appPartition: config.sessionPartition,
-        isDev: config.useDevServer,
     });
-    // Unpackaged, the renderer runs from its source tree (see source/).
-    // The handle swaps updated files into the windows (`applyChanges`).
-    if (config.useDevServer) {
-        state.rendererSource = serveRendererSource({
-            partition: config.sessionPartition,
-            sourceRoot: config.stellaAppDir,
-            isDev: config.useDevServer,
-            log: (message) => getMainLogger()?.process("renderer.source", { message }),
-        });
-    }
+    // Every install runs the renderer from its source tree (see source/), so
+    // this is unconditional; only the build mode depends on who we are. The
+    // handle swaps updated files into the windows (`applyChanges`).
+    state.rendererSource = serveRendererSource({
+        partition: config.sessionPartition,
+        sourceRoot: config.stellaAppDir,
+        mode: resolveRendererBuildMode({
+            isInstalledProduct: config.isInstalledProduct,
+        }),
+        log: (message) => getMainLogger()?.process("renderer.source", { message }),
+    });
     configureNotificationActivationHandling(context);
     state.overlayController = new OverlayWindowController({
         preloadPath,
         sessionPartition: config.sessionPartition,
         electronDir: config.electronDir,
-        isDev: config.useDevServer,
         isQuitting: () => state.isQuitting,
     });
     lifecycle.setWindowManager(new WindowManager({
         electronDir: config.electronDir,
         preloadPath,
         sessionPartition: config.sessionPartition,
-        isDev: config.useDevServer,
         externalLinkService: services.externalLinkService,
         isQuitting: () => state.isQuitting,
         onMinimizeFullToTray: () => state.trayController?.notifyMinimizedToTray(),
@@ -61,7 +59,6 @@ const initializeWindowShell = (context) => {
         preloadPath,
         sessionPartition: config.sessionPartition,
         electronDir: config.electronDir,
-        isDev: config.useDevServer,
         isQuitting: () => state.isQuitting,
         getStellaDataDir: () => state.stellaDataDirPath,
         onOpenMain: () => state.windowManager?.showWindow(),

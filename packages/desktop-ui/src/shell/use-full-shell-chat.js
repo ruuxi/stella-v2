@@ -417,9 +417,8 @@ export function useFullShellChat({
   // per-turn tool events. The hook's internal `seenIds` set keeps it
   // idempotent across re-runs, so we can rebuild the list cheaply on
   // every tick without double-firing trace entries. Gated on `traceEnabled`
-  // (explicit opt-in) rather than `import.meta.env.DEV`, which is TRUE in
-  // Stella's dev-server-as-production build, so the array stays empty for
-  // real users.
+  // (explicit opt-in) rather than a build-mode flag, so the array stays empty
+  // unless someone asked for tracing.
   const traceEvents = useMemo(() => {
     if (!traceEnabled) return [];
     const out = [];

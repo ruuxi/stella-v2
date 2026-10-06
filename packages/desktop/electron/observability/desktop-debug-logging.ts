@@ -13,6 +13,7 @@ import {
 import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { resolveLogPaths } from "@stella/runtime/observability/log-paths";
+import { resolveAppInstall } from "../app-identity.js";
 
 const MAX_LOG_AGE_DAYS = 7;
 const EXPORT_WINDOW_MS = 24 * 60 * 60 * 1_000;
@@ -53,10 +54,13 @@ const isBrokenPipe = (error: unknown): boolean =>
   error.code === "EPIPE";
 
 const configureConsoleTransport = (): void => {
-  if (app.isPackaged) {
-    log.transports.console.level = false;
-    return;
-  }
+  // Kept on in every install. Electron's stdout belongs to whatever started it
+  // — the native launcher for the user's Stella, which captures it into the
+  // launcher log, and the dev runner for a checkout — so console output is a
+  // diagnostic rather than noise. The guard below covers the parent pipe going
+  // away. (This used to be silenced for packaged builds; nothing is packaged,
+  // so the silencing never happened and relying on it would mean losing the
+  // launcher's record of a failed start.)
   const writeConsole = log.transports.console.writeFn.bind(
     log.transports.console,
   );
@@ -297,7 +301,7 @@ export const exportDesktopDebugLogs = async (): Promise<string> => {
       generated: new Date().toISOString(),
       version: app.getVersion(),
       name: app.getName(),
-      packaged: app.isPackaged,
+      install: resolveAppInstall({ isPackaged: app.isPackaged }),
       platform: process.platform,
       arch: process.arch,
       versions: process.versions,

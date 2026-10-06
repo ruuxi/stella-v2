@@ -18,7 +18,6 @@ export class ShellWindowController {
         const window = createShellWindow({
             mode: this.config.mode,
             electronDir: this.options.electronDir,
-            isDev: this.options.isDev,
             createWindow: () => this.config.createWindow(createOptions),
             setupExternalLinkHandlers: this.options.setupExternalLinkHandlers,
             onDidStartLoading: this.options.onDidStartLoading,
@@ -42,7 +41,6 @@ export class ShellWindowController {
     reloadMainWindow() {
         reloadShellMainWindow(this.window, {
             electronDir: this.options.electronDir,
-            isDev: this.options.isDev,
             mode: this.config.mode,
         });
     }

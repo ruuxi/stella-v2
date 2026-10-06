@@ -113,14 +113,13 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
                 }
                 return resource.subscribeCookieEvents(onEvent);
             },
-            // Agents check UI drafts in the running app (running from source only).
-            openPreview: config.useDevServer
-                ? (name) => openDraftPreview({
-                    name,
-                    stellaAppDir: state.stellaAppDir ?? config.stellaAppDir,
-                    preloadPath: path.join(config.electronDir, "preload.js"),
-                })
-                : undefined,
+            // Agents check UI drafts in the running app, which always runs from
+            // source.
+            openPreview: (name) => openDraftPreview({
+                name,
+                stellaAppDir: state.stellaAppDir ?? config.stellaAppDir,
+                preloadPath: path.join(config.electronDir, "preload.js"),
+            }),
             connectionTimeoutMs: 4 * 60 * 1000,
             connectionPollMs: 1000,
             automaticConnectionTimeoutMs: 15 * 1000,
@@ -378,9 +377,9 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         getBackendUrl: () => services.authService.getBackendUrl(),
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
     });
-    // Drafts, undo and fork sync for the app's own checkout (running from
-    // source only). Deferred startup starts it.
-    if (config.useDevServer && !state.appSourceService) {
+    // Drafts, undo and fork sync for the app's own checkout. Every install is
+    // a checkout, so this is unconditional. Deferred startup starts it.
+    if (!state.appSourceService) {
         // How a change shows on screen: a picture transition for renderer
         // changes, a frosted hold across a relaunch.
         const updateTransition = state.updateTransition ?? new UpdateTransition({

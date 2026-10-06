@@ -36,7 +36,7 @@ export const createBootstrapServices = (options) => {
             options.getMobileBroadcast()?.("localChat:taskDecorationUpdated", payload);
         },
     });
-    externalLinkService.setDevBuild(config.useDevServer);
+    externalLinkService.setDevBuild(config.isDeveloperInstance);
     externalLinkService.trustRendererOrigin(RENDERER_ORIGIN);
     // A canvas-share link (`<CANVAS_SHARE_BASE_URL>/c/<slug>`) clicked/opened
     // inside Stella is fetched + materialized in main and pushed to the Canvas
@@ -73,7 +73,6 @@ export const createBootstrapServices = (options) => {
     // and the power toggle don't run on the synchronous pre-paint path.
     const authService = new AuthService({
         authProtocol: config.authProtocol,
-        isDev: config.isDev,
         projectDir: path.resolve(config.electronDir, "..", ".."),
         sessionPartition: config.sessionPartition,
         runnerTarget: lifecycle,
@@ -99,7 +98,7 @@ export const createBootstrapServices = (options) => {
     });
     const telemetry = initMainProcessTelemetry({
         stellaDataDirPath: config.stellaDataDirPath,
-        isDev: config.isDev,
+        environment: config.telemetryEnvironment,
         getAuthToken: () => authService.getAuthToken(),
     });
     const credentialService = new CredentialService({

@@ -1,5 +1,6 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { setProtectedStorageProviderOverride } from "@stella/runtime/kernel/shared/protected-storage";
+import { isDevHarness } from "../app-identity.js";
 
 const HARNESS_STORAGE_KEY_ENV = "STELLA_DEV_HARNESS_STORAGE_KEY";
 const KEY_BYTES = 32;
@@ -77,7 +78,7 @@ export const configureDevHarnessProtectedStorage = ({
   env?: NodeJS.ProcessEnv;
   isPackaged: boolean;
 }): boolean => {
-  if (isPackaged || env.STELLA_DEV_HARNESS !== "1") return false;
+  if (!isDevHarness({ isPackaged, env })) return false;
 
   const encodedKey = env[HARNESS_STORAGE_KEY_ENV]?.trim();
   if (!encodedKey) {

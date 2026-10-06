@@ -1,14 +1,17 @@
 import path from "node:path";
 import { app } from "electron";
+import type { TelemetryEnvironment } from "@stella/contracts/telemetry";
 import { RemoteTelemetryClient } from "@stella/runtime/observability/remote-telemetry";
-import {
-  telemetryHttpEndpoint,
-  telemetryHttpEnvironment,
-} from "@stella/runtime/observability/telemetry-endpoints";
+import { telemetryHttpEndpoint } from "@stella/runtime/observability/telemetry-endpoints";
 
 type MainTelemetryOptions = {
   stellaDataDirPath: string;
-  isDev: boolean;
+  /**
+   * Which deployment this run reports to. Decided once, from who the install
+   * is (see app-identity) — never from packaging, which would have sent every
+   * installed user's telemetry to the development endpoint.
+   */
+  environment: Extract<TelemetryEnvironment, "development" | "production">;
   getAuthToken: () => Promise<string | null>;
 };
 
@@ -17,7 +20,7 @@ type MainTelemetryOptions = {
  * spool work deliberately stay outside the renderer's 16ms frame budget.
  */
 export const initMainProcessTelemetry = (options: MainTelemetryOptions) => {
-  const environment = telemetryHttpEnvironment(options.isDev);
+  const environment = options.environment;
   const endpoint = telemetryHttpEndpoint(environment);
   const client = new RemoteTelemetryClient({
     spoolPath: path.join(

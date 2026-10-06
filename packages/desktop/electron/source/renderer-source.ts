@@ -5,6 +5,7 @@ import { bundleDependencies, type DepBundle } from "./deps.js";
 import { envDefines, loadRendererEnv } from "./env.js";
 import { createModuleGraph, isInNodeModules, isInside, SOURCE_EXTENSIONS } from "./modules.js";
 import { RENDERER_ORIGIN } from "./origin.js";
+import type { RendererBuildMode } from "./renderer-protocol.js";
 import { createRouteTreeGenerator } from "./routes.js";
 import type { SourceTools } from "./tools.js";
 
@@ -102,7 +103,7 @@ export type RendererSourceOptions = {
   /** The desktop-ui directory whose `.env` files supply `import.meta.env`. */
   envDir: string;
   cacheDir: string;
-  isDev: boolean;
+  mode: RendererBuildMode;
   log: (message: string) => void;
   /** Dependencies were rebundled: reload the windows. */
   onReloadNeeded: () => void;
@@ -110,14 +111,19 @@ export type RendererSourceOptions = {
 
 export const createRendererSource = (options: RendererSourceOptions) => {
   const { tools, uiRoot, repoRoot, log } = options;
-  const mode = options.isDev ? "development" : "production";
+  const mode = options.mode;
+  // Hot module replacement belongs to the authoring mode: React Fast Refresh
+  // registrations are emitted by the development transform, so a production
+  // graph has nothing for the hot client to swap and applies changes by
+  // reloading instead.
+  const hot = mode === "development";
   const env = loadRendererEnv(options.envDir, mode);
   const graph = createModuleGraph({
     tools,
     uiRoot,
     repoRoot,
     cacheDir: options.cacheDir,
-    isDev: options.isDev,
+    development: hot,
     defines: envDefines(env),
   });
   const routes = createRouteTreeGenerator(tools, uiRoot);
@@ -162,7 +168,7 @@ export const createRendererSource = (options: RendererSourceOptions) => {
   };
 
   const htmlEntryModules = (): string[] => {
-    const modules: string[] = options.isDev ? [hotClientFile] : [];
+    const modules: string[] = hot ? [hotClientFile] : [];
     for (const name of HTML_ENTRIES) {
       let html: string;
       try {
@@ -252,7 +258,7 @@ export const createRendererSource = (options: RendererSourceOptions) => {
         }
         return `/@deps/${entry}`;
       },
-      options.isDev && file !== hotClientFile ? HOT_HEADER : "",
+      hot && file !== hotClientFile ? HOT_HEADER : "",
     );
     if (missing.length === 0) {
       servedImports.set(file, imported);
@@ -292,7 +298,7 @@ export const createRendererSource = (options: RendererSourceOptions) => {
   const html = async (file: string): Promise<string> => {
     await refresh();
     const source = await fs.promises.readFile(file, "utf8");
-    if (!options.isDev) return source;
+    if (!hot) return source;
     const index = source.search(/<script\s+type="module"/);
     const tag = `<script type="module" src="${HOT_CLIENT_URL}"></script>\n    `;
     return index < 0 ? source.replace("</head>", `${tag}</head>`) : `${source.slice(0, index)}${tag}${source.slice(index)}`;
@@ -334,7 +340,7 @@ export const createRendererSource = (options: RendererSourceOptions) => {
       if (url.searchParams.has("import")) {
         if (ext === ".css") {
           servedStylesheets.add(file);
-          const prefix = options.isDev ? HOT_HEADER : "";
+          const prefix = hot ? HOT_HEADER : "";
           return javascript(`${prefix}${cssModule(await stylesheet(file), pathname)}`);
         }
         if (ext === ".json") {
@@ -408,7 +414,7 @@ export const createRendererSource = (options: RendererSourceOptions) => {
     }
     const reloads = (file: string) =>
       file === hotClientFile || isInside(publicDir, file) || path.extname(file) === ".html";
-    if (!options.isDev || [...changed].some(reloads)) return { mode: "reload" };
+    if (!hot || [...changed].some(reloads)) return { mode: "reload" };
 
     const importers = new Map<string, string[]>();
     for (const [importer, imported] of servedImports) {

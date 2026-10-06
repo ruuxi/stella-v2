@@ -1,5 +1,6 @@
 import { app } from "electron";
 import { getCompileCacheDir } from "node:module";
+import { resolveAppInstall } from "../app-identity.js";
 import {
   getFileLogger,
   initFileLogger,
@@ -44,7 +45,10 @@ export const initMainProcessLogging = (stellaAppDir: string): FileLogger => {
     node: process.versions.node ?? "",
     platform: process.platform,
     arch: process.arch,
-    packaged: app.isPackaged,
+    // Who this run is, not whether it is packaged: nothing is packaged, so
+    // `isPackaged` was a constant false in both the product and a checkout and
+    // told a reader of these logs nothing.
+    install: resolveAppInstall({ isPackaged: app.isPackaged }),
     // Process launch to bootstrap: dominated by compiling and evaluating the
     // main bundle, which the V8 compile cache (see launch.ts) exists to cut.
     startupMs: Math.round(process.uptime() * 1000),

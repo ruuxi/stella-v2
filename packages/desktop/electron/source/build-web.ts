@@ -88,7 +88,7 @@ export const buildWebRenderer = async (options: WebBuildOptions): Promise<{ file
     uiRoot,
     repoRoot,
     cacheDir: options.cacheDir,
-    isDev: false,
+    development: false,
     defines,
   });
   await createRouteTreeGenerator(tools, uiRoot).run();

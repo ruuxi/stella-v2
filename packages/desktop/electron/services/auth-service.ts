@@ -10,6 +10,7 @@ import { app, BrowserWindow, powerMonitor } from "electron";
 import fs from "node:fs";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import { isDevHarness } from "../app-identity.js";
 import type { PiRunnerTarget } from "@stella/runtime/kernel/lifecycle-targets";
 import { readConfiguredBackendUrl } from "@stella/contracts/stella-api";
 import {
@@ -136,7 +137,6 @@ const decodeBase64UrlJson = (value: string): unknown => {
 
 type AuthServiceOptions = {
   authProtocol: string;
-  isDev: boolean;
   projectDir: string;
   sessionPartition: string;
   runnerTarget: PiRunnerTarget;
@@ -182,16 +182,14 @@ export class AuthService {
     // harness has a storage provider available at that point. Do not evaluate
     // getBearerToken() for normal runs: reading an encrypted session here
     // poisons the OS storage cache and caches the saved bearer as missing.
-    if (app.isPackaged || process.env.STELLA_DEV_HARNESS !== "1") {
+    if (!isDevHarness({ isPackaged: app.isPackaged })) {
       return;
     }
     const harnessSessionToken = resolveDevHarnessSessionToken({
       isPackaged: app.isPackaged,
       hasStoredBearer: Boolean(this.getBearerToken()),
     });
-    if (!app.isPackaged && process.env.STELLA_DEV_HARNESS === "1") {
-      delete process.env.STELLA_DEV_HARNESS_SESSION_TOKEN;
-    }
+    delete process.env.STELLA_DEV_HARNESS_SESSION_TOKEN;
     if (harnessSessionToken) {
       void this.applySessionToken(harnessSessionToken).catch((error) => {
         console.warn(
@@ -991,16 +989,12 @@ export class AuthService {
   }
 
   registerAuthProtocol() {
-    if (this.options.isDev) {
-      const appPath = app.getAppPath();
-      app.setAsDefaultProtocolClient(
-        this.options.authProtocol,
-        process.execPath,
-        [appPath],
-      );
-      return;
-    }
-    app.setAsDefaultProtocolClient(this.options.authProtocol);
+    // There is no app bundle for the OS to associate the scheme with — Electron
+    // runs this source tree in every install — so the registration has to name
+    // the Electron binary and the app path explicitly.
+    app.setAsDefaultProtocolClient(this.options.authProtocol, process.execPath, [
+      app.getAppPath(),
+    ]);
   }
 
   bindSingleInstanceHandler() {

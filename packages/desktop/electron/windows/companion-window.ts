@@ -74,7 +74,6 @@ export type CompanionWindowOptions = {
   preloadPath: string;
   sessionPartition: string;
   electronDir: string;
-  isDev: boolean;
   isQuitting: () => boolean;
   getStellaDataDir: () => string | null;
   /** Bring the full shell forward (context menu "Open Stella", bubble click). */

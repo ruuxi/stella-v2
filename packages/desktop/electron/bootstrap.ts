@@ -18,7 +18,11 @@ import {
   getTotalSystemMemoryMb,
   isLowMemoryWindowsDevice,
 } from "./resource-profile.js";
-import { resolveDesktopStellaDataDirPath } from "./data-paths.js";
+import {
+  desktopStellaDataMode,
+  resolveDesktopStellaDataDirPath,
+} from "./data-paths.js";
+import { resolveAppInstall } from "./app-identity.js";
 import {
   initializeBootstrapSingleInstance,
   registerBootstrapLifecycle,
@@ -29,45 +33,44 @@ import {
 } from "./bootstrap/dev-harness-options.js";
 import { connectLauncher } from "./launcher-client.js";
 const __dirname = import.meta.dirname;
-// app.isPackaged is the authority. Inherited environment variables must never
-// turn a signed build back into a Vite client.
-const isDev = !app.isPackaged;
-// The app always runs from its source tree; main lives at
-// packages/desktop/dist-electron/electron/.
+// Who this process is: the user's Stella, the harness, or a developer's
+// checkout. Never `app.isPackaged` — there is no packaging step, so it is
+// false for the product too. See app-identity.ts.
+const install = resolveAppInstall({ isPackaged: app.isPackaged });
+const isInstalledProduct = install === "product";
+// A human is running this tree: the condition for developer conveniences.
+const isDeveloperInstance = !isInstalledProduct;
+// The app always runs from its source tree — in every install, not just in
+// development. Main lives at packages/desktop/dist-electron/electron/.
 const stellaAppDir = path.resolve(__dirname, "..", "..", "..", "..");
 const devHarnessOptions = resolveDevHarnessOptions({
   isPackaged: app.isPackaged,
   workspaceDir: stellaAppDir,
 });
-// The native launcher runs the source tree as the product: name, userData
-// and Stella home are Stella's, not the development app's.
-const isLauncherRun =
-  isDev && !devHarnessOptions && process.env.STELLA_LAUNCHER === "1";
 
-if (isDev) {
-  if (devHarnessOptions) {
-    applyDevHarnessOptions(app, devHarnessOptions);
-  } else if (isLauncherRun) {
-    app.setName(STELLA_APP_NAME);
-    app.setPath(
-      "userData",
-      process.env.STELLA_LAUNCHER_USER_DATA_DIR?.trim() ||
-        path.join(app.getPath("appData"), STELLA_APP_NAME),
-    );
-  } else {
-    // macOS derives safeStorage's Keychain service from app.name. Keep normal
-    // unpackaged v2 development separate from both production and harnesses.
-    app.setName(STELLA_DEV_APP_NAME);
-    app.setPath(
-      "userData",
-      path.join(app.getPath("appData"), "Stella Development"),
-    );
-  }
-} else {
+if (devHarnessOptions) {
+  applyDevHarnessOptions(app, devHarnessOptions);
+} else if (isInstalledProduct) {
+  // The native launcher runs the source tree as the product: name, userData
+  // and Stella home are Stella's, not the development app's.
   app.setName(STELLA_APP_NAME);
+  app.setPath(
+    "userData",
+    process.env.STELLA_LAUNCHER_USER_DATA_DIR?.trim() ||
+      path.join(app.getPath("appData"), STELLA_APP_NAME),
+  );
+} else {
+  // macOS derives safeStorage's Keychain service from app.name. Keep normal
+  // development separate from both the product and the harnesses.
+  app.setName(STELLA_DEV_APP_NAME);
+  app.setPath(
+    "userData",
+    path.join(app.getPath("appData"), "Stella Development"),
+  );
 }
 
-const usesDevelopmentData = isDev && !isLauncherRun;
+const dataMode = desktopStellaDataMode(install);
+const usesDevelopmentData = dataMode === "development";
 const configuredStatePath = usesDevelopmentData
   ? process.env.STELLA_V2_DEV_DATA_DIR?.trim()
   : process.env.STELLA_DATA_DIR?.trim();
@@ -76,7 +79,7 @@ const configuredStatePath = usesDevelopmentData
 // durable home; Electron userData remains a second, replaceable profile for
 // Chromium/auth/runtime state.
 const stellaDataDirPath = resolveDesktopStellaDataDirPath({
-  mode: usesDevelopmentData ? "development" : "production",
+  mode: dataMode,
   configuredStatePath,
 });
 // Establish the selected roots before logging or service construction. The
@@ -87,18 +90,14 @@ process.env.STELLA_DATA_DIR = stellaDataDirPath;
 process.env.STELLA_TELEMETRY_ENVIRONMENT = usesDevelopmentData
   ? "development"
   : "production";
-if (isDev) {
+if (isDeveloperInstance) {
   process.env.STELLA_RUNTIME_STATE_DIR = stellaDataDirPath;
 }
-const useDevServer = isDev;
-const installDevBrokenPipeGuards = () => {
-  if (!isDev) {
-    return;
-  }
-
+const installBrokenPipeGuards = () => {
   const swallowBrokenPipe = (_error: Error & { code?: string }) => {
-    // Dev-mode Electron inherits stdio from the runner process. If that parent
-    // pipe disappears, logging should not crash the app.
+    // Electron inherits stdio from whatever started it — the launcher for the
+    // product, the dev runner for a checkout. If that parent pipe disappears,
+    // logging should not crash the app.
   };
 
   process.stdout.on("error", swallowBrokenPipe);
@@ -107,7 +106,7 @@ const installDevBrokenPipeGuards = () => {
 
 export const bootstrapMainProcess = () => {
   // Acquire Electron's process lock before bootstrap services are constructed
-  // so a second packaged instance cannot open local state.
+  // so a second instance cannot open local state.
   if (!app.requestSingleInstanceLock()) {
     app.quit();
     return;
@@ -115,7 +114,7 @@ export const bootstrapMainProcess = () => {
 
   connectLauncher();
   initMainProcessLogging(stellaAppDir);
-  installDevBrokenPipeGuards();
+  installBrokenPipeGuards();
   // Windows-only: keep DWM from putting Stella on MPO hardware overlay
   // planes (whole-monitor flicker on NVIDIA + high-refresh setups). Must run
   // before `ready` so the switch reaches the GPU process. No-op on macOS.
@@ -143,8 +142,10 @@ export const bootstrapMainProcess = () => {
     stellaAppDir,
     stellaDataDirPath,
     hardResetMutableHomePaths: HARD_RESET_MUTABLE_HOME_PATHS,
-    isDev,
-    useDevServer,
+    install,
+    isInstalledProduct,
+    isDeveloperInstance,
+    telemetryEnvironment: usesDevelopmentData ? "development" : "production",
     sessionPartition: STELLA_SESSION_PARTITION,
     startupStageDelayMs: STARTUP_STAGE_DELAY_MS,
     startupFirstPaintFallbackMs: STARTUP_FIRST_PAINT_FALLBACK_MS,
@@ -152,7 +153,7 @@ export const bootstrapMainProcess = () => {
   });
 
   // The verification harness (`--inspect` on main) reaches the live services here.
-  if (isDev && process.env.STELLA_DEV_HARNESS === "1") {
+  if (install === "harness") {
     (globalThis as { __stellaHarnessContext?: unknown }).__stellaHarnessContext = context;
   }
 

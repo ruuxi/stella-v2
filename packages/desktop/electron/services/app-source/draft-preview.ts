@@ -66,12 +66,14 @@ export const openDraftPreview = async (options: {
   }
   await ensureDraftDependencies(worktree.path);
   const partition = `stella-preview-${options.name}`;
-  configureStellaSessionPermissions({ appPartition: partition, isDev: true });
+  configureStellaSessionPermissions({ appPartition: partition });
   const source = serveRendererSource({
     partition,
     sourceRoot: worktree.path,
     envRoot: options.stellaAppDir,
-    isDev: true,
+    // A preview is an authoring surface: the agent iterating on the draft wants
+    // hot updates and readable errors, whichever mode the app itself serves.
+    mode: "development",
     log: (message) =>
       getMainLogger()?.process("renderer.preview-source", {
         draft: options.name,

@@ -34,7 +34,6 @@ export class WindowManager {
             electronDir: options.electronDir,
             preloadPath: options.preloadPath,
             sessionPartition: options.sessionPartition,
-            isDev: options.isDev,
             setupExternalLinkHandlers: (window) => options.externalLinkService.setupExternalLinkHandlers(window),
             onDidFinishLoad: () => {
                 this.resetTransientReloadStateOnSuccess();

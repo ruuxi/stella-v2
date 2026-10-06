@@ -9,11 +9,11 @@ import { AGENT_IDS, type AgentIdLike } from "@stella/contracts/agent-runtime";
 import { uiState } from "../ui-state";
 
 /**
- * Explicit opt-in for trace diagnostics. Stella ships as a Vite dev server,
- * so `import.meta.env.DEV` is TRUE for real users and would leave these
- * listeners (and their memory growth) running in production. Gate on an
- * explicit flag instead so production stays off by default while developers
- * can still enable tracing via build env or a localStorage key.
+ * Explicit opt-in for trace diagnostics, rather than `import.meta.env.DEV`:
+ * these listeners and their memory growth should stay off unless someone asked
+ * for them, including in a developer's own checkout. (`DEV` was also TRUE for
+ * real users until the installed product started building its renderer in
+ * production mode; the explicit flag never depended on that.)
  */
 export function isTraceDiagnosticsEnabled(): boolean {
   if (import.meta.env.VITE_STELLA_TRACE === "1") return true;

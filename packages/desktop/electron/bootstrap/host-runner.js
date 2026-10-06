@@ -17,7 +17,6 @@ import { getLocalLlmCredential, listLocalLlmCredentials, } from "@stella/runtime
 import { getLocalLlmOAuthApiKey, listLocalLlmOAuthCredentials, } from "@stella/runtime/kernel/storage/llm-oauth-credentials";
 import { EngineAccountAccess } from "../services/engine-account-access.js";
 import { getChatGptAccessToken, hasUsableChatGptProfile, markChatGptProfileLimited, } from "@stella/runtime/kernel/storage/chatgpt-profiles";
-import { retireRuntimeRoot } from "@stella/runtime/host/remote";
 // Module-level one-shot cache for the skills home reconciliation. This
 // seeding used to run on the pre-window path inside `resolveStellaDataDir`, where
 // its ~100 awaited fs ops + sha256 over hundreds of KB contended with first
@@ -375,18 +374,6 @@ export const initializeStellaHostRunner = async (context) => {
     if (!stellaAppDir || !stellaDataDirPath || !state.stellaWorkspacePath) {
         throw new Error("Stella root is not initialized.");
     }
-    if (app.isPackaged) {
-        const legacyStellaAppDir = app.getAppPath();
-        if (legacyStellaAppDir !== stellaAppDir) {
-            const retired = await retireRuntimeRoot(legacyStellaAppDir);
-            if (retired.pid != null) {
-                getMainLogger()?.process("startup.host-runner.legacy-root-retired", {
-                    pid: retired.pid,
-                    stopped: retired.stopped,
-                });
-            }
-        }
-    }
     // Reconcile bundled skills into the canonical home skills root before the worker
     // (spawned by connectHostRunner -> runner.start()/ensureWorkerStarted) reads
     // them. One-shot cached so host-runner resets don't re-pay it.
@@ -403,7 +390,9 @@ export const initializeStellaHostRunner = async (context) => {
         initializeParams: {
             clientName: "stella-electron-host",
             clientVersion: app.getVersion(),
-            isDev: context.config.useDevServer,
+            // Chooses the runtime's telemetry deployment, so it follows who the
+            // install is rather than whether the renderer comes from source.
+            isDev: context.config.isDeveloperInstance,
             platform: process.platform,
             stellaAppDir,
             stellaDataDirPath,

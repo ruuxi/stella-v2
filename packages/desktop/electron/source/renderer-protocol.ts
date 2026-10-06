@@ -22,6 +22,35 @@ export const registerRendererScheme = () => {
 
 export const isRendererSourceUrl = (url: string) => url.startsWith(`${RENDERER_ORIGIN}/`);
 
+/**
+ * How the renderer is built from source.
+ *
+ * `development` is the authoring mode: React's development transform, Fast
+ * Refresh registrations, the hot client, unminified dependencies, and
+ * `import.meta.env.DEV === true`. `production` is what the user's Stella
+ * serves: React's production transform and `import.meta.env.DEV === false`,
+ * with changes applied by reloading rather than hot-swapping.
+ *
+ * This is a build mode, not a claim about who is running the app — the app
+ * always runs from source. Which mode an install serves is decided from
+ * `app-identity`, in one place.
+ */
+export type RendererBuildMode = "development" | "production";
+
+/** `development` | `production`; overrides the mode an install would pick. */
+export const STELLA_RENDERER_MODE_ENV = "STELLA_RENDERER_MODE";
+
+export const resolveRendererBuildMode = (options: {
+  isInstalledProduct: boolean;
+  env?: NodeJS.ProcessEnv;
+}): RendererBuildMode => {
+  const requested = (options.env ?? process.env)[STELLA_RENDERER_MODE_ENV]
+    ?.trim()
+    .toLowerCase();
+  if (requested === "development" || requested === "production") return requested;
+  return options.isInstalledProduct ? "production" : "development";
+};
+
 export type RendererSourceHandle = {
   ready: Promise<RendererSource>;
   /**
@@ -38,9 +67,7 @@ export type RendererSourceHandle = {
 
 /**
  * Serve the renderer from a source root on a session partition and start
- * warming it. The server (oxc, rolldown, Tailwind) loads only here, never on
- * a packaged launch. Every partition shares one transform and dependency
- * cache.
+ * warming it. Every partition shares one transform and dependency cache.
  */
 export const serveRendererSource = (options: {
   partition: string;
@@ -48,7 +75,7 @@ export const serveRendererSource = (options: {
   sourceRoot: string;
   /** Repo root whose packages/desktop-ui .env files supply the defines; defaults to sourceRoot. */
   envRoot?: string;
-  isDev: boolean;
+  mode: RendererBuildMode;
   log: (message: string) => void;
 }): RendererSourceHandle => {
   const partitionSession = session.fromPartition(options.partition);
@@ -72,7 +99,7 @@ export const serveRendererSource = (options: {
         repoRoot: options.sourceRoot,
         envDir: path.join(options.envRoot ?? options.sourceRoot, "packages", "desktop-ui"),
         cacheDir: path.join(app.getPath("userData"), "Renderer Source Cache"),
-        isDev: options.isDev,
+        mode: options.mode,
         log: options.log,
         onReloadNeeded: reloadPages,
       }),

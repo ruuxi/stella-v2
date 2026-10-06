@@ -1,4 +1,8 @@
 import type { CloudExecutionSelection } from "../agent-engine.js";
+import type {
+  DeviceRequestDeviceFrame,
+  DeviceRequestServerFrame,
+} from "./device-requests.js";
 
 /**
  * Execution placement on the owner gate.
@@ -13,6 +17,8 @@ import type { CloudExecutionSelection } from "../agent-engine.js";
  *   GET  /owners/me/dispatches/:dispatchId     status (user JWT / service)
  *   POST /owners/me/dispatches/:dispatchId/cancel
  *   GET  /owners/me/devices/:deviceId/presence WebSocket (user JWT), the device presence socket
+ *   POST /owners/me/devices/:deviceId/requests a paired phone's request, relayed over that socket
+ *                                              (see `device-requests.ts`)
  *
  * Mobile submits carry the pairing proof headers the mobile app already
  * sends; the worker verifies them against the owner snapshot's paired
@@ -351,7 +357,8 @@ export type DevicePresenceServerFrame =
       requesterLabel?: string;
     }
   | { type: "pong"; serverTimeMs: number }
-  | { type: "error"; code: string; message: string; retryable: boolean };
+  | { type: "error"; code: string; message: string; retryable: boolean }
+  | DeviceRequestServerFrame;
 
 /** Device -> server. Every frame after `proof` is bound to the proven session. */
 export type DevicePresenceDeviceFrame =
@@ -396,7 +403,8 @@ export type DevicePresenceDeviceFrame =
       errorCode?: string;
       errorMessage?: string;
     }
-  | { type: "ping" };
+  | { type: "ping" }
+  | DeviceRequestDeviceFrame;
 
 export const DEVICE_PRESENCE_PROOF_PREFIX = "stella-device-presence" as const;
 

@@ -21,10 +21,11 @@
  *   proof      = lowercase-hex HMAC-SHA256(key = utf8(pairingKey),
  *                                          message = utf8(message))
  *
- * `mobilePublicKey` inside the message is the phone's *bridge* x25519 key (an
- * unrelated value, empty when the phone has none); the HMAC key is always the
- * pairing key. Both are bound so a proof minted for one bridge session cannot
- * be replayed under another.
+ * `mobilePublicKey` inside the message is an optional extra key the proof
+ * binds (empty today; the field and the `-bridge-` in the version string are
+ * kept so the wire format does not change); the HMAC key is always the
+ * pairing key. The same scheme signs a phone's requests to a computer, with
+ * the challenge from `device-requests.ts`.
  *
  * Everything here is WebCrypto only: no node builtins, no third-party hashes,
  * so the same file runs in the worker and in React Native.

@@ -54,7 +54,7 @@ import { useColors, useTheme } from "../../src/theme/theme-context";
 import { fonts } from "../../src/theme/fonts";
 import { fadeHex } from "../../src/theme/oklch";
 import { useChatSearch } from "../../src/lib/chat-search";
-import { tapLight } from "../../src/lib/haptics";
+import { tapLight, tapMedium } from "../../src/lib/haptics";
 import {
   MAIN_TAB_HREFS,
   queueMainTab,
@@ -301,12 +301,14 @@ export default function MainLayout() {
       if (e.velocityX > 500 || drawerProgress.value > 0.4) {
         // Commit open: continue from the fling velocity so the spring picks up
         // where the finger left off, and fire the open haptic on the detent.
+        // Medium, not light: a light impact under a moving thumb mid-swipe is
+        // below the threshold where the detent actually registers as a detent.
         drawerProgress.value = withSpring(1, {
           ...DRAWER_SPRING,
           velocity: e.velocityX / DRAWER_REVEAL,
         });
         runOnJS(setSidebarOpen)(true);
-        runOnJS(tapLight)();
+        runOnJS(tapMedium)();
       } else {
         // Snap back to closed — no haptic, the drawer never left its rest state.
         drawerProgress.value = withSpring(0, {
@@ -337,7 +339,7 @@ export default function MainLayout() {
             velocity: e.velocityX / DRAWER_REVEAL,
           });
           runOnJS(setSidebarOpen)(false);
-          runOnJS(tapLight)();
+          runOnJS(tapMedium)();
         } else {
           // Snap back to open — no haptic, the drawer stays where it was.
           drawerProgress.value = withSpring(1, {

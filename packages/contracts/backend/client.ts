@@ -324,7 +324,9 @@ export class BackendClient {
     this.socket = socket;
     socket.onopen = () => {
       if (this.socket !== socket) return;
-      this.reconnectAttempt = 0;
+      // The backoff resets on the server's first frame, not here: a refused
+      // token is accepted and then closed 4401, so an open proves nothing,
+      // and resetting on it reconnected four times a second.
       this.setConnected(true);
       for (const subscription of this.subscriptions.values()) {
         this.sendFrame({
@@ -338,6 +340,7 @@ export class BackendClient {
     };
     socket.onmessage = (event) => {
       if (this.socket !== socket) return;
+      this.reconnectAttempt = 0;
       this.handleFrame(event.data);
     };
     socket.onclose = (event) => {

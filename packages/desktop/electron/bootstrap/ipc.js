@@ -18,6 +18,7 @@ import { WakewordService } from "../services/wakeword-service.js";
 import { loadLocalPreferences, saveLocalPreferences, } from "@stella/runtime/kernel/preferences/local-preferences";
 import { IPC_APP_SOURCE_STATE, IPC_PREFERENCES_GET_WAKE_WORD, IPC_PREFERENCES_SET_WAKE_WORD, } from "@stella/contracts/desktop/ipc-channels";
 import { registerOfficePreviewHandlers } from "../ipc/office-preview-handlers.js";
+import { createCloudConversationFileGrants } from "../services/cloud-conversation-file-grants.js";
 import { registerScheduleHandlers } from "../ipc/schedule-handlers.js";
 import { registerThemeHandlers } from "../ipc/theme-handlers.js";
 import { registerWebsiteHandlers } from "../ipc/website-handlers.js";
@@ -311,7 +312,15 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         getStellaHostRunner: lifecycle.getRunner,
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
     });
+    // A paired phone's file and preview requests are held to files Stella
+    // produced or displayed in the conversation it names, per the cloud
+    // journal, in any of this owner's conversations.
+    const cloudFileGrants = createCloudConversationFileGrants({
+        getBackendUrl: () => services.authService.getBackendUrl(),
+        getAuthToken: () => services.authService.getAuthToken(),
+    });
     const officePreview = registerOfficePreviewHandlers({
+        cloudFileGrants,
         getAuthToken: () => services.authService.getAuthToken(),
         getStellaAppDir: lifecycle.getStellaAppDir,
         getStellaDataDir: lifecycle.getStellaDataDir,
@@ -319,6 +328,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
     });
     const display = registerDisplayHandlers({
+        cloudFileGrants,
         getAuthToken: () => services.authService.getAuthToken(),
         getStellaAppDir: lifecycle.getStellaAppDir,
         getStellaDataDir: lifecycle.getStellaDataDir,

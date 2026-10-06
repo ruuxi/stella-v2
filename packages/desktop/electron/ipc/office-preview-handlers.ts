@@ -25,12 +25,15 @@ import { isDisplayReadPathInLocalChatFiles } from "./display-handlers.js";
 import type { LocalChatEventRecord } from "@stella/runtime/kernel/storage/shared";
 import { resolveJwtOwnerScope } from "@stella/runtime/kernel/runner/computer-agent-cloud-records";
 import { resolveCanonicalConversationFilePaths } from "../services/canonical-conversation-file-paths.js";
+import type { CloudConversationFileGrants } from "../services/cloud-conversation-file-grants.js";
 
 type OfficePreviewHandlersOptions = {
   getStellaAppDir: () => string | null;
   getStellaDataDir: () => string | null;
   localChatHistoryService?: LocalChatHistoryService;
   getAuthToken?: () => Promise<string | null>;
+  /** Files Stella produced or displayed in a conversation, per its cloud journal. */
+  cloudFileGrants?: CloudConversationFileGrants;
   assertPrivilegedSender: (
     event: IpcMainEvent | IpcMainInvokeEvent,
     channel: string,
@@ -221,30 +224,36 @@ export const registerOfficePreviewHandlers = (
     if (!conversationId) {
       throw new Error(`${channel} from mobile requires a conversationId.`);
     }
-    if (!options.localChatHistoryService) {
-      throw new Error("Local chat file history is unavailable.");
-    }
-    const fileEvents = options.localChatHistoryService.listFiles({
-      conversationId,
-      limit: 500,
-    }).files;
+    const history = options.localChatHistoryService;
+    const fileEvents = history
+      ? history.listFiles({ conversationId, limit: 500 }).files
+      : [];
     const artifactPaths = new Set(
-      collectOfficePreviewArtifactPaths(
-        options.localChatHistoryService.listSyncMessages({
-          conversationId,
-          maxMessages: 500,
-        }),
-      ),
+      history
+        ? collectOfficePreviewArtifactPaths(
+            history.listSyncMessages({ conversationId, maxMessages: 500 }),
+          )
+        : [],
     );
-    for (const filePath of await resolveCanonicalConversationFilePaths(
-      options.localChatHistoryService.listCanonicalFilePaths(
-        conversationId,
-        resolveJwtOwnerScope(
-          await options.getAuthToken?.().catch(() => null),
+    if (history) {
+      for (const filePath of await resolveCanonicalConversationFilePaths(
+        history.listCanonicalFilePaths(
+          conversationId,
+          resolveJwtOwnerScope(
+            await options.getAuthToken?.().catch(() => null),
+          ),
         ),
-      ),
-    ))
-      artifactPaths.add(filePath);
+      ))
+        artifactPaths.add(filePath);
+    }
+    // The conversation's cloud journal is the source of truth for what Stella
+    // produced or displayed there, whichever conversation this window shows.
+    if (options.cloudFileGrants) {
+      for (const filePath of await resolveCanonicalConversationFilePaths(
+        await options.cloudFileGrants.listPaths(conversationId),
+      ))
+        artifactPaths.add(filePath);
+    }
     return { fileEvents, artifactPaths };
   };
 

@@ -10,7 +10,6 @@ import { registerMeetingCaptureHandlers } from "../ipc/meeting-capture-handlers.
 import { registerDisplayHandlers } from "../ipc/display-handlers.js";
 import { registerHomeHandlers } from "../ipc/home-handlers.js";
 import { registerLocalChatHandlers } from "../ipc/local-chat-handlers.js";
-import { registerMobileHelloHandlers } from "../ipc/mobile-hello-handlers.js";
 import { registerNativeIntegrationHandlers } from "../ipc/native-integration-handlers.js";
 import { registerOnboardingHandlers } from "../ipc/onboarding-handlers.js";
 import { app, BrowserWindow, ipcMain, shell } from "electron";
@@ -29,9 +28,8 @@ import { registerUiStateKvHandlers } from "../ipc/ui-state-handlers.js";
 import { registerVoiceHandlers } from "../ipc/voice-handlers.js";
 import { registerDictationHandlers } from "../ipc/dictation-handlers.js";
 import { registerCompanionHandlers } from "../ipc/companion-handlers.js";
-import { startCapturingHandlers } from "../services/mobile-bridge/handler-registry.js";
-import { getAllWindows, getMobileBroadcast, } from "./context.js";
-import { startMobileBridge, startStellaBrowserBridge, stopMobileBridge, } from "./aux-runtime.js";
+import { getAllWindows, } from "./context.js";
+import { startStellaBrowserBridge, } from "./aux-runtime.js";
 import { getBrowserBridgeNamespace } from "../services/stella-browser-bridge-namespace.js";
 import { isBrowserBridgeEagerStartWorthwhile, isStellaBrowserBridgeBinaryInstalled, isStellaExtensionInstalled, } from "../services/stella-browser-bridge-service.js";
 import { InAppBrowserService } from "../services/in-app-browser-service.js";
@@ -70,9 +68,6 @@ const readStellaWebBaseUrl = () => {
     }
 };
 export const registerBootstrapIpcHandlers = (context, resetFlows) => {
-    // Capture all ipcMain.handle registrations for the mobile bridge
-    const stopCapturing = startCapturingHandlers();
-    const lazyMobileBroadcast = () => getMobileBroadcast(context);
     const { config, lifecycle, services, state } = context;
     if (!state.inAppBrowserService) {
         state.inAppBrowserService = new InAppBrowserService({
@@ -231,7 +226,6 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         stellaDataDirPath: state.stellaDataDirPath ?? config.stellaDataDirPath,
         getAllWindows: () => getAllWindows(context),
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
-        getBroadcastToMobile: lazyMobileBroadcast,
     });
     registerCaptureHandlers({
         captureService: services.captureService,
@@ -275,15 +269,6 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         submitConnectorCredential: (payload) => services.connectorCredentialService.submitCredential(payload),
         cancelConnectorCredential: (payload) => services.connectorCredentialService.cancelCredential(payload),
         respondConnectorConnect: (payload) => services.connectorConnectService.respond(payload),
-        getBroadcastToMobile: lazyMobileBroadcast,
-        startPhoneAccessSession: async () => {
-            await startMobileBridge(context);
-            return { ok: true };
-        },
-        stopPhoneAccessSession: async () => {
-            await stopMobileBridge(context);
-            return { ok: true };
-        },
         onPermissionGranted: (kind) => {
             if (kind === "accessibility") {
                 scheduleGlobalInputHooksAfterAppReady(context);
@@ -326,14 +311,14 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         getStellaHostRunner: lifecycle.getRunner,
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
     });
-    registerOfficePreviewHandlers({
+    const officePreview = registerOfficePreviewHandlers({
         getAuthToken: () => services.authService.getAuthToken(),
         getStellaAppDir: lifecycle.getStellaAppDir,
         getStellaDataDir: lifecycle.getStellaDataDir,
         localChatHistoryService: services.localChatHistoryService,
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
     });
-    registerDisplayHandlers({
+    const display = registerDisplayHandlers({
         getAuthToken: () => services.authService.getAuthToken(),
         getStellaAppDir: lifecycle.getStellaAppDir,
         getStellaDataDir: lifecycle.getStellaDataDir,
@@ -348,7 +333,6 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         uiState: services.uiStateService.state,
         stellaAppDir: config.stellaAppDir,
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
-        getBroadcastToMobile: lazyMobileBroadcast,
     });
     registerRuntimeAvailabilityBridge({
         getStellaHostRunner: lifecycle.getRunner,
@@ -356,11 +340,6 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
     });
     registerLocalChatHandlers({
         localChatHistoryService: services.localChatHistoryService,
-        assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
-    });
-    registerMobileHelloHandlers({
-        getActiveConversationId: () => services.uiStateService.state.conversationId,
-        getUiStateSnapshot: () => state.uiStateKvStore?.snapshot() ?? {},
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
     });
     registerThemeHandlers({
@@ -468,7 +447,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
     const syncWakewordPause = () => {
         wakeword?.setPaused(wakewordPausedForVoice || wakewordPausedForDictation);
     };
-    registerVoiceHandlers({
+    const voice = registerVoiceHandlers({
         uiState: services.uiStateService.state,
         getAppReady: () => state.appReady,
         windowManager: state.windowManager,
@@ -477,7 +456,6 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
         getStellaHostRunner: lifecycle.getRunner,
         onStellaHostRunnerChanged: lifecycle.onRunnerChanged,
-        getBroadcastToMobile: lazyMobileBroadcast,
         getOverlayController: () => state.overlayController ?? null,
         getActiveCloudConversationCacheAuthority: () => services.localChatHistoryService.getActiveCloudConversationCacheAuthority(),
         stellaAppDir: state.stellaAppDir,
@@ -567,5 +545,13 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         wakeword?.setEnabled(next);
         return { enabled: next };
     });
-    stopCapturing();
+    // What a paired phone may ask of this computer through the cloud relay
+    // (the runtime host's `serveDeviceRequest`), under the same policy the
+    // handlers above apply to a remote caller.
+    state.deviceRequestHandlers = {
+        readFile: display.readFileForRequest,
+        renderOfficePreview: officePreview.renderForRequest,
+        voiceConfig: voice.configForRequest,
+        voiceExecuteTool: voice.executeToolForRequest,
+    };
 };

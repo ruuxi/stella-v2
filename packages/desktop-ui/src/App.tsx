@@ -1,5 +1,4 @@
 import { useEffect } from "react";
-import { PhoneAccessBridge } from "./global/mobile/PhoneAccessBridge";
 import { AppBootstrap } from "./bootstrap/AppBootstrap";
 import { ChatStoreProvider } from "@/context/chat-store";
 import { CredentialRequestLayer } from "./global/auth/CredentialRequestLayer";
@@ -42,7 +41,6 @@ function App() {
             <CloudModelSelectionBridge />
           ) : null}
           <CloudHomeSyncBridge />
-          {platformCapabilities.phoneAccess ? <PhoneAccessBridge /> : null}
           {platformCapabilities.nativeBridges ? (
             <CredentialRequestLayer />
           ) : null}

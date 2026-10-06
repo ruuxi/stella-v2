@@ -96,7 +96,6 @@ export const IPC_VOICE_ORCHESTRATOR_CHAT = "voice:orchestratorChat" as const;
 export const IPC_VOICE_ORCHESTRATOR_CONFIG =
   "voice:orchestratorConfig" as const;
 export const IPC_VOICE_EXECUTE_TOOL = "voice:executeTool" as const;
-export const IPC_VOICE_EXECUTE_MOBILE_TOOL = "voice:executeMobileTool" as const;
 export const IPC_VOICE_WEB_SEARCH = "voice:webSearch" as const;
 export const IPC_VOICE_CREATE_OPENAI_SESSION =
   "voice:createOpenAISession" as const;
@@ -153,8 +152,6 @@ export const IPC_DEVTEST_FIX_VITE_ERROR = "devtest:fixViteError" as const;
 // ── System ──────────────────────────────────────────────────────────────────
 
 export const IPC_DEVICE_GET_ID = "device:getId" as const;
-export const IPC_PHONE_ACCESS_START = "phoneAccess:startSession" as const;
-export const IPC_PHONE_ACCESS_STOP = "phoneAccess:stopSession" as const;
 export const IPC_HOST_CONFIGURE_RUNTIME = "host:configurePiRuntime" as const;
 export const IPC_AUTH_GET_SESSION = "auth:getSession" as const;
 export const IPC_AUTH_SIGN_IN_ANONYMOUS = "auth:signInAnonymous" as const;
@@ -333,11 +330,6 @@ export const IPC_LOCAL_CHAT_GET_EVENT_COUNT =
   "localChat:getEventCount" as const;
 export const IPC_LOCAL_CHAT_PERSIST_WELCOME =
   "localChat:persistDiscoveryWelcome" as const;
-export const IPC_LOCAL_CHAT_LIST_SYNC_MESSAGES =
-  "localChat:listSyncMessages" as const;
-export const IPC_LOCAL_CHAT_SYNC_MESSAGES = "localChat:syncMessages" as const;
 export const IPC_LOCAL_CHAT_UPDATED = "localChat:updated" as const;
 export const IPC_LOCAL_CHAT_THREAD_ACTIVITY_UPDATED =
   "localChat:threadActivityUpdated" as const;
-export const IPC_LOCAL_CHAT_TASK_DECORATION_UPDATED =
-  "localChat:taskDecorationUpdated" as const;

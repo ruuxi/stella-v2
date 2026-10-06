@@ -134,7 +134,6 @@ export const IPC_VOICE_ORCHESTRATOR_CHAT = "voice:orchestratorChat" as const;
 export const IPC_VOICE_ORCHESTRATOR_CONFIG =
   "voice:orchestratorConfig" as const;
 export const IPC_VOICE_EXECUTE_TOOL = "voice:executeTool" as const;
-export const IPC_VOICE_EXECUTE_MOBILE_TOOL = "voice:executeMobileTool" as const;
 export const IPC_VOICE_WEB_SEARCH = "voice:webSearch" as const;
 export const IPC_VOICE_CREATE_OPENAI_SESSION =
   "voice:createOpenAISession" as const;
@@ -191,8 +190,6 @@ export const IPC_DEVTEST_FIX_VITE_ERROR = "devtest:fixViteError" as const;
 // ── System ──────────────────────────────────────────────────────────────────
 
 export const IPC_DEVICE_GET_ID = "device:getId" as const;
-export const IPC_PHONE_ACCESS_START = "phoneAccess:startSession" as const;
-export const IPC_PHONE_ACCESS_STOP = "phoneAccess:stopSession" as const;
 export const IPC_HOST_CONFIGURE_RUNTIME = "host:configurePiRuntime" as const;
 export const IPC_AUTH_GET_SESSION = "auth:getSession" as const;
 export const IPC_AUTH_SIGN_IN_ANONYMOUS = "auth:signInAnonymous" as const;
@@ -358,9 +355,7 @@ export const IPC_SCHEDULE_LIST_CONVERSATION_EVENTS =
 export const IPC_SCHEDULE_GET_EVENT_COUNT =
   "schedule:getConversationEventCount" as const;
 export const IPC_SCHEDULE_UPDATED = "schedule:updated" as const;
-// Mobile-bridge mutation lanes: the phone's Schedule tab pauses/resumes and
-// removes cron jobs through the same privileged handlers the desktop dialog
-// uses (heartbeats stay read-only on mobile for now).
+// Cron job mutations from the desktop schedule dialog.
 export const IPC_SCHEDULE_UPDATE_CRON_JOB = "schedule:updateCronJob" as const;
 export const IPC_SCHEDULE_REMOVE_CRON_JOB = "schedule:removeCronJob" as const;
 
@@ -386,8 +381,6 @@ export const IPC_LOCAL_CHAT_LIST_EVENTS = "localChat:listEvents" as const;
 export const IPC_LOCAL_CHAT_LIST_MESSAGES = "localChat:listMessages" as const;
 export const IPC_LOCAL_CHAT_LIST_MESSAGES_BEFORE =
   "localChat:listMessagesBefore" as const;
-export const IPC_LOCAL_CHAT_LIST_SYNC_MESSAGES_BEFORE =
-  "localChat:listSyncMessagesBefore" as const;
 export const IPC_LOCAL_CHAT_LIST_MESSAGES_AFTER =
   "localChat:listMessagesAfter" as const;
 export const IPC_LOCAL_CHAT_LIST_MESSAGE_TOOL_EVENTS =
@@ -408,14 +401,9 @@ export const IPC_LOCAL_CHAT_GET_EVENT_COUNT =
   "localChat:getEventCount" as const;
 export const IPC_LOCAL_CHAT_PERSIST_WELCOME =
   "localChat:persistDiscoveryWelcome" as const;
-export const IPC_LOCAL_CHAT_LIST_SYNC_MESSAGES =
-  "localChat:listSyncMessages" as const;
-export const IPC_LOCAL_CHAT_SYNC_MESSAGES = "localChat:syncMessages" as const;
 export const IPC_LOCAL_CHAT_UPDATED = "localChat:updated" as const;
 export const IPC_LOCAL_CHAT_THREAD_ACTIVITY_UPDATED =
   "localChat:threadActivityUpdated" as const;
-export const IPC_LOCAL_CHAT_TASK_DECORATION_UPDATED =
-  "localChat:taskDecorationUpdated" as const;
 
 // ── Derived cloud journal cache ──────────────────────────────────────────
 

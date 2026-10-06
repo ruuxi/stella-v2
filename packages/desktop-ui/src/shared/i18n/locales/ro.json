@@ -2336,7 +2336,6 @@
       "guestHeroBody": "Cere-i Stellei să facă lucruri pe computerul tău — să navigheze pe web, să gestioneze fișiere, să ruleze sarcini și multe altele.",
       "defaultDeviceLabel": "Computerul tău",
       "statusChecking": "Se verifică…",
-      "statusWaking": "Se trezește…",
       "statusConnected": "Conectat",
       "statusAsleep": "În repaus",
       "connectingLabel": "Se conectează la computerul tău",
@@ -2387,8 +2386,6 @@
         "enableLabel": "Activează {name}",
         "enableFailedTitle": "Nu s-a putut activa acel computer",
         "connectFailedTitle": "Nu s-a putut conecta la acel computer",
-        "wake": "Trezește",
-        "wakeLabel": "Trezește {name}",
         "pairingCode": "Folosește un cod de asociere"
       },
       "appearance": {

@@ -37,8 +37,6 @@ type DisplayHandlersOptions = {
   ) => boolean;
 };
 
-export const MOBILE_BRIDGE_SENDER_URL = "stella-mobile-bridge://mobile";
-
 const MIME_BY_EXTENSION: Record<string, string> = {
   ".pdf": "application/pdf",
   ".md": "text/markdown",
@@ -130,12 +128,6 @@ export const isDisplayReadPathInLocalChatFiles = (
   return false;
 };
 
-export const isMobileBridgeSender = (
-  event: IpcMainEvent | IpcMainInvokeEvent,
-) =>
-  event.senderFrame?.url === MOBILE_BRIDGE_SENDER_URL ||
-  event.sender.getURL() === MOBILE_BRIDGE_SENDER_URL;
-
 /**
  * Subdirectories of `~/.stella` the phone may read from directly.
  *
@@ -152,10 +144,8 @@ const MOBILE_READABLE_DATA_SUBDIRS = ["outputs", "media"] as const;
 
 /**
  * Marks an error as "this was refused because the caller is the phone, not
- * because anything is broken". The phone's shim matches this prefix to show a
- * visible "not available in phone view" notice, so a caller that swallows the
- * rejection still degrades loudly instead of rendering a false empty state.
- * Keep in sync with `REMOTE_VIEW_DENIAL_PREFIX` in the mobile shim.
+ * because anything is broken". The phone shows the message as is, so a
+ * refusal reads as a policy answer rather than a broken file.
  */
 export const REMOTE_VIEW_DENIAL_PREFIX = "Not available in phone view: ";
 
@@ -221,7 +211,7 @@ export const isMobileReadableStellaPath = async (
  * condition covers the tapped `stella://file` link, the activity hub, the
  * completion pills' `MediaPreviewCard`, the inline image tile, the canvas/PDF/
  * spreadsheet viewers and the canvas share bar's direct read. It also backs
- * the mobile bridge, which dispatches this same channel, so a phone whose
+ * a paired phone's `file.read` relayed through the cloud, so a phone whose
  * client-side guard is older still gets a true answer instead of a false one.
  *
  * Drive files never get here: the renderer maps `world/drive/...` onto an
@@ -244,6 +234,144 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
     return stellaDataDir;
   };
 
+  /**
+   * `display:readFile` for the desktop renderer (`remote: false`) and for a
+   * paired phone's `file.read` relayed through the cloud (`remote: true`),
+   * which is held to Stella's own outputs and the conversation's files.
+   */
+  const readDisplayFile = async (
+    payload:
+      | {
+          filePath?: unknown;
+          conversationId?: unknown;
+          maxBytes?: unknown;
+        }
+      | undefined,
+    access: { remote: boolean },
+  ) => {
+    const requestedPath =
+      typeof payload?.filePath === "string" ? payload.filePath.trim() : "";
+    if (!requestedPath) {
+      throw new Error("display:readFile requires a filePath.");
+    }
+    assertNotCloudWorkspacePath(requestedPath);
+
+    const resolved = path.resolve(requestedPath);
+    if (access.remote) {
+      // Stella's own artifact directories are readable without a
+      // conversation: apps rendered in the phone's mirrored UI (and the
+      // shell's media viewers) read their result files directly, and have
+      // no conversation to attribute the read to.
+      const isStellaArtifact = await isMobileReadableStellaPath(
+        resolved,
+        options.getStellaDataDir(),
+      );
+      if (!isStellaArtifact) {
+        const conversationId =
+          typeof payload?.conversationId === "string"
+            ? payload.conversationId.trim()
+            : "";
+        if (!conversationId) {
+          throw new Error(
+            `${REMOTE_VIEW_DENIAL_PREFIX}this file is outside Stella's own outputs and media, and no conversation was supplied to check it against.`,
+          );
+        }
+        if (!options.localChatHistoryService) {
+          throw new Error("Local chat file history is unavailable.");
+        }
+        const { files } = options.localChatHistoryService.listFiles({
+          conversationId,
+          limit: 500,
+        });
+        const allowedByLocalHistory = isDisplayReadPathInLocalChatFiles(
+          files,
+          resolved,
+        );
+        const canonicalPaths = allowedByLocalHistory
+          ? new Set<string>()
+          : await resolveCanonicalConversationFilePaths(
+              options.localChatHistoryService.listCanonicalFilePaths(
+                conversationId,
+                resolveJwtOwnerScope(
+                  await options.getAuthToken?.().catch(() => null),
+                ),
+              ),
+            );
+        if (!allowedByLocalHistory && !canonicalPaths.has(resolved)) {
+          throw new Error(
+            `${REMOTE_VIEW_DENIAL_PREFIX}reading this file needs your computer. Only Stella's own outputs and files from the current conversation can load here.`,
+          );
+        }
+      }
+    }
+    const extension = path.extname(resolved).toLowerCase();
+    if (!ALLOWED_EXTENSIONS.has(extension)) {
+      throw new Error(
+        `display:readFile only supports: ${Array.from(ALLOWED_EXTENSIONS).join(", ")}`,
+      );
+    }
+    const mimeType =
+      MIME_BY_EXTENSION[extension] ?? "application/octet-stream";
+
+    // Paths can outlive the file they point at — e.g. an `image_gen` /
+    // tool-result registered a path in `generatedMediaItems`, and the
+    // underlying file was later moved or deleted (especially for paths
+    // outside `~/.stella/`). Treat ENOENT as a soft "missing" result so the
+    // renderer can render a placeholder instead of surfacing the raw
+    // IPC error to the console / UI.
+    let stats: Awaited<ReturnType<typeof fs.stat>>;
+    try {
+      stats = await fs.stat(resolved);
+    } catch (caught) {
+      if (
+        caught &&
+        typeof caught === "object" &&
+        (caught as NodeJS.ErrnoException).code === "ENOENT"
+      ) {
+        return { missing: true as const, mimeType, path: resolved };
+      }
+      throw caught;
+    }
+    if (!stats.isFile()) {
+      throw new Error(`display:readFile target is not a file: ${resolved}`);
+    }
+    const plan = planDisplayFileRead(stats.size, payload?.maxBytes);
+    if (!plan.ok) {
+      throw new Error(plan.error);
+    }
+
+    let buffer: Buffer;
+    if (plan.readBytes === stats.size) {
+      buffer = await fs.readFile(resolved);
+    } else {
+      const handle = await fs.open(resolved, "r");
+      try {
+        buffer = Buffer.alloc(plan.readBytes);
+        const { bytesRead } = await handle.read(buffer, 0, plan.readBytes, 0);
+        if (bytesRead < plan.readBytes) {
+          buffer = buffer.subarray(0, bytesRead);
+        }
+      } finally {
+        await handle.close();
+      }
+    }
+    // Return the raw bytes; Electron's structured-clone IPC transport
+    // ships `Uint8Array` directly without the +33% base64 overhead and
+    // without forcing the renderer to spin a JS loop to decode it.
+    const bytes = new Uint8Array(
+      buffer.buffer,
+      buffer.byteOffset,
+      buffer.byteLength,
+    );
+    return {
+      bytes,
+      sizeBytes: stats.size,
+      mimeType,
+      truncated: buffer.byteLength < stats.size,
+      missing: false as const,
+    };
+  };
+
   ipcMain.handle(
     IPC_DISPLAY_READ_FILE,
     async (
@@ -257,128 +385,7 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
       if (!options.assertPrivilegedSender(event, IPC_DISPLAY_READ_FILE)) {
         throw new Error(`Blocked untrusted ${IPC_DISPLAY_READ_FILE} request.`);
       }
-
-      const requestedPath =
-        typeof payload?.filePath === "string" ? payload.filePath.trim() : "";
-      if (!requestedPath) {
-        throw new Error("display:readFile requires a filePath.");
-      }
-      assertNotCloudWorkspacePath(requestedPath);
-
-      const resolved = path.resolve(requestedPath);
-      if (isMobileBridgeSender(event)) {
-        // Stella's own artifact directories are readable without a
-        // conversation: apps rendered in the phone's mirrored UI (and the
-        // shell's media viewers) read their result files directly, and have
-        // no conversation to attribute the read to.
-        const isStellaArtifact = await isMobileReadableStellaPath(
-          resolved,
-          options.getStellaDataDir(),
-        );
-        if (!isStellaArtifact) {
-          const conversationId =
-            typeof payload?.conversationId === "string"
-              ? payload.conversationId.trim()
-              : "";
-          if (!conversationId) {
-            throw new Error(
-              `${REMOTE_VIEW_DENIAL_PREFIX}this file is outside Stella's own outputs and media, and no conversation was supplied to check it against.`,
-            );
-          }
-          if (!options.localChatHistoryService) {
-            throw new Error("Local chat file history is unavailable.");
-          }
-          const { files } = options.localChatHistoryService.listFiles({
-            conversationId,
-            limit: 500,
-          });
-          const allowedByLocalHistory = isDisplayReadPathInLocalChatFiles(
-            files,
-            resolved,
-          );
-          const canonicalPaths = allowedByLocalHistory
-            ? new Set<string>()
-            : await resolveCanonicalConversationFilePaths(
-                options.localChatHistoryService.listCanonicalFilePaths(
-                  conversationId,
-                  resolveJwtOwnerScope(
-                    await options.getAuthToken?.().catch(() => null),
-                  ),
-                ),
-              );
-          if (!allowedByLocalHistory && !canonicalPaths.has(resolved)) {
-            throw new Error(
-              `${REMOTE_VIEW_DENIAL_PREFIX}reading this file needs your computer. Only Stella's own outputs and files from the current conversation can load here.`,
-            );
-          }
-        }
-      }
-      const extension = path.extname(resolved).toLowerCase();
-      if (!ALLOWED_EXTENSIONS.has(extension)) {
-        throw new Error(
-          `display:readFile only supports: ${Array.from(ALLOWED_EXTENSIONS).join(", ")}`,
-        );
-      }
-      const mimeType =
-        MIME_BY_EXTENSION[extension] ?? "application/octet-stream";
-
-      // Paths can outlive the file they point at — e.g. an `image_gen` /
-      // tool-result registered a path in `generatedMediaItems`, and the
-      // underlying file was later moved or deleted (especially for paths
-      // outside `~/.stella/`). Treat ENOENT as a soft "missing" result so the
-      // renderer can render a placeholder instead of surfacing the raw
-      // IPC error to the console / UI.
-      let stats: Awaited<ReturnType<typeof fs.stat>>;
-      try {
-        stats = await fs.stat(resolved);
-      } catch (caught) {
-        if (
-          caught &&
-          typeof caught === "object" &&
-          (caught as NodeJS.ErrnoException).code === "ENOENT"
-        ) {
-          return { missing: true as const, mimeType, path: resolved };
-        }
-        throw caught;
-      }
-      if (!stats.isFile()) {
-        throw new Error(`display:readFile target is not a file: ${resolved}`);
-      }
-      const plan = planDisplayFileRead(stats.size, payload?.maxBytes);
-      if (!plan.ok) {
-        throw new Error(plan.error);
-      }
-
-      let buffer: Buffer;
-      if (plan.readBytes === stats.size) {
-        buffer = await fs.readFile(resolved);
-      } else {
-        const handle = await fs.open(resolved, "r");
-        try {
-          buffer = Buffer.alloc(plan.readBytes);
-          const { bytesRead } = await handle.read(buffer, 0, plan.readBytes, 0);
-          if (bytesRead < plan.readBytes) {
-            buffer = buffer.subarray(0, bytesRead);
-          }
-        } finally {
-          await handle.close();
-        }
-      }
-      // Return the raw bytes; Electron's structured-clone IPC transport
-      // ships `Uint8Array` directly without the +33% base64 overhead and
-      // without forcing the renderer to spin a JS loop to decode it.
-      const bytes = new Uint8Array(
-        buffer.buffer,
-        buffer.byteOffset,
-        buffer.byteLength,
-      );
-      return {
-        bytes,
-        sizeBytes: stats.size,
-        mimeType,
-        truncated: buffer.byteLength < stats.size,
-        missing: false as const,
-      };
+      return await readDisplayFile(payload, { remote: false });
     },
   );
 
@@ -471,4 +478,12 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
       return await purgeDeferredDelete(id, { stellaDataDir });
     },
   );
+
+  return {
+    /** A paired phone's `file.read`, under the remote read policy. */
+    readFileForRequest: (payload: {
+      filePath?: unknown;
+      conversationId?: unknown;
+    }) => readDisplayFile(payload, { remote: true }),
+  };
 };

@@ -34,7 +34,7 @@ export const requireMatchingCloudConversationId = (
 };
 
 /**
- * Bind a paired-phone bridge request to the conversation the phone asked for.
+ * Bind a paired phone's relayed request to the conversation the phone asked for.
  * The phone owns its own conversation selection, so it must not be forced to
  * match whichever conversation the desktop window happens to show; the cloud
  * journal and history endpoints still enforce account ownership server-side

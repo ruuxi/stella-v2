@@ -6,14 +6,7 @@ import {
   UserMessageActionsBusyContext,
   UserMessageActionsContext,
 } from "@/app/chat/user-message-actions-context";
-import { useTaskDecorationPublisher } from "@/features/chat/streaming/use-task-decoration-publisher";
 import { isTraceDiagnosticsEnabled } from "@/platform/diagnostics/trace-store";
-import { platformCapabilities } from "@/platform/capabilities";
-
-function NativeRuntimeBridges() {
-  useTaskDecorationPublisher();
-  return null;
-}
 
 /**
  * Hoists `useFullShellChat`'s output into a single Context so the chat
@@ -57,9 +50,6 @@ export function ChatRuntimeProvider({
 
   return (
     <ChatRuntimeContext.Provider value={runtime}>
-      {platformCapabilities.nativeBridges ? (
-        <NativeRuntimeBridges />
-      ) : null}
       <ChatMessagesContext.Provider value={messages}>
         <UserMessageActionsContext.Provider value={runtime.messageActions}>
           <UserMessageActionsBusyContext.Provider

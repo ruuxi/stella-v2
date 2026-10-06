@@ -7,7 +7,7 @@
  * worker crashes. Metadata only (message + stack + source) — never UI
  * content or app state.
  *
- * Guarded for hosts without `electronAPI` (e.g. the mobile tunnel webview),
+ * Guarded for hosts without `electronAPI` (e.g. the website build),
  * and throttled/deduped so an error loop can't flood the log.
  */
 

@@ -17,7 +17,6 @@ import {
   IPC_LOCAL_CHAT_LIST_MESSAGES_AFTER,
   IPC_LOCAL_CHAT_LIST_MESSAGE_TOOL_EVENTS,
   IPC_LOCAL_CHAT_LIST_MODEL_USAGE,
-  IPC_LOCAL_CHAT_LIST_SYNC_MESSAGES_BEFORE,
 } from "@stella/contracts/desktop/ipc-channels";
 import type { LocalChatHistoryService } from "../services/local-chat-history-service.js";
 import { assertPrivilegedRequest } from "./privileged-ipc.js";
@@ -378,8 +377,6 @@ export const registerLocalChatHandlers = (
       event,
       payload: {
         conversationId?: string;
-        view?: "mobile-summary";
-        maxItems?: number;
       },
     ) =>
       await withLocalChatClient(
@@ -389,8 +386,6 @@ export const registerLocalChatHandlers = (
         (client) =>
           client.listThreadActivity({
             conversationId: payload?.conversationId ?? "",
-            view: payload?.view,
-            maxItems: payload?.maxItems,
           }),
       ),
   );
@@ -546,106 +541,6 @@ export const registerLocalChatHandlers = (
           client.persistDiscoveryWelcome({
             conversationId: payload?.conversationId ?? "",
             message: payload?.message ?? "",
-          }),
-      ),
-  );
-
-  ipcMain.handle(
-    "localChat:listSyncMessages",
-    async (
-      event,
-      payload: {
-        conversationId?: string;
-        maxMessages?: number;
-        includeDeveloperArtifacts?: boolean;
-      },
-    ) =>
-      await withLocalChatClient(
-        options,
-        event,
-        "localChat:listSyncMessages",
-        (client) =>
-          client.listSyncMessages({
-            conversationId: payload?.conversationId ?? "",
-            maxMessages: payload?.maxMessages,
-            includeDeveloperArtifacts:
-              payload?.includeDeveloperArtifacts === true,
-          }),
-      ),
-  );
-
-  ipcMain.handle(
-    IPC_LOCAL_CHAT_LIST_SYNC_MESSAGES_BEFORE,
-    async (
-      event,
-      payload: {
-        conversationId?: string;
-        beforeTimestampMs?: number;
-        beforeId?: string;
-        maxMessages?: number;
-        includeDeveloperArtifacts?: boolean;
-      },
-    ) =>
-      await withLocalChatClient(
-        options,
-        event,
-        IPC_LOCAL_CHAT_LIST_SYNC_MESSAGES_BEFORE,
-        (client) =>
-          client.listSyncMessagesBefore({
-            conversationId: payload?.conversationId ?? "",
-            beforeTimestampMs:
-              typeof payload?.beforeTimestampMs === "number"
-                ? payload.beforeTimestampMs
-                : Number.MAX_SAFE_INTEGER,
-            beforeId: payload?.beforeId ?? "",
-            maxMessages: payload?.maxMessages,
-            includeDeveloperArtifacts:
-              payload?.includeDeveloperArtifacts === true,
-          }),
-      ),
-  );
-
-  ipcMain.handle(
-    "localChat:syncMessages",
-    async (
-      event,
-      payload: {
-        conversationId?: string;
-        sinceCursor?: string | null;
-        maxMessages?: number;
-        includeDeveloperArtifacts?: boolean;
-      },
-    ) =>
-      await withLocalChatClient(
-        options,
-        event,
-        "localChat:syncMessages",
-        (client) =>
-          client.syncMessages({
-            conversationId: payload?.conversationId ?? "",
-            sinceCursor: payload?.sinceCursor,
-            maxMessages: payload?.maxMessages,
-            includeDeveloperArtifacts:
-              payload?.includeDeveloperArtifacts === true,
-          }),
-      ),
-  );
-
-  ipcMain.handle(
-    "localChat:publishTaskDecoration",
-    async (
-      event,
-      payload: {
-        statusTextByAgentId?: Record<string, string>;
-      },
-    ) =>
-      await withLocalChatClient(
-        options,
-        event,
-        "localChat:publishTaskDecoration",
-        (client) =>
-          client.setTaskDecoration({
-            statusTextByAgentId: payload?.statusTextByAgentId ?? {},
           }),
       ),
   );

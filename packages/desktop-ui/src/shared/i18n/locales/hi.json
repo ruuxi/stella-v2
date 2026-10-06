@@ -2316,7 +2316,6 @@
       "guestHeroBody": "Stella से अपने कंप्यूटर पर काम कराएँ — वेब ब्राउज़ करना, फ़ाइलें सँभालना, काम चलाना और भी बहुत कुछ।",
       "defaultDeviceLabel": "आपका कंप्यूटर",
       "statusChecking": "जाँच हो रही है…",
-      "statusWaking": "जगाया जा रहा है…",
       "statusConnected": "कनेक्टेड",
       "statusAsleep": "स्लीप में",
       "connectingLabel": "आपके कंप्यूटर से कनेक्ट हो रहा है",
@@ -2367,8 +2366,6 @@
         "enableLabel": "{name} को सक्षम करें",
         "enableFailedTitle": "उस कंप्यूटर को सक्षम नहीं कर सके",
         "connectFailedTitle": "उस कंप्यूटर से कनेक्ट नहीं कर सके",
-        "wake": "जगाएँ",
-        "wakeLabel": "{name} को जगाएँ",
         "pairingCode": "पेयरिंग कोड का उपयोग करें"
       },
       "appearance": {

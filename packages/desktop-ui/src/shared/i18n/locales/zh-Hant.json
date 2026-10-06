@@ -2294,7 +2294,6 @@
       "guestHeroBody": "請 Stella 在您的電腦上做事 —— 瀏覽網頁、管理檔案、執行工作等等。",
       "defaultDeviceLabel": "您的電腦",
       "statusChecking": "檢查中…",
-      "statusWaking": "喚醒中…",
       "statusConnected": "已連線",
       "statusAsleep": "睡眠中",
       "connectingLabel": "正在連線到您的電腦",
@@ -2345,8 +2344,6 @@
         "enableLabel": "啟用 {name}",
         "enableFailedTitle": "無法啟用那台電腦",
         "connectFailedTitle": "無法連線到那台電腦",
-        "wake": "喚醒",
-        "wakeLabel": "喚醒 {name}",
         "pairingCode": "使用配對碼"
       },
       "appearance": {

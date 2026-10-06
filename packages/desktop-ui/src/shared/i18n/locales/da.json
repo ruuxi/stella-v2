@@ -2317,7 +2317,6 @@
       "guestHeroBody": "Bed Stella om at gøre ting på din computer — browse på nettet, håndtere filer, køre opgaver og meget mere.",
       "defaultDeviceLabel": "Din computer",
       "statusChecking": "Tjekker…",
-      "statusWaking": "Vågner…",
       "statusConnected": "Tilsluttet",
       "statusAsleep": "På vågeblus",
       "connectingLabel": "Opretter forbindelse til din computer",
@@ -2368,8 +2367,6 @@
         "enableLabel": "Aktivér {name}",
         "enableFailedTitle": "Kunne ikke aktivere den computer",
         "connectFailedTitle": "Kunne ikke forbinde til den computer",
-        "wake": "Væk",
-        "wakeLabel": "Væk {name}",
         "pairingCode": "Brug en parringskode"
       },
       "appearance": {

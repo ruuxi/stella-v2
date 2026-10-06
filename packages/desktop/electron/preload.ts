@@ -1105,12 +1105,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
         rawPublicKey: number[];
         signature: string;
       }>,
-    startPhoneAccessSession: () =>
-      ipcRenderer.invoke("phoneAccess:startSession") as Promise<{
-        ok: boolean;
-      }>,
-    stopPhoneAccessSession: () =>
-      ipcRenderer.invoke("phoneAccess:stopSession") as Promise<{ ok: boolean }>,
     configurePiRuntime: (config: { backendUrl: string }) =>
       ipcRenderer.invoke("host:configurePiRuntime", config),
     getAuthSession: (options?: { allowCached?: boolean }) =>
@@ -1966,20 +1960,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       conversationId: string;
       message: string;
     }) => ipcRenderer.invoke("localChat:persistDiscoveryWelcome", payload),
-    listSyncMessages: (payload: {
-      conversationId: string;
-      maxMessages?: number;
-      includeDeveloperArtifacts?: boolean;
-    }) => ipcRenderer.invoke("localChat:listSyncMessages", payload),
-    syncMessages: (payload: {
-      conversationId: string;
-      sinceCursor?: string | null;
-      maxMessages?: number;
-      includeDeveloperArtifacts?: boolean;
-    }) => ipcRenderer.invoke("localChat:syncMessages", payload),
-    publishTaskDecoration: (payload: {
-      statusTextByAgentId: Record<string, string>;
-    }) => ipcRenderer.invoke("localChat:publishTaskDecoration", payload),
     onUpdated: onIpc<LocalChatUpdatedPayload | null>("localChat:updated"),
     onThreadActivityUpdated: onIpc<ThreadActivityUpdatedPayload>(
       "localChat:threadActivityUpdated",

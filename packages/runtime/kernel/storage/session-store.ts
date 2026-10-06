@@ -1907,13 +1907,6 @@ export class SessionStore {
     );
   }
 
-  listMobileTaskContext(conversationIdInput: unknown, agentIds: string[]) {
-    return this.chat.listMobileTaskContext(
-      this.sanitizeConversationId(conversationIdInput),
-      agentIds,
-    );
-  }
-
   findVisibleMessagePageEndAfter(
     conversationIdInput: unknown,
     maxVisibleMessages: number,
@@ -1933,34 +1926,6 @@ export class SessionStore {
     return this.chat.findVisibleMessageCursorAfter(
       this.sanitizeConversationId(conversationIdInput),
       after,
-    );
-  }
-
-  hasMobileSyncEventsAfter(
-    conversationIdInput: unknown,
-    afterTimestampMs: number,
-    afterId: string,
-    afterSequence?: number,
-  ): boolean {
-    return this.chat.hasMobileSyncEventsAfter(
-      this.sanitizeConversationId(conversationIdInput),
-      afterTimestampMs,
-      afterId,
-      afterSequence,
-    );
-  }
-
-  isMobileSyncCursorValid(
-    conversationIdInput: unknown,
-    cursorTimestampMs: number,
-    cursorId: string,
-    cursorSequence?: number,
-  ): boolean {
-    return this.chat.isMobileSyncCursorValid(
-      this.sanitizeConversationId(conversationIdInput),
-      cursorTimestampMs,
-      cursorId,
-      cursorSequence,
     );
   }
 

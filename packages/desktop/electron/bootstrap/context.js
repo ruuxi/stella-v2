@@ -5,13 +5,6 @@ import { BootstrapLifecycleBindings } from "./lifecycle-bindings.js";
 import { ProcessRuntime } from "../process-runtime.js";
 import { createBootstrapServices } from "./bootstrap-services.js";
 import { registerBootstrapProcessCleanups } from "./cleanup.js";
-/**
- * Retrieve the mobile bridge broadcast function from context.
- * Returns null if the bridge service hasn't started yet.
- */
-export const getMobileBroadcast = (context) => {
-    return context.state.mobileBridgeResource?.broadcastToMobile ?? null;
-};
 export const getAllWindows = (context) => {
     return context.state.windowManager
         ? context.state.windowManager.getAllWindows()
@@ -29,18 +22,14 @@ export const broadcastToWindows = (context, channel, payload) => {
         window.webContents.send(channel, payload);
     });
 };
-const broadcastToWindowsAndMobile = (context, channel, payload, mobilePayload = payload ?? null) => {
-    broadcastToWindows(context, channel, payload);
-    getMobileBroadcast(context)?.(channel, mobilePayload);
-};
 export const broadcastLocalChatUpdated = (context, payload) => {
-    broadcastToWindowsAndMobile(context, "localChat:updated", payload ?? null);
+    broadcastToWindows(context, "localChat:updated", payload ?? null);
 };
 export const broadcastThreadActivityUpdated = (context, payload) => {
-    broadcastToWindowsAndMobile(context, "localChat:threadActivityUpdated", payload);
+    broadcastToWindows(context, "localChat:threadActivityUpdated", payload);
 };
 export const broadcastScheduleUpdated = (context) => {
-    broadcastToWindowsAndMobile(context, "schedule:updated");
+    broadcastToWindows(context, "schedule:updated");
 };
 export const broadcastStellaBrowserBridgeStatus = (context, status) => {
     broadcastToWindows(context, "browser:bridgeStatus", status);
@@ -77,8 +66,8 @@ export const createBootstrapContext = (config) => {
         inAppBrowserCdpAdapter: null,
         inAppBrowserBootstrapServer: null,
         inAppBrowserHandlersDispose: null,
-        mobileBridgeResource: null,
         officePreviewBridgeStop: null,
+        deviceRequestHandlers: null,
         uiStateKvStore: null,
         windowManager: null,
         trayController: null,
@@ -90,7 +79,6 @@ export const createBootstrapContext = (config) => {
         lifecycle,
         state,
         getAllWindows: () => getAllWindows(context),
-        getMobileBroadcast: () => getMobileBroadcast(context),
     });
     registerBootstrapProcessCleanups(context);
     return context;

@@ -149,15 +149,6 @@ export type ThreadActivityUpdatedPayload = {
   transcriptUpdate?: ThreadTranscriptUpdate;
 };
 
-/**
- * Snapshot of the renderer's ephemeral per-thread status decoration, mirrored
- * to the mobile bridge. Authored assistant updates travel through the durable
- * thread projection instead of this renderer-owned channel.
- */
-export type TaskDecorationUpdatedPayload = {
-  statusTextByAgentId: Record<string, string>;
-};
-
 export type ToolRequestPayload = {
   toolName: string;
   args?: Record<string, unknown>;

@@ -8,7 +8,27 @@ import path from "node:path";
  * BASE_URL.
  */
 
-export const BACKEND_SUFFIX = /^https:\/\/stella-v2-cloud-builder-([a-z0-9-]+)\.lolruuxi\.workers\.dev$/;
+/**
+ * A backend deployed under the repo's worker names (a first hostname label
+ * containing `cloud-builder`, on any domain) pairs with the same-named Apps
+ * hosts: `cloud-builder` becomes `apps-host` and `apps-auth`. Any other
+ * backend names its Apps hosts with VITE_STELLA_APPS_HOST and
+ * VITE_STELLA_APPS_AUTH_HOST.
+ */
+export const pairedAppsHosts = (
+  backendUrl: string | undefined,
+): { appsHost: string; appsAuthHost: string } | null => {
+  let url: URL;
+  try {
+    url = new URL(backendUrl?.trim() ?? "");
+  } catch {
+    return null;
+  }
+  const [label, ...rest] = url.hostname.split(".");
+  if (url.protocol !== "https:" || !label?.includes("cloud-builder") || rest.length === 0) return null;
+  const host = (name: string) => `https://${[label.replace("cloud-builder", name), ...rest].join(".")}`;
+  return { appsHost: host("apps-host"), appsAuthHost: host("apps-auth") };
+};
 
 const parseEnvFile =(source: string): Record<string, string> => {
   const values: Record<string, string> = {};
@@ -45,12 +65,11 @@ export const loadRendererEnv = (uiRoot: string, mode: string): RendererEnv => {
   for (const [key, value] of Object.entries(process.env)) {
     if (key.startsWith("VITE_") && value !== undefined) merged[key] = value;
   }
-  // A `stella-v2-cloud-builder-<suffix>` backend pairs with the same-suffix
-  // Apps hosts, so a launcher that only names the backend gets its apps too.
-  const suffix = BACKEND_SUFFIX.exec(merged.VITE_STELLA_BACKEND_URL?.trim().replace(/\/+$/, "") ?? "")?.[1];
-  if (suffix) {
-    merged.VITE_STELLA_APPS_HOST ||= `https://stella-v2-apps-host-${suffix}.lolruuxi.workers.dev`;
-    merged.VITE_STELLA_APPS_AUTH_HOST ||= `https://stella-v2-apps-auth-${suffix}.lolruuxi.workers.dev`;
+  // A launcher that only names the backend gets its Apps hosts too.
+  const paired = pairedAppsHosts(merged.VITE_STELLA_BACKEND_URL);
+  if (paired) {
+    merged.VITE_STELLA_APPS_HOST ||= paired.appsHost;
+    merged.VITE_STELLA_APPS_AUTH_HOST ||= paired.appsAuthHost;
   }
   const env: RendererEnv = {};
   for (const [key, value] of Object.entries(merged)) {

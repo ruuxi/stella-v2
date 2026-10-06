@@ -21,7 +21,6 @@ type MainTelemetryOptions = {
  */
 export const initMainProcessTelemetry = (options: MainTelemetryOptions) => {
   const environment = options.environment;
-  const endpoint = telemetryHttpEndpoint(environment);
   const client = new RemoteTelemetryClient({
     spoolPath: path.join(
       options.stellaDataDirPath,
@@ -35,7 +34,8 @@ export const initMainProcessTelemetry = (options: MainTelemetryOptions) => {
     }),
     getTransportConfig: async () => {
       const authToken = (await options.getAuthToken())?.trim();
-      return authToken ? { endpoint, authToken } : null;
+      const endpoint = authToken ? telemetryHttpEndpoint(environment, authToken) : null;
+      return authToken && endpoint ? { endpoint, authToken } : null;
     },
   });
 

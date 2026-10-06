@@ -68,6 +68,14 @@ export const executionTargetStore = {
   },
 };
 
+if (typeof window !== "undefined") {
+  window.electronAPI?.executionTarget?.onSet((payload) => {
+    if (payload && typeof payload === "object" && payload.target) {
+      executionTargetStore.set(payload.target);
+    }
+  });
+}
+
 /**
  * The target a send carries. Cloud and other computers run under a signed-in
  * account (the runtime's placement bridge refuses anonymous sessions), so a

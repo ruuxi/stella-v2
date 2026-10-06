@@ -116,6 +116,7 @@ export const METHOD_NAMES = {
   HOST_CONNECTOR_TOKEN_STORE_REQUEST: "host.connectorTokenStore.request",
   HOST_CONNECTOR_CONNECT_REQUEST: "host.connectorConnect.request",
   HOST_CONNECTOR_CONNECT_CANCEL: "host.connectorConnect.cancel",
+  HOST_EXECUTION_DESTINATION_SWITCH: "host.executionDestination.switch",
   HOST_BROWSER_EXTENSION_CONNECT_REQUEST:
     "host.browserExtensionConnect.request",
   HOST_COMPUTER_USE_APP_APPROVAL_REQUEST: "host.computerUseAppApproval.request",

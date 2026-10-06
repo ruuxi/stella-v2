@@ -212,6 +212,7 @@ export const createToolHost = ({
   requestCredential,
   requestBrowserExtensionConnect,
   requestConnectorConnection,
+  switchExecutionDestination,
   agentApi,
   validateSpawnModel,
   validateSpawnModelWithMetadata,
@@ -477,6 +478,7 @@ export const createToolHost = ({
       ? { requestBrowserExtensionConnect }
       : {}),
     ...(requestConnectorConnection ? { requestConnectorConnection } : {}),
+    ...(switchExecutionDestination ? { switchExecutionDestination } : {}),
     agentApi,
     scheduleApi,
     extensionTools,

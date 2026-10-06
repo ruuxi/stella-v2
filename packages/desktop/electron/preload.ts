@@ -118,6 +118,7 @@ import {
   IPC_APP_SOURCE_GET_STATE,
   IPC_EXECUTION_ANSWER_REMOTE_REQUEST,
   IPC_EXECUTION_REMOTE_REQUEST,
+  IPC_EXECUTION_TARGET_SET,
   IPC_APP_SOURCE_STATE,
   IPC_APP_SOURCE_UNDO,
   IPC_WINDOW_SET_NATIVE_BUTTONS_VISIBLE,
@@ -512,6 +513,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
       invokeIpc<{ allow: boolean }>(IPC_EXECUTION_ANSWER_REMOTE_REQUEST, {
         allow,
       }),
+  },
+
+  executionTarget: {
+    onSet: onIpc<{
+      target:
+        | { mode: "automatic" }
+        | { mode: "cloud" }
+        | { mode: "device"; deviceId: string };
+    }>(IPC_EXECUTION_TARGET_SET),
   },
 
   /** The app's own checkout when running from source; state is null otherwise. */

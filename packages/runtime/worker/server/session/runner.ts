@@ -154,6 +154,11 @@ export const layer = Layer.effect(
           payload as Record<string, unknown>,
           signal,
         ),
+      switchExecutionDestination: async (payload) =>
+        (await hostBus.request(
+          METHOD_NAMES.HOST_EXECUTION_DESTINATION_SWITCH,
+          payload,
+        )) as { ok: true } | { ok: false; error: string },
       requestRuntimeAuthRefresh: async (payload) =>
         await hostBus.request(METHOD_NAMES.HOST_RUNTIME_AUTH_REFRESH, payload, {
           retryOnDisconnect: true,

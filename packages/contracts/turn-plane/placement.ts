@@ -203,6 +203,12 @@ export type DispatchPayload = {
    * device runs the agent on it, or fails the agent saying why it can't.
    */
   model?: string;
+  /**
+   * Chat dispatches only: the orchestrator moved itself here with
+   * `switch_destination`, so the prompt is its own brief rather than a
+   * message the user typed. It is journaled hidden.
+   */
+  handoff?: true;
 };
 
 export type DispatchSubmitRequest = {

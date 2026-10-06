@@ -91,6 +91,8 @@ export const RUNTIME_HOST_HANDLERS = [
    * nothing here is waiting on a person.
    */
   "notifyRemoteExecutionRequest",
+  /** The orchestrator moved the chat; the app's destination picker follows. */
+  "setExecutionTarget",
   /**
    * A paired phone's request (a file, an office preview, voice tools),
    * relayed by the cloud over the presence socket. The app answers it under

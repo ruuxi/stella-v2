@@ -487,6 +487,7 @@ export const createRunnerContext = ({
   requestCredential,
   requestBrowserExtensionConnect,
   requestConnectorConnection,
+  switchExecutionDestination,
   requestRuntimeAuthRefresh,
   requestChallengeToken,
   getDeviceSigner,
@@ -692,6 +693,7 @@ export const createRunnerContext = ({
       ? { requestBrowserExtensionConnect }
       : {}),
     ...(requestConnectorConnection ? { requestConnectorConnection } : {}),
+    ...(switchExecutionDestination ? { switchExecutionDestination } : {}),
     ...spawnModelSupport,
     resolveCloudExecutionSelection: async ({
       model: modelOverride,

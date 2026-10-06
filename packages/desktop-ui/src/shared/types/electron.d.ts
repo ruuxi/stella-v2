@@ -1535,6 +1535,17 @@ export type ElectronRemoteExecutionApi = {
   answer: (allow: boolean) => Promise<{ allow: boolean }>;
 };
 
+export type ElectronExecutionTargetApi = {
+  onSet: (
+    callback: (payload: {
+      target:
+        | { mode: "automatic" }
+        | { mode: "cloud" }
+        | { mode: "device"; deviceId: string };
+    }) => void,
+  ) => () => void;
+};
+
 /** The app's own checkout when running from source; state is null otherwise. */
 export type ElectronAppSourceApi = {
   getState: () => Promise<AppSourceState | null>;
@@ -1610,6 +1621,7 @@ export type ElectronApi = {
   agent: ElectronAgentApi;
   system: ElectronSystemApi;
   remoteExecution: ElectronRemoteExecutionApi;
+  executionTarget?: ElectronExecutionTargetApi;
   appSource: ElectronAppSourceApi;
   onboarding: ElectronOnboardingApi;
   discovery: ElectronDiscoveryApi;

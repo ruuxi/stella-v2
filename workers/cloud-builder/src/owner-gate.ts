@@ -2960,6 +2960,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       ...(payload.locale ? { locale: payload.locale } : {}),
       ...(payload.attachments ? { attachments: payload.attachments } : {}),
       ...(payload.execution ? { execution: payload.execution } : {}),
+      ...(payload.handoff ? { hiddenMessage: true } : {}),
     };
     const handoffKey = cloudChatHandoffKey(row.dispatch_id);
     let handoff = await this.ctx.storage.get<CloudChatHandoff>(handoffKey);

@@ -540,6 +540,11 @@ export type ToolHostOptions = {
    * outcome (same ConnectorConnectService flow the CLI bridge uses).
    */
   requestConnectorConnection?: import("./defs/connector-status.js").ConnectorConnectionRequester;
+  /**
+   * Desktop hop for the orchestrator's `switch_destination` tool: flip the
+   * app's execution target and continue the conversation there.
+   */
+  switchExecutionDestination?: import("./defs/switch-destination.js").ExecutionDestinationSwitcher;
 };
 
 export type ScheduleToolApi = {

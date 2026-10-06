@@ -307,6 +307,12 @@ export const parseDispatchPayload = (
     if (!description) return fail("payload.description is malformed.");
     payload.description = description;
   }
+  if (value.handoff !== undefined) {
+    if (value.handoff !== true || kind !== "chat") {
+      return fail("payload.handoff must be true on a chat dispatch.");
+    }
+    payload.handoff = true;
+  }
   return { ok: true, payload };
 };
 

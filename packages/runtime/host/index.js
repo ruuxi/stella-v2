@@ -57,6 +57,8 @@ const loadSqliteDatabaseCtorSync = () => {
 };
 const AGENT_EVENT_BUFFER_LIMIT = 1_000;
 const AGENT_EVENT_BUFFER_TTL_MS = 10 * 60 * 1_000;
+const DESTINATION_HANDOFF_POLL_MS = 500;
+const DESTINATION_HANDOFF_MAX_WAIT_MS = 3 * 60 * 1_000;
 const PLACED_ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024;
 const SYNTHETIC_RUN_EVENT_SEQ_FLOOR = 1e10;
 const parseDisplayUpdateParams = (params) => {
@@ -183,6 +185,7 @@ export class StellaRuntimeHost {
     hostExecutionPlacementBridge = null;
     hostExecutionPlacementSyncQueue = Promise.resolve();
     placedDispatchByRunId = new Map();
+    pendingDestinationHandoffs = new Map();
     pendingRunEventAcks = new Map();
     runEventAckTimer = null;
     /** The desktop database the execution placement bridge keeps its proofs in. */
@@ -790,16 +793,19 @@ export class StellaRuntimeHost {
                             error: result.error || "The local agent failed.",
                         };
                 }
-                await this.appendLocalChatEvent({
-                    conversationId: dispatch.conversationId,
-                    eventId: userMessageEventId,
-                    type: "user_message",
-                    payload: {
-                        text: prompt,
-                        source: "execution-placement",
-                        dispatchId: dispatch.dispatchId,
-                    },
-                });
+                const handoff = payload.handoff === true;
+                if (!handoff) {
+                    await this.appendLocalChatEvent({
+                        conversationId: dispatch.conversationId,
+                        eventId: userMessageEventId,
+                        type: "user_message",
+                        payload: {
+                            text: prompt,
+                            source: "execution-placement",
+                            dispatchId: dispatch.dispatchId,
+                        },
+                    });
+                }
                 const result = await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_RUN_AUTOMATION, {
                     conversationId: dispatch.conversationId,
                     userPrompt: prompt,
@@ -809,7 +815,7 @@ export class StellaRuntimeHost {
                     // The run stays hidden (the sending client owns its own
                     // presentation), but the journal's user row must be
                     // visible or no other client can ever render the message.
-                    userAuthoredPrompt: true,
+                    userAuthoredPrompt: !handoff,
                     // A desktop/voice turn may be in flight when the phone
                     // sends. The runtime queues this exact accepted execution;
                     // background agents must not make the computer offline.
@@ -1122,6 +1128,7 @@ export class StellaRuntimeHost {
             userMessageEventId: payload.userMessageEventId ?? idempotencyKey,
             ...(payload.locale ? { locale: payload.locale } : {}),
             ...(attachments.length ? { attachments } : {}),
+            ...(payload.handoff === true ? { handoff: true } : {}),
         };
         getFileLogger()?.process("chat.dispatch-prepared", {
             requestId: payload.requestId, originUserMessageId: payload.userMessageEventId,
@@ -1263,6 +1270,74 @@ export class StellaRuntimeHost {
     }
     async listModels(request = {}) {
         return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_LIST_MODELS, request, { ensureWorker: true, recordActivity: false });
+    }
+    /**
+     * The orchestrator's `switch_destination`: the same target change the
+     * user makes in the picker, then the rest of the request continues there
+     * as a placed chat once this computer's turn for the conversation ends.
+     */
+    async switchExecutionDestination(params) {
+        const conversationId = typeof params?.conversationId === "string" ? params.conversationId.trim() : "";
+        const requested = params?.target && typeof params.target === "object" ? params.target : null;
+        if (!conversationId || !requested) {
+            return { ok: false, error: "A conversation and a destination are required." };
+        }
+        const deviceId = typeof requested.deviceId === "string" ? requested.deviceId.trim() : "";
+        const target = requested.mode === "cloud"
+            ? { mode: "cloud" }
+            : requested.mode === "device" && deviceId && deviceId !== this.deviceIdentity?.deviceId
+                ? { mode: "device", deviceId }
+                : { mode: "automatic" };
+        const prompt = typeof params.prompt === "string" ? params.prompt.trim() : "";
+        if (target.mode !== "automatic") {
+            if (!prompt) {
+                return { ok: false, error: "A brief is required to continue at the destination." };
+            }
+            await this.syncHostExecutionPlacement();
+            if (!this.hostExecutionPlacementBridge?.isRunning) {
+                return {
+                    ok: false,
+                    error: "Cross-device execution is not ready on this computer yet. Try again in a moment, or spawn an agent with that destination instead.",
+                };
+            }
+        }
+        try {
+            await this.options.hostHandlers.setExecutionTarget?.({ target });
+        }
+        catch (error) {
+            console.warn("[execution-destination] the app's destination picker could not be updated.", error);
+        }
+        if (target.mode === "automatic") return { ok: true };
+        const handoffId = crypto.randomUUID();
+        const placedPayload = {
+            conversationId,
+            userPrompt: `[You moved this chat here from ${hostname().trim() || "another computer"} with switch_destination. This is your brief, not a new message from the user.]\n\n${prompt}`,
+            requestId: `handoff:${handoffId}`,
+            userMessageEventId: `handoff-${handoffId}`,
+            storageMode: "cloud",
+            handoff: true,
+        };
+        const previous = this.pendingDestinationHandoffs.get(conversationId);
+        if (previous) previous.canceled = true;
+        const pending = { canceled: false };
+        this.pendingDestinationHandoffs.set(conversationId, pending);
+        void (async () => {
+            const deadline = Date.now() + DESTINATION_HANDOFF_MAX_WAIT_MS;
+            await new Promise((resolve) => setTimeout(resolve, DESTINATION_HANDOFF_POLL_MS));
+            while (!pending.canceled && Date.now() < deadline) {
+                const health = await this.getWorkerHealth({ ensureWorker: false }).catch(() => null);
+                if (health?.activeRun?.conversationId !== conversationId) break;
+                await new Promise((resolve) => setTimeout(resolve, DESTINATION_HANDOFF_POLL_MS));
+            }
+            if (pending.canceled) return;
+            if (this.pendingDestinationHandoffs.get(conversationId) === pending) {
+                this.pendingDestinationHandoffs.delete(conversationId);
+            }
+            await this.startPlacedChat(placedPayload, target);
+        })().catch((error) => {
+            console.warn("[execution-destination] the hand-off to the new destination failed.", error);
+        });
+        return { ok: true };
     }
     async startChat(payload) {
         const target = payload.storageMode === "local"
@@ -1821,6 +1896,9 @@ export class StellaRuntimeHost {
                 return { ok: false, reason: "unsupported" };
             }
             return await this.options.hostHandlers.requestConnectorCredential(params);
+        });
+        peer.registerRequestHandler(METHOD_NAMES.HOST_EXECUTION_DESTINATION_SWITCH, async (params) => {
+            return await this.switchExecutionDestination(params);
         });
         peer.registerRequestHandler(METHOD_NAMES.HOST_CONNECTOR_CONNECT_REQUEST, async (params) => {
             if (!this.options.hostHandlers.requestConnectorConnection) {

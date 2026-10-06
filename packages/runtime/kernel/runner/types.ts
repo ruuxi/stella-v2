@@ -109,6 +109,7 @@ export type StellaHostRunnerOptions = {
    * inline connector connect card (ConnectorConnectService) and resolve
    * with the user's outcome. The abort signal cancels the pending card.
    */
+  switchExecutionDestination?: import("../tools/defs/switch-destination.js").ExecutionDestinationSwitcher;
   requestConnectorConnection?: (
     payload: {
       id: string;

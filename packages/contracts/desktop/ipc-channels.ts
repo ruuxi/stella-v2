@@ -47,6 +47,8 @@ export const IPC_EXECUTION_REMOTE_REQUEST =
   "execution:remoteExecutionRequest" as const;
 export const IPC_EXECUTION_ANSWER_REMOTE_REQUEST =
   "execution:answerRemoteExecutionRequest" as const;
+/** The orchestrator moved the chat with `switch_destination`; the picker follows. */
+export const IPC_EXECUTION_TARGET_SET = "execution:targetSet" as const;
 
 // ── UI State ────────────────────────────────────────────────────────────────
 

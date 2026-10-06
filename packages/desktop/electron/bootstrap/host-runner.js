@@ -284,6 +284,9 @@ export const createHostRunnerHandlers = (context, options) => ({
         // `execution:answerRemoteExecutionRequest`.
         broadcastToWindows(context, "execution:remoteExecutionRequest", payload);
     },
+    setExecutionTarget: (payload) => {
+        broadcastToWindows(context, "execution:targetSet", payload);
+    },
     // A paired phone's request, relayed by the cloud over the presence socket.
     // The handlers carry the same remote policy the IPC handlers apply.
     serveDeviceRequest: (request) => serveDeviceRequest(context.state.deviceRequestHandlers ?? null, request),

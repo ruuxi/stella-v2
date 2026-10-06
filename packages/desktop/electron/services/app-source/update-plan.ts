@@ -1,23 +1,28 @@
 import { git, gitRaw, isAncestor } from "./git.js";
 
 /**
- * What taking the published app (upstream) means for this checkout, decided
- * before anything is touched.
+ * What taking some other version means for this checkout, decided before
+ * anything is touched. The other version is the published app (upstream), the
+ * same owner's other computer (the fork), or a finished draft whose base
+ * moved — the question is identical in all three, so the answer is computed
+ * in one place.
  *
- * The checkout only ever fast-forwards, so a branch that is not upstream's
- * ancestor cannot simply advance. That is a statement about the shape of
- * history, not about the files: a checkout whose own commits are four past
+ * The checkout only ever fast-forwards, so a branch that is not the other
+ * side's ancestor cannot simply advance. That is a statement about the shape
+ * of history, not about the files: a checkout whose own commits are four past
  * update-merges plus a change and its revert has diverged while its tree is
  * identical to the upstream commit it last merged. Reporting that as a
  * conflict, and handing it to an agent, is work nobody needed.
  *
  * So divergence is split by what git can actually tell us:
  *
- * - `fast-forward` — local is an ancestor of upstream. Advance.
+ * - `fast-forward` — local is an ancestor of the other side. Advance.
  * - `clean` — diverged, and the three-way merge has no textual conflict.
- *   `identical` means the merged tree is byte-for-byte upstream's tree: the
- *   user has nothing in the result that upstream did not already publish, so
- *   there is nothing a merge could get wrong and nothing to check.
+ *   `identical` means the merged tree is byte-for-byte the other side's tree,
+ *   so nothing of this checkout's own is in the result. Whether that is
+ *   reason enough to skip checking the result depends on whether the other
+ *   side's tree is known good, which is the caller's question, not this
+ *   one's.
  * - `conflict` — real textual conflicts, naming the files. The only case
  *   where a judgement exists to make.
  *
@@ -41,11 +46,11 @@ export type UpdatePlan =
       tip: string;
       count: number;
       subject: string;
-      /** The upstream commit this checkout last merged. */
+      /** The commit the two sides last shared. */
       base: string;
       /** The merge's result, written to the object database. */
       tree: string;
-      /** The result is upstream's tree exactly; nothing of the user's is in it. */
+      /** The result is the other side's tree exactly; nothing of ours is in it. */
       identical: boolean;
       /** The checkout's tree differs from `base`: the user has real changes. */
       localChanges: boolean;
@@ -67,7 +72,7 @@ export type UpdatePlan =
  * line and git's own messages. Three stages name the same file, so the paths
  * are de-duplicated.
  */
-const conflictedPaths = (stdout: string): string[] => {
+export const conflictedPaths = (stdout: string): string[] => {
   const [stages = ""] = stdout.split("\n\n");
   const paths: string[] = [];
   for (const line of stages.split("\n").slice(1)) {
@@ -120,7 +125,7 @@ export const classifyUpdate = async (
     };
   }
   if (merge.code !== 0) {
-    throw new Error(merge.stderr.trim() || "Could not merge the update.");
+    throw new Error(merge.stderr.trim() || "Could not work out the merge.");
   }
   const tree = merge.stdout.split("\n")[0]!.trim();
   const upstreamTree = await git(cwd, ["rev-parse", `${tip}^{tree}`]);

@@ -416,11 +416,11 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
             // Checking a merged update happens on a scratch worktree here,
             // never in the checkout that is running.
             updateScratchDir: path.join(app.getPath("userData"), "update-merge"),
-            // An update that needs a judgement goes straight to a background
+            // Git work that needs a judgement goes straight to a background
             // agent with what the app already knows. No user message is
             // synthesized for it: the user pressed a button, they did not
             // type a request, and nothing should file one against them.
-            dispatchUpdateMerge: async (brief) => {
+            dispatchAgentBrief: async (brief) => {
                 const runner = lifecycle.getRunner();
                 const conversationId = services.uiStateService.state.conversationId;
                 if (!runner || !conversationId) {

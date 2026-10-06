@@ -54,6 +54,18 @@ export type AppSourceElsewhere = {
  */
 export const isUpdateDraft = (name: string) => name.startsWith("update-");
 
+/**
+ * A draft Stella dispatched for itself to settle its own version — merging
+ * the published update, or a change the owner made on another computer. It is
+ * not a change the user asked for: it stays out of the chat, is not announced
+ * to their other computers as theirs, and Stella takes it without asking,
+ * because pressing the button was the request.
+ *
+ * Currently the same shape as an official update, and deliberately one
+ * predicate rather than a prefix test repeated at four call sites.
+ */
+export const isStellaDraft = isUpdateDraft;
+
 export type AppSourceState = {
   /** Finished drafts that fast-forward the current branch. */
   ready: AppSourceDraft[];
@@ -94,8 +106,9 @@ export type AppSourceActionResult =
       /**
        * The action did not finish in place: it is going on in the background
        * and the state's `update` reports it. The caller shows no progress of
-       * its own.
+       * its own, and never asks a follow-up question — deciding that an agent
+       * is needed is the main process's job, not the caller's.
        */
       background?: boolean;
     }
-  | { ok: false; error: string; conflict?: boolean };
+  | { ok: false; error: string };

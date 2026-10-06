@@ -427,6 +427,14 @@ export const prepareCloudToolFilesystem = async (args: {
           CLOUD_TOOL_PROCESS_IDENTITY.gid,
         );
         await handle.chmod(0o700);
+      } else if (
+        details.uid === CLOUD_TOOL_PROCESS_IDENTITY.uid &&
+        details.gid === CLOUD_TOOL_PROCESS_IDENTITY.gid
+      ) {
+        // A world materialized from its export (or made by the worker shell)
+        // carries 0755 directories; the tool account's own state directory
+        // is tightened rather than refused. Ownership is still checked below.
+        await handle.chmod(0o700);
       }
     } finally {
       await handle.close();

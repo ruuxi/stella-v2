@@ -410,7 +410,7 @@ export const normalizeToolWorkspaceRoot = async (
     throw new Error("Invalid cloud workspace mount path.");
   }
   const command = [
-    "set -eu",
+    "set -eux",
     "test ! -L /workspace",
     'test "$(readlink -f /workspace)" = /workspace',
     "test \"$(stat -c '%u:%g:%a' /workspace)\" = 0:42424:750",
@@ -421,7 +421,11 @@ export const normalizeToolWorkspaceRoot = async (
     `test "$(stat -c '%u:%g:%a' '${workspaceRoot}')" = 42424:42424:750`,
     ...(workspaceRoot !== APP_BUILD_ROOT
       ? [
-          `if [ -e '${workspaceRoot}/drive' ] || [ -L '${workspaceRoot}/drive' ]; then test -d '${workspaceRoot}/drive' && test ! -L '${workspaceRoot}/drive'; else mkdir -m 0750 '${workspaceRoot}/drive' && chown 42424:42424 '${workspaceRoot}/drive'; fi`,
+          // A world export restores `drive/` with the tarball's 0755; the
+          // boundary is 0750 like the root, so it is reset the same way.
+          `if [ -e '${workspaceRoot}/drive' ] || [ -L '${workspaceRoot}/drive' ]; then test -d '${workspaceRoot}/drive' && test ! -L '${workspaceRoot}/drive'; else mkdir -m 0750 '${workspaceRoot}/drive'; fi`,
+          `chown 42424:42424 '${workspaceRoot}/drive'`,
+          `chmod 0750 '${workspaceRoot}/drive'`,
           `test "$(readlink -f '${workspaceRoot}/drive')" = '${workspaceRoot}/drive'`,
           `test "$(stat -c '%u:%g:%a' '${workspaceRoot}/drive')" = 42424:42424:750`,
         ]
@@ -439,6 +443,10 @@ export const normalizeToolWorkspaceRoot = async (
   // one, the attached tool-host readiness probe) into a dead shell.
   const result = await session.exec(inSubshell(command));
   if (!result.success) {
+    log("error", "cloud_workspace_boundary_failed", {
+      exitCode: result.exitCode,
+      trace: result.stderr.slice(-800),
+    });
     throw new Error("Cloud workspace mount boundary validation failed.");
   }
 };

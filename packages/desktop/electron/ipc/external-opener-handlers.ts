@@ -34,6 +34,19 @@ import {
   IPC_SHELL_OPEN_PATH,
   IPC_SHELL_OPEN_WITH,
 } from "@stella/contracts/desktop/ipc-channels";
+import { isCloudWorkspacePath } from "@stella/contracts/cloud-world-paths";
+
+/**
+ * The OS-handoff twin of the `display:readFile` guard. A cloud-world path has
+ * no local file for Launch Services to open or for Finder to reveal, and
+ * `shell.openPath` answers such a path with a bare OS string ("The file
+ * /workspace/... does not exist") that reads as the file being gone. Nothing
+ * in this lane passes through a renderer read, so the display-handler guard
+ * cannot cover it; refusing here gives all three sub-lanes (OS default,
+ * reveal, specific app) the same true answer.
+ */
+const CLOUD_WORKSPACE_OPEN_ERROR =
+  "This file lives in Stella's cloud workspace, not on this computer, so there is no local file to open. Ask Stella to put it in your Drive.";
 
 type MacAppDef = {
   id: string;
@@ -301,6 +314,9 @@ export const registerExternalOpenerHandlers = (options: {
       if (!filePath || !openerId) {
         return { ok: false, error: "Missing file path or opener id." };
       }
+      if (isCloudWorkspacePath(filePath)) {
+        return { ok: false, error: CLOUD_WORKSPACE_OPEN_ERROR };
+      }
       if (openerId === "__default") {
         const error = await shell.openPath(filePath);
         return error ? { ok: false, error } : { ok: true };
@@ -336,6 +352,9 @@ export const registerExternalOpenerHandlers = (options: {
       }
       const filePath = asTrimmedString(payload?.filePath);
       if (!filePath) return { ok: false, error: "Missing file path." };
+      if (isCloudWorkspacePath(filePath)) {
+        return { ok: false, error: CLOUD_WORKSPACE_OPEN_ERROR };
+      }
       const error = await shell.openPath(filePath);
       return error ? { ok: false, error } : { ok: true };
     },

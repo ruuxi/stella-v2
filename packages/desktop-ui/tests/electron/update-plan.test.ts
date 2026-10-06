@@ -6,16 +6,27 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { classifyUpdate } from "@stella/desktop/electron/services/app-source/update-plan.js";
+import {
+  remoteMergeBrief,
+  staleDraftBrief,
+  undoBrief,
+  upstreamMergeBrief,
+} from "@stella/desktop/electron/services/app-source/app-source-briefs.js";
 
 /**
- * The three cases pressing Update can be in, built as real repositories.
+ * The three cases pressing one of these buttons can be in, built as real
+ * repositories.
  *
- * The one that matters is the middle one: a checkout whose history is not
- * upstream's ancestor, so the app cannot fast-forward it, but whose files
+ * The one that matters is the middle one: a checkout whose history is not the
+ * other side's ancestor, so the app cannot fast-forward it, but whose files
  * merge without a single conflict. That used to be reported as a conflict and
  * handed to an agent. Its sub-case — a local tree with no net difference from
- * the upstream commit it last merged, which is what a change and its revert
+ * the commit the two sides last shared, which is what a change and its revert
  * leave behind — has no merge judgement in it at all, and the plan says so.
+ *
+ * The same question is asked of the published app, of the owner's other
+ * computer, and of a finished draft whose base moved, so it is asked of all
+ * three here.
  */
 
 const roots: string[] = [];
@@ -59,7 +70,24 @@ const newRepo = async () => {
 };
 
 const head = (cwd: string) => git(cwd, ["rev-parse", "HEAD"]);
-const plan = (cwd: string) => classifyUpdate(cwd, head(cwd), "refs/heads/upstream");
+const plan = (cwd: string, ref = "refs/heads/upstream") =>
+  classifyUpdate(cwd, head(cwd), ref);
+
+/**
+ * A finished draft of the user's, made against whatever `main` was when it
+ * started and left on its own branch.
+ */
+const finishedDraft = async (
+  cwd: string,
+  name: string,
+  file: string,
+  body: string,
+) => {
+  git(cwd, ["checkout", "-q", "-b", `draft/${name}`]);
+  await commit(cwd, file, body, `Draft: ${name}`);
+  git(cwd, ["checkout", "-q", "main"]);
+  return `refs/heads/draft/${name}`;
+};
 
 /**
  * An install's own branch: a change of the user's, their revert of it, and a
@@ -153,5 +181,124 @@ describe("classifyUpdate", () => {
     expect(git(cwd, ["status", "--porcelain"])).toBe("");
     expect(git(cwd, ["merge-base", "--is-ancestor", at, "HEAD"])).toBe("");
     expect((await plan(cwd)).kind).toBe("none");
+  });
+});
+
+describe("classifyUpdate on a draft whose base moved", () => {
+  it("fast-forwards a draft still based on the current version", async () => {
+    const cwd = await newRepo();
+    git(cwd, ["checkout", "-q", "-b", "main"]);
+    const ref = await finishedDraft(cwd, "tidy", "tidy.ts", "export const a = 1;\n");
+    expect((await plan(cwd, ref)).kind).toBe("fast-forward");
+  });
+
+  it("merges a stale draft that does not clash, with no agent needed", async () => {
+    const cwd = await newRepo();
+    git(cwd, ["checkout", "-q", "-b", "main"]);
+    const ref = await finishedDraft(cwd, "tidy", "tidy.ts", "export const a = 1;\n");
+    // The base moves under the draft, somewhere else in the tree.
+    await commit(cwd, "other.ts", "export const other = 1;\n", "Moved on");
+    const result = await plan(cwd, ref);
+    expect(result.kind).toBe("clean");
+    if (result.kind !== "clean") return;
+    expect(result.localChanges).toBe(true);
+    expect(result.identical).toBe(false);
+  });
+
+  it("names the clashing file when the base moved under the draft's own edit", async () => {
+    const cwd = await newRepo();
+    git(cwd, ["checkout", "-q", "-b", "main"]);
+    const ref = await finishedDraft(
+      cwd,
+      "tidy",
+      "app.ts",
+      "export const app = 'draft';\n",
+    );
+    await commit(cwd, "app.ts", "export const app = 'moved on';\n", "Moved on");
+    const result = await plan(cwd, ref);
+    expect(result.kind).toBe("conflict");
+    if (result.kind !== "conflict") return;
+    expect(result.conflicts).toEqual(["app.ts"]);
+  });
+});
+
+/**
+ * The briefs replaced sentences the app typed into the chat on the user's
+ * behalf. They must carry the state the app established — so no agent
+ * re-derives it — and must never read as the user speaking.
+ */
+describe("agent briefs", () => {
+  const clean = {
+    kind: "clean" as const,
+    tip: "1234567890abcdef1234567890abcdef12345678",
+    count: 3,
+    subject: "Upstream subject",
+    base: "fedcba0987654321fedcba0987654321fedcba09",
+    tree: "aaaa",
+    identical: false,
+    localChanges: true,
+  };
+  const conflict = {
+    kind: "conflict" as const,
+    tip: clean.tip,
+    count: clean.count,
+    subject: clean.subject,
+    base: clean.base,
+    conflicts: ["packages/desktop-ui/src/shell/ShellTopBar.tsx"],
+    localChanges: true,
+  };
+  const head = "0000000000000000000000000000000000000000";
+
+  const all = () => [
+    upstreamMergeBrief(conflict, head),
+    remoteMergeBrief(conflict, head, "refs/remotes/stella-fork/main"),
+    staleDraftBrief(conflict, head, "tidy"),
+    undoBrief({
+      sha: clean.base,
+      subject: "Redesign the shell",
+      head,
+      conflicts: ["packages/desktop-ui/src/shell/ShellTopBar.tsx"],
+    }),
+  ];
+
+  it("never speaks as the user", () => {
+    // The exact sentence that appeared in Rahul's chat as though he had typed
+    // it, plus the shape of the others.
+    for (const brief of all()) {
+      expect(brief.prompt).not.toContain("Merge the changes from my other computer");
+      expect(brief.prompt).not.toMatch(/\bmy (draft|other computer|changes)\b/);
+      expect(brief.description.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("carries the state so nothing has to be re-derived", () => {
+    for (const brief of [
+      upstreamMergeBrief(conflict, head),
+      remoteMergeBrief(conflict, head, "refs/remotes/stella-fork/main"),
+      staleDraftBrief(conflict, head, "tidy"),
+    ]) {
+      expect(brief.prompt).toContain(conflict.tip);
+      expect(brief.prompt).toContain(conflict.base);
+      expect(brief.prompt).toContain(head);
+      expect(brief.prompt).toContain(conflict.conflicts[0]!);
+    }
+  });
+
+  it("says a failed check is a failed check, not a conflict", () => {
+    const brief = upstreamMergeBrief(clean, head, "ERROR: Unexpected \"=\"");
+    expect(brief.prompt).toContain("without a single conflict");
+    expect(brief.prompt).toContain('ERROR: Unexpected "="');
+  });
+
+  it("tells the undo agent the user applies that one themselves", () => {
+    const brief = undoBrief({
+      sha: clean.base,
+      subject: "Redesign the shell",
+      head,
+      conflicts: ["a.ts", "b.ts"],
+    });
+    expect(brief.prompt).toContain("they apply themselves");
+    expect(brief.prompt).toContain("a.ts");
+    expect(brief.prompt).toContain("b.ts");
   });
 });

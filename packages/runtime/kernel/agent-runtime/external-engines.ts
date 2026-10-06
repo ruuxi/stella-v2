@@ -1425,11 +1425,43 @@ const runClaudeHostedTurn = async (args: {
 
   let latestAttempt = true;
   // Steering lands in the running Claude query instead of interrupting it.
-  // Replies and queued-message boundaries it produces are written in the
-  // order the CLI reported them.
+  // Reply and queued-message boundaries are recorded synchronously, in the
+  // order the CLI reports them; only the durable reply writes run behind, and
+  // a failed one fails the turn.
   let steeringWrites: Promise<void> = Promise.resolve();
-  const afterSteeringWrites = (write: () => Promise<void> | void): void => {
-    steeringWrites = steeringWrites.then(write).catch(() => undefined);
+  let steeringWriteError: unknown;
+  const joinSteeringWrites = async (): Promise<void> => {
+    await steeringWrites;
+    if (steeringWriteError !== undefined) throw steeringWriteError;
+  };
+  const deliverIntermediateReply = (text: string): void => {
+    assistantUpdateBuffer.discard();
+    if (!isLatestExternalAttempt(args.opts)) {
+      latestAttempt = false;
+      return;
+    }
+    const assistantMessageEvent = runEvents.recordAssistantTextEnd(text);
+    if (assistantMessageEvent) {
+      args.callbacks?.onAssistantMessage?.(assistantMessageEvent);
+    }
+    steeringWrites = steeringWrites.then(async () => {
+      try {
+        await persistAssistantReply({
+          store: args.opts.store,
+          threadKey,
+          resolvedLlm: args.opts.resolvedLlm,
+          agentType: args.opts.agentType,
+          content: text,
+          stellaDataDir: args.opts.stellaDataDir,
+          runId,
+          ...(typeof args.opts.agentContext.attemptGeneration === "number"
+            ? { attemptGeneration: args.opts.agentContext.attemptGeneration }
+            : {}),
+        });
+      } catch (error) {
+        steeringWriteError ??= error;
+      }
+    });
   };
   const injectSteering = (
     inject: ClaudeTurnInject,
@@ -1444,25 +1476,23 @@ const runClaudeHostedTurn = async (args: {
         : {}),
       promptMessages,
     });
-    const accepted = inject({
+    return inject({
       text: buildClaudePromptFromMessages(
         delta.message ? [delta.message, ...promptMessages] : promptMessages,
       ),
       images: imagesFromQueuedMessages(entries),
-      onConsumed: () =>
-        afterSteeringWrites(() =>
-          publishQueuedUserMessageStarts({
-            entries,
-            runEvents,
-            callbacks: args.callbacks,
-          }),
-        ),
+      onConsumed: () => {
+        // Thread updates count as delivered only once the CLI takes them in;
+        // a dropped injection leaves them for the next prompt's delta.
+        watermarkTracker.noteMainlineDelta(delta);
+        publishQueuedUserMessageStarts({
+          entries,
+          runEvents,
+          callbacks: args.callbacks,
+        });
+      },
       onDropped: () => args.liveAgent?.prepend(entries),
     });
-    if (accepted) {
-      watermarkTracker.noteMainlineDelta(delta);
-    }
-    return accepted;
   };
   for (;;) {
     let completedThisTurn = false;
@@ -1497,18 +1527,8 @@ const runClaudeHostedTurn = async (args: {
               args.liveAgent?.prepend(entries);
             }
           }),
-        onIntermediateResult: (intermediate: { message: string }) => {
-          assistantUpdateBuffer.discard();
-          afterSteeringWrites(async () => {
-            const persisted = await persistCompletedExternalReply({
-              opts: args.opts,
-              session: args.session,
-              callbacks: args.callbacks,
-              text: intermediate.message,
-            });
-            latestAttempt = latestAttempt && persisted;
-          });
-        },
+        onIntermediateResult: (intermediate: { message: string }) =>
+          deliverIntermediateReply(intermediate.message),
         onSessionId: (sessionId: string) => {
           activeSessionId = sessionId;
         },
@@ -1548,9 +1568,14 @@ const runClaudeHostedTurn = async (args: {
       assistantUpdateBuffer.flushOnTermination();
       throw error;
     }
-    await steeringWrites;
+    await joinSteeringWrites();
 
-    if (completedThisTurn && finalResult && latestAttempt) {
+    if (
+      completedThisTurn &&
+      finalResult &&
+      latestAttempt &&
+      !(finalResult as { delivered?: boolean }).delivered
+    ) {
       // Persist this turn's reply before draining follow-ups so a stale
       // retry attempt can never clobber a newer attempt's transcript.
       latestAttempt = await persistCompletedExternalReply({

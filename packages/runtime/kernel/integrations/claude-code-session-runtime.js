@@ -909,6 +909,29 @@ const buildStreamJsonUserMessage = (sessionId, text, images, uuid) =>
   });
 const asObject = (value) =>
   value && typeof value === "object" && !Array.isArray(value) ? value : null;
+/**
+ * Hand steering back to the host newest-first, so its prepends keep the
+ * original order.
+ */
+const dropInjections = (pending, shouldDrop) => {
+  for (const injection of [...(pending.injections?.values() ?? [])].reverse()) {
+    if (injection.dropped || !shouldDrop(injection)) continue;
+    injection.dropped = true;
+    try {
+      injection.onDropped?.();
+    } catch {
+      // A host-side steering observer must not break the engine turn.
+    }
+  }
+};
+/**
+ * A fresh session seeded from the turn's history must still see the steering
+ * the lost session had already taken in this turn.
+ */
+const withConsumedSteering = (session, prompt) =>
+  session.consumedSteeringTexts?.length
+    ? [prompt, ...session.consumedSteeringTexts].join("\n\n")
+    : prompt;
 const hasUnconsumedInjection = (pending) => {
   for (const injection of pending.injections?.values() ?? []) {
     if (!injection.consumed) return true;
@@ -1358,6 +1381,7 @@ class ClaudeCodeSessionRuntime {
     session.modelOverride = undefined;
     session.fableSafetyFailures = 0;
     session.allowEmptyNativeFinal = false;
+    session.consumedSteeringTexts = [];
     // The compaction loop breaker counts per Stella turn.
     if (session.process) {
       session.process.compacting = false;
@@ -1448,6 +1472,7 @@ class ClaudeCodeSessionRuntime {
         text: response.message,
         sessionId: response.sessionId,
         usage: response.usage,
+        ...(response.delivered ? { delivered: true } : {}),
       };
     } finally {
       session.activeMcpTurn = undefined;
@@ -1629,13 +1654,14 @@ class ClaudeCodeSessionRuntime {
     observedMcpCalls = [],
   ) {
 
+    const reseedBase = withConsumedSteering(
+      session,
+      request.resumeFallbackPrompt ?? prompt,
+    );
     const buildReseedPrompt = (mcpCalls) =>
       mcpCalls.length > 0
-        ? buildSideEffectReconciliationPrompt(
-            mcpCalls,
-            request.resumeFallbackPrompt ?? prompt,
-          )
-        : (request.resumeFallbackPrompt ?? prompt);
+        ? buildSideEffectReconciliationPrompt(mcpCalls, reseedBase)
+        : reseedBase;
     try {
       const processState = await this.ensureStreamingProcess(
         session,
@@ -1968,7 +1994,7 @@ class ClaudeCodeSessionRuntime {
           request.onSessionId?.(session.sessionId);
         }
         if (parsedLine.type === "user" && parsedLine.isReplay === true) {
-          this.noteInjectionConsumed(processState, parsedLine.uuid);
+          this.noteInjectionConsumed(session, processState, parsedLine.uuid);
           continue;
         }
         // The init event names the model the CLI actually resolved the
@@ -2087,7 +2113,11 @@ class ClaudeCodeSessionRuntime {
         }
         if (parsedLine.type === "result") {
           const current = processState.pending[0];
-          if (current && hasUnconsumedInjection(current)) {
+          if (
+            current &&
+            parsedLine.is_error !== true &&
+            hasUnconsumedInjection(current)
+          ) {
             this.reportIntermediateResult(session, processState, current, parsedLine);
             continue;
           }
@@ -2210,7 +2240,22 @@ class ClaudeCodeSessionRuntime {
       const pending = {
         request,
         resolve,
-        reject,
+        reject: (error) => {
+          // The process died after this turn's own answer was delivered, while
+          // it was running queued steering. Settle with that answer instead of
+          // letting recovery resend (and re-answer) the original prompt; the
+          // steering it was working on goes back on the queue.
+          if (
+            pending.intermediateResult &&
+            error instanceof ClaudeCodeProcessEndedError &&
+            !request.abortSignal?.aborted
+          ) {
+            dropInjections(pending, (injection) => injection.afterIntermediate);
+            resolve({ ...pending.intermediateResult, delivered: true });
+            return;
+          }
+          reject(error);
+        },
         emitStreamDelta: createClaudeCodeStreamEmitter(request.onStream),
         mcpCalls: [],
         activeNativeToolUseIds: new Set(),
@@ -2285,17 +2330,9 @@ class ClaudeCodeSessionRuntime {
     pending.detachTurnControl?.();
     pending.detachTurnControl = undefined;
     // The turn ended without the CLI taking these in (abort, process death,
-    // a recovery restart). Hand them back newest-first so prepending keeps
-    // their order and the next prompt, or the abnormal-end replies, carry them.
-    for (const injection of [...(pending.injections?.values() ?? [])].reverse()) {
-      if (injection.consumed || injection.dropped) continue;
-      injection.dropped = true;
-      try {
-        injection.onDropped?.();
-      } catch {
-        // A host-side steering observer must not break the engine turn.
-      }
-    }
+    // a recovery restart), so the next prompt or the abnormal-end replies
+    // carry them instead.
+    dropInjections(pending, (injection) => !injection.consumed);
   }
   /**
    * Write steering input into the query that is still running, the way the
@@ -2321,6 +2358,7 @@ class ClaudeCodeSessionRuntime {
       consumed: false,
       onConsumed: input.onConsumed,
       onDropped: input.onDropped,
+      text: input.text,
     });
     processState.child.stdin.write(
       `${buildStreamJsonUserMessage(
@@ -2333,12 +2371,16 @@ class ClaudeCodeSessionRuntime {
     );
     return true;
   }
-  noteInjectionConsumed(processState, uuid) {
+  noteInjectionConsumed(session, processState, uuid) {
     if (typeof uuid !== "string") return;
     for (const pending of processState.pending) {
       const injection = pending.injections?.get(uuid);
       if (!injection || injection.consumed) continue;
       injection.consumed = true;
+      injection.afterIntermediate = Boolean(pending.intermediateResult);
+      if (injection.text) {
+        session.consumedSteeringTexts.push(injection.text);
+      }
       try {
         injection.onConsumed?.();
       } catch {
@@ -2366,6 +2408,7 @@ class ClaudeCodeSessionRuntime {
       return;
     }
     if (!stepResult.message) return;
+    pending.intermediateResult = stepResult;
     try {
       pending.request.onIntermediateResult?.(stepResult);
     } catch {

@@ -793,6 +793,12 @@ export class StellaRuntimeHost {
                     conversationId: dispatch.conversationId,
                     userPrompt: prompt,
                     userMessageEventId,
+                    // A placed chat dispatch is a message the user typed on
+                    // another device, not automation this computer invented.
+                    // The run stays hidden (the sending client owns its own
+                    // presentation), but the journal's user row must be
+                    // visible or no other client can ever render the message.
+                    userAuthoredPrompt: true,
                     // A desktop/voice turn may be in flight when the phone
                     // sends. The runtime queues this exact accepted execution;
                     // background agents must not make the computer offline.

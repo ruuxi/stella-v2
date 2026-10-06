@@ -54,11 +54,24 @@ type DeferredTerminalCallback =
  * reply) has no user-typed text: it travels as a `message`-type prompt with
  * an empty `userPrompt`. Mirror that prompt's text, flagged hidden, so every
  * client can read the task it names instead of an empty, visible bubble.
+ *
+ * Journal visibility is a property of the prompt's authorship, not of the
+ * run's UI visibility. A relayed chat message (typed on the phone, executed
+ * here) runs hidden on purpose — the sending client owns its presentation and
+ * this computer publishes no rows for it — but its journal row is the only
+ * copy every other client can read, so `userAuthoredPrompt` keeps that row
+ * visible. Without it, every message sent from another device was persisted
+ * `hidden = 1` and no desktop or web client could ever render it.
  */
 export const buildCloudUserMessage = (
   prepared: Pick<
     PreparedOrchestratorRun,
-    "promptMessages" | "userPrompt" | "attachments" | "agentContext" | "uiVisibility"
+    | "promptMessages"
+    | "userPrompt"
+    | "attachments"
+    | "agentContext"
+    | "uiVisibility"
+    | "userAuthoredPrompt"
   >,
 ): { message: PersistedRuntimeThreadPayload; hidden: boolean } => {
   const promptMessages = prepared.promptMessages ?? [];
@@ -107,10 +120,14 @@ export const buildCloudUserMessage = (
   }
   const executionContext = prepared.agentContext.executionContext;
   const fileAttachments = cloudFileAttachmentMetadata(promptInput.attachments);
+  // A runtime prompt is never user-authored: it has no typed text at all, so
+  // it stays hidden even when the caller claims authorship for the turn.
+  const userAuthored = prepared.userAuthoredPrompt === true && !runtimePrompt;
   const hidden =
-    runtimePrompt ||
-    prepared.uiVisibility === "hidden" ||
-    chosen?.uiVisibility === "hidden";
+    !userAuthored &&
+    (runtimePrompt ||
+      prepared.uiVisibility === "hidden" ||
+      chosen?.uiVisibility === "hidden");
   return {
     message: {
       ...message,
@@ -421,6 +438,12 @@ export type PreparedOrchestratorRun = {
   ownerGeneration?: string;
   userPrompt: string;
   uiVisibility?: "visible" | "hidden";
+  /**
+   * A person typed this prompt (here or on another device). Keeps the journal
+   * user row visible for a relayed chat message without touching the run's
+   * own `uiVisibility`, which also drives local run/event publication.
+   */
+  userAuthoredPrompt?: boolean;
   promptMessages?: RuntimePromptMessage[];
   responseTarget?: Parameters<typeof runOrchestratorTurn>[0]["responseTarget"];
   attachments: RuntimeAttachmentRef[];
@@ -451,6 +474,7 @@ export const prepareOrchestratorRun = async (args: {
   ownerGeneration?: string;
   userPrompt: string;
   uiVisibility?: "visible" | "hidden";
+  userAuthoredPrompt?: boolean;
   promptMessages?: RuntimePromptMessage[];
   responseTarget?: Parameters<typeof runOrchestratorTurn>[0]["responseTarget"];
   attachments: RuntimeAttachmentRef[];
@@ -524,6 +548,7 @@ export const prepareOrchestratorRun = async (args: {
         : {}),
       userPrompt: args.userPrompt,
       ...(args.uiVisibility ? { uiVisibility: args.uiVisibility } : {}),
+      ...(args.userAuthoredPrompt ? { userAuthoredPrompt: true } : {}),
       promptMessages: args.promptMessages,
       ...(args.responseTarget ? { responseTarget: args.responseTarget } : {}),
       attachments: args.attachments,
@@ -925,6 +950,7 @@ export const startPreparedOrchestratorRun = async (args: {
   ownerGeneration?: string;
   userPrompt: string;
   uiVisibility?: "visible" | "hidden";
+  userAuthoredPrompt?: boolean;
   promptMessages?: RuntimePromptMessage[];
   responseTarget?: Parameters<typeof runOrchestratorTurn>[0]["responseTarget"];
   attachments: RuntimeAttachmentRef[];
@@ -955,6 +981,7 @@ export const startPreparedOrchestratorRun = async (args: {
     ...(args.ownerGeneration ? { ownerGeneration: args.ownerGeneration } : {}),
     userPrompt: args.userPrompt,
     ...(args.uiVisibility ? { uiVisibility: args.uiVisibility } : {}),
+    ...(args.userAuthoredPrompt ? { userAuthoredPrompt: true } : {}),
     promptMessages: args.promptMessages,
     ...(args.responseTarget ? { responseTarget: args.responseTarget } : {}),
     attachments: args.attachments,

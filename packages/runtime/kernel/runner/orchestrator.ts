@@ -935,6 +935,7 @@ export const createOrchestratorController = (
       connectorDeliveryTarget?: StartPreparedRunArgs["connectorDeliveryTarget"];
       userMessageEventId?: string;
       executionPlacementRunId?: string;
+      userAuthoredPrompt?: boolean;
     },
     resolveResult: (value: AutomationTurnResult) => void,
   ): Promise<{ runId: string }> => {
@@ -1015,7 +1016,13 @@ export const createOrchestratorController = (
         ...(toolWorkspaceRoot ? { toolWorkspaceRoot } : {}),
         storageMode,
         ...(ownerGeneration ? { ownerGeneration } : {}),
+        // An automation turn publishes no local run/event rows: the caller
+        // (scheduler, connector, another device's client) owns whatever the
+        // user sees. Journal visibility is decided separately, by whether a
+        // human authored the prompt — a relayed chat message is a message the
+        // user sent and every other client reads it from that row.
         uiVisibility: "hidden",
+        ...(payload.userAuthoredPrompt ? { userAuthoredPrompt: true } : {}),
         attachments,
         ...(connectorDeliveryTarget ? { connectorDeliveryTarget } : {}),
         // Connector turns reuse the id of the display event the host already
@@ -1075,6 +1082,7 @@ export const createOrchestratorController = (
     connectorDeliveryTarget?: StartPreparedRunArgs["connectorDeliveryTarget"];
     userMessageEventId?: string;
     executionPlacementRunId?: string;
+    userAuthoredPrompt?: boolean;
   }): Promise<AutomationTurnResult> => {
     // Gate on the model this turn will actually run (a pinned override must
     // not be blocked because the default orchestrator route is unavailable).

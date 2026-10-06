@@ -91,6 +91,8 @@ export interface Interface {
       externalMessageId?: string;
     };
     userMessageEventId?: string;
+    /** A human typed this prompt on another device; see the protocol type. */
+    userAuthoredPrompt?: boolean;
   }) => Promise<unknown>;
   /**
    * Turn a placed agent's attachments into real local files before the agent

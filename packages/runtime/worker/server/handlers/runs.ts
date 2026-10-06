@@ -145,6 +145,7 @@ export const runsHandlers: WorkerRpcHandlers = {
               externalMessageId?: string;
             };
             userMessageEventId?: string;
+            userAuthoredPrompt?: boolean;
           },
         ),
       );

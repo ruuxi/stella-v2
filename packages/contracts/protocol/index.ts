@@ -552,6 +552,18 @@ export type RuntimeAutomationTurnRequest = {
    * model context alongside the prompt.
    */
   userMessageEventId?: string;
+  /**
+   * A person typed this prompt on another device and it was relayed here to
+   * run (a placement chat dispatch). The run itself still executes with
+   * hidden UI visibility — this computer publishes no run/event rows for it,
+   * because the sending client owns that presentation — but the user message
+   * mirrored into the cloud journal has to be visible: that row is the only
+   * copy every other client can read. Automation that no human typed (cron
+   * and trigger turns, connector deliveries) leaves this unset and keeps the
+   * hidden journal row it has always written.
+   */
+  userAuthoredPrompt?: boolean;
+
 };
 
 export type RuntimeAutomationTurnResult =

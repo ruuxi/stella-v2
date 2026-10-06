@@ -1254,6 +1254,7 @@
         "video": "فيديو"
       },
       "fileLink": {
+        "cloudWorkspaceOnly": "يوجد هذا الملف في مساحة عمل Stella السحابية، وليس على هذا الكمبيوتر. اطلب من Stella وضعه في Drive الخاص بك.",
         "openFailed": "تعذّر فتح {filePath}"
       },
       "filePreview": {

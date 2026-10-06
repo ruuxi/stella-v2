@@ -1236,6 +1236,7 @@
         "video": "Video"
       },
       "fileLink": {
+        "cloudWorkspaceOnly": "Acest fișier se află în spațiul de lucru cloud al Stellei, nu pe acest computer. Cere-i Stellei să-l pună în Drive-ul tău.",
         "openFailed": "Nu s-a putut deschide {filePath}"
       },
       "filePreview": {

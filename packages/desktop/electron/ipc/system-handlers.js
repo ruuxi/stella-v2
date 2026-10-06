@@ -23,6 +23,7 @@ import { getOAuthProvider, getOAuthProviders, } from "@stella/runtime/ai/utils/o
 import { loginChatGpt } from "@stella/runtime/ai/utils/oauth/chatgpt";
 import { beginChatGptRegistration, getChatGptAccessToken, getChatGptHostId, hasUsableChatGptProfile, listChatGptProfiles, removeChatGptProfile, saveChatGptRegistration, savedChatGptRegistration, setActiveChatGptProfile, setChatGptAutoSwitch, signOutChatGptProfile, } from "@stella/runtime/kernel/storage/chatgpt-profiles";
 import { isRuntimeUnavailableError } from "@stella/contracts/protocol/rpc-peer";
+import { isCloudWorkspacePath } from "@stella/contracts/cloud-world-paths";
 import { IPC_APP_QUIT_FOR_RESTART, IPC_AUTH_APPLY_SESSION_TOKEN, IPC_AUTH_DELETE_USER, IPC_AUTH_GET_SESSION, IPC_AUTH_GET_TOKEN, IPC_AUTH_REVOKE_SESSIONS, IPC_AUTH_SIGN_IN_ANONYMOUS, IPC_AUTH_SIGN_OUT, IPC_DIAGNOSTICS_EXPORT_LOGS, IPC_DIAGNOSTICS_RECORD_HEAP_TRACE, IPC_DIAGNOSTICS_REPORT_ERROR, IPC_DIAGNOSTICS_REPORT_TIMING, IPC_DIAGNOSTICS_OPEN_LOGS, IPC_GLOBAL_SHORTCUTS_GET_SUSPENDED, IPC_GLOBAL_SHORTCUTS_SET_SUSPENDED, IPC_SYSTEM_OPEN_FDA, IPC_PERMISSIONS_GET_STATUS, IPC_PERMISSIONS_OPEN_SETTINGS, IPC_PERMISSIONS_REQUEST, IPC_PERMISSIONS_RESET, IPC_PERMISSIONS_RESET_MICROPHONE, IPC_SHELL_SAVE_FILE_AS, IPC_CUSTOMIZATIONS_RESET, IPC_PROMPT_PRESETS_LIST, IPC_PROMPT_PRESETS_READ, IPC_PROMPT_PRESETS_SAVE, IPC_PROMPT_PRESETS_DELETE, IPC_PROMPT_PRESETS_SELECT, IPC_PREFERENCES_GET_MODELS, IPC_CHATGPT_LIST_MODELS, IPC_PREFERENCES_LIST_CLAUDE_CODE_MODELS, IPC_PREFERENCES_LIST_MODELS, IPC_PREFERENCES_GET_ONBOARDING_COMPLETED, IPC_PREFERENCES_GET_PREVENT_SLEEP, IPC_PREFERENCES_GET_LOCKED_COMPUTER_USE, IPC_PREFERENCES_GET_SOUND_NOTIFICATIONS, IPC_PREFERENCES_SET_MODELS, IPC_PREFERENCES_SET_ONBOARDING_COMPLETED, IPC_PREFERENCES_SET_PREVENT_SLEEP, IPC_PREFERENCES_SET_LOCKED_COMPUTER_USE, IPC_PREFERENCES_SET_SOUND_NOTIFICATIONS, IPC_PREFERENCES_GET_READ_ALOUD, IPC_PREFERENCES_READ_ALOUD_CHANGED, IPC_PREFERENCES_SET_READ_ALOUD, IPC_VOICE_PREFERENCES_CHANGED, } from "@stella/contracts/desktop/ipc-channels";
 import { resolveNativeHelperPath } from "../native-helper-path.js";
 import { hasMacPermission, clearPermissionCache, getMicrophonePermissionStatus, requestMacPermission, resetMacMicrophonePermissions, resetMacPermission, } from "../utils/macos-permissions.js";
@@ -661,7 +662,16 @@ export const registerSystemHandlers = (options) => {
             return;
         }
         if (typeof filePath === "string" && filePath.trim()) {
-            shell.showItemInFolder(filePath.trim());
+            const trimmed = filePath.trim();
+            // A cloud-world path has nothing to reveal on this machine, and
+            // Finder answers one by surfacing an unrelated window. This
+            // channel is fire-and-forget, so the only honest reply is to do
+            // nothing and say why in the log.
+            if (isCloudWorkspacePath(trimmed)) {
+                console.debug("[system] shell:showItemInFolder ignored a cloud workspace path");
+                return;
+            }
+            shell.showItemInFolder(trimmed);
         }
     });
     ipcMain.on(IPC_DIAGNOSTICS_REPORT_ERROR, (event, payload) => {

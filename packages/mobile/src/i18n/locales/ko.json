@@ -1224,6 +1224,7 @@
         "video": "동영상"
       },
       "fileLink": {
+        "cloudWorkspaceOnly": "이 파일은 이 컴퓨터가 아니라 Stella의 클라우드 작업 공간에 있습니다. Stella에게 Drive로 옮겨 달라고 요청하세요.",
         "openFailed": "{filePath}을(를) 열지 못했습니다"
       },
       "filePreview": {

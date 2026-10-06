@@ -20,6 +20,7 @@ import {
 } from "@stella/runtime/kernel/tools/deferred-delete";
 import type { LocalChatHistoryService } from "../services/local-chat-history-service.js";
 import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
+import { isCloudWorkspacePath } from "@stella/contracts/cloud-world-paths";
 import type { LocalChatEventRecord } from "@stella/runtime/kernel/storage/shared";
 import { planDisplayFileRead } from "./display-read-limit.js";
 import { resolveJwtOwnerScope } from "@stella/runtime/kernel/runner/computer-agent-cloud-records";
@@ -207,6 +208,33 @@ export const isMobileReadableStellaPath = async (
   );
 };
 
+/**
+ * A cloud-world path reaching a local read is a routing mistake, not a missing
+ * file. `/workspace/...` is the cloud sandbox; this machine has no such tree,
+ * so `path.resolve` keeps it absolute, `fs.stat` raises ENOENT, and the handler
+ * below reports `missing` — which every viewer renders as the file being gone.
+ * That is false twice over: the file exists, and it was only ever asked of the
+ * wrong machine.
+ *
+ * Refusing here rather than at a single call site is deliberate: this handler
+ * is the one door onto the local filesystem for the whole display lane, so one
+ * condition covers the tapped `stella://file` link, the activity hub, the
+ * completion pills' `MediaPreviewCard`, the inline image tile, the canvas/PDF/
+ * spreadsheet viewers and the canvas share bar's direct read. It also backs
+ * the mobile bridge, which dispatches this same channel, so a phone whose
+ * client-side guard is older still gets a true answer instead of a false one.
+ *
+ * Drive files never get here: the renderer maps `world/drive/...` onto an
+ * owner-scoped drive URL through `cloudWorldDrivePath` first, and only a world
+ * path the drive rule rejects falls through to this lane.
+ */
+const assertNotCloudWorkspacePath = (filePath: string): void => {
+  if (!isCloudWorkspacePath(filePath)) return;
+  throw new Error(
+    "This file lives in Stella's cloud workspace, not on this computer, so it can't be opened here. Ask Stella to put it in your Drive.",
+  );
+};
+
 export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
   const requireStellaDataDir = () => {
     const stellaDataDir = options.getStellaDataDir();
@@ -235,6 +263,7 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
       if (!requestedPath) {
         throw new Error("display:readFile requires a filePath.");
       }
+      assertNotCloudWorkspacePath(requestedPath);
 
       const resolved = path.resolve(requestedPath);
       if (isMobileBridgeSender(event)) {

@@ -1230,6 +1230,7 @@
         "video": "Video"
       },
       "fileLink": {
+        "cloudWorkspaceOnly": "Dit bestand staat in Stella's cloudwerkruimte, niet op deze computer. Vraag Stella om het in je Drive te zetten.",
         "openFailed": "Kon {filePath} niet openen"
       },
       "filePreview": {

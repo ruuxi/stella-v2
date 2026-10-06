@@ -1230,6 +1230,7 @@
         "video": "Videó"
       },
       "fileLink": {
+        "cloudWorkspaceOnly": "Ez a fájl a Stella felhőalapú munkaterületén van, nem ezen a számítógépen. Kérd meg a Stellát, hogy tegye a Drive-odba.",
         "openFailed": "Nem sikerült megnyitni: {filePath}"
       },
       "filePreview": {

@@ -1230,6 +1230,7 @@
         "video": "Βίντεο"
       },
       "fileLink": {
+        "cloudWorkspaceOnly": "Αυτό το αρχείο βρίσκεται στον χώρο εργασίας cloud της Stella, όχι σε αυτόν τον υπολογιστή. Ζητήστε από τη Stella να το βάλει στο Drive σας.",
         "openFailed": "Δεν ήταν δυνατό το άνοιγμα του {filePath}"
       },
       "filePreview": {

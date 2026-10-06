@@ -1230,6 +1230,7 @@
         "video": "Video"
       },
       "fileLink": {
+        "cloudWorkspaceOnly": "Denne filen ligger i Stellas skyarbeidsområde, ikke på denne datamaskinen. Be Stella om å legge den i Drive-en din.",
         "openFailed": "Kunne ikke åpne {filePath}"
       },
       "filePreview": {

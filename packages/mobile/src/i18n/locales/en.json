@@ -1230,6 +1230,7 @@
         "video": "Video"
       },
       "fileLink": {
+        "cloudWorkspaceOnly": "This file lives in Stella's cloud workspace, not on this computer. Ask Stella to put it in your Drive.",
         "openFailed": "Couldn't open {filePath}"
       },
       "filePreview": {

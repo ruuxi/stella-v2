@@ -1224,6 +1224,7 @@
         "video": "動画"
       },
       "fileLink": {
+        "cloudWorkspaceOnly": "このファイルはこのコンピューターではなく、Stella のクラウドワークスペースにあります。Stella に Drive への移動を依頼してください。",
         "openFailed": "{filePath} を開けませんでした"
       },
       "filePreview": {

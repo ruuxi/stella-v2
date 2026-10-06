@@ -1224,6 +1224,7 @@
         "video": "Video"
       },
       "fileLink": {
+        "cloudWorkspaceOnly": "File ini berada di ruang kerja cloud Stella, bukan di komputer ini. Minta Stella untuk memindahkannya ke Drive Anda.",
         "openFailed": "Tidak dapat membuka {filePath}"
       },
       "filePreview": {

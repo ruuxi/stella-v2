@@ -419,7 +419,7 @@ type WriteVerdict = {
  * fit are accepted and the rest come back with the reason to show.
  */
 const partitionWrite = (
-  ctx: Pick<OwnerContext, "db" | "now">,
+  ctx: Pick<OwnerContext, "db" | "env" | "now">,
   files: WriteCandidate[],
 ): WriteVerdict => {
   const { plan, unlimited } = billingPlan(ctx);
@@ -589,7 +589,7 @@ const finalizeUpload = async (
   const now = Date.now();
   const current = pendingRow();
   if (!current || current.status !== "pending") return replayOrMissing();
-  const verdict = partitionWrite({ db: ctx.db, now }, [{ path, sizeBytes: stagedBytes }]);
+  const verdict = partitionWrite({ db: ctx.db, env: ctx.env, now }, [{ path, sizeBytes: stagedBytes }]);
   if (verdict.accepted.length === 0) {
     refuse(quotaExceeded(verdict.skipped[0]?.reason ?? "Drive quota exceeded."));
   }
@@ -939,7 +939,7 @@ const turnFiles = async (ctx: OwnerContext, raw: unknown): Promise<DriveTurnFile
   // costs only itself, and its object becomes cleanup.
   const now = Date.now();
   const verdict = partitionWrite(
-    { db: ctx.db, now },
+    { db: ctx.db, env: ctx.env, now },
     entries.map(({ path, sizeBytes }) => ({ path, sizeBytes })),
   );
   skipped.push(...verdict.skipped);

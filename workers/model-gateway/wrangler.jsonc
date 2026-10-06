@@ -35,19 +35,12 @@
     // accidentally restore the fail-closed empty placeholder.
     "CAPABILITY_JWKS": "{\"keys\":[{\"kid\":\"builder-1\",\"issuer\":\"stella-cloud-builder\",\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"_zTj5c7FMbjcMng9baQbQRXtkHak6jk4-1boqSnt59A\",\"y\":\"tR-kttYxzHOPR__VorAqBes7AkaI9uvAiyuM7h7DMEk\",\"alg\":\"ES256\",\"use\":\"sig\"}},{\"kid\":\"builder-bn118-1\",\"issuer\":\"stella-cloud-builder\",\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"3B2uhLMZ0nFNovFPfyHOqiVeXac4vJO0YhR1F7U1xQc\",\"y\":\"_vW3crzH0DnvV5yjUqvxa9qH5_lygAfXR7FWiI7MLAA\",\"alg\":\"ES256\",\"use\":\"sig\"}}]}",
   },
+  // The default models run on OpenRouter. Every other provider key
+  // (FIREWORKS_, DEEPSEEK_, XAI_, OPENAI_, ANTHROPIC_, GOOGLE_AI_,
+  // META_MODEL_API_KEY) and STELLA_RELAY_PROBE_SECRET are optional: a model
+  // whose provider has no key answers "The model provider is not configured."
   "secrets": {
-    "required": [
-      "OPENROUTER_API_KEY",
-      "FIREWORKS_API_KEY",
-      "DEEPSEEK_API_KEY",
-      "XAI_API_KEY",
-      "OPENAI_API_KEY",
-      "ANTHROPIC_API_KEY",
-      "GOOGLE_AI_API_KEY",
-      "META_MODEL_API_KEY",
-      "GATEWAY_SERVICE_SECRET",
-      "STELLA_RELAY_PROBE_SECRET",
-    ],
+    "required": ["OPENROUTER_API_KEY"],
   },
   "durable_objects": {
     "bindings": [
@@ -152,18 +145,7 @@
         "CAPABILITY_JWKS": "{\"keys\":[{\"kid\":\"builder-prod-1\",\"issuer\":\"stella-cloud-builder\",\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"7OPXbcbubpfZqHAZEptNA8Bu1w9Y5D0pq547cg8rYuo\",\"y\":\"tv8_giBW3W4shXI5YPuZMneKHs22dSncE41399_mEmI\",\"alg\":\"ES256\",\"use\":\"sig\"}}]}",
       },
       "secrets": {
-        "required": [
-          "OPENROUTER_API_KEY",
-          "FIREWORKS_API_KEY",
-          "DEEPSEEK_API_KEY",
-          "XAI_API_KEY",
-          "OPENAI_API_KEY",
-          "ANTHROPIC_API_KEY",
-          "GOOGLE_AI_API_KEY",
-          "META_MODEL_API_KEY",
-          "GATEWAY_SERVICE_SECRET",
-          "STELLA_RELAY_PROBE_SECRET",
-        ],
+        "required": ["OPENROUTER_API_KEY"],
       },
       "durable_objects": {
         "bindings": [

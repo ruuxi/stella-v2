@@ -129,9 +129,9 @@ export const buildAgentEventPrompt = (
  * Every live message is steering, regardless of sender or engine. The user
  * always talks to the Orchestrator, and runtime messages (including descendant
  * lifecycle reports) are equally time-sensitive context for its active turn.
- * Codex appends it to the active turn with `turn/steer`; Claude Code uses its
- * native interrupt control and writes the message to the same streaming
- * session. Descendant agents continue independently.
+ * Codex runs on the native loop, which takes it at the next safe boundary;
+ * Claude Code writes it into the query that is still running. Neither cancels
+ * the turn. Descendant agents continue independently.
  */
 export const resolveLiveChatMessageDelivery = (args: {
   role: string;

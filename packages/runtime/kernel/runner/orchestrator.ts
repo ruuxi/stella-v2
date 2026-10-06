@@ -494,8 +494,8 @@ export const createOrchestratorController = (
         });
       }
       // All live communication is steering. Native agents consume it at their
-      // next safe boundary; Codex appends to its active turn, while Claude Code
-      // interrupts its current query and writes the steer to the same stream.
+      // next safe boundary; Claude Code takes it into the query that is still
+      // running, without interrupting it.
       // Descendant agents remain independent.
       const delivery = resolveLiveChatMessageDelivery({
         role: message.role,

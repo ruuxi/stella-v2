@@ -20,7 +20,6 @@ import {
 } from "./external-cli-resolution.js";
 import { createClaudeCodeToolMcpHost } from "./claude-code-tool-mcp-host.js";
 import { getClaudeCodeConfig } from "../storage/local-llm-credential-access.js";
-import { forkCancelableTimeout } from "./effect-runtime.js";
 const CLAUDE_CODE_MODEL_PREFIX = "claude-code/";
 /**
  * Model the fable fallback policy switches a turn to after the configured
@@ -96,14 +95,6 @@ const DEFAULT_STEP_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 // executeToolWithInactivityBound; this only backstops native tools and
 // leaked tracking.)
 const DEFAULT_STEP_TOOL_IDLE_TIMEOUT_MS = 20 * 60 * 1000;
-const DEFAULT_CONTROL_REQUEST_TIMEOUT_MS = 60 * 1000;
-// A steering interrupt must not inherit the ordinary control-request budget.
-// Some CLI builds acknowledge `interrupt` and then never emit the turn's
-// terminal `result`, so both the ACK and the post-ACK result wait are held to
-// a short bound; past it we fail the pending turn ourselves and reset the
-// stream so the steered input can start a fresh query.
-const DEFAULT_STEERING_CONTROL_TIMEOUT_MS = 2 * 1000;
-const DEFAULT_STEERING_RESULT_TIMEOUT_MS = 2 * 1000;
 const CLAUDE_CODE_COMPACTING_TEXT = "Compacting context";
 const CLAUDE_CODE_RUNNING_TEXT = "Working";
 /**
@@ -169,20 +160,6 @@ export class ClaudeCodeMalformedResultError extends Error {
     super(message);
     this.name = "ClaudeCodeMalformedResultError";
     this.kind = kind;
-    this.mcpCalls = mcpCalls;
-  }
-}
-/**
- * The active Claude Code query was deliberately interrupted so Stella can
- * send steering input on the same long-lived stream. This is a control-flow
- * boundary, not a malformed result and therefore must never enter the normal
- * retry/nudge path.
- */
-export class ClaudeCodeSteeringInterruptError extends Error {
-  mcpCalls;
-  constructor(mcpCalls = []) {
-    super("Claude Code turn interrupted for steering.");
-    this.name = "ClaudeCodeSteeringInterruptError";
     this.mcpCalls = mcpCalls;
   }
 }
@@ -525,7 +502,7 @@ export const createClaudeNativeToolUseCorrelator = () => {
   const streamingBlocks = new Map();
   /**
    * Blocks whose `content_block_stop` arrived with UNPARSEABLE accumulated
-   * JSON — the stream was cut mid-argument (turn abort, steering interrupt,
+   * JSON — the stream was cut mid-argument (turn abort, process exit,
    * CLI restart) with a stop_reason the finalized-event gate never sees. The
    * CLI still repairs and dispatches such calls; keep the raw partials so the
    * integrity gate can match the dispatched args against their repair.
@@ -568,7 +545,7 @@ export const createClaudeNativeToolUseCorrelator = () => {
         toolArgs: repaired,
         stopReason: "stream_interrupted",
         explanation:
-          "the stream was cut off (turn abort, steering interrupt, or process exit) before these arguments finished streaming",
+          "the stream was cut off (turn abort or process exit) before these arguments finished streaming",
       };
     }
     return undefined;
@@ -646,7 +623,7 @@ export const createClaudeNativeToolUseCorrelator = () => {
       const adjudicated = truncatedKeys.get(key);
       if (adjudicated) return adjudicated;
       // No finalized-event verdict. Before failing open, check the raw stream
-      // evidence: an interrupted turn (abort/steering/process exit) never
+      // evidence: an interrupted turn (abort/process exit) never
       // emits a `refusal`/`max_tokens` assistant event, yet the CLI still
       // repairs the half-streamed arguments and dispatches the call. Matching
       // the inbound args against a repaired unfinished block catches exactly
@@ -901,8 +878,43 @@ export const buildClaudeCodeNativeToolRuntimePrompt = (systemPrompt) =>
   ]
     .filter((section) => section.trim().length > 0)
     .join("\n\n");
+/**
+ * One stream-json user line. Claude Code's stream-json input accepts Anthropic
+ * image content blocks directly, so screenshots reach vision without enabling
+ * any Claude-native file or shell tools outside Stella's tool boundary.
+ */
+const buildStreamJsonUserMessage = (sessionId, text, images, uuid) =>
+  JSON.stringify({
+    type: "user",
+    session_id: sessionId,
+    message: {
+      role: "user",
+      content:
+        images.length > 0
+          ? [
+              { type: "text", text },
+              ...images.map((image) => ({
+                type: "image",
+                source: {
+                  type: "base64",
+                  media_type: image.mimeType,
+                  data: image.data,
+                },
+              })),
+            ]
+          : text,
+    },
+    parent_tool_use_id: null,
+    ...(uuid ? { uuid } : {}),
+  });
 const asObject = (value) =>
   value && typeof value === "object" && !Array.isArray(value) ? value : null;
+const hasUnconsumedInjection = (pending) => {
+  for (const injection of pending.injections?.values() ?? []) {
+    if (!injection.consumed) return true;
+  }
+  return false;
+};
 const parseStreamJsonLine = (line) => {
   try {
     const parsed = JSON.parse(line);
@@ -1716,6 +1728,7 @@ class ClaudeCodeSessionRuntime {
       "--verbose",
       "--include-partial-messages",
       "--include-hook-events",
+      "--replay-user-messages",
       "--settings",
       CLAUDE_CODE_HOOK_SETTINGS,
     ];
@@ -1914,7 +1927,6 @@ class ClaudeCodeSessionRuntime {
       stderrText: "",
       finalSessionId: session.sessionId,
       pending: [],
-      pendingControlRequests: new Map(),
       closed: false,
       compacting: false,
       compactionCount: 0,
@@ -1946,32 +1958,6 @@ class ClaudeCodeSessionRuntime {
         if (!parsedLine) {
           continue;
         }
-        if (parsedLine.type === "control_response") {
-          const response = asObject(parsedLine.response);
-          const requestId =
-            typeof response?.request_id === "string"
-              ? response.request_id
-              : undefined;
-          const pendingControl = requestId
-            ? processState.pendingControlRequests.get(requestId)
-            : undefined;
-          if (pendingControl && requestId) {
-            processState.pendingControlRequests.delete(requestId);
-            clearTimeout(pendingControl.timeout);
-            if (response?.subtype === "error") {
-              pendingControl.reject(
-                new Error(
-                  typeof response.error === "string" && response.error.trim()
-                    ? response.error
-                    : "Claude Code control request failed.",
-                ),
-              );
-            } else {
-              pendingControl.resolve(response ?? {});
-            }
-          }
-          continue;
-        }
         if (
           typeof parsedLine.session_id === "string" &&
           parsedLine.session_id.trim()
@@ -1980,6 +1966,10 @@ class ClaudeCodeSessionRuntime {
           session.sessionId = processState.finalSessionId;
           session.resumeReady = true;
           request.onSessionId?.(session.sessionId);
+        }
+        if (parsedLine.type === "user" && parsedLine.isReplay === true) {
+          this.noteInjectionConsumed(processState, parsedLine.uuid);
+          continue;
         }
         // The init event names the model the CLI actually resolved the
         // requested alias to (e.g. default -> claude-opus-4-8[1m]).
@@ -2096,17 +2086,16 @@ class ClaudeCodeSessionRuntime {
           current.emitStreamDelta(parsedLine);
         }
         if (parsedLine.type === "result") {
+          const current = processState.pending[0];
+          if (current && hasUnconsumedInjection(current)) {
+            this.reportIntermediateResult(session, processState, current, parsedLine);
+            continue;
+          }
           const completed = processState.pending.shift();
           if (!completed) {
             continue;
           }
           this.detachAbortListener(completed);
-          if (completed.steeringInterrupted) {
-            completed.reject(
-              new ClaudeCodeSteeringInterruptError(completed.mcpCalls),
-            );
-            continue;
-          }
           try {
             const stepResult = this.parseResultPayload(
               session,
@@ -2167,7 +2156,6 @@ class ClaudeCodeSessionRuntime {
           ),
         );
       }
-      this.rejectControlRequests(processState, wrapped);
     });
     child.once("close", (code) => {
       consumeStdout(true);
@@ -2200,10 +2188,6 @@ class ClaudeCodeSessionRuntime {
               ),
         );
       }
-      this.rejectControlRequests(
-        processState,
-        new ClaudeCodeProcessEndedError(message, code),
-      );
     });
     // Claude accepts stdin before it has discovered the private MCP catalog.
     // Do not let the first tool-bearing prompt race that discovery.
@@ -2230,6 +2214,7 @@ class ClaudeCodeSessionRuntime {
         emitStreamDelta: createClaudeCodeStreamEmitter(request.onStream),
         mcpCalls: [],
         activeNativeToolUseIds: new Set(),
+        injections: new Map(),
       };
       this.refreshPendingIdleTimer(processState, pending);
       if (request.abortSignal) {
@@ -2250,32 +2235,11 @@ class ClaudeCodeSessionRuntime {
         }
       }
       processState.pending.push(pending);
-      // Claude Code's stream-json input accepts Anthropic image content
-      // blocks directly, so screenshots reach vision without enabling any
-      // Claude-native file or shell tools outside Stella's tool boundary.
-      const content =
-        promptImages.length > 0
-          ? [
-              { type: "text", text: prompt },
-              ...promptImages.map((image) => ({
-                type: "image",
-                source: {
-                  type: "base64",
-                  media_type: image.mimeType,
-                  data: image.data,
-                },
-              })),
-            ]
-          : prompt;
-      const payload = JSON.stringify({
-        type: "user",
-        session_id: session.sessionId,
-        message: {
-          role: "user",
-          content,
-        },
-        parent_tool_use_id: null,
-      });
+      const payload = buildStreamJsonUserMessage(
+        session.sessionId,
+        prompt,
+        promptImages,
+      );
       processState.child.stdin.write(`${payload}\n`, (error) => {
         if (!error) {
           return;
@@ -2298,22 +2262,8 @@ class ClaudeCodeSessionRuntime {
       if (request.onTurnControl) {
         try {
           pending.detachTurnControl = request.onTurnControl({
-            interrupt: async () => {
-              if (pending.steeringInterruptPromise) {
-                return await pending.steeringInterruptPromise;
-              }
-              pending.steeringInterrupted = true;
-              pending.steeringSettledPromise = new Promise((resolve) => {
-                pending.resolveSteeringSettled = resolve;
-              });
-              pending.steeringInterruptPromise = this.interruptPendingTurn(
-                session,
-                request.sessionKey,
-                processState,
-                pending,
-              );
-              return await pending.steeringInterruptPromise;
-            },
+            inject: (input) =>
+              this.injectIntoPendingTurn(session, processState, pending, input),
           });
         } catch {
           // A host-side steering observer must not break the engine turn.
@@ -2334,131 +2284,93 @@ class ClaudeCodeSessionRuntime {
     }
     pending.detachTurnControl?.();
     pending.detachTurnControl = undefined;
-    // Whoever is waiting on the steering interrupt learns here that this turn
-    // reached a terminal state, whether by `result`, abort, or process death.
-    pending.resolveSteeringSettled?.();
-    pending.resolveSteeringSettled = undefined;
+    // The turn ended without the CLI taking these in (abort, process death,
+    // a recovery restart). Hand them back newest-first so prepending keeps
+    // their order and the next prompt, or the abnormal-end replies, carry them.
+    for (const injection of [...(pending.injections?.values() ?? [])].reverse()) {
+      if (injection.consumed || injection.dropped) continue;
+      injection.dropped = true;
+      try {
+        injection.onDropped?.();
+      } catch {
+        // A host-side steering observer must not break the engine turn.
+      }
+    }
   }
   /**
-   * Interrupt the in-flight turn on behalf of steering input and guarantee the
-   * pending turn reaches a terminal state within a bounded window. A CLI that
-   * ACKs the interrupt but never emits `result` would otherwise leave the
-   * steered turn waiting forever on a stream nobody will finish.
+   * Write steering input into the query that is still running, the way the
+   * interactive CLI handles a message typed mid-turn. Claude Code folds it in
+   * at its next tool boundary, or runs it as the next query on this stream if
+   * the current one is already answering. `--replay-user-messages` echoes each
+   * message back by uuid once the CLI takes it into context, which is what
+   * `onConsumed` reports and what keeps this pending open across that extra
+   * query. Returns false when the turn can no longer take input, so the caller
+   * keeps the message queued for its next prompt instead.
    */
-  async interruptPendingTurn(session, sessionKey, processState, pending) {
-    const controlTimeoutMs = configuredTimeoutMs(
-      "STELLA_CLAUDE_CODE_STEERING_CONTROL_TIMEOUT_MS",
-      configuredTimeoutMs(
-        "STELLA_CLAUDE_CODE_CONTROL_TIMEOUT_MS",
-        DEFAULT_STEERING_CONTROL_TIMEOUT_MS,
-      ),
-    );
-    try {
-      await this.sendControlRequest(
-        processState,
-        { subtype: "interrupt" },
-        controlTimeoutMs,
-      );
-    } catch (error) {
-      this.failSteeringTurn(sessionKey, session, processState, pending);
-      throw error;
+  injectIntoPendingTurn(session, processState, pending, input) {
+    if (
+      processState.closed ||
+      processState.child.stdin.destroyed ||
+      !processState.pending.includes(pending) ||
+      pending.request.abortSignal?.aborted
+    ) {
+      return false;
     }
-    if (!processState.pending.includes(pending)) {
+    const uuid = crypto.randomUUID();
+    pending.injections.set(uuid, {
+      consumed: false,
+      onConsumed: input.onConsumed,
+      onDropped: input.onDropped,
+    });
+    processState.child.stdin.write(
+      `${buildStreamJsonUserMessage(
+        session.sessionId,
+        input.text,
+        input.images ?? [],
+        uuid,
+      )}\n`,
+      () => {},
+    );
+    return true;
+  }
+  noteInjectionConsumed(processState, uuid) {
+    if (typeof uuid !== "string") return;
+    for (const pending of processState.pending) {
+      const injection = pending.injections?.get(uuid);
+      if (!injection || injection.consumed) continue;
+      injection.consumed = true;
+      try {
+        injection.onConsumed?.();
+      } catch {
+        // A host-side steering observer must not break the engine turn.
+      }
       return;
     }
-    const resultTimeoutMs = configuredTimeoutMs(
-      "STELLA_CLAUDE_CODE_STEERING_RESULT_TIMEOUT_MS",
-      DEFAULT_STEERING_RESULT_TIMEOUT_MS,
-    );
-    let cancelResultTimeout;
-    const resultArrived = await Promise.race([
-      pending.steeringSettledPromise.then(() => true),
-      new Promise((resolve) => {
-        cancelResultTimeout = forkCancelableTimeout(resultTimeoutMs, () => {
-          resolve(false);
-        });
-      }),
-    ]);
-    cancelResultTimeout?.();
-    if (!resultArrived && processState.pending.includes(pending)) {
-      this.failSteeringTurn(sessionKey, session, processState, pending);
-    }
   }
   /**
-   * Terminal path for a steering interrupt the CLI never completed: drop the
-   * pending turn, tear down the streaming process so the next prompt starts a
-   * clean query, and reject with the control-flow steering error so the caller
-   * treats it as steering rather than a malformed step.
+   * The query ended while steering input was still waiting in the CLI, which
+   * now runs it as the next query on this stream. The pending turn stays open
+   * for that query's result; this answer is handed to the host as its own
+   * reply.
    */
-  failSteeringTurn(sessionKey, session, processState, pending) {
-    const index = processState.pending.indexOf(pending);
-    if (index >= 0) {
-      processState.pending.splice(index, 1);
-      this.detachAbortListener(pending);
-    }
-    if (session.process === processState) {
-      processState.closed = true;
-      this.resetStreamingProcess(sessionKey, session);
-    }
-    if (index >= 0) {
-      pending.reject(
-        new ClaudeCodeSteeringInterruptError(pending.mcpCalls),
+  reportIntermediateResult(session, processState, pending, parsedLine) {
+    let stepResult;
+    try {
+      stepResult = this.parseResultPayload(
+        session,
+        parsedLine,
+        processState.stderrText,
+        true,
       );
+    } catch {
+      return;
     }
-  }
-  async sendControlRequest(
-    processState,
-    request,
-    timeoutMs = configuredTimeoutMs(
-      "STELLA_CLAUDE_CODE_CONTROL_TIMEOUT_MS",
-      DEFAULT_CONTROL_REQUEST_TIMEOUT_MS,
-    ),
-  ) {
-    if (processState.closed || processState.child.stdin.destroyed) {
-      throw new ClaudeCodeProcessEndedError("Claude Code stream is closed.");
+    if (!stepResult.message) return;
+    try {
+      pending.request.onIntermediateResult?.(stepResult);
+    } catch {
+      // A host-side steering observer must not break the engine turn.
     }
-    const requestId = `stella_${crypto.randomUUID()}`;
-    const response = new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        processState.pendingControlRequests.delete(requestId);
-        reject(
-          new Error(
-            `Claude Code control request ${request.subtype} timed out after ${Math.round(timeoutMs / 1000)}s.`,
-          ),
-        );
-      }, timeoutMs);
-      timeout.unref?.();
-      processState.pendingControlRequests.set(requestId, {
-        resolve,
-        reject,
-        timeout,
-      });
-    });
-    const payload = JSON.stringify({
-      type: "control_request",
-      request_id: requestId,
-      request,
-    });
-    processState.child.stdin.write(`${payload}\n`, (error) => {
-      if (!error) return;
-      const pending = processState.pendingControlRequests.get(requestId);
-      if (!pending) return;
-      processState.pendingControlRequests.delete(requestId);
-      clearTimeout(pending.timeout);
-      pending.reject(
-        new ClaudeCodeProcessEndedError(
-          `Failed to write Claude Code control request: ${normalizeErrorMessage(error)}`,
-        ),
-      );
-    });
-    await response;
-  }
-  rejectControlRequests(processState, error) {
-    for (const pending of processState.pendingControlRequests.values()) {
-      clearTimeout(pending.timeout);
-      pending.reject(error);
-    }
-    processState.pendingControlRequests.clear();
   }
   refreshPendingIdleTimer(processState, pending) {
     if (pending.idleTimer) {

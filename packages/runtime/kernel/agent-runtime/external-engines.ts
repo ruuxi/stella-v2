@@ -957,6 +957,27 @@ const formatQueuedClaudeMessage = (
   };
 };
 
+type ClaudeTurnInject = (input: {
+  text: string;
+  images: { mimeType: string; data: string }[];
+  onConsumed: () => void;
+  onDropped: () => void;
+}) => boolean;
+
+const imagesFromQueuedMessages = (
+  entries: ExternalQueuedMessage[],
+): { mimeType: string; data: string }[] =>
+  entries.flatMap((entry) =>
+    typeof entry.message.content === "string"
+      ? []
+      : entry.message.content.flatMap(
+          (block: TextContent | ImageContent | ThinkingContent | ToolCall) =>
+            block.type === "image"
+              ? [{ mimeType: block.mimeType, data: block.data }]
+              : [],
+        ),
+  );
+
 const attachmentsFromQueuedMessages = (
   entries: ExternalQueuedMessage[],
 ): RuntimeAttachmentRef[] =>
@@ -980,10 +1001,10 @@ const attachmentsFromQueuedMessages = (
 /**
  * Live facade for an external engine.
  *
- * Steering is queued durably at this boundary and also wakes the active
- * engine-specific delivery hook. External engines consume queued entries through
- * `turn/steer`; Claude Code leaves them queued, interrupts its current query,
- * and consumes them as the next message on the same streaming session.
+ * Steering is queued at this boundary and wakes the active turn's delivery
+ * hook. Claude Code writes it into the query that is still running, which takes
+ * it in at its next tool boundary; anything the query can no longer take stays
+ * queued and runs next on the same session. Nothing is interrupted.
  */
 export const createExternalLiveAgent = () => {
   const queued: ExternalQueuedMessage[] = [];
@@ -1403,9 +1424,47 @@ const runClaudeHostedTurn = async (args: {
   let nextAttachments = args.opts.attachments;
 
   let latestAttempt = true;
+  // Steering lands in the running Claude query instead of interrupting it.
+  // Replies and queued-message boundaries it produces are written in the
+  // order the CLI reported them.
+  let steeringWrites: Promise<void> = Promise.resolve();
+  const afterSteeringWrites = (write: () => Promise<void> | void): void => {
+    steeringWrites = steeringWrites.then(write).catch(() => undefined);
+  };
+  const injectSteering = (
+    inject: ClaudeTurnInject,
+    entries: ExternalQueuedMessage[],
+  ): boolean => {
+    const promptMessages = entries.map(formatQueuedClaudeMessage);
+    const delta = buildExternalThreadUpdatesDelta({
+      store: args.opts.store,
+      threadKey,
+      ...(watermarkTracker.cursor
+        ? { afterEntryId: watermarkTracker.cursor }
+        : {}),
+      promptMessages,
+    });
+    const accepted = inject({
+      text: buildClaudePromptFromMessages(
+        delta.message ? [delta.message, ...promptMessages] : promptMessages,
+      ),
+      images: imagesFromQueuedMessages(entries),
+      onConsumed: () =>
+        afterSteeringWrites(() =>
+          publishQueuedUserMessageStarts({
+            entries,
+            runEvents,
+            callbacks: args.callbacks,
+          }),
+        ),
+      onDropped: () => args.liveAgent?.prepend(entries),
+    });
+    if (accepted) {
+      watermarkTracker.noteMainlineDelta(delta);
+    }
+    return accepted;
+  };
   for (;;) {
-    let wasSteered = false;
-    let nativeInterrupt: Promise<void> | null = null;
     let completedThisTurn = false;
     try {
       const result = await runClaudeCodeTurn({
@@ -1430,15 +1489,26 @@ const runClaudeHostedTurn = async (args: {
         attachments: nextAttachments,
         tools: toolMetadata,
         abortSignal: args.opts.abortSignal,
-        onTurnControl: ({ interrupt }: { interrupt: () => Promise<void> }) =>
+        onTurnControl: ({ inject }: { inject: ClaudeTurnInject }) =>
           args.liveAgent?.beginSteerableTurn(() => {
-            if (wasSteered) return;
-            wasSteered = true;
-            // The message remains in the live queue. Claude Code's native
-            // control protocol ends this query; the loop below then writes
-            // that queued steering message to the same streaming session.
-            nativeInterrupt = interrupt().catch(() => undefined);
+            const entries = args.liveAgent?.drainSteering() ?? [];
+            if (entries.length === 0) return;
+            if (!injectSteering(inject, entries)) {
+              args.liveAgent?.prepend(entries);
+            }
           }),
+        onIntermediateResult: (intermediate: { message: string }) => {
+          assistantUpdateBuffer.discard();
+          afterSteeringWrites(async () => {
+            const persisted = await persistCompletedExternalReply({
+              opts: args.opts,
+              session: args.session,
+              callbacks: args.callbacks,
+              text: intermediate.message,
+            });
+            latestAttempt = latestAttempt && persisted;
+          });
+        },
         onSessionId: (sessionId: string) => {
           activeSessionId = sessionId;
         },
@@ -1474,27 +1544,13 @@ const runClaudeHostedTurn = async (args: {
       finalResult = result;
       completedThisTurn = true;
     } catch (error) {
-      if (wasSteered && !args.opts.abortSignal?.aborted) {
-        // The partial reply belonged to the superseded instruction. The
-        // queued steering message starts a new visible response boundary.
-        assistantUpdateBuffer.discard();
-      } else {
-        assistantUpdateBuffer.flushOnTermination();
-        throw error;
-      }
+      await steeringWrites;
+      assistantUpdateBuffer.flushOnTermination();
+      throw error;
     }
-    // Settle the native interrupt before this turn's durable write or the next
-    // prompt. The session runtime bounds both the acknowledgement and the
-    // post-ACK wait for the terminal result, so this cannot stall the loop, and
-    // it guarantees any stream reset it performs happens before we resume. The
-    // interrupt promise is already rejection-handled above, so it never throws
-    // here; the queued message stays a safe fallback if the CLI has no native
-    // interrupt at all.
-    if (nativeInterrupt) {
-      await nativeInterrupt;
-    }
+    await steeringWrites;
 
-    if (completedThisTurn && finalResult) {
+    if (completedThisTurn && finalResult && latestAttempt) {
       // Persist this turn's reply before draining follow-ups so a stale
       // retry attempt can never clobber a newer attempt's transcript.
       latestAttempt = await persistCompletedExternalReply({
@@ -1503,23 +1559,22 @@ const runClaudeHostedTurn = async (args: {
         callbacks: args.callbacks,
         text: finalResult.text,
       });
-      if (!latestAttempt) {
-        args.liveAgent?.finish();
-        break;
-      }
+    }
+    if (!latestAttempt) {
+      args.liveAgent?.finish();
+      break;
     }
 
+    // Input the running query could no longer take (it arrived as the turn
+    // was finishing) runs next on the same session rather than being lost.
     const queued = args.liveAgent?.drain() ?? [];
     if (queued.length === 0) {
-      if (completedThisTurn && finalResult) {
-        // Close the live facade synchronously before any later awaits. The
-        // atomic drained-and-idle check routes a message arriving after this
-        // point into a fresh turn instead of queueing it onto a turn that can
-        // no longer drain.
-        if (!args.liveAgent || args.liveAgent.finishIfIdle()) break;
-        continue;
-      }
-      throw new Error("External engine steering message was lost.");
+      // Close the live facade synchronously before any later awaits. The
+      // atomic drained-and-idle check routes a message arriving after this
+      // point into a fresh turn instead of queueing it onto a turn that can
+      // no longer drain.
+      if (!args.liveAgent || args.liveAgent.finishIfIdle()) break;
+      continue;
     }
     publishQueuedUserMessageStarts({
       entries: queued,

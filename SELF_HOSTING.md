@@ -295,7 +295,7 @@ public bucket unless `STELLA_NATIVE_HELPERS_MANIFEST_URL` /
 
 `packages/website` is a Next.js app (Stella hosts it on Vercel). It is not
 needed for chat. It serves downloads and install scripts, the web chat, the
-maps resolver and embed (the `map` tool), the hosted OAuth callbacks for
+interactive map behind the `map` tool's cards, the hosted OAuth callbacks for
 connectors that only accept https redirects, the sign-in landing page and the
 billing return page. Its env:
 
@@ -305,7 +305,8 @@ billing return page. Its env:
 | `NEXT_PUBLIC_STELLA_SITE_URL` | the site's own origin |
 | `NEXT_PUBLIC_STELLA_RELEASES_URL` | your releases bucket's public base |
 | `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | optional (Part 2) |
-| `GOOGLE_MAPS_SERVER_API_KEY`, `NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY` | optional (Part 2) |
+| `NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY` | optional (Part 2) |
+| `NEXT_PUBLIC_GOOGLE_ADS_ID`, `NEXT_PUBLIC_GOOGLE_ADS_DOWNLOAD_LABEL`, `NEXT_PUBLIC_GOOGLE_ADS_SIGNUP_LABEL` | optional: your Google Ads tag and conversion labels. Unset, no Google tag loads |
 
 Then set `STELLA_WEBSITE_URL` on cloud-builder, `STELLA_WEB_URL` for the
 desktop, and `EXPO_PUBLIC_STELLA_SITE_URL` for mobile to the same origin.
@@ -352,7 +353,7 @@ Secrets go on **cloud-builder** unless noted.
 | X connector | `X_CLIENT_ID`, `X_CLIENT_SECRET`, `OAUTH_STATE_SECRET` | X | Unavailable |
 | GitHub projects | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_WEBHOOK_SECRET`, `OAUTH_STATE_SECRET` | GitHub App | Unavailable |
 | Desktop OAuth connectors that exchange tokens on the server (Google Workspace, Box, Microsoft, Atlassian, ...) | `NATIVE_OAUTH_CLIENTS_JSON` (`{"<provider>": {"clientId": "...", "clientSecret": "..."}}`); desktop client ids can be overridden with `STELLA_NATIVE_OAUTH_<ID>_CLIENT_ID`. Providers that only allow https redirects use `<STELLA_WEB_URL>/oauth/<provider>/callback`, so they need the website | each provider | Those connectors aren't offered |
-| Maps tool | `GOOGLE_MAPS_SERVER_API_KEY`, `NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY` on the **website** | Google Maps Platform | The `map` tool fails |
+| Maps tool | `GOOGLE_MAPS_SERVER_API_KEY` (Places API (New) + Directions); the card's interactive view also needs `NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY` on the **website** | Google Maps Platform | The `map` tool says maps aren't set up |
 | Captcha on anonymous web sign-in | `TURNSTILE_SECRET_KEY`; site key in `VITE_TURNSTILE_SITE_KEY` (desktop web build) and `NEXT_PUBLIC_TURNSTILE_SITE_KEY` (website) | Cloudflare Turnstile | No captcha |
 | Mobile app integrity | `APPLE_APP_ATTEST_TEAM_ID`, `GOOGLE_PLAY_INTEGRITY_SERVICE_ACCOUNT_JSON` (+ `EXPO_PUBLIC_PLAY_INTEGRITY_PROJECT_NUMBER`); `STELLA_APP_INTEGRITY_MODE` = `enforce` / `off` | Apple App Attest, Google Play Integrity | Off |
 | Admin API (test accounts, integrations catalog, billing tools) | `STELLA_ADMIN_API_SECRET`; test accounts also need var `STELLA_TEST_ACCOUNTS=1` (dev only) | none | Admin routes answer 503 |

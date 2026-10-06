@@ -3,12 +3,17 @@
 import Script from "next/script";
 import { useEffect } from "react";
 
-const GOOGLE_ADS_ID = "AW-18375048850";
+const GOOGLE_ADS_ID = process.env.NEXT_PUBLIC_GOOGLE_ADS_ID?.trim() || "";
 const GOOGLE_ADS_SCRIPT_ID = "google-ads-tag";
 const GOOGLE_ADS_LOAD_DELAY_MS = 3000;
-const DOWNLOAD_CONVERSION_DESTINATION =
-  "AW-18375048850/CrdSCMj5-d8cEJL987lE";
-const SIGNUP_CONVERSION_DESTINATION = "AW-18375048850/6cIuCJjxhuAcEJL987lE";
+const conversionDestination = (label: string | undefined) =>
+  GOOGLE_ADS_ID && label?.trim() ? `${GOOGLE_ADS_ID}/${label.trim()}` : "";
+const DOWNLOAD_CONVERSION_DESTINATION = conversionDestination(
+  process.env.NEXT_PUBLIC_GOOGLE_ADS_DOWNLOAD_LABEL,
+);
+const SIGNUP_CONVERSION_DESTINATION = conversionDestination(
+  process.env.NEXT_PUBLIC_GOOGLE_ADS_SIGNUP_LABEL,
+);
 const SIGNUP_REPORTED_KEY = "stella-google-ads-signup-reported";
 
 declare global {
@@ -19,13 +24,19 @@ declare global {
 }
 
 /**
- * Google tag (gtag.js) for the Google Ads account. Mounted once in the root
- * layout so every page — including the /fix/* landing pages — carries it.
- * Loading unconditionally (rather than only for ad-attributed visits) keeps
- * the Ads-side tag health check green and lets conversions fire on pages the
- * visitor reaches after the initial ad click.
+ * Google tag (gtag.js) for the Google Ads account named by
+ * NEXT_PUBLIC_GOOGLE_ADS_ID. Without it nothing loads and conversions are
+ * no-ops. Mounted once in the root layout so every page — including the /fix/*
+ * landing pages — carries it. Loading unconditionally (rather than only for
+ * ad-attributed visits) keeps the Ads-side tag health check green and lets
+ * conversions fire on pages the visitor reaches after the initial ad click.
  */
 export function GoogleAdsTag() {
+  if (!GOOGLE_ADS_ID) return null;
+  return <GoogleAdsTagLoader />;
+}
+
+function GoogleAdsTagLoader() {
   useEffect(() => {
     let timer = 0;
 
@@ -102,7 +113,7 @@ function gtagSafe(...args: unknown[]): void {
 export function reportGoogleAdsDownload(url: string) {
   if (typeof window === "undefined") return;
 
-  if (typeof window.gtag !== "function") {
+  if (!DOWNLOAD_CONVERSION_DESTINATION || typeof window.gtag !== "function") {
     window.location.assign(url);
     return;
   }
@@ -129,7 +140,7 @@ export function reportGoogleAdsDownload(url: string) {
  * don't re-count.
  */
 export function reportGoogleAdsSignup() {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined" || !SIGNUP_CONVERSION_DESTINATION) return;
 
   try {
     if (window.localStorage.getItem(SIGNUP_REPORTED_KEY)) return;

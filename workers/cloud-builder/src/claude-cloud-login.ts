@@ -54,7 +54,7 @@ cli_error() {
 action=$1
 # The accounts directory is created only by a sign-in or a restore: its
 # absence is how a container started from a new image is recognised.
-if [ "$action" != restore ] && [ "$action" != backup ]; then
+if [ "$action" != restore ] && [ "$action" != backup ] && [ "$action" != probe-inspect ]; then
   mkdir -p "$accounts" "$logins"
   chmod 700 "$accounts" "$logins"
 fi
@@ -185,7 +185,9 @@ probe-inspect)
   dir="$accounts/$2"
   perms=$(stat -c '%U:%G %a %n' "$(dirname "$accounts")" "$accounts" "$dir" "$dir/.credentials.json" "$dir/.claude.json" 2>&1)
   sums=$(cd "$dir" 2>/dev/null && sha256sum .credentials.json .claude.json 2>&1)
-  status=$(env -u ANTHROPIC_API_KEY -u CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CONFIG_DIR="$dir" timeout 60 claude auth status --json 2>/dev/null | jq -c '{loggedIn, authMethod, email, subscriptionType}' 2>/dev/null)
+  # Read-only: never create the directory the restore looks for.
+  status=""
+  if [ -d "$dir" ]; then status=$(env -u ANTHROPIC_API_KEY -u CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CONFIG_DIR="$dir" timeout 60 claude auth status --json 2>/dev/null | jq -c '{loggedIn, authMethod, email, subscriptionType}' 2>/dev/null); fi
   json --arg perms "$perms" --arg sums "$sums" --arg status "$status" --arg image "$(cat /opt/stella/image-build.json 2>/dev/null | jq -c . 2>/dev/null)" --arg boot "$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)" '{ok:true,perms:$perms,sha256:$sums,authStatus:$status,image:$image,bootId:$boot}'
   ;;
 *)

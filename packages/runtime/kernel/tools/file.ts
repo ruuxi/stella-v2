@@ -27,7 +27,10 @@ import {
 import { isBlockedPath } from "./command-safety.js";
 import { sanitizeToolVisibleText } from "./safety.js";
 import { withFileWriteLock, writeFileWithNulGuard } from "./file-write-lock.js";
-import { resolveImageMimeType } from "../shared/image-mime.js";
+import {
+  imageMimeTypeFromPath,
+  resolveImageMimeType,
+} from "../shared/image-mime.js";
 import {
   getSkillReadDedupStub,
   isSkillInstructionPath,
@@ -35,6 +38,7 @@ import {
 } from "./skill-read-dedup.js";
 import { readWorkspaceFileNoFollow } from "./workspace-file-boundary.js";
 import { decodeAndValidateImage } from "./image-decode-validation.js";
+import { MAX_IMAGE_REFERENCE_BYTES } from "./image-reference-policy.js";
 import {
   applyEditsToContent,
   applyStringReplacement,
@@ -305,12 +309,25 @@ export const handleRead = async (
     if (pathBlock) {
       throw new Error(pathBlock);
     }
+    // An image read is vision input, not text, and must not be bounded by the
+    // text budget. `MAX_FILE_BYTES` is 1MB while a phone screenshot is
+    // routinely 1-3MB, so bounding both the same way refused the ordinary
+    // case — the attachment never reached the image branch below, and the
+    // model was told the file was too large instead of being shown it. Bound
+    // an image by Stella's own image policy instead; the provider-aware
+    // downscale in `prepareAuthorizedToolImageBlocks` still fits the bytes to
+    // whatever the target model accepts, so nothing oversized reaches a
+    // provider. The header check below stays authoritative for what the file
+    // actually is: this only decides how many bytes may be read.
+    const readBudget = imageMimeTypeFromPath(filePath)
+      ? MAX_IMAGE_REFERENCE_BYTES
+      : MAX_FILE_BYTES;
     const scopedRoot = context?.toolWorkspaceRoot?.trim();
     const opened = scopedRoot
       ? await readWorkspaceFileNoFollow(
           filePath,
           scopedRoot,
-          MAX_FILE_BYTES,
+          readBudget,
           context?.toolProcessIdentity
             ? { owner: context.toolProcessIdentity }
             : undefined,
@@ -320,9 +337,9 @@ export const handleRead = async (
           if (!stat.isFile()) {
             throw new Error(`Path is not a file: ${filePath}`);
           }
-          if (stat.size > MAX_FILE_BYTES) {
+          if (stat.size > readBudget) {
             throw new Error(
-              `File too large to read safely (${stat.size} bytes): ${filePath}`,
+              `File too large to read safely (${stat.size} bytes, limit ${readBudget}): ${filePath}`,
             );
           }
           return {

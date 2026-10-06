@@ -907,10 +907,16 @@ export class AppSourceService {
           upstreamOffer?.real ? UPSTREAM_REF : null,
         )
       : null;
-    this.catchUpLater(
-      forkOffer?.catchUp ? forkRef : upstreamOffer?.catchUp ? UPSTREAM_REF : null,
-      head,
+    const drafting = worktrees.some((tree) =>
+      tree.branch?.startsWith(DRAFT_REF_PREFIX),
     );
+    if (drafting) {
+      // Its base must not move under the agent; caught up once it is done.
+    } else if (forkRef && forkOffer?.catchUp) {
+      this.catchUpLater(forkRef, forkOffer.tip, head);
+    } else if (upstreamOffer?.catchUp) {
+      this.catchUpLater(UPSTREAM_REF, upstreamOffer.tip, head);
+    }
     const [remote, upstream] = await Promise.all([
       forkRef && forkOffer?.real ? this.compareRef(cwd, head, forkRef) : null,
       upstreamOffer?.real ? this.compareRef(cwd, head, UPSTREAM_REF) : null,
@@ -945,9 +951,30 @@ export class AppSourceService {
       offered.push({
         kind: "draft",
         key: `draft:${draft.sha}`,
-        adding: false,
+        adding:
+          this.updateState?.state === "merging" &&
+          this.updateState.from === "draft" &&
+          this.updateState.name === draft.name,
         name: draft.name,
         summary: draft.subject || draft.name,
+      });
+    }
+    // A change of the user's that an agent is bringing up to date is off
+    // the ready list while it works; it stays in the list as being added.
+    const pending = this.updateState?.state === "merging" ? this.updateState : null;
+    if (
+      pending?.from === "draft" &&
+      !offered.some((offer) => offer.kind === "draft" && offer.name === pending.name)
+    ) {
+      const subject = (
+        await gitRaw(cwd, ["log", "-1", "--format=%s", `${DRAFT_REF_PREFIX}${pending.name}`])
+      ).stdout.trim();
+      offered.push({
+        kind: "draft",
+        key: `adding:${pending.name}`,
+        adding: true,
+        name: pending.name,
+        summary: subject || pending.name,
       });
     }
     this.offeredKeys = offered.map((offer) => offer.key);
@@ -973,13 +1000,11 @@ export class AppSourceService {
    * merge of a version this computer already had, is nothing to them.
    */
   private async readRecent(cwd: string, log: string): Promise<AppSourceCommit[]> {
-    const published = this.upstreamTracked
-      ? new Set(
-          (
-            await gitRaw(cwd, ["rev-list", "-n", "5000", UPSTREAM_REF])
-          ).stdout.split("\n"),
-        )
-      : new Set<string>();
+    // The ref as last fetched, even before this launch has synced: until
+    // then a published version must not read as a change that can be undone.
+    const published = new Set(
+      (await gitRaw(cwd, ["rev-list", "-n", "5000", UPSTREAM_REF])).stdout.split("\n"),
+    );
     // When the checkout arrived at each commit, where git noted it: a
     // version published days ago but taken just now was applied just now.
     const arrived = new Map<string, number>();
@@ -990,9 +1015,13 @@ export class AppSourceService {
     }
     const lines = log.split("\n").filter(Boolean).map((line) => line.split("\0"));
     const commits: AppSourceCommit[] = [];
+    // Commits between two places HEAD stopped at arrived together, when the
+    // newer one did.
+    let arrival: number | undefined;
     for (const [index, line] of lines.entries()) {
       if (commits.length >= RECENT_COUNT) break;
       const [sha = "", subject = "", seconds = "0", tree = "", parents = ""] = line;
+      arrival = arrived.get(sha) ?? arrival;
       const parentTree = lines[index + 1]?.[3];
       if (parentTree !== undefined && parentTree === tree) continue;
       const others = parents.split(" ").filter(Boolean).slice(1);
@@ -1010,7 +1039,7 @@ export class AppSourceService {
       commits.push({
         sha,
         subject,
-        date: arrived.get(sha) ?? Number(seconds) * 1000,
+        date: arrival ?? Number(seconds) * 1000,
         kind,
         ...(change
           ? { agentId: change.agentId, ...(change.undone ? { undone: true } : {}) }
@@ -1028,7 +1057,17 @@ export class AppSourceService {
     if (await isAncestor(cwd, onto, tip)) {
       return await git(cwd, ["rev-parse", `${tip}^{tree}`]);
     }
-    const merge = await gitRaw(cwd, ["merge-tree", "--write-tree", onto, tip]);
+    // The same merge `classifyUpdate` makes when it is taken, so what is
+    // offered is exactly what Add applies.
+    const base = await git(cwd, ["merge-base", onto, tip]);
+    const merge = await gitRaw(cwd, [
+      "merge-tree",
+      "--write-tree",
+      "--merge-base",
+      base,
+      onto,
+      tip,
+    ]);
     if (merge.code === 1) return null;
     if (merge.code !== 0) {
       throw new Error(merge.stderr.trim() || "Could not work out the merge.");
@@ -1150,27 +1189,33 @@ export class AppSourceService {
    * nothing on screen changes and nothing restarts. Once per head and tip, so
    * a refused attempt is not retried on every poll.
    */
-  private catchUpLater(ref: string | null, head: string) {
-    if (!ref || this.catchingUp || this.busy || this.disposed) return;
+  private catchUpLater(ref: string, tip: string, head: string) {
+    if (this.catchingUp || this.busy || this.disposed) return;
     if (this.updateState?.state === "merging") return;
-    const attempt = `${head}:${ref}`;
+    const attempt = `${head}:${tip}`;
     if (this.caughtUp.has(attempt)) return;
+    if (this.caughtUp.size > 64) this.caughtUp.clear();
     this.caughtUp.add(attempt);
     this.catchingUp = true;
-    void this.exclusive((cwd) => this.catchUp(cwd, ref)).finally(() => {
+    void this.exclusive(async (cwd) => {
+      // Deferred, not refused: the next poll tries again.
+      if (!(await this.catchUp(cwd, ref, tip))) this.caughtUp.delete(attempt);
+    }).finally(() => {
       this.catchingUp = false;
     });
   }
 
-  private async catchUp(cwd: string, ref: string) {
+  /** False when it has to wait: a draft is in progress. */
+  private async catchUp(cwd: string, ref: string, tip: string) {
     // A draft in progress: its base must not move under the agent.
     const worktrees = await listWorktrees(cwd);
-    if (worktrees.some((tree) => tree.branch?.startsWith(DRAFT_REF_PREFIX))) return;
+    if (worktrees.some((tree) => tree.branch?.startsWith(DRAFT_REF_PREFIX))) {
+      return false;
+    }
     const head = await git(cwd, ["rev-parse", "HEAD"]);
-    const tip = await git(cwd, ["rev-parse", "--verify", `${ref}^{commit}`]);
-    if (await isAncestor(cwd, tip, head)) return;
+    if (await isAncestor(cwd, tip, head)) return true;
     const tree = await git(cwd, ["rev-parse", `${head}^{tree}`]);
-    if ((await this.mergedTree(cwd, head, tip)) !== tree) return;
+    if ((await this.mergedTree(cwd, head, tip)) !== tree) return true;
     const to = (await isAncestor(cwd, head, tip))
       ? tip
       : await git(
@@ -1183,14 +1228,22 @@ export class AppSourceService {
     this.options.log("app-source.caught-up", {
       from: ref === UPSTREAM_REF ? "upstream" : "remote",
     });
+    return true;
   }
 
   private async skippedKeys(cwd: string) {
     if (!this.skipped) {
       const file = path.join(await this.commonDir(cwd), SKIPPED_FILE);
-      const saved: unknown = JSON.parse(
-        await fs.readFile(file, "utf8").catch(() => "[]"),
-      );
+      let saved: unknown = [];
+      try {
+        saved = JSON.parse(await fs.readFile(file, "utf8"));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+          this.options.log("app-source.skipped-unreadable", {
+            message: errorMessage(error),
+          });
+        }
+      }
       this.skipped = new Set(
         Array.isArray(saved)
           ? saved.filter((key): key is string => typeof key === "string")
@@ -1212,10 +1265,9 @@ export class AppSourceService {
       skipped.add(key);
       const offered = new Set(this.offeredKeys);
       this.skipped = new Set([...skipped].filter((entry) => entry === key || offered.has(entry)));
-      await fs.writeFile(
-        path.join(await this.commonDir(cwd), SKIPPED_FILE),
-        JSON.stringify([...this.skipped]),
-      );
+      const file = path.join(await this.commonDir(cwd), SKIPPED_FILE);
+      await fs.writeFile(`${file}.tmp`, JSON.stringify([...this.skipped]));
+      await fs.rename(`${file}.tmp`, file);
     } catch (error) {
       return { ok: false, error: errorMessage(error) };
     }

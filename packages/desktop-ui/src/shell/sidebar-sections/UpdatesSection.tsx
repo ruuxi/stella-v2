@@ -28,6 +28,17 @@ import "./updates-section.css";
  * from here: taking it back would leave no way to take it again.
  */
 
+const REMOTE_MERGE_SUBJECT = "Merge the changes from another computer";
+const UPSTREAM_MERGE_SUBJECT = "Merge the published Stella update";
+
+/** An undo is `Revert "<subject>"`, and undoing it nests another. */
+const reverted = (subject: string): { inner: string; depth: number } => {
+  const inner = /^Revert "(.*)"$/.exec(subject)?.[1];
+  if (inner === undefined) return { inner: subject, depth: 0 };
+  const deeper = reverted(inner);
+  return { inner: deeper.inner, depth: deeper.depth + 1 };
+};
+
 /** "Rahuls-MacBook-Air" reads as "Rahuls MacBook Air". */
 const deviceLabel = (device: string) => device.replace(/[-_]+/g, " ").trim();
 
@@ -114,15 +125,20 @@ const HistoryItem = ({
 }) => {
   const t = useT();
   const locale = useLocale();
-  const removed = /^Revert "/.test(commit.subject);
+  const { inner, depth } = reverted(commit.subject);
+  const change = inner.startsWith(REMOTE_MERGE_SUBJECT)
+    ? t("shell.appSource.updates.fromOtherComputers")
+    : inner.startsWith(UPSTREAM_MERGE_SUBJECT)
+      ? t("shell.appSource.updates.newVersion")
+      : inner;
   const title =
     commit.kind === "version"
       ? t("shell.appSource.updates.newVersion")
       : commit.kind === "other-computer"
         ? t("shell.appSource.updates.fromOtherComputers")
-        : removed
-          ? t("shell.appSource.updates.removed", { change: subjectOf(commit.subject) })
-          : subjectOf(commit.subject);
+        : depth % 2 === 1
+          ? t("shell.appSource.updates.removed", { change })
+          : change;
   const when =
     now - commit.date < 60_000
       ? t("shell.appSource.updates.justNow")

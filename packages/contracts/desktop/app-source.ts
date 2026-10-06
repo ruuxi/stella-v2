@@ -57,7 +57,7 @@ export type AppSourceWaiting =
       /** One line on what it changes. */
       summary: string;
     }
-  | { kind: "draft"; key: string; adding: false; name: string; summary: string };
+  | { kind: "draft"; key: string; adding: boolean; name: string; summary: string };
 
 /**
  * A draft merging the published app (upstream) with the user's own changes

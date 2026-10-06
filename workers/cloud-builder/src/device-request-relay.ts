@@ -22,6 +22,7 @@ import {
   type DeviceRequestMethod,
   type DeviceRequestServerFrame,
 } from "@stella/contracts/turn-plane/device-requests";
+import { forkAbortTimer } from "@stella/runtime/kernel/tools/effect-runtime.js";
 
 type Pending = {
   requestId: string;
@@ -29,7 +30,8 @@ type Pending = {
   method: DeviceRequestMethod;
   socket: WebSocket;
   bytes: number;
-  timer: ReturnType<typeof setTimeout> | null;
+  /** Cancels the pending start or idle deadline. */
+  cancelTimer: (() => void) | null;
   /** Set until the computer starts answering. */
   resolveStart: ((response: Response) => void) | null;
   controller: ReadableStreamDefaultController<Uint8Array> | null;
@@ -104,7 +106,7 @@ export class DeviceRequestRelay {
         method: input.method,
         socket,
         bytes: 0,
-        timer: null,
+        cancelTimer: null,
         resolveStart: resolve,
         controller: null,
       };
@@ -220,15 +222,15 @@ export class DeviceRequestRelay {
   }
 
   private arm(entry: Pending, ms: number): void {
-    if (entry.timer) clearTimeout(entry.timer);
-    entry.timer = setTimeout(() => {
+    entry.cancelTimer?.();
+    entry.cancelTimer = forkAbortTimer(ms, () => {
       this.fail(entry, "timeout", "Your computer took too long to answer.");
-    }, ms);
+    });
   }
 
   private finish(entry: Pending): void {
-    if (entry.timer) clearTimeout(entry.timer);
-    entry.timer = null;
+    entry.cancelTimer?.();
+    entry.cancelTimer = null;
     this.pending.delete(entry.requestId);
   }
 

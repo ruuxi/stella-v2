@@ -1,4 +1,6 @@
 import type { ChatMessage } from "../types";
+import { consolidateRowArtifacts } from "./agent-artifact-consolidation";
+import { scheduleReceiptText } from "./schedule-receipt-summary";
 
 const STAND_IN_ARTIFACT_ID_SUFFIXES = [":artifacts", ":agent"];
 
@@ -12,22 +14,45 @@ export const isStandInArtifactRow = (
   );
 
 /**
- * Drop stand-in artifact rows from the rendered transcript.
+ * Drop stand-in artifacts and assistant rows with no visible content before
+ * virtualization. Empty tool/activity rows still consume separators and row
+ * padding if passed to the list, leaving large gaps between actual bubbles.
  *
  * Returns the input array itself when nothing is filtered. An in-flight turn
  * gives `messages` a new identity on every landed segment, tool step and
- * artifact, so this runs often; most transcripts have no stand-in rows at all,
+ * artifact, so this runs often; most transcripts have no hidden rows at all,
  * and an unconditional `filter` allocated a second full-length array each time
  * for an identical result. Scanning first keeps the common case
  * allocation-free and lets consumers' `visibleMessages === messages` checks
  * hold.
  */
-export const visibleChatMessages = (messages: ChatMessage[]): ChatMessage[] => {
-  const firstStandIn = messages.findIndex(isStandInArtifactRow);
-  if (firstStandIn === -1) return messages;
-  const visible = messages.slice(0, firstStandIn);
-  for (let i = firstStandIn + 1; i < messages.length; i += 1) {
-    if (!isStandInArtifactRow(messages[i])) visible.push(messages[i]);
+export const visibleChatMessages = (
+  messages: ChatMessage[],
+  options: { contextMessageIds?: ReadonlyMap<string, unknown>; canOpenArtifacts?: boolean } = {},
+): ChatMessage[] => {
+  const isHidden = (message: ChatMessage): boolean => {
+    if (isStandInArtifactRow(message)) return true;
+    if (message.role === "user" || message.text.trim() || message.stopped || message.cloudFallback) return false;
+    if (options.contextMessageIds?.has(message.id)) return false;
+    if (message.toolSteps?.some(step =>
+      step.toolName.toLowerCase() === "schedule" && step.status !== "error" &&
+      Boolean(scheduleReceiptText({ resultPreview: step.resultPreview })),
+    )) return false;
+    const { agentWork, maps, looseFiles } = consolidateRowArtifacts(message.artifacts ?? [], message.tasks ?? []);
+    if (maps.length || looseFiles.some(artifact =>
+      options.canOpenArtifacts !== false ||
+      (artifact.payload.kind === "media" && artifact.payload.asset.kind === "image"),
+    )) return false;
+    return !agentWork.some(({ payload }) =>
+      payload.state === "done" && payload.completion === true && payload.followUp !== true &&
+      (payload.agents?.some(agent => Boolean(agent.agentId)) || payload.agentIds?.some(Boolean)),
+    );
+  };
+  const firstHidden = messages.findIndex(isHidden);
+  if (firstHidden === -1) return messages;
+  const visible = messages.slice(0, firstHidden);
+  for (let i = firstHidden + 1; i < messages.length; i += 1) {
+    if (!isHidden(messages[i])) visible.push(messages[i]);
   }
   return visible;
 };

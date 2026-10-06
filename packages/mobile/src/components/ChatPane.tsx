@@ -3193,9 +3193,15 @@ export function ChatPane({
 
   const assistantTextLenRef = useRef(0);
   const assistantIdRef = useRef<string | null>(null);
+  // Hidden tool/activity rows still own reply relationships and agent state.
+  // Project those from the complete transcript before filtering list cells.
+  const replyContexts = useMemo(() => mobileReplyContexts(messages), [messages]);
   const visibleMessages = useMemo(
-    () => visibleChatMessages(messages),
-    [messages],
+    () => visibleChatMessages(messages, {
+      contextMessageIds: replyContexts.contexts,
+      canOpenArtifacts: Boolean(onOpenArtifact),
+    }),
+    [messages, replyContexts, onOpenArtifact],
   );
   // A conversation first observed empty mounts its list on the optimistic
   // send. Our post-send owner already places that row; starting Legend's
@@ -3207,7 +3213,6 @@ export function ChatPane({
   }
   const [replyFocus, setReplyFocus] = useState<ReplyRef | null>(null);
   const [reportRef, setReportRef] = useState<AgentReplyRef | null>(null);
-  const replyContexts = useMemo(() => mobileReplyContexts(visibleMessages), [visibleMessages]);
   const closeReplyFocus = useCallback(() => setReplyFocus(null), []);
   const closeReport = useCallback(() => setReportRef(null), []);
   useEffect(() => {

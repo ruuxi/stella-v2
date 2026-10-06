@@ -166,7 +166,7 @@ describe("working orchestrator surface", () => {
       "code",
       "web",
       "Read",
-      "Remember",
+      "apply_patch",
       "spawn_agent",
       "send_input",
       "pause_agent",
@@ -219,8 +219,8 @@ describe("working orchestrator surface", () => {
     const providerTools = buildProviderTools(orchestrated?.toolsAllowlist);
     expect(providerTools.map((tool) => tool.name).sort()).toEqual([
       "Read",
-      "Remember",
       "agent_status",
+      "apply_patch",
       "code",
       "html",
       "image_gen",
@@ -247,9 +247,9 @@ describe("working orchestrator surface", () => {
     );
     expect(fallbackTools.map((tool) => tool.name).sort()).toEqual([
       "Read",
-      "Remember",
       "ScriptDraft",
       "agent_status",
+      "apply_patch",
       "connector_status",
       "html",
       "image_gen",
@@ -330,7 +330,6 @@ describe("working orchestrator surface", () => {
       "apply_patch",
       "web",
       "Read",
-      "Remember",
       "spawn_agent",
     ]) {
       const entry = catalog.find((tool) => tool.name === toolName);

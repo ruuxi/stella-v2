@@ -89,6 +89,7 @@ import {
   LOCAL_HISTORY_RESERVE_TOKENS,
   MIN_LOCAL_HISTORY_TOKENS,
   readCoreMemory,
+  readMemoryIndexDoc,
   readUserProfileDoc,
 } from "./shared.js";
 import {
@@ -1578,6 +1579,10 @@ export const buildAgentContext = async (
     userProfile:
       memoryEnabled && injectsUserProfile
         ? readUserProfileDoc(context.stellaDataDir)
+        : undefined,
+    memoryIndex:
+      memoryEnabled && injectsUserProfile
+        ? readMemoryIndexDoc(context.stellaDataDir)
         : undefined,
     personality: injectsPersonality
       ? readOrSeedPersonality(context.stellaDataDir)

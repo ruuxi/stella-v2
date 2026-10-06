@@ -67,10 +67,14 @@ export const PINNED_INSTRUCTION_ENTRY_ID_MARKER = "::pinned-instruction";
 export const LIFE_PERSONALITY_DISPLAY_PATH = "~/.stella/PERSONALITY.md";
 export const LIFE_CORE_MEMORY_DISPLAY_PATH = "~/.stella/core-memory.md";
 export const LIFE_USER_PROFILE_DISPLAY_PATH = "~/.stella/memories/profile.md";
+export const LIFE_MEMORY_INDEX_DISPLAY_PATH = "~/.stella/memories/index.md";
 export const RETIRED_MEMORY_DISPLAY_PATHS = [
   "~/.stella/memories/MEMORY.md",
   "~/.stella/memories/memory_map.md",
   "~/.stella/memories/memory_summary.md",
+  "~/.stella/memories/memory_index.md",
+  "~/.stella/memories/memory_shadow.md",
+  "~/.stella/memories/raw_memories.md",
 ];
 
 const buildStartupDocText = (displayPath, content) =>
@@ -125,6 +129,22 @@ export const RESIDENT_BLOCKS = [
     resolve: (context) =>
       context.userProfile
         ? redactMemoryText(context.userProfile.trim()) || undefined
+        : undefined,
+    renderDiskBody: (raw) =>
+      raw.trim() ? redactMemoryText(raw.trim()) || undefined : undefined,
+  },
+  {
+    // The routing index: one line per nested memory file. Resident because an
+    // index the agent cannot see cannot tell it when to go look, which is the
+    // whole point of keeping the rest of memory on demand.
+    id: "memory-index",
+    customType: BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE,
+    docPath: LIFE_MEMORY_INDEX_DISPLAY_PATH,
+    diskFile: path.join("memories", "index.md"),
+    memoryDoc: true,
+    resolve: (context) =>
+      context.memoryIndex
+        ? redactMemoryText(context.memoryIndex.trim()) || undefined
         : undefined,
     renderDiskBody: (raw) =>
       raw.trim() ? redactMemoryText(raw.trim()) || undefined : undefined,

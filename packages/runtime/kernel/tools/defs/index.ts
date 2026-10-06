@@ -34,7 +34,6 @@ import { createMapTool } from "./map.js";
 import { createMultiToolUseParallelTool } from "./multi-tool-use-parallel.js";
 import { createCodeTool } from "./code.js";
 import { readTool } from "./read.js";
-import { createRememberTool } from "./remember.js";
 import { createRequestCredentialTool } from "./request-credential.js";
 import { createScheduleManageTools } from "./schedule-manage.js";
 import { createScriptDraftTool } from "./script-draft.js";
@@ -132,11 +131,6 @@ export const buildBuiltinTools = (
   // Orchestrator coordination surface
   tools.push(createHtmlTool({ stellaDataDir: options.stellaDataDir }));
   tools.push(createMapTool());
-  tools.push(
-    createRememberTool({
-      stellaDataDir: options.stellaDataDir,
-    }),
-  );
   tools.push(...createAgentTools(options.stateContext));
 
   // Direct scheduling surface (deferred/demoted): reminder / task / watch

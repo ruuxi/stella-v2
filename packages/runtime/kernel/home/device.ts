@@ -266,7 +266,7 @@ export const getOrCreateDeviceIdentityEffect = (
       yield* readPersistedDeviceRecord(recordPath);
     const previousPrivateKeyProtected = parsed?.privateKeyProtected;
     // Carried into the replacement identity so the backend can move this
-    // machine's pairings, bridge registration and tunnel onto the new id. The
+    // machine's pairings and remote-execution answer onto the new id. The
     // id itself is not a secret, and the replacement is an ordinary device with
     // its own keypair, so nothing about the key binding is relaxed by this.
     // Captured before the decrypt attempt, which is precisely the case whose

@@ -29,9 +29,8 @@ mock.module("expo-secure-store", () => ({
 
 mock.module("react-native", () => ({ Platform: { OS: "ios" } }));
 
-mock.module("../bridge-crypto", () => ({
-  createBridgeProofChallenge: () => "challenge",
-  createMobileBridgePairProof: () => ({ issuedAt: 1, proof: "proof" }),
+mock.module("../backend", () => ({
+  getBackendClient: () => ({ call: async () => ({}) }),
 }));
 
 type Post = { path: string; body: unknown; options: unknown };
@@ -39,7 +38,6 @@ let posts: Post[] = [];
 let postResponse: (post: Post) => unknown = () => ({});
 mock.module("../http", () => ({
   backendOrigin: () => "https://backend.example",
-  getJson: async () => ({}),
   postJson: async (path: string, body: unknown, options: unknown) => {
     const post = { path, body, options };
     posts.push(post);

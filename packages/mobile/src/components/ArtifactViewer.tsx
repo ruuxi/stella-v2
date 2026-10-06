@@ -273,7 +273,7 @@ export function ArtifactViewerContent({
   const subtitle = artifact ? artifactSubtitle(artifact.payload) : "";
 
   // On-device PDFs carry a local file URI we can hand straight to the OS share
-  // sheet (save to Files / open in another app), with no desktop bridge.
+  // sheet (save to Files / open in another app), without asking the computer.
   const localPdf =
     artifact &&
     artifact.payload.kind === "pdf" &&
@@ -333,7 +333,7 @@ export function ArtifactViewerContent({
         return { kind: "text" as const, text: payload.asset.text };
       }
       // On-device PDF (cloud chat's `pdf` tool) — the file is already on disk,
-      // so hand its URI straight to the viewer; no desktop bridge is involved.
+      // so hand its URI straight to the viewer; the computer is not involved.
       if (payload.kind === "pdf" && payload.localUri) {
         return { kind: "pdf" as const, uri: payload.localUri };
       }
@@ -356,7 +356,7 @@ export function ArtifactViewerContent({
       }
       // Any other file the cloud journal reported lives in the owner's drive
       // too: resolve its signed URL and render it here, never over the
-      // desktop bridge (desktop opens the same signed URL).
+      // paired computer (desktop opens the same signed URL).
       if ("driveBacked" in payload && payload.driveBacked === true) {
         const drivePath = artifactPrimaryFilePath(payload);
         if (!drivePath) {

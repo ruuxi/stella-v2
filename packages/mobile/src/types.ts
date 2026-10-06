@@ -382,8 +382,8 @@ export type MobileTask = {
   /** Bounded terminal failure detail when the activity source exposes it. */
   errorMessage?: string;
   /**
-   * Short reasoning summaries for this agent, ordered oldest→newest. Bridged
-   * from the desktop and shown under the agent in the activity tray. May be
+   * Short reasoning summaries for this agent, ordered oldest→newest. Shown
+   * under the agent in the activity tray. May be
    * absent (older desktop builds) — treat undefined/empty as "no summary".
    */
   reasoningSummaries?: string[];
@@ -391,23 +391,3 @@ export type MobileTask = {
   completedAt?: number;
 };
 
-export type DesktopBridgeStatus = {
-  available: boolean;
-  baseUrls: string[];
-  platform: string | null;
-  updatedAt: number | null;
-  /**
-   * Durable discovery metadata for the paired desktop. Unlike `baseUrls`, this
-   * may be present after the backend availability lease expires. Callers must
-   * prove the route is live directly before using it.
-   */
-  lastKnownRegistration: DesktopBridgeRegistrationDescriptor | null;
-};
-
-export type DesktopBridgeRegistrationDescriptor = {
-  desktopDeviceId: string;
-  baseUrls: string[];
-  platform: string | null;
-  desktopPublicKey: string | null;
-  updatedAt: number;
-};

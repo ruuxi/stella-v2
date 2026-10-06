@@ -132,6 +132,7 @@ import {
   bytesToDataUri,
   readDesktopArtifactFile,
 } from "../lib/desktop-artifact-data";
+import { isDeviceOfflineError } from "../lib/device-requests";
 import { useChatSearch } from "../lib/chat-search";
 import { resolveComposerExpanded } from "../lib/composer-model-layout";
 import {
@@ -1231,24 +1232,27 @@ const GeneratedImageTile = memo(function GeneratedImageTile({
   filePath?: string;
   conversationId: string;
   access?: StoredPhoneAccess;
-  /** `filePath` is a cloud drive path; resolve it through the drive, not the bridge. */
+  /** `filePath` is a cloud drive path; resolve it through the drive, not the computer. */
   driveBacked?: boolean;
   aspectRatio: number;
   alt: string;
   generationState?: "running" | "completed" | "failed" | "canceled";
   colors: Colors;
 }) {
-  const [bridgeUri, setBridgeUri] = useState<string | null>(null);
-  const [bridgeFailed, setBridgeFailed] = useState(false);
+  const [computerUri, setComputerUri] = useState<string | null>(null);
+  const [computerFailed, setComputerFailed] = useState(false);
+  const [computerOffline, setComputerOffline] = useState(false);
   const drive = useCloudDriveFileUri(driveBacked && filePath ? filePath : null);
-  const uri = driveBacked ? drive.uri : bridgeUri;
-  const failed = driveBacked ? drive.failed : bridgeFailed;
+  const uri = driveBacked ? drive.uri : computerUri;
+  const failed = driveBacked ? drive.failed : computerFailed;
+  const offline = !driveBacked && computerOffline;
   useEffect(() => {
     let cancelled = false;
-    const setUri = setBridgeUri;
-    const setFailed = setBridgeFailed;
+    const setUri = setComputerUri;
+    const setFailed = setComputerFailed;
     setUri(null);
     setFailed(false);
+    setComputerOffline(false);
     if (!filePath || driveBacked) return () => undefined;
     if (/^(?:file|https?|data):/i.test(filePath)) {
       setUri(filePath);
@@ -1268,8 +1272,10 @@ const GeneratedImageTile = memo(function GeneratedImageTile({
         }
         setUri(bytesToDataUri(result.bytes, result.mimeType));
       })
-      .catch(() => {
-        if (!cancelled) setFailed(true);
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setComputerOffline(isDeviceOfflineError(error));
+        setFailed(true);
       });
     return () => {
       cancelled = true;
@@ -1302,7 +1308,9 @@ const GeneratedImageTile = memo(function GeneratedImageTile({
                 ? "Image generation canceled"
                 : generationState === "failed"
                   ? "Image generation failed"
-                  : "Image unavailable"}
+                  : offline
+                    ? "Your computer is offline"
+                    : "Image unavailable"}
             </Text>
           ) : (
             <>
@@ -1347,7 +1355,7 @@ const GeneratedImageCard = memo(function GeneratedImageCard({
       return;
     }
     // The viewer renders http(s) images directly; hand it signed URLs so a
-    // cloud drive path never reaches the desktop bridge.
+    // cloud drive path is never asked of the computer.
     const asset = payload.asset;
     void Promise.all(asset.filePaths.map(resolveCloudDriveFileUri))
       .then((filePaths) =>
@@ -1763,7 +1771,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
     linkedAppSlugs.length > 0;
   // Desktop renders the complete markdown body once, then attaches activity
   // and artifact cards at the row boundary. Keep the same shape on mobile:
-  // bridge text offsets still describe event chronology, but must never become
+  // stored text offsets still describe event chronology, but must never become
   // character-level insertion points that split prose (or markdown) in two.
   const groupAgentWorkArtifacts = agentWorkArtifacts;
   // Desktop parity: a task whose result this reply relays is quoted ABOVE
@@ -2995,7 +3003,7 @@ export type ChatPaneProps = {
 
   /**
    * Conversation the transcript belongs to. Used to key artifacts built from
-   * tapped `stella://file/...` links so the viewer's bridge file reads are
+   * tapped `stella://file/...` links so the viewer's computer file reads are
    * scoped like inline artifact cards. Optional — link taps still open the
    * viewer without it.
    */
@@ -3324,8 +3332,8 @@ export function ChatPane({
   }, [keyboardExtra, visibleMessages, scroll.nudgeAfterSend]);
 
   // LegendList's `dataChange` auto-pin fires on the optimistic send append —
-  // `streaming` is often still false at that render (always over the computer
-  // bridge) — and scrolls to the literal content end, fighting the custom
+  // `streaming` is often still false at that render (always for a placed
+  // dispatch) — and scrolls to the literal content end, fighting the custom
   // post-send nudge that owns the tail. Suppress it while a send-nudge is in
   // flight; streaming or the next appended row releases this identity latch.
   const [sendPinSuppressForId, setSendPinSuppressForId] = useState<

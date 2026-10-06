@@ -1,6 +1,5 @@
 import { buildAutomaticExecutionAdmission } from "./execution-placement-core";
 import { describe, expect, test } from "bun:test";
-import { mergeMessagesById } from "./chat-merge";
 import {
   acknowledgeDesktopChatOutboxRecords,
   appendDesktopChatOutboxRecord,
@@ -188,33 +187,6 @@ describe("chat durable outbox", () => {
       "send-c",
     ]);
     expect(third.records.map((record) => record.sequence)).toEqual([1, 2, 3]);
-  });
-
-  test("hydrates a missing optimistic row once and reconciles canonical replay in place", () => {
-    const outbox = appendDesktopChatOutboxRecord(
-      [],
-      pending("send-1", "hello", 1_000),
-    ).records;
-    const restored = restoreOutboxMessages([], outbox);
-    const restoredAgain = restoreOutboxMessages(restored, outbox);
-    expect(restoredAgain).toHaveLength(1);
-
-    const merged = mergeMessagesById(restoredAgain, [
-      {
-        id: "send-1",
-        role: "user",
-        text: "hello",
-        createdAt: 9_000,
-      },
-    ]);
-    expect(merged).toHaveLength(1);
-    expect(merged[0]).toMatchObject({
-      id: "send-1",
-      role: "user",
-      text: "hello",
-      createdAt: 1_000,
-      canonicalCreatedAt: 9_000,
-    });
   });
 
   test("makes duplicate and out-of-order canonical acknowledgments harmless", () => {

@@ -2355,7 +2355,6 @@
       "guestHeroBody": "Požádejte Stellu, aby na vašem počítači něco udělala — prohlížela web, spravovala soubory, spouštěla úlohy a další.",
       "defaultDeviceLabel": "Váš počítač",
       "statusChecking": "Kontrola…",
-      "statusWaking": "Probouzení…",
       "statusConnected": "Připojeno",
       "statusAsleep": "Spí",
       "connectingLabel": "Připojování k vašemu počítači",
@@ -2406,8 +2405,6 @@
         "enableLabel": "Povolit {name}",
         "enableFailedTitle": "Počítač se nepodařilo povolit",
         "connectFailedTitle": "K počítači se nepodařilo připojit",
-        "wake": "Probudit",
-        "wakeLabel": "Probudit {name}",
         "pairingCode": "Použít párovací kód"
       },
       "appearance": {

@@ -6,13 +6,7 @@ import {
   DISPATCH_SUBMIT_PATH,
   type DeviceDestination,
 } from "@stella/contracts/turn-plane/placement";
-import { hmac } from "@noble/hashes/hmac.js";
-import { sha256 } from "@noble/hashes/sha2.js";
-import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
-import {
-  buildMobilePairingProofMessage,
-  mobilePairingProofHeaders,
-} from "@stella/contracts/turn-plane/pairing-proof";
+import { phonePairingProofHeaders } from "./phone-pair-proof";
 import { getJson, postJson } from "./http";
 import { ensurePhoneAccess, type StoredPhoneAccess } from "./phone-access";
 import { env } from "../config/env";
@@ -132,37 +126,6 @@ export const resolveExecutionBuilderOrigin = async (
 const isMissingDispatch = (error: unknown): boolean => {
   const detail = error as { status?: unknown; code?: unknown } | null;
   return detail?.status === 404 || detail?.code === "not_found";
-};
-
-/**
- * The pairing proof for a placement submit, in the contract's exact scheme:
- * HMAC-SHA256 keyed by the lowercase-hex sha256 of the pairing secret over
- * the contract's message. The digest is @noble rather than the contract's own
- * WebCrypto signer because React Native has no `crypto.subtle`.
- */
-const signPlacementPairingProof = (
-  access: StoredPhoneAccess,
-  challenge: string,
-): { issuedAt: number; proof: string } => {
-  const issuedAt = Date.now();
-  const pairingKey = bytesToHex(sha256(utf8ToBytes(access.pairSecret)));
-  return {
-    issuedAt,
-    proof: bytesToHex(
-      hmac(
-        sha256,
-        utf8ToBytes(pairingKey),
-        utf8ToBytes(
-          buildMobilePairingProofMessage({
-            desktopDeviceId: access.desktopDeviceId,
-            mobileDeviceId: access.mobileDeviceId,
-            challenge,
-            issuedAt,
-          }),
-        ),
-      ),
-    ),
-  };
 };
 
 /** The gate answers `{ protocol, dispatch, replayed? }`. */
@@ -366,12 +329,7 @@ export const submitAutomaticExecution = async (
   // sha256hex(pairSecret) over the same message, in the contract's header set.
   // The HMAC itself stays on @noble because React Native has no WebCrypto.
   const pairHeaders = pairedAccess
-    ? mobilePairingProofHeaders({
-        mobileDeviceId: pairedAccess.mobileDeviceId,
-        desktopDeviceId: pairedAccess.desktopDeviceId,
-        challenge: admission.challenge,
-        ...signPlacementPairingProof(pairedAccess, admission.challenge),
-      })
+    ? phonePairingProofHeaders(pairedAccess, admission.challenge)
     : undefined;
   const origin = await resolveExecutionBuilderOrigin(builderOrigin);
   const result = await executionPlacementRequest(

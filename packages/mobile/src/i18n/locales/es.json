@@ -2336,7 +2336,6 @@
       "guestHeroBody": "Pídele a Stella que haga cosas en tu ordenador: navegar por la web, gestionar archivos, ejecutar tareas y mucho más.",
       "defaultDeviceLabel": "Tu ordenador",
       "statusChecking": "Comprobando…",
-      "statusWaking": "Despertando…",
       "statusConnected": "Conectado",
       "statusAsleep": "En reposo",
       "connectingLabel": "Conectando con tu ordenador",
@@ -2387,8 +2386,6 @@
         "enableLabel": "Activar {name}",
         "enableFailedTitle": "No se pudo activar ese ordenador",
         "connectFailedTitle": "No se pudo conectar con ese ordenador",
-        "wake": "Despertar",
-        "wakeLabel": "Despertar {name}",
         "pairingCode": "Usar un código de vinculación"
       },
       "appearance": {

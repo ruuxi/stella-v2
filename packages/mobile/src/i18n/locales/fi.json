@@ -2316,7 +2316,6 @@
       "guestHeroBody": "Pyydä Stellaa tekemään asioita tietokoneellasi — selaamaan verkkoa, hallitsemaan tiedostoja, suorittamaan tehtäviä ja paljon muuta.",
       "defaultDeviceLabel": "Tietokoneesi",
       "statusChecking": "Tarkistetaan…",
-      "statusWaking": "Herätetään…",
       "statusConnected": "Yhdistetty",
       "statusAsleep": "Lepotilassa",
       "connectingLabel": "Yhdistetään tietokoneeseesi",
@@ -2367,8 +2366,6 @@
         "enableLabel": "Ota {name} käyttöön",
         "enableFailedTitle": "Tietokonetta ei voitu ottaa käyttöön",
         "connectFailedTitle": "Tietokoneeseen ei voitu yhdistää",
-        "wake": "Herätä",
-        "wakeLabel": "Herätä {name}",
         "pairingCode": "Käytä pariliitoskoodia"
       },
       "appearance": {

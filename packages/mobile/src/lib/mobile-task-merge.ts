@@ -1,5 +1,4 @@
 import type { ChatMessage, MobileTask } from "../types";
-import type { DesktopTaskDecoration } from "./desktop-bridge-chat";
 
 const isRunningTask = (task: MobileTask) => task.status === "running";
 
@@ -141,11 +140,11 @@ export const collectConversationTasks = (
 };
 
 /**
- * Join the tasks the conversation journal records with the ones the paired
- * computer reports live. A task both know about keeps whichever snapshot is
- * newer, so a computer's terminal row settles a mirrored spawn whose wake has
- * not reached the journal yet, and a stale running row cannot revive a task
- * the journal already saw finish.
+ * Join the tasks the conversation's cloud journal records with the ones this
+ * phone folded from its own optimistic rows. The journal is the authority for
+ * every task, including agents running on a paired computer; a task both know
+ * about keeps whichever snapshot is newer, so a stale running row cannot
+ * revive a task the journal already saw finish.
  */
 export const mergeJournalTasks = (
   journal: readonly MobileTask[],
@@ -156,68 +155,6 @@ export const mergeJournalTasks = (
   for (const task of journal) byId.set(task.id, task);
   for (const task of live) {
     byId.set(task.id, mergeMobileTaskSnapshot(byId.get(task.id), task));
-  }
-  const rank = (task: MobileTask) => (task.status === "running" ? 0 : 1);
-  return selectRootMobileActivityTasks([...byId.values()]).sort(
-    (a, b) =>
-      rank(a) - rank(b) ||
-      b.createdAt - a.createdAt ||
-      a.id.localeCompare(b.id),
-  );
-};
-
-/**
- * Overlay the desktop's authoritative thread-activity rows and live
- * decoration onto the synced-message task fold.
- *
- * The authoritative rows (runtime `runtime_agents` projection) win outright
- * for status/title/timestamps of any task they cover — a running row is
- * running (no staleness settling), a terminal row is done even if the fold's
- * loaded window never saw the terminal event. Rows for tasks the fold has
- * never heard of are only added while RUNNING: the fold stays the source of
- * durable history so the tray doesn't balloon with rows from before the
- * loaded message window.
- *
- * Decoration owns only ephemeral mid-run statusText. Agent-authored messages
- * arrive through the authoritative persisted task projection.
- */
-export const overlayDesktopThreadTasks = (
-  folded: MobileTask[],
-  authoritative: MobileTask[] | null,
-  decoration: DesktopTaskDecoration | null,
-): MobileTask[] => {
-  if (!authoritative?.length && !decoration) {
-    return selectRootMobileActivityTasks(folded);
-  }
-  const byId = new Map<string, MobileTask>();
-  for (const task of folded) byId.set(task.id, task);
-  for (const row of authoritative ?? []) {
-    const existing = byId.get(row.id);
-    // Terminal Manager rows remain visible and are also essential ownership
-    // evidence when a child transitions in the same authoritative snapshot.
-    if (!existing && row.status !== "running" && row.agentType !== "manager") {
-      continue;
-    }
-    byId.set(row.id, {
-      ...row,
-      ...(row.status === "running" && existing?.statusText
-        ? { statusText: existing.statusText }
-        : {}),
-      ...(row.status === "running" && existing?.reasoningSummaries?.length
-        ? { reasoningSummaries: existing.reasoningSummaries }
-        : {}),
-    });
-  }
-  if (decoration) {
-    for (const [id, task] of byId) {
-      if (task.status !== "running") continue;
-      const statusText = decoration.statusTextByAgentId[id];
-      if (!statusText) continue;
-      byId.set(id, {
-        ...task,
-        statusText,
-      });
-    }
   }
   const rank = (task: MobileTask) => (task.status === "running" ? 0 : 1);
   return selectRootMobileActivityTasks([...byId.values()]).sort(

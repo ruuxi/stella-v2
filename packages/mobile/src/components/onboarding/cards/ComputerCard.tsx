@@ -22,8 +22,8 @@ import Svg, { Path } from "react-native-svg";
 import { useT } from "../../../i18n";
 import { shouldRunContinuousAnimation } from "../../../lib/continuous-animation";
 import { tapLight } from "../../../lib/haptics";
+import { listExecutionDevices } from "../../../lib/execution-placement";
 import {
-  getDesktopBridgeStatus,
   getPreferredPhoneAccess,
   type StoredPhoneAccess,
 } from "../../../lib/phone-access";
@@ -85,8 +85,11 @@ export function ComputerCard({
   const resolveName = useCallback(
     async (next: StoredPhoneAccess) => {
       try {
-        const status = await getDesktopBridgeStatus(next.desktopDeviceId);
-        setComputerName(status.platform?.trim() || null);
+        const devices = await listExecutionDevices();
+        const device = devices.find(
+          (entry) => entry.deviceId === next.desktopDeviceId,
+        );
+        setComputerName(device?.label?.trim() || null);
       } catch {
         setComputerName(null);
       }

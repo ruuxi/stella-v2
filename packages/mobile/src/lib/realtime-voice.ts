@@ -132,7 +132,7 @@ const asString = (value: unknown): string =>
 
 /**
  * Stable append id for one persisted voice transcript row. The desktop's cloud
- * journal dedupes on it, so a retried bridge send can never duplicate a line.
+ * journal dedupes on it, so a retried send can never duplicate a line.
  * Matches the runtime's `[A-Za-z0-9._:-]{1,128}` append-id contract.
  */
 export const desktopVoiceTranscriptEventId = (
@@ -712,7 +712,7 @@ export class MobileRealtimeVoiceSession {
     let output: string;
     try {
       const result = await executeDesktopRealtimeVoiceTool(
-        this.desktopVoice.bridge,
+        this.desktopVoice,
         {
           requestId: this.requestId,
           conversationId: this.options.conversationId,
@@ -777,7 +777,7 @@ export class MobileRealtimeVoiceSession {
     if (this.persistedDesktopTranscripts.has(key)) return;
     this.persistedDesktopTranscripts.add(key);
     try {
-      await persistDesktopRealtimeVoiceTranscript(this.desktopVoice.bridge, {
+      await persistDesktopRealtimeVoiceTranscript(this.desktopVoice, {
         conversationId: this.options.conversationId,
         eventId: desktopVoiceTranscriptEventId(
           this.requestId,
@@ -1122,7 +1122,7 @@ export class MobileRealtimeVoiceSession {
     if (desktopVoice && connectedAt !== null) {
       const durationMs = Math.max(0, Date.now() - connectedAt);
       try {
-        await persistDesktopRealtimeVoiceTranscript(desktopVoice.bridge, {
+        await persistDesktopRealtimeVoiceTranscript(desktopVoice, {
           conversationId: this.options.conversationId,
           eventId: desktopVoiceTranscriptEventId(
             this.requestId,

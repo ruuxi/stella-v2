@@ -2294,7 +2294,6 @@
       "guestHeroBody": "สั่งให้ Stella ทำสิ่งต่าง ๆ บนคอมพิวเตอร์ของคุณ — เปิดเว็บ จัดการไฟล์ ทำงานต่าง ๆ และอีกมากมาย",
       "defaultDeviceLabel": "คอมพิวเตอร์ของคุณ",
       "statusChecking": "กำลังตรวจสอบ…",
-      "statusWaking": "กำลังปลุก…",
       "statusConnected": "เชื่อมต่อแล้ว",
       "statusAsleep": "หลับอยู่",
       "connectingLabel": "กำลังเชื่อมต่อกับคอมพิวเตอร์ของคุณ",
@@ -2345,8 +2344,6 @@
         "enableLabel": "เปิดใช้ {name}",
         "enableFailedTitle": "เปิดใช้คอมพิวเตอร์เครื่องนั้นไม่ได้",
         "connectFailedTitle": "เชื่อมต่อคอมพิวเตอร์เครื่องนั้นไม่ได้",
-        "wake": "ปลุก",
-        "wakeLabel": "ปลุก {name}",
         "pairingCode": "ใช้รหัสจับคู่"
       },
       "appearance": {

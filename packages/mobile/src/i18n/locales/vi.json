@@ -2294,7 +2294,6 @@
       "guestHeroBody": "Nhờ Stella làm việc trên máy tính của bạn — duyệt web, quản lý tệp, chạy tác vụ và hơn thế nữa.",
       "defaultDeviceLabel": "Máy tính của bạn",
       "statusChecking": "Đang kiểm tra…",
-      "statusWaking": "Đang đánh thức…",
       "statusConnected": "Đã kết nối",
       "statusAsleep": "Đang ngủ",
       "connectingLabel": "Đang kết nối tới máy tính của bạn",
@@ -2345,8 +2344,6 @@
         "enableLabel": "Bật {name}",
         "enableFailedTitle": "Không thể bật máy tính đó",
         "connectFailedTitle": "Không thể kết nối với máy tính đó",
-        "wake": "Đánh thức",
-        "wakeLabel": "Đánh thức {name}",
         "pairingCode": "Dùng mã ghép nối"
       },
       "appearance": {

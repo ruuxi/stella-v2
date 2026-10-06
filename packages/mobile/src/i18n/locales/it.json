@@ -2336,7 +2336,6 @@
       "guestHeroBody": "Chiedi a Stella di fare cose sul tuo computer: navigare sul web, gestire file, eseguire attività e altro ancora.",
       "defaultDeviceLabel": "Il tuo computer",
       "statusChecking": "Controllo…",
-      "statusWaking": "Risveglio…",
       "statusConnected": "Connesso",
       "statusAsleep": "In sospensione",
       "connectingLabel": "Connessione al tuo computer",
@@ -2387,8 +2386,6 @@
         "enableLabel": "Abilita {name}",
         "enableFailedTitle": "Impossibile abilitare quel computer",
         "connectFailedTitle": "Impossibile connettersi a quel computer",
-        "wake": "Risveglia",
-        "wakeLabel": "Risveglia {name}",
         "pairingCode": "Usa un codice di associazione"
       },
       "appearance": {

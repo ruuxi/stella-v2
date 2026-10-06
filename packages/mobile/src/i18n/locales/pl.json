@@ -2356,7 +2356,6 @@
       "guestHeroBody": "Poproś Stellę, żeby zrobiła coś na twoim komputerze — przeglądała sieć, zarządzała plikami, uruchamiała zadania i nie tylko.",
       "defaultDeviceLabel": "Twój komputer",
       "statusChecking": "Sprawdzanie…",
-      "statusWaking": "Budzenie…",
       "statusConnected": "Połączono",
       "statusAsleep": "Uśpiony",
       "connectingLabel": "Łączenie z twoim komputerem",
@@ -2407,8 +2406,6 @@
         "enableLabel": "Włącz {name}",
         "enableFailedTitle": "Nie udało się włączyć tego komputera",
         "connectFailedTitle": "Nie udało się połączyć z tym komputerem",
-        "wake": "Wybudź",
-        "wakeLabel": "Wybudź {name}",
         "pairingCode": "Użyj kodu parowania"
       },
       "appearance": {

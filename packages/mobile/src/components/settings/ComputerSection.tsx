@@ -3,7 +3,6 @@ import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { useIsFocused } from "expo-router";
 import { Icon, type IconName } from "../Icon";
 import { PairPhoneSheet } from "../PairPhoneSheet";
-import { clearCachedDesktopBridge } from "../../lib/desktop-bridge-chat";
 import {
   listExecutionDevices,
   type AutomaticExecutionTarget,
@@ -17,7 +16,6 @@ import {
   listStoredPairedPhoneAccess,
   type StoredPhoneAccess,
 } from "../../lib/phone-access";
-import { useDesktopPlatforms } from "../../lib/use-desktop-platforms";
 import { userFacingError } from "../../lib/user-facing-error";
 import { useT } from "../../i18n";
 import type { Colors } from "../../theme/colors";
@@ -87,7 +85,6 @@ export function ComputerSection({
     ExecutionDeviceDestination[] | undefined
   >(undefined);
   const [pairedDesktops, setPairedDesktops] = useState<StoredPhoneAccess[]>([]);
-  const desktopPlatforms = useDesktopPlatforms(pairedDesktops);
   const [removingDesktopId, setRemovingDesktopId] = useState<string | null>(
     null,
   );
@@ -178,7 +175,6 @@ export function ComputerSection({
           style: "destructive",
           onPress: () => {
             setRemovingDesktopId(access.desktopDeviceId);
-            clearCachedDesktopBridge(access.desktopDeviceId);
             void clearStoredPhoneAccess(access.desktopDeviceId)
               .then(() => refreshPaired())
               .finally(() => setRemovingDesktopId(null));
@@ -198,9 +194,7 @@ export function ComputerSection({
     activeDeviceId: control?.access?.desktopDeviceId ?? null,
   });
   const labelFor = (row: ComputerRow) =>
-    row.label ??
-    desktopPlatforms[row.deviceId] ??
-    fallbackLabelFor(t, row.deviceId);
+    row.label ?? fallbackLabelFor(t, row.deviceId);
   const statusTextFor = (row: ComputerRow) => {
     if (busy?.deviceId === row.deviceId) {
       return busy.kind === "enabling"
@@ -313,12 +307,6 @@ export function ComputerSection({
             const working = busy?.deviceId === row.deviceId;
             const label = labelFor(row);
             const access = row.access;
-            const onWake =
-              row.preferActiveStatusLabel &&
-              control?.showWake === true &&
-              row.deviceId === control.access?.desktopDeviceId
-                ? control.onWake
-                : null;
             return (
               <Pressable
                 key={row.deviceId}
@@ -365,23 +353,6 @@ export function ComputerSection({
                   >
                     <Text style={styles.rowAction}>
                       {t("mobile.settings.computer.enable")}
-                    </Text>
-                  </Pressable>
-                ) : null}
-                {onWake ? (
-                  <Pressable
-                    onPress={onWake}
-                    hitSlop={8}
-                    accessibilityLabel={t(
-                      "mobile.settings.computer.wakeLabel",
-                      {
-                        name: label,
-                      },
-                    )}
-                    style={({ pressed }) => pressed && local.pressed}
-                  >
-                    <Text style={styles.rowAction}>
-                      {t("mobile.settings.computer.wake")}
                     </Text>
                   </Pressable>
                 ) : null}

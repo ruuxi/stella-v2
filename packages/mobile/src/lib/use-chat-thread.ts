@@ -61,25 +61,13 @@ import {
   unifiedChatPlacementStatusText,
 } from "./unified-chat-placement";
 import {
-  fetchDesktopBridgeThreadTasks,
-  type DesktopTaskDecoration,
-} from "./desktop-bridge-chat";
-import {
   buildWorkingIndicatorState,
   IDLE_WORKING_ACTIVITY,
   type WorkingActivity,
   type WorkingIndicatorState,
 } from "../components/working-indicator-state";
-import { openDesktopBridgeLive } from "./desktop-bridge-live";
-import {
-  desktopTaskPollIntervalMs,
-  shouldArmDesktopTaskPoll,
-} from "./desktop-sync-policy";
 import { applyLiveAgentWorkState } from "./agent-work-live-state";
-import {
-  collectConversationTasks,
-  overlayDesktopThreadTasks,
-} from "./mobile-task-merge";
+import { collectConversationTasks } from "./mobile-task-merge";
 import {
   collectActivityHubArtifacts,
   groupActivityArtifacts,
@@ -304,8 +292,6 @@ export type ChatComposerThread = {
    */
   sendPrompt?: (prompt: string) => { userMessageId: string } | null;
   stop: () => void;
-  /** Whether the paired computer's activity push socket is attached. */
-  livePushConnected: boolean;
 };
 
 /** A full chat surface: the composer half plus the journal-owned transcript. */
@@ -366,13 +352,6 @@ export function useChatThread(opts: {
   const drainOperationalOutbox = canonicalAuthorityReady;
   const admissionEnabledRef = useRef(drainOperationalOutbox);
   admissionEnabledRef.current = drainOperationalOutbox;
-  const desktopAccess = transport.access ?? null;
-  const desktopDeviceId = desktopAccess?.desktopDeviceId ?? null;
-  const desktopTransportEnabledRef = useRef(true);
-  useEffect(() => {
-    desktopTransportEnabledRef.current = true;
-  }, [desktopAccess?.pairSecret, desktopDeviceId, threadId]);
-
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const messagesRef = useRef<ChatMessage[]>(messages);
   const updateMessages = useCallback(
@@ -540,9 +519,6 @@ export function useChatThread(opts: {
   } | null>(null);
   const dispatchGenerationRef = useRef(0);
   const pendingEnqueueRef = useRef<Set<string>>(new Set());
-  // The conversation the paired computer's activity pushes must match before
-  // they are folded in, so a push for another conversation is ignored.
-  const syncConversationIdRef = useRef<string | null>(null);
   const drainQueueRef = useRef<(() => void) | null>(null);
   // The dispatch fn closes over `transport`; keep the latest in a ref so the
   // stable queue/drain machinery never dispatches against a stale destination.
@@ -570,7 +546,6 @@ export function useChatThread(opts: {
     if (authorityChanged) {
       acceptedDesktopSendIdsRef.current.clear();
       stoppedDispatchIdsRef.current.clear();
-      syncConversationIdRef.current = canonicalConversationId;
       setStorageLoaded(false);
       setHydrationAuthorityIssue(null);
       draftStore.set("");
@@ -606,7 +581,6 @@ export function useChatThread(opts: {
     void loadDesktopChatOutbox(threadId, canonicalOutboxAuthority).then(
       (storedOutbox) => {
         if (!active || generation !== historyPageGenerationRef.current) return;
-        syncConversationIdRef.current = canonicalConversationId;
         const restored = restoreOutboxMessages([], storedOutbox);
         updateMessages(restored);
         setStorageLoaded(true);
@@ -714,18 +688,13 @@ export function useChatThread(opts: {
         }
         activeDispatchRef.current = null;
         acceptedDesktopSendIdsRef.current.clear();
-        syncConversationIdRef.current = null;
         messagesRef.current = [];
-        desktopTransportEnabledRef.current = false;
         markSending(false);
         updateMessages([]);
         draftStore.set("");
         setAttachments([]);
         setQuotes([]);
         setWorkingActivity(IDLE_WORKING_ACTIVITY);
-        setDesktopThreadTasks(null);
-        setDesktopTaskDecoration(null);
-        setLivePushConnected(false);
       }),
     [draftStore, markSending, updateMessages],
   );
@@ -749,135 +718,6 @@ export function useChatThread(opts: {
     },
     [canonicalOutboxAuthority, threadId],
   );
-
-  // ─── Authoritative thread activity (runtime_agents projection) ──────────
-  // The synced-message task fold only learns about a running agent from its
-  // persisted spawn/terminal rows; mid-run state (progress ticks) is never
-  // persisted. These two slices carry the live picture instead: the desktop's
-  // authoritative task rows (fetched on `localChat:threadActivityUpdated`
-  // pushes) and the renderer's ephemeral decoration snapshot (statusText +
-  // reasoning phrases, carried on `localChat:taskDecorationUpdated` pushes).
-  // Both stay null against older desktops — the fold is then the only source,
-  // matching pre-push behavior.
-  const [desktopThreadTasks, setDesktopThreadTasks] = useState<
-    MobileTask[] | null
-  >(null);
-  const [desktopTaskDecoration, setDesktopTaskDecoration] =
-    useState<DesktopTaskDecoration | null>(null);
-  // Single-flight with a trailing rerun: transition bursts (a fan-out spawning
-  // five agents) collapse into at most one in-flight fetch plus one follow-up.
-  type ThreadTasksFetchState = {
-    scopeKey: string;
-    inFlight: boolean;
-    queued: boolean;
-  };
-  const threadTasksScopeKey = `${desktopDeviceId ?? ""}\u0000${threadId}`;
-  const threadTasksFetchRef = useRef<ThreadTasksFetchState>({
-    scopeKey: threadTasksScopeKey,
-    inFlight: false,
-    queued: false,
-  });
-  // Scope changes must invalidate an old request during render, before its
-  // promise can commit results into the newly-selected thread. A new scope
-  // gets its own single-flight state, so it also never queues behind (or gets
-  // fetched through) the previous computer's `desktopAccess` closure.
-  if (threadTasksFetchRef.current.scopeKey !== threadTasksScopeKey) {
-    threadTasksFetchRef.current = {
-      scopeKey: threadTasksScopeKey,
-      inFlight: false,
-      queued: false,
-    };
-  }
-  const refreshDesktopThreadTasks = useCallback(async () => {
-    if (!desktopAccess || !desktopTransportEnabledRef.current) return;
-    const state = threadTasksFetchRef.current;
-    if (state.scopeKey !== threadTasksScopeKey) return;
-    if (state.inFlight) {
-      state.queued = true;
-      return;
-    }
-    state.inFlight = true;
-    try {
-      do {
-        state.queued = false;
-        const conversationId = syncConversationIdRef.current;
-        if (!conversationId) return;
-        const tasks = await fetchDesktopBridgeThreadTasks(
-          desktopAccess,
-          conversationId,
-        );
-        // The user may switch threads or computers while the bridge request is
-        // in flight. Only the still-current scope may publish its result.
-        if (
-          threadTasksFetchRef.current !== state ||
-          !desktopTransportEnabledRef.current
-        ) {
-          return;
-        }
-        if (tasks) setDesktopThreadTasks(tasks);
-      } while (state.queued);
-    } finally {
-      state.inFlight = false;
-    }
-  }, [desktopAccess, threadTasksScopeKey]);
-
-  // The activity overlay is per-computer, per-conversation state.
-  useEffect(() => {
-    setDesktopThreadTasks(null);
-    setDesktopTaskDecoration(null);
-  }, [desktopDeviceId, threadId]);
-
-  // Landing fetch: the conversation id hydrates from disk with the sync
-  // state, so returning threads get the authoritative running set without
-  // waiting for the next thread transition to push one.
-  useEffect(() => {
-    if (!desktopAccess || !storageLoaded || !appActive) return;
-    void refreshDesktopThreadTasks();
-  }, [appActive, desktopAccess, refreshDesktopThreadTasks, storageLoaded]);
-
-  // ─── localChat push (activity only) ─────────────────────────────────────
-  // While a computer is paired, hold a push socket so the phone learns about
-  // mid-run desktop activity the transcript journal does not carry: live task
-  // rows and the renderer's ephemeral decoration snapshot. Transcript rows
-  // arrive through the cloud journal instead, so no push ever pulls history.
-  const [livePushConnected, setLivePushConnected] = useState(false);
-  useEffect(() => {
-    if (!desktopAccess) return;
-    const handle = openDesktopBridgeLive({
-      access: desktopAccess,
-      // Authoritative task rows: a thread transition (spawn, retitle,
-      // terminal) pushes the signal; the coalesced fetch pulls the projection.
-      onThreadActivityUpdated: (payload) => {
-        if (!desktopTransportEnabledRef.current) return;
-        const current = syncConversationIdRef.current;
-        if (
-          payload.conversationId &&
-          current &&
-          payload.conversationId !== current
-        ) {
-          return;
-        }
-        void refreshDesktopThreadTasks();
-      },
-      // Decoration pushes carry the snapshot itself — store and render.
-      onTaskDecorationUpdated: (decoration) => {
-        if (desktopTransportEnabledRef.current) {
-          setDesktopTaskDecoration(decoration);
-        }
-      },
-      onConnectedChange: (connected, details) => {
-        if (!desktopTransportEnabledRef.current) return;
-        setLivePushConnected(connected);
-        // (Re)connect: pull the current running set — any transitions that
-        // broadcast while the socket was down are already folded into it.
-        if (connected) void refreshDesktopThreadTasks();
-      },
-    });
-    return () => {
-      handle.close();
-      setLivePushConnected(false);
-    };
-  }, [desktopAccess, refreshDesktopThreadTasks]);
 
   const finishDispatch = useCallback(() => {
     activeDispatchRef.current = null;
@@ -935,7 +775,6 @@ export function useChatThread(opts: {
                 });
               assertAuthorityLease();
             }
-            syncConversationIdRef.current = placementConversationId;
             const target = item.executionTarget ?? AUTOMATIC_EXECUTION_TARGET;
             let access: StoredPhoneAccess | undefined;
             if (!ignoreStoredAccess && target.mode === "device") {
@@ -1539,19 +1378,13 @@ export function useChatThread(opts: {
     return collectActivityHubArtifacts(messages);
   }, [messages]);
 
-  // Every background task across the conversation, newest first, running ones
-  // pinned to the top — the data behind the activity pill + tray. The synced
-  // message fold provides durable history; the desktop's authoritative thread
-  // rows override status/title for tasks they cover (and surface running
-  // threads the loaded window missed), and the live decoration snapshot
-  // supplies mid-run statusText/reasoning that is never persisted.
-  const conversationTasks = useMemo(() => {
-    return overlayDesktopThreadTasks(
-      collectConversationTasks(messages),
-      desktopThreadTasks,
-      desktopTaskDecoration,
-    );
-  }, [desktopTaskDecoration, desktopThreadTasks, messages]);
+  // Background tasks folded from this surface's local rows. The canonical
+  // thread merges them under the cloud journal's task rows, which are the
+  // only authority for a computer's running agents.
+  const conversationTasks = useMemo(
+    () => collectConversationTasks(messages),
+    [messages],
+  );
 
   // The transcript's agent-work cards must agree with the pill above: their
   // synced `state` was settled desktop-side (where elapsed time counts as
@@ -1567,39 +1400,6 @@ export function useChatThread(opts: {
     () => groupActivityArtifacts(messages, conversationArtifacts),
     [conversationArtifacts, messages],
   );
-
-  const hasRunningConversationTask = conversationTasks.some(
-    (task) => task.status === "running",
-  );
-
-  // The push socket owns freshness for the running-task snapshot behind the
-  // activity pill; this poll only guarantees the snapshot can't freeze if the
-  // socket silently stops delivering.
-  useEffect(() => {
-    if (
-      !shouldArmDesktopTaskPoll({
-        isDesktopTransport: Boolean(desktopAccess),
-        storageLoaded,
-        hasRunningConversationTask,
-        sending,
-        appActive,
-      })
-    ) {
-      return;
-    }
-    const handle = setInterval(() => {
-      void refreshDesktopThreadTasks();
-    }, desktopTaskPollIntervalMs(livePushConnected));
-    return () => clearInterval(handle);
-  }, [
-    desktopAccess,
-    appActive,
-    hasRunningConversationTask,
-    livePushConnected,
-    refreshDesktopThreadTasks,
-    sending,
-    storageLoaded,
-  ]);
 
   return {
     messages: displayMessages,
@@ -1623,6 +1423,5 @@ export function useChatThread(opts: {
     send,
     sendPrompt,
     stop,
-    livePushConnected,
   };
 }

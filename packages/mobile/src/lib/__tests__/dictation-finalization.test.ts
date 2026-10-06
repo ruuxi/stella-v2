@@ -7,7 +7,13 @@ test("provider completion stops native recording and commits once across close, 
   const result = spawnSync(process.execPath, ["--eval", `
     import { mock } from "bun:test";
     import assert from "node:assert/strict";
+    // Expo's async-require setup reads __DEV__ at module scope, and the
+    // Metro/React Native runtime defines it. Under a bare bun subprocess
+    // nothing does, so dictation.ts's native imports die at init before any
+    // assertion runs. Same shim the sibling dictation harness uses.
+    globalThis.__DEV__ = false;
     const cleanups = [];
+
     const statuses = [];
     const transcripts = [];
     const alerts = [];
@@ -54,6 +60,10 @@ test("provider completion stops native recording and commits once across close, 
       releaseRecordingAudioSession: async () => { releases++; },
     }));
     mock.module(${JSON.stringify(resolve(lib, "read-aloud.ts"))}, () => ({ stopReadAloudForDictation() {} }));
+    // Stands in for the native haptics wrapper, like the other native-backed
+    // local modules above. Real expo-haptics pulls Platform out of
+    // expo-modules-core, which this harness replaces with an event emitter only.
+    mock.module(${JSON.stringify(resolve(lib, "haptics.ts"))}, () => ({ tapLight() {}, tapMedium() {} }));
     mock.module(${JSON.stringify(resolve(lib, "dictation-meter.ts"))}, () => ({ startDictationMeter() {}, stopDictationMeter() {}, updateDictationMeter() {} }));
     mock.module(${JSON.stringify(resolve(lib, "dictation-transcript-preview.ts"))}, () => ({ resetDictationTranscriptPreview() {}, updateDictationTranscriptPreview() {} }));
     mock.module(${JSON.stringify(resolve(lib, "auth-token.ts"))}, () => ({ getAuthToken: async () => "fixture-token" }));

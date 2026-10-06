@@ -42,3 +42,10 @@ export const CLOUD_CLAUDE_LOGINS_ROOT = "/home/stella-host-state/claude-logins";
 
 export const isCloudClaudeAccountKey = (value: unknown): value is string =>
   typeof value === "string" && /^[0-9a-f]{64}$/u.test(value);
+
+/**
+ * Key prefix of the owner's opaque Claude Code login archive in backup
+ * storage (`<prefix>/<hash>.tgz`), separate from every session checkpoint.
+ * Only the owner's container writes and reads its bytes.
+ */
+export const CLOUD_CLAUDE_LOGIN_BACKUP_PREFIX = "claude-code-logins/v1";

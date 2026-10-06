@@ -10,6 +10,7 @@
 
 import {
   CLOUD_CLAUDE_ACCOUNTS_ROOT,
+  CLOUD_CLAUDE_LOGIN_BACKUP_PREFIX,
   CLOUD_CLAUDE_LOGINS_ROOT,
   isCloudClaudeAccountKey,
 } from "@stella/contracts/cloud-native-state";
@@ -254,7 +255,7 @@ const runScript = async (
 
 /** The owner's backup object for their cloud Claude Code logins. */
 const loginBackupKey = async (ownerId: string): Promise<string> =>
-  `claude-code-logins/v1/${await claudeCloudAccountKey(`owner:${ownerId}`)}.tgz`;
+  `${CLOUD_CLAUDE_LOGIN_BACKUP_PREFIX}/${await claudeCloudAccountKey(`owner:${ownerId}`)}.tgz`;
 
 const loginBackupUrl = async (
   env: Cloudflare.Env,

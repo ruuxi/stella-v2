@@ -11,8 +11,8 @@ Settings is a dialog reached from the signed-out gear or signed-in account menu.
 
 ## How to get to it (user POV)
 
-- Signed out, choose **Settings**, then the **Settings** menu item.
-- Signed in, choose the account control, then **Settings**.
+- Signed out, choose the **Settings** gear in the top bar, then the **Settings** item in its "Settings destinations" menu.
+- Signed in, the gear is folded into the account button (`Account, <plan> plan`); choose it, then **Settings**. Its other items are Plan & usage, Theme, Stella on your phone, Connectors, Send feedback, and Sign out.
 - Use adjacent menu destinations such as **Theme** and **Stella on your phone** without treating them as Settings tabs.
 
 ## Driving it with control-stella
@@ -23,7 +23,7 @@ Preconditions:
 - English UI is active so named tabs match the feature map.
 
 - **Open.** Run `node .agents/skills/verify-stella/control-stella.mjs settings open`. Require `settingsOpen: true` and a selected tab.
-- **Catalog.** Run `inspect components` and compare visible tabs with `SETTINGS_TABS` after platform filtering. Do not hard-code a four-tab list.
+- **Catalog.** Run `inspect components` and compare visible tabs with `SETTINGS_TABS` after platform filtering. On Linux with a Pro account the tabs were General, Shortcuts, Account & Legal, and Audio; do not hard-code that list.
 - **Select.** Run `node .agents/skills/verify-stella/control-stella.mjs settings tab --name "Shortcuts"` for a visible tab and require it in `selectedTabs`.
 - **Search.** Run `node .agents/skills/verify-stella/control-stella.mjs settings search --query language`. Require a result that identifies its owning section. Click that result when testing tab jump.
 - **Close.** Run `node .agents/skills/verify-stella/control-stella.mjs settings close`. Require `settingsOpen: false` and the shell still healthy.

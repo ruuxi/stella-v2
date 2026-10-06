@@ -37,6 +37,7 @@ const repoRoot = path.resolve(skillRoot, "../../..");
 const POINTER_PATH = path.join(skillRoot, ".run", "current.json");
 const DEFAULT_EVIDENCE_DIR = path.join(skillRoot, "artifacts");
 const READY_SELECTOR = ".shell-topbar-full";
+const SETTLE_IGNORED_SELECTOR = 'svg[aria-hidden="true"]';
 const HOST_HEALTH_EXPRESSION = String.raw`
 (async () => {
   const getDeviceId = window.electronAPI?.system?.getDeviceId;
@@ -206,8 +207,20 @@ const currentRun = () => {
   }
 };
 
+const SHORT_DARWIN_TMPDIR = "/tmp/sv";
+
+const harnessTempRoot = () => {
+  if (process.platform !== "darwin") return os.tmpdir();
+  mkdirSync(SHORT_DARWIN_TMPDIR, { recursive: true, mode: 0o700 });
+  return SHORT_DARWIN_TMPDIR;
+};
+
 const removeTemporaryUserData = (run) => {
-  const tempRoot = path.join(os.tmpdir(), `stella-verify-${run.runId}`);
+  const tempRoot = path.join(
+    path.dirname(path.dirname(run.userDataDir ?? "")),
+    `stella-verify-${run.runId}`,
+  );
+  if (![os.tmpdir(), SHORT_DARWIN_TMPDIR].includes(path.dirname(tempRoot))) return;
   if (
     path.resolve(run.userDataDir ?? "") !==
     path.join(tempRoot, "electron-user-data")
@@ -259,8 +272,6 @@ const waitForHttp = async (url, timeoutMs) => {
 const linuxSoftwareGl = () =>
   process.platform === "linux" &&
   (process.env.STELLA_VERIFY_SOFTWARE_GL === "1" || !existsSync("/dev/dri"));
-
-const SHORT_DARWIN_TMPDIR = "/tmp/sv";
 
 const shortSocketTmpdir = (value) => {
   if (process.platform !== "darwin" || (value && value.length <= SHORT_DARWIN_TMPDIR.length + 4)) {
@@ -735,6 +746,9 @@ const cmdLaunch = async (options) => {
   const modelGateway = options["model-gateway"] ? new URL(options["model-gateway"]).origin : null;
   const fakeMic = options["fake-mic"] ? path.resolve(options["fake-mic"]) : null;
   if (fakeMic && !existsSync(fakeMic)) fail(`--fake-mic file not found: ${fakeMic}`);
+  const browserBridge = options["browser-bridge"] ?? null;
+  if (browserBridge && !["shared", "isolated"].includes(browserBridge))
+    fail("--browser-bridge must be shared or isolated.");
 
   const runId = randomUUID().slice(0, 8);
   const runDir = path.join(skillRoot, ".run", runId);
@@ -750,7 +764,7 @@ const cmdLaunch = async (options) => {
   }
   const dataDir = path.join(runDir, "data");
   const userDataDir = path.join(
-    os.tmpdir(),
+    harnessTempRoot(),
     `stella-verify-${runId}`,
     "electron-user-data",
   );
@@ -775,6 +789,7 @@ const cmdLaunch = async (options) => {
     startedAt: new Date().toISOString(),
     evidenceDir: DEFAULT_EVIDENCE_DIR,
     account,
+    browserBridge: browserBridge ?? "isolated",
   };
   writeJson(POINTER_PATH, run);
   writeJson(path.join(runDir, "run.json"), run);
@@ -816,6 +831,7 @@ const cmdLaunch = async (options) => {
         ...isolatedElectronEnvironment(),
         ...(runtimeBinary ? { STELLA_RUNTIME_BINARY: runtimeBinary } : {}),
         ...(modelGateway ? { STELLA_MODEL_GATEWAY_URL: modelGateway } : {}),
+        ...(browserBridge ? { STELLA_BROWSER_BRIDGE: browserBridge } : {}),
         // The app talks to the backend the harness signs in against.
         ...(process.env.STELLA_BACKEND_URL?.trim()
           ? { VITE_STELLA_BACKEND_URL: resolveSiteUrl() }
@@ -1181,11 +1197,14 @@ const cmdWaitSettle = async (options) => {
     max: 13_000,
     label: "--timeout",
   });
+  const ignore = [SETTLE_IGNORED_SELECTOR, options.ignore].filter(Boolean).join(", ");
   const result = await withCdp(run, (ws) =>
     runtimeEvaluate(
       ws,
       `new Promise((resolve, reject) => {
         const startedAt = performance.now();
+        const ignore = ${JSON.stringify(ignore)};
+        let ignored = 0;
         let quietTimer;
         let timeoutTimer;
         const finish = () => {
@@ -1194,13 +1213,25 @@ const cmdWaitSettle = async (options) => {
           requestAnimationFrame(() => requestAnimationFrame(() => resolve({
             quietMs: ${quietMs},
             elapsedMs: Math.round(performance.now() - startedAt),
+            ignoredSelector: ignore,
+            ignoredMutations: ignored,
           })));
         };
         const arm = () => {
           clearTimeout(quietTimer);
           quietTimer = setTimeout(finish, ${quietMs});
         };
-        const observer = new MutationObserver(arm);
+        const relevant = (mutation) => {
+          const node = mutation.target.nodeType === 1 ? mutation.target : mutation.target.parentElement;
+          if (node && node.closest(ignore)) {
+            ignored += 1;
+            return false;
+          }
+          return true;
+        };
+        const observer = new MutationObserver((mutations) => {
+          if (mutations.some(relevant)) arm();
+        });
         observer.observe(document.documentElement, {
           attributes: true,
           childList: true,
@@ -1246,6 +1277,7 @@ const SHELL_STATE_JS = `(() => {
       && rect.left < window.innerWidth && rect.top < window.innerHeight;
   };
   const composer = [...document.querySelectorAll("textarea.composer-input")].find(visible) || null;
+  const chatSurface = document.querySelector('[data-testid="chat-surface"]');
   const chatColumn = [...document.querySelectorAll("[data-conversation-id]")].find(visible) || null;
   const selectedTabs = [...document.querySelectorAll('[role="tab"][aria-selected="true"]')]
     .filter(visible)
@@ -1255,9 +1287,8 @@ const SHELL_STATE_JS = `(() => {
     title: document.title,
     route: location.pathname,
     search: location.search,
-    activeConversationId: chatColumn?.getAttribute("data-conversation-id") || null,
+    activeConversationId: chatColumn?.getAttribute("data-conversation-id") || chatSurface?.getAttribute("data-conversation-id") || null,
     homeOpen: Boolean(document.querySelector(".full-body-home-overlay")),
-    historyOpen: Boolean([...document.querySelectorAll(".conversation-history-popover")].find(visible)),
     settingsOpen: Boolean([...document.querySelectorAll('[role="dialog"]')].find((el) => visible(el) && (el.textContent || "").includes("Settings"))),
     panelOpen: document.querySelector(".display-panel-topbar")?.getAttribute("data-display-open") === "true",
     composer: composer ? { visible: true, enabled: !composer.disabled, empty: composer.value.length === 0 } : { visible: false, enabled: false, empty: true },
@@ -1298,33 +1329,6 @@ const waitForState = async (run, predicate, timeoutMs = 10_000) => {
     state = await readShellState(run);
   }
   throw new Error("Timed out waiting for Stella's semantic UI state.");
-};
-
-const cmdChatNew = async () => {
-  const startedAt = Date.now();
-  const run = requireRun();
-  const before = await readShellState(run);
-  if (!before.historyOpen) {
-    await clickQuery(run, { role: "button", name: "Conversation history" });
-  }
-  await waitQuery(run, { role: "button", name: "New chat" });
-  await clickQuery(run, { role: "button", name: "New chat" });
-  const after = await waitForState(
-    run,
-    (state) =>
-      Boolean(state.activeConversationId) &&
-      state.activeConversationId !== before.activeConversationId,
-  );
-  emitSuccess(
-    "chat.new",
-    {
-      previousConversationId: before.activeConversationId,
-      conversationId: after.activeConversationId,
-      route: `${after.route}${after.search}`,
-    },
-    run,
-    startedAt,
-  );
 };
 
 const cmdChatSend = async (options, positionals) => {
@@ -1393,23 +1397,12 @@ const cmdNavHome = async () => {
   const run = requireRun();
   const before = await readShellState(run);
   if (!before.homeOpen) {
-    fail("Home appears automatically in empty chats; there is no Home launcher. Use `chat new` to create an empty conversation.", 2, {
-      errorCode: "APP_NOT_READY", recovery: "Use `chat new` if a new conversation is intended.", retryable: false,
+    fail("Home is not showing. It appears on its own for an empty conversation, on the first view after launch until the user interacts, and after an hour idle; there is no Home launcher or New chat control.", 2, {
+      errorCode: "APP_NOT_READY", recovery: "Launch a fresh run (`session launch --replace`) for an empty conversation, or relaunch to see Home over a populated one.", retryable: false,
     });
   }
   const state = await waitForState(run, (value) => value.homeOpen);
   emitSuccess("nav.home", state, run, startedAt);
-};
-
-const cmdNavHistory = async () => {
-  const startedAt = Date.now();
-  const run = requireRun();
-  const before = await readShellState(run);
-  if (!before.historyOpen) {
-    await clickQuery(run, { role: "button", name: "Conversation history" });
-  }
-  const state = await waitForState(run, (value) => value.historyOpen);
-  emitSuccess("nav.history", state, run, startedAt);
 };
 
 const cmdNavDestination = async (command, name) => {
@@ -2084,9 +2077,6 @@ try {
     case "chat-ready":
       await cmdChatReady();
       break;
-    case "chat-new":
-      await cmdChatNew();
-      break;
     case "chat-send":
       await cmdChatSend(options, positionals);
       break;
@@ -2095,9 +2085,6 @@ try {
       break;
     case "nav-home":
       await cmdNavHome();
-      break;
-    case "nav-history":
-      await cmdNavHistory();
       break;
     case "nav-files":
       await cmdNavDestination("nav.files", "Files");

@@ -1,6 +1,6 @@
 # Account, models, and billing
 
-The top-bar account menu and bottom-right model controls expose authentication state, execution target, provider/model choice, usage, subscription, and billing entry points.
+The top-bar account menu and the workspace panel's foot controls expose authentication state, execution target, provider/model choice, usage, subscription, and billing entry points.
 
 ## Sub-features
 
@@ -12,8 +12,8 @@ The top-bar account menu and bottom-right model controls expose authentication s
 
 ## How to get to it (user POV)
 
-- Choose the signed-in account control or signed-out Settings/identity entry in the top bar.
-- Choose the global execution-target or model control when visible.
+- Choose the signed-in account control (`Account, <plan> plan`) or the signed-out sign-in button and Settings gear in the top bar. The signed-in menu has Settings, Plan & usage, Theme, Stella on your phone, Connectors, Send feedback, and Sign out.
+- Open the workspace panel. Its foot has the execution target (`Run on This computer`, a dialog offering This computer and Cloud) and **Models** (a dialog with Assistant, Image, and Voice surfaces, a model search, and provider groups such as Stella, Claude Code, and ChatGPT).
 - Open usage, plan, billing, Connectors, or feedback from account/settings destinations.
 
 ## Driving it with control-stella

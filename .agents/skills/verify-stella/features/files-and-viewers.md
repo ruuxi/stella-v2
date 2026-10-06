@@ -30,7 +30,7 @@ Preconditions:
 
 ## Gotchas
 
-- Empty Files is a valid state when no conversation has produced artifacts.
+- Empty Files ("Nothing here yet") is a valid state when no conversation has produced artifacts, which is the default in a fresh harness run.
 - CSV and long text previews must remain bounded or off the renderer hot path.
 - Unsupported content should show an explicit fallback or external-open action, not a blank panel.
 - File preview proof must exercise the real selection path, not call `display:readFile` directly.

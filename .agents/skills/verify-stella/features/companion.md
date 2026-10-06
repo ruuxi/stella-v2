@@ -19,9 +19,9 @@ The companion is the floating Stella mark that sits on top of every window. It i
 
 ## Driving it with control-stella
 
-The control CLI only targets the full shell page. The companion is two CDP page targets on the run's `cdpPort` (URLs ending in `window=companion` and `window=companion-panel`); drive them with a raw CDP client (`Runtime.evaluate`, `Input.dispatchMouseEvent`, `Page.captureScreenshot`).
+The control CLI only targets the full shell page. The companion is two CDP page targets on the run's `cdpPort` (URLs ending in `window=companion` and `window=companion-panel`; `overlay.html?window=overlay` is a separate always-present overlay target, not the companion); drive them with a raw CDP client (`Runtime.evaluate`, `Input.dispatchMouseEvent`, `Page.captureScreenshot`).
 
-- **Enable.** `settings open`, then click the `button[role=switch]` inside the settings card whose text contains "Desktop companion". Require both companion targets to appear in `/json` on the CDP port.
+- **Enable.** `settings open`, then `drive click --role switch --name "Desktop companion"`. Require both companion targets to appear in `/json/list` on the CDP port and `companionEnabled: true` in the run's `data/preferences.json`.
 - **Geometry.** The mark window is 128×128 DIP and the panel 400×560 DIP; neither ever resizes. The panel shares the mark window's edges that face the nearer screen borders. On Hyprland, `hyprctl clients -j` lists both with title `Stella Overlay`; sizes there are logical (divide DIP by the monitor scale).
 - **Hover.** Move the pointer onto the mark window (`64,72`). Require `.companion-mark-root[data-hovered]` in the mark target and `.companion-arc[data-visible]` in the panel target.
 - **Compose.** Click the mark (mark target); require `.companion-composer` with the textarea focused in the panel target (its only button is send, or stop while streaming), `Input.insertText` there, then Enter. Require the prompt in the full shell's transcript (`inspect eval` on `document.body.innerText`) and a `.companion-bubble[data-role="user"]` followed by an assistant bubble.

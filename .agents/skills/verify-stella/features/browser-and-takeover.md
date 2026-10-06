@@ -22,6 +22,7 @@ Browser surfaces let Stella show web content, while cloud-browser intervention a
 Preconditions:
 
 - The verifier is healthy. Navigation requires the Electron browser bridge and a connected browser/profile, plus network access for external pages. A disconnected extension shows setup or retry instructions.
+- The harness runs an isolated browser bridge by default, so the Browser tab shows an "Extension isn't connected" alert explaining that the extension cannot reach an isolated bridge. That alert is the expected default, not a regression. Launch with `--browser-bridge shared` only when the claim needs the extension-backed browser and taking the shared bridge from the user's running Stella is acceptable (see the desktop reference).
 - Takeover requires a real pending intervention for the current account/conversation.
 
 - **Open.** Run `node .agents/skills/verify-stella/control-stella.mjs nav browser` and require a selected Browser surface.

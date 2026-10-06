@@ -12,11 +12,9 @@ export const COMMANDS = [
   command("session", "doctor", "doctor", "Check the owned instance end to end", ["doctor"]),
   command("session", "info", "info", "Read the owned session record", ["info"]),
   command("chat", "ready", "chat-ready", "Return semantic chat readiness"),
-  command("chat", "new", "chat-new", "Create and select a new conversation", ["new-session"]),
   command("chat", "send", "chat-send", "Send text through the real composer", ["send"]),
   command("chat", "state", "chat-state", "Inspect conversation and composer state"),
   command("nav", "home", "nav-home", "Check the current automatic Home overlay", ["home"]),
-  command("nav", "history", "nav-history", "Open Conversation history", ["history"]),
   command("nav", "files", "nav-files", "Open Files from New tab"),
   command("nav", "browser", "nav-browser", "Open Browser from New tab"),
   command("settings", "open", "settings-open", "Open Settings through the visible menu"),
@@ -39,7 +37,7 @@ export const COMMANDS = [
   command("drive", "press", "press", "Press a supported key", ["press"]),
   command("drive", "scroll", "scroll", "Scroll the window or a named element", ["scroll"]),
   command("drive", "wait", "wait", "Wait for a visible semantic target", ["wait"]),
-  command("drive", "settle", "wait-settle", "Wait for a quiet DOM interval", ["wait-settle"]),
+  command("drive", "settle", "wait-settle", "Wait for a quiet DOM interval, ignoring decorative SVG animation", ["wait-settle"]),
   command("performance", "metrics", "perf-metrics", "Read renderer performance metrics", ["perf-metrics"]),
   command("performance", "trace", "trace", "Capture a Chrome trace", ["trace"]),
   command("performance", "profile", "profile", "Capture a CPU profile", ["profile"]),
@@ -104,7 +102,8 @@ export const helpText = () => {
   }
   lines.push("Common forms:");
   lines.push("  session launch [--replace] [--account anonymous|signed-in|go|pro] [--reuse] [--fake-mic <wav>]");
-  lines.push("                 [--runtime-binary <native-executable>] [--model-gateway <origin>]");
+  lines.push("                 [--browser-bridge shared|isolated] [--runtime-binary <native-executable>]");
+  lines.push("                 [--model-gateway <origin>]");
   lines.push("  chat send --text <message> [--timeout <ms>]");
   lines.push("  settings tab --name <tab>");
   lines.push("  settings search --query <text>");
@@ -114,6 +113,7 @@ export const helpText = () => {
   lines.push("  drive click --role <role> --name <name> [--within <CSS scope>]");
   lines.push("  drive fill --placeholder <text> --value <text> [--within <CSS scope>]");
   lines.push("  drive press --key <key-or-chord>             e.g. Shift+Enter, Meta+KeyN");
+  lines.push("  drive settle [--quiet <ms>] [--timeout <ms>] [--ignore <CSS>]");
   lines.push("  diagnostics console|network-log [--duration <ms>] [--limit <count>]");
   lines.push("  performance trace|profile --duration <ms> --path <artifact>");
   lines.push("  cleanup apply --dry-run");

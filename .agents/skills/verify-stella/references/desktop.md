@@ -16,7 +16,7 @@ The `scripts/control-stella.mjs` file is a compatibility wrapper only. New map e
 The CLI uses grouped subcommands with machine-readable JSON. Named product journeys are optional convenience macros:
 
 - `session` launches, checks, and describes the isolated app.
-- `chat`, `nav`, `settings`, and `apps` encode repeatable Stella journeys.
+- `chat`, `nav`, `settings`, and `apps` encode repeatable Stella journeys (`chat ready|send|state`, `nav home|files|browser`, `settings open|tab|search|state|close`, `apps open|state|ask`).
 - `inspect` captures semantic state, components, ARIA, screenshots, and an explicit unsafe eval escape hatch.
 - `drive` performs accessible clicks, fills, key chords, scrolling, waits, and settle detection.
 - `performance` captures metrics, traces, and CPU profiles.
@@ -27,7 +27,7 @@ Use `capabilities` rather than parsing help when an agent needs discovery. Error
 
 ## Desktop launch and doctor
 
-From the repository root, with Bun 1.4.x and dependencies installed:
+From the repository root, with Bun 1.4.x and dependencies installed, and an X display (`DISPLAY`; on Linux a real Hyprland/Wayland session works through XWayland, otherwise run under Xvfb). The window opens on the visible desktop and the compositor may tile or resize it; read geometry from a fresh observation rather than assuming a size:
 
 ```bash
 node .agents/skills/verify-stella/control-stella.mjs session launch
@@ -40,7 +40,11 @@ Launch is anonymous by default. Pass `--account signed-in`, `--account go`, or `
 
 Every launch is a fresh profile, so an anonymous launch signs up a new anonymous user on the dev deployment each time; five of those from one IP in a day trip the sybil counters. Pass `--reuse` to boot from one anonymous session kept per machine at `.agents/skills/verify-stella/.run/anonymous-session.json` (owner-readable, dev only): the harness verifies the saved bearer against `STELLA_BACKEND_URL` and mints a replacement when it is missing, stale, or for another backend. The run record reports `account.reused` and `account.userId`. Omit `--reuse` when the run needs a never-seen user, for example onboarding or first-sign-in checks; a reused anonymous user carries its cloud conversation over between runs, so start a new chat when a clean transcript matters. `--reuse` is rejected with a test-account mode.
 
-Launch creates an isolated run under `.agents/skills/verify-stella/.run/<runId>/`, an isolated durable Stella data directory, and a temporary Chromium user-data directory. It seeds onboarding complete, builds the Electron development main/preload bundle, allocates ephemeral Vite and CDP ports, launches Electron with the verifier harness environment, and writes owned Vite/Electron logs. It preserves protected-storage behavior with a run-scoped key rather than using the developer's keyring.
+Launch creates an isolated run under `.agents/skills/verify-stella/.run/<runId>/`, an isolated durable Stella data directory, and a temporary Chromium user-data directory. It seeds onboarding complete, allocates an ephemeral CDP port, and launches Electron from source (`electron <repo> --dev`) with `STELLA_DEV_HARNESS=1` and an allow-listed environment; there is no Vite or other dev server, and main/preload rebuild themselves when stale. Electron output goes to the owned `electron.log`. It preserves protected-storage behavior with a run-scoped key rather than using the developer's keyring. A launch takes a few seconds; the active conversation id can appear a moment after `session doctor` first passes, so retry `chat ready` once before treating `ready: false` as a failure.
+
+The temporary Chromium profile and the runtime IPC directory (`STELLA_RUNTIME_IPC_DIR`) live under `<tmp>/stella-verify-<runId>/`. On macOS, `<tmp>` is `/tmp/sv` and Electron's `TMPDIR` is shortened to it too: the per-user `/var/folders/.../T` path pushes the runtime and CLI-bridge Unix sockets (`<ipc>/stella-<uid>/<hash>/r.sock`, `<ipc>/stella-<uid>/<hash>/<nonce>/b.sock`) and Chromium's singleton socket past the 104-byte `sun_path` limit. Other platforms use the system temp directory.
+
+The harness runs an isolated browser bridge by default, so the Browser section shows "Extension isn't connected" and the user's Chrome extension cannot reach it. `--browser-bridge shared` sets `STELLA_BROWSER_BRIDGE=shared`, which claims the per-user shared bridge (fixed extension port and native-messaging host) from any running Stella, including the user's installed app. Use it only when an extension-backed browser claim needs proof and taking over the bridge on that machine is acceptable; relaunching the installed app reclaims it.
 
 During the native runtime migration, `--runtime-binary packages/runtime-rust/target/debug/stella-runtime`
 selects an explicitly built Rust executable. The helper forwards its absolute path
@@ -49,7 +53,7 @@ optional `--model-gateway <origin>` overrides gateway discovery for a specific
 deployment; omit it to verify discovery from the signed-in catalog. The native
 process remains an incomplete replacement until the runtime migration is finished.
 
-Doctor exits successfully only when the recorded Vite and Electron processes are alive, Vite answers, CDP has Stella's page target, the conversation top bar exists, Electron device identity is available, and the runtime host answers its health check. A painted shell alone is not healthy.
+Doctor exits successfully only when the recorded Electron process is alive, CDP has Stella's full-window page target (`index.html?window=full`; the run also exposes `overlay.html?window=overlay` and, when enabled, the two companion targets), the full-window top bar `.shell-topbar-full` exists, Electron device identity is available, and the runtime host answers its health check. A painted shell alone is not healthy.
 
 Never attach by process name or window title. The pointer under `.run/current.json` is the ownership boundary.
 
@@ -59,10 +63,9 @@ Examples of the intended high-level interface:
 
 ```bash
 node .agents/skills/verify-stella/control-stella.mjs chat ready
-node .agents/skills/verify-stella/control-stella.mjs chat new
 node .agents/skills/verify-stella/control-stella.mjs chat send --text "list open tasks"
 node .agents/skills/verify-stella/control-stella.mjs nav home
-node .agents/skills/verify-stella/control-stella.mjs nav history
+node .agents/skills/verify-stella/control-stella.mjs nav files
 node .agents/skills/verify-stella/control-stella.mjs settings open
 node .agents/skills/verify-stella/control-stella.mjs settings tab --name "Shortcuts"
 node .agents/skills/verify-stella/control-stella.mjs settings search --query language
@@ -74,12 +77,15 @@ Use lower-level commands when a feature has no named journey:
 
 ```bash
 node .agents/skills/verify-stella/control-stella.mjs inspect components
+node .agents/skills/verify-stella/control-stella.mjs drive click --role button --name "Open panel"
 node .agents/skills/verify-stella/control-stella.mjs drive click --role button --name "New tab"
 node .agents/skills/verify-stella/control-stella.mjs drive fill --placeholder "Do anything" --value "draft"
 node .agents/skills/verify-stella/control-stella.mjs drive press --key Shift+Enter
 node .agents/skills/verify-stella/control-stella.mjs drive press --key Control+KeyT
 node .agents/skills/verify-stella/control-stella.mjs drive settle
 ```
+
+The desktop is a single-chat product: the full-window top bar carries only the centred Activity mark, the account button (`Account, <plan> plan`; signed out it is a sign-in button plus a `Settings` gear), and `Open panel`. There is no conversation history, conversation tabs, or New chat control; the active conversation comes from the root route (`?c=`). A fresh `session launch` is the way to get an empty conversation. The workspace panel (Open panel, or right-click in chat) has a tab strip (`Sidebar` tablist), `New tab`, `Close panel`, a launcher with Files, Apps, Browser and Updates, and `Run on <target>` / `Models` controls at its foot.
 
 Use current observations to choose roles, accessible names, placeholders, or a suitable named journey. Use `drive click-xy` only after a fresh `inspect components` identifies the viewport geometry. Use `inspect eval --js` only when the CLI and feature map lack a safe observable. Never use eval to mutate product state as a substitute for a user path.
 
@@ -110,7 +116,7 @@ node .agents/skills/verify-stella/control-stella.mjs cleanup apply --dry-run
 node .agents/skills/verify-stella/control-stella.mjs cleanup apply
 ```
 
-Cleanup targets only the recorded Electron and Vite PIDs, verifier pointer, and temporary Chromium profile. It preserves the isolated durable data and proof artifacts. Do not kill by process name.
+Cleanup targets only the recorded Electron PID (its process group), verifier pointer, and temporary Chromium profile. It preserves the isolated durable data and proof artifacts. Do not kill by process name; the developer's own Stella window shares the `stella-v2` window class.
 
 
 ## Observation and interaction results
@@ -119,7 +125,11 @@ Cleanup targets only the recorded Electron and Vite PIDs, verifier pointer, and 
 
 `drive click` and `drive fill` require a unique visible match. On ambiguity they return `AMBIGUOUS_TARGET`, the total match count, and up to 20 candidates with labels and geometry. Narrow the target with `--within <CSS scope>` or `--selector`; inspection and targeting share name/role handling. `drive wait` checks existence and permits multiple matches.
 
-`nav home` checks the automatic empty-chat overlay. If it is closed, the command explains how to create a new chat without creating one implicitly. `chat new` opens Conversation history before choosing New chat.
+`nav home` checks the automatic Home overlay and fails with `APP_NOT_READY` when it is not showing; it never creates a conversation.
+
+`drive settle` waits for a quiet DOM interval. Mutations inside `svg[aria-hidden="true"]` are ignored because the top-bar Stella mark and working indicator animate continuously; pass `--ignore <CSS>` to exclude another known-decorative region. The result reports how many mutations it ignored.
+
+`apps open`, `nav files`, and `nav browser` open the panel if needed, then use New tab and the launcher, so each call adds a tab. A transient menu or dialog left open (account menu, model picker) hides the launcher and makes these time out; press Escape first.
 
 `chat send` uses the Home composer while the chat layer is obscured and observes new messages after the overlay closes. It reports `action: enter-dispatched`, plus `observation: new-user-message`, `new-notice`, or `no-new-evidence`. It compares message IDs and notices in the active conversation against the pre-send state. Timeout returns observations with exit code 2. A new notice is not classified as a provider error; a visible user message does not prove backend acceptance or assistant completion. `responseCompletion` is explicitly `not-assessed`.
 

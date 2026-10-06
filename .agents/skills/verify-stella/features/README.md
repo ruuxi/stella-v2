@@ -8,11 +8,10 @@ The [desktop reference](../references/desktop.md) covers harness setup and diagn
 
 ## Desktop features
 
-- [Chat](./chat.md) covers conversation readiness, new chats, drafting, and sending.
+- [Chat](./chat.md) covers the single conversation's readiness, drafting, sending, and dictation.
 - [Rich chat](./chat-rich.md) covers attachments, context, model selection, voice, queued sends, message actions, and artifacts.
-- [Home](./home.md) covers the full-body Home overlay and its composer-driven exit.
-- [Conversation history](./conversation-history.md) covers the cloud-backed history popover and selection.
-- [Workspace display](./workspace-display.md) covers right-side tabs, top-bar controls, visibility, and close behavior.
+- [Home](./home.md) covers the full-body Home overlay, when it shows, and its composer-driven exit.
+- [Workspace display](./workspace-display.md) covers the right-side workspace panel, its tabs and launcher, and open/close behavior.
 - [Files and viewers](./files-and-viewers.md) covers Files navigation and file-preview tabs.
 - [Browser and takeover](./browser-and-takeover.md) covers browser tabs and cloud-browser user intervention.
 - [Agent cursor and computer use](./agent-cursor-and-computer-use.md) covers synchronized pointer presentation in browser and native computer-use actions.

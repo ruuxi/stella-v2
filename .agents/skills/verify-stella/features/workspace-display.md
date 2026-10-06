@@ -1,6 +1,6 @@
 # Workspace display
 
-The workspace display is Stella's right-side surface for files, browser views, apps, media, and other payload-backed tabs alongside chat.
+The workspace display is Stella's right-side panel (`aside` named Workspace) for files, browser views, apps, updates, media, and other payload-backed tabs alongside chat. Its header has the tab strip (`Sidebar` tablist; each tab has a `Close <title>` button), **New tab**, and **Close panel**; its foot has the execution target (`Run on <target>`) and **Models**. A new tab is the `Home` launcher with a `Search anything` box and **Files**, **Apps**, **Browser**, and **Updates**.
 
 ## Sub-features
 
@@ -11,9 +11,10 @@ The workspace display is Stella's right-side surface for files, browser views, a
 
 ## How to get to it (user POV)
 
-- Open a file, browser result, app, or artifact from chat or a sidebar section.
-- Choose another display tab in the display top bar.
-- Use the active tab's close or visibility control.
+- Choose **Open panel** in the top bar, or right-click in the chat column.
+- Open a file, browser result, app, or artifact from chat, or a destination from **New tab**.
+- Choose another tab in the panel's tab strip.
+- Use the tab's close control or **Close panel**.
 
 ## Driving it with control-stella
 
@@ -25,7 +26,7 @@ Preconditions:
 - **Open source.** Run `nav files`, `nav browser`, or select a chat artifact, then use `inspect state` and `inspect components` to identify the display tab.
 - **Select.** Run `drive click --role tab --name "<visible tab>"` and require `aria-selected=true` in `inspect aria`.
 - **Top bar.** Capture `inspect components` and assert only controls applicable to the active payload.
-- **Close.** Use the named close control discovered for the active tab. Require another tab to activate or the display to hide cleanly.
+- **Close.** Use the tab's `Close <title>` button. Require another tab to activate, or, when it was the last tab, the panel to close (`panelOpen: false`).
 - **Collapse.** Choose **Close panel**, then **Open panel**. Require the selected tab and conversation id to remain unchanged.
 - **Proof.** Capture the full shell so chat and the right-side content are visible together.
 

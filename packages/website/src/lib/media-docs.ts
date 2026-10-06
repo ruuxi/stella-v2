@@ -5,7 +5,7 @@
  *   - https://stella.sh/docs/media          (overview)
  *   - https://stella.sh/docs/media/images   (image generation + edit)
  *   - https://stella.sh/docs/media/video    (text, image, and reference-to-video)
- *   - https://stella.sh/docs/media/audio    (audio generation, transcription, separation)
+ *   - https://stella.sh/docs/media/audio    (audio generation, transcription)
  *   - https://stella.sh/docs/media/music    (text-to-music)
  *   - https://stella.sh/docs/media/3d       (text-to-3d)
  *
@@ -142,7 +142,7 @@ const KIND_DESCRIPTIONS: Record<MediaDocsKind, string> = {
   images: "image generation and editing",
   video: "text-to-video, image-to-video, and reference-to-video",
   audio:
-    "audio generation (speech, dialogue, sound effects, ambient), speech-to-text, and audio separation",
+    "audio generation (speech, dialogue, sound effects, ambient) and speech-to-text",
   music: "text-to-music generation",
   "3d": "text-to-3d asset generation",
 };
@@ -191,7 +191,7 @@ curl -X POST "$STELLA_API/api/media/v1/generate" \\
 
 - Required: \`source\` (or \`sourceUrl\`) of the image to edit.
 - Convenience fields: \`prompt\`, \`aspectRatio\` (defaults to \`auto\`).
-- Useful \`input\` overrides: \`quality\` (defaults to \`low\`), \`num_images\`, \`mask_url\`.
+- Useful \`input\` overrides: \`quality\` (defaults to \`low\`), \`num_images\`, \`mask_url\` (only when the deployment runs images on fal; OpenRouter has no masked edits).
 
 \`\`\`bash
 curl -X POST "$STELLA_API/api/media/v1/generate" \\
@@ -250,6 +250,7 @@ curl -X POST "$STELLA_API/api/media/v1/generate" \\
 - Convenience fields: \`prompt\`, \`aspectRatio\`.
 - Useful \`input\` fields: \`reference_image_urls\`, \`reference_video_urls\`, \`reference_audio_urls\`, \`duration\`, \`resolution\`, \`prompt_expansion_mode\`.
 - Reference images, videos, and audio may total at most 12 files. Audio cannot be the only reference.
+- Runs on fal only; a deployment without fal answers that it is not set up.
 
 ## Notes for agents
 
@@ -266,7 +267,7 @@ const SECTION_AUDIO = `
 
 - ByteDance Seed Audio 1.0 handles spoken lines, multi-speaker dialogue, Foley/sound effects, and background ambience. For music, use \`text_to_music\`.
 - Convenience field: \`prompt\` describes what to generate.
-- Useful \`input\` overrides: \`voice\` (preset voice id), \`audio_urls\` (up to 3 reference clips for voice cloning — reference them inline in the prompt as \`@Audio1\`/\`@Audio2\`/\`@Audio3\`), \`image_url\` (single reference image; can't be combined with audio refs), \`output_format\` (\`wav\` | \`mp3\` | \`pcm\` | \`ogg_opus\`), \`sample_rate\`, \`speed\`, \`volume\`, \`pitch\`.
+- Useful \`input\` overrides: \`voice\` (preset voice id), \`audio_urls\` (up to 3 reference clips for voice cloning — reference them inline in the prompt as \`@Audio1\`/\`@Audio2\`/\`@Audio3\`), \`image_url\` (single reference image; can't be combined with audio refs), \`output_format\` (\`wav\` | \`mp3\` | \`pcm\` | \`ogg_opus\`), \`sample_rate\`, \`speed\`, \`volume\`, \`pitch\`. On deployments that run audio on OpenRouter the output is always MP3 and only \`voice\`, \`audio_urls\`, \`image_url\` and \`speed\` apply.
 
 \`\`\`bash
 curl -X POST "$STELLA_API/api/media/v1/generate" \\
@@ -296,11 +297,6 @@ curl -X POST "$STELLA_API/api/media/v1/generate" \\
 - Required: \`source\` (or \`sourceUrl\`) of the audio file.
 - Output includes \`text\`, segments, and detected language.
 
-### \`audio_visual_separate\` — isolate audio guided by video
-
-- Required inputs go in \`sources\`: \`{ "video": "data:...", "audio": "data:..." }\`.
-- Output: separated stems / tracks.
-
 ## Notes for agents
 
 - Audio outputs land in \`state/media/outputs/\` as \`.mp3\` / \`.wav\` and play
@@ -314,7 +310,7 @@ const SECTION_MUSIC = `
 
 ### \`text_to_music\` — generate a short music clip
 
-- Google Lyria 3 Pro preview.
+- Google Lyria 3 Pro (on fal or OpenRouter, depending on the deployment). The call answers with the finished MP3.
 - Convenience field: \`prompt\` becomes a single weighted prompt if \`weightedPrompts\` is not supplied.
 - Useful \`input\` fields: \`promptLabel\`, \`weightedPrompts\`, \`musicGenerationConfig\`.
 - \`musicGenerationConfig\` fields: \`bpm\` (55–145), \`density\` (0.05–0.9), \`brightness\` (0.1–0.8), \`guidance\` (2–5), \`temperature\` (0.6–1.4), optional \`musicGenerationMode: "VOCALIZATION"\`.

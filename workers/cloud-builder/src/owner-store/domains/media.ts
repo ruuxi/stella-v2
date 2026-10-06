@@ -6,12 +6,17 @@
  *   `media/<sha256(owner)>/<job>/`; providers and clients read them through
  *   presigned GETs. A job's `output` keeps the provider's shape with each
  *   file `url` swapped for a presigned URL and its `r2Key`.
+ * - **Provider:** each job runs on fal or OpenRouter (`resolveMediaCapability`),
+ *   recorded in the row's `provider`.
  * - **fal jobs** are queued with a webhook that carries a signed routing
  *   token. The webhook schedules `media.poll` with the result, and the poll
  *   (also armed 2 minutes after submission, with backoff) copies outputs,
  *   bills and settles the row. `media.expire` fails anything still open
  *   after 30 minutes.
- * - **Music and speech to text** finish inside the call.
+ * - **OpenRouter video** is submitted in the call and polled every 30 s;
+ *   **OpenRouter images and audio** run in a `media.run` job.
+ * - **Music and speech to text** finish inside the call (fal music is polled
+ *   in the call, its webhook settling it if the call gives up first).
  * - **Crash rule:** a row left in `submitting` with no provider request id
  *   (the object restarted mid-submit) is failed, never resubmitted.
  *
@@ -34,16 +39,28 @@ import {
   getMediaCapability,
   isDataUri,
   MEDIA_ADMISSION_BUFFER_MICRO_CENTS,
-  MEDIA_CAPABILITIES,
   MEDIA_DOCS_URL,
+  mediaCapabilities,
   mediaCostMicroCents,
   planCapabilityFor,
   providerInput,
+  resolveMediaCapability,
   validateProviderInput,
 } from "../../media/catalog.js";
 import { cancelFal, FalError, falWebhookUrl, pollFal, submitFal } from "../../media/fal.js";
-import { generateMusic, parseMusicRequest } from "../../media/lyria.js";
+import { musicPrompt, parseMusicRequest } from "../../media/lyria.js";
+import {
+  downloadOpenRouterFile,
+  generateOpenRouterImages,
+  generateOpenRouterMusic,
+  generateOpenRouterSpeech,
+  OpenRouterMediaError,
+  pollOpenRouterVideo,
+  submitOpenRouterVideo,
+} from "../../media/openrouter.js";
 import { transcribe } from "../../media/openrouter-stt.js";
+import { mediaProviderKey } from "../../media/providers.js";
+import { mp3DurationSeconds } from "../../voice/hls.js";
 import { presignR2Url, r2Signer, type R2Signer } from "../../r2-presign.js";
 import { empty, json, literal, number, object, optional, string, type Parser } from "../args.js";
 import { RpcError } from "../errors.js";
@@ -53,11 +70,18 @@ import { billingAccess, recordBillingIdentity, recordUsage } from "./billing.js"
 
 export const MEDIA_POLL_JOB = "media.poll";
 export const MEDIA_EXPIRE_JOB = "media.expire";
+export const MEDIA_RUN_JOB = "media.run";
 const pollJobId = (jobId: string) => `media.poll:${jobId}`;
 const expireJobId = (jobId: string) => `media.expire:${jobId}`;
+const runJobId = (jobId: string) => `media.run:${jobId}`;
 
 const FIRST_POLL_MS = 2 * 60_000;
 const MAX_POLL_MS = 10 * 60_000;
+/** OpenRouter has no webhook here, so its videos are polled steadily. */
+const OPENROUTER_POLL_MS = 30_000;
+/** How long `media.generate` waits for fal music before leaving it to the webhook. */
+const MUSIC_WAIT_MS = 4 * 60_000;
+const MUSIC_POLL_INTERVAL_MS = 3_000;
 const EXPIRE_MS = 30 * 60_000;
 const RATE_LIMIT = { count: 20, windowMs: 5 * 60_000 };
 /** Inline sources and outputs above this are refused. */
@@ -373,6 +397,7 @@ const resignOutputs = async (ctx: OwnerContext, output: unknown): Promise<unknow
 const clearJobs = (ctx: OwnerContext, jobId: string): void => {
   ctx.jobs.cancel(pollJobId(jobId));
   ctx.jobs.cancel(expireJobId(jobId));
+  ctx.jobs.cancel(runJobId(jobId));
 };
 
 const failJob = (ctx: OwnerContext, jobId: string, error: MediaJobError): void => {
@@ -391,13 +416,27 @@ const errorOf = (error: unknown, fallback: string): MediaJobError => ({
   ...(error instanceof FalError && error.code ? { code: error.code } : {}),
 });
 
+/** fal's Lyria payload in the shape music clients read (`audio.mimeType`, `textParts`). */
+const musicPayload = (row: JobRow, payload: unknown): unknown => {
+  if (row.capability !== "text_to_music" || row.provider !== "fal" || !isRecord(payload)) return payload;
+  const audio = isRecord(payload.audio) ? payload.audio : {};
+  const lyrics = typeof payload.lyrics === "string" ? payload.lyrics.trim() : "";
+  const label = parseJson<StoredRequest>(row.request_json)?.input.promptLabel;
+  return {
+    ...payload,
+    audio: { ...audio, mimeType: typeof audio.content_type === "string" ? audio.content_type : "audio/mpeg" },
+    promptLabel: typeof label === "string" && label.trim() ? label.trim() : null,
+    textParts: lyrics ? [lyrics.slice(0, 2_048)] : [],
+  };
+};
+
 /** Store the outputs, charge the job once and mark it succeeded. */
 const completeJob = async (ctx: OwnerContext, row: JobRow, payload: unknown): Promise<unknown> => {
   const prefix = `${await mediaOwnerPrefix(ctx.ownerId)}${row.job_id}/`;
-  const output = await storeOutputs(ctx, prefix, payload);
+  const output = await storeOutputs(ctx, prefix, musicPayload(row, payload));
   const current = getRow(ctx.db, row.job_id);
   if (!current || TERMINAL.has(current.status)) return output;
-  const capability = getMediaCapability(row.capability);
+  const capability = getMediaCapability(row.capability, row.provider);
   const request = parseJson<StoredRequest>(row.request_json);
   const cost = capability ? mediaCostMicroCents(capability.endpointId, request?.input ?? {}, payload) : null;
   if (cost === null) log("media_job_unpriced", { jobId: row.job_id, capability: row.capability });
@@ -447,12 +486,104 @@ const admit = (ctx: OwnerContext, capabilityId: string): void => {
   enforceOwnerRateLimit(ctx.db, ctx.now, "media.generate", RATE_LIMIT, "Too many media requests. Try again in a few minutes.");
 };
 
-const providerKey = (ctx: OwnerContext, provider: string): string => {
-  const name =
-    provider === "fal" ? "FAL_KEY" : provider === "google_lyria" ? "GOOGLE_AI_API_KEY" : "OPENROUTER_API_KEY";
-  const key = secret(ctx.env, name);
-  if (!key) throw unavailable();
-  return key;
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** Bytes a provider returned inline, stored as the job's `index`th output. */
+const storeBytes = async (
+  ctx: OwnerContext,
+  prefix: string,
+  index: number,
+  bytes: Uint8Array,
+  contentType: string,
+): Promise<{ url: string; r2Key: string; content_type: string; file_size: number }> => {
+  const key = `${prefix}${index}`;
+  await bucketOf(ctx).put(key, bytes, { httpMetadata: { contentType } });
+  return {
+    url: await signGet(signerOf(ctx), key, OUTPUT_URL_SECONDS, Date.now()),
+    r2Key: key,
+    content_type: contentType,
+    file_size: bytes.byteLength,
+  };
+};
+
+const withUsage = (cost: number | null): { usage?: { cost: number } } => (cost !== null ? { usage: { cost } } : {});
+
+/** OpenRouter image, audio and music generations: one synchronous call, outputs stored. */
+const runOpenRouter = async (
+  ctx: OwnerContext,
+  jobId: string,
+  capabilityId: string,
+  endpointId: string,
+  apiKey: string,
+  input: Record<string, unknown>,
+): Promise<unknown> => {
+  const prefix = `${await mediaOwnerPrefix(ctx.ownerId)}${jobId}/`;
+  if (capabilityId === "text_to_image" || capabilityId === "image_edit") {
+    const result = await generateOpenRouterImages(apiKey, endpointId, input);
+    const images = await Promise.all(
+      result.images.map((image, index) => storeBytes(ctx, prefix, index, image.bytes, image.contentType)),
+    );
+    return { images, ...withUsage(result.cost) };
+  }
+  if (capabilityId === "audio_generation") {
+    const result = await generateOpenRouterSpeech(apiKey, endpointId, input);
+    const duration = mp3DurationSeconds(result.bytes);
+    const audio = await storeBytes(ctx, prefix, 0, result.bytes, result.contentType);
+    return { audio: { ...audio, ...(duration !== null ? { duration } : {}) }, ...(duration !== null ? { duration } : {}) };
+  }
+  if (capabilityId === "text_to_music") {
+    const request = parseMusicRequest(input)!;
+    const result = await generateOpenRouterMusic(apiKey, endpointId, musicPrompt(request));
+    const audio = await storeBytes(ctx, prefix, 0, result.bytes, result.mimeType);
+    return {
+      audio: { ...audio, mimeType: result.mimeType },
+      promptLabel: request.promptLabel,
+      textParts: result.textParts,
+      ...withUsage(result.cost),
+    };
+  }
+  if (capabilityId === "speech_to_text") return await transcribe(apiKey, endpointId, input);
+  throw new Error(`${capabilityId} does not run synchronously on OpenRouter.`);
+};
+
+/** The input fal takes: music folds its weighted prompts into one text prompt. */
+const falInput = (capabilityId: string, staged: Record<string, unknown>): Record<string, unknown> => {
+  if (capabilityId !== "text_to_music") return staged;
+  const request = parseMusicRequest(staged)!;
+  return { prompt: musicPrompt(request), ...(typeof staged.image_url === "string" ? { image_url: staged.image_url } : {}) };
+};
+
+/** Wait in the call for fal music, settling it here when it finishes in time. */
+const awaitFalMusic = async (
+  ctx: OwnerContext,
+  jobId: string,
+  endpointId: string,
+  apiKey: string,
+): Promise<MediaGenerateAccepted> => {
+  const deadline = Date.now() + MUSIC_WAIT_MS;
+  while (Date.now() < deadline) {
+    await sleep(MUSIC_POLL_INTERVAL_MS);
+    const row = getRow(ctx.db, jobId);
+    if (!row) throw new RpcError("CONFLICT", "This media request was canceled.");
+    if (row.status === "canceled") throw new RpcError("CONFLICT", "This media request was canceled.");
+    if (row.status === "failed") {
+      throw new RpcError("UNAVAILABLE", `Media generation failed: ${parseJson<MediaJobError>(row.error_json)?.message ?? "unknown error"}`, {
+        retryable: false,
+      });
+    }
+    if (row.status === "succeeded") return accepted(row, false);
+    if (!row.provider_request_id) continue;
+    const outcome = await pollFal(apiKey, endpointId, row.provider_request_id).catch(() => null);
+    if (outcome?.state === "succeeded") {
+      const output = await completeJob(ctx, row, outcome.payload);
+      return { ...accepted(getRow(ctx.db, jobId) ?? row, false), output };
+    }
+    if (outcome?.state === "failed") {
+      failJob(ctx, jobId, { message: outcome.message, ...(outcome.code ? { code: outcome.code } : {}) });
+      throw new RpcError("UNAVAILABLE", `Media generation failed: ${outcome.message}`, { retryable: false });
+    }
+  }
+  return accepted(getRow(ctx.db, jobId)!, false);
 };
 
 const startJob = async (
@@ -460,7 +591,8 @@ const startJob = async (
   request: MediaGenerateRequest,
   origin: { conversationId?: string; turnId?: string } = {},
 ): Promise<MediaGenerateAccepted> => {
-  const capability = getMediaCapability(request.capability);
+  const resolved = resolveMediaCapability(ctx.env, request.capability);
+  const capability = resolved.capability;
   if (!capability) throw new RpcError("BAD_REQUEST", `Unknown capability. See ${MEDIA_DOCS_URL}.`);
   const input = providerInput(capability, request);
   const invalid = validateProviderInput(capability, request, input);
@@ -478,7 +610,14 @@ const startJob = async (
     }
   }
   admit(ctx, capability.id);
-  const apiKey = providerKey(ctx, capability.provider);
+  if (!resolved.provider) {
+    throw unavailable(
+      capability.id === "text_to_3d"
+        ? "3D generation is not set up on this Stella deployment (it needs fal)."
+        : "Media generation is not configured yet.",
+    );
+  }
+  const { provider, apiKey } = resolved;
   const jobId = crypto.randomUUID();
   const now = Date.now();
   const summary = (staged: Record<string, unknown>): string =>
@@ -497,7 +636,7 @@ const startJob = async (
     jobId,
     clientRequestKey,
     capability.id,
-    capability.provider,
+    provider,
     // Inline sources are swapped for their staged URLs below; rows stay small.
     summary(
       Object.fromEntries(
@@ -518,7 +657,7 @@ const startJob = async (
   );
   ctx.jobs.schedule(MEDIA_POLL_JOB, now + FIRST_POLL_MS, { jobId, attempt: 0 }, { id: pollJobId(jobId) });
   ctx.jobs.schedule(MEDIA_EXPIRE_JOB, now + EXPIRE_MS, { jobId }, { id: expireJobId(jobId) });
-  log("media_job_started", { jobId, capability: capability.id, provider: capability.provider });
+  log("media_job_started", { jobId, capability: capability.id, provider });
 
   inFlight.add(jobId);
   try {
@@ -532,7 +671,7 @@ const startJob = async (
     }
     ctx.db.run("UPDATE media_jobs SET request_json = ? WHERE job_id = ?", summary(staged), jobId);
 
-    if (capability.provider === "fal") {
+    if (provider === "fal") {
       const baseUrl = ctx.env.CLOUD_BUILDER_PUBLIC_URL;
       const signingSecret = secret(ctx.env, "MEDIA_SIGNING_SECRET");
       if (!baseUrl || !signingSecret) {
@@ -543,7 +682,7 @@ const startJob = async (
         const submitted = await submitFal({
           apiKey,
           endpointId: capability.endpointId,
-          input: staged,
+          input: falInput(capability.id, staged),
           webhookUrl: await falWebhookUrl({ baseUrl, secret: signingSecret, ownerId: ctx.ownerId, jobId, now }),
         });
         const status = submitted.status === "IN_PROGRESS" ? "running" : "queued";
@@ -573,27 +712,41 @@ const startJob = async (
         );
         log("media_submit_ambiguous", { jobId, message: error instanceof Error ? error.message : String(error) });
       }
+      if (capability.id === "text_to_music") return await awaitFalMusic(ctx, jobId, capability.endpointId, apiKey);
+      return accepted(getRow(ctx.db, jobId)!, false);
+    }
+
+    if (capability.category === "video") {
+      try {
+        const submitted = await submitOpenRouterVideo(apiKey, capability.endpointId, staged);
+        ctx.db.run(
+          `UPDATE media_jobs SET provider_request_id = ?,
+             status = CASE WHEN status = 'submitting' THEN 'queued' ELSE status END, updated_at = ?
+           WHERE job_id = ?`,
+          submitted.id,
+          Date.now(),
+          jobId,
+        );
+        ctx.jobs.schedule(MEDIA_POLL_JOB, Date.now() + OPENROUTER_POLL_MS, { jobId, attempt: 0 }, { id: pollJobId(jobId) });
+      } catch (error) {
+        failJob(ctx, jobId, errorOf(error, "Media generation failed upstream."));
+        if (error instanceof OpenRouterMediaError && error.definitive) {
+          throw new RpcError("BAD_REQUEST", `Media generation failed: ${error.message}`);
+        }
+        throw new RpcError("UNAVAILABLE", `Media generation failed: ${errorOf(error, "unknown error").message}`, {
+          retryable: false,
+        });
+      }
+      return accepted(getRow(ctx.db, jobId)!, false);
+    }
+
+    if (capability.id !== "text_to_music" && capability.id !== "speech_to_text") {
+      ctx.jobs.schedule(MEDIA_RUN_JOB, Date.now(), { jobId }, { id: runJobId(jobId) });
       return accepted(getRow(ctx.db, jobId)!, false);
     }
 
     try {
-      let payload: unknown;
-      if (capability.provider === "google_lyria") {
-        const music = await generateMusic(apiKey, parseMusicRequest(staged)!);
-        const key = `${prefix}0`;
-        await bucketOf(ctx).put(key, music.bytes, { httpMetadata: { contentType: music.mimeType } });
-        payload = {
-          audio: {
-            url: await signGet(signerOf(ctx), key, OUTPUT_URL_SECONDS, Date.now()),
-            r2Key: key,
-            mimeType: music.mimeType,
-          },
-          promptLabel: music.promptLabel,
-          textParts: music.textParts,
-        };
-      } else {
-        payload = await transcribe(apiKey, capability.endpointId, staged);
-      }
+      const payload = await runOpenRouter(ctx, jobId, capability.id, capability.endpointId, apiKey, staged);
       const row = getRow(ctx.db, jobId);
       if (!row || row.status === "canceled") throw new RpcError("CONFLICT", "This media request was canceled.");
       const output = await completeJob(ctx, row, payload);
@@ -608,6 +761,52 @@ const startJob = async (
   } finally {
     inFlight.delete(jobId);
   }
+};
+
+/** An OpenRouter image or audio job, run outside the call that started it. */
+const runJob = async (ctx: OwnerContext, raw: unknown): Promise<void> => {
+  const { jobId } = object({ jobId: string({ max: 100 }) })(raw);
+  const row = getRow(ctx.db, jobId);
+  if (!row || TERMINAL.has(row.status) || row.provider !== "openrouter") return;
+  const capability = getMediaCapability(row.capability, row.provider);
+  const apiKey = mediaProviderKey(ctx.env, "openrouter");
+  if (!capability || !apiKey) {
+    failJob(ctx, jobId, { message: "Media generation is not configured yet." });
+    return;
+  }
+  inFlight.add(jobId);
+  try {
+    ctx.db.run("UPDATE media_jobs SET status = 'running', updated_at = ? WHERE job_id = ? AND status = 'submitting'", Date.now(), jobId);
+    const input = parseJson<StoredRequest>(row.request_json)?.input ?? {};
+    const payload = await runOpenRouter(ctx, jobId, capability.id, capability.endpointId, apiKey, input);
+    const current = getRow(ctx.db, jobId);
+    if (!current || TERMINAL.has(current.status)) return;
+    await completeJob(ctx, current, payload);
+  } catch (error) {
+    failJob(ctx, jobId, errorOf(error, "Media generation failed upstream."));
+    log("media_job_failed", { jobId, provider: "openrouter", message: errorOf(error, "unknown error").message });
+  } finally {
+    inFlight.delete(jobId);
+  }
+};
+
+/** Copy a finished OpenRouter video into the bucket. */
+const storeOpenRouterVideo = async (
+  ctx: OwnerContext,
+  jobId: string,
+  apiKey: string,
+  url: string,
+  cost: number | null,
+): Promise<unknown> => {
+  const key = `${await mediaOwnerPrefix(ctx.ownerId)}${jobId}/0`;
+  const response = await downloadOpenRouterFile(apiKey, url);
+  const declared = Number(response.headers.get("content-length"));
+  const contentType = response.headers.get("content-type")?.split(";")[0]?.trim() || "video/mp4";
+  await putStream(bucketOf(ctx), key, response.body!, Number.isSafeInteger(declared) && declared > 0 ? declared : null, contentType);
+  return {
+    video: { url: await signGet(signerOf(ctx), key, OUTPUT_URL_SECONDS, Date.now()), r2Key: key, content_type: contentType },
+    ...withUsage(cost),
+  };
 };
 
 const findRow = (ctx: OwnerContext, args: { jobId?: string; clientRequestKey?: string }): JobRow | null =>
@@ -626,8 +825,8 @@ const cancelJob = async (
   if (TERMINAL.has(row.status)) return { state: "terminal", jobId: row.job_id };
   ctx.db.run("UPDATE media_jobs SET status = 'canceled', updated_at = ? WHERE job_id = ?", Date.now(), row.job_id);
   clearJobs(ctx, row.job_id);
-  const apiKey = secret(ctx.env, "FAL_KEY");
-  const capability = getMediaCapability(row.capability);
+  const apiKey = mediaProviderKey(ctx.env, "fal");
+  const capability = getMediaCapability(row.capability, row.provider);
   if (row.provider === "fal" && row.provider_request_id && apiKey && capability) {
     await cancelFal(apiKey, capability.endpointId, row.provider_request_id).catch((error) =>
       log("media_cancel_failed", { jobId: row.job_id, message: String(error) }),
@@ -660,7 +859,10 @@ const runPoll = async (ctx: OwnerContext, raw: unknown): Promise<void> => {
   const later = () =>
     ctx.jobs.schedule(
       MEDIA_POLL_JOB,
-      Date.now() + Math.min(MAX_POLL_MS, FIRST_POLL_MS * 2 ** (attempt + 1)),
+      Date.now() +
+        (row.provider === "openrouter" && row.provider_request_id
+          ? OPENROUTER_POLL_MS
+          : Math.min(MAX_POLL_MS, FIRST_POLL_MS * 2 ** (attempt + 1))),
       { jobId: row.job_id, attempt: attempt + 1 },
       { id: pollJobId(row.job_id) },
     );
@@ -676,8 +878,24 @@ const runPoll = async (ctx: OwnerContext, raw: unknown): Promise<void> => {
     // An ambiguous fal submission waits for its webhook or `media.expire`.
     return;
   }
-  const capability = getMediaCapability(row.capability);
-  const apiKey = secret(ctx.env, "FAL_KEY");
+  const capability = getMediaCapability(row.capability, row.provider);
+  if (row.provider === "openrouter") {
+    const apiKey = mediaProviderKey(ctx.env, "openrouter");
+    if (!capability || !apiKey) return;
+    const outcome = await pollOpenRouterVideo(apiKey, row.provider_request_id);
+    if (outcome.state === "succeeded") {
+      await completeJob(ctx, row, await storeOpenRouterVideo(ctx, row.job_id, apiKey, outcome.urls[0]!, outcome.cost));
+    } else if (outcome.state === "failed") {
+      failJob(ctx, row.job_id, { message: outcome.message });
+    } else {
+      if (outcome.running && row.status === "queued") {
+        ctx.db.run("UPDATE media_jobs SET status = 'running', updated_at = ? WHERE job_id = ?", Date.now(), row.job_id);
+      }
+      later();
+    }
+    return;
+  }
+  const apiKey = mediaProviderKey(ctx.env, "fal");
   if (!capability || !apiKey) return;
   const outcome = await pollFal(apiKey, capability.endpointId, row.provider_request_id);
   if (outcome.state === "succeeded") {
@@ -697,9 +915,9 @@ const runExpire = async (ctx: OwnerContext, raw: unknown): Promise<void> => {
   const row = getRow(ctx.db, jobId);
   if (!row || TERMINAL.has(row.status)) return;
   failJob(ctx, jobId, { code: "timeout", message: "Media generation took too long." });
-  const capability = getMediaCapability(row.capability);
-  const apiKey = secret(ctx.env, "FAL_KEY");
-  if (row.provider_request_id && capability && apiKey) {
+  const capability = getMediaCapability(row.capability, row.provider);
+  const apiKey = mediaProviderKey(ctx.env, "fal");
+  if (row.provider === "fal" && row.provider_request_id && capability && apiKey) {
     await cancelFal(apiKey, capability.endpointId, row.provider_request_id).catch(() => undefined);
   }
 };
@@ -843,10 +1061,10 @@ const purgeMedia = async (ctx: OwnerContext): Promise<{ pending: boolean }> => {
   const rows = ctx.db.all<Pick<JobRow, "job_id" | "capability" | "provider" | "provider_request_id" | "status">>(
     "SELECT job_id, capability, provider, provider_request_id, status FROM media_jobs",
   );
-  const apiKey = secret(ctx.env, "FAL_KEY");
+  const apiKey = mediaProviderKey(ctx.env, "fal");
   for (const row of rows) {
     clearJobs(ctx, row.job_id);
-    const capability = getMediaCapability(row.capability);
+    const capability = getMediaCapability(row.capability, row.provider);
     if (!TERMINAL.has(row.status) && row.provider === "fal" && row.provider_request_id && apiKey && capability) {
       await cancelFal(apiKey, capability.endpointId, row.provider_request_id).catch(() => undefined);
     }
@@ -869,7 +1087,7 @@ export const mediaDomain = {
     "media.capabilities": {
       scope: "global",
       parse: empty(),
-      handler: () => ({ data: MEDIA_CAPABILITIES.map((capability) => ({ ...capability })), docsUrl: MEDIA_DOCS_URL }),
+      handler: (ctx) => ({ data: mediaCapabilities(ctx.env), docsUrl: MEDIA_DOCS_URL }),
     },
     "media.generate": {
       scope: "owner",
@@ -928,6 +1146,7 @@ export const mediaDomain = {
   jobs: {
     [MEDIA_POLL_JOB]: { run: runPoll },
     [MEDIA_EXPIRE_JOB]: { run: runExpire },
+    [MEDIA_RUN_JOB]: { run: runJob, maxAttempts: 1 },
   },
   purge: (ctx: OwnerContext) => purgeMedia(ctx),
 } satisfies OwnerDomain;

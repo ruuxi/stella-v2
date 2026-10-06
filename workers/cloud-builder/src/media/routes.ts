@@ -16,7 +16,7 @@ import { rpcErrorStatus, type RpcResponse } from "@stella/contracts/backend/prot
 import { sha256Hex } from "../hash.js";
 import { verifyCaller } from "../owner-store/routes.js";
 import type { OwnerCaller } from "../owner-store/registry.js";
-import { MEDIA_CAPABILITIES, MEDIA_DOCS_URL } from "./catalog.js";
+import { MEDIA_DOCS_URL, mediaCapabilities } from "./catalog.js";
 import { FAL_WEBHOOK_PATH, verifyFalSignature, verifyFalWebhookToken } from "./fal.js";
 
 const BASE = "/api/media/v1";
@@ -175,7 +175,7 @@ export const handleMediaRoute = async (request: Request, env: RouteEnv): Promise
   if (!path.startsWith(`${BASE}/`)) return null;
   if (path === `${BASE}/capabilities`) {
     return request.method === "GET"
-      ? json({ data: MEDIA_CAPABILITIES, docsUrl: MEDIA_DOCS_URL })
+      ? json({ data: mediaCapabilities(env), docsUrl: MEDIA_DOCS_URL })
       : fail(405, "Method not allowed.");
   }
   if (path === `${BASE}/generate`) {

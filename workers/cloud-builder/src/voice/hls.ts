@@ -1,19 +1,14 @@
 /**
  * Mobile read-aloud over HLS. Native players (AVPlayer, ExoPlayer) cannot
- * play a length-less `audio/mpeg` stream, so one synthesis streams Gemini,
- * re-encodes its PCM to MP3, cuts it into ~2 s packed-audio segments and
+ * play a length-less `audio/mpeg` stream, so one synthesis streams the TTS
+ * provider's PCM (`tts.ts`), re-encodes it to MP3, cuts it into ~2 s packed-audio segments and
  * writes each to `MEDIA` at `tts/<ticket>/seg-<n>.mp3`, updating
  * `tts/<ticket>/index.json` after every segment. The playlist route reads
- * that manifest, so the first segment plays while Gemini is still speaking.
+ * that manifest, so the first segment plays while synthesis continues.
  * A bucket lifecycle rule deletes `tts/` after a day.
  */
 
-import {
-  buildGeminiTtsRequest,
-  createGeminiTtsStreamPipeline,
-  resolveGeminiTtsUsage,
-  type GeminiTtsUsage,
-} from "./gemini-tts.js";
+import { createPcmMp3Encoder, estimateTtsUsage, openTtsPcm, type TtsProvider, type TtsUsage } from "./tts.js";
 import { ttsObjectKey } from "./ticket.js";
 
 /** Short enough that the first segment plays almost at once. */
@@ -90,6 +85,24 @@ const id3v2Length = (buf: Uint8Array): number => {
   return total <= buf.length ? total : 0;
 };
 
+/** The playing time of a complete MP3 file, or null when it has no frames. */
+export const mp3DurationSeconds = (buf: Uint8Array): number | null => {
+  let cursor = id3v2Length(buf);
+  let seconds = 0;
+  let frames = 0;
+  while (cursor + 4 <= buf.length) {
+    const frame = readFrame(buf, cursor);
+    if (!frame) {
+      cursor += 1;
+      continue;
+    }
+    seconds += frame.durationSec;
+    frames += 1;
+    cursor += frame.frameLen;
+  }
+  return frames > 0 ? Math.round(seconds * 1000) / 1000 : null;
+};
+
 const concat = (parts: Uint8Array[]): Uint8Array => {
   let total = 0;
   for (const part of parts) total += part.length;
@@ -131,7 +144,7 @@ const id3Timestamp = (startSec: number): Uint8Array => {
 export type HlsSynthesisResult = {
   status: "done" | "error" | "canceled";
   segments: number;
-  usage: GeminiTtsUsage;
+  usage: TtsUsage | null;
 };
 
 /**
@@ -141,7 +154,7 @@ export type HlsSynthesisResult = {
  */
 export const synthesizeHls = async (input: {
   bucket: R2Bucket;
-  apiKey: string;
+  env: object;
   ticket: string;
   text: string;
   voice: string;
@@ -153,9 +166,9 @@ export const synthesizeHls = async (input: {
     input.bucket.put(ttsObjectKey(input.ticket, HLS_MANIFEST_FILE), JSON.stringify(manifest), {
       httpMetadata: { contentType: "application/json" },
     });
-  const pipeline = createGeminiTtsStreamPipeline();
-  const usage = () =>
-    resolveGeminiTtsUsage({ reported: pipeline.usage, requestChars: input.text.length, pcmBytes: pipeline.pcmBytes });
+  const encoder = createPcmMp3Encoder();
+  let provider: TtsProvider | null = null;
+  const usage = () => (provider ? estimateTtsUsage(provider, input.text.length, encoder.pcmBytes) : null);
   const finish = async (status: HlsSynthesisResult["status"]): Promise<HlsSynthesisResult> => {
     manifest.done = true;
     manifest.error = status === "error" && manifest.segments.length === 0;
@@ -164,17 +177,16 @@ export const synthesizeHls = async (input: {
   };
 
   const signal = AbortSignal.timeout(SYNTHESIS_TIMEOUT_MS);
-  let upstream: Response;
+  let source: ReadableStream<Uint8Array>;
   try {
-    upstream = await fetch(
-      ...buildGeminiTtsRequest({ apiKey: input.apiKey, text: input.text, voice: input.voice, stream: true, signal }),
-    );
-  } catch {
-    return await finish("error");
-  }
-  if (!upstream.ok || !upstream.body) {
-    await upstream.body?.cancel().catch(() => undefined);
-    console.error(JSON.stringify({ event: "tts_hls_provider_failed", status: upstream.status }));
+    const opened = await openTtsPcm(input.env, { text: input.text, voice: input.voice, signal });
+    provider = opened.provider;
+    source = opened.pcm;
+  } catch (error) {
+    console.error(JSON.stringify({
+      event: "tts_hls_provider_failed",
+      message: error instanceof Error ? error.message : String(error),
+    }));
     return await finish("error");
   }
 
@@ -225,21 +237,18 @@ export const synthesizeHls = async (input: {
     mp3 = cursor > 0 ? mp3.slice(cursor) : mp3;
   };
 
-  const reader = upstream.body.getReader();
+  const reader = source.getReader();
   try {
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
-      if (value) await ingest(pipeline.push(value));
+      if (value) await ingest(encoder.push(value));
       if (input.canceled() || capped) {
         await reader.cancel().catch(() => undefined);
         return await finish(capped ? "done" : "canceled");
       }
     }
-    await ingest(pipeline.finish());
-    if (pipeline.error) {
-      console.error(JSON.stringify({ event: "tts_hls_stream_error", message: pipeline.error }));
-    }
+    await ingest(encoder.finish());
     if (!capped) await flush();
     return await finish(manifest.segments.length > 0 ? "done" : "error");
   } catch (error) {

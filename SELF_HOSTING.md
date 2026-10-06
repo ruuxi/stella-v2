@@ -372,9 +372,10 @@ Secrets go on **cloud-builder** unless noted.
 | Email sign-in (magic links) | var `STELLA_EMAIL_FROM` on a domain enabled for Email Sending (see 1.6); or, instead or as a fallback, `RESEND_API_KEY`, `RESEND_FROM`; optional `STELLA_EMAIL_LOGO_URL` | Cloudflare Email Service (Resend fallback) | Magic links answer 503 "Email sign-in isn't set up" |
 | Google / Apple sign-in | see 1.6 | Google, Apple | The provider isn't offered |
 | Web search tool | `PARALLEL_API_KEY` | Parallel | The tool reports it isn't configured |
-| Image, video, audio, 3D generation | `FAL_KEY`, `MEDIA_SIGNING_SECRET` (`openssl rand -hex 32`) | fal.ai | 503 "Media generation is not configured yet" |
-| Music | `GOOGLE_AI_API_KEY` | Google AI Studio (Lyria) | Unavailable |
-| Read-aloud (TTS) | `GOOGLE_AI_API_KEY` (Gemini TTS) or `OPENAI_API_KEY`; mobile streaming also `MEDIA_SIGNING_SECRET` | Google AI Studio / OpenAI | 503 "read-aloud is not configured yet" |
+| Image, video and audio generation | `OPENROUTER_API_KEY` (cloud-builder's own copy) or `FAL_KEY`; fal also needs `MEDIA_SIGNING_SECRET` (`openssl rand -hex 32`) for its webhooks. With both keys fal serves these unless var `STELLA_MEDIA_PROVIDER` = `openrouter` | fal.ai or OpenRouter (GPT Image 2, MiniMax H3 Max, Seed Audio 1.0) | 503 "Media generation is not configured yet". On OpenRouter there are no masked image edits, video is 480p/768p only, and `reference_to_video` still needs fal |
+| 3D generation | `FAL_KEY`, `MEDIA_SIGNING_SECRET` | fal.ai (Hunyuan 3D) | 503 "3D generation is not set up" |
+| Music | `OPENROUTER_API_KEY` or `FAL_KEY` (+ `MEDIA_SIGNING_SECRET`); fal with both, unless `STELLA_MEDIA_PROVIDER` = `openrouter` | Lyria 3 Pro on fal or OpenRouter ($0.08 a track either way) | 503 "Media generation is not configured yet" |
+| Read-aloud (TTS) | `OPENROUTER_API_KEY` or `FAL_KEY`; OpenRouter with both (cheaper, one hop), unless `STELLA_MEDIA_PROVIDER` = `fal`. Mobile streaming also `MEDIA_SIGNING_SECRET`; the OpenAI read-aloud voice uses `OPENAI_API_KEY` | Gemini 3.8 Flash Lite TTS on OpenRouter or fal; OpenAI | 503 "read-aloud is not configured yet" |
 | Realtime voice | `OPENAI_API_KEY` | OpenAI Realtime | Unavailable (users can still bring their own xAI / Inworld keys on desktop) |
 | Dictation | `OPENROUTER_API_KEY` (cloud-builder's own copy); optional var `STELLA_DICTATION_MODEL` (default `meta/muse-voice-transcribe-1.0`) | OpenRouter | Desktop users are asked for their own OpenRouter key on their first mic press; it stays on their computer. `META_MODEL_API_KEY` only serves the legacy realtime socket for older clients |
 | Speech-to-text media capability | `OPENROUTER_API_KEY` (cloud-builder's own copy) | OpenRouter | Unavailable |

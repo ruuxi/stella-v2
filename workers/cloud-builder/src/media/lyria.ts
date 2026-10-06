@@ -1,12 +1,9 @@
 /**
- * Lyria 3 music clips through the Gemini REST API, without the SDK: one
- * `generateContent` request answers
- * with the clip inline.
+ * Lyria 3 music requests: the weighted prompts and musical settings a client
+ * sends, folded into the one text prompt fal (`fal-ai/lyria3/pro`) and
+ * OpenRouter (`google/lyria-3-pro-preview`) both take.
  */
 
-const LYRIA_MODEL = "lyria-3-pro-preview";
-const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
-const TIMEOUT_MS = 90_000;
 const VOCALIZATION = "VOCALIZATION";
 
 type WeightedPrompt = { text: string; weight: number };
@@ -22,13 +19,6 @@ export type MusicRequest = {
     vocalization: boolean;
   };
   promptLabel: string | null;
-};
-
-export type GeneratedMusic = {
-  bytes: Uint8Array;
-  mimeType: string;
-  promptLabel: string | null;
-  textParts: string[];
 };
 
 const finite = (value: unknown): number | null =>
@@ -87,7 +77,7 @@ export const parseMusicRequest = (value: unknown): MusicRequest | null => {
   };
 };
 
-const musicPrompt = ({ weightedPrompts, config, promptLabel }: MusicRequest): string =>
+export const musicPrompt = ({ weightedPrompts, config, promptLabel }: MusicRequest): string =>
   [
     "Generate a polished 30-second music clip.",
     promptLabel ? `Title or concept: ${promptLabel}.` : null,
@@ -108,49 +98,3 @@ const musicPrompt = ({ weightedPrompts, config, promptLabel }: MusicRequest): st
   ]
     .filter((line): line is string => Boolean(line))
     .join("\n");
-
-const base64ToBytes = (value: string): Uint8Array => {
-  const binary = atob(value);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-  return bytes;
-};
-
-type GeminiPart = { text?: string; inlineData?: { data?: string; mimeType?: string } };
-
-export const generateMusic = async (apiKey: string, request: MusicRequest): Promise<GeneratedMusic> => {
-  const response = await fetch(`${GEMINI_BASE}/models/${LYRIA_MODEL}:generateContent`, {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
-    body: JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: musicPrompt(request) }] }],
-      generationConfig: { responseModalities: ["AUDIO", "TEXT"] },
-    }),
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  });
-  const text = await response.text();
-  if (!response.ok) throw new Error(`Lyria returned ${response.status}: ${text.slice(0, 300)}`);
-  const body = JSON.parse(text) as {
-    candidates?: Array<{ content?: { parts?: GeminiPart[] } }>;
-    promptFeedback?: { blockReason?: string; blockReasonMessage?: string };
-  };
-  const parts = body.candidates?.flatMap((candidate) => candidate.content?.parts ?? []) ?? [];
-  const audio = parts.find((part) => part.inlineData?.data && part.inlineData.mimeType);
-  if (!audio?.inlineData?.data || !audio.inlineData.mimeType) {
-    throw new Error(
-      body.promptFeedback?.blockReasonMessage ??
-        body.promptFeedback?.blockReason ??
-        "No audio was returned by Lyria 3.",
-    );
-  }
-  return {
-    bytes: base64ToBytes(audio.inlineData.data),
-    mimeType: audio.inlineData.mimeType,
-    promptLabel: request.promptLabel,
-    textParts: parts
-      .map((part) => part.text?.trim() ?? "")
-      .filter((part) => part.length > 0)
-      .slice(0, 16)
-      .map((part) => part.slice(0, 2_048)),
-  };
-};

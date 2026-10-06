@@ -89,8 +89,8 @@ export type MediaCapability = {
   id: string;
   name: string;
   description: string;
-  category: "audio" | "image" | "video" | "3d" | "analysis";
-  provider: "fal" | "google_lyria" | "openrouter";
+  category: "audio" | "image" | "video" | "3d";
+  provider: "fal" | "openrouter";
   endpointId: string;
   docsUrl: string;
   promptKey?: string;

@@ -23,7 +23,7 @@ import {
   type VoiceToolSchema,
 } from "@stella/contracts/backend/voice";
 import { log } from "../../build-session/shared/keys.js";
-import { resolveGeminiTtsVoice } from "../../voice/gemini-tts.js";
+import { resolveGeminiTtsVoice, ttsProvider } from "../../voice/tts.js";
 import { synthesizeHls } from "../../voice/hls.js";
 import { mediaSigningSecret, signTtsTicket, ttsOwnerPrefix } from "../../voice/ticket.js";
 import { array, empty, json, literal, number, object, optional, string, type Parser } from "../args.js";
@@ -524,7 +524,7 @@ const prepareTts = async (
   const text = ttsText(args.text);
   if (!text) throw new RpcError("BAD_REQUEST", "text is required.");
   const signingSecret = mediaSigningSecret(ctx.env);
-  if (!signingSecret || !ctx.env.MEDIA || !secret(ctx.env, "GOOGLE_AI_API_KEY")) {
+  if (!signingSecret || !ctx.env.MEDIA || !ttsProvider(ctx.env)) {
     throw new RpcError("UNAVAILABLE", "Stella read-aloud is not configured yet.", { retryable: false });
   }
   admitTts(ctx, text.length);
@@ -546,15 +546,14 @@ const streamStatus = (ctx: OwnerContext, id: string): string | null =>
 const synthesize = async (ctx: OwnerContext, payload: unknown): Promise<void> => {
   const job = payload as { id: string; ticket: string; text: string; voice: string };
   if (streamStatus(ctx, job.id) !== "synthesizing") return;
-  const apiKey = secret(ctx.env, "GOOGLE_AI_API_KEY");
-  if (!apiKey || !ctx.env.MEDIA) {
+  if (!ttsProvider(ctx.env) || !ctx.env.MEDIA) {
     ctx.db.run("UPDATE tts_streams SET status = 'error' WHERE id = ?", job.id);
     return;
   }
   const startedAt = Date.now();
   const result = await synthesizeHls({
     bucket: ctx.env.MEDIA,
-    apiKey,
+    env: ctx.env,
     ticket: job.ticket,
     text: job.text,
     voice: job.voice,

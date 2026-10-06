@@ -11,7 +11,8 @@
  * Everything but the HLS GETs takes the user's bearer JWT. The HLS GETs come
  * from a native player that cannot send headers, so the signed ticket in the
  * path authorizes them and they read `MEDIA` without touching the owner's
- * object. Provider keys never leave the Worker; read-aloud spend is logged
+ * object. Read-aloud runs Gemini TTS on OpenRouter or fal (`tts.ts`).
+ * Provider keys never leave the Worker; read-aloud spend is logged
  * (`tts_usage`), not charged, since read-aloud is free on every plan.
  */
 
@@ -36,13 +37,7 @@ import { RpcError, toBackendError, unwrapRpc } from "../owner-store/errors.js";
 import { verifyCaller } from "../owner-store/routes.js";
 import type { OwnerCaller } from "../owner-store/registry.js";
 import { ttsText } from "../owner-store/domains/voice.js";
-import {
-  buildGeminiTtsRequest,
-  createGeminiTtsStreamPipeline,
-  parseGeminiTtsUnaryResponse,
-  resolveGeminiTtsUsage,
-  resolveGeminiTtsVoice,
-} from "./gemini-tts.js";
+import { createPcmMp3Encoder, estimateTtsUsage, openTtsPcm, pcmToWav, resolveGeminiTtsVoice, ttsProvider } from "./tts.js";
 import { buildHlsPlaylist, HLS_MANIFEST_FILE, type HlsManifest } from "./hls.js";
 import { mediaSigningSecret, ttsObjectKey, verifyTtsTicket } from "./ticket.js";
 
@@ -174,33 +169,38 @@ const openAiSdp = async (request: Request, env: VoiceEnv): Promise<Response> => 
 
 const logTtsUsage = (fields: Record<string, unknown>) => log("info", "tts_usage", fields);
 
-/** Gemini's streaming synthesis, re-encoded to one progressive MP3 stream. */
+const notConfigured = () => new RpcError("UNAVAILABLE", "Stella read-aloud is not configured yet.", { retryable: false });
+
+const openPcm = async (env: VoiceEnv, text: string, voice: string, transport: string) => {
+  try {
+    return await openTtsPcm(env, { text, voice, signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS) });
+  } catch (error) {
+    log("error", "tts_provider_failed", { transport, message: error instanceof Error ? error.message : String(error) });
+    throw new RpcError("UNAVAILABLE", "Speech generation failed.");
+  }
+};
+
+/** Streaming synthesis, re-encoded to one progressive MP3 stream. */
 const ttsStream = async (request: Request, env: VoiceEnv): Promise<Response> => {
   const caller = await authenticate(request, env);
   const body = await readJson(request);
-  const apiKey = secret(env, "GOOGLE_AI_API_KEY");
-  if (!apiKey) throw new RpcError("UNAVAILABLE", "Stella read-aloud is not configured yet.", { retryable: false });
+  if (!ttsProvider(env)) throw notConfigured();
   const text = await admitText(env, caller, body.text);
   const voice = resolveGeminiTtsVoice(body.voice);
   const startedAt = Date.now();
-  const upstream = await fetch(
-    ...buildGeminiTtsRequest({ apiKey, text, voice, stream: true, signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS) }),
-  ).catch(() => null);
-  if (!upstream?.ok || !upstream.body) {
-    await upstream?.body?.cancel().catch(() => undefined);
-    log("error", "tts_provider_failed", { transport: "stream", status: upstream?.status ?? 0 });
-    throw new RpcError("UNAVAILABLE", "Gemini TTS failed.");
-  }
-  const reader = upstream.body.getReader();
-  const pipeline = createGeminiTtsStreamPipeline();
+  const { provider, pcm } = await openPcm(env, text, voice, "stream");
+  const reader = pcm.getReader();
+  const encoder = createPcmMp3Encoder();
   let audioBytes = 0;
+  let firstAudioMs: number | null = null;
   const report = (status: string) =>
     logTtsUsage({
       transport: "stream",
       status,
       requestChars: text.length,
       audioBytes,
-      ...resolveGeminiTtsUsage({ reported: pipeline.usage, requestChars: text.length, pcmBytes: pipeline.pcmBytes }),
+      firstAudioMs,
+      ...estimateTtsUsage(provider, text.length, encoder.pcmBytes),
       durationMs: Date.now() - startedAt,
     });
   const stream = new ReadableStream<Uint8Array>({
@@ -209,15 +209,16 @@ const ttsStream = async (request: Request, env: VoiceEnv): Promise<Response> => 
         for (;;) {
           const { done, value } = await reader.read();
           if (done) {
-            const tail = pipeline.finish();
+            const tail = encoder.finish();
             if (tail.length > 0) controller.enqueue(tail);
             audioBytes += tail.length;
             report(audioBytes > 0 ? "completed" : "failed");
             controller.close();
             return;
           }
-          const chunk = value ? pipeline.push(value) : new Uint8Array(0);
+          const chunk = value ? encoder.push(value) : new Uint8Array(0);
           if (chunk.length > 0) {
+            firstAudioMs ??= Date.now() - startedAt;
             audioBytes += chunk.length;
             controller.enqueue(chunk);
             return;
@@ -237,35 +238,34 @@ const ttsStream = async (request: Request, env: VoiceEnv): Promise<Response> => 
   return new Response(stream, { headers: { "content-type": "audio/mpeg", "cache-control": "no-store" } });
 };
 
-/** One-shot synthesis: WAV from Gemini, MP3 from OpenAI. */
+/** One-shot synthesis: WAV from Gemini TTS, MP3 from OpenAI. */
 const ttsOneShot = async (request: Request, env: VoiceEnv): Promise<Response> => {
   const caller = await authenticate(request, env);
   const body = await readJson(request);
   const provider = body.voiceProvider === "gemini" ? "gemini" : "openai";
-  const apiKey = secret(env, provider === "gemini" ? "GOOGLE_AI_API_KEY" : "OPENAI_API_KEY");
-  if (!apiKey) throw new RpcError("UNAVAILABLE", "Stella read-aloud is not configured yet.", { retryable: false });
+  const apiKey = provider === "gemini" ? (ttsProvider(env)?.apiKey ?? null) : secret(env, "OPENAI_API_KEY");
+  if (!apiKey) throw notConfigured();
   const text = await admitText(env, caller, body.text);
   const startedAt = Date.now();
   const signal = AbortSignal.timeout(PROVIDER_TIMEOUT_MS);
 
   if (provider === "gemini") {
     const voice = resolveGeminiTtsVoice(body.voice);
-    const response = await fetch(...buildGeminiTtsRequest({ apiKey, text, voice, stream: false, signal })).catch(() => null);
-    const raw = response ? await response.text().catch(() => null) : null;
-    const unary = response?.ok && raw !== null ? parseGeminiTtsUnaryResponse(raw) : null;
-    if (!unary) {
-      log("error", "tts_provider_failed", { transport: "oneshot_gemini", status: response?.status ?? 0 });
-      throw new RpcError("UNAVAILABLE", "Gemini TTS failed.");
+    const opened = await openPcm(env, text, voice, "oneshot_gemini");
+    const pcm = new Uint8Array(await new Response(opened.pcm).arrayBuffer().catch(() => new ArrayBuffer(0)));
+    if (pcm.byteLength === 0) {
+      log("error", "tts_provider_failed", { transport: "oneshot_gemini", provider: opened.provider });
+      throw new RpcError("UNAVAILABLE", "Speech generation failed.");
     }
+    const audio = pcmToWav(pcm);
     logTtsUsage({
       transport: "oneshot_gemini",
       requestChars: text.length,
-      audioBytes: unary.audio.byteLength,
-      // The WAV payload past its 44-byte header is 24 kHz PCM.
-      ...resolveGeminiTtsUsage({ reported: unary.usage, requestChars: text.length, pcmBytes: Math.max(0, unary.audio.byteLength - 44) }),
+      audioBytes: audio.byteLength,
+      ...estimateTtsUsage(opened.provider, text.length, pcm.byteLength),
       durationMs: Date.now() - startedAt,
     });
-    return new Response(unary.audio, { headers: { "content-type": "audio/wav", "cache-control": "no-store" } });
+    return new Response(audio, { headers: { "content-type": "audio/wav", "cache-control": "no-store" } });
   }
 
   const voice = typeof body.voice === "string" && body.voice.trim() ? body.voice.trim().slice(0, 100) : "marin";

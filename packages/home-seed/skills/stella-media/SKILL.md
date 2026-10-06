@@ -20,7 +20,7 @@ General does not call `image_gen` directly. The orchestrator's `image_gen` honor
 | Overview | `https://stella.sh/docs/media`        | Request/response shape, auth contract                         |
 | Images   | `https://stella.sh/docs/media/images` | `text_to_image`, `image_edit`                                 |
 | Video    | `https://stella.sh/docs/media/video`  | `text_to_video`, `image_to_video`, `reference_to_video`       |
-| Audio    | `https://stella.sh/docs/media/audio`  | `audio_generation`, `speech_to_text`, `audio_visual_separate` |
+| Audio    | `https://stella.sh/docs/media/audio`  | `audio_generation`, `speech_to_text`                          |
 | Music    | `https://stella.sh/docs/media/music`  | `text_to_music`                                               |
 | 3D       | `https://stella.sh/docs/media/3d`     | `text_to_3d`                                                  |
 

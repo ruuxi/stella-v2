@@ -2,6 +2,10 @@
  * The managed media catalog: what each capability runs on, how a request's
  * convenience fields map onto the provider's input, which plan surface it
  * needs, and what a finished job costs.
+ *
+ * Entries describe the fal model; `OPENROUTER_VARIANTS` names the OpenRouter
+ * model for capabilities that run there too. Requests are normalized to the
+ * fal shape either way, and `openrouter.ts` translates them.
  */
 
 import type {
@@ -11,6 +15,7 @@ import type {
 } from "@stella/contracts/backend/media";
 import type { Capability } from "@stella/contracts/capabilities";
 import { parseMusicRequest } from "./lyria.js";
+import { pickMediaProvider, type MediaProvider } from "./providers.js";
 
 export const MEDIA_DOCS_URL = "https://stella.sh/docs/media";
 
@@ -54,9 +59,9 @@ export const MEDIA_CAPABILITIES: MediaCapability[] = [
     name: "Text To Music",
     description: "Generate short music clips from weighted text prompts.",
     category: "audio",
-    provider: "google_lyria",
-    endpointId: "google/lyria-3-pro-preview",
-    docsUrl: "https://ai.google.dev/gemini-api/docs/music-generation",
+    provider: "fal",
+    endpointId: "fal-ai/lyria3/pro",
+    docsUrl: falModelUrl("fal-ai/lyria3/pro"),
     promptKey: "prompt",
     inputHints: [
       "prompt",
@@ -65,7 +70,7 @@ export const MEDIA_CAPABILITIES: MediaCapability[] = [
       "promptLabel",
       "musicGenerationMode (VOCALIZATION for sung elements)",
     ],
-    outputHints: ["audio file"],
+    outputHints: ["audio file", "lyrics (fal)"],
   },
   {
     id: "text_to_image",
@@ -107,17 +112,6 @@ export const MEDIA_CAPABILITIES: MediaCapability[] = [
       "mask_url (optional)",
     ],
     outputHints: ["edited image URLs"],
-  },
-  {
-    id: "audio_visual_separate",
-    name: "Audio Visual Separate",
-    description: "Separate or isolate audio using the visual track for guidance.",
-    category: "analysis",
-    provider: "fal",
-    endpointId: "fal-ai/sam-audio/visual-separate",
-    docsUrl: falModelUrl("fal-ai/sam-audio/visual-separate"),
-    inputHints: ["video_url", "audio_url", "separation controls"],
-    outputHints: ["separated stems / tracks"],
   },
   {
     id: "text_to_video",
@@ -198,8 +192,90 @@ export const MEDIA_CAPABILITIES: MediaCapability[] = [
   },
 ];
 
-export const getMediaCapability = (id: string): MediaCapability | null =>
+const openRouterModelUrl = (model: string): string => `https://openrouter.ai/${model}`;
+
+const OPENROUTER_VARIANTS: Record<string, Pick<MediaCapability, "endpointId" | "docsUrl"> & { inputHints?: string[] }> = {
+  speech_to_text: {
+    endpointId: "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
+    docsUrl: openRouterModelUrl("nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b"),
+  },
+  audio_generation: {
+    endpointId: "bytedance-seed/seed-audio-1-0",
+    docsUrl: openRouterModelUrl("bytedance-seed/seed-audio-1-0"),
+    inputHints: [
+      "prompt (reference clips inline as @Audio1, @Audio2, @Audio3)",
+      "voice (preset voice id)",
+      "audio_urls (up to 3 reference clips for voice cloning)",
+      "image_url (single reference image; cannot combine with audio refs)",
+      "speed",
+    ],
+  },
+  text_to_music: {
+    endpointId: "google/lyria-3-pro-preview",
+    docsUrl: openRouterModelUrl("google/lyria-3-pro-preview"),
+  },
+  text_to_image: { endpointId: "openai/gpt-image-2", docsUrl: openRouterModelUrl("openai/gpt-image-2") },
+  image_edit: {
+    endpointId: "openai/gpt-image-2",
+    docsUrl: openRouterModelUrl("openai/gpt-image-2"),
+    inputHints: [
+      "image_urls",
+      "prompt",
+      "aspectRatio (mapped to image_size; defaults to auto)",
+      "quality (low | medium | high; defaults to low)",
+      "num_images (1-4)",
+    ],
+  },
+  text_to_video: {
+    endpointId: "minimax/hailuo-3-max",
+    docsUrl: openRouterModelUrl("minimax/hailuo-3-max"),
+    inputHints: ["prompt", "aspectRatio", "duration (5-15 seconds)", "resolution (480P | 768P)"],
+  },
+  image_to_video: {
+    endpointId: "minimax/hailuo-3-max",
+    docsUrl: openRouterModelUrl("minimax/hailuo-3-max"),
+    inputHints: [
+      "image_url",
+      "end_image_url (optional final-frame reference)",
+      "prompt",
+      "aspectRatio",
+      "duration (5-15 seconds)",
+      "resolution (480P | 768P)",
+    ],
+  },
+};
+
+/** The providers that can run a capability, Stella's default first. */
+const providersFor = (id: string): MediaProvider[] => {
+  if (id === "speech_to_text") return ["openrouter"];
+  return OPENROUTER_VARIANTS[id] ? ["fal", "openrouter"] : ["fal"];
+};
+
+const baseCapability = (id: string): MediaCapability | null =>
   MEDIA_CAPABILITIES.find((capability) => capability.id === id) ?? null;
+
+/** A capability as `provider` runs it, or null when that provider cannot. */
+export const getMediaCapability = (id: string, provider?: string): MediaCapability | null => {
+  const base = baseCapability(id);
+  if (!base || provider === undefined || provider === base.provider) return base;
+  const variant = provider === "openrouter" ? OPENROUTER_VARIANTS[id] : undefined;
+  return variant ? { ...base, provider: "openrouter", ...variant } : null;
+};
+
+/** The capability on the provider this deployment uses for it, with that provider's key. */
+export const resolveMediaCapability = (
+  env: object,
+  id: string,
+): { capability: MediaCapability; provider: MediaProvider; apiKey: string } | { capability: MediaCapability | null; provider: null } => {
+  const base = baseCapability(id);
+  const picked = base ? pickMediaProvider(env, providersFor(id)) : null;
+  if (!base || !picked) return { capability: base, provider: null };
+  return { capability: getMediaCapability(id, picked.provider)!, provider: picked.provider, apiKey: picked.apiKey };
+};
+
+/** The catalog as this deployment serves it. */
+export const mediaCapabilities = (env: object): MediaCapability[] =>
+  MEDIA_CAPABILITIES.map((capability) => resolveMediaCapability(env, capability.id).capability ?? capability);
 
 /** The plan surface a capability needs; analysis and transcription stay open. */
 export const planCapabilityFor = (capability: MediaCapability): Capability | null => {
@@ -262,7 +338,7 @@ const REFERENCE_VIDEO_SLOT_ALIASES: Record<string, string> = {
 };
 
 /** GPT Image 2 sizes per aspect ratio (multiples of 16, inside its envelope). */
-const GPT_IMAGE_2_ASPECT_PRESETS: Record<string, { width: number; height: number }> = {
+export const GPT_IMAGE_2_ASPECT_PRESETS: Record<string, { width: number; height: number }> = {
   "1:1": { width: 1024, height: 1024 },
   "4:3": { width: 1024, height: 768 },
   "3:4": { width: 768, height: 1024 },
@@ -473,9 +549,21 @@ export const mediaCostMicroCents = (
   input: Record<string, unknown>,
   output: unknown,
 ): number | null => {
+  // OpenRouter reports what it charged; fal outputs never carry this field.
+  const reported = isRecord(output) && isRecord(output.usage) ? num(output.usage.cost) : null;
+  if (reported !== null) return usd(reported);
   switch (endpointId) {
+    case "fal-ai/lyria3/pro":
     case "google/lyria-3-pro-preview":
       return usd(0.08);
+    case "minimax/hailuo-3-max": {
+      const seconds = num(input.duration) ?? 5;
+      return usd(Math.max(0, seconds) * (String(input.resolution ?? "768P").toUpperCase() === "480P" ? 0.05 : 0.08));
+    }
+    case "bytedance-seed/seed-audio-1-0": {
+      const seconds = findNumber(output, "duration");
+      return seconds === null ? null : usd(seconds * 0.0025);
+    }
     case "openai/gpt-image-2":
     case "openai/gpt-image-2/edit": {
       // fal publishes a band, not a table: quality tier × megapixels, clamped.
@@ -511,12 +599,6 @@ export const mediaCostMicroCents = (
     case "bytedance/seed-audio-1.0": {
       const seconds = findNumber(output, "duration");
       return seconds === null ? null : usd((seconds / 60) * 0.1875);
-    }
-    case "fal-ai/sam-audio/visual-separate": {
-      const seconds = findNumber(output, "duration");
-      if (seconds === null) return null;
-      const candidates = Math.max(1, Math.round(num(input.reranking_candidates) ?? 1));
-      return usd((seconds / 30) * (1 + (candidates - 1) * 0.5) * 0.05);
     }
     default:
       return null;

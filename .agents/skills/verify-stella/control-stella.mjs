@@ -260,13 +260,27 @@ const linuxSoftwareGl = () =>
   process.platform === "linux" &&
   (process.env.STELLA_VERIFY_SOFTWARE_GL === "1" || !existsSync("/dev/dri"));
 
-const isolatedElectronEnvironment = () =>
-  Object.fromEntries(
+const SHORT_DARWIN_TMPDIR = "/tmp/sv";
+
+const shortSocketTmpdir = (value) => {
+  if (process.platform !== "darwin" || (value && value.length <= SHORT_DARWIN_TMPDIR.length + 4)) {
+    return value;
+  }
+  mkdirSync(SHORT_DARWIN_TMPDIR, { recursive: true, mode: 0o700 });
+  return SHORT_DARWIN_TMPDIR;
+};
+
+const isolatedElectronEnvironment = () => {
+  const env = Object.fromEntries(
     ELECTRON_SYSTEM_ENV_KEYS.filter(
       (key) =>
         typeof process.env[key] === "string" && process.env[key].length > 0,
     ).map((key) => [key, process.env[key]]),
   );
+  const tmpdir = shortSocketTmpdir(env.TMPDIR);
+  if (tmpdir) env.TMPDIR = tmpdir;
+  return env;
+};
 
 const cdpTargets = async (cdpPort) => {
   const response = await fetch(`http://127.0.0.1:${cdpPort}/json/list`, {

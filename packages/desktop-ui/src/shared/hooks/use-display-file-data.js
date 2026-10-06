@@ -11,10 +11,16 @@ const readDisplayFileRaw = async (filePath, unavailableMessage, conversationId, 
             return copy;
         throw new Error(unavailableMessage ?? "File preview requires the Electron host runtime.");
     }
-    return await window.electronAPI.display.readFile(filePath, {
-        conversationId,
-        maxBytes,
-    });
+    try {
+        return await window.electronAPI.display.readFile(filePath, {
+            conversationId,
+            maxBytes,
+        });
+    }
+    catch (caught) {
+        const message = caught instanceof Error ? caught.message : String(caught);
+        throw new Error(message.replace(/^Error invoking remote method '[^']*': (?:\w*Error: )?/u, ""));
+    }
 };
 const cache = new Map();
 const CACHE_GRACE_MS = 750;

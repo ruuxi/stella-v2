@@ -91,6 +91,8 @@ export const createBootstrapContext = (config) => {
         state,
         getAllWindows: () => getAllWindows(context),
         getMobileBroadcast: () => getMobileBroadcast(context),
+        // Lazy: host-runner imports this module.
+        loadDeviceId: async () => (await import("./host-runner.js")).loadStellaDeviceId(context),
     });
     registerBootstrapProcessCleanups(context);
     return context;

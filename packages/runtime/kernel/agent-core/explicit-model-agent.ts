@@ -112,10 +112,6 @@ export interface AgentOptions {
   refreshApiKey?: (
     provider: string,
   ) => Promise<string | undefined> | string | undefined;
-  /** The subscription hit its usage limit: another account's key, or nothing. */
-  onSubscriptionLimit?: (info: {
-    resetsAt?: number;
-  }) => Promise<string | undefined> | string | undefined;
 
   /**
    * Inspect or replace provider payloads before they are sent.
@@ -209,7 +205,6 @@ export class ExplicitModelAgent {
   public refreshApiKey?: (
     provider: string,
   ) => Promise<string | undefined> | string | undefined;
-  public onSubscriptionLimit?: AgentOptions["onSubscriptionLimit"];
   private _onPayload?: SimpleStreamOptions["onPayload"];
   private _onProviderRetry?: SimpleStreamOptions["onProviderRetry"];
   private _degenerateResponseRetries: number;
@@ -263,7 +258,6 @@ export class ExplicitModelAgent {
     this._promptCacheKey = opts.promptCacheKey;
     this.getApiKey = opts.getApiKey;
     this.refreshApiKey = opts.refreshApiKey;
-    this.onSubscriptionLimit = opts.onSubscriptionLimit;
     this._onPayload = opts.onPayload;
     this._onProviderRetry = opts.onProviderRetry;
     this._degenerateResponseRetries = Math.max(
@@ -795,15 +789,6 @@ export class ExplicitModelAgent {
         ? async () => {
             try {
               return await this.refreshApiKey?.(this._state.model.provider);
-            } catch {
-              return undefined;
-            }
-          }
-        : undefined,
-      onSubscriptionLimit: this.onSubscriptionLimit
-        ? async (info) => {
-            try {
-              return await this.onSubscriptionLimit?.(info);
             } catch {
               return undefined;
             }

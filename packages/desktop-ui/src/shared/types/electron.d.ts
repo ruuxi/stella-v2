@@ -42,6 +42,11 @@ import type {
   ChatGptProfilesState,
 } from "@stella/contracts/chatgpt-siwc-types";
 import type {
+  ClaudeLocalAccountsState,
+  ClaudeLocalConfig,
+  ClaudeLocalLoginStart,
+} from "@stella/contracts/claude-local-accounts";
+import type {
   ChatContext as SharedChatContext,
   ChatContextFile as SharedChatContextFile,
   ChatContextUpdate as SharedChatContextUpdate,
@@ -888,24 +893,42 @@ export type ElectronSystemApi = {
     provider: string,
   ) => Promise<{ canceled: boolean }>;
   /**
-   * Add a Claude account to the owner's Stella account. Electron main runs
-   * the OAuth flow (browser + loopback) and the exchange on this computer.
+   * Claude Code logins on this computer (the CLI's own; Stella never holds a
+   * Claude credential). `listClaudeLocalAccounts` re-reads every config.
    */
-  connectClaudeAccount: () => Promise<{ accountId: string }>;
-  cancelClaudeAccountConnect: () => Promise<{ canceled: boolean }>;
+  listClaudeLocalAccounts: () => Promise<ClaudeLocalAccountsState>;
+  /**
+   * Start `claude auth login`: no `configId` signs a NEW Stella-managed
+   * config in; "default" the CLI's default config (only while it is signed
+   * out); an existing extra config id signs that one in again. Main opens
+   * `authorizeUrl` itself; the user pastes back the code Anthropic shows.
+   */
+  startClaudeLocalLogin: (options?: {
+    configId?: string;
+    email?: string;
+  }) => Promise<ClaudeLocalLoginStart>;
+  /** Rejects with the CLI's own error (e.g. a wrong code). */
+  finishClaudeLocalLogin: (loginId: string, code: string) => Promise<ClaudeLocalConfig>;
+  cancelClaudeLocalLogin: (loginId: string) => Promise<{ canceled: boolean }>;
+  /** Extra configs only: `claude auth logout` with that config, then delete it. */
+  signOutClaudeLocalConfig: (configId: string) => Promise<{ ok: true }>;
+  onClaudeLocalAccountsChanged: (callback: () => void) => () => void;
   connectChatGptCloud: (options?: {
     accountId?: string;
+    /** Reuse a registration another host of the owner made. */
+    clientId?: string;
     enablePlanUsage?: boolean;
   }) => Promise<{ accountId: string; planUsage: boolean }>;
   cancelChatGptCloudConnect: () => Promise<{ canceled: boolean }>;
   listChatGptProfiles: () => Promise<ChatGptProfilesState>;
   signInChatGpt: (options?: {
     profileId?: string;
+    /** Sign in with an issued client id another host of the owner shared. */
+    sharedClientId?: string;
     enablePlanUsage?: boolean;
   }) => Promise<ChatGptProfileSummary>;
   cancelChatGptSignIn: () => Promise<{ canceled: boolean }>;
   setActiveChatGptProfile: (profileId: string) => Promise<{ ok: true }>;
-  setChatGptAutoSwitch: (enabled: boolean) => Promise<{ ok: true }>;
   signOutChatGptProfile: (profileId: string) => Promise<{ revoked: boolean }>;
   removeChatGptProfile: (profileId: string) => Promise<{ revoked: boolean }>;
   onChatGptProfilesChanged: (callback: () => void) => () => void;

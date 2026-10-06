@@ -15,7 +15,6 @@ import {
   getAccessibleLocalLlmOAuthApiKey,
   hasAccessibleLocalLlmApiKey,
   hasAccessibleLocalLlmOAuthCredential,
-  reportLocalLlmSubscriptionLimit,
 } from "./storage/local-llm-credential-access.js";
 import { STELLA_DEFAULT_MODEL } from "@stella/contracts/stella-api";
 import {
@@ -46,10 +45,6 @@ export type ResolvedLlmRoute = {
   credentialless?: boolean;
   getApiKey: () => Promise<string | undefined> | string | undefined;
   refreshApiKey?: () => Promise<string | undefined> | string | undefined;
-  /** See `StreamOptions.onSubscriptionLimit`. */
-  onSubscriptionLimit?: (info: {
-    resetsAt?: number;
-  }) => Promise<string | undefined> | string | undefined;
 };
 
 const LOCAL_PROVIDER = "local";
@@ -130,22 +125,12 @@ export const resolvedLlmSupportsCredentiallessCalls = (
 ): boolean =>
   resolved.route === "direct-provider" && resolved.credentialless === true;
 
-/**
- * Whether a signed-in subscription for this provider can power Stella's own
- * model calls. A Claude subscription (provider "anthropic") is only ever
- * handed to the Claude Code CLI; `anthropic/` routes need an API key. Other
- * subscriptions (ChatGPT, Copilot, ...) run on Stella's harness by design.
- */
-const subscriptionPowersDirectRoutes = (providerId: string): boolean =>
-  providerId !== "anthropic";
-
 const hasLocalProviderAuth = (
   stellaAppDir: string,
   providerId: string,
 ): boolean =>
   hasAccessibleLocalLlmApiKey(stellaAppDir, providerId) ||
-  (subscriptionPowersDirectRoutes(providerId) &&
-    hasAccessibleLocalLlmOAuthCredential(stellaAppDir, providerId)) ||
+  hasAccessibleLocalLlmOAuthCredential(stellaAppDir, providerId) ||
   modelRuntime.hasRuntimeManagedAuth(providerId);
 
 const getLocalProviderApiKey = async (
@@ -156,9 +141,6 @@ const getLocalProviderApiKey = async (
     await getAccessibleLocalLlmApiKey(stellaAppDir, providerId)
   )?.trim();
   if (apiKey) return apiKey;
-  if (!subscriptionPowersDirectRoutes(providerId)) {
-    return modelRuntime.getRuntimeManagedApiKey(providerId);
-  }
   const oauthKey = (
     await getAccessibleLocalLlmOAuthApiKey(stellaAppDir, providerId)
   )?.trim();
@@ -178,7 +160,7 @@ const refreshLocalProviderApiKey = async (
   const apiKey = (
     await getAccessibleLocalLlmApiKey(stellaAppDir, providerId)
   )?.trim();
-  if (apiKey || !subscriptionPowersDirectRoutes(providerId)) return undefined;
+  if (apiKey) return undefined;
   try {
     const oauthKey = (
       await getAccessibleLocalLlmOAuthApiKey(stellaAppDir, providerId, {
@@ -186,37 +168,6 @@ const refreshLocalProviderApiKey = async (
       })
     )?.trim();
     return oauthKey || undefined;
-  } catch {
-    return undefined;
-  }
-};
-
-/**
- * The signed-in subscription behind this provider hit its usage limit: cool
- * that account down and, if another account took over, hand back its key.
- * A static API key has no accounts to switch between.
- */
-const switchLocalSubscriptionAccount = async (
-  stellaAppDir: string,
-  providerId: string,
-  resetsAt: number | undefined,
-): Promise<string | undefined> => {
-  if (
-    !subscriptionPowersDirectRoutes(providerId) ||
-    (await getAccessibleLocalLlmApiKey(stellaAppDir, providerId))?.trim()
-  ) {
-    return undefined;
-  }
-  const { switched } = await reportLocalLlmSubscriptionLimit(
-    providerId,
-    resetsAt,
-  );
-  if (!switched) return undefined;
-  try {
-    return (
-      (await getAccessibleLocalLlmOAuthApiKey(stellaAppDir, providerId))?.trim() ||
-      undefined
-    );
   } catch {
     return undefined;
   }
@@ -539,22 +490,6 @@ const resolveDirectProviderRoute = (args: {
             });
           }
           return refreshed;
-        },
-        onSubscriptionLimit: async ({ resetsAt }) => {
-          const next = await switchLocalSubscriptionAccount(
-            args.stellaAppDir,
-            directProvider.credentialProvider,
-            resetsAt,
-          );
-          if (
-            next &&
-            modelRuntime.usesConfiguredAuthHeader(directProvider.registryProvider)
-          ) {
-            routedModel.headers = mergeModelHeaders(routedModel.headers, {
-              Authorization: `Bearer ${next}`,
-            });
-          }
-          return next;
         },
       },
     };

@@ -19,7 +19,7 @@ import {
   type ChatGptRegistration,
   type ChatGptTokenSet,
 } from "./chatgpt-siwc.js";
-import { createPkce } from "./engine-oauth.js";
+import { createPkce } from "./oauth-pkce.js";
 
 type FetchOptions = { fetch?: typeof fetch; signal?: AbortSignal };
 

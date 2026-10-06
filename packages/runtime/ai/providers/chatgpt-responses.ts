@@ -44,7 +44,7 @@ import { formatThrownValue } from "../utils/diagnostics.js";
 import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { headersToRecord } from "../utils/headers.js";
 import { anomalousStreamStopError } from "../utils/provider-stop.js";
-import { requestWithAuthRefresh, subscriptionLimitOfError } from "./auth-refresh.js";
+import { requestWithAuthRefresh } from "./auth-refresh.js";
 import { convertResponsesMessages, convertResponsesTools, processResponsesStream } from "./openai-responses-shared.js";
 import { buildBaseOptions } from "./simple-options.js";
 
@@ -237,27 +237,17 @@ export const streamChatGptResponses: StreamFunction<"chatgpt-responses", ChatGpt
 				}
 			};
 
-			// One refreshed-credential retry on 401, or one retry on another
-			// account after a usage limit, before any event is exposed.
+			// One refreshed-credential retry on 401 before any event is
+			// exposed. A usage limit is reported as is; nothing switches.
 			const response = await requestWithAuthRefresh({
 				apiKey,
 				refreshApiKey: options?.refreshApiKey,
-				onSubscriptionLimit: options?.onSubscriptionLimit,
 				request,
 			});
 			if (!response.body) throw new Error("ChatGPT returned no response stream.");
 
 			stream.push({ type: "start", partial: output });
-			try {
-				await processResponsesStream(mapEvents(parseSSE(response)), output, stream, model);
-			} catch (error) {
-				// A usage limit that ends a started stream can't be retried here;
-				// still cool the account down so the next request uses another.
-				const onLimit = options?.onSubscriptionLimit;
-				const limit = onLimit ? subscriptionLimitOfError(error) : null;
-				if (onLimit && limit) await Promise.resolve().then(() => onLimit(limit)).catch(() => undefined);
-				throw error;
-			}
+			await processResponsesStream(mapEvents(parseSSE(response)), output, stream, model);
 
 			if (options?.signal?.aborted) throw new Error("Request was aborted");
 			if (output.stopReason === "error" || output.stopReason === "aborted") {

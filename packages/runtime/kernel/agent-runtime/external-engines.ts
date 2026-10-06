@@ -1121,11 +1121,10 @@ const runClaudeHostedTurn = async (args: {
     throw new Error("Aborted");
   }
 
-  // Pre-flight the credential before launching a CLI that would 401. This is
-  // the knowable-up-front case (signed out of Stella, no mintable token); a
-  // token revoked upstream still passes here and is handled by the step's
-  // re-auth recovery instead.
-  const claudeAuth = await checkClaudeCodeAuth(args.opts.stellaAppDir);
+  // Pre-flight the login before launching a CLI that would 401: the owner's
+  // active Claude account with no Claude Code login on this computer. A
+  // login Anthropic rejects is reported when the step fails.
+  const claudeAuth = await checkClaudeCodeAuth();
   if (claudeAuth.status === "reauth_required") {
     const failure = new Error(claudeAuth.message);
     (failure as { code?: string }).code = "CLAUDE_CODE_AUTH_REAUTH_REQUIRED";

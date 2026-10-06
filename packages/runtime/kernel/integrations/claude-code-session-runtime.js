@@ -19,11 +19,7 @@ import {
   resolveExternalCliPath,
 } from "./external-cli-resolution.js";
 import { createClaudeCodeToolMcpHost } from "./claude-code-tool-mcp-host.js";
-import {
-  getAccessibleLocalLlmOAuthApiKey,
-  hasAccessibleLocalLlmOAuthCredential,
-  reportLocalLlmSubscriptionLimit,
-} from "../storage/local-llm-credential-access.js";
+import { getClaudeCodeConfig } from "../storage/local-llm-credential-access.js";
 import { forkCancelableTimeout } from "./effect-runtime.js";
 const CLAUDE_CODE_MODEL_PREFIX = "claude-code/";
 /**
@@ -206,64 +202,28 @@ export class ClaudeCodeCompactionLoopError extends Error {
   }
 }
 /**
- * The active Claude account of the owner's Stella account, if any: the host
- * serves its short-lived access token (the server stores the encrypted
- * tokens; the owner's devices refresh them). With one, the CLI runs on it (so several accounts can be switched
- * between); without one, or signed out, the CLI keeps its own login.
- *
- * `forceRefresh` re-mints instead of reading the host's cache. The host caches
- * an access token until shortly before its recorded expiry, so a token that
- * was REVOKED upstream (an account switch, a sign-out elsewhere) stays
- * "unexpired" and would otherwise be handed to the CLI over and over. The
- * CLI's own keychain login is never consulted while a Stella token is
- * injected, so Stella — not the CLI — owns refreshing this credential, and
- * must force a mint whenever Anthropic rejects one.
+ * Which login Claude Code runs on. Stella never holds a Claude credential:
+ * the CLI always runs on its own login, in its default config or in the
+ * Stella-managed `CLAUDE_CONFIG_DIR` signed in to the owner's active Claude
+ * account (the host picks it; `getClaudeCodeConfig`).
  */
-const resolveStellaClaudeToken = async (stellaAppDir, options = {}) => {
-  if (!stellaAppDir) return undefined;
-  try {
-    const token = (
-      await getAccessibleLocalLlmOAuthApiKey(stellaAppDir, "anthropic", {
-        ...(options.forceRefresh ? { forceRefresh: true } : {}),
-      })
-    )?.trim();
-    return token && token.startsWith("sk-ant-oat") ? token : undefined;
-  } catch {
-    return undefined;
-  }
-};
+const claudeLoginLabel = (email) =>
+  email ? `the Claude Code login for ${email}` : "the Claude Code login on this computer";
 /**
- * Whether this computer has a Stella-managed Claude account at all. Without
- * one the CLI runs on its own login, which changes both what recovery is
- * possible and what the user has to do about a rejection.
+ * Pre-flight the login Claude Code will run on, so a caller can say "this
+ * will fail, and here is what to do" BEFORE spawning an agent that would 401
+ * and die. Only the knowable case: the owner's active Claude account has no
+ * Claude Code login on this computer. A login Anthropic rejects is reported
+ * when the step fails.
  */
-const hasStellaClaudeAccount = (stellaAppDir) =>
-  Boolean(stellaAppDir) &&
-  hasAccessibleLocalLlmOAuthCredential(stellaAppDir, "anthropic");
-/**
- * Pre-flight the credential Claude Code will actually run on, so a caller can
- * say "this will fail, and here is what to do" BEFORE spawning an agent that
- * would 401 and die.
- *
- * Deliberately bounded, and the limit matters: this proves only that a token
- * can be obtained, not that Anthropic will accept it. A token revoked upstream
- * but not yet expired still reads as `ok` here — detecting that without
- * calling Anthropic is impossible, and calling Anthropic on every spawn is not
- * worth it. Revocation is handled after the fact by the step's re-auth
- * recovery; this probe catches the cases that are knowable up front (signed
- * out of Stella, no mintable token, no account at all).
- */
-export const checkClaudeCodeAuth = async (stellaAppDir) => {
-  if (!hasStellaClaudeAccount(stellaAppDir)) {
-    // The CLI will use its own keychain login, which Stella neither supplies
-    // nor can inspect. Not a problem, and not something to warn about.
-    return { status: "cli_login" };
-  }
-  if (await resolveStellaClaudeToken(stellaAppDir)) return { status: "ok" };
+export const checkClaudeCodeAuth = async () => {
+  const config = await getClaudeCodeConfig();
+  if (config.signedIn) return { status: "ok" };
   return {
     status: "reauth_required",
-    message:
-      "Stella has a Claude account connected but cannot get an access token for it, so Claude Code agents will fail to authenticate. Check that you are signed in to Stella and online (Settings › Account), and reconnect Claude there if it stays broken. The `claude` CLI's own login is separate and will look healthy in a terminal.",
+    message: config.email
+      ? `Claude Code isn't signed in to ${config.email} on this computer. Sign in to ${config.email} on this computer in Settings › Account, or pick another Claude account there.`
+      : "Claude Code isn't signed in on this computer. Sign in to Claude in Settings › Account.",
   };
 };
 
@@ -364,77 +324,43 @@ const buildSideEffectReconciliationPrompt = (
 const buildResultRetryPrompt = () =>
   "Your previous reply produced no result text. Provide your complete final answer to the pending request now.";
 /**
- * The shared recovery budget ran out. "Check the CLI health" is only honest
- * when the CLI is actually the suspect: an auth rejection that reaches here
- * (a second one, after re-auth already ran this step) means the credential is
- * the problem, and pointing at `claude --version` sends the reader to a tool
- * that is working fine. Keep the two causes separate.
+ * Anthropic rejected the login the CLI ran on. Stella holds no credential to
+ * refresh, so a human signs that config in again. `code` lets callers (agent
+ * retry classification, the orchestrator) treat this as auth rather than
+ * re-deriving it from prose.
  */
-const withStepRecoveryExhausted = (error) => {
-  if (claudeCodeAuthFailureOf(error)) {
-    const failure = new Error(
-      `${normalizeErrorMessage(error)} Stella refreshed the Claude credential and it was refused again, so this needs a human: reconnect Claude in Stella › Settings › Account. The \`claude\` CLI's own login is separate and is overridden while a Stella Claude account is connected, so testing the CLI in a terminal will not show this problem.`,
-    );
-    failure.code = "CLAUDE_CODE_AUTH_REAUTH_REQUIRED";
-    failure.status = 401;
-    return failure;
-  }
-  return new Error(
-    `${normalizeErrorMessage(error)} Stella retried ${MAX_STEP_RECOVERIES_PER_TURN} time(s) but Claude Code kept ending the step without a usable result. Check the \`claude\` CLI health (\`claude --version\`, login status), then retry the request.`,
-  );
-};
-/**
- * Terminal auth failure, after a re-mint was attempted and could not produce a
- * working credential. The three cases need three different actions, and
- * conflating them is what sent a previous investigation to a healthy CLI:
- *
- * - `stellaManaged`: Stella injected its own token and the server had nothing
- *   newer. The `claude` CLI's own login is irrelevant here (and is overridden
- *   while a Stella account is connected), so say so explicitly.
- * - `hadAccount` without `stellaManaged`: an account is connected but no token
- *   could be minted at all — typically signed out of Stella, or offline.
- * - neither: the CLI is running on its own login, so the CLI is the thing to
- *   re-authenticate.
- *
- * `code` lets callers (agent retry classification, the orchestrator) treat
- * this as auth rather than re-deriving it from prose.
- */
-const withClaudeAuthRecoveryFailed = (error, { stellaManaged, hadAccount }) => {
-  const action = stellaManaged
-    ? "Reconnect it in Stella › Settings › Account › Claude. Stella uses that account's token instead of the `claude` CLI's own login, so the CLI working in a terminal does not make this work — the CLI is not the problem here."
-    : hadAccount
-      ? "Stella has a Claude account connected but could not get a token for it. Check that you are signed in to Stella (Settings › Account) and online, then retry."
-      : "This computer has no Claude account connected to Stella, so Claude Code is using its own login. Run `claude` in a terminal and sign in (`/login`), or connect a Claude account in Stella › Settings › Account.";
+const withClaudeLoginRejected = (error, email) => {
   const failure = new Error(
-    `${normalizeErrorMessage(error)} Stella could not refresh the credential, so this needs a human. ${action}`,
+    `${normalizeErrorMessage(error)} Anthropic rejected ${claudeLoginLabel(email)}. Sign in again in Settings › Account.`,
   );
   failure.code = "CLAUDE_CODE_AUTH_REAUTH_REQUIRED";
   failure.status = 401;
   return failure;
 };
 /**
- * A Claude subscription usage limit that Stella could not route around, named
- * as such.
- *
- * Detection used to be gated on Stella managing the account, so a limit hit on
- * the CLI's own login was rethrown bare and reached the user as a generic
- * "did not finish" — indistinguishable from a broken token, and the reason
- * switching accounts by hand "just fixed it". The limit is a property of the
- * account, not of who holds its token, so report it either way and say which
- * account Stella can and cannot move.
+ * The shared recovery budget ran out. Auth rejections and usage limits never
+ * reach here (they are reported at once), so the CLI is the suspect.
  */
-const withClaudeSubscriptionLimitReported = (error, limit, stellaManaged) => {
+const withStepRecoveryExhausted = (error) =>
+  new Error(
+    `${normalizeErrorMessage(error)} Stella retried ${MAX_STEP_RECOVERIES_PER_TURN} time(s) but Claude Code kept ending the step without a usable result. Check the \`claude\` CLI health (\`claude --version\`, login status), then retry the request.`,
+  );
+/**
+ * A Claude subscription usage limit, named as such. Inform only: Stella never
+ * switches accounts.
+ */
+const withClaudeSubscriptionLimitReported = (limit) => {
   const resetsAt =
     typeof limit.resetsAt === "number" && Number.isFinite(limit.resetsAt)
       ? new Date(limit.resetsAt)
       : null;
-  const when = resetsAt ? ` It resets at ${resetsAt.toLocaleString()}.` : "";
-  const remedy = stellaManaged
-    ? "No other signed-in Claude account was available to take over. Add or enable another Claude account in Settings › Account (auto-switch hands over automatically), or wait for the reset."
-    : "Claude Code is running on its own CLI login, which Stella cannot switch. Add a Claude account in Settings › Account so Stella can hand over between accounts, sign the CLI in to a different account, or wait for the reset.";
-  return new Error(
-    `Claude usage limit reached.${when} ${remedy} (${normalizeErrorMessage(error)})`,
+  const failure = new Error(
+    resetsAt
+      ? `Claude usage limit reached. It resets at ${resetsAt.toLocaleString()}.`
+      : "Claude usage limit reached for this account.",
   );
+  failure.code = "CLAUDE_CODE_USAGE_LIMIT";
+  return failure;
 };
 const buildClaudeCodeHookSettings = () => {
   const command = `"${process.execPath}" -e ""`;
@@ -1542,8 +1468,6 @@ class ClaudeCodeSessionRuntime {
     let currentPrompt = prompt;
     let currentPromptImages = promptImages;
     const failedAttemptMcpCalls = [];
-    let switchedAccount = false;
-    let reauthAttempted = false;
 
     for (;;) {
       try {
@@ -1564,87 +1488,14 @@ class ClaudeCodeSessionRuntime {
         const hasPossibleSideEffects = Boolean(
           recoverable && recoverable.mcpCalls.length > 0,
         );
-        // The Claude account hit its limit: cool it down and, when
-        // auto-switch moved to another account, restart the CLI on it and
-        // carry on with this step (reconciling, never replaying, any tool
-        // work that already ran).
-        //
-        // Detection is NOT gated on Stella holding the token: a limit on the
-        // CLI's own login is the same user-visible event and must still be
-        // named. Only the hand-over is Stella-managed — there are no sibling
-        // accounts to move to behind a CLI login.
-        const limit = switchedAccount
-          ? null
-          : claudeCodeSubscriptionLimitOf(error);
+        // A usage limit or a rejected login: report it, never switch
+        // accounts or retry. Detection is the CLI's own wording.
+        const limit = claudeCodeSubscriptionLimitOf(error);
         if (limit) {
-          const { switched } = session.stellaClaudeToken
-            ? await reportLocalLlmSubscriptionLimit(
-                "anthropic",
-                limit.resetsAt,
-              )
-            : { switched: false };
-          if (switched) {
-            switchedAccount = true;
-            if (recoverable) mergeMcpCalls(failedAttemptMcpCalls, recoverable.mcpCalls);
-            this.resetStreamingProcess(request.sessionKey, session);
-            request.onStatusChange?.({
-              state: "running",
-              text: "Claude usage limit reached — continuing on your next account",
-            });
-            if (failedAttemptMcpCalls.length > 0) {
-              currentPrompt = buildSideEffectReconciliationPrompt(
-                failedAttemptMcpCalls,
-              );
-              currentPromptImages = [];
-            }
-            continue;
-          }
-          throw withClaudeSubscriptionLimitReported(
-            error,
-            limit,
-            Boolean(session.stellaClaudeToken),
-          );
+          throw withClaudeSubscriptionLimitReported(limit);
         }
-        // Anthropic refused the credential. When Stella injected it, Stella
-        // owns refreshing it: re-mint once and relaunch the CLI on the new
-        // token (`useResume` continues the same conversation). Two blind
-        // retries against a token the server has already revoked are just
-        // three failures, so this path does NOT draw on `recoveryBudget` —
-        // it is a single, distinct, credential-fixing attempt.
-        const authFailure = reauthAttempted ? null : claudeCodeAuthFailureOf(error);
-        if (authFailure) {
-          reauthAttempted = true;
-          const rejected = session.stellaClaudeToken;
-          if (rejected) {
-            const refreshed = await resolveStellaClaudeToken(
-              request.stellaAppDir,
-              { forceRefresh: true },
-            );
-            // A refresh that returns the SAME token refreshed nothing (the
-            // server has no newer grant), so retrying would fail identically.
-            if (refreshed && refreshed !== rejected) {
-              if (recoverable) mergeMcpCalls(failedAttemptMcpCalls, recoverable.mcpCalls);
-              session.forceTokenRefresh = true;
-              this.resetStreamingProcess(request.sessionKey, session);
-              request.onStatusChange?.({
-                state: "running",
-                text: "Claude credential was refused — reconnected and continuing",
-              });
-              if (failedAttemptMcpCalls.length > 0) {
-                currentPrompt = buildSideEffectReconciliationPrompt(
-                  failedAttemptMcpCalls,
-                );
-                currentPromptImages = [];
-              }
-              continue;
-            }
-          }
-          // Nothing left to refresh: a human has to reconnect. Say which
-          // credential and where, instead of blaming the CLI.
-          throw withClaudeAuthRecoveryFailed(error, {
-            stellaManaged: Boolean(rejected),
-            hadAccount: hasStellaClaudeAccount(request.stellaAppDir),
-          });
+        if (claudeCodeAuthFailureOf(error)) {
+          throw withClaudeLoginRejected(error, session.claudeLoginEmail);
         }
 
         // A normal refusal/overload can retry the configured model and then
@@ -1969,15 +1820,10 @@ class ClaudeCodeSessionRuntime {
       effectiveSystemPrompt,
       mcpHost,
     );
-    // `forceTokenRefresh` is set by auth recovery after Anthropic rejected the
-    // injected token: the host's cached copy is known bad, so this relaunch
-    // must mint a new one rather than read the cache back.
-    const forceTokenRefresh = session.forceTokenRefresh === true;
-    session.forceTokenRefresh = false;
-    const stellaClaudeToken = await resolveStellaClaudeToken(
-      request.stellaAppDir,
-      forceTokenRefresh ? { forceRefresh: true } : {},
-    );
+    // The config the owner's active Claude account is signed in to here
+    // (null: the CLI's default config). A change restarts the process.
+    const claudeConfig = await getClaudeCodeConfig();
+    const claudeConfigDir = claudeConfig.configDir ?? null;
     if (
       session.process &&
       !session.process.closed &&
@@ -1992,7 +1838,7 @@ class ClaudeCodeSessionRuntime {
     ) {
       if (
         session.process.launchConfig === launchConfig &&
-        session.process.stellaClaudeToken === stellaClaudeToken
+        session.process.claudeConfigDir === claudeConfigDir
       ) {
         return session.process;
       }
@@ -2015,17 +1861,19 @@ class ClaudeCodeSessionRuntime {
         ? { cliBridgeSocketPath: request.cliBridgeSocketPath }
         : {}),
     });
-    // Claude Code prefers an API key over any login, so a stray one in the
-    // environment would bill API usage instead of the subscription.
+    // Claude Code prefers an API key or an injected token over its own
+    // login, so a stray one in the environment would run on something other
+    // than the login the user chose. Stella never injects a credential.
     delete childEnv.ANTHROPIC_API_KEY;
     delete childEnv.ANTHROPIC_AUTH_TOKEN;
+    delete childEnv.CLAUDE_CODE_OAUTH_TOKEN;
+    if (claudeConfigDir) {
+      childEnv.CLAUDE_CONFIG_DIR = claudeConfigDir;
+    }
     if (effortLevel) {
       childEnv.CLAUDE_CODE_EFFORT_LEVEL = effortLevel;
     }
-    session.stellaClaudeToken = stellaClaudeToken;
-    if (stellaClaudeToken) {
-      childEnv.CLAUDE_CODE_OAUTH_TOKEN = stellaClaudeToken;
-    }
+    session.claudeLoginEmail = claudeConfig.email;
     if (
       Number.isFinite(request.autoCompactWindowTokens) &&
       (request.autoCompactWindowTokens ?? 0) > 0
@@ -2070,7 +1918,7 @@ class ClaudeCodeSessionRuntime {
       compacting: false,
       compactionCount: 0,
       launchConfig,
-      stellaClaudeToken,
+      claudeConfigDir,
     };
     session.process = processState;
     this.activeProcesses.set(request.sessionKey, child);

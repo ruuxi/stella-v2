@@ -127,6 +127,10 @@ export const createHeadlessHostHandlers = (
           ).map(({ provider }) => provider),
         };
       }
+      if (request.operation === "claude-config") {
+        // No account picker here: Claude Code runs on its own default login.
+        return { ok: true as const, configDir: null, signedIn: true };
+      }
       try {
         const value =
           request.kind === "api-key"

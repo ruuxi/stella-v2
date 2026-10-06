@@ -286,13 +286,11 @@ export type HostLlmCredentialsRequest =
     }
   | {
       /**
-       * The active OAuth account hit its subscription limit. The host cools
-       * it down and, with auto-switch on, makes the next account active.
+       * Which Claude Code config the next local Claude turn runs on: the one
+       * signed in to the owner's active Claude account, else the CLI's
+       * default. Stella never handles the credential itself.
        */
-      operation: "report-limit";
-      provider: string;
-      /** When the provider says the limit resets (ms), if it said. */
-      resetsAt?: number;
+      operation: "claude-config";
     };
 
 export type HostLlmCredentialsResult =
@@ -302,7 +300,15 @@ export type HostLlmCredentialsResult =
       oauthProviders: string[];
     }
   | { ok: true; value: string | null }
-  | { ok: true; switched: boolean }
+  | {
+      ok: true;
+      /** `CLAUDE_CONFIG_DIR` to run with; null for the CLI's default config. */
+      configDir: string | null;
+      /** The owner's active Claude account, when one is chosen. */
+      email?: string;
+      /** False while that account has no Claude Code login on this computer. */
+      signedIn: boolean;
+    }
   | { ok: false; reason: string };
 
 export type RuntimeAuthRefreshSource =

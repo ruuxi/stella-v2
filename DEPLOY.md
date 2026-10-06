@@ -72,6 +72,16 @@ update from it.
    `build-electron-identity.yml`, which publishes the Developer ID-signed
    `Stella.app` for that Electron version. Let it finish before users launch,
    or macOS launchers fall back to an ad-hoc copy and prompt for the Keychain.
+4. **Native helpers** (only when `packages/native/` changed):
+   `build-native-helpers.yml` publishes them and self-verifies by reading
+   `current.json` back. What is live now:
+   `curl -s https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/native-helpers/current.json`.
+
+What users are actually on: each publish is one commit on that namespace's
+`upstream` repo carrying a `Stella-Source: <monorepo sha>` trailer, so reading
+that repo's head says which commit the channel serves — and therefore what a
+publish will really ship. Check it before calling a publish "one fix": the
+namespace can be many commits behind master.
 
 ## Website and web chat
 
@@ -94,8 +104,45 @@ fingerprint drifts with bun's store paths; it refuses if any native package or
 native input changed since the store build, and then only a store build can ship it.
 The bundle's env comes from the EAS environment (`eas env:list --environment production`).
 
+`--native-match`, which `STELLA_OTA_PIN_STORE_RUNTIME=1` runs, compares this tree's
+native inputs against the *store build's commit*: `packages/mobile/app.json`,
+`plugins`, `modules`, `widgets`, `targets`, `patches/`, plus native package versions
+in `bun.lock`. **Deletions count exactly like additions** — the diff has no status
+filter — so removing a native module trips it; patches of non-native packages are
+ignored. When master has moved natively but its JS is what you want to ship, publish
+from a release-only commit, never pushed to master, whose native inputs match the
+target build exactly: revert the native-only patch, restore files the target still
+has, and put `app.json` back to the target's version. Prove two things before
+publishing — the exported bundle really carries the change, and an export differing
+only by the restored files is byte-identical.
+
+**Runtimes, not versions, decide who receives an update.** A binary asks for its
+channel and its own fingerprint runtime, so every live build needs its own group. The
+script pins to the build the stores serve, so once a newer build goes live the older
+runtime can no longer be targeted through it: those stragglers keep the last group they
+got and catch up when the store updates them. `STELLA_OTA_IOS_TESTFLIGHT_BUILD=<n>`
+targets an iOS build that exists in App Store Connect but is not live yet, so a binary
+in review already has its update waiting the moment it is approved.
+
+**`eas.json` pins bun** (`"bun"` in each build profile). The fingerprint hashes bun's
+store paths, so if the builders' bun differs from the one that resolved `bun.lock`,
+every build dies in `CONFIGURE_EXPO_UPDATES` with a local-vs-EAS runtime mismatch. Keep
+the pin equal to the bun that owns the lockfile.
+
+`publish-ota.sh` invokes `bunx`, which Stella's bundled bun does not ship; put a shim
+on `PATH` rather than editing the script.
+
 **App Store / Play release: only when explicitly asked.** `eas build --profile
-production` then `eas submit`, per platform.
+production` then `eas submit`, per platform. Apple rejects a submission that reuses
+`expo.version`, so bump it in `app.json` first; build numbers come from EAS
+(`appVersionSource: remote`). Confirm the Android submit prints
+`Release track: production` — it falls back to internal when the profile says nothing.
+ASC app id `6761148311`, Apple team `7UVYHQ763X`, Android package `com.fromyou.stella`.
+
+Whether a submission happened is the **App Store version's** review state, not the
+build's: a build row can read "Ready to Submit" in TestFlight while the version itself
+is "Waiting for Review", and the public-build resolver only ever reports what is already
+live. Read the version.
 
 ## Smoke check after a prod deploy
 

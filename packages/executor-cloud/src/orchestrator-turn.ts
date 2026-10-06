@@ -16,6 +16,8 @@
  *   claude --stream-json--> batches --broker events--> BuildSession --> DO
  */
 
+import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import {
   CLOUD_ORCHESTRATOR_BROKER_PATHS,
   parseCloudOrchestratorCliTurnSpec,
@@ -108,7 +110,7 @@ export const postToBrokerWithRetry = async (
   target: string,
   body: unknown,
   sleep: (ms: number) => Promise<void> = (ms) =>
-    new Promise((resolve) => setTimeout(resolve, ms)),
+    Effect.runPromise(Effect.sleep(ms)),
 ): Promise<Response> => {
   for (let attempt = 0; ; attempt += 1) {
     const response = await broker.postJson(target, body);
@@ -137,7 +139,8 @@ export class OrchestratorEventLane {
   #pending: CloudOrchestratorEvent[] = [];
   #batchSeq = 0;
   #chain: Promise<void> = Promise.resolve();
-  #timer: ReturnType<typeof setTimeout> | undefined;
+  /** The batch window: one sleeping fiber, interrupted by an earlier flush. */
+  #batchWindow: Fiber.Fiber<void> | undefined;
   #failure: Error | undefined;
 
   constructor(
@@ -158,17 +161,24 @@ export class OrchestratorEventLane {
     } else {
       this.#pending.push(event);
     }
-    this.#timer ??= setTimeout(() => {
-      this.#timer = undefined;
-      void this.flush();
-    }, this.batchMs);
+    this.#batchWindow ??= Effect.runFork(
+      Effect.sleep(this.batchMs).pipe(
+        Effect.flatMap(() =>
+          Effect.sync(() => {
+            this.#batchWindow = undefined;
+            void this.flush();
+          }),
+        ),
+      ),
+    );
   }
 
   /** Queue everything pending as the next batch; resolves once delivered. */
   flush(): Promise<void> {
-    if (this.#timer) {
-      clearTimeout(this.#timer);
-      this.#timer = undefined;
+    if (this.#batchWindow) {
+      const window = this.#batchWindow;
+      this.#batchWindow = undefined;
+      window.interruptUnsafe();
     }
     if (this.#pending.length > 0 && !this.#failure) {
       const batch: CloudOrchestratorEventBatch = {

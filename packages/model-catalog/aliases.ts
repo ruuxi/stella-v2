@@ -34,7 +34,7 @@ export const STELLA_PRIORITY_MODEL = `${STELLA_PROVIDER}/priority`;
 export const STELLA_LIGHT_MODEL = `${STELLA_PROVIDER}/light`;
 // Bump this whenever Stella default/model/mode mappings change. The catalog
 // route reports it as `updatedAt`; clients revalidate by ETag.
-export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 9, 4, 0, 0);
+export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 9, 6, 0, 0);
 
 export type StellaCatalogModel = {
   id: string;
@@ -87,9 +87,16 @@ const deriveDisplayName = (upstreamModel: string): string => {
   return titleCase(rawId);
 };
 
+// A default's `resolvedModel` must name the same id the catalog publishes as
+// `upstreamModel` whenever that id already routes to OpenRouter on its own
+// (DeepSeek V4.1 Flash): runtimes freeze it into agent snapshots as
+// `stella/<resolvedModel>`, and only the catalog spelling is pinnable. The
+// `openrouter/` namespace is added only where prefix inference would otherwise
+// pick a first-party gateway (e.g. `google/...` hosted on OpenRouter).
 const catalogRoutingModel = (config: ModelConfig): string =>
   config.managedGatewayProvider === "openrouter" &&
-  !config.model.startsWith("openrouter/")
+  !config.model.startsWith("openrouter/") &&
+  inferManagedGatewayProviderFromModel(config.model) !== "openrouter"
     ? `openrouter/${config.model}`
     : config.model;
 

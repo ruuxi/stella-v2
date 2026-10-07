@@ -175,6 +175,10 @@ const CHANGE_TAG_PREFIX = `refs/tags/${CHANGE_TAG}`;
 const FORK_CHANGES_PREFIX = "refs/stella/fork-changes/";
 /** A change here takes a relaunch (main and preload build on launch). */
 const RESTART_PREFIX = "packages/desktop/electron/";
+const installs = (paths: string[]) =>
+  paths.some((file) => file === "bun.lock" || file.endsWith("package.json"));
+const relaunches = (paths: string[]) =>
+  installs(paths) || paths.some((file) => file.startsWith(RESTART_PREFIX));
 /** Public: anonymous users read upstream with a shared, edge-cached token. */
 const BOOTSTRAP_PATH = "/api/app-source/bootstrap";
 const ACCESS_ATTEMPTS = 5;
@@ -417,7 +421,7 @@ export class AppSourceService {
       .filter(Boolean);
     return {
       files: paths.length,
-      restart: paths.some((file) => file.startsWith(RESTART_PREFIX)),
+      restart: relaunches(paths),
     };
   }
 
@@ -741,10 +745,8 @@ export class AppSourceService {
       .filter(Boolean);
     const touches = (prefix: string) =>
       paths.some((file) => file.startsWith(prefix));
-    const install = paths.some(
-      (file) => file === "bun.lock" || file.endsWith("package.json"),
-    );
-    const restart = touches(RESTART_PREFIX);
+    const install = installs(paths);
+    const restart = relaunches(paths);
     // Only changes the renderer can show get the transition: the runtime and
     // the desktop shell aren't in the window.
     const visible =
@@ -755,10 +757,8 @@ export class AppSourceService {
           !file.startsWith("packages/desktop/"),
       );
     // Picture the window while the launcher signs the change (nothing on
-    // screen moves meanwhile). Not across a dependency install: that can take
-    // minutes, and the window stays live for it.
-    let covering =
-      visible && !install ? this.options.coverRenderer?.() ?? null : null;
+    // screen moves meanwhile).
+    const covering = visible ? this.options.coverRenderer?.() ?? null : null;
     try {
       await this.options.afterApply?.(cwd);
     } catch (error) {
@@ -787,7 +787,6 @@ export class AppSourceService {
       this.options.relaunch();
       return;
     }
-    if (visible && install) covering = this.options.coverRenderer?.() ?? null;
     const covered = await covering;
     const swap = async () => {
       await this.options.applyRendererChanges(paths);

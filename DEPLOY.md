@@ -15,7 +15,7 @@ Nothing user-facing deploys on push except the R2 asset workflows noted below.
 | Mobile native (`app.json`, native modules, plugins, `patches/`) | EAS store build + submit | Store update |
 | `launcher/` | `build-launchers.yml` with `publish=true` | Installed launchers self-update; new downloads |
 | `packages/native/`, `packages/stella-browser/cli` | Push to master (workflow publishes to R2) | Next launcher prepare (see below) |
-| Electron version (`package.json`) | Push (signed identity) + app-source publish | See the update gaps below |
+| Electron version (`package.json`) | Push (signed identity) + app-source publish | Update installs it and relaunches (see below) |
 | Website / web chat (`packages/website`) | `deploy-stella.sh` to the website Worker | Immediately |
 
 There is no desktop build in CI and no installer to ship: the desktop app is
@@ -113,23 +113,20 @@ that repo's head says which commit the channel serves — and therefore what a
 publish will really ship. Check it before calling a publish "one fix": the
 namespace can be many commits behind master.
 
-### What an applied update does (known gaps)
+### What an applied update does
 
 Applying an update fast-forwards the checkout, then
-(`app-source-service.ts`): runs `bun install` if `bun.lock` or a
-`package.json` changed, restarts the runtime if `packages/runtime/` or
-`packages/contracts/` changed, relaunches through the launcher only if
-`packages/desktop/electron/` changed, and otherwise hot-swaps the renderer.
+(`app-source-service.ts`): runs `bun install` and relaunches through the
+launcher if `bun.lock` or a `package.json` changed, relaunches if
+`packages/desktop/electron/` changed, restarts the runtime if
+`packages/runtime/` or `packages/contracts/` changed, and otherwise hot-swaps
+the renderer.
 
-- **Dependency-only changes don't restart the app.** New packages are
-  installed, but Electron main keeps the modules it already loaded until the
-  next launch. Ship a dependency change that main needs alongside a change
-  under `packages/desktop/electron/`, or tell users to quit and reopen.
-- **Native modules aren't rebuilt for a new Electron.** Nothing runs
-  `electron-rebuild` (neither the update nor the launcher's prepare), so a
-  native Node addon built for the old Electron ABI (today `uiohook-napi`,
-  `mac-screen-capture-permissions`) can fail to load after an Electron bump.
-  Check native dependencies before bumping Electron.
+Nothing runs `electron-rebuild`, and nothing needs to: the native addons
+Electron loads (`uiohook-napi`, `mac-screen-capture-permissions`) are N-API
+only, so one build loads in any Electron. Before adding a native dependency,
+check it is N-API (no `nan`, no `v8.h`); one that isn't would fail to load
+after an Electron bump until something rebuilds it.
 
 ## Website and web chat
 

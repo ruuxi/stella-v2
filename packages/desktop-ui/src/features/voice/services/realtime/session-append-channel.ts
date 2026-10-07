@@ -25,8 +25,6 @@ import { createClientEventId } from "./transports/webrtc-media-session";
 export type SessionAppendKind = "commentary" | "thinking" | "instructions";
 
 const ACK_TIMEOUT_MS = 10_000;
-/** Progress notes are a courtesy, not a feed. One every this often, at most. */
-const PROGRESS_MIN_INTERVAL_MS = 1_200;
 
 const APPEND_EVENT_TYPE: Record<SessionAppendKind, string> = {
   commentary: "session.commentary.append",
@@ -84,7 +82,6 @@ type PendingAppend = {
 
 export class SessionAppendChannel {
   private readonly pending = new Map<string, PendingAppend>();
-  private lastProgressAt = 0;
 
   constructor(
     private readonly send: (event: Record<string, unknown>) => void,
@@ -114,25 +111,6 @@ export class SessionAppendChannel {
         delegation_id: delegationId,
       });
     }
-  }
-
-  /**
-   * A rate-limited `thinking` append for in-flight progress, so the model can
-   * truthfully say what is happening without being flooded.
-   */
-  appendProgress(content: string, delegationId: string | null): boolean {
-    const now = Date.now();
-    if (now - this.lastProgressAt < PROGRESS_MIN_INTERVAL_MS) return false;
-    const trimmed = content.trim();
-    if (!trimmed) return false;
-    this.lastProgressAt = now;
-    this.append("thinking", trimmed, delegationId);
-    return true;
-  }
-
-  /** Lets the next progress note through regardless of the interval. */
-  resetProgressThrottle(): void {
-    this.lastProgressAt = 0;
   }
 
   /** True when the event was an ack/error for one of our appends. */
@@ -168,7 +146,6 @@ export class SessionAppendChannel {
   dispose(): void {
     for (const entry of this.pending.values()) clearTimeout(entry.timer);
     this.pending.clear();
-    this.lastProgressAt = 0;
   }
 
   private settle(eventId: string): void {

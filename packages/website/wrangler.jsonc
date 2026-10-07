@@ -19,8 +19,7 @@
       "name": "stella-website-prod",
       "workers_dev": true,
       "preview_urls": false,
-      // Cutover only (needs sign-off, steps in DEPLOY.md): uncomment, then deploy:production.
-      // "routes": [{ "pattern": "stella.sh", "custom_domain": true }],
+      "routes": [{ "pattern": "stella.sh", "custom_domain": true }],
       "assets": {
         "directory": ".open-next/assets",
         "binding": "ASSETS",

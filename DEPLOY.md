@@ -11,7 +11,7 @@ sessions deploy dev too. Never print secrets: pipe them into `wrangler secret pu
 | Model gateway | `stella-v2-model-gateway-dev` | `stella-v2-model-gateway` |
 | D1 | `stella-v2-dev` | `stella-v2-prod` |
 | App source (Artifacts) | `stella-app-dev` | `stella-app-prod` |
-| Website + web chat | Worker `stella-website-dev` (`stella-website-dev.lolruuxi.workers.dev`) | Worker `stella-website-prod`; `stella.sh` still on Vercel until the cutover below |
+| Website + web chat | Worker `stella-website-dev` (`stella-website-dev.lolruuxi.workers.dev`) | Worker `stella-website-prod` on `stella.sh` (Vercel kept as fallback, see the cutover below) |
 | Mobile OTA channel | `preview` | `production` |
 | Desktop | source checkout / verify harness | native launchers from R2 `launcher/stable/` |
 
@@ -119,32 +119,22 @@ logos, mock images) that `next.config.ts` headers cannot reach on Workers. Pages
 are served from the build's static-assets cache, so there is no ISR: adding
 `revalidate` or `unstable_cache` needs the R2 incremental cache.
 
-### Cutover from Vercel (needs Rahul's sign-off)
+### Cutover from Vercel (done 2026-10-07)
 
-`stella.sh` is a DNS-only record to Vercel in the Cloudflare zone; `www` is a
-Vercel CNAME that Vercel redirects to the apex.
+`stella.sh` is a Workers custom domain on `stella-website-prod` (`routes` in
+`env.production`). Before the cutover it was a DNS-only `CNAME stella.sh →
+dfd97f9c23152005.vercel-dns-016.com`. `www.stella.sh` is still the Vercel CNAME,
+and Vercel redirects it to the apex. The Vercel project stays connected as the
+fallback until the switch is confirmed.
 
-1. Set the prod secret, deploy prod without a route, and check
-   `https://stella-website-prod.lolruuxi.workers.dev`: pages, `/download/*`,
-   `/install.sh`, `POST /api/maps/resolve`, and the `AW-18375048850` tag in the
-   HTML. Maps and sign-in fail there as on dev.
-2. In the `stella.sh` zone, delete the apex record pointing at Vercel. Then
-   uncomment `routes` in `env.production` and run `bun run deploy:production`
-   straight away; wrangler creates the proxied record and certificate. The site
-   is down between the delete and the deploy.
-3. `www.stella.sh`: replace the Vercel CNAME with a proxied `AAAA 100::` record
-   and a Redirect Rule `www.stella.sh/*` → `https://stella.sh/${1}` (301, keep
-   the query string).
-4. Check: `curl -sI https://stella.sh` shows `server: cloudflare` and no
-   `x-vercel-*`. Then a desktop browser sign-in lands on
-   `/auth/callback?done=true`, `/chat` signs in and answers, and a `map` card
-   renders.
-5. Rollback: remove the `stella.sh` custom domain from `stella-website-prod`
-   (dashboard → Workers → Settings → Domains & Routes), restore the Vercel record
-   (`A 216.150.16.193`, or the target Vercel shows), and comment `routes` again.
-6. After a week: in Vercel, disconnect the Git integration, remove the
-   `stella.sh` and `www.stella.sh` domains, then delete the project. Commit the
-   uncommented route.
+- Rollback: remove the `stella.sh` custom domain from `stella-website-prod`
+  (dashboard → Workers → Settings → Domains & Routes), recreate the DNS-only
+  CNAME above, and comment `routes` again. Vercel still builds master, so it
+  serves the same site.
+- When confirmed: move `www.stella.sh` to a proxied `AAAA 100::` record with a
+  Redirect Rule `www.stella.sh/*` → `https://stella.sh/${1}` (301, keep the
+  query string), then in Vercel disconnect the Git integration, remove both
+  domains and delete the project.
 
 ## Mobile
 

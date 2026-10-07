@@ -30,7 +30,10 @@ import {
   ScreenshotPreviewOverlay,
 } from "./ScreenshotPreview";
 import { useDictation } from "@/features/dictation/hooks/use-dictation";
-import { DictationRecordingBar } from "@/features/dictation/components/DictationRecordingBar";
+import {
+  DictationCancelButton,
+  DictationRecordingBar,
+} from "@/features/dictation/components/DictationRecordingBar";
 import {
   updateComposerTextareaExpansion,
   useAnimatedComposerShell,
@@ -392,6 +395,9 @@ function ComposerImpl({
                   <div className="composer-toolbar-right">
                     {modelPinned && <MiniModelPicker />}
                     <div className="composer-voice-controls">
+                      {dictation.isTranscribing && (
+                        <DictationCancelButton onClick={dictation.cancel} />
+                      )}
                       <MemoComposerMicButton
                         className="composer-mic"
                         isTranscribing={dictation.isTranscribing}

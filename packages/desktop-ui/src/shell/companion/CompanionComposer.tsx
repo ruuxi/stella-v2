@@ -10,7 +10,10 @@ import {
   ComposerSubmitButton,
   ComposerTextarea,
 } from "@/features/chat/ComposerPrimitives";
-import { DictationRecordingBar } from "@/features/dictation/components/DictationRecordingBar";
+import {
+  DictationCancelButton,
+  DictationRecordingBar,
+} from "@/features/dictation/components/DictationRecordingBar";
 import type { useDictation } from "@/features/dictation/hooks/use-dictation";
 import { useT } from "@/shared/i18n";
 
@@ -101,6 +104,9 @@ export function CompanionComposer({
             }}
           />
           <div className="companion-composer__actions">
+            {dictation.isTranscribing && (
+              <DictationCancelButton onClick={dictation.cancel} />
+            )}
             {isStreaming ? (
               <ComposerStopButton
                 className="companion-composer__icon companion-composer__stop"

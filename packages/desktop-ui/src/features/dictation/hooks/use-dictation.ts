@@ -224,6 +224,18 @@ export const useDictation = ({
     });
   }, [transcriptPreview]);
 
+  useEffect(() => {
+    if (state !== "transcribing") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.isComposing) return;
+      event.preventDefault();
+      event.stopPropagation();
+      cancel();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [cancel, state]);
+
   const start = useCallback(
     async (source: "button" | "shortcut") => {
       if (sessionRef.current) return;

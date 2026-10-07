@@ -30,7 +30,10 @@ import {
   ComposerTextarea,
 } from "@/features/chat/ComposerPrimitives";
 import { useDictation } from "@/features/dictation/hooks/use-dictation";
-import { DictationRecordingBar } from "@/features/dictation/components/DictationRecordingBar";
+import {
+  DictationCancelButton,
+  DictationRecordingBar,
+} from "@/features/dictation/components/DictationRecordingBar";
 import {
   deriveComposerState,
   hasAttachedComposerChips,
@@ -750,6 +753,9 @@ const SidebarComposerForm = memo(function SidebarComposerForm({
             </div>
 
             <div className="composer-toolbar-right">
+              {dictation.isTranscribing && (
+                <DictationCancelButton onClick={dictation.cancel} />
+              )}
               <MemoComposerMicButton
                 className="composer-mic"
                 isTranscribing={dictation.isTranscribing}

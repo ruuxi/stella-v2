@@ -75,17 +75,7 @@ export function DictationRecordingBar({
         </span>
         {showControls ? (
           <>
-            <button
-              type="button"
-              className={cn(
-                "chat-composer-icon-button composer-dictation-control",
-              )}
-              onClick={onCancel}
-              title={t("features.dictation.cancel")}
-              aria-label={t("features.dictation.cancel")}
-            >
-              <CancelIcon />
-            </button>
+            <DictationCancelButton onClick={onCancel} />
             <button
               type="button"
               className={cn(
@@ -116,6 +106,30 @@ export function DictationRecordingBar({
         ) : null}
       </div>
     </div>
+  );
+}
+
+export function DictationCancelButton({
+  className,
+  onClick,
+}: {
+  className?: string;
+  onClick?: () => void;
+}) {
+  const t = useT();
+  return (
+    <button
+      type="button"
+      className={cn(
+        "chat-composer-icon-button composer-dictation-control",
+        className,
+      )}
+      onClick={onClick}
+      title={t("features.dictation.cancel")}
+      aria-label={t("features.dictation.cancel")}
+    >
+      <CancelIcon />
+    </button>
   );
 }
 

@@ -1,4 +1,3 @@
-import { CloudEnginesCard } from "./CloudEnginesCard";
 import { CloudProjectsCard } from "./CloudProjectsCard";
 import { CloudBrowserDataCard } from "./CloudBrowserDataCard";
 import { CloudBoundary } from "./CloudBoundary";
@@ -18,9 +17,6 @@ const unavailable = (label: string) => (
 function AccountScopedCloudCards() {
   return (
     <>
-      <CloudBoundary fallback={unavailable("Claude & ChatGPT accounts")}>
-        <CloudEnginesCard />
-      </CloudBoundary>
       <CloudBoundary fallback={unavailable("Cloud projects")}>
         <CloudProjectsCard />
       </CloudBoundary>

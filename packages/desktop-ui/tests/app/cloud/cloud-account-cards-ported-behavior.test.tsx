@@ -75,6 +75,8 @@ vi.mock("@/global/auth/hooks/use-cloud-conversation-session", () => ({
 vi.mock("@/ui/toast", () => ({ showToast: mocks.showToast }));
 
 import { CloudAccountCards } from "@/features/cloud/CloudAccountCards";
+import { ProviderAccountsCard } from "@/features/cloud/ProviderAccountsCard";
+import { withI18n } from "../../helpers/i18n";
 
 const engineConnections = () => ({
   selectedAt: 1,
@@ -95,7 +97,11 @@ describe("ported cloud account cards", () => {
   let root: Root;
 
   const render = async () => {
-    await act(async () => root.render(<CloudAccountCards />));
+    await act(async () => root.render(withI18n(<CloudAccountCards />)));
+  };
+
+  const renderProviders = async () => {
+    await act(async () => root.render(withI18n(<ProviderAccountsCard />)));
   };
 
   const findButton = (text: string, within: ParentNode = container) =>
@@ -158,22 +164,26 @@ describe("ported cloud account cards", () => {
   });
 
   it("keeps loading surfaces and disables provider connects", async () => {
-    await render();
+    await renderProviders();
 
     expect(card("Claude & ChatGPT accounts")).toBeTruthy();
-    expect(card("Cloud projects")).toBeTruthy();
     const engineConnects = Array.from(
       card("Claude & ChatGPT accounts").querySelectorAll<HTMLButtonElement>("button"),
     ).filter((button) =>
-      ["Connect", "Continue with ChatGPT"].includes(button.textContent?.trim() ?? ""),
+      ["Add Claude account", "Continue with ChatGPT"].includes(
+        button.textContent?.trim() ?? "",
+      ),
     );
     expect(engineConnects).toHaveLength(2);
     expect(engineConnects.every((button) => button.disabled)).toBe(true);
+
+    await render();
+    expect(card("Cloud projects")).toBeTruthy();
   });
 
   it("publishes the selected engine immediately after the mutation", async () => {
     mocks.engines = engineConnections();
-    await render();
+    await renderProviders();
 
     await act(async () => {
       findButton("ChatGPT", card("Claude & ChatGPT accounts"))?.click();

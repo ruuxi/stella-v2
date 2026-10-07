@@ -1,3 +1,4 @@
+import { forwardRef, type ButtonHTMLAttributes } from "react";
 import { CHATGPT_SIWC } from "@stella/contracts/chatgpt-siwc";
 import { openExternalUrl } from "@/platform/electron/open-external";
 import { ExternalLink } from "@/ui/icons";
@@ -29,23 +30,20 @@ export function ChatGptMark({ size = 18 }: { size?: number }) {
   );
 }
 
-export function ContinueWithChatGptButton({
-  onClick,
-  disabled,
-  loading,
-  label,
-}: {
-  onClick: () => void;
-  disabled?: boolean;
-  loading?: boolean;
-  /** Defaults to "Continue with ChatGPT". */
-  label?: string;
-}) {
+export const ContinueWithChatGptButton = forwardRef<
+  HTMLButtonElement,
+  ButtonHTMLAttributes<HTMLButtonElement> & {
+    loading?: boolean;
+    /** Defaults to "Continue with ChatGPT". */
+    label?: string;
+  }
+>(function ContinueWithChatGptButton({ disabled, loading, label, ...props }, ref) {
   return (
     <button
+      {...props}
+      ref={ref}
       type="button"
       className="chatgpt-continue"
-      onClick={onClick}
       disabled={disabled || loading}
       aria-busy={loading || undefined}
     >
@@ -53,7 +51,7 @@ export function ContinueWithChatGptButton({
       <span>{loading ? "Opening ChatGPT…" : (label ?? "Continue with ChatGPT")}</span>
     </button>
   );
-}
+});
 
 export const openChatGptUsage = () => openExternalUrl(CHATGPT_SIWC.manageUsageUrl);
 

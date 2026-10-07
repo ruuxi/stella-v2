@@ -18,7 +18,8 @@ import {
   EngineAccountRowView,
   formatPlan,
   type EngineAccountMenuItem,
-} from "@/features/cloud/EngineAccountList";
+  type EngineAccountPlace,
+} from "@/features/cloud/EngineAccountRow";
 import { ClaudeLoginPrompt } from "./ClaudeLoginPrompt";
 import { useClaudeLocalAccounts } from "./use-claude-local-accounts";
 import { useClaudeLogin, type ClaudeLoginTarget } from "./use-claude-login";
@@ -28,7 +29,7 @@ import { useClaudeLogin, type ClaudeLoginTarget } from "./use-claude-login";
  * which one is active; every place (each computer, and the owner's cloud)
  * runs Claude Code on its own sign-in, made with Claude Code's own
  * `claude auth login`. Each row shows where the account is signed in.
- * Switching is manual only.
+ * Switching is manual only: picking a row makes that account the active one.
  */
 
 const K = "settings.engineAccounts";
@@ -36,38 +37,15 @@ const K = "settings.engineAccounts";
 const sameEmail = (a: string | undefined, b: string | undefined) =>
   Boolean(a && b && a.trim().toLowerCase() === b.trim().toLowerCase());
 
-type Place = { key: string; label: string; signedIn: boolean };
-
-function Places({ places }: { places: Place[] }) {
-  const t = useT();
-  if (places.length === 0) return null;
-  return (
-    <div className="engine-account-places">
-      {places.map((place) => (
-        <span
-          key={place.key}
-          className="engine-account-place"
-          data-signed-in={place.signedIn || undefined}
-          aria-label={t(place.signedIn ? `${K}.placeSignedIn` : `${K}.placeSignedOut`, {
-            place: place.label,
-          })}
-          title={t(place.signedIn ? `${K}.placeSignedIn` : `${K}.placeSignedOut`, {
-            place: place.label,
-          })}
-        >
-          {place.label}
-        </span>
-      ))}
-    </div>
-  );
-}
-
 export function ClaudeAccountsSection({
   settings,
   refreshing,
+  cloudAvailable,
 }: {
   settings: EngineSettings | undefined;
   refreshing: boolean;
+  /** The owner's cloud can hold a sign-in (they are signed in to Stella). */
+  cloudAvailable: boolean;
 }) {
   const t = useT();
   const local = useClaudeLocalAccounts();
@@ -135,7 +113,7 @@ export function ClaudeAccountsSection({
   );
   const disabled = busy || refreshing;
 
-  const computerPlace = (config: ClaudeLocalConfig | undefined): Place[] =>
+  const computerPlace = (config: ClaudeLocalConfig | undefined): EngineAccountPlace[] =>
     local.available
       ? [{ key: "computer", label: t(`${K}.placeComputer`), signedIn: Boolean(config) }]
       : [];
@@ -151,44 +129,46 @@ export function ClaudeAccountsSection({
         ]
       : [];
 
-  const addControl = local.available ? (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button type="button" variant="ghost" className="pill-btn" disabled={disabled || login.open}>
-          {t(`${K}.addClaude`)}
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" sideOffset={6} collisionPadding={12}>
-        <DropdownMenuItem
-          disabled={!canSignInHere}
-          onSelect={() => startLogin({ place: "local" })}
-        >
-          {t(`${K}.addOnComputer`)}
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => startLogin({ place: "cloud" })}>
-          {t(`${K}.addInCloud`)}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  ) : (
-    <Button
-      type="button"
-      variant="ghost"
-      className="pill-btn"
-      disabled={disabled || login.open}
-      onClick={() => startLogin({ place: "cloud" })}
-    >
-      {t(`${K}.addClaudeInCloud`)}
-    </Button>
-  );
+  const addControl =
+    local.available && cloudAvailable ? (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            className="pill-btn"
+            disabled={disabled || login.open}
+          >
+            {t(`${K}.addClaude`)}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" sideOffset={6} collisionPadding={12}>
+          <DropdownMenuItem
+            disabled={!canSignInHere}
+            onSelect={() => startLogin({ place: "local" })}
+          >
+            {t(`${K}.addOnComputer`)}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => startLogin({ place: "cloud" })}>
+            {t(`${K}.addInCloud`)}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    ) : (
+      <Button
+        type="button"
+        variant="ghost"
+        className="pill-btn"
+        disabled={disabled || login.open || (!cloudAvailable && !canSignInHere)}
+        onClick={() => startLogin({ place: cloudAvailable ? "cloud" : "local" })}
+      >
+        {t(`${K}.addClaude`)}
+      </Button>
+    );
 
   return (
     <>
-      <EngineAccountHeader
-        title={t(`${K}.claudeTitle`)}
-        description={t(`${K}.claudeDescription`)}
-        control={addControl}
-      />
+      <EngineAccountHeader title={t(`${K}.claudeTitle`)} control={addControl} />
       {accounts.map((account, index) => {
         const config = localFor(account.email);
         const places = account.places ?? [];
@@ -205,14 +185,6 @@ export function ClaudeAccountsSection({
             : [],
         );
         const items: EngineAccountMenuItem[] = [];
-        if (!account.active) {
-          items.push({
-            key: "use",
-            label: t(`${K}.useAccount`),
-            onSelect: () =>
-              void run(() => cloudEnginesApi.setActiveAccount("anthropic", account.accountId)),
-          });
-        }
         if (canSignInHere && !config) {
           items.push({
             key: "in-here",
@@ -221,7 +193,7 @@ export function ClaudeAccountsSection({
               startLogin({ place: "local", ...(account.email ? { email: account.email } : {}) }),
           });
         }
-        if (!inCloud) {
+        if (cloudAvailable && !inCloud) {
           items.push({
             key: "in-cloud",
             label: t(`${K}.signInCloud`),
@@ -259,17 +231,23 @@ export function ClaudeAccountsSection({
             title={title}
             initials={accountInitials({ label: account.label, ...(account.email ? { email: account.email } : {}) })}
             {...(plan ? { subtitle: plan } : {})}
-            detail={
-              <Places
-                places={[
-                  ...computerPlace(config),
-                  { key: "cloud", label: t(`${K}.placeCloud`), signedIn: inCloud },
-                  ...others,
-                ]}
-              />
-            }
+            places={[
+              ...computerPlace(config),
+              ...(cloudAvailable
+                ? [{ key: "cloud", label: t(`${K}.placeCloud`), signedIn: inCloud }]
+                : []),
+              ...others,
+            ]}
             active={account.active}
             busy={disabled}
+            {...(account.active
+              ? {}
+              : {
+                  onPick: () =>
+                    void run(() =>
+                      cloudEnginesApi.setActiveAccount("anthropic", account.accountId),
+                    ),
+                })}
             items={items}
             tail={tail}
             divided={index > 0}
@@ -285,16 +263,20 @@ export function ClaudeAccountsSection({
             title={config.email!}
             initials={accountInitials({ label: config.email!, email: config.email! })}
             {...(plan ? { subtitle: plan } : {})}
-            detail={<Places places={computerPlace(config)} />}
+            places={computerPlace(config)}
             active={false}
             busy={disabled}
-            items={[
-              {
-                key: "in-cloud",
-                label: t(`${K}.signInCloud`),
-                onSelect: () => startLogin({ place: "cloud", email: config.email! }),
-              },
-            ]}
+            items={
+              cloudAvailable
+                ? [
+                    {
+                      key: "in-cloud",
+                      label: t(`${K}.signInCloud`),
+                      onSelect: () => startLogin({ place: "cloud", email: config.email! }),
+                    },
+                  ]
+                : []
+            }
             tail={signOutHereItem(config)}
             divided
           />

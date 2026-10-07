@@ -8,6 +8,53 @@
   white-space: nowrap;
 }
 
+.engine-account-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.engine-account-identity__text {
+  min-width: 0;
+}
+
+.engine-account-identity__text .settings-row-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.engine-account-identity--pick {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 6px 8px;
+  margin: -6px -8px;
+  border-radius: 10px;
+  text-align: start;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.engine-account-identity--pick:hover:not(:disabled) {
+  background: var(--surface-hover, rgb(0 0 0 / 4%));
+}
+
+.engine-account-identity--pick:disabled {
+  cursor: default;
+}
+
+.engine-account-identity--pick:focus-visible {
+  outline: 2px solid var(--focus-ring, currentcolor);
+  outline-offset: 2px;
+}
+
+.engine-account-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .engine-account-places {
   display: flex;
   flex-wrap: wrap;
@@ -34,4 +81,10 @@
 .engine-account-place[data-signed-in]::before {
   border-color: var(--success);
   background: var(--success);
+}
+
+.engine-account-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }

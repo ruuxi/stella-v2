@@ -510,12 +510,9 @@ export type ToolHostOptions = {
    */
   getCloudBackendAuth?: () => { baseUrl: string; authToken: string } | null;
   stellaDataDir?: string;
-  requestCredential?: (payload: {
-    provider: string;
-    label?: string;
-    description?: string;
-    placeholder?: string;
-  }) => Promise<{ secretId: string; provider: string; label: string }>;
+  askUser?: import("./user.js").UserToolsConfig["askUser"];
+  requestSecureInput?: import("./user.js").UserToolsConfig["requestSecureInput"];
+  useSecureValue?: import("./user.js").UserToolsConfig["useSecureValue"];
   /**
    * Optional desktop hop for `exec_command`: render an inline "connect the
    * Stella browser extension" card in the chat when a stella-browser command

@@ -24,7 +24,7 @@ import { loginChatGpt } from "@stella/runtime/ai/utils/oauth/chatgpt";
 import { beginChatGptRegistration, chatGptProfileIdForClient, getChatGptAccessToken, getChatGptHostId, hasUsableChatGptProfile, listChatGptProfiles, removeChatGptProfile, saveChatGptRegistration, savedChatGptRegistration, setActiveChatGptProfile, signOutChatGptProfile, } from "@stella/runtime/kernel/storage/chatgpt-profiles";
 import { isRuntimeUnavailableError } from "@stella/contracts/protocol/rpc-peer";
 import { isCloudWorkspacePath } from "@stella/contracts/cloud-world-paths";
-import { IPC_APP_QUIT_FOR_RESTART, IPC_AUTH_APPLY_SESSION_TOKEN, IPC_AUTH_DELETE_USER, IPC_AUTH_GET_SESSION, IPC_AUTH_GET_TOKEN, IPC_AUTH_REVOKE_SESSIONS, IPC_AUTH_SIGN_IN_ANONYMOUS, IPC_AUTH_SIGN_OUT, IPC_DIAGNOSTICS_EXPORT_LOGS, IPC_DIAGNOSTICS_RECORD_HEAP_TRACE, IPC_DIAGNOSTICS_REPORT_ERROR, IPC_DIAGNOSTICS_REPORT_TIMING, IPC_DIAGNOSTICS_OPEN_LOGS, IPC_GLOBAL_SHORTCUTS_GET_SUSPENDED, IPC_GLOBAL_SHORTCUTS_SET_SUSPENDED, IPC_SYSTEM_OPEN_FDA, IPC_PERMISSIONS_GET_STATUS, IPC_PERMISSIONS_OPEN_SETTINGS, IPC_PERMISSIONS_REQUEST, IPC_PERMISSIONS_RESET, IPC_PERMISSIONS_RESET_MICROPHONE, IPC_SHELL_SAVE_FILE_AS, IPC_CUSTOMIZATIONS_RESET, IPC_PROMPT_PRESETS_LIST, IPC_PROMPT_PRESETS_READ, IPC_PROMPT_PRESETS_SAVE, IPC_PROMPT_PRESETS_DELETE, IPC_PROMPT_PRESETS_SELECT, IPC_PREFERENCES_GET_MODELS, IPC_CHATGPT_LIST_MODELS, IPC_PREFERENCES_LIST_CLAUDE_CODE_MODELS, IPC_PREFERENCES_LIST_MODELS, IPC_PREFERENCES_GET_ONBOARDING_COMPLETED, IPC_PREFERENCES_GET_PREVENT_SLEEP, IPC_PREFERENCES_GET_LOCKED_COMPUTER_USE, IPC_PREFERENCES_GET_SOUND_NOTIFICATIONS, IPC_PREFERENCES_SET_MODELS, IPC_PREFERENCES_SET_ONBOARDING_COMPLETED, IPC_PREFERENCES_SET_PREVENT_SLEEP, IPC_PREFERENCES_SET_LOCKED_COMPUTER_USE, IPC_PREFERENCES_SET_SOUND_NOTIFICATIONS, IPC_PREFERENCES_GET_READ_ALOUD, IPC_PREFERENCES_READ_ALOUD_CHANGED, IPC_PREFERENCES_SET_READ_ALOUD, IPC_VOICE_PREFERENCES_CHANGED, } from "@stella/contracts/desktop/ipc-channels";
+import { IPC_APP_QUIT_FOR_RESTART, IPC_AUTH_APPLY_SESSION_TOKEN, IPC_AUTH_DELETE_USER, IPC_AUTH_GET_SESSION, IPC_AUTH_GET_TOKEN, IPC_AUTH_REVOKE_SESSIONS, IPC_AUTH_SIGN_IN_ANONYMOUS, IPC_AUTH_SIGN_OUT, IPC_DIAGNOSTICS_EXPORT_LOGS, IPC_DIAGNOSTICS_RECORD_HEAP_TRACE, IPC_DIAGNOSTICS_REPORT_ERROR, IPC_DIAGNOSTICS_REPORT_TIMING, IPC_DIAGNOSTICS_OPEN_LOGS, IPC_GLOBAL_SHORTCUTS_GET_SUSPENDED, IPC_GLOBAL_SHORTCUTS_SET_SUSPENDED, IPC_SYSTEM_OPEN_FDA, IPC_PERMISSIONS_GET_STATUS, IPC_PERMISSIONS_OPEN_SETTINGS, IPC_PERMISSIONS_REQUEST, IPC_PERMISSIONS_RESET, IPC_PERMISSIONS_RESET_MICROPHONE, IPC_SHELL_SAVE_FILE_AS, IPC_CUSTOMIZATIONS_RESET, IPC_PROMPT_PRESETS_LIST, IPC_PROMPT_PRESETS_READ, IPC_PROMPT_PRESETS_SAVE, IPC_PROMPT_PRESETS_DELETE, IPC_PROMPT_PRESETS_SELECT, IPC_PREFERENCES_GET_MODELS, IPC_CHATGPT_LIST_MODELS, IPC_PREFERENCES_LIST_CLAUDE_CODE_MODELS, IPC_PREFERENCES_LIST_MODELS, IPC_PREFERENCES_GET_ONBOARDING_COMPLETED, IPC_PREFERENCES_GET_PREVENT_SLEEP, IPC_PREFERENCES_GET_LOCKED_COMPUTER_USE, IPC_PREFERENCES_GET_SOUND_NOTIFICATIONS, IPC_PREFERENCES_SET_MODELS, IPC_PREFERENCES_SET_ONBOARDING_COMPLETED, IPC_PREFERENCES_SET_PREVENT_SLEEP, IPC_PREFERENCES_SET_LOCKED_COMPUTER_USE, IPC_PREFERENCES_SET_SOUND_NOTIFICATIONS, IPC_PREFERENCES_GET_READ_ALOUD, IPC_PREFERENCES_READ_ALOUD_CHANGED, IPC_PREFERENCES_SET_READ_ALOUD, IPC_VOICE_PREFERENCES_CHANGED, IPC_USER_ASK_ANSWER, IPC_USER_ASK_CANCEL, IPC_USER_ASK_LIST, IPC_USER_ASK_OVERRIDE_SENSITIVE, IPC_USER_ASK_POLICY_GET, IPC_USER_ASK_POLICY_SET, } from "@stella/contracts/desktop/ipc-channels";
 import { resolveNativeHelperPath } from "../native-helper-path.js";
 import { hasMacPermission, clearPermissionCache, getMicrophonePermissionStatus, requestMacPermission, resetMacMicrophonePermissions, resetMacPermission, } from "../utils/macos-permissions.js";
 import { waitForConnectedRunner } from "./runtime-availability.js";
@@ -594,17 +594,41 @@ export const registerSystemHandlers = (options) => {
         }
         return options.resetLocalMessages();
     });
-    ipcMain.handle("credential:submit", (event, payload) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "credential:submit")) {
-            throw new Error("Blocked untrusted credential submission.");
+    ipcMain.handle(IPC_USER_ASK_LIST, (event) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_USER_ASK_LIST)) {
+            throw new Error("Blocked untrusted ask list request.");
         }
-        return options.submitCredential(payload);
+        return options.listUserAsks();
     });
-    ipcMain.handle("credential:cancel", (event, payload) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "credential:cancel")) {
-            throw new Error("Blocked untrusted credential cancellation.");
+    ipcMain.handle(IPC_USER_ASK_ANSWER, async (event, payload) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_USER_ASK_ANSWER)) {
+            throw new Error("Blocked untrusted ask answer.");
         }
-        return options.cancelCredential(payload);
+        return await options.answerUserAsk(payload);
+    });
+    ipcMain.handle(IPC_USER_ASK_CANCEL, (event, payload) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_USER_ASK_CANCEL)) {
+            throw new Error("Blocked untrusted ask cancellation.");
+        }
+        return options.cancelUserAsk(payload);
+    });
+    ipcMain.handle(IPC_USER_ASK_OVERRIDE_SENSITIVE, (event, payload) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_USER_ASK_OVERRIDE_SENSITIVE)) {
+            throw new Error("Blocked untrusted ask sensitivity override.");
+        }
+        return options.overrideUserAskSensitive(payload);
+    });
+    ipcMain.handle(IPC_USER_ASK_POLICY_GET, async (event) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_USER_ASK_POLICY_GET)) {
+            throw new Error("Blocked untrusted ask policy request.");
+        }
+        return await options.getUserAskPolicy();
+    });
+    ipcMain.handle(IPC_USER_ASK_POLICY_SET, async (event, payload) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_USER_ASK_POLICY_SET)) {
+            throw new Error("Blocked untrusted ask policy update.");
+        }
+        return await options.setUserAskPolicy(payload);
     });
     ipcMain.handle("connector-credential:submit", async (event, payload) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, "connector-credential:submit")) {

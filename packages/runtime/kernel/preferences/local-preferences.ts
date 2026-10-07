@@ -39,6 +39,11 @@ import {
   type AgentRuntimeEngine,
   type CodexServiceTier,
 } from "@stella/contracts/agent-engine";
+import {
+  DEFAULT_USER_ASK_ESCALATION_POLICY,
+  normalizeUserAskEscalationPolicy,
+  type UserAskEscalationPolicy,
+} from "@stella/contracts/user-ask";
 
 type AgentEngine = AgentRuntimeEngine;
 export { DEFAULT_CODEX_MODEL } from "@stella/contracts/agent-engine";
@@ -178,6 +183,7 @@ export type LocalPreferences = {
   wakeWordThreshold: number;
   /** `{ <agentId>: <presetId> }` user prompt-preset picks; "default" is implicit. */
   promptPresetSelections: Record<string, string>;
+  userAskEscalationPolicy: UserAskEscalationPolicy;
 };
 
 export type LocalModelPreferencesSnapshot = Pick<
@@ -240,6 +246,7 @@ const DEFAULT_PREFERENCES: LocalPreferences = {
   chronicleEnabled: false,
   chroniclePendingEnable: false,
   promptPresetSelections: {},
+  userAskEscalationPolicy: DEFAULT_USER_ASK_ESCALATION_POLICY,
 };
 
 /**
@@ -358,6 +365,9 @@ const normalizeStoredPreferences = (
     parsed.chronicleEnabled !== true && parsed.chroniclePendingEnable === true,
   promptPresetSelections: normalizePromptPresetSelections(
     parsed.promptPresetSelections,
+  ),
+  userAskEscalationPolicy: normalizeUserAskEscalationPolicy(
+    parsed.userAskEscalationPolicy,
   ),
 });
 
@@ -786,6 +796,23 @@ export const setCompanionAnchor = (
     ...prefs,
     companionAnchor: normalizeCompanionAnchor(anchor),
   });
+};
+
+export const getUserAskEscalationPolicy = (
+  stellaDataDir: string,
+): UserAskEscalationPolicy =>
+  normalizeUserAskEscalationPolicy(
+    loadLocalPreferences(stellaDataDir).userAskEscalationPolicy,
+  );
+
+export const setUserAskEscalationPolicy = (
+  stellaDataDir: string,
+  input: unknown,
+): UserAskEscalationPolicy => {
+  const userAskEscalationPolicy = normalizeUserAskEscalationPolicy(input);
+  const prefs = loadLocalPreferences(stellaDataDir);
+  saveLocalPreferences(stellaDataDir, { ...prefs, userAskEscalationPolicy });
+  return userAskEscalationPolicy;
 };
 
 export const getReadAloudEnabled = (stellaDataDir: string): boolean => {

@@ -3,7 +3,7 @@ import { app, shell } from "electron";
 import { AuthService } from "../services/auth-service.js";
 import { CaptureService } from "../services/capture-service.js";
 import { MouseHookManager } from "../input/mouse-hook.js";
-import { CredentialService } from "../services/credential-service.js";
+import { UserAskService } from "../services/user-ask-service.js";
 import { ConnectorCredentialService } from "../services/connector-credential-service.js";
 import { ConnectorOAuthService } from "../services/connector-oauth-service.js";
 import { ConnectorConnectService } from "../services/connector-connect-service.js";
@@ -97,9 +97,15 @@ export const createBootstrapServices = (options) => {
         environment: config.telemetryEnvironment,
         getAuthToken: () => authService.getAuthToken(),
     });
-    const credentialService = new CredentialService({
-        windowManagerTarget: lifecycle,
+    const userAskService = new UserAskService({
+        getAllWindows: () => options.getAllWindows(),
         getStellaAppDir: () => lifecycle.getStellaDataDir(),
+        getDeviceId: () => state.deviceId,
+        getRunner: () => lifecycle.getRunner(),
+        getInAppBrowserService: () => state.inAppBrowserService,
+        getBackendUrl: () => authService.getBackendUrl(),
+        getAuthToken: () => authService.getAuthToken(),
+        notificationContext: { state },
     });
     const engineAccountAccess = new EngineAccountAccess({
         getBackendUrl: () => authService.getBackendUrl(),
@@ -153,7 +159,7 @@ export const createBootstrapServices = (options) => {
         authService,
         captureService,
         globalInputHook,
-        credentialService,
+        userAskService,
         connectorCredentialService,
         connectorOAuthService,
         connectorConnectService,

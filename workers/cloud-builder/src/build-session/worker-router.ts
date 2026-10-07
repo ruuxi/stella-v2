@@ -93,6 +93,7 @@ import { handleBillingRoute } from "../billing/routes.js";
 import { handleAdminRoute } from "../admin/routes.js";
 import { handleStellaModelsRoute } from "../catalog/models.js";
 import { handleDevicesRoute } from "../devices/routes.js";
+import { handleUserAsksRoute } from "../user-asks/routes.js";
 import { handleDeviceRequestRoute } from "../devices/device-request-route.js";
 import { DEVICE_REQUEST_LIMITS } from "@stella/contracts/turn-plane/device-requests";
 import { validateTurnBrokerTarget } from "../turn-credential-broker.js";
@@ -1010,6 +1011,7 @@ app.use(
 app.use(mount(handleBillingRoute));
 app.use(mount(handleAdminRoute));
 app.use(mount(handleDevicesRoute));
+app.use(mount(handleUserAsksRoute));
 app.use(mount(handleVoiceRoute));
 app.use(mount(handleIntegrationsRoute));
 

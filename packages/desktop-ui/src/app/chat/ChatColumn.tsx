@@ -28,6 +28,7 @@ import { ConnectorConnectCard } from "./ConnectorConnectCard";
 import { ComposerNotice } from "./ComposerNotice";
 import { CloudBrowserInterventionCard } from "@/features/cloud/CloudBrowserInterventionCard";
 import { CloudConnectorConnectCard } from "@/features/cloud/CloudConnectorConnectCard";
+import { UserAskList } from "@/features/user-ask/UserAskList";
 import { ConversationEvents } from "./ConversationEvents";
 import { MessageReplyContext } from "./message-reply-context";
 import { ConversationFocusOverlay } from "./ConversationFocusOverlay";
@@ -109,6 +110,7 @@ const AboveComposerCards = memo(function AboveComposerCards({
       <ConnectorConnectCard conversationId={conversationId} />
       <CloudConnectorConnectCard conversationId={conversationId} />
       <CloudBrowserInterventionCard conversationId={conversationId} />
+      <UserAskList conversationId={conversationId} />
       {/* Sign-in / plan-limit / provider notices pin here too, so the
           thing blocking the composer sits right above it. */}
       <ComposerNotice conversationId={conversationId} />

@@ -71,6 +71,7 @@ import {
 import { ArtifactViewer } from "../../src/components/ArtifactViewer";
 import { CloudBrowserInterventionCard } from "../../src/components/CloudBrowserInterventionCard";
 import { CloudConnectorConnectCard } from "../../src/components/CloudConnectorConnectCard";
+import { UserAskCard } from "../../src/components/UserAskCard";
 import { ComposerNotice } from "../../src/components/ComposerNotice";
 import { CloudBoundary } from "../../src/components/CloudBoundary";
 import type { ChatArtifact } from "../../src/types";
@@ -641,6 +642,7 @@ function ChatSurface(props: {
         composerIntervention={
           <>
             <CloudBoundary resetKey={thread.conversationId}>
+              <UserAskCard conversationId={thread.conversationId} />
               <CloudConnectorConnectCard
                 conversationId={thread.conversationId}
               />

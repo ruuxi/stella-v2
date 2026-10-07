@@ -238,6 +238,27 @@ const TOOL_STATUS_BY_NAME: Record<string, readonly string[]> = {
     "Checking access",
     "Asking to connect",
   ],
+  ask_user: [
+    "Waiting on you",
+    "Asking you",
+    "Checking with you",
+    "Need you for a second",
+    "Over to you",
+  ],
+  request_secure_input: [
+    "Waiting on you",
+    "Asking you for something",
+    "Checking with you",
+    "Need something from you",
+    "Over to you",
+  ],
+  use_secure_value: [
+    "Using what you sent",
+    "Filling it in",
+    "Putting it in place",
+    "Handling it",
+    "On it",
+  ],
   multi_tool_use_parallel: [
     "Juggling a few things",
     "Doing several things",

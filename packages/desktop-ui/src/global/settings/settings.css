@@ -455,6 +455,15 @@
   align-items: stretch;
 }
 
+.settings-escalation-window [data-component="input"] {
+  width: 7.5rem;
+}
+
+.settings-escalation-window [data-slot="input-input"] {
+  font-variant-numeric: tabular-nums;
+}
+
+
 /* ---- Model Controls ---- */
 
 /* Selects auto-size to their content with a sensible floor so very

@@ -1493,11 +1493,71 @@
       "useBackgroundColorLabel": "Käytä taustaväriä {name}",
       "useBackgroundLabel": "Käytä taustaa {name}",
       "useThemeLabel": "Käytä teemaa {name}",
+      "userAsk": {
+        "ceiling": "Kuinka pitkälle se voi mennä",
+        "ceilingSub": "Korkein taso, jolle kysymys saa nousta.",
+        "level": {
+          "alert": "Hälytys",
+          "breakthrough": "Läpi",
+          "chat": "Keskustelu",
+          "notify": "Ilmoitus"
+        },
+        "quietCeiling": "Raja hiljaisina tunteina",
+        "quietEnd": "Päättyy",
+        "quietHours": "Hiljaiset tunnit",
+        "quietHoursSub": "{start}–{end}",
+        "quietStart": "Alkaa",
+        "rateLimit": "Keskeytykset",
+        "rateLimitSub": "Enintään näin monta kysymystä tunnissa.",
+        "rateLimitValue": "{count}/t",
+        "saveFailed": "Tallennus ei onnistunut. Yritä uudelleen.",
+        "section": "Kun Stella tarvitsee sinua",
+        "sound": "Ääni",
+        "soundSub": "Soita ääni, kun kysymys saapuu.",
+        "stepDown": "Vähennä {label}",
+        "stepUp": "Lisää {label}",
+        "unavailable": "Nämä asetukset eivät ole vielä käytettävissä."
+      },
       "voiceSection": "Ääni"
     },
     "sidebar": {
       "searchPlaceholder": "Hae toiminnasta ja tiedostoista",
       "signedOutHint": "Kirjaudu sisään nähdäksesi, mitä Stella tekee taustalla."
+    },
+    "userAsk": {
+      "answerFailed": "Vastausta ei voitu lähettää. Yritä uudelleen.",
+      "answerOnComputer": "Vastaa tähän laitteella {device}",
+      "answerOnComputerUnknown": "Vastaa tähän sillä tietokoneella, joka kysyy",
+      "answerOnComputerWhy": "Tähän tarvitaan jotain yksityistä, eikä tällä puhelimella ole avainta sen salaamiseen kyseiselle tietokoneelle. Stella ei lähetä sitä selkokielisenä.",
+      "askedBy": "Lähettäjä {label}",
+      "cancelFailed": "Kysymystä ei voitu sulkea. Yritä uudelleen.",
+      "cantRightNow": "En juuri nyt",
+      "deadline": "{time} jäljellä",
+      "deadlinePassed": "Aika loppui",
+      "deadlineWithDefault": "{time} jäljellä — muuten ”{option}”",
+      "defaultOption": "Oletus",
+      "hideSecret": "Piilota {label}",
+      "missingFields": "Täytä kaikki pakolliset kentät.",
+      "notification": {
+        "answer": "Vastaa",
+        "body": "Napauta vastataksesi.",
+        "dismiss": "Ohita",
+        "title": "Stella tarvitsee sinua"
+      },
+      "optional": "Valinnainen",
+      "plain": "Lähetetään selkokielisenä",
+      "revealSecret": "Näytä {label}",
+      "sealFailed": "Sitä ei voitu salata tällä laitteella.",
+      "send": "Lähetä",
+      "sendSecurely": "Lähetä turvallisesti",
+      "sending": "Lähetetään…",
+      "sensitive": "Salattu päästä päähän",
+      "sensitiveToggleA11y": "Salaa {label}",
+      "sensitiveUnavailable": "Tämä laite ei voi vielä salata sitä",
+      "somethingElse": "Jotain muuta",
+      "somethingElsePlaceholder": "Kerro Stellalle, mitä tehdä sen sijaan",
+      "unnamedComputer": "Tietokone · {id}",
+      "waitingBadge": "Odottaa sinua"
     }
   },
   "onboarding": {
@@ -2020,6 +2080,45 @@
       "savePower": "Virranhallinta-asetuksen päivitys epäonnistui.",
       "saveSoundNotifications": "Ääni-ilmoitusasetuksen päivitys epäonnistui.",
       "soundNotificationsUnavailable": "Ääni-ilmoitusasetukset eivät ole käytettävissä tässä ikkunassa."
+    },
+    "escalation": {
+      "ceiling": {
+        "label": "Reach me at most by",
+        "sublabel": "Stella never escalates past this, however urgent the ask."
+      },
+      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "errors": {
+        "load": "Couldn't load these settings.",
+        "save": "Couldn't save that. Try again.",
+        "unavailable": "These settings aren't available on this computer yet."
+      },
+      "levels": {
+        "alert": "Sound and phone push",
+        "breakthrough": "Push that pierces focus mode",
+        "chat": "Chat only",
+        "notify": "Desktop notification"
+      },
+      "quietHours": {
+        "activeNow": "Quiet hours are on right now.",
+        "ceilingLabel": "During quiet hours, reach me at most by",
+        "ceilingSublabel": "Anything louder waits until quiet hours end.",
+        "end": "Until",
+        "label": "Quiet hours",
+        "start": "From",
+        "sublabel": "Hold back during a window you set, on every device.",
+        "window": "Quiet from",
+        "windowSublabel": "Interpreted in {zone}."
+      },
+      "rateLimit": {
+        "label": "Asks per hour",
+        "sublabel": "Stella holds anything past this limit.",
+        "value": "{count} an hour"
+      },
+      "sound": {
+        "label": "Play a sound",
+        "sublabel": "Audible alert when Stella escalates an ask."
+      },
+      "title": "When Stella needs you"
     },
     "executionDevices": {
       "disable": "Turn off",
@@ -2689,6 +2788,42 @@
     "imageLightbox": {
       "close": "Sulje esikatselu",
       "title": "Kuvan esikatselu"
+    }
+  },
+  "userAsk": {
+    "blocking": "Waiting on you",
+    "deadline": {
+      "closes": "Closes in {time}",
+      "closing": "Closing now",
+      "continues": "Continues with “{option}” in {time}",
+      "continuesNow": "Continuing with “{option}”"
+    },
+    "errors": {
+      "answer": "That didn't go through. Try again."
+    },
+    "eyebrow": {
+      "question": "Stella needs a decision",
+      "secureInput": "Stella needs a value from you"
+    },
+    "question": {
+      "send": "Send",
+      "sending": "Sending…",
+      "somethingElse": "Something else",
+      "somethingElseLabel": "What would you rather do?",
+      "somethingElsePlaceholder": "Tell Stella what to do instead"
+    },
+    "secureInput": {
+      "choosePlaceholder": "Choose",
+      "makePrivate": "Keep private",
+      "makeShared": "Share with Stella",
+      "optional": "optional",
+      "privateBadge": "Private — Stella never sees it",
+      "privateNote": "Private values stay on this device. Stella uses them without ever reading them.",
+      "required": "Fill in {label} first.",
+      "sharedBadge": "Shared with Stella",
+      "sharedNote": "Shared values are sent to Stella as plain text.",
+      "submit": "Send securely",
+      "submitting": "Sending…"
     }
   }
 }

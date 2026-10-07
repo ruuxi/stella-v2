@@ -30,6 +30,12 @@ const NativePermissionSettings = lazy(() =>
   })),
 );
 
+const NativeAskEscalationSettings = lazy(() =>
+  import("./NativeAskEscalationSettings").then((module) => ({
+    default: module.NativeAskEscalationSettings,
+  })),
+);
+
 export function GeneralTab() {
   const t = useT();
   const storageMode = useChatStorageMode();
@@ -88,6 +94,11 @@ export function GeneralTab() {
         retryLabel={t("common.tryAgain")}
       />
       {platformCapabilities.nativeSettings ? <CompanionSettingsCard /> : null}
+      {platformCapabilities.nativeSettings ? (
+        <Suspense fallback={null}>
+          <NativeAskEscalationSettings />
+        </Suspense>
+      ) : null}
       {platformCapabilities.nativeSettings ? (
         <Suspense fallback={null}>
           <NativePermissionSettings />

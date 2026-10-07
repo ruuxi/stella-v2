@@ -11,6 +11,9 @@ import { PcmRecording } from "./pcm-recording";
 type WorkletFrame = { pcm: Int16Array; rms: number };
 
 const TARGET_SAMPLE_RATE = 16_000;
+/** Audio held while the relay connects. Meta closes a session with more than
+ *  five seconds queued ahead of real time, so a flush must stay well under
+ *  that; a connect slower than this is failing anyway. */
 const STREAM_PRE_ROLL_MAX_SAMPLES = 4 * TARGET_SAMPLE_RATE;
 const PCM_WORKLET_NAME = "stella-dictation-pcm-capture";
 const PCM_WORKLET_FILE = "dictation-pcm-worklet.js";
@@ -176,10 +179,13 @@ export class DictationSession {
   private callbacks: DictationCallbacks = {};
   private recording = new PcmRecording();
   private transcription: AbortController | null = null;
+  private streaming = false;
+  private streamedSamples = 0;
   private stream: DictationStream | null = null;
-  private streamOpened: Promise<boolean> = Promise.resolve(false);
+  /** Settles once the relay connection has opened or failed. */
+  private streamOpened: Promise<void> = Promise.resolve();
   private streamReady = false;
-  private streamFailed = false;
+  private streamFailure: Error | null = null;
   private pending: Int16Array[] = [];
   private pendingSamples = 0;
   private durationLimitTimer: ReturnType<typeof setTimeout> | null = null;
@@ -199,9 +205,10 @@ export class DictationSession {
     if (this.isActive()) return;
     this.callbacks = callbacks;
     this.cancelled = false;
+    this.streaming = options.streaming === true;
     this.recording = new PcmRecording();
     this.resetStream();
-    if (options.streaming) this.openStream();
+    if (this.streaming) this.openStream();
     if (isDictationSuperFastEnabled()) {
       for (const chunk of warmCapture.snapshot()) this.capture(chunk);
     }
@@ -229,6 +236,8 @@ export class DictationSession {
         this.setState("idle");
         return;
       }
+      // The relay may already have refused while the mic was starting.
+      if (this.streamFailure) throw this.streamFailure;
       this.durationLimitTimer = setTimeout(() => {
         console.warn("[dictation] hit max segment duration, auto-stopping");
         void this.stop();
@@ -262,7 +271,10 @@ export class DictationSession {
 
     const recording = this.recording;
     this.recording = new PcmRecording();
-    if (this.cancelled || recording.sampleCount === 0) {
+    const samples = this.streaming
+      ? this.streamedSamples
+      : recording.sampleCount;
+    if (this.cancelled || samples === 0) {
       this.stream?.cancel();
       this.resetStream();
       this.setState("idle");
@@ -273,10 +285,9 @@ export class DictationSession {
     const controller = new AbortController();
     this.transcription = controller;
     try {
-      const streamed = await this.finishStream();
-      const transcript =
-        streamed ??
-        (await transcribeDictation(recording.toWav(), controller.signal));
+      const transcript = this.streaming
+        ? await this.finishStream()
+        : await transcribeDictation(recording.toWav(), controller.signal);
       if (this.cancelled || !transcript) {
         this.setState("idle");
         return;
@@ -339,11 +350,12 @@ export class DictationSession {
 
   private resetStream(): void {
     this.stream = null;
-    this.streamOpened = Promise.resolve(false);
+    this.streamOpened = Promise.resolve();
     this.streamReady = false;
-    this.streamFailed = false;
+    this.streamFailure = null;
     this.pending = [];
     this.pendingSamples = 0;
+    this.streamedSamples = 0;
   }
 
   private openStream(): void {
@@ -353,58 +365,74 @@ export class DictationSession {
       },
       (error) => {
         if (this.stream !== stream) return;
-        console.warn("[dictation] stream failed, will transcribe the recording:", error.message);
-        this.abandonStream();
+        this.streamFailure = error;
+        if (this.state === "listening" && !this.cancelled) {
+          void this.failWhileListening(error);
+        }
       },
     );
     this.stream = stream;
     this.streamOpened = stream.open().then(
       () => {
-        if (this.stream !== stream || this.streamFailed) return false;
+        if (this.stream !== stream || this.streamFailure) return;
         for (const chunk of this.pending) stream.send(chunk);
         this.pending = [];
         this.pendingSamples = 0;
         this.streamReady = true;
-        return true;
       },
       (error: unknown) => {
-        if (this.stream === stream) {
-          console.warn("[dictation] stream did not open, will transcribe the recording:", (error as Error).message);
-          this.abandonStream();
+        if (this.stream !== stream) return;
+        const failure =
+          error instanceof Error ? error : new Error(String(error));
+        this.streamFailure = failure;
+        // Failure while recording: tear down and surface it. Before that,
+        // start() reads the failure; after, stop() does.
+        if (this.state === "listening" && !this.cancelled) {
+          void this.failWhileListening(failure);
         }
-        return false;
       },
     );
   }
 
-  private abandonStream(): void {
-    this.streamFailed = true;
-    this.stream?.cancel();
-    this.pending = [];
-    this.pendingSamples = 0;
+  private async failWhileListening(error: Error): Promise<void> {
+    console.error("[dictation] relay failed while recording:", error);
+    await this.cleanup();
+    this.setState("error", error.message);
   }
 
   private capture(pcm: Int16Array): void {
-    this.recording.append(pcm);
-    if (!this.stream || this.streamFailed) return;
-    if (this.streamReady) {
-      this.stream.send(pcm);
+    if (!this.streaming) {
+      this.recording.append(pcm);
       return;
     }
-    this.pending.push(pcm);
-    this.pendingSamples += pcm.length;
-    if (this.pendingSamples > STREAM_PRE_ROLL_MAX_SAMPLES) this.abandonStream();
+    this.streamedSamples += pcm.length;
+    if (this.streamReady) {
+      this.stream?.send(pcm);
+      return;
+    }
+    this.bufferWhileConnecting(pcm);
   }
 
-  private async finishStream(): Promise<string | null> {
+  private bufferWhileConnecting(pcm: Int16Array): void {
+    this.pending.push(pcm);
+    this.pendingSamples += pcm.length;
+    while (
+      this.pendingSamples > STREAM_PRE_ROLL_MAX_SAMPLES &&
+      this.pending.length > 1
+    ) {
+      this.pendingSamples -= this.pending.shift()!.length;
+    }
+  }
+
+  private async finishStream(): Promise<string> {
     const stream = this.stream;
-    if (!stream || this.streamFailed) return null;
     try {
-      if (!(await this.streamOpened) || this.streamFailed) return null;
+      // A short recording can end before the relay connects; its audio is
+      // still buffered and goes out the moment the socket opens.
+      await this.streamOpened;
+      if (this.streamFailure) throw this.streamFailure;
+      if (!stream) throw new Error("Dictation stream is unavailable.");
       return await stream.finish();
-    } catch (error) {
-      console.warn("[dictation] stream did not finish, will transcribe the recording:", (error as Error).message);
-      return null;
     } finally {
       if (this.stream === stream) this.resetStream();
     }

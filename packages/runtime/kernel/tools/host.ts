@@ -209,7 +209,9 @@ export const createToolHost = ({
   stellaMediaCliPath,
   stellaXApiCliPath,
   cliBridgeSocketPath,
-  requestCredential,
+  askUser,
+  requestSecureInput,
+  useSecureValue,
   requestBrowserExtensionConnect,
   requestConnectorConnection,
   switchExecutionDestination,
@@ -473,7 +475,9 @@ export const createToolHost = ({
     stellaComputerCliPath,
     stellaMediaCliPath,
     stellaXApiCliPath,
-    requestCredential,
+    askUser,
+    requestSecureInput,
+    useSecureValue,
     ...(requestBrowserExtensionConnect
       ? { requestBrowserExtensionConnect }
       : {}),

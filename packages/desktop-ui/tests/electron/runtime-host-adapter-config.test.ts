@@ -10,10 +10,23 @@ const createAdapter = () =>
         deviceId: "dev-device",
         publicKey: "pub",
       }),
-      requestCredential: async () => ({
-        secretId: "secret",
-        provider: "test",
-        label: "Test",
+      askUser: async () => ({
+        outcome: "answered" as const,
+        askId: "ask",
+        choiceId: "ok",
+        answeredAt: 0,
+      }),
+      requestSecureInput: async () => ({
+        outcome: "answered" as const,
+        askId: "ask",
+        answeredAt: 0,
+      }),
+      useSecureValue: async () => ({
+        handle: "handle",
+        target: "command" as const,
+        usedAt: 0,
+        detail: "ok",
+        ok: true,
       }),
       displayUpdate: () => undefined,
     },

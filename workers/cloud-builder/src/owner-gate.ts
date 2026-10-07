@@ -92,6 +92,7 @@ import {
   type SetEnforcementInput,
 } from "./owner-store/domains/abuse.js";
 import { handleMobileRoute, snapshotDevices, type MobileRouteInput } from "./owner-store/domains/devices.js";
+import { handleUserAskRoute, type UserAskRouteInput } from "./owner-store/domains/user-asks.js";
 import { DeviceRequestRelay, deviceRequestErrorResponse } from "./device-request-relay.js";
 import {
   DEVICE_REQUEST_LIMITS,
@@ -1127,6 +1128,12 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   /** `/api/mobile/*` for phones, verified by the Worker. */
   async mobileRoute(input: MobileRouteInput): Promise<{ status: number; json: string }> {
     const result = await this.billingWrite((ctx) => handleMobileRoute(ctx, input));
+    return { status: result.status, json: JSON.stringify(result.body) };
+  }
+
+  /** `/api/user-asks/*` for every client, verified by the Worker. */
+  async userAskRoute(input: UserAskRouteInput): Promise<{ status: number; json: string }> {
+    const result = await this.billingWrite((ctx) => handleUserAskRoute(ctx, input));
     return { status: result.status, json: JSON.stringify(result.body) };
   }
 

@@ -10,6 +10,7 @@ import type {
   Usage,
   UserMessage,
 } from "../../ai/types.js";
+import type { MapRouteArtifact } from "@stella/contracts/map-artifact";
 
 export const ORCHESTRATOR_ROSTER_CUSTOM_TYPE = "runtime.orchestrator_reminder";
 /** Structured descendant lifecycle rows used only by exact-thread UI.
@@ -121,10 +122,16 @@ export type LocalChatSyncMessage = {
   deviceId?: string;
 };
 
+export type PersistedToolResultDetails =
+  | { map: MapRouteArtifact }
+  | { maps: MapRouteArtifact[] };
+
 export type PersistedRuntimeThreadPayload =
   | UserMessage
   | AssistantMessage
-  | Omit<ToolResultMessage, "details">;
+  | (Omit<ToolResultMessage, "details"> & {
+      details?: PersistedToolResultDetails;
+    });
 
 export const RUNTIME_THREAD_SESSION_VERSION = 3;
 

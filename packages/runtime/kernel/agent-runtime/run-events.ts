@@ -11,7 +11,11 @@ import type {
   HookEventMap,
   HookRuntimeContext,
 } from "../extensions/types.js";
-import type { PersistedRuntimeThreadPayload } from "../storage/shared.js";
+import type {
+  PersistedRuntimeThreadPayload,
+  PersistedToolResultDetails,
+} from "../storage/shared.js";
+import { isMapRouteArtifact } from "@stella/contracts/map-artifact";
 import type { RuntimeStore } from "../storage/runtime-store.js";
 import type { RunTaskCapturedMessage } from "../storage/run-task.js";
 import { assistantMessageHasUsableOutput } from "./run-shared.js";
@@ -865,6 +869,20 @@ export const snapshotCapturedTranscript = (
   }));
 };
 
+const persistedToolResultDetails = (
+  details: unknown,
+): PersistedToolResultDetails | undefined => {
+  if (!details || typeof details !== "object" || Array.isArray(details)) {
+    return undefined;
+  }
+  const record = details as Record<string, unknown>;
+  const maps = (Array.isArray(record.maps) ? record.maps : [record.map]).filter(
+    isMapRouteArtifact,
+  );
+  if (maps.length === 0) return undefined;
+  return maps.length === 1 ? { map: maps[0]! } : { maps };
+};
+
 export const toPersistedThreadPayload = (
   message: AgentMessage,
 ): PersistedRuntimeThreadPayload | null => {
@@ -909,6 +927,7 @@ export const toPersistedThreadPayload = (
     };
   }
   if (message.role === "toolResult") {
+    const details = persistedToolResultDetails(message.details);
     return {
       role: "toolResult",
       toolCallId: message.toolCallId,
@@ -919,6 +938,7 @@ export const toPersistedThreadPayload = (
         : {}),
       isError: message.isError,
       timestamp: message.timestamp,
+      ...(details ? { details } : {}),
     };
   }
   // runtimeInternal messages are not universally durable; producers persist

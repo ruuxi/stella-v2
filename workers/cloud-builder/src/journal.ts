@@ -2002,55 +2002,71 @@ export class Journal {
   /**
    * The fold of this conversation's agent activity, kept in the object's
    * memory. `ready` needs the authoritative answer on every connect and has no
-   * await left to spend on it, so the journal is scanned once per object
-   * lifetime and then carried forward by whatever rows were appended since.
-   * An eviction drops the field and the next reader pays for one scan again.
+   * await left to spend on it, so the resident journal is scanned once per
+   * object lifetime and then carried forward by whatever rows were appended
+   * since. An eviction drops the field and the next reader pays for one scan.
+   *
+   * `epoch` is part of the identity, not just `throughSeq`: an edit or fork
+   * rewinds the tail and bumps the epoch, and a rewind that has already grown
+   * back past the old head is invisible to a seq comparison alone — folding
+   * forward across it would keep agents alive that the rewind removed.
    */
   private agentActivity: {
     state: AgentActivityState;
     toolCalls: Map<string, AgentActivityToolCall>;
     throughSeq: number;
+    epoch: number;
   } | null = null;
 
   /** Every agent the journal still shows as running, oldest start first. */
   runningAgents(limit = READY_RUNNING_AGENTS_LIMIT): AgentActivityEntry[] {
-    const headSeq = this.meta().next_seq - 1;
+    const meta = this.meta();
+    const headSeq = meta.next_seq - 1;
     let cached = this.agentActivity;
-    // A head below what we already folded means the tail was rewound (an edit,
-    // a fork, a new epoch). Folding forward from a seq that no longer exists
-    // would keep agents alive that the rewind removed, so rebuild by scan.
-    if (!cached || cached.throughSeq > headSeq) {
-      const rows = this.selectRows(
-        `ORDER BY seq DESC LIMIT ?`,
-        AGENT_ACTIVITY_SCAN_ROWS,
-      );
-      rows.reverse();
+    if (!cached || cached.epoch !== meta.epoch || cached.throughSeq > headSeq) {
       cached = {
         state: emptyAgentActivityState(),
         toolCalls: new Map(),
         throughSeq: -1,
+        epoch: meta.epoch,
       };
-      this.foldAgentActivityRows(cached, rows, headSeq);
-      this.agentActivity = cached;
-    } else if (cached.throughSeq < headSeq) {
+      // Every resident row, not a fixed tail: an agent is reported as running
+      // precisely because nothing has settled it, so its `agent-started` row is
+      // as old as the agent, and a tail cap would silently retire exactly the
+      // long-running agents this answer exists for. The scan is bounded by the
+      // hot set (older rows have rolled into R2 and cannot be read from here)
+      // and happens once per object lifetime.
       this.foldAgentActivityRows(
         cached,
-        this.selectRows(
-          `WHERE seq > ? ORDER BY seq ASC LIMIT ?`,
-          cached.throughSeq,
-          AGENT_ACTIVITY_SCAN_ROWS,
-        ),
+        this.selectRows(`ORDER BY seq ASC`),
         headSeq,
       );
+      this.agentActivity = cached;
+      return runningAgentEntries(cached.state, limit);
+    }
+    // Catch the cache up completely. A bounded read keeps one statement small,
+    // so a long gap costs several of them rather than one unbounded row set —
+    // but returning while rows remain unfolded would answer from a journal
+    // prefix, which is the very thing this method exists to avoid.
+    while (cached.throughSeq < headSeq) {
+      const rows = this.selectRows(
+        `WHERE seq > ? ORDER BY seq ASC LIMIT ?`,
+        cached.throughSeq,
+        AGENT_ACTIVITY_SCAN_ROWS,
+      );
+      if (!rows.length) break;
+      this.foldAgentActivityRows(cached, rows, headSeq);
     }
     return runningAgentEntries(cached.state, limit);
   }
+
 
   private foldAgentActivityRows(
     cached: {
       state: AgentActivityState;
       toolCalls: Map<string, AgentActivityToolCall>;
       throughSeq: number;
+      epoch: number;
     },
     rows: JournalRow[],
     headSeq: number,

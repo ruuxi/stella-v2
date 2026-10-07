@@ -356,6 +356,21 @@ export const trimAgentActivity = (
       state.carded.delete(entry.agentId);
     }
   }
+  // `carded` and `generations` are keyed by agent id and are written for every
+  // lifecycle card seen, including ones whose entry was never created (a card
+  // with no description cannot start a row) — so they do not shrink with the
+  // entry map and would grow for the life of the fold. An id no entry mentions
+  // has nothing left to correct.
+  if (state.carded.size > MAX_SETTLED_ENTRIES) {
+    for (const agentId of state.carded) {
+      if (!state.entries.has(agentId)) state.carded.delete(agentId);
+    }
+  }
+  if (state.generations.size > MAX_SETTLED_ENTRIES) {
+    for (const agentId of state.generations.keys()) {
+      if (!state.entries.has(agentId)) state.generations.delete(agentId);
+    }
+  }
   if (toolCalls && toolCalls.size > MAX_PENDING_TOOL_CALLS) {
     // Insertion order is journal order, so the first keys are the oldest.
     for (const key of [...toolCalls.keys()].slice(

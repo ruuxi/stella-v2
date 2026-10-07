@@ -15,6 +15,7 @@ import type {
 } from "../tools/types.js";
 import {
   checkClaudeCodeAuth,
+  claudeCodeResumableSessionId,
   runClaudeCodeTurn,
   shutdownClaudeCodeRuntime,
 } from "../integrations/claude-code-session-runtime.js";
@@ -443,13 +444,57 @@ const contentToText = (content: AgentMessage["content"]): string => {
     .trim();
 };
 
-export const buildExternalStellaHistoryPromptMessage = (args: {
+const STELLA_HISTORY_CUSTOM_TYPE = "runtime.stella_thread_history";
+
+const STELLA_HISTORY_NOTE =
+  "Stella chat/runtime history is the source of truth for recall. Use it to answer questions about prior Stella messages, even when external engine session state is unavailable or incomplete.";
+
+const STELLA_HISTORY_NEW_ROWS_NOTE =
+  "Rows added to this Stella conversation that this engine session has not been given yet (for example turns taken on another device, or by Stella itself). Earlier rows are already in this session's own transcript.";
+
+const hashHistoryEntry = (role: string, text: string): string =>
+  crypto.createHash("sha1").update(`${role}\n${text}`).digest("hex");
+
+type StellaHistoryEntry = { hash: string; line: string };
+
+const buildStellaHistoryBlock = (
+  entries: StellaHistoryEntry[],
+  note: string,
+): RuntimePromptMessage | null => {
+  if (entries.length === 0) {
+    return null;
+  }
+  return {
+    messageType: "message",
+    uiVisibility: "hidden",
+    customType: STELLA_HISTORY_CUSTOM_TYPE,
+    text: [
+      `<stella_thread_history source="stella" note="${note}">`,
+      ...entries.map((entry) => entry.line),
+      "</stella_thread_history>",
+    ].join("\n"),
+  };
+};
+
+export type ExternalStellaHistoryDelivery = {
+  entryHashes: string[];
+  full: RuntimePromptMessage | null;
+  undelivered: RuntimePromptMessage | null;
+};
+
+export const buildExternalStellaHistoryDelivery = (args: {
   opts: BaseRunOptions;
   promptMessages: RuntimePromptMessage[];
-}): RuntimePromptMessage | null => {
+  deliveredEntryHashes?: ReadonlySet<string>;
+}): ExternalStellaHistoryDelivery => {
+  const empty: ExternalStellaHistoryDelivery = {
+    entryHashes: [],
+    full: null,
+    undelivered: null,
+  };
   const history = buildHistorySource(args.opts.agentContext);
   if (history.length === 0) {
-    return null;
+    return empty;
   }
   const lastPromptUserText = [...args.promptMessages]
     .reverse()
@@ -464,26 +509,99 @@ export const buildExternalStellaHistoryPromptMessage = (args: {
   ) {
     trimmedHistory.pop();
   }
-  const lines = trimmedHistory
-    .map((message, index) => {
+  const entries = trimmedHistory
+    .map((message, index): StellaHistoryEntry | null => {
+      if (
+        message.role === "runtimeInternal" &&
+        message.customType === STELLA_HISTORY_CUSTOM_TYPE
+      ) {
+        return null;
+      }
       const text = contentToText(message.content);
-      if (!text) return "";
-      return `<history_message index="${index + 1}" role="${message.role}">\n${text}\n</history_message>`;
+      if (!text) return null;
+      return {
+        hash: hashHistoryEntry(message.role, text),
+        line: `<history_message index="${index + 1}" role="${message.role}">\n${text}\n</history_message>`,
+      };
     })
-    .filter((entry) => entry.trim().length > 0);
-  if (lines.length === 0) {
-    return null;
+    .filter((entry): entry is StellaHistoryEntry => entry !== null);
+  if (entries.length === 0) {
+    return empty;
   }
+  const delivered = args.deliveredEntryHashes;
+  const undelivered = delivered
+    ? entries.filter((entry) => !delivered.has(entry.hash))
+    : entries;
   return {
-    messageType: "message",
-    uiVisibility: "hidden",
-    customType: "runtime.stella_thread_history",
-    text: [
-      '<stella_thread_history source="stella" note="Stella chat/runtime history is the source of truth for recall. Use it to answer questions about prior Stella messages, even when external engine session state is unavailable or incomplete.">',
-      ...lines,
-      "</stella_thread_history>",
-    ].join("\n"),
+    entryHashes: entries.map((entry) => entry.hash),
+    full: buildStellaHistoryBlock(entries, STELLA_HISTORY_NOTE),
+    undelivered:
+      undelivered.length === entries.length
+        ? buildStellaHistoryBlock(entries, STELLA_HISTORY_NOTE)
+        : buildStellaHistoryBlock(undelivered, STELLA_HISTORY_NEW_ROWS_NOTE),
   };
+};
+
+export const buildExternalStellaHistoryPromptMessage = (args: {
+  opts: BaseRunOptions;
+  promptMessages: RuntimePromptMessage[];
+}): RuntimePromptMessage | null =>
+  buildExternalStellaHistoryDelivery(args).full;
+
+const CLAUDE_HISTORY_DELIVERY_LIMIT = 4_000;
+
+type ClaudeHistoryDelivery = {
+  sessionId: string;
+  hashes: string[];
+  staleAfterCompaction: boolean;
+};
+
+const claudeHistoryDeliveries = new Map<string, ClaudeHistoryDelivery>();
+
+const readClaudeHistoryDelivery = (
+  sessionKey: string,
+  resumableSessionId: string | undefined,
+): Set<string> | undefined => {
+  const state = claudeHistoryDeliveries.get(sessionKey);
+  if (!state) {
+    return undefined;
+  }
+  if (!resumableSessionId || state.sessionId !== resumableSessionId) {
+    claudeHistoryDeliveries.delete(sessionKey);
+    return undefined;
+  }
+  if (state.staleAfterCompaction) {
+    return undefined;
+  }
+  return new Set(state.hashes);
+};
+
+const recordClaudeHistoryDelivery = (args: {
+  sessionKey: string;
+  sessionId: string;
+  entryHashes: readonly string[];
+  staleAfterCompaction: boolean;
+}): void => {
+  const previous = claudeHistoryDeliveries.get(args.sessionKey);
+  const merged =
+    previous && previous.sessionId === args.sessionId
+      ? [...previous.hashes, ...args.entryHashes]
+      : [...args.entryHashes];
+  const seen = new Set<string>();
+  const newest: string[] = [];
+  for (let index = merged.length - 1; index >= 0; index -= 1) {
+    const hash = merged[index]!;
+    if (seen.has(hash)) continue;
+    seen.add(hash);
+    newest.push(hash);
+    if (newest.length >= CLAUDE_HISTORY_DELIVERY_LIMIT) break;
+  }
+  newest.reverse();
+  claudeHistoryDeliveries.set(args.sessionKey, {
+    sessionId: args.sessionId,
+    hashes: newest,
+    staleAfterCompaction: args.staleAfterCompaction,
+  });
 };
 
 /**
@@ -897,9 +1015,17 @@ export const createExternalDeltaWatermarkTracker = (
  * until Claude Code's own auto-compaction fires on every turn (an endless
  * "Compacting context" loop). A lost or looping session still reseeds from
  * the checkpoint-style history through `resumeFallbackPrompt`.
+ *
+ * A resumed turn may still carry `resumedHistoryPromptMessage`: the rows that
+ * entered the Stella conversation without passing through this CLI session
+ * (another device, another engine, or the first turn after the CLI compacted
+ * its own transcript). It is the undelivered remainder, never the whole
+ * history, so the transcript still grows with the conversation and not with
+ * the square of it.
  */
 export const buildClaudeCodeTurnPrompts = (args: {
   historyPromptMessage: RuntimePromptMessage | null;
+  resumedHistoryPromptMessage?: RuntimePromptMessage | null;
   promptMessages: RuntimePromptMessage[];
   hasPersistedSession: boolean;
   deltaPromptMessage?: RuntimePromptMessage | null;
@@ -922,11 +1048,14 @@ export const buildClaudeCodeTurnPrompts = (args: {
   const prompt =
     !args.hasPersistedSession && historyPrefixedPrompt
       ? historyPrefixedPrompt
-      : buildClaudePromptFromMessages(
-          args.deltaPromptMessage
-            ? [args.deltaPromptMessage, ...args.promptMessages]
-            : args.promptMessages,
-        );
+      : buildClaudePromptFromMessages([
+          ...(args.resumedHistoryPromptMessage
+            ? [args.resumedHistoryPromptMessage]
+            : []),
+          ...(args.deltaPromptMessage ? [args.deltaPromptMessage] : []),
+          ...args.promptMessages,
+        ]);
+
   return {
     prompt,
     ...(historyPrefixedPrompt
@@ -1153,7 +1282,6 @@ const runClaudeHostedTurn = async (args: {
     throw failure;
   }
 
-
   const localCliCwd = resolveAgentWorkingDirectory({
     agentType: args.opts.agentType,
     stellaAppDir: args.opts.stellaAppDir,
@@ -1360,10 +1488,31 @@ const runClaudeHostedTurn = async (args: {
     return toolResult;
   };
 
-  const historyPromptMessage = buildExternalStellaHistoryPromptMessage({
+  const deliversHistoryIncrementally = args.session.kind === "orchestrator";
+  const resumableSessionId =
+    persistedSessionId ??
+    (deliversHistoryIncrementally
+      ? claudeCodeResumableSessionId(sessionKey, localCliCwd)
+      : undefined);
+  const resumesExistingSession = Boolean(resumableSessionId);
+  const deliveredHistoryHashes = deliversHistoryIncrementally
+    ? readClaudeHistoryDelivery(sessionKey, resumableSessionId)
+    : undefined;
+  const history = buildExternalStellaHistoryDelivery({
     opts: args.opts,
     promptMessages: args.promptMessages,
+    ...(deliveredHistoryHashes
+      ? { deliveredEntryHashes: deliveredHistoryHashes }
+      : {}),
   });
+  const historyPromptMessage = history.full;
+  const resumedHistoryPromptMessage = deliversHistoryIncrementally
+    ? history.undelivered
+    : null;
+  const promptHistoryMessage = resumesExistingSession
+    ? resumedHistoryPromptMessage
+    : historyPromptMessage;
+  let deliveredHistoryEntryHashes: readonly string[] = history.entryHashes;
   const initialDeliveredEntryId = getExternalDeliveredEntryId({
     store: args.opts.store,
     threadKey,
@@ -1376,8 +1525,8 @@ const runClaudeHostedTurn = async (args: {
       ? { afterEntryId: initialDeliveredEntryId }
       : {}),
     promptMessages: args.promptMessages,
-    ...(!persistedSessionId && historyPromptMessage
-      ? { deliveredContextTexts: [historyPromptMessage.text] }
+    ...(promptHistoryMessage
+      ? { deliveredContextTexts: [promptHistoryMessage.text] }
       : {}),
   });
   const watermarkTracker = createExternalDeltaWatermarkTracker(
@@ -1385,7 +1534,7 @@ const runClaudeHostedTurn = async (args: {
   );
   watermarkTracker.noteMainlineDelta(threadUpdatesDelta);
   const mainFallbackDelta =
-    persistedSessionId && historyPromptMessage
+    resumesExistingSession && historyPromptMessage
       ? buildExternalThreadUpdatesDelta({
           store: args.opts.store,
           threadKey,
@@ -1401,13 +1550,15 @@ const runClaudeHostedTurn = async (args: {
   }
   const { prompt, resumeFallbackPrompt } = buildClaudeCodeTurnPrompts({
     historyPromptMessage,
+    ...(resumedHistoryPromptMessage ? { resumedHistoryPromptMessage } : {}),
     promptMessages: args.promptMessages,
-    hasPersistedSession: Boolean(persistedSessionId),
+    hasPersistedSession: resumesExistingSession,
     deltaPromptMessage: threadUpdatesDelta.message,
     ...(mainFallbackDelta
       ? { fallbackDeltaPromptMessage: mainFallbackDelta.message }
       : {}),
   });
+
   const claudeCodeEffortLevel = getClaudeCodeRuntimeEffortLevel(
     args.opts.stellaAppDir,
     args.opts.agentContext.modelConfigSnapshot?.engine === "claude_code_local"
@@ -1422,6 +1573,7 @@ const runClaudeHostedTurn = async (args: {
   let nextPrompt = prompt;
   let nextResumeFallbackPrompt = resumeFallbackPrompt;
   let nextAttachments = args.opts.attachments;
+  let compactedSincePromptBuild = false;
 
   let latestAttempt = true;
   // Steering lands in the running Claude query instead of interrupting it.
@@ -1550,6 +1702,9 @@ const runClaudeHostedTurn = async (args: {
           text: string;
           state?: RuntimeStatusEvent["statusState"];
         }) => {
+          if (status.state === "compacting") {
+            compactedSincePromptBuild = true;
+          }
           args.callbacks?.onStatus?.(
             runEvents.recordStatus(status.text, status.state),
           );
@@ -1622,10 +1777,28 @@ const runClaudeHostedTurn = async (args: {
     });
     const queuedPromptMessages = queued.map(formatQueuedClaudeMessage);
     const queuedAttachments = attachmentsFromQueuedMessages(queued);
-    const queuedHistoryPromptMessage = buildExternalStellaHistoryPromptMessage({
+    const queuedSessionId =
+      activeSessionId ??
+      (deliversHistoryIncrementally ? resumableSessionId : undefined);
+    const queuedDeliveredHistoryHashes =
+      deliversHistoryIncrementally && !compactedSincePromptBuild
+        ? readClaudeHistoryDelivery(sessionKey, queuedSessionId)
+        : undefined;
+    const queuedHistory = buildExternalStellaHistoryDelivery({
       opts: args.opts,
       promptMessages: queuedPromptMessages,
+      ...(queuedDeliveredHistoryHashes
+        ? { deliveredEntryHashes: queuedDeliveredHistoryHashes }
+        : {}),
     });
+    const queuedHistoryPromptMessage = queuedHistory.full;
+    const queuedResumedHistoryPromptMessage = deliversHistoryIncrementally
+      ? queuedHistory.undelivered
+      : null;
+    const queuedPromptHistoryMessage = queuedSessionId
+      ? queuedResumedHistoryPromptMessage
+      : queuedHistoryPromptMessage;
+    deliveredHistoryEntryHashes = queuedHistory.entryHashes;
     const queuedThreadUpdatesDelta = buildExternalThreadUpdatesDelta({
       store: args.opts.store,
       threadKey,
@@ -1633,6 +1806,9 @@ const runClaudeHostedTurn = async (args: {
         ? { afterEntryId: watermarkTracker.cursor }
         : {}),
       promptMessages: queuedPromptMessages,
+      ...(queuedPromptHistoryMessage
+        ? { deliveredContextTexts: [queuedPromptHistoryMessage.text] }
+        : {}),
     });
     const queuedFallbackDelta = buildExternalThreadUpdatesDelta({
       store: args.opts.store,
@@ -1655,11 +1831,17 @@ const runClaudeHostedTurn = async (args: {
       resumeFallbackPrompt: queuedResumeFallbackPrompt,
     } = buildClaudeCodeTurnPrompts({
       historyPromptMessage: queuedHistoryPromptMessage,
+      ...(queuedResumedHistoryPromptMessage
+        ? {
+            resumedHistoryPromptMessage: queuedResumedHistoryPromptMessage,
+          }
+        : {}),
       promptMessages: queuedPromptMessages,
-      hasPersistedSession: Boolean(activeSessionId),
+      hasPersistedSession: Boolean(queuedSessionId),
       deltaPromptMessage: queuedThreadUpdatesDelta.message,
       fallbackDeltaPromptMessage: queuedFallbackDelta.message,
     });
+    compactedSincePromptBuild = false;
     nextPrompt = queuedPrompt;
     nextResumeFallbackPrompt = queuedResumeFallbackPrompt;
     nextAttachments = queuedAttachments;
@@ -1675,6 +1857,16 @@ const runClaudeHostedTurn = async (args: {
       engine: sessionEngine,
       sessionId: finalResult.sessionId,
     });
+    if (deliversHistoryIncrementally) {
+      const reseeded =
+        resumesExistingSession && finalResult.sessionId !== resumableSessionId;
+      recordClaudeHistoryDelivery({
+        sessionKey,
+        sessionId: finalResult.sessionId,
+        entryHashes: deliveredHistoryEntryHashes,
+        staleAfterCompaction: compactedSincePromptBuild || reseeded,
+      });
+    }
     const resolvedWatermark = watermarkTracker.resolve();
     if (resolvedWatermark && resolvedWatermark !== initialDeliveredEntryId) {
       setExternalDeliveredEntryId({

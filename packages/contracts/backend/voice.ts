@@ -1,12 +1,15 @@
 /**
  * Voice, read-aloud and dictation, served from the owner's object.
  *
- * - **Realtime voice:** `voice.session` opens a lease on a server-created
- *   OpenAI call. The client posts its SDP offer to `VOICE_OPENAI_SDP_PATH`
- *   with the lease id in `VOICE_LEASE_HEADER`, heartbeats with `voice.lease`
- *   and reports each response's usage with `voice.usage`. A lease that stops
- *   heartbeating is closed by the server, which hangs the call up and charges
- *   what is left.
+ * - **Live voice:** `voice.session` opens a lease and stores the GPT-Live
+ *   session config. The client posts its SDP offer to `VOICE_LIVE_SDP_PATH`
+ *   with the lease id in `VOICE_LEASE_HEADER`; the server creates the live
+ *   session with its own key and returns only the SDP answer. The client
+ *   heartbeats with `voice.lease`. A lease that stops heartbeating is closed
+ *   by the server, which attaches a sideband to close the session and charges
+ *   the elapsed duration. GPT-Live is billed per second of session duration,
+ *   so there is no per-response usage report: the orchestrator's own model
+ *   spend is metered through the normal agent path.
  * - **Read-aloud:** desktop streams `audio/mpeg` from `VOICE_TTS_STREAM_PATH`
  *   (or one-shot audio from `VOICE_TTS_PATH`). Mobile's native player needs a
  *   GET URL without headers, so `tts.prepare` returns a signed ticket and the
@@ -14,8 +17,7 @@
  * - **Dictation:** `dictation.realtimeConfig` names the relay socket's origin.
  */
 
-export const VOICE_OPENAI_SDP_PATH = "/api/voice/openai/sdp";
-export const VOICE_INWORLD_SDP_PATH = "/api/voice/inworld/sdp";
+export const VOICE_LIVE_SDP_PATH = "/api/voice/live/sdp";
 export const VOICE_TTS_PATH = "/api/voice/tts";
 export const VOICE_TTS_STREAM_PATH = "/api/voice/tts/stream";
 export const VOICE_TTS_STREAM_CANCEL_PATH = "/api/voice/tts/stream/cancel";
@@ -23,14 +25,33 @@ export const VOICE_TTS_HLS_PREFIX = "/api/voice/tts/stream/hls/";
 /** The lease an SDP offer belongs to. */
 export const VOICE_LEASE_HEADER = "x-stella-voice-lease";
 
-export const voiceTtsPlaylistPath = (ticket: string): string =>
-  `${VOICE_TTS_HLS_PREFIX}${encodeURIComponent(ticket)}/index.m3u8`;
+/** The managed voice model. Conversation only; reasoning and tools delegate out. */
+export const GPT_LIVE_MODEL = "gpt-live-1";
 
-export type VoiceToolSchema = {
-  type: "function";
-  name: string;
-  description: string;
-  parameters: Record<string, unknown>;
+/**
+ * GPT-Live accepts `instructions` up to 16,384 tokens. The voice prompt is
+ * now a short conversation-and-delegation brief rather than Stella's whole
+ * system prompt, so this ceiling is generous at ~3 characters per token and
+ * still leaves the model's own budget untouched.
+ */
+export const VOICE_INSTRUCTIONS_MAX_CHARS = 24_000;
+/** GPT-Live accepts at most 128 startup history messages. */
+export const VOICE_HISTORY_MAX_MESSAGES = 128;
+/** GPT-Live caps startup history at 8,192 combined tokens. */
+export const VOICE_HISTORY_MAX_CHARS = 24_000;
+/**
+ * `session.instructions.append`, `session.thinking.append` and
+ * `session.commentary.append` each take at most 500 tokens of content.
+ * Callers split longer updates.
+ */
+export const VOICE_APPEND_MAX_CHARS = 1_500;
+
+export type VoiceHistoryRole = "developer" | "user" | "assistant";
+
+/** One startup history message. GPT-Live takes a single text part per message. */
+export type VoiceHistoryMessage = {
+  role: VoiceHistoryRole;
+  text: string;
 };
 
 export type VoiceSession = {
@@ -51,34 +72,28 @@ export type VoiceLease = {
   reason: string | null;
 };
 
+export const voiceTtsPlaylistPath = (ticket: string): string =>
+  `${VOICE_TTS_HLS_PREFIX}${encodeURIComponent(ticket)}/index.m3u8`;
+
 export type VoiceCalls = {
   /**
-   * Open a realtime voice lease (Pro only). Any other open lease of the
+   * Open a live voice lease (Pro only). Any other open lease of the
    * owner's is closed first.
    */
   "voice.session": {
     args: {
+      /** Conversation style and delegation policy, not Stella's system prompt. */
       instructions: string;
-      tools?: VoiceToolSchema[];
+      /** Recent text turns, so the call opens knowing where the chat is. */
+      history?: VoiceHistoryMessage[];
       voice?: string;
       model?: string;
-      voiceProvider?: "openai" | "xai" | "inworld";
-      turnDetection?: "semantic_vad" | "server_vad";
-      turnEagerness?: "low" | "medium" | "high";
     };
     result: VoiceSession;
   };
   "voice.lease": {
     args: { leaseId: string; event: VoiceLeaseEvent };
     result: VoiceLease;
-  };
-  /**
-   * One provider `response.done` usage object, priced at the lease's model.
-   * Idempotent on `responseId`.
-   */
-  "voice.usage": {
-    args: { leaseId: string; responseId: string; usage: Record<string, unknown> };
-    result: { recorded: boolean; costMicroCents: number };
   };
   /** Start a mobile read-aloud synthesis; play `playlistPath` on the backend origin. */
   "tts.prepare": {

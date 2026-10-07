@@ -10,13 +10,15 @@
  * since this module is reachable from preload + renderer bundles.
  */
 
-export type RealtimeVoiceProvider = "stella" | "openai" | "xai" | "inworld";
+export type RealtimeVoiceProvider = "stella" | "openai" | "xai";
 
 /**
- * Subset of the providers that can actually mint a voice — Stella mode
- * routes through one of these under the hood (`stellaSubProvider`).
+ * Subset of the providers that can actually mint a voice. Stella mode is
+ * always GPT-Live: the voice model carries the conversation and delegates
+ * reasoning and tools to the orchestrator, so there is no family to choose.
+ * The BYOK modes stay pinned to their own Realtime families.
  */
-export type RealtimeVoiceUnderlyingProvider = "openai" | "xai" | "inworld";
+export type RealtimeVoiceUnderlyingProvider = "gptlive" | "openai" | "xai";
 
 /**
  * TTS families used by the Read-aloud feature. Gemini is Stella's default
@@ -31,9 +33,9 @@ export type ReadAloudVoiceProvider = "gemini" | "openai";
  * silently rewritten to "marin" when the user flips back to OpenAI.
  */
 export type RealtimeVoiceSelections = {
+  gptlive?: string;
   openai?: string;
   xai?: string;
-  inworld?: string;
   /** Read-aloud only: Gemini TTS has no realtime counterpart. */
   gemini?: string;
 };
@@ -43,17 +45,10 @@ export type RealtimeVoicePreferences = {
   model?: string;
   voices?: RealtimeVoiceSelections;
   /**
-   * Active voice family when `provider === "stella"`. Lets the user pick
-   * an OpenAI, xAI, or Inworld voice while still routing through Stella's
-   * managed backend (no BYOK). Ignored for BYOK modes — those are pinned
-   * to their own family.
+   * Whether the voice and call controls are shown at all. Voice is off
+   * until the user turns it on in Settings, on every platform.
    */
-  stellaSubProvider?: RealtimeVoiceUnderlyingProvider;
-  /**
-   * Inworld TTS playback speed multiplier. Inworld accepts ~0.5–2.0 on
-   * `audio.output.speed`. Only applies to Inworld voices.
-   */
-  inworldSpeed?: number;
+  enabled?: boolean;
   /**
    * Voice family used for the "Read aloud" feature (TTS of finalized
    * assistant replies). Independent from the realtime voice agent above.
@@ -68,15 +63,17 @@ export type RealtimeVoicePreferences = {
  * follows `stellaSubProvider`, defaulting to "openai".
  */
 export const resolveRealtimeUnderlyingProvider = (
-  prefs: Pick<RealtimeVoicePreferences, "provider" | "stellaSubProvider">,
+  prefs: Pick<RealtimeVoicePreferences, "provider">,
 ): RealtimeVoiceUnderlyingProvider => {
   if (prefs.provider === "xai") return "xai";
   if (prefs.provider === "openai") return "openai";
-  if (prefs.provider === "inworld") return "inworld";
-  if (prefs.stellaSubProvider === "xai") return "xai";
-  if (prefs.stellaSubProvider === "inworld") return "inworld";
-  return "openai";
+  return "gptlive";
 };
+
+/** Voice controls stay hidden until the user switches voice on. */
+export const isRealtimeVoiceEnabled = (
+  prefs: Pick<RealtimeVoicePreferences, "enabled"> | null | undefined,
+): boolean => prefs?.enabled === true;
 
 /**
  * Stable identity for the transport/auth route backing a realtime session.
@@ -84,12 +81,12 @@ export const resolveRealtimeUnderlyingProvider = (
  * both ultimately use the same underlying provider.
  */
 export const getRealtimeVoiceSessionRouteKey = (
-  prefs: Pick<RealtimeVoicePreferences, "provider" | "stellaSubProvider">,
+  prefs: Pick<RealtimeVoicePreferences, "provider">,
 ): string => `${prefs.provider}:${resolveRealtimeUnderlyingProvider(prefs)}`;
 
 export const hasRealtimeVoiceSessionRouteChanged = (
-  previous: Pick<RealtimeVoicePreferences, "provider" | "stellaSubProvider">,
-  next: Pick<RealtimeVoicePreferences, "provider" | "stellaSubProvider">,
+  previous: Pick<RealtimeVoicePreferences, "provider">,
+  next: Pick<RealtimeVoicePreferences, "provider">,
 ): boolean =>
   getRealtimeVoiceSessionRouteKey(previous) !==
   getRealtimeVoiceSessionRouteKey(next);
@@ -107,7 +104,6 @@ const REALTIME_VOICE_PROVIDERS: readonly RealtimeVoiceProvider[] = [
   "stella",
   "openai",
   "xai",
-  "inworld",
 ];
 
 /** Narrow an arbitrary string to a RealtimeVoiceProvider, defaulting to "stella". */

@@ -66,31 +66,22 @@ export const XAI_REALTIME_VOICES: readonly RealtimeVoiceCatalogEntry[] = [
 ];
 
 /**
- * Inworld Realtime voice catalog — the curated set of voices available
- * on the Stella org's Inworld account. Steerable voices can be tuned
- * further via session config; non-steerable voices play as-is.
- *
- * Custom/cloned voice IDs from a user's own Inworld account also work
- * via the BYOK Inworld path — the voice id is passed through as an
- * opaque string. To add or remove default voices, edit this list.
+ * GPT-Live voices. The Realtime voices above all work on `gpt-live-1`,
+ * and GPT-Live adds its own. Custom voice ids authorized on the org also
+ * pass through as opaque strings.
  */
-export const INWORLD_REALTIME_VOICES: readonly RealtimeVoiceCatalogEntry[] = [
-  { id: "Brooke", label: "Brooke", description: "English female (default)." },
-  { id: "Evelyn", label: "Evelyn", description: "English female, warm." },
-  { id: "Clive", label: "Clive", description: "English male, middle-aged." },
-  { id: "Ashley", label: "Ashley", description: "English female, middle-aged." },
-  { id: "Blake", label: "Blake", description: "English male, middle-aged." },
-  { id: "Eleanor", label: "Eleanor", description: "English female, middle-aged." },
-  { id: "Hades", label: "Hades", description: "English male, middle-aged, deeper tone." },
-  { id: "Hana", label: "Hana", description: "English female, young." },
-  { id: "Jason", label: "Jason", description: "English male, middle-aged." },
-  { id: "Luna", label: "Luna", description: "English female, middle-aged. Steerable." },
-  { id: "Mark", label: "Mark", description: "English male, middle-aged." },
-  { id: "Olivia", label: "Olivia", description: "English female, middle-aged." },
-  { id: "Reed", label: "Reed", description: "English male, middle-aged." },
-  { id: "Sarah", label: "Sarah", description: "English female, middle-aged. Steerable." },
-  { id: "Sophie", label: "Sophie", description: "English female, middle-aged." },
-  { id: "Theodore", label: "Theodore", description: "English male, older." },
+export const GPT_LIVE_VOICES: readonly RealtimeVoiceCatalogEntry[] = [
+  ...OPENAI_REALTIME_VOICES,
+  {
+    id: "quartz",
+    label: "Quartz",
+    description: "Australian, feminine — generated.",
+  },
+  {
+    id: "ripple",
+    label: "Ripple",
+    description: "Australian, masculine — natural.",
+  },
 ];
 
 /**
@@ -136,11 +127,6 @@ export const DEFAULT_GEMINI_TTS_VOICE = "Kore";
 export const isGeminiTtsVoice = (voice: string): boolean =>
   GEMINI_TTS_VOICES.some((entry) => entry.id === voice);
 
-/** Default Inworld LLM router model id. Must match `provider/modelName`. */
-export const DEFAULT_INWORLD_REALTIME_MODEL = "xai/grok-4.3-latest";
-/** Default Inworld TTS model id. `inworld-tts-2-flash` is their lower-latency variant. */
-export const DEFAULT_INWORLD_REALTIME_TTS_MODEL = "inworld-tts-2-flash";
-
 /** xAI recommends short-lived browser tokens; Stella's leases are five minutes. */
 export const XAI_REALTIME_CLIENT_SECRET_TTL_SECONDS = 5 * 60;
 
@@ -163,29 +149,26 @@ export const buildXaiRealtimeClientSecretRequest = (
     ),
   },
 });
-/**
- * Inworld TTS playback speed multiplier. 1.0 is real-time; >1 is faster.
- * Inworld accepts roughly 0.5–2.0 on `audio.output.speed`. 1.15 is a
- * subtle bump that feels noticeably snappier without sounding cartoonish.
- */
-export const DEFAULT_INWORLD_REALTIME_SPEED = 1.15;
-
 export const DEFAULT_OPENAI_REALTIME_VOICE = "marin";
 export const DEFAULT_XAI_REALTIME_VOICE = "eve";
-export const DEFAULT_INWORLD_REALTIME_VOICE = "Brooke";
+/** GPT-Live's documented default. */
+export const DEFAULT_GPT_LIVE_VOICE = "marin";
 
 export function getDefaultRealtimeVoice(
   provider: RealtimeVoiceUnderlyingProvider,
 ): string {
   if (provider === "xai") return DEFAULT_XAI_REALTIME_VOICE;
-  if (provider === "inworld") return DEFAULT_INWORLD_REALTIME_VOICE;
-  return DEFAULT_OPENAI_REALTIME_VOICE;
+  if (provider === "openai") return DEFAULT_OPENAI_REALTIME_VOICE;
+  return DEFAULT_GPT_LIVE_VOICE;
 }
 
 export function getRealtimeVoiceCatalog(
   provider: RealtimeVoiceUnderlyingProvider,
 ): readonly RealtimeVoiceCatalogEntry[] {
   if (provider === "xai") return XAI_REALTIME_VOICES;
-  if (provider === "inworld") return INWORLD_REALTIME_VOICES;
-  return OPENAI_REALTIME_VOICES;
+  if (provider === "openai") return OPENAI_REALTIME_VOICES;
+  return GPT_LIVE_VOICES;
 }
+
+export const isGptLiveVoice = (voice: string): boolean =>
+  GPT_LIVE_VOICES.some((entry) => entry.id === voice);

@@ -22,6 +22,12 @@ import type {
 } from "@stella/contracts/claude-local-accounts";
 import type { RealtimeVoicePreferences } from "@stella/contracts/local-preferences";
 import type {
+  UserAsk,
+  UserAskAnswer,
+  UserAskEscalationPolicy,
+  UserAskState,
+} from "@stella/contracts/user-ask";
+import type {
   CompanionActivity,
   CompanionDragMove,
   CompanionLayout,
@@ -1610,21 +1616,44 @@ contextBridge.exposeInMainWorld("electronAPI", {
       }>,
     resetMessages: () =>
       ipcRenderer.invoke("app:resetLocalMessages") as Promise<{ ok: boolean }>,
-    onCredentialRequest: onIpcWithEvent<{
-      requestId: string;
-      provider: string;
-      label?: string;
-      description?: string;
-      placeholder?: string;
-    }>("credential:request"),
-    submitCredential: (payload: {
-      requestId: string;
-      secret: string;
-      provider: string;
-      label: string;
-    }) => ipcRenderer.invoke("credential:submit", payload),
-    cancelCredential: (payload: { requestId: string }) =>
-      ipcRenderer.invoke("credential:cancel", payload),
+    userAsk: {
+      onOpened: onIpcWithEvent<UserAsk>("userAsk:opened"),
+      onUpdated: onIpcWithEvent<UserAsk>("userAsk:updated"),
+      onClosed: onIpcWithEvent<{
+        askId: string;
+        state: UserAskState;
+      }>("userAsk:closed"),
+      list: () => ipcRenderer.invoke("userAsk:list") as Promise<UserAsk[]>,
+      answer: (payload: UserAskAnswer) =>
+        ipcRenderer.invoke("userAsk:answer", payload) as Promise<{
+          ok: boolean;
+          late?: boolean;
+          error?: string;
+        }>,
+      cancel: (payload: { askId: string; revision?: number }) =>
+        ipcRenderer.invoke("userAsk:cancel", payload) as Promise<{
+          ok: boolean;
+          error?: string;
+        }>,
+      overrideSensitive: (payload: {
+        askId: string;
+        fieldId: string;
+        sensitive: boolean;
+      }) =>
+        ipcRenderer.invoke("userAsk:overrideSensitive", payload) as Promise<{
+          ok: boolean;
+          error?: string;
+        }>,
+      policyGet: () =>
+        ipcRenderer.invoke(
+          "userAsk:policyGet",
+        ) as Promise<UserAskEscalationPolicy>,
+      policySet: (policy: UserAskEscalationPolicy) =>
+        ipcRenderer.invoke(
+          "userAsk:policySet",
+          policy,
+        ) as Promise<UserAskEscalationPolicy>,
+    },
     onConnectorCredentialRequest: onIpcWithEvent<{
       requestId: string;
       tokenKey: string;

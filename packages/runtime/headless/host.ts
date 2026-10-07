@@ -149,8 +149,8 @@ export const createHeadlessHostHandlers = (
         return { ok: true as const, value: null };
       }
     },
-    // Matches the desktop's no-window behavior (CredentialService throws
-    // when there is no window to collect a secret in).
+    // Nothing here can raise a card or collect a value: there is no UI, so
+    // every ask fails fast instead of waiting on a person who cannot answer.
     askUser: async () => {
       throw new Error("Headless host has no UI to ask the user anything.");
     },

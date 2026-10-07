@@ -178,7 +178,7 @@ describe("RuntimeClientServer", () => {
     const client = connect(identity);
     await client.attach();
     client.close();
-    await expect(hosts[0]!.handlers.requestCredential({})).rejects.toThrow(/not running/);
+    await expect(hosts[0]!.handlers.askUser({})).rejects.toThrow(/not running/);
     expect(await hosts[0]!.handlers.showNotification({ title: "t" })).toBeUndefined();
   });
 

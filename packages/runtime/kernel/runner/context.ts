@@ -509,7 +509,15 @@ export const createRunnerContext = ({
 
   const context = {} as RunnerContext;
   const hookEmitter = new HookEmitter();
-  const backend = createBackendSession(() => context.state);
+  const backend = createBackendSession(
+    () => context.state,
+    async () => {
+      const refreshed = await context.requestRuntimeAuthRefresh?.({
+        source: "subscription",
+      });
+      return refreshed?.authenticated ? refreshed.token : null;
+    },
+  );
 
   const getCloudOwnerGeneration = async (): Promise<string> => {
     const identity = await backend.ownerIdentity();

@@ -38,6 +38,13 @@ import type {
 export const LIVE_SOCKET_TAG = "live";
 /** Ask for a fresh token this long before the current one expires. */
 const LIVE_REAUTH_LEAD_MS = 2 * 60_000;
+/**
+ * A client that answers a reauthentication with the token the socket already
+ * carries leaves the reauth deadline past due. Asking again is bounded by this
+ * backoff so the object cannot be driven into a sub-second alarm loop.
+ */
+const LIVE_REAUTH_RETRY_BASE_MS = 5_000;
+const LIVE_REAUTH_RETRY_MAX_MS = 60_000;
 const JOB_BATCH = 32;
 const JOB_DEFAULT_MAX_ATTEMPTS = 20;
 const JOB_MAX_BACKOFF_MS = 60 * 60_000;
@@ -70,6 +77,10 @@ type LiveAttachment = {
   connId: string;
   caller: OwnerCaller;
   reauthSent?: boolean;
+  /** How many reauthentications this socket was asked for without a newer token. */
+  reauthAttempt?: number;
+  /** When to ask again; absent while waiting for the client's first answer. */
+  reauthRetryAtMs?: number;
 };
 
 type LiveSubRow = {
@@ -402,6 +413,24 @@ export class OwnerStore {
           this.closeLive(socket, LIVE_CLOSE.unauthenticated, "token_rejected");
           return;
         }
+        if (caller.expiresAtMs <= attachment.caller.expiresAtMs) {
+          // The same expiry is not a completed reauthentication: keeping the
+          // request pending with a backoff is what stops the alarm loop.
+          const attempt = (attachment.reauthAttempt ?? 0) + 1;
+          socket.serializeAttachment({
+            kind: "live",
+            connId: attachment.connId,
+            caller: attachment.caller,
+            reauthSent: true,
+            reauthAttempt: attempt,
+            reauthRetryAtMs: this.liveReauthRetryAt(
+              attempt,
+              attachment.caller.expiresAtMs,
+              now,
+            ),
+          } satisfies LiveAttachment);
+          return;
+        }
         socket.serializeAttachment({
           kind: "live",
           connId: attachment.connId,
@@ -572,6 +601,19 @@ export class OwnerStore {
 
   // ── Jobs and deadlines ──────────────────────────────────────────────────
 
+  /**
+   * When to re-ask a socket that answered a reauthentication with a token no
+   * newer than the one it already presented. Never sub-second, never past the
+   * token's own expiry, which is when the socket is closed anyway.
+   */
+  private liveReauthRetryAt(attempt: number, expiresAtMs: number, now: number): number {
+    const backoff = Math.min(
+      LIVE_REAUTH_RETRY_MAX_MS,
+      LIVE_REAUTH_RETRY_BASE_MS * 2 ** Math.max(0, attempt - 1),
+    );
+    return Math.min(now + backoff, expiresAtMs);
+  }
+
   /** The earliest time this store needs the alarm, or +Infinity. */
   nextDeadline(): number {
     this.ensureSchema();
@@ -584,10 +626,11 @@ export class OwnerStore {
       const attachment = this.liveAttachment(socket);
       if (!attachment) continue;
       const { expiresAtMs } = attachment.caller;
-      next = Math.min(
-        next,
-        attachment.reauthSent ? expiresAtMs : expiresAtMs - LIVE_REAUTH_LEAD_MS,
-      );
+      if (attachment.reauthSent) {
+        next = Math.min(next, attachment.reauthRetryAtMs ?? expiresAtMs);
+      } else {
+        next = Math.min(next, expiresAtMs - LIVE_REAUTH_LEAD_MS);
+      }
     }
     return next;
   }
@@ -603,6 +646,23 @@ export class OwnerStore {
         this.closeLive(socket, LIVE_CLOSE.unauthenticated, "token_expired");
       } else if (!attachment.reauthSent && expiresAtMs - LIVE_REAUTH_LEAD_MS <= now) {
         socket.serializeAttachment({ ...attachment, reauthSent: true } satisfies LiveAttachment);
+        this.send(socket, { t: "reauth", expiresAtMs });
+      } else if (
+        attachment.reauthSent &&
+        attachment.reauthRetryAtMs !== undefined &&
+        attachment.reauthRetryAtMs <= now
+      ) {
+        // The client answered with the token this socket already carries. Ask
+        // once more, then wait for its answer rather than for the clock.
+        socket.serializeAttachment({
+          kind: "live",
+          connId: attachment.connId,
+          caller: attachment.caller,
+          reauthSent: true,
+          ...(attachment.reauthAttempt !== undefined
+            ? { reauthAttempt: attachment.reauthAttempt }
+            : {}),
+        } satisfies LiveAttachment);
         this.send(socket, { t: "reauth", expiresAtMs });
       }
     }

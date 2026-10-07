@@ -387,6 +387,22 @@ const DDL = [
   `CREATE UNIQUE INDEX IF NOT EXISTS dispatches_idempotency
      ON dispatches(idempotency_key)`,
   `CREATE INDEX IF NOT EXISTS dispatches_state ON dispatches(state)`,
+  // Deadline lookups run on every alarm and every authenticated call, so each
+  // one is answered by a seek into a partial index keyed by state. Terminal
+  // dispatches (blocked, canceled, completed, failed) carry no deadline that
+  // can fire, and this object keeps them forever.
+  `CREATE INDEX IF NOT EXISTS dispatches_offer_deadline
+     ON dispatches(state, offer_deadline_at)
+     WHERE offer_deadline_at IS NOT NULL`,
+  `CREATE INDEX IF NOT EXISTS dispatches_lease_deadline
+     ON dispatches(state, lease_expires_at)
+     WHERE lease_expires_at IS NOT NULL`,
+  `CREATE INDEX IF NOT EXISTS dispatches_cloud_retry
+     ON dispatches(state, cloud_retry_at)
+     WHERE cloud_retry_at IS NOT NULL`,
+  `CREATE INDEX IF NOT EXISTS dispatches_payload_expiry
+     ON dispatches(payload_expires_at)
+     WHERE payload_json IS NOT NULL AND payload_expires_at IS NOT NULL`,
   `CREATE TABLE IF NOT EXISTS dispatch_offers (
      dispatch_id         TEXT    NOT NULL,
      device_id           TEXT    NOT NULL,
@@ -403,6 +419,13 @@ const DDL = [
 
 /** How long a steer waits for the device to confirm the agent took it. */
 const STEER_ACK_TIMEOUT_MS = 10_000;
+
+/**
+ * The floor under every re-arm. A deadline that is already past due would
+ * otherwise schedule a wake a quarter-second out, which turns any deadline the
+ * object cannot clear into a hot alarm loop.
+ */
+const ALARM_MIN_DELAY_MS = 1_000;
 
 /** How the snapshot fetch failed. `owner_purged` is definite; the rest are not. */
 export class OwnerGateSnapshotError extends Error {
@@ -4189,34 +4212,42 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         attachment.authExpiresAtMs,
       );
     }
-    const deadline = this.ctx.storage.sql
-      .exec<{ at: number | null }>(
-        `SELECT MIN(at) AS at FROM (
-           SELECT offer_deadline_at AS at FROM dispatches
-             WHERE state = 'offering' AND offer_deadline_at IS NOT NULL
-           UNION ALL
-           SELECT lease_expires_at AS at FROM dispatches
-             WHERE lease_expires_at IS NOT NULL
-               AND state IN ('computer_claimed', 'computer_accepted',
-                             'computer_running', 'cloud_committed',
-                             'cancel_pending')
-           UNION ALL
-           SELECT cloud_retry_at AS at FROM dispatches
-             WHERE state = 'cloud_committed' AND cloud_retry_at IS NOT NULL
-           UNION ALL
-           SELECT payload_expires_at AS at FROM dispatches
-             WHERE payload_json IS NOT NULL AND payload_expires_at IS NOT NULL
-         )`,
+    // Each column is one `MIN` seek into a partial index, so a wake reads a
+    // handful of rows no matter how many terminal dispatches this object has
+    // accumulated. Leases are asked for per state because a range over a state
+    // set cannot be answered by one seek, and scalar subqueries are used rather
+    // than a compound SELECT, whose term limit this storage enforces.
+    const deadlines = this.ctx.storage.sql
+      .exec<Record<string, number | null>>(
+        `SELECT
+           (SELECT MIN(offer_deadline_at) FROM dispatches
+              WHERE state = 'offering' AND offer_deadline_at IS NOT NULL) AS offer,
+           (SELECT MIN(lease_expires_at) FROM dispatches
+              WHERE state = 'computer_claimed' AND lease_expires_at IS NOT NULL) AS claimed,
+           (SELECT MIN(lease_expires_at) FROM dispatches
+              WHERE state = 'computer_accepted' AND lease_expires_at IS NOT NULL) AS accepted,
+           (SELECT MIN(lease_expires_at) FROM dispatches
+              WHERE state = 'computer_running' AND lease_expires_at IS NOT NULL) AS running,
+           (SELECT MIN(lease_expires_at) FROM dispatches
+              WHERE state = 'cloud_committed' AND lease_expires_at IS NOT NULL) AS committed,
+           (SELECT MIN(lease_expires_at) FROM dispatches
+              WHERE state = 'cancel_pending' AND lease_expires_at IS NOT NULL) AS canceling,
+           (SELECT MIN(cloud_retry_at) FROM dispatches
+              WHERE state = 'cloud_committed' AND cloud_retry_at IS NOT NULL) AS retry,
+           (SELECT MIN(payload_expires_at) FROM dispatches
+              WHERE payload_json IS NOT NULL AND payload_expires_at IS NOT NULL) AS payload`,
       )
-      .toArray()[0]?.at;
-    if (typeof deadline === "number") next = Math.min(next, deadline);
+      .toArray()[0];
+    for (const deadline of Object.values(deadlines ?? {})) {
+      if (typeof deadline === "number") next = Math.min(next, deadline);
+    }
     if (options.preserveExisting !== false) {
       const existingAlarm = await this.ctx.storage.getAlarm();
       if (existingAlarm !== null) next = Math.min(next, existingAlarm);
     }
     if (!Number.isFinite(next)) return;
     try {
-      await this.ctx.storage.setAlarm(Math.max(now + 250, next));
+      await this.ctx.storage.setAlarm(Math.max(now + ALARM_MIN_DELAY_MS, next));
     } catch {
       // Alarms are unavailable in some test harnesses; leases still expire on
       // the next call that reads them.

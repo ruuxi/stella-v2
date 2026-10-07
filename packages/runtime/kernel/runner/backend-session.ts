@@ -8,7 +8,10 @@
  * another's session.
  */
 
-import { BackendClient } from "@stella/contracts/backend/client";
+import {
+  BackendClient,
+  backendTokenExpiryMs,
+} from "@stella/contracts/backend/client";
 import type { OwnerIdentity } from "@stella/contracts/backend/conversations";
 
 type BackendSessionState = {
@@ -42,11 +45,53 @@ const tokenSubject = (token: string | null): string | null => {
 
 export type BackendSession = ReturnType<typeof createBackendSession>;
 
-export const createBackendSession = (getState: () => BackendSessionState) => {
+/**
+ * `mintToken` is how a forced refresh reaches the host. The kernel only holds
+ * the token the host pushed, so without it a forced call would hand back that
+ * same token and the server's reauthentication could never complete.
+ */
+export const createBackendSession = (
+  getState: () => BackendSessionState,
+  mintToken?: () => Promise<string | null>,
+) => {
   let client: BackendClient | null = null;
   let clientUrl: string | null = null;
   let subject: string | null = null;
   let identity: { subject: string | null; value: Promise<OwnerIdentity> } | null = null;
+  let forcing: Promise<string> | null = null;
+
+  const cachedToken = (): string | null => getState().authToken?.trim() || null;
+
+  const mintNewerToken = async (): Promise<string> => {
+    const previous = cachedToken();
+    const previousExpiry = backendTokenExpiryMs(previous);
+    const minted = (await mintToken?.())?.trim() || null;
+    const next = minted ?? cachedToken();
+    const nextExpiry = backendTokenExpiryMs(next);
+    const isNewer =
+      next !== null &&
+      next !== previous &&
+      (previousExpiry === null || nextExpiry === null || nextExpiry > previousExpiry);
+    if (!isNewer) {
+      throw new Error("Stella could not mint a newer cloud token.");
+    }
+    return next;
+  };
+
+  /**
+   * A forced refresh resolves only with a token newer than the cached one, so
+   * no caller can re-present the token that asked for the refresh.
+   */
+  const forceToken = async (): Promise<string> => {
+    if (forcing) return await forcing;
+    const attempt = mintNewerToken();
+    forcing = attempt;
+    try {
+      return await attempt;
+    } finally {
+      if (forcing === attempt) forcing = null;
+    }
+  };
 
   const get = (): BackendClient | null => {
     const url = getState().backendUrl;
@@ -55,7 +100,8 @@ export const createBackendSession = (getState: () => BackendSessionState) => {
     client?.dispose();
     client = new BackendClient({
       baseUrl: url,
-      getToken: async () => getState().authToken?.trim() || null,
+      getToken: async (options) =>
+        options?.force ? await forceToken() : cachedToken(),
     });
     clientUrl = url;
     return client;

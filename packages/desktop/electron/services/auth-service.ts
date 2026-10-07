@@ -38,13 +38,18 @@ import {
   AUTH_CHALLENGE_TOKEN_PARAM,
 } from "@stella/contracts/auth-challenge";
 import { resolveDevHarnessSessionToken } from "../bootstrap/dev-harness-options.js";
-/** Mint a replacement backend JWT this long before the cached one expires. */
-const HOST_AUTH_TOKEN_REFRESH_MARGIN_MS = 60_000;
+/**
+ * Mint a replacement backend JWT this long before the cached one expires. It
+ * must exceed the backend's reauthentication lead (two minutes), or a token
+ * the server is already asking to replace still counts as fresh here and every
+ * caller hands back the token the server rejected.
+ */
+const HOST_AUTH_TOKEN_REFRESH_MARGIN_MS = 3 * 60_000;
 /**
  * The scheduled refresh fires earlier than the freshness margin so the timer,
  * not a caller hitting a stale token, is what normally does the minting.
  */
-const HOST_AUTH_TOKEN_SCHEDULE_MARGIN_MS = 90_000;
+const HOST_AUTH_TOKEN_SCHEDULE_MARGIN_MS = 4 * 60_000;
 const HOST_AUTH_TOKEN_SCHEDULE_MIN_DELAY_MS = 15_000;
 /** Used when a token carries no readable `exp`. */
 const HOST_AUTH_TOKEN_SCHEDULE_FALLBACK_MS = 3 * 60 * 1000;

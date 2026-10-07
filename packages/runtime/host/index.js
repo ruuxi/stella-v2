@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import { hostname } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { BackendClient, BackendRequestError } from "@stella/contracts/backend/client";
+import { BackendClient, BackendRequestError, backendTokenExpiryMs } from "@stella/contracts/backend/client";
 import { resolveBundledRuntimeFile } from "../kernel/shared/runtime-paths.js";
 import { getFileLogger } from "../observability/file-logger.js";
 import { isRestartContinuationEnabled, recordRestartShutdown, } from "../kernel/restart-continuation.js";
@@ -180,6 +180,7 @@ export class StellaRuntimeHost {
     hostReady = false;
     hostBackendClient = null;
     hostBackendClientUrl = null;
+    hostAuthTokenForcePromise = null;
     /** Backend URL and token the signed-in host services last synchronized for. */
     hostAccountServicesKey = null;
     hostExecutionPlacementBridge = null;
@@ -554,6 +555,44 @@ export class StellaRuntimeHost {
         this.hostBackendClient = null;
         this.hostBackendClientUrl = null;
     }
+    /**
+     * Mint a token newer than the configured one, for a forced refresh. The
+     * host only caches what the desktop pushed, so answering a forced call
+     * from that cache would re-present the token the backend already rejected
+     * or is asking to replace. Single-flight; throws rather than falling back.
+     */
+    async forceHostAuthToken() {
+        if (this.hostAuthTokenForcePromise) {
+            return await this.hostAuthTokenForcePromise;
+        }
+        const previous = this.getConfiguredHostAuthToken();
+        const previousExpiry = backendTokenExpiryMs(previous);
+        const attempt = (async () => {
+            const refreshed = await this.options.hostHandlers.requestRuntimeAuthRefresh?.({
+                source: "subscription",
+            });
+            const minted = refreshed?.authenticated
+                ? refreshed.token?.trim() || null
+                : null;
+            const next = minted ?? this.getConfiguredHostAuthToken();
+            const nextExpiry = backendTokenExpiryMs(next);
+            if (!next
+                || next === previous
+                || (previousExpiry !== null && nextExpiry !== null && nextExpiry <= previousExpiry)) {
+                throw new Error("Stella could not mint a newer cloud token.");
+            }
+            return next;
+        })();
+        this.hostAuthTokenForcePromise = attempt;
+        try {
+            return await attempt;
+        }
+        finally {
+            if (this.hostAuthTokenForcePromise === attempt) {
+                this.hostAuthTokenForcePromise = null;
+            }
+        }
+    }
     /** The backend worker client for owner-object calls; the token is read per request. */
     ensureHostBackendClient() {
         const baseUrl = this.getConfiguredHostBackendUrl();
@@ -567,7 +606,9 @@ export class StellaRuntimeHost {
         this.disposeHostBackendClient();
         this.hostBackendClient = new BackendClient({
             baseUrl,
-            getToken: async () => this.getConfiguredHostAuthToken() || null,
+            getToken: async (options) => options?.force
+                ? await this.forceHostAuthToken()
+                : this.getConfiguredHostAuthToken() || null,
         });
         this.hostBackendClientUrl = baseUrl;
         return this.hostBackendClient;

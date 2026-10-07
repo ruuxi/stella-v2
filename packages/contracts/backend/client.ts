@@ -49,6 +49,29 @@ export type TokenProvider = (options?: {
   force?: boolean;
 }) => Promise<string | null>;
 
+/**
+ * The `exp` of a backend JWT in epoch milliseconds, or null when the token is
+ * absent or carries no readable expiry. Both sides of a reauthentication
+ * compare expiries, so neither re-presents a token the other already holds.
+ */
+export const backendTokenExpiryMs = (
+  token: string | null | undefined,
+): number | null => {
+  const segment = token?.split(".")[1];
+  if (!segment) return null;
+  const normalized = segment.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized.padEnd(
+    normalized.length + ((4 - (normalized.length % 4)) % 4),
+    "=",
+  );
+  try {
+    const json = JSON.parse(atob(padded)) as { exp?: unknown };
+    return typeof json.exp === "number" ? json.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+};
+
 type SocketLike = {
   readyState: number;
   send(data: string): void;
@@ -141,6 +164,7 @@ export class BackendClient {
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private forceTokenOnConnect = false;
+  private socketTokenExpiryMs: number | null = null;
   private disposed = false;
 
   constructor(options: BackendClientOptions) {
@@ -259,7 +283,11 @@ export class BackendClient {
     args: unknown,
     force: boolean,
   ): Promise<Response> {
-    const token = await this.getToken(force ? { force: true } : undefined);
+    const token = force
+      ? await this.getToken({ force: true }).catch(
+          async () => await this.getToken(),
+        )
+      : await this.getToken();
     const headers: Record<string, string> = {
       "content-type": "application/json",
     };
@@ -311,6 +339,7 @@ export class BackendClient {
 
   private openSocket(token: string): void {
     const url = `${this.baseUrl.replace(/^http/, "ws")}${LIVE_PATH}`;
+    this.socketTokenExpiryMs = backendTokenExpiryMs(token);
     let socket: SocketLike;
     try {
       socket = new this.SocketImpl!(url, [
@@ -398,7 +427,14 @@ export class BackendClient {
     if (frame.t === "reauth") {
       void this.getToken({ force: true })
         .then((token) => {
-          if (token) this.sendFrame({ t: "auth", token });
+          if (!token) return;
+          const expiry = backendTokenExpiryMs(token);
+          const current = this.socketTokenExpiryMs;
+          // Re-presenting a token the server already holds would leave its
+          // reauth deadline past due, so it is never sent.
+          if (expiry !== null && current !== null && expiry <= current) return;
+          this.socketTokenExpiryMs = expiry;
+          this.sendFrame({ t: "auth", token });
         })
         .catch(() => {
           // The server closes the socket at expiry; reconnect handles it.

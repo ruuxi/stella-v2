@@ -48,6 +48,10 @@ const STATUS_TIMEOUT_MS = 20_000;
 const LOGOUT_TIMEOUT_MS = 30_000;
 /** Window focus re-reads the logins at most this often. */
 const FOCUS_REFRESH_MIN_INTERVAL_MS = 30_000;
+/** How long a sent report may wait for the owner's list to catch up. */
+const REPORT_SETTLE_MS = 15_000;
+/** How long a failed report waits before the same one is sent again. */
+const REPORT_RETRY_MIN_INTERVAL_MS = 60_000;
 
 /** Never let a credential from Stella's own environment reach the CLI. */
 const STRIPPED_ENV = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"];
@@ -123,18 +127,14 @@ export class ClaudeLocalAccounts {
   private lastRefreshAt = 0;
   private readonly logins = new Map<string, PendingLogin>();
   private lastBroadcast = "";
-  private lastReported = "";
   private reporting = false;
   private reportAgain = false;
+  private lastSent: { key: string; at: number } | null = null;
+  private lastFailed: { key: string; at: number } | null = null;
   private readonly unsubscribe: () => void;
-  private hadSettings = false;
 
   constructor(private readonly options: ClaudeLocalAccountsOptions) {
     this.unsubscribe = options.engineAccounts.onSettingsChanged(() => {
-      const hasSettings = options.engineAccounts.settings() !== null;
-      // A Stella sign-in (or a different account) reports again.
-      if (hasSettings && !this.hadSettings) this.lastReported = "";
-      this.hadSettings = hasSettings;
       this.broadcastIfChanged();
       void this.reportIfChanged();
     });
@@ -607,14 +607,23 @@ export class ClaudeLocalAccounts {
     this.options.onChanged();
   }
 
-  /** Report the logged-in identities when they changed (and after a Stella sign-in). */
+  /**
+   * Report this computer's logged-in identities whenever the owner's list
+   * disagrees with them. The comparison is against the list itself (the
+   * accounts this device is recorded as holding), not against what this
+   * process last sent, so a report that never landed and an account removed
+   * on any client both come back: the owner's Claude accounts are the
+   * identities their computers hold, and only a `claude auth logout` takes
+   * one away. A failed attempt waits before trying the same report again.
+   */
   private async reportIfChanged(): Promise<void> {
     if (!this.configs) return;
     if (this.reporting) {
       this.reportAgain = true;
       return;
     }
-    if (!this.options.engineAccounts.isSignedIn() || !this.options.engineAccounts.settings()) return;
+    const settings = this.options.engineAccounts.settings();
+    if (!this.options.engineAccounts.isSignedIn() || !settings) return;
     const logins = new Map<string, ClaudeLocalLogin>();
     for (const config of this.configs) {
       const email = lower(config.email);
@@ -622,20 +631,39 @@ export class ClaudeLocalAccounts {
       logins.set(email, { email: config.email!, ...(config.plan ? { plan: config.plan } : {}) });
     }
     const list = [...logins.values()].sort((a, b) => a.email.localeCompare(b.email));
+    const deviceId = await this.options.loadDeviceId();
+    if (!deviceId) return;
+    const recorded = new Set(
+      settings.connections.flatMap((connection) => {
+        const email = connection.provider === "anthropic" ? lower(connection.email) : undefined;
+        if (!email) return [];
+        const here = (connection.places ?? []).some(
+          (place) => place.kind === "device" && place.deviceId === deviceId,
+        );
+        return here ? [email] : [];
+      }),
+    );
+    if (recorded.size === logins.size && [...logins.keys()].every((email) => recorded.has(email))) {
+      return;
+    }
     const key = JSON.stringify(list);
-    if (key === this.lastReported) return;
+    const now = Date.now();
+    if (this.lastSent?.key === key && now - this.lastSent.at < REPORT_SETTLE_MS) return;
+    if (this.lastFailed?.key === key && now - this.lastFailed.at < REPORT_RETRY_MIN_INTERVAL_MS) {
+      return;
+    }
     this.reporting = true;
     try {
-      const deviceId = await this.options.loadDeviceId();
-      if (!deviceId) return;
       const deviceName = hostname().trim().replace(/\.(local|localdomain|lan|home)$/i, "");
       await this.options.engineAccounts.reportClaudeLogins({
         deviceId,
         ...(deviceName ? { deviceName } : {}),
         logins: list,
       });
-      this.lastReported = key;
+      this.lastSent = { key, at: Date.now() };
+      this.lastFailed = null;
     } catch (error) {
+      this.lastFailed = { key, at: Date.now() };
       console.warn(
         `[claude-accounts] reporting logins failed: ${error instanceof Error ? error.message : String(error)}`,
       );

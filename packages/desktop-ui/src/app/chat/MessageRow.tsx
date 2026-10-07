@@ -52,6 +52,7 @@ import { OfficePreviewCard } from "@/app/chat/OfficePreviewCard";
 import { BackgroundWorkCard } from "@/app/chat/BackgroundWorkCard";
 import { FilePills } from "@/app/chat/FilePills";
 import { MessageEvidence } from "@/app/chat/evidence/MessageEvidence";
+import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
 import { AppPreviewCard } from "@/features/cloud/AppPreviewCard";
 import { extractStellaAppLinkSlugs } from "@stella/contracts/workspace-apps";
 import { VoiceSessionCard } from "@/app/chat/VoiceSessionCard";
@@ -642,12 +643,10 @@ export const AssistantMessageRow = memo(
       row.agentCompletion && row.agentCompletion.sections.length > 0,
     );
     const linkedFiles = row.linkedFiles ?? [];
-    const evidenceFiles = hasText
-      ? linkedFiles.filter((file) => !file.cloudDriveFile)
-      : [];
-    const evidencePaths = evidenceFiles.map((file) => file.path);
+    const evidencePaths = hasText ? extractLocalFileLinkPaths(text) : [];
+    const evidencePathSet = new Set(evidencePaths);
     const unpreviewableFiles = linkedFiles.filter(
-      (file) => !evidenceFiles.includes(file),
+      (file) => file.cloudDriveFile || !evidencePathSet.has(file.path),
     );
     // Shared predicate with ChatTimeline (which drops renderless rows
     // before virtualization) — see assistant-row-content.ts.
@@ -689,7 +688,7 @@ export const AssistantMessageRow = memo(
                     hiddenFilePaths={[
                       ...(conversationId ? row.agentCompletion?.sections.slice(0, 3).flatMap((section) => section.files) ?? [] : []),
                       ...(row.linkedFiles ?? []),
-                    ].map((file) => file.cloudDriveFile ? `cloud:${file.cloudDriveFile.path}` : `local:${file.path}`)}
+                    ].map((file) => file.cloudDriveFile ? `cloud:${file.cloudDriveFile.path}` : `local:${file.path}`).concat(evidencePaths.map((filePath) => `local:${filePath}`))}
                   />
                 </MessageEvidence>
               </div>

@@ -1,13 +1,7 @@
 .evidence-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  column-gap: 28px;
+  position: relative;
   width: 100%;
   min-width: 0;
-}
-
-.evidence-layout[data-has-rail="true"] {
-  grid-template-columns: minmax(0, 1fr) 250px;
 }
 
 .evidence-layout__body {
@@ -15,9 +9,11 @@
 }
 
 .evidence-layout__rail {
-  position: relative;
-  min-width: 0;
-  align-self: stretch;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--evidence-rail-offset);
+  width: var(--evidence-rail-width);
 }
 
 .evidence-rail {
@@ -26,8 +22,21 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
-  width: 250px;
+  width: var(--evidence-rail-width);
+  max-height: min(calc(100vh - 28px), 100%);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
   will-change: transform;
+}
+
+.evidence-rail::-webkit-scrollbar {
+  width: 6px;
+}
+
+.evidence-rail::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: var(--border);
 }
 
 .evidence-rail__slot {

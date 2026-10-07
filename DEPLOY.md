@@ -65,6 +65,37 @@ cd ../model-gateway && env -u CLOUDFLARE_API_TOKEN bun run deploy:production
 ```
 
 New bindings, vars or secrets: add them to the `env.production` block of the
+
+### Container image metadata (cloud-builder)
+
+A Worker **version** carries the `containers` image digest, and only a full
+`wrangler deploy` of `wrangler.jsonc` publishes it. Any other upload — a
+dashboard settings/variables save, a raw API script `PUT`, an account-wide
+rewrite such as renaming the workers.dev subdomain — creates a version with
+`source: api` and **no containers array**, and every sandbox start on it then
+fails with `Image or container snapshot must be set for the new runtime`. That
+is what happened to production on 2026-10-07: the 06:04 UTC API upload that
+rewrote the four `*.workers.dev` vars replaced a good Wrangler deploy and left
+prod unable to start sandboxes.
+
+So **never change cloud-builder's vars, bindings or code outside
+`wrangler deploy`.** Change `wrangler.jsonc` and deploy. `deploy:dev`,
+`deploy:acceptance` and `deploy:production` now refuse to upload a config that
+declares no containers and fail after the deploy if the version receiving
+traffic lost them. To check a live deployment at any time:
+
+```bash
+cd workers/cloud-builder
+env -u CLOUDFLARE_API_TOKEN bun run containers:check             # dev
+env -u CLOUDFLARE_API_TOKEN bun run containers:check:production  # prod
+```
+
+Restoring a deployment that lost them is a normal deploy of this config
+(`bun run deploy:production`), which rebuilds and re-uploads the image.
+`wrangler versions deploy <old-version>@100%` would also bring containers back,
+but it restores that version's vars with them, so it is only for an emergency
+where those vars are still correct.
+
 worker's `wrangler.jsonc` too (bindings and vars don't inherit), regenerate
 types (`node scripts/generate-worker-types.mjs` in cloud-builder), and set prod
 secrets before the prod deploy: `... | bunx wrangler secret put NAME --env production`.

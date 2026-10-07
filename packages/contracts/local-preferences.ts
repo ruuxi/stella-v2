@@ -60,7 +60,7 @@ export type RealtimeVoicePreferences = {
 /**
  * Resolve which underlying voice family the session should use. For
  * BYOK modes (openai/xai/inworld) this is pinned. For Stella mode it
- * follows `stellaSubProvider`, defaulting to "openai".
+ * is always GPT-Live.
  */
 export const resolveRealtimeUnderlyingProvider = (
   prefs: Pick<RealtimeVoicePreferences, "provider">,

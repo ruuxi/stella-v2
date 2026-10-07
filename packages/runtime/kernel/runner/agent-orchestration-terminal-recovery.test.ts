@@ -21,9 +21,12 @@ import {
 import { SessionStore } from "../storage/session-store.js";
 import type { SqliteDatabase } from "../storage/shared.js";
 import { createReadinessLatch } from "../shared/readiness-latch.js";
+import { persistThreadCustomMessage } from "../agent-runtime/thread-memory.js";
+import { resolveOrchestratorThreadKey } from "../thread-runtime.js";
 
 const CONVERSATION = "conversation-receipts";
 const LIFECYCLE = "runtime.task_lifecycle";
+const orchestratorThreadKey = resolveOrchestratorThreadKey(CONVERSATION);
 
 const openStores: Array<{ db: SqliteDatabase; root: string }> = [];
 
@@ -352,7 +355,7 @@ describe("terminal receipt replay bookkeeping", () => {
     expect(ledger.size).toBe(0);
   });
 
-  test("real store: a failed wake retries on the next boot, then its report lands exactly once", async () => {
+  test("real store: a failed wake retries on the next boot, then its report lands exactly once in the user's thread", async () => {
     const { db, store, root } = openStore();
     const now = Date.now();
     store.saveAgentRecord({
@@ -361,7 +364,7 @@ describe("terminal receipt replay bookkeeping", () => {
       agentType: "general",
       description: "Parent task",
       agentDepth: 1,
-      // Idle after an error: a child report is recorded, never resumed.
+      // Dead owner: the report must reach the user's thread instead.
       status: "error",
       attemptGeneration: 1,
       terminalLifecycleReceiptGeneration: 1,
@@ -400,7 +403,16 @@ describe("terminal receipt replay bookkeeping", () => {
       }) as any;
       const orchestration = createAgentOrchestration(context, {
         buildAgentContext: async () => ({}) as never,
-        sendMessage: async () => {},
+        sendMessage: async ({ text, eventId: deliveredEventId }) => {
+          persistThreadCustomMessage(store, {
+            threadKey: orchestratorThreadKey,
+            customType: LIFECYCLE,
+            content: [{ type: "text", text }],
+            display: false,
+            timestamp: Date.now(),
+            ...(deliveredEventId ? { eventId: deliveredEventId } : {}),
+          });
+        },
       });
       context.state.isRunning = true;
       context.state.initializationPromise = Promise.resolve();
@@ -411,28 +423,30 @@ describe("terminal receipt replay bookkeeping", () => {
     const warn = console.warn;
     console.warn = () => {};
     try {
-      // Boot 1: the parent report cannot be written, so the wake fails.
+      // Boot 1: the report cannot be written, so the wake fails.
       await boot();
       expect(store.getAgentRecord("child-1")?.terminalLifecycleReceiptGeneration).toBeUndefined();
-      expect(countReminders(db, "parent-1", eventId)).toBe(0);
+      expect(countReminders(db, orchestratorThreadKey, eventId)).toBe(0);
       const ledgerKey = `${LOCAL_TERMINAL_RECOVERY_LEDGER_PREFIX}${CONVERSATION}:${eventId}`;
       expect(JSON.parse(store.getSetting(ledgerKey)!)).toMatchObject({
         attempts: 1,
         outcome: "retrying",
       });
 
-      // Boot 2: the write succeeds; the wake is admitted and stamped.
+      // Boot 2: the write succeeds; the user's thread admits the report and
+      // the dead owner is never woken or credited with it.
       failWrites = false;
       await boot();
       expect(store.getAgentRecord("child-1")?.terminalLifecycleReceiptGeneration).toBe(1);
-      expect(countReminders(db, "parent-1", eventId)).toBe(1);
+      expect(countReminders(db, orchestratorThreadKey, eventId)).toBe(1);
+      expect(countReminders(db, "parent-1", eventId)).toBe(0);
       expect(
-        store.getAgentRecord("parent-1")?.descendantBoundaryState?.consumedEventIds,
-      ).toEqual([eventId]);
+        store.getAgentRecord("parent-1")?.descendantBoundaryState?.consumedEventIds ?? [],
+      ).toEqual([]);
 
-      // Boot 3: nothing replays; the parent history still holds one report.
+      // Boot 3: nothing replays; the user's thread still holds one report.
       await boot();
-      expect(countReminders(db, "parent-1", eventId)).toBe(1);
+      expect(countReminders(db, orchestratorThreadKey, eventId)).toBe(1);
     } finally {
       console.warn = warn;
     }

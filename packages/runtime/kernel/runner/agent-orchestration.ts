@@ -75,17 +75,35 @@ const hasPersistedThreadCustomEvent = (
 // stella-cloud-side callers use the shorter name for the same check.
 const hasPersistedThreadEvent = hasPersistedThreadCustomEvent;
 
-const resolveLifecycleParentOwner = (
+/**
+ * Where a terminal report belongs: the live owning agent, or the conversation
+ * the user is actually on. Never a thread that failed, was canceled, or can no
+ * longer be attributed.
+ */
+type LifecycleReportDestination =
+  | { kind: "parent_agent"; threadId: string }
+  | { kind: "user_thread"; reason?: string; orphanedFrom?: string };
+
+const resolveLifecycleReportDestination = (
   context: RunnerContext,
   event: AgentLifecycleEvent,
-): string | null | undefined => {
+): LifecycleReportDestination => {
   const installedManager = context.state.localAgentManager;
-  return installedManager
+  if (typeof installedManager?.resolveReportDestination === "function") {
+    return installedManager.resolveReportDestination(
+      event.agentId,
+      event.parentAgentId,
+    ) as LifecycleReportDestination;
+  }
+  const legacyOwner = installedManager
     ? installedManager.resolveOwningParentThread(
         event.agentId,
         event.parentAgentId,
       )
     : event.parentAgentId;
+  return typeof legacyOwner === "string"
+    ? { kind: "parent_agent", threadId: legacyOwner }
+    : { kind: "user_thread" };
 };
 
 export const hasDurableAgentLifecycleEvent = (
@@ -94,16 +112,21 @@ export const hasDurableAgentLifecycleEvent = (
 ): boolean => {
   const eventId = event.eventId?.trim();
   if (!eventId) return false;
-  const parentOwner = resolveLifecycleParentOwner(context, event);
-  if (parentOwner === null) return false;
-  if (typeof parentOwner === "string") {
-    const parent = context.runtimeStore.getAgentRecord?.(parentOwner);
-    const wakeAccepted =
-      parent?.descendantBoundaryState?.consumedEventIds.includes(eventId) ===
-      true;
+  // Acceptance, not routing, is the receipt: an owner that already admitted
+  // this wake keeps the row acknowledged even if it has since gone terminal,
+  // and a refused wake stays unacknowledged until the user's thread admits it.
+  const ownerAccepted = (threadId: string): boolean => {
+    const owner = context.runtimeStore.getAgentRecord?.(threadId);
     return (
-      wakeAccepted && hasPersistedThreadEvent(context, parentOwner, eventId)
+      owner?.descendantBoundaryState?.consumedEventIds.includes(eventId) ===
+        true && hasPersistedThreadEvent(context, threadId, eventId)
     );
+  };
+  const staticOwner = event.parentAgentId?.trim();
+  if (staticOwner && ownerAccepted(staticOwner)) return true;
+  const destination = resolveLifecycleReportDestination(context, event);
+  if (destination.kind === "parent_agent") {
+    return ownerAccepted(destination.threadId);
   }
   const orchestratorThreadKey = resolveOrchestratorThreadKey(
     event.conversationId,
@@ -250,6 +273,36 @@ const buildLifecycleEventPayload = (
   return {};
 };
 
+/**
+ * Durable marker for a terminal event whose user-facing follow-up is
+ * deliberately suppressed. Without it the cloud lifecycle monitor can never
+ * ACK the row and replays it on every restart.
+ */
+const persistSuppressedLifecycleMarker = (
+  context: RunnerContext,
+  event: AgentLifecycleEvent,
+): void => {
+  if (!event.eventId) return;
+  const orchestratorThreadId = resolveOrchestratorThreadKey(
+    event.conversationId,
+  );
+  if (hasPersistedThreadEvent(context, orchestratorThreadId, event.eventId)) {
+    return;
+  }
+  persistThreadCustomMessage(context.runtimeStore, {
+    threadKey: orchestratorThreadId,
+    customType: "runtime.task_lifecycle",
+    content: [],
+    display: false,
+    timestamp: Date.now(),
+    eventId: event.eventId,
+    lifecycleEvent: {
+      type: event.type,
+      payload: buildLifecycleEventPayload(event),
+    },
+  });
+};
+
 export const appendAgentLifecycleChatEvent = (
   context: RunnerContext,
   event: AgentLifecycleEvent,
@@ -336,22 +389,19 @@ export const createAgentOrchestration = (
   const inFlightLifecycleEventIds = new Set<string>();
   const handleAgentLifecycleEvent = async (event: AgentLifecycleEvent) => {
     const installedManager = context.state.localAgentManager;
-    const parentOwner = resolveLifecycleParentOwner(context, event);
-    const parentThreadId =
-      typeof parentOwner === "string" ? parentOwner : undefined;
-    const isParentOwned = parentThreadId !== undefined;
-    const hasUnresolvedParentAncestry = parentOwner === null;
+    const destination = resolveLifecycleReportDestination(context, event);
+    const ownerThreadId =
+      destination.kind === "parent_agent" ? destination.threadId : undefined;
+    const isParentOwned = ownerThreadId !== undefined;
+    const orphanedFrom =
+      destination.kind === "user_thread" ? destination.orphanedFrom : undefined;
     // Some lifecycle transitions are control-plane-only (see
     // `AgentLifecycleEvent.audience`): `orchestrator-only` skips every
     // display surface (persisted chat event, renderer/run callbacks,
     // OS notification). Interjection completions use it before their deferred
     // `display-only` replay; internal owner wake-ups use it so reviewing a
     // privately routed child report does not create a root-chat card.
-    if (
-      event.audience !== "orchestrator-only" &&
-      !isParentOwned &&
-      !hasUnresolvedParentAncestry
-    ) {
+    if (event.audience !== "orchestrator-only" && !isParentOwned) {
       // Progress ticks are ephemeral decoration: they stream to the renderer
       // below but are never persisted — thread state lives in
       // `runtime_agents` (see `listThreadActivity`), and persisting every
@@ -365,7 +415,7 @@ export const createAgentOrchestration = (
           ?.onAgentEvent?.(event);
       }
     }
-    if (parentThreadId && event.audience !== "orchestrator-only") {
+    if (ownerThreadId && event.audience !== "orchestrator-only") {
       // Subagents stay out of the root event table, but the parent's own
       // read-only thread viewer still needs the canonical lifecycle semantics
       // so spawns and completions render as cards there. Store a display-only
@@ -375,12 +425,12 @@ export const createAgentOrchestration = (
       const lifecycleEvent = buildThreadLifecycleEvent(event, Date.now());
       if (
         !context.runtimeStore.hasThreadLifecycleEvent(
-          parentThreadId,
+          ownerThreadId,
           lifecycleEvent._id,
         )
       ) {
         context.runtimeStore.appendThreadLifecycleEvent({
-          threadKey: parentThreadId,
+          threadKey: ownerThreadId,
           event: lifecycleEvent,
         });
       }
@@ -388,12 +438,9 @@ export const createAgentOrchestration = (
     if (event.audience === "display-only") {
       return;
     }
-    // A legacy/malformed parent link or ancestry cycle cannot be attributed
-    // safely. Keep the task in Activity, but never guess that it belongs in
-    // root chat or let it finalize the root turn.
-    if (hasUnresolvedParentAncestry) return;
     const userPrompt = buildAgentEventPrompt(event, {
       recipient: isParentOwned ? "parent_agent" : "orchestrator",
+      ...(orphanedFrom ? { orphanedFrom } : {}),
     });
     if (!userPrompt) {
       // Desktop-originated cloud pauses deliberately suppress a synthetic
@@ -403,28 +450,9 @@ export const createAgentOrchestration = (
       // remains subscribed forever and is replayed on every restart.
       if (
         event.type === "agent-canceled" &&
-        event.audience === "orchestrator-only" &&
-        event.eventId
+        event.audience === "orchestrator-only"
       ) {
-        const orchestratorThreadId = resolveOrchestratorThreadKey(
-          event.conversationId,
-        );
-        if (
-          !hasPersistedThreadEvent(context, orchestratorThreadId, event.eventId)
-        ) {
-          persistThreadCustomMessage(context.runtimeStore, {
-            threadKey: orchestratorThreadId,
-            customType: "runtime.task_lifecycle",
-            content: [],
-            display: false,
-            timestamp: Date.now(),
-            eventId: event.eventId,
-            lifecycleEvent: {
-              type: event.type,
-              payload: buildLifecycleEventPayload(event),
-            },
-          });
-        }
+        persistSuppressedLifecycleMarker(context, event);
       }
       return;
     }
@@ -433,17 +461,17 @@ export const createAgentOrchestration = (
       if (inFlightLifecycleEventIds.has(deliveryEventId)) return;
       inFlightLifecycleEventIds.add(deliveryEventId);
     }
-    if (parentThreadId) {
-      // Subagent reports live in the parent agent's durable thread and wake
-      // that parent directly. They never enter the top-level orchestrator's
-      // history, callbacks, or hidden steering stream — so a nested
-      // completion produces no root card and no OS notification.
-      try {
+    try {
+      if (ownerThreadId) {
+        // Subagent reports live in the owning agent's durable thread and wake
+        // that agent directly. They never enter the top-level orchestrator's
+        // history, callbacks, or hidden steering stream — so a nested
+        // completion produces no root card and no OS notification.
         if (
-          !hasPersistedThreadCustomEvent(context, parentThreadId, event.eventId)
+          !hasPersistedThreadCustomEvent(context, ownerThreadId, event.eventId)
         ) {
           persistThreadCustomMessage(context.runtimeStore, {
-            threadKey: parentThreadId,
+            threadKey: ownerThreadId,
             customType: "runtime.task_lifecycle",
             content: [{ type: "text", text: userPrompt }],
             display: false,
@@ -452,7 +480,7 @@ export const createAgentOrchestration = (
           });
         }
         const wake = await context.state.localAgentManager?.sendAgentMessage(
-          parentThreadId,
+          ownerThreadId,
           userPrompt,
           "orchestrator",
           {
@@ -460,20 +488,29 @@ export const createAgentOrchestration = (
             ...(deliveryEventId ? { deliveryEventId } : {}),
           },
         );
-        if (wake?.delivered !== true) {
-          throw new Error(
-            `Unable to durably admit terminal wake for parent ${parentThreadId}.`,
-          );
-        }
-      } finally {
-        if (deliveryEventId) inFlightLifecycleEventIds.delete(deliveryEventId);
+        if (wake?.delivered === true) return;
+        // The owner raced into a terminal state between routing and delivery.
+        // Refusing the wake is not a delivery, so the report falls through to
+        // the conversation the user is on rather than being dropped.
+        console.warn(
+          `[agent-report] owner ${ownerThreadId} did not admit ${event.type} for ${event.agentId}${
+            wake?.reason ? ` (${wake.reason})` : ""
+          }; escalating to the user's thread.`,
+        );
       }
-      return;
-    }
-    const orchestratorThreadKey = resolveOrchestratorThreadKey(
-      event.conversationId,
-    );
-    try {
+      const orchestratorPrompt = ownerThreadId
+        ? buildAgentEventPrompt(event, {
+            recipient: "orchestrator",
+            orphanedFrom: ownerThreadId,
+          })
+        : userPrompt;
+      if (!orchestratorPrompt) {
+        persistSuppressedLifecycleMarker(context, event);
+        return;
+      }
+      const orchestratorThreadKey = resolveOrchestratorThreadKey(
+        event.conversationId,
+      );
       if (
         hasPersistedThreadCustomEvent(
           context,
@@ -485,7 +522,7 @@ export const createAgentOrchestration = (
       }
       await deps.sendMessage({
         conversationId: event.conversationId,
-        text: userPrompt,
+        text: orchestratorPrompt,
         uiVisibility: "hidden",
         agentType: AGENT_IDS.ORCHESTRATOR,
         deliverAs: "steer",

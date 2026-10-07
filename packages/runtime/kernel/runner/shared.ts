@@ -46,7 +46,11 @@ const truncateAgentEventField = (value: string): string =>
 
 export const buildAgentEventPrompt = (
   event: AgentLifecycleEvent,
-  options?: { recipient?: "orchestrator" | "parent_agent" },
+  options?: {
+    recipient?: "orchestrator" | "parent_agent";
+    /** Thread that asked for this work but can no longer receive the report. */
+    orphanedFrom?: string;
+  },
 ): string | null => {
   if (
     event.type !== "agent-completed" &&
@@ -110,6 +114,14 @@ export const buildAgentEventPrompt = (
       );
     }
   }
+
+  const orphanedFrom = toParentAgent ? undefined : options?.orphanedFrom;
+  if (orphanedFrom) {
+    lines.push(
+      `routing: the agent that asked for this work (thread ${orphanedFrom}) is no longer running, so this report was escalated to you instead of being lost. Relay it to the user, and decide whether that agent's unfinished work needs re-delegating.`,
+    );
+  }
+
 
   if (toParentAgent) {
     return [

@@ -1080,30 +1080,59 @@ export class LocalAgentManager {
         );
     }
     /**
-     * Resolve the thread that owns a subagent's completion routing: its direct
-     * parent agent thread, or undefined when the agent was spawned by the root
-     * orchestrator (the only case that reaches root chat and notifies the user).
-     * Missing links and legacy cycles return null so an unattributable thread is
-     * never guessed into root chat.
+     * Resolve where a thread's terminal report must be delivered: a live owning
+     * agent, or the conversation the user is actually on. A root-spawned
+     * thread, an owner that failed or was canceled, an owner whose row is gone,
+     * and a legacy ancestry cycle all resolve to the user's thread.
      */
-    resolveOwningParentThread(threadId, parentAgentId) {
+    resolveReportDestination(threadId, parentAgentId) {
         const parent = parentAgentId ?? this.getAgentState(threadId)?.parentAgentId;
-        if (!parent) return undefined;
-        // The direct parent owns routing, but the whole ancestry still has to be
-        // sane: legacy rows can contain multi-node cycles, and attributing a
-        // report inside one would route it to a thread that is also its own
-        // descendant. Walk to the root once and refuse anything that doesn't
-        // terminate.
+        if (!parent) return { kind: "user_thread", reason: "root-owned" };
         const visited = new Set([threadId]);
         let cursor = parent;
         while (cursor) {
-            if (visited.has(cursor)) return null;
+            if (visited.has(cursor)) {
+                return { kind: "user_thread", reason: "unresolved-ancestry", orphanedFrom: parent };
+            }
             visited.add(cursor);
             const state = this.getAgentState(cursor);
-            if (!state) return null;
+            if (!state) {
+                return { kind: "user_thread", reason: "unresolved-ancestry", orphanedFrom: parent };
+            }
             cursor = state.parentAgentId;
         }
-        return parent;
+        const owner = this.getAgentState(parent);
+        if (!owner || owner.status === "error" || owner.status === "canceled") {
+            return { kind: "user_thread", reason: "owner-terminal", orphanedFrom: parent };
+        }
+        return { kind: "parent_agent", threadId: parent };
+    }
+    resolveOwningParentThread(threadId, parentAgentId) {
+        const destination = this.resolveReportDestination(threadId, parentAgentId);
+        return destination.kind === "parent_agent" ? destination.threadId : undefined;
+    }
+    /** Owner and report disposition for `agent_status`. */
+    describeReportDelivery(threadId) {
+        const state = this.getAgentState(threadId);
+        if (!state) return null;
+        const destination = this.resolveReportDestination(threadId, state.parentAgentId);
+        if (destination.kind !== "parent_agent") {
+            return {
+                owner: "user_thread",
+                reportDeliveredTo: destination.reason === "root-owned" ? "user_thread" : "user_thread_escalated",
+            };
+        }
+        const owner = this.getAgentState(destination.threadId);
+        const consumed = owner?.consumedDescendantEventIds ??
+            owner?.descendantBoundaryState?.consumedEventIds ??
+            [];
+        const accepted = consumed.some((id) => typeof id === "string" &&
+            id.startsWith(`${threadId}:`) &&
+            id.endsWith(":agent-completed"));
+        return {
+            owner: `parent_agent:${destination.threadId}`,
+            reportDeliveredTo: accepted ? "parent_agent" : "pending",
+        };
     }
     getAgentState(threadId) {
         return this.tasks.get(threadId) ?? this.opts.getAgentRecord?.(threadId) ?? null;
@@ -2735,24 +2764,11 @@ export class LocalAgentManager {
                 return { delivered: true };
             }
             if (isChildReport && (persisted.status === "error" || persisted.status === "canceled")) {
-                // A child report wakes an idle parent, but must never resurrect one
-                // the user paused or that failed. The report is already durable in
-                // the thread, so a later explicit send_input still picks it up.
-                if (deliveryEventId) {
-                    const consumedEventIds = [
-                        ...(persisted.descendantBoundaryState?.consumedEventIds ?? []),
-                        deliveryEventId,
-                    ].slice(-256);
-                    this.opts.saveAgentRecord?.({
-                        ...persisted,
-                        descendantBoundaryState: {
-                            consumedEventIds,
-                            wakePending: false,
-                        },
-                        updatedAt: Date.now(),
-                    });
-                }
-                return { delivered: true };
+                // A child report must never resurrect a parent the user paused or
+                // that failed. Refusing to wake it is not a delivery: leave the
+                // event unconsumed so the caller escalates it to the user's
+                // thread instead of recording the drop as a success.
+                return { delivered: false, reason: "owner-terminal" };
             }
             // Re-activate the durable thread row (and its whole group) so the
             // resumed work re-enters the active slot budget and reappears under
@@ -2769,6 +2785,9 @@ export class LocalAgentManager {
             }
             if (options?.parentAgentId) {
                 resumedTask.parentAgentId = options.parentAgentId;
+            }
+            else if (options?.ownerAgentId !== undefined) {
+                resumedTask.parentAgentId = options.ownerAgentId ?? undefined;
             }
             if (deliveryEventId) {
                 this.rememberDeliveryEventId(resumedTask, deliveryEventId);
@@ -2796,18 +2815,14 @@ export class LocalAgentManager {
         }
         if (isChildReport) {
             if (task.status === "error" || task.status === "canceled") {
-                // Same rule as the persisted-record path: never resurrect a parent
-                // the user paused or that failed.
-                if (deliveryEventId) {
-                    this.rememberDeliveryEventId(task, deliveryEventId);
-                    task.descendantWakePending = false;
-                    this.persistTask(task);
-                }
-                return { delivered: true };
+                return { delivered: false, reason: "owner-terminal" };
             }
         }
         if (options?.parentAgentId) {
             task.parentAgentId = options.parentAgentId;
+        }
+        else if (options?.ownerAgentId !== undefined) {
+            task.parentAgentId = options.ownerAgentId ?? undefined;
         }
         if (task.status === "completed" || task.status === "error" || task.status === "canceled") {
             if (from !== "orchestrator") {

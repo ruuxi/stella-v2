@@ -275,6 +275,12 @@ class ${PHONE_DELEGATE}: UIResponder, UIWindowSceneDelegate {
     window.windowScene = windowScene
     self.window = window
     window.makeKeyAndVisible()
+
+    // A link that launched the app cold arrives here instead of through
+    // openURLContexts, so replay it on the same path.
+    for context in connectionOptions.urlContexts {
+      forwardOpenURL(context)
+    }
   }
 
   // Forward universal links opened via the scene to the existing AppDelegate
@@ -284,6 +290,31 @@ class ${PHONE_DELEGATE}: UIResponder, UIWindowSceneDelegate {
       UIApplication.shared,
       continue: userActivity,
       restorationHandler: { _ in }
+    )
+  }
+
+  // Once a scene manifest exists, UIKit delivers custom-scheme URLs to the
+  // scene and never calls UIApplicationDelegate.application(_:open:options:).
+  // Without this, every stella-mobile:// link is dropped: the app comes to the
+  // foreground and nothing else happens. Forward to the AppDelegate so Expo's
+  // linking subscriber and RCTLinkingManager both see the URL.
+  func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+    for context in URLContexts {
+      forwardOpenURL(context)
+    }
+  }
+
+  private func forwardOpenURL(_ context: UIOpenURLContext) {
+    var options: [UIApplication.OpenURLOptionsKey: Any] = [
+      .openInPlace: context.options.openInPlace
+    ]
+    if let sourceApplication = context.options.sourceApplication {
+      options[.sourceApplication] = sourceApplication
+    }
+    _ = UIApplication.shared.delegate?.application?(
+      UIApplication.shared,
+      open: context.url,
+      options: options
     )
   }
 }

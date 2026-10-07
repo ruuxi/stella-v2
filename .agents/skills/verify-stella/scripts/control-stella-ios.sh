@@ -144,8 +144,6 @@ validate_scratch_path() {
   }
 }
 
-require_screen_input() {
-
 require_free_disk() {
   local min_free_gb="$1"
   local free_gb
@@ -164,6 +162,7 @@ REMOTE
   fi
 }
 
+require_screen_input() {
   if ! remote_zsh <<'REMOTE'
 set -eu
 test "$(/usr/bin/osascript -e 'tell application "System Events" to get UI elements enabled')" = true

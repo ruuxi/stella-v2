@@ -828,6 +828,7 @@ describe("state tools", () => {
       options:
         | {
             rootRunId?: string;
+            ownerAgentId?: string | null;
             deliveryKind?: "manager-event" | "external-input";
           }
         | undefined;
@@ -872,6 +873,7 @@ describe("state tools", () => {
         from: "orchestrator",
         options: {
           deliveryKind: "external-input",
+          ownerAgentId: null,
           rootRunId: "root-current",
         },
       },
@@ -914,6 +916,7 @@ describe("state tools", () => {
     expect(sendCalls).toEqual([
       {
         deliveryKind: "external-input",
+        ownerAgentId: "parent-thread",
       },
     ]);
   });

@@ -7,7 +7,10 @@ import {
 } from "./cloud-spawn-dispatch.js";
 import { createCloudTranscriptWriter } from "./cloud-transcript-write.js";
 import { createToolHost } from "../tools/host.js";
-import type { SpawnModelSupport } from "../tools/types.js";
+import type {
+  AgentThreadStatusRead,
+  SpawnModelSupport,
+} from "../tools/types.js";
 import { HookEmitter } from "../extensions/hook-emitter.js";
 import {
   getAgentRuntimeEngine,
@@ -872,7 +875,16 @@ export const createRunnerContext = ({
         if (!record) return null;
         const liveStateInput = { agentStatus: record.status };
         const engine = record.modelConfigSnapshot?.engine;
+        const delivery = context.state.localAgentManager?.describeReportDelivery?.(
+          agentId,
+        ) as Pick<AgentThreadStatusRead, "owner" | "reportDeliveredTo"> | undefined;
         return {
+          ...(delivery
+            ? {
+                owner: delivery.owner,
+                reportDeliveredTo: delivery.reportDeliveredTo,
+              }
+            : {}),
           status: deriveRuntimeThreadLiveState(liveStateInput),
           statusLabel: formatRuntimeThreadStatusLabel(liveStateInput),
           agentStatus: record.status,

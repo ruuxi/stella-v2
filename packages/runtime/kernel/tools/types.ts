@@ -338,6 +338,14 @@ export type AgentThreadStatusRead = {
   engine?: string;
   /** When the agent record was last written (turn start / terminal). */
   lastActiveAt?: number;
+  /** Who this thread's report goes to: `user_thread` or `parent_agent:<id>`. */
+  owner?: string;
+  /** Whether that owner has accepted the report yet. */
+  reportDeliveredTo?:
+    | "parent_agent"
+    | "user_thread"
+    | "user_thread_escalated"
+    | "pending";
   messages: AgentThreadStatusMessage[];
 };
 
@@ -370,6 +378,12 @@ export type AgentToolApi = {
       rootRunId?: string;
       /** Parent agent thread that owns this thread's completion routing. */
       parentAgentId?: string;
+      /**
+       * Re-home the thread's report routing to whoever is sending this input:
+       * a thread id, or `null` for the user's own conversation. Omit to leave
+       * the current owner untouched.
+       */
+      ownerAgentId?: string | null;
       /** Internal child report vs. direct orchestrator status/steering input. */
       deliveryKind?: "child-report" | "external-input";
       modelConfigSnapshot?: AgentModelConfigSnapshot;

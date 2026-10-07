@@ -312,6 +312,17 @@ export const handleSendInput = async (
   if (!message) {
     return { error: "message is required" };
   }
+  // Sending input directly to a thread takes ownership of it: its report must
+  // come back to whoever asked, not to whatever spawned it long ago. The
+  // orchestrator re-homes the thread to the user's conversation; an agent
+  // steering its own subagent re-homes it to itself.
+  const callerOwnsThread = context.agentId && context.agentId !== threadId;
+  const ownerAgentId =
+    context.agentType === AGENT_IDS.ORCHESTRATOR
+      ? null
+      : callerOwnsThread
+        ? context.agentId
+        : undefined;
   const delivered = await ctx.agentApi.sendAgentMessage(
     threadId,
     message,
@@ -322,6 +333,7 @@ export const handleSendInput = async (
       context.modelConfigSnapshot
         ? { modelConfigSnapshot: context.modelConfigSnapshot }
         : {}),
+      ...(ownerAgentId !== undefined ? { ownerAgentId } : {}),
       deliveryKind: "external-input",
     },
   );
@@ -449,6 +461,26 @@ const conversationThreadStatus = (
 };
 
 /**
+ * Plain-language delivery disposition, so a nested result already folded into
+ * its owning agent is never mistaken for a lost one.
+ */
+const describeReportDisposition = (snapshot: {
+  owner?: string;
+  reportDeliveredTo?: string;
+}): string => {
+  if (!snapshot.owner) return "";
+  if (snapshot.owner === "user_thread") {
+    return snapshot.reportDeliveredTo === "user_thread_escalated"
+      ? " This thread's report comes back to this conversation because the agent that started it is no longer running."
+      : " This thread's report comes back to this conversation.";
+  }
+  const ownerThreadId = snapshot.owner.replace(/^parent_agent:/, "");
+  return snapshot.reportDeliveredTo === "parent_agent"
+    ? ` Its report was already delivered to its owning agent (${ownerThreadId}), not to you; that agent reports to you separately.`
+    : ` Its report belongs to its owning agent (${ownerThreadId}), not to you; that agent reports to you separately.`;
+};
+
+/**
  * Read-only `agent_status` handler. Projects a durable-thread snapshot into
  * the live status, the last few assistant messages (reasoning summaries for
  * Codex-engine threads), and the most recent tool CALL — never a tool result,
@@ -543,12 +575,16 @@ export const handleAgentStatus = async (
       ...(typeof snapshot.lastActiveAt === "number"
         ? { last_active_at: new Date(snapshot.lastActiveAt).toISOString() }
         : {}),
+      ...(snapshot.owner ? { owner: snapshot.owner } : {}),
+      ...(snapshot.reportDeliveredTo
+        ? { report_delivered_to: snapshot.reportDeliveredTo }
+        : {}),
       recent_assistant_messages: assistantMessages.slice(
         -AGENT_STATUS_MESSAGE_LIMIT,
       ),
       ...(latestToolCall ? { latest_tool_call: latestToolCall } : {}),
       current_time: new Date(now).toISOString(),
-      note: "Read-only snapshot; the agent was NOT interrupted or messaged. To steer or ask it something, use send_input.",
+      note: `Read-only snapshot; the agent was NOT interrupted or messaged. To steer or ask it something, use send_input.${describeReportDisposition(snapshot)}`,
     },
   };
 };

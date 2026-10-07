@@ -203,11 +203,18 @@ const isCardRow = (row: EventRowViewModel): boolean =>
       row.customSlot,
   );
 
+const hasReplyPreview = (row: EventRowViewModel): boolean =>
+  row.kind === "assistant" &&
+  Boolean(
+    row.replyRefs?.length || row.agentCompletion?.sections.length,
+  );
+
 const gapAfterRow = (
   current: EventRowViewModel,
   next: EventRowViewModel | undefined,
 ): number => {
   if (!next) return ROW_GAP;
+  if (hasReplyPreview(next)) return ROW_GAP;
   if (isCardRow(current) && isCardRow(next)) return CARD_RUN_GAP;
   if (current.kind === "assistant" && next.kind === "assistant") {
     return ASSISTANT_RUN_GAP;

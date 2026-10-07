@@ -994,43 +994,26 @@ const normalizeRealtimeVoiceSelections = (
     return undefined;
   }
   const record = value as {
+    gptlive?: unknown;
     openai?: unknown;
     xai?: unknown;
-    inworld?: unknown;
     gemini?: unknown;
   };
   const out: RealtimeVoiceSelections = {};
+  if (typeof record.gptlive === "string" && record.gptlive.trim().length > 0) {
+    out.gptlive = record.gptlive.trim();
+  }
   if (typeof record.openai === "string" && record.openai.trim().length > 0) {
     out.openai = record.openai.trim();
   }
   if (typeof record.xai === "string" && record.xai.trim().length > 0) {
     out.xai = record.xai.trim();
   }
-  if (typeof record.inworld === "string" && record.inworld.trim().length > 0) {
-    out.inworld = record.inworld.trim();
-  }
   if (typeof record.gemini === "string" && record.gemini.trim().length > 0) {
     out.gemini = record.gemini.trim();
   }
   return Object.keys(out).length > 0 ? out : undefined;
 };
-
-const UNDERLYING_PROVIDERS: readonly RealtimeVoiceUnderlyingProvider[] = [
-  "openai",
-  "xai",
-  "inworld",
-];
-
-const coerceUnderlyingProvider = (
-  value: unknown,
-): RealtimeVoiceUnderlyingProvider | undefined =>
-  typeof value === "string" &&
-  (UNDERLYING_PROVIDERS as readonly string[]).includes(value)
-    ? (value as RealtimeVoiceUnderlyingProvider)
-    : undefined;
-
-const INWORLD_SPEED_MIN = 0.5;
-const INWORLD_SPEED_MAX = 2.0;
 
 export const normalizeRealtimeVoicePreferences = (
   value: unknown,
@@ -1042,8 +1025,7 @@ export const normalizeRealtimeVoicePreferences = (
     provider?: unknown;
     model?: unknown;
     voices?: unknown;
-    stellaSubProvider?: unknown;
-    inworldSpeed?: unknown;
+    enabled?: unknown;
     readAloudProvider?: unknown;
   };
 
@@ -1055,15 +1037,8 @@ export const normalizeRealtimeVoicePreferences = (
       ? record.model.trim()
       : undefined;
   const voices = normalizeRealtimeVoiceSelections(record.voices);
-  const stellaSubProvider = coerceUnderlyingProvider(record.stellaSubProvider);
-  const inworldSpeed =
-    typeof record.inworldSpeed === "number" &&
-    Number.isFinite(record.inworldSpeed)
-      ? Math.min(
-          INWORLD_SPEED_MAX,
-          Math.max(INWORLD_SPEED_MIN, record.inworldSpeed),
-        )
-      : undefined;
+  const enabled =
+    typeof record.enabled === "boolean" ? record.enabled : undefined;
   const readAloudProvider =
     record.readAloudProvider === "openai" ||
     record.readAloudProvider === "gemini"
@@ -1073,8 +1048,7 @@ export const normalizeRealtimeVoicePreferences = (
   const result: RealtimeVoicePreferences = { provider };
   if (provider !== "stella" && model) result.model = model;
   if (voices) result.voices = voices;
-  if (stellaSubProvider) result.stellaSubProvider = stellaSubProvider;
-  if (inworldSpeed !== undefined) result.inworldSpeed = inworldSpeed;
+  if (enabled !== undefined) result.enabled = enabled;
   if (readAloudProvider) result.readAloudProvider = readAloudProvider;
   return result;
 };

@@ -9,7 +9,10 @@ import {
   resolveRealtimeVoiceId,
   updateLocalModelPreferences,
 } from "@stella/runtime/kernel/preferences/local-preferences";
-import { hasRealtimeVoiceSessionRouteChanged } from "@stella/contracts/local-preferences";
+import {
+  hasRealtimeVoiceSessionRouteChanged,
+  isRealtimeVoiceEnabled,
+} from "@stella/contracts/local-preferences";
 import { createSyncTempDirTracker } from "../helpers/temp.js";
 
 const tempDirs = createSyncTempDirTracker();
@@ -394,44 +397,54 @@ describe("loadLocalPreferences", () => {
     });
   });
 
-  it("persists stellaSubProvider and resolves the underlying provider", () => {
+  it("resolves the underlying provider for every mode", () => {
     const stellaDataDir = makeStellaDataDir();
 
     const saved = updateLocalModelPreferences(stellaDataDir, {
       realtimeVoice: {
         provider: "stella",
-        voices: { openai: "verse", xai: "rex" },
-        stellaSubProvider: "xai",
+        voices: { gptlive: "ripple", xai: "rex" },
       },
     });
 
     expect(saved.realtimeVoice).toEqual({
       provider: "stella",
-      voices: { openai: "verse", xai: "rex" },
-      stellaSubProvider: "xai",
+      voices: { gptlive: "ripple", xai: "rex" },
     });
     expect(loadLocalPreferences(stellaDataDir).realtimeVoice).toEqual(
       saved.realtimeVoice,
     );
 
     expect(resolveRealtimeUnderlyingProvider(saved.realtimeVoice)).toEqual(
-      "xai",
+      "gptlive",
     );
-    expect(resolveRealtimeUnderlyingProvider({ provider: "stella" })).toEqual(
+    expect(resolveRealtimeUnderlyingProvider({ provider: "openai" })).toEqual(
       "openai",
     );
-    expect(
-      resolveRealtimeUnderlyingProvider({
-        provider: "openai",
-        stellaSubProvider: "xai",
-      }),
-    ).toEqual("openai"); // BYOK modes ignore stellaSubProvider
     expect(resolveRealtimeUnderlyingProvider({ provider: "xai" })).toEqual(
       "xai",
     );
+    expect(
+      resolveRealtimeVoiceId(saved.realtimeVoice, "gptlive", "marin"),
+    ).toEqual("ripple");
   });
 
-  it("drops invalid stellaSubProvider values", () => {
+  it("falls back to managed Stella for retired providers", () => {
+    const stellaDataDir = makeStellaDataDir();
+
+    writePreferences(stellaDataDir, {
+      realtimeVoice: {
+        provider: "inworld",
+        stellaSubProvider: "inworld",
+        inworldSpeed: 1.25,
+        voices: { inworld: "Sarah", gptlive: "quartz" },
+      },
+    });
+
+    expect(loadLocalPreferences(stellaDataDir).realtimeVoice).toEqual({
+      provider: "stella",
+      voices: { gptlive: "quartz" },
+    });
     expect(
       normalizeRealtimeVoicePreferences({
         provider: "stella",
@@ -443,96 +456,57 @@ describe("loadLocalPreferences", () => {
   it("detects provider route changes that require a fresh warm session", () => {
     expect(
       hasRealtimeVoiceSessionRouteChanged(
-        { provider: "stella", stellaSubProvider: "openai" },
-        { provider: "stella", stellaSubProvider: "inworld" },
+        { provider: "stella" },
+        { provider: "openai" },
       ),
     ).toBe(true);
     expect(
       hasRealtimeVoiceSessionRouteChanged(
-        { provider: "stella", stellaSubProvider: "xai" },
+        { provider: "stella" },
         { provider: "xai" },
       ),
     ).toBe(true);
     expect(
       hasRealtimeVoiceSessionRouteChanged(
-        { provider: "xai", stellaSubProvider: "openai" },
-        { provider: "xai", stellaSubProvider: "inworld" },
+        { provider: "xai" },
+        { provider: "xai" },
       ),
     ).toBe(false);
     expect(
       hasRealtimeVoiceSessionRouteChanged(
-        { provider: "stella", stellaSubProvider: "inworld" },
-        { provider: "stella", stellaSubProvider: "inworld" },
+        { provider: "stella" },
+        { provider: "stella" },
       ),
     ).toBe(false);
   });
 
-  it("clamps and persists inworldSpeed", () => {
+  it("keeps voice off until the stored toggle says otherwise", () => {
     const stellaDataDir = makeStellaDataDir();
+    writePreferences(stellaDataDir, {});
 
-    // In-range values round-trip unchanged.
+    expect(
+      isRealtimeVoiceEnabled(
+        loadLocalPreferences(stellaDataDir).realtimeVoice,
+      ),
+    ).toBe(false);
+
     let saved = updateLocalModelPreferences(stellaDataDir, {
-      realtimeVoice: { provider: "stella", inworldSpeed: 1.25 },
+      realtimeVoice: { provider: "stella", enabled: true },
     });
-    expect(saved.realtimeVoice).toEqual({
-      provider: "stella",
-      inworldSpeed: 1.25,
-    });
+    expect(saved.realtimeVoice).toEqual({ provider: "stella", enabled: true });
+    expect(isRealtimeVoiceEnabled(saved.realtimeVoice)).toBe(true);
 
-    // Below range → clamped to 0.5.
     saved = updateLocalModelPreferences(stellaDataDir, {
-      realtimeVoice: { provider: "stella", inworldSpeed: 0.1 },
+      realtimeVoice: { provider: "stella", enabled: false },
     });
-    expect(saved.realtimeVoice.inworldSpeed).toEqual(0.5);
+    expect(saved.realtimeVoice).toEqual({ provider: "stella", enabled: false });
+    expect(isRealtimeVoiceEnabled(saved.realtimeVoice)).toBe(false);
 
-    // Above range → clamped to 2.0.
-    saved = updateLocalModelPreferences(stellaDataDir, {
-      realtimeVoice: { provider: "stella", inworldSpeed: 5 },
-    });
-    expect(saved.realtimeVoice.inworldSpeed).toEqual(2.0);
-
-    // Non-numeric → dropped silently.
     expect(
       normalizeRealtimeVoicePreferences({
         provider: "stella",
-        inworldSpeed: "fast" as unknown as number,
+        enabled: "yes" as unknown as boolean,
       }),
     ).toEqual({ provider: "stella" });
-  });
-
-  it("persists Inworld provider + voices + stellaSubProvider", () => {
-    const stellaDataDir = makeStellaDataDir();
-
-    const saved = updateLocalModelPreferences(stellaDataDir, {
-      realtimeVoice: {
-        provider: "stella",
-        voices: { openai: "marin", xai: "rex", inworld: "Sarah" },
-        stellaSubProvider: "inworld",
-      },
-    });
-
-    expect(saved.realtimeVoice).toEqual({
-      provider: "stella",
-      voices: { openai: "marin", xai: "rex", inworld: "Sarah" },
-      stellaSubProvider: "inworld",
-    });
-    expect(loadLocalPreferences(stellaDataDir).realtimeVoice).toEqual(
-      saved.realtimeVoice,
-    );
-
-    expect(resolveRealtimeUnderlyingProvider(saved.realtimeVoice)).toEqual(
-      "inworld",
-    );
-    expect(
-      resolveRealtimeVoiceId(saved.realtimeVoice, "inworld", "Clive"),
-    ).toEqual("Sarah");
-
-    // Inworld BYOK mode pins to inworld regardless of stellaSubProvider.
-    expect(
-      resolveRealtimeUnderlyingProvider({
-        provider: "inworld",
-        stellaSubProvider: "openai",
-      }),
-    ).toEqual("inworld");
   });
 });

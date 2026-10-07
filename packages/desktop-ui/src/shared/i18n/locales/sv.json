@@ -899,18 +899,7 @@
     "account": {
       "title": "Konto"
     },
-    "activity": {
-      "inProgress": {
-        "one": "{count} pågår",
-        "other": "{count} pågår"
-      },
-      "openLabel": "Visa aktivitet"
-    },
     "activityHub": {
-      "activity": {
-        "empty": "Inget bakgrundsarbete ännu.",
-        "emptyFiltered": "Ingen matchande aktivitet eller filer."
-      },
       "conversation": {
         "subtitle": "Filer skapade av huvudtråden",
         "title": "Den här konversationen"
@@ -938,16 +927,6 @@
         "clear": "Rensa sökningen",
         "close": "Stäng sökningen",
         "placeholder": "Sök i aktivitet och filer"
-      },
-      "subagents": {
-        "count": {
-          "one": "{count} underagent",
-          "other": "{count} underagenter"
-        },
-        "done": {
-          "one": "{count} klar",
-          "other": "{count} klara"
-        }
       },
       "tabs": {
         "activity": "Aktivitet",
@@ -999,8 +978,7 @@
       "createFailed": "Det gick inte att skapa en chatt. Försök igen.",
       "emptyPrompt": "Fråga Stella vad som helst",
       "loadMore": "Läs in fler",
-      "mainChat": "Huvudchatt",
-      "workingMany": "{count} uppgifter pågår"
+      "mainChat": "Huvudchatt"
     },
     "cloudHome": {
       "backToDocumentsLabel": "Tillbaka till dokumenten i Cloud Home",

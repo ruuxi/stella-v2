@@ -899,18 +899,7 @@
     "account": {
       "title": "Tili"
     },
-    "activity": {
-      "inProgress": {
-        "one": "{count} käynnissä",
-        "other": "{count} käynnissä"
-      },
-      "openLabel": "Näytä toiminta"
-    },
     "activityHub": {
-      "activity": {
-        "empty": "Ei vielä taustatyötä.",
-        "emptyFiltered": "Ei vastaavaa toimintaa tai tiedostoja."
-      },
       "conversation": {
         "subtitle": "Pääsäikeen luomat tiedostot",
         "title": "Tämä keskustelu"
@@ -938,15 +927,6 @@
         "clear": "Tyhjennä haku",
         "close": "Sulje haku",
         "placeholder": "Hae toiminnasta ja tiedostoista"
-      },
-      "subagents": {
-        "count": {
-          "one": "{count} aliagentti",
-          "other": "{count} aliagenttia"
-        },
-        "done": {
-          "other": "{count} valmiina"
-        }
       },
       "tabs": {
         "activity": "Toiminta",
@@ -998,8 +978,7 @@
       "createFailed": "Keskustelua ei voitu luoda. Yritä uudelleen.",
       "emptyPrompt": "Kysy Stellalta mitä tahansa",
       "loadMore": "Lataa lisää",
-      "mainChat": "Pääkeskustelu",
-      "workingMany": "{count} tehtävää käynnissä"
+      "mainChat": "Pääkeskustelu"
     },
     "cloudHome": {
       "backToDocumentsLabel": "Takaisin Cloud Home -asiakirjoihin",

@@ -890,17 +890,7 @@
     "account": {
       "title": "账户"
     },
-    "activity": {
-      "inProgress": {
-        "other": "{count} 项进行中"
-      },
-      "openLabel": "显示活动"
-    },
     "activityHub": {
-      "activity": {
-        "empty": "还没有后台工作。",
-        "emptyFiltered": "没有匹配的活动或文件。"
-      },
       "conversation": {
         "subtitle": "主线程创建的文件",
         "title": "此对话"
@@ -928,14 +918,6 @@
         "clear": "清除搜索",
         "close": "关闭搜索",
         "placeholder": "搜索活动和文件"
-      },
-      "subagents": {
-        "count": {
-          "other": "{count} 个子智能体"
-        },
-        "done": {
-          "other": "已完成 {count} 个"
-        }
       },
       "tabs": {
         "activity": "活动",
@@ -986,8 +968,7 @@
       "createFailed": "无法创建聊天。请重试。",
       "emptyPrompt": "随便问 Stella",
       "loadMore": "加载更多",
-      "mainChat": "主聊天",
-      "workingMany": "{count} 个任务进行中"
+      "mainChat": "主聊天"
     },
     "cloudHome": {
       "backToDocumentsLabel": "返回 Cloud Home 文档",

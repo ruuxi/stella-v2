@@ -890,17 +890,7 @@
     "account": {
       "title": "Tài khoản"
     },
-    "activity": {
-      "inProgress": {
-        "other": "{count} đang thực hiện"
-      },
-      "openLabel": "Hiển thị hoạt động"
-    },
     "activityHub": {
-      "activity": {
-        "empty": "Chưa có công việc nền nào.",
-        "emptyFiltered": "Không có hoạt động hay tệp nào khớp."
-      },
       "conversation": {
         "subtitle": "Tệp do luồng chính tạo",
         "title": "Cuộc trò chuyện này"
@@ -928,14 +918,6 @@
         "clear": "Xóa tìm kiếm",
         "close": "Đóng tìm kiếm",
         "placeholder": "Tìm trong hoạt động và tệp"
-      },
-      "subagents": {
-        "count": {
-          "other": "{count} tác nhân phụ"
-        },
-        "done": {
-          "other": "{count} đã xong"
-        }
       },
       "tabs": {
         "activity": "Hoạt động",
@@ -986,8 +968,7 @@
       "createFailed": "Không thể tạo cuộc trò chuyện. Vui lòng thử lại.",
       "emptyPrompt": "Hỏi Stella bất cứ điều gì",
       "loadMore": "Tải thêm",
-      "mainChat": "Trò chuyện chính",
-      "workingMany": "{count} tác vụ đang chạy"
+      "mainChat": "Trò chuyện chính"
     },
     "cloudHome": {
       "backToDocumentsLabel": "Quay lại tài liệu Cloud Home",

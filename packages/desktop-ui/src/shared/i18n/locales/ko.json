@@ -890,17 +890,7 @@
     "account": {
       "title": "계정"
     },
-    "activity": {
-      "inProgress": {
-        "other": "{count}개 진행 중"
-      },
-      "openLabel": "활동 보기"
-    },
     "activityHub": {
-      "activity": {
-        "empty": "아직 백그라운드 작업이 없습니다.",
-        "emptyFiltered": "일치하는 활동이나 파일이 없습니다."
-      },
       "conversation": {
         "subtitle": "메인 스레드가 만든 파일",
         "title": "이 대화"
@@ -928,14 +918,6 @@
         "clear": "검색 지우기",
         "close": "검색 닫기",
         "placeholder": "활동과 파일 검색"
-      },
-      "subagents": {
-        "count": {
-          "other": "하위 에이전트 {count}개"
-        },
-        "done": {
-          "other": "{count}개 완료"
-        }
       },
       "tabs": {
         "activity": "활동",
@@ -986,8 +968,7 @@
       "createFailed": "채팅을 만들 수 없습니다. 다시 시도해 주세요.",
       "emptyPrompt": "Stella에게 무엇이든 물어보세요",
       "loadMore": "더 불러오기",
-      "mainChat": "기본 채팅",
-      "workingMany": "작업 {count}개 진행 중"
+      "mainChat": "기본 채팅"
     },
     "cloudHome": {
       "backToDocumentsLabel": "Cloud Home 문서로 돌아가기",

@@ -917,20 +917,7 @@
     "account": {
       "title": "Konto"
     },
-    "activity": {
-      "inProgress": {
-        "few": "{count} w toku",
-        "many": "{count} w toku",
-        "one": "{count} w toku",
-        "other": "{count} w toku"
-      },
-      "openLabel": "Pokaż aktywność"
-    },
     "activityHub": {
-      "activity": {
-        "empty": "Nie ma jeszcze pracy w tle.",
-        "emptyFiltered": "Brak pasującej aktywności i plików."
-      },
       "conversation": {
         "subtitle": "Pliki utworzone przez główny wątek",
         "title": "Ta rozmowa"
@@ -958,17 +945,6 @@
         "clear": "Wyczyść wyszukiwanie",
         "close": "Zamknij wyszukiwanie",
         "placeholder": "Szukaj w aktywności i plikach"
-      },
-      "subagents": {
-        "count": {
-          "few": "{count} subagenty",
-          "many": "{count} subagentów",
-          "one": "{count} subagent",
-          "other": "{count} subagenta"
-        },
-        "done": {
-          "other": "ukończono: {count}"
-        }
       },
       "tabs": {
         "activity": "Aktywność",
@@ -1022,8 +998,7 @@
       "createFailed": "Nie udało się utworzyć czatu. Spróbuj ponownie.",
       "emptyPrompt": "Zapytaj Stellę o cokolwiek",
       "loadMore": "Wczytaj więcej",
-      "mainChat": "Główny czat",
-      "workingMany": "Zadania w toku: {count}"
+      "mainChat": "Główny czat"
     },
     "cloudHome": {
       "backToDocumentsLabel": "Wróć do dokumentów Cloud Home",

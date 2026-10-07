@@ -899,18 +899,7 @@
     "account": {
       "title": "Account"
     },
-    "activity": {
-      "inProgress": {
-        "one": "{count} in progress",
-        "other": "{count} in progress"
-      },
-      "openLabel": "Show activity"
-    },
     "activityHub": {
-      "activity": {
-        "empty": "No background work yet.",
-        "emptyFiltered": "No matching activity or files."
-      },
       "conversation": {
         "subtitle": "Files created by the main thread",
         "title": "This conversation"
@@ -938,15 +927,6 @@
         "clear": "Clear search",
         "close": "Close search",
         "placeholder": "Search activity and files"
-      },
-      "subagents": {
-        "count": {
-          "one": "{count} subagent",
-          "other": "{count} subagents"
-        },
-        "done": {
-          "other": "{count} done"
-        }
       },
       "tabs": {
         "activity": "Activity",
@@ -998,8 +978,7 @@
       "createFailed": "Could not create a chat. Please try again.",
       "emptyPrompt": "Ask Stella anything",
       "loadMore": "Load more",
-      "mainChat": "Main chat",
-      "workingMany": "{count} things in progress"
+      "mainChat": "Main chat"
     },
     "cloudHome": {
       "backToDocumentsLabel": "Back to Cloud Home documents",

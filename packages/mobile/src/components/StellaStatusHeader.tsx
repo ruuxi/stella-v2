@@ -44,7 +44,7 @@ import { runningActivityIndicatorEntries } from "../lib/activity-hub-model";
 import { useActivityHub } from "../lib/main-shell-store";
 import { useColors } from "../theme/theme-context";
 import { fonts } from "../theme/fonts";
-import { useT } from "../i18n";
+import { useTPlural } from "../i18n";
 
 const MARK_SIZE = STATUS_PILL_HEIGHT - STATUS_PILL_INSET * 2;
 const LABEL_GAP = 8;
@@ -86,7 +86,7 @@ export function StellaStatusHeader({
   /** Opens the menu of in-progress agents. Inert while nothing runs. */
   onPress: (running: readonly ActivityIndicatorEntry[]) => void;
 }) {
-  const t = useT();
+  const tPlural = useTPlural();
   const colors = useColors();
   const hub = useActivityHub();
   const running = useMemo(
@@ -98,7 +98,7 @@ export function StellaStatusHeader({
   );
   const count = running.length;
   const label = selectActivityIndicatorLabel(running, (total) =>
-    t("mobile.chat.workingMany", { count: total }),
+    tPlural("app.chat.activityPill.tasksInProgress", total),
   );
 
   const [phase, setPhase] = useState<ActivityIndicatorPhase>(

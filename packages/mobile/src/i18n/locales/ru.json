@@ -917,20 +917,7 @@
     "account": {
       "title": "Аккаунт"
     },
-    "activity": {
-      "inProgress": {
-        "few": "{count} в работе",
-        "many": "{count} в работе",
-        "one": "{count} в работе",
-        "other": "{count} в работе"
-      },
-      "openLabel": "Показать активность"
-    },
     "activityHub": {
-      "activity": {
-        "empty": "Фоновой работы пока нет.",
-        "emptyFiltered": "Нет подходящей активности или файлов."
-      },
       "conversation": {
         "subtitle": "Файлы, созданные основным потоком",
         "title": "Этот разговор"
@@ -958,17 +945,6 @@
         "clear": "Очистить поиск",
         "close": "Закрыть поиск",
         "placeholder": "Искать в активности и файлах"
-      },
-      "subagents": {
-        "count": {
-          "few": "{count} субагента",
-          "many": "{count} субагентов",
-          "one": "{count} субагент",
-          "other": "{count} субагента"
-        },
-        "done": {
-          "other": "готово: {count}"
-        }
       },
       "tabs": {
         "activity": "Активность",
@@ -1022,8 +998,7 @@
       "createFailed": "Не удалось создать чат. Попробуйте ещё раз.",
       "emptyPrompt": "Спросите у Stella что угодно",
       "loadMore": "Загрузить ещё",
-      "mainChat": "Основной чат",
-      "workingMany": "Задачи в работе: {count}"
+      "mainChat": "Основной чат"
     },
     "cloudHome": {
       "backToDocumentsLabel": "Назад к документам Cloud Home",

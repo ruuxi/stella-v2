@@ -908,19 +908,7 @@
     "account": {
       "title": "Conta"
     },
-    "activity": {
-      "inProgress": {
-        "many": "{count} em curso",
-        "one": "{count} em curso",
-        "other": "{count} em curso"
-      },
-      "openLabel": "Mostrar atividade"
-    },
     "activityHub": {
-      "activity": {
-        "empty": "Ainda não há trabalho em segundo plano.",
-        "emptyFiltered": "Nenhuma atividade ou arquivo corresponde."
-      },
       "conversation": {
         "subtitle": "Arquivos criados pela thread principal",
         "title": "Esta conversa"
@@ -948,16 +936,6 @@
         "clear": "Limpar pesquisa",
         "close": "Fechar pesquisa",
         "placeholder": "Pesquisar atividade e arquivos"
-      },
-      "subagents": {
-        "count": {
-          "one": "{count} subagente",
-          "other": "{count} subagentes"
-        },
-        "done": {
-          "one": "{count} concluído",
-          "other": "{count} concluídos"
-        }
       },
       "tabs": {
         "activity": "Atividade",
@@ -1010,8 +988,7 @@
       "createFailed": "Não foi possível criar um chat. Tente novamente.",
       "emptyPrompt": "Pergunte qualquer coisa à Stella",
       "loadMore": "Carregar mais",
-      "mainChat": "Chat principal",
-      "workingMany": "{count} tarefas em andamento"
+      "mainChat": "Chat principal"
     },
     "cloudHome": {
       "backToDocumentsLabel": "Voltar para os documentos do Cloud Home",

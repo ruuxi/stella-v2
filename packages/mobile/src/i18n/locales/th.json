@@ -890,17 +890,7 @@
     "account": {
       "title": "บัญชี"
     },
-    "activity": {
-      "inProgress": {
-        "other": "กำลังดำเนินการ {count} รายการ"
-      },
-      "openLabel": "แสดงกิจกรรม"
-    },
     "activityHub": {
-      "activity": {
-        "empty": "ยังไม่มีงานเบื้องหลัง",
-        "emptyFiltered": "ไม่มีกิจกรรมหรือไฟล์ที่ตรงกัน"
-      },
       "conversation": {
         "subtitle": "ไฟล์ที่สร้างโดยเธรดหลัก",
         "title": "การสนทนานี้"
@@ -928,14 +918,6 @@
         "clear": "ล้างการค้นหา",
         "close": "ปิดการค้นหา",
         "placeholder": "ค้นหาในกิจกรรมและไฟล์"
-      },
-      "subagents": {
-        "count": {
-          "other": "เอเจนต์ย่อย {count} ตัว"
-        },
-        "done": {
-          "other": "เสร็จแล้ว {count}"
-        }
       },
       "tabs": {
         "activity": "กิจกรรม",
@@ -986,8 +968,7 @@
       "createFailed": "ไม่สามารถสร้างแชตได้ โปรดลองอีกครั้ง",
       "emptyPrompt": "ถาม Stella อะไรก็ได้",
       "loadMore": "โหลดเพิ่มเติม",
-      "mainChat": "แชตหลัก",
-      "workingMany": "{count} งานกำลังดำเนินการ"
+      "mainChat": "แชตหลัก"
     },
     "cloudHome": {
       "backToDocumentsLabel": "กลับไปที่เอกสาร Cloud Home",

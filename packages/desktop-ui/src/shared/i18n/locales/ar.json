@@ -935,22 +935,7 @@
     "account": {
       "title": "الحساب"
     },
-    "activity": {
-      "inProgress": {
-        "few": "{count} قيد التنفيذ",
-        "many": "{count} قيد التنفيذ",
-        "one": "{count} قيد التنفيذ",
-        "other": "{count} قيد التنفيذ",
-        "two": "{count} قيد التنفيذ",
-        "zero": "{count} قيد التنفيذ"
-      },
-      "openLabel": "عرض النشاط"
-    },
     "activityHub": {
-      "activity": {
-        "empty": "لا يوجد عمل في الخلفية بعد.",
-        "emptyFiltered": "لا يوجد نشاط أو ملفات مطابقة."
-      },
       "conversation": {
         "subtitle": "ملفات أنشأها الخيط الرئيسي",
         "title": "هذه المحادثة"
@@ -978,18 +963,6 @@
         "clear": "مسح البحث",
         "close": "إغلاق البحث",
         "placeholder": "البحث في النشاط والملفات"
-      },
-      "subagents": {
-        "count": {
-          "few": "{count} وكلاء فرعيين",
-          "many": "{count} وكيلًا فرعيًا",
-          "one": "وكيل فرعي واحد",
-          "other": "{count} وكيل فرعي",
-          "two": "وكيلان فرعيان"
-        },
-        "done": {
-          "other": "اكتمل: {count}"
-        }
       },
       "tabs": {
         "activity": "النشاط",
@@ -1045,8 +1018,7 @@
       "createFailed": "تعذّر إنشاء محادثة. يُرجى المحاولة مرة أخرى.",
       "emptyPrompt": "اسأل Stella عن أي شيء",
       "loadMore": "تحميل المزيد",
-      "mainChat": "المحادثة الرئيسية",
-      "workingMany": "المهام قيد التنفيذ: {count}"
+      "mainChat": "المحادثة الرئيسية"
     },
     "cloudHome": {
       "backToDocumentsLabel": "العودة إلى مستندات Cloud Home",

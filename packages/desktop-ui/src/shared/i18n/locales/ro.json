@@ -908,19 +908,7 @@
     "account": {
       "title": "Cont"
     },
-    "activity": {
-      "inProgress": {
-        "few": "{count} în curs",
-        "one": "{count} în curs",
-        "other": "{count} în curs"
-      },
-      "openLabel": "Afișează activitatea"
-    },
     "activityHub": {
-      "activity": {
-        "empty": "Încă nu există muncă în fundal.",
-        "emptyFiltered": "Nicio activitate sau fișier care să se potrivească."
-      },
       "conversation": {
         "subtitle": "Fișiere create de firul principal",
         "title": "Această conversație"
@@ -948,16 +936,6 @@
         "clear": "Șterge căutarea",
         "close": "Închide căutarea",
         "placeholder": "Caută în activitate și fișiere"
-      },
-      "subagents": {
-        "count": {
-          "few": "{count} subagenți",
-          "one": "{count} subagent",
-          "other": "{count} de subagenți"
-        },
-        "done": {
-          "other": "finalizate: {count}"
-        }
       },
       "tabs": {
         "activity": "Activitate",
@@ -1010,8 +988,7 @@
       "createFailed": "Nu s-a putut crea un chat. Încearcă din nou.",
       "emptyPrompt": "Întreab-o pe Stella orice",
       "loadMore": "Încarcă mai multe",
-      "mainChat": "Chat principal",
-      "workingMany": "Sarcini în curs: {count}"
+      "mainChat": "Chat principal"
     },
     "cloudHome": {
       "backToDocumentsLabel": "Înapoi la documentele Cloud Home",

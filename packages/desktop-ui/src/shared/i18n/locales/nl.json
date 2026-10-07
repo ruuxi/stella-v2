@@ -899,18 +899,7 @@
     "account": {
       "title": "Account"
     },
-    "activity": {
-      "inProgress": {
-        "one": "{count} in uitvoering",
-        "other": "{count} in uitvoering"
-      },
-      "openLabel": "Activiteit tonen"
-    },
     "activityHub": {
-      "activity": {
-        "empty": "Nog geen achtergrondwerk.",
-        "emptyFiltered": "Geen overeenkomende activiteit of bestanden."
-      },
       "conversation": {
         "subtitle": "Bestanden gemaakt door de hoofdthread",
         "title": "Dit gesprek"
@@ -938,15 +927,6 @@
         "clear": "Zoekopdracht wissen",
         "close": "Zoeken sluiten",
         "placeholder": "Zoek in activiteit en bestanden"
-      },
-      "subagents": {
-        "count": {
-          "one": "{count} subagent",
-          "other": "{count} subagents"
-        },
-        "done": {
-          "other": "{count} klaar"
-        }
       },
       "tabs": {
         "activity": "Activiteit",
@@ -998,8 +978,7 @@
       "createFailed": "Kan geen chat aanmaken. Probeer het opnieuw.",
       "emptyPrompt": "Vraag Stella wat je wilt",
       "loadMore": "Meer laden",
-      "mainChat": "Hoofdchat",
-      "workingMany": "{count} taken bezig"
+      "mainChat": "Hoofdchat"
     },
     "cloudHome": {
       "backToDocumentsLabel": "Terug naar Cloud Home-documenten",

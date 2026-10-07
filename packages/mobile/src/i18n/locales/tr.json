@@ -899,18 +899,7 @@
     "account": {
       "title": "Hesap"
     },
-    "activity": {
-      "inProgress": {
-        "one": "{count} devam ediyor",
-        "other": "{count} devam ediyor"
-      },
-      "openLabel": "Etkinliği göster"
-    },
     "activityHub": {
-      "activity": {
-        "empty": "Henüz arka plan çalışması yok.",
-        "emptyFiltered": "Eşleşen etkinlik veya dosya yok."
-      },
       "conversation": {
         "subtitle": "Ana iş parçacığının oluşturduğu dosyalar",
         "title": "Bu konuşma"
@@ -938,15 +927,6 @@
         "clear": "Aramayı temizle",
         "close": "Aramayı kapat",
         "placeholder": "Etkinlik ve dosyalarda ara"
-      },
-      "subagents": {
-        "count": {
-          "one": "{count} alt ajan",
-          "other": "{count} alt ajan"
-        },
-        "done": {
-          "other": "{count} tamamlandı"
-        }
       },
       "tabs": {
         "activity": "Etkinlik",
@@ -998,8 +978,7 @@
       "createFailed": "Sohbet oluşturulamadı. Lütfen tekrar deneyin.",
       "emptyPrompt": "Stella'ya istediğinizi sorun",
       "loadMore": "Daha fazla yükle",
-      "mainChat": "Ana sohbet",
-      "workingMany": "{count} görev sürüyor"
+      "mainChat": "Ana sohbet"
     },
     "cloudHome": {
       "backToDocumentsLabel": "Cloud Home belgelerine dön",

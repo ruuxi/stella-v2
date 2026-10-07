@@ -899,18 +899,7 @@
     "account": {
       "title": "खाता"
     },
-    "activity": {
-      "inProgress": {
-        "one": "{count} प्रगति में",
-        "other": "{count} प्रगति में"
-      },
-      "openLabel": "गतिविधि दिखाएँ"
-    },
     "activityHub": {
-      "activity": {
-        "empty": "अभी कोई बैकग्राउंड काम नहीं है।",
-        "emptyFiltered": "कोई मिलती-जुलती गतिविधि या फ़ाइल नहीं।"
-      },
       "conversation": {
         "subtitle": "मुख्य थ्रेड द्वारा बनाई गई फ़ाइलें",
         "title": "यह बातचीत"
@@ -938,15 +927,6 @@
         "clear": "खोज साफ़ करें",
         "close": "खोज बंद करें",
         "placeholder": "गतिविधि और फ़ाइलों में खोजें"
-      },
-      "subagents": {
-        "count": {
-          "one": "{count} सब-एजेंट",
-          "other": "{count} सब-एजेंट"
-        },
-        "done": {
-          "other": "{count} पूरे"
-        }
       },
       "tabs": {
         "activity": "गतिविधि",
@@ -998,8 +978,7 @@
       "createFailed": "चैट नहीं बनाई जा सकी। कृपया फिर से कोशिश करें।",
       "emptyPrompt": "Stella से कुछ भी पूछें",
       "loadMore": "और लोड करें",
-      "mainChat": "मुख्य चैट",
-      "workingMany": "{count} कार्य प्रगति पर"
+      "mainChat": "मुख्य चैट"
     },
     "cloudHome": {
       "backToDocumentsLabel": "Cloud Home दस्तावेज़ों पर वापस जाएँ",

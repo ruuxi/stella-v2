@@ -899,18 +899,7 @@
     "account": {
       "title": "Fiók"
     },
-    "activity": {
-      "inProgress": {
-        "one": "{count} folyamatban",
-        "other": "{count} folyamatban"
-      },
-      "openLabel": "Tevékenység megjelenítése"
-    },
     "activityHub": {
-      "activity": {
-        "empty": "Még nincs háttérmunka.",
-        "emptyFiltered": "Nincs egyező tevékenység vagy fájl."
-      },
       "conversation": {
         "subtitle": "A fő szál által létrehozott fájlok",
         "title": "Ez a beszélgetés"
@@ -938,15 +927,6 @@
         "clear": "Keresés törlése",
         "close": "Keresés bezárása",
         "placeholder": "Keresés a tevékenységben és a fájlokban"
-      },
-      "subagents": {
-        "count": {
-          "one": "{count} alügynök",
-          "other": "{count} alügynök"
-        },
-        "done": {
-          "other": "{count} kész"
-        }
       },
       "tabs": {
         "activity": "Tevékenység",
@@ -998,8 +978,7 @@
       "createFailed": "Nem sikerült létrehozni a csevegést. Próbáld újra.",
       "emptyPrompt": "Kérdezz bármit a Stellától",
       "loadMore": "Továbbiak betöltése",
-      "mainChat": "Fő csevegés",
-      "workingMany": "{count} feladat folyamatban"
+      "mainChat": "Fő csevegés"
     },
     "cloudHome": {
       "backToDocumentsLabel": "Vissza a Cloud Home-dokumentumokhoz",

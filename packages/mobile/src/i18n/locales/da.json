@@ -899,18 +899,7 @@
     "account": {
       "title": "Konto"
     },
-    "activity": {
-      "inProgress": {
-        "one": "{count} i gang",
-        "other": "{count} i gang"
-      },
-      "openLabel": "Vis aktivitet"
-    },
     "activityHub": {
-      "activity": {
-        "empty": "Intet baggrundsarbejde endnu.",
-        "emptyFiltered": "Ingen matchende aktivitet eller filer."
-      },
       "conversation": {
         "subtitle": "Filer oprettet af hovedtråden",
         "title": "Denne samtale"
@@ -938,16 +927,6 @@
         "clear": "Ryd søgning",
         "close": "Luk søgning",
         "placeholder": "Søg i aktivitet og filer"
-      },
-      "subagents": {
-        "count": {
-          "one": "{count} underagent",
-          "other": "{count} underagenter"
-        },
-        "done": {
-          "one": "{count} færdig",
-          "other": "{count} færdige"
-        }
       },
       "tabs": {
         "activity": "Aktivitet",
@@ -999,8 +978,7 @@
       "createFailed": "Kunne ikke oprette en chat. Prøv igen.",
       "emptyPrompt": "Spørg Stella om hvad som helst",
       "loadMore": "Indlæs flere",
-      "mainChat": "Hovedchat",
-      "workingMany": "{count} opgaver i gang"
+      "mainChat": "Hovedchat"
     },
     "cloudHome": {
       "backToDocumentsLabel": "Tilbage til Cloud Home-dokumenter",

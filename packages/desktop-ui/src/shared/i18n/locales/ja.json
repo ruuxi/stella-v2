@@ -890,17 +890,7 @@
     "account": {
       "title": "アカウント"
     },
-    "activity": {
-      "inProgress": {
-        "other": "{count}件進行中"
-      },
-      "openLabel": "アクティビティを表示"
-    },
     "activityHub": {
-      "activity": {
-        "empty": "バックグラウンド作業はまだありません。",
-        "emptyFiltered": "一致するアクティビティやファイルはありません。"
-      },
       "conversation": {
         "subtitle": "メインスレッドが作成したファイル",
         "title": "この会話"
@@ -928,14 +918,6 @@
         "clear": "検索をクリア",
         "close": "検索を閉じる",
         "placeholder": "アクティビティとファイルを検索"
-      },
-      "subagents": {
-        "count": {
-          "other": "サブエージェント{count}件"
-        },
-        "done": {
-          "other": "{count}件完了"
-        }
       },
       "tabs": {
         "activity": "アクティビティ",
@@ -986,8 +968,7 @@
       "createFailed": "チャットを作成できませんでした。もう一度お試しください。",
       "emptyPrompt": "Stella に何でも聞いてください",
       "loadMore": "さらに読み込む",
-      "mainChat": "メインチャット",
-      "workingMany": "{count} 件のタスクを実行中"
+      "mainChat": "メインチャット"
     },
     "cloudHome": {
       "backToDocumentsLabel": "Cloud Home の文書に戻る",

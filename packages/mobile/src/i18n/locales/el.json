@@ -899,18 +899,7 @@
     "account": {
       "title": "Λογαριασμός"
     },
-    "activity": {
-      "inProgress": {
-        "one": "{count} σε εξέλιξη",
-        "other": "{count} σε εξέλιξη"
-      },
-      "openLabel": "Εμφάνιση δραστηριότητας"
-    },
     "activityHub": {
-      "activity": {
-        "empty": "Δεν υπάρχει ακόμη εργασία στο παρασκήνιο.",
-        "emptyFiltered": "Καμία δραστηριότητα ή αρχείο δεν ταιριάζει."
-      },
       "conversation": {
         "subtitle": "Αρχεία που δημιούργησε το κύριο νήμα",
         "title": "Αυτή η συνομιλία"
@@ -938,15 +927,6 @@
         "clear": "Καθαρισμός αναζήτησης",
         "close": "Κλείσιμο αναζήτησης",
         "placeholder": "Αναζήτηση σε δραστηριότητα και αρχεία"
-      },
-      "subagents": {
-        "count": {
-          "one": "{count} υποπράκτορας",
-          "other": "{count} υποπράκτορες"
-        },
-        "done": {
-          "other": "ολοκληρώθηκαν: {count}"
-        }
       },
       "tabs": {
         "activity": "Δραστηριότητα",
@@ -998,8 +978,7 @@
       "createFailed": "Δεν ήταν δυνατή η δημιουργία συνομιλίας. Δοκιμάστε ξανά.",
       "emptyPrompt": "Ρωτήστε τη Stella οτιδήποτε",
       "loadMore": "Φόρτωση περισσότερων",
-      "mainChat": "Κύρια συνομιλία",
-      "workingMany": "{count} εργασίες σε εξέλιξη"
+      "mainChat": "Κύρια συνομιλία"
     },
     "cloudHome": {
       "backToDocumentsLabel": "Επιστροφή στα έγγραφα Cloud Home",

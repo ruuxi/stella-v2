@@ -890,17 +890,7 @@
     "account": {
       "title": "帳號"
     },
-    "activity": {
-      "inProgress": {
-        "other": "{count} 項進行中"
-      },
-      "openLabel": "顯示活動"
-    },
     "activityHub": {
-      "activity": {
-        "empty": "還沒有背景工作。",
-        "emptyFiltered": "沒有相符的活動或檔案。"
-      },
       "conversation": {
         "subtitle": "主執行緒建立的檔案",
         "title": "此對話"
@@ -928,14 +918,6 @@
         "clear": "清除搜尋",
         "close": "關閉搜尋",
         "placeholder": "搜尋活動與檔案"
-      },
-      "subagents": {
-        "count": {
-          "other": "{count} 個子代理"
-        },
-        "done": {
-          "other": "已完成 {count} 個"
-        }
       },
       "tabs": {
         "activity": "活動",
@@ -986,8 +968,7 @@
       "createFailed": "無法建立聊天。請重試。",
       "emptyPrompt": "什麼都可以問 Stella",
       "loadMore": "載入更多",
-      "mainChat": "主要聊天",
-      "workingMany": "{count} 項工作進行中"
+      "mainChat": "主要聊天"
     },
     "cloudHome": {
       "backToDocumentsLabel": "返回 Cloud Home 文件",

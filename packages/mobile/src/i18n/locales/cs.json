@@ -917,20 +917,7 @@
     "account": {
       "title": "Účet"
     },
-    "activity": {
-      "inProgress": {
-        "few": "{count} probíhá",
-        "many": "{count} probíhá",
-        "one": "{count} probíhá",
-        "other": "{count} probíhá"
-      },
-      "openLabel": "Zobrazit aktivitu"
-    },
     "activityHub": {
-      "activity": {
-        "empty": "Zatím žádná práce na pozadí.",
-        "emptyFiltered": "Žádná odpovídající aktivita ani soubory."
-      },
       "conversation": {
         "subtitle": "Soubory vytvořené hlavním vláknem",
         "title": "Tato konverzace"
@@ -958,16 +945,6 @@
         "clear": "Vymazat hledání",
         "close": "Zavřít hledání",
         "placeholder": "Hledat v aktivitě a souborech"
-      },
-      "subagents": {
-        "count": {
-          "few": "{count} subagenti",
-          "one": "{count} subagent",
-          "other": "{count} subagentů"
-        },
-        "done": {
-          "other": "hotovo: {count}"
-        }
       },
       "tabs": {
         "activity": "Aktivita",
@@ -1021,8 +998,7 @@
       "createFailed": "Chat se nepodařilo vytvořit. Zkuste to prosím znovu.",
       "emptyPrompt": "Zeptejte se Stelly na cokoli",
       "loadMore": "Načíst další",
-      "mainChat": "Hlavní chat",
-      "workingMany": "Probíhající úlohy: {count}"
+      "mainChat": "Hlavní chat"
     },
     "cloudHome": {
       "backToDocumentsLabel": "Zpět k dokumentům Cloud Home",

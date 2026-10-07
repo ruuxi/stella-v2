@@ -908,19 +908,7 @@
     "account": {
       "title": "חשבון"
     },
-    "activity": {
-      "inProgress": {
-        "one": "{count} בתהליך",
-        "other": "{count} בתהליך",
-        "two": "{count} בתהליך"
-      },
-      "openLabel": "הצגת פעילות"
-    },
     "activityHub": {
-      "activity": {
-        "empty": "אין עדיין עבודת רקע.",
-        "emptyFiltered": "אין פעילות או קבצים תואמים."
-      },
       "conversation": {
         "subtitle": "קבצים שנוצרו על ידי התהליך הראשי",
         "title": "השיחה הזו"
@@ -948,16 +936,6 @@
         "clear": "ניקוי החיפוש",
         "close": "סגירת החיפוש",
         "placeholder": "חיפוש בפעילות ובקבצים"
-      },
-      "subagents": {
-        "count": {
-          "one": "תת־סוכן אחד",
-          "other": "{count} תתי־סוכנים",
-          "two": "{count} תתי־סוכנים"
-        },
-        "done": {
-          "other": "הושלמו: {count}"
-        }
       },
       "tabs": {
         "activity": "פעילות",
@@ -1010,8 +988,7 @@
       "createFailed": "לא ניתן ליצור צ׳אט. יש לנסות שוב.",
       "emptyPrompt": "שאלו את Stella כל דבר",
       "loadMore": "טעינת עוד",
-      "mainChat": "צ׳אט ראשי",
-      "workingMany": "{count} משימות בתהליך"
+      "mainChat": "צ׳אט ראשי"
     },
     "cloudHome": {
       "backToDocumentsLabel": "חזרה למסמכי Cloud Home",

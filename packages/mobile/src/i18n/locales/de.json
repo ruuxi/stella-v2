@@ -899,18 +899,7 @@
     "account": {
       "title": "Konto"
     },
-    "activity": {
-      "inProgress": {
-        "one": "{count} in Bearbeitung",
-        "other": "{count} in Bearbeitung"
-      },
-      "openLabel": "Aktivität anzeigen"
-    },
     "activityHub": {
-      "activity": {
-        "empty": "Noch keine Hintergrundarbeit.",
-        "emptyFiltered": "Keine passende Aktivität oder Dateien."
-      },
       "conversation": {
         "subtitle": "Vom Haupt-Thread erstellte Dateien",
         "title": "Diese Unterhaltung"
@@ -938,15 +927,6 @@
         "clear": "Suche leeren",
         "close": "Suche schließen",
         "placeholder": "Aktivität und Dateien durchsuchen"
-      },
-      "subagents": {
-        "count": {
-          "one": "{count} Subagent",
-          "other": "{count} Subagenten"
-        },
-        "done": {
-          "other": "{count} fertig"
-        }
       },
       "tabs": {
         "activity": "Aktivität",
@@ -998,8 +978,7 @@
       "createFailed": "Der Chat konnte nicht erstellt werden. Bitte versuche es erneut.",
       "emptyPrompt": "Frag Stella alles",
       "loadMore": "Mehr laden",
-      "mainChat": "Hauptchat",
-      "workingMany": "{count} Aufgaben laufen"
+      "mainChat": "Hauptchat"
     },
     "cloudHome": {
       "backToDocumentsLabel": "Zurück zu den Cloud-Home-Dokumenten",

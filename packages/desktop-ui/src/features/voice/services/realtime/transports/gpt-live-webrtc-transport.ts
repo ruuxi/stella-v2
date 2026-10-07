@@ -125,7 +125,9 @@ export class GptLiveWebRTCTransport implements RealtimeTransport {
     await started;
     this.throwIfCanceled(signal);
 
-    await this.media.setMicEnabled(this.micEnabled);
+    // Through the public setter, so the provider-side gate is told about the
+    // starting mute state too and not just the local track.
+    await this.setMicEnabled(this.micEnabled);
     this.throwIfCanceled(signal);
   }
 

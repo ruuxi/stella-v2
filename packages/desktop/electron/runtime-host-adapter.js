@@ -578,7 +578,12 @@ export class RuntimeHostAdapter {
         return this.host.persistVoiceTranscript(args);
     }
     async handleVoiceChat(payload, callbacks) {
-        const requestId = globalThis.crypto?.randomUUID?.() ??
+        // The caller may name the request so it can correlate the run's own
+        // activity (the voice runtime does, to narrate backend progress). The
+        // id used here and the id sent to the worker must be the same one, or
+        // the subscription below filters out every event of its own run.
+        const requestId = (typeof payload?.requestId === "string" && payload.requestId.trim()) ||
+            globalThis.crypto?.randomUUID?.() ||
             `voice-${Date.now()}-${Math.random().toString(36).slice(2)}`;
         let lastRunEventSeq = 0;
         let lastTaskEventSeq = 0;
@@ -666,8 +671,8 @@ export class RuntimeHostAdapter {
         };
         try {
             return await this.host.voiceOrchestratorChat({
-                requestId,
                 ...payload,
+                requestId,
             });
         }
         catch (error) {

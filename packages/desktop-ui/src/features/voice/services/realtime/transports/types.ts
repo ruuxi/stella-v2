@@ -1,31 +1,33 @@
 /**
  * RealtimeTransport — abstraction over the wire protocol used to talk to a
- * Realtime voice provider.
+ * realtime voice provider.
  *
- * Two implementations exist:
- *   - OpenAIWebRTCTransport: RTCPeerConnection + SDP + data channel. Used for
- *     both the Stella-managed OpenAI Realtime path and the user's BYOK
- *     OpenAI key path. WebRTC handles mic capture and speaker playback for
- *     free via the audio track.
+ * Three implementations exist:
+ *   - GptLiveWebRTCTransport: the Stella-managed path. GPT-Live over WebRTC,
+ *     where the voice model carries the conversation and delegates reasoning
+ *     and tools to Stella's text orchestrator.
+ *   - OpenAIWebRTCTransport: the user's BYOK OpenAI Realtime key. WebRTC
+ *     handles mic capture and speaker playback via the audio track.
  *   - XaiWebSocketTransport: WebSocket + hand-rolled mic capture
  *     (AudioWorklet → 24kHz PCM16 → input_audio_buffer.append) +
  *     hand-rolled playback queue (response.output_audio.delta → scheduled
  *     AudioContext buffer playback).
  *
  * The session class (`voice-session.ts`) only sees this interface — it never
- * touches RTCPeerConnection or WebSocket directly. That keeps provider
- * quirks (event-name differences, WebRTC `truncate` vs WS playback flush,
- * voice/audio-format defaults) pinned to one file per provider.
+ * touches RTCPeerConnection or WebSocket directly. That keeps protocol quirks
+ * (event names, readiness handshake, graceful close, playback flush) pinned to
+ * one file per protocol. The WebRTC peer/mic/analyser plumbing the two WebRTC
+ * transports share lives in `webrtc-media-session.ts`.
  */
 
-export type RealtimeTransportProvider = "openai" | "xai" | "inworld";
+export type RealtimeTransportProvider = "gptlive" | "openai" | "xai";
 
 /**
- * Provider-specific SDP answer fetcher used by the WebRTC transport.
+ * Provider-specific SDP answer fetcher used by the WebRTC transports.
  * Takes the local SDP offer plus the transport-owned cancellation signal and
  * returns the remote SDP answer. The provider module is responsible for
- * choosing the endpoint, auth scheme, and any proxy/wrapper (e.g. Stella's
- * backend SDP proxy that keeps the org Inworld key server-side).
+ * choosing the endpoint, auth scheme, and any proxy (Stella's backend SDP
+ * proxy, which keeps the org key server-side).
  */
 export type SdpAnswerFetcher = (
   sdpOffer: string,
@@ -33,14 +35,14 @@ export type SdpAnswerFetcher = (
 ) => Promise<string>;
 
 export interface RealtimeTransportEvents {
-  /** Raw JSON event from the server (normalised to OpenAI Realtime shape). */
+  /** Raw JSON event from the provider, in that provider's own shape. */
   onEvent: (event: Record<string, unknown>) => void;
   /** Connection terminated for any reason — session moves to error state. */
   onClose: (reason: string) => void;
 }
 
 export interface RealtimeTransport {
-  /** Provider identity, for telemetry/usage reporting. */
+  /** Provider identity, for telemetry and routing. */
   readonly provider: RealtimeTransportProvider;
   /** Model id the server reported (or the requested model as a fallback). */
   readonly model: string;
@@ -71,13 +73,14 @@ export interface RealtimeTransport {
 
   /**
    * Stop any currently-playing assistant audio.
-   * - WebRTC: cuts the remote audio element (the session also sends
-   *   `conversation.item.truncate` for OpenAI to forget what it didn't
-   *   actually deliver).
+   * - WebRTC: nothing to flush locally; the provider stops sending frames.
    * - WS: flushes the local PCM playback queue.
    */
   interruptPlayback(): void;
 
-  /** Shut everything down. Idempotent. */
+  /**
+   * Shut everything down. Idempotent. GPT-Live closes the session
+   * conversationally first (`session.close` → `session.closed`).
+   */
   disconnect(): Promise<void>;
 }

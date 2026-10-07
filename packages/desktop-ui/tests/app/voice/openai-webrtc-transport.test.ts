@@ -104,7 +104,6 @@ describe("OpenAIWebRTCTransport SDP cancellation", () => {
       return answer.promise;
     });
     const transport = new OpenAIWebRTCTransport({
-      provider: "openai",
       model: "gpt-realtime",
       sdpFetch,
     });
@@ -133,7 +132,6 @@ describe("OpenAIWebRTCTransport SDP cancellation", () => {
     const sdpStarted = deferred<void>();
     let sdpSignal: AbortSignal | null = null;
     const transport = new OpenAIWebRTCTransport({
-      provider: "openai",
       model: "gpt-realtime",
       sdpFetch: (_offer, signal) => {
         sdpSignal = signal;
@@ -191,7 +189,7 @@ describe("SDP fetchers", () => {
       expect.objectContaining({ signal: controller.signal }),
     );
     expect(voiceBackendFetchMock).toHaveBeenCalledWith(
-      "/api/voice/openai/sdp",
+      "/api/voice/live/sdp",
       expect.objectContaining({
         body: "offer-sdp",
         headers: { "x-stella-voice-lease": "voice-lease-2" },

@@ -8,7 +8,11 @@ import {
   Text,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  SafeAreaProvider,
+  SafeAreaView,
+  initialWindowMetrics,
+} from "react-native-safe-area-context";
 import { env } from "../config/env";
 import { type Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
@@ -36,84 +40,87 @@ export function AiConsentModal({ visible, onAccept, onDecline }: Props) {
         // button below.
       }}
     >
-      <SafeAreaView style={styles.container}>
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={styles.content}
-        >
-          <Text style={styles.title}>Before you start</Text>
-          <Text style={styles.subtitle}>
-            Stella uses third-party AI services to respond to your messages. By
-            continuing, you allow Stella to share the data described below with
-            the named providers when needed to generate a response.
-          </Text>
-
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>What data is sent</Text>
-            <Text style={styles.body}>
-              When you send a message, Stella transmits your message text,
-              conversation history from the current session, and any images you
-              attach to an AI model for processing. If you use voice, Stella
-              also transmits either your recording for transcription or live
-              microphone audio for a realtime conversation.
-            </Text>
-          </View>
-
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Who receives it</Text>
-            <Text style={styles.body}>
-              Your data may be routed through the Stella Provider service to{" "}
-              <Text style={styles.bold}>OpenRouter</Text> or{" "}
-              <Text style={styles.bold}>Fireworks</Text> as managed AI gateways,
-              and then to upstream AI model providers such as{" "}
-              <Text style={styles.bold}>DeepSeek</Text>,{" "}
-              <Text style={styles.bold}>Anthropic</Text>,{" "}
-              <Text style={styles.bold}>OpenAI</Text>, or{" "}
-              <Text style={styles.bold}>Google</Text>. Voice recordings are
-              transcribed directly by <Text style={styles.bold}>Meta Muse</Text>.
-              The exact provider path for text depends on the model used for
-              your request. Realtime voice audio is processed directly by{" "}
-              <Text style={styles.bold}>OpenAI</Text>.
-            </Text>
-          </View>
-
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>How it's handled</Text>
-            <Text style={styles.body}>
-              Your cloud-authoritative conversation record and saved memory are
-              stored by Stella so they can sync across your devices. Model
-              inputs also pass through the services above to generate a
-              response, and those third-party AI services process and may retain
-              that data under their own privacy policies.
-            </Text>
-          </View>
-
-          <Text style={styles.privacyLink}>
-            Read our full{" "}
-            <Text
-              style={styles.link}
-              onPress={() => void Linking.openURL(`${env.siteUrl}/privacy`)}
-            >
-              Privacy Policy
-            </Text>
-          </Text>
-        </ScrollView>
-
-        <View style={styles.actions}>
-          <Pressable
-            onPress={onAccept}
-            style={({ pressed }) => [
-              styles.acceptButton,
-              pressed && styles.acceptButtonPressed,
-            ]}
+      <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+        <SafeAreaView style={styles.container}>
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.content}
           >
-            <Text style={styles.acceptText}>I Understand & Agree</Text>
-          </Pressable>
-          <Pressable onPress={onDecline} style={styles.declineButton}>
-            <Text style={styles.declineText}>Don't Agree</Text>
-          </Pressable>
-        </View>
-      </SafeAreaView>
+            <Text style={styles.title}>Before you start</Text>
+            <Text style={styles.subtitle}>
+              Stella uses third-party AI services to respond to your messages.
+              By continuing, you allow Stella to share the data described below
+              with the named providers when needed to generate a response.
+            </Text>
+
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>What data is sent</Text>
+              <Text style={styles.body}>
+                When you send a message, Stella transmits your message text,
+                conversation history from the current session, and any images
+                you attach to an AI model for processing. If you use voice,
+                Stella also transmits either your recording for transcription or
+                live microphone audio for a realtime conversation.
+              </Text>
+            </View>
+
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Who receives it</Text>
+              <Text style={styles.body}>
+                Your data may be routed through the Stella Provider service to{" "}
+                <Text style={styles.bold}>OpenRouter</Text> or{" "}
+                <Text style={styles.bold}>Fireworks</Text> as managed AI
+                gateways, and then to upstream AI model providers such as{" "}
+                <Text style={styles.bold}>DeepSeek</Text>,{" "}
+                <Text style={styles.bold}>Anthropic</Text>,{" "}
+                <Text style={styles.bold}>OpenAI</Text>, or{" "}
+                <Text style={styles.bold}>Google</Text>. Voice recordings are
+                transcribed directly by{" "}
+                <Text style={styles.bold}>Meta Muse</Text>. The exact provider
+                path for text depends on the model used for your request.
+                Realtime voice audio is processed directly by{" "}
+                <Text style={styles.bold}>OpenAI</Text>.
+              </Text>
+            </View>
+
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>How it's handled</Text>
+              <Text style={styles.body}>
+                Your cloud-authoritative conversation record and saved memory
+                are stored by Stella so they can sync across your devices. Model
+                inputs also pass through the services above to generate a
+                response, and those third-party AI services process and may
+                retain that data under their own privacy policies.
+              </Text>
+            </View>
+
+            <Text style={styles.privacyLink}>
+              Read our full{" "}
+              <Text
+                style={styles.link}
+                onPress={() => void Linking.openURL(`${env.siteUrl}/privacy`)}
+              >
+                Privacy Policy
+              </Text>
+            </Text>
+          </ScrollView>
+
+          <View style={styles.actions}>
+            <Pressable
+              onPress={onAccept}
+              style={({ pressed }) => [
+                styles.acceptButton,
+                pressed && styles.acceptButtonPressed,
+              ]}
+            >
+              <Text style={styles.acceptText}>I Understand & Agree</Text>
+            </Pressable>
+            <Pressable onPress={onDecline} style={styles.declineButton}>
+              <Text style={styles.declineText}>Don't Agree</Text>
+            </Pressable>
+          </View>
+        </SafeAreaView>
+      </SafeAreaProvider>
     </Modal>
   );
 }

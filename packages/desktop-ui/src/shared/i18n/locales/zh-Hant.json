@@ -1723,6 +1723,7 @@
         "justNow": "剛剛",
         "waiting": "待加入",
         "history": "歷史",
+        "skipped": "已略過",
         "upToDate": "沒有待加入的項目"
       }
     },

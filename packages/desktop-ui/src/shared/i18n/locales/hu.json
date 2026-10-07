@@ -1735,6 +1735,7 @@
         "justNow": "Épp most",
         "waiting": "Várakozik",
         "history": "Előzmények",
+        "skipped": "Kihagyva",
         "upToDate": "Semmi sem várakozik"
       }
     },

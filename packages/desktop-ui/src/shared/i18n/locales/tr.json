@@ -1735,6 +1735,7 @@
         "justNow": "Az önce",
         "waiting": "Bekliyor",
         "history": "Geçmiş",
+        "skipped": "Atlananlar",
         "upToDate": "Bekleyen bir şey yok"
       }
     },

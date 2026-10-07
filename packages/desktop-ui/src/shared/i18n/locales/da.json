@@ -1735,6 +1735,7 @@
         "justNow": "Lige nu",
         "waiting": "Venter",
         "history": "Historik",
+        "skipped": "Sprunget over",
         "upToDate": "Intet venter"
       }
     },

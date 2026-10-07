@@ -1723,6 +1723,7 @@
         "justNow": "たった今",
         "waiting": "待機中",
         "history": "履歴",
+        "skipped": "スキップ済み",
         "upToDate": "待機中のものはありません"
       }
     },

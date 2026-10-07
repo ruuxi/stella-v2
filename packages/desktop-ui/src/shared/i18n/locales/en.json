@@ -1735,6 +1735,7 @@
         "justNow": "Just now",
         "waiting": "Waiting",
         "history": "History",
+        "skipped": "Skipped",
         "upToDate": "Nothing waiting"
       }
     },

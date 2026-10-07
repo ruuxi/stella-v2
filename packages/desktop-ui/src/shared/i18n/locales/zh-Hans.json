@@ -1723,6 +1723,7 @@
         "justNow": "刚刚",
         "waiting": "待添加",
         "history": "历史",
+        "skipped": "已跳过",
         "upToDate": "没有待添加的内容"
       }
     },

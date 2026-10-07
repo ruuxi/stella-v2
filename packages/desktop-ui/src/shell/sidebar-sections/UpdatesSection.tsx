@@ -22,7 +22,8 @@ import "./updates-section.css";
  *
  * Waiting: a new version of Stella, a change the user made on another
  * computer, a change ready to add. Each says what it is in plain words and
- * has Add and Skip; a skipped one stays hidden until something newer arrives.
+ * has Add and Skip; a skipped one moves to a quieter Skipped list, where it
+ * can still be added, until something newer arrives.
  * History: what this computer took, newest first, with Undo on the user's own
  * changes (the same undo the chat's cards use). A new version is never undone
  * from here: taking it back would leave no way to take it again.
@@ -53,7 +54,7 @@ const WaitingItem = ({
   pending: boolean;
   blocked: boolean;
   onAdd: () => void;
-  onSkip: () => void;
+  onSkip?: () => void;
 }) => {
   const t = useT();
   const title =
@@ -86,18 +87,20 @@ const WaitingItem = ({
           </span>
         ) : (
           <>
+            {onSkip ? (
+              <button
+                type="button"
+                className="updates-section__button"
+                disabled={blocked}
+                onClick={onSkip}
+              >
+                {t("shell.appSource.updates.skip")}
+              </button>
+            ) : null}
             <button
               type="button"
               className="updates-section__button"
-              disabled={blocked}
-              onClick={onSkip}
-            >
-              {t("shell.appSource.updates.skip")}
-            </button>
-            <button
-              type="button"
-              className="updates-section__button"
-              data-primary=""
+              data-primary={onSkip ? "" : undefined}
               disabled={blocked}
               onClick={onAdd}
             >
@@ -216,6 +219,22 @@ export function UpdatesSection() {
           ))}
         </ul>
       )}
+      {state.skipped.length > 0 ? (
+        <>
+          <h2 className="updates-section__heading">{t("shell.appSource.updates.skipped")}</h2>
+          <ul className="updates-section__list" data-testid="updates-skipped">
+            {state.skipped.map((offer) => (
+              <WaitingItem
+                key={offer.key}
+                offer={offer}
+                pending={pending === offer.key}
+                blocked={blocked}
+                onAdd={() => void run(offer.key, () => add(offer))}
+              />
+            ))}
+          </ul>
+        </>
+      ) : null}
       {state.recent.length > 0 ? (
         <>
           <h2 className="updates-section__heading">{t("shell.appSource.updates.history")}</h2>

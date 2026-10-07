@@ -1723,6 +1723,7 @@
         "justNow": "Vừa xong",
         "waiting": "Đang chờ",
         "history": "Lịch sử",
+        "skipped": "Đã bỏ qua",
         "upToDate": "Không có gì đang chờ"
       }
     },

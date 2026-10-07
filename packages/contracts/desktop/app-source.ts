@@ -41,8 +41,9 @@ export type AppSourceCommit = {
 
 /**
  * Something this computer can add, as the Updates list shows it. Each has a
- * `key` that names exactly this offer: skipping it hides that key, and a newer
- * version or another change arriving makes a new key, so it shows again.
+ * `key` that names exactly this offer: skipping it moves that key to the
+ * skipped list, and a newer version or another change arriving makes a new
+ * key, so it shows as waiting again.
  * `adding` is one already added whose work is still going on in the
  * background; it no longer counts as waiting.
  */
@@ -114,6 +115,8 @@ export type AppSourceState = {
   recent: AppSourceCommit[];
   /** What this computer can add now, minus what the user skipped. */
   waiting: AppSourceWaiting[];
+  /** What the user skipped and can still add. */
+  skipped: AppSourceWaiting[];
   /** An apply or undo is running. */
   busy: boolean;
 };

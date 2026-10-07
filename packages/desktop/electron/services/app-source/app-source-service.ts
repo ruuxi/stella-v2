@@ -192,6 +192,7 @@ const EMPTY_STATE: AppSourceState = {
   upstream: NO_UPSTREAM,
   recent: [],
   waiting: [],
+  skipped: [],
   busy: false,
 };
 
@@ -988,6 +989,7 @@ export class AppSourceService {
       upstream: upstream ?? NO_UPSTREAM,
       recent,
       waiting: offered.filter((offer) => offer.adding || !skipped.has(offer.key)),
+      skipped: offered.filter((offer) => !offer.adding && skipped.has(offer.key)),
       ...(this.updateState
         ? { update: { state: this.updateState.state } }
         : {}),
@@ -1254,7 +1256,7 @@ export class AppSourceService {
   }
 
   /**
-   * Hide one offer until something newer arrives. Only what is offered now is
+   * Set one offer aside until something newer arrives; it can still be added. Only what is offered now is
    * kept, so the list never outgrows the offers themselves.
    */
   async skip(key: string): Promise<AppSourceActionResult> {

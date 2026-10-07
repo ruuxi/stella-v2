@@ -1735,6 +1735,7 @@
         "justNow": "Juuri nyt",
         "waiting": "Odottaa",
         "history": "Historia",
+        "skipped": "Ohitetut",
         "upToDate": "Mitään ei odota"
       }
     },

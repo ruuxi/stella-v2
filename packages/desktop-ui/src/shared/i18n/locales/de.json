@@ -1735,6 +1735,7 @@
         "justNow": "Gerade eben",
         "waiting": "Wartet",
         "history": "Verlauf",
+        "skipped": "Übersprungen",
         "upToDate": "Nichts wartet"
       }
     },

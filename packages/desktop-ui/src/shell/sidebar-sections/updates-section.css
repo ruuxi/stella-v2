@@ -129,3 +129,8 @@
   color: var(--text-weak);
   font-size: var(--font-size-sm);
 }
+
+.updates-section__list[data-testid="updates-skipped"] .updates-section__title {
+  color: var(--text-base);
+  font-weight: var(--weight-regular, 400);
+}

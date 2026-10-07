@@ -457,9 +457,11 @@ export class RealtimeVoiceSession {
         );
       }
 
-      this.updateFeed?.start();
       getVoiceRuntimeState().activeSession = this;
       this.setState("connected");
+      // Only now: updates arriving before the session is connected are
+      // dropped, and the feed would have advanced past them for good.
+      this.updateFeed?.start();
     } catch (err) {
       if (this.destroyed) {
         if (this.authorityTerminationError) {

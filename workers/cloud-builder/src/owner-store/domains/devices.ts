@@ -18,6 +18,7 @@ import { array, boolean, literal, object, optional, string } from "../args.js";
 import { RpcError } from "../errors.js";
 import { enforceOwnerRateLimit } from "../rate-limit.js";
 import type { OwnerCaller, OwnerContext, OwnerDbReader, OwnerDomain } from "../registry.js";
+import { readOrDefault } from "../schema.js";
 
 const MAX_DEVICES = 64;
 const MAX_SUCCESSION_HOPS = 8;
@@ -511,14 +512,18 @@ export const snapshotDevices = (
         ...(capabilities.length > 0 ? { capabilities } : {}),
       };
     }),
-  pairedDevices: db
-    .all<PairedPhoneRow>("SELECT * FROM paired_phones WHERE revoked_at IS NULL")
-    .map((row) => ({
-      mobileDeviceId: row.mobile_device_id,
-      desktopDeviceId: row.desktop_device_id,
-      // The pairing proof is an HMAC keyed by this value.
-      mobilePublicKey: row.pair_secret_hash,
-    })),
+  pairedDevices: readOrDefault(
+    () =>
+      db
+        .all<PairedPhoneRow>("SELECT * FROM paired_phones WHERE revoked_at IS NULL")
+        .map((row) => ({
+          mobileDeviceId: row.mobile_device_id,
+          desktopDeviceId: row.desktop_device_id,
+          // The pairing proof is an HMAC keyed by this value.
+          mobilePublicKey: row.pair_secret_hash,
+        })),
+    [],
+  ),
 });
 
 // ── Phones ─────────────────────────────────────────────────────────────────
@@ -534,7 +539,7 @@ const activePairing = (db: OwnerDbReader, desktopDeviceId: string, now: number) 
     now,
   );
 
-const phoneAccess = (db: OwnerDbReader, desktopDeviceId: string, now: number): PhoneAccessState => {
+const readPhoneAccess = (db: OwnerDbReader, desktopDeviceId: string, now: number): PhoneAccessState => {
   const pairing = activePairing(db, desktopDeviceId, now);
   return {
     activePairing: pairing
@@ -554,6 +559,12 @@ const phoneAccess = (db: OwnerDbReader, desktopDeviceId: string, now: number): P
       })),
   };
 };
+
+const phoneAccess = (db: OwnerDbReader, desktopDeviceId: string, now: number): PhoneAccessState =>
+  readOrDefault(() => readPhoneAccess(db, desktopDeviceId, now), {
+    activePairing: null,
+    pairedDevices: [],
+  });
 
 const createPairing = (
   ctx: OwnerContext,

@@ -91,9 +91,17 @@ const mintToken = async (repo: ArtifactsRepo, scope: "read" | "write") => {
   return { token: minted.plaintext, expiresAt: Date.parse(minted.expiresAt) };
 };
 
-/** The owner's fork, creating it from upstream the first time. */
+const readFork = (db: OwnerDbReader): ForkRow | null =>
+  db.one<ForkRow>("SELECT name, remote, default_branch FROM app_source_fork WHERE id = 1");
+
+/**
+ * The owner's fork, creating it from upstream the first time. The fork's name
+ * is derived from the owner, so two first-time accesses that both get past the
+ * empty read converge on the same fork; the row is written once and both read
+ * the winner back.
+ */
 const ensureFork = async (ctx: OwnerContext): Promise<ForkRow> => {
-  const existing = ctx.db.one<ForkRow>("SELECT name, remote, default_branch FROM app_source_fork WHERE id = 1");
+  const existing = readFork(ctx.db);
   if (existing) return existing;
   const artifacts = ctx.env.ARTIFACTS;
   const name = await forkName(ctx.ownerId);
@@ -114,13 +122,13 @@ const ensureFork = async (ctx: OwnerContext): Promise<ForkRow> => {
     fork = { name: info.name, remote: info.remote, default_branch: info.defaultBranch };
   }
   ctx.db.run(
-    "INSERT INTO app_source_fork (id, name, remote, default_branch, created_at) VALUES (1, ?, ?, ?, ?)",
+    "INSERT OR IGNORE INTO app_source_fork (id, name, remote, default_branch, created_at) VALUES (1, ?, ?, ?, ?)",
     fork.name,
     fork.remote,
     fork.default_branch,
     ctx.now,
   );
-  return fork;
+  return readFork(ctx.db) ?? fork;
 };
 
 const access = async (ctx: OwnerContext): Promise<AppSourceCalls["appSource.access"]["result"]> => {

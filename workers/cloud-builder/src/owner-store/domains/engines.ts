@@ -77,6 +77,7 @@ import { array, boolean, empty, literal, number, object, optional, string } from
 import { RpcError } from "../errors.js";
 import { enforceOwnerRateLimit } from "../rate-limit.js";
 import type { OwnerContext, OwnerDbReader, OwnerDomain } from "../registry.js";
+import { readOrDefault } from "../schema.js";
 
 export const ENGINES_MIGRATION = {
   id: "engines.1-init",
@@ -494,8 +495,8 @@ const readConnections = (db: OwnerDbReader): EngineConnection[] =>
 
 const readSettings = (db: OwnerDbReader): EngineSettings => ({
   ...readSelection(db),
-  connections: readConnections(db),
-  chatGptRegistrations: readRegistrations(db),
+  connections: readOrDefault(() => readConnections(db), []),
+  chatGptRegistrations: readOrDefault(() => readRegistrations(db), []),
 });
 
 /**
@@ -504,11 +505,9 @@ const readSettings = (db: OwnerDbReader): EngineSettings => ({
  * selected engine can't run in the cloud. Claude runs when the active
  * account has a Claude Code login in the owner's container.
  */
-export const snapshotEngines = (
-  db: OwnerDbReader,
-): Pick<OwnerSnapshot, "execution" | "connectedEngines"> => {
+const connectedEnginesOf = (db: OwnerDbReader): NonNullable<OwnerSnapshot["connectedEngines"]> => {
   const claude = activeAccountOf(accountsOf(db, "anthropic"), providerSettings(db, "anthropic"));
-  const connectedEngines = ENGINE_PROVIDERS.filter((provider) =>
+  return ENGINE_PROVIDERS.filter((provider) =>
     provider === "anthropic"
       ? Boolean(
           claude &&
@@ -525,6 +524,12 @@ export const snapshotEngines = (
           ),
         ),
   );
+};
+
+export const snapshotEngines = (
+  db: OwnerDbReader,
+): Pick<OwnerSnapshot, "execution" | "connectedEngines"> => {
+  const connectedEngines = readOrDefault(() => connectedEnginesOf(db), []);
   const { execution } = readSelection(db);
   return {
     execution:

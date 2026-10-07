@@ -45,8 +45,12 @@ Commands:
   build [--no-bundler] [--metro-only] [--port <port>]
   sign-in [--plan pro|go|free] [--email <name>@test.stella.local]
   info
+  app-status [bundle-id]
+  uninstall [bundle-id]
+  derived-data [--remove]
   frame --path <local-png>
   screen --path <local-png>
+  windows
   click <screen-x> <screen-y>
   type <text>
   key <key-name>
@@ -429,6 +433,90 @@ REMOTE
       printf 'source=not-staged\n'
     fi
     ;;
+  app-status)
+    bundle_id="${1:-com.stella.mobile}"
+    [[ "$bundle_id" =~ ^[A-Za-z0-9.-]+$ ]] || {
+      printf 'Invalid bundle identifier\n' >&2
+      exit 2
+    }
+    remote_zsh "$bundle_id" "$(target_udid)" <<'REMOTE'
+set -eu
+bundle="$1"
+udid="$2"
+if container="$(/usr/bin/xcrun simctl get_app_container "$udid" "$bundle" 2>/dev/null)"; then
+  printf 'installed=yes\nbundle_path=%s\n' "$container"
+  printf 'bundle_built=%s\n' "$(/bin/date -r "$container" '+%Y-%m-%dT%H:%M:%S')"
+  data="$(/usr/bin/xcrun simctl get_app_container "$udid" "$bundle" data 2>/dev/null || true)"
+  if test -n "$data"; then
+    printf 'data_path=%s\n' "$data"
+    printf 'data_changed=%s\n' "$(/bin/date -r "$data" '+%Y-%m-%dT%H:%M:%S')"
+  fi
+else
+  printf 'installed=no\n'
+fi
+REMOTE
+    ;;
+  uninstall)
+    bundle_id="${1:-com.stella.mobile}"
+    [[ "$bundle_id" =~ ^[A-Za-z0-9.-]+$ ]] || {
+      printf 'Invalid bundle identifier\n' >&2
+      exit 2
+    }
+    test -f "$sim_state" || {
+      printf 'No simulator recorded. Run boot first.\n' >&2
+      exit 2
+    }
+    boot_udid="$(read_state_value "$sim_state" UDID)"
+    validate_udid "$boot_udid"
+    remote_zsh "$bundle_id" "$boot_udid" <<'REMOTE'
+set -eu
+/usr/bin/xcrun simctl uninstall "$2" "$1"
+REMOTE
+    printf 'uninstalled=%s\nudid=%s\n' "$bundle_id" "$boot_udid"
+    ;;
+  derived-data)
+    remove=""
+    if [[ "${1:-}" == "--remove" ]]; then
+      remove="1"
+    elif [[ -n "${1:-}" ]]; then
+      printf 'Unknown derived-data option: %s\n' "$1" >&2
+      exit 2
+    fi
+    test -f "$source_state" || {
+      printf 'No staged source recorded; the staged path is how owned DerivedData is identified.\n' >&2
+      exit 2
+    }
+    remote_source="$(read_state_value "$source_state" PATH)"
+    validate_scratch_path "$remote_source"
+    remote_zsh "$remote_source" "$remove" <<'REMOTE'
+set -eu
+setopt null_glob
+staged="$1"
+remove="$2"
+root="$HOME/Library/Developer/Xcode/DerivedData"
+if ! test -d "$root"; then
+  printf 'derived_data=none\n'
+  exit 0
+fi
+found=0
+for dir in "$root"/*/; do
+  plist="${dir}info.plist"
+  test -f "$plist" || continue
+  workspace="$(/usr/bin/plutil -extract WorkspacePath raw -o - "$plist" 2>/dev/null || true)"
+  case "$workspace" in
+    "$staged"/*)
+      found=1
+      printf 'derived_data=%s\nsize=%s\nworkspace=%s\n' "${dir%/}" "$(/usr/bin/du -sh "$dir" | /usr/bin/awk '{ print $1 }')" "$workspace"
+      if test -n "$remove"; then
+        /bin/rm -rf -- "${dir%/}"
+        printf 'removed=%s\n' "${dir%/}"
+      fi
+      ;;
+  esac
+done
+test "$found" = 1 || printf 'derived_data=none\n'
+REMOTE
+    ;;
   frame|screen)
     [[ "${1:-}" == "--path" && -n "${2:-}" ]] || {
       printf '%s requires --path <local-png>\n' "$command" >&2
@@ -458,6 +546,20 @@ REMOTE
       exit 2
     }
     fetch_remote_file "$remote_file" "$local_path"
+    if [[ "$command" == "screen" ]]; then
+      screen_metrics="$(remote_zsh "$remote_file" <<'REMOTE'
+set -eu
+/usr/bin/sips -g pixelWidth -g pixelHeight "$1" | /usr/bin/awk '/pixelWidth/ { w = $2 } /pixelHeight/ { h = $2 } END { printf "%d %d\n", w, h }'
+/usr/bin/osascript -e 'tell application "Finder" to get bounds of window of desktop' | /usr/bin/awk -F'[ ,]+' '{ printf "%d %d\n", $3, $4 }'
+REMOTE
+)"
+      pixel_size="$(printf '%s\n' "$screen_metrics" | head -n 1)"
+      point_size="$(printf '%s\n' "$screen_metrics" | tail -n 1)"
+      printf 'pixel_size=%sx%s\npoint_size=%sx%s\nscale=%s\n' \
+        "${pixel_size% *}" "${pixel_size#* }" "${point_size% *}" "${point_size#* }" \
+        "$(awk -v px="${pixel_size% *}" -v pt="${point_size% *}" 'BEGIN { if (pt > 0) printf "%.4g", px / pt; else print "unknown" }')"
+      printf 'click_coordinates=points (divide pixel coordinates read from this image by scale)\n'
+    fi
     remote_zsh "$remote_file" <<'REMOTE'
 set -eu
 path="$1"
@@ -467,6 +569,28 @@ case "$path" in
 esac
 REMOTE
     printf '%s\n' "$local_path"
+    ;;
+  windows)
+    require_screen_input
+    remote_zsh "$(target_udid)" <<'REMOTE'
+set -eu
+udid="$1"
+if test "$udid" != booted; then
+  printf 'recorded_device=%s\n' "$(/usr/bin/xcrun simctl list devices available | /usr/bin/grep -F "$udid" | /usr/bin/sed -E 's/^ *//; s/ \(.*//' | /usr/bin/head -n 1)"
+fi
+/usr/bin/osascript <<'OSA'
+tell application "System Events"
+  if not (exists process "Simulator") then return "simulator_windows=0"
+  set report to ""
+  repeat with simulatorWindow in windows of process "Simulator"
+    set windowPosition to position of simulatorWindow
+    set windowSize to size of simulatorWindow
+    set report to report & "window=" & (name of simulatorWindow) & " position=" & (item 1 of windowPosition) & "," & (item 2 of windowPosition) & " size=" & (item 1 of windowSize) & "x" & (item 2 of windowSize) & linefeed
+  end repeat
+  return report
+end tell
+OSA
+REMOTE
     ;;
   click)
     x="${1:-}"
@@ -535,7 +659,9 @@ REMOTE
   logs)
     remote_zsh "$(target_udid)" <<'REMOTE'
 set -eu
-/usr/bin/xcrun simctl spawn "$1" log show --last 5m --style compact --predicate 'process == "Stella"' | /usr/bin/tail -n 300
+/usr/bin/xcrun simctl spawn "$1" log show --last 5m --style compact --predicate 'process == "Stella"' \
+  | /usr/bin/tail -n 300 \
+  | /usr/bin/sed -E 's/(ott=)[^[:space:]"<>]+/\1[REDACTED]/g; s/([Bb]earer )[A-Za-z0-9._~+/-]+=*/\1[REDACTED]/g; s/("?(oneTimeToken|token|accessToken|refreshToken|sessionToken)"?[=:] ?"?)[A-Za-z0-9._~+/-]{8,}/\1[REDACTED]/g'
 REMOTE
     ;;
   shutdown)

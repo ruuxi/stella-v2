@@ -144,7 +144,7 @@ set -eu
 repo="$1"
 export PATH="$2"
 xcodebuildmcp_version="$3"
-test -d "$repo/.git"
+test -e "$repo/.git"
 test -x /usr/bin/xcodebuild
 test -x /usr/bin/xcrun
 command -v bun >/dev/null

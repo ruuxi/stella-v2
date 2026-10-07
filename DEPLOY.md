@@ -225,7 +225,16 @@ STELLA_OTA_PIN_STORE_RUNTIME=1 scripts/publish-ota.sh production android
 the stores actually serve. `STELLA_OTA_PIN_STORE_RUNTIME=1` is needed because the
 fingerprint drifts with bun's store paths; it refuses if any native package or
 native input changed since the store build, and then only a store build can ship it.
-The bundle's env comes from the EAS environment (`eas env:list --environment production`).
+**The bundle's `EXPO_PUBLIC_*` come from the EAS environment, not from this repo.**
+`eas.json`'s per-profile `env` applies to EAS *builds*; `eas update` reads the named
+environment on the server (`eas env:list --environment production`). So editing a
+hostname in the tree changes nothing an OTA ships. Changing a backend URL means
+`eas env:set --name EXPO_PUBLIC_STELLA_BACKEND_URL --value <url> --environment
+production` (and `preview`/`development`), then a republish; read the exported
+bundle back (`strings dist/_expo/static/js/ios/*.hbc | rg workers.dev`) before
+believing it. Missing this on the 2026-10-07 `fromyou.workers.dev` move left every
+production bundle pointed at a hostname that no longer resolved, and the phone
+could not sign in.
 
 `--native-match`, which `STELLA_OTA_PIN_STORE_RUNTIME=1` runs, compares this tree's
 native inputs against the *store build's commit*: `packages/mobile/app.json`,

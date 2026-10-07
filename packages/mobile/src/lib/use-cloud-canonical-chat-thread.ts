@@ -66,6 +66,12 @@ import {
   type AutomaticExecutionTarget,
 } from "./execution-placement";
 import { collectActivityHubArtifacts, groupActivityArtifacts } from "./activity-hub-model";
+import {
+  EMPTY_SETTLED_AGENTS,
+  rememberSettledAgents,
+  withoutSettledAgents,
+  type SettledAgentMemory,
+} from "./settled-agent-memory";
 import { canonicalWorkingState } from "./canonical-working-state";
 import {
   collectJournalTasks,
@@ -889,22 +895,38 @@ export const useCloudCanonicalChatThread = (
   // time away is most of them. It is seeded into the record fold rather than
   // merged after it, so a terminal row this device *can* see still settles the
   // agent instead of being dropped for having no row to settle.
-  const journalTasks = useMemo(
-    () => collectJournalTasks(state.records, state.runningAgents),
-    [state.records, state.runningAgents],
+  // Minus whatever this device already watched finish: that snapshot is only
+  // re-sent on connect, so once a terminal row has aged out of the retained
+  // window the snapshot alone would seed the agent as running for good (see
+  // `settled-agent-memory`).
+  const [settledAgents, setSettledAgents] =
+    useState<SettledAgentMemory>(EMPTY_SETTLED_AGENTS);
+  useEffect(() => {
+    setSettledAgents(EMPTY_SETTLED_AGENTS);
+  }, [authority.accountScope, authority.conversationId]);
+  const runningAgents = useMemo(
+    () => withoutSettledAgents(state.runningAgents, settledAgents),
+    [state.runningAgents, settledAgents],
   );
+  const journalTasks = useMemo(
+    () => collectJournalTasks(state.records, runningAgents),
+    [state.records, runningAgents],
+  );
+  useEffect(() => {
+    setSettledAgents((current) => rememberSettledAgents(current, journalTasks));
+  }, [journalTasks]);
   const authoritativeTasks = useMemo(
-    () => markAuthoritativeRunning(journalTasks, state.runningAgents),
-    [journalTasks, state.runningAgents],
+    () => markAuthoritativeRunning(journalTasks, runningAgents),
+    [journalTasks, runningAgents],
   );
   const localConversationTasks = local.conversationTasks;
   const conversationTasks = useMemo(
     () =>
       markAuthoritativeRunning(
         mergeJournalTasks(authoritativeTasks, localConversationTasks),
-        state.runningAgents,
+        runningAgents,
       ),
-    [authoritativeTasks, localConversationTasks, state.runningAgents],
+    [authoritativeTasks, localConversationTasks, runningAgents],
   );
   // The activity hub groups files by owning task, and the journal projection —
   // not the optimistic overlay — is what carries them.

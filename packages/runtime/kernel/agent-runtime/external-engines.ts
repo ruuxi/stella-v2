@@ -1463,36 +1463,50 @@ const runClaudeHostedTurn = async (args: {
       }
     });
   };
+  let deltaInFlight = false;
   const injectSteering = (
     inject: ClaudeTurnInject,
     entries: ExternalQueuedMessage[],
   ): boolean => {
     const promptMessages = entries.map(formatQueuedClaudeMessage);
-    const delta = buildExternalThreadUpdatesDelta({
-      store: args.opts.store,
-      threadKey,
-      ...(watermarkTracker.cursor
-        ? { afterEntryId: watermarkTracker.cursor }
-        : {}),
-      promptMessages,
-    });
-    return inject({
+    // One thread-updates delta is in flight at a time. Two built from the same
+    // cursor would overlap, and counting both would claim rows as delivered
+    // that never were; rows left out here ride the next delta instead.
+    const delta = deltaInFlight
+      ? null
+      : buildExternalThreadUpdatesDelta({
+          store: args.opts.store,
+          threadKey,
+          ...(watermarkTracker.cursor
+            ? { afterEntryId: watermarkTracker.cursor }
+            : {}),
+          promptMessages,
+        });
+    const accepted = inject({
       text: buildClaudePromptFromMessages(
-        delta.message ? [delta.message, ...promptMessages] : promptMessages,
+        delta?.message ? [delta.message, ...promptMessages] : promptMessages,
       ),
       images: imagesFromQueuedMessages(entries),
       onConsumed: () => {
         // Thread updates count as delivered only once the CLI takes them in;
         // a dropped injection leaves them for the next prompt's delta.
-        watermarkTracker.noteMainlineDelta(delta);
+        if (delta) {
+          watermarkTracker.noteMainlineDelta(delta);
+          deltaInFlight = false;
+        }
         publishQueuedUserMessageStarts({
           entries,
           runEvents,
           callbacks: args.callbacks,
         });
       },
-      onDropped: () => args.liveAgent?.prepend(entries),
+      onDropped: () => {
+        if (delta) deltaInFlight = false;
+        args.liveAgent?.prepend(entries);
+      },
     });
+    if (accepted && delta) deltaInFlight = true;
+    return accepted;
   };
   for (;;) {
     let completedThisTurn = false;

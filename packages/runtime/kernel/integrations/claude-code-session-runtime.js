@@ -2253,38 +2253,47 @@ class ClaudeCodeSessionRuntime {
         request,
         resolve,
         reject: (error) => {
-          // The process was lost after this turn's own answer was delivered,
-          // while it was running queued steering. Recovery must not resend
-          // (and re-answer) the original prompt.
-          if (
-            pending.intermediateResult &&
-            (error instanceof ClaudeCodeProcessEndedError ||
-              error instanceof ClaudeCodeCompactionLoopError) &&
-            !request.abortSignal?.aborted
-          ) {
+          // A steering query failed after this turn's own answer was
+          // delivered. Every recovery path (respawn, reseed, nudge, model
+          // fallback) would resend the original prompt and re-answer it, so
+          // recovery here is scoped to the unfinished steering query.
+          if (pending.intermediateResult && !request.abortSignal?.aborted) {
             const unfinishedCalls = pending.mcpCalls.slice(
               pending.answeredMcpCallCount,
             );
             if (unfinishedCalls.length === 0) {
-              // Nothing applied yet: settle with that answer and requeue the
-              // steering that no completed query answered.
+              // No Stella tool ran for it yet: settle with that answer and
+              // requeue the steering no completed query answered, so it runs
+              // next as its own prompt (and meets any persistent error there).
               dropInjections(pending, (injection) => !injection.answered);
               resolve({ ...pending.intermediateResult, delivered: true });
               return;
             }
-            // The unfinished steering query already made tool calls. Let
-            // recovery reconcile it on the resumed session instead of
-            // requeueing (and replaying) it; only untaken steering requeues.
+            // The unfinished steering query already made tool calls. Recovery
+            // reconciles it instead of replaying it; only untaken steering
+            // requeues.
             dropInjections(pending, (injection) => !injection.consumed);
-            reject(
-              error instanceof ClaudeCodeCompactionLoopError
-                ? new ClaudeCodeCompactionLoopError(unfinishedCalls)
-                : new ClaudeCodeProcessEndedError(
-                    error.message,
-                    error.exitCode,
-                    unfinishedCalls,
-                  ),
-            );
+            if (error instanceof ClaudeCodeCompactionLoopError) {
+              reject(new ClaudeCodeCompactionLoopError(unfinishedCalls));
+            } else if (error instanceof ClaudeCodeProcessEndedError) {
+              reject(
+                new ClaudeCodeProcessEndedError(
+                  error.message,
+                  error.exitCode,
+                  unfinishedCalls,
+                ),
+              );
+            } else if (error instanceof ClaudeCodeMalformedResultError) {
+              reject(
+                new ClaudeCodeMalformedResultError(
+                  error.message,
+                  error.kind,
+                  unfinishedCalls,
+                ),
+              );
+            } else {
+              reject(error);
+            }
             return;
           }
           reject(error);

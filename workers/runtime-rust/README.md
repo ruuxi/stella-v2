@@ -36,5 +36,5 @@ as a Worker secret for deployment. Authenticated routes require it as a bearer:
   asynchronous Tokio timer.
 
 The deployed verification target is
-`https://stella-v2-runtime-rust-dev.lolruuxi.workers.dev`.
+`https://stella-v2-runtime-rust-dev.fromyou.workers.dev`.
 It does not alter production or existing cloud-builder bindings/DO namespaces.

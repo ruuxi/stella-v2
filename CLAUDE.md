@@ -65,7 +65,7 @@ The backend is the cloud-builder worker. Its dev URL is a public service
 location, the same one source builds use for `VITE_STELLA_BACKEND_URL`:
 
 ```
-STELLA_BACKEND_URL=https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev
+STELLA_BACKEND_URL=https://stella-v2-cloud-builder-dev.fromyou.workers.dev
 ```
 
 ### Test accounts

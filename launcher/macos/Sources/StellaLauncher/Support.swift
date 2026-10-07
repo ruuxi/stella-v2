@@ -52,7 +52,7 @@ enum Deployment {
         return configured.isEmpty ? fallback : configured
     }
 
-    static let backendURL = value("StellaBackendURL", "https://stella-v2-cloud-builder-prod.lolruuxi.workers.dev")
+    static let backendURL = value("StellaBackendURL", "https://stella-v2-cloud-builder-prod.fromyou.workers.dev")
     /// Public base of the releases bucket: launcher/stable, electron-identity, git-runtime.
     static let releasesURL = value("StellaReleasesURL", "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev")
     /// The Developer ID team that signs the launcher and Stella.app.

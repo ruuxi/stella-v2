@@ -3,7 +3,7 @@
 interface __BaseEnv_Env {
 	ACTIVATION_PAGE_RATE_LIMITER: RateLimit;
 	ACTIVATION_DECISION_RATE_LIMITER: RateLimit;
-	PUBLIC_ORIGIN: "https://stella-v2-device-code-fixture-basic-nightingale-118.lolruuxi.workers.dev";
+	PUBLIC_ORIGIN: "https://stella-v2-device-code-fixture-basic-nightingale-118.fromyou.workers.dev";
 	DEVICE_AUTHORIZATIONS: DurableObjectNamespace<import("./src/index").DeviceAuthorizationSession>;
 }
 declare namespace Cloudflare {

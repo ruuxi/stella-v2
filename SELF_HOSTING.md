@@ -52,7 +52,7 @@ at Stella's account:
 
 | Where | Key | Set it to |
 |---|---|---|
-| all `workers/*/wrangler.jsonc` | every `*.lolruuxi.workers.dev` URL | your workers.dev subdomain (Dashboard → Workers → Subdomain). `sed -i '' 's/lolruuxi\.workers\.dev/YOURSUB.workers.dev/g' workers/*/wrangler.jsonc` (drop `''` on Linux) |
+| all `workers/*/wrangler.jsonc` | every `*.fromyou.workers.dev` URL | your workers.dev subdomain (Dashboard → Workers → Subdomain). `sed -i '' 's/lolruuxi\.workers\.dev/YOURSUB.workers.dev/g' workers/*/wrangler.jsonc` (drop `''` on Linux) |
 | `workers/cloud-builder/wrangler.jsonc` | `vars.R2_S3_ENDPOINT` | `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` |
 | 〃 | `vars.STELLA_TEST_ACCOUNTS`, `vars.ENABLE_DEV_ACCEPTANCE_PROBES` | delete both unless you want test accounts / acceptance probes on dev |
 | 〃 | `d1_databases[0].database_id` | from `wrangler d1 create` (1.3) |
@@ -80,8 +80,8 @@ you don't use (no website, no mobile app) can be skipped.
 
 | Identity | Surface | Where it's set | Stella's default | Set it to |
 |---|---|---|---|---|
-| **Backend** | desktop | `VITE_STELLA_BACKEND_URL` in `packages/desktop-ui/.env` (a launcher passes its own, 1.8) | `stella-v2-cloud-builder-dev.lolruuxi.workers.dev` | your cloud-builder URL |
-| | launchers | `STELLA_BACKEND_URL` at build (1.8) | `stella-v2-cloud-builder-prod.lolruuxi.workers.dev` | your prod cloud-builder URL |
+| **Backend** | desktop | `VITE_STELLA_BACKEND_URL` in `packages/desktop-ui/.env` (a launcher passes its own, 1.8) | `stella-v2-cloud-builder-dev.fromyou.workers.dev` | your cloud-builder URL |
+| | launchers | `STELLA_BACKEND_URL` at build (1.8) | `stella-v2-cloud-builder-prod.fromyou.workers.dev` | your prod cloud-builder URL |
 | | website | `NEXT_PUBLIC_STELLA_BACKEND_URL` | (none) | your prod cloud-builder URL |
 | | mobile | `EXPO_PUBLIC_STELLA_BACKEND_URL` per profile in `packages/mobile/eas.json` | Stella's dev / prod | yours |
 | **Website** (`stella.sh`) | cloud-builder | `vars.STELLA_WEBSITE_URL` (add it, both envs) | `https://stella.sh` | your website origin |

@@ -7,7 +7,7 @@ interface __BaseEnv_Env {
 	USAGE_QUEUE: Queue;
 	ANON_IP_LIMITER: RateLimit;
 	ENVIRONMENT: "production" | "development";
-	STELLA_BACKEND_URL: "https://stella-v2-cloud-builder-prod.lolruuxi.workers.dev" | "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev";
+	STELLA_BACKEND_URL: "https://stella-v2-cloud-builder-prod.fromyou.workers.dev" | "https://stella-v2-cloud-builder-dev.fromyou.workers.dev";
 	CAPABILITY_JWKS: "{\"keys\":[{\"kid\":\"builder-prod-1\",\"issuer\":\"stella-cloud-builder\",\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"7OPXbcbubpfZqHAZEptNA8Bu1w9Y5D0pq547cg8rYuo\",\"y\":\"tv8_giBW3W4shXI5YPuZMneKHs22dSncE41399_mEmI\",\"alg\":\"ES256\",\"use\":\"sig\"}}]}" | "{\"keys\":[{\"kid\":\"builder-1\",\"issuer\":\"stella-cloud-builder\",\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"_zTj5c7FMbjcMng9baQbQRXtkHak6jk4-1boqSnt59A\",\"y\":\"tR-kttYxzHOPR__VorAqBes7AkaI9uvAiyuM7h7DMEk\",\"alg\":\"ES256\",\"use\":\"sig\"}},{\"kid\":\"builder-bn118-1\",\"issuer\":\"stella-cloud-builder\",\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"3B2uhLMZ0nFNovFPfyHOqiVeXac4vJO0YhR1F7U1xQc\",\"y\":\"_vW3crzH0DnvV5yjUqvxa9qH5_lygAfXR7FWiI7MLAA\",\"alg\":\"ES256\",\"use\":\"sig\"}}]}";
 	OPENROUTER_API_KEY: string;
 	CAPABILITY_LEDGER: DurableObjectNamespace<import("./src/index").CapabilityLedger>;
@@ -28,7 +28,7 @@ declare namespace Cloudflare {
 		USAGE_QUEUE: Queue;
 		ANON_IP_LIMITER: RateLimit;
 		ENVIRONMENT: "production";
-		STELLA_BACKEND_URL: "https://stella-v2-cloud-builder-prod.lolruuxi.workers.dev";
+		STELLA_BACKEND_URL: "https://stella-v2-cloud-builder-prod.fromyou.workers.dev";
 		CAPABILITY_JWKS: "{\"keys\":[{\"kid\":\"builder-prod-1\",\"issuer\":\"stella-cloud-builder\",\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"7OPXbcbubpfZqHAZEptNA8Bu1w9Y5D0pq547cg8rYuo\",\"y\":\"tv8_giBW3W4shXI5YPuZMneKHs22dSncE41399_mEmI\",\"alg\":\"ES256\",\"use\":\"sig\"}}]}";
 		OPENROUTER_API_KEY: string;
 		CAPABILITY_LEDGER: DurableObjectNamespace<import("./src/index").CapabilityLedger>;

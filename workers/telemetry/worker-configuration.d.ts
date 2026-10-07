@@ -3,7 +3,7 @@
 interface __BaseEnv_Env {
 	TELEMETRY_RATE_LIMITER: RateLimit;
 	ENVIRONMENT: "production" | "development";
-	STELLA_BACKEND_URL: "https://stella-v2-cloud-builder-prod.lolruuxi.workers.dev" | "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev";
+	STELLA_BACKEND_URL: "https://stella-v2-cloud-builder-prod.fromyou.workers.dev" | "https://stella-v2-cloud-builder-dev.fromyou.workers.dev";
 	ENABLE_SERVER_BEARER: "1";
 	TELEMETRY_PSEUDONYM_KEY: string;
 	TELEMETRY_SERVER_SECRET: string;
@@ -18,7 +18,7 @@ declare namespace Cloudflare {
 	interface ProductionEnv {
 		TELEMETRY_RATE_LIMITER: RateLimit;
 		ENVIRONMENT: "production";
-		STELLA_BACKEND_URL: "https://stella-v2-cloud-builder-prod.lolruuxi.workers.dev";
+		STELLA_BACKEND_URL: "https://stella-v2-cloud-builder-prod.fromyou.workers.dev";
 		ENABLE_SERVER_BEARER: "1";
 		TELEMETRY_PSEUDONYM_KEY: string;
 		TELEMETRY_SERVER_SECRET: string;

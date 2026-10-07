@@ -1,9 +1,9 @@
 import type { TelemetryEnvironment } from "@stella/contracts/telemetry";
 
 const DEVELOPMENT_ENDPOINT =
-  "https://stella-v2-telemetry-dev.lolruuxi.workers.dev/v1/events";
+  "https://stella-v2-telemetry-dev.fromyou.workers.dev/v1/events";
 const PRODUCTION_ENDPOINT =
-  "https://stella-v2-telemetry.lolruuxi.workers.dev/v1/events";
+  "https://stella-v2-telemetry.fromyou.workers.dev/v1/events";
 
 /**
  * The backends whose tokens the default endpoints verify. A JWT's `iss` is
@@ -12,8 +12,8 @@ const PRODUCTION_ENDPOINT =
  * names its own telemetry worker.
  */
 const DEFAULT_ENDPOINT_ISSUERS: ReadonlySet<string> = new Set([
-  "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev",
-  "https://stella-v2-cloud-builder-prod.lolruuxi.workers.dev",
+  "https://stella-v2-cloud-builder-dev.fromyou.workers.dev",
+  "https://stella-v2-cloud-builder-prod.fromyou.workers.dev",
 ]);
 
 const tokenIssuer = (authToken: string): string | null => {

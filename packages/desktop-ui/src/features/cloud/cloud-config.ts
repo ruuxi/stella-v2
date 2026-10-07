@@ -1,5 +1,5 @@
 const DEFAULT_DEV_CLOUD_APPS_HOST =
-  "https://stella-v2-apps-host-dev.lolruuxi.workers.dev";
+  "https://stella-v2-apps-host-dev.fromyou.workers.dev";
 
 const configuredAppsHost = (
   import.meta.env.VITE_STELLA_APPS_HOST as string | undefined

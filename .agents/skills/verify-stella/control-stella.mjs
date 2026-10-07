@@ -420,7 +420,7 @@ const seedDataDir = (dataDir) => {
 const ACCOUNT_MODES = ["anonymous", "signed-in", "go", "pro"];
 const TEST_ACCOUNT_EMAIL_DOMAIN = "test.stella.local";
 
-const DEV_BACKEND_URL = "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev";
+const DEV_BACKEND_URL = "https://stella-v2-cloud-builder-dev.fromyou.workers.dev";
 
 /** A value from the gitignored workers/cloud-builder/.dev.vars, if present. */
 const readDevVar = (name) => {

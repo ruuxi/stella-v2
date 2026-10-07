@@ -22,7 +22,7 @@
   "vars": {
     "ENVIRONMENT": "development",
     // Canonical development deployment used by source builds and test traffic.
-    "STELLA_BACKEND_URL": "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev",
+    "STELLA_BACKEND_URL": "https://stella-v2-cloud-builder-dev.fromyou.workers.dev",
     "ENABLE_SERVER_BEARER": "1"
   },
   "secrets": {
@@ -53,7 +53,7 @@
       "vars": {
         "ENVIRONMENT": "production",
         // Pinned to the packaged desktop release authority.
-        "STELLA_BACKEND_URL": "https://stella-v2-cloud-builder-prod.lolruuxi.workers.dev",
+        "STELLA_BACKEND_URL": "https://stella-v2-cloud-builder-prod.fromyou.workers.dev",
         "ENABLE_SERVER_BEARER": "1"
       },
       "secrets": {

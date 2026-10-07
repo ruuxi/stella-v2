@@ -10,7 +10,7 @@ describe("cloud Apps host configuration", () => {
 
   it("uses the development host only when DEV is explicitly true", () => {
     expect(resolveCloudAppsHost(undefined, true)).toBe(
-      "https://stella-v2-apps-host-dev.lolruuxi.workers.dev",
+      "https://stella-v2-apps-host-dev.fromyou.workers.dev",
     );
     expect(
       resolveCloudAppsHost(undefined, "true" as unknown as boolean),
@@ -19,7 +19,7 @@ describe("cloud Apps host configuration", () => {
 
   it("rejects an explicitly configured development host outside DEV", () => {
     const developmentHost =
-      "https://stella-v2-apps-host-dev.lolruuxi.workers.dev";
+      "https://stella-v2-apps-host-dev.fromyou.workers.dev";
     expect(resolveCloudAppsHost(developmentHost, false)).toBeNull();
     expect(resolveCloudAppsHost(`${developmentHost}/`, undefined)).toBeNull();
     expect(resolveCloudAppsHost(developmentHost, true)).toBe(developmentHost);

@@ -25,11 +25,11 @@ a git checkout run from source by the native launchers.
 
 | Piece | Dev | Prod |
 |---|---|---|
-| Backend (cloud-builder) | `stella-v2-cloud-builder-dev.lolruuxi.workers.dev`, `auth-dev.stella.sh` | `stella-v2-cloud-builder-prod.lolruuxi.workers.dev`, `auth.stella.sh` |
+| Backend (cloud-builder) | `stella-v2-cloud-builder-dev.fromyou.workers.dev`, `auth-dev.stella.sh` | `stella-v2-cloud-builder-prod.fromyou.workers.dev`, `auth.stella.sh` |
 | Model gateway | `stella-v2-model-gateway-dev` | `stella-v2-model-gateway` |
 | D1 | `stella-v2-dev` | `stella-v2-prod` |
 | App source (Artifacts) | `stella-app-dev` | `stella-app-prod` |
-| Website + web chat | Worker `stella-website-dev` (`stella-website-dev.lolruuxi.workers.dev`) | Worker `stella-website-prod` on `stella.sh` (Vercel kept as fallback, see the cutover below) |
+| Website + web chat | Worker `stella-website-dev` (`stella-website-dev.fromyou.workers.dev`) | Worker `stella-website-prod` on `stella.sh` (Vercel kept as fallback, see the cutover below) |
 | Mobile OTA channel | `preview` | `production` |
 | Desktop | Source checkout / verify harness; dev-backend launchers read `stella-app-dev` | `stella-app-prod` upstream via launchers from R2 `launcher/stable/` |
 
@@ -139,7 +139,7 @@ Maps browser key is the one value it takes from the environment.
 
 ```bash
 cd packages/website
-# dev → https://stella-website-dev.lolruuxi.workers.dev (dev backend, no Ads tag)
+# dev → https://stella-website-dev.fromyou.workers.dev (dev backend, no Ads tag)
 NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY="$(cat <browser key file>)" env -u CLOUDFLARE_API_TOKEN bun run deploy:dev
 # prod → stella-website-prod (prod backend, Ads tag on); refuses without the browser key
 NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY="$(cat <browser key file>)" env -u CLOUDFLARE_API_TOKEN bun run deploy:production

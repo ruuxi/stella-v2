@@ -25,7 +25,7 @@ const flag = (name, fallback) => {
   return at >= 0 ? args[at + 1] : fallback;
 };
 const builderUrl = (
-  process.env.STELLA_BACKEND_URL ?? "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev"
+  process.env.STELLA_BACKEND_URL ?? "https://stella-v2-cloud-builder-dev.fromyou.workers.dev"
 ).replace(/\/+$/, "");
 const prompt = flag("--prompt");
 if (!prompt) {

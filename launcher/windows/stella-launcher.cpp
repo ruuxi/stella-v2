@@ -92,7 +92,7 @@ static const char *kBunVersion = "1.4.0";
 // STELLA_RELEASES_URL (the public base of its releases bucket) and
 // STELLA_UPDATE_SIGNER (the Authenticode signer of its own builds).
 #ifndef STELLA_DEFAULT_BACKEND_URL
-#define STELLA_DEFAULT_BACKEND_URL "https://stella-v2-cloud-builder-prod.lolruuxi.workers.dev"
+#define STELLA_DEFAULT_BACKEND_URL "https://stella-v2-cloud-builder-prod.fromyou.workers.dev"
 #endif
 #ifndef STELLA_RELEASES_URL
 #define STELLA_RELEASES_URL "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev"

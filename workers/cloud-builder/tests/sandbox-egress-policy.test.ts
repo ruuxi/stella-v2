@@ -79,7 +79,7 @@ describe("sandbox egress policy", () => {
     });
     const response = await policy(
       new Request(
-        "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev/internal/worlds/name/export",
+        "https://stella-v2-cloud-builder-dev.fromyou.workers.dev/internal/worlds/name/export",
       ),
       undefined,
       { containerId: "world-attach" },

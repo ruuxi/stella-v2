@@ -63,7 +63,7 @@ extern char **environ;
 /* A fork builds its own defaults: build.sh passes STELLA_BACKEND_URL and
  * STELLA_RELEASES_URL (the public base of its releases bucket). */
 #ifndef DEFAULT_BACKEND_URL
-#define DEFAULT_BACKEND_URL "https://stella-v2-cloud-builder-prod.lolruuxi.workers.dev"
+#define DEFAULT_BACKEND_URL "https://stella-v2-cloud-builder-prod.fromyou.workers.dev"
 #endif
 #ifndef RELEASES_URL
 #define RELEASES_URL "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev"

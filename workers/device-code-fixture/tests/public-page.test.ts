@@ -3,7 +3,7 @@ import { handlePublicRequest } from "../src/public-page.js";
 import type { DeviceCodeFixtureEnv } from "../src/authorization-session.js";
 
 const origin =
-  "https://stella-v2-device-code-fixture-basic-nightingale-118.lolruuxi.workers.dev";
+  "https://stella-v2-device-code-fixture-basic-nightingale-118.fromyou.workers.dev";
 
 const env = (
   options: { limited?: boolean; outcome?: string } = {},

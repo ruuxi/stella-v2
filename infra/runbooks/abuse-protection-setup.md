@@ -10,7 +10,7 @@ Design background lives in the maintainer's `~/Documents/stella-abuse-protection
 
 | Thing | Dev | Production |
 | --- | --- | --- |
-| Backend (cloud-builder Worker, `workers/cloud-builder/wrangler.jsonc`; auth and integrity routes under `/api/auth/*`) | `https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev` (default env); a second dev env `bn118` = `stella-v2-cloud-builder-basic-nightingale-118` | `https://stella-v2-cloud-builder-prod.lolruuxi.workers.dev` (`--env production`) |
+| Backend (cloud-builder Worker, `workers/cloud-builder/wrangler.jsonc`; auth and integrity routes under `/api/auth/*`) | `https://stella-v2-cloud-builder-dev.fromyou.workers.dev` (default env); a second dev env `bn118` = `stella-v2-cloud-builder-basic-nightingale-118` | `https://stella-v2-cloud-builder-prod.fromyou.workers.dev` (`--env production`) |
 | Model gateway Worker (`workers/model-gateway/wrangler.jsonc`) | `stella-v2-model-gateway-dev` (default env) | `stella-v2-model-gateway` (`--env production`) |
 | iOS app | bundle id `com.stella.mobile` (Expo 57, `packages/mobile/app.json`) | same |
 | Android app | package `com.fromyou.stella` | same |

@@ -7,7 +7,7 @@ interface __BaseEnv_Env {
 	BROWSER_KEEP_ALIVE_MS: "600000";
 	BROWSER_LIVE_VIEW_TTL_MS: "300000";
 	BROWSER_HANDOFF_TIMEOUT_MS: "600000";
-	DEVICE_CODE_FIXTURE_ORIGIN?: "https://stella-v2-device-code-fixture-basic-nightingale-118.lolruuxi.workers.dev";
+	DEVICE_CODE_FIXTURE_ORIGIN?: "https://stella-v2-device-code-fixture-basic-nightingale-118.fromyou.workers.dev";
 	BROWSER_PROFILE_KEK_V1: string;
 	BROWSER_PROFILE_SESSIONS: DurableObjectNamespace<import("./src/index").BrowserProfileSession>;
 	DEVICE_CODE_FIXTURE?: Service /* entrypoint DeviceCodeFixtureService from stella-v2-device-code-fixture-basic-nightingale-118 */;
@@ -24,7 +24,7 @@ declare namespace Cloudflare {
 		BROWSER_KEEP_ALIVE_MS: "600000";
 		BROWSER_LIVE_VIEW_TTL_MS: "300000";
 		BROWSER_HANDOFF_TIMEOUT_MS: "600000";
-		DEVICE_CODE_FIXTURE_ORIGIN: "https://stella-v2-device-code-fixture-basic-nightingale-118.lolruuxi.workers.dev";
+		DEVICE_CODE_FIXTURE_ORIGIN: "https://stella-v2-device-code-fixture-basic-nightingale-118.fromyou.workers.dev";
 		BROWSER_PROFILE_KEK_V1: string;
 		BROWSER_PROFILE_SESSIONS: DurableObjectNamespace<import("./src/index").BrowserProfileSession>;
 		DEVICE_CODE_FIXTURE: Service /* entrypoint DeviceCodeFixtureService from stella-v2-device-code-fixture-basic-nightingale-118 */;

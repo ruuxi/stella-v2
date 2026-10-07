@@ -44,7 +44,7 @@ node .agents/skills/verify-stella/control-stella.mjs session launch --account pr
 ```
 
 The harness targets `STELLA_BACKEND_URL` (default: the dev cloud-builder
-worker, `https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev`). It reads
+worker, `https://stella-v2-cloud-builder-dev.fromyou.workers.dev`). It reads
 `STELLA_ADMIN_API_SECRET` from the environment or the gitignored
 `workers/cloud-builder/.dev.vars`. For a non-Electron client, mint a session
 directly:

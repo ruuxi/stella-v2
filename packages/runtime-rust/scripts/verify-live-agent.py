@@ -2,7 +2,7 @@
 import subprocess, pathlib, tempfile, os, urllib.request, json, uuid, sys
 root = pathlib.Path(__file__).resolve().parents[3]
 work = pathlib.Path(tempfile.mkdtemp(prefix='stella-native-live-'))
-site = os.environ.get('STELLA_BACKEND_URL', 'https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev').rstrip('/')
+site = os.environ.get('STELLA_BACKEND_URL', 'https://stella-v2-cloud-builder-dev.fromyou.workers.dev').rstrip('/')
 def dev_var(name):
     path = root / 'workers/cloud-builder/.dev.vars'
     for line in (path.read_text().splitlines() if path.exists() else []):
@@ -39,7 +39,7 @@ if image_mode:
     nonce = 'red, blue' 
 env = os.environ.copy()
 env['STELLA_AUTH_TOKEN'] = auth
-env['STELLA_MODEL_GATEWAY_URL'] = 'https://stella-v2-model-gateway-dev.lolruuxi.workers.dev'
+env['STELLA_MODEL_GATEWAY_URL'] = 'https://stella-v2-model-gateway-dev.fromyou.workers.dev'
 if '--idle-shell' in sys.argv or '--shutdown-shell' in sys.argv:
     subprocess.run(['bun', str(root / 'packages/runtime-rust/scripts/verify-shell-lifecycle.mjs'), *sys.argv[1:]], env=env, timeout=180, check=True)
     raise SystemExit(0)

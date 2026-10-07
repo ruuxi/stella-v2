@@ -327,7 +327,7 @@ REMOTE
     validate_scratch_path "$remote_source"
     boot_udid="$(read_state_value "$sim_state" UDID)"
     validate_udid "$boot_udid"
-    backend_url="${STELLA_BACKEND_URL:-https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev}"
+    backend_url="${STELLA_BACKEND_URL:-https://stella-v2-cloud-builder-dev.fromyou.workers.dev}"
     if [[ -z "$metro_only" ]]; then
       require_free_disk "${STELLA_IOS_MIN_FREE_GB:-30}"
     fi

@@ -4,7 +4,7 @@ import { authClient } from "./auth-client";
 export const TEST_ACCOUNT_EMAIL_SUFFIX = "@test.stella.local";
 
 const DEV_BACKEND_HOSTS = new Set([
-  "stella-v2-cloud-builder-dev.lolruuxi.workers.dev",
+  "stella-v2-cloud-builder-dev.fromyou.workers.dev",
   "auth-dev.stella.sh",
   "localhost",
   "127.0.0.1",

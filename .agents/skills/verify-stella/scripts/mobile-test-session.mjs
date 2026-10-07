@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const TEST_ACCOUNT_SUFFIX = "@test.stella.local";
-const DEV_BACKEND_URL = "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev";
+const DEV_BACKEND_URL = "https://stella-v2-cloud-builder-dev.fromyou.workers.dev";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
 
 const fail = (message) => {

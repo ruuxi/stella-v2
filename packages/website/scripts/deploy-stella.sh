@@ -9,8 +9,8 @@ export NEXT_PUBLIC_TURNSTILE_SITE_KEY="0x4AAAAAAElT6LwLa_VHN9Qq"
 
 case "$target" in
   dev)
-    export NEXT_PUBLIC_STELLA_BACKEND_URL="https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev"
-    export NEXT_PUBLIC_STELLA_SITE_URL="https://stella-website-dev.lolruuxi.workers.dev"
+    export NEXT_PUBLIC_STELLA_BACKEND_URL="https://stella-v2-cloud-builder-dev.fromyou.workers.dev"
+    export NEXT_PUBLIC_STELLA_SITE_URL="https://stella-website-dev.fromyou.workers.dev"
     env_args=()
     ;;
   production)
@@ -18,7 +18,7 @@ case "$target" in
       echo "NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY must be set for a production build." >&2
       exit 1
     fi
-    export NEXT_PUBLIC_STELLA_BACKEND_URL="https://stella-v2-cloud-builder-prod.lolruuxi.workers.dev"
+    export NEXT_PUBLIC_STELLA_BACKEND_URL="https://stella-v2-cloud-builder-prod.fromyou.workers.dev"
     export NEXT_PUBLIC_STELLA_SITE_URL="https://stella.sh"
     export NEXT_PUBLIC_GOOGLE_ADS_ID="AW-18375048850"
     export NEXT_PUBLIC_GOOGLE_ADS_DOWNLOAD_LABEL="CrdSCMj5-d8cEJL987lE"

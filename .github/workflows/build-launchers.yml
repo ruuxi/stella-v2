@@ -33,7 +33,7 @@ env:
   STELLA_RELEASES_URL: ${{ vars.STELLA_RELEASES_URL }}
   STELLA_APPLE_TEAM_ID: ${{ vars.STELLA_APPLE_TEAM_ID }}
   STELLA_UPDATE_SIGNER: ${{ vars.STELLA_UPDATE_SIGNER || 'FromYou, LLC' }}
-  STELLA_DEV_BACKEND_URL: ${{ vars.STELLA_DEV_BACKEND_URL || 'https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev' }}
+  STELLA_DEV_BACKEND_URL: ${{ vars.STELLA_DEV_BACKEND_URL || 'https://stella-v2-cloud-builder-dev.fromyou.workers.dev' }}
 
 concurrency:
   group: build-launchers-${{ github.ref }}

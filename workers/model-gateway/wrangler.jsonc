@@ -28,7 +28,7 @@
   "vars": {
     "ENVIRONMENT": "development",
     // Canonical development deployment used by source builds and test traffic.
-    "STELLA_BACKEND_URL": "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev",
+    "STELLA_BACKEND_URL": "https://stella-v2-cloud-builder-dev.fromyou.workers.dev",
     // JSON `GatewayJwks` holding the PUBLIC ES256 keys of the capability
     // issuer (cloud-builder's `CAPABILITY_SIGNING_KID`s). Ops
     // Keep the public keys in deployment config so future deploys cannot
@@ -140,7 +140,7 @@
       "vars": {
         "ENVIRONMENT": "production",
         // Pinned to the packaged desktop release authority.
-        "STELLA_BACKEND_URL": "https://stella-v2-cloud-builder-prod.lolruuxi.workers.dev",
+        "STELLA_BACKEND_URL": "https://stella-v2-cloud-builder-prod.fromyou.workers.dev",
         // Public production keys for the cloud-builder issuer.
         "CAPABILITY_JWKS": "{\"keys\":[{\"kid\":\"builder-prod-1\",\"issuer\":\"stella-cloud-builder\",\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"7OPXbcbubpfZqHAZEptNA8Bu1w9Y5D0pq547cg8rYuo\",\"y\":\"tv8_giBW3W4shXI5YPuZMneKHs22dSncE41399_mEmI\",\"alg\":\"ES256\",\"use\":\"sig\"}}]}",
       },

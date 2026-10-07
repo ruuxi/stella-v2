@@ -16,7 +16,7 @@
     "traces": { "enabled": true, "head_sampling_rate": 0.1 },
   },
   "vars": {
-    "PUBLIC_ORIGIN": "https://stella-v2-device-code-fixture-basic-nightingale-118.lolruuxi.workers.dev",
+    "PUBLIC_ORIGIN": "https://stella-v2-device-code-fixture-basic-nightingale-118.fromyou.workers.dev",
   },
   "ratelimits": [
     {

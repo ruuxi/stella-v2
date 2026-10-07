@@ -3,7 +3,7 @@ import type { DeviceCodeFixtureBinding } from "@stella/device-code-fixture/proto
 import { CloudflareDeviceCodeFixtureClient } from "../src/device-code-fixture-client.js";
 
 const origin =
-  "https://stella-v2-device-code-fixture-basic-nightingale-118.lolruuxi.workers.dev";
+  "https://stella-v2-device-code-fixture-basic-nightingale-118.fromyou.workers.dev";
 const deviceCode = "A".repeat(43);
 const requestId = "00000000-0000-4000-8000-000000000118";
 const consumerId = "00000000-0000-4000-8000-000000000119";

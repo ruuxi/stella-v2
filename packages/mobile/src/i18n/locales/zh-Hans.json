@@ -1481,11 +1481,71 @@
       "useBackgroundColorLabel": "使用{name}背景色",
       "useBackgroundLabel": "使用{name}背景",
       "useThemeLabel": "使用{name}主题",
+      "userAsk": {
+        "ceiling": "最多可以多强",
+        "ceilingSub": "一个问题所能达到的最高级别。",
+        "level": {
+          "alert": "警报",
+          "breakthrough": "强行打断",
+          "chat": "聊天",
+          "notify": "通知"
+        },
+        "quietCeiling": "免打扰时段上限",
+        "quietEnd": "结束",
+        "quietHours": "免打扰时段",
+        "quietHoursSub": "{start} 至 {end}",
+        "quietStart": "开始",
+        "rateLimit": "打断次数",
+        "rateLimitSub": "每小时最多这么多问题。",
+        "rateLimitValue": "{count}/小时",
+        "saveFailed": "保存失败，请重试。",
+        "section": "当 Stella 需要你时",
+        "sound": "声音",
+        "soundSub": "有问题到达时播放声音。",
+        "stepDown": "减少{label}",
+        "stepUp": "增加{label}",
+        "unavailable": "这些设置暂不可用。"
+      },
       "voiceSection": "语音"
     },
     "sidebar": {
       "searchPlaceholder": "搜索活动和文件",
       "signedOutHint": "登录以查看 Stella 正在后台处理的任务。"
+    },
+    "userAsk": {
+      "answerFailed": "回答未能发送，请重试。",
+      "answerOnComputer": "请在 {device} 上回答",
+      "answerOnComputerUnknown": "请在提问的那台电脑上回答",
+      "answerOnComputerWhy": "这需要一些私密信息，而这台手机没有可加密到那台电脑的密钥。Stella 不会以明文发送。",
+      "askedBy": "来自 {label}",
+      "cancelFailed": "未能关闭该问题，请重试。",
+      "cantRightNow": "现在不行",
+      "deadline": "还剩 {time}",
+      "deadlinePassed": "时间到了",
+      "deadlineWithDefault": "还剩 {time} — 否则选「{option}」",
+      "defaultOption": "默认",
+      "hideSecret": "隐藏{label}",
+      "missingFields": "请填写所有必填项。",
+      "notification": {
+        "answer": "回答",
+        "body": "轻点以回答。",
+        "dismiss": "忽略",
+        "title": "Stella 在等你"
+      },
+      "optional": "可选",
+      "plain": "将以明文发送",
+      "revealSecret": "显示{label}",
+      "sealFailed": "无法在此设备上加密。",
+      "send": "发送",
+      "sendSecurely": "安全发送",
+      "sending": "发送中…",
+      "sensitive": "端到端加密",
+      "sensitiveToggleA11y": "加密{label}",
+      "sensitiveUnavailable": "此设备暂时无法加密",
+      "somethingElse": "别的",
+      "somethingElsePlaceholder": "告诉 Stella 该做什么",
+      "unnamedComputer": "电脑 · {id}",
+      "waitingBadge": "正在等你"
     }
   },
   "onboarding": {
@@ -2008,6 +2068,45 @@
       "savePower": "更新电源设置失败。",
       "saveSoundNotifications": "更新声音通知设置失败。",
       "soundNotificationsUnavailable": "此窗口中无法使用声音通知设置。"
+    },
+    "escalation": {
+      "ceiling": {
+        "label": "Reach me at most by",
+        "sublabel": "Stella never escalates past this, however urgent the ask."
+      },
+      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "errors": {
+        "load": "Couldn't load these settings.",
+        "save": "Couldn't save that. Try again.",
+        "unavailable": "These settings aren't available on this computer yet."
+      },
+      "levels": {
+        "alert": "Sound and phone push",
+        "breakthrough": "Push that pierces focus mode",
+        "chat": "Chat only",
+        "notify": "Desktop notification"
+      },
+      "quietHours": {
+        "activeNow": "Quiet hours are on right now.",
+        "ceilingLabel": "During quiet hours, reach me at most by",
+        "ceilingSublabel": "Anything louder waits until quiet hours end.",
+        "end": "Until",
+        "label": "Quiet hours",
+        "start": "From",
+        "sublabel": "Hold back during a window you set, on every device.",
+        "window": "Quiet from",
+        "windowSublabel": "Interpreted in {zone}."
+      },
+      "rateLimit": {
+        "label": "Asks per hour",
+        "sublabel": "Stella holds anything past this limit.",
+        "value": "{count} an hour"
+      },
+      "sound": {
+        "label": "Play a sound",
+        "sublabel": "Audible alert when Stella escalates an ask."
+      },
+      "title": "When Stella needs you"
     },
     "executionDevices": {
       "disable": "Turn off",
@@ -2665,6 +2764,42 @@
     "imageLightbox": {
       "close": "关闭预览",
       "title": "图像预览"
+    }
+  },
+  "userAsk": {
+    "blocking": "Waiting on you",
+    "deadline": {
+      "closes": "Closes in {time}",
+      "closing": "Closing now",
+      "continues": "Continues with “{option}” in {time}",
+      "continuesNow": "Continuing with “{option}”"
+    },
+    "errors": {
+      "answer": "That didn't go through. Try again."
+    },
+    "eyebrow": {
+      "question": "Stella needs a decision",
+      "secureInput": "Stella needs a value from you"
+    },
+    "question": {
+      "send": "Send",
+      "sending": "Sending…",
+      "somethingElse": "Something else",
+      "somethingElseLabel": "What would you rather do?",
+      "somethingElsePlaceholder": "Tell Stella what to do instead"
+    },
+    "secureInput": {
+      "choosePlaceholder": "Choose",
+      "makePrivate": "Keep private",
+      "makeShared": "Share with Stella",
+      "optional": "optional",
+      "privateBadge": "Private — Stella never sees it",
+      "privateNote": "Private values stay on this device. Stella uses them without ever reading them.",
+      "required": "Fill in {label} first.",
+      "sharedBadge": "Shared with Stella",
+      "sharedNote": "Shared values are sent to Stella as plain text.",
+      "submit": "Send securely",
+      "submitting": "Sending…"
     }
   }
 }

@@ -3,9 +3,18 @@ import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import Constants from "expo-constants";
 import { router } from "expo-router";
+import {
+  USER_ASK_MAX_URGENCY,
+  USER_ASK_PUSH_CATEGORY,
+  USER_ASK_PUSH_KIND,
+  clampUrgency,
+  type UserAskUrgencyLevel,
+} from "@stella/contracts/user-ask";
 import { backendOrigin, postJson } from "./http";
 import { getOrCreateMobileDeviceId } from "./phone-access";
 import { getNotificationsMuted } from "./notifications-prefs";
+import { focusUserAsk, getOpenUserAsks, refreshUserAsks } from "./user-asks";
+import { i18nFallback } from "../i18n";
 
 const COMPUTER_REPLY_CATEGORY = "computer_reply";
 const AGENT_ACTIVITY_CATEGORY = "agent_activity";
@@ -22,8 +31,89 @@ const NOTIFICATION_ACTIONS = [
   },
 ];
 
+const USER_ASK_ACTIONS = [
+  {
+    identifier: "answer",
+    buttonTitle: i18nFallback.t("mobile.userAsk.notification.answer"),
+    options: { opensAppToForeground: true },
+  },
+  {
+    identifier: "dismiss",
+    buttonTitle: i18nFallback.t("mobile.userAsk.notification.dismiss"),
+    options: { opensAppToForeground: false, isDestructive: false },
+  },
+];
+
+const USER_ASK_REPEAT_COUNT = 3;
+const USER_ASK_REPEAT_INTERVAL_MS = 60_000;
+
+type UserAskPushData = {
+  kind?: string;
+  askId?: string;
+  conversationId?: string;
+  level?: number | string;
+};
+
+const readUserAskPush = (
+  data: UserAskPushData | null | undefined,
+): { askId: string; level: UserAskUrgencyLevel } | null => {
+  if (!data || data.kind !== USER_ASK_PUSH_KIND) return null;
+  const askId = typeof data.askId === "string" ? data.askId.trim() : "";
+  if (!askId) return null;
+  return { askId, level: clampUrgency(data.level) };
+};
+
+const repeatTimers = new Map<string, ReturnType<typeof setTimeout>[]>();
+
+const stopUserAskRepeats = (askId: string) => {
+  for (const timer of repeatTimers.get(askId) ?? []) clearTimeout(timer);
+  repeatTimers.delete(askId);
+};
+
+const scheduleUserAskRepeats = (askId: string) => {
+  stopUserAskRepeats(askId);
+  if (getNotificationsMuted()) return;
+  const timers: ReturnType<typeof setTimeout>[] = [];
+  for (let attempt = 1; attempt <= USER_ASK_REPEAT_COUNT; attempt += 1) {
+    timers.push(
+      setTimeout(() => {
+        void (async () => {
+          if (getNotificationsMuted()) {
+            stopUserAskRepeats(askId);
+            return;
+          }
+          await refreshUserAsks().catch(() => undefined);
+          const stillOpen = getOpenUserAsks().some(
+            (ask) => ask.askId === askId,
+          );
+          if (!stillOpen) {
+            stopUserAskRepeats(askId);
+            return;
+          }
+          try {
+            await Notifications.scheduleNotificationAsync({
+              content: {
+                title: i18nFallback.t("mobile.userAsk.notification.title"),
+                body: i18nFallback.t("mobile.userAsk.notification.body"),
+                categoryIdentifier: USER_ASK_PUSH_CATEGORY,
+                data: { kind: USER_ASK_PUSH_KIND, askId },
+                interruptionLevel: "timeSensitive",
+                sound: true,
+              },
+              trigger: null,
+            });
+          } catch {
+            return;
+          }
+        })();
+      }, attempt * USER_ASK_REPEAT_INTERVAL_MS),
+    );
+  }
+  repeatTimers.set(askId, timers);
+};
+
 Notifications.setNotificationHandler({
-  handleNotification: async () => {
+  handleNotification: async (notification) => {
     // User-side mute wins over everything — drop the notification entirely.
     if (getNotificationsMuted()) {
       return {
@@ -33,6 +123,22 @@ Notifications.setNotificationHandler({
         shouldPlaySound: false,
         shouldSetBadge: false,
       };
+    }
+    const ask = readUserAskPush(
+      notification.request.content.data as UserAskPushData | null | undefined,
+    );
+    if (ask) {
+      void refreshUserAsks();
+      if (ask.level >= USER_ASK_MAX_URGENCY) {
+        scheduleUserAskRepeats(ask.askId);
+        return {
+          shouldShowAlert: true,
+          shouldShowBanner: true,
+          shouldShowList: true,
+          shouldPlaySound: true,
+          shouldSetBadge: false,
+        };
+      }
     }
     // Don't surface pushes over the app the user is currently looking at.
     const isForeground = AppState.currentState === "active";
@@ -144,6 +250,10 @@ export async function installNotificationCategoriesAndListeners(): Promise<() =>
         AGENT_ACTIVITY_CATEGORY,
         NOTIFICATION_ACTIONS,
       ),
+      Notifications.setNotificationCategoryAsync(
+        USER_ASK_PUSH_CATEGORY,
+        USER_ASK_ACTIONS,
+      ),
     ]);
   } catch {
     // Best-effort; some platforms (Expo Go) just don't support categories.
@@ -152,11 +262,23 @@ export async function installNotificationCategoriesAndListeners(): Promise<() =>
   const subscription = Notifications.addNotificationResponseReceivedListener(
     (response) => {
       const data = response.notification.request.content.data as
-        | { kind?: string }
+        | UserAskPushData
         | null
         | undefined;
       const actionId = response.actionIdentifier;
+      const ask = readUserAskPush(data);
       if (actionId === "dismiss") {
+        if (ask) stopUserAskRepeats(ask.askId);
+        return;
+      }
+      if (ask) {
+        stopUserAskRepeats(ask.askId);
+        focusUserAsk(ask.askId);
+        try {
+          router.replace("/chat");
+        } catch {
+          return;
+        }
         return;
       }
       if (data?.kind === "computer_reply" || data?.kind === "agent_activity") {

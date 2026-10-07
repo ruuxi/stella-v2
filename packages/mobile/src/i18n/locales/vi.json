@@ -1481,11 +1481,71 @@
       "useBackgroundColorLabel": "Dùng màu nền {name}",
       "useBackgroundLabel": "Dùng nền {name}",
       "useThemeLabel": "Dùng chủ đề {name}",
+      "userAsk": {
+        "ceiling": "Có thể đi xa đến đâu",
+        "ceilingSub": "Mức cao nhất mà một câu hỏi được phép đạt tới.",
+        "level": {
+          "alert": "Cảnh báo",
+          "breakthrough": "Chen ngang",
+          "chat": "Trò chuyện",
+          "notify": "Thông báo"
+        },
+        "quietCeiling": "Giới hạn trong giờ yên tĩnh",
+        "quietEnd": "Kết thúc",
+        "quietHours": "Giờ yên tĩnh",
+        "quietHoursSub": "{start} đến {end}",
+        "quietStart": "Bắt đầu",
+        "rateLimit": "Số lần ngắt",
+        "rateLimitSub": "Nhiều nhất bấy nhiêu câu hỏi mỗi giờ.",
+        "rateLimitValue": "{count}/giờ",
+        "saveFailed": "Không lưu được. Hãy thử lại.",
+        "section": "Khi Stella cần bạn",
+        "sound": "Âm thanh",
+        "soundSub": "Phát âm thanh khi có câu hỏi.",
+        "stepDown": "Giảm {label}",
+        "stepUp": "Tăng {label}",
+        "unavailable": "Các thiết lập này chưa khả dụng."
+      },
       "voiceSection": "Giọng nói"
     },
     "sidebar": {
       "searchPlaceholder": "Tìm trong hoạt động và tệp",
       "signedOutHint": "Đăng nhập để xem Stella đang làm gì trong nền."
+    },
+    "userAsk": {
+      "answerFailed": "Không gửi được câu trả lời. Hãy thử lại.",
+      "answerOnComputer": "Hãy trả lời việc này trên {device}",
+      "answerOnComputerUnknown": "Hãy trả lời việc này trên máy tính đang hỏi",
+      "answerOnComputerWhy": "Việc này cần thông tin riêng tư, và điện thoại này không có khóa để mã hóa tới máy tính đó. Stella sẽ không gửi ở dạng không mã hóa.",
+      "askedBy": "Từ {label}",
+      "cancelFailed": "Không đóng được câu hỏi. Hãy thử lại.",
+      "cantRightNow": "Chưa được lúc này",
+      "deadline": "Còn {time}",
+      "deadlinePassed": "Đã hết thời gian",
+      "deadlineWithDefault": "Còn {time} — nếu không sẽ chọn “{option}”",
+      "defaultOption": "Mặc định",
+      "hideSecret": "Ẩn {label}",
+      "missingFields": "Hãy điền mọi trường bắt buộc.",
+      "notification": {
+        "answer": "Trả lời",
+        "body": "Chạm để trả lời.",
+        "dismiss": "Bỏ qua",
+        "title": "Stella đang cần bạn"
+      },
+      "optional": "Không bắt buộc",
+      "plain": "Gửi dưới dạng văn bản thường",
+      "revealSecret": "Hiện {label}",
+      "sealFailed": "Không mã hóa được trên thiết bị này.",
+      "send": "Gửi",
+      "sendSecurely": "Gửi an toàn",
+      "sending": "Đang gửi…",
+      "sensitive": "Mã hóa đầu cuối",
+      "sensitiveToggleA11y": "Mã hóa {label}",
+      "sensitiveUnavailable": "Thiết bị này chưa thể mã hóa nội dung đó",
+      "somethingElse": "Việc khác",
+      "somethingElsePlaceholder": "Cho Stella biết nên làm gì thay vào đó",
+      "unnamedComputer": "Máy tính · {id}",
+      "waitingBadge": "Đang chờ bạn"
     }
   },
   "onboarding": {
@@ -2008,6 +2068,45 @@
       "savePower": "Không cập nhật được cài đặt nguồn.",
       "saveSoundNotifications": "Không cập nhật được cài đặt thông báo âm thanh.",
       "soundNotificationsUnavailable": "Cài đặt thông báo âm thanh không khả dụng trong cửa sổ này."
+    },
+    "escalation": {
+      "ceiling": {
+        "label": "Reach me at most by",
+        "sublabel": "Stella never escalates past this, however urgent the ask."
+      },
+      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "errors": {
+        "load": "Couldn't load these settings.",
+        "save": "Couldn't save that. Try again.",
+        "unavailable": "These settings aren't available on this computer yet."
+      },
+      "levels": {
+        "alert": "Sound and phone push",
+        "breakthrough": "Push that pierces focus mode",
+        "chat": "Chat only",
+        "notify": "Desktop notification"
+      },
+      "quietHours": {
+        "activeNow": "Quiet hours are on right now.",
+        "ceilingLabel": "During quiet hours, reach me at most by",
+        "ceilingSublabel": "Anything louder waits until quiet hours end.",
+        "end": "Until",
+        "label": "Quiet hours",
+        "start": "From",
+        "sublabel": "Hold back during a window you set, on every device.",
+        "window": "Quiet from",
+        "windowSublabel": "Interpreted in {zone}."
+      },
+      "rateLimit": {
+        "label": "Asks per hour",
+        "sublabel": "Stella holds anything past this limit.",
+        "value": "{count} an hour"
+      },
+      "sound": {
+        "label": "Play a sound",
+        "sublabel": "Audible alert when Stella escalates an ask."
+      },
+      "title": "When Stella needs you"
     },
     "executionDevices": {
       "disable": "Turn off",
@@ -2665,6 +2764,42 @@
     "imageLightbox": {
       "close": "Đóng bản xem trước",
       "title": "Xem trước hình ảnh"
+    }
+  },
+  "userAsk": {
+    "blocking": "Waiting on you",
+    "deadline": {
+      "closes": "Closes in {time}",
+      "closing": "Closing now",
+      "continues": "Continues with “{option}” in {time}",
+      "continuesNow": "Continuing with “{option}”"
+    },
+    "errors": {
+      "answer": "That didn't go through. Try again."
+    },
+    "eyebrow": {
+      "question": "Stella needs a decision",
+      "secureInput": "Stella needs a value from you"
+    },
+    "question": {
+      "send": "Send",
+      "sending": "Sending…",
+      "somethingElse": "Something else",
+      "somethingElseLabel": "What would you rather do?",
+      "somethingElsePlaceholder": "Tell Stella what to do instead"
+    },
+    "secureInput": {
+      "choosePlaceholder": "Choose",
+      "makePrivate": "Keep private",
+      "makeShared": "Share with Stella",
+      "optional": "optional",
+      "privateBadge": "Private — Stella never sees it",
+      "privateNote": "Private values stay on this device. Stella uses them without ever reading them.",
+      "required": "Fill in {label} first.",
+      "sharedBadge": "Shared with Stella",
+      "sharedNote": "Shared values are sent to Stella as plain text.",
+      "submit": "Send securely",
+      "submitting": "Sending…"
     }
   }
 }

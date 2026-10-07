@@ -1494,11 +1494,71 @@
       "useBackgroundColorLabel": "Bruk bakgrunnsfargen {name}",
       "useBackgroundLabel": "Bruk bakgrunnen {name}",
       "useThemeLabel": "Bruk temaet {name}",
+      "userAsk": {
+        "ceiling": "Hvor langt den kan gå",
+        "ceilingSub": "Det høyeste et spørsmål får nå.",
+        "level": {
+          "alert": "Alarm",
+          "breakthrough": "Bryt inn",
+          "chat": "Chat",
+          "notify": "Varsle"
+        },
+        "quietCeiling": "Grense i stille timer",
+        "quietEnd": "Slutter",
+        "quietHours": "Stille timer",
+        "quietHoursSub": "{start} til {end}",
+        "quietStart": "Starter",
+        "rateLimit": "Avbrudd",
+        "rateLimitSub": "Maksimalt så mange spørsmål i timen.",
+        "rateLimitValue": "{count}/t",
+        "saveFailed": "Kunne ikke lagre. Prøv igjen.",
+        "section": "Når Stella trenger deg",
+        "sound": "Lyd",
+        "soundSub": "Spill en lyd når et spørsmål kommer.",
+        "stepDown": "Reduser {label}",
+        "stepUp": "Øk {label}",
+        "unavailable": "Disse innstillingene er ikke tilgjengelige ennå."
+      },
       "voiceSection": "Stemme"
     },
     "sidebar": {
       "searchPlaceholder": "Søk i aktivitet og filer",
       "signedOutHint": "Logg inn for å se hva Stella jobber med i bakgrunnen."
+    },
+    "userAsk": {
+      "answerFailed": "Kunne ikke sende svaret. Prøv igjen.",
+      "answerOnComputer": "Svar på dette på {device}",
+      "answerOnComputerUnknown": "Svar på dette på datamaskinen som spør",
+      "answerOnComputerWhy": "Det trengs noe privat, og denne telefonen har ingen nøkkel til å kryptere det til den maskinen. Stella sender det ikke ukryptert.",
+      "askedBy": "Fra {label}",
+      "cancelFailed": "Kunne ikke lukke spørsmålet. Prøv igjen.",
+      "cantRightNow": "Kan ikke nå",
+      "deadline": "{time} igjen",
+      "deadlinePassed": "Tiden er ute",
+      "deadlineWithDefault": "{time} igjen — ellers «{option}»",
+      "defaultOption": "Standard",
+      "hideSecret": "Skjul {label}",
+      "missingFields": "Fyll ut alle obligatoriske felt.",
+      "notification": {
+        "answer": "Svar",
+        "body": "Trykk for å svare.",
+        "dismiss": "Avvis",
+        "title": "Stella trenger deg"
+      },
+      "optional": "Valgfritt",
+      "plain": "Sendes som vanlig tekst",
+      "revealSecret": "Vis {label}",
+      "sealFailed": "Kunne ikke kryptere det på denne enheten.",
+      "send": "Send",
+      "sendSecurely": "Send sikkert",
+      "sending": "Sender…",
+      "sensitive": "Ende-til-ende-kryptert",
+      "sensitiveToggleA11y": "Krypter {label}",
+      "sensitiveUnavailable": "Denne enheten kan ikke kryptere det ennå",
+      "somethingElse": "Noe annet",
+      "somethingElsePlaceholder": "Fortell Stella hva som skal skje i stedet",
+      "unnamedComputer": "Datamaskin · {id}",
+      "waitingBadge": "Venter på deg"
     }
   },
   "onboarding": {
@@ -2021,6 +2081,45 @@
       "savePower": "Kunne ikke oppdatere strøminnstillingen.",
       "saveSoundNotifications": "Kunne ikke oppdatere innstillingen for lydvarsler.",
       "soundNotificationsUnavailable": "Innstillinger for lydvarsler er ikke tilgjengelige i dette vinduet."
+    },
+    "escalation": {
+      "ceiling": {
+        "label": "Reach me at most by",
+        "sublabel": "Stella never escalates past this, however urgent the ask."
+      },
+      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "errors": {
+        "load": "Couldn't load these settings.",
+        "save": "Couldn't save that. Try again.",
+        "unavailable": "These settings aren't available on this computer yet."
+      },
+      "levels": {
+        "alert": "Sound and phone push",
+        "breakthrough": "Push that pierces focus mode",
+        "chat": "Chat only",
+        "notify": "Desktop notification"
+      },
+      "quietHours": {
+        "activeNow": "Quiet hours are on right now.",
+        "ceilingLabel": "During quiet hours, reach me at most by",
+        "ceilingSublabel": "Anything louder waits until quiet hours end.",
+        "end": "Until",
+        "label": "Quiet hours",
+        "start": "From",
+        "sublabel": "Hold back during a window you set, on every device.",
+        "window": "Quiet from",
+        "windowSublabel": "Interpreted in {zone}."
+      },
+      "rateLimit": {
+        "label": "Asks per hour",
+        "sublabel": "Stella holds anything past this limit.",
+        "value": "{count} an hour"
+      },
+      "sound": {
+        "label": "Play a sound",
+        "sublabel": "Audible alert when Stella escalates an ask."
+      },
+      "title": "When Stella needs you"
     },
     "executionDevices": {
       "disable": "Turn off",
@@ -2690,6 +2789,42 @@
     "imageLightbox": {
       "close": "Lukk forhåndsvisning",
       "title": "Forhåndsvisning av bilde"
+    }
+  },
+  "userAsk": {
+    "blocking": "Waiting on you",
+    "deadline": {
+      "closes": "Closes in {time}",
+      "closing": "Closing now",
+      "continues": "Continues with “{option}” in {time}",
+      "continuesNow": "Continuing with “{option}”"
+    },
+    "errors": {
+      "answer": "That didn't go through. Try again."
+    },
+    "eyebrow": {
+      "question": "Stella needs a decision",
+      "secureInput": "Stella needs a value from you"
+    },
+    "question": {
+      "send": "Send",
+      "sending": "Sending…",
+      "somethingElse": "Something else",
+      "somethingElseLabel": "What would you rather do?",
+      "somethingElsePlaceholder": "Tell Stella what to do instead"
+    },
+    "secureInput": {
+      "choosePlaceholder": "Choose",
+      "makePrivate": "Keep private",
+      "makeShared": "Share with Stella",
+      "optional": "optional",
+      "privateBadge": "Private — Stella never sees it",
+      "privateNote": "Private values stay on this device. Stella uses them without ever reading them.",
+      "required": "Fill in {label} first.",
+      "sharedBadge": "Shared with Stella",
+      "sharedNote": "Shared values are sent to Stella as plain text.",
+      "submit": "Send securely",
+      "submitting": "Sending…"
     }
   }
 }

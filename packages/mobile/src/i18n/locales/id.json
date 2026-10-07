@@ -1481,11 +1481,71 @@
       "useBackgroundColorLabel": "Gunakan warna latar {name}",
       "useBackgroundLabel": "Gunakan latar {name}",
       "useThemeLabel": "Gunakan tema {name}",
+      "userAsk": {
+        "ceiling": "Seberapa jauh boleh naik",
+        "ceilingSub": "Tingkat tertinggi yang boleh dicapai sebuah pertanyaan.",
+        "level": {
+          "alert": "Peringatan",
+          "breakthrough": "Terobos",
+          "chat": "Obrolan",
+          "notify": "Beri tahu"
+        },
+        "quietCeiling": "Batas saat jam tenang",
+        "quietEnd": "Berakhir",
+        "quietHours": "Jam tenang",
+        "quietHoursSub": "{start} sampai {end}",
+        "quietStart": "Mulai",
+        "rateLimit": "Gangguan",
+        "rateLimitSub": "Paling banyak sekian pertanyaan per jam.",
+        "rateLimitValue": "{count}/jam",
+        "saveFailed": "Gagal menyimpan. Coba lagi.",
+        "section": "Saat Stella membutuhkanmu",
+        "sound": "Suara",
+        "soundSub": "Mainkan suara saat pertanyaan masuk.",
+        "stepDown": "Kurangi {label}",
+        "stepUp": "Tambah {label}",
+        "unavailable": "Pengaturan ini belum tersedia."
+      },
       "voiceSection": "Suara"
     },
     "sidebar": {
       "searchPlaceholder": "Cari aktivitas dan file",
       "signedOutHint": "Masuk untuk melihat apa yang sedang dikerjakan Stella di latar belakang."
+    },
+    "userAsk": {
+      "answerFailed": "Jawaban gagal dikirim. Coba lagi.",
+      "answerOnComputer": "Jawab ini di {device}",
+      "answerOnComputerUnknown": "Jawab ini di komputer yang bertanya",
+      "answerOnComputerWhy": "Ini butuh sesuatu yang privat, dan ponsel ini tidak punya kunci untuk mengenkripsinya ke komputer itu. Stella tidak akan mengirimnya tanpa enkripsi.",
+      "askedBy": "Dari {label}",
+      "cancelFailed": "Pertanyaan gagal ditutup. Coba lagi.",
+      "cantRightNow": "Tidak sekarang",
+      "deadline": "Sisa {time}",
+      "deadlinePassed": "Waktu habis",
+      "deadlineWithDefault": "Sisa {time} — jika tidak, “{option}”",
+      "defaultOption": "Bawaan",
+      "hideSecret": "Sembunyikan {label}",
+      "missingFields": "Isi semua kolom yang wajib.",
+      "notification": {
+        "answer": "Jawab",
+        "body": "Ketuk untuk menjawab.",
+        "dismiss": "Tutup",
+        "title": "Stella membutuhkanmu"
+      },
+      "optional": "Opsional",
+      "plain": "Dikirim sebagai teks biasa",
+      "revealSecret": "Tampilkan {label}",
+      "sealFailed": "Tidak bisa mengenkripsi itu di perangkat ini.",
+      "send": "Kirim",
+      "sendSecurely": "Kirim dengan aman",
+      "sending": "Mengirim…",
+      "sensitive": "Terenkripsi ujung ke ujung",
+      "sensitiveToggleA11y": "Enkripsi {label}",
+      "sensitiveUnavailable": "Perangkat ini belum bisa mengenkripsinya",
+      "somethingElse": "Hal lain",
+      "somethingElsePlaceholder": "Beri tahu Stella apa yang harus dilakukan",
+      "unnamedComputer": "Komputer · {id}",
+      "waitingBadge": "Menunggumu"
     }
   },
   "onboarding": {
@@ -2008,6 +2068,45 @@
       "savePower": "Gagal memperbarui pengaturan daya.",
       "saveSoundNotifications": "Gagal memperbarui pengaturan notifikasi suara.",
       "soundNotificationsUnavailable": "Pengaturan notifikasi suara tidak tersedia di jendela ini."
+    },
+    "escalation": {
+      "ceiling": {
+        "label": "Reach me at most by",
+        "sublabel": "Stella never escalates past this, however urgent the ask."
+      },
+      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "errors": {
+        "load": "Couldn't load these settings.",
+        "save": "Couldn't save that. Try again.",
+        "unavailable": "These settings aren't available on this computer yet."
+      },
+      "levels": {
+        "alert": "Sound and phone push",
+        "breakthrough": "Push that pierces focus mode",
+        "chat": "Chat only",
+        "notify": "Desktop notification"
+      },
+      "quietHours": {
+        "activeNow": "Quiet hours are on right now.",
+        "ceilingLabel": "During quiet hours, reach me at most by",
+        "ceilingSublabel": "Anything louder waits until quiet hours end.",
+        "end": "Until",
+        "label": "Quiet hours",
+        "start": "From",
+        "sublabel": "Hold back during a window you set, on every device.",
+        "window": "Quiet from",
+        "windowSublabel": "Interpreted in {zone}."
+      },
+      "rateLimit": {
+        "label": "Asks per hour",
+        "sublabel": "Stella holds anything past this limit.",
+        "value": "{count} an hour"
+      },
+      "sound": {
+        "label": "Play a sound",
+        "sublabel": "Audible alert when Stella escalates an ask."
+      },
+      "title": "When Stella needs you"
     },
     "executionDevices": {
       "disable": "Turn off",
@@ -2665,6 +2764,42 @@
     "imageLightbox": {
       "close": "Tutup pratinjau",
       "title": "Pratinjau gambar"
+    }
+  },
+  "userAsk": {
+    "blocking": "Waiting on you",
+    "deadline": {
+      "closes": "Closes in {time}",
+      "closing": "Closing now",
+      "continues": "Continues with “{option}” in {time}",
+      "continuesNow": "Continuing with “{option}”"
+    },
+    "errors": {
+      "answer": "That didn't go through. Try again."
+    },
+    "eyebrow": {
+      "question": "Stella needs a decision",
+      "secureInput": "Stella needs a value from you"
+    },
+    "question": {
+      "send": "Send",
+      "sending": "Sending…",
+      "somethingElse": "Something else",
+      "somethingElseLabel": "What would you rather do?",
+      "somethingElsePlaceholder": "Tell Stella what to do instead"
+    },
+    "secureInput": {
+      "choosePlaceholder": "Choose",
+      "makePrivate": "Keep private",
+      "makeShared": "Share with Stella",
+      "optional": "optional",
+      "privateBadge": "Private — Stella never sees it",
+      "privateNote": "Private values stay on this device. Stella uses them without ever reading them.",
+      "required": "Fill in {label} first.",
+      "sharedBadge": "Shared with Stella",
+      "sharedNote": "Shared values are sent to Stella as plain text.",
+      "submit": "Send securely",
+      "submitting": "Sending…"
     }
   }
 }

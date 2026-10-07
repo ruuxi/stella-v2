@@ -1493,11 +1493,71 @@
       "useBackgroundColorLabel": "Şu arka plan rengini kullan: {name}",
       "useBackgroundLabel": "Şu arka planı kullan: {name}",
       "useThemeLabel": "Şu temayı kullan: {name}",
+      "userAsk": {
+        "ceiling": "Ne kadar ileri gidebilir",
+        "ceilingSub": "Bir sorunun çıkabileceği en yüksek seviye.",
+        "level": {
+          "alert": "Uyarı",
+          "breakthrough": "Araya gir",
+          "chat": "Sohbet",
+          "notify": "Bildir"
+        },
+        "quietCeiling": "Sessiz saatlerde sınır",
+        "quietEnd": "Bitiş",
+        "quietHours": "Sessiz saatler",
+        "quietHoursSub": "{start} - {end}",
+        "quietStart": "Başlangıç",
+        "rateLimit": "Kesintiler",
+        "rateLimitSub": "Saatte en fazla bu kadar soru.",
+        "rateLimitValue": "{count}/sa",
+        "saveFailed": "Kaydedilemedi. Tekrar dene.",
+        "section": "Stella sana ihtiyaç duyduğunda",
+        "sound": "Ses",
+        "soundSub": "Bir soru geldiğinde ses çal.",
+        "stepDown": "{label} azalt",
+        "stepUp": "{label} artır",
+        "unavailable": "Bu ayarlar henüz kullanılamıyor."
+      },
       "voiceSection": "Ses"
     },
     "sidebar": {
       "searchPlaceholder": "Etkinlik ve dosyalarda ara",
       "signedOutHint": "Stella’nın arka planda ne üzerinde çalıştığını görmek için giriş yapın."
+    },
+    "userAsk": {
+      "answerFailed": "Yanıt gönderilemedi. Tekrar dene.",
+      "answerOnComputer": "Bunu {device} üzerinde yanıtla",
+      "answerOnComputerUnknown": "Bunu soran bilgisayarda yanıtla",
+      "answerOnComputerWhy": "Bunun için özel bir bilgi gerekiyor ve bu telefonda o bilgisayara şifrelemek için anahtar yok. Stella bunu şifrelemeden göndermez.",
+      "askedBy": "{label} tarafından",
+      "cancelFailed": "Soru kapatılamadı. Tekrar dene.",
+      "cantRightNow": "Şimdi olmaz",
+      "deadline": "{time} kaldı",
+      "deadlinePassed": "Süre doldu",
+      "deadlineWithDefault": "{time} kaldı — yoksa “{option}”",
+      "defaultOption": "Varsayılan",
+      "hideSecret": "{label} alanını gizle",
+      "missingFields": "Zorunlu alanların tümünü doldur.",
+      "notification": {
+        "answer": "Yanıtla",
+        "body": "Yanıtlamak için dokun.",
+        "dismiss": "Kapat",
+        "title": "Stella seni bekliyor"
+      },
+      "optional": "İsteğe bağlı",
+      "plain": "Düz metin olarak gönderilir",
+      "revealSecret": "{label} alanını göster",
+      "sealFailed": "Bu cihazda şifrelenemedi.",
+      "send": "Gönder",
+      "sendSecurely": "Güvenle gönder",
+      "sending": "Gönderiliyor…",
+      "sensitive": "Uçtan uca şifreli",
+      "sensitiveToggleA11y": "{label} alanını şifrele",
+      "sensitiveUnavailable": "Bu cihaz bunu henüz şifreleyemiyor",
+      "somethingElse": "Başka bir şey",
+      "somethingElsePlaceholder": "Stella'ya onun yerine ne yapacağını söyle",
+      "unnamedComputer": "Bilgisayar · {id}",
+      "waitingBadge": "Seni bekliyor"
     }
   },
   "onboarding": {
@@ -2020,6 +2080,45 @@
       "savePower": "Güç ayarı güncellenemedi.",
       "saveSoundNotifications": "Ses bildirimi ayarı güncellenemedi.",
       "soundNotificationsUnavailable": "Ses bildirimi ayarları bu pencerede kullanılamıyor."
+    },
+    "escalation": {
+      "ceiling": {
+        "label": "Reach me at most by",
+        "sublabel": "Stella never escalates past this, however urgent the ask."
+      },
+      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "errors": {
+        "load": "Couldn't load these settings.",
+        "save": "Couldn't save that. Try again.",
+        "unavailable": "These settings aren't available on this computer yet."
+      },
+      "levels": {
+        "alert": "Sound and phone push",
+        "breakthrough": "Push that pierces focus mode",
+        "chat": "Chat only",
+        "notify": "Desktop notification"
+      },
+      "quietHours": {
+        "activeNow": "Quiet hours are on right now.",
+        "ceilingLabel": "During quiet hours, reach me at most by",
+        "ceilingSublabel": "Anything louder waits until quiet hours end.",
+        "end": "Until",
+        "label": "Quiet hours",
+        "start": "From",
+        "sublabel": "Hold back during a window you set, on every device.",
+        "window": "Quiet from",
+        "windowSublabel": "Interpreted in {zone}."
+      },
+      "rateLimit": {
+        "label": "Asks per hour",
+        "sublabel": "Stella holds anything past this limit.",
+        "value": "{count} an hour"
+      },
+      "sound": {
+        "label": "Play a sound",
+        "sublabel": "Audible alert when Stella escalates an ask."
+      },
+      "title": "When Stella needs you"
     },
     "executionDevices": {
       "disable": "Turn off",
@@ -2689,6 +2788,42 @@
     "imageLightbox": {
       "close": "Önizlemeyi kapat",
       "title": "Görsel önizlemesi"
+    }
+  },
+  "userAsk": {
+    "blocking": "Waiting on you",
+    "deadline": {
+      "closes": "Closes in {time}",
+      "closing": "Closing now",
+      "continues": "Continues with “{option}” in {time}",
+      "continuesNow": "Continuing with “{option}”"
+    },
+    "errors": {
+      "answer": "That didn't go through. Try again."
+    },
+    "eyebrow": {
+      "question": "Stella needs a decision",
+      "secureInput": "Stella needs a value from you"
+    },
+    "question": {
+      "send": "Send",
+      "sending": "Sending…",
+      "somethingElse": "Something else",
+      "somethingElseLabel": "What would you rather do?",
+      "somethingElsePlaceholder": "Tell Stella what to do instead"
+    },
+    "secureInput": {
+      "choosePlaceholder": "Choose",
+      "makePrivate": "Keep private",
+      "makeShared": "Share with Stella",
+      "optional": "optional",
+      "privateBadge": "Private — Stella never sees it",
+      "privateNote": "Private values stay on this device. Stella uses them without ever reading them.",
+      "required": "Fill in {label} first.",
+      "sharedBadge": "Shared with Stella",
+      "sharedNote": "Shared values are sent to Stella as plain text.",
+      "submit": "Send securely",
+      "submitting": "Sending…"
     }
   }
 }

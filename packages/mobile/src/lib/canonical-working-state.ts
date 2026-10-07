@@ -37,6 +37,13 @@ export function canonicalWorkingState(args: {
     : args.authoritativeActivity === "running"
       ? (args.live?.turnId ?? activeCloudTurnId(args.records, args.live))
       : null;
+  // `ready` can name a running conversation and then immediately `reset`, which
+  // drops both the retained rows and the live turn — so there is nothing left to
+  // point at even though the authority just said work is in flight. Showing Send
+  // there is the same wrong answer as the flicker, arrived at from the other
+  // side, so the activity alone is enough to keep Stop until the view is whole.
+  const authoritativeRunning =
+    !trustRecords && args.authoritativeActivity === "running";
   const localTurnId = args.activeDispatchId || args.activeSendMessageId
     ? args.records.find((record) =>
         record.kind === "message" && record.role === "user" &&
@@ -47,7 +54,11 @@ export function canonicalWorkingState(args: {
     record.kind === "turn" && record.turnId === localTurnId &&
     record.phase !== "started"));
   const localPending = args.localSending && !localTerminal;
-  const sending = localPending || Boolean(runningTurnId) || Boolean(args.hasQueuedSend);
+  const sending =
+    localPending ||
+    Boolean(runningTurnId) ||
+    authoritativeRunning ||
+    Boolean(args.hasQueuedSend);
   if (localPending && !localTurnId) {
     // A new prompt has no canonical echo yet. An old answer must not hide it.
     return { sending, workingIndicator: args.localIndicator };

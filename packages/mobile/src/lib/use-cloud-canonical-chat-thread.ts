@@ -68,7 +68,6 @@ import {
 import { collectActivityHubArtifacts, groupActivityArtifacts } from "./activity-hub-model";
 import { canonicalWorkingState } from "./canonical-working-state";
 import {
-  agentSnapshotTasks,
   collectJournalTasks,
   markAuthoritativeRunning,
 } from "./journal-tasks";
@@ -884,27 +883,19 @@ export const useCloudCanonicalChatThread = (
   );
   // Background work is read from the journal, where every placement records
   // it, including agents running on a paired computer.
+  // The journal's own owner says which agents are running, folded over the
+  // whole journal rather than the tail this device holds — the only source that
+  // can name an agent whose start row is below the window, which after any real
+  // time away is most of them. It is seeded into the record fold rather than
+  // merged after it, so a terminal row this device *can* see still settles the
+  // agent instead of being dropped for having no row to settle.
   const journalTasks = useMemo(
-    () => collectJournalTasks(state.records),
-    [state.records],
-  );
-  // What the journal's own owner says is running, folded over the whole journal
-  // rather than the tail this device holds. Merged under the record fold so a
-  // terminal row this device has already seen still wins, but an agent whose
-  // start is below the window is named instead of missing — which is what made
-  // a cold open claim nothing was in progress while agents started elsewhere
-  // were working.
-  const snapshotTasks = useMemo(
-    () => agentSnapshotTasks(state.runningAgents),
-    [state.runningAgents],
+    () => collectJournalTasks(state.records, state.runningAgents),
+    [state.records, state.runningAgents],
   );
   const authoritativeTasks = useMemo(
-    () =>
-      markAuthoritativeRunning(
-        mergeJournalTasks(snapshotTasks, journalTasks),
-        state.runningAgents,
-      ),
-    [journalTasks, snapshotTasks, state.runningAgents],
+    () => markAuthoritativeRunning(journalTasks, state.runningAgents),
+    [journalTasks, state.runningAgents],
   );
   const localConversationTasks = local.conversationTasks;
   const conversationTasks = useMemo(

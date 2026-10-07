@@ -134,6 +134,17 @@ export const markAuthoritativeRunning = (
 
 export const collectJournalTasks = (
   records: readonly JournalRecord[],
+  /**
+   * Agents the journal's owner reports as running, folded over the whole
+   * journal rather than these records.
+   *
+   * They are seeded as running rows before the fold so that a terminal row
+   * inside the window can settle them. Without the seed, an agent whose
+   * `agent-started` row sits below the loaded window has nothing for its
+   * `[Agent completed]` wake prompt to settle, so the completion is dropped and
+   * the server's snapshot keeps it running until the next connect.
+   */
+  runningAgents: readonly AgentActivityEntry[] = [],
 ): MobileTask[] => {
   const carded = new Set<string>();
   for (const record of records) {
@@ -143,6 +154,7 @@ export const collectJournalTasks = (
   }
   const calls = toolCallsById(records);
   const tasks = new Map<string, MobileTask>();
+  for (const task of agentSnapshotTasks(runningAgents)) tasks.set(task.id, task);
   const generations = new Map<string, number>();
 
   const start = (

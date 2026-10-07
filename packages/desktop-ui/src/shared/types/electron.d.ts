@@ -106,6 +106,12 @@ import type {
   CloudConversationCacheReplaceResult,
   CloudConversationCacheSnapshot,
 } from "@stella/contracts/cloud-conversation-cache";
+import type {
+  UserAsk,
+  UserAskAnswer,
+  UserAskEscalationPolicy,
+  UserAskState,
+} from "@stella/contracts/user-ask";
 
 export type ChatContext = SharedChatContext;
 export type ChatContextFile = SharedChatContextFile;
@@ -940,27 +946,6 @@ export type ElectronSystemApi = {
     >;
   }>;
   resetMessages: () => Promise<{ ok: boolean }>;
-  onCredentialRequest: (
-    callback: (
-      event: unknown,
-      data: {
-        requestId: string;
-        provider: string;
-        label?: string;
-        description?: string;
-        placeholder?: string;
-      },
-    ) => void,
-  ) => () => void;
-  submitCredential: (payload: {
-    requestId: string;
-    secret: string;
-    provider: string;
-    label: string;
-  }) => Promise<{ ok: boolean; error?: string }>;
-  cancelCredential: (payload: {
-    requestId: string;
-  }) => Promise<{ ok: boolean; error?: string }>;
   onConnectorCredentialRequest: (
     callback: (
       event: unknown,
@@ -1569,6 +1554,34 @@ export type ElectronAppSourceApi = {
   skip: (key: string) => Promise<AppSourceActionResult>;
 };
 
+export type ElectronUserAskApi = {
+  list: () => Promise<readonly UserAsk[]>;
+  answer: (
+    answer: UserAskAnswer,
+  ) => Promise<{ ok: boolean; late?: boolean; error?: string }>;
+  cancel: (payload: {
+    askId: string;
+    revision?: number;
+  }) => Promise<{ ok: boolean; error?: string }>;
+  overrideSensitive: (payload: {
+    askId: string;
+    fieldId: string;
+    sensitive: boolean;
+  }) => Promise<{ ok: boolean; error?: string }>;
+  policyGet: () => Promise<UserAskEscalationPolicy>;
+  policySet: (
+    policy: UserAskEscalationPolicy,
+  ) => Promise<UserAskEscalationPolicy>;
+  onOpened: (callback: (event: unknown, ask: UserAsk) => void) => () => void;
+  onUpdated: (callback: (event: unknown, ask: UserAsk) => void) => () => void;
+  onClosed: (
+    callback: (
+      event: unknown,
+      payload: { askId: string; state: UserAskState },
+    ) => void,
+  ) => () => void;
+};
+
 export type ElectronApi = {
   platform: string;
   arch: string;
@@ -1703,6 +1716,7 @@ export type ElectronApi = {
   localChat: ElectronLocalChatApi;
   nativeIntegrations: ElectronNativeIntegrationsApi;
   home: ElectronHomeApi;
+  userAsk?: ElectronUserAskApi;
 };
 
 declare global {

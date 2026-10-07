@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { AppBootstrap } from "./bootstrap/AppBootstrap";
 import { ChatStoreProvider } from "@/context/chat-store";
-import { CredentialRequestLayer } from "./global/auth/CredentialRequestLayer";
+import { UserAskEventsLayer } from "./features/user-ask/UserAskEventsLayer";
 import { RemoteExecutionConsentLayer } from "./global/execution/RemoteExecutionConsentLayer";
 import { FullShell } from "./shell/FullShell";
 import { CloudHomeSyncBridge } from "./features/cloud/CloudHomeSyncBridge";
@@ -14,9 +14,9 @@ const AUTO_REPAIR_SIGNATURE_KEY = "stella:auto-repair:last-signature";
 // Every passive IPC listener below mounts eagerly because main fires the
 // matching channels fire-and-forget — if the renderer isn't subscribed at the
 // moment of `webContents.send(...)`, the event is silently dropped:
-//   * CredentialRequestLayer  → `credential:request` (agent stalls 5 min on
-//     timeout, see `desktop/electron/services/credential-service.ts`)
-//     (stella-connect CLI hangs on the bridge until the user submits)
+//   * UserAskEventsLayer → `userAsk:opened` / `userAsk:updated` /
+//     `userAsk:closed` (an agent is blocked on an answer from Rahul; a
+//     dropped event leaves the ask invisible until the next window reopen)
 //   * RemoteExecutionConsentLayer → `execution:remoteExecutionRequest` (the
 //     owner gate asked this computer whether work may run here; a dropped
 //     question looks like a machine that was never asked)
@@ -42,7 +42,7 @@ function App() {
           ) : null}
           <CloudHomeSyncBridge />
           {platformCapabilities.nativeBridges ? (
-            <CredentialRequestLayer />
+            <UserAskEventsLayer />
           ) : null}
           {platformCapabilities.nativeBridges ? (
             <RemoteExecutionConsentLayer />

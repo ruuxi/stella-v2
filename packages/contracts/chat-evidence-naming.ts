@@ -1,4 +1,4 @@
-import path from "node:path";
+import { basename, extname } from "./chat-evidence-paths.js";
 
 export type EvidenceSourceKind =
   | "image"
@@ -94,7 +94,7 @@ export const evidenceSourceKind = (
   isDirectory: boolean,
 ): EvidenceSourceKind => {
   if (isDirectory) return "folder";
-  const extension = path.extname(filePath).toLowerCase();
+  const extension = extname(filePath).toLowerCase();
   if (IMAGE_EXTENSIONS.has(extension)) return "image";
   if (VIDEO_EXTENSIONS.has(extension)) return "video";
   if (AUDIO_EXTENSIONS.has(extension)) return "audio";
@@ -107,10 +107,10 @@ export const evidenceSourceKind = (
 };
 
 export const playbackMimeTypeFor = (filePath: string): string | undefined =>
-  PLAYBACK_MIME[path.extname(filePath).toLowerCase()];
+  PLAYBACK_MIME[extname(filePath).toLowerCase()];
 
 export const plainKindLabel = (filePath: string): string => {
-  const extension = path.extname(filePath).toLowerCase();
+  const extension = extname(filePath).toLowerCase();
   const named = PLAIN_LABELS[extension];
   if (named) return named;
   if (!extension) return "File";
@@ -183,7 +183,7 @@ export type EvidenceNameParts = {
 };
 
 export const parseEvidenceName = (filePath: string): EvidenceNameParts => {
-  const stem = path.basename(filePath, path.extname(filePath));
+  const stem = basename(filePath, extname(filePath));
   const tokens = tokenize(stem);
   let variant: "before" | "after" | null = null;
   const subject: string[] = [];

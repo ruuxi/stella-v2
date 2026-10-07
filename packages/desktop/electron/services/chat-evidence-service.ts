@@ -4,9 +4,9 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import {
   EVIDENCE_CARD_CAP,
-  EVIDENCE_CARD_HEIGHT,
-  EVIDENCE_RAIL_WIDTH,
   EVIDENCE_RASTER_SCALE,
+  EVIDENCE_TILE_HEIGHT,
+  EVIDENCE_TILE_WIDTH,
   type EvidenceCard,
   type EvidenceCardKind,
   type EvidenceCardSet,
@@ -18,9 +18,7 @@ import {
   imageDimensions,
   probeDurationMs,
   probePageCount,
-  quickLookRaster,
   rasterizeImageFile,
-  rasterizePageFile,
   readTablePreview,
   videoPosterRaster,
 } from "./chat-evidence-media.js";
@@ -36,7 +34,7 @@ import {
   playbackMimeTypeFor,
   stackTitleFor,
   type EvidenceSourceKind,
-} from "./chat-evidence-sources.js";
+} from "@stella/contracts/chat-evidence-naming";
 
 const CACHE_DIRNAME = "chat-evidence";
 const CACHE_SCHEMA = "v1";
@@ -60,8 +58,8 @@ type CardPlan =
   | { kind: "stack"; entries: SourceEntry[]; sourceKind: EvidenceSourceKind };
 
 const boxFor = (cardKind: EvidenceCardKind) => ({
-  width: EVIDENCE_RAIL_WIDTH * EVIDENCE_RASTER_SCALE,
-  height: EVIDENCE_CARD_HEIGHT[cardKind] * EVIDENCE_RASTER_SCALE,
+  width: EVIDENCE_TILE_WIDTH[cardKind] * EVIDENCE_RASTER_SCALE,
+  height: EVIDENCE_TILE_HEIGHT * EVIDENCE_RASTER_SCALE,
 });
 
 const hashWholeFile = (filePath: string): Promise<string> =>
@@ -168,7 +166,7 @@ const planCards = async (entries: SourceEntry[]): Promise<CardPlan[]> => {
     plans.push({ kind: "pair", before, after });
   }
 
-  const stackable: EvidenceSourceKind[] = ["image", "video", "page", "pdf"];
+  const stackable: EvidenceSourceKind[] = ["image", "video"];
   for (const sourceKind of stackable) {
     const group = entries.filter(
       (entry) => entry.kind === sourceKind && !consumed.has(entry.filePath),
@@ -231,7 +229,6 @@ const plainCard = (id: string, entry: SourceEntry): EvidenceCard => ({
   kind: "plain",
   title: humanTitleFor(entry.filePath, entry.kind),
   subtitle: `${plainKindLabel(entry.filePath)} · ${formatByteSize(entry.byteSize)}`,
-  height: EVIDENCE_CARD_HEIGHT.plain,
   sourcePaths: [entry.filePath],
   byteSize: entry.byteSize,
   extensionLabel: plainKindLabel(entry.filePath),
@@ -246,7 +243,6 @@ const buildSingleCard = async (
   const base = {
     id,
     title: humanTitleFor(entry.filePath, entry.kind),
-    height: EVIDENCE_CARD_HEIGHT[cardKind],
     sourcePaths: [entry.filePath],
     byteSize: entry.byteSize,
   };
@@ -298,28 +294,18 @@ const buildSingleCard = async (
   }
 
   if (entry.kind === "page") {
-    const thumbnail =
-      (await rasterizePageFile(entry.filePath, box.width, box.height)) ??
-      (await quickLookRaster(entry.filePath, box.width, box.height));
-    if (!thumbnail) return plainCard(id, entry);
     return {
       ...base,
       kind: "page",
-      thumbnail,
-      subtitle: "Opens full size",
+      subtitle: formatByteSize(entry.byteSize),
     };
   }
 
   if (entry.kind === "pdf" || entry.kind === "office") {
-    const [thumbnail, pageCount] = await Promise.all([
-      quickLookRaster(entry.filePath, box.width, box.height),
-      probePageCount(entry.filePath),
-    ]);
-    if (!thumbnail) return plainCard(id, entry);
+    const pageCount = await probePageCount(entry.filePath);
     return {
       ...base,
       kind: "document",
-      thumbnail,
       ...(pageCount ? { pageCount } : {}),
       subtitle: pageCount
         ? `${pageCount} ${pageCount === 1 ? "page" : "pages"}`
@@ -375,7 +361,6 @@ const buildPairCard = async (
     subtitle: dimensions
       ? `Drag to compare · ${dimensions.width} × ${dimensions.height}`
       : "Drag to compare",
-    height: EVIDENCE_CARD_HEIGHT["image-pair"],
     sourcePaths: [before.filePath, after.filePath],
     thumbnail: beforeRaster,
     thumbnailAfter: afterRaster,
@@ -394,11 +379,7 @@ const buildStackCard = async (
       const thumbnail =
         sourceKind === "image"
           ? await rasterizeImageFile(entry.filePath, box.width, box.height)
-          : sourceKind === "video"
-            ? await videoPosterRaster(entry.filePath, box.width, box.height)
-            : sourceKind === "page"
-              ? await rasterizePageFile(entry.filePath, box.width, box.height)
-              : await quickLookRaster(entry.filePath, box.width, box.height);
+          : await videoPosterRaster(entry.filePath, box.width, box.height);
       return {
         title: humanTitleFor(entry.filePath, entry.kind),
         sourcePath: entry.filePath,
@@ -414,7 +395,6 @@ const buildStackCard = async (
       sourceKind,
     ),
     subtitle: `${entries.length} items · click to flip through`,
-    height: EVIDENCE_CARD_HEIGHT.stack,
     sourcePaths: entries.map((entry) => entry.filePath),
     frames,
     fileCount: entries.length,

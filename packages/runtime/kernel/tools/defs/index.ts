@@ -29,6 +29,7 @@ import { createExecCommandTool } from "./exec-command.js";
 import { grepTool } from "./grep.js";
 import { createHtmlTool } from "./html.js";
 import { createDriveTool } from "./drive.js";
+import { createDriveTransferTools } from "./drive-transfer.js";
 import { createImageGenTool } from "./image-gen.js";
 import { createMapTool } from "./map.js";
 import { createMultiToolUseParallelTool } from "./multi-tool-use-parallel.js";
@@ -188,6 +189,14 @@ export const buildBuiltinTools = (
   // name from either placement rather than only where it was uploaded.
   tools.push(
     createDriveTool({
+      ...(options.getCloudBackendAuth
+        ? { getCloudBackendAuth: options.getCloudBackendAuth }
+        : {}),
+    }),
+  );
+
+  tools.push(
+    ...createDriveTransferTools({
       ...(options.getCloudBackendAuth
         ? { getCloudBackendAuth: options.getCloudBackendAuth }
         : {}),

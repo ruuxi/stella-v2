@@ -563,9 +563,7 @@ export const createRunnerContext = ({
       (context.state?.authToken ?? envAuthToken ?? "").trim() || null,
     ownerScopeOf: resolveJwtOwnerScope,
     onLog: (event, fields) => {
-      if (event !== "device_files_recorded") {
-        console.warn(`[device-files] ${event}`, fields);
-      }
+      console.warn(`[device-files] ${event}`, fields);
     },
   });
 

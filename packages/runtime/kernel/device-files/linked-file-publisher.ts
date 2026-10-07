@@ -57,7 +57,7 @@ const CONTENT_TYPES: Record<string, string> = {
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 };
 
-const contentTypeFor = (filePath: string): string =>
+export const contentTypeFor = (filePath: string): string =>
   CONTENT_TYPES[path.extname(filePath).toLowerCase()] ??
   "application/octet-stream";
 
@@ -259,7 +259,13 @@ export const createLinkedFilePublisher = (deps: {
       const baseUrl = deps.getBackendUrl()?.trim();
       const token = deps.getAuthToken()?.trim();
       const ownerScope = token ? deps.ownerScopeOf(token) : null;
-      if (!baseUrl || !token || !ownerScope) return;
+      if (!baseUrl || !token || !ownerScope) {
+        deps.onLog?.("device_files_skipped", {
+          files: paths.length,
+          reason: !baseUrl ? "no_backend" : !token ? "signed_out" : "no_owner",
+        });
+        return;
+      }
       const job = { baseUrl, token, ownerScope };
       queue = queue
         .then(() => publishPaths(paths, job))

@@ -1654,14 +1654,17 @@ class ClaudeCodeSessionRuntime {
     observedMcpCalls = [],
   ) {
 
-    const reseedBase = withConsumedSteering(
-      session,
-      request.resumeFallbackPrompt ?? prompt,
-    );
-    const buildReseedPrompt = (mcpCalls) =>
-      mcpCalls.length > 0
+    const buildReseedPrompt = (mcpCalls) => {
+      // Read at recovery time: steering consumed during the failed attempt
+      // must reach the fresh session too.
+      const reseedBase = withConsumedSteering(
+        session,
+        request.resumeFallbackPrompt ?? prompt,
+      );
+      return mcpCalls.length > 0
         ? buildSideEffectReconciliationPrompt(mcpCalls, reseedBase)
         : reseedBase;
+    };
     try {
       const processState = await this.ensureStreamingProcess(
         session,
@@ -2125,6 +2128,15 @@ class ClaudeCodeSessionRuntime {
           if (!completed) {
             continue;
           }
+          if (hasUnconsumedInjection(completed)) {
+            // An error result with steering still waiting on this CLI's stdin.
+            // Stop the process before that steering goes back to the host
+            // queue, so it can't also run here against the next prompt.
+            processState.closed = true;
+            if (session.process === processState) {
+              this.resetStreamingProcess(request.sessionKey, session);
+            }
+          }
           this.detachAbortListener(completed);
           try {
             const stepResult = this.parseResultPayload(
@@ -2241,17 +2253,38 @@ class ClaudeCodeSessionRuntime {
         request,
         resolve,
         reject: (error) => {
-          // The process died after this turn's own answer was delivered, while
-          // it was running queued steering. Settle with that answer instead of
-          // letting recovery resend (and re-answer) the original prompt; the
-          // steering it was working on goes back on the queue.
+          // The process was lost after this turn's own answer was delivered,
+          // while it was running queued steering. Recovery must not resend
+          // (and re-answer) the original prompt.
           if (
             pending.intermediateResult &&
-            error instanceof ClaudeCodeProcessEndedError &&
+            (error instanceof ClaudeCodeProcessEndedError ||
+              error instanceof ClaudeCodeCompactionLoopError) &&
             !request.abortSignal?.aborted
           ) {
-            dropInjections(pending, (injection) => injection.afterIntermediate);
-            resolve({ ...pending.intermediateResult, delivered: true });
+            const unfinishedCalls = pending.mcpCalls.slice(
+              pending.answeredMcpCallCount,
+            );
+            if (unfinishedCalls.length === 0) {
+              // Nothing applied yet: settle with that answer and requeue the
+              // steering that no completed query answered.
+              dropInjections(pending, (injection) => !injection.answered);
+              resolve({ ...pending.intermediateResult, delivered: true });
+              return;
+            }
+            // The unfinished steering query already made tool calls. Let
+            // recovery reconcile it on the resumed session instead of
+            // requeueing (and replaying) it; only untaken steering requeues.
+            dropInjections(pending, (injection) => !injection.consumed);
+            reject(
+              error instanceof ClaudeCodeCompactionLoopError
+                ? new ClaudeCodeCompactionLoopError(unfinishedCalls)
+                : new ClaudeCodeProcessEndedError(
+                    error.message,
+                    error.exitCode,
+                    unfinishedCalls,
+                  ),
+            );
             return;
           }
           reject(error);
@@ -2377,7 +2410,6 @@ class ClaudeCodeSessionRuntime {
       const injection = pending.injections?.get(uuid);
       if (!injection || injection.consumed) continue;
       injection.consumed = true;
-      injection.afterIntermediate = Boolean(pending.intermediateResult);
       if (injection.text) {
         session.consumedSteeringTexts.push(injection.text);
       }
@@ -2407,8 +2439,13 @@ class ClaudeCodeSessionRuntime {
     } catch {
       return;
     }
-    if (!stepResult.message) return;
+    // Every query that took steering in so far has now been answered.
+    for (const injection of pending.injections.values()) {
+      if (injection.consumed) injection.answered = true;
+    }
+    pending.answeredMcpCallCount = pending.mcpCalls.length;
     pending.intermediateResult = stepResult;
+    if (!stepResult.message) return;
     try {
       pending.request.onIntermediateResult?.(stepResult);
     } catch {

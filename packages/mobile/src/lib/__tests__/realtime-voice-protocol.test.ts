@@ -1,16 +1,21 @@
 import { describe, expect, test } from "bun:test";
+import { VOICE_APPEND_MAX_CHARS } from "@stella/contracts/backend/voice";
 import {
-  buildComputerVoiceInstructions,
-  buildMobileRealtimeSessionUpdate,
-  buildAttachedChatVoiceInstructions,
+  buildAttachedChatVoiceHistory,
+  buildComputerVoiceHistory,
+  buildVoiceAppendEvent,
+  buildVoiceSessionInstructions,
   findVoiceActionCompletion,
-  mergeComputerVoiceTools,
+  parseVoiceDelegationCreated,
+  parseVoiceTranscriptDelta,
   realtimeErrorMessage,
+  splitVoiceAppendContent,
+  VoiceTranscriptAccumulator,
 } from "../realtime-voice-protocol";
 
 describe("realtime voice protocol", () => {
-  test("carries only the latest 16 attached chat messages", () => {
-    const instructions = buildAttachedChatVoiceInstructions(
+  test("carries the attached chat as bounded startup history", () => {
+    const history = buildAttachedChatVoiceHistory(
       Array.from({ length: 18 }, (_, index) => ({
         id: `m${index}`,
         role: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
@@ -18,84 +23,95 @@ describe("realtime voice protocol", () => {
       })),
     );
 
-    expect(instructions.includes("User: message 0\n")).toBe(false);
-    expect(instructions.includes("Stella: message 1\n")).toBe(false);
-    expect(instructions).toContain("message 2");
-    expect(instructions).toContain("message 17");
-    expect(instructions).toContain("attached Stella chat");
+    expect(history.at(0)).toEqual({ role: "user", text: "message 0" });
+    expect(history.at(-1)).toEqual({ role: "assistant", text: "message 17" });
+    expect(history).toHaveLength(18);
+    expect(buildVoiceSessionInstructions("phone")).toContain(
+      "Delegate anything",
+    );
   });
 
-  test("wraps the connected desktop orchestrator context and tools", () => {
-    const instructions = buildComputerVoiceInstructions({
+  test("carries the connected computer's turns as startup history", () => {
+    const history = buildComputerVoiceHistory({
       instructions: "Use the computer runtime.",
-      tools: [],
       history: [
         { role: "user", content: "Open the budget file" },
         { role: "assistant", content: "Which one?" },
+        { role: "tool", content: "budget.xlsx opened" },
       ],
     });
 
-    expect(instructions).toContain("Use the computer runtime.");
-    expect(instructions).toContain("[User]\nOpen the budget file");
-    expect(instructions).toContain("[Stella]\nWhich one?");
-
-    expect(
-      mergeComputerVoiceTools([
-        {
-          type: "function",
-          name: "web",
-          description: "Search the web.",
-          parameters: { type: "object" },
-        },
-      ]).map((tool) => tool.name),
-    ).toEqual(["web", "no_response", "goodbye"]);
-  });
-
-  test("normalizes Computer tools and avoids immutable session fields", () => {
-    const tools = mergeComputerVoiceTools([
+    expect(history).toEqual([
+      { role: "user", text: "Open the budget file" },
+      { role: "assistant", text: "Which one?" },
       {
-        type: "function",
-        name: "image_gen",
-        description: "Generate an image.",
-        parameters: {
-          type: "object",
-          properties: { prompt: { type: "string" } },
-          required: ["prompt"],
-          allOf: [{ not: { required: ["tooManyReferences"] } }],
-        },
+        role: "developer",
+        text: "Earlier tool from the computer's chat: budget.xlsx opened",
       },
     ]);
-    expect(tools[0]?.parameters).toEqual({
-      type: "object",
-      properties: { prompt: { type: "string" } },
-      required: ["prompt"],
+    expect(buildVoiceSessionInstructions("computer")).toContain(
+      "connected computer",
+    );
+  });
+
+  test("returns work through bounded appends tied to a delegation", () => {
+    const delegation = parseVoiceDelegationCreated({
+      type: "session.delegation.created",
+      delegation: { id: "dlg_1", target: "client" },
+      offset_ms: 1_400,
+    });
+    expect(delegation).toEqual({
+      id: "dlg_1",
+      target: "client",
+      offsetMs: 1_400,
     });
 
-    const update = buildMobileRealtimeSessionUpdate({
-      eventId: "mobile-session-update-1",
-      execution: "computer",
-      instructions: "Use the paired computer.",
-      tools,
+    const chunks = splitVoiceAppendContent(
+      "x".repeat(VOICE_APPEND_MAX_CHARS + 5),
+    );
+    expect(chunks).toHaveLength(2);
+    expect(chunks[1]).toHaveLength(5);
+    expect(
+      buildVoiceAppendEvent({
+        kind: "commentary",
+        eventId: "mobile-append-1",
+        delegationId: "dlg_1",
+        content: "The flight is on time.",
+      }),
+    ).toEqual({
+      type: "session.commentary.append",
+      event_id: "mobile-append-1",
+      delegation_id: "dlg_1",
+      content: "The flight is on time.",
     });
-    expect(update).toEqual({
-      type: "session.update",
-      event_id: "mobile-session-update-1",
-      session: {
-        type: "realtime",
-        instructions: "Use the paired computer.",
-        tools,
-        tool_choice: "auto",
-        audio: {
-          input: {
-            turn_detection: {
-              type: "server_vad",
-              create_response: true,
-              interrupt_response: true,
-            },
-          },
-        },
+  });
+
+  test("accumulates transcript fragments into one spoken turn", () => {
+    const accumulator = new VoiceTranscriptAccumulator();
+    for (const event of [
+      {
+        type: "session.input_transcript.delta",
+        delta: "book a ",
+        start_ms: 0,
+        end_ms: 400,
       },
-    });
+      {
+        type: "session.input_transcript.delta",
+        delta: "flight tomorrow",
+        start_ms: 400,
+        end_ms: 900,
+      },
+    ]) {
+      const fragment = parseVoiceTranscriptDelta(event);
+      expect(fragment?.role).toBe("user");
+      accumulator.append(fragment!);
+    }
+
+    expect(accumulator.take()).toBe("book a flight tomorrow");
+    expect(accumulator.text).toBe("");
+    expect(
+      parseVoiceTranscriptDelta({ type: "session.output_transcript.delta" }),
+    ).toBeNull();
   });
 
   test("extracts provider error messages", () => {

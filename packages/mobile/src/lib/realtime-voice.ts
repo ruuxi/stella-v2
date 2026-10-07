@@ -6,25 +6,32 @@ import type { ChatMessage, MobileTask } from "../types";
 import type { StoredPhoneAccess } from "./phone-access";
 import {
   VOICE_LEASE_HEADER,
-  VOICE_OPENAI_SDP_PATH,
+  VOICE_LIVE_SDP_PATH,
+  type VoiceHistoryMessage,
   type VoiceLeaseEvent,
 } from "@stella/contracts/backend/voice";
 import { getBackendClient } from "./backend";
 import { postText } from "./http";
 import {
-  buildComputerVoiceInstructions,
-  buildMobileRealtimeSessionUpdate,
-  buildAttachedChatVoiceInstructions,
+  buildAttachedChatVoiceHistory,
+  buildComputerVoiceHistory,
+  buildVoiceAppendEvent,
+  buildVoiceCloseEvent,
+  buildVoiceMicrophoneEvent,
+  buildVoiceSessionInstructions,
   findVoiceActionCompletion,
-  mergeComputerVoiceTools,
+  parseVoiceAppendAck,
+  parseVoiceDelegationCreated,
+  parseVoiceTranscriptDelta,
   realtimeErrorMessage,
+  splitVoiceAppendContent,
+  VoiceTranscriptAccumulator,
   type RealtimeVoiceActionDispatch,
-  type RealtimeVoiceOrchestratorConfig,
   type RealtimeVoicePhase,
+  type VoiceAppendKind,
 } from "./realtime-voice-protocol";
 import {
   connectDesktopRealtimeVoice,
-  executeDesktopRealtimeVoiceTool,
   persistDesktopRealtimeVoiceTranscript,
   type DesktopRealtimeVoice,
 } from "./desktop-realtime-voice";
@@ -40,15 +47,17 @@ import {
 const DATA_CHANNEL_OPEN_TIMEOUT_MS = 15_000;
 const LEASE_HEARTBEAT_MS = 2_000;
 const LEASE_REQUEST_TIMEOUT_MS = 1_500;
-const USAGE_REQUEST_TIMEOUT_MS = 1_500;
-const USAGE_DRAIN_TIMEOUT_MS = 2_000;
 const LEASE_MAX_LOCAL_LIFETIME_MS = 10_000;
 const LEASE_EXPIRY_SKEW_MS = 1_000;
 const SESSION_REQUEST_TIMEOUT_MS = 20_000;
-const SESSION_UPDATE_TIMEOUT_MS = 10_000;
+const SESSION_START_TIMEOUT_MS = 10_000;
+const SESSION_CLOSE_DRAIN_MS = 1_500;
 const SDP_NEGOTIATION_TIMEOUT_MS = 8_000;
 const DISCONNECTED_GRACE_MS = 10_000;
-const GOODBYE_DRAIN_FALLBACK_MS = 1_200;
+/** Transcript deltas are the only speech signal GPT-Live sends on the channel. */
+const USER_SPEECH_IDLE_MS = 900;
+const ASSISTANT_SPEECH_IDLE_MS = 1_200;
+const MAX_DELEGATION_RESULT_CHARS = 6_000;
 
 const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> =>
   new Promise<T>((resolve, reject) => {
@@ -122,10 +131,12 @@ type PeerConnection = NativeRTCPeerConnection & {
   addEventListener: (type: string, listener: () => void) => void;
 };
 
-const asRecord = (value: unknown): Record<string, unknown> | null =>
-  value && typeof value === "object"
-    ? (value as Record<string, unknown>)
-    : null;
+/** One voice request handed to the orchestrator, keyed by its chat turn. */
+type DelegatedRequest = {
+  delegationId: string;
+  transcript: string;
+  superseded: boolean;
+};
 
 const asString = (value: unknown): string =>
   typeof value === "string" ? value : "";
@@ -185,9 +196,13 @@ const waitForDataChannelOpen = (channel: DataChannel): Promise<void> =>
   });
 
 /**
- * One foreground mobile Realtime session. It mirrors the desktop's managed
- * OpenAI path but deliberately keeps the lifecycle bounded to the full-screen
- * surface: closing the surface closes the microphone, peer, and backend lease.
+ * One foreground mobile GPT-Live session in client-delegation mode. The voice
+ * model holds the spoken conversation full-duplex; every delegation it opens
+ * becomes an orchestrator turn in the attached Stella chat — the same path a
+ * typed message takes — and its result comes back as spoken commentary.
+ *
+ * The lifecycle stays bounded to the full-screen surface: closing the surface
+ * closes the microphone, the peer, and the backend lease.
  */
 export class MobileRealtimeVoiceSession {
   private readonly options: SessionOptions;
@@ -215,61 +230,61 @@ export class MobileRealtimeVoiceSession {
   private audioLease: RecordingAudioLease | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private leaseExpiryTimer: ReturnType<typeof setTimeout> | null = null;
-  private inFlightUsageReports = new Set<Promise<void>>();
-  private usageReportingClosed = false;
-  private goodbyeTimer: ReturnType<typeof setTimeout> | null = null;
+  private userSpeechTimer: ReturnType<typeof setTimeout> | null = null;
+  private assistantSpeechTimer: ReturnType<typeof setTimeout> | null = null;
   private disconnectedTimer: ReturnType<typeof setTimeout> | null = null;
   private sdpAbortController: AbortController | null = null;
-  private sessionUpdateWaiter: {
-    eventId: string;
-    finish: (error?: Error) => void;
-  } | null = null;
-  private handledToolCalls = new Set<string>();
-  private handledUserTranscripts = new Set<string>();
+  private sessionStartWaiter: { finish: (error?: Error) => void } | null = null;
+  private sessionCloseWaiter: (() => void) | null = null;
+  private sessionLive = false;
   private persistedDesktopTranscripts = new Set<string>();
-  private pendingActionRequestIds = new Set<string>();
-  private queuedCompletionTexts: string[] = [];
-  private responseActive = false;
-  private responseRequested = false;
-  private userTurnPendingResponse = false;
-  private goodbyePending = false;
+  private handledDelegations = new Set<string>();
+  private delegatedRequests = new Map<string, DelegatedRequest>();
+  private pendingAppends = new Map<string, VoiceAppendKind>();
+  private appendSequence = 0;
   private closeAfterNextSpokenReply = false;
-  private userTranscriptBuffer = "";
-  private assistantTranscriptBuffer = "";
+  private userTranscript = new VoiceTranscriptAccumulator();
+  private assistantTranscript = new VoiceTranscriptAccumulator();
 
   constructor(options: SessionOptions) {
     this.options = options;
   }
 
   /**
-   * Feed settled text-chat results back into the live voice conversation.
-   * This mirrors desktop local-chat sync so a Computer/Chat action can be
-   * announced aloud when it genuinely finishes.
+   * Interrupting speech never cancels backend work, so settled chat results are
+   * returned to the live conversation whenever they land: spoken commentary for
+   * work the user still wants, silent context for a request they superseded.
    */
   syncAssistantMessages(
     messages: ChatMessage[],
     tasks: readonly MobileTask[],
     chatBusy: boolean,
   ): void {
-    if (this.options.execution !== "phone") return;
     if (chatBusy || !this.snapshot.isConnected || this.stopped) return;
-    for (const requestId of this.pendingActionRequestIds) {
+    for (const [requestId, request] of [...this.delegatedRequests]) {
       const completion = findVoiceActionCompletion(messages, requestId, tasks);
       if (!completion) continue;
-      this.pendingActionRequestIds.delete(requestId);
-      this.queuedCompletionTexts.push(
-        [
-          completion.failed
-            ? "The attached Stella chat failed to complete work requested during this voice session."
-            : "The attached Stella chat completed work requested during this voice session.",
-          completion.text.slice(0, 8_000),
-          completion.failed
-            ? "Tell the user briefly that it failed and what they can do next."
-            : "Tell the user the result naturally and briefly.",
-        ].join("\n"),
+      this.delegatedRequests.delete(requestId);
+      const result = completion.text.slice(0, MAX_DELEGATION_RESULT_CHARS);
+      if (request.superseded) {
+        this.sendAppend(
+          "thinking",
+          request.delegationId,
+          [
+            `The user replaced this earlier request: "${request.transcript}". Do not announce its result unless they ask.`,
+            completion.failed
+              ? `It failed: ${result}`
+              : `It returned: ${result}`,
+          ].join("\n"),
+        );
+        continue;
+      }
+      this.sendAppend(
+        "commentary",
+        request.delegationId,
+        completion.failed ? `That did not work out: ${result}` : result,
       );
     }
-    this.flushResponseQueue();
   }
 
   async start(): Promise<void> {
@@ -292,9 +307,8 @@ export class MobileRealtimeVoiceSession {
       // Keep the native module lazy so an older binary receiving the JS bundle
       // can still launch and show a useful upgrade error instead of crashing
       // when ChatPane is imported.
-      const { mediaDevices, RTCPeerConnection } = await import(
-        "react-native-webrtc"
-      );
+      const { mediaDevices, RTCPeerConnection } =
+        await import("react-native-webrtc");
       this.localStream = await mediaDevices.getUserMedia({
         // The native iOS/Android audio route applies its built-in voice
         // processing; this package's constraint type does not expose the
@@ -307,8 +321,7 @@ export class MobileRealtimeVoiceSession {
         return;
       }
 
-      let instructions: string;
-      let tools: RealtimeVoiceOrchestratorConfig["tools"] = [];
+      let history: VoiceHistoryMessage[];
       if (this.options.execution === "computer") {
         if (!this.options.desktopAccess) {
           throw new Error(
@@ -319,18 +332,17 @@ export class MobileRealtimeVoiceSession {
           this.options.desktopAccess,
           this.options.conversationId,
         );
-        instructions = buildComputerVoiceInstructions(this.desktopVoice.config);
-        tools = mergeComputerVoiceTools(this.desktopVoice.config.tools);
+        history = buildComputerVoiceHistory(this.desktopVoice.config);
       } else {
-        instructions = buildAttachedChatVoiceInstructions(
-          this.options.messages,
-        );
+        history = buildAttachedChatVoiceHistory(this.options.messages);
       }
+      const instructions = buildVoiceSessionInstructions(
+        this.options.execution,
+      );
       const session = await withTimeout(
         getBackendClient().call("voice.session", {
           instructions,
-          ...(this.options.execution === "computer" ? { tools } : {}),
-          voiceProvider: "openai",
+          ...(history.length ? { history } : {}),
         }),
         SESSION_REQUEST_TIMEOUT_MS,
       );
@@ -357,6 +369,8 @@ export class MobileRealtimeVoiceSession {
       track.enabled = false;
       pc.addTrack(track, this.localStream);
 
+      // The event channel has to exist before the offer is created so it is
+      // part of the negotiated session.
       const channel = pc.createDataChannel("oai-events") as DataChannel;
       this.channel = channel;
       this.installConnectionListeners(pc, channel);
@@ -376,7 +390,7 @@ export class MobileRealtimeVoiceSession {
       }, SDP_NEGOTIATION_TIMEOUT_MS);
       let sdpAnswer: string;
       try {
-        sdpAnswer = await postText(VOICE_OPENAI_SDP_PATH, localSdp, {
+        sdpAnswer = await postText(VOICE_LIVE_SDP_PATH, localSdp, {
           headers: {
             "Content-Type": "application/sdp",
             [VOICE_LEASE_HEADER]: session.leaseId,
@@ -402,22 +416,13 @@ export class MobileRealtimeVoiceSession {
       await waitForDataChannelOpen(channel);
       if (this.stopped) return;
 
-      // Normal mobile chat owns the turn lifecycle, so VAD commits and
-      // transcribes speech without letting Realtime answer independently.
-      // Computer voice instead receives the connected desktop's exact runtime
-      // tool catalog and follows the same direct-tool loop as desktop voice.
-      const sessionUpdateEventId = `${this.requestId}:session-update`;
-      const sessionUpdated = this.waitForSessionUpdated(sessionUpdateEventId);
-      this.send(
-        buildMobileRealtimeSessionUpdate({
-          eventId: sessionUpdateEventId,
-          execution: this.options.execution,
-          instructions,
-          tools,
-        }),
-      );
-      await sessionUpdated;
+      // Instructions, voice and startup history are set when the backend
+      // creates the session, so nothing is configured from here. The session
+      // announces itself and only then accepts commands.
+      await this.waitForSessionStarted();
       if (this.stopped) return;
+      this.sessionLive = true;
+      this.setMicrophoneMuted(false);
       track.enabled = true;
       // WebRTC activates its own call-style iOS audio session after the first
       // configuration above. Reassert Stella's assistant-style loudspeaker
@@ -520,25 +525,58 @@ export class MobileRealtimeVoiceSession {
   private handleServerEvent(event: Record<string, unknown>) {
     const type = asString(event.type);
     switch (type) {
-      case "session.updated":
-        this.sessionUpdateWaiter?.finish();
+      case "session.started":
+        this.sessionStartWaiter?.finish();
         return;
-      case "response.created":
-        this.userTurnPendingResponse = false;
-        this.responseActive = true;
+      case "session.closed":
+        this.sessionLive = false;
+        if (this.sessionCloseWaiter) {
+          this.sessionCloseWaiter();
+          return;
+        }
+        void this.failConnection(
+          "This voice session ended. Start a new one to keep talking.",
+        );
         return;
-      case "input_audio_buffer.speech_started":
-        this.userTranscriptBuffer = "";
-        this.userTurnPendingResponse = this.options.execution === "computer";
-        this.publish({
-          phase: this.snapshot.isAssistantSpeaking
-            ? "assistant-speaking"
-            : "user-speaking",
-          isUserSpeaking: true,
-          micLevel: 0.28,
-        });
+      case "session.input_transcript.delta":
+      case "session.output_transcript.delta":
+        this.handleTranscriptDelta(event);
         return;
-      case "input_audio_buffer.speech_stopped":
+      case "session.delegation.created":
+        void this.handleDelegation(event);
+        return;
+      case "error":
+        if (this.sessionStartWaiter) {
+          this.sessionStartWaiter.finish(
+            new Error(realtimeErrorMessage(event)),
+          );
+          return;
+        }
+        this.resolveAppendAck(event);
+        return;
+      default:
+        this.resolveAppendAck(event);
+        return;
+    }
+  }
+
+  private handleTranscriptDelta(event: Record<string, unknown>) {
+    const fragment = parseVoiceTranscriptDelta(event);
+    if (!fragment) return;
+    if (fragment.role === "user") {
+      const transcript = this.userTranscript.append(fragment);
+      this.publish({
+        transcript,
+        phase: this.snapshot.isAssistantSpeaking
+          ? "assistant-speaking"
+          : "user-speaking",
+        isUserSpeaking: true,
+        micLevel: 0.28,
+      });
+      if (this.userSpeechTimer) clearTimeout(this.userSpeechTimer);
+      this.userSpeechTimer = setTimeout(() => {
+        this.userSpeechTimer = null;
+        if (this.stopped) return;
         this.publish({
           phase: this.snapshot.isAssistantSpeaking
             ? "assistant-speaking"
@@ -546,234 +584,163 @@ export class MobileRealtimeVoiceSession {
           isUserSpeaking: false,
           micLevel: 0,
         });
-        return;
-      case "output_audio_buffer.started":
-      case "output_audio.started":
-        // iOS can reapply WebRTC's receiver route when remote audio starts.
-        // Correct it at the exact playback boundary as well as during setup.
-        void this.ensureLoudspeakerRoute();
-        if (this.goodbyeTimer) clearTimeout(this.goodbyeTimer);
-        this.goodbyeTimer = null;
-        this.assistantTranscriptBuffer = "";
-        this.publish({
-          phase: "assistant-speaking",
-          isAssistantSpeaking: true,
-          outputLevel: 0.36,
-        });
-        return;
-      case "output_audio_buffer.stopped":
-      case "output_audio_buffer.cleared":
-      case "output_audio.done":
-        this.publish({
-          phase: this.snapshot.isUserSpeaking ? "user-speaking" : "listening",
-          isAssistantSpeaking: false,
-          outputLevel: 0,
-        });
-        if (this.goodbyePending || this.closeAfterNextSpokenReply) {
-          this.closeAfterNextSpokenReply = false;
-          this.goodbyePending = true;
-          this.finishGoodbye();
-        } else this.flushResponseQueue();
-        return;
-      case "conversation.item.input_audio_transcription.delta": {
-        const delta = asString(event.delta);
-        this.userTranscriptBuffer += delta;
-        if (delta) this.publish({ transcript: this.userTranscriptBuffer });
-        return;
-      }
-      case "conversation.item.input_audio_transcription.completed": {
-        const transcript =
-          asString(event.transcript).trim() || this.userTranscriptBuffer.trim();
-        this.userTranscriptBuffer = transcript;
-        if (transcript) {
-          this.publish({ transcript });
-          if (this.options.execution === "phone") {
-            this.userTurnPendingResponse = false;
-            void this.dispatchAttachedChatTranscript(event, transcript);
-          } else {
-            void this.persistComputerTranscript(event, "user", transcript);
-          }
-        }
-        return;
-      }
-      case "response.output_audio_transcript.delta":
-      case "response.audio_transcript.delta": {
-        this.responseActive = true;
-        const delta = asString(event.delta);
-        this.assistantTranscriptBuffer += delta;
-        if (delta) this.publish({ transcript: this.assistantTranscriptBuffer });
-        return;
-      }
-      case "response.output_audio_transcript.done":
-      case "response.audio_transcript.done": {
-        const transcript =
-          asString(event.transcript).trim() ||
-          this.assistantTranscriptBuffer.trim();
-        this.assistantTranscriptBuffer = transcript;
-        if (transcript) {
-          this.publish({ transcript });
-          if (this.options.execution === "computer") {
-            void this.persistComputerTranscript(event, "assistant", transcript);
-          }
-        }
-        return;
-      }
-      case "response.function_call_arguments.done":
-        void this.handleFunctionCall({
-          name: event.name,
-          call_id: event.call_id,
-          arguments: event.arguments,
-        });
-        return;
-      case "response.output_item.done": {
-        const item = asRecord(event.item);
-        if (item?.type === "function_call") {
-          void this.handleFunctionCall(item);
-        }
-        return;
-      }
-      case "response.done": {
-        const response = asRecord(event.response);
-        if (response) this.trackUsage(response);
-        this.responseActive = false;
-        this.flushResponseQueue();
-        return;
-      }
-      case "error":
-        if (this.sessionUpdateWaiter) {
-          const error = asRecord(event.error);
-          const rejectedEventId = asString(error?.event_id);
-          if (
-            rejectedEventId &&
-            rejectedEventId !== this.sessionUpdateWaiter.eventId
-          ) {
-            return;
-          }
-          this.sessionUpdateWaiter.finish(
-            new Error(realtimeErrorMessage(event)),
-          );
-          return;
-        }
-        // Realtime emits recoverable protocol errors too (for example, a
-        // response.create arriving while another response is finishing).
-        // The peer/data-channel lifecycle remains the authoritative signal for
-        // a lost session.
-        console.debug(
-          "[realtime-voice] Provider event:",
-          realtimeErrorMessage(event),
-        );
-        return;
-      default:
-        return;
+        void this.persistComputerTranscript("user", this.userTranscript.text);
+      }, USER_SPEECH_IDLE_MS);
+      return;
     }
+    const transcript = this.assistantTranscript.append(fragment);
+    // iOS can reapply WebRTC's receiver route when remote audio starts, so the
+    // loudspeaker is reasserted at the playback boundary too.
+    if (!this.snapshot.isAssistantSpeaking) void this.ensureLoudspeakerRoute();
+    this.publish({
+      transcript,
+      phase: "assistant-speaking",
+      isAssistantSpeaking: true,
+      outputLevel: 0.36,
+    });
+    if (this.assistantSpeechTimer) clearTimeout(this.assistantSpeechTimer);
+    this.assistantSpeechTimer = setTimeout(() => {
+      this.assistantSpeechTimer = null;
+      if (this.stopped) return;
+      this.publish({
+        phase: this.snapshot.isUserSpeaking ? "user-speaking" : "listening",
+        isAssistantSpeaking: false,
+        outputLevel: 0,
+      });
+      void this.persistComputerTranscript(
+        "assistant",
+        this.assistantTranscript.take(),
+      );
+      if (this.closeAfterNextSpokenReply) {
+        this.closeAfterNextSpokenReply = false;
+        this.options.onEndRequested();
+      }
+    }, ASSISTANT_SPEECH_IDLE_MS);
   }
 
-  private async handleFunctionCall(item: Record<string, unknown>) {
-    const name = asString(item.name);
-    const callId = asString(item.call_id);
-    if (!name || !callId || this.handledToolCalls.has(callId)) return;
-    this.handledToolCalls.add(callId);
-
-    let args: Record<string, unknown> = {};
-    try {
-      args = JSON.parse(asString(item.arguments) || "{}") as Record<
-        string,
-        unknown
-      >;
-    } catch {
-      // An invalid argument payload falls back to the latest final transcript.
-    }
-
-    if (name === "no_response") {
-      this.sendToolOutput(callId, "ok", false);
-      return;
-    }
-    if (name === "goodbye" || name === "close") {
-      this.sendToolOutput(callId, "ok", false);
-      this.goodbyePending = true;
-      if (!this.snapshot.isAssistantSpeaking) {
-        this.goodbyeTimer = setTimeout(
-          () => this.finishGoodbye(),
-          GOODBYE_DRAIN_FALLBACK_MS,
-        );
-      }
-      return;
-    }
-
-    if (this.options.execution !== "computer" || !this.desktopVoice) {
-      this.sendToolOutput(
-        callId,
-        "The connected computer's Stella tools are not available.",
-        true,
+  /**
+   * The voice model asked for work. The event carries no task text, so the
+   * request is the accumulated spoken turn plus what the app knows about this
+   * call, and it runs as an ordinary orchestrator turn in the attached chat.
+   */
+  private async handleDelegation(event: Record<string, unknown>) {
+    const delegation = parseVoiceDelegationCreated(event);
+    if (!delegation || this.handledDelegations.has(delegation.id)) return;
+    this.handledDelegations.add(delegation.id);
+    const transcript = this.userTranscript.take();
+    if (!transcript) {
+      this.sendAppend(
+        "thinking",
+        delegation.id,
+        "Nothing was transcribed for that request. Ask the user to say it again.",
       );
       return;
     }
+    const pendingCount = this.delegatedRequests.size;
+    const request = [
+      transcript,
+      "",
+      "<voice_call>",
+      this.options.execution === "computer"
+        ? "The user said this aloud in a live voice call, with work running on their connected computer."
+        : "The user said this aloud in a live voice call attached to this chat.",
+      "Answer in one to three short sentences that read well spoken aloud.",
+      pendingCount
+        ? `${pendingCount} earlier request${pendingCount === 1 ? "" : "s"} from this call ${pendingCount === 1 ? "is" : "are"} still running.`
+        : "",
+      "</voice_call>",
+    ]
+      .filter((line) => line !== "")
+      .join("\n");
 
-    let output: string;
-    try {
-      const result = await executeDesktopRealtimeVoiceTool(
-        this.desktopVoice,
-        {
-          requestId: this.requestId,
-          conversationId: this.options.conversationId,
-          callId,
-          name,
-          args,
-        },
-      );
-      output =
-        result.output || (result.error ? `Error: ${result.error}` : "ok");
-    } catch (error) {
-      output = `Error: ${
-        error instanceof Error
-          ? error.message
-          : "The connected computer could not run that tool."
-      }`;
-    }
-    this.sendToolOutput(callId, output, true);
-  }
-
-  private async dispatchAttachedChatTranscript(
-    event: Record<string, unknown>,
-    transcript: string,
-  ) {
-    const itemId = asString(event.item_id);
-    if (itemId) {
-      if (this.handledUserTranscripts.has(itemId)) return;
-      this.handledUserTranscripts.add(itemId);
-    }
-    const shouldClose = clearlyEndsConversation(transcript);
     let dispatch: RealtimeVoiceActionDispatch = null;
     try {
-      dispatch = await this.options.onPerformAction(transcript);
+      dispatch = await this.options.onPerformAction(request);
     } catch {
       dispatch = null;
     }
     if (this.stopped) return;
-    if (dispatch) {
-      this.pendingActionRequestIds.add(dispatch.userMessageId);
-      if (shouldClose) this.closeAfterNextSpokenReply = true;
+    if (!dispatch) {
+      this.sendAppend(
+        "thinking",
+        delegation.id,
+        "Stella's chat could not accept that request. Tell the user briefly and ask them to try again.",
+      );
       return;
     }
-    this.queuedCompletionTexts.push(
-      "The attached Stella chat could not accept that message. Ask the user to try again.",
+    // A request the user amended mid-sentence is superseded by this one: its
+    // work keeps running, but its answer is no longer what they asked for.
+    for (const pending of this.delegatedRequests.values()) {
+      if (
+        !pending.superseded &&
+        transcript !== pending.transcript &&
+        transcript.startsWith(pending.transcript)
+      ) {
+        pending.superseded = true;
+      }
+    }
+    this.delegatedRequests.set(dispatch.userMessageId, {
+      delegationId: delegation.id,
+      transcript,
+      superseded: false,
+    });
+    this.sendAppend(
+      "thinking",
+      delegation.id,
+      "Stella's orchestrator is handling this request. Keep the user company and wait for the result instead of answering it yourself.",
     );
-    if (shouldClose) this.closeAfterNextSpokenReply = true;
-    this.flushResponseQueue();
+    if (clearlyEndsConversation(transcript)) {
+      this.closeAfterNextSpokenReply = true;
+    }
+  }
+
+  private sendAppend(
+    kind: VoiceAppendKind,
+    delegationId: string | null,
+    content: string,
+  ) {
+    for (const chunk of splitVoiceAppendContent(content)) {
+      this.appendSequence += 1;
+      const eventId = `${this.requestId}:${kind}:${this.appendSequence}`;
+      this.pendingAppends.set(eventId, kind);
+      this.send(
+        buildVoiceAppendEvent({
+          kind,
+          eventId,
+          delegationId,
+          content: chunk,
+        }),
+      );
+    }
+  }
+
+  private resolveAppendAck(event: Record<string, unknown>) {
+    const ack = parseVoiceAppendAck(event);
+    if (!ack) return;
+    const kind = this.pendingAppends.get(ack.clientEventId);
+    if (!kind) return;
+    this.pendingAppends.delete(ack.clientEventId);
+    if (ack.error) {
+      console.debug(`[realtime-voice] ${kind} append rejected:`, ack.error);
+    }
+  }
+
+  private setMicrophoneMuted(muted: boolean) {
+    this.appendSequence += 1;
+    this.send(
+      buildVoiceMicrophoneEvent({
+        eventId: `${this.requestId}:mic:${this.appendSequence}`,
+        muted,
+      }),
+    );
   }
 
   private async persistComputerTranscript(
-    event: Record<string, unknown>,
     role: "user" | "assistant",
     transcript: string,
   ) {
-    if (!this.desktopVoice) return;
-    const eventItemId =
-      asString(event.item_id) ||
-      asString(event.response_id) ||
-      asString(event.event_id) ||
-      `${Date.now()}`;
-    const key = `${role}:${eventItemId}:${transcript}`;
+    if (!this.desktopVoice || !transcript) return;
+    const key = `${role}:${transcript}`;
     if (this.persistedDesktopTranscripts.has(key)) return;
     this.persistedDesktopTranscripts.add(key);
     try {
@@ -782,7 +749,7 @@ export class MobileRealtimeVoiceSession {
         eventId: desktopVoiceTranscriptEventId(
           this.requestId,
           role,
-          eventItemId,
+          `${this.persistedDesktopTranscripts.size}`,
         ),
         timestamp: Date.now(),
         role,
@@ -797,102 +764,47 @@ export class MobileRealtimeVoiceSession {
     }
   }
 
-  private sendToolOutput(
-    callId: string,
-    output: string,
-    createResponse: boolean,
-  ) {
-    this.send({
-      type: "conversation.item.create",
-      item: {
-        type: "function_call_output",
-        call_id: callId,
-        output,
-      },
-    });
-    if (createResponse) this.requestResponse();
-  }
-
-  private requestResponse() {
-    if (
-      this.responseActive ||
-      this.snapshot.isAssistantSpeaking ||
-      this.snapshot.isUserSpeaking ||
-      this.userTurnPendingResponse
-    ) {
-      this.responseRequested = true;
-      return;
-    }
-    this.responseActive = true;
-    this.send(
-      this.options.execution === "phone"
-        ? {
-            type: "response.create",
-            response: {
-              tools: [],
-              tool_choice: "none",
-              instructions:
-                "Speak the completed attached-chat answer faithfully and naturally. Do not add new claims or call tools.",
-            },
-          }
-        : { type: "response.create" },
-    );
-  }
-
-  private flushResponseQueue() {
-    if (
-      this.responseActive ||
-      this.snapshot.isAssistantSpeaking ||
-      this.snapshot.isUserSpeaking ||
-      this.userTurnPendingResponse ||
-      this.stopped
-    ) {
-      return;
-    }
-    const completions = this.queuedCompletionTexts.splice(0);
-    for (const text of completions) {
-      this.send({
-        type: "conversation.item.create",
-        item: {
-          type: "message",
-          role: "user",
-          content: [
-            {
-              type: "input_text",
-              text: ["<system-reminder>", text, "</system-reminder>"].join(
-                "\n",
-              ),
-            },
-          ],
-        },
-      });
-    }
-    if (!completions.length && !this.responseRequested) return;
-    this.responseRequested = false;
-    this.requestResponse();
-  }
-
-  private waitForSessionUpdated(eventId: string): Promise<void> {
+  private waitForSessionStarted(): Promise<void> {
     return new Promise((resolve, reject) => {
       let settled = false;
       const finish = (error?: Error) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        if (this.sessionUpdateWaiter?.finish === finish) {
-          this.sessionUpdateWaiter = null;
+        if (this.sessionStartWaiter?.finish === finish) {
+          this.sessionStartWaiter = null;
         }
         if (error) reject(error);
         else resolve();
       };
       const timer = setTimeout(
-        () =>
-          finish(
-            new Error("Realtime voice configuration took too long to apply."),
-          ),
-        SESSION_UPDATE_TIMEOUT_MS,
+        () => finish(new Error("The voice session took too long to start.")),
+        SESSION_START_TIMEOUT_MS,
       );
-      this.sessionUpdateWaiter = { eventId, finish };
+      this.sessionStartWaiter = { finish };
+    });
+  }
+
+  /** Ask the session to close and keep receiving until it confirms. */
+  private async closeLiveSession(): Promise<void> {
+    if (!this.sessionLive || this.channel?.readyState !== "open") return;
+    this.sessionLive = false;
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (this.sessionCloseWaiter === finish) this.sessionCloseWaiter = null;
+        resolve();
+      };
+      const timer = setTimeout(finish, SESSION_CLOSE_DRAIN_MS);
+      this.sessionCloseWaiter = finish;
+      this.setMicrophoneMuted(true);
+      this.appendSequence += 1;
+      this.send(
+        buildVoiceCloseEvent(`${this.requestId}:close:${this.appendSequence}`),
+      );
     });
   }
 
@@ -903,20 +815,12 @@ export class MobileRealtimeVoiceSession {
       await refreshRecordingAudioSession(lease, REALTIME_VOICE_AUDIO_MODE);
     } catch (error) {
       // A transient OS route failure should not tear down an otherwise healthy
-      // Realtime session; the next assistant response retries the route.
+      // session; the next assistant reply retries the route.
       console.debug(
         "[realtime-voice] Could not route output through the loudspeaker:",
         error instanceof Error ? error.message : String(error),
       );
     }
-  }
-
-  private finishGoodbye() {
-    if (!this.goodbyePending || this.stopped) return;
-    this.goodbyePending = false;
-    if (this.goodbyeTimer) clearTimeout(this.goodbyeTimer);
-    this.goodbyeTimer = null;
-    this.options.onEndRequested();
   }
 
   private clearDisconnectedTimer() {
@@ -965,41 +869,6 @@ export class MobileRealtimeVoiceSession {
     }, delay);
   }
 
-  private trackUsage(response: Record<string, unknown>) {
-    const responseId = asString(response.id);
-    const usage = asRecord(response.usage);
-    const token = this.token;
-    if (!responseId || !usage || !token || this.usageReportingClosed) return;
-    const leaseId = token.leaseId;
-    let tracked!: Promise<void>;
-    tracked = withTimeout(
-      getBackendClient().call("voice.usage", { leaseId, responseId, usage }),
-      USAGE_REQUEST_TIMEOUT_MS,
-    )
-      .then(() => undefined)
-      // The server charges what a lost report misses when the lease closes.
-      .catch(() => undefined)
-      .finally(() => {
-        this.inFlightUsageReports.delete(tracked);
-      });
-    this.inFlightUsageReports.add(tracked);
-  }
-
-  /** Stop accepting usage, then give in-flight reports a bounded wait. */
-  private async closeUsageReportingAndDrain(): Promise<void> {
-    this.usageReportingClosed = true;
-    const pending = [...this.inFlightUsageReports];
-    if (pending.length === 0) return;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    await Promise.race([
-      Promise.all(pending),
-      new Promise<void>((resolve) => {
-        timer = setTimeout(resolve, USAGE_DRAIN_TIMEOUT_MS);
-      }),
-    ]);
-    if (timer) clearTimeout(timer);
-  }
-
   private async reportLeaseEvent(event: VoiceLeaseEvent) {
     const token = this.token;
     if (!token) return;
@@ -1009,10 +878,17 @@ export class MobileRealtimeVoiceSession {
         getBackendClient().call("voice.lease", { leaseId, event }),
         LEASE_REQUEST_TIMEOUT_MS,
       );
-      if (event !== "heartbeat" || this.stopped || this.token?.leaseId !== leaseId) {
+      if (
+        event !== "heartbeat" ||
+        this.stopped ||
+        this.token?.leaseId !== leaseId
+      ) {
         return;
       }
-      if (response.directive === "continue" && response.leaseExpiresAt !== null) {
+      if (
+        response.directive === "continue" &&
+        response.leaseExpiresAt !== null
+      ) {
         this.token.leaseExpiresAt = response.leaseExpiresAt;
         this.scheduleLeaseExpiry(response.leaseExpiresAt);
         return;
@@ -1042,16 +918,13 @@ export class MobileRealtimeVoiceSession {
           ? "This voice session expired. Start a new one to keep talking."
           : "This voice session was closed by Stella. Start a new one to keep talking.",
     });
-    const cleanup = this.releaseConnection();
-    await this.closeUsageReportingAndDrain();
-    await cleanup;
+    await this.releaseConnection();
   }
 
   private async reportLeaseTerminal(event: "ended" | "expired" | "lost") {
     if (this.leaseTerminalReported) return;
     if (!this.token) return;
     this.leaseTerminalReported = true;
-    await this.closeUsageReportingAndDrain();
     await this.reportLeaseEvent(event);
   }
 
@@ -1076,23 +949,26 @@ export class MobileRealtimeVoiceSession {
   private async releaseConnection() {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     if (this.leaseExpiryTimer) clearTimeout(this.leaseExpiryTimer);
-    if (this.goodbyeTimer) clearTimeout(this.goodbyeTimer);
+    if (this.userSpeechTimer) clearTimeout(this.userSpeechTimer);
+    if (this.assistantSpeechTimer) clearTimeout(this.assistantSpeechTimer);
     this.clearDisconnectedTimer();
     this.sdpAbortController?.abort();
     this.sdpAbortController = null;
     this.heartbeatTimer = null;
     this.leaseExpiryTimer = null;
-    this.goodbyeTimer = null;
-    this.sessionUpdateWaiter?.finish(
+    this.userSpeechTimer = null;
+    this.assistantSpeechTimer = null;
+    this.sessionStartWaiter?.finish(
       new Error("The realtime voice session ended during setup."),
     );
-    this.sessionUpdateWaiter = null;
+    this.sessionStartWaiter = null;
 
     const desktopVoice = this.desktopVoice;
     const connectedAt = this.connectedAt;
     this.desktopVoice = null;
     this.connectedAt = null;
 
+    await this.closeLiveSession();
     try {
       this.channel?.close();
     } catch {

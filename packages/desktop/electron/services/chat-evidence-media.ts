@@ -4,12 +4,10 @@ import path from "node:path";
 import { createReadStream } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { BrowserWindow, nativeImage, type NativeImage } from "electron";
+import { nativeImage, type NativeImage } from "electron";
 import { EVIDENCE_PEAK_COUNT } from "@stella/contracts/chat-evidence";
 
 const PROBE_TIMEOUT_MS = 20_000;
-const PAGE_RASTER_TIMEOUT_MS = 12_000;
-const PAGE_SETTLE_MS = 450;
 const CSV_READ_CAP_BYTES = 512 * 1024;
 const CSV_ROW_COUNT_CAP_BYTES = 32 * 1024 * 1024;
 const CSV_PREVIEW_ROWS = 4;
@@ -347,59 +345,6 @@ export const extractAudioPeaks = async (
     return null;
   } finally {
     discard(dir);
-  }
-};
-
-export const rasterizePageFile = async (
-  filePath: string,
-  boxWidth: number,
-  boxHeight: number,
-): Promise<string | null> => {
-  const aspect = boxWidth / boxHeight;
-  const viewportHeight = 760;
-  const viewportWidth = Math.round(viewportHeight * aspect);
-  let window: BrowserWindow | null = null;
-  try {
-    window = new BrowserWindow({
-      width: viewportWidth,
-      height: viewportHeight,
-      show: false,
-      frame: false,
-      webPreferences: {
-        offscreen: true,
-        nodeIntegration: false,
-        contextIsolation: true,
-        sandbox: true,
-        javascript: true,
-        backgroundThrottling: false,
-      },
-    });
-    const owned = window;
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(
-        () => reject(new Error("Page raster timed out.")),
-        PAGE_RASTER_TIMEOUT_MS,
-      );
-      owned.webContents.once("did-finish-load", () => {
-        clearTimeout(timer);
-        resolve();
-      });
-      owned.webContents.once("did-fail-load", (_event, _code, description) => {
-        clearTimeout(timer);
-        reject(new Error(description || "Page raster failed."));
-      });
-      void owned.loadFile(filePath).catch((caught: unknown) => {
-        clearTimeout(timer);
-        reject(caught instanceof Error ? caught : new Error(String(caught)));
-      });
-    });
-    await new Promise((resolve) => setTimeout(resolve, PAGE_SETTLE_MS));
-    const captured = await owned.webContents.capturePage();
-    return coverCropToDataUrl(captured, boxWidth, boxHeight);
-  } catch {
-    return null;
-  } finally {
-    if (window && !window.isDestroyed()) window.destroy();
   }
 };
 

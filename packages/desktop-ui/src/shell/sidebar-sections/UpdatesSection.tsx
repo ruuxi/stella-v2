@@ -104,7 +104,11 @@ const WaitingItem = ({
               disabled={blocked}
               onClick={onAdd}
             >
-              {t("shell.appSource.updates.add")}
+              {offer.kind === "version"
+                ? t("shell.appSource.update")
+                : offer.kind === "other-computer"
+                  ? t("shell.appSource.updates.get")
+                  : t("shell.appSource.updates.add")}
             </button>
           </>
         )}

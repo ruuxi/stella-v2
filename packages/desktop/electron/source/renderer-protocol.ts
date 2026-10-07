@@ -1,6 +1,7 @@
 import path from "node:path";
 import { app, protocol, session, webContents } from "electron";
 import { RENDERER_ORIGIN, RENDERER_SCHEME } from "./origin.js";
+import { MEDIA_SCHEME_PRIVILEGES, serveMediaProtocol } from "./media-protocol.js";
 import type { RendererSource } from "./renderer-source.js";
 
 /** Must run before `ready`: the scheme behaves like https (ESM, fetch, CSP 'self'). */
@@ -17,6 +18,7 @@ export const registerRendererScheme = () => {
         codeCache: true,
       },
     },
+    MEDIA_SCHEME_PRIVILEGES,
   ]);
 };
 
@@ -79,6 +81,7 @@ export const serveRendererSource = (options: {
   log: (message: string) => void;
 }): RendererSourceHandle => {
   const partitionSession = session.fromPartition(options.partition);
+  serveMediaProtocol(options.partition);
   const pages = () =>
     webContents
       .getAllWebContents()

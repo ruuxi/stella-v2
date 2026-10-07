@@ -15,7 +15,13 @@ const formatTime = (seconds: number): string => {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 };
 
-export const AudioPlayer = ({ src }: { src: string | null }) => {
+export const AudioPlayer = ({
+  src,
+  onError,
+}: {
+  src: string | null;
+  onError?: () => void;
+}) => {
   const t = useT();
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
@@ -64,6 +70,7 @@ export const AudioPlayer = ({ src }: { src: string | null }) => {
         onTimeUpdate={(e) => setCurrent(e.currentTarget.currentTime)}
         onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
         onDurationChange={(e) => setDuration(e.currentTarget.duration)}
+        onError={onError}
       />
       <button
         type="button"

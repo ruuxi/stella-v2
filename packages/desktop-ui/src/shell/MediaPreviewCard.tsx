@@ -14,6 +14,7 @@ import {
 import { copyImageBlob } from "@/shell/media-clipboard";
 import { displayTabs } from "@/features/workspace-display/tab-store";
 import { AudioPlayer } from "@/shell/AudioPlayer";
+import { localMediaUrl } from "@/shared/hooks/local-media-url";
 import { useT } from "@/shared/i18n";
 
 type MediaPreviewCardProps = {
@@ -228,37 +229,32 @@ const VideoCard = ({
   inDialog?: boolean;
 }) => {
   const t = useT();
-  const { files, error, missing } = useDisplayFileBlobs(
-    [filePath],
-    "Media preview requires the Electron host runtime.",
-  );
-  const file = files[0];
-  const isMissing = missing[0] ?? false;
+  const [unavailable, setUnavailable] = useState(false);
+  const streamUrl = localMediaUrl(filePath);
   return (
     <div className="display-media display-media--video">
       <PromptHeader prompt={prompt} capability={capability} />
-      {error && <p className="display-media__error">{error}</p>}
-      {file ? (
-        <video
-          src={file.url}
-          controls
-          loop
-          playsInline
-          className="display-media__video"
-        />
-      ) : isMissing ? (
+      {unavailable ? (
         <div className="display-media__missing">
           File no longer available — {filenameOf(filePath)} was moved or
           deleted.
         </div>
       ) : (
-        !error && <div className="display-media__loading">Loading…</div>
+        <video
+          src={streamUrl}
+          controls
+          loop
+          playsInline
+          preload="metadata"
+          className="display-media__video"
+          onError={() => setUnavailable(true)}
+        />
       )}
       <MediaActions
         filePath={filePath}
         copyText={filePath}
         extraAction={
-          !inDialog && file ? (
+          !inDialog ? (
             <button
               type="button"
               className="display-media__action-btn"
@@ -286,23 +282,22 @@ const AudioCard = ({
   inDialog?: boolean;
 }) => {
   const t = useT();
-  const { files, error, missing } = useDisplayFileBlobs(
-    [filePath],
-    "Media preview requires the Electron host runtime.",
-  );
-  const file = files[0];
-  const isMissing = missing[0] ?? false;
+  const [unavailable, setUnavailable] = useState(false);
+  const streamUrl = localMediaUrl(filePath);
   return (
     <div className="display-media display-media--audio">
       <PromptHeader prompt={prompt} capability={capability} />
-      {error && <p className="display-media__error">{error}</p>}
       <div className="display-media__audio-card">
-        {isMissing ? (
+        {unavailable ? (
           <div className="display-media__missing">
             {t("shell.display.media.missing")}
           </div>
         ) : (
-          <AudioPlayer key={file?.url ?? "audio-loading"} src={file?.url ?? null} />
+          <AudioPlayer
+            key={streamUrl}
+            src={streamUrl}
+            onError={() => setUnavailable(true)}
+          />
         )}
         <div className="display-media__audio-name">{filenameOf(filePath)}</div>
       </div>
@@ -310,7 +305,7 @@ const AudioCard = ({
         filePath={filePath}
         copyText={filePath}
         extraAction={
-          !inDialog && file ? (
+          !inDialog ? (
             <button
               type="button"
               className="display-media__action-btn"

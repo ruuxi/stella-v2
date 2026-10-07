@@ -1,4 +1,5 @@
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
+import { STELLA_DEFAULT_MODEL } from "@stella/contracts/stella-api";
 import type {
   AgentModelConfigSnapshot,
   AgentModelReasoningEffort,
@@ -31,11 +32,15 @@ export const normalizeCapturedReasoningEffort = (
   return undefined;
 };
 
+const STELLA_MODEL_PREFIX = "stella/";
+
 export const exactRouteModelReference = (
   resolvedLlm: ResolvedLlmRoute,
   configuredModel: string | undefined,
 ): string => {
   if (resolvedLlm.route === "stella") {
+    const requestedModel = resolvedLlm.model.id.trim();
+    if (requestedModel === STELLA_DEFAULT_MODEL) return STELLA_DEFAULT_MODEL;
     const upstreamModel = (
       resolvedLlm.model as ResolvedLlmRoute["model"] & {
         upstreamModelId?: string;
@@ -44,8 +49,12 @@ export const exactRouteModelReference = (
     const resolvedModel =
       resolvedLlm.toolPolicyModel?.id.trim() ||
       upstreamModel?.trim() ||
-      resolvedLlm.model.id.trim();
-    return canonicalStellaModelReference(`stella/${resolvedModel}`);
+      requestedModel;
+    return canonicalStellaModelReference(
+      resolvedModel.startsWith(STELLA_MODEL_PREFIX)
+        ? resolvedModel
+        : `${STELLA_MODEL_PREFIX}${resolvedModel}`,
+    );
   }
   if (configuredModel?.trim()) return configuredModel.trim();
   const id = resolvedLlm.model.id.trim();

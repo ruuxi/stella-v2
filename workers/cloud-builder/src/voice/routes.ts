@@ -171,9 +171,12 @@ const logTtsUsage = (fields: Record<string, unknown>) => log("info", "tts_usage"
 
 const notConfigured = () => new RpcError("UNAVAILABLE", "Stella read-aloud is not configured yet.", { retryable: false });
 
-const openPcm = async (env: VoiceEnv, text: string, voice: string, transport: string) => {
+const providerSignal = (request: Request): AbortSignal =>
+  AbortSignal.any([request.signal, AbortSignal.timeout(PROVIDER_TIMEOUT_MS)]);
+
+const openPcm = async (env: VoiceEnv, text: string, voice: string, transport: string, signal: AbortSignal) => {
   try {
-    return await openTtsPcm(env, { text, voice, signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS) });
+    return await openTtsPcm(env, { text, voice, signal });
   } catch (error) {
     log("error", "tts_provider_failed", { transport, message: error instanceof Error ? error.message : String(error) });
     throw new RpcError("UNAVAILABLE", "Speech generation failed.");
@@ -188,7 +191,7 @@ const ttsStream = async (request: Request, env: VoiceEnv): Promise<Response> => 
   const text = await admitText(env, caller, body.text);
   const voice = resolveGeminiTtsVoice(body.voice);
   const startedAt = Date.now();
-  const { provider, pcm } = await openPcm(env, text, voice, "stream");
+  const { provider, pcm } = await openPcm(env, text, voice, "stream", providerSignal(request));
   const reader = pcm.getReader();
   const encoder = createPcmMp3Encoder();
   let audioBytes = 0;
@@ -247,11 +250,11 @@ const ttsOneShot = async (request: Request, env: VoiceEnv): Promise<Response> =>
   if (!apiKey) throw notConfigured();
   const text = await admitText(env, caller, body.text);
   const startedAt = Date.now();
-  const signal = AbortSignal.timeout(PROVIDER_TIMEOUT_MS);
+  const signal = providerSignal(request);
 
   if (provider === "gemini") {
     const voice = resolveGeminiTtsVoice(body.voice);
-    const opened = await openPcm(env, text, voice, "oneshot_gemini");
+    const opened = await openPcm(env, text, voice, "oneshot_gemini", signal);
     const pcm = new Uint8Array(await new Response(opened.pcm).arrayBuffer().catch(() => new ArrayBuffer(0)));
     if (pcm.byteLength === 0) {
       log("error", "tts_provider_failed", { transport: "oneshot_gemini", provider: opened.provider });

@@ -4,6 +4,7 @@ import {
   DEFAULT_GEMINI_TTS_VOICE,
   isGeminiTtsVoice,
 } from "@stella/contracts/realtime-voice-catalog";
+import { Effect, Fiber } from "effect";
 import { pickMediaProvider, type MediaProvider } from "../media/providers.js";
 
 // ---------------------------------------------------------------------------
@@ -171,13 +172,25 @@ const falSpeechChunk = async (apiKey: string, text: string, voice: string, signa
 };
 
 /** Each chunk synthesized in order, with the next few already in flight while one plays. */
-const chunkedPcm = (chunks: string[], synthesize: (text: string) => Promise<Uint8Array>): ReadableStream<Uint8Array> => {
+const chunkedPcm = (
+  chunks: string[],
+  synthesize: (text: string) => Effect.Effect<Uint8Array, unknown>,
+): ReadableStream<Uint8Array> => {
   let next = 0;
   const pending: Promise<Uint8Array>[] = [];
+  const running: Fiber.Fiber<Uint8Array, unknown>[] = [];
+  const stop = () => {
+    next = chunks.length;
+    pending.length = 0;
+    const live = running.splice(0);
+    if (live.length > 0) Effect.runFork(Fiber.interruptAll(live));
+  };
   const fill = () => {
     while (pending.length < CHUNKS_IN_FLIGHT && next < chunks.length) {
-      const promise = synthesize(chunks[next++]!);
-      promise.catch(() => undefined);
+      const fiber = Effect.runFork(synthesize(chunks[next++]!));
+      running.push(fiber);
+      const promise = Effect.runPromise(Fiber.join(fiber));
+      promise.catch(() => stop());
       pending.push(promise);
     }
   };
@@ -196,8 +209,7 @@ const chunkedPcm = (chunks: string[], synthesize: (text: string) => Promise<Uint
       controller.enqueue(pcm);
     },
     cancel() {
-      next = chunks.length;
-      pending.length = 0;
+      stop();
     },
   });
 };
@@ -215,12 +227,18 @@ export const openTtsPcm = async (
 ): Promise<{ provider: TtsProvider; pcm: ReadableStream<Uint8Array> }> => {
   const picked = ttsProvider(env);
   if (!picked) throw new Error("Read-aloud is not configured.");
-  const synthesize =
-    picked.provider === "openrouter"
-      ? (text: string) => openRouterSpeechChunk(picked.apiKey, text, args.voice, args.signal)
-      : (text: string) => falSpeechChunk(picked.apiKey, text, args.voice, args.signal);
+  args.signal.throwIfAborted();
+  const request = picked.provider === "openrouter" ? openRouterSpeechChunk : falSpeechChunk;
+  const synthesize = (text: string) =>
+    Effect.tryPromise({
+      try: (interrupted) => request(picked.apiKey, text, args.voice, AbortSignal.any([args.signal, interrupted])),
+      catch: (error) => error,
+    });
   const reader = chunkedPcm(splitTtsText(args.text), synthesize).getReader();
-  const first = await reader.read();
+  const first = await reader.read().catch(async (error: unknown) => {
+    await reader.cancel(error).catch(() => undefined);
+    throw error;
+  });
   return {
     provider: picked.provider,
     pcm: new ReadableStream<Uint8Array>({

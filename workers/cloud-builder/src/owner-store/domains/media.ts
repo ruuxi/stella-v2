@@ -84,6 +84,7 @@ const OPENROUTER_POLL_MS = 30_000;
 const MUSIC_WAIT_MS = 4 * 60_000;
 const MUSIC_POLL_INTERVAL_MS = 3_000;
 const EXPIRE_MS = 30 * 60_000;
+const MAX_RECONCILE_MS = 24 * 60 * 60_000;
 const RATE_LIMIT = { count: 20, windowMs: 5 * 60_000 };
 /** Inline sources and outputs above this are refused. */
 const MAX_OBJECT_BYTES = 2 * 1024 * 1024 * 1024;
@@ -125,6 +126,11 @@ export const MEDIA_MIGRATION = {
   ],
 };
 
+export const MEDIA_CHARGE_MIGRATION = {
+  id: "media.2-charge-pending",
+  statements: ["ALTER TABLE media_jobs ADD COLUMN charge_pending INTEGER NOT NULL DEFAULT 0"],
+};
+
 type JobRow = {
   job_id: string;
   client_request_key: string | null;
@@ -137,6 +143,7 @@ type JobRow = {
   error_json: string | null;
   cost_micro_cents: number | null;
   billed: number;
+  charge_pending: number;
   conversation_id: string | null;
   turn_id: string | null;
   created_at: number;
@@ -412,6 +419,57 @@ const failJob = (ctx: OwnerContext, jobId: string, error: MediaJobError): void =
   clearJobs(ctx, jobId);
 };
 
+const providerMayBeRunning = (row: JobRow): boolean =>
+  row.provider === "openrouter" && (inFlight.has(row.job_id) || row.provider_request_id !== null);
+
+const scheduleOpenRouterPoll = (ctx: OwnerContext, jobId: string): void => {
+  ctx.jobs.schedule(MEDIA_POLL_JOB, Date.now() + OPENROUTER_POLL_MS, { jobId, attempt: 0 }, { id: pollJobId(jobId) });
+};
+
+const deleteJobObjects = async (ctx: OwnerContext, jobId: string): Promise<void> => {
+  const bucket = bucketOf(ctx);
+  const listed = await bucket.list({ prefix: `${await mediaOwnerPrefix(ctx.ownerId)}${jobId}/`, limit: 1_000 });
+  if (listed.objects.length > 0) await bucket.delete(listed.objects.map((object) => object.key));
+};
+
+const settleCharge = async (
+  ctx: OwnerContext,
+  jobId: string,
+  payload: unknown,
+  outcome: "completed" | "failed" | "not_run" | "lost",
+): Promise<void> => {
+  const row = getRow(ctx.db, jobId);
+  if (!row || row.charge_pending !== 1) return;
+  const capability = getMediaCapability(row.capability, row.provider);
+  const request = parseJson<StoredRequest>(row.request_json);
+  const cost =
+    outcome === "completed" && capability ? mediaCostMicroCents(capability.endpointId, request?.input ?? {}, payload) : null;
+  const charged = cost !== null && cost > 0;
+  if (charged) recordUsage(ctx, [{ id: `media:${jobId}`, costMicroCents: cost }]);
+  ctx.db.run(
+    "UPDATE media_jobs SET charge_pending = 0, cost_micro_cents = ?, billed = ? WHERE job_id = ?",
+    cost,
+    charged ? 1 : 0,
+    jobId,
+  );
+  ctx.jobs.cancel(pollJobId(jobId));
+  ctx.jobs.cancel(expireJobId(jobId));
+  if (outcome === "completed" && cost === null) log("media_job_unpriced", { jobId, capability: row.capability });
+  log("media_job_charge_settled", { jobId, capability: row.capability, status: row.status, outcome, costMicroCents: cost });
+  if (outcome === "completed") {
+    await deleteJobObjects(ctx, jobId).catch((error) =>
+      log("media_job_cleanup_failed", { jobId, message: error instanceof Error ? error.message : String(error) }),
+    );
+  }
+};
+
+const canceledBeforeSubmit = async (ctx: OwnerContext, jobId: string): Promise<boolean> => {
+  const row = getRow(ctx.db, jobId);
+  if (!row || row.status !== "canceled") return false;
+  await settleCharge(ctx, jobId, null, "not_run");
+  return true;
+};
+
 const errorOf = (error: unknown, fallback: string): MediaJobError => ({
   message: error instanceof Error && error.message ? error.message : fallback,
   ...(error instanceof FalError && error.code ? { code: error.code } : {}),
@@ -436,7 +494,10 @@ const completeJob = async (ctx: OwnerContext, row: JobRow, payload: unknown): Pr
   const prefix = `${await mediaOwnerPrefix(ctx.ownerId)}${row.job_id}/`;
   const output = await storeOutputs(ctx, prefix, musicPayload(row, payload));
   const current = getRow(ctx.db, row.job_id);
-  if (!current || TERMINAL.has(current.status)) return output;
+  if (!current || TERMINAL.has(current.status)) {
+    if (current?.charge_pending === 1) await settleCharge(ctx, row.job_id, payload, "completed");
+    return output;
+  }
   const capability = getMediaCapability(row.capability, row.provider);
   const request = parseJson<StoredRequest>(row.request_json);
   const cost = capability ? mediaCostMicroCents(capability.endpointId, request?.input ?? {}, payload) : null;
@@ -671,6 +732,7 @@ const startJob = async (
       throw error instanceof RpcError ? error : unavailable("Media sources could not be stored. Try again.");
     }
     ctx.db.run("UPDATE media_jobs SET request_json = ? WHERE job_id = ?", summary(staged), jobId);
+    if (await canceledBeforeSubmit(ctx, jobId)) throw new RpcError("CONFLICT", "This media request was canceled.");
 
     if (provider === "fal") {
       const baseUrl = ctx.env.CLOUD_BUILDER_PUBLIC_URL;
@@ -728,9 +790,10 @@ const startJob = async (
           Date.now(),
           jobId,
         );
-        ctx.jobs.schedule(MEDIA_POLL_JOB, Date.now() + OPENROUTER_POLL_MS, { jobId, attempt: 0 }, { id: pollJobId(jobId) });
+        scheduleOpenRouterPoll(ctx, jobId);
       } catch (error) {
         failJob(ctx, jobId, errorOf(error, "Media generation failed upstream."));
+        await settleCharge(ctx, jobId, null, "failed");
         if (error instanceof OpenRouterMediaError && error.definitive) {
           throw new RpcError("BAD_REQUEST", `Media generation failed: ${error.message}`);
         }
@@ -749,12 +812,15 @@ const startJob = async (
     try {
       const payload = await runOpenRouter(ctx, jobId, capability.id, capability.endpointId, apiKey, staged);
       const row = getRow(ctx.db, jobId);
-      if (!row || row.status === "canceled") throw new RpcError("CONFLICT", "This media request was canceled.");
+      if (!row) throw new RpcError("CONFLICT", "This media request was canceled.");
       const output = await completeJob(ctx, row, payload);
-      return { ...accepted(getRow(ctx.db, jobId) ?? row, false), output };
+      const settled = getRow(ctx.db, jobId) ?? row;
+      if (settled.status === "canceled") throw new RpcError("CONFLICT", "This media request was canceled.");
+      return { ...accepted(settled, false), output };
     } catch (error) {
       if (error instanceof RpcError) throw error;
       failJob(ctx, jobId, errorOf(error, "Media generation failed upstream."));
+      await settleCharge(ctx, jobId, null, "failed");
       throw new RpcError("UNAVAILABLE", `Media generation failed: ${errorOf(error, "unknown error").message}`, {
         retryable: false,
       });
@@ -768,23 +834,33 @@ const startJob = async (
 const runJob = async (ctx: OwnerContext, raw: unknown): Promise<void> => {
   const { jobId } = object({ jobId: string({ max: 100 }) })(raw);
   const row = getRow(ctx.db, jobId);
-  if (!row || TERMINAL.has(row.status) || row.provider !== "openrouter") return;
+  if (!row || row.provider !== "openrouter" || inFlight.has(jobId)) return;
+  if (row.status === "running") {
+    failJob(ctx, jobId, {
+      code: "interrupted",
+      message: "Stella was interrupted while generating this and did not resubmit it.",
+    });
+    log("media_job_interrupted", { jobId, capability: row.capability });
+    return;
+  }
+  if (row.status !== "submitting") return;
   const capability = getMediaCapability(row.capability, row.provider);
   const apiKey = mediaProviderKey(ctx.env, "openrouter");
   if (!capability || !apiKey) {
     failJob(ctx, jobId, { message: "Media generation is not configured yet." });
     return;
   }
+  ctx.db.run("UPDATE media_jobs SET status = 'running', updated_at = ? WHERE job_id = ? AND status = 'submitting'", Date.now(), jobId);
   inFlight.add(jobId);
   try {
-    ctx.db.run("UPDATE media_jobs SET status = 'running', updated_at = ? WHERE job_id = ? AND status = 'submitting'", Date.now(), jobId);
     const input = parseJson<StoredRequest>(row.request_json)?.input ?? {};
     const payload = await runOpenRouter(ctx, jobId, capability.id, capability.endpointId, apiKey, input);
     const current = getRow(ctx.db, jobId);
-    if (!current || TERMINAL.has(current.status)) return;
+    if (!current) return;
     await completeJob(ctx, current, payload);
   } catch (error) {
     failJob(ctx, jobId, errorOf(error, "Media generation failed upstream."));
+    await settleCharge(ctx, jobId, null, "failed");
     log("media_job_failed", { jobId, provider: "openrouter", message: errorOf(error, "unknown error").message });
   } finally {
     inFlight.delete(jobId);
@@ -824,8 +900,18 @@ const cancelJob = async (
   const row = findRow(ctx, args);
   if (!row) return { state: "not_found" };
   if (TERMINAL.has(row.status)) return { state: "terminal", jobId: row.job_id };
-  ctx.db.run("UPDATE media_jobs SET status = 'canceled', updated_at = ? WHERE job_id = ?", Date.now(), row.job_id);
+  const chargePending = providerMayBeRunning(row);
+  ctx.db.run(
+    "UPDATE media_jobs SET status = 'canceled', charge_pending = ?, updated_at = ? WHERE job_id = ?",
+    chargePending ? 1 : 0,
+    Date.now(),
+    row.job_id,
+  );
   clearJobs(ctx, row.job_id);
+  if (chargePending) {
+    if (row.provider_request_id) scheduleOpenRouterPoll(ctx, row.job_id);
+    log("media_job_canceled_charge_pending", { jobId: row.job_id, capability: row.capability });
+  }
   const apiKey = mediaProviderKey(ctx.env, "fal");
   const capability = getMediaCapability(row.capability, row.provider);
   if (row.provider === "fal" && row.provider_request_id && apiKey && capability) {
@@ -844,6 +930,35 @@ const pollPayload = object({
   result: optional(json({ maxBytes: MAX_WEBHOOK_RESULT_CHARS })),
 });
 
+const reconcileCharge = async (ctx: OwnerContext, row: JobRow, attempt: number): Promise<void> => {
+  const apiKey = mediaProviderKey(ctx.env, "openrouter");
+  if (row.provider !== "openrouter" || !row.provider_request_id || !apiKey) {
+    await settleCharge(ctx, row.job_id, null, "lost");
+    return;
+  }
+  if (Date.now() - row.created_at > MAX_RECONCILE_MS) {
+    log("media_job_charge_unreconciled", { jobId: row.job_id, capability: row.capability });
+    await settleCharge(ctx, row.job_id, null, "lost");
+    return;
+  }
+  const outcome = await pollOpenRouterVideo(apiKey, row.provider_request_id).catch((error: unknown) => {
+    log("media_job_reconcile_poll_failed", { jobId: row.job_id, message: error instanceof Error ? error.message : String(error) });
+    return null;
+  });
+  if (outcome?.state === "succeeded") {
+    await settleCharge(ctx, row.job_id, withUsage(outcome.cost), "completed");
+  } else if (outcome?.state === "failed") {
+    await settleCharge(ctx, row.job_id, null, "failed");
+  } else {
+    ctx.jobs.schedule(
+      MEDIA_POLL_JOB,
+      Date.now() + OPENROUTER_POLL_MS,
+      { jobId: row.job_id, attempt: attempt + 1 },
+      { id: pollJobId(row.job_id) },
+    );
+  }
+};
+
 /**
  * Settle a job from a webhook result, or ask fal where it stands. Also the
  * crash rule's enforcer: an orphaned `submitting` row fails here.
@@ -851,7 +966,11 @@ const pollPayload = object({
 const runPoll = async (ctx: OwnerContext, raw: unknown): Promise<void> => {
   const payload = pollPayload(raw);
   const row = getRow(ctx.db, payload.jobId);
-  if (!row || TERMINAL.has(row.status)) return;
+  if (!row) return;
+  if (TERMINAL.has(row.status)) {
+    if (row.charge_pending === 1) await reconcileCharge(ctx, row, payload.attempt ?? 0);
+    return;
+  }
   if (payload.result !== undefined) {
     await completeJob(ctx, row, payload.result);
     return;
@@ -875,6 +994,12 @@ const runPoll = async (ctx: OwnerContext, raw: unknown): Promise<void> => {
         code: "submission_lost",
         message: "Stella lost this request while submitting it and did not resubmit it.",
       });
+    } else if (row.provider === "openrouter" && row.status === "running") {
+      failJob(ctx, row.job_id, {
+        code: "interrupted",
+        message: "Stella was interrupted while generating this and did not resubmit it.",
+      });
+      log("media_job_interrupted", { jobId: row.job_id, capability: row.capability });
     }
     // An ambiguous fal submission waits for its webhook or `media.expire`.
     return;
@@ -916,6 +1041,11 @@ const runExpire = async (ctx: OwnerContext, raw: unknown): Promise<void> => {
   const row = getRow(ctx.db, jobId);
   if (!row || TERMINAL.has(row.status)) return;
   failJob(ctx, jobId, { code: "timeout", message: "Media generation took too long." });
+  if (providerMayBeRunning(row)) {
+    ctx.db.run("UPDATE media_jobs SET charge_pending = 1 WHERE job_id = ?", jobId);
+    if (row.provider_request_id) scheduleOpenRouterPoll(ctx, jobId);
+    log("media_job_expired_charge_pending", { jobId, capability: row.capability });
+  }
   const capability = getMediaCapability(row.capability, row.provider);
   const apiKey = mediaProviderKey(ctx.env, "fal");
   if (row.provider === "fal" && row.provider_request_id && capability && apiKey) {
@@ -1047,11 +1177,9 @@ const deleteJob = async (
   const row = getRow(ctx.db, jobId);
   if (!row) return { deleted: false, kind: "media_job", id: jobId };
   await cancelJob(ctx, { jobId });
+  clearJobs(ctx, jobId);
   ctx.db.run("DELETE FROM media_jobs WHERE job_id = ?", jobId);
-  const bucket = bucketOf(ctx);
-  const prefix = `${await mediaOwnerPrefix(ctx.ownerId)}${jobId}/`;
-  const listed = await bucket.list({ prefix, limit: 1_000 });
-  if (listed.objects.length > 0) await bucket.delete(listed.objects.map((object) => object.key));
+  await deleteJobObjects(ctx, jobId);
   return { deleted: true, kind: "media_job", id: jobId };
 };
 
@@ -1083,7 +1211,7 @@ const statusArg = literal("queued", "running", "succeeded", "failed", "canceled"
 
 export const mediaDomain = {
   name: "media",
-  migrations: [MEDIA_MIGRATION],
+  migrations: [MEDIA_MIGRATION, MEDIA_CHARGE_MIGRATION],
   calls: {
     "media.capabilities": {
       scope: "global",

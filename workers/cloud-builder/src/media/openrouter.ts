@@ -18,6 +18,9 @@ const SUBMIT_TIMEOUT_MS = 30_000;
 const IMAGE_TIMEOUT_MS = 5 * 60_000;
 const SPEECH_TIMEOUT_MS = 3 * 60_000;
 const MUSIC_TIMEOUT_MS = 5 * 60_000;
+const MAX_MUSIC_BYTES = 64 * 1024 * 1024;
+const MAX_MUSIC_TEXT_CHARS = 16_384;
+const MAX_SSE_LINE_CHARS = 16 * 1024 * 1024;
 
 export class OpenRouterMediaError extends Error {
   /** OpenRouter refused the request outright; nothing ran or billed. */
@@ -309,15 +312,52 @@ export const generateOpenRouterMusic = async (
   if (!response.ok || !response.body) throw await failure(response);
   const decoder = new TextDecoder();
   const reader = response.body.getReader();
-  const audio: string[] = [];
+  const audio: Uint8Array[] = [];
+  let audioBytes = 0;
   const text: string[] = [];
+  let textChars = 0;
   let cost: number | null = null;
   let streamError: string | null = null;
+  let finished = false;
   let buffer = "";
+  let carry = "";
+  const decodeAudio = (value: string) => {
+    if (!value) return;
+    let bytes: Uint8Array;
+    try {
+      bytes = base64ToBytes(value);
+    } catch {
+      throw new OpenRouterMediaError("OpenRouter sent music audio that is not valid base64.", false);
+    }
+    audioBytes += bytes.byteLength;
+    if (audioBytes > MAX_MUSIC_BYTES) throw new OpenRouterMediaError("OpenRouter music output is too large.", false);
+    audio.push(bytes);
+  };
+  const addAudio = (data: string) => {
+    const pending = carry + data.replace(/\s+/g, "");
+    if (pending.endsWith("=")) {
+      carry = "";
+      decodeAudio(pending);
+      return;
+    }
+    const whole = pending.length - (pending.length % 4);
+    carry = pending.slice(whole);
+    decodeAudio(pending.slice(0, whole));
+  };
+  const addText = (value: string) => {
+    if (textChars >= MAX_MUSIC_TEXT_CHARS) return;
+    const kept = value.slice(0, MAX_MUSIC_TEXT_CHARS - textChars);
+    textChars += kept.length;
+    text.push(kept);
+  };
   const handle = (line: string) => {
     if (!line.startsWith("data:")) return;
     const data = line.slice(5).trim();
-    if (!data || data === "[DONE]") return;
+    if (!data) return;
+    if (data === "[DONE]") {
+      finished = true;
+      return;
+    }
     let chunk: Record<string, unknown>;
     try {
       chunk = JSON.parse(data) as Record<string, unknown>;
@@ -331,23 +371,45 @@ export const generateOpenRouterMusic = async (
     cost = usageCost(chunk.usage) ?? cost;
     const choice = Array.isArray(chunk.choices) ? (chunk.choices[0] as Record<string, unknown> | undefined) : undefined;
     const delta = isRecord(choice?.delta) ? choice.delta : {};
+    const finishReason = str(choice?.finish_reason);
+    if (finishReason === "error") streamError ??= "OpenRouter music failed mid-stream.";
+    else if (finishReason) finished = true;
     if (isRecord(delta.audio)) {
-      if (typeof delta.audio.data === "string") audio.push(delta.audio.data);
-      if (typeof delta.audio.transcript === "string") text.push(delta.audio.transcript);
+      if (typeof delta.audio.data === "string" && delta.audio.data) addAudio(delta.audio.data);
+      if (typeof delta.audio.transcript === "string") addText(delta.audio.transcript);
     }
-    if (typeof delta.content === "string") text.push(delta.content);
+    if (typeof delta.content === "string") addText(delta.content);
   };
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-    for (const line of lines) handle(line.trim());
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      if (buffer.length > MAX_SSE_LINE_CHARS) throw new OpenRouterMediaError("OpenRouter sent an oversized music event.", false);
+      for (const line of lines) handle(line.trim());
+    }
+    handle((buffer + decoder.decode()).trim());
+  } catch (error) {
+    await reader.cancel(error).catch(() => undefined);
+    if (error instanceof OpenRouterMediaError) throw error;
+    throw new OpenRouterMediaError(
+      `OpenRouter music stream broke after ${audioBytes} bytes: ${error instanceof Error ? error.message : String(error)}`,
+      false,
+    );
   }
-  handle((buffer + decoder.decode()).trim());
-  if (audio.length === 0) throw new OpenRouterMediaError(streamError ?? "OpenRouter returned no music audio.", false);
-  const bytes = base64ToBytes(audio.join(""));
+  decodeAudio(carry);
+  carry = "";
+  if (streamError) throw new OpenRouterMediaError(streamError, false);
+  if (!finished) throw new OpenRouterMediaError("OpenRouter music stream ended before it finished.", false);
+  if (audioBytes === 0) throw new OpenRouterMediaError("OpenRouter returned no music audio.", false);
+  const bytes = new Uint8Array(audioBytes);
+  let offset = 0;
+  for (const part of audio) {
+    bytes.set(part, offset);
+    offset += part.byteLength;
+  }
   const joined = text
     .join("")
     .split("\n")

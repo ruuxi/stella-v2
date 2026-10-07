@@ -96,7 +96,10 @@ import { artifactPrimaryFilePath } from "../lib/mobile-artifacts";
 import { AppPreviewCard } from "./AppPreviewCard";
 import { extractStellaAppLinkSlugs } from "@stella/contracts/workspace-apps";
 import { stellaFileChatArtifact } from "../lib/stella-file-links";
-import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
+import {
+  extractLocalFileLinkPaths,
+  stripLocalFileLinks,
+} from "@stella/contracts/local-file-links";
 import {
   resolveCloudDriveFileUri,
   useCloudDriveFileUri,
@@ -1580,7 +1583,14 @@ const ChatMessageRow = memo(function ChatMessageRow({
     }
     return receipts;
   }, [item.toolSteps]);
-  const hasText = item.text.trim().length > 0;
+  const bodyText = useMemo(
+    () =>
+      evidencePaths.length > 0
+        ? stripLocalFileLinks(item.text, evidencePaths)
+        : item.text,
+    [item.text, evidencePaths],
+  );
+  const hasText = bodyText.trim().length > 0;
   // Apps the reply links (`stella://app/<slug>`) show as app cards under it.
   const linkedAppSlugs = useMemo(
     () => (item.role === "assistant" ? extractStellaAppLinkSlugs(item.text) : []),
@@ -1854,7 +1864,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
       animate={!menuClone && (animate || mountedEmptyRef.current)}
     >
       <AssistantMarkdown
-        text={item.text}
+        text={bodyText}
         colors={colors}
         fill={boundedAssistantBubble}
         onStellaFileLink={onOpenStellaFile}

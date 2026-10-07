@@ -32,6 +32,24 @@ const withoutMarkdownCode = (markdown: string): string =>
     )
     .replace(/(`+)[\s\S]*?\1/g, "");
 
+export const stripLocalFileLinks = (
+  markdown: string,
+  filePaths: readonly string[],
+): string => {
+  if (!markdown || filePaths.length === 0) return markdown;
+  const hidden = new Set(filePaths);
+  const stripped = markdown.replace(MARKDOWN_LINK_RE, (match, angled, bare) => {
+    const filePath = parseLocalFileLinkTarget(angled ?? bare ?? "");
+    return filePath && hidden.has(filePath) ? "" : match;
+  });
+  return stripped
+    .split("\n")
+    .map((line) => (line.trim().length === 0 ? "" : line.replace(/[ \t]+$/, "")))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+};
+
 export const extractLocalFileLinkPaths = (markdown: string): string[] => {
   if (!markdown) return [];
   const paths: string[] = [];

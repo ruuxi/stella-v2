@@ -13,7 +13,14 @@
  * scrolls out of view, the app leaves the foreground, or the step is done.
  * Under reduced motion each chapter shows its finished state at once.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { StyleSheet, Text, View } from "react-native";
 import Animated, {
   Easing,
@@ -23,6 +30,7 @@ import Animated, {
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
+  withSpring,
   withTiming,
 } from "react-native-reanimated";
 import { useT } from "../../../i18n";
@@ -33,7 +41,12 @@ import { fonts } from "../../../theme/fonts";
 import { fadeHex } from "../../../theme/oklch";
 import { useColors } from "../../../theme/theme-context";
 import { Icon } from "../../Icon";
-import { fadeEntering, fadeExiting, SpringPressable } from "../motion";
+import {
+  fadeEntering,
+  fadeExiting,
+  SPRING_SOFT,
+  SpringPressable,
+} from "../motion";
 import {
   OnboardingCard,
   PrimaryAction,
@@ -303,13 +316,13 @@ function Chapter({
       exiting={fadeExiting(150)}
       style={styles.chapter}
     >
-      <View style={styles.thread}>
+      <ThreadStage instant={instant}>
         {has("send") ? <MiniUserBubble>{prompt}</MiniUserBubble> : null}
+        {parts}
         {has("working") && !has(workingUntil) ? (
           <MiniWorking label={ct("working")} animating={playing} />
         ) : null}
-        {parts}
-      </View>
+      </ThreadStage>
       <MiniComposer
         text={prompt}
         placeholder={t("mobile.onboarding.showcase.placeholder")}
@@ -319,6 +332,50 @@ function Chapter({
         startDelayMs={TYPE_START_DELAY_MS}
       />
     </Animated.View>
+  );
+}
+
+/**
+ * The thread's stage. Parts stack from the top, so one arriving never moves
+ * the ones already on screen, and the whole thread pans as a single block on
+ * a damped spring only once a chapter has outgrown the stage.
+ */
+function ThreadStage({
+  instant,
+  children,
+}: {
+  instant: boolean;
+  children: ReactNode;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const [contentHeight, setContentHeight] = useState(0);
+  const pan = useSharedValue(0);
+  const overflow = Math.max(0, contentHeight - viewportHeight);
+
+  useEffect(() => {
+    pan.value = instant
+      ? withTiming(-overflow, { duration: 0 })
+      : withSpring(-overflow, SPRING_SOFT);
+  }, [instant, overflow, pan]);
+
+  const panStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: pan.value }],
+  }));
+
+  return (
+    <View
+      style={styles.thread}
+      onLayout={(event) => setViewportHeight(event.nativeEvent.layout.height)}
+    >
+      <Animated.View
+        style={[styles.threadContent, panStyle]}
+        onLayout={(event) => setContentHeight(event.nativeEvent.layout.height)}
+      >
+        {children}
+      </Animated.View>
+    </View>
   );
 }
 
@@ -428,9 +485,11 @@ const makeStyles = (colors: Colors) =>
     },
     thread: {
       flex: 1,
-      gap: 7,
-      justifyContent: "flex-end",
+      justifyContent: "flex-start",
       overflow: "hidden",
+    },
+    threadContent: {
+      gap: 7,
       paddingHorizontal: 10,
       paddingTop: 10,
     },

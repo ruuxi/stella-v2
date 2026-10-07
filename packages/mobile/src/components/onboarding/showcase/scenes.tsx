@@ -9,8 +9,6 @@
 import { useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import Animated, {
-  FadeInRight,
-  ReduceMotion,
   interpolate,
   useAnimatedStyle,
 } from "react-native-reanimated";
@@ -415,20 +413,13 @@ function RankRow({
 }) {
   const styles = useSceneStyles();
   return (
-    <Animated.View
-      entering={FadeInRight.springify()
-        .damping(30)
-        .stiffness(220)
-        .delay(index * 90)
-        .reduceMotion(ReduceMotion.System)}
-      style={[styles.rankRow, index === 0 && styles.rankRowTop]}
-    >
+    <View style={[styles.rankRow, index === 0 && styles.rankRowTop]}>
       <Text style={[styles.rankIndex, index === 0 && styles.rankTopText]}>{index + 1}</Text>
       <Text style={[styles.rankLabel, index === 0 && styles.rankTopText]} numberOfLines={1}>
         {label}
       </Text>
       <Text style={[styles.rankScore, index === 0 && styles.rankTopText]}>★ {score}</Text>
-    </Animated.View>
+    </View>
   );
 }
 
@@ -436,10 +427,18 @@ function ResearchScene({ has }: { has: Has }) {
   const ct = useChapterT("research");
   const styles = useSceneStyles();
   const ranked = has("rank");
+  const swap = useSpringFlag(ranked, SPRING_SOFT);
+  const sourcesStyle = useAnimatedStyle(() => ({ opacity: 1 - swap.value }));
+  const ranksStyle = useAnimatedStyle(() => ({ opacity: swap.value }));
   return (
     <MiniAgentWindow title={ct("scene.title")} icon="search" live={!ranked}>
-      {ranked ? (
-        <View style={styles.gap4}>
+      <View style={styles.swap}>
+        <Animated.View style={[StyleSheet.absoluteFill, styles.gap6, sourcesStyle]}>
+          <SourceRow icon="globe" label={ct("scene.source1")} count="9" read={has("src-1")} />
+          <SourceRow icon="message-square" label={ct("scene.source2")} count="11" read={has("src-2")} />
+          <SourceRow icon="file-text" label={ct("scene.source3")} count="4" read={has("src-3")} />
+        </Animated.View>
+        <Animated.View style={[StyleSheet.absoluteFill, styles.gap4, ranksStyle]}>
           {RANKS.map((rank, index) => (
             <RankRow
               key={rank.key}
@@ -448,14 +447,8 @@ function ResearchScene({ has }: { has: Has }) {
               score={rank.score}
             />
           ))}
-        </View>
-      ) : (
-        <View style={styles.gap6}>
-          <SourceRow icon="globe" label={ct("scene.source1")} count="9" read={has("src-1")} />
-          <SourceRow icon="message-square" label={ct("scene.source2")} count="11" read={has("src-2")} />
-          <SourceRow icon="file-text" label={ct("scene.source3")} count="4" read={has("src-3")} />
-        </View>
-      )}
+        </Animated.View>
+      </View>
     </MiniAgentWindow>
   );
 }
@@ -466,6 +459,8 @@ const makeSceneStyles = (colors: Colors) =>
     gap4: { gap: 4 },
     gap6: { gap: 7 },
     gap8: { gap: 8 },
+    /** Holds the taller of the two states so the swap never resizes the window. */
+    swap: { height: 86, justifyContent: "center" },
     centerRow: {
       alignItems: "center",
       flexDirection: "row",

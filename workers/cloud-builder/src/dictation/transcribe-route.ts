@@ -5,7 +5,8 @@ import { ownerGeneration, voiceInternal } from "../voice/routes.js";
 
 export const DICTATION_TRANSCRIBE_PATH = "/api/dictation/transcribe";
 
-const DEFAULT_MODEL = "meta/muse-voice-transcribe-1.0";
+const DEFAULT_MODEL = "microsoft/mai-transcribe-2";
+const FALLBACK_USD_PER_SECOND = 0.1 / 3_600;
 const TRANSCRIPTIONS_URL = "https://openrouter.ai/api/v1/audio/transcriptions";
 const SAMPLE_RATE = 16_000;
 const PCM_BYTES_PER_SECOND = SAMPLE_RATE * 2;
@@ -15,7 +16,11 @@ const MAX_BODY_BYTES = MAX_PCM_BYTES + 4096;
 const SEGMENT_BYTES = 3 * 60 * PCM_BYTES_PER_SECOND;
 const SEGMENT_TIMEOUT_MS = 60_000;
 
-type DictationEnv = Cloudflare.Env & { OPENROUTER_API_KEY?: string; STELLA_DICTATION_MODEL?: string };
+type DictationEnv = Cloudflare.Env & {
+  OPENROUTER_API_KEY?: string;
+  META_MODEL_API_KEY?: string;
+  STELLA_DICTATION_MODEL?: string;
+};
 
 const json = (body: unknown, status = 200): Response =>
   Response.json(body, { status, headers: { "cache-control": "no-store" } });
@@ -143,7 +148,9 @@ export const handleDictationTranscribeRoute = async (
   env: DictationEnv,
 ): Promise<Response | null> => {
   if (new URL(request.url).pathname !== DICTATION_TRANSCRIBE_PATH) return null;
-  if (request.method === "GET") return json({ available: Boolean(apiKey(env)) });
+  if (request.method === "GET") {
+    return json({ available: Boolean(apiKey(env)), streaming: Boolean(env.META_MODEL_API_KEY?.trim()) });
+  }
   if (request.method !== "POST") return fail(405, "Method not allowed.");
 
   const header = request.headers.get("authorization") ?? "";
@@ -182,7 +189,7 @@ export const handleDictationTranscribeRoute = async (
         sessionId,
         segment,
         audioBytes: slice.byteLength,
-        ...(result.costUsd !== undefined ? { costUsd: result.costUsd } : {}),
+        costUsd: result.costUsd ?? (slice.byteLength / PCM_BYTES_PER_SECOND) * FALLBACK_USD_PER_SECOND,
       });
       if (result.text) parts.push(result.text);
     }

@@ -1,7 +1,7 @@
 import { getLocalLlmCredential } from "@stella/runtime/kernel/storage/llm-credentials";
 
 const TRANSCRIPTIONS_URL = "https://openrouter.ai/api/v1/audio/transcriptions";
-const MODEL = "meta/muse-voice-transcribe-1.0";
+const MODEL = "microsoft/mai-transcribe-2";
 const SAMPLE_RATE = 16_000;
 const PCM_BYTES_PER_SECOND = SAMPLE_RATE * 2;
 const SEGMENT_BYTES = 3 * 60 * PCM_BYTES_PER_SECOND;

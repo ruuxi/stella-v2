@@ -30,6 +30,7 @@ import {
   prewarmDictation,
   resolveDictationRoute,
 } from "@/features/dictation/services/dictation-transcriber";
+import { prewarmDictationSocket } from "@/features/dictation/services/dictation-stream";
 import {
   DICTATION_KEY_SAVED_EVENT,
   requestDictationKey,
@@ -242,7 +243,7 @@ export const useDictation = ({
       if (disabled) return;
       const cached = cachedDictationRoute();
       const route =
-        cached === "managed" || cached === "openrouter"
+        cached === "streaming" || cached === "managed" || cached === "openrouter"
           ? cached
           : await resolveDictationRoute().catch(() => "needs-key" as const);
       if (route === "needs-key") {
@@ -340,7 +341,7 @@ export const useDictation = ({
               appendRollingLevel(prev, level, MAX_LEVEL_BARS),
             );
           },
-        });
+        }, { streaming: route === "streaming" });
       } catch (err) {
         const errMessage = (err as Error).message;
         setError(errMessage);
@@ -464,7 +465,10 @@ export const useDictation = ({
     showControls,
     state,
     toggle,
-    prewarm: prewarmDictation,
+    prewarm: () => {
+      if (cachedDictationRoute() === "streaming") prewarmDictationSocket();
+      else prewarmDictation();
+    },
     cancel,
     commitAndSend,
     levels,

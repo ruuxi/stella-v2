@@ -7,10 +7,14 @@ Chat is Stella's primary desktop surface. Stella is one long-running conversatio
 - `chat-ready` resolves an active conversation and enabled composer.
 - `chat-draft` accepts text without mutating the timeline.
 - `chat-send` shows the user turn or a visible provider/runtime failure.
-- `chat-dictation` records with a waveform pill, then transcribes the whole
-  recording when stopped (managed `/api/dictation/transcribe`, or the user's
-  own OpenRouter key through Electron main). A Stella without managed
-  dictation and no saved OpenRouter key opens "Turn on dictation" instead.
+- `chat-dictation` records with a waveform pill. When the backend reports
+  `streaming: true` on `GET /api/dictation/transcribe`, signed-in users stream
+  over `/dictation/socket` and see live partial text; if the socket fails, the
+  same recording is transcribed record-then-transcribe. Otherwise the whole
+  recording is transcribed when stopped (managed `/api/dictation/transcribe`
+  with `microsoft/mai-transcribe-2`, or the user's own OpenRouter key through
+  Electron main). A Stella without managed dictation and no saved OpenRouter
+  key opens "Turn on dictation" instead.
 
 ## How to get to it (user POV)
 

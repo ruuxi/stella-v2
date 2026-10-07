@@ -1,7 +1,9 @@
 import { getAuthToken } from "@/global/auth/services/auth-token";
 import { backendUrl } from "@/platform/backend/backend-url";
 
-export type DictationRoute = "managed" | "openrouter" | "needs-key";
+export type DictationRoute = "streaming" | "managed" | "openrouter" | "needs-key";
+
+type ManagedAvailability = { available: boolean; streaming: boolean };
 
 const TRANSCRIBE_PATH = "/api/dictation/transcribe";
 const AVAILABILITY_TTL_MS = 10 * 60_000;
@@ -17,11 +19,11 @@ export class DictationRequestError extends Error {
   }
 }
 
-let managedAvailability: { value: Promise<boolean | null>; at: number } | null = null;
+let managedAvailability: { value: Promise<ManagedAvailability | null>; at: number } | null = null;
 let routeGeneration = 0;
 let lastRoute: DictationRoute | null = null;
 
-const loadManagedAvailability = (): Promise<boolean | null> => {
+const loadManagedAvailability = (): Promise<ManagedAvailability | null> => {
   if (managedAvailability && Date.now() - managedAvailability.at < AVAILABILITY_TTL_MS) {
     return managedAvailability.value;
   }
@@ -29,11 +31,13 @@ const loadManagedAvailability = (): Promise<boolean | null> => {
     value: backendUrl
       ? fetch(`${backendUrl}${TRANSCRIBE_PATH}`, { signal: AbortSignal.timeout(AVAILABILITY_TIMEOUT_MS) })
           .then((response) => (response.ok ? response.json() : null))
-          .then((body: { available?: unknown } | null) =>
-            typeof body?.available === "boolean" ? body.available : null,
+          .then((body: { available?: unknown; streaming?: unknown } | null) =>
+            typeof body?.available === "boolean"
+              ? { available: body.available, streaming: body.streaming === true }
+              : null,
           )
           .catch(() => null)
-      : Promise.resolve(false),
+      : Promise.resolve({ available: false, streaming: false }),
     at: Date.now(),
   };
   managedAvailability = entry;
@@ -55,11 +59,13 @@ export const resolveDictationRoute = async (): Promise<DictationRoute> => {
     getAuthToken().catch(() => null),
   ]);
   const route: DictationRoute =
-    managed !== false && token
-      ? "managed"
-      : (await hasOpenRouterKey())
-        ? "openrouter"
-        : "needs-key";
+    token && managed?.streaming
+      ? "streaming"
+      : token && managed?.available !== false
+        ? "managed"
+        : (await hasOpenRouterKey())
+          ? "openrouter"
+          : "needs-key";
   if (generation === routeGeneration) lastRoute = route;
   return route;
 };
@@ -122,7 +128,7 @@ export const transcribeDictation = async (
   signal?: AbortSignal,
 ): Promise<string> => {
   const route = lastRoute ?? (await resolveDictationRoute());
-  if (route === "managed") {
+  if (route === "managed" || route === "streaming") {
     try {
       return await transcribeManaged(wav, signal);
     } catch (error) {

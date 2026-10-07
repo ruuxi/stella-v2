@@ -4,12 +4,14 @@ import {
   setSharedMicrophoneKeepWarm,
   type SharedMicrophoneLease,
 } from "@/features/voice/services/shared-microphone";
+import { DictationStream } from "./dictation-stream";
 import { transcribeDictation } from "./dictation-transcriber";
 import { PcmRecording } from "./pcm-recording";
 
 type WorkletFrame = { pcm: Int16Array; rms: number };
 
 const TARGET_SAMPLE_RATE = 16_000;
+const STREAM_PRE_ROLL_MAX_SAMPLES = 4 * TARGET_SAMPLE_RATE;
 const PCM_WORKLET_NAME = "stella-dictation-pcm-capture";
 const PCM_WORKLET_FILE = "dictation-pcm-worklet.js";
 const DICTATION_SUPER_FAST_KEY = "stella-dictation-super-fast";
@@ -174,6 +176,12 @@ export class DictationSession {
   private callbacks: DictationCallbacks = {};
   private recording = new PcmRecording();
   private transcription: AbortController | null = null;
+  private stream: DictationStream | null = null;
+  private streamOpened: Promise<boolean> = Promise.resolve(false);
+  private streamReady = false;
+  private streamFailed = false;
+  private pending: Int16Array[] = [];
+  private pendingSamples = 0;
   private durationLimitTimer: ReturnType<typeof setTimeout> | null = null;
   private cancelled = false;
   /** Peak RMS seen since the last `onLevel` emit, reset every tick. */
@@ -184,13 +192,18 @@ export class DictationSession {
     return this.state === "listening" || this.state === "transcribing";
   }
 
-  async start(callbacks: DictationCallbacks): Promise<void> {
+  async start(
+    callbacks: DictationCallbacks,
+    options: { streaming?: boolean } = {},
+  ): Promise<void> {
     if (this.isActive()) return;
     this.callbacks = callbacks;
     this.cancelled = false;
     this.recording = new PcmRecording();
+    this.resetStream();
+    if (options.streaming) this.openStream();
     if (isDictationSuperFastEnabled()) {
-      for (const chunk of warmCapture.snapshot()) this.recording.append(chunk);
+      for (const chunk of warmCapture.snapshot()) this.capture(chunk);
     }
 
     let lease: SharedMicrophoneLease;
@@ -250,6 +263,8 @@ export class DictationSession {
     const recording = this.recording;
     this.recording = new PcmRecording();
     if (this.cancelled || recording.sampleCount === 0) {
+      this.stream?.cancel();
+      this.resetStream();
       this.setState("idle");
       return;
     }
@@ -258,10 +273,10 @@ export class DictationSession {
     const controller = new AbortController();
     this.transcription = controller;
     try {
-      const transcript = await transcribeDictation(
-        recording.toWav(),
-        controller.signal,
-      );
+      const streamed = await this.finishStream();
+      const transcript =
+        streamed ??
+        (await transcribeDictation(recording.toWav(), controller.signal));
       if (this.cancelled || !transcript) {
         this.setState("idle");
         return;
@@ -283,6 +298,7 @@ export class DictationSession {
   /** Stop without transcribing. Used on unmount / error paths. */
   async cancel(): Promise<void> {
     this.cancelled = true;
+    this.stream?.cancel();
     if (this.state === "transcribing") {
       this.transcription?.abort();
       this.setState("idle");
@@ -311,7 +327,7 @@ export class DictationSession {
       const frame = event.data;
       if (!frame?.pcm?.length) return;
       if (frame.rms > this.peakSinceLastEmit) this.peakSinceLastEmit = frame.rms;
-      this.recording.append(frame.pcm);
+      this.capture(frame.pcm);
       if (this.recording.full && this.state === "listening") {
         console.warn("[dictation] hit max recording length, auto-stopping");
         void this.stop();
@@ -319,6 +335,79 @@ export class DictationSession {
     };
     this.workletNode = worklet;
     source.connect(worklet);
+  }
+
+  private resetStream(): void {
+    this.stream = null;
+    this.streamOpened = Promise.resolve(false);
+    this.streamReady = false;
+    this.streamFailed = false;
+    this.pending = [];
+    this.pendingSamples = 0;
+  }
+
+  private openStream(): void {
+    const stream = new DictationStream(
+      (text) => {
+        if (this.stream === stream) this.callbacks.onPartialTranscript?.(text);
+      },
+      (error) => {
+        if (this.stream !== stream) return;
+        console.warn("[dictation] stream failed, will transcribe the recording:", error.message);
+        this.abandonStream();
+      },
+    );
+    this.stream = stream;
+    this.streamOpened = stream.open().then(
+      () => {
+        if (this.stream !== stream || this.streamFailed) return false;
+        for (const chunk of this.pending) stream.send(chunk);
+        this.pending = [];
+        this.pendingSamples = 0;
+        this.streamReady = true;
+        return true;
+      },
+      (error: unknown) => {
+        if (this.stream === stream) {
+          console.warn("[dictation] stream did not open, will transcribe the recording:", (error as Error).message);
+          this.abandonStream();
+        }
+        return false;
+      },
+    );
+  }
+
+  private abandonStream(): void {
+    this.streamFailed = true;
+    this.stream?.cancel();
+    this.pending = [];
+    this.pendingSamples = 0;
+  }
+
+  private capture(pcm: Int16Array): void {
+    this.recording.append(pcm);
+    if (!this.stream || this.streamFailed) return;
+    if (this.streamReady) {
+      this.stream.send(pcm);
+      return;
+    }
+    this.pending.push(pcm);
+    this.pendingSamples += pcm.length;
+    if (this.pendingSamples > STREAM_PRE_ROLL_MAX_SAMPLES) this.abandonStream();
+  }
+
+  private async finishStream(): Promise<string | null> {
+    const stream = this.stream;
+    if (!stream || this.streamFailed) return null;
+    try {
+      if (!(await this.streamOpened) || this.streamFailed) return null;
+      return await stream.finish();
+    } catch (error) {
+      console.warn("[dictation] stream did not finish, will transcribe the recording:", (error as Error).message);
+      return null;
+    } finally {
+      if (this.stream === stream) this.resetStream();
+    }
   }
 
   private tearDownAudioPipeline(): void {
@@ -343,6 +432,8 @@ export class DictationSession {
   }
 
   private async cleanup(): Promise<void> {
+    this.stream?.cancel();
+    this.resetStream();
     this.tearDownAudioPipeline();
     if (this.audioContext) {
       await this.audioContext.close().catch(() => undefined);

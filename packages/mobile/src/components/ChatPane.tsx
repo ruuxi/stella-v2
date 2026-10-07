@@ -5257,14 +5257,16 @@ const makeStyles = (colors: Colors) =>
 
     userRow: { flexDirection: "row", justifyContent: "flex-end" },
     userColumn: { alignItems: "flex-end", maxWidth: "92%" },
-    // iMessage bubbles: one continuous (squircle) radius on every corner, so a
-    // one-line message reads as a pill and taller ones keep soft, even sides.
+    // iMessage bubbles: one continuous (squircle) radius on every corner. The
+    // radius is desktop's fixed `--radius-3xl` (18) rather than something at or
+    // past half a one-line bubble's height, which is what kept very short
+    // messages from collapsing into a round blob there.
     userBubble: {
       backgroundColor: colors.userBubbleFill,
-      borderRadius: 22,
+      borderRadius: 18,
       borderCurve: "continuous",
       paddingHorizontal: 14,
-      paddingVertical: 9,
+      paddingVertical: 6,
     },
     bubbleHidden: { opacity: 0 },
     receipt: {
@@ -5395,7 +5397,7 @@ const makeStyles = (colors: Colors) =>
     assistantBubble: {
       alignSelf: "flex-start",
       overflow: "hidden",
-      borderRadius: 22,
+      borderRadius: 18,
       borderCurve: "continuous",
       maxWidth: "100%",
       paddingBottom: 0,

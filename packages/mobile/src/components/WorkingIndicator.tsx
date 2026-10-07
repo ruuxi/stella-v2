@@ -401,7 +401,7 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.card,
       borderColor: colors.border,
       borderWidth: StyleSheet.hairlineWidth,
-      borderRadius: 22,
+      borderRadius: 18,
       borderCurve: "continuous",
       flexDirection: "row",
       flexShrink: 1,

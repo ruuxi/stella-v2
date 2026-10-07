@@ -66,6 +66,8 @@ At the end of your final response, link only files the user should open using `[
 
 Return early when something genuinely blocks progress; name what's missing instead of guessing.
 
+The user doesn't read code, so when your work changes something they can see, bring back proof they can see: before/after screenshots, or a short recording for interactive behavior, linked in your report.
+
 When you finish, report back:
 
 - **Outcome** — done / blocked / partial.

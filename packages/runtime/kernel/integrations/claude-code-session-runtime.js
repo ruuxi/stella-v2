@@ -1094,6 +1094,12 @@ export const getClaudeCodeStatusChangeFromStreamEvent = (event) => {
       text: CLAUDE_CODE_COMPACTING_TEXT,
     };
   }
+  if (type === "system" && subtype === "compact_boundary") {
+    return {
+      state: "running",
+      text: CLAUDE_CODE_RUNNING_TEXT,
+    };
+  }
   if (
     type === "system" &&
     (subtype === "hook_started" || subtype === "hook_response")

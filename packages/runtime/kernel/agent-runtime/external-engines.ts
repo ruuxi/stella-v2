@@ -1705,8 +1705,10 @@ const runClaudeHostedTurn = async (args: {
           if (status.state === "compacting") {
             compactedSincePromptBuild = true;
           }
+          const state =
+            status.state === "compacting" ? "engine-compacting" : status.state;
           args.callbacks?.onStatus?.(
-            runEvents.recordStatus(status.text, status.state),
+            runEvents.recordStatus(status.text, state),
           );
         },
         onStream: acceptClaudeStreamChunk,

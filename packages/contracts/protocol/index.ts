@@ -660,7 +660,12 @@ export type RuntimeAgentEventPayload = {
   uiVisibility?: "visible" | "hidden";
   rootRunId?: string;
   chunk?: string;
-  statusState?: "running" | "compacting" | "provider-retry" | "model-fallback";
+  statusState?:
+    | "running"
+    | "compacting"
+    | "engine-compacting"
+    | "provider-retry"
+    | "model-fallback";
   providerLifecyclePhase?:
     | "request-admitted"
     | "request-dispatched"

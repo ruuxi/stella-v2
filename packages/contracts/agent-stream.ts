@@ -29,7 +29,12 @@ export type AgentStreamEvent = {
   uiVisibility?: "visible" | "hidden";
   rootRunId?: string;
   chunk?: string;
-  statusState?: "running" | "compacting" | "provider-retry" | "model-fallback";
+  statusState?:
+    | "running"
+    | "compacting"
+    | "engine-compacting"
+    | "provider-retry"
+    | "model-fallback";
   /**
    * Hash-only proof of the physical provider transport owned by this run.
    * The raw upstream request identity never crosses the provider adapter.

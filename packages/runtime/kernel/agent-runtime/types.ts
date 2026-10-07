@@ -106,7 +106,12 @@ export type RuntimeStatusEvent = {
   runId: string;
   agentType: string;
   seq: number;
-  statusState: "running" | "compacting" | "provider-retry" | "model-fallback";
+  statusState:
+    | "running"
+    | "compacting"
+    | "engine-compacting"
+    | "provider-retry"
+    | "model-fallback";
   statusText: string;
   uiVisibility?: "visible" | "hidden";
 };

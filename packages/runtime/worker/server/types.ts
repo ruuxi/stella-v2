@@ -35,7 +35,12 @@ export type AgentEventPayload = {
   userMessageId?: string;
   uiVisibility?: "visible" | "hidden";
   chunk?: string;
-  statusState?: "running" | "compacting" | "provider-retry" | "model-fallback";
+  statusState?:
+    | "running"
+    | "compacting"
+    | "engine-compacting"
+    | "provider-retry"
+    | "model-fallback";
   toolCallId?: string;
   toolName?: string;
   args?: Record<string, unknown>;

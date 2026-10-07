@@ -96,13 +96,9 @@ jobs:
           xcrun stapler staple "$app"
           xcrun stapler validate "$app"
           spctl --assess --verbose --type exec "$app"
-          # The download: a disk image with the app and an Applications
-          # shortcut to drag it onto, itself signed, notarized and stapled.
-          staging="$RUNNER_TEMP/dmg"
-          rm -rf "$staging" && mkdir -p "$staging"
-          ditto "$app" "$staging/Stella.app"
-          ln -s /Applications "$staging/Applications"
-          hdiutil create -volname Stella -srcfolder "$staging" -ov -format UDZO "$RUNNER_TEMP/Stella-macos.dmg"
+          # The download: the drag-to-Applications disk image (make-dmg.sh),
+          # itself signed, notarized and stapled.
+          launcher/macos/make-dmg.sh "$app" "$RUNNER_TEMP/Stella-macos.dmg"
           codesign --force --timestamp --keychain "$keychain_path" --sign "$identity" "$RUNNER_TEMP/Stella-macos.dmg"
           xcrun notarytool submit "$RUNNER_TEMP/Stella-macos.dmg" \
             --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait

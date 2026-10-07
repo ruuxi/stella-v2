@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { RefreshCw } from "@/ui/icons";
+import { Download } from "@/ui/icons";
 import { useTPlural } from "@/shared/i18n";
 import { openUpdates, useAppSourceState, waitingCount } from "./app-source-store";
 import "./updates-pill.css";
@@ -25,7 +25,7 @@ export const UpdatesPill = memo(function UpdatesPill() {
       aria-label={label}
       data-testid="updates-pill"
     >
-      <RefreshCw className="updates-pill__icon" size={13} strokeWidth={2} aria-hidden />
+      <Download className="updates-pill__icon" size={13} strokeWidth={2} aria-hidden />
       <span className="updates-pill__label">{label}</span>
     </button>
   );

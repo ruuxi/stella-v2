@@ -33,7 +33,7 @@ import { useUiState } from "@/context/ui-state";
 import { useComposerMessageState } from "@/features/chat/hooks/use-composer-message-state";
 import { useDictation } from "@/features/dictation/hooks/use-dictation";
 import { setReadAloudEnabled } from "@/features/voice/services/read-aloud/read-aloud-pref";
-import { platformCapabilities } from "@/platform/capabilities";
+import { useRealtimeVoiceVisible } from "@/shared/lib/realtime-voice-visibility";
 import { useT } from "@/shared/i18n";
 import { useDictationToggleBridge } from "@/shell/root-chrome/use-dictation-toggle-bridge";
 import { AudioLines, Mic, Volume2 } from "@/ui/icons";
@@ -228,7 +228,7 @@ export function CompanionPanelRoot() {
 
   // ── Arc actions ──────────────────────────────────────────────────────
   const arcVisible = hovered || expanded;
-  const showVoice = platformCapabilities.realtimeVoice;
+  const showVoice = useRealtimeVoiceVisible();
   const toggleVoice = useCallback(() => {
     window.electronAPI?.voice?.toggleRtc?.();
   }, []);

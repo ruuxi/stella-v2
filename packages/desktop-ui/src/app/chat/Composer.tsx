@@ -53,6 +53,7 @@ import { useT } from "@/shared/i18n";
 import "./full-shell.composer.css";
 import { BrowserAttachmentTray } from "./BrowserAttachmentTray";
 import { platformCapabilities } from "@/platform/capabilities";
+import { useRealtimeVoiceVisible } from "@/shared/lib/realtime-voice-visibility";
 
 // The toolbar buttons take only stable props (dictation callbacks, primitive
 // flags), so memoizing them keeps a keystroke from reconciling their icon and
@@ -97,6 +98,7 @@ function ComposerImpl({
 }: ComposerProps) {
   const t = useT();
   const { state: uiState } = useUiState();
+  const voiceVisible = useRealtimeVoiceVisible();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const formRef = useRef<HTMLFormElement | null>(null);
   const shellRef = useRef<HTMLDivElement | null>(null);
@@ -238,7 +240,7 @@ function ComposerImpl({
 
   const hasAttachedChips = hasAttachedComposerChips(chatContext, selectedText);
   const showRealtimeVoice =
-    platformCapabilities.realtimeVoice &&
+    voiceVisible &&
     Boolean(conversationId) &&
     !hasText &&
     !hasAttachedChips &&

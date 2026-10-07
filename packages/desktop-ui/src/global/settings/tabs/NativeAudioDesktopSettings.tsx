@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Switch } from "@/ui/switch";
 import { useMicrophoneRecovery } from "@/global/permissions/use-microphone-recovery";
 import { useT } from "@/shared/i18n";
+import { useRealtimeVoiceVisible } from "@/shared/lib/realtime-voice-visibility";
 
 export async function darwinMicrophoneIsDenied(): Promise<boolean> {
   if (window.electronAPI?.platform !== "darwin") return false;
@@ -96,7 +97,19 @@ function MacMicrophoneRecoveryRow() {
 
 export function NativeWakeWordRow({ micEnabled }: { micEnabled: boolean }) {
   const t = useT();
+  const voiceVisible = useRealtimeVoiceVisible();
   const [wakeWordEnabled, setWakeWordEnabled] = useState(false);
+
+  useEffect(() => {
+    if (voiceVisible) return;
+    void window.electronAPI?.system
+      ?.getWakeWordEnabled?.()
+      .then((enabled) => {
+        if (!enabled) return;
+        void window.electronAPI?.system?.setWakeWordEnabled?.(false);
+      })
+      .catch(() => undefined);
+  }, [voiceVisible]);
 
   useEffect(() => {
     let cancelled = false;
@@ -129,7 +142,7 @@ export function NativeWakeWordRow({ micEnabled }: { micEnabled: boolean }) {
     });
   }, []);
 
-  if (!micEnabled) return null;
+  if (!micEnabled || !voiceVisible) return null;
 
   return (
     <div className="settings-row">

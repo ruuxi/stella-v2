@@ -4,6 +4,7 @@ import { Button } from "@/ui/button";
 import { Keybind } from "@/ui/keybind";
 import { useT } from "@/shared/i18n";
 import { getSettingsErrorMessage } from "./shared";
+import { useRealtimeVoiceVisible } from "@/shared/lib/realtime-voice-visibility";
 
 const MODIFIER_KEYS = new Set(["Control", "Shift", "Alt", "Meta", "Command"]);
 
@@ -82,6 +83,7 @@ type ShortcutAction = "dictation" | "voice";
 
 export function ShortcutsTab() {
   const t = useT();
+  const voiceVisible = useRealtimeVoiceVisible();
   const actionLabel = useCallback(
     (action: ShortcutAction) => t(`settings.shortcuts.actions.${action}`),
     [t],
@@ -290,10 +292,12 @@ export function ShortcutsTab() {
           "dictation",
           t("settings.shortcuts.dictation.description"),
         )}
-        {renderShortcutRow(
-          "voice",
-          t("settings.shortcuts.voiceAgent.description"),
-        )}
+        {voiceVisible
+          ? renderShortcutRow(
+              "voice",
+              t("settings.shortcuts.voiceAgent.description"),
+            )
+          : null}
       </div>
     </div>
   );

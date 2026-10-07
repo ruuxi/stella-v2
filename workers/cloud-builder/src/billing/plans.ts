@@ -92,9 +92,14 @@ const cloudSandboxPlans = (read: EnvReader): ReadonlySet<CloudSandboxPlan> => {
     const name = entry.trim().toLowerCase();
     if (!name) continue;
     if (!(CLOUD_SANDBOX_PLANS as readonly string[]).includes(name)) {
-      throw new BillingConfigError(
-        `STELLA_CLOUD_SANDBOX_PLANS lists unknown plan "${name}"; use ${CLOUD_SANDBOX_PLANS.join(", ")}.`,
+      console.warn(
+        JSON.stringify({
+          event: "billing_config_unknown_cloud_sandbox_plan",
+          plan: name,
+          known: CLOUD_SANDBOX_PLANS,
+        }),
       );
+      continue;
     }
     plans.add(name as CloudSandboxPlan);
   }

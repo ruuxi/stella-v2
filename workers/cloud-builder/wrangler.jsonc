@@ -55,6 +55,9 @@
     "TELEMETRY_ENVIRONMENT": "development",
     "TURN_TIMEOUT_MS": "900000",
     "SANDBOX_IDLE_TIMEOUT_MS": "600000",
+    // A container only a prewarm started keeps capacity this long; the turn
+    // that attaches raises it to SANDBOX_IDLE_TIMEOUT_MS.
+    "SANDBOX_PREWARM_IDLE_TIMEOUT_MS": "90000",
     // Snapshot a world container when its turn releases it and start the
     // next cold container from that snapshot. "0" always starts from the image.
     "SANDBOX_SNAPSHOTS": "1",
@@ -317,6 +320,9 @@
         "TELEMETRY_ENVIRONMENT": "development",
         "TURN_TIMEOUT_MS": "900000",
         "SANDBOX_IDLE_TIMEOUT_MS": "600000",
+        // A container only a prewarm started keeps capacity this long; the turn
+        // that attaches raises it to SANDBOX_IDLE_TIMEOUT_MS.
+        "SANDBOX_PREWARM_IDLE_TIMEOUT_MS": "90000",
         // Snapshot a world container when its turn releases it and start the
         // next cold container from that snapshot. "0" always starts from the image.
         "SANDBOX_SNAPSHOTS": "1",
@@ -501,6 +507,9 @@
         "TELEMETRY_ENVIRONMENT": "production",
         "TURN_TIMEOUT_MS": "900000",
         "SANDBOX_IDLE_TIMEOUT_MS": "600000",
+        // A container only a prewarm started keeps capacity this long; the turn
+        // that attaches raises it to SANDBOX_IDLE_TIMEOUT_MS.
+        "SANDBOX_PREWARM_IDLE_TIMEOUT_MS": "90000",
         // Snapshot a world container when its turn releases it and start the
         // next cold container from that snapshot. "0" always starts from the image.
         "SANDBOX_SNAPSHOTS": "1",

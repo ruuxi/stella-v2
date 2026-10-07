@@ -105,6 +105,14 @@ const SIGNALS: Record<string, string> = {
   SIGHUP: "HUP",
 };
 
+const resolvedIdleTimeoutMs = (boot: SandboxBoot): number =>
+  Math.min(
+    MAX_IDLE_TIMEOUT_MS,
+    boot.idleTimeoutMs && boot.idleTimeoutMs > 0
+      ? boot.idleTimeoutMs
+      : DEFAULT_IDLE_TIMEOUT_MS,
+  );
+
 // Runs the command in its own process group so a kill reaches its children.
 // The group leader records its pid and then becomes the command; output goes
 // to files so the process outlives the request that started it.
@@ -255,13 +263,28 @@ export class Sandbox extends DurableObject<Env> {
         props: { containerId: this.ctx.id.toString(), policy },
       }),
     );
-    const idle = Math.min(
-      MAX_IDLE_TIMEOUT_MS,
-      boot.idleTimeoutMs && boot.idleTimeoutMs > 0
-        ? boot.idleTimeoutMs
-        : DEFAULT_IDLE_TIMEOUT_MS,
-    );
-    await container.setInactivityTimeout(idle);
+    await container.setInactivityTimeout(resolvedIdleTimeoutMs(boot));
+  }
+
+  /**
+   * A container that is already running was started with the idle timeout of
+   * whoever started it. A prewarm starts it with a short one so an unused
+   * prewarm releases its capacity quickly; the turn that then attaches asks for
+   * the full one and must get it. Only ever lengthens: a prewarm arriving while
+   * a turn holds the container cannot shorten that turn's window.
+   */
+  async #extendIdleTimeout(boot: SandboxBoot): Promise<void> {
+    const stored = this.ctx.storage.kv.get<SandboxBoot>("boot");
+    const next = resolvedIdleTimeoutMs(boot);
+    const current = stored
+      ? resolvedIdleTimeoutMs(stored)
+      : DEFAULT_IDLE_TIMEOUT_MS;
+    if (current >= next) return;
+    this.ctx.storage.kv.put("boot", {
+      ...(stored ?? boot),
+      idleTimeoutMs: next,
+    });
+    await this.#container.setInactivityTimeout(next);
   }
 
   get #snapshotsEnabled(): boolean {
@@ -354,9 +377,15 @@ export class Sandbox extends DurableObject<Env> {
   async #ensure(boot: SandboxBoot): Promise<void> {
     if (this.#booting) {
       await this.#booting;
-      if (this.#container.running) return;
+      if (this.#container.running) {
+        await this.#extendIdleTimeout(boot);
+        return;
+      }
     }
-    if (this.#container.running) return;
+    if (this.#container.running) {
+      await this.#extendIdleTimeout(boot);
+      return;
+    }
     this.#booting = this.#start(boot).finally(() => {
       this.#booting = null;
     });

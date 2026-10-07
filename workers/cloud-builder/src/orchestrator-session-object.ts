@@ -681,8 +681,6 @@ const CLI_RUNTIME_WAIT_MS = 60_000;
 /** A dispatch refused while the previous attempt unwinds is resent this often. */
 const CLI_DISPATCH_BUSY_RETRY_MS = 2_000;
 const CLI_DISPATCH_BUSY_RETRIES = 10;
-/** Socket-connect prewarm is at most this frequent per isolate. */
-const CLI_PREWARM_INTERVAL_MS = 60_000;
 /** Rows one CLI context block considers before its character budget. */
 const CLI_CONTEXT_ROW_LIMIT = 400;
 /** The terminal's reply text as stored durably (DO values cap at 128 KiB). */
@@ -1066,7 +1064,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     string,
     Promise<CloudOrchestratorToolCallResponse>
   >();
-  private cliPrewarmedAt = 0;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -1093,7 +1090,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       cancelTurn: (turnId) => this.cancelTurn(turnId),
       onConnect: () => {
         this.flushIndexIfLagging();
-        this.prewarmCliOnConnect();
       },
       conversationId: () => this.conversationId(),
       log,
@@ -3792,7 +3788,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         if (!harnessExecution) {
           // Claude Code runs this turn in the orchestrator container; wake it
           // while admission commits instead of minting a capability here.
-          this.prewarmCliContainer(turn.ownerId, turn.conversationId, true);
+          this.prewarmCliContainer(turn.ownerId, turn.conversationId);
         }
         const work = (
           harnessExecution
@@ -5667,19 +5663,14 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
   }
 
   /**
-   * Wake the conversation's orchestrator container so a Claude Code turn
-   * does not pay a cold start. Fire and forget, at most once a minute unless
-   * `force` (admission of an actual turn).
+   * Wake the conversation's orchestrator container for a Claude Code turn that
+   * is being admitted right now, so the turn does not pay a cold start. Fire
+   * and forget. Only an admitted turn warms a container: a socket connect or
+   * any other passive signal would hold an instance for its whole idle window
+   * without a turn ever arriving.
    */
-  private prewarmCliContainer(
-    ownerId: string,
-    conversationId: string,
-    force = false,
-  ): void {
-    const now = Date.now();
+  private prewarmCliContainer(ownerId: string, conversationId: string): void {
     if (!conversationId) return;
-    if (!force && now - this.cliPrewarmedAt < CLI_PREWARM_INTERVAL_MS) return;
-    this.cliPrewarmedAt = now;
     const startedAt = performance.now();
     this.ctx.waitUntil(
       prewarmOrchestratorCli({
@@ -5697,14 +5688,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         });
       }),
     );
-  }
-
-  /** A socket connect warms the container when the last turn ran on Claude Code. */
-  private prewarmCliOnConnect(): void {
-    if (this.activeTurnId || this.purged() || !this.ctx.storage.kv) return;
-    const last = this.ctx.storage.kv.get<ChatTurnRequest>("turn");
-    if (last?.execution?.engine !== "anthropic") return;
-    this.prewarmCliContainer(last.ownerId, last.conversationId);
   }
 
   /**

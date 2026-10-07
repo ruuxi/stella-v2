@@ -67,18 +67,45 @@ const sandboxSleepAfterMs = (
   return Number.isSafeInteger(value) && value > 0 ? value : undefined;
 };
 
+/** Used when `SANDBOX_PREWARM_IDLE_TIMEOUT_MS` is unset or malformed. */
+const DEFAULT_PREWARM_IDLE_TIMEOUT_MS = 90_000;
+
+/**
+ * Idle timeout a container gets when a prewarm is what started it. A prewarm
+ * buys the next turn its cold start, so it only has to outlive the few seconds
+ * between admission and attach; the turn's own first container call lengthens
+ * the timeout to `SANDBOX_IDLE_TIMEOUT_MS`. Capacity held by a prewarm whose
+ * turn never arrives is released on this timeout instead of the post-turn one.
+ */
+const sandboxPrewarmSleepAfterMs = (
+  env: Pick<
+    Env,
+    "SANDBOX_IDLE_TIMEOUT_MS" | "SANDBOX_PREWARM_IDLE_TIMEOUT_MS"
+  >,
+): number => {
+  const configured = Number(env.SANDBOX_PREWARM_IDLE_TIMEOUT_MS);
+  const prewarm =
+    Number.isSafeInteger(configured) && configured > 0
+      ? configured
+      : DEFAULT_PREWARM_IDLE_TIMEOUT_MS;
+  const afterTurn = sandboxSleepAfterMs(env);
+  return afterTurn === undefined ? prewarm : Math.min(prewarm, afterTurn);
+};
+
 /**
  * One sandbox handle per exact tuple. Every workload and size shares one
  * namespace: the object picks the instance size and network policy when it
  * starts the container, so the id alone addresses the container.
  */
-export const sandboxHandle = (env: Env, target: SandboxTarget) =>
+export const sandboxHandle = (
+  env: Env,
+  target: SandboxTarget,
+  idleTimeoutMs: number | undefined = sandboxSleepAfterMs(env),
+) =>
   sandboxClient(env.Sandbox, target.sandboxId, {
     size: target.size,
     workload: target.workload,
-    ...(sandboxSleepAfterMs(env) === undefined
-      ? {}
-      : { idleTimeoutMs: sandboxSleepAfterMs(env) }),
+    ...(idleTimeoutMs === undefined ? {} : { idleTimeoutMs }),
   });
 
 /** Every id this worker mints: a lifecycle fingerprint or a diagnostic echo. */
@@ -152,11 +179,13 @@ export const retireSandboxInstance = async (
 /**
  * `POST /orchestrator-turn/prewarm` `{ ownerId }`: start the owner's shared
  * world container ahead of an orchestrator CLI turn, without running one.
- * The OrchestratorSession calls it when an `anthropic` conversation is about
- * to need the container (admission, socket connect), so the turn itself
- * pays only for attach. Starts the exact container the turn would use
- * (`worldSandboxId`, the world's remembered size); a running one is left
- * alone. Never touches this session's turn state.
+ * The OrchestratorSession calls it only while admitting an actual `anthropic`
+ * turn, so the turn itself pays only for attach. Starts the exact container the
+ * turn would use (`worldSandboxId`, the world's remembered size) but with the
+ * prewarm idle timeout, so capacity is released soon if the turn never
+ * arrives; the turn's own first container call lengthens the timeout to
+ * `SANDBOX_IDLE_TIMEOUT_MS`. A running container is left alone. Never touches
+ * this session's turn state.
  *
  *   200 { prewarmed: true, alreadyRunning: boolean, startMs?: number }
  *   502 { prewarmed: false, reason: "start_failed" }
@@ -188,7 +217,11 @@ export const prewarmOrchestratorContainer = async (
   const size = await world.selectContainerSize(
     initialInstanceSize({ prompt: "" }),
   );
-  const handle = host.sandbox(await worldSandboxId(ownerId), size, "world");
+  const handle = sandboxHandle(
+    host.env,
+    { sandboxId: await worldSandboxId(ownerId), size, workload: "world" },
+    sandboxPrewarmSleepAfterMs(host.env),
+  );
   if (await host.sandboxContainerRunning(handle)) {
     return json({ prewarmed: true, alreadyRunning: true });
   }

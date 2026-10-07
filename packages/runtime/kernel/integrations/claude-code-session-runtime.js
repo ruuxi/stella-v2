@@ -1283,6 +1283,17 @@ class ClaudeCodeSessionRuntime {
     const child = this.activeProcesses.get(sessionKey);
     return Boolean(child && !child.killed && child.exitCode === null);
   }
+  resumableSessionId(sessionKey, cwd) {
+    const session = this.sessions.get(sessionKey);
+    if (!session || !session.resumeReady) {
+      return undefined;
+    }
+    const normalizedCwd = cwd?.trim() || undefined;
+    if (session.cwd !== normalizedCwd) {
+      return undefined;
+    }
+    return session.sessionId;
+  }
   closeSessionWhenIdle(sessionKey) {
     this.clearIdleCloseTimer(sessionKey);
     const session = this.sessions.get(sessionKey);
@@ -2594,6 +2605,8 @@ export const runClaudeCodeTurn = async (request) =>
 /** Diagnostic/test hook: is a live CLI process tracked for this session key? */
 export const claudeCodeSessionHasActiveProcess = (sessionKey) =>
   runtime.hasActiveProcess(sessionKey);
+export const claudeCodeResumableSessionId = (sessionKey, cwd) =>
+  runtime.resumableSessionId(sessionKey, cwd);
 export const closeClaudeCodeSessionWhenIdle = (sessionKey) => {
   runtime.closeSessionWhenIdle(sessionKey);
 };

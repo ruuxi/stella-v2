@@ -1,6 +1,8 @@
 import { useMemo } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
+import type { TaskLifecycleStatus } from "@stella/contracts/agent-runtime";
 import { Icon } from "./Icon";
+import { AgentLifecycleStatusIcon } from "./AgentLifecycleStatusIcon";
 import { ShimmerText } from "./ShimmerText";
 import { StellaStarGlyph } from "./AgentActivityGlyph";
 import {
@@ -31,6 +33,10 @@ const RUNNING_REST_ALPHA = AGENT_ACTIVITY_INK.runningRestAlpha;
  * the plain star), the task DESCRIPTION on a single line, and a trailing
  * chevron as the tap-through affordance.
  *
+ * Read-outs of live activity ask for `lifecycleStatus` instead, which fills the
+ * same slot with desktop's activity icon vocabulary so the top-bar menus on
+ * both platforms label their rows identically.
+ *
  * Both of those are earned rather than assumed: a row with nowhere to go drops
  * the chevron, since it promises a tap that does nothing, and a row that needs
  * no status tell omits the glyph.
@@ -38,6 +44,7 @@ const RUNNING_REST_ALPHA = AGENT_ACTIVITY_INK.runningRestAlpha;
 export function AgentActivityRow({
   title,
   glyph,
+  lifecycleStatus,
   working,
   colors,
   onPress,
@@ -45,6 +52,11 @@ export function AgentActivityRow({
   title: string;
   /** Omit for a plain read-out line with no status tell. */
   glyph?: AgentActivityGlyph;
+  /**
+   * Fills the leading slot with desktop's activity icon vocabulary instead of
+   * the card's own star/check/arrow tell. Takes precedence over `glyph`.
+   */
+  lifecycleStatus?: TaskLifecycleStatus;
   working: boolean;
   colors: Colors;
   /** Opens the agent detail (activity hub). Row is inert when absent. */
@@ -63,7 +75,15 @@ export function AgentActivityRow({
       {/* Status glyph at FULL strength — solid strong ink, no dimming
           (desktop parity); only the description keeps the muted/shimmer
           treatment. */}
-      {glyph ? (
+      {lifecycleStatus ? (
+        <View style={styles.glyph}>
+          <AgentLifecycleStatusIcon
+            status={lifecycleStatus}
+            size={13}
+            color={colors[AGENT_ACTIVITY_INK.glyphInk]}
+          />
+        </View>
+      ) : glyph ? (
         <View style={styles.glyph}>
           {glyph === "star" ? (
             <StellaStarGlyph

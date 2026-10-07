@@ -64,6 +64,9 @@ export type IconName =
   | "reply"
   | "select"
   | "alert-circle"
+  | "circle"
+  | "circle-dot"
+  | "check-circle"
   | "chat"
   | "apps"
   | "artifacts";
@@ -131,6 +134,10 @@ const FEATHER_NAMES: Record<
   reply: "corner-up-left",
   select: "crop",
   "alert-circle": "alert-circle",
+  circle: "circle",
+  // Feather has no "circle with a filled centre"; `disc` is that exact shape.
+  "circle-dot": "disc",
+  "check-circle": "check-circle",
   chat: "message-circle",
   // Feather has no round dot grid; its square grid is the nearest glyph.
   apps: "grid",
@@ -193,6 +200,9 @@ const SYMBOL_NAMES: Record<IconName, SymbolViewProps["name"]> = {
   reply: "arrowshape.turn.up.left",
   select: "crop",
   "alert-circle": "exclamationmark.circle",
+  circle: "circle",
+  "circle-dot": "smallcircle.filled.circle",
+  "check-circle": "checkmark.circle",
   chat: "bubble.left",
   apps: "circle.grid.2x2",
   artifacts: "photo.on.rectangle.angled",

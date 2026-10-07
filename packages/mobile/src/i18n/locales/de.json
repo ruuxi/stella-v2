@@ -1492,7 +1492,8 @@
       "useAppearanceLabel": "Erscheinungsbild {name} verwenden",
       "useBackgroundColorLabel": "Hintergrundfarbe {name} verwenden",
       "useBackgroundLabel": "Hintergrund {name} verwenden",
-      "useThemeLabel": "Theme {name} verwenden"
+      "useThemeLabel": "Theme {name} verwenden",
+      "voiceSection": "Stimme"
     },
     "sidebar": {
       "searchPlaceholder": "Aktivität und Dateien durchsuchen",

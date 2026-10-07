@@ -116,6 +116,10 @@ import {
 } from "../lib/agent-artifact-consolidation";
 import { DictationRecordingBar } from "./DictationRecordingBar";
 import { RealtimeVoiceOverlay } from "./RealtimeVoiceOverlay";
+import {
+  getVoiceEnabled,
+  subscribeVoiceEnabled,
+} from "../lib/voice-visibility";
 import { ensureMicrophonePermission } from "../lib/microphone-permission";
 import {
   WorkingIndicator,
@@ -3440,6 +3444,13 @@ export function ChatPane({
 
   const [expanded, setExpanded] = useState(false);
   const [realtimeVoiceOpen, setRealtimeVoiceOpen] = useState(false);
+  const [voiceEnabled, setVoiceEnabledLocal] = useState(() =>
+    getVoiceEnabled(),
+  );
+  useEffect(() => subscribeVoiceEnabled(setVoiceEnabledLocal), []);
+  useEffect(() => {
+    if (!voiceEnabled) setRealtimeVoiceOpen(false);
+  }, [voiceEnabled]);
 
   // Derived draft flags: these re-render the pane only when they flip, not on
   // every keystroke.
@@ -3567,6 +3578,7 @@ export function ChatPane({
 
   const realtimeVoiceOpeningRef = useRef(false);
   const openRealtimeVoice = useCallback(async () => {
+    if (!getVoiceEnabled()) return;
     if (!realtimeVoiceSignInRequired && !hasAiConsent()) {
       requestAiConsent();
       return;
@@ -4373,6 +4385,7 @@ export function ChatPane({
   // it immediately to the right of the mic only while the composer is empty;
   // once text or an attachment exists, send remains the unambiguous action.
   const realtimeVoiceButton =
+    voiceEnabled &&
     realtimeVoiceConversationId &&
     (onRealtimeVoiceAction || realtimeVoiceDesktopAccess) &&
     composerEnabled &&

@@ -1515,7 +1515,8 @@
       "useAppearanceLabel": "Použít vzhled {name}",
       "useBackgroundColorLabel": "Použít barvu pozadí {name}",
       "useBackgroundLabel": "Použít pozadí {name}",
-      "useThemeLabel": "Použít motiv {name}"
+      "useThemeLabel": "Použít motiv {name}",
+      "voiceSection": "Hlas"
     },
     "sidebar": {
       "searchPlaceholder": "Hledat v aktivitě a souborech",

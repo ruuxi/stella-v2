@@ -1480,7 +1480,8 @@
       "useAppearanceLabel": "Gunakan tampilan {name}",
       "useBackgroundColorLabel": "Gunakan warna latar {name}",
       "useBackgroundLabel": "Gunakan latar {name}",
-      "useThemeLabel": "Gunakan tema {name}"
+      "useThemeLabel": "Gunakan tema {name}",
+      "voiceSection": "Suara"
     },
     "sidebar": {
       "searchPlaceholder": "Cari aktivitas dan file",

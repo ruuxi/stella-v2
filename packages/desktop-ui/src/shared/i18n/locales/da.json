@@ -1493,7 +1493,8 @@
       "useAppearanceLabel": "Brug udseendet {name}",
       "useBackgroundColorLabel": "Brug baggrundsfarven {name}",
       "useBackgroundLabel": "Brug baggrunden {name}",
-      "useThemeLabel": "Brug temaet {name}"
+      "useThemeLabel": "Brug temaet {name}",
+      "voiceSection": "Stemme"
     },
     "sidebar": {
       "searchPlaceholder": "Søg i aktivitet og filer",

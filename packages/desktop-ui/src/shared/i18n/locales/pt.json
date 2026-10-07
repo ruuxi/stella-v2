@@ -1504,7 +1504,8 @@
       "useAppearanceLabel": "Usar a aparência {name}",
       "useBackgroundColorLabel": "Usar a cor de fundo {name}",
       "useBackgroundLabel": "Usar o fundo {name}",
-      "useThemeLabel": "Usar o tema {name}"
+      "useThemeLabel": "Usar o tema {name}",
+      "voiceSection": "Voz"
     },
     "sidebar": {
       "searchPlaceholder": "Pesquisar atividade e arquivos",

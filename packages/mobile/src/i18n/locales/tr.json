@@ -1492,7 +1492,8 @@
       "useAppearanceLabel": "Şu görünümü kullan: {name}",
       "useBackgroundColorLabel": "Şu arka plan rengini kullan: {name}",
       "useBackgroundLabel": "Şu arka planı kullan: {name}",
-      "useThemeLabel": "Şu temayı kullan: {name}"
+      "useThemeLabel": "Şu temayı kullan: {name}",
+      "voiceSection": "Ses"
     },
     "sidebar": {
       "searchPlaceholder": "Etkinlik ve dosyalarda ara",

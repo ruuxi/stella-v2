@@ -1516,7 +1516,8 @@
       "useAppearanceLabel": "Использовать оформление {name}",
       "useBackgroundColorLabel": "Использовать цвет фона {name}",
       "useBackgroundLabel": "Использовать фон {name}",
-      "useThemeLabel": "Использовать тему {name}"
+      "useThemeLabel": "Использовать тему {name}",
+      "voiceSection": "Голос"
     },
     "sidebar": {
       "searchPlaceholder": "Искать в активности и файлах",

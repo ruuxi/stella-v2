@@ -1480,7 +1480,8 @@
       "useAppearanceLabel": "{name} の外観を使う",
       "useBackgroundColorLabel": "{name} の背景色を使う",
       "useBackgroundLabel": "{name} の背景を使う",
-      "useThemeLabel": "{name} のテーマを使う"
+      "useThemeLabel": "{name} のテーマを使う",
+      "voiceSection": "音声"
     },
     "sidebar": {
       "searchPlaceholder": "アクティビティとファイルを検索",

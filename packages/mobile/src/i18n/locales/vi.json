@@ -1480,7 +1480,8 @@
       "useAppearanceLabel": "Dùng giao diện {name}",
       "useBackgroundColorLabel": "Dùng màu nền {name}",
       "useBackgroundLabel": "Dùng nền {name}",
-      "useThemeLabel": "Dùng chủ đề {name}"
+      "useThemeLabel": "Dùng chủ đề {name}",
+      "voiceSection": "Giọng nói"
     },
     "sidebar": {
       "searchPlaceholder": "Tìm trong hoạt động và tệp",

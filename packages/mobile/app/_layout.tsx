@@ -26,6 +26,7 @@ import { loadGuestMode, isGuest, setGuestMode } from "../src/lib/guest-mode";
 import { signInMobileAnonymous } from "../src/lib/anonymous-sign-in";
 import { loadAiConsent } from "../src/lib/ai-consent";
 import { loadNotificationsMuted } from "../src/lib/notifications-prefs";
+import { loadVoiceEnabled } from "../src/lib/voice-visibility";
 import {
   hasSeenOnboarding,
   loadOnboardingProgress,
@@ -179,10 +180,11 @@ function AuthenticatedLayout() {
       loadGuestMode(),
       loadAiConsent(),
       loadNotificationsMuted(),
+      loadVoiceEnabled(),
       loadOnboardingSeen(),
       loadOnboardingProgress(),
       loadLastMainTabHref(),
-    ]).then(([, , , , , href]) => {
+    ]).then(([, , , , , , href]) => {
       setInitialMainHref(href);
       setGuestReady(true);
     });

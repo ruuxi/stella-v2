@@ -1492,7 +1492,8 @@
       "useAppearanceLabel": "Megjelenés használata: {name}",
       "useBackgroundColorLabel": "Háttérszín használata: {name}",
       "useBackgroundLabel": "Háttér használata: {name}",
-      "useThemeLabel": "Téma használata: {name}"
+      "useThemeLabel": "Téma használata: {name}",
+      "voiceSection": "Hang"
     },
     "sidebar": {
       "searchPlaceholder": "Keresés a tevékenységben és a fájlokban",

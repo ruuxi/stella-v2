@@ -1493,7 +1493,8 @@
       "useAppearanceLabel": "Använd utseendet {name}",
       "useBackgroundColorLabel": "Använd bakgrundsfärgen {name}",
       "useBackgroundLabel": "Använd bakgrunden {name}",
-      "useThemeLabel": "Använd temat {name}"
+      "useThemeLabel": "Använd temat {name}",
+      "voiceSection": "Röst"
     },
     "sidebar": {
       "searchPlaceholder": "Sök i aktivitet och filer",

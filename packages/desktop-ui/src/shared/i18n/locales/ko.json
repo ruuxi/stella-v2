@@ -1480,7 +1480,8 @@
       "useAppearanceLabel": "{name} 모양 사용",
       "useBackgroundColorLabel": "{name} 배경색 사용",
       "useBackgroundLabel": "{name} 배경 사용",
-      "useThemeLabel": "{name} 테마 사용"
+      "useThemeLabel": "{name} 테마 사용",
+      "voiceSection": "음성"
     },
     "sidebar": {
       "searchPlaceholder": "활동과 파일 검색",

@@ -1539,7 +1539,8 @@
       "useAppearanceLabel": "استخدام مظهر {name}",
       "useBackgroundColorLabel": "استخدام لون خلفية {name}",
       "useBackgroundLabel": "استخدام خلفية {name}",
-      "useThemeLabel": "استخدام سِمة {name}"
+      "useThemeLabel": "استخدام سِمة {name}",
+      "voiceSection": "الصوت"
     },
     "sidebar": {
       "searchPlaceholder": "البحث في النشاط والملفات",

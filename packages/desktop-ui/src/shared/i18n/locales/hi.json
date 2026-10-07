@@ -1492,7 +1492,8 @@
       "useAppearanceLabel": "{name} दिखावट इस्तेमाल करें",
       "useBackgroundColorLabel": "{name} बैकग्राउंड रंग इस्तेमाल करें",
       "useBackgroundLabel": "{name} बैकग्राउंड इस्तेमाल करें",
-      "useThemeLabel": "{name} थीम इस्तेमाल करें"
+      "useThemeLabel": "{name} थीम इस्तेमाल करें",
+      "voiceSection": "आवाज़"
     },
     "sidebar": {
       "searchPlaceholder": "गतिविधि और फ़ाइलों में खोजें",

@@ -1492,7 +1492,8 @@
       "useAppearanceLabel": "Weergave {name} gebruiken",
       "useBackgroundColorLabel": "Achtergrondkleur {name} gebruiken",
       "useBackgroundLabel": "Achtergrond {name} gebruiken",
-      "useThemeLabel": "Thema {name} gebruiken"
+      "useThemeLabel": "Thema {name} gebruiken",
+      "voiceSection": "Stem"
     },
     "sidebar": {
       "searchPlaceholder": "Zoek in activiteit en bestanden",

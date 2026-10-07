@@ -1516,7 +1516,8 @@
       "useAppearanceLabel": "Użyj wyglądu {name}",
       "useBackgroundColorLabel": "Użyj koloru tła {name}",
       "useBackgroundLabel": "Użyj tła {name}",
-      "useThemeLabel": "Użyj motywu {name}"
+      "useThemeLabel": "Użyj motywu {name}",
+      "voiceSection": "Głos"
     },
     "sidebar": {
       "searchPlaceholder": "Szukaj w aktywności i plikach",

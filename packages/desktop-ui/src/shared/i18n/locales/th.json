@@ -1480,7 +1480,8 @@
       "useAppearanceLabel": "ใช้รูปลักษณ์{name}",
       "useBackgroundColorLabel": "ใช้สีพื้นหลัง{name}",
       "useBackgroundLabel": "ใช้พื้นหลัง{name}",
-      "useThemeLabel": "ใช้ธีม{name}"
+      "useThemeLabel": "ใช้ธีม{name}",
+      "voiceSection": "เสียง"
     },
     "sidebar": {
       "searchPlaceholder": "ค้นหาในกิจกรรมและไฟล์",

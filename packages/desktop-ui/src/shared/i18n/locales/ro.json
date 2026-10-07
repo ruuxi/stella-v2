@@ -1504,7 +1504,8 @@
       "useAppearanceLabel": "Folosește aspectul {name}",
       "useBackgroundColorLabel": "Folosește culoarea de fundal {name}",
       "useBackgroundLabel": "Folosește fundalul {name}",
-      "useThemeLabel": "Folosește tema {name}"
+      "useThemeLabel": "Folosește tema {name}",
+      "voiceSection": "Voce"
     },
     "sidebar": {
       "searchPlaceholder": "Caută în activitate și fișiere",

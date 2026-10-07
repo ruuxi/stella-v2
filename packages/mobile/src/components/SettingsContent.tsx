@@ -32,6 +32,11 @@ import {
   subscribeNotificationsMuted,
 } from "../lib/notifications-prefs";
 import {
+  getVoiceEnabled,
+  setVoiceEnabled,
+  subscribeVoiceEnabled,
+} from "../lib/voice-visibility";
+import {
   clearStoredPhoneAccess,
   listStoredPairedPhoneAccess,
   type StoredPhoneAccess,
@@ -120,6 +125,10 @@ export function SettingsContent() {
   const [emailRevealed, setEmailRevealed] = useState(false);
 
   useEffect(() => subscribeNotificationsMuted(setMutedLocal), []);
+  const [voiceEnabled, setVoiceEnabledLocal] = useState(() =>
+    getVoiceEnabled(),
+  );
+  useEffect(() => subscribeVoiceEnabled(setVoiceEnabledLocal), []);
 
   const user = session.data?.user;
   const email = user?.email ?? "";
@@ -520,6 +529,29 @@ export function SettingsContent() {
               value={!notificationsMuted}
               onValueChange={toggleNotifications}
               accessibilityLabel={t("mobile.settings.pushToggleA11y")}
+            />
+          </View>
+        </View>
+      </View>
+
+      <View style={settingsStyles.section}>
+        <Text style={settingsStyles.sectionLabel}>
+          {t("mobile.settings.voiceSection")}
+        </Text>
+        <View style={settingsStyles.group}>
+          <View style={settingsStyles.row}>
+            <View style={settingsStyles.rowCopy}>
+              <Text style={settingsStyles.rowLabel}>
+                {t("settings.voiceAgent.title")}
+              </Text>
+              <Text style={settingsStyles.rowSub}>
+                {t("settings.voiceAgent.description")}
+              </Text>
+            </View>
+            <GlassToggle
+              value={voiceEnabled}
+              onValueChange={(next) => void setVoiceEnabled(next)}
+              accessibilityLabel={t("settings.voiceAgent.title")}
             />
           </View>
         </View>

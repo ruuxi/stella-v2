@@ -1492,7 +1492,8 @@
       "useAppearanceLabel": "Käytä ulkoasua {name}",
       "useBackgroundColorLabel": "Käytä taustaväriä {name}",
       "useBackgroundLabel": "Käytä taustaa {name}",
-      "useThemeLabel": "Käytä teemaa {name}"
+      "useThemeLabel": "Käytä teemaa {name}",
+      "voiceSection": "Ääni"
     },
     "sidebar": {
       "searchPlaceholder": "Hae toiminnasta ja tiedostoista",

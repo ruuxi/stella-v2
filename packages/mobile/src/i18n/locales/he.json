@@ -1504,7 +1504,8 @@
       "useAppearanceLabel": "שימוש במראה {name}",
       "useBackgroundColorLabel": "שימוש בצבע הרקע {name}",
       "useBackgroundLabel": "שימוש ברקע {name}",
-      "useThemeLabel": "שימוש בערכת הנושא {name}"
+      "useThemeLabel": "שימוש בערכת הנושא {name}",
+      "voiceSection": "קול"
     },
     "sidebar": {
       "searchPlaceholder": "חיפוש בפעילות ובקבצים",

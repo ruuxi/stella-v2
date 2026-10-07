@@ -27,6 +27,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform } from "react-native";
 import { authClient } from "../lib/auth-client";
 import {
+  getVoiceEnabled,
+  subscribeVoiceEnabled,
+} from "../lib/voice-visibility";
+import {
   useCloudCanonicalChatThread,
   useCloudConversationAuthority,
 } from "../lib/use-cloud-canonical-chat-thread";
@@ -79,6 +83,11 @@ function CarPlayBridgeIOS() {
   const hasSession = Boolean(session.data);
   const anonymous = session.data?.user?.isAnonymous === true;
   const [connected, setConnected] = useState(false);
+  const [voiceEnabled, setVoiceEnabledLocal] = useState(() =>
+    getVoiceEnabled(),
+  );
+
+  useEffect(() => subscribeVoiceEnabled(setVoiceEnabledLocal), []);
 
   useEffect(() => {
     // First [js] breadcrumb of a healthy run. If a diagnostics dump has native
@@ -97,7 +106,7 @@ function CarPlayBridgeIOS() {
     carPlaySession.setSignedIn(hasSession);
   }, [hasSession]);
 
-  if (!hasSession || !connected) return null;
+  if (!hasSession || !connected || !voiceEnabled) return null;
   return <CarPlayCloudChatGate anonymous={anonymous} />;
 }
 

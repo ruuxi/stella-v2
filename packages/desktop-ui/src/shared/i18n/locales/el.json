@@ -1492,7 +1492,8 @@
       "useAppearanceLabel": "Χρήση εμφάνισης {name}",
       "useBackgroundColorLabel": "Χρήση χρώματος φόντου {name}",
       "useBackgroundLabel": "Χρήση φόντου {name}",
-      "useThemeLabel": "Χρήση θέματος {name}"
+      "useThemeLabel": "Χρήση θέματος {name}",
+      "voiceSection": "Φωνή"
     },
     "sidebar": {
       "searchPlaceholder": "Αναζήτηση σε δραστηριότητα και αρχεία",

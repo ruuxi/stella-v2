@@ -1492,7 +1492,8 @@
       "useAppearanceLabel": "Use {name} appearance",
       "useBackgroundColorLabel": "Use {name} background color",
       "useBackgroundLabel": "Use {name} background",
-      "useThemeLabel": "Use {name} theme"
+      "useThemeLabel": "Use {name} theme",
+      "voiceSection": "Voice"
     },
     "sidebar": {
       "searchPlaceholder": "Search activity and files",

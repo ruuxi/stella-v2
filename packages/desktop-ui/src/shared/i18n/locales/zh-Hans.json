@@ -1480,7 +1480,8 @@
       "useAppearanceLabel": "使用{name}外观",
       "useBackgroundColorLabel": "使用{name}背景色",
       "useBackgroundLabel": "使用{name}背景",
-      "useThemeLabel": "使用{name}主题"
+      "useThemeLabel": "使用{name}主题",
+      "voiceSection": "语音"
     },
     "sidebar": {
       "searchPlaceholder": "搜索活动和文件",

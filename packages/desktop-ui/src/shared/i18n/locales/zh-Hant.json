@@ -1480,7 +1480,8 @@
       "useAppearanceLabel": "使用{name}外觀",
       "useBackgroundColorLabel": "使用{name}背景色",
       "useBackgroundLabel": "使用{name}背景",
-      "useThemeLabel": "使用{name}主題"
+      "useThemeLabel": "使用{name}主題",
+      "voiceSection": "語音"
     },
     "sidebar": {
       "searchPlaceholder": "搜尋活動與檔案",

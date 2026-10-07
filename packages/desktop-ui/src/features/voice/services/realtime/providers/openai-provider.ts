@@ -1,9 +1,13 @@
 /**
  * User-BYOK OpenAI Realtime provider.
  *
- * Token is minted in main-process using the user's stored OpenAI API key
+ * Token is minted in the main process using the user's stored OpenAI API key
  * (`voiceApi.createOpenAISession`) and the connection uses OpenAI's WebRTC
  * realtime endpoint.
+ *
+ * No tool catalog is sent: Stella's voice model never calls tools itself.
+ * On this BYOK route there is no delegation channel either, so the session is
+ * conversation-only.
  */
 
 import { OpenAIWebRTCTransport } from "../transports/openai-webrtc-transport";
@@ -21,7 +25,6 @@ export const buildOpenAIRealtimeSessionConfig = (
 ): Record<string, unknown> => ({
   type: "realtime",
   instructions: ctx.instructions,
-  ...(ctx.tools?.length ? { tools: ctx.tools, tool_choice: "auto" } : {}),
 });
 
 export const openaiProvider: ProviderModule = {
@@ -32,7 +35,6 @@ export const openaiProvider: ProviderModule = {
     }
     const result = await voiceApi.createOpenAISession({
       instructions: ctx.instructions,
-      tools: ctx.tools,
     });
     return {
       provider: "openai",
@@ -47,7 +49,6 @@ export const openaiProvider: ProviderModule = {
 
   createTransport(token, ctx) {
     return new OpenAIWebRTCTransport({
-      provider: "openai",
       model: token.model,
       sdpFetch: bearerSdpFetcher(OPENAI_SDP_ENDPOINT, token.clientSecret),
       initialSessionConfig: buildOpenAIRealtimeSessionConfig(ctx),

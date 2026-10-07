@@ -188,20 +188,14 @@ import {
   IPC_UI_STATE_KV_SNAPSHOT,
   IPC_WEBSITE_GET_BASE_URL,
   IPC_VOICE_CREATE_OPENAI_SESSION,
-  IPC_VOICE_EXECUTE_TOOL,
   IPC_VOICE_ORCHESTRATOR_CONFIG,
   IPC_VOICE_CREATE_XAI_SESSION,
-  IPC_VOICE_CREATE_INWORLD_SESSION,
   IPC_VOICE_PREFERENCES_CHANGED,
   IPC_VOICE_REPORT_SESSION_ERROR,
   IPC_VOICE_RTC_TOGGLE,
   IPC_VOICE_SESSION_ERROR,
 } from "@stella/contracts/desktop/ipc-channels";
-import type {
-  RuntimeVoiceOrchestratorConfig,
-  RuntimeVoiceToolCallPayload,
-  RuntimeVoiceToolCallResult,
-} from "@stella/contracts/protocol";
+import type { RuntimeVoiceOrchestratorConfig } from "@stella/contracts/protocol";
 import type { RuntimeModelCatalogSnapshot } from "@stella/contracts/model-catalog";
 
 // ---------------------------------------------------------------------------
@@ -731,27 +725,37 @@ contextBridge.exposeInMainWorld("electronAPI", {
       uiVisibility?: "visible" | "hidden";
       voiceSession?: { durationMs: number };
     }) => ipcRenderer.send("voice:persistTranscript", payload),
-    orchestratorChat: (payload: { conversationId: string; message: string }) =>
+    orchestratorChat: (payload: {
+      /** Correlates the run's forwarded activity back to this request. */
+      requestId: string;
+      conversationId: string;
+      message: string;
+    }) =>
       ipcRenderer.invoke("voice:orchestratorChat", payload) as Promise<string>,
     getOrchestratorConfig: (payload: { conversationId: string }) =>
       ipcRenderer.invoke(
         IPC_VOICE_ORCHESTRATOR_CONFIG,
         payload,
       ) as Promise<RuntimeVoiceOrchestratorConfig>,
-    executeTool: (payload: RuntimeVoiceToolCallPayload) =>
-      ipcRenderer.invoke(
-        IPC_VOICE_EXECUTE_TOOL,
-        payload,
-      ) as Promise<RuntimeVoiceToolCallResult>,
+    /**
+     * Status and tool activity from a delegated orchestrator run. The voice
+     * runtime lives in the overlay window, which never receives the
+     * `agent:event` stream the full window gets.
+     */
+    onOrchestratorActivity: onIpc<{
+      requestId: string;
+      kind: "status" | "tool-start" | "tool-end";
+      statusText?: string;
+      toolName?: string;
+      toolCallId?: string;
+      isError?: boolean;
+    }>("voice:orchestratorActivity"),
     webSearch: (payload: { query: string; category?: string }) =>
       ipcRenderer.invoke("voice:webSearch", payload) as Promise<{
         text: string;
         results: Array<{ title: string; url: string; snippet: string }>;
       }>,
-    createOpenAISession: (payload: {
-      instructions?: string;
-      tools?: RuntimeVoiceOrchestratorConfig["tools"];
-    }) =>
+    createOpenAISession: (payload: { instructions?: string }) =>
       ipcRenderer.invoke(IPC_VOICE_CREATE_OPENAI_SESSION, payload) as Promise<{
         provider: "openai";
         clientSecret: string;
@@ -760,10 +764,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
         expiresAt?: number;
         sessionId?: string;
       }>,
-    createXaiSession: (payload: {
-      instructions?: string;
-      tools?: RuntimeVoiceOrchestratorConfig["tools"];
-    }) =>
+    createXaiSession: (payload: { instructions?: string }) =>
       ipcRenderer.invoke(IPC_VOICE_CREATE_XAI_SESSION, payload) as Promise<{
         provider: "xai";
         clientSecret: string;
@@ -771,16 +772,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
         voice: string;
         expiresAt?: number;
       }>,
-    createInworldSession: (payload: { instructions?: string }) =>
-      ipcRenderer.invoke(IPC_VOICE_CREATE_INWORLD_SESSION, payload) as Promise<{
-        provider: "inworld";
-        clientSecret: string;
-        model: string;
-        voice: string;
-        iceServers?: RTCIceServer[];
-      }>,
-    getCoreMemory: () =>
-      ipcRenderer.invoke("voice:getCoreMemory") as Promise<string>,
     getRuntimeState: () =>
       ipcRenderer.invoke("voice:getRuntimeState") as Promise<{
         sessionState:
@@ -821,6 +812,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
     reportSessionError: (message: string) =>
       ipcRenderer.send(IPC_VOICE_REPORT_SESSION_ERROR, message),
     onSessionError: onIpc<string>(IPC_VOICE_SESSION_ERROR),
+    /**
+     * The last connection failure reason, for surfaces that must show why a
+     * call did not start. Separate from the toast channel, which only fires
+     * for failures the user has to act on.
+     */
+    reportSessionErrorState: (message: string) =>
+      ipcRenderer.send("voice:reportSessionErrorState", message),
+    getSessionErrorState: () =>
+      ipcRenderer.invoke("voice:getSessionErrorState") as Promise<string>,
+    onSessionErrorState: onIpc<string>("voice:sessionErrorState"),
     onPreferencesChanged: onIpc<RealtimeVoicePreferences>(
       IPC_VOICE_PREFERENCES_CHANGED,
     ),

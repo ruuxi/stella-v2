@@ -1,10 +1,13 @@
 /**
  * User-BYOK xAI Voice Agent provider.
  *
- * Token is minted in main-process using the user's stored xAI API key
- * (`voiceApi.createXaiSession`). The connection uses xAI's WebSocket
- * realtime endpoint, which is OpenAI-Realtime-compatible at the event
- * level but ships audio in-band rather than over a media track.
+ * Token is minted in the main process using the user's stored xAI API key
+ * (`voiceApi.createXaiSession`). The connection uses xAI's WebSocket realtime
+ * endpoint, which is OpenAI-Realtime-compatible at the event level but ships
+ * audio in-band rather than over a media track.
+ *
+ * Conversation-only, like the BYOK OpenAI route: no tool catalog is sent and
+ * there is no delegation channel on this protocol.
  */
 
 import { XaiWebSocketTransport } from "../transports/xai-websocket-transport";
@@ -18,7 +21,6 @@ export const xaiProvider: ProviderModule = {
     }
     const result = await voiceApi.createXaiSession({
       instructions: ctx.instructions,
-      tools: ctx.tools,
     });
     return {
       provider: "xai",
@@ -36,7 +38,6 @@ export const xaiProvider: ProviderModule = {
       model: token.model,
       voice: token.voice,
       instructions: ctx.instructions,
-      tools: ctx.tools,
     });
   },
 };

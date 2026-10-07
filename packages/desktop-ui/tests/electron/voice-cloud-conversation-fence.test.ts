@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { IPC_VOICE_EXECUTE_TOOL } from "@stella/contracts/desktop/ipc-channels";
 
 const electron = vi.hoisted(() => ({
   handles: new Map<string, (...args: any[]) => any>(),
@@ -84,7 +83,7 @@ describe("voice IPC cloud conversation fence", () => {
     );
   });
 
-  it("rejects stale orchestrator and tool calls before runtime dispatch", async () => {
+  it("rejects a stale orchestrator call before runtime dispatch", async () => {
     const { runner } = register();
 
     await expect(
@@ -93,18 +92,8 @@ describe("voice IPC cloud conversation fence", () => {
         message: "hello",
       }),
     ).rejects.toThrow("The active conversation changed");
-    await expect(
-      electron.handles.get(IPC_VOICE_EXECUTE_TOOL)?.({}, {
-        conversationId: "cloud-old",
-        requestId: "voice-1",
-        callId: "call-1",
-        name: "search",
-        args: {},
-      }),
-    ).rejects.toThrow("The active conversation changed");
 
     expect(runner.handleVoiceChat).not.toHaveBeenCalled();
-    expect(runner.executeVoiceTool).not.toHaveBeenCalled();
   });
 
   it("authorizes a paired phone against the conversation it requested", async () => {

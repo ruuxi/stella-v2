@@ -1,14 +1,13 @@
 /**
- * Provider registry — picks the right {token fetcher, transport factory}
+ * Provider registry — picks the right {session opener, transport factory}
  * pair based on the user's `realtimeVoice.provider` preference.
  *
- * The session class doesn't know which providers exist or how their
- * tokens are minted; it just calls `createRealtimeTransport(ctx)` and
- * gets back a ready-to-connect transport.
+ * The session class doesn't know which providers exist or how their sessions
+ * are opened; it calls `createRealtimeTransport(ctx)` and gets back a
+ * ready-to-connect transport.
  */
 
 import { coerceRealtimeVoiceProvider } from "@stella/contracts/local-preferences";
-import { inworldProvider } from "./inworld-provider";
 import { openaiProvider } from "./openai-provider";
 import { stellaProvider } from "./stella-provider";
 import { xaiProvider } from "./xai-provider";
@@ -24,7 +23,6 @@ const PROVIDERS: Record<RealtimeProviderKey, ProviderModule> = {
   stella: stellaProvider,
   openai: openaiProvider,
   xai: xaiProvider,
-  inworld: inworldProvider,
 };
 
 export async function resolveActiveProvider(): Promise<RealtimeProviderKey> {

@@ -84,8 +84,6 @@ import type {
 } from "@stella/contracts/onboarding";
 import type {
   RuntimeVoiceOrchestratorConfig,
-  RuntimeVoiceToolCallPayload,
-  RuntimeVoiceToolCallResult,
 } from "@stella/contracts/protocol";
 import type { RuntimeModelCatalogSnapshot } from "@stella/contracts/model-catalog";
 import type {
@@ -355,23 +353,33 @@ export type ElectronVoiceApi = {
     voiceSession?: { durationMs: number };
   }) => void;
   orchestratorChat: (payload: {
+    /** Correlates the run's forwarded activity back to this request. */
+    requestId: string;
     conversationId: string;
     message: string;
   }) => Promise<string>;
   getOrchestratorConfig: (payload: {
     conversationId: string;
   }) => Promise<RuntimeVoiceOrchestratorConfig>;
-  executeTool: (
-    payload: RuntimeVoiceToolCallPayload,
-  ) => Promise<RuntimeVoiceToolCallResult>;
+  /**
+   * Status and tool activity from a delegated orchestrator run, so the voice
+   * model can say what is actually happening while it waits.
+   */
+  onOrchestratorActivity: (
+    callback: (activity: {
+      requestId: string;
+      kind: "status" | "tool-start" | "tool-end";
+      statusText?: string;
+      toolName?: string;
+      toolCallId?: string;
+      isError?: boolean;
+    }) => void,
+  ) => () => void;
   webSearch: (payload: { query: string; category?: string }) => Promise<{
     text: string;
     results: Array<{ title: string; url: string; snippet: string }>;
   }>;
-  createOpenAISession: (payload: {
-    instructions?: string;
-    tools?: RuntimeVoiceOrchestratorConfig["tools"];
-  }) => Promise<{
+  createOpenAISession: (payload: { instructions?: string }) => Promise<{
     provider: "openai";
     clientSecret: string;
     model: string;
@@ -379,24 +387,13 @@ export type ElectronVoiceApi = {
     expiresAt?: number;
     sessionId?: string;
   }>;
-  createXaiSession: (payload: {
-    instructions?: string;
-    tools?: RuntimeVoiceOrchestratorConfig["tools"];
-  }) => Promise<{
+  createXaiSession: (payload: { instructions?: string }) => Promise<{
     provider: "xai";
     clientSecret: string;
     model: string;
     voice: string;
     expiresAt?: number;
   }>;
-  createInworldSession: (payload: { instructions?: string }) => Promise<{
-    provider: "inworld";
-    clientSecret: string;
-    model: string;
-    voice: string;
-    iceServers?: RTCIceServer[];
-  }>;
-  getCoreMemory: () => Promise<string>;
   getRuntimeState: () => Promise<VoiceRuntimeSnapshot>;
   onRuntimeState: (
     callback: (state: VoiceRuntimeSnapshot) => void,
@@ -413,6 +410,15 @@ export type ElectronVoiceApi = {
   reportSessionError: (message: string) => void;
   /** Subscribe to voice session error toasts routed to this window. */
   onSessionError: (callback: (message: string) => void) => () => void;
+  /**
+   * Publish why the current call failed. Unlike the toast channel this fires
+   * for every failure, so a surface can show the real reason instead of an
+   * empty card.
+   */
+  reportSessionErrorState: (message: string) => void;
+  /** The last published failure reason, or "" when the call is healthy. */
+  getSessionErrorState: () => Promise<string>;
+  onSessionErrorState: (callback: (message: string) => void) => () => void;
   /** Realtime provider/auth route changed; recycle any warm session. */
   onPreferencesChanged: (
     callback: (preferences: RealtimeVoicePreferences) => void,

@@ -1,46 +1,62 @@
 /**
  * RealtimeVoiceSession — transport-agnostic session orchestration for
- * Stella's realtime voice agent.
+ * Stella's live voice call.
  *
- * Responsibilities (lifted from the previous monolithic realtime-voice.ts):
+ * Since the move to GPT-Live client delegation this is a two-brain session:
+ * the voice model owns the spoken conversation full-duplex and owns nothing
+ * else. It has no tools and no system prompt. Everything that requires
+ * thinking, memory, files, apps or subagents is delegated to Stella's text
+ * orchestrator and handed back as commentary.
+ *
+ * Responsibilities:
  *   - Lifecycle / state machine (idle → connecting → connected → …).
- *   - Server event routing (transcripts, tool calls, response.done).
- *   - Echo guard: monitors mic + assistant output analysers and applies a
- *     soft input mute when the assistant's voice is leaking into the mic.
- *   - Direct runtime tool dispatch for the resolved orchestrator tool catalog,
- *     plus `no_response` and goodbye/close session controls.
- *   - Local-chat sync: surfaces user/assistant messages and delegated-
- *     agent state changes from the text chat into the voice conversation.
- *   - Usage reporting (Stella-managed path only).
- *   - Goodbye-phrase detection that hangs up the live turn while leaving
- *     the warm session attached for the next wake-word.
+ *   - Server event routing: transcripts (fragments, accumulated into turns),
+ *     delegation requests, append acks.
+ *   - Delegation to the orchestrator and the appends that answer it.
+ *   - Mid-call updates from the conversation stream (cloud or local), so a
+ *     call hears about agent results and new text turns while it is open.
+ *   - Echo guard: watches the mic and assistant-output analysers and applies a
+ *     soft input mute when our own voice is leaking into the microphone.
+ *   - Lease heartbeat for the Stella-managed path. GPT-Live is billed per
+ *     second of session duration, so there is no per-response usage report —
+ *     the orchestrator's model spend is metered through the normal agent path.
+ *   - Goodbye-phrase detection that ends the live turn while leaving the warm
+ *     session attached for the next wake word.
  *
  * What it deliberately does NOT do:
- *   - Open RTCPeerConnection / WebSocket. That's the transport.
- *   - Capture mic audio or schedule speaker playback. That's the transport.
- *   - Decide which provider to use. That's `providers/provider-registry.ts`.
- *
- * Picking a transport happens in `connect()` via the provider registry,
- * which reads the user's `realtimeVoice.provider` preference and returns a
- * pre-configured transport plus its session token. Once we have the
- * transport, the session subscribes to its `onEvent` callback and uses
- * `transport.send(...)` for everything else — both paths look identical
- * from here on.
+ *   - Open RTCPeerConnection / WebSocket, capture mic audio, or schedule
+ *     playback. That's the transport.
+ *   - Run tools. There are none here any more.
  */
 
 import { z } from "zod";
-import type { VoiceLease, VoiceLeaseEvent } from "@stella/contracts/backend/voice";
+import type {
+  VoiceHistoryMessage,
+  VoiceHistoryRole,
+  VoiceLease,
+  VoiceLeaseEvent,
+} from "@stella/contracts/backend/voice";
+import {
+  VOICE_HISTORY_MAX_CHARS,
+  VOICE_HISTORY_MAX_MESSAGES,
+  VOICE_INSTRUCTIONS_MAX_CHARS,
+} from "@stella/contracts/backend/voice";
 import { backendClient } from "@/platform/backend/backend-client";
 import { getVoiceSessionPromptConfig } from "@/prompts";
-import { wrapSystemReminder } from "@stella/contracts/system-reminders";
-import type {
-  RuntimeVoiceHistoryItem,
-  RuntimeVoiceToolMetadata,
-} from "@stella/contracts/protocol";
+import type { RuntimeVoiceHistoryItem } from "@stella/contracts/protocol";
 import { computeAnalyserEnergy } from "@/features/voice/services/audio-energy";
-import type { EventRecord } from "@stella/contracts/local-chat";
+import {
+  createConversationUpdateFeed,
+  type ConversationUpdate,
+  type ConversationUpdateFeed,
+} from "@/features/voice/services/conversation-updates";
+import { DelegationController } from "./delegation-controller";
+import { SessionAppendChannel } from "./session-append-channel";
+import {
+  TranscriptAccumulator,
+  type CompletedTranscriptTurn,
+} from "./transcript-accumulator";
 import { createRealtimeTransport } from "./providers/provider-registry";
-import { toRealtimeProviderTool } from "./providers/tool-schema";
 import { requireVoiceSessionAuthority } from "./providers/types";
 import type {
   RealtimeProviderKey,
@@ -106,45 +122,12 @@ const ECHO_GUARD_BARGE_IN_MIN_MIC_LEVEL = 0.05;
 const ECHO_GUARD_BARGE_IN_MARGIN = 0.02;
 const ECHO_GUARD_BARGE_IN_RATIO = 0.85;
 const ECHO_GUARD_RELEASE_MS = 180;
-const VOICE_CONTEXT_SYNC_EVENT_LIMIT = 80;
 const STELLA_VOICE_LEASE_HEARTBEAT_MS = 2_000;
 const STELLA_VOICE_LEASE_REQUEST_TIMEOUT_MS = 1_500;
-const STELLA_VOICE_USAGE_REQUEST_TIMEOUT_MS = 1_500;
-const STELLA_VOICE_USAGE_DRAIN_TIMEOUT_MS = 2_000;
 const STELLA_VOICE_AUTHORITY_MAX_LOCAL_LIFETIME_MS = 10_000;
 const STELLA_VOICE_AUTHORITY_EXPIRY_SKEW_MS = 1_000;
-const VOICE_SESSION_CONTROL_TOOLS: RuntimeVoiceToolMetadata[] = [
-  {
-    type: "function",
-    name: "no_response",
-    description:
-      "Use when the latest audio should not get a spoken response: silence, background noise, side conversation, filler sounds, thinking aloud, or an unfinished sentence.",
-    parameters: {
-      type: "object",
-      properties: {},
-    },
-  },
-  {
-    type: "function",
-    name: "goodbye",
-    description:
-      "Use when the user clearly ends the voice session, such as saying bye, goodbye, see you later, or goodnight. Say one short goodbye first, then call this tool.",
-    parameters: {
-      type: "object",
-      properties: {},
-    },
-  },
-];
-
-const VOICE_SYNC_IGNORED_EVENT_TYPES = new Set([
-  "agent-started",
-  "agent-progress",
-]);
-const VOICE_SYNC_ANNOUNCE_EVENT_TYPES = new Set([
-  "agent-completed",
-  "agent-failed",
-  "agent-canceled",
-]);
+/** How many of our own utterances to remember for update de-duplication. */
+const SPOKEN_MEMORY_SIZE = 24;
 
 type VoiceEchoMetrics = {
   assistantSpeaking: boolean;
@@ -175,11 +158,10 @@ const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> =>
   });
 
 /**
- * Lightweight goodbye matcher. We only fire on simple terminal
- * farewells — "bye", "goodbye", "bye stella", etc. — said as a
- * standalone utterance. Anything embedded in a longer sentence
- * ("…by Tuesday", "good morning") is left alone so the user can't
- * accidentally hang up mid-sentence.
+ * Lightweight goodbye matcher. We only fire on simple terminal farewells —
+ * "bye", "goodbye", "bye stella" — said as a standalone utterance. Anything
+ * embedded in a longer sentence ("…by Tuesday", "good morning") is left alone
+ * so the user can't accidentally hang up mid-sentence.
  */
 const GOODBYE_PHRASES = [
   /^(?:hey\s+|ok(?:ay)?\s+|alright\s+)?(?:bye|goodbye|good\s*bye)(?:\s+stella)?[\s.!?,]*$/i,
@@ -202,10 +184,7 @@ function shouldGateVoiceInputForEcho({
 }: VoiceEchoMetrics): boolean {
   const assistantAudioActive =
     assistantSpeaking || recentOutputActiveUntil > now;
-  if (
-    !assistantAudioActive ||
-    outputLevel < ECHO_GUARD_OUTPUT_LEVEL_THRESHOLD
-  ) {
+  if (!assistantAudioActive || outputLevel < ECHO_GUARD_OUTPUT_LEVEL_THRESHOLD) {
     return false;
   }
 
@@ -217,100 +196,72 @@ function shouldGateVoiceInputForEcho({
   return !userLikelyBargingIn;
 }
 
-const mergeVoiceSessionTools = (
-  tools: RuntimeVoiceToolMetadata[] | undefined,
-): RuntimeVoiceToolMetadata[] => {
-  const out: RuntimeVoiceToolMetadata[] = [];
-  const seen = new Set<string>();
-  for (const tool of [...(tools ?? []), ...VOICE_SESSION_CONTROL_TOOLS]) {
-    if (seen.has(tool.name)) continue;
-    seen.add(tool.name);
-    out.push(toRealtimeProviderTool(tool));
-  }
-  return out;
+// ---------------------------------------------------------------------------
+// Startup history
+// ---------------------------------------------------------------------------
+
+const HISTORY_ROLE_BY_RUNTIME_ROLE: Record<string, VoiceHistoryRole> = {
+  user: "user",
+  assistant: "assistant",
+  toolResult: "developer",
+  runtimeInternal: "developer",
 };
 
-const formatVoiceHistoryRole = (role: string): string => {
-  switch (role) {
-    case "user":
-      return "User";
-    case "assistant":
-      return "Stella";
-    case "toolResult":
-      return "Tool result";
-    case "runtimeInternal":
-      return "Runtime note";
-    default:
-      return role.trim() || "Message";
-  }
-};
-
-const formatVoiceHistoryTimestamp = (timestamp: unknown): string => {
-  if (typeof timestamp !== "number" || !Number.isFinite(timestamp)) {
-    return "";
-  }
-  const date = new Date(timestamp);
-  if (Number.isNaN(date.getTime())) return "";
-  return ` @ ${date.toISOString()}`;
-};
-
-export const buildVoiceConversationHistoryBlock = (
+/**
+ * GPT-Live takes startup history as a bounded list of single-part messages.
+ * It is newest-biased on purpose: when the budget runs out the oldest turns
+ * are the ones the call can afford to open without.
+ */
+export const buildVoiceStartupHistory = (
   history: RuntimeVoiceHistoryItem[] | undefined,
-): string | null => {
-  const entries = (history ?? [])
-    .map((item) => {
-      const content = item.content.trim();
-      if (!content) return null;
-      const label = formatVoiceHistoryRole(item.role);
-      const timestamp = formatVoiceHistoryTimestamp(item.timestamp);
-      const indented = content
-        .split("\n")
-        .map((line) => `  ${line}`)
-        .join("\n");
-      return `[${label}${timestamp}]\n${indented}`;
-    })
-    .filter((item): item is string => item !== null);
-
-  if (entries.length === 0) return null;
-  return [
-    '<conversation_history source="stella-chat" newest_last="true">',
-    "These are prior messages and tool results in the current Stella conversation. Treat them as already-known chat history, not as a new request.",
-    ...entries,
-    "</conversation_history>",
-  ].join("\n\n");
+  limits: { maxMessages: number; maxChars: number } = {
+    maxMessages: VOICE_HISTORY_MAX_MESSAGES,
+    maxChars: VOICE_HISTORY_MAX_CHARS,
+  },
+): VoiceHistoryMessage[] => {
+  const selected: VoiceHistoryMessage[] = [];
+  let chars = 0;
+  for (let index = (history?.length ?? 0) - 1; index >= 0; index -= 1) {
+    const item = history?.[index];
+    if (!item) continue;
+    const role = HISTORY_ROLE_BY_RUNTIME_ROLE[item.role];
+    const text = item.content.trim();
+    if (!role || !text) continue;
+    if (selected.length >= limits.maxMessages) break;
+    if (chars + text.length > limits.maxChars) {
+      if (selected.length > 0) break;
+      selected.push({ role, text: text.slice(0, limits.maxChars) });
+      break;
+    }
+    chars += text.length;
+    selected.push({ role, text });
+  }
+  return selected.reverse();
 };
 
-const buildVoiceSessionInstructions = async (
-  orchestratorInstructions?: string,
-  history?: RuntimeVoiceHistoryItem[],
-): Promise<string> => {
-  const coreMemory = await Promise.resolve(
-    window.electronAPI?.voice.getCoreMemory?.(),
-  ).catch(() => null);
-  const trimmed = coreMemory?.trim();
-  const base = getVoiceSessionPromptConfig().basePrompt;
-  const sections = [base];
-  const trimmedOrchestratorInstructions = orchestratorInstructions?.trim();
-  if (trimmedOrchestratorInstructions) {
-    sections.push(
-      [
-        "<text_orchestrator_context>",
-        trimmedOrchestratorInstructions,
-        "</text_orchestrator_context>",
-      ].join("\n"),
-    );
+/**
+ * The spoken-conversation brief. Short by construction: the orchestrator
+ * keeps Stella's real system prompt, and this model only needs to know how to
+ * talk and when to hand off. The assertion guards the contract ceiling for a
+ * locally edited prompt rather than truncating mid-sentence.
+ */
+const buildVoiceSessionInstructions = (): string => {
+  const instructions = getVoiceSessionPromptConfig().basePrompt.trim();
+  if (instructions.length <= VOICE_INSTRUCTIONS_MAX_CHARS) {
+    return instructions;
   }
-  const historyBlock = buildVoiceConversationHistoryBlock(history);
-  if (historyBlock) {
-    sections.push(historyBlock);
-  }
-  if (trimmed) {
-    sections.push(
-      `<memory_file path="~/.stella/core-memory.md">\n${trimmed}\n</memory_file>`,
-    );
-  }
-  return sections.join("\n\n");
+  throw new Error(
+    `The voice prompt is ${instructions.length} characters, over the ${VOICE_INSTRUCTIONS_MAX_CHARS} GPT-Live accepts. Shorten it in Prompts.`,
+  );
 };
+
+const normalizeSpoken = (text: string): string =>
+  text
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 160);
 
 // ---------------------------------------------------------------------------
 // Session
@@ -320,23 +271,24 @@ export class RealtimeVoiceSession {
   private transport: RealtimeTransport | null = null;
   private sessionToken: VoiceSessionToken | null = null;
   private sessionProvider: RealtimeProviderKey = "stella";
-  private readonly requestId =
-    globalThis.crypto?.randomUUID?.() ??
-    `voice-session-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
   private destroyed = false;
   private inputActive = false;
   private assistantOutputActive = false;
+  private userSpeakingEmitted = false;
   private recentOutputActiveUntil = 0;
   private softInputMuted = false;
   private echoGuardTimer: ReturnType<typeof setInterval> | null = null;
   private inputEnergyBuffer: Uint8Array | null = null;
   private outputEnergyBuffer: Uint8Array | null = null;
 
-  private unsubscribeLocalChatUpdated: (() => void) | null = null;
-  private syncedLocalEventIds = new Set<string>();
-  private localChatSyncPromise: Promise<void> = Promise.resolve();
-  private handledFunctionCallIds = new Set<string>();
+  private readonly appends: SessionAppendChannel;
+  private readonly transcript: TranscriptAccumulator;
+  private delegation: DelegationController | null = null;
+  private updateFeed: ConversationUpdateFeed | null = null;
+  private readonly spokenMemory: string[] = [];
+  private readonly deliveredUpdateIds = new Set<string>();
+
   private leaseHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private leaseExpiryTimer: ReturnType<typeof setTimeout> | null = null;
   private leaseTerminalReported = false;
@@ -345,18 +297,23 @@ export class RealtimeVoiceSession {
   private authorityTerminationPromise: Promise<void> | null = null;
   private authorityTerminationError: string | null = null;
   private authorityLocalExpiresAt: number | null = null;
-  private usageReportingClosed = true;
-  private inFlightUsageReports = new Set<Promise<void>>();
 
   private _state: VoiceSessionState = "idle";
   private listeners = new Set<VoiceSessionListener>();
   private conversationId: string | null = null;
 
   constructor() {
-    this.unsubscribeLocalChatUpdated =
-      window.electronAPI?.localChat.onUpdated?.(() => {
-        void this.syncLocalChatContext();
-      }) ?? null;
+    this.appends = new SessionAppendChannel((event) => this.sendEvent(event));
+    this.transcript = new TranscriptAccumulator({
+      onPartial: (role, text) => {
+        this.emit({
+          type: role === "user" ? "user-transcript" : "assistant-transcript",
+          text,
+          isFinal: false,
+        });
+      },
+      onTurn: (turn) => this.handleCompletedTurn(turn),
+    });
   }
 
   get state(): VoiceSessionState {
@@ -368,9 +325,8 @@ export class RealtimeVoiceSession {
   }
 
   /**
-   * Toggle whether mic audio is actively sent to Realtime.
-   * Session stays connected; transport-level mic capture is suspended
-   * while inactive.
+   * Toggle whether mic audio is actively sent to the provider. The session
+   * stays connected; transport-level capture is suspended while inactive.
    */
   setInputActive(active: boolean) {
     this.inputActive = active;
@@ -417,7 +373,6 @@ export class RealtimeVoiceSession {
     if (this._state !== "idle") {
       throw new Error(`Cannot connect in state: ${this._state}`);
     }
-    this.handledFunctionCallIds.clear();
     this.conversationId = conversationId;
     this.setState("connecting");
 
@@ -426,22 +381,19 @@ export class RealtimeVoiceSession {
         .getOrchestratorConfig?.({ conversationId })
         .catch((err) => {
           console.debug(
-            "[realtime-voice] Failed to load orchestrator config:",
+            "[realtime-voice] Failed to load orchestrator history:",
             (err as Error).message,
           );
           return null;
         });
-      const tools = mergeVoiceSessionTools(orchestratorConfig?.tools);
-      const instructions = await buildVoiceSessionInstructions(
-        orchestratorConfig?.instructions,
-        orchestratorConfig?.history,
-      );
+      const instructions = buildVoiceSessionInstructions();
+      const history = buildVoiceStartupHistory(orchestratorConfig?.history);
       if (this.destroyed) return;
 
       const { transport, token, providerKey } = await createRealtimeTransport({
         conversationId,
         instructions,
-        tools,
+        history,
       });
       if (this.destroyed) {
         await transport.disconnect().catch(() => undefined);
@@ -460,6 +412,16 @@ export class RealtimeVoiceSession {
               "Realtime voice lease ended while connecting",
           );
         }
+      }
+
+      this.startDelegation();
+      await this.startConversationUpdates(conversationId);
+      if (this.destroyed) {
+        await transport.disconnect().catch(() => undefined);
+        throw new Error(
+          this.authorityTerminationError ??
+            "Realtime voice lease ended while connecting",
+        );
       }
 
       await transport.connect({
@@ -486,18 +448,6 @@ export class RealtimeVoiceSession {
         );
       }
 
-      await this.syncLocalChatContext({
-        markExisting: true,
-        includeVoiceSource: true,
-        suppressAnnouncements: true,
-      });
-      if (this.destroyed) {
-        await transport.disconnect().catch(() => undefined);
-        throw new Error(
-          this.authorityTerminationError ??
-            "Realtime voice lease ended while connecting",
-        );
-      }
       await transport.setMicEnabled(this.inputActive);
       if (this.destroyed) {
         await transport.disconnect().catch(() => undefined);
@@ -507,6 +457,7 @@ export class RealtimeVoiceSession {
         );
       }
 
+      this.updateFeed?.start();
       getVoiceRuntimeState().activeSession = this;
       this.setState("connected");
     } catch (err) {
@@ -518,17 +469,10 @@ export class RealtimeVoiceSession {
       }
       const terminalRequest = this.claimTerminalLeaseRequest("lost");
       const transportClose = this.disconnectTransportImmediately();
-      await this.finishVoiceClosure(
-        terminalRequest,
-        transportClose,
-      );
+      await this.finishVoiceClosure(terminalRequest, transportClose);
       this.sessionToken = null;
-      // A session that never reached "connected" must not retain the localChat
-      // IPC listener wired up in the constructor. tearDown()/disconnect() also
-      // clears it, but drop it here too so a leaked session (never disconnected)
-      // can't keep the subscription alive for the app's lifetime.
-      this.unsubscribeLocalChatUpdated?.();
-      this.unsubscribeLocalChatUpdated = null;
+      this.stopDelegation();
+      this.stopConversationUpdates();
       const runtime = getVoiceRuntimeState();
       if (runtime.activeSession === this) {
         runtime.activeSession = null;
@@ -584,11 +528,8 @@ export class RealtimeVoiceSession {
     this.echoGuardTimer = setInterval(() => {
       this.syncEchoGuard();
       // Echo guard only matters while assistant audio is (or was just)
-      // playing — that's the only time the user's mic could be picking
-      // up our own speech. Once we're past the release window, the
-      // monitor has nothing useful to do, so let it idle even if the
-      // mic is still hot. `output_audio.started` restarts it on the
-      // next assistant turn.
+      // playing — that's the only time the mic could be picking up our own
+      // speech. Past the release window the monitor has nothing useful to do.
       if (
         !this.assistantOutputActive &&
         this.recentOutputActiveUntil <= Date.now()
@@ -633,246 +574,115 @@ export class RealtimeVoiceSession {
   }
 
   // ---------------------------------------------------------------------------
-  // Server event handling
+  // Delegation + mid-call updates
   // ---------------------------------------------------------------------------
 
   private sendEvent(event: Record<string, unknown>) {
     this.transport?.send(event);
   }
 
-  private syncLocalChatContext(options?: {
-    markExisting?: boolean;
-    injectExisting?: boolean;
-    includeVoiceSource?: boolean;
-    suppressAnnouncements?: boolean;
-  }): Promise<void> {
-    this.localChatSyncPromise = this.localChatSyncPromise
-      .catch(() => undefined)
-      .then(async () => {
-        const markOnly =
-          options?.markExisting === true && options.injectExisting !== true;
-        if (this.destroyed || !this.conversationId) {
-          return;
+  private startDelegation() {
+    this.delegation = new DelegationController({
+      appends: this.appends,
+      transcript: this.transcript,
+      getConversationId: () => this.conversationId,
+      isInputActive: () => this.inputActive,
+      runOrchestrator: async ({ requestId, conversationId, message }) => {
+        const api = window.electronAPI?.voice;
+        if (!api?.orchestratorChat) {
+          throw new Error("Stella's backend is not available on this device.");
         }
-        if (!markOnly && this._state !== "connected") {
-          return;
-        }
-        const api = window.electronAPI?.localChat;
-        if (!api?.listMessages || !api?.listActivity) return;
-
-        // Voice context sync merges the user/assistant message stream
-        // with the agent-* activity stream. Pulling each source from
-        // its purpose-built window keeps this off the legacy event
-        // feed and reuses the same SQLite paths the chat surfaces use.
-        const [messagesWindow, activityWindow] = await Promise.all([
-          api.listMessages({
-            conversationId: this.conversationId,
-            maxVisibleMessages: VOICE_CONTEXT_SYNC_EVENT_LIMIT,
-          }),
-          api.listActivity({
-            conversationId: this.conversationId,
-            limit: VOICE_CONTEXT_SYNC_EVENT_LIMIT,
-          }),
-        ]);
-
-        const events: EventRecord[] = [];
-        for (const message of messagesWindow.messages) events.push(message);
-        for (const activity of activityWindow.activities) events.push(activity);
-        events.sort((a, b) => {
-          if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp;
-          return a._id.localeCompare(b._id);
+        return await api.orchestratorChat({
+          requestId,
+          conversationId,
+          message,
         });
-
-        if (markOnly) {
-          for (const event of events) {
-            this.syncedLocalEventIds.add(event._id);
-          }
-          return;
-        }
-
-        for (const event of events) {
-          if (this.syncedLocalEventIds.has(event._id)) continue;
-          this.syncedLocalEventIds.add(event._id);
-          this.injectLocalChatEvent(event, {
-            includeVoiceSource: options?.includeVoiceSource === true,
-            suppressAnnouncement: options?.suppressAnnouncements === true,
-          });
-        }
-      })
-      .catch((err) => {
-        console.debug(
-          "[realtime-voice] Failed to sync local chat context:",
-          (err as Error).message,
-        );
-      });
-
-    return this.localChatSyncPromise;
-  }
-
-  private injectLocalChatEvent(
-    event: EventRecord,
-    options?: {
-      includeVoiceSource?: boolean;
-      suppressAnnouncement?: boolean;
-    },
-  ) {
-    const mapped = this.mapLocalChatEventForVoice(event, {
-      includeVoiceSource: options?.includeVoiceSource === true,
-    });
-    if (!mapped) return;
-
-    this.sendEvent({
-      type: "conversation.item.create",
-      item: {
-        type: "message",
-        role: "user",
-        content: [
-          {
-            type: "input_text",
-            text: wrapSystemReminder(mapped.text),
-          },
-        ],
+      },
+      subscribeActivity: (handler) =>
+        window.electronAPI?.voice.onOrchestratorActivity?.(handler) ??
+        (() => undefined),
+      events: {
+        onToolStart: (name, callId) =>
+          this.emit({ type: "tool-start", name, callId }),
+        onToolEnd: (name, callId, result) =>
+          this.emit({ type: "tool-end", name, callId, result }),
       },
     });
-    // Warm Realtime sessions remain connected after voice mode is turned off.
-    // Keep the event in context, but only ask for spoken output during an
-    // active voice turn.
-    if (mapped.announce && this.inputActive && !options?.suppressAnnouncement) {
-      this.sendEvent({ type: "response.create" });
-    }
   }
 
-  private mapLocalChatEventForVoice(
-    event: EventRecord,
-    options?: { includeVoiceSource?: boolean },
-  ): { text: string; announce: boolean } | null {
-    if (VOICE_SYNC_IGNORED_EVENT_TYPES.has(event.type)) return null;
-
-    const payload = event.payload ?? {};
-    if (event.type === "user_message" || event.type === "assistant_message") {
-      const text = typeof payload.text === "string" ? payload.text.trim() : "";
-      if (!text) return null;
-      const isVoiceSource = payload.source === "voice";
-      if (isVoiceSource && !options?.includeVoiceSource) return null;
-      const speaker = isVoiceSource
-        ? event.type === "user_message"
-          ? "Prior voice user"
-          : "Prior voice assistant"
-        : event.type === "user_message"
-          ? "User"
-          : "Text orchestrator";
-      return {
-        text: `${speaker} message in the synced chat context: ${text}`,
-        announce: false,
-      };
-    }
-
-    if (event.type === "agent-completed") {
-      const result =
-        typeof payload.result === "string" ? payload.result.trim() : "";
-      return {
-        text: `A delegated agent completed. ${result || "The delegated work is done."} Tell the user the result naturally if they have not already heard it.`,
-        announce: true,
-      };
-    }
-
-    if (event.type === "agent-failed" || event.type === "agent-canceled") {
-      const error =
-        typeof payload.error === "string" ? payload.error.trim() : "";
-      const verb = event.type === "agent-failed" ? "failed" : "was canceled";
-      return {
-        text: `A delegated agent ${verb}. ${error || "No additional details were provided."} Tell the user briefly.`,
-        announce: true,
-      };
-    }
-
-    if (VOICE_SYNC_ANNOUNCE_EVENT_TYPES.has(event.type)) {
-      return {
-        text: `A delegated agent changed state: ${event.type}.`,
-        announce: true,
-      };
-    }
-
-    return null;
-  }
-
-  private async reportUsage(
-    response: Record<string, unknown>,
-    authority: VoiceSessionAuthority,
-  ) {
-    const usage = isEventRecord(response.usage) ? response.usage : undefined;
-    const responseId =
-      typeof response.id === "string" && response.id.trim().length > 0
-        ? response.id.trim()
-        : null;
-    if (!usage || !responseId) {
-      throw new Error(
-        "Realtime voice response did not include complete usage metadata.",
-      );
-    }
-
-    await withTimeout(
-      backendClient.call("voice.usage", {
-        leaseId: authority.leaseId,
-        responseId,
-        usage,
-      }),
-      STELLA_VOICE_USAGE_REQUEST_TIMEOUT_MS,
-    );
+  private stopDelegation() {
+    this.delegation?.dispose();
+    this.delegation = null;
+    this.appends.dispose();
   }
 
   /**
-   * Report each provider `response.done` while the lease is open. Reports
-   * still in flight at closure get a bounded chance to land before the
-   * terminal lease event; the server charges what they miss.
+   * Attach the conversation stream and adopt its current contents as already
+   * known, so opening a call does not narrate the history the startup
+   * `history` field already carried.
    */
-  private trackUsageReport(response: Record<string, unknown>) {
-    if (this.sessionProvider !== "stella" || this.usageReportingClosed) return;
-
-    let authority: VoiceSessionAuthority;
-    try {
-      if (!this.sessionToken)
-        throw new Error("Voice session token is missing.");
-      authority = requireVoiceSessionAuthority(this.sessionToken);
-    } catch (err) {
+  private async startConversationUpdates(conversationId: string) {
+    const feed = createConversationUpdateFeed({
+      conversationId,
+      onUpdate: (update) => this.handleConversationUpdate(update),
+    });
+    this.updateFeed = feed;
+    await feed.prime().catch((err) => {
       console.debug(
-        "[realtime-voice] Failed to snapshot voice usage lease:",
+        "[realtime-voice] Failed to prime conversation updates:",
         (err as Error).message,
+      );
+    });
+  }
+
+  private stopConversationUpdates() {
+    this.updateFeed?.stop();
+    this.updateFeed = null;
+    this.deliveredUpdateIds.clear();
+  }
+
+  private handleConversationUpdate(update: ConversationUpdate) {
+    if (this.destroyed || this._state !== "connected") return;
+    if (this.deliveredUpdateIds.has(update.id)) return;
+    this.deliveredUpdateIds.add(update.id);
+
+    // Never tell the model its own words back: the call's commentary and its
+    // own speech are already in the session.
+    if (this.wasAlreadyHeard(update.text)) return;
+
+    if (update.kind === "say" && this.inputActive) {
+      this.appends.append(
+        "commentary",
+        update.text,
+        this.delegation?.activeDelegationId ?? null,
       );
       return;
     }
-
-    const report = this.reportUsage(response, authority)
-      .catch((err) => {
-        console.debug(
-          "[realtime-voice] Failed to report voice usage:",
-          (err as Error).message,
-        );
-      })
-      .finally(() => {
-        this.inFlightUsageReports.delete(report);
-      });
-    this.inFlightUsageReports.add(report);
+    this.appends.append("thinking", update.text, null);
   }
 
-  /** Stop accepting usage, then give already claimed reports a bounded wait. */
-  private async closeUsageIntakeAndDrain(): Promise<void> {
-    this.usageReportingClosed = true;
-    const reports = [...this.inFlightUsageReports];
-    if (reports.length === 0) {
-      // Let an already-queued response.done observe the closed intake.
-      await Promise.resolve();
-      return;
+  private rememberSpoken(text: string) {
+    const normalized = normalizeSpoken(text);
+    if (!normalized) return;
+    this.spokenMemory.push(normalized);
+    if (this.spokenMemory.length > SPOKEN_MEMORY_SIZE) {
+      this.spokenMemory.splice(0, this.spokenMemory.length - SPOKEN_MEMORY_SIZE);
     }
-    let drainTimeout: ReturnType<typeof setTimeout> | null = null;
-    await Promise.race([
-      Promise.all(reports),
-      new Promise<void>((resolve) => {
-        drainTimeout = setTimeout(resolve, STELLA_VOICE_USAGE_DRAIN_TIMEOUT_MS);
-      }),
-    ]);
-    if (drainTimeout) clearTimeout(drainTimeout);
   }
+
+  private wasAlreadyHeard(text: string): boolean {
+    const normalized = normalizeSpoken(text);
+    if (!normalized) return false;
+    return this.spokenMemory.some(
+      (remembered) =>
+        remembered.length > 24 &&
+        (normalized.includes(remembered) || remembered.includes(normalized)),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Lease reporting
+  // ---------------------------------------------------------------------------
 
   private buildLeaseRequest(event: VoiceLeaseEvent): VoiceLeaseRequest | null {
     if (this.sessionProvider !== "stella" || !this.sessionToken) return null;
@@ -950,8 +760,7 @@ export class RealtimeVoiceSession {
     request: VoiceLeaseRequest | null,
     transportClose: Promise<void>,
   ) {
-    // Drain usage while the transport closes, then end the lease.
-    await Promise.all([transportClose, this.closeUsageIntakeAndDrain()]);
+    await transportClose;
     if (request) await this.reportClosedLeaseRequest(request);
   }
 
@@ -959,7 +768,7 @@ export class RealtimeVoiceSession {
     if (this.sessionProvider !== "stella" || !this.sessionToken) return;
 
     // `connect` already validates this before opening the transport. Keep the
-    // guard here so a future call-site cannot start an unleased managed session.
+    // guard so a future call-site cannot start an unleased managed session.
     let authority: VoiceSessionAuthority;
     try {
       authority = requireVoiceSessionAuthority(this.sessionToken);
@@ -973,8 +782,6 @@ export class RealtimeVoiceSession {
     this.leaseHeartbeatInFlight = false;
     this.authorityTerminationPromise = null;
     this.authorityTerminationError = null;
-    this.usageReportingClosed = false;
-    this.inFlightUsageReports.clear();
     this.updateLocalAuthorityExpiry(authority.leaseExpiresAt);
     const generation = this.leaseReportingGeneration;
     if (!this.scheduleLeaseExpiry(generation)) return;
@@ -1017,10 +824,7 @@ export class RealtimeVoiceSession {
     }
     const delayMs = expiresAt - Date.now();
     if (delayMs <= 0) {
-      void this.terminateForAuthority(
-        "expired",
-        "Realtime voice lease expired",
-      );
+      void this.terminateForAuthority("expired", "Realtime voice lease expired");
       return false;
     }
 
@@ -1129,10 +933,9 @@ export class RealtimeVoiceSession {
       this.recentOutputActiveUntil = 0;
       this.softInputMuted = false;
       this.inputActive = false;
-      this.unsubscribeLocalChatUpdated?.();
-      this.unsubscribeLocalChatUpdated = null;
-      this.syncedLocalEventIds.clear();
-      this.handledFunctionCallIds.clear();
+      this.stopDelegation();
+      this.stopConversationUpdates();
+      this.transcript.reset();
 
       this.sessionToken = null;
       this.sessionProvider = "stella";
@@ -1146,127 +949,86 @@ export class RealtimeVoiceSession {
     return this.authorityTerminationPromise;
   }
 
+  // ---------------------------------------------------------------------------
+  // Server event handling
+  // ---------------------------------------------------------------------------
+
   private handleServerEvent(event: Record<string, unknown>) {
-    const type = event.type as string;
+    const type = typeof event.type === "string" ? event.type : "";
+
+    if (this.appends.handleEvent(event)) return;
+    if (this.delegation?.handleEvent(event)) return;
 
     switch (type) {
-      case "session.created":
+      case "session.started":
+      case "session.closed":
       case "session.updated":
         break;
 
-      case "response.output_item.done": {
-        const item = event.item;
-        if (isEventRecord(item) && item.type === "function_call") {
-          void this.handleFunctionCall(item);
-        }
-        break;
-      }
-
-      // xAI emits function calls as a top-level event rather than wrapped
-      // inside response.output_item.done. Same payload shape (`name`,
-      // `call_id`, `arguments`) so route both into the same handler.
-      case "response.function_call_arguments.done": {
-        void this.handleFunctionCall({
-          type: "function_call",
-          name: event.name,
-          call_id: event.call_id,
-          arguments: event.arguments,
+      case "session.input_transcript.delta":
+        this.markUserSpeaking();
+        this.transcript.push({
+          role: "user",
+          delta: stringField(event, "delta"),
+          startMs: numberField(event, "start_ms"),
+          endMs: numberField(event, "end_ms"),
         });
         break;
-      }
 
-      case "response.audio_transcript.delta":
-      case "response.output_audio_transcript.delta": {
-        const delta = (event as { delta?: string }).delta;
-        if (delta) {
-          this.emit({
-            type: "assistant-transcript",
-            text: delta,
-            isFinal: false,
-          });
-        }
+      case "session.output_transcript.delta":
+        this.markAssistantSpeaking();
+        this.transcript.push({
+          role: "assistant",
+          delta: stringField(event, "delta"),
+          startMs: numberField(event, "start_ms"),
+          endMs: numberField(event, "end_ms"),
+        });
         break;
-      }
+
+      // The BYOK Realtime routes still speak the old vocabulary.
+      case "response.audio_transcript.delta":
+      case "response.output_audio_transcript.delta":
+        this.markAssistantSpeaking();
+        this.transcript.push({
+          role: "assistant",
+          delta: stringField(event, "delta"),
+        });
+        break;
+
+      case "conversation.item.input_audio_transcription.delta":
+        this.markUserSpeaking();
+        this.transcript.push({
+          role: "user",
+          delta: stringField(event, "delta"),
+        });
+        break;
 
       case "response.audio_transcript.done":
-      case "response.output_audio_transcript.done": {
-        const transcript = (event as { transcript?: string }).transcript;
-        if (transcript) {
-          this.emit({
-            type: "assistant-transcript",
-            text: transcript,
-            isFinal: true,
-          });
-        }
+      case "response.output_audio_transcript.done":
+      case "conversation.item.input_audio_transcription.completed":
+        this.transcript.flush();
         break;
-      }
 
-      case "conversation.item.input_audio_transcription.completed": {
-        const transcript = (event as { transcript?: string }).transcript;
-        if (transcript) {
-          this.emit({
-            type: "user-transcript",
-            text: transcript,
-            isFinal: true,
-          });
-          if (matchesGoodbye(transcript)) {
-            queueMicrotask(() => {
-              try {
-                window.electronAPI?.voice?.toggleRtc?.();
-              } catch (err) {
-                console.debug(
-                  "[realtime-voice] goodbye toggle failed:",
-                  (err as Error).message,
-                );
-              }
-            });
-          }
-        }
-        break;
-      }
-
-      case "conversation.item.input_audio_transcription.delta": {
-        const delta = (event as { delta?: string }).delta;
-        if (delta) {
-          this.emit({
-            type: "user-transcript",
-            text: delta,
-            isFinal: false,
-          });
-        }
-        break;
-      }
-
+      case "session.output_audio.started":
       case "output_audio.started":
-        this.assistantOutputActive = true;
-        this.recentOutputActiveUntil = Date.now() + ECHO_GUARD_RELEASE_MS;
-        this.startEchoGuardMonitor();
-        this.syncEchoGuard();
-        this.emit({ type: "speaking-start" });
+        this.markAssistantSpeaking();
         break;
 
+      case "session.output_audio.done":
       case "output_audio.done":
-        this.assistantOutputActive = false;
-        this.recentOutputActiveUntil = Date.now() + ECHO_GUARD_RELEASE_MS;
-        this.startEchoGuardMonitor();
-        this.syncEchoGuard();
-        this.emit({ type: "speaking-end" });
+        this.markAssistantIdle();
         break;
 
       case "input_audio_buffer.speech_started":
-        this.emit({ type: "user-speaking-start" });
+        this.markUserSpeaking();
         break;
 
       case "input_audio_buffer.speech_stopped":
+        this.transcript.flush();
         this.emit({ type: "user-speaking-end" });
         break;
 
-      case "response.done": {
-        const output = event.response;
-        if (isEventRecord(output)) this.trackUsageReport(output);
-        break;
-      }
-
+      case "session.error":
       case "error": {
         const error = isEventRecord(event.error) ? event.error : null;
         const message =
@@ -1282,129 +1044,68 @@ export class RealtimeVoiceSession {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Function call execution
-  // ---------------------------------------------------------------------------
-
-  private async runRuntimeToolCall(
-    name: string,
-    args: Record<string, unknown>,
-    callId: string,
-  ): Promise<string> {
-    const api = window.electronAPI?.voice;
-    if (!api?.executeTool || !this.conversationId) {
-      throw new Error("Stella runtime tools are not available.");
+  private markUserSpeaking() {
+    if (!this.userSpeakingEmitted) {
+      this.userSpeakingEmitted = true;
+      this.emit({ type: "user-speaking-start" });
     }
-    const result = await api.executeTool({
-      requestId: this.requestId,
-      conversationId: this.conversationId,
-      callId,
-      name,
-      args,
-    });
-    return result.output || (result.error ? `Error: ${result.error}` : "ok");
   }
 
-  private async handleFunctionCall(item: Record<string, unknown>) {
-    if (this.destroyed) return;
-
-    const name = typeof item.name === "string" ? item.name.trim() : "";
-    const callId = typeof item.call_id === "string" ? item.call_id.trim() : "";
-    const argsStr = item.arguments as string;
-
-    if (!name || !callId) {
-      console.debug(
-        "[realtime-voice] Ignoring function call without name or call_id",
-      );
-      return;
+  private markAssistantSpeaking() {
+    this.recentOutputActiveUntil = Date.now() + ECHO_GUARD_RELEASE_MS;
+    if (!this.assistantOutputActive) {
+      this.assistantOutputActive = true;
+      this.emit({ type: "speaking-start" });
     }
-    // OpenAI-compatible providers may report the same completed call through
-    // both response.function_call_arguments.done and response.output_item.done.
-    // Claim the provider call ID synchronously, before the first await, so
-    // concurrent lifecycle events cannot execute or continue the call twice.
-    if (this.handledFunctionCallIds.has(callId)) {
-      console.debug(
-        "[realtime-voice] Ignoring duplicate function call:",
-        callId,
-      );
-      return;
+    this.startEchoGuardMonitor();
+    this.syncEchoGuard();
+  }
+
+  private markAssistantIdle() {
+    this.recentOutputActiveUntil = Date.now() + ECHO_GUARD_RELEASE_MS;
+    if (this.assistantOutputActive) {
+      this.assistantOutputActive = false;
+      this.emit({ type: "speaking-end" });
     }
-    this.handledFunctionCallIds.add(callId);
+    this.startEchoGuardMonitor();
+    this.syncEchoGuard();
+  }
 
-    let args: Record<string, unknown>;
-    try {
-      args = JSON.parse(argsStr || "{}");
-    } catch (err) {
-      console.debug(
-        "[realtime-voice] Failed to parse tool arguments:",
-        (err as Error).message,
-      );
-      args = {};
-    }
-
-    this.emit({ type: "tool-start", name, callId });
-
-    let result: string;
-    try {
-      if (name === "no_response") {
-        this.sendEvent({
-          type: "conversation.item.create",
-          item: {
-            type: "function_call_output",
-            call_id: callId,
-            output: "ok",
-          },
-        });
-        this.emit({ type: "tool-end", name, callId, result: "ok" });
-        return;
-      } else if (name === "goodbye" || name === "close") {
-        this.sendEvent({
-          type: "conversation.item.create",
-          item: {
-            type: "function_call_output",
-            call_id: callId,
-            output: "ok",
-          },
-        });
-        this.emit({ type: "tool-end", name, callId, result: "ok" });
-        // Goodbye ends the live turn immediately, but the warm session
-        // stays connected so any in-flight assistant audio can finish.
-        this.setInputActive(false);
-        window.electronAPI?.ui.setState({ isVoiceRtcActive: false });
-        return;
-      } else {
-        if (!this.inputActive) {
-          result =
-            "Voice mode is no longer active. Do not call tools or continue this voice-only action.";
-          this.emit({ type: "tool-end", name, callId, result });
-          this.sendEvent({
-            type: "conversation.item.create",
-            item: {
-              type: "function_call_output",
-              call_id: callId,
-              output: result,
-            },
-          });
-          return;
-        }
-        result = await this.runRuntimeToolCall(name, args, callId);
-      }
-    } catch (err) {
-      result = `Error: ${(err as Error).message}`;
-    }
-
-    this.emit({ type: "tool-end", name, callId, result });
-
-    this.sendEvent({
-      type: "conversation.item.create",
-      item: {
-        type: "function_call_output",
-        call_id: callId,
-        output: result,
-      },
+  /**
+   * One reconstructed utterance. User turns can hang up the live turn; our own
+   * turns are remembered so a mid-call update never repeats them back.
+   */
+  private handleCompletedTurn(turn: CompletedTranscriptTurn) {
+    this.emit({
+      type:
+        turn.role === "user" ? "user-transcript" : "assistant-transcript",
+      text: turn.text,
+      isFinal: true,
     });
 
-    this.sendEvent({ type: "response.create" });
+    if (turn.role === "assistant") {
+      this.rememberSpoken(turn.text);
+      this.markAssistantIdle();
+      return;
+    }
+
+    if (this.userSpeakingEmitted) {
+      this.userSpeakingEmitted = false;
+      this.emit({ type: "user-speaking-end" });
+    }
+
+    if (matchesGoodbye(turn.text)) {
+      queueMicrotask(() => {
+        try {
+          window.electronAPI?.voice?.toggleRtc?.();
+        } catch (err) {
+          console.debug(
+            "[realtime-voice] goodbye toggle failed:",
+            (err as Error).message,
+          );
+        }
+      });
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1423,11 +1124,11 @@ export class RealtimeVoiceSession {
     this.assistantOutputActive = false;
     this.recentOutputActiveUntil = 0;
     this.softInputMuted = false;
+    this.userSpeakingEmitted = false;
 
-    this.unsubscribeLocalChatUpdated?.();
-    this.unsubscribeLocalChatUpdated = null;
-    this.syncedLocalEventIds.clear();
-    this.handledFunctionCallIds.clear();
+    this.stopDelegation();
+    this.stopConversationUpdates();
+    this.transcript.reset();
 
     await finishClosure;
     this.sessionToken = null;
@@ -1443,8 +1144,24 @@ export class RealtimeVoiceSession {
     this.assistantOutputActive = false;
     this.recentOutputActiveUntil = 0;
     this.softInputMuted = false;
-
-    this.unsubscribeLocalChatUpdated?.();
-    this.unsubscribeLocalChatUpdated = null;
+    this.userSpeakingEmitted = false;
+    this.stopDelegation();
+    this.stopConversationUpdates();
+    this.transcript.reset();
   }
 }
+
+const stringField = (event: Record<string, unknown>, key: string): string => {
+  const value = event[key];
+  return typeof value === "string" ? value : "";
+};
+
+const numberField = (
+  event: Record<string, unknown>,
+  key: string,
+): number | undefined => {
+  const value = event[key];
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
+};

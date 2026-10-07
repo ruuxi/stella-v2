@@ -87,11 +87,10 @@ describe("useRealtimeVoice transcript persistence", () => {
   });
 
   it("disconnects and replaces the pre-warmed session when restarted", async () => {
-    const onUpdated = vi.fn(() => vi.fn());
     vi.stubGlobal("window", {
       electronAPI: {
         localChat: {
-          onUpdated,
+          onUpdated: vi.fn(() => vi.fn()),
         },
       },
     });
@@ -119,7 +118,6 @@ describe("useRealtimeVoice transcript persistence", () => {
     await vi.waitFor(() => expect(connect).toHaveBeenCalledTimes(2));
 
     expect(disconnect).toHaveBeenCalledTimes(1);
-    expect(onUpdated).toHaveBeenCalledTimes(2);
 
     manager.stop();
     await vi.waitFor(() => expect(disconnect).toHaveBeenCalledTimes(2));

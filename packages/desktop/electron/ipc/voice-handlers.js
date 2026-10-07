@@ -1,42 +1,16 @@
-import fs from "node:fs/promises";
-import path from "node:path";
 import { ipcMain } from "electron";
 import { createMonotonicSeqGenerator } from "./monotonic-seq.js";
 import { applyShortcutRegistration } from "./shortcut-registration.js";
 import { getRealtimeVoicePreferences, loadLocalPreferences, resolveRealtimeVoiceId, saveLocalPreferences, } from "@stella/runtime/kernel/preferences/local-preferences";
-import { DEFAULT_INWORLD_REALTIME_MODEL, DEFAULT_INWORLD_REALTIME_VOICE, DEFAULT_OPENAI_REALTIME_VOICE, DEFAULT_XAI_REALTIME_VOICE, buildXaiRealtimeClientSecretRequest, } from "@stella/contracts/realtime-voice-catalog";
+import { DEFAULT_OPENAI_REALTIME_VOICE, DEFAULT_XAI_REALTIME_VOICE, buildXaiRealtimeClientSecretRequest, } from "@stella/contracts/realtime-voice-catalog";
 import { AGENT_STREAM_EVENT_TYPES } from "@stella/contracts/agent-runtime";
 import { getLocalLlmCredential } from "@stella/runtime/kernel/storage/llm-credentials";
 import { getLocalLlmOAuthApiKey } from "@stella/runtime/kernel/storage/llm-oauth-credentials";
-import { redactMemoryText } from "@stella/runtime/kernel/memory/redaction";
-import { IPC_VOICE_CREATE_OPENAI_SESSION, IPC_VOICE_EXECUTE_TOOL, IPC_VOICE_ORCHESTRATOR_CONFIG, IPC_VOICE_CREATE_XAI_SESSION, IPC_VOICE_CREATE_INWORLD_SESSION, IPC_VOICE_REPORT_SESSION_ERROR, IPC_VOICE_RTC_TOGGLE, IPC_VOICE_SESSION_ERROR, } from "@stella/contracts/desktop/ipc-channels";
+import { IPC_VOICE_CREATE_OPENAI_SESSION, IPC_VOICE_ORCHESTRATOR_CONFIG, IPC_VOICE_CREATE_XAI_SESSION, IPC_VOICE_REPORT_SESSION_ERROR, IPC_VOICE_RTC_TOGGLE, IPC_VOICE_SESSION_ERROR, } from "@stella/contracts/desktop/ipc-channels";
 import { requireMatchingCloudConversationId, requireRequestedCloudConversationId, } from "../cloud-conversation-mode.js";
 import { randomUUID } from "node:crypto";
 const DEFAULT_OPENAI_REALTIME_MODEL = "gpt-realtime-2.1";
 const DEFAULT_XAI_REALTIME_MODEL = "grok-voice-think-fast-1.0";
-const INWORLD_ICE_CACHE_TTL_MS = 5 * 60 * 1000;
-const inworldIceCache = new Map();
-const fetchInworldIceServers = async (apiKey) => {
-    const cached = inworldIceCache.get(apiKey);
-    if (cached && Date.now() - cached.fetchedAt < INWORLD_ICE_CACHE_TTL_MS) {
-        return cached.iceServers;
-    }
-    try {
-        const response = await fetch("https://api.inworld.ai/v1/realtime/ice-servers", { headers: { Authorization: `Bearer ${apiKey}` } });
-        if (!response.ok) {
-            console.warn("[voice] Inworld ice-servers fetch failed:", response.status, await response.text());
-            return cached?.iceServers ?? [];
-        }
-        const data = (await response.json());
-        const iceServers = Array.isArray(data.ice_servers) ? data.ice_servers : [];
-        inworldIceCache.set(apiKey, { fetchedAt: Date.now(), iceServers });
-        return iceServers;
-    }
-    catch (err) {
-        console.warn("[voice] Inworld ice-servers fetch error:", err.message);
-        return cached?.iceServers ?? [];
-    }
-};
 const DEFAULT_RUNTIME_STATE = {
     sessionState: "idle",
     isConnected: false,
@@ -57,6 +31,19 @@ export const registerVoiceHandlers = (options) => {
         const fullWindow = options.windowManager.getFullWindow();
         if (fullWindow && !fullWindow.isDestroyed()) {
             fullWindow.webContents.send("agent:event", eventPayload);
+        }
+    };
+    /**
+     * The delegated orchestrator's own progress, for the voice runtime. It
+     * lives in the hidden overlay window, which never receives the
+     * `agent:event` stream that goes to the full window, so GPT-Live would
+     * otherwise have to guess what the backend is doing.
+     */
+    const emitVoiceOrchestratorActivity = (activity) => {
+        for (const window of options.windowManager.getAllWindows()) {
+            if (window.isDestroyed())
+                continue;
+            window.webContents.send("voice:orchestratorActivity", activity);
         }
     };
     const emitVoiceDisplayPayload = (payload) => {
@@ -177,6 +164,19 @@ export const registerVoiceHandlers = (options) => {
     ipcMain.on(IPC_VOICE_REPORT_SESSION_ERROR, (_event, message) => {
         emitVoiceSessionErrorToast(message);
     });
+    // Why a call failed, for surfaces that must show the reason rather than an
+    // empty card. Every window gets it, and the last value is readable on
+    // mount so a late-rendering surface still has it.
+    let lastVoiceSessionError = "";
+    ipcMain.on("voice:reportSessionErrorState", (_event, message) => {
+        lastVoiceSessionError = typeof message === "string" ? message.trim() : "";
+        for (const window of options.windowManager.getAllWindows()) {
+            if (window.isDestroyed())
+                continue;
+            window.webContents.send("voice:sessionErrorState", lastVoiceSessionError);
+        }
+    });
+    ipcMain.handle("voice:getSessionErrorState", () => lastVoiceSessionError);
     const toggleVoiceRtc = () => {
         if (!options.getAppReady())
             return;
@@ -222,15 +222,6 @@ export const registerVoiceHandlers = (options) => {
         return result;
     });
     ipcMain.handle("voice-rtc:getShortcut", () => currentVoiceRtcShortcut);
-    ipcMain.handle("voice:getCoreMemory", async () => {
-        try {
-            const content = await fs.readFile(path.join(options.stellaDataDirPath, "core-memory.md"), "utf-8");
-            return redactMemoryText(content);
-        }
-        catch {
-            return null;
-        }
-    });
     ipcMain.handle(IPC_VOICE_CREATE_OPENAI_SESSION, async (_event, payload) => {
         const preferences = getRealtimeVoicePreferences(options.stellaAppDir);
         if (preferences.provider !== "openai") {
@@ -349,36 +340,6 @@ export const registerVoiceHandlers = (options) => {
             expiresAt,
         };
     });
-    ipcMain.handle(IPC_VOICE_CREATE_INWORLD_SESSION, async (_event, _payload) => {
-        const preferences = getRealtimeVoicePreferences(options.stellaAppDir);
-        if (preferences.provider !== "inworld") {
-            throw new Error("Inworld is not selected for voice.");
-        }
-        const apiKey = getLocalLlmCredential(options.stellaAppDir, "inworld")?.trim() ||
-            (await getLocalLlmOAuthApiKey(options.stellaAppDir, "inworld"))?.trim();
-        if (!apiKey) {
-            throw new Error("Connect Inworld in Settings to use it for voice.");
-        }
-        const model = preferences.model?.startsWith("inworld/")
-            ? preferences.model.slice("inworld/".length)
-            : preferences.model || DEFAULT_INWORLD_REALTIME_MODEL;
-        const voice = resolveRealtimeVoiceId(preferences, "inworld", DEFAULT_INWORLD_REALTIME_VOICE);
-        // Inworld's WebRTC SDP endpoint requires a complete offer with ICE
-        // candidates baked in, so we need their STUN/TURN servers up front.
-        const iceServers = await fetchInworldIceServers(apiKey);
-        // Inworld doesn't use ephemeral tokens — the API key is the Bearer
-        // for the SDP exchange. In BYOK mode we hand the user's own key
-        // back to the renderer because it's their key on their machine.
-        // (Stella-managed Inworld goes through a backend SDP proxy so the
-        // org key never reaches the renderer; that's a different path.)
-        return {
-            provider: "inworld",
-            clientSecret: apiKey,
-            model,
-            voice,
-            iceServers,
-        };
-    });
     ipcMain.on("voice:persistTranscript", (_event, payload) => {
         let conversationId;
         try {
@@ -403,17 +364,40 @@ export const registerVoiceHandlers = (options) => {
             throw new Error("Voice mode is no longer active.");
         }
         const conversationId = requireCurrentVoiceConversation(payload?.conversationId);
+        const requestId = typeof payload?.requestId === "string" && payload.requestId.trim()
+            ? payload.requestId.trim()
+            : `voice:${randomUUID()}`;
         console.log(`[${ts()}] [Voice] orchestratorChat request:`, payload.message);
         const stellaHostRunner = options.getStellaHostRunner();
         if (!stellaHostRunner) {
             throw new Error("Stella runtime not initialized");
         }
-        return await stellaHostRunner.handleVoiceChat({ ...payload, conversationId }, {
+        return await stellaHostRunner.handleVoiceChat({ ...payload, requestId, conversationId }, {
+            onStatus: (event) => {
+                emitVoiceOrchestratorActivity({
+                    requestId,
+                    kind: "status",
+                    statusText: event?.statusText ?? event?.text,
+                });
+            },
             onToolStart: (event) => {
                 emitVoiceAgentEvent({ ...event, type: "tool-start" });
+                emitVoiceOrchestratorActivity({
+                    requestId,
+                    kind: "tool-start",
+                    toolName: event?.toolName,
+                    toolCallId: event?.toolCallId,
+                });
             },
             onToolEnd: (event) => {
                 emitVoiceAgentEvent({ ...event, type: "tool-end" });
+                emitVoiceOrchestratorActivity({
+                    requestId,
+                    kind: "tool-end",
+                    toolName: event?.toolName,
+                    toolCallId: event?.toolCallId,
+                    isError: Boolean(event?.error),
+                });
             },
             onAgentEvent: (event) => {
                 emitVoiceAgentEvent({
@@ -475,12 +459,6 @@ export const registerVoiceHandlers = (options) => {
             throw error;
         }
     };
-    ipcMain.handle(IPC_VOICE_EXECUTE_TOOL, async (_event, payload) => {
-        if (!options.uiState.isVoiceRtcActive) {
-            throw new Error("Voice mode is no longer active.");
-        }
-        return await executeVoiceTool(false, payload);
-    });
     ipcMain.handle("voice:webSearch", async (_event, payload) => {
         const stellaHostRunner = options.getStellaHostRunner();
         if (!stellaHostRunner) {

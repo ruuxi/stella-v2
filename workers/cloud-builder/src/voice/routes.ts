@@ -1,8 +1,7 @@
 /**
  * Voice's HTTP surface: the bodies that are not JSON calls.
  *
- *   POST /api/voice/openai/sdp            SDP offer in, SDP answer out (`voice.sdp`)
- *   POST /api/voice/inworld/sdp           refused: no managed Inworld calls
+ *   POST /api/voice/live/sdp              SDP offer in, SDP answer out (`voice.sdp`)
  *   POST /api/voice/tts                   one-shot read-aloud audio
  *   POST /api/voice/tts/stream            progressive `audio/mpeg` (desktop)
  *   POST /api/voice/tts/stream/cancel     stop a mobile HLS synthesis
@@ -22,9 +21,8 @@ import {
   type BackendError,
 } from "@stella/contracts/backend/protocol";
 import {
-  VOICE_INWORLD_SDP_PATH,
   VOICE_LEASE_HEADER,
-  VOICE_OPENAI_SDP_PATH,
+  VOICE_LIVE_SDP_PATH,
   VOICE_TTS_HLS_PREFIX,
   VOICE_TTS_PATH,
   VOICE_TTS_STREAM_CANCEL_PATH,
@@ -151,9 +149,9 @@ const admitText = async (env: VoiceEnv, caller: OwnerCaller, raw: unknown): Prom
   return text;
 };
 
-// ── Realtime voice ─────────────────────────────────────────────────────────
+// ── Live voice ─────────────────────────────────────────────────────────────
 
-const openAiSdp = async (request: Request, env: VoiceEnv): Promise<Response> => {
+const liveSdp = async (request: Request, env: VoiceEnv): Promise<Response> => {
   const caller = await authenticate(request, env);
   const leaseId = request.headers.get(VOICE_LEASE_HEADER)?.trim() ?? "";
   if (!leaseId) throw new RpcError("BAD_REQUEST", `${VOICE_LEASE_HEADER} is required.`);
@@ -396,14 +394,8 @@ export const handleVoiceRoute = async (request: Request, env: VoiceEnv): Promise
     }
     if (request.method !== "POST") throw new RpcError("BAD_REQUEST", "Method not allowed.");
     switch (path) {
-      case VOICE_OPENAI_SDP_PATH:
-        return await openAiSdp(request, env);
-      case VOICE_INWORLD_SDP_PATH:
-        throw new RpcError(
-          "UNAVAILABLE",
-          "Managed Inworld realtime voice is unavailable because Inworld has no call revocation boundary.",
-          { retryable: false },
-        );
+      case VOICE_LIVE_SDP_PATH:
+        return await liveSdp(request, env);
       case VOICE_TTS_PATH:
         return await ttsOneShot(request, env);
       case VOICE_TTS_STREAM_PATH:

@@ -1,13 +1,14 @@
 /**
- * Realtime voice, read-aloud and dictation metering for one owner.
+ * Live voice, read-aloud and dictation metering for one owner.
  *
- * - **Realtime voice (Pro):** `voice.session` records a lease holding the
- *   OpenAI session config; the SDP route (`voice.sdp`) creates the call on
- *   OpenAI and keeps its call id, so the server can always hang it up. Each
- *   `response.done` usage report is charged exactly; when the lease closes
- *   (client end, supersession, or `voice.reap` after 2 minutes without a
- *   heartbeat) the call is hung up and the duplex envelope for its open time
- *   is charged less what usage already covered. The object is
+ * - **Live voice (Pro):** `voice.session` records a lease holding the
+ *   GPT-Live session config; the SDP route (`voice.sdp`) creates the session
+ *   on OpenAI and keeps its session id, so the server can always close it.
+ *   GPT-Live bills session duration at a flat rate, so there is nothing to
+ *   report per response: when the lease closes (client end, supersession, or
+ *   `voice.reap` after 2 minutes without a heartbeat) the session is closed
+ *   through a sideband and its open time is charged. The orchestrator's own
+ *   model spend is metered through the normal agent path. The object is
  *   single-threaded, so there is no dispatch-lease ledger.
  * - **Read-aloud:** free on every plan, bounded by a rate limit and a daily
  *   character allowance. `tts.prepare` signs an HLS ticket and runs one
@@ -17,11 +18,16 @@
  */
 
 import {
+  GPT_LIVE_MODEL,
+  VOICE_HISTORY_MAX_CHARS,
+  VOICE_HISTORY_MAX_MESSAGES,
+  VOICE_INSTRUCTIONS_MAX_CHARS,
   voiceTtsPlaylistPath,
+  type VoiceHistoryMessage,
   type VoiceLease,
   type VoiceSession,
-  type VoiceToolSchema,
 } from "@stella/contracts/backend/voice";
+import { DEFAULT_GPT_LIVE_VOICE } from "@stella/contracts/realtime-voice-catalog";
 import { log } from "../../build-session/shared/keys.js";
 import { resolveGeminiTtsVoice, ttsProvider } from "../../voice/tts.js";
 import { synthesizeHls } from "../../voice/hls.js";
@@ -50,16 +56,18 @@ const SESSION_MAX_MS = 5 * 60_000;
 const IDLE_REAP_MS = 2 * 60_000;
 const CLOSED_LEASE_RETENTION_MS = 24 * 60 * 60_000;
 /**
- * The continuously open duplex envelope: 10 audio-in plus 20 audio-out
- * tokens a second at $32/$64 per million. Charged for a call's open time,
- * less the exact usage already reported, and never above one full session.
+ * GPT-Live charges $0.05 a minute of session duration, per second and not
+ * rounded up. Charged for a session's open time, never above one full
+ * session.
  */
-const ENVELOPE_MICRO_CENTS_PER_SECOND = 160_000;
+const ENVELOPE_MICRO_CENTS_PER_SECOND = 83_333;
 const SESSION_CHARGE_CAP = (SESSION_MAX_MS / 1_000) * ENVELOPE_MICRO_CENTS_PER_SECOND;
+/** Creating a WebRTC session bills 15 seconds up front, credited once it runs. */
+const MIN_BILLED_SECONDS = 15;
 
-const DEFAULT_REALTIME_MODEL = "gpt-realtime-2.1";
-const DEFAULT_REALTIME_VOICE = "marin";
-const OPENAI_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
+const OPENAI_LIVE_SESSIONS_URL = "https://api.openai.com/v1/live/sessions";
+const liveAttachUrl = (sessionId: string): string =>
+  `wss://api.openai.com/v1/live/sessions/${encodeURIComponent(sessionId)}/attach`;
 
 const TTS_RATE = { count: 20, windowMs: 60_000 };
 const TTS_MAX_INPUT_CHARS = 8_000;
@@ -135,98 +143,81 @@ const secret = (env: Cloudflare.Env, name: string): string | null => {
 const readLease = (ctx: OwnerContext, leaseId: string): LeaseRow | null =>
   ctx.db.one<LeaseRow>("SELECT * FROM voice_leases WHERE lease_id = ?", leaseId);
 
-// ── Pricing ────────────────────────────────────────────────────────────────
+// ── Live voice ─────────────────────────────────────────────────────────────
 
-type RealtimePrice = {
-  textIn: number;
-  textCachedIn: number;
-  textOut: number;
-  audioIn: number;
-  audioCachedIn: number;
-  audioOut: number;
-  imageIn: number;
-  imageCachedIn: number;
+/**
+ * Startup history for the live session. GPT-Live takes one text part per
+ * message, `input_text` for developer and user and `output_text` for the
+ * assistant, and caps the list at 128 messages and 8,192 combined tokens.
+ * The newest messages matter most, so the list is trimmed from the front.
+ */
+const buildSessionInput = (history: VoiceHistoryMessage[]): unknown[] => {
+  const kept: VoiceHistoryMessage[] = [];
+  let chars = 0;
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const entry = history[index]!;
+    const text = entry.text.trim();
+    if (!text) continue;
+    if (kept.length >= VOICE_HISTORY_MAX_MESSAGES || chars + text.length > VOICE_HISTORY_MAX_CHARS) break;
+    chars += text.length;
+    kept.push({ role: entry.role, text });
+  }
+  kept.reverse();
+  return kept.map((entry) => ({
+    type: "message",
+    role: entry.role,
+    content: [{ type: entry.role === "assistant" ? "output_text" : "input_text", text: entry.text }],
+  }));
 };
 
-/** USD per million tokens. */
-const REALTIME_PRICES: Record<string, RealtimePrice> = {
-  "gpt-realtime-1.5": {
-    textIn: 4, textCachedIn: 0.4, textOut: 16, audioIn: 32, audioCachedIn: 0.4, audioOut: 64, imageIn: 5, imageCachedIn: 0.5,
-  },
-  "gpt-realtime-2": {
-    textIn: 4, textCachedIn: 0.4, textOut: 24, audioIn: 32, audioCachedIn: 0.4, audioOut: 64, imageIn: 5, imageCachedIn: 0.5,
-  },
-  "gpt-realtime-2.1": {
-    textIn: 4, textCachedIn: 0.4, textOut: 24, audioIn: 32, audioCachedIn: 0.4, audioOut: 64, imageIn: 5, imageCachedIn: 0.5,
-  },
-};
-
-const realtimePrice = (model: string): RealtimePrice | undefined =>
-  REALTIME_PRICES[model] ??
-  Object.entries(REALTIME_PRICES).find(([base]) => model.startsWith(`${base}-`))?.[1];
-
-const count = (value: unknown): number =>
-  typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
-
-const record = (value: unknown): Record<string, unknown> =>
-  value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-
-/** What one realtime `response.done` usage object costs. */
-const realtimeCost = (model: string, usage: unknown): number => {
-  const price = realtimePrice(model);
-  if (!price) return 0;
-  const input = record(record(usage).input_token_details);
-  const output = record(record(usage).output_token_details);
-  const usd =
-    (count(input.text_tokens) * price.textIn +
-      count(input.cached_text_tokens ?? input.cached_tokens) * price.textCachedIn +
-      count(output.text_tokens) * price.textOut +
-      count(input.audio_tokens) * price.audioIn +
-      count(input.cached_audio_tokens) * price.audioCachedIn +
-      count(output.audio_tokens) * price.audioOut +
-      count(input.image_tokens) * price.imageIn +
-      count(input.cached_image_tokens) * price.imageCachedIn) /
-    1_000_000;
-  return usdToMicroCents(usd);
-};
-
-// ── Realtime voice ─────────────────────────────────────────────────────────
-
-const UNSUPPORTED_ROOT_SCHEMA_KEYS = ["oneOf", "anyOf", "allOf", "enum", "const", "not"];
-
-/** Strip each tool's root schema down to what the Realtime API accepts. */
-const normalizeTools = (tools: VoiceToolSchema[]): VoiceToolSchema[] => {
-  const seen = new Set<string>();
-  return tools.map((tool) => {
-    const name = tool.name.trim();
-    if (!name || seen.has(name) || tool.parameters.type !== "object") {
-      throw new RpcError("BAD_REQUEST", "tools must be a valid voice tool catalog.");
-    }
-    seen.add(name);
-    const parameters = { ...tool.parameters };
-    for (const key of UNSUPPORTED_ROOT_SCHEMA_KEYS) delete parameters[key];
-    return {
-      type: "function",
-      name,
-      description: tool.description.trim(),
-      parameters: { ...parameters, type: "object", properties: record(parameters.properties) },
-    };
-  });
-};
-
-const hangupCall = async (env: Cloudflare.Env, callId: string): Promise<boolean> => {
+/**
+ * Close a live session from the server: attach a sideband to the running
+ * session and send `session.close`. This is the revocation boundary that a
+ * managed session needs — the client cannot keep a session alive once the
+ * lease is gone.
+ */
+const closeLiveSession = async (env: Cloudflare.Env, sessionId: string): Promise<boolean> => {
   const apiKey = secret(env, "OPENAI_API_KEY");
   if (!apiKey) return false;
+  let socket: WebSocket | null = null;
   try {
-    const response = await fetch(`${OPENAI_CALLS_URL}/${encodeURIComponent(callId)}/hangup`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(15_000),
+    const response = await fetch(liveAttachUrl(sessionId), {
+      headers: { authorization: `Bearer ${apiKey}`, upgrade: "websocket" },
     });
-    await response.body?.cancel().catch(() => undefined);
-    return response.ok || response.status === 404;
+    socket = response.webSocket;
+    if (!socket) {
+      // A session that is already gone answers the attach without upgrading.
+      await response.body?.cancel().catch(() => undefined);
+      return response.status === 404;
+    }
+    socket.accept();
+    const closed = new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => resolve(false), 10_000);
+      const settle = (value: boolean) => {
+        clearTimeout(timer);
+        resolve(value);
+      };
+      socket!.addEventListener("message", (event) => {
+        if (typeof event.data !== "string") return;
+        try {
+          if ((JSON.parse(event.data) as { type?: unknown }).type === "session.closed") settle(true);
+        } catch {
+          // Not a frame we care about.
+        }
+      });
+      socket!.addEventListener("close", () => settle(true));
+      socket!.addEventListener("error", () => settle(false));
+    });
+    socket.send(JSON.stringify({ type: "session.close", event_id: `close_${sessionId}` }));
+    return await closed;
   } catch {
     return false;
+  } finally {
+    try {
+      socket?.close();
+    } catch {
+      // Already closed.
+    }
   }
 };
 
@@ -235,9 +226,9 @@ const scheduleReap = (ctx: OwnerContext, at: number): void => {
 };
 
 /**
- * Close an open lease: charge the envelope for the call's open time up to
- * `closedAt`, less what usage reports already charged, then hang up. State
- * changes before the hangup's await, so a concurrent call sees it closed.
+ * Close an open lease: charge the envelope for the session's open time up to
+ * `closedAt`, less what is already charged, then close the session. State
+ * changes before the close's await, so a concurrent call sees it closed.
  */
 const closeLease = async (ctx: OwnerContext, leaseId: string, reason: string, closedAt: number): Promise<void> => {
   // Read it here: another close may have run while the caller awaited.
@@ -253,7 +244,7 @@ const closeLease = async (ctx: OwnerContext, leaseId: string, reason: string, cl
   );
   let residual = 0;
   if (lease.call_started_at !== null) {
-    const seconds = Math.max(1, Math.ceil(Math.max(0, closedAt - lease.call_started_at) / 1_000));
+    const seconds = Math.max(MIN_BILLED_SECONDS, Math.ceil(Math.max(0, closedAt - lease.call_started_at) / 1_000));
     const envelope = Math.min(SESSION_CHARGE_CAP, seconds * ENVELOPE_MICRO_CENTS_PER_SECOND);
     residual = Math.max(0, envelope - lease.charged);
     if (residual > 0) {
@@ -269,7 +260,7 @@ const closeLease = async (ctx: OwnerContext, leaseId: string, reason: string, cl
     chargedMicroCents: lease.charged + residual,
     hadCall: lease.call_id !== null,
   });
-  if (lease.call_id && (await hangupCall(ctx.env, lease.call_id))) {
+  if (lease.call_id && (await closeLiveSession(ctx.env, lease.call_id))) {
     ctx.db.run("UPDATE voice_leases SET hangup_pending = 0 WHERE lease_id = ?", lease.lease_id);
   } else if (lease.call_id) {
     scheduleReap(ctx, now + 30_000);
@@ -282,22 +273,12 @@ const openSession = async (
   ctx: OwnerContext,
   args: {
     instructions: string;
-    tools?: VoiceToolSchema[];
+    history?: VoiceHistoryMessage[];
     voice?: string;
     model?: string;
-    voiceProvider?: "openai" | "xai" | "inworld";
-    turnDetection?: "semantic_vad" | "server_vad";
-    turnEagerness?: "low" | "medium" | "high";
   },
 ): Promise<VoiceSession> => {
   enforceOwnerRateLimit(ctx.db, ctx.now, "voice.session", VOICE_SESSION_RATE, "Too many voice sessions. Try again in a minute.");
-  if ((args.voiceProvider ?? "openai") !== "openai") {
-    throw new RpcError(
-      "UNAVAILABLE",
-      `Managed ${args.voiceProvider} realtime voice is unavailable because the provider has no call revocation boundary.`,
-      { retryable: false },
-    );
-  }
   const access = billingAccess(ctx);
   if (access.isAnonymous || access.plan !== "pro") {
     throw new RpcError("FORBIDDEN", "Realtime voice is part of Stella Pro.", { reason: "capability_required" });
@@ -313,29 +294,18 @@ const openSession = async (
   }
   const instructions = args.instructions.trim();
   if (!instructions) throw new RpcError("BAD_REQUEST", "instructions is required.");
-  const model = args.model?.trim() || DEFAULT_REALTIME_MODEL;
-  const voice = args.voice?.trim() || DEFAULT_REALTIME_VOICE;
-  const turnDetection =
-    args.turnDetection === "semantic_vad"
-      ? { type: "semantic_vad", eagerness: args.turnEagerness ?? "medium", create_response: true, interrupt_response: true }
-      : {
-          type: "server_vad",
-          threshold: 0.5,
-          prefix_padding_ms: 120,
-          silence_duration_ms: 220,
-          create_response: true,
-          interrupt_response: true,
-        };
+  const model = args.model?.trim() || GPT_LIVE_MODEL;
+  const voice = args.voice?.trim() || DEFAULT_GPT_LIVE_VOICE;
+  // Client delegation: Stella's orchestrator is the backend agent, so the
+  // session carries no tools and no turn-detection config of its own.
+  // WebRTC negotiates the audio format, so `audio.format` is omitted.
   const sessionConfig = JSON.stringify({
-    type: "realtime",
     model,
     instructions,
-    reasoning: { effort: "minimal" },
-    tools: normalizeTools(args.tools ?? []),
-    audio: {
-      output: { voice },
-      input: { transcription: { model: "gpt-4o-transcribe" }, turn_detection: turnDetection },
-    },
+    delegation: { type: "client" },
+    input: buildSessionInput(args.history ?? []),
+    audio: { output: { voice } },
+    store: false,
   });
 
   // One realtime session per owner: a new one supersedes the rest.
@@ -381,24 +351,7 @@ const leaseEvent = async (
   return { directive: "continue", leaseExpiresAt: Math.min(ctx.now + LEASE_TTL_MS, deadline), reason: null };
 };
 
-const reportUsage = (
-  ctx: OwnerContext,
-  args: { leaseId: string; responseId: string; usage: Record<string, unknown> },
-): { recorded: boolean; costMicroCents: number } => {
-  const lease = readLease(ctx, args.leaseId);
-  if (!lease || lease.status !== "open") {
-    throw new RpcError("CONFLICT", "The realtime voice session is no longer available.");
-  }
-  // A modified client could report anything: never charge past one session.
-  const costMicroCents = Math.min(realtimeCost(lease.model, args.usage), Math.max(0, SESSION_CHARGE_CAP - lease.charged));
-  const { recorded } = recordUsage(ctx, [{ id: `voice:${lease.lease_id}:${args.responseId}`, costMicroCents }]);
-  if (recorded > 0) {
-    ctx.db.run("UPDATE voice_leases SET charged = charged + ? WHERE lease_id = ?", costMicroCents, lease.lease_id);
-  }
-  return { recorded: recorded > 0, costMicroCents };
-};
-
-/** Create the lease's OpenAI call from the client's SDP offer; returns the answer. */
+/** Create the lease's live session from the client's SDP offer; returns the answer. */
 const createCall = async (ctx: OwnerContext, raw: unknown): Promise<{ sdp: string }> => {
   const args = object({ leaseId: string({ min: 1, max: 200 }), sdp: string({ min: 10, max: 1_000_000 }) })(raw);
   const lease = readLease(ctx, args.leaseId);
@@ -414,60 +367,59 @@ const createCall = async (ctx: OwnerContext, raw: unknown): Promise<{ sdp: strin
     startedAt,
     lease.lease_id,
   );
-  const form = new FormData();
-  form.set("sdp", args.sdp);
-  form.set("session", lease.session_config);
   let response: Response;
   try {
-    response = await fetch(OPENAI_CALLS_URL, {
+    response = await fetch(OPENAI_LIVE_SESSIONS_URL, {
       method: "POST",
-      headers: { authorization: `Bearer ${apiKey}`, "x-client-request-id": lease.lease_id },
-      body: form,
+      headers: {
+        authorization: `Bearer ${apiKey}`,
+        "content-type": "application/json",
+        "x-client-request-id": lease.lease_id,
+      },
+      body: JSON.stringify({
+        session: JSON.parse(lease.session_config) as unknown,
+        transport: { type: "webrtc", sdp: args.sdp },
+      }),
       signal: AbortSignal.timeout(20_000),
     });
   } catch {
-    // The call may exist without its locator; charge the few seconds and move on.
-    await closeLease(ctx, lease.lease_id, "openai_call_unreachable", Date.now());
-    throw new RpcError("UNAVAILABLE", "Failed to create the OpenAI voice call.");
+    // The session may exist without its id; charge the initialization and move on.
+    await closeLease(ctx, lease.lease_id, "openai_session_unreachable", Date.now());
+    throw new RpcError("UNAVAILABLE", "Failed to create the live voice session.");
   }
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
-    log("error", "voice_call_create_failed", { leaseId: lease.lease_id, status: response.status, detail: detail.slice(0, 500) });
-    // No call exists, so nothing is charged.
+    log("error", "voice_session_create_failed", { leaseId: lease.lease_id, status: response.status, detail: detail.slice(0, 500) });
+    // No session exists, so nothing is charged.
     ctx.db.run("UPDATE voice_leases SET call_started_at = NULL WHERE lease_id = ?", lease.lease_id);
-    await closeLease(ctx, lease.lease_id, `openai_call_${response.status}`, Date.now());
-    throw new RpcError("UNAVAILABLE", "Failed to create the OpenAI voice call.", { retryable: response.status >= 500 });
+    await closeLease(ctx, lease.lease_id, `openai_session_${response.status}`, Date.now());
+    throw new RpcError("UNAVAILABLE", "Failed to create the live voice session.", { retryable: response.status >= 500 });
   }
-  const callId = readCallId(response.headers.get("location"));
-  const answer = await response.text().catch(() => null);
+  const created = await readLiveSession(response);
   const current = readLease(ctx, lease.lease_id);
-  if (!callId || answer === null || current?.status !== "open") {
-    if (callId) await hangupCall(ctx.env, callId);
-    await closeLease(ctx, lease.lease_id, "openai_call_unbound", Date.now());
-    throw new RpcError("CONFLICT", "The realtime voice session is no longer available.");
+  if (!created || current?.status !== "open") {
+    if (created) await closeLiveSession(ctx.env, created.sessionId);
+    await closeLease(ctx, lease.lease_id, "openai_session_unbound", Date.now());
+    throw new RpcError("CONFLICT", "The live voice session is no longer available.");
   }
-  ctx.db.run("UPDATE voice_leases SET call_id = ? WHERE lease_id = ?", callId, lease.lease_id);
-  log("info", "voice_call_created", { leaseId: lease.lease_id });
-  return { sdp: answer };
+  ctx.db.run("UPDATE voice_leases SET call_id = ? WHERE lease_id = ?", created.sessionId, lease.lease_id);
+  log("info", "voice_session_created", { leaseId: lease.lease_id });
+  return { sdp: created.sdp };
 };
 
-/** The call id from OpenAI's `Location: /v1/realtime/calls/<id>`. */
-const readCallId = (location: string | null): string | null => {
-  if (!location) return null;
-  try {
-    const url = new URL(location, "https://api.openai.com");
-    const parts = url.pathname.split("/").filter(Boolean);
-    if (url.origin !== "https://api.openai.com" || parts.length !== 4 || parts[0] !== "v1" || parts[1] !== "realtime" || parts[2] !== "calls") {
-      return null;
-    }
-    const callId = parts[3]!.trim();
-    return /^[A-Za-z0-9._:-]{1,200}$/u.test(callId) ? callId : null;
-  } catch {
-    return null;
-  }
+/** The session id and SDP answer from `POST /v1/live/sessions`. */
+const readLiveSession = async (response: Response): Promise<{ sessionId: string; sdp: string } | null> => {
+  const body = (await response.json().catch(() => null)) as {
+    session?: { id?: unknown };
+    transport?: { sdp?: unknown };
+  } | null;
+  const sessionId = typeof body?.session?.id === "string" ? body.session.id.trim() : "";
+  const sdp = typeof body?.transport?.sdp === "string" ? body.transport.sdp : "";
+  if (!sessionId || !sdp || !/^[A-Za-z0-9._:-]{1,200}$/u.test(sessionId)) return null;
+  return { sessionId, sdp };
 };
 
-/** Close idle leases, retry failed hangups, prune old rows, then rearm. */
+/** Close idle leases, retry failed session closes, prune old rows, then rearm. */
 const reap = async (ctx: OwnerContext): Promise<void> => {
   const now = Date.now();
   for (const lease of ctx.db.all<LeaseRow>("SELECT * FROM voice_leases WHERE status = 'open'")) {
@@ -479,7 +431,7 @@ const reap = async (ctx: OwnerContext): Promise<void> => {
     }
   }
   for (const lease of ctx.db.all<LeaseRow>("SELECT * FROM voice_leases WHERE hangup_pending = 1 AND call_id IS NOT NULL")) {
-    if (await hangupCall(ctx.env, lease.call_id!)) {
+    if (await closeLiveSession(ctx.env, lease.call_id!)) {
       ctx.db.run("UPDATE voice_leases SET hangup_pending = 0 WHERE lease_id = ?", lease.lease_id);
     }
   }
@@ -687,7 +639,7 @@ const purgeVoice = async (ctx: OwnerContext, mode: OwnerPurgeMode): Promise<{ pe
   ctx.db.run("DELETE FROM tts_streams");
   if (mode === "delete") ctx.db.run("DELETE FROM tts_daily");
   ctx.jobs.cancel(VOICE_REAP_JOB);
-  await Promise.all(calls.map(({ call_id }) => hangupCall(ctx.env, call_id)));
+  await Promise.all(calls.map(({ call_id }) => closeLiveSession(ctx.env, call_id)));
   const bucket = ctx.env.MEDIA;
   if (!bucket) return { pending: false };
   const listed = await bucket.list({ prefix: await ttsOwnerPrefix(ctx.ownerId), limit: 1_000 });
@@ -697,22 +649,9 @@ const purgeVoice = async (ctx: OwnerContext, mode: OwnerPurgeMode): Promise<{ pe
 
 // ── Registration ───────────────────────────────────────────────────────────
 
-/** A JSON object, bounded by its serialized size. */
-const jsonRecord =
-  (maxBytes: number): Parser<Record<string, unknown>> =>
-  (value, path = "") => {
-    const parsed = json({ maxBytes })(value, path);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      throw new RpcError("BAD_REQUEST", `${path || "args"} must be an object.`);
-    }
-    return parsed as Record<string, unknown>;
-  };
-
-const toolArg: Parser<VoiceToolSchema> = object({
-  type: literal("function"),
-  name: string({ min: 1, max: 128 }),
-  description: string({ min: 1, max: 8_192 }),
-  parameters: jsonRecord(65_536),
+const historyArg: Parser<VoiceHistoryMessage> = object({
+  role: literal("developer", "user", "assistant"),
+  text: string({ min: 1, max: VOICE_HISTORY_MAX_CHARS }),
 });
 
 export const voiceDomain = {
@@ -723,13 +662,10 @@ export const voiceDomain = {
       scope: "owner",
       requireAccount: true,
       parse: object({
-        instructions: string({ min: 1, max: 100_000 }),
-        tools: optional(array(toolArg, { max: 128 })),
+        instructions: string({ min: 1, max: VOICE_INSTRUCTIONS_MAX_CHARS }),
+        history: optional(array(historyArg, { max: VOICE_HISTORY_MAX_MESSAGES })),
         voice: optional(string({ max: 100 })),
         model: optional(string({ max: 100 })),
-        voiceProvider: optional(literal("openai", "xai", "inworld")),
-        turnDetection: optional(literal("semantic_vad", "server_vad")),
-        turnEagerness: optional(literal("low", "medium", "high")),
       }),
       handler: openSession,
     },
@@ -741,16 +677,6 @@ export const voiceDomain = {
         event: literal("heartbeat", "ended", "expired", "lost"),
       }),
       handler: leaseEvent,
-    },
-    "voice.usage": {
-      scope: "owner",
-      requireAccount: true,
-      parse: object({
-        leaseId: string({ min: 1, max: 200 }),
-        responseId: string({ min: 1, max: 200 }),
-        usage: jsonRecord(16_384),
-      }),
-      handler: reportUsage,
     },
     "tts.prepare": {
       scope: "owner",

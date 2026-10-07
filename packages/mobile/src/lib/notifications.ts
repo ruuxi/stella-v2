@@ -18,6 +18,16 @@ import { i18nFallback } from "../i18n";
 
 const COMPUTER_REPLY_CATEGORY = "computer_reply";
 const AGENT_ACTIVITY_CATEGORY = "agent_activity";
+const USER_ASK_ANDROID_CHANNEL = "user-ask";
+const USER_ASK_ANDROID_BREAKTHROUGH_CHANNEL = "user-ask-breakthrough";
+
+const SILENT = {
+  shouldShowAlert: false,
+  shouldShowBanner: false,
+  shouldShowList: false,
+  shouldPlaySound: false,
+  shouldSetBadge: false,
+} as const;
 const NOTIFICATION_ACTIONS = [
   {
     identifier: "open",
@@ -114,16 +124,9 @@ const scheduleUserAskRepeats = (askId: string) => {
 
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
+    if (!pushDeliveryEnabled()) return { ...SILENT };
     // User-side mute wins over everything — drop the notification entirely.
-    if (getNotificationsMuted()) {
-      return {
-        shouldShowAlert: false,
-        shouldShowBanner: false,
-        shouldShowList: false,
-        shouldPlaySound: false,
-        shouldSetBadge: false,
-      };
-    }
+    if (getNotificationsMuted()) return { ...SILENT };
     const ask = readUserAskPush(
       notification.request.content.data as UserAskPushData | null | undefined,
     );
@@ -142,15 +145,7 @@ Notifications.setNotificationHandler({
     }
     // Don't surface pushes over the app the user is currently looking at.
     const isForeground = AppState.currentState === "active";
-    if (isForeground) {
-      return {
-        shouldShowAlert: false,
-        shouldShowBanner: false,
-        shouldShowList: false,
-        shouldPlaySound: false,
-        shouldSetBadge: false,
-      };
-    }
+    if (isForeground) return { ...SILENT };
     return {
       shouldShowAlert: true,
       shouldShowBanner: true,
@@ -160,6 +155,26 @@ Notifications.setNotificationHandler({
     };
   },
 });
+
+async function ensureAndroidChannels(): Promise<void> {
+  if (Platform.OS !== "android") return;
+  await Notifications.setNotificationChannelAsync("default", {
+    name: "default",
+    importance: Notifications.AndroidImportance.DEFAULT,
+  });
+  await Notifications.setNotificationChannelAsync(USER_ASK_ANDROID_CHANNEL, {
+    name: "Stella needs you",
+    importance: Notifications.AndroidImportance.HIGH,
+  });
+  await Notifications.setNotificationChannelAsync(
+    USER_ASK_ANDROID_BREAKTHROUGH_CHANNEL,
+    {
+      name: "Stella needs you urgently",
+      importance: Notifications.AndroidImportance.MAX,
+      bypassDnd: true,
+    },
+  );
+}
 
 async function getExpoPushToken(): Promise<string | null> {
   if (!Device.isDevice) return null;
@@ -174,12 +189,7 @@ async function getExpoPushToken(): Promise<string | null> {
 
   if (finalStatus !== "granted") return null;
 
-  if (Platform.OS === "android") {
-    await Notifications.setNotificationChannelAsync("default", {
-      name: "default",
-      importance: Notifications.AndroidImportance.DEFAULT,
-    });
-  }
+  await ensureAndroidChannels();
 
   const projectId = Constants.expoConfig?.extra?.eas?.projectId as string | undefined;
   if (!projectId) return null;
@@ -188,23 +198,44 @@ async function getExpoPushToken(): Promise<string | null> {
   return data;
 }
 
-let registered = false;
-let registering: Promise<void> | null = null;
-
-/**
- * Register for push notifications and send the token to the backend. The
- * root layout calls this on every route/session change, so calls made while
- * one is in flight share it instead of racing duplicate first registrations.
- */
-export function registerForPushNotifications(): Promise<void> {
-  if (registered) return Promise.resolve();
-  registering ??= registerOnce().finally(() => {
-    registering = null;
-  });
-  return registering;
+async function readGrantedPushToken(): Promise<string | null> {
+  try {
+    if (!Device.isDevice) return null;
+    const { status } = await Notifications.getPermissionsAsync();
+    if (status !== "granted") return null;
+    const projectId = Constants.expoConfig?.extra?.eas?.projectId as string | undefined;
+    if (!projectId) return null;
+    const { data } = await Notifications.getExpoPushTokenAsync({ projectId });
+    return data;
+  } catch {
+    return null;
+  }
 }
 
-async function registerOnce(): Promise<void> {
+let registeredSubject: string | null = null;
+let registering: { subject: string; done: Promise<void> } | null = null;
+let deliveryBlocked = false;
+
+export function setPushDeliveryOwner(subject: string | null): void {
+  deliveryBlocked = subject === null;
+}
+
+export function pushDeliveryEnabled(): boolean {
+  return !deliveryBlocked;
+}
+
+export function registerForPushNotifications(subject: string): Promise<void> {
+  if (!subject) return Promise.resolve();
+  if (registeredSubject === subject) return Promise.resolve();
+  if (registering?.subject === subject) return registering.done;
+  const done = registerOnce(subject).finally(() => {
+    if (registering?.subject === subject) registering = null;
+  });
+  registering = { subject, done };
+  return done;
+}
+
+async function registerOnce(subject: string): Promise<void> {
   try {
     const token = await getExpoPushToken();
     if (!token) return;
@@ -215,22 +246,31 @@ async function registerOnce(): Promise<void> {
       platform: Platform.OS,
       mobileDeviceId,
     }, { origin: backendOrigin() });
-    registered = true;
+    registeredSubject = subject;
   } catch {
     // Best-effort — don't block the app if registration fails.
   }
 }
 
-/** Remove this phone's push token rows for the currently signed-in account. */
-export async function unregisterForPushNotifications(): Promise<void> {
+export async function tearDownPushNotifications(): Promise<void> {
+  registeredSubject = null;
+  registering = null;
+  deliveryBlocked = true;
+  for (const askId of [...repeatTimers.keys()]) stopUserAskRepeats(askId);
+  await Promise.all([
+    Notifications.dismissAllNotificationsAsync().catch(() => undefined),
+    Notifications.cancelAllScheduledNotificationsAsync().catch(() => undefined),
+    Notifications.setBadgeCountAsync(0).catch(() => undefined),
+  ]);
+  const token = await readGrantedPushToken();
   try {
     const mobileDeviceId = await getOrCreateMobileDeviceId();
     await postJson("/api/mobile/push-token/unregister", {
       mobileDeviceId,
+      ...(token ? { token } : {}),
     }, { origin: backendOrigin() });
-    registered = false;
   } catch {
-    // Best-effort — sign-out should still work even if the network is down.
+    // Best-effort — sign-out proceeds, and the server's own teardown covers it.
   }
 }
 
@@ -265,6 +305,7 @@ export async function installNotificationCategoriesAndListeners(): Promise<() =>
         | UserAskPushData
         | null
         | undefined;
+      if (!pushDeliveryEnabled()) return;
       const actionId = response.actionIdentifier;
       const ask = readUserAskPush(data);
       if (actionId === "dismiss") {

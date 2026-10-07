@@ -17,6 +17,7 @@ import { hasMobileConfig } from "../src/config/env";
 import {
   installNotificationCategoriesAndListeners,
   registerForPushNotifications,
+  setPushDeliveryOwner,
 } from "../src/lib/notifications";
 import { installTextDefaults } from "../src/lib/setup-text-defaults";
 import { markSplashHidden } from "../src/lib/splash-state";
@@ -286,7 +287,9 @@ function AuthenticatedLayout() {
     if (session.data) {
       const anonymous = session.data.user?.isAnonymous === true;
       if (isGuest() !== anonymous) void setGuestMode(anonymous);
-      void registerForPushNotifications();
+      const subject = anonymous ? "" : (session.data.user?.id ?? "");
+      setPushDeliveryOwner(subject || null);
+      if (subject) void registerForPushNotifications(subject);
       // Anonymous users still need to reach Login when they choose "Sign in"
       // from Settings. Their anonymous Better Auth session must not bounce
       // them straight back to Chat before they can upgrade the account.
@@ -302,6 +305,8 @@ function AuthenticatedLayout() {
       }
       return;
     }
+
+    setPushDeliveryOwner(null);
 
     if (isGuest()) {
       // Guests may open /login from Sign in buttons — don't bounce them back to chat.

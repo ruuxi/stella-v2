@@ -16,6 +16,7 @@ import {
   subscribeAiConsentRequested,
 } from "../../src/lib/ai-consent";
 import { authClient } from "../../src/lib/auth-client";
+import { tearDownPushNotifications } from "../../src/lib/notifications";
 import { setGuestMode } from "../../src/lib/guest-mode";
 import {
   SafeAreaView,
@@ -133,6 +134,7 @@ export default function MainLayout() {
     setConsentVisible(false);
     void (async () => {
       try {
+        await tearDownPushNotifications();
         await authClient.signOut();
       } catch {
         /* ignore — guests have nothing to sign out of */

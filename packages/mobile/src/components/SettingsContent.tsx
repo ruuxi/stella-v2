@@ -26,7 +26,7 @@ import { clearAccountChatData } from "../lib/chat-account-cleanup";
 import { isGuest } from "../lib/guest-mode";
 import { useCloudBrowserActions } from "../lib/cloud-browser";
 import { tapLight } from "../lib/haptics";
-import { unregisterForPushNotifications } from "../lib/notifications";
+import { tearDownPushNotifications } from "../lib/notifications";
 import {
   getNotificationsMuted,
   setNotificationsMuted,
@@ -202,7 +202,7 @@ export function SettingsContent() {
   const signOut = async () => {
     setIsSigningOut(true);
     try {
-      await unregisterForPushNotifications();
+      await tearDownPushNotifications();
       await authClient.signOut();
       clearCachedToken();
       await clearLocalAccountState();
@@ -222,7 +222,7 @@ export function SettingsContent() {
       if (typeof client.deleteUser !== "function") {
         throw new Error("Account deletion is not available in this build.");
       }
-      await unregisterForPushNotifications();
+      await tearDownPushNotifications();
       await client.deleteUser({});
       clearCachedToken();
       await authClient.signOut();

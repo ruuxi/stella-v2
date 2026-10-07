@@ -18,12 +18,14 @@ export default function DevTestSessionScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [status, setStatus] = useState<Status>({ kind: "pending" });
-  const startedRef = useRef(false);
+  const attemptedTokenRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (startedRef.current) return;
-    startedRef.current = true;
-    adoptDevTestSession(typeof ott === "string" ? ott : "")
+    const token = typeof ott === "string" ? ott : "";
+    if (attemptedTokenRef.current === token) return;
+    attemptedTokenRef.current = token;
+    setStatus({ kind: "pending" });
+    adoptDevTestSession(token)
       .then((email) => {
         setStatus({ kind: "signed-in", email });
         router.replace("/");

@@ -22,7 +22,6 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 import { Icon } from "../../src/components/Icon";
-import { ArtifactViewer } from "../../src/components/ArtifactViewer";
 import { GlassIconButton } from "../../src/components/GlassIconButton";
 import { StellaStatusHeader } from "../../src/components/StellaStatusHeader";
 import { StellaActivityMenu } from "../../src/components/StellaActivityMenu";
@@ -65,11 +64,9 @@ import {
 } from "../../src/lib/last-main-tab";
 import {
   subscribeSidebarOpenRequests,
-  useActivityHub,
   useBackOverride,
 } from "../../src/lib/main-shell-store";
 import { useT } from "../../src/i18n";
-import type { ChatArtifact } from "../../src/types";
 
 /**
  * The chat is the base of the `(main)` stack. The other tabs (Schedule, Apps,
@@ -155,10 +152,6 @@ export default function MainLayout() {
     (href) => href === pathname,
   );
   const backOverride = useBackOverride();
-  const hubAccess = useActivityHub()?.access ?? null;
-  const [viewerArtifact, setViewerArtifact] = useState<ChatArtifact | null>(
-    null,
-  );
 
   const search = useChatSearch();
   // Collapse + clear search whenever the route changes (e.g. switching tabs) so
@@ -272,10 +265,6 @@ export default function MainLayout() {
       }),
     [wide],
   );
-
-  const openArtifact = useCallback((artifact: ChatArtifact) => {
-    setViewerArtifact(artifact);
-  }, []);
 
   // -- Gesture: swipe right anywhere on a tab page to open --
   // `Keyboard.dismiss` is a method on the native Keyboard module and isn't
@@ -413,7 +402,6 @@ export default function MainLayout() {
               width={SIDEBAR_WIDTH}
               activeTab={activeTab}
               onSelectTab={selectTab}
-              onOpenArtifact={openArtifact}
             />
             <View style={styles.content}>
               <View style={styles.contentSlot}>
@@ -460,7 +448,6 @@ export default function MainLayout() {
               contentInsetRight={SIDEBAR_WIDTH - DRAWER_REVEAL}
               activeTab={activeTab}
               onSelectTab={selectTab}
-              onOpenArtifact={openArtifact}
             />
           </Animated.View>
 
@@ -578,12 +565,6 @@ export default function MainLayout() {
           </GestureDetector>
         </View>
       )}
-      <ArtifactViewer
-        visible={Boolean(viewerArtifact)}
-        artifact={viewerArtifact}
-        access={hubAccess}
-        onClose={() => setViewerArtifact(null)}
-      />
       <ChatSettingsSheet
         visible={chatSettingsOpen}
         onClose={() => setChatSettingsOpen(false)}

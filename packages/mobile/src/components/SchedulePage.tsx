@@ -18,7 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Colors } from "../theme/colors";
 import { fonts } from "../theme/fonts";
 import { useColors } from "../theme/theme-context";
-import { ScheduleRow, makeActivityRowStyles } from "./sidebar/activity-rows";
+import { ScheduleRow, makeScheduleRowStyles } from "./schedule-rows";
 
 /**
  * The Schedule tab: every schedule the owner has, whichever computer or the
@@ -29,7 +29,7 @@ export function SchedulePage() {
   const colors = useColors();
   const t = useT();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const rowStyles = useMemo(() => makeActivityRowStyles(colors), [colors]);
+  const rowStyles = useMemo(() => makeScheduleRowStyles(colors), [colors]);
   const bottomInset = useSafeAreaInsets().bottom;
   const session = authClient.useSession();
   const signedIn = Boolean(session.data?.user) && !isGuest();

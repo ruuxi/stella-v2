@@ -1,18 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import type { ChatArtifact, ChatMessage, MobileTask } from "../../types";
-import { agentWorkCardSections } from "../agent-artifact-consolidation";
+import type { ChatArtifact, MobileTask } from "../../types";
 import { filterHubArtifacts } from "../activity-hub-search";
 import {
-  ACTIVITY_PAGE_SIZE,
-  activityHubTaskRowKey,
   collectActivityHubArtifacts,
-  groupActivityArtifacts,
   groupActivityHubTasks,
-  initialActivityWindow,
-  loadNewerActivityWindow,
-  loadOlderActivityWindow,
-  rebaseActivityWindow,
   sortHubTasksByRecency,
 } from "../activity-hub-model";
 
@@ -27,91 +19,6 @@ const markdown = (id: string, filePath: string): ChatArtifact => ({
   id,
   conversationId: "computer",
   payload: { kind: "markdown", filePath },
-});
-
-describe("activity hub artifact ownership", () => {
-  test("groups only explicitly attributed files on modern consolidated rows", () => {
-    const orchestratorFile = markdown("orchestrator", "/tmp/orchestrator.md");
-    const work: ChatArtifact = {
-      id: "agent-work:a1",
-      conversationId: "computer",
-      payload: {
-        kind: "agent-work",
-        state: "done",
-        agentIds: ["a1", "a2"],
-        total: 2,
-        completed: 2,
-        title: "Two tasks",
-        subtitle: "Finished",
-        createdAt: 1_000,
-        agents: [
-          {
-            agentId: "a1",
-            title: "First",
-            files: [{ kind: "markdown", filePath: "/tmp/first.md" }],
-          },
-          {
-            agentId: "a2",
-            title: "Second",
-            files: [{ kind: "markdown", filePath: "/tmp/second.md" }],
-          },
-        ],
-      },
-    };
-    const sections = agentWorkCardSections(
-      work as Parameters<typeof agentWorkCardSections>[0],
-    );
-    const files = sections?.flatMap((section) => section.files) ?? [];
-    const messages: Pick<ChatMessage, "artifacts" | "tasks">[] = [
-      {
-        artifacts: [orchestratorFile, work],
-        tasks: [task("a1"), task("a2")],
-      },
-    ];
-
-    const grouped = groupActivityArtifacts(messages, [
-      orchestratorFile,
-      ...files,
-    ]);
-
-    expect(grouped.byTaskId.get("a1")?.map((file) => file.payload)).toEqual([
-      { kind: "markdown", filePath: "/tmp/first.md" },
-    ]);
-    expect(grouped.byTaskId.get("a2")?.map((file) => file.payload)).toEqual([
-      { kind: "markdown", filePath: "/tmp/second.md" },
-    ]);
-    expect(grouped.conversation.map((file) => file.id)).toEqual([
-      "orchestrator",
-    ]);
-  });
-
-  test("uses row-scoped fallback only when one legacy task can own the file", () => {
-    const taskFile = markdown("task-file", "/tmp/task.md");
-    const mainFile = markdown("main-file", "/tmp/main.md");
-    const messages: Pick<ChatMessage, "artifacts" | "tasks">[] = [
-      { artifacts: [taskFile], tasks: [task("a1")] },
-      { artifacts: [mainFile] },
-    ];
-
-    const grouped = groupActivityArtifacts(messages, [mainFile, taskFile]);
-
-    expect(grouped.byTaskId.get("a1")?.map((file) => file.id)).toEqual([
-      "task-file",
-    ]);
-    expect(grouped.conversation.map((file) => file.id)).toEqual(["main-file"]);
-  });
-
-  test("keeps ambiguous legacy loose files conversation-owned", () => {
-    const loose = markdown("loose", "/tmp/loose.md");
-    const messages: Pick<ChatMessage, "artifacts" | "tasks">[] = [
-      { artifacts: [loose], tasks: [task("a1"), task("a2")] },
-    ];
-
-    const grouped = groupActivityArtifacts(messages, [loose]);
-
-    expect(grouped.byTaskId.size).toBe(0);
-    expect(grouped.conversation.map((file) => file.id)).toEqual(["loose"]);
-  });
 });
 
 describe("activity hub source data", () => {
@@ -167,7 +74,7 @@ describe("activity hub source data", () => {
     ];
     tasks[0] = { ...tasks[0], status: "running", createdAt: 100 };
 
-    const firstPage = sortHubTasksByRecency(tasks).slice(0, ACTIVITY_PAGE_SIZE);
+    const firstPage = sortHubTasksByRecency(tasks).slice(0, 16);
 
     expect(firstPage).toHaveLength(16);
     expect(firstPage[0]?.id).toBe("old-running");
@@ -222,85 +129,5 @@ describe("activity hub source data", () => {
     expect(groups[0]?.subagents.map((entry) => entry.id)).toEqual([
       "active-child",
     ]);
-  });
-});
-
-describe("activity hub paging window", () => {
-  test("loads older and newer pages in 16-entry steps with a bounded window", () => {
-    let window = initialActivityWindow(100);
-    window = loadOlderActivityWindow(window, 100);
-    window = loadOlderActivityWindow(window, 100);
-    window = loadOlderActivityWindow(window, 100);
-    expect(window).toEqual({ start: 16, end: 64 });
-
-    window = loadNewerActivityWindow(window);
-    expect(window).toEqual({ start: 0, end: 48 });
-  });
-
-  test("preserves the intended window size when the dataset shrinks", () => {
-    expect(rebaseActivityWindow({ start: 52, end: 100 }, 53)).toEqual({
-      start: 5,
-      end: 53,
-    });
-    expect(rebaseActivityWindow({ start: 0, end: 16 }, 8)).toEqual({
-      start: 0,
-      end: 8,
-    });
-  });
-
-  test("keeps a stable keyed anchor across both bounded rollover directions", () => {
-    const tasks = Array.from({ length: 80 }, (_, index) =>
-      task(`row-${index}`),
-    );
-    const rowHeight = 80;
-    const intraRowOffset = 13;
-    const viewportTop = (index: number, scrollOffset: number) =>
-      index * rowHeight - scrollOffset;
-    const forwardBefore = { start: 0, end: 48 };
-    const forwardAfter = loadOlderActivityWindow(forwardBefore, tasks.length);
-    const forwardAnchor = tasks[40];
-    const forwardKey = activityHubTaskRowKey(forwardAnchor);
-    const forwardOldIndex = 40;
-    expect(forwardAfter).toEqual({ start: 16, end: 64 });
-    const forwardNewIndex = tasks
-      .slice(forwardAfter.start, forwardAfter.end)
-      .findIndex((entry) => activityHubTaskRowKey(entry) === forwardKey);
-    expect(forwardNewIndex).toBe(24);
-    expect(
-      viewportTop(
-        forwardNewIndex,
-        forwardNewIndex * rowHeight + intraRowOffset,
-      ),
-    ).toBe(
-      viewportTop(
-        forwardOldIndex,
-        forwardOldIndex * rowHeight + intraRowOffset,
-      ),
-    );
-
-    const reverseBefore = forwardAfter;
-    const reverseAfter = loadNewerActivityWindow(reverseBefore);
-    const reverseAnchor = tasks[32];
-    const reverseKey = activityHubTaskRowKey(reverseAnchor);
-    const reverseOldIndex = tasks
-      .slice(reverseBefore.start, reverseBefore.end)
-      .findIndex((entry) => activityHubTaskRowKey(entry) === reverseKey);
-    expect(reverseAfter).toEqual({ start: 0, end: 48 });
-    const reverseNewIndex = tasks
-      .slice(reverseAfter.start, reverseAfter.end)
-      .findIndex((entry) => activityHubTaskRowKey(entry) === reverseKey);
-    expect(reverseOldIndex).toBe(16);
-    expect(reverseNewIndex).toBe(32);
-    expect(
-      viewportTop(
-        reverseNewIndex,
-        reverseNewIndex * rowHeight + intraRowOffset,
-      ),
-    ).toBe(
-      viewportTop(
-        reverseOldIndex,
-        reverseOldIndex * rowHeight + intraRowOffset,
-      ),
-    );
   });
 });

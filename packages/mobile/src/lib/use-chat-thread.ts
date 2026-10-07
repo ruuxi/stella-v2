@@ -68,10 +68,6 @@ import {
 } from "../components/working-indicator-state";
 import { applyLiveAgentWorkState } from "./agent-work-live-state";
 import { collectConversationTasks } from "./mobile-task-merge";
-import {
-  collectActivityHubArtifacts,
-  groupActivityArtifacts,
-} from "./activity-hub-model";
 import { admitSend } from "./send-admission";
 import { userFacingError } from "./user-facing-error";
 import { createChatDraftStore, type ChatDraftStore } from "./chat-draft-store";
@@ -283,8 +279,6 @@ export type ChatComposerThread = {
   } | null;
   /** Background tasks for the activity pill + tray, running-first then newest. */
   conversationTasks: MobileTask[];
-  /** Files grouped by their owning background task for the activity hub. */
-  activityArtifactsByTaskId: ReadonlyMap<string, ChatArtifact[]>;
   /**
    * Submit the current draft/attachments. Returns the optimistic user
    * bubble's local id when a turn was accepted (dispatched or queued) so
@@ -315,8 +309,6 @@ export type ChatThread = ChatComposerThread & {
   loadNewerMessages: () => Promise<void>;
   /** All artifacts in the conversation, newest first and de-duplicated. */
   conversationArtifacts: ChatArtifact[];
-  /** Direct orchestrator files owned by the conversation rather than a task. */
-  conversationOwnedArtifacts: ChatArtifact[];
   /**
    * True while the journal socket is still catching up to the head sequence,
    * so the surface can say so instead of rendering a partial transcript as
@@ -1382,10 +1374,6 @@ export function useChatThread(opts: {
     [sending, workingActivity],
   );
 
-  const conversationArtifacts = useMemo(() => {
-    return collectActivityHubArtifacts(messages);
-  }, [messages]);
-
   // Background tasks folded from this surface's local rows. The canonical
   // thread merges them under the cloud journal's task rows, which are the
   // only authority for a computer's running agents.
@@ -1402,11 +1390,6 @@ export function useChatThread(opts: {
   const displayMessages = useMemo(
     () => applyLiveAgentWorkState(messages, conversationTasks),
     [conversationTasks, messages],
-  );
-
-  const activityArtifactGroups = useMemo(
-    () => groupActivityArtifacts(messages, conversationArtifacts),
-    [conversationArtifacts, messages],
   );
 
   return {
@@ -1427,7 +1410,6 @@ export function useChatThread(opts: {
     storageLoaded,
     authorityIssue: hydrationAuthorityIssue,
     conversationTasks,
-    activityArtifactsByTaskId: activityArtifactGroups.byTaskId,
     send,
     sendPrompt,
     stop,

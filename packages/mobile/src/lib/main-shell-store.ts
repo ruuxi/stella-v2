@@ -19,10 +19,6 @@ export type ActivityHubData = {
   tasks: MobileTask[];
   /** Artifacts in the conversation, newest first. */
   artifacts: ChatArtifact[];
-  /** Exact desktop-style agent/thread ownership for nested files. */
-  artifactsByTaskId: ReadonlyMap<string, ChatArtifact[]>;
-  /** Direct orchestrator artifacts owned by the main conversation thread. */
-  conversationArtifacts: ChatArtifact[];
   /** Desktop pairing used to load artifact contents for the viewer. */
   access: StoredPhoneAccess | null;
 };

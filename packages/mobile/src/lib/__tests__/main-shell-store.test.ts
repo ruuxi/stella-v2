@@ -13,8 +13,6 @@ import {
 const hub: ActivityHubData = {
   tasks: [],
   artifacts: [],
-  artifactsByTaskId: new Map(),
-  conversationArtifacts: [],
   access: null,
 };
 

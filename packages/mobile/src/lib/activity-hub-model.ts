@@ -55,63 +55,6 @@ export const settleStaleHubTasks = (
     return { ...rest, status: "completed" as const };
   });
 
-export const ACTIVITY_PAGE_SIZE = 16;
-const MAX_WINDOW_PAGES = 3;
-
-export type ActivityWindow = {
-  start: number;
-  end: number;
-};
-
-export type ActivityArtifactGroups = {
-  byTaskId: ReadonlyMap<string, ChatArtifact[]>;
-  conversation: ChatArtifact[];
-};
-
-export const initialActivityWindow = (total: number): ActivityWindow => ({
-  start: 0,
-  end: Math.min(ACTIVITY_PAGE_SIZE, total),
-});
-
-export const rebaseActivityWindow = (
-  window: ActivityWindow,
-  total: number,
-): ActivityWindow => {
-  if (total <= 0) return { start: 0, end: 0 };
-  const intendedSize = Math.max(1, window.end - window.start);
-  if (window.start < total && window.end <= total) return window;
-  const end = Math.min(total, Math.max(intendedSize, window.end));
-  return {
-    start: Math.max(0, end - intendedSize),
-    end,
-  };
-};
-
-export const loadOlderActivityWindow = (
-  window: ActivityWindow,
-  total: number,
-): ActivityWindow => {
-  if (window.end >= total) return window;
-  const end = Math.min(total, window.end + ACTIVITY_PAGE_SIZE);
-  const maxSize = ACTIVITY_PAGE_SIZE * MAX_WINDOW_PAGES;
-  return {
-    start: Math.max(window.start, end - maxSize),
-    end,
-  };
-};
-
-export const loadNewerActivityWindow = (
-  window: ActivityWindow,
-): ActivityWindow => {
-  if (window.start <= 0) return window;
-  const start = Math.max(0, window.start - ACTIVITY_PAGE_SIZE);
-  const maxSize = ACTIVITY_PAGE_SIZE * MAX_WINDOW_PAGES;
-  return {
-    start,
-    end: Math.min(window.end, start + maxSize),
-  };
-};
-
 const hubTaskActivityAt = (task: MobileTask): number =>
   Math.max(task.createdAt, task.updatedAt ?? 0, task.completedAt ?? 0);
 
@@ -130,10 +73,6 @@ export const sortHubTasksByRecency = (
   tasks: readonly MobileTask[],
 ): MobileTask[] => [...tasks].sort(compareHubTasks);
 
-/** Stable virtualized-row identity used by LegendList's data-change anchor. */
-export const activityHubTaskRowKey = (task: Pick<MobileTask, "id">): string =>
-  `task:${task.id}`;
-
 /**
  * One top-level Activity entry: a parent agent plus every descendant subagent
  * it owns (flattened, active-first). Standalone tasks have no subagents.
@@ -151,14 +90,6 @@ export type HubTaskGroup = {
   owner: MobileTask;
   /** All descendant subagents, flattened and active-first. */
   subagents: MobileTask[];
-};
-
-export type HubSubagentSummary = {
-  total: number;
-  running: number;
-  done: number;
-  error: number;
-  canceled: number;
 };
 
 /**
@@ -232,17 +163,11 @@ export const groupActivityHubTasks = (
   );
 };
 
-/** Stable virtualized-row identity for a top-level group (keyed on owner). */
-export const activityHubGroupRowKey = (group: {
-  owner: Pick<MobileTask, "id">;
-}): string => activityHubTaskRowKey(group.owner);
-
 /**
  * The running top-level agents, as the top-bar indicator reads them out.
- * Governed by the owner, like the groups the Activity list shows and like
- * desktop's top-level work units: an owned subagent is never counted as
- * separate work, so the indicator and the Activity list agree on what is
- * running.
+ * Governed by the owner, like desktop's top-level work units: an owned
+ * subagent is never counted as separate work, so the count the indicator
+ * reads out matches what desktop's own indicator would say.
  */
 export const runningActivityIndicatorEntries = (
   tasks: readonly MobileTask[],
@@ -251,25 +176,7 @@ export const runningActivityIndicatorEntries = (
     .filter((group) => group.owner.status === "running")
     .map((group) => ({ id: group.owner.id, title: group.owner.title.trim() }));
 
-/** Counts used by the collapsed "N subagents · M done" summary bar. */
-export const summarizeHubSubagents = (
-  subagents: readonly MobileTask[],
-): HubSubagentSummary => ({
-  total: subagents.length,
-  running: subagents.filter((task) => task.status === "running").length,
-  done: subagents.filter((task) => task.status === "completed").length,
-  error: subagents.filter((task) => task.status === "error").length,
-  canceled: subagents.filter((task) => task.status === "canceled").length,
-});
-
-/** Single-line summary shown on a collapsed subagent group. */
-export const hubSubagentSummaryText = (summary: HubSubagentSummary): string => {
-  const noun = summary.total === 1 ? "subagent" : "subagents";
-  return `${summary.total} ${noun} · ${summary.done} done`;
-};
-
-/** Full, newest-first artifact dataset for ownership and search. Display
- *  pagination is applied later to activity rows, never to this source. */
+/** Full, newest-first artifact dataset for ownership and search. */
 export const collectActivityHubArtifacts = (
   messages: readonly Pick<ChatMessage, "artifacts">[],
 ): ChatArtifact[] => {
@@ -293,62 +200,4 @@ export const collectActivityHubArtifacts = (
     }
   }
   return out;
-};
-
-/**
- * Attribute the activity hub's already-deduped artifact list to the task that
- * produced each file. Modern desktop bridges carry an exact agent id on each
- * agent-work file section; every remaining loose artifact on those rows is
- * orchestrator-direct by contract. Older row-scoped payloads fall back only
- * when exactly one task can own the files. Ambiguous and direct artifacts stay
- * owned by the conversation instead of becoming a global Files section.
- */
-export const groupActivityArtifacts = (
-  messages: readonly Pick<ChatMessage, "artifacts" | "tasks">[],
-  artifacts: readonly ChatArtifact[],
-): ActivityArtifactGroups => {
-  const ownerByArtifactId = new Map<string, string>();
-
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    const hasConsolidatedAgentWork = (message.artifacts ?? []).some(
-      (artifact) =>
-        isAgentWorkArtifact(artifact) && artifact.payload.agents !== undefined,
-    );
-    const fallbackTaskId =
-      !hasConsolidatedAgentWork && message.tasks?.length === 1
-        ? message.tasks[0].id
-        : undefined;
-    for (const artifact of message.artifacts ?? []) {
-      if (isAgentWorkArtifact(artifact)) {
-        for (const section of agentWorkCardSections(artifact) ?? []) {
-          if (!section.agentId) continue;
-          for (const file of section.files) {
-            if (!ownerByArtifactId.has(file.id)) {
-              ownerByArtifactId.set(file.id, section.agentId);
-            }
-          }
-        }
-        continue;
-      }
-      if (fallbackTaskId && !ownerByArtifactId.has(artifact.id)) {
-        ownerByArtifactId.set(artifact.id, fallbackTaskId);
-      }
-    }
-  }
-
-  const byTaskId = new Map<string, ChatArtifact[]>();
-  const conversation: ChatArtifact[] = [];
-  for (const artifact of artifacts) {
-    const taskId = ownerByArtifactId.get(artifact.id);
-    if (!taskId) {
-      conversation.push(artifact);
-      continue;
-    }
-    const files = byTaskId.get(taskId);
-    if (files) files.push(artifact);
-    else byTaskId.set(taskId, [artifact]);
-  }
-
-  return { byTaskId, conversation };
 };

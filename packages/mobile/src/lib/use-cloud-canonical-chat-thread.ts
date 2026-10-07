@@ -65,7 +65,7 @@ import {
   getAutomaticExecutionStatus,
   type AutomaticExecutionTarget,
 } from "./execution-placement";
-import { collectActivityHubArtifacts, groupActivityArtifacts } from "./activity-hub-model";
+import { collectActivityHubArtifacts } from "./activity-hub-model";
 import {
   EMPTY_SETTLED_AGENTS,
   rememberSettledAgents,
@@ -928,12 +928,6 @@ export const useCloudCanonicalChatThread = (
       ),
     [authoritativeTasks, localConversationTasks, runningAgents],
   );
-  // The activity hub groups files by owning task, and the journal projection —
-  // not the optimistic overlay — is what carries them.
-  const activityArtifactGroups = useMemo(
-    () => groupActivityArtifacts(messages, conversationArtifacts),
-    [conversationArtifacts, messages],
-  );
   const canonicalCancellationRef = useRef<{
     dispatchId: string;
     controller: AbortController;
@@ -1019,8 +1013,6 @@ export const useCloudCanonicalChatThread = (
     loadNewerMessages,
     conversationArtifacts,
     conversationTasks,
-    activityArtifactsByTaskId: activityArtifactGroups.byTaskId,
-    conversationOwnedArtifacts: activityArtifactGroups.conversation,
     send,
     sendPrompt,
     stop,

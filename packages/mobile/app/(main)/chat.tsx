@@ -421,14 +421,9 @@ function ChatSurface(props: {
     previousAvailableRef.current = status.available;
   }, [status.available]);
 
-  // The sidebar shows this conversation's background work, so it reads the
-  // same rows the retired activity sheet did, published as they change.
-  const {
-    conversationTasks,
-    conversationArtifacts,
-    activityArtifactsByTaskId,
-    conversationOwnedArtifacts,
-  } = thread;
+  // The top bar's activity indicator and the Files tab both read this
+  // conversation's background work, published as it changes.
+  const { conversationTasks, conversationArtifacts } = thread;
   // Stale `running` rows are settled on the way in (see `settleStaleHubTasks`),
   // so the chrome never reports work the fold only *believes* is still going.
   // Staleness is a function of elapsed time rather than of any state change, so
@@ -442,8 +437,6 @@ function ChatSurface(props: {
       publishActivityHub({
         tasks: settleStaleHubTasks(conversationTasks),
         artifacts: conversationArtifacts,
-        artifactsByTaskId: activityArtifactsByTaskId,
-        conversationArtifacts: conversationOwnedArtifacts,
         access,
       });
     };
@@ -454,8 +447,6 @@ function ChatSurface(props: {
   }, [
     conversationTasks,
     conversationArtifacts,
-    activityArtifactsByTaskId,
-    conversationOwnedArtifacts,
     access,
     hasRunningConversationTask,
   ]);

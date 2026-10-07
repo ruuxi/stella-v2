@@ -1666,6 +1666,7 @@ static StrList base_environment(void) {
     if (!(P.isolated && uses_test_key))
         for (i = 0; harness[i]; i++) env_unset(&env, harness[i]);
     if (P.isolated) env_unset(&env, "STELLA_DATA_DIR");
+    if (!env_get(&env, "STELLA_RELEASES_URL")) env_set(&env, "STELLA_RELEASES_URL", RELEASES_URL);
     existing = env_get(&env, "PATH");
     {
         char *path;

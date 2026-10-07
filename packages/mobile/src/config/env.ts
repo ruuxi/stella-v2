@@ -6,6 +6,7 @@ export const env = {
   backendUrl: cleanUrl(process.env.EXPO_PUBLIC_STELLA_BACKEND_URL),
   /** The website: map embeds and the billing return page. */
   siteUrl: cleanUrl(process.env.EXPO_PUBLIC_STELLA_SITE_URL) || "https://stella.sh",
+  authUrl: cleanUrl(process.env.EXPO_PUBLIC_STELLA_AUTH_URL),
   playIntegrityProjectNumber:
     process.env.EXPO_PUBLIC_PLAY_INTEGRITY_PROJECT_NUMBER?.trim() ?? "",
   mobileScheme:

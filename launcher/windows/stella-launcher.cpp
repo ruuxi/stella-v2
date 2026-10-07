@@ -1176,6 +1176,7 @@ static Env baseEnvironment() {
                                    L"STELLA_REMOTE_DEBUG_PORT", L"STELLA_DEV_HARNESS_SESSION_TOKEN"})
             env.erase(key);
     if (P.isolated) env.erase(L"STELLA_DATA_DIR");
+    if (env.find(L"STELLA_RELEASES_URL") == env.end()) env[L"STELLA_RELEASES_URL"] = STELLA_WIDEN(STELLA_RELEASES_URL);
     vector<wstring> front;
     if (!gBunBin.empty()) front.push_back(parentDir(gBunBin));
     if (gGit)

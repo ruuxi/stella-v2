@@ -76,7 +76,7 @@ type ServiceAccount = {
 };
 
 const mobileRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const androidPackage = "com.fromyou.stella";
+const androidPackage = process.env.STELLA_MOBILE_ANDROID_PACKAGE?.trim() || "com.fromyou.stella";
 const execFileAsync = promisify(execFile);
 
 export const parseJsonOutput = <T>(output: string): T => {

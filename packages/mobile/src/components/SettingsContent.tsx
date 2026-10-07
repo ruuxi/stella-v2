@@ -17,6 +17,7 @@ import {
   makeSettingsStyles,
   type SettingsStyles,
 } from "./settings/settings-styles";
+import { env } from "../config/env";
 import { authClient } from "../lib/auth-client";
 import { clearAiConsent } from "../lib/ai-consent";
 import { clearCachedToken } from "../lib/auth-token";
@@ -534,7 +535,7 @@ export function SettingsContent() {
             accessibilityLabel={t("mobile.settings.openTermsLabel")}
             styles={settingsStyles}
             colors={colors}
-            onPress={() => void Linking.openURL("https://stella.sh/terms")}
+            onPress={() => void Linking.openURL(`${env.siteUrl}/terms`)}
           />
           <LinkRow
             label={t("mobile.settings.privacyPolicy")}
@@ -542,7 +543,7 @@ export function SettingsContent() {
             divided
             styles={settingsStyles}
             colors={colors}
-            onPress={() => void Linking.openURL("https://stella.sh/privacy")}
+            onPress={() => void Linking.openURL(`${env.siteUrl}/privacy`)}
           />
           <LinkRow
             label={t("mobile.settings.carPlayDiagnostics")}

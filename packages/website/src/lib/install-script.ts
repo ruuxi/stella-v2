@@ -1,4 +1,4 @@
-import { LAUNCHER_CHECKSUMS_URL, MAC_APP_ZIP, RELEASE_ASSETS } from "@/lib/downloads";
+import { LAUNCHER_CHECKSUMS_URL, MAC_APP_ZIP, RELEASE_ASSETS, SITE_ORIGIN } from "@/lib/downloads";
 
 /**
  * `curl -fsSL https://stella.sh/install.sh | sh`
@@ -17,7 +17,7 @@ import { LAUNCHER_CHECKSUMS_URL, MAC_APP_ZIP, RELEASE_ASSETS } from "@/lib/downl
  * opens it.
  */
 export const INSTALL_SCRIPT = `#!/bin/sh
-# Stella installer. https://stella.sh
+# Stella installer. ${SITE_ORIGIN}
 set -eu
 
 MAC_APP_ZIP="${MAC_APP_ZIP}"
@@ -134,7 +134,7 @@ install_linux() {
     x86_64 | amd64) url="$LINUX_X64"; name="stella-launcher-linux-x64" ;;
     aarch64 | arm64) url="$LINUX_ARM64"; name="stella-launcher-linux-arm64" ;;
     *)
-      die "Stella for Linux is published for x86_64 and arm64 only (this machine is $arch). Visit https://stella.sh for details."
+      die "Stella for Linux is published for x86_64 and arm64 only (this machine is $arch). Visit ${SITE_ORIGIN} for details."
       ;;
   esac
 
@@ -172,6 +172,6 @@ os="$(uname -s)"
 case "$os" in
   Darwin) install_macos ;;
   Linux) install_linux ;;
-  *) die "unsupported operating system: $os. Visit https://stella.sh to download." ;;
+  *) die "unsupported operating system: $os. Visit ${SITE_ORIGIN} to download." ;;
 esac
 `;

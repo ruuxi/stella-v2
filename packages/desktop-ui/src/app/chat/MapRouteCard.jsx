@@ -69,7 +69,10 @@ const MapCard = ({ map }) => {
     const [frameFailed, setFrameFailed] = useState(false);
     // Theme mode is captured per URL; a theme switch swaps the iframe src and
     // the embed re-renders in the matching palette.
-    const embedUrl = useMemo(() => mapsEmbedUrl(map, { mode: resolvedColorMode }), [map, resolvedColorMode]);
+    const embedUrl = useMemo(() => mapsEmbedUrl(map, {
+        mode: resolvedColorMode,
+        siteBaseUrl: import.meta.env.VITE_STELLA_WEB_URL?.trim() || undefined,
+    }), [map, resolvedColorMode]);
     const handoffUrl = useMemo(() => appleMapsUrl(map), [map]);
     const title = cardTitle(map, tPlural);
     const summary = cardSummary(map, t, tPlural);

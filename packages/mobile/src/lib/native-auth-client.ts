@@ -7,6 +7,7 @@ import type { ClientStore } from "better-auth/client";
 import * as Linking from "expo-linking";
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
+import { env } from "../config/env";
 import { verifyOneTimeToken } from "./verify-one-time-token";
 
 export const MOBILE_SESSION_TOKEN_KEY = "stella-mobile_session_token";
@@ -143,7 +144,7 @@ export const nativeBearerClient = ({ scheme }: NativeAuthClientOptions) => {
         const redirectURI = new URL(authorizationURL).searchParams.get("redirect_uri");
         const callbackOrigin = redirectURI ? new URL(redirectURI).origin : null;
         const proxyBaseURL = callbackOrigin &&
-          ["https://auth.stella.sh", "https://auth-dev.stella.sh"].includes(callbackOrigin)
+          [env.authUrl, "https://auth.stella.sh", "https://auth-dev.stella.sh"].includes(callbackOrigin)
           ? `${callbackOrigin}/api/auth`
           : context.request.baseURL;
         const proxyURL = `${proxyBaseURL}/expo-authorization-proxy?${params.toString()}`;

@@ -28,7 +28,7 @@ import { spawnSync } from "node:child_process";
 
 const DEFAULT_MANIFEST_URL =
   process.env.STELLA_NATIVE_HELPERS_MANIFEST_URL ??
-  "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/native-helpers/current.json";
+  `${(process.env.STELLA_RELEASES_URL?.trim() || "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev").replace(/\/+$/, "")}/native-helpers/current.json`;
 const DOWNLOAD_RETRY_DELAYS_MS = [750, 1_500, 3_000, 6_000];
 
 const __dirname = import.meta.dirname;

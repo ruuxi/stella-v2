@@ -217,7 +217,9 @@ const getErrorMessage = (error: unknown, fallback: string) =>
  * STELLA_WEB_URL override keeps working in dev.
  */
 const getBillingReturnUrl = async (): Promise<string> => {
-  let baseUrl = "https://stella.sh";
+  let baseUrl =
+    (import.meta.env.VITE_STELLA_WEB_URL as string | undefined)?.trim() ||
+    "https://stella.sh";
   try {
     const resolved = await window.electronAPI?.website?.getBaseUrl?.();
     if (resolved) baseUrl = resolved;

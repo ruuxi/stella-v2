@@ -32,6 +32,8 @@ import {
   resolveDevHarnessOptions,
 } from "./bootstrap/dev-harness-options.js";
 import { connectLauncher } from "./launcher-client.js";
+import { applyDesktopIdentityEnv } from "./source/env.js";
+import { resolveRendererBuildMode } from "./source/renderer-protocol.js";
 const __dirname = import.meta.dirname;
 // Who this process is: the user's Stella, the harness, or a developer's
 // checkout. Never `app.isPackaged` — there is no packaging step, so it is
@@ -90,6 +92,10 @@ process.env.STELLA_DATA_DIR = stellaDataDirPath;
 process.env.STELLA_TELEMETRY_ENVIRONMENT = usesDevelopmentData
   ? "development"
   : "production";
+applyDesktopIdentityEnv(
+  path.join(stellaAppDir, "packages", "desktop-ui"),
+  resolveRendererBuildMode({ isInstalledProduct }),
+);
 if (isDeveloperInstance) {
   process.env.STELLA_RUNTIME_STATE_DIR = stellaDataDirPath;
 }

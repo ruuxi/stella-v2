@@ -15,7 +15,7 @@ import path from "node:path";
 
 const DEFAULT_MANIFEST_URL =
   process.env.STELLA_BROWSER_MANIFEST_URL ??
-  "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/stella-browser/current.json";
+  `${(process.env.STELLA_RELEASES_URL?.trim() || "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev").replace(/\/+$/, "")}/stella-browser/current.json`;
 
 const args = process.argv.slice(2);
 let manifestUrl = DEFAULT_MANIFEST_URL;

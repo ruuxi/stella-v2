@@ -53,7 +53,7 @@ const parseEnvFile =(source: string): Record<string, string> => {
 
 export type RendererEnv = Record<string, string | boolean>;
 
-export const loadRendererEnv = (uiRoot: string, mode: string): RendererEnv => {
+const readEnvFiles = (uiRoot: string, mode: string): Record<string, string> => {
   const merged: Record<string, string> = {};
   for (const name of [".env", ".env.local", `.env.${mode}`, `.env.${mode}.local`]) {
     try {
@@ -62,6 +62,25 @@ export const loadRendererEnv = (uiRoot: string, mode: string): RendererEnv => {
       // A missing env file is normal.
     }
   }
+  return merged;
+};
+
+const MAIN_PROCESS_ENV_KEY = /^(STELLA_NATIVE_OAUTH_[A-Z0-9_]+_CLIENT_ID|WORKSPACE_CLIENT_ID)$/;
+
+export const applyDesktopIdentityEnv = (uiRoot: string, mode: string): void => {
+  const files = readEnvFiles(uiRoot, mode);
+  const adopt = (key: string, value: string | undefined) => {
+    const trimmed = value?.trim();
+    if (trimmed && !process.env[key]?.trim()) process.env[key] = trimmed;
+  };
+  adopt("STELLA_WEB_URL", process.env.VITE_STELLA_WEB_URL ?? files.VITE_STELLA_WEB_URL);
+  for (const [key, value] of Object.entries(files)) {
+    if (MAIN_PROCESS_ENV_KEY.test(key)) adopt(key, value);
+  }
+};
+
+export const loadRendererEnv = (uiRoot: string, mode: string): RendererEnv => {
+  const merged = readEnvFiles(uiRoot, mode);
   for (const [key, value] of Object.entries(process.env)) {
     if (key.startsWith("VITE_") && value !== undefined) merged[key] = value;
   }

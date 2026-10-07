@@ -294,6 +294,9 @@ final class Launcher {
         if paths.isolated {
             env.removeValue(forKey: "STELLA_DATA_DIR")
         }
+        if (env["STELLA_RELEASES_URL"] ?? "").isEmpty {
+            env["STELLA_RELEASES_URL"] = Deployment.releasesURL
+        }
         var front: [String] = []
         if let runtimes { front.append(runtimes.bunBin.deletingLastPathComponent().path) }
         if let root = git?.root { front.append(root.appendingPathComponent("bin").path) }

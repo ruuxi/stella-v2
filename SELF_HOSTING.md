@@ -39,7 +39,7 @@ If `CLOUDFLARE_API_TOKEN` is set in your shell, prefix wrangler commands with
 `env -u CLOUDFLARE_API_TOKEN`, as `DEPLOY.md` does: a narrow token cannot push
 containers.
 
-### 1.2 Names and the values to change
+### 1.2 Names, identities and the values to change
 
 Each worker's `wrangler.jsonc` is its configuration. The top-level block is the
 **dev** environment (`--env=""`); `env.production` is prod and repeats every
@@ -53,19 +53,14 @@ at Stella's account:
 | Where | Key | Set it to |
 |---|---|---|
 | all `workers/*/wrangler.jsonc` | every `*.lolruuxi.workers.dev` URL | your workers.dev subdomain (Dashboard → Workers → Subdomain). `sed -i '' 's/lolruuxi\.workers\.dev/YOURSUB.workers.dev/g' workers/*/wrangler.jsonc` (drop `''` on Linux) |
-| `workers/cloud-builder/wrangler.jsonc` | `routes` (`auth-dev.stella.sh`, prod `auth.stella.sh`) | delete the `routes` line, or put a domain on a zone you own |
-| 〃 | `vars.STELLA_AUTH_URL` | your auth domain, or delete it (then it is `CLOUD_BUILDER_PUBLIC_URL`) |
-| 〃 | `vars.R2_S3_ENDPOINT` | `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` |
-| 〃 | `vars.CANVAS_SHARE_BASE_URL` | your canvas-share worker URL (see 1.6), or leave it if you skip canvas sharing |
+| `workers/cloud-builder/wrangler.jsonc` | `vars.R2_S3_ENDPOINT` | `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` |
 | 〃 | `vars.STELLA_TEST_ACCOUNTS`, `vars.ENABLE_DEV_ACCEPTANCE_PROBES` | delete both unless you want test accounts / acceptance probes on dev |
-| 〃 | `vars.STELLA_WEBSITE_URL` (add) | your website origin, if you host one (1.8). Unset means `https://stella.sh` |
 | 〃 | `d1_databases[0].database_id` | from `wrangler d1 create` (1.3) |
 | 〃 | `kv_namespaces` ids (`APP_ROUTES`, `ASN_POLICY`) | from `wrangler kv namespace create` (1.3) |
 | 〃 | `artifacts[0].namespace` | any name; `stella-app-dev` is fine |
 | `workers/model-gateway/wrangler.jsonc` | `vars.CAPABILITY_JWKS` | your public key (1.4) |
 | 〃 | `kv_namespaces` ids (`CONFIG_SNAPSHOT`, `OWNER_ENFORCEMENT`, `ASN_POLICY`) | your ids; `ASN_POLICY` is the same namespace cloud-builder uses |
 | `workers/telemetry/wrangler.jsonc` | `pipelines[0].stream` | your stream id (1.3) |
-| `workers/canvas-share/wrangler.jsonc` | `routes` (`stellashare.app`) | delete (and set `"workers_dev": true`) or use your own domain |
 
 The URLs in the vars follow the worker names: `https://<worker name>.<sub>.workers.dev`.
 In prod the model gateway is `stella-v2-model-gateway` and telemetry is
@@ -75,6 +70,71 @@ fine as is.
 
 After editing a worker's `wrangler.jsonc`, `bun run types:generate` in that
 worker refreshes its generated types (only typechecks need them).
+
+#### Deployment identities
+
+These are the names a user sees or a store/OS trusts: domains, buckets, signing
+teams, app ids. Each one is set in exactly one place per surface, and every
+place defaults to Stella's value, so leaving a row alone keeps Stella's. A row
+you don't use (no website, no mobile app) can be skipped.
+
+| Identity | Surface | Where it's set | Stella's default | Set it to |
+|---|---|---|---|---|
+| **Backend** | desktop | `VITE_STELLA_BACKEND_URL` in `packages/desktop-ui/.env` (a launcher passes its own, 1.8) | `stella-v2-cloud-builder-dev.lolruuxi.workers.dev` | your cloud-builder URL |
+| | launchers | `STELLA_BACKEND_URL` at build (1.8) | `stella-v2-cloud-builder-prod.lolruuxi.workers.dev` | your prod cloud-builder URL |
+| | website | `NEXT_PUBLIC_STELLA_BACKEND_URL` | (none) | your prod cloud-builder URL |
+| | mobile | `EXPO_PUBLIC_STELLA_BACKEND_URL` per profile in `packages/mobile/eas.json` | Stella's dev / prod | yours |
+| **Website** (`stella.sh`) | cloud-builder | `vars.STELLA_WEBSITE_URL` (add it, both envs) | `https://stella.sh` | your website origin |
+| | desktop | `VITE_STELLA_WEB_URL` in `packages/desktop-ui/.env`; main and the runtime read it as `STELLA_WEB_URL` (a `STELLA_WEB_URL` in the process environment wins) | `https://stella.sh` | your website origin |
+| | web chat build | `VITE_STELLA_WEB_URL`, else `NEXT_PUBLIC_STELLA_SITE_URL` | `https://stella.sh` | your website origin |
+| | website | `NEXT_PUBLIC_STELLA_SITE_URL` | `https://stella.sh` | the site's own origin |
+| | mobile | `EXPO_PUBLIC_STELLA_SITE_URL` per profile in `eas.json` | `https://stella.sh` | your website origin |
+| **Auth domain** (`auth.stella.sh`) | cloud-builder | `routes` and `vars.STELLA_AUTH_URL` (dev `auth-dev.stella.sh`) | `auth.stella.sh` / `auth-dev.stella.sh` | a domain on a zone you own, or delete both (auth then runs on `CLOUD_BUILDER_PUBLIC_URL`) |
+| | mobile | `EXPO_PUBLIC_STELLA_AUTH_URL` per profile in `eas.json` | (unset: only Stella's two auth domains) | the same value as `STELLA_AUTH_URL`, if you set one |
+| **Canvas share** (`stellashare.app`) | canvas-share | `routes` in `workers/canvas-share/wrangler.jsonc` | `stellashare.app` | your domain, or delete it and set `"workers_dev": true` |
+| | cloud-builder | `vars.CANVAS_SHARE_BASE_URL` | `https://stellashare.app` | your canvas-share URL |
+| | desktop | `VITE_CANVAS_SHARE_BASE_URL` in `packages/desktop-ui/.env` | `https://stellashare.app` | your canvas-share URL |
+| **Releases bucket** (public R2) | launchers | `STELLA_RELEASES_URL` at build (1.8). The launcher also hands it to the app, so native helpers and the Stella browser download from it | `https://pub-a319aaada8144dc9be5a83625033769c.r2.dev` | your releases bucket's public base |
+| | release workflows | repository variable `STELLA_RELEASES_URL` | 〃 | 〃 |
+| | website | `NEXT_PUBLIC_STELLA_RELEASES_URL` | 〃 | 〃 |
+| | source runs | `STELLA_RELEASES_URL` for `bun run native:download` / `stella-browser:download` (or one manifest with `STELLA_NATIVE_HELPERS_MANIFEST_URL` / `STELLA_BROWSER_MANIFEST_URL`) | 〃 | 〃 |
+| **Apple team** (desktop) | macOS launcher, `build-electron-identity.yml`, `build-launchers.yml` | `STELLA_APPLE_TEAM_ID` (build env / repository variable); notarization uses the `APPLE_TEAM_ID` secret | `7UVYHQ763X` | your Developer ID team |
+| **Windows signer** | Windows launcher, `build-launchers.yml` | `STELLA_UPDATE_SIGNER` (build env / repository variable) | `FromYou, LLC` | your Authenticode certificate's subject name |
+| **Native OAuth clients** (desktop connectors) | desktop | `STELLA_NATIVE_OAUTH_<ID>_CLIENT_ID` lines in `packages/desktop-ui/.env`, `<ID>` the upper-cased provider id; Google Workspace (and YouTube) use `WORKSPACE_CLIENT_ID`. Main adopts these into the runtime's environment | Stella's apps, in `packages/runtime/kernel/connectors/native-oauth-provider-config.ts` | your OAuth app's client id (see below) |
+| | cloud-builder | secret `NATIVE_OAUTH_CLIENTS_JSON` (Part 2) | (unset) | the same client ids with their secrets |
+| **Mobile app** | mobile | env read by `packages/mobile/app.config.ts` (see 1.10): `STELLA_MOBILE_OWNER`, `STELLA_MOBILE_SLUG`, `STELLA_MOBILE_EAS_PROJECT_ID` (also sets `updates.url`), `STELLA_MOBILE_APPLE_TEAM_ID`, `STELLA_MOBILE_IOS_BUNDLE_ID` (also the app group and the Live Activities target), `STELLA_MOBILE_ANDROID_PACKAGE`, `EXPO_PUBLIC_STELLA_MOBILE_SCHEME` | `stella-ai`, `stella-mobile`, `892d4162-…`, `7UVYHQ763X`, `com.stella.mobile`, `com.fromyou.stella`, `stella-mobile` | yours |
+| | mobile | `eas.json`: `EXPO_PUBLIC_PLAY_INTEGRITY_PROJECT_NUMBER` per profile, `submit.*.ios.ascAppId` | `450329171803`, `6761148311` | your Google Cloud project number and App Store Connect app id, or delete them |
+| | cloud-builder | `STELLA_MOBILE_SCHEME`, `APPLE_APP_BUNDLE_IDENTIFIER`, `APPLE_APP_ATTEST_TEAM_ID` | `stella-mobile`, (unset), (unset) | your scheme, bundle id and team |
+
+Native OAuth: the desktop connectors in
+`native-oauth-provider-config.ts` that carry a Stella client id are `github`,
+`linear`, `youtube`, `todoist`, `ticktick`, `asana`, `airtable`, `figma`,
+`notion`, `miro`, `wakatime`, `pushbullet`, `sentry`, `calendly`, `cal`,
+`capsule_crm`, `attio`, `eventbrite`, `harvest`, `gumroad`, `freshbooks`,
+`freeagent`, `splitwise`, `stack_exchange`, `zoom`, `pipedrive`, `crowdin`,
+`dart`, `supabase`, `stripe`, `typeform`, `monday`, `zeplin`, plus `atlassian`
+(Jira and Confluence) and Google Workspace. Register your own app with each
+provider you want, with the redirect URI `http://127.0.0.1:48743/callback`,
+then set its client id as above, for example
+`STELLA_NATIVE_OAUTH_NOTION_CLIENT_ID=...`. Providers that exchange the code on
+the server also need the client in `NATIVE_OAUTH_CLIENTS_JSON`. The https-only
+providers (Zeplin and the ones whose entry has `callbackMode: "external"`)
+redirect to `<website>/oauth/<id>/callback`; `packages/website` doesn't serve
+that route, so on a self-hosted deployment those connectors stay unavailable
+until you host it. A provider you don't register keeps Stella's client, which
+will refuse your redirect, so either register it or leave that connector
+unused.
+
+What stays Stella's on purpose: the `HTTP-Referer: https://stella.sh` attribution
+sent to OpenRouter, docs links (`/docs/media` in cloud-builder's media errors),
+marketing and legal pages and their copy ("stella.sh" in translations), store
+listing text in `packages/mobile/store.config.json`, podspec homepages, the
+Stella browser extension's popup link, the `/du` URL in the Windows signature,
+the `release@stella.sh` author of app-source publish commits, and the macOS
+bundle ids `com.stella.app` / `com.stella.launcher` (Developer ID signing
+doesn't register them, so they don't collide with Stella's). Stella's own
+origins also stay in the cloud-builder CORS and trusted-origin lists next to
+yours. Change any of these by editing the file if you want your own.
 
 ### 1.3 Create the resources
 
@@ -240,8 +300,8 @@ After a browser sign-in the backend sends the browser to
 host the website.
 
 **Canvas sharing (optional):** deploy `workers/canvas-share` (`bun run deploy`)
-with its own route or workers.dev, and set cloud-builder's
-`CANVAS_SHARE_BASE_URL` and the desktop's `VITE_CANVAS_SHARE_BASE_URL` to it.
+with its own route or workers.dev, and set the canvas-share rows of the
+identities table (1.2) to it.
 
 ### 1.7 Publish the app source
 
@@ -258,22 +318,34 @@ tree publishes nothing.
 
 ### 1.8 Run the desktop app against your backend
 
-**From source** (any platform): create `packages/desktop-ui/.env.local`:
+The desktop's identities live in `packages/desktop-ui/.env`. It is tracked and
+published with the app source (1.7), so editing it is what every install of
+your fork gets. `.env.local` overrides it on one machine and is never published.
 
 ```bash
+# packages/desktop-ui/.env
 VITE_STELLA_BACKEND_URL=https://stella-v2-cloud-builder-dev.<sub>.workers.dev
 VITE_TURNSTILE_SITE_KEY=
 VITE_CANVAS_SHARE_BASE_URL=<your canvas-share URL, or leave Stella's>
+VITE_STELLA_WEB_URL=<your website origin, if you host one>
+STELLA_NATIVE_OAUTH_NOTION_CLIENT_ID=<one line per connector you registered>
 ```
 
-then `bun run electron:dev` (see `TESTING.md`). A backend named
-`<prefix>cloud-builder<suffix>` finds its Apps host by name
+The renderer reads the `VITE_*` keys. At startup Electron main adopts
+`VITE_STELLA_WEB_URL` as `STELLA_WEB_URL` and the `STELLA_NATIVE_OAUTH_*_CLIENT_ID`
+/ `WORKSPACE_CLIENT_ID` lines into its environment, which the runtime worker
+inherits; nothing else in the file leaves the renderer. A value already in the
+process environment wins.
+
+**From source** (any platform): `bun run electron:dev` (see `TESTING.md`). A
+backend named `<prefix>cloud-builder<suffix>` finds its Apps host by name
 (`<prefix>apps-host<suffix>`); any other backend URL also needs
-`VITE_STELLA_APPS_HOST` and `VITE_STELLA_APPS_AUTH_HOST`. For a source run,
-`STELLA_WEB_URL` names your website (default `https://stella.sh`), and
-desktop telemetry is off unless `STELLA_TELEMETRY_ENDPOINT` points at your
-telemetry worker (`https://<telemetry worker>/v1/events`); a self-hosted
-backend's tokens are never sent to Stella's.
+`VITE_STELLA_APPS_HOST` and `VITE_STELLA_APPS_AUTH_HOST`. Desktop telemetry is
+off unless `STELLA_TELEMETRY_ENDPOINT` points at your telemetry worker
+(`https://<telemetry worker>/v1/events`); a self-hosted backend's tokens are
+never sent to Stella's. `bun install` (the Stella browser) and
+`bun run native:download` (native helpers) download from `STELLA_RELEASES_URL`
+(Stella's bucket when unset).
 
 **With a launcher:** the launchers in `launcher/` install Stella from your
 Artifacts source and keep it updated. An existing launcher can be pointed at
@@ -284,23 +356,28 @@ with your values:
 STELLA_BACKEND_URL=https://stella-v2-cloud-builder-prod.<sub>.workers.dev \
 STELLA_RELEASES_URL=https://<your public releases bucket> \
 STELLA_APPLE_TEAM_ID=<team>  launcher/macos/build.sh      # macOS
-# launcher/windows/build.sh takes STELLA_UPDATE_SIGNER (Authenticode name)
+# launcher/windows/build.sh takes the first two and STELLA_UPDATE_SIGNER (Authenticode name)
 # launcher/linux/build.sh takes the first two
 ```
 
+Check a build took them: `strings launcher/linux/build/stella-launcher | grep -E 'workers.dev|https://'`.
+The launcher passes its backend to the app (`VITE_STELLA_BACKEND_URL`) and its
+bucket (`STELLA_RELEASES_URL`) to the install step, so native helpers and the
+Stella browser come from your bucket too.
+
 `STELLA_RELEASES_URL` is the public base of an R2 bucket holding
-`launcher/stable/`, `electron-identity/` and `git-runtime/objects/`. The
-release workflows (`.github/workflows/build-*.yml`) read the same values from
-repository variables (`STELLA_BACKEND_URL`, `STELLA_DEV_BACKEND_URL`,
-`STELLA_RELEASES_URL`, `STELLA_APPLE_TEAM_ID`, `STELLA_UPDATE_SIGNER`) and
-upload with the `R2_*` repository secrets; unset, they keep Stella's values.
-Signing needs your own Apple Developer ID and Windows code-signing
-certificate. The git runtime objects are content-addressed and pinned by
-sha256 in `launcher/macos/Sources/StellaLauncher/Support.swift`; copy the two
-objects from `https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/git-runtime/objects/`
-into your bucket. Native helpers and the Stella browser download from Stella's
-public bucket unless `STELLA_NATIVE_HELPERS_MANIFEST_URL` /
-`STELLA_BROWSER_MANIFEST_URL` say otherwise.
+`launcher/stable/`, `electron-identity/`, `git-runtime/objects/`,
+`native-helpers/` and `stella-browser/`. The release workflows
+(`.github/workflows/build-*.yml`) read the same values from repository
+variables (`STELLA_BACKEND_URL`, `STELLA_DEV_BACKEND_URL`, `STELLA_RELEASES_URL`,
+`STELLA_APPLE_TEAM_ID`, `STELLA_UPDATE_SIGNER`) and upload with the `R2_*`
+repository secrets; unset, they keep Stella's values. Signing needs your own
+Apple Developer ID and Windows code-signing certificate. The git runtime
+objects are content-addressed and pinned by sha256 in
+`launcher/macos/Sources/StellaLauncher/Support.swift`; copy the two objects from
+`https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/git-runtime/objects/` into
+your bucket. Run `build-native-helpers.yml` and `build-stella-browser.yml` once
+to fill `native-helpers/` and `stella-browser/`.
 
 ### 1.9 The website (optional)
 
@@ -339,27 +416,53 @@ on the secret and `bun run cf:deploy -- --env production` (`stella-website-prod`
 and put your own domain in its `routes`. Don't run `deploy:dev` or
 `deploy:production`: those scripts build with Stella's values.
 
-Then set `STELLA_WEBSITE_URL` on cloud-builder, `STELLA_WEB_URL` for the
-desktop, and `EXPO_PUBLIC_STELLA_SITE_URL` for mobile to the same origin.
-cloud-builder trusts that origin for browser sign-in and the web chat.
+Then set the other **Website** rows of the identities table (1.2) to the same
+origin: cloud-builder's `STELLA_WEBSITE_URL`, the desktop's `VITE_STELLA_WEB_URL`
+and mobile's `EXPO_PUBLIC_STELLA_SITE_URL`. cloud-builder trusts that origin
+for browser sign-in and the web chat.
 
 ### 1.10 Your own mobile app (optional)
 
 Needs an Expo account, an Apple Developer account (iOS) and a Google Play
-developer account (Android). In `packages/mobile`:
+developer account (Android). `packages/mobile/app.json` stays Stella's: it is an
+OTA native input (`DEPLOY.md`, Mobile), so don't edit it. `app.config.ts` layers
+the **Mobile app** rows of the identities table (1.2) over it from the
+environment; with none of them set the resolved config is exactly `app.json`.
 
-- `app.json` is Stella's app identity: `owner`, `slug`,
-  `extra.eas.projectId` and `updates.url` (your EAS project), `ios.appleTeamId`,
-  `ios.bundleIdentifier` (and the Live Activities target's), `android.package`,
-  and `scheme`. Change them to yours (`bunx eas init` creates the project).
-- `eas.json`: set `EXPO_PUBLIC_STELLA_BACKEND_URL` per profile (and
-  `EXPO_PUBLIC_STELLA_SITE_URL` if you host the website); drop or replace
-  `EXPO_PUBLIC_PLAY_INTEGRITY_PROJECT_NUMBER` and the `submit` ids.
-- If you change `scheme`, set cloud-builder's `STELLA_MOBILE_SCHEME` and
-  `EXPO_PUBLIC_STELLA_MOBILE_SCHEME` to it.
-- Build with `bunx eas build --profile production`. Push notifications go
-  through Expo's push service with the APNs and FCM credentials in your EAS
-  project; the backend needs no key for them.
+1. `bunx eas init` (from `packages/mobile`) creates your EAS project; note its id.
+   Answer no if it offers to write the id into `app.json`.
+2. In `eas.json`, put the identity env in every build profile's `env`, next to
+   your backend:
+
+   ```json
+   "env": {
+     "EXPO_PUBLIC_STELLA_BACKEND_URL": "https://stella-v2-cloud-builder-prod.<sub>.workers.dev",
+     "EXPO_PUBLIC_STELLA_SITE_URL": "https://<your website>",
+     "EXPO_PUBLIC_STELLA_AUTH_URL": "https://<your STELLA_AUTH_URL, if any>",
+     "STELLA_MOBILE_OWNER": "<expo account>",
+     "STELLA_MOBILE_SLUG": "<slug>",
+     "STELLA_MOBILE_EAS_PROJECT_ID": "<project id>",
+     "STELLA_MOBILE_APPLE_TEAM_ID": "<team>",
+     "STELLA_MOBILE_IOS_BUNDLE_ID": "com.example.assistant",
+     "STELLA_MOBILE_ANDROID_PACKAGE": "com.example.assistant",
+     "EXPO_PUBLIC_STELLA_MOBILE_SCHEME": "example-assistant",
+     "EXPO_PUBLIC_PLAY_INTEGRITY_PROJECT_NUMBER": "<your project number, or delete>"
+   }
+   ```
+
+   Replace or delete `submit.*.ios.ascAppId`. Export the same `STELLA_MOBILE_*`
+   and `EXPO_PUBLIC_*` values in your shell (or `.env.local`) for `eas update`,
+   `expo` and `scripts/publish-ota.sh`, which read the config outside a build
+   profile. `STELLA_MOBILE_ANDROID_PACKAGE` also tells `publish-ota.sh` which
+   Play app to look up.
+3. Check it: `bunx expo config --type public --json` shows your owner, slug,
+   `updates.url`, bundle id, app group and package.
+4. On cloud-builder set `STELLA_MOBILE_SCHEME` to your scheme, and for Apple
+   sign-in and App Attest `APPLE_APP_BUNDLE_IDENTIFIER` and
+   `APPLE_APP_ATTEST_TEAM_ID`.
+5. Build with `bunx eas build --profile production`. Push notifications go
+   through Expo's push service with the APNs and FCM credentials in your EAS
+   project; the backend needs no key for them.
 
 ## Part 2: optional providers
 
@@ -385,7 +488,7 @@ Secrets go on **cloud-builder** unless noted.
 | Integrations store | `COMPOSIO_API_KEY` (optional `COMPOSIO_TOOL_ROUTER_URL`); the catalog is loaded through the admin API (`STELLA_ADMIN_API_SECRET`) | Composio | No store integrations |
 | X connector | `X_CLIENT_ID`, `X_CLIENT_SECRET`, `OAUTH_STATE_SECRET` | X | Unavailable |
 | GitHub projects | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_WEBHOOK_SECRET`, `OAUTH_STATE_SECRET` | GitHub App | Unavailable |
-| Desktop OAuth connectors that exchange tokens on the server (Google Workspace, Box, Microsoft, Atlassian, ...) | `NATIVE_OAUTH_CLIENTS_JSON` (`{"<provider>": {"clientId": "...", "clientSecret": "..."}}`); desktop client ids can be overridden with `STELLA_NATIVE_OAUTH_<ID>_CLIENT_ID`. Providers that only allow https redirects use `<STELLA_WEB_URL>/oauth/<provider>/callback`, so they need the website | each provider | Those connectors aren't offered |
+| Desktop OAuth connectors that exchange tokens on the server (Google Workspace, Box, Microsoft, Atlassian, ...) | `NATIVE_OAUTH_CLIENTS_JSON` (`{"<provider>": {"clientId": "...", "clientSecret": "..."}}`); desktop client ids can be overridden with `STELLA_NATIVE_OAUTH_<ID>_CLIENT_ID`. Providers that only allow https redirects use `<STELLA_WEB_URL>/oauth/<provider>/callback`, which `packages/website` doesn't serve (1.2) | each provider | Those connectors aren't offered |
 | Maps tool | `GOOGLE_MAPS_SERVER_API_KEY` (Places API (New) + Directions); the card's interactive view also needs `NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY` on the **website** | Google Maps Platform | The `map` tool says maps aren't set up |
 | Captcha on anonymous web sign-in | `TURNSTILE_SECRET_KEY`; site key in `VITE_TURNSTILE_SITE_KEY` (desktop web build) and `NEXT_PUBLIC_TURNSTILE_SITE_KEY` (website) | Cloudflare Turnstile | No captcha |
 | Mobile app integrity | `APPLE_APP_ATTEST_TEAM_ID`, `GOOGLE_PLAY_INTEGRITY_SERVICE_ACCOUNT_JSON` (+ `EXPO_PUBLIC_PLAY_INTEGRITY_PROJECT_NUMBER`); `STELLA_APP_INTEGRITY_MODE` = `enforce` / `off` | Apple App Attest, Google Play Integrity | Off |

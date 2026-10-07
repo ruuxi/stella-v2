@@ -9,6 +9,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { env } from "../config/env";
 import { type Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
 import { fonts } from "../theme/fonts";
@@ -91,7 +92,7 @@ export function AiConsentModal({ visible, onAccept, onDecline }: Props) {
             Read our full{" "}
             <Text
               style={styles.link}
-              onPress={() => void Linking.openURL("https://stella.sh/privacy")}
+              onPress={() => void Linking.openURL(`${env.siteUrl}/privacy`)}
             >
               Privacy Policy
             </Text>

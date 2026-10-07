@@ -63,13 +63,12 @@ export type MapRouteArtifact = {
 };
 
 /* -------------------------------------------------------------------------
- * Provider config — the one obvious spot to retarget the hosted map service.
- * The website base can be overridden for dev (e.g. a local `next dev` of
- * stella-website) via STELLA_MAPS_SITE_URL in the runtime process.
+ * Provider config. MAPS_SITE_BASE_URL is the default website; callers pass
+ * `siteBaseUrl` for another one (the desktop renderer passes
+ * VITE_STELLA_WEB_URL).
  * ---------------------------------------------------------------------- */
 
 export const MAPS_SITE_BASE_URL = "https://stella.sh";
-export const MAPS_SITE_URL_ENV = "STELLA_MAPS_SITE_URL";
 export const MAPS_RESOLVE_PATH = "/api/maps/resolve";
 export const MAPS_EMBED_PATH = "/maps/embed";
 

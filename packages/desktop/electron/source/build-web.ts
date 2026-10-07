@@ -46,8 +46,10 @@ export const webBuildEnv = (
   if (!backendUrl || !appsHost) {
     throw new Error("Configure the Stella backend and Apps host origins.");
   }
+  const webUrl = (pick("STELLA_WEB_URL") || processEnv.NEXT_PUBLIC_STELLA_SITE_URL || "").trim();
   return {
     ...base,
+    ...(webUrl ? { VITE_STELLA_WEB_URL: webUrl } : {}),
     VITE_STELLA_WEB_BUILD: "1",
     VITE_STELLA_BACKEND_URL: backendUrl,
     VITE_TURNSTILE_SITE_KEY: pick("TURNSTILE_SITE_KEY"),

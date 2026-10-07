@@ -31,6 +31,7 @@ import {
   fadeEntering,
   fadeExiting,
   SPRING_SNAPPY,
+  SPRING_SOFT,
   threadEntering,
   useSpringFlag,
 } from "../motion";
@@ -103,13 +104,26 @@ export function MiniReceipt({
   icon,
   label,
   done,
+  shown,
 }: {
   icon: IconName;
   label: string;
   done: boolean;
+  /**
+   * The row holds its place from the moment the block appears, so a later
+   * receipt fades into a slot it already owns instead of pushing the thread.
+   */
+  shown: boolean;
 }) {
   const colors = useColors();
   const styles = useMiniStyles();
+  const [settled, setSettled] = useState(false);
+  useEffect(() => setSettled(true), []);
+  const reveal = useSpringFlag(settled && shown, SPRING_SOFT);
+  const revealStyle = useAnimatedStyle(() => ({
+    opacity: reveal.value,
+    transform: [{ translateY: (1 - reveal.value) * 8 }],
+  }));
   const settle = useSpringFlag(done, SPRING_SNAPPY);
   const starStyle = useAnimatedStyle(() => ({
     opacity: 1 - settle.value,
@@ -120,7 +134,7 @@ export function MiniReceipt({
     transform: [{ scale: 0.5 + 0.5 * settle.value }],
   }));
   return (
-    <Animated.View entering={fadeEntering(0, 220)} style={styles.receipt}>
+    <Animated.View style={[styles.receipt, revealStyle]}>
       <View style={styles.receiptGlyph}>
         <Animated.View style={[StyleSheet.absoluteFill, styles.center, starStyle]}>
           <StellaStarGlyph size={11} color={colors.textStrong} />

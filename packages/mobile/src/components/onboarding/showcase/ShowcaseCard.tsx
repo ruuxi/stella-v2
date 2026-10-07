@@ -292,17 +292,21 @@ function Chapter({
             done={has(spec.confirm.doneCue)}
           />
         ) : null;
-      case "receipts":
-        return spec.receipts.map((receipt) =>
-          has(receipt.cue) ? (
-            <MiniReceipt
-              key={receipt.cue}
-              icon={receipt.icon}
-              label={ct(receipt.key)}
-              done={has(`${receipt.cue}-done`)}
-            />
-          ) : null,
-        );
+      case "receipts": {
+        // The block lands whole, so a second receipt arriving later cannot
+        // push a scene that is already on screen above it.
+        const opening = spec.receipts[0]?.cue;
+        if (!opening || !has(opening)) return null;
+        return spec.receipts.map((receipt) => (
+          <MiniReceipt
+            key={receipt.cue}
+            icon={receipt.icon}
+            label={ct(receipt.key)}
+            done={has(`${receipt.cue}-done`)}
+            shown={has(receipt.cue)}
+          />
+        ));
+      }
       case "reply":
         return has("reply") ? (
           <MiniAssistantBubble key="reply">{ct("reply")}</MiniAssistantBubble>

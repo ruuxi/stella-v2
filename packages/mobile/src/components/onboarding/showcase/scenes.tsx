@@ -428,8 +428,13 @@ function ResearchScene({ has }: { has: Has }) {
   const styles = useSceneStyles();
   const ranked = has("rank");
   const swap = useSpringFlag(ranked, SPRING_SOFT);
-  const sourcesStyle = useAnimatedStyle(() => ({ opacity: 1 - swap.value }));
-  const ranksStyle = useAnimatedStyle(() => ({ opacity: swap.value }));
+  // One hands over to the other rather than both being half-visible at once.
+  const sourcesStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(swap.value, [0, 0.45], [1, 0], "clamp"),
+  }));
+  const ranksStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(swap.value, [0.55, 1], [0, 1], "clamp"),
+  }));
   return (
     <MiniAgentWindow title={ct("scene.title")} icon="search" live={!ranked}>
       <View style={styles.swap}>

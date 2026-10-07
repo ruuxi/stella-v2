@@ -17,6 +17,7 @@ import {
   USER_ASK_SEAL_ALGORITHM,
   clampUrgency,
   effectiveEscalationCeiling,
+  nextEscalationLevel,
   normalizeUserAskEscalationPolicy,
   toUserAskSummary,
   userAskAcceptsAnswer,
@@ -75,10 +76,16 @@ const SOUND_LEVEL = 3;
 const ANDROID_CHANNEL = "user-ask";
 const ANDROID_BREAKTHROUGH_CHANNEL = "user-ask-breakthrough";
 
+export const USER_ASK_CLOUD_ORIGIN_DEVICE_ID = "stella-cloud";
+
+const isCloudOrigin = (originDeviceId: string): boolean =>
+  originDeviceId === USER_ASK_CLOUD_ORIGIN_DEVICE_ID;
+
 export const USER_ASKS_DEFAULT_JOB = "userAsks.default";
 export const USER_ASKS_EXPIRE_JOB = "userAsks.expire";
 export const USER_ASKS_REPEAT_JOB = "userAsks.repeat";
 export const USER_ASKS_SWEEP_JOB = "userAsks.sweep";
+export const USER_ASKS_CLOUD_ESCALATE_JOB = "userAsks.cloudEscalate";
 
 export const USER_ASKS_MIGRATION = {
   id: "userAsks.1-init",
@@ -186,6 +193,8 @@ type StoredAnswer = {
 const defaultJobId = (askId: string): string => `${USER_ASKS_DEFAULT_JOB}:${askId}`;
 const expireJobId = (askId: string): string => `${USER_ASKS_EXPIRE_JOB}:${askId}`;
 const repeatJobId = (askId: string): string => `${USER_ASKS_REPEAT_JOB}:${askId}`;
+const cloudEscalateJobId = (askId: string): string =>
+  `${USER_ASKS_CLOUD_ESCALATE_JOB}:${askId}`;
 
 const log = (event: string, fields: Record<string, unknown>): void =>
   console.error(JSON.stringify({ service: "owner-user-asks", event, ...fields }));
@@ -740,6 +749,7 @@ const closeAsk = (
   ctx.jobs.cancel(defaultJobId(row.ask_id));
   ctx.jobs.cancel(expireJobId(row.ask_id));
   ctx.jobs.cancel(repeatJobId(row.ask_id));
+  ctx.jobs.cancel(cloudEscalateJobId(row.ask_id));
   return readRow(ctx.db, row.ask_id)!;
 };
 
@@ -843,6 +853,14 @@ const registerAsk = (ctx: OwnerContext, args: RegisterArgs) => {
   ctx.jobs.schedule(USER_ASKS_EXPIRE_JOB, expiresAt, { askId: args.askId }, {
     id: expireJobId(args.askId),
   });
+  if (isCloudOrigin(args.originDeviceId)) {
+    ctx.jobs.schedule(
+      USER_ASKS_CLOUD_ESCALATE_JOB,
+      ctx.now + USER_ASK_ESCALATION_STEP_MS,
+      { askId: args.askId },
+      { id: cloudEscalateJobId(args.askId) },
+    );
+  }
   scheduleSweep(ctx);
   return { ask: askView(readRow(ctx.db, args.askId)!), created: true };
 };
@@ -963,6 +981,66 @@ const cancelAsk = (ctx: OwnerContext, askId: string) => {
   return { ask: summaryOf(closeAsk(ctx, row, "canceled")), canceled: true };
 };
 
+const turnRegisterParser = object({
+  askId: string({ min: 1, max: 128 }),
+  kind: literal(...USER_ASK_KINDS),
+  conversationId: string({ min: 1, max: 128 }),
+  threadId: string({ min: 1, max: 128 }),
+  toolCallId: string({ min: 1, max: 160 }),
+  agentLabel: optional(string({ max: 96 })),
+  urgency: optional(number({ int: true, min: 1, max: 4 })),
+  blocking: optional(boolean()),
+  timeoutMs: optional(number({ int: true, min: 0, max: USER_ASK_MAX_TIMEOUT_MS })),
+  detail: json({ maxBytes: 32 * 1024 }),
+});
+
+const turnAskParser = object({ askId: string({ min: 1, max: 128 }) });
+
+const registerTurnAsk = (ctx: OwnerContext, args: unknown) => {
+  const parsed = turnRegisterParser(args, "args");
+  if (parsed.kind === "secure_input") {
+    const detail = secureInputDetailParser(parsed.detail, "detail");
+    if (detail.fields.some((field) => field.sensitive || field.type === "secret")) {
+      throw new RpcError(
+        "BAD_REQUEST",
+        "A sensitive value can only be collected on one of the user's computers, not by a cloud agent.",
+      );
+    }
+  }
+  return registerAsk(ctx, {
+    ...parsed,
+    originDeviceId: USER_ASK_CLOUD_ORIGIN_DEVICE_ID,
+  });
+};
+
+const readTurnAskAnswer = (ctx: OwnerContext, args: unknown) => {
+  const { askId } = turnAskParser(args, "args");
+  const row = readRow(ctx.db, askId);
+  if (!row) throw new RpcError("NOT_FOUND", "That question is no longer available.");
+  const stored = readAnswer(ctx.db, askId);
+  return {
+    askId,
+    state: row.state as UserAskState,
+    revision: row.revision,
+    ...(stored
+      ? {
+          answer: stored.answer,
+          late: stored.late,
+          answeredAt: stored.answeredAt,
+        }
+      : {}),
+  };
+};
+
+const cancelTurnAsk = (ctx: OwnerContext, args: unknown) => {
+  const { askId } = turnAskParser(args, "args");
+  const row = readRow(ctx.db, askId);
+  if (!row) return { canceled: false };
+  if (!userAskIsOpen(row.state as UserAskState)) return { canceled: false };
+  closeAsk(ctx, row, "canceled");
+  return { canceled: true };
+};
+
 type EscalateArgs = ReturnType<typeof escalateParser>;
 
 type EscalateResult = {
@@ -987,7 +1065,11 @@ const escalateAsk = async (
   );
   const row = readRow(ctx.db, askId);
   if (!row) throw new RpcError("NOT_FOUND", "That question is no longer available.");
-  if (args.deviceId !== undefined && args.deviceId !== row.origin_device_id) {
+  if (
+    args.deviceId !== undefined &&
+    args.deviceId !== row.origin_device_id &&
+    !isCloudOrigin(row.origin_device_id)
+  ) {
     throw new RpcError("FORBIDDEN", "Only the asking computer can escalate this.");
   }
   const requested = clampUrgency(args.level);
@@ -1115,6 +1197,75 @@ const repeatBreakthrough = async (
     { askId },
     { id: repeatJobId(askId) },
   );
+};
+
+const escalateCloudAsk = async (
+  ctx: OwnerContext,
+  payload: unknown,
+): Promise<void> => {
+  const askId = (payload as { askId?: unknown } | null)?.askId;
+  if (typeof askId !== "string") return;
+  const row = readRow(ctx.db, askId);
+  if (!row || row.state !== "pending") return;
+  if (!isCloudOrigin(row.origin_device_id)) return;
+  const rearm = (): void => {
+    ctx.jobs.schedule(
+      USER_ASKS_CLOUD_ESCALATE_JOB,
+      ctx.now + USER_ASK_ESCALATION_STEP_MS,
+      { askId },
+      { id: cloudEscalateJobId(askId) },
+    );
+  };
+  const policy = readPolicy(ctx.db);
+  const ceiling = effectiveEscalationCeiling(
+    policy,
+    clampUrgency(row.urgency),
+    quietHoursMinute(ctx, row.local_offset_minutes),
+  );
+  const current = clampUrgency(row.escalation_level);
+  const stepped = nextEscalationLevel(current, ceiling);
+  const level = stepped ?? current;
+  const repeatOnly = stepped === null;
+  if (repeatOnly && (level < BREAKTHROUGH_LEVEL || ceiling < BREAKTHROUGH_LEVEL)) {
+    rearm();
+    return;
+  }
+  if (level < PUSH_LEVEL_FLOOR) {
+    rearm();
+    return;
+  }
+  if (pushesInWindow(ctx) >= policy.maxPerHour) {
+    rearm();
+    return;
+  }
+  const outcome = await sendAskPush(ctx, row, level, policy);
+  if (outcome === "no_push_target") {
+    log("user_ask_cloud_escalation_unreachable", { askId, level });
+    ctx.db.run(
+      "UPDATE user_asks SET next_escalation_at = NULL, updated_at = ? WHERE ask_id = ?",
+      ctx.now,
+      askId,
+    );
+    return;
+  }
+  if (!repeatOnly) {
+    ctx.db.run(
+      `UPDATE user_asks SET escalation_level = ?, revision = revision + 1,
+         next_escalation_at = ?, updated_at = ? WHERE ask_id = ?`,
+      level,
+      ctx.now + USER_ASK_ESCALATION_STEP_MS,
+      ctx.now,
+      askId,
+    );
+  } else {
+    ctx.db.run(
+      "UPDATE user_asks SET next_escalation_at = ?, updated_at = ? WHERE ask_id = ?",
+      ctx.now + USER_ASK_ESCALATION_STEP_MS,
+      ctx.now,
+      askId,
+    );
+  }
+  rearm();
 };
 
 const defaultAsk = (ctx: OwnerContext, payload: unknown): void => {
@@ -1330,10 +1481,16 @@ export const userAsksDomain = {
       read: (ctx) => listOpenUserAsks(ctx.db),
     },
   },
+  internal: {
+    "userAsks.turnRegister": registerTurnAsk,
+    "userAsks.turnAnswer": readTurnAskAnswer,
+    "userAsks.turnCancel": cancelTurnAsk,
+  },
   jobs: {
     [USER_ASKS_DEFAULT_JOB]: { run: defaultAsk, maxAttempts: 5 },
     [USER_ASKS_EXPIRE_JOB]: { run: expireAsk, maxAttempts: 5 },
     [USER_ASKS_REPEAT_JOB]: { run: repeatBreakthrough, maxAttempts: 3 },
+    [USER_ASKS_CLOUD_ESCALATE_JOB]: { run: escalateCloudAsk, maxAttempts: 3 },
     [USER_ASKS_SWEEP_JOB]: { run: (ctx) => sweep(ctx), maxAttempts: 10 },
   },
   purge: (ctx: OwnerContext) => {
@@ -1343,6 +1500,7 @@ export const userAsksDomain = {
       ctx.jobs.cancel(defaultJobId(ask_id));
       ctx.jobs.cancel(expireJobId(ask_id));
       ctx.jobs.cancel(repeatJobId(ask_id));
+      ctx.jobs.cancel(cloudEscalateJobId(ask_id));
     }
     ctx.jobs.cancel(USER_ASKS_SWEEP_JOB);
     ctx.db.run("DELETE FROM user_ask_answers");

@@ -951,6 +951,72 @@ export const serveTurnSearchRequest = async (
   return driveJson(response.value);
 };
 
+export const serveTurnUserAskRequest = async (
+  env: Pick<Cloudflare.Env, "OWNER_GATES">,
+  turn: Pick<
+    TurnRequest,
+    | "ownerId"
+    | "ownerGeneration"
+    | "conversationId"
+    | "originConversationId"
+    | "threadId"
+    | "description"
+  >,
+  body: Record<string, unknown>,
+): Promise<Response> => {
+  const operation = body.op;
+  if (operation !== "register" && operation !== "answer" && operation !== "cancel") {
+    return brokerFailure(400);
+  }
+  const conversationId =
+    turn.conversationId ??
+    turn.originConversationId ??
+    (typeof body.conversationId === "string" && body.conversationId
+      ? body.conversationId.slice(0, 128)
+      : undefined);
+  if (operation === "register" && !conversationId) {
+    return brokerFailure(403);
+  }
+  const name =
+    operation === "register"
+      ? "userAsks.turnRegister"
+      : operation === "answer"
+        ? "userAsks.turnAnswer"
+        : "userAsks.turnCancel";
+  const args =
+    operation === "register"
+      ? {
+          askId: body.askId,
+          kind: body.kind,
+          conversationId,
+          threadId: turn.threadId,
+          toolCallId: body.toolCallId,
+          ...(turn.description
+            ? { agentLabel: turn.description.slice(0, 96) }
+            : {}),
+          urgency: body.urgency,
+          blocking: body.blocking,
+          ...(body.timeoutMs === undefined || body.timeoutMs === null
+            ? {}
+            : { timeoutMs: body.timeoutMs }),
+          detail: body.detail,
+        }
+      : { askId: body.askId };
+  const response = (await env.OWNER_GATES.getByName(turn.ownerId).ownerInternal({
+    name,
+    args,
+    ownerGeneration: turn.ownerGeneration,
+  })) as RpcResponse;
+  if (!response.ok) {
+    return driveJson(
+      { error: response.error.message, code: response.error.code },
+      rpcErrorStatus(response.error.code),
+    );
+  }
+  return driveJson(response.value);
+};
+
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -1142,6 +1208,9 @@ const handleBrokerLocalRequest = async (
     }
     if (typeof body.turnId !== "string" || body.turnId !== turn.turnId) {
       return brokerFailure(403);
+    }
+    if (target.kind === "user-ask") {
+      return await serveTurnUserAskRequest(host.env, turn, body);
     }
     if (target.kind === "drive") {
       return await serveTurnDriveRequest(host.env, turn, target.path, body);
@@ -1378,6 +1447,7 @@ export const handleTurnBroker = async (
       claimed.target.kind === "thread-messages" ||
       claimed.target.kind === "drive" ||
       claimed.target.kind === "search" ||
+      claimed.target.kind === "user-ask" ||
       claimed.target.kind === "orchestrator-tool" ||
       claimed.target.kind === "orchestrator-events"
     ) {

@@ -56,6 +56,8 @@ export const TURN_BROKER_EVENTS_PATH = "/api/cloud/events";
 /** The thread transcript. Written to the BuildSession's own table. */
 export const TURN_BROKER_MESSAGES_PATH = "/api/cloud/messages";
 
+export const TURN_BROKER_USER_ASK_PATH = "/api/cloud/user-ask";
+
 /** Raw-token-free durable state owned by one BuildSession. */
 export type TurnBrokerRecord = TurnBrokerIdentity & {
   version: typeof TURN_BROKER_VERSION;
@@ -89,6 +91,7 @@ export type TurnBrokerTarget = {
     | "search"
     | "turn-event"
     | "thread-messages"
+    | "user-ask"
     | "orchestrator-tool"
     | "orchestrator-events";
   method: "POST";
@@ -386,6 +389,14 @@ export const validateTurnBrokerTarget = (
       method: "POST",
       path: parsed.pathname,
       maxBodyBytes: MAX_CALLBACK_BODY_BYTES,
+    };
+  }
+  if (parsed.pathname === TURN_BROKER_USER_ASK_PATH) {
+    return {
+      kind: "user-ask",
+      method: "POST",
+      path: parsed.pathname,
+      maxBodyBytes: MAX_CONTROL_BODY_BYTES,
     };
   }
   if (parsed.pathname === TURN_BROKER_NATIVE_STATE_CHECKPOINT_PATH) {

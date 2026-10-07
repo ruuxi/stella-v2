@@ -65,6 +65,7 @@ import {
   getAgentCompletion,
 } from "@stella/runtime/kernel/agent-runtime/run-shared.js";
 import { createCloudRelayModel } from "./relay-model.js";
+import { createCloudUserAskHost } from "./cloud-user-ask.js";
 import { pruneAgentHistory } from "./prune-history.js";
 import {
   emptyDriveSync,
@@ -304,6 +305,8 @@ const CLOUD_GENERAL_TOOLS = [
   "Write",
   "Edit",
   "Grep",
+  "ask_user",
+  "request_secure_input",
 ] as const;
 
 const CLOUD_STELLA_TOOLS = [...CLOUD_GENERAL_TOOLS, "code"] as const;
@@ -672,6 +675,22 @@ export const runAgentTurn = (
         body: unknown,
       ): Promise<Response> => await broker.postJson(route, body);
 
+      const userAsks = yield* Effect.acquireRelease(
+        Effect.sync(() =>
+          createCloudUserAskHost({
+            post: postJson,
+            turnId: input.turnId,
+            conversationId: input.conversationId,
+          }),
+        ),
+        (host) =>
+          Effect.promise(async () => {
+            await host.cancelOpenAsks(
+              "This agent stopped before you answered, so the question was withdrawn.",
+            );
+          }),
+      );
+
       // Ordered, best-effort progress events; a lost event never fails the
       // turn (the DO writes the terminal event either way).
       let eventChain: Promise<unknown> = Promise.resolve();
@@ -746,6 +765,9 @@ export const runAgentTurn = (
                 }
               : {}),
             ...(officeBinPath ? { stellaOfficeBinPath: officeBinPath } : {}),
+            askUser: userAsks.handlers.askUser,
+            requestSecureInput: userAsks.handlers.requestSecureInput,
+            useSecureValue: userAsks.handlers.useSecureValue,
             webSearch: async (query, options) => {
               const response = await postJson("/api/cloud/web-search", {
                 query,

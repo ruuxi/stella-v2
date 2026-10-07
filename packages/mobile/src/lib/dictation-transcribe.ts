@@ -94,6 +94,41 @@ const describeFailure = (
   return message || "Stella couldn't transcribe that recording. Try again.";
 };
 
+const STREAMING_AVAILABILITY_TTL_MS = 10 * 60_000;
+const STREAMING_AVAILABILITY_TIMEOUT_MS = 3_000;
+let streamingAvailability: { value: Promise<boolean>; at: number } | null =
+  null;
+
+export const loadDictationStreamingAvailable = (): Promise<boolean> => {
+  if (
+    streamingAvailability &&
+    Date.now() - streamingAvailability.at < STREAMING_AVAILABILITY_TTL_MS
+  ) {
+    return streamingAvailability.value;
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(),
+    STREAMING_AVAILABILITY_TIMEOUT_MS,
+  );
+  const entry = {
+    value: fetch(`${backendOrigin()}/api/dictation/transcribe`, {
+      signal: controller.signal,
+    })
+      .then((response) => (response.ok ? response.json() : null))
+      .then(
+        (body: { streaming?: unknown } | null) => body?.streaming === true,
+      )
+      .finally(() => clearTimeout(timer)),
+    at: Date.now(),
+  };
+  streamingAvailability = entry;
+  entry.value.catch(() => {
+    if (streamingAvailability === entry) streamingAvailability = null;
+  });
+  return entry.value;
+};
+
 /** POST the WAV and return the transcript, or throw a described failure. */
 export const transcribeDictationWav = async (
   wav: Uint8Array,

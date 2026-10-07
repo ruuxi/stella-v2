@@ -6,10 +6,10 @@
  * this recorder for its waveform/timer, and on stop we wait for the transcript
  * before resolving so the caller can paste it into the composer.
  *
- * There is no live preview any more — managed transcription is batch only, so
- * nothing comes back until the recording is uploaded. The recorder starts as
- * soon as the mic is granted (~100 ms, no handshake to wait on) and every
- * captured chunk is kept until stop builds the WAV.
+ * Signed-in users stream over the dictation relay for live partials while the
+ * whole utterance is also kept locally. When streaming is unavailable or the
+ * socket fails, stop builds a WAV from that recording and transcribes it in
+ * one request instead.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -28,9 +28,19 @@ import { stopReadAloudForDictation } from "./read-aloud";
 import {
   DICTATION_MAX_PCM_BYTES,
   DICTATION_SAMPLE_RATE,
+  loadDictationStreamingAvailable,
   transcribeDictationWav,
   wavFromPcm16,
 } from "./dictation-transcribe";
+import {
+  DictationStream,
+  loadDictationRealtimeConfig,
+} from "./dictation-stream";
+import { DictationIngressPacer } from "./dictation-pacer";
+import {
+  resetDictationTranscriptPreview,
+  updateDictationTranscriptPreview,
+} from "./dictation-transcript-preview";
 import { tapLight, tapMedium } from "./haptics";
 import {
   startDictationMeter,
@@ -42,11 +52,11 @@ import {
 const MIN_RECORDING_MS = 300;
 /** Under this the route answers an empty transcript anyway. */
 const MIN_PCM_BYTES = DICTATION_SAMPLE_RATE / 5;
+const PRE_ROLL_MAX_BYTES = 4 * DICTATION_SAMPLE_RATE * 2;
 
 export type DictationStatus = "idle" | "recording" | "transcribing";
 
 export type UseDictationOptions = {
-  /** Retained for caller compatibility; the transcribe route authenticates. */
   anonymous: boolean;
   /** Retained for caller compatibility with the retired batch endpoint. */
   headers?: Record<string, string>;
@@ -74,6 +84,59 @@ type DictationCapture = {
   bytes: number;
   /** Set once the 15-minute ceiling is reached; capture stops there. */
   full: boolean;
+  live: DictationLive | null;
+};
+
+type DictationLive = {
+  stream: DictationStream;
+  opened: Promise<boolean>;
+  pacer: DictationIngressPacer | null;
+  preRoll: ArrayBuffer[];
+  preRollBytes: number;
+  failed: boolean;
+};
+
+const abandonLive = (live: DictationLive | null): void => {
+  if (!live || live.failed) return;
+  live.failed = true;
+  live.pacer?.stop();
+  live.pacer = null;
+  live.preRoll = [];
+  live.preRollBytes = 0;
+  live.stream.cancel();
+};
+
+const forwardLive = (live: DictationLive | null, bytes: ArrayBuffer): void => {
+  if (!live || live.failed) return;
+  if (live.pacer) {
+    live.pacer.send(bytes);
+    return;
+  }
+  live.preRoll.push(bytes);
+  live.preRollBytes += bytes.byteLength;
+  if (live.preRollBytes > PRE_ROLL_MAX_BYTES) {
+    console.warn("[dictation] stream did not open in time, will transcribe the recording");
+    abandonLive(live);
+    resetDictationTranscriptPreview();
+  }
+};
+
+const finishLive = async (live: DictationLive | null): Promise<string | null> => {
+  if (!live || live.failed) return null;
+  try {
+    if (!(await live.opened) || live.failed) return null;
+    live.pacer?.stop();
+    live.pacer = null;
+    return await live.stream.finish();
+  } catch (error) {
+    console.warn(
+      "[dictation] stream did not finish, will transcribe the recording:",
+      error instanceof Error ? error.message : error,
+    );
+    return null;
+  } finally {
+    abandonLive(live);
+  }
 };
 
 export function useDictation(options: UseDictationOptions): UseDictationResult {
@@ -110,6 +173,71 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
     if (captureRef.current === capture) captureRef.current = null;
     capture.chunks = [];
     capture.bytes = 0;
+    abandonLive(capture.live);
+  }, []);
+
+  const openLive = useCallback((): DictationLive => {
+    const isCurrent = () =>
+      mountedRef.current &&
+      captureRef.current?.live === live &&
+      statusRef.current === "recording";
+    const stream = new DictationStream(
+      (text) => {
+        if (!live.failed) updateDictationTranscriptPreview(text);
+      },
+      (error) => {
+        if (live.failed) return;
+        console.warn(
+          "[dictation] stream failed, will transcribe the recording:",
+          error.message,
+        );
+        abandonLive(live);
+        resetDictationTranscriptPreview();
+      },
+      () => {
+        if (isCurrent()) void stopRecordingRef.current?.();
+      },
+    );
+    const live: DictationLive = {
+      stream,
+      opened: Promise.resolve(false),
+      pacer: null,
+      preRoll: [],
+      preRollBytes: 0,
+      failed: false,
+    };
+    live.opened = loadDictationStreamingAvailable()
+      .then((available) => {
+        if (!available) throw new Error("Streaming dictation is unavailable.");
+        return stream.open();
+      })
+      .then(
+        () => {
+          if (live.failed) return false;
+          const pacer = new DictationIngressPacer(stream);
+          live.pacer = pacer;
+          const buffered = concatPcm(live.preRoll, live.preRollBytes);
+          live.preRoll = [];
+          live.preRollBytes = 0;
+          if (buffered.byteLength > 0) pacer.send(buffered);
+          pacer.start();
+          if (stream.isComplete && isCurrent()) {
+            void stopRecordingRef.current?.();
+          }
+          return true;
+        },
+        (error: unknown) => {
+          if (!live.failed) {
+            console.warn(
+              "[dictation] stream did not open, will transcribe the recording:",
+              error instanceof Error ? error.message : error,
+            );
+          }
+          abandonLive(live);
+          return false;
+        },
+      );
+    return live;
   }, []);
 
   const start = useCallback(async (): Promise<boolean> => {
@@ -179,7 +307,13 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       }
 
       phase = "recorder";
-      const current: DictationCapture = { chunks: [], bytes: 0, full: false };
+      resetDictationTranscriptPreview();
+      const current: DictationCapture = {
+        chunks: [],
+        bytes: 0,
+        full: false,
+        live: options.anonymous ? null : openLive(),
+      };
       capture = current;
       captureRef.current = current;
       const emitter = new LegacyEventEmitter(AudioStudioModule);
@@ -197,6 +331,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
         if (current.full) return;
         current.chunks.push(bytes);
         current.bytes += bytes.byteLength;
+        forwardLive(current.live, bytes);
         if (current.bytes < DICTATION_MAX_PCM_BYTES) return;
         // The route refuses more than fifteen minutes. Stop here and keep what
         // was said rather than losing the whole recording to a 413.
@@ -231,6 +366,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       tapMedium();
       safeSetStatus("recording");
       operationInFlightRef.current = false;
+      if (current.live?.stream.isComplete) void stopRecordingRef.current?.();
       return true;
     } catch (error) {
       console.warn(`[dictation] start failed during ${phase}`, error);
@@ -249,7 +385,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       }
       return false;
     }
-  }, [discardCapture, releaseAudioMode, safeSetStatus]);
+  }, [discardCapture, openLive, options.anonymous, releaseAudioMode, safeSetStatus]);
 
   const finalize = useCallback(
     async (commit: boolean): Promise<string | null> => {
@@ -282,6 +418,8 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       const capture = captureRef.current;
       captureRef.current = null;
       stopDictationMeter();
+      resetDictationTranscriptPreview();
+      const live = capture?.live ?? null;
       // The recorder is configured without file output, but delete anything it
       // produced anyway: the audio we send is the PCM we captured.
       if (uri) {
@@ -297,7 +435,9 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
         !commit ||
         !mountedRef.current ||
         pcmBytes < MIN_PCM_BYTES ||
-        (durationMs < MIN_RECORDING_MS && !capture?.full)
+        (durationMs < MIN_RECORDING_MS &&
+          !capture?.full &&
+          !live?.stream.isComplete)
       ) {
         discardCapture(capture);
         safeSetStatus("idle");
@@ -306,9 +446,16 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       }
 
       try {
-        const wav = wavFromPcm16(capture!.chunks, pcmBytes);
-        discardCapture(capture);
-        const text = await transcribeDictationWav(wav);
+        const streamed = await finishLive(live);
+        let text: string;
+        if (streamed !== null) {
+          discardCapture(capture);
+          text = streamed;
+        } else {
+          const wav = wavFromPcm16(capture!.chunks, pcmBytes);
+          discardCapture(capture);
+          text = await transcribeDictationWav(wav);
+        }
         if (text && !cancelledRef.current && mountedRef.current) {
           options.onTranscript(text);
           return text;
@@ -338,6 +485,13 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
   const cancel = useCallback(() => finalize(false), [finalize]);
   stopRecordingRef.current = stop;
 
+  useEffect(() => {
+    if (options.anonymous) return;
+    void loadDictationStreamingAvailable()
+      .then((available) => (available ? loadDictationRealtimeConfig() : null))
+      .catch(() => undefined);
+  }, [options.anonymous]);
+
   const toggle = useCallback(async () => {
     if (status === "idle") {
       await start();
@@ -357,6 +511,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       audioSubscriptionRef.current?.remove();
       audioSubscriptionRef.current = null;
       stopDictationMeter();
+      resetDictationTranscriptPreview();
       void AudioStudioModule.stopRecording().catch(() => undefined);
       void releaseAudioMode();
     };
@@ -372,6 +527,17 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
     toggle,
   };
 }
+
+const concatPcm = (chunks: ArrayBuffer[], totalBytes: number): ArrayBuffer => {
+  if (chunks.length === 1) return chunks[0]!;
+  const out = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(new Uint8Array(chunk), offset);
+    offset += chunk.byteLength;
+  }
+  return out.buffer;
+};
 
 const audioEventToPcm16 = (
   data: string | Float32Array | Int16Array | number[],

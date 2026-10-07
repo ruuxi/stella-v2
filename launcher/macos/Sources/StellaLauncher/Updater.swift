@@ -28,9 +28,9 @@ enum InstanceLock {
 /// Keeps the launcher itself current. CI publishes every launcher build to
 /// R2 launcher/stable/ with its run number in `VERSION`; a newer one is
 /// downloaded, checked (sha256, Developer ID, `--version`) and moved into
-/// the running bundle's place on disk, so it takes over at the next start:
-/// the next time the user opens Stella, or right away when Electron restarts
-/// for an app update. All of it runs in the background and only logs.
+/// the running bundle's place on disk. The first check runs as the launcher
+/// opens; Start waits for it and hands over to the new launcher, and a later
+/// one takes over when Electron restarts for an app update.
 final class LauncherUpdater {
     static let defaultBase = "\(Deployment.releasesURL)/launcher/stable"
     static let asset = "Stella-macos.zip"
@@ -54,6 +54,18 @@ final class LauncherUpdater {
     private var staged: Int?
     /// Queue only: the bundle can't be replaced, so this run stops checking.
     private var stopped = false
+    private let firstCheck = DispatchGroup()
+    private var firstOutcome: CheckOutcome?
+    private var progressHandler: ((String, Double, Double) -> Void)?
+    private var lastProgress: (String, Double, Double)?
+
+    enum CheckOutcome {
+        case off
+        case current
+        case staged(Int)
+        case failed(String)
+        case timedOut
+    }
 
     private var work: URL { paths.root.appendingPathComponent("launcher-update") }
     private var previousDir: URL { paths.root.appendingPathComponent("launcher-previous") }
@@ -87,9 +99,35 @@ final class LauncherUpdater {
             log("update: off (version \(Self.ownVersion))")
             return
         }
-        let delay = Options.seconds("STELLA_LAUNCHER_UPDATE_DELAY_SECONDS", 60)
+        let delay = Options.seconds("STELLA_LAUNCHER_UPDATE_DELAY_SECONDS", 0)
         log("update: version \(Self.ownVersion); checking \(base) in \(Int(delay))s, then every \(Int(Self.interval / 3600))h")
+        firstCheck.enter()
         schedule(after: delay)
+    }
+
+    func waitForFirstCheck(timeout: TimeInterval, progress: @escaping (String, Double, Double) -> Void) -> CheckOutcome {
+        guard base != nil else { return .off }
+        lock.lock()
+        let replay = lastProgress
+        progressHandler = progress
+        lock.unlock()
+        if let replay { progress(replay.0, replay.1, replay.2) }
+        let finished = firstCheck.wait(timeout: .now() + timeout) == .success
+        lock.lock()
+        progressHandler = nil
+        let outcome = firstOutcome
+        lock.unlock()
+        guard finished, let outcome else { return .timedOut }
+        if case .current = outcome, let staged = stagedVersion { return .staged(staged) }
+        return outcome
+    }
+
+    private func report(_ status: String, _ from: Double, _ to: Double) {
+        lock.lock()
+        lastProgress = (status, from, to)
+        let handler = progressHandler
+        lock.unlock()
+        handler?(status, from, to)
     }
 
     /// Stella started and became ready under this launcher: the bundle it
@@ -110,28 +148,33 @@ final class LauncherUpdater {
     // MARK: Checking
 
     private func schedule(after delay: TimeInterval) {
-        // Wall time, so a sleeping Mac still checks every 6 hours of the clock.
         queue.asyncAfter(wallDeadline: .now() + delay) { [self] in
-            check()
+            let outcome = check()
+            lock.lock()
+            let first = firstOutcome == nil
+            if first { firstOutcome = outcome }
+            lastProgress = nil
+            lock.unlock()
+            if first { firstCheck.leave() }
             if !stopped { schedule(after: Self.interval) }
         }
     }
 
-    private func check() {
-        guard let base else { return }
+    private func check() -> CheckOutcome {
+        guard let base else { return .off }
         let fm = FileManager.default
         let bundle = Bundle.main.bundleURL
         guard bundle.pathExtension == "app" else {
             log("update: not running from an app bundle (\(bundle.path)); not updating")
             stopped = true
-            return
+            return .off
         }
         guard fm.isWritableFile(atPath: bundle.path),
               fm.isWritableFile(atPath: bundle.deletingLastPathComponent().path)
         else {
             log("update: \(bundle.path) is not writable; not updating this run")
             stopped = true
-            return
+            return .off
         }
 
         log("update: checking")
@@ -140,9 +183,10 @@ final class LauncherUpdater {
             let current = max(Self.ownVersion, stagedVersion ?? 0)
             guard latest > current else {
                 log("update: up to date (latest \(latest), have \(current))")
-                return
+                return .current
             }
             log("update: \(latest) available")
+            report("Downloading the update…", 0.05, 0.6)
             try? fm.removeItem(at: work)
             try fm.createDirectory(at: work, withIntermediateDirectories: true)
             defer { try? fm.removeItem(at: work) }
@@ -152,6 +196,7 @@ final class LauncherUpdater {
             let zip = work.appendingPathComponent(Self.asset)
             try Net.download(zipURL, to: zip, sha256: sha)
             log("update: downloaded \(latest) (sha256 \(sha.prefix(12)))")
+            report("Installing the update…", 0.6, 0.85)
             let unpacked = work.appendingPathComponent("unpacked")
             let unzip = try Shell.run("/usr/bin/ditto", ["-x", "-k", zip.path, unpacked.path], env: Self.toolEnv, timeout: 300)
             guard unzip.code == 0 else { throw LauncherError("could not unpack \(Self.asset): \(Self.trim(unzip.stderr))") }
@@ -160,13 +205,17 @@ final class LauncherUpdater {
 
             try verify(app, version: latest)
             log("update: verified \(latest)")
+            report("Installing the update…", 0.85, 0.95)
             try stage(app, version: latest, at: bundle)
             log("update: staged \(latest) at \(bundle.path); the previous launcher is in \(previousDir.path)")
+            return .staged(latest)
         } catch let error as StageRefused {
             log("update: \(error.description); not updating this run")
             stopped = true
+            return .failed(error.description)
         } catch {
             log("update: failed: \(error)")
+            return .failed("\(error)")
         }
     }
 
@@ -261,12 +310,12 @@ final class LauncherUpdater {
     /// disk: open it with `--start` (and the held frame, so the update hold
     /// carries over) and let it take over. True once the new launcher is
     /// running or owns the lock; false to restart Stella with this launcher.
-    func handOver(to version: Int, hold: [String: Any]?) -> Bool {
+    func handOver(to version: Int, hold: [String: Any]?, showWindow: Bool = false) -> Bool {
         lock.lock()
         defer { lock.unlock() }
         log("update: handing over to \(version)")
         let bundle = Bundle.main.bundleURL
-        var args = ["--start"]
+        var args = showWindow ? ["--start", "--show"] : ["--start"]
         if let hold, JSONSerialization.isValidJSONObject(hold),
            let data = try? JSONSerialization.data(withJSONObject: hold),
            (try? data.write(to: holdFile, options: .atomic)) != nil {

@@ -6,6 +6,7 @@ struct Options {
     /// `--start`: start Stella right away, window hidden (a launcher taking
     /// over after an update). Slow steps still bring the window up.
     var startNow = false
+    var showWindow = false
     /// The update hold the previous launcher was showing, to keep on screen.
     var holdWindow: URL?
     /// A local path or git URL to clone instead of the upstream bootstrap.
@@ -88,7 +89,7 @@ final class Launcher {
         ui.onShutdown = { [weak self] in self?.current?.events.post(.timer("shutdown")) }
         updater.start()
         let facts = installFacts()
-        ui.update(show: options.startNow ? .keep : .front) { [startNow = options.startNow] in
+        ui.update(show: options.startNow && !options.showWindow ? .keep : .front) { [startNow = options.startNow] in
             $0.phase = startNow ? .starting : .idle
             $0.version = facts.version
             $0.hasKnownGood = facts.hasKnownGood
@@ -106,7 +107,7 @@ final class Launcher {
             case .close:
                 return closeCode
             case .start:
-                break
+                if !options.startNow || recoveryCount > 0 { updateBeforeStart() }
             case .returnToKnownGood:
                 do { try returnToKnownGood() } catch { log("recovery: return failed: \(error)") }
             case .reinstall:
@@ -120,6 +121,48 @@ final class Launcher {
             recover(reason: failure.reason, output: failure.output)
         }
         return 1
+    }
+
+    private func updateBeforeStart() {
+        let progress: (String, Double, Double) -> Void = { [ui] status, from, to in
+            ui.update(show: .reveal) {
+                $0.phase = .starting
+                $0.status = status
+                $0.progress = from
+                $0.progressTo = to
+            }
+        }
+        var outcome = updater.waitForFirstCheck(timeout: 0.5, progress: progress)
+        if case .timedOut = outcome {
+            progress("Checking for updates…", 0, 0.05)
+            outcome = updater.waitForFirstCheck(timeout: 120, progress: progress)
+        }
+        switch outcome {
+        case .off, .current:
+            return
+        case let .staged(version):
+            progress("Starting the updated Stella…", 0.95, 1)
+            if updater.handOver(to: version, hold: nil, showWindow: true) {
+                log("launcher: exit 0 (handed over to \(version) at Start)")
+                exit(0)
+            }
+            fallBack("Update failed. Starting the current version…")
+        case .failed:
+            fallBack("Couldn't update. Starting the current version…")
+        case .timedOut:
+            fallBack("Update is slow. Starting the current version…")
+        }
+    }
+
+    private func fallBack(_ message: String) {
+        log("launcher: \(message)")
+        ui.update(show: .reveal) {
+            $0.phase = .starting
+            $0.status = message
+            $0.progress = 0
+            $0.progressTo = 0.05
+        }
+        Thread.sleep(forTimeInterval: 2.5)
     }
 
     /// Prepare, spawn and supervise until Stella quits (nil) or can't keep

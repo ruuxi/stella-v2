@@ -453,6 +453,7 @@ static double env_seconds(const char *name, double fallback) {
 typedef struct {
     int self_test;
     int start;           /* --start: start right away, without waiting for Start */
+    int show;
     char *source;        /* a local path or git URL instead of the upstream bootstrap */
     char *source_ref;
     char *backend;
@@ -467,7 +468,7 @@ typedef struct {
 static Options O;
 
 static const char *USAGE =
-    "usage: stella-launcher [--start] [--version] [--self-test] [--source <path|git url>]\n"
+    "usage: stella-launcher [--start [--show]] [--version] [--self-test] [--source <path|git url>]\n"
     "                       [--source-ref <ref>] [--backend <url>] [--bun <path>] [--hold <seconds>]\n"
     "                       [--recovery-choice return|retry|quit] [--capture-dir <dir>]\n"
     "\n"
@@ -487,6 +488,7 @@ static void parse_options(int argc, char **argv) {
 #define VALUE() (i + 1 < argc ? argv[++i] : (fprintf(stderr, "%s needs a value\n%s", a, USAGE), exit(64), (char *)NULL))
         if (!strcmp(a, "--self-test")) O.self_test = 1;
         else if (!strcmp(a, "--start")) O.start = 1;
+        else if (!strcmp(a, "--show")) O.show = 1;
         else if (!strcmp(a, "--source")) O.source = xstrdup(VALUE());
         else if (!strcmp(a, "--source-ref")) O.source_ref = xstrdup(VALUE());
         else if (!strcmp(a, "--backend")) { free(O.backend); O.backend = xstrdup(VALUE()); }
@@ -2610,20 +2612,37 @@ static int return_to_known_good(void) {
 /* ---------------------------------------------------------------- update */
 
 /*
- * The launcher updates itself: about a minute after start and then every six
- * hours it reads launcher/stable/VERSION (CI's run number; LAUNCHER_VERSION is
+ * The launcher updates itself: as it starts and then every six hours it reads
+ * launcher/stable/VERSION (CI's run number; LAUNCHER_VERSION is
  * this build's, 0 for a local build, which never updates). A higher one is
  * downloaded, checked against SHA256SUMS, made to run `--version` (which also
- * proves it finds its libraries) and renamed over bin/stella-launcher: the
- * next start runs it. When Electron restarts for an app update, the running
- * launcher hands over to it then (execv), so a launcher that is never quit
- * still updates. Linux builds aren't code-signed; HTTPS and the published
- * checksum are what install.sh trusts too.
+ * proves it finds its libraries) and renamed over bin/stella-launcher. Start
+ * waits for the first check and hands over to a new one (execv); when
+ * Electron restarts for an app update, a later one takes over then, so a
+ * launcher that is never quit still updates. Linux builds aren't code-signed;
+ * HTTPS and the published checksum are what install.sh trusts too.
  */
 
 #define UPDATE_BASE_URL RELEASES_URL "/launcher/stable"
 
 static volatile int g_staged_version;
+
+typedef enum { CHECK_PENDING, CHECK_OFF, CHECK_CURRENT, CHECK_STAGED, CHECK_FAILED } CheckResult;
+
+static GMutex g_update_lock;
+static CheckResult g_first_check = CHECK_OFF;
+static const char *g_update_status;
+static double g_update_from, g_update_to;
+static unsigned g_update_seq;
+
+static void update_report(const char *status, double from, double to) {
+    g_mutex_lock(&g_update_lock);
+    g_update_status = status;
+    g_update_from = from;
+    g_update_to = to;
+    g_update_seq++;
+    g_mutex_unlock(&g_update_lock);
+}
 
 static const char *update_asset(void) {
 #if defined(__aarch64__)
@@ -2689,11 +2708,12 @@ static char *sum_for(const char *sums, const char *name) {
     return NULL;
 }
 
-static void update_check(const char *base) {
+static CheckResult update_check(const char *base) {
     char *url = xasprintf("%s/VERSION", base), *text = fetch_text(url), *end;
     long published = text ? strtol(text, &end, 10) : -1;
     char *sums = NULL, *sum = NULL, *staged = NULL, *installed = NULL;
     int probed;
+    CheckResult result = CHECK_FAILED;
     free(url);
     if (!text || end == text || published <= 0) {
         LOG("update: no published version (%s)", text ? text : "unreachable");
@@ -2701,9 +2721,11 @@ static void update_check(const char *base) {
     }
     if (published <= LAUNCHER_VERSION || published <= g_staged_version) {
         LOG("update: %ld is current", published);
+        result = CHECK_CURRENT;
         goto out;
     }
     LOG("update: %ld available (running %d)", published, LAUNCHER_VERSION);
+    update_report("Downloading the update…", 0.05, 0.7);
     url = xasprintf("%s/SHA256SUMS", base);
     sums = fetch_text(url);
     free(url);
@@ -2722,6 +2744,7 @@ static void update_check(const char *base) {
     }
     free(url);
     chmod(staged, 0755);
+    update_report("Installing the update…", 0.7, 0.95);
     probed = probe_version(staged);
     if (probed != (int)published) {
         LOG("update: the download reports version %d, not %ld; discarded", probed, published);
@@ -2736,22 +2759,29 @@ static void update_check(const char *base) {
         goto out;
     }
     g_staged_version = (int)published;
-    LOG("update: staged %ld at %s; it runs from the next start", published, installed);
+    result = CHECK_STAGED;
+    LOG("update: staged %ld at %s", published, installed);
 out:
     free(text);
     free(sums);
     free(sum);
     free(staged);
     free(installed);
+    return result;
 }
 
 static gpointer updater(gpointer data) {
     const char *base = data;
-    unsigned delay = (unsigned)env_seconds("STELLA_LAUNCHER_UPDATE_DELAY_SECONDS", 60);
-    sleep(delay);
+    unsigned delay = (unsigned)env_seconds("STELLA_LAUNCHER_UPDATE_DELAY_SECONDS", 0);
+    if (delay) sleep(delay);
     for (;;) {
+        CheckResult result;
         LOG("update: checking %s", base);
-        update_check(base);
+        result = update_check(base);
+        g_mutex_lock(&g_update_lock);
+        if (g_first_check == CHECK_PENDING) g_first_check = result;
+        g_update_status = NULL;
+        g_mutex_unlock(&g_update_lock);
         sleep(6 * 60 * 60);
     }
     return NULL;
@@ -2762,21 +2792,70 @@ static void updater_start(void) {
     const char *url = getenv("STELLA_LAUNCHER_UPDATE_URL");
     int custom = url && *url;
     if (LAUNCHER_VERSION <= 0 || O.self_test || (P.isolated && !custom)) return;
+    g_first_check = CHECK_PENDING;
     g_thread_new("update", updater, xstrdup(custom ? url : UPDATE_BASE_URL));
 }
 
-/* An app update restarts Stella; a newer launcher takes over then. Returns only if it can't. */
-static void hand_over_if_updated(void) {
+static CheckResult wait_first_check(double timeout) {
+    double deadline = now_seconds() + timeout;
+    unsigned seen = 0;
+    for (;;) {
+        CheckResult result;
+        const char *status;
+        double from, to;
+        unsigned seq;
+        g_mutex_lock(&g_update_lock);
+        result = g_first_check;
+        status = g_update_status;
+        from = g_update_from;
+        to = g_update_to;
+        seq = g_update_seq;
+        g_mutex_unlock(&g_update_lock);
+        if (status && seq != seen) {
+            seen = seq;
+            progress_show(status, from, to);
+        }
+        if (result != CHECK_PENDING || now_seconds() >= deadline) return result;
+        g_usleep(100000);
+    }
+}
+
+/* A newer launcher is installed: it takes over. Returns only if it can't. */
+static void hand_over_if_updated(int show) {
     char *installed;
     if (g_staged_version <= LAUNCHER_VERSION) return;
     installed = installed_launcher();
     LOG("update: handing over to %d", g_staged_version);
     {
-        char *argv[] = {installed, "--start", NULL};
+        char *argv[] = {installed, "--start", show ? "--show" : NULL, NULL};
         execv(installed, argv);
     }
     LOG("update: could not start %s: %s", installed, strerror(errno));
     free(installed);
+}
+
+static void fall_back(const char *message) {
+    LOG("launcher: %s", message);
+    progress_show(message, 0, 0.05);
+    g_usleep(2500000);
+}
+
+/* Start: the first update check finishes, and a newer launcher starts Stella instead. */
+static void update_before_start(void) {
+    CheckResult result = wait_first_check(0.5);
+    if (result == CHECK_PENDING) {
+        progress_show("Checking for updates…", 0, 0.05);
+        result = wait_first_check(120);
+    }
+    if (g_staged_version > LAUNCHER_VERSION) {
+        progress_show("Starting the updated Stella…", 0.95, 1);
+        hand_over_if_updated(1);
+        fall_back("Update failed. Starting the current version…");
+    } else if (result == CHECK_FAILED) {
+        fall_back("Couldn't update. Starting the current version…");
+    } else if (result == CHECK_PENDING) {
+        fall_back("Update is slow. Starting the current version…");
+    }
 }
 
 /* ---------------------------------------------------------------- launcher */
@@ -2877,9 +2956,11 @@ static int launcher_run(void) {
     double crash_times[8];
     int crash_count = 0;
     Command command = g_ui && !O.start ? CMD_NONE : CMD_START;
+    int check_update = !O.start;
     char *reason = NULL;
     StrList output = {0};
     LOG("launcher: start version=%d root=%s selfTest=%d pid=%d", LAUNCHER_VERSION, P.root, O.self_test, (int)getpid());
+    if (O.start && O.show) progress_show("Starting Stella…", 0, 0.05);
     if (ensure_git() == 0) ui_refresh_version();
     if (O.self_test && g_ui) {
         /* The window as the user first sees it, then Start. */
@@ -2897,6 +2978,7 @@ static int launcher_run(void) {
                 ui_show();
             }
             command = ui_wait_command();
+            check_update = 1;
             LOG("launcher: the window asks for %s",
                 command == CMD_START ? "start" : command == CMD_RETURN ? "return" :
                 command == CMD_REINSTALL ? "reinstall" : "quit");
@@ -2918,7 +3000,9 @@ static int launcher_run(void) {
             if (reinstall() != 0) LOG("recovery: reinstall failed: %s", last_error());
         } else {
             ui_step("Starting Stella…", 0, 0.05);
+            if (check_update) update_before_start();
         }
+        check_update = 0;
         command = CMD_NONE;
 
         electron = prepare_for_launch();
@@ -2938,7 +3022,7 @@ static int launcher_run(void) {
                 LOG("launcher: relaunch requested");
                 sl_free(&outcome.output);
                 free(outcome.detail);
-                hand_over_if_updated();
+                hand_over_if_updated(0);
                 command = CMD_START;
                 continue;
             case OUT_CRASHED: {

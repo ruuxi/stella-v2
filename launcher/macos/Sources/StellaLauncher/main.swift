@@ -10,12 +10,13 @@ if CommandLine.arguments.dropFirst().contains("--version") {
 }
 
 let usage = """
-usage: StellaLauncher [--start] [--version] [--self-test] [--source <path|git url>]
+usage: StellaLauncher [--start [--show]] [--version] [--self-test] [--source <path|git url>]
                       [--source-ref <ref>] [--backend <url>] [--bun <path>] [--hold <seconds>]
                       [--recovery-choice return|retry|quit] [--capture-dir <dir>]
 
 --start starts Stella right away with the window hidden (a launcher taking
-over after an update); --version prints the launcher's build number.
+over after an update), and --show keeps the window up while it does;
+--version prints the launcher's build number.
 
 Environment: STELLA_LAUNCHER_ROOT (install root, for testing),
 STELLA_LAUNCHER_KEY_FILE (0600 PEM instead of the keychain),
@@ -41,6 +42,7 @@ func parseOptions() -> Options {
         switch arg {
         case "--self-test": options.selfTest = true
         case "--start": options.startNow = true
+        case "--show": options.showWindow = true
         case "--hold-window": options.holdWindow = URL(fileURLWithPath: value(arg))
         case "--source": options.source = value(arg)
         case "--source-ref": options.sourceRef = value(arg)

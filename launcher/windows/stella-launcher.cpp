@@ -17,7 +17,7 @@
 //
 // The launcher updates itself from launcher/stable/ on R2 (see "update"):
 // a newer Stella.exe is verified and renamed over the installed copy, and
-// takes over at the next start or the next app update.
+// takes over when Start is pressed or at the next app update.
 //
 // WinHTTP downloads, BCrypt SHA-256 and ECDSA P-256, DPAPI for the key,
 // WinVerifyTrust for the launcher's own updates, tar.exe for zips. The
@@ -442,6 +442,7 @@ static double envSeconds(const wchar_t *name, double fallback) {
 struct Options {
     bool selfTest = false;
     bool start = false;      // start right away, without waiting for Start
+    bool show = false;
     DWORD after = 0;         // wait for this launcher (handing over) to exit first
     bool backendArg = false; // --backend was given (passed on at a handover)
     string source;      // a local path or git URL instead of the upstream bootstrap
@@ -461,7 +462,7 @@ static const char *kUsage =
     "usage: Stella.exe [--self-test] [--source <path|git url>] [--source-ref <ref>]\n"
     "                  [--backend <url>] [--bun <path>] [--hold <seconds>]\n"
     "                  [--recovery-choice return|retry|quit] [--capture-dir <dir>]\n"
-    "                  [--start] [--after <pid>]\n"
+    "                  [--start [--show]] [--after <pid>]\n"
     "       Stella.exe --version\n"
     "\n"
     "Environment: STELLA_LAUNCHER_ROOT (install root, for testing),\n"
@@ -491,6 +492,7 @@ static void parseOptions() {
         else if (a == L"--source-ref") O.sourceRef = utf8(value());
         else if (a == L"--backend") { O.backend = value(); O.backendArg = true; }
         else if (a == L"--start") O.start = true;
+        else if (a == L"--show") O.show = true;
         else if (a == L"--after") O.after = wcstoul(value().c_str(), nullptr, 10);
         else if (a == L"--bun") O.localBun = value();
         else if (a == L"--hold") O.hold = _wtof(value().c_str());
@@ -2468,16 +2470,33 @@ static void installSelf() {
 
 // The launcher updates itself from launcher/stable/ (CI's publish uploads
 // Stella.exe and SHA256SUMS, then VERSION, the build number). A background
-// thread checks VERSION a minute after start and every 6 hours; a newer build
+// thread checks VERSION as the launcher starts and every 6 hours; a newer build
 // is downloaded to Stella.exe.update, checked against SHA256SUMS, its
 // Authenticode signature (FromYou, LLC) and `--version`, and renamed over the
 // installed copy (a running exe can be renamed but not overwritten, so the
-// installed one moves to Stella.exe.old first). It takes over at the next
-// start, or when Electron exits for an app update (see handOverToUpdate).
-// Failures are logged and retried at the next check.
+// installed one moves to Stella.exe.old first). Start waits for the first
+// check and hands over to a new build; a later one takes over when Electron
+// exits for an app update (see handOverToUpdate). Failures are logged and
+// retried at the next check.
 
 static std::mutex gUpdateLock;                // staging and handing over
 static unsigned long long gStagedVersion = 0;  // under gUpdateLock
+
+enum class CheckResult { Off, Pending, Current, Staged, Failed };
+
+static std::mutex gCheckLock;
+static CheckResult gFirstCheck = CheckResult::Off;
+static string gCheckStatus;
+static double gCheckFrom = 0, gCheckTo = 0;
+static unsigned gCheckSeq = 0;
+
+static void reportUpdate(const string &status, double from, double to) {
+    std::lock_guard<std::mutex> lock(gCheckLock);
+    gCheckStatus = status;
+    gCheckFrom = from;
+    gCheckTo = to;
+    gCheckSeq++;
+}
 
 // `sha256sum` output: "<hex>  <name>", or "<hex> *<name>" in binary mode.
 static string checksumFor(const string &sums, const string &name) {
@@ -2547,7 +2566,7 @@ static void stageUpdate(const wstring &update, unsigned long long version) {
     LOG("update: staged %llu at %s", version, utf8(installed).c_str());
 }
 
-static void checkForUpdate(const wstring &base, bool skipSignature) {
+static CheckResult checkForUpdate(const wstring &base, bool skipSignature) {
     LOG("update: checking %s/VERSION (this is %llu)", utf8(base).c_str(), kLauncherVersion);
     HttpResponse r = http(base + L"/VERSION", L"GET", string(), L"");
     if (r.status != 200) fail(format("VERSION returned HTTP %lu", r.status));
@@ -2559,9 +2578,10 @@ static void checkForUpdate(const wstring &base, bool skipSignature) {
     }
     if (available <= kLauncherVersion || available <= staged) {
         LOG("update: up to date (available %llu%s)", available, staged ? format(", staged %llu", staged).c_str() : "");
-        return;
+        return CheckResult::Current;
     }
     LOG("update: %llu available", available);
+    reportUpdate("Downloading the update…", 0.05, 0.7);
     r = http(base + L"/SHA256SUMS", L"GET", string(), L"");
     if (r.status != 200) fail(format("SHA256SUMS returned HTTP %lu", r.status));
     string expected = checksumFor(r.body, "Stella.exe");
@@ -2577,6 +2597,7 @@ static void checkForUpdate(const wstring &base, bool skipSignature) {
         string actual = sha256File(update);
         if (_stricmp(actual.c_str(), expected.c_str()) != 0)
             fail("Stella.exe's sha256 is " + actual + ", SHA256SUMS says " + expected);
+        reportUpdate("Installing the update…", 0.7, 0.95);
         if (skipSignature) LOG("update: not checking the signature (STELLA_LAUNCHER_UPDATE_SKIP_SIGNATURE)");
         else verifySigner(update);
         // It must run, and be the build VERSION promised.
@@ -2592,6 +2613,7 @@ static void checkForUpdate(const wstring &base, bool skipSignature) {
         DeleteFileW(update.c_str());
         throw;
     }
+    return CheckResult::Staged;
 }
 
 // Checks run on their own thread and never touch the UI or Electron. Off for
@@ -2607,17 +2629,24 @@ static void startUpdateChecks() {
     if (!overridden) base = kDefaultUpdateURL;
     while (!base.empty() && base.back() == L'/') base.pop_back();
     bool skipSignature = overridden && trim(utf8(envVar(L"STELLA_LAUNCHER_UPDATE_SKIP_SIGNATURE"))) == "1";
-    double delay = envSeconds(L"STELLA_LAUNCHER_UPDATE_DELAY_SECONDS", 60);
+    double delay = envSeconds(L"STELLA_LAUNCHER_UPDATE_DELAY_SECONDS", 0);
+    gFirstCheck = CheckResult::Pending;
     std::thread([base, skipSignature, delay]() {
         CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-        Sleep((DWORD)(delay * 1000));
+        if (delay > 0) Sleep((DWORD)(delay * 1000));
         for (;;) {
+            CheckResult result = CheckResult::Failed;
             try {
-                checkForUpdate(base, skipSignature);
+                result = checkForUpdate(base, skipSignature);
             } catch (const LauncherError &e) {
                 LOG("update: failed: %s", e.message.c_str());
             } catch (const std::exception &e) {
                 LOG("update: failed: %s", e.what());
+            }
+            {
+                std::lock_guard<std::mutex> lock(gCheckLock);
+                if (gFirstCheck == CheckResult::Pending) gFirstCheck = result;
+                gCheckStatus.clear();
             }
             Sleep(kUpdateIntervalMs);
         }
@@ -2628,11 +2657,12 @@ static void startUpdateChecks() {
 // (--start, so it goes straight to Electron; --after, so it takes the
 // single-instance lock only once this process is gone) and let it take over.
 // False: relaunch Electron here as before.
-static bool handOverToUpdate() {
+static bool handOverToUpdate(bool show = false) {
     std::lock_guard<std::mutex> lock(gUpdateLock);
     if (gStagedVersion <= kLauncherVersion) return false;
     wstring exe = installedLauncher();
     vector<wstring> argv = {exe, L"--start", L"--after", std::to_wstring(GetCurrentProcessId())};
+    if (show) argv.push_back(L"--show");
     if (O.backendArg) {
         argv.push_back(L"--backend");
         argv.push_back(O.backend);
@@ -2653,6 +2683,60 @@ static bool handOverToUpdate() {
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
     return true;
+}
+
+static bool hasStagedUpdate() {
+    std::lock_guard<std::mutex> lock(gUpdateLock);
+    return gStagedVersion > kLauncherVersion;
+}
+
+static CheckResult waitForFirstCheck(double timeout) {
+    ULONGLONG deadline = GetTickCount64() + (ULONGLONG)(timeout * 1000);
+    unsigned seen = 0;
+    for (;;) {
+        CheckResult result;
+        string status;
+        double from, to;
+        unsigned seq;
+        {
+            std::lock_guard<std::mutex> lock(gCheckLock);
+            result = gFirstCheck;
+            status = gCheckStatus;
+            from = gCheckFrom;
+            to = gCheckTo;
+            seq = gCheckSeq;
+        }
+        if (!status.empty() && seq != seen) {
+            seen = seq;
+            progress(status, from, to);
+        }
+        if (result != CheckResult::Pending || GetTickCount64() >= deadline) return result;
+        Sleep(100);
+    }
+}
+
+static void fallBack(const string &message) {
+    LOG("launcher: %s", message.c_str());
+    progress(message, 0, 0.05);
+    Sleep(2500);
+}
+
+static bool updateBeforeStart() {
+    CheckResult result = waitForFirstCheck(0.5);
+    if (result == CheckResult::Pending) {
+        progress("Checking for updates…", 0, 0.05);
+        result = waitForFirstCheck(120);
+    }
+    if (hasStagedUpdate()) {
+        progress("Starting the updated Stella…", 0.95, 1);
+        if (handOverToUpdate(true)) return true;
+        fallBack("Update failed. Starting the current version…");
+    } else if (result == CheckResult::Failed) {
+        fallBack("Couldn't update. Starting the current version…");
+    } else if (result == CheckResult::Pending) {
+        fallBack("Update is slow. Starting the current version…");
+    }
+    return false;
 }
 
 // --version: the build number on stdout (the updater's probe passes pipes;
@@ -3397,8 +3481,10 @@ static int run() {
     // Nothing starts until the user presses Start (the self-test presses it),
     // except with --start (a launcher update taking over), which goes
     // straight on with the window hidden, like a relaunch.
+    if (O.start && O.show) gUi->starting("Starting Stella…", 0, 0.05, true);
     Choice next = O.start ? Choice::Retry : gUi->idle();
     if (next == Choice::Quit || next == Choice::None) return 0;
+    bool checkUpdate = !O.start;
     vector<ULONGLONG> crashTimes;
     for (;;) {
         bool failed = false;
@@ -3420,6 +3506,13 @@ static int run() {
             // Relaunches and the crash restart stay hidden; the heavy steps
             // in prepareForLaunch bring the window up.
             gUi->starting("Starting Stella…", 0, 0.05, false);
+            if (checkUpdate) {
+                checkUpdate = false;
+                if (updateBeforeStart()) {
+                    LOG("launcher: handed over to the update at Start");
+                    return 0;
+                }
+            }
             wstring electron = prepareForLaunch();
             gUi->starting("Starting Stella…", 0.94, 1, false);
             Outcome outcome = supervise(electron);
@@ -3470,6 +3563,7 @@ static int run() {
         LOG("launcher: failure: %s", reason.c_str());
         next = recover(reason, output);
         if (next == Choice::Quit || next == Choice::None) return 1;
+        checkUpdate = next == Choice::Retry;
     }
 }
 

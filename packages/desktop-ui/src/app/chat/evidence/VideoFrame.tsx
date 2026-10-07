@@ -1,11 +1,10 @@
 import { useCallback, useRef, useState } from "react";
 import { Play } from "@/ui/icons";
-import { useMediaObjectUrl } from "@/features/chat/hooks/use-media-object-url";
+import { localMediaUrl } from "@/shared/hooks/local-media-url";
 
 export const VideoFrame = ({
   poster,
   filePath,
-  mimeType,
   durationMs,
   title,
 }: {
@@ -19,7 +18,7 @@ export const VideoFrame = ({
   const [playing, setPlaying] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const boundsRef = useRef<{ left: number; width: number } | null>(null);
-  const objectUrl = useMediaObjectUrl(filePath, mimeType, engaged);
+  const streamUrl = localMediaUrl(filePath);
 
   const scrub = useCallback(
     (clientX: number) => {
@@ -73,11 +72,11 @@ export const VideoFrame = ({
       ) : (
         <div className="evidence-video__poster evidence-video__poster--blank" />
       )}
-      {engaged && objectUrl ? (
+      {engaged ? (
         <video
           ref={videoRef}
           className="evidence-video__player"
-          src={objectUrl}
+          src={streamUrl}
           muted
           playsInline
           preload="auto"

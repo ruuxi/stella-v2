@@ -10,22 +10,33 @@ export type EvidenceCardKind =
   | "bundle"
   | "plain";
 
-export const EVIDENCE_CARD_HEIGHT: Record<EvidenceCardKind, number> = {
-  image: 132,
-  "image-pair": 132,
-  video: 132,
-  page: 132,
-  document: 132,
-  stack: 132,
-  table: 104,
-  audio: 84,
-  bundle: 72,
-  plain: 72,
+export const EVIDENCE_MEDIA_KINDS: readonly EvidenceCardKind[] = [
+  "image",
+  "image-pair",
+  "video",
+  "audio",
+  "stack",
+];
+
+export const isEvidenceMediaKind = (kind: EvidenceCardKind): boolean =>
+  EVIDENCE_MEDIA_KINDS.includes(kind);
+
+export const EVIDENCE_TILE_HEIGHT = 132;
+
+export const EVIDENCE_TILE_WIDTH: Record<EvidenceCardKind, number> = {
+  image: 176,
+  "image-pair": 232,
+  video: 176,
+  stack: 176,
+  audio: 248,
+  page: 176,
+  document: 176,
+  table: 176,
+  bundle: 176,
+  plain: 176,
 };
 
-export const EVIDENCE_RAIL_WIDTH = 250;
-export const EVIDENCE_RAIL_MIN_VIEWPORT = 880;
-export const EVIDENCE_CARD_CAP = 6;
+export const EVIDENCE_CARD_CAP = 10;
 export const EVIDENCE_PEAK_COUNT = 200;
 export const EVIDENCE_RASTER_SCALE = 2;
 
@@ -52,7 +63,6 @@ export type EvidenceCard = {
   kind: EvidenceCardKind;
   title: string;
   subtitle?: string;
-  height: number;
   sourcePaths: string[];
   thumbnail?: string;
   thumbnailAfter?: string;

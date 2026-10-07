@@ -51,7 +51,7 @@ import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
 import { OfficePreviewCard } from "@/app/chat/OfficePreviewCard";
 import { BackgroundWorkCard } from "@/app/chat/BackgroundWorkCard";
 import { FilePills } from "@/app/chat/FilePills";
-import { MessageEvidence } from "@/app/chat/evidence/MessageEvidence";
+import { MessageAttachments } from "@/app/chat/evidence/MessageAttachments";
 import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
 import { AppPreviewCard } from "@/features/cloud/AppPreviewCard";
 import { extractStellaAppLinkSlugs } from "@stella/contracts/workspace-apps";
@@ -683,14 +683,15 @@ export const AssistantMessageRow = memo(
             // preambles render no control at all.
             <div className="message-line message-line--assistant">
               <div className="assistant-message-text chat-bubble-text">
-                <MessageEvidence text={text} filePaths={evidencePaths}>
-                  <Markdown text={text} cacheKey={row.cacheKey} hideHorizontalRules
-                    hiddenFilePaths={[
-                      ...(conversationId ? row.agentCompletion?.sections.slice(0, 3).flatMap((section) => section.files) ?? [] : []),
-                      ...(row.linkedFiles ?? []),
-                    ].map((file) => file.cloudDriveFile ? `cloud:${file.cloudDriveFile.path}` : `local:${file.path}`).concat(evidencePaths.map((filePath) => `local:${filePath}`))}
-                  />
-                </MessageEvidence>
+                <Markdown text={text} cacheKey={row.cacheKey} hideHorizontalRules
+                  hiddenFilePaths={[
+                    ...(conversationId ? row.agentCompletion?.sections.slice(0, 3).flatMap((section) => section.files) ?? [] : []),
+                    ...(row.linkedFiles ?? []),
+                  ].map((file) => file.cloudDriveFile ? `cloud:${file.cloudDriveFile.path}` : `local:${file.path}`).concat(evidencePaths.map((filePath) => `local:${filePath}`))}
+                />
+                {evidencePaths.length > 0 ? (
+                  <MessageAttachments filePaths={evidencePaths} />
+                ) : null}
               </div>
               {!row.isIntraTurn && (
                 <MessageActions

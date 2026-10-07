@@ -233,11 +233,19 @@ describe("owner fence SQLite store", () => {
     }
   });
 
-  test("rejects lease expiries beyond the configured bound", () => {
-    const store = openStore({ maxLeaseMs: 5_000 });
+  test("clamps expiries within clock skew and rejects the rest", () => {
+    const store = openStore({ maxLeaseMs: 5_000, clockSkewMs: 1_000 });
+    const clamped = store.registerLeaseExact(
+      registration("ahead-by-skew", { expiresAt: NOW + 5_001 }),
+      NOW,
+    );
+    expect(clamped.status).toBe("registered");
+    if (clamped.status === "registered") {
+      expect(clamped.lease.expiresAt).toBe(NOW + 5_000);
+    }
     expect(() =>
       store.registerLeaseExact(
-        registration("too-long", { expiresAt: NOW + 5_001 }),
+        registration("too-long", { expiresAt: NOW + 6_001 }),
         NOW,
       ),
     ).toThrow("expiresAt is out of bounds");

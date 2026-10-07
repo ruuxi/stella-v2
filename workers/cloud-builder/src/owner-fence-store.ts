@@ -8,6 +8,16 @@
 
 export const OWNER_FENCE_LEASE_SCHEMA_VERSION = 1;
 export const OWNER_FENCE_DEFAULT_MAX_LEASE_MS = 30 * 60_000;
+/**
+ * A caller derives `expiresAt` from its own clock, so a caller running ahead
+ * of this object would otherwise cross the maximum by exactly its skew. Leases
+ * requested within this much of the cap are clamped to the cap instead of
+ * rejected, which is what lets a caller ask for the full maximum TTL.
+ */
+export const OWNER_FENCE_CLOCK_SKEW_MS = 5 * 60_000;
+/** Retired leases are kept only long enough to answer a retried register. */
+export const OWNER_FENCE_RETIRED_RETENTION_MS = 2 * 60 * 60_000;
+export const OWNER_FENCE_RETIRED_PRUNE_LIMIT = 256;
 export const OWNER_FENCE_LEGACY_GRACE_MS = 60 * 60_000;
 export const OWNER_FENCE_LEGACY_MIRROR_MAX_ENTRIES = 512;
 
@@ -101,6 +111,7 @@ type OwnerFenceLeaseRow = {
 
 export type OwnerFenceStoreOptions = Readonly<{
   maxLeaseMs?: number;
+  clockSkewMs?: number;
   legacyGraceMs?: number;
   maxLegacyLeaseMs?: number;
 }>;
@@ -135,6 +146,8 @@ const DDL = [
    )`,
   `CREATE INDEX IF NOT EXISTS owner_fence_leases_by_expiry
      ON owner_fence_leases(state, expires_at)`,
+  `CREATE INDEX IF NOT EXISTS owner_fence_leases_by_retirement
+     ON owner_fence_leases(state, retired_at)`,
 ] as const;
 
 const NAMESPACES = new Set<OwnerFenceLeaseNamespace>([
@@ -215,6 +228,7 @@ const isConstraintError = (error: unknown): boolean =>
 
 export class OwnerFenceStore {
   readonly maxLeaseMs: number;
+  readonly clockSkewMs: number;
   readonly legacyGraceMs: number;
   readonly maxLegacyLeaseMs: number;
 
@@ -223,11 +237,13 @@ export class OwnerFenceStore {
     options: OwnerFenceStoreOptions = {},
   ) {
     this.maxLeaseMs = options.maxLeaseMs ?? OWNER_FENCE_DEFAULT_MAX_LEASE_MS;
+    this.clockSkewMs = options.clockSkewMs ?? OWNER_FENCE_CLOCK_SKEW_MS;
     this.legacyGraceMs = options.legacyGraceMs ?? OWNER_FENCE_LEGACY_GRACE_MS;
     this.maxLegacyLeaseMs =
       options.maxLegacyLeaseMs ?? OWNER_FENCE_LEGACY_GRACE_MS;
     for (const [field, value] of Object.entries({
       maxLeaseMs: this.maxLeaseMs,
+      clockSkewMs: this.clockSkewMs,
       legacyGraceMs: this.legacyGraceMs,
       maxLegacyLeaseMs: this.maxLegacyLeaseMs,
     })) {
@@ -310,7 +326,11 @@ export class OwnerFenceStore {
     maxLeaseMs: number,
   ): OwnerFenceLeaseRegistrationResult {
     assertIdentity(registration);
-    this.assertBoundedExpiry(registration.expiresAt, now, maxLeaseMs);
+    const expiresAt = this.boundedExpiry(
+      registration.expiresAt,
+      now,
+      maxLeaseMs,
+    );
     this.expireDueLeases(now);
     const existing = this.lease(registration.leaseId);
     if (existing) {
@@ -337,7 +357,7 @@ export class OwnerFenceStore {
         registration.turnId,
         registration.namespace,
         registration.role,
-        registration.expiresAt,
+        expiresAt,
         now,
         now,
       );
@@ -365,7 +385,7 @@ export class OwnerFenceStore {
     now = Date.now(),
   ): OwnerFenceLeaseMutationResult {
     assertIdentity(identity);
-    this.assertBoundedExpiry(expiresAt, now, this.maxLeaseMs);
+    const bounded = this.boundedExpiry(expiresAt, now, this.maxLeaseMs);
     const existing = this.lease(identity.leaseId);
     if (!existing) return { status: "missing" };
     if (!exactIdentityMatches(existing, identity)) {
@@ -382,7 +402,7 @@ export class OwnerFenceStore {
       `UPDATE owner_fence_leases
           SET expires_at = ?, renewed_at = ?
         WHERE lease_id = ? AND state = 'active'`,
-      expiresAt,
+      bounded,
       now,
       identity.leaseId,
     );
@@ -564,16 +584,52 @@ export class OwnerFenceStore {
     };
   }
 
-  private assertBoundedExpiry(
+  /**
+   * Delete retired leases that no retry can still refer to. Without this the
+   * table grows for the lifetime of the object: one production object held
+   * about 70,000 retired rows.
+   */
+  pruneRetiredLeases(
+    now = Date.now(),
+    retainMs = OWNER_FENCE_RETIRED_RETENTION_MS,
+    limit = OWNER_FENCE_RETIRED_PRUNE_LIMIT,
+  ): void {
+    assertSafeTime(now, "now");
+    if (!Number.isSafeInteger(retainMs) || retainMs < 1) {
+      throw new OwnerFenceLeaseValidationError("retainMs is invalid.");
+    }
+    if (!Number.isSafeInteger(limit) || limit < 1) {
+      throw new OwnerFenceLeaseValidationError("limit is invalid.");
+    }
+    this.sql.exec(
+      `DELETE FROM owner_fence_leases
+        WHERE lease_id IN (
+          SELECT lease_id FROM owner_fence_leases
+           WHERE state = 'retired' AND retired_at IS NOT NULL
+             AND retired_at <= ?
+           ORDER BY retired_at
+           LIMIT ?
+        )`,
+      now - retainMs,
+      limit,
+    );
+  }
+
+  /**
+   * Clamp a caller-derived expiry into this object's own bounds, tolerating a
+   * caller clock that runs ahead by up to the configured skew.
+   */
+  private boundedExpiry(
     expiresAt: number,
     now: number,
     maxLeaseMs: number,
-  ): void {
+  ): number {
     assertSafeTime(now, "now");
     assertSafeTime(expiresAt, "expiresAt");
-    if (expiresAt <= now || expiresAt > now + maxLeaseMs) {
+    if (expiresAt <= now || expiresAt > now + maxLeaseMs + this.clockSkewMs) {
       throw new OwnerFenceLeaseValidationError("expiresAt is out of bounds.");
     }
+    return Math.min(expiresAt, now + maxLeaseMs);
   }
 
   private retireExpired(lease: OwnerFenceLease, now: number): void {

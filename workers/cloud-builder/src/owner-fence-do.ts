@@ -278,6 +278,7 @@ class DurableObjectOwnerFenceHost implements OwnerFenceHost {
       }
       let result!: ReturnType<OwnerFenceStore["registerLeaseExact"]>;
       await this.ctx.storage.transaction(async (txn) => {
+        leaseStore.pruneRetiredLeases(now);
         result = leaseStore.registerLeaseExact(registration, now);
         if (result.status === "replayed") {
           const renewed = leaseStore.renewLeaseExact(
@@ -533,6 +534,7 @@ class DurableObjectOwnerFenceHost implements OwnerFenceHost {
     const store = new OwnerFenceStore(this.ctx.storage.sql);
     store.initialize(now);
     await this.ctx.storage.transaction(async (txn) => {
+      store.pruneRetiredLeases(now);
       store.expireDueLeases(now);
       const mirror = store.boundedLegacyActiveMirror(now);
       if (mirror.status !== "complete") {

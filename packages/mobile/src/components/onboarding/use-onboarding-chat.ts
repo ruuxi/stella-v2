@@ -6,7 +6,7 @@
  * resume, and the exit. Cards never touch persistence: they call `answer`
  * and this hook does the rest.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useReducedMotion } from "react-native-reanimated";
 import { useT } from "../../i18n";
 import { tapLight } from "../../lib/haptics";
@@ -57,11 +57,12 @@ const REPLY_KEYS: Record<
   ready: {},
 };
 
-const nextStep = (step: OnboardingStep): OnboardingStep | null => {
-  const index = ONBOARDING_STEPS.indexOf(step);
-  return index >= 0 && index < ONBOARDING_STEPS.length - 1
-    ? ONBOARDING_STEPS[index + 1]!
-    : null;
+const nextStep = (
+  steps: readonly OnboardingStep[],
+  step: OnboardingStep,
+): OnboardingStep | null => {
+  const index = steps.indexOf(step);
+  return index >= 0 && index < steps.length - 1 ? steps[index + 1]! : null;
 };
 
 const assistantEntry = (
@@ -97,7 +98,17 @@ const buildEntries = (
   return entries;
 };
 
-export function useOnboardingChat({ started }: { started: boolean }) {
+export function useOnboardingChat({
+  started,
+  skipPairing,
+}: {
+  started: boolean;
+  /**
+   * Pairing is already handled for this owner, so the computer message is left
+   * out of the script entirely (see `usePairingStepNeeded`).
+   */
+  skipPairing: boolean;
+}) {
   const t = useT();
   const reducedMotion = useReducedMotion();
   const [initial] = useState(() => {
@@ -120,6 +131,17 @@ export function useOnboardingChat({ started }: { started: boolean }) {
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const progressRef = useRef(progress);
   progressRef.current = progress;
+
+  // Dropping a step the user is already on, or already answered, would strand
+  // the transcript, so the decision only applies ahead of the message.
+  const steps = useMemo(() => {
+    if (!skipPairing) return ONBOARDING_STEPS;
+    if (progress.step === "computer") return ONBOARDING_STEPS;
+    if (progress.answers.computer !== undefined) return ONBOARDING_STEPS;
+    return ONBOARDING_STEPS.filter((step) => step !== "computer");
+  }, [progress.answers.computer, progress.step, skipPairing]);
+  const stepsRef = useRef(steps);
+  stepsRef.current = steps;
 
   const schedule = useCallback((ms: number, fn: () => void) => {
     const id = setTimeout(() => {
@@ -163,7 +185,7 @@ export function useOnboardingChat({ started }: { started: boolean }) {
     (step: OnboardingStep, kind: OnboardingAnswer) => {
       const current = progressRef.current;
       if (busyRef.current || current.step !== step) return;
-      const next = nextStep(step);
+      const next = nextStep(stepsRef.current, step);
       if (!next) return;
       tapLight();
       const key = REPLY_KEYS[step][kind];
@@ -203,6 +225,7 @@ export function useOnboardingChat({ started }: { started: boolean }) {
 
   return {
     entries,
+    steps,
     currentStep: progress.step,
     answers: progress.answers,
     typing,

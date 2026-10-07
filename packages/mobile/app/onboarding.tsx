@@ -41,6 +41,7 @@ import {
   useOnboardingChat,
   type OnboardingEntry,
 } from "../src/components/onboarding/use-onboarding-chat";
+import { usePairingStepNeeded } from "../src/components/onboarding/use-pairing-step";
 import {
   createViewportStore,
   useOnScreen,
@@ -50,7 +51,6 @@ import { authClient } from "../src/lib/auth-client";
 import { tapMedium } from "../src/lib/haptics";
 import {
   markOnboardingSeen,
-  ONBOARDING_STEPS,
   type OnboardingStep,
 } from "../src/lib/onboarding";
 import { setPendingComposerDraft } from "../src/lib/onboarding-handoff";
@@ -83,8 +83,12 @@ export default function OnboardingScreen() {
   const email = signedIn ? (session.data?.user?.email ?? null) : null;
 
   const splashHidden = useSplashHidden();
-  const { entries, currentStep, answers, typing, handoff, answer } =
-    useOnboardingChat({ started: splashHidden });
+  const pairingNeeded = usePairingStepNeeded(signedIn);
+  const { entries, steps, currentStep, answers, typing, handoff, answer } =
+    useOnboardingChat({
+      started: splashHidden,
+      skipPairing: pairingNeeded === false,
+    });
   const [finishing, setFinishing] = useState(false);
   const finishingRef = useRef(false);
 
@@ -277,8 +281,7 @@ export default function OnboardingScreen() {
   };
 
   const progress =
-    (ONBOARDING_STEPS.indexOf(currentStep) + (finishing ? 1 : 0)) /
-    ONBOARDING_STEPS.length;
+    (steps.indexOf(currentStep) + (finishing ? 1 : 0)) / steps.length;
 
   /* ── Keyboard: the composer rides it on the UI thread ─────────── */
   const keyboard = useAnimatedKeyboard();
@@ -296,8 +299,8 @@ export default function OnboardingScreen() {
         <View style={[styles.topBar, { paddingTop: insets.top + 6 }]}>
           <View style={styles.topSide} />
           <ProgressTrack value={progress} colors={colors} styles={styles} label={t("mobile.onboarding.progressLabel", {
-            current: String(ONBOARDING_STEPS.indexOf(currentStep) + 1),
-            total: String(ONBOARDING_STEPS.length),
+            current: String(steps.indexOf(currentStep) + 1),
+            total: String(steps.length),
           })} />
           <View style={[styles.topSide, styles.topSideEnd]}>
             <GlassSurface glass="regular" interactive radius={999} style={styles.skipGlass}>

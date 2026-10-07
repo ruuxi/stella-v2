@@ -1,18 +1,25 @@
+/**
+ * GPT-Live client-delegation protocol helpers for mobile voice.
+ *
+ * The voice model owns the spoken conversation and delegates every piece of
+ * reasoning or tool use to Stella's text orchestrator. Instructions, voice and
+ * startup history are set once when the backend creates the session, so this
+ * module only builds the startup payload plus the data-channel events the
+ * phone is allowed to send afterwards: `session.*.append`, microphone control
+ * and `session.close`.
+ */
+
+import {
+  VOICE_APPEND_MAX_CHARS,
+  VOICE_HISTORY_MAX_CHARS,
+  VOICE_HISTORY_MAX_MESSAGES,
+  VOICE_INSTRUCTIONS_MAX_CHARS,
+  type VoiceHistoryMessage,
+} from "@stella/contracts/backend/voice";
 import type { ChatMessage, MobileTask } from "../types";
 
 export type RealtimeVoicePhase =
-  | "connecting"
-  | "listening"
-  | "user-speaking"
-  | "assistant-speaking"
-  | "error";
-
-export type RealtimeToolDefinition = {
-  type: "function";
-  name: string;
-  description: string;
-  parameters: Record<string, unknown>;
-};
+  "connecting" | "listening" | "user-speaking" | "assistant-speaking" | "error";
 
 export type RealtimeVoiceHistoryItem = {
   role: string;
@@ -21,56 +28,10 @@ export type RealtimeVoiceHistoryItem = {
   toolCallId?: string;
 };
 
+/** What the connected computer reports about its current conversation. */
 export type RealtimeVoiceOrchestratorConfig = {
   instructions: string;
-  tools: RealtimeToolDefinition[];
   history?: RealtimeVoiceHistoryItem[];
-};
-
-export type RealtimeVoiceToolCall = {
-  requestId: string;
-  conversationId: string;
-  callId: string;
-  name: string;
-  args: Record<string, unknown>;
-};
-
-export type RealtimeVoiceToolResult = {
-  output: string;
-  details?: unknown;
-  error?: string;
-};
-
-const UNSUPPORTED_REALTIME_ROOT_SCHEMA_KEYS = [
-  "oneOf",
-  "anyOf",
-  "allOf",
-  "enum",
-  "const",
-  "not",
-] as const;
-
-/** Match the desktop/backend Realtime contract before tools reach OpenAI. */
-export const toRealtimeProviderTool = (
-  tool: RealtimeToolDefinition,
-): RealtimeToolDefinition => {
-  const parameters = { ...tool.parameters };
-  for (const key of UNSUPPORTED_REALTIME_ROOT_SCHEMA_KEYS) {
-    delete parameters[key];
-  }
-  return {
-    ...tool,
-    parameters: {
-      ...parameters,
-      type: "object",
-      properties:
-        typeof parameters.properties === "object" &&
-        parameters.properties !== null &&
-        !Array.isArray(parameters.properties)
-          ? parameters.properties
-          : {},
-    },
-  };
 };
 
 export type RealtimeVoiceActionDispatch = {
@@ -82,145 +43,264 @@ export type RealtimeVoiceActionCompletion = {
   failed: boolean;
 };
 
-export const REALTIME_CONTROL_TOOLS: RealtimeToolDefinition[] = [
-  {
-    type: "function",
-    name: "no_response",
-    description:
-      "Stay silent when the audio is background noise, filler, thinking aloud, or an unfinished sentence.",
-    parameters: { type: "object", properties: {} },
-  },
-  {
-    type: "function",
-    name: "goodbye",
-    description:
-      "End the voice conversation after one short goodbye when the user says bye, goodbye, see you later, or goodnight.",
-    parameters: { type: "object", properties: {} },
-  },
-];
+/** One delegation the voice model opened; it carries no task text by design. */
+export type VoiceDelegation = {
+  id: string;
+  target: string;
+  offsetMs: number | null;
+};
+
+export type VoiceAppendKind = "commentary" | "thinking" | "instructions";
+
+export type VoiceAppendAck = {
+  clientEventId: string;
+  error: string | null;
+};
+
+export type VoiceTranscriptRole = "user" | "assistant";
+
+export type VoiceTranscriptFragment = {
+  role: VoiceTranscriptRole;
+  delta: string;
+  startMs: number | null;
+  endMs: number | null;
+};
+
+const MAX_HISTORY_MESSAGE_CHARS = 1_200;
+
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+
+const asString = (value: unknown): string =>
+  typeof value === "string" ? value : "";
+
+const asNumber = (value: unknown): number | null =>
+  typeof value === "number" && Number.isFinite(value) ? value : null;
 
 const normalizeText = (value: unknown): string =>
   typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
 
-const recentChatContext = (messages: ChatMessage[]): string => {
-  const rows = messages
-    .filter((message) => normalizeText(message.text))
-    .slice(-16)
-    .map((message) => {
-      const speaker = message.role === "user" ? "User" : "Stella";
-      return `${speaker}: ${normalizeText(message.text).slice(0, 1_200)}`;
-    });
-  if (!rows.length) return "";
-  return [
-    "<text_chat_context>",
-    "Recent messages from the attached chat, oldest to newest:",
-    ...rows,
-    "</text_chat_context>",
-  ].join("\n");
-};
+const spokenConversationBrief = [
+  "You are Stella's voice, the spoken half of the World's best Personal AI Assistant and Secretary.",
+  "You own this conversation end to end: listen, answer, and keep it flowing naturally. Sound warm, direct and concise, and keep most turns to one to three short sentences.",
+  "Speak plainly. Never read markdown, file paths, URLs or technical identifiers aloud unless the user asks for them.",
+  "Stella's text orchestrator does all reasoning, tool use and actions. Delegate anything that needs current information, the user's data, or a change in the world, then say one short line so the user knows you are on it.",
+  "Never invent a result or claim work is finished. Only report work that has come back to you.",
+  "Stay quiet for background noise, filler and unfinished sentences.",
+  "When the user clearly says goodbye, give one short farewell and stop.",
+];
 
-const spokenVoiceInstructions = [
-  "You are Stella, the World's best Personal AI Assistant and Secretary.",
-  "This is a realtime spoken conversation. Sound warm, natural, direct, and concise.",
-  "Do not use markdown or read visual formatting, file paths, URLs, or technical identifiers aloud unless the user asks.",
-  "Keep most spoken turns to one to three short sentences.",
-].join("\n");
+export const clampVoiceInstructions = (instructions: string): string =>
+  instructions.trim().slice(0, VOICE_INSTRUCTIONS_MAX_CHARS);
 
-export const buildAttachedChatVoiceInstructions = (
-  messages: ChatMessage[],
-): string => {
-  const context = recentChatContext(messages);
-  return [
-    spokenVoiceInstructions,
-    "The attached Stella chat owns every user turn, every tool call, and every answer.",
-    "Automatic replies are disabled. When the app supplies a completed attached-chat answer, speak that answer faithfully and naturally. Do not invent work or answer a pending user request independently.",
-    context,
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-};
-
-const formatHistoryRole = (role: string): string => {
-  if (role === "assistant") return "Stella";
-  if (role === "user") return "User";
-  if (role === "tool") return "Tool result";
-  return role || "Context";
-};
-
-const desktopHistoryContext = (
-  history: RealtimeVoiceHistoryItem[] | undefined,
-): string => {
-  const rows = (history ?? [])
-    .map((item) => {
-      const content = normalizeText(item.content);
-      return content ? `[${formatHistoryRole(item.role)}]\n${content}` : "";
-    })
-    .filter(Boolean);
-  if (!rows.length) return "";
-  return [
-    '<conversation_history source="stella-chat" newest_last="true">',
-    "These are prior messages and tool results in the connected computer's current Stella conversation. Treat them as already-known history, not a new request.",
-    ...rows,
-    "</conversation_history>",
-  ].join("\n\n");
-};
-
-export const buildComputerVoiceInstructions = (
-  config: RealtimeVoiceOrchestratorConfig,
+/** The startup conversation-and-delegation brief, not Stella's system prompt. */
+export const buildVoiceSessionInstructions = (
+  execution: "phone" | "computer",
 ): string =>
-  [
-    spokenVoiceInstructions,
-    "Use the connected computer's Stella tools directly whenever the user wants current information or an action. Speak one brief preamble before a tool call, then report completion only after its result arrives.",
-    "Use no_response for background noise, filler, or unfinished thoughts. Use goodbye only when the user clearly ends the conversation.",
-    config.instructions.trim()
-      ? [
-          "<text_orchestrator_context>",
-          config.instructions.trim(),
-          "</text_orchestrator_context>",
-        ].join("\n")
-      : "",
-    desktopHistoryContext(config.history),
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+  clampVoiceInstructions(
+    [
+      ...spokenConversationBrief,
+      execution === "computer"
+        ? "Delegated work runs on the user's connected computer, with its files, apps and tools."
+        : "Delegated work runs in Stella's cloud, attached to the chat the user opened this call from.",
+    ].join("\n"),
+  );
 
-export const mergeComputerVoiceTools = (
-  tools: readonly RealtimeToolDefinition[],
-): RealtimeToolDefinition[] => {
-  const merged = new Map<string, RealtimeToolDefinition>();
-  for (const tool of [...tools, ...REALTIME_CONTROL_TOOLS]) {
-    if (tool?.name) merged.set(tool.name, toRealtimeProviderTool(tool));
+/** Trim startup history to the newest turns inside the contract's bounds. */
+export const boundVoiceHistory = (
+  history: readonly VoiceHistoryMessage[],
+): VoiceHistoryMessage[] => {
+  const kept: VoiceHistoryMessage[] = [];
+  let chars = 0;
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const entry = history[index]!;
+    const text = normalizeText(entry.text).slice(0, MAX_HISTORY_MESSAGE_CHARS);
+    if (!text) continue;
+    if (
+      kept.length >= VOICE_HISTORY_MAX_MESSAGES ||
+      chars + text.length > VOICE_HISTORY_MAX_CHARS
+    ) {
+      break;
+    }
+    chars += text.length;
+    kept.push({ role: entry.role, text });
   }
-  return [...merged.values()];
+  return kept.reverse();
 };
 
-export const buildMobileRealtimeSessionUpdate = (options: {
+/** Startup history for the attached mobile chat. */
+export const buildAttachedChatVoiceHistory = (
+  messages: readonly ChatMessage[],
+): VoiceHistoryMessage[] =>
+  boundVoiceHistory(
+    messages.map((message) => ({
+      role:
+        message.role === "user" ? ("user" as const) : ("assistant" as const),
+      text: message.text ?? "",
+    })),
+  );
+
+/** Startup history for the connected computer's current conversation. */
+export const buildComputerVoiceHistory = (
+  config: RealtimeVoiceOrchestratorConfig,
+): VoiceHistoryMessage[] =>
+  boundVoiceHistory(
+    (config.history ?? []).map((item) => {
+      if (item.role === "user")
+        return { role: "user" as const, text: item.content };
+      if (item.role === "assistant") {
+        return { role: "assistant" as const, text: item.content };
+      }
+      return {
+        role: "developer" as const,
+        text: `Earlier ${item.role || "context"} from the computer's chat: ${item.content}`,
+      };
+    }),
+  );
+
+/** Appends are capped per event, so longer text is split across appends. */
+export const splitVoiceAppendContent = (content: string): string[] => {
+  const text = content.trim();
+  if (!text) return [];
+  const chunks: string[] = [];
+  for (let index = 0; index < text.length; index += VOICE_APPEND_MAX_CHARS) {
+    chunks.push(text.slice(index, index + VOICE_APPEND_MAX_CHARS));
+  }
+  return chunks;
+};
+
+/**
+ * `commentary` is said aloud (paraphrased), `thinking` is known but not
+ * announced, `instructions` changes behaviour. `delegationId` is the task the
+ * update belongs to, or null for session-wide context.
+ */
+export const buildVoiceAppendEvent = (options: {
+  kind: VoiceAppendKind;
   eventId: string;
-  execution: "phone" | "computer";
-  instructions: string;
-  tools: RealtimeToolDefinition[];
+  delegationId: string | null;
+  content: string;
 }): Record<string, unknown> => ({
-  type: "session.update",
+  type: `session.${options.kind}.append`,
   event_id: options.eventId,
-  session: {
-    type: "realtime",
-    instructions: options.instructions,
-    tools: options.tools,
-    tool_choice: options.execution === "computer" ? "auto" : "none",
-    // The model cannot be changed by session.update, and the output voice was
-    // already selected when the backend minted the client secret. Resending
-    // either risks rejecting the whole update instead of applying its tools.
-    audio: {
-      input: {
-        turn_detection: {
-          type: "server_vad",
-          create_response: options.execution === "computer",
-          interrupt_response: options.execution === "computer",
-        },
-      },
-    },
-  },
+  delegation_id: options.delegationId,
+  content: options.content,
 });
+
+export const buildVoiceMicrophoneEvent = (options: {
+  eventId: string;
+  muted: boolean;
+}): Record<string, unknown> => ({
+  type: options.muted
+    ? "session.input_audio.mute"
+    : "session.input_audio.unmute",
+  event_id: options.eventId,
+});
+
+export const buildVoiceCloseEvent = (
+  eventId: string,
+): Record<string, unknown> => ({
+  type: "session.close",
+  event_id: eventId,
+});
+
+export const parseVoiceDelegationCreated = (
+  event: Record<string, unknown>,
+): VoiceDelegation | null => {
+  const delegation = asRecord(event.delegation);
+  const id = asString(delegation?.id);
+  if (!id) return null;
+  return {
+    id,
+    target: asString(delegation?.target),
+    offsetMs: asNumber(event.offset_ms) ?? asNumber(delegation?.offset_ms),
+  };
+};
+
+const TRANSCRIPT_DELTA_ROLES: Record<string, VoiceTranscriptRole> = {
+  "session.input_transcript.delta": "user",
+  "session.output_transcript.delta": "assistant",
+};
+
+export const parseVoiceTranscriptDelta = (
+  event: Record<string, unknown>,
+): VoiceTranscriptFragment | null => {
+  const role = TRANSCRIPT_DELTA_ROLES[asString(event.type)];
+  if (!role) return null;
+  const delta = asString(event.delta);
+  if (!delta) return null;
+  return {
+    role,
+    delta,
+    startMs: asNumber(event.start_ms),
+    endMs: asNumber(event.end_ms),
+  };
+};
+
+const APPEND_ACK_TYPES = new Set([
+  "session.commentary.appended",
+  "session.thinking.appended",
+  "session.instructions.appended",
+]);
+
+/** Acks and their error variants, matched back to the outgoing `event_id`. */
+export const parseVoiceAppendAck = (
+  event: Record<string, unknown>,
+): VoiceAppendAck | null => {
+  const type = asString(event.type);
+  const clientEventId =
+    asString(event.client_event_id) ||
+    asString(asRecord(event.error)?.client_event_id) ||
+    asString(asRecord(event.error)?.event_id);
+  if (!clientEventId) return null;
+  const failed =
+    !APPEND_ACK_TYPES.has(type) &&
+    (type === "error" || type.endsWith(".error") || type.endsWith(".failed"));
+  if (!failed && !APPEND_ACK_TYPES.has(type)) return null;
+  return {
+    clientEventId,
+    error: failed ? realtimeErrorMessage(event) : null,
+  };
+};
+
+/**
+ * A transcript fragment is not a complete turn, so deltas accumulate until the
+ * turn is consumed. A fragment that starts before the last one ended belongs
+ * to a new utterance, which resets the buffer.
+ */
+export class VoiceTranscriptAccumulator {
+  private buffer = "";
+  private lastEndMs: number | null = null;
+
+  append(fragment: VoiceTranscriptFragment): string {
+    if (
+      fragment.startMs !== null &&
+      this.lastEndMs !== null &&
+      fragment.startMs < this.lastEndMs
+    ) {
+      this.buffer = "";
+    }
+    this.buffer += fragment.delta;
+    if (fragment.endMs !== null) this.lastEndMs = fragment.endMs;
+    return this.text;
+  }
+
+  get text(): string {
+    return this.buffer.trim().replace(/\s+/g, " ");
+  }
+
+  take(): string {
+    const text = this.text;
+    this.reset();
+    return text;
+  }
+
+  reset(): void {
+    this.buffer = "";
+    this.lastEndMs = null;
+  }
+}
 
 export const findVoiceActionCompletion = (
   messages: ChatMessage[],
@@ -345,10 +425,7 @@ export const findVoiceActionCompletion = (
 export const realtimeErrorMessage = (
   event: Record<string, unknown>,
 ): string => {
-  const error =
-    event.error && typeof event.error === "object"
-      ? (event.error as Record<string, unknown>)
-      : null;
+  const error = asRecord(event.error);
   return (
     normalizeText(error?.message) ||
     normalizeText(event.message) ||

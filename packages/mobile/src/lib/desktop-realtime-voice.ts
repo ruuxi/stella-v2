@@ -3,22 +3,17 @@ import { requestDeviceJson } from "./device-requests";
 import { postJson } from "./http";
 import { resolveExecutionBuilderOrigin } from "./execution-placement";
 import type { StoredPhoneAccess } from "./phone-access";
-import type {
-  RealtimeVoiceOrchestratorConfig,
-  RealtimeVoiceToolCall,
-  RealtimeVoiceToolResult,
-} from "./realtime-voice-protocol";
+import type { RealtimeVoiceOrchestratorConfig } from "./realtime-voice-protocol";
 
 /**
- * Realtime voice in "computer" mode: the voice session runs on the phone, but
- * its instructions and tools are the paired computer's. Config and tool calls
- * go phone -> cloud -> computer (over its presence connection) and back; the
- * transcript is written straight to the cloud journal, where every device
- * reads it.
+ * Realtime voice in "computer" mode: the GPT-Live session runs on the phone
+ * and delegates its work to the paired computer's orchestrator. The computer's
+ * current conversation is fetched once as startup history (phone -> cloud ->
+ * computer, over its presence connection); the transcript is written straight
+ * to the cloud journal, where every device reads it.
  */
 
 const DESKTOP_VOICE_SETUP_TIMEOUT_MS = 30_000;
-const DESKTOP_VOICE_TOOL_TIMEOUT_MS = 130_000;
 
 export type DesktopRealtimeVoice = {
   access: StoredPhoneAccess;
@@ -35,28 +30,13 @@ export const connectDesktopRealtimeVoice = async (
     { conversationId },
     { timeoutMs: DESKTOP_VOICE_SETUP_TIMEOUT_MS },
   );
-  if (
-    !config ||
-    typeof config.instructions !== "string" ||
-    !Array.isArray(config.tools)
-  ) {
+  if (!config || typeof config.instructions !== "string") {
     throw new Error(
       "The connected computer did not return a valid voice configuration.",
     );
   }
   return { access, config };
 };
-
-export const executeDesktopRealtimeVoiceTool = async (
-  voice: DesktopRealtimeVoice,
-  payload: RealtimeVoiceToolCall,
-): Promise<RealtimeVoiceToolResult> =>
-  requestDeviceJson<RealtimeVoiceToolResult>(
-    voice.access,
-    "voice.executeTool",
-    payload as unknown as Record<string, unknown>,
-    { timeoutMs: DESKTOP_VOICE_TOOL_TIMEOUT_MS },
-  );
 
 /** The journal's `deviceId` pattern; a stored id outside it is reshaped. */
 const JOURNAL_DEVICE_ID_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;

@@ -1,9 +1,10 @@
 /**
  * "Sign in" — how Stella thinks.
  *
- * Three ways in, any of which is enough: a Stella account (Google or email,
- * the same dialog as the top bar), or the Claude or ChatGPT plan the user
- * already pays for. Claude runs through Claude Code on Claude Code's own
+ * Four ways in, any of which is enough: a Stella account (Google or email,
+ * the same dialog as the top bar), the Claude or ChatGPT plan the user
+ * already pays for, or their own provider API key. Claude runs through Claude
+ * Code on Claude Code's own
  * sign-in: in the desktop app this computer's `claude` signs in (Anthropic's
  * page, then the code it shows pasted here); on the website the owner's
  * cloud signs in the same way. ChatGPT is Sign in with ChatGPT: in the
@@ -13,13 +14,22 @@
  * lens slides to whichever one is in use, and tapping another connected row
  * moves it.
  *
- * Nothing here blocks: every install already has an anonymous Stella
- * session with free previews, so the step can be skipped.
+ * Stella models need a Stella account, so Continue waits for one of the
+ * four. Continuing without a Stella account moves the engine onto the
+ * connected provider so the first message never goes to a Stella model.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/ui/button";
 import { BrandIcon } from "@/ui/brand-icon";
 import { Check, KeyRound, LogIn } from "@/ui/icons";
+import { Select } from "@/ui/select";
+import { LLM_PROVIDERS } from "@/global/settings/lib/llm-providers";
+import {
+  API_KEY_PROVIDERS,
+  ASSISTANT_AGENT_KEYS,
+  DEFAULT_MODEL_BY_PROVIDER,
+} from "@/global/settings/lib/provider-default-models";
+import { useLlmCredentials } from "@/global/settings/hooks/use-llm-credentials";
 import { useT } from "@/shared/i18n";
 import { AuthDialog } from "@/global/auth/AuthDialog";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
@@ -46,17 +56,21 @@ type SignInCardProps = {
   onAnswer: (answer: OnboardingChatAnswer) => void;
 };
 
-type OptionId = "stella" | "claude" | "chatgpt";
+type OptionId = "stella" | "claude" | "chatgpt" | "apikey";
 
-const OPTIONS: {
+type Option = {
   id: OptionId;
   engine: ModelPickerEngine;
   brand: string;
-}[] = [
+};
+
+const BASE_OPTIONS: Option[] = [
   { id: "stella", engine: "default", brand: "stella" },
   { id: "claude", engine: "claude_code_local", brand: "anthropic" },
   { id: "chatgpt", engine: "codex_cli", brand: "openai" },
 ];
+
+const API_KEY_OPTION: Option = { id: "apikey", engine: "default", brand: "key" };
 
 const ENGINE_TO_OPTION: Record<ModelPickerEngine, OptionId> = {
   default: "stella",
@@ -64,9 +78,23 @@ const ENGINE_TO_OPTION: Record<ModelPickerEngine, OptionId> = {
   codex_cli: "chatgpt",
 };
 
-const readEngine = async (): Promise<ModelPickerEngine | null> => {
+type ApiKeyProvider = (typeof API_KEY_PROVIDERS)[number];
+
+const isApiKeyModel = (model: string | undefined): boolean => {
+  const provider = model?.split("/")[0];
+  return Boolean(provider && DEFAULT_MODEL_BY_PROVIDER[provider]);
+};
+
+const readSelection = async (): Promise<{
+  engine: ModelPickerEngine;
+  apiKeyModel: boolean;
+} | null> => {
   const preferences = await window.electronAPI?.system?.getLocalModelPreferences?.();
-  return (preferences?.agentRuntimeEngine as ModelPickerEngine | undefined) ?? null;
+  if (!preferences) return null;
+  return {
+    engine: (preferences.agentRuntimeEngine as ModelPickerEngine | undefined) ?? "default",
+    apiKeyModel: isApiKeyModel(preferences.modelOverrides?.orchestrator),
+  };
 };
 
 /** The same engine switch the model picker commits. */
@@ -83,6 +111,27 @@ const switchEngine = async (engine: ModelPickerEngine): Promise<boolean> => {
   return true;
 };
 
+const routeToApiKeyProvider = async (provider: string): Promise<boolean> => {
+  const system = window.electronAPI?.system;
+  const preferences = await system?.getLocalModelPreferences?.();
+  const model = DEFAULT_MODEL_BY_PROVIDER[provider];
+  if (!system?.setLocalModelPreferences || !preferences || !model) return false;
+  const enginePatch =
+    preferences.agentRuntimeEngine === "default"
+      ? {}
+      : {
+          ...buildEngineRoutingPatch(preferences, "default"),
+          ...buildEngineTransitionReasoningPatch(preferences, "default"),
+        };
+  const modelOverrides = {
+    ...(enginePatch.modelOverrides ?? preferences.modelOverrides ?? {}),
+  };
+  for (const key of ASSISTANT_AGENT_KEYS) modelOverrides[key] = model;
+  await system.setLocalModelPreferences({ ...enginePatch, modelOverrides });
+  window.dispatchEvent(new CustomEvent("stella:local-model-preferences-changed"));
+  return true;
+};
+
 export function SignInCard({ active, answered, onAnswer }: SignInCardProps) {
   const t = useT();
   const session = useAuthSessionState();
@@ -95,20 +144,36 @@ export function SignInCard({ active, answered, onAnswer }: SignInCardProps) {
   // Claude: this computer's Claude Code in the desktop app; in a browser,
   // the owner's cloud.
   const claudeLocal = useClaudeLocalAccounts();
+  const credentials = useLlmCredentials();
+  const apiKeysAvailable = Boolean(window.electronAPI?.system?.saveLlmCredential);
+  const options = useMemo(
+    () => (apiKeysAvailable ? [...BASE_OPTIONS, API_KEY_OPTION] : BASE_OPTIONS),
+    [apiKeysAvailable],
+  );
   const [authOpen, setAuthOpen] = useState(false);
   const [pending, setPending] = useState<OptionId | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [engine, setEngine] = useState<ModelPickerEngine | null>(null);
+  const [apiKeyModel, setApiKeyModel] = useState(false);
+  const [keyFormOpen, setKeyFormOpen] = useState(false);
+  const [keyProvider, setKeyProvider] = useState<ApiKeyProvider>(API_KEY_PROVIDERS[0]);
+  const [keyDraft, setKeyDraft] = useState("");
 
   useEffect(() => {
     let cancelled = false;
-    void readEngine().then((current) => {
-      if (!cancelled) setEngine(current);
+    void readSelection().then((current) => {
+      if (cancelled || !current) return;
+      setEngine(current.engine);
+      setApiKeyModel(current.apiKeyModel);
     });
     return () => {
       cancelled = true;
     };
   }, []);
+
+  const connectedApiKeyProvider =
+    credentials.apiKeys.find((key) => DEFAULT_MODEL_BY_PROVIDER[key.provider])
+      ?.provider ?? null;
 
   const connected = useMemo<Record<OptionId, boolean>>(() => {
     const connections = engines?.connections ?? [];
@@ -120,32 +185,84 @@ export function SignInCard({ active, answered, onAnswer }: SignInCardProps) {
       chatgpt: chatgpt.available
         ? chatgpt.usable
         : connections.some((row) => row.provider === "chatgpt" && isEngineConnectionUsable(row)),
+      apikey: apiKeysAvailable && connectedApiKeyProvider !== null,
     };
   }, [
+    apiKeysAvailable,
     chatgpt.available,
     chatgpt.usable,
     claudeLocal.available,
     claudeLocal.signedIn,
+    connectedApiKeyProvider,
     engines?.connections,
     session.hasConnectedAccount,
   ]);
-  const anyConnected = connected.stella || connected.claude || connected.chatgpt;
-  const inUse: OptionId | null = engine ? ENGINE_TO_OPTION[engine] : null;
+  const anyConnected =
+    connected.stella || connected.claude || connected.chatgpt || connected.apikey;
+  const inUse: OptionId | null = engine
+    ? engine === "default" && apiKeyModel
+      ? "apikey"
+      : ENGINE_TO_OPTION[engine]
+    : null;
   // The lens only marks a choice the user can see is real.
   const lensOn: OptionId | null = inUse && connected[inUse] ? inUse : null;
 
   const { start: startConnect, cancel: cancelConnect } = connect;
   const { signIn: signInChatGpt, cancelSignIn: cancelChatGptSignIn } = chatgpt;
 
-  const applyEngine = useCallback(async (option: (typeof OPTIONS)[number]) => {
-    if (await switchEngine(option.engine)) setEngine(option.engine);
-  }, []);
+  const applyEngine = useCallback(
+    async (option: Option) => {
+      if (option.id === "apikey") {
+        if (connectedApiKeyProvider && (await routeToApiKeyProvider(connectedApiKeyProvider))) {
+          setEngine("default");
+          setApiKeyModel(true);
+        }
+        return;
+      }
+      if (await switchEngine(option.engine)) {
+        setEngine(option.engine);
+        setApiKeyModel(false);
+      }
+    },
+    [connectedApiKeyProvider],
+  );
+
+  const saveApiKey = useCallback(async () => {
+    const trimmed = keyDraft.trim();
+    if (!trimmed) return;
+    setPending("apikey");
+    setError(null);
+    try {
+      const label =
+        LLM_PROVIDERS.find((provider) => provider.key === keyProvider)?.label ?? keyProvider;
+      await credentials.saveApiKey(keyProvider, label, trimmed);
+      if (await routeToApiKeyProvider(keyProvider)) {
+        setEngine("default");
+        setApiKeyModel(true);
+      }
+      setKeyDraft("");
+      setKeyFormOpen(false);
+    } catch (caught) {
+      console.warn("[onboarding-chat] API key save failed", caught);
+      setError(t("onboarding.chat.signin.error"));
+    } finally {
+      setPending(null);
+    }
+  }, [credentials, keyDraft, keyProvider, t]);
+
+  const handleContinue = useCallback(async () => {
+    if (!connected.stella && !lensOn) {
+      const fallback = options.find((option) => option.id !== "stella" && connected[option.id]);
+      if (fallback) await applyEngine(fallback);
+    }
+    onAnswer("done");
+  }, [applyEngine, connected, lensOn, onAnswer, options]);
 
   const { reload: reloadClaudeLocal } = claudeLocal;
   const claudeLogin = useClaudeLogin({
     onSignedIn: () => {
       void reloadClaudeLocal();
-      void applyEngine(OPTIONS[1]!);
+      void applyEngine(BASE_OPTIONS[1]!);
     },
   });
   const { start: startClaudeLogin } = claudeLogin;
@@ -153,7 +270,7 @@ export function SignInCard({ active, answered, onAnswer }: SignInCardProps) {
   const busyOption: OptionId | null = pending ?? (claudeLogin.open ? "claude" : null);
 
   const handleRow = useCallback(
-    async (option: (typeof OPTIONS)[number]) => {
+    async (option: Option) => {
       if (busyOption) return;
       setError(null);
       if (connected[option.id]) {
@@ -162,6 +279,10 @@ export function SignInCard({ active, answered, onAnswer }: SignInCardProps) {
       }
       if (option.id === "stella") {
         setAuthOpen(true);
+        return;
+      }
+      if (option.id === "apikey") {
+        setKeyFormOpen((open) => !open);
         return;
       }
       if (option.id === "claude") {
@@ -236,9 +357,7 @@ export function SignInCard({ active, answered, onAnswer }: SignInCardProps) {
         ? t("onboarding.chat.signin.settledEngine", {
             name: t(`onboarding.chat.signin.options.${lensOn}.title`),
           })
-        : connected.stella
-          ? t("onboarding.chat.signin.settledStella")
-          : t("onboarding.chat.signin.settledSkipped");
+        : t("onboarding.chat.signin.settledStella");
     return (
       <div className="obc-card" data-settled>
         <span className="obc-card__settled-icon">
@@ -269,7 +388,7 @@ export function SignInCard({ active, answered, onAnswer }: SignInCardProps) {
           style={lens ? { transform: `translateY(${lens.top}px)`, height: lens.height } : undefined}
           aria-hidden="true"
         />
-        {OPTIONS.map((option, index) => {
+        {options.map((option, index) => {
           const isConnected = connected[option.id];
           const isPending = busyOption === option.id;
           const isInUse = lensOn === option.id;
@@ -303,7 +422,11 @@ export function SignInCard({ active, answered, onAnswer }: SignInCardProps) {
               onClick={() => void (isPending ? undefined : handleRow(option))}
             >
               <span className="obc-signin__icon">
-                <BrandIcon brand={option.brand} size={20} />
+                {option.id === "apikey" ? (
+                  <KeyRound size={18} />
+                ) : (
+                  <BrandIcon brand={option.brand} size={20} />
+                )}
               </span>
               <span className="obc-signin__text">
                 <span className="obc-signin__title">
@@ -339,11 +462,49 @@ export function SignInCard({ active, answered, onAnswer }: SignInCardProps) {
         })}
       </div>
 
+      {keyFormOpen ? (
+        <form
+          className="obc-signin__key-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void saveApiKey();
+          }}
+        >
+          <Select
+            value={keyProvider}
+            onValueChange={(value) => setKeyProvider(value)}
+            aria-label={t("onboarding.chat.signin.options.apikey.title")}
+            options={API_KEY_PROVIDERS.map((provider) => ({
+              value: provider,
+              label: LLM_PROVIDERS.find((entry) => entry.key === provider)?.label ?? provider,
+            }))}
+          />
+          <input
+            className="obc-signin__key-input"
+            type="password"
+            autoComplete="off"
+            spellCheck={false}
+            value={keyDraft}
+            placeholder={LLM_PROVIDERS.find((entry) => entry.key === keyProvider)?.placeholder}
+            aria-label={t("onboarding.chat.signin.options.apikey.title")}
+            onChange={(event) => setKeyDraft(event.target.value)}
+            disabled={!active || pending === "apikey"}
+          />
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={!active || pending === "apikey" || !keyDraft.trim()}
+          >
+            {t("common.save")}
+          </Button>
+        </form>
+      ) : null}
+
       {claudeLogin.open ? (
         <ClaudeLoginPrompt login={claudeLogin} />
       ) : connect.flow ? (
         <EngineConnectPrompt connect={connect} />
-      ) : pending && pending !== "stella" ? (
+      ) : pending && pending !== "stella" && pending !== "apikey" ? (
         <p className="obc-card__fine">
           {t("onboarding.chat.signin.waiting")}{" "}
           <button type="button" className="obc-link-btn" onClick={handleCancel}>
@@ -362,10 +523,10 @@ export function SignInCard({ active, answered, onAnswer }: SignInCardProps) {
         <Button
           type="button"
           variant="primary"
-          disabled={!active || busyOption !== null}
-          onClick={() => onAnswer(anyConnected ? "done" : "skipped")}
+          disabled={!active || busyOption !== null || !anyConnected}
+          onClick={() => void handleContinue()}
         >
-          {anyConnected ? t("common.continue") : t("onboarding.chat.signin.skip")}
+          {t("common.continue")}
         </Button>
         <span className="obc-actions__spacer" />
         <span className="obc-actions__hint">{t("onboarding.chat.signin.hint")}</span>

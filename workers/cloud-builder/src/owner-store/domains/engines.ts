@@ -25,6 +25,8 @@
 // host id.
 
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
+import { CLOUD_SANDBOX_SUBSCRIPTION_REQUIRED_MESSAGE } from "@stella/contracts/backend/billing";
+import { cloudSandboxAccess } from "./billing.js";
 import {
   CHATGPT_SIWC,
   CHATGPT_UNUSABLE_REFRESH_CODES,
@@ -772,6 +774,11 @@ const startClaudeCloud = async (
     { count: 20, windowMs: 10 * 60_000 },
     "Too many sign-in attempts. Try again in a few minutes.",
   );
+  if (!cloudSandboxAccess(ctx).enabled) {
+    throw new RpcError("FORBIDDEN", CLOUD_SANDBOX_SUBSCRIPTION_REQUIRED_MESSAGE, {
+      reason: "subscription_required",
+    });
+  }
   const loginId = newClaudeCloudLoginId();
   const email = text(args.email);
   const started = await startClaudeCloudLogin(ctx.env, ctx.ownerId, loginId, email);

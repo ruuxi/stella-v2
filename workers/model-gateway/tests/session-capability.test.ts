@@ -216,7 +216,7 @@ describe("POST /v1/capabilities/session", () => {
     expect(response.status).toBe(403);
     expect((await readError(response)).error).toEqual({
       code: "sign_in_required",
-      message: "Sign in to Stella to continue from this network.",
+      message: "Stella models need a Stella account. Sign in, or connect Claude Code, ChatGPT or an API key.",
       retryable: false,
     });
     expect(ctx.harness.ownerGate.objects.size).toBe(0);
@@ -420,7 +420,7 @@ describe("POST /v1/capabilities/session", () => {
         message:
           code === "challenge_required"
             ? "Complete the verification challenge and try again."
-            : "Sign in to Stella to continue.",
+            : "Stella models need a Stella account. Sign in, or connect Claude Code, ChatGPT or an API key.",
         retryable: false,
       });
     }

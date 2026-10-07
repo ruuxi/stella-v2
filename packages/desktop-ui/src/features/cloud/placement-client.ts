@@ -31,6 +31,8 @@ import {
   type DispatchSubmitResponse,
   type DispatchSummary,
 } from "@stella/contracts/turn-plane/placement";
+import { CLOUD_SANDBOX_SUBSCRIPTION_REQUIRED_MESSAGE } from "@stella/contracts/backend/billing";
+import { notifyCloudSubscriptionRequired } from "./turn-start-client";
 
 /** Bound on one owner-gate round trip. Placement answers before the run. */
 export const PLACEMENT_REQUEST_TIMEOUT_MS = 30_000;
@@ -70,6 +72,7 @@ const FALLBACK_MESSAGES: Record<DispatchErrorCode, string> = {
   capability_unavailable:
     "No computer with what this needs is online right now.",
   sign_in_required: "Sign in to Stella to use cloud agents.",
+  subscription_required: CLOUD_SANDBOX_SUBSCRIPTION_REQUIRED_MESSAGE,
   owner_suspended: "This account can't use Stella's cloud right now.",
   internal: "That didn't send. Try again.",
 };
@@ -194,6 +197,9 @@ const toClientError = async (
   const retryAfterMs =
     body?.retryAfterMs ??
     (status === 429 ? retryAfterHeaderMs(response) : null);
+  if (code === "subscription_required") {
+    notifyCloudSubscriptionRequired(body?.message);
+  }
   return new PlacementClientError({
     code,
     status,

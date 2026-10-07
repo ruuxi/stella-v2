@@ -33,6 +33,7 @@ import type {
 } from "@stella/contracts/protocol";
 import type { PersistedRuntimeThreadPayload } from "../storage/shared.js";
 import { MESSAGE_REF_TAG_RE } from "@stella/contracts/reply-refs";
+import { GATEWAY_SIGN_IN_REQUIRED_MESSAGE } from "@stella/contracts/gateway/api";
 import { createRuntimeLogger } from "../debug.js";
 import {
   CloudTranscriptAlreadyAdmittedError,
@@ -450,6 +451,9 @@ const cloudFinishPhase = (
       (terminal?.kind === "error"
         ? cloudFailureReason(terminal.event.error)
         : undefined);
+    if (reason && /(?<!engine_)sign_in_required/.test(reason)) {
+      return { phase: "failed", notice: GATEWAY_SIGN_IN_REQUIRED_MESSAGE };
+    }
     return {
       phase: "failed",
       notice: reason

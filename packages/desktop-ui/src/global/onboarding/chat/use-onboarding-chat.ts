@@ -68,7 +68,6 @@ const ANSWER_TEXT_KEYS: Record<
   },
   signin: {
     done: "onboarding.chat.replies.signinDone",
-    skipped: "onboarding.chat.replies.signinSkipped",
   },
   theme: {
     done: "onboarding.chat.replies.themeDone",

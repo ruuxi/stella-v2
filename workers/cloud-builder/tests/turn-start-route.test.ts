@@ -520,46 +520,4 @@ describe("POST /owners/me/dispatches", () => {
     });
     expect(submissions).toHaveLength(0);
   });
-
-  test("refuses an anonymous agent dispatch before addressing the owner gate", async () => {
-    const { env, submissions } = environment();
-    const response = await worker.fetch(
-      new Request("https://builder.example/owners/me/dispatches", {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${await userJwt({ anon: true })}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          protocol: 1,
-          idempotencyKey: "agent-dispatch-1",
-          kind: "agent",
-          ingress: "browser",
-          subject: "cloud",
-          targetMode: "cloud",
-          conversationId: "conversation-1",
-          threadId: "thread-1",
-          requiredCapabilities: ["agent"],
-          payload: {
-            schemaVersion: 1,
-            prompt: "Research this",
-            conversationId: "conversation-1",
-            clientMsgId: "agent-dispatch-1",
-            description: "Research this",
-          },
-        }),
-      }),
-      env,
-      {} as ExecutionContext,
-    );
-    expect(response.status).toBe(403);
-    expect(await errorBody(response)).toEqual({
-      error: {
-        code: "sign_in_required",
-        message: "Sign in to Stella to use cloud agents.",
-        retryable: false,
-      },
-    });
-    expect(submissions).toHaveLength(0);
-  });
 });

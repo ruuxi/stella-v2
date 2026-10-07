@@ -775,8 +775,7 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Moc pěkné.",
-        "signinDone": "Hotovo.",
-        "signinSkipped": "Udělám to později."
+        "signinDone": "Hotovo."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -939,6 +938,10 @@
           "chatgpt": {
             "title": "ChatGPT",
             "body": "Přihlaste se přes ChatGPT a používejte svůj tarif."
+          },
+          "apikey": {
+            "title": "Klíč API",
+            "body": "Použij vlastní klíč od Anthropicu, OpenAI, Googlu a dalších."
           }
         },
         "signIn": "Přihlásit se",
@@ -948,11 +951,9 @@
         "waiting": "Dokonči přihlášení v prohlížeči a pak se vrať sem.",
         "error": "Nepodařilo se připojit. Zkusit znovu?",
         "fine": "Změnit to můžeš kdykoli v Nastavení.",
-        "skip": "Teď ne",
         "hint": "Začít je zdarma.",
         "settledEngine": "Používá se {name}",
         "settledStella": "Přihlášeno ke Stelle",
-        "settledSkipped": "Zatím nepřihlášeno",
         "settledDesc": "Změnit to můžeš kdykoli v Nastavení.",
         "claudeCliMissing": "Nejdřív nainstalujte Claude Code a pak to zkuste znovu."
       },

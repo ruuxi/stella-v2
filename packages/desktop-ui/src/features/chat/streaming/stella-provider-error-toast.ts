@@ -63,6 +63,11 @@ const chooseModelAction = {
   onClick: openModelPicker,
 }
 
+const connectProviderAction = {
+  label: 'Connect a provider',
+  onClick: openModelPicker,
+}
+
 const upgradeAction = {
   label: 'Upgrade',
   onClick: openBilling,
@@ -158,13 +163,13 @@ export const resolveStellaProviderErrorToast = (
       }
     case 'sign-in-required':
       return {
-        title: 'Sign in to keep using Stella',
+        title: 'Stella models need a Stella account',
         description:
-          "You've used your free Stella previews. Sign in to keep going, or use your own provider key.",
+          'Sign in to use Stella models, or connect Claude Code, ChatGPT or an API key to keep going.',
         variant: 'error',
         duration: 8000,
         action: signInAction,
-        secondaryAction: BYOK_TOAST_ACTION,
+        secondaryAction: connectProviderAction,
       }
     case 'chatgpt-auth':
       return {

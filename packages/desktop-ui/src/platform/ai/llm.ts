@@ -22,6 +22,7 @@ import {
 } from "@/shared/stella-api";
 import {
   STELLA_GATEWAY_DEVICE_VERIFICATION_MESSAGE,
+  STELLA_GATEWAY_SIGN_IN_REQUIRED_MESSAGE,
   getGatewayDeviceSigner,
   getGatewaySessionCapability,
   sessionCapabilityJti,
@@ -217,7 +218,7 @@ const postGatewayChatCompletion = async <TResponse>(args: {
     const readableMessage =
       detail.message ||
       (detail.code === "sign_in_required"
-        ? "Sign in to Stella to use Stella models."
+        ? STELLA_GATEWAY_SIGN_IN_REQUIRED_MESSAGE
         : "");
     const errorDetail = [detail.code, readableMessage]
       .filter(Boolean)

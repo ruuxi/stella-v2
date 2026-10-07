@@ -773,8 +773,7 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Todella hienoa.",
-        "signinDone": "Valmis.",
-        "signinSkipped": "Teen sen myöhemmin."
+        "signinDone": "Valmis."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -937,6 +936,10 @@
           "chatgpt": {
             "title": "ChatGPT",
             "body": "Kirjaudu ChatGPT:llä, niin voit käyttää tilaustasi."
+          },
+          "apikey": {
+            "title": "API-avain",
+            "body": "Käytä omaa avaintasi Anthropicilta, OpenAI:lta, Googlelta tai muilta."
           }
         },
         "signIn": "Kirjaudu",
@@ -946,11 +949,9 @@
         "waiting": "Viimeistele kirjautuminen selaimessasi ja palaa sitten tänne.",
         "error": "Yhdistäminen ei onnistunut. Yritetäänkö uudelleen?",
         "fine": "Voit muuttaa tämän milloin tahansa asetuksissa.",
-        "skip": "Ei nyt",
         "hint": "Aloittaminen on ilmaista.",
         "settledEngine": "Käytössä {name}",
         "settledStella": "Kirjauduttu Stellaan",
-        "settledSkipped": "Ei vielä kirjautunut",
         "settledDesc": "Voit muuttaa tämän milloin tahansa asetuksissa.",
         "claudeCliMissing": "Asenna ensin Claude Code ja yritä sitten uudelleen."
       },
@@ -1728,6 +1729,7 @@
         "fromOtherComputers": "Muutoksia toiselta tietokoneeltasi",
         "readyChange": "Lisättävä muutos",
         "add": "Lisää",
+        "get": "Hae",
         "adding": "Lisätään…",
         "skip": "Ohita",
         "undoing": "Kumotaan…",
@@ -1735,6 +1737,7 @@
         "justNow": "Juuri nyt",
         "waiting": "Odottaa",
         "history": "Historia",
+        "skipped": "Ohitetut",
         "upToDate": "Mitään ei odota"
       }
     },

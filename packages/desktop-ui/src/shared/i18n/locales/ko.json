@@ -772,8 +772,7 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "정말 멋지네요.",
-        "signinDone": "완료했어요.",
-        "signinSkipped": "나중에 할게요."
+        "signinDone": "완료했어요."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -936,6 +935,10 @@
           "chatgpt": {
             "title": "ChatGPT",
             "body": "ChatGPT로 로그인해 요금제를 사용하세요."
+          },
+          "apikey": {
+            "title": "API 키",
+            "body": "Anthropic, OpenAI, Google 등의 내 키를 사용하세요."
           }
         },
         "signIn": "로그인",
@@ -945,11 +948,9 @@
         "waiting": "브라우저에서 로그인을 마친 뒤 여기로 돌아오세요.",
         "error": "연결하지 못했어요. 다시 시도할까요?",
         "fine": "설정에서 언제든 바꿀 수 있어요.",
-        "skip": "나중에",
         "hint": "무료로 시작할 수 있어요.",
         "settledEngine": "{name} 사용 중",
         "settledStella": "Stella에 로그인됨",
-        "settledSkipped": "아직 로그인하지 않음",
         "settledDesc": "설정에서 언제든 바꿀 수 있어요.",
         "claudeCliMissing": "먼저 Claude Code를 설치한 후 다시 시도하세요."
       },

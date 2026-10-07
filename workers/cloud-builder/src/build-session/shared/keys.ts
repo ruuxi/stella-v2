@@ -45,6 +45,7 @@ export const CLOUD_TURN_SOURCES: readonly CloudTurnSource[] = [
 export const OWNER_GATE_REFUSAL_STATUS: Record<OwnerGateRefusalCode, number> = {
   owner_purged: 410,
   sign_in_required: 403,
+  subscription_required: 403,
   owner_suspended: 403,
   generation_stale: 409,
   internal: 503,

@@ -24,6 +24,7 @@ import {
   type CloudTurnStartRequest,
   type CloudTurnStartResponse,
 } from "@stella/contracts/turn-plane/turn-start";
+import { CLOUD_SANDBOX_SUBSCRIPTION_REQUIRED_MESSAGE } from "@stella/contracts/backend/billing";
 import type { PendingCloudTurnSubmission } from "./conversation-outbox";
 
 /** Bound on the admission round-trip. The DO answers before the model runs. */
@@ -57,8 +58,27 @@ const FALLBACK_MESSAGES: Record<CloudTurnStartErrorCode, string> = {
   execution_unavailable:
     "That model isn't available for cloud turns right now. Choose another and try again.",
   sign_in_required: "Sign in to Stella to use cloud agents.",
+  subscription_required: CLOUD_SANDBOX_SUBSCRIPTION_REQUIRED_MESSAGE,
   owner_suspended: "This account can't use Stella's cloud right now.",
   internal: "That didn't send. Try again.",
+};
+
+const openBilling = () => {
+  void import("@/router").then(({ router }) => {
+    void router.navigate({ to: "/billing" });
+  });
+};
+
+export const notifyCloudSubscriptionRequired = (message?: string): void => {
+  void import("@/ui/toast").then(({ showToast }) => {
+    showToast({
+      title: message?.trim() || CLOUD_SANDBOX_SUBSCRIPTION_REQUIRED_MESSAGE,
+      description: "Running on your own computer stays free.",
+      variant: "error",
+      duration: 10_000,
+      action: { label: "Upgrade", onClick: openBilling },
+    });
+  });
 };
 
 const ERROR_CODES = new Set<string>(Object.keys(FALLBACK_MESSAGES));
@@ -232,6 +252,9 @@ const toClientError = async (
   const retryAfterMs =
     body?.retryAfterMs ??
     (status === 429 ? retryAfterHeaderMs(response) : null);
+  if (code === "subscription_required") {
+    notifyCloudSubscriptionRequired(body?.message);
+  }
   return new CloudTurnStartClientError({
     code,
     status,

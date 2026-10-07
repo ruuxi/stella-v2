@@ -774,8 +774,7 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Genial.",
-        "signinDone": "Hecho.",
-        "signinSkipped": "Lo haré más tarde."
+        "signinDone": "Hecho."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -938,6 +937,10 @@
           "chatgpt": {
             "title": "ChatGPT",
             "body": "Inicia sesión con ChatGPT para usar tu plan."
+          },
+          "apikey": {
+            "title": "Clave de API",
+            "body": "Usa tu propia clave de Anthropic, OpenAI, Google y otros."
           }
         },
         "signIn": "Iniciar sesión",
@@ -947,11 +950,9 @@
         "waiting": "Termina de iniciar sesión en tu navegador y vuelve aquí.",
         "error": "No se pudo conectar. ¿Lo intentas de nuevo?",
         "fine": "Cámbialo cuando quieras en Ajustes.",
-        "skip": "Ahora no",
         "hint": "Empezar es gratis.",
         "settledEngine": "Usando {name}",
         "settledStella": "Sesión iniciada en Stella",
-        "settledSkipped": "Aún sin iniciar sesión",
         "settledDesc": "Cámbialo cuando quieras en Ajustes.",
         "claudeCliMissing": "Primero instala Claude Code y vuelve a intentarlo."
       },
@@ -1740,6 +1741,7 @@
         "fromOtherComputers": "Cambios de tu otro ordenador",
         "readyChange": "Un cambio listo para añadir",
         "add": "Añadir",
+        "get": "Obtener",
         "adding": "Añadiendo…",
         "skip": "Omitir",
         "undoing": "Deshaciendo…",
@@ -1747,6 +1749,7 @@
         "justNow": "Ahora mismo",
         "waiting": "Pendiente",
         "history": "Historial",
+        "skipped": "Omitidas",
         "upToDate": "No hay nada pendiente"
       }
     },

@@ -774,8 +774,7 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "מגניב מאוד.",
-        "signinDone": "בוצע.",
-        "signinSkipped": "אעשה את זה מאוחר יותר."
+        "signinDone": "בוצע."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -938,6 +937,10 @@
           "chatgpt": {
             "title": "ChatGPT",
             "body": "התחברו עם ChatGPT כדי להשתמש במינוי שלכם."
+          },
+          "apikey": {
+            "title": "מפתח API",
+            "body": "אפשר להשתמש במפתח שלך מ-Anthropic,‏ OpenAI,‏ Google ועוד."
           }
         },
         "signIn": "התחבר",
@@ -947,11 +950,9 @@
         "waiting": "סיים את ההתחברות בדפדפן, ואז חזור לכאן.",
         "error": "ההתחברות לא הצליחה. לנסות שוב?",
         "fine": "אפשר לשנות זאת בכל רגע בהגדרות.",
-        "skip": "לא עכשיו",
         "hint": "ההתחלה בחינם.",
         "settledEngine": "משתמש ב-{name}",
         "settledStella": "מחובר ל-Stella",
-        "settledSkipped": "עוד לא מחובר",
         "settledDesc": "אפשר לשנות זאת בכל רגע בהגדרות.",
         "claudeCliMissing": "קודם צריך להתקין את Claude Code, ואז לנסות שוב."
       },
@@ -1740,6 +1741,7 @@
         "fromOtherComputers": "שינויים מהמחשב האחר שלך",
         "readyChange": "שינוי מוכן להוספה",
         "add": "הוספה",
+        "get": "קבל",
         "adding": "מוסיף…",
         "skip": "דילוג",
         "undoing": "מבטל…",
@@ -1747,6 +1749,7 @@
         "justNow": "עכשיו",
         "waiting": "ממתין",
         "history": "היסטוריה",
+        "skipped": "דולגו",
         "upToDate": "אין דבר שממתין"
       }
     },

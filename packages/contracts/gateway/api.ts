@@ -179,6 +179,9 @@ export type NetworkClass =
  * origins are refused (`sign_in_required`); Free callers from hosting origins
  * must pass a challenge at mint and run at half the network caps.
  */
+export const GATEWAY_SIGN_IN_REQUIRED_MESSAGE =
+  "Stella models need a Stella account. Sign in, or connect Claude Code, ChatGPT or an API key.";
+
 export const GATEWAY_NETWORK_POLICY = {
   anonymousRefused: ["hosting", "vpn"] as readonly NetworkClass[],
   freeChallenged: ["hosting"] as readonly NetworkClass[],

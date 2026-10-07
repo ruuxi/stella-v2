@@ -773,8 +773,7 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Superläckert.",
-        "signinDone": "Klart.",
-        "signinSkipped": "Jag gör det senare."
+        "signinDone": "Klart."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -937,6 +936,10 @@
           "chatgpt": {
             "title": "ChatGPT",
             "body": "Logga in med ChatGPT för att använda ditt abonnemang."
+          },
+          "apikey": {
+            "title": "API-nyckel",
+            "body": "Använd din egen nyckel från Anthropic, OpenAI, Google och andra."
           }
         },
         "signIn": "Logga in",
@@ -946,11 +949,9 @@
         "waiting": "Slutför inloggningen i webbläsaren och kom sedan tillbaka hit.",
         "error": "Det gick inte att ansluta. Försöka igen?",
         "fine": "Du kan ändra det när som helst i Inställningar.",
-        "skip": "Inte nu",
         "hint": "Gratis att börja med.",
         "settledEngine": "Använder {name}",
         "settledStella": "Inloggad på Stella",
-        "settledSkipped": "Inte inloggad än",
         "settledDesc": "Ändra det när som helst i Inställningar.",
         "claudeCliMissing": "Installera Claude Code först och försök sedan igen."
       },

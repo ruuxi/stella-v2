@@ -13,6 +13,7 @@ import type { RelayTiming } from "./relay-timing.js";
 import {
   GATEWAY_MAX_OUTPUT_TOKENS_BY_AUDIENCE,
   GATEWAY_NETWORK_POLICY,
+  GATEWAY_SIGN_IN_REQUIRED_MESSAGE,
   GATEWAY_TRACE_HEADER,
   GATEWAY_UPSTREAM_IDLE_TIMEOUT_MS,
   GATEWAY_UPSTREAM_MAX_DURATION_MS,
@@ -429,7 +430,7 @@ const reserveTierBudget = async (args: {
       anonymous ? 403 : 429,
       anonymous ? "sign_in_required" : "tier_paused",
       anonymous
-        ? "Sign in to continue using managed models."
+        ? GATEWAY_SIGN_IN_REQUIRED_MESSAGE
         : "Managed model access is paused for this plan.",
       quotaErrorOptions({
         scope: "tier",
@@ -567,7 +568,7 @@ export const handleManagedRelay = async (args: {
     throw new GatewayError(
       403,
       "sign_in_required",
-      "Sign in to Stella to continue from this network.",
+      GATEWAY_SIGN_IN_REQUIRED_MESSAGE,
     );
   }
   const networkCapShare =

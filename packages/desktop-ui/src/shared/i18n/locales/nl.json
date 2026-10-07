@@ -773,8 +773,7 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Heel cool.",
-        "signinDone": "Klaar.",
-        "signinSkipped": "Ik doe het later."
+        "signinDone": "Klaar."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -937,6 +936,10 @@
           "chatgpt": {
             "title": "ChatGPT",
             "body": "Log in met ChatGPT om je abonnement te gebruiken."
+          },
+          "apikey": {
+            "title": "API-sleutel",
+            "body": "Gebruik je eigen sleutel van Anthropic, OpenAI, Google en anderen."
           }
         },
         "signIn": "Inloggen",
@@ -946,11 +949,9 @@
         "waiting": "Rond het inloggen af in je browser en kom dan hier terug.",
         "error": "Dat is niet gelukt. Opnieuw proberen?",
         "fine": "Wijzig dit op elk moment in Instellingen.",
-        "skip": "Niet nu",
         "hint": "Gratis om mee te beginnen.",
         "settledEngine": "{name} in gebruik",
         "settledStella": "Ingelogd bij Stella",
-        "settledSkipped": "Nog niet ingelogd",
         "settledDesc": "Wijzig het op elk moment in Instellingen.",
         "claudeCliMissing": "Installeer eerst Claude Code en probeer het daarna opnieuw."
       },

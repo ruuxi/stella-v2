@@ -10,6 +10,13 @@ import type { IdentityLevel } from "../gateway/api.js";
 export type BillingPlan = "free" | "go" | "pro";
 export type PaidBillingPlan = Exclude<BillingPlan, "free">;
 
+export type CloudSandboxAccess = {
+  enabled: boolean;
+};
+
+export const CLOUD_SANDBOX_SUBSCRIPTION_REQUIRED_MESSAGE =
+  "Running in the cloud needs a Stella subscription.";
+
 export type BillingPlanConfig = {
   label: string;
   monthlyPriceCents: number;
@@ -21,6 +28,7 @@ export type BillingPlanConfig = {
   monthlyLimitUsd: number;
   /** Spend allowed for the account's lifetime; absent on purely windowed plans. */
   lifetimeLimitUsd?: number;
+  cloudSandbox: CloudSandboxAccess;
 };
 
 export type BillingUsage = {

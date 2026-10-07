@@ -3,6 +3,7 @@ import {
   GATEWAY_HEALTH_PATH,
   GATEWAY_MODEL_REVISION_HEADER,
   GATEWAY_NETWORK_POLICY,
+  GATEWAY_SIGN_IN_REQUIRED_MESSAGE,
   GATEWAY_PREPARE_PATH,
   GATEWAY_RELAY_PREFIX,
   GATEWAY_REQUEST_ID_HEADER,
@@ -221,7 +222,7 @@ const handleSessionCapability = async (
     throw new GatewayError(
       403,
       "sign_in_required",
-      "Sign in to Stella to continue from this network.",
+      GATEWAY_SIGN_IN_REQUIRED_MESSAGE,
     );
   }
   const body = await readJsonObject(request, { allowEmpty: true });
@@ -329,7 +330,7 @@ const handleSessionCapability = async (
       throw new GatewayError(
         403,
         "sign_in_required",
-        "Sign in to Stella to continue.",
+        GATEWAY_SIGN_IN_REQUIRED_MESSAGE,
       );
     }
     if (result.code) {

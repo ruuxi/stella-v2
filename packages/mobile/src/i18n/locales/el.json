@@ -773,8 +773,7 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Πολύ ωραίο.",
-        "signinDone": "Έγινε.",
-        "signinSkipped": "Θα το κάνω αργότερα."
+        "signinDone": "Έγινε."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -937,6 +936,10 @@
           "chatgpt": {
             "title": "ChatGPT",
             "body": "Συνδεθείτε με το ChatGPT για να χρησιμοποιήσετε το πρόγραμμά σας."
+          },
+          "apikey": {
+            "title": "Κλειδί API",
+            "body": "Χρησιμοποίησε το δικό σου κλειδί από Anthropic, OpenAI, Google ή άλλους."
           }
         },
         "signIn": "Σύνδεση",
@@ -946,11 +949,9 @@
         "waiting": "Ολοκλήρωσε τη σύνδεση στο πρόγραμμα περιήγησής σου και μετά γύρνα εδώ.",
         "error": "Δεν συνδέθηκε. Να δοκιμάσεις ξανά;",
         "fine": "Άλλαξέ το όποτε θέλεις στις Ρυθμίσεις.",
-        "skip": "Όχι τώρα",
         "hint": "Δωρεάν για να ξεκινήσεις.",
         "settledEngine": "Χρήση {name}",
         "settledStella": "Συνδεδεμένος στη Stella",
-        "settledSkipped": "Δεν έχεις συνδεθεί ακόμη",
         "settledDesc": "Άλλαξέ το όποτε θέλεις στις Ρυθμίσεις.",
         "claudeCliMissing": "Εγκαταστήστε πρώτα το Claude Code και δοκιμάστε ξανά."
       },
@@ -1728,6 +1729,7 @@
         "fromOtherComputers": "Αλλαγές από τον άλλο σας υπολογιστή",
         "readyChange": "Μια αλλαγή έτοιμη για προσθήκη",
         "add": "Προσθήκη",
+        "get": "Λήψη",
         "adding": "Προσθήκη…",
         "skip": "Παράλειψη",
         "undoing": "Αναίρεση…",
@@ -1735,6 +1737,7 @@
         "justNow": "Μόλις τώρα",
         "waiting": "Σε αναμονή",
         "history": "Ιστορικό",
+        "skipped": "Παραλείφθηκαν",
         "upToDate": "Τίποτα σε αναμονή"
       }
     },

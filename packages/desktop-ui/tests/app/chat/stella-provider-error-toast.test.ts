@@ -140,7 +140,7 @@ describe("llm route failure → toast", () => {
     },
     {
       reason: "Sign in required to continue",
-      title: "Sign in to keep using Stella",
+      title: "Stella models need a Stella account",
     },
   ])("maps $reason to a readable category", ({ reason, title }) => {
     expect(resolveStellaProviderErrorToast(reason)).toMatchObject({

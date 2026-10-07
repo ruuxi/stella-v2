@@ -76,6 +76,7 @@ export type SubmitAutomaticExecutionInput = AutomaticExecutionAdmissionInput & {
 
 const EXECUTION_PLACEMENT_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   sign_in_required: "Sign in to Stella to use cloud agents.",
+  subscription_required: "Running in the cloud needs a Stella subscription.",
   owner_suspended: "This account can't use Stella's cloud right now.",
 };
 

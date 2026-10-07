@@ -86,6 +86,7 @@ The rest of the plan catalog (paid prices, Stripe ids) is listed in the header o
 | `STELLA_ANON_MAX_REQUESTS_PER_IP` | 10 × per-owner | Anonymous requests per network bucket |
 | `STELLA_TIER_CEILING_ANON_HOURLY_USD` / `STELLA_TIER_CEILING_ANON_DAILY_USD` | `20` / `200` | Global anonymous spend breakers (`billing/control.ts`) |
 | `STELLA_TIER_CEILING_FREE_HOURLY_USD` / `STELLA_TIER_CEILING_FREE_DAILY_USD` | `100` / `1000` | Global Free spend breakers |
+| `STELLA_CLOUD_SANDBOX_PLANS` | `free,go,pro` | Plans (`anonymous`, `free`, `go`, `pro`) that may start Cloudflare Container sandboxes: cloud agents, agent dispatches placed in the cloud, Claude Code cloud turns and sign-in, container prewarm. Prod/dev set `go,pro` to require an active subscription (go/pro with status active, trialing or past_due; a paid plan past its limits still counts; credits alone don't). Others get `subscription_required`. An unknown name fails billing config |
 | `STELLA_FREE_EMAIL_ALLOWANCE_SHARE` | `0.4` | Share of the Free allowance for email-only (magic link) accounts; Google/Apple accounts get 1.0 |
 | `STELLA_TEST_ACCOUNTS` | unset = disabled | `1` (a dev `var`) enables admin-minted `@test.stella.local` sessions; never set it on production |
 | `TURNSTILE_SECRET_KEY` | unset = OFF | See section 3 |

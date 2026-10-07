@@ -5,7 +5,7 @@ import { PROVIDER_CREDENTIALS } from "@/global/settings/lib/llm-providers";
 import { PROVIDER_CONNECTED_EVENT, } from "@/global/settings/hooks/use-llm-credentials";
 import { useT } from "@/shared/i18n";
 import "./ProviderConnectedDialog.css";
-const ASSISTANT_AGENT_KEYS = ["orchestrator", "general"];
+import { ASSISTANT_AGENT_KEYS, DEFAULT_MODEL_BY_PROVIDER, } from "@/global/settings/lib/provider-default-models";
 /**
  * Some providers can serve more than one of Stella's surfaces (assistant
  * model, image generation, realtime voice). This table answers "if the user
@@ -100,22 +100,7 @@ export function ProviderConnectedDialog() {
             const existing = (await window.electronAPI?.system?.getLocalModelPreferences?.())
                 ?.modelOverrides ?? {};
             const next = { ...existing };
-            // Use a sentinel model id that maps to "let the provider pick" via
-            // the existing override pathway: there is no single canonical model
-            // id per provider here, so we instead pick the provider's first
-            // documented Stella-side default. If the user wants a specific
-            // model later, they can pick it from the picker's "More options".
-            // Falling back to the provider key itself works because the runtime
-            // resolves bare provider names to their default upstream.
-            const defaultModelByProvider = {
-                openai: "openai/gpt-5.5",
-                anthropic: "anthropic/claude-opus-4.7",
-                google: "google/gemini-3.1-pro",
-                meta: "meta/muse-spark-1.2",
-                openrouter: "openrouter/anthropic/claude-opus-4.7",
-                xai: "xai/grok-4.5",
-            };
-            const model = defaultModelByProvider[detail.provider];
+            const model = DEFAULT_MODEL_BY_PROVIDER[detail.provider];
             if (model) {
                 for (const key of ASSISTANT_AGENT_KEYS) {
                     next[key] = model;

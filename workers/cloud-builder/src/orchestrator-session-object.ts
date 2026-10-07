@@ -175,8 +175,10 @@ import {
   mintTurnCapability,
   type MintedTurnCapability,
 } from "./capability-signer.js";
+import { CLOUD_SANDBOX_SUBSCRIPTION_REQUIRED_MESSAGE } from "@stella/contracts/backend/billing";
 import {
   OwnerGateSnapshotError,
+  snapshotAllowsCloudSandbox,
   snapshotAllowsExecutionEngine,
   type OwnerGateAdmission,
   type OwnerGateAdmissionWithLease,
@@ -3656,6 +3658,16 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         return turnStartErrorResponse(code, message, retryable);
       };
       const execution = start.execution ?? snapshot.execution;
+      if (
+        execution.engine === "anthropic" &&
+        !snapshotAllowsCloudSandbox(snapshot)
+      ) {
+        return await refuse(
+          "subscription_required",
+          CLOUD_SANDBOX_SUBSCRIPTION_REQUIRED_MESSAGE,
+          false,
+        );
+      }
       if (!snapshotAllowsExecutionEngine(snapshot, execution.engine)) {
         return await refuse(
           "execution_unavailable",

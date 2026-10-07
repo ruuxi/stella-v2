@@ -287,7 +287,7 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
             const reason = error.message || null;
             // A queued / follow-up message whose start fails because the user hit
             // an anonymous cap or usage/auth limit must show the same actionable
-            // "Sign in to keep using Stella" toast as the live send path — not the
+            // sign-in or connect-a-provider notice as the live send path — not the
             // generic "Stella is still starting up". `resolveAgentNotReadyToast`
             // only understands local startup hiccups, so route real backend
             // limit/auth reasons through the provider-error resolver (which

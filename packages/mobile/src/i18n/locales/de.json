@@ -773,8 +773,7 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Sehr cool.",
-        "signinDone": "Erledigt.",
-        "signinSkipped": "Mache ich später."
+        "signinDone": "Erledigt."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -937,6 +936,10 @@
           "chatgpt": {
             "title": "ChatGPT",
             "body": "Melde dich mit ChatGPT an, um dein Abo zu nutzen."
+          },
+          "apikey": {
+            "title": "API-Schlüssel",
+            "body": "Nutze deinen eigenen Schlüssel von Anthropic, OpenAI, Google und anderen."
           }
         },
         "signIn": "Anmelden",
@@ -946,11 +949,9 @@
         "waiting": "Schließe die Anmeldung in deinem Browser ab und komm dann hierher zurück.",
         "error": "Das hat nicht geklappt. Nochmal versuchen?",
         "fine": "Du kannst das jederzeit in den Einstellungen ändern.",
-        "skip": "Nicht jetzt",
         "hint": "Der Start ist kostenlos.",
         "settledEngine": "{name} wird verwendet",
         "settledStella": "Bei Stella angemeldet",
-        "settledSkipped": "Noch nicht angemeldet",
         "settledDesc": "Jederzeit in den Einstellungen änderbar.",
         "claudeCliMissing": "Installiere zuerst Claude Code und versuche es dann erneut."
       },
@@ -1728,6 +1729,7 @@
         "fromOtherComputers": "Änderungen von deinem anderen Computer",
         "readyChange": "Eine Änderung, bereit zum Hinzufügen",
         "add": "Hinzufügen",
+        "get": "Holen",
         "adding": "Wird hinzugefügt…",
         "skip": "Überspringen",
         "undoing": "Wird rückgängig gemacht…",
@@ -1735,6 +1737,7 @@
         "justNow": "Gerade eben",
         "waiting": "Wartet",
         "history": "Verlauf",
+        "skipped": "Übersprungen",
         "upToDate": "Nichts wartet"
       }
     },

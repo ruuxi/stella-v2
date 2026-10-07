@@ -775,8 +775,7 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Очень круто.",
-        "signinDone": "Готово.",
-        "signinSkipped": "Сделаю позже."
+        "signinDone": "Готово."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -939,6 +938,10 @@
           "chatgpt": {
             "title": "ChatGPT",
             "body": "Войдите через ChatGPT, чтобы использовать свой план."
+          },
+          "apikey": {
+            "title": "Ключ API",
+            "body": "Используйте свой ключ Anthropic, OpenAI, Google и других."
           }
         },
         "signIn": "Войти",
@@ -948,11 +951,9 @@
         "waiting": "Завершите вход в браузере и возвращайтесь сюда.",
         "error": "Подключиться не удалось. Повторить?",
         "fine": "Это можно изменить в любой момент в Настройках.",
-        "skip": "Не сейчас",
         "hint": "Начать можно бесплатно.",
         "settledEngine": "Используется {name}",
         "settledStella": "Вход в Stella выполнен",
-        "settledSkipped": "Вход ещё не выполнен",
         "settledDesc": "Это можно изменить в любой момент в Настройках.",
         "claudeCliMissing": "Сначала установите Claude Code, затем попробуйте ещё раз."
       },
@@ -1752,6 +1753,7 @@
         "fromOtherComputers": "Изменения с другого компьютера",
         "readyChange": "Изменение готово к добавлению",
         "add": "Добавить",
+        "get": "Получить",
         "adding": "Добавление…",
         "skip": "Пропустить",
         "undoing": "Отмена…",
@@ -1759,6 +1761,7 @@
         "justNow": "Только что",
         "waiting": "Ожидают",
         "history": "История",
+        "skipped": "Пропущенные",
         "upToDate": "Ничего не ожидает"
       }
     },

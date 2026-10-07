@@ -685,6 +685,10 @@ export const admitSession = async (
       maxPerIp: config.anonymousMaxRequestsPerIp,
       now,
     });
+    if (maxRequests === 0) {
+      log("info", "abuse_admission_refused", { ownerId: ctx.ownerId, code: "sign_in_required", reason: "anonymous_allowance" });
+      return refuse("sign_in_required", 403);
+    }
   }
   log("info", "abuse_admission", {
     ownerId: ctx.ownerId,

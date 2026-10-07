@@ -773,8 +773,7 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Çok güzel.",
-        "signinDone": "Tamam.",
-        "signinSkipped": "Sonra yaparım."
+        "signinDone": "Tamam."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -937,6 +936,10 @@
           "chatgpt": {
             "title": "ChatGPT",
             "body": "Planını kullanmak için ChatGPT ile oturum aç."
+          },
+          "apikey": {
+            "title": "API anahtarı",
+            "body": "Anthropic, OpenAI, Google ve diğerlerinden kendi anahtarını kullan."
           }
         },
         "signIn": "Oturum aç",
@@ -946,11 +949,9 @@
         "waiting": "Oturum açmayı tarayıcında tamamla, sonra buraya dön.",
         "error": "Bağlanamadı. Tekrar denensin mi?",
         "fine": "Bunu istediğin zaman Ayarlar'dan değiştirebilirsin.",
-        "skip": "Şimdi değil",
         "hint": "Başlamak ücretsiz.",
         "settledEngine": "{name} kullanılıyor",
         "settledStella": "Stella'da oturum açıldı",
-        "settledSkipped": "Henüz oturum açılmadı",
         "settledDesc": "İstediğin zaman Ayarlar'dan değiştir.",
         "claudeCliMissing": "Önce Claude Code'u yükle, sonra tekrar dene."
       },

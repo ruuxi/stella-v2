@@ -62,13 +62,17 @@ import {
   type SessionCapabilityRequest,
   type GatewayUsageEvent,
 } from "@stella/contracts/gateway/usage";
-import type { BillingPlan } from "@stella/contracts/backend/billing";
+import {
+  CLOUD_SANDBOX_SUBSCRIPTION_REQUIRED_MESSAGE,
+  type BillingPlan,
+} from "@stella/contracts/backend/billing";
 import type { TelemetryEventV1 } from "@stella/contracts/telemetry";
 import {
   applyGatewayUsage,
   applyStripeEvent,
   billingAccess,
   billingPaying,
+  cloudSandboxAccess,
   closeStripeCustomer,
   recordBillingIdentity,
   reserveSessionGrant,
@@ -215,6 +219,7 @@ export type OwnerGateAdmitInput = {
    * mismatch after a forced snapshot refresh is `generation_stale`.
    */
   expectedGeneration?: string;
+  deferCloudSandboxCheck?: boolean;
   /** Test seam; defaults to `Date.now()`. */
   now?: number;
 };
@@ -222,6 +227,7 @@ export type OwnerGateAdmitInput = {
 export type OwnerGateRefusalCode =
   | "owner_purged"
   | "sign_in_required"
+  | "subscription_required"
   | "owner_suspended"
   | "generation_stale"
   | "internal";
@@ -438,6 +444,10 @@ export const snapshotAllowsExecutionEngine = (
   engine: OwnerSnapshot["execution"]["engine"],
 ): boolean =>
   engine === "stella" || (snapshot.connectedEngines ?? []).includes(engine);
+
+export const snapshotAllowsCloudSandbox = (
+  snapshot: Pick<OwnerSnapshot, "cloudSandbox">,
+): boolean => snapshot.cloudSandbox?.enabled !== false;
 
 const refuse = (
   code: OwnerGateRefusalCode,
@@ -1422,6 +1432,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         identityLevel: state.identityLevel,
         ...(enforcement ? { enforcement } : {}),
         plan: "free",
+        cloudSandbox: { enabled: false },
         allowance: {
           audience: state.isAnonymous ? "anonymous" : "free",
           budgetMicroCents: 0,
@@ -1448,6 +1459,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       return {
         ...owned,
         plan: billing.plan,
+        cloudSandbox: cloudSandboxAccess(ctx),
         identityLevel: billing.identityLevel,
         allowance: billing.allowance,
       };
@@ -1670,10 +1682,14 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         false,
       );
     }
-    if (input.lane === "agent" && snapshot.isAnonymous) {
+    if (
+      input.lane === "agent" &&
+      !input.deferCloudSandboxCheck &&
+      !snapshotAllowsCloudSandbox(snapshot)
+    ) {
       return refuse(
-        "sign_in_required",
-        "Sign in to Stella to use cloud agents.",
+        "subscription_required",
+        CLOUD_SANDBOX_SUBSCRIPTION_REQUIRED_MESSAGE,
         false,
       );
     }
@@ -2734,6 +2750,29 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       return row;
     }
     this.withdrawOffers(row.dispatch_id, null, fallbackReason, now);
+    if (row.on_no_eligible_computer === "cloud" && row.kind === "agent") {
+      const snapshot = await this.snapshot({ now }).catch(() => null);
+      if (snapshot && !snapshotAllowsCloudSandbox(snapshot)) {
+        const refused = await this.patchDispatch(
+          row,
+          {
+            state: "blocked",
+            executor_device_id: null,
+            executor_presence_session_id: null,
+            offer_deadline_at: null,
+            lease_expires_at: null,
+            payload_json: null,
+            payload_expires_at: null,
+            fallback_reason: "subscription-required",
+            error_code: "SUBSCRIPTION_REQUIRED",
+            error_message: CLOUD_SANDBOX_SUBSCRIPTION_REQUIRED_MESSAGE,
+          },
+          now,
+        );
+        await this.releaseGate(refused);
+        return refused;
+      }
+    }
     if (row.on_no_eligible_computer === "cloud") {
       const committed = await this.patchDispatch(
         row,
@@ -3315,6 +3354,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         lane: "agent",
         turnId: dispatchId,
         conversationId: request.conversationId,
+        deferCloudSandboxCheck: true,
         ...(input.expectedGeneration
           ? { expectedGeneration: input.expectedGeneration }
           : {}),
@@ -3487,6 +3527,17 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
             ? "The selected computer is online but isn't accepting work right now. It may still be starting up, be signed out, have cloud sync off, or not allow work from other devices."
             : "This work requires your paired computer, but no eligible computer is reachable.";
       }
+    }
+
+    if (
+      request.kind === "agent" &&
+      state === "cloud_committed" &&
+      !snapshotAllowsCloudSandbox(snapshot)
+    ) {
+      return await refuse(
+        "subscription_required",
+        CLOUD_SANDBOX_SUBSCRIPTION_REQUIRED_MESSAGE,
+      );
     }
 
     const terminal = state === "blocked";

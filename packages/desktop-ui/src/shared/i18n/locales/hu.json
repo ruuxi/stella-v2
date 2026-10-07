@@ -773,8 +773,7 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Nagyon menő.",
-        "signinDone": "Kész.",
-        "signinSkipped": "Később megteszem."
+        "signinDone": "Kész."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -937,6 +936,10 @@
           "chatgpt": {
             "title": "ChatGPT",
             "body": "Jelentkezz be a ChatGPT-vel az előfizetésed használatához."
+          },
+          "apikey": {
+            "title": "API-kulcs",
+            "body": "Használd a saját Anthropic-, OpenAI-, Google- vagy más kulcsodat."
           }
         },
         "signIn": "Bejelentkezés",
@@ -946,11 +949,9 @@
         "waiting": "Fejezd be a bejelentkezést a böngészőben, aztán gyere vissza ide.",
         "error": "Nem sikerült csatlakozni. Próbáljuk újra?",
         "fine": "Bármikor módosíthatod a Beállításokban.",
-        "skip": "Most nem",
         "hint": "Az indulás ingyenes.",
         "settledEngine": "{name} használatban",
         "settledStella": "Bejelentkezve a Stellába",
-        "settledSkipped": "Még nincs bejelentkezve",
         "settledDesc": "Bármikor módosíthatod a Beállításokban.",
         "claudeCliMissing": "Előbb telepítsd a Claude Code-ot, majd próbáld újra."
       },

@@ -2,6 +2,7 @@ import type { CloudExecutionSelection } from "../agent-engine.js";
 import type { ManagedModelAudience } from "../gateway/capability.js";
 import type { OwnerEnforcement } from "../gateway/usage.js";
 import type { IdentityLevel } from "../gateway/api.js";
+import type { CloudSandboxAccess } from "../backend/billing.js";
 
 /**
  * The owner snapshot is what the owner gate Durable Object admits turns
@@ -30,6 +31,7 @@ export type OwnerSnapshot = {
   /** Enforcement status; absent means `ok`. Suspended also sets `writable: false`. */
   enforcement?: OwnerEnforcement;
   plan: CloudPlanId;
+  cloudSandbox?: CloudSandboxAccess;
   allowance: {
     audience: ManagedModelAudience;
     budgetMicroCents: number;

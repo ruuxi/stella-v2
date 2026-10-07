@@ -774,8 +774,7 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Très cool.",
-        "signinDone": "C'est fait.",
-        "signinSkipped": "Je le ferai plus tard."
+        "signinDone": "C'est fait."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -938,6 +937,10 @@
           "chatgpt": {
             "title": "ChatGPT",
             "body": "Connectez-vous avec ChatGPT pour utiliser votre forfait."
+          },
+          "apikey": {
+            "title": "Clé API",
+            "body": "Utilisez votre propre clé Anthropic, OpenAI, Google ou autre."
           }
         },
         "signIn": "Se connecter",
@@ -947,11 +950,9 @@
         "waiting": "Terminez la connexion dans votre navigateur, puis revenez ici.",
         "error": "La connexion a échoué. Réessayer ?",
         "fine": "Modifiable à tout moment dans les réglages.",
-        "skip": "Pas maintenant",
         "hint": "Gratuit pour commencer.",
         "settledEngine": "Utilise {name}",
         "settledStella": "Connecté à Stella",
-        "settledSkipped": "Pas encore connecté",
         "settledDesc": "Modifiable à tout moment dans les réglages.",
         "claudeCliMissing": "Installez d'abord Claude Code, puis réessayez."
       },

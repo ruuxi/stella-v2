@@ -772,8 +772,7 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "เจ๋งมาก",
-        "signinDone": "เรียบร้อย",
-        "signinSkipped": "เดี๋ยวฉันทำทีหลัง"
+        "signinDone": "เรียบร้อย"
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -936,6 +935,10 @@
           "chatgpt": {
             "title": "ChatGPT",
             "body": "ลงชื่อเข้าใช้ด้วย ChatGPT เพื่อใช้แพ็กเกจของคุณ"
+          },
+          "apikey": {
+            "title": "คีย์ API",
+            "body": "ใช้คีย์ของคุณเองจาก Anthropic, OpenAI, Google และอื่นๆ"
           }
         },
         "signIn": "ลงชื่อเข้าใช้",
@@ -945,11 +948,9 @@
         "waiting": "ลงชื่อเข้าใช้ให้เสร็จในเบราว์เซอร์ แล้วกลับมาที่นี่",
         "error": "เชื่อมต่อไม่สำเร็จ ลองอีกครั้งไหม",
         "fine": "เปลี่ยนได้ทุกเมื่อในการตั้งค่า",
-        "skip": "ไว้ก่อน",
         "hint": "เริ่มต้นฟรี",
         "settledEngine": "ใช้ {name}",
         "settledStella": "ลงชื่อเข้าใช้ Stella แล้ว",
-        "settledSkipped": "ยังไม่ได้ลงชื่อเข้าใช้",
         "settledDesc": "เปลี่ยนได้ทุกเมื่อในการตั้งค่า",
         "claudeCliMissing": "ติดตั้ง Claude Code ก่อน แล้วลองอีกครั้ง"
       },

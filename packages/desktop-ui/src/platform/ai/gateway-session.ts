@@ -15,6 +15,7 @@
  */
 import {
   GATEWAY_SESSION_CAPABILITY_PATH,
+  GATEWAY_SIGN_IN_REQUIRED_MESSAGE,
   type GatewayErrorBody,
   type GatewaySessionCapabilityRequest,
   type GatewaySessionCapabilityResponse,
@@ -34,7 +35,7 @@ export const GATEWAY_SESSION_CAPABILITY_REFRESH_SKEW_MS = 60_000;
 const GATEWAY_SESSION_EXCHANGE_TIMEOUT_MS = 15_000;
 
 export const STELLA_GATEWAY_SIGN_IN_REQUIRED_MESSAGE =
-  "Sign in to Stella to use Stella models.";
+  GATEWAY_SIGN_IN_REQUIRED_MESSAGE;
 export const STELLA_GATEWAY_CHALLENGE_REQUIRED_MESSAGE =
   "Stella needs to verify you're human before continuing.";
 export const STELLA_GATEWAY_DEVICE_VERIFICATION_MESSAGE =

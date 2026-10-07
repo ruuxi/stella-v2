@@ -39,7 +39,12 @@ export type StellaProviderErrorClassification = {
   capability?: Capability
 }
 
-const signInRequiredMatchers = ['sign in required'] as const
+const signInRequiredMatchers = [
+  'sign in required',
+  'stella models need a stella account',
+] as const
+
+const signInRequiredCodePattern = /(?<!engine_)sign_in_required/
 
 /**
  * The Free plan's allowance is a lifetime budget, not a window — once it
@@ -317,7 +322,10 @@ export const classifyStellaProviderError = (
   if (normalized.includes(claudeCodeLoginRequiredMatcher)) {
     return { kind: 'claude-code-login', message }
   }
-  if (includesAny(normalized, signInRequiredMatchers)) {
+  if (
+    includesAny(normalized, signInRequiredMatchers) ||
+    signInRequiredCodePattern.test(normalized)
+  ) {
     return { kind: 'sign-in-required', message }
   }
   if (normalized.includes(chatGptUsageLimitMatcher)) {

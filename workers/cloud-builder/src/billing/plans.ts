@@ -1,6 +1,7 @@
 import type {
   BillingPlan,
   BillingPlanConfig,
+  CloudSandboxAccess,
   PaidBillingPlan,
 } from "@stella/contracts/backend/billing";
 
@@ -79,10 +80,37 @@ const optional = (read: EnvReader, name: string): number | undefined =>
 
 const roundUsd = (value: number) => Math.max(0, Math.round(value * 100) / 100);
 
+type CloudSandboxPlan = BillingPlan | "anonymous";
+const CLOUD_SANDBOX_PLANS: readonly CloudSandboxPlan[] = ["anonymous", "free", "go", "pro"];
+const DEFAULT_CLOUD_SANDBOX_PLANS: readonly CloudSandboxPlan[] = ["free", "go", "pro"];
+
+const cloudSandboxPlans = (read: EnvReader): ReadonlySet<CloudSandboxPlan> => {
+  const raw = read("STELLA_CLOUD_SANDBOX_PLANS");
+  if (raw === undefined) return new Set(DEFAULT_CLOUD_SANDBOX_PLANS);
+  const plans = new Set<CloudSandboxPlan>();
+  for (const entry of raw.split(",")) {
+    const name = entry.trim().toLowerCase();
+    if (!name) continue;
+    if (!(CLOUD_SANDBOX_PLANS as readonly string[]).includes(name)) {
+      throw new BillingConfigError(
+        `STELLA_CLOUD_SANDBOX_PLANS lists unknown plan "${name}"; use ${CLOUD_SANDBOX_PLANS.join(", ")}.`,
+      );
+    }
+    plans.add(name as CloudSandboxPlan);
+  }
+  return plans;
+};
+
+const cloudSandboxFor = (
+  plans: ReadonlySet<CloudSandboxPlan>,
+  plan: CloudSandboxPlan,
+): CloudSandboxAccess => ({ enabled: plans.has(plan) });
+
 const paidPlan = (
   read: EnvReader,
   plan: PaidBillingPlan,
   utilizationRate: number,
+  sandboxPlans: ReadonlySet<CloudSandboxPlan>,
 ): BillingPlanConfig => {
   const prefix = `STELLA_${plan.toUpperCase()}`;
   const monthlyPriceCents = required(read, `${prefix}_PRICE_CENTS`);
@@ -97,6 +125,7 @@ const paidPlan = (
     weeklyLimitUsd:
       optional(read, `${prefix}_WEEKLY_LIMIT_USD`) ?? roundUsd(derivedMonthly * WEEKLY_LIMIT_SHARE),
     monthlyLimitUsd: optional(read, `${prefix}_MONTHLY_LIMIT_USD`) ?? derivedMonthly,
+    cloudSandbox: cloudSandboxFor(sandboxPlans, plan),
   };
 };
 
@@ -117,6 +146,7 @@ const openPlan = (label: string): BillingPlanConfig => ({
   rollingWindowHours: DEFAULT_ROLLING_WINDOW_HOURS,
   weeklyLimitUsd: OPEN_LIMIT_USD,
   monthlyLimitUsd: OPEN_LIMIT_USD,
+  cloudSandbox: { enabled: true },
 });
 
 const OPEN_BILLING_CONFIG: BillingConfig = {
@@ -136,7 +166,8 @@ const loadBillingConfig = (env: Cloudflare.Env): BillingConfig => {
   if (utilizationRate <= 0 || utilizationRate > 1) {
     throw new BillingConfigError("STELLA_INCLUDED_USAGE_UTILIZATION_RATE must be in (0, 1].");
   }
-  const go = paidPlan(read, "go", utilizationRate);
+  const sandboxPlans = cloudSandboxPlans(read);
+  const go = paidPlan(read, "go", utilizationRate, sandboxPlans);
   const intro = optional(read, "STELLA_GO_INTRO_FIRST_MONTH_PRICE_CENTS");
   const goFirstMonthCoupon = read("STRIPE_COUPON_GO_FIRST_MONTH");
   if ((intro === undefined) !== (goFirstMonthCoupon === undefined)) {
@@ -164,9 +195,10 @@ const loadBillingConfig = (env: Cloudflare.Env): BillingConfig => {
         weeklyLimitUsd: required(read, "STELLA_FREE_WEEKLY_LIMIT_USD"),
         monthlyLimitUsd: required(read, "STELLA_FREE_MONTHLY_LIMIT_USD"),
         ...(freeLifetime !== undefined ? { lifetimeLimitUsd: freeLifetime } : {}),
+        cloudSandbox: cloudSandboxFor(sandboxPlans, "free"),
       },
       go,
-      pro: paidPlan(read, "pro", utilizationRate),
+      pro: paidPlan(read, "pro", utilizationRate, sandboxPlans),
     },
     anonymous: {
       label: "Anonymous",
@@ -177,6 +209,7 @@ const loadBillingConfig = (env: Cloudflare.Env): BillingConfig => {
       weeklyLimitUsd: optional(read, "STELLA_ANON_WEEKLY_LIMIT_USD") ?? anonLifetime,
       monthlyLimitUsd: optional(read, "STELLA_ANON_MONTHLY_LIMIT_USD") ?? anonLifetime,
       lifetimeLimitUsd: anonLifetime,
+      cloudSandbox: cloudSandboxFor(sandboxPlans, "anonymous"),
     },
     anonymousMaxRequests,
     anonymousMaxRequestsPerIp:

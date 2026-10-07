@@ -536,17 +536,6 @@ const handleDispatchSubmitRoute = async (
   if (!parsed.ok) {
     return dispatchErrorResponse("bad_request", parsed.message, false);
   }
-  if (
-    caller.kind !== "service" &&
-    caller.isAnonymous &&
-    parsed.request.kind === "agent"
-  ) {
-    return dispatchErrorResponse(
-      "sign_in_required",
-      "Sign in to Stella to use cloud agents.",
-      false,
-    );
-  }
   let submitted: DispatchSubmitRequest = parsed.request;
   const gate = env.OWNER_GATES.getByName(caller.ownerId);
 

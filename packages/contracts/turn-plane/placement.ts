@@ -285,6 +285,7 @@ export type DispatchErrorCode =
   | "capability_unavailable"
   /** Anonymous owners may not dispatch agent work; sign in to continue. */
   | "sign_in_required"
+  | "subscription_required"
   | "owner_suspended"
   | "internal";
 

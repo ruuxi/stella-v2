@@ -777,8 +777,7 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "رائع جدًا.",
-        "signinDone": "تم.",
-        "signinSkipped": "سأفعل ذلك لاحقًا."
+        "signinDone": "تم."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -941,6 +940,10 @@
           "chatgpt": {
             "title": "ChatGPT",
             "body": "سجّل الدخول باستخدام ChatGPT لاستخدام خطتك."
+          },
+          "apikey": {
+            "title": "مفتاح API",
+            "body": "استخدم مفتاحك من Anthropic أو OpenAI أو Google أو غيرها."
           }
         },
         "signIn": "تسجيل الدخول",
@@ -950,11 +953,9 @@
         "waiting": "أكمل تسجيل الدخول في متصفحك، ثم عد إلى هنا.",
         "error": "تعذّر الاتصال. أتحاول مرة أخرى؟",
         "fine": "يمكنك تغيير هذا في أي وقت من الإعدادات.",
-        "skip": "ليس الآن",
         "hint": "البدء مجاني.",
         "settledEngine": "استخدام {name}",
         "settledStella": "تم تسجيل الدخول إلى Stella",
-        "settledSkipped": "لم يتم تسجيل الدخول بعد",
         "settledDesc": "يمكنك تغييره في أي وقت من الإعدادات.",
         "claudeCliMissing": "ثبّت Claude Code أولاً، ثم حاول مرة أخرى."
       },

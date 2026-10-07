@@ -28,6 +28,7 @@ import {
 } from "../sandbox-lifecycle.js";
 import { PREVIEW_ACCESS_STORAGE_KEY } from "../vite-preview-access.js";
 import { sandboxClient } from "../sandbox-client.js";
+import { snapshotAllowsCloudSandbox } from "../owner-gate.js";
 import { agentTurnSessionId, worldName, worldSandboxId } from "../workspace.js";
 import { initialInstanceSize } from "../instance-size.js";
 import type { InstanceSize } from "../instance-size.js";
@@ -176,6 +177,12 @@ export const prewarmOrchestratorContainer = async (
   const stored = await host.ctx.storage.get<TurnRequest>("turn");
   if (stored && stored.ownerId !== ownerId) {
     return json({ prewarmed: false, reason: "owner_mismatch" }, 409);
+  }
+  const snapshot = await host.env.OWNER_GATES.getByName(ownerId)
+    .snapshot()
+    .catch(() => null);
+  if (!snapshot || !snapshotAllowsCloudSandbox(snapshot)) {
+    return json({ prewarmed: false, reason: "subscription_required" }, 403);
   }
   const world = host.env.WORLDS.getByName(await worldName(ownerId));
   const size = await world.selectContainerSize(

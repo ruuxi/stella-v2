@@ -774,8 +774,7 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Foarte tare.",
-        "signinDone": "Gata.",
-        "signinSkipped": "O fac mai târziu."
+        "signinDone": "Gata."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -938,6 +937,10 @@
           "chatgpt": {
             "title": "ChatGPT",
             "body": "Conectează-te cu ChatGPT ca să folosești abonamentul tău."
+          },
+          "apikey": {
+            "title": "Cheie API",
+            "body": "Folosește-ți propria cheie de la Anthropic, OpenAI, Google și alții."
           }
         },
         "signIn": "Conectează-te",
@@ -947,11 +950,9 @@
         "waiting": "Termină autentificarea în browser, apoi revino aici.",
         "error": "Nu s-a conectat. Încerci din nou?",
         "fine": "Schimbă asta oricând din Setări.",
-        "skip": "Nu acum",
         "hint": "Gratuit la început.",
         "settledEngine": "Folosești {name}",
         "settledStella": "Conectat la Stella",
-        "settledSkipped": "Încă neconectat",
         "settledDesc": "Schimbă oricând din Setări.",
         "claudeCliMissing": "Instalează mai întâi Claude Code, apoi încearcă din nou."
       },
@@ -1740,6 +1741,7 @@
         "fromOtherComputers": "Modificări de pe celălalt computer",
         "readyChange": "O modificare gata de adăugat",
         "add": "Adaugă",
+        "get": "Preia",
         "adding": "Se adaugă…",
         "skip": "Omite",
         "undoing": "Se anulează…",
@@ -1747,6 +1749,7 @@
         "justNow": "Chiar acum",
         "waiting": "În așteptare",
         "history": "Istoric",
+        "skipped": "Omise",
         "upToDate": "Nimic în așteptare"
       }
     },

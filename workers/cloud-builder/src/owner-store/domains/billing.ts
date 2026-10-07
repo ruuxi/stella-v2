@@ -14,6 +14,7 @@ import type {
   BillingCalls,
   BillingPlan,
   BillingStatus,
+  CloudSandboxAccess,
   PaidBillingPlan,
 } from "@stella/contracts/backend/billing";
 import {
@@ -26,7 +27,12 @@ import {
   type ManagedModelAudience,
 } from "@stella/contracts/gateway/capability";
 import type { GatewayUsageEvent } from "@stella/contracts/gateway/usage";
-import { billingConfig, planForStripePrice, type BillingConfig } from "../../billing/plans.js";
+import {
+  BillingConfigError,
+  billingConfig,
+  planForStripePrice,
+  type BillingConfig,
+} from "../../billing/plans.js";
 import { stripeRequest, StripeError, type StripeEvent } from "../../billing/stripe.js";
 import { empty, literal, number, object, optional, string } from "../args.js";
 import { RpcError } from "../errors.js";
@@ -441,6 +447,27 @@ export const billingPlan = (ctx: {
 
 export const billingAccess = (ctx: { db: OwnerDbReader; env: Cloudflare.Env; now: number }): BillingAccess =>
   accessFor(billingConfig(ctx.env), readAccount(ctx.db, ctx.now), ctx.now);
+
+const subscribedPlan = (row: AccountRow): BillingPlan =>
+  plan(row) !== "free" && ACTIVE_SUBSCRIPTION_STATUSES.has(row.subscription_status) ? plan(row) : "free";
+
+export const cloudSandboxAccess = (ctx: {
+  db: OwnerDbReader;
+  env: Cloudflare.Env;
+  now: number;
+}): CloudSandboxAccess => {
+  let config: BillingConfig;
+  try {
+    config = billingConfig(ctx.env);
+  } catch (error) {
+    if (error instanceof BillingConfigError) return { enabled: false };
+    throw error;
+  }
+  if (!config.enabled) return config.plans.pro.cloudSandbox;
+  const row = readAccount(ctx.db, ctx.now);
+  if (row.is_anonymous === 1) return config.anonymous.cloudSandbox;
+  return config.plans[subscribedPlan(row)].cloudSandbox;
+};
 
 /** Budget for a turn capability: the gateway's owner gate meters it. */
 export const turnAllowance = (ctx: { db: OwnerDbReader; env: Cloudflare.Env; now: number }) => {

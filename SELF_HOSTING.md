@@ -279,7 +279,13 @@ For prod, repeat 1.3–1.5 with the prod names, `--env production`, and the
 
 ### 1.6 Auth
 
-Anonymous sign-in works with no setup. Add these as you need them; each is
+Anonymous sign-in works with no setup, so no sign-in method is required: an
+anonymous user can chat on Claude Code, ChatGPT or their own API keys, and,
+with billing off, on your managed models. To keep anonymous users off your
+managed models, set `STELLA_TIER_CEILING_ANON_HOURLY_USD` and
+`STELLA_TIER_CEILING_ANON_DAILY_USD` to `0`. Sign-in is only needed for
+accounts: sync across computers, the mobile app and, once you set billing
+limits, Stella's managed models. Add these as you need them; each is
 optional (Part 2):
 
 - **Email (magic links):** Cloudflare Email Service. Enable sending for a domain
@@ -472,6 +478,7 @@ Secrets go on **cloud-builder** unless noted.
 | Feature | Keys | Provider | Without it |
 |---|---|---|---|
 | Billing (plans, limits, Stripe checkout) | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (webhook URL `<backend>/api/stripe/webhook`), `STRIPE_PRICE_GO`, `STRIPE_PRICE_PRO`, `STELLA_INCLUDED_USAGE_UTILIZATION_RATE`, `STELLA_GO_PRICE_CENTS`, `STELLA_PRO_PRICE_CENTS`, `STELLA_FREE_{ROLLING,WEEKLY,MONTHLY}_LIMIT_USD`, `STELLA_FREE_ROLLING_WINDOW_HOURS`, `STELLA_ANON_LIFETIME_LIMIT_USD`, `STELLA_ANON_MAX_REQUESTS`; optional overrides in `workers/cloud-builder/src/billing/plans.ts` | Stripe | Billing is off: every account is Pro, unlimited; checkout says billing isn't set up. Setting any one of `STELLA_INCLUDED_USAGE_UTILIZATION_RATE`, `STRIPE_SECRET_KEY`, `STRIPE_PRICE_GO`, `STRIPE_PRICE_PRO` turns billing on, and then all the required ones must be set or turns are refused |
+| Cloud containers by plan (cloud agents, cloud as a run destination, Claude Code in the cloud) | var or secret `STELLA_CLOUD_SANDBOX_PLANS`: comma list of `anonymous`, `free`, `go`, `pro` that may start a cloud container, e.g. `go,pro` to require a subscription. Read only when billing is on. Chat, chat storage and running on the user's own computer are never gated | none | Billing off: every account may use containers. Billing on and unset: every signed-in plan may (`free,go,pro`), anonymous may not. Refused callers get `subscription_required` (403), "Running in the cloud needs a Stella subscription." |
 | Email sign-in (magic links) | var `STELLA_EMAIL_FROM` on a domain enabled for Email Sending (see 1.6); or, instead or as a fallback, `RESEND_API_KEY`, `RESEND_FROM`; optional `STELLA_EMAIL_LOGO_URL` | Cloudflare Email Service (Resend fallback) | Magic links answer 503 "Email sign-in isn't set up" |
 | Google / Apple sign-in | see 1.6 | Google, Apple | The provider isn't offered |
 | Web search tool | `PARALLEL_API_KEY` | Parallel | The tool reports it isn't configured |

@@ -773,8 +773,7 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "बहुत बढ़िया।",
-        "signinDone": "हो गया।",
-        "signinSkipped": "मैं इसे बाद में कर लूँगी।"
+        "signinDone": "हो गया।"
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -937,6 +936,10 @@
           "chatgpt": {
             "title": "ChatGPT",
             "body": "अपना प्लान इस्तेमाल करने के लिए ChatGPT से साइन इन करें।"
+          },
+          "apikey": {
+            "title": "API कुंजी",
+            "body": "Anthropic, OpenAI, Google या दूसरों की अपनी कुंजी इस्तेमाल करें।"
           }
         },
         "signIn": "साइन इन करें",
@@ -946,11 +949,9 @@
         "waiting": "अपने ब्राउज़र में साइन इन पूरा करें, फिर यहाँ लौट आइए।",
         "error": "कनेक्ट नहीं हो पाया। फिर कोशिश करें?",
         "fine": "इसे कभी भी सेटिंग्स में बदलें।",
-        "skip": "अभी नहीं",
         "hint": "शुरू करना मुफ़्त है।",
         "settledEngine": "{name} इस्तेमाल हो रहा है",
         "settledStella": "Stella में साइन इन हो गया",
-        "settledSkipped": "अभी साइन इन नहीं है",
         "settledDesc": "इसे कभी भी सेटिंग्स में बदलें।",
         "claudeCliMissing": "पहले Claude Code इंस्टॉल करें, फिर से कोशिश करें।"
       },

@@ -1249,6 +1249,36 @@
   text-overflow: ellipsis;
 }
 
+.obc-signin__key-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.obc-signin__key-form > [data-component="select"] {
+  flex: 0 0 150px;
+  min-width: 0;
+}
+
+.obc-signin__key-input {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in oklch, var(--foreground) 14%, transparent);
+  background: var(--background);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: var(--font-size-sm);
+}
+
+.obc-signin__key-input:focus-visible {
+  outline: 2px solid color-mix(in oklch, var(--primary) 50%, transparent);
+  outline-offset: 1px;
+}
+
 .obc-signin__state {
   flex-shrink: 0;
   display: inline-flex;

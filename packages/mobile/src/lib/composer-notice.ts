@@ -193,6 +193,15 @@ export function classifyComposerNotice(
     };
   }
 
+  if (normalized.includes("running in the cloud needs a stella subscription")) {
+    return {
+      kind: "upgrade",
+      title: "Cloud runs need a subscription",
+      description:
+        "Running in the cloud needs a Stella subscription. Upgrade, or run it on your own computer for free.",
+    };
+  }
+
   if (includesAny(normalized, FREE_ALLOWANCE_MATCHERS)) {
     return {
       kind: "upgrade",

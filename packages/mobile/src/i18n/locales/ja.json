@@ -772,8 +772,7 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "すごいですね。",
-        "signinDone": "完了しました。",
-        "signinSkipped": "あとでやります。"
+        "signinDone": "完了しました。"
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -936,6 +935,10 @@
           "chatgpt": {
             "title": "ChatGPT",
             "body": "ChatGPT でサインインして、プランを利用しましょう。"
+          },
+          "apikey": {
+            "title": "API キー",
+            "body": "Anthropic、OpenAI、Google などの自分のキーを使います。"
           }
         },
         "signIn": "サインイン",
@@ -945,11 +948,9 @@
         "waiting": "ブラウザーでサインインを完了して、こちらに戻ってください。",
         "error": "接続できませんでした。もう一度試しますか？",
         "fine": "設定でいつでも変更できます。",
-        "skip": "今はしない",
         "hint": "無料で始められます。",
         "settledEngine": "{name} を使用中",
         "settledStella": "Stella にサインイン済み",
-        "settledSkipped": "まだサインインしていません",
         "settledDesc": "設定でいつでも変更できます。",
         "claudeCliMissing": "先に Claude Code をインストールしてから、もう一度お試しください。"
       },
@@ -1716,6 +1717,7 @@
         "fromOtherComputers": "別のコンピュータからの変更",
         "readyChange": "追加できる変更",
         "add": "追加",
+        "get": "取得",
         "adding": "追加中…",
         "skip": "スキップ",
         "undoing": "取り消し中…",
@@ -1723,6 +1725,7 @@
         "justNow": "たった今",
         "waiting": "待機中",
         "history": "履歴",
+        "skipped": "スキップ済み",
         "upToDate": "待機中のものはありません"
       }
     },

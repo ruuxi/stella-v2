@@ -452,6 +452,7 @@ export const DISPATCH_ERROR_STATUS: Record<DispatchErrorCode, number> = {
   generation_stale: 403,
   capability_unavailable: 409,
   sign_in_required: 403,
+  subscription_required: 403,
   owner_suspended: 403,
   internal: 503,
 };

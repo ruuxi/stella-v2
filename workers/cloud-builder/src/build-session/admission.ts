@@ -1,3 +1,4 @@
+import { CLOUD_SANDBOX_SUBSCRIPTION_REQUIRED_MESSAGE } from "@stella/contracts/backend/billing";
 import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
 import type {
   OwnerEvent,
@@ -20,7 +21,10 @@ import {
   turnComputePlanKey,
   type TurnComputePlan,
 } from "../general-agent-turn.js";
-import { snapshotAllowsExecutionEngine } from "../owner-gate.js";
+import {
+  snapshotAllowsCloudSandbox,
+  snapshotAllowsExecutionEngine,
+} from "../owner-gate.js";
 import {
   startTurnExecution,
   type TurnExecutionContext,
@@ -279,13 +283,13 @@ export const admitAgentTurnThroughOwnerGate = async (
         ),
       };
     }
-    if (snapshot.isAnonymous) {
+    if (!snapshotAllowsCloudSandbox(snapshot)) {
       return {
         ok: false,
         response: Response.json(
           {
-            error: "Sign in to Stella to use cloud agents.",
-            code: "sign_in_required",
+            error: CLOUD_SANDBOX_SUBSCRIPTION_REQUIRED_MESSAGE,
+            code: "subscription_required",
             retryable: false,
           },
           { status: 403, headers: { "cache-control": "no-store" } },

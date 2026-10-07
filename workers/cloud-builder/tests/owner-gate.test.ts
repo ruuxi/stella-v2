@@ -27,6 +27,7 @@ const gateHarness = (
   options: {
     snapshot?: ReturnType<typeof sampleOwnerSnapshot>;
     values?: Map<string, unknown>;
+    env?: Record<string, string>;
   } = {},
 ) => {
   const values = options.values ?? new Map<string, unknown>();
@@ -49,6 +50,7 @@ const gateHarness = (
     env: {
       BUILDER_SERVICE_SECRET: "secret",
       TURN_TIMEOUT_MS: String(TURN_TIMEOUT_MS),
+      ...options.env,
     },
   });
   const store = (instance as unknown as {
@@ -127,6 +129,20 @@ describe("OwnerGate admission", () => {
   test("anonymous owners may chat but cannot enter the agent lane", async () => {
     const { instance } = open({
       snapshot: sampleOwnerSnapshot({ isAnonymous: true, identityLevel: 0 }),
+      env: {
+        STELLA_INCLUDED_USAGE_UTILIZATION_RATE: "0.5",
+        STELLA_GO_PRICE_CENTS: "1000",
+        STELLA_PRO_PRICE_CENTS: "2000",
+        STELLA_FREE_ROLLING_LIMIT_USD: "1",
+        STELLA_FREE_ROLLING_WINDOW_HOURS: "5",
+        STELLA_FREE_WEEKLY_LIMIT_USD: "2",
+        STELLA_FREE_MONTHLY_LIMIT_USD: "4",
+        STELLA_ANON_LIFETIME_LIMIT_USD: "1",
+        STELLA_ANON_MAX_REQUESTS: "10",
+        STRIPE_PRICE_GO: "price_go",
+        STRIPE_PRICE_PRO: "price_pro",
+        STELLA_CLOUD_SANDBOX_PLANS: "go,pro",
+      },
     });
     expect((await instance.admit(chat("anonymous-chat"))).ok).toBe(true);
     await instance.release({ turnId: "anonymous-chat" });
@@ -139,7 +155,8 @@ describe("OwnerGate admission", () => {
       }),
     ).resolves.toMatchObject({
       ok: false,
-      code: "sign_in_required",
+      code: "subscription_required",
+      message: "Running in the cloud needs a Stella subscription.",
       retryable: false,
     });
   });

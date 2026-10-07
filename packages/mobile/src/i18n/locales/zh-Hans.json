@@ -772,8 +772,7 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "太酷了。",
-        "signinDone": "好了。",
-        "signinSkipped": "我稍后再做。"
+        "signinDone": "好了。"
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -936,6 +935,10 @@
           "chatgpt": {
             "title": "ChatGPT",
             "body": "使用 ChatGPT 登录，即可使用你的套餐。"
+          },
+          "apikey": {
+            "title": "API 密钥",
+            "body": "使用你自己的 Anthropic、OpenAI、Google 等密钥。"
           }
         },
         "signIn": "登录",
@@ -945,11 +948,9 @@
         "waiting": "请在浏览器中完成登录，然后回到这里。",
         "error": "没能连接上。再试一次？",
         "fine": "随时可以在“设置”中更改。",
-        "skip": "暂不",
         "hint": "免费开始。",
         "settledEngine": "正在使用 {name}",
         "settledStella": "已登录 Stella",
-        "settledSkipped": "尚未登录",
         "settledDesc": "随时可以在“设置”中更改。",
         "claudeCliMissing": "请先安装 Claude Code，然后重试。"
       },
@@ -1716,6 +1717,7 @@
         "fromOtherComputers": "来自你另一台电脑的更改",
         "readyChange": "可以添加的更改",
         "add": "添加",
+        "get": "获取",
         "adding": "正在添加…",
         "skip": "跳过",
         "undoing": "正在撤销…",
@@ -1723,6 +1725,7 @@
         "justNow": "刚刚",
         "waiting": "待添加",
         "history": "历史",
+        "skipped": "已跳过",
         "upToDate": "没有待添加的内容"
       }
     },

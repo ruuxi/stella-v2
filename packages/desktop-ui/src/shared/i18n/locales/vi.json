@@ -772,8 +772,7 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Tuyệt thật.",
-        "signinDone": "Xong.",
-        "signinSkipped": "Tôi sẽ làm sau."
+        "signinDone": "Xong."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -936,6 +935,10 @@
           "chatgpt": {
             "title": "ChatGPT",
             "body": "Đăng nhập bằng ChatGPT để dùng gói của bạn."
+          },
+          "apikey": {
+            "title": "Khóa API",
+            "body": "Dùng khóa của riêng bạn từ Anthropic, OpenAI, Google và các nhà cung cấp khác."
           }
         },
         "signIn": "Đăng nhập",
@@ -945,11 +948,9 @@
         "waiting": "Hãy đăng nhập xong trong trình duyệt, rồi quay lại đây.",
         "error": "Chưa kết nối được. Thử lại nhé?",
         "fine": "Bạn có thể đổi bất cứ lúc nào trong Cài đặt.",
-        "skip": "Để sau",
         "hint": "Bắt đầu miễn phí.",
         "settledEngine": "Đang dùng {name}",
         "settledStella": "Đã đăng nhập vào Stella",
-        "settledSkipped": "Chưa đăng nhập",
         "settledDesc": "Đổi bất cứ lúc nào trong Cài đặt.",
         "claudeCliMissing": "Hãy cài Claude Code trước rồi thử lại."
       },

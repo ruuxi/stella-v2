@@ -278,6 +278,7 @@ export const TURN_START_ERROR_STATUS: Record<CloudTurnStartErrorCode, number> =
     idempotency_conflict: 409,
     owner_purged: 410,
     sign_in_required: 403,
+    subscription_required: 403,
     owner_suspended: 403,
     execution_unavailable: 409,
     internal: 503,

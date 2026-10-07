@@ -772,8 +772,7 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Keren sekali.",
-        "signinDone": "Selesai.",
-        "signinSkipped": "Saya akan melakukannya nanti."
+        "signinDone": "Selesai."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -936,6 +935,10 @@
           "chatgpt": {
             "title": "ChatGPT",
             "body": "Masuk dengan ChatGPT untuk menggunakan paket Anda."
+          },
+          "apikey": {
+            "title": "Kunci API",
+            "body": "Gunakan kunci Anda sendiri dari Anthropic, OpenAI, Google, dan lainnya."
           }
         },
         "signIn": "Masuk",
@@ -945,11 +948,9 @@
         "waiting": "Selesaikan proses masuk di browser Anda, lalu kembali ke sini.",
         "error": "Tidak tersambung. Coba lagi?",
         "fine": "Ubah kapan saja di Pengaturan.",
-        "skip": "Nanti saja",
         "hint": "Gratis untuk memulai.",
         "settledEngine": "Menggunakan {name}",
         "settledStella": "Sudah masuk ke Stella",
-        "settledSkipped": "Belum masuk",
         "settledDesc": "Ubah kapan saja di Pengaturan.",
         "claudeCliMissing": "Pasang Claude Code terlebih dahulu, lalu coba lagi."
       },
@@ -1716,6 +1717,7 @@
         "fromOtherComputers": "Perubahan dari komputer Anda yang lain",
         "readyChange": "Perubahan siap ditambahkan",
         "add": "Tambahkan",
+        "get": "Ambil",
         "adding": "Menambahkan…",
         "skip": "Lewati",
         "undoing": "Membatalkan…",
@@ -1723,6 +1725,7 @@
         "justNow": "Baru saja",
         "waiting": "Menunggu",
         "history": "Riwayat",
+        "skipped": "Dilewati",
         "upToDate": "Tidak ada yang menunggu"
       }
     },

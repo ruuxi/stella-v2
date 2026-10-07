@@ -23,6 +23,11 @@ import {
 import { requestBrowserMicrophoneAccess } from "@/global/permissions/microphone-permission";
 import { useT } from "@/shared/i18n";
 import { platformCapabilities } from "@/platform/capabilities";
+import { SettingsToggleCard } from "./tabs/settings-toggle-card";
+import {
+  setRealtimeVoiceVisible,
+  useRealtimeVoiceVisible,
+} from "@/shared/lib/realtime-voice-visibility";
 
 const NativeAudioDesktopRows = lazy(() =>
   import("./tabs/NativeAudioDesktopSettings").then((module) => ({
@@ -55,6 +60,8 @@ export function AudioTab() {
     () => uiState.getItem(PREFERRED_SPEAKER_KEY) ?? "",
   );
   const [permissionError, setPermissionError] = useState<string | null>(null);
+  const voiceEnabled = useRealtimeVoiceVisible();
+  const [voiceError, setVoiceError] = useState<string | null>(null);
   const micTransactionRef = useRef(0);
 
   const loadDevices = useCallback(async () => {
@@ -309,6 +316,22 @@ export function AudioTab() {
             </div>
           )}
         </div>
+      ) : null}
+
+      {platformCapabilities.realtimeVoice ? (
+        <SettingsToggleCard
+          title={t("settings.voiceAgent.title")}
+          description={t("settings.voiceAgent.description")}
+          error={voiceError}
+          checked={voiceEnabled}
+          disabled={false}
+          onChange={(next) => {
+            setVoiceError(null);
+            void setRealtimeVoiceVisible(next).catch(() =>
+              setVoiceError(t("settings.voiceAgent.error")),
+            );
+          }}
+        />
       ) : null}
     </div>
   );

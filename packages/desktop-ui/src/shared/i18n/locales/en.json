@@ -1,1169 +1,5 @@
 {
-  "common": {
-    "appName": "Stella",
-    "continue": "Continue",
-    "back": "Back",
-    "next": "Next",
-    "previous": "Previous",
-    "cancel": "Cancel",
-    "save": "Save",
-    "close": "Close",
-    "open": "Open",
-    "openPreferences": "Open Preferences",
-    "signIn": "Sign in",
-    "signOut": "Sign out",
-    "loading": "Loading…",
-    "tryAgain": "Try again",
-    "language": "Language",
-    "yes": "Yes",
-    "no": "No",
-    "copy": "Copy"
-  },
-  "cloudConnector": {
-    "titleOffer": "Connect {name}?",
-    "titleWaiting": "Waiting for {name}",
-    "connecting": "Finish signing in to {name} in your browser. Stella will continue once it's approved.",
-    "connect": "Connect",
-    "openAgain": "Open again",
-    "notNow": "Not now",
-    "errors": {
-      "decision": "Couldn't connect {name}. Try again.",
-      "open": "Couldn't open the sign-in page."
-    }
-  },
-  "cloudBrowser": {
-    "errors": {
-      "decision": "That didn't go through. Try again.",
-      "verificationUrl": "Couldn't open that page.",
-      "expired": "This sign-in is no longer needed.",
-      "liveViewBoundary": "Couldn't load the sign-in page.",
-      "liveView": "Couldn't load the sign-in page. Try again."
-    },
-    "deviceCode": {
-      "title": "Sign in to {origin}",
-      "codeLabel": "Code",
-      "body": "Enter this code on the site, then come back here.",
-      "copied": "Copied",
-      "copy": "Copy code",
-      "open": "Open site"
-    },
-    "takeover": {
-      "title": "Sign in to {origin}",
-      "checking": "Finishing sign-in to {origin}",
-      "body": "Sign in to keep going. Stella can't see what you type.",
-      "resumingBody": "Stella will pick up where it left off.",
-      "preparing": "Loading sign-in…",
-      "frameTitle": "Sign in to {origin}",
-      "privateNotice": "Stella can't see what you type",
-      "localNotice": "Stella can't see what you type",
-      "localOriginFallback": "Switched to Stella's browser to finish signing in.",
-      "localTransferFallback": "Couldn't confirm that sign-in. Try again in Stella's browser."
-    },
-    "actions": {
-      "canceling": "Canceling…",
-      "finishing": "Finishing…",
-      "done": "Done",
-      "useCloudBrowser": "Use Stella's browser"
-    },
-    "needsYou": {
-      "title": "Needs you",
-      "deviceCode": "Enter a code for {origin}",
-      "signIn": "Sign in to {origin}",
-      "open": "Open"
-    },
-    "settings": {
-      "title": "Browser sign-ins",
-      "defaultProfile": "Saved sign-ins",
-      "description": "Sites Stella has signed in to for you. Reset to sign out of all of them.",
-      "resetComplete": "Signed out of all sites.",
-      "resetFailed": "Couldn't sign out. Try again.",
-      "resetting": "Resetting…",
-      "reset": "Reset",
-      "confirmTitle": "Sign out of all sites?",
-      "confirmBody": "Stella will ask you to sign in again next time."
-    }
-  },
-  "sidebar": {
-    "signIn": "Sign in",
-    "account": "Account",
-    "feedback": "Send feedback",
-    "upgrade": "Upgrade",
-    "newChat": "New chat"
-  },
-  "settings": {
-    "chatStorage": {
-      "title": "Save chat history in the cloud",
-      "description": "Access your chats across devices. Turn off to keep a separate chat history only on this computer. Switching back won’t upload those chats. AI providers still process your messages.",
-      "endVoice": "End your voice conversation to change chat storage.",
-      "error": "Couldn’t change chat storage. Try again."
-    },
-    "title": "Settings",
-    "tabs": {
-      "general": "General",
-      "shortcuts": "Shortcuts",
-      "account": "Account & Legal",
-      "audio": "Audio"
-    },
-    "language": {
-      "title": "Language",
-      "description": "Choose the language Stella uses across the app and when responding to you."
-    },
-    "memory": {
-      "title": "Memory",
-      "description": "Include saved memories and your profile in Stella’s model context. The cloud copy is authoritative and encrypted in transit and at rest; Stella may also keep a local copy. Turning this off excludes memory from future turns but does not delete it."
-    },
-    "developerPreviews": {
-      "title": "Developer file previews",
-      "description": "Show code changes in chat and open them in the side panel."
-    },
-    "nativeFontSmoothing": {
-      "title": "Native font smoothing",
-      "description": "Render text the way macOS apps do, with grayscale anti-aliasing."
-    },
-    "motion": {
-      "title": "Motion",
-      "reduceMotion": {
-        "label": "Reduce motion",
-        "description": "Minimize interface animations.",
-        "system": "System",
-        "on": "On",
-        "off": "Off"
-      }
-    },
-    "notifications": {
-      "title": "Sound notifications",
-      "description": "Play a sound when Stella finishes an agent run."
-    },
-    "power": {
-      "title": "Keep computer awake",
-      "description": "Stop your computer from sleeping while Stella is open."
-    },
-    "lockedComputerUse": {
-      "title": "Locked computer use",
-      "description": "Let Stella continue computer-use tasks after this Mac locks. Requires an administrator prompt and covers the screen while Stella works.",
-      "unsupported": "Locked computer use is only available on macOS."
-    },
-    "browserExtension": {
-      "title": "Stella for Chrome",
-      "description": "Lets Stella see the page you're on and take actions in your browser.",
-      "action": "Get extension"
-    },
-    "resetCustomizations": {
-      "title": "Use Stella's defaults",
-      "description": "Remove your skill customizations and personality edits so Stella's shipped defaults apply. Anything removed is kept in ~/.stella/.trash in case you want it back.",
-      "action": "Restore defaults",
-      "done": "Defaults restored. Your previous customizations were moved to ~/.stella/.trash.",
-      "none": "You're already using Stella's defaults.",
-      "error": "Could not restore defaults."
-    },
-    "onboardingReplay": {
-      "title": "Onboarding",
-      "action": "Replay",
-      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched."
-    },
-    "systemPrompt": {
-      "title": "System prompt",
-      "description": "Stella's default prompt always updates with the app. Save your own prompt to use instead — it's kept separately, so updates never overwrite it.",
-      "agentLabel": "Prompt for",
-      "agentSublabel": "Choose which agent's prompt to change.",
-      "activeLabel": "Active prompt",
-      "defaultOption": "Stella's default",
-      "usingDefault": "Using Stella's default prompt.",
-      "usingCustom": "Using your saved prompt.",
-      "newFromDefault": "New from default",
-      "edit": "Edit",
-      "duplicate": "Duplicate",
-      "delete": "Delete",
-      "save": "Save",
-      "cancel": "Cancel",
-      "nameLabel": "Name",
-      "newName": "My prompt",
-      "saved": "Prompt saved.",
-      "deleted": "Prompt deleted.",
-      "error": "Something went wrong.",
-      "agents": {
-        "assistant": "Assistant",
-        "worker": "Worker"
-      }
-    },
-    "permissions": {
-      "title": "Permissions",
-      "enable": "Enable",
-      "granted": "Granted",
-      "opening": "Opening…",
-      "reset": "Reset",
-      "resetting": "Resetting…",
-      "accessibility": {
-        "label": "Accessibility",
-        "description": "Lets Stella read selected text and open from the ⌘+right-click shortcut anywhere on your computer."
-      },
-      "screen": {
-        "label": "Screen Capture",
-        "description": "Lets Stella see your screen so it can help with what you're looking at. You may need to quit and reopen Stella after turning this on."
-      },
-      "microphone": {
-        "label": "Microphone",
-        "description": "Used for voice and dictation. Reset if Stella was previously denied and macOS won't prompt again."
-      },
-      "restart": {
-        "label": "Restart Stella",
-        "description": "Screen capture was just turned on. Quit and reopen Stella to finish setting it up.",
-        "action": "Restart",
-        "closing": "Closing…"
-      }
-    },
-    "shortcuts": {
-      "title": "Shortcuts",
-      "change": "Change",
-      "capturing": "Press keys…",
-      "clear": "Clear",
-      "off": "Off",
-      "actions": {
-        "dictation": "Dictation",
-        "voice": "Voice agent"
-      },
-      "dictation": {
-        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
-      },
-      "voiceAgent": {
-        "description": "Starts or stops Stella's live voice agent."
-      },
-      "targets": {
-        "dictation": "dictation",
-        "voice": "the voice agent"
-      },
-      "toasts": {
-        "updatedTitle": "{action} shortcut updated",
-        "clearedTitle": "{action} shortcut cleared",
-        "updatedDescription": "Press {keys} to start {target}.",
-        "clearedDescription": "{action} is disabled until you set a new shortcut.",
-        "unavailableTitle": "Shortcut unavailable",
-        "failedTitle": "Shortcut update failed"
-      },
-      "errors": {
-        "load": "Failed to load shortcuts.",
-        "unavailable": "Shortcuts are unavailable in this window.",
-        "unavailableShortcut": "That shortcut is unavailable.",
-        "update": "Failed to update shortcut."
-      }
-    },
-    "account": {
-      "title": "Account",
-      "signOut": {
-        "label": "Sign out",
-        "description": "Sign out of Stella on this device.",
-        "action": "Sign Out"
-      },
-      "deleteData": {
-        "label": "Delete data",
-        "description": "Erase every conversation, memory, and saved Stella setting.",
-        "action": "Delete",
-        "working": "Deleting…"
-      },
-      "deleteAccount": {
-        "label": "Delete account",
-        "description": "Permanently delete your account and everything in it.",
-        "action": "Delete",
-        "working": "Deleting…"
-      },
-      "legal": {
-        "title": "Legal",
-        "terms": "Terms of Service",
-        "privacy": "Privacy Policy",
-        "view": "View"
-      },
-      "dialog": {
-        "deleteDataTitle": "Delete your Stella data?",
-        "deleteAccountTitle": "Delete your Stella account?",
-        "deleteDataDescription": "This erases your conversations, memory, settings, and local Stella state. This cannot be undone.",
-        "deleteAccountDescription": "This permanently deletes your account and Stella data. This cannot be undone.",
-        "deleteDataButton": "Delete data",
-        "deleteAccountButton": "Delete account",
-        "working": "Deleting…"
-      },
-      "toasts": {
-        "dataDeleted": "Your Stella data was deleted.",
-        "accountDeleted": "Your Stella account was deleted.",
-        "deleteDataFailed": "Could not delete your data. Please try again.",
-        "deleteAccountFailed": "Could not delete your account. Please try again.",
-        "signInBeforeDelete": "Sign in before deleting your account."
-      },
-      "cloudHome": {
-        "title": "Cloud Home",
-        "label": "Memory and skills",
-        "summary": {
-          "checking": "Checking local memory and skills…",
-          "current": "Cloud Home is current. Memory uploaded: {memoryCount}. Skill packages uploaded: {skillCount}.",
-          "attention": "Cloud Home kept existing cloud copies where local data differed. Review the details below.",
-          "unavailable": "Cloud Home sync is currently unavailable.",
-          "intro": "Stella securely imports local memory and applicable custom skills into your cloud account."
-        },
-        "authorizationNote": "Uploaded skills remain unavailable to agents until their exact version is explicitly authorized.",
-        "actions": {
-          "syncing": "Syncing…",
-          "import": "Import to this account",
-          "boundElsewhere": "Bound to another account",
-          "blocked": "Import blocked",
-          "sync": "Sync now"
-        }
-      }
-    },
-    "audio": {
-      "systemDefault": "System default",
-      "microphoneDeviceFallback": "Microphone {index}",
-      "speakerDeviceFallback": "Speaker {index}",
-      "microphone": {
-        "title": "Microphone",
-        "enableLabel": "Enable microphone",
-        "enableDescription": "Required for talking to Stella.",
-        "deviceLabel": "Microphone",
-        "deviceDescription": "Which mic should Stella listen to?"
-      },
-      "recovery": {
-        "manageLabel": "Manage microphone access",
-        "recoverLabel": "Recover microphone access",
-        "manageDescription": "If the microphone permission ever gets stuck, you can reset it and ask macOS to prompt again.",
-        "recoverDescription": "Once you've said no, macOS won't ask again on its own. Reset the permission, then quit and reopen Stella.",
-        "openSettings": "Open Settings",
-        "reset": "Reset & Restart",
-        "closing": "Closing…"
-      },
-      "wakeWord": {
-        "label": "Hey Stella wake word",
-        "description": "Listen for \"Hey Stella\" in the background and start a voice conversation. When off, mic stays idle until you press dictate."
-      },
-      "superFast": {
-        "label": "Super Fast dictation",
-        "description": "Keep the microphone warm so dictation starts with less delay."
-      },
-      "dictationSounds": {
-        "label": "Dictation sounds",
-        "description": "Play a sound when dictation starts and stops."
-      },
-      "speaker": {
-        "title": "Speaker",
-        "outputLabel": "Output device",
-        "outputDescription": "Pick the speaker or headphones to use.",
-        "empty": "No speakers found.",
-        "emptyMicOff": "Turn on the microphone to see your speakers."
-      },
-      "errors": {
-        "listDevices": "Unable to list audio devices.",
-        "micDeniedReset": "Microphone access was denied earlier. Reset it and restart Stella, or open System Settings.",
-        "micDenied": "Microphone access was denied. Please allow it in your system settings."
-      }
-    },
-    "connectedProviders": {
-      "title": "Connected providers",
-      "empty": "No providers connected yet. Pick a non-Stella option in the model picker above to add an API key or sign in.",
-      "apiKey": "API key",
-      "signedIn": "Signed in",
-      "removeKey": "Remove key",
-      "removingKey": "Removing…",
-      "signOut": "Sign out",
-      "signingOut": "Signing out…"
-    },
-    "search": {
-      "placeholder": "Search settings",
-      "clear": "Clear search",
-      "noResultsTitle": "No settings match “{query}”",
-      "noResultsBody": "Try a shorter or different word.",
-      "resultsOne": "{count} result for",
-      "resultsOther": "{count} results for",
-      "resultsAriaOne": "{count} result",
-      "resultsAriaOther": "{count} results",
-      "descriptions": {
-        "permissions": "Grant accessibility, screen capture, and microphone access on macOS.",
-        "shortcuts": "Change dictation and voice shortcuts.",
-        "account": "Sign out, delete your data, or permanently delete your account.",
-        "legal": "Terms of Service and Privacy Policy.",
-        "microphone": "Pick your input device, enable wake word, and control dictation sounds.",
-        "speaker": "Pick the speaker or headphones Stella's voice plays through.",
-        "wakeWord": "Listen for “Hey Stella” and start a voice conversation."
-      }
-    },
-    "errors": {
-      "loadPower": "Failed to load power setting.",
-      "savePower": "Failed to update power setting.",
-      "powerUnavailable": "Power settings are unavailable in this window.",
-      "loadLockedComputerUse": "Failed to load locked computer use setting.",
-      "saveLockedComputerUse": "Failed to update locked computer use.",
-      "lockedComputerUseUnavailable": "Locked computer use is unavailable in this window.",
-      "loadSoundNotifications": "Failed to load sound notification setting.",
-      "saveSoundNotifications": "Failed to update sound notification setting.",
-      "soundNotificationsUnavailable": "Sound notification settings are unavailable in this window.",
-      "loadMemory": "Failed to load memory setting.",
-      "saveMemory": "Failed to update memory setting.",
-      "memoryUnavailable": "Memory settings are unavailable in this window.",
-      "loadPermissions": "Failed to load desktop permission status.",
-      "savePermission": "Failed to update {kind} permission.",
-      "resetPermission": "Failed to reset {kind} permission.",
-      "resetPermissionMaybeReopen": "Could not reset {kind} permission. Stella may need to be reopened.",
-      "microphoneDeniedReopen": "Microphone access was denied earlier. Turn it on in System Settings — Stella updates automatically.",
-      "microphoneStillOff": "Microphone access is still off. Turn it on in System Settings — Stella updates automatically.",
-      "restart": "Failed to restart Stella."
-    },
-    "voiceCatalog": {
-      "label": "Voice",
-      "familyAriaLabel": "Voice family",
-      "familyTitle": {
-        "openai": "OpenAI Realtime voices (Stella mints the token)",
-        "xai": "xAI Grok voices (Stella mints the token)",
-        "inworld": "Inworld voices (Stella proxies the SDP exchange)"
-      },
-      "source": {
-        "openai": "OpenAI voices",
-        "xai": "Grok voices",
-        "inworld": "Inworld voices",
-        "gemini": "Gemini voices"
-      },
-      "previousVoice": "Previous voice",
-      "nextVoice": "Next voice",
-      "menuAriaLabel": "{source} voice",
-      "speed": "Speed",
-      "speedAriaLabel": "Inworld voice speed",
-      "readAloud": {
-        "label": "Read aloud",
-        "ariaLabel": "Read aloud voice provider",
-        "openaiTitle": "Read replies aloud with OpenAI TTS",
-        "geminiTitle": "Read replies aloud with Gemini TTS",
-        "description": "Speaks replies out loud using this provider's voice."
-      }
-    },
-    "phoneAccess": {
-      "expired": "Expired",
-      "timeLeft": "{time} left",
-      "copy": "Copy",
-      "preparing": "Preparing...",
-      "getCode": "Get Code",
-      "deviceFallback": "Phone",
-      "removing": "Removing...",
-      "remove": "Remove",
-      "signedOut": {
-        "headline": "Sign in to get started",
-        "body": "Sign in to your Stella account to pair with the mobile app."
-      },
-      "pairing": {
-        "headline": "Scan or enter this code",
-        "body": "Open the Stella app on your phone and scan the QR code, or type in the code below. You only need to do this once.",
-        "qrAlt": "Scan to pair your phone"
-      },
-      "intro": {
-        "headline": "Connect your phone to your computer"
-      },
-      "steps": {
-        "download": "Download the app",
-        "platformSelectorLabel": "Choose a mobile platform",
-        "appStoreQrAlt": "Scan to download Stella from the App Store",
-        "playStoreQrAlt": "Scan to download Stella from Google Play",
-        "connect": "Connect your phone"
-      },
-      "toasts": {
-        "codeCopied": "Code copied to clipboard",
-        "phoneRemoved": "Phone removed",
-        "removeFailed": "Failed to remove phone"
-      },
-      "errors": {
-        "createPairing": "Unable to create a pairing code."
-      },
-      "pairedCount": {
-        "one": "{count} phone paired",
-        "other": "{count} phones paired"
-      }
-    },
-    "executionDevices": {
-      "title": "Your computers",
-      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
-      "empty": "No computer is signed in to this account yet.",
-      "unnamed": "Computer",
-      "thisComputer": "This computer",
-      "online": "Online",
-      "offline": "Offline",
-      "enable": "Enable",
-      "enabling": "Enabling…",
-      "disable": "Turn off",
-      "disabling": "Turning off…",
-      "state": {
-        "enabled": "Accepting work",
-        "notEnabled": "Not enabled",
-        "asking": "Waiting for an answer there",
-        "declined": "Declined there"
-      },
-      "errors": {
-        "load": "Unable to read the computers on this account.",
-        "update": "That change didn't go through. Try again."
-      }
-    },
-    "modelPicker": {
-      "searchPlaceholder": "Search models…",
-      "searchAriaLabel": "Search models",
-      "closeSearch": "Close search",
-      "apiKeyPlaceholder": "API key",
-      "apiKeyAriaLabel": "{provider} API key",
-      "cancelSignIn": "Cancel sign-in",
-      "signInWith": "Sign in with {provider}",
-      "saving": "Saving…",
-      "use": "Use",
-      "selected": "Selected",
-      "refresh": "Refresh model catalog",
-      "loadFailed": "Couldn't load models",
-      "retry": "Retry",
-      "restrictedPlan": "Not available on the {plan} plan",
-      "reasoning": {
-        "label": "Reasoning effort",
-        "default": "Auto",
-        "minimal": "Minimal",
-        "low": "Low",
-        "medium": "Medium",
-        "high": "High",
-        "xhigh": "Max"
-      },
-      "authHint": {
-        "both": "Sign in or paste an API key. Credentials stay on this device.",
-        "oauth": "Credentials stay on this device.",
-        "apiKey": "Your API key stays on this device."
-      },
-      "actions": {
-        "cancel": "Cancel",
-        "signIn": "Sign in",
-        "addKey": "Add key",
-        "custom": "Custom"
-      },
-      "signOut": {
-        "ariaLabel": "Sign out of {provider}",
-        "confirmAriaLabel": "Click again to sign out of {provider}",
-        "confirmTitle": "Click again to confirm"
-      },
-      "local": {
-        "hint": "Use any local OpenAI-compatible server. Ollama usually runs at the URL below.",
-        "serverUrlAriaLabel": "Local server URL",
-        "modelNameAriaLabel": "Local model name"
-      },
-      "openRouter": {
-        "hintBefore": "OpenRouter accepts any",
-        "hintAfter": "id. Type one to use it directly.",
-        "modelIdAriaLabel": "OpenRouter model id"
-      },
-      "empty": {
-        "none": "No models available yet.",
-        "noMatch": "No models match."
-      },
-      "favorite": {
-        "remove": "Remove favorite",
-        "add": "Add favorite",
-        "addTitle": "Favorite — pin to top"
-      },
-      "errors": {
-        "saveApiKey": "Failed to save API key.",
-        "oauthLogin": "OAuth login failed."
-      }
-    },
-    "providerPicker": {
-      "connected": "Connected",
-      "connect": "Connect",
-      "opening": "Opening…"
-    },
-    "engineModels": {
-      "ariaLabel": "{engine} models",
-      "loading": "Loading {engine} models…",
-      "empty": "No {engine} models are available."
-    },
-    "providerConnected": {
-      "title": "Use {provider} for Stella?",
-      "description": "{provider} can power more than one part of Stella. Pick where you’d like it to take over — Stella keeps doing the rest.",
-      "assistant": {
-        "label": "Assistant",
-        "description": "Route Stella’s chat assistant through {provider}."
-      },
-      "image": {
-        "label": "Image",
-        "description": "Generate images through your {provider} account."
-      },
-      "voice": {
-        "label": "Voice",
-        "description": "Use {provider} for realtime voice conversations."
-      },
-      "skip": "Skip",
-      "apply": "Apply",
-      "applying": "Applying…",
-      "errors": {
-        "apply": "Failed to apply provider settings."
-      }
-    },
-    "compactModelList": {
-      "ariaLabel": "Stella models",
-      "recent": "Recent",
-      "unavailable": "Unavailable",
-      "unavailableTitle": "This model is no longer available — pick another.",
-      "loading": "Loading Stella models…",
-      "loadFailed": "Couldn't load Stella models.",
-      "empty": "No Stella models available.",
-      "retry": "Retry",
-      "restricted": "Your plan uses Stella's pick.",
-      "restrictedPlan": "{plan} plan uses Stella's pick.",
-      "upgrade": "Upgrade"
-    },
-    "reasoningEffort": {
-      "minimal": "Minimal",
-      "low": "Low",
-      "medium": "Medium",
-      "high": "High",
-      "xhigh": "Extra"
-    },
-    "agentModelPicker": {
-      "byokDescription": "Use your own {provider} API key.",
-      "unavailableChooseAnother": "Unavailable — choose another model",
-      "chatGptRouted": "Routed to {model} (saved model unavailable).",
-      "default": "Default",
-      "stellaDefault": "Stella Default",
-      "surfaceAriaLabel": "Surface",
-      "waitingForChatGpt": "Waiting for ChatGPT…",
-      "imageProviderAriaLabel": "Image provider",
-      "voiceProviderAriaLabel": "Voice provider",
-      "assistantPickerAriaLabel": "Assistant model picker",
-      "verifyingChatGpt": "Verifying ChatGPT models…",
-      "savedModelUnavailable": "The saved model is unavailable. Choose another model.",
-      "tabs": {
-        "assistant": "Assistant",
-        "assistantTitle": "Stella's main assistant",
-        "image": "Image",
-        "imageTitle": "Image generation provider",
-        "voice": "Voice",
-        "voiceTitle": "Realtime voice provider"
-      },
-      "errors": {
-        "loadPreferences": "Failed to load model settings.",
-        "chatGptMigration": "ChatGPT routing migration failed.",
-        "chatGptVerify": "ChatGPT models could not be verified: {error}",
-        "chatGptVerifying": "Wait for ChatGPT models to finish verifying.",
-        "chatGptNotConnected": "Sign in with ChatGPT on this computer first.",
-        "chatGptNoModels": "No ChatGPT models are currently available.",
-        "connectChatGpt": "Failed to connect ChatGPT.",
-        "updateEngine": "Failed to update the engine.",
-        "updateTitle": "Couldn't update model settings",
-        "refreshTitle": "Couldn't refresh models",
-        "updateModel": "Failed to update model setting.",
-        "updateImage": "Failed to update image setting.",
-        "updateVoice": "Failed to update voice setting.",
-        "updateInworldSpeed": "Failed to update Inworld speed.",
-        "updateVoiceFamily": "Failed to update voice family.",
-        "updateReadAloud": "Failed to update read-aloud provider.",
-        "updateReasoning": "Failed to update reasoning effort.",
-        "updateChatGptSpeed": "Failed to update ChatGPT speed.",
-        "updateDirectRuntime": "Failed to update direct {runtime} setting.",
-        "chatGptPlanUsageOff": "ChatGPT plan use isn't enabled for this account. Enable it in Settings › Account, or choose another model."
-      },
-      "noChatGptModels": "No ChatGPT models are available to this account right now.",
-      "chatGptPlanInUse": "Using ChatGPT plan",
-      "chatGptManageUsage": "Manage usage"
-    },
-    "companion": {
-      "title": "Desktop companion",
-      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
-      "error": "Couldn't update the desktop companion."
-    },
-    "engineAccounts": {
-      "cardTitle": "Claude & ChatGPT accounts",
-      "cardIntro": "Use the Claude or ChatGPT plan you already pay for. A sign-in stays where it was made: this computer, or your cloud.",
-      "claudeTitle": "Claude",
-      "addClaude": "Add Claude account",
-      "addOnComputer": "On this computer",
-      "addInCloud": "In the cloud",
-      "active": "Active",
-      "signInComputer": "Sign in on this computer",
-      "signInCloud": "Sign in to the cloud",
-      "signOutComputer": "Sign out on this computer",
-      "signOutCloud": "Sign out of the cloud",
-      "signIn": "Sign in",
-      "signedOut": "Signed out.",
-      "removed": "Removed.",
-      "placeComputer": "This computer",
-      "placeCloud": "Cloud",
-      "placeOtherComputer": "Another computer",
-      "placeSignedIn": "{place}: signed in",
-      "placeSignedOut": "{place}: not signed in",
-      "signedOutLogin": "Signed-out Claude Code login",
-      "cliMissing": "Claude Code isn't installed on this computer. Install it to use Claude here.",
-      "defaultSignedOut": "Claude Code on this computer isn't signed in.",
-      "signedInComputer": "Claude Code on this computer is signed in.",
-      "signedInComputerAs": "Claude Code on this computer is signed in as {email}.",
-      "signedInCloud": "Your cloud is signed in to Claude.",
-      "signedInCloudAs": "Your cloud is signed in to Claude as {email}.",
-      "errorGeneric": "That didn't work. Try again.",
-      "claudeLogin": {
-        "whereComputer": "Signing in to Claude Code on this computer.",
-        "whereCloud": "Signing in to Claude Code in your cloud.",
-        "starting": "Opening Anthropic's sign-in page…",
-        "opened": "We opened Anthropic's sign-in page.",
-        "reopen": "Open it again",
-        "codeLabel": "Paste the code Anthropic shows",
-        "submit": "Submit",
-        "submitting": "Signing in…",
-        "failed": "That didn't sign in.",
-        "startAgain": "Start again"
-      },
-      "chatgptCloudSignedIn": "Your cloud is signed in to ChatGPT.",
-      "revokeTitleCloud": "Signed out of ChatGPT in the cloud",
-      "revokeTitleComputer": "Signed out on this computer",
-      "runsOnLabel": "Cloud chat runs on",
-      "needsClaudeCloud": "Sign in to Claude in the cloud first",
-      "needsChatgptCloud": "Sign in to ChatGPT in the cloud first",
-      "chatgptComputerSignedIn": "This computer is signed in to ChatGPT.",
-      "planUsageOffTitle": "Signed in, but ChatGPT plan use isn't enabled",
-      "planUsageOffBody": "Stella can't use your ChatGPT plan until you allow it. Choose “Enable ChatGPT plan use” on the account, or use another model.",
-      "useAccount": "Use this account",
-      "signOut": "Sign out",
-      "moreLabel": "Options for {name}",
-      "signInAgain": "Sign in again",
-      "enablePlanUsage": "Enable ChatGPT plan use",
-      "remove": "Remove",
-      "statusSignedOut": "Signed out",
-      "statusReauth": "Sign in again to keep using it",
-      "statusPlanUsageOff": "ChatGPT plan use isn't enabled",
-      "revokeUnconfirmed": "ChatGPT didn't confirm the sign-out. You can disconnect Stella in ChatGPT Settings.",
-      "pasteHintChatgpt": "After you approve, ChatGPT sends you to a page that doesn't load. Copy that page's full address and paste it here.",
-      "pastePlaceholderUrl": "Paste the address here",
-      "openChatgptAgain": "Open ChatGPT again",
-      "connecting": "Connecting…",
-      "finish": "Connect",
-      "chatgptBrowserWaiting": "Finish signing in to ChatGPT in your browser.",
-      "chatgptTitle": "ChatGPT",
-      "addChatgpt": "Add ChatGPT account",
-      "addChatgptCloud": "Add ChatGPT account in the cloud",
-      "enablePlanUsageCloud": "Enable ChatGPT plan use in the cloud"
-    }
-  },
-  "onboarding": {
-    "legalFooter": "By using Stella, you agree to our {terms} and {privacy}.",
-    "termsOfService": "Terms of Service",
-    "privacyPolicy": "Privacy Policy",
-    "chat": {
-      "skipSetup": "Skip setup",
-      "composerPlaceholder": "Or just ask me something to get started",
-      "send": "Send",
-      "messages": {
-        "capabilities": "Hi, I'm Stella.\n\nI'm not a chatbot. I use this computer to actually get things done for you, in the background, while you keep going.\n\nHere's what that looks like.",
-        "theme": "Now, how should I look?",
-        "extras": "Almost done. A little housekeeping, then we start.",
-        "memory": "One more thing that makes me different.",
-        "selfmod": "And because I live on your computer, I can change myself.",
-        "signin": "Next, let's sign you in. Use a Stella account, or the Claude or ChatGPT plan you already have.",
-        "quickstart": "That's everything. One last thing, and it's optional: a quickstart.",
-        "quickstartDone": "Done. Here's what I picked up, and a few things we could start with.",
-        "quickstartFailed": "I couldn't finish reading your browser this time. We can start anyway, and I'll learn as we go."
-      },
-      "replies": {
-        "capabilitiesDone": "Got it.",
-        "capabilitiesSkipped": "Skip the tour.",
-        "themeDone": "That one.",
-        "themeSkipped": "Keep the default.",
-        "extrasDone": "Done.",
-        "extrasSkipped": "Skip for now.",
-        "memoryDone": "Nice.",
-        "memorySkipped": "Skip it.",
-        "selfmodDone": "Very cool.",
-        "signinDone": "Done."
-      },
-      "discovery": {
-        "browserLabel": "Your browser",
-        "includeDev": "My coding setup",
-        "hint": "About a minute, in the background.",
-        "alsoLabel": "Also include",
-        "assurance": "A one-time read, kept on this computer. You can see and edit what I keep at any time."
-      },
-      "capabilities": {
-        "errands": {
-          "word": "Errands",
-          "title": "Ask once. Consider it handled.",
-          "caption": "I find the right place, fill in the form, and put it on your calendar, the same way you would."
-        },
-        "shopping": {
-          "word": "Shopping",
-          "title": "I can buy things, with your OK.",
-          "caption": "I find it and get it to checkout. You confirm the total, and I place the order."
-        },
-        "work": {
-          "word": "Work",
-          "title": "Real files. Several jobs at once.",
-          "caption": "I work inside the real apps on this computer, and I can run more than one job at a time."
-        },
-        "build": {
-          "word": "Build",
-          "title": "Say it. I'll build it.",
-          "caption": "Apps and websites, made to order. Describe it in plain words and I'll build it, run it, and put it online."
-        },
-        "settledTitle": "The quick tour",
-        "replay": "Replay this demo",
-        "tablist": "Capability demos",
-        "routines": {
-          "word": "Routines",
-          "title": "Ask once. It happens every day.",
-          "caption": "Schedule anything and I'll do it on time, even while you sleep."
-        }
-      },
-      "memory": {
-        "titleChatbot": "You know this one",
-        "bodyChatbot": "A new chat every time, a sidebar full of old ones, and no memory of what you said last week.",
-        "titleStella": "With me it's one conversation",
-        "bodyStella": "No new chats, no threads. Everything you've ever told me is in the same place, so when you ask about last week I go and find it.",
-        "showStella": "Now ask me",
-        "skip": "Skip",
-        "settledTitle": "One conversation",
-        "settledDesc": "No threads to manage. I remember."
-      },
-      "theme": {
-        "title": "Pick a look",
-        "body": "Hover to try one on. Click to keep it.",
-        "appearance": "Appearance",
-        "themes": "Theme",
-        "mode": {
-          "light": "Light",
-          "dark": "Dark",
-          "system": "System"
-        },
-        "confirm": "Done",
-        "skip": "Keep the default",
-        "hint": "Everything here changes live.",
-        "settledTitle": "Default",
-        "gradientStyle": "Gradient style",
-        "gradientColor": "Gradient color",
-        "gradient": {
-          "soft": "Soft",
-          "flat": "Flat",
-          "relative": "Relative",
-          "strong": "Strong"
-        }
-      },
-      "extras": {
-        "title": "Two quick extras",
-        "titleOne": "One quick extra",
-        "body": "Neither is required, but both make me a lot more useful.",
-        "bodyOne": "Not required, but it makes me a lot more useful.",
-        "accessibilityTitle": "Accessibility",
-        "accessibilityDesc": "So I can act on selected text and what's under your cursor.",
-        "screenTitle": "Screen Recording",
-        "screenDesc": "So I can see the screen when you ask me to.",
-        "enable": "Enable",
-        "enabled": "Enabled",
-        "extensionTitle": "Stella for Chrome",
-        "extensionDesc": "Lets me see the page you're on and act inside your browser. Works in Chrome, Arc, Brave, and Edge.",
-        "getExtension": "Get extension",
-        "extensionOpened": "Opened",
-        "memoryTitle": "Remember across chats",
-        "memoryDesc": "Use what I've saved about you when it's relevant. Nothing is deleted if you turn this off.",
-        "restartHint": "Screen access needs a quick restart to take effect.",
-        "restart": "Restart Stella",
-        "skip": "Skip for now",
-        "hint": "All of this lives in Settings too.",
-        "settledTitle": "Extras",
-        "settledSkippedTitle": "Extras skipped",
-        "settledPermissions": "Permissions",
-        "settledExtension": "Extension",
-        "settledMemory": "Memory"
-      },
-      "ready": {
-        "highlightsLabel": "What I picked up",
-        "startersLabel": "Try one of these",
-        "startersLabelPersonal": "Made for you",
-        "notesSummary": "See everything I noted",
-        "notesFoot": "You can read or edit this any time in Settings › Memory.",
-        "start": "Start chatting",
-        "hint": "Or type anything below.",
-        "generic": {
-          "plan": {
-            "title": "Plan my week",
-            "prompt": "Help me plan my week. Ask me what's on my plate and lay it out day by day."
-          },
-          "browse": {
-            "title": "Find me a good dinner spot",
-            "prompt": "Find a well-reviewed dinner spot near me for this weekend and hold a reservation for two."
-          },
-          "file": {
-            "title": "Tidy up a document",
-            "prompt": "I have a document that needs cleaning up. I'll share it and you fix the structure and wording."
-          },
-          "watch": {
-            "title": "Watch a site for changes",
-            "prompt": "Keep an eye on a web page for me and tell me when it changes."
-          }
-        }
-      },
-      "progress": "Setup progress",
-      "selfmod": {
-        "title": "I can change myself",
-        "body": "Missing a feature, or want something to work differently? Just ask. I'll rewrite my own code, let you try it, and you decide whether to keep it.",
-        "steps": {
-          "ask": {
-            "title": "Ask",
-            "body": "Describe the change in plain words."
-          },
-          "preview": {
-            "title": "Preview",
-            "body": "An agent builds it and opens a live preview."
-          },
-          "update": {
-            "title": "Update",
-            "body": "One click to apply it. Undo any time."
-          }
-        },
-        "hint": "Changes stay on this computer.",
-        "settledTitle": "I can change myself",
-        "settledDesc": "Ask, preview, Update. Undo any time."
-      },
-      "signin": {
-        "title": "Sign in",
-        "body": "Any one of these is enough. You can add the others later.",
-        "options": {
-          "stella": {
-            "title": "Stella account",
-            "body": "Google or email. Your chats follow you to your phone."
-          },
-          "claude": {
-            "title": "Claude Code",
-            "body": "Use your Claude Pro or Max plan."
-          },
-          "chatgpt": {
-            "title": "ChatGPT",
-            "body": "Sign in with ChatGPT to use your plan."
-          },
-          "apikey": {
-            "title": "API key",
-            "body": "Use your own key from Anthropic, OpenAI, Google and others."
-          }
-        },
-        "signIn": "Sign in",
-        "connect": "Connect",
-        "use": "Use",
-        "inUse": "In use",
-        "waiting": "Finish signing in, then come back here.",
-        "error": "That didn't connect. Try again?",
-        "fine": "Change this any time in Settings.",
-        "hint": "Free to start.",
-        "settledEngine": "Using {name}",
-        "settledStella": "Signed in to Stella",
-        "settledDesc": "Change it any time in Settings.",
-        "claudeCliMissing": "Install Claude Code first, then try again."
-      },
-      "quickstart": {
-        "eyebrow": "Quickstart",
-        "title": "Give me a head start",
-        "body": "Most assistants start from zero. Point me at your browser and I'll read it once to build a starting memory, so I'm useful from day one.",
-        "run": "Run quickstart",
-        "skip": "Skip",
-        "runningTitle": "Getting to know you",
-        "runningBody": "About a minute. Head in whenever you like, and I'll finish in the background.",
-        "stages": {
-          "read": "Reading what you picked",
-          "notice": "Noticing what matters to you",
-          "write": "Writing your starting memory"
-        },
-        "continueInBackground": "Start chatting, finish in the background",
-        "failedTitle": "That didn't finish",
-        "failedBody": "Something interrupted the read. Try again, or start chatting and I'll learn as we go."
-      }
-    }
-  },
-  "billing": {
-    "heading": "Choose your plan",
-    "subtitle": "Start free. Upgrade when you need more.",
-    "plans": {
-      "free": {
-        "tagline": "Free to try."
-      },
-      "go": {
-        "tagline": "10× higher usage"
-      },
-      "pro": {
-        "tagline": "Highest usage limits for media generation and multiple agents"
-      }
-    },
-    "features": {
-      "assistant": "Personal assistant",
-      "codingAgent": "Coding agent",
-      "research": "Research and knowledge work",
-      "dictationReadAloud": "Dictation and read-aloud",
-      "multipleAgents": "Multiple agents"
-    },
-    "capability": {
-      "image_generation": "Image generation",
-      "video_generation": "Video generation",
-      "audio_generation": "Voice and music generation",
-      "three_d_generation": "3D generation"
-    },
-    "capabilityRestriction": {
-      "title": "{capability} isn't on your plan",
-      "signIn": "{capability} is included with Stella {plan}. Sign in to upgrade and unlock it.",
-      "upgrade": "{capability} is included with Stella {plan}. Upgrade to unlock it.",
-      "unavailable": "{capability} isn't available on any plan right now.",
-      "lockedBadge": "{plan}",
-      "lockedBadgeGeneric": "Unavailable",
-      "genericTitle": "Not included on your plan",
-      "genericDescription": "This feature is included with Stella Pro. Upgrade to unlock it."
-    },
-    "freeAllowance": {
-      "label": "Free plan usage",
-      "caption": "Free to try.",
-      "remaining": "Free to try.",
-      "exhaustedTitle": "You've reached the Free plan limit",
-      "exhaustedDescription": "Upgrade to Go for 10× higher usage.",
-      "exhaustedCta": "Upgrade to Go"
-    },
-    "upgradeDialog": {
-      "title": "You're on Stella {plan}.",
-      "description": "Thanks for the upgrade. Higher priority and increased usage are active now — keep going.",
-      "cta": "Get started"
-    },
-    "renewal": {
-      "nextLabel": "Next renewal",
-      "pendingLabel": "Cancellation pending",
-      "renews": "Renews {date}",
-      "accessEnds": "Access ends {date}",
-      "lapseTitle": "Stella stops when your plan ends",
-      "lapseDescription": "Your {plan} plan runs until {date}. After that Stella stops — the Free plan's allowance is one-time and you've already used yours."
-    },
-    "mobile": {
-      "sectionTitle": "Subscription",
-      "currentPlanLabel": "Current plan",
-      "planValue": "Stella {plan}",
-      "manage": "Manage subscription",
-      "manageWebNote": "Manage or cancel this subscription from Stella on the web at stella.sh.",
-      "renews": "Renews {date}",
-      "accessEnds": "Access ends {date}",
-      "chooseHeading": "Choose your plan",
-      "subscribe": "Subscribe",
-      "perMonth": "{price}/mo",
-      "introLine": "{introPrice} first month, then {price}/mo",
-      "signInToSubscribe": "Sign in to subscribe",
-      "startingCheckout": "Starting…",
-      "pendingTitle": "Finishing your purchase",
-      "pendingBody": "Finish paying in the browser. Your plan updates here automatically once payment is confirmed — no need to restart.",
-      "pendingDismiss": "Not now",
-      "successTitle": "You're on Stella {plan}",
-      "successBody": "Your subscription is active. Enjoy the higher limits.",
-      "errorRetry": "Try again",
-      "alreadySubscribedTitle": "You already have a subscription",
-      "footnote": "Billed by Stella via Stripe. Renews monthly until canceled; cancel anytime."
-    }
-  },
-  "chat": {
-    "stoppedReply": "Stella couldn't start this reply",
-    "tryAgainHint": "Please try again.",
-    "attachments": {
-      "attachPhoto": "Attach a photo",
-      "takePhoto": "Take a photo",
-      "attachFile": "Attach a file",
-      "remove": "Remove attachment",
-      "uploading": "Uploading",
-      "retryUpload": "Retry upload",
-      "uploadFailed": "Upload failed. Tap to retry.",
-      "tooManyTitle": "Too many files",
-      "tooManyBody": "You can attach up to {count} files at a time.",
-      "photosDeniedTitle": "Photos",
-      "photosDeniedBody": "Allow Stella to access your photo library in Settings so you can attach images.",
-      "cameraDeniedTitle": "Camera",
-      "cameraDeniedBody": "Allow Stella to use the camera in Settings so you can snap a photo.",
-      "photoLabel": "Photo",
-      "sheetTitle": "Add to chat",
-      "camera": "Camera",
-      "photos": "Photos",
-      "files": "Files",
-      "readAloud": "Read replies aloud"
-    }
-  },
-  "errors": {
-    "generic": "Something went wrong",
-    "subscriptionRequired": "Backups require an active Stella subscription.",
-    "rateLimited": "You're going a little fast. Please try again in a moment.",
-    "networkUnavailable": "Stella is offline. Reconnect to continue.",
-    "permissionDenied": "Stella doesn't have permission to do this."
-  },
   "app": {
-    "usage": {
-      "desktopOnly": "Local usage is available in the Stella desktop app.",
-      "intro": "Provider calls persisted on this device. Costs are local estimates; backend billing remains authoritative.",
-      "refresh": "Refresh",
-      "refreshLabel": "Refresh usage",
-      "selectedThread": "Selected thread",
-      "viewAllThreads": "View all threads",
-      "loading": "Loading local usage…",
-      "loadError": "Couldn’t load local usage",
-      "tryAgain": "Try again",
-      "emptyTitle": "No model calls match these filters.",
-      "emptyBody": "Native calls appear here after their provider returns a terminal usage payload.",
-      "truncatedWarning": "Showing the latest 10,000 calls in this range. Narrow the time range for exact totals.",
-      "filters": {
-        "label": "Usage filters",
-        "timeRange": "Time range",
-        "conversation": "Conversation",
-        "thread": "Thread",
-        "agentType": "Agent type",
-        "model": "Model",
-        "allConversations": "All conversations",
-        "allThreads": "All threads",
-        "allAgentTypes": "All agent types",
-        "allModels": "All models",
-        "range": {
-          "24h": "Last 24 hours",
-          "7d": "Last 7 days",
-          "30d": "Last 30 days",
-          "all": "All time"
-        }
-      },
-      "summary": {
-        "label": "Usage summary",
-        "estimatedCost": "Estimated cost",
-        "providerCalls": "{count} provider calls",
-        "totalTokens": "Total tokens",
-        "uncachedInput": "{value} uncached input",
-        "cacheRead": "Cache read",
-        "cacheDetail": "{read} read · {written} written",
-        "output": "Output",
-        "reasoningTokens": "{value} reasoning tokens"
-      },
-      "timeline": {
-        "title": "Timeline",
-        "description": "Estimated cost and total tokens per time bucket.",
-        "chartLabel": "Timeline of estimated model cost and token usage",
-        "series": {
-          "cost": "Estimated cost",
-          "tokens": "Tokens"
-        },
-        "tooltip": {
-          "estimated": "{value} estimated",
-          "tokens": "{value} tokens",
-          "calls": "{count} model calls"
-        }
-      },
-      "threads": {
-        "title": "Threads",
-        "description": "Orchestrator, agents, and nested sub-agents.",
-        "columns": {
-          "execution": "Execution",
-          "model": "Model",
-          "calls": "Calls",
-          "tokens": "Tokens",
-          "cache": "Cache",
-          "cost": "Cost"
-        }
-      },
-      "calls": {
-        "title": "Provider calls",
-        "description": "Output includes reasoning where the provider includes it; reasoning is also shown separately when reported.",
-        "costBreakdown": "Input {input} · cache read {cacheRead} · cache write {cacheWrite} · output {output}",
-        "truncatedNote": "Showing the latest 500 matching calls; summary totals include all {count} loaded calls.",
-        "columns": {
-          "time": "Time",
-          "execution": "Execution",
-          "providerModel": "Provider / model",
-          "input": "Input",
-          "cache": "Cache R / W",
-          "output": "Output",
-          "reasoning": "Reasoning",
-          "cost": "Cost",
-          "stop": "Stop"
-        }
-      }
-    },
     "apps": {
       "createAppPrompt": "Tell me what stella apps can you make for me?"
     },
@@ -1559,809 +395,549 @@
         "title": "Media",
         "transformVideo": "Use as reference"
       }
+    },
+    "usage": {
+      "calls": {
+        "columns": {
+          "cache": "Cache R / W",
+          "cost": "Cost",
+          "execution": "Execution",
+          "input": "Input",
+          "output": "Output",
+          "providerModel": "Provider / model",
+          "reasoning": "Reasoning",
+          "stop": "Stop",
+          "time": "Time"
+        },
+        "costBreakdown": "Input {input} · cache read {cacheRead} · cache write {cacheWrite} · output {output}",
+        "description": "Output includes reasoning where the provider includes it; reasoning is also shown separately when reported.",
+        "title": "Provider calls",
+        "truncatedNote": "Showing the latest 500 matching calls; summary totals include all {count} loaded calls."
+      },
+      "desktopOnly": "Local usage is available in the Stella desktop app.",
+      "emptyBody": "Native calls appear here after their provider returns a terminal usage payload.",
+      "emptyTitle": "No model calls match these filters.",
+      "filters": {
+        "agentType": "Agent type",
+        "allAgentTypes": "All agent types",
+        "allConversations": "All conversations",
+        "allModels": "All models",
+        "allThreads": "All threads",
+        "conversation": "Conversation",
+        "label": "Usage filters",
+        "model": "Model",
+        "range": {
+          "24h": "Last 24 hours",
+          "30d": "Last 30 days",
+          "7d": "Last 7 days",
+          "all": "All time"
+        },
+        "thread": "Thread",
+        "timeRange": "Time range"
+      },
+      "intro": "Provider calls persisted on this device. Costs are local estimates; backend billing remains authoritative.",
+      "loadError": "Couldn’t load local usage",
+      "loading": "Loading local usage…",
+      "refresh": "Refresh",
+      "refreshLabel": "Refresh usage",
+      "selectedThread": "Selected thread",
+      "summary": {
+        "cacheDetail": "{read} read · {written} written",
+        "cacheRead": "Cache read",
+        "estimatedCost": "Estimated cost",
+        "label": "Usage summary",
+        "output": "Output",
+        "providerCalls": "{count} provider calls",
+        "reasoningTokens": "{value} reasoning tokens",
+        "totalTokens": "Total tokens",
+        "uncachedInput": "{value} uncached input"
+      },
+      "threads": {
+        "columns": {
+          "cache": "Cache",
+          "calls": "Calls",
+          "cost": "Cost",
+          "execution": "Execution",
+          "model": "Model",
+          "tokens": "Tokens"
+        },
+        "description": "Orchestrator, agents, and nested sub-agents.",
+        "title": "Threads"
+      },
+      "timeline": {
+        "chartLabel": "Timeline of estimated model cost and token usage",
+        "description": "Estimated cost and total tokens per time bucket.",
+        "series": {
+          "cost": "Estimated cost",
+          "tokens": "Tokens"
+        },
+        "title": "Timeline",
+        "tooltip": {
+          "calls": "{count} model calls",
+          "estimated": "{value} estimated",
+          "tokens": "{value} tokens"
+        }
+      },
+      "truncatedWarning": "Showing the latest 10,000 calls in this range. Narrow the time range for exact totals.",
+      "tryAgain": "Try again",
+      "viewAllThreads": "View all threads"
+    }
+  },
+  "billing": {
+    "capability": {
+      "audio_generation": "Voice and music generation",
+      "image_generation": "Image generation",
+      "three_d_generation": "3D generation",
+      "video_generation": "Video generation"
+    },
+    "capabilityRestriction": {
+      "genericDescription": "This feature is included with Stella Pro. Upgrade to unlock it.",
+      "genericTitle": "Not included on your plan",
+      "lockedBadge": "{plan}",
+      "lockedBadgeGeneric": "Unavailable",
+      "signIn": "{capability} is included with Stella {plan}. Sign in to upgrade and unlock it.",
+      "title": "{capability} isn't on your plan",
+      "unavailable": "{capability} isn't available on any plan right now.",
+      "upgrade": "{capability} is included with Stella {plan}. Upgrade to unlock it."
+    },
+    "features": {
+      "assistant": "Personal assistant",
+      "codingAgent": "Coding agent",
+      "dictationReadAloud": "Dictation and read-aloud",
+      "multipleAgents": "Multiple agents",
+      "research": "Research and knowledge work"
+    },
+    "freeAllowance": {
+      "caption": "Free to try.",
+      "exhaustedCta": "Upgrade to Go",
+      "exhaustedDescription": "Upgrade to Go for 10× higher usage.",
+      "exhaustedTitle": "You've reached the Free plan limit",
+      "label": "Free plan usage",
+      "remaining": "Free to try."
+    },
+    "heading": "Choose your plan",
+    "mobile": {
+      "accessEnds": "Access ends {date}",
+      "alreadySubscribedTitle": "You already have a subscription",
+      "chooseHeading": "Choose your plan",
+      "currentPlanLabel": "Current plan",
+      "errorRetry": "Try again",
+      "footnote": "Billed by Stella via Stripe. Renews monthly until canceled; cancel anytime.",
+      "introLine": "{introPrice} first month, then {price}/mo",
+      "manage": "Manage subscription",
+      "manageWebNote": "Manage or cancel this subscription from Stella on the web at stella.sh.",
+      "pendingBody": "Finish paying in the browser. Your plan updates here automatically once payment is confirmed — no need to restart.",
+      "pendingDismiss": "Not now",
+      "pendingTitle": "Finishing your purchase",
+      "perMonth": "{price}/mo",
+      "planValue": "Stella {plan}",
+      "renews": "Renews {date}",
+      "sectionTitle": "Subscription",
+      "signInToSubscribe": "Sign in to subscribe",
+      "startingCheckout": "Starting…",
+      "subscribe": "Subscribe",
+      "successBody": "Your subscription is active. Enjoy the higher limits.",
+      "successTitle": "You're on Stella {plan}"
+    },
+    "plans": {
+      "free": {
+        "tagline": "Free to try."
+      },
+      "go": {
+        "tagline": "10× higher usage"
+      },
+      "pro": {
+        "tagline": "Highest usage limits for media generation and multiple agents"
+      }
+    },
+    "renewal": {
+      "accessEnds": "Access ends {date}",
+      "lapseDescription": "Your {plan} plan runs until {date}. After that Stella stops — the Free plan's allowance is one-time and you've already used yours.",
+      "lapseTitle": "Stella stops when your plan ends",
+      "nextLabel": "Next renewal",
+      "pendingLabel": "Cancellation pending",
+      "renews": "Renews {date}"
+    },
+    "subtitle": "Start free. Upgrade when you need more.",
+    "upgradeDialog": {
+      "cta": "Get started",
+      "description": "Thanks for the upgrade. Higher priority and increased usage are active now — keep going.",
+      "title": "You're on Stella {plan}."
+    }
+  },
+  "chat": {
+    "attachments": {
+      "attachFile": "Attach a file",
+      "attachPhoto": "Attach a photo",
+      "camera": "Camera",
+      "cameraDeniedBody": "Allow Stella to use the camera in Settings so you can snap a photo.",
+      "cameraDeniedTitle": "Camera",
+      "files": "Files",
+      "photoLabel": "Photo",
+      "photos": "Photos",
+      "photosDeniedBody": "Allow Stella to access your photo library in Settings so you can attach images.",
+      "photosDeniedTitle": "Photos",
+      "readAloud": "Read replies aloud",
+      "remove": "Remove attachment",
+      "retryUpload": "Retry upload",
+      "sheetTitle": "Add to chat",
+      "takePhoto": "Take a photo",
+      "tooManyBody": "You can attach up to {count} files at a time.",
+      "tooManyTitle": "Too many files",
+      "uploadFailed": "Upload failed. Tap to retry.",
+      "uploading": "Uploading"
+    },
+    "stoppedReply": "Stella couldn't start this reply",
+    "tryAgainHint": "Please try again."
+  },
+  "cloudBrowser": {
+    "actions": {
+      "canceling": "Canceling…",
+      "done": "Done",
+      "finishing": "Finishing…",
+      "useCloudBrowser": "Use Stella's browser"
+    },
+    "deviceCode": {
+      "body": "Enter this code on the site, then come back here.",
+      "codeLabel": "Code",
+      "copied": "Copied",
+      "copy": "Copy code",
+      "open": "Open site",
+      "title": "Sign in to {origin}"
+    },
+    "errors": {
+      "decision": "That didn't go through. Try again.",
+      "expired": "This sign-in is no longer needed.",
+      "liveView": "Couldn't load the sign-in page. Try again.",
+      "liveViewBoundary": "Couldn't load the sign-in page.",
+      "verificationUrl": "Couldn't open that page."
+    },
+    "needsYou": {
+      "deviceCode": "Enter a code for {origin}",
+      "open": "Open",
+      "signIn": "Sign in to {origin}",
+      "title": "Needs you"
+    },
+    "settings": {
+      "confirmBody": "Stella will ask you to sign in again next time.",
+      "confirmTitle": "Sign out of all sites?",
+      "defaultProfile": "Saved sign-ins",
+      "description": "Sites Stella has signed in to for you. Reset to sign out of all of them.",
+      "reset": "Reset",
+      "resetComplete": "Signed out of all sites.",
+      "resetFailed": "Couldn't sign out. Try again.",
+      "resetting": "Resetting…",
+      "title": "Browser sign-ins"
+    },
+    "takeover": {
+      "body": "Sign in to keep going. Stella can't see what you type.",
+      "checking": "Finishing sign-in to {origin}",
+      "frameTitle": "Sign in to {origin}",
+      "localNotice": "Stella can't see what you type",
+      "localOriginFallback": "Switched to Stella's browser to finish signing in.",
+      "localTransferFallback": "Couldn't confirm that sign-in. Try again in Stella's browser.",
+      "preparing": "Loading sign-in…",
+      "privateNotice": "Stella can't see what you type",
+      "resumingBody": "Stella will pick up where it left off.",
+      "title": "Sign in to {origin}"
+    }
+  },
+  "cloudConnector": {
+    "connect": "Connect",
+    "connecting": "Finish signing in to {name} in your browser. Stella will continue once it's approved.",
+    "errors": {
+      "decision": "Couldn't connect {name}. Try again.",
+      "open": "Couldn't open the sign-in page."
+    },
+    "notNow": "Not now",
+    "openAgain": "Open again",
+    "titleOffer": "Connect {name}?",
+    "titleWaiting": "Waiting for {name}"
+  },
+  "common": {
+    "appName": "Stella",
+    "back": "Back",
+    "cancel": "Cancel",
+    "close": "Close",
+    "continue": "Continue",
+    "copy": "Copy",
+    "language": "Language",
+    "loading": "Loading…",
+    "next": "Next",
+    "no": "No",
+    "open": "Open",
+    "openPreferences": "Open Preferences",
+    "previous": "Previous",
+    "save": "Save",
+    "signIn": "Sign in",
+    "signOut": "Sign out",
+    "tryAgain": "Try again",
+    "yes": "Yes"
+  },
+  "companion": {
+    "arc": {
+      "dictate": "Dictate a message",
+      "dictateStop": "Stop dictating and send",
+      "readAloudOff": "Read replies aloud: off",
+      "readAloudOn": "Read replies aloud: on",
+      "voice": "Start voice conversation",
+      "voiceStop": "End voice conversation"
+    },
+    "badge": {
+      "running": "{count} agents working"
+    },
+    "bubble": {
+      "openStella": "Open in Stella",
+      "typing": "Stella is replying"
+    },
+    "composer": {
+      "placeholder": "Ask Stella…"
+    },
+    "mark": {
+      "close": "Close the prompt",
+      "open": "Ask Stella"
+    },
+    "menu": {
+      "hide": "Hide companion",
+      "openStella": "Open Stella",
+      "quit": "Quit Stella"
     }
   },
   "desktop": {
     "common": {
       "continue": "Continue"
     },
-    "tray": {
-      "tooltip": "Stella",
-      "openStella": "Open Stella",
-      "quitStella": "Quit Stella",
-      "balloon": {
-        "title": "Stella is still running",
-        "content": "Stella stays in your system tray. Click the icon to reopen it."
-      }
-    },
     "dialog": {
       "startupFailure": {
-        "title": "Stella",
-        "message": "Stella could not finish starting.",
         "detail": "Startup failed before the app UI could load.\n\n{detail}",
+        "message": "Stella could not finish starting.",
+        "quit": "Quit",
         "relaunch": "Relaunch",
-        "quit": "Quit"
-      }
-    },
-    "security": {
-      "confirmationTitle": "Stella Security Confirmation",
-      "allow": "Allow",
-      "deny": "Deny",
-      "rememberDecision": "Remember this decision on this device",
-      "computerUse": {
-        "message": "Allow Computer Use to use {app}?",
-        "detail": "Computer Use will be able to view and interact with {app}.",
-        "risk": "Risk: {risk}"
+        "title": "Stella"
       }
     },
     "oauth": {
-      "xaiCodeMessage": "Enter this code to connect xAI",
-      "expectedValue": "Expected value: {value}"
+      "expectedValue": "Expected value: {value}",
+      "xaiCodeMessage": "Enter this code to connect xAI"
+    },
+    "security": {
+      "allow": "Allow",
+      "computerUse": {
+        "detail": "Computer Use will be able to view and interact with {app}.",
+        "message": "Allow Computer Use to use {app}?",
+        "risk": "Risk: {risk}"
+      },
+      "confirmationTitle": "Stella Security Confirmation",
+      "deny": "Deny",
+      "rememberDecision": "Remember this decision on this device"
+    },
+    "tray": {
+      "balloon": {
+        "content": "Stella stays in your system tray. Click the icon to reopen it.",
+        "title": "Stella is still running"
+      },
+      "openStella": "Open Stella",
+      "quitStella": "Quit Stella",
+      "tooltip": "Stella"
     },
     "update": {
       "holding": "Updating Stella"
     }
   },
+  "errors": {
+    "generic": "Something went wrong",
+    "networkUnavailable": "Stella is offline. Reconnect to continue.",
+    "permissionDenied": "Stella doesn't have permission to do this.",
+    "rateLimited": "You're going a little fast. Please try again in a moment.",
+    "subscriptionRequired": "Backups require an active Stella subscription."
+  },
   "features": {
     "browserBridge": {
-      "unavailableTitle": "Browser extension unavailable",
-      "unavailableBody": "Stella could not connect to your browser. Restart the app or reinstall Stella if this continues.",
       "connectionLostTitle": "Browser connection lost",
       "disconnected": "The Stella browser bridge disconnected.",
       "retryDelay": {
         "one": "Stella will keep retrying in about {count} second.",
         "other": "Stella will keep retrying in about {count} seconds."
-      }
+      },
+      "unavailableBody": "Stella could not connect to your browser. Restart the app or reinstall Stella if this continues.",
+      "unavailableTitle": "Browser extension unavailable"
     },
     "dictation": {
       "cancel": "Cancel dictation",
+      "failedBody": "Stella couldn't transcribe that. Please try again.",
+      "failedTitle": "Dictation didn't work",
+      "keyDialog": {
+        "description": "This Stella doesn't include dictation. Add your own OpenRouter API key and Stella transcribes with it. The key stays on this computer.",
+        "getKey": "Get a key at openrouter.ai/keys",
+        "inputLabel": "OpenRouter API key",
+        "openStella": "Open Stella and press the mic there to add an OpenRouter key for dictation.",
+        "save": "Save and start",
+        "saveFailed": "Stella couldn't save that key.",
+        "saving": "Saving…",
+        "title": "Turn on dictation",
+        "unavailable": "Saving keys isn't available in this window."
+      },
       "listening": "Listening…",
+      "signInBody": "Sign in to Stella to use dictation.",
+      "signInTitle": "Sign in to use dictation",
       "stopAndTranscribe": "Stop and transcribe",
       "stopAndTranscribeLabel": "Stop dictation and transcribe",
       "stopTranscribeSend": "Stop, transcribe, and send",
-      "stopTranscribeSendLabel": "Stop dictation, transcribe, and send",
-      "signInTitle": "Sign in to use dictation",
-      "signInBody": "Sign in to Stella to use dictation.",
-      "failedTitle": "Dictation didn't work",
-      "failedBody": "Stella couldn't transcribe that. Please try again.",
-      "keyDialog": {
-        "title": "Turn on dictation",
-        "description": "This Stella doesn't include dictation. Add your own OpenRouter API key and Stella transcribes with it. The key stays on this computer.",
-        "inputLabel": "OpenRouter API key",
-        "getKey": "Get a key at openrouter.ai/keys",
-        "save": "Save and start",
-        "saving": "Saving…",
-        "saveFailed": "Stella couldn't save that key.",
-        "unavailable": "Saving keys isn't available in this window.",
-        "openStella": "Open Stella and press the mic there to add an OpenRouter key for dictation."
-      }
+      "stopTranscribeSendLabel": "Stop dictation, transcribe, and send"
     },
     "voice": {
-      "signInTitle": "Sign in to use voice",
-      "needsSetupTitle": "Voice needs setup"
-    }
-  },
-  "ui": {
-    "imageLightbox": {
-      "title": "Image preview",
-      "close": "Close preview"
-    }
-  },
-  "shell": {
-    "agentProgress": {
-      "recentAgentMessages": "Recent agent messages",
-      "recentProgress": "Recent progress"
-    },
-    "audioPlayer": {
-      "pause": "Pause",
-      "play": "Play",
-      "seek": "Seek"
-    },
-    "capture": {
-      "failedTitle": "Couldn’t capture that",
-      "failedDescription": "Something went wrong taking the screenshot. Try again."
-    },
-    "chatSidebar": {
-      "add": "Add",
-      "dictationError": "Dictation: {error}",
-      "stop": "Stop"
-    },
-    "displayPanel": {
-      "closePanel": "Close panel",
-      "openPanel": "Open panel"
-    },
-    "rightSidebar": {
-      "workspace": "Workspace",
-      "resize": "Resize display panel",
-      "resizeHint": "Drag to resize · double-click to reset"
-    },
-    "windowControls": {
-      "minimize": "Minimize",
-      "restore": "Restore",
-      "maximize": "Maximize"
-    },
-    "workspace": {
-      "activity": "Activity",
-      "viewFiles": {
-        "one": "View {count} file",
-        "other": "View {count} files"
-      },
-      "moreFiles": {
-        "one": "{count} more file",
-        "other": "{count} more files"
-      }
-    },
-    "appSource": {
-      "update": "Update",
-      "title": "Changes to Stella",
-      "undo": "Undo",
-      "outdated": "Made on an older version",
-      "failed": "Couldn't apply the change",
-      "restarts": "Restarts Stella",
-      "updatedJustNow": "Updated just now",
-      "updatedAgo": "Updated {ago}",
-      "undoneJustNow": "Undone just now",
-      "undoneAgo": "Undone {ago}",
-      "files": {
-        "one": "{count} file",
-        "other": "{count} files"
-      },
-      "updates": {
-        "pill": {
-          "one": "{count} update",
-          "other": "{count} updates"
-        },
-        "newVersion": "New version of Stella",
-        "newVersionDetail": "Improvements and fixes from the Stella team",
-        "fromDevice": "A change you made on {device}",
-        "fromOtherComputer": "A change you made on your other computer",
-        "fromOtherComputers": "Changes from your other computer",
-        "readyChange": "A change ready to add",
-        "add": "Add",
-        "get": "Get",
-        "adding": "Adding…",
-        "skip": "Skip",
-        "undoing": "Undoing…",
-        "removed": "Removed: {change}",
-        "justNow": "Just now",
-        "waiting": "Waiting",
-        "history": "History",
-        "skipped": "Skipped",
-        "upToDate": "Nothing waiting"
-      }
-    },
-    "display": {
-      "homeLauncher": {
-        "files": {
-          "label": "Files",
-          "description": "Pages, images, video, and documents"
-        },
-        "trash": {
-          "label": "Trash",
-          "description": "Things you've recently deleted"
-        }
-      },
-      "trash": {
-        "title": "Trash",
-        "empty": "Nothing here right now.",
-        "refresh": "Refresh",
-        "emptying": "Emptying…",
-        "emptyTrash": "Empty trash",
-        "trashedAgo": "Trashed {time} ago",
-        "pendingPurge": "Pending purge",
-        "autoDeletesIn": "Auto-deletes in {time}",
-        "deleting": "Deleting…",
-        "deleteNow": "Delete now",
-        "itemsAutoDeleted": {
-          "one": "{count} item — auto-deleted in 24 hours.",
-          "other": "{count} items — auto-deleted in 24 hours."
-        }
-      },
-      "canvasShare": {
-        "share": "Share",
-        "links": "Links",
-        "sharedLinks": "Shared links",
-        "publishing": "Publishing canvas…",
-        "publishFailed": "Couldn't publish this canvas. Please try again.",
-        "live": "Canvas is live",
-        "publicLink": "Public canvas link",
-        "copyLink": "Copy link",
-        "revoke": "Revoke share",
-        "expires": "Expires {date}",
-        "shared": "Shared {date}",
-        "sharedWithExpiry": "Shared {shared} · expires {expires}",
-        "loadFailed": "Couldn't load your shares.",
-        "empty": "No active shares yet. Publish a canvas to get a public link.",
-        "untitled": "Untitled canvas",
-        "toasts": {
-          "linkCopied": "Share link copied",
-          "copyFailed": "Couldn't copy the link",
-          "revoked": "Share revoked",
-          "revokeFailed": "Couldn't revoke this share"
-        }
-      },
-      "canvas": {
-        "loadFailed": "Couldn't load this canvas.",
-        "loading": "Loading"
-      },
-      "media": {
-        "save": "Save",
-        "saved": "Saved",
-        "saveFailed": "Could not save",
-        "copy": "Copy",
-        "copied": "Copied",
-        "copyFailed": "Could not copy",
-        "delete": "Delete",
-        "deleteConfirm": "Click again to delete",
-        "itemActions": "Item actions",
-        "missing": "File no longer available.",
-        "expand": "Expand",
-        "expandPanel": "Expand panel",
-        "revealInFinder": "Reveal in Finder"
-      },
-      "url": {
-        "eyebrow": "Live preview",
-        "reload": "Reload",
-        "openInBrowser": "Open in browser"
-      },
-      "office": {
-        "preparing": "Preparing preview...",
-        "kind": {
-          "spreadsheet": "Spreadsheet",
-          "presentation": "Presentation",
-          "document": "Document"
-        },
-        "sheetCount": {
-          "one": "{count} sheet",
-          "other": "{count} sheets"
-        },
-        "slideCount": {
-          "one": "{count} slide",
-          "other": "{count} slides"
-        },
-        "loadFailed": "Couldn't load this preview",
-        "sessionError": "The preview session reported an error.",
-        "zoomAriaLabel": "Preview zoom",
-        "revealInFinder": "Reveal in Finder",
-        "livePreview": "Live preview",
-        "frameTitle": "{kind} preview: {title}"
-      },
-      "filePreview": {
-        "save": "Save",
-        "copy": "Copy",
-        "loading": "Loading..."
-      },
-      "spreadsheet": {
-        "eyebrow": "Spreadsheet",
-        "desktopRequired": "Spreadsheet preview requires the Stella desktop app.",
-        "noRows": "No rows found.",
-        "column": "Column {index}"
-      },
-      "markdown": {
-        "eyebrow": "Markdown",
-        "desktopRequired": "Markdown preview requires the Stella desktop app.",
-        "noContent": "No content found."
-      },
-      "diff": {
-        "changes": "Changes",
-        "codeChanges": "Code changes",
-        "noChanges": "No changes found.",
-        "desktopRequired": "Code preview requires the Stella desktop app.",
-        "empty": "No file changes yet. When an agent edits code, the changes appear here."
-      },
-      "agentThread": {
-        "role": {
-          "user": "Instruction",
-          "assistant": "Agent",
-          "reasoning": "Reasoning",
-          "tool": "Tool",
-          "checkpoint": "Thread checkpoint",
-          "lifecycle": "Activity"
-        },
-        "status": {
-          "running": "Working",
-          "completed": "Completed",
-          "error": "Failed",
-          "canceled": "Stopped"
-        },
-        "newMessages": {
-          "one": "{count} new message.",
-          "other": "{count} new messages."
-        },
-        "newMessagesWithPreview": "{countPhrase} Latest {role}: {preview}",
-        "unavailable": "Agent thread history is unavailable.",
-        "loadFailed": "Couldn’t load this thread.",
-        "showingNewest": "Showing the newest message.",
-        "claudeAriaLabel": "Claude subagent read-only conversation",
-        "claudeBadge": "Read-only Claude subagent",
-        "badge": "Read-only agent thread",
-        "retrying": "Retrying…",
-        "empty": "No messages in this thread yet.",
-        "toolInput": "Input",
-        "toolOutput": "Output",
-        "toolRunning": "Waiting for this tool to finish…",
-        "toolGroup": {
-          "one": "{count} tool call",
-          "other": "{count} tool calls"
-        },
-        "reasoningGroup": {
-          "one": "Reasoning",
-          "other": "{count} reasoning steps"
-        },
-        "newMessagesButton": {
-          "one": "{count} new message",
-          "other": "{count} new messages"
-        },
-        "showNewMessagesAria": "Show {countPhrase}"
-      },
-      "preview": {
-        "limited": "Preview limited. Save or open the original file to view all content.",
-        "unavailable": "Unable to prepare this preview."
-      }
-    },
-    "sidebar": {
-      "account": {
-        "planAriaLabel": "{name}, {plan} plan",
-        "signOutTitle": "Sign out of Stella?",
-        "signOutDescription": "Are you sure?"
-      },
-      "nav": {
-        "apps": "Apps",
-        "unreadTitle": "{label} ({count} unread)",
-        "unreadAriaLabel": "{label}, {count} unread"
-      },
-      "feedback": {
-        "title": "Send feedback",
-        "description": "Your message is sent anonymously — it isn't linked to your account.",
-        "fieldLabel": "Feedback",
-        "placeholder": "Tell us what's working, what isn't, or what you'd love to see…",
-        "send": "Send",
-        "sending": "Sending…",
-        "toasts": {
-          "sentTitle": "Feedback sent",
-          "sentDescription": "Thanks — every note helps us shape Stella.",
-          "failedTitle": "Couldn't send feedback"
-        }
-      }
-    },
-    "topbar": {
-      "conversation": {
-        "newChat": "New chat",
-        "newChatConfirm": "Click again to confirm",
-        "history": "Conversation history",
-        "historyEmpty": "No conversations yet",
-        "historyRetry": "Couldn’t load conversations. Try again",
-        "openConversations": "Open conversations",
-        "unread": "Unread messages",
-        "openConversation": "Open {title}",
-        "closeConversation": "Close {title}",
-        "delete": "Delete {title}",
-        "deleteConfirm": "Click again to confirm",
-        "deleteConfirmFor": "Click again to delete {title}",
-        "deleteFailed": "Couldn’t delete this conversation",
-        "deleteFailedFor": "Couldn’t delete {title}"
-      }
-    },
-    "browser": {
-      "connected": "Browser connected",
-      "newTab": "Open a new tab",
-      "connecting": "Waiting for extension…"
-    },
-    "connectors": {
-      "title": "Connectors",
-      "searchPlaceholder": "Search",
-      "searchLabel": "Search connectors",
-      "loading": "Loading connectors…",
-      "desktopRequired": "Connectors are available in the Stella desktop app.",
-      "empty": "No connectors available yet.",
-      "noMatches": "No connectors match that search."
+      "needsSetupTitle": "Voice needs setup",
+      "signInTitle": "Sign in to use voice"
     }
   },
   "global": {
     "auth": {
-      "welcomeTitle": "Welcome to Stella",
-      "welcomeDescription": "Sign in with your email to start using Stella.",
-      "welcomeSub": "Use Google or your email to sign in. No password needed.",
-      "finishingTitle": "Finishing sign-in",
-      "finishingSub": "Moving your chats to this account. This only takes a moment.",
-      "orUseEmail": "or use email",
+      "checkInbox": "Check your inbox for the sign-in link.",
       "emailLabel": "Email",
       "emailPlaceholder": "you@example.com",
-      "sending": "Sending...",
-      "signingIn": "Signing in...",
-      "sendSignInEmail": "Send sign-in email",
-      "checkInbox": "Check your inbox for the sign-in link.",
-      "magicLinkSentDesktop": "We sent a sign-in link. Open it on this device to finish.",
-      "openInbox": "Open {provider}",
-      "resendIn": "Resend in {seconds}s",
-      "resendEmail": "Resend email",
-      "skipForNow": "Skip for now",
       "enterEmail": "Enter an email address.",
-      "sendFailed": "Failed to send sign-in email.",
-      "magicLinkFailed": "Failed to send magic link.",
       "finishFailed": "Could not finish sign-in. Please try again.",
+      "finishingSub": "Moving your chats to this account. This only takes a moment.",
+      "finishingTitle": "Finishing sign-in",
+      "googleContinue": "Continue with Google",
+      "googleExpired": "Google sign-in expired. Please try again.",
+      "googleNoSession": "Google sign-in completed without a session.",
+      "googleStartFailed": "Google sign-in could not start.",
+      "googleTimedOut": "Google sign-in timed out. Please try again.",
+      "googleWaiting": "Waiting for Google...",
+      "magicLinkFailed": "Failed to send magic link.",
+      "magicLinkSentDesktop": "We sent a sign-in link. Open it on this device to finish.",
+      "nicknameDescription": "Pick a name for Stella to use across the app.",
+      "nicknameLabel": "Nickname",
+      "nicknamePlaceholder": "Your nickname",
+      "nicknameTitle": "What should I call you?",
+      "notNow": "Not now",
+      "openInbox": "Open {provider}",
+      "orUseEmail": "or use email",
+      "resendEmail": "Resend email",
+      "resendIn": "Resend in {seconds}s",
+      "sendFailed": "Failed to send sign-in email.",
+      "sendSignInEmail": "Send sign-in email",
+      "sending": "Sending...",
       "signInIncomplete": "Sign-in incomplete. Please try again.",
       "signInLinkExpired": "Sign-in link expired. Please try again.",
+      "signingIn": "Signing in...",
+      "skipForNow": "Skip for now",
       "tooManyRequests": {
         "one": "Too many requests. Try again in {count} second.",
         "other": "Too many requests. Try again in {count} seconds."
       },
-      "googleContinue": "Continue with Google",
-      "googleWaiting": "Waiting for Google...",
-      "googleStartFailed": "Google sign-in could not start.",
-      "googleNoSession": "Google sign-in completed without a session.",
-      "googleExpired": "Google sign-in expired. Please try again.",
-      "googleTimedOut": "Google sign-in timed out. Please try again.",
-      "nicknameTitle": "What should I call you?",
-      "nicknameDescription": "Pick a name for Stella to use across the app.",
-      "nicknameLabel": "Nickname",
-      "nicknamePlaceholder": "Your nickname",
-      "notNow": "Not now"
-    },
-    "legal": {
-      "terms": {
-        "title": "Terms of Service",
-        "subtitle": "How Stella works, and what you agree to when you use it."
-      },
-      "privacy": {
-        "title": "Privacy Policy",
-        "subtitle": "What we collect, what we don't, and how we keep it safe."
-      }
+      "welcomeDescription": "Sign in with your email to start using Stella.",
+      "welcomeSub": "Use Google or your email to sign in. No password needed.",
+      "welcomeTitle": "Welcome to Stella"
     },
     "integrations": {
-      "heroTagline": "Message Stella from any platform you like — chat naturally, or ask it to get things done right on your computer.",
-      "signInToConnect": "Sign in to Stella to connect",
       "connectStellaApp": "Connect to Stella App",
       "connectStellaAppSub": "Pair the Stella app on your phone with this computer",
       "connectTitle": "Connect",
-      "phoneTitle": "Your phone",
       "connected": "Connected",
-      "signInHeadline": "Sign in to get started",
-      "signInSub": "Sign in to your Stella account to connect {provider}.",
       "credential": {
-        "title": "Connect {provider}",
-        "description": "Stella needs your {provider} API key to connect. Paste it below. It stays on your computer.",
-        "defaultLabel": "{provider} key",
         "apiKeyLabel": "API key",
         "apiKeyRequired": "API key is required.",
+        "defaultLabel": "{provider} key",
+        "description": "Stella needs your {provider} API key to connect. Paste it below. It stays on your computer.",
         "keyPlaceholder": "Paste your key",
-        "labelLabel": "Label",
         "labelDescription": "A friendly name to recognize this key later.",
-        "saving": "Saving...",
+        "labelLabel": "Label",
+        "saveFailed": "Failed to save credential.",
         "saveKey": "Save key",
-        "saveFailed": "Failed to save credential."
+        "saving": "Saving...",
+        "title": "Connect {provider}"
+      },
+      "heroTagline": "Message Stella from any platform you like — chat naturally, or ask it to get things done right on your computer.",
+      "phoneTitle": "Your phone",
+      "signInHeadline": "Sign in to get started",
+      "signInSub": "Sign in to your Stella account to connect {provider}.",
+      "signInToConnect": "Sign in to Stella to connect"
+    },
+    "legal": {
+      "privacy": {
+        "subtitle": "What we collect, what we don't, and how we keep it safe.",
+        "title": "Privacy Policy"
+      },
+      "terms": {
+        "subtitle": "How Stella works, and what you agree to when you use it.",
+        "title": "Terms of Service"
       }
     },
     "remoteExecutionConsent": {
-      "title": "Allow work from your other devices?",
+      "allow": "Allow",
       "body": "Another of your devices asked to run work on this computer. Allowing lets work sent from your devices run here.",
       "bodyFrom": "{requester} asked to run work on this computer. Allowing lets work sent from your devices run here.",
-      "note": "You can change this later in Connect, under your computers.",
-      "allow": "Allow",
       "decline": "Not now",
-      "failed": "That answer didn't go through. Try again."
+      "failed": "That answer didn't go through. Try again.",
+      "note": "You can change this later in Connect, under your computers.",
+      "title": "Allow work from your other devices?"
     },
     "schedule": {
-      "dialogTitle": "Schedule",
-      "untitledTask": "Scheduled task",
+      "actionFailed": "Action failed.",
       "checkIn": "Check-in",
-      "paused": "Paused",
+      "delete": "Delete",
+      "dialogTitle": "Schedule",
+      "missing": "This schedule no longer exists.",
       "pause": "Pause",
+      "paused": "Paused",
       "pausing": "Pausing…",
+      "removing": "Removing…",
       "resume": "Resume",
       "resuming": "Resuming…",
       "runNow": "Run now",
       "running": "Running…",
-      "delete": "Delete",
-      "removing": "Removing…",
-      "actionFailed": "Action failed.",
-      "missing": "This schedule no longer exists.",
       "scheduleCount": {
         "one": "{count} schedule",
         "other": "{count} schedules"
-      }
+      },
+      "untitledTask": "Scheduled task"
     }
   },
   "mobile": {
-    "common": {
-      "back": "Back",
-      "backChevron": "‹ Back",
-      "cancel": "Cancel",
-      "continue": "Continue",
-      "delete": "Delete",
-      "done": "Done",
-      "goBack": "Go back",
-      "tryAgain": "Try again"
+    "account": {
+      "title": "Account"
     },
-    "boot": {
-      "crashTitle": "Something broke at launch",
-      "missingConfigTitle": "Add mobile environment variables",
-      "missingConfigBody": "Set EXPO_PUBLIC_STELLA_BACKEND_URL before starting the app.",
-      "checkingSessionTitle": "Checking your session",
-      "checkingSessionBody": "Hang tight while Stella wakes up."
-    },
-    "authCallback": {
-      "failedTitle": "Couldn't sign you in",
-      "invalidLink": "Invalid sign-in link.",
-      "linkExpired": "This sign-in link has expired. Please request a new one.",
-      "genericFailure": "We couldn't sign you in right now. Please try again.",
-      "backToSignIn": "Back to sign in",
-      "signingInTitle": "Signing you in",
-      "signingInBody": "Just a moment..."
-    },
-    "nav": {
-      "chat": "Chat",
-      "settings": "Settings",
-      "apps": "Apps",
-      "openLabel": "Open navigation",
-      "chatSettingsLabel": "Chat settings",
-      "closeLabel": "Close navigation",
-      "account": "Account",
-      "signIn": "Sign in",
-      "backToChat": "Back to chat",
-      "backToApps": "Back to apps"
-    },
-    "search": {
-      "placeholder": "Search messages",
-      "openLabel": "Search messages",
-      "clearLabel": "Clear search",
-      "cancelLabel": "Cancel search"
-    },
-    "onboarding": {
-      "skip": "Skip",
-      "skipLabel": "Skip introduction",
-      "progressLabel": "Step {current} of {total}",
-      "composerPlaceholder": "Or just ask me something",
-      "send": "Send",
-      "messages": {
-        "hello": "Hi, I'm Stella.\n\nI'm not a chatbot. Tell me what you need and I get it done, in the background, while you get on with your day.",
-        "showcase": "Here's what that looks like.",
-        "computer": "If you have a Mac or PC, I can work on it too.",
-        "account": "Want to keep all of this? A Stella account follows you to every device.",
-        "accountSignedIn": "You're signed in, so everything follows you between devices. One optional extra:",
-        "theme": "Now, how should I look?",
-        "ready": "That's it. I'll get to know you as we go.\n\nWhat should we do first?"
+    "activity": {
+      "inProgress": {
+        "one": "{count} in progress",
+        "other": "{count} in progress"
       },
-      "replies": {
-        "helloDone": "Show me.",
-        "showcaseDone": "Got it.",
-        "computerDone": "Connected!",
-        "computerSkipped": "Maybe later.",
-        "accountDone": "All set.",
-        "accountSkipped": "Skip for now.",
-        "themeDone": "That one.",
-        "themeSkipped": "Keep the default."
-      },
-      "hello": {
-        "cta": "Show me",
-        "settledTitle": "Meet Stella",
-        "pillars": {
-          "done": {
-            "title": "Gets things done",
-            "body": "Bookings, orders, files and research, finished for you."
-          },
-          "background": {
-            "title": "Works in the background",
-            "body": "Hand something off and keep going. I'll tell you when it's done."
-          },
-          "asks": {
-            "title": "Asks before it matters",
-            "body": "Anything that spends money waits for your OK."
-          }
-        }
-      },
-      "showcase": {
-        "settledTitle": "The quick tour",
-        "replay": "Replay this demo",
-        "tablist": "What Stella can do",
-        "placeholder": "Ask Stella",
-        "chapters": {
-          "errands": {
-            "word": "Errands",
-            "title": "Ask once. Consider it handled.",
-            "caption": "I open the site, fill in the details and finish the job, the way you would.",
-            "prompt": "Book a table for two on Friday at 8",
-            "working": "Reserving a table",
-            "receipt1": "Osteria Lucia · Fri 8:00 PM · 2 people",
-            "receipt2": "Added to your calendar",
-            "reply": "Booked Osteria Lucia for Friday at 8. It's on your calendar.",
-            "scene": {
-              "site": "osterialucia.com",
-              "party": "Party",
-              "partyValue": "2 people",
-              "date": "Date",
-              "dateValue": "Friday",
-              "time": "Time",
-              "timeValue": "8:00 PM",
-              "reserve": "Reserve",
-              "reserved": "Reserved"
-            }
-          },
-          "shopping": {
-            "word": "Shopping",
-            "title": "I can buy things, with your OK.",
-            "caption": "I find it and take it to checkout. You approve the total, then I place the order.",
-            "prompt": "Reorder my running shoes, size 10",
-            "working": "Finding your shoes",
-            "amount": "$129.99",
-            "confirmTitle": "Confirm purchase?",
-            "confirmDetail": "Trail Runner 2 · size 10",
-            "confirm": "Confirm",
-            "confirmed": "Confirmed",
-            "receipt1": "Order #48213 · arrives Thursday",
-            "reply": "Ordered. They arrive Thursday.",
-            "scene": {
-              "site": "trailco.com",
-              "product": "Trail Runner 2",
-              "addToCart": "Add to cart",
-              "inCart": "In cart"
-            }
-          },
-          "work": {
-            "word": "Work",
-            "title": "Real files, finished.",
-            "caption": "Docs, sheets and slides: I do the work and save the file where you can open it.",
-            "prompt": "Turn my Q3 notes into a deck for Monday",
-            "working": "Reading your notes",
-            "receipt1": "Q3 notes · read",
-            "receipt2": "Q3 review deck · 12 slides",
-            "reply": "Your deck is ready: 12 slides, saved to Files.",
-            "scene": {
-              "file": "Q3 review.pptx",
-              "slideTitle": "Q3 Review"
-            }
-          },
-          "routines": {
-            "word": "Routines",
-            "title": "Set it once. I'll keep at it.",
-            "caption": "Reminders, check-ins and daily briefs that run on their own schedule.",
-            "prompt": "Every morning at 8, brief me on my day",
-            "working": "Setting it up",
-            "receipt1": "Every day at 8:00 AM",
-            "reply": "Done. Your first brief arrives tomorrow at 8.",
-            "scene": {
-              "when": "Tomorrow, 8:00 AM",
-              "day": "Tomorrow",
-              "time": "8:00",
-              "now": "now",
-              "title": "Your morning brief",
-              "body": "3 meetings, rain after 5, and it's Sam's birthday."
-            }
-          },
-          "research": {
-            "word": "Research",
-            "title": "I do the reading.",
-            "caption": "I compare the options, read the reviews and come back with an answer.",
-            "prompt": "Find the best e-bike under $2,000",
-            "working": "Reading reviews",
-            "receipt1": "Read 24 reviews",
-            "receipt2": "Comparison saved to Files",
-            "reply": "The Cityline 3: lightest frame, best brakes, $1,799.",
-            "scene": {
-              "title": "Comparing e-bikes",
-              "source1": "Expert reviews",
-              "source2": "Owner forums",
-              "source3": "Spec sheets",
-              "rank1": "Cityline 3",
-              "rank2": "Metro S",
-              "rank3": "Urban X"
-            }
-          }
-        }
-      },
-      "computer": {
-        "title": "Your computer, from your pocket",
-        "body": "Pair this phone with Stella on your computer and I can run tasks there while you're out.",
-        "point1": "Find a file and send it to you",
-        "point2": "Finish an export or a download",
-        "point3": "Use the apps you already have",
-        "pair": "Pair my computer",
-        "signInToPair": "Sign in to pair",
-        "later": "Later",
-        "hint": "On your computer, open Stella and choose Pair phone.",
-        "guestHint": "Pairing is tied to your Stella account, so sign in first. I'll pick up right here.",
-        "connectedTo": "Connected to {name}",
-        "connectedBody": "Ask from anywhere and I'll do the work on your computer.",
-        "settledConnectedDesc": "I can run tasks there from your phone.",
-        "settledSkippedTitle": "No computer yet",
-        "settledSkippedDesc": "You can pair one any time in Settings."
-      },
-      "account": {
-        "signInTitle": "Sign in to Stella",
-        "signInBody": "Keep your conversation, settings and connected computer on every device.",
-        "signIn": "Sign in",
-        "subscriptionsLabel": "Optional",
-        "subscriptionsBody": "Already pay for Claude or ChatGPT? Connect it and I'll use it in the cloud. Your computers use their own sign-ins.",
-        "claudeDesc": "Pro or Max, through Claude Code",
-        "chatgptDesc": "Your ChatGPT plan, for Stella's cloud",
-        "connect": "Connect",
-        "connectLabel": "Connect {name}",
-        "connectedAs": "Connected · {name}",
-        "skip": "Skip for now",
-        "settledSignedIn": "Signed in",
-        "settledGuest": "Using Stella as a guest",
-        "guestSettled": "Sign in any time from Settings"
-      },
-      "theme": {
-        "appearance": "Appearance",
-        "themes": "Theme",
-        "confirm": "Done",
-        "reset": "Keep the default"
-      },
-      "ready": {
-        "startersLabel": "Try one of these",
-        "start": "Start chatting",
-        "starters": {
-          "plan": {
-            "title": "Plan my week",
-            "prompt": "Help me plan my week around what I have coming up."
-          },
-          "gift": {
-            "title": "Find a gift",
-            "prompt": "Find a thoughtful birthday gift for a friend, under $50."
-          },
-          "remind": {
-            "title": "Set a reminder",
-            "prompt": "Remind me to call Mom on Sunday at 6."
-          },
-          "explain": {
-            "title": "Explain something",
-            "prompt": "Explain how compound interest works, simply."
-          }
-        }
-      }
-    },
-    "login": {
-      "heroTitle": "Your assistant,\npocket-sized.",
-      "heroBody": "Use Apple, Google, or the email you use on your computer.",
-      "continueWithApple": "Continue with Apple",
-      "openingApple": "Opening Apple...",
-      "continueWithGoogle": "Continue with Google",
-      "openingGoogle": "Opening Google...",
-      "orUseEmail": "or use email",
-      "emailPlaceholder": "Email",
-      "sending": "Sending...",
-      "signingIn": "Signing in...",
-      "checkInbox": "Check your inbox and tap the link — you'll be signed in automatically.",
-      "useDifferentEmail": "Use a different email",
-      "resend": "Resend",
-      "resendLabel": "Resend sign-in email",
-      "enterEmail": "Enter your email.",
-      "sendFailed": "Failed to send sign-in email.",
-      "googleStartFailed": "Google sign-in could not start.",
-      "appleStartFailed": "Apple sign-in could not start.",
-      "appleCompleteFailed": "Apple sign-in could not complete.",
-      "appleNoToken": "Apple did not return an identity token.",
-      "finishFailed": "Could not finish sign-in. Please try again.",
-      "incomplete": "Sign-in incomplete. Please try again.",
-      "linkExpired": "Link expired. Please try again.",
-      "legalPrefix": "By continuing, you agree to our ",
-      "legalTerms": "Terms",
-      "legalConjunction": " and ",
-      "legalPrivacy": "Privacy Policy",
-      "legalSuffix": ".",
-      "continueAsGuest": "Continue without signing in"
-    },
-    "chat": {
-      "emptyPrompt": "Ask Stella anything",
-      "workingMany": "{count} things in progress",
-      "composerPlaceholder": "Message Stella",
-      "mainChat": "Main chat",
-      "createFailed": "Could not create a chat. Please try again.",
-      "loadMore": "Load more"
+      "openLabel": "Show activity"
     },
     "activityHub": {
-      "tabs": {
-        "activity": "Activity",
-        "schedule": "Schedule",
-        "search": "Search",
-        "files": "Files"
+      "activity": {
+        "empty": "No background work yet.",
+        "emptyFiltered": "No matching activity or files."
       },
-      "task": {
-        "finished": "Finished",
-        "failed": "Couldn’t finish",
-        "stopped": "Stopped",
-        "working": "Working in background"
+      "conversation": {
+        "subtitle": "Files created by the main thread",
+        "title": "This conversation"
+      },
+      "files": {
+        "empty": "No files yet. Anything Stella produces shows up here.",
+        "emptyFiltered": "No files match.",
+        "searchPlaceholder": "Search files"
+      },
+      "schedule": {
+        "actionFailed": "That didn’t go through.",
+        "alertTitle": "Schedule",
+        "customCadence": "Custom schedule",
+        "deleteConfirm": "“{title}” will stop running.",
+        "deleteSchedule": "Delete schedule",
+        "empty": "No schedules yet. Ask Stella on your computer to run something regularly and it shows up here.",
+        "lastRunFailed": "Last run failed: {error}",
+        "loadFailed": "Couldn’t load schedules.",
+        "next": "Next {when}",
+        "pauseSchedule": "Pause schedule",
+        "paused": "Paused",
+        "resumeSchedule": "Resume schedule"
+      },
+      "search": {
+        "clear": "Clear search",
+        "close": "Close search",
+        "placeholder": "Search activity and files"
       },
       "subagents": {
         "count": {
@@ -2372,327 +948,1746 @@
           "other": "{count} done"
         }
       },
-      "conversation": {
-        "title": "This conversation",
-        "subtitle": "Files created by the main thread"
+      "tabs": {
+        "activity": "Activity",
+        "files": "Files",
+        "schedule": "Schedule",
+        "search": "Search"
       },
-      "schedule": {
-        "customCadence": "Custom schedule",
-        "paused": "Paused",
-        "next": "Next {when}",
-        "lastRunFailed": "Last run failed: {error}",
-        "pauseSchedule": "Pause schedule",
-        "resumeSchedule": "Resume schedule",
-        "deleteSchedule": "Delete schedule",
-        "deleteConfirm": "“{title}” will stop running.",
-        "alertTitle": "Schedule",
-        "actionFailed": "That didn’t go through.",
-        "loadFailed": "Couldn’t load schedules.",
-        "empty": "No schedules yet. Ask Stella on your computer to run something regularly and it shows up here."
-      },
-      "search": {
-        "placeholder": "Search activity and files",
-        "clear": "Clear search",
-        "close": "Close search"
-      },
-      "files": {
-        "empty": "No files yet. Anything Stella produces shows up here.",
-        "emptyFiltered": "No files match.",
-        "searchPlaceholder": "Search files"
-      },
-      "activity": {
-        "empty": "No background work yet.",
-        "emptyFiltered": "No matching activity or files."
+      "task": {
+        "failed": "Couldn’t finish",
+        "finished": "Finished",
+        "stopped": "Stopped",
+        "working": "Working in background"
       }
     },
+    "authCallback": {
+      "backToSignIn": "Back to sign in",
+      "failedTitle": "Couldn't sign you in",
+      "genericFailure": "We couldn't sign you in right now. Please try again.",
+      "invalidLink": "Invalid sign-in link.",
+      "linkExpired": "This sign-in link has expired. Please request a new one.",
+      "signingInBody": "Just a moment...",
+      "signingInTitle": "Signing you in"
+    },
+    "boot": {
+      "checkingSessionBody": "Hang tight while Stella wakes up.",
+      "checkingSessionTitle": "Checking your session",
+      "crashTitle": "Something broke at launch",
+      "missingConfigBody": "Set EXPO_PUBLIC_STELLA_BACKEND_URL before starting the app.",
+      "missingConfigTitle": "Add mobile environment variables"
+    },
+    "carPlayDiagnostics": {
+      "clear": "Clear",
+      "clearLabel": "Clear diagnostics",
+      "clipboardEmpty": "(no CarPlay diagnostics recorded)",
+      "copied": "Copied ✓",
+      "copyAll": "Copy all",
+      "copyAllLabel": "Copy all diagnostics",
+      "empty": "No CarPlay diagnostics recorded yet. Connect to CarPlay once, then come back here.",
+      "refresh": "Refresh",
+      "refreshLabel": "Refresh diagnostics",
+      "subtitle": {
+        "one": "Breadcrumbs from the CarPlay connection ({count} line, newest first). Copy and send these after anything misbehaves in the car.",
+        "other": "Breadcrumbs from the CarPlay connection ({count} lines, newest first). Copy and send these after anything misbehaves in the car."
+      },
+      "title": "CarPlay diagnostics"
+    },
+    "chat": {
+      "composerPlaceholder": "Message Stella",
+      "createFailed": "Could not create a chat. Please try again.",
+      "emptyPrompt": "Ask Stella anything",
+      "loadMore": "Load more",
+      "mainChat": "Main chat",
+      "workingMany": "{count} things in progress"
+    },
+    "cloudHome": {
+      "backToDocumentsLabel": "Back to Cloud Home documents",
+      "backToSettingsLabel": "Back to Settings",
+      "conflict": {
+        "changedBody": "Revision {revision} replaced the version you edited. Your draft is still here.",
+        "reload": "Reload cloud version",
+        "reloadLabel": "Reload cloud version and replace this draft",
+        "reloading": "Reloading…",
+        "removedBody": "This document was removed while you were editing. Your draft is still here.",
+        "title": "Cloud version changed"
+      },
+      "editor": {
+        "editLabel": "Edit {name}",
+        "save": "Save",
+        "saving": "Saving…",
+        "unsaved": "Unsaved changes",
+        "upToDate": "Up to date"
+      },
+      "editorMeta": "{kind} · revision {revision}",
+      "errors": {
+        "invalid": "Cloud Home returned an invalid response.",
+        "missingFromList": "That document is no longer in Cloud Home. Reload the list.",
+        "network": "Cloud Home could not be reached. Try again.",
+        "removedWhileEditing": "That document was removed from Cloud Home.",
+        "unauthorized": "Sign in again to access Cloud Home.",
+        "unavailable": "Cloud Home is not available for this account right now."
+      },
+      "kinds": {
+        "archive": "archive",
+        "core_memory": "core memory",
+        "imported_markdown": "imported markdown",
+        "memory": "memory",
+        "memory_map": "memory map",
+        "personality": "personality",
+        "profile": "profile",
+        "user_markdown": "user markdown"
+      },
+      "list": {
+        "emptyBody": "Documents created by Stella or imported from desktop will appear here.",
+        "emptyTitle": "No cloud memory yet",
+        "loading": "Loading documents…",
+        "openDocumentLabel": "Open {name}",
+        "retry": "Retry",
+        "retryLabel": "Retry loading Cloud Home memory"
+      },
+      "listMeta": "{kind} · revision {revision} · {size}",
+      "loading": "Loading Cloud Home…",
+      "notices": {
+        "loadedLatest": "Loaded the latest cloud version.",
+        "saved": "Saved to Cloud Home."
+      },
+      "openSettingsLabel": "Open Cloud Home memory",
+      "settingsRowBody": "Read and edit your cloud-canonical Stella memory.",
+      "settingsRowTitle": "Memory documents",
+      "settingsSection": "Cloud Home",
+      "signIn": "Sign in",
+      "signInAgain": "Sign in again",
+      "signInBody": "Memory documents are private to your Stella account.",
+      "signInTitle": "Sign in to use Cloud Home",
+      "sizes": {
+        "bytes": "{count} B",
+        "kilobytes": "{count} KB",
+        "megabytes": "{count} MB"
+      },
+      "subtitle": "Your cloud-canonical Stella documents",
+      "title": "Cloud Home memory",
+      "unavailableBody": "This deployment does not currently expose the secure Cloud Home service. Your local files have not been changed.",
+      "unavailableTitle": "Cloud Home is unavailable"
+    },
+    "common": {
+      "back": "Back",
+      "backChevron": "‹ Back",
+      "cancel": "Cancel",
+      "continue": "Continue",
+      "delete": "Delete",
+      "done": "Done",
+      "goBack": "Go back",
+      "tryAgain": "Try again"
+    },
     "computer": {
-      "guestHeroTitle": "Your computer, at your fingertips",
-      "guestHeroBody": "Ask Stella to do things on your computer — browse the web, manage files, run tasks, and more.",
-      "defaultDeviceLabel": "Your computer",
-      "statusChecking": "Checking…",
-      "statusConnected": "Connected",
-      "statusAsleep": "Asleep",
-      "connectingLabel": "Connecting to your computer",
       "connectedLabel": "Computer connected",
+      "connectingLabel": "Connecting to your computer",
+      "defaultDeviceLabel": "Your computer",
       "disconnectedLabel": "Computer disconnected",
-      "pairLabel": "Pair a computer"
+      "guestHeroBody": "Ask Stella to do things on your computer — browse the web, manage files, run tasks, and more.",
+      "guestHeroTitle": "Your computer, at your fingertips",
+      "pairLabel": "Pair a computer",
+      "statusAsleep": "Asleep",
+      "statusChecking": "Checking…",
+      "statusConnected": "Connected"
     },
     "desktop": {
-      "pairTitle": "Pair your phone",
+      "connecting": "Connecting to desktop",
+      "deviceUnreachable": "Your {platform} isn't reachable",
+      "enterCode": "Enter the code shown on your computer.",
       "guestBody": "See your Stella desktop app right on your phone. After pairing, your phone will reconnect automatically.",
       "guestSignInPrompt": "Sign in to get started.",
-      "connecting": "Connecting to desktop",
-      "pairing": "Pairing this phone",
-      "unreachable": "Can't reach your desktop",
-      "deviceUnreachable": "Your {platform} isn't reachable",
-      "repairNeeded": "This phone needs to be paired with your computer again.",
-      "enterCode": "Enter the code shown on your computer.",
+      "limitedCapabilities": "Some things need your computer",
       "linkInterrupted": "The link to your computer was interrupted.",
+      "pairAnother": "Pair another computer",
+      "pairTitle": "Pair your phone",
+      "pairing": "Pairing this phone",
+      "reconnecting": "Reconnecting...",
+      "repairNeeded": "This phone needs to be paired with your computer again.",
+      "retryLabel": "Try connecting again",
+      "startPairingLabel": "Start pairing a computer",
       "unavailableBodyPaired": "Make sure Stella is open on your computer and connected to the internet. Once connected, your desktop app will appear right here on your phone.",
       "unavailableBodyUnpaired": "See your Stella desktop app right on your phone. Scan the QR code shown in Stella on your computer to get started — after that, your phone will reconnect automatically.",
-      "pairAnother": "Pair another computer",
-      "startPairingLabel": "Start pairing a computer",
-      "retryLabel": "Try connecting again",
-      "reconnecting": "Reconnecting...",
-      "limitedCapabilities": "Some things need your computer"
+      "unreachable": "Can't reach your desktop"
+    },
+    "engineAccounts": {
+      "active": "In use",
+      "backLabel": "Back to Settings",
+      "chatgptBrowserWaiting": "Finish signing in to ChatGPT in your browser.",
+      "chatgptSection": "ChatGPT",
+      "claudeNote": "Adding an account here signs Stella's cloud in to Claude Code on Anthropic's own page. Each computer uses its own Claude Code sign-in.",
+      "claudeSection": "Claude",
+      "connectChatgpt": "Connect ChatGPT account",
+      "connectClaude": "Add Claude account",
+      "connecting": "Connecting…",
+      "continueAsChatgpt": "Continue with ChatGPT as {name}",
+      "continueWithChatgpt": "Continue with your ChatGPT account",
+      "enablePlanUsage": "Enable ChatGPT plan use",
+      "errorBody": "Something went wrong. Try again.",
+      "errorTitle": "Couldn't update accounts",
+      "finish": "Connect",
+      "manageUsage": "Manage usage",
+      "moreLabel": "Options for {name}",
+      "notSignedIn": "Not signed in anywhere",
+      "openChatgptAgain": "Open ChatGPT again",
+      "openClaudeAgain": "Open the sign-in page again",
+      "pasteFromClipboard": "Paste",
+      "pasteHintChatgpt": "After you approve, ChatGPT sends you to a page that doesn't load. Copy that page's full address and paste it here.",
+      "pasteHintClaude": "After you approve, Anthropic shows a code. Copy it and paste it here.",
+      "pastePlaceholder": "Paste the code Anthropic shows",
+      "pastePlaceholderUrl": "Paste the address here",
+      "placeCloud": "Cloud",
+      "placeComputer": "Computer",
+      "planUsageOffBody": "Stella can't use your ChatGPT plan until you allow it. Choose “Enable ChatGPT plan use” on the account.",
+      "planWelcomeBody": "ChatGPT requests in Stella's cloud count against your ChatGPT plan. Review usage and set Stella's limit in ChatGPT Settings.",
+      "planWelcomeTitle": "You're using your ChatGPT plan",
+      "remove": "Remove",
+      "removeBody": "Stella forgets this ChatGPT account. You can sign in to it again later.",
+      "removeClaudeBody": "Stella forgets this Claude account and signs the cloud out of it. Your computers keep their own Claude Code sign-ins.",
+      "removeTitle": "Remove {name}?",
+      "revokeUnconfirmed": "ChatGPT didn't confirm the sign-out. You can disconnect Stella in ChatGPT Settings.",
+      "signInAgain": "Sign in again",
+      "signInCloud": "Sign in to the cloud",
+      "signOut": "Sign out",
+      "signOutBody": "Stella will stop using this account. You can add it again anytime.",
+      "signOutCloud": "Sign out of the cloud",
+      "signOutCloudBody": "Stella's cloud stops using this account until you sign in there again. Your computers keep their own Claude Code sign-ins.",
+      "signOutCloudTitle": "Sign {name} out of the cloud?",
+      "signOutTitle": "Sign out of {name}?",
+      "signedInOn": "Signed in: {places}",
+      "startAgain": "Start again",
+      "statusPlanUsageOff": "ChatGPT plan use isn't enabled",
+      "statusReauth": "Sign in again to keep using it",
+      "statusSignedOut": "Signed out",
+      "subtitle": "Use the Claude or ChatGPT plan you already pay for",
+      "title": "Claude & ChatGPT",
+      "useAccount": "Use this account"
+    },
+    "login": {
+      "appleCompleteFailed": "Apple sign-in could not complete.",
+      "appleNoToken": "Apple did not return an identity token.",
+      "appleStartFailed": "Apple sign-in could not start.",
+      "checkInbox": "Check your inbox and tap the link — you'll be signed in automatically.",
+      "continueAsGuest": "Continue without signing in",
+      "continueWithApple": "Continue with Apple",
+      "continueWithGoogle": "Continue with Google",
+      "emailPlaceholder": "Email",
+      "enterEmail": "Enter your email.",
+      "finishFailed": "Could not finish sign-in. Please try again.",
+      "googleStartFailed": "Google sign-in could not start.",
+      "heroBody": "Use Apple, Google, or the email you use on your computer.",
+      "heroTitle": "Your assistant,\npocket-sized.",
+      "incomplete": "Sign-in incomplete. Please try again.",
+      "legalConjunction": " and ",
+      "legalPrefix": "By continuing, you agree to our ",
+      "legalPrivacy": "Privacy Policy",
+      "legalSuffix": ".",
+      "legalTerms": "Terms",
+      "linkExpired": "Link expired. Please try again.",
+      "openingApple": "Opening Apple...",
+      "openingGoogle": "Opening Google...",
+      "orUseEmail": "or use email",
+      "resend": "Resend",
+      "resendLabel": "Resend sign-in email",
+      "sendFailed": "Failed to send sign-in email.",
+      "sending": "Sending...",
+      "signingIn": "Signing in...",
+      "useDifferentEmail": "Use a different email"
+    },
+    "nav": {
+      "account": "Account",
+      "apps": "Apps",
+      "backToApps": "Back to apps",
+      "backToChat": "Back to chat",
+      "chat": "Chat",
+      "chatSettingsLabel": "Chat settings",
+      "closeLabel": "Close navigation",
+      "openLabel": "Open navigation",
+      "settings": "Settings",
+      "signIn": "Sign in"
+    },
+    "onboarding": {
+      "account": {
+        "chatgptDesc": "Your ChatGPT plan, for Stella's cloud",
+        "claudeDesc": "Pro or Max, through Claude Code",
+        "connect": "Connect",
+        "connectLabel": "Connect {name}",
+        "connectedAs": "Connected · {name}",
+        "guestSettled": "Sign in any time from Settings",
+        "settledGuest": "Using Stella as a guest",
+        "settledSignedIn": "Signed in",
+        "signIn": "Sign in",
+        "signInBody": "Keep your conversation, settings and connected computer on every device.",
+        "signInTitle": "Sign in to Stella",
+        "skip": "Skip for now",
+        "subscriptionsBody": "Already pay for Claude or ChatGPT? Connect it and I'll use it in the cloud. Your computers use their own sign-ins.",
+        "subscriptionsLabel": "Optional"
+      },
+      "composerPlaceholder": "Or just ask me something",
+      "computer": {
+        "body": "Pair this phone with Stella on your computer and I can run tasks there while you're out.",
+        "connectedBody": "Ask from anywhere and I'll do the work on your computer.",
+        "connectedTo": "Connected to {name}",
+        "guestHint": "Pairing is tied to your Stella account, so sign in first. I'll pick up right here.",
+        "hint": "On your computer, open Stella and choose Pair phone.",
+        "later": "Later",
+        "pair": "Pair my computer",
+        "point1": "Find a file and send it to you",
+        "point2": "Finish an export or a download",
+        "point3": "Use the apps you already have",
+        "settledConnectedDesc": "I can run tasks there from your phone.",
+        "settledSkippedDesc": "You can pair one any time in Settings.",
+        "settledSkippedTitle": "No computer yet",
+        "signInToPair": "Sign in to pair",
+        "title": "Your computer, from your pocket"
+      },
+      "hello": {
+        "cta": "Show me",
+        "pillars": {
+          "asks": {
+            "body": "Anything that spends money waits for your OK.",
+            "title": "Asks before it matters"
+          },
+          "background": {
+            "body": "Hand something off and keep going. I'll tell you when it's done.",
+            "title": "Works in the background"
+          },
+          "done": {
+            "body": "Bookings, orders, files and research, finished for you.",
+            "title": "Gets things done"
+          }
+        },
+        "settledTitle": "Meet Stella"
+      },
+      "messages": {
+        "account": "Want to keep all of this? A Stella account follows you to every device.",
+        "accountSignedIn": "You're signed in, so everything follows you between devices. One optional extra:",
+        "computer": "If you have a Mac or PC, I can work on it too.",
+        "hello": "Hi, I'm Stella.\n\nI'm not a chatbot. Tell me what you need and I get it done, in the background, while you get on with your day.",
+        "ready": "That's it. I'll get to know you as we go.\n\nWhat should we do first?",
+        "showcase": "Here's what that looks like.",
+        "theme": "Now, how should I look?"
+      },
+      "progressLabel": "Step {current} of {total}",
+      "ready": {
+        "start": "Start chatting",
+        "starters": {
+          "explain": {
+            "prompt": "Explain how compound interest works, simply.",
+            "title": "Explain something"
+          },
+          "gift": {
+            "prompt": "Find a thoughtful birthday gift for a friend, under $50.",
+            "title": "Find a gift"
+          },
+          "plan": {
+            "prompt": "Help me plan my week around what I have coming up.",
+            "title": "Plan my week"
+          },
+          "remind": {
+            "prompt": "Remind me to call Mom on Sunday at 6.",
+            "title": "Set a reminder"
+          }
+        },
+        "startersLabel": "Try one of these"
+      },
+      "replies": {
+        "accountDone": "All set.",
+        "accountSkipped": "Skip for now.",
+        "computerDone": "Connected!",
+        "computerSkipped": "Maybe later.",
+        "helloDone": "Show me.",
+        "showcaseDone": "Got it.",
+        "themeDone": "That one.",
+        "themeSkipped": "Keep the default."
+      },
+      "send": "Send",
+      "showcase": {
+        "chapters": {
+          "errands": {
+            "caption": "I open the site, fill in the details and finish the job, the way you would.",
+            "prompt": "Book a table for two on Friday at 8",
+            "receipt1": "Osteria Lucia · Fri 8:00 PM · 2 people",
+            "receipt2": "Added to your calendar",
+            "reply": "Booked Osteria Lucia for Friday at 8. It's on your calendar.",
+            "scene": {
+              "date": "Date",
+              "dateValue": "Friday",
+              "party": "Party",
+              "partyValue": "2 people",
+              "reserve": "Reserve",
+              "reserved": "Reserved",
+              "site": "osterialucia.com",
+              "time": "Time",
+              "timeValue": "8:00 PM"
+            },
+            "title": "Ask once. Consider it handled.",
+            "word": "Errands",
+            "working": "Reserving a table"
+          },
+          "research": {
+            "caption": "I compare the options, read the reviews and come back with an answer.",
+            "prompt": "Find the best e-bike under $2,000",
+            "receipt1": "Read 24 reviews",
+            "receipt2": "Comparison saved to Files",
+            "reply": "The Cityline 3: lightest frame, best brakes, $1,799.",
+            "scene": {
+              "rank1": "Cityline 3",
+              "rank2": "Metro S",
+              "rank3": "Urban X",
+              "source1": "Expert reviews",
+              "source2": "Owner forums",
+              "source3": "Spec sheets",
+              "title": "Comparing e-bikes"
+            },
+            "title": "I do the reading.",
+            "word": "Research",
+            "working": "Reading reviews"
+          },
+          "routines": {
+            "caption": "Reminders, check-ins and daily briefs that run on their own schedule.",
+            "prompt": "Every morning at 8, brief me on my day",
+            "receipt1": "Every day at 8:00 AM",
+            "reply": "Done. Your first brief arrives tomorrow at 8.",
+            "scene": {
+              "body": "3 meetings, rain after 5, and it's Sam's birthday.",
+              "day": "Tomorrow",
+              "now": "now",
+              "time": "8:00",
+              "title": "Your morning brief",
+              "when": "Tomorrow, 8:00 AM"
+            },
+            "title": "Set it once. I'll keep at it.",
+            "word": "Routines",
+            "working": "Setting it up"
+          },
+          "shopping": {
+            "amount": "$129.99",
+            "caption": "I find it and take it to checkout. You approve the total, then I place the order.",
+            "confirm": "Confirm",
+            "confirmDetail": "Trail Runner 2 · size 10",
+            "confirmTitle": "Confirm purchase?",
+            "confirmed": "Confirmed",
+            "prompt": "Reorder my running shoes, size 10",
+            "receipt1": "Order #48213 · arrives Thursday",
+            "reply": "Ordered. They arrive Thursday.",
+            "scene": {
+              "addToCart": "Add to cart",
+              "inCart": "In cart",
+              "product": "Trail Runner 2",
+              "site": "trailco.com"
+            },
+            "title": "I can buy things, with your OK.",
+            "word": "Shopping",
+            "working": "Finding your shoes"
+          },
+          "work": {
+            "caption": "Docs, sheets and slides: I do the work and save the file where you can open it.",
+            "prompt": "Turn my Q3 notes into a deck for Monday",
+            "receipt1": "Q3 notes · read",
+            "receipt2": "Q3 review deck · 12 slides",
+            "reply": "Your deck is ready: 12 slides, saved to Files.",
+            "scene": {
+              "file": "Q3 review.pptx",
+              "slideTitle": "Q3 Review"
+            },
+            "title": "Real files, finished.",
+            "word": "Work",
+            "working": "Reading your notes"
+          }
+        },
+        "placeholder": "Ask Stella",
+        "replay": "Replay this demo",
+        "settledTitle": "The quick tour",
+        "tablist": "What Stella can do"
+      },
+      "skip": "Skip",
+      "skipLabel": "Skip introduction",
+      "theme": {
+        "appearance": "Appearance",
+        "confirm": "Done",
+        "reset": "Keep the default",
+        "themes": "Theme"
+      }
+    },
+    "search": {
+      "cancelLabel": "Cancel search",
+      "clearLabel": "Clear search",
+      "openLabel": "Search messages",
+      "placeholder": "Search messages"
     },
     "settings": {
-      "title": "Settings",
-      "loadingSession": "Loading session…",
-      "signIn": "Sign in",
-      "signInTitle": "Sign in to Stella",
-      "showEmailLabel": "Show email",
-      "hideEmailLabel": "Hide email",
-      "appearanceSection": "Appearance",
-      "computerSection": "Computer",
-      "computer": {
-        "sectionLabel": "Where Stella works",
-        "cloud": "Cloud",
-        "statusOnline": "Online",
-        "statusOffline": "Offline",
-        "statusNotReady": "Not ready",
-        "statusNotEnabled": "Not enabled yet",
-        "statusAwaitingConsent": "Waiting for permission on that computer",
-        "statusDeclined": "Declined on that computer",
-        "connecting": "Connecting…",
-        "enable": "Enable",
-        "enabling": "Enabling…",
-        "enableLabel": "Enable {name}",
-        "enableFailedTitle": "Couldn't enable that computer",
-        "connectFailedTitle": "Couldn't connect to that computer",
-        "pairingCode": "Use a pairing code"
-      },
+      "aboutSection": "About",
       "appearance": {
-        "system": "System",
+        "dark": "Dark",
         "light": "Light",
-        "dark": "Dark"
+        "system": "System"
       },
+      "appearanceSection": "Appearance",
       "background": {
-        "soft": "Soft",
-        "flat": "Flat"
+        "flat": "Flat",
+        "soft": "Soft"
       },
       "backgroundColor": {
         "relative": "Relative",
         "strong": "Strong"
       },
-      "useAppearanceLabel": "Use {name} appearance",
-      "useBackgroundLabel": "Use {name} background",
-      "useBackgroundColorLabel": "Use {name} background color",
-      "useThemeLabel": "Use {name} theme",
+      "carPlayDiagnostics": "CarPlay diagnostics",
+      "chatStorage": {
+        "description": "Access your chats across devices. Turn off to keep a separate chat history only on this device. Switching back won’t upload those chats. AI providers still process your messages."
+      },
+      "computer": {
+        "cloud": "Cloud",
+        "connectFailedTitle": "Couldn't connect to that computer",
+        "connecting": "Connecting…",
+        "enable": "Enable",
+        "enableFailedTitle": "Couldn't enable that computer",
+        "enableLabel": "Enable {name}",
+        "enabling": "Enabling…",
+        "pairingCode": "Use a pairing code",
+        "sectionLabel": "Where Stella works",
+        "statusAwaitingConsent": "Waiting for permission on that computer",
+        "statusDeclined": "Declined on that computer",
+        "statusNotEnabled": "Not enabled yet",
+        "statusNotReady": "Not ready",
+        "statusOffline": "Offline",
+        "statusOnline": "Online"
+      },
+      "computerSection": "Computer",
+      "deleteAccount": "Delete account",
+      "deleteAccountLabel": "Delete your Stella account",
+      "deleteConfirmBody": "This permanently deletes your Stella account and removes cloud data associated with it on our servers. This cannot be undone.",
+      "deleteConfirmTitle": "Delete account",
+      "deleteFailedTitle": "Could not delete account",
+      "deletingAccount": "Deleting account…",
+      "forget": "Forget",
+      "forgetConfirmBody": "This phone will stop reconnecting to that computer until you pair it again.",
+      "forgetConfirmTitle": "Forget {name}?",
+      "forgetLabel": "Forget {name}",
+      "hideEmailLabel": "Hide email",
+      "loadingSession": "Loading session…",
       "notificationsSection": "Notifications",
-      "pushToggleLabel": "Allow push notifications",
-      "pushToggleSub": "Get notified when your computer finishes a request.",
-      "pushToggleA11y": "Toggle push notifications",
-      "pairedSection": "Paired computers",
-      "pairedEmpty": "No computers paired yet.",
-      "pairedOn": "Paired {date}",
+      "openCarPlayDiagnosticsLabel": "Open CarPlay diagnostics",
+      "openPrivacyLabel": "Open Privacy Policy",
+      "openTermsLabel": "Open Terms of Service",
       "paired": {
         "unnamedComputer": "Computer · {id}"
       },
-      "forget": "Forget",
-      "forgetLabel": "Forget {name}",
-      "forgetConfirmTitle": "Forget {name}?",
-      "forgetConfirmBody": "This phone will stop reconnecting to that computer until you pair it again.",
-      "carPlayDiagnostics": "CarPlay diagnostics",
-      "aboutSection": "About",
-      "openCarPlayDiagnosticsLabel": "Open CarPlay diagnostics",
-      "termsOfService": "Terms of Service",
-      "openTermsLabel": "Open Terms of Service",
+      "pairedEmpty": "No computers paired yet.",
+      "pairedOn": "Paired {date}",
+      "pairedSection": "Paired computers",
       "privacyPolicy": "Privacy Policy",
-      "openPrivacyLabel": "Open Privacy Policy",
-      "signOut": "Sign out",
-      "signingOut": "Signing out…",
-      "signOutLabel": "Sign out of Stella",
-      "deleteAccount": "Delete account",
-      "deletingAccount": "Deleting account…",
-      "deleteAccountLabel": "Delete your Stella account",
-      "deleteConfirmTitle": "Delete account",
-      "deleteConfirmBody": "This permanently deletes your Stella account and removes cloud data associated with it on our servers. This cannot be undone.",
-      "deleteFailedTitle": "Could not delete account",
-      "chatStorage": {
-        "description": "Access your chats across devices. Turn off to keep a separate chat history only on this device. Switching back won’t upload those chats. AI providers still process your messages."
-      }
-    },
-    "cloudHome": {
-      "settingsSection": "Cloud Home",
-      "settingsRowTitle": "Memory documents",
-      "settingsRowBody": "Read and edit your cloud-canonical Stella memory.",
-      "openSettingsLabel": "Open Cloud Home memory",
-      "title": "Cloud Home memory",
-      "subtitle": "Your cloud-canonical Stella documents",
-      "backToSettingsLabel": "Back to Settings",
-      "backToDocumentsLabel": "Back to Cloud Home documents",
-      "editorMeta": "{kind} · revision {revision}",
-      "listMeta": "{kind} · revision {revision} · {size}",
-      "signInTitle": "Sign in to use Cloud Home",
-      "signInBody": "Memory documents are private to your Stella account.",
+      "pushToggleA11y": "Toggle push notifications",
+      "pushToggleLabel": "Allow push notifications",
+      "pushToggleSub": "Get notified when your computer finishes a request.",
+      "showEmailLabel": "Show email",
       "signIn": "Sign in",
-      "signInAgain": "Sign in again",
-      "loading": "Loading Cloud Home…",
-      "unavailableTitle": "Cloud Home is unavailable",
-      "unavailableBody": "This deployment does not currently expose the secure Cloud Home service. Your local files have not been changed.",
-      "errors": {
-        "unauthorized": "Sign in again to access Cloud Home.",
-        "unavailable": "Cloud Home is not available for this account right now.",
-        "invalid": "Cloud Home returned an invalid response.",
-        "network": "Cloud Home could not be reached. Try again.",
-        "missingFromList": "That document is no longer in Cloud Home. Reload the list.",
-        "removedWhileEditing": "That document was removed from Cloud Home."
-      },
-      "notices": {
-        "saved": "Saved to Cloud Home.",
-        "loadedLatest": "Loaded the latest cloud version."
-      },
-      "conflict": {
-        "title": "Cloud version changed",
-        "changedBody": "Revision {revision} replaced the version you edited. Your draft is still here.",
-        "removedBody": "This document was removed while you were editing. Your draft is still here.",
-        "reloadLabel": "Reload cloud version and replace this draft",
-        "reloading": "Reloading…",
-        "reload": "Reload cloud version"
-      },
-      "editor": {
-        "editLabel": "Edit {name}",
-        "saving": "Saving…",
-        "save": "Save",
-        "unsaved": "Unsaved changes",
-        "upToDate": "Up to date"
-      },
-      "list": {
-        "retryLabel": "Retry loading Cloud Home memory",
-        "retry": "Retry",
-        "loading": "Loading documents…",
-        "emptyTitle": "No cloud memory yet",
-        "emptyBody": "Documents created by Stella or imported from desktop will appear here.",
-        "openDocumentLabel": "Open {name}"
-      },
-      "kinds": {
-        "memory": "memory",
-        "profile": "profile",
-        "memory_map": "memory map",
-        "core_memory": "core memory",
-        "personality": "personality",
-        "imported_markdown": "imported markdown",
-        "user_markdown": "user markdown",
-        "archive": "archive"
-      },
-      "sizes": {
-        "bytes": "{count} B",
-        "kilobytes": "{count} KB",
-        "megabytes": "{count} MB"
-      }
-    },
-    "carPlayDiagnostics": {
-      "title": "CarPlay diagnostics",
-      "subtitle": {
-        "one": "Breadcrumbs from the CarPlay connection ({count} line, newest first). Copy and send these after anything misbehaves in the car.",
-        "other": "Breadcrumbs from the CarPlay connection ({count} lines, newest first). Copy and send these after anything misbehaves in the car."
-      },
-      "copyAll": "Copy all",
-      "copyAllLabel": "Copy all diagnostics",
-      "copied": "Copied ✓",
-      "refresh": "Refresh",
-      "refreshLabel": "Refresh diagnostics",
-      "clear": "Clear",
-      "clearLabel": "Clear diagnostics",
-      "empty": "No CarPlay diagnostics recorded yet. Connect to CarPlay once, then come back here.",
-      "clipboardEmpty": "(no CarPlay diagnostics recorded)"
-    },
-    "activity": {
-      "inProgress": {
-        "one": "{count} in progress",
-        "other": "{count} in progress"
-      },
-      "openLabel": "Show activity"
+      "signInTitle": "Sign in to Stella",
+      "signOut": "Sign out",
+      "signOutLabel": "Sign out of Stella",
+      "signingOut": "Signing out…",
+      "termsOfService": "Terms of Service",
+      "title": "Settings",
+      "useAppearanceLabel": "Use {name} appearance",
+      "useBackgroundColorLabel": "Use {name} background color",
+      "useBackgroundLabel": "Use {name} background",
+      "useThemeLabel": "Use {name} theme"
     },
     "sidebar": {
       "searchPlaceholder": "Search activity and files",
       "signedOutHint": "Sign in to see what Stella is working on in the background."
-    },
-    "account": {
-      "title": "Account"
-    },
-    "engineAccounts": {
-      "title": "Claude & ChatGPT",
-      "subtitle": "Use the Claude or ChatGPT plan you already pay for",
-      "backLabel": "Back to Settings",
-      "claudeSection": "Claude",
-      "chatgptSection": "ChatGPT",
-      "active": "In use",
-      "useAccount": "Use this account",
-      "signOut": "Sign out",
-      "moreLabel": "Options for {name}",
-      "signOutTitle": "Sign out of {name}?",
-      "signOutBody": "Stella will stop using this account. You can add it again anytime.",
-      "pasteHintClaude": "After you approve, Anthropic shows a code. Copy it and paste it here.",
-      "pasteHintChatgpt": "After you approve, ChatGPT sends you to a page that doesn't load. Copy that page's full address and paste it here.",
-      "pastePlaceholder": "Paste the code Anthropic shows",
-      "pasteFromClipboard": "Paste",
-      "finish": "Connect",
-      "connecting": "Connecting…",
-      "errorTitle": "Couldn't update accounts",
-      "errorBody": "Something went wrong. Try again.",
-      "pastePlaceholderUrl": "Paste the address here",
-      "openChatgptAgain": "Open ChatGPT again",
-      "chatgptBrowserWaiting": "Finish signing in to ChatGPT in your browser.",
-      "signInAgain": "Sign in again",
-      "enablePlanUsage": "Enable ChatGPT plan use",
-      "remove": "Remove",
-      "removeTitle": "Remove {name}?",
-      "removeBody": "Stella forgets this ChatGPT account. You can sign in to it again later.",
-      "statusSignedOut": "Signed out",
-      "statusReauth": "Sign in again to keep using it",
-      "statusPlanUsageOff": "ChatGPT plan use isn't enabled",
-      "planUsageOffBody": "Stella can't use your ChatGPT plan until you allow it. Choose “Enable ChatGPT plan use” on the account.",
-      "manageUsage": "Manage usage",
-      "revokeUnconfirmed": "ChatGPT didn't confirm the sign-out. You can disconnect Stella in ChatGPT Settings.",
-      "planWelcomeTitle": "You're using your ChatGPT plan",
-      "planWelcomeBody": "ChatGPT requests in Stella's cloud count against your ChatGPT plan. Review usage and set Stella's limit in ChatGPT Settings.",
-      "connectClaude": "Add Claude account",
-      "connectChatgpt": "Connect ChatGPT account",
-      "signInCloud": "Sign in to the cloud",
-      "signOutCloud": "Sign out of the cloud",
-      "signOutCloudTitle": "Sign {name} out of the cloud?",
-      "signOutCloudBody": "Stella's cloud stops using this account until you sign in there again. Your computers keep their own Claude Code sign-ins.",
-      "removeClaudeBody": "Stella forgets this Claude account and signs the cloud out of it. Your computers keep their own Claude Code sign-ins.",
-      "placeCloud": "Cloud",
-      "placeComputer": "Computer",
-      "signedInOn": "Signed in: {places}",
-      "notSignedIn": "Not signed in anywhere",
-      "claudeNote": "Adding an account here signs Stella's cloud in to Claude Code on Anthropic's own page. Each computer uses its own Claude Code sign-in.",
-      "startAgain": "Start again",
-      "openClaudeAgain": "Open the sign-in page again",
-      "continueAsChatgpt": "Continue with ChatGPT as {name}",
-      "continueWithChatgpt": "Continue with your ChatGPT account"
     }
   },
-  "companion": {
-    "menu": {
-      "openStella": "Open Stella",
-      "hide": "Hide companion",
-      "quit": "Quit Stella"
+  "onboarding": {
+    "chat": {
+      "capabilities": {
+        "build": {
+          "caption": "Apps and websites, made to order. Describe it in plain words and I'll build it, run it, and put it online.",
+          "title": "Say it. I'll build it.",
+          "word": "Build"
+        },
+        "errands": {
+          "caption": "I find the right place, fill in the form, and put it on your calendar, the same way you would.",
+          "title": "Ask once. Consider it handled.",
+          "word": "Errands"
+        },
+        "replay": "Replay this demo",
+        "routines": {
+          "caption": "Schedule anything and I'll do it on time, even while you sleep.",
+          "title": "Ask once. It happens every day.",
+          "word": "Routines"
+        },
+        "settledTitle": "The quick tour",
+        "shopping": {
+          "caption": "I find it and get it to checkout. You confirm the total, and I place the order.",
+          "title": "I can buy things, with your OK.",
+          "word": "Shopping"
+        },
+        "tablist": "Capability demos",
+        "work": {
+          "caption": "I work inside the real apps on this computer, and I can run more than one job at a time.",
+          "title": "Real files. Several jobs at once.",
+          "word": "Work"
+        }
+      },
+      "composerPlaceholder": "Or just ask me something to get started",
+      "discovery": {
+        "alsoLabel": "Also include",
+        "assurance": "A one-time read, kept on this computer. You can see and edit what I keep at any time.",
+        "browserLabel": "Your browser",
+        "hint": "About a minute, in the background.",
+        "includeDev": "My coding setup"
+      },
+      "extras": {
+        "accessibilityDesc": "So I can act on selected text and what's under your cursor.",
+        "accessibilityTitle": "Accessibility",
+        "body": "Neither is required, but both make me a lot more useful.",
+        "bodyOne": "Not required, but it makes me a lot more useful.",
+        "enable": "Enable",
+        "enabled": "Enabled",
+        "extensionDesc": "Lets me see the page you're on and act inside your browser. Works in Chrome, Arc, Brave, and Edge.",
+        "extensionOpened": "Opened",
+        "extensionTitle": "Stella for Chrome",
+        "getExtension": "Get extension",
+        "hint": "All of this lives in Settings too.",
+        "memoryDesc": "Use what I've saved about you when it's relevant. Nothing is deleted if you turn this off.",
+        "memoryTitle": "Remember across chats",
+        "restart": "Restart Stella",
+        "restartHint": "Screen access needs a quick restart to take effect.",
+        "screenDesc": "So I can see the screen when you ask me to.",
+        "screenTitle": "Screen Recording",
+        "settledExtension": "Extension",
+        "settledMemory": "Memory",
+        "settledPermissions": "Permissions",
+        "settledSkippedTitle": "Extras skipped",
+        "settledTitle": "Extras",
+        "skip": "Skip for now",
+        "title": "Two quick extras",
+        "titleOne": "One quick extra"
+      },
+      "memory": {
+        "bodyChatbot": "A new chat every time, a sidebar full of old ones, and no memory of what you said last week.",
+        "bodyStella": "No new chats, no threads. Everything you've ever told me is in the same place, so when you ask about last week I go and find it.",
+        "settledDesc": "No threads to manage. I remember.",
+        "settledTitle": "One conversation",
+        "showStella": "Now ask me",
+        "skip": "Skip",
+        "titleChatbot": "You know this one",
+        "titleStella": "With me it's one conversation"
+      },
+      "messages": {
+        "capabilities": "Hi, I'm Stella.\n\nI'm not a chatbot. I use this computer to actually get things done for you, in the background, while you keep going.\n\nHere's what that looks like.",
+        "extras": "Almost done. A little housekeeping, then we start.",
+        "memory": "One more thing that makes me different.",
+        "quickstart": "That's everything. One last thing, and it's optional: a quickstart.",
+        "quickstartDone": "Done. Here's what I picked up, and a few things we could start with.",
+        "quickstartFailed": "I couldn't finish reading your browser this time. We can start anyway, and I'll learn as we go.",
+        "selfmod": "And because I live on your computer, I can change myself.",
+        "signin": "Next, let's sign you in. Use a Stella account, or the Claude or ChatGPT plan you already have.",
+        "theme": "Now, how should I look?"
+      },
+      "progress": "Setup progress",
+      "quickstart": {
+        "body": "Most assistants start from zero. Point me at your browser and I'll read it once to build a starting memory, so I'm useful from day one.",
+        "continueInBackground": "Start chatting, finish in the background",
+        "eyebrow": "Quickstart",
+        "failedBody": "Something interrupted the read. Try again, or start chatting and I'll learn as we go.",
+        "failedTitle": "That didn't finish",
+        "run": "Run quickstart",
+        "runningBody": "About a minute. Head in whenever you like, and I'll finish in the background.",
+        "runningTitle": "Getting to know you",
+        "skip": "Skip",
+        "stages": {
+          "notice": "Noticing what matters to you",
+          "read": "Reading what you picked",
+          "write": "Writing your starting memory"
+        },
+        "title": "Give me a head start"
+      },
+      "ready": {
+        "generic": {
+          "browse": {
+            "prompt": "Find a well-reviewed dinner spot near me for this weekend and hold a reservation for two.",
+            "title": "Find me a good dinner spot"
+          },
+          "file": {
+            "prompt": "I have a document that needs cleaning up. I'll share it and you fix the structure and wording.",
+            "title": "Tidy up a document"
+          },
+          "plan": {
+            "prompt": "Help me plan my week. Ask me what's on my plate and lay it out day by day.",
+            "title": "Plan my week"
+          },
+          "watch": {
+            "prompt": "Keep an eye on a web page for me and tell me when it changes.",
+            "title": "Watch a site for changes"
+          }
+        },
+        "highlightsLabel": "What I picked up",
+        "hint": "Or type anything below.",
+        "notesFoot": "You can read or edit this any time in Settings › Memory.",
+        "notesSummary": "See everything I noted",
+        "start": "Start chatting",
+        "startersLabel": "Try one of these",
+        "startersLabelPersonal": "Made for you"
+      },
+      "replies": {
+        "capabilitiesDone": "Got it.",
+        "capabilitiesSkipped": "Skip the tour.",
+        "extrasDone": "Done.",
+        "extrasSkipped": "Skip for now.",
+        "memoryDone": "Nice.",
+        "memorySkipped": "Skip it.",
+        "selfmodDone": "Very cool.",
+        "signinDone": "Done.",
+        "themeDone": "That one.",
+        "themeSkipped": "Keep the default."
+      },
+      "selfmod": {
+        "body": "Missing a feature, or want something to work differently? Just ask. I'll rewrite my own code, let you try it, and you decide whether to keep it.",
+        "hint": "Changes stay on this computer.",
+        "settledDesc": "Ask, preview, Update. Undo any time.",
+        "settledTitle": "I can change myself",
+        "steps": {
+          "ask": {
+            "body": "Describe the change in plain words.",
+            "title": "Ask"
+          },
+          "preview": {
+            "body": "An agent builds it and opens a live preview.",
+            "title": "Preview"
+          },
+          "update": {
+            "body": "One click to apply it. Undo any time.",
+            "title": "Update"
+          }
+        },
+        "title": "I can change myself"
+      },
+      "send": "Send",
+      "signin": {
+        "body": "Any one of these is enough. You can add the others later.",
+        "claudeCliMissing": "Install Claude Code first, then try again.",
+        "connect": "Connect",
+        "error": "That didn't connect. Try again?",
+        "fine": "Change this any time in Settings.",
+        "hint": "Free to start.",
+        "inUse": "In use",
+        "options": {
+          "apikey": {
+            "body": "Use your own key from Anthropic, OpenAI, Google and others.",
+            "title": "API key"
+          },
+          "chatgpt": {
+            "body": "Sign in with ChatGPT to use your plan.",
+            "title": "ChatGPT"
+          },
+          "claude": {
+            "body": "Use your Claude Pro or Max plan.",
+            "title": "Claude Code"
+          },
+          "stella": {
+            "body": "Google or email. Your chats follow you to your phone.",
+            "title": "Stella account"
+          }
+        },
+        "settledDesc": "Change it any time in Settings.",
+        "settledEngine": "Using {name}",
+        "settledStella": "Signed in to Stella",
+        "signIn": "Sign in",
+        "title": "Sign in",
+        "use": "Use",
+        "waiting": "Finish signing in, then come back here."
+      },
+      "skipSetup": "Skip setup",
+      "theme": {
+        "appearance": "Appearance",
+        "body": "Hover to try one on. Click to keep it.",
+        "confirm": "Done",
+        "gradient": {
+          "flat": "Flat",
+          "relative": "Relative",
+          "soft": "Soft",
+          "strong": "Strong"
+        },
+        "gradientColor": "Gradient color",
+        "gradientStyle": "Gradient style",
+        "hint": "Everything here changes live.",
+        "mode": {
+          "dark": "Dark",
+          "light": "Light",
+          "system": "System"
+        },
+        "settledTitle": "Default",
+        "skip": "Keep the default",
+        "themes": "Theme",
+        "title": "Pick a look"
+      }
     },
-    "composer": {
-      "placeholder": "Ask Stella…"
+    "legalFooter": "By using Stella, you agree to our {terms} and {privacy}.",
+    "privacyPolicy": "Privacy Policy",
+    "termsOfService": "Terms of Service"
+  },
+  "settings": {
+    "account": {
+      "cloudHome": {
+        "actions": {
+          "blocked": "Import blocked",
+          "boundElsewhere": "Bound to another account",
+          "import": "Import to this account",
+          "sync": "Sync now",
+          "syncing": "Syncing…"
+        },
+        "authorizationNote": "Uploaded skills remain unavailable to agents until their exact version is explicitly authorized.",
+        "label": "Memory and skills",
+        "summary": {
+          "attention": "Cloud Home kept existing cloud copies where local data differed. Review the details below.",
+          "checking": "Checking local memory and skills…",
+          "current": "Cloud Home is current. Memory uploaded: {memoryCount}. Skill packages uploaded: {skillCount}.",
+          "intro": "Stella securely imports local memory and applicable custom skills into your cloud account.",
+          "unavailable": "Cloud Home sync is currently unavailable."
+        },
+        "title": "Cloud Home"
+      },
+      "deleteAccount": {
+        "action": "Delete",
+        "description": "Permanently delete your account and everything in it.",
+        "label": "Delete account",
+        "working": "Deleting…"
+      },
+      "deleteData": {
+        "action": "Delete",
+        "description": "Erase every conversation, memory, and saved Stella setting.",
+        "label": "Delete data",
+        "working": "Deleting…"
+      },
+      "dialog": {
+        "deleteAccountButton": "Delete account",
+        "deleteAccountDescription": "This permanently deletes your account and Stella data. This cannot be undone.",
+        "deleteAccountTitle": "Delete your Stella account?",
+        "deleteDataButton": "Delete data",
+        "deleteDataDescription": "This erases your conversations, memory, settings, and local Stella state. This cannot be undone.",
+        "deleteDataTitle": "Delete your Stella data?",
+        "working": "Deleting…"
+      },
+      "legal": {
+        "privacy": "Privacy Policy",
+        "terms": "Terms of Service",
+        "title": "Legal",
+        "view": "View"
+      },
+      "signOut": {
+        "action": "Sign Out",
+        "description": "Sign out of Stella on this device.",
+        "label": "Sign out"
+      },
+      "title": "Account",
+      "toasts": {
+        "accountDeleted": "Your Stella account was deleted.",
+        "dataDeleted": "Your Stella data was deleted.",
+        "deleteAccountFailed": "Could not delete your account. Please try again.",
+        "deleteDataFailed": "Could not delete your data. Please try again.",
+        "signInBeforeDelete": "Sign in before deleting your account."
+      }
     },
-    "bubble": {
-      "openStella": "Open in Stella",
-      "typing": "Stella is replying"
+    "agentModelPicker": {
+      "assistantPickerAriaLabel": "Assistant model picker",
+      "byokDescription": "Use your own {provider} API key.",
+      "chatGptManageUsage": "Manage usage",
+      "chatGptPlanInUse": "Using ChatGPT plan",
+      "chatGptRouted": "Routed to {model} (saved model unavailable).",
+      "default": "Default",
+      "errors": {
+        "chatGptMigration": "ChatGPT routing migration failed.",
+        "chatGptNoModels": "No ChatGPT models are currently available.",
+        "chatGptNotConnected": "Sign in with ChatGPT on this computer first.",
+        "chatGptPlanUsageOff": "ChatGPT plan use isn't enabled for this account. Enable it in Settings › Account, or choose another model.",
+        "chatGptVerify": "ChatGPT models could not be verified: {error}",
+        "chatGptVerifying": "Wait for ChatGPT models to finish verifying.",
+        "connectChatGpt": "Failed to connect ChatGPT.",
+        "loadPreferences": "Failed to load model settings.",
+        "refreshTitle": "Couldn't refresh models",
+        "updateChatGptSpeed": "Failed to update ChatGPT speed.",
+        "updateDirectRuntime": "Failed to update direct {runtime} setting.",
+        "updateEngine": "Failed to update the engine.",
+        "updateImage": "Failed to update image setting.",
+        "updateModel": "Failed to update model setting.",
+        "updateReadAloud": "Failed to update read-aloud provider.",
+        "updateReasoning": "Failed to update reasoning effort.",
+        "updateTitle": "Couldn't update model settings",
+        "updateVoice": "Failed to update voice setting."
+      },
+      "imageProviderAriaLabel": "Image provider",
+      "noChatGptModels": "No ChatGPT models are available to this account right now.",
+      "savedModelUnavailable": "The saved model is unavailable. Choose another model.",
+      "stellaDefault": "Stella Default",
+      "surfaceAriaLabel": "Surface",
+      "tabs": {
+        "assistant": "Assistant",
+        "assistantTitle": "Stella's main assistant",
+        "image": "Image",
+        "imageTitle": "Image generation provider",
+        "voice": "Voice",
+        "voiceTitle": "Realtime voice provider"
+      },
+      "unavailableChooseAnother": "Unavailable — choose another model",
+      "verifyingChatGpt": "Verifying ChatGPT models…",
+      "voiceProviderAriaLabel": "Voice provider",
+      "waitingForChatGpt": "Waiting for ChatGPT…"
     },
-    "arc": {
-      "readAloudOn": "Read replies aloud: on",
-      "readAloudOff": "Read replies aloud: off",
-      "dictate": "Dictate a message",
-      "dictateStop": "Stop dictating and send",
-      "voice": "Start voice conversation",
-      "voiceStop": "End voice conversation"
+    "audio": {
+      "dictationSounds": {
+        "description": "Play a sound when dictation starts and stops.",
+        "label": "Dictation sounds"
+      },
+      "errors": {
+        "listDevices": "Unable to list audio devices.",
+        "micDenied": "Microphone access was denied. Please allow it in your system settings.",
+        "micDeniedReset": "Microphone access was denied earlier. Reset it and restart Stella, or open System Settings."
+      },
+      "microphone": {
+        "deviceDescription": "Which mic should Stella listen to?",
+        "deviceLabel": "Microphone",
+        "enableDescription": "Required for talking to Stella.",
+        "enableLabel": "Enable microphone",
+        "title": "Microphone"
+      },
+      "microphoneDeviceFallback": "Microphone {index}",
+      "recovery": {
+        "closing": "Closing…",
+        "manageDescription": "If the microphone permission ever gets stuck, you can reset it and ask macOS to prompt again.",
+        "manageLabel": "Manage microphone access",
+        "openSettings": "Open Settings",
+        "recoverDescription": "Once you've said no, macOS won't ask again on its own. Reset the permission, then quit and reopen Stella.",
+        "recoverLabel": "Recover microphone access",
+        "reset": "Reset & Restart"
+      },
+      "speaker": {
+        "empty": "No speakers found.",
+        "emptyMicOff": "Turn on the microphone to see your speakers.",
+        "outputDescription": "Pick the speaker or headphones to use.",
+        "outputLabel": "Output device",
+        "title": "Speaker"
+      },
+      "speakerDeviceFallback": "Speaker {index}",
+      "superFast": {
+        "description": "Keep the microphone warm so dictation starts with less delay.",
+        "label": "Super Fast dictation"
+      },
+      "systemDefault": "System default",
+      "wakeWord": {
+        "description": "Listen for \"Hey Stella\" in the background and start a voice conversation. When off, mic stays idle until you press dictate.",
+        "label": "Hey Stella wake word"
+      }
     },
-    "mark": {
-      "open": "Ask Stella",
-      "close": "Close the prompt"
+    "browserExtension": {
+      "action": "Get extension",
+      "description": "Lets Stella see the page you're on and take actions in your browser.",
+      "title": "Stella for Chrome"
     },
-    "badge": {
-      "running": "{count} agents working"
+    "chatStorage": {
+      "description": "Access your chats across devices. Turn off to keep a separate chat history only on this computer. Switching back won’t upload those chats. AI providers still process your messages.",
+      "endVoice": "End your voice conversation to change chat storage.",
+      "error": "Couldn’t change chat storage. Try again.",
+      "title": "Save chat history in the cloud"
+    },
+    "compactModelList": {
+      "ariaLabel": "Stella models",
+      "empty": "No Stella models available.",
+      "loadFailed": "Couldn't load Stella models.",
+      "loading": "Loading Stella models…",
+      "recent": "Recent",
+      "restricted": "Your plan uses Stella's pick.",
+      "restrictedPlan": "{plan} plan uses Stella's pick.",
+      "retry": "Retry",
+      "unavailable": "Unavailable",
+      "unavailableTitle": "This model is no longer available — pick another.",
+      "upgrade": "Upgrade"
+    },
+    "companion": {
+      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
+      "error": "Couldn't update the desktop companion.",
+      "title": "Desktop companion"
+    },
+    "connectedProviders": {
+      "apiKey": "API key",
+      "empty": "No providers connected yet. Pick a non-Stella option in the model picker above to add an API key or sign in.",
+      "removeKey": "Remove key",
+      "removingKey": "Removing…",
+      "signOut": "Sign out",
+      "signedIn": "Signed in",
+      "signingOut": "Signing out…",
+      "title": "Connected providers"
+    },
+    "developerPreviews": {
+      "description": "Show code changes in chat and open them in the side panel.",
+      "title": "Developer file previews"
+    },
+    "engineAccounts": {
+      "active": "Active",
+      "addChatgpt": "Add ChatGPT account",
+      "addChatgptCloud": "Add ChatGPT account in the cloud",
+      "addClaude": "Add Claude account",
+      "addInCloud": "In the cloud",
+      "addOnComputer": "On this computer",
+      "cardIntro": "Use the Claude or ChatGPT plan you already pay for. A sign-in stays where it was made: this computer, or your cloud.",
+      "cardTitle": "Claude & ChatGPT accounts",
+      "chatgptBrowserWaiting": "Finish signing in to ChatGPT in your browser.",
+      "chatgptCloudSignedIn": "Your cloud is signed in to ChatGPT.",
+      "chatgptComputerSignedIn": "This computer is signed in to ChatGPT.",
+      "chatgptTitle": "ChatGPT",
+      "claudeLogin": {
+        "codeLabel": "Paste the code Anthropic shows",
+        "failed": "That didn't sign in.",
+        "opened": "We opened Anthropic's sign-in page.",
+        "reopen": "Open it again",
+        "startAgain": "Start again",
+        "starting": "Opening Anthropic's sign-in page…",
+        "submit": "Submit",
+        "submitting": "Signing in…",
+        "whereCloud": "Signing in to Claude Code in your cloud.",
+        "whereComputer": "Signing in to Claude Code on this computer."
+      },
+      "claudeTitle": "Claude",
+      "cliMissing": "Claude Code isn't installed on this computer. Install it to use Claude here.",
+      "connecting": "Connecting…",
+      "defaultSignedOut": "Claude Code on this computer isn't signed in.",
+      "enablePlanUsage": "Enable ChatGPT plan use",
+      "enablePlanUsageCloud": "Enable ChatGPT plan use in the cloud",
+      "errorGeneric": "That didn't work. Try again.",
+      "finish": "Connect",
+      "moreLabel": "Options for {name}",
+      "needsChatgptCloud": "Sign in to ChatGPT in the cloud first",
+      "needsClaudeCloud": "Sign in to Claude in the cloud first",
+      "openChatgptAgain": "Open ChatGPT again",
+      "pasteHintChatgpt": "After you approve, ChatGPT sends you to a page that doesn't load. Copy that page's full address and paste it here.",
+      "pastePlaceholderUrl": "Paste the address here",
+      "placeCloud": "Cloud",
+      "placeComputer": "This computer",
+      "placeOtherComputer": "Another computer",
+      "placeSignedIn": "{place}: signed in",
+      "placeSignedOut": "{place}: not signed in",
+      "planUsageOffBody": "Stella can't use your ChatGPT plan until you allow it. Choose “Enable ChatGPT plan use” on the account, or use another model.",
+      "planUsageOffTitle": "Signed in, but ChatGPT plan use isn't enabled",
+      "remove": "Remove",
+      "removed": "Removed.",
+      "revokeTitleCloud": "Signed out of ChatGPT in the cloud",
+      "revokeTitleComputer": "Signed out on this computer",
+      "revokeUnconfirmed": "ChatGPT didn't confirm the sign-out. You can disconnect Stella in ChatGPT Settings.",
+      "runsOnLabel": "Cloud chat runs on",
+      "signIn": "Sign in",
+      "signInAgain": "Sign in again",
+      "signInCloud": "Sign in to the cloud",
+      "signInComputer": "Sign in on this computer",
+      "signOut": "Sign out",
+      "signOutCloud": "Sign out of the cloud",
+      "signOutComputer": "Sign out on this computer",
+      "signedInCloud": "Your cloud is signed in to Claude.",
+      "signedInCloudAs": "Your cloud is signed in to Claude as {email}.",
+      "signedInComputer": "Claude Code on this computer is signed in.",
+      "signedInComputerAs": "Claude Code on this computer is signed in as {email}.",
+      "signedOut": "Signed out.",
+      "signedOutLogin": "Signed-out Claude Code login",
+      "statusPlanUsageOff": "ChatGPT plan use isn't enabled",
+      "statusReauth": "Sign in again to keep using it",
+      "statusSignedOut": "Signed out",
+      "useAccount": "Use this account"
+    },
+    "engineModels": {
+      "ariaLabel": "{engine} models",
+      "empty": "No {engine} models are available.",
+      "loading": "Loading {engine} models…"
+    },
+    "errors": {
+      "loadLockedComputerUse": "Failed to load locked computer use setting.",
+      "loadMemory": "Failed to load memory setting.",
+      "loadPermissions": "Failed to load desktop permission status.",
+      "loadPower": "Failed to load power setting.",
+      "loadSoundNotifications": "Failed to load sound notification setting.",
+      "lockedComputerUseUnavailable": "Locked computer use is unavailable in this window.",
+      "memoryUnavailable": "Memory settings are unavailable in this window.",
+      "microphoneDeniedReopen": "Microphone access was denied earlier. Turn it on in System Settings — Stella updates automatically.",
+      "microphoneStillOff": "Microphone access is still off. Turn it on in System Settings — Stella updates automatically.",
+      "powerUnavailable": "Power settings are unavailable in this window.",
+      "resetPermission": "Failed to reset {kind} permission.",
+      "resetPermissionMaybeReopen": "Could not reset {kind} permission. Stella may need to be reopened.",
+      "restart": "Failed to restart Stella.",
+      "saveLockedComputerUse": "Failed to update locked computer use.",
+      "saveMemory": "Failed to update memory setting.",
+      "savePermission": "Failed to update {kind} permission.",
+      "savePower": "Failed to update power setting.",
+      "saveSoundNotifications": "Failed to update sound notification setting.",
+      "soundNotificationsUnavailable": "Sound notification settings are unavailable in this window."
+    },
+    "executionDevices": {
+      "disable": "Turn off",
+      "disabling": "Turning off…",
+      "empty": "No computer is signed in to this account yet.",
+      "enable": "Enable",
+      "enabling": "Enabling…",
+      "errors": {
+        "load": "Unable to read the computers on this account.",
+        "update": "That change didn't go through. Try again."
+      },
+      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
+      "offline": "Offline",
+      "online": "Online",
+      "state": {
+        "asking": "Waiting for an answer there",
+        "declined": "Declined there",
+        "enabled": "Accepting work",
+        "notEnabled": "Not enabled"
+      },
+      "thisComputer": "This computer",
+      "title": "Your computers",
+      "unnamed": "Computer"
+    },
+    "language": {
+      "description": "Choose the language Stella uses across the app and when responding to you.",
+      "title": "Language"
+    },
+    "lockedComputerUse": {
+      "description": "Let Stella continue computer-use tasks after this Mac locks. Requires an administrator prompt and covers the screen while Stella works.",
+      "title": "Locked computer use",
+      "unsupported": "Locked computer use is only available on macOS."
+    },
+    "memory": {
+      "description": "Include saved memories and your profile in Stella’s model context. The cloud copy is authoritative and encrypted in transit and at rest; Stella may also keep a local copy. Turning this off excludes memory from future turns but does not delete it.",
+      "title": "Memory"
+    },
+    "modelPicker": {
+      "actions": {
+        "addKey": "Add key",
+        "cancel": "Cancel",
+        "custom": "Custom",
+        "signIn": "Sign in"
+      },
+      "apiKeyAriaLabel": "{provider} API key",
+      "apiKeyPlaceholder": "API key",
+      "authHint": {
+        "apiKey": "Your API key stays on this device.",
+        "both": "Sign in or paste an API key. Credentials stay on this device.",
+        "oauth": "Credentials stay on this device."
+      },
+      "cancelSignIn": "Cancel sign-in",
+      "closeSearch": "Close search",
+      "empty": {
+        "noMatch": "No models match.",
+        "none": "No models available yet."
+      },
+      "errors": {
+        "oauthLogin": "OAuth login failed.",
+        "saveApiKey": "Failed to save API key."
+      },
+      "favorite": {
+        "add": "Add favorite",
+        "addTitle": "Favorite — pin to top",
+        "remove": "Remove favorite"
+      },
+      "loadFailed": "Couldn't load models",
+      "local": {
+        "hint": "Use any local OpenAI-compatible server. Ollama usually runs at the URL below.",
+        "modelNameAriaLabel": "Local model name",
+        "serverUrlAriaLabel": "Local server URL"
+      },
+      "openRouter": {
+        "hintAfter": "id. Type one to use it directly.",
+        "hintBefore": "OpenRouter accepts any",
+        "modelIdAriaLabel": "OpenRouter model id"
+      },
+      "reasoning": {
+        "default": "Auto",
+        "high": "High",
+        "label": "Reasoning effort",
+        "low": "Low",
+        "medium": "Medium",
+        "minimal": "Minimal",
+        "xhigh": "Max"
+      },
+      "refresh": "Refresh model catalog",
+      "restrictedPlan": "Not available on the {plan} plan",
+      "retry": "Retry",
+      "saving": "Saving…",
+      "searchAriaLabel": "Search models",
+      "searchPlaceholder": "Search models…",
+      "selected": "Selected",
+      "signInWith": "Sign in with {provider}",
+      "signOut": {
+        "ariaLabel": "Sign out of {provider}",
+        "confirmAriaLabel": "Click again to sign out of {provider}",
+        "confirmTitle": "Click again to confirm"
+      },
+      "use": "Use"
+    },
+    "motion": {
+      "reduceMotion": {
+        "description": "Minimize interface animations.",
+        "label": "Reduce motion",
+        "off": "Off",
+        "on": "On",
+        "system": "System"
+      },
+      "title": "Motion"
+    },
+    "nativeFontSmoothing": {
+      "description": "Render text the way macOS apps do, with grayscale anti-aliasing.",
+      "title": "Native font smoothing"
+    },
+    "notifications": {
+      "description": "Play a sound when Stella finishes an agent run.",
+      "title": "Sound notifications"
+    },
+    "onboardingReplay": {
+      "action": "Replay",
+      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched.",
+      "title": "Onboarding"
+    },
+    "permissions": {
+      "accessibility": {
+        "description": "Lets Stella read selected text and open from the ⌘+right-click shortcut anywhere on your computer.",
+        "label": "Accessibility"
+      },
+      "enable": "Enable",
+      "granted": "Granted",
+      "microphone": {
+        "description": "Used for voice and dictation. Reset if Stella was previously denied and macOS won't prompt again.",
+        "label": "Microphone"
+      },
+      "opening": "Opening…",
+      "reset": "Reset",
+      "resetting": "Resetting…",
+      "restart": {
+        "action": "Restart",
+        "closing": "Closing…",
+        "description": "Screen capture was just turned on. Quit and reopen Stella to finish setting it up.",
+        "label": "Restart Stella"
+      },
+      "screen": {
+        "description": "Lets Stella see your screen so it can help with what you're looking at. You may need to quit and reopen Stella after turning this on.",
+        "label": "Screen Capture"
+      },
+      "title": "Permissions"
+    },
+    "phoneAccess": {
+      "copy": "Copy",
+      "deviceFallback": "Phone",
+      "errors": {
+        "createPairing": "Unable to create a pairing code."
+      },
+      "expired": "Expired",
+      "getCode": "Get Code",
+      "intro": {
+        "headline": "Connect your phone to your computer"
+      },
+      "pairedCount": {
+        "one": "{count} phone paired",
+        "other": "{count} phones paired"
+      },
+      "pairing": {
+        "body": "Open the Stella app on your phone and scan the QR code, or type in the code below. You only need to do this once.",
+        "headline": "Scan or enter this code",
+        "qrAlt": "Scan to pair your phone"
+      },
+      "preparing": "Preparing...",
+      "remove": "Remove",
+      "removing": "Removing...",
+      "signedOut": {
+        "body": "Sign in to your Stella account to pair with the mobile app.",
+        "headline": "Sign in to get started"
+      },
+      "steps": {
+        "appStoreQrAlt": "Scan to download Stella from the App Store",
+        "connect": "Connect your phone",
+        "download": "Download the app",
+        "platformSelectorLabel": "Choose a mobile platform",
+        "playStoreQrAlt": "Scan to download Stella from Google Play"
+      },
+      "timeLeft": "{time} left",
+      "toasts": {
+        "codeCopied": "Code copied to clipboard",
+        "phoneRemoved": "Phone removed",
+        "removeFailed": "Failed to remove phone"
+      }
+    },
+    "power": {
+      "description": "Stop your computer from sleeping while Stella is open.",
+      "title": "Keep computer awake"
+    },
+    "providerConnected": {
+      "apply": "Apply",
+      "applying": "Applying…",
+      "assistant": {
+        "description": "Route Stella’s chat assistant through {provider}.",
+        "label": "Assistant"
+      },
+      "description": "{provider} can power more than one part of Stella. Pick where you’d like it to take over — Stella keeps doing the rest.",
+      "errors": {
+        "apply": "Failed to apply provider settings."
+      },
+      "image": {
+        "description": "Generate images through your {provider} account.",
+        "label": "Image"
+      },
+      "skip": "Skip",
+      "title": "Use {provider} for Stella?",
+      "voice": {
+        "description": "Use {provider} for realtime voice conversations.",
+        "label": "Voice"
+      }
+    },
+    "providerPicker": {
+      "connect": "Connect",
+      "connected": "Connected",
+      "opening": "Opening…"
+    },
+    "reasoningEffort": {
+      "high": "High",
+      "low": "Low",
+      "medium": "Medium",
+      "minimal": "Minimal",
+      "xhigh": "Extra"
+    },
+    "resetCustomizations": {
+      "action": "Restore defaults",
+      "description": "Remove your skill customizations and personality edits so Stella's shipped defaults apply. Anything removed is kept in ~/.stella/.trash in case you want it back.",
+      "done": "Defaults restored. Your previous customizations were moved to ~/.stella/.trash.",
+      "error": "Could not restore defaults.",
+      "none": "You're already using Stella's defaults.",
+      "title": "Use Stella's defaults"
+    },
+    "search": {
+      "clear": "Clear search",
+      "descriptions": {
+        "account": "Sign out, delete your data, or permanently delete your account.",
+        "legal": "Terms of Service and Privacy Policy.",
+        "microphone": "Pick your input device, enable wake word, and control dictation sounds.",
+        "permissions": "Grant accessibility, screen capture, and microphone access on macOS.",
+        "shortcuts": "Change dictation and voice shortcuts.",
+        "speaker": "Pick the speaker or headphones Stella's voice plays through.",
+        "wakeWord": "Listen for “Hey Stella” and start a voice conversation."
+      },
+      "noResultsBody": "Try a shorter or different word.",
+      "noResultsTitle": "No settings match “{query}”",
+      "placeholder": "Search settings",
+      "resultsAriaOne": "{count} result",
+      "resultsAriaOther": "{count} results",
+      "resultsOne": "{count} result for",
+      "resultsOther": "{count} results for"
+    },
+    "shortcuts": {
+      "actions": {
+        "dictation": "Dictation",
+        "voice": "Voice agent"
+      },
+      "capturing": "Press keys…",
+      "change": "Change",
+      "clear": "Clear",
+      "dictation": {
+        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
+      },
+      "errors": {
+        "load": "Failed to load shortcuts.",
+        "unavailable": "Shortcuts are unavailable in this window.",
+        "unavailableShortcut": "That shortcut is unavailable.",
+        "update": "Failed to update shortcut."
+      },
+      "off": "Off",
+      "targets": {
+        "dictation": "dictation",
+        "voice": "the voice agent"
+      },
+      "title": "Shortcuts",
+      "toasts": {
+        "clearedDescription": "{action} is disabled until you set a new shortcut.",
+        "clearedTitle": "{action} shortcut cleared",
+        "failedTitle": "Shortcut update failed",
+        "unavailableTitle": "Shortcut unavailable",
+        "updatedDescription": "Press {keys} to start {target}.",
+        "updatedTitle": "{action} shortcut updated"
+      },
+      "voiceAgent": {
+        "description": "Starts or stops Stella's live voice agent."
+      }
+    },
+    "systemPrompt": {
+      "activeLabel": "Active prompt",
+      "agentLabel": "Prompt for",
+      "agentSublabel": "Choose which agent's prompt to change.",
+      "agents": {
+        "assistant": "Assistant",
+        "worker": "Worker"
+      },
+      "cancel": "Cancel",
+      "defaultOption": "Stella's default",
+      "delete": "Delete",
+      "deleted": "Prompt deleted.",
+      "description": "Stella's default prompt always updates with the app. Save your own prompt to use instead — it's kept separately, so updates never overwrite it.",
+      "duplicate": "Duplicate",
+      "edit": "Edit",
+      "error": "Something went wrong.",
+      "nameLabel": "Name",
+      "newFromDefault": "New from default",
+      "newName": "My prompt",
+      "save": "Save",
+      "saved": "Prompt saved.",
+      "title": "System prompt",
+      "usingCustom": "Using your saved prompt.",
+      "usingDefault": "Using Stella's default prompt."
+    },
+    "tabs": {
+      "account": "Account & Legal",
+      "audio": "Audio",
+      "general": "General",
+      "shortcuts": "Shortcuts"
+    },
+    "title": "Settings",
+    "voiceAgent": {
+      "description": "Show the voice and call controls so you can talk to Stella out loud. Dictation keeps working either way.",
+      "error": "Couldn't update the voice setting.",
+      "title": "Voice conversations"
+    },
+    "voiceCatalog": {
+      "label": "Voice",
+      "menuAriaLabel": "{source} voice",
+      "nextVoice": "Next voice",
+      "previousVoice": "Previous voice",
+      "readAloud": {
+        "ariaLabel": "Read aloud voice provider",
+        "description": "Speaks replies out loud using this provider's voice.",
+        "geminiTitle": "Read replies aloud with Gemini TTS",
+        "label": "Read aloud",
+        "openaiTitle": "Read replies aloud with OpenAI TTS"
+      },
+      "source": {
+        "gemini": "Gemini voices",
+        "gptlive": "Stella voices",
+        "openai": "OpenAI voices",
+        "xai": "Grok voices"
+      }
+    }
+  },
+  "shell": {
+    "agentProgress": {
+      "recentAgentMessages": "Recent agent messages",
+      "recentProgress": "Recent progress"
+    },
+    "appSource": {
+      "failed": "Couldn't apply the change",
+      "files": {
+        "one": "{count} file",
+        "other": "{count} files"
+      },
+      "outdated": "Made on an older version",
+      "restarts": "Restarts Stella",
+      "title": "Changes to Stella",
+      "undo": "Undo",
+      "undoneAgo": "Undone {ago}",
+      "undoneJustNow": "Undone just now",
+      "update": "Update",
+      "updatedAgo": "Updated {ago}",
+      "updatedJustNow": "Updated just now",
+      "updates": {
+        "add": "Add",
+        "adding": "Adding…",
+        "fromDevice": "A change you made on {device}",
+        "fromOtherComputer": "A change you made on your other computer",
+        "fromOtherComputers": "Changes from your other computer",
+        "get": "Get",
+        "history": "History",
+        "justNow": "Just now",
+        "newVersion": "New version of Stella",
+        "newVersionDetail": "Improvements and fixes from the Stella team",
+        "pill": {
+          "one": "{count} update",
+          "other": "{count} updates"
+        },
+        "readyChange": "A change ready to add",
+        "removed": "Removed: {change}",
+        "skip": "Skip",
+        "skipped": "Skipped",
+        "undoing": "Undoing…",
+        "upToDate": "Nothing waiting",
+        "waiting": "Waiting"
+      }
+    },
+    "audioPlayer": {
+      "pause": "Pause",
+      "play": "Play",
+      "seek": "Seek"
+    },
+    "browser": {
+      "connected": "Browser connected",
+      "connecting": "Waiting for extension…",
+      "newTab": "Open a new tab"
+    },
+    "capture": {
+      "failedDescription": "Something went wrong taking the screenshot. Try again.",
+      "failedTitle": "Couldn’t capture that"
+    },
+    "chatSidebar": {
+      "add": "Add",
+      "dictationError": "Dictation: {error}",
+      "stop": "Stop"
+    },
+    "connectors": {
+      "desktopRequired": "Connectors are available in the Stella desktop app.",
+      "empty": "No connectors available yet.",
+      "loading": "Loading connectors…",
+      "noMatches": "No connectors match that search.",
+      "searchLabel": "Search connectors",
+      "searchPlaceholder": "Search",
+      "title": "Connectors"
+    },
+    "display": {
+      "agentThread": {
+        "badge": "Read-only agent thread",
+        "claudeAriaLabel": "Claude subagent read-only conversation",
+        "claudeBadge": "Read-only Claude subagent",
+        "empty": "No messages in this thread yet.",
+        "loadFailed": "Couldn’t load this thread.",
+        "newMessages": {
+          "one": "{count} new message.",
+          "other": "{count} new messages."
+        },
+        "newMessagesButton": {
+          "one": "{count} new message",
+          "other": "{count} new messages"
+        },
+        "newMessagesWithPreview": "{countPhrase} Latest {role}: {preview}",
+        "reasoningGroup": {
+          "one": "Reasoning",
+          "other": "{count} reasoning steps"
+        },
+        "retrying": "Retrying…",
+        "role": {
+          "assistant": "Agent",
+          "checkpoint": "Thread checkpoint",
+          "lifecycle": "Activity",
+          "reasoning": "Reasoning",
+          "tool": "Tool",
+          "user": "Instruction"
+        },
+        "showNewMessagesAria": "Show {countPhrase}",
+        "showingNewest": "Showing the newest message.",
+        "status": {
+          "canceled": "Stopped",
+          "completed": "Completed",
+          "error": "Failed",
+          "running": "Working"
+        },
+        "toolGroup": {
+          "one": "{count} tool call",
+          "other": "{count} tool calls"
+        },
+        "toolInput": "Input",
+        "toolOutput": "Output",
+        "toolRunning": "Waiting for this tool to finish…",
+        "unavailable": "Agent thread history is unavailable."
+      },
+      "canvas": {
+        "loadFailed": "Couldn't load this canvas.",
+        "loading": "Loading"
+      },
+      "canvasShare": {
+        "copyLink": "Copy link",
+        "empty": "No active shares yet. Publish a canvas to get a public link.",
+        "expires": "Expires {date}",
+        "links": "Links",
+        "live": "Canvas is live",
+        "loadFailed": "Couldn't load your shares.",
+        "publicLink": "Public canvas link",
+        "publishFailed": "Couldn't publish this canvas. Please try again.",
+        "publishing": "Publishing canvas…",
+        "revoke": "Revoke share",
+        "share": "Share",
+        "shared": "Shared {date}",
+        "sharedLinks": "Shared links",
+        "sharedWithExpiry": "Shared {shared} · expires {expires}",
+        "toasts": {
+          "copyFailed": "Couldn't copy the link",
+          "linkCopied": "Share link copied",
+          "revokeFailed": "Couldn't revoke this share",
+          "revoked": "Share revoked"
+        },
+        "untitled": "Untitled canvas"
+      },
+      "diff": {
+        "changes": "Changes",
+        "codeChanges": "Code changes",
+        "desktopRequired": "Code preview requires the Stella desktop app.",
+        "empty": "No file changes yet. When an agent edits code, the changes appear here.",
+        "noChanges": "No changes found."
+      },
+      "filePreview": {
+        "copy": "Copy",
+        "loading": "Loading...",
+        "save": "Save"
+      },
+      "homeLauncher": {
+        "files": {
+          "description": "Pages, images, video, and documents",
+          "label": "Files"
+        },
+        "trash": {
+          "description": "Things you've recently deleted",
+          "label": "Trash"
+        }
+      },
+      "markdown": {
+        "desktopRequired": "Markdown preview requires the Stella desktop app.",
+        "eyebrow": "Markdown",
+        "noContent": "No content found."
+      },
+      "media": {
+        "copied": "Copied",
+        "copy": "Copy",
+        "copyFailed": "Could not copy",
+        "delete": "Delete",
+        "deleteConfirm": "Click again to delete",
+        "expand": "Expand",
+        "expandPanel": "Expand panel",
+        "itemActions": "Item actions",
+        "missing": "File no longer available.",
+        "revealInFinder": "Reveal in Finder",
+        "save": "Save",
+        "saveFailed": "Could not save",
+        "saved": "Saved"
+      },
+      "office": {
+        "frameTitle": "{kind} preview: {title}",
+        "kind": {
+          "document": "Document",
+          "presentation": "Presentation",
+          "spreadsheet": "Spreadsheet"
+        },
+        "livePreview": "Live preview",
+        "loadFailed": "Couldn't load this preview",
+        "preparing": "Preparing preview...",
+        "revealInFinder": "Reveal in Finder",
+        "sessionError": "The preview session reported an error.",
+        "sheetCount": {
+          "one": "{count} sheet",
+          "other": "{count} sheets"
+        },
+        "slideCount": {
+          "one": "{count} slide",
+          "other": "{count} slides"
+        },
+        "zoomAriaLabel": "Preview zoom"
+      },
+      "preview": {
+        "limited": "Preview limited. Save or open the original file to view all content.",
+        "unavailable": "Unable to prepare this preview."
+      },
+      "spreadsheet": {
+        "column": "Column {index}",
+        "desktopRequired": "Spreadsheet preview requires the Stella desktop app.",
+        "eyebrow": "Spreadsheet",
+        "noRows": "No rows found."
+      },
+      "trash": {
+        "autoDeletesIn": "Auto-deletes in {time}",
+        "deleteNow": "Delete now",
+        "deleting": "Deleting…",
+        "empty": "Nothing here right now.",
+        "emptyTrash": "Empty trash",
+        "emptying": "Emptying…",
+        "itemsAutoDeleted": {
+          "one": "{count} item — auto-deleted in 24 hours.",
+          "other": "{count} items — auto-deleted in 24 hours."
+        },
+        "pendingPurge": "Pending purge",
+        "refresh": "Refresh",
+        "title": "Trash",
+        "trashedAgo": "Trashed {time} ago"
+      },
+      "url": {
+        "eyebrow": "Live preview",
+        "openInBrowser": "Open in browser",
+        "reload": "Reload"
+      }
+    },
+    "displayPanel": {
+      "closePanel": "Close panel",
+      "openPanel": "Open panel"
+    },
+    "rightSidebar": {
+      "resize": "Resize display panel",
+      "resizeHint": "Drag to resize · double-click to reset",
+      "workspace": "Workspace"
+    },
+    "sidebar": {
+      "account": {
+        "planAriaLabel": "{name}, {plan} plan",
+        "signOutDescription": "Are you sure?",
+        "signOutTitle": "Sign out of Stella?"
+      },
+      "feedback": {
+        "description": "Your message is sent anonymously — it isn't linked to your account.",
+        "fieldLabel": "Feedback",
+        "placeholder": "Tell us what's working, what isn't, or what you'd love to see…",
+        "send": "Send",
+        "sending": "Sending…",
+        "title": "Send feedback",
+        "toasts": {
+          "failedTitle": "Couldn't send feedback",
+          "sentDescription": "Thanks — every note helps us shape Stella.",
+          "sentTitle": "Feedback sent"
+        }
+      },
+      "nav": {
+        "apps": "Apps",
+        "unreadAriaLabel": "{label}, {count} unread",
+        "unreadTitle": "{label} ({count} unread)"
+      }
+    },
+    "topbar": {
+      "conversation": {
+        "closeConversation": "Close {title}",
+        "delete": "Delete {title}",
+        "deleteConfirm": "Click again to confirm",
+        "deleteConfirmFor": "Click again to delete {title}",
+        "deleteFailed": "Couldn’t delete this conversation",
+        "deleteFailedFor": "Couldn’t delete {title}",
+        "history": "Conversation history",
+        "historyEmpty": "No conversations yet",
+        "historyRetry": "Couldn’t load conversations. Try again",
+        "newChat": "New chat",
+        "newChatConfirm": "Click again to confirm",
+        "openConversation": "Open {title}",
+        "openConversations": "Open conversations",
+        "unread": "Unread messages"
+      }
+    },
+    "windowControls": {
+      "maximize": "Maximize",
+      "minimize": "Minimize",
+      "restore": "Restore"
+    },
+    "workspace": {
+      "activity": "Activity",
+      "moreFiles": {
+        "one": "{count} more file",
+        "other": "{count} more files"
+      },
+      "viewFiles": {
+        "one": "View {count} file",
+        "other": "View {count} files"
+      }
+    }
+  },
+  "sidebar": {
+    "account": "Account",
+    "feedback": "Send feedback",
+    "newChat": "New chat",
+    "signIn": "Sign in",
+    "upgrade": "Upgrade"
+  },
+  "ui": {
+    "imageLightbox": {
+      "close": "Close preview",
+      "title": "Image preview"
     }
   }
 }

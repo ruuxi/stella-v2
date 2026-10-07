@@ -1,1173 +1,5 @@
 {
-  "common": {
-    "appName": "Stella",
-    "continue": "متابعة",
-    "back": "رجوع",
-    "next": "التالي",
-    "previous": "السابق",
-    "cancel": "إلغاء",
-    "save": "حفظ",
-    "close": "إغلاق",
-    "open": "فتح",
-    "openPreferences": "فتح التفضيلات",
-    "signIn": "تسجيل الدخول",
-    "signOut": "تسجيل الخروج",
-    "loading": "جارٍ التحميل…",
-    "tryAgain": "حاول مرة أخرى",
-    "language": "اللغة",
-    "yes": "نعم",
-    "no": "لا",
-    "copy": "نسخ"
-  },
-  "cloudConnector": {
-    "titleOffer": "توصيل {name}؟",
-    "titleWaiting": "في انتظار {name}",
-    "connecting": "أكمل تسجيل الدخول إلى {name} في متصفحك. ستتابع Stella بمجرد الموافقة.",
-    "connect": "توصيل",
-    "openAgain": "فتح مرة أخرى",
-    "notNow": "ليس الآن",
-    "errors": {
-      "decision": "تعذّر توصيل {name}. حاول مرة أخرى.",
-      "open": "تعذّر فتح صفحة تسجيل الدخول."
-    }
-  },
-  "cloudBrowser": {
-    "errors": {
-      "decision": "That didn't go through. Try again.",
-      "verificationUrl": "Couldn't open that page.",
-      "expired": "This sign-in is no longer needed.",
-      "liveViewBoundary": "Couldn't load the sign-in page.",
-      "liveView": "Couldn't load the sign-in page. Try again."
-    },
-    "deviceCode": {
-      "title": "Sign in to {origin}",
-      "codeLabel": "Code",
-      "body": "Enter this code on the site, then come back here.",
-      "copied": "Copied",
-      "copy": "Copy code",
-      "open": "Open site"
-    },
-    "takeover": {
-      "title": "Sign in to {origin}",
-      "checking": "Finishing sign-in to {origin}",
-      "body": "Sign in to keep going. Stella can't see what you type.",
-      "resumingBody": "Stella will pick up where it left off.",
-      "preparing": "Loading sign-in…",
-      "frameTitle": "Sign in to {origin}",
-      "privateNotice": "Stella can't see what you type",
-      "localNotice": "Stella can't see what you type",
-      "localOriginFallback": "Switched to Stella's browser to finish signing in.",
-      "localTransferFallback": "Couldn't confirm that sign-in. Try again in Stella's browser."
-    },
-    "actions": {
-      "canceling": "Canceling…",
-      "finishing": "Finishing…",
-      "done": "Done",
-      "useCloudBrowser": "Use Stella's browser"
-    },
-    "needsYou": {
-      "title": "Needs you",
-      "deviceCode": "Enter a code for {origin}",
-      "signIn": "Sign in to {origin}",
-      "open": "Open"
-    },
-    "settings": {
-      "title": "Browser sign-ins",
-      "defaultProfile": "Saved sign-ins",
-      "description": "Sites Stella has signed in to for you. Reset to sign out of all of them.",
-      "resetComplete": "Signed out of all sites.",
-      "resetFailed": "Couldn't sign out. Try again.",
-      "resetting": "Resetting…",
-      "reset": "Reset",
-      "confirmTitle": "Sign out of all sites?",
-      "confirmBody": "Stella will ask you to sign in again next time."
-    }
-  },
-  "sidebar": {
-    "signIn": "تسجيل الدخول",
-    "account": "الحساب",
-    "feedback": "إرسال ملاحظات",
-    "upgrade": "ترقية",
-    "newChat": "محادثة جديدة"
-  },
-  "settings": {
-    "chatStorage": {
-      "title": "حفظ سجل المحادثات في السحابة",
-      "description": "يمكنك الوصول إلى محادثاتك من جميع أجهزتك. أوقف هذا الخيار للاحتفاظ بسجل محادثات منفصل على هذا الكمبيوتر فقط. عند إعادة تشغيله، لن يتم رفع تلك المحادثات. لا تزال مزوّدات الذكاء الاصطناعي تعالج رسائلك.",
-      "endVoice": "أنهِ المحادثة الصوتية لتغيير طريقة حفظ المحادثات.",
-      "error": "تعذّر تغيير طريقة حفظ المحادثات. حاول مرة أخرى."
-    },
-    "title": "الإعدادات",
-    "tabs": {
-      "general": "عام",
-      "shortcuts": "الاختصارات",
-      "account": "الحساب والشؤون القانونية",
-      "audio": "الصوت"
-    },
-    "language": {
-      "title": "اللغة",
-      "description": "اختر اللغة التي ستستخدمها Stella في التطبيق وعند الرد عليك."
-    },
-    "memory": {
-      "title": "الذاكرة",
-      "description": "ضمّن الذكريات المحفوظة وملفك الشخصي في سياق نموذج Stella. النسخة السحابية هي النسخة المعتمدة ومشفّرة أثناء النقل وعند التخزين؛ وقد يحتفظ Stella أيضًا بنسخة محلية. يؤدي إيقاف هذا الخيار إلى استبعاد الذاكرة من المحادثات المستقبلية، لكنه لا يحذفها."
-    },
-    "developerPreviews": {
-      "title": "معاينات ملفات المطوّرين",
-      "description": "إظهار تغييرات الكود في المحادثة وفتحها في اللوحة الجانبية."
-    },
-    "nativeFontSmoothing": {
-      "title": "تنعيم الخطوط الأصلي",
-      "description": "عرض النص كما تفعل تطبيقات macOS، مع تنعيم الحواف بتدرّج رمادي."
-    },
-    "motion": {
-      "title": "الحركة",
-      "reduceMotion": {
-        "label": "تقليل الحركة",
-        "description": "تقليل الرسوم المتحركة في الواجهة إلى الحد الأدنى.",
-        "system": "النظام",
-        "on": "تشغيل",
-        "off": "إيقاف"
-      }
-    },
-    "notifications": {
-      "title": "إشعارات صوتية",
-      "description": "تشغيل صوت عندما تُنهي Stella تشغيل وكيل."
-    },
-    "power": {
-      "title": "إبقاء الكمبيوتر مستيقظًا",
-      "description": "منع الكمبيوتر من الدخول في وضع السكون أثناء فتح Stella."
-    },
-    "lockedComputerUse": {
-      "title": "استخدام الكمبيوتر عند القفل",
-      "description": "يتيح لـ Stella متابعة مهام استخدام الكمبيوتر بعد قفل هذا الـ Mac. يتطلب طلب موافقة المسؤول ويغطي الشاشة أثناء عمل Stella.",
-      "unsupported": "استخدام الكمبيوتر عند القفل متاح فقط على macOS."
-    },
-    "browserExtension": {
-      "title": "Stella لـ Chrome",
-      "description": "يتيح لـ Stella رؤية الصفحة التي تتصفّحها وتنفيذ إجراءات في متصفّحك.",
-      "action": "الحصول على الإضافة"
-    },
-    "resetCustomizations": {
-      "title": "استخدام إعدادات Stella الافتراضية",
-      "description": "يزيل تخصيصاتك للمهارات وتعديلات الشخصية لتُطبَّق إعدادات Stella الافتراضية. يُحتفظ بما يُزال في ~/.stella/.trash في حال أردت استعادته.",
-      "action": "استعادة الإعدادات الافتراضية",
-      "done": "تمت استعادة الإعدادات الافتراضية. نُقلت تخصيصاتك السابقة إلى ~/.stella/.trash.",
-      "none": "أنت تستخدم إعدادات Stella الافتراضية بالفعل.",
-      "error": "تعذّرت استعادة الإعدادات الافتراضية."
-    },
-    "systemPrompt": {
-      "title": "موجّه النظام",
-      "description": "يُحدَّث موجّه Stella الافتراضي دائمًا مع التطبيق. احفظ موجّهك الخاص لاستخدامه بدلًا منه — يُخزَّن بشكل منفصل، لذا لن تستبدله التحديثات أبدًا.",
-      "agentLabel": "الموجّه لـ",
-      "agentSublabel": "اختر الوكيل الذي تريد تغيير موجّهه.",
-      "activeLabel": "الموجّه النشط",
-      "defaultOption": "افتراضي Stella",
-      "usingDefault": "يُستخدم موجّه Stella الافتراضي.",
-      "usingCustom": "يُستخدم موجّهك المحفوظ.",
-      "newFromDefault": "جديد من الافتراضي",
-      "edit": "تحرير",
-      "duplicate": "تكرار",
-      "delete": "حذف",
-      "save": "حفظ",
-      "cancel": "إلغاء",
-      "nameLabel": "الاسم",
-      "newName": "موجّهي",
-      "saved": "تم حفظ الموجّه.",
-      "deleted": "تم حذف الموجّه.",
-      "error": "حدث خطأ ما.",
-      "agents": {
-        "assistant": "المساعد",
-        "worker": "المنفّذ"
-      }
-    },
-    "permissions": {
-      "title": "الأذونات",
-      "enable": "تفعيل",
-      "granted": "ممنوح",
-      "opening": "جارٍ الفتح…",
-      "reset": "إعادة تعيين",
-      "resetting": "جارٍ إعادة التعيين…",
-      "accessibility": {
-        "label": "إمكانية الوصول",
-        "description": "يتيح لـ Stella قراءة النص المحدد والفتح عبر اختصار ⌘+النقر بالزر الأيمن في أي مكان على الكمبيوتر."
-      },
-      "screen": {
-        "label": "تسجيل الشاشة",
-        "description": "يتيح لـ Stella رؤية شاشتك لتساعدك فيما تنظر إليه. قد تحتاج إلى إنهاء Stella وإعادة فتحها بعد تفعيل ذلك."
-      },
-      "microphone": {
-        "label": "الميكروفون",
-        "description": "يُستخدم للصوت والإملاء. أعد التعيين إذا رُفضت Stella سابقًا ولم يعد macOS يسأل مرة أخرى."
-      },
-      "restart": {
-        "label": "إعادة تشغيل Stella",
-        "description": "تم تفعيل تسجيل الشاشة للتو. أنهِ Stella وأعد فتحها لإكمال الإعداد.",
-        "action": "إعادة التشغيل",
-        "closing": "جارٍ الإغلاق…"
-      }
-    },
-    "shortcuts": {
-      "title": "الاختصارات",
-      "change": "تغيير",
-      "capturing": "اضغط على المفاتيح…",
-      "clear": "مسح",
-      "off": "إيقاف",
-      "actions": {
-        "dictation": "الإملاء",
-        "voice": "وكيل الصوت"
-      },
-      "dictation": {
-        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
-      },
-      "voiceAgent": {
-        "description": "يبدأ أو يوقف وكيل Stella الصوتي المباشر."
-      },
-      "targets": {
-        "dictation": "الإملاء",
-        "voice": "وكيل الصوت"
-      },
-      "toasts": {
-        "updatedTitle": "تم تحديث اختصار {action}",
-        "clearedTitle": "تم مسح اختصار {action}",
-        "updatedDescription": "اضغط على {keys} لبدء {target}.",
-        "clearedDescription": "{action} معطّل حتى تعيّن اختصارًا جديدًا.",
-        "unavailableTitle": "الاختصار غير متاح",
-        "failedTitle": "تعذّر تحديث الاختصار"
-      },
-      "errors": {
-        "load": "تعذّر تحميل الاختصارات.",
-        "unavailable": "الاختصارات غير متاحة في هذه النافذة.",
-        "unavailableShortcut": "هذا الاختصار غير متاح.",
-        "update": "تعذّر تحديث الاختصار."
-      }
-    },
-    "account": {
-      "title": "الحساب",
-      "signOut": {
-        "label": "تسجيل الخروج",
-        "description": "سجّل الخروج من Stella على هذا الجهاز.",
-        "action": "تسجيل الخروج"
-      },
-      "deleteData": {
-        "label": "حذف البيانات",
-        "description": "يمسح جميع المحادثات والذاكرة وإعدادات Stella المحفوظة.",
-        "action": "حذف",
-        "working": "جارٍ الحذف…"
-      },
-      "deleteAccount": {
-        "label": "حذف الحساب",
-        "description": "يحذف حسابك وكل ما فيه نهائيًا.",
-        "action": "حذف",
-        "working": "جارٍ الحذف…"
-      },
-      "legal": {
-        "title": "القانوني",
-        "terms": "شروط الخدمة",
-        "privacy": "سياسة الخصوصية",
-        "view": "عرض"
-      },
-      "dialog": {
-        "deleteDataTitle": "حذف بيانات Stella الخاصة بك؟",
-        "deleteAccountTitle": "حذف حساب Stella الخاص بك؟",
-        "deleteDataDescription": "يؤدي هذا إلى مسح محادثاتك وذاكرتك وإعداداتك وحالة Stella المحلية. لا يمكن التراجع عن هذا.",
-        "deleteAccountDescription": "يؤدي هذا إلى حذف حسابك وبيانات Stella نهائيًا. لا يمكن التراجع عن هذا.",
-        "deleteDataButton": "حذف البيانات",
-        "deleteAccountButton": "حذف الحساب",
-        "working": "جارٍ الحذف…"
-      },
-      "toasts": {
-        "dataDeleted": "تم حذف بيانات Stella الخاصة بك.",
-        "accountDeleted": "تم حذف حساب Stella الخاص بك.",
-        "deleteDataFailed": "تعذّر حذف بياناتك. يرجى المحاولة مرة أخرى.",
-        "deleteAccountFailed": "تعذّر حذف حسابك. يرجى المحاولة مرة أخرى.",
-        "signInBeforeDelete": "سجّل الدخول قبل حذف حسابك."
-      },
-      "cloudHome": {
-        "title": "Cloud Home",
-        "label": "الذاكرة والمهارات",
-        "summary": {
-          "checking": "جارٍ التحقق من الذاكرة والمهارات المحلية…",
-          "current": "Cloud Home محدّث. الذاكرة المرفوعة: {memoryCount}. حزم المهارات المرفوعة: {skillCount}.",
-          "attention": "احتفظ Cloud Home بالنسخ السحابية الحالية عندما اختلفت البيانات المحلية. راجع التفاصيل أدناه.",
-          "unavailable": "مزامنة Cloud Home غير متاحة حاليًا.",
-          "intro": "يستورد Stella الذاكرة المحلية والمهارات المخصصة المناسبة بأمان إلى حسابك السحابي."
-        },
-        "authorizationNote": "تظل المهارات المرفوعة غير متاحة للوكلاء حتى يتم التصريح صراحةً بإصدارها المحدد.",
-        "actions": {
-          "syncing": "جارٍ المزامنة…",
-          "import": "استيراد إلى هذا الحساب",
-          "boundElsewhere": "مرتبط بحساب آخر",
-          "blocked": "الاستيراد محظور",
-          "sync": "مزامنة الآن"
-        }
-      }
-    },
-    "audio": {
-      "systemDefault": "افتراضي النظام",
-      "microphoneDeviceFallback": "ميكروفون {index}",
-      "speakerDeviceFallback": "مكبّر صوت {index}",
-      "microphone": {
-        "title": "الميكروفون",
-        "enableLabel": "تفعيل الميكروفون",
-        "enableDescription": "مطلوب للتحدّث مع Stella.",
-        "deviceLabel": "الميكروفون",
-        "deviceDescription": "أي ميكروفون يجب أن تستمع إليه Stella؟"
-      },
-      "recovery": {
-        "manageLabel": "إدارة الوصول إلى الميكروفون",
-        "recoverLabel": "استعادة الوصول إلى الميكروفون",
-        "manageDescription": "إذا تعطّل إذن الميكروفون، يمكنك إعادة تعيينه وطلب أن يسأل macOS مرة أخرى.",
-        "recoverDescription": "بمجرد أن ترفض، لن يسأل macOS مرة أخرى من تلقاء نفسه. أعد تعيين الإذن، ثم أنهِ Stella وأعد فتحها.",
-        "openSettings": "فتح الإعدادات",
-        "reset": "إعادة التعيين وإعادة التشغيل",
-        "closing": "جارٍ الإغلاق…"
-      },
-      "wakeWord": {
-        "label": "كلمة التنبيه «Hey Stella»",
-        "description": "يستمع إلى «Hey Stella» في الخلفية ويبدأ محادثة صوتية. عند الإيقاف، يبقى الميكروفون خاملًا حتى تضغط على الإملاء."
-      },
-      "superFast": {
-        "label": "إملاء فائق السرعة",
-        "description": "يبقي الميكروفون جاهزًا ليبدأ الإملاء بتأخير أقل."
-      },
-      "dictationSounds": {
-        "label": "أصوات الإملاء",
-        "description": "تشغيل صوت عند بدء الإملاء وتوقّفه."
-      },
-      "speaker": {
-        "title": "مكبّر الصوت",
-        "outputLabel": "جهاز الإخراج",
-        "outputDescription": "اختر مكبّر الصوت أو السماعات التي تريد استخدامها.",
-        "empty": "لم يُعثر على مكبّرات صوت.",
-        "emptyMicOff": "فعّل الميكروفون لرؤية مكبّرات الصوت لديك."
-      },
-      "errors": {
-        "listDevices": "تعذّر سرد أجهزة الصوت.",
-        "micDeniedReset": "تم رفض الوصول إلى الميكروفون سابقًا. أعد تعيينه وأعد تشغيل Stella، أو افتح إعدادات النظام.",
-        "micDenied": "تم رفض الوصول إلى الميكروفون. يرجى السماح به في إعدادات نظامك."
-      }
-    },
-    "connectedProviders": {
-      "title": "المزوّدون المتصلون",
-      "empty": "لا يوجد مزوّدون متصلون بعد. اختر خيارًا غير Stella في محدّد النماذج أعلاه لإضافة مفتاح API أو تسجيل الدخول.",
-      "apiKey": "مفتاح API",
-      "signedIn": "تم تسجيل الدخول",
-      "removeKey": "إزالة المفتاح",
-      "removingKey": "جارٍ الإزالة…",
-      "signOut": "تسجيل الخروج",
-      "signingOut": "جارٍ تسجيل الخروج…"
-    },
-    "search": {
-      "placeholder": "البحث في الإعدادات",
-      "clear": "مسح البحث",
-      "noResultsTitle": "لا توجد إعدادات تطابق «{query}»",
-      "noResultsBody": "جرّب كلمة أقصر أو مختلفة.",
-      "resultsOne": "{count} نتيجة لـ",
-      "resultsOther": "{count} نتيجة لـ",
-      "resultsAriaOne": "{count} نتيجة",
-      "resultsAriaOther": "{count} نتيجة",
-      "descriptions": {
-        "permissions": "امنح الوصول إلى إمكانية الوصول وتسجيل الشاشة والميكروفون على macOS.",
-        "shortcuts": "غيّر اختصارات الإملاء والصوت.",
-        "account": "سجّل الخروج، أو احذف بياناتك، أو احذف حسابك نهائيًا.",
-        "legal": "شروط الخدمة وسياسة الخصوصية.",
-        "speaker": "اختر مكبّر الصوت أو السماعات التي يُشغَّل من خلالها صوت Stella.",
-        "wakeWord": "يستمع إلى «Hey Stella» ويبدأ محادثة صوتية.",
-        "microphone": "أي ميكروفون يجب أن تستمع إليه Stella؟"
-      }
-    },
-    "errors": {
-      "loadPower": "تعذّر تحميل إعداد الطاقة.",
-      "savePower": "تعذّر تحديث إعداد الطاقة.",
-      "powerUnavailable": "إعدادات الطاقة غير متاحة في هذه النافذة.",
-      "loadLockedComputerUse": "تعذّر تحميل إعداد استخدام الكمبيوتر عند القفل.",
-      "saveLockedComputerUse": "تعذّر تحديث استخدام الكمبيوتر عند القفل.",
-      "lockedComputerUseUnavailable": "استخدام الكمبيوتر عند القفل غير متاح في هذه النافذة.",
-      "loadSoundNotifications": "تعذّر تحميل إعداد الإشعارات الصوتية.",
-      "saveSoundNotifications": "تعذّر تحديث إعداد الإشعارات الصوتية.",
-      "soundNotificationsUnavailable": "إعدادات الإشعارات الصوتية غير متاحة في هذه النافذة.",
-      "loadMemory": "تعذّر تحميل إعداد الذاكرة.",
-      "saveMemory": "تعذّر تحديث إعداد الذاكرة.",
-      "memoryUnavailable": "إعدادات الذاكرة غير متاحة في هذه النافذة.",
-      "loadPermissions": "تعذّر تحميل حالة أذونات سطح المكتب.",
-      "savePermission": "تعذّر تحديث إذن {kind}.",
-      "resetPermission": "تعذّر إعادة تعيين إذن {kind}.",
-      "resetPermissionMaybeReopen": "تعذّر إعادة تعيين إذن {kind}. قد تحتاج إلى إعادة فتح Stella.",
-      "microphoneDeniedReopen": "تم رفض الوصول إلى الميكروفون سابقًا. فعّله في إعدادات النظام، ثم أعد فتح Stella.",
-      "microphoneStillOff": "الوصول إلى الميكروفون لا يزال متوقفًا. فعّله في إعدادات النظام، ثم أعد فتح Stella.",
-      "restart": "تعذّرت إعادة تشغيل Stella."
-    },
-    "voiceCatalog": {
-      "label": "الصوت",
-      "familyAriaLabel": "عائلة الأصوات",
-      "familyTitle": {
-        "openai": "أصوات OpenAI Realtime (تُصدر Stella الرمز)",
-        "xai": "أصوات xAI Grok (تُصدر Stella الرمز)",
-        "inworld": "أصوات Inworld (تتوسّط Stella تبادل SDP)"
-      },
-      "source": {
-        "openai": "أصوات OpenAI",
-        "xai": "أصوات Grok",
-        "inworld": "أصوات Inworld",
-        "gemini": "أصوات Gemini"
-      },
-      "previousVoice": "الصوت السابق",
-      "nextVoice": "الصوت التالي",
-      "menuAriaLabel": "صوت {source}",
-      "speed": "السرعة",
-      "speedAriaLabel": "سرعة صوت Inworld",
-      "readAloud": {
-        "label": "القراءة بصوت عالٍ",
-        "ariaLabel": "مزوّد صوت القراءة بصوت عالٍ",
-        "openaiTitle": "اقرأ الردود بصوت عالٍ باستخدام OpenAI TTS",
-        "geminiTitle": "اقرأ الردود بصوت عالٍ باستخدام Gemini TTS",
-        "description": "ينطق الردود بصوت عالٍ باستخدام صوت هذا المزوّد."
-      }
-    },
-    "phoneAccess": {
-      "expired": "منتهي الصلاحية",
-      "timeLeft": "بقي {time}",
-      "copy": "نسخ",
-      "preparing": "جارٍ التجهيز...",
-      "getCode": "احصل على رمز",
-      "deviceFallback": "الهاتف",
-      "removing": "جارٍ الإزالة...",
-      "remove": "إزالة",
-      "signedOut": {
-        "headline": "سجّل الدخول للبدء",
-        "body": "سجّل الدخول إلى حساب Stella للاقتران مع تطبيق الجوال."
-      },
-      "pairing": {
-        "headline": "امسح هذا الرمز أو أدخله",
-        "body": "افتح تطبيق Stella على هاتفك وامسح رمز QR، أو اكتب الرمز أدناه. تحتاج إلى ذلك مرة واحدة فقط.",
-        "qrAlt": "امسح لإقران هاتفك"
-      },
-      "intro": {
-        "headline": "اربط هاتفك بحاسوبك"
-      },
-      "steps": {
-        "download": "نزّل التطبيق",
-        "platformSelectorLabel": "اختر منصة الهاتف المحمول",
-        "appStoreQrAlt": "امسح لتنزيل Stella من App Store",
-        "playStoreQrAlt": "امسح لتنزيل Stella من Google Play",
-        "connect": "اربط هاتفك"
-      },
-      "toasts": {
-        "codeCopied": "تم نسخ الرمز إلى الحافظة",
-        "phoneRemoved": "تمت إزالة الهاتف",
-        "removeFailed": "تعذّرت إزالة الهاتف"
-      },
-      "errors": {
-        "createPairing": "تعذّر إنشاء رمز اقتران."
-      },
-      "pairedCount": {
-        "zero": "{count} هاتف مقترن",
-        "one": "{count} هاتف مقترن",
-        "two": "{count} هاتفان مقترنان",
-        "few": "{count} هواتف مقترنة",
-        "many": "{count} هاتفًا مقترنًا",
-        "other": "{count} هاتف مقترن"
-      }
-    },
-    "executionDevices": {
-      "title": "Your computers",
-      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
-      "empty": "No computer is signed in to this account yet.",
-      "unnamed": "Computer",
-      "thisComputer": "This computer",
-      "online": "Online",
-      "offline": "Offline",
-      "enable": "Enable",
-      "enabling": "Enabling…",
-      "disable": "Turn off",
-      "disabling": "Turning off…",
-      "state": {
-        "enabled": "Accepting work",
-        "notEnabled": "Not enabled",
-        "asking": "Waiting for an answer there",
-        "declined": "Declined there"
-      },
-      "errors": {
-        "load": "Unable to read the computers on this account.",
-        "update": "That change didn't go through. Try again."
-      }
-    },
-    "modelPicker": {
-      "loadFailed": "Couldn't load models",
-      "retry": "Retry",
-      "searchPlaceholder": "ابحث في النماذج…",
-      "searchAriaLabel": "البحث في النماذج",
-      "closeSearch": "إغلاق البحث",
-      "apiKeyPlaceholder": "مفتاح API",
-      "apiKeyAriaLabel": "مفتاح API لـ {provider}",
-      "cancelSignIn": "إلغاء تسجيل الدخول",
-      "signInWith": "سجّل الدخول عبر {provider}",
-      "saving": "جارٍ الحفظ…",
-      "use": "استخدام",
-      "selected": "محدَّد",
-      "refresh": "تحديث كتالوج النماذج",
-      "restrictedPlan": "غير متاح في خطة {plan}",
-      "reasoning": {
-        "label": "مستوى التفكير",
-        "default": "تلقائي",
-        "minimal": "أدنى",
-        "low": "منخفض",
-        "medium": "متوسط",
-        "high": "مرتفع",
-        "xhigh": "أقصى"
-      },
-      "authHint": {
-        "both": "سجّل الدخول أو ألصق مفتاح API. تبقى بيانات الاعتماد على هذا الجهاز.",
-        "oauth": "تبقى بيانات الاعتماد على هذا الجهاز.",
-        "apiKey": "يبقى مفتاح API على هذا الجهاز."
-      },
-      "actions": {
-        "cancel": "إلغاء",
-        "signIn": "تسجيل الدخول",
-        "addKey": "أضف مفتاحًا",
-        "custom": "مخصّص"
-      },
-      "signOut": {
-        "ariaLabel": "تسجيل الخروج من {provider}",
-        "confirmAriaLabel": "انقر مرة أخرى لتسجيل الخروج من {provider}",
-        "confirmTitle": "انقر مرة أخرى للتأكيد"
-      },
-      "local": {
-        "hint": "استخدم أي خادم محلي متوافق مع OpenAI. يعمل Ollama عادةً على العنوان أدناه.",
-        "serverUrlAriaLabel": "عنوان الخادم المحلي",
-        "modelNameAriaLabel": "اسم النموذج المحلي"
-      },
-      "openRouter": {
-        "hintBefore": "يقبل OpenRouter أي",
-        "hintAfter": "معرّف. اكتب واحدًا لاستخدامه مباشرة.",
-        "modelIdAriaLabel": "معرّف نموذج OpenRouter"
-      },
-      "empty": {
-        "none": "لا توجد نماذج متاحة بعد.",
-        "noMatch": "لا توجد نماذج مطابقة."
-      },
-      "favorite": {
-        "remove": "إزالة من المفضلة",
-        "add": "إضافة إلى المفضلة",
-        "addTitle": "المفضلة — تثبيت في الأعلى"
-      },
-      "errors": {
-        "saveApiKey": "تعذّر حفظ مفتاح API.",
-        "oauthLogin": "فشل تسجيل الدخول عبر OAuth."
-      }
-    },
-    "providerPicker": {
-      "connected": "متصل",
-      "connect": "اتصال",
-      "opening": "جارٍ الفتح…"
-    },
-    "engineModels": {
-      "ariaLabel": "نماذج {engine}",
-      "loading": "جارٍ تحميل نماذج {engine}…",
-      "empty": "لا تتوفر نماذج {engine}."
-    },
-    "providerConnected": {
-      "title": "استخدام {provider} في Stella؟",
-      "description": "يمكن لـ {provider} تشغيل أكثر من جزء من Stella. اختر ما تريد أن يتولاه — وتواصل Stella الباقي.",
-      "assistant": {
-        "label": "المساعد",
-        "description": "توجيه مساعد محادثة Stella عبر {provider}."
-      },
-      "image": {
-        "label": "الصور",
-        "description": "أنشئ الصور عبر حسابك في {provider}."
-      },
-      "voice": {
-        "label": "الصوت",
-        "description": "استخدم {provider} للمحادثات الصوتية الفورية."
-      },
-      "skip": "تخطٍّ",
-      "apply": "تطبيق",
-      "applying": "جارٍ التطبيق…",
-      "errors": {
-        "apply": "تعذّر تطبيق إعدادات المزوّد."
-      }
-    },
-    "compactModelList": {
-      "ariaLabel": "نماذج Stella",
-      "recent": "الأخيرة",
-      "unavailable": "غير متاح",
-      "unavailableTitle": "لم يعد هذا النموذج متاحًا — اختر غيره.",
-      "loading": "جارٍ تحميل نماذج Stella…",
-      "loadFailed": "تعذّر تحميل نماذج Stella.",
-      "empty": "لا تتوفر نماذج Stella.",
-      "retry": "إعادة المحاولة",
-      "restricted": "خطتك تستخدم اختيار Stella.",
-      "restrictedPlan": "خطة {plan} تستخدم اختيار Stella.",
-      "upgrade": "ترقية"
-    },
-    "reasoningEffort": {
-      "minimal": "أدنى",
-      "low": "منخفض",
-      "medium": "متوسط",
-      "high": "مرتفع",
-      "xhigh": "إضافي"
-    },
-    "agentModelPicker": {
-      "byokDescription": "استخدم مفتاح API الخاص بك لـ {provider}.",
-      "unavailableChooseAnother": "غير متاح — اختر نموذجًا آخر",
-      "chatGptRouted": "تم التوجيه إلى {model} (النموذج المحفوظ غير متاح).",
-      "default": "افتراضي",
-      "stellaDefault": "افتراضي Stella",
-      "surfaceAriaLabel": "الواجهة",
-      "waitingForChatGpt": "في انتظار ChatGPT…",
-      "imageProviderAriaLabel": "مزوّد الصور",
-      "voiceProviderAriaLabel": "مزوّد الصوت",
-      "assistantPickerAriaLabel": "منتقي نموذج المساعد",
-      "verifyingChatGpt": "جارٍ التحقق من نماذج ChatGPT…",
-      "savedModelUnavailable": "النموذج المحفوظ غير متاح. اختر نموذجًا آخر.",
-      "tabs": {
-        "assistant": "المساعد",
-        "assistantTitle": "مساعد Stella الرئيسي",
-        "image": "الصور",
-        "imageTitle": "مزوّد توليد الصور",
-        "voice": "الصوت",
-        "voiceTitle": "مزوّد الصوت الفوري"
-      },
-      "errors": {
-        "loadPreferences": "تعذّر تحميل إعدادات النماذج.",
-        "chatGptMigration": "فشل ترحيل توجيه ChatGPT.",
-        "chatGptVerify": "تعذّر التحقق من نماذج ChatGPT: {error}",
-        "chatGptVerifying": "انتظر حتى ينتهي التحقق من نماذج ChatGPT.",
-        "chatGptNotConnected": "سجّل الدخول باستخدام ChatGPT على هذا الكمبيوتر أولاً.",
-        "chatGptNoModels": "لا تتوفر حاليًا أي نماذج ChatGPT.",
-        "connectChatGpt": "تعذّر توصيل ChatGPT.",
-        "updateEngine": "تعذّر تحديث المحرّك.",
-        "updateTitle": "تعذّر تحديث إعدادات النموذج",
-        "refreshTitle": "تعذّر تحديث النماذج",
-        "updateModel": "تعذّر تحديث إعداد النموذج.",
-        "updateImage": "تعذّر تحديث إعداد الصور.",
-        "updateVoice": "تعذّر تحديث إعداد الصوت.",
-        "updateInworldSpeed": "تعذّر تحديث سرعة Inworld.",
-        "updateVoiceFamily": "تعذّر تحديث عائلة الأصوات.",
-        "updateReadAloud": "تعذّر تحديث مزوّد القراءة بصوت عالٍ.",
-        "updateReasoning": "تعذّر تحديث مستوى التفكير.",
-        "updateChatGptSpeed": "تعذّر تحديث سرعة ChatGPT.",
-        "updateDirectRuntime": "تعذّر تحديث إعداد {runtime} المباشر.",
-        "chatGptPlanUsageOff": "استخدام خطة ChatGPT غير مفعّل لهذا الحساب. فعّله من الإعدادات › الحساب، أو اختر نموذجًا آخر."
-      },
-      "noChatGptModels": "لا تتوفر نماذج ChatGPT لهذا الحساب حاليًا.",
-      "chatGptPlanInUse": "يتم استخدام خطة ChatGPT",
-      "chatGptManageUsage": "إدارة الاستخدام"
-    },
-    "onboardingReplay": {
-      "title": "Onboarding",
-      "action": "Replay",
-      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched."
-    },
-    "companion": {
-      "title": "Desktop companion",
-      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
-      "error": "Couldn't update the desktop companion."
-    },
-    "engineAccounts": {
-      "cardTitle": "حسابات Claude وChatGPT",
-      "cardIntro": "استخدم خطة Claude أو ChatGPT التي تدفع مقابلها بالفعل. يسجّل كل مكان دخوله بشكل منفصل: كل كمبيوتر والسحابة الخاصة بك.",
-      "claudeTitle": "Claude (Pro/Max)",
-      "addClaude": "إضافة حساب Claude",
-      "addOnComputer": "على هذا الكمبيوتر",
-      "addInCloud": "في السحابة",
-      "active": "نشط",
-      "signInComputer": "تسجيل الدخول على هذا الكمبيوتر",
-      "signOutComputer": "تسجيل الخروج على هذا الكمبيوتر",
-      "signIn": "تسجيل الدخول",
-      "signedOut": "تم تسجيل الخروج.",
-      "removed": "تمت الإزالة.",
-      "placeComputer": "هذا الكمبيوتر",
-      "placeOtherComputer": "كمبيوتر آخر",
-      "placeSignedIn": "{place}: تم تسجيل الدخول",
-      "placeSignedOut": "{place}: لم يتم تسجيل الدخول",
-      "signedOutLogin": "تسجيل دخول Claude Code منتهٍ",
-      "cliMissing": "Claude Code غير مثبّت على هذا الكمبيوتر. ثبّته لاستخدام Claude هنا.",
-      "defaultSignedOut": "لم يتم تسجيل الدخول إلى Claude Code على هذا الكمبيوتر.",
-      "signedInComputer": "تم تسجيل الدخول إلى Claude Code على هذا الكمبيوتر.",
-      "signedInComputerAs": "تم تسجيل الدخول إلى Claude Code على هذا الكمبيوتر باسم {email}.",
-      "signedInCloud": "تم تسجيل دخول سحابتك إلى Claude.",
-      "signedInCloudAs": "تم تسجيل دخول سحابتك إلى Claude باسم {email}.",
-      "errorGeneric": "لم ينجح ذلك. حاول مرة أخرى.",
-      "claudeLogin": {
-        "whereComputer": "جارٍ تسجيل الدخول إلى Claude Code على هذا الكمبيوتر.",
-        "whereCloud": "جارٍ تسجيل الدخول إلى Claude Code في سحابتك.",
-        "starting": "جارٍ فتح صفحة تسجيل الدخول من Anthropic…",
-        "opened": "فتحنا صفحة تسجيل الدخول من Anthropic.",
-        "reopen": "افتحها مرة أخرى",
-        "submit": "إرسال",
-        "submitting": "جارٍ تسجيل الدخول…",
-        "failed": "لم يتم تسجيل الدخول.",
-        "startAgain": "البدء من جديد",
-        "codeLabel": "الصق الرمز الذي تعرضه Anthropic"
-      },
-      "chatgptCloudSignedIn": "تم تسجيل دخول سحابتك إلى ChatGPT.",
-      "revokeTitleCloud": "تم تسجيل الخروج من ChatGPT في السحابة",
-      "revokeTitleComputer": "تم تسجيل الخروج على هذا الكمبيوتر",
-      "runsOnLabel": "تعمل الدردشة السحابية عبر",
-      "needsClaudeCloud": "سجّل الدخول إلى Claude في السحابة أولاً",
-      "needsChatgptCloud": "اربط ChatGPT بسحابتك أولاً",
-      "chatgptComputerSignedIn": "تم تسجيل دخول هذا الكمبيوتر إلى ChatGPT.",
-      "planUsageOffTitle": "تم تسجيل الدخول، لكن استخدام خطة ChatGPT غير مفعّل",
-      "planUsageOffBody": "لا يمكن لـ Stella استخدام خطة ChatGPT الخاصة بك حتى تسمح بذلك. اختر «تفعيل استخدام خطة ChatGPT» في الحساب، أو استخدم نموذجًا آخر.",
-      "signInCloud": "تسجيل الدخول في السحابة",
-      "signOutCloud": "تسجيل الخروج من السحابة",
-      "placeCloud": "السحابة",
-      "useAccount": "استخدام هذا الحساب",
-      "signOut": "تسجيل الخروج",
-      "moreLabel": "خيارات {name}",
-      "signInAgain": "تسجيل الدخول مرة أخرى",
-      "enablePlanUsage": "تفعيل استخدام خطة ChatGPT",
-      "remove": "إزالة",
-      "statusSignedOut": "تم تسجيل الخروج",
-      "statusReauth": "سجّل الدخول مرة أخرى لمواصلة استخدامه",
-      "statusPlanUsageOff": "استخدام خطة ChatGPT غير مفعّل",
-      "revokeUnconfirmed": "لم يؤكد ChatGPT تسجيل الخروج. يمكنك فصل Stella من إعدادات ChatGPT.",
-      "pasteHintChatgpt": "بعد الموافقة، ينقلك ChatGPT إلى صفحة لا يتم تحميلها. انسخ العنوان الكامل لتلك الصفحة والصقه هنا.",
-      "pastePlaceholderUrl": "الصق العنوان هنا",
-      "openChatgptAgain": "فتح ChatGPT مرة أخرى",
-      "connecting": "جارٍ الاتصال…",
-      "finish": "اتصال",
-      "chatgptBrowserWaiting": "أكمل تسجيل الدخول إلى ChatGPT في متصفحك.",
-      "chatgptTitle": "ChatGPT",
-      "addChatgpt": "Add ChatGPT account",
-      "addChatgptCloud": "Add ChatGPT account in the cloud",
-      "enablePlanUsageCloud": "Enable ChatGPT plan use in the cloud"
-    }
-  },
-  "onboarding": {
-    "legalFooter": "باستخدامك Stella، فأنت توافق على {terms} و{privacy}.",
-    "termsOfService": "شروط الخدمة",
-    "privacyPolicy": "سياسة الخصوصية",
-    "chat": {
-      "skipSetup": "Skip setup",
-      "composerPlaceholder": "Or just ask me something to get started",
-      "send": "Send",
-      "messages": {
-        "capabilities": "مرحبًا، أنا Stella.\n\nلست روبوت دردشة. أستخدم هذا الكمبيوتر لأنجز الأشياء فعلًا نيابةً عنك، في الخلفية، بينما تواصل عملك.\n\nهكذا يبدو الأمر.",
-        "theme": "Now, how should I look?",
-        "extras": "Almost done. A little housekeeping, then we start.",
-        "memory": "One more thing that makes me different.",
-        "selfmod": "ولأنني أعيش على جهازك، يمكنني تغيير نفسي.",
-        "signin": "الآن، لنسجّل دخولك. استخدم حساب Stella، أو اشتراك Claude أو ChatGPT الذي لديك بالفعل.",
-        "quickstart": "هذا كل شيء. بقي أمر أخير، وهو اختياري: بداية سريعة.",
-        "quickstartDone": "تم. إليك ما تعلّمته، وبعض الأشياء التي يمكننا أن نبدأ بها.",
-        "quickstartFailed": "لم أتمكن من إنهاء قراءة متصفحك هذه المرة. يمكننا أن نبدأ على أي حال، وسأتعلّم أثناء العمل."
-      },
-      "replies": {
-        "capabilitiesDone": "Got it.",
-        "capabilitiesSkipped": "Skip the tour.",
-        "themeDone": "That one.",
-        "themeSkipped": "Keep the default.",
-        "extrasDone": "Done.",
-        "extrasSkipped": "Skip for now.",
-        "memoryDone": "Nice.",
-        "memorySkipped": "Skip it.",
-        "selfmodDone": "رائع جدًا.",
-        "signinDone": "تم."
-      },
-      "discovery": {
-        "browserLabel": "Your browser",
-        "includeDev": "My coding setup",
-        "hint": "About a minute, in the background.",
-        "alsoLabel": "Also include",
-        "assurance": "A one-time read, kept on this computer. You can see and edit what I keep at any time."
-      },
-      "capabilities": {
-        "errands": {
-          "word": "Errands",
-          "title": "Ask once. Consider it handled.",
-          "caption": "أجد المكان المناسب، وأملأ النموذج، وأضيفه إلى تقويمك، تمامًا كما كنت ستفعل."
-        },
-        "shopping": {
-          "word": "Shopping",
-          "title": "I can buy things, with your OK.",
-          "caption": "I find it and get it to checkout. You confirm the total, and I place the order."
-        },
-        "work": {
-          "word": "Work",
-          "title": "ملفات حقيقية. عدة مهام في وقت واحد.",
-          "caption": "أعمل داخل التطبيقات الحقيقية على هذا الكمبيوتر، ويمكنني تنفيذ أكثر من مهمة في وقت واحد."
-        },
-        "build": {
-          "word": "Build",
-          "title": "Say it. I'll build it.",
-          "caption": "Apps and websites, made to order. Describe it in plain words and I'll build it, run it, and put it online."
-        },
-        "settledTitle": "The quick tour",
-        "replay": "Replay this demo",
-        "tablist": "Capability demos",
-        "routines": {
-          "word": "الروتينات",
-          "title": "اطلب مرة واحدة. ويحدث كل يوم.",
-          "caption": "جدول أي شيء وسأنجزه في موعده، حتى وأنت نائم."
-        }
-      },
-      "memory": {
-        "titleChatbot": "You know this one",
-        "bodyChatbot": "A new chat every time, a sidebar full of old ones, and no memory of what you said last week.",
-        "titleStella": "With me it's one conversation",
-        "bodyStella": "No new chats, no threads. Everything you've ever told me is in the same place, so when you ask about last week I go and find it.",
-        "showStella": "Now ask me",
-        "skip": "Skip",
-        "settledTitle": "One conversation",
-        "settledDesc": "No threads to manage. I remember."
-      },
-      "theme": {
-        "title": "Pick a look",
-        "body": "Hover to try one on. Click to keep it.",
-        "appearance": "Appearance",
-        "themes": "Theme",
-        "mode": {
-          "light": "Light",
-          "dark": "Dark",
-          "system": "System"
-        },
-        "confirm": "Done",
-        "skip": "Keep the default",
-        "hint": "Everything here changes live.",
-        "settledTitle": "Default",
-        "gradientStyle": "Gradient style",
-        "gradientColor": "Gradient color",
-        "gradient": {
-          "soft": "Soft",
-          "flat": "Flat",
-          "relative": "Relative",
-          "strong": "Strong"
-        }
-      },
-      "extras": {
-        "title": "Two quick extras",
-        "titleOne": "One quick extra",
-        "body": "Neither is required, but both make me a lot more useful.",
-        "bodyOne": "Not required, but it makes me a lot more useful.",
-        "accessibilityTitle": "Accessibility",
-        "accessibilityDesc": "So I can act on selected text and what's under your cursor.",
-        "screenTitle": "Screen Recording",
-        "screenDesc": "So I can see the screen when you ask me to.",
-        "enable": "Enable",
-        "enabled": "Enabled",
-        "extensionTitle": "Stella for Chrome",
-        "extensionDesc": "Lets me see the page you're on and act inside your browser. Works in Chrome, Arc, Brave, and Edge.",
-        "getExtension": "Get extension",
-        "extensionOpened": "Opened",
-        "memoryTitle": "Remember across chats",
-        "memoryDesc": "Use what I've saved about you when it's relevant. Nothing is deleted if you turn this off.",
-        "restartHint": "Screen access needs a quick restart to take effect.",
-        "restart": "Restart Stella",
-        "skip": "Skip for now",
-        "hint": "All of this lives in Settings too.",
-        "settledTitle": "Extras",
-        "settledSkippedTitle": "Extras skipped",
-        "settledPermissions": "Permissions",
-        "settledExtension": "Extension",
-        "settledMemory": "Memory"
-      },
-      "ready": {
-        "highlightsLabel": "What I picked up",
-        "startersLabel": "Try one of these",
-        "startersLabelPersonal": "Made for you",
-        "notesSummary": "See everything I noted",
-        "notesFoot": "You can read or edit this any time in Settings › Memory.",
-        "start": "Start chatting",
-        "hint": "Or type anything below.",
-        "generic": {
-          "plan": {
-            "title": "Plan my week",
-            "prompt": "Help me plan my week. Ask me what's on my plate and lay it out day by day."
-          },
-          "browse": {
-            "title": "Find me a good dinner spot",
-            "prompt": "Find a well-reviewed dinner spot near me for this weekend and hold a reservation for two."
-          },
-          "file": {
-            "title": "Tidy up a document",
-            "prompt": "I have a document that needs cleaning up. I'll share it and you fix the structure and wording."
-          },
-          "watch": {
-            "title": "Watch a site for changes",
-            "prompt": "Keep an eye on a web page for me and tell me when it changes."
-          }
-        }
-      },
-      "progress": "تقدّم الإعداد",
-      "selfmod": {
-        "title": "يمكنني تغيير نفسي",
-        "body": "هل تفتقد ميزة، أو تريد أن يعمل شيء بطريقة مختلفة؟ فقط اطلب. سأعيد كتابة شيفرتي بنفسي، وأتيح لك تجربتها، وأنت تقرر هل تبقيها.",
-        "steps": {
-          "ask": {
-            "title": "اطلب",
-            "body": "صف التغيير بكلمات بسيطة."
-          },
-          "preview": {
-            "title": "معاينة",
-            "body": "يبنيه وكيل ويفتح معاينة مباشرة."
-          },
-          "update": {
-            "title": "تحديث",
-            "body": "نقرة واحدة لتطبيقه. تراجع في أي وقت."
-          }
-        },
-        "hint": "تبقى التغييرات على هذا الكمبيوتر.",
-        "settledTitle": "يمكنني تغيير نفسي",
-        "settledDesc": "اطلب، عاين، حدّث. تراجع في أي وقت."
-      },
-      "signin": {
-        "title": "تسجيل الدخول",
-        "body": "يكفي أي خيار من هذه. يمكنك إضافة الباقي لاحقًا.",
-        "options": {
-          "stella": {
-            "title": "حساب Stella",
-            "body": "Google أو البريد الإلكتروني. محادثاتك تتبعك إلى هاتفك."
-          },
-          "claude": {
-            "title": "Claude Code",
-            "body": "استخدم اشتراكك في Claude Pro أو Max."
-          },
-          "chatgpt": {
-            "title": "ChatGPT",
-            "body": "سجّل الدخول باستخدام ChatGPT لاستخدام خطتك."
-          },
-          "apikey": {
-            "title": "مفتاح API",
-            "body": "استخدم مفتاحك من Anthropic أو OpenAI أو Google أو غيرها."
-          }
-        },
-        "signIn": "تسجيل الدخول",
-        "connect": "اتصال",
-        "use": "استخدام",
-        "inUse": "قيد الاستخدام",
-        "waiting": "أكمل تسجيل الدخول في متصفحك، ثم عد إلى هنا.",
-        "error": "تعذّر الاتصال. أتحاول مرة أخرى؟",
-        "fine": "يمكنك تغيير هذا في أي وقت من الإعدادات.",
-        "hint": "البدء مجاني.",
-        "settledEngine": "استخدام {name}",
-        "settledStella": "تم تسجيل الدخول إلى Stella",
-        "settledDesc": "يمكنك تغييره في أي وقت من الإعدادات.",
-        "claudeCliMissing": "ثبّت Claude Code أولاً، ثم حاول مرة أخرى."
-      },
-      "quickstart": {
-        "eyebrow": "بداية سريعة",
-        "title": "امنحني بداية سريعة",
-        "body": "تبدأ معظم المساعدات من الصفر. وجّهني إلى متصفحك وسأقرؤه مرة واحدة لأبني ذاكرة أولية، لأكون مفيدة منذ اليوم الأول.",
-        "run": "تشغيل البداية السريعة",
-        "skip": "تخطّي",
-        "runningTitle": "أتعرّف إليك",
-        "runningBody": "نحو دقيقة. ادخل في أي وقت، وسأنهي في الخلفية.",
-        "stages": {
-          "read": "أقرأ ما اخترته",
-          "notice": "ألاحظ ما يهمّك",
-          "write": "أكتب ذاكرتك الأولية"
-        },
-        "continueInBackground": "ابدأ المحادثة، وأنهي في الخلفية",
-        "failedTitle": "لم يكتمل هذا",
-        "failedBody": "قاطع شيء ما القراءة. حاول مرة أخرى، أو ابدأ المحادثة وسأتعلّم أثناء العمل."
-      }
-    }
-  },
-  "billing": {
-    "plans": {
-      "free": {
-        "tagline": "مجاني للتجربة."
-      },
-      "go": {
-        "tagline": "استخدام أعلى 10×"
-      },
-      "pro": {
-        "tagline": "أعلى حدود استخدام لإنشاء الوسائط والوكلاء المتعددين"
-      }
-    },
-    "features": {
-      "assistant": "مساعد شخصي",
-      "codingAgent": "وكيل برمجة",
-      "research": "البحث والعمل المعرفي",
-      "dictationReadAloud": "الإملاء والقراءة بصوت عالٍ",
-      "multipleAgents": "وكلاء متعددون"
-    },
-    "capability": {
-      "image_generation": "توليد الصور",
-      "video_generation": "توليد الفيديو",
-      "audio_generation": "توليد الصوت والموسيقى",
-      "three_d_generation": "التوليد ثلاثي الأبعاد"
-    },
-    "capabilityRestriction": {
-      "title": "{capability} غير متاح في خطتك",
-      "signIn": "{capability} مضمّن في Stella {plan}. سجّل الدخول لترقية خطتك وفتح هذه الميزة.",
-      "upgrade": "{capability} مضمّن في Stella {plan}. رقِّ خطتك لفتح هذه الميزة.",
-      "unavailable": "{capability} غير متاح في أي خطة حاليًا.",
-      "lockedBadge": "{plan}",
-      "lockedBadgeGeneric": "غير متاح",
-      "genericTitle": "غير مضمّن في خطتك",
-      "genericDescription": "هذه الميزة مضمّنة في Stella Pro. رقِّ خطتك لفتحها."
-    },
-    "freeAllowance": {
-      "label": "استخدام الخطة المجانية",
-      "caption": "مجاني للتجربة.",
-      "remaining": "مجاني للتجربة.",
-      "exhaustedTitle": "لقد وصلت إلى حد الخطة المجانية",
-      "exhaustedDescription": "قم بالترقية إلى Go لاستخدام أعلى 10×.",
-      "exhaustedCta": "الترقية إلى Go"
-    },
-    "upgradeDialog": {
-      "title": "أنت الآن على Stella {plan}.",
-      "description": "شكرًا على الترقية. الأولوية الأعلى والاستخدام الموسّع فعّالان الآن — تابع.",
-      "cta": "ابدأ"
-    },
-    "renewal": {
-      "nextLabel": "التجديد التالي",
-      "pendingLabel": "الإلغاء قيد الانتظار",
-      "renews": "يتجدد في {date}",
-      "accessEnds": "ينتهي الوصول في {date}",
-      "lapseTitle": "سيتوقف Stella عند انتهاء خطتك",
-      "lapseDescription": "تستمر خطة {plan} حتى {date}. بعد ذلك يتوقف Stella — رصيد خطة Free يُمنح مرة واحدة، ورصيدك استُهلك بالفعل."
-    },
-    "heading": "اختر خطتك",
-    "subtitle": "ابدأ مجانًا. قم بالترقية عندما تحتاج إلى المزيد.",
-    "mobile": {
-      "sectionTitle": "الاشتراك",
-      "currentPlanLabel": "الخطة الحالية",
-      "planValue": "Stella {plan}",
-      "manage": "إدارة الاشتراك",
-      "manageWebNote": "يمكنك إدارة هذا الاشتراك أو إلغاؤه من Stella على الويب على stella.sh.",
-      "renews": "يتجدد في {date}",
-      "accessEnds": "ينتهي الوصول في {date}",
-      "chooseHeading": "اختر خطتك",
-      "subscribe": "اشترك",
-      "perMonth": "{price}/شهر",
-      "introLine": "{introPrice} للشهر الأول، ثم {price}/شهر",
-      "signInToSubscribe": "سجّل الدخول للاشتراك",
-      "startingCheckout": "جارٍ البدء…",
-      "pendingTitle": "جارٍ إتمام عملية الشراء",
-      "pendingBody": "أكمل الدفع في المتصفح. ستُحدَّث خطتك هنا تلقائيًا بمجرد تأكيد الدفع — لا حاجة لإعادة التشغيل.",
-      "pendingDismiss": "ليس الآن",
-      "successTitle": "أنت الآن على Stella {plan}",
-      "successBody": "اشتراكك نشط. استمتع بالحدود الأعلى.",
-      "errorRetry": "أعد المحاولة",
-      "alreadySubscribedTitle": "لديك اشتراك بالفعل",
-      "footnote": "تُصدر الفاتورة من Stella عبر Stripe. يتجدد شهريًا حتى الإلغاء؛ ألغِ في أي وقت."
-    }
-  },
-  "chat": {
-    "stoppedReply": "لم تستطع Stella بدء هذا الرد",
-    "tryAgainHint": "يرجى المحاولة مرة أخرى.",
-    "attachments": {
-      "attachPhoto": "إرفاق صورة",
-      "takePhoto": "التقاط صورة",
-      "attachFile": "إرفاق ملف",
-      "remove": "إزالة المرفق",
-      "uploading": "جارٍ الرفع",
-      "retryUpload": "إعادة محاولة الرفع",
-      "uploadFailed": "فشل الرفع. اضغط لإعادة المحاولة.",
-      "tooManyTitle": "عدد الملفات كبير جدًا",
-      "tooManyBody": "يمكنك إرفاق {count} ملفات كحد أقصى في المرة الواحدة.",
-      "photosDeniedTitle": "الصور",
-      "photosDeniedBody": "اسمح لـ Stella بالوصول إلى مكتبة صورك من الإعدادات لتتمكن من إرفاق الصور.",
-      "cameraDeniedTitle": "الكاميرا",
-      "cameraDeniedBody": "اسمح لـ Stella باستخدام الكاميرا من الإعدادات لتتمكن من التقاط صورة.",
-      "photoLabel": "صورة",
-      "sheetTitle": "إضافة إلى المحادثة",
-      "camera": "الكاميرا",
-      "photos": "الصور",
-      "files": "الملفات",
-      "readAloud": "قراءة الردود بصوت عالٍ"
-    }
-  },
-  "errors": {
-    "generic": "حدث خطأ ما",
-    "subscriptionRequired": "تتطلب النسخ الاحتياطية اشتراكًا نشطًا في Stella.",
-    "rateLimited": "أنت تتحرك بسرعة قليلاً. حاول مرة أخرى بعد قليل.",
-    "networkUnavailable": "‏Stella غير متصلة. أعد الاتصال للمتابعة.",
-    "permissionDenied": "ليس لدى Stella إذن للقيام بذلك."
-  },
   "app": {
-    "usage": {
-      "desktopOnly": "الاستخدام المحلي متاح في تطبيق Stella لسطح المكتب.",
-      "intro": "استدعاءات المزوّدين المحفوظة على هذا الجهاز. التكاليف تقديرات محلية؛ وتبقى فوترة الخادم هي المرجع.",
-      "refresh": "تحديث",
-      "refreshLabel": "تحديث الاستخدام",
-      "selectedThread": "المسار المحدَّد",
-      "viewAllThreads": "عرض كل المسارات",
-      "loading": "جارٍ تحميل الاستخدام المحلي…",
-      "loadError": "تعذّر تحميل الاستخدام المحلي",
-      "tryAgain": "حاول مرة أخرى",
-      "emptyTitle": "لا توجد استدعاءات نماذج تطابق هذه المرشّحات.",
-      "emptyBody": "تظهر الاستدعاءات الأصلية هنا بعد أن يُرجع مزوّدها بيانات استخدام نهائية.",
-      "truncatedWarning": "يتم عرض أحدث 10,000 استدعاء في هذا النطاق. ضيّق النطاق الزمني للحصول على إجماليات دقيقة.",
-      "filters": {
-        "label": "مرشّحات الاستخدام",
-        "timeRange": "النطاق الزمني",
-        "conversation": "المحادثة",
-        "thread": "المسار",
-        "agentType": "نوع الوكيل",
-        "model": "النموذج",
-        "allConversations": "كل المحادثات",
-        "allThreads": "كل المسارات",
-        "allAgentTypes": "كل أنواع الوكلاء",
-        "allModels": "كل النماذج",
-        "range": {
-          "24h": "آخر 24 ساعة",
-          "7d": "آخر 7 أيام",
-          "30d": "آخر 30 يومًا",
-          "all": "كل الأوقات"
-        }
-      },
-      "summary": {
-        "label": "ملخّص الاستخدام",
-        "estimatedCost": "التكلفة التقديرية",
-        "providerCalls": "{count} استدعاء للمزوّدين",
-        "totalTokens": "إجمالي الرموز",
-        "uncachedInput": "{value} إدخال غير مخزّن مؤقتًا",
-        "cacheRead": "قراءة من ذاكرة التخزين المؤقت",
-        "cacheDetail": "{read} قراءة · {written} كتابة",
-        "output": "الإخراج",
-        "reasoningTokens": "{value} رمز تفكير"
-      },
-      "timeline": {
-        "title": "المخطط الزمني",
-        "description": "التكلفة التقديرية وإجمالي الرموز لكل فترة زمنية.",
-        "chartLabel": "مخطط زمني للتكلفة التقديرية للنماذج واستخدام الرموز",
-        "series": {
-          "cost": "التكلفة التقديرية",
-          "tokens": "الرموز"
-        },
-        "tooltip": {
-          "estimated": "{value} تقديريًا",
-          "tokens": "{value} رمز",
-          "calls": "{count} استدعاء للنماذج"
-        }
-      },
-      "threads": {
-        "title": "المسارات",
-        "description": "المنسّق والوكلاء والوكلاء الفرعيون المتداخلون.",
-        "columns": {
-          "execution": "التنفيذ",
-          "model": "النموذج",
-          "calls": "الاستدعاءات",
-          "tokens": "الرموز",
-          "cache": "التخزين المؤقت",
-          "cost": "التكلفة"
-        }
-      },
-      "calls": {
-        "title": "استدعاءات المزوّدين",
-        "description": "يشمل الإخراج التفكير حيث يضمّنه المزوّد؛ ويُعرض التفكير أيضًا بشكل منفصل عند الإبلاغ عنه.",
-        "costBreakdown": "إدخال {input} · قراءة تخزين مؤقت {cacheRead} · كتابة تخزين مؤقت {cacheWrite} · إخراج {output}",
-        "truncatedNote": "يتم عرض أحدث 500 استدعاء مطابق؛ وتشمل إجماليات الملخّص كل الاستدعاءات المحمّلة البالغة {count}.",
-        "columns": {
-          "time": "الوقت",
-          "execution": "التنفيذ",
-          "providerModel": "المزوّد / النموذج",
-          "input": "الإدخال",
-          "cache": "تخزين مؤقت ق / ك",
-          "output": "الإخراج",
-          "reasoning": "التفكير",
-          "cost": "التكلفة",
-          "stop": "الإيقاف"
-        }
-      }
-    },
     "apps": {
       "createAppPrompt": "أخبرني ما تطبيقات stella التي يمكنك إنشاؤها لي؟"
     },
@@ -1180,12 +12,12 @@
         "statusError": "تعذّر الإنهاء",
         "statusRunning": "مهمة قيد التنفيذ",
         "tasksInProgress": {
-          "zero": "{count} مهمة قيد التنفيذ",
-          "one": "{count} مهمة قيد التنفيذ",
-          "two": "{count} مهمتان قيد التنفيذ",
           "few": "{count} مهام قيد التنفيذ",
           "many": "{count} مهمة قيد التنفيذ",
-          "other": "{count} مهمة قيد التنفيذ"
+          "one": "{count} مهمة قيد التنفيذ",
+          "other": "{count} مهمة قيد التنفيذ",
+          "two": "{count} مهمتان قيد التنفيذ",
+          "zero": "{count} مهمة قيد التنفيذ"
         }
       },
       "addMenu": {
@@ -1200,12 +32,12 @@
         "openThread": "افتح مسار الوكيل",
         "showLess": "عرض أقل",
         "showMore": {
-          "zero": "+{count} أخرى",
-          "one": "+{count} أخرى",
-          "two": "+{count} أخرى",
           "few": "+{count} أخرى",
           "many": "+{count} أخرى",
-          "other": "+{count} أخرى"
+          "one": "+{count} أخرى",
+          "other": "+{count} أخرى",
+          "two": "+{count} أخرى",
+          "zero": "+{count} أخرى"
         }
       },
       "agentModelIcon": {
@@ -1217,12 +49,12 @@
         "openNamedThread": "افتح مسار وكيل {title}",
         "openThread": "افتح مسار الوكيل",
         "taskCount": {
-          "zero": "{count} مهمة",
-          "one": "{count} مهمة",
-          "two": "{count} مهمتان",
           "few": "{count} مهام",
           "many": "{count} مهمة",
-          "other": "{count} مهمة"
+          "one": "{count} مهمة",
+          "other": "{count} مهمة",
+          "two": "{count} مهمتان",
+          "zero": "{count} مهمة"
         },
         "title": "عمل في الخلفية"
       },
@@ -1297,20 +129,20 @@
           "video": "فيديو"
         },
         "fileChangeCount": {
-          "zero": "{count} تغيير في الملفات",
-          "one": "{count} تغيير في الملفات",
-          "two": "{count} تغييران في الملفات",
           "few": "{count} تغييرات في الملفات",
           "many": "{count} تغييرًا في الملفات",
-          "other": "{count} تغيير في الملفات"
+          "one": "{count} تغيير في الملفات",
+          "other": "{count} تغيير في الملفات",
+          "two": "{count} تغييران في الملفات",
+          "zero": "{count} تغيير في الملفات"
         },
         "imageCount": {
-          "zero": "{count} صورة",
-          "one": "{count} صورة",
-          "two": "{count} صورتان",
           "few": "{count} صور",
           "many": "{count} صورة",
-          "other": "{count} صورة"
+          "one": "{count} صورة",
+          "other": "{count} صورة",
+          "two": "{count} صورتان",
+          "zero": "{count} صورة"
         },
         "openInPanel": "افتح في اللوحة",
         "openPreview": "افتح المعاينة"
@@ -1362,31 +194,30 @@
         "modeTransit": "مواصلات",
         "modeWalking": "سيرًا",
         "placesCount": {
-          "zero": "{count} مكان",
-          "one": "{count} مكان",
-          "two": "{count} مكانان",
           "few": "{count} أماكن",
           "many": "{count} مكانًا",
-          "other": "{count} مكان"
+          "one": "{count} مكان",
+          "other": "{count} مكان",
+          "two": "{count} مكانان",
+          "zero": "{count} مكان"
         },
         "previewFailed": "تعذّر تحميل معاينة الخريطة."
       },
       "messageActions": {
-        "selectText": "Select text",
-        "share": "Share",
-        "quote": "Quote",
-        "fork": "Fork to new chat",
-        "more": "إجراءات أخرى",
-        "rewind": "Rewind here",
-        "rewindConfirm": "Click again to rewind",
         "copied": "تم النسخ",
         "copy": "نسخ",
+        "fork": "Fork to new chat",
+        "more": "إجراءات أخرى",
+        "quote": "Quote",
         "readAloud": "اقرأ بصوت عالٍ",
         "reply": "رد",
+        "rewind": "Rewind here",
+        "rewindConfirm": "Click again to rewind",
+        "selectText": "Select text",
+        "share": "Share",
         "stopReading": "أوقف القراءة"
       },
       "messageRow": {
-        "quotedTextLabel": "Quoted text",
         "attachmentAlt": "مرفق",
         "attachmentFallback": "مرفق {index}",
         "channelKind": {
@@ -1399,6 +230,7 @@
         "clickToEnlarge": "انقر لتكبير {label}",
         "pastedTextLabel": "نص ملصق",
         "pastedTextTitle": "نص ملصق — {stats}",
+        "quotedTextLabel": "Quoted text",
         "reactionsSummary": "التفاعلات {reactions}",
         "showMoreChips": "عرض {count} إضافية",
         "windowPreviewAlt": "معاينة محتوى النافذة"
@@ -1503,6 +335,10 @@
           "description": "حرّك صورة ثابتة لتصبح فيديو قصيرًا",
           "name": "من صورة إلى فيديو"
         },
+        "referenceToVideo": {
+          "description": "إنشاء فيديو باستخدام مراجع من الصور والفيديو والصوت",
+          "name": "فيديو من مراجع"
+        },
         "speechToText": {
           "description": "حوّل الصوت المنطوق إلى نص",
           "name": "من كلام إلى نص"
@@ -1530,10 +366,6 @@
         "videoToVideo": {
           "description": "حوّل فيديو بتعليمات نصية",
           "name": "من فيديو إلى فيديو"
-        },
-        "referenceToVideo": {
-          "description": "إنشاء فيديو باستخدام مراجع من الصور والفيديو والصوت",
-          "name": "فيديو من مراجع"
         }
       },
       "imageFailure": {
@@ -1575,6 +407,9 @@
         "prompt": "المطالبة",
         "promptPlaceholder": "صِف ما تريده…",
         "quality": "الجودة",
+        "qualityHigh": "مرتفع",
+        "qualityLow": "منخفض",
+        "qualityMedium": "متوسط",
         "queued": "في انتظار الدور…",
         "sourceAudio": "ملف صوتي",
         "sourceFile": "الملف المصدر",
@@ -1582,563 +417,706 @@
         "sourceVideo": "الفيديو المصدر",
         "submitting": "جارٍ الإرسال…",
         "title": "الوسائط",
-        "transformVideo": "حوّل الفيديو",
-        "qualityHigh": "مرتفع",
-        "qualityLow": "منخفض",
-        "qualityMedium": "متوسط"
+        "transformVideo": "حوّل الفيديو"
       }
+    },
+    "usage": {
+      "calls": {
+        "columns": {
+          "cache": "تخزين مؤقت ق / ك",
+          "cost": "التكلفة",
+          "execution": "التنفيذ",
+          "input": "الإدخال",
+          "output": "الإخراج",
+          "providerModel": "المزوّد / النموذج",
+          "reasoning": "التفكير",
+          "stop": "الإيقاف",
+          "time": "الوقت"
+        },
+        "costBreakdown": "إدخال {input} · قراءة تخزين مؤقت {cacheRead} · كتابة تخزين مؤقت {cacheWrite} · إخراج {output}",
+        "description": "يشمل الإخراج التفكير حيث يضمّنه المزوّد؛ ويُعرض التفكير أيضًا بشكل منفصل عند الإبلاغ عنه.",
+        "title": "استدعاءات المزوّدين",
+        "truncatedNote": "يتم عرض أحدث 500 استدعاء مطابق؛ وتشمل إجماليات الملخّص كل الاستدعاءات المحمّلة البالغة {count}."
+      },
+      "desktopOnly": "الاستخدام المحلي متاح في تطبيق Stella لسطح المكتب.",
+      "emptyBody": "تظهر الاستدعاءات الأصلية هنا بعد أن يُرجع مزوّدها بيانات استخدام نهائية.",
+      "emptyTitle": "لا توجد استدعاءات نماذج تطابق هذه المرشّحات.",
+      "filters": {
+        "agentType": "نوع الوكيل",
+        "allAgentTypes": "كل أنواع الوكلاء",
+        "allConversations": "كل المحادثات",
+        "allModels": "كل النماذج",
+        "allThreads": "كل المسارات",
+        "conversation": "المحادثة",
+        "label": "مرشّحات الاستخدام",
+        "model": "النموذج",
+        "range": {
+          "24h": "آخر 24 ساعة",
+          "30d": "آخر 30 يومًا",
+          "7d": "آخر 7 أيام",
+          "all": "كل الأوقات"
+        },
+        "thread": "المسار",
+        "timeRange": "النطاق الزمني"
+      },
+      "intro": "استدعاءات المزوّدين المحفوظة على هذا الجهاز. التكاليف تقديرات محلية؛ وتبقى فوترة الخادم هي المرجع.",
+      "loadError": "تعذّر تحميل الاستخدام المحلي",
+      "loading": "جارٍ تحميل الاستخدام المحلي…",
+      "refresh": "تحديث",
+      "refreshLabel": "تحديث الاستخدام",
+      "selectedThread": "المسار المحدَّد",
+      "summary": {
+        "cacheDetail": "{read} قراءة · {written} كتابة",
+        "cacheRead": "قراءة من ذاكرة التخزين المؤقت",
+        "estimatedCost": "التكلفة التقديرية",
+        "label": "ملخّص الاستخدام",
+        "output": "الإخراج",
+        "providerCalls": "{count} استدعاء للمزوّدين",
+        "reasoningTokens": "{value} رمز تفكير",
+        "totalTokens": "إجمالي الرموز",
+        "uncachedInput": "{value} إدخال غير مخزّن مؤقتًا"
+      },
+      "threads": {
+        "columns": {
+          "cache": "التخزين المؤقت",
+          "calls": "الاستدعاءات",
+          "cost": "التكلفة",
+          "execution": "التنفيذ",
+          "model": "النموذج",
+          "tokens": "الرموز"
+        },
+        "description": "المنسّق والوكلاء والوكلاء الفرعيون المتداخلون.",
+        "title": "المسارات"
+      },
+      "timeline": {
+        "chartLabel": "مخطط زمني للتكلفة التقديرية للنماذج واستخدام الرموز",
+        "description": "التكلفة التقديرية وإجمالي الرموز لكل فترة زمنية.",
+        "series": {
+          "cost": "التكلفة التقديرية",
+          "tokens": "الرموز"
+        },
+        "title": "المخطط الزمني",
+        "tooltip": {
+          "calls": "{count} استدعاء للنماذج",
+          "estimated": "{value} تقديريًا",
+          "tokens": "{value} رمز"
+        }
+      },
+      "truncatedWarning": "يتم عرض أحدث 10,000 استدعاء في هذا النطاق. ضيّق النطاق الزمني للحصول على إجماليات دقيقة.",
+      "tryAgain": "حاول مرة أخرى",
+      "viewAllThreads": "عرض كل المسارات"
+    }
+  },
+  "billing": {
+    "capability": {
+      "audio_generation": "توليد الصوت والموسيقى",
+      "image_generation": "توليد الصور",
+      "three_d_generation": "التوليد ثلاثي الأبعاد",
+      "video_generation": "توليد الفيديو"
+    },
+    "capabilityRestriction": {
+      "genericDescription": "هذه الميزة مضمّنة في Stella Pro. رقِّ خطتك لفتحها.",
+      "genericTitle": "غير مضمّن في خطتك",
+      "lockedBadge": "{plan}",
+      "lockedBadgeGeneric": "غير متاح",
+      "signIn": "{capability} مضمّن في Stella {plan}. سجّل الدخول لترقية خطتك وفتح هذه الميزة.",
+      "title": "{capability} غير متاح في خطتك",
+      "unavailable": "{capability} غير متاح في أي خطة حاليًا.",
+      "upgrade": "{capability} مضمّن في Stella {plan}. رقِّ خطتك لفتح هذه الميزة."
+    },
+    "features": {
+      "assistant": "مساعد شخصي",
+      "codingAgent": "وكيل برمجة",
+      "dictationReadAloud": "الإملاء والقراءة بصوت عالٍ",
+      "multipleAgents": "وكلاء متعددون",
+      "research": "البحث والعمل المعرفي"
+    },
+    "freeAllowance": {
+      "caption": "مجاني للتجربة.",
+      "exhaustedCta": "الترقية إلى Go",
+      "exhaustedDescription": "قم بالترقية إلى Go لاستخدام أعلى 10×.",
+      "exhaustedTitle": "لقد وصلت إلى حد الخطة المجانية",
+      "label": "استخدام الخطة المجانية",
+      "remaining": "مجاني للتجربة."
+    },
+    "heading": "اختر خطتك",
+    "mobile": {
+      "accessEnds": "ينتهي الوصول في {date}",
+      "alreadySubscribedTitle": "لديك اشتراك بالفعل",
+      "chooseHeading": "اختر خطتك",
+      "currentPlanLabel": "الخطة الحالية",
+      "errorRetry": "أعد المحاولة",
+      "footnote": "تُصدر الفاتورة من Stella عبر Stripe. يتجدد شهريًا حتى الإلغاء؛ ألغِ في أي وقت.",
+      "introLine": "{introPrice} للشهر الأول، ثم {price}/شهر",
+      "manage": "إدارة الاشتراك",
+      "manageWebNote": "يمكنك إدارة هذا الاشتراك أو إلغاؤه من Stella على الويب على stella.sh.",
+      "pendingBody": "أكمل الدفع في المتصفح. ستُحدَّث خطتك هنا تلقائيًا بمجرد تأكيد الدفع — لا حاجة لإعادة التشغيل.",
+      "pendingDismiss": "ليس الآن",
+      "pendingTitle": "جارٍ إتمام عملية الشراء",
+      "perMonth": "{price}/شهر",
+      "planValue": "Stella {plan}",
+      "renews": "يتجدد في {date}",
+      "sectionTitle": "الاشتراك",
+      "signInToSubscribe": "سجّل الدخول للاشتراك",
+      "startingCheckout": "جارٍ البدء…",
+      "subscribe": "اشترك",
+      "successBody": "اشتراكك نشط. استمتع بالحدود الأعلى.",
+      "successTitle": "أنت الآن على Stella {plan}"
+    },
+    "plans": {
+      "free": {
+        "tagline": "مجاني للتجربة."
+      },
+      "go": {
+        "tagline": "استخدام أعلى 10×"
+      },
+      "pro": {
+        "tagline": "أعلى حدود استخدام لإنشاء الوسائط والوكلاء المتعددين"
+      }
+    },
+    "renewal": {
+      "accessEnds": "ينتهي الوصول في {date}",
+      "lapseDescription": "تستمر خطة {plan} حتى {date}. بعد ذلك يتوقف Stella — رصيد خطة Free يُمنح مرة واحدة، ورصيدك استُهلك بالفعل.",
+      "lapseTitle": "سيتوقف Stella عند انتهاء خطتك",
+      "nextLabel": "التجديد التالي",
+      "pendingLabel": "الإلغاء قيد الانتظار",
+      "renews": "يتجدد في {date}"
+    },
+    "subtitle": "ابدأ مجانًا. قم بالترقية عندما تحتاج إلى المزيد.",
+    "upgradeDialog": {
+      "cta": "ابدأ",
+      "description": "شكرًا على الترقية. الأولوية الأعلى والاستخدام الموسّع فعّالان الآن — تابع.",
+      "title": "أنت الآن على Stella {plan}."
+    }
+  },
+  "chat": {
+    "attachments": {
+      "attachFile": "إرفاق ملف",
+      "attachPhoto": "إرفاق صورة",
+      "camera": "الكاميرا",
+      "cameraDeniedBody": "اسمح لـ Stella باستخدام الكاميرا من الإعدادات لتتمكن من التقاط صورة.",
+      "cameraDeniedTitle": "الكاميرا",
+      "files": "الملفات",
+      "photoLabel": "صورة",
+      "photos": "الصور",
+      "photosDeniedBody": "اسمح لـ Stella بالوصول إلى مكتبة صورك من الإعدادات لتتمكن من إرفاق الصور.",
+      "photosDeniedTitle": "الصور",
+      "readAloud": "قراءة الردود بصوت عالٍ",
+      "remove": "إزالة المرفق",
+      "retryUpload": "إعادة محاولة الرفع",
+      "sheetTitle": "إضافة إلى المحادثة",
+      "takePhoto": "التقاط صورة",
+      "tooManyBody": "يمكنك إرفاق {count} ملفات كحد أقصى في المرة الواحدة.",
+      "tooManyTitle": "عدد الملفات كبير جدًا",
+      "uploadFailed": "فشل الرفع. اضغط لإعادة المحاولة.",
+      "uploading": "جارٍ الرفع"
+    },
+    "stoppedReply": "لم تستطع Stella بدء هذا الرد",
+    "tryAgainHint": "يرجى المحاولة مرة أخرى."
+  },
+  "cloudBrowser": {
+    "actions": {
+      "canceling": "Canceling…",
+      "done": "Done",
+      "finishing": "Finishing…",
+      "useCloudBrowser": "Use Stella's browser"
+    },
+    "deviceCode": {
+      "body": "Enter this code on the site, then come back here.",
+      "codeLabel": "Code",
+      "copied": "Copied",
+      "copy": "Copy code",
+      "open": "Open site",
+      "title": "Sign in to {origin}"
+    },
+    "errors": {
+      "decision": "That didn't go through. Try again.",
+      "expired": "This sign-in is no longer needed.",
+      "liveView": "Couldn't load the sign-in page. Try again.",
+      "liveViewBoundary": "Couldn't load the sign-in page.",
+      "verificationUrl": "Couldn't open that page."
+    },
+    "needsYou": {
+      "deviceCode": "Enter a code for {origin}",
+      "open": "Open",
+      "signIn": "Sign in to {origin}",
+      "title": "Needs you"
+    },
+    "settings": {
+      "confirmBody": "Stella will ask you to sign in again next time.",
+      "confirmTitle": "Sign out of all sites?",
+      "defaultProfile": "Saved sign-ins",
+      "description": "Sites Stella has signed in to for you. Reset to sign out of all of them.",
+      "reset": "Reset",
+      "resetComplete": "Signed out of all sites.",
+      "resetFailed": "Couldn't sign out. Try again.",
+      "resetting": "Resetting…",
+      "title": "Browser sign-ins"
+    },
+    "takeover": {
+      "body": "Sign in to keep going. Stella can't see what you type.",
+      "checking": "Finishing sign-in to {origin}",
+      "frameTitle": "Sign in to {origin}",
+      "localNotice": "Stella can't see what you type",
+      "localOriginFallback": "Switched to Stella's browser to finish signing in.",
+      "localTransferFallback": "Couldn't confirm that sign-in. Try again in Stella's browser.",
+      "preparing": "Loading sign-in…",
+      "privateNotice": "Stella can't see what you type",
+      "resumingBody": "Stella will pick up where it left off.",
+      "title": "Sign in to {origin}"
+    }
+  },
+  "cloudConnector": {
+    "connect": "توصيل",
+    "connecting": "أكمل تسجيل الدخول إلى {name} في متصفحك. ستتابع Stella بمجرد الموافقة.",
+    "errors": {
+      "decision": "تعذّر توصيل {name}. حاول مرة أخرى.",
+      "open": "تعذّر فتح صفحة تسجيل الدخول."
+    },
+    "notNow": "ليس الآن",
+    "openAgain": "فتح مرة أخرى",
+    "titleOffer": "توصيل {name}؟",
+    "titleWaiting": "في انتظار {name}"
+  },
+  "common": {
+    "appName": "Stella",
+    "back": "رجوع",
+    "cancel": "إلغاء",
+    "close": "إغلاق",
+    "continue": "متابعة",
+    "copy": "نسخ",
+    "language": "اللغة",
+    "loading": "جارٍ التحميل…",
+    "next": "التالي",
+    "no": "لا",
+    "open": "فتح",
+    "openPreferences": "فتح التفضيلات",
+    "previous": "السابق",
+    "save": "حفظ",
+    "signIn": "تسجيل الدخول",
+    "signOut": "تسجيل الخروج",
+    "tryAgain": "حاول مرة أخرى",
+    "yes": "نعم"
+  },
+  "companion": {
+    "arc": {
+      "dictate": "Dictate a message",
+      "dictateStop": "Stop dictating and send",
+      "readAloudOff": "Read replies aloud: off",
+      "readAloudOn": "Read replies aloud: on",
+      "voice": "Start voice conversation",
+      "voiceStop": "End voice conversation"
+    },
+    "badge": {
+      "running": "{count} agents working"
+    },
+    "bubble": {
+      "openStella": "Open in Stella",
+      "typing": "Stella is replying"
+    },
+    "composer": {
+      "placeholder": "Ask Stella…"
+    },
+    "mark": {
+      "close": "Close the prompt",
+      "open": "Ask Stella"
+    },
+    "menu": {
+      "hide": "Hide companion",
+      "openStella": "Open Stella",
+      "quit": "Quit Stella"
     }
   },
   "desktop": {
     "common": {
       "continue": "متابعة"
     },
-    "tray": {
-      "tooltip": "Stella",
-      "openStella": "افتح Stella",
-      "quitStella": "أنهِ Stella",
-      "balloon": {
-        "title": "لا تزال Stella تعمل",
-        "content": "تبقى Stella في شريط النظام. انقر على الأيقونة لإعادة فتحها."
-      }
-    },
     "dialog": {
       "startupFailure": {
-        "title": "Stella",
-        "message": "تعذّر على Stella إكمال بدء التشغيل.",
         "detail": "فشل بدء التشغيل قبل أن تتمكن واجهة التطبيق من التحميل.\n\n{detail}",
+        "message": "تعذّر على Stella إكمال بدء التشغيل.",
+        "quit": "إنهاء",
         "relaunch": "إعادة التشغيل",
-        "quit": "إنهاء"
-      }
-    },
-    "security": {
-      "confirmationTitle": "تأكيد أمان Stella",
-      "allow": "سماح",
-      "deny": "رفض",
-      "rememberDecision": "تذكّر هذا القرار على هذا الجهاز",
-      "computerUse": {
-        "message": "هل تسمح لـ Computer Use باستخدام {app}؟",
-        "detail": "سيتمكّن Computer Use من عرض {app} والتفاعل معه.",
-        "risk": "الخطورة: {risk}"
+        "title": "Stella"
       }
     },
     "oauth": {
-      "xaiCodeMessage": "أدخل هذا الرمز لتوصيل xAI",
-      "expectedValue": "القيمة المتوقعة: {value}"
+      "expectedValue": "القيمة المتوقعة: {value}",
+      "xaiCodeMessage": "أدخل هذا الرمز لتوصيل xAI"
+    },
+    "security": {
+      "allow": "سماح",
+      "computerUse": {
+        "detail": "سيتمكّن Computer Use من عرض {app} والتفاعل معه.",
+        "message": "هل تسمح لـ Computer Use باستخدام {app}؟",
+        "risk": "الخطورة: {risk}"
+      },
+      "confirmationTitle": "تأكيد أمان Stella",
+      "deny": "رفض",
+      "rememberDecision": "تذكّر هذا القرار على هذا الجهاز"
+    },
+    "tray": {
+      "balloon": {
+        "content": "تبقى Stella في شريط النظام. انقر على الأيقونة لإعادة فتحها.",
+        "title": "لا تزال Stella تعمل"
+      },
+      "openStella": "افتح Stella",
+      "quitStella": "أنهِ Stella",
+      "tooltip": "Stella"
     },
     "update": {
       "holding": "جارٍ تحديث Stella"
     }
   },
+  "errors": {
+    "generic": "حدث خطأ ما",
+    "networkUnavailable": "‏Stella غير متصلة. أعد الاتصال للمتابعة.",
+    "permissionDenied": "ليس لدى Stella إذن للقيام بذلك.",
+    "rateLimited": "أنت تتحرك بسرعة قليلاً. حاول مرة أخرى بعد قليل.",
+    "subscriptionRequired": "تتطلب النسخ الاحتياطية اشتراكًا نشطًا في Stella."
+  },
   "features": {
     "browserBridge": {
-      "unavailableTitle": "إضافة المتصفح غير متاحة",
-      "unavailableBody": "تعذّر على Stella الاتصال بمتصفحك. أعد تشغيل التطبيق أو أعد تثبيت Stella إذا استمر ذلك.",
       "connectionLostTitle": "انقطع الاتصال بالمتصفح",
       "disconnected": "انقطع جسر متصفح Stella.",
       "retryDelay": {
-        "zero": "ستواصل Stella المحاولة خلال {count} ثانية تقريبًا.",
-        "one": "ستواصل Stella المحاولة خلال {count} ثانية تقريبًا.",
-        "two": "ستواصل Stella المحاولة خلال {count} ثانيتين تقريبًا.",
         "few": "ستواصل Stella المحاولة خلال {count} ثوانٍ تقريبًا.",
         "many": "ستواصل Stella المحاولة خلال {count} ثانية تقريبًا.",
-        "other": "ستواصل Stella المحاولة خلال {count} ثانية تقريبًا."
-      }
+        "one": "ستواصل Stella المحاولة خلال {count} ثانية تقريبًا.",
+        "other": "ستواصل Stella المحاولة خلال {count} ثانية تقريبًا.",
+        "two": "ستواصل Stella المحاولة خلال {count} ثانيتين تقريبًا.",
+        "zero": "ستواصل Stella المحاولة خلال {count} ثانية تقريبًا."
+      },
+      "unavailableBody": "تعذّر على Stella الاتصال بمتصفحك. أعد تشغيل التطبيق أو أعد تثبيت Stella إذا استمر ذلك.",
+      "unavailableTitle": "إضافة المتصفح غير متاحة"
     },
     "dictation": {
       "cancel": "ألغِ الإملاء",
+      "failedBody": "تعذّر على Stella نسخ ذلك. حاول مرة أخرى.",
+      "failedTitle": "لم ينجح الإملاء",
+      "keyDialog": {
+        "description": "لا يتضمن Stella هذا الإملاء. أضف مفتاح OpenRouter API الخاص بك وسيستخدمه Stella للنسخ. يبقى المفتاح على هذا الكمبيوتر.",
+        "getKey": "احصل على مفتاح من openrouter.ai/keys",
+        "inputLabel": "مفتاح OpenRouter API",
+        "openStella": "افتح Stella واضغط على الميكروفون هناك لإضافة مفتاح OpenRouter للإملاء.",
+        "save": "حفظ والبدء",
+        "saveFailed": "تعذّر على Stella حفظ هذا المفتاح.",
+        "saving": "جارٍ الحفظ…",
+        "title": "تفعيل الإملاء",
+        "unavailable": "حفظ المفاتيح غير متاح في هذه النافذة."
+      },
       "listening": "جارٍ الاستماع…",
+      "signInBody": "سجّل الدخول لاستخدام الإملاء",
+      "signInTitle": "سجّل الدخول لاستخدام الإملاء",
       "stopAndTranscribe": "أوقف وانسخ",
       "stopAndTranscribeLabel": "أوقف الإملاء وانسخ النص",
       "stopTranscribeSend": "أوقف وانسخ وأرسل",
-      "stopTranscribeSendLabel": "أوقف الإملاء وانسخ النص وأرسل",
-      "signInTitle": "سجّل الدخول لاستخدام الإملاء",
-      "failedTitle": "لم ينجح الإملاء",
-      "failedBody": "تعذّر على Stella نسخ ذلك. حاول مرة أخرى.",
-      "signInBody": "سجّل الدخول لاستخدام الإملاء",
-      "keyDialog": {
-        "title": "تفعيل الإملاء",
-        "description": "لا يتضمن Stella هذا الإملاء. أضف مفتاح OpenRouter API الخاص بك وسيستخدمه Stella للنسخ. يبقى المفتاح على هذا الكمبيوتر.",
-        "inputLabel": "مفتاح OpenRouter API",
-        "getKey": "احصل على مفتاح من openrouter.ai/keys",
-        "save": "حفظ والبدء",
-        "saving": "جارٍ الحفظ…",
-        "saveFailed": "تعذّر على Stella حفظ هذا المفتاح.",
-        "unavailable": "حفظ المفاتيح غير متاح في هذه النافذة.",
-        "openStella": "افتح Stella واضغط على الميكروفون هناك لإضافة مفتاح OpenRouter للإملاء."
-      }
+      "stopTranscribeSendLabel": "أوقف الإملاء وانسخ النص وأرسل"
     },
     "voice": {
-      "signInTitle": "سجّل الدخول لاستخدام الصوت",
-      "needsSetupTitle": "يحتاج الصوت إلى إعداد"
-    }
-  },
-  "ui": {
-    "imageLightbox": {
-      "title": "معاينة الصورة",
-      "close": "أغلق المعاينة"
-    }
-  },
-  "shell": {
-    "agentProgress": {
-      "recentAgentMessages": "رسائل الوكيل الأخيرة",
-      "recentProgress": "التقدّم الأخير"
-    },
-    "audioPlayer": {
-      "pause": "إيقاف مؤقت",
-      "play": "تشغيل",
-      "seek": "تقديم/ترجيع"
-    },
-    "capture": {
-      "failedTitle": "تعذّر التقاط ذلك",
-      "failedDescription": "حدث خطأ ما أثناء التقاط الشاشة. حاول مرة أخرى."
-    },
-    "chatSidebar": {
-      "add": "إضافة",
-      "dictationError": "الإملاء: {error}",
-      "stop": "إيقاف"
-    },
-    "displayPanel": {
-      "closePanel": "أغلق اللوحة",
-      "openPanel": "افتح اللوحة"
-    },
-    "rightSidebar": {
-      "workspace": "مساحة العمل",
-      "resize": "غيّر حجم لوحة العرض",
-      "resizeHint": "اسحب لتغيير الحجم · انقر مرتين لإعادة التعيين"
-    },
-    "windowControls": {
-      "minimize": "تصغير",
-      "restore": "استعادة",
-      "maximize": "تكبير"
-    },
-    "workspace": {
-      "activity": "النشاط",
-      "viewFiles": {
-        "zero": "اعرض {count} ملف",
-        "one": "اعرض {count} ملف",
-        "two": "اعرض {count} ملفين",
-        "few": "اعرض {count} ملفات",
-        "many": "اعرض {count} ملفًا",
-        "other": "اعرض {count} ملف"
-      },
-      "moreFiles": {
-        "zero": "{count} more files",
-        "one": "{count} more file",
-        "two": "{count} more files",
-        "few": "{count} more files",
-        "many": "{count} more files",
-        "other": "{count} more files"
-      }
-    },
-    "appSource": {
-      "update": "تحديث",
-      "title": "تغييرات على Stella",
-      "undo": "تراجع",
-      "outdated": "أُنشئ على إصدار أقدم",
-      "failed": "تعذّر تطبيق التغيير",
-      "restarts": "يعيد تشغيل Stella",
-      "updatedJustNow": "تم التحديث للتو",
-      "updatedAgo": "تم التحديث {ago}",
-      "undoneJustNow": "تم التراجع للتو",
-      "undoneAgo": "تم التراجع {ago}",
-      "files": {
-        "few": "{count} ملفات",
-        "many": "{count} ملفًا",
-        "one": "ملف واحد",
-        "two": "ملفان",
-        "zero": "{count} ملف",
-        "other": "{count} ملف"
-      },
-      "updates": {
-        "pill": {
-          "few": "{count} تحديثات",
-          "many": "{count} تحديثًا",
-          "one": "تحديث واحد",
-          "two": "تحديثان",
-          "zero": "لا تحديثات",
-          "other": "{count} تحديث"
-        },
-        "newVersion": "إصدار جديد من Stella",
-        "newVersionDetail": "تحسينات وإصلاحات من فريق Stella",
-        "fromDevice": "تغيير أجريته على {device}",
-        "fromOtherComputer": "تغيير أجريته على جهازك الآخر",
-        "fromOtherComputers": "تغييرات من جهازك الآخر",
-        "readyChange": "تغيير جاهز للإضافة",
-        "add": "إضافة",
-        "get": "جلب",
-        "adding": "جارٍ الإضافة…",
-        "skip": "تخطٍّ",
-        "undoing": "جارٍ التراجع…",
-        "removed": "تمت الإزالة: {change}",
-        "justNow": "الآن",
-        "waiting": "بانتظارك",
-        "history": "السجل",
-        "skipped": "تم تخطيها",
-        "upToDate": "لا شيء بانتظارك"
-      }
-    },
-    "display": {
-      "homeLauncher": {
-        "files": {
-          "label": "الملفات",
-          "description": "الصفحات والصور والفيديو والمستندات"
-        },
-        "trash": {
-          "label": "المهملات",
-          "description": "الأشياء التي حذفتها مؤخرًا"
-        }
-      },
-      "trash": {
-        "title": "المهملات",
-        "empty": "لا شيء هنا حاليًا.",
-        "refresh": "تحديث",
-        "emptying": "جارٍ الإفراغ…",
-        "emptyTrash": "أفرغ المهملات",
-        "trashedAgo": "نُقل إلى المهملات قبل {time}",
-        "pendingPurge": "في انتظار المسح",
-        "autoDeletesIn": "يُحذف تلقائيًا خلال {time}",
-        "deleting": "جارٍ الحذف…",
-        "deleteNow": "احذف الآن",
-        "itemsAutoDeleted": {
-          "zero": "{count} عنصر — يُحذف تلقائيًا خلال 24 ساعة.",
-          "one": "{count} عنصر — يُحذف تلقائيًا خلال 24 ساعة.",
-          "two": "{count} عنصران — يُحذفان تلقائيًا خلال 24 ساعة.",
-          "few": "{count} عناصر — تُحذف تلقائيًا خلال 24 ساعة.",
-          "many": "{count} عنصرًا — تُحذف تلقائيًا خلال 24 ساعة.",
-          "other": "{count} عنصر — يُحذف تلقائيًا خلال 24 ساعة."
-        }
-      },
-      "canvasShare": {
-        "share": "مشاركة",
-        "links": "الروابط",
-        "sharedLinks": "الروابط المشتركة",
-        "publishing": "جارٍ نشر اللوحة…",
-        "publishFailed": "تعذّر نشر هذه اللوحة. حاول مرة أخرى.",
-        "live": "اللوحة منشورة",
-        "publicLink": "رابط اللوحة العام",
-        "copyLink": "انسخ الرابط",
-        "revoke": "ألغِ المشاركة",
-        "expires": "تنتهي في {date}",
-        "shared": "شُوركت في {date}",
-        "sharedWithExpiry": "شُوركت في {shared} · تنتهي في {expires}",
-        "loadFailed": "تعذّر تحميل مشاركاتك.",
-        "empty": "لا مشاركات نشطة بعد. انشر لوحة للحصول على رابط عام.",
-        "untitled": "لوحة بلا عنوان",
-        "toasts": {
-          "linkCopied": "تم نسخ رابط المشاركة",
-          "copyFailed": "تعذّر نسخ الرابط",
-          "revoked": "أُلغيت المشاركة",
-          "revokeFailed": "تعذّر إلغاء هذه المشاركة"
-        }
-      },
-      "canvas": {
-        "loadFailed": "تعذّر تحميل هذه اللوحة.",
-        "loading": "جارٍ التحميل"
-      },
-      "media": {
-        "save": "حفظ",
-        "saved": "تم الحفظ",
-        "saveFailed": "تعذّر الحفظ",
-        "copy": "نسخ",
-        "copied": "تم النسخ",
-        "copyFailed": "تعذّر النسخ",
-        "delete": "حذف",
-        "deleteConfirm": "انقر مرة أخرى للحذف",
-        "itemActions": "إجراءات العنصر",
-        "missing": "الملف لم يعد متاحًا.",
-        "expand": "توسيع",
-        "expandPanel": "توسيع اللوحة",
-        "revealInFinder": "أظهِر في Finder"
-      },
-      "url": {
-        "eyebrow": "معاينة مباشرة",
-        "reload": "إعادة تحميل",
-        "openInBrowser": "افتح في المتصفح"
-      },
-      "office": {
-        "preparing": "جارٍ تجهيز المعاينة...",
-        "kind": {
-          "spreadsheet": "جدول بيانات",
-          "presentation": "عرض تقديمي",
-          "document": "مستند"
-        },
-        "sheetCount": {
-          "zero": "{count} ورقة",
-          "one": "{count} ورقة",
-          "two": "{count} ورقتان",
-          "few": "{count} أوراق",
-          "many": "{count} ورقة",
-          "other": "{count} ورقة"
-        },
-        "slideCount": {
-          "zero": "{count} شريحة",
-          "one": "{count} شريحة",
-          "two": "{count} شريحتان",
-          "few": "{count} شرائح",
-          "many": "{count} شريحة",
-          "other": "{count} شريحة"
-        },
-        "loadFailed": "تعذّر تحميل هذه المعاينة",
-        "sessionError": "أبلغت جلسة المعاينة عن خطأ.",
-        "zoomAriaLabel": "تكبير المعاينة",
-        "revealInFinder": "أظهِر في Finder",
-        "livePreview": "معاينة مباشرة",
-        "frameTitle": "معاينة {kind}: {title}"
-      },
-      "filePreview": {
-        "save": "حفظ",
-        "copy": "نسخ",
-        "loading": "جارٍ التحميل..."
-      },
-      "spreadsheet": {
-        "eyebrow": "جدول بيانات",
-        "desktopRequired": "تتطلب معاينة جداول البيانات تطبيق Stella لسطح المكتب.",
-        "noRows": "لم يتم العثور على صفوف.",
-        "column": "العمود {index}"
-      },
-      "markdown": {
-        "eyebrow": "Markdown",
-        "desktopRequired": "تتطلب معاينة Markdown تطبيق Stella لسطح المكتب.",
-        "noContent": "لم يتم العثور على محتوى."
-      },
-      "diff": {
-        "changes": "التغييرات",
-        "codeChanges": "تغييرات الكود",
-        "noChanges": "لم يتم العثور على تغييرات.",
-        "desktopRequired": "تتطلب معاينة الكود تطبيق Stella لسطح المكتب.",
-        "empty": "لا تغييرات في الملفات بعد. عندما يحرّر وكيل الكود، تظهر التغييرات هنا."
-      },
-      "agentThread": {
-        "role": {
-          "user": "تعليمات",
-          "assistant": "الوكيل",
-          "reasoning": "التفكير",
-          "tool": "أداة",
-          "checkpoint": "نقطة تحقّق في المسار",
-          "lifecycle": "النشاط"
-        },
-        "status": {
-          "running": "يعمل",
-          "completed": "اكتمل",
-          "error": "فشل",
-          "canceled": "متوقف"
-        },
-        "newMessages": {
-          "zero": "{count} رسالة جديدة.",
-          "one": "{count} رسالة جديدة.",
-          "two": "{count} رسالتان جديدتان.",
-          "few": "{count} رسائل جديدة.",
-          "many": "{count} رسالة جديدة.",
-          "other": "{count} رسالة جديدة."
-        },
-        "newMessagesWithPreview": "{countPhrase} آخر {role}: {preview}",
-        "unavailable": "سجلّ مسار الوكيل غير متاح.",
-        "loadFailed": "تعذّر تحميل هذا المسار.",
-        "showingNewest": "يتم عرض أحدث رسالة.",
-        "claudeAriaLabel": "محادثة وكيل Claude الفرعي للقراءة فقط",
-        "claudeBadge": "وكيل Claude فرعي للقراءة فقط",
-        "badge": "مسار وكيل للقراءة فقط",
-        "retrying": "جارٍ إعادة المحاولة…",
-        "empty": "لا رسائل في هذا المسار بعد.",
-        "toolInput": "الإدخال",
-        "toolOutput": "الإخراج",
-        "toolRunning": "في انتظار انتهاء هذه الأداة…",
-        "toolGroup": {
-          "one": "{count} tool call",
-          "other": "{count} tool calls"
-        },
-        "reasoningGroup": {
-          "one": "Reasoning",
-          "other": "{count} reasoning steps"
-        },
-        "newMessagesButton": {
-          "zero": "{count} رسالة جديدة",
-          "one": "{count} رسالة جديدة",
-          "two": "{count} رسالتان جديدتان",
-          "few": "{count} رسائل جديدة",
-          "many": "{count} رسالة جديدة",
-          "other": "{count} رسالة جديدة"
-        },
-        "showNewMessagesAria": "اعرض {countPhrase}"
-      },
-      "preview": {
-        "limited": "المعاينة محدودة. احفظ الملف الأصلي أو افتحه لعرض المحتوى كاملاً.",
-        "unavailable": "تعذّر تجهيز هذه المعاينة."
-      }
-    },
-    "sidebar": {
-      "account": {
-        "planAriaLabel": "{name}، خطة {plan}",
-        "signOutTitle": "تسجيل الخروج من Stella؟",
-        "signOutDescription": "هل أنت متأكد؟"
-      },
-      "nav": {
-        "apps": "التطبيقات",
-        "unreadTitle": "{label} ({count} غير مقروءة)",
-        "unreadAriaLabel": "{label}، {count} غير مقروءة"
-      },
-      "feedback": {
-        "title": "أرسل ملاحظات",
-        "description": "تُرسل رسالتك بشكل مجهول — وهي غير مرتبطة بحسابك.",
-        "fieldLabel": "الملاحظات",
-        "placeholder": "أخبرنا بما ينجح وما لا ينجح أو ما تودّ رؤيته…",
-        "send": "إرسال",
-        "sending": "جارٍ الإرسال…",
-        "toasts": {
-          "sentTitle": "تم إرسال الملاحظات",
-          "sentDescription": "شكرًا — كل ملاحظة تساعدنا في تشكيل Stella.",
-          "failedTitle": "تعذّر إرسال الملاحظات"
-        }
-      }
-    },
-    "topbar": {
-      "conversation": {
-        "newChat": "محادثة جديدة",
-        "newChatConfirm": "Click again to confirm",
-        "history": "سجلّ المحادثات",
-        "historyEmpty": "لا محادثات بعد",
-        "historyRetry": "تعذّر تحميل المحادثات. حاول مرة أخرى",
-        "openConversations": "افتح المحادثات",
-        "unread": "رسائل غير مقروءة",
-        "openConversation": "افتح {title}",
-        "closeConversation": "أغلق {title}",
-        "delete": "احذف {title}",
-        "deleteConfirm": "انقر مرة أخرى للتأكيد",
-        "deleteConfirmFor": "انقر مرة أخرى لحذف {title}",
-        "deleteFailed": "تعذّر حذف هذه المحادثة",
-        "deleteFailedFor": "تعذّر حذف {title}"
-      }
-    },
-    "browser": {
-      "connected": "المتصفح متصل",
-      "newTab": "فتح علامة تبويب جديدة",
-      "connecting": "في انتظار الإضافة…"
-    },
-    "connectors": {
-      "title": "الموصلات",
-      "searchPlaceholder": "بحث",
-      "searchLabel": "البحث في الموصلات",
-      "loading": "جارٍ تحميل الموصلات…",
-      "desktopRequired": "الموصلات متاحة في تطبيق Stella لسطح المكتب.",
-      "empty": "لا توجد موصلات متاحة بعد.",
-      "noMatches": "لا توجد موصلات مطابقة لهذا البحث."
+      "needsSetupTitle": "يحتاج الصوت إلى إعداد",
+      "signInTitle": "سجّل الدخول لاستخدام الصوت"
     }
   },
   "global": {
     "auth": {
-      "welcomeTitle": "مرحبًا بك في Stella",
-      "welcomeDescription": "سجّل الدخول ببريدك الإلكتروني لبدء استخدام Stella.",
-      "welcomeSub": "استخدم Google أو بريدك الإلكتروني لتسجيل الدخول. لا حاجة إلى كلمة مرور.",
-      "finishingTitle": "جارٍ إكمال تسجيل الدخول",
-      "finishingSub": "ننقل محادثاتك إلى هذا الحساب. لن يستغرق ذلك سوى لحظات.",
-      "orUseEmail": "أو استخدم البريد الإلكتروني",
+      "checkInbox": "تحقّق من بريدك الوارد للعثور على رابط تسجيل الدخول.",
       "emailLabel": "البريد الإلكتروني",
       "emailPlaceholder": "you@example.com",
-      "sending": "جارٍ الإرسال...",
-      "signingIn": "جارٍ تسجيل الدخول...",
-      "sendSignInEmail": "أرسل بريد تسجيل الدخول",
-      "checkInbox": "تحقّق من بريدك الوارد للعثور على رابط تسجيل الدخول.",
-      "magicLinkSentDesktop": "أرسلنا رابط تسجيل دخول. افتحه على هذا الجهاز لإتمام العملية.",
-      "openInbox": "افتح {provider}",
-      "resendIn": "إعادة الإرسال خلال {seconds} ثانية",
-      "resendEmail": "أعد إرسال البريد",
-      "skipForNow": "تخطَّ الآن",
       "enterEmail": "أدخل عنوان بريد إلكتروني.",
-      "sendFailed": "تعذّر إرسال بريد تسجيل الدخول.",
-      "magicLinkFailed": "تعذّر إرسال الرابط السحري.",
       "finishFailed": "تعذّر إتمام تسجيل الدخول. حاول مرة أخرى.",
-      "signInIncomplete": "تسجيل الدخول غير مكتمل. حاول مرة أخرى.",
-      "signInLinkExpired": "انتهت صلاحية رابط تسجيل الدخول. حاول مرة أخرى.",
-      "tooManyRequests": {
-        "zero": "طلبات كثيرة جدًا. حاول مرة أخرى خلال {count} ثانية.",
-        "one": "طلبات كثيرة جدًا. حاول مرة أخرى خلال {count} ثانية.",
-        "two": "طلبات كثيرة جدًا. حاول مرة أخرى خلال {count} ثانيتين.",
-        "few": "طلبات كثيرة جدًا. حاول مرة أخرى خلال {count} ثوانٍ.",
-        "many": "طلبات كثيرة جدًا. حاول مرة أخرى خلال {count} ثانية.",
-        "other": "طلبات كثيرة جدًا. حاول مرة أخرى خلال {count} ثانية."
-      },
+      "finishingSub": "ننقل محادثاتك إلى هذا الحساب. لن يستغرق ذلك سوى لحظات.",
+      "finishingTitle": "جارٍ إكمال تسجيل الدخول",
       "googleContinue": "تابع باستخدام Google",
-      "googleWaiting": "في انتظار Google...",
-      "googleStartFailed": "تعذّر بدء تسجيل الدخول عبر Google.",
-      "googleNoSession": "اكتمل تسجيل الدخول عبر Google دون إنشاء جلسة.",
       "googleExpired": "انتهت صلاحية تسجيل الدخول عبر Google. حاول مرة أخرى.",
+      "googleNoSession": "اكتمل تسجيل الدخول عبر Google دون إنشاء جلسة.",
+      "googleStartFailed": "تعذّر بدء تسجيل الدخول عبر Google.",
       "googleTimedOut": "انتهت مهلة تسجيل الدخول عبر Google. حاول مرة أخرى.",
-      "nicknameTitle": "بماذا أناديك؟",
+      "googleWaiting": "في انتظار Google...",
+      "magicLinkFailed": "تعذّر إرسال الرابط السحري.",
+      "magicLinkSentDesktop": "أرسلنا رابط تسجيل دخول. افتحه على هذا الجهاز لإتمام العملية.",
       "nicknameDescription": "اختر اسمًا تستخدمه Stella في كل أنحاء التطبيق.",
       "nicknameLabel": "الاسم المستعار",
       "nicknamePlaceholder": "اسمك المستعار",
-      "notNow": "ليس الآن"
-    },
-    "legal": {
-      "terms": {
-        "title": "شروط الخدمة",
-        "subtitle": "كيف تعمل Stella، وما الذي توافق عليه عند استخدامها."
+      "nicknameTitle": "بماذا أناديك؟",
+      "notNow": "ليس الآن",
+      "openInbox": "افتح {provider}",
+      "orUseEmail": "أو استخدم البريد الإلكتروني",
+      "resendEmail": "أعد إرسال البريد",
+      "resendIn": "إعادة الإرسال خلال {seconds} ثانية",
+      "sendFailed": "تعذّر إرسال بريد تسجيل الدخول.",
+      "sendSignInEmail": "أرسل بريد تسجيل الدخول",
+      "sending": "جارٍ الإرسال...",
+      "signInIncomplete": "تسجيل الدخول غير مكتمل. حاول مرة أخرى.",
+      "signInLinkExpired": "انتهت صلاحية رابط تسجيل الدخول. حاول مرة أخرى.",
+      "signingIn": "جارٍ تسجيل الدخول...",
+      "skipForNow": "تخطَّ الآن",
+      "tooManyRequests": {
+        "few": "طلبات كثيرة جدًا. حاول مرة أخرى خلال {count} ثوانٍ.",
+        "many": "طلبات كثيرة جدًا. حاول مرة أخرى خلال {count} ثانية.",
+        "one": "طلبات كثيرة جدًا. حاول مرة أخرى خلال {count} ثانية.",
+        "other": "طلبات كثيرة جدًا. حاول مرة أخرى خلال {count} ثانية.",
+        "two": "طلبات كثيرة جدًا. حاول مرة أخرى خلال {count} ثانيتين.",
+        "zero": "طلبات كثيرة جدًا. حاول مرة أخرى خلال {count} ثانية."
       },
-      "privacy": {
-        "title": "سياسة الخصوصية",
-        "subtitle": "ما نجمعه، وما لا نجمعه، وكيف نحافظ على أمانه."
-      }
+      "welcomeDescription": "سجّل الدخول ببريدك الإلكتروني لبدء استخدام Stella.",
+      "welcomeSub": "استخدم Google أو بريدك الإلكتروني لتسجيل الدخول. لا حاجة إلى كلمة مرور.",
+      "welcomeTitle": "مرحبًا بك في Stella"
     },
     "integrations": {
-      "heroTagline": "راسل Stella من أي منصة تحبها — تحدّث بشكل طبيعي، أو اطلب منها إنجاز الأمور مباشرة على حاسوبك.",
-      "signInToConnect": "سجّل الدخول إلى Stella للاتصال",
       "connectStellaApp": "اتصل بتطبيق Stella",
       "connectStellaAppSub": "اقرن تطبيق Stella على هاتفك بهذا الكمبيوتر",
       "connectTitle": "اتصال",
-      "phoneTitle": "هاتفك",
       "connected": "متصل",
-      "signInHeadline": "سجّل الدخول للبدء",
-      "signInSub": "سجّل الدخول إلى حساب Stella لتوصيل {provider}.",
       "credential": {
-        "title": "اتصل بـ {provider}",
-        "description": "تحتاج Stella إلى مفتاح API الخاص بك في {provider} للاتصال. ألصقه أدناه. سيبقى على حاسوبك.",
-        "defaultLabel": "مفتاح {provider}",
         "apiKeyLabel": "مفتاح API",
         "apiKeyRequired": "مفتاح API مطلوب.",
+        "defaultLabel": "مفتاح {provider}",
+        "description": "تحتاج Stella إلى مفتاح API الخاص بك في {provider} للاتصال. ألصقه أدناه. سيبقى على حاسوبك.",
         "keyPlaceholder": "ألصق مفتاحك",
-        "labelLabel": "التسمية",
         "labelDescription": "اسم مألوف للتعرّف على هذا المفتاح لاحقًا.",
-        "saving": "جارٍ الحفظ...",
+        "labelLabel": "التسمية",
+        "saveFailed": "تعذّر حفظ بيانات الاعتماد.",
         "saveKey": "احفظ المفتاح",
-        "saveFailed": "تعذّر حفظ بيانات الاعتماد."
+        "saving": "جارٍ الحفظ...",
+        "title": "اتصل بـ {provider}"
+      },
+      "heroTagline": "راسل Stella من أي منصة تحبها — تحدّث بشكل طبيعي، أو اطلب منها إنجاز الأمور مباشرة على حاسوبك.",
+      "phoneTitle": "هاتفك",
+      "signInHeadline": "سجّل الدخول للبدء",
+      "signInSub": "سجّل الدخول إلى حساب Stella لتوصيل {provider}.",
+      "signInToConnect": "سجّل الدخول إلى Stella للاتصال"
+    },
+    "legal": {
+      "privacy": {
+        "subtitle": "ما نجمعه، وما لا نجمعه، وكيف نحافظ على أمانه.",
+        "title": "سياسة الخصوصية"
+      },
+      "terms": {
+        "subtitle": "كيف تعمل Stella، وما الذي توافق عليه عند استخدامها.",
+        "title": "شروط الخدمة"
       }
     },
     "remoteExecutionConsent": {
-      "title": "Allow work from your other devices?",
+      "allow": "Allow",
       "body": "Another of your devices asked to run work on this computer. Allowing lets work sent from your devices run here.",
       "bodyFrom": "{requester} asked to run work on this computer. Allowing lets work sent from your devices run here.",
-      "note": "You can change this later in Connect, under your computers.",
-      "allow": "Allow",
       "decline": "Not now",
-      "failed": "That answer didn't go through. Try again."
+      "failed": "That answer didn't go through. Try again.",
+      "note": "You can change this later in Connect, under your computers.",
+      "title": "Allow work from your other devices?"
     },
     "schedule": {
-      "dialogTitle": "الجدولة",
-      "untitledTask": "مهمة مجدوَلة",
+      "actionFailed": "فشل الإجراء.",
       "checkIn": "تسجيل حضور",
-      "paused": "موقوفة مؤقتًا",
+      "delete": "حذف",
+      "dialogTitle": "الجدولة",
+      "missing": "لم تعد هذه الجدولة موجودة.",
       "pause": "إيقاف مؤقت",
+      "paused": "موقوفة مؤقتًا",
       "pausing": "جارٍ الإيقاف المؤقت…",
+      "removing": "جارٍ الإزالة…",
       "resume": "استئناف",
       "resuming": "جارٍ الاستئناف…",
       "runNow": "شغّل الآن",
       "running": "قيد التشغيل…",
-      "delete": "حذف",
-      "removing": "جارٍ الإزالة…",
-      "actionFailed": "فشل الإجراء.",
-      "missing": "لم تعد هذه الجدولة موجودة.",
       "scheduleCount": {
-        "zero": "{count} جدولة",
-        "one": "{count} جدولة",
-        "two": "{count} جدولتان",
         "few": "{count} جدولات",
         "many": "{count} جدولة",
-        "other": "{count} جدولة"
-      }
+        "one": "{count} جدولة",
+        "other": "{count} جدولة",
+        "two": "{count} جدولتان",
+        "zero": "{count} جدولة"
+      },
+      "untitledTask": "مهمة مجدوَلة"
     }
   },
   "mobile": {
+    "account": {
+      "title": "الحساب"
+    },
+    "activity": {
+      "inProgress": {
+        "few": "{count} قيد التنفيذ",
+        "many": "{count} قيد التنفيذ",
+        "one": "{count} قيد التنفيذ",
+        "other": "{count} قيد التنفيذ",
+        "two": "{count} قيد التنفيذ",
+        "zero": "{count} قيد التنفيذ"
+      },
+      "openLabel": "عرض النشاط"
+    },
+    "activityHub": {
+      "activity": {
+        "empty": "لا يوجد عمل في الخلفية بعد.",
+        "emptyFiltered": "لا يوجد نشاط أو ملفات مطابقة."
+      },
+      "conversation": {
+        "subtitle": "ملفات أنشأها الخيط الرئيسي",
+        "title": "هذه المحادثة"
+      },
+      "files": {
+        "empty": "لا توجد ملفات بعد. كل ما تنتجه Stella يظهر هنا.",
+        "emptyFiltered": "لا توجد ملفات مطابقة.",
+        "searchPlaceholder": "البحث في الملفات"
+      },
+      "schedule": {
+        "actionFailed": "لم تنجح العملية.",
+        "alertTitle": "الجدولة",
+        "customCadence": "جدولة مخصّصة",
+        "deleteConfirm": "سيتوقف تشغيل “{title}”.",
+        "deleteSchedule": "حذف الجدولة",
+        "empty": "لا توجد جداول بعد. اطلب من Stella على حاسوبك تشغيل شيء بانتظام وسيظهر هنا.",
+        "lastRunFailed": "فشل آخر تشغيل: {error}",
+        "loadFailed": "تعذّر تحميل الجداول.",
+        "next": "التشغيل التالي {when}",
+        "pauseSchedule": "إيقاف الجدولة مؤقتًا",
+        "paused": "متوقفة مؤقتًا",
+        "resumeSchedule": "استئناف الجدولة"
+      },
+      "search": {
+        "clear": "مسح البحث",
+        "close": "إغلاق البحث",
+        "placeholder": "البحث في النشاط والملفات"
+      },
+      "subagents": {
+        "count": {
+          "few": "{count} وكلاء فرعيين",
+          "many": "{count} وكيلًا فرعيًا",
+          "one": "وكيل فرعي واحد",
+          "other": "{count} وكيل فرعي",
+          "two": "وكيلان فرعيان"
+        },
+        "done": {
+          "other": "اكتمل: {count}"
+        }
+      },
+      "tabs": {
+        "activity": "النشاط",
+        "files": "الملفات",
+        "schedule": "الجدولة",
+        "search": "بحث"
+      },
+      "task": {
+        "failed": "تعذّر الإكمال",
+        "finished": "اكتمل",
+        "stopped": "أُوقف",
+        "working": "يعمل في الخلفية"
+      }
+    },
+    "authCallback": {
+      "backToSignIn": "العودة إلى تسجيل الدخول",
+      "failedTitle": "تعذّر تسجيل دخولك",
+      "genericFailure": "تعذّر تسجيل دخولك الآن. يُرجى المحاولة مرة أخرى.",
+      "invalidLink": "رابط تسجيل الدخول غير صالح.",
+      "linkExpired": "انتهت صلاحية رابط تسجيل الدخول هذا. يُرجى طلب رابط جديد.",
+      "signingInBody": "لحظة من فضلك...",
+      "signingInTitle": "جارٍ تسجيل دخولك"
+    },
+    "boot": {
+      "checkingSessionBody": "انتظر قليلًا ريثما تستيقظ Stella.",
+      "checkingSessionTitle": "جارٍ التحقق من جلستك",
+      "crashTitle": "حدث خلل عند التشغيل",
+      "missingConfigBody": "اضبط EXPO_PUBLIC_STELLA_BACKEND_URL قبل تشغيل التطبيق.",
+      "missingConfigTitle": "أضف متغيرات بيئة تطبيق الجوال"
+    },
+    "carPlayDiagnostics": {
+      "clear": "مسح",
+      "clearLabel": "مسح التشخيصات",
+      "clipboardEmpty": "(لم تُسجَّل أي تشخيصات لـ CarPlay)",
+      "copied": "تم النسخ ✓",
+      "copyAll": "نسخ الكل",
+      "copyAllLabel": "نسخ كل التشخيصات",
+      "empty": "لم تُسجَّل أي تشخيصات لـ CarPlay بعد. اتصل بـ CarPlay مرة واحدة ثم عُد إلى هنا.",
+      "refresh": "تحديث",
+      "refreshLabel": "تحديث التشخيصات",
+      "subtitle": {
+        "few": "سجل تتبّع لاتصال CarPlay ({count} أسطر، الأحدث أولًا). انسخ هذه السطور وأرسلها بعد أي خلل يحدث في السيارة.",
+        "many": "سجل تتبّع لاتصال CarPlay ({count} سطرًا، الأحدث أولًا). انسخ هذه السطور وأرسلها بعد أي خلل يحدث في السيارة.",
+        "one": "سجل تتبّع لاتصال CarPlay ({count} سطر، الأحدث أولًا). انسخ هذا السطر وأرسله بعد أي خلل يحدث في السيارة.",
+        "other": "سجل تتبّع لاتصال CarPlay ({count} سطر، الأحدث أولًا). انسخ هذه السطور وأرسلها بعد أي خلل يحدث في السيارة.",
+        "two": "سجل تتبّع لاتصال CarPlay ({count} سطران، الأحدث أولًا). انسخ هذه السطور وأرسلها بعد أي خلل يحدث في السيارة.",
+        "zero": "سجل تتبّع لاتصال CarPlay ({count} سطر، الأحدث أولًا). انسخ هذه السطور وأرسلها بعد أي خلل يحدث في السيارة."
+      },
+      "title": "تشخيصات CarPlay"
+    },
+    "chat": {
+      "composerPlaceholder": "راسِل Stella",
+      "createFailed": "تعذّر إنشاء محادثة. يُرجى المحاولة مرة أخرى.",
+      "emptyPrompt": "اسأل Stella عن أي شيء",
+      "loadMore": "تحميل المزيد",
+      "mainChat": "المحادثة الرئيسية",
+      "workingMany": "المهام قيد التنفيذ: {count}"
+    },
+    "cloudHome": {
+      "backToDocumentsLabel": "العودة إلى مستندات Cloud Home",
+      "backToSettingsLabel": "العودة إلى الإعدادات",
+      "conflict": {
+        "changedBody": "حلّت المراجعة {revision} محل النسخة التي كنت تعدّلها. ما زالت مسودتك هنا.",
+        "reload": "إعادة تحميل النسخة السحابية",
+        "reloadLabel": "إعادة تحميل النسخة السحابية واستبدال هذه المسودة",
+        "reloading": "جارٍ إعادة التحميل…",
+        "removedBody": "أُزيل هذا المستند أثناء تعديله. ما زالت مسودتك هنا.",
+        "title": "تغيّرت النسخة السحابية"
+      },
+      "editor": {
+        "editLabel": "تعديل {name}",
+        "save": "حفظ",
+        "saving": "جارٍ الحفظ…",
+        "unsaved": "تغييرات غير محفوظة",
+        "upToDate": "محدّث"
+      },
+      "editorMeta": "{kind} · المراجعة {revision}",
+      "errors": {
+        "invalid": "أعاد Cloud Home استجابة غير صالحة.",
+        "missingFromList": "لم يعد هذا المستند موجودًا في Cloud Home. أعد تحميل القائمة.",
+        "network": "تعذّر الوصول إلى Cloud Home. حاول مرة أخرى.",
+        "removedWhileEditing": "أُزيل هذا المستند من Cloud Home.",
+        "unauthorized": "سجّل الدخول مجددًا للوصول إلى Cloud Home.",
+        "unavailable": "Cloud Home غير متاح لهذا الحساب حاليًا."
+      },
+      "kinds": {
+        "archive": "أرشيف",
+        "core_memory": "ذاكرة أساسية",
+        "imported_markdown": "Markdown مستورد",
+        "memory": "ذاكرة",
+        "memory_map": "خريطة ذاكرة",
+        "personality": "شخصية",
+        "profile": "ملف شخصي",
+        "user_markdown": "Markdown الخاص بالمستخدم"
+      },
+      "list": {
+        "emptyBody": "ستظهر هنا المستندات التي تنشئها Stella أو التي تستوردها من تطبيق سطح المكتب.",
+        "emptyTitle": "لا توجد ذاكرة سحابية بعد",
+        "loading": "جارٍ تحميل المستندات…",
+        "openDocumentLabel": "فتح {name}",
+        "retry": "إعادة المحاولة",
+        "retryLabel": "إعادة محاولة تحميل ذاكرة Cloud Home"
+      },
+      "listMeta": "{kind} · المراجعة {revision} · {size}",
+      "loading": "جارٍ تحميل Cloud Home…",
+      "notices": {
+        "loadedLatest": "تم تحميل أحدث نسخة سحابية.",
+        "saved": "تم الحفظ في Cloud Home."
+      },
+      "openSettingsLabel": "فتح ذاكرة Cloud Home",
+      "settingsRowBody": "اعرض ذاكرة Stella المعتمدة في السحابة وعدّلها.",
+      "settingsRowTitle": "مستندات الذاكرة",
+      "settingsSection": "Cloud Home",
+      "signIn": "تسجيل الدخول",
+      "signInAgain": "تسجيل الدخول مجددًا",
+      "signInBody": "مستندات الذاكرة خاصة بحسابك في Stella.",
+      "signInTitle": "سجّل الدخول لاستخدام Cloud Home",
+      "sizes": {
+        "bytes": "{count} B",
+        "kilobytes": "{count} KB",
+        "megabytes": "{count} MB"
+      },
+      "subtitle": "مستندات Stella المعتمدة في السحابة",
+      "title": "ذاكرة Cloud Home",
+      "unavailableBody": "لا يوفّر هذا النشر حاليًا خدمة Cloud Home الآمنة. لم تتغيّر ملفاتك المحلية.",
+      "unavailableTitle": "Cloud Home غير متاح"
+    },
     "common": {
       "back": "رجوع",
       "backChevron": "‹ رجوع",
@@ -2149,637 +1127,1654 @@
       "goBack": "الرجوع",
       "tryAgain": "حاول مرة أخرى"
     },
-    "boot": {
-      "crashTitle": "حدث خلل عند التشغيل",
-      "missingConfigTitle": "أضف متغيرات بيئة تطبيق الجوال",
-      "missingConfigBody": "اضبط EXPO_PUBLIC_STELLA_BACKEND_URL قبل تشغيل التطبيق.",
-      "checkingSessionTitle": "جارٍ التحقق من جلستك",
-      "checkingSessionBody": "انتظر قليلًا ريثما تستيقظ Stella."
+    "computer": {
+      "connectedLabel": "تم الاتصال بالكمبيوتر",
+      "connectingLabel": "جارٍ الاتصال بكمبيوترك",
+      "defaultDeviceLabel": "كمبيوترك",
+      "disconnectedLabel": "انقطع الاتصال بالكمبيوتر",
+      "guestHeroBody": "اطلب من Stella إنجاز أشياء على كمبيوترك — تصفّح الويب وإدارة الملفات وتنفيذ المهام والمزيد.",
+      "guestHeroTitle": "كمبيوترك بين يديك",
+      "pairLabel": "إقران كمبيوتر",
+      "statusAsleep": "في وضع السكون",
+      "statusChecking": "جارٍ التحقق…",
+      "statusConnected": "متصل"
     },
-    "authCallback": {
-      "failedTitle": "تعذّر تسجيل دخولك",
-      "invalidLink": "رابط تسجيل الدخول غير صالح.",
-      "linkExpired": "انتهت صلاحية رابط تسجيل الدخول هذا. يُرجى طلب رابط جديد.",
-      "genericFailure": "تعذّر تسجيل دخولك الآن. يُرجى المحاولة مرة أخرى.",
-      "backToSignIn": "العودة إلى تسجيل الدخول",
-      "signingInTitle": "جارٍ تسجيل دخولك",
-      "signingInBody": "لحظة من فضلك..."
+    "desktop": {
+      "connecting": "جارٍ الاتصال بسطح المكتب",
+      "deviceUnreachable": "تعذّر الوصول إلى {platform}",
+      "enterCode": "أدخل الرمز الظاهر على كمبيوترك.",
+      "guestBody": "شاهد تطبيق Stella لسطح المكتب على هاتفك مباشرة. بعد الإقران، سيعيد هاتفك الاتصال تلقائيًا.",
+      "guestSignInPrompt": "سجّل الدخول للبدء.",
+      "limitedCapabilities": "بعض الأمور تحتاج إلى كمبيوترك",
+      "linkInterrupted": "انقطع الاتصال بكمبيوترك.",
+      "pairAnother": "إقران كمبيوتر آخر",
+      "pairTitle": "إقران هاتفك",
+      "pairing": "جارٍ إقران هذا الهاتف",
+      "reconnecting": "جارٍ إعادة الاتصال...",
+      "repairNeeded": "يحتاج هذا الهاتف إلى الإقران مع كمبيوترك من جديد.",
+      "retryLabel": "إعادة محاولة الاتصال",
+      "startPairingLabel": "بدء إقران كمبيوتر",
+      "unavailableBodyPaired": "تأكد من أن Stella مفتوح على كمبيوترك ومتصل بالإنترنت. بمجرد الاتصال، سيظهر تطبيق سطح المكتب هنا على هاتفك.",
+      "unavailableBodyUnpaired": "شاهد تطبيق Stella لسطح المكتب على هاتفك مباشرة. امسح رمز QR الظاهر في Stella على كمبيوترك للبدء — وبعدها سيعيد هاتفك الاتصال تلقائيًا.",
+      "unreachable": "تعذّر الوصول إلى سطح المكتب"
+    },
+    "engineAccounts": {
+      "active": "قيد الاستخدام",
+      "backLabel": "العودة إلى الإعدادات",
+      "chatgptBrowserWaiting": "أكمل تسجيل الدخول إلى ChatGPT في متصفحك.",
+      "chatgptSection": "ChatGPT",
+      "claudeNote": "إضافة حساب هنا تسجّل دخول سحابة Stella إلى Claude Code عبر صفحة Anthropic نفسها. يستخدم كل كمبيوتر تسجيل دخول Claude Code الخاص به.",
+      "claudeSection": "Claude",
+      "connectChatgpt": "ربط حساب ChatGPT",
+      "connectClaude": "إضافة حساب Claude",
+      "connecting": "جارٍ الاتصال…",
+      "continueAsChatgpt": "المتابعة باستخدام ChatGPT باسم {name}",
+      "continueWithChatgpt": "المتابعة باستخدام حساب ChatGPT الخاص بك",
+      "enablePlanUsage": "تفعيل استخدام خطة ChatGPT",
+      "errorBody": "حدث خطأ ما. حاول مرة أخرى.",
+      "errorTitle": "تعذّر تحديث الحسابات",
+      "finish": "اتصال",
+      "manageUsage": "إدارة الاستخدام",
+      "moreLabel": "خيارات {name}",
+      "notSignedIn": "غير مسجّل الدخول في أي مكان",
+      "openChatgptAgain": "فتح ChatGPT مرة أخرى",
+      "openClaudeAgain": "فتح صفحة تسجيل الدخول مرة أخرى",
+      "pasteFromClipboard": "لصق",
+      "pasteHintChatgpt": "بعد الموافقة، ينقلك ChatGPT إلى صفحة لا يتم تحميلها. انسخ العنوان الكامل لتلك الصفحة والصقه هنا.",
+      "pasteHintClaude": "بعد الموافقة، تعرض Anthropic رمزًا. انسخه والصقه هنا.",
+      "pastePlaceholder": "الصق الرمز الذي تعرضه Anthropic",
+      "pastePlaceholderUrl": "الصق العنوان هنا",
+      "placeCloud": "السحابة",
+      "placeComputer": "كمبيوتر",
+      "planUsageOffBody": "لا يمكن لـ Stella استخدام خطة ChatGPT الخاصة بك حتى تسمح بذلك. اختر «تفعيل استخدام خطة ChatGPT» في الحساب.",
+      "planWelcomeBody": "تُحتسب طلبات ChatGPT في سحابة Stella من خطة ChatGPT الخاصة بك. راجع الاستخدام وحدّد حد Stella في إعدادات ChatGPT.",
+      "planWelcomeTitle": "أنت تستخدم خطة ChatGPT الخاصة بك",
+      "remove": "إزالة",
+      "removeBody": "ستنسى Stella حساب ChatGPT هذا. يمكنك تسجيل الدخول إليه مرة أخرى لاحقًا.",
+      "removeClaudeBody": "تنسى Stella حساب Claude هذا وتسجّل خروج السحابة منه. تحتفظ أجهزة الكمبيوتر لديك بتسجيلات دخول Claude Code الخاصة بها.",
+      "removeTitle": "هل تريد إزالة {name}؟",
+      "revokeUnconfirmed": "لم يؤكد ChatGPT تسجيل الخروج. يمكنك فصل Stella من إعدادات ChatGPT.",
+      "signInAgain": "تسجيل الدخول مرة أخرى",
+      "signInCloud": "تسجيل الدخول في السحابة",
+      "signOut": "تسجيل الخروج",
+      "signOutBody": "ستتوقف Stella عن استخدام هذا الحساب. يمكنك إضافته مرة أخرى في أي وقت.",
+      "signOutCloud": "تسجيل الخروج من السحابة",
+      "signOutCloudBody": "تتوقف سحابة Stella عن استخدام هذا الحساب حتى تسجّل الدخول فيها مرة أخرى. تحتفظ أجهزة الكمبيوتر لديك بتسجيلات دخول Claude Code الخاصة بها.",
+      "signOutCloudTitle": "هل تريد تسجيل خروج {name} من السحابة؟",
+      "signOutTitle": "هل تريد تسجيل الخروج من {name}؟",
+      "signedInOn": "مسجّل الدخول: {places}",
+      "startAgain": "البدء من جديد",
+      "statusPlanUsageOff": "استخدام خطة ChatGPT غير مفعّل",
+      "statusReauth": "سجّل الدخول مرة أخرى لمواصلة استخدامه",
+      "statusSignedOut": "تم تسجيل الخروج",
+      "subtitle": "استخدم خطة Claude أو ChatGPT التي تدفع مقابلها بالفعل",
+      "title": "Claude وChatGPT",
+      "useAccount": "استخدام هذا الحساب"
+    },
+    "login": {
+      "appleCompleteFailed": "تعذّر إكمال تسجيل الدخول عبر Apple.",
+      "appleNoToken": "لم تُرجِع Apple رمز هوية.",
+      "appleStartFailed": "تعذّر بدء تسجيل الدخول عبر Apple.",
+      "checkInbox": "افتح بريدك الوارد واضغط على الرابط — سيتم تسجيل دخولك تلقائيًا.",
+      "continueAsGuest": "المتابعة دون تسجيل الدخول",
+      "continueWithApple": "المتابعة باستخدام Apple",
+      "continueWithGoogle": "المتابعة باستخدام Google",
+      "emailPlaceholder": "البريد الإلكتروني",
+      "enterEmail": "أدخل بريدك الإلكتروني.",
+      "finishFailed": "تعذّر إكمال تسجيل الدخول. يُرجى المحاولة مرة أخرى.",
+      "googleStartFailed": "تعذّر بدء تسجيل الدخول عبر Google.",
+      "heroBody": "استخدم Apple أو Google أو البريد الإلكتروني الذي تستخدمه على كمبيوترك.",
+      "heroTitle": "مساعدك،\nبحجم الجيب.",
+      "incomplete": "لم يكتمل تسجيل الدخول. يُرجى المحاولة مرة أخرى.",
+      "legalConjunction": " و",
+      "legalPrefix": "بالمتابعة، فإنك توافق على ",
+      "legalPrivacy": "سياسة الخصوصية",
+      "legalSuffix": ".",
+      "legalTerms": "شروط الخدمة",
+      "linkExpired": "انتهت صلاحية الرابط. يُرجى المحاولة مرة أخرى.",
+      "openingApple": "جارٍ فتح Apple...",
+      "openingGoogle": "جارٍ فتح Google...",
+      "orUseEmail": "أو استخدم البريد الإلكتروني",
+      "resend": "إعادة الإرسال",
+      "resendLabel": "إعادة إرسال بريد تسجيل الدخول",
+      "sendFailed": "تعذّر إرسال بريد تسجيل الدخول.",
+      "sending": "جارٍ الإرسال...",
+      "signingIn": "جارٍ تسجيل الدخول...",
+      "useDifferentEmail": "استخدام بريد إلكتروني آخر"
     },
     "nav": {
-      "chat": "الدردشة",
-      "settings": "الإعدادات",
+      "account": "الحساب",
       "apps": "التطبيقات",
-      "openLabel": "فتح التنقل",
+      "backToApps": "العودة إلى التطبيقات",
+      "backToChat": "العودة إلى المحادثة",
+      "chat": "الدردشة",
       "chatSettingsLabel": "إعدادات المحادثة",
       "closeLabel": "إغلاق التنقل",
-      "account": "الحساب",
-      "signIn": "تسجيل الدخول",
-      "backToChat": "العودة إلى المحادثة",
-      "backToApps": "العودة إلى التطبيقات"
-    },
-    "search": {
-      "placeholder": "البحث في الرسائل",
-      "openLabel": "البحث في الرسائل",
-      "clearLabel": "مسح البحث",
-      "cancelLabel": "إلغاء البحث"
+      "openLabel": "فتح التنقل",
+      "settings": "الإعدادات",
+      "signIn": "تسجيل الدخول"
     },
     "onboarding": {
-      "skip": "تخطي",
-      "skipLabel": "تخطي المقدمة",
-      "progressLabel": "الخطوة {current} من {total}",
-      "composerPlaceholder": "أو اسألني أي شيء",
-      "send": "إرسال",
-      "messages": {
-        "hello": "مرحبًا، أنا Stella.\n\nلست روبوت دردشة. أخبرني بما تحتاجه وسأنجزه في الخلفية، بينما تمضي في يومك.",
-        "showcase": "هكذا يبدو الأمر.",
-        "computer": "إن كان لديك Mac أو PC، فيمكنني العمل عليه أيضًا.",
-        "account": "هل تريد الاحتفاظ بكل هذا؟ حساب Stella يرافقك إلى كل جهاز.",
-        "accountSignedIn": "لقد سجّلت دخولك، فكل شيء يرافقك بين أجهزتك. وإضافة اختيارية واحدة:",
-        "theme": "والآن، كيف تريدني أن أبدو؟",
-        "ready": "هذا كل شيء. سأتعرّف عليك مع الوقت.\n\nماذا نفعل أولًا؟"
+      "account": {
+        "chatgptDesc": "خطة ChatGPT الخاصة بك، لسحابة Stella",
+        "claudeDesc": "Pro أو Max، عبر Claude Code",
+        "connect": "ربط",
+        "connectLabel": "ربط {name}",
+        "connectedAs": "متصل · {name}",
+        "guestSettled": "سجّل الدخول في أي وقت من الإعدادات",
+        "settledGuest": "استخدام Stella كضيف",
+        "settledSignedIn": "تم تسجيل الدخول",
+        "signIn": "تسجيل الدخول",
+        "signInBody": "احتفظ بمحادثتك وإعداداتك وكمبيوترك المتصل على كل جهاز.",
+        "signInTitle": "سجّل الدخول إلى Stella",
+        "skip": "تخطَّ الآن",
+        "subscriptionsBody": "هل تدفع بالفعل مقابل Claude أو ChatGPT؟ اربطه وسأستخدمه في السحابة. تستخدم أجهزة الكمبيوتر لديك تسجيلات الدخول الخاصة بها.",
+        "subscriptionsLabel": "اختياري"
       },
-      "replies": {
-        "helloDone": "أرني.",
-        "showcaseDone": "فهمت.",
-        "computerDone": "تم الاتصال!",
-        "computerSkipped": "ربما لاحقًا.",
-        "accountDone": "اكتمل كل شيء.",
-        "accountSkipped": "تخطَّ الآن.",
-        "themeDone": "هذا.",
-        "themeSkipped": "أبقِ الافتراضي."
+      "composerPlaceholder": "أو اسألني أي شيء",
+      "computer": {
+        "body": "أقرِن هذا الهاتف بـ Stella على الكمبيوتر، وسأنفّذ المهام هناك وأنت بعيد.",
+        "connectedBody": "اطلب من أي مكان وسأنجز العمل على الكمبيوتر.",
+        "connectedTo": "متصل بـ {name}",
+        "guestHint": "الإقران مرتبط بحسابك في Stella، لذا سجّل الدخول أولًا. سأكمل من هنا تمامًا.",
+        "hint": "على الكمبيوتر، افتح Stella واختر إقران الهاتف.",
+        "later": "لاحقًا",
+        "pair": "أقرِن الكمبيوتر",
+        "point1": "أجد ملفًا وأرسله إليك",
+        "point2": "أُنهي عملية تصدير أو تنزيل",
+        "point3": "أستخدم التطبيقات التي لديك أصلًا",
+        "settledConnectedDesc": "يمكنني تنفيذ المهام هناك من هاتفك.",
+        "settledSkippedDesc": "يمكنك إقران كمبيوتر في أي وقت من الإعدادات.",
+        "settledSkippedTitle": "لا كمبيوتر بعد",
+        "signInToPair": "سجّل الدخول للإقران",
+        "title": "الكمبيوتر في جيبك"
       },
       "hello": {
         "cta": "أرني",
-        "settledTitle": "تعرّف على Stella",
         "pillars": {
-          "done": {
-            "title": "ينجز المهام",
-            "body": "حجوزات وطلبات وملفات وأبحاث، تُنجَز عنك."
+          "asks": {
+            "body": "كل ما يتطلب إنفاق المال ينتظر موافقتك.",
+            "title": "يسأل قبل أن يهمّ الأمر"
           },
           "background": {
-            "title": "يعمل في الخلفية",
-            "body": "أوكِل إليّ مهمة وتابع يومك. سأخبرك عندما تنتهي."
+            "body": "أوكِل إليّ مهمة وتابع يومك. سأخبرك عندما تنتهي.",
+            "title": "يعمل في الخلفية"
           },
-          "asks": {
-            "title": "يسأل قبل أن يهمّ الأمر",
-            "body": "كل ما يتطلب إنفاق المال ينتظر موافقتك."
+          "done": {
+            "body": "حجوزات وطلبات وملفات وأبحاث، تُنجَز عنك.",
+            "title": "ينجز المهام"
           }
-        }
+        },
+        "settledTitle": "تعرّف على Stella"
       },
+      "messages": {
+        "account": "هل تريد الاحتفاظ بكل هذا؟ حساب Stella يرافقك إلى كل جهاز.",
+        "accountSignedIn": "لقد سجّلت دخولك، فكل شيء يرافقك بين أجهزتك. وإضافة اختيارية واحدة:",
+        "computer": "إن كان لديك Mac أو PC، فيمكنني العمل عليه أيضًا.",
+        "hello": "مرحبًا، أنا Stella.\n\nلست روبوت دردشة. أخبرني بما تحتاجه وسأنجزه في الخلفية، بينما تمضي في يومك.",
+        "ready": "هذا كل شيء. سأتعرّف عليك مع الوقت.\n\nماذا نفعل أولًا؟",
+        "showcase": "هكذا يبدو الأمر.",
+        "theme": "والآن، كيف تريدني أن أبدو؟"
+      },
+      "progressLabel": "الخطوة {current} من {total}",
+      "ready": {
+        "start": "ابدأ الدردشة",
+        "starters": {
+          "explain": {
+            "prompt": "اشرح لي ببساطة كيف تعمل الفائدة المركبة.",
+            "title": "اشرح لي شيئًا"
+          },
+          "gift": {
+            "prompt": "جد هدية عيد ميلاد مميزة لصديق، بأقل من 50 $.",
+            "title": "جد هدية"
+          },
+          "plan": {
+            "prompt": "ساعدني في تخطيط أسبوعي حسب ما ينتظرني.",
+            "title": "خطّط لأسبوعي"
+          },
+          "remind": {
+            "prompt": "ذكّرني بالاتصال بأمي يوم الأحد الساعة 6.",
+            "title": "اضبط تذكيرًا"
+          }
+        },
+        "startersLabel": "جرّب أحد هذه"
+      },
+      "replies": {
+        "accountDone": "اكتمل كل شيء.",
+        "accountSkipped": "تخطَّ الآن.",
+        "computerDone": "تم الاتصال!",
+        "computerSkipped": "ربما لاحقًا.",
+        "helloDone": "أرني.",
+        "showcaseDone": "فهمت.",
+        "themeDone": "هذا.",
+        "themeSkipped": "أبقِ الافتراضي."
+      },
+      "send": "إرسال",
       "showcase": {
-        "settledTitle": "جولة سريعة",
-        "replay": "أعد تشغيل هذا العرض",
-        "tablist": "ما تستطيع Stella فعله",
-        "placeholder": "اسأل Stella",
         "chapters": {
           "errands": {
-            "word": "المهام",
-            "title": "اطلب مرة واحدة. واعتبرها منجزة.",
             "caption": "أفتح الموقع وأملأ التفاصيل وأُنهي العمل، تمامًا كما تفعل أنت.",
             "prompt": "احجز لي طاولة لشخصين يوم الجمعة الساعة 8 مساءً",
-            "working": "جارٍ حجز طاولة",
             "receipt1": "Osteria Lucia · الجمعة 8:00 م · شخصان",
             "receipt2": "أُضيف إلى تقويمك",
             "reply": "حجزت Osteria Lucia يوم الجمعة الساعة 8 مساءً. وهو الآن في تقويمك.",
             "scene": {
-              "site": "osterialucia.com",
-              "party": "الأشخاص",
-              "partyValue": "شخصان",
               "date": "التاريخ",
               "dateValue": "الجمعة",
-              "time": "الوقت",
-              "timeValue": "8:00 م",
+              "party": "الأشخاص",
+              "partyValue": "شخصان",
               "reserve": "احجز",
-              "reserved": "تم الحجز"
-            }
+              "reserved": "تم الحجز",
+              "site": "osterialucia.com",
+              "time": "الوقت",
+              "timeValue": "8:00 م"
+            },
+            "title": "اطلب مرة واحدة. واعتبرها منجزة.",
+            "word": "المهام",
+            "working": "جارٍ حجز طاولة"
+          },
+          "research": {
+            "caption": "أقارن الخيارات وأقرأ المراجعات وأعود إليك بإجابة.",
+            "prompt": "جد أفضل دراجة كهربائية بأقل من 2,000 $",
+            "receipt1": "قُرئت 24 مراجعة",
+            "receipt2": "حُفظت المقارنة في الملفات",
+            "reply": "الأفضل هي Cityline 3: أخف هيكل وأفضل فرامل، بسعر 1,799 $.",
+            "scene": {
+              "rank1": "Cityline 3",
+              "rank2": "Metro S",
+              "rank3": "Urban X",
+              "source1": "مراجعات الخبراء",
+              "source2": "منتديات المالكين",
+              "source3": "أوراق المواصفات",
+              "title": "مقارنة الدراجات الكهربائية"
+            },
+            "title": "القراءة عليّ.",
+            "word": "البحث",
+            "working": "جارٍ قراءة المراجعات"
+          },
+          "routines": {
+            "caption": "تذكيرات ومتابعات وملخصات يومية تعمل وفق جدولها الخاص.",
+            "prompt": "كل صباح الساعة 8، أعطني ملخصًا ليومي",
+            "receipt1": "كل يوم الساعة 8:00 ص",
+            "reply": "تم. يصلك أول ملخص غدًا الساعة 8.",
+            "scene": {
+              "body": "3 اجتماعات، ومطر بعد الخامسة، وعيد ميلاد Sam.",
+              "day": "غدًا",
+              "now": "الآن",
+              "time": "8:00",
+              "title": "ملخصك الصباحي",
+              "when": "غدًا، 8:00 ص"
+            },
+            "title": "اضبطه مرة واحدة. وأنا أتولى الباقي.",
+            "word": "الروتين",
+            "working": "جارٍ الإعداد"
           },
           "shopping": {
-            "word": "التسوق",
-            "title": "أستطيع الشراء، بموافقتك.",
-            "caption": "أجد المنتج وأصل به إلى الدفع. توافق أنت على الإجمالي، ثم أُتمّ الطلب.",
-            "prompt": "أعد طلب حذاء الجري الخاص بي، مقاس 10",
-            "working": "جارٍ البحث عن حذائك",
             "amount": "129.99 $",
-            "confirmTitle": "تأكيد الشراء؟",
-            "confirmDetail": "Trail Runner 2 · مقاس 10",
+            "caption": "أجد المنتج وأصل به إلى الدفع. توافق أنت على الإجمالي، ثم أُتمّ الطلب.",
             "confirm": "تأكيد",
+            "confirmDetail": "Trail Runner 2 · مقاس 10",
+            "confirmTitle": "تأكيد الشراء؟",
             "confirmed": "تم التأكيد",
+            "prompt": "أعد طلب حذاء الجري الخاص بي، مقاس 10",
             "receipt1": "الطلب #48213 · يصل الخميس",
             "reply": "تم الطلب. سيصل الخميس.",
             "scene": {
-              "site": "trailco.com",
-              "product": "Trail Runner 2",
               "addToCart": "أضف",
-              "inCart": "في السلة"
-            }
+              "inCart": "في السلة",
+              "product": "Trail Runner 2",
+              "site": "trailco.com"
+            },
+            "title": "أستطيع الشراء، بموافقتك.",
+            "word": "التسوق",
+            "working": "جارٍ البحث عن حذائك"
           },
           "work": {
-            "word": "العمل",
-            "title": "ملفات حقيقية، منجزة.",
             "caption": "مستندات وجداول وعروض: أنجز العمل وأحفظ الملف حيث يمكنك فتحه.",
             "prompt": "حوّل ملاحظاتي عن Q3 إلى عرض تقديمي ليوم الاثنين",
-            "working": "جارٍ قراءة ملاحظاتك",
             "receipt1": "ملاحظات Q3 · تمت القراءة",
             "receipt2": "عرض مراجعة Q3 · 12 شريحة",
             "reply": "عرضك جاهز: 12 شريحة، محفوظ في الملفات.",
             "scene": {
               "file": "مراجعة Q3.pptx",
               "slideTitle": "مراجعة Q3"
-            }
-          },
-          "routines": {
-            "word": "الروتين",
-            "title": "اضبطه مرة واحدة. وأنا أتولى الباقي.",
-            "caption": "تذكيرات ومتابعات وملخصات يومية تعمل وفق جدولها الخاص.",
-            "prompt": "كل صباح الساعة 8، أعطني ملخصًا ليومي",
-            "working": "جارٍ الإعداد",
-            "receipt1": "كل يوم الساعة 8:00 ص",
-            "reply": "تم. يصلك أول ملخص غدًا الساعة 8.",
-            "scene": {
-              "when": "غدًا، 8:00 ص",
-              "day": "غدًا",
-              "time": "8:00",
-              "now": "الآن",
-              "title": "ملخصك الصباحي",
-              "body": "3 اجتماعات، ومطر بعد الخامسة، وعيد ميلاد Sam."
-            }
-          },
-          "research": {
-            "word": "البحث",
-            "title": "القراءة عليّ.",
-            "caption": "أقارن الخيارات وأقرأ المراجعات وأعود إليك بإجابة.",
-            "prompt": "جد أفضل دراجة كهربائية بأقل من 2,000 $",
-            "working": "جارٍ قراءة المراجعات",
-            "receipt1": "قُرئت 24 مراجعة",
-            "receipt2": "حُفظت المقارنة في الملفات",
-            "reply": "الأفضل هي Cityline 3: أخف هيكل وأفضل فرامل، بسعر 1,799 $.",
-            "scene": {
-              "title": "مقارنة الدراجات الكهربائية",
-              "source1": "مراجعات الخبراء",
-              "source2": "منتديات المالكين",
-              "source3": "أوراق المواصفات",
-              "rank1": "Cityline 3",
-              "rank2": "Metro S",
-              "rank3": "Urban X"
-            }
+            },
+            "title": "ملفات حقيقية، منجزة.",
+            "word": "العمل",
+            "working": "جارٍ قراءة ملاحظاتك"
           }
-        }
+        },
+        "placeholder": "اسأل Stella",
+        "replay": "أعد تشغيل هذا العرض",
+        "settledTitle": "جولة سريعة",
+        "tablist": "ما تستطيع Stella فعله"
       },
-      "computer": {
-        "title": "الكمبيوتر في جيبك",
-        "body": "أقرِن هذا الهاتف بـ Stella على الكمبيوتر، وسأنفّذ المهام هناك وأنت بعيد.",
-        "point1": "أجد ملفًا وأرسله إليك",
-        "point2": "أُنهي عملية تصدير أو تنزيل",
-        "point3": "أستخدم التطبيقات التي لديك أصلًا",
-        "pair": "أقرِن الكمبيوتر",
-        "signInToPair": "سجّل الدخول للإقران",
-        "later": "لاحقًا",
-        "hint": "على الكمبيوتر، افتح Stella واختر إقران الهاتف.",
-        "guestHint": "الإقران مرتبط بحسابك في Stella، لذا سجّل الدخول أولًا. سأكمل من هنا تمامًا.",
-        "connectedTo": "متصل بـ {name}",
-        "connectedBody": "اطلب من أي مكان وسأنجز العمل على الكمبيوتر.",
-        "settledConnectedDesc": "يمكنني تنفيذ المهام هناك من هاتفك.",
-        "settledSkippedTitle": "لا كمبيوتر بعد",
-        "settledSkippedDesc": "يمكنك إقران كمبيوتر في أي وقت من الإعدادات."
-      },
-      "account": {
-        "signInTitle": "سجّل الدخول إلى Stella",
-        "signInBody": "احتفظ بمحادثتك وإعداداتك وكمبيوترك المتصل على كل جهاز.",
-        "signIn": "تسجيل الدخول",
-        "subscriptionsLabel": "اختياري",
-        "subscriptionsBody": "هل تدفع بالفعل مقابل Claude أو ChatGPT؟ اربطه وسأستخدمه في السحابة. تستخدم أجهزة الكمبيوتر لديك تسجيلات الدخول الخاصة بها.",
-        "claudeDesc": "Pro أو Max، عبر Claude Code",
-        "chatgptDesc": "خطة ChatGPT الخاصة بك، لسحابة Stella",
-        "connect": "ربط",
-        "connectLabel": "ربط {name}",
-        "connectedAs": "متصل · {name}",
-        "skip": "تخطَّ الآن",
-        "settledSignedIn": "تم تسجيل الدخول",
-        "settledGuest": "استخدام Stella كضيف",
-        "guestSettled": "سجّل الدخول في أي وقت من الإعدادات"
-      },
+      "skip": "تخطي",
+      "skipLabel": "تخطي المقدمة",
       "theme": {
         "appearance": "المظهر",
-        "themes": "السمة",
         "confirm": "تم",
-        "reset": "أبقِ الافتراضي"
-      },
-      "ready": {
-        "startersLabel": "جرّب أحد هذه",
-        "start": "ابدأ الدردشة",
-        "starters": {
-          "plan": {
-            "title": "خطّط لأسبوعي",
-            "prompt": "ساعدني في تخطيط أسبوعي حسب ما ينتظرني."
-          },
-          "gift": {
-            "title": "جد هدية",
-            "prompt": "جد هدية عيد ميلاد مميزة لصديق، بأقل من 50 $."
-          },
-          "remind": {
-            "title": "اضبط تذكيرًا",
-            "prompt": "ذكّرني بالاتصال بأمي يوم الأحد الساعة 6."
-          },
-          "explain": {
-            "title": "اشرح لي شيئًا",
-            "prompt": "اشرح لي ببساطة كيف تعمل الفائدة المركبة."
-          }
-        }
+        "reset": "أبقِ الافتراضي",
+        "themes": "السمة"
       }
     },
-    "login": {
-      "heroTitle": "مساعدك،\nبحجم الجيب.",
-      "heroBody": "استخدم Apple أو Google أو البريد الإلكتروني الذي تستخدمه على كمبيوترك.",
-      "continueWithApple": "المتابعة باستخدام Apple",
-      "openingApple": "جارٍ فتح Apple...",
-      "continueWithGoogle": "المتابعة باستخدام Google",
-      "openingGoogle": "جارٍ فتح Google...",
-      "orUseEmail": "أو استخدم البريد الإلكتروني",
-      "emailPlaceholder": "البريد الإلكتروني",
-      "sending": "جارٍ الإرسال...",
-      "signingIn": "جارٍ تسجيل الدخول...",
-      "checkInbox": "افتح بريدك الوارد واضغط على الرابط — سيتم تسجيل دخولك تلقائيًا.",
-      "useDifferentEmail": "استخدام بريد إلكتروني آخر",
-      "resend": "إعادة الإرسال",
-      "resendLabel": "إعادة إرسال بريد تسجيل الدخول",
-      "enterEmail": "أدخل بريدك الإلكتروني.",
-      "sendFailed": "تعذّر إرسال بريد تسجيل الدخول.",
-      "googleStartFailed": "تعذّر بدء تسجيل الدخول عبر Google.",
-      "appleStartFailed": "تعذّر بدء تسجيل الدخول عبر Apple.",
-      "appleCompleteFailed": "تعذّر إكمال تسجيل الدخول عبر Apple.",
-      "appleNoToken": "لم تُرجِع Apple رمز هوية.",
-      "finishFailed": "تعذّر إكمال تسجيل الدخول. يُرجى المحاولة مرة أخرى.",
-      "incomplete": "لم يكتمل تسجيل الدخول. يُرجى المحاولة مرة أخرى.",
-      "linkExpired": "انتهت صلاحية الرابط. يُرجى المحاولة مرة أخرى.",
-      "legalPrefix": "بالمتابعة، فإنك توافق على ",
-      "legalTerms": "شروط الخدمة",
-      "legalConjunction": " و",
-      "legalPrivacy": "سياسة الخصوصية",
-      "legalSuffix": ".",
-      "continueAsGuest": "المتابعة دون تسجيل الدخول"
-    },
-    "chat": {
-      "emptyPrompt": "اسأل Stella عن أي شيء",
-      "workingMany": "المهام قيد التنفيذ: {count}",
-      "composerPlaceholder": "راسِل Stella",
-      "mainChat": "المحادثة الرئيسية",
-      "createFailed": "تعذّر إنشاء محادثة. يُرجى المحاولة مرة أخرى.",
-      "loadMore": "تحميل المزيد"
-    },
-    "activityHub": {
-      "tabs": {
-        "activity": "النشاط",
-        "schedule": "الجدولة",
-        "search": "بحث",
-        "files": "الملفات"
-      },
-      "task": {
-        "finished": "اكتمل",
-        "failed": "تعذّر الإكمال",
-        "stopped": "أُوقف",
-        "working": "يعمل في الخلفية"
-      },
-      "subagents": {
-        "count": {
-          "one": "وكيل فرعي واحد",
-          "two": "وكيلان فرعيان",
-          "few": "{count} وكلاء فرعيين",
-          "many": "{count} وكيلًا فرعيًا",
-          "other": "{count} وكيل فرعي"
-        },
-        "done": {
-          "other": "اكتمل: {count}"
-        }
-      },
-      "conversation": {
-        "title": "هذه المحادثة",
-        "subtitle": "ملفات أنشأها الخيط الرئيسي"
-      },
-      "schedule": {
-        "customCadence": "جدولة مخصّصة",
-        "paused": "متوقفة مؤقتًا",
-        "next": "التشغيل التالي {when}",
-        "lastRunFailed": "فشل آخر تشغيل: {error}",
-        "pauseSchedule": "إيقاف الجدولة مؤقتًا",
-        "resumeSchedule": "استئناف الجدولة",
-        "deleteSchedule": "حذف الجدولة",
-        "deleteConfirm": "سيتوقف تشغيل “{title}”.",
-        "alertTitle": "الجدولة",
-        "actionFailed": "لم تنجح العملية.",
-        "loadFailed": "تعذّر تحميل الجداول.",
-        "empty": "لا توجد جداول بعد. اطلب من Stella على حاسوبك تشغيل شيء بانتظام وسيظهر هنا."
-      },
-      "search": {
-        "placeholder": "البحث في النشاط والملفات",
-        "clear": "مسح البحث",
-        "close": "إغلاق البحث"
-      },
-      "files": {
-        "empty": "لا توجد ملفات بعد. كل ما تنتجه Stella يظهر هنا.",
-        "emptyFiltered": "لا توجد ملفات مطابقة.",
-        "searchPlaceholder": "البحث في الملفات"
-      },
-      "activity": {
-        "empty": "لا يوجد عمل في الخلفية بعد.",
-        "emptyFiltered": "لا يوجد نشاط أو ملفات مطابقة."
-      }
-    },
-    "computer": {
-      "guestHeroTitle": "كمبيوترك بين يديك",
-      "guestHeroBody": "اطلب من Stella إنجاز أشياء على كمبيوترك — تصفّح الويب وإدارة الملفات وتنفيذ المهام والمزيد.",
-      "defaultDeviceLabel": "كمبيوترك",
-      "statusChecking": "جارٍ التحقق…",
-      "statusConnected": "متصل",
-      "statusAsleep": "في وضع السكون",
-      "connectingLabel": "جارٍ الاتصال بكمبيوترك",
-      "connectedLabel": "تم الاتصال بالكمبيوتر",
-      "disconnectedLabel": "انقطع الاتصال بالكمبيوتر",
-      "pairLabel": "إقران كمبيوتر"
-    },
-    "desktop": {
-      "pairTitle": "إقران هاتفك",
-      "guestBody": "شاهد تطبيق Stella لسطح المكتب على هاتفك مباشرة. بعد الإقران، سيعيد هاتفك الاتصال تلقائيًا.",
-      "guestSignInPrompt": "سجّل الدخول للبدء.",
-      "connecting": "جارٍ الاتصال بسطح المكتب",
-      "pairing": "جارٍ إقران هذا الهاتف",
-      "unreachable": "تعذّر الوصول إلى سطح المكتب",
-      "deviceUnreachable": "تعذّر الوصول إلى {platform}",
-      "repairNeeded": "يحتاج هذا الهاتف إلى الإقران مع كمبيوترك من جديد.",
-      "enterCode": "أدخل الرمز الظاهر على كمبيوترك.",
-      "linkInterrupted": "انقطع الاتصال بكمبيوترك.",
-      "unavailableBodyPaired": "تأكد من أن Stella مفتوح على كمبيوترك ومتصل بالإنترنت. بمجرد الاتصال، سيظهر تطبيق سطح المكتب هنا على هاتفك.",
-      "unavailableBodyUnpaired": "شاهد تطبيق Stella لسطح المكتب على هاتفك مباشرة. امسح رمز QR الظاهر في Stella على كمبيوترك للبدء — وبعدها سيعيد هاتفك الاتصال تلقائيًا.",
-      "pairAnother": "إقران كمبيوتر آخر",
-      "startPairingLabel": "بدء إقران كمبيوتر",
-      "retryLabel": "إعادة محاولة الاتصال",
-      "reconnecting": "جارٍ إعادة الاتصال...",
-      "limitedCapabilities": "بعض الأمور تحتاج إلى كمبيوترك"
+    "search": {
+      "cancelLabel": "إلغاء البحث",
+      "clearLabel": "مسح البحث",
+      "openLabel": "البحث في الرسائل",
+      "placeholder": "البحث في الرسائل"
     },
     "settings": {
-      "title": "الإعدادات",
-      "loadingSession": "جارٍ تحميل الجلسة…",
-      "signIn": "تسجيل الدخول",
-      "signInTitle": "تسجيل الدخول إلى Stella",
-      "showEmailLabel": "إظهار البريد الإلكتروني",
-      "hideEmailLabel": "إخفاء البريد الإلكتروني",
-      "appearanceSection": "المظهر",
-      "computerSection": "الكمبيوتر",
-      "computer": {
-        "sectionLabel": "مكان عمل Stella",
-        "cloud": "السحابة",
-        "statusOnline": "متصل",
-        "statusOffline": "غير متصل",
-        "statusNotReady": "غير جاهز",
-        "statusNotEnabled": "لم يُفعَّل بعد",
-        "statusAwaitingConsent": "في انتظار الإذن على ذلك الكمبيوتر",
-        "statusDeclined": "تم الرفض على ذلك الكمبيوتر",
-        "connecting": "جارٍ الاتصال…",
-        "enable": "تفعيل",
-        "enabling": "جارٍ التفعيل…",
-        "enableLabel": "تفعيل {name}",
-        "enableFailedTitle": "تعذّر تفعيل ذلك الكمبيوتر",
-        "connectFailedTitle": "تعذّر الاتصال بذلك الكمبيوتر",
-        "pairingCode": "استخدام رمز إقران"
-      },
+      "aboutSection": "حول",
       "appearance": {
-        "system": "النظام",
+        "dark": "داكن",
         "light": "فاتح",
-        "dark": "داكن"
+        "system": "النظام"
       },
+      "appearanceSection": "المظهر",
       "background": {
-        "soft": "ناعم",
-        "flat": "مسطّح"
+        "flat": "مسطّح",
+        "soft": "ناعم"
       },
       "backgroundColor": {
         "relative": "نسبي",
         "strong": "قوي"
       },
-      "useAppearanceLabel": "استخدام مظهر {name}",
-      "useBackgroundLabel": "استخدام خلفية {name}",
-      "useBackgroundColorLabel": "استخدام لون خلفية {name}",
-      "useThemeLabel": "استخدام سِمة {name}",
+      "carPlayDiagnostics": "تشخيصات CarPlay",
+      "chatStorage": {
+        "description": "يمكنك الوصول إلى محادثاتك من جميع أجهزتك. أوقف هذا الخيار للاحتفاظ بسجل محادثات منفصل على هذا الجهاز فقط. عند إعادة تشغيله، لن يتم رفع تلك المحادثات. لا تزال مزوّدات الذكاء الاصطناعي تعالج رسائلك."
+      },
+      "computer": {
+        "cloud": "السحابة",
+        "connectFailedTitle": "تعذّر الاتصال بذلك الكمبيوتر",
+        "connecting": "جارٍ الاتصال…",
+        "enable": "تفعيل",
+        "enableFailedTitle": "تعذّر تفعيل ذلك الكمبيوتر",
+        "enableLabel": "تفعيل {name}",
+        "enabling": "جارٍ التفعيل…",
+        "pairingCode": "استخدام رمز إقران",
+        "sectionLabel": "مكان عمل Stella",
+        "statusAwaitingConsent": "في انتظار الإذن على ذلك الكمبيوتر",
+        "statusDeclined": "تم الرفض على ذلك الكمبيوتر",
+        "statusNotEnabled": "لم يُفعَّل بعد",
+        "statusNotReady": "غير جاهز",
+        "statusOffline": "غير متصل",
+        "statusOnline": "متصل"
+      },
+      "computerSection": "الكمبيوتر",
+      "deleteAccount": "حذف الحساب",
+      "deleteAccountLabel": "حذف حسابك في Stella",
+      "deleteConfirmBody": "سيؤدي هذا إلى حذف حسابك في Stella نهائيًا وإزالة البيانات السحابية المرتبطة به من خوادمنا. لا يمكن التراجع عن ذلك.",
+      "deleteConfirmTitle": "حذف الحساب",
+      "deleteFailedTitle": "تعذّر حذف الحساب",
+      "deletingAccount": "جارٍ حذف الحساب…",
+      "forget": "نسيان",
+      "forgetConfirmBody": "سيتوقف هذا الهاتف عن إعادة الاتصال بذلك الكمبيوتر إلى أن تُقرِنه من جديد.",
+      "forgetConfirmTitle": "نسيان {name}؟",
+      "forgetLabel": "نسيان {name}",
+      "hideEmailLabel": "إخفاء البريد الإلكتروني",
+      "loadingSession": "جارٍ تحميل الجلسة…",
       "notificationsSection": "الإشعارات",
-      "pushToggleLabel": "السماح بالإشعارات الفورية",
-      "pushToggleSub": "تلقَّ إشعارًا عندما ينتهي كمبيوترك من تنفيذ طلب.",
-      "pushToggleA11y": "تبديل الإشعارات الفورية",
-      "pairedSection": "أجهزة الكمبيوتر المقترنة",
-      "pairedEmpty": "لا توجد أجهزة كمبيوتر مقترنة بعد.",
-      "pairedOn": "اقترن في {date}",
+      "openCarPlayDiagnosticsLabel": "فتح تشخيصات CarPlay",
+      "openPrivacyLabel": "فتح سياسة الخصوصية",
+      "openTermsLabel": "فتح شروط الخدمة",
       "paired": {
         "unnamedComputer": "كمبيوتر · {id}"
       },
-      "forget": "نسيان",
-      "forgetLabel": "نسيان {name}",
-      "forgetConfirmTitle": "نسيان {name}؟",
-      "forgetConfirmBody": "سيتوقف هذا الهاتف عن إعادة الاتصال بذلك الكمبيوتر إلى أن تُقرِنه من جديد.",
-      "carPlayDiagnostics": "تشخيصات CarPlay",
-      "aboutSection": "حول",
-      "openCarPlayDiagnosticsLabel": "فتح تشخيصات CarPlay",
-      "termsOfService": "شروط الخدمة",
-      "openTermsLabel": "فتح شروط الخدمة",
+      "pairedEmpty": "لا توجد أجهزة كمبيوتر مقترنة بعد.",
+      "pairedOn": "اقترن في {date}",
+      "pairedSection": "أجهزة الكمبيوتر المقترنة",
       "privacyPolicy": "سياسة الخصوصية",
-      "openPrivacyLabel": "فتح سياسة الخصوصية",
-      "signOut": "تسجيل الخروج",
-      "signingOut": "جارٍ تسجيل الخروج…",
-      "signOutLabel": "تسجيل الخروج من Stella",
-      "deleteAccount": "حذف الحساب",
-      "deletingAccount": "جارٍ حذف الحساب…",
-      "deleteAccountLabel": "حذف حسابك في Stella",
-      "deleteConfirmTitle": "حذف الحساب",
-      "deleteConfirmBody": "سيؤدي هذا إلى حذف حسابك في Stella نهائيًا وإزالة البيانات السحابية المرتبطة به من خوادمنا. لا يمكن التراجع عن ذلك.",
-      "deleteFailedTitle": "تعذّر حذف الحساب",
-      "chatStorage": {
-        "description": "يمكنك الوصول إلى محادثاتك من جميع أجهزتك. أوقف هذا الخيار للاحتفاظ بسجل محادثات منفصل على هذا الجهاز فقط. عند إعادة تشغيله، لن يتم رفع تلك المحادثات. لا تزال مزوّدات الذكاء الاصطناعي تعالج رسائلك."
-      }
-    },
-    "cloudHome": {
-      "settingsSection": "Cloud Home",
-      "settingsRowTitle": "مستندات الذاكرة",
-      "settingsRowBody": "اعرض ذاكرة Stella المعتمدة في السحابة وعدّلها.",
-      "openSettingsLabel": "فتح ذاكرة Cloud Home",
-      "title": "ذاكرة Cloud Home",
-      "subtitle": "مستندات Stella المعتمدة في السحابة",
-      "backToSettingsLabel": "العودة إلى الإعدادات",
-      "backToDocumentsLabel": "العودة إلى مستندات Cloud Home",
-      "editorMeta": "{kind} · المراجعة {revision}",
-      "listMeta": "{kind} · المراجعة {revision} · {size}",
-      "signInTitle": "سجّل الدخول لاستخدام Cloud Home",
-      "signInBody": "مستندات الذاكرة خاصة بحسابك في Stella.",
+      "pushToggleA11y": "تبديل الإشعارات الفورية",
+      "pushToggleLabel": "السماح بالإشعارات الفورية",
+      "pushToggleSub": "تلقَّ إشعارًا عندما ينتهي كمبيوترك من تنفيذ طلب.",
+      "showEmailLabel": "إظهار البريد الإلكتروني",
       "signIn": "تسجيل الدخول",
-      "signInAgain": "تسجيل الدخول مجددًا",
-      "loading": "جارٍ تحميل Cloud Home…",
-      "unavailableTitle": "Cloud Home غير متاح",
-      "unavailableBody": "لا يوفّر هذا النشر حاليًا خدمة Cloud Home الآمنة. لم تتغيّر ملفاتك المحلية.",
-      "errors": {
-        "unauthorized": "سجّل الدخول مجددًا للوصول إلى Cloud Home.",
-        "unavailable": "Cloud Home غير متاح لهذا الحساب حاليًا.",
-        "invalid": "أعاد Cloud Home استجابة غير صالحة.",
-        "network": "تعذّر الوصول إلى Cloud Home. حاول مرة أخرى.",
-        "missingFromList": "لم يعد هذا المستند موجودًا في Cloud Home. أعد تحميل القائمة.",
-        "removedWhileEditing": "أُزيل هذا المستند من Cloud Home."
-      },
-      "notices": {
-        "saved": "تم الحفظ في Cloud Home.",
-        "loadedLatest": "تم تحميل أحدث نسخة سحابية."
-      },
-      "conflict": {
-        "title": "تغيّرت النسخة السحابية",
-        "changedBody": "حلّت المراجعة {revision} محل النسخة التي كنت تعدّلها. ما زالت مسودتك هنا.",
-        "removedBody": "أُزيل هذا المستند أثناء تعديله. ما زالت مسودتك هنا.",
-        "reloadLabel": "إعادة تحميل النسخة السحابية واستبدال هذه المسودة",
-        "reloading": "جارٍ إعادة التحميل…",
-        "reload": "إعادة تحميل النسخة السحابية"
-      },
-      "editor": {
-        "editLabel": "تعديل {name}",
-        "saving": "جارٍ الحفظ…",
-        "save": "حفظ",
-        "unsaved": "تغييرات غير محفوظة",
-        "upToDate": "محدّث"
-      },
-      "list": {
-        "retryLabel": "إعادة محاولة تحميل ذاكرة Cloud Home",
-        "retry": "إعادة المحاولة",
-        "loading": "جارٍ تحميل المستندات…",
-        "emptyTitle": "لا توجد ذاكرة سحابية بعد",
-        "emptyBody": "ستظهر هنا المستندات التي تنشئها Stella أو التي تستوردها من تطبيق سطح المكتب.",
-        "openDocumentLabel": "فتح {name}"
-      },
-      "kinds": {
-        "memory": "ذاكرة",
-        "profile": "ملف شخصي",
-        "memory_map": "خريطة ذاكرة",
-        "core_memory": "ذاكرة أساسية",
-        "personality": "شخصية",
-        "imported_markdown": "Markdown مستورد",
-        "user_markdown": "Markdown الخاص بالمستخدم",
-        "archive": "أرشيف"
-      },
-      "sizes": {
-        "bytes": "{count} B",
-        "kilobytes": "{count} KB",
-        "megabytes": "{count} MB"
-      }
-    },
-    "carPlayDiagnostics": {
-      "title": "تشخيصات CarPlay",
-      "subtitle": {
-        "zero": "سجل تتبّع لاتصال CarPlay ({count} سطر، الأحدث أولًا). انسخ هذه السطور وأرسلها بعد أي خلل يحدث في السيارة.",
-        "one": "سجل تتبّع لاتصال CarPlay ({count} سطر، الأحدث أولًا). انسخ هذا السطر وأرسله بعد أي خلل يحدث في السيارة.",
-        "two": "سجل تتبّع لاتصال CarPlay ({count} سطران، الأحدث أولًا). انسخ هذه السطور وأرسلها بعد أي خلل يحدث في السيارة.",
-        "few": "سجل تتبّع لاتصال CarPlay ({count} أسطر، الأحدث أولًا). انسخ هذه السطور وأرسلها بعد أي خلل يحدث في السيارة.",
-        "many": "سجل تتبّع لاتصال CarPlay ({count} سطرًا، الأحدث أولًا). انسخ هذه السطور وأرسلها بعد أي خلل يحدث في السيارة.",
-        "other": "سجل تتبّع لاتصال CarPlay ({count} سطر، الأحدث أولًا). انسخ هذه السطور وأرسلها بعد أي خلل يحدث في السيارة."
-      },
-      "copyAll": "نسخ الكل",
-      "copyAllLabel": "نسخ كل التشخيصات",
-      "copied": "تم النسخ ✓",
-      "refresh": "تحديث",
-      "refreshLabel": "تحديث التشخيصات",
-      "clear": "مسح",
-      "clearLabel": "مسح التشخيصات",
-      "empty": "لم تُسجَّل أي تشخيصات لـ CarPlay بعد. اتصل بـ CarPlay مرة واحدة ثم عُد إلى هنا.",
-      "clipboardEmpty": "(لم تُسجَّل أي تشخيصات لـ CarPlay)"
-    },
-    "account": {
-      "title": "الحساب"
-    },
-    "activity": {
-      "inProgress": {
-        "few": "{count} قيد التنفيذ",
-        "many": "{count} قيد التنفيذ",
-        "one": "{count} قيد التنفيذ",
-        "two": "{count} قيد التنفيذ",
-        "zero": "{count} قيد التنفيذ",
-        "other": "{count} قيد التنفيذ"
-      },
-      "openLabel": "عرض النشاط"
+      "signInTitle": "تسجيل الدخول إلى Stella",
+      "signOut": "تسجيل الخروج",
+      "signOutLabel": "تسجيل الخروج من Stella",
+      "signingOut": "جارٍ تسجيل الخروج…",
+      "termsOfService": "شروط الخدمة",
+      "title": "الإعدادات",
+      "useAppearanceLabel": "استخدام مظهر {name}",
+      "useBackgroundColorLabel": "استخدام لون خلفية {name}",
+      "useBackgroundLabel": "استخدام خلفية {name}",
+      "useThemeLabel": "استخدام سِمة {name}"
     },
     "sidebar": {
       "searchPlaceholder": "البحث في النشاط والملفات",
       "signedOutHint": "سجّل الدخول لمعرفة ما تعمل عليه Stella في الخلفية."
-    },
-    "engineAccounts": {
-      "title": "Claude وChatGPT",
-      "subtitle": "استخدم خطة Claude أو ChatGPT التي تدفع مقابلها بالفعل",
-      "backLabel": "العودة إلى الإعدادات",
-      "claudeSection": "Claude",
-      "chatgptSection": "ChatGPT",
-      "active": "قيد الاستخدام",
-      "useAccount": "استخدام هذا الحساب",
-      "signOut": "تسجيل الخروج",
-      "moreLabel": "خيارات {name}",
-      "signOutTitle": "هل تريد تسجيل الخروج من {name}؟",
-      "signOutBody": "ستتوقف Stella عن استخدام هذا الحساب. يمكنك إضافته مرة أخرى في أي وقت.",
-      "pasteHintClaude": "بعد الموافقة، تعرض Anthropic رمزًا. انسخه والصقه هنا.",
-      "pasteHintChatgpt": "بعد الموافقة، ينقلك ChatGPT إلى صفحة لا يتم تحميلها. انسخ العنوان الكامل لتلك الصفحة والصقه هنا.",
-      "pastePlaceholder": "الصق الرمز الذي تعرضه Anthropic",
-      "pasteFromClipboard": "لصق",
-      "finish": "اتصال",
-      "connecting": "جارٍ الاتصال…",
-      "errorTitle": "تعذّر تحديث الحسابات",
-      "errorBody": "حدث خطأ ما. حاول مرة أخرى.",
-      "pastePlaceholderUrl": "الصق العنوان هنا",
-      "openChatgptAgain": "فتح ChatGPT مرة أخرى",
-      "chatgptBrowserWaiting": "أكمل تسجيل الدخول إلى ChatGPT في متصفحك.",
-      "signInAgain": "تسجيل الدخول مرة أخرى",
-      "enablePlanUsage": "تفعيل استخدام خطة ChatGPT",
-      "remove": "إزالة",
-      "removeTitle": "هل تريد إزالة {name}؟",
-      "removeBody": "ستنسى Stella حساب ChatGPT هذا. يمكنك تسجيل الدخول إليه مرة أخرى لاحقًا.",
-      "statusSignedOut": "تم تسجيل الخروج",
-      "statusReauth": "سجّل الدخول مرة أخرى لمواصلة استخدامه",
-      "statusPlanUsageOff": "استخدام خطة ChatGPT غير مفعّل",
-      "planUsageOffBody": "لا يمكن لـ Stella استخدام خطة ChatGPT الخاصة بك حتى تسمح بذلك. اختر «تفعيل استخدام خطة ChatGPT» في الحساب.",
-      "manageUsage": "إدارة الاستخدام",
-      "revokeUnconfirmed": "لم يؤكد ChatGPT تسجيل الخروج. يمكنك فصل Stella من إعدادات ChatGPT.",
-      "planWelcomeTitle": "أنت تستخدم خطة ChatGPT الخاصة بك",
-      "planWelcomeBody": "تُحتسب طلبات ChatGPT في سحابة Stella من خطة ChatGPT الخاصة بك. راجع الاستخدام وحدّد حد Stella في إعدادات ChatGPT.",
-      "connectClaude": "إضافة حساب Claude",
-      "connectChatgpt": "ربط حساب ChatGPT",
-      "signInCloud": "تسجيل الدخول في السحابة",
-      "signOutCloud": "تسجيل الخروج من السحابة",
-      "signOutCloudTitle": "هل تريد تسجيل خروج {name} من السحابة؟",
-      "signOutCloudBody": "تتوقف سحابة Stella عن استخدام هذا الحساب حتى تسجّل الدخول فيها مرة أخرى. تحتفظ أجهزة الكمبيوتر لديك بتسجيلات دخول Claude Code الخاصة بها.",
-      "removeClaudeBody": "تنسى Stella حساب Claude هذا وتسجّل خروج السحابة منه. تحتفظ أجهزة الكمبيوتر لديك بتسجيلات دخول Claude Code الخاصة بها.",
-      "placeCloud": "السحابة",
-      "placeComputer": "كمبيوتر",
-      "signedInOn": "مسجّل الدخول: {places}",
-      "notSignedIn": "غير مسجّل الدخول في أي مكان",
-      "claudeNote": "إضافة حساب هنا تسجّل دخول سحابة Stella إلى Claude Code عبر صفحة Anthropic نفسها. يستخدم كل كمبيوتر تسجيل دخول Claude Code الخاص به.",
-      "startAgain": "البدء من جديد",
-      "openClaudeAgain": "فتح صفحة تسجيل الدخول مرة أخرى",
-      "continueAsChatgpt": "المتابعة باستخدام ChatGPT باسم {name}",
-      "continueWithChatgpt": "المتابعة باستخدام حساب ChatGPT الخاص بك"
     }
   },
-  "companion": {
-    "menu": {
-      "openStella": "Open Stella",
-      "hide": "Hide companion",
-      "quit": "Quit Stella"
+  "onboarding": {
+    "chat": {
+      "capabilities": {
+        "build": {
+          "caption": "Apps and websites, made to order. Describe it in plain words and I'll build it, run it, and put it online.",
+          "title": "Say it. I'll build it.",
+          "word": "Build"
+        },
+        "errands": {
+          "caption": "أجد المكان المناسب، وأملأ النموذج، وأضيفه إلى تقويمك، تمامًا كما كنت ستفعل.",
+          "title": "Ask once. Consider it handled.",
+          "word": "Errands"
+        },
+        "replay": "Replay this demo",
+        "routines": {
+          "caption": "جدول أي شيء وسأنجزه في موعده، حتى وأنت نائم.",
+          "title": "اطلب مرة واحدة. ويحدث كل يوم.",
+          "word": "الروتينات"
+        },
+        "settledTitle": "The quick tour",
+        "shopping": {
+          "caption": "I find it and get it to checkout. You confirm the total, and I place the order.",
+          "title": "I can buy things, with your OK.",
+          "word": "Shopping"
+        },
+        "tablist": "Capability demos",
+        "work": {
+          "caption": "أعمل داخل التطبيقات الحقيقية على هذا الكمبيوتر، ويمكنني تنفيذ أكثر من مهمة في وقت واحد.",
+          "title": "ملفات حقيقية. عدة مهام في وقت واحد.",
+          "word": "Work"
+        }
+      },
+      "composerPlaceholder": "Or just ask me something to get started",
+      "discovery": {
+        "alsoLabel": "Also include",
+        "assurance": "A one-time read, kept on this computer. You can see and edit what I keep at any time.",
+        "browserLabel": "Your browser",
+        "hint": "About a minute, in the background.",
+        "includeDev": "My coding setup"
+      },
+      "extras": {
+        "accessibilityDesc": "So I can act on selected text and what's under your cursor.",
+        "accessibilityTitle": "Accessibility",
+        "body": "Neither is required, but both make me a lot more useful.",
+        "bodyOne": "Not required, but it makes me a lot more useful.",
+        "enable": "Enable",
+        "enabled": "Enabled",
+        "extensionDesc": "Lets me see the page you're on and act inside your browser. Works in Chrome, Arc, Brave, and Edge.",
+        "extensionOpened": "Opened",
+        "extensionTitle": "Stella for Chrome",
+        "getExtension": "Get extension",
+        "hint": "All of this lives in Settings too.",
+        "memoryDesc": "Use what I've saved about you when it's relevant. Nothing is deleted if you turn this off.",
+        "memoryTitle": "Remember across chats",
+        "restart": "Restart Stella",
+        "restartHint": "Screen access needs a quick restart to take effect.",
+        "screenDesc": "So I can see the screen when you ask me to.",
+        "screenTitle": "Screen Recording",
+        "settledExtension": "Extension",
+        "settledMemory": "Memory",
+        "settledPermissions": "Permissions",
+        "settledSkippedTitle": "Extras skipped",
+        "settledTitle": "Extras",
+        "skip": "Skip for now",
+        "title": "Two quick extras",
+        "titleOne": "One quick extra"
+      },
+      "memory": {
+        "bodyChatbot": "A new chat every time, a sidebar full of old ones, and no memory of what you said last week.",
+        "bodyStella": "No new chats, no threads. Everything you've ever told me is in the same place, so when you ask about last week I go and find it.",
+        "settledDesc": "No threads to manage. I remember.",
+        "settledTitle": "One conversation",
+        "showStella": "Now ask me",
+        "skip": "Skip",
+        "titleChatbot": "You know this one",
+        "titleStella": "With me it's one conversation"
+      },
+      "messages": {
+        "capabilities": "مرحبًا، أنا Stella.\n\nلست روبوت دردشة. أستخدم هذا الكمبيوتر لأنجز الأشياء فعلًا نيابةً عنك، في الخلفية، بينما تواصل عملك.\n\nهكذا يبدو الأمر.",
+        "extras": "Almost done. A little housekeeping, then we start.",
+        "memory": "One more thing that makes me different.",
+        "quickstart": "هذا كل شيء. بقي أمر أخير، وهو اختياري: بداية سريعة.",
+        "quickstartDone": "تم. إليك ما تعلّمته، وبعض الأشياء التي يمكننا أن نبدأ بها.",
+        "quickstartFailed": "لم أتمكن من إنهاء قراءة متصفحك هذه المرة. يمكننا أن نبدأ على أي حال، وسأتعلّم أثناء العمل.",
+        "selfmod": "ولأنني أعيش على جهازك، يمكنني تغيير نفسي.",
+        "signin": "الآن، لنسجّل دخولك. استخدم حساب Stella، أو اشتراك Claude أو ChatGPT الذي لديك بالفعل.",
+        "theme": "Now, how should I look?"
+      },
+      "progress": "تقدّم الإعداد",
+      "quickstart": {
+        "body": "تبدأ معظم المساعدات من الصفر. وجّهني إلى متصفحك وسأقرؤه مرة واحدة لأبني ذاكرة أولية، لأكون مفيدة منذ اليوم الأول.",
+        "continueInBackground": "ابدأ المحادثة، وأنهي في الخلفية",
+        "eyebrow": "بداية سريعة",
+        "failedBody": "قاطع شيء ما القراءة. حاول مرة أخرى، أو ابدأ المحادثة وسأتعلّم أثناء العمل.",
+        "failedTitle": "لم يكتمل هذا",
+        "run": "تشغيل البداية السريعة",
+        "runningBody": "نحو دقيقة. ادخل في أي وقت، وسأنهي في الخلفية.",
+        "runningTitle": "أتعرّف إليك",
+        "skip": "تخطّي",
+        "stages": {
+          "notice": "ألاحظ ما يهمّك",
+          "read": "أقرأ ما اخترته",
+          "write": "أكتب ذاكرتك الأولية"
+        },
+        "title": "امنحني بداية سريعة"
+      },
+      "ready": {
+        "generic": {
+          "browse": {
+            "prompt": "Find a well-reviewed dinner spot near me for this weekend and hold a reservation for two.",
+            "title": "Find me a good dinner spot"
+          },
+          "file": {
+            "prompt": "I have a document that needs cleaning up. I'll share it and you fix the structure and wording.",
+            "title": "Tidy up a document"
+          },
+          "plan": {
+            "prompt": "Help me plan my week. Ask me what's on my plate and lay it out day by day.",
+            "title": "Plan my week"
+          },
+          "watch": {
+            "prompt": "Keep an eye on a web page for me and tell me when it changes.",
+            "title": "Watch a site for changes"
+          }
+        },
+        "highlightsLabel": "What I picked up",
+        "hint": "Or type anything below.",
+        "notesFoot": "You can read or edit this any time in Settings › Memory.",
+        "notesSummary": "See everything I noted",
+        "start": "Start chatting",
+        "startersLabel": "Try one of these",
+        "startersLabelPersonal": "Made for you"
+      },
+      "replies": {
+        "capabilitiesDone": "Got it.",
+        "capabilitiesSkipped": "Skip the tour.",
+        "extrasDone": "Done.",
+        "extrasSkipped": "Skip for now.",
+        "memoryDone": "Nice.",
+        "memorySkipped": "Skip it.",
+        "selfmodDone": "رائع جدًا.",
+        "signinDone": "تم.",
+        "themeDone": "That one.",
+        "themeSkipped": "Keep the default."
+      },
+      "selfmod": {
+        "body": "هل تفتقد ميزة، أو تريد أن يعمل شيء بطريقة مختلفة؟ فقط اطلب. سأعيد كتابة شيفرتي بنفسي، وأتيح لك تجربتها، وأنت تقرر هل تبقيها.",
+        "hint": "تبقى التغييرات على هذا الكمبيوتر.",
+        "settledDesc": "اطلب، عاين، حدّث. تراجع في أي وقت.",
+        "settledTitle": "يمكنني تغيير نفسي",
+        "steps": {
+          "ask": {
+            "body": "صف التغيير بكلمات بسيطة.",
+            "title": "اطلب"
+          },
+          "preview": {
+            "body": "يبنيه وكيل ويفتح معاينة مباشرة.",
+            "title": "معاينة"
+          },
+          "update": {
+            "body": "نقرة واحدة لتطبيقه. تراجع في أي وقت.",
+            "title": "تحديث"
+          }
+        },
+        "title": "يمكنني تغيير نفسي"
+      },
+      "send": "Send",
+      "signin": {
+        "body": "يكفي أي خيار من هذه. يمكنك إضافة الباقي لاحقًا.",
+        "claudeCliMissing": "ثبّت Claude Code أولاً، ثم حاول مرة أخرى.",
+        "connect": "اتصال",
+        "error": "تعذّر الاتصال. أتحاول مرة أخرى؟",
+        "fine": "يمكنك تغيير هذا في أي وقت من الإعدادات.",
+        "hint": "البدء مجاني.",
+        "inUse": "قيد الاستخدام",
+        "options": {
+          "apikey": {
+            "body": "استخدم مفتاحك من Anthropic أو OpenAI أو Google أو غيرها.",
+            "title": "مفتاح API"
+          },
+          "chatgpt": {
+            "body": "سجّل الدخول باستخدام ChatGPT لاستخدام خطتك.",
+            "title": "ChatGPT"
+          },
+          "claude": {
+            "body": "استخدم اشتراكك في Claude Pro أو Max.",
+            "title": "Claude Code"
+          },
+          "stella": {
+            "body": "Google أو البريد الإلكتروني. محادثاتك تتبعك إلى هاتفك.",
+            "title": "حساب Stella"
+          }
+        },
+        "settledDesc": "يمكنك تغييره في أي وقت من الإعدادات.",
+        "settledEngine": "استخدام {name}",
+        "settledStella": "تم تسجيل الدخول إلى Stella",
+        "signIn": "تسجيل الدخول",
+        "title": "تسجيل الدخول",
+        "use": "استخدام",
+        "waiting": "أكمل تسجيل الدخول في متصفحك، ثم عد إلى هنا."
+      },
+      "skipSetup": "Skip setup",
+      "theme": {
+        "appearance": "Appearance",
+        "body": "Hover to try one on. Click to keep it.",
+        "confirm": "Done",
+        "gradient": {
+          "flat": "Flat",
+          "relative": "Relative",
+          "soft": "Soft",
+          "strong": "Strong"
+        },
+        "gradientColor": "Gradient color",
+        "gradientStyle": "Gradient style",
+        "hint": "Everything here changes live.",
+        "mode": {
+          "dark": "Dark",
+          "light": "Light",
+          "system": "System"
+        },
+        "settledTitle": "Default",
+        "skip": "Keep the default",
+        "themes": "Theme",
+        "title": "Pick a look"
+      }
     },
-    "composer": {
-      "placeholder": "Ask Stella…"
+    "legalFooter": "باستخدامك Stella، فأنت توافق على {terms} و{privacy}.",
+    "privacyPolicy": "سياسة الخصوصية",
+    "termsOfService": "شروط الخدمة"
+  },
+  "settings": {
+    "account": {
+      "cloudHome": {
+        "actions": {
+          "blocked": "الاستيراد محظور",
+          "boundElsewhere": "مرتبط بحساب آخر",
+          "import": "استيراد إلى هذا الحساب",
+          "sync": "مزامنة الآن",
+          "syncing": "جارٍ المزامنة…"
+        },
+        "authorizationNote": "تظل المهارات المرفوعة غير متاحة للوكلاء حتى يتم التصريح صراحةً بإصدارها المحدد.",
+        "label": "الذاكرة والمهارات",
+        "summary": {
+          "attention": "احتفظ Cloud Home بالنسخ السحابية الحالية عندما اختلفت البيانات المحلية. راجع التفاصيل أدناه.",
+          "checking": "جارٍ التحقق من الذاكرة والمهارات المحلية…",
+          "current": "Cloud Home محدّث. الذاكرة المرفوعة: {memoryCount}. حزم المهارات المرفوعة: {skillCount}.",
+          "intro": "يستورد Stella الذاكرة المحلية والمهارات المخصصة المناسبة بأمان إلى حسابك السحابي.",
+          "unavailable": "مزامنة Cloud Home غير متاحة حاليًا."
+        },
+        "title": "Cloud Home"
+      },
+      "deleteAccount": {
+        "action": "حذف",
+        "description": "يحذف حسابك وكل ما فيه نهائيًا.",
+        "label": "حذف الحساب",
+        "working": "جارٍ الحذف…"
+      },
+      "deleteData": {
+        "action": "حذف",
+        "description": "يمسح جميع المحادثات والذاكرة وإعدادات Stella المحفوظة.",
+        "label": "حذف البيانات",
+        "working": "جارٍ الحذف…"
+      },
+      "dialog": {
+        "deleteAccountButton": "حذف الحساب",
+        "deleteAccountDescription": "يؤدي هذا إلى حذف حسابك وبيانات Stella نهائيًا. لا يمكن التراجع عن هذا.",
+        "deleteAccountTitle": "حذف حساب Stella الخاص بك؟",
+        "deleteDataButton": "حذف البيانات",
+        "deleteDataDescription": "يؤدي هذا إلى مسح محادثاتك وذاكرتك وإعداداتك وحالة Stella المحلية. لا يمكن التراجع عن هذا.",
+        "deleteDataTitle": "حذف بيانات Stella الخاصة بك؟",
+        "working": "جارٍ الحذف…"
+      },
+      "legal": {
+        "privacy": "سياسة الخصوصية",
+        "terms": "شروط الخدمة",
+        "title": "القانوني",
+        "view": "عرض"
+      },
+      "signOut": {
+        "action": "تسجيل الخروج",
+        "description": "سجّل الخروج من Stella على هذا الجهاز.",
+        "label": "تسجيل الخروج"
+      },
+      "title": "الحساب",
+      "toasts": {
+        "accountDeleted": "تم حذف حساب Stella الخاص بك.",
+        "dataDeleted": "تم حذف بيانات Stella الخاصة بك.",
+        "deleteAccountFailed": "تعذّر حذف حسابك. يرجى المحاولة مرة أخرى.",
+        "deleteDataFailed": "تعذّر حذف بياناتك. يرجى المحاولة مرة أخرى.",
+        "signInBeforeDelete": "سجّل الدخول قبل حذف حسابك."
+      }
     },
-    "bubble": {
-      "openStella": "Open in Stella",
-      "typing": "Stella is replying"
+    "agentModelPicker": {
+      "assistantPickerAriaLabel": "منتقي نموذج المساعد",
+      "byokDescription": "استخدم مفتاح API الخاص بك لـ {provider}.",
+      "chatGptManageUsage": "إدارة الاستخدام",
+      "chatGptPlanInUse": "يتم استخدام خطة ChatGPT",
+      "chatGptRouted": "تم التوجيه إلى {model} (النموذج المحفوظ غير متاح).",
+      "default": "افتراضي",
+      "errors": {
+        "chatGptMigration": "فشل ترحيل توجيه ChatGPT.",
+        "chatGptNoModels": "لا تتوفر حاليًا أي نماذج ChatGPT.",
+        "chatGptNotConnected": "سجّل الدخول باستخدام ChatGPT على هذا الكمبيوتر أولاً.",
+        "chatGptPlanUsageOff": "استخدام خطة ChatGPT غير مفعّل لهذا الحساب. فعّله من الإعدادات › الحساب، أو اختر نموذجًا آخر.",
+        "chatGptVerify": "تعذّر التحقق من نماذج ChatGPT: {error}",
+        "chatGptVerifying": "انتظر حتى ينتهي التحقق من نماذج ChatGPT.",
+        "connectChatGpt": "تعذّر توصيل ChatGPT.",
+        "loadPreferences": "تعذّر تحميل إعدادات النماذج.",
+        "refreshTitle": "تعذّر تحديث النماذج",
+        "updateChatGptSpeed": "تعذّر تحديث سرعة ChatGPT.",
+        "updateDirectRuntime": "تعذّر تحديث إعداد {runtime} المباشر.",
+        "updateEngine": "تعذّر تحديث المحرّك.",
+        "updateImage": "تعذّر تحديث إعداد الصور.",
+        "updateModel": "تعذّر تحديث إعداد النموذج.",
+        "updateReadAloud": "تعذّر تحديث مزوّد القراءة بصوت عالٍ.",
+        "updateReasoning": "تعذّر تحديث مستوى التفكير.",
+        "updateTitle": "تعذّر تحديث إعدادات النموذج",
+        "updateVoice": "تعذّر تحديث إعداد الصوت."
+      },
+      "imageProviderAriaLabel": "مزوّد الصور",
+      "noChatGptModels": "لا تتوفر نماذج ChatGPT لهذا الحساب حاليًا.",
+      "savedModelUnavailable": "النموذج المحفوظ غير متاح. اختر نموذجًا آخر.",
+      "stellaDefault": "افتراضي Stella",
+      "surfaceAriaLabel": "الواجهة",
+      "tabs": {
+        "assistant": "المساعد",
+        "assistantTitle": "مساعد Stella الرئيسي",
+        "image": "الصور",
+        "imageTitle": "مزوّد توليد الصور",
+        "voice": "الصوت",
+        "voiceTitle": "مزوّد الصوت الفوري"
+      },
+      "unavailableChooseAnother": "غير متاح — اختر نموذجًا آخر",
+      "verifyingChatGpt": "جارٍ التحقق من نماذج ChatGPT…",
+      "voiceProviderAriaLabel": "مزوّد الصوت",
+      "waitingForChatGpt": "في انتظار ChatGPT…"
     },
-    "arc": {
-      "readAloudOn": "Read replies aloud: on",
-      "readAloudOff": "Read replies aloud: off",
-      "dictate": "Dictate a message",
-      "dictateStop": "Stop dictating and send",
-      "voice": "Start voice conversation",
-      "voiceStop": "End voice conversation"
+    "audio": {
+      "dictationSounds": {
+        "description": "تشغيل صوت عند بدء الإملاء وتوقّفه.",
+        "label": "أصوات الإملاء"
+      },
+      "errors": {
+        "listDevices": "تعذّر سرد أجهزة الصوت.",
+        "micDenied": "تم رفض الوصول إلى الميكروفون. يرجى السماح به في إعدادات نظامك.",
+        "micDeniedReset": "تم رفض الوصول إلى الميكروفون سابقًا. أعد تعيينه وأعد تشغيل Stella، أو افتح إعدادات النظام."
+      },
+      "microphone": {
+        "deviceDescription": "أي ميكروفون يجب أن تستمع إليه Stella؟",
+        "deviceLabel": "الميكروفون",
+        "enableDescription": "مطلوب للتحدّث مع Stella.",
+        "enableLabel": "تفعيل الميكروفون",
+        "title": "الميكروفون"
+      },
+      "microphoneDeviceFallback": "ميكروفون {index}",
+      "recovery": {
+        "closing": "جارٍ الإغلاق…",
+        "manageDescription": "إذا تعطّل إذن الميكروفون، يمكنك إعادة تعيينه وطلب أن يسأل macOS مرة أخرى.",
+        "manageLabel": "إدارة الوصول إلى الميكروفون",
+        "openSettings": "فتح الإعدادات",
+        "recoverDescription": "بمجرد أن ترفض، لن يسأل macOS مرة أخرى من تلقاء نفسه. أعد تعيين الإذن، ثم أنهِ Stella وأعد فتحها.",
+        "recoverLabel": "استعادة الوصول إلى الميكروفون",
+        "reset": "إعادة التعيين وإعادة التشغيل"
+      },
+      "speaker": {
+        "empty": "لم يُعثر على مكبّرات صوت.",
+        "emptyMicOff": "فعّل الميكروفون لرؤية مكبّرات الصوت لديك.",
+        "outputDescription": "اختر مكبّر الصوت أو السماعات التي تريد استخدامها.",
+        "outputLabel": "جهاز الإخراج",
+        "title": "مكبّر الصوت"
+      },
+      "speakerDeviceFallback": "مكبّر صوت {index}",
+      "superFast": {
+        "description": "يبقي الميكروفون جاهزًا ليبدأ الإملاء بتأخير أقل.",
+        "label": "إملاء فائق السرعة"
+      },
+      "systemDefault": "افتراضي النظام",
+      "wakeWord": {
+        "description": "يستمع إلى «Hey Stella» في الخلفية ويبدأ محادثة صوتية. عند الإيقاف، يبقى الميكروفون خاملًا حتى تضغط على الإملاء.",
+        "label": "كلمة التنبيه «Hey Stella»"
+      }
     },
-    "mark": {
-      "open": "Ask Stella",
-      "close": "Close the prompt"
+    "browserExtension": {
+      "action": "الحصول على الإضافة",
+      "description": "يتيح لـ Stella رؤية الصفحة التي تتصفّحها وتنفيذ إجراءات في متصفّحك.",
+      "title": "Stella لـ Chrome"
     },
-    "badge": {
-      "running": "{count} agents working"
+    "chatStorage": {
+      "description": "يمكنك الوصول إلى محادثاتك من جميع أجهزتك. أوقف هذا الخيار للاحتفاظ بسجل محادثات منفصل على هذا الكمبيوتر فقط. عند إعادة تشغيله، لن يتم رفع تلك المحادثات. لا تزال مزوّدات الذكاء الاصطناعي تعالج رسائلك.",
+      "endVoice": "أنهِ المحادثة الصوتية لتغيير طريقة حفظ المحادثات.",
+      "error": "تعذّر تغيير طريقة حفظ المحادثات. حاول مرة أخرى.",
+      "title": "حفظ سجل المحادثات في السحابة"
+    },
+    "compactModelList": {
+      "ariaLabel": "نماذج Stella",
+      "empty": "لا تتوفر نماذج Stella.",
+      "loadFailed": "تعذّر تحميل نماذج Stella.",
+      "loading": "جارٍ تحميل نماذج Stella…",
+      "recent": "الأخيرة",
+      "restricted": "خطتك تستخدم اختيار Stella.",
+      "restrictedPlan": "خطة {plan} تستخدم اختيار Stella.",
+      "retry": "إعادة المحاولة",
+      "unavailable": "غير متاح",
+      "unavailableTitle": "لم يعد هذا النموذج متاحًا — اختر غيره.",
+      "upgrade": "ترقية"
+    },
+    "companion": {
+      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
+      "error": "Couldn't update the desktop companion.",
+      "title": "Desktop companion"
+    },
+    "connectedProviders": {
+      "apiKey": "مفتاح API",
+      "empty": "لا يوجد مزوّدون متصلون بعد. اختر خيارًا غير Stella في محدّد النماذج أعلاه لإضافة مفتاح API أو تسجيل الدخول.",
+      "removeKey": "إزالة المفتاح",
+      "removingKey": "جارٍ الإزالة…",
+      "signOut": "تسجيل الخروج",
+      "signedIn": "تم تسجيل الدخول",
+      "signingOut": "جارٍ تسجيل الخروج…",
+      "title": "المزوّدون المتصلون"
+    },
+    "developerPreviews": {
+      "description": "إظهار تغييرات الكود في المحادثة وفتحها في اللوحة الجانبية.",
+      "title": "معاينات ملفات المطوّرين"
+    },
+    "engineAccounts": {
+      "active": "نشط",
+      "addChatgpt": "Add ChatGPT account",
+      "addChatgptCloud": "Add ChatGPT account in the cloud",
+      "addClaude": "إضافة حساب Claude",
+      "addInCloud": "في السحابة",
+      "addOnComputer": "على هذا الكمبيوتر",
+      "cardIntro": "استخدم خطة Claude أو ChatGPT التي تدفع مقابلها بالفعل. يسجّل كل مكان دخوله بشكل منفصل: كل كمبيوتر والسحابة الخاصة بك.",
+      "cardTitle": "حسابات Claude وChatGPT",
+      "chatgptBrowserWaiting": "أكمل تسجيل الدخول إلى ChatGPT في متصفحك.",
+      "chatgptCloudSignedIn": "تم تسجيل دخول سحابتك إلى ChatGPT.",
+      "chatgptComputerSignedIn": "تم تسجيل دخول هذا الكمبيوتر إلى ChatGPT.",
+      "chatgptTitle": "ChatGPT",
+      "claudeLogin": {
+        "codeLabel": "الصق الرمز الذي تعرضه Anthropic",
+        "failed": "لم يتم تسجيل الدخول.",
+        "opened": "فتحنا صفحة تسجيل الدخول من Anthropic.",
+        "reopen": "افتحها مرة أخرى",
+        "startAgain": "البدء من جديد",
+        "starting": "جارٍ فتح صفحة تسجيل الدخول من Anthropic…",
+        "submit": "إرسال",
+        "submitting": "جارٍ تسجيل الدخول…",
+        "whereCloud": "جارٍ تسجيل الدخول إلى Claude Code في سحابتك.",
+        "whereComputer": "جارٍ تسجيل الدخول إلى Claude Code على هذا الكمبيوتر."
+      },
+      "claudeTitle": "Claude (Pro/Max)",
+      "cliMissing": "Claude Code غير مثبّت على هذا الكمبيوتر. ثبّته لاستخدام Claude هنا.",
+      "connecting": "جارٍ الاتصال…",
+      "defaultSignedOut": "لم يتم تسجيل الدخول إلى Claude Code على هذا الكمبيوتر.",
+      "enablePlanUsage": "تفعيل استخدام خطة ChatGPT",
+      "enablePlanUsageCloud": "Enable ChatGPT plan use in the cloud",
+      "errorGeneric": "لم ينجح ذلك. حاول مرة أخرى.",
+      "finish": "اتصال",
+      "moreLabel": "خيارات {name}",
+      "needsChatgptCloud": "اربط ChatGPT بسحابتك أولاً",
+      "needsClaudeCloud": "سجّل الدخول إلى Claude في السحابة أولاً",
+      "openChatgptAgain": "فتح ChatGPT مرة أخرى",
+      "pasteHintChatgpt": "بعد الموافقة، ينقلك ChatGPT إلى صفحة لا يتم تحميلها. انسخ العنوان الكامل لتلك الصفحة والصقه هنا.",
+      "pastePlaceholderUrl": "الصق العنوان هنا",
+      "placeCloud": "السحابة",
+      "placeComputer": "هذا الكمبيوتر",
+      "placeOtherComputer": "كمبيوتر آخر",
+      "placeSignedIn": "{place}: تم تسجيل الدخول",
+      "placeSignedOut": "{place}: لم يتم تسجيل الدخول",
+      "planUsageOffBody": "لا يمكن لـ Stella استخدام خطة ChatGPT الخاصة بك حتى تسمح بذلك. اختر «تفعيل استخدام خطة ChatGPT» في الحساب، أو استخدم نموذجًا آخر.",
+      "planUsageOffTitle": "تم تسجيل الدخول، لكن استخدام خطة ChatGPT غير مفعّل",
+      "remove": "إزالة",
+      "removed": "تمت الإزالة.",
+      "revokeTitleCloud": "تم تسجيل الخروج من ChatGPT في السحابة",
+      "revokeTitleComputer": "تم تسجيل الخروج على هذا الكمبيوتر",
+      "revokeUnconfirmed": "لم يؤكد ChatGPT تسجيل الخروج. يمكنك فصل Stella من إعدادات ChatGPT.",
+      "runsOnLabel": "تعمل الدردشة السحابية عبر",
+      "signIn": "تسجيل الدخول",
+      "signInAgain": "تسجيل الدخول مرة أخرى",
+      "signInCloud": "تسجيل الدخول في السحابة",
+      "signInComputer": "تسجيل الدخول على هذا الكمبيوتر",
+      "signOut": "تسجيل الخروج",
+      "signOutCloud": "تسجيل الخروج من السحابة",
+      "signOutComputer": "تسجيل الخروج على هذا الكمبيوتر",
+      "signedInCloud": "تم تسجيل دخول سحابتك إلى Claude.",
+      "signedInCloudAs": "تم تسجيل دخول سحابتك إلى Claude باسم {email}.",
+      "signedInComputer": "تم تسجيل الدخول إلى Claude Code على هذا الكمبيوتر.",
+      "signedInComputerAs": "تم تسجيل الدخول إلى Claude Code على هذا الكمبيوتر باسم {email}.",
+      "signedOut": "تم تسجيل الخروج.",
+      "signedOutLogin": "تسجيل دخول Claude Code منتهٍ",
+      "statusPlanUsageOff": "استخدام خطة ChatGPT غير مفعّل",
+      "statusReauth": "سجّل الدخول مرة أخرى لمواصلة استخدامه",
+      "statusSignedOut": "تم تسجيل الخروج",
+      "useAccount": "استخدام هذا الحساب"
+    },
+    "engineModels": {
+      "ariaLabel": "نماذج {engine}",
+      "empty": "لا تتوفر نماذج {engine}.",
+      "loading": "جارٍ تحميل نماذج {engine}…"
+    },
+    "errors": {
+      "loadLockedComputerUse": "تعذّر تحميل إعداد استخدام الكمبيوتر عند القفل.",
+      "loadMemory": "تعذّر تحميل إعداد الذاكرة.",
+      "loadPermissions": "تعذّر تحميل حالة أذونات سطح المكتب.",
+      "loadPower": "تعذّر تحميل إعداد الطاقة.",
+      "loadSoundNotifications": "تعذّر تحميل إعداد الإشعارات الصوتية.",
+      "lockedComputerUseUnavailable": "استخدام الكمبيوتر عند القفل غير متاح في هذه النافذة.",
+      "memoryUnavailable": "إعدادات الذاكرة غير متاحة في هذه النافذة.",
+      "microphoneDeniedReopen": "تم رفض الوصول إلى الميكروفون سابقًا. فعّله في إعدادات النظام، ثم أعد فتح Stella.",
+      "microphoneStillOff": "الوصول إلى الميكروفون لا يزال متوقفًا. فعّله في إعدادات النظام، ثم أعد فتح Stella.",
+      "powerUnavailable": "إعدادات الطاقة غير متاحة في هذه النافذة.",
+      "resetPermission": "تعذّر إعادة تعيين إذن {kind}.",
+      "resetPermissionMaybeReopen": "تعذّر إعادة تعيين إذن {kind}. قد تحتاج إلى إعادة فتح Stella.",
+      "restart": "تعذّرت إعادة تشغيل Stella.",
+      "saveLockedComputerUse": "تعذّر تحديث استخدام الكمبيوتر عند القفل.",
+      "saveMemory": "تعذّر تحديث إعداد الذاكرة.",
+      "savePermission": "تعذّر تحديث إذن {kind}.",
+      "savePower": "تعذّر تحديث إعداد الطاقة.",
+      "saveSoundNotifications": "تعذّر تحديث إعداد الإشعارات الصوتية.",
+      "soundNotificationsUnavailable": "إعدادات الإشعارات الصوتية غير متاحة في هذه النافذة."
+    },
+    "executionDevices": {
+      "disable": "Turn off",
+      "disabling": "Turning off…",
+      "empty": "No computer is signed in to this account yet.",
+      "enable": "Enable",
+      "enabling": "Enabling…",
+      "errors": {
+        "load": "Unable to read the computers on this account.",
+        "update": "That change didn't go through. Try again."
+      },
+      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
+      "offline": "Offline",
+      "online": "Online",
+      "state": {
+        "asking": "Waiting for an answer there",
+        "declined": "Declined there",
+        "enabled": "Accepting work",
+        "notEnabled": "Not enabled"
+      },
+      "thisComputer": "This computer",
+      "title": "Your computers",
+      "unnamed": "Computer"
+    },
+    "language": {
+      "description": "اختر اللغة التي ستستخدمها Stella في التطبيق وعند الرد عليك.",
+      "title": "اللغة"
+    },
+    "lockedComputerUse": {
+      "description": "يتيح لـ Stella متابعة مهام استخدام الكمبيوتر بعد قفل هذا الـ Mac. يتطلب طلب موافقة المسؤول ويغطي الشاشة أثناء عمل Stella.",
+      "title": "استخدام الكمبيوتر عند القفل",
+      "unsupported": "استخدام الكمبيوتر عند القفل متاح فقط على macOS."
+    },
+    "memory": {
+      "description": "ضمّن الذكريات المحفوظة وملفك الشخصي في سياق نموذج Stella. النسخة السحابية هي النسخة المعتمدة ومشفّرة أثناء النقل وعند التخزين؛ وقد يحتفظ Stella أيضًا بنسخة محلية. يؤدي إيقاف هذا الخيار إلى استبعاد الذاكرة من المحادثات المستقبلية، لكنه لا يحذفها.",
+      "title": "الذاكرة"
+    },
+    "modelPicker": {
+      "actions": {
+        "addKey": "أضف مفتاحًا",
+        "cancel": "إلغاء",
+        "custom": "مخصّص",
+        "signIn": "تسجيل الدخول"
+      },
+      "apiKeyAriaLabel": "مفتاح API لـ {provider}",
+      "apiKeyPlaceholder": "مفتاح API",
+      "authHint": {
+        "apiKey": "يبقى مفتاح API على هذا الجهاز.",
+        "both": "سجّل الدخول أو ألصق مفتاح API. تبقى بيانات الاعتماد على هذا الجهاز.",
+        "oauth": "تبقى بيانات الاعتماد على هذا الجهاز."
+      },
+      "cancelSignIn": "إلغاء تسجيل الدخول",
+      "closeSearch": "إغلاق البحث",
+      "empty": {
+        "noMatch": "لا توجد نماذج مطابقة.",
+        "none": "لا توجد نماذج متاحة بعد."
+      },
+      "errors": {
+        "oauthLogin": "فشل تسجيل الدخول عبر OAuth.",
+        "saveApiKey": "تعذّر حفظ مفتاح API."
+      },
+      "favorite": {
+        "add": "إضافة إلى المفضلة",
+        "addTitle": "المفضلة — تثبيت في الأعلى",
+        "remove": "إزالة من المفضلة"
+      },
+      "loadFailed": "Couldn't load models",
+      "local": {
+        "hint": "استخدم أي خادم محلي متوافق مع OpenAI. يعمل Ollama عادةً على العنوان أدناه.",
+        "modelNameAriaLabel": "اسم النموذج المحلي",
+        "serverUrlAriaLabel": "عنوان الخادم المحلي"
+      },
+      "openRouter": {
+        "hintAfter": "معرّف. اكتب واحدًا لاستخدامه مباشرة.",
+        "hintBefore": "يقبل OpenRouter أي",
+        "modelIdAriaLabel": "معرّف نموذج OpenRouter"
+      },
+      "reasoning": {
+        "default": "تلقائي",
+        "high": "مرتفع",
+        "label": "مستوى التفكير",
+        "low": "منخفض",
+        "medium": "متوسط",
+        "minimal": "أدنى",
+        "xhigh": "أقصى"
+      },
+      "refresh": "تحديث كتالوج النماذج",
+      "restrictedPlan": "غير متاح في خطة {plan}",
+      "retry": "Retry",
+      "saving": "جارٍ الحفظ…",
+      "searchAriaLabel": "البحث في النماذج",
+      "searchPlaceholder": "ابحث في النماذج…",
+      "selected": "محدَّد",
+      "signInWith": "سجّل الدخول عبر {provider}",
+      "signOut": {
+        "ariaLabel": "تسجيل الخروج من {provider}",
+        "confirmAriaLabel": "انقر مرة أخرى لتسجيل الخروج من {provider}",
+        "confirmTitle": "انقر مرة أخرى للتأكيد"
+      },
+      "use": "استخدام"
+    },
+    "motion": {
+      "reduceMotion": {
+        "description": "تقليل الرسوم المتحركة في الواجهة إلى الحد الأدنى.",
+        "label": "تقليل الحركة",
+        "off": "إيقاف",
+        "on": "تشغيل",
+        "system": "النظام"
+      },
+      "title": "الحركة"
+    },
+    "nativeFontSmoothing": {
+      "description": "عرض النص كما تفعل تطبيقات macOS، مع تنعيم الحواف بتدرّج رمادي.",
+      "title": "تنعيم الخطوط الأصلي"
+    },
+    "notifications": {
+      "description": "تشغيل صوت عندما تُنهي Stella تشغيل وكيل.",
+      "title": "إشعارات صوتية"
+    },
+    "onboardingReplay": {
+      "action": "Replay",
+      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched.",
+      "title": "Onboarding"
+    },
+    "permissions": {
+      "accessibility": {
+        "description": "يتيح لـ Stella قراءة النص المحدد والفتح عبر اختصار ⌘+النقر بالزر الأيمن في أي مكان على الكمبيوتر.",
+        "label": "إمكانية الوصول"
+      },
+      "enable": "تفعيل",
+      "granted": "ممنوح",
+      "microphone": {
+        "description": "يُستخدم للصوت والإملاء. أعد التعيين إذا رُفضت Stella سابقًا ولم يعد macOS يسأل مرة أخرى.",
+        "label": "الميكروفون"
+      },
+      "opening": "جارٍ الفتح…",
+      "reset": "إعادة تعيين",
+      "resetting": "جارٍ إعادة التعيين…",
+      "restart": {
+        "action": "إعادة التشغيل",
+        "closing": "جارٍ الإغلاق…",
+        "description": "تم تفعيل تسجيل الشاشة للتو. أنهِ Stella وأعد فتحها لإكمال الإعداد.",
+        "label": "إعادة تشغيل Stella"
+      },
+      "screen": {
+        "description": "يتيح لـ Stella رؤية شاشتك لتساعدك فيما تنظر إليه. قد تحتاج إلى إنهاء Stella وإعادة فتحها بعد تفعيل ذلك.",
+        "label": "تسجيل الشاشة"
+      },
+      "title": "الأذونات"
+    },
+    "phoneAccess": {
+      "copy": "نسخ",
+      "deviceFallback": "الهاتف",
+      "errors": {
+        "createPairing": "تعذّر إنشاء رمز اقتران."
+      },
+      "expired": "منتهي الصلاحية",
+      "getCode": "احصل على رمز",
+      "intro": {
+        "headline": "اربط هاتفك بحاسوبك"
+      },
+      "pairedCount": {
+        "few": "{count} هواتف مقترنة",
+        "many": "{count} هاتفًا مقترنًا",
+        "one": "{count} هاتف مقترن",
+        "other": "{count} هاتف مقترن",
+        "two": "{count} هاتفان مقترنان",
+        "zero": "{count} هاتف مقترن"
+      },
+      "pairing": {
+        "body": "افتح تطبيق Stella على هاتفك وامسح رمز QR، أو اكتب الرمز أدناه. تحتاج إلى ذلك مرة واحدة فقط.",
+        "headline": "امسح هذا الرمز أو أدخله",
+        "qrAlt": "امسح لإقران هاتفك"
+      },
+      "preparing": "جارٍ التجهيز...",
+      "remove": "إزالة",
+      "removing": "جارٍ الإزالة...",
+      "signedOut": {
+        "body": "سجّل الدخول إلى حساب Stella للاقتران مع تطبيق الجوال.",
+        "headline": "سجّل الدخول للبدء"
+      },
+      "steps": {
+        "appStoreQrAlt": "امسح لتنزيل Stella من App Store",
+        "connect": "اربط هاتفك",
+        "download": "نزّل التطبيق",
+        "platformSelectorLabel": "اختر منصة الهاتف المحمول",
+        "playStoreQrAlt": "امسح لتنزيل Stella من Google Play"
+      },
+      "timeLeft": "بقي {time}",
+      "toasts": {
+        "codeCopied": "تم نسخ الرمز إلى الحافظة",
+        "phoneRemoved": "تمت إزالة الهاتف",
+        "removeFailed": "تعذّرت إزالة الهاتف"
+      }
+    },
+    "power": {
+      "description": "منع الكمبيوتر من الدخول في وضع السكون أثناء فتح Stella.",
+      "title": "إبقاء الكمبيوتر مستيقظًا"
+    },
+    "providerConnected": {
+      "apply": "تطبيق",
+      "applying": "جارٍ التطبيق…",
+      "assistant": {
+        "description": "توجيه مساعد محادثة Stella عبر {provider}.",
+        "label": "المساعد"
+      },
+      "description": "يمكن لـ {provider} تشغيل أكثر من جزء من Stella. اختر ما تريد أن يتولاه — وتواصل Stella الباقي.",
+      "errors": {
+        "apply": "تعذّر تطبيق إعدادات المزوّد."
+      },
+      "image": {
+        "description": "أنشئ الصور عبر حسابك في {provider}.",
+        "label": "الصور"
+      },
+      "skip": "تخطٍّ",
+      "title": "استخدام {provider} في Stella؟",
+      "voice": {
+        "description": "استخدم {provider} للمحادثات الصوتية الفورية.",
+        "label": "الصوت"
+      }
+    },
+    "providerPicker": {
+      "connect": "اتصال",
+      "connected": "متصل",
+      "opening": "جارٍ الفتح…"
+    },
+    "reasoningEffort": {
+      "high": "مرتفع",
+      "low": "منخفض",
+      "medium": "متوسط",
+      "minimal": "أدنى",
+      "xhigh": "إضافي"
+    },
+    "resetCustomizations": {
+      "action": "استعادة الإعدادات الافتراضية",
+      "description": "يزيل تخصيصاتك للمهارات وتعديلات الشخصية لتُطبَّق إعدادات Stella الافتراضية. يُحتفظ بما يُزال في ~/.stella/.trash في حال أردت استعادته.",
+      "done": "تمت استعادة الإعدادات الافتراضية. نُقلت تخصيصاتك السابقة إلى ~/.stella/.trash.",
+      "error": "تعذّرت استعادة الإعدادات الافتراضية.",
+      "none": "أنت تستخدم إعدادات Stella الافتراضية بالفعل.",
+      "title": "استخدام إعدادات Stella الافتراضية"
+    },
+    "search": {
+      "clear": "مسح البحث",
+      "descriptions": {
+        "account": "سجّل الخروج، أو احذف بياناتك، أو احذف حسابك نهائيًا.",
+        "legal": "شروط الخدمة وسياسة الخصوصية.",
+        "microphone": "أي ميكروفون يجب أن تستمع إليه Stella؟",
+        "permissions": "امنح الوصول إلى إمكانية الوصول وتسجيل الشاشة والميكروفون على macOS.",
+        "shortcuts": "غيّر اختصارات الإملاء والصوت.",
+        "speaker": "اختر مكبّر الصوت أو السماعات التي يُشغَّل من خلالها صوت Stella.",
+        "wakeWord": "يستمع إلى «Hey Stella» ويبدأ محادثة صوتية."
+      },
+      "noResultsBody": "جرّب كلمة أقصر أو مختلفة.",
+      "noResultsTitle": "لا توجد إعدادات تطابق «{query}»",
+      "placeholder": "البحث في الإعدادات",
+      "resultsAriaOne": "{count} نتيجة",
+      "resultsAriaOther": "{count} نتيجة",
+      "resultsOne": "{count} نتيجة لـ",
+      "resultsOther": "{count} نتيجة لـ"
+    },
+    "shortcuts": {
+      "actions": {
+        "dictation": "الإملاء",
+        "voice": "وكيل الصوت"
+      },
+      "capturing": "اضغط على المفاتيح…",
+      "change": "تغيير",
+      "clear": "مسح",
+      "dictation": {
+        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
+      },
+      "errors": {
+        "load": "تعذّر تحميل الاختصارات.",
+        "unavailable": "الاختصارات غير متاحة في هذه النافذة.",
+        "unavailableShortcut": "هذا الاختصار غير متاح.",
+        "update": "تعذّر تحديث الاختصار."
+      },
+      "off": "إيقاف",
+      "targets": {
+        "dictation": "الإملاء",
+        "voice": "وكيل الصوت"
+      },
+      "title": "الاختصارات",
+      "toasts": {
+        "clearedDescription": "{action} معطّل حتى تعيّن اختصارًا جديدًا.",
+        "clearedTitle": "تم مسح اختصار {action}",
+        "failedTitle": "تعذّر تحديث الاختصار",
+        "unavailableTitle": "الاختصار غير متاح",
+        "updatedDescription": "اضغط على {keys} لبدء {target}.",
+        "updatedTitle": "تم تحديث اختصار {action}"
+      },
+      "voiceAgent": {
+        "description": "يبدأ أو يوقف وكيل Stella الصوتي المباشر."
+      }
+    },
+    "systemPrompt": {
+      "activeLabel": "الموجّه النشط",
+      "agentLabel": "الموجّه لـ",
+      "agentSublabel": "اختر الوكيل الذي تريد تغيير موجّهه.",
+      "agents": {
+        "assistant": "المساعد",
+        "worker": "المنفّذ"
+      },
+      "cancel": "إلغاء",
+      "defaultOption": "افتراضي Stella",
+      "delete": "حذف",
+      "deleted": "تم حذف الموجّه.",
+      "description": "يُحدَّث موجّه Stella الافتراضي دائمًا مع التطبيق. احفظ موجّهك الخاص لاستخدامه بدلًا منه — يُخزَّن بشكل منفصل، لذا لن تستبدله التحديثات أبدًا.",
+      "duplicate": "تكرار",
+      "edit": "تحرير",
+      "error": "حدث خطأ ما.",
+      "nameLabel": "الاسم",
+      "newFromDefault": "جديد من الافتراضي",
+      "newName": "موجّهي",
+      "save": "حفظ",
+      "saved": "تم حفظ الموجّه.",
+      "title": "موجّه النظام",
+      "usingCustom": "يُستخدم موجّهك المحفوظ.",
+      "usingDefault": "يُستخدم موجّه Stella الافتراضي."
+    },
+    "tabs": {
+      "account": "الحساب والشؤون القانونية",
+      "audio": "الصوت",
+      "general": "عام",
+      "shortcuts": "الاختصارات"
+    },
+    "title": "الإعدادات",
+    "voiceAgent": {
+      "description": "أظهر عناصر التحكم في الصوت والاتصال لتتحدث إلى ستيلا بصوتك. الإملاء يعمل في الحالتين.",
+      "error": "تعذّر تحديث إعداد الصوت.",
+      "title": "المحادثات الصوتية"
+    },
+    "voiceCatalog": {
+      "label": "الصوت",
+      "menuAriaLabel": "صوت {source}",
+      "nextVoice": "الصوت التالي",
+      "previousVoice": "الصوت السابق",
+      "readAloud": {
+        "ariaLabel": "مزوّد صوت القراءة بصوت عالٍ",
+        "description": "ينطق الردود بصوت عالٍ باستخدام صوت هذا المزوّد.",
+        "geminiTitle": "اقرأ الردود بصوت عالٍ باستخدام Gemini TTS",
+        "label": "القراءة بصوت عالٍ",
+        "openaiTitle": "اقرأ الردود بصوت عالٍ باستخدام OpenAI TTS"
+      },
+      "source": {
+        "gemini": "أصوات Gemini",
+        "gptlive": "أصوات ستيلا",
+        "openai": "أصوات OpenAI",
+        "xai": "أصوات Grok"
+      }
+    }
+  },
+  "shell": {
+    "agentProgress": {
+      "recentAgentMessages": "رسائل الوكيل الأخيرة",
+      "recentProgress": "التقدّم الأخير"
+    },
+    "appSource": {
+      "failed": "تعذّر تطبيق التغيير",
+      "files": {
+        "few": "{count} ملفات",
+        "many": "{count} ملفًا",
+        "one": "ملف واحد",
+        "other": "{count} ملف",
+        "two": "ملفان",
+        "zero": "{count} ملف"
+      },
+      "outdated": "أُنشئ على إصدار أقدم",
+      "restarts": "يعيد تشغيل Stella",
+      "title": "تغييرات على Stella",
+      "undo": "تراجع",
+      "undoneAgo": "تم التراجع {ago}",
+      "undoneJustNow": "تم التراجع للتو",
+      "update": "تحديث",
+      "updatedAgo": "تم التحديث {ago}",
+      "updatedJustNow": "تم التحديث للتو",
+      "updates": {
+        "add": "إضافة",
+        "adding": "جارٍ الإضافة…",
+        "fromDevice": "تغيير أجريته على {device}",
+        "fromOtherComputer": "تغيير أجريته على جهازك الآخر",
+        "fromOtherComputers": "تغييرات من جهازك الآخر",
+        "get": "جلب",
+        "history": "السجل",
+        "justNow": "الآن",
+        "newVersion": "إصدار جديد من Stella",
+        "newVersionDetail": "تحسينات وإصلاحات من فريق Stella",
+        "pill": {
+          "few": "{count} تحديثات",
+          "many": "{count} تحديثًا",
+          "one": "تحديث واحد",
+          "other": "{count} تحديث",
+          "two": "تحديثان",
+          "zero": "لا تحديثات"
+        },
+        "readyChange": "تغيير جاهز للإضافة",
+        "removed": "تمت الإزالة: {change}",
+        "skip": "تخطٍّ",
+        "skipped": "تم تخطيها",
+        "undoing": "جارٍ التراجع…",
+        "upToDate": "لا شيء بانتظارك",
+        "waiting": "بانتظارك"
+      }
+    },
+    "audioPlayer": {
+      "pause": "إيقاف مؤقت",
+      "play": "تشغيل",
+      "seek": "تقديم/ترجيع"
+    },
+    "browser": {
+      "connected": "المتصفح متصل",
+      "connecting": "في انتظار الإضافة…",
+      "newTab": "فتح علامة تبويب جديدة"
+    },
+    "capture": {
+      "failedDescription": "حدث خطأ ما أثناء التقاط الشاشة. حاول مرة أخرى.",
+      "failedTitle": "تعذّر التقاط ذلك"
+    },
+    "chatSidebar": {
+      "add": "إضافة",
+      "dictationError": "الإملاء: {error}",
+      "stop": "إيقاف"
+    },
+    "connectors": {
+      "desktopRequired": "الموصلات متاحة في تطبيق Stella لسطح المكتب.",
+      "empty": "لا توجد موصلات متاحة بعد.",
+      "loading": "جارٍ تحميل الموصلات…",
+      "noMatches": "لا توجد موصلات مطابقة لهذا البحث.",
+      "searchLabel": "البحث في الموصلات",
+      "searchPlaceholder": "بحث",
+      "title": "الموصلات"
+    },
+    "display": {
+      "agentThread": {
+        "badge": "مسار وكيل للقراءة فقط",
+        "claudeAriaLabel": "محادثة وكيل Claude الفرعي للقراءة فقط",
+        "claudeBadge": "وكيل Claude فرعي للقراءة فقط",
+        "empty": "لا رسائل في هذا المسار بعد.",
+        "loadFailed": "تعذّر تحميل هذا المسار.",
+        "newMessages": {
+          "few": "{count} رسائل جديدة.",
+          "many": "{count} رسالة جديدة.",
+          "one": "{count} رسالة جديدة.",
+          "other": "{count} رسالة جديدة.",
+          "two": "{count} رسالتان جديدتان.",
+          "zero": "{count} رسالة جديدة."
+        },
+        "newMessagesButton": {
+          "few": "{count} رسائل جديدة",
+          "many": "{count} رسالة جديدة",
+          "one": "{count} رسالة جديدة",
+          "other": "{count} رسالة جديدة",
+          "two": "{count} رسالتان جديدتان",
+          "zero": "{count} رسالة جديدة"
+        },
+        "newMessagesWithPreview": "{countPhrase} آخر {role}: {preview}",
+        "reasoningGroup": {
+          "one": "Reasoning",
+          "other": "{count} reasoning steps"
+        },
+        "retrying": "جارٍ إعادة المحاولة…",
+        "role": {
+          "assistant": "الوكيل",
+          "checkpoint": "نقطة تحقّق في المسار",
+          "lifecycle": "النشاط",
+          "reasoning": "التفكير",
+          "tool": "أداة",
+          "user": "تعليمات"
+        },
+        "showNewMessagesAria": "اعرض {countPhrase}",
+        "showingNewest": "يتم عرض أحدث رسالة.",
+        "status": {
+          "canceled": "متوقف",
+          "completed": "اكتمل",
+          "error": "فشل",
+          "running": "يعمل"
+        },
+        "toolGroup": {
+          "one": "{count} tool call",
+          "other": "{count} tool calls"
+        },
+        "toolInput": "الإدخال",
+        "toolOutput": "الإخراج",
+        "toolRunning": "في انتظار انتهاء هذه الأداة…",
+        "unavailable": "سجلّ مسار الوكيل غير متاح."
+      },
+      "canvas": {
+        "loadFailed": "تعذّر تحميل هذه اللوحة.",
+        "loading": "جارٍ التحميل"
+      },
+      "canvasShare": {
+        "copyLink": "انسخ الرابط",
+        "empty": "لا مشاركات نشطة بعد. انشر لوحة للحصول على رابط عام.",
+        "expires": "تنتهي في {date}",
+        "links": "الروابط",
+        "live": "اللوحة منشورة",
+        "loadFailed": "تعذّر تحميل مشاركاتك.",
+        "publicLink": "رابط اللوحة العام",
+        "publishFailed": "تعذّر نشر هذه اللوحة. حاول مرة أخرى.",
+        "publishing": "جارٍ نشر اللوحة…",
+        "revoke": "ألغِ المشاركة",
+        "share": "مشاركة",
+        "shared": "شُوركت في {date}",
+        "sharedLinks": "الروابط المشتركة",
+        "sharedWithExpiry": "شُوركت في {shared} · تنتهي في {expires}",
+        "toasts": {
+          "copyFailed": "تعذّر نسخ الرابط",
+          "linkCopied": "تم نسخ رابط المشاركة",
+          "revokeFailed": "تعذّر إلغاء هذه المشاركة",
+          "revoked": "أُلغيت المشاركة"
+        },
+        "untitled": "لوحة بلا عنوان"
+      },
+      "diff": {
+        "changes": "التغييرات",
+        "codeChanges": "تغييرات الكود",
+        "desktopRequired": "تتطلب معاينة الكود تطبيق Stella لسطح المكتب.",
+        "empty": "لا تغييرات في الملفات بعد. عندما يحرّر وكيل الكود، تظهر التغييرات هنا.",
+        "noChanges": "لم يتم العثور على تغييرات."
+      },
+      "filePreview": {
+        "copy": "نسخ",
+        "loading": "جارٍ التحميل...",
+        "save": "حفظ"
+      },
+      "homeLauncher": {
+        "files": {
+          "description": "الصفحات والصور والفيديو والمستندات",
+          "label": "الملفات"
+        },
+        "trash": {
+          "description": "الأشياء التي حذفتها مؤخرًا",
+          "label": "المهملات"
+        }
+      },
+      "markdown": {
+        "desktopRequired": "تتطلب معاينة Markdown تطبيق Stella لسطح المكتب.",
+        "eyebrow": "Markdown",
+        "noContent": "لم يتم العثور على محتوى."
+      },
+      "media": {
+        "copied": "تم النسخ",
+        "copy": "نسخ",
+        "copyFailed": "تعذّر النسخ",
+        "delete": "حذف",
+        "deleteConfirm": "انقر مرة أخرى للحذف",
+        "expand": "توسيع",
+        "expandPanel": "توسيع اللوحة",
+        "itemActions": "إجراءات العنصر",
+        "missing": "الملف لم يعد متاحًا.",
+        "revealInFinder": "أظهِر في Finder",
+        "save": "حفظ",
+        "saveFailed": "تعذّر الحفظ",
+        "saved": "تم الحفظ"
+      },
+      "office": {
+        "frameTitle": "معاينة {kind}: {title}",
+        "kind": {
+          "document": "مستند",
+          "presentation": "عرض تقديمي",
+          "spreadsheet": "جدول بيانات"
+        },
+        "livePreview": "معاينة مباشرة",
+        "loadFailed": "تعذّر تحميل هذه المعاينة",
+        "preparing": "جارٍ تجهيز المعاينة...",
+        "revealInFinder": "أظهِر في Finder",
+        "sessionError": "أبلغت جلسة المعاينة عن خطأ.",
+        "sheetCount": {
+          "few": "{count} أوراق",
+          "many": "{count} ورقة",
+          "one": "{count} ورقة",
+          "other": "{count} ورقة",
+          "two": "{count} ورقتان",
+          "zero": "{count} ورقة"
+        },
+        "slideCount": {
+          "few": "{count} شرائح",
+          "many": "{count} شريحة",
+          "one": "{count} شريحة",
+          "other": "{count} شريحة",
+          "two": "{count} شريحتان",
+          "zero": "{count} شريحة"
+        },
+        "zoomAriaLabel": "تكبير المعاينة"
+      },
+      "preview": {
+        "limited": "المعاينة محدودة. احفظ الملف الأصلي أو افتحه لعرض المحتوى كاملاً.",
+        "unavailable": "تعذّر تجهيز هذه المعاينة."
+      },
+      "spreadsheet": {
+        "column": "العمود {index}",
+        "desktopRequired": "تتطلب معاينة جداول البيانات تطبيق Stella لسطح المكتب.",
+        "eyebrow": "جدول بيانات",
+        "noRows": "لم يتم العثور على صفوف."
+      },
+      "trash": {
+        "autoDeletesIn": "يُحذف تلقائيًا خلال {time}",
+        "deleteNow": "احذف الآن",
+        "deleting": "جارٍ الحذف…",
+        "empty": "لا شيء هنا حاليًا.",
+        "emptyTrash": "أفرغ المهملات",
+        "emptying": "جارٍ الإفراغ…",
+        "itemsAutoDeleted": {
+          "few": "{count} عناصر — تُحذف تلقائيًا خلال 24 ساعة.",
+          "many": "{count} عنصرًا — تُحذف تلقائيًا خلال 24 ساعة.",
+          "one": "{count} عنصر — يُحذف تلقائيًا خلال 24 ساعة.",
+          "other": "{count} عنصر — يُحذف تلقائيًا خلال 24 ساعة.",
+          "two": "{count} عنصران — يُحذفان تلقائيًا خلال 24 ساعة.",
+          "zero": "{count} عنصر — يُحذف تلقائيًا خلال 24 ساعة."
+        },
+        "pendingPurge": "في انتظار المسح",
+        "refresh": "تحديث",
+        "title": "المهملات",
+        "trashedAgo": "نُقل إلى المهملات قبل {time}"
+      },
+      "url": {
+        "eyebrow": "معاينة مباشرة",
+        "openInBrowser": "افتح في المتصفح",
+        "reload": "إعادة تحميل"
+      }
+    },
+    "displayPanel": {
+      "closePanel": "أغلق اللوحة",
+      "openPanel": "افتح اللوحة"
+    },
+    "rightSidebar": {
+      "resize": "غيّر حجم لوحة العرض",
+      "resizeHint": "اسحب لتغيير الحجم · انقر مرتين لإعادة التعيين",
+      "workspace": "مساحة العمل"
+    },
+    "sidebar": {
+      "account": {
+        "planAriaLabel": "{name}، خطة {plan}",
+        "signOutDescription": "هل أنت متأكد؟",
+        "signOutTitle": "تسجيل الخروج من Stella؟"
+      },
+      "feedback": {
+        "description": "تُرسل رسالتك بشكل مجهول — وهي غير مرتبطة بحسابك.",
+        "fieldLabel": "الملاحظات",
+        "placeholder": "أخبرنا بما ينجح وما لا ينجح أو ما تودّ رؤيته…",
+        "send": "إرسال",
+        "sending": "جارٍ الإرسال…",
+        "title": "أرسل ملاحظات",
+        "toasts": {
+          "failedTitle": "تعذّر إرسال الملاحظات",
+          "sentDescription": "شكرًا — كل ملاحظة تساعدنا في تشكيل Stella.",
+          "sentTitle": "تم إرسال الملاحظات"
+        }
+      },
+      "nav": {
+        "apps": "التطبيقات",
+        "unreadAriaLabel": "{label}، {count} غير مقروءة",
+        "unreadTitle": "{label} ({count} غير مقروءة)"
+      }
+    },
+    "topbar": {
+      "conversation": {
+        "closeConversation": "أغلق {title}",
+        "delete": "احذف {title}",
+        "deleteConfirm": "انقر مرة أخرى للتأكيد",
+        "deleteConfirmFor": "انقر مرة أخرى لحذف {title}",
+        "deleteFailed": "تعذّر حذف هذه المحادثة",
+        "deleteFailedFor": "تعذّر حذف {title}",
+        "history": "سجلّ المحادثات",
+        "historyEmpty": "لا محادثات بعد",
+        "historyRetry": "تعذّر تحميل المحادثات. حاول مرة أخرى",
+        "newChat": "محادثة جديدة",
+        "newChatConfirm": "Click again to confirm",
+        "openConversation": "افتح {title}",
+        "openConversations": "افتح المحادثات",
+        "unread": "رسائل غير مقروءة"
+      }
+    },
+    "windowControls": {
+      "maximize": "تكبير",
+      "minimize": "تصغير",
+      "restore": "استعادة"
+    },
+    "workspace": {
+      "activity": "النشاط",
+      "moreFiles": {
+        "few": "{count} more files",
+        "many": "{count} more files",
+        "one": "{count} more file",
+        "other": "{count} more files",
+        "two": "{count} more files",
+        "zero": "{count} more files"
+      },
+      "viewFiles": {
+        "few": "اعرض {count} ملفات",
+        "many": "اعرض {count} ملفًا",
+        "one": "اعرض {count} ملف",
+        "other": "اعرض {count} ملف",
+        "two": "اعرض {count} ملفين",
+        "zero": "اعرض {count} ملف"
+      }
+    }
+  },
+  "sidebar": {
+    "account": "الحساب",
+    "feedback": "إرسال ملاحظات",
+    "newChat": "محادثة جديدة",
+    "signIn": "تسجيل الدخول",
+    "upgrade": "ترقية"
+  },
+  "ui": {
+    "imageLightbox": {
+      "close": "أغلق المعاينة",
+      "title": "معاينة الصورة"
     }
   }
 }

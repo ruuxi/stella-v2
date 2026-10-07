@@ -34,7 +34,7 @@
   color: color-mix(in oklch, var(--text-weak) 80%, transparent);
 }
 
-/* ── Sub-toggle (Stella mode only) ────────────────────────────── */
+/* ── Sub-toggle (read-aloud provider) ─────────────────────────── */
 
 .voice-catalog-subtoggle {
   display: inline-flex;
@@ -235,80 +235,6 @@
   flex: 0 0 auto;
   margin-top: 3px;
   color: var(--text-strong);
-}
-
-/* ── Inworld speed slider ──────────────────────────────────────── */
-
-.voice-catalog-speed {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 4px;
-  padding-top: 10px;
-  border-top: 1px dashed color-mix(in oklch, var(--border) 40%, transparent);
-}
-
-.voice-catalog-speed-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.voice-catalog-speed-label {
-  font-size: var(--font-size-xs);
-  font-weight: var(--weight-semibold);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-weak);
-}
-
-.voice-catalog-speed-value {
-  font-variant-numeric: tabular-nums;
-  font-size: var(--font-size-sm);
-  font-weight: var(--weight-medium);
-  color: var(--text-strong);
-}
-
-.voice-catalog-speed-slider {
-  appearance: none;
-  -webkit-appearance: none;
-  width: 100%;
-  height: 4px;
-  border-radius: 999px;
-  background: color-mix(in oklch, var(--text-strong) 12%, transparent);
-  outline: none;
-  cursor: default;
-}
-
-.voice-catalog-speed-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--text-strong);
-  border: 2px solid var(--background);
-  box-shadow: var(--shadow-sm);
-  cursor: default;
-  transition: transform 120ms ease;
-}
-
-.voice-catalog-speed-slider:hover::-webkit-slider-thumb {
-  transform: scale(1.12);
-}
-
-.voice-catalog-speed-slider:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
-.voice-catalog-speed-marks {
-  display: flex;
-  justify-content: space-between;
-  font-size: var(--font-size-2xs);
-  color: var(--text-weak);
-  font-variant-numeric: tabular-nums;
 }
 
 /* ── Read-aloud provider toggle ───────────────────────────────── */

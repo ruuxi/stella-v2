@@ -1,1168 +1,5 @@
 {
-  "common": {
-    "appName": "Stella",
-    "continue": "Lanjutkan",
-    "back": "Kembali",
-    "next": "Berikutnya",
-    "previous": "Sebelumnya",
-    "cancel": "Batal",
-    "save": "Simpan",
-    "close": "Tutup",
-    "open": "Buka",
-    "openPreferences": "Buka preferensi",
-    "signIn": "Masuk",
-    "signOut": "Keluar",
-    "loading": "Memuat…",
-    "tryAgain": "Coba lagi",
-    "language": "Bahasa",
-    "yes": "Ya",
-    "no": "Tidak",
-    "copy": "Salin"
-  },
-  "cloudConnector": {
-    "titleOffer": "Hubungkan {name}?",
-    "titleWaiting": "Menunggu {name}",
-    "connecting": "Selesaikan proses masuk ke {name} di browser Anda. Stella akan melanjutkan setelah disetujui.",
-    "connect": "Hubungkan",
-    "openAgain": "Buka lagi",
-    "notNow": "Nanti saja",
-    "errors": {
-      "decision": "Tidak dapat menghubungkan {name}. Coba lagi.",
-      "open": "Tidak dapat membuka halaman masuk."
-    }
-  },
-  "cloudBrowser": {
-    "errors": {
-      "decision": "That didn't go through. Try again.",
-      "verificationUrl": "Couldn't open that page.",
-      "expired": "This sign-in is no longer needed.",
-      "liveViewBoundary": "Couldn't load the sign-in page.",
-      "liveView": "Couldn't load the sign-in page. Try again."
-    },
-    "deviceCode": {
-      "title": "Sign in to {origin}",
-      "codeLabel": "Code",
-      "body": "Enter this code on the site, then come back here.",
-      "copied": "Copied",
-      "copy": "Copy code",
-      "open": "Open site"
-    },
-    "takeover": {
-      "title": "Sign in to {origin}",
-      "checking": "Finishing sign-in to {origin}",
-      "body": "Sign in to keep going. Stella can't see what you type.",
-      "resumingBody": "Stella will pick up where it left off.",
-      "preparing": "Loading sign-in…",
-      "frameTitle": "Sign in to {origin}",
-      "privateNotice": "Stella can't see what you type",
-      "localNotice": "Stella can't see what you type",
-      "localOriginFallback": "Switched to Stella's browser to finish signing in.",
-      "localTransferFallback": "Couldn't confirm that sign-in. Try again in Stella's browser."
-    },
-    "actions": {
-      "canceling": "Canceling…",
-      "finishing": "Finishing…",
-      "done": "Done",
-      "useCloudBrowser": "Use Stella's browser"
-    },
-    "needsYou": {
-      "title": "Needs you",
-      "deviceCode": "Enter a code for {origin}",
-      "signIn": "Sign in to {origin}",
-      "open": "Open"
-    },
-    "settings": {
-      "title": "Browser sign-ins",
-      "defaultProfile": "Saved sign-ins",
-      "description": "Sites Stella has signed in to for you. Reset to sign out of all of them.",
-      "resetComplete": "Signed out of all sites.",
-      "resetFailed": "Couldn't sign out. Try again.",
-      "resetting": "Resetting…",
-      "reset": "Reset",
-      "confirmTitle": "Sign out of all sites?",
-      "confirmBody": "Stella will ask you to sign in again next time."
-    }
-  },
-  "sidebar": {
-    "signIn": "Masuk",
-    "account": "Akun",
-    "feedback": "Kirim masukan",
-    "upgrade": "Tingkatkan paket",
-    "newChat": "Obrolan baru"
-  },
-  "settings": {
-    "chatStorage": {
-      "title": "Simpan riwayat obrolan di cloud",
-      "description": "Akses obrolan Anda di semua perangkat. Nonaktifkan untuk menyimpan riwayat obrolan terpisah hanya di komputer ini. Saat diaktifkan kembali, obrolan tersebut tidak akan diunggah. Penyedia AI tetap memproses pesan Anda.",
-      "endVoice": "Akhiri percakapan suara untuk mengubah penyimpanan obrolan.",
-      "error": "Tidak dapat mengubah penyimpanan obrolan. Coba lagi."
-    },
-    "title": "Pengaturan",
-    "tabs": {
-      "general": "Umum",
-      "shortcuts": "Pintasan",
-      "account": "Akun & legal",
-      "audio": "Audio"
-    },
-    "language": {
-      "title": "Bahasa",
-      "description": "Pilih bahasa yang digunakan Stella di aplikasi dan saat menjawab Anda."
-    },
-    "memory": {
-      "title": "Memori",
-      "description": "Sertakan memori tersimpan dan profil Anda dalam konteks model Stella. Salinan cloud adalah salinan utama dan dienkripsi saat dikirim maupun disimpan; Stella juga dapat menyimpan salinan lokal. Menonaktifkan opsi ini akan mengecualikan memori dari percakapan berikutnya, tetapi tidak menghapusnya."
-    },
-    "developerPreviews": {
-      "title": "Pratinjau berkas pengembang",
-      "description": "Tampilkan perubahan kode di obrolan dan buka di panel samping."
-    },
-    "nativeFontSmoothing": {
-      "title": "Penghalusan font asli",
-      "description": "Merender teks seperti aplikasi macOS, dengan anti-aliasing skala abu-abu."
-    },
-    "motion": {
-      "title": "Gerakan",
-      "reduceMotion": {
-        "label": "Kurangi gerakan",
-        "description": "Meminimalkan animasi antarmuka.",
-        "system": "Sistem",
-        "on": "Aktif",
-        "off": "Nonaktif"
-      }
-    },
-    "notifications": {
-      "title": "Notifikasi suara",
-      "description": "Memutar suara saat Stella menyelesaikan sebuah proses agen."
-    },
-    "power": {
-      "title": "Jaga komputer tetap aktif",
-      "description": "Mencegah komputer Anda tidur selama Stella terbuka."
-    },
-    "lockedComputerUse": {
-      "title": "Penggunaan komputer saat terkunci",
-      "description": "Memungkinkan Stella melanjutkan tugas penggunaan komputer setelah Mac ini terkunci. Memerlukan izin administrator dan menutupi layar selama Stella bekerja.",
-      "unsupported": "Penggunaan komputer saat terkunci hanya tersedia di macOS."
-    },
-    "browserExtension": {
-      "title": "Stella untuk Chrome",
-      "description": "Memungkinkan Stella melihat halaman yang sedang Anda buka dan melakukan tindakan di browser Anda.",
-      "action": "Dapatkan ekstensi"
-    },
-    "resetCustomizations": {
-      "title": "Gunakan default Stella",
-      "description": "Menghapus kustomisasi skill dan pengeditan kepribadian Anda agar default bawaan Stella berlaku. Yang dihapus disimpan di ~/.stella/.trash jika Anda ingin mengembalikannya.",
-      "action": "Pulihkan default",
-      "done": "Default dipulihkan. Kustomisasi Anda sebelumnya dipindahkan ke ~/.stella/.trash.",
-      "none": "Anda sudah menggunakan default Stella.",
-      "error": "Tidak dapat memulihkan default."
-    },
-    "systemPrompt": {
-      "title": "Prompt sistem",
-      "description": "Prompt bawaan Stella selalu diperbarui bersama aplikasi. Simpan prompt Anda sendiri untuk dipakai sebagai gantinya — disimpan terpisah, jadi pembaruan tidak akan menimpanya.",
-      "agentLabel": "Prompt untuk",
-      "agentSublabel": "Pilih agen mana yang promptnya ingin diubah.",
-      "activeLabel": "Prompt aktif",
-      "defaultOption": "Bawaan Stella",
-      "usingDefault": "Menggunakan prompt bawaan Stella.",
-      "usingCustom": "Menggunakan prompt tersimpan Anda.",
-      "newFromDefault": "Baru dari bawaan",
-      "edit": "Edit",
-      "duplicate": "Duplikat",
-      "delete": "Hapus",
-      "save": "Simpan",
-      "cancel": "Batal",
-      "nameLabel": "Nama",
-      "newName": "Prompt saya",
-      "saved": "Prompt disimpan.",
-      "deleted": "Prompt dihapus.",
-      "error": "Terjadi kesalahan.",
-      "agents": {
-        "assistant": "Asisten",
-        "worker": "Pekerja"
-      }
-    },
-    "permissions": {
-      "title": "Izin",
-      "enable": "Aktifkan",
-      "granted": "Diberikan",
-      "opening": "Membuka…",
-      "reset": "Atur ulang",
-      "resetting": "Mengatur ulang…",
-      "accessibility": {
-        "label": "Aksesibilitas",
-        "description": "Memungkinkan Stella membaca teks yang dipilih dan terbuka melalui pintasan ⌘+klik kanan di mana saja di komputer Anda."
-      },
-      "screen": {
-        "label": "Rekam layar",
-        "description": "Memungkinkan Stella melihat layar Anda agar bisa membantu dengan apa yang Anda lihat. Anda mungkin perlu menutup dan membuka kembali Stella setelah mengaktifkannya."
-      },
-      "microphone": {
-        "label": "Mikrofon",
-        "description": "Digunakan untuk suara dan dikte. Atur ulang jika Stella sebelumnya ditolak dan macOS tidak meminta lagi."
-      },
-      "restart": {
-        "label": "Mulai ulang Stella",
-        "description": "Rekam layar baru saja diaktifkan. Tutup dan buka kembali Stella untuk menyelesaikan pengaturan.",
-        "action": "Mulai ulang",
-        "closing": "Menutup…"
-      }
-    },
-    "shortcuts": {
-      "title": "Pintasan",
-      "change": "Ubah",
-      "capturing": "Tekan tombol…",
-      "clear": "Hapus",
-      "off": "Nonaktif",
-      "actions": {
-        "dictation": "Dikte",
-        "voice": "Agen suara"
-      },
-      "dictation": {
-        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
-      },
-      "voiceAgent": {
-        "description": "Memulai atau menghentikan agen suara langsung Stella."
-      },
-      "targets": {
-        "dictation": "dikte",
-        "voice": "agen suara"
-      },
-      "toasts": {
-        "updatedTitle": "Pintasan {action} diperbarui",
-        "clearedTitle": "Pintasan {action} dihapus",
-        "updatedDescription": "Tekan {keys} untuk memulai {target}.",
-        "clearedDescription": "{action} dinonaktifkan hingga Anda menetapkan pintasan baru.",
-        "unavailableTitle": "Pintasan tidak tersedia",
-        "failedTitle": "Gagal memperbarui pintasan"
-      },
-      "errors": {
-        "load": "Gagal memuat pintasan.",
-        "unavailable": "Pintasan tidak tersedia di jendela ini.",
-        "unavailableShortcut": "Pintasan itu tidak tersedia.",
-        "update": "Gagal memperbarui pintasan."
-      }
-    },
-    "account": {
-      "title": "Akun",
-      "signOut": {
-        "label": "Keluar",
-        "description": "Keluar dari Stella di perangkat ini.",
-        "action": "Keluar"
-      },
-      "deleteData": {
-        "label": "Hapus data",
-        "description": "Menghapus semua percakapan, memori, dan pengaturan Stella yang tersimpan.",
-        "action": "Hapus",
-        "working": "Menghapus…"
-      },
-      "deleteAccount": {
-        "label": "Hapus akun",
-        "description": "Menghapus akun Anda dan semua isinya secara permanen.",
-        "action": "Hapus",
-        "working": "Menghapus…"
-      },
-      "legal": {
-        "title": "Hukum",
-        "terms": "Ketentuan Layanan",
-        "privacy": "Kebijakan Privasi",
-        "view": "Lihat"
-      },
-      "dialog": {
-        "deleteDataTitle": "Hapus data Stella Anda?",
-        "deleteAccountTitle": "Hapus akun Stella Anda?",
-        "deleteDataDescription": "Ini menghapus percakapan, memori, pengaturan, dan status Stella lokal Anda. Ini tidak dapat dibatalkan.",
-        "deleteAccountDescription": "Ini menghapus akun dan data Stella Anda secara permanen. Ini tidak dapat dibatalkan.",
-        "deleteDataButton": "Hapus data",
-        "deleteAccountButton": "Hapus akun",
-        "working": "Menghapus…"
-      },
-      "toasts": {
-        "dataDeleted": "Data Stella Anda telah dihapus.",
-        "accountDeleted": "Akun Stella Anda telah dihapus.",
-        "deleteDataFailed": "Tidak dapat menghapus data Anda. Coba lagi.",
-        "deleteAccountFailed": "Tidak dapat menghapus akun Anda. Coba lagi.",
-        "signInBeforeDelete": "Masuk sebelum menghapus akun Anda."
-      },
-      "cloudHome": {
-        "title": "Cloud Home",
-        "label": "Memori dan skill",
-        "summary": {
-          "checking": "Memeriksa memori dan skill lokal…",
-          "current": "Cloud Home sudah mutakhir. Memori yang diunggah: {memoryCount}. Paket skill yang diunggah: {skillCount}.",
-          "attention": "Cloud Home mempertahankan salinan cloud yang sudah ada ketika data lokal berbeda. Tinjau detail di bawah.",
-          "unavailable": "Sinkronisasi Cloud Home saat ini tidak tersedia.",
-          "intro": "Stella mengimpor memori lokal dan skill kustom yang relevan dengan aman ke akun cloud Anda."
-        },
-        "authorizationNote": "Skill yang diunggah tetap tidak tersedia bagi agen hingga versi persisnya diotorisasi secara eksplisit.",
-        "actions": {
-          "syncing": "Menyinkronkan…",
-          "import": "Impor ke akun ini",
-          "boundElsewhere": "Tertaut ke akun lain",
-          "blocked": "Impor diblokir",
-          "sync": "Sinkronkan sekarang"
-        }
-      }
-    },
-    "audio": {
-      "systemDefault": "Default sistem",
-      "microphoneDeviceFallback": "Mikrofon {index}",
-      "speakerDeviceFallback": "Speaker {index}",
-      "microphone": {
-        "title": "Mikrofon",
-        "enableLabel": "Aktifkan mikrofon",
-        "enableDescription": "Diperlukan untuk berbicara dengan Stella.",
-        "deviceLabel": "Mikrofon",
-        "deviceDescription": "Mikrofon mana yang harus didengarkan Stella?"
-      },
-      "recovery": {
-        "manageLabel": "Kelola akses mikrofon",
-        "recoverLabel": "Pulihkan akses mikrofon",
-        "manageDescription": "Jika izin mikrofon macet, Anda dapat mengaturnya ulang dan meminta macOS untuk bertanya lagi.",
-        "recoverDescription": "Setelah Anda menolak, macOS tidak akan bertanya lagi dengan sendirinya. Atur ulang izin, lalu tutup dan buka kembali Stella.",
-        "openSettings": "Buka Pengaturan",
-        "reset": "Atur ulang & mulai ulang",
-        "closing": "Menutup…"
-      },
-      "wakeWord": {
-        "label": "Kata pemicu “Hey Stella”",
-        "description": "Mendengarkan “Hey Stella” di latar belakang dan memulai percakapan suara. Saat nonaktif, mikrofon tetap diam hingga Anda menekan dikte."
-      },
-      "superFast": {
-        "label": "Dikte super cepat",
-        "description": "Menjaga mikrofon tetap siap agar dikte dimulai dengan lebih sedikit jeda."
-      },
-      "dictationSounds": {
-        "label": "Suara dikte",
-        "description": "Memutar suara saat dikte dimulai dan berhenti."
-      },
-      "speaker": {
-        "title": "Speaker",
-        "outputLabel": "Perangkat keluaran",
-        "outputDescription": "Pilih speaker atau headphone yang akan digunakan.",
-        "empty": "Speaker tidak ditemukan.",
-        "emptyMicOff": "Aktifkan mikrofon untuk melihat speaker Anda."
-      },
-      "errors": {
-        "listDevices": "Tidak dapat menampilkan perangkat audio.",
-        "micDeniedReset": "Akses mikrofon sebelumnya ditolak. Atur ulang dan mulai ulang Stella, atau buka Pengaturan Sistem.",
-        "micDenied": "Akses mikrofon ditolak. Harap izinkan di pengaturan sistem Anda."
-      }
-    },
-    "connectedProviders": {
-      "title": "Penyedia terhubung",
-      "empty": "Belum ada penyedia yang terhubung. Pilih opsi selain Stella di pemilih model di atas untuk menambahkan kunci API atau masuk.",
-      "apiKey": "Kunci API",
-      "signedIn": "Sudah masuk",
-      "removeKey": "Hapus kunci",
-      "removingKey": "Menghapus…",
-      "signOut": "Keluar",
-      "signingOut": "Keluar…"
-    },
-    "search": {
-      "placeholder": "Cari pengaturan",
-      "clear": "Hapus pencarian",
-      "noResultsTitle": "Tidak ada pengaturan yang cocok dengan “{query}”",
-      "noResultsBody": "Coba kata yang lebih pendek atau berbeda.",
-      "resultsOne": "{count} hasil untuk",
-      "resultsOther": "{count} hasil untuk",
-      "resultsAriaOne": "{count} hasil",
-      "resultsAriaOther": "{count} hasil",
-      "descriptions": {
-        "permissions": "Berikan akses ke aksesibilitas, rekam layar, dan mikrofon di macOS.",
-        "shortcuts": "Ubah pintasan dikte dan suara.",
-        "account": "Keluar, hapus data Anda, atau hapus akun Anda secara permanen.",
-        "legal": "Ketentuan Layanan dan Kebijakan Privasi.",
-        "speaker": "Pilih speaker atau headphone tempat suara Stella diputar.",
-        "wakeWord": "Mendengarkan “Hey Stella” dan memulai percakapan suara.",
-        "microphone": "Mikrofon mana yang harus didengarkan Stella?"
-      }
-    },
-    "errors": {
-      "loadPower": "Gagal memuat pengaturan daya.",
-      "savePower": "Gagal memperbarui pengaturan daya.",
-      "powerUnavailable": "Pengaturan daya tidak tersedia di jendela ini.",
-      "loadLockedComputerUse": "Gagal memuat pengaturan penggunaan komputer saat terkunci.",
-      "saveLockedComputerUse": "Gagal memperbarui penggunaan komputer saat terkunci.",
-      "lockedComputerUseUnavailable": "Penggunaan komputer saat terkunci tidak tersedia di jendela ini.",
-      "loadSoundNotifications": "Gagal memuat pengaturan notifikasi suara.",
-      "saveSoundNotifications": "Gagal memperbarui pengaturan notifikasi suara.",
-      "soundNotificationsUnavailable": "Pengaturan notifikasi suara tidak tersedia di jendela ini.",
-      "loadMemory": "Gagal memuat pengaturan memori.",
-      "saveMemory": "Gagal memperbarui pengaturan memori.",
-      "memoryUnavailable": "Pengaturan memori tidak tersedia di jendela ini.",
-      "loadPermissions": "Gagal memuat status izin desktop.",
-      "savePermission": "Gagal memperbarui izin {kind}.",
-      "resetPermission": "Gagal mengatur ulang izin {kind}.",
-      "resetPermissionMaybeReopen": "Tidak dapat mengatur ulang izin {kind}. Stella mungkin perlu dibuka kembali.",
-      "microphoneDeniedReopen": "Akses mikrofon sebelumnya ditolak. Aktifkan di Pengaturan Sistem, lalu buka kembali Stella.",
-      "microphoneStillOff": "Akses mikrofon masih nonaktif. Aktifkan di Pengaturan Sistem, lalu buka kembali Stella.",
-      "restart": "Gagal memulai ulang Stella."
-    },
-    "voiceCatalog": {
-      "label": "Suara",
-      "familyAriaLabel": "Keluarga suara",
-      "familyTitle": {
-        "openai": "Suara OpenAI Realtime (Stella membuat tokennya)",
-        "xai": "Suara xAI Grok (Stella membuat tokennya)",
-        "inworld": "Suara Inworld (Stella mem-proxy pertukaran SDP)"
-      },
-      "source": {
-        "openai": "Suara OpenAI",
-        "xai": "Suara Grok",
-        "inworld": "Suara Inworld",
-        "gemini": "Suara Gemini"
-      },
-      "previousVoice": "Suara sebelumnya",
-      "nextVoice": "Suara berikutnya",
-      "menuAriaLabel": "Suara {source}",
-      "speed": "Kecepatan",
-      "speedAriaLabel": "Kecepatan suara Inworld",
-      "readAloud": {
-        "label": "Bacakan",
-        "ariaLabel": "Penyedia suara untuk bacakan",
-        "openaiTitle": "Bacakan balasan dengan OpenAI TTS",
-        "geminiTitle": "Bacakan balasan dengan Gemini TTS",
-        "description": "Membacakan balasan dengan suara dari penyedia ini."
-      }
-    },
-    "phoneAccess": {
-      "expired": "Kedaluwarsa",
-      "timeLeft": "{time} tersisa",
-      "copy": "Salin",
-      "preparing": "Menyiapkan...",
-      "getCode": "Dapatkan Kode",
-      "deviceFallback": "Ponsel",
-      "removing": "Menghapus...",
-      "remove": "Hapus",
-      "signedOut": {
-        "headline": "Masuk untuk memulai",
-        "body": "Masuk ke akun Stella Anda untuk memasangkan dengan aplikasi seluler."
-      },
-      "pairing": {
-        "headline": "Pindai atau masukkan kode ini",
-        "body": "Buka aplikasi Stella di ponsel Anda dan pindai kode QR, atau ketik kode di bawah ini. Anda hanya perlu melakukannya sekali.",
-        "qrAlt": "Pindai untuk memasangkan ponsel Anda"
-      },
-      "intro": {
-        "headline": "Hubungkan ponsel Anda ke komputer Anda"
-      },
-      "steps": {
-        "download": "Unduh aplikasinya",
-        "platformSelectorLabel": "Pilih platform seluler",
-        "appStoreQrAlt": "Pindai untuk mengunduh Stella dari App Store",
-        "playStoreQrAlt": "Pindai untuk mengunduh Stella dari Google Play",
-        "connect": "Hubungkan ponsel Anda"
-      },
-      "toasts": {
-        "codeCopied": "Kode disalin ke papan klip",
-        "phoneRemoved": "Ponsel dihapus",
-        "removeFailed": "Gagal menghapus ponsel"
-      },
-      "errors": {
-        "createPairing": "Tidak dapat membuat kode pemasangan."
-      },
-      "pairedCount": {
-        "other": "{count} ponsel dipasangkan"
-      }
-    },
-    "executionDevices": {
-      "title": "Your computers",
-      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
-      "empty": "No computer is signed in to this account yet.",
-      "unnamed": "Computer",
-      "thisComputer": "This computer",
-      "online": "Online",
-      "offline": "Offline",
-      "enable": "Enable",
-      "enabling": "Enabling…",
-      "disable": "Turn off",
-      "disabling": "Turning off…",
-      "state": {
-        "enabled": "Accepting work",
-        "notEnabled": "Not enabled",
-        "asking": "Waiting for an answer there",
-        "declined": "Declined there"
-      },
-      "errors": {
-        "load": "Unable to read the computers on this account.",
-        "update": "That change didn't go through. Try again."
-      }
-    },
-    "modelPicker": {
-      "loadFailed": "Couldn't load models",
-      "retry": "Retry",
-      "searchPlaceholder": "Cari model…",
-      "searchAriaLabel": "Cari model",
-      "closeSearch": "Tutup pencarian",
-      "apiKeyPlaceholder": "Kunci API",
-      "apiKeyAriaLabel": "Kunci API {provider}",
-      "cancelSignIn": "Batalkan proses masuk",
-      "signInWith": "Masuk dengan {provider}",
-      "saving": "Menyimpan…",
-      "use": "Gunakan",
-      "selected": "Dipilih",
-      "refresh": "Segarkan katalog model",
-      "restrictedPlan": "Tidak tersedia pada paket {plan}",
-      "reasoning": {
-        "label": "Upaya penalaran",
-        "default": "Otomatis",
-        "minimal": "Minimal",
-        "low": "Rendah",
-        "medium": "Sedang",
-        "high": "Tinggi",
-        "xhigh": "Maks"
-      },
-      "authHint": {
-        "both": "Masuk atau tempel kunci API. Kredensial tetap di perangkat ini.",
-        "oauth": "Kredensial tetap di perangkat ini.",
-        "apiKey": "Kunci API Anda tetap di perangkat ini."
-      },
-      "actions": {
-        "cancel": "Batal",
-        "signIn": "Masuk",
-        "addKey": "Tambah kunci",
-        "custom": "Kustom"
-      },
-      "signOut": {
-        "ariaLabel": "Keluar dari {provider}",
-        "confirmAriaLabel": "Klik lagi untuk keluar dari {provider}",
-        "confirmTitle": "Klik lagi untuk mengonfirmasi"
-      },
-      "local": {
-        "hint": "Gunakan server lokal apa pun yang kompatibel dengan OpenAI. Ollama biasanya berjalan di URL di bawah ini.",
-        "serverUrlAriaLabel": "URL server lokal",
-        "modelNameAriaLabel": "Nama model lokal"
-      },
-      "openRouter": {
-        "hintBefore": "OpenRouter menerima",
-        "hintAfter": "id apa pun. Ketik salah satu untuk langsung memakainya.",
-        "modelIdAriaLabel": "id model OpenRouter"
-      },
-      "empty": {
-        "none": "Belum ada model yang tersedia.",
-        "noMatch": "Tidak ada model yang cocok."
-      },
-      "favorite": {
-        "remove": "Hapus dari favorit",
-        "add": "Tambahkan ke favorit",
-        "addTitle": "Favorit — sematkan di atas"
-      },
-      "errors": {
-        "saveApiKey": "Gagal menyimpan kunci API.",
-        "oauthLogin": "Login OAuth gagal."
-      }
-    },
-    "providerPicker": {
-      "connected": "Terhubung",
-      "connect": "Hubungkan",
-      "opening": "Membuka…"
-    },
-    "engineModels": {
-      "ariaLabel": "Model {engine}",
-      "loading": "Memuat model {engine}…",
-      "empty": "Tidak ada model {engine} yang tersedia."
-    },
-    "providerConnected": {
-      "title": "Gunakan {provider} untuk Stella?",
-      "description": "{provider} dapat menjalankan lebih dari satu bagian Stella. Pilih bagian mana yang ingin Anda serahkan — Stella tetap menangani sisanya.",
-      "assistant": {
-        "label": "Asisten",
-        "description": "Alihkan asisten obrolan Stella melalui {provider}."
-      },
-      "image": {
-        "label": "Gambar",
-        "description": "Hasilkan gambar melalui akun {provider} Anda."
-      },
-      "voice": {
-        "label": "Suara",
-        "description": "Gunakan {provider} untuk percakapan suara realtime."
-      },
-      "skip": "Lewati",
-      "apply": "Terapkan",
-      "applying": "Menerapkan…",
-      "errors": {
-        "apply": "Gagal menerapkan pengaturan penyedia."
-      }
-    },
-    "compactModelList": {
-      "ariaLabel": "Model Stella",
-      "recent": "Terbaru",
-      "unavailable": "Tidak tersedia",
-      "unavailableTitle": "Model ini tidak tersedia lagi — pilih yang lain.",
-      "loading": "Memuat model Stella…",
-      "loadFailed": "Tidak dapat memuat model Stella.",
-      "empty": "Tidak ada model Stella yang tersedia.",
-      "retry": "Coba lagi",
-      "restricted": "Paket Anda menggunakan pilihan Stella.",
-      "restrictedPlan": "Paket {plan} menggunakan pilihan Stella.",
-      "upgrade": "Tingkatkan"
-    },
-    "reasoningEffort": {
-      "minimal": "Minimal",
-      "low": "Rendah",
-      "medium": "Sedang",
-      "high": "Tinggi",
-      "xhigh": "Ekstra"
-    },
-    "agentModelPicker": {
-      "byokDescription": "Gunakan kunci API {provider} Anda sendiri.",
-      "unavailableChooseAnother": "Tidak tersedia — pilih model lain",
-      "chatGptRouted": "Dialihkan ke {model} (model tersimpan tidak tersedia).",
-      "default": "Default",
-      "stellaDefault": "Default Stella",
-      "surfaceAriaLabel": "Permukaan",
-      "waitingForChatGpt": "Menunggu ChatGPT…",
-      "imageProviderAriaLabel": "Penyedia gambar",
-      "voiceProviderAriaLabel": "Penyedia suara",
-      "assistantPickerAriaLabel": "Pemilih model asisten",
-      "verifyingChatGpt": "Memverifikasi model ChatGPT…",
-      "savedModelUnavailable": "Model tersimpan tidak tersedia. Pilih model lain.",
-      "tabs": {
-        "assistant": "Asisten",
-        "assistantTitle": "Asisten utama Stella",
-        "image": "Gambar",
-        "imageTitle": "Penyedia pembuatan gambar",
-        "voice": "Suara",
-        "voiceTitle": "Penyedia suara realtime"
-      },
-      "errors": {
-        "loadPreferences": "Gagal memuat pengaturan model.",
-        "chatGptMigration": "Migrasi perutean ChatGPT gagal.",
-        "chatGptVerify": "Model ChatGPT tidak dapat diverifikasi: {error}",
-        "chatGptVerifying": "Tunggu hingga verifikasi model ChatGPT selesai.",
-        "chatGptNotConnected": "Masuk dengan ChatGPT di komputer ini terlebih dahulu.",
-        "chatGptNoModels": "Saat ini tidak ada model ChatGPT yang tersedia.",
-        "connectChatGpt": "Gagal menghubungkan ChatGPT.",
-        "updateEngine": "Gagal memperbarui mesin.",
-        "updateTitle": "Tidak dapat memperbarui pengaturan model",
-        "refreshTitle": "Tidak dapat menyegarkan model",
-        "updateModel": "Gagal memperbarui pengaturan model.",
-        "updateImage": "Gagal memperbarui pengaturan gambar.",
-        "updateVoice": "Gagal memperbarui pengaturan suara.",
-        "updateInworldSpeed": "Gagal memperbarui kecepatan Inworld.",
-        "updateVoiceFamily": "Gagal memperbarui keluarga suara.",
-        "updateReadAloud": "Gagal memperbarui penyedia bacakan.",
-        "updateReasoning": "Gagal memperbarui upaya penalaran.",
-        "updateChatGptSpeed": "Gagal memperbarui kecepatan ChatGPT.",
-        "updateDirectRuntime": "Gagal memperbarui pengaturan {runtime} langsung.",
-        "chatGptPlanUsageOff": "Penggunaan paket ChatGPT belum diaktifkan untuk akun ini. Aktifkan di Pengaturan › Akun, atau pilih model lain."
-      },
-      "noChatGptModels": "Saat ini tidak ada model ChatGPT yang tersedia untuk akun ini.",
-      "chatGptPlanInUse": "Menggunakan paket ChatGPT",
-      "chatGptManageUsage": "Kelola penggunaan"
-    },
-    "onboardingReplay": {
-      "title": "Onboarding",
-      "action": "Replay",
-      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched."
-    },
-    "companion": {
-      "title": "Desktop companion",
-      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
-      "error": "Couldn't update the desktop companion."
-    },
-    "engineAccounts": {
-      "cardTitle": "Akun Claude & ChatGPT",
-      "cardIntro": "Gunakan paket Claude atau ChatGPT yang sudah Anda bayar. Setiap tempat masuk sendiri-sendiri: tiap komputer, dan cloud Anda.",
-      "claudeTitle": "Claude (Pro/Max)",
-      "addClaude": "Tambahkan akun Claude",
-      "addOnComputer": "Di komputer ini",
-      "addInCloud": "Di cloud",
-      "active": "Aktif",
-      "signInComputer": "Masuk di komputer ini",
-      "signOutComputer": "Keluar di komputer ini",
-      "signIn": "Masuk",
-      "signedOut": "Sudah keluar.",
-      "removed": "Dihapus.",
-      "placeComputer": "Komputer ini",
-      "placeOtherComputer": "Komputer lain",
-      "placeSignedIn": "{place}: sudah masuk",
-      "placeSignedOut": "{place}: belum masuk",
-      "signedOutLogin": "Login Claude Code yang sudah keluar",
-      "cliMissing": "Claude Code belum terpasang di komputer ini. Pasang untuk menggunakan Claude di sini.",
-      "defaultSignedOut": "Claude Code di komputer ini belum masuk.",
-      "signedInComputer": "Claude Code di komputer ini sudah masuk.",
-      "signedInComputerAs": "Claude Code di komputer ini sudah masuk sebagai {email}.",
-      "signedInCloud": "Cloud Anda sudah masuk ke Claude.",
-      "signedInCloudAs": "Cloud Anda sudah masuk ke Claude sebagai {email}.",
-      "errorGeneric": "Tidak berhasil. Coba lagi.",
-      "claudeLogin": {
-        "whereComputer": "Masuk ke Claude Code di komputer ini.",
-        "whereCloud": "Masuk ke Claude Code di cloud Anda.",
-        "starting": "Membuka halaman masuk Anthropic…",
-        "opened": "Kami telah membuka halaman masuk Anthropic.",
-        "reopen": "Buka lagi",
-        "submit": "Kirim",
-        "submitting": "Sedang masuk…",
-        "failed": "Gagal masuk.",
-        "startAgain": "Mulai lagi",
-        "codeLabel": "Tempel kode yang ditampilkan Anthropic"
-      },
-      "chatgptCloudSignedIn": "Cloud Anda sudah masuk ke ChatGPT.",
-      "revokeTitleCloud": "Keluar dari ChatGPT di cloud",
-      "revokeTitleComputer": "Keluar di komputer ini",
-      "runsOnLabel": "Chat cloud berjalan di",
-      "needsClaudeCloud": "Masuk ke Claude di cloud terlebih dahulu",
-      "needsChatgptCloud": "Siapkan ChatGPT untuk cloud Anda terlebih dahulu",
-      "chatgptComputerSignedIn": "Komputer ini sudah masuk ke ChatGPT.",
-      "planUsageOffTitle": "Sudah masuk, tetapi penggunaan paket ChatGPT belum diaktifkan",
-      "planUsageOffBody": "Stella tidak dapat menggunakan paket ChatGPT Anda sampai Anda mengizinkannya. Pilih “Aktifkan penggunaan paket ChatGPT” pada akun, atau gunakan model lain.",
-      "signInCloud": "Masuk di cloud",
-      "signOutCloud": "Keluar dari cloud",
-      "placeCloud": "Cloud",
-      "useAccount": "Gunakan akun ini",
-      "signOut": "Keluar",
-      "moreLabel": "Opsi untuk {name}",
-      "signInAgain": "Masuk lagi",
-      "enablePlanUsage": "Aktifkan penggunaan paket ChatGPT",
-      "remove": "Hapus",
-      "statusSignedOut": "Sudah keluar",
-      "statusReauth": "Masuk lagi untuk terus menggunakannya",
-      "statusPlanUsageOff": "Penggunaan paket ChatGPT belum diaktifkan",
-      "revokeUnconfirmed": "ChatGPT tidak mengonfirmasi proses keluar. Anda dapat memutuskan Stella di Pengaturan ChatGPT.",
-      "pasteHintChatgpt": "Setelah Anda menyetujui, ChatGPT mengarahkan Anda ke halaman yang tidak dapat dimuat. Salin alamat lengkap halaman itu dan tempel di sini.",
-      "pastePlaceholderUrl": "Tempel alamat di sini",
-      "openChatgptAgain": "Buka ChatGPT lagi",
-      "connecting": "Menghubungkan…",
-      "finish": "Hubungkan",
-      "chatgptBrowserWaiting": "Selesaikan proses masuk ke ChatGPT di browser Anda.",
-      "chatgptTitle": "ChatGPT",
-      "addChatgpt": "Add ChatGPT account",
-      "addChatgptCloud": "Add ChatGPT account in the cloud",
-      "enablePlanUsageCloud": "Enable ChatGPT plan use in the cloud"
-    }
-  },
-  "onboarding": {
-    "legalFooter": "Dengan menggunakan Stella, Anda menyetujui {terms} dan {privacy} kami.",
-    "termsOfService": "Ketentuan Layanan",
-    "privacyPolicy": "Kebijakan Privasi",
-    "chat": {
-      "skipSetup": "Skip setup",
-      "composerPlaceholder": "Or just ask me something to get started",
-      "send": "Send",
-      "messages": {
-        "capabilities": "Halo, saya Stella.\n\nSaya bukan chatbot. Saya memakai komputer ini untuk benar-benar menyelesaikan pekerjaan Anda, di latar belakang, sementara Anda terus melanjutkan aktivitas.\n\nBeginilah tampaknya.",
-        "theme": "Now, how should I look?",
-        "extras": "Almost done. A little housekeeping, then we start.",
-        "memory": "One more thing that makes me different.",
-        "selfmod": "Dan karena saya berada di komputer Anda, saya bisa mengubah diri saya sendiri.",
-        "signin": "Selanjutnya, mari masuk ke akun. Gunakan akun Stella, atau paket Claude atau ChatGPT yang sudah Anda miliki.",
-        "quickstart": "Itu saja. Satu hal terakhir, dan ini opsional: panduan mulai cepat.",
-        "quickstartDone": "Selesai. Ini yang saya pelajari, dan beberapa hal yang bisa kita mulai.",
-        "quickstartFailed": "Kali ini saya tidak bisa selesai membaca browser Anda. Kita tetap bisa mulai, dan saya akan belajar seiring berjalan."
-      },
-      "replies": {
-        "capabilitiesDone": "Got it.",
-        "capabilitiesSkipped": "Skip the tour.",
-        "themeDone": "That one.",
-        "themeSkipped": "Keep the default.",
-        "extrasDone": "Done.",
-        "extrasSkipped": "Skip for now.",
-        "memoryDone": "Nice.",
-        "memorySkipped": "Skip it.",
-        "selfmodDone": "Keren sekali.",
-        "signinDone": "Selesai."
-      },
-      "discovery": {
-        "browserLabel": "Your browser",
-        "includeDev": "My coding setup",
-        "hint": "About a minute, in the background.",
-        "alsoLabel": "Also include",
-        "assurance": "A one-time read, kept on this computer. You can see and edit what I keep at any time."
-      },
-      "capabilities": {
-        "errands": {
-          "word": "Errands",
-          "title": "Ask once. Consider it handled.",
-          "caption": "Saya menemukan tempat yang tepat, mengisi formulirnya, dan memasukkannya ke kalender Anda, persis seperti yang akan Anda lakukan."
-        },
-        "shopping": {
-          "word": "Shopping",
-          "title": "I can buy things, with your OK.",
-          "caption": "I find it and get it to checkout. You confirm the total, and I place the order."
-        },
-        "work": {
-          "word": "Work",
-          "title": "File sungguhan. Beberapa pekerjaan sekaligus.",
-          "caption": "Saya bekerja di dalam aplikasi sungguhan di komputer ini, dan bisa menjalankan lebih dari satu pekerjaan sekaligus."
-        },
-        "build": {
-          "word": "Build",
-          "title": "Say it. I'll build it.",
-          "caption": "Apps and websites, made to order. Describe it in plain words and I'll build it, run it, and put it online."
-        },
-        "settledTitle": "The quick tour",
-        "replay": "Replay this demo",
-        "tablist": "Capability demos",
-        "routines": {
-          "word": "Rutinitas",
-          "title": "Minta sekali. Terjadi setiap hari.",
-          "caption": "Jadwalkan apa saja dan saya akan mengerjakannya tepat waktu, bahkan saat Anda tidur."
-        }
-      },
-      "memory": {
-        "titleChatbot": "You know this one",
-        "bodyChatbot": "A new chat every time, a sidebar full of old ones, and no memory of what you said last week.",
-        "titleStella": "With me it's one conversation",
-        "bodyStella": "No new chats, no threads. Everything you've ever told me is in the same place, so when you ask about last week I go and find it.",
-        "showStella": "Now ask me",
-        "skip": "Skip",
-        "settledTitle": "One conversation",
-        "settledDesc": "No threads to manage. I remember."
-      },
-      "theme": {
-        "title": "Pick a look",
-        "body": "Hover to try one on. Click to keep it.",
-        "appearance": "Appearance",
-        "themes": "Theme",
-        "mode": {
-          "light": "Light",
-          "dark": "Dark",
-          "system": "System"
-        },
-        "confirm": "Done",
-        "skip": "Keep the default",
-        "hint": "Everything here changes live.",
-        "settledTitle": "Default",
-        "gradientStyle": "Gradient style",
-        "gradientColor": "Gradient color",
-        "gradient": {
-          "soft": "Soft",
-          "flat": "Flat",
-          "relative": "Relative",
-          "strong": "Strong"
-        }
-      },
-      "extras": {
-        "title": "Two quick extras",
-        "titleOne": "One quick extra",
-        "body": "Neither is required, but both make me a lot more useful.",
-        "bodyOne": "Not required, but it makes me a lot more useful.",
-        "accessibilityTitle": "Accessibility",
-        "accessibilityDesc": "So I can act on selected text and what's under your cursor.",
-        "screenTitle": "Screen Recording",
-        "screenDesc": "So I can see the screen when you ask me to.",
-        "enable": "Enable",
-        "enabled": "Enabled",
-        "extensionTitle": "Stella for Chrome",
-        "extensionDesc": "Lets me see the page you're on and act inside your browser. Works in Chrome, Arc, Brave, and Edge.",
-        "getExtension": "Get extension",
-        "extensionOpened": "Opened",
-        "memoryTitle": "Remember across chats",
-        "memoryDesc": "Use what I've saved about you when it's relevant. Nothing is deleted if you turn this off.",
-        "restartHint": "Screen access needs a quick restart to take effect.",
-        "restart": "Restart Stella",
-        "skip": "Skip for now",
-        "hint": "All of this lives in Settings too.",
-        "settledTitle": "Extras",
-        "settledSkippedTitle": "Extras skipped",
-        "settledPermissions": "Permissions",
-        "settledExtension": "Extension",
-        "settledMemory": "Memory"
-      },
-      "ready": {
-        "highlightsLabel": "What I picked up",
-        "startersLabel": "Try one of these",
-        "startersLabelPersonal": "Made for you",
-        "notesSummary": "See everything I noted",
-        "notesFoot": "You can read or edit this any time in Settings › Memory.",
-        "start": "Start chatting",
-        "hint": "Or type anything below.",
-        "generic": {
-          "plan": {
-            "title": "Plan my week",
-            "prompt": "Help me plan my week. Ask me what's on my plate and lay it out day by day."
-          },
-          "browse": {
-            "title": "Find me a good dinner spot",
-            "prompt": "Find a well-reviewed dinner spot near me for this weekend and hold a reservation for two."
-          },
-          "file": {
-            "title": "Tidy up a document",
-            "prompt": "I have a document that needs cleaning up. I'll share it and you fix the structure and wording."
-          },
-          "watch": {
-            "title": "Watch a site for changes",
-            "prompt": "Keep an eye on a web page for me and tell me when it changes."
-          }
-        }
-      },
-      "progress": "Kemajuan penyiapan",
-      "selfmod": {
-        "title": "Saya bisa mengubah diri sendiri",
-        "body": "Ada fitur yang kurang, atau ingin sesuatu bekerja dengan cara lain? Cukup minta. Saya akan menulis ulang kode saya sendiri, Anda mencobanya, dan Anda yang memutuskan apakah akan dipertahankan.",
-        "steps": {
-          "ask": {
-            "title": "Minta",
-            "body": "Jelaskan perubahannya dengan kata-kata sederhana."
-          },
-          "preview": {
-            "title": "Pratinjau",
-            "body": "Sebuah agen membuatnya dan membuka pratinjau langsung."
-          },
-          "update": {
-            "title": "Perbarui",
-            "body": "Satu klik untuk menerapkannya. Urungkan kapan saja."
-          }
-        },
-        "hint": "Perubahan tetap berada di komputer ini.",
-        "settledTitle": "Saya bisa mengubah diri sendiri",
-        "settledDesc": "Minta, pratinjau, perbarui. Urungkan kapan saja."
-      },
-      "signin": {
-        "title": "Masuk",
-        "body": "Salah satunya sudah cukup. Anda bisa menambahkan yang lain nanti.",
-        "options": {
-          "stella": {
-            "title": "Akun Stella",
-            "body": "Google atau email. Obrolan Anda ikut ke ponsel Anda."
-          },
-          "claude": {
-            "title": "Claude Code",
-            "body": "Gunakan paket Claude Pro atau Max Anda."
-          },
-          "chatgpt": {
-            "title": "ChatGPT",
-            "body": "Masuk dengan ChatGPT untuk menggunakan paket Anda."
-          },
-          "apikey": {
-            "title": "Kunci API",
-            "body": "Gunakan kunci Anda sendiri dari Anthropic, OpenAI, Google, dan lainnya."
-          }
-        },
-        "signIn": "Masuk",
-        "connect": "Hubungkan",
-        "use": "Gunakan",
-        "inUse": "Digunakan",
-        "waiting": "Selesaikan proses masuk di browser Anda, lalu kembali ke sini.",
-        "error": "Tidak tersambung. Coba lagi?",
-        "fine": "Ubah kapan saja di Pengaturan.",
-        "hint": "Gratis untuk memulai.",
-        "settledEngine": "Menggunakan {name}",
-        "settledStella": "Sudah masuk ke Stella",
-        "settledDesc": "Ubah kapan saja di Pengaturan.",
-        "claudeCliMissing": "Pasang Claude Code terlebih dahulu, lalu coba lagi."
-      },
-      "quickstart": {
-        "eyebrow": "Mulai cepat",
-        "title": "Beri saya awal yang baik",
-        "body": "Kebanyakan asisten mulai dari nol. Arahkan saya ke browser Anda dan saya akan membacanya sekali untuk membangun memori awal, sehingga saya berguna sejak hari pertama.",
-        "run": "Jalankan mulai cepat",
-        "skip": "Lewati",
-        "runningTitle": "Mengenal Anda",
-        "runningBody": "Sekitar satu menit. Silakan masuk kapan saja, saya akan menyelesaikannya di latar belakang.",
-        "stages": {
-          "read": "Membaca yang Anda pilih",
-          "notice": "Memperhatikan hal yang penting bagi Anda",
-          "write": "Menulis memori awal Anda"
-        },
-        "continueInBackground": "Mulai mengobrol, selesaikan di latar belakang",
-        "failedTitle": "Belum selesai",
-        "failedBody": "Ada yang menghentikan pembacaan. Coba lagi, atau mulai mengobrol dan saya akan belajar seiring berjalan."
-      }
-    }
-  },
-  "billing": {
-    "plans": {
-      "free": {
-        "tagline": "Gratis untuk dicoba."
-      },
-      "go": {
-        "tagline": "Penggunaan 10× lebih tinggi"
-      },
-      "pro": {
-        "tagline": "Batas penggunaan tertinggi untuk pembuatan media dan beberapa agen"
-      }
-    },
-    "features": {
-      "assistant": "Asisten pribadi",
-      "codingAgent": "Agen pemrograman",
-      "research": "Riset dan kerja pengetahuan",
-      "dictationReadAloud": "Dikte dan baca nyaring",
-      "multipleAgents": "Beberapa agen"
-    },
-    "capability": {
-      "image_generation": "Pembuatan gambar",
-      "video_generation": "Pembuatan video",
-      "audio_generation": "Pembuatan suara dan musik",
-      "three_d_generation": "Pembuatan 3D"
-    },
-    "capabilityRestriction": {
-      "title": "{capability} tidak ada di paket Anda",
-      "signIn": "{capability} termasuk dalam Stella {plan}. Masuk untuk meningkatkan paket dan membuka fitur ini.",
-      "upgrade": "{capability} termasuk dalam Stella {plan}. Tingkatkan paket untuk membuka fitur ini.",
-      "unavailable": "{capability} belum tersedia di paket mana pun saat ini.",
-      "lockedBadge": "{plan}",
-      "lockedBadgeGeneric": "Tidak tersedia",
-      "genericTitle": "Tidak termasuk dalam paket Anda",
-      "genericDescription": "Fitur ini termasuk dalam Stella Pro. Tingkatkan paket untuk membukanya."
-    },
-    "freeAllowance": {
-      "label": "Penggunaan paket Free",
-      "caption": "Gratis untuk dicoba.",
-      "remaining": "Gratis untuk dicoba.",
-      "exhaustedTitle": "Anda telah mencapai batas paket Free",
-      "exhaustedDescription": "Tingkatkan ke Go untuk penggunaan 10× lebih tinggi.",
-      "exhaustedCta": "Tingkatkan ke Go"
-    },
-    "upgradeDialog": {
-      "title": "Anda menggunakan Stella {plan}.",
-      "description": "Terima kasih sudah meningkatkan paket. Prioritas lebih tinggi dan kuota penggunaan lebih besar sudah aktif — lanjutkan.",
-      "cta": "Mulai"
-    },
-    "renewal": {
-      "nextLabel": "Perpanjangan berikutnya",
-      "pendingLabel": "Menunggu pembatalan",
-      "renews": "Diperpanjang {date}",
-      "accessEnds": "Akses berakhir {date}",
-      "lapseTitle": "Stella berhenti saat paket Anda berakhir",
-      "lapseDescription": "Paket {plan} Anda berlaku sampai {date}. Setelah itu Stella berhenti — kuota paket Free hanya diberikan sekali dan milik Anda sudah terpakai."
-    },
-    "heading": "Pilih paket Anda",
-    "subtitle": "Mulai gratis. Tingkatkan saat Anda membutuhkan lebih banyak.",
-    "mobile": {
-      "sectionTitle": "Langganan",
-      "currentPlanLabel": "Paket saat ini",
-      "planValue": "Stella {plan}",
-      "manage": "Kelola langganan",
-      "manageWebNote": "Kelola atau batalkan langganan ini dari Stella di web di stella.sh.",
-      "renews": "Diperpanjang {date}",
-      "accessEnds": "Akses berakhir {date}",
-      "chooseHeading": "Pilih paketmu",
-      "subscribe": "Berlangganan",
-      "perMonth": "{price}/bln",
-      "introLine": "{introPrice} bulan pertama, lalu {price}/bln",
-      "signInToSubscribe": "Masuk untuk berlangganan",
-      "startingCheckout": "Memulai…",
-      "pendingTitle": "Menyelesaikan pembelianmu",
-      "pendingBody": "Selesaikan pembayaran di browser. Paketmu diperbarui di sini secara otomatis setelah pembayaran dikonfirmasi — tidak perlu memulai ulang.",
-      "pendingDismiss": "Nanti saja",
-      "successTitle": "Kamu menggunakan Stella {plan}",
-      "successBody": "Langgananmu aktif. Nikmati batas yang lebih tinggi.",
-      "errorRetry": "Coba lagi",
-      "alreadySubscribedTitle": "Kamu sudah memiliki langganan",
-      "footnote": "Ditagih oleh Stella melalui Stripe. Diperpanjang setiap bulan hingga dibatalkan; batalkan kapan saja."
-    }
-  },
-  "chat": {
-    "stoppedReply": "Stella tidak dapat memulai balasan ini",
-    "tryAgainHint": "Silakan coba lagi.",
-    "attachments": {
-      "attachPhoto": "Lampirkan foto",
-      "takePhoto": "Ambil foto",
-      "attachFile": "Lampirkan file",
-      "remove": "Hapus lampiran",
-      "uploading": "Mengunggah",
-      "retryUpload": "Coba unggah lagi",
-      "uploadFailed": "Unggahan gagal. Ketuk untuk mencoba lagi.",
-      "tooManyTitle": "Terlalu banyak file",
-      "tooManyBody": "Kamu bisa melampirkan hingga {count} file sekaligus.",
-      "photosDeniedTitle": "Foto",
-      "photosDeniedBody": "Izinkan Stella mengakses galeri fotomu di Pengaturan agar kamu bisa melampirkan gambar.",
-      "cameraDeniedTitle": "Kamera",
-      "cameraDeniedBody": "Izinkan Stella menggunakan kamera di Pengaturan agar kamu bisa mengambil foto.",
-      "photoLabel": "Foto",
-      "sheetTitle": "Tambahkan ke obrolan",
-      "camera": "Kamera",
-      "photos": "Foto",
-      "files": "File",
-      "readAloud": "Bacakan balasan"
-    }
-  },
-  "errors": {
-    "generic": "Terjadi kesalahan",
-    "subscriptionRequired": "Cadangan memerlukan langganan Stella aktif.",
-    "rateLimited": "Anda terlalu cepat. Coba lagi sebentar lagi.",
-    "networkUnavailable": "Stella sedang offline. Sambungkan kembali untuk melanjutkan.",
-    "permissionDenied": "Stella tidak punya izin untuk melakukan ini."
-  },
   "app": {
-    "usage": {
-      "desktopOnly": "Penggunaan lokal tersedia di aplikasi desktop Stella.",
-      "intro": "Panggilan penyedia yang tersimpan di perangkat ini. Biaya adalah perkiraan lokal; penagihan backend tetap yang berlaku.",
-      "refresh": "Segarkan",
-      "refreshLabel": "Segarkan penggunaan",
-      "selectedThread": "Utas terpilih",
-      "viewAllThreads": "Lihat semua utas",
-      "loading": "Memuat penggunaan lokal…",
-      "loadError": "Tidak dapat memuat penggunaan lokal",
-      "tryAgain": "Coba lagi",
-      "emptyTitle": "Tidak ada panggilan model yang cocok dengan filter ini.",
-      "emptyBody": "Panggilan native muncul di sini setelah penyedianya mengembalikan data penggunaan akhir.",
-      "truncatedWarning": "Menampilkan 10.000 panggilan terbaru dalam rentang ini. Persempit rentang waktu untuk total yang akurat.",
-      "filters": {
-        "label": "Filter penggunaan",
-        "timeRange": "Rentang waktu",
-        "conversation": "Percakapan",
-        "thread": "Utas",
-        "agentType": "Jenis agen",
-        "model": "Model",
-        "allConversations": "Semua percakapan",
-        "allThreads": "Semua utas",
-        "allAgentTypes": "Semua jenis agen",
-        "allModels": "Semua model",
-        "range": {
-          "24h": "24 jam terakhir",
-          "7d": "7 hari terakhir",
-          "30d": "30 hari terakhir",
-          "all": "Sepanjang waktu"
-        }
-      },
-      "summary": {
-        "label": "Ringkasan penggunaan",
-        "estimatedCost": "Perkiraan biaya",
-        "providerCalls": "{count} panggilan penyedia",
-        "totalTokens": "Total token",
-        "uncachedInput": "{value} masukan tanpa cache",
-        "cacheRead": "Baca cache",
-        "cacheDetail": "{read} dibaca · {written} ditulis",
-        "output": "Keluaran",
-        "reasoningTokens": "{value} token penalaran"
-      },
-      "timeline": {
-        "title": "Linimasa",
-        "description": "Perkiraan biaya dan total token per periode waktu.",
-        "chartLabel": "Linimasa perkiraan biaya model dan penggunaan token",
-        "series": {
-          "cost": "Perkiraan biaya",
-          "tokens": "Token"
-        },
-        "tooltip": {
-          "estimated": "perkiraan {value}",
-          "tokens": "{value} token",
-          "calls": "{count} panggilan model"
-        }
-      },
-      "threads": {
-        "title": "Utas",
-        "description": "Orkestrator, agen, dan subagen bertingkat.",
-        "columns": {
-          "execution": "Eksekusi",
-          "model": "Model",
-          "calls": "Panggilan",
-          "tokens": "Token",
-          "cache": "Cache",
-          "cost": "Biaya"
-        }
-      },
-      "calls": {
-        "title": "Panggilan penyedia",
-        "description": "Keluaran mencakup penalaran jika penyedianya menyertakannya; penalaran juga ditampilkan terpisah bila dilaporkan.",
-        "costBreakdown": "Masukan {input} · baca cache {cacheRead} · tulis cache {cacheWrite} · keluaran {output}",
-        "truncatedNote": "Menampilkan 500 panggilan cocok terbaru; total ringkasan mencakup semua {count} panggilan yang dimuat.",
-        "columns": {
-          "time": "Waktu",
-          "execution": "Eksekusi",
-          "providerModel": "Penyedia / model",
-          "input": "Masukan",
-          "cache": "Cache R / W",
-          "output": "Keluaran",
-          "reasoning": "Penalaran",
-          "cost": "Biaya",
-          "stop": "Berhenti"
-        }
-      }
-    },
     "apps": {
       "createAppPrompt": "Beri tahu saya, aplikasi stella apa saja yang bisa kamu buatkan untuk saya?"
     },
@@ -1337,21 +174,20 @@
         "previewFailed": "Pratinjau peta tidak dapat dimuat."
       },
       "messageActions": {
-        "selectText": "Select text",
-        "share": "Share",
-        "quote": "Quote",
-        "fork": "Fork to new chat",
-        "more": "Tindakan lainnya",
-        "rewind": "Rewind here",
-        "rewindConfirm": "Click again to rewind",
         "copied": "Disalin",
         "copy": "Salin",
+        "fork": "Fork to new chat",
+        "more": "Tindakan lainnya",
+        "quote": "Quote",
         "readAloud": "Bacakan",
         "reply": "Balas",
+        "rewind": "Rewind here",
+        "rewindConfirm": "Click again to rewind",
+        "selectText": "Select text",
+        "share": "Share",
         "stopReading": "Hentikan pembacaan"
       },
       "messageRow": {
-        "quotedTextLabel": "Quoted text",
         "attachmentAlt": "Lampiran",
         "attachmentFallback": "Lampiran {index}",
         "channelKind": {
@@ -1364,6 +200,7 @@
         "clickToEnlarge": "Klik untuk memperbesar {label}",
         "pastedTextLabel": "Teks tempelan",
         "pastedTextTitle": "Teks tempelan — {stats}",
+        "quotedTextLabel": "Quoted text",
         "reactionsSummary": "Reaksi {reactions}",
         "showMoreChips": "Tampilkan {count} lagi",
         "windowPreviewAlt": "Pratinjau konten jendela"
@@ -1468,6 +305,10 @@
           "description": "Animasikan gambar diam menjadi video pendek",
           "name": "Gambar ke Video"
         },
+        "referenceToVideo": {
+          "description": "Buat video dari referensi gambar, video, dan audio",
+          "name": "Referensi ke Video"
+        },
         "speechToText": {
           "description": "Transkripsikan audio ucapan menjadi teks",
           "name": "Ucapan ke Teks"
@@ -1495,10 +336,6 @@
         "videoToVideo": {
           "description": "Ubah video dengan instruksi teks",
           "name": "Video ke Video"
-        },
-        "referenceToVideo": {
-          "description": "Buat video dari referensi gambar, video, dan audio",
-          "name": "Referensi ke Video"
         }
       },
       "imageFailure": {
@@ -1540,6 +377,9 @@
         "prompt": "Prompt",
         "promptPlaceholder": "Jelaskan apa yang Anda inginkan…",
         "quality": "Kualitas",
+        "qualityHigh": "Tinggi",
+        "qualityLow": "Rendah",
+        "qualityMedium": "Sedang",
         "queued": "Menunggu dalam antrean…",
         "sourceAudio": "Berkas audio",
         "sourceFile": "Berkas sumber",
@@ -1547,501 +387,677 @@
         "sourceVideo": "Video sumber",
         "submitting": "Mengirim…",
         "title": "Media",
-        "transformVideo": "Ubah video",
-        "qualityHigh": "Tinggi",
-        "qualityLow": "Rendah",
-        "qualityMedium": "Sedang"
+        "transformVideo": "Ubah video"
       }
+    },
+    "usage": {
+      "calls": {
+        "columns": {
+          "cache": "Cache R / W",
+          "cost": "Biaya",
+          "execution": "Eksekusi",
+          "input": "Masukan",
+          "output": "Keluaran",
+          "providerModel": "Penyedia / model",
+          "reasoning": "Penalaran",
+          "stop": "Berhenti",
+          "time": "Waktu"
+        },
+        "costBreakdown": "Masukan {input} · baca cache {cacheRead} · tulis cache {cacheWrite} · keluaran {output}",
+        "description": "Keluaran mencakup penalaran jika penyedianya menyertakannya; penalaran juga ditampilkan terpisah bila dilaporkan.",
+        "title": "Panggilan penyedia",
+        "truncatedNote": "Menampilkan 500 panggilan cocok terbaru; total ringkasan mencakup semua {count} panggilan yang dimuat."
+      },
+      "desktopOnly": "Penggunaan lokal tersedia di aplikasi desktop Stella.",
+      "emptyBody": "Panggilan native muncul di sini setelah penyedianya mengembalikan data penggunaan akhir.",
+      "emptyTitle": "Tidak ada panggilan model yang cocok dengan filter ini.",
+      "filters": {
+        "agentType": "Jenis agen",
+        "allAgentTypes": "Semua jenis agen",
+        "allConversations": "Semua percakapan",
+        "allModels": "Semua model",
+        "allThreads": "Semua utas",
+        "conversation": "Percakapan",
+        "label": "Filter penggunaan",
+        "model": "Model",
+        "range": {
+          "24h": "24 jam terakhir",
+          "30d": "30 hari terakhir",
+          "7d": "7 hari terakhir",
+          "all": "Sepanjang waktu"
+        },
+        "thread": "Utas",
+        "timeRange": "Rentang waktu"
+      },
+      "intro": "Panggilan penyedia yang tersimpan di perangkat ini. Biaya adalah perkiraan lokal; penagihan backend tetap yang berlaku.",
+      "loadError": "Tidak dapat memuat penggunaan lokal",
+      "loading": "Memuat penggunaan lokal…",
+      "refresh": "Segarkan",
+      "refreshLabel": "Segarkan penggunaan",
+      "selectedThread": "Utas terpilih",
+      "summary": {
+        "cacheDetail": "{read} dibaca · {written} ditulis",
+        "cacheRead": "Baca cache",
+        "estimatedCost": "Perkiraan biaya",
+        "label": "Ringkasan penggunaan",
+        "output": "Keluaran",
+        "providerCalls": "{count} panggilan penyedia",
+        "reasoningTokens": "{value} token penalaran",
+        "totalTokens": "Total token",
+        "uncachedInput": "{value} masukan tanpa cache"
+      },
+      "threads": {
+        "columns": {
+          "cache": "Cache",
+          "calls": "Panggilan",
+          "cost": "Biaya",
+          "execution": "Eksekusi",
+          "model": "Model",
+          "tokens": "Token"
+        },
+        "description": "Orkestrator, agen, dan subagen bertingkat.",
+        "title": "Utas"
+      },
+      "timeline": {
+        "chartLabel": "Linimasa perkiraan biaya model dan penggunaan token",
+        "description": "Perkiraan biaya dan total token per periode waktu.",
+        "series": {
+          "cost": "Perkiraan biaya",
+          "tokens": "Token"
+        },
+        "title": "Linimasa",
+        "tooltip": {
+          "calls": "{count} panggilan model",
+          "estimated": "perkiraan {value}",
+          "tokens": "{value} token"
+        }
+      },
+      "truncatedWarning": "Menampilkan 10.000 panggilan terbaru dalam rentang ini. Persempit rentang waktu untuk total yang akurat.",
+      "tryAgain": "Coba lagi",
+      "viewAllThreads": "Lihat semua utas"
+    }
+  },
+  "billing": {
+    "capability": {
+      "audio_generation": "Pembuatan suara dan musik",
+      "image_generation": "Pembuatan gambar",
+      "three_d_generation": "Pembuatan 3D",
+      "video_generation": "Pembuatan video"
+    },
+    "capabilityRestriction": {
+      "genericDescription": "Fitur ini termasuk dalam Stella Pro. Tingkatkan paket untuk membukanya.",
+      "genericTitle": "Tidak termasuk dalam paket Anda",
+      "lockedBadge": "{plan}",
+      "lockedBadgeGeneric": "Tidak tersedia",
+      "signIn": "{capability} termasuk dalam Stella {plan}. Masuk untuk meningkatkan paket dan membuka fitur ini.",
+      "title": "{capability} tidak ada di paket Anda",
+      "unavailable": "{capability} belum tersedia di paket mana pun saat ini.",
+      "upgrade": "{capability} termasuk dalam Stella {plan}. Tingkatkan paket untuk membuka fitur ini."
+    },
+    "features": {
+      "assistant": "Asisten pribadi",
+      "codingAgent": "Agen pemrograman",
+      "dictationReadAloud": "Dikte dan baca nyaring",
+      "multipleAgents": "Beberapa agen",
+      "research": "Riset dan kerja pengetahuan"
+    },
+    "freeAllowance": {
+      "caption": "Gratis untuk dicoba.",
+      "exhaustedCta": "Tingkatkan ke Go",
+      "exhaustedDescription": "Tingkatkan ke Go untuk penggunaan 10× lebih tinggi.",
+      "exhaustedTitle": "Anda telah mencapai batas paket Free",
+      "label": "Penggunaan paket Free",
+      "remaining": "Gratis untuk dicoba."
+    },
+    "heading": "Pilih paket Anda",
+    "mobile": {
+      "accessEnds": "Akses berakhir {date}",
+      "alreadySubscribedTitle": "Kamu sudah memiliki langganan",
+      "chooseHeading": "Pilih paketmu",
+      "currentPlanLabel": "Paket saat ini",
+      "errorRetry": "Coba lagi",
+      "footnote": "Ditagih oleh Stella melalui Stripe. Diperpanjang setiap bulan hingga dibatalkan; batalkan kapan saja.",
+      "introLine": "{introPrice} bulan pertama, lalu {price}/bln",
+      "manage": "Kelola langganan",
+      "manageWebNote": "Kelola atau batalkan langganan ini dari Stella di web di stella.sh.",
+      "pendingBody": "Selesaikan pembayaran di browser. Paketmu diperbarui di sini secara otomatis setelah pembayaran dikonfirmasi — tidak perlu memulai ulang.",
+      "pendingDismiss": "Nanti saja",
+      "pendingTitle": "Menyelesaikan pembelianmu",
+      "perMonth": "{price}/bln",
+      "planValue": "Stella {plan}",
+      "renews": "Diperpanjang {date}",
+      "sectionTitle": "Langganan",
+      "signInToSubscribe": "Masuk untuk berlangganan",
+      "startingCheckout": "Memulai…",
+      "subscribe": "Berlangganan",
+      "successBody": "Langgananmu aktif. Nikmati batas yang lebih tinggi.",
+      "successTitle": "Kamu menggunakan Stella {plan}"
+    },
+    "plans": {
+      "free": {
+        "tagline": "Gratis untuk dicoba."
+      },
+      "go": {
+        "tagline": "Penggunaan 10× lebih tinggi"
+      },
+      "pro": {
+        "tagline": "Batas penggunaan tertinggi untuk pembuatan media dan beberapa agen"
+      }
+    },
+    "renewal": {
+      "accessEnds": "Akses berakhir {date}",
+      "lapseDescription": "Paket {plan} Anda berlaku sampai {date}. Setelah itu Stella berhenti — kuota paket Free hanya diberikan sekali dan milik Anda sudah terpakai.",
+      "lapseTitle": "Stella berhenti saat paket Anda berakhir",
+      "nextLabel": "Perpanjangan berikutnya",
+      "pendingLabel": "Menunggu pembatalan",
+      "renews": "Diperpanjang {date}"
+    },
+    "subtitle": "Mulai gratis. Tingkatkan saat Anda membutuhkan lebih banyak.",
+    "upgradeDialog": {
+      "cta": "Mulai",
+      "description": "Terima kasih sudah meningkatkan paket. Prioritas lebih tinggi dan kuota penggunaan lebih besar sudah aktif — lanjutkan.",
+      "title": "Anda menggunakan Stella {plan}."
+    }
+  },
+  "chat": {
+    "attachments": {
+      "attachFile": "Lampirkan file",
+      "attachPhoto": "Lampirkan foto",
+      "camera": "Kamera",
+      "cameraDeniedBody": "Izinkan Stella menggunakan kamera di Pengaturan agar kamu bisa mengambil foto.",
+      "cameraDeniedTitle": "Kamera",
+      "files": "File",
+      "photoLabel": "Foto",
+      "photos": "Foto",
+      "photosDeniedBody": "Izinkan Stella mengakses galeri fotomu di Pengaturan agar kamu bisa melampirkan gambar.",
+      "photosDeniedTitle": "Foto",
+      "readAloud": "Bacakan balasan",
+      "remove": "Hapus lampiran",
+      "retryUpload": "Coba unggah lagi",
+      "sheetTitle": "Tambahkan ke obrolan",
+      "takePhoto": "Ambil foto",
+      "tooManyBody": "Kamu bisa melampirkan hingga {count} file sekaligus.",
+      "tooManyTitle": "Terlalu banyak file",
+      "uploadFailed": "Unggahan gagal. Ketuk untuk mencoba lagi.",
+      "uploading": "Mengunggah"
+    },
+    "stoppedReply": "Stella tidak dapat memulai balasan ini",
+    "tryAgainHint": "Silakan coba lagi."
+  },
+  "cloudBrowser": {
+    "actions": {
+      "canceling": "Canceling…",
+      "done": "Done",
+      "finishing": "Finishing…",
+      "useCloudBrowser": "Use Stella's browser"
+    },
+    "deviceCode": {
+      "body": "Enter this code on the site, then come back here.",
+      "codeLabel": "Code",
+      "copied": "Copied",
+      "copy": "Copy code",
+      "open": "Open site",
+      "title": "Sign in to {origin}"
+    },
+    "errors": {
+      "decision": "That didn't go through. Try again.",
+      "expired": "This sign-in is no longer needed.",
+      "liveView": "Couldn't load the sign-in page. Try again.",
+      "liveViewBoundary": "Couldn't load the sign-in page.",
+      "verificationUrl": "Couldn't open that page."
+    },
+    "needsYou": {
+      "deviceCode": "Enter a code for {origin}",
+      "open": "Open",
+      "signIn": "Sign in to {origin}",
+      "title": "Needs you"
+    },
+    "settings": {
+      "confirmBody": "Stella will ask you to sign in again next time.",
+      "confirmTitle": "Sign out of all sites?",
+      "defaultProfile": "Saved sign-ins",
+      "description": "Sites Stella has signed in to for you. Reset to sign out of all of them.",
+      "reset": "Reset",
+      "resetComplete": "Signed out of all sites.",
+      "resetFailed": "Couldn't sign out. Try again.",
+      "resetting": "Resetting…",
+      "title": "Browser sign-ins"
+    },
+    "takeover": {
+      "body": "Sign in to keep going. Stella can't see what you type.",
+      "checking": "Finishing sign-in to {origin}",
+      "frameTitle": "Sign in to {origin}",
+      "localNotice": "Stella can't see what you type",
+      "localOriginFallback": "Switched to Stella's browser to finish signing in.",
+      "localTransferFallback": "Couldn't confirm that sign-in. Try again in Stella's browser.",
+      "preparing": "Loading sign-in…",
+      "privateNotice": "Stella can't see what you type",
+      "resumingBody": "Stella will pick up where it left off.",
+      "title": "Sign in to {origin}"
+    }
+  },
+  "cloudConnector": {
+    "connect": "Hubungkan",
+    "connecting": "Selesaikan proses masuk ke {name} di browser Anda. Stella akan melanjutkan setelah disetujui.",
+    "errors": {
+      "decision": "Tidak dapat menghubungkan {name}. Coba lagi.",
+      "open": "Tidak dapat membuka halaman masuk."
+    },
+    "notNow": "Nanti saja",
+    "openAgain": "Buka lagi",
+    "titleOffer": "Hubungkan {name}?",
+    "titleWaiting": "Menunggu {name}"
+  },
+  "common": {
+    "appName": "Stella",
+    "back": "Kembali",
+    "cancel": "Batal",
+    "close": "Tutup",
+    "continue": "Lanjutkan",
+    "copy": "Salin",
+    "language": "Bahasa",
+    "loading": "Memuat…",
+    "next": "Berikutnya",
+    "no": "Tidak",
+    "open": "Buka",
+    "openPreferences": "Buka preferensi",
+    "previous": "Sebelumnya",
+    "save": "Simpan",
+    "signIn": "Masuk",
+    "signOut": "Keluar",
+    "tryAgain": "Coba lagi",
+    "yes": "Ya"
+  },
+  "companion": {
+    "arc": {
+      "dictate": "Dictate a message",
+      "dictateStop": "Stop dictating and send",
+      "readAloudOff": "Read replies aloud: off",
+      "readAloudOn": "Read replies aloud: on",
+      "voice": "Start voice conversation",
+      "voiceStop": "End voice conversation"
+    },
+    "badge": {
+      "running": "{count} agents working"
+    },
+    "bubble": {
+      "openStella": "Open in Stella",
+      "typing": "Stella is replying"
+    },
+    "composer": {
+      "placeholder": "Ask Stella…"
+    },
+    "mark": {
+      "close": "Close the prompt",
+      "open": "Ask Stella"
+    },
+    "menu": {
+      "hide": "Hide companion",
+      "openStella": "Open Stella",
+      "quit": "Quit Stella"
     }
   },
   "desktop": {
     "common": {
       "continue": "Lanjutkan"
     },
-    "tray": {
-      "tooltip": "Stella",
-      "openStella": "Buka Stella",
-      "quitStella": "Keluar dari Stella",
-      "balloon": {
-        "title": "Stella masih berjalan",
-        "content": "Stella tetap ada di baki sistem Anda. Klik ikonnya untuk membukanya lagi."
-      }
-    },
     "dialog": {
       "startupFailure": {
-        "title": "Stella",
-        "message": "Stella tidak dapat menyelesaikan proses mulai.",
         "detail": "Proses mulai gagal sebelum antarmuka aplikasi sempat dimuat.\n\n{detail}",
+        "message": "Stella tidak dapat menyelesaikan proses mulai.",
+        "quit": "Keluar",
         "relaunch": "Jalankan ulang",
-        "quit": "Keluar"
-      }
-    },
-    "security": {
-      "confirmationTitle": "Konfirmasi Keamanan Stella",
-      "allow": "Izinkan",
-      "deny": "Tolak",
-      "rememberDecision": "Ingat keputusan ini di perangkat ini",
-      "computerUse": {
-        "message": "Izinkan Computer Use menggunakan {app}?",
-        "detail": "Computer Use akan dapat melihat dan berinteraksi dengan {app}.",
-        "risk": "Risiko: {risk}"
+        "title": "Stella"
       }
     },
     "oauth": {
-      "xaiCodeMessage": "Masukkan kode ini untuk menghubungkan xAI",
-      "expectedValue": "Nilai yang diharapkan: {value}"
+      "expectedValue": "Nilai yang diharapkan: {value}",
+      "xaiCodeMessage": "Masukkan kode ini untuk menghubungkan xAI"
+    },
+    "security": {
+      "allow": "Izinkan",
+      "computerUse": {
+        "detail": "Computer Use akan dapat melihat dan berinteraksi dengan {app}.",
+        "message": "Izinkan Computer Use menggunakan {app}?",
+        "risk": "Risiko: {risk}"
+      },
+      "confirmationTitle": "Konfirmasi Keamanan Stella",
+      "deny": "Tolak",
+      "rememberDecision": "Ingat keputusan ini di perangkat ini"
+    },
+    "tray": {
+      "balloon": {
+        "content": "Stella tetap ada di baki sistem Anda. Klik ikonnya untuk membukanya lagi.",
+        "title": "Stella masih berjalan"
+      },
+      "openStella": "Buka Stella",
+      "quitStella": "Keluar dari Stella",
+      "tooltip": "Stella"
     },
     "update": {
       "holding": "Memperbarui Stella"
     }
   },
+  "errors": {
+    "generic": "Terjadi kesalahan",
+    "networkUnavailable": "Stella sedang offline. Sambungkan kembali untuk melanjutkan.",
+    "permissionDenied": "Stella tidak punya izin untuk melakukan ini.",
+    "rateLimited": "Anda terlalu cepat. Coba lagi sebentar lagi.",
+    "subscriptionRequired": "Cadangan memerlukan langganan Stella aktif."
+  },
   "features": {
     "browserBridge": {
-      "unavailableTitle": "Ekstensi browser tidak tersedia",
-      "unavailableBody": "Stella tidak dapat terhubung ke browser Anda. Mulai ulang aplikasi atau pasang ulang Stella jika ini terus terjadi.",
       "connectionLostTitle": "Koneksi browser terputus",
       "disconnected": "Jembatan browser Stella terputus.",
       "retryDelay": {
         "other": "Stella akan terus mencoba lagi dalam sekitar {count} detik."
-      }
+      },
+      "unavailableBody": "Stella tidak dapat terhubung ke browser Anda. Mulai ulang aplikasi atau pasang ulang Stella jika ini terus terjadi.",
+      "unavailableTitle": "Ekstensi browser tidak tersedia"
     },
     "dictation": {
       "cancel": "Batalkan dikte",
+      "failedBody": "Stella tidak dapat mentranskripsikannya. Silakan coba lagi.",
+      "failedTitle": "Dikte tidak berhasil",
+      "keyDialog": {
+        "description": "Stella ini tidak menyertakan dikte. Tambahkan kunci API OpenRouter milik Anda dan Stella akan mentranskripsi dengannya. Kunci tetap di komputer ini.",
+        "getKey": "Dapatkan kunci di openrouter.ai/keys",
+        "inputLabel": "Kunci API OpenRouter",
+        "openStella": "Buka Stella dan tekan mikrofon di sana untuk menambahkan kunci OpenRouter untuk dikte.",
+        "save": "Simpan dan mulai",
+        "saveFailed": "Stella tidak dapat menyimpan kunci itu.",
+        "saving": "Menyimpan…",
+        "title": "Aktifkan dikte",
+        "unavailable": "Menyimpan kunci tidak tersedia di jendela ini."
+      },
       "listening": "Mendengarkan…",
+      "signInBody": "Masuk untuk memakai dikte",
+      "signInTitle": "Masuk untuk memakai dikte",
       "stopAndTranscribe": "Berhenti dan transkripsikan",
       "stopAndTranscribeLabel": "Hentikan dikte dan transkripsikan",
       "stopTranscribeSend": "Berhenti, transkripsikan, dan kirim",
-      "stopTranscribeSendLabel": "Hentikan dikte, transkripsikan, dan kirim",
-      "signInTitle": "Masuk untuk memakai dikte",
-      "failedTitle": "Dikte tidak berhasil",
-      "failedBody": "Stella tidak dapat mentranskripsikannya. Silakan coba lagi.",
-      "signInBody": "Masuk untuk memakai dikte",
-      "keyDialog": {
-        "title": "Aktifkan dikte",
-        "description": "Stella ini tidak menyertakan dikte. Tambahkan kunci API OpenRouter milik Anda dan Stella akan mentranskripsi dengannya. Kunci tetap di komputer ini.",
-        "inputLabel": "Kunci API OpenRouter",
-        "getKey": "Dapatkan kunci di openrouter.ai/keys",
-        "save": "Simpan dan mulai",
-        "saving": "Menyimpan…",
-        "saveFailed": "Stella tidak dapat menyimpan kunci itu.",
-        "unavailable": "Menyimpan kunci tidak tersedia di jendela ini.",
-        "openStella": "Buka Stella dan tekan mikrofon di sana untuk menambahkan kunci OpenRouter untuk dikte."
-      }
+      "stopTranscribeSendLabel": "Hentikan dikte, transkripsikan, dan kirim"
     },
     "voice": {
-      "signInTitle": "Masuk untuk memakai suara",
-      "needsSetupTitle": "Suara perlu disiapkan"
-    }
-  },
-  "ui": {
-    "imageLightbox": {
-      "title": "Pratinjau gambar",
-      "close": "Tutup pratinjau"
-    }
-  },
-  "shell": {
-    "agentProgress": {
-      "recentAgentMessages": "Pesan agen terbaru",
-      "recentProgress": "Kemajuan terbaru"
-    },
-    "audioPlayer": {
-      "pause": "Jeda",
-      "play": "Putar",
-      "seek": "Cari posisi"
-    },
-    "capture": {
-      "failedTitle": "Tidak dapat menangkap itu",
-      "failedDescription": "Terjadi masalah saat mengambil tangkapan layar. Coba lagi."
-    },
-    "chatSidebar": {
-      "add": "Tambah",
-      "dictationError": "Dikte: {error}",
-      "stop": "Berhenti"
-    },
-    "displayPanel": {
-      "closePanel": "Tutup panel",
-      "openPanel": "Buka panel"
-    },
-    "rightSidebar": {
-      "workspace": "Ruang kerja",
-      "resize": "Ubah ukuran panel tampilan",
-      "resizeHint": "Seret untuk mengubah ukuran · klik dua kali untuk mengatur ulang"
-    },
-    "windowControls": {
-      "minimize": "Perkecil",
-      "restore": "Pulihkan",
-      "maximize": "Perbesar"
-    },
-    "workspace": {
-      "activity": "Aktivitas",
-      "viewFiles": {
-        "other": "Lihat {count} berkas"
-      },
-      "moreFiles": {
-        "other": "{count} more files"
-      }
-    },
-    "appSource": {
-      "update": "Perbarui",
-      "title": "Perubahan pada Stella",
-      "undo": "Urungkan",
-      "outdated": "Dibuat pada versi lama",
-      "failed": "Tidak dapat menerapkan perubahan",
-      "restarts": "Memulai ulang Stella",
-      "updatedJustNow": "Baru saja diperbarui",
-      "updatedAgo": "Diperbarui {ago}",
-      "undoneJustNow": "Baru saja dibatalkan",
-      "undoneAgo": "Dibatalkan {ago}",
-      "files": {
-        "other": "{count} file"
-      },
-      "updates": {
-        "pill": {
-          "other": "{count} pembaruan"
-        },
-        "newVersion": "Versi baru Stella",
-        "newVersionDetail": "Peningkatan dan perbaikan dari tim Stella",
-        "fromDevice": "Perubahan yang Anda buat di {device}",
-        "fromOtherComputer": "Perubahan yang Anda buat di komputer Anda yang lain",
-        "fromOtherComputers": "Perubahan dari komputer Anda yang lain",
-        "readyChange": "Perubahan siap ditambahkan",
-        "add": "Tambahkan",
-        "get": "Ambil",
-        "adding": "Menambahkan…",
-        "skip": "Lewati",
-        "undoing": "Membatalkan…",
-        "removed": "Dihapus: {change}",
-        "justNow": "Baru saja",
-        "waiting": "Menunggu",
-        "history": "Riwayat",
-        "skipped": "Dilewati",
-        "upToDate": "Tidak ada yang menunggu"
-      }
-    },
-    "display": {
-      "homeLauncher": {
-        "files": {
-          "label": "Berkas",
-          "description": "Halaman, gambar, video, dan dokumen"
-        },
-        "trash": {
-          "label": "Sampah",
-          "description": "Hal-hal yang baru saja Anda hapus"
-        }
-      },
-      "trash": {
-        "title": "Sampah",
-        "empty": "Belum ada apa pun di sini saat ini.",
-        "refresh": "Segarkan",
-        "emptying": "Mengosongkan…",
-        "emptyTrash": "Kosongkan sampah",
-        "trashedAgo": "Dibuang {time} lalu",
-        "pendingPurge": "Menunggu pembersihan",
-        "autoDeletesIn": "Terhapus otomatis dalam {time}",
-        "deleting": "Menghapus…",
-        "deleteNow": "Hapus sekarang",
-        "itemsAutoDeleted": {
-          "other": "{count} item — terhapus otomatis dalam 24 jam."
-        }
-      },
-      "canvasShare": {
-        "share": "Bagikan",
-        "links": "Tautan",
-        "sharedLinks": "Tautan yang dibagikan",
-        "publishing": "Menerbitkan kanvas…",
-        "publishFailed": "Tidak dapat menerbitkan kanvas ini. Silakan coba lagi.",
-        "live": "Kanvas sudah tayang",
-        "publicLink": "Tautan kanvas publik",
-        "copyLink": "Salin tautan",
-        "revoke": "Cabut berbagi",
-        "expires": "Kedaluwarsa {date}",
-        "shared": "Dibagikan {date}",
-        "sharedWithExpiry": "Dibagikan {shared} · kedaluwarsa {expires}",
-        "loadFailed": "Tidak dapat memuat item yang Anda bagikan.",
-        "empty": "Belum ada berbagi aktif. Terbitkan sebuah kanvas untuk mendapatkan tautan publik.",
-        "untitled": "Kanvas tanpa judul",
-        "toasts": {
-          "linkCopied": "Tautan berbagi disalin",
-          "copyFailed": "Tidak dapat menyalin tautan",
-          "revoked": "Berbagi dicabut",
-          "revokeFailed": "Tidak dapat mencabut berbagi ini"
-        }
-      },
-      "canvas": {
-        "loadFailed": "Tidak dapat memuat kanvas ini.",
-        "loading": "Memuat"
-      },
-      "media": {
-        "save": "Simpan",
-        "saved": "Tersimpan",
-        "saveFailed": "Tidak dapat menyimpan",
-        "copy": "Salin",
-        "copied": "Disalin",
-        "copyFailed": "Tidak dapat menyalin",
-        "delete": "Hapus",
-        "deleteConfirm": "Klik lagi untuk menghapus",
-        "itemActions": "Tindakan item",
-        "missing": "Berkas tidak tersedia lagi.",
-        "expand": "Perbesar",
-        "expandPanel": "Perbesar panel",
-        "revealInFinder": "Tampilkan di Finder"
-      },
-      "url": {
-        "eyebrow": "Pratinjau langsung",
-        "reload": "Muat ulang",
-        "openInBrowser": "Buka di browser"
-      },
-      "office": {
-        "preparing": "Menyiapkan pratinjau...",
-        "kind": {
-          "spreadsheet": "Lembar kerja",
-          "presentation": "Presentasi",
-          "document": "Dokumen"
-        },
-        "sheetCount": {
-          "other": "{count} lembar"
-        },
-        "slideCount": {
-          "other": "{count} slide"
-        },
-        "loadFailed": "Tidak dapat memuat pratinjau ini",
-        "sessionError": "Sesi pratinjau melaporkan kesalahan.",
-        "zoomAriaLabel": "Zoom pratinjau",
-        "revealInFinder": "Tampilkan di Finder",
-        "livePreview": "Pratinjau langsung",
-        "frameTitle": "Pratinjau {kind}: {title}"
-      },
-      "filePreview": {
-        "save": "Simpan",
-        "copy": "Salin",
-        "loading": "Memuat..."
-      },
-      "spreadsheet": {
-        "eyebrow": "Lembar kerja",
-        "desktopRequired": "Pratinjau lembar kerja memerlukan aplikasi desktop Stella.",
-        "noRows": "Tidak ada baris ditemukan.",
-        "column": "Kolom {index}"
-      },
-      "markdown": {
-        "eyebrow": "Markdown",
-        "desktopRequired": "Pratinjau Markdown memerlukan aplikasi desktop Stella.",
-        "noContent": "Tidak ada konten ditemukan."
-      },
-      "diff": {
-        "changes": "Perubahan",
-        "codeChanges": "Perubahan kode",
-        "noChanges": "Tidak ada perubahan ditemukan.",
-        "desktopRequired": "Pratinjau kode memerlukan aplikasi desktop Stella.",
-        "empty": "Belum ada perubahan berkas. Saat agen mengedit kode, perubahannya muncul di sini."
-      },
-      "agentThread": {
-        "role": {
-          "user": "Instruksi",
-          "assistant": "Agen",
-          "reasoning": "Penalaran",
-          "tool": "Alat",
-          "checkpoint": "Titik pemeriksaan utas",
-          "lifecycle": "Aktivitas"
-        },
-        "status": {
-          "running": "Sedang bekerja",
-          "completed": "Selesai",
-          "error": "Gagal",
-          "canceled": "Dihentikan"
-        },
-        "newMessages": {
-          "other": "{count} pesan baru."
-        },
-        "newMessagesWithPreview": "{countPhrase} {role} terbaru: {preview}",
-        "unavailable": "Riwayat utas agen tidak tersedia.",
-        "loadFailed": "Tidak dapat memuat utas ini.",
-        "showingNewest": "Menampilkan pesan terbaru.",
-        "claudeAriaLabel": "Percakapan subagen Claude hanya-baca",
-        "claudeBadge": "Subagen Claude hanya-baca",
-        "badge": "Utas agen hanya-baca",
-        "retrying": "Mencoba lagi…",
-        "empty": "Belum ada pesan di utas ini.",
-        "toolInput": "Masukan",
-        "toolOutput": "Keluaran",
-        "toolRunning": "Menunggu alat ini selesai…",
-        "toolGroup": {
-          "other": "{count} tool calls"
-        },
-        "reasoningGroup": {
-          "other": "{count} reasoning steps"
-        },
-        "newMessagesButton": {
-          "other": "{count} pesan baru"
-        },
-        "showNewMessagesAria": "Tampilkan {countPhrase}"
-      },
-      "preview": {
-        "limited": "Pratinjau terbatas. Simpan atau buka berkas asli untuk melihat seluruh isinya.",
-        "unavailable": "Tidak dapat menyiapkan pratinjau ini."
-      }
-    },
-    "sidebar": {
-      "account": {
-        "planAriaLabel": "{name}, paket {plan}",
-        "signOutTitle": "Keluar dari Stella?",
-        "signOutDescription": "Anda yakin?"
-      },
-      "nav": {
-        "apps": "Aplikasi",
-        "unreadTitle": "{label} ({count} belum dibaca)",
-        "unreadAriaLabel": "{label}, {count} belum dibaca"
-      },
-      "feedback": {
-        "title": "Kirim masukan",
-        "description": "Pesan Anda dikirim secara anonim — tidak terkait dengan akun Anda.",
-        "fieldLabel": "Masukan",
-        "placeholder": "Ceritakan apa yang sudah bagus, apa yang belum, atau apa yang ingin Anda lihat…",
-        "send": "Kirim",
-        "sending": "Mengirim…",
-        "toasts": {
-          "sentTitle": "Masukan terkirim",
-          "sentDescription": "Terima kasih — setiap catatan membantu kami membentuk Stella.",
-          "failedTitle": "Tidak dapat mengirim masukan"
-        }
-      }
-    },
-    "topbar": {
-      "conversation": {
-        "newChat": "Obrolan baru",
-        "newChatConfirm": "Click again to confirm",
-        "history": "Riwayat percakapan",
-        "historyEmpty": "Belum ada percakapan",
-        "historyRetry": "Tidak dapat memuat percakapan. Coba lagi",
-        "openConversations": "Buka percakapan",
-        "unread": "Pesan belum dibaca",
-        "openConversation": "Buka {title}",
-        "closeConversation": "Tutup {title}",
-        "delete": "Hapus {title}",
-        "deleteConfirm": "Klik lagi untuk mengonfirmasi",
-        "deleteConfirmFor": "Klik lagi untuk menghapus {title}",
-        "deleteFailed": "Tidak dapat menghapus percakapan ini",
-        "deleteFailedFor": "Tidak dapat menghapus {title}"
-      }
-    },
-    "browser": {
-      "connected": "Browser terhubung",
-      "newTab": "Buka tab baru",
-      "connecting": "Menunggu ekstensi…"
-    },
-    "connectors": {
-      "title": "Konektor",
-      "searchPlaceholder": "Cari",
-      "searchLabel": "Cari konektor",
-      "loading": "Memuat konektor…",
-      "desktopRequired": "Konektor tersedia di aplikasi desktop Stella.",
-      "empty": "Belum ada konektor yang tersedia.",
-      "noMatches": "Tidak ada konektor yang cocok dengan pencarian itu."
+      "needsSetupTitle": "Suara perlu disiapkan",
+      "signInTitle": "Masuk untuk memakai suara"
     }
   },
   "global": {
     "auth": {
-      "welcomeTitle": "Selamat datang di Stella",
-      "welcomeDescription": "Masuk dengan email Anda untuk mulai memakai Stella.",
-      "welcomeSub": "Gunakan Google atau email Anda untuk masuk. Tidak perlu kata sandi.",
-      "finishingTitle": "Menyelesaikan proses masuk",
-      "finishingSub": "Memindahkan obrolan Anda ke akun ini. Hanya butuh sesaat.",
-      "orUseEmail": "atau gunakan email",
+      "checkInbox": "Periksa kotak masuk Anda untuk tautan masuk.",
       "emailLabel": "Email",
       "emailPlaceholder": "anda@contoh.com",
-      "sending": "Mengirim...",
-      "signingIn": "Masuk...",
-      "sendSignInEmail": "Kirim email masuk",
-      "checkInbox": "Periksa kotak masuk Anda untuk tautan masuk.",
-      "magicLinkSentDesktop": "Kami mengirim tautan masuk. Buka di perangkat ini untuk menyelesaikannya.",
-      "openInbox": "Buka {provider}",
-      "resendIn": "Kirim ulang dalam {seconds} dtk",
-      "resendEmail": "Kirim ulang email",
-      "skipForNow": "Lewati dulu",
       "enterEmail": "Masukkan alamat email.",
-      "sendFailed": "Gagal mengirim email masuk.",
-      "magicLinkFailed": "Gagal mengirim magic link.",
       "finishFailed": "Tidak dapat menyelesaikan proses masuk. Silakan coba lagi.",
-      "signInIncomplete": "Proses masuk belum selesai. Silakan coba lagi.",
-      "signInLinkExpired": "Tautan masuk sudah kedaluwarsa. Silakan coba lagi.",
-      "tooManyRequests": {
-        "other": "Terlalu banyak permintaan. Coba lagi dalam {count} detik."
-      },
+      "finishingSub": "Memindahkan obrolan Anda ke akun ini. Hanya butuh sesaat.",
+      "finishingTitle": "Menyelesaikan proses masuk",
       "googleContinue": "Lanjutkan dengan Google",
-      "googleWaiting": "Menunggu Google...",
-      "googleStartFailed": "Proses masuk dengan Google tidak dapat dimulai.",
-      "googleNoSession": "Proses masuk dengan Google selesai tanpa sesi.",
       "googleExpired": "Proses masuk dengan Google kedaluwarsa. Silakan coba lagi.",
+      "googleNoSession": "Proses masuk dengan Google selesai tanpa sesi.",
+      "googleStartFailed": "Proses masuk dengan Google tidak dapat dimulai.",
       "googleTimedOut": "Proses masuk dengan Google melewati batas waktu. Silakan coba lagi.",
-      "nicknameTitle": "Saya harus memanggil Anda apa?",
+      "googleWaiting": "Menunggu Google...",
+      "magicLinkFailed": "Gagal mengirim magic link.",
+      "magicLinkSentDesktop": "Kami mengirim tautan masuk. Buka di perangkat ini untuk menyelesaikannya.",
       "nicknameDescription": "Pilih nama yang akan dipakai Stella di seluruh aplikasi.",
       "nicknameLabel": "Nama panggilan",
       "nicknamePlaceholder": "Nama panggilan Anda",
-      "notNow": "Nanti saja"
-    },
-    "legal": {
-      "terms": {
-        "title": "Ketentuan Layanan",
-        "subtitle": "Cara kerja Stella, dan apa yang Anda setujui saat memakainya."
+      "nicknameTitle": "Saya harus memanggil Anda apa?",
+      "notNow": "Nanti saja",
+      "openInbox": "Buka {provider}",
+      "orUseEmail": "atau gunakan email",
+      "resendEmail": "Kirim ulang email",
+      "resendIn": "Kirim ulang dalam {seconds} dtk",
+      "sendFailed": "Gagal mengirim email masuk.",
+      "sendSignInEmail": "Kirim email masuk",
+      "sending": "Mengirim...",
+      "signInIncomplete": "Proses masuk belum selesai. Silakan coba lagi.",
+      "signInLinkExpired": "Tautan masuk sudah kedaluwarsa. Silakan coba lagi.",
+      "signingIn": "Masuk...",
+      "skipForNow": "Lewati dulu",
+      "tooManyRequests": {
+        "other": "Terlalu banyak permintaan. Coba lagi dalam {count} detik."
       },
-      "privacy": {
-        "title": "Kebijakan Privasi",
-        "subtitle": "Apa yang kami kumpulkan, apa yang tidak, dan bagaimana kami menjaganya."
-      }
+      "welcomeDescription": "Masuk dengan email Anda untuk mulai memakai Stella.",
+      "welcomeSub": "Gunakan Google atau email Anda untuk masuk. Tidak perlu kata sandi.",
+      "welcomeTitle": "Selamat datang di Stella"
     },
     "integrations": {
-      "heroTagline": "Kirim pesan ke Stella dari platform mana pun yang Anda suka — mengobrol dengan santai, atau minta dia menyelesaikan pekerjaan langsung di komputer Anda.",
-      "signInToConnect": "Masuk ke Stella untuk menghubungkan",
       "connectStellaApp": "Hubungkan ke Aplikasi Stella",
       "connectStellaAppSub": "Pasangkan aplikasi Stella di ponsel Anda dengan komputer ini",
       "connectTitle": "Hubungkan",
-      "phoneTitle": "Ponsel Anda",
       "connected": "Terhubung",
-      "signInHeadline": "Masuk untuk memulai",
-      "signInSub": "Masuk ke akun Stella Anda untuk menghubungkan {provider}.",
       "credential": {
-        "title": "Hubungkan {provider}",
-        "description": "Stella memerlukan kunci API {provider} Anda untuk terhubung. Tempel di bawah ini. Kuncinya tetap di komputer Anda.",
-        "defaultLabel": "Kunci {provider}",
         "apiKeyLabel": "Kunci API",
         "apiKeyRequired": "Kunci API wajib diisi.",
+        "defaultLabel": "Kunci {provider}",
+        "description": "Stella memerlukan kunci API {provider} Anda untuk terhubung. Tempel di bawah ini. Kuncinya tetap di komputer Anda.",
         "keyPlaceholder": "Tempel kunci Anda",
-        "labelLabel": "Label",
         "labelDescription": "Nama yang mudah dikenali untuk kunci ini nanti.",
-        "saving": "Menyimpan...",
+        "labelLabel": "Label",
+        "saveFailed": "Gagal menyimpan kredensial.",
         "saveKey": "Simpan kunci",
-        "saveFailed": "Gagal menyimpan kredensial."
+        "saving": "Menyimpan...",
+        "title": "Hubungkan {provider}"
+      },
+      "heroTagline": "Kirim pesan ke Stella dari platform mana pun yang Anda suka — mengobrol dengan santai, atau minta dia menyelesaikan pekerjaan langsung di komputer Anda.",
+      "phoneTitle": "Ponsel Anda",
+      "signInHeadline": "Masuk untuk memulai",
+      "signInSub": "Masuk ke akun Stella Anda untuk menghubungkan {provider}.",
+      "signInToConnect": "Masuk ke Stella untuk menghubungkan"
+    },
+    "legal": {
+      "privacy": {
+        "subtitle": "Apa yang kami kumpulkan, apa yang tidak, dan bagaimana kami menjaganya.",
+        "title": "Kebijakan Privasi"
+      },
+      "terms": {
+        "subtitle": "Cara kerja Stella, dan apa yang Anda setujui saat memakainya.",
+        "title": "Ketentuan Layanan"
       }
     },
     "remoteExecutionConsent": {
-      "title": "Allow work from your other devices?",
+      "allow": "Allow",
       "body": "Another of your devices asked to run work on this computer. Allowing lets work sent from your devices run here.",
       "bodyFrom": "{requester} asked to run work on this computer. Allowing lets work sent from your devices run here.",
-      "note": "You can change this later in Connect, under your computers.",
-      "allow": "Allow",
       "decline": "Not now",
-      "failed": "That answer didn't go through. Try again."
+      "failed": "That answer didn't go through. Try again.",
+      "note": "You can change this later in Connect, under your computers.",
+      "title": "Allow work from your other devices?"
     },
     "schedule": {
-      "dialogTitle": "Jadwal",
-      "untitledTask": "Tugas terjadwal",
+      "actionFailed": "Tindakan gagal.",
       "checkIn": "Check-in",
-      "paused": "Dijeda",
+      "delete": "Hapus",
+      "dialogTitle": "Jadwal",
+      "missing": "Jadwal ini sudah tidak ada.",
       "pause": "Jeda",
+      "paused": "Dijeda",
       "pausing": "Menjeda…",
+      "removing": "Menghapus…",
       "resume": "Lanjutkan",
       "resuming": "Melanjutkan…",
       "runNow": "Jalankan sekarang",
       "running": "Berjalan…",
-      "delete": "Hapus",
-      "removing": "Menghapus…",
-      "actionFailed": "Tindakan gagal.",
-      "missing": "Jadwal ini sudah tidak ada.",
       "scheduleCount": {
         "other": "{count} jadwal"
-      }
+      },
+      "untitledTask": "Tugas terjadwal"
     }
   },
   "mobile": {
+    "account": {
+      "title": "Akun"
+    },
+    "activity": {
+      "inProgress": {
+        "other": "{count} sedang berlangsung"
+      },
+      "openLabel": "Tampilkan aktivitas"
+    },
+    "activityHub": {
+      "activity": {
+        "empty": "Belum ada pekerjaan latar belakang.",
+        "emptyFiltered": "Tidak ada aktivitas atau file yang cocok."
+      },
+      "conversation": {
+        "subtitle": "File yang dibuat oleh thread utama",
+        "title": "Percakapan ini"
+      },
+      "files": {
+        "empty": "Belum ada file. Semua yang dibuat Stella muncul di sini.",
+        "emptyFiltered": "Tidak ada file yang cocok.",
+        "searchPlaceholder": "Cari file"
+      },
+      "schedule": {
+        "actionFailed": "Tidak berhasil.",
+        "alertTitle": "Jadwal",
+        "customCadence": "Jadwal kustom",
+        "deleteConfirm": "“{title}” akan berhenti berjalan.",
+        "deleteSchedule": "Hapus jadwal",
+        "empty": "Belum ada jadwal. Minta Stella di komputermu menjalankan sesuatu secara rutin, nanti muncul di sini.",
+        "lastRunFailed": "Eksekusi terakhir gagal: {error}",
+        "loadFailed": "Tidak dapat memuat jadwal.",
+        "next": "Berikutnya {when}",
+        "pauseSchedule": "Jeda jadwal",
+        "paused": "Dijeda",
+        "resumeSchedule": "Lanjutkan jadwal"
+      },
+      "search": {
+        "clear": "Bersihkan pencarian",
+        "close": "Tutup pencarian",
+        "placeholder": "Cari aktivitas dan file"
+      },
+      "subagents": {
+        "count": {
+          "other": "{count} subagen"
+        },
+        "done": {
+          "other": "{count} selesai"
+        }
+      },
+      "tabs": {
+        "activity": "Aktivitas",
+        "files": "File",
+        "schedule": "Jadwal",
+        "search": "Cari"
+      },
+      "task": {
+        "failed": "Tidak dapat diselesaikan",
+        "finished": "Selesai",
+        "stopped": "Dihentikan",
+        "working": "Bekerja di latar belakang"
+      }
+    },
+    "authCallback": {
+      "backToSignIn": "Kembali ke halaman masuk",
+      "failedTitle": "Tidak bisa memasukkan Anda",
+      "genericFailure": "Saat ini kami tidak bisa memasukkan Anda. Silakan coba lagi.",
+      "invalidLink": "Tautan masuk tidak valid.",
+      "linkExpired": "Tautan masuk ini sudah kedaluwarsa. Silakan minta yang baru.",
+      "signingInBody": "Sebentar ya...",
+      "signingInTitle": "Memasukkan Anda"
+    },
+    "boot": {
+      "checkingSessionBody": "Tunggu sebentar selagi Stella bangun.",
+      "checkingSessionTitle": "Memeriksa sesi Anda",
+      "crashTitle": "Ada masalah saat memulai",
+      "missingConfigBody": "Atur EXPO_PUBLIC_STELLA_BACKEND_URL sebelum memulai aplikasi.",
+      "missingConfigTitle": "Tambahkan variabel lingkungan seluler"
+    },
+    "carPlayDiagnostics": {
+      "clear": "Bersihkan",
+      "clearLabel": "Bersihkan diagnostik",
+      "clipboardEmpty": "(tidak ada diagnostik CarPlay yang terekam)",
+      "copied": "Tersalin ✓",
+      "copyAll": "Salin semua",
+      "copyAllLabel": "Salin semua diagnostik",
+      "empty": "Belum ada diagnostik CarPlay yang terekam. Hubungkan ke CarPlay sekali, lalu kembali ke sini.",
+      "refresh": "Segarkan",
+      "refreshLabel": "Segarkan diagnostik",
+      "subtitle": {
+        "other": "Jejak dari koneksi CarPlay ({count} baris, terbaru dulu). Salin dan kirimkan ini setelah ada yang bermasalah di mobil."
+      },
+      "title": "Diagnostik CarPlay"
+    },
+    "chat": {
+      "composerPlaceholder": "Pesan untuk Stella",
+      "createFailed": "Tidak dapat membuat obrolan. Silakan coba lagi.",
+      "emptyPrompt": "Tanya Stella apa saja",
+      "loadMore": "Muat lebih banyak",
+      "mainChat": "Obrolan utama",
+      "workingMany": "{count} tugas sedang berjalan"
+    },
+    "cloudHome": {
+      "backToDocumentsLabel": "Kembali ke dokumen Cloud Home",
+      "backToSettingsLabel": "Kembali ke Pengaturan",
+      "conflict": {
+        "changedBody": "Revisi {revision} menggantikan versi yang Anda edit. Draf Anda masih ada di sini.",
+        "reload": "Muat ulang versi cloud",
+        "reloadLabel": "Muat ulang versi cloud dan ganti draf ini",
+        "reloading": "Memuat ulang…",
+        "removedBody": "Dokumen ini dihapus saat Anda mengeditnya. Draf Anda masih ada di sini.",
+        "title": "Versi cloud telah berubah"
+      },
+      "editor": {
+        "editLabel": "Edit {name}",
+        "save": "Simpan",
+        "saving": "Menyimpan…",
+        "unsaved": "Perubahan belum disimpan",
+        "upToDate": "Sudah terbaru"
+      },
+      "editorMeta": "{kind} · revisi {revision}",
+      "errors": {
+        "invalid": "Cloud Home mengembalikan respons yang tidak valid.",
+        "missingFromList": "Dokumen itu sudah tidak ada di Cloud Home. Muat ulang daftar.",
+        "network": "Cloud Home tidak dapat dijangkau. Coba lagi.",
+        "removedWhileEditing": "Dokumen itu telah dihapus dari Cloud Home.",
+        "unauthorized": "Masuk lagi untuk mengakses Cloud Home.",
+        "unavailable": "Cloud Home saat ini tidak tersedia untuk akun ini."
+      },
+      "kinds": {
+        "archive": "arsip",
+        "core_memory": "memori inti",
+        "imported_markdown": "Markdown yang diimpor",
+        "memory": "memori",
+        "memory_map": "peta memori",
+        "personality": "kepribadian",
+        "profile": "profil",
+        "user_markdown": "Markdown pengguna"
+      },
+      "list": {
+        "emptyBody": "Dokumen yang dibuat oleh Stella atau diimpor dari aplikasi desktop akan muncul di sini.",
+        "emptyTitle": "Belum ada memori cloud",
+        "loading": "Memuat dokumen…",
+        "openDocumentLabel": "Buka {name}",
+        "retry": "Coba lagi",
+        "retryLabel": "Coba lagi memuat memori Cloud Home"
+      },
+      "listMeta": "{kind} · revisi {revision} · {size}",
+      "loading": "Memuat Cloud Home…",
+      "notices": {
+        "loadedLatest": "Versi cloud terbaru telah dimuat.",
+        "saved": "Disimpan ke Cloud Home."
+      },
+      "openSettingsLabel": "Buka memori Cloud Home",
+      "settingsRowBody": "Lihat dan edit memori Stella yang menjadi versi acuan di cloud.",
+      "settingsRowTitle": "Dokumen memori",
+      "settingsSection": "Cloud Home",
+      "signIn": "Masuk",
+      "signInAgain": "Masuk lagi",
+      "signInBody": "Dokumen memori bersifat pribadi untuk akun Stella Anda.",
+      "signInTitle": "Masuk untuk menggunakan Cloud Home",
+      "sizes": {
+        "bytes": "{count} B",
+        "kilobytes": "{count} KB",
+        "megabytes": "{count} MB"
+      },
+      "subtitle": "Dokumen Stella yang menjadi versi acuan di cloud",
+      "title": "Memori Cloud Home",
+      "unavailableBody": "Penerapan ini saat ini belum menyediakan layanan Cloud Home yang aman. File lokal Anda tidak diubah.",
+      "unavailableTitle": "Cloud Home tidak tersedia"
+    },
     "common": {
       "back": "Kembali",
       "backChevron": "‹ Kembali",
@@ -2052,623 +1068,1602 @@
       "goBack": "Kembali",
       "tryAgain": "Coba lagi"
     },
-    "boot": {
-      "crashTitle": "Ada masalah saat memulai",
-      "missingConfigTitle": "Tambahkan variabel lingkungan seluler",
-      "missingConfigBody": "Atur EXPO_PUBLIC_STELLA_BACKEND_URL sebelum memulai aplikasi.",
-      "checkingSessionTitle": "Memeriksa sesi Anda",
-      "checkingSessionBody": "Tunggu sebentar selagi Stella bangun."
+    "computer": {
+      "connectedLabel": "Komputer terhubung",
+      "connectingLabel": "Menghubungkan ke komputer Anda",
+      "defaultDeviceLabel": "Komputer Anda",
+      "disconnectedLabel": "Komputer terputus",
+      "guestHeroBody": "Minta Stella melakukan berbagai hal di komputer Anda — menjelajah web, mengelola berkas, menjalankan tugas, dan lainnya.",
+      "guestHeroTitle": "Komputer Anda, dalam genggaman",
+      "pairLabel": "Pasangkan komputer",
+      "statusAsleep": "Tidur",
+      "statusChecking": "Memeriksa…",
+      "statusConnected": "Terhubung"
     },
-    "authCallback": {
-      "failedTitle": "Tidak bisa memasukkan Anda",
-      "invalidLink": "Tautan masuk tidak valid.",
-      "linkExpired": "Tautan masuk ini sudah kedaluwarsa. Silakan minta yang baru.",
-      "genericFailure": "Saat ini kami tidak bisa memasukkan Anda. Silakan coba lagi.",
-      "backToSignIn": "Kembali ke halaman masuk",
-      "signingInTitle": "Memasukkan Anda",
-      "signingInBody": "Sebentar ya..."
+    "desktop": {
+      "connecting": "Menghubungkan ke desktop",
+      "deviceUnreachable": "{platform} Anda tidak terjangkau",
+      "enterCode": "Masukkan kode yang tampil di komputer Anda.",
+      "guestBody": "Lihat aplikasi desktop Stella langsung di ponsel Anda. Setelah dipasangkan, ponsel Anda akan terhubung kembali secara otomatis.",
+      "guestSignInPrompt": "Masuk untuk memulai.",
+      "limitedCapabilities": "Beberapa hal butuh komputer Anda",
+      "linkInterrupted": "Koneksi ke komputer Anda terputus.",
+      "pairAnother": "Pasangkan komputer lain",
+      "pairTitle": "Pasangkan ponsel Anda",
+      "pairing": "Memasangkan ponsel ini",
+      "reconnecting": "Menghubungkan kembali...",
+      "repairNeeded": "Ponsel ini perlu dipasangkan lagi dengan komputer Anda.",
+      "retryLabel": "Coba hubungkan lagi",
+      "startPairingLabel": "Mulai memasangkan komputer",
+      "unavailableBodyPaired": "Pastikan Stella terbuka di komputer Anda dan terhubung ke internet. Setelah terhubung, aplikasi desktop Anda akan muncul di sini pada ponsel Anda.",
+      "unavailableBodyUnpaired": "Lihat aplikasi desktop Stella langsung di ponsel Anda. Pindai kode QR yang tampil di Stella pada komputer Anda untuk memulai — setelah itu ponsel Anda akan terhubung kembali secara otomatis.",
+      "unreachable": "Tidak bisa menjangkau desktop Anda"
+    },
+    "engineAccounts": {
+      "active": "Digunakan",
+      "backLabel": "Kembali ke Pengaturan",
+      "chatgptBrowserWaiting": "Selesaikan proses masuk ke ChatGPT di browser Anda.",
+      "chatgptSection": "ChatGPT",
+      "claudeNote": "Menambahkan akun di sini membuat cloud Stella masuk ke Claude Code di halaman Anthropic sendiri. Setiap komputer menggunakan login Claude Code-nya sendiri.",
+      "claudeSection": "Claude",
+      "connectChatgpt": "Hubungkan akun ChatGPT",
+      "connectClaude": "Tambahkan akun Claude",
+      "connecting": "Menghubungkan…",
+      "continueAsChatgpt": "Lanjutkan dengan ChatGPT sebagai {name}",
+      "continueWithChatgpt": "Lanjutkan dengan akun ChatGPT Anda",
+      "enablePlanUsage": "Aktifkan penggunaan paket ChatGPT",
+      "errorBody": "Terjadi kesalahan. Coba lagi.",
+      "errorTitle": "Tidak dapat memperbarui akun",
+      "finish": "Hubungkan",
+      "manageUsage": "Kelola penggunaan",
+      "moreLabel": "Opsi untuk {name}",
+      "notSignedIn": "Belum masuk di mana pun",
+      "openChatgptAgain": "Buka ChatGPT lagi",
+      "openClaudeAgain": "Buka lagi halaman masuk",
+      "pasteFromClipboard": "Tempel",
+      "pasteHintChatgpt": "Setelah Anda menyetujui, ChatGPT mengarahkan Anda ke halaman yang tidak dapat dimuat. Salin alamat lengkap halaman itu dan tempel di sini.",
+      "pasteHintClaude": "Setelah Anda menyetujui, Anthropic menampilkan kode. Salin dan tempel di sini.",
+      "pastePlaceholder": "Tempel kode yang ditampilkan Anthropic",
+      "pastePlaceholderUrl": "Tempel alamat di sini",
+      "placeCloud": "Cloud",
+      "placeComputer": "Komputer",
+      "planUsageOffBody": "Stella tidak dapat menggunakan paket ChatGPT Anda sampai Anda mengizinkannya. Pilih “Aktifkan penggunaan paket ChatGPT” pada akun.",
+      "planWelcomeBody": "Permintaan ChatGPT di cloud Stella dihitung ke paket ChatGPT Anda. Tinjau penggunaan dan atur batas Stella di Pengaturan ChatGPT.",
+      "planWelcomeTitle": "Anda menggunakan paket ChatGPT Anda",
+      "remove": "Hapus",
+      "removeBody": "Stella akan melupakan akun ChatGPT ini. Anda dapat masuk ke akun ini lagi nanti.",
+      "removeClaudeBody": "Stella melupakan akun Claude ini dan mengeluarkan cloud darinya. Komputer Anda tetap menggunakan login Claude Code masing-masing.",
+      "removeTitle": "Hapus {name}?",
+      "revokeUnconfirmed": "ChatGPT tidak mengonfirmasi proses keluar. Anda dapat memutuskan Stella di Pengaturan ChatGPT.",
+      "signInAgain": "Masuk lagi",
+      "signInCloud": "Masuk di cloud",
+      "signOut": "Keluar",
+      "signOutBody": "Stella akan berhenti menggunakan akun ini. Anda dapat menambahkannya lagi kapan saja.",
+      "signOutCloud": "Keluar dari cloud",
+      "signOutCloudBody": "Cloud Stella berhenti menggunakan akun ini sampai Anda masuk lagi di sana. Komputer Anda tetap menggunakan login Claude Code masing-masing.",
+      "signOutCloudTitle": "Keluarkan {name} dari cloud?",
+      "signOutTitle": "Keluar dari {name}?",
+      "signedInOn": "Masuk di: {places}",
+      "startAgain": "Mulai lagi",
+      "statusPlanUsageOff": "Penggunaan paket ChatGPT belum diaktifkan",
+      "statusReauth": "Masuk lagi untuk terus menggunakannya",
+      "statusSignedOut": "Sudah keluar",
+      "subtitle": "Gunakan paket Claude atau ChatGPT yang sudah Anda bayar",
+      "title": "Claude & ChatGPT",
+      "useAccount": "Gunakan akun ini"
+    },
+    "login": {
+      "appleCompleteFailed": "Proses masuk dengan Apple tidak dapat diselesaikan.",
+      "appleNoToken": "Apple tidak mengembalikan token identitas.",
+      "appleStartFailed": "Proses masuk dengan Apple tidak dapat dimulai.",
+      "checkInbox": "Periksa kotak masuk Anda dan ketuk tautannya — Anda akan masuk secara otomatis.",
+      "continueAsGuest": "Lanjutkan tanpa masuk",
+      "continueWithApple": "Lanjutkan dengan Apple",
+      "continueWithGoogle": "Lanjutkan dengan Google",
+      "emailPlaceholder": "Email",
+      "enterEmail": "Masukkan email Anda.",
+      "finishFailed": "Tidak dapat menyelesaikan proses masuk. Silakan coba lagi.",
+      "googleStartFailed": "Proses masuk dengan Google tidak dapat dimulai.",
+      "heroBody": "Gunakan Apple, Google, atau email yang Anda pakai di komputer.",
+      "heroTitle": "Asisten Anda,\nseukuran saku.",
+      "incomplete": "Proses masuk belum selesai. Silakan coba lagi.",
+      "legalConjunction": " dan ",
+      "legalPrefix": "Dengan melanjutkan, Anda menyetujui ",
+      "legalPrivacy": "Kebijakan Privasi",
+      "legalSuffix": " kami.",
+      "legalTerms": "Ketentuan Layanan",
+      "linkExpired": "Tautan kedaluwarsa. Silakan coba lagi.",
+      "openingApple": "Membuka Apple...",
+      "openingGoogle": "Membuka Google...",
+      "orUseEmail": "atau gunakan email",
+      "resend": "Kirim ulang",
+      "resendLabel": "Kirim ulang email masuk",
+      "sendFailed": "Gagal mengirim email masuk.",
+      "sending": "Mengirim...",
+      "signingIn": "Sedang masuk...",
+      "useDifferentEmail": "Gunakan email lain"
     },
     "nav": {
-      "chat": "Obrolan",
-      "settings": "Pengaturan",
+      "account": "Akun",
       "apps": "Aplikasi",
-      "openLabel": "Buka navigasi",
+      "backToApps": "Kembali ke aplikasi",
+      "backToChat": "Kembali ke obrolan",
+      "chat": "Obrolan",
       "chatSettingsLabel": "Pengaturan obrolan",
       "closeLabel": "Tutup navigasi",
-      "account": "Akun",
-      "signIn": "Masuk",
-      "backToChat": "Kembali ke obrolan",
-      "backToApps": "Kembali ke aplikasi"
-    },
-    "search": {
-      "placeholder": "Cari pesan",
-      "openLabel": "Cari pesan",
-      "clearLabel": "Bersihkan pencarian",
-      "cancelLabel": "Batalkan pencarian"
+      "openLabel": "Buka navigasi",
+      "settings": "Pengaturan",
+      "signIn": "Masuk"
     },
     "onboarding": {
-      "skip": "Lewati",
-      "skipLabel": "Lewati pengenalan",
-      "progressLabel": "Langkah {current} dari {total}",
-      "composerPlaceholder": "Atau tanyakan saja sesuatu kepada saya",
-      "send": "Kirim",
-      "messages": {
-        "hello": "Hai, saya Stella.\n\nSaya bukan chatbot. Katakan apa yang Anda butuhkan, dan saya yang menyelesaikannya di latar belakang, selagi Anda menjalani hari.",
-        "showcase": "Seperti inilah wujudnya.",
-        "computer": "Kalau Anda punya Mac atau PC, saya bisa bekerja di sana juga.",
-        "account": "Ingin menyimpan semua ini? Akun Stella ikut bersama Anda ke setiap perangkat.",
-        "accountSignedIn": "Anda sudah masuk, jadi semuanya ikut berpindah antarperangkat. Satu tambahan opsional:",
-        "theme": "Sekarang, saya sebaiknya tampil seperti apa?",
-        "ready": "Itu saja. Saya akan mengenal Anda seiring waktu.\n\nApa yang sebaiknya kita kerjakan lebih dulu?"
+      "account": {
+        "chatgptDesc": "Paket ChatGPT Anda, untuk cloud Stella",
+        "claudeDesc": "Pro atau Max, lewat Claude Code",
+        "connect": "Hubungkan",
+        "connectLabel": "Hubungkan {name}",
+        "connectedAs": "Terhubung · {name}",
+        "guestSettled": "Masuk kapan saja dari Pengaturan",
+        "settledGuest": "Memakai Stella sebagai tamu",
+        "settledSignedIn": "Sudah masuk",
+        "signIn": "Masuk",
+        "signInBody": "Simpan percakapan, pengaturan, dan komputer terhubung Anda di setiap perangkat.",
+        "signInTitle": "Masuk ke Stella",
+        "skip": "Lewati dulu",
+        "subscriptionsBody": "Sudah berlangganan Claude atau ChatGPT? Hubungkan dan saya akan menggunakannya di cloud. Komputer Anda menggunakan login masing-masing.",
+        "subscriptionsLabel": "Opsional"
       },
-      "replies": {
-        "helloDone": "Tunjukkan.",
-        "showcaseDone": "Mengerti.",
-        "computerDone": "Terhubung!",
-        "computerSkipped": "Nanti saja.",
-        "accountDone": "Sudah siap.",
-        "accountSkipped": "Lewati dulu.",
-        "themeDone": "Yang itu.",
-        "themeSkipped": "Pakai bawaan."
+      "composerPlaceholder": "Atau tanyakan saja sesuatu kepada saya",
+      "computer": {
+        "body": "Pasangkan ponsel ini dengan Stella di komputer Anda, dan saya bisa menjalankan tugas di sana selagi Anda bepergian.",
+        "connectedBody": "Minta dari mana saja, dan saya akan mengerjakannya di komputer Anda.",
+        "connectedTo": "Terhubung ke {name}",
+        "guestHint": "Pemasangan terikat ke akun Stella Anda, jadi masuk dulu. Saya lanjutkan tepat dari sini.",
+        "hint": "Di komputer Anda, buka Stella lalu pilih Pasangkan ponsel.",
+        "later": "Nanti",
+        "pair": "Pasangkan komputer saya",
+        "point1": "Mencari file dan mengirimkannya kepada Anda",
+        "point2": "Menyelesaikan ekspor atau unduhan",
+        "point3": "Memakai aplikasi yang sudah Anda punya",
+        "settledConnectedDesc": "Saya bisa menjalankan tugas di sana dari ponsel Anda.",
+        "settledSkippedDesc": "Anda bisa memasangkannya kapan saja di Pengaturan.",
+        "settledSkippedTitle": "Belum ada komputer",
+        "signInToPair": "Masuk untuk memasangkan",
+        "title": "Komputer Anda, dari saku Anda"
       },
       "hello": {
         "cta": "Tunjukkan",
-        "settledTitle": "Kenalan dengan Stella",
         "pillars": {
-          "done": {
-            "title": "Menyelesaikan urusan",
-            "body": "Reservasi, pesanan, file, dan riset, beres untuk Anda."
+          "asks": {
+            "body": "Apa pun yang menyangkut uang menunggu persetujuan Anda.",
+            "title": "Bertanya sebelum penting"
           },
           "background": {
-            "title": "Bekerja di latar belakang",
-            "body": "Serahkan tugasnya dan lanjutkan aktivitas Anda. Saya kabari kalau sudah selesai."
+            "body": "Serahkan tugasnya dan lanjutkan aktivitas Anda. Saya kabari kalau sudah selesai.",
+            "title": "Bekerja di latar belakang"
           },
-          "asks": {
-            "title": "Bertanya sebelum penting",
-            "body": "Apa pun yang menyangkut uang menunggu persetujuan Anda."
+          "done": {
+            "body": "Reservasi, pesanan, file, dan riset, beres untuk Anda.",
+            "title": "Menyelesaikan urusan"
           }
-        }
+        },
+        "settledTitle": "Kenalan dengan Stella"
       },
+      "messages": {
+        "account": "Ingin menyimpan semua ini? Akun Stella ikut bersama Anda ke setiap perangkat.",
+        "accountSignedIn": "Anda sudah masuk, jadi semuanya ikut berpindah antarperangkat. Satu tambahan opsional:",
+        "computer": "Kalau Anda punya Mac atau PC, saya bisa bekerja di sana juga.",
+        "hello": "Hai, saya Stella.\n\nSaya bukan chatbot. Katakan apa yang Anda butuhkan, dan saya yang menyelesaikannya di latar belakang, selagi Anda menjalani hari.",
+        "ready": "Itu saja. Saya akan mengenal Anda seiring waktu.\n\nApa yang sebaiknya kita kerjakan lebih dulu?",
+        "showcase": "Seperti inilah wujudnya.",
+        "theme": "Sekarang, saya sebaiknya tampil seperti apa?"
+      },
+      "progressLabel": "Langkah {current} dari {total}",
+      "ready": {
+        "start": "Mulai mengobrol",
+        "starters": {
+          "explain": {
+            "prompt": "Jelaskan cara kerja bunga majemuk dengan sederhana.",
+            "title": "Jelaskan sesuatu"
+          },
+          "gift": {
+            "prompt": "Carikan hadiah ulang tahun yang berkesan untuk teman, di bawah $50.",
+            "title": "Cari hadiah"
+          },
+          "plan": {
+            "prompt": "Bantu saya menyusun rencana minggu ini sesuai agenda yang akan datang.",
+            "title": "Atur minggu saya"
+          },
+          "remind": {
+            "prompt": "Ingatkan saya menelepon Ibu hari Minggu jam 6 sore.",
+            "title": "Buat pengingat"
+          }
+        },
+        "startersLabel": "Coba salah satu ini"
+      },
+      "replies": {
+        "accountDone": "Sudah siap.",
+        "accountSkipped": "Lewati dulu.",
+        "computerDone": "Terhubung!",
+        "computerSkipped": "Nanti saja.",
+        "helloDone": "Tunjukkan.",
+        "showcaseDone": "Mengerti.",
+        "themeDone": "Yang itu.",
+        "themeSkipped": "Pakai bawaan."
+      },
+      "send": "Kirim",
       "showcase": {
-        "settledTitle": "Tur singkat",
-        "replay": "Putar ulang demo ini",
-        "tablist": "Yang bisa dilakukan Stella",
-        "placeholder": "Tanya Stella",
         "chapters": {
           "errands": {
-            "word": "Urusan",
-            "title": "Cukup minta sekali. Anggap beres.",
             "caption": "Saya membuka situsnya, mengisi detailnya, dan menuntaskan pekerjaannya, seperti yang akan Anda lakukan.",
             "prompt": "Pesankan meja untuk dua orang hari Jumat jam 8 malam",
-            "working": "Memesan meja",
             "receipt1": "Osteria Lucia · Jum 20.00 · 2 orang",
             "receipt2": "Ditambahkan ke kalender Anda",
             "reply": "Sudah dipesan di Osteria Lucia untuk hari Jumat pukul 20.00. Sudah ada di kalender Anda.",
             "scene": {
-              "site": "osterialucia.com",
-              "party": "Tamu",
-              "partyValue": "2 orang",
               "date": "Tanggal",
               "dateValue": "Jumat",
-              "time": "Jam",
-              "timeValue": "20.00",
+              "party": "Tamu",
+              "partyValue": "2 orang",
               "reserve": "Pesan",
-              "reserved": "Dipesan"
-            }
+              "reserved": "Dipesan",
+              "site": "osterialucia.com",
+              "time": "Jam",
+              "timeValue": "20.00"
+            },
+            "title": "Cukup minta sekali. Anggap beres.",
+            "word": "Urusan",
+            "working": "Memesan meja"
+          },
+          "research": {
+            "caption": "Saya membandingkan pilihan, membaca ulasan, lalu kembali dengan jawaban.",
+            "prompt": "Carikan sepeda listrik terbaik di bawah $2.000",
+            "receipt1": "24 ulasan dibaca",
+            "receipt2": "Perbandingan disimpan di File",
+            "reply": "Cityline 3: rangka paling ringan, rem terbaik, $1.799.",
+            "scene": {
+              "rank1": "Cityline 3",
+              "rank2": "Metro S",
+              "rank3": "Urban X",
+              "source1": "Ulasan pakar",
+              "source2": "Forum pemilik",
+              "source3": "Lembar spesifikasi",
+              "title": "Membandingkan sepeda listrik"
+            },
+            "title": "Biar saya yang membaca.",
+            "word": "Riset",
+            "working": "Membaca ulasan"
+          },
+          "routines": {
+            "caption": "Pengingat, check-in, dan ringkasan harian yang berjalan sesuai jadwalnya sendiri.",
+            "prompt": "Setiap pagi jam 8, rangkum hari saya",
+            "receipt1": "Setiap hari pukul 8.00",
+            "reply": "Beres. Ringkasan pertama Anda tiba besok pukul 8.",
+            "scene": {
+              "body": "3 rapat, hujan setelah jam 5 sore, dan hari ini ulang tahun Sam.",
+              "day": "Besok",
+              "now": "sekarang",
+              "time": "8.00",
+              "title": "Ringkasan pagi Anda",
+              "when": "Besok, 8.00"
+            },
+            "title": "Atur sekali. Sisanya urusan saya.",
+            "word": "Rutinitas",
+            "working": "Menyiapkan"
           },
           "shopping": {
-            "word": "Belanja",
-            "title": "Saya bisa membelikan, dengan persetujuan Anda.",
-            "caption": "Saya mencarinya dan membawanya sampai ke pembayaran. Anda menyetujui totalnya, lalu saya yang memesan.",
-            "prompt": "Pesan ulang sepatu lari saya, ukuran 10",
-            "working": "Mencari sepatu Anda",
             "amount": "$129,99",
-            "confirmTitle": "Konfirmasi pembelian?",
-            "confirmDetail": "Trail Runner 2 · ukuran 10",
+            "caption": "Saya mencarinya dan membawanya sampai ke pembayaran. Anda menyetujui totalnya, lalu saya yang memesan.",
             "confirm": "Konfirmasi",
+            "confirmDetail": "Trail Runner 2 · ukuran 10",
+            "confirmTitle": "Konfirmasi pembelian?",
             "confirmed": "Dikonfirmasi",
+            "prompt": "Pesan ulang sepatu lari saya, ukuran 10",
             "receipt1": "Pesanan #48213 · tiba hari Kamis",
             "reply": "Sudah dipesan. Sepatunya tiba hari Kamis.",
             "scene": {
-              "site": "trailco.com",
-              "product": "Trail Runner 2",
               "addToCart": "Tambah",
-              "inCart": "Di keranjang"
-            }
+              "inCart": "Di keranjang",
+              "product": "Trail Runner 2",
+              "site": "trailco.com"
+            },
+            "title": "Saya bisa membelikan, dengan persetujuan Anda.",
+            "word": "Belanja",
+            "working": "Mencari sepatu Anda"
           },
           "work": {
-            "word": "Kerja",
-            "title": "File sungguhan, tuntas.",
             "caption": "Dokumen, spreadsheet, dan slide: saya yang mengerjakan dan menyimpan filenya di tempat yang bisa Anda buka.",
             "prompt": "Ubah catatan Q3 saya jadi presentasi untuk hari Senin",
-            "working": "Membaca catatan Anda",
             "receipt1": "Catatan Q3 · sudah dibaca",
             "receipt2": "Presentasi tinjauan Q3 · 12 slide",
             "reply": "Presentasi Anda sudah siap: 12 slide, tersimpan di File.",
             "scene": {
               "file": "Tinjauan Q3.pptx",
               "slideTitle": "Tinjauan Q3"
-            }
-          },
-          "routines": {
-            "word": "Rutinitas",
-            "title": "Atur sekali. Sisanya urusan saya.",
-            "caption": "Pengingat, check-in, dan ringkasan harian yang berjalan sesuai jadwalnya sendiri.",
-            "prompt": "Setiap pagi jam 8, rangkum hari saya",
-            "working": "Menyiapkan",
-            "receipt1": "Setiap hari pukul 8.00",
-            "reply": "Beres. Ringkasan pertama Anda tiba besok pukul 8.",
-            "scene": {
-              "when": "Besok, 8.00",
-              "day": "Besok",
-              "time": "8.00",
-              "now": "sekarang",
-              "title": "Ringkasan pagi Anda",
-              "body": "3 rapat, hujan setelah jam 5 sore, dan hari ini ulang tahun Sam."
-            }
-          },
-          "research": {
-            "word": "Riset",
-            "title": "Biar saya yang membaca.",
-            "caption": "Saya membandingkan pilihan, membaca ulasan, lalu kembali dengan jawaban.",
-            "prompt": "Carikan sepeda listrik terbaik di bawah $2.000",
-            "working": "Membaca ulasan",
-            "receipt1": "24 ulasan dibaca",
-            "receipt2": "Perbandingan disimpan di File",
-            "reply": "Cityline 3: rangka paling ringan, rem terbaik, $1.799.",
-            "scene": {
-              "title": "Membandingkan sepeda listrik",
-              "source1": "Ulasan pakar",
-              "source2": "Forum pemilik",
-              "source3": "Lembar spesifikasi",
-              "rank1": "Cityline 3",
-              "rank2": "Metro S",
-              "rank3": "Urban X"
-            }
+            },
+            "title": "File sungguhan, tuntas.",
+            "word": "Kerja",
+            "working": "Membaca catatan Anda"
           }
-        }
+        },
+        "placeholder": "Tanya Stella",
+        "replay": "Putar ulang demo ini",
+        "settledTitle": "Tur singkat",
+        "tablist": "Yang bisa dilakukan Stella"
       },
-      "computer": {
-        "title": "Komputer Anda, dari saku Anda",
-        "body": "Pasangkan ponsel ini dengan Stella di komputer Anda, dan saya bisa menjalankan tugas di sana selagi Anda bepergian.",
-        "point1": "Mencari file dan mengirimkannya kepada Anda",
-        "point2": "Menyelesaikan ekspor atau unduhan",
-        "point3": "Memakai aplikasi yang sudah Anda punya",
-        "pair": "Pasangkan komputer saya",
-        "signInToPair": "Masuk untuk memasangkan",
-        "later": "Nanti",
-        "hint": "Di komputer Anda, buka Stella lalu pilih Pasangkan ponsel.",
-        "guestHint": "Pemasangan terikat ke akun Stella Anda, jadi masuk dulu. Saya lanjutkan tepat dari sini.",
-        "connectedTo": "Terhubung ke {name}",
-        "connectedBody": "Minta dari mana saja, dan saya akan mengerjakannya di komputer Anda.",
-        "settledConnectedDesc": "Saya bisa menjalankan tugas di sana dari ponsel Anda.",
-        "settledSkippedTitle": "Belum ada komputer",
-        "settledSkippedDesc": "Anda bisa memasangkannya kapan saja di Pengaturan."
-      },
-      "account": {
-        "signInTitle": "Masuk ke Stella",
-        "signInBody": "Simpan percakapan, pengaturan, dan komputer terhubung Anda di setiap perangkat.",
-        "signIn": "Masuk",
-        "subscriptionsLabel": "Opsional",
-        "subscriptionsBody": "Sudah berlangganan Claude atau ChatGPT? Hubungkan dan saya akan menggunakannya di cloud. Komputer Anda menggunakan login masing-masing.",
-        "claudeDesc": "Pro atau Max, lewat Claude Code",
-        "chatgptDesc": "Paket ChatGPT Anda, untuk cloud Stella",
-        "connect": "Hubungkan",
-        "connectLabel": "Hubungkan {name}",
-        "connectedAs": "Terhubung · {name}",
-        "skip": "Lewati dulu",
-        "settledSignedIn": "Sudah masuk",
-        "settledGuest": "Memakai Stella sebagai tamu",
-        "guestSettled": "Masuk kapan saja dari Pengaturan"
-      },
+      "skip": "Lewati",
+      "skipLabel": "Lewati pengenalan",
       "theme": {
         "appearance": "Tampilan",
-        "themes": "Tema",
         "confirm": "Selesai",
-        "reset": "Pakai bawaan"
-      },
-      "ready": {
-        "startersLabel": "Coba salah satu ini",
-        "start": "Mulai mengobrol",
-        "starters": {
-          "plan": {
-            "title": "Atur minggu saya",
-            "prompt": "Bantu saya menyusun rencana minggu ini sesuai agenda yang akan datang."
-          },
-          "gift": {
-            "title": "Cari hadiah",
-            "prompt": "Carikan hadiah ulang tahun yang berkesan untuk teman, di bawah $50."
-          },
-          "remind": {
-            "title": "Buat pengingat",
-            "prompt": "Ingatkan saya menelepon Ibu hari Minggu jam 6 sore."
-          },
-          "explain": {
-            "title": "Jelaskan sesuatu",
-            "prompt": "Jelaskan cara kerja bunga majemuk dengan sederhana."
-          }
-        }
+        "reset": "Pakai bawaan",
+        "themes": "Tema"
       }
     },
-    "login": {
-      "heroTitle": "Asisten Anda,\nseukuran saku.",
-      "heroBody": "Gunakan Apple, Google, atau email yang Anda pakai di komputer.",
-      "continueWithApple": "Lanjutkan dengan Apple",
-      "openingApple": "Membuka Apple...",
-      "continueWithGoogle": "Lanjutkan dengan Google",
-      "openingGoogle": "Membuka Google...",
-      "orUseEmail": "atau gunakan email",
-      "emailPlaceholder": "Email",
-      "sending": "Mengirim...",
-      "signingIn": "Sedang masuk...",
-      "checkInbox": "Periksa kotak masuk Anda dan ketuk tautannya — Anda akan masuk secara otomatis.",
-      "useDifferentEmail": "Gunakan email lain",
-      "resend": "Kirim ulang",
-      "resendLabel": "Kirim ulang email masuk",
-      "enterEmail": "Masukkan email Anda.",
-      "sendFailed": "Gagal mengirim email masuk.",
-      "googleStartFailed": "Proses masuk dengan Google tidak dapat dimulai.",
-      "appleStartFailed": "Proses masuk dengan Apple tidak dapat dimulai.",
-      "appleCompleteFailed": "Proses masuk dengan Apple tidak dapat diselesaikan.",
-      "appleNoToken": "Apple tidak mengembalikan token identitas.",
-      "finishFailed": "Tidak dapat menyelesaikan proses masuk. Silakan coba lagi.",
-      "incomplete": "Proses masuk belum selesai. Silakan coba lagi.",
-      "linkExpired": "Tautan kedaluwarsa. Silakan coba lagi.",
-      "legalPrefix": "Dengan melanjutkan, Anda menyetujui ",
-      "legalTerms": "Ketentuan Layanan",
-      "legalConjunction": " dan ",
-      "legalPrivacy": "Kebijakan Privasi",
-      "legalSuffix": " kami.",
-      "continueAsGuest": "Lanjutkan tanpa masuk"
-    },
-    "chat": {
-      "emptyPrompt": "Tanya Stella apa saja",
-      "workingMany": "{count} tugas sedang berjalan",
-      "composerPlaceholder": "Pesan untuk Stella",
-      "mainChat": "Obrolan utama",
-      "createFailed": "Tidak dapat membuat obrolan. Silakan coba lagi.",
-      "loadMore": "Muat lebih banyak"
-    },
-    "activityHub": {
-      "tabs": {
-        "activity": "Aktivitas",
-        "schedule": "Jadwal",
-        "search": "Cari",
-        "files": "File"
-      },
-      "task": {
-        "finished": "Selesai",
-        "failed": "Tidak dapat diselesaikan",
-        "stopped": "Dihentikan",
-        "working": "Bekerja di latar belakang"
-      },
-      "subagents": {
-        "count": {
-          "other": "{count} subagen"
-        },
-        "done": {
-          "other": "{count} selesai"
-        }
-      },
-      "conversation": {
-        "title": "Percakapan ini",
-        "subtitle": "File yang dibuat oleh thread utama"
-      },
-      "schedule": {
-        "customCadence": "Jadwal kustom",
-        "paused": "Dijeda",
-        "next": "Berikutnya {when}",
-        "lastRunFailed": "Eksekusi terakhir gagal: {error}",
-        "pauseSchedule": "Jeda jadwal",
-        "resumeSchedule": "Lanjutkan jadwal",
-        "deleteSchedule": "Hapus jadwal",
-        "deleteConfirm": "“{title}” akan berhenti berjalan.",
-        "alertTitle": "Jadwal",
-        "actionFailed": "Tidak berhasil.",
-        "loadFailed": "Tidak dapat memuat jadwal.",
-        "empty": "Belum ada jadwal. Minta Stella di komputermu menjalankan sesuatu secara rutin, nanti muncul di sini."
-      },
-      "search": {
-        "placeholder": "Cari aktivitas dan file",
-        "clear": "Bersihkan pencarian",
-        "close": "Tutup pencarian"
-      },
-      "files": {
-        "empty": "Belum ada file. Semua yang dibuat Stella muncul di sini.",
-        "emptyFiltered": "Tidak ada file yang cocok.",
-        "searchPlaceholder": "Cari file"
-      },
-      "activity": {
-        "empty": "Belum ada pekerjaan latar belakang.",
-        "emptyFiltered": "Tidak ada aktivitas atau file yang cocok."
-      }
-    },
-    "computer": {
-      "guestHeroTitle": "Komputer Anda, dalam genggaman",
-      "guestHeroBody": "Minta Stella melakukan berbagai hal di komputer Anda — menjelajah web, mengelola berkas, menjalankan tugas, dan lainnya.",
-      "defaultDeviceLabel": "Komputer Anda",
-      "statusChecking": "Memeriksa…",
-      "statusConnected": "Terhubung",
-      "statusAsleep": "Tidur",
-      "connectingLabel": "Menghubungkan ke komputer Anda",
-      "connectedLabel": "Komputer terhubung",
-      "disconnectedLabel": "Komputer terputus",
-      "pairLabel": "Pasangkan komputer"
-    },
-    "desktop": {
-      "pairTitle": "Pasangkan ponsel Anda",
-      "guestBody": "Lihat aplikasi desktop Stella langsung di ponsel Anda. Setelah dipasangkan, ponsel Anda akan terhubung kembali secara otomatis.",
-      "guestSignInPrompt": "Masuk untuk memulai.",
-      "connecting": "Menghubungkan ke desktop",
-      "pairing": "Memasangkan ponsel ini",
-      "unreachable": "Tidak bisa menjangkau desktop Anda",
-      "deviceUnreachable": "{platform} Anda tidak terjangkau",
-      "repairNeeded": "Ponsel ini perlu dipasangkan lagi dengan komputer Anda.",
-      "enterCode": "Masukkan kode yang tampil di komputer Anda.",
-      "linkInterrupted": "Koneksi ke komputer Anda terputus.",
-      "unavailableBodyPaired": "Pastikan Stella terbuka di komputer Anda dan terhubung ke internet. Setelah terhubung, aplikasi desktop Anda akan muncul di sini pada ponsel Anda.",
-      "unavailableBodyUnpaired": "Lihat aplikasi desktop Stella langsung di ponsel Anda. Pindai kode QR yang tampil di Stella pada komputer Anda untuk memulai — setelah itu ponsel Anda akan terhubung kembali secara otomatis.",
-      "pairAnother": "Pasangkan komputer lain",
-      "startPairingLabel": "Mulai memasangkan komputer",
-      "retryLabel": "Coba hubungkan lagi",
-      "reconnecting": "Menghubungkan kembali...",
-      "limitedCapabilities": "Beberapa hal butuh komputer Anda"
+    "search": {
+      "cancelLabel": "Batalkan pencarian",
+      "clearLabel": "Bersihkan pencarian",
+      "openLabel": "Cari pesan",
+      "placeholder": "Cari pesan"
     },
     "settings": {
-      "title": "Pengaturan",
-      "loadingSession": "Memuat sesi…",
-      "signIn": "Masuk",
-      "signInTitle": "Masuk ke Stella",
-      "showEmailLabel": "Tampilkan email",
-      "hideEmailLabel": "Sembunyikan email",
-      "appearanceSection": "Tampilan",
-      "computerSection": "Komputer",
-      "computer": {
-        "sectionLabel": "Tempat Stella bekerja",
-        "cloud": "Cloud",
-        "statusOnline": "Online",
-        "statusOffline": "Offline",
-        "statusNotReady": "Belum siap",
-        "statusNotEnabled": "Belum diaktifkan",
-        "statusAwaitingConsent": "Menunggu izin di komputer itu",
-        "statusDeclined": "Ditolak di komputer itu",
-        "connecting": "Menghubungkan…",
-        "enable": "Aktifkan",
-        "enabling": "Mengaktifkan…",
-        "enableLabel": "Aktifkan {name}",
-        "enableFailedTitle": "Tidak dapat mengaktifkan komputer itu",
-        "connectFailedTitle": "Tidak dapat terhubung ke komputer itu",
-        "pairingCode": "Gunakan kode pemasangan"
-      },
+      "aboutSection": "Tentang",
       "appearance": {
-        "system": "Sistem",
+        "dark": "Gelap",
         "light": "Terang",
-        "dark": "Gelap"
+        "system": "Sistem"
       },
+      "appearanceSection": "Tampilan",
       "background": {
-        "soft": "Lembut",
-        "flat": "Polos"
+        "flat": "Polos",
+        "soft": "Lembut"
       },
       "backgroundColor": {
         "relative": "Relatif",
         "strong": "Tegas"
       },
-      "useAppearanceLabel": "Gunakan tampilan {name}",
-      "useBackgroundLabel": "Gunakan latar {name}",
-      "useBackgroundColorLabel": "Gunakan warna latar {name}",
-      "useThemeLabel": "Gunakan tema {name}",
+      "carPlayDiagnostics": "Diagnostik CarPlay",
+      "chatStorage": {
+        "description": "Akses obrolan Anda di semua perangkat. Nonaktifkan untuk menyimpan riwayat obrolan terpisah hanya di perangkat ini. Saat diaktifkan kembali, obrolan tersebut tidak akan diunggah. Penyedia AI tetap memproses pesan Anda."
+      },
+      "computer": {
+        "cloud": "Cloud",
+        "connectFailedTitle": "Tidak dapat terhubung ke komputer itu",
+        "connecting": "Menghubungkan…",
+        "enable": "Aktifkan",
+        "enableFailedTitle": "Tidak dapat mengaktifkan komputer itu",
+        "enableLabel": "Aktifkan {name}",
+        "enabling": "Mengaktifkan…",
+        "pairingCode": "Gunakan kode pemasangan",
+        "sectionLabel": "Tempat Stella bekerja",
+        "statusAwaitingConsent": "Menunggu izin di komputer itu",
+        "statusDeclined": "Ditolak di komputer itu",
+        "statusNotEnabled": "Belum diaktifkan",
+        "statusNotReady": "Belum siap",
+        "statusOffline": "Offline",
+        "statusOnline": "Online"
+      },
+      "computerSection": "Komputer",
+      "deleteAccount": "Hapus akun",
+      "deleteAccountLabel": "Hapus akun Stella Anda",
+      "deleteConfirmBody": "Tindakan ini menghapus akun Stella Anda secara permanen dan membuang data cloud terkait di server kami. Tidak bisa dibatalkan.",
+      "deleteConfirmTitle": "Hapus akun",
+      "deleteFailedTitle": "Tidak bisa menghapus akun",
+      "deletingAccount": "Menghapus akun…",
+      "forget": "Lupakan",
+      "forgetConfirmBody": "Ponsel ini tidak akan terhubung lagi ke komputer itu sampai Anda memasangkannya kembali.",
+      "forgetConfirmTitle": "Lupakan {name}?",
+      "forgetLabel": "Lupakan {name}",
+      "hideEmailLabel": "Sembunyikan email",
+      "loadingSession": "Memuat sesi…",
       "notificationsSection": "Notifikasi",
-      "pushToggleLabel": "Izinkan notifikasi push",
-      "pushToggleSub": "Dapat pemberitahuan saat komputer Anda menyelesaikan permintaan.",
-      "pushToggleA11y": "Alihkan notifikasi push",
-      "pairedSection": "Komputer terpasang",
-      "pairedEmpty": "Belum ada komputer yang dipasangkan.",
-      "pairedOn": "Dipasangkan {date}",
+      "openCarPlayDiagnosticsLabel": "Buka diagnostik CarPlay",
+      "openPrivacyLabel": "Buka Kebijakan Privasi",
+      "openTermsLabel": "Buka Ketentuan Layanan",
       "paired": {
         "unnamedComputer": "Komputer · {id}"
       },
-      "forget": "Lupakan",
-      "forgetLabel": "Lupakan {name}",
-      "forgetConfirmTitle": "Lupakan {name}?",
-      "forgetConfirmBody": "Ponsel ini tidak akan terhubung lagi ke komputer itu sampai Anda memasangkannya kembali.",
-      "carPlayDiagnostics": "Diagnostik CarPlay",
-      "aboutSection": "Tentang",
-      "openCarPlayDiagnosticsLabel": "Buka diagnostik CarPlay",
-      "termsOfService": "Ketentuan Layanan",
-      "openTermsLabel": "Buka Ketentuan Layanan",
+      "pairedEmpty": "Belum ada komputer yang dipasangkan.",
+      "pairedOn": "Dipasangkan {date}",
+      "pairedSection": "Komputer terpasang",
       "privacyPolicy": "Kebijakan Privasi",
-      "openPrivacyLabel": "Buka Kebijakan Privasi",
-      "signOut": "Keluar",
-      "signingOut": "Sedang keluar…",
-      "signOutLabel": "Keluar dari Stella",
-      "deleteAccount": "Hapus akun",
-      "deletingAccount": "Menghapus akun…",
-      "deleteAccountLabel": "Hapus akun Stella Anda",
-      "deleteConfirmTitle": "Hapus akun",
-      "deleteConfirmBody": "Tindakan ini menghapus akun Stella Anda secara permanen dan membuang data cloud terkait di server kami. Tidak bisa dibatalkan.",
-      "deleteFailedTitle": "Tidak bisa menghapus akun",
-      "chatStorage": {
-        "description": "Akses obrolan Anda di semua perangkat. Nonaktifkan untuk menyimpan riwayat obrolan terpisah hanya di perangkat ini. Saat diaktifkan kembali, obrolan tersebut tidak akan diunggah. Penyedia AI tetap memproses pesan Anda."
-      }
-    },
-    "cloudHome": {
-      "settingsSection": "Cloud Home",
-      "settingsRowTitle": "Dokumen memori",
-      "settingsRowBody": "Lihat dan edit memori Stella yang menjadi versi acuan di cloud.",
-      "openSettingsLabel": "Buka memori Cloud Home",
-      "title": "Memori Cloud Home",
-      "subtitle": "Dokumen Stella yang menjadi versi acuan di cloud",
-      "backToSettingsLabel": "Kembali ke Pengaturan",
-      "backToDocumentsLabel": "Kembali ke dokumen Cloud Home",
-      "editorMeta": "{kind} · revisi {revision}",
-      "listMeta": "{kind} · revisi {revision} · {size}",
-      "signInTitle": "Masuk untuk menggunakan Cloud Home",
-      "signInBody": "Dokumen memori bersifat pribadi untuk akun Stella Anda.",
+      "pushToggleA11y": "Alihkan notifikasi push",
+      "pushToggleLabel": "Izinkan notifikasi push",
+      "pushToggleSub": "Dapat pemberitahuan saat komputer Anda menyelesaikan permintaan.",
+      "showEmailLabel": "Tampilkan email",
       "signIn": "Masuk",
-      "signInAgain": "Masuk lagi",
-      "loading": "Memuat Cloud Home…",
-      "unavailableTitle": "Cloud Home tidak tersedia",
-      "unavailableBody": "Penerapan ini saat ini belum menyediakan layanan Cloud Home yang aman. File lokal Anda tidak diubah.",
-      "errors": {
-        "unauthorized": "Masuk lagi untuk mengakses Cloud Home.",
-        "unavailable": "Cloud Home saat ini tidak tersedia untuk akun ini.",
-        "invalid": "Cloud Home mengembalikan respons yang tidak valid.",
-        "network": "Cloud Home tidak dapat dijangkau. Coba lagi.",
-        "missingFromList": "Dokumen itu sudah tidak ada di Cloud Home. Muat ulang daftar.",
-        "removedWhileEditing": "Dokumen itu telah dihapus dari Cloud Home."
-      },
-      "notices": {
-        "saved": "Disimpan ke Cloud Home.",
-        "loadedLatest": "Versi cloud terbaru telah dimuat."
-      },
-      "conflict": {
-        "title": "Versi cloud telah berubah",
-        "changedBody": "Revisi {revision} menggantikan versi yang Anda edit. Draf Anda masih ada di sini.",
-        "removedBody": "Dokumen ini dihapus saat Anda mengeditnya. Draf Anda masih ada di sini.",
-        "reloadLabel": "Muat ulang versi cloud dan ganti draf ini",
-        "reloading": "Memuat ulang…",
-        "reload": "Muat ulang versi cloud"
-      },
-      "editor": {
-        "editLabel": "Edit {name}",
-        "saving": "Menyimpan…",
-        "save": "Simpan",
-        "unsaved": "Perubahan belum disimpan",
-        "upToDate": "Sudah terbaru"
-      },
-      "list": {
-        "retryLabel": "Coba lagi memuat memori Cloud Home",
-        "retry": "Coba lagi",
-        "loading": "Memuat dokumen…",
-        "emptyTitle": "Belum ada memori cloud",
-        "emptyBody": "Dokumen yang dibuat oleh Stella atau diimpor dari aplikasi desktop akan muncul di sini.",
-        "openDocumentLabel": "Buka {name}"
-      },
-      "kinds": {
-        "memory": "memori",
-        "profile": "profil",
-        "memory_map": "peta memori",
-        "core_memory": "memori inti",
-        "personality": "kepribadian",
-        "imported_markdown": "Markdown yang diimpor",
-        "user_markdown": "Markdown pengguna",
-        "archive": "arsip"
-      },
-      "sizes": {
-        "bytes": "{count} B",
-        "kilobytes": "{count} KB",
-        "megabytes": "{count} MB"
-      }
-    },
-    "carPlayDiagnostics": {
-      "title": "Diagnostik CarPlay",
-      "subtitle": {
-        "other": "Jejak dari koneksi CarPlay ({count} baris, terbaru dulu). Salin dan kirimkan ini setelah ada yang bermasalah di mobil."
-      },
-      "copyAll": "Salin semua",
-      "copyAllLabel": "Salin semua diagnostik",
-      "copied": "Tersalin ✓",
-      "refresh": "Segarkan",
-      "refreshLabel": "Segarkan diagnostik",
-      "clear": "Bersihkan",
-      "clearLabel": "Bersihkan diagnostik",
-      "empty": "Belum ada diagnostik CarPlay yang terekam. Hubungkan ke CarPlay sekali, lalu kembali ke sini.",
-      "clipboardEmpty": "(tidak ada diagnostik CarPlay yang terekam)"
-    },
-    "account": {
-      "title": "Akun"
-    },
-    "activity": {
-      "inProgress": {
-        "other": "{count} sedang berlangsung"
-      },
-      "openLabel": "Tampilkan aktivitas"
+      "signInTitle": "Masuk ke Stella",
+      "signOut": "Keluar",
+      "signOutLabel": "Keluar dari Stella",
+      "signingOut": "Sedang keluar…",
+      "termsOfService": "Ketentuan Layanan",
+      "title": "Pengaturan",
+      "useAppearanceLabel": "Gunakan tampilan {name}",
+      "useBackgroundColorLabel": "Gunakan warna latar {name}",
+      "useBackgroundLabel": "Gunakan latar {name}",
+      "useThemeLabel": "Gunakan tema {name}"
     },
     "sidebar": {
       "searchPlaceholder": "Cari aktivitas dan file",
       "signedOutHint": "Masuk untuk melihat apa yang sedang dikerjakan Stella di latar belakang."
-    },
-    "engineAccounts": {
-      "title": "Claude & ChatGPT",
-      "subtitle": "Gunakan paket Claude atau ChatGPT yang sudah Anda bayar",
-      "backLabel": "Kembali ke Pengaturan",
-      "claudeSection": "Claude",
-      "chatgptSection": "ChatGPT",
-      "active": "Digunakan",
-      "useAccount": "Gunakan akun ini",
-      "signOut": "Keluar",
-      "moreLabel": "Opsi untuk {name}",
-      "signOutTitle": "Keluar dari {name}?",
-      "signOutBody": "Stella akan berhenti menggunakan akun ini. Anda dapat menambahkannya lagi kapan saja.",
-      "pasteHintClaude": "Setelah Anda menyetujui, Anthropic menampilkan kode. Salin dan tempel di sini.",
-      "pasteHintChatgpt": "Setelah Anda menyetujui, ChatGPT mengarahkan Anda ke halaman yang tidak dapat dimuat. Salin alamat lengkap halaman itu dan tempel di sini.",
-      "pastePlaceholder": "Tempel kode yang ditampilkan Anthropic",
-      "pasteFromClipboard": "Tempel",
-      "finish": "Hubungkan",
-      "connecting": "Menghubungkan…",
-      "errorTitle": "Tidak dapat memperbarui akun",
-      "errorBody": "Terjadi kesalahan. Coba lagi.",
-      "pastePlaceholderUrl": "Tempel alamat di sini",
-      "openChatgptAgain": "Buka ChatGPT lagi",
-      "chatgptBrowserWaiting": "Selesaikan proses masuk ke ChatGPT di browser Anda.",
-      "signInAgain": "Masuk lagi",
-      "enablePlanUsage": "Aktifkan penggunaan paket ChatGPT",
-      "remove": "Hapus",
-      "removeTitle": "Hapus {name}?",
-      "removeBody": "Stella akan melupakan akun ChatGPT ini. Anda dapat masuk ke akun ini lagi nanti.",
-      "statusSignedOut": "Sudah keluar",
-      "statusReauth": "Masuk lagi untuk terus menggunakannya",
-      "statusPlanUsageOff": "Penggunaan paket ChatGPT belum diaktifkan",
-      "planUsageOffBody": "Stella tidak dapat menggunakan paket ChatGPT Anda sampai Anda mengizinkannya. Pilih “Aktifkan penggunaan paket ChatGPT” pada akun.",
-      "manageUsage": "Kelola penggunaan",
-      "revokeUnconfirmed": "ChatGPT tidak mengonfirmasi proses keluar. Anda dapat memutuskan Stella di Pengaturan ChatGPT.",
-      "planWelcomeTitle": "Anda menggunakan paket ChatGPT Anda",
-      "planWelcomeBody": "Permintaan ChatGPT di cloud Stella dihitung ke paket ChatGPT Anda. Tinjau penggunaan dan atur batas Stella di Pengaturan ChatGPT.",
-      "connectClaude": "Tambahkan akun Claude",
-      "connectChatgpt": "Hubungkan akun ChatGPT",
-      "signInCloud": "Masuk di cloud",
-      "signOutCloud": "Keluar dari cloud",
-      "signOutCloudTitle": "Keluarkan {name} dari cloud?",
-      "signOutCloudBody": "Cloud Stella berhenti menggunakan akun ini sampai Anda masuk lagi di sana. Komputer Anda tetap menggunakan login Claude Code masing-masing.",
-      "removeClaudeBody": "Stella melupakan akun Claude ini dan mengeluarkan cloud darinya. Komputer Anda tetap menggunakan login Claude Code masing-masing.",
-      "placeCloud": "Cloud",
-      "placeComputer": "Komputer",
-      "signedInOn": "Masuk di: {places}",
-      "notSignedIn": "Belum masuk di mana pun",
-      "claudeNote": "Menambahkan akun di sini membuat cloud Stella masuk ke Claude Code di halaman Anthropic sendiri. Setiap komputer menggunakan login Claude Code-nya sendiri.",
-      "startAgain": "Mulai lagi",
-      "openClaudeAgain": "Buka lagi halaman masuk",
-      "continueAsChatgpt": "Lanjutkan dengan ChatGPT sebagai {name}",
-      "continueWithChatgpt": "Lanjutkan dengan akun ChatGPT Anda"
     }
   },
-  "companion": {
-    "menu": {
-      "openStella": "Open Stella",
-      "hide": "Hide companion",
-      "quit": "Quit Stella"
+  "onboarding": {
+    "chat": {
+      "capabilities": {
+        "build": {
+          "caption": "Apps and websites, made to order. Describe it in plain words and I'll build it, run it, and put it online.",
+          "title": "Say it. I'll build it.",
+          "word": "Build"
+        },
+        "errands": {
+          "caption": "Saya menemukan tempat yang tepat, mengisi formulirnya, dan memasukkannya ke kalender Anda, persis seperti yang akan Anda lakukan.",
+          "title": "Ask once. Consider it handled.",
+          "word": "Errands"
+        },
+        "replay": "Replay this demo",
+        "routines": {
+          "caption": "Jadwalkan apa saja dan saya akan mengerjakannya tepat waktu, bahkan saat Anda tidur.",
+          "title": "Minta sekali. Terjadi setiap hari.",
+          "word": "Rutinitas"
+        },
+        "settledTitle": "The quick tour",
+        "shopping": {
+          "caption": "I find it and get it to checkout. You confirm the total, and I place the order.",
+          "title": "I can buy things, with your OK.",
+          "word": "Shopping"
+        },
+        "tablist": "Capability demos",
+        "work": {
+          "caption": "Saya bekerja di dalam aplikasi sungguhan di komputer ini, dan bisa menjalankan lebih dari satu pekerjaan sekaligus.",
+          "title": "File sungguhan. Beberapa pekerjaan sekaligus.",
+          "word": "Work"
+        }
+      },
+      "composerPlaceholder": "Or just ask me something to get started",
+      "discovery": {
+        "alsoLabel": "Also include",
+        "assurance": "A one-time read, kept on this computer. You can see and edit what I keep at any time.",
+        "browserLabel": "Your browser",
+        "hint": "About a minute, in the background.",
+        "includeDev": "My coding setup"
+      },
+      "extras": {
+        "accessibilityDesc": "So I can act on selected text and what's under your cursor.",
+        "accessibilityTitle": "Accessibility",
+        "body": "Neither is required, but both make me a lot more useful.",
+        "bodyOne": "Not required, but it makes me a lot more useful.",
+        "enable": "Enable",
+        "enabled": "Enabled",
+        "extensionDesc": "Lets me see the page you're on and act inside your browser. Works in Chrome, Arc, Brave, and Edge.",
+        "extensionOpened": "Opened",
+        "extensionTitle": "Stella for Chrome",
+        "getExtension": "Get extension",
+        "hint": "All of this lives in Settings too.",
+        "memoryDesc": "Use what I've saved about you when it's relevant. Nothing is deleted if you turn this off.",
+        "memoryTitle": "Remember across chats",
+        "restart": "Restart Stella",
+        "restartHint": "Screen access needs a quick restart to take effect.",
+        "screenDesc": "So I can see the screen when you ask me to.",
+        "screenTitle": "Screen Recording",
+        "settledExtension": "Extension",
+        "settledMemory": "Memory",
+        "settledPermissions": "Permissions",
+        "settledSkippedTitle": "Extras skipped",
+        "settledTitle": "Extras",
+        "skip": "Skip for now",
+        "title": "Two quick extras",
+        "titleOne": "One quick extra"
+      },
+      "memory": {
+        "bodyChatbot": "A new chat every time, a sidebar full of old ones, and no memory of what you said last week.",
+        "bodyStella": "No new chats, no threads. Everything you've ever told me is in the same place, so when you ask about last week I go and find it.",
+        "settledDesc": "No threads to manage. I remember.",
+        "settledTitle": "One conversation",
+        "showStella": "Now ask me",
+        "skip": "Skip",
+        "titleChatbot": "You know this one",
+        "titleStella": "With me it's one conversation"
+      },
+      "messages": {
+        "capabilities": "Halo, saya Stella.\n\nSaya bukan chatbot. Saya memakai komputer ini untuk benar-benar menyelesaikan pekerjaan Anda, di latar belakang, sementara Anda terus melanjutkan aktivitas.\n\nBeginilah tampaknya.",
+        "extras": "Almost done. A little housekeeping, then we start.",
+        "memory": "One more thing that makes me different.",
+        "quickstart": "Itu saja. Satu hal terakhir, dan ini opsional: panduan mulai cepat.",
+        "quickstartDone": "Selesai. Ini yang saya pelajari, dan beberapa hal yang bisa kita mulai.",
+        "quickstartFailed": "Kali ini saya tidak bisa selesai membaca browser Anda. Kita tetap bisa mulai, dan saya akan belajar seiring berjalan.",
+        "selfmod": "Dan karena saya berada di komputer Anda, saya bisa mengubah diri saya sendiri.",
+        "signin": "Selanjutnya, mari masuk ke akun. Gunakan akun Stella, atau paket Claude atau ChatGPT yang sudah Anda miliki.",
+        "theme": "Now, how should I look?"
+      },
+      "progress": "Kemajuan penyiapan",
+      "quickstart": {
+        "body": "Kebanyakan asisten mulai dari nol. Arahkan saya ke browser Anda dan saya akan membacanya sekali untuk membangun memori awal, sehingga saya berguna sejak hari pertama.",
+        "continueInBackground": "Mulai mengobrol, selesaikan di latar belakang",
+        "eyebrow": "Mulai cepat",
+        "failedBody": "Ada yang menghentikan pembacaan. Coba lagi, atau mulai mengobrol dan saya akan belajar seiring berjalan.",
+        "failedTitle": "Belum selesai",
+        "run": "Jalankan mulai cepat",
+        "runningBody": "Sekitar satu menit. Silakan masuk kapan saja, saya akan menyelesaikannya di latar belakang.",
+        "runningTitle": "Mengenal Anda",
+        "skip": "Lewati",
+        "stages": {
+          "notice": "Memperhatikan hal yang penting bagi Anda",
+          "read": "Membaca yang Anda pilih",
+          "write": "Menulis memori awal Anda"
+        },
+        "title": "Beri saya awal yang baik"
+      },
+      "ready": {
+        "generic": {
+          "browse": {
+            "prompt": "Find a well-reviewed dinner spot near me for this weekend and hold a reservation for two.",
+            "title": "Find me a good dinner spot"
+          },
+          "file": {
+            "prompt": "I have a document that needs cleaning up. I'll share it and you fix the structure and wording.",
+            "title": "Tidy up a document"
+          },
+          "plan": {
+            "prompt": "Help me plan my week. Ask me what's on my plate and lay it out day by day.",
+            "title": "Plan my week"
+          },
+          "watch": {
+            "prompt": "Keep an eye on a web page for me and tell me when it changes.",
+            "title": "Watch a site for changes"
+          }
+        },
+        "highlightsLabel": "What I picked up",
+        "hint": "Or type anything below.",
+        "notesFoot": "You can read or edit this any time in Settings › Memory.",
+        "notesSummary": "See everything I noted",
+        "start": "Start chatting",
+        "startersLabel": "Try one of these",
+        "startersLabelPersonal": "Made for you"
+      },
+      "replies": {
+        "capabilitiesDone": "Got it.",
+        "capabilitiesSkipped": "Skip the tour.",
+        "extrasDone": "Done.",
+        "extrasSkipped": "Skip for now.",
+        "memoryDone": "Nice.",
+        "memorySkipped": "Skip it.",
+        "selfmodDone": "Keren sekali.",
+        "signinDone": "Selesai.",
+        "themeDone": "That one.",
+        "themeSkipped": "Keep the default."
+      },
+      "selfmod": {
+        "body": "Ada fitur yang kurang, atau ingin sesuatu bekerja dengan cara lain? Cukup minta. Saya akan menulis ulang kode saya sendiri, Anda mencobanya, dan Anda yang memutuskan apakah akan dipertahankan.",
+        "hint": "Perubahan tetap berada di komputer ini.",
+        "settledDesc": "Minta, pratinjau, perbarui. Urungkan kapan saja.",
+        "settledTitle": "Saya bisa mengubah diri sendiri",
+        "steps": {
+          "ask": {
+            "body": "Jelaskan perubahannya dengan kata-kata sederhana.",
+            "title": "Minta"
+          },
+          "preview": {
+            "body": "Sebuah agen membuatnya dan membuka pratinjau langsung.",
+            "title": "Pratinjau"
+          },
+          "update": {
+            "body": "Satu klik untuk menerapkannya. Urungkan kapan saja.",
+            "title": "Perbarui"
+          }
+        },
+        "title": "Saya bisa mengubah diri sendiri"
+      },
+      "send": "Send",
+      "signin": {
+        "body": "Salah satunya sudah cukup. Anda bisa menambahkan yang lain nanti.",
+        "claudeCliMissing": "Pasang Claude Code terlebih dahulu, lalu coba lagi.",
+        "connect": "Hubungkan",
+        "error": "Tidak tersambung. Coba lagi?",
+        "fine": "Ubah kapan saja di Pengaturan.",
+        "hint": "Gratis untuk memulai.",
+        "inUse": "Digunakan",
+        "options": {
+          "apikey": {
+            "body": "Gunakan kunci Anda sendiri dari Anthropic, OpenAI, Google, dan lainnya.",
+            "title": "Kunci API"
+          },
+          "chatgpt": {
+            "body": "Masuk dengan ChatGPT untuk menggunakan paket Anda.",
+            "title": "ChatGPT"
+          },
+          "claude": {
+            "body": "Gunakan paket Claude Pro atau Max Anda.",
+            "title": "Claude Code"
+          },
+          "stella": {
+            "body": "Google atau email. Obrolan Anda ikut ke ponsel Anda.",
+            "title": "Akun Stella"
+          }
+        },
+        "settledDesc": "Ubah kapan saja di Pengaturan.",
+        "settledEngine": "Menggunakan {name}",
+        "settledStella": "Sudah masuk ke Stella",
+        "signIn": "Masuk",
+        "title": "Masuk",
+        "use": "Gunakan",
+        "waiting": "Selesaikan proses masuk di browser Anda, lalu kembali ke sini."
+      },
+      "skipSetup": "Skip setup",
+      "theme": {
+        "appearance": "Appearance",
+        "body": "Hover to try one on. Click to keep it.",
+        "confirm": "Done",
+        "gradient": {
+          "flat": "Flat",
+          "relative": "Relative",
+          "soft": "Soft",
+          "strong": "Strong"
+        },
+        "gradientColor": "Gradient color",
+        "gradientStyle": "Gradient style",
+        "hint": "Everything here changes live.",
+        "mode": {
+          "dark": "Dark",
+          "light": "Light",
+          "system": "System"
+        },
+        "settledTitle": "Default",
+        "skip": "Keep the default",
+        "themes": "Theme",
+        "title": "Pick a look"
+      }
     },
-    "composer": {
-      "placeholder": "Ask Stella…"
+    "legalFooter": "Dengan menggunakan Stella, Anda menyetujui {terms} dan {privacy} kami.",
+    "privacyPolicy": "Kebijakan Privasi",
+    "termsOfService": "Ketentuan Layanan"
+  },
+  "settings": {
+    "account": {
+      "cloudHome": {
+        "actions": {
+          "blocked": "Impor diblokir",
+          "boundElsewhere": "Tertaut ke akun lain",
+          "import": "Impor ke akun ini",
+          "sync": "Sinkronkan sekarang",
+          "syncing": "Menyinkronkan…"
+        },
+        "authorizationNote": "Skill yang diunggah tetap tidak tersedia bagi agen hingga versi persisnya diotorisasi secara eksplisit.",
+        "label": "Memori dan skill",
+        "summary": {
+          "attention": "Cloud Home mempertahankan salinan cloud yang sudah ada ketika data lokal berbeda. Tinjau detail di bawah.",
+          "checking": "Memeriksa memori dan skill lokal…",
+          "current": "Cloud Home sudah mutakhir. Memori yang diunggah: {memoryCount}. Paket skill yang diunggah: {skillCount}.",
+          "intro": "Stella mengimpor memori lokal dan skill kustom yang relevan dengan aman ke akun cloud Anda.",
+          "unavailable": "Sinkronisasi Cloud Home saat ini tidak tersedia."
+        },
+        "title": "Cloud Home"
+      },
+      "deleteAccount": {
+        "action": "Hapus",
+        "description": "Menghapus akun Anda dan semua isinya secara permanen.",
+        "label": "Hapus akun",
+        "working": "Menghapus…"
+      },
+      "deleteData": {
+        "action": "Hapus",
+        "description": "Menghapus semua percakapan, memori, dan pengaturan Stella yang tersimpan.",
+        "label": "Hapus data",
+        "working": "Menghapus…"
+      },
+      "dialog": {
+        "deleteAccountButton": "Hapus akun",
+        "deleteAccountDescription": "Ini menghapus akun dan data Stella Anda secara permanen. Ini tidak dapat dibatalkan.",
+        "deleteAccountTitle": "Hapus akun Stella Anda?",
+        "deleteDataButton": "Hapus data",
+        "deleteDataDescription": "Ini menghapus percakapan, memori, pengaturan, dan status Stella lokal Anda. Ini tidak dapat dibatalkan.",
+        "deleteDataTitle": "Hapus data Stella Anda?",
+        "working": "Menghapus…"
+      },
+      "legal": {
+        "privacy": "Kebijakan Privasi",
+        "terms": "Ketentuan Layanan",
+        "title": "Hukum",
+        "view": "Lihat"
+      },
+      "signOut": {
+        "action": "Keluar",
+        "description": "Keluar dari Stella di perangkat ini.",
+        "label": "Keluar"
+      },
+      "title": "Akun",
+      "toasts": {
+        "accountDeleted": "Akun Stella Anda telah dihapus.",
+        "dataDeleted": "Data Stella Anda telah dihapus.",
+        "deleteAccountFailed": "Tidak dapat menghapus akun Anda. Coba lagi.",
+        "deleteDataFailed": "Tidak dapat menghapus data Anda. Coba lagi.",
+        "signInBeforeDelete": "Masuk sebelum menghapus akun Anda."
+      }
     },
-    "bubble": {
-      "openStella": "Open in Stella",
-      "typing": "Stella is replying"
+    "agentModelPicker": {
+      "assistantPickerAriaLabel": "Pemilih model asisten",
+      "byokDescription": "Gunakan kunci API {provider} Anda sendiri.",
+      "chatGptManageUsage": "Kelola penggunaan",
+      "chatGptPlanInUse": "Menggunakan paket ChatGPT",
+      "chatGptRouted": "Dialihkan ke {model} (model tersimpan tidak tersedia).",
+      "default": "Default",
+      "errors": {
+        "chatGptMigration": "Migrasi perutean ChatGPT gagal.",
+        "chatGptNoModels": "Saat ini tidak ada model ChatGPT yang tersedia.",
+        "chatGptNotConnected": "Masuk dengan ChatGPT di komputer ini terlebih dahulu.",
+        "chatGptPlanUsageOff": "Penggunaan paket ChatGPT belum diaktifkan untuk akun ini. Aktifkan di Pengaturan › Akun, atau pilih model lain.",
+        "chatGptVerify": "Model ChatGPT tidak dapat diverifikasi: {error}",
+        "chatGptVerifying": "Tunggu hingga verifikasi model ChatGPT selesai.",
+        "connectChatGpt": "Gagal menghubungkan ChatGPT.",
+        "loadPreferences": "Gagal memuat pengaturan model.",
+        "refreshTitle": "Tidak dapat menyegarkan model",
+        "updateChatGptSpeed": "Gagal memperbarui kecepatan ChatGPT.",
+        "updateDirectRuntime": "Gagal memperbarui pengaturan {runtime} langsung.",
+        "updateEngine": "Gagal memperbarui mesin.",
+        "updateImage": "Gagal memperbarui pengaturan gambar.",
+        "updateModel": "Gagal memperbarui pengaturan model.",
+        "updateReadAloud": "Gagal memperbarui penyedia bacakan.",
+        "updateReasoning": "Gagal memperbarui upaya penalaran.",
+        "updateTitle": "Tidak dapat memperbarui pengaturan model",
+        "updateVoice": "Gagal memperbarui pengaturan suara."
+      },
+      "imageProviderAriaLabel": "Penyedia gambar",
+      "noChatGptModels": "Saat ini tidak ada model ChatGPT yang tersedia untuk akun ini.",
+      "savedModelUnavailable": "Model tersimpan tidak tersedia. Pilih model lain.",
+      "stellaDefault": "Default Stella",
+      "surfaceAriaLabel": "Permukaan",
+      "tabs": {
+        "assistant": "Asisten",
+        "assistantTitle": "Asisten utama Stella",
+        "image": "Gambar",
+        "imageTitle": "Penyedia pembuatan gambar",
+        "voice": "Suara",
+        "voiceTitle": "Penyedia suara realtime"
+      },
+      "unavailableChooseAnother": "Tidak tersedia — pilih model lain",
+      "verifyingChatGpt": "Memverifikasi model ChatGPT…",
+      "voiceProviderAriaLabel": "Penyedia suara",
+      "waitingForChatGpt": "Menunggu ChatGPT…"
     },
-    "arc": {
-      "readAloudOn": "Read replies aloud: on",
-      "readAloudOff": "Read replies aloud: off",
-      "dictate": "Dictate a message",
-      "dictateStop": "Stop dictating and send",
-      "voice": "Start voice conversation",
-      "voiceStop": "End voice conversation"
+    "audio": {
+      "dictationSounds": {
+        "description": "Memutar suara saat dikte dimulai dan berhenti.",
+        "label": "Suara dikte"
+      },
+      "errors": {
+        "listDevices": "Tidak dapat menampilkan perangkat audio.",
+        "micDenied": "Akses mikrofon ditolak. Harap izinkan di pengaturan sistem Anda.",
+        "micDeniedReset": "Akses mikrofon sebelumnya ditolak. Atur ulang dan mulai ulang Stella, atau buka Pengaturan Sistem."
+      },
+      "microphone": {
+        "deviceDescription": "Mikrofon mana yang harus didengarkan Stella?",
+        "deviceLabel": "Mikrofon",
+        "enableDescription": "Diperlukan untuk berbicara dengan Stella.",
+        "enableLabel": "Aktifkan mikrofon",
+        "title": "Mikrofon"
+      },
+      "microphoneDeviceFallback": "Mikrofon {index}",
+      "recovery": {
+        "closing": "Menutup…",
+        "manageDescription": "Jika izin mikrofon macet, Anda dapat mengaturnya ulang dan meminta macOS untuk bertanya lagi.",
+        "manageLabel": "Kelola akses mikrofon",
+        "openSettings": "Buka Pengaturan",
+        "recoverDescription": "Setelah Anda menolak, macOS tidak akan bertanya lagi dengan sendirinya. Atur ulang izin, lalu tutup dan buka kembali Stella.",
+        "recoverLabel": "Pulihkan akses mikrofon",
+        "reset": "Atur ulang & mulai ulang"
+      },
+      "speaker": {
+        "empty": "Speaker tidak ditemukan.",
+        "emptyMicOff": "Aktifkan mikrofon untuk melihat speaker Anda.",
+        "outputDescription": "Pilih speaker atau headphone yang akan digunakan.",
+        "outputLabel": "Perangkat keluaran",
+        "title": "Speaker"
+      },
+      "speakerDeviceFallback": "Speaker {index}",
+      "superFast": {
+        "description": "Menjaga mikrofon tetap siap agar dikte dimulai dengan lebih sedikit jeda.",
+        "label": "Dikte super cepat"
+      },
+      "systemDefault": "Default sistem",
+      "wakeWord": {
+        "description": "Mendengarkan “Hey Stella” di latar belakang dan memulai percakapan suara. Saat nonaktif, mikrofon tetap diam hingga Anda menekan dikte.",
+        "label": "Kata pemicu “Hey Stella”"
+      }
     },
-    "mark": {
-      "open": "Ask Stella",
-      "close": "Close the prompt"
+    "browserExtension": {
+      "action": "Dapatkan ekstensi",
+      "description": "Memungkinkan Stella melihat halaman yang sedang Anda buka dan melakukan tindakan di browser Anda.",
+      "title": "Stella untuk Chrome"
     },
-    "badge": {
-      "running": "{count} agents working"
+    "chatStorage": {
+      "description": "Akses obrolan Anda di semua perangkat. Nonaktifkan untuk menyimpan riwayat obrolan terpisah hanya di komputer ini. Saat diaktifkan kembali, obrolan tersebut tidak akan diunggah. Penyedia AI tetap memproses pesan Anda.",
+      "endVoice": "Akhiri percakapan suara untuk mengubah penyimpanan obrolan.",
+      "error": "Tidak dapat mengubah penyimpanan obrolan. Coba lagi.",
+      "title": "Simpan riwayat obrolan di cloud"
+    },
+    "compactModelList": {
+      "ariaLabel": "Model Stella",
+      "empty": "Tidak ada model Stella yang tersedia.",
+      "loadFailed": "Tidak dapat memuat model Stella.",
+      "loading": "Memuat model Stella…",
+      "recent": "Terbaru",
+      "restricted": "Paket Anda menggunakan pilihan Stella.",
+      "restrictedPlan": "Paket {plan} menggunakan pilihan Stella.",
+      "retry": "Coba lagi",
+      "unavailable": "Tidak tersedia",
+      "unavailableTitle": "Model ini tidak tersedia lagi — pilih yang lain.",
+      "upgrade": "Tingkatkan"
+    },
+    "companion": {
+      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
+      "error": "Couldn't update the desktop companion.",
+      "title": "Desktop companion"
+    },
+    "connectedProviders": {
+      "apiKey": "Kunci API",
+      "empty": "Belum ada penyedia yang terhubung. Pilih opsi selain Stella di pemilih model di atas untuk menambahkan kunci API atau masuk.",
+      "removeKey": "Hapus kunci",
+      "removingKey": "Menghapus…",
+      "signOut": "Keluar",
+      "signedIn": "Sudah masuk",
+      "signingOut": "Keluar…",
+      "title": "Penyedia terhubung"
+    },
+    "developerPreviews": {
+      "description": "Tampilkan perubahan kode di obrolan dan buka di panel samping.",
+      "title": "Pratinjau berkas pengembang"
+    },
+    "engineAccounts": {
+      "active": "Aktif",
+      "addChatgpt": "Add ChatGPT account",
+      "addChatgptCloud": "Add ChatGPT account in the cloud",
+      "addClaude": "Tambahkan akun Claude",
+      "addInCloud": "Di cloud",
+      "addOnComputer": "Di komputer ini",
+      "cardIntro": "Gunakan paket Claude atau ChatGPT yang sudah Anda bayar. Setiap tempat masuk sendiri-sendiri: tiap komputer, dan cloud Anda.",
+      "cardTitle": "Akun Claude & ChatGPT",
+      "chatgptBrowserWaiting": "Selesaikan proses masuk ke ChatGPT di browser Anda.",
+      "chatgptCloudSignedIn": "Cloud Anda sudah masuk ke ChatGPT.",
+      "chatgptComputerSignedIn": "Komputer ini sudah masuk ke ChatGPT.",
+      "chatgptTitle": "ChatGPT",
+      "claudeLogin": {
+        "codeLabel": "Tempel kode yang ditampilkan Anthropic",
+        "failed": "Gagal masuk.",
+        "opened": "Kami telah membuka halaman masuk Anthropic.",
+        "reopen": "Buka lagi",
+        "startAgain": "Mulai lagi",
+        "starting": "Membuka halaman masuk Anthropic…",
+        "submit": "Kirim",
+        "submitting": "Sedang masuk…",
+        "whereCloud": "Masuk ke Claude Code di cloud Anda.",
+        "whereComputer": "Masuk ke Claude Code di komputer ini."
+      },
+      "claudeTitle": "Claude (Pro/Max)",
+      "cliMissing": "Claude Code belum terpasang di komputer ini. Pasang untuk menggunakan Claude di sini.",
+      "connecting": "Menghubungkan…",
+      "defaultSignedOut": "Claude Code di komputer ini belum masuk.",
+      "enablePlanUsage": "Aktifkan penggunaan paket ChatGPT",
+      "enablePlanUsageCloud": "Enable ChatGPT plan use in the cloud",
+      "errorGeneric": "Tidak berhasil. Coba lagi.",
+      "finish": "Hubungkan",
+      "moreLabel": "Opsi untuk {name}",
+      "needsChatgptCloud": "Siapkan ChatGPT untuk cloud Anda terlebih dahulu",
+      "needsClaudeCloud": "Masuk ke Claude di cloud terlebih dahulu",
+      "openChatgptAgain": "Buka ChatGPT lagi",
+      "pasteHintChatgpt": "Setelah Anda menyetujui, ChatGPT mengarahkan Anda ke halaman yang tidak dapat dimuat. Salin alamat lengkap halaman itu dan tempel di sini.",
+      "pastePlaceholderUrl": "Tempel alamat di sini",
+      "placeCloud": "Cloud",
+      "placeComputer": "Komputer ini",
+      "placeOtherComputer": "Komputer lain",
+      "placeSignedIn": "{place}: sudah masuk",
+      "placeSignedOut": "{place}: belum masuk",
+      "planUsageOffBody": "Stella tidak dapat menggunakan paket ChatGPT Anda sampai Anda mengizinkannya. Pilih “Aktifkan penggunaan paket ChatGPT” pada akun, atau gunakan model lain.",
+      "planUsageOffTitle": "Sudah masuk, tetapi penggunaan paket ChatGPT belum diaktifkan",
+      "remove": "Hapus",
+      "removed": "Dihapus.",
+      "revokeTitleCloud": "Keluar dari ChatGPT di cloud",
+      "revokeTitleComputer": "Keluar di komputer ini",
+      "revokeUnconfirmed": "ChatGPT tidak mengonfirmasi proses keluar. Anda dapat memutuskan Stella di Pengaturan ChatGPT.",
+      "runsOnLabel": "Chat cloud berjalan di",
+      "signIn": "Masuk",
+      "signInAgain": "Masuk lagi",
+      "signInCloud": "Masuk di cloud",
+      "signInComputer": "Masuk di komputer ini",
+      "signOut": "Keluar",
+      "signOutCloud": "Keluar dari cloud",
+      "signOutComputer": "Keluar di komputer ini",
+      "signedInCloud": "Cloud Anda sudah masuk ke Claude.",
+      "signedInCloudAs": "Cloud Anda sudah masuk ke Claude sebagai {email}.",
+      "signedInComputer": "Claude Code di komputer ini sudah masuk.",
+      "signedInComputerAs": "Claude Code di komputer ini sudah masuk sebagai {email}.",
+      "signedOut": "Sudah keluar.",
+      "signedOutLogin": "Login Claude Code yang sudah keluar",
+      "statusPlanUsageOff": "Penggunaan paket ChatGPT belum diaktifkan",
+      "statusReauth": "Masuk lagi untuk terus menggunakannya",
+      "statusSignedOut": "Sudah keluar",
+      "useAccount": "Gunakan akun ini"
+    },
+    "engineModels": {
+      "ariaLabel": "Model {engine}",
+      "empty": "Tidak ada model {engine} yang tersedia.",
+      "loading": "Memuat model {engine}…"
+    },
+    "errors": {
+      "loadLockedComputerUse": "Gagal memuat pengaturan penggunaan komputer saat terkunci.",
+      "loadMemory": "Gagal memuat pengaturan memori.",
+      "loadPermissions": "Gagal memuat status izin desktop.",
+      "loadPower": "Gagal memuat pengaturan daya.",
+      "loadSoundNotifications": "Gagal memuat pengaturan notifikasi suara.",
+      "lockedComputerUseUnavailable": "Penggunaan komputer saat terkunci tidak tersedia di jendela ini.",
+      "memoryUnavailable": "Pengaturan memori tidak tersedia di jendela ini.",
+      "microphoneDeniedReopen": "Akses mikrofon sebelumnya ditolak. Aktifkan di Pengaturan Sistem, lalu buka kembali Stella.",
+      "microphoneStillOff": "Akses mikrofon masih nonaktif. Aktifkan di Pengaturan Sistem, lalu buka kembali Stella.",
+      "powerUnavailable": "Pengaturan daya tidak tersedia di jendela ini.",
+      "resetPermission": "Gagal mengatur ulang izin {kind}.",
+      "resetPermissionMaybeReopen": "Tidak dapat mengatur ulang izin {kind}. Stella mungkin perlu dibuka kembali.",
+      "restart": "Gagal memulai ulang Stella.",
+      "saveLockedComputerUse": "Gagal memperbarui penggunaan komputer saat terkunci.",
+      "saveMemory": "Gagal memperbarui pengaturan memori.",
+      "savePermission": "Gagal memperbarui izin {kind}.",
+      "savePower": "Gagal memperbarui pengaturan daya.",
+      "saveSoundNotifications": "Gagal memperbarui pengaturan notifikasi suara.",
+      "soundNotificationsUnavailable": "Pengaturan notifikasi suara tidak tersedia di jendela ini."
+    },
+    "executionDevices": {
+      "disable": "Turn off",
+      "disabling": "Turning off…",
+      "empty": "No computer is signed in to this account yet.",
+      "enable": "Enable",
+      "enabling": "Enabling…",
+      "errors": {
+        "load": "Unable to read the computers on this account.",
+        "update": "That change didn't go through. Try again."
+      },
+      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
+      "offline": "Offline",
+      "online": "Online",
+      "state": {
+        "asking": "Waiting for an answer there",
+        "declined": "Declined there",
+        "enabled": "Accepting work",
+        "notEnabled": "Not enabled"
+      },
+      "thisComputer": "This computer",
+      "title": "Your computers",
+      "unnamed": "Computer"
+    },
+    "language": {
+      "description": "Pilih bahasa yang digunakan Stella di aplikasi dan saat menjawab Anda.",
+      "title": "Bahasa"
+    },
+    "lockedComputerUse": {
+      "description": "Memungkinkan Stella melanjutkan tugas penggunaan komputer setelah Mac ini terkunci. Memerlukan izin administrator dan menutupi layar selama Stella bekerja.",
+      "title": "Penggunaan komputer saat terkunci",
+      "unsupported": "Penggunaan komputer saat terkunci hanya tersedia di macOS."
+    },
+    "memory": {
+      "description": "Sertakan memori tersimpan dan profil Anda dalam konteks model Stella. Salinan cloud adalah salinan utama dan dienkripsi saat dikirim maupun disimpan; Stella juga dapat menyimpan salinan lokal. Menonaktifkan opsi ini akan mengecualikan memori dari percakapan berikutnya, tetapi tidak menghapusnya.",
+      "title": "Memori"
+    },
+    "modelPicker": {
+      "actions": {
+        "addKey": "Tambah kunci",
+        "cancel": "Batal",
+        "custom": "Kustom",
+        "signIn": "Masuk"
+      },
+      "apiKeyAriaLabel": "Kunci API {provider}",
+      "apiKeyPlaceholder": "Kunci API",
+      "authHint": {
+        "apiKey": "Kunci API Anda tetap di perangkat ini.",
+        "both": "Masuk atau tempel kunci API. Kredensial tetap di perangkat ini.",
+        "oauth": "Kredensial tetap di perangkat ini."
+      },
+      "cancelSignIn": "Batalkan proses masuk",
+      "closeSearch": "Tutup pencarian",
+      "empty": {
+        "noMatch": "Tidak ada model yang cocok.",
+        "none": "Belum ada model yang tersedia."
+      },
+      "errors": {
+        "oauthLogin": "Login OAuth gagal.",
+        "saveApiKey": "Gagal menyimpan kunci API."
+      },
+      "favorite": {
+        "add": "Tambahkan ke favorit",
+        "addTitle": "Favorit — sematkan di atas",
+        "remove": "Hapus dari favorit"
+      },
+      "loadFailed": "Couldn't load models",
+      "local": {
+        "hint": "Gunakan server lokal apa pun yang kompatibel dengan OpenAI. Ollama biasanya berjalan di URL di bawah ini.",
+        "modelNameAriaLabel": "Nama model lokal",
+        "serverUrlAriaLabel": "URL server lokal"
+      },
+      "openRouter": {
+        "hintAfter": "id apa pun. Ketik salah satu untuk langsung memakainya.",
+        "hintBefore": "OpenRouter menerima",
+        "modelIdAriaLabel": "id model OpenRouter"
+      },
+      "reasoning": {
+        "default": "Otomatis",
+        "high": "Tinggi",
+        "label": "Upaya penalaran",
+        "low": "Rendah",
+        "medium": "Sedang",
+        "minimal": "Minimal",
+        "xhigh": "Maks"
+      },
+      "refresh": "Segarkan katalog model",
+      "restrictedPlan": "Tidak tersedia pada paket {plan}",
+      "retry": "Retry",
+      "saving": "Menyimpan…",
+      "searchAriaLabel": "Cari model",
+      "searchPlaceholder": "Cari model…",
+      "selected": "Dipilih",
+      "signInWith": "Masuk dengan {provider}",
+      "signOut": {
+        "ariaLabel": "Keluar dari {provider}",
+        "confirmAriaLabel": "Klik lagi untuk keluar dari {provider}",
+        "confirmTitle": "Klik lagi untuk mengonfirmasi"
+      },
+      "use": "Gunakan"
+    },
+    "motion": {
+      "reduceMotion": {
+        "description": "Meminimalkan animasi antarmuka.",
+        "label": "Kurangi gerakan",
+        "off": "Nonaktif",
+        "on": "Aktif",
+        "system": "Sistem"
+      },
+      "title": "Gerakan"
+    },
+    "nativeFontSmoothing": {
+      "description": "Merender teks seperti aplikasi macOS, dengan anti-aliasing skala abu-abu.",
+      "title": "Penghalusan font asli"
+    },
+    "notifications": {
+      "description": "Memutar suara saat Stella menyelesaikan sebuah proses agen.",
+      "title": "Notifikasi suara"
+    },
+    "onboardingReplay": {
+      "action": "Replay",
+      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched.",
+      "title": "Onboarding"
+    },
+    "permissions": {
+      "accessibility": {
+        "description": "Memungkinkan Stella membaca teks yang dipilih dan terbuka melalui pintasan ⌘+klik kanan di mana saja di komputer Anda.",
+        "label": "Aksesibilitas"
+      },
+      "enable": "Aktifkan",
+      "granted": "Diberikan",
+      "microphone": {
+        "description": "Digunakan untuk suara dan dikte. Atur ulang jika Stella sebelumnya ditolak dan macOS tidak meminta lagi.",
+        "label": "Mikrofon"
+      },
+      "opening": "Membuka…",
+      "reset": "Atur ulang",
+      "resetting": "Mengatur ulang…",
+      "restart": {
+        "action": "Mulai ulang",
+        "closing": "Menutup…",
+        "description": "Rekam layar baru saja diaktifkan. Tutup dan buka kembali Stella untuk menyelesaikan pengaturan.",
+        "label": "Mulai ulang Stella"
+      },
+      "screen": {
+        "description": "Memungkinkan Stella melihat layar Anda agar bisa membantu dengan apa yang Anda lihat. Anda mungkin perlu menutup dan membuka kembali Stella setelah mengaktifkannya.",
+        "label": "Rekam layar"
+      },
+      "title": "Izin"
+    },
+    "phoneAccess": {
+      "copy": "Salin",
+      "deviceFallback": "Ponsel",
+      "errors": {
+        "createPairing": "Tidak dapat membuat kode pemasangan."
+      },
+      "expired": "Kedaluwarsa",
+      "getCode": "Dapatkan Kode",
+      "intro": {
+        "headline": "Hubungkan ponsel Anda ke komputer Anda"
+      },
+      "pairedCount": {
+        "other": "{count} ponsel dipasangkan"
+      },
+      "pairing": {
+        "body": "Buka aplikasi Stella di ponsel Anda dan pindai kode QR, atau ketik kode di bawah ini. Anda hanya perlu melakukannya sekali.",
+        "headline": "Pindai atau masukkan kode ini",
+        "qrAlt": "Pindai untuk memasangkan ponsel Anda"
+      },
+      "preparing": "Menyiapkan...",
+      "remove": "Hapus",
+      "removing": "Menghapus...",
+      "signedOut": {
+        "body": "Masuk ke akun Stella Anda untuk memasangkan dengan aplikasi seluler.",
+        "headline": "Masuk untuk memulai"
+      },
+      "steps": {
+        "appStoreQrAlt": "Pindai untuk mengunduh Stella dari App Store",
+        "connect": "Hubungkan ponsel Anda",
+        "download": "Unduh aplikasinya",
+        "platformSelectorLabel": "Pilih platform seluler",
+        "playStoreQrAlt": "Pindai untuk mengunduh Stella dari Google Play"
+      },
+      "timeLeft": "{time} tersisa",
+      "toasts": {
+        "codeCopied": "Kode disalin ke papan klip",
+        "phoneRemoved": "Ponsel dihapus",
+        "removeFailed": "Gagal menghapus ponsel"
+      }
+    },
+    "power": {
+      "description": "Mencegah komputer Anda tidur selama Stella terbuka.",
+      "title": "Jaga komputer tetap aktif"
+    },
+    "providerConnected": {
+      "apply": "Terapkan",
+      "applying": "Menerapkan…",
+      "assistant": {
+        "description": "Alihkan asisten obrolan Stella melalui {provider}.",
+        "label": "Asisten"
+      },
+      "description": "{provider} dapat menjalankan lebih dari satu bagian Stella. Pilih bagian mana yang ingin Anda serahkan — Stella tetap menangani sisanya.",
+      "errors": {
+        "apply": "Gagal menerapkan pengaturan penyedia."
+      },
+      "image": {
+        "description": "Hasilkan gambar melalui akun {provider} Anda.",
+        "label": "Gambar"
+      },
+      "skip": "Lewati",
+      "title": "Gunakan {provider} untuk Stella?",
+      "voice": {
+        "description": "Gunakan {provider} untuk percakapan suara realtime.",
+        "label": "Suara"
+      }
+    },
+    "providerPicker": {
+      "connect": "Hubungkan",
+      "connected": "Terhubung",
+      "opening": "Membuka…"
+    },
+    "reasoningEffort": {
+      "high": "Tinggi",
+      "low": "Rendah",
+      "medium": "Sedang",
+      "minimal": "Minimal",
+      "xhigh": "Ekstra"
+    },
+    "resetCustomizations": {
+      "action": "Pulihkan default",
+      "description": "Menghapus kustomisasi skill dan pengeditan kepribadian Anda agar default bawaan Stella berlaku. Yang dihapus disimpan di ~/.stella/.trash jika Anda ingin mengembalikannya.",
+      "done": "Default dipulihkan. Kustomisasi Anda sebelumnya dipindahkan ke ~/.stella/.trash.",
+      "error": "Tidak dapat memulihkan default.",
+      "none": "Anda sudah menggunakan default Stella.",
+      "title": "Gunakan default Stella"
+    },
+    "search": {
+      "clear": "Hapus pencarian",
+      "descriptions": {
+        "account": "Keluar, hapus data Anda, atau hapus akun Anda secara permanen.",
+        "legal": "Ketentuan Layanan dan Kebijakan Privasi.",
+        "microphone": "Mikrofon mana yang harus didengarkan Stella?",
+        "permissions": "Berikan akses ke aksesibilitas, rekam layar, dan mikrofon di macOS.",
+        "shortcuts": "Ubah pintasan dikte dan suara.",
+        "speaker": "Pilih speaker atau headphone tempat suara Stella diputar.",
+        "wakeWord": "Mendengarkan “Hey Stella” dan memulai percakapan suara."
+      },
+      "noResultsBody": "Coba kata yang lebih pendek atau berbeda.",
+      "noResultsTitle": "Tidak ada pengaturan yang cocok dengan “{query}”",
+      "placeholder": "Cari pengaturan",
+      "resultsAriaOne": "{count} hasil",
+      "resultsAriaOther": "{count} hasil",
+      "resultsOne": "{count} hasil untuk",
+      "resultsOther": "{count} hasil untuk"
+    },
+    "shortcuts": {
+      "actions": {
+        "dictation": "Dikte",
+        "voice": "Agen suara"
+      },
+      "capturing": "Tekan tombol…",
+      "change": "Ubah",
+      "clear": "Hapus",
+      "dictation": {
+        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
+      },
+      "errors": {
+        "load": "Gagal memuat pintasan.",
+        "unavailable": "Pintasan tidak tersedia di jendela ini.",
+        "unavailableShortcut": "Pintasan itu tidak tersedia.",
+        "update": "Gagal memperbarui pintasan."
+      },
+      "off": "Nonaktif",
+      "targets": {
+        "dictation": "dikte",
+        "voice": "agen suara"
+      },
+      "title": "Pintasan",
+      "toasts": {
+        "clearedDescription": "{action} dinonaktifkan hingga Anda menetapkan pintasan baru.",
+        "clearedTitle": "Pintasan {action} dihapus",
+        "failedTitle": "Gagal memperbarui pintasan",
+        "unavailableTitle": "Pintasan tidak tersedia",
+        "updatedDescription": "Tekan {keys} untuk memulai {target}.",
+        "updatedTitle": "Pintasan {action} diperbarui"
+      },
+      "voiceAgent": {
+        "description": "Memulai atau menghentikan agen suara langsung Stella."
+      }
+    },
+    "systemPrompt": {
+      "activeLabel": "Prompt aktif",
+      "agentLabel": "Prompt untuk",
+      "agentSublabel": "Pilih agen mana yang promptnya ingin diubah.",
+      "agents": {
+        "assistant": "Asisten",
+        "worker": "Pekerja"
+      },
+      "cancel": "Batal",
+      "defaultOption": "Bawaan Stella",
+      "delete": "Hapus",
+      "deleted": "Prompt dihapus.",
+      "description": "Prompt bawaan Stella selalu diperbarui bersama aplikasi. Simpan prompt Anda sendiri untuk dipakai sebagai gantinya — disimpan terpisah, jadi pembaruan tidak akan menimpanya.",
+      "duplicate": "Duplikat",
+      "edit": "Edit",
+      "error": "Terjadi kesalahan.",
+      "nameLabel": "Nama",
+      "newFromDefault": "Baru dari bawaan",
+      "newName": "Prompt saya",
+      "save": "Simpan",
+      "saved": "Prompt disimpan.",
+      "title": "Prompt sistem",
+      "usingCustom": "Menggunakan prompt tersimpan Anda.",
+      "usingDefault": "Menggunakan prompt bawaan Stella."
+    },
+    "tabs": {
+      "account": "Akun & legal",
+      "audio": "Audio",
+      "general": "Umum",
+      "shortcuts": "Pintasan"
+    },
+    "title": "Pengaturan",
+    "voiceAgent": {
+      "description": "Tampilkan kontrol suara dan panggilan agar kamu bisa berbicara dengan Stella. Dikte tetap berfungsi.",
+      "error": "Gagal memperbarui pengaturan suara.",
+      "title": "Percakapan suara"
+    },
+    "voiceCatalog": {
+      "label": "Suara",
+      "menuAriaLabel": "Suara {source}",
+      "nextVoice": "Suara berikutnya",
+      "previousVoice": "Suara sebelumnya",
+      "readAloud": {
+        "ariaLabel": "Penyedia suara untuk bacakan",
+        "description": "Membacakan balasan dengan suara dari penyedia ini.",
+        "geminiTitle": "Bacakan balasan dengan Gemini TTS",
+        "label": "Bacakan",
+        "openaiTitle": "Bacakan balasan dengan OpenAI TTS"
+      },
+      "source": {
+        "gemini": "Suara Gemini",
+        "gptlive": "Suara Stella",
+        "openai": "Suara OpenAI",
+        "xai": "Suara Grok"
+      }
+    }
+  },
+  "shell": {
+    "agentProgress": {
+      "recentAgentMessages": "Pesan agen terbaru",
+      "recentProgress": "Kemajuan terbaru"
+    },
+    "appSource": {
+      "failed": "Tidak dapat menerapkan perubahan",
+      "files": {
+        "other": "{count} file"
+      },
+      "outdated": "Dibuat pada versi lama",
+      "restarts": "Memulai ulang Stella",
+      "title": "Perubahan pada Stella",
+      "undo": "Urungkan",
+      "undoneAgo": "Dibatalkan {ago}",
+      "undoneJustNow": "Baru saja dibatalkan",
+      "update": "Perbarui",
+      "updatedAgo": "Diperbarui {ago}",
+      "updatedJustNow": "Baru saja diperbarui",
+      "updates": {
+        "add": "Tambahkan",
+        "adding": "Menambahkan…",
+        "fromDevice": "Perubahan yang Anda buat di {device}",
+        "fromOtherComputer": "Perubahan yang Anda buat di komputer Anda yang lain",
+        "fromOtherComputers": "Perubahan dari komputer Anda yang lain",
+        "get": "Ambil",
+        "history": "Riwayat",
+        "justNow": "Baru saja",
+        "newVersion": "Versi baru Stella",
+        "newVersionDetail": "Peningkatan dan perbaikan dari tim Stella",
+        "pill": {
+          "other": "{count} pembaruan"
+        },
+        "readyChange": "Perubahan siap ditambahkan",
+        "removed": "Dihapus: {change}",
+        "skip": "Lewati",
+        "skipped": "Dilewati",
+        "undoing": "Membatalkan…",
+        "upToDate": "Tidak ada yang menunggu",
+        "waiting": "Menunggu"
+      }
+    },
+    "audioPlayer": {
+      "pause": "Jeda",
+      "play": "Putar",
+      "seek": "Cari posisi"
+    },
+    "browser": {
+      "connected": "Browser terhubung",
+      "connecting": "Menunggu ekstensi…",
+      "newTab": "Buka tab baru"
+    },
+    "capture": {
+      "failedDescription": "Terjadi masalah saat mengambil tangkapan layar. Coba lagi.",
+      "failedTitle": "Tidak dapat menangkap itu"
+    },
+    "chatSidebar": {
+      "add": "Tambah",
+      "dictationError": "Dikte: {error}",
+      "stop": "Berhenti"
+    },
+    "connectors": {
+      "desktopRequired": "Konektor tersedia di aplikasi desktop Stella.",
+      "empty": "Belum ada konektor yang tersedia.",
+      "loading": "Memuat konektor…",
+      "noMatches": "Tidak ada konektor yang cocok dengan pencarian itu.",
+      "searchLabel": "Cari konektor",
+      "searchPlaceholder": "Cari",
+      "title": "Konektor"
+    },
+    "display": {
+      "agentThread": {
+        "badge": "Utas agen hanya-baca",
+        "claudeAriaLabel": "Percakapan subagen Claude hanya-baca",
+        "claudeBadge": "Subagen Claude hanya-baca",
+        "empty": "Belum ada pesan di utas ini.",
+        "loadFailed": "Tidak dapat memuat utas ini.",
+        "newMessages": {
+          "other": "{count} pesan baru."
+        },
+        "newMessagesButton": {
+          "other": "{count} pesan baru"
+        },
+        "newMessagesWithPreview": "{countPhrase} {role} terbaru: {preview}",
+        "reasoningGroup": {
+          "other": "{count} reasoning steps"
+        },
+        "retrying": "Mencoba lagi…",
+        "role": {
+          "assistant": "Agen",
+          "checkpoint": "Titik pemeriksaan utas",
+          "lifecycle": "Aktivitas",
+          "reasoning": "Penalaran",
+          "tool": "Alat",
+          "user": "Instruksi"
+        },
+        "showNewMessagesAria": "Tampilkan {countPhrase}",
+        "showingNewest": "Menampilkan pesan terbaru.",
+        "status": {
+          "canceled": "Dihentikan",
+          "completed": "Selesai",
+          "error": "Gagal",
+          "running": "Sedang bekerja"
+        },
+        "toolGroup": {
+          "other": "{count} tool calls"
+        },
+        "toolInput": "Masukan",
+        "toolOutput": "Keluaran",
+        "toolRunning": "Menunggu alat ini selesai…",
+        "unavailable": "Riwayat utas agen tidak tersedia."
+      },
+      "canvas": {
+        "loadFailed": "Tidak dapat memuat kanvas ini.",
+        "loading": "Memuat"
+      },
+      "canvasShare": {
+        "copyLink": "Salin tautan",
+        "empty": "Belum ada berbagi aktif. Terbitkan sebuah kanvas untuk mendapatkan tautan publik.",
+        "expires": "Kedaluwarsa {date}",
+        "links": "Tautan",
+        "live": "Kanvas sudah tayang",
+        "loadFailed": "Tidak dapat memuat item yang Anda bagikan.",
+        "publicLink": "Tautan kanvas publik",
+        "publishFailed": "Tidak dapat menerbitkan kanvas ini. Silakan coba lagi.",
+        "publishing": "Menerbitkan kanvas…",
+        "revoke": "Cabut berbagi",
+        "share": "Bagikan",
+        "shared": "Dibagikan {date}",
+        "sharedLinks": "Tautan yang dibagikan",
+        "sharedWithExpiry": "Dibagikan {shared} · kedaluwarsa {expires}",
+        "toasts": {
+          "copyFailed": "Tidak dapat menyalin tautan",
+          "linkCopied": "Tautan berbagi disalin",
+          "revokeFailed": "Tidak dapat mencabut berbagi ini",
+          "revoked": "Berbagi dicabut"
+        },
+        "untitled": "Kanvas tanpa judul"
+      },
+      "diff": {
+        "changes": "Perubahan",
+        "codeChanges": "Perubahan kode",
+        "desktopRequired": "Pratinjau kode memerlukan aplikasi desktop Stella.",
+        "empty": "Belum ada perubahan berkas. Saat agen mengedit kode, perubahannya muncul di sini.",
+        "noChanges": "Tidak ada perubahan ditemukan."
+      },
+      "filePreview": {
+        "copy": "Salin",
+        "loading": "Memuat...",
+        "save": "Simpan"
+      },
+      "homeLauncher": {
+        "files": {
+          "description": "Halaman, gambar, video, dan dokumen",
+          "label": "Berkas"
+        },
+        "trash": {
+          "description": "Hal-hal yang baru saja Anda hapus",
+          "label": "Sampah"
+        }
+      },
+      "markdown": {
+        "desktopRequired": "Pratinjau Markdown memerlukan aplikasi desktop Stella.",
+        "eyebrow": "Markdown",
+        "noContent": "Tidak ada konten ditemukan."
+      },
+      "media": {
+        "copied": "Disalin",
+        "copy": "Salin",
+        "copyFailed": "Tidak dapat menyalin",
+        "delete": "Hapus",
+        "deleteConfirm": "Klik lagi untuk menghapus",
+        "expand": "Perbesar",
+        "expandPanel": "Perbesar panel",
+        "itemActions": "Tindakan item",
+        "missing": "Berkas tidak tersedia lagi.",
+        "revealInFinder": "Tampilkan di Finder",
+        "save": "Simpan",
+        "saveFailed": "Tidak dapat menyimpan",
+        "saved": "Tersimpan"
+      },
+      "office": {
+        "frameTitle": "Pratinjau {kind}: {title}",
+        "kind": {
+          "document": "Dokumen",
+          "presentation": "Presentasi",
+          "spreadsheet": "Lembar kerja"
+        },
+        "livePreview": "Pratinjau langsung",
+        "loadFailed": "Tidak dapat memuat pratinjau ini",
+        "preparing": "Menyiapkan pratinjau...",
+        "revealInFinder": "Tampilkan di Finder",
+        "sessionError": "Sesi pratinjau melaporkan kesalahan.",
+        "sheetCount": {
+          "other": "{count} lembar"
+        },
+        "slideCount": {
+          "other": "{count} slide"
+        },
+        "zoomAriaLabel": "Zoom pratinjau"
+      },
+      "preview": {
+        "limited": "Pratinjau terbatas. Simpan atau buka berkas asli untuk melihat seluruh isinya.",
+        "unavailable": "Tidak dapat menyiapkan pratinjau ini."
+      },
+      "spreadsheet": {
+        "column": "Kolom {index}",
+        "desktopRequired": "Pratinjau lembar kerja memerlukan aplikasi desktop Stella.",
+        "eyebrow": "Lembar kerja",
+        "noRows": "Tidak ada baris ditemukan."
+      },
+      "trash": {
+        "autoDeletesIn": "Terhapus otomatis dalam {time}",
+        "deleteNow": "Hapus sekarang",
+        "deleting": "Menghapus…",
+        "empty": "Belum ada apa pun di sini saat ini.",
+        "emptyTrash": "Kosongkan sampah",
+        "emptying": "Mengosongkan…",
+        "itemsAutoDeleted": {
+          "other": "{count} item — terhapus otomatis dalam 24 jam."
+        },
+        "pendingPurge": "Menunggu pembersihan",
+        "refresh": "Segarkan",
+        "title": "Sampah",
+        "trashedAgo": "Dibuang {time} lalu"
+      },
+      "url": {
+        "eyebrow": "Pratinjau langsung",
+        "openInBrowser": "Buka di browser",
+        "reload": "Muat ulang"
+      }
+    },
+    "displayPanel": {
+      "closePanel": "Tutup panel",
+      "openPanel": "Buka panel"
+    },
+    "rightSidebar": {
+      "resize": "Ubah ukuran panel tampilan",
+      "resizeHint": "Seret untuk mengubah ukuran · klik dua kali untuk mengatur ulang",
+      "workspace": "Ruang kerja"
+    },
+    "sidebar": {
+      "account": {
+        "planAriaLabel": "{name}, paket {plan}",
+        "signOutDescription": "Anda yakin?",
+        "signOutTitle": "Keluar dari Stella?"
+      },
+      "feedback": {
+        "description": "Pesan Anda dikirim secara anonim — tidak terkait dengan akun Anda.",
+        "fieldLabel": "Masukan",
+        "placeholder": "Ceritakan apa yang sudah bagus, apa yang belum, atau apa yang ingin Anda lihat…",
+        "send": "Kirim",
+        "sending": "Mengirim…",
+        "title": "Kirim masukan",
+        "toasts": {
+          "failedTitle": "Tidak dapat mengirim masukan",
+          "sentDescription": "Terima kasih — setiap catatan membantu kami membentuk Stella.",
+          "sentTitle": "Masukan terkirim"
+        }
+      },
+      "nav": {
+        "apps": "Aplikasi",
+        "unreadAriaLabel": "{label}, {count} belum dibaca",
+        "unreadTitle": "{label} ({count} belum dibaca)"
+      }
+    },
+    "topbar": {
+      "conversation": {
+        "closeConversation": "Tutup {title}",
+        "delete": "Hapus {title}",
+        "deleteConfirm": "Klik lagi untuk mengonfirmasi",
+        "deleteConfirmFor": "Klik lagi untuk menghapus {title}",
+        "deleteFailed": "Tidak dapat menghapus percakapan ini",
+        "deleteFailedFor": "Tidak dapat menghapus {title}",
+        "history": "Riwayat percakapan",
+        "historyEmpty": "Belum ada percakapan",
+        "historyRetry": "Tidak dapat memuat percakapan. Coba lagi",
+        "newChat": "Obrolan baru",
+        "newChatConfirm": "Click again to confirm",
+        "openConversation": "Buka {title}",
+        "openConversations": "Buka percakapan",
+        "unread": "Pesan belum dibaca"
+      }
+    },
+    "windowControls": {
+      "maximize": "Perbesar",
+      "minimize": "Perkecil",
+      "restore": "Pulihkan"
+    },
+    "workspace": {
+      "activity": "Aktivitas",
+      "moreFiles": {
+        "other": "{count} more files"
+      },
+      "viewFiles": {
+        "other": "Lihat {count} berkas"
+      }
+    }
+  },
+  "sidebar": {
+    "account": "Akun",
+    "feedback": "Kirim masukan",
+    "newChat": "Obrolan baru",
+    "signIn": "Masuk",
+    "upgrade": "Tingkatkan paket"
+  },
+  "ui": {
+    "imageLightbox": {
+      "close": "Tutup pratinjau",
+      "title": "Pratinjau gambar"
     }
   }
 }

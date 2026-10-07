@@ -5,6 +5,7 @@ import { ProviderModelPanel } from "@/global/settings/ProviderModelPanel";
 import { EngineScopedModelList } from "@/global/settings/EngineScopedModelList";
 import { ProviderOnlyPicker, type ProviderOption, } from "@/global/settings/ProviderOnlyPicker";
 import { VoiceCatalogPicker } from "@/global/settings/VoiceCatalogPicker";
+import { useRealtimeVoiceVisible } from "@/shared/lib/realtime-voice-visibility";
 import { coerceRealtimeVoiceProvider, type ReadAloudVoiceProvider, type RealtimeVoicePreferences, type RealtimeVoiceUnderlyingProvider, } from "@stella/contracts/local-preferences";
 import { useModelCatalog } from "@/global/settings/hooks/use-model-catalog";
 import { useClaudeCodeModelCatalog } from "@/global/settings/hooks/use-claude-code-model-catalog";
@@ -120,7 +121,6 @@ const VOICE_PROVIDER_OPTIONS: readonly ProviderOption[] = [
     { key: "stella", label: "Stella" },
     { key: "openai", label: "OpenAI" },
     { key: "xai", label: "xAI" },
-    { key: "inworld", label: "Inworld" },
 ];
 /**
  * Last-known local model preferences, used to seed `useState` so re-opening
@@ -166,6 +166,7 @@ function DesktopAgentModelPicker({ active = true, onSelected, className, surface
     const t = useT();
     const imageProviderOptions = useByokProviderOptions(IMAGE_PROVIDER_OPTIONS);
     const voiceProviderOptions = useByokProviderOptions(VOICE_PROVIDER_OPTIONS);
+    const voiceVisible = useRealtimeVoiceVisible();
     const { allModels, defaults: stellaDefaultModels, groups, refresh, refreshing, audience, error: catalogError, } = useModelCatalog();
     const [preferences, setPreferencesRaw] = useState<LocalModelPreferences | null>(() => cachedLocalPreferences);
     const [pendingAgent, setPendingAgent] = useState<string | null>(null);
@@ -377,15 +378,15 @@ function DesktopAgentModelPicker({ active = true, onSelected, className, surface
         if (configurableAgents.length === 0)
             return;
         if (activeAgent === IMAGE_TARGET ||
-            activeAgent === VOICE_TARGET ||
+            (activeAgent === VOICE_TARGET && voiceVisible) ||
             configurableAgents.some((entry) => entry.key === activeAgent)) {
             return;
         }
         setActiveAgent(configurableAgents[0].key);
-    }, [activeAgent, configurableAgents, surface]);
+    }, [activeAgent, configurableAgents, surface, voiceVisible]);
     const activeAssistant = activeAgent === ASSISTANT_TARGET;
     const activeImage = activeAgent === IMAGE_TARGET;
-    const activeVoice = activeAgent === VOICE_TARGET;
+    const activeVoice = activeAgent === VOICE_TARGET && voiceVisible;
     const activeProviderSetting = activeImage || activeVoice;
     /** Saved model override for the active tab (assistant reads orchestrator
      * with general as fallback, same as `current` below). */
@@ -637,7 +638,7 @@ function DesktopAgentModelPicker({ active = true, onSelected, className, surface
     }, [onSelected, pendingAgent, preferences, setPreferences, t]);
     /**
      * Optimistic patch of just the `realtimeVoice` slice. Voice catalog
-     * changes (voice id, speed, sub-family) are tiny and idempotent, so we
+     * changes (voice id, read-aloud family) are tiny and idempotent, so we
      * deliberately skip the pendingAgent gate that would flicker the whole
      * picker on every click. The caller passes the next slice and an
      * error label; we apply locally, write through IPC, and revert on
@@ -666,21 +667,6 @@ function DesktopAgentModelPicker({ active = true, onSelected, className, surface
             voices: { ...(previous.voices ?? {}), [underlyingProvider]: voiceId },
         }, t("settings.agentModelPicker.errors.updateVoice"));
     }, [patchRealtimeVoice, preferences, t]);
-    const handleInworldSpeedSelect = useCallback((speed: number) => {
-        const previous = preferences?.realtimeVoice ?? DEFAULT_REALTIME_VOICE;
-        const clamped = Math.min(2.0, Math.max(0.5, speed));
-        if (typeof previous.inworldSpeed === "number" &&
-            Math.abs(previous.inworldSpeed - clamped) < 0.001) {
-            return;
-        }
-        void patchRealtimeVoice({ ...previous, inworldSpeed: clamped }, t("settings.agentModelPicker.errors.updateInworldSpeed"));
-    }, [patchRealtimeVoice, preferences, t]);
-    const handleStellaSubProviderSelect = useCallback((subProvider: RealtimeVoiceUnderlyingProvider) => {
-        const previous = preferences?.realtimeVoice ?? DEFAULT_REALTIME_VOICE;
-        if (previous.stellaSubProvider === subProvider)
-            return;
-        void patchRealtimeVoice({ ...previous, stellaSubProvider: subProvider }, t("settings.agentModelPicker.errors.updateVoiceFamily"));
-    }, [patchRealtimeVoice, preferences, t]);
     const handleReadAloudProviderSelect = useCallback((provider: ReadAloudVoiceProvider) => {
         const previous = preferences?.realtimeVoice ?? DEFAULT_REALTIME_VOICE;
         if ((previous.readAloudProvider ?? "gemini") === provider)
@@ -700,18 +686,19 @@ function DesktopAgentModelPicker({ active = true, onSelected, className, surface
         if (!preferences || pendingAgent)
             return;
         const previous = preferences.realtimeVoice ?? DEFAULT_REALTIME_VOICE;
-        // Preserve catalog choices (voice id, sub-family, speed) when
-        // switching provider mode so a Stella → BYOK round-trip doesn't
-        // wipe the user's selections. `model` is intentionally dropped:
-        // the kernel re-selects the right default for the new provider.
+        // Preserve the per-provider voice ids when switching provider mode
+        // so a Stella → BYOK round-trip doesn't wipe the user's selections.
+        // `model` is intentionally dropped: the kernel re-selects the right
+        // default for the new provider. `enabled` rides along so flipping
+        // provider never silently hides the voice controls.
         const next = {
             provider: coerceRealtimeVoiceProvider(providerKey),
             ...(previous.voices ? { voices: previous.voices } : {}),
-            ...(previous.stellaSubProvider
-                ? { stellaSubProvider: previous.stellaSubProvider }
+            ...(previous.enabled !== undefined
+                ? { enabled: previous.enabled }
                 : {}),
-            ...(typeof previous.inworldSpeed === "number"
-                ? { inworldSpeed: previous.inworldSpeed }
+            ...(previous.readAloudProvider
+                ? { readAloudProvider: previous.readAloudProvider }
                 : {}),
         };
         setPendingAgent(VOICE_TARGET);
@@ -975,12 +962,16 @@ function DesktopAgentModelPicker({ active = true, onSelected, className, surface
             ? [
                 ...configurableAgents.map((agent) => tabButton(agent.key, agent.label, agent.desc, agent.key === activeAgent)),
                 tabButton(IMAGE_TARGET, t("settings.agentModelPicker.tabs.image"), t("settings.agentModelPicker.tabs.imageTitle"), activeImage),
-                tabButton(VOICE_TARGET, t("settings.agentModelPicker.tabs.voice"), t("settings.agentModelPicker.tabs.voiceTitle"), activeVoice),
+                ...(voiceVisible
+                    ? [tabButton(VOICE_TARGET, t("settings.agentModelPicker.tabs.voice"), t("settings.agentModelPicker.tabs.voiceTitle"), activeVoice)]
+                    : []),
             ]
             : [
                 tabButton(ASSISTANT_TARGET, t("settings.agentModelPicker.tabs.assistant"), t("settings.agentModelPicker.tabs.assistantTitle"), activeAssistant),
                 tabButton(IMAGE_TARGET, t("settings.agentModelPicker.tabs.image"), t("settings.agentModelPicker.tabs.imageTitle"), activeImage),
-                tabButton(VOICE_TARGET, t("settings.agentModelPicker.tabs.voice"), t("settings.agentModelPicker.tabs.voiceTitle"), activeVoice),
+                ...(voiceVisible
+                    ? [tabButton(VOICE_TARGET, t("settings.agentModelPicker.tabs.voice"), t("settings.agentModelPicker.tabs.voiceTitle"), activeVoice)]
+                    : []),
             ]}
           </div>
         </div>
@@ -995,7 +986,7 @@ function DesktopAgentModelPicker({ active = true, onSelected, className, surface
 
         {activeImage ? (<ProviderOnlyPicker providers={imageProviderOptions} value={current || "stella"} onSelect={(key) => void handleImageProviderSelect(key)} disabled={!preferences || pendingAgent !== null} ariaLabel={t("settings.agentModelPicker.imageProviderAriaLabel")}/>) : activeVoice ? (<>
             <ProviderOnlyPicker providers={voiceProviderOptions} value={current || "stella"} onSelect={(key) => void handleVoiceProviderSelect(key)} disabled={!preferences || pendingAgent !== null} ariaLabel={t("settings.agentModelPicker.voiceProviderAriaLabel")}/>
-            <VoiceCatalogPicker voiceProvider={voicePreferences.provider} stellaSubProvider={voicePreferences.stellaSubProvider} selectedVoices={voicePreferences.voices} inworldSpeed={voicePreferences.inworldSpeed} readAloudProvider={voicePreferences.readAloudProvider} onSelectVoice={(underlyingProvider, voiceId) => void handleVoiceSelect(underlyingProvider, voiceId)} onSelectStellaSubProvider={(sub) => void handleStellaSubProviderSelect(sub)} onSelectInworldSpeed={(speed) => void handleInworldSpeedSelect(speed)} onSelectReadAloudProvider={(provider) => void handleReadAloudProviderSelect(provider)} onSelectReadAloudVoice={(voiceId) => void handleReadAloudVoiceSelect(voiceId)} disabled={!preferences || pendingAgent !== null}/>
+            <VoiceCatalogPicker voiceProvider={voicePreferences.provider} selectedVoices={voicePreferences.voices} readAloudProvider={voicePreferences.readAloudProvider} onSelectVoice={(underlyingProvider, voiceId) => void handleVoiceSelect(underlyingProvider, voiceId)} onSelectReadAloudProvider={(provider) => void handleReadAloudProviderSelect(provider)} onSelectReadAloudVoice={(voiceId) => void handleReadAloudVoiceSelect(voiceId)} disabled={!preferences || pendingAgent !== null}/>
           </>) : (<>
             <ProviderModelPanel value={current} defaultLabel={defaultLabel} currentLabel={currentLabel} groups={groups} disabled={!ready || pendingAgent !== null} restrictStellaPicks={restrictedStellaPicks} restrictedPlanLabel={restrictedPlanLabel} ariaLabel={t("settings.agentModelPicker.assistantPickerAriaLabel")} onSelect={handleSelect} hideSelectedTitle hideDefaultRow selectedRowExtra={showReasoningControl ? reasoningControl : null} collapsibleGroups activeSectionKey={activeSectionKey} hiddenProviders={HIDDEN_CATALOG_PROVIDERS} sectionOrder={SECTION_ORDER} onExtraSectionExpanded={handleExtraSectionExpanded} onRefresh={handleCatalogRefresh} catalogError={catalogError} refreshing={refreshing ||
                 ((claudeCodeSectionOpen || committedEngine === "claude_code_local") &&

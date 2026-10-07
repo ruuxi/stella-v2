@@ -1,1169 +1,5 @@
 {
-  "common": {
-    "appName": "Stella",
-    "continue": "जारी रखें",
-    "back": "वापस",
-    "next": "आगे",
-    "previous": "पिछला",
-    "cancel": "रद्द करें",
-    "save": "सहेजें",
-    "close": "बंद करें",
-    "open": "खोलें",
-    "openPreferences": "वरीयताएँ खोलें",
-    "signIn": "साइन इन",
-    "signOut": "साइन आउट",
-    "loading": "लोड हो रहा है…",
-    "tryAgain": "फिर से कोशिश करें",
-    "language": "भाषा",
-    "yes": "हाँ",
-    "no": "नहीं",
-    "copy": "कॉपी करें"
-  },
-  "cloudConnector": {
-    "titleOffer": "{name} कनेक्ट करें?",
-    "titleWaiting": "{name} का इंतज़ार है",
-    "connecting": "अपने ब्राउज़र में {name} में साइन इन पूरा करें। मंज़ूरी मिलते ही Stella आगे बढ़ेगी।",
-    "connect": "कनेक्ट करें",
-    "openAgain": "दोबारा खोलें",
-    "notNow": "अभी नहीं",
-    "errors": {
-      "decision": "{name} कनेक्ट नहीं हो सका। दोबारा कोशिश करें।",
-      "open": "साइन-इन पेज नहीं खुल सका।"
-    }
-  },
-  "cloudBrowser": {
-    "errors": {
-      "decision": "That didn't go through. Try again.",
-      "verificationUrl": "Couldn't open that page.",
-      "expired": "This sign-in is no longer needed.",
-      "liveViewBoundary": "Couldn't load the sign-in page.",
-      "liveView": "Couldn't load the sign-in page. Try again."
-    },
-    "deviceCode": {
-      "title": "Sign in to {origin}",
-      "codeLabel": "Code",
-      "body": "Enter this code on the site, then come back here.",
-      "copied": "Copied",
-      "copy": "Copy code",
-      "open": "Open site"
-    },
-    "takeover": {
-      "title": "Sign in to {origin}",
-      "checking": "Finishing sign-in to {origin}",
-      "body": "Sign in to keep going. Stella can't see what you type.",
-      "resumingBody": "Stella will pick up where it left off.",
-      "preparing": "Loading sign-in…",
-      "frameTitle": "Sign in to {origin}",
-      "privateNotice": "Stella can't see what you type",
-      "localNotice": "Stella can't see what you type",
-      "localOriginFallback": "Switched to Stella's browser to finish signing in.",
-      "localTransferFallback": "Couldn't confirm that sign-in. Try again in Stella's browser."
-    },
-    "actions": {
-      "canceling": "Canceling…",
-      "finishing": "Finishing…",
-      "done": "Done",
-      "useCloudBrowser": "Use Stella's browser"
-    },
-    "needsYou": {
-      "title": "Needs you",
-      "deviceCode": "Enter a code for {origin}",
-      "signIn": "Sign in to {origin}",
-      "open": "Open"
-    },
-    "settings": {
-      "title": "Browser sign-ins",
-      "defaultProfile": "Saved sign-ins",
-      "description": "Sites Stella has signed in to for you. Reset to sign out of all of them.",
-      "resetComplete": "Signed out of all sites.",
-      "resetFailed": "Couldn't sign out. Try again.",
-      "resetting": "Resetting…",
-      "reset": "Reset",
-      "confirmTitle": "Sign out of all sites?",
-      "confirmBody": "Stella will ask you to sign in again next time."
-    }
-  },
-  "sidebar": {
-    "signIn": "साइन इन",
-    "account": "खाता",
-    "feedback": "फीडबैक भेजें",
-    "upgrade": "अपग्रेड करें",
-    "newChat": "नई चैट"
-  },
-  "settings": {
-    "chatStorage": {
-      "title": "चैट इतिहास क्लाउड में सेव करें",
-      "description": "अपनी चैट सभी डिवाइस पर देखें। बंद करने पर चैट इतिहास सिर्फ़ इसी कंप्यूटर पर अलग से रहेगा। दोबारा चालू करने पर वे चैट अपलोड नहीं होंगी। AI प्रदाता फिर भी आपके संदेश प्रोसेस करते हैं।",
-      "endVoice": "चैट स्टोरेज बदलने के लिए अपनी वॉइस बातचीत खत्म करें।",
-      "error": "चैट स्टोरेज नहीं बदला जा सका। दोबारा कोशिश करें।"
-    },
-    "title": "सेटिंग्स",
-    "tabs": {
-      "general": "बुनियादी",
-      "shortcuts": "शॉर्टकट",
-      "account": "खाता और कानूनी",
-      "audio": "ऑडियो"
-    },
-    "language": {
-      "title": "भाषा",
-      "description": "वह भाषा चुनें जिसे Stella ऐप में और जवाबों में इस्तेमाल करेगी।"
-    },
-    "memory": {
-      "title": "मेमोरी",
-      "description": "सेव की गई यादों और अपनी प्रोफ़ाइल को Stella के मॉडल कॉन्टेक्स्ट में शामिल करें। क्लाउड कॉपी आधिकारिक है और ट्रांज़िट व स्टोरेज दोनों में एन्क्रिप्ट की गई है; Stella एक लोकल कॉपी भी रख सकती है। इसे बंद करने पर मेमोरी आगे की बातचीत में शामिल नहीं होगी, लेकिन मिटाई नहीं जाएगी।"
-    },
-    "developerPreviews": {
-      "title": "डेवलपर फ़ाइल पूर्वावलोकन",
-      "description": "चैट में कोड परिवर्तन दिखाएँ और उन्हें साइड पैनल में खोलें।"
-    },
-    "nativeFontSmoothing": {
-      "title": "नेटिव फ़ॉन्ट स्मूदिंग",
-      "description": "टेक्स्ट को macOS ऐप्स की तरह, ग्रेस्केल एंटी-एलियासिंग के साथ रेंडर करें।"
-    },
-    "motion": {
-      "title": "मोशन",
-      "reduceMotion": {
-        "label": "मोशन कम करें",
-        "description": "इंटरफ़ेस एनिमेशन को न्यूनतम करें।",
-        "system": "सिस्टम",
-        "on": "चालू",
-        "off": "बंद"
-      }
-    },
-    "notifications": {
-      "title": "ध्वनि सूचनाएँ",
-      "description": "जब Stella किसी एजेंट का रन पूरा करती है तो एक ध्वनि बजाएँ।"
-    },
-    "power": {
-      "title": "कंप्यूटर को जगाए रखें",
-      "description": "जब Stella खुली हो तब आपके कंप्यूटर को स्लीप में जाने से रोकें।"
-    },
-    "lockedComputerUse": {
-      "title": "लॉक होने पर कंप्यूटर उपयोग",
-      "description": "इस Mac के लॉक होने के बाद Stella को कंप्यूटर-उपयोग कार्य जारी रखने दें। इसके लिए व्यवस्थापक अनुमति आवश्यक है और Stella के काम करते समय स्क्रीन ढक जाती है।",
-      "unsupported": "लॉक होने पर कंप्यूटर उपयोग केवल macOS पर उपलब्ध है।"
-    },
-    "browserExtension": {
-      "title": "Chrome के लिए Stella",
-      "description": "Stella को वह पेज देखने दें जिस पर आप हैं और आपके ब्राउज़र में कार्य करने दें।",
-      "action": "एक्सटेंशन प्राप्त करें"
-    },
-    "resetCustomizations": {
-      "title": "Stella के डिफ़ॉल्ट उपयोग करें",
-      "description": "आपके स्किल कस्टमाइज़ेशन और व्यक्तित्व संपादन हटा देता है ताकि Stella के डिफ़ॉल्ट लागू हों। हटाई गई चीज़ें ~/.stella/.trash में रहती हैं, अगर आप उन्हें वापस चाहें।",
-      "action": "डिफ़ॉल्ट बहाल करें",
-      "done": "डिफ़ॉल्ट बहाल हो गए। आपके पिछले कस्टमाइज़ेशन ~/.stella/.trash में ले जाए गए।",
-      "none": "आप पहले से ही Stella के डिफ़ॉल्ट उपयोग कर रहे हैं।",
-      "error": "डिफ़ॉल्ट बहाल नहीं किए जा सके।"
-    },
-    "systemPrompt": {
-      "title": "सिस्टम प्रॉम्प्ट",
-      "description": "Stella का डिफ़ॉल्ट प्रॉम्प्ट हमेशा ऐप के साथ अपडेट होता है। अपना प्रॉम्प्ट सहेजें ताकि उसका उपयोग हो — यह अलग रखा जाता है, इसलिए अपडेट उसे कभी नहीं बदलते।",
-      "agentLabel": "किसका प्रॉम्प्ट",
-      "agentSublabel": "चुनें कि किस एजेंट का प्रॉम्प्ट बदलना है।",
-      "activeLabel": "सक्रिय प्रॉम्प्ट",
-      "defaultOption": "Stella का डिफ़ॉल्ट",
-      "usingDefault": "Stella का डिफ़ॉल्ट प्रॉम्प्ट उपयोग में है।",
-      "usingCustom": "आपका सहेजा गया प्रॉम्प्ट उपयोग में है।",
-      "newFromDefault": "डिफ़ॉल्ट से नया",
-      "edit": "संपादित करें",
-      "duplicate": "डुप्लिकेट",
-      "delete": "हटाएँ",
-      "save": "सहेजें",
-      "cancel": "रद्द करें",
-      "nameLabel": "नाम",
-      "newName": "मेरा प्रॉम्प्ट",
-      "saved": "प्रॉम्प्ट सहेजा गया।",
-      "deleted": "प्रॉम्प्ट हटाया गया।",
-      "error": "कुछ गड़बड़ हो गई।",
-      "agents": {
-        "assistant": "सहायक",
-        "worker": "वर्कर"
-      }
-    },
-    "permissions": {
-      "title": "अनुमतियाँ",
-      "enable": "सक्षम करें",
-      "granted": "दी गई",
-      "opening": "खोल रहे हैं…",
-      "reset": "रीसेट करें",
-      "resetting": "रीसेट हो रहा है…",
-      "accessibility": {
-        "label": "एक्सेसिबिलिटी",
-        "description": "Stella को चयनित टेक्स्ट पढ़ने और आपके कंप्यूटर पर कहीं भी ⌘+राइट-क्लिक शॉर्टकट से खुलने देता है।"
-      },
-      "screen": {
-        "label": "स्क्रीन कैप्चर",
-        "description": "Stella को आपकी स्क्रीन देखने देता है ताकि वह उसमें मदद कर सके जो आप देख रहे हैं। इसे चालू करने के बाद आपको Stella को बंद करके फिर से खोलना पड़ सकता है।"
-      },
-      "microphone": {
-        "label": "माइक्रोफ़ोन",
-        "description": "आवाज़ और श्रुतलेखन के लिए उपयोग किया जाता है। यदि Stella पहले अस्वीकृत हो गई थी और macOS दोबारा नहीं पूछता, तो रीसेट करें।"
-      },
-      "restart": {
-        "label": "Stella पुनः आरंभ करें",
-        "description": "स्क्रीन कैप्चर अभी चालू हुआ। सेटअप पूरा करने के लिए Stella बंद करके फिर से खोलें।",
-        "action": "पुनः आरंभ करें",
-        "closing": "बंद हो रहा है…"
-      }
-    },
-    "shortcuts": {
-      "title": "शॉर्टकट",
-      "change": "बदलें",
-      "capturing": "कुंजियाँ दबाएँ…",
-      "clear": "साफ़ करें",
-      "off": "बंद",
-      "actions": {
-        "dictation": "श्रुतलेखन",
-        "voice": "वॉइस एजेंट"
-      },
-      "dictation": {
-        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
-      },
-      "voiceAgent": {
-        "description": "Stella के लाइव वॉइस एजेंट को शुरू या बंद करता है।"
-      },
-      "targets": {
-        "dictation": "श्रुतलेखन",
-        "voice": "वॉइस एजेंट"
-      },
-      "toasts": {
-        "updatedTitle": "{action} शॉर्टकट अपडेट किया गया",
-        "clearedTitle": "{action} शॉर्टकट साफ़ किया गया",
-        "updatedDescription": "{target} शुरू करने के लिए {keys} दबाएँ।",
-        "clearedDescription": "जब तक आप नया शॉर्टकट सेट नहीं करते, {action} अक्षम है।",
-        "unavailableTitle": "शॉर्टकट उपलब्ध नहीं",
-        "failedTitle": "शॉर्टकट अपडेट करने में विफल"
-      },
-      "errors": {
-        "load": "शॉर्टकट लोड करने में विफल।",
-        "unavailable": "इस विंडो में शॉर्टकट उपलब्ध नहीं हैं।",
-        "unavailableShortcut": "वह शॉर्टकट उपलब्ध नहीं है।",
-        "update": "शॉर्टकट अपडेट करने में विफल।"
-      }
-    },
-    "account": {
-      "title": "खाता",
-      "signOut": {
-        "label": "साइन आउट",
-        "description": "इस डिवाइस पर Stella से साइन आउट करें।",
-        "action": "साइन आउट"
-      },
-      "deleteData": {
-        "label": "डेटा हटाएँ",
-        "description": "सभी वार्तालाप, मेमोरी और सहेजी गई Stella सेटिंग्स मिटा देता है।",
-        "action": "हटाएँ",
-        "working": "हटा रहे हैं…"
-      },
-      "deleteAccount": {
-        "label": "खाता हटाएँ",
-        "description": "आपके खाते और उसमें मौजूद सब कुछ स्थायी रूप से हटा देता है।",
-        "action": "हटाएँ",
-        "working": "हटा रहे हैं…"
-      },
-      "legal": {
-        "title": "कानूनी",
-        "terms": "सेवा की शर्तें",
-        "privacy": "गोपनीयता नीति",
-        "view": "देखें"
-      },
-      "dialog": {
-        "deleteDataTitle": "अपना Stella डेटा हटाएँ?",
-        "deleteAccountTitle": "अपना Stella खाता हटाएँ?",
-        "deleteDataDescription": "यह आपके वार्तालाप, मेमोरी, सेटिंग्स और स्थानीय Stella स्थिति मिटा देता है। इसे पूर्ववत नहीं किया जा सकता।",
-        "deleteAccountDescription": "यह आपके खाते और Stella डेटा को स्थायी रूप से हटा देता है। इसे पूर्ववत नहीं किया जा सकता।",
-        "deleteDataButton": "डेटा हटाएँ",
-        "deleteAccountButton": "खाता हटाएँ",
-        "working": "हटा रहे हैं…"
-      },
-      "toasts": {
-        "dataDeleted": "आपका Stella डेटा हटा दिया गया।",
-        "accountDeleted": "आपका Stella खाता हटा दिया गया।",
-        "deleteDataFailed": "आपका डेटा हटाया नहीं जा सका। कृपया फिर से प्रयास करें।",
-        "deleteAccountFailed": "आपका खाता हटाया नहीं जा सका। कृपया फिर से प्रयास करें।",
-        "signInBeforeDelete": "अपना खाता हटाने से पहले साइन इन करें।"
-      },
-      "cloudHome": {
-        "title": "Cloud Home",
-        "label": "मेमोरी और स्किल्स",
-        "summary": {
-          "checking": "लोकल मेमोरी और स्किल्स की जाँच की जा रही है…",
-          "current": "Cloud Home अप-टू-डेट है। अपलोड की गई मेमोरी: {memoryCount}। अपलोड किए गए स्किल पैकेज: {skillCount}।",
-          "attention": "जहाँ लोकल डेटा अलग था, वहाँ Cloud Home ने मौजूदा क्लाउड कॉपी रखी हैं। नीचे दिए गए विवरण की समीक्षा करें।",
-          "unavailable": "Cloud Home सिंक फ़िलहाल उपलब्ध नहीं है।",
-          "intro": "Stella, लोकल मेमोरी और लागू कस्टम स्किल्स को सुरक्षित रूप से आपके क्लाउड खाते में इंपोर्ट करती है।"
-        },
-        "authorizationNote": "अपलोड की गई स्किल्स एजेंट्स के लिए तब तक उपलब्ध नहीं रहेंगी, जब तक उनके सटीक वर्ज़न को स्पष्ट रूप से अधिकृत नहीं किया जाता।",
-        "actions": {
-          "syncing": "सिंक हो रहा है…",
-          "import": "इस खाते में इंपोर्ट करें",
-          "boundElsewhere": "किसी अन्य खाते से जुड़ा है",
-          "blocked": "इंपोर्ट अवरुद्ध है",
-          "sync": "अभी सिंक करें"
-        }
-      }
-    },
-    "audio": {
-      "systemDefault": "सिस्टम डिफ़ॉल्ट",
-      "microphoneDeviceFallback": "माइक्रोफ़ोन {index}",
-      "speakerDeviceFallback": "स्पीकर {index}",
-      "microphone": {
-        "title": "माइक्रोफ़ोन",
-        "enableLabel": "माइक्रोफ़ोन सक्षम करें",
-        "enableDescription": "Stella से बात करने के लिए आवश्यक।",
-        "deviceLabel": "माइक्रोफ़ोन",
-        "deviceDescription": "Stella को कौन सा माइक सुनना चाहिए?"
-      },
-      "recovery": {
-        "manageLabel": "माइक्रोफ़ोन एक्सेस प्रबंधित करें",
-        "recoverLabel": "माइक्रोफ़ोन एक्सेस पुनर्प्राप्त करें",
-        "manageDescription": "यदि माइक्रोफ़ोन अनुमति कभी अटक जाए, तो आप इसे रीसेट कर सकते हैं और macOS से दोबारा पूछने को कह सकते हैं।",
-        "recoverDescription": "एक बार मना करने के बाद, macOS अपने आप दोबारा नहीं पूछेगा। अनुमति रीसेट करें, फिर Stella बंद करके दोबारा खोलें।",
-        "openSettings": "सेटिंग्स खोलें",
-        "reset": "रीसेट करें और पुनः आरंभ करें",
-        "closing": "बंद हो रहा है…"
-      },
-      "wakeWord": {
-        "label": "वेक वर्ड “Hey Stella”",
-        "description": "बैकग्राउंड में “Hey Stella” सुनता है और एक वॉइस वार्तालाप शुरू करता है। बंद होने पर, जब तक आप श्रुतलेखन नहीं दबाते, माइक निष्क्रिय रहता है।"
-      },
-      "superFast": {
-        "label": "सुपर फ़ास्ट श्रुतलेखन",
-        "description": "माइक्रोफ़ोन को तैयार रखता है ताकि श्रुतलेखन कम देरी से शुरू हो।"
-      },
-      "dictationSounds": {
-        "label": "श्रुतलेखन ध्वनियाँ",
-        "description": "श्रुतलेखन शुरू और बंद होने पर एक ध्वनि बजाएँ।"
-      },
-      "speaker": {
-        "title": "स्पीकर",
-        "outputLabel": "आउटपुट डिवाइस",
-        "outputDescription": "उपयोग करने के लिए स्पीकर या हेडफ़ोन चुनें।",
-        "empty": "कोई स्पीकर नहीं मिला।",
-        "emptyMicOff": "अपने स्पीकर देखने के लिए माइक्रोफ़ोन चालू करें।"
-      },
-      "errors": {
-        "listDevices": "ऑडियो डिवाइस सूचीबद्ध नहीं किए जा सके।",
-        "micDeniedReset": "माइक्रोफ़ोन एक्सेस पहले अस्वीकृत किया गया था। इसे रीसेट करें और Stella पुनः आरंभ करें, या सिस्टम सेटिंग्स खोलें।",
-        "micDenied": "माइक्रोफ़ोन एक्सेस अस्वीकृत किया गया। कृपया इसे अपनी सिस्टम सेटिंग्स में अनुमति दें।"
-      }
-    },
-    "connectedProviders": {
-      "title": "कनेक्ट किए गए प्रदाता",
-      "empty": "अभी तक कोई प्रदाता कनेक्ट नहीं है। API कुंजी जोड़ने या साइन इन करने के लिए ऊपर मॉडल पिकर में Stella के अलावा कोई विकल्प चुनें।",
-      "apiKey": "API कुंजी",
-      "signedIn": "साइन इन किया गया",
-      "removeKey": "कुंजी हटाएँ",
-      "removingKey": "हटा रहे हैं…",
-      "signOut": "साइन आउट",
-      "signingOut": "साइन आउट हो रहा है…"
-    },
-    "search": {
-      "placeholder": "सेटिंग्स खोजें",
-      "clear": "खोज साफ़ करें",
-      "noResultsTitle": "“{query}” से मेल खाती कोई सेटिंग नहीं",
-      "noResultsBody": "कोई छोटा या अलग शब्द आज़माएँ।",
-      "resultsOne": "{count} परिणाम के लिए",
-      "resultsOther": "{count} परिणाम के लिए",
-      "resultsAriaOne": "{count} परिणाम",
-      "resultsAriaOther": "{count} परिणाम",
-      "descriptions": {
-        "permissions": "macOS पर एक्सेसिबिलिटी, स्क्रीन कैप्चर और माइक्रोफ़ोन एक्सेस दें।",
-        "shortcuts": "डिक्टेशन और वॉइस शॉर्टकट बदलें।",
-        "account": "साइन आउट करें, अपना डेटा हटाएँ, या अपना खाता स्थायी रूप से हटाएँ।",
-        "legal": "सेवा की शर्तें और गोपनीयता नीति।",
-        "speaker": "वह स्पीकर या हेडफ़ोन चुनें जिससे Stella की आवाज़ बजती है।",
-        "wakeWord": "“Hey Stella” सुनता है और एक वॉइस वार्तालाप शुरू करता है।",
-        "microphone": "Stella को कौन सा माइक सुनना चाहिए?"
-      }
-    },
-    "errors": {
-      "loadPower": "पावर सेटिंग लोड करने में विफल।",
-      "savePower": "पावर सेटिंग अपडेट करने में विफल।",
-      "powerUnavailable": "इस विंडो में पावर सेटिंग्स उपलब्ध नहीं हैं।",
-      "loadLockedComputerUse": "लॉक होने पर कंप्यूटर उपयोग सेटिंग लोड करने में विफल।",
-      "saveLockedComputerUse": "लॉक होने पर कंप्यूटर उपयोग अपडेट करने में विफल।",
-      "lockedComputerUseUnavailable": "इस विंडो में लॉक होने पर कंप्यूटर उपयोग उपलब्ध नहीं है।",
-      "loadSoundNotifications": "ध्वनि सूचना सेटिंग लोड करने में विफल।",
-      "saveSoundNotifications": "ध्वनि सूचना सेटिंग अपडेट करने में विफल।",
-      "soundNotificationsUnavailable": "इस विंडो में ध्वनि सूचना सेटिंग्स उपलब्ध नहीं हैं।",
-      "loadMemory": "मेमोरी सेटिंग लोड करने में विफल।",
-      "saveMemory": "मेमोरी सेटिंग अपडेट करने में विफल।",
-      "memoryUnavailable": "इस विंडो में मेमोरी सेटिंग्स उपलब्ध नहीं हैं।",
-      "loadPermissions": "डेस्कटॉप अनुमति स्थिति लोड करने में विफल।",
-      "savePermission": "{kind} अनुमति अपडेट करने में विफल।",
-      "resetPermission": "{kind} अनुमति रीसेट करने में विफल।",
-      "resetPermissionMaybeReopen": "{kind} अनुमति रीसेट नहीं की जा सकी। Stella को दोबारा खोलना पड़ सकता है।",
-      "microphoneDeniedReopen": "माइक्रोफ़ोन एक्सेस पहले अस्वीकृत किया गया था। इसे सिस्टम सेटिंग्स में चालू करें, फिर Stella दोबारा खोलें।",
-      "microphoneStillOff": "माइक्रोफ़ोन एक्सेस अभी भी बंद है। इसे सिस्टम सेटिंग्स में चालू करें, फिर Stella दोबारा खोलें।",
-      "restart": "Stella पुनः आरंभ करने में विफल।"
-    },
-    "voiceCatalog": {
-      "label": "आवाज़",
-      "familyAriaLabel": "आवाज़ परिवार",
-      "familyTitle": {
-        "openai": "OpenAI Realtime आवाज़ें (Stella टोकन बनाती है)",
-        "xai": "xAI Grok आवाज़ें (Stella टोकन बनाती है)",
-        "inworld": "Inworld आवाज़ें (Stella SDP विनिमय को प्रॉक्सी करती है)"
-      },
-      "source": {
-        "openai": "OpenAI आवाज़ें",
-        "xai": "Grok आवाज़ें",
-        "inworld": "Inworld आवाज़ें",
-        "gemini": "Gemini आवाज़ें"
-      },
-      "previousVoice": "पिछली आवाज़",
-      "nextVoice": "अगली आवाज़",
-      "menuAriaLabel": "{source} आवाज़",
-      "speed": "गति",
-      "speedAriaLabel": "Inworld आवाज़ की गति",
-      "readAloud": {
-        "label": "ज़ोर से पढ़ें",
-        "ariaLabel": "ज़ोर से पढ़ने का प्रदाता",
-        "openaiTitle": "OpenAI TTS से उत्तर ज़ोर से पढ़ें",
-        "geminiTitle": "Gemini TTS से उत्तर ज़ोर से पढ़ें",
-        "description": "इस प्रदाता की आवाज़ से उत्तर ज़ोर से बोलता है।"
-      }
-    },
-    "phoneAccess": {
-      "expired": "समाप्त",
-      "timeLeft": "{time} शेष",
-      "copy": "कॉपी करें",
-      "preparing": "तैयार हो रहा है...",
-      "getCode": "कोड लें",
-      "deviceFallback": "फ़ोन",
-      "removing": "हटाया जा रहा है...",
-      "remove": "हटाएँ",
-      "signedOut": {
-        "headline": "शुरू करने के लिए साइन इन करें",
-        "body": "मोबाइल ऐप से जोड़ने के लिए अपने Stella खाते में साइन इन करें।"
-      },
-      "pairing": {
-        "headline": "यह कोड स्कैन करें या दर्ज करें",
-        "body": "अपने फ़ोन पर Stella ऐप खोलें और QR कोड स्कैन करें, या नीचे दिया कोड टाइप करें। यह केवल एक बार करना होगा।",
-        "qrAlt": "अपना फ़ोन जोड़ने के लिए स्कैन करें"
-      },
-      "intro": {
-        "headline": "अपने फ़ोन को अपने कंप्यूटर से जोड़ें"
-      },
-      "steps": {
-        "download": "ऐप डाउनलोड करें",
-        "platformSelectorLabel": "मोबाइल प्लेटफ़ॉर्म चुनें",
-        "appStoreQrAlt": "App Store से Stella डाउनलोड करने के लिए स्कैन करें",
-        "playStoreQrAlt": "Google Play से Stella डाउनलोड करने के लिए स्कैन करें",
-        "connect": "अपना फ़ोन कनेक्ट करें"
-      },
-      "toasts": {
-        "codeCopied": "कोड क्लिपबोर्ड पर कॉपी हुआ",
-        "phoneRemoved": "फ़ोन हटाया गया",
-        "removeFailed": "फ़ोन हटाने में विफल"
-      },
-      "errors": {
-        "createPairing": "पेयरिंग कोड नहीं बनाया जा सका।"
-      },
-      "pairedCount": {
-        "one": "{count} फ़ोन जुड़ा",
-        "other": "{count} फ़ोन जुड़े"
-      }
-    },
-    "executionDevices": {
-      "title": "Your computers",
-      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
-      "empty": "No computer is signed in to this account yet.",
-      "unnamed": "Computer",
-      "thisComputer": "This computer",
-      "online": "Online",
-      "offline": "Offline",
-      "enable": "Enable",
-      "enabling": "Enabling…",
-      "disable": "Turn off",
-      "disabling": "Turning off…",
-      "state": {
-        "enabled": "Accepting work",
-        "notEnabled": "Not enabled",
-        "asking": "Waiting for an answer there",
-        "declined": "Declined there"
-      },
-      "errors": {
-        "load": "Unable to read the computers on this account.",
-        "update": "That change didn't go through. Try again."
-      }
-    },
-    "modelPicker": {
-      "loadFailed": "Couldn't load models",
-      "retry": "Retry",
-      "searchPlaceholder": "मॉडल खोजें…",
-      "searchAriaLabel": "मॉडल खोजें",
-      "closeSearch": "खोज बंद करें",
-      "apiKeyPlaceholder": "API कुंजी",
-      "apiKeyAriaLabel": "{provider} API कुंजी",
-      "cancelSignIn": "साइन-इन रद्द करें",
-      "signInWith": "{provider} से साइन इन करें",
-      "saving": "सहेजा जा रहा है…",
-      "use": "उपयोग करें",
-      "selected": "चयनित",
-      "refresh": "मॉडल सूची ताज़ा करें",
-      "restrictedPlan": "{plan} प्लान पर उपलब्ध नहीं",
-      "reasoning": {
-        "label": "तर्क प्रयास",
-        "default": "स्वतः",
-        "minimal": "न्यूनतम",
-        "low": "कम",
-        "medium": "मध्यम",
-        "high": "अधिक",
-        "xhigh": "अधिकतम"
-      },
-      "authHint": {
-        "both": "साइन इन करें या API कुंजी चिपकाएँ। क्रेडेंशियल इसी डिवाइस पर रहते हैं।",
-        "oauth": "क्रेडेंशियल इसी डिवाइस पर रहते हैं।",
-        "apiKey": "आपकी API कुंजी इसी डिवाइस पर रहती है।"
-      },
-      "actions": {
-        "cancel": "रद्द करें",
-        "signIn": "साइन इन करें",
-        "addKey": "कुंजी जोड़ें",
-        "custom": "कस्टम"
-      },
-      "signOut": {
-        "ariaLabel": "{provider} से साइन आउट करें",
-        "confirmAriaLabel": "{provider} से साइन आउट करने के लिए फिर क्लिक करें",
-        "confirmTitle": "पुष्टि के लिए फिर क्लिक करें"
-      },
-      "local": {
-        "hint": "किसी भी स्थानीय OpenAI-संगत सर्वर का उपयोग करें। Ollama आमतौर पर नीचे दिए URL पर चलता है।",
-        "serverUrlAriaLabel": "स्थानीय सर्वर URL",
-        "modelNameAriaLabel": "स्थानीय मॉडल का नाम"
-      },
-      "openRouter": {
-        "hintBefore": "OpenRouter कोई भी",
-        "hintAfter": "id स्वीकार करता है। सीधे उपयोग के लिए कोई एक टाइप करें।",
-        "modelIdAriaLabel": "OpenRouter मॉडल id"
-      },
-      "empty": {
-        "none": "अभी तक कोई मॉडल उपलब्ध नहीं।",
-        "noMatch": "कोई मॉडल मेल नहीं खाता।"
-      },
-      "favorite": {
-        "remove": "पसंदीदा से हटाएँ",
-        "add": "पसंदीदा में जोड़ें",
-        "addTitle": "पसंदीदा — ऊपर पिन करें"
-      },
-      "errors": {
-        "saveApiKey": "API कुंजी सहेजने में विफल।",
-        "oauthLogin": "OAuth लॉगिन विफल।"
-      }
-    },
-    "providerPicker": {
-      "connected": "कनेक्टेड",
-      "connect": "कनेक्ट करें",
-      "opening": "खुल रहा है…"
-    },
-    "engineModels": {
-      "ariaLabel": "{engine} मॉडल",
-      "loading": "{engine} मॉडल लोड हो रहे हैं…",
-      "empty": "कोई {engine} मॉडल उपलब्ध नहीं है।"
-    },
-    "providerConnected": {
-      "title": "Stella के लिए {provider} उपयोग करें?",
-      "description": "{provider} Stella के एक से अधिक हिस्सों को चला सकता है। चुनें कि इसे कहाँ संभालना है — बाकी काम Stella करती रहेगी।",
-      "assistant": {
-        "label": "सहायक",
-        "description": "Stella के चैट सहायक को {provider} से चलाएँ।"
-      },
-      "image": {
-        "label": "छवि",
-        "description": "अपने {provider} खाते से छवियाँ बनाएँ।"
-      },
-      "voice": {
-        "label": "आवाज़",
-        "description": "रीयलटाइम आवाज़ बातचीत के लिए {provider} का उपयोग करें।"
-      },
-      "skip": "छोड़ें",
-      "apply": "लागू करें",
-      "applying": "लागू हो रहा है…",
-      "errors": {
-        "apply": "प्रदाता सेटिंग्स लागू करने में विफल।"
-      }
-    },
-    "compactModelList": {
-      "ariaLabel": "Stella मॉडल",
-      "recent": "हाल के",
-      "unavailable": "अनुपलब्ध",
-      "unavailableTitle": "यह मॉडल अब उपलब्ध नहीं है — दूसरा चुनें।",
-      "loading": "Stella मॉडल लोड हो रहे हैं…",
-      "loadFailed": "Stella मॉडल लोड नहीं हो सके।",
-      "empty": "कोई Stella मॉडल उपलब्ध नहीं।",
-      "retry": "फिर कोशिश करें",
-      "restricted": "आपका प्लान Stella की पसंद का उपयोग करता है।",
-      "restrictedPlan": "{plan} प्लान Stella की पसंद का उपयोग करता है।",
-      "upgrade": "अपग्रेड करें"
-    },
-    "reasoningEffort": {
-      "minimal": "न्यूनतम",
-      "low": "कम",
-      "medium": "मध्यम",
-      "high": "अधिक",
-      "xhigh": "अतिरिक्त"
-    },
-    "agentModelPicker": {
-      "byokDescription": "अपनी खुद की {provider} API कुंजी उपयोग करें।",
-      "unavailableChooseAnother": "अनुपलब्ध — दूसरा मॉडल चुनें",
-      "chatGptRouted": "{model} पर भेजा गया (सहेजा गया मॉडल अनुपलब्ध)।",
-      "default": "डिफ़ॉल्ट",
-      "stellaDefault": "Stella डिफ़ॉल्ट",
-      "surfaceAriaLabel": "सतह",
-      "waitingForChatGpt": "ChatGPT की प्रतीक्षा…",
-      "imageProviderAriaLabel": "छवि प्रदाता",
-      "voiceProviderAriaLabel": "आवाज़ प्रदाता",
-      "assistantPickerAriaLabel": "सहायक मॉडल पिकर",
-      "verifyingChatGpt": "ChatGPT मॉडल सत्यापित हो रहे हैं…",
-      "savedModelUnavailable": "सहेजा गया मॉडल अनुपलब्ध है। दूसरा मॉडल चुनें।",
-      "tabs": {
-        "assistant": "सहायक",
-        "assistantTitle": "Stella का मुख्य सहायक",
-        "image": "छवि",
-        "imageTitle": "छवि निर्माण प्रदाता",
-        "voice": "आवाज़",
-        "voiceTitle": "रीयलटाइम आवाज़ प्रदाता"
-      },
-      "errors": {
-        "loadPreferences": "मॉडल सेटिंग्स लोड नहीं हो सकीं।",
-        "chatGptMigration": "ChatGPT रूटिंग माइग्रेशन विफल।",
-        "chatGptVerify": "ChatGPT मॉडल सत्यापित नहीं हो सके: {error}",
-        "chatGptVerifying": "ChatGPT मॉडल का सत्यापन पूरा होने तक प्रतीक्षा करें।",
-        "chatGptNotConnected": "पहले इस कंप्यूटर पर ChatGPT से साइन इन करें।",
-        "chatGptNoModels": "अभी कोई ChatGPT मॉडल उपलब्ध नहीं है।",
-        "connectChatGpt": "ChatGPT कनेक्ट करने में विफल।",
-        "updateEngine": "इंजन अपडेट करने में विफल।",
-        "updateTitle": "मॉडल सेटिंग्स अपडेट नहीं हो सकीं",
-        "refreshTitle": "मॉडल ताज़ा नहीं हो सके",
-        "updateModel": "मॉडल सेटिंग अपडेट करने में विफल।",
-        "updateImage": "छवि सेटिंग अपडेट करने में विफल।",
-        "updateVoice": "आवाज़ सेटिंग अपडेट करने में विफल।",
-        "updateInworldSpeed": "Inworld गति अपडेट करने में विफल।",
-        "updateVoiceFamily": "आवाज़ परिवार अपडेट करने में विफल।",
-        "updateReadAloud": "ज़ोर से पढ़ने का प्रदाता अपडेट करने में विफल।",
-        "updateReasoning": "तर्क प्रयास अपडेट करने में विफल।",
-        "updateChatGptSpeed": "ChatGPT गति अपडेट करने में विफल।",
-        "updateDirectRuntime": "सीधी {runtime} सेटिंग अपडेट करने में विफल।",
-        "chatGptPlanUsageOff": "इस खाते के लिए ChatGPT प्लान का उपयोग चालू नहीं है। इसे सेटिंग्स › खाता में चालू करें, या कोई दूसरा मॉडल चुनें।"
-      },
-      "noChatGptModels": "अभी इस खाते के लिए कोई ChatGPT मॉडल उपलब्ध नहीं है।",
-      "chatGptPlanInUse": "ChatGPT प्लान इस्तेमाल हो रहा है",
-      "chatGptManageUsage": "उपयोग प्रबंधित करें"
-    },
-    "onboardingReplay": {
-      "title": "Onboarding",
-      "action": "Replay",
-      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched."
-    },
-    "companion": {
-      "title": "Desktop companion",
-      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
-      "error": "Couldn't update the desktop companion."
-    },
-    "engineAccounts": {
-      "cardTitle": "Claude और ChatGPT खाते",
-      "cardIntro": "जिस Claude या ChatGPT प्लान के लिए आप पहले से भुगतान करते हैं, उसका उपयोग करें। हर जगह अलग से साइन इन होता है: हर कंप्यूटर पर, और आपके क्लाउड में।",
-      "claudeTitle": "Claude (Pro/Max)",
-      "addClaude": "Claude खाता जोड़ें",
-      "addOnComputer": "इस कंप्यूटर पर",
-      "addInCloud": "क्लाउड में",
-      "active": "सक्रिय",
-      "signInComputer": "इस कंप्यूटर पर साइन इन करें",
-      "signOutComputer": "इस कंप्यूटर पर साइन आउट करें",
-      "signIn": "साइन इन करें",
-      "signedOut": "साइन आउट हो गया।",
-      "removed": "हटा दिया गया।",
-      "placeComputer": "यह कंप्यूटर",
-      "placeOtherComputer": "दूसरा कंप्यूटर",
-      "placeSignedIn": "{place}: साइन इन है",
-      "placeSignedOut": "{place}: साइन इन नहीं है",
-      "signedOutLogin": "साइन आउट किया गया Claude Code लॉगिन",
-      "cliMissing": "इस कंप्यूटर पर Claude Code इंस्टॉल नहीं है। यहाँ Claude इस्तेमाल करने के लिए इसे इंस्टॉल करें।",
-      "defaultSignedOut": "इस कंप्यूटर पर Claude Code में साइन इन नहीं है।",
-      "signedInComputer": "इस कंप्यूटर पर Claude Code में साइन इन है।",
-      "signedInComputerAs": "इस कंप्यूटर पर Claude Code में {email} के रूप में साइन इन है।",
-      "signedInCloud": "आपका क्लाउड Claude में साइन इन है।",
-      "signedInCloudAs": "आपका क्लाउड Claude में {email} के रूप में साइन इन है।",
-      "errorGeneric": "यह काम नहीं किया। फिर से कोशिश करें।",
-      "claudeLogin": {
-        "whereComputer": "इस कंप्यूटर पर Claude Code में साइन इन किया जा रहा है।",
-        "whereCloud": "आपके क्लाउड में Claude Code में साइन इन किया जा रहा है।",
-        "starting": "Anthropic का साइन-इन पेज खोला जा रहा है…",
-        "opened": "हमने Anthropic का साइन-इन पेज खोल दिया है।",
-        "reopen": "इसे फिर से खोलें",
-        "submit": "सबमिट करें",
-        "submitting": "साइन इन हो रहा है…",
-        "failed": "साइन इन नहीं हो सका।",
-        "startAgain": "फिर से शुरू करें",
-        "codeLabel": "Anthropic द्वारा दिखाया गया कोड पेस्ट करें"
-      },
-      "chatgptCloudSignedIn": "आपका क्लाउड ChatGPT में साइन इन है।",
-      "revokeTitleCloud": "क्लाउड में ChatGPT से साइन आउट हो गया",
-      "revokeTitleComputer": "इस कंप्यूटर पर साइन आउट हो गया",
-      "runsOnLabel": "क्लाउड चैट किस पर चलती है",
-      "needsClaudeCloud": "पहले क्लाउड में Claude में साइन इन करें",
-      "needsChatgptCloud": "पहले अपने क्लाउड के लिए ChatGPT सेट करें",
-      "chatgptComputerSignedIn": "यह कंप्यूटर ChatGPT में साइन इन है।",
-      "planUsageOffTitle": "साइन इन है, लेकिन ChatGPT प्लान का उपयोग चालू नहीं है",
-      "planUsageOffBody": "जब तक आप अनुमति नहीं देते, Stella आपके ChatGPT प्लान का उपयोग नहीं कर सकता। खाते पर “ChatGPT प्लान का उपयोग चालू करें” चुनें, या कोई दूसरा मॉडल इस्तेमाल करें।",
-      "signInCloud": "क्लाउड में साइन इन करें",
-      "signOutCloud": "क्लाउड से साइन आउट करें",
-      "placeCloud": "क्लाउड",
-      "useAccount": "यह खाता इस्तेमाल करें",
-      "signOut": "साइन आउट करें",
-      "moreLabel": "{name} के विकल्प",
-      "signInAgain": "फिर से साइन इन करें",
-      "enablePlanUsage": "ChatGPT प्लान का उपयोग चालू करें",
-      "remove": "हटाएं",
-      "statusSignedOut": "साइन आउट है",
-      "statusReauth": "इसका उपयोग जारी रखने के लिए फिर से साइन इन करें",
-      "statusPlanUsageOff": "ChatGPT प्लान का उपयोग चालू नहीं है",
-      "revokeUnconfirmed": "ChatGPT ने साइन आउट की पुष्टि नहीं की। आप ChatGPT सेटिंग्स में Stella को डिस्कनेक्ट कर सकते हैं।",
-      "pasteHintChatgpt": "मंज़ूरी देने के बाद, ChatGPT आपको एक ऐसे पेज पर ले जाता है जो लोड नहीं होता। उस पेज का पूरा पता कॉपी करें और यहां पेस्ट करें।",
-      "pastePlaceholderUrl": "पता यहां पेस्ट करें",
-      "openChatgptAgain": "ChatGPT फिर से खोलें",
-      "connecting": "कनेक्ट हो रहा है…",
-      "finish": "कनेक्ट करें",
-      "chatgptBrowserWaiting": "अपने ब्राउज़र में ChatGPT में साइन इन पूरा करें।",
-      "chatgptTitle": "ChatGPT",
-      "addChatgpt": "Add ChatGPT account",
-      "addChatgptCloud": "Add ChatGPT account in the cloud",
-      "enablePlanUsageCloud": "Enable ChatGPT plan use in the cloud"
-    }
-  },
-  "onboarding": {
-    "legalFooter": "Stella का उपयोग करके, आप हमारी {terms} और {privacy} से सहमत होते हैं।",
-    "termsOfService": "सेवा शर्तों",
-    "privacyPolicy": "गोपनीयता नीति",
-    "chat": {
-      "skipSetup": "Skip setup",
-      "composerPlaceholder": "Or just ask me something to get started",
-      "send": "Send",
-      "messages": {
-        "capabilities": "नमस्ते, मैं Stella हूँ।\n\nमैं कोई चैटबॉट नहीं हूँ। मैं इस कंप्यूटर का इस्तेमाल करके सचमुच आपके काम निपटाती हूँ, बैकग्राउंड में, जबकि आप अपने काम में लगे रहते हैं।\n\nदेखिए, यह कैसा दिखता है।",
-        "theme": "Now, how should I look?",
-        "extras": "Almost done. A little housekeeping, then we start.",
-        "memory": "One more thing that makes me different.",
-        "selfmod": "और क्योंकि मैं आपके कंप्यूटर पर रहती हूँ, मैं खुद को बदल सकती हूँ।",
-        "signin": "अब साइन इन करते हैं। Stella खाता इस्तेमाल करें, या आपके पास पहले से जो Claude या ChatGPT प्लान है, वह।",
-        "quickstart": "बस इतना ही। एक आख़िरी बात, और वह भी वैकल्पिक है: क्विकस्टार्ट।",
-        "quickstartDone": "हो गया। यह रहा जो मैंने सीखा, और कुछ चीज़ें जिनसे हम शुरू कर सकते हैं।",
-        "quickstartFailed": "इस बार मैं आपका ब्राउज़र पूरा नहीं पढ़ पाई। हम फिर भी शुरू कर सकते हैं, और मैं साथ-साथ सीखती जाऊँगी।"
-      },
-      "replies": {
-        "capabilitiesDone": "Got it.",
-        "capabilitiesSkipped": "Skip the tour.",
-        "themeDone": "That one.",
-        "themeSkipped": "Keep the default.",
-        "extrasDone": "Done.",
-        "extrasSkipped": "Skip for now.",
-        "memoryDone": "Nice.",
-        "memorySkipped": "Skip it.",
-        "selfmodDone": "बहुत बढ़िया।",
-        "signinDone": "हो गया।"
-      },
-      "discovery": {
-        "browserLabel": "Your browser",
-        "includeDev": "My coding setup",
-        "hint": "About a minute, in the background.",
-        "alsoLabel": "Also include",
-        "assurance": "A one-time read, kept on this computer. You can see and edit what I keep at any time."
-      },
-      "capabilities": {
-        "errands": {
-          "word": "Errands",
-          "title": "Ask once. Consider it handled.",
-          "caption": "मैं सही जगह ढूँढती हूँ, फ़ॉर्म भरती हूँ और उसे आपके कैलेंडर में जोड़ देती हूँ, ठीक वैसे ही जैसे आप करते।"
-        },
-        "shopping": {
-          "word": "Shopping",
-          "title": "I can buy things, with your OK.",
-          "caption": "I find it and get it to checkout. You confirm the total, and I place the order."
-        },
-        "work": {
-          "word": "Work",
-          "title": "असली फ़ाइलें। एक साथ कई काम।",
-          "caption": "मैं इस कंप्यूटर के असली ऐप्स के अंदर काम करती हूँ, और एक साथ एक से ज़्यादा काम चला सकती हूँ।"
-        },
-        "build": {
-          "word": "Build",
-          "title": "Say it. I'll build it.",
-          "caption": "Apps and websites, made to order. Describe it in plain words and I'll build it, run it, and put it online."
-        },
-        "settledTitle": "The quick tour",
-        "replay": "Replay this demo",
-        "tablist": "Capability demos",
-        "routines": {
-          "word": "रूटीन",
-          "title": "एक बार कहिए। यह रोज़ होगा।",
-          "caption": "कुछ भी शेड्यूल कीजिए और मैं उसे समय पर कर दूँगी, आपके सोते समय भी।"
-        }
-      },
-      "memory": {
-        "titleChatbot": "You know this one",
-        "bodyChatbot": "A new chat every time, a sidebar full of old ones, and no memory of what you said last week.",
-        "titleStella": "With me it's one conversation",
-        "bodyStella": "No new chats, no threads. Everything you've ever told me is in the same place, so when you ask about last week I go and find it.",
-        "showStella": "Now ask me",
-        "skip": "Skip",
-        "settledTitle": "One conversation",
-        "settledDesc": "No threads to manage. I remember."
-      },
-      "theme": {
-        "title": "Pick a look",
-        "body": "Hover to try one on. Click to keep it.",
-        "appearance": "Appearance",
-        "themes": "Theme",
-        "mode": {
-          "light": "Light",
-          "dark": "Dark",
-          "system": "System"
-        },
-        "confirm": "Done",
-        "skip": "Keep the default",
-        "hint": "Everything here changes live.",
-        "settledTitle": "Default",
-        "gradientStyle": "Gradient style",
-        "gradientColor": "Gradient color",
-        "gradient": {
-          "soft": "Soft",
-          "flat": "Flat",
-          "relative": "Relative",
-          "strong": "Strong"
-        }
-      },
-      "extras": {
-        "title": "Two quick extras",
-        "titleOne": "One quick extra",
-        "body": "Neither is required, but both make me a lot more useful.",
-        "bodyOne": "Not required, but it makes me a lot more useful.",
-        "accessibilityTitle": "Accessibility",
-        "accessibilityDesc": "So I can act on selected text and what's under your cursor.",
-        "screenTitle": "Screen Recording",
-        "screenDesc": "So I can see the screen when you ask me to.",
-        "enable": "Enable",
-        "enabled": "Enabled",
-        "extensionTitle": "Stella for Chrome",
-        "extensionDesc": "Lets me see the page you're on and act inside your browser. Works in Chrome, Arc, Brave, and Edge.",
-        "getExtension": "Get extension",
-        "extensionOpened": "Opened",
-        "memoryTitle": "Remember across chats",
-        "memoryDesc": "Use what I've saved about you when it's relevant. Nothing is deleted if you turn this off.",
-        "restartHint": "Screen access needs a quick restart to take effect.",
-        "restart": "Restart Stella",
-        "skip": "Skip for now",
-        "hint": "All of this lives in Settings too.",
-        "settledTitle": "Extras",
-        "settledSkippedTitle": "Extras skipped",
-        "settledPermissions": "Permissions",
-        "settledExtension": "Extension",
-        "settledMemory": "Memory"
-      },
-      "ready": {
-        "highlightsLabel": "What I picked up",
-        "startersLabel": "Try one of these",
-        "startersLabelPersonal": "Made for you",
-        "notesSummary": "See everything I noted",
-        "notesFoot": "You can read or edit this any time in Settings › Memory.",
-        "start": "Start chatting",
-        "hint": "Or type anything below.",
-        "generic": {
-          "plan": {
-            "title": "Plan my week",
-            "prompt": "Help me plan my week. Ask me what's on my plate and lay it out day by day."
-          },
-          "browse": {
-            "title": "Find me a good dinner spot",
-            "prompt": "Find a well-reviewed dinner spot near me for this weekend and hold a reservation for two."
-          },
-          "file": {
-            "title": "Tidy up a document",
-            "prompt": "I have a document that needs cleaning up. I'll share it and you fix the structure and wording."
-          },
-          "watch": {
-            "title": "Watch a site for changes",
-            "prompt": "Keep an eye on a web page for me and tell me when it changes."
-          }
-        }
-      },
-      "progress": "सेटअप की प्रगति",
-      "selfmod": {
-        "title": "मैं खुद को बदल सकती हूँ",
-        "body": "कोई फ़ीचर कम है, या कुछ अलग तरह से चलाना है? बस कहिए। मैं अपना कोड खुद दोबारा लिखूँगी, आप उसे आज़माइए, और रखना है या नहीं, यह आप तय कीजिए।",
-        "steps": {
-          "ask": {
-            "title": "कहें",
-            "body": "बदलाव को आसान शब्दों में बताइए।"
-          },
-          "preview": {
-            "title": "पूर्वावलोकन",
-            "body": "एक एजेंट उसे बनाता है और लाइव पूर्वावलोकन खोलता है।"
-          },
-          "update": {
-            "title": "अपडेट करें",
-            "body": "लागू करने के लिए एक क्लिक। कभी भी पूर्ववत करें।"
-          }
-        },
-        "hint": "बदलाव इसी कंप्यूटर पर रहते हैं।",
-        "settledTitle": "मैं खुद को बदल सकती हूँ",
-        "settledDesc": "कहें, पूर्वावलोकन देखें, अपडेट करें। कभी भी पूर्ववत करें।"
-      },
-      "signin": {
-        "title": "साइन इन करें",
-        "body": "इनमें से कोई एक काफ़ी है। बाकी बाद में जोड़ सकते हैं।",
-        "options": {
-          "stella": {
-            "title": "Stella खाता",
-            "body": "Google या ईमेल। आपकी चैट आपके फ़ोन पर भी साथ चलती हैं।"
-          },
-          "claude": {
-            "title": "Claude Code",
-            "body": "अपना Claude Pro या Max प्लान इस्तेमाल करें।"
-          },
-          "chatgpt": {
-            "title": "ChatGPT",
-            "body": "अपना प्लान इस्तेमाल करने के लिए ChatGPT से साइन इन करें।"
-          },
-          "apikey": {
-            "title": "API कुंजी",
-            "body": "Anthropic, OpenAI, Google या दूसरों की अपनी कुंजी इस्तेमाल करें।"
-          }
-        },
-        "signIn": "साइन इन करें",
-        "connect": "कनेक्ट करें",
-        "use": "इस्तेमाल करें",
-        "inUse": "इस्तेमाल में",
-        "waiting": "अपने ब्राउज़र में साइन इन पूरा करें, फिर यहाँ लौट आइए।",
-        "error": "कनेक्ट नहीं हो पाया। फिर कोशिश करें?",
-        "fine": "इसे कभी भी सेटिंग्स में बदलें।",
-        "hint": "शुरू करना मुफ़्त है।",
-        "settledEngine": "{name} इस्तेमाल हो रहा है",
-        "settledStella": "Stella में साइन इन हो गया",
-        "settledDesc": "इसे कभी भी सेटिंग्स में बदलें।",
-        "claudeCliMissing": "पहले Claude Code इंस्टॉल करें, फिर से कोशिश करें।"
-      },
-      "quickstart": {
-        "eyebrow": "क्विकस्टार्ट",
-        "title": "मुझे एक अच्छी शुरुआत दीजिए",
-        "body": "ज़्यादातर असिस्टेंट शून्य से शुरू करते हैं। मुझे अपना ब्राउज़र दिखाइए, मैं उसे एक बार पढ़कर शुरुआती मेमोरी बना लूँगी, ताकि पहले दिन से आपके काम आ सकूँ।",
-        "run": "क्विकस्टार्ट चलाएँ",
-        "skip": "छोड़ें",
-        "runningTitle": "आपको जान रही हूँ",
-        "runningBody": "लगभग एक मिनट। आप जब चाहें अंदर जाइए, मैं बैकग्राउंड में पूरा कर दूँगी।",
-        "stages": {
-          "read": "आपने जो चुना, उसे पढ़ रही हूँ",
-          "notice": "आपके लिए क्या मायने रखता है, यह समझ रही हूँ",
-          "write": "आपकी शुरुआती मेमोरी लिख रही हूँ"
-        },
-        "continueInBackground": "चैट शुरू करें, बाकी बैकग्राउंड में पूरा हो",
-        "failedTitle": "यह पूरा नहीं हो पाया",
-        "failedBody": "किसी वजह से पढ़ना रुक गया। फिर कोशिश करें, या चैट शुरू करें और मैं साथ-साथ सीखती जाऊँगी।"
-      }
-    }
-  },
-  "billing": {
-    "plans": {
-      "free": {
-        "tagline": "आज़माने के लिए मुफ़्त।"
-      },
-      "go": {
-        "tagline": "10× अधिक उपयोग"
-      },
-      "pro": {
-        "tagline": "मीडिया जनरेशन और कई एजेंट के लिए सबसे अधिक उपयोग सीमाएँ"
-      }
-    },
-    "features": {
-      "assistant": "निजी सहायक",
-      "codingAgent": "कोडिंग एजेंट",
-      "research": "रिसर्च और नॉलेज वर्क",
-      "dictationReadAloud": "श्रुतलेखन और पढ़कर सुनाना",
-      "multipleAgents": "कई एजेंट"
-    },
-    "capability": {
-      "image_generation": "छवि निर्माण",
-      "video_generation": "वीडियो निर्माण",
-      "audio_generation": "आवाज़ और संगीत निर्माण",
-      "three_d_generation": "3D निर्माण"
-    },
-    "capabilityRestriction": {
-      "title": "{capability} आपके प्लान में नहीं है",
-      "signIn": "{capability} Stella {plan} में शामिल है। इसे अनलॉक करने के लिए साइन इन करें और अपग्रेड करें।",
-      "upgrade": "{capability} Stella {plan} में शामिल है। इसे अनलॉक करने के लिए अपग्रेड करें।",
-      "unavailable": "{capability} फ़िलहाल किसी भी प्लान में उपलब्ध नहीं है।",
-      "lockedBadge": "{plan}",
-      "lockedBadgeGeneric": "अनुपलब्ध",
-      "genericTitle": "आपके प्लान में शामिल नहीं",
-      "genericDescription": "यह सुविधा Stella Pro में शामिल है। इसे अनलॉक करने के लिए अपग्रेड करें।"
-    },
-    "freeAllowance": {
-      "label": "Free प्लान का उपयोग",
-      "caption": "आज़माने के लिए मुफ़्त।",
-      "remaining": "आज़माने के लिए मुफ़्त।",
-      "exhaustedTitle": "आप Free प्लान की सीमा तक पहुँच गए हैं",
-      "exhaustedDescription": "10× अधिक उपयोग के लिए Go में अपग्रेड करें।",
-      "exhaustedCta": "Go में अपग्रेड करें"
-    },
-    "upgradeDialog": {
-      "title": "आप Stella {plan} पर हैं।",
-      "description": "अपग्रेड के लिए धन्यवाद। उच्च प्राथमिकता और बढ़ा हुआ उपयोग अब सक्रिय है — आगे बढ़ें।",
-      "cta": "शुरू करें"
-    },
-    "renewal": {
-      "nextLabel": "अगला नवीनीकरण",
-      "pendingLabel": "रद्दीकरण लंबित",
-      "renews": "{date} को नवीनीकरण",
-      "accessEnds": "{date} को एक्सेस खत्म",
-      "lapseTitle": "प्लान खत्म होने पर Stella बंद हो जाएगा",
-      "lapseDescription": "आपका {plan} प्लान {date} तक चलेगा। उसके बाद Stella बंद हो जाएगा — Free प्लान की सीमा एक ही बार मिलती है और आप अपनी सीमा पहले ही इस्तेमाल कर चुके हैं।"
-    },
-    "heading": "अपना प्लान चुनें",
-    "subtitle": "मुफ़्त में शुरू करें। ज़्यादा ज़रूरत होने पर अपग्रेड करें।",
-    "mobile": {
-      "sectionTitle": "सदस्यता",
-      "currentPlanLabel": "वर्तमान योजना",
-      "planValue": "Stella {plan}",
-      "manage": "सदस्यता प्रबंधित करें",
-      "manageWebNote": "इस सदस्यता को वेब पर Stella में stella.sh पर प्रबंधित करें या रद्द करें।",
-      "renews": "{date} को नवीनीकृत होगी",
-      "accessEnds": "एक्सेस {date} को समाप्त होगा",
-      "chooseHeading": "अपनी योजना चुनें",
-      "subscribe": "सदस्यता लें",
-      "perMonth": "{price}/माह",
-      "introLine": "पहले महीने {introPrice}, फिर {price}/माह",
-      "signInToSubscribe": "सदस्यता लेने के लिए साइन इन करें",
-      "startingCheckout": "शुरू हो रहा है…",
-      "pendingTitle": "आपकी खरीदारी पूरी की जा रही है",
-      "pendingBody": "ब्राउज़र में भुगतान पूरा करें। भुगतान की पुष्टि होते ही आपकी योजना यहाँ अपने आप अपडेट हो जाएगी — फिर से शुरू करने की ज़रूरत नहीं।",
-      "pendingDismiss": "अभी नहीं",
-      "successTitle": "आप Stella {plan} पर हैं",
-      "successBody": "आपकी सदस्यता सक्रिय है। अधिक सीमाओं का आनंद लें।",
-      "errorRetry": "फिर से प्रयास करें",
-      "alreadySubscribedTitle": "आपके पास पहले से एक सदस्यता है",
-      "footnote": "Stripe के माध्यम से Stella द्वारा बिलिंग। रद्द करने तक हर माह नवीनीकृत होती है; कभी भी रद्द करें।"
-    }
-  },
-  "chat": {
-    "stoppedReply": "Stella यह उत्तर शुरू नहीं कर सकी",
-    "tryAgainHint": "कृपया फिर से कोशिश करें।",
-    "attachments": {
-      "attachPhoto": "फ़ोटो अटैच करें",
-      "takePhoto": "फ़ोटो लें",
-      "attachFile": "फ़ाइल अटैच करें",
-      "remove": "अटैचमेंट हटाएँ",
-      "uploading": "अपलोड हो रहा है",
-      "retryUpload": "अपलोड फिर आज़माएँ",
-      "uploadFailed": "अपलोड नहीं हो सका. फिर आज़माने के लिए टैप करें.",
-      "tooManyTitle": "बहुत ज़्यादा फ़ाइलें",
-      "tooManyBody": "आप एक बार में {count} फ़ाइलें तक अटैच कर सकते हैं.",
-      "photosDeniedTitle": "फ़ोटो",
-      "photosDeniedBody": "इमेज अटैच करने के लिए सेटिंग में Stella को अपनी फ़ोटो लाइब्रेरी की अनुमति दें.",
-      "cameraDeniedTitle": "कैमरा",
-      "cameraDeniedBody": "फ़ोटो लेने के लिए सेटिंग में Stella को कैमरे की अनुमति दें.",
-      "photoLabel": "फ़ोटो",
-      "sheetTitle": "चैट में जोड़ें",
-      "camera": "कैमरा",
-      "photos": "फ़ोटो",
-      "files": "फ़ाइलें",
-      "readAloud": "उत्तर ज़ोर से पढ़ें"
-    }
-  },
-  "errors": {
-    "generic": "कुछ गलत हो गया",
-    "subscriptionRequired": "बैकअप के लिए सक्रिय Stella सदस्यता ज़रूरी है।",
-    "rateLimited": "थोड़ा तेज़ हो रहा है। कुछ देर में फिर कोशिश करें।",
-    "networkUnavailable": "Stella ऑफ़लाइन है। जारी रखने के लिए फिर से कनेक्ट करें।",
-    "permissionDenied": "Stella के पास यह करने की अनुमति नहीं है।"
-  },
   "app": {
-    "usage": {
-      "desktopOnly": "स्थानीय उपयोग Stella डेस्कटॉप ऐप में उपलब्ध है।",
-      "intro": "इस डिवाइस पर सहेजे गए प्रदाता कॉल। लागतें स्थानीय अनुमान हैं; बैकएंड बिलिंग ही अंतिम मानी जाती है।",
-      "refresh": "ताज़ा करें",
-      "refreshLabel": "उपयोग ताज़ा करें",
-      "selectedThread": "चयनित थ्रेड",
-      "viewAllThreads": "सभी थ्रेड देखें",
-      "loading": "स्थानीय उपयोग लोड हो रहा है…",
-      "loadError": "स्थानीय उपयोग लोड नहीं हो सका",
-      "tryAgain": "फिर कोशिश करें",
-      "emptyTitle": "इन फ़िल्टरों से कोई मॉडल कॉल मेल नहीं खाता।",
-      "emptyBody": "नेटिव कॉल यहाँ तब दिखते हैं जब उनका प्रदाता अंतिम उपयोग डेटा लौटाता है।",
-      "truncatedWarning": "इस दायरे के नवीनतम 10,000 कॉल दिखाए जा रहे हैं। सटीक कुल के लिए समय दायरा छोटा करें।",
-      "filters": {
-        "label": "उपयोग फ़िल्टर",
-        "timeRange": "समय दायरा",
-        "conversation": "वार्तालाप",
-        "thread": "थ्रेड",
-        "agentType": "एजेंट प्रकार",
-        "model": "मॉडल",
-        "allConversations": "सभी वार्तालाप",
-        "allThreads": "सभी थ्रेड",
-        "allAgentTypes": "सभी एजेंट प्रकार",
-        "allModels": "सभी मॉडल",
-        "range": {
-          "24h": "पिछले 24 घंटे",
-          "7d": "पिछले 7 दिन",
-          "30d": "पिछले 30 दिन",
-          "all": "सर्वकालिक"
-        }
-      },
-      "summary": {
-        "label": "उपयोग सारांश",
-        "estimatedCost": "अनुमानित लागत",
-        "providerCalls": "{count} प्रदाता कॉल",
-        "totalTokens": "कुल टोकन",
-        "uncachedInput": "{value} बिना कैश इनपुट",
-        "cacheRead": "कैश रीड",
-        "cacheDetail": "{read} पढ़े · {written} लिखे",
-        "output": "आउटपुट",
-        "reasoningTokens": "{value} तर्क टोकन"
-      },
-      "timeline": {
-        "title": "समयरेखा",
-        "description": "प्रति समय अवधि अनुमानित लागत और कुल टोकन।",
-        "chartLabel": "अनुमानित मॉडल लागत और टोकन उपयोग की समयरेखा",
-        "series": {
-          "cost": "अनुमानित लागत",
-          "tokens": "टोकन"
-        },
-        "tooltip": {
-          "estimated": "{value} अनुमानित",
-          "tokens": "{value} टोकन",
-          "calls": "{count} मॉडल कॉल"
-        }
-      },
-      "threads": {
-        "title": "थ्रेड",
-        "description": "ऑर्केस्ट्रेटर, एजेंट और नेस्टेड सबएजेंट।",
-        "columns": {
-          "execution": "निष्पादन",
-          "model": "मॉडल",
-          "calls": "कॉल",
-          "tokens": "टोकन",
-          "cache": "कैश",
-          "cost": "लागत"
-        }
-      },
-      "calls": {
-        "title": "प्रदाता कॉल",
-        "description": "जहाँ प्रदाता तर्क शामिल करता है, वहाँ आउटपुट में तर्क भी शामिल है; रिपोर्ट होने पर तर्क अलग से भी दिखाया जाता है।",
-        "costBreakdown": "इनपुट {input} · कैश रीड {cacheRead} · कैश राइट {cacheWrite} · आउटपुट {output}",
-        "truncatedNote": "नवीनतम 500 मेल खाते कॉल दिखाए जा रहे हैं; सारांश के कुल में सभी {count} लोड किए गए कॉल शामिल हैं।",
-        "columns": {
-          "time": "समय",
-          "execution": "निष्पादन",
-          "providerModel": "प्रदाता / मॉडल",
-          "input": "इनपुट",
-          "cache": "कैश R / W",
-          "output": "आउटपुट",
-          "reasoning": "तर्क",
-          "cost": "लागत",
-          "stop": "रोकें"
-        }
-      }
-    },
     "apps": {
       "createAppPrompt": "मुझे बताएँ कि आप मेरे लिए कौन-कौन से stella ऐप बना सकती हैं?"
     },
@@ -1344,21 +180,20 @@
         "previewFailed": "मानचित्र पूर्वावलोकन लोड नहीं हो सका।"
       },
       "messageActions": {
-        "selectText": "Select text",
-        "share": "Share",
-        "quote": "Quote",
-        "fork": "Fork to new chat",
-        "more": "अधिक क्रियाएँ",
-        "rewind": "Rewind here",
-        "rewindConfirm": "Click again to rewind",
         "copied": "कॉपी हुआ",
         "copy": "कॉपी करें",
+        "fork": "Fork to new chat",
+        "more": "अधिक क्रियाएँ",
+        "quote": "Quote",
         "readAloud": "ज़ोर से पढ़ें",
         "reply": "जवाब दें",
+        "rewind": "Rewind here",
+        "rewindConfirm": "Click again to rewind",
+        "selectText": "Select text",
+        "share": "Share",
         "stopReading": "पढ़ना रोकें"
       },
       "messageRow": {
-        "quotedTextLabel": "Quoted text",
         "attachmentAlt": "अनुलग्नक",
         "attachmentFallback": "अनुलग्नक {index}",
         "channelKind": {
@@ -1371,6 +206,7 @@
         "clickToEnlarge": "{label} बड़ा करने के लिए क्लिक करें",
         "pastedTextLabel": "चिपकाया गया टेक्स्ट",
         "pastedTextTitle": "चिपकाया गया टेक्स्ट — {stats}",
+        "quotedTextLabel": "Quoted text",
         "reactionsSummary": "प्रतिक्रियाएँ {reactions}",
         "showMoreChips": "{count} और दिखाएँ",
         "windowPreviewAlt": "विंडो सामग्री पूर्वावलोकन"
@@ -1475,6 +311,10 @@
           "description": "स्थिर छवि को छोटे वीडियो में सजीव करें",
           "name": "छवि से वीडियो"
         },
+        "referenceToVideo": {
+          "description": "चित्र, वीडियो और ऑडियो संदर्भों से वीडियो बनाएँ",
+          "name": "संदर्भों से वीडियो"
+        },
         "speechToText": {
           "description": "बोले गए ऑडियो को टेक्स्ट में लिखें",
           "name": "भाषण से टेक्स्ट"
@@ -1502,10 +342,6 @@
         "videoToVideo": {
           "description": "टेक्स्ट निर्देशों से वीडियो बदलें",
           "name": "वीडियो से वीडियो"
-        },
-        "referenceToVideo": {
-          "description": "चित्र, वीडियो और ऑडियो संदर्भों से वीडियो बनाएँ",
-          "name": "संदर्भों से वीडियो"
         }
       },
       "imageFailure": {
@@ -1547,6 +383,9 @@
         "prompt": "प्रॉम्प्ट",
         "promptPlaceholder": "बताएँ आप क्या चाहते हैं…",
         "quality": "गुणवत्ता",
+        "qualityHigh": "अधिक",
+        "qualityLow": "कम",
+        "qualityMedium": "मध्यम",
         "queued": "कतार में प्रतीक्षा…",
         "sourceAudio": "ऑडियो फ़ाइल",
         "sourceFile": "स्रोत फ़ाइल",
@@ -1554,1050 +393,509 @@
         "sourceVideo": "स्रोत वीडियो",
         "submitting": "भेजा जा रहा है…",
         "title": "मीडिया",
-        "transformVideo": "वीडियो बदलें",
-        "qualityHigh": "अधिक",
-        "qualityLow": "कम",
-        "qualityMedium": "मध्यम"
+        "transformVideo": "वीडियो बदलें"
       }
+    },
+    "usage": {
+      "calls": {
+        "columns": {
+          "cache": "कैश R / W",
+          "cost": "लागत",
+          "execution": "निष्पादन",
+          "input": "इनपुट",
+          "output": "आउटपुट",
+          "providerModel": "प्रदाता / मॉडल",
+          "reasoning": "तर्क",
+          "stop": "रोकें",
+          "time": "समय"
+        },
+        "costBreakdown": "इनपुट {input} · कैश रीड {cacheRead} · कैश राइट {cacheWrite} · आउटपुट {output}",
+        "description": "जहाँ प्रदाता तर्क शामिल करता है, वहाँ आउटपुट में तर्क भी शामिल है; रिपोर्ट होने पर तर्क अलग से भी दिखाया जाता है।",
+        "title": "प्रदाता कॉल",
+        "truncatedNote": "नवीनतम 500 मेल खाते कॉल दिखाए जा रहे हैं; सारांश के कुल में सभी {count} लोड किए गए कॉल शामिल हैं।"
+      },
+      "desktopOnly": "स्थानीय उपयोग Stella डेस्कटॉप ऐप में उपलब्ध है।",
+      "emptyBody": "नेटिव कॉल यहाँ तब दिखते हैं जब उनका प्रदाता अंतिम उपयोग डेटा लौटाता है।",
+      "emptyTitle": "इन फ़िल्टरों से कोई मॉडल कॉल मेल नहीं खाता।",
+      "filters": {
+        "agentType": "एजेंट प्रकार",
+        "allAgentTypes": "सभी एजेंट प्रकार",
+        "allConversations": "सभी वार्तालाप",
+        "allModels": "सभी मॉडल",
+        "allThreads": "सभी थ्रेड",
+        "conversation": "वार्तालाप",
+        "label": "उपयोग फ़िल्टर",
+        "model": "मॉडल",
+        "range": {
+          "24h": "पिछले 24 घंटे",
+          "30d": "पिछले 30 दिन",
+          "7d": "पिछले 7 दिन",
+          "all": "सर्वकालिक"
+        },
+        "thread": "थ्रेड",
+        "timeRange": "समय दायरा"
+      },
+      "intro": "इस डिवाइस पर सहेजे गए प्रदाता कॉल। लागतें स्थानीय अनुमान हैं; बैकएंड बिलिंग ही अंतिम मानी जाती है।",
+      "loadError": "स्थानीय उपयोग लोड नहीं हो सका",
+      "loading": "स्थानीय उपयोग लोड हो रहा है…",
+      "refresh": "ताज़ा करें",
+      "refreshLabel": "उपयोग ताज़ा करें",
+      "selectedThread": "चयनित थ्रेड",
+      "summary": {
+        "cacheDetail": "{read} पढ़े · {written} लिखे",
+        "cacheRead": "कैश रीड",
+        "estimatedCost": "अनुमानित लागत",
+        "label": "उपयोग सारांश",
+        "output": "आउटपुट",
+        "providerCalls": "{count} प्रदाता कॉल",
+        "reasoningTokens": "{value} तर्क टोकन",
+        "totalTokens": "कुल टोकन",
+        "uncachedInput": "{value} बिना कैश इनपुट"
+      },
+      "threads": {
+        "columns": {
+          "cache": "कैश",
+          "calls": "कॉल",
+          "cost": "लागत",
+          "execution": "निष्पादन",
+          "model": "मॉडल",
+          "tokens": "टोकन"
+        },
+        "description": "ऑर्केस्ट्रेटर, एजेंट और नेस्टेड सबएजेंट।",
+        "title": "थ्रेड"
+      },
+      "timeline": {
+        "chartLabel": "अनुमानित मॉडल लागत और टोकन उपयोग की समयरेखा",
+        "description": "प्रति समय अवधि अनुमानित लागत और कुल टोकन।",
+        "series": {
+          "cost": "अनुमानित लागत",
+          "tokens": "टोकन"
+        },
+        "title": "समयरेखा",
+        "tooltip": {
+          "calls": "{count} मॉडल कॉल",
+          "estimated": "{value} अनुमानित",
+          "tokens": "{value} टोकन"
+        }
+      },
+      "truncatedWarning": "इस दायरे के नवीनतम 10,000 कॉल दिखाए जा रहे हैं। सटीक कुल के लिए समय दायरा छोटा करें।",
+      "tryAgain": "फिर कोशिश करें",
+      "viewAllThreads": "सभी थ्रेड देखें"
+    }
+  },
+  "billing": {
+    "capability": {
+      "audio_generation": "आवाज़ और संगीत निर्माण",
+      "image_generation": "छवि निर्माण",
+      "three_d_generation": "3D निर्माण",
+      "video_generation": "वीडियो निर्माण"
+    },
+    "capabilityRestriction": {
+      "genericDescription": "यह सुविधा Stella Pro में शामिल है। इसे अनलॉक करने के लिए अपग्रेड करें।",
+      "genericTitle": "आपके प्लान में शामिल नहीं",
+      "lockedBadge": "{plan}",
+      "lockedBadgeGeneric": "अनुपलब्ध",
+      "signIn": "{capability} Stella {plan} में शामिल है। इसे अनलॉक करने के लिए साइन इन करें और अपग्रेड करें।",
+      "title": "{capability} आपके प्लान में नहीं है",
+      "unavailable": "{capability} फ़िलहाल किसी भी प्लान में उपलब्ध नहीं है।",
+      "upgrade": "{capability} Stella {plan} में शामिल है। इसे अनलॉक करने के लिए अपग्रेड करें।"
+    },
+    "features": {
+      "assistant": "निजी सहायक",
+      "codingAgent": "कोडिंग एजेंट",
+      "dictationReadAloud": "श्रुतलेखन और पढ़कर सुनाना",
+      "multipleAgents": "कई एजेंट",
+      "research": "रिसर्च और नॉलेज वर्क"
+    },
+    "freeAllowance": {
+      "caption": "आज़माने के लिए मुफ़्त।",
+      "exhaustedCta": "Go में अपग्रेड करें",
+      "exhaustedDescription": "10× अधिक उपयोग के लिए Go में अपग्रेड करें।",
+      "exhaustedTitle": "आप Free प्लान की सीमा तक पहुँच गए हैं",
+      "label": "Free प्लान का उपयोग",
+      "remaining": "आज़माने के लिए मुफ़्त।"
+    },
+    "heading": "अपना प्लान चुनें",
+    "mobile": {
+      "accessEnds": "एक्सेस {date} को समाप्त होगा",
+      "alreadySubscribedTitle": "आपके पास पहले से एक सदस्यता है",
+      "chooseHeading": "अपनी योजना चुनें",
+      "currentPlanLabel": "वर्तमान योजना",
+      "errorRetry": "फिर से प्रयास करें",
+      "footnote": "Stripe के माध्यम से Stella द्वारा बिलिंग। रद्द करने तक हर माह नवीनीकृत होती है; कभी भी रद्द करें।",
+      "introLine": "पहले महीने {introPrice}, फिर {price}/माह",
+      "manage": "सदस्यता प्रबंधित करें",
+      "manageWebNote": "इस सदस्यता को वेब पर Stella में stella.sh पर प्रबंधित करें या रद्द करें।",
+      "pendingBody": "ब्राउज़र में भुगतान पूरा करें। भुगतान की पुष्टि होते ही आपकी योजना यहाँ अपने आप अपडेट हो जाएगी — फिर से शुरू करने की ज़रूरत नहीं।",
+      "pendingDismiss": "अभी नहीं",
+      "pendingTitle": "आपकी खरीदारी पूरी की जा रही है",
+      "perMonth": "{price}/माह",
+      "planValue": "Stella {plan}",
+      "renews": "{date} को नवीनीकृत होगी",
+      "sectionTitle": "सदस्यता",
+      "signInToSubscribe": "सदस्यता लेने के लिए साइन इन करें",
+      "startingCheckout": "शुरू हो रहा है…",
+      "subscribe": "सदस्यता लें",
+      "successBody": "आपकी सदस्यता सक्रिय है। अधिक सीमाओं का आनंद लें।",
+      "successTitle": "आप Stella {plan} पर हैं"
+    },
+    "plans": {
+      "free": {
+        "tagline": "आज़माने के लिए मुफ़्त।"
+      },
+      "go": {
+        "tagline": "10× अधिक उपयोग"
+      },
+      "pro": {
+        "tagline": "मीडिया जनरेशन और कई एजेंट के लिए सबसे अधिक उपयोग सीमाएँ"
+      }
+    },
+    "renewal": {
+      "accessEnds": "{date} को एक्सेस खत्म",
+      "lapseDescription": "आपका {plan} प्लान {date} तक चलेगा। उसके बाद Stella बंद हो जाएगा — Free प्लान की सीमा एक ही बार मिलती है और आप अपनी सीमा पहले ही इस्तेमाल कर चुके हैं।",
+      "lapseTitle": "प्लान खत्म होने पर Stella बंद हो जाएगा",
+      "nextLabel": "अगला नवीनीकरण",
+      "pendingLabel": "रद्दीकरण लंबित",
+      "renews": "{date} को नवीनीकरण"
+    },
+    "subtitle": "मुफ़्त में शुरू करें। ज़्यादा ज़रूरत होने पर अपग्रेड करें।",
+    "upgradeDialog": {
+      "cta": "शुरू करें",
+      "description": "अपग्रेड के लिए धन्यवाद। उच्च प्राथमिकता और बढ़ा हुआ उपयोग अब सक्रिय है — आगे बढ़ें।",
+      "title": "आप Stella {plan} पर हैं।"
+    }
+  },
+  "chat": {
+    "attachments": {
+      "attachFile": "फ़ाइल अटैच करें",
+      "attachPhoto": "फ़ोटो अटैच करें",
+      "camera": "कैमरा",
+      "cameraDeniedBody": "फ़ोटो लेने के लिए सेटिंग में Stella को कैमरे की अनुमति दें.",
+      "cameraDeniedTitle": "कैमरा",
+      "files": "फ़ाइलें",
+      "photoLabel": "फ़ोटो",
+      "photos": "फ़ोटो",
+      "photosDeniedBody": "इमेज अटैच करने के लिए सेटिंग में Stella को अपनी फ़ोटो लाइब्रेरी की अनुमति दें.",
+      "photosDeniedTitle": "फ़ोटो",
+      "readAloud": "उत्तर ज़ोर से पढ़ें",
+      "remove": "अटैचमेंट हटाएँ",
+      "retryUpload": "अपलोड फिर आज़माएँ",
+      "sheetTitle": "चैट में जोड़ें",
+      "takePhoto": "फ़ोटो लें",
+      "tooManyBody": "आप एक बार में {count} फ़ाइलें तक अटैच कर सकते हैं.",
+      "tooManyTitle": "बहुत ज़्यादा फ़ाइलें",
+      "uploadFailed": "अपलोड नहीं हो सका. फिर आज़माने के लिए टैप करें.",
+      "uploading": "अपलोड हो रहा है"
+    },
+    "stoppedReply": "Stella यह उत्तर शुरू नहीं कर सकी",
+    "tryAgainHint": "कृपया फिर से कोशिश करें।"
+  },
+  "cloudBrowser": {
+    "actions": {
+      "canceling": "Canceling…",
+      "done": "Done",
+      "finishing": "Finishing…",
+      "useCloudBrowser": "Use Stella's browser"
+    },
+    "deviceCode": {
+      "body": "Enter this code on the site, then come back here.",
+      "codeLabel": "Code",
+      "copied": "Copied",
+      "copy": "Copy code",
+      "open": "Open site",
+      "title": "Sign in to {origin}"
+    },
+    "errors": {
+      "decision": "That didn't go through. Try again.",
+      "expired": "This sign-in is no longer needed.",
+      "liveView": "Couldn't load the sign-in page. Try again.",
+      "liveViewBoundary": "Couldn't load the sign-in page.",
+      "verificationUrl": "Couldn't open that page."
+    },
+    "needsYou": {
+      "deviceCode": "Enter a code for {origin}",
+      "open": "Open",
+      "signIn": "Sign in to {origin}",
+      "title": "Needs you"
+    },
+    "settings": {
+      "confirmBody": "Stella will ask you to sign in again next time.",
+      "confirmTitle": "Sign out of all sites?",
+      "defaultProfile": "Saved sign-ins",
+      "description": "Sites Stella has signed in to for you. Reset to sign out of all of them.",
+      "reset": "Reset",
+      "resetComplete": "Signed out of all sites.",
+      "resetFailed": "Couldn't sign out. Try again.",
+      "resetting": "Resetting…",
+      "title": "Browser sign-ins"
+    },
+    "takeover": {
+      "body": "Sign in to keep going. Stella can't see what you type.",
+      "checking": "Finishing sign-in to {origin}",
+      "frameTitle": "Sign in to {origin}",
+      "localNotice": "Stella can't see what you type",
+      "localOriginFallback": "Switched to Stella's browser to finish signing in.",
+      "localTransferFallback": "Couldn't confirm that sign-in. Try again in Stella's browser.",
+      "preparing": "Loading sign-in…",
+      "privateNotice": "Stella can't see what you type",
+      "resumingBody": "Stella will pick up where it left off.",
+      "title": "Sign in to {origin}"
+    }
+  },
+  "cloudConnector": {
+    "connect": "कनेक्ट करें",
+    "connecting": "अपने ब्राउज़र में {name} में साइन इन पूरा करें। मंज़ूरी मिलते ही Stella आगे बढ़ेगी।",
+    "errors": {
+      "decision": "{name} कनेक्ट नहीं हो सका। दोबारा कोशिश करें।",
+      "open": "साइन-इन पेज नहीं खुल सका।"
+    },
+    "notNow": "अभी नहीं",
+    "openAgain": "दोबारा खोलें",
+    "titleOffer": "{name} कनेक्ट करें?",
+    "titleWaiting": "{name} का इंतज़ार है"
+  },
+  "common": {
+    "appName": "Stella",
+    "back": "वापस",
+    "cancel": "रद्द करें",
+    "close": "बंद करें",
+    "continue": "जारी रखें",
+    "copy": "कॉपी करें",
+    "language": "भाषा",
+    "loading": "लोड हो रहा है…",
+    "next": "आगे",
+    "no": "नहीं",
+    "open": "खोलें",
+    "openPreferences": "वरीयताएँ खोलें",
+    "previous": "पिछला",
+    "save": "सहेजें",
+    "signIn": "साइन इन",
+    "signOut": "साइन आउट",
+    "tryAgain": "फिर से कोशिश करें",
+    "yes": "हाँ"
+  },
+  "companion": {
+    "arc": {
+      "dictate": "Dictate a message",
+      "dictateStop": "Stop dictating and send",
+      "readAloudOff": "Read replies aloud: off",
+      "readAloudOn": "Read replies aloud: on",
+      "voice": "Start voice conversation",
+      "voiceStop": "End voice conversation"
+    },
+    "badge": {
+      "running": "{count} agents working"
+    },
+    "bubble": {
+      "openStella": "Open in Stella",
+      "typing": "Stella is replying"
+    },
+    "composer": {
+      "placeholder": "Ask Stella…"
+    },
+    "mark": {
+      "close": "Close the prompt",
+      "open": "Ask Stella"
+    },
+    "menu": {
+      "hide": "Hide companion",
+      "openStella": "Open Stella",
+      "quit": "Quit Stella"
     }
   },
   "desktop": {
     "common": {
       "continue": "जारी रखें"
     },
-    "tray": {
-      "tooltip": "Stella",
-      "openStella": "Stella खोलें",
-      "quitStella": "Stella बंद करें",
-      "balloon": {
-        "title": "Stella अब भी चल रही है",
-        "content": "Stella आपके सिस्टम ट्रे में रहती है। फिर से खोलने के लिए आइकन पर क्लिक करें।"
-      }
-    },
     "dialog": {
       "startupFailure": {
-        "title": "Stella",
-        "message": "Stella शुरू होना पूरा नहीं कर सकी।",
         "detail": "ऐप UI लोड होने से पहले ही स्टार्टअप विफल हो गया।\n\n{detail}",
+        "message": "Stella शुरू होना पूरा नहीं कर सकी।",
+        "quit": "बंद करें",
         "relaunch": "फिर से शुरू करें",
-        "quit": "बंद करें"
-      }
-    },
-    "security": {
-      "confirmationTitle": "Stella सुरक्षा पुष्टि",
-      "allow": "अनुमति दें",
-      "deny": "अस्वीकार करें",
-      "rememberDecision": "इस डिवाइस पर यह निर्णय याद रखें",
-      "computerUse": {
-        "message": "Computer Use को {app} उपयोग करने की अनुमति दें?",
-        "detail": "Computer Use {app} को देख और उससे संवाद कर सकेगा।",
-        "risk": "जोखिम: {risk}"
+        "title": "Stella"
       }
     },
     "oauth": {
-      "xaiCodeMessage": "xAI कनेक्ट करने के लिए यह कोड दर्ज करें",
-      "expectedValue": "अपेक्षित मान: {value}"
+      "expectedValue": "अपेक्षित मान: {value}",
+      "xaiCodeMessage": "xAI कनेक्ट करने के लिए यह कोड दर्ज करें"
+    },
+    "security": {
+      "allow": "अनुमति दें",
+      "computerUse": {
+        "detail": "Computer Use {app} को देख और उससे संवाद कर सकेगा।",
+        "message": "Computer Use को {app} उपयोग करने की अनुमति दें?",
+        "risk": "जोखिम: {risk}"
+      },
+      "confirmationTitle": "Stella सुरक्षा पुष्टि",
+      "deny": "अस्वीकार करें",
+      "rememberDecision": "इस डिवाइस पर यह निर्णय याद रखें"
+    },
+    "tray": {
+      "balloon": {
+        "content": "Stella आपके सिस्टम ट्रे में रहती है। फिर से खोलने के लिए आइकन पर क्लिक करें।",
+        "title": "Stella अब भी चल रही है"
+      },
+      "openStella": "Stella खोलें",
+      "quitStella": "Stella बंद करें",
+      "tooltip": "Stella"
     },
     "update": {
       "holding": "Stella अपडेट हो रहा है"
     }
   },
+  "errors": {
+    "generic": "कुछ गलत हो गया",
+    "networkUnavailable": "Stella ऑफ़लाइन है। जारी रखने के लिए फिर से कनेक्ट करें।",
+    "permissionDenied": "Stella के पास यह करने की अनुमति नहीं है।",
+    "rateLimited": "थोड़ा तेज़ हो रहा है। कुछ देर में फिर कोशिश करें।",
+    "subscriptionRequired": "बैकअप के लिए सक्रिय Stella सदस्यता ज़रूरी है।"
+  },
   "features": {
     "browserBridge": {
-      "unavailableTitle": "ब्राउज़र एक्सटेंशन अनुपलब्ध",
-      "unavailableBody": "Stella आपके ब्राउज़र से कनेक्ट नहीं हो सकी। यदि यह जारी रहे तो ऐप पुनः चालू करें या Stella फिर से इंस्टॉल करें।",
       "connectionLostTitle": "ब्राउज़र कनेक्शन टूटा",
       "disconnected": "Stella ब्राउज़र ब्रिज डिस्कनेक्ट हो गया।",
       "retryDelay": {
         "one": "Stella लगभग {count} सेकंड में फिर कोशिश करती रहेगी।",
         "other": "Stella लगभग {count} सेकंड में फिर कोशिश करती रहेगी।"
-      }
+      },
+      "unavailableBody": "Stella आपके ब्राउज़र से कनेक्ट नहीं हो सकी। यदि यह जारी रहे तो ऐप पुनः चालू करें या Stella फिर से इंस्टॉल करें।",
+      "unavailableTitle": "ब्राउज़र एक्सटेंशन अनुपलब्ध"
     },
     "dictation": {
       "cancel": "श्रुतलेखन रद्द करें",
+      "failedBody": "Stella उसे लिख नहीं सकी। कृपया फिर कोशिश करें।",
+      "failedTitle": "श्रुतलेखन काम नहीं आया",
+      "keyDialog": {
+        "description": "इस Stella में डिक्टेशन शामिल नहीं है। अपनी OpenRouter API कुंजी जोड़ें और Stella उसी से ट्रांसक्राइब करेगा। कुंजी इसी कंप्यूटर पर रहती है।",
+        "getKey": "openrouter.ai/keys पर कुंजी पाएँ",
+        "inputLabel": "OpenRouter API कुंजी",
+        "openStella": "डिक्टेशन के लिए OpenRouter कुंजी जोड़ने हेतु Stella खोलें और वहाँ माइक दबाएँ।",
+        "save": "सहेजें और शुरू करें",
+        "saveFailed": "Stella वह कुंजी सहेज नहीं सका।",
+        "saving": "सहेजा जा रहा है…",
+        "title": "डिक्टेशन चालू करें",
+        "unavailable": "इस विंडो में कुंजियाँ सहेजना उपलब्ध नहीं है।"
+      },
       "listening": "सुन रही हूँ…",
+      "signInBody": "श्रुतलेखन उपयोग करने के लिए साइन इन करें",
+      "signInTitle": "श्रुतलेखन उपयोग करने के लिए साइन इन करें",
       "stopAndTranscribe": "रोकें और लिखें",
       "stopAndTranscribeLabel": "श्रुतलेखन रोकें और लिखें",
       "stopTranscribeSend": "रोकें, लिखें और भेजें",
-      "stopTranscribeSendLabel": "श्रुतलेखन रोकें, लिखें और भेजें",
-      "signInTitle": "श्रुतलेखन उपयोग करने के लिए साइन इन करें",
-      "failedTitle": "श्रुतलेखन काम नहीं आया",
-      "failedBody": "Stella उसे लिख नहीं सकी। कृपया फिर कोशिश करें।",
-      "signInBody": "श्रुतलेखन उपयोग करने के लिए साइन इन करें",
-      "keyDialog": {
-        "title": "डिक्टेशन चालू करें",
-        "description": "इस Stella में डिक्टेशन शामिल नहीं है। अपनी OpenRouter API कुंजी जोड़ें और Stella उसी से ट्रांसक्राइब करेगा। कुंजी इसी कंप्यूटर पर रहती है।",
-        "inputLabel": "OpenRouter API कुंजी",
-        "getKey": "openrouter.ai/keys पर कुंजी पाएँ",
-        "save": "सहेजें और शुरू करें",
-        "saving": "सहेजा जा रहा है…",
-        "saveFailed": "Stella वह कुंजी सहेज नहीं सका।",
-        "unavailable": "इस विंडो में कुंजियाँ सहेजना उपलब्ध नहीं है।",
-        "openStella": "डिक्टेशन के लिए OpenRouter कुंजी जोड़ने हेतु Stella खोलें और वहाँ माइक दबाएँ।"
-      }
+      "stopTranscribeSendLabel": "श्रुतलेखन रोकें, लिखें और भेजें"
     },
     "voice": {
-      "signInTitle": "आवाज़ उपयोग करने के लिए साइन इन करें",
-      "needsSetupTitle": "आवाज़ के लिए सेटअप ज़रूरी है"
-    }
-  },
-  "ui": {
-    "imageLightbox": {
-      "title": "छवि पूर्वावलोकन",
-      "close": "पूर्वावलोकन बंद करें"
-    }
-  },
-  "shell": {
-    "agentProgress": {
-      "recentAgentMessages": "हाल के एजेंट संदेश",
-      "recentProgress": "हाल की प्रगति"
-    },
-    "audioPlayer": {
-      "pause": "रोकें",
-      "play": "चलाएँ",
-      "seek": "आगे-पीछे करें"
-    },
-    "capture": {
-      "failedTitle": "वह कैप्चर नहीं हो सका",
-      "failedDescription": "स्क्रीनशॉट लेते समय कुछ गड़बड़ हुई। फिर कोशिश करें।"
-    },
-    "chatSidebar": {
-      "add": "जोड़ें",
-      "dictationError": "श्रुतलेखन: {error}",
-      "stop": "रोकें"
-    },
-    "displayPanel": {
-      "closePanel": "पैनल बंद करें",
-      "openPanel": "पैनल खोलें"
-    },
-    "rightSidebar": {
-      "workspace": "वर्कस्पेस",
-      "resize": "डिस्प्ले पैनल का आकार बदलें",
-      "resizeHint": "आकार बदलने के लिए खींचें · रीसेट के लिए डबल-क्लिक करें"
-    },
-    "windowControls": {
-      "minimize": "छोटा करें",
-      "restore": "पुनर्स्थापित करें",
-      "maximize": "बड़ा करें"
-    },
-    "workspace": {
-      "activity": "गतिविधि",
-      "viewFiles": {
-        "one": "{count} फ़ाइल देखें",
-        "other": "{count} फ़ाइलें देखें"
-      },
-      "moreFiles": {
-        "one": "{count} more file",
-        "other": "{count} more files"
-      }
-    },
-    "appSource": {
-      "update": "अपडेट करें",
-      "title": "Stella में बदलाव",
-      "undo": "पूर्ववत करें",
-      "outdated": "पुराने संस्करण पर बनाया गया",
-      "failed": "बदलाव लागू नहीं हो सका",
-      "restarts": "Stella को रीस्टार्ट करता है",
-      "updatedJustNow": "अभी अपडेट हुआ",
-      "updatedAgo": "{ago} अपडेट हुआ",
-      "undoneJustNow": "अभी पूर्ववत हुआ",
-      "undoneAgo": "{ago} पूर्ववत हुआ",
-      "files": {
-        "one": "{count} फ़ाइल",
-        "other": "{count} फ़ाइलें"
-      },
-      "updates": {
-        "pill": {
-          "one": "{count} अपडेट",
-          "other": "{count} अपडेट"
-        },
-        "newVersion": "Stella का नया संस्करण",
-        "newVersionDetail": "Stella टीम की ओर से सुधार और फ़िक्स",
-        "fromDevice": "{device} पर आपके द्वारा किया गया बदलाव",
-        "fromOtherComputer": "आपके दूसरे कंप्यूटर पर किया गया बदलाव",
-        "fromOtherComputers": "आपके दूसरे कंप्यूटर से बदलाव",
-        "readyChange": "जोड़ने के लिए तैयार बदलाव",
-        "add": "जोड़ें",
-        "get": "पाएं",
-        "adding": "जोड़ा जा रहा है…",
-        "skip": "छोड़ें",
-        "undoing": "पूर्ववत किया जा रहा है…",
-        "removed": "हटाया गया: {change}",
-        "justNow": "अभी",
-        "waiting": "प्रतीक्षा में",
-        "history": "इतिहास",
-        "skipped": "छोड़े गए",
-        "upToDate": "कुछ भी प्रतीक्षा में नहीं है"
-      }
-    },
-    "display": {
-      "homeLauncher": {
-        "files": {
-          "label": "फ़ाइलें",
-          "description": "पेज, छवियाँ, वीडियो और दस्तावेज़"
-        },
-        "trash": {
-          "label": "ट्रैश",
-          "description": "आपकी हाल ही में हटाई गई चीज़ें"
-        }
-      },
-      "trash": {
-        "title": "ट्रैश",
-        "empty": "अभी यहाँ कुछ नहीं है।",
-        "refresh": "ताज़ा करें",
-        "emptying": "खाली किया जा रहा है…",
-        "emptyTrash": "ट्रैश खाली करें",
-        "trashedAgo": "{time} पहले ट्रैश किया गया",
-        "pendingPurge": "मिटाने की प्रतीक्षा में",
-        "autoDeletesIn": "{time} में अपने आप मिट जाएगा",
-        "deleting": "मिटाया जा रहा है…",
-        "deleteNow": "अभी मिटाएँ",
-        "itemsAutoDeleted": {
-          "one": "{count} आइटम — 24 घंटे में अपने आप मिट जाएगा।",
-          "other": "{count} आइटम — 24 घंटे में अपने आप मिट जाएँगे।"
-        }
-      },
-      "canvasShare": {
-        "share": "साझा करें",
-        "links": "लिंक",
-        "sharedLinks": "साझा किए गए लिंक",
-        "publishing": "कैनवास प्रकाशित हो रहा है…",
-        "publishFailed": "यह कैनवास प्रकाशित नहीं हो सका। कृपया फिर कोशिश करें।",
-        "live": "कैनवास लाइव है",
-        "publicLink": "सार्वजनिक कैनवास लिंक",
-        "copyLink": "लिंक कॉपी करें",
-        "revoke": "साझा करना रद्द करें",
-        "expires": "{date} को समाप्त",
-        "shared": "{date} को साझा किया गया",
-        "sharedWithExpiry": "{shared} को साझा · {expires} को समाप्त",
-        "loadFailed": "आपके साझा किए गए आइटम लोड नहीं हो सके।",
-        "empty": "अभी कोई सक्रिय साझाकरण नहीं। सार्वजनिक लिंक पाने के लिए कोई कैनवास प्रकाशित करें।",
-        "untitled": "बिना शीर्षक कैनवास",
-        "toasts": {
-          "linkCopied": "साझा लिंक कॉपी हुआ",
-          "copyFailed": "लिंक कॉपी नहीं हो सका",
-          "revoked": "साझा करना रद्द हुआ",
-          "revokeFailed": "यह साझाकरण रद्द नहीं हो सका"
-        }
-      },
-      "canvas": {
-        "loadFailed": "यह कैनवास लोड नहीं हो सका।",
-        "loading": "लोड हो रहा है"
-      },
-      "media": {
-        "save": "सहेजें",
-        "saved": "सहेजा गया",
-        "saveFailed": "सहेजा नहीं जा सका",
-        "copy": "कॉपी करें",
-        "copied": "कॉपी हुआ",
-        "copyFailed": "कॉपी नहीं हो सका",
-        "delete": "मिटाएँ",
-        "deleteConfirm": "मिटाने के लिए फिर क्लिक करें",
-        "itemActions": "आइटम क्रियाएँ",
-        "missing": "फ़ाइल अब उपलब्ध नहीं है।",
-        "expand": "बड़ा करें",
-        "expandPanel": "पैनल बड़ा करें",
-        "revealInFinder": "Finder में दिखाएँ"
-      },
-      "url": {
-        "eyebrow": "लाइव पूर्वावलोकन",
-        "reload": "फिर से लोड करें",
-        "openInBrowser": "ब्राउज़र में खोलें"
-      },
-      "office": {
-        "preparing": "पूर्वावलोकन तैयार हो रहा है...",
-        "kind": {
-          "spreadsheet": "स्प्रेडशीट",
-          "presentation": "प्रस्तुति",
-          "document": "दस्तावेज़"
-        },
-        "sheetCount": {
-          "one": "{count} शीट",
-          "other": "{count} शीट"
-        },
-        "slideCount": {
-          "one": "{count} स्लाइड",
-          "other": "{count} स्लाइड"
-        },
-        "loadFailed": "यह पूर्वावलोकन लोड नहीं हो सका",
-        "sessionError": "पूर्वावलोकन सत्र में त्रुटि आई।",
-        "zoomAriaLabel": "पूर्वावलोकन ज़ूम",
-        "revealInFinder": "Finder में दिखाएँ",
-        "livePreview": "लाइव पूर्वावलोकन",
-        "frameTitle": "{kind} पूर्वावलोकन: {title}"
-      },
-      "filePreview": {
-        "save": "सहेजें",
-        "copy": "कॉपी करें",
-        "loading": "लोड हो रहा है..."
-      },
-      "spreadsheet": {
-        "eyebrow": "स्प्रेडशीट",
-        "desktopRequired": "स्प्रेडशीट पूर्वावलोकन के लिए Stella डेस्कटॉप ऐप आवश्यक है।",
-        "noRows": "कोई पंक्ति नहीं मिली।",
-        "column": "स्तंभ {index}"
-      },
-      "markdown": {
-        "eyebrow": "Markdown",
-        "desktopRequired": "Markdown पूर्वावलोकन के लिए Stella डेस्कटॉप ऐप आवश्यक है।",
-        "noContent": "कोई सामग्री नहीं मिली।"
-      },
-      "diff": {
-        "changes": "बदलाव",
-        "codeChanges": "कोड बदलाव",
-        "noChanges": "कोई बदलाव नहीं मिला।",
-        "desktopRequired": "कोड पूर्वावलोकन के लिए Stella डेस्कटॉप ऐप आवश्यक है।",
-        "empty": "अभी कोई फ़ाइल बदलाव नहीं। जब कोई एजेंट कोड संपादित करेगा, बदलाव यहाँ दिखेंगे।"
-      },
-      "agentThread": {
-        "role": {
-          "user": "निर्देश",
-          "assistant": "एजेंट",
-          "reasoning": "तर्क",
-          "tool": "टूल",
-          "checkpoint": "थ्रेड चेकपॉइंट",
-          "lifecycle": "गतिविधि"
-        },
-        "status": {
-          "running": "काम कर रहा है",
-          "completed": "पूरा हुआ",
-          "error": "विफल",
-          "canceled": "रोका गया"
-        },
-        "newMessages": {
-          "one": "{count} नया संदेश।",
-          "other": "{count} नए संदेश।"
-        },
-        "newMessagesWithPreview": "{countPhrase} नवीनतम {role}: {preview}",
-        "unavailable": "एजेंट थ्रेड इतिहास उपलब्ध नहीं है।",
-        "loadFailed": "यह थ्रेड लोड नहीं हो सका।",
-        "showingNewest": "नवीनतम संदेश दिखाया जा रहा है।",
-        "claudeAriaLabel": "Claude सबएजेंट केवल-पढ़ने योग्य वार्तालाप",
-        "claudeBadge": "केवल-पढ़ने योग्य Claude सबएजेंट",
-        "badge": "केवल-पढ़ने योग्य एजेंट थ्रेड",
-        "retrying": "फिर कोशिश हो रही है…",
-        "empty": "इस थ्रेड में अभी कोई संदेश नहीं है।",
-        "toolInput": "इनपुट",
-        "toolOutput": "आउटपुट",
-        "toolRunning": "इस टूल के पूरा होने की प्रतीक्षा हो रही है…",
-        "toolGroup": {
-          "one": "{count} tool call",
-          "other": "{count} tool calls"
-        },
-        "reasoningGroup": {
-          "one": "Reasoning",
-          "other": "{count} reasoning steps"
-        },
-        "newMessagesButton": {
-          "one": "{count} नया संदेश",
-          "other": "{count} नए संदेश"
-        },
-        "showNewMessagesAria": "{countPhrase} दिखाएँ"
-      },
-      "preview": {
-        "limited": "प्रीव्यू सीमित है। पूरा कॉन्टेंट देखने के लिए मूल फ़ाइल सेव करें या खोलें।",
-        "unavailable": "यह प्रीव्यू तैयार नहीं किया जा सका।"
-      }
-    },
-    "sidebar": {
-      "account": {
-        "planAriaLabel": "{name}, {plan} प्लान",
-        "signOutTitle": "Stella से साइन आउट करें?",
-        "signOutDescription": "क्या आप निश्चित हैं?"
-      },
-      "nav": {
-        "apps": "ऐप्स",
-        "unreadTitle": "{label} ({count} अपठित)",
-        "unreadAriaLabel": "{label}, {count} अपठित"
-      },
-      "feedback": {
-        "title": "प्रतिक्रिया भेजें",
-        "description": "आपका संदेश गुमनाम रूप से भेजा जाता है — यह आपके खाते से नहीं जुड़ता।",
-        "fieldLabel": "प्रतिक्रिया",
-        "placeholder": "बताएँ कि क्या अच्छा चल रहा है, क्या नहीं, या आप क्या देखना चाहेंगे…",
-        "send": "भेजें",
-        "sending": "भेजा जा रहा है…",
-        "toasts": {
-          "sentTitle": "प्रतिक्रिया भेजी गई",
-          "sentDescription": "धन्यवाद — हर सुझाव Stella को बेहतर बनाने में मदद करता है।",
-          "failedTitle": "प्रतिक्रिया नहीं भेजी जा सकी"
-        }
-      }
-    },
-    "topbar": {
-      "conversation": {
-        "newChat": "नई चैट",
-        "newChatConfirm": "Click again to confirm",
-        "history": "वार्तालाप इतिहास",
-        "historyEmpty": "अभी तक कोई वार्तालाप नहीं",
-        "historyRetry": "वार्तालाप लोड नहीं हो सके। फिर कोशिश करें",
-        "openConversations": "वार्तालाप खोलें",
-        "unread": "अपठित संदेश",
-        "openConversation": "{title} खोलें",
-        "closeConversation": "{title} बंद करें",
-        "delete": "{title} मिटाएँ",
-        "deleteConfirm": "पुष्टि के लिए फिर क्लिक करें",
-        "deleteConfirmFor": "{title} मिटाने के लिए फिर क्लिक करें",
-        "deleteFailed": "यह वार्तालाप नहीं मिटाया जा सका",
-        "deleteFailedFor": "{title} नहीं मिटाया जा सका"
-      }
-    },
-    "browser": {
-      "connected": "ब्राउज़र कनेक्ट है",
-      "newTab": "नया टैब खोलें",
-      "connecting": "एक्सटेंशन का इंतज़ार…"
-    },
-    "connectors": {
-      "title": "कनेक्टर",
-      "searchPlaceholder": "खोजें",
-      "searchLabel": "कनेक्टर खोजें",
-      "loading": "कनेक्टर लोड हो रहे हैं…",
-      "desktopRequired": "कनेक्टर Stella डेस्कटॉप ऐप में उपलब्ध हैं।",
-      "empty": "अभी कोई कनेक्टर उपलब्ध नहीं है।",
-      "noMatches": "उस खोज से कोई कनेक्टर मेल नहीं खाता।"
+      "needsSetupTitle": "आवाज़ के लिए सेटअप ज़रूरी है",
+      "signInTitle": "आवाज़ उपयोग करने के लिए साइन इन करें"
     }
   },
   "global": {
     "auth": {
-      "welcomeTitle": "Stella में आपका स्वागत है",
-      "welcomeDescription": "Stella उपयोग करना शुरू करने के लिए अपने ईमेल से साइन इन करें।",
-      "welcomeSub": "साइन इन करने के लिए Google या अपना ईमेल उपयोग करें। पासवर्ड की ज़रूरत नहीं।",
-      "finishingTitle": "साइन-इन पूरा हो रहा है",
-      "finishingSub": "आपकी चैट इस खाते में स्थानांतरित की जा रही हैं। इसमें बस एक पल लगेगा।",
-      "orUseEmail": "या ईमेल उपयोग करें",
+      "checkInbox": "साइन-इन लिंक के लिए अपना इनबॉक्स देखें।",
       "emailLabel": "ईमेल",
       "emailPlaceholder": "you@example.com",
-      "sending": "भेजा जा रहा है...",
-      "signingIn": "साइन इन हो रहा है...",
-      "sendSignInEmail": "साइन-इन ईमेल भेजें",
-      "checkInbox": "साइन-इन लिंक के लिए अपना इनबॉक्स देखें।",
-      "magicLinkSentDesktop": "हमने एक साइन-इन लिंक भेजा है। पूरा करने के लिए इसे इसी डिवाइस पर खोलें।",
-      "openInbox": "{provider} खोलें",
-      "resendIn": "{seconds} सेकंड में फिर भेजें",
-      "resendEmail": "ईमेल फिर भेजें",
-      "skipForNow": "अभी छोड़ें",
       "enterEmail": "कोई ईमेल पता दर्ज करें।",
-      "sendFailed": "साइन-इन ईमेल भेजने में विफल।",
-      "magicLinkFailed": "मैजिक लिंक भेजने में विफल।",
       "finishFailed": "साइन-इन पूरा नहीं हो सका। कृपया फिर कोशिश करें।",
+      "finishingSub": "आपकी चैट इस खाते में स्थानांतरित की जा रही हैं। इसमें बस एक पल लगेगा।",
+      "finishingTitle": "साइन-इन पूरा हो रहा है",
+      "googleContinue": "Google से जारी रखें",
+      "googleExpired": "Google साइन-इन समाप्त हो गया। कृपया फिर कोशिश करें।",
+      "googleNoSession": "Google साइन-इन बिना सत्र के पूरा हुआ।",
+      "googleStartFailed": "Google साइन-इन शुरू नहीं हो सका।",
+      "googleTimedOut": "Google साइन-इन का समय समाप्त हो गया। कृपया फिर कोशिश करें।",
+      "googleWaiting": "Google की प्रतीक्षा...",
+      "magicLinkFailed": "मैजिक लिंक भेजने में विफल।",
+      "magicLinkSentDesktop": "हमने एक साइन-इन लिंक भेजा है। पूरा करने के लिए इसे इसी डिवाइस पर खोलें।",
+      "nicknameDescription": "ऐप में Stella के उपयोग के लिए एक नाम चुनें।",
+      "nicknameLabel": "उपनाम",
+      "nicknamePlaceholder": "आपका उपनाम",
+      "nicknameTitle": "मैं आपको क्या कहकर बुलाऊँ?",
+      "notNow": "अभी नहीं",
+      "openInbox": "{provider} खोलें",
+      "orUseEmail": "या ईमेल उपयोग करें",
+      "resendEmail": "ईमेल फिर भेजें",
+      "resendIn": "{seconds} सेकंड में फिर भेजें",
+      "sendFailed": "साइन-इन ईमेल भेजने में विफल।",
+      "sendSignInEmail": "साइन-इन ईमेल भेजें",
+      "sending": "भेजा जा रहा है...",
       "signInIncomplete": "साइन-इन अधूरा। कृपया फिर कोशिश करें।",
       "signInLinkExpired": "साइन-इन लिंक समाप्त हो गया। कृपया फिर कोशिश करें।",
+      "signingIn": "साइन इन हो रहा है...",
+      "skipForNow": "अभी छोड़ें",
       "tooManyRequests": {
         "one": "बहुत अधिक अनुरोध। {count} सेकंड में फिर कोशिश करें।",
         "other": "बहुत अधिक अनुरोध। {count} सेकंड में फिर कोशिश करें।"
       },
-      "googleContinue": "Google से जारी रखें",
-      "googleWaiting": "Google की प्रतीक्षा...",
-      "googleStartFailed": "Google साइन-इन शुरू नहीं हो सका।",
-      "googleNoSession": "Google साइन-इन बिना सत्र के पूरा हुआ।",
-      "googleExpired": "Google साइन-इन समाप्त हो गया। कृपया फिर कोशिश करें।",
-      "googleTimedOut": "Google साइन-इन का समय समाप्त हो गया। कृपया फिर कोशिश करें।",
-      "nicknameTitle": "मैं आपको क्या कहकर बुलाऊँ?",
-      "nicknameDescription": "ऐप में Stella के उपयोग के लिए एक नाम चुनें।",
-      "nicknameLabel": "उपनाम",
-      "nicknamePlaceholder": "आपका उपनाम",
-      "notNow": "अभी नहीं"
-    },
-    "legal": {
-      "terms": {
-        "title": "सेवा की शर्तें",
-        "subtitle": "Stella कैसे काम करती है, और उपयोग करने पर आप किन बातों से सहमत होते हैं।"
-      },
-      "privacy": {
-        "title": "गोपनीयता नीति",
-        "subtitle": "हम क्या एकत्र करते हैं, क्या नहीं, और उसे सुरक्षित कैसे रखते हैं।"
-      }
+      "welcomeDescription": "Stella उपयोग करना शुरू करने के लिए अपने ईमेल से साइन इन करें।",
+      "welcomeSub": "साइन इन करने के लिए Google या अपना ईमेल उपयोग करें। पासवर्ड की ज़रूरत नहीं।",
+      "welcomeTitle": "Stella में आपका स्वागत है"
     },
     "integrations": {
-      "heroTagline": "अपनी पसंद के किसी भी प्लेटफ़ॉर्म से Stella को संदेश भेजें — सहज बातचीत करें, या अपने कंप्यूटर पर सीधे काम करवाएँ।",
-      "signInToConnect": "कनेक्ट करने के लिए Stella में साइन इन करें",
       "connectStellaApp": "Stella ऐप से कनेक्ट करें",
       "connectStellaAppSub": "अपने फ़ोन के Stella ऐप को इस कंप्यूटर से जोड़ें",
       "connectTitle": "कनेक्ट करें",
-      "phoneTitle": "आपका फ़ोन",
       "connected": "कनेक्टेड",
-      "signInHeadline": "शुरू करने के लिए साइन इन करें",
-      "signInSub": "{provider} कनेक्ट करने के लिए अपने Stella खाते में साइन इन करें।",
       "credential": {
-        "title": "{provider} कनेक्ट करें",
-        "description": "कनेक्ट करने के लिए Stella को आपकी {provider} API कुंजी चाहिए। इसे नीचे चिपकाएँ। यह आपके कंप्यूटर पर ही रहती है।",
-        "defaultLabel": "{provider} कुंजी",
         "apiKeyLabel": "API कुंजी",
         "apiKeyRequired": "API कुंजी आवश्यक है।",
+        "defaultLabel": "{provider} कुंजी",
+        "description": "कनेक्ट करने के लिए Stella को आपकी {provider} API कुंजी चाहिए। इसे नीचे चिपकाएँ। यह आपके कंप्यूटर पर ही रहती है।",
         "keyPlaceholder": "अपनी कुंजी चिपकाएँ",
-        "labelLabel": "लेबल",
         "labelDescription": "इस कुंजी को बाद में पहचानने के लिए एक आसान नाम।",
-        "saving": "सहेजा जा रहा है...",
+        "labelLabel": "लेबल",
+        "saveFailed": "क्रेडेंशियल सहेजने में विफल।",
         "saveKey": "कुंजी सहेजें",
-        "saveFailed": "क्रेडेंशियल सहेजने में विफल।"
+        "saving": "सहेजा जा रहा है...",
+        "title": "{provider} कनेक्ट करें"
+      },
+      "heroTagline": "अपनी पसंद के किसी भी प्लेटफ़ॉर्म से Stella को संदेश भेजें — सहज बातचीत करें, या अपने कंप्यूटर पर सीधे काम करवाएँ।",
+      "phoneTitle": "आपका फ़ोन",
+      "signInHeadline": "शुरू करने के लिए साइन इन करें",
+      "signInSub": "{provider} कनेक्ट करने के लिए अपने Stella खाते में साइन इन करें।",
+      "signInToConnect": "कनेक्ट करने के लिए Stella में साइन इन करें"
+    },
+    "legal": {
+      "privacy": {
+        "subtitle": "हम क्या एकत्र करते हैं, क्या नहीं, और उसे सुरक्षित कैसे रखते हैं।",
+        "title": "गोपनीयता नीति"
+      },
+      "terms": {
+        "subtitle": "Stella कैसे काम करती है, और उपयोग करने पर आप किन बातों से सहमत होते हैं।",
+        "title": "सेवा की शर्तें"
       }
     },
     "remoteExecutionConsent": {
-      "title": "Allow work from your other devices?",
+      "allow": "Allow",
       "body": "Another of your devices asked to run work on this computer. Allowing lets work sent from your devices run here.",
       "bodyFrom": "{requester} asked to run work on this computer. Allowing lets work sent from your devices run here.",
-      "note": "You can change this later in Connect, under your computers.",
-      "allow": "Allow",
       "decline": "Not now",
-      "failed": "That answer didn't go through. Try again."
+      "failed": "That answer didn't go through. Try again.",
+      "note": "You can change this later in Connect, under your computers.",
+      "title": "Allow work from your other devices?"
     },
     "schedule": {
-      "dialogTitle": "शेड्यूल",
-      "untitledTask": "शेड्यूल किया गया कार्य",
+      "actionFailed": "क्रिया विफल।",
       "checkIn": "चेक-इन",
-      "paused": "रुका हुआ",
+      "delete": "मिटाएँ",
+      "dialogTitle": "शेड्यूल",
+      "missing": "यह शेड्यूल अब मौजूद नहीं है।",
       "pause": "रोकें",
+      "paused": "रुका हुआ",
       "pausing": "रोका जा रहा है…",
+      "removing": "हटाया जा रहा है…",
       "resume": "जारी रखें",
       "resuming": "जारी किया जा रहा है…",
       "runNow": "अभी चलाएँ",
       "running": "चल रहा है…",
-      "delete": "मिटाएँ",
-      "removing": "हटाया जा रहा है…",
-      "actionFailed": "क्रिया विफल।",
-      "missing": "यह शेड्यूल अब मौजूद नहीं है।",
       "scheduleCount": {
         "one": "{count} शेड्यूल",
         "other": "{count} शेड्यूल"
-      }
+      },
+      "untitledTask": "शेड्यूल किया गया कार्य"
     }
   },
   "mobile": {
-    "common": {
-      "back": "वापस",
-      "backChevron": "‹ वापस",
-      "cancel": "रद्द करें",
-      "continue": "जारी रखें",
-      "delete": "हटाएँ",
-      "done": "हो गया",
-      "goBack": "वापस जाएँ",
-      "tryAgain": "फिर से कोशिश करें"
-    },
-    "boot": {
-      "crashTitle": "शुरू होते समय कुछ गड़बड़ हो गई",
-      "missingConfigTitle": "मोबाइल एनवायरनमेंट वेरिएबल जोड़ें",
-      "missingConfigBody": "ऐप शुरू करने से पहले EXPO_PUBLIC_STELLA_BACKEND_URL सेट करें।",
-      "checkingSessionTitle": "आपका सेशन जाँचा जा रहा है",
-      "checkingSessionBody": "Stella के तैयार होने तक थोड़ा इंतज़ार करें।"
-    },
-    "authCallback": {
-      "failedTitle": "आपको साइन इन नहीं कर पाए",
-      "invalidLink": "साइन-इन लिंक अमान्य है।",
-      "linkExpired": "यह साइन-इन लिंक समाप्त हो चुका है। कृपया नया लिंक मँगाएँ।",
-      "genericFailure": "अभी आपको साइन इन नहीं कर पाए। कृपया फिर से कोशिश करें।",
-      "backToSignIn": "साइन इन पर वापस जाएँ",
-      "signingInTitle": "आपको साइन इन किया जा रहा है",
-      "signingInBody": "बस एक पल..."
-    },
-    "nav": {
-      "chat": "चैट",
-      "settings": "सेटिंग्स",
-      "apps": "ऐप्स",
-      "openLabel": "नेविगेशन खोलें",
-      "chatSettingsLabel": "चैट सेटिंग्स",
-      "closeLabel": "नेविगेशन बंद करें",
-      "account": "खाता",
-      "signIn": "साइन इन",
-      "backToChat": "चैट पर वापस जाएँ",
-      "backToApps": "ऐप्स पर वापस जाएँ"
-    },
-    "search": {
-      "placeholder": "संदेश खोजें",
-      "openLabel": "संदेश खोजें",
-      "clearLabel": "खोज साफ़ करें",
-      "cancelLabel": "खोज रद्द करें"
-    },
-    "onboarding": {
-      "skip": "छोड़ें",
-      "skipLabel": "परिचय छोड़ें",
-      "progressLabel": "चरण {current} / {total}",
-      "composerPlaceholder": "या बस मुझसे कुछ पूछ लें",
-      "send": "भेजें",
-      "messages": {
-        "hello": "नमस्ते, मैं Stella हूँ।\n\nमैं कोई चैटबॉट नहीं हूँ। बस बताइए कि आपको क्या चाहिए, और मैं उसे बैकग्राउंड में पूरा कर दूँगी, जब तक आप अपने दिन के काम निपटाते हैं।",
-        "showcase": "देखिए, यह ऐसा दिखता है।",
-        "computer": "अगर आपके पास Mac या PC है, तो मैं उस पर भी काम कर सकती हूँ।",
-        "account": "क्या यह सब सहेजकर रखना चाहेंगे? Stella अकाउंट हर डिवाइस पर आपके साथ रहता है।",
-        "accountSignedIn": "आप साइन इन हैं, इसलिए सब कुछ आपके डिवाइसों के बीच साथ चलता है। एक वैकल्पिक चीज़ और:",
-        "theme": "अब बताइए, मैं कैसी दिखूँ?",
-        "ready": "बस, इतना ही। साथ चलते-चलते मैं आपको जान जाऊँगी।\n\nहम पहले क्या करें?"
-      },
-      "replies": {
-        "helloDone": "दिखाओ।",
-        "showcaseDone": "ठीक है।",
-        "computerDone": "कनेक्ट हो गया!",
-        "computerSkipped": "बाद में।",
-        "accountDone": "हो गया।",
-        "accountSkipped": "अभी नहीं।",
-        "themeDone": "यही वाला।",
-        "themeSkipped": "डिफ़ॉल्ट ही रहने दो।"
-      },
-      "hello": {
-        "cta": "दिखाओ",
-        "settledTitle": "Stella से मिलिए",
-        "pillars": {
-          "done": {
-            "title": "काम पूरा करती है",
-            "body": "बुकिंग, ऑर्डर, फ़ाइलें और रिसर्च, सब आपके लिए पूरे।"
-          },
-          "background": {
-            "title": "बैकग्राउंड में चलती है",
-            "body": "कोई काम सौंपिए और अपने काम में लगे रहिए। पूरा होते ही मैं बता दूँगी।"
-          },
-          "asks": {
-            "title": "ज़रूरी मौक़े पर पूछती है",
-            "body": "पैसे ख़र्च होने वाली हर चीज़ आपकी मंज़ूरी का इंतज़ार करती है।"
-          }
-        }
-      },
-      "showcase": {
-        "settledTitle": "एक झलक",
-        "replay": "यह डेमो फिर चलाएँ",
-        "tablist": "Stella क्या-क्या कर सकती है",
-        "placeholder": "Stella से पूछें",
-        "chapters": {
-          "errands": {
-            "word": "छोटे काम",
-            "title": "एक बार कहिए। समझिए हो गया।",
-            "caption": "मैं साइट खोलती हूँ, ब्योरे भरती हूँ और काम पूरा करती हूँ, ठीक वैसे जैसे आप करते।",
-            "prompt": "शुक्रवार रात 8 बजे के लिए दो लोगों की टेबल बुक कर दो",
-            "working": "टेबल बुक हो रही है",
-            "receipt1": "Osteria Lucia · शुक्र रात 8:00 · 2 लोग",
-            "receipt2": "आपके कैलेंडर में जोड़ा गया",
-            "reply": "Osteria Lucia में शुक्रवार रात 8 बजे की टेबल बुक हो गई। यह आपके कैलेंडर में है।",
-            "scene": {
-              "site": "osterialucia.com",
-              "party": "लोग",
-              "partyValue": "2 लोग",
-              "date": "तारीख़",
-              "dateValue": "शुक्रवार",
-              "time": "समय",
-              "timeValue": "रात 8:00",
-              "reserve": "बुक करें",
-              "reserved": "बुक हुआ"
-            }
-          },
-          "shopping": {
-            "word": "ख़रीदारी",
-            "title": "आपकी मंज़ूरी से मैं ख़रीदारी भी कर सकती हूँ।",
-            "caption": "मैं चीज़ ढूँढकर चेकआउट तक ले जाती हूँ। आप कुल रक़म मंज़ूर करते हैं, फिर मैं ऑर्डर देती हूँ।",
-            "prompt": "मेरे रनिंग शूज़ साइज़ 10 में दोबारा ऑर्डर कर दो",
-            "working": "आपके जूते ढूँढ रही हूँ",
-            "amount": "$129.99",
-            "confirmTitle": "ख़रीदारी की पुष्टि करें?",
-            "confirmDetail": "Trail Runner 2 · साइज़ 10",
-            "confirm": "पुष्टि करें",
-            "confirmed": "पुष्टि हुई",
-            "receipt1": "ऑर्डर #48213 · गुरुवार तक पहुँचेगा",
-            "reply": "ऑर्डर हो गया। जूते गुरुवार को पहुँचेंगे।",
-            "scene": {
-              "site": "trailco.com",
-              "product": "Trail Runner 2",
-              "addToCart": "कार्ट में डालें",
-              "inCart": "कार्ट में"
-            }
-          },
-          "work": {
-            "word": "काम",
-            "title": "असली फ़ाइलें, तैयार।",
-            "caption": "दस्तावेज़, शीट और स्लाइड: मैं काम करती हूँ और फ़ाइल वहाँ सहेजती हूँ जहाँ आप उसे खोल सकें।",
-            "prompt": "मेरे Q3 के नोट्स को सोमवार के लिए डेक बना दो",
-            "working": "आपके नोट्स पढ़ रही हूँ",
-            "receipt1": "Q3 नोट्स · पढ़े गए",
-            "receipt2": "Q3 रिव्यू डेक · 12 स्लाइड",
-            "reply": "आपका डेक तैयार है: 12 स्लाइड, फ़ाइलें में सहेजा गया।",
-            "scene": {
-              "file": "Q3 रिव्यू.pptx",
-              "slideTitle": "Q3 रिव्यू"
-            }
-          },
-          "routines": {
-            "word": "रूटीन",
-            "title": "एक बार सेट करें। आगे मैं देख लूँगी।",
-            "caption": "रिमाइंडर, चेक-इन और रोज़ की ब्रीफ़, जो अपने तय समय पर अपने आप चलते हैं।",
-            "prompt": "हर सुबह 8 बजे मुझे मेरे दिन की ब्रीफ़ दो",
-            "working": "सेट कर रही हूँ",
-            "receipt1": "हर दिन सुबह 8:00",
-            "reply": "हो गया। आपकी पहली ब्रीफ़ कल सुबह 8 बजे आएगी।",
-            "scene": {
-              "when": "कल, सुबह 8:00",
-              "day": "कल",
-              "time": "8:00",
-              "now": "अभी",
-              "title": "आपकी सुबह की ब्रीफ़",
-              "body": "3 मीटिंग, शाम 5 बजे के बाद बारिश, और आज Sam का जन्मदिन है।"
-            }
-          },
-          "research": {
-            "word": "रिसर्च",
-            "title": "पढ़ने का काम मेरा।",
-            "caption": "मैं विकल्पों की तुलना करती हूँ, रिव्यू पढ़ती हूँ और जवाब लेकर लौटती हूँ।",
-            "prompt": "$2,000 से कम में सबसे अच्छी ई-बाइक ढूँढो",
-            "working": "रिव्यू पढ़ रही हूँ",
-            "receipt1": "24 रिव्यू पढ़े गए",
-            "receipt2": "तुलना फ़ाइलें में सहेजी गई",
-            "reply": "Cityline 3: सबसे हल्का फ़्रेम, सबसे अच्छे ब्रेक, $1,799।",
-            "scene": {
-              "title": "ई-बाइक की तुलना",
-              "source1": "विशेषज्ञ रिव्यू",
-              "source2": "मालिकों के फ़ोरम",
-              "source3": "स्पेक शीट",
-              "rank1": "Cityline 3",
-              "rank2": "Metro S",
-              "rank3": "Urban X"
-            }
-          }
-        }
-      },
-      "computer": {
-        "title": "आपका कंप्यूटर, आपकी जेब में",
-        "body": "इस फ़ोन को अपने कंप्यूटर पर Stella के साथ पेयर कर लें, फिर आपके बाहर रहते हुए मैं वहाँ काम चला सकती हूँ।",
-        "point1": "कोई फ़ाइल ढूँढकर आपको भेजना",
-        "point2": "कोई एक्सपोर्ट या डाउनलोड पूरा करना",
-        "point3": "आपके मौजूदा ऐप्स इस्तेमाल करना",
-        "pair": "मेरा कंप्यूटर पेयर करें",
-        "signInToPair": "जोड़ने के लिए साइन इन करें",
-        "later": "बाद में",
-        "hint": "अपने कंप्यूटर पर Stella खोलें और फ़ोन पेयर करें चुनें।",
-        "guestHint": "जोड़ना आपके Stella खाते से जुड़ा है, इसलिए पहले साइन इन करें। मैं यहीं से आगे बढ़ूँगी।",
-        "connectedTo": "{name} से कनेक्ट है",
-        "connectedBody": "कहीं से भी कहिए, मैं आपके कंप्यूटर पर काम कर दूँगी।",
-        "settledConnectedDesc": "मैं आपके फ़ोन से वहाँ काम चला सकती हूँ।",
-        "settledSkippedTitle": "अभी कोई कंप्यूटर नहीं",
-        "settledSkippedDesc": "आप कभी भी सेटिंग्स में कंप्यूटर पेयर कर सकते हैं।"
-      },
-      "account": {
-        "signInTitle": "Stella में साइन इन करें",
-        "signInBody": "अपनी बातचीत, सेटिंग्स और कनेक्टेड कंप्यूटर हर डिवाइस पर अपने साथ रखें।",
-        "signIn": "साइन इन",
-        "subscriptionsLabel": "वैकल्पिक",
-        "subscriptionsBody": "पहले से Claude या ChatGPT के लिए भुगतान करते हैं? इसे कनेक्ट करें और मैं इसे क्लाउड में इस्तेमाल करूंगी। आपके कंप्यूटर अपने साइन-इन इस्तेमाल करते हैं।",
-        "claudeDesc": "Pro या Max, Claude Code के ज़रिए",
-        "chatgptDesc": "Stella के क्लाउड के लिए आपका ChatGPT प्लान",
-        "connect": "कनेक्ट करें",
-        "connectLabel": "{name} कनेक्ट करें",
-        "connectedAs": "कनेक्टेड · {name}",
-        "skip": "अभी नहीं",
-        "settledSignedIn": "साइन इन हैं",
-        "settledGuest": "Stella अतिथि के रूप में",
-        "guestSettled": "सेटिंग्स से कभी भी साइन इन करें"
-      },
-      "theme": {
-        "appearance": "रूप-रंग",
-        "themes": "थीम",
-        "confirm": "हो गया",
-        "reset": "डिफ़ॉल्ट ही रहने दें"
-      },
-      "ready": {
-        "startersLabel": "इनमें से कोई आज़माएँ",
-        "start": "चैट शुरू करें",
-        "starters": {
-          "plan": {
-            "title": "मेरा हफ़्ता प्लान करो",
-            "prompt": "मेरे आने वाले कामों के हिसाब से मेरा हफ़्ता प्लान करने में मदद करो।"
-          },
-          "gift": {
-            "title": "तोहफ़ा ढूँढो",
-            "prompt": "एक दोस्त के जन्मदिन के लिए $50 से कम में कोई सोच-समझकर चुना हुआ तोहफ़ा ढूँढो।"
-          },
-          "remind": {
-            "title": "रिमाइंडर सेट करो",
-            "prompt": "मुझे रविवार शाम 6 बजे मम्मी को फ़ोन करने की याद दिलाना।"
-          },
-          "explain": {
-            "title": "कुछ समझाओ",
-            "prompt": "चक्रवृद्धि ब्याज कैसे काम करता है, आसान भाषा में समझाओ।"
-          }
-        }
-      }
-    },
-    "login": {
-      "heroTitle": "आपका असिस्टेंट,\nजेब में।",
-      "heroBody": "Apple, Google, या वही ईमेल इस्तेमाल करें जो आप कंप्यूटर पर इस्तेमाल करते हैं।",
-      "continueWithApple": "Apple से जारी रखें",
-      "openingApple": "Apple खोला जा रहा है...",
-      "continueWithGoogle": "Google से जारी रखें",
-      "openingGoogle": "Google खोला जा रहा है...",
-      "orUseEmail": "या ईमेल इस्तेमाल करें",
-      "emailPlaceholder": "ईमेल",
-      "sending": "भेजा जा रहा है...",
-      "signingIn": "साइन इन किया जा रहा है...",
-      "checkInbox": "अपना इनबॉक्स देखें और लिंक पर टैप करें — आप अपने आप साइन इन हो जाएँगे।",
-      "useDifferentEmail": "दूसरा ईमेल इस्तेमाल करें",
-      "resend": "फिर से भेजें",
-      "resendLabel": "साइन-इन ईमेल फिर से भेजें",
-      "enterEmail": "अपना ईमेल दर्ज करें।",
-      "sendFailed": "साइन-इन ईमेल नहीं भेजा जा सका।",
-      "googleStartFailed": "Google साइन-इन शुरू नहीं हो सका।",
-      "appleStartFailed": "Apple साइन-इन शुरू नहीं हो सका।",
-      "appleCompleteFailed": "Apple साइन-इन पूरा नहीं हो सका।",
-      "appleNoToken": "Apple ने पहचान टोकन नहीं लौटाया।",
-      "finishFailed": "साइन-इन पूरा नहीं हो सका। कृपया फिर से कोशिश करें।",
-      "incomplete": "साइन-इन अधूरा रह गया। कृपया फिर से कोशिश करें।",
-      "linkExpired": "लिंक समाप्त हो चुका है। कृपया फिर से कोशिश करें।",
-      "legalPrefix": "जारी रखने पर, आप हमारी ",
-      "legalTerms": "सेवा की शर्तें",
-      "legalConjunction": " और ",
-      "legalPrivacy": "गोपनीयता नीति",
-      "legalSuffix": " से सहमत होते हैं।",
-      "continueAsGuest": "साइन इन किए बिना जारी रखें"
-    },
-    "chat": {
-      "emptyPrompt": "Stella से कुछ भी पूछें",
-      "workingMany": "{count} कार्य प्रगति पर",
-      "composerPlaceholder": "Stella को संदेश भेजें",
-      "mainChat": "मुख्य चैट",
-      "createFailed": "चैट नहीं बनाई जा सकी। कृपया फिर से कोशिश करें।",
-      "loadMore": "और लोड करें"
-    },
-    "activityHub": {
-      "tabs": {
-        "activity": "गतिविधि",
-        "schedule": "शेड्यूल",
-        "search": "खोज",
-        "files": "फ़ाइलें"
-      },
-      "task": {
-        "finished": "पूरा हुआ",
-        "failed": "पूरा नहीं हो सका",
-        "stopped": "रोका गया",
-        "working": "बैकग्राउंड में काम कर रहा है"
-      },
-      "subagents": {
-        "count": {
-          "one": "{count} सब-एजेंट",
-          "other": "{count} सब-एजेंट"
-        },
-        "done": {
-          "other": "{count} पूरे"
-        }
-      },
-      "conversation": {
-        "title": "यह बातचीत",
-        "subtitle": "मुख्य थ्रेड द्वारा बनाई गई फ़ाइलें"
-      },
-      "schedule": {
-        "customCadence": "कस्टम शेड्यूल",
-        "paused": "रुका हुआ",
-        "next": "अगली बार {when}",
-        "lastRunFailed": "पिछला रन विफल रहा: {error}",
-        "pauseSchedule": "शेड्यूल रोकें",
-        "resumeSchedule": "शेड्यूल फिर शुरू करें",
-        "deleteSchedule": "शेड्यूल हटाएँ",
-        "deleteConfirm": "“{title}” अब नहीं चलेगा।",
-        "alertTitle": "शेड्यूल",
-        "actionFailed": "यह पूरा नहीं हो सका।",
-        "loadFailed": "शेड्यूल लोड नहीं हो सके।",
-        "empty": "अभी कोई शेड्यूल नहीं है। अपने कंप्यूटर पर Stella से कुछ नियमित रूप से चलाने के लिए कहें, वह यहाँ दिखेगा।"
-      },
-      "search": {
-        "placeholder": "गतिविधि और फ़ाइलों में खोजें",
-        "clear": "खोज साफ़ करें",
-        "close": "खोज बंद करें"
-      },
-      "files": {
-        "empty": "अभी कोई फ़ाइल नहीं है। Stella जो भी बनाएगी वह यहाँ दिखेगा।",
-        "emptyFiltered": "कोई फ़ाइल मेल नहीं खाती।",
-        "searchPlaceholder": "फ़ाइलें खोजें"
-      },
-      "activity": {
-        "empty": "अभी कोई बैकग्राउंड काम नहीं है।",
-        "emptyFiltered": "कोई मिलती-जुलती गतिविधि या फ़ाइल नहीं।"
-      }
-    },
-    "computer": {
-      "guestHeroTitle": "आपका कंप्यूटर, आपकी उँगलियों पर",
-      "guestHeroBody": "Stella से अपने कंप्यूटर पर काम कराएँ — वेब ब्राउज़ करना, फ़ाइलें सँभालना, काम चलाना और भी बहुत कुछ।",
-      "defaultDeviceLabel": "आपका कंप्यूटर",
-      "statusChecking": "जाँच हो रही है…",
-      "statusConnected": "कनेक्टेड",
-      "statusAsleep": "स्लीप में",
-      "connectingLabel": "आपके कंप्यूटर से कनेक्ट हो रहा है",
-      "connectedLabel": "कंप्यूटर कनेक्ट हो गया",
-      "disconnectedLabel": "कंप्यूटर डिसकनेक्ट हो गया",
-      "pairLabel": "कंप्यूटर पेयर करें"
-    },
-    "desktop": {
-      "pairTitle": "अपना फ़ोन पेयर करें",
-      "guestBody": "अपना Stella डेस्कटॉप ऐप सीधे फ़ोन पर देखें। पेयर करने के बाद आपका फ़ोन अपने आप फिर से कनेक्ट हो जाएगा।",
-      "guestSignInPrompt": "शुरू करने के लिए साइन इन करें।",
-      "connecting": "डेस्कटॉप से कनेक्ट हो रहा है",
-      "pairing": "इस फ़ोन को पेयर किया जा रहा है",
-      "unreachable": "आपके डेस्कटॉप तक नहीं पहुँच पा रहे",
-      "deviceUnreachable": "आपके {platform} तक नहीं पहुँचा जा सकता",
-      "repairNeeded": "इस फ़ोन को आपके कंप्यूटर के साथ फिर से पेयर करना होगा।",
-      "enterCode": "अपने कंप्यूटर पर दिखा कोड दर्ज करें।",
-      "linkInterrupted": "आपके कंप्यूटर से कनेक्शन टूट गया।",
-      "unavailableBodyPaired": "पक्का करें कि आपके कंप्यूटर पर Stella खुली है और इंटरनेट से जुड़ी है। कनेक्ट होते ही आपका डेस्कटॉप ऐप यहीं फ़ोन पर दिखने लगेगा।",
-      "unavailableBodyUnpaired": "अपना Stella डेस्कटॉप ऐप सीधे फ़ोन पर देखें। शुरू करने के लिए कंप्यूटर पर Stella में दिख रहा QR कोड स्कैन करें — उसके बाद आपका फ़ोन अपने आप फिर से कनेक्ट हो जाएगा।",
-      "pairAnother": "दूसरा कंप्यूटर पेयर करें",
-      "startPairingLabel": "कंप्यूटर पेयर करना शुरू करें",
-      "retryLabel": "फिर से कनेक्ट करने की कोशिश करें",
-      "reconnecting": "फिर से कनेक्ट हो रहा है...",
-      "limitedCapabilities": "कुछ चीज़ों के लिए आपका कंप्यूटर चाहिए"
-    },
-    "settings": {
-      "title": "सेटिंग्स",
-      "loadingSession": "सेशन लोड हो रहा है…",
-      "signIn": "साइन इन",
-      "signInTitle": "Stella में साइन इन करें",
-      "showEmailLabel": "ईमेल दिखाएँ",
-      "hideEmailLabel": "ईमेल छिपाएँ",
-      "appearanceSection": "दिखावट",
-      "computerSection": "कंप्यूटर",
-      "computer": {
-        "sectionLabel": "Stella कहाँ काम करती है",
-        "cloud": "क्लाउड",
-        "statusOnline": "ऑनलाइन",
-        "statusOffline": "ऑफ़लाइन",
-        "statusNotReady": "तैयार नहीं",
-        "statusNotEnabled": "अभी सक्षम नहीं",
-        "statusAwaitingConsent": "उस कंप्यूटर पर अनुमति की प्रतीक्षा है",
-        "statusDeclined": "उस कंप्यूटर पर अस्वीकृत",
-        "connecting": "कनेक्ट हो रहा है…",
-        "enable": "सक्षम करें",
-        "enabling": "सक्षम कर रहे हैं…",
-        "enableLabel": "{name} को सक्षम करें",
-        "enableFailedTitle": "उस कंप्यूटर को सक्षम नहीं कर सके",
-        "connectFailedTitle": "उस कंप्यूटर से कनेक्ट नहीं कर सके",
-        "pairingCode": "पेयरिंग कोड का उपयोग करें"
-      },
-      "appearance": {
-        "system": "सिस्टम",
-        "light": "लाइट",
-        "dark": "डार्क"
-      },
-      "background": {
-        "soft": "सॉफ़्ट",
-        "flat": "फ़्लैट"
-      },
-      "backgroundColor": {
-        "relative": "सापेक्ष",
-        "strong": "गहरा"
-      },
-      "useAppearanceLabel": "{name} दिखावट इस्तेमाल करें",
-      "useBackgroundLabel": "{name} बैकग्राउंड इस्तेमाल करें",
-      "useBackgroundColorLabel": "{name} बैकग्राउंड रंग इस्तेमाल करें",
-      "useThemeLabel": "{name} थीम इस्तेमाल करें",
-      "notificationsSection": "सूचनाएँ",
-      "pushToggleLabel": "पुश सूचनाएँ चालू करें",
-      "pushToggleSub": "आपका कंप्यूटर कोई अनुरोध पूरा करे तो सूचना पाएँ।",
-      "pushToggleA11y": "पुश सूचनाएँ चालू/बंद करें",
-      "pairedSection": "पेयर किए गए कंप्यूटर",
-      "pairedEmpty": "अभी कोई कंप्यूटर पेयर नहीं है।",
-      "pairedOn": "{date} को पेयर किया",
-      "paired": {
-        "unnamedComputer": "कंप्यूटर · {id}"
-      },
-      "forget": "भूल जाएँ",
-      "forgetLabel": "{name} को भूल जाएँ",
-      "forgetConfirmTitle": "{name} को भूल जाएँ?",
-      "forgetConfirmBody": "जब तक आप दोबारा पेयर नहीं करते, यह फ़ोन उस कंप्यूटर से फिर कनेक्ट नहीं होगा।",
-      "carPlayDiagnostics": "CarPlay डायग्नोस्टिक्स",
-      "aboutSection": "परिचय",
-      "openCarPlayDiagnosticsLabel": "CarPlay डायग्नोस्टिक्स खोलें",
-      "termsOfService": "सेवा की शर्तें",
-      "openTermsLabel": "सेवा की शर्तें खोलें",
-      "privacyPolicy": "गोपनीयता नीति",
-      "openPrivacyLabel": "गोपनीयता नीति खोलें",
-      "signOut": "साइन आउट",
-      "signingOut": "साइन आउट हो रहा है…",
-      "signOutLabel": "Stella से साइन आउट करें",
-      "deleteAccount": "खाता हटाएँ",
-      "deletingAccount": "खाता हटाया जा रहा है…",
-      "deleteAccountLabel": "अपना Stella खाता हटाएँ",
-      "deleteConfirmTitle": "खाता हटाएँ",
-      "deleteConfirmBody": "इससे आपका Stella खाता हमेशा के लिए हट जाएगा और हमारे सर्वर पर उससे जुड़ा क्लाउड डेटा भी मिट जाएगा। इसे पलटा नहीं जा सकता।",
-      "deleteFailedTitle": "खाता नहीं हटाया जा सका",
-      "chatStorage": {
-        "description": "अपनी चैट सभी डिवाइस पर देखें। बंद करने पर चैट इतिहास सिर्फ़ इसी डिवाइस पर अलग से रहेगा। दोबारा चालू करने पर वे चैट अपलोड नहीं होंगी। AI प्रदाता फिर भी आपके संदेश प्रोसेस करते हैं।"
-      }
-    },
-    "cloudHome": {
-      "settingsSection": "Cloud Home",
-      "settingsRowTitle": "मेमोरी दस्तावेज़",
-      "settingsRowBody": "क्लाउड पर आधिकारिक Stella मेमोरी पढ़ें और संपादित करें।",
-      "openSettingsLabel": "Cloud Home मेमोरी खोलें",
-      "title": "Cloud Home मेमोरी",
-      "subtitle": "क्लाउड पर आपके आधिकारिक Stella दस्तावेज़",
-      "backToSettingsLabel": "सेटिंग्स पर वापस जाएँ",
-      "backToDocumentsLabel": "Cloud Home दस्तावेज़ों पर वापस जाएँ",
-      "editorMeta": "{kind} · संशोधन {revision}",
-      "listMeta": "{kind} · संशोधन {revision} · {size}",
-      "signInTitle": "Cloud Home इस्तेमाल करने के लिए साइन इन करें",
-      "signInBody": "मेमोरी दस्तावेज़ आपके Stella खाते में निजी रहते हैं।",
-      "signIn": "साइन इन करें",
-      "signInAgain": "फिर से साइन इन करें",
-      "loading": "Cloud Home लोड हो रहा है…",
-      "unavailableTitle": "Cloud Home उपलब्ध नहीं है",
-      "unavailableBody": "इस डिप्लॉयमेंट में फ़िलहाल सुरक्षित Cloud Home सेवा उपलब्ध नहीं है। आपकी लोकल फ़ाइलों में कोई बदलाव नहीं किया गया है।",
-      "errors": {
-        "unauthorized": "Cloud Home खोलने के लिए फिर से साइन इन करें।",
-        "unavailable": "इस खाते के लिए Cloud Home अभी उपलब्ध नहीं है।",
-        "invalid": "Cloud Home से अमान्य जवाब मिला।",
-        "network": "Cloud Home से कनेक्ट नहीं हो सका। फिर से कोशिश करें।",
-        "missingFromList": "वह दस्तावेज़ अब Cloud Home में नहीं है। सूची फिर से लोड करें।",
-        "removedWhileEditing": "वह दस्तावेज़ Cloud Home से हटा दिया गया है।"
-      },
-      "notices": {
-        "saved": "Cloud Home में सेव किया गया।",
-        "loadedLatest": "क्लाउड का नवीनतम संस्करण लोड किया गया।"
-      },
-      "conflict": {
-        "title": "क्लाउड संस्करण बदल गया है",
-        "changedBody": "संशोधन {revision} ने आपके संपादित संस्करण की जगह ले ली है। आपका ड्राफ़्ट अभी भी यहाँ है।",
-        "removedBody": "आपके संपादन के दौरान यह दस्तावेज़ हटा दिया गया। आपका ड्राफ़्ट अभी भी यहाँ है।",
-        "reloadLabel": "क्लाउड संस्करण फिर से लोड करके इस ड्राफ़्ट को बदलें",
-        "reloading": "फिर से लोड हो रहा है…",
-        "reload": "क्लाउड संस्करण फिर से लोड करें"
-      },
-      "editor": {
-        "editLabel": "{name} संपादित करें",
-        "saving": "सेव हो रहा है…",
-        "save": "सेव करें",
-        "unsaved": "सेव न किए गए बदलाव",
-        "upToDate": "अप-टू-डेट"
-      },
-      "list": {
-        "retryLabel": "Cloud Home मेमोरी फिर से लोड करने की कोशिश करें",
-        "retry": "फिर से कोशिश करें",
-        "loading": "दस्तावेज़ लोड हो रहे हैं…",
-        "emptyTitle": "अभी कोई क्लाउड मेमोरी नहीं है",
-        "emptyBody": "Stella के बनाए या डेस्कटॉप से इंपोर्ट किए गए दस्तावेज़ यहाँ दिखाई देंगे।",
-        "openDocumentLabel": "{name} खोलें"
-      },
-      "kinds": {
-        "memory": "मेमोरी",
-        "profile": "प्रोफ़ाइल",
-        "memory_map": "मेमोरी मैप",
-        "core_memory": "मुख्य मेमोरी",
-        "personality": "व्यक्तित्व",
-        "imported_markdown": "इंपोर्ट किया गया Markdown",
-        "user_markdown": "उपयोगकर्ता Markdown",
-        "archive": "संग्रह"
-      },
-      "sizes": {
-        "bytes": "{count} B",
-        "kilobytes": "{count} KB",
-        "megabytes": "{count} MB"
-      }
-    },
-    "carPlayDiagnostics": {
-      "title": "CarPlay डायग्नोस्टिक्स",
-      "subtitle": {
-        "one": "CarPlay कनेक्शन का ब्यौरा ({count} पंक्ति, सबसे नई पहले)। गाड़ी में कुछ गड़बड़ हो तो इसे कॉपी करके भेजें।",
-        "other": "CarPlay कनेक्शन का ब्यौरा ({count} पंक्तियाँ, सबसे नई पहले)। गाड़ी में कुछ गड़बड़ हो तो इसे कॉपी करके भेजें।"
-      },
-      "copyAll": "सब कॉपी करें",
-      "copyAllLabel": "सारे डायग्नोस्टिक्स कॉपी करें",
-      "copied": "कॉपी हो गया ✓",
-      "refresh": "रिफ़्रेश",
-      "refreshLabel": "डायग्नोस्टिक्स रिफ़्रेश करें",
-      "clear": "साफ़ करें",
-      "clearLabel": "डायग्नोस्टिक्स साफ़ करें",
-      "empty": "अभी तक कोई CarPlay डायग्नोस्टिक्स दर्ज नहीं हुआ। एक बार CarPlay से कनेक्ट करें, फिर यहाँ वापस आएँ।",
-      "clipboardEmpty": "(कोई CarPlay डायग्नोस्टिक्स दर्ज नहीं है)"
-    },
     "account": {
       "title": "खाता"
     },
@@ -2608,91 +906,1788 @@
       },
       "openLabel": "गतिविधि दिखाएँ"
     },
+    "activityHub": {
+      "activity": {
+        "empty": "अभी कोई बैकग्राउंड काम नहीं है।",
+        "emptyFiltered": "कोई मिलती-जुलती गतिविधि या फ़ाइल नहीं।"
+      },
+      "conversation": {
+        "subtitle": "मुख्य थ्रेड द्वारा बनाई गई फ़ाइलें",
+        "title": "यह बातचीत"
+      },
+      "files": {
+        "empty": "अभी कोई फ़ाइल नहीं है। Stella जो भी बनाएगी वह यहाँ दिखेगा।",
+        "emptyFiltered": "कोई फ़ाइल मेल नहीं खाती।",
+        "searchPlaceholder": "फ़ाइलें खोजें"
+      },
+      "schedule": {
+        "actionFailed": "यह पूरा नहीं हो सका।",
+        "alertTitle": "शेड्यूल",
+        "customCadence": "कस्टम शेड्यूल",
+        "deleteConfirm": "“{title}” अब नहीं चलेगा।",
+        "deleteSchedule": "शेड्यूल हटाएँ",
+        "empty": "अभी कोई शेड्यूल नहीं है। अपने कंप्यूटर पर Stella से कुछ नियमित रूप से चलाने के लिए कहें, वह यहाँ दिखेगा।",
+        "lastRunFailed": "पिछला रन विफल रहा: {error}",
+        "loadFailed": "शेड्यूल लोड नहीं हो सके।",
+        "next": "अगली बार {when}",
+        "pauseSchedule": "शेड्यूल रोकें",
+        "paused": "रुका हुआ",
+        "resumeSchedule": "शेड्यूल फिर शुरू करें"
+      },
+      "search": {
+        "clear": "खोज साफ़ करें",
+        "close": "खोज बंद करें",
+        "placeholder": "गतिविधि और फ़ाइलों में खोजें"
+      },
+      "subagents": {
+        "count": {
+          "one": "{count} सब-एजेंट",
+          "other": "{count} सब-एजेंट"
+        },
+        "done": {
+          "other": "{count} पूरे"
+        }
+      },
+      "tabs": {
+        "activity": "गतिविधि",
+        "files": "फ़ाइलें",
+        "schedule": "शेड्यूल",
+        "search": "खोज"
+      },
+      "task": {
+        "failed": "पूरा नहीं हो सका",
+        "finished": "पूरा हुआ",
+        "stopped": "रोका गया",
+        "working": "बैकग्राउंड में काम कर रहा है"
+      }
+    },
+    "authCallback": {
+      "backToSignIn": "साइन इन पर वापस जाएँ",
+      "failedTitle": "आपको साइन इन नहीं कर पाए",
+      "genericFailure": "अभी आपको साइन इन नहीं कर पाए। कृपया फिर से कोशिश करें।",
+      "invalidLink": "साइन-इन लिंक अमान्य है।",
+      "linkExpired": "यह साइन-इन लिंक समाप्त हो चुका है। कृपया नया लिंक मँगाएँ।",
+      "signingInBody": "बस एक पल...",
+      "signingInTitle": "आपको साइन इन किया जा रहा है"
+    },
+    "boot": {
+      "checkingSessionBody": "Stella के तैयार होने तक थोड़ा इंतज़ार करें।",
+      "checkingSessionTitle": "आपका सेशन जाँचा जा रहा है",
+      "crashTitle": "शुरू होते समय कुछ गड़बड़ हो गई",
+      "missingConfigBody": "ऐप शुरू करने से पहले EXPO_PUBLIC_STELLA_BACKEND_URL सेट करें।",
+      "missingConfigTitle": "मोबाइल एनवायरनमेंट वेरिएबल जोड़ें"
+    },
+    "carPlayDiagnostics": {
+      "clear": "साफ़ करें",
+      "clearLabel": "डायग्नोस्टिक्स साफ़ करें",
+      "clipboardEmpty": "(कोई CarPlay डायग्नोस्टिक्स दर्ज नहीं है)",
+      "copied": "कॉपी हो गया ✓",
+      "copyAll": "सब कॉपी करें",
+      "copyAllLabel": "सारे डायग्नोस्टिक्स कॉपी करें",
+      "empty": "अभी तक कोई CarPlay डायग्नोस्टिक्स दर्ज नहीं हुआ। एक बार CarPlay से कनेक्ट करें, फिर यहाँ वापस आएँ।",
+      "refresh": "रिफ़्रेश",
+      "refreshLabel": "डायग्नोस्टिक्स रिफ़्रेश करें",
+      "subtitle": {
+        "one": "CarPlay कनेक्शन का ब्यौरा ({count} पंक्ति, सबसे नई पहले)। गाड़ी में कुछ गड़बड़ हो तो इसे कॉपी करके भेजें।",
+        "other": "CarPlay कनेक्शन का ब्यौरा ({count} पंक्तियाँ, सबसे नई पहले)। गाड़ी में कुछ गड़बड़ हो तो इसे कॉपी करके भेजें।"
+      },
+      "title": "CarPlay डायग्नोस्टिक्स"
+    },
+    "chat": {
+      "composerPlaceholder": "Stella को संदेश भेजें",
+      "createFailed": "चैट नहीं बनाई जा सकी। कृपया फिर से कोशिश करें।",
+      "emptyPrompt": "Stella से कुछ भी पूछें",
+      "loadMore": "और लोड करें",
+      "mainChat": "मुख्य चैट",
+      "workingMany": "{count} कार्य प्रगति पर"
+    },
+    "cloudHome": {
+      "backToDocumentsLabel": "Cloud Home दस्तावेज़ों पर वापस जाएँ",
+      "backToSettingsLabel": "सेटिंग्स पर वापस जाएँ",
+      "conflict": {
+        "changedBody": "संशोधन {revision} ने आपके संपादित संस्करण की जगह ले ली है। आपका ड्राफ़्ट अभी भी यहाँ है।",
+        "reload": "क्लाउड संस्करण फिर से लोड करें",
+        "reloadLabel": "क्लाउड संस्करण फिर से लोड करके इस ड्राफ़्ट को बदलें",
+        "reloading": "फिर से लोड हो रहा है…",
+        "removedBody": "आपके संपादन के दौरान यह दस्तावेज़ हटा दिया गया। आपका ड्राफ़्ट अभी भी यहाँ है।",
+        "title": "क्लाउड संस्करण बदल गया है"
+      },
+      "editor": {
+        "editLabel": "{name} संपादित करें",
+        "save": "सेव करें",
+        "saving": "सेव हो रहा है…",
+        "unsaved": "सेव न किए गए बदलाव",
+        "upToDate": "अप-टू-डेट"
+      },
+      "editorMeta": "{kind} · संशोधन {revision}",
+      "errors": {
+        "invalid": "Cloud Home से अमान्य जवाब मिला।",
+        "missingFromList": "वह दस्तावेज़ अब Cloud Home में नहीं है। सूची फिर से लोड करें।",
+        "network": "Cloud Home से कनेक्ट नहीं हो सका। फिर से कोशिश करें।",
+        "removedWhileEditing": "वह दस्तावेज़ Cloud Home से हटा दिया गया है।",
+        "unauthorized": "Cloud Home खोलने के लिए फिर से साइन इन करें।",
+        "unavailable": "इस खाते के लिए Cloud Home अभी उपलब्ध नहीं है।"
+      },
+      "kinds": {
+        "archive": "संग्रह",
+        "core_memory": "मुख्य मेमोरी",
+        "imported_markdown": "इंपोर्ट किया गया Markdown",
+        "memory": "मेमोरी",
+        "memory_map": "मेमोरी मैप",
+        "personality": "व्यक्तित्व",
+        "profile": "प्रोफ़ाइल",
+        "user_markdown": "उपयोगकर्ता Markdown"
+      },
+      "list": {
+        "emptyBody": "Stella के बनाए या डेस्कटॉप से इंपोर्ट किए गए दस्तावेज़ यहाँ दिखाई देंगे।",
+        "emptyTitle": "अभी कोई क्लाउड मेमोरी नहीं है",
+        "loading": "दस्तावेज़ लोड हो रहे हैं…",
+        "openDocumentLabel": "{name} खोलें",
+        "retry": "फिर से कोशिश करें",
+        "retryLabel": "Cloud Home मेमोरी फिर से लोड करने की कोशिश करें"
+      },
+      "listMeta": "{kind} · संशोधन {revision} · {size}",
+      "loading": "Cloud Home लोड हो रहा है…",
+      "notices": {
+        "loadedLatest": "क्लाउड का नवीनतम संस्करण लोड किया गया।",
+        "saved": "Cloud Home में सेव किया गया।"
+      },
+      "openSettingsLabel": "Cloud Home मेमोरी खोलें",
+      "settingsRowBody": "क्लाउड पर आधिकारिक Stella मेमोरी पढ़ें और संपादित करें।",
+      "settingsRowTitle": "मेमोरी दस्तावेज़",
+      "settingsSection": "Cloud Home",
+      "signIn": "साइन इन करें",
+      "signInAgain": "फिर से साइन इन करें",
+      "signInBody": "मेमोरी दस्तावेज़ आपके Stella खाते में निजी रहते हैं।",
+      "signInTitle": "Cloud Home इस्तेमाल करने के लिए साइन इन करें",
+      "sizes": {
+        "bytes": "{count} B",
+        "kilobytes": "{count} KB",
+        "megabytes": "{count} MB"
+      },
+      "subtitle": "क्लाउड पर आपके आधिकारिक Stella दस्तावेज़",
+      "title": "Cloud Home मेमोरी",
+      "unavailableBody": "इस डिप्लॉयमेंट में फ़िलहाल सुरक्षित Cloud Home सेवा उपलब्ध नहीं है। आपकी लोकल फ़ाइलों में कोई बदलाव नहीं किया गया है।",
+      "unavailableTitle": "Cloud Home उपलब्ध नहीं है"
+    },
+    "common": {
+      "back": "वापस",
+      "backChevron": "‹ वापस",
+      "cancel": "रद्द करें",
+      "continue": "जारी रखें",
+      "delete": "हटाएँ",
+      "done": "हो गया",
+      "goBack": "वापस जाएँ",
+      "tryAgain": "फिर से कोशिश करें"
+    },
+    "computer": {
+      "connectedLabel": "कंप्यूटर कनेक्ट हो गया",
+      "connectingLabel": "आपके कंप्यूटर से कनेक्ट हो रहा है",
+      "defaultDeviceLabel": "आपका कंप्यूटर",
+      "disconnectedLabel": "कंप्यूटर डिसकनेक्ट हो गया",
+      "guestHeroBody": "Stella से अपने कंप्यूटर पर काम कराएँ — वेब ब्राउज़ करना, फ़ाइलें सँभालना, काम चलाना और भी बहुत कुछ।",
+      "guestHeroTitle": "आपका कंप्यूटर, आपकी उँगलियों पर",
+      "pairLabel": "कंप्यूटर पेयर करें",
+      "statusAsleep": "स्लीप में",
+      "statusChecking": "जाँच हो रही है…",
+      "statusConnected": "कनेक्टेड"
+    },
+    "desktop": {
+      "connecting": "डेस्कटॉप से कनेक्ट हो रहा है",
+      "deviceUnreachable": "आपके {platform} तक नहीं पहुँचा जा सकता",
+      "enterCode": "अपने कंप्यूटर पर दिखा कोड दर्ज करें।",
+      "guestBody": "अपना Stella डेस्कटॉप ऐप सीधे फ़ोन पर देखें। पेयर करने के बाद आपका फ़ोन अपने आप फिर से कनेक्ट हो जाएगा।",
+      "guestSignInPrompt": "शुरू करने के लिए साइन इन करें।",
+      "limitedCapabilities": "कुछ चीज़ों के लिए आपका कंप्यूटर चाहिए",
+      "linkInterrupted": "आपके कंप्यूटर से कनेक्शन टूट गया।",
+      "pairAnother": "दूसरा कंप्यूटर पेयर करें",
+      "pairTitle": "अपना फ़ोन पेयर करें",
+      "pairing": "इस फ़ोन को पेयर किया जा रहा है",
+      "reconnecting": "फिर से कनेक्ट हो रहा है...",
+      "repairNeeded": "इस फ़ोन को आपके कंप्यूटर के साथ फिर से पेयर करना होगा।",
+      "retryLabel": "फिर से कनेक्ट करने की कोशिश करें",
+      "startPairingLabel": "कंप्यूटर पेयर करना शुरू करें",
+      "unavailableBodyPaired": "पक्का करें कि आपके कंप्यूटर पर Stella खुली है और इंटरनेट से जुड़ी है। कनेक्ट होते ही आपका डेस्कटॉप ऐप यहीं फ़ोन पर दिखने लगेगा।",
+      "unavailableBodyUnpaired": "अपना Stella डेस्कटॉप ऐप सीधे फ़ोन पर देखें। शुरू करने के लिए कंप्यूटर पर Stella में दिख रहा QR कोड स्कैन करें — उसके बाद आपका फ़ोन अपने आप फिर से कनेक्ट हो जाएगा।",
+      "unreachable": "आपके डेस्कटॉप तक नहीं पहुँच पा रहे"
+    },
+    "engineAccounts": {
+      "active": "उपयोग में",
+      "backLabel": "सेटिंग्स पर वापस जाएं",
+      "chatgptBrowserWaiting": "अपने ब्राउज़र में ChatGPT में साइन इन पूरा करें।",
+      "chatgptSection": "ChatGPT",
+      "claudeNote": "यहां खाता जोड़ने से Stella का क्लाउड Anthropic के अपने पेज पर Claude Code में साइन इन होता है। हर कंप्यूटर अपना Claude Code साइन-इन इस्तेमाल करता है।",
+      "claudeSection": "Claude",
+      "connectChatgpt": "ChatGPT अकाउंट कनेक्ट करें",
+      "connectClaude": "Claude खाता जोड़ें",
+      "connecting": "कनेक्ट हो रहा है…",
+      "continueAsChatgpt": "{name} के रूप में ChatGPT के साथ जारी रखें",
+      "continueWithChatgpt": "अपने ChatGPT खाते के साथ जारी रखें",
+      "enablePlanUsage": "ChatGPT प्लान का उपयोग चालू करें",
+      "errorBody": "कुछ गलत हो गया। फिर से कोशिश करें।",
+      "errorTitle": "खाते अपडेट नहीं हो सके",
+      "finish": "कनेक्ट करें",
+      "manageUsage": "उपयोग प्रबंधित करें",
+      "moreLabel": "{name} के विकल्प",
+      "notSignedIn": "कहीं भी साइन इन नहीं है",
+      "openChatgptAgain": "ChatGPT फिर से खोलें",
+      "openClaudeAgain": "साइन-इन पेज फिर से खोलें",
+      "pasteFromClipboard": "पेस्ट करें",
+      "pasteHintChatgpt": "मंज़ूरी देने के बाद, ChatGPT आपको एक ऐसे पेज पर ले जाता है जो लोड नहीं होता। उस पेज का पूरा पता कॉपी करें और यहां पेस्ट करें।",
+      "pasteHintClaude": "मंज़ूरी देने के बाद, Anthropic एक कोड दिखाता है। उसे कॉपी करें और यहां पेस्ट करें।",
+      "pastePlaceholder": "Anthropic द्वारा दिखाया गया कोड पेस्ट करें",
+      "pastePlaceholderUrl": "पता यहां पेस्ट करें",
+      "placeCloud": "क्लाउड",
+      "placeComputer": "कंप्यूटर",
+      "planUsageOffBody": "जब तक आप अनुमति नहीं देते, Stella आपके ChatGPT प्लान का उपयोग नहीं कर सकती। खाते पर “ChatGPT प्लान का उपयोग चालू करें” चुनें।",
+      "planWelcomeBody": "Stella के क्लाउड में ChatGPT अनुरोध आपके ChatGPT प्लान में गिने जाते हैं। ChatGPT सेटिंग्स में उपयोग देखें और Stella की सीमा सेट करें।",
+      "planWelcomeTitle": "आप अपना ChatGPT प्लान इस्तेमाल कर रहे हैं",
+      "remove": "हटाएं",
+      "removeBody": "Stella यह ChatGPT खाता भूल जाएगी। आप बाद में इसमें फिर से साइन इन कर सकते हैं।",
+      "removeClaudeBody": "Stella इस Claude खाते को भूल जाती है और क्लाउड को इससे साइन आउट कर देती है। आपके कंप्यूटर अपने Claude Code साइन-इन बनाए रखते हैं।",
+      "removeTitle": "{name} हटाएं?",
+      "revokeUnconfirmed": "ChatGPT ने साइन आउट की पुष्टि नहीं की। आप ChatGPT सेटिंग्स में Stella को डिस्कनेक्ट कर सकते हैं।",
+      "signInAgain": "फिर से साइन इन करें",
+      "signInCloud": "क्लाउड में साइन इन करें",
+      "signOut": "साइन आउट करें",
+      "signOutBody": "Stella इस खाते का इस्तेमाल बंद कर देगी। आप इसे कभी भी फिर से जोड़ सकते हैं।",
+      "signOutCloud": "क्लाउड से साइन आउट करें",
+      "signOutCloudBody": "जब तक आप वहां दोबारा साइन इन नहीं करते, Stella का क्लाउड इस खाते का उपयोग बंद कर देता है। आपके कंप्यूटर अपने Claude Code साइन-इन बनाए रखते हैं।",
+      "signOutCloudTitle": "{name} को क्लाउड से साइन आउट करें?",
+      "signOutTitle": "{name} से साइन आउट करें?",
+      "signedInOn": "साइन इन है: {places}",
+      "startAgain": "फिर से शुरू करें",
+      "statusPlanUsageOff": "ChatGPT प्लान का उपयोग चालू नहीं है",
+      "statusReauth": "इसका उपयोग जारी रखने के लिए फिर से साइन इन करें",
+      "statusSignedOut": "साइन आउट है",
+      "subtitle": "Claude या ChatGPT का वह प्लान इस्तेमाल करें जिसके लिए आप पहले से भुगतान करते हैं",
+      "title": "Claude और ChatGPT",
+      "useAccount": "यह खाता इस्तेमाल करें"
+    },
+    "login": {
+      "appleCompleteFailed": "Apple साइन-इन पूरा नहीं हो सका।",
+      "appleNoToken": "Apple ने पहचान टोकन नहीं लौटाया।",
+      "appleStartFailed": "Apple साइन-इन शुरू नहीं हो सका।",
+      "checkInbox": "अपना इनबॉक्स देखें और लिंक पर टैप करें — आप अपने आप साइन इन हो जाएँगे।",
+      "continueAsGuest": "साइन इन किए बिना जारी रखें",
+      "continueWithApple": "Apple से जारी रखें",
+      "continueWithGoogle": "Google से जारी रखें",
+      "emailPlaceholder": "ईमेल",
+      "enterEmail": "अपना ईमेल दर्ज करें।",
+      "finishFailed": "साइन-इन पूरा नहीं हो सका। कृपया फिर से कोशिश करें।",
+      "googleStartFailed": "Google साइन-इन शुरू नहीं हो सका।",
+      "heroBody": "Apple, Google, या वही ईमेल इस्तेमाल करें जो आप कंप्यूटर पर इस्तेमाल करते हैं।",
+      "heroTitle": "आपका असिस्टेंट,\nजेब में।",
+      "incomplete": "साइन-इन अधूरा रह गया। कृपया फिर से कोशिश करें।",
+      "legalConjunction": " और ",
+      "legalPrefix": "जारी रखने पर, आप हमारी ",
+      "legalPrivacy": "गोपनीयता नीति",
+      "legalSuffix": " से सहमत होते हैं।",
+      "legalTerms": "सेवा की शर्तें",
+      "linkExpired": "लिंक समाप्त हो चुका है। कृपया फिर से कोशिश करें।",
+      "openingApple": "Apple खोला जा रहा है...",
+      "openingGoogle": "Google खोला जा रहा है...",
+      "orUseEmail": "या ईमेल इस्तेमाल करें",
+      "resend": "फिर से भेजें",
+      "resendLabel": "साइन-इन ईमेल फिर से भेजें",
+      "sendFailed": "साइन-इन ईमेल नहीं भेजा जा सका।",
+      "sending": "भेजा जा रहा है...",
+      "signingIn": "साइन इन किया जा रहा है...",
+      "useDifferentEmail": "दूसरा ईमेल इस्तेमाल करें"
+    },
+    "nav": {
+      "account": "खाता",
+      "apps": "ऐप्स",
+      "backToApps": "ऐप्स पर वापस जाएँ",
+      "backToChat": "चैट पर वापस जाएँ",
+      "chat": "चैट",
+      "chatSettingsLabel": "चैट सेटिंग्स",
+      "closeLabel": "नेविगेशन बंद करें",
+      "openLabel": "नेविगेशन खोलें",
+      "settings": "सेटिंग्स",
+      "signIn": "साइन इन"
+    },
+    "onboarding": {
+      "account": {
+        "chatgptDesc": "Stella के क्लाउड के लिए आपका ChatGPT प्लान",
+        "claudeDesc": "Pro या Max, Claude Code के ज़रिए",
+        "connect": "कनेक्ट करें",
+        "connectLabel": "{name} कनेक्ट करें",
+        "connectedAs": "कनेक्टेड · {name}",
+        "guestSettled": "सेटिंग्स से कभी भी साइन इन करें",
+        "settledGuest": "Stella अतिथि के रूप में",
+        "settledSignedIn": "साइन इन हैं",
+        "signIn": "साइन इन",
+        "signInBody": "अपनी बातचीत, सेटिंग्स और कनेक्टेड कंप्यूटर हर डिवाइस पर अपने साथ रखें।",
+        "signInTitle": "Stella में साइन इन करें",
+        "skip": "अभी नहीं",
+        "subscriptionsBody": "पहले से Claude या ChatGPT के लिए भुगतान करते हैं? इसे कनेक्ट करें और मैं इसे क्लाउड में इस्तेमाल करूंगी। आपके कंप्यूटर अपने साइन-इन इस्तेमाल करते हैं।",
+        "subscriptionsLabel": "वैकल्पिक"
+      },
+      "composerPlaceholder": "या बस मुझसे कुछ पूछ लें",
+      "computer": {
+        "body": "इस फ़ोन को अपने कंप्यूटर पर Stella के साथ पेयर कर लें, फिर आपके बाहर रहते हुए मैं वहाँ काम चला सकती हूँ।",
+        "connectedBody": "कहीं से भी कहिए, मैं आपके कंप्यूटर पर काम कर दूँगी।",
+        "connectedTo": "{name} से कनेक्ट है",
+        "guestHint": "जोड़ना आपके Stella खाते से जुड़ा है, इसलिए पहले साइन इन करें। मैं यहीं से आगे बढ़ूँगी।",
+        "hint": "अपने कंप्यूटर पर Stella खोलें और फ़ोन पेयर करें चुनें।",
+        "later": "बाद में",
+        "pair": "मेरा कंप्यूटर पेयर करें",
+        "point1": "कोई फ़ाइल ढूँढकर आपको भेजना",
+        "point2": "कोई एक्सपोर्ट या डाउनलोड पूरा करना",
+        "point3": "आपके मौजूदा ऐप्स इस्तेमाल करना",
+        "settledConnectedDesc": "मैं आपके फ़ोन से वहाँ काम चला सकती हूँ।",
+        "settledSkippedDesc": "आप कभी भी सेटिंग्स में कंप्यूटर पेयर कर सकते हैं।",
+        "settledSkippedTitle": "अभी कोई कंप्यूटर नहीं",
+        "signInToPair": "जोड़ने के लिए साइन इन करें",
+        "title": "आपका कंप्यूटर, आपकी जेब में"
+      },
+      "hello": {
+        "cta": "दिखाओ",
+        "pillars": {
+          "asks": {
+            "body": "पैसे ख़र्च होने वाली हर चीज़ आपकी मंज़ूरी का इंतज़ार करती है।",
+            "title": "ज़रूरी मौक़े पर पूछती है"
+          },
+          "background": {
+            "body": "कोई काम सौंपिए और अपने काम में लगे रहिए। पूरा होते ही मैं बता दूँगी।",
+            "title": "बैकग्राउंड में चलती है"
+          },
+          "done": {
+            "body": "बुकिंग, ऑर्डर, फ़ाइलें और रिसर्च, सब आपके लिए पूरे।",
+            "title": "काम पूरा करती है"
+          }
+        },
+        "settledTitle": "Stella से मिलिए"
+      },
+      "messages": {
+        "account": "क्या यह सब सहेजकर रखना चाहेंगे? Stella अकाउंट हर डिवाइस पर आपके साथ रहता है।",
+        "accountSignedIn": "आप साइन इन हैं, इसलिए सब कुछ आपके डिवाइसों के बीच साथ चलता है। एक वैकल्पिक चीज़ और:",
+        "computer": "अगर आपके पास Mac या PC है, तो मैं उस पर भी काम कर सकती हूँ।",
+        "hello": "नमस्ते, मैं Stella हूँ।\n\nमैं कोई चैटबॉट नहीं हूँ। बस बताइए कि आपको क्या चाहिए, और मैं उसे बैकग्राउंड में पूरा कर दूँगी, जब तक आप अपने दिन के काम निपटाते हैं।",
+        "ready": "बस, इतना ही। साथ चलते-चलते मैं आपको जान जाऊँगी।\n\nहम पहले क्या करें?",
+        "showcase": "देखिए, यह ऐसा दिखता है।",
+        "theme": "अब बताइए, मैं कैसी दिखूँ?"
+      },
+      "progressLabel": "चरण {current} / {total}",
+      "ready": {
+        "start": "चैट शुरू करें",
+        "starters": {
+          "explain": {
+            "prompt": "चक्रवृद्धि ब्याज कैसे काम करता है, आसान भाषा में समझाओ।",
+            "title": "कुछ समझाओ"
+          },
+          "gift": {
+            "prompt": "एक दोस्त के जन्मदिन के लिए $50 से कम में कोई सोच-समझकर चुना हुआ तोहफ़ा ढूँढो।",
+            "title": "तोहफ़ा ढूँढो"
+          },
+          "plan": {
+            "prompt": "मेरे आने वाले कामों के हिसाब से मेरा हफ़्ता प्लान करने में मदद करो।",
+            "title": "मेरा हफ़्ता प्लान करो"
+          },
+          "remind": {
+            "prompt": "मुझे रविवार शाम 6 बजे मम्मी को फ़ोन करने की याद दिलाना।",
+            "title": "रिमाइंडर सेट करो"
+          }
+        },
+        "startersLabel": "इनमें से कोई आज़माएँ"
+      },
+      "replies": {
+        "accountDone": "हो गया।",
+        "accountSkipped": "अभी नहीं।",
+        "computerDone": "कनेक्ट हो गया!",
+        "computerSkipped": "बाद में।",
+        "helloDone": "दिखाओ।",
+        "showcaseDone": "ठीक है।",
+        "themeDone": "यही वाला।",
+        "themeSkipped": "डिफ़ॉल्ट ही रहने दो।"
+      },
+      "send": "भेजें",
+      "showcase": {
+        "chapters": {
+          "errands": {
+            "caption": "मैं साइट खोलती हूँ, ब्योरे भरती हूँ और काम पूरा करती हूँ, ठीक वैसे जैसे आप करते।",
+            "prompt": "शुक्रवार रात 8 बजे के लिए दो लोगों की टेबल बुक कर दो",
+            "receipt1": "Osteria Lucia · शुक्र रात 8:00 · 2 लोग",
+            "receipt2": "आपके कैलेंडर में जोड़ा गया",
+            "reply": "Osteria Lucia में शुक्रवार रात 8 बजे की टेबल बुक हो गई। यह आपके कैलेंडर में है।",
+            "scene": {
+              "date": "तारीख़",
+              "dateValue": "शुक्रवार",
+              "party": "लोग",
+              "partyValue": "2 लोग",
+              "reserve": "बुक करें",
+              "reserved": "बुक हुआ",
+              "site": "osterialucia.com",
+              "time": "समय",
+              "timeValue": "रात 8:00"
+            },
+            "title": "एक बार कहिए। समझिए हो गया।",
+            "word": "छोटे काम",
+            "working": "टेबल बुक हो रही है"
+          },
+          "research": {
+            "caption": "मैं विकल्पों की तुलना करती हूँ, रिव्यू पढ़ती हूँ और जवाब लेकर लौटती हूँ।",
+            "prompt": "$2,000 से कम में सबसे अच्छी ई-बाइक ढूँढो",
+            "receipt1": "24 रिव्यू पढ़े गए",
+            "receipt2": "तुलना फ़ाइलें में सहेजी गई",
+            "reply": "Cityline 3: सबसे हल्का फ़्रेम, सबसे अच्छे ब्रेक, $1,799।",
+            "scene": {
+              "rank1": "Cityline 3",
+              "rank2": "Metro S",
+              "rank3": "Urban X",
+              "source1": "विशेषज्ञ रिव्यू",
+              "source2": "मालिकों के फ़ोरम",
+              "source3": "स्पेक शीट",
+              "title": "ई-बाइक की तुलना"
+            },
+            "title": "पढ़ने का काम मेरा।",
+            "word": "रिसर्च",
+            "working": "रिव्यू पढ़ रही हूँ"
+          },
+          "routines": {
+            "caption": "रिमाइंडर, चेक-इन और रोज़ की ब्रीफ़, जो अपने तय समय पर अपने आप चलते हैं।",
+            "prompt": "हर सुबह 8 बजे मुझे मेरे दिन की ब्रीफ़ दो",
+            "receipt1": "हर दिन सुबह 8:00",
+            "reply": "हो गया। आपकी पहली ब्रीफ़ कल सुबह 8 बजे आएगी।",
+            "scene": {
+              "body": "3 मीटिंग, शाम 5 बजे के बाद बारिश, और आज Sam का जन्मदिन है।",
+              "day": "कल",
+              "now": "अभी",
+              "time": "8:00",
+              "title": "आपकी सुबह की ब्रीफ़",
+              "when": "कल, सुबह 8:00"
+            },
+            "title": "एक बार सेट करें। आगे मैं देख लूँगी।",
+            "word": "रूटीन",
+            "working": "सेट कर रही हूँ"
+          },
+          "shopping": {
+            "amount": "$129.99",
+            "caption": "मैं चीज़ ढूँढकर चेकआउट तक ले जाती हूँ। आप कुल रक़म मंज़ूर करते हैं, फिर मैं ऑर्डर देती हूँ।",
+            "confirm": "पुष्टि करें",
+            "confirmDetail": "Trail Runner 2 · साइज़ 10",
+            "confirmTitle": "ख़रीदारी की पुष्टि करें?",
+            "confirmed": "पुष्टि हुई",
+            "prompt": "मेरे रनिंग शूज़ साइज़ 10 में दोबारा ऑर्डर कर दो",
+            "receipt1": "ऑर्डर #48213 · गुरुवार तक पहुँचेगा",
+            "reply": "ऑर्डर हो गया। जूते गुरुवार को पहुँचेंगे।",
+            "scene": {
+              "addToCart": "कार्ट में डालें",
+              "inCart": "कार्ट में",
+              "product": "Trail Runner 2",
+              "site": "trailco.com"
+            },
+            "title": "आपकी मंज़ूरी से मैं ख़रीदारी भी कर सकती हूँ।",
+            "word": "ख़रीदारी",
+            "working": "आपके जूते ढूँढ रही हूँ"
+          },
+          "work": {
+            "caption": "दस्तावेज़, शीट और स्लाइड: मैं काम करती हूँ और फ़ाइल वहाँ सहेजती हूँ जहाँ आप उसे खोल सकें।",
+            "prompt": "मेरे Q3 के नोट्स को सोमवार के लिए डेक बना दो",
+            "receipt1": "Q3 नोट्स · पढ़े गए",
+            "receipt2": "Q3 रिव्यू डेक · 12 स्लाइड",
+            "reply": "आपका डेक तैयार है: 12 स्लाइड, फ़ाइलें में सहेजा गया।",
+            "scene": {
+              "file": "Q3 रिव्यू.pptx",
+              "slideTitle": "Q3 रिव्यू"
+            },
+            "title": "असली फ़ाइलें, तैयार।",
+            "word": "काम",
+            "working": "आपके नोट्स पढ़ रही हूँ"
+          }
+        },
+        "placeholder": "Stella से पूछें",
+        "replay": "यह डेमो फिर चलाएँ",
+        "settledTitle": "एक झलक",
+        "tablist": "Stella क्या-क्या कर सकती है"
+      },
+      "skip": "छोड़ें",
+      "skipLabel": "परिचय छोड़ें",
+      "theme": {
+        "appearance": "रूप-रंग",
+        "confirm": "हो गया",
+        "reset": "डिफ़ॉल्ट ही रहने दें",
+        "themes": "थीम"
+      }
+    },
+    "search": {
+      "cancelLabel": "खोज रद्द करें",
+      "clearLabel": "खोज साफ़ करें",
+      "openLabel": "संदेश खोजें",
+      "placeholder": "संदेश खोजें"
+    },
+    "settings": {
+      "aboutSection": "परिचय",
+      "appearance": {
+        "dark": "डार्क",
+        "light": "लाइट",
+        "system": "सिस्टम"
+      },
+      "appearanceSection": "दिखावट",
+      "background": {
+        "flat": "फ़्लैट",
+        "soft": "सॉफ़्ट"
+      },
+      "backgroundColor": {
+        "relative": "सापेक्ष",
+        "strong": "गहरा"
+      },
+      "carPlayDiagnostics": "CarPlay डायग्नोस्टिक्स",
+      "chatStorage": {
+        "description": "अपनी चैट सभी डिवाइस पर देखें। बंद करने पर चैट इतिहास सिर्फ़ इसी डिवाइस पर अलग से रहेगा। दोबारा चालू करने पर वे चैट अपलोड नहीं होंगी। AI प्रदाता फिर भी आपके संदेश प्रोसेस करते हैं।"
+      },
+      "computer": {
+        "cloud": "क्लाउड",
+        "connectFailedTitle": "उस कंप्यूटर से कनेक्ट नहीं कर सके",
+        "connecting": "कनेक्ट हो रहा है…",
+        "enable": "सक्षम करें",
+        "enableFailedTitle": "उस कंप्यूटर को सक्षम नहीं कर सके",
+        "enableLabel": "{name} को सक्षम करें",
+        "enabling": "सक्षम कर रहे हैं…",
+        "pairingCode": "पेयरिंग कोड का उपयोग करें",
+        "sectionLabel": "Stella कहाँ काम करती है",
+        "statusAwaitingConsent": "उस कंप्यूटर पर अनुमति की प्रतीक्षा है",
+        "statusDeclined": "उस कंप्यूटर पर अस्वीकृत",
+        "statusNotEnabled": "अभी सक्षम नहीं",
+        "statusNotReady": "तैयार नहीं",
+        "statusOffline": "ऑफ़लाइन",
+        "statusOnline": "ऑनलाइन"
+      },
+      "computerSection": "कंप्यूटर",
+      "deleteAccount": "खाता हटाएँ",
+      "deleteAccountLabel": "अपना Stella खाता हटाएँ",
+      "deleteConfirmBody": "इससे आपका Stella खाता हमेशा के लिए हट जाएगा और हमारे सर्वर पर उससे जुड़ा क्लाउड डेटा भी मिट जाएगा। इसे पलटा नहीं जा सकता।",
+      "deleteConfirmTitle": "खाता हटाएँ",
+      "deleteFailedTitle": "खाता नहीं हटाया जा सका",
+      "deletingAccount": "खाता हटाया जा रहा है…",
+      "forget": "भूल जाएँ",
+      "forgetConfirmBody": "जब तक आप दोबारा पेयर नहीं करते, यह फ़ोन उस कंप्यूटर से फिर कनेक्ट नहीं होगा।",
+      "forgetConfirmTitle": "{name} को भूल जाएँ?",
+      "forgetLabel": "{name} को भूल जाएँ",
+      "hideEmailLabel": "ईमेल छिपाएँ",
+      "loadingSession": "सेशन लोड हो रहा है…",
+      "notificationsSection": "सूचनाएँ",
+      "openCarPlayDiagnosticsLabel": "CarPlay डायग्नोस्टिक्स खोलें",
+      "openPrivacyLabel": "गोपनीयता नीति खोलें",
+      "openTermsLabel": "सेवा की शर्तें खोलें",
+      "paired": {
+        "unnamedComputer": "कंप्यूटर · {id}"
+      },
+      "pairedEmpty": "अभी कोई कंप्यूटर पेयर नहीं है।",
+      "pairedOn": "{date} को पेयर किया",
+      "pairedSection": "पेयर किए गए कंप्यूटर",
+      "privacyPolicy": "गोपनीयता नीति",
+      "pushToggleA11y": "पुश सूचनाएँ चालू/बंद करें",
+      "pushToggleLabel": "पुश सूचनाएँ चालू करें",
+      "pushToggleSub": "आपका कंप्यूटर कोई अनुरोध पूरा करे तो सूचना पाएँ।",
+      "showEmailLabel": "ईमेल दिखाएँ",
+      "signIn": "साइन इन",
+      "signInTitle": "Stella में साइन इन करें",
+      "signOut": "साइन आउट",
+      "signOutLabel": "Stella से साइन आउट करें",
+      "signingOut": "साइन आउट हो रहा है…",
+      "termsOfService": "सेवा की शर्तें",
+      "title": "सेटिंग्स",
+      "useAppearanceLabel": "{name} दिखावट इस्तेमाल करें",
+      "useBackgroundColorLabel": "{name} बैकग्राउंड रंग इस्तेमाल करें",
+      "useBackgroundLabel": "{name} बैकग्राउंड इस्तेमाल करें",
+      "useThemeLabel": "{name} थीम इस्तेमाल करें"
+    },
     "sidebar": {
       "searchPlaceholder": "गतिविधि और फ़ाइलों में खोजें",
       "signedOutHint": "Stella बैकग्राउंड में क्या काम कर रही है, यह देखने के लिए साइन इन करें।"
-    },
-    "engineAccounts": {
-      "title": "Claude और ChatGPT",
-      "subtitle": "Claude या ChatGPT का वह प्लान इस्तेमाल करें जिसके लिए आप पहले से भुगतान करते हैं",
-      "backLabel": "सेटिंग्स पर वापस जाएं",
-      "claudeSection": "Claude",
-      "chatgptSection": "ChatGPT",
-      "active": "उपयोग में",
-      "useAccount": "यह खाता इस्तेमाल करें",
-      "signOut": "साइन आउट करें",
-      "moreLabel": "{name} के विकल्प",
-      "signOutTitle": "{name} से साइन आउट करें?",
-      "signOutBody": "Stella इस खाते का इस्तेमाल बंद कर देगी। आप इसे कभी भी फिर से जोड़ सकते हैं।",
-      "pasteHintClaude": "मंज़ूरी देने के बाद, Anthropic एक कोड दिखाता है। उसे कॉपी करें और यहां पेस्ट करें।",
-      "pasteHintChatgpt": "मंज़ूरी देने के बाद, ChatGPT आपको एक ऐसे पेज पर ले जाता है जो लोड नहीं होता। उस पेज का पूरा पता कॉपी करें और यहां पेस्ट करें।",
-      "pastePlaceholder": "Anthropic द्वारा दिखाया गया कोड पेस्ट करें",
-      "pasteFromClipboard": "पेस्ट करें",
-      "finish": "कनेक्ट करें",
-      "connecting": "कनेक्ट हो रहा है…",
-      "errorTitle": "खाते अपडेट नहीं हो सके",
-      "errorBody": "कुछ गलत हो गया। फिर से कोशिश करें।",
-      "pastePlaceholderUrl": "पता यहां पेस्ट करें",
-      "openChatgptAgain": "ChatGPT फिर से खोलें",
-      "chatgptBrowserWaiting": "अपने ब्राउज़र में ChatGPT में साइन इन पूरा करें।",
-      "signInAgain": "फिर से साइन इन करें",
-      "enablePlanUsage": "ChatGPT प्लान का उपयोग चालू करें",
-      "remove": "हटाएं",
-      "removeTitle": "{name} हटाएं?",
-      "removeBody": "Stella यह ChatGPT खाता भूल जाएगी। आप बाद में इसमें फिर से साइन इन कर सकते हैं।",
-      "statusSignedOut": "साइन आउट है",
-      "statusReauth": "इसका उपयोग जारी रखने के लिए फिर से साइन इन करें",
-      "statusPlanUsageOff": "ChatGPT प्लान का उपयोग चालू नहीं है",
-      "planUsageOffBody": "जब तक आप अनुमति नहीं देते, Stella आपके ChatGPT प्लान का उपयोग नहीं कर सकती। खाते पर “ChatGPT प्लान का उपयोग चालू करें” चुनें।",
-      "manageUsage": "उपयोग प्रबंधित करें",
-      "revokeUnconfirmed": "ChatGPT ने साइन आउट की पुष्टि नहीं की। आप ChatGPT सेटिंग्स में Stella को डिस्कनेक्ट कर सकते हैं।",
-      "planWelcomeTitle": "आप अपना ChatGPT प्लान इस्तेमाल कर रहे हैं",
-      "planWelcomeBody": "Stella के क्लाउड में ChatGPT अनुरोध आपके ChatGPT प्लान में गिने जाते हैं। ChatGPT सेटिंग्स में उपयोग देखें और Stella की सीमा सेट करें।",
-      "connectClaude": "Claude खाता जोड़ें",
-      "connectChatgpt": "ChatGPT अकाउंट कनेक्ट करें",
-      "signInCloud": "क्लाउड में साइन इन करें",
-      "signOutCloud": "क्लाउड से साइन आउट करें",
-      "signOutCloudTitle": "{name} को क्लाउड से साइन आउट करें?",
-      "signOutCloudBody": "जब तक आप वहां दोबारा साइन इन नहीं करते, Stella का क्लाउड इस खाते का उपयोग बंद कर देता है। आपके कंप्यूटर अपने Claude Code साइन-इन बनाए रखते हैं।",
-      "removeClaudeBody": "Stella इस Claude खाते को भूल जाती है और क्लाउड को इससे साइन आउट कर देती है। आपके कंप्यूटर अपने Claude Code साइन-इन बनाए रखते हैं।",
-      "placeCloud": "क्लाउड",
-      "placeComputer": "कंप्यूटर",
-      "signedInOn": "साइन इन है: {places}",
-      "notSignedIn": "कहीं भी साइन इन नहीं है",
-      "claudeNote": "यहां खाता जोड़ने से Stella का क्लाउड Anthropic के अपने पेज पर Claude Code में साइन इन होता है। हर कंप्यूटर अपना Claude Code साइन-इन इस्तेमाल करता है।",
-      "startAgain": "फिर से शुरू करें",
-      "openClaudeAgain": "साइन-इन पेज फिर से खोलें",
-      "continueAsChatgpt": "{name} के रूप में ChatGPT के साथ जारी रखें",
-      "continueWithChatgpt": "अपने ChatGPT खाते के साथ जारी रखें"
     }
   },
-  "companion": {
-    "menu": {
-      "openStella": "Open Stella",
-      "hide": "Hide companion",
-      "quit": "Quit Stella"
+  "onboarding": {
+    "chat": {
+      "capabilities": {
+        "build": {
+          "caption": "Apps and websites, made to order. Describe it in plain words and I'll build it, run it, and put it online.",
+          "title": "Say it. I'll build it.",
+          "word": "Build"
+        },
+        "errands": {
+          "caption": "मैं सही जगह ढूँढती हूँ, फ़ॉर्म भरती हूँ और उसे आपके कैलेंडर में जोड़ देती हूँ, ठीक वैसे ही जैसे आप करते।",
+          "title": "Ask once. Consider it handled.",
+          "word": "Errands"
+        },
+        "replay": "Replay this demo",
+        "routines": {
+          "caption": "कुछ भी शेड्यूल कीजिए और मैं उसे समय पर कर दूँगी, आपके सोते समय भी।",
+          "title": "एक बार कहिए। यह रोज़ होगा।",
+          "word": "रूटीन"
+        },
+        "settledTitle": "The quick tour",
+        "shopping": {
+          "caption": "I find it and get it to checkout. You confirm the total, and I place the order.",
+          "title": "I can buy things, with your OK.",
+          "word": "Shopping"
+        },
+        "tablist": "Capability demos",
+        "work": {
+          "caption": "मैं इस कंप्यूटर के असली ऐप्स के अंदर काम करती हूँ, और एक साथ एक से ज़्यादा काम चला सकती हूँ।",
+          "title": "असली फ़ाइलें। एक साथ कई काम।",
+          "word": "Work"
+        }
+      },
+      "composerPlaceholder": "Or just ask me something to get started",
+      "discovery": {
+        "alsoLabel": "Also include",
+        "assurance": "A one-time read, kept on this computer. You can see and edit what I keep at any time.",
+        "browserLabel": "Your browser",
+        "hint": "About a minute, in the background.",
+        "includeDev": "My coding setup"
+      },
+      "extras": {
+        "accessibilityDesc": "So I can act on selected text and what's under your cursor.",
+        "accessibilityTitle": "Accessibility",
+        "body": "Neither is required, but both make me a lot more useful.",
+        "bodyOne": "Not required, but it makes me a lot more useful.",
+        "enable": "Enable",
+        "enabled": "Enabled",
+        "extensionDesc": "Lets me see the page you're on and act inside your browser. Works in Chrome, Arc, Brave, and Edge.",
+        "extensionOpened": "Opened",
+        "extensionTitle": "Stella for Chrome",
+        "getExtension": "Get extension",
+        "hint": "All of this lives in Settings too.",
+        "memoryDesc": "Use what I've saved about you when it's relevant. Nothing is deleted if you turn this off.",
+        "memoryTitle": "Remember across chats",
+        "restart": "Restart Stella",
+        "restartHint": "Screen access needs a quick restart to take effect.",
+        "screenDesc": "So I can see the screen when you ask me to.",
+        "screenTitle": "Screen Recording",
+        "settledExtension": "Extension",
+        "settledMemory": "Memory",
+        "settledPermissions": "Permissions",
+        "settledSkippedTitle": "Extras skipped",
+        "settledTitle": "Extras",
+        "skip": "Skip for now",
+        "title": "Two quick extras",
+        "titleOne": "One quick extra"
+      },
+      "memory": {
+        "bodyChatbot": "A new chat every time, a sidebar full of old ones, and no memory of what you said last week.",
+        "bodyStella": "No new chats, no threads. Everything you've ever told me is in the same place, so when you ask about last week I go and find it.",
+        "settledDesc": "No threads to manage. I remember.",
+        "settledTitle": "One conversation",
+        "showStella": "Now ask me",
+        "skip": "Skip",
+        "titleChatbot": "You know this one",
+        "titleStella": "With me it's one conversation"
+      },
+      "messages": {
+        "capabilities": "नमस्ते, मैं Stella हूँ।\n\nमैं कोई चैटबॉट नहीं हूँ। मैं इस कंप्यूटर का इस्तेमाल करके सचमुच आपके काम निपटाती हूँ, बैकग्राउंड में, जबकि आप अपने काम में लगे रहते हैं।\n\nदेखिए, यह कैसा दिखता है।",
+        "extras": "Almost done. A little housekeeping, then we start.",
+        "memory": "One more thing that makes me different.",
+        "quickstart": "बस इतना ही। एक आख़िरी बात, और वह भी वैकल्पिक है: क्विकस्टार्ट।",
+        "quickstartDone": "हो गया। यह रहा जो मैंने सीखा, और कुछ चीज़ें जिनसे हम शुरू कर सकते हैं।",
+        "quickstartFailed": "इस बार मैं आपका ब्राउज़र पूरा नहीं पढ़ पाई। हम फिर भी शुरू कर सकते हैं, और मैं साथ-साथ सीखती जाऊँगी।",
+        "selfmod": "और क्योंकि मैं आपके कंप्यूटर पर रहती हूँ, मैं खुद को बदल सकती हूँ।",
+        "signin": "अब साइन इन करते हैं। Stella खाता इस्तेमाल करें, या आपके पास पहले से जो Claude या ChatGPT प्लान है, वह।",
+        "theme": "Now, how should I look?"
+      },
+      "progress": "सेटअप की प्रगति",
+      "quickstart": {
+        "body": "ज़्यादातर असिस्टेंट शून्य से शुरू करते हैं। मुझे अपना ब्राउज़र दिखाइए, मैं उसे एक बार पढ़कर शुरुआती मेमोरी बना लूँगी, ताकि पहले दिन से आपके काम आ सकूँ।",
+        "continueInBackground": "चैट शुरू करें, बाकी बैकग्राउंड में पूरा हो",
+        "eyebrow": "क्विकस्टार्ट",
+        "failedBody": "किसी वजह से पढ़ना रुक गया। फिर कोशिश करें, या चैट शुरू करें और मैं साथ-साथ सीखती जाऊँगी।",
+        "failedTitle": "यह पूरा नहीं हो पाया",
+        "run": "क्विकस्टार्ट चलाएँ",
+        "runningBody": "लगभग एक मिनट। आप जब चाहें अंदर जाइए, मैं बैकग्राउंड में पूरा कर दूँगी।",
+        "runningTitle": "आपको जान रही हूँ",
+        "skip": "छोड़ें",
+        "stages": {
+          "notice": "आपके लिए क्या मायने रखता है, यह समझ रही हूँ",
+          "read": "आपने जो चुना, उसे पढ़ रही हूँ",
+          "write": "आपकी शुरुआती मेमोरी लिख रही हूँ"
+        },
+        "title": "मुझे एक अच्छी शुरुआत दीजिए"
+      },
+      "ready": {
+        "generic": {
+          "browse": {
+            "prompt": "Find a well-reviewed dinner spot near me for this weekend and hold a reservation for two.",
+            "title": "Find me a good dinner spot"
+          },
+          "file": {
+            "prompt": "I have a document that needs cleaning up. I'll share it and you fix the structure and wording.",
+            "title": "Tidy up a document"
+          },
+          "plan": {
+            "prompt": "Help me plan my week. Ask me what's on my plate and lay it out day by day.",
+            "title": "Plan my week"
+          },
+          "watch": {
+            "prompt": "Keep an eye on a web page for me and tell me when it changes.",
+            "title": "Watch a site for changes"
+          }
+        },
+        "highlightsLabel": "What I picked up",
+        "hint": "Or type anything below.",
+        "notesFoot": "You can read or edit this any time in Settings › Memory.",
+        "notesSummary": "See everything I noted",
+        "start": "Start chatting",
+        "startersLabel": "Try one of these",
+        "startersLabelPersonal": "Made for you"
+      },
+      "replies": {
+        "capabilitiesDone": "Got it.",
+        "capabilitiesSkipped": "Skip the tour.",
+        "extrasDone": "Done.",
+        "extrasSkipped": "Skip for now.",
+        "memoryDone": "Nice.",
+        "memorySkipped": "Skip it.",
+        "selfmodDone": "बहुत बढ़िया।",
+        "signinDone": "हो गया।",
+        "themeDone": "That one.",
+        "themeSkipped": "Keep the default."
+      },
+      "selfmod": {
+        "body": "कोई फ़ीचर कम है, या कुछ अलग तरह से चलाना है? बस कहिए। मैं अपना कोड खुद दोबारा लिखूँगी, आप उसे आज़माइए, और रखना है या नहीं, यह आप तय कीजिए।",
+        "hint": "बदलाव इसी कंप्यूटर पर रहते हैं।",
+        "settledDesc": "कहें, पूर्वावलोकन देखें, अपडेट करें। कभी भी पूर्ववत करें।",
+        "settledTitle": "मैं खुद को बदल सकती हूँ",
+        "steps": {
+          "ask": {
+            "body": "बदलाव को आसान शब्दों में बताइए।",
+            "title": "कहें"
+          },
+          "preview": {
+            "body": "एक एजेंट उसे बनाता है और लाइव पूर्वावलोकन खोलता है।",
+            "title": "पूर्वावलोकन"
+          },
+          "update": {
+            "body": "लागू करने के लिए एक क्लिक। कभी भी पूर्ववत करें।",
+            "title": "अपडेट करें"
+          }
+        },
+        "title": "मैं खुद को बदल सकती हूँ"
+      },
+      "send": "Send",
+      "signin": {
+        "body": "इनमें से कोई एक काफ़ी है। बाकी बाद में जोड़ सकते हैं।",
+        "claudeCliMissing": "पहले Claude Code इंस्टॉल करें, फिर से कोशिश करें।",
+        "connect": "कनेक्ट करें",
+        "error": "कनेक्ट नहीं हो पाया। फिर कोशिश करें?",
+        "fine": "इसे कभी भी सेटिंग्स में बदलें।",
+        "hint": "शुरू करना मुफ़्त है।",
+        "inUse": "इस्तेमाल में",
+        "options": {
+          "apikey": {
+            "body": "Anthropic, OpenAI, Google या दूसरों की अपनी कुंजी इस्तेमाल करें।",
+            "title": "API कुंजी"
+          },
+          "chatgpt": {
+            "body": "अपना प्लान इस्तेमाल करने के लिए ChatGPT से साइन इन करें।",
+            "title": "ChatGPT"
+          },
+          "claude": {
+            "body": "अपना Claude Pro या Max प्लान इस्तेमाल करें।",
+            "title": "Claude Code"
+          },
+          "stella": {
+            "body": "Google या ईमेल। आपकी चैट आपके फ़ोन पर भी साथ चलती हैं।",
+            "title": "Stella खाता"
+          }
+        },
+        "settledDesc": "इसे कभी भी सेटिंग्स में बदलें।",
+        "settledEngine": "{name} इस्तेमाल हो रहा है",
+        "settledStella": "Stella में साइन इन हो गया",
+        "signIn": "साइन इन करें",
+        "title": "साइन इन करें",
+        "use": "इस्तेमाल करें",
+        "waiting": "अपने ब्राउज़र में साइन इन पूरा करें, फिर यहाँ लौट आइए।"
+      },
+      "skipSetup": "Skip setup",
+      "theme": {
+        "appearance": "Appearance",
+        "body": "Hover to try one on. Click to keep it.",
+        "confirm": "Done",
+        "gradient": {
+          "flat": "Flat",
+          "relative": "Relative",
+          "soft": "Soft",
+          "strong": "Strong"
+        },
+        "gradientColor": "Gradient color",
+        "gradientStyle": "Gradient style",
+        "hint": "Everything here changes live.",
+        "mode": {
+          "dark": "Dark",
+          "light": "Light",
+          "system": "System"
+        },
+        "settledTitle": "Default",
+        "skip": "Keep the default",
+        "themes": "Theme",
+        "title": "Pick a look"
+      }
     },
-    "composer": {
-      "placeholder": "Ask Stella…"
+    "legalFooter": "Stella का उपयोग करके, आप हमारी {terms} और {privacy} से सहमत होते हैं।",
+    "privacyPolicy": "गोपनीयता नीति",
+    "termsOfService": "सेवा शर्तों"
+  },
+  "settings": {
+    "account": {
+      "cloudHome": {
+        "actions": {
+          "blocked": "इंपोर्ट अवरुद्ध है",
+          "boundElsewhere": "किसी अन्य खाते से जुड़ा है",
+          "import": "इस खाते में इंपोर्ट करें",
+          "sync": "अभी सिंक करें",
+          "syncing": "सिंक हो रहा है…"
+        },
+        "authorizationNote": "अपलोड की गई स्किल्स एजेंट्स के लिए तब तक उपलब्ध नहीं रहेंगी, जब तक उनके सटीक वर्ज़न को स्पष्ट रूप से अधिकृत नहीं किया जाता।",
+        "label": "मेमोरी और स्किल्स",
+        "summary": {
+          "attention": "जहाँ लोकल डेटा अलग था, वहाँ Cloud Home ने मौजूदा क्लाउड कॉपी रखी हैं। नीचे दिए गए विवरण की समीक्षा करें।",
+          "checking": "लोकल मेमोरी और स्किल्स की जाँच की जा रही है…",
+          "current": "Cloud Home अप-टू-डेट है। अपलोड की गई मेमोरी: {memoryCount}। अपलोड किए गए स्किल पैकेज: {skillCount}।",
+          "intro": "Stella, लोकल मेमोरी और लागू कस्टम स्किल्स को सुरक्षित रूप से आपके क्लाउड खाते में इंपोर्ट करती है।",
+          "unavailable": "Cloud Home सिंक फ़िलहाल उपलब्ध नहीं है।"
+        },
+        "title": "Cloud Home"
+      },
+      "deleteAccount": {
+        "action": "हटाएँ",
+        "description": "आपके खाते और उसमें मौजूद सब कुछ स्थायी रूप से हटा देता है।",
+        "label": "खाता हटाएँ",
+        "working": "हटा रहे हैं…"
+      },
+      "deleteData": {
+        "action": "हटाएँ",
+        "description": "सभी वार्तालाप, मेमोरी और सहेजी गई Stella सेटिंग्स मिटा देता है।",
+        "label": "डेटा हटाएँ",
+        "working": "हटा रहे हैं…"
+      },
+      "dialog": {
+        "deleteAccountButton": "खाता हटाएँ",
+        "deleteAccountDescription": "यह आपके खाते और Stella डेटा को स्थायी रूप से हटा देता है। इसे पूर्ववत नहीं किया जा सकता।",
+        "deleteAccountTitle": "अपना Stella खाता हटाएँ?",
+        "deleteDataButton": "डेटा हटाएँ",
+        "deleteDataDescription": "यह आपके वार्तालाप, मेमोरी, सेटिंग्स और स्थानीय Stella स्थिति मिटा देता है। इसे पूर्ववत नहीं किया जा सकता।",
+        "deleteDataTitle": "अपना Stella डेटा हटाएँ?",
+        "working": "हटा रहे हैं…"
+      },
+      "legal": {
+        "privacy": "गोपनीयता नीति",
+        "terms": "सेवा की शर्तें",
+        "title": "कानूनी",
+        "view": "देखें"
+      },
+      "signOut": {
+        "action": "साइन आउट",
+        "description": "इस डिवाइस पर Stella से साइन आउट करें।",
+        "label": "साइन आउट"
+      },
+      "title": "खाता",
+      "toasts": {
+        "accountDeleted": "आपका Stella खाता हटा दिया गया।",
+        "dataDeleted": "आपका Stella डेटा हटा दिया गया।",
+        "deleteAccountFailed": "आपका खाता हटाया नहीं जा सका। कृपया फिर से प्रयास करें।",
+        "deleteDataFailed": "आपका डेटा हटाया नहीं जा सका। कृपया फिर से प्रयास करें।",
+        "signInBeforeDelete": "अपना खाता हटाने से पहले साइन इन करें।"
+      }
     },
-    "bubble": {
-      "openStella": "Open in Stella",
-      "typing": "Stella is replying"
+    "agentModelPicker": {
+      "assistantPickerAriaLabel": "सहायक मॉडल पिकर",
+      "byokDescription": "अपनी खुद की {provider} API कुंजी उपयोग करें।",
+      "chatGptManageUsage": "उपयोग प्रबंधित करें",
+      "chatGptPlanInUse": "ChatGPT प्लान इस्तेमाल हो रहा है",
+      "chatGptRouted": "{model} पर भेजा गया (सहेजा गया मॉडल अनुपलब्ध)।",
+      "default": "डिफ़ॉल्ट",
+      "errors": {
+        "chatGptMigration": "ChatGPT रूटिंग माइग्रेशन विफल।",
+        "chatGptNoModels": "अभी कोई ChatGPT मॉडल उपलब्ध नहीं है।",
+        "chatGptNotConnected": "पहले इस कंप्यूटर पर ChatGPT से साइन इन करें।",
+        "chatGptPlanUsageOff": "इस खाते के लिए ChatGPT प्लान का उपयोग चालू नहीं है। इसे सेटिंग्स › खाता में चालू करें, या कोई दूसरा मॉडल चुनें।",
+        "chatGptVerify": "ChatGPT मॉडल सत्यापित नहीं हो सके: {error}",
+        "chatGptVerifying": "ChatGPT मॉडल का सत्यापन पूरा होने तक प्रतीक्षा करें।",
+        "connectChatGpt": "ChatGPT कनेक्ट करने में विफल।",
+        "loadPreferences": "मॉडल सेटिंग्स लोड नहीं हो सकीं।",
+        "refreshTitle": "मॉडल ताज़ा नहीं हो सके",
+        "updateChatGptSpeed": "ChatGPT गति अपडेट करने में विफल।",
+        "updateDirectRuntime": "सीधी {runtime} सेटिंग अपडेट करने में विफल।",
+        "updateEngine": "इंजन अपडेट करने में विफल।",
+        "updateImage": "छवि सेटिंग अपडेट करने में विफल।",
+        "updateModel": "मॉडल सेटिंग अपडेट करने में विफल।",
+        "updateReadAloud": "ज़ोर से पढ़ने का प्रदाता अपडेट करने में विफल।",
+        "updateReasoning": "तर्क प्रयास अपडेट करने में विफल।",
+        "updateTitle": "मॉडल सेटिंग्स अपडेट नहीं हो सकीं",
+        "updateVoice": "आवाज़ सेटिंग अपडेट करने में विफल।"
+      },
+      "imageProviderAriaLabel": "छवि प्रदाता",
+      "noChatGptModels": "अभी इस खाते के लिए कोई ChatGPT मॉडल उपलब्ध नहीं है।",
+      "savedModelUnavailable": "सहेजा गया मॉडल अनुपलब्ध है। दूसरा मॉडल चुनें।",
+      "stellaDefault": "Stella डिफ़ॉल्ट",
+      "surfaceAriaLabel": "सतह",
+      "tabs": {
+        "assistant": "सहायक",
+        "assistantTitle": "Stella का मुख्य सहायक",
+        "image": "छवि",
+        "imageTitle": "छवि निर्माण प्रदाता",
+        "voice": "आवाज़",
+        "voiceTitle": "रीयलटाइम आवाज़ प्रदाता"
+      },
+      "unavailableChooseAnother": "अनुपलब्ध — दूसरा मॉडल चुनें",
+      "verifyingChatGpt": "ChatGPT मॉडल सत्यापित हो रहे हैं…",
+      "voiceProviderAriaLabel": "आवाज़ प्रदाता",
+      "waitingForChatGpt": "ChatGPT की प्रतीक्षा…"
     },
-    "arc": {
-      "readAloudOn": "Read replies aloud: on",
-      "readAloudOff": "Read replies aloud: off",
-      "dictate": "Dictate a message",
-      "dictateStop": "Stop dictating and send",
-      "voice": "Start voice conversation",
-      "voiceStop": "End voice conversation"
+    "audio": {
+      "dictationSounds": {
+        "description": "श्रुतलेखन शुरू और बंद होने पर एक ध्वनि बजाएँ।",
+        "label": "श्रुतलेखन ध्वनियाँ"
+      },
+      "errors": {
+        "listDevices": "ऑडियो डिवाइस सूचीबद्ध नहीं किए जा सके।",
+        "micDenied": "माइक्रोफ़ोन एक्सेस अस्वीकृत किया गया। कृपया इसे अपनी सिस्टम सेटिंग्स में अनुमति दें।",
+        "micDeniedReset": "माइक्रोफ़ोन एक्सेस पहले अस्वीकृत किया गया था। इसे रीसेट करें और Stella पुनः आरंभ करें, या सिस्टम सेटिंग्स खोलें।"
+      },
+      "microphone": {
+        "deviceDescription": "Stella को कौन सा माइक सुनना चाहिए?",
+        "deviceLabel": "माइक्रोफ़ोन",
+        "enableDescription": "Stella से बात करने के लिए आवश्यक।",
+        "enableLabel": "माइक्रोफ़ोन सक्षम करें",
+        "title": "माइक्रोफ़ोन"
+      },
+      "microphoneDeviceFallback": "माइक्रोफ़ोन {index}",
+      "recovery": {
+        "closing": "बंद हो रहा है…",
+        "manageDescription": "यदि माइक्रोफ़ोन अनुमति कभी अटक जाए, तो आप इसे रीसेट कर सकते हैं और macOS से दोबारा पूछने को कह सकते हैं।",
+        "manageLabel": "माइक्रोफ़ोन एक्सेस प्रबंधित करें",
+        "openSettings": "सेटिंग्स खोलें",
+        "recoverDescription": "एक बार मना करने के बाद, macOS अपने आप दोबारा नहीं पूछेगा। अनुमति रीसेट करें, फिर Stella बंद करके दोबारा खोलें।",
+        "recoverLabel": "माइक्रोफ़ोन एक्सेस पुनर्प्राप्त करें",
+        "reset": "रीसेट करें और पुनः आरंभ करें"
+      },
+      "speaker": {
+        "empty": "कोई स्पीकर नहीं मिला।",
+        "emptyMicOff": "अपने स्पीकर देखने के लिए माइक्रोफ़ोन चालू करें।",
+        "outputDescription": "उपयोग करने के लिए स्पीकर या हेडफ़ोन चुनें।",
+        "outputLabel": "आउटपुट डिवाइस",
+        "title": "स्पीकर"
+      },
+      "speakerDeviceFallback": "स्पीकर {index}",
+      "superFast": {
+        "description": "माइक्रोफ़ोन को तैयार रखता है ताकि श्रुतलेखन कम देरी से शुरू हो।",
+        "label": "सुपर फ़ास्ट श्रुतलेखन"
+      },
+      "systemDefault": "सिस्टम डिफ़ॉल्ट",
+      "wakeWord": {
+        "description": "बैकग्राउंड में “Hey Stella” सुनता है और एक वॉइस वार्तालाप शुरू करता है। बंद होने पर, जब तक आप श्रुतलेखन नहीं दबाते, माइक निष्क्रिय रहता है।",
+        "label": "वेक वर्ड “Hey Stella”"
+      }
     },
-    "mark": {
-      "open": "Ask Stella",
-      "close": "Close the prompt"
+    "browserExtension": {
+      "action": "एक्सटेंशन प्राप्त करें",
+      "description": "Stella को वह पेज देखने दें जिस पर आप हैं और आपके ब्राउज़र में कार्य करने दें।",
+      "title": "Chrome के लिए Stella"
     },
-    "badge": {
-      "running": "{count} agents working"
+    "chatStorage": {
+      "description": "अपनी चैट सभी डिवाइस पर देखें। बंद करने पर चैट इतिहास सिर्फ़ इसी कंप्यूटर पर अलग से रहेगा। दोबारा चालू करने पर वे चैट अपलोड नहीं होंगी। AI प्रदाता फिर भी आपके संदेश प्रोसेस करते हैं।",
+      "endVoice": "चैट स्टोरेज बदलने के लिए अपनी वॉइस बातचीत खत्म करें।",
+      "error": "चैट स्टोरेज नहीं बदला जा सका। दोबारा कोशिश करें।",
+      "title": "चैट इतिहास क्लाउड में सेव करें"
+    },
+    "compactModelList": {
+      "ariaLabel": "Stella मॉडल",
+      "empty": "कोई Stella मॉडल उपलब्ध नहीं।",
+      "loadFailed": "Stella मॉडल लोड नहीं हो सके।",
+      "loading": "Stella मॉडल लोड हो रहे हैं…",
+      "recent": "हाल के",
+      "restricted": "आपका प्लान Stella की पसंद का उपयोग करता है।",
+      "restrictedPlan": "{plan} प्लान Stella की पसंद का उपयोग करता है।",
+      "retry": "फिर कोशिश करें",
+      "unavailable": "अनुपलब्ध",
+      "unavailableTitle": "यह मॉडल अब उपलब्ध नहीं है — दूसरा चुनें।",
+      "upgrade": "अपग्रेड करें"
+    },
+    "companion": {
+      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
+      "error": "Couldn't update the desktop companion.",
+      "title": "Desktop companion"
+    },
+    "connectedProviders": {
+      "apiKey": "API कुंजी",
+      "empty": "अभी तक कोई प्रदाता कनेक्ट नहीं है। API कुंजी जोड़ने या साइन इन करने के लिए ऊपर मॉडल पिकर में Stella के अलावा कोई विकल्प चुनें।",
+      "removeKey": "कुंजी हटाएँ",
+      "removingKey": "हटा रहे हैं…",
+      "signOut": "साइन आउट",
+      "signedIn": "साइन इन किया गया",
+      "signingOut": "साइन आउट हो रहा है…",
+      "title": "कनेक्ट किए गए प्रदाता"
+    },
+    "developerPreviews": {
+      "description": "चैट में कोड परिवर्तन दिखाएँ और उन्हें साइड पैनल में खोलें।",
+      "title": "डेवलपर फ़ाइल पूर्वावलोकन"
+    },
+    "engineAccounts": {
+      "active": "सक्रिय",
+      "addChatgpt": "Add ChatGPT account",
+      "addChatgptCloud": "Add ChatGPT account in the cloud",
+      "addClaude": "Claude खाता जोड़ें",
+      "addInCloud": "क्लाउड में",
+      "addOnComputer": "इस कंप्यूटर पर",
+      "cardIntro": "जिस Claude या ChatGPT प्लान के लिए आप पहले से भुगतान करते हैं, उसका उपयोग करें। हर जगह अलग से साइन इन होता है: हर कंप्यूटर पर, और आपके क्लाउड में।",
+      "cardTitle": "Claude और ChatGPT खाते",
+      "chatgptBrowserWaiting": "अपने ब्राउज़र में ChatGPT में साइन इन पूरा करें।",
+      "chatgptCloudSignedIn": "आपका क्लाउड ChatGPT में साइन इन है।",
+      "chatgptComputerSignedIn": "यह कंप्यूटर ChatGPT में साइन इन है।",
+      "chatgptTitle": "ChatGPT",
+      "claudeLogin": {
+        "codeLabel": "Anthropic द्वारा दिखाया गया कोड पेस्ट करें",
+        "failed": "साइन इन नहीं हो सका।",
+        "opened": "हमने Anthropic का साइन-इन पेज खोल दिया है।",
+        "reopen": "इसे फिर से खोलें",
+        "startAgain": "फिर से शुरू करें",
+        "starting": "Anthropic का साइन-इन पेज खोला जा रहा है…",
+        "submit": "सबमिट करें",
+        "submitting": "साइन इन हो रहा है…",
+        "whereCloud": "आपके क्लाउड में Claude Code में साइन इन किया जा रहा है।",
+        "whereComputer": "इस कंप्यूटर पर Claude Code में साइन इन किया जा रहा है।"
+      },
+      "claudeTitle": "Claude (Pro/Max)",
+      "cliMissing": "इस कंप्यूटर पर Claude Code इंस्टॉल नहीं है। यहाँ Claude इस्तेमाल करने के लिए इसे इंस्टॉल करें।",
+      "connecting": "कनेक्ट हो रहा है…",
+      "defaultSignedOut": "इस कंप्यूटर पर Claude Code में साइन इन नहीं है।",
+      "enablePlanUsage": "ChatGPT प्लान का उपयोग चालू करें",
+      "enablePlanUsageCloud": "Enable ChatGPT plan use in the cloud",
+      "errorGeneric": "यह काम नहीं किया। फिर से कोशिश करें।",
+      "finish": "कनेक्ट करें",
+      "moreLabel": "{name} के विकल्प",
+      "needsChatgptCloud": "पहले अपने क्लाउड के लिए ChatGPT सेट करें",
+      "needsClaudeCloud": "पहले क्लाउड में Claude में साइन इन करें",
+      "openChatgptAgain": "ChatGPT फिर से खोलें",
+      "pasteHintChatgpt": "मंज़ूरी देने के बाद, ChatGPT आपको एक ऐसे पेज पर ले जाता है जो लोड नहीं होता। उस पेज का पूरा पता कॉपी करें और यहां पेस्ट करें।",
+      "pastePlaceholderUrl": "पता यहां पेस्ट करें",
+      "placeCloud": "क्लाउड",
+      "placeComputer": "यह कंप्यूटर",
+      "placeOtherComputer": "दूसरा कंप्यूटर",
+      "placeSignedIn": "{place}: साइन इन है",
+      "placeSignedOut": "{place}: साइन इन नहीं है",
+      "planUsageOffBody": "जब तक आप अनुमति नहीं देते, Stella आपके ChatGPT प्लान का उपयोग नहीं कर सकता। खाते पर “ChatGPT प्लान का उपयोग चालू करें” चुनें, या कोई दूसरा मॉडल इस्तेमाल करें।",
+      "planUsageOffTitle": "साइन इन है, लेकिन ChatGPT प्लान का उपयोग चालू नहीं है",
+      "remove": "हटाएं",
+      "removed": "हटा दिया गया।",
+      "revokeTitleCloud": "क्लाउड में ChatGPT से साइन आउट हो गया",
+      "revokeTitleComputer": "इस कंप्यूटर पर साइन आउट हो गया",
+      "revokeUnconfirmed": "ChatGPT ने साइन आउट की पुष्टि नहीं की। आप ChatGPT सेटिंग्स में Stella को डिस्कनेक्ट कर सकते हैं।",
+      "runsOnLabel": "क्लाउड चैट किस पर चलती है",
+      "signIn": "साइन इन करें",
+      "signInAgain": "फिर से साइन इन करें",
+      "signInCloud": "क्लाउड में साइन इन करें",
+      "signInComputer": "इस कंप्यूटर पर साइन इन करें",
+      "signOut": "साइन आउट करें",
+      "signOutCloud": "क्लाउड से साइन आउट करें",
+      "signOutComputer": "इस कंप्यूटर पर साइन आउट करें",
+      "signedInCloud": "आपका क्लाउड Claude में साइन इन है।",
+      "signedInCloudAs": "आपका क्लाउड Claude में {email} के रूप में साइन इन है।",
+      "signedInComputer": "इस कंप्यूटर पर Claude Code में साइन इन है।",
+      "signedInComputerAs": "इस कंप्यूटर पर Claude Code में {email} के रूप में साइन इन है।",
+      "signedOut": "साइन आउट हो गया।",
+      "signedOutLogin": "साइन आउट किया गया Claude Code लॉगिन",
+      "statusPlanUsageOff": "ChatGPT प्लान का उपयोग चालू नहीं है",
+      "statusReauth": "इसका उपयोग जारी रखने के लिए फिर से साइन इन करें",
+      "statusSignedOut": "साइन आउट है",
+      "useAccount": "यह खाता इस्तेमाल करें"
+    },
+    "engineModels": {
+      "ariaLabel": "{engine} मॉडल",
+      "empty": "कोई {engine} मॉडल उपलब्ध नहीं है।",
+      "loading": "{engine} मॉडल लोड हो रहे हैं…"
+    },
+    "errors": {
+      "loadLockedComputerUse": "लॉक होने पर कंप्यूटर उपयोग सेटिंग लोड करने में विफल।",
+      "loadMemory": "मेमोरी सेटिंग लोड करने में विफल।",
+      "loadPermissions": "डेस्कटॉप अनुमति स्थिति लोड करने में विफल।",
+      "loadPower": "पावर सेटिंग लोड करने में विफल।",
+      "loadSoundNotifications": "ध्वनि सूचना सेटिंग लोड करने में विफल।",
+      "lockedComputerUseUnavailable": "इस विंडो में लॉक होने पर कंप्यूटर उपयोग उपलब्ध नहीं है।",
+      "memoryUnavailable": "इस विंडो में मेमोरी सेटिंग्स उपलब्ध नहीं हैं।",
+      "microphoneDeniedReopen": "माइक्रोफ़ोन एक्सेस पहले अस्वीकृत किया गया था। इसे सिस्टम सेटिंग्स में चालू करें, फिर Stella दोबारा खोलें।",
+      "microphoneStillOff": "माइक्रोफ़ोन एक्सेस अभी भी बंद है। इसे सिस्टम सेटिंग्स में चालू करें, फिर Stella दोबारा खोलें।",
+      "powerUnavailable": "इस विंडो में पावर सेटिंग्स उपलब्ध नहीं हैं।",
+      "resetPermission": "{kind} अनुमति रीसेट करने में विफल।",
+      "resetPermissionMaybeReopen": "{kind} अनुमति रीसेट नहीं की जा सकी। Stella को दोबारा खोलना पड़ सकता है।",
+      "restart": "Stella पुनः आरंभ करने में विफल।",
+      "saveLockedComputerUse": "लॉक होने पर कंप्यूटर उपयोग अपडेट करने में विफल।",
+      "saveMemory": "मेमोरी सेटिंग अपडेट करने में विफल।",
+      "savePermission": "{kind} अनुमति अपडेट करने में विफल।",
+      "savePower": "पावर सेटिंग अपडेट करने में विफल।",
+      "saveSoundNotifications": "ध्वनि सूचना सेटिंग अपडेट करने में विफल।",
+      "soundNotificationsUnavailable": "इस विंडो में ध्वनि सूचना सेटिंग्स उपलब्ध नहीं हैं।"
+    },
+    "executionDevices": {
+      "disable": "Turn off",
+      "disabling": "Turning off…",
+      "empty": "No computer is signed in to this account yet.",
+      "enable": "Enable",
+      "enabling": "Enabling…",
+      "errors": {
+        "load": "Unable to read the computers on this account.",
+        "update": "That change didn't go through. Try again."
+      },
+      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
+      "offline": "Offline",
+      "online": "Online",
+      "state": {
+        "asking": "Waiting for an answer there",
+        "declined": "Declined there",
+        "enabled": "Accepting work",
+        "notEnabled": "Not enabled"
+      },
+      "thisComputer": "This computer",
+      "title": "Your computers",
+      "unnamed": "Computer"
+    },
+    "language": {
+      "description": "वह भाषा चुनें जिसे Stella ऐप में और जवाबों में इस्तेमाल करेगी।",
+      "title": "भाषा"
+    },
+    "lockedComputerUse": {
+      "description": "इस Mac के लॉक होने के बाद Stella को कंप्यूटर-उपयोग कार्य जारी रखने दें। इसके लिए व्यवस्थापक अनुमति आवश्यक है और Stella के काम करते समय स्क्रीन ढक जाती है।",
+      "title": "लॉक होने पर कंप्यूटर उपयोग",
+      "unsupported": "लॉक होने पर कंप्यूटर उपयोग केवल macOS पर उपलब्ध है।"
+    },
+    "memory": {
+      "description": "सेव की गई यादों और अपनी प्रोफ़ाइल को Stella के मॉडल कॉन्टेक्स्ट में शामिल करें। क्लाउड कॉपी आधिकारिक है और ट्रांज़िट व स्टोरेज दोनों में एन्क्रिप्ट की गई है; Stella एक लोकल कॉपी भी रख सकती है। इसे बंद करने पर मेमोरी आगे की बातचीत में शामिल नहीं होगी, लेकिन मिटाई नहीं जाएगी।",
+      "title": "मेमोरी"
+    },
+    "modelPicker": {
+      "actions": {
+        "addKey": "कुंजी जोड़ें",
+        "cancel": "रद्द करें",
+        "custom": "कस्टम",
+        "signIn": "साइन इन करें"
+      },
+      "apiKeyAriaLabel": "{provider} API कुंजी",
+      "apiKeyPlaceholder": "API कुंजी",
+      "authHint": {
+        "apiKey": "आपकी API कुंजी इसी डिवाइस पर रहती है।",
+        "both": "साइन इन करें या API कुंजी चिपकाएँ। क्रेडेंशियल इसी डिवाइस पर रहते हैं।",
+        "oauth": "क्रेडेंशियल इसी डिवाइस पर रहते हैं।"
+      },
+      "cancelSignIn": "साइन-इन रद्द करें",
+      "closeSearch": "खोज बंद करें",
+      "empty": {
+        "noMatch": "कोई मॉडल मेल नहीं खाता।",
+        "none": "अभी तक कोई मॉडल उपलब्ध नहीं।"
+      },
+      "errors": {
+        "oauthLogin": "OAuth लॉगिन विफल।",
+        "saveApiKey": "API कुंजी सहेजने में विफल।"
+      },
+      "favorite": {
+        "add": "पसंदीदा में जोड़ें",
+        "addTitle": "पसंदीदा — ऊपर पिन करें",
+        "remove": "पसंदीदा से हटाएँ"
+      },
+      "loadFailed": "Couldn't load models",
+      "local": {
+        "hint": "किसी भी स्थानीय OpenAI-संगत सर्वर का उपयोग करें। Ollama आमतौर पर नीचे दिए URL पर चलता है।",
+        "modelNameAriaLabel": "स्थानीय मॉडल का नाम",
+        "serverUrlAriaLabel": "स्थानीय सर्वर URL"
+      },
+      "openRouter": {
+        "hintAfter": "id स्वीकार करता है। सीधे उपयोग के लिए कोई एक टाइप करें।",
+        "hintBefore": "OpenRouter कोई भी",
+        "modelIdAriaLabel": "OpenRouter मॉडल id"
+      },
+      "reasoning": {
+        "default": "स्वतः",
+        "high": "अधिक",
+        "label": "तर्क प्रयास",
+        "low": "कम",
+        "medium": "मध्यम",
+        "minimal": "न्यूनतम",
+        "xhigh": "अधिकतम"
+      },
+      "refresh": "मॉडल सूची ताज़ा करें",
+      "restrictedPlan": "{plan} प्लान पर उपलब्ध नहीं",
+      "retry": "Retry",
+      "saving": "सहेजा जा रहा है…",
+      "searchAriaLabel": "मॉडल खोजें",
+      "searchPlaceholder": "मॉडल खोजें…",
+      "selected": "चयनित",
+      "signInWith": "{provider} से साइन इन करें",
+      "signOut": {
+        "ariaLabel": "{provider} से साइन आउट करें",
+        "confirmAriaLabel": "{provider} से साइन आउट करने के लिए फिर क्लिक करें",
+        "confirmTitle": "पुष्टि के लिए फिर क्लिक करें"
+      },
+      "use": "उपयोग करें"
+    },
+    "motion": {
+      "reduceMotion": {
+        "description": "इंटरफ़ेस एनिमेशन को न्यूनतम करें।",
+        "label": "मोशन कम करें",
+        "off": "बंद",
+        "on": "चालू",
+        "system": "सिस्टम"
+      },
+      "title": "मोशन"
+    },
+    "nativeFontSmoothing": {
+      "description": "टेक्स्ट को macOS ऐप्स की तरह, ग्रेस्केल एंटी-एलियासिंग के साथ रेंडर करें।",
+      "title": "नेटिव फ़ॉन्ट स्मूदिंग"
+    },
+    "notifications": {
+      "description": "जब Stella किसी एजेंट का रन पूरा करती है तो एक ध्वनि बजाएँ।",
+      "title": "ध्वनि सूचनाएँ"
+    },
+    "onboardingReplay": {
+      "action": "Replay",
+      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched.",
+      "title": "Onboarding"
+    },
+    "permissions": {
+      "accessibility": {
+        "description": "Stella को चयनित टेक्स्ट पढ़ने और आपके कंप्यूटर पर कहीं भी ⌘+राइट-क्लिक शॉर्टकट से खुलने देता है।",
+        "label": "एक्सेसिबिलिटी"
+      },
+      "enable": "सक्षम करें",
+      "granted": "दी गई",
+      "microphone": {
+        "description": "आवाज़ और श्रुतलेखन के लिए उपयोग किया जाता है। यदि Stella पहले अस्वीकृत हो गई थी और macOS दोबारा नहीं पूछता, तो रीसेट करें।",
+        "label": "माइक्रोफ़ोन"
+      },
+      "opening": "खोल रहे हैं…",
+      "reset": "रीसेट करें",
+      "resetting": "रीसेट हो रहा है…",
+      "restart": {
+        "action": "पुनः आरंभ करें",
+        "closing": "बंद हो रहा है…",
+        "description": "स्क्रीन कैप्चर अभी चालू हुआ। सेटअप पूरा करने के लिए Stella बंद करके फिर से खोलें।",
+        "label": "Stella पुनः आरंभ करें"
+      },
+      "screen": {
+        "description": "Stella को आपकी स्क्रीन देखने देता है ताकि वह उसमें मदद कर सके जो आप देख रहे हैं। इसे चालू करने के बाद आपको Stella को बंद करके फिर से खोलना पड़ सकता है।",
+        "label": "स्क्रीन कैप्चर"
+      },
+      "title": "अनुमतियाँ"
+    },
+    "phoneAccess": {
+      "copy": "कॉपी करें",
+      "deviceFallback": "फ़ोन",
+      "errors": {
+        "createPairing": "पेयरिंग कोड नहीं बनाया जा सका।"
+      },
+      "expired": "समाप्त",
+      "getCode": "कोड लें",
+      "intro": {
+        "headline": "अपने फ़ोन को अपने कंप्यूटर से जोड़ें"
+      },
+      "pairedCount": {
+        "one": "{count} फ़ोन जुड़ा",
+        "other": "{count} फ़ोन जुड़े"
+      },
+      "pairing": {
+        "body": "अपने फ़ोन पर Stella ऐप खोलें और QR कोड स्कैन करें, या नीचे दिया कोड टाइप करें। यह केवल एक बार करना होगा।",
+        "headline": "यह कोड स्कैन करें या दर्ज करें",
+        "qrAlt": "अपना फ़ोन जोड़ने के लिए स्कैन करें"
+      },
+      "preparing": "तैयार हो रहा है...",
+      "remove": "हटाएँ",
+      "removing": "हटाया जा रहा है...",
+      "signedOut": {
+        "body": "मोबाइल ऐप से जोड़ने के लिए अपने Stella खाते में साइन इन करें।",
+        "headline": "शुरू करने के लिए साइन इन करें"
+      },
+      "steps": {
+        "appStoreQrAlt": "App Store से Stella डाउनलोड करने के लिए स्कैन करें",
+        "connect": "अपना फ़ोन कनेक्ट करें",
+        "download": "ऐप डाउनलोड करें",
+        "platformSelectorLabel": "मोबाइल प्लेटफ़ॉर्म चुनें",
+        "playStoreQrAlt": "Google Play से Stella डाउनलोड करने के लिए स्कैन करें"
+      },
+      "timeLeft": "{time} शेष",
+      "toasts": {
+        "codeCopied": "कोड क्लिपबोर्ड पर कॉपी हुआ",
+        "phoneRemoved": "फ़ोन हटाया गया",
+        "removeFailed": "फ़ोन हटाने में विफल"
+      }
+    },
+    "power": {
+      "description": "जब Stella खुली हो तब आपके कंप्यूटर को स्लीप में जाने से रोकें।",
+      "title": "कंप्यूटर को जगाए रखें"
+    },
+    "providerConnected": {
+      "apply": "लागू करें",
+      "applying": "लागू हो रहा है…",
+      "assistant": {
+        "description": "Stella के चैट सहायक को {provider} से चलाएँ।",
+        "label": "सहायक"
+      },
+      "description": "{provider} Stella के एक से अधिक हिस्सों को चला सकता है। चुनें कि इसे कहाँ संभालना है — बाकी काम Stella करती रहेगी।",
+      "errors": {
+        "apply": "प्रदाता सेटिंग्स लागू करने में विफल।"
+      },
+      "image": {
+        "description": "अपने {provider} खाते से छवियाँ बनाएँ।",
+        "label": "छवि"
+      },
+      "skip": "छोड़ें",
+      "title": "Stella के लिए {provider} उपयोग करें?",
+      "voice": {
+        "description": "रीयलटाइम आवाज़ बातचीत के लिए {provider} का उपयोग करें।",
+        "label": "आवाज़"
+      }
+    },
+    "providerPicker": {
+      "connect": "कनेक्ट करें",
+      "connected": "कनेक्टेड",
+      "opening": "खुल रहा है…"
+    },
+    "reasoningEffort": {
+      "high": "अधिक",
+      "low": "कम",
+      "medium": "मध्यम",
+      "minimal": "न्यूनतम",
+      "xhigh": "अतिरिक्त"
+    },
+    "resetCustomizations": {
+      "action": "डिफ़ॉल्ट बहाल करें",
+      "description": "आपके स्किल कस्टमाइज़ेशन और व्यक्तित्व संपादन हटा देता है ताकि Stella के डिफ़ॉल्ट लागू हों। हटाई गई चीज़ें ~/.stella/.trash में रहती हैं, अगर आप उन्हें वापस चाहें।",
+      "done": "डिफ़ॉल्ट बहाल हो गए। आपके पिछले कस्टमाइज़ेशन ~/.stella/.trash में ले जाए गए।",
+      "error": "डिफ़ॉल्ट बहाल नहीं किए जा सके।",
+      "none": "आप पहले से ही Stella के डिफ़ॉल्ट उपयोग कर रहे हैं।",
+      "title": "Stella के डिफ़ॉल्ट उपयोग करें"
+    },
+    "search": {
+      "clear": "खोज साफ़ करें",
+      "descriptions": {
+        "account": "साइन आउट करें, अपना डेटा हटाएँ, या अपना खाता स्थायी रूप से हटाएँ।",
+        "legal": "सेवा की शर्तें और गोपनीयता नीति।",
+        "microphone": "Stella को कौन सा माइक सुनना चाहिए?",
+        "permissions": "macOS पर एक्सेसिबिलिटी, स्क्रीन कैप्चर और माइक्रोफ़ोन एक्सेस दें।",
+        "shortcuts": "डिक्टेशन और वॉइस शॉर्टकट बदलें।",
+        "speaker": "वह स्पीकर या हेडफ़ोन चुनें जिससे Stella की आवाज़ बजती है।",
+        "wakeWord": "“Hey Stella” सुनता है और एक वॉइस वार्तालाप शुरू करता है।"
+      },
+      "noResultsBody": "कोई छोटा या अलग शब्द आज़माएँ।",
+      "noResultsTitle": "“{query}” से मेल खाती कोई सेटिंग नहीं",
+      "placeholder": "सेटिंग्स खोजें",
+      "resultsAriaOne": "{count} परिणाम",
+      "resultsAriaOther": "{count} परिणाम",
+      "resultsOne": "{count} परिणाम के लिए",
+      "resultsOther": "{count} परिणाम के लिए"
+    },
+    "shortcuts": {
+      "actions": {
+        "dictation": "श्रुतलेखन",
+        "voice": "वॉइस एजेंट"
+      },
+      "capturing": "कुंजियाँ दबाएँ…",
+      "change": "बदलें",
+      "clear": "साफ़ करें",
+      "dictation": {
+        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
+      },
+      "errors": {
+        "load": "शॉर्टकट लोड करने में विफल।",
+        "unavailable": "इस विंडो में शॉर्टकट उपलब्ध नहीं हैं।",
+        "unavailableShortcut": "वह शॉर्टकट उपलब्ध नहीं है।",
+        "update": "शॉर्टकट अपडेट करने में विफल।"
+      },
+      "off": "बंद",
+      "targets": {
+        "dictation": "श्रुतलेखन",
+        "voice": "वॉइस एजेंट"
+      },
+      "title": "शॉर्टकट",
+      "toasts": {
+        "clearedDescription": "जब तक आप नया शॉर्टकट सेट नहीं करते, {action} अक्षम है।",
+        "clearedTitle": "{action} शॉर्टकट साफ़ किया गया",
+        "failedTitle": "शॉर्टकट अपडेट करने में विफल",
+        "unavailableTitle": "शॉर्टकट उपलब्ध नहीं",
+        "updatedDescription": "{target} शुरू करने के लिए {keys} दबाएँ।",
+        "updatedTitle": "{action} शॉर्टकट अपडेट किया गया"
+      },
+      "voiceAgent": {
+        "description": "Stella के लाइव वॉइस एजेंट को शुरू या बंद करता है।"
+      }
+    },
+    "systemPrompt": {
+      "activeLabel": "सक्रिय प्रॉम्प्ट",
+      "agentLabel": "किसका प्रॉम्प्ट",
+      "agentSublabel": "चुनें कि किस एजेंट का प्रॉम्प्ट बदलना है।",
+      "agents": {
+        "assistant": "सहायक",
+        "worker": "वर्कर"
+      },
+      "cancel": "रद्द करें",
+      "defaultOption": "Stella का डिफ़ॉल्ट",
+      "delete": "हटाएँ",
+      "deleted": "प्रॉम्प्ट हटाया गया।",
+      "description": "Stella का डिफ़ॉल्ट प्रॉम्प्ट हमेशा ऐप के साथ अपडेट होता है। अपना प्रॉम्प्ट सहेजें ताकि उसका उपयोग हो — यह अलग रखा जाता है, इसलिए अपडेट उसे कभी नहीं बदलते।",
+      "duplicate": "डुप्लिकेट",
+      "edit": "संपादित करें",
+      "error": "कुछ गड़बड़ हो गई।",
+      "nameLabel": "नाम",
+      "newFromDefault": "डिफ़ॉल्ट से नया",
+      "newName": "मेरा प्रॉम्प्ट",
+      "save": "सहेजें",
+      "saved": "प्रॉम्प्ट सहेजा गया।",
+      "title": "सिस्टम प्रॉम्प्ट",
+      "usingCustom": "आपका सहेजा गया प्रॉम्प्ट उपयोग में है।",
+      "usingDefault": "Stella का डिफ़ॉल्ट प्रॉम्प्ट उपयोग में है।"
+    },
+    "tabs": {
+      "account": "खाता और कानूनी",
+      "audio": "ऑडियो",
+      "general": "बुनियादी",
+      "shortcuts": "शॉर्टकट"
+    },
+    "title": "सेटिंग्स",
+    "voiceAgent": {
+      "description": "आवाज़ और कॉल नियंत्रण दिखाएँ ताकि आप स्टेला से बोलकर बात कर सकें। डिक्टेशन दोनों हालात में चलता रहता है।",
+      "error": "आवाज़ सेटिंग अपडेट नहीं हो सकी।",
+      "title": "आवाज़ वाली बातचीत"
+    },
+    "voiceCatalog": {
+      "label": "आवाज़",
+      "menuAriaLabel": "{source} आवाज़",
+      "nextVoice": "अगली आवाज़",
+      "previousVoice": "पिछली आवाज़",
+      "readAloud": {
+        "ariaLabel": "ज़ोर से पढ़ने का प्रदाता",
+        "description": "इस प्रदाता की आवाज़ से उत्तर ज़ोर से बोलता है।",
+        "geminiTitle": "Gemini TTS से उत्तर ज़ोर से पढ़ें",
+        "label": "ज़ोर से पढ़ें",
+        "openaiTitle": "OpenAI TTS से उत्तर ज़ोर से पढ़ें"
+      },
+      "source": {
+        "gemini": "Gemini आवाज़ें",
+        "gptlive": "स्टेला की आवाज़ें",
+        "openai": "OpenAI आवाज़ें",
+        "xai": "Grok आवाज़ें"
+      }
+    }
+  },
+  "shell": {
+    "agentProgress": {
+      "recentAgentMessages": "हाल के एजेंट संदेश",
+      "recentProgress": "हाल की प्रगति"
+    },
+    "appSource": {
+      "failed": "बदलाव लागू नहीं हो सका",
+      "files": {
+        "one": "{count} फ़ाइल",
+        "other": "{count} फ़ाइलें"
+      },
+      "outdated": "पुराने संस्करण पर बनाया गया",
+      "restarts": "Stella को रीस्टार्ट करता है",
+      "title": "Stella में बदलाव",
+      "undo": "पूर्ववत करें",
+      "undoneAgo": "{ago} पूर्ववत हुआ",
+      "undoneJustNow": "अभी पूर्ववत हुआ",
+      "update": "अपडेट करें",
+      "updatedAgo": "{ago} अपडेट हुआ",
+      "updatedJustNow": "अभी अपडेट हुआ",
+      "updates": {
+        "add": "जोड़ें",
+        "adding": "जोड़ा जा रहा है…",
+        "fromDevice": "{device} पर आपके द्वारा किया गया बदलाव",
+        "fromOtherComputer": "आपके दूसरे कंप्यूटर पर किया गया बदलाव",
+        "fromOtherComputers": "आपके दूसरे कंप्यूटर से बदलाव",
+        "get": "पाएं",
+        "history": "इतिहास",
+        "justNow": "अभी",
+        "newVersion": "Stella का नया संस्करण",
+        "newVersionDetail": "Stella टीम की ओर से सुधार और फ़िक्स",
+        "pill": {
+          "one": "{count} अपडेट",
+          "other": "{count} अपडेट"
+        },
+        "readyChange": "जोड़ने के लिए तैयार बदलाव",
+        "removed": "हटाया गया: {change}",
+        "skip": "छोड़ें",
+        "skipped": "छोड़े गए",
+        "undoing": "पूर्ववत किया जा रहा है…",
+        "upToDate": "कुछ भी प्रतीक्षा में नहीं है",
+        "waiting": "प्रतीक्षा में"
+      }
+    },
+    "audioPlayer": {
+      "pause": "रोकें",
+      "play": "चलाएँ",
+      "seek": "आगे-पीछे करें"
+    },
+    "browser": {
+      "connected": "ब्राउज़र कनेक्ट है",
+      "connecting": "एक्सटेंशन का इंतज़ार…",
+      "newTab": "नया टैब खोलें"
+    },
+    "capture": {
+      "failedDescription": "स्क्रीनशॉट लेते समय कुछ गड़बड़ हुई। फिर कोशिश करें।",
+      "failedTitle": "वह कैप्चर नहीं हो सका"
+    },
+    "chatSidebar": {
+      "add": "जोड़ें",
+      "dictationError": "श्रुतलेखन: {error}",
+      "stop": "रोकें"
+    },
+    "connectors": {
+      "desktopRequired": "कनेक्टर Stella डेस्कटॉप ऐप में उपलब्ध हैं।",
+      "empty": "अभी कोई कनेक्टर उपलब्ध नहीं है।",
+      "loading": "कनेक्टर लोड हो रहे हैं…",
+      "noMatches": "उस खोज से कोई कनेक्टर मेल नहीं खाता।",
+      "searchLabel": "कनेक्टर खोजें",
+      "searchPlaceholder": "खोजें",
+      "title": "कनेक्टर"
+    },
+    "display": {
+      "agentThread": {
+        "badge": "केवल-पढ़ने योग्य एजेंट थ्रेड",
+        "claudeAriaLabel": "Claude सबएजेंट केवल-पढ़ने योग्य वार्तालाप",
+        "claudeBadge": "केवल-पढ़ने योग्य Claude सबएजेंट",
+        "empty": "इस थ्रेड में अभी कोई संदेश नहीं है।",
+        "loadFailed": "यह थ्रेड लोड नहीं हो सका।",
+        "newMessages": {
+          "one": "{count} नया संदेश।",
+          "other": "{count} नए संदेश।"
+        },
+        "newMessagesButton": {
+          "one": "{count} नया संदेश",
+          "other": "{count} नए संदेश"
+        },
+        "newMessagesWithPreview": "{countPhrase} नवीनतम {role}: {preview}",
+        "reasoningGroup": {
+          "one": "Reasoning",
+          "other": "{count} reasoning steps"
+        },
+        "retrying": "फिर कोशिश हो रही है…",
+        "role": {
+          "assistant": "एजेंट",
+          "checkpoint": "थ्रेड चेकपॉइंट",
+          "lifecycle": "गतिविधि",
+          "reasoning": "तर्क",
+          "tool": "टूल",
+          "user": "निर्देश"
+        },
+        "showNewMessagesAria": "{countPhrase} दिखाएँ",
+        "showingNewest": "नवीनतम संदेश दिखाया जा रहा है।",
+        "status": {
+          "canceled": "रोका गया",
+          "completed": "पूरा हुआ",
+          "error": "विफल",
+          "running": "काम कर रहा है"
+        },
+        "toolGroup": {
+          "one": "{count} tool call",
+          "other": "{count} tool calls"
+        },
+        "toolInput": "इनपुट",
+        "toolOutput": "आउटपुट",
+        "toolRunning": "इस टूल के पूरा होने की प्रतीक्षा हो रही है…",
+        "unavailable": "एजेंट थ्रेड इतिहास उपलब्ध नहीं है।"
+      },
+      "canvas": {
+        "loadFailed": "यह कैनवास लोड नहीं हो सका।",
+        "loading": "लोड हो रहा है"
+      },
+      "canvasShare": {
+        "copyLink": "लिंक कॉपी करें",
+        "empty": "अभी कोई सक्रिय साझाकरण नहीं। सार्वजनिक लिंक पाने के लिए कोई कैनवास प्रकाशित करें।",
+        "expires": "{date} को समाप्त",
+        "links": "लिंक",
+        "live": "कैनवास लाइव है",
+        "loadFailed": "आपके साझा किए गए आइटम लोड नहीं हो सके।",
+        "publicLink": "सार्वजनिक कैनवास लिंक",
+        "publishFailed": "यह कैनवास प्रकाशित नहीं हो सका। कृपया फिर कोशिश करें।",
+        "publishing": "कैनवास प्रकाशित हो रहा है…",
+        "revoke": "साझा करना रद्द करें",
+        "share": "साझा करें",
+        "shared": "{date} को साझा किया गया",
+        "sharedLinks": "साझा किए गए लिंक",
+        "sharedWithExpiry": "{shared} को साझा · {expires} को समाप्त",
+        "toasts": {
+          "copyFailed": "लिंक कॉपी नहीं हो सका",
+          "linkCopied": "साझा लिंक कॉपी हुआ",
+          "revokeFailed": "यह साझाकरण रद्द नहीं हो सका",
+          "revoked": "साझा करना रद्द हुआ"
+        },
+        "untitled": "बिना शीर्षक कैनवास"
+      },
+      "diff": {
+        "changes": "बदलाव",
+        "codeChanges": "कोड बदलाव",
+        "desktopRequired": "कोड पूर्वावलोकन के लिए Stella डेस्कटॉप ऐप आवश्यक है।",
+        "empty": "अभी कोई फ़ाइल बदलाव नहीं। जब कोई एजेंट कोड संपादित करेगा, बदलाव यहाँ दिखेंगे।",
+        "noChanges": "कोई बदलाव नहीं मिला।"
+      },
+      "filePreview": {
+        "copy": "कॉपी करें",
+        "loading": "लोड हो रहा है...",
+        "save": "सहेजें"
+      },
+      "homeLauncher": {
+        "files": {
+          "description": "पेज, छवियाँ, वीडियो और दस्तावेज़",
+          "label": "फ़ाइलें"
+        },
+        "trash": {
+          "description": "आपकी हाल ही में हटाई गई चीज़ें",
+          "label": "ट्रैश"
+        }
+      },
+      "markdown": {
+        "desktopRequired": "Markdown पूर्वावलोकन के लिए Stella डेस्कटॉप ऐप आवश्यक है।",
+        "eyebrow": "Markdown",
+        "noContent": "कोई सामग्री नहीं मिली।"
+      },
+      "media": {
+        "copied": "कॉपी हुआ",
+        "copy": "कॉपी करें",
+        "copyFailed": "कॉपी नहीं हो सका",
+        "delete": "मिटाएँ",
+        "deleteConfirm": "मिटाने के लिए फिर क्लिक करें",
+        "expand": "बड़ा करें",
+        "expandPanel": "पैनल बड़ा करें",
+        "itemActions": "आइटम क्रियाएँ",
+        "missing": "फ़ाइल अब उपलब्ध नहीं है।",
+        "revealInFinder": "Finder में दिखाएँ",
+        "save": "सहेजें",
+        "saveFailed": "सहेजा नहीं जा सका",
+        "saved": "सहेजा गया"
+      },
+      "office": {
+        "frameTitle": "{kind} पूर्वावलोकन: {title}",
+        "kind": {
+          "document": "दस्तावेज़",
+          "presentation": "प्रस्तुति",
+          "spreadsheet": "स्प्रेडशीट"
+        },
+        "livePreview": "लाइव पूर्वावलोकन",
+        "loadFailed": "यह पूर्वावलोकन लोड नहीं हो सका",
+        "preparing": "पूर्वावलोकन तैयार हो रहा है...",
+        "revealInFinder": "Finder में दिखाएँ",
+        "sessionError": "पूर्वावलोकन सत्र में त्रुटि आई।",
+        "sheetCount": {
+          "one": "{count} शीट",
+          "other": "{count} शीट"
+        },
+        "slideCount": {
+          "one": "{count} स्लाइड",
+          "other": "{count} स्लाइड"
+        },
+        "zoomAriaLabel": "पूर्वावलोकन ज़ूम"
+      },
+      "preview": {
+        "limited": "प्रीव्यू सीमित है। पूरा कॉन्टेंट देखने के लिए मूल फ़ाइल सेव करें या खोलें।",
+        "unavailable": "यह प्रीव्यू तैयार नहीं किया जा सका।"
+      },
+      "spreadsheet": {
+        "column": "स्तंभ {index}",
+        "desktopRequired": "स्प्रेडशीट पूर्वावलोकन के लिए Stella डेस्कटॉप ऐप आवश्यक है।",
+        "eyebrow": "स्प्रेडशीट",
+        "noRows": "कोई पंक्ति नहीं मिली।"
+      },
+      "trash": {
+        "autoDeletesIn": "{time} में अपने आप मिट जाएगा",
+        "deleteNow": "अभी मिटाएँ",
+        "deleting": "मिटाया जा रहा है…",
+        "empty": "अभी यहाँ कुछ नहीं है।",
+        "emptyTrash": "ट्रैश खाली करें",
+        "emptying": "खाली किया जा रहा है…",
+        "itemsAutoDeleted": {
+          "one": "{count} आइटम — 24 घंटे में अपने आप मिट जाएगा।",
+          "other": "{count} आइटम — 24 घंटे में अपने आप मिट जाएँगे।"
+        },
+        "pendingPurge": "मिटाने की प्रतीक्षा में",
+        "refresh": "ताज़ा करें",
+        "title": "ट्रैश",
+        "trashedAgo": "{time} पहले ट्रैश किया गया"
+      },
+      "url": {
+        "eyebrow": "लाइव पूर्वावलोकन",
+        "openInBrowser": "ब्राउज़र में खोलें",
+        "reload": "फिर से लोड करें"
+      }
+    },
+    "displayPanel": {
+      "closePanel": "पैनल बंद करें",
+      "openPanel": "पैनल खोलें"
+    },
+    "rightSidebar": {
+      "resize": "डिस्प्ले पैनल का आकार बदलें",
+      "resizeHint": "आकार बदलने के लिए खींचें · रीसेट के लिए डबल-क्लिक करें",
+      "workspace": "वर्कस्पेस"
+    },
+    "sidebar": {
+      "account": {
+        "planAriaLabel": "{name}, {plan} प्लान",
+        "signOutDescription": "क्या आप निश्चित हैं?",
+        "signOutTitle": "Stella से साइन आउट करें?"
+      },
+      "feedback": {
+        "description": "आपका संदेश गुमनाम रूप से भेजा जाता है — यह आपके खाते से नहीं जुड़ता।",
+        "fieldLabel": "प्रतिक्रिया",
+        "placeholder": "बताएँ कि क्या अच्छा चल रहा है, क्या नहीं, या आप क्या देखना चाहेंगे…",
+        "send": "भेजें",
+        "sending": "भेजा जा रहा है…",
+        "title": "प्रतिक्रिया भेजें",
+        "toasts": {
+          "failedTitle": "प्रतिक्रिया नहीं भेजी जा सकी",
+          "sentDescription": "धन्यवाद — हर सुझाव Stella को बेहतर बनाने में मदद करता है।",
+          "sentTitle": "प्रतिक्रिया भेजी गई"
+        }
+      },
+      "nav": {
+        "apps": "ऐप्स",
+        "unreadAriaLabel": "{label}, {count} अपठित",
+        "unreadTitle": "{label} ({count} अपठित)"
+      }
+    },
+    "topbar": {
+      "conversation": {
+        "closeConversation": "{title} बंद करें",
+        "delete": "{title} मिटाएँ",
+        "deleteConfirm": "पुष्टि के लिए फिर क्लिक करें",
+        "deleteConfirmFor": "{title} मिटाने के लिए फिर क्लिक करें",
+        "deleteFailed": "यह वार्तालाप नहीं मिटाया जा सका",
+        "deleteFailedFor": "{title} नहीं मिटाया जा सका",
+        "history": "वार्तालाप इतिहास",
+        "historyEmpty": "अभी तक कोई वार्तालाप नहीं",
+        "historyRetry": "वार्तालाप लोड नहीं हो सके। फिर कोशिश करें",
+        "newChat": "नई चैट",
+        "newChatConfirm": "Click again to confirm",
+        "openConversation": "{title} खोलें",
+        "openConversations": "वार्तालाप खोलें",
+        "unread": "अपठित संदेश"
+      }
+    },
+    "windowControls": {
+      "maximize": "बड़ा करें",
+      "minimize": "छोटा करें",
+      "restore": "पुनर्स्थापित करें"
+    },
+    "workspace": {
+      "activity": "गतिविधि",
+      "moreFiles": {
+        "one": "{count} more file",
+        "other": "{count} more files"
+      },
+      "viewFiles": {
+        "one": "{count} फ़ाइल देखें",
+        "other": "{count} फ़ाइलें देखें"
+      }
+    }
+  },
+  "sidebar": {
+    "account": "खाता",
+    "feedback": "फीडबैक भेजें",
+    "newChat": "नई चैट",
+    "signIn": "साइन इन",
+    "upgrade": "अपग्रेड करें"
+  },
+  "ui": {
+    "imageLightbox": {
+      "close": "पूर्वावलोकन बंद करें",
+      "title": "छवि पूर्वावलोकन"
     }
   }
 }

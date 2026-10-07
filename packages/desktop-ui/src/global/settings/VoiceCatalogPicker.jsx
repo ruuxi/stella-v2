@@ -3,53 +3,24 @@
  * list on the Voice tab of the model picker.
  *
  * Layout, top to bottom:
- *   - Label row. In Stella mode the right-hand area shows the OpenAI /
- *     xAI / Inworld sub-toggle; in BYOK modes it shows a static source
- *     label ("OpenAI voices" / "Grok voices" / "Inworld voices").
+ *   - Label row with a static source label ("Stella voices" / "OpenAI
+ *     voices" / "Grok voices"). Managed Stella mode always runs on
+ *     GPT-Live, so there is no voice family to choose.
  *   - Voice stepper: a single horizontal box with left/right chevrons
  *     on either side of the current voice label. Chevrons cycle through
  *     the active catalog; clicking the label opens a dropdown listing
  *     every voice with its tone description.
- *   - Inworld-only speed slider. Only renders when the active
- *     underlying provider is `inworld`. Persists to
- *     `realtimeVoice.inworldSpeed` so the user's chosen speed survives
- *     provider switches.
  *   - Read-aloud provider toggle (Gemini / OpenAI). Gemini read-aloud has
  *     its own voice stepper, stored at `realtimeVoice.voices.gemini`;
  *     OpenAI read-aloud reuses the OpenAI voice above.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo } from "react";
 import { Check, ChevronLeft, ChevronRight, ChevronDown } from "@/ui/icons";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, } from "@/ui/dropdown-menu";
-import { DEFAULT_GEMINI_TTS_VOICE, DEFAULT_INWORLD_REALTIME_SPEED, GEMINI_TTS_VOICES, getDefaultRealtimeVoice, getRealtimeVoiceCatalog, } from "@stella/contracts/realtime-voice-catalog";
+import { DEFAULT_GEMINI_TTS_VOICE, GEMINI_TTS_VOICES, getDefaultRealtimeVoice, getRealtimeVoiceCatalog, } from "@stella/contracts/realtime-voice-catalog";
 import { resolveReadAloudProvider, resolveRealtimeUnderlyingProvider, } from "@stella/contracts/local-preferences";
 import { useT } from "@/shared/i18n";
 import "./VoiceCatalogPicker.css";
-/**
- * Speed slider uses a logarithmic mapping so that 1.0× lands at the
- * geometric centre of the slider. With a linear 0.5–2.0 range the
- * midpoint would be 1.25× — users naturally drag toward the middle
- * expecting "normal" and end up at 1.25, which sounds noticeably fast.
- *
- * Slider's internal value is 0–100 (a position). The displayed/stored
- * speed is computed via exp(log-interpolated), then snapped to 0.05
- * for clean numbers.
- */
-const SPEED_MIN = 0.5;
-const SPEED_MAX = 2.0;
-const LOG_SPEED_MIN = Math.log(SPEED_MIN);
-const LOG_SPEED_MAX = Math.log(SPEED_MAX);
-const LOG_SPEED_RANGE = LOG_SPEED_MAX - LOG_SPEED_MIN;
-const speedToSliderPosition = (speed) => {
-    const clamped = Math.max(SPEED_MIN, Math.min(SPEED_MAX, speed));
-    return ((Math.log(clamped) - LOG_SPEED_MIN) / LOG_SPEED_RANGE) * 100;
-};
-const sliderPositionToSpeed = (position) => {
-    const clamped = Math.max(0, Math.min(100, position));
-    const raw = Math.exp(LOG_SPEED_MIN + (clamped / 100) * LOG_SPEED_RANGE);
-    // Snap to 0.05 so the displayed value stays clean.
-    return Math.round(raw * 20) / 20;
-};
 /**
  * Chevron stepper + dropdown over one voice catalog. `activeVoiceId` is
  * display-only when it is a fallback: the server applies the real default.
@@ -110,13 +81,12 @@ function VoiceStepper({ catalog, activeVoiceId, sourceLabel, onPick, disabled })
         {activeEntry?.description ? (<p className="voice-catalog-stepper-desc">{activeEntry.description}</p>) : null}
       </div>);
 }
-export function VoiceCatalogPicker({ voiceProvider, stellaSubProvider, selectedVoices, inworldSpeed, onSelectVoice, onSelectStellaSubProvider, onSelectInworldSpeed, readAloudProvider, onSelectReadAloudProvider, onSelectReadAloudVoice, disabled = false, }) {
+export function VoiceCatalogPicker({ voiceProvider, selectedVoices, onSelectVoice, readAloudProvider, onSelectReadAloudProvider, onSelectReadAloudVoice, disabled = false, }) {
     const t = useT();
-    // For BYOK modes this is pinned to the provider; for Stella mode it
-    // follows the user's sub-family choice (default "openai").
+    // Pinned per top-level provider: BYOK modes keep their own Realtime
+    // families and managed Stella mode is always GPT-Live.
     const underlyingProvider = resolveRealtimeUnderlyingProvider({
         provider: voiceProvider,
-        stellaSubProvider,
     });
     const catalog = getRealtimeVoiceCatalog(underlyingProvider);
     // DISPLAY-ONLY: which voice to highlight when the user hasn't picked one.
@@ -126,29 +96,8 @@ export function VoiceCatalogPicker({ voiceProvider, stellaSubProvider, selectedV
     // If it drifts from the server default, only the badge is wrong, not audio.
     const fallback = getDefaultRealtimeVoice(underlyingProvider);
     const activeVoiceId = selectedVoices?.[underlyingProvider]?.trim() || fallback;
-    const showSubToggle = voiceProvider === "stella";
-    const showSpeed = underlyingProvider === "inworld";
-    const activeSpeed = inworldSpeed ?? DEFAULT_INWORLD_REALTIME_SPEED;
     const activeReadAloud = resolveReadAloudProvider({ readAloudProvider });
     const showReadAloud = typeof onSelectReadAloudProvider === "function";
-    // ── Speed slider: commit on release ──────────────────────────────
-    // The slider stays responsive during drag (local state drives the
-    // displayed value) but only writes to prefs on pointer-up / keyboard
-    // arrow release. Otherwise every slider tick fires an IPC write and
-    // the prop comes back, re-rendering the parent on each pixel of drag.
-    const [draftSpeed, setDraftSpeed] = useState(activeSpeed);
-    const draggingRef = useRef(false);
-    useEffect(() => {
-        if (!draggingRef.current) {
-            setDraftSpeed(activeSpeed);
-        }
-    }, [activeSpeed]);
-    const commitSpeed = useCallback((value) => {
-        draggingRef.current = false;
-        if (Math.abs(value - activeSpeed) < 0.001)
-            return;
-        onSelectInworldSpeed(value);
-    }, [activeSpeed, onSelectInworldSpeed]);
     const handleVoicePick = useCallback((voiceId) => {
         onSelectVoice(underlyingProvider, voiceId);
     }, [onSelectVoice, underlyingProvider]);
@@ -156,25 +105,6 @@ export function VoiceCatalogPicker({ voiceProvider, stellaSubProvider, selectedV
         onSelectReadAloudVoice?.(voiceId);
     }, [onSelectReadAloudVoice]);
     const activeReadAloudVoiceId = selectedVoices?.gemini?.trim() || DEFAULT_GEMINI_TTS_VOICE;
-    const handleSubToggle = useCallback((sub) => {
-        if (disabled || !showSubToggle)
-            return;
-        onSelectStellaSubProvider(sub);
-    }, [disabled, onSelectStellaSubProvider, showSubToggle]);
-    const handleSpeedChange = useCallback((event) => {
-        if (disabled)
-            return;
-        const position = Number.parseFloat(event.target.value);
-        if (!Number.isFinite(position))
-            return;
-        draggingRef.current = true;
-        setDraftSpeed(sliderPositionToSpeed(position));
-    }, [disabled]);
-    const handleSpeedCommit = useCallback(() => {
-        if (disabled)
-            return;
-        commitSpeed(draftSpeed);
-    }, [commitSpeed, disabled, draftSpeed]);
     const handleReadAloudPick = useCallback((provider) => {
         if (disabled || !onSelectReadAloudProvider)
             return;
@@ -184,44 +114,18 @@ export function VoiceCatalogPicker({ voiceProvider, stellaSubProvider, selectedV
     }, [activeReadAloud, disabled, onSelectReadAloudProvider]);
     const labelSourceText = underlyingProvider === "xai"
         ? t("settings.voiceCatalog.source.xai")
-        : underlyingProvider === "inworld"
-            ? t("settings.voiceCatalog.source.inworld")
-            : t("settings.voiceCatalog.source.openai");
+        : underlyingProvider === "openai"
+            ? t("settings.voiceCatalog.source.openai")
+            : t("settings.voiceCatalog.source.gptlive");
     return (<div className="voice-catalog-picker" data-disabled={disabled || undefined}>
       <div className="voice-catalog-picker-label">
         <span>{t("settings.voiceCatalog.label")}</span>
-        {showSubToggle ? (<div className="voice-catalog-subtoggle" role="tablist" aria-label={t("settings.voiceCatalog.familyAriaLabel")}>
-            <button type="button" role="tab" aria-selected={underlyingProvider === "openai"} className="voice-catalog-subtoggle-btn" data-active={underlyingProvider === "openai" || undefined} onClick={() => handleSubToggle("openai")} disabled={disabled} title={t("settings.voiceCatalog.familyTitle.openai")}>
-              OpenAI
-            </button>
-            <button type="button" role="tab" aria-selected={underlyingProvider === "xai"} className="voice-catalog-subtoggle-btn" data-active={underlyingProvider === "xai" || undefined} onClick={() => handleSubToggle("xai")} disabled={disabled} title={t("settings.voiceCatalog.familyTitle.xai")}>
-              xAI
-            </button>
-            <button type="button" role="tab" aria-selected={underlyingProvider === "inworld"} className="voice-catalog-subtoggle-btn" data-active={underlyingProvider === "inworld" || undefined} onClick={() => handleSubToggle("inworld")} disabled={disabled} title={t("settings.voiceCatalog.familyTitle.inworld")}>
-              Inworld
-            </button>
-          </div>) : (<span className="voice-catalog-picker-label-source">
-            {labelSourceText}
-          </span>)}
+        <span className="voice-catalog-picker-label-source">
+          {labelSourceText}
+        </span>
       </div>
 
       <VoiceStepper catalog={catalog} activeVoiceId={activeVoiceId} sourceLabel={labelSourceText} onPick={handleVoicePick} disabled={disabled}/>
-
-      {showSpeed ? (<div className="voice-catalog-speed">
-          <div className="voice-catalog-speed-header">
-            <span className="voice-catalog-speed-label">{t("settings.voiceCatalog.speed")}</span>
-            <span className="voice-catalog-speed-value">
-              {draftSpeed.toFixed(2)}×
-            </span>
-          </div>
-          <input type="range" className="voice-catalog-speed-slider" min={0} max={100} step={0.5} value={speedToSliderPosition(draftSpeed)} onChange={handleSpeedChange} onPointerUp={handleSpeedCommit} onKeyUp={handleSpeedCommit} onBlur={handleSpeedCommit} disabled={disabled} aria-label={t("settings.voiceCatalog.speedAriaLabel")} aria-valuetext={`${draftSpeed.toFixed(2)}×`}/>
-          <div className="voice-catalog-speed-marks">
-            <span>0.5×</span>
-            <span>1.0×</span>
-            <span>2.0×</span>
-          </div>
-        </div>) : null}
-
       {showReadAloud ? (<div className="voice-catalog-readaloud">
           <div className="voice-catalog-picker-label">
             <span>{t("settings.voiceCatalog.readAloud.label")}</span>

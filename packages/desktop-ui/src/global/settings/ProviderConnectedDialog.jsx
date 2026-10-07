@@ -20,7 +20,6 @@ const PROVIDER_SURFACES = {
     openrouter: { assistant: true, image: "openrouter", voice: null },
     fal: { assistant: false, image: "fal", voice: null },
     xai: { assistant: true, image: null, voice: "xai" },
-    inworld: { assistant: false, image: null, voice: "inworld" },
 };
 /**
  * Lives near the app root, listens for `stella:llm-provider-connected`, and

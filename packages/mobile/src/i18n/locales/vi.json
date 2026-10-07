@@ -1,1168 +1,5 @@
 {
-  "common": {
-    "appName": "Stella",
-    "continue": "Tiếp tục",
-    "back": "Quay lại",
-    "next": "Tiếp",
-    "previous": "Trước",
-    "cancel": "Hủy",
-    "save": "Lưu",
-    "close": "Đóng",
-    "open": "Mở",
-    "openPreferences": "Mở tùy chọn",
-    "signIn": "Đăng nhập",
-    "signOut": "Đăng xuất",
-    "loading": "Đang tải…",
-    "tryAgain": "Thử lại",
-    "language": "Ngôn ngữ",
-    "yes": "Có",
-    "no": "Không",
-    "copy": "Sao chép"
-  },
-  "cloudConnector": {
-    "titleOffer": "Kết nối {name}?",
-    "titleWaiting": "Đang chờ {name}",
-    "connecting": "Hoàn tất đăng nhập vào {name} trong trình duyệt của bạn. Stella sẽ tiếp tục ngay khi được chấp thuận.",
-    "connect": "Kết nối",
-    "openAgain": "Mở lại",
-    "notNow": "Để sau",
-    "errors": {
-      "decision": "Không thể kết nối {name}. Hãy thử lại.",
-      "open": "Không thể mở trang đăng nhập."
-    }
-  },
-  "cloudBrowser": {
-    "errors": {
-      "decision": "That didn't go through. Try again.",
-      "verificationUrl": "Couldn't open that page.",
-      "expired": "This sign-in is no longer needed.",
-      "liveViewBoundary": "Couldn't load the sign-in page.",
-      "liveView": "Couldn't load the sign-in page. Try again."
-    },
-    "deviceCode": {
-      "title": "Sign in to {origin}",
-      "codeLabel": "Code",
-      "body": "Enter this code on the site, then come back here.",
-      "copied": "Copied",
-      "copy": "Copy code",
-      "open": "Open site"
-    },
-    "takeover": {
-      "title": "Sign in to {origin}",
-      "checking": "Finishing sign-in to {origin}",
-      "body": "Sign in to keep going. Stella can't see what you type.",
-      "resumingBody": "Stella will pick up where it left off.",
-      "preparing": "Loading sign-in…",
-      "frameTitle": "Sign in to {origin}",
-      "privateNotice": "Stella can't see what you type",
-      "localNotice": "Stella can't see what you type",
-      "localOriginFallback": "Switched to Stella's browser to finish signing in.",
-      "localTransferFallback": "Couldn't confirm that sign-in. Try again in Stella's browser."
-    },
-    "actions": {
-      "canceling": "Canceling…",
-      "finishing": "Finishing…",
-      "done": "Done",
-      "useCloudBrowser": "Use Stella's browser"
-    },
-    "needsYou": {
-      "title": "Needs you",
-      "deviceCode": "Enter a code for {origin}",
-      "signIn": "Sign in to {origin}",
-      "open": "Open"
-    },
-    "settings": {
-      "title": "Browser sign-ins",
-      "defaultProfile": "Saved sign-ins",
-      "description": "Sites Stella has signed in to for you. Reset to sign out of all of them.",
-      "resetComplete": "Signed out of all sites.",
-      "resetFailed": "Couldn't sign out. Try again.",
-      "resetting": "Resetting…",
-      "reset": "Reset",
-      "confirmTitle": "Sign out of all sites?",
-      "confirmBody": "Stella will ask you to sign in again next time."
-    }
-  },
-  "sidebar": {
-    "signIn": "Đăng nhập",
-    "account": "Tài khoản",
-    "feedback": "Gửi phản hồi",
-    "upgrade": "Nâng cấp",
-    "newChat": "Cuộc trò chuyện mới"
-  },
-  "settings": {
-    "chatStorage": {
-      "title": "Lưu lịch sử trò chuyện trên đám mây",
-      "description": "Truy cập các cuộc trò chuyện của bạn trên mọi thiết bị. Tắt để giữ lịch sử trò chuyện riêng chỉ trên máy tính này. Khi bật lại, những cuộc trò chuyện đó sẽ không được tải lên. Các nhà cung cấp AI vẫn xử lý tin nhắn của bạn.",
-      "endVoice": "Hãy kết thúc cuộc trò chuyện bằng giọng nói để thay đổi nơi lưu trò chuyện.",
-      "error": "Không thể thay đổi nơi lưu trò chuyện. Hãy thử lại."
-    },
-    "title": "Cài đặt",
-    "tabs": {
-      "general": "Chung",
-      "shortcuts": "Phím tắt",
-      "account": "Tài khoản & Pháp lý",
-      "audio": "Âm thanh"
-    },
-    "language": {
-      "title": "Ngôn ngữ",
-      "description": "Chọn ngôn ngữ Stella sử dụng trong ứng dụng và khi phản hồi bạn."
-    },
-    "memory": {
-      "title": "Bộ nhớ",
-      "description": "Đưa các ký ức đã lưu và hồ sơ của bạn vào ngữ cảnh mô hình của Stella. Bản sao trên đám mây là bản chính thức và được mã hóa cả khi truyền lẫn khi lưu trữ; Stella cũng có thể giữ một bản sao cục bộ. Việc tắt tùy chọn này sẽ loại bộ nhớ khỏi các cuộc trò chuyện sau nhưng không xóa bộ nhớ đó."
-    },
-    "developerPreviews": {
-      "title": "Xem trước tệp dành cho nhà phát triển",
-      "description": "Hiển thị thay đổi mã trong trò chuyện và mở chúng trong bảng bên."
-    },
-    "nativeFontSmoothing": {
-      "title": "Làm mịn phông chữ gốc",
-      "description": "Hiển thị văn bản như các ứng dụng macOS, với khử răng cưa thang độ xám."
-    },
-    "motion": {
-      "title": "Chuyển động",
-      "reduceMotion": {
-        "label": "Giảm chuyển động",
-        "description": "Giảm thiểu hiệu ứng động của giao diện.",
-        "system": "Hệ thống",
-        "on": "Bật",
-        "off": "Tắt"
-      }
-    },
-    "notifications": {
-      "title": "Thông báo âm thanh",
-      "description": "Phát âm thanh khi Stella hoàn thành một lần chạy tác nhân."
-    },
-    "power": {
-      "title": "Giữ máy tính thức",
-      "description": "Ngăn máy tính của bạn vào chế độ ngủ khi Stella đang mở."
-    },
-    "lockedComputerUse": {
-      "title": "Sử dụng máy tính khi đã khóa",
-      "description": "Cho phép Stella tiếp tục các tác vụ sử dụng máy tính sau khi máy Mac này bị khóa. Yêu cầu lời nhắc quản trị viên và che màn hình khi Stella làm việc.",
-      "unsupported": "Sử dụng máy tính khi đã khóa chỉ có trên macOS."
-    },
-    "browserExtension": {
-      "title": "Stella cho Chrome",
-      "description": "Cho phép Stella xem trang bạn đang ở và thực hiện thao tác trong trình duyệt của bạn.",
-      "action": "Tải tiện ích"
-    },
-    "resetCustomizations": {
-      "title": "Dùng mặc định của Stella",
-      "description": "Xóa các tùy chỉnh kỹ năng và chỉnh sửa tính cách của bạn để áp dụng thiết lập mặc định của Stella. Những gì bị xóa được giữ trong ~/.stella/.trash phòng khi bạn muốn lấy lại.",
-      "action": "Khôi phục mặc định",
-      "done": "Đã khôi phục mặc định. Các tùy chỉnh trước đây của bạn đã được chuyển vào ~/.stella/.trash.",
-      "none": "Bạn đang dùng mặc định của Stella rồi.",
-      "error": "Không thể khôi phục mặc định."
-    },
-    "systemPrompt": {
-      "title": "Lời nhắc hệ thống",
-      "description": "Lời nhắc mặc định của Stella luôn cập nhật cùng ứng dụng. Lưu lời nhắc của riêng bạn để dùng thay thế — nó được giữ riêng nên bản cập nhật không bao giờ ghi đè.",
-      "agentLabel": "Lời nhắc cho",
-      "agentSublabel": "Chọn tác nhân bạn muốn đổi lời nhắc.",
-      "activeLabel": "Lời nhắc đang dùng",
-      "defaultOption": "Mặc định của Stella",
-      "usingDefault": "Đang dùng lời nhắc mặc định của Stella.",
-      "usingCustom": "Đang dùng lời nhắc bạn đã lưu.",
-      "newFromDefault": "Tạo mới từ mặc định",
-      "edit": "Sửa",
-      "duplicate": "Nhân bản",
-      "delete": "Xóa",
-      "save": "Lưu",
-      "cancel": "Hủy",
-      "nameLabel": "Tên",
-      "newName": "Lời nhắc của tôi",
-      "saved": "Đã lưu lời nhắc.",
-      "deleted": "Đã xóa lời nhắc.",
-      "error": "Đã xảy ra lỗi.",
-      "agents": {
-        "assistant": "Trợ lý",
-        "worker": "Người thực thi"
-      }
-    },
-    "permissions": {
-      "title": "Quyền",
-      "enable": "Bật",
-      "granted": "Đã cấp",
-      "opening": "Đang mở…",
-      "reset": "Đặt lại",
-      "resetting": "Đang đặt lại…",
-      "accessibility": {
-        "label": "Trợ năng",
-        "description": "Cho phép Stella đọc văn bản đã chọn và mở bằng phím tắt ⌘+nhấp chuột phải ở bất kỳ đâu trên máy tính của bạn."
-      },
-      "screen": {
-        "label": "Quay màn hình",
-        "description": "Cho phép Stella xem màn hình của bạn để hỗ trợ điều bạn đang xem. Bạn có thể cần thoát và mở lại Stella sau khi bật mục này."
-      },
-      "microphone": {
-        "label": "Micrô",
-        "description": "Dùng cho giọng nói và đọc chính tả. Đặt lại nếu Stella từng bị từ chối và macOS không hỏi lại."
-      },
-      "restart": {
-        "label": "Khởi động lại Stella",
-        "description": "Quay màn hình vừa được bật. Thoát và mở lại Stella để hoàn tất thiết lập.",
-        "action": "Khởi động lại",
-        "closing": "Đang đóng…"
-      }
-    },
-    "shortcuts": {
-      "title": "Phím tắt",
-      "change": "Thay đổi",
-      "capturing": "Nhấn phím…",
-      "clear": "Xóa",
-      "off": "Tắt",
-      "actions": {
-        "dictation": "Đọc chính tả",
-        "voice": "Tác nhân giọng nói"
-      },
-      "dictation": {
-        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
-      },
-      "voiceAgent": {
-        "description": "Bắt đầu hoặc dừng tác nhân giọng nói trực tiếp của Stella."
-      },
-      "targets": {
-        "dictation": "đọc chính tả",
-        "voice": "tác nhân giọng nói"
-      },
-      "toasts": {
-        "updatedTitle": "Đã cập nhật phím tắt {action}",
-        "clearedTitle": "Đã xóa phím tắt {action}",
-        "updatedDescription": "Nhấn {keys} để bắt đầu {target}.",
-        "clearedDescription": "{action} bị tắt cho đến khi bạn đặt phím tắt mới.",
-        "unavailableTitle": "Phím tắt không khả dụng",
-        "failedTitle": "Không thể cập nhật phím tắt"
-      },
-      "errors": {
-        "load": "Không tải được phím tắt.",
-        "unavailable": "Phím tắt không khả dụng trong cửa sổ này.",
-        "unavailableShortcut": "Phím tắt đó không khả dụng.",
-        "update": "Không cập nhật được phím tắt."
-      }
-    },
-    "account": {
-      "title": "Tài khoản",
-      "signOut": {
-        "label": "Đăng xuất",
-        "description": "Đăng xuất khỏi Stella trên thiết bị này.",
-        "action": "Đăng xuất"
-      },
-      "deleteData": {
-        "label": "Xóa dữ liệu",
-        "description": "Xóa tất cả cuộc trò chuyện, bộ nhớ và cài đặt Stella đã lưu.",
-        "action": "Xóa",
-        "working": "Đang xóa…"
-      },
-      "deleteAccount": {
-        "label": "Xóa tài khoản",
-        "description": "Xóa vĩnh viễn tài khoản của bạn và mọi thứ trong đó.",
-        "action": "Xóa",
-        "working": "Đang xóa…"
-      },
-      "legal": {
-        "title": "Pháp lý",
-        "terms": "Điều khoản dịch vụ",
-        "privacy": "Chính sách quyền riêng tư",
-        "view": "Xem"
-      },
-      "dialog": {
-        "deleteDataTitle": "Xóa dữ liệu Stella của bạn?",
-        "deleteAccountTitle": "Xóa tài khoản Stella của bạn?",
-        "deleteDataDescription": "Thao tác này xóa các cuộc trò chuyện, bộ nhớ, cài đặt và trạng thái Stella cục bộ của bạn. Không thể hoàn tác.",
-        "deleteAccountDescription": "Thao tác này xóa vĩnh viễn tài khoản và dữ liệu Stella của bạn. Không thể hoàn tác.",
-        "deleteDataButton": "Xóa dữ liệu",
-        "deleteAccountButton": "Xóa tài khoản",
-        "working": "Đang xóa…"
-      },
-      "toasts": {
-        "dataDeleted": "Dữ liệu Stella của bạn đã được xóa.",
-        "accountDeleted": "Tài khoản Stella của bạn đã được xóa.",
-        "deleteDataFailed": "Không thể xóa dữ liệu của bạn. Vui lòng thử lại.",
-        "deleteAccountFailed": "Không thể xóa tài khoản của bạn. Vui lòng thử lại.",
-        "signInBeforeDelete": "Đăng nhập trước khi xóa tài khoản của bạn."
-      },
-      "cloudHome": {
-        "title": "Cloud Home",
-        "label": "Bộ nhớ và kỹ năng",
-        "summary": {
-          "checking": "Đang kiểm tra bộ nhớ và kỹ năng cục bộ…",
-          "current": "Cloud Home hiện là phiên bản mới nhất. Bộ nhớ đã tải lên: {memoryCount}. Gói kỹ năng đã tải lên: {skillCount}.",
-          "attention": "Cloud Home đã giữ lại các bản sao hiện có trên đám mây ở những nơi dữ liệu cục bộ khác biệt. Hãy xem lại chi tiết bên dưới.",
-          "unavailable": "Tính năng đồng bộ Cloud Home hiện không khả dụng.",
-          "intro": "Stella nhập bộ nhớ cục bộ và các kỹ năng tùy chỉnh phù hợp vào tài khoản đám mây của bạn một cách an toàn."
-        },
-        "authorizationNote": "Các kỹ năng đã tải lên vẫn không khả dụng với tác nhân cho đến khi phiên bản chính xác của chúng được cấp quyền rõ ràng.",
-        "actions": {
-          "syncing": "Đang đồng bộ…",
-          "import": "Nhập vào tài khoản này",
-          "boundElsewhere": "Đã liên kết với tài khoản khác",
-          "blocked": "Nhập bị chặn",
-          "sync": "Đồng bộ ngay"
-        }
-      }
-    },
-    "audio": {
-      "systemDefault": "Mặc định hệ thống",
-      "microphoneDeviceFallback": "Micrô {index}",
-      "speakerDeviceFallback": "Loa {index}",
-      "microphone": {
-        "title": "Micrô",
-        "enableLabel": "Bật micrô",
-        "enableDescription": "Cần thiết để nói chuyện với Stella.",
-        "deviceLabel": "Micrô",
-        "deviceDescription": "Stella nên nghe micrô nào?"
-      },
-      "recovery": {
-        "manageLabel": "Quản lý quyền truy cập micrô",
-        "recoverLabel": "Khôi phục quyền truy cập micrô",
-        "manageDescription": "Nếu quyền micrô bị kẹt, bạn có thể đặt lại và yêu cầu macOS hỏi lại.",
-        "recoverDescription": "Sau khi bạn từ chối, macOS sẽ không tự hỏi lại. Hãy đặt lại quyền, rồi thoát và mở lại Stella.",
-        "openSettings": "Mở Cài đặt",
-        "reset": "Đặt lại & khởi động lại",
-        "closing": "Đang đóng…"
-      },
-      "wakeWord": {
-        "label": "Từ đánh thức “Hey Stella”",
-        "description": "Lắng nghe “Hey Stella” ở chế độ nền và bắt đầu cuộc trò chuyện bằng giọng nói. Khi tắt, micrô vẫn nhàn rỗi cho đến khi bạn nhấn đọc chính tả."
-      },
-      "superFast": {
-        "label": "Đọc chính tả siêu nhanh",
-        "description": "Giữ micrô sẵn sàng để đọc chính tả bắt đầu với ít độ trễ hơn."
-      },
-      "dictationSounds": {
-        "label": "Âm thanh đọc chính tả",
-        "description": "Phát âm thanh khi đọc chính tả bắt đầu và dừng."
-      },
-      "speaker": {
-        "title": "Loa",
-        "outputLabel": "Thiết bị đầu ra",
-        "outputDescription": "Chọn loa hoặc tai nghe để sử dụng.",
-        "empty": "Không tìm thấy loa.",
-        "emptyMicOff": "Bật micrô để xem loa của bạn."
-      },
-      "errors": {
-        "listDevices": "Không thể liệt kê các thiết bị âm thanh.",
-        "micDeniedReset": "Quyền truy cập micrô đã bị từ chối trước đó. Hãy đặt lại và khởi động lại Stella, hoặc mở Cài đặt hệ thống.",
-        "micDenied": "Quyền truy cập micrô đã bị từ chối. Vui lòng cho phép trong cài đặt hệ thống của bạn."
-      }
-    },
-    "connectedProviders": {
-      "title": "Nhà cung cấp đã kết nối",
-      "empty": "Chưa có nhà cung cấp nào được kết nối. Chọn một tùy chọn khác Stella trong bộ chọn mô hình ở trên để thêm khóa API hoặc đăng nhập.",
-      "apiKey": "Khóa API",
-      "signedIn": "Đã đăng nhập",
-      "removeKey": "Xóa khóa",
-      "removingKey": "Đang xóa…",
-      "signOut": "Đăng xuất",
-      "signingOut": "Đang đăng xuất…"
-    },
-    "search": {
-      "placeholder": "Tìm trong cài đặt",
-      "clear": "Xóa tìm kiếm",
-      "noResultsTitle": "Không có cài đặt nào khớp với “{query}”",
-      "noResultsBody": "Hãy thử một từ ngắn hơn hoặc khác.",
-      "resultsOne": "{count} kết quả cho",
-      "resultsOther": "{count} kết quả cho",
-      "resultsAriaOne": "{count} kết quả",
-      "resultsAriaOther": "{count} kết quả",
-      "descriptions": {
-        "permissions": "Cấp quyền trợ năng, quay màn hình và micrô trên macOS.",
-        "shortcuts": "Thay đổi phím tắt đọc chính tả và giọng nói.",
-        "account": "Đăng xuất, xóa dữ liệu của bạn hoặc xóa vĩnh viễn tài khoản của bạn.",
-        "legal": "Điều khoản dịch vụ và chính sách quyền riêng tư.",
-        "speaker": "Chọn loa hoặc tai nghe phát giọng nói của Stella.",
-        "wakeWord": "Lắng nghe “Hey Stella” và bắt đầu cuộc trò chuyện bằng giọng nói.",
-        "microphone": "Stella nên nghe micrô nào?"
-      }
-    },
-    "errors": {
-      "loadPower": "Không tải được cài đặt nguồn.",
-      "savePower": "Không cập nhật được cài đặt nguồn.",
-      "powerUnavailable": "Cài đặt nguồn không khả dụng trong cửa sổ này.",
-      "loadLockedComputerUse": "Không tải được cài đặt sử dụng máy tính khi đã khóa.",
-      "saveLockedComputerUse": "Không cập nhật được sử dụng máy tính khi đã khóa.",
-      "lockedComputerUseUnavailable": "Sử dụng máy tính khi đã khóa không khả dụng trong cửa sổ này.",
-      "loadSoundNotifications": "Không tải được cài đặt thông báo âm thanh.",
-      "saveSoundNotifications": "Không cập nhật được cài đặt thông báo âm thanh.",
-      "soundNotificationsUnavailable": "Cài đặt thông báo âm thanh không khả dụng trong cửa sổ này.",
-      "loadMemory": "Không tải được cài đặt bộ nhớ.",
-      "saveMemory": "Không cập nhật được cài đặt bộ nhớ.",
-      "memoryUnavailable": "Cài đặt bộ nhớ không khả dụng trong cửa sổ này.",
-      "loadPermissions": "Không tải được trạng thái quyền trên máy tính để bàn.",
-      "savePermission": "Không cập nhật được quyền {kind}.",
-      "resetPermission": "Không đặt lại được quyền {kind}.",
-      "resetPermissionMaybeReopen": "Không thể đặt lại quyền {kind}. Có thể cần mở lại Stella.",
-      "microphoneDeniedReopen": "Quyền truy cập micrô đã bị từ chối trước đó. Bật trong Cài đặt hệ thống, rồi mở lại Stella.",
-      "microphoneStillOff": "Quyền truy cập micrô vẫn đang tắt. Bật trong Cài đặt hệ thống, rồi mở lại Stella.",
-      "restart": "Không khởi động lại được Stella."
-    },
-    "voiceCatalog": {
-      "label": "Giọng nói",
-      "familyAriaLabel": "Nhóm giọng nói",
-      "familyTitle": {
-        "openai": "Giọng nói OpenAI Realtime (Stella cấp token)",
-        "xai": "Giọng nói xAI Grok (Stella cấp token)",
-        "inworld": "Giọng nói Inworld (Stella trung chuyển trao đổi SDP)"
-      },
-      "source": {
-        "openai": "Giọng nói OpenAI",
-        "xai": "Giọng nói Grok",
-        "inworld": "Giọng nói Inworld",
-        "gemini": "Giọng nói Gemini"
-      },
-      "previousVoice": "Giọng trước",
-      "nextVoice": "Giọng tiếp theo",
-      "menuAriaLabel": "Giọng nói {source}",
-      "speed": "Tốc độ",
-      "speedAriaLabel": "Tốc độ giọng nói Inworld",
-      "readAloud": {
-        "label": "Đọc to",
-        "ariaLabel": "Nhà cung cấp giọng đọc to",
-        "openaiTitle": "Đọc to câu trả lời bằng OpenAI TTS",
-        "geminiTitle": "Đọc to câu trả lời bằng Gemini TTS",
-        "description": "Đọc to câu trả lời bằng giọng của nhà cung cấp này."
-      }
-    },
-    "phoneAccess": {
-      "expired": "Đã hết hạn",
-      "timeLeft": "Còn {time}",
-      "copy": "Sao chép",
-      "preparing": "Đang chuẩn bị...",
-      "getCode": "Lấy mã",
-      "deviceFallback": "Điện thoại",
-      "removing": "Đang xóa...",
-      "remove": "Xóa",
-      "signedOut": {
-        "headline": "Đăng nhập để bắt đầu",
-        "body": "Đăng nhập vào tài khoản Stella của bạn để ghép nối với ứng dụng di động."
-      },
-      "pairing": {
-        "headline": "Quét hoặc nhập mã này",
-        "body": "Mở ứng dụng Stella trên điện thoại và quét mã QR, hoặc nhập mã bên dưới. Bạn chỉ cần làm việc này một lần.",
-        "qrAlt": "Quét để ghép nối điện thoại của bạn"
-      },
-      "intro": {
-        "headline": "Kết nối điện thoại với máy tính của bạn"
-      },
-      "steps": {
-        "download": "Tải ứng dụng",
-        "platformSelectorLabel": "Chọn nền tảng di động",
-        "appStoreQrAlt": "Quét để tải Stella từ App Store",
-        "playStoreQrAlt": "Quét để tải Stella từ Google Play",
-        "connect": "Kết nối điện thoại của bạn"
-      },
-      "toasts": {
-        "codeCopied": "Đã sao chép mã vào bảng nhớ tạm",
-        "phoneRemoved": "Đã xóa điện thoại",
-        "removeFailed": "Không xóa được điện thoại"
-      },
-      "errors": {
-        "createPairing": "Không thể tạo mã ghép nối."
-      },
-      "pairedCount": {
-        "other": "Đã ghép nối {count} điện thoại"
-      }
-    },
-    "executionDevices": {
-      "title": "Your computers",
-      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
-      "empty": "No computer is signed in to this account yet.",
-      "unnamed": "Computer",
-      "thisComputer": "This computer",
-      "online": "Online",
-      "offline": "Offline",
-      "enable": "Enable",
-      "enabling": "Enabling…",
-      "disable": "Turn off",
-      "disabling": "Turning off…",
-      "state": {
-        "enabled": "Accepting work",
-        "notEnabled": "Not enabled",
-        "asking": "Waiting for an answer there",
-        "declined": "Declined there"
-      },
-      "errors": {
-        "load": "Unable to read the computers on this account.",
-        "update": "That change didn't go through. Try again."
-      }
-    },
-    "modelPicker": {
-      "loadFailed": "Couldn't load models",
-      "retry": "Retry",
-      "searchPlaceholder": "Tìm mô hình…",
-      "searchAriaLabel": "Tìm mô hình",
-      "closeSearch": "Đóng tìm kiếm",
-      "apiKeyPlaceholder": "Khóa API",
-      "apiKeyAriaLabel": "Khóa API {provider}",
-      "cancelSignIn": "Hủy đăng nhập",
-      "signInWith": "Đăng nhập bằng {provider}",
-      "saving": "Đang lưu…",
-      "use": "Dùng",
-      "selected": "Đã chọn",
-      "refresh": "Làm mới danh mục mô hình",
-      "restrictedPlan": "Không có trên gói {plan}",
-      "reasoning": {
-        "label": "Mức độ suy luận",
-        "default": "Tự động",
-        "minimal": "Tối thiểu",
-        "low": "Thấp",
-        "medium": "Trung bình",
-        "high": "Cao",
-        "xhigh": "Tối đa"
-      },
-      "authHint": {
-        "both": "Đăng nhập hoặc dán khóa API. Thông tin đăng nhập được giữ trên thiết bị này.",
-        "oauth": "Thông tin đăng nhập được giữ trên thiết bị này.",
-        "apiKey": "Khóa API của bạn được giữ trên thiết bị này."
-      },
-      "actions": {
-        "cancel": "Hủy",
-        "signIn": "Đăng nhập",
-        "addKey": "Thêm khóa",
-        "custom": "Tùy chỉnh"
-      },
-      "signOut": {
-        "ariaLabel": "Đăng xuất khỏi {provider}",
-        "confirmAriaLabel": "Nhấp lần nữa để đăng xuất khỏi {provider}",
-        "confirmTitle": "Nhấp lần nữa để xác nhận"
-      },
-      "local": {
-        "hint": "Dùng bất kỳ máy chủ cục bộ tương thích OpenAI nào. Ollama thường chạy ở URL bên dưới.",
-        "serverUrlAriaLabel": "URL máy chủ cục bộ",
-        "modelNameAriaLabel": "Tên mô hình cục bộ"
-      },
-      "openRouter": {
-        "hintBefore": "OpenRouter chấp nhận mọi",
-        "hintAfter": "id. Nhập một id để dùng trực tiếp.",
-        "modelIdAriaLabel": "id mô hình OpenRouter"
-      },
-      "empty": {
-        "none": "Chưa có mô hình nào khả dụng.",
-        "noMatch": "Không có mô hình nào khớp."
-      },
-      "favorite": {
-        "remove": "Bỏ yêu thích",
-        "add": "Thêm yêu thích",
-        "addTitle": "Yêu thích — ghim lên đầu"
-      },
-      "errors": {
-        "saveApiKey": "Không lưu được khóa API.",
-        "oauthLogin": "Đăng nhập OAuth thất bại."
-      }
-    },
-    "providerPicker": {
-      "connected": "Đã kết nối",
-      "connect": "Kết nối",
-      "opening": "Đang mở…"
-    },
-    "engineModels": {
-      "ariaLabel": "Mô hình {engine}",
-      "loading": "Đang tải mô hình {engine}…",
-      "empty": "Không có mô hình {engine} nào khả dụng."
-    },
-    "providerConnected": {
-      "title": "Dùng {provider} cho Stella?",
-      "description": "{provider} có thể đảm nhận nhiều phần của Stella. Hãy chọn phần bạn muốn giao cho nó — Stella vẫn lo phần còn lại.",
-      "assistant": {
-        "label": "Trợ lý",
-        "description": "Định tuyến trợ lý trò chuyện của Stella qua {provider}."
-      },
-      "image": {
-        "label": "Hình ảnh",
-        "description": "Tạo hình ảnh qua tài khoản {provider} của bạn."
-      },
-      "voice": {
-        "label": "Giọng nói",
-        "description": "Dùng {provider} cho các cuộc trò chuyện giọng nói theo thời gian thực."
-      },
-      "skip": "Bỏ qua",
-      "apply": "Áp dụng",
-      "applying": "Đang áp dụng…",
-      "errors": {
-        "apply": "Không áp dụng được cài đặt nhà cung cấp."
-      }
-    },
-    "compactModelList": {
-      "ariaLabel": "Mô hình Stella",
-      "recent": "Gần đây",
-      "unavailable": "Không khả dụng",
-      "unavailableTitle": "Mô hình này không còn khả dụng — hãy chọn mô hình khác.",
-      "loading": "Đang tải mô hình Stella…",
-      "loadFailed": "Không tải được mô hình Stella.",
-      "empty": "Không có mô hình Stella nào khả dụng.",
-      "retry": "Thử lại",
-      "restricted": "Gói của bạn dùng lựa chọn của Stella.",
-      "restrictedPlan": "Gói {plan} dùng lựa chọn của Stella.",
-      "upgrade": "Nâng cấp"
-    },
-    "reasoningEffort": {
-      "minimal": "Tối thiểu",
-      "low": "Thấp",
-      "medium": "Trung bình",
-      "high": "Cao",
-      "xhigh": "Rất cao"
-    },
-    "agentModelPicker": {
-      "byokDescription": "Dùng khóa API {provider} của riêng bạn.",
-      "unavailableChooseAnother": "Không khả dụng — hãy chọn mô hình khác",
-      "chatGptRouted": "Đã chuyển sang {model} (mô hình đã lưu không khả dụng).",
-      "default": "Mặc định",
-      "stellaDefault": "Mặc định của Stella",
-      "surfaceAriaLabel": "Phạm vi",
-      "waitingForChatGpt": "Đang chờ ChatGPT…",
-      "imageProviderAriaLabel": "Nhà cung cấp hình ảnh",
-      "voiceProviderAriaLabel": "Nhà cung cấp giọng nói",
-      "assistantPickerAriaLabel": "Bộ chọn mô hình trợ lý",
-      "verifyingChatGpt": "Đang xác minh mô hình ChatGPT…",
-      "savedModelUnavailable": "Mô hình đã lưu không khả dụng. Hãy chọn mô hình khác.",
-      "tabs": {
-        "assistant": "Trợ lý",
-        "assistantTitle": "Trợ lý chính của Stella",
-        "image": "Hình ảnh",
-        "imageTitle": "Nhà cung cấp tạo hình ảnh",
-        "voice": "Giọng nói",
-        "voiceTitle": "Nhà cung cấp giọng nói thời gian thực"
-      },
-      "errors": {
-        "loadPreferences": "Không tải được cài đặt mô hình.",
-        "chatGptMigration": "Chuyển đổi định tuyến ChatGPT thất bại.",
-        "chatGptVerify": "Không thể xác minh các mô hình ChatGPT: {error}",
-        "chatGptVerifying": "Hãy đợi quá trình xác minh mô hình ChatGPT hoàn tất.",
-        "chatGptNotConnected": "Hãy đăng nhập bằng ChatGPT trên máy tính này trước.",
-        "chatGptNoModels": "Hiện không có mô hình ChatGPT nào khả dụng.",
-        "connectChatGpt": "Không kết nối được ChatGPT.",
-        "updateEngine": "Không cập nhật được engine.",
-        "updateTitle": "Không cập nhật được cài đặt mô hình",
-        "refreshTitle": "Không làm mới được mô hình",
-        "updateModel": "Không cập nhật được cài đặt mô hình.",
-        "updateImage": "Không cập nhật được cài đặt hình ảnh.",
-        "updateVoice": "Không cập nhật được cài đặt giọng nói.",
-        "updateInworldSpeed": "Không cập nhật được tốc độ Inworld.",
-        "updateVoiceFamily": "Không cập nhật được nhóm giọng nói.",
-        "updateReadAloud": "Không cập nhật được nhà cung cấp đọc to.",
-        "updateReasoning": "Không cập nhật được mức độ suy luận.",
-        "updateChatGptSpeed": "Không cập nhật được tốc độ ChatGPT.",
-        "updateDirectRuntime": "Không cập nhật được cài đặt {runtime} trực tiếp.",
-        "chatGptPlanUsageOff": "Tài khoản này chưa bật sử dụng gói ChatGPT. Hãy bật trong Cài đặt › Tài khoản hoặc chọn mô hình khác."
-      },
-      "noChatGptModels": "Hiện không có mô hình ChatGPT nào khả dụng cho tài khoản này.",
-      "chatGptPlanInUse": "Đang dùng gói ChatGPT",
-      "chatGptManageUsage": "Quản lý mức sử dụng"
-    },
-    "onboardingReplay": {
-      "title": "Onboarding",
-      "action": "Replay",
-      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched."
-    },
-    "companion": {
-      "title": "Desktop companion",
-      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
-      "error": "Couldn't update the desktop companion."
-    },
-    "engineAccounts": {
-      "cardTitle": "Tài khoản Claude và ChatGPT",
-      "cardIntro": "Dùng gói Claude hoặc ChatGPT bạn đã trả phí. Mỗi nơi đăng nhập riêng: từng máy tính và đám mây của bạn.",
-      "claudeTitle": "Claude (Pro/Max)",
-      "addClaude": "Thêm tài khoản Claude",
-      "addOnComputer": "Trên máy tính này",
-      "addInCloud": "Trên đám mây",
-      "active": "Đang dùng",
-      "signInComputer": "Đăng nhập trên máy tính này",
-      "signOutComputer": "Đăng xuất trên máy tính này",
-      "signIn": "Đăng nhập",
-      "signedOut": "Đã đăng xuất.",
-      "removed": "Đã xóa.",
-      "placeComputer": "Máy tính này",
-      "placeOtherComputer": "Máy tính khác",
-      "placeSignedIn": "{place}: đã đăng nhập",
-      "placeSignedOut": "{place}: chưa đăng nhập",
-      "signedOutLogin": "Phiên đăng nhập Claude Code đã đăng xuất",
-      "cliMissing": "Claude Code chưa được cài trên máy tính này. Hãy cài đặt để dùng Claude tại đây.",
-      "defaultSignedOut": "Claude Code trên máy tính này chưa đăng nhập.",
-      "signedInComputer": "Claude Code trên máy tính này đã đăng nhập.",
-      "signedInComputerAs": "Claude Code trên máy tính này đã đăng nhập bằng {email}.",
-      "signedInCloud": "Đám mây của bạn đã đăng nhập Claude.",
-      "signedInCloudAs": "Đám mây của bạn đã đăng nhập Claude bằng {email}.",
-      "errorGeneric": "Không thành công. Hãy thử lại.",
-      "claudeLogin": {
-        "whereComputer": "Đang đăng nhập Claude Code trên máy tính này.",
-        "whereCloud": "Đang đăng nhập Claude Code trên đám mây của bạn.",
-        "starting": "Đang mở trang đăng nhập của Anthropic…",
-        "opened": "Chúng tôi đã mở trang đăng nhập của Anthropic.",
-        "reopen": "Mở lại",
-        "submit": "Gửi",
-        "submitting": "Đang đăng nhập…",
-        "failed": "Đăng nhập không thành công.",
-        "startAgain": "Bắt đầu lại",
-        "codeLabel": "Dán mã mà Anthropic hiển thị"
-      },
-      "chatgptCloudSignedIn": "Đám mây của bạn đã đăng nhập ChatGPT.",
-      "revokeTitleCloud": "Đã đăng xuất ChatGPT trên đám mây",
-      "revokeTitleComputer": "Đã đăng xuất trên máy tính này",
-      "runsOnLabel": "Trò chuyện trên đám mây chạy bằng",
-      "needsClaudeCloud": "Hãy đăng nhập Claude trên đám mây trước",
-      "needsChatgptCloud": "Hãy tiếp tục với ChatGPT cho đám mây của bạn trước",
-      "chatgptComputerSignedIn": "Máy tính này đã đăng nhập ChatGPT.",
-      "planUsageOffTitle": "Đã đăng nhập, nhưng chưa bật sử dụng gói ChatGPT",
-      "planUsageOffBody": "Stella không thể dùng gói ChatGPT của bạn cho đến khi bạn cho phép. Chọn “Bật sử dụng gói ChatGPT” trên tài khoản hoặc dùng mô hình khác.",
-      "signInCloud": "Đăng nhập trên đám mây",
-      "signOutCloud": "Đăng xuất khỏi đám mây",
-      "placeCloud": "Đám mây",
-      "useAccount": "Dùng tài khoản này",
-      "signOut": "Đăng xuất",
-      "moreLabel": "Tùy chọn cho {name}",
-      "signInAgain": "Đăng nhập lại",
-      "enablePlanUsage": "Bật sử dụng gói ChatGPT",
-      "remove": "Xóa",
-      "statusSignedOut": "Đã đăng xuất",
-      "statusReauth": "Đăng nhập lại để tiếp tục sử dụng",
-      "statusPlanUsageOff": "Chưa bật sử dụng gói ChatGPT",
-      "revokeUnconfirmed": "ChatGPT chưa xác nhận việc đăng xuất. Bạn có thể ngắt kết nối Stella trong Cài đặt ChatGPT.",
-      "pasteHintChatgpt": "Sau khi bạn chấp thuận, ChatGPT sẽ chuyển bạn đến một trang không tải được. Hãy sao chép toàn bộ địa chỉ của trang đó và dán vào đây.",
-      "pastePlaceholderUrl": "Dán địa chỉ vào đây",
-      "openChatgptAgain": "Mở lại ChatGPT",
-      "connecting": "Đang kết nối…",
-      "finish": "Kết nối",
-      "chatgptBrowserWaiting": "Hoàn tất đăng nhập ChatGPT trong trình duyệt của bạn.",
-      "chatgptTitle": "ChatGPT",
-      "addChatgpt": "Add ChatGPT account",
-      "addChatgptCloud": "Add ChatGPT account in the cloud",
-      "enablePlanUsageCloud": "Enable ChatGPT plan use in the cloud"
-    }
-  },
-  "onboarding": {
-    "legalFooter": "Khi sử dụng Stella, bạn đồng ý với {terms} và {privacy} của chúng tôi.",
-    "termsOfService": "Điều khoản dịch vụ",
-    "privacyPolicy": "Chính sách bảo mật",
-    "chat": {
-      "skipSetup": "Skip setup",
-      "composerPlaceholder": "Or just ask me something to get started",
-      "send": "Send",
-      "messages": {
-        "capabilities": "Xin chào, tôi là Stella.\n\nTôi không phải chatbot. Tôi dùng chiếc máy tính này để thực sự hoàn thành công việc cho bạn, chạy ngầm, trong lúc bạn tiếp tục việc của mình.\n\nĐây là cách nó diễn ra.",
-        "theme": "Now, how should I look?",
-        "extras": "Almost done. A little housekeeping, then we start.",
-        "memory": "One more thing that makes me different.",
-        "selfmod": "Và vì tôi sống trên máy tính của bạn, tôi có thể tự thay đổi chính mình.",
-        "signin": "Tiếp theo, hãy đăng nhập. Dùng tài khoản Stella, hoặc gói Claude hay ChatGPT mà bạn đã có.",
-        "quickstart": "Vậy là xong. Còn một việc cuối, và không bắt buộc: khởi động nhanh.",
-        "quickstartDone": "Xong rồi. Đây là những gì tôi đã nắm được, và vài việc chúng ta có thể bắt đầu.",
-        "quickstartFailed": "Lần này tôi không đọc xong trình duyệt của bạn. Chúng ta vẫn có thể bắt đầu, và tôi sẽ học dần."
-      },
-      "replies": {
-        "capabilitiesDone": "Got it.",
-        "capabilitiesSkipped": "Skip the tour.",
-        "themeDone": "That one.",
-        "themeSkipped": "Keep the default.",
-        "extrasDone": "Done.",
-        "extrasSkipped": "Skip for now.",
-        "memoryDone": "Nice.",
-        "memorySkipped": "Skip it.",
-        "selfmodDone": "Tuyệt thật.",
-        "signinDone": "Xong."
-      },
-      "discovery": {
-        "browserLabel": "Your browser",
-        "includeDev": "My coding setup",
-        "hint": "About a minute, in the background.",
-        "alsoLabel": "Also include",
-        "assurance": "A one-time read, kept on this computer. You can see and edit what I keep at any time."
-      },
-      "capabilities": {
-        "errands": {
-          "word": "Errands",
-          "title": "Ask once. Consider it handled.",
-          "caption": "Tôi tìm đúng nơi, điền biểu mẫu và đưa vào lịch của bạn, giống như cách bạn vẫn làm."
-        },
-        "shopping": {
-          "word": "Shopping",
-          "title": "I can buy things, with your OK.",
-          "caption": "I find it and get it to checkout. You confirm the total, and I place the order."
-        },
-        "work": {
-          "word": "Work",
-          "title": "Tệp thật. Nhiều việc cùng lúc.",
-          "caption": "Tôi làm việc bên trong các ứng dụng thật trên máy tính này, và có thể chạy nhiều việc cùng lúc."
-        },
-        "build": {
-          "word": "Build",
-          "title": "Say it. I'll build it.",
-          "caption": "Apps and websites, made to order. Describe it in plain words and I'll build it, run it, and put it online."
-        },
-        "settledTitle": "The quick tour",
-        "replay": "Replay this demo",
-        "tablist": "Capability demos",
-        "routines": {
-          "word": "Tác vụ định kỳ",
-          "title": "Nhờ một lần. Việc diễn ra mỗi ngày.",
-          "caption": "Hẹn giờ bất cứ việc gì, tôi sẽ làm đúng giờ, kể cả khi bạn đang ngủ."
-        }
-      },
-      "memory": {
-        "titleChatbot": "You know this one",
-        "bodyChatbot": "A new chat every time, a sidebar full of old ones, and no memory of what you said last week.",
-        "titleStella": "With me it's one conversation",
-        "bodyStella": "No new chats, no threads. Everything you've ever told me is in the same place, so when you ask about last week I go and find it.",
-        "showStella": "Now ask me",
-        "skip": "Skip",
-        "settledTitle": "One conversation",
-        "settledDesc": "No threads to manage. I remember."
-      },
-      "theme": {
-        "title": "Pick a look",
-        "body": "Hover to try one on. Click to keep it.",
-        "appearance": "Appearance",
-        "themes": "Theme",
-        "mode": {
-          "light": "Light",
-          "dark": "Dark",
-          "system": "System"
-        },
-        "confirm": "Done",
-        "skip": "Keep the default",
-        "hint": "Everything here changes live.",
-        "settledTitle": "Default",
-        "gradientStyle": "Gradient style",
-        "gradientColor": "Gradient color",
-        "gradient": {
-          "soft": "Soft",
-          "flat": "Flat",
-          "relative": "Relative",
-          "strong": "Strong"
-        }
-      },
-      "extras": {
-        "title": "Two quick extras",
-        "titleOne": "One quick extra",
-        "body": "Neither is required, but both make me a lot more useful.",
-        "bodyOne": "Not required, but it makes me a lot more useful.",
-        "accessibilityTitle": "Accessibility",
-        "accessibilityDesc": "So I can act on selected text and what's under your cursor.",
-        "screenTitle": "Screen Recording",
-        "screenDesc": "So I can see the screen when you ask me to.",
-        "enable": "Enable",
-        "enabled": "Enabled",
-        "extensionTitle": "Stella for Chrome",
-        "extensionDesc": "Lets me see the page you're on and act inside your browser. Works in Chrome, Arc, Brave, and Edge.",
-        "getExtension": "Get extension",
-        "extensionOpened": "Opened",
-        "memoryTitle": "Remember across chats",
-        "memoryDesc": "Use what I've saved about you when it's relevant. Nothing is deleted if you turn this off.",
-        "restartHint": "Screen access needs a quick restart to take effect.",
-        "restart": "Restart Stella",
-        "skip": "Skip for now",
-        "hint": "All of this lives in Settings too.",
-        "settledTitle": "Extras",
-        "settledSkippedTitle": "Extras skipped",
-        "settledPermissions": "Permissions",
-        "settledExtension": "Extension",
-        "settledMemory": "Memory"
-      },
-      "ready": {
-        "highlightsLabel": "What I picked up",
-        "startersLabel": "Try one of these",
-        "startersLabelPersonal": "Made for you",
-        "notesSummary": "See everything I noted",
-        "notesFoot": "You can read or edit this any time in Settings › Memory.",
-        "start": "Start chatting",
-        "hint": "Or type anything below.",
-        "generic": {
-          "plan": {
-            "title": "Plan my week",
-            "prompt": "Help me plan my week. Ask me what's on my plate and lay it out day by day."
-          },
-          "browse": {
-            "title": "Find me a good dinner spot",
-            "prompt": "Find a well-reviewed dinner spot near me for this weekend and hold a reservation for two."
-          },
-          "file": {
-            "title": "Tidy up a document",
-            "prompt": "I have a document that needs cleaning up. I'll share it and you fix the structure and wording."
-          },
-          "watch": {
-            "title": "Watch a site for changes",
-            "prompt": "Keep an eye on a web page for me and tell me when it changes."
-          }
-        }
-      },
-      "progress": "Tiến trình thiết lập",
-      "selfmod": {
-        "title": "Tôi có thể tự thay đổi mình",
-        "body": "Thiếu một tính năng, hay muốn thứ gì đó hoạt động khác đi? Cứ nói. Tôi sẽ viết lại mã của chính mình, để bạn dùng thử, và bạn quyết định có giữ lại hay không.",
-        "steps": {
-          "ask": {
-            "title": "Nhờ",
-            "body": "Mô tả thay đổi bằng lời đơn giản."
-          },
-          "preview": {
-            "title": "Xem trước",
-            "body": "Một tác tử xây dựng nó và mở bản xem trước trực tiếp."
-          },
-          "update": {
-            "title": "Cập nhật",
-            "body": "Một cú nhấp để áp dụng. Hoàn tác bất cứ lúc nào."
-          }
-        },
-        "hint": "Thay đổi chỉ nằm trên máy tính này.",
-        "settledTitle": "Tôi có thể tự thay đổi mình",
-        "settledDesc": "Nhờ, xem trước, cập nhật. Hoàn tác bất cứ lúc nào."
-      },
-      "signin": {
-        "title": "Đăng nhập",
-        "body": "Chỉ cần một trong số này là đủ. Bạn có thể thêm các cái khác sau.",
-        "options": {
-          "stella": {
-            "title": "Tài khoản Stella",
-            "body": "Google hoặc email. Các cuộc trò chuyện của bạn theo bạn sang điện thoại."
-          },
-          "claude": {
-            "title": "Claude Code",
-            "body": "Dùng gói Claude Pro hoặc Max của bạn."
-          },
-          "chatgpt": {
-            "title": "ChatGPT",
-            "body": "Đăng nhập bằng ChatGPT để dùng gói của bạn."
-          },
-          "apikey": {
-            "title": "Khóa API",
-            "body": "Dùng khóa của riêng bạn từ Anthropic, OpenAI, Google và các nhà cung cấp khác."
-          }
-        },
-        "signIn": "Đăng nhập",
-        "connect": "Kết nối",
-        "use": "Dùng",
-        "inUse": "Đang dùng",
-        "waiting": "Hãy đăng nhập xong trong trình duyệt, rồi quay lại đây.",
-        "error": "Chưa kết nối được. Thử lại nhé?",
-        "fine": "Bạn có thể đổi bất cứ lúc nào trong Cài đặt.",
-        "hint": "Bắt đầu miễn phí.",
-        "settledEngine": "Đang dùng {name}",
-        "settledStella": "Đã đăng nhập vào Stella",
-        "settledDesc": "Đổi bất cứ lúc nào trong Cài đặt.",
-        "claudeCliMissing": "Hãy cài Claude Code trước rồi thử lại."
-      },
-      "quickstart": {
-        "eyebrow": "Khởi động nhanh",
-        "title": "Cho tôi một khởi đầu thuận lợi",
-        "body": "Hầu hết trợ lý đều bắt đầu từ con số không. Hãy chỉ tôi đến trình duyệt của bạn, tôi sẽ đọc một lần để tạo bộ nhớ ban đầu, để tôi hữu ích ngay từ ngày đầu.",
-        "run": "Chạy khởi động nhanh",
-        "skip": "Bỏ qua",
-        "runningTitle": "Đang làm quen với bạn",
-        "runningBody": "Khoảng một phút. Cứ vào bất cứ lúc nào, tôi sẽ hoàn tất ngầm.",
-        "stages": {
-          "read": "Đang đọc những gì bạn đã chọn",
-          "notice": "Đang nhận ra điều quan trọng với bạn",
-          "write": "Đang viết bộ nhớ ban đầu của bạn"
-        },
-        "continueInBackground": "Bắt đầu trò chuyện, hoàn tất ngầm",
-        "failedTitle": "Chưa hoàn tất",
-        "failedBody": "Có điều gì đó đã làm gián đoạn việc đọc. Hãy thử lại, hoặc bắt đầu trò chuyện và tôi sẽ học dần."
-      }
-    }
-  },
-  "billing": {
-    "plans": {
-      "free": {
-        "tagline": "Dùng thử miễn phí."
-      },
-      "go": {
-        "tagline": "Mức sử dụng cao hơn 10×"
-      },
-      "pro": {
-        "tagline": "Giới hạn sử dụng cao nhất cho việc tạo nội dung đa phương tiện và nhiều tác nhân"
-      }
-    },
-    "features": {
-      "assistant": "Trợ lý cá nhân",
-      "codingAgent": "Tác nhân lập trình",
-      "research": "Nghiên cứu và công việc tri thức",
-      "dictationReadAloud": "Đọc chính tả và đọc thành tiếng",
-      "multipleAgents": "Nhiều tác nhân"
-    },
-    "capability": {
-      "image_generation": "Tạo hình ảnh",
-      "video_generation": "Tạo video",
-      "audio_generation": "Tạo giọng nói và âm nhạc",
-      "three_d_generation": "Tạo 3D"
-    },
-    "capabilityRestriction": {
-      "title": "{capability} không có trong gói của bạn",
-      "signIn": "{capability} có trong Stella {plan}. Đăng nhập để nâng cấp và mở khóa tính năng này.",
-      "upgrade": "{capability} có trong Stella {plan}. Nâng cấp để mở khóa tính năng này.",
-      "unavailable": "{capability} hiện không có trong bất kỳ gói nào.",
-      "lockedBadge": "{plan}",
-      "lockedBadgeGeneric": "Không khả dụng",
-      "genericTitle": "Không có trong gói của bạn",
-      "genericDescription": "Tính năng này có trong Stella Pro. Nâng cấp để mở khóa."
-    },
-    "freeAllowance": {
-      "label": "Mức sử dụng gói Free",
-      "caption": "Dùng thử miễn phí.",
-      "remaining": "Dùng thử miễn phí.",
-      "exhaustedTitle": "Bạn đã đạt giới hạn của gói Free",
-      "exhaustedDescription": "Nâng cấp lên Go để có mức sử dụng cao hơn 10×.",
-      "exhaustedCta": "Nâng cấp lên Go"
-    },
-    "upgradeDialog": {
-      "title": "Bạn đang dùng Stella {plan}.",
-      "description": "Cảm ơn bạn đã nâng cấp. Mức ưu tiên cao hơn và hạn mức sử dụng lớn hơn đã được kích hoạt — hãy tiếp tục.",
-      "cta": "Bắt đầu"
-    },
-    "renewal": {
-      "nextLabel": "Lần gia hạn tiếp theo",
-      "pendingLabel": "Đang chờ hủy",
-      "renews": "Gia hạn vào {date}",
-      "accessEnds": "Kết thúc truy cập vào {date}",
-      "lapseTitle": "Stella sẽ dừng khi gói của bạn kết thúc",
-      "lapseDescription": "Gói {plan} của bạn còn hiệu lực đến {date}. Sau đó Stella sẽ dừng — hạn mức của gói Free chỉ được cấp một lần và bạn đã dùng hết."
-    },
-    "heading": "Chọn gói của bạn",
-    "subtitle": "Bắt đầu miễn phí. Nâng cấp khi bạn cần nhiều hơn.",
-    "mobile": {
-      "sectionTitle": "Gói đăng ký",
-      "currentPlanLabel": "Gói hiện tại",
-      "planValue": "Stella {plan}",
-      "manage": "Quản lý gói đăng ký",
-      "manageWebNote": "Quản lý hoặc hủy gói đăng ký này trên Stella phiên bản web tại stella.sh.",
-      "renews": "Gia hạn vào {date}",
-      "accessEnds": "Quyền truy cập kết thúc vào {date}",
-      "chooseHeading": "Chọn gói của bạn",
-      "subscribe": "Đăng ký",
-      "perMonth": "{price}/tháng",
-      "introLine": "{introPrice} tháng đầu, sau đó {price}/tháng",
-      "signInToSubscribe": "Đăng nhập để đăng ký",
-      "startingCheckout": "Đang bắt đầu…",
-      "pendingTitle": "Đang hoàn tất giao dịch của bạn",
-      "pendingBody": "Hoàn tất thanh toán trong trình duyệt. Gói của bạn sẽ tự động cập nhật tại đây ngay khi thanh toán được xác nhận — không cần khởi động lại.",
-      "pendingDismiss": "Để sau",
-      "successTitle": "Bạn đang dùng Stella {plan}",
-      "successBody": "Gói đăng ký của bạn đã hoạt động. Tận hưởng các giới hạn cao hơn.",
-      "errorRetry": "Thử lại",
-      "alreadySubscribedTitle": "Bạn đã có gói đăng ký",
-      "footnote": "Do Stella thu phí qua Stripe. Tự động gia hạn hằng tháng cho đến khi hủy; hủy bất cứ lúc nào."
-    }
-  },
-  "chat": {
-    "stoppedReply": "Stella không thể bắt đầu phản hồi này",
-    "tryAgainHint": "Vui lòng thử lại.",
-    "attachments": {
-      "attachPhoto": "Đính kèm ảnh",
-      "takePhoto": "Chụp ảnh",
-      "attachFile": "Đính kèm tệp",
-      "remove": "Xóa tệp đính kèm",
-      "uploading": "Đang tải lên",
-      "retryUpload": "Thử tải lên lại",
-      "uploadFailed": "Tải lên thất bại. Nhấn để thử lại.",
-      "tooManyTitle": "Quá nhiều tệp",
-      "tooManyBody": "Bạn có thể đính kèm tối đa {count} tệp mỗi lần.",
-      "photosDeniedTitle": "Ảnh",
-      "photosDeniedBody": "Cho phép Stella truy cập thư viện ảnh của bạn trong Cài đặt để đính kèm hình ảnh.",
-      "cameraDeniedTitle": "Máy ảnh",
-      "cameraDeniedBody": "Cho phép Stella dùng máy ảnh trong Cài đặt để chụp ảnh.",
-      "photoLabel": "Ảnh",
-      "sheetTitle": "Thêm vào cuộc trò chuyện",
-      "camera": "Máy ảnh",
-      "photos": "Ảnh",
-      "files": "Tệp",
-      "readAloud": "Đọc to câu trả lời"
-    }
-  },
-  "errors": {
-    "generic": "Đã có lỗi xảy ra",
-    "subscriptionRequired": "Sao lưu yêu cầu một gói đăng ký Stella đang hoạt động.",
-    "rateLimited": "Bạn thao tác hơi nhanh. Hãy thử lại sau giây lát.",
-    "networkUnavailable": "Stella đang ngoại tuyến. Kết nối lại để tiếp tục.",
-    "permissionDenied": "Stella không có quyền thực hiện việc này."
-  },
   "app": {
-    "usage": {
-      "desktopOnly": "Mức sử dụng cục bộ có trong ứng dụng Stella trên máy tính.",
-      "intro": "Các lệnh gọi nhà cung cấp được lưu trên thiết bị này. Chi phí là ước tính cục bộ; việc tính phí ở backend mới là chính thức.",
-      "refresh": "Làm mới",
-      "refreshLabel": "Làm mới mức sử dụng",
-      "selectedThread": "Luồng đã chọn",
-      "viewAllThreads": "Xem tất cả luồng",
-      "loading": "Đang tải mức sử dụng cục bộ…",
-      "loadError": "Không tải được mức sử dụng cục bộ",
-      "tryAgain": "Thử lại",
-      "emptyTitle": "Không có lệnh gọi mô hình nào khớp với các bộ lọc này.",
-      "emptyBody": "Các lệnh gọi gốc xuất hiện ở đây sau khi nhà cung cấp trả về dữ liệu sử dụng cuối cùng.",
-      "truncatedWarning": "Đang hiển thị 10.000 lệnh gọi mới nhất trong khoảng này. Hãy thu hẹp khoảng thời gian để có tổng chính xác.",
-      "filters": {
-        "label": "Bộ lọc mức sử dụng",
-        "timeRange": "Khoảng thời gian",
-        "conversation": "Cuộc trò chuyện",
-        "thread": "Luồng",
-        "agentType": "Loại tác nhân",
-        "model": "Mô hình",
-        "allConversations": "Tất cả cuộc trò chuyện",
-        "allThreads": "Tất cả luồng",
-        "allAgentTypes": "Tất cả loại tác nhân",
-        "allModels": "Tất cả mô hình",
-        "range": {
-          "24h": "24 giờ qua",
-          "7d": "7 ngày qua",
-          "30d": "30 ngày qua",
-          "all": "Toàn thời gian"
-        }
-      },
-      "summary": {
-        "label": "Tóm tắt mức sử dụng",
-        "estimatedCost": "Chi phí ước tính",
-        "providerCalls": "{count} lệnh gọi nhà cung cấp",
-        "totalTokens": "Tổng token",
-        "uncachedInput": "{value} đầu vào không lưu bộ nhớ đệm",
-        "cacheRead": "Đọc bộ nhớ đệm",
-        "cacheDetail": "{read} đọc · {written} ghi",
-        "output": "Đầu ra",
-        "reasoningTokens": "{value} token suy luận"
-      },
-      "timeline": {
-        "title": "Dòng thời gian",
-        "description": "Chi phí ước tính và tổng token theo từng khoảng thời gian.",
-        "chartLabel": "Dòng thời gian của chi phí mô hình ước tính và mức dùng token",
-        "series": {
-          "cost": "Chi phí ước tính",
-          "tokens": "Token"
-        },
-        "tooltip": {
-          "estimated": "{value} ước tính",
-          "tokens": "{value} token",
-          "calls": "{count} lệnh gọi mô hình"
-        }
-      },
-      "threads": {
-        "title": "Luồng",
-        "description": "Bộ điều phối, tác nhân và các tác nhân phụ lồng nhau.",
-        "columns": {
-          "execution": "Lần chạy",
-          "model": "Mô hình",
-          "calls": "Lệnh gọi",
-          "tokens": "Token",
-          "cache": "Bộ nhớ đệm",
-          "cost": "Chi phí"
-        }
-      },
-      "calls": {
-        "title": "Lệnh gọi nhà cung cấp",
-        "description": "Đầu ra bao gồm phần suy luận nếu nhà cung cấp đưa vào; phần suy luận cũng được hiển thị riêng khi được báo cáo.",
-        "costBreakdown": "Đầu vào {input} · đọc đệm {cacheRead} · ghi đệm {cacheWrite} · đầu ra {output}",
-        "truncatedNote": "Đang hiển thị 500 lệnh gọi khớp mới nhất; tổng trong phần tóm tắt bao gồm toàn bộ {count} lệnh gọi đã tải.",
-        "columns": {
-          "time": "Thời gian",
-          "execution": "Lần chạy",
-          "providerModel": "Nhà cung cấp / mô hình",
-          "input": "Đầu vào",
-          "cache": "Đệm R / W",
-          "output": "Đầu ra",
-          "reasoning": "Suy luận",
-          "cost": "Chi phí",
-          "stop": "Dừng"
-        }
-      }
-    },
     "apps": {
       "createAppPrompt": "Cho tôi biết bạn có thể tạo những ứng dụng Stella nào cho tôi?"
     },
@@ -1337,21 +174,20 @@
         "previewFailed": "Không tải được bản xem trước bản đồ."
       },
       "messageActions": {
-        "selectText": "Select text",
-        "share": "Share",
-        "quote": "Quote",
-        "fork": "Fork to new chat",
-        "more": "Tác vụ khác",
-        "rewind": "Rewind here",
-        "rewindConfirm": "Click again to rewind",
         "copied": "Đã sao chép",
         "copy": "Sao chép",
+        "fork": "Fork to new chat",
+        "more": "Tác vụ khác",
+        "quote": "Quote",
         "readAloud": "Đọc to",
         "reply": "Trả lời",
+        "rewind": "Rewind here",
+        "rewindConfirm": "Click again to rewind",
+        "selectText": "Select text",
+        "share": "Share",
         "stopReading": "Dừng đọc"
       },
       "messageRow": {
-        "quotedTextLabel": "Quoted text",
         "attachmentAlt": "Tệp đính kèm",
         "attachmentFallback": "Tệp đính kèm {index}",
         "channelKind": {
@@ -1364,6 +200,7 @@
         "clickToEnlarge": "Nhấp để phóng to {label}",
         "pastedTextLabel": "Văn bản đã dán",
         "pastedTextTitle": "Văn bản đã dán — {stats}",
+        "quotedTextLabel": "Quoted text",
         "reactionsSummary": "Biểu cảm {reactions}",
         "showMoreChips": "Hiện thêm {count}",
         "windowPreviewAlt": "Xem trước nội dung cửa sổ"
@@ -1468,6 +305,10 @@
           "description": "Biến ảnh tĩnh thành một video ngắn",
           "name": "Hình ảnh thành video"
         },
+        "referenceToVideo": {
+          "description": "Tạo video từ hình ảnh, video và âm thanh tham chiếu",
+          "name": "Video từ tư liệu tham chiếu"
+        },
         "speechToText": {
           "description": "Chuyển âm thanh lời nói thành văn bản",
           "name": "Giọng nói thành văn bản"
@@ -1495,10 +336,6 @@
         "videoToVideo": {
           "description": "Biến đổi video bằng hướng dẫn văn bản",
           "name": "Video thành video"
-        },
-        "referenceToVideo": {
-          "description": "Tạo video từ hình ảnh, video và âm thanh tham chiếu",
-          "name": "Video từ tư liệu tham chiếu"
         }
       },
       "imageFailure": {
@@ -1540,6 +377,9 @@
         "prompt": "Câu lệnh",
         "promptPlaceholder": "Mô tả điều bạn muốn…",
         "quality": "Chất lượng",
+        "qualityHigh": "Cao",
+        "qualityLow": "Thấp",
+        "qualityMedium": "Trung bình",
         "queued": "Đang chờ trong hàng đợi…",
         "sourceAudio": "Tệp âm thanh",
         "sourceFile": "Tệp nguồn",
@@ -1547,501 +387,677 @@
         "sourceVideo": "Video nguồn",
         "submitting": "Đang gửi…",
         "title": "Phương tiện",
-        "transformVideo": "Biến đổi video",
-        "qualityHigh": "Cao",
-        "qualityLow": "Thấp",
-        "qualityMedium": "Trung bình"
+        "transformVideo": "Biến đổi video"
       }
+    },
+    "usage": {
+      "calls": {
+        "columns": {
+          "cache": "Đệm R / W",
+          "cost": "Chi phí",
+          "execution": "Lần chạy",
+          "input": "Đầu vào",
+          "output": "Đầu ra",
+          "providerModel": "Nhà cung cấp / mô hình",
+          "reasoning": "Suy luận",
+          "stop": "Dừng",
+          "time": "Thời gian"
+        },
+        "costBreakdown": "Đầu vào {input} · đọc đệm {cacheRead} · ghi đệm {cacheWrite} · đầu ra {output}",
+        "description": "Đầu ra bao gồm phần suy luận nếu nhà cung cấp đưa vào; phần suy luận cũng được hiển thị riêng khi được báo cáo.",
+        "title": "Lệnh gọi nhà cung cấp",
+        "truncatedNote": "Đang hiển thị 500 lệnh gọi khớp mới nhất; tổng trong phần tóm tắt bao gồm toàn bộ {count} lệnh gọi đã tải."
+      },
+      "desktopOnly": "Mức sử dụng cục bộ có trong ứng dụng Stella trên máy tính.",
+      "emptyBody": "Các lệnh gọi gốc xuất hiện ở đây sau khi nhà cung cấp trả về dữ liệu sử dụng cuối cùng.",
+      "emptyTitle": "Không có lệnh gọi mô hình nào khớp với các bộ lọc này.",
+      "filters": {
+        "agentType": "Loại tác nhân",
+        "allAgentTypes": "Tất cả loại tác nhân",
+        "allConversations": "Tất cả cuộc trò chuyện",
+        "allModels": "Tất cả mô hình",
+        "allThreads": "Tất cả luồng",
+        "conversation": "Cuộc trò chuyện",
+        "label": "Bộ lọc mức sử dụng",
+        "model": "Mô hình",
+        "range": {
+          "24h": "24 giờ qua",
+          "30d": "30 ngày qua",
+          "7d": "7 ngày qua",
+          "all": "Toàn thời gian"
+        },
+        "thread": "Luồng",
+        "timeRange": "Khoảng thời gian"
+      },
+      "intro": "Các lệnh gọi nhà cung cấp được lưu trên thiết bị này. Chi phí là ước tính cục bộ; việc tính phí ở backend mới là chính thức.",
+      "loadError": "Không tải được mức sử dụng cục bộ",
+      "loading": "Đang tải mức sử dụng cục bộ…",
+      "refresh": "Làm mới",
+      "refreshLabel": "Làm mới mức sử dụng",
+      "selectedThread": "Luồng đã chọn",
+      "summary": {
+        "cacheDetail": "{read} đọc · {written} ghi",
+        "cacheRead": "Đọc bộ nhớ đệm",
+        "estimatedCost": "Chi phí ước tính",
+        "label": "Tóm tắt mức sử dụng",
+        "output": "Đầu ra",
+        "providerCalls": "{count} lệnh gọi nhà cung cấp",
+        "reasoningTokens": "{value} token suy luận",
+        "totalTokens": "Tổng token",
+        "uncachedInput": "{value} đầu vào không lưu bộ nhớ đệm"
+      },
+      "threads": {
+        "columns": {
+          "cache": "Bộ nhớ đệm",
+          "calls": "Lệnh gọi",
+          "cost": "Chi phí",
+          "execution": "Lần chạy",
+          "model": "Mô hình",
+          "tokens": "Token"
+        },
+        "description": "Bộ điều phối, tác nhân và các tác nhân phụ lồng nhau.",
+        "title": "Luồng"
+      },
+      "timeline": {
+        "chartLabel": "Dòng thời gian của chi phí mô hình ước tính và mức dùng token",
+        "description": "Chi phí ước tính và tổng token theo từng khoảng thời gian.",
+        "series": {
+          "cost": "Chi phí ước tính",
+          "tokens": "Token"
+        },
+        "title": "Dòng thời gian",
+        "tooltip": {
+          "calls": "{count} lệnh gọi mô hình",
+          "estimated": "{value} ước tính",
+          "tokens": "{value} token"
+        }
+      },
+      "truncatedWarning": "Đang hiển thị 10.000 lệnh gọi mới nhất trong khoảng này. Hãy thu hẹp khoảng thời gian để có tổng chính xác.",
+      "tryAgain": "Thử lại",
+      "viewAllThreads": "Xem tất cả luồng"
+    }
+  },
+  "billing": {
+    "capability": {
+      "audio_generation": "Tạo giọng nói và âm nhạc",
+      "image_generation": "Tạo hình ảnh",
+      "three_d_generation": "Tạo 3D",
+      "video_generation": "Tạo video"
+    },
+    "capabilityRestriction": {
+      "genericDescription": "Tính năng này có trong Stella Pro. Nâng cấp để mở khóa.",
+      "genericTitle": "Không có trong gói của bạn",
+      "lockedBadge": "{plan}",
+      "lockedBadgeGeneric": "Không khả dụng",
+      "signIn": "{capability} có trong Stella {plan}. Đăng nhập để nâng cấp và mở khóa tính năng này.",
+      "title": "{capability} không có trong gói của bạn",
+      "unavailable": "{capability} hiện không có trong bất kỳ gói nào.",
+      "upgrade": "{capability} có trong Stella {plan}. Nâng cấp để mở khóa tính năng này."
+    },
+    "features": {
+      "assistant": "Trợ lý cá nhân",
+      "codingAgent": "Tác nhân lập trình",
+      "dictationReadAloud": "Đọc chính tả và đọc thành tiếng",
+      "multipleAgents": "Nhiều tác nhân",
+      "research": "Nghiên cứu và công việc tri thức"
+    },
+    "freeAllowance": {
+      "caption": "Dùng thử miễn phí.",
+      "exhaustedCta": "Nâng cấp lên Go",
+      "exhaustedDescription": "Nâng cấp lên Go để có mức sử dụng cao hơn 10×.",
+      "exhaustedTitle": "Bạn đã đạt giới hạn của gói Free",
+      "label": "Mức sử dụng gói Free",
+      "remaining": "Dùng thử miễn phí."
+    },
+    "heading": "Chọn gói của bạn",
+    "mobile": {
+      "accessEnds": "Quyền truy cập kết thúc vào {date}",
+      "alreadySubscribedTitle": "Bạn đã có gói đăng ký",
+      "chooseHeading": "Chọn gói của bạn",
+      "currentPlanLabel": "Gói hiện tại",
+      "errorRetry": "Thử lại",
+      "footnote": "Do Stella thu phí qua Stripe. Tự động gia hạn hằng tháng cho đến khi hủy; hủy bất cứ lúc nào.",
+      "introLine": "{introPrice} tháng đầu, sau đó {price}/tháng",
+      "manage": "Quản lý gói đăng ký",
+      "manageWebNote": "Quản lý hoặc hủy gói đăng ký này trên Stella phiên bản web tại stella.sh.",
+      "pendingBody": "Hoàn tất thanh toán trong trình duyệt. Gói của bạn sẽ tự động cập nhật tại đây ngay khi thanh toán được xác nhận — không cần khởi động lại.",
+      "pendingDismiss": "Để sau",
+      "pendingTitle": "Đang hoàn tất giao dịch của bạn",
+      "perMonth": "{price}/tháng",
+      "planValue": "Stella {plan}",
+      "renews": "Gia hạn vào {date}",
+      "sectionTitle": "Gói đăng ký",
+      "signInToSubscribe": "Đăng nhập để đăng ký",
+      "startingCheckout": "Đang bắt đầu…",
+      "subscribe": "Đăng ký",
+      "successBody": "Gói đăng ký của bạn đã hoạt động. Tận hưởng các giới hạn cao hơn.",
+      "successTitle": "Bạn đang dùng Stella {plan}"
+    },
+    "plans": {
+      "free": {
+        "tagline": "Dùng thử miễn phí."
+      },
+      "go": {
+        "tagline": "Mức sử dụng cao hơn 10×"
+      },
+      "pro": {
+        "tagline": "Giới hạn sử dụng cao nhất cho việc tạo nội dung đa phương tiện và nhiều tác nhân"
+      }
+    },
+    "renewal": {
+      "accessEnds": "Kết thúc truy cập vào {date}",
+      "lapseDescription": "Gói {plan} của bạn còn hiệu lực đến {date}. Sau đó Stella sẽ dừng — hạn mức của gói Free chỉ được cấp một lần và bạn đã dùng hết.",
+      "lapseTitle": "Stella sẽ dừng khi gói của bạn kết thúc",
+      "nextLabel": "Lần gia hạn tiếp theo",
+      "pendingLabel": "Đang chờ hủy",
+      "renews": "Gia hạn vào {date}"
+    },
+    "subtitle": "Bắt đầu miễn phí. Nâng cấp khi bạn cần nhiều hơn.",
+    "upgradeDialog": {
+      "cta": "Bắt đầu",
+      "description": "Cảm ơn bạn đã nâng cấp. Mức ưu tiên cao hơn và hạn mức sử dụng lớn hơn đã được kích hoạt — hãy tiếp tục.",
+      "title": "Bạn đang dùng Stella {plan}."
+    }
+  },
+  "chat": {
+    "attachments": {
+      "attachFile": "Đính kèm tệp",
+      "attachPhoto": "Đính kèm ảnh",
+      "camera": "Máy ảnh",
+      "cameraDeniedBody": "Cho phép Stella dùng máy ảnh trong Cài đặt để chụp ảnh.",
+      "cameraDeniedTitle": "Máy ảnh",
+      "files": "Tệp",
+      "photoLabel": "Ảnh",
+      "photos": "Ảnh",
+      "photosDeniedBody": "Cho phép Stella truy cập thư viện ảnh của bạn trong Cài đặt để đính kèm hình ảnh.",
+      "photosDeniedTitle": "Ảnh",
+      "readAloud": "Đọc to câu trả lời",
+      "remove": "Xóa tệp đính kèm",
+      "retryUpload": "Thử tải lên lại",
+      "sheetTitle": "Thêm vào cuộc trò chuyện",
+      "takePhoto": "Chụp ảnh",
+      "tooManyBody": "Bạn có thể đính kèm tối đa {count} tệp mỗi lần.",
+      "tooManyTitle": "Quá nhiều tệp",
+      "uploadFailed": "Tải lên thất bại. Nhấn để thử lại.",
+      "uploading": "Đang tải lên"
+    },
+    "stoppedReply": "Stella không thể bắt đầu phản hồi này",
+    "tryAgainHint": "Vui lòng thử lại."
+  },
+  "cloudBrowser": {
+    "actions": {
+      "canceling": "Canceling…",
+      "done": "Done",
+      "finishing": "Finishing…",
+      "useCloudBrowser": "Use Stella's browser"
+    },
+    "deviceCode": {
+      "body": "Enter this code on the site, then come back here.",
+      "codeLabel": "Code",
+      "copied": "Copied",
+      "copy": "Copy code",
+      "open": "Open site",
+      "title": "Sign in to {origin}"
+    },
+    "errors": {
+      "decision": "That didn't go through. Try again.",
+      "expired": "This sign-in is no longer needed.",
+      "liveView": "Couldn't load the sign-in page. Try again.",
+      "liveViewBoundary": "Couldn't load the sign-in page.",
+      "verificationUrl": "Couldn't open that page."
+    },
+    "needsYou": {
+      "deviceCode": "Enter a code for {origin}",
+      "open": "Open",
+      "signIn": "Sign in to {origin}",
+      "title": "Needs you"
+    },
+    "settings": {
+      "confirmBody": "Stella will ask you to sign in again next time.",
+      "confirmTitle": "Sign out of all sites?",
+      "defaultProfile": "Saved sign-ins",
+      "description": "Sites Stella has signed in to for you. Reset to sign out of all of them.",
+      "reset": "Reset",
+      "resetComplete": "Signed out of all sites.",
+      "resetFailed": "Couldn't sign out. Try again.",
+      "resetting": "Resetting…",
+      "title": "Browser sign-ins"
+    },
+    "takeover": {
+      "body": "Sign in to keep going. Stella can't see what you type.",
+      "checking": "Finishing sign-in to {origin}",
+      "frameTitle": "Sign in to {origin}",
+      "localNotice": "Stella can't see what you type",
+      "localOriginFallback": "Switched to Stella's browser to finish signing in.",
+      "localTransferFallback": "Couldn't confirm that sign-in. Try again in Stella's browser.",
+      "preparing": "Loading sign-in…",
+      "privateNotice": "Stella can't see what you type",
+      "resumingBody": "Stella will pick up where it left off.",
+      "title": "Sign in to {origin}"
+    }
+  },
+  "cloudConnector": {
+    "connect": "Kết nối",
+    "connecting": "Hoàn tất đăng nhập vào {name} trong trình duyệt của bạn. Stella sẽ tiếp tục ngay khi được chấp thuận.",
+    "errors": {
+      "decision": "Không thể kết nối {name}. Hãy thử lại.",
+      "open": "Không thể mở trang đăng nhập."
+    },
+    "notNow": "Để sau",
+    "openAgain": "Mở lại",
+    "titleOffer": "Kết nối {name}?",
+    "titleWaiting": "Đang chờ {name}"
+  },
+  "common": {
+    "appName": "Stella",
+    "back": "Quay lại",
+    "cancel": "Hủy",
+    "close": "Đóng",
+    "continue": "Tiếp tục",
+    "copy": "Sao chép",
+    "language": "Ngôn ngữ",
+    "loading": "Đang tải…",
+    "next": "Tiếp",
+    "no": "Không",
+    "open": "Mở",
+    "openPreferences": "Mở tùy chọn",
+    "previous": "Trước",
+    "save": "Lưu",
+    "signIn": "Đăng nhập",
+    "signOut": "Đăng xuất",
+    "tryAgain": "Thử lại",
+    "yes": "Có"
+  },
+  "companion": {
+    "arc": {
+      "dictate": "Dictate a message",
+      "dictateStop": "Stop dictating and send",
+      "readAloudOff": "Read replies aloud: off",
+      "readAloudOn": "Read replies aloud: on",
+      "voice": "Start voice conversation",
+      "voiceStop": "End voice conversation"
+    },
+    "badge": {
+      "running": "{count} agents working"
+    },
+    "bubble": {
+      "openStella": "Open in Stella",
+      "typing": "Stella is replying"
+    },
+    "composer": {
+      "placeholder": "Ask Stella…"
+    },
+    "mark": {
+      "close": "Close the prompt",
+      "open": "Ask Stella"
+    },
+    "menu": {
+      "hide": "Hide companion",
+      "openStella": "Open Stella",
+      "quit": "Quit Stella"
     }
   },
   "desktop": {
     "common": {
       "continue": "Tiếp tục"
     },
-    "tray": {
-      "tooltip": "Stella",
-      "openStella": "Mở Stella",
-      "quitStella": "Thoát Stella",
-      "balloon": {
-        "title": "Stella vẫn đang chạy",
-        "content": "Stella nằm trong khay hệ thống của bạn. Nhấp vào biểu tượng để mở lại."
-      }
-    },
     "dialog": {
       "startupFailure": {
-        "title": "Stella",
-        "message": "Stella không hoàn tất được quá trình khởi động.",
         "detail": "Khởi động thất bại trước khi giao diện ứng dụng kịp tải.\n\n{detail}",
+        "message": "Stella không hoàn tất được quá trình khởi động.",
+        "quit": "Thoát",
         "relaunch": "Khởi chạy lại",
-        "quit": "Thoát"
-      }
-    },
-    "security": {
-      "confirmationTitle": "Xác nhận bảo mật Stella",
-      "allow": "Cho phép",
-      "deny": "Từ chối",
-      "rememberDecision": "Ghi nhớ quyết định này trên thiết bị này",
-      "computerUse": {
-        "message": "Cho phép Sử dụng máy tính dùng {app}?",
-        "detail": "Sử dụng máy tính sẽ có thể xem và tương tác với {app}.",
-        "risk": "Rủi ro: {risk}"
+        "title": "Stella"
       }
     },
     "oauth": {
-      "xaiCodeMessage": "Nhập mã này để kết nối xAI",
-      "expectedValue": "Giá trị mong đợi: {value}"
+      "expectedValue": "Giá trị mong đợi: {value}",
+      "xaiCodeMessage": "Nhập mã này để kết nối xAI"
+    },
+    "security": {
+      "allow": "Cho phép",
+      "computerUse": {
+        "detail": "Sử dụng máy tính sẽ có thể xem và tương tác với {app}.",
+        "message": "Cho phép Sử dụng máy tính dùng {app}?",
+        "risk": "Rủi ro: {risk}"
+      },
+      "confirmationTitle": "Xác nhận bảo mật Stella",
+      "deny": "Từ chối",
+      "rememberDecision": "Ghi nhớ quyết định này trên thiết bị này"
+    },
+    "tray": {
+      "balloon": {
+        "content": "Stella nằm trong khay hệ thống của bạn. Nhấp vào biểu tượng để mở lại.",
+        "title": "Stella vẫn đang chạy"
+      },
+      "openStella": "Mở Stella",
+      "quitStella": "Thoát Stella",
+      "tooltip": "Stella"
     },
     "update": {
       "holding": "Đang cập nhật Stella"
     }
   },
+  "errors": {
+    "generic": "Đã có lỗi xảy ra",
+    "networkUnavailable": "Stella đang ngoại tuyến. Kết nối lại để tiếp tục.",
+    "permissionDenied": "Stella không có quyền thực hiện việc này.",
+    "rateLimited": "Bạn thao tác hơi nhanh. Hãy thử lại sau giây lát.",
+    "subscriptionRequired": "Sao lưu yêu cầu một gói đăng ký Stella đang hoạt động."
+  },
   "features": {
     "browserBridge": {
-      "unavailableTitle": "Tiện ích trình duyệt không khả dụng",
-      "unavailableBody": "Stella không kết nối được với trình duyệt của bạn. Hãy khởi động lại ứng dụng hoặc cài lại Stella nếu tình trạng này tiếp diễn.",
       "connectionLostTitle": "Mất kết nối trình duyệt",
       "disconnected": "Cầu nối trình duyệt của Stella đã ngắt kết nối.",
       "retryDelay": {
         "other": "Stella sẽ tiếp tục thử lại sau khoảng {count} giây."
-      }
+      },
+      "unavailableBody": "Stella không kết nối được với trình duyệt của bạn. Hãy khởi động lại ứng dụng hoặc cài lại Stella nếu tình trạng này tiếp diễn.",
+      "unavailableTitle": "Tiện ích trình duyệt không khả dụng"
     },
     "dictation": {
       "cancel": "Hủy đọc chính tả",
+      "failedBody": "Stella không chuyển được nội dung đó thành văn bản. Vui lòng thử lại.",
+      "failedTitle": "Đọc chính tả không thành công",
+      "keyDialog": {
+        "description": "Stella này không có tính năng đọc chính tả. Thêm khóa OpenRouter API của bạn và Stella sẽ dùng nó để chép lời. Khóa được giữ trên máy tính này.",
+        "getKey": "Lấy khóa tại openrouter.ai/keys",
+        "inputLabel": "Khóa OpenRouter API",
+        "openStella": "Mở Stella và nhấn micrô ở đó để thêm khóa OpenRouter cho đọc chính tả.",
+        "save": "Lưu và bắt đầu",
+        "saveFailed": "Stella không thể lưu khóa đó.",
+        "saving": "Đang lưu…",
+        "title": "Bật đọc chính tả",
+        "unavailable": "Không thể lưu khóa trong cửa sổ này."
+      },
       "listening": "Đang nghe…",
+      "signInBody": "Đăng nhập để dùng đọc chính tả",
+      "signInTitle": "Đăng nhập để dùng đọc chính tả",
       "stopAndTranscribe": "Dừng và chuyển thành văn bản",
       "stopAndTranscribeLabel": "Dừng đọc chính tả và chuyển thành văn bản",
       "stopTranscribeSend": "Dừng, chuyển thành văn bản và gửi",
-      "stopTranscribeSendLabel": "Dừng đọc chính tả, chuyển thành văn bản và gửi",
-      "signInTitle": "Đăng nhập để dùng đọc chính tả",
-      "failedTitle": "Đọc chính tả không thành công",
-      "failedBody": "Stella không chuyển được nội dung đó thành văn bản. Vui lòng thử lại.",
-      "signInBody": "Đăng nhập để dùng đọc chính tả",
-      "keyDialog": {
-        "title": "Bật đọc chính tả",
-        "description": "Stella này không có tính năng đọc chính tả. Thêm khóa OpenRouter API của bạn và Stella sẽ dùng nó để chép lời. Khóa được giữ trên máy tính này.",
-        "inputLabel": "Khóa OpenRouter API",
-        "getKey": "Lấy khóa tại openrouter.ai/keys",
-        "save": "Lưu và bắt đầu",
-        "saving": "Đang lưu…",
-        "saveFailed": "Stella không thể lưu khóa đó.",
-        "unavailable": "Không thể lưu khóa trong cửa sổ này.",
-        "openStella": "Mở Stella và nhấn micrô ở đó để thêm khóa OpenRouter cho đọc chính tả."
-      }
+      "stopTranscribeSendLabel": "Dừng đọc chính tả, chuyển thành văn bản và gửi"
     },
     "voice": {
-      "signInTitle": "Đăng nhập để dùng giọng nói",
-      "needsSetupTitle": "Giọng nói cần được thiết lập"
-    }
-  },
-  "ui": {
-    "imageLightbox": {
-      "title": "Xem trước hình ảnh",
-      "close": "Đóng bản xem trước"
-    }
-  },
-  "shell": {
-    "agentProgress": {
-      "recentAgentMessages": "Tin nhắn tác nhân gần đây",
-      "recentProgress": "Tiến độ gần đây"
-    },
-    "audioPlayer": {
-      "pause": "Tạm dừng",
-      "play": "Phát",
-      "seek": "Tua"
-    },
-    "capture": {
-      "failedTitle": "Không chụp được",
-      "failedDescription": "Đã xảy ra sự cố khi chụp màn hình. Hãy thử lại."
-    },
-    "chatSidebar": {
-      "add": "Thêm",
-      "dictationError": "Đọc chính tả: {error}",
-      "stop": "Dừng"
-    },
-    "displayPanel": {
-      "closePanel": "Đóng bảng",
-      "openPanel": "Mở bảng"
-    },
-    "rightSidebar": {
-      "workspace": "Không gian làm việc",
-      "resize": "Đổi kích thước bảng hiển thị",
-      "resizeHint": "Kéo để đổi kích thước · nhấp đúp để đặt lại"
-    },
-    "windowControls": {
-      "minimize": "Thu nhỏ",
-      "restore": "Khôi phục",
-      "maximize": "Phóng to"
-    },
-    "workspace": {
-      "activity": "Hoạt động",
-      "viewFiles": {
-        "other": "Xem {count} tệp"
-      },
-      "moreFiles": {
-        "other": "{count} more files"
-      }
-    },
-    "appSource": {
-      "update": "Cập nhật",
-      "title": "Thay đổi đối với Stella",
-      "undo": "Hoàn tác",
-      "outdated": "Được tạo trên phiên bản cũ hơn",
-      "failed": "Không thể áp dụng thay đổi",
-      "restarts": "Khởi động lại Stella",
-      "updatedJustNow": "Vừa cập nhật",
-      "updatedAgo": "Đã cập nhật {ago}",
-      "undoneJustNow": "Vừa hoàn tác",
-      "undoneAgo": "Đã hoàn tác {ago}",
-      "files": {
-        "other": "{count} tệp"
-      },
-      "updates": {
-        "pill": {
-          "other": "{count} bản cập nhật"
-        },
-        "newVersion": "Phiên bản Stella mới",
-        "newVersionDetail": "Cải tiến và bản sửa lỗi từ nhóm Stella",
-        "fromDevice": "Thay đổi bạn đã thực hiện trên {device}",
-        "fromOtherComputer": "Thay đổi bạn đã thực hiện trên máy tính khác",
-        "fromOtherComputers": "Thay đổi từ máy tính khác của bạn",
-        "readyChange": "Thay đổi sẵn sàng để thêm",
-        "add": "Thêm",
-        "get": "Lấy",
-        "adding": "Đang thêm…",
-        "skip": "Bỏ qua",
-        "undoing": "Đang hoàn tác…",
-        "removed": "Đã gỡ: {change}",
-        "justNow": "Vừa xong",
-        "waiting": "Đang chờ",
-        "history": "Lịch sử",
-        "skipped": "Đã bỏ qua",
-        "upToDate": "Không có gì đang chờ"
-      }
-    },
-    "display": {
-      "homeLauncher": {
-        "files": {
-          "label": "Tệp",
-          "description": "Trang, hình ảnh, video và tài liệu"
-        },
-        "trash": {
-          "label": "Thùng rác",
-          "description": "Những thứ bạn vừa xóa gần đây"
-        }
-      },
-      "trash": {
-        "title": "Thùng rác",
-        "empty": "Hiện chưa có gì ở đây.",
-        "refresh": "Làm mới",
-        "emptying": "Đang dọn…",
-        "emptyTrash": "Dọn thùng rác",
-        "trashedAgo": "Đã xóa {time} trước",
-        "pendingPurge": "Chờ xóa vĩnh viễn",
-        "autoDeletesIn": "Tự động xóa sau {time}",
-        "deleting": "Đang xóa…",
-        "deleteNow": "Xóa ngay",
-        "itemsAutoDeleted": {
-          "other": "{count} mục — tự động xóa sau 24 giờ."
-        }
-      },
-      "canvasShare": {
-        "share": "Chia sẻ",
-        "links": "Liên kết",
-        "sharedLinks": "Liên kết đã chia sẻ",
-        "publishing": "Đang đăng canvas…",
-        "publishFailed": "Không đăng được canvas này. Vui lòng thử lại.",
-        "live": "Canvas đã hoạt động",
-        "publicLink": "Liên kết canvas công khai",
-        "copyLink": "Sao chép liên kết",
-        "revoke": "Thu hồi chia sẻ",
-        "expires": "Hết hạn {date}",
-        "shared": "Chia sẻ {date}",
-        "sharedWithExpiry": "Chia sẻ {shared} · hết hạn {expires}",
-        "loadFailed": "Không tải được danh sách chia sẻ của bạn.",
-        "empty": "Chưa có lượt chia sẻ nào đang hoạt động. Hãy đăng một canvas để có liên kết công khai.",
-        "untitled": "Canvas chưa đặt tên",
-        "toasts": {
-          "linkCopied": "Đã sao chép liên kết chia sẻ",
-          "copyFailed": "Không sao chép được liên kết",
-          "revoked": "Đã thu hồi chia sẻ",
-          "revokeFailed": "Không thu hồi được lượt chia sẻ này"
-        }
-      },
-      "canvas": {
-        "loadFailed": "Không tải được canvas này.",
-        "loading": "Đang tải"
-      },
-      "media": {
-        "save": "Lưu",
-        "saved": "Đã lưu",
-        "saveFailed": "Không thể lưu",
-        "copy": "Sao chép",
-        "copied": "Đã sao chép",
-        "copyFailed": "Không thể sao chép",
-        "delete": "Xóa",
-        "deleteConfirm": "Nhấp lần nữa để xóa",
-        "itemActions": "Thao tác với mục",
-        "missing": "Tệp không còn khả dụng.",
-        "expand": "Mở rộng",
-        "expandPanel": "Mở rộng bảng",
-        "revealInFinder": "Hiện trong Finder"
-      },
-      "url": {
-        "eyebrow": "Xem trước trực tiếp",
-        "reload": "Tải lại",
-        "openInBrowser": "Mở trong trình duyệt"
-      },
-      "office": {
-        "preparing": "Đang chuẩn bị bản xem trước...",
-        "kind": {
-          "spreadsheet": "Bảng tính",
-          "presentation": "Bản trình bày",
-          "document": "Tài liệu"
-        },
-        "sheetCount": {
-          "other": "{count} trang tính"
-        },
-        "slideCount": {
-          "other": "{count} trang trình bày"
-        },
-        "loadFailed": "Không tải được bản xem trước này",
-        "sessionError": "Phiên xem trước báo lỗi.",
-        "zoomAriaLabel": "Thu phóng bản xem trước",
-        "revealInFinder": "Hiện trong Finder",
-        "livePreview": "Xem trước trực tiếp",
-        "frameTitle": "Xem trước {kind}: {title}"
-      },
-      "filePreview": {
-        "save": "Lưu",
-        "copy": "Sao chép",
-        "loading": "Đang tải..."
-      },
-      "spreadsheet": {
-        "eyebrow": "Bảng tính",
-        "desktopRequired": "Xem trước bảng tính cần ứng dụng Stella trên máy tính.",
-        "noRows": "Không tìm thấy hàng nào.",
-        "column": "Cột {index}"
-      },
-      "markdown": {
-        "eyebrow": "Markdown",
-        "desktopRequired": "Xem trước Markdown cần ứng dụng Stella trên máy tính.",
-        "noContent": "Không tìm thấy nội dung."
-      },
-      "diff": {
-        "changes": "Thay đổi",
-        "codeChanges": "Thay đổi mã",
-        "noChanges": "Không tìm thấy thay đổi nào.",
-        "desktopRequired": "Xem trước mã cần ứng dụng Stella trên máy tính.",
-        "empty": "Chưa có thay đổi tệp nào. Khi một tác nhân chỉnh sửa mã, các thay đổi sẽ xuất hiện ở đây."
-      },
-      "agentThread": {
-        "role": {
-          "user": "Chỉ dẫn",
-          "assistant": "Tác nhân",
-          "reasoning": "Suy luận",
-          "tool": "Công cụ",
-          "checkpoint": "Điểm kiểm tra luồng",
-          "lifecycle": "Hoạt động"
-        },
-        "status": {
-          "running": "Đang làm việc",
-          "completed": "Đã hoàn thành",
-          "error": "Thất bại",
-          "canceled": "Đã dừng"
-        },
-        "newMessages": {
-          "other": "{count} tin nhắn mới."
-        },
-        "newMessagesWithPreview": "{countPhrase} {role} mới nhất: {preview}",
-        "unavailable": "Không có lịch sử luồng tác nhân.",
-        "loadFailed": "Không tải được luồng này.",
-        "showingNewest": "Đang hiển thị tin nhắn mới nhất.",
-        "claudeAriaLabel": "Cuộc hội thoại chỉ đọc của tác nhân phụ Claude",
-        "claudeBadge": "Tác nhân phụ Claude chỉ đọc",
-        "badge": "Luồng tác nhân chỉ đọc",
-        "retrying": "Đang thử lại…",
-        "empty": "Chưa có tin nhắn nào trong luồng này.",
-        "toolInput": "Đầu vào",
-        "toolOutput": "Đầu ra",
-        "toolRunning": "Đang chờ công cụ này hoàn tất…",
-        "toolGroup": {
-          "other": "{count} tool calls"
-        },
-        "reasoningGroup": {
-          "other": "{count} reasoning steps"
-        },
-        "newMessagesButton": {
-          "other": "{count} tin nhắn mới"
-        },
-        "showNewMessagesAria": "Hiện {countPhrase}"
-      },
-      "preview": {
-        "limited": "Bản xem trước bị giới hạn. Hãy lưu hoặc mở tệp gốc để xem toàn bộ nội dung.",
-        "unavailable": "Không thể chuẩn bị bản xem trước này."
-      }
-    },
-    "sidebar": {
-      "account": {
-        "planAriaLabel": "{name}, gói {plan}",
-        "signOutTitle": "Đăng xuất khỏi Stella?",
-        "signOutDescription": "Bạn chắc chứ?"
-      },
-      "nav": {
-        "apps": "Ứng dụng",
-        "unreadTitle": "{label} ({count} chưa đọc)",
-        "unreadAriaLabel": "{label}, {count} chưa đọc"
-      },
-      "feedback": {
-        "title": "Gửi phản hồi",
-        "description": "Tin nhắn của bạn được gửi ẩn danh — không liên kết với tài khoản của bạn.",
-        "fieldLabel": "Phản hồi",
-        "placeholder": "Hãy cho chúng tôi biết điều gì đang ổn, điều gì chưa ổn, hoặc điều bạn muốn thấy…",
-        "send": "Gửi",
-        "sending": "Đang gửi…",
-        "toasts": {
-          "sentTitle": "Đã gửi phản hồi",
-          "sentDescription": "Cảm ơn bạn — mỗi góp ý đều giúp chúng tôi định hình Stella.",
-          "failedTitle": "Không gửi được phản hồi"
-        }
-      }
-    },
-    "topbar": {
-      "conversation": {
-        "newChat": "Cuộc trò chuyện mới",
-        "newChatConfirm": "Click again to confirm",
-        "history": "Lịch sử trò chuyện",
-        "historyEmpty": "Chưa có cuộc trò chuyện nào",
-        "historyRetry": "Không tải được cuộc trò chuyện. Thử lại",
-        "openConversations": "Mở các cuộc trò chuyện",
-        "unread": "Tin nhắn chưa đọc",
-        "openConversation": "Mở {title}",
-        "closeConversation": "Đóng {title}",
-        "delete": "Xóa {title}",
-        "deleteConfirm": "Nhấp lần nữa để xác nhận",
-        "deleteConfirmFor": "Nhấp lần nữa để xóa {title}",
-        "deleteFailed": "Không xóa được cuộc trò chuyện này",
-        "deleteFailedFor": "Không xóa được {title}"
-      }
-    },
-    "browser": {
-      "connected": "Trình duyệt đã kết nối",
-      "newTab": "Mở tab mới",
-      "connecting": "Đang chờ tiện ích…"
-    },
-    "connectors": {
-      "title": "Trình kết nối",
-      "searchPlaceholder": "Tìm kiếm",
-      "searchLabel": "Tìm trình kết nối",
-      "loading": "Đang tải trình kết nối…",
-      "desktopRequired": "Trình kết nối có sẵn trong ứng dụng Stella trên máy tính.",
-      "empty": "Chưa có trình kết nối nào.",
-      "noMatches": "Không có trình kết nối nào khớp với tìm kiếm đó."
+      "needsSetupTitle": "Giọng nói cần được thiết lập",
+      "signInTitle": "Đăng nhập để dùng giọng nói"
     }
   },
   "global": {
     "auth": {
-      "welcomeTitle": "Chào mừng đến với Stella",
-      "welcomeDescription": "Đăng nhập bằng email của bạn để bắt đầu dùng Stella.",
-      "welcomeSub": "Dùng Google hoặc email của bạn để đăng nhập. Không cần mật khẩu.",
-      "finishingTitle": "Đang hoàn tất đăng nhập",
-      "finishingSub": "Đang chuyển các cuộc trò chuyện của bạn sang tài khoản này. Chỉ mất một lát.",
-      "orUseEmail": "hoặc dùng email",
+      "checkInbox": "Hãy kiểm tra hộp thư đến để lấy liên kết đăng nhập.",
       "emailLabel": "Email",
       "emailPlaceholder": "you@example.com",
-      "sending": "Đang gửi...",
-      "signingIn": "Đang đăng nhập...",
-      "sendSignInEmail": "Gửi email đăng nhập",
-      "checkInbox": "Hãy kiểm tra hộp thư đến để lấy liên kết đăng nhập.",
-      "magicLinkSentDesktop": "Chúng tôi đã gửi một liên kết đăng nhập. Hãy mở nó trên thiết bị này để hoàn tất.",
-      "openInbox": "Mở {provider}",
-      "resendIn": "Gửi lại sau {seconds} giây",
-      "resendEmail": "Gửi lại email",
-      "skipForNow": "Bỏ qua lúc này",
       "enterEmail": "Hãy nhập một địa chỉ email.",
-      "sendFailed": "Không gửi được email đăng nhập.",
-      "magicLinkFailed": "Không gửi được liên kết đăng nhập nhanh.",
       "finishFailed": "Không hoàn tất được việc đăng nhập. Vui lòng thử lại.",
-      "signInIncomplete": "Đăng nhập chưa hoàn tất. Vui lòng thử lại.",
-      "signInLinkExpired": "Liên kết đăng nhập đã hết hạn. Vui lòng thử lại.",
-      "tooManyRequests": {
-        "other": "Quá nhiều yêu cầu. Hãy thử lại sau {count} giây."
-      },
+      "finishingSub": "Đang chuyển các cuộc trò chuyện của bạn sang tài khoản này. Chỉ mất một lát.",
+      "finishingTitle": "Đang hoàn tất đăng nhập",
       "googleContinue": "Tiếp tục với Google",
-      "googleWaiting": "Đang chờ Google...",
-      "googleStartFailed": "Không thể bắt đầu đăng nhập bằng Google.",
-      "googleNoSession": "Đăng nhập Google đã hoàn tất nhưng không có phiên.",
       "googleExpired": "Đăng nhập Google đã hết hạn. Vui lòng thử lại.",
+      "googleNoSession": "Đăng nhập Google đã hoàn tất nhưng không có phiên.",
+      "googleStartFailed": "Không thể bắt đầu đăng nhập bằng Google.",
       "googleTimedOut": "Đăng nhập Google đã hết thời gian chờ. Vui lòng thử lại.",
-      "nicknameTitle": "Tôi nên gọi bạn là gì?",
+      "googleWaiting": "Đang chờ Google...",
+      "magicLinkFailed": "Không gửi được liên kết đăng nhập nhanh.",
+      "magicLinkSentDesktop": "Chúng tôi đã gửi một liên kết đăng nhập. Hãy mở nó trên thiết bị này để hoàn tất.",
       "nicknameDescription": "Hãy chọn một cái tên để Stella dùng trong toàn ứng dụng.",
       "nicknameLabel": "Biệt danh",
       "nicknamePlaceholder": "Biệt danh của bạn",
-      "notNow": "Để sau"
-    },
-    "legal": {
-      "terms": {
-        "title": "Điều khoản dịch vụ",
-        "subtitle": "Stella hoạt động ra sao, và bạn đồng ý với điều gì khi sử dụng."
+      "nicknameTitle": "Tôi nên gọi bạn là gì?",
+      "notNow": "Để sau",
+      "openInbox": "Mở {provider}",
+      "orUseEmail": "hoặc dùng email",
+      "resendEmail": "Gửi lại email",
+      "resendIn": "Gửi lại sau {seconds} giây",
+      "sendFailed": "Không gửi được email đăng nhập.",
+      "sendSignInEmail": "Gửi email đăng nhập",
+      "sending": "Đang gửi...",
+      "signInIncomplete": "Đăng nhập chưa hoàn tất. Vui lòng thử lại.",
+      "signInLinkExpired": "Liên kết đăng nhập đã hết hạn. Vui lòng thử lại.",
+      "signingIn": "Đang đăng nhập...",
+      "skipForNow": "Bỏ qua lúc này",
+      "tooManyRequests": {
+        "other": "Quá nhiều yêu cầu. Hãy thử lại sau {count} giây."
       },
-      "privacy": {
-        "title": "Chính sách quyền riêng tư",
-        "subtitle": "Chúng tôi thu thập gì, không thu thập gì, và bảo vệ dữ liệu ra sao."
-      }
+      "welcomeDescription": "Đăng nhập bằng email của bạn để bắt đầu dùng Stella.",
+      "welcomeSub": "Dùng Google hoặc email của bạn để đăng nhập. Không cần mật khẩu.",
+      "welcomeTitle": "Chào mừng đến với Stella"
     },
     "integrations": {
-      "heroTagline": "Nhắn tin cho Stella từ bất kỳ nền tảng nào bạn thích — trò chuyện tự nhiên, hoặc nhờ Stella làm việc ngay trên máy tính của bạn.",
-      "signInToConnect": "Đăng nhập vào Stella để kết nối",
       "connectStellaApp": "Kết nối với ứng dụng Stella",
       "connectStellaAppSub": "Ghép nối ứng dụng Stella trên điện thoại của bạn với máy tính này",
       "connectTitle": "Kết nối",
-      "phoneTitle": "Điện thoại của bạn",
       "connected": "Đã kết nối",
-      "signInHeadline": "Đăng nhập để bắt đầu",
-      "signInSub": "Đăng nhập vào tài khoản Stella của bạn để kết nối {provider}.",
       "credential": {
-        "title": "Kết nối {provider}",
-        "description": "Stella cần khóa API {provider} của bạn để kết nối. Hãy dán vào bên dưới. Khóa vẫn nằm trên máy tính của bạn.",
-        "defaultLabel": "Khóa {provider}",
         "apiKeyLabel": "Khóa API",
         "apiKeyRequired": "Khóa API là bắt buộc.",
+        "defaultLabel": "Khóa {provider}",
+        "description": "Stella cần khóa API {provider} của bạn để kết nối. Hãy dán vào bên dưới. Khóa vẫn nằm trên máy tính của bạn.",
         "keyPlaceholder": "Dán khóa của bạn",
-        "labelLabel": "Nhãn",
         "labelDescription": "Một cái tên thân thiện để sau này nhận ra khóa này.",
-        "saving": "Đang lưu...",
+        "labelLabel": "Nhãn",
+        "saveFailed": "Không lưu được thông tin đăng nhập.",
         "saveKey": "Lưu khóa",
-        "saveFailed": "Không lưu được thông tin đăng nhập."
+        "saving": "Đang lưu...",
+        "title": "Kết nối {provider}"
+      },
+      "heroTagline": "Nhắn tin cho Stella từ bất kỳ nền tảng nào bạn thích — trò chuyện tự nhiên, hoặc nhờ Stella làm việc ngay trên máy tính của bạn.",
+      "phoneTitle": "Điện thoại của bạn",
+      "signInHeadline": "Đăng nhập để bắt đầu",
+      "signInSub": "Đăng nhập vào tài khoản Stella của bạn để kết nối {provider}.",
+      "signInToConnect": "Đăng nhập vào Stella để kết nối"
+    },
+    "legal": {
+      "privacy": {
+        "subtitle": "Chúng tôi thu thập gì, không thu thập gì, và bảo vệ dữ liệu ra sao.",
+        "title": "Chính sách quyền riêng tư"
+      },
+      "terms": {
+        "subtitle": "Stella hoạt động ra sao, và bạn đồng ý với điều gì khi sử dụng.",
+        "title": "Điều khoản dịch vụ"
       }
     },
     "remoteExecutionConsent": {
-      "title": "Allow work from your other devices?",
+      "allow": "Allow",
       "body": "Another of your devices asked to run work on this computer. Allowing lets work sent from your devices run here.",
       "bodyFrom": "{requester} asked to run work on this computer. Allowing lets work sent from your devices run here.",
-      "note": "You can change this later in Connect, under your computers.",
-      "allow": "Allow",
       "decline": "Not now",
-      "failed": "That answer didn't go through. Try again."
+      "failed": "That answer didn't go through. Try again.",
+      "note": "You can change this later in Connect, under your computers.",
+      "title": "Allow work from your other devices?"
     },
     "schedule": {
-      "dialogTitle": "Lịch",
-      "untitledTask": "Tác vụ theo lịch",
+      "actionFailed": "Thao tác thất bại.",
       "checkIn": "Điểm danh",
-      "paused": "Đã tạm dừng",
+      "delete": "Xóa",
+      "dialogTitle": "Lịch",
+      "missing": "Lịch này không còn tồn tại.",
       "pause": "Tạm dừng",
+      "paused": "Đã tạm dừng",
       "pausing": "Đang tạm dừng…",
+      "removing": "Đang xóa…",
       "resume": "Tiếp tục",
       "resuming": "Đang tiếp tục…",
       "runNow": "Chạy ngay",
       "running": "Đang chạy…",
-      "delete": "Xóa",
-      "removing": "Đang xóa…",
-      "actionFailed": "Thao tác thất bại.",
-      "missing": "Lịch này không còn tồn tại.",
       "scheduleCount": {
         "other": "{count} lịch"
-      }
+      },
+      "untitledTask": "Tác vụ theo lịch"
     }
   },
   "mobile": {
+    "account": {
+      "title": "Tài khoản"
+    },
+    "activity": {
+      "inProgress": {
+        "other": "{count} đang thực hiện"
+      },
+      "openLabel": "Hiển thị hoạt động"
+    },
+    "activityHub": {
+      "activity": {
+        "empty": "Chưa có công việc nền nào.",
+        "emptyFiltered": "Không có hoạt động hay tệp nào khớp."
+      },
+      "conversation": {
+        "subtitle": "Tệp do luồng chính tạo",
+        "title": "Cuộc trò chuyện này"
+      },
+      "files": {
+        "empty": "Chưa có tệp nào. Mọi thứ Stella tạo ra sẽ hiện ở đây.",
+        "emptyFiltered": "Không có tệp nào khớp.",
+        "searchPlaceholder": "Tìm tệp"
+      },
+      "schedule": {
+        "actionFailed": "Không thực hiện được.",
+        "alertTitle": "Lịch trình",
+        "customCadence": "Lịch trình tùy chỉnh",
+        "deleteConfirm": "“{title}” sẽ ngừng chạy.",
+        "deleteSchedule": "Xóa lịch trình",
+        "empty": "Chưa có lịch trình nào. Hãy nhờ Stella trên máy tính chạy việc gì đó định kỳ, nó sẽ hiện ở đây.",
+        "lastRunFailed": "Lần chạy gần nhất thất bại: {error}",
+        "loadFailed": "Không tải được lịch trình.",
+        "next": "Lần chạy tiếp theo {when}",
+        "pauseSchedule": "Tạm dừng lịch trình",
+        "paused": "Đã tạm dừng",
+        "resumeSchedule": "Tiếp tục lịch trình"
+      },
+      "search": {
+        "clear": "Xóa tìm kiếm",
+        "close": "Đóng tìm kiếm",
+        "placeholder": "Tìm trong hoạt động và tệp"
+      },
+      "subagents": {
+        "count": {
+          "other": "{count} tác nhân phụ"
+        },
+        "done": {
+          "other": "{count} đã xong"
+        }
+      },
+      "tabs": {
+        "activity": "Hoạt động",
+        "files": "Tệp",
+        "schedule": "Lịch trình",
+        "search": "Tìm kiếm"
+      },
+      "task": {
+        "failed": "Không thể hoàn thành",
+        "finished": "Đã xong",
+        "stopped": "Đã dừng",
+        "working": "Đang làm việc trong nền"
+      }
+    },
+    "authCallback": {
+      "backToSignIn": "Quay lại đăng nhập",
+      "failedTitle": "Không thể đăng nhập cho bạn",
+      "genericFailure": "Hiện chưa thể đăng nhập cho bạn. Vui lòng thử lại.",
+      "invalidLink": "Liên kết đăng nhập không hợp lệ.",
+      "linkExpired": "Liên kết đăng nhập này đã hết hạn. Vui lòng yêu cầu liên kết mới.",
+      "signingInBody": "Chờ một chút...",
+      "signingInTitle": "Đang đăng nhập"
+    },
+    "boot": {
+      "checkingSessionBody": "Chờ một chút trong khi Stella khởi động.",
+      "checkingSessionTitle": "Đang kiểm tra phiên của bạn",
+      "crashTitle": "Có lỗi khi khởi động",
+      "missingConfigBody": "Đặt EXPO_PUBLIC_STELLA_BACKEND_URL trước khi khởi động ứng dụng.",
+      "missingConfigTitle": "Thêm biến môi trường cho ứng dụng di động"
+    },
+    "carPlayDiagnostics": {
+      "clear": "Xóa",
+      "clearLabel": "Xóa chẩn đoán",
+      "clipboardEmpty": "(chưa ghi được chẩn đoán CarPlay nào)",
+      "copied": "Đã sao chép ✓",
+      "copyAll": "Sao chép tất cả",
+      "copyAllLabel": "Sao chép toàn bộ chẩn đoán",
+      "empty": "Chưa ghi được chẩn đoán CarPlay nào. Hãy kết nối CarPlay một lần rồi quay lại đây.",
+      "refresh": "Làm mới",
+      "refreshLabel": "Làm mới chẩn đoán",
+      "subtitle": {
+        "other": "Nhật ký kết nối CarPlay ({count} dòng, mới nhất trước). Hãy sao chép và gửi cho chúng tôi khi có gì đó trục trặc trên xe."
+      },
+      "title": "Chẩn đoán CarPlay"
+    },
+    "chat": {
+      "composerPlaceholder": "Nhắn cho Stella",
+      "createFailed": "Không thể tạo cuộc trò chuyện. Vui lòng thử lại.",
+      "emptyPrompt": "Hỏi Stella bất cứ điều gì",
+      "loadMore": "Tải thêm",
+      "mainChat": "Trò chuyện chính",
+      "workingMany": "{count} tác vụ đang chạy"
+    },
+    "cloudHome": {
+      "backToDocumentsLabel": "Quay lại tài liệu Cloud Home",
+      "backToSettingsLabel": "Quay lại Cài đặt",
+      "conflict": {
+        "changedBody": "Bản sửa đổi {revision} đã thay thế phiên bản bạn đang chỉnh sửa. Bản nháp của bạn vẫn còn ở đây.",
+        "reload": "Tải lại phiên bản trên đám mây",
+        "reloadLabel": "Tải lại phiên bản trên đám mây và thay thế bản nháp này",
+        "reloading": "Đang tải lại…",
+        "removedBody": "Tài liệu này đã bị xóa trong khi bạn chỉnh sửa. Bản nháp của bạn vẫn còn ở đây.",
+        "title": "Phiên bản trên đám mây đã thay đổi"
+      },
+      "editor": {
+        "editLabel": "Chỉnh sửa {name}",
+        "save": "Lưu",
+        "saving": "Đang lưu…",
+        "unsaved": "Thay đổi chưa lưu",
+        "upToDate": "Đã cập nhật"
+      },
+      "editorMeta": "{kind} · bản sửa đổi {revision}",
+      "errors": {
+        "invalid": "Cloud Home trả về phản hồi không hợp lệ.",
+        "missingFromList": "Tài liệu đó không còn trong Cloud Home. Hãy tải lại danh sách.",
+        "network": "Không thể kết nối với Cloud Home. Hãy thử lại.",
+        "removedWhileEditing": "Tài liệu đó đã bị xóa khỏi Cloud Home.",
+        "unauthorized": "Đăng nhập lại để truy cập Cloud Home.",
+        "unavailable": "Cloud Home hiện không khả dụng cho tài khoản này."
+      },
+      "kinds": {
+        "archive": "kho lưu trữ",
+        "core_memory": "bộ nhớ cốt lõi",
+        "imported_markdown": "Markdown đã nhập",
+        "memory": "bộ nhớ",
+        "memory_map": "bản đồ bộ nhớ",
+        "personality": "tính cách",
+        "profile": "hồ sơ",
+        "user_markdown": "Markdown của người dùng"
+      },
+      "list": {
+        "emptyBody": "Tài liệu do Stella tạo hoặc được nhập từ ứng dụng máy tính sẽ xuất hiện tại đây.",
+        "emptyTitle": "Chưa có bộ nhớ trên đám mây",
+        "loading": "Đang tải tài liệu…",
+        "openDocumentLabel": "Mở {name}",
+        "retry": "Thử lại",
+        "retryLabel": "Thử tải lại bộ nhớ Cloud Home"
+      },
+      "listMeta": "{kind} · bản sửa đổi {revision} · {size}",
+      "loading": "Đang tải Cloud Home…",
+      "notices": {
+        "loadedLatest": "Đã tải phiên bản mới nhất trên đám mây.",
+        "saved": "Đã lưu vào Cloud Home."
+      },
+      "openSettingsLabel": "Mở bộ nhớ Cloud Home",
+      "settingsRowBody": "Xem và chỉnh sửa bộ nhớ Stella có bản chính thức trên đám mây.",
+      "settingsRowTitle": "Tài liệu bộ nhớ",
+      "settingsSection": "Cloud Home",
+      "signIn": "Đăng nhập",
+      "signInAgain": "Đăng nhập lại",
+      "signInBody": "Tài liệu bộ nhớ là dữ liệu riêng tư trong tài khoản Stella của bạn.",
+      "signInTitle": "Đăng nhập để sử dụng Cloud Home",
+      "sizes": {
+        "bytes": "{count} B",
+        "kilobytes": "{count} KB",
+        "megabytes": "{count} MB"
+      },
+      "subtitle": "Các tài liệu Stella chính thức của bạn trên đám mây",
+      "title": "Bộ nhớ Cloud Home",
+      "unavailableBody": "Bản triển khai này hiện không cung cấp dịch vụ Cloud Home bảo mật. Các tệp cục bộ của bạn không bị thay đổi.",
+      "unavailableTitle": "Cloud Home không khả dụng"
+    },
     "common": {
       "back": "Quay lại",
       "backChevron": "‹ Quay lại",
@@ -2052,623 +1068,1602 @@
       "goBack": "Quay lại",
       "tryAgain": "Thử lại"
     },
-    "boot": {
-      "crashTitle": "Có lỗi khi khởi động",
-      "missingConfigTitle": "Thêm biến môi trường cho ứng dụng di động",
-      "missingConfigBody": "Đặt EXPO_PUBLIC_STELLA_BACKEND_URL trước khi khởi động ứng dụng.",
-      "checkingSessionTitle": "Đang kiểm tra phiên của bạn",
-      "checkingSessionBody": "Chờ một chút trong khi Stella khởi động."
+    "computer": {
+      "connectedLabel": "Máy tính đã kết nối",
+      "connectingLabel": "Đang kết nối tới máy tính của bạn",
+      "defaultDeviceLabel": "Máy tính của bạn",
+      "disconnectedLabel": "Máy tính đã ngắt kết nối",
+      "guestHeroBody": "Nhờ Stella làm việc trên máy tính của bạn — duyệt web, quản lý tệp, chạy tác vụ và hơn thế nữa.",
+      "guestHeroTitle": "Máy tính của bạn, trong tầm tay",
+      "pairLabel": "Ghép nối máy tính",
+      "statusAsleep": "Đang ngủ",
+      "statusChecking": "Đang kiểm tra…",
+      "statusConnected": "Đã kết nối"
     },
-    "authCallback": {
-      "failedTitle": "Không thể đăng nhập cho bạn",
-      "invalidLink": "Liên kết đăng nhập không hợp lệ.",
-      "linkExpired": "Liên kết đăng nhập này đã hết hạn. Vui lòng yêu cầu liên kết mới.",
-      "genericFailure": "Hiện chưa thể đăng nhập cho bạn. Vui lòng thử lại.",
-      "backToSignIn": "Quay lại đăng nhập",
-      "signingInTitle": "Đang đăng nhập",
-      "signingInBody": "Chờ một chút..."
+    "desktop": {
+      "connecting": "Đang kết nối tới máy tính",
+      "deviceUnreachable": "Không kết nối được {platform} của bạn",
+      "enterCode": "Nhập mã hiển thị trên máy tính của bạn.",
+      "guestBody": "Xem ứng dụng Stella trên máy tính ngay trên điện thoại. Sau khi ghép nối, điện thoại sẽ tự kết nối lại.",
+      "guestSignInPrompt": "Đăng nhập để bắt đầu.",
+      "limitedCapabilities": "Một số việc cần đến máy tính của bạn",
+      "linkInterrupted": "Kết nối tới máy tính của bạn đã bị gián đoạn.",
+      "pairAnother": "Ghép nối máy tính khác",
+      "pairTitle": "Ghép nối điện thoại",
+      "pairing": "Đang ghép nối điện thoại này",
+      "reconnecting": "Đang kết nối lại...",
+      "repairNeeded": "Điện thoại này cần được ghép nối lại với máy tính của bạn.",
+      "retryLabel": "Thử kết nối lại",
+      "startPairingLabel": "Bắt đầu ghép nối một máy tính",
+      "unavailableBodyPaired": "Hãy đảm bảo Stella đang mở trên máy tính và có kết nối internet. Khi đã kết nối, ứng dụng máy tính sẽ hiện ngay tại đây trên điện thoại.",
+      "unavailableBodyUnpaired": "Xem ứng dụng Stella trên máy tính ngay trên điện thoại. Quét mã QR hiển thị trong Stella trên máy tính để bắt đầu — sau đó điện thoại sẽ tự kết nối lại.",
+      "unreachable": "Không kết nối được máy tính của bạn"
+    },
+    "engineAccounts": {
+      "active": "Đang dùng",
+      "backLabel": "Quay lại Cài đặt",
+      "chatgptBrowserWaiting": "Hoàn tất đăng nhập ChatGPT trong trình duyệt của bạn.",
+      "chatgptSection": "ChatGPT",
+      "claudeNote": "Thêm tài khoản ở đây sẽ đăng nhập đám mây của Stella vào Claude Code trên chính trang của Anthropic. Mỗi máy tính dùng đăng nhập Claude Code riêng.",
+      "claudeSection": "Claude",
+      "connectChatgpt": "Kết nối tài khoản ChatGPT",
+      "connectClaude": "Thêm tài khoản Claude",
+      "connecting": "Đang kết nối…",
+      "continueAsChatgpt": "Tiếp tục với ChatGPT dưới tên {name}",
+      "continueWithChatgpt": "Tiếp tục với tài khoản ChatGPT của bạn",
+      "enablePlanUsage": "Bật sử dụng gói ChatGPT",
+      "errorBody": "Đã xảy ra lỗi. Hãy thử lại.",
+      "errorTitle": "Không thể cập nhật tài khoản",
+      "finish": "Kết nối",
+      "manageUsage": "Quản lý mức sử dụng",
+      "moreLabel": "Tùy chọn cho {name}",
+      "notSignedIn": "Chưa đăng nhập ở đâu",
+      "openChatgptAgain": "Mở lại ChatGPT",
+      "openClaudeAgain": "Mở lại trang đăng nhập",
+      "pasteFromClipboard": "Dán",
+      "pasteHintChatgpt": "Sau khi bạn chấp thuận, ChatGPT sẽ chuyển bạn đến một trang không tải được. Hãy sao chép toàn bộ địa chỉ của trang đó và dán vào đây.",
+      "pasteHintClaude": "Sau khi bạn chấp thuận, Anthropic sẽ hiển thị một mã. Hãy sao chép và dán vào đây.",
+      "pastePlaceholder": "Dán mã mà Anthropic hiển thị",
+      "pastePlaceholderUrl": "Dán địa chỉ vào đây",
+      "placeCloud": "Đám mây",
+      "placeComputer": "Máy tính",
+      "planUsageOffBody": "Stella không thể dùng gói ChatGPT của bạn cho đến khi bạn cho phép. Chọn “Bật sử dụng gói ChatGPT” trên tài khoản.",
+      "planWelcomeBody": "Các yêu cầu ChatGPT trên đám mây của Stella được tính vào gói ChatGPT của bạn. Xem mức sử dụng và đặt giới hạn cho Stella trong Cài đặt ChatGPT.",
+      "planWelcomeTitle": "Bạn đang dùng gói ChatGPT của mình",
+      "remove": "Xóa",
+      "removeBody": "Stella sẽ quên tài khoản ChatGPT này. Bạn có thể đăng nhập lại sau.",
+      "removeClaudeBody": "Stella quên tài khoản Claude này và đăng xuất đám mây khỏi tài khoản đó. Máy tính của bạn vẫn giữ đăng nhập Claude Code riêng.",
+      "removeTitle": "Xóa {name}?",
+      "revokeUnconfirmed": "ChatGPT chưa xác nhận việc đăng xuất. Bạn có thể ngắt kết nối Stella trong Cài đặt ChatGPT.",
+      "signInAgain": "Đăng nhập lại",
+      "signInCloud": "Đăng nhập trên đám mây",
+      "signOut": "Đăng xuất",
+      "signOutBody": "Stella sẽ ngừng dùng tài khoản này. Bạn có thể thêm lại bất cứ lúc nào.",
+      "signOutCloud": "Đăng xuất khỏi đám mây",
+      "signOutCloudBody": "Đám mây của Stella ngừng dùng tài khoản này cho đến khi bạn đăng nhập lại ở đó. Máy tính của bạn vẫn giữ đăng nhập Claude Code riêng.",
+      "signOutCloudTitle": "Đăng xuất {name} khỏi đám mây?",
+      "signOutTitle": "Đăng xuất khỏi {name}?",
+      "signedInOn": "Đã đăng nhập: {places}",
+      "startAgain": "Bắt đầu lại",
+      "statusPlanUsageOff": "Chưa bật sử dụng gói ChatGPT",
+      "statusReauth": "Đăng nhập lại để tiếp tục sử dụng",
+      "statusSignedOut": "Đã đăng xuất",
+      "subtitle": "Dùng gói Claude hoặc ChatGPT bạn đã trả phí",
+      "title": "Claude và ChatGPT",
+      "useAccount": "Dùng tài khoản này"
+    },
+    "login": {
+      "appleCompleteFailed": "Không thể hoàn tất đăng nhập bằng Apple.",
+      "appleNoToken": "Apple không trả về mã định danh.",
+      "appleStartFailed": "Không thể bắt đầu đăng nhập bằng Apple.",
+      "checkInbox": "Kiểm tra hộp thư và nhấn vào liên kết — bạn sẽ được đăng nhập tự động.",
+      "continueAsGuest": "Tiếp tục mà không đăng nhập",
+      "continueWithApple": "Tiếp tục với Apple",
+      "continueWithGoogle": "Tiếp tục với Google",
+      "emailPlaceholder": "Email",
+      "enterEmail": "Nhập email của bạn.",
+      "finishFailed": "Không thể hoàn tất đăng nhập. Vui lòng thử lại.",
+      "googleStartFailed": "Không thể bắt đầu đăng nhập bằng Google.",
+      "heroBody": "Dùng Apple, Google hoặc email bạn đang dùng trên máy tính.",
+      "heroTitle": "Trợ lý của bạn,\ngọn trong túi.",
+      "incomplete": "Đăng nhập chưa hoàn tất. Vui lòng thử lại.",
+      "legalConjunction": " và ",
+      "legalPrefix": "Khi tiếp tục, bạn đồng ý với ",
+      "legalPrivacy": "Chính sách quyền riêng tư",
+      "legalSuffix": ".",
+      "legalTerms": "Điều khoản dịch vụ",
+      "linkExpired": "Liên kết đã hết hạn. Vui lòng thử lại.",
+      "openingApple": "Đang mở Apple...",
+      "openingGoogle": "Đang mở Google...",
+      "orUseEmail": "hoặc dùng email",
+      "resend": "Gửi lại",
+      "resendLabel": "Gửi lại email đăng nhập",
+      "sendFailed": "Không gửi được email đăng nhập.",
+      "sending": "Đang gửi...",
+      "signingIn": "Đang đăng nhập...",
+      "useDifferentEmail": "Dùng email khác"
     },
     "nav": {
-      "chat": "Trò chuyện",
-      "settings": "Cài đặt",
+      "account": "Tài khoản",
       "apps": "Ứng dụng",
-      "openLabel": "Mở điều hướng",
+      "backToApps": "Quay lại ứng dụng",
+      "backToChat": "Quay lại trò chuyện",
+      "chat": "Trò chuyện",
       "chatSettingsLabel": "Cài đặt trò chuyện",
       "closeLabel": "Đóng điều hướng",
-      "account": "Tài khoản",
-      "signIn": "Đăng nhập",
-      "backToChat": "Quay lại trò chuyện",
-      "backToApps": "Quay lại ứng dụng"
-    },
-    "search": {
-      "placeholder": "Tìm tin nhắn",
-      "openLabel": "Tìm tin nhắn",
-      "clearLabel": "Xóa tìm kiếm",
-      "cancelLabel": "Hủy tìm kiếm"
+      "openLabel": "Mở điều hướng",
+      "settings": "Cài đặt",
+      "signIn": "Đăng nhập"
     },
     "onboarding": {
-      "skip": "Bỏ qua",
-      "skipLabel": "Bỏ qua phần giới thiệu",
-      "progressLabel": "Bước {current}/{total}",
-      "composerPlaceholder": "Hoặc cứ hỏi mình bất cứ điều gì",
-      "send": "Gửi",
-      "messages": {
-        "hello": "Xin chào, mình là Stella.\n\nMình không phải chatbot. Cứ nói bạn cần gì, mình sẽ lo xong ở chế độ nền, trong lúc bạn tiếp tục ngày của mình.",
-        "showcase": "Đây là cách mọi thứ diễn ra.",
-        "computer": "Nếu bạn có Mac hoặc PC, mình cũng làm việc được trên đó.",
-        "account": "Muốn giữ lại tất cả những điều này? Tài khoản Stella sẽ đi cùng bạn trên mọi thiết bị.",
-        "accountSignedIn": "Bạn đã đăng nhập, nên mọi thứ sẽ đi cùng bạn giữa các thiết bị. Còn một tùy chọn nữa:",
-        "theme": "Giờ thì, mình nên trông như thế nào?",
-        "ready": "Xong rồi. Mình sẽ dần hiểu bạn hơn trong lúc dùng.\n\nMình làm gì đầu tiên nhé?"
+      "account": {
+        "chatgptDesc": "Gói ChatGPT của bạn, cho đám mây của Stella",
+        "claudeDesc": "Pro hoặc Max, qua Claude Code",
+        "connect": "Kết nối",
+        "connectLabel": "Kết nối {name}",
+        "connectedAs": "Đã kết nối · {name}",
+        "guestSettled": "Đăng nhập bất cứ lúc nào trong Cài đặt",
+        "settledGuest": "Đang dùng Stella với tư cách khách",
+        "settledSignedIn": "Đã đăng nhập",
+        "signIn": "Đăng nhập",
+        "signInBody": "Giữ cuộc trò chuyện, cài đặt và máy tính đã kết nối của bạn trên mọi thiết bị.",
+        "signInTitle": "Đăng nhập vào Stella",
+        "skip": "Bỏ qua lúc này",
+        "subscriptionsBody": "Bạn đã trả phí Claude hoặc ChatGPT? Kết nối và tôi sẽ dùng nó trên đám mây. Máy tính của bạn dùng đăng nhập riêng.",
+        "subscriptionsLabel": "Tùy chọn"
       },
-      "replies": {
-        "helloDone": "Cho mình xem.",
-        "showcaseDone": "Hiểu rồi.",
-        "computerDone": "Đã kết nối!",
-        "computerSkipped": "Để sau nhé.",
-        "accountDone": "Xong rồi.",
-        "accountSkipped": "Bỏ qua lúc này.",
-        "themeDone": "Chọn cái này.",
-        "themeSkipped": "Giữ mặc định."
+      "composerPlaceholder": "Hoặc cứ hỏi mình bất cứ điều gì",
+      "computer": {
+        "body": "Ghép nối điện thoại này với Stella trên máy tính, rồi mình có thể chạy tác vụ ở đó khi bạn ra ngoài.",
+        "connectedBody": "Cứ nhờ từ bất cứ đâu, mình sẽ làm việc trên máy tính của bạn.",
+        "connectedTo": "Đã kết nối với {name}",
+        "guestHint": "Việc ghép nối gắn với tài khoản Stella của bạn, nên hãy đăng nhập trước. Mình sẽ tiếp tục ngay tại đây.",
+        "hint": "Trên máy tính, mở Stella và chọn Ghép nối điện thoại.",
+        "later": "Để sau",
+        "pair": "Ghép nối máy tính",
+        "point1": "Tìm một tệp và gửi cho bạn",
+        "point2": "Hoàn tất một lần xuất hoặc tải xuống",
+        "point3": "Dùng các ứng dụng bạn đã có",
+        "settledConnectedDesc": "Mình có thể chạy tác vụ ở đó từ điện thoại của bạn.",
+        "settledSkippedDesc": "Bạn có thể ghép nối bất cứ lúc nào trong Cài đặt.",
+        "settledSkippedTitle": "Chưa có máy tính",
+        "signInToPair": "Đăng nhập để ghép nối",
+        "title": "Máy tính của bạn, ngay trong túi"
       },
       "hello": {
         "cta": "Cho mình xem",
-        "settledTitle": "Làm quen với Stella",
         "pillars": {
-          "done": {
-            "title": "Làm xong việc",
-            "body": "Đặt chỗ, đặt hàng, tệp và nghiên cứu, hoàn tất giúp bạn."
+          "asks": {
+            "body": "Mọi khoản chi tiền đều chờ bạn đồng ý.",
+            "title": "Hỏi trước khi quan trọng"
           },
           "background": {
-            "title": "Làm việc ở chế độ nền",
-            "body": "Giao việc rồi cứ tiếp tục. Xong là mình báo bạn."
+            "body": "Giao việc rồi cứ tiếp tục. Xong là mình báo bạn.",
+            "title": "Làm việc ở chế độ nền"
           },
-          "asks": {
-            "title": "Hỏi trước khi quan trọng",
-            "body": "Mọi khoản chi tiền đều chờ bạn đồng ý."
+          "done": {
+            "body": "Đặt chỗ, đặt hàng, tệp và nghiên cứu, hoàn tất giúp bạn.",
+            "title": "Làm xong việc"
           }
-        }
+        },
+        "settledTitle": "Làm quen với Stella"
       },
+      "messages": {
+        "account": "Muốn giữ lại tất cả những điều này? Tài khoản Stella sẽ đi cùng bạn trên mọi thiết bị.",
+        "accountSignedIn": "Bạn đã đăng nhập, nên mọi thứ sẽ đi cùng bạn giữa các thiết bị. Còn một tùy chọn nữa:",
+        "computer": "Nếu bạn có Mac hoặc PC, mình cũng làm việc được trên đó.",
+        "hello": "Xin chào, mình là Stella.\n\nMình không phải chatbot. Cứ nói bạn cần gì, mình sẽ lo xong ở chế độ nền, trong lúc bạn tiếp tục ngày của mình.",
+        "ready": "Xong rồi. Mình sẽ dần hiểu bạn hơn trong lúc dùng.\n\nMình làm gì đầu tiên nhé?",
+        "showcase": "Đây là cách mọi thứ diễn ra.",
+        "theme": "Giờ thì, mình nên trông như thế nào?"
+      },
+      "progressLabel": "Bước {current}/{total}",
+      "ready": {
+        "start": "Bắt đầu trò chuyện",
+        "starters": {
+          "explain": {
+            "prompt": "Giải thích đơn giản lãi kép hoạt động thế nào.",
+            "title": "Giải thích điều gì đó"
+          },
+          "gift": {
+            "prompt": "Tìm một món quà sinh nhật chu đáo cho bạn mình, dưới 50 $.",
+            "title": "Tìm quà"
+          },
+          "plan": {
+            "prompt": "Giúp mình lên kế hoạch cho tuần này dựa trên những việc sắp tới.",
+            "title": "Lên kế hoạch tuần"
+          },
+          "remind": {
+            "prompt": "Nhắc mình gọi cho mẹ vào Chủ nhật lúc 6 giờ chiều.",
+            "title": "Đặt lời nhắc"
+          }
+        },
+        "startersLabel": "Thử một trong những gợi ý này"
+      },
+      "replies": {
+        "accountDone": "Xong rồi.",
+        "accountSkipped": "Bỏ qua lúc này.",
+        "computerDone": "Đã kết nối!",
+        "computerSkipped": "Để sau nhé.",
+        "helloDone": "Cho mình xem.",
+        "showcaseDone": "Hiểu rồi.",
+        "themeDone": "Chọn cái này.",
+        "themeSkipped": "Giữ mặc định."
+      },
+      "send": "Gửi",
       "showcase": {
-        "settledTitle": "Tham quan nhanh",
-        "replay": "Xem lại bản demo",
-        "tablist": "Stella có thể làm gì",
-        "placeholder": "Hỏi Stella",
         "chapters": {
           "errands": {
-            "word": "Việc vặt",
-            "title": "Nhờ một lần. Coi như xong.",
             "caption": "Mình mở trang web, điền thông tin và làm xong việc, đúng như bạn vẫn làm.",
             "prompt": "Đặt bàn cho 2 người tối thứ Sáu lúc 20:00",
-            "working": "Đang đặt bàn",
             "receipt1": "Osteria Lucia · T6 20:00 · 2 người",
             "receipt2": "Đã thêm vào lịch của bạn",
             "reply": "Đã đặt Osteria Lucia lúc 20:00 thứ Sáu. Mình đã thêm vào lịch của bạn.",
             "scene": {
-              "site": "osterialucia.com",
-              "party": "Số người",
-              "partyValue": "2 người",
               "date": "Ngày",
               "dateValue": "Thứ Sáu",
-              "time": "Giờ",
-              "timeValue": "20:00",
+              "party": "Số người",
+              "partyValue": "2 người",
               "reserve": "Đặt chỗ",
-              "reserved": "Đã đặt"
-            }
+              "reserved": "Đã đặt",
+              "site": "osterialucia.com",
+              "time": "Giờ",
+              "timeValue": "20:00"
+            },
+            "title": "Nhờ một lần. Coi như xong.",
+            "word": "Việc vặt",
+            "working": "Đang đặt bàn"
+          },
+          "research": {
+            "caption": "Mình so sánh các lựa chọn, đọc đánh giá rồi quay lại với câu trả lời.",
+            "prompt": "Tìm chiếc xe đạp điện tốt nhất dưới 2.000 $",
+            "receipt1": "Đã đọc 24 đánh giá",
+            "receipt2": "Bản so sánh đã lưu vào Tệp",
+            "reply": "Cityline 3: khung nhẹ nhất, phanh tốt nhất, 1.799 $.",
+            "scene": {
+              "rank1": "Cityline 3",
+              "rank2": "Metro S",
+              "rank3": "Urban X",
+              "source1": "Đánh giá chuyên gia",
+              "source2": "Diễn đàn người dùng",
+              "source3": "Bảng thông số",
+              "title": "So sánh xe đạp điện"
+            },
+            "title": "Việc đọc để mình lo.",
+            "word": "Nghiên cứu",
+            "working": "Đang đọc đánh giá"
+          },
+          "routines": {
+            "caption": "Lời nhắc, kiểm tra định kỳ và bản tin hằng ngày tự chạy theo lịch riêng.",
+            "prompt": "Mỗi sáng lúc 8 giờ, tóm tắt ngày hôm nay cho mình",
+            "receipt1": "Mỗi ngày lúc 08:00",
+            "reply": "Xong rồi. Bản tin đầu tiên sẽ đến vào 8 giờ sáng mai.",
+            "scene": {
+              "body": "3 cuộc họp, mưa sau 17:00 và hôm nay là sinh nhật của Sam.",
+              "day": "Ngày mai",
+              "now": "bây giờ",
+              "time": "8:00",
+              "title": "Bản tin buổi sáng",
+              "when": "Ngày mai, 08:00"
+            },
+            "title": "Đặt một lần. Mình lo tiếp.",
+            "word": "Định kỳ",
+            "working": "Đang thiết lập"
           },
           "shopping": {
-            "word": "Mua sắm",
-            "title": "Mình mua hàng được, khi bạn đồng ý.",
-            "caption": "Mình tìm món đồ và đưa tới bước thanh toán. Bạn duyệt tổng tiền, rồi mình đặt hàng.",
-            "prompt": "Đặt lại đôi giày chạy bộ của mình, cỡ 10",
-            "working": "Đang tìm giày của bạn",
             "amount": "129,99 $",
-            "confirmTitle": "Xác nhận mua?",
-            "confirmDetail": "Trail Runner 2 · cỡ 10",
+            "caption": "Mình tìm món đồ và đưa tới bước thanh toán. Bạn duyệt tổng tiền, rồi mình đặt hàng.",
             "confirm": "Xác nhận",
+            "confirmDetail": "Trail Runner 2 · cỡ 10",
+            "confirmTitle": "Xác nhận mua?",
             "confirmed": "Đã xác nhận",
+            "prompt": "Đặt lại đôi giày chạy bộ của mình, cỡ 10",
             "receipt1": "Order #48213 · giao thứ Năm",
             "reply": "Đã đặt hàng. Thứ Năm là giày tới.",
             "scene": {
-              "site": "trailco.com",
-              "product": "Trail Runner 2",
               "addToCart": "Thêm vào giỏ",
-              "inCart": "Trong giỏ"
-            }
+              "inCart": "Trong giỏ",
+              "product": "Trail Runner 2",
+              "site": "trailco.com"
+            },
+            "title": "Mình mua hàng được, khi bạn đồng ý.",
+            "word": "Mua sắm",
+            "working": "Đang tìm giày của bạn"
           },
           "work": {
-            "word": "Công việc",
-            "title": "Tệp thật, làm xong.",
             "caption": "Tài liệu, bảng tính và bài thuyết trình: mình làm việc và lưu tệp ở nơi bạn mở được.",
             "prompt": "Biến ghi chú Q3 của mình thành bài thuyết trình cho thứ Hai",
-            "working": "Đang đọc ghi chú của bạn",
             "receipt1": "Ghi chú Q3 · đã đọc",
             "receipt2": "Bài thuyết trình đánh giá Q3 · 12 slide",
             "reply": "Bài thuyết trình của bạn đã xong: 12 slide, lưu trong Tệp.",
             "scene": {
               "file": "Đánh giá Q3.pptx",
               "slideTitle": "Đánh giá Q3"
-            }
-          },
-          "routines": {
-            "word": "Định kỳ",
-            "title": "Đặt một lần. Mình lo tiếp.",
-            "caption": "Lời nhắc, kiểm tra định kỳ và bản tin hằng ngày tự chạy theo lịch riêng.",
-            "prompt": "Mỗi sáng lúc 8 giờ, tóm tắt ngày hôm nay cho mình",
-            "working": "Đang thiết lập",
-            "receipt1": "Mỗi ngày lúc 08:00",
-            "reply": "Xong rồi. Bản tin đầu tiên sẽ đến vào 8 giờ sáng mai.",
-            "scene": {
-              "when": "Ngày mai, 08:00",
-              "day": "Ngày mai",
-              "time": "8:00",
-              "now": "bây giờ",
-              "title": "Bản tin buổi sáng",
-              "body": "3 cuộc họp, mưa sau 17:00 và hôm nay là sinh nhật của Sam."
-            }
-          },
-          "research": {
-            "word": "Nghiên cứu",
-            "title": "Việc đọc để mình lo.",
-            "caption": "Mình so sánh các lựa chọn, đọc đánh giá rồi quay lại với câu trả lời.",
-            "prompt": "Tìm chiếc xe đạp điện tốt nhất dưới 2.000 $",
-            "working": "Đang đọc đánh giá",
-            "receipt1": "Đã đọc 24 đánh giá",
-            "receipt2": "Bản so sánh đã lưu vào Tệp",
-            "reply": "Cityline 3: khung nhẹ nhất, phanh tốt nhất, 1.799 $.",
-            "scene": {
-              "title": "So sánh xe đạp điện",
-              "source1": "Đánh giá chuyên gia",
-              "source2": "Diễn đàn người dùng",
-              "source3": "Bảng thông số",
-              "rank1": "Cityline 3",
-              "rank2": "Metro S",
-              "rank3": "Urban X"
-            }
+            },
+            "title": "Tệp thật, làm xong.",
+            "word": "Công việc",
+            "working": "Đang đọc ghi chú của bạn"
           }
-        }
+        },
+        "placeholder": "Hỏi Stella",
+        "replay": "Xem lại bản demo",
+        "settledTitle": "Tham quan nhanh",
+        "tablist": "Stella có thể làm gì"
       },
-      "computer": {
-        "title": "Máy tính của bạn, ngay trong túi",
-        "body": "Ghép nối điện thoại này với Stella trên máy tính, rồi mình có thể chạy tác vụ ở đó khi bạn ra ngoài.",
-        "point1": "Tìm một tệp và gửi cho bạn",
-        "point2": "Hoàn tất một lần xuất hoặc tải xuống",
-        "point3": "Dùng các ứng dụng bạn đã có",
-        "pair": "Ghép nối máy tính",
-        "signInToPair": "Đăng nhập để ghép nối",
-        "later": "Để sau",
-        "hint": "Trên máy tính, mở Stella và chọn Ghép nối điện thoại.",
-        "guestHint": "Việc ghép nối gắn với tài khoản Stella của bạn, nên hãy đăng nhập trước. Mình sẽ tiếp tục ngay tại đây.",
-        "connectedTo": "Đã kết nối với {name}",
-        "connectedBody": "Cứ nhờ từ bất cứ đâu, mình sẽ làm việc trên máy tính của bạn.",
-        "settledConnectedDesc": "Mình có thể chạy tác vụ ở đó từ điện thoại của bạn.",
-        "settledSkippedTitle": "Chưa có máy tính",
-        "settledSkippedDesc": "Bạn có thể ghép nối bất cứ lúc nào trong Cài đặt."
-      },
-      "account": {
-        "signInTitle": "Đăng nhập vào Stella",
-        "signInBody": "Giữ cuộc trò chuyện, cài đặt và máy tính đã kết nối của bạn trên mọi thiết bị.",
-        "signIn": "Đăng nhập",
-        "subscriptionsLabel": "Tùy chọn",
-        "subscriptionsBody": "Bạn đã trả phí Claude hoặc ChatGPT? Kết nối và tôi sẽ dùng nó trên đám mây. Máy tính của bạn dùng đăng nhập riêng.",
-        "claudeDesc": "Pro hoặc Max, qua Claude Code",
-        "chatgptDesc": "Gói ChatGPT của bạn, cho đám mây của Stella",
-        "connect": "Kết nối",
-        "connectLabel": "Kết nối {name}",
-        "connectedAs": "Đã kết nối · {name}",
-        "skip": "Bỏ qua lúc này",
-        "settledSignedIn": "Đã đăng nhập",
-        "settledGuest": "Đang dùng Stella với tư cách khách",
-        "guestSettled": "Đăng nhập bất cứ lúc nào trong Cài đặt"
-      },
+      "skip": "Bỏ qua",
+      "skipLabel": "Bỏ qua phần giới thiệu",
       "theme": {
         "appearance": "Giao diện",
-        "themes": "Chủ đề",
         "confirm": "Xong",
-        "reset": "Giữ mặc định"
-      },
-      "ready": {
-        "startersLabel": "Thử một trong những gợi ý này",
-        "start": "Bắt đầu trò chuyện",
-        "starters": {
-          "plan": {
-            "title": "Lên kế hoạch tuần",
-            "prompt": "Giúp mình lên kế hoạch cho tuần này dựa trên những việc sắp tới."
-          },
-          "gift": {
-            "title": "Tìm quà",
-            "prompt": "Tìm một món quà sinh nhật chu đáo cho bạn mình, dưới 50 $."
-          },
-          "remind": {
-            "title": "Đặt lời nhắc",
-            "prompt": "Nhắc mình gọi cho mẹ vào Chủ nhật lúc 6 giờ chiều."
-          },
-          "explain": {
-            "title": "Giải thích điều gì đó",
-            "prompt": "Giải thích đơn giản lãi kép hoạt động thế nào."
-          }
-        }
+        "reset": "Giữ mặc định",
+        "themes": "Chủ đề"
       }
     },
-    "login": {
-      "heroTitle": "Trợ lý của bạn,\ngọn trong túi.",
-      "heroBody": "Dùng Apple, Google hoặc email bạn đang dùng trên máy tính.",
-      "continueWithApple": "Tiếp tục với Apple",
-      "openingApple": "Đang mở Apple...",
-      "continueWithGoogle": "Tiếp tục với Google",
-      "openingGoogle": "Đang mở Google...",
-      "orUseEmail": "hoặc dùng email",
-      "emailPlaceholder": "Email",
-      "sending": "Đang gửi...",
-      "signingIn": "Đang đăng nhập...",
-      "checkInbox": "Kiểm tra hộp thư và nhấn vào liên kết — bạn sẽ được đăng nhập tự động.",
-      "useDifferentEmail": "Dùng email khác",
-      "resend": "Gửi lại",
-      "resendLabel": "Gửi lại email đăng nhập",
-      "enterEmail": "Nhập email của bạn.",
-      "sendFailed": "Không gửi được email đăng nhập.",
-      "googleStartFailed": "Không thể bắt đầu đăng nhập bằng Google.",
-      "appleStartFailed": "Không thể bắt đầu đăng nhập bằng Apple.",
-      "appleCompleteFailed": "Không thể hoàn tất đăng nhập bằng Apple.",
-      "appleNoToken": "Apple không trả về mã định danh.",
-      "finishFailed": "Không thể hoàn tất đăng nhập. Vui lòng thử lại.",
-      "incomplete": "Đăng nhập chưa hoàn tất. Vui lòng thử lại.",
-      "linkExpired": "Liên kết đã hết hạn. Vui lòng thử lại.",
-      "legalPrefix": "Khi tiếp tục, bạn đồng ý với ",
-      "legalTerms": "Điều khoản dịch vụ",
-      "legalConjunction": " và ",
-      "legalPrivacy": "Chính sách quyền riêng tư",
-      "legalSuffix": ".",
-      "continueAsGuest": "Tiếp tục mà không đăng nhập"
-    },
-    "chat": {
-      "emptyPrompt": "Hỏi Stella bất cứ điều gì",
-      "workingMany": "{count} tác vụ đang chạy",
-      "composerPlaceholder": "Nhắn cho Stella",
-      "mainChat": "Trò chuyện chính",
-      "createFailed": "Không thể tạo cuộc trò chuyện. Vui lòng thử lại.",
-      "loadMore": "Tải thêm"
-    },
-    "activityHub": {
-      "tabs": {
-        "activity": "Hoạt động",
-        "schedule": "Lịch trình",
-        "search": "Tìm kiếm",
-        "files": "Tệp"
-      },
-      "task": {
-        "finished": "Đã xong",
-        "failed": "Không thể hoàn thành",
-        "stopped": "Đã dừng",
-        "working": "Đang làm việc trong nền"
-      },
-      "subagents": {
-        "count": {
-          "other": "{count} tác nhân phụ"
-        },
-        "done": {
-          "other": "{count} đã xong"
-        }
-      },
-      "conversation": {
-        "title": "Cuộc trò chuyện này",
-        "subtitle": "Tệp do luồng chính tạo"
-      },
-      "schedule": {
-        "customCadence": "Lịch trình tùy chỉnh",
-        "paused": "Đã tạm dừng",
-        "next": "Lần chạy tiếp theo {when}",
-        "lastRunFailed": "Lần chạy gần nhất thất bại: {error}",
-        "pauseSchedule": "Tạm dừng lịch trình",
-        "resumeSchedule": "Tiếp tục lịch trình",
-        "deleteSchedule": "Xóa lịch trình",
-        "deleteConfirm": "“{title}” sẽ ngừng chạy.",
-        "alertTitle": "Lịch trình",
-        "actionFailed": "Không thực hiện được.",
-        "loadFailed": "Không tải được lịch trình.",
-        "empty": "Chưa có lịch trình nào. Hãy nhờ Stella trên máy tính chạy việc gì đó định kỳ, nó sẽ hiện ở đây."
-      },
-      "search": {
-        "placeholder": "Tìm trong hoạt động và tệp",
-        "clear": "Xóa tìm kiếm",
-        "close": "Đóng tìm kiếm"
-      },
-      "files": {
-        "empty": "Chưa có tệp nào. Mọi thứ Stella tạo ra sẽ hiện ở đây.",
-        "emptyFiltered": "Không có tệp nào khớp.",
-        "searchPlaceholder": "Tìm tệp"
-      },
-      "activity": {
-        "empty": "Chưa có công việc nền nào.",
-        "emptyFiltered": "Không có hoạt động hay tệp nào khớp."
-      }
-    },
-    "computer": {
-      "guestHeroTitle": "Máy tính của bạn, trong tầm tay",
-      "guestHeroBody": "Nhờ Stella làm việc trên máy tính của bạn — duyệt web, quản lý tệp, chạy tác vụ và hơn thế nữa.",
-      "defaultDeviceLabel": "Máy tính của bạn",
-      "statusChecking": "Đang kiểm tra…",
-      "statusConnected": "Đã kết nối",
-      "statusAsleep": "Đang ngủ",
-      "connectingLabel": "Đang kết nối tới máy tính của bạn",
-      "connectedLabel": "Máy tính đã kết nối",
-      "disconnectedLabel": "Máy tính đã ngắt kết nối",
-      "pairLabel": "Ghép nối máy tính"
-    },
-    "desktop": {
-      "pairTitle": "Ghép nối điện thoại",
-      "guestBody": "Xem ứng dụng Stella trên máy tính ngay trên điện thoại. Sau khi ghép nối, điện thoại sẽ tự kết nối lại.",
-      "guestSignInPrompt": "Đăng nhập để bắt đầu.",
-      "connecting": "Đang kết nối tới máy tính",
-      "pairing": "Đang ghép nối điện thoại này",
-      "unreachable": "Không kết nối được máy tính của bạn",
-      "deviceUnreachable": "Không kết nối được {platform} của bạn",
-      "repairNeeded": "Điện thoại này cần được ghép nối lại với máy tính của bạn.",
-      "enterCode": "Nhập mã hiển thị trên máy tính của bạn.",
-      "linkInterrupted": "Kết nối tới máy tính của bạn đã bị gián đoạn.",
-      "unavailableBodyPaired": "Hãy đảm bảo Stella đang mở trên máy tính và có kết nối internet. Khi đã kết nối, ứng dụng máy tính sẽ hiện ngay tại đây trên điện thoại.",
-      "unavailableBodyUnpaired": "Xem ứng dụng Stella trên máy tính ngay trên điện thoại. Quét mã QR hiển thị trong Stella trên máy tính để bắt đầu — sau đó điện thoại sẽ tự kết nối lại.",
-      "pairAnother": "Ghép nối máy tính khác",
-      "startPairingLabel": "Bắt đầu ghép nối một máy tính",
-      "retryLabel": "Thử kết nối lại",
-      "reconnecting": "Đang kết nối lại...",
-      "limitedCapabilities": "Một số việc cần đến máy tính của bạn"
+    "search": {
+      "cancelLabel": "Hủy tìm kiếm",
+      "clearLabel": "Xóa tìm kiếm",
+      "openLabel": "Tìm tin nhắn",
+      "placeholder": "Tìm tin nhắn"
     },
     "settings": {
-      "title": "Cài đặt",
-      "loadingSession": "Đang tải phiên…",
-      "signIn": "Đăng nhập",
-      "signInTitle": "Đăng nhập vào Stella",
-      "showEmailLabel": "Hiện email",
-      "hideEmailLabel": "Ẩn email",
-      "appearanceSection": "Giao diện",
-      "computerSection": "Máy tính",
-      "computer": {
-        "sectionLabel": "Nơi Stella làm việc",
-        "cloud": "Đám mây",
-        "statusOnline": "Trực tuyến",
-        "statusOffline": "Ngoại tuyến",
-        "statusNotReady": "Chưa sẵn sàng",
-        "statusNotEnabled": "Chưa được bật",
-        "statusAwaitingConsent": "Đang chờ cho phép trên máy tính đó",
-        "statusDeclined": "Đã bị từ chối trên máy tính đó",
-        "connecting": "Đang kết nối…",
-        "enable": "Bật",
-        "enabling": "Đang bật…",
-        "enableLabel": "Bật {name}",
-        "enableFailedTitle": "Không thể bật máy tính đó",
-        "connectFailedTitle": "Không thể kết nối với máy tính đó",
-        "pairingCode": "Dùng mã ghép nối"
-      },
+      "aboutSection": "Giới thiệu",
       "appearance": {
-        "system": "Hệ thống",
+        "dark": "Tối",
         "light": "Sáng",
-        "dark": "Tối"
+        "system": "Hệ thống"
       },
+      "appearanceSection": "Giao diện",
       "background": {
-        "soft": "Mềm",
-        "flat": "Phẳng"
+        "flat": "Phẳng",
+        "soft": "Mềm"
       },
       "backgroundColor": {
         "relative": "Tương đối",
         "strong": "Đậm"
       },
-      "useAppearanceLabel": "Dùng giao diện {name}",
-      "useBackgroundLabel": "Dùng nền {name}",
-      "useBackgroundColorLabel": "Dùng màu nền {name}",
-      "useThemeLabel": "Dùng chủ đề {name}",
+      "carPlayDiagnostics": "Chẩn đoán CarPlay",
+      "chatStorage": {
+        "description": "Truy cập các cuộc trò chuyện của bạn trên mọi thiết bị. Tắt để giữ lịch sử trò chuyện riêng chỉ trên thiết bị này. Khi bật lại, những cuộc trò chuyện đó sẽ không được tải lên. Các nhà cung cấp AI vẫn xử lý tin nhắn của bạn."
+      },
+      "computer": {
+        "cloud": "Đám mây",
+        "connectFailedTitle": "Không thể kết nối với máy tính đó",
+        "connecting": "Đang kết nối…",
+        "enable": "Bật",
+        "enableFailedTitle": "Không thể bật máy tính đó",
+        "enableLabel": "Bật {name}",
+        "enabling": "Đang bật…",
+        "pairingCode": "Dùng mã ghép nối",
+        "sectionLabel": "Nơi Stella làm việc",
+        "statusAwaitingConsent": "Đang chờ cho phép trên máy tính đó",
+        "statusDeclined": "Đã bị từ chối trên máy tính đó",
+        "statusNotEnabled": "Chưa được bật",
+        "statusNotReady": "Chưa sẵn sàng",
+        "statusOffline": "Ngoại tuyến",
+        "statusOnline": "Trực tuyến"
+      },
+      "computerSection": "Máy tính",
+      "deleteAccount": "Xóa tài khoản",
+      "deleteAccountLabel": "Xóa tài khoản Stella của bạn",
+      "deleteConfirmBody": "Thao tác này xóa vĩnh viễn tài khoản Stella của bạn và gỡ dữ liệu đám mây liên quan trên máy chủ của chúng tôi. Không thể hoàn tác.",
+      "deleteConfirmTitle": "Xóa tài khoản",
+      "deleteFailedTitle": "Không thể xóa tài khoản",
+      "deletingAccount": "Đang xóa tài khoản…",
+      "forget": "Quên",
+      "forgetConfirmBody": "Điện thoại này sẽ ngừng kết nối lại với máy tính đó cho tới khi bạn ghép nối lần nữa.",
+      "forgetConfirmTitle": "Quên {name}?",
+      "forgetLabel": "Quên {name}",
+      "hideEmailLabel": "Ẩn email",
+      "loadingSession": "Đang tải phiên…",
       "notificationsSection": "Thông báo",
-      "pushToggleLabel": "Cho phép thông báo đẩy",
-      "pushToggleSub": "Được báo khi máy tính của bạn hoàn tất một yêu cầu.",
-      "pushToggleA11y": "Bật/tắt thông báo đẩy",
-      "pairedSection": "Máy tính đã ghép nối",
-      "pairedEmpty": "Chưa ghép nối máy tính nào.",
-      "pairedOn": "Ghép nối {date}",
+      "openCarPlayDiagnosticsLabel": "Mở chẩn đoán CarPlay",
+      "openPrivacyLabel": "Mở Chính sách quyền riêng tư",
+      "openTermsLabel": "Mở Điều khoản dịch vụ",
       "paired": {
         "unnamedComputer": "Máy tính · {id}"
       },
-      "forget": "Quên",
-      "forgetLabel": "Quên {name}",
-      "forgetConfirmTitle": "Quên {name}?",
-      "forgetConfirmBody": "Điện thoại này sẽ ngừng kết nối lại với máy tính đó cho tới khi bạn ghép nối lần nữa.",
-      "carPlayDiagnostics": "Chẩn đoán CarPlay",
-      "aboutSection": "Giới thiệu",
-      "openCarPlayDiagnosticsLabel": "Mở chẩn đoán CarPlay",
-      "termsOfService": "Điều khoản dịch vụ",
-      "openTermsLabel": "Mở Điều khoản dịch vụ",
+      "pairedEmpty": "Chưa ghép nối máy tính nào.",
+      "pairedOn": "Ghép nối {date}",
+      "pairedSection": "Máy tính đã ghép nối",
       "privacyPolicy": "Chính sách quyền riêng tư",
-      "openPrivacyLabel": "Mở Chính sách quyền riêng tư",
-      "signOut": "Đăng xuất",
-      "signingOut": "Đang đăng xuất…",
-      "signOutLabel": "Đăng xuất khỏi Stella",
-      "deleteAccount": "Xóa tài khoản",
-      "deletingAccount": "Đang xóa tài khoản…",
-      "deleteAccountLabel": "Xóa tài khoản Stella của bạn",
-      "deleteConfirmTitle": "Xóa tài khoản",
-      "deleteConfirmBody": "Thao tác này xóa vĩnh viễn tài khoản Stella của bạn và gỡ dữ liệu đám mây liên quan trên máy chủ của chúng tôi. Không thể hoàn tác.",
-      "deleteFailedTitle": "Không thể xóa tài khoản",
-      "chatStorage": {
-        "description": "Truy cập các cuộc trò chuyện của bạn trên mọi thiết bị. Tắt để giữ lịch sử trò chuyện riêng chỉ trên thiết bị này. Khi bật lại, những cuộc trò chuyện đó sẽ không được tải lên. Các nhà cung cấp AI vẫn xử lý tin nhắn của bạn."
-      }
-    },
-    "cloudHome": {
-      "settingsSection": "Cloud Home",
-      "settingsRowTitle": "Tài liệu bộ nhớ",
-      "settingsRowBody": "Xem và chỉnh sửa bộ nhớ Stella có bản chính thức trên đám mây.",
-      "openSettingsLabel": "Mở bộ nhớ Cloud Home",
-      "title": "Bộ nhớ Cloud Home",
-      "subtitle": "Các tài liệu Stella chính thức của bạn trên đám mây",
-      "backToSettingsLabel": "Quay lại Cài đặt",
-      "backToDocumentsLabel": "Quay lại tài liệu Cloud Home",
-      "editorMeta": "{kind} · bản sửa đổi {revision}",
-      "listMeta": "{kind} · bản sửa đổi {revision} · {size}",
-      "signInTitle": "Đăng nhập để sử dụng Cloud Home",
-      "signInBody": "Tài liệu bộ nhớ là dữ liệu riêng tư trong tài khoản Stella của bạn.",
+      "pushToggleA11y": "Bật/tắt thông báo đẩy",
+      "pushToggleLabel": "Cho phép thông báo đẩy",
+      "pushToggleSub": "Được báo khi máy tính của bạn hoàn tất một yêu cầu.",
+      "showEmailLabel": "Hiện email",
       "signIn": "Đăng nhập",
-      "signInAgain": "Đăng nhập lại",
-      "loading": "Đang tải Cloud Home…",
-      "unavailableTitle": "Cloud Home không khả dụng",
-      "unavailableBody": "Bản triển khai này hiện không cung cấp dịch vụ Cloud Home bảo mật. Các tệp cục bộ của bạn không bị thay đổi.",
-      "errors": {
-        "unauthorized": "Đăng nhập lại để truy cập Cloud Home.",
-        "unavailable": "Cloud Home hiện không khả dụng cho tài khoản này.",
-        "invalid": "Cloud Home trả về phản hồi không hợp lệ.",
-        "network": "Không thể kết nối với Cloud Home. Hãy thử lại.",
-        "missingFromList": "Tài liệu đó không còn trong Cloud Home. Hãy tải lại danh sách.",
-        "removedWhileEditing": "Tài liệu đó đã bị xóa khỏi Cloud Home."
-      },
-      "notices": {
-        "saved": "Đã lưu vào Cloud Home.",
-        "loadedLatest": "Đã tải phiên bản mới nhất trên đám mây."
-      },
-      "conflict": {
-        "title": "Phiên bản trên đám mây đã thay đổi",
-        "changedBody": "Bản sửa đổi {revision} đã thay thế phiên bản bạn đang chỉnh sửa. Bản nháp của bạn vẫn còn ở đây.",
-        "removedBody": "Tài liệu này đã bị xóa trong khi bạn chỉnh sửa. Bản nháp của bạn vẫn còn ở đây.",
-        "reloadLabel": "Tải lại phiên bản trên đám mây và thay thế bản nháp này",
-        "reloading": "Đang tải lại…",
-        "reload": "Tải lại phiên bản trên đám mây"
-      },
-      "editor": {
-        "editLabel": "Chỉnh sửa {name}",
-        "saving": "Đang lưu…",
-        "save": "Lưu",
-        "unsaved": "Thay đổi chưa lưu",
-        "upToDate": "Đã cập nhật"
-      },
-      "list": {
-        "retryLabel": "Thử tải lại bộ nhớ Cloud Home",
-        "retry": "Thử lại",
-        "loading": "Đang tải tài liệu…",
-        "emptyTitle": "Chưa có bộ nhớ trên đám mây",
-        "emptyBody": "Tài liệu do Stella tạo hoặc được nhập từ ứng dụng máy tính sẽ xuất hiện tại đây.",
-        "openDocumentLabel": "Mở {name}"
-      },
-      "kinds": {
-        "memory": "bộ nhớ",
-        "profile": "hồ sơ",
-        "memory_map": "bản đồ bộ nhớ",
-        "core_memory": "bộ nhớ cốt lõi",
-        "personality": "tính cách",
-        "imported_markdown": "Markdown đã nhập",
-        "user_markdown": "Markdown của người dùng",
-        "archive": "kho lưu trữ"
-      },
-      "sizes": {
-        "bytes": "{count} B",
-        "kilobytes": "{count} KB",
-        "megabytes": "{count} MB"
-      }
-    },
-    "carPlayDiagnostics": {
-      "title": "Chẩn đoán CarPlay",
-      "subtitle": {
-        "other": "Nhật ký kết nối CarPlay ({count} dòng, mới nhất trước). Hãy sao chép và gửi cho chúng tôi khi có gì đó trục trặc trên xe."
-      },
-      "copyAll": "Sao chép tất cả",
-      "copyAllLabel": "Sao chép toàn bộ chẩn đoán",
-      "copied": "Đã sao chép ✓",
-      "refresh": "Làm mới",
-      "refreshLabel": "Làm mới chẩn đoán",
-      "clear": "Xóa",
-      "clearLabel": "Xóa chẩn đoán",
-      "empty": "Chưa ghi được chẩn đoán CarPlay nào. Hãy kết nối CarPlay một lần rồi quay lại đây.",
-      "clipboardEmpty": "(chưa ghi được chẩn đoán CarPlay nào)"
-    },
-    "account": {
-      "title": "Tài khoản"
-    },
-    "activity": {
-      "inProgress": {
-        "other": "{count} đang thực hiện"
-      },
-      "openLabel": "Hiển thị hoạt động"
+      "signInTitle": "Đăng nhập vào Stella",
+      "signOut": "Đăng xuất",
+      "signOutLabel": "Đăng xuất khỏi Stella",
+      "signingOut": "Đang đăng xuất…",
+      "termsOfService": "Điều khoản dịch vụ",
+      "title": "Cài đặt",
+      "useAppearanceLabel": "Dùng giao diện {name}",
+      "useBackgroundColorLabel": "Dùng màu nền {name}",
+      "useBackgroundLabel": "Dùng nền {name}",
+      "useThemeLabel": "Dùng chủ đề {name}"
     },
     "sidebar": {
       "searchPlaceholder": "Tìm trong hoạt động và tệp",
       "signedOutHint": "Đăng nhập để xem Stella đang làm gì trong nền."
-    },
-    "engineAccounts": {
-      "title": "Claude và ChatGPT",
-      "subtitle": "Dùng gói Claude hoặc ChatGPT bạn đã trả phí",
-      "backLabel": "Quay lại Cài đặt",
-      "claudeSection": "Claude",
-      "chatgptSection": "ChatGPT",
-      "active": "Đang dùng",
-      "useAccount": "Dùng tài khoản này",
-      "signOut": "Đăng xuất",
-      "moreLabel": "Tùy chọn cho {name}",
-      "signOutTitle": "Đăng xuất khỏi {name}?",
-      "signOutBody": "Stella sẽ ngừng dùng tài khoản này. Bạn có thể thêm lại bất cứ lúc nào.",
-      "pasteHintClaude": "Sau khi bạn chấp thuận, Anthropic sẽ hiển thị một mã. Hãy sao chép và dán vào đây.",
-      "pasteHintChatgpt": "Sau khi bạn chấp thuận, ChatGPT sẽ chuyển bạn đến một trang không tải được. Hãy sao chép toàn bộ địa chỉ của trang đó và dán vào đây.",
-      "pastePlaceholder": "Dán mã mà Anthropic hiển thị",
-      "pasteFromClipboard": "Dán",
-      "finish": "Kết nối",
-      "connecting": "Đang kết nối…",
-      "errorTitle": "Không thể cập nhật tài khoản",
-      "errorBody": "Đã xảy ra lỗi. Hãy thử lại.",
-      "pastePlaceholderUrl": "Dán địa chỉ vào đây",
-      "openChatgptAgain": "Mở lại ChatGPT",
-      "chatgptBrowserWaiting": "Hoàn tất đăng nhập ChatGPT trong trình duyệt của bạn.",
-      "signInAgain": "Đăng nhập lại",
-      "enablePlanUsage": "Bật sử dụng gói ChatGPT",
-      "remove": "Xóa",
-      "removeTitle": "Xóa {name}?",
-      "removeBody": "Stella sẽ quên tài khoản ChatGPT này. Bạn có thể đăng nhập lại sau.",
-      "statusSignedOut": "Đã đăng xuất",
-      "statusReauth": "Đăng nhập lại để tiếp tục sử dụng",
-      "statusPlanUsageOff": "Chưa bật sử dụng gói ChatGPT",
-      "planUsageOffBody": "Stella không thể dùng gói ChatGPT của bạn cho đến khi bạn cho phép. Chọn “Bật sử dụng gói ChatGPT” trên tài khoản.",
-      "manageUsage": "Quản lý mức sử dụng",
-      "revokeUnconfirmed": "ChatGPT chưa xác nhận việc đăng xuất. Bạn có thể ngắt kết nối Stella trong Cài đặt ChatGPT.",
-      "planWelcomeTitle": "Bạn đang dùng gói ChatGPT của mình",
-      "planWelcomeBody": "Các yêu cầu ChatGPT trên đám mây của Stella được tính vào gói ChatGPT của bạn. Xem mức sử dụng và đặt giới hạn cho Stella trong Cài đặt ChatGPT.",
-      "connectClaude": "Thêm tài khoản Claude",
-      "connectChatgpt": "Kết nối tài khoản ChatGPT",
-      "signInCloud": "Đăng nhập trên đám mây",
-      "signOutCloud": "Đăng xuất khỏi đám mây",
-      "signOutCloudTitle": "Đăng xuất {name} khỏi đám mây?",
-      "signOutCloudBody": "Đám mây của Stella ngừng dùng tài khoản này cho đến khi bạn đăng nhập lại ở đó. Máy tính của bạn vẫn giữ đăng nhập Claude Code riêng.",
-      "removeClaudeBody": "Stella quên tài khoản Claude này và đăng xuất đám mây khỏi tài khoản đó. Máy tính của bạn vẫn giữ đăng nhập Claude Code riêng.",
-      "placeCloud": "Đám mây",
-      "placeComputer": "Máy tính",
-      "signedInOn": "Đã đăng nhập: {places}",
-      "notSignedIn": "Chưa đăng nhập ở đâu",
-      "claudeNote": "Thêm tài khoản ở đây sẽ đăng nhập đám mây của Stella vào Claude Code trên chính trang của Anthropic. Mỗi máy tính dùng đăng nhập Claude Code riêng.",
-      "startAgain": "Bắt đầu lại",
-      "openClaudeAgain": "Mở lại trang đăng nhập",
-      "continueAsChatgpt": "Tiếp tục với ChatGPT dưới tên {name}",
-      "continueWithChatgpt": "Tiếp tục với tài khoản ChatGPT của bạn"
     }
   },
-  "companion": {
-    "menu": {
-      "openStella": "Open Stella",
-      "hide": "Hide companion",
-      "quit": "Quit Stella"
+  "onboarding": {
+    "chat": {
+      "capabilities": {
+        "build": {
+          "caption": "Apps and websites, made to order. Describe it in plain words and I'll build it, run it, and put it online.",
+          "title": "Say it. I'll build it.",
+          "word": "Build"
+        },
+        "errands": {
+          "caption": "Tôi tìm đúng nơi, điền biểu mẫu và đưa vào lịch của bạn, giống như cách bạn vẫn làm.",
+          "title": "Ask once. Consider it handled.",
+          "word": "Errands"
+        },
+        "replay": "Replay this demo",
+        "routines": {
+          "caption": "Hẹn giờ bất cứ việc gì, tôi sẽ làm đúng giờ, kể cả khi bạn đang ngủ.",
+          "title": "Nhờ một lần. Việc diễn ra mỗi ngày.",
+          "word": "Tác vụ định kỳ"
+        },
+        "settledTitle": "The quick tour",
+        "shopping": {
+          "caption": "I find it and get it to checkout. You confirm the total, and I place the order.",
+          "title": "I can buy things, with your OK.",
+          "word": "Shopping"
+        },
+        "tablist": "Capability demos",
+        "work": {
+          "caption": "Tôi làm việc bên trong các ứng dụng thật trên máy tính này, và có thể chạy nhiều việc cùng lúc.",
+          "title": "Tệp thật. Nhiều việc cùng lúc.",
+          "word": "Work"
+        }
+      },
+      "composerPlaceholder": "Or just ask me something to get started",
+      "discovery": {
+        "alsoLabel": "Also include",
+        "assurance": "A one-time read, kept on this computer. You can see and edit what I keep at any time.",
+        "browserLabel": "Your browser",
+        "hint": "About a minute, in the background.",
+        "includeDev": "My coding setup"
+      },
+      "extras": {
+        "accessibilityDesc": "So I can act on selected text and what's under your cursor.",
+        "accessibilityTitle": "Accessibility",
+        "body": "Neither is required, but both make me a lot more useful.",
+        "bodyOne": "Not required, but it makes me a lot more useful.",
+        "enable": "Enable",
+        "enabled": "Enabled",
+        "extensionDesc": "Lets me see the page you're on and act inside your browser. Works in Chrome, Arc, Brave, and Edge.",
+        "extensionOpened": "Opened",
+        "extensionTitle": "Stella for Chrome",
+        "getExtension": "Get extension",
+        "hint": "All of this lives in Settings too.",
+        "memoryDesc": "Use what I've saved about you when it's relevant. Nothing is deleted if you turn this off.",
+        "memoryTitle": "Remember across chats",
+        "restart": "Restart Stella",
+        "restartHint": "Screen access needs a quick restart to take effect.",
+        "screenDesc": "So I can see the screen when you ask me to.",
+        "screenTitle": "Screen Recording",
+        "settledExtension": "Extension",
+        "settledMemory": "Memory",
+        "settledPermissions": "Permissions",
+        "settledSkippedTitle": "Extras skipped",
+        "settledTitle": "Extras",
+        "skip": "Skip for now",
+        "title": "Two quick extras",
+        "titleOne": "One quick extra"
+      },
+      "memory": {
+        "bodyChatbot": "A new chat every time, a sidebar full of old ones, and no memory of what you said last week.",
+        "bodyStella": "No new chats, no threads. Everything you've ever told me is in the same place, so when you ask about last week I go and find it.",
+        "settledDesc": "No threads to manage. I remember.",
+        "settledTitle": "One conversation",
+        "showStella": "Now ask me",
+        "skip": "Skip",
+        "titleChatbot": "You know this one",
+        "titleStella": "With me it's one conversation"
+      },
+      "messages": {
+        "capabilities": "Xin chào, tôi là Stella.\n\nTôi không phải chatbot. Tôi dùng chiếc máy tính này để thực sự hoàn thành công việc cho bạn, chạy ngầm, trong lúc bạn tiếp tục việc của mình.\n\nĐây là cách nó diễn ra.",
+        "extras": "Almost done. A little housekeeping, then we start.",
+        "memory": "One more thing that makes me different.",
+        "quickstart": "Vậy là xong. Còn một việc cuối, và không bắt buộc: khởi động nhanh.",
+        "quickstartDone": "Xong rồi. Đây là những gì tôi đã nắm được, và vài việc chúng ta có thể bắt đầu.",
+        "quickstartFailed": "Lần này tôi không đọc xong trình duyệt của bạn. Chúng ta vẫn có thể bắt đầu, và tôi sẽ học dần.",
+        "selfmod": "Và vì tôi sống trên máy tính của bạn, tôi có thể tự thay đổi chính mình.",
+        "signin": "Tiếp theo, hãy đăng nhập. Dùng tài khoản Stella, hoặc gói Claude hay ChatGPT mà bạn đã có.",
+        "theme": "Now, how should I look?"
+      },
+      "progress": "Tiến trình thiết lập",
+      "quickstart": {
+        "body": "Hầu hết trợ lý đều bắt đầu từ con số không. Hãy chỉ tôi đến trình duyệt của bạn, tôi sẽ đọc một lần để tạo bộ nhớ ban đầu, để tôi hữu ích ngay từ ngày đầu.",
+        "continueInBackground": "Bắt đầu trò chuyện, hoàn tất ngầm",
+        "eyebrow": "Khởi động nhanh",
+        "failedBody": "Có điều gì đó đã làm gián đoạn việc đọc. Hãy thử lại, hoặc bắt đầu trò chuyện và tôi sẽ học dần.",
+        "failedTitle": "Chưa hoàn tất",
+        "run": "Chạy khởi động nhanh",
+        "runningBody": "Khoảng một phút. Cứ vào bất cứ lúc nào, tôi sẽ hoàn tất ngầm.",
+        "runningTitle": "Đang làm quen với bạn",
+        "skip": "Bỏ qua",
+        "stages": {
+          "notice": "Đang nhận ra điều quan trọng với bạn",
+          "read": "Đang đọc những gì bạn đã chọn",
+          "write": "Đang viết bộ nhớ ban đầu của bạn"
+        },
+        "title": "Cho tôi một khởi đầu thuận lợi"
+      },
+      "ready": {
+        "generic": {
+          "browse": {
+            "prompt": "Find a well-reviewed dinner spot near me for this weekend and hold a reservation for two.",
+            "title": "Find me a good dinner spot"
+          },
+          "file": {
+            "prompt": "I have a document that needs cleaning up. I'll share it and you fix the structure and wording.",
+            "title": "Tidy up a document"
+          },
+          "plan": {
+            "prompt": "Help me plan my week. Ask me what's on my plate and lay it out day by day.",
+            "title": "Plan my week"
+          },
+          "watch": {
+            "prompt": "Keep an eye on a web page for me and tell me when it changes.",
+            "title": "Watch a site for changes"
+          }
+        },
+        "highlightsLabel": "What I picked up",
+        "hint": "Or type anything below.",
+        "notesFoot": "You can read or edit this any time in Settings › Memory.",
+        "notesSummary": "See everything I noted",
+        "start": "Start chatting",
+        "startersLabel": "Try one of these",
+        "startersLabelPersonal": "Made for you"
+      },
+      "replies": {
+        "capabilitiesDone": "Got it.",
+        "capabilitiesSkipped": "Skip the tour.",
+        "extrasDone": "Done.",
+        "extrasSkipped": "Skip for now.",
+        "memoryDone": "Nice.",
+        "memorySkipped": "Skip it.",
+        "selfmodDone": "Tuyệt thật.",
+        "signinDone": "Xong.",
+        "themeDone": "That one.",
+        "themeSkipped": "Keep the default."
+      },
+      "selfmod": {
+        "body": "Thiếu một tính năng, hay muốn thứ gì đó hoạt động khác đi? Cứ nói. Tôi sẽ viết lại mã của chính mình, để bạn dùng thử, và bạn quyết định có giữ lại hay không.",
+        "hint": "Thay đổi chỉ nằm trên máy tính này.",
+        "settledDesc": "Nhờ, xem trước, cập nhật. Hoàn tác bất cứ lúc nào.",
+        "settledTitle": "Tôi có thể tự thay đổi mình",
+        "steps": {
+          "ask": {
+            "body": "Mô tả thay đổi bằng lời đơn giản.",
+            "title": "Nhờ"
+          },
+          "preview": {
+            "body": "Một tác tử xây dựng nó và mở bản xem trước trực tiếp.",
+            "title": "Xem trước"
+          },
+          "update": {
+            "body": "Một cú nhấp để áp dụng. Hoàn tác bất cứ lúc nào.",
+            "title": "Cập nhật"
+          }
+        },
+        "title": "Tôi có thể tự thay đổi mình"
+      },
+      "send": "Send",
+      "signin": {
+        "body": "Chỉ cần một trong số này là đủ. Bạn có thể thêm các cái khác sau.",
+        "claudeCliMissing": "Hãy cài Claude Code trước rồi thử lại.",
+        "connect": "Kết nối",
+        "error": "Chưa kết nối được. Thử lại nhé?",
+        "fine": "Bạn có thể đổi bất cứ lúc nào trong Cài đặt.",
+        "hint": "Bắt đầu miễn phí.",
+        "inUse": "Đang dùng",
+        "options": {
+          "apikey": {
+            "body": "Dùng khóa của riêng bạn từ Anthropic, OpenAI, Google và các nhà cung cấp khác.",
+            "title": "Khóa API"
+          },
+          "chatgpt": {
+            "body": "Đăng nhập bằng ChatGPT để dùng gói của bạn.",
+            "title": "ChatGPT"
+          },
+          "claude": {
+            "body": "Dùng gói Claude Pro hoặc Max của bạn.",
+            "title": "Claude Code"
+          },
+          "stella": {
+            "body": "Google hoặc email. Các cuộc trò chuyện của bạn theo bạn sang điện thoại.",
+            "title": "Tài khoản Stella"
+          }
+        },
+        "settledDesc": "Đổi bất cứ lúc nào trong Cài đặt.",
+        "settledEngine": "Đang dùng {name}",
+        "settledStella": "Đã đăng nhập vào Stella",
+        "signIn": "Đăng nhập",
+        "title": "Đăng nhập",
+        "use": "Dùng",
+        "waiting": "Hãy đăng nhập xong trong trình duyệt, rồi quay lại đây."
+      },
+      "skipSetup": "Skip setup",
+      "theme": {
+        "appearance": "Appearance",
+        "body": "Hover to try one on. Click to keep it.",
+        "confirm": "Done",
+        "gradient": {
+          "flat": "Flat",
+          "relative": "Relative",
+          "soft": "Soft",
+          "strong": "Strong"
+        },
+        "gradientColor": "Gradient color",
+        "gradientStyle": "Gradient style",
+        "hint": "Everything here changes live.",
+        "mode": {
+          "dark": "Dark",
+          "light": "Light",
+          "system": "System"
+        },
+        "settledTitle": "Default",
+        "skip": "Keep the default",
+        "themes": "Theme",
+        "title": "Pick a look"
+      }
     },
-    "composer": {
-      "placeholder": "Ask Stella…"
+    "legalFooter": "Khi sử dụng Stella, bạn đồng ý với {terms} và {privacy} của chúng tôi.",
+    "privacyPolicy": "Chính sách bảo mật",
+    "termsOfService": "Điều khoản dịch vụ"
+  },
+  "settings": {
+    "account": {
+      "cloudHome": {
+        "actions": {
+          "blocked": "Nhập bị chặn",
+          "boundElsewhere": "Đã liên kết với tài khoản khác",
+          "import": "Nhập vào tài khoản này",
+          "sync": "Đồng bộ ngay",
+          "syncing": "Đang đồng bộ…"
+        },
+        "authorizationNote": "Các kỹ năng đã tải lên vẫn không khả dụng với tác nhân cho đến khi phiên bản chính xác của chúng được cấp quyền rõ ràng.",
+        "label": "Bộ nhớ và kỹ năng",
+        "summary": {
+          "attention": "Cloud Home đã giữ lại các bản sao hiện có trên đám mây ở những nơi dữ liệu cục bộ khác biệt. Hãy xem lại chi tiết bên dưới.",
+          "checking": "Đang kiểm tra bộ nhớ và kỹ năng cục bộ…",
+          "current": "Cloud Home hiện là phiên bản mới nhất. Bộ nhớ đã tải lên: {memoryCount}. Gói kỹ năng đã tải lên: {skillCount}.",
+          "intro": "Stella nhập bộ nhớ cục bộ và các kỹ năng tùy chỉnh phù hợp vào tài khoản đám mây của bạn một cách an toàn.",
+          "unavailable": "Tính năng đồng bộ Cloud Home hiện không khả dụng."
+        },
+        "title": "Cloud Home"
+      },
+      "deleteAccount": {
+        "action": "Xóa",
+        "description": "Xóa vĩnh viễn tài khoản của bạn và mọi thứ trong đó.",
+        "label": "Xóa tài khoản",
+        "working": "Đang xóa…"
+      },
+      "deleteData": {
+        "action": "Xóa",
+        "description": "Xóa tất cả cuộc trò chuyện, bộ nhớ và cài đặt Stella đã lưu.",
+        "label": "Xóa dữ liệu",
+        "working": "Đang xóa…"
+      },
+      "dialog": {
+        "deleteAccountButton": "Xóa tài khoản",
+        "deleteAccountDescription": "Thao tác này xóa vĩnh viễn tài khoản và dữ liệu Stella của bạn. Không thể hoàn tác.",
+        "deleteAccountTitle": "Xóa tài khoản Stella của bạn?",
+        "deleteDataButton": "Xóa dữ liệu",
+        "deleteDataDescription": "Thao tác này xóa các cuộc trò chuyện, bộ nhớ, cài đặt và trạng thái Stella cục bộ của bạn. Không thể hoàn tác.",
+        "deleteDataTitle": "Xóa dữ liệu Stella của bạn?",
+        "working": "Đang xóa…"
+      },
+      "legal": {
+        "privacy": "Chính sách quyền riêng tư",
+        "terms": "Điều khoản dịch vụ",
+        "title": "Pháp lý",
+        "view": "Xem"
+      },
+      "signOut": {
+        "action": "Đăng xuất",
+        "description": "Đăng xuất khỏi Stella trên thiết bị này.",
+        "label": "Đăng xuất"
+      },
+      "title": "Tài khoản",
+      "toasts": {
+        "accountDeleted": "Tài khoản Stella của bạn đã được xóa.",
+        "dataDeleted": "Dữ liệu Stella của bạn đã được xóa.",
+        "deleteAccountFailed": "Không thể xóa tài khoản của bạn. Vui lòng thử lại.",
+        "deleteDataFailed": "Không thể xóa dữ liệu của bạn. Vui lòng thử lại.",
+        "signInBeforeDelete": "Đăng nhập trước khi xóa tài khoản của bạn."
+      }
     },
-    "bubble": {
-      "openStella": "Open in Stella",
-      "typing": "Stella is replying"
+    "agentModelPicker": {
+      "assistantPickerAriaLabel": "Bộ chọn mô hình trợ lý",
+      "byokDescription": "Dùng khóa API {provider} của riêng bạn.",
+      "chatGptManageUsage": "Quản lý mức sử dụng",
+      "chatGptPlanInUse": "Đang dùng gói ChatGPT",
+      "chatGptRouted": "Đã chuyển sang {model} (mô hình đã lưu không khả dụng).",
+      "default": "Mặc định",
+      "errors": {
+        "chatGptMigration": "Chuyển đổi định tuyến ChatGPT thất bại.",
+        "chatGptNoModels": "Hiện không có mô hình ChatGPT nào khả dụng.",
+        "chatGptNotConnected": "Hãy đăng nhập bằng ChatGPT trên máy tính này trước.",
+        "chatGptPlanUsageOff": "Tài khoản này chưa bật sử dụng gói ChatGPT. Hãy bật trong Cài đặt › Tài khoản hoặc chọn mô hình khác.",
+        "chatGptVerify": "Không thể xác minh các mô hình ChatGPT: {error}",
+        "chatGptVerifying": "Hãy đợi quá trình xác minh mô hình ChatGPT hoàn tất.",
+        "connectChatGpt": "Không kết nối được ChatGPT.",
+        "loadPreferences": "Không tải được cài đặt mô hình.",
+        "refreshTitle": "Không làm mới được mô hình",
+        "updateChatGptSpeed": "Không cập nhật được tốc độ ChatGPT.",
+        "updateDirectRuntime": "Không cập nhật được cài đặt {runtime} trực tiếp.",
+        "updateEngine": "Không cập nhật được engine.",
+        "updateImage": "Không cập nhật được cài đặt hình ảnh.",
+        "updateModel": "Không cập nhật được cài đặt mô hình.",
+        "updateReadAloud": "Không cập nhật được nhà cung cấp đọc to.",
+        "updateReasoning": "Không cập nhật được mức độ suy luận.",
+        "updateTitle": "Không cập nhật được cài đặt mô hình",
+        "updateVoice": "Không cập nhật được cài đặt giọng nói."
+      },
+      "imageProviderAriaLabel": "Nhà cung cấp hình ảnh",
+      "noChatGptModels": "Hiện không có mô hình ChatGPT nào khả dụng cho tài khoản này.",
+      "savedModelUnavailable": "Mô hình đã lưu không khả dụng. Hãy chọn mô hình khác.",
+      "stellaDefault": "Mặc định của Stella",
+      "surfaceAriaLabel": "Phạm vi",
+      "tabs": {
+        "assistant": "Trợ lý",
+        "assistantTitle": "Trợ lý chính của Stella",
+        "image": "Hình ảnh",
+        "imageTitle": "Nhà cung cấp tạo hình ảnh",
+        "voice": "Giọng nói",
+        "voiceTitle": "Nhà cung cấp giọng nói thời gian thực"
+      },
+      "unavailableChooseAnother": "Không khả dụng — hãy chọn mô hình khác",
+      "verifyingChatGpt": "Đang xác minh mô hình ChatGPT…",
+      "voiceProviderAriaLabel": "Nhà cung cấp giọng nói",
+      "waitingForChatGpt": "Đang chờ ChatGPT…"
     },
-    "arc": {
-      "readAloudOn": "Read replies aloud: on",
-      "readAloudOff": "Read replies aloud: off",
-      "dictate": "Dictate a message",
-      "dictateStop": "Stop dictating and send",
-      "voice": "Start voice conversation",
-      "voiceStop": "End voice conversation"
+    "audio": {
+      "dictationSounds": {
+        "description": "Phát âm thanh khi đọc chính tả bắt đầu và dừng.",
+        "label": "Âm thanh đọc chính tả"
+      },
+      "errors": {
+        "listDevices": "Không thể liệt kê các thiết bị âm thanh.",
+        "micDenied": "Quyền truy cập micrô đã bị từ chối. Vui lòng cho phép trong cài đặt hệ thống của bạn.",
+        "micDeniedReset": "Quyền truy cập micrô đã bị từ chối trước đó. Hãy đặt lại và khởi động lại Stella, hoặc mở Cài đặt hệ thống."
+      },
+      "microphone": {
+        "deviceDescription": "Stella nên nghe micrô nào?",
+        "deviceLabel": "Micrô",
+        "enableDescription": "Cần thiết để nói chuyện với Stella.",
+        "enableLabel": "Bật micrô",
+        "title": "Micrô"
+      },
+      "microphoneDeviceFallback": "Micrô {index}",
+      "recovery": {
+        "closing": "Đang đóng…",
+        "manageDescription": "Nếu quyền micrô bị kẹt, bạn có thể đặt lại và yêu cầu macOS hỏi lại.",
+        "manageLabel": "Quản lý quyền truy cập micrô",
+        "openSettings": "Mở Cài đặt",
+        "recoverDescription": "Sau khi bạn từ chối, macOS sẽ không tự hỏi lại. Hãy đặt lại quyền, rồi thoát và mở lại Stella.",
+        "recoverLabel": "Khôi phục quyền truy cập micrô",
+        "reset": "Đặt lại & khởi động lại"
+      },
+      "speaker": {
+        "empty": "Không tìm thấy loa.",
+        "emptyMicOff": "Bật micrô để xem loa của bạn.",
+        "outputDescription": "Chọn loa hoặc tai nghe để sử dụng.",
+        "outputLabel": "Thiết bị đầu ra",
+        "title": "Loa"
+      },
+      "speakerDeviceFallback": "Loa {index}",
+      "superFast": {
+        "description": "Giữ micrô sẵn sàng để đọc chính tả bắt đầu với ít độ trễ hơn.",
+        "label": "Đọc chính tả siêu nhanh"
+      },
+      "systemDefault": "Mặc định hệ thống",
+      "wakeWord": {
+        "description": "Lắng nghe “Hey Stella” ở chế độ nền và bắt đầu cuộc trò chuyện bằng giọng nói. Khi tắt, micrô vẫn nhàn rỗi cho đến khi bạn nhấn đọc chính tả.",
+        "label": "Từ đánh thức “Hey Stella”"
+      }
     },
-    "mark": {
-      "open": "Ask Stella",
-      "close": "Close the prompt"
+    "browserExtension": {
+      "action": "Tải tiện ích",
+      "description": "Cho phép Stella xem trang bạn đang ở và thực hiện thao tác trong trình duyệt của bạn.",
+      "title": "Stella cho Chrome"
     },
-    "badge": {
-      "running": "{count} agents working"
+    "chatStorage": {
+      "description": "Truy cập các cuộc trò chuyện của bạn trên mọi thiết bị. Tắt để giữ lịch sử trò chuyện riêng chỉ trên máy tính này. Khi bật lại, những cuộc trò chuyện đó sẽ không được tải lên. Các nhà cung cấp AI vẫn xử lý tin nhắn của bạn.",
+      "endVoice": "Hãy kết thúc cuộc trò chuyện bằng giọng nói để thay đổi nơi lưu trò chuyện.",
+      "error": "Không thể thay đổi nơi lưu trò chuyện. Hãy thử lại.",
+      "title": "Lưu lịch sử trò chuyện trên đám mây"
+    },
+    "compactModelList": {
+      "ariaLabel": "Mô hình Stella",
+      "empty": "Không có mô hình Stella nào khả dụng.",
+      "loadFailed": "Không tải được mô hình Stella.",
+      "loading": "Đang tải mô hình Stella…",
+      "recent": "Gần đây",
+      "restricted": "Gói của bạn dùng lựa chọn của Stella.",
+      "restrictedPlan": "Gói {plan} dùng lựa chọn của Stella.",
+      "retry": "Thử lại",
+      "unavailable": "Không khả dụng",
+      "unavailableTitle": "Mô hình này không còn khả dụng — hãy chọn mô hình khác.",
+      "upgrade": "Nâng cấp"
+    },
+    "companion": {
+      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
+      "error": "Couldn't update the desktop companion.",
+      "title": "Desktop companion"
+    },
+    "connectedProviders": {
+      "apiKey": "Khóa API",
+      "empty": "Chưa có nhà cung cấp nào được kết nối. Chọn một tùy chọn khác Stella trong bộ chọn mô hình ở trên để thêm khóa API hoặc đăng nhập.",
+      "removeKey": "Xóa khóa",
+      "removingKey": "Đang xóa…",
+      "signOut": "Đăng xuất",
+      "signedIn": "Đã đăng nhập",
+      "signingOut": "Đang đăng xuất…",
+      "title": "Nhà cung cấp đã kết nối"
+    },
+    "developerPreviews": {
+      "description": "Hiển thị thay đổi mã trong trò chuyện và mở chúng trong bảng bên.",
+      "title": "Xem trước tệp dành cho nhà phát triển"
+    },
+    "engineAccounts": {
+      "active": "Đang dùng",
+      "addChatgpt": "Add ChatGPT account",
+      "addChatgptCloud": "Add ChatGPT account in the cloud",
+      "addClaude": "Thêm tài khoản Claude",
+      "addInCloud": "Trên đám mây",
+      "addOnComputer": "Trên máy tính này",
+      "cardIntro": "Dùng gói Claude hoặc ChatGPT bạn đã trả phí. Mỗi nơi đăng nhập riêng: từng máy tính và đám mây của bạn.",
+      "cardTitle": "Tài khoản Claude và ChatGPT",
+      "chatgptBrowserWaiting": "Hoàn tất đăng nhập ChatGPT trong trình duyệt của bạn.",
+      "chatgptCloudSignedIn": "Đám mây của bạn đã đăng nhập ChatGPT.",
+      "chatgptComputerSignedIn": "Máy tính này đã đăng nhập ChatGPT.",
+      "chatgptTitle": "ChatGPT",
+      "claudeLogin": {
+        "codeLabel": "Dán mã mà Anthropic hiển thị",
+        "failed": "Đăng nhập không thành công.",
+        "opened": "Chúng tôi đã mở trang đăng nhập của Anthropic.",
+        "reopen": "Mở lại",
+        "startAgain": "Bắt đầu lại",
+        "starting": "Đang mở trang đăng nhập của Anthropic…",
+        "submit": "Gửi",
+        "submitting": "Đang đăng nhập…",
+        "whereCloud": "Đang đăng nhập Claude Code trên đám mây của bạn.",
+        "whereComputer": "Đang đăng nhập Claude Code trên máy tính này."
+      },
+      "claudeTitle": "Claude (Pro/Max)",
+      "cliMissing": "Claude Code chưa được cài trên máy tính này. Hãy cài đặt để dùng Claude tại đây.",
+      "connecting": "Đang kết nối…",
+      "defaultSignedOut": "Claude Code trên máy tính này chưa đăng nhập.",
+      "enablePlanUsage": "Bật sử dụng gói ChatGPT",
+      "enablePlanUsageCloud": "Enable ChatGPT plan use in the cloud",
+      "errorGeneric": "Không thành công. Hãy thử lại.",
+      "finish": "Kết nối",
+      "moreLabel": "Tùy chọn cho {name}",
+      "needsChatgptCloud": "Hãy tiếp tục với ChatGPT cho đám mây của bạn trước",
+      "needsClaudeCloud": "Hãy đăng nhập Claude trên đám mây trước",
+      "openChatgptAgain": "Mở lại ChatGPT",
+      "pasteHintChatgpt": "Sau khi bạn chấp thuận, ChatGPT sẽ chuyển bạn đến một trang không tải được. Hãy sao chép toàn bộ địa chỉ của trang đó và dán vào đây.",
+      "pastePlaceholderUrl": "Dán địa chỉ vào đây",
+      "placeCloud": "Đám mây",
+      "placeComputer": "Máy tính này",
+      "placeOtherComputer": "Máy tính khác",
+      "placeSignedIn": "{place}: đã đăng nhập",
+      "placeSignedOut": "{place}: chưa đăng nhập",
+      "planUsageOffBody": "Stella không thể dùng gói ChatGPT của bạn cho đến khi bạn cho phép. Chọn “Bật sử dụng gói ChatGPT” trên tài khoản hoặc dùng mô hình khác.",
+      "planUsageOffTitle": "Đã đăng nhập, nhưng chưa bật sử dụng gói ChatGPT",
+      "remove": "Xóa",
+      "removed": "Đã xóa.",
+      "revokeTitleCloud": "Đã đăng xuất ChatGPT trên đám mây",
+      "revokeTitleComputer": "Đã đăng xuất trên máy tính này",
+      "revokeUnconfirmed": "ChatGPT chưa xác nhận việc đăng xuất. Bạn có thể ngắt kết nối Stella trong Cài đặt ChatGPT.",
+      "runsOnLabel": "Trò chuyện trên đám mây chạy bằng",
+      "signIn": "Đăng nhập",
+      "signInAgain": "Đăng nhập lại",
+      "signInCloud": "Đăng nhập trên đám mây",
+      "signInComputer": "Đăng nhập trên máy tính này",
+      "signOut": "Đăng xuất",
+      "signOutCloud": "Đăng xuất khỏi đám mây",
+      "signOutComputer": "Đăng xuất trên máy tính này",
+      "signedInCloud": "Đám mây của bạn đã đăng nhập Claude.",
+      "signedInCloudAs": "Đám mây của bạn đã đăng nhập Claude bằng {email}.",
+      "signedInComputer": "Claude Code trên máy tính này đã đăng nhập.",
+      "signedInComputerAs": "Claude Code trên máy tính này đã đăng nhập bằng {email}.",
+      "signedOut": "Đã đăng xuất.",
+      "signedOutLogin": "Phiên đăng nhập Claude Code đã đăng xuất",
+      "statusPlanUsageOff": "Chưa bật sử dụng gói ChatGPT",
+      "statusReauth": "Đăng nhập lại để tiếp tục sử dụng",
+      "statusSignedOut": "Đã đăng xuất",
+      "useAccount": "Dùng tài khoản này"
+    },
+    "engineModels": {
+      "ariaLabel": "Mô hình {engine}",
+      "empty": "Không có mô hình {engine} nào khả dụng.",
+      "loading": "Đang tải mô hình {engine}…"
+    },
+    "errors": {
+      "loadLockedComputerUse": "Không tải được cài đặt sử dụng máy tính khi đã khóa.",
+      "loadMemory": "Không tải được cài đặt bộ nhớ.",
+      "loadPermissions": "Không tải được trạng thái quyền trên máy tính để bàn.",
+      "loadPower": "Không tải được cài đặt nguồn.",
+      "loadSoundNotifications": "Không tải được cài đặt thông báo âm thanh.",
+      "lockedComputerUseUnavailable": "Sử dụng máy tính khi đã khóa không khả dụng trong cửa sổ này.",
+      "memoryUnavailable": "Cài đặt bộ nhớ không khả dụng trong cửa sổ này.",
+      "microphoneDeniedReopen": "Quyền truy cập micrô đã bị từ chối trước đó. Bật trong Cài đặt hệ thống, rồi mở lại Stella.",
+      "microphoneStillOff": "Quyền truy cập micrô vẫn đang tắt. Bật trong Cài đặt hệ thống, rồi mở lại Stella.",
+      "powerUnavailable": "Cài đặt nguồn không khả dụng trong cửa sổ này.",
+      "resetPermission": "Không đặt lại được quyền {kind}.",
+      "resetPermissionMaybeReopen": "Không thể đặt lại quyền {kind}. Có thể cần mở lại Stella.",
+      "restart": "Không khởi động lại được Stella.",
+      "saveLockedComputerUse": "Không cập nhật được sử dụng máy tính khi đã khóa.",
+      "saveMemory": "Không cập nhật được cài đặt bộ nhớ.",
+      "savePermission": "Không cập nhật được quyền {kind}.",
+      "savePower": "Không cập nhật được cài đặt nguồn.",
+      "saveSoundNotifications": "Không cập nhật được cài đặt thông báo âm thanh.",
+      "soundNotificationsUnavailable": "Cài đặt thông báo âm thanh không khả dụng trong cửa sổ này."
+    },
+    "executionDevices": {
+      "disable": "Turn off",
+      "disabling": "Turning off…",
+      "empty": "No computer is signed in to this account yet.",
+      "enable": "Enable",
+      "enabling": "Enabling…",
+      "errors": {
+        "load": "Unable to read the computers on this account.",
+        "update": "That change didn't go through. Try again."
+      },
+      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
+      "offline": "Offline",
+      "online": "Online",
+      "state": {
+        "asking": "Waiting for an answer there",
+        "declined": "Declined there",
+        "enabled": "Accepting work",
+        "notEnabled": "Not enabled"
+      },
+      "thisComputer": "This computer",
+      "title": "Your computers",
+      "unnamed": "Computer"
+    },
+    "language": {
+      "description": "Chọn ngôn ngữ Stella sử dụng trong ứng dụng và khi phản hồi bạn.",
+      "title": "Ngôn ngữ"
+    },
+    "lockedComputerUse": {
+      "description": "Cho phép Stella tiếp tục các tác vụ sử dụng máy tính sau khi máy Mac này bị khóa. Yêu cầu lời nhắc quản trị viên và che màn hình khi Stella làm việc.",
+      "title": "Sử dụng máy tính khi đã khóa",
+      "unsupported": "Sử dụng máy tính khi đã khóa chỉ có trên macOS."
+    },
+    "memory": {
+      "description": "Đưa các ký ức đã lưu và hồ sơ của bạn vào ngữ cảnh mô hình của Stella. Bản sao trên đám mây là bản chính thức và được mã hóa cả khi truyền lẫn khi lưu trữ; Stella cũng có thể giữ một bản sao cục bộ. Việc tắt tùy chọn này sẽ loại bộ nhớ khỏi các cuộc trò chuyện sau nhưng không xóa bộ nhớ đó.",
+      "title": "Bộ nhớ"
+    },
+    "modelPicker": {
+      "actions": {
+        "addKey": "Thêm khóa",
+        "cancel": "Hủy",
+        "custom": "Tùy chỉnh",
+        "signIn": "Đăng nhập"
+      },
+      "apiKeyAriaLabel": "Khóa API {provider}",
+      "apiKeyPlaceholder": "Khóa API",
+      "authHint": {
+        "apiKey": "Khóa API của bạn được giữ trên thiết bị này.",
+        "both": "Đăng nhập hoặc dán khóa API. Thông tin đăng nhập được giữ trên thiết bị này.",
+        "oauth": "Thông tin đăng nhập được giữ trên thiết bị này."
+      },
+      "cancelSignIn": "Hủy đăng nhập",
+      "closeSearch": "Đóng tìm kiếm",
+      "empty": {
+        "noMatch": "Không có mô hình nào khớp.",
+        "none": "Chưa có mô hình nào khả dụng."
+      },
+      "errors": {
+        "oauthLogin": "Đăng nhập OAuth thất bại.",
+        "saveApiKey": "Không lưu được khóa API."
+      },
+      "favorite": {
+        "add": "Thêm yêu thích",
+        "addTitle": "Yêu thích — ghim lên đầu",
+        "remove": "Bỏ yêu thích"
+      },
+      "loadFailed": "Couldn't load models",
+      "local": {
+        "hint": "Dùng bất kỳ máy chủ cục bộ tương thích OpenAI nào. Ollama thường chạy ở URL bên dưới.",
+        "modelNameAriaLabel": "Tên mô hình cục bộ",
+        "serverUrlAriaLabel": "URL máy chủ cục bộ"
+      },
+      "openRouter": {
+        "hintAfter": "id. Nhập một id để dùng trực tiếp.",
+        "hintBefore": "OpenRouter chấp nhận mọi",
+        "modelIdAriaLabel": "id mô hình OpenRouter"
+      },
+      "reasoning": {
+        "default": "Tự động",
+        "high": "Cao",
+        "label": "Mức độ suy luận",
+        "low": "Thấp",
+        "medium": "Trung bình",
+        "minimal": "Tối thiểu",
+        "xhigh": "Tối đa"
+      },
+      "refresh": "Làm mới danh mục mô hình",
+      "restrictedPlan": "Không có trên gói {plan}",
+      "retry": "Retry",
+      "saving": "Đang lưu…",
+      "searchAriaLabel": "Tìm mô hình",
+      "searchPlaceholder": "Tìm mô hình…",
+      "selected": "Đã chọn",
+      "signInWith": "Đăng nhập bằng {provider}",
+      "signOut": {
+        "ariaLabel": "Đăng xuất khỏi {provider}",
+        "confirmAriaLabel": "Nhấp lần nữa để đăng xuất khỏi {provider}",
+        "confirmTitle": "Nhấp lần nữa để xác nhận"
+      },
+      "use": "Dùng"
+    },
+    "motion": {
+      "reduceMotion": {
+        "description": "Giảm thiểu hiệu ứng động của giao diện.",
+        "label": "Giảm chuyển động",
+        "off": "Tắt",
+        "on": "Bật",
+        "system": "Hệ thống"
+      },
+      "title": "Chuyển động"
+    },
+    "nativeFontSmoothing": {
+      "description": "Hiển thị văn bản như các ứng dụng macOS, với khử răng cưa thang độ xám.",
+      "title": "Làm mịn phông chữ gốc"
+    },
+    "notifications": {
+      "description": "Phát âm thanh khi Stella hoàn thành một lần chạy tác nhân.",
+      "title": "Thông báo âm thanh"
+    },
+    "onboardingReplay": {
+      "action": "Replay",
+      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched.",
+      "title": "Onboarding"
+    },
+    "permissions": {
+      "accessibility": {
+        "description": "Cho phép Stella đọc văn bản đã chọn và mở bằng phím tắt ⌘+nhấp chuột phải ở bất kỳ đâu trên máy tính của bạn.",
+        "label": "Trợ năng"
+      },
+      "enable": "Bật",
+      "granted": "Đã cấp",
+      "microphone": {
+        "description": "Dùng cho giọng nói và đọc chính tả. Đặt lại nếu Stella từng bị từ chối và macOS không hỏi lại.",
+        "label": "Micrô"
+      },
+      "opening": "Đang mở…",
+      "reset": "Đặt lại",
+      "resetting": "Đang đặt lại…",
+      "restart": {
+        "action": "Khởi động lại",
+        "closing": "Đang đóng…",
+        "description": "Quay màn hình vừa được bật. Thoát và mở lại Stella để hoàn tất thiết lập.",
+        "label": "Khởi động lại Stella"
+      },
+      "screen": {
+        "description": "Cho phép Stella xem màn hình của bạn để hỗ trợ điều bạn đang xem. Bạn có thể cần thoát và mở lại Stella sau khi bật mục này.",
+        "label": "Quay màn hình"
+      },
+      "title": "Quyền"
+    },
+    "phoneAccess": {
+      "copy": "Sao chép",
+      "deviceFallback": "Điện thoại",
+      "errors": {
+        "createPairing": "Không thể tạo mã ghép nối."
+      },
+      "expired": "Đã hết hạn",
+      "getCode": "Lấy mã",
+      "intro": {
+        "headline": "Kết nối điện thoại với máy tính của bạn"
+      },
+      "pairedCount": {
+        "other": "Đã ghép nối {count} điện thoại"
+      },
+      "pairing": {
+        "body": "Mở ứng dụng Stella trên điện thoại và quét mã QR, hoặc nhập mã bên dưới. Bạn chỉ cần làm việc này một lần.",
+        "headline": "Quét hoặc nhập mã này",
+        "qrAlt": "Quét để ghép nối điện thoại của bạn"
+      },
+      "preparing": "Đang chuẩn bị...",
+      "remove": "Xóa",
+      "removing": "Đang xóa...",
+      "signedOut": {
+        "body": "Đăng nhập vào tài khoản Stella của bạn để ghép nối với ứng dụng di động.",
+        "headline": "Đăng nhập để bắt đầu"
+      },
+      "steps": {
+        "appStoreQrAlt": "Quét để tải Stella từ App Store",
+        "connect": "Kết nối điện thoại của bạn",
+        "download": "Tải ứng dụng",
+        "platformSelectorLabel": "Chọn nền tảng di động",
+        "playStoreQrAlt": "Quét để tải Stella từ Google Play"
+      },
+      "timeLeft": "Còn {time}",
+      "toasts": {
+        "codeCopied": "Đã sao chép mã vào bảng nhớ tạm",
+        "phoneRemoved": "Đã xóa điện thoại",
+        "removeFailed": "Không xóa được điện thoại"
+      }
+    },
+    "power": {
+      "description": "Ngăn máy tính của bạn vào chế độ ngủ khi Stella đang mở.",
+      "title": "Giữ máy tính thức"
+    },
+    "providerConnected": {
+      "apply": "Áp dụng",
+      "applying": "Đang áp dụng…",
+      "assistant": {
+        "description": "Định tuyến trợ lý trò chuyện của Stella qua {provider}.",
+        "label": "Trợ lý"
+      },
+      "description": "{provider} có thể đảm nhận nhiều phần của Stella. Hãy chọn phần bạn muốn giao cho nó — Stella vẫn lo phần còn lại.",
+      "errors": {
+        "apply": "Không áp dụng được cài đặt nhà cung cấp."
+      },
+      "image": {
+        "description": "Tạo hình ảnh qua tài khoản {provider} của bạn.",
+        "label": "Hình ảnh"
+      },
+      "skip": "Bỏ qua",
+      "title": "Dùng {provider} cho Stella?",
+      "voice": {
+        "description": "Dùng {provider} cho các cuộc trò chuyện giọng nói theo thời gian thực.",
+        "label": "Giọng nói"
+      }
+    },
+    "providerPicker": {
+      "connect": "Kết nối",
+      "connected": "Đã kết nối",
+      "opening": "Đang mở…"
+    },
+    "reasoningEffort": {
+      "high": "Cao",
+      "low": "Thấp",
+      "medium": "Trung bình",
+      "minimal": "Tối thiểu",
+      "xhigh": "Rất cao"
+    },
+    "resetCustomizations": {
+      "action": "Khôi phục mặc định",
+      "description": "Xóa các tùy chỉnh kỹ năng và chỉnh sửa tính cách của bạn để áp dụng thiết lập mặc định của Stella. Những gì bị xóa được giữ trong ~/.stella/.trash phòng khi bạn muốn lấy lại.",
+      "done": "Đã khôi phục mặc định. Các tùy chỉnh trước đây của bạn đã được chuyển vào ~/.stella/.trash.",
+      "error": "Không thể khôi phục mặc định.",
+      "none": "Bạn đang dùng mặc định của Stella rồi.",
+      "title": "Dùng mặc định của Stella"
+    },
+    "search": {
+      "clear": "Xóa tìm kiếm",
+      "descriptions": {
+        "account": "Đăng xuất, xóa dữ liệu của bạn hoặc xóa vĩnh viễn tài khoản của bạn.",
+        "legal": "Điều khoản dịch vụ và chính sách quyền riêng tư.",
+        "microphone": "Stella nên nghe micrô nào?",
+        "permissions": "Cấp quyền trợ năng, quay màn hình và micrô trên macOS.",
+        "shortcuts": "Thay đổi phím tắt đọc chính tả và giọng nói.",
+        "speaker": "Chọn loa hoặc tai nghe phát giọng nói của Stella.",
+        "wakeWord": "Lắng nghe “Hey Stella” và bắt đầu cuộc trò chuyện bằng giọng nói."
+      },
+      "noResultsBody": "Hãy thử một từ ngắn hơn hoặc khác.",
+      "noResultsTitle": "Không có cài đặt nào khớp với “{query}”",
+      "placeholder": "Tìm trong cài đặt",
+      "resultsAriaOne": "{count} kết quả",
+      "resultsAriaOther": "{count} kết quả",
+      "resultsOne": "{count} kết quả cho",
+      "resultsOther": "{count} kết quả cho"
+    },
+    "shortcuts": {
+      "actions": {
+        "dictation": "Đọc chính tả",
+        "voice": "Tác nhân giọng nói"
+      },
+      "capturing": "Nhấn phím…",
+      "change": "Thay đổi",
+      "clear": "Xóa",
+      "dictation": {
+        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
+      },
+      "errors": {
+        "load": "Không tải được phím tắt.",
+        "unavailable": "Phím tắt không khả dụng trong cửa sổ này.",
+        "unavailableShortcut": "Phím tắt đó không khả dụng.",
+        "update": "Không cập nhật được phím tắt."
+      },
+      "off": "Tắt",
+      "targets": {
+        "dictation": "đọc chính tả",
+        "voice": "tác nhân giọng nói"
+      },
+      "title": "Phím tắt",
+      "toasts": {
+        "clearedDescription": "{action} bị tắt cho đến khi bạn đặt phím tắt mới.",
+        "clearedTitle": "Đã xóa phím tắt {action}",
+        "failedTitle": "Không thể cập nhật phím tắt",
+        "unavailableTitle": "Phím tắt không khả dụng",
+        "updatedDescription": "Nhấn {keys} để bắt đầu {target}.",
+        "updatedTitle": "Đã cập nhật phím tắt {action}"
+      },
+      "voiceAgent": {
+        "description": "Bắt đầu hoặc dừng tác nhân giọng nói trực tiếp của Stella."
+      }
+    },
+    "systemPrompt": {
+      "activeLabel": "Lời nhắc đang dùng",
+      "agentLabel": "Lời nhắc cho",
+      "agentSublabel": "Chọn tác nhân bạn muốn đổi lời nhắc.",
+      "agents": {
+        "assistant": "Trợ lý",
+        "worker": "Người thực thi"
+      },
+      "cancel": "Hủy",
+      "defaultOption": "Mặc định của Stella",
+      "delete": "Xóa",
+      "deleted": "Đã xóa lời nhắc.",
+      "description": "Lời nhắc mặc định của Stella luôn cập nhật cùng ứng dụng. Lưu lời nhắc của riêng bạn để dùng thay thế — nó được giữ riêng nên bản cập nhật không bao giờ ghi đè.",
+      "duplicate": "Nhân bản",
+      "edit": "Sửa",
+      "error": "Đã xảy ra lỗi.",
+      "nameLabel": "Tên",
+      "newFromDefault": "Tạo mới từ mặc định",
+      "newName": "Lời nhắc của tôi",
+      "save": "Lưu",
+      "saved": "Đã lưu lời nhắc.",
+      "title": "Lời nhắc hệ thống",
+      "usingCustom": "Đang dùng lời nhắc bạn đã lưu.",
+      "usingDefault": "Đang dùng lời nhắc mặc định của Stella."
+    },
+    "tabs": {
+      "account": "Tài khoản & Pháp lý",
+      "audio": "Âm thanh",
+      "general": "Chung",
+      "shortcuts": "Phím tắt"
+    },
+    "title": "Cài đặt",
+    "voiceAgent": {
+      "description": "Hiện các nút giọng nói và gọi để bạn nói chuyện với Stella. Đọc chính tả vẫn hoạt động trong cả hai trường hợp.",
+      "error": "Không thể cập nhật cài đặt giọng nói.",
+      "title": "Trò chuyện bằng giọng nói"
+    },
+    "voiceCatalog": {
+      "label": "Giọng nói",
+      "menuAriaLabel": "Giọng nói {source}",
+      "nextVoice": "Giọng tiếp theo",
+      "previousVoice": "Giọng trước",
+      "readAloud": {
+        "ariaLabel": "Nhà cung cấp giọng đọc to",
+        "description": "Đọc to câu trả lời bằng giọng của nhà cung cấp này.",
+        "geminiTitle": "Đọc to câu trả lời bằng Gemini TTS",
+        "label": "Đọc to",
+        "openaiTitle": "Đọc to câu trả lời bằng OpenAI TTS"
+      },
+      "source": {
+        "gemini": "Giọng nói Gemini",
+        "gptlive": "Giọng Stella",
+        "openai": "Giọng nói OpenAI",
+        "xai": "Giọng nói Grok"
+      }
+    }
+  },
+  "shell": {
+    "agentProgress": {
+      "recentAgentMessages": "Tin nhắn tác nhân gần đây",
+      "recentProgress": "Tiến độ gần đây"
+    },
+    "appSource": {
+      "failed": "Không thể áp dụng thay đổi",
+      "files": {
+        "other": "{count} tệp"
+      },
+      "outdated": "Được tạo trên phiên bản cũ hơn",
+      "restarts": "Khởi động lại Stella",
+      "title": "Thay đổi đối với Stella",
+      "undo": "Hoàn tác",
+      "undoneAgo": "Đã hoàn tác {ago}",
+      "undoneJustNow": "Vừa hoàn tác",
+      "update": "Cập nhật",
+      "updatedAgo": "Đã cập nhật {ago}",
+      "updatedJustNow": "Vừa cập nhật",
+      "updates": {
+        "add": "Thêm",
+        "adding": "Đang thêm…",
+        "fromDevice": "Thay đổi bạn đã thực hiện trên {device}",
+        "fromOtherComputer": "Thay đổi bạn đã thực hiện trên máy tính khác",
+        "fromOtherComputers": "Thay đổi từ máy tính khác của bạn",
+        "get": "Lấy",
+        "history": "Lịch sử",
+        "justNow": "Vừa xong",
+        "newVersion": "Phiên bản Stella mới",
+        "newVersionDetail": "Cải tiến và bản sửa lỗi từ nhóm Stella",
+        "pill": {
+          "other": "{count} bản cập nhật"
+        },
+        "readyChange": "Thay đổi sẵn sàng để thêm",
+        "removed": "Đã gỡ: {change}",
+        "skip": "Bỏ qua",
+        "skipped": "Đã bỏ qua",
+        "undoing": "Đang hoàn tác…",
+        "upToDate": "Không có gì đang chờ",
+        "waiting": "Đang chờ"
+      }
+    },
+    "audioPlayer": {
+      "pause": "Tạm dừng",
+      "play": "Phát",
+      "seek": "Tua"
+    },
+    "browser": {
+      "connected": "Trình duyệt đã kết nối",
+      "connecting": "Đang chờ tiện ích…",
+      "newTab": "Mở tab mới"
+    },
+    "capture": {
+      "failedDescription": "Đã xảy ra sự cố khi chụp màn hình. Hãy thử lại.",
+      "failedTitle": "Không chụp được"
+    },
+    "chatSidebar": {
+      "add": "Thêm",
+      "dictationError": "Đọc chính tả: {error}",
+      "stop": "Dừng"
+    },
+    "connectors": {
+      "desktopRequired": "Trình kết nối có sẵn trong ứng dụng Stella trên máy tính.",
+      "empty": "Chưa có trình kết nối nào.",
+      "loading": "Đang tải trình kết nối…",
+      "noMatches": "Không có trình kết nối nào khớp với tìm kiếm đó.",
+      "searchLabel": "Tìm trình kết nối",
+      "searchPlaceholder": "Tìm kiếm",
+      "title": "Trình kết nối"
+    },
+    "display": {
+      "agentThread": {
+        "badge": "Luồng tác nhân chỉ đọc",
+        "claudeAriaLabel": "Cuộc hội thoại chỉ đọc của tác nhân phụ Claude",
+        "claudeBadge": "Tác nhân phụ Claude chỉ đọc",
+        "empty": "Chưa có tin nhắn nào trong luồng này.",
+        "loadFailed": "Không tải được luồng này.",
+        "newMessages": {
+          "other": "{count} tin nhắn mới."
+        },
+        "newMessagesButton": {
+          "other": "{count} tin nhắn mới"
+        },
+        "newMessagesWithPreview": "{countPhrase} {role} mới nhất: {preview}",
+        "reasoningGroup": {
+          "other": "{count} reasoning steps"
+        },
+        "retrying": "Đang thử lại…",
+        "role": {
+          "assistant": "Tác nhân",
+          "checkpoint": "Điểm kiểm tra luồng",
+          "lifecycle": "Hoạt động",
+          "reasoning": "Suy luận",
+          "tool": "Công cụ",
+          "user": "Chỉ dẫn"
+        },
+        "showNewMessagesAria": "Hiện {countPhrase}",
+        "showingNewest": "Đang hiển thị tin nhắn mới nhất.",
+        "status": {
+          "canceled": "Đã dừng",
+          "completed": "Đã hoàn thành",
+          "error": "Thất bại",
+          "running": "Đang làm việc"
+        },
+        "toolGroup": {
+          "other": "{count} tool calls"
+        },
+        "toolInput": "Đầu vào",
+        "toolOutput": "Đầu ra",
+        "toolRunning": "Đang chờ công cụ này hoàn tất…",
+        "unavailable": "Không có lịch sử luồng tác nhân."
+      },
+      "canvas": {
+        "loadFailed": "Không tải được canvas này.",
+        "loading": "Đang tải"
+      },
+      "canvasShare": {
+        "copyLink": "Sao chép liên kết",
+        "empty": "Chưa có lượt chia sẻ nào đang hoạt động. Hãy đăng một canvas để có liên kết công khai.",
+        "expires": "Hết hạn {date}",
+        "links": "Liên kết",
+        "live": "Canvas đã hoạt động",
+        "loadFailed": "Không tải được danh sách chia sẻ của bạn.",
+        "publicLink": "Liên kết canvas công khai",
+        "publishFailed": "Không đăng được canvas này. Vui lòng thử lại.",
+        "publishing": "Đang đăng canvas…",
+        "revoke": "Thu hồi chia sẻ",
+        "share": "Chia sẻ",
+        "shared": "Chia sẻ {date}",
+        "sharedLinks": "Liên kết đã chia sẻ",
+        "sharedWithExpiry": "Chia sẻ {shared} · hết hạn {expires}",
+        "toasts": {
+          "copyFailed": "Không sao chép được liên kết",
+          "linkCopied": "Đã sao chép liên kết chia sẻ",
+          "revokeFailed": "Không thu hồi được lượt chia sẻ này",
+          "revoked": "Đã thu hồi chia sẻ"
+        },
+        "untitled": "Canvas chưa đặt tên"
+      },
+      "diff": {
+        "changes": "Thay đổi",
+        "codeChanges": "Thay đổi mã",
+        "desktopRequired": "Xem trước mã cần ứng dụng Stella trên máy tính.",
+        "empty": "Chưa có thay đổi tệp nào. Khi một tác nhân chỉnh sửa mã, các thay đổi sẽ xuất hiện ở đây.",
+        "noChanges": "Không tìm thấy thay đổi nào."
+      },
+      "filePreview": {
+        "copy": "Sao chép",
+        "loading": "Đang tải...",
+        "save": "Lưu"
+      },
+      "homeLauncher": {
+        "files": {
+          "description": "Trang, hình ảnh, video và tài liệu",
+          "label": "Tệp"
+        },
+        "trash": {
+          "description": "Những thứ bạn vừa xóa gần đây",
+          "label": "Thùng rác"
+        }
+      },
+      "markdown": {
+        "desktopRequired": "Xem trước Markdown cần ứng dụng Stella trên máy tính.",
+        "eyebrow": "Markdown",
+        "noContent": "Không tìm thấy nội dung."
+      },
+      "media": {
+        "copied": "Đã sao chép",
+        "copy": "Sao chép",
+        "copyFailed": "Không thể sao chép",
+        "delete": "Xóa",
+        "deleteConfirm": "Nhấp lần nữa để xóa",
+        "expand": "Mở rộng",
+        "expandPanel": "Mở rộng bảng",
+        "itemActions": "Thao tác với mục",
+        "missing": "Tệp không còn khả dụng.",
+        "revealInFinder": "Hiện trong Finder",
+        "save": "Lưu",
+        "saveFailed": "Không thể lưu",
+        "saved": "Đã lưu"
+      },
+      "office": {
+        "frameTitle": "Xem trước {kind}: {title}",
+        "kind": {
+          "document": "Tài liệu",
+          "presentation": "Bản trình bày",
+          "spreadsheet": "Bảng tính"
+        },
+        "livePreview": "Xem trước trực tiếp",
+        "loadFailed": "Không tải được bản xem trước này",
+        "preparing": "Đang chuẩn bị bản xem trước...",
+        "revealInFinder": "Hiện trong Finder",
+        "sessionError": "Phiên xem trước báo lỗi.",
+        "sheetCount": {
+          "other": "{count} trang tính"
+        },
+        "slideCount": {
+          "other": "{count} trang trình bày"
+        },
+        "zoomAriaLabel": "Thu phóng bản xem trước"
+      },
+      "preview": {
+        "limited": "Bản xem trước bị giới hạn. Hãy lưu hoặc mở tệp gốc để xem toàn bộ nội dung.",
+        "unavailable": "Không thể chuẩn bị bản xem trước này."
+      },
+      "spreadsheet": {
+        "column": "Cột {index}",
+        "desktopRequired": "Xem trước bảng tính cần ứng dụng Stella trên máy tính.",
+        "eyebrow": "Bảng tính",
+        "noRows": "Không tìm thấy hàng nào."
+      },
+      "trash": {
+        "autoDeletesIn": "Tự động xóa sau {time}",
+        "deleteNow": "Xóa ngay",
+        "deleting": "Đang xóa…",
+        "empty": "Hiện chưa có gì ở đây.",
+        "emptyTrash": "Dọn thùng rác",
+        "emptying": "Đang dọn…",
+        "itemsAutoDeleted": {
+          "other": "{count} mục — tự động xóa sau 24 giờ."
+        },
+        "pendingPurge": "Chờ xóa vĩnh viễn",
+        "refresh": "Làm mới",
+        "title": "Thùng rác",
+        "trashedAgo": "Đã xóa {time} trước"
+      },
+      "url": {
+        "eyebrow": "Xem trước trực tiếp",
+        "openInBrowser": "Mở trong trình duyệt",
+        "reload": "Tải lại"
+      }
+    },
+    "displayPanel": {
+      "closePanel": "Đóng bảng",
+      "openPanel": "Mở bảng"
+    },
+    "rightSidebar": {
+      "resize": "Đổi kích thước bảng hiển thị",
+      "resizeHint": "Kéo để đổi kích thước · nhấp đúp để đặt lại",
+      "workspace": "Không gian làm việc"
+    },
+    "sidebar": {
+      "account": {
+        "planAriaLabel": "{name}, gói {plan}",
+        "signOutDescription": "Bạn chắc chứ?",
+        "signOutTitle": "Đăng xuất khỏi Stella?"
+      },
+      "feedback": {
+        "description": "Tin nhắn của bạn được gửi ẩn danh — không liên kết với tài khoản của bạn.",
+        "fieldLabel": "Phản hồi",
+        "placeholder": "Hãy cho chúng tôi biết điều gì đang ổn, điều gì chưa ổn, hoặc điều bạn muốn thấy…",
+        "send": "Gửi",
+        "sending": "Đang gửi…",
+        "title": "Gửi phản hồi",
+        "toasts": {
+          "failedTitle": "Không gửi được phản hồi",
+          "sentDescription": "Cảm ơn bạn — mỗi góp ý đều giúp chúng tôi định hình Stella.",
+          "sentTitle": "Đã gửi phản hồi"
+        }
+      },
+      "nav": {
+        "apps": "Ứng dụng",
+        "unreadAriaLabel": "{label}, {count} chưa đọc",
+        "unreadTitle": "{label} ({count} chưa đọc)"
+      }
+    },
+    "topbar": {
+      "conversation": {
+        "closeConversation": "Đóng {title}",
+        "delete": "Xóa {title}",
+        "deleteConfirm": "Nhấp lần nữa để xác nhận",
+        "deleteConfirmFor": "Nhấp lần nữa để xóa {title}",
+        "deleteFailed": "Không xóa được cuộc trò chuyện này",
+        "deleteFailedFor": "Không xóa được {title}",
+        "history": "Lịch sử trò chuyện",
+        "historyEmpty": "Chưa có cuộc trò chuyện nào",
+        "historyRetry": "Không tải được cuộc trò chuyện. Thử lại",
+        "newChat": "Cuộc trò chuyện mới",
+        "newChatConfirm": "Click again to confirm",
+        "openConversation": "Mở {title}",
+        "openConversations": "Mở các cuộc trò chuyện",
+        "unread": "Tin nhắn chưa đọc"
+      }
+    },
+    "windowControls": {
+      "maximize": "Phóng to",
+      "minimize": "Thu nhỏ",
+      "restore": "Khôi phục"
+    },
+    "workspace": {
+      "activity": "Hoạt động",
+      "moreFiles": {
+        "other": "{count} more files"
+      },
+      "viewFiles": {
+        "other": "Xem {count} tệp"
+      }
+    }
+  },
+  "sidebar": {
+    "account": "Tài khoản",
+    "feedback": "Gửi phản hồi",
+    "newChat": "Cuộc trò chuyện mới",
+    "signIn": "Đăng nhập",
+    "upgrade": "Nâng cấp"
+  },
+  "ui": {
+    "imageLightbox": {
+      "close": "Đóng bản xem trước",
+      "title": "Xem trước hình ảnh"
     }
   }
 }

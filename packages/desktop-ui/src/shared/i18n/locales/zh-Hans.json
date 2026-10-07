@@ -1,1168 +1,5 @@
 {
-  "common": {
-    "appName": "Stella",
-    "continue": "继续",
-    "back": "返回",
-    "next": "下一步",
-    "previous": "上一步",
-    "cancel": "取消",
-    "save": "保存",
-    "close": "关闭",
-    "open": "打开",
-    "openPreferences": "打开偏好设置",
-    "signIn": "登录",
-    "signOut": "退出登录",
-    "loading": "加载中…",
-    "tryAgain": "重试",
-    "language": "语言",
-    "yes": "是",
-    "no": "否",
-    "copy": "复制"
-  },
-  "cloudConnector": {
-    "titleOffer": "要连接 {name} 吗？",
-    "titleWaiting": "正在等待 {name}",
-    "connecting": "请在浏览器中完成 {name} 的登录。获得批准后 Stella 会继续。",
-    "connect": "连接",
-    "openAgain": "重新打开",
-    "notNow": "暂不",
-    "errors": {
-      "decision": "无法连接 {name}。请重试。",
-      "open": "无法打开登录页面。"
-    }
-  },
-  "cloudBrowser": {
-    "errors": {
-      "decision": "That didn't go through. Try again.",
-      "verificationUrl": "Couldn't open that page.",
-      "expired": "This sign-in is no longer needed.",
-      "liveViewBoundary": "Couldn't load the sign-in page.",
-      "liveView": "Couldn't load the sign-in page. Try again."
-    },
-    "deviceCode": {
-      "title": "Sign in to {origin}",
-      "codeLabel": "Code",
-      "body": "Enter this code on the site, then come back here.",
-      "copied": "Copied",
-      "copy": "Copy code",
-      "open": "Open site"
-    },
-    "takeover": {
-      "title": "Sign in to {origin}",
-      "checking": "Finishing sign-in to {origin}",
-      "body": "Sign in to keep going. Stella can't see what you type.",
-      "resumingBody": "Stella will pick up where it left off.",
-      "preparing": "Loading sign-in…",
-      "frameTitle": "Sign in to {origin}",
-      "privateNotice": "Stella can't see what you type",
-      "localNotice": "Stella can't see what you type",
-      "localOriginFallback": "Switched to Stella's browser to finish signing in.",
-      "localTransferFallback": "Couldn't confirm that sign-in. Try again in Stella's browser."
-    },
-    "actions": {
-      "canceling": "Canceling…",
-      "finishing": "Finishing…",
-      "done": "Done",
-      "useCloudBrowser": "Use Stella's browser"
-    },
-    "needsYou": {
-      "title": "Needs you",
-      "deviceCode": "Enter a code for {origin}",
-      "signIn": "Sign in to {origin}",
-      "open": "Open"
-    },
-    "settings": {
-      "title": "Browser sign-ins",
-      "defaultProfile": "Saved sign-ins",
-      "description": "Sites Stella has signed in to for you. Reset to sign out of all of them.",
-      "resetComplete": "Signed out of all sites.",
-      "resetFailed": "Couldn't sign out. Try again.",
-      "resetting": "Resetting…",
-      "reset": "Reset",
-      "confirmTitle": "Sign out of all sites?",
-      "confirmBody": "Stella will ask you to sign in again next time."
-    }
-  },
-  "sidebar": {
-    "signIn": "登录",
-    "account": "账户",
-    "feedback": "发送反馈",
-    "upgrade": "升级",
-    "newChat": "新对话"
-  },
-  "settings": {
-    "chatStorage": {
-      "title": "将聊天记录保存到云端",
-      "description": "在所有设备上访问你的聊天。关闭后，聊天记录将单独保存在这台电脑上。重新开启时，这些聊天不会被上传。AI 提供方仍会处理你的消息。",
-      "endVoice": "结束语音对话后才能更改聊天存储方式。",
-      "error": "无法更改聊天存储方式。请重试。"
-    },
-    "title": "设置",
-    "tabs": {
-      "general": "通用",
-      "shortcuts": "快捷键",
-      "account": "账户与法律",
-      "audio": "音频"
-    },
-    "language": {
-      "title": "语言",
-      "description": "选择 Stella 在应用内和回复中使用的语言。"
-    },
-    "memory": {
-      "title": "记忆",
-      "description": "将已保存的记忆和你的个人资料纳入 Stella 的模型上下文。云端副本是权威版本，并在传输和静态存储时加密；Stella 也可能保留本地副本。关闭此选项后，记忆不会用于后续对话，但不会被删除。"
-    },
-    "developerPreviews": {
-      "title": "开发者文件预览",
-      "description": "在聊天中显示代码更改，并在侧边面板中打开它们。"
-    },
-    "nativeFontSmoothing": {
-      "title": "原生字体平滑",
-      "description": "像 macOS 应用那样渲染文本，使用灰度抗锯齿。"
-    },
-    "motion": {
-      "title": "动态效果",
-      "reduceMotion": {
-        "label": "减弱动态效果",
-        "description": "尽量减少界面动画。",
-        "system": "系统",
-        "on": "开启",
-        "off": "关闭"
-      }
-    },
-    "notifications": {
-      "title": "声音通知",
-      "description": "当 Stella 完成一次智能体运行时播放声音。"
-    },
-    "power": {
-      "title": "保持电脑唤醒",
-      "description": "在 Stella 打开时阻止电脑进入睡眠。"
-    },
-    "lockedComputerUse": {
-      "title": "锁屏时使用电脑",
-      "description": "允许 Stella 在此 Mac 锁定后继续电脑操作任务。需要管理员授权，并在 Stella 工作时遮盖屏幕。",
-      "unsupported": "锁屏时使用电脑仅在 macOS 上可用。"
-    },
-    "browserExtension": {
-      "title": "Stella for Chrome",
-      "description": "让 Stella 查看你所在的页面并在浏览器中执行操作。",
-      "action": "获取扩展"
-    },
-    "resetCustomizations": {
-      "title": "使用 Stella 默认设置",
-      "description": "移除你的技能自定义和人格编辑，恢复 Stella 自带的默认设置。被移除的内容会保存在 ~/.stella/.trash 中，以便随时找回。",
-      "action": "恢复默认",
-      "done": "已恢复默认设置。你之前的自定义内容已移至 ~/.stella/.trash。",
-      "none": "你已经在使用 Stella 的默认设置。",
-      "error": "无法恢复默认设置。"
-    },
-    "systemPrompt": {
-      "title": "系统提示词",
-      "description": "Stella 的默认提示词始终随应用更新。保存你自己的提示词即可改用它——它单独存放，更新永远不会覆盖。",
-      "agentLabel": "提示词对象",
-      "agentSublabel": "选择要修改哪个智能体的提示词。",
-      "activeLabel": "当前提示词",
-      "defaultOption": "Stella 默认",
-      "usingDefault": "正在使用 Stella 的默认提示词。",
-      "usingCustom": "正在使用你保存的提示词。",
-      "newFromDefault": "从默认新建",
-      "edit": "编辑",
-      "duplicate": "复制",
-      "delete": "删除",
-      "save": "保存",
-      "cancel": "取消",
-      "nameLabel": "名称",
-      "newName": "我的提示词",
-      "saved": "提示词已保存。",
-      "deleted": "提示词已删除。",
-      "error": "出了点问题。",
-      "agents": {
-        "assistant": "助手",
-        "worker": "执行者"
-      }
-    },
-    "permissions": {
-      "title": "权限",
-      "enable": "启用",
-      "granted": "已授权",
-      "opening": "正在打开…",
-      "reset": "重置",
-      "resetting": "正在重置…",
-      "accessibility": {
-        "label": "辅助功能",
-        "description": "让 Stella 读取选中的文本，并可在电脑任意位置通过 ⌘+右键快捷方式打开。"
-      },
-      "screen": {
-        "label": "屏幕录制",
-        "description": "让 Stella 查看你的屏幕，以便协助你正在查看的内容。开启后你可能需要退出并重新打开 Stella。"
-      },
-      "microphone": {
-        "label": "麦克风",
-        "description": "用于语音和听写。如果之前拒绝了 Stella 且 macOS 不再询问，请重置。"
-      },
-      "restart": {
-        "label": "重启 Stella",
-        "description": "屏幕录制刚刚开启。请退出并重新打开 Stella 以完成设置。",
-        "action": "重启",
-        "closing": "正在关闭…"
-      }
-    },
-    "shortcuts": {
-      "title": "快捷键",
-      "change": "更改",
-      "capturing": "请按下按键…",
-      "clear": "清除",
-      "off": "关闭",
-      "actions": {
-        "dictation": "听写",
-        "voice": "语音智能体"
-      },
-      "dictation": {
-        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
-      },
-      "voiceAgent": {
-        "description": "启动或停止 Stella 的实时语音智能体。"
-      },
-      "targets": {
-        "dictation": "听写",
-        "voice": "语音智能体"
-      },
-      "toasts": {
-        "updatedTitle": "已更新「{action}」快捷键",
-        "clearedTitle": "已清除「{action}」快捷键",
-        "updatedDescription": "按 {keys} 即可开始{target}。",
-        "clearedDescription": "在你设置新的快捷键之前，{action}已停用。",
-        "unavailableTitle": "快捷键不可用",
-        "failedTitle": "更新快捷键失败"
-      },
-      "errors": {
-        "load": "加载快捷键失败。",
-        "unavailable": "此窗口中无法使用快捷键。",
-        "unavailableShortcut": "该快捷键不可用。",
-        "update": "更新快捷键失败。"
-      }
-    },
-    "account": {
-      "title": "账户",
-      "signOut": {
-        "label": "退出登录",
-        "description": "在此设备上退出 Stella 登录。",
-        "action": "退出登录"
-      },
-      "deleteData": {
-        "label": "删除数据",
-        "description": "清除所有对话、记忆和已保存的 Stella 设置。",
-        "action": "删除",
-        "working": "正在删除…"
-      },
-      "deleteAccount": {
-        "label": "删除账户",
-        "description": "永久删除你的账户及其中的所有内容。",
-        "action": "删除",
-        "working": "正在删除…"
-      },
-      "legal": {
-        "title": "法律",
-        "terms": "服务条款",
-        "privacy": "隐私政策",
-        "view": "查看"
-      },
-      "dialog": {
-        "deleteDataTitle": "删除你的 Stella 数据？",
-        "deleteAccountTitle": "删除你的 Stella 账户？",
-        "deleteDataDescription": "这将清除你的对话、记忆、设置和本地 Stella 状态。此操作无法撤销。",
-        "deleteAccountDescription": "这将永久删除你的账户和 Stella 数据。此操作无法撤销。",
-        "deleteDataButton": "删除数据",
-        "deleteAccountButton": "删除账户",
-        "working": "正在删除…"
-      },
-      "toasts": {
-        "dataDeleted": "你的 Stella 数据已删除。",
-        "accountDeleted": "你的 Stella 账户已删除。",
-        "deleteDataFailed": "无法删除你的数据。请重试。",
-        "deleteAccountFailed": "无法删除你的账户。请重试。",
-        "signInBeforeDelete": "请先登录，然后再删除账户。"
-      },
-      "cloudHome": {
-        "title": "Cloud Home",
-        "label": "记忆和技能",
-        "summary": {
-          "checking": "正在检查本地记忆和技能…",
-          "current": "Cloud Home 已是最新状态。已上传记忆：{memoryCount}。已上传技能包：{skillCount}。",
-          "attention": "本地数据不一致时，Cloud Home 保留了现有云端副本。请查看下方详情。",
-          "unavailable": "Cloud Home 同步目前不可用。",
-          "intro": "Stella 会将本地记忆和适用的自定义技能安全导入你的云端账户。"
-        },
-        "authorizationNote": "上传的技能在其确切版本获得明确授权前，仍无法供代理使用。",
-        "actions": {
-          "syncing": "正在同步…",
-          "import": "导入此账户",
-          "boundElsewhere": "已绑定其他账户",
-          "blocked": "导入已被阻止",
-          "sync": "立即同步"
-        }
-      }
-    },
-    "audio": {
-      "systemDefault": "系统默认",
-      "microphoneDeviceFallback": "麦克风 {index}",
-      "speakerDeviceFallback": "扬声器 {index}",
-      "microphone": {
-        "title": "麦克风",
-        "enableLabel": "启用麦克风",
-        "enableDescription": "与 Stella 对话所必需。",
-        "deviceLabel": "麦克风",
-        "deviceDescription": "Stella 应该使用哪个麦克风？"
-      },
-      "recovery": {
-        "manageLabel": "管理麦克风访问权限",
-        "recoverLabel": "恢复麦克风访问权限",
-        "manageDescription": "如果麦克风权限卡住，你可以重置它并让 macOS 再次询问。",
-        "recoverDescription": "一旦你拒绝，macOS 就不会自动再次询问。请重置权限，然后退出并重新打开 Stella。",
-        "openSettings": "打开设置",
-        "reset": "重置并重启",
-        "closing": "正在关闭…"
-      },
-      "wakeWord": {
-        "label": "唤醒词「Hey Stella」",
-        "description": "在后台监听「Hey Stella」并开始语音对话。关闭时，麦克风将保持空闲，直到你按下听写。"
-      },
-      "superFast": {
-        "label": "超快听写",
-        "description": "让麦克风保持就绪，使听写以更少的延迟开始。"
-      },
-      "dictationSounds": {
-        "label": "听写声音",
-        "description": "在听写开始和停止时播放声音。"
-      },
-      "speaker": {
-        "title": "扬声器",
-        "outputLabel": "输出设备",
-        "outputDescription": "选择要使用的扬声器或耳机。",
-        "empty": "未找到扬声器。",
-        "emptyMicOff": "打开麦克风以查看你的扬声器。"
-      },
-      "errors": {
-        "listDevices": "无法列出音频设备。",
-        "micDeniedReset": "之前麦克风访问被拒绝。请重置并重启 Stella，或打开系统设置。",
-        "micDenied": "麦克风访问被拒绝。请在系统设置中允许。"
-      }
-    },
-    "connectedProviders": {
-      "title": "已连接的提供商",
-      "empty": "尚未连接任何提供商。在上方的模型选择器中选择 Stella 以外的选项，以添加 API 密钥或登录。",
-      "apiKey": "API 密钥",
-      "signedIn": "已登录",
-      "removeKey": "移除密钥",
-      "removingKey": "正在移除…",
-      "signOut": "退出登录",
-      "signingOut": "正在退出…"
-    },
-    "search": {
-      "placeholder": "搜索设置",
-      "clear": "清除搜索",
-      "noResultsTitle": "没有与「{query}」匹配的设置",
-      "noResultsBody": "请尝试更短或不同的词。",
-      "resultsOne": "{count} 条结果：",
-      "resultsOther": "{count} 条结果：",
-      "resultsAriaOne": "{count} 条结果",
-      "resultsAriaOther": "{count} 条结果",
-      "descriptions": {
-        "permissions": "在 macOS 上授予辅助功能、屏幕录制和麦克风访问权限。",
-        "shortcuts": "更改听写和语音快捷键。",
-        "account": "退出登录、删除你的数据或永久删除你的账户。",
-        "legal": "服务条款和隐私政策。",
-        "speaker": "选择播放 Stella 语音的扬声器或耳机。",
-        "wakeWord": "监听「Hey Stella」并开始语音对话。",
-        "microphone": "Stella 应该使用哪个麦克风？"
-      }
-    },
-    "errors": {
-      "loadPower": "加载电源设置失败。",
-      "savePower": "更新电源设置失败。",
-      "powerUnavailable": "此窗口中无法使用电源设置。",
-      "loadLockedComputerUse": "加载锁屏时使用电脑的设置失败。",
-      "saveLockedComputerUse": "更新锁屏时使用电脑失败。",
-      "lockedComputerUseUnavailable": "此窗口中无法使用锁屏时使用电脑。",
-      "loadSoundNotifications": "加载声音通知设置失败。",
-      "saveSoundNotifications": "更新声音通知设置失败。",
-      "soundNotificationsUnavailable": "此窗口中无法使用声音通知设置。",
-      "loadMemory": "加载记忆设置失败。",
-      "saveMemory": "更新记忆设置失败。",
-      "memoryUnavailable": "此窗口中无法使用记忆设置。",
-      "loadPermissions": "加载桌面权限状态失败。",
-      "savePermission": "更新「{kind}」权限失败。",
-      "resetPermission": "重置「{kind}」权限失败。",
-      "resetPermissionMaybeReopen": "无法重置「{kind}」权限。可能需要重新打开 Stella。",
-      "microphoneDeniedReopen": "之前麦克风访问被拒绝。请在系统设置中开启，然后重新打开 Stella。",
-      "microphoneStillOff": "麦克风访问仍处于关闭状态。请在系统设置中开启，然后重新打开 Stella。",
-      "restart": "重启 Stella 失败。"
-    },
-    "voiceCatalog": {
-      "label": "语音",
-      "familyAriaLabel": "语音系列",
-      "familyTitle": {
-        "openai": "OpenAI Realtime 语音（由 Stella 签发令牌）",
-        "xai": "xAI Grok 语音（由 Stella 签发令牌）",
-        "inworld": "Inworld 语音（由 Stella 代理 SDP 交换）"
-      },
-      "source": {
-        "openai": "OpenAI 语音",
-        "xai": "Grok 语音",
-        "inworld": "Inworld 语音",
-        "gemini": "Gemini 语音"
-      },
-      "previousVoice": "上一个语音",
-      "nextVoice": "下一个语音",
-      "menuAriaLabel": "{source} 语音",
-      "speed": "语速",
-      "speedAriaLabel": "Inworld 语音语速",
-      "readAloud": {
-        "label": "朗读",
-        "ariaLabel": "朗读语音提供商",
-        "openaiTitle": "使用 OpenAI TTS 朗读回复",
-        "geminiTitle": "使用 Gemini TTS 朗读回复",
-        "description": "使用此提供商的语音朗读回复。"
-      }
-    },
-    "phoneAccess": {
-      "expired": "已过期",
-      "timeLeft": "剩余 {time}",
-      "copy": "复制",
-      "preparing": "正在准备...",
-      "getCode": "获取代码",
-      "deviceFallback": "手机",
-      "removing": "正在移除...",
-      "remove": "移除",
-      "signedOut": {
-        "headline": "登录即可开始",
-        "body": "登录你的 Stella 账户以与手机应用配对。"
-      },
-      "pairing": {
-        "headline": "扫描或输入此代码",
-        "body": "在手机上打开 Stella 应用并扫描二维码，或输入下方的代码。此操作只需进行一次。",
-        "qrAlt": "扫描以配对你的手机"
-      },
-      "intro": {
-        "headline": "将手机连接到电脑"
-      },
-      "steps": {
-        "download": "下载应用",
-        "platformSelectorLabel": "选择移动平台",
-        "appStoreQrAlt": "扫描以从 App Store 下载 Stella",
-        "playStoreQrAlt": "扫描以从 Google Play 下载 Stella",
-        "connect": "连接你的手机"
-      },
-      "toasts": {
-        "codeCopied": "代码已复制到剪贴板",
-        "phoneRemoved": "手机已移除",
-        "removeFailed": "移除手机失败"
-      },
-      "errors": {
-        "createPairing": "无法创建配对代码。"
-      },
-      "pairedCount": {
-        "other": "已配对 {count} 部手机"
-      }
-    },
-    "executionDevices": {
-      "title": "Your computers",
-      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
-      "empty": "No computer is signed in to this account yet.",
-      "unnamed": "Computer",
-      "thisComputer": "This computer",
-      "online": "Online",
-      "offline": "Offline",
-      "enable": "Enable",
-      "enabling": "Enabling…",
-      "disable": "Turn off",
-      "disabling": "Turning off…",
-      "state": {
-        "enabled": "Accepting work",
-        "notEnabled": "Not enabled",
-        "asking": "Waiting for an answer there",
-        "declined": "Declined there"
-      },
-      "errors": {
-        "load": "Unable to read the computers on this account.",
-        "update": "That change didn't go through. Try again."
-      }
-    },
-    "modelPicker": {
-      "loadFailed": "Couldn't load models",
-      "retry": "Retry",
-      "searchPlaceholder": "搜索模型…",
-      "searchAriaLabel": "搜索模型",
-      "closeSearch": "关闭搜索",
-      "apiKeyPlaceholder": "API 密钥",
-      "apiKeyAriaLabel": "{provider} API 密钥",
-      "cancelSignIn": "取消登录",
-      "signInWith": "使用 {provider} 登录",
-      "saving": "正在保存…",
-      "use": "使用",
-      "selected": "已选择",
-      "refresh": "刷新模型目录",
-      "restrictedPlan": "{plan} 套餐不可用",
-      "reasoning": {
-        "label": "推理强度",
-        "default": "自动",
-        "minimal": "极低",
-        "low": "低",
-        "medium": "中",
-        "high": "高",
-        "xhigh": "最高"
-      },
-      "authHint": {
-        "both": "登录或粘贴 API 密钥。凭据仅保存在此设备上。",
-        "oauth": "凭据仅保存在此设备上。",
-        "apiKey": "你的 API 密钥仅保存在此设备上。"
-      },
-      "actions": {
-        "cancel": "取消",
-        "signIn": "登录",
-        "addKey": "添加密钥",
-        "custom": "自定义"
-      },
-      "signOut": {
-        "ariaLabel": "退出 {provider} 登录",
-        "confirmAriaLabel": "再次点击以退出 {provider} 登录",
-        "confirmTitle": "再次点击以确认"
-      },
-      "local": {
-        "hint": "可使用任意本地 OpenAI 兼容服务器。Ollama 通常运行在下方的网址。",
-        "serverUrlAriaLabel": "本地服务器网址",
-        "modelNameAriaLabel": "本地模型名称"
-      },
-      "openRouter": {
-        "hintBefore": "OpenRouter 接受任意",
-        "hintAfter": "ID。输入一个即可直接使用。",
-        "modelIdAriaLabel": "OpenRouter 模型 ID"
-      },
-      "empty": {
-        "none": "暂无可用模型。",
-        "noMatch": "没有匹配的模型。"
-      },
-      "favorite": {
-        "remove": "取消收藏",
-        "add": "添加收藏",
-        "addTitle": "收藏 — 置顶显示"
-      },
-      "errors": {
-        "saveApiKey": "保存 API 密钥失败。",
-        "oauthLogin": "OAuth 登录失败。"
-      }
-    },
-    "providerPicker": {
-      "connected": "已连接",
-      "connect": "连接",
-      "opening": "正在打开…"
-    },
-    "engineModels": {
-      "ariaLabel": "{engine} 模型",
-      "loading": "正在加载 {engine} 模型…",
-      "empty": "没有可用的 {engine} 模型。"
-    },
-    "providerConnected": {
-      "title": "为 Stella 使用 {provider}？",
-      "description": "{provider} 可以驱动 Stella 的多个部分。选择你希望它接管的部分 — 其余仍由 Stella 负责。",
-      "assistant": {
-        "label": "助手",
-        "description": "将 Stella 的聊天助手路由到 {provider}。"
-      },
-      "image": {
-        "label": "图像",
-        "description": "通过你的 {provider} 账户生成图像。"
-      },
-      "voice": {
-        "label": "语音",
-        "description": "使用 {provider} 进行实时语音对话。"
-      },
-      "skip": "跳过",
-      "apply": "应用",
-      "applying": "正在应用…",
-      "errors": {
-        "apply": "应用提供商设置失败。"
-      }
-    },
-    "compactModelList": {
-      "ariaLabel": "Stella 模型",
-      "recent": "最近",
-      "unavailable": "不可用",
-      "unavailableTitle": "此模型已不再可用 — 请另选一个。",
-      "loading": "正在加载 Stella 模型…",
-      "loadFailed": "无法加载 Stella 模型。",
-      "empty": "没有可用的 Stella 模型。",
-      "retry": "重试",
-      "restricted": "你的套餐使用 Stella 的推荐选择。",
-      "restrictedPlan": "{plan} 套餐使用 Stella 的推荐选择。",
-      "upgrade": "升级"
-    },
-    "reasoningEffort": {
-      "minimal": "极低",
-      "low": "低",
-      "medium": "中",
-      "high": "高",
-      "xhigh": "超高"
-    },
-    "agentModelPicker": {
-      "byokDescription": "使用你自己的 {provider} API 密钥。",
-      "unavailableChooseAnother": "不可用 — 请另选一个模型",
-      "chatGptRouted": "已路由到 {model}（已保存的模型不可用）。",
-      "default": "默认",
-      "stellaDefault": "Stella 默认",
-      "surfaceAriaLabel": "使用场景",
-      "waitingForChatGpt": "正在等待 ChatGPT…",
-      "imageProviderAriaLabel": "图像提供商",
-      "voiceProviderAriaLabel": "语音提供商",
-      "assistantPickerAriaLabel": "助手模型选择器",
-      "verifyingChatGpt": "正在验证 ChatGPT 模型…",
-      "savedModelUnavailable": "已保存的模型不可用。请另选一个模型。",
-      "tabs": {
-        "assistant": "助手",
-        "assistantTitle": "Stella 的主助手",
-        "image": "图像",
-        "imageTitle": "图像生成提供商",
-        "voice": "语音",
-        "voiceTitle": "实时语音提供商"
-      },
-      "errors": {
-        "loadPreferences": "加载模型设置失败。",
-        "chatGptMigration": "ChatGPT 路由迁移失败。",
-        "chatGptVerify": "无法验证 ChatGPT 模型：{error}",
-        "chatGptVerifying": "请等待 ChatGPT 模型验证完成。",
-        "chatGptNotConnected": "请先在这台电脑上使用 ChatGPT 登录。",
-        "chatGptNoModels": "当前没有可用的 ChatGPT 模型。",
-        "connectChatGpt": "连接 ChatGPT 失败。",
-        "updateEngine": "更新引擎失败。",
-        "updateTitle": "无法更新模型设置",
-        "refreshTitle": "无法刷新模型",
-        "updateModel": "更新模型设置失败。",
-        "updateImage": "更新图像设置失败。",
-        "updateVoice": "更新语音设置失败。",
-        "updateInworldSpeed": "更新 Inworld 语速失败。",
-        "updateVoiceFamily": "更新语音系列失败。",
-        "updateReadAloud": "更新朗读提供商失败。",
-        "updateReasoning": "更新推理强度失败。",
-        "updateChatGptSpeed": "更新 ChatGPT 速度失败。",
-        "updateDirectRuntime": "更新直连 {runtime} 设置失败。",
-        "chatGptPlanUsageOff": "此账号未启用 ChatGPT 套餐使用。请在「设置 › 账户」中启用，或选择其他模型。"
-      },
-      "noChatGptModels": "此账号目前没有可用的 ChatGPT 模型。",
-      "chatGptPlanInUse": "正在使用 ChatGPT 套餐",
-      "chatGptManageUsage": "管理用量"
-    },
-    "onboardingReplay": {
-      "title": "Onboarding",
-      "action": "Replay",
-      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched."
-    },
-    "companion": {
-      "title": "Desktop companion",
-      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
-      "error": "Couldn't update the desktop companion."
-    },
-    "engineAccounts": {
-      "cardTitle": "Claude 和 ChatGPT 账号",
-      "cardIntro": "使用你已付费的 Claude 或 ChatGPT 套餐。每个位置单独登录：每台电脑以及你的云端。",
-      "claudeTitle": "Claude (Pro/Max)",
-      "addClaude": "添加 Claude 账号",
-      "addOnComputer": "在这台电脑上",
-      "addInCloud": "在云端",
-      "active": "使用中",
-      "signInComputer": "在这台电脑上登录",
-      "signOutComputer": "在这台电脑上退出登录",
-      "signIn": "登录",
-      "signedOut": "已退出登录。",
-      "removed": "已移除。",
-      "placeComputer": "这台电脑",
-      "placeOtherComputer": "其他电脑",
-      "placeSignedIn": "{place}：已登录",
-      "placeSignedOut": "{place}：未登录",
-      "signedOutLogin": "已退出的 Claude Code 登录",
-      "cliMissing": "这台电脑未安装 Claude Code。请先安装，才能在这里使用 Claude。",
-      "defaultSignedOut": "这台电脑上的 Claude Code 未登录。",
-      "signedInComputer": "这台电脑上的 Claude Code 已登录。",
-      "signedInComputerAs": "这台电脑上的 Claude Code 已以 {email} 登录。",
-      "signedInCloud": "你的云端已登录 Claude。",
-      "signedInCloudAs": "你的云端已以 {email} 登录 Claude。",
-      "errorGeneric": "操作未成功，请重试。",
-      "claudeLogin": {
-        "whereComputer": "正在这台电脑上登录 Claude Code。",
-        "whereCloud": "正在你的云端登录 Claude Code。",
-        "starting": "正在打开 Anthropic 登录页面…",
-        "opened": "我们已打开 Anthropic 登录页面。",
-        "reopen": "再次打开",
-        "submit": "提交",
-        "submitting": "正在登录…",
-        "failed": "登录未成功。",
-        "startAgain": "重新开始",
-        "codeLabel": "粘贴 Anthropic 显示的代码"
-      },
-      "chatgptCloudSignedIn": "你的云端已登录 ChatGPT。",
-      "revokeTitleCloud": "已从云端退出 ChatGPT",
-      "revokeTitleComputer": "已在这台电脑上退出登录",
-      "runsOnLabel": "云端聊天运行于",
-      "needsClaudeCloud": "请先在云端登录 Claude",
-      "needsChatgptCloud": "请先继续为云端设置 ChatGPT",
-      "chatgptComputerSignedIn": "这台电脑已登录 ChatGPT。",
-      "planUsageOffTitle": "已登录，但未启用 ChatGPT 套餐使用",
-      "planUsageOffBody": "在你允许之前，Stella 无法使用你的 ChatGPT 套餐。请在账号上选择「启用 ChatGPT 套餐使用」，或使用其他模型。",
-      "signInCloud": "在云端登录",
-      "signOutCloud": "从云端退出登录",
-      "placeCloud": "云端",
-      "useAccount": "使用此账号",
-      "signOut": "退出登录",
-      "moreLabel": "{name} 的选项",
-      "signInAgain": "重新登录",
-      "enablePlanUsage": "启用 ChatGPT 套餐使用",
-      "remove": "移除",
-      "statusSignedOut": "已退出登录",
-      "statusReauth": "重新登录以继续使用",
-      "statusPlanUsageOff": "未启用 ChatGPT 套餐使用",
-      "revokeUnconfirmed": "ChatGPT 未确认退出登录。你可以在 ChatGPT 设置中断开 Stella。",
-      "pasteHintChatgpt": "批准后，ChatGPT 会将你带到一个无法加载的页面。复制该页面的完整地址并粘贴到这里。",
-      "pastePlaceholderUrl": "在此粘贴地址",
-      "openChatgptAgain": "再次打开 ChatGPT",
-      "connecting": "正在连接…",
-      "finish": "连接",
-      "chatgptBrowserWaiting": "请在浏览器中完成 ChatGPT 登录。",
-      "chatgptTitle": "ChatGPT",
-      "addChatgpt": "Add ChatGPT account",
-      "addChatgptCloud": "Add ChatGPT account in the cloud",
-      "enablePlanUsageCloud": "Enable ChatGPT plan use in the cloud"
-    }
-  },
-  "onboarding": {
-    "legalFooter": "使用 Stella 即表示您同意我们的{terms}和{privacy}。",
-    "termsOfService": "服务条款",
-    "privacyPolicy": "隐私政策",
-    "chat": {
-      "skipSetup": "Skip setup",
-      "composerPlaceholder": "Or just ask me something to get started",
-      "send": "Send",
-      "messages": {
-        "capabilities": "你好，我是 Stella。\n\n我不是聊天机器人。我会用这台电脑在后台真正把事情做完，你只管忙你的。\n\n来看看是什么样子。",
-        "theme": "Now, how should I look?",
-        "extras": "Almost done. A little housekeeping, then we start.",
-        "memory": "One more thing that makes me different.",
-        "selfmod": "因为我就住在你的电脑上，所以我可以改变自己。",
-        "signin": "接下来登录。可以用 Stella 账号，也可以用你已有的 Claude 或 ChatGPT 套餐。",
-        "quickstart": "就这些了。还有最后一件事，可选：快速上手。",
-        "quickstartDone": "好了。这是我了解到的内容，还有几件我们可以先做的事。",
-        "quickstartFailed": "这次我没能读完你的浏览器。我们可以直接开始，我会边用边了解。"
-      },
-      "replies": {
-        "capabilitiesDone": "Got it.",
-        "capabilitiesSkipped": "Skip the tour.",
-        "themeDone": "That one.",
-        "themeSkipped": "Keep the default.",
-        "extrasDone": "Done.",
-        "extrasSkipped": "Skip for now.",
-        "memoryDone": "Nice.",
-        "memorySkipped": "Skip it.",
-        "selfmodDone": "太酷了。",
-        "signinDone": "好了。"
-      },
-      "discovery": {
-        "browserLabel": "Your browser",
-        "includeDev": "My coding setup",
-        "hint": "About a minute, in the background.",
-        "alsoLabel": "Also include",
-        "assurance": "A one-time read, kept on this computer. You can see and edit what I keep at any time."
-      },
-      "capabilities": {
-        "errands": {
-          "word": "Errands",
-          "title": "Ask once. Consider it handled.",
-          "caption": "我会找到对的地方，填好表单，再加进你的日历，就像你自己做的一样。"
-        },
-        "shopping": {
-          "word": "Shopping",
-          "title": "I can buy things, with your OK.",
-          "caption": "I find it and get it to checkout. You confirm the total, and I place the order."
-        },
-        "work": {
-          "word": "Work",
-          "title": "真实的文件。多项任务同时进行。",
-          "caption": "我在这台电脑上的真实应用里工作，还能同时处理多项任务。"
-        },
-        "build": {
-          "word": "Build",
-          "title": "Say it. I'll build it.",
-          "caption": "Apps and websites, made to order. Describe it in plain words and I'll build it, run it, and put it online."
-        },
-        "settledTitle": "The quick tour",
-        "replay": "Replay this demo",
-        "tablist": "Capability demos",
-        "routines": {
-          "word": "例行任务",
-          "title": "说一次，每天都会做。",
-          "caption": "任何事都可以定时，我会准时完成，哪怕你正在睡觉。"
-        }
-      },
-      "memory": {
-        "titleChatbot": "You know this one",
-        "bodyChatbot": "A new chat every time, a sidebar full of old ones, and no memory of what you said last week.",
-        "titleStella": "With me it's one conversation",
-        "bodyStella": "No new chats, no threads. Everything you've ever told me is in the same place, so when you ask about last week I go and find it.",
-        "showStella": "Now ask me",
-        "skip": "Skip",
-        "settledTitle": "One conversation",
-        "settledDesc": "No threads to manage. I remember."
-      },
-      "theme": {
-        "title": "Pick a look",
-        "body": "Hover to try one on. Click to keep it.",
-        "appearance": "Appearance",
-        "themes": "Theme",
-        "mode": {
-          "light": "Light",
-          "dark": "Dark",
-          "system": "System"
-        },
-        "confirm": "Done",
-        "skip": "Keep the default",
-        "hint": "Everything here changes live.",
-        "settledTitle": "Default",
-        "gradientStyle": "Gradient style",
-        "gradientColor": "Gradient color",
-        "gradient": {
-          "soft": "Soft",
-          "flat": "Flat",
-          "relative": "Relative",
-          "strong": "Strong"
-        }
-      },
-      "extras": {
-        "title": "Two quick extras",
-        "titleOne": "One quick extra",
-        "body": "Neither is required, but both make me a lot more useful.",
-        "bodyOne": "Not required, but it makes me a lot more useful.",
-        "accessibilityTitle": "Accessibility",
-        "accessibilityDesc": "So I can act on selected text and what's under your cursor.",
-        "screenTitle": "Screen Recording",
-        "screenDesc": "So I can see the screen when you ask me to.",
-        "enable": "Enable",
-        "enabled": "Enabled",
-        "extensionTitle": "Stella for Chrome",
-        "extensionDesc": "Lets me see the page you're on and act inside your browser. Works in Chrome, Arc, Brave, and Edge.",
-        "getExtension": "Get extension",
-        "extensionOpened": "Opened",
-        "memoryTitle": "Remember across chats",
-        "memoryDesc": "Use what I've saved about you when it's relevant. Nothing is deleted if you turn this off.",
-        "restartHint": "Screen access needs a quick restart to take effect.",
-        "restart": "Restart Stella",
-        "skip": "Skip for now",
-        "hint": "All of this lives in Settings too.",
-        "settledTitle": "Extras",
-        "settledSkippedTitle": "Extras skipped",
-        "settledPermissions": "Permissions",
-        "settledExtension": "Extension",
-        "settledMemory": "Memory"
-      },
-      "ready": {
-        "highlightsLabel": "What I picked up",
-        "startersLabel": "Try one of these",
-        "startersLabelPersonal": "Made for you",
-        "notesSummary": "See everything I noted",
-        "notesFoot": "You can read or edit this any time in Settings › Memory.",
-        "start": "Start chatting",
-        "hint": "Or type anything below.",
-        "generic": {
-          "plan": {
-            "title": "Plan my week",
-            "prompt": "Help me plan my week. Ask me what's on my plate and lay it out day by day."
-          },
-          "browse": {
-            "title": "Find me a good dinner spot",
-            "prompt": "Find a well-reviewed dinner spot near me for this weekend and hold a reservation for two."
-          },
-          "file": {
-            "title": "Tidy up a document",
-            "prompt": "I have a document that needs cleaning up. I'll share it and you fix the structure and wording."
-          },
-          "watch": {
-            "title": "Watch a site for changes",
-            "prompt": "Keep an eye on a web page for me and tell me when it changes."
-          }
-        }
-      },
-      "progress": "设置进度",
-      "selfmod": {
-        "title": "我可以改变自己",
-        "body": "缺少某个功能，或者想让某样东西换种方式运作？直接告诉我。我会重写自己的代码，让你试用，是否保留由你决定。",
-        "steps": {
-          "ask": {
-            "title": "提出",
-            "body": "用平常的话描述你想要的更改。"
-          },
-          "preview": {
-            "title": "预览",
-            "body": "由智能体构建，并打开实时预览。"
-          },
-          "update": {
-            "title": "更新",
-            "body": "点一下即可应用。随时可以撤销。"
-          }
-        },
-        "hint": "更改只保留在这台电脑上。",
-        "settledTitle": "我可以改变自己",
-        "settledDesc": "提出、预览、更新。随时可以撤销。"
-      },
-      "signin": {
-        "title": "登录",
-        "body": "任选其一就够了。其他的以后再添加。",
-        "options": {
-          "stella": {
-            "title": "Stella 账号",
-            "body": "使用 Google 或邮箱。你的聊天会同步到手机。"
-          },
-          "claude": {
-            "title": "Claude Code",
-            "body": "使用你的 Claude Pro 或 Max 套餐。"
-          },
-          "chatgpt": {
-            "title": "ChatGPT",
-            "body": "使用 ChatGPT 登录，即可使用你的套餐。"
-          },
-          "apikey": {
-            "title": "API 密钥",
-            "body": "使用你自己的 Anthropic、OpenAI、Google 等密钥。"
-          }
-        },
-        "signIn": "登录",
-        "connect": "连接",
-        "use": "使用",
-        "inUse": "使用中",
-        "waiting": "请在浏览器中完成登录，然后回到这里。",
-        "error": "没能连接上。再试一次？",
-        "fine": "随时可以在“设置”中更改。",
-        "hint": "免费开始。",
-        "settledEngine": "正在使用 {name}",
-        "settledStella": "已登录 Stella",
-        "settledDesc": "随时可以在“设置”中更改。",
-        "claudeCliMissing": "请先安装 Claude Code，然后重试。"
-      },
-      "quickstart": {
-        "eyebrow": "快速上手",
-        "title": "让我先走一步",
-        "body": "大多数助手都是从零开始。让我读一次你的浏览器，建立一份初始记忆，这样我从第一天起就能帮上忙。",
-        "run": "运行快速上手",
-        "skip": "跳过",
-        "runningTitle": "正在了解你",
-        "runningBody": "大约一分钟。你想进去就进去，我会在后台完成。",
-        "stages": {
-          "read": "正在读取你选择的内容",
-          "notice": "正在留意对你重要的事",
-          "write": "正在写入你的初始记忆"
-        },
-        "continueInBackground": "开始聊天，在后台完成",
-        "failedTitle": "没有完成",
-        "failedBody": "读取被打断了。再试一次，或者直接开始聊天，我会边用边了解。"
-      }
-    }
-  },
-  "billing": {
-    "plans": {
-      "free": {
-        "tagline": "免费试用。"
-      },
-      "go": {
-        "tagline": "10 倍更高用量"
-      },
-      "pro": {
-        "tagline": "面向媒体生成和多个智能体的最高用量限制"
-      }
-    },
-    "features": {
-      "assistant": "个人助理",
-      "codingAgent": "编程智能体",
-      "research": "研究与知识工作",
-      "dictationReadAloud": "听写和朗读",
-      "multipleAgents": "多个智能体"
-    },
-    "capability": {
-      "image_generation": "图像生成",
-      "video_generation": "视频生成",
-      "audio_generation": "语音与音乐生成",
-      "three_d_generation": "3D 生成"
-    },
-    "capabilityRestriction": {
-      "title": "你的套餐不包含{capability}",
-      "signIn": "{capability}包含在 Stella {plan} 套餐中。登录并升级即可解锁。",
-      "upgrade": "{capability}包含在 Stella {plan} 套餐中。升级即可解锁。",
-      "unavailable": "目前没有任何套餐提供{capability}。",
-      "lockedBadge": "{plan}",
-      "lockedBadgeGeneric": "不可用",
-      "genericTitle": "你的套餐不包含此功能",
-      "genericDescription": "此功能包含在 Stella Pro 套餐中。升级即可解锁。"
-    },
-    "freeAllowance": {
-      "label": "Free 套餐用量",
-      "caption": "免费试用。",
-      "remaining": "免费试用。",
-      "exhaustedTitle": "你已达到 Free 套餐的限额",
-      "exhaustedDescription": "升级到 Go，获得 10 倍更高用量。",
-      "exhaustedCta": "升级到 Go"
-    },
-    "upgradeDialog": {
-      "title": "你正在使用 Stella {plan}。",
-      "description": "感谢升级。更高优先级和更多用量现已生效 — 继续吧。",
-      "cta": "开始使用"
-    },
-    "renewal": {
-      "nextLabel": "下次续订",
-      "pendingLabel": "已申请取消",
-      "renews": "{date} 续订",
-      "accessEnds": "{date} 结束使用",
-      "lapseTitle": "套餐到期后 Stella 将停止服务",
-      "lapseDescription": "你的 {plan} 套餐可用到 {date}。之后 Stella 将停止服务 — Free 套餐的额度只发放一次，你的已经用完了。"
-    },
-    "heading": "选择你的套餐",
-    "subtitle": "免费开始。需要更多时再升级。",
-    "mobile": {
-      "sectionTitle": "订阅",
-      "currentPlanLabel": "当前套餐",
-      "planValue": "Stella {plan}",
-      "manage": "管理订阅",
-      "manageWebNote": "可在网页版 Stella（stella.sh）管理或取消此订阅。",
-      "renews": "{date} 续订",
-      "accessEnds": "使用权限于 {date} 结束",
-      "chooseHeading": "选择你的套餐",
-      "subscribe": "订阅",
-      "perMonth": "{price}/月",
-      "introLine": "首月 {introPrice}，之后 {price}/月",
-      "signInToSubscribe": "登录后订阅",
-      "startingCheckout": "正在开始…",
-      "pendingTitle": "正在完成购买",
-      "pendingBody": "请在浏览器中完成付款。付款确认后，套餐会在此自动更新，无需重启。",
-      "pendingDismiss": "暂不",
-      "successTitle": "你已订阅 Stella {plan}",
-      "successBody": "订阅已生效。尽情享受更高的额度。",
-      "errorRetry": "重试",
-      "alreadySubscribedTitle": "你已有订阅",
-      "footnote": "由 Stella 通过 Stripe 收费。每月续订，直至取消；可随时取消。"
-    }
-  },
-  "chat": {
-    "stoppedReply": "Stella 无法开始此次回复",
-    "tryAgainHint": "请重试。",
-    "attachments": {
-      "attachPhoto": "添加照片",
-      "takePhoto": "拍照",
-      "attachFile": "添加文件",
-      "remove": "移除附件",
-      "uploading": "正在上传",
-      "retryUpload": "重试上传",
-      "uploadFailed": "上传失败。点按可重试。",
-      "tooManyTitle": "文件过多",
-      "tooManyBody": "每次最多可添加 {count} 个文件。",
-      "photosDeniedTitle": "照片",
-      "photosDeniedBody": "请在设置中允许 Stella 访问你的照片图库，以便添加图片。",
-      "cameraDeniedTitle": "相机",
-      "cameraDeniedBody": "请在设置中允许 Stella 使用相机，以便拍照。",
-      "photoLabel": "照片",
-      "sheetTitle": "添加到聊天",
-      "camera": "相机",
-      "photos": "照片",
-      "files": "文件",
-      "readAloud": "朗读回复"
-    }
-  },
-  "errors": {
-    "generic": "出了点问题",
-    "subscriptionRequired": "备份需要有效的 Stella 订阅。",
-    "rateLimited": "操作过于频繁，请稍后再试。",
-    "networkUnavailable": "Stella 已离线。请重新连接后继续。",
-    "permissionDenied": "Stella 没有执行此操作的权限。"
-  },
   "app": {
-    "usage": {
-      "desktopOnly": "本地用量可在 Stella 桌面应用中查看。",
-      "intro": "保存在此设备上的提供商调用。费用为本地估算；以后端账单为准。",
-      "refresh": "刷新",
-      "refreshLabel": "刷新用量",
-      "selectedThread": "所选线程",
-      "viewAllThreads": "查看所有线程",
-      "loading": "正在加载本地用量…",
-      "loadError": "无法加载本地用量",
-      "tryAgain": "重试",
-      "emptyTitle": "没有符合这些筛选条件的模型调用。",
-      "emptyBody": "原生调用会在其提供商返回最终用量数据后显示在这里。",
-      "truncatedWarning": "仅显示此范围内最近的 10,000 次调用。缩小时间范围可获得准确总计。",
-      "filters": {
-        "label": "用量筛选",
-        "timeRange": "时间范围",
-        "conversation": "对话",
-        "thread": "线程",
-        "agentType": "智能体类型",
-        "model": "模型",
-        "allConversations": "所有对话",
-        "allThreads": "所有线程",
-        "allAgentTypes": "所有智能体类型",
-        "allModels": "所有模型",
-        "range": {
-          "24h": "最近 24 小时",
-          "7d": "最近 7 天",
-          "30d": "最近 30 天",
-          "all": "全部时间"
-        }
-      },
-      "summary": {
-        "label": "用量摘要",
-        "estimatedCost": "估算费用",
-        "providerCalls": "{count} 次提供商调用",
-        "totalTokens": "总 token 数",
-        "uncachedInput": "{value} 未缓存输入",
-        "cacheRead": "缓存读取",
-        "cacheDetail": "读取 {read} · 写入 {written}",
-        "output": "输出",
-        "reasoningTokens": "{value} 推理 token"
-      },
-      "timeline": {
-        "title": "时间线",
-        "description": "每个时间区间的估算费用和总 token 数。",
-        "chartLabel": "估算模型费用与 token 用量的时间线",
-        "series": {
-          "cost": "估算费用",
-          "tokens": "Token"
-        },
-        "tooltip": {
-          "estimated": "估算 {value}",
-          "tokens": "{value} 个 token",
-          "calls": "{count} 次模型调用"
-        }
-      },
-      "threads": {
-        "title": "线程",
-        "description": "编排器、智能体和嵌套的子智能体。",
-        "columns": {
-          "execution": "执行",
-          "model": "模型",
-          "calls": "调用",
-          "tokens": "Token",
-          "cache": "缓存",
-          "cost": "费用"
-        }
-      },
-      "calls": {
-        "title": "提供商调用",
-        "description": "若提供商将推理计入输出，则输出中包含推理；单独报告时也会分开显示。",
-        "costBreakdown": "输入 {input} · 缓存读取 {cacheRead} · 缓存写入 {cacheWrite} · 输出 {output}",
-        "truncatedNote": "仅显示最近 500 次匹配的调用；摘要总计包含全部 {count} 次已加载的调用。",
-        "columns": {
-          "time": "时间",
-          "execution": "执行",
-          "providerModel": "提供商 / 模型",
-          "input": "输入",
-          "cache": "缓存 读 / 写",
-          "output": "输出",
-          "reasoning": "推理",
-          "cost": "费用",
-          "stop": "停止"
-        }
-      }
-    },
     "apps": {
       "createAppPrompt": "告诉我，你能为我做哪些 Stella 应用？"
     },
@@ -1337,21 +174,20 @@
         "previewFailed": "无法加载地图预览。"
       },
       "messageActions": {
-        "selectText": "Select text",
-        "share": "Share",
-        "quote": "Quote",
-        "fork": "Fork to new chat",
-        "more": "更多操作",
-        "rewind": "Rewind here",
-        "rewindConfirm": "Click again to rewind",
         "copied": "已复制",
         "copy": "复制",
+        "fork": "Fork to new chat",
+        "more": "更多操作",
+        "quote": "Quote",
         "readAloud": "朗读",
         "reply": "回复",
+        "rewind": "Rewind here",
+        "rewindConfirm": "Click again to rewind",
+        "selectText": "Select text",
+        "share": "Share",
         "stopReading": "停止朗读"
       },
       "messageRow": {
-        "quotedTextLabel": "Quoted text",
         "attachmentAlt": "附件",
         "attachmentFallback": "附件 {index}",
         "channelKind": {
@@ -1364,6 +200,7 @@
         "clickToEnlarge": "点击以放大 {label}",
         "pastedTextLabel": "粘贴的文本",
         "pastedTextTitle": "粘贴的文本 — {stats}",
+        "quotedTextLabel": "Quoted text",
         "reactionsSummary": "回应 {reactions}",
         "showMoreChips": "再显示 {count} 个",
         "windowPreviewAlt": "窗口内容预览"
@@ -1468,6 +305,10 @@
           "description": "把静态图像动画化为短视频",
           "name": "图生视频"
         },
+        "referenceToVideo": {
+          "description": "根据图片、视频和音频参考素材生成视频",
+          "name": "参考素材转视频"
+        },
         "speechToText": {
           "description": "把语音音频转写为文本",
           "name": "语音转文本"
@@ -1495,10 +336,6 @@
         "videoToVideo": {
           "description": "用文本指令转换视频",
           "name": "视频转视频"
-        },
-        "referenceToVideo": {
-          "description": "根据图片、视频和音频参考素材生成视频",
-          "name": "参考素材转视频"
         }
       },
       "imageFailure": {
@@ -1540,6 +377,9 @@
         "prompt": "提示词",
         "promptPlaceholder": "描述你想要的内容…",
         "quality": "质量",
+        "qualityHigh": "高",
+        "qualityLow": "低",
+        "qualityMedium": "中",
         "queued": "正在队列中等待…",
         "sourceAudio": "音频文件",
         "sourceFile": "源文件",
@@ -1547,501 +387,677 @@
         "sourceVideo": "源视频",
         "submitting": "正在提交…",
         "title": "媒体",
-        "transformVideo": "转换视频",
-        "qualityHigh": "高",
-        "qualityLow": "低",
-        "qualityMedium": "中"
+        "transformVideo": "转换视频"
       }
+    },
+    "usage": {
+      "calls": {
+        "columns": {
+          "cache": "缓存 读 / 写",
+          "cost": "费用",
+          "execution": "执行",
+          "input": "输入",
+          "output": "输出",
+          "providerModel": "提供商 / 模型",
+          "reasoning": "推理",
+          "stop": "停止",
+          "time": "时间"
+        },
+        "costBreakdown": "输入 {input} · 缓存读取 {cacheRead} · 缓存写入 {cacheWrite} · 输出 {output}",
+        "description": "若提供商将推理计入输出，则输出中包含推理；单独报告时也会分开显示。",
+        "title": "提供商调用",
+        "truncatedNote": "仅显示最近 500 次匹配的调用；摘要总计包含全部 {count} 次已加载的调用。"
+      },
+      "desktopOnly": "本地用量可在 Stella 桌面应用中查看。",
+      "emptyBody": "原生调用会在其提供商返回最终用量数据后显示在这里。",
+      "emptyTitle": "没有符合这些筛选条件的模型调用。",
+      "filters": {
+        "agentType": "智能体类型",
+        "allAgentTypes": "所有智能体类型",
+        "allConversations": "所有对话",
+        "allModels": "所有模型",
+        "allThreads": "所有线程",
+        "conversation": "对话",
+        "label": "用量筛选",
+        "model": "模型",
+        "range": {
+          "24h": "最近 24 小时",
+          "30d": "最近 30 天",
+          "7d": "最近 7 天",
+          "all": "全部时间"
+        },
+        "thread": "线程",
+        "timeRange": "时间范围"
+      },
+      "intro": "保存在此设备上的提供商调用。费用为本地估算；以后端账单为准。",
+      "loadError": "无法加载本地用量",
+      "loading": "正在加载本地用量…",
+      "refresh": "刷新",
+      "refreshLabel": "刷新用量",
+      "selectedThread": "所选线程",
+      "summary": {
+        "cacheDetail": "读取 {read} · 写入 {written}",
+        "cacheRead": "缓存读取",
+        "estimatedCost": "估算费用",
+        "label": "用量摘要",
+        "output": "输出",
+        "providerCalls": "{count} 次提供商调用",
+        "reasoningTokens": "{value} 推理 token",
+        "totalTokens": "总 token 数",
+        "uncachedInput": "{value} 未缓存输入"
+      },
+      "threads": {
+        "columns": {
+          "cache": "缓存",
+          "calls": "调用",
+          "cost": "费用",
+          "execution": "执行",
+          "model": "模型",
+          "tokens": "Token"
+        },
+        "description": "编排器、智能体和嵌套的子智能体。",
+        "title": "线程"
+      },
+      "timeline": {
+        "chartLabel": "估算模型费用与 token 用量的时间线",
+        "description": "每个时间区间的估算费用和总 token 数。",
+        "series": {
+          "cost": "估算费用",
+          "tokens": "Token"
+        },
+        "title": "时间线",
+        "tooltip": {
+          "calls": "{count} 次模型调用",
+          "estimated": "估算 {value}",
+          "tokens": "{value} 个 token"
+        }
+      },
+      "truncatedWarning": "仅显示此范围内最近的 10,000 次调用。缩小时间范围可获得准确总计。",
+      "tryAgain": "重试",
+      "viewAllThreads": "查看所有线程"
+    }
+  },
+  "billing": {
+    "capability": {
+      "audio_generation": "语音与音乐生成",
+      "image_generation": "图像生成",
+      "three_d_generation": "3D 生成",
+      "video_generation": "视频生成"
+    },
+    "capabilityRestriction": {
+      "genericDescription": "此功能包含在 Stella Pro 套餐中。升级即可解锁。",
+      "genericTitle": "你的套餐不包含此功能",
+      "lockedBadge": "{plan}",
+      "lockedBadgeGeneric": "不可用",
+      "signIn": "{capability}包含在 Stella {plan} 套餐中。登录并升级即可解锁。",
+      "title": "你的套餐不包含{capability}",
+      "unavailable": "目前没有任何套餐提供{capability}。",
+      "upgrade": "{capability}包含在 Stella {plan} 套餐中。升级即可解锁。"
+    },
+    "features": {
+      "assistant": "个人助理",
+      "codingAgent": "编程智能体",
+      "dictationReadAloud": "听写和朗读",
+      "multipleAgents": "多个智能体",
+      "research": "研究与知识工作"
+    },
+    "freeAllowance": {
+      "caption": "免费试用。",
+      "exhaustedCta": "升级到 Go",
+      "exhaustedDescription": "升级到 Go，获得 10 倍更高用量。",
+      "exhaustedTitle": "你已达到 Free 套餐的限额",
+      "label": "Free 套餐用量",
+      "remaining": "免费试用。"
+    },
+    "heading": "选择你的套餐",
+    "mobile": {
+      "accessEnds": "使用权限于 {date} 结束",
+      "alreadySubscribedTitle": "你已有订阅",
+      "chooseHeading": "选择你的套餐",
+      "currentPlanLabel": "当前套餐",
+      "errorRetry": "重试",
+      "footnote": "由 Stella 通过 Stripe 收费。每月续订，直至取消；可随时取消。",
+      "introLine": "首月 {introPrice}，之后 {price}/月",
+      "manage": "管理订阅",
+      "manageWebNote": "可在网页版 Stella（stella.sh）管理或取消此订阅。",
+      "pendingBody": "请在浏览器中完成付款。付款确认后，套餐会在此自动更新，无需重启。",
+      "pendingDismiss": "暂不",
+      "pendingTitle": "正在完成购买",
+      "perMonth": "{price}/月",
+      "planValue": "Stella {plan}",
+      "renews": "{date} 续订",
+      "sectionTitle": "订阅",
+      "signInToSubscribe": "登录后订阅",
+      "startingCheckout": "正在开始…",
+      "subscribe": "订阅",
+      "successBody": "订阅已生效。尽情享受更高的额度。",
+      "successTitle": "你已订阅 Stella {plan}"
+    },
+    "plans": {
+      "free": {
+        "tagline": "免费试用。"
+      },
+      "go": {
+        "tagline": "10 倍更高用量"
+      },
+      "pro": {
+        "tagline": "面向媒体生成和多个智能体的最高用量限制"
+      }
+    },
+    "renewal": {
+      "accessEnds": "{date} 结束使用",
+      "lapseDescription": "你的 {plan} 套餐可用到 {date}。之后 Stella 将停止服务 — Free 套餐的额度只发放一次，你的已经用完了。",
+      "lapseTitle": "套餐到期后 Stella 将停止服务",
+      "nextLabel": "下次续订",
+      "pendingLabel": "已申请取消",
+      "renews": "{date} 续订"
+    },
+    "subtitle": "免费开始。需要更多时再升级。",
+    "upgradeDialog": {
+      "cta": "开始使用",
+      "description": "感谢升级。更高优先级和更多用量现已生效 — 继续吧。",
+      "title": "你正在使用 Stella {plan}。"
+    }
+  },
+  "chat": {
+    "attachments": {
+      "attachFile": "添加文件",
+      "attachPhoto": "添加照片",
+      "camera": "相机",
+      "cameraDeniedBody": "请在设置中允许 Stella 使用相机，以便拍照。",
+      "cameraDeniedTitle": "相机",
+      "files": "文件",
+      "photoLabel": "照片",
+      "photos": "照片",
+      "photosDeniedBody": "请在设置中允许 Stella 访问你的照片图库，以便添加图片。",
+      "photosDeniedTitle": "照片",
+      "readAloud": "朗读回复",
+      "remove": "移除附件",
+      "retryUpload": "重试上传",
+      "sheetTitle": "添加到聊天",
+      "takePhoto": "拍照",
+      "tooManyBody": "每次最多可添加 {count} 个文件。",
+      "tooManyTitle": "文件过多",
+      "uploadFailed": "上传失败。点按可重试。",
+      "uploading": "正在上传"
+    },
+    "stoppedReply": "Stella 无法开始此次回复",
+    "tryAgainHint": "请重试。"
+  },
+  "cloudBrowser": {
+    "actions": {
+      "canceling": "Canceling…",
+      "done": "Done",
+      "finishing": "Finishing…",
+      "useCloudBrowser": "Use Stella's browser"
+    },
+    "deviceCode": {
+      "body": "Enter this code on the site, then come back here.",
+      "codeLabel": "Code",
+      "copied": "Copied",
+      "copy": "Copy code",
+      "open": "Open site",
+      "title": "Sign in to {origin}"
+    },
+    "errors": {
+      "decision": "That didn't go through. Try again.",
+      "expired": "This sign-in is no longer needed.",
+      "liveView": "Couldn't load the sign-in page. Try again.",
+      "liveViewBoundary": "Couldn't load the sign-in page.",
+      "verificationUrl": "Couldn't open that page."
+    },
+    "needsYou": {
+      "deviceCode": "Enter a code for {origin}",
+      "open": "Open",
+      "signIn": "Sign in to {origin}",
+      "title": "Needs you"
+    },
+    "settings": {
+      "confirmBody": "Stella will ask you to sign in again next time.",
+      "confirmTitle": "Sign out of all sites?",
+      "defaultProfile": "Saved sign-ins",
+      "description": "Sites Stella has signed in to for you. Reset to sign out of all of them.",
+      "reset": "Reset",
+      "resetComplete": "Signed out of all sites.",
+      "resetFailed": "Couldn't sign out. Try again.",
+      "resetting": "Resetting…",
+      "title": "Browser sign-ins"
+    },
+    "takeover": {
+      "body": "Sign in to keep going. Stella can't see what you type.",
+      "checking": "Finishing sign-in to {origin}",
+      "frameTitle": "Sign in to {origin}",
+      "localNotice": "Stella can't see what you type",
+      "localOriginFallback": "Switched to Stella's browser to finish signing in.",
+      "localTransferFallback": "Couldn't confirm that sign-in. Try again in Stella's browser.",
+      "preparing": "Loading sign-in…",
+      "privateNotice": "Stella can't see what you type",
+      "resumingBody": "Stella will pick up where it left off.",
+      "title": "Sign in to {origin}"
+    }
+  },
+  "cloudConnector": {
+    "connect": "连接",
+    "connecting": "请在浏览器中完成 {name} 的登录。获得批准后 Stella 会继续。",
+    "errors": {
+      "decision": "无法连接 {name}。请重试。",
+      "open": "无法打开登录页面。"
+    },
+    "notNow": "暂不",
+    "openAgain": "重新打开",
+    "titleOffer": "要连接 {name} 吗？",
+    "titleWaiting": "正在等待 {name}"
+  },
+  "common": {
+    "appName": "Stella",
+    "back": "返回",
+    "cancel": "取消",
+    "close": "关闭",
+    "continue": "继续",
+    "copy": "复制",
+    "language": "语言",
+    "loading": "加载中…",
+    "next": "下一步",
+    "no": "否",
+    "open": "打开",
+    "openPreferences": "打开偏好设置",
+    "previous": "上一步",
+    "save": "保存",
+    "signIn": "登录",
+    "signOut": "退出登录",
+    "tryAgain": "重试",
+    "yes": "是"
+  },
+  "companion": {
+    "arc": {
+      "dictate": "Dictate a message",
+      "dictateStop": "Stop dictating and send",
+      "readAloudOff": "Read replies aloud: off",
+      "readAloudOn": "Read replies aloud: on",
+      "voice": "Start voice conversation",
+      "voiceStop": "End voice conversation"
+    },
+    "badge": {
+      "running": "{count} agents working"
+    },
+    "bubble": {
+      "openStella": "Open in Stella",
+      "typing": "Stella is replying"
+    },
+    "composer": {
+      "placeholder": "Ask Stella…"
+    },
+    "mark": {
+      "close": "Close the prompt",
+      "open": "Ask Stella"
+    },
+    "menu": {
+      "hide": "Hide companion",
+      "openStella": "Open Stella",
+      "quit": "Quit Stella"
     }
   },
   "desktop": {
     "common": {
       "continue": "继续"
     },
-    "tray": {
-      "tooltip": "Stella",
-      "openStella": "打开 Stella",
-      "quitStella": "退出 Stella",
-      "balloon": {
-        "title": "Stella 仍在运行",
-        "content": "Stella 会留在系统托盘中。点击图标即可重新打开。"
-      }
-    },
     "dialog": {
       "startupFailure": {
-        "title": "Stella",
-        "message": "Stella 无法完成启动。",
         "detail": "在应用界面加载之前启动失败。\n\n{detail}",
+        "message": "Stella 无法完成启动。",
+        "quit": "退出",
         "relaunch": "重新启动",
-        "quit": "退出"
-      }
-    },
-    "security": {
-      "confirmationTitle": "Stella 安全确认",
-      "allow": "允许",
-      "deny": "拒绝",
-      "rememberDecision": "在此设备上记住此决定",
-      "computerUse": {
-        "message": "允许电脑操作使用 {app} 吗？",
-        "detail": "电脑操作将能够查看 {app} 并与之交互。",
-        "risk": "风险：{risk}"
+        "title": "Stella"
       }
     },
     "oauth": {
-      "xaiCodeMessage": "输入此代码以连接 xAI",
-      "expectedValue": "预期值：{value}"
+      "expectedValue": "预期值：{value}",
+      "xaiCodeMessage": "输入此代码以连接 xAI"
+    },
+    "security": {
+      "allow": "允许",
+      "computerUse": {
+        "detail": "电脑操作将能够查看 {app} 并与之交互。",
+        "message": "允许电脑操作使用 {app} 吗？",
+        "risk": "风险：{risk}"
+      },
+      "confirmationTitle": "Stella 安全确认",
+      "deny": "拒绝",
+      "rememberDecision": "在此设备上记住此决定"
+    },
+    "tray": {
+      "balloon": {
+        "content": "Stella 会留在系统托盘中。点击图标即可重新打开。",
+        "title": "Stella 仍在运行"
+      },
+      "openStella": "打开 Stella",
+      "quitStella": "退出 Stella",
+      "tooltip": "Stella"
     },
     "update": {
       "holding": "正在更新 Stella"
     }
   },
+  "errors": {
+    "generic": "出了点问题",
+    "networkUnavailable": "Stella 已离线。请重新连接后继续。",
+    "permissionDenied": "Stella 没有执行此操作的权限。",
+    "rateLimited": "操作过于频繁，请稍后再试。",
+    "subscriptionRequired": "备份需要有效的 Stella 订阅。"
+  },
   "features": {
     "browserBridge": {
-      "unavailableTitle": "浏览器扩展不可用",
-      "unavailableBody": "Stella 无法连接到你的浏览器。如果问题持续，请重启应用或重新安装 Stella。",
       "connectionLostTitle": "浏览器连接已断开",
       "disconnected": "Stella 浏览器桥接已断开连接。",
       "retryDelay": {
         "other": "Stella 将在约 {count} 秒后继续重试。"
-      }
+      },
+      "unavailableBody": "Stella 无法连接到你的浏览器。如果问题持续，请重启应用或重新安装 Stella。",
+      "unavailableTitle": "浏览器扩展不可用"
     },
     "dictation": {
       "cancel": "取消听写",
+      "failedBody": "Stella 无法转写该内容。请重试。",
+      "failedTitle": "听写未成功",
+      "keyDialog": {
+        "description": "此 Stella 不包含听写功能。添加你自己的 OpenRouter API 密钥，Stella 会用它进行转写。密钥只保存在这台电脑上。",
+        "getKey": "在 openrouter.ai/keys 获取密钥",
+        "inputLabel": "OpenRouter API 密钥",
+        "openStella": "打开 Stella 并在那里点按麦克风，为听写添加 OpenRouter 密钥。",
+        "save": "保存并开始",
+        "saveFailed": "Stella 无法保存该密钥。",
+        "saving": "正在保存…",
+        "title": "开启听写",
+        "unavailable": "此窗口无法保存密钥。"
+      },
       "listening": "正在聆听…",
+      "signInBody": "登录以使用听写",
+      "signInTitle": "登录以使用听写",
       "stopAndTranscribe": "停止并转写",
       "stopAndTranscribeLabel": "停止听写并转写",
       "stopTranscribeSend": "停止、转写并发送",
-      "stopTranscribeSendLabel": "停止听写、转写并发送",
-      "signInTitle": "登录以使用听写",
-      "failedTitle": "听写未成功",
-      "failedBody": "Stella 无法转写该内容。请重试。",
-      "signInBody": "登录以使用听写",
-      "keyDialog": {
-        "title": "开启听写",
-        "description": "此 Stella 不包含听写功能。添加你自己的 OpenRouter API 密钥，Stella 会用它进行转写。密钥只保存在这台电脑上。",
-        "inputLabel": "OpenRouter API 密钥",
-        "getKey": "在 openrouter.ai/keys 获取密钥",
-        "save": "保存并开始",
-        "saving": "正在保存…",
-        "saveFailed": "Stella 无法保存该密钥。",
-        "unavailable": "此窗口无法保存密钥。",
-        "openStella": "打开 Stella 并在那里点按麦克风，为听写添加 OpenRouter 密钥。"
-      }
+      "stopTranscribeSendLabel": "停止听写、转写并发送"
     },
     "voice": {
-      "signInTitle": "登录以使用语音",
-      "needsSetupTitle": "语音需要设置"
-    }
-  },
-  "ui": {
-    "imageLightbox": {
-      "title": "图像预览",
-      "close": "关闭预览"
-    }
-  },
-  "shell": {
-    "agentProgress": {
-      "recentAgentMessages": "最近的智能体消息",
-      "recentProgress": "最近进展"
-    },
-    "audioPlayer": {
-      "pause": "暂停",
-      "play": "播放",
-      "seek": "定位"
-    },
-    "capture": {
-      "failedTitle": "无法截取",
-      "failedDescription": "截图时出了点问题。请重试。"
-    },
-    "chatSidebar": {
-      "add": "添加",
-      "dictationError": "听写：{error}",
-      "stop": "停止"
-    },
-    "displayPanel": {
-      "closePanel": "关闭面板",
-      "openPanel": "打开面板"
-    },
-    "rightSidebar": {
-      "workspace": "工作区",
-      "resize": "调整显示面板大小",
-      "resizeHint": "拖动以调整大小 · 双击以重置"
-    },
-    "windowControls": {
-      "minimize": "最小化",
-      "restore": "还原",
-      "maximize": "最大化"
-    },
-    "workspace": {
-      "activity": "活动",
-      "viewFiles": {
-        "other": "查看 {count} 个文件"
-      },
-      "moreFiles": {
-        "other": "{count} more files"
-      }
-    },
-    "appSource": {
-      "update": "更新",
-      "title": "Stella 的更改",
-      "undo": "撤销",
-      "outdated": "基于旧版本创建",
-      "failed": "无法应用此更改",
-      "restarts": "将重启 Stella",
-      "updatedJustNow": "刚刚更新",
-      "updatedAgo": "{ago}更新",
-      "undoneJustNow": "刚刚撤销",
-      "undoneAgo": "{ago}撤销",
-      "files": {
-        "other": "{count} 个文件"
-      },
-      "updates": {
-        "pill": {
-          "other": "{count} 个更新"
-        },
-        "newVersion": "Stella 新版本",
-        "newVersionDetail": "来自 Stella 团队的改进和修复",
-        "fromDevice": "你在 {device} 上做的更改",
-        "fromOtherComputer": "你在另一台电脑上做的更改",
-        "fromOtherComputers": "来自你另一台电脑的更改",
-        "readyChange": "可以添加的更改",
-        "add": "添加",
-        "get": "获取",
-        "adding": "正在添加…",
-        "skip": "跳过",
-        "undoing": "正在撤销…",
-        "removed": "已移除：{change}",
-        "justNow": "刚刚",
-        "waiting": "待添加",
-        "history": "历史",
-        "skipped": "已跳过",
-        "upToDate": "没有待添加的内容"
-      }
-    },
-    "display": {
-      "homeLauncher": {
-        "files": {
-          "label": "文件",
-          "description": "页面、图像、视频和文档"
-        },
-        "trash": {
-          "label": "废纸篓",
-          "description": "你最近删除的内容"
-        }
-      },
-      "trash": {
-        "title": "废纸篓",
-        "empty": "目前这里什么都没有。",
-        "refresh": "刷新",
-        "emptying": "正在清空…",
-        "emptyTrash": "清空废纸篓",
-        "trashedAgo": "{time}前移入废纸篓",
-        "pendingPurge": "待清除",
-        "autoDeletesIn": "{time}后自动删除",
-        "deleting": "正在删除…",
-        "deleteNow": "立即删除",
-        "itemsAutoDeleted": {
-          "other": "{count} 个项目 — 24 小时后自动删除。"
-        }
-      },
-      "canvasShare": {
-        "share": "分享",
-        "links": "链接",
-        "sharedLinks": "已分享的链接",
-        "publishing": "正在发布画布…",
-        "publishFailed": "无法发布此画布。请重试。",
-        "live": "画布已上线",
-        "publicLink": "画布公开链接",
-        "copyLink": "复制链接",
-        "revoke": "撤销分享",
-        "expires": "{date}到期",
-        "shared": "{date}分享",
-        "sharedWithExpiry": "{shared}分享 · {expires}到期",
-        "loadFailed": "无法加载你的分享。",
-        "empty": "暂无有效的分享。发布一个画布即可获得公开链接。",
-        "untitled": "未命名画布",
-        "toasts": {
-          "linkCopied": "分享链接已复制",
-          "copyFailed": "无法复制链接",
-          "revoked": "分享已撤销",
-          "revokeFailed": "无法撤销此分享"
-        }
-      },
-      "canvas": {
-        "loadFailed": "无法加载此画布。",
-        "loading": "加载中"
-      },
-      "media": {
-        "save": "保存",
-        "saved": "已保存",
-        "saveFailed": "无法保存",
-        "copy": "复制",
-        "copied": "已复制",
-        "copyFailed": "无法复制",
-        "delete": "删除",
-        "deleteConfirm": "再次点击以删除",
-        "itemActions": "项目操作",
-        "missing": "文件已不可用。",
-        "expand": "展开",
-        "expandPanel": "展开面板",
-        "revealInFinder": "在 Finder 中显示"
-      },
-      "url": {
-        "eyebrow": "实时预览",
-        "reload": "重新加载",
-        "openInBrowser": "在浏览器中打开"
-      },
-      "office": {
-        "preparing": "正在准备预览...",
-        "kind": {
-          "spreadsheet": "电子表格",
-          "presentation": "演示文稿",
-          "document": "文档"
-        },
-        "sheetCount": {
-          "other": "{count} 个工作表"
-        },
-        "slideCount": {
-          "other": "{count} 张幻灯片"
-        },
-        "loadFailed": "无法加载此预览",
-        "sessionError": "预览会话报告了一个错误。",
-        "zoomAriaLabel": "预览缩放",
-        "revealInFinder": "在 Finder 中显示",
-        "livePreview": "实时预览",
-        "frameTitle": "{kind} 预览：{title}"
-      },
-      "filePreview": {
-        "save": "保存",
-        "copy": "复制",
-        "loading": "加载中..."
-      },
-      "spreadsheet": {
-        "eyebrow": "电子表格",
-        "desktopRequired": "电子表格预览需要 Stella 桌面应用。",
-        "noRows": "未找到任何行。",
-        "column": "第 {index} 列"
-      },
-      "markdown": {
-        "eyebrow": "Markdown",
-        "desktopRequired": "Markdown 预览需要 Stella 桌面应用。",
-        "noContent": "未找到内容。"
-      },
-      "diff": {
-        "changes": "更改",
-        "codeChanges": "代码更改",
-        "noChanges": "未找到更改。",
-        "desktopRequired": "代码预览需要 Stella 桌面应用。",
-        "empty": "还没有文件更改。当智能体编辑代码时，更改会显示在这里。"
-      },
-      "agentThread": {
-        "role": {
-          "user": "指令",
-          "assistant": "智能体",
-          "reasoning": "推理",
-          "tool": "工具",
-          "checkpoint": "线程检查点",
-          "lifecycle": "活动"
-        },
-        "status": {
-          "running": "工作中",
-          "completed": "已完成",
-          "error": "失败",
-          "canceled": "已停止"
-        },
-        "newMessages": {
-          "other": "{count} 条新消息。"
-        },
-        "newMessagesWithPreview": "{countPhrase} 最新 {role}：{preview}",
-        "unavailable": "智能体线程历史不可用。",
-        "loadFailed": "无法加载此线程。",
-        "showingNewest": "正在显示最新消息。",
-        "claudeAriaLabel": "Claude 子智能体只读对话",
-        "claudeBadge": "只读 Claude 子智能体",
-        "badge": "只读智能体线程",
-        "retrying": "正在重试…",
-        "empty": "此线程中还没有消息。",
-        "toolInput": "输入",
-        "toolOutput": "输出",
-        "toolRunning": "正在等待此工具完成…",
-        "toolGroup": {
-          "other": "{count} tool calls"
-        },
-        "reasoningGroup": {
-          "other": "{count} reasoning steps"
-        },
-        "newMessagesButton": {
-          "other": "{count} 条新消息"
-        },
-        "showNewMessagesAria": "显示{countPhrase}"
-      },
-      "preview": {
-        "limited": "预览内容有限。请保存或打开原始文件以查看全部内容。",
-        "unavailable": "无法准备此预览。"
-      }
-    },
-    "sidebar": {
-      "account": {
-        "planAriaLabel": "{name}，{plan} 套餐",
-        "signOutTitle": "退出 Stella 登录？",
-        "signOutDescription": "确定吗？"
-      },
-      "nav": {
-        "apps": "应用",
-        "unreadTitle": "{label}（{count} 条未读）",
-        "unreadAriaLabel": "{label}，{count} 条未读"
-      },
-      "feedback": {
-        "title": "发送反馈",
-        "description": "你的留言以匿名方式发送 — 不会与你的账户关联。",
-        "fieldLabel": "反馈",
-        "placeholder": "告诉我们哪些好用、哪些不好用，或你希望看到什么…",
-        "send": "发送",
-        "sending": "正在发送…",
-        "toasts": {
-          "sentTitle": "反馈已发送",
-          "sentDescription": "谢谢 — 每一条留言都在帮助我们打磨 Stella。",
-          "failedTitle": "无法发送反馈"
-        }
-      }
-    },
-    "topbar": {
-      "conversation": {
-        "newChat": "新对话",
-        "newChatConfirm": "Click again to confirm",
-        "history": "对话历史",
-        "historyEmpty": "还没有对话",
-        "historyRetry": "无法加载对话。请重试",
-        "openConversations": "打开对话列表",
-        "unread": "未读消息",
-        "openConversation": "打开 {title}",
-        "closeConversation": "关闭 {title}",
-        "delete": "删除 {title}",
-        "deleteConfirm": "再次点击以确认",
-        "deleteConfirmFor": "再次点击以删除 {title}",
-        "deleteFailed": "无法删除此对话",
-        "deleteFailedFor": "无法删除 {title}"
-      }
-    },
-    "browser": {
-      "connected": "浏览器已连接",
-      "newTab": "打开新标签页",
-      "connecting": "正在等待扩展…"
-    },
-    "connectors": {
-      "title": "连接器",
-      "searchPlaceholder": "搜索",
-      "searchLabel": "搜索连接器",
-      "loading": "正在加载连接器…",
-      "desktopRequired": "连接器可在 Stella 桌面应用中使用。",
-      "empty": "暂无可用的连接器。",
-      "noMatches": "没有符合该搜索的连接器。"
+      "needsSetupTitle": "语音需要设置",
+      "signInTitle": "登录以使用语音"
     }
   },
   "global": {
     "auth": {
-      "welcomeTitle": "欢迎使用 Stella",
-      "welcomeDescription": "用你的邮箱登录即可开始使用 Stella。",
-      "welcomeSub": "使用 Google 或你的邮箱登录。无需密码。",
-      "finishingTitle": "正在完成登录",
-      "finishingSub": "正在将你的聊天迁移到此账户，只需片刻。",
-      "orUseEmail": "或使用邮箱",
+      "checkInbox": "请查看收件箱中的登录链接。",
       "emailLabel": "邮箱",
       "emailPlaceholder": "you@example.com",
-      "sending": "正在发送...",
-      "signingIn": "正在登录...",
-      "sendSignInEmail": "发送登录邮件",
-      "checkInbox": "请查看收件箱中的登录链接。",
-      "magicLinkSentDesktop": "我们已发送登录链接。请在此设备上打开以完成登录。",
-      "openInbox": "打开 {provider}",
-      "resendIn": "{seconds} 秒后可重发",
-      "resendEmail": "重新发送邮件",
-      "skipForNow": "暂时跳过",
       "enterEmail": "请输入邮箱地址。",
-      "sendFailed": "发送登录邮件失败。",
-      "magicLinkFailed": "发送魔法链接失败。",
       "finishFailed": "无法完成登录。请重试。",
-      "signInIncomplete": "登录未完成。请重试。",
-      "signInLinkExpired": "登录链接已过期。请重试。",
-      "tooManyRequests": {
-        "other": "请求过于频繁。请在 {count} 秒后重试。"
-      },
+      "finishingSub": "正在将你的聊天迁移到此账户，只需片刻。",
+      "finishingTitle": "正在完成登录",
       "googleContinue": "使用 Google 继续",
-      "googleWaiting": "正在等待 Google...",
-      "googleStartFailed": "无法开始 Google 登录。",
-      "googleNoSession": "Google 登录已完成，但没有会话。",
       "googleExpired": "Google 登录已过期。请重试。",
+      "googleNoSession": "Google 登录已完成，但没有会话。",
+      "googleStartFailed": "无法开始 Google 登录。",
       "googleTimedOut": "Google 登录超时。请重试。",
-      "nicknameTitle": "我该怎么称呼你？",
+      "googleWaiting": "正在等待 Google...",
+      "magicLinkFailed": "发送魔法链接失败。",
+      "magicLinkSentDesktop": "我们已发送登录链接。请在此设备上打开以完成登录。",
       "nicknameDescription": "选择一个名字，Stella 会在整个应用中使用它。",
       "nicknameLabel": "昵称",
       "nicknamePlaceholder": "你的昵称",
-      "notNow": "暂不"
-    },
-    "legal": {
-      "terms": {
-        "title": "服务条款",
-        "subtitle": "Stella 如何运作，以及你使用时所同意的内容。"
+      "nicknameTitle": "我该怎么称呼你？",
+      "notNow": "暂不",
+      "openInbox": "打开 {provider}",
+      "orUseEmail": "或使用邮箱",
+      "resendEmail": "重新发送邮件",
+      "resendIn": "{seconds} 秒后可重发",
+      "sendFailed": "发送登录邮件失败。",
+      "sendSignInEmail": "发送登录邮件",
+      "sending": "正在发送...",
+      "signInIncomplete": "登录未完成。请重试。",
+      "signInLinkExpired": "登录链接已过期。请重试。",
+      "signingIn": "正在登录...",
+      "skipForNow": "暂时跳过",
+      "tooManyRequests": {
+        "other": "请求过于频繁。请在 {count} 秒后重试。"
       },
-      "privacy": {
-        "title": "隐私政策",
-        "subtitle": "我们收集什么、不收集什么，以及我们如何保护它。"
-      }
+      "welcomeDescription": "用你的邮箱登录即可开始使用 Stella。",
+      "welcomeSub": "使用 Google 或你的邮箱登录。无需密码。",
+      "welcomeTitle": "欢迎使用 Stella"
     },
     "integrations": {
-      "heroTagline": "从你喜欢的任何平台给 Stella 发消息 — 自然地聊天，或让它直接在你的电脑上把事情办好。",
-      "signInToConnect": "登录 Stella 以连接",
       "connectStellaApp": "连接到 Stella 应用",
       "connectStellaAppSub": "将手机上的 Stella 应用与这台电脑配对",
       "connectTitle": "连接",
-      "phoneTitle": "你的手机",
       "connected": "已连接",
-      "signInHeadline": "登录即可开始",
-      "signInSub": "登录你的 Stella 账户以连接 {provider}。",
       "credential": {
-        "title": "连接 {provider}",
-        "description": "Stella 需要你的 {provider} API 密钥才能连接。请粘贴到下方。它只会保存在你的电脑上。",
-        "defaultLabel": "{provider} 密钥",
         "apiKeyLabel": "API 密钥",
         "apiKeyRequired": "API 密钥为必填项。",
+        "defaultLabel": "{provider} 密钥",
+        "description": "Stella 需要你的 {provider} API 密钥才能连接。请粘贴到下方。它只会保存在你的电脑上。",
         "keyPlaceholder": "粘贴你的密钥",
-        "labelLabel": "标签",
         "labelDescription": "一个便于日后识别此密钥的名称。",
-        "saving": "正在保存...",
+        "labelLabel": "标签",
+        "saveFailed": "保存凭据失败。",
         "saveKey": "保存密钥",
-        "saveFailed": "保存凭据失败。"
+        "saving": "正在保存...",
+        "title": "连接 {provider}"
+      },
+      "heroTagline": "从你喜欢的任何平台给 Stella 发消息 — 自然地聊天，或让它直接在你的电脑上把事情办好。",
+      "phoneTitle": "你的手机",
+      "signInHeadline": "登录即可开始",
+      "signInSub": "登录你的 Stella 账户以连接 {provider}。",
+      "signInToConnect": "登录 Stella 以连接"
+    },
+    "legal": {
+      "privacy": {
+        "subtitle": "我们收集什么、不收集什么，以及我们如何保护它。",
+        "title": "隐私政策"
+      },
+      "terms": {
+        "subtitle": "Stella 如何运作，以及你使用时所同意的内容。",
+        "title": "服务条款"
       }
     },
     "remoteExecutionConsent": {
-      "title": "Allow work from your other devices?",
+      "allow": "Allow",
       "body": "Another of your devices asked to run work on this computer. Allowing lets work sent from your devices run here.",
       "bodyFrom": "{requester} asked to run work on this computer. Allowing lets work sent from your devices run here.",
-      "note": "You can change this later in Connect, under your computers.",
-      "allow": "Allow",
       "decline": "Not now",
-      "failed": "That answer didn't go through. Try again."
+      "failed": "That answer didn't go through. Try again.",
+      "note": "You can change this later in Connect, under your computers.",
+      "title": "Allow work from your other devices?"
     },
     "schedule": {
-      "dialogTitle": "日程",
-      "untitledTask": "定时任务",
+      "actionFailed": "操作失败。",
       "checkIn": "签到",
-      "paused": "已暂停",
+      "delete": "删除",
+      "dialogTitle": "日程",
+      "missing": "此日程已不存在。",
       "pause": "暂停",
+      "paused": "已暂停",
       "pausing": "正在暂停…",
+      "removing": "正在移除…",
       "resume": "继续",
       "resuming": "正在继续…",
       "runNow": "立即运行",
       "running": "正在运行…",
-      "delete": "删除",
-      "removing": "正在移除…",
-      "actionFailed": "操作失败。",
-      "missing": "此日程已不存在。",
       "scheduleCount": {
         "other": "{count} 个日程"
-      }
+      },
+      "untitledTask": "定时任务"
     }
   },
   "mobile": {
+    "account": {
+      "title": "账户"
+    },
+    "activity": {
+      "inProgress": {
+        "other": "{count} 项进行中"
+      },
+      "openLabel": "显示活动"
+    },
+    "activityHub": {
+      "activity": {
+        "empty": "还没有后台工作。",
+        "emptyFiltered": "没有匹配的活动或文件。"
+      },
+      "conversation": {
+        "subtitle": "主线程创建的文件",
+        "title": "此对话"
+      },
+      "files": {
+        "empty": "还没有文件。Stella 生成的所有内容都会显示在这里。",
+        "emptyFiltered": "没有匹配的文件。",
+        "searchPlaceholder": "搜索文件"
+      },
+      "schedule": {
+        "actionFailed": "操作未成功。",
+        "alertTitle": "日程",
+        "customCadence": "自定义日程",
+        "deleteConfirm": "“{title}”将停止运行。",
+        "deleteSchedule": "删除日程",
+        "empty": "还没有日程。让电脑上的 Stella 定期运行一些任务，就会显示在这里。",
+        "lastRunFailed": "上次运行失败：{error}",
+        "loadFailed": "无法加载日程。",
+        "next": "下次运行 {when}",
+        "pauseSchedule": "暂停日程",
+        "paused": "已暂停",
+        "resumeSchedule": "恢复日程"
+      },
+      "search": {
+        "clear": "清除搜索",
+        "close": "关闭搜索",
+        "placeholder": "搜索活动和文件"
+      },
+      "subagents": {
+        "count": {
+          "other": "{count} 个子智能体"
+        },
+        "done": {
+          "other": "已完成 {count} 个"
+        }
+      },
+      "tabs": {
+        "activity": "活动",
+        "files": "文件",
+        "schedule": "日程",
+        "search": "搜索"
+      },
+      "task": {
+        "failed": "未能完成",
+        "finished": "已完成",
+        "stopped": "已停止",
+        "working": "正在后台工作"
+      }
+    },
+    "authCallback": {
+      "backToSignIn": "返回登录",
+      "failedTitle": "无法为您登录",
+      "genericFailure": "当前无法为您登录。请重试。",
+      "invalidLink": "登录链接无效。",
+      "linkExpired": "此登录链接已过期。请重新获取一个。",
+      "signingInBody": "请稍候...",
+      "signingInTitle": "正在为您登录"
+    },
+    "boot": {
+      "checkingSessionBody": "Stella 正在启动，请稍候。",
+      "checkingSessionTitle": "正在检查您的会话",
+      "crashTitle": "启动时出错",
+      "missingConfigBody": "启动应用前，请设置 EXPO_PUBLIC_STELLA_BACKEND_URL。",
+      "missingConfigTitle": "添加移动端环境变量"
+    },
+    "carPlayDiagnostics": {
+      "clear": "清除",
+      "clearLabel": "清除诊断信息",
+      "clipboardEmpty": "（未记录 CarPlay 诊断信息）",
+      "copied": "已复制 ✓",
+      "copyAll": "全部复制",
+      "copyAllLabel": "复制全部诊断信息",
+      "empty": "尚未记录任何 CarPlay 诊断信息。请先连接一次 CarPlay，然后回到这里。",
+      "refresh": "刷新",
+      "refreshLabel": "刷新诊断信息",
+      "subtitle": {
+        "other": "CarPlay 连接的日志记录（共 {count} 行，最新在前）。车内出现异常后，请复制并发送这些内容。"
+      },
+      "title": "CarPlay 诊断"
+    },
+    "chat": {
+      "composerPlaceholder": "给 Stella 发消息",
+      "createFailed": "无法创建聊天。请重试。",
+      "emptyPrompt": "随便问 Stella",
+      "loadMore": "加载更多",
+      "mainChat": "主聊天",
+      "workingMany": "{count} 个任务进行中"
+    },
+    "cloudHome": {
+      "backToDocumentsLabel": "返回 Cloud Home 文档",
+      "backToSettingsLabel": "返回设置",
+      "conflict": {
+        "changedBody": "修订版 {revision} 已替换你所编辑的版本。你的草稿仍保留在此处。",
+        "reload": "重新加载云端版本",
+        "reloadLabel": "重新加载云端版本并替换此草稿",
+        "reloading": "正在重新加载…",
+        "removedBody": "你编辑期间，该文档已被移除。你的草稿仍保留在此处。",
+        "title": "云端版本已更改"
+      },
+      "editor": {
+        "editLabel": "编辑 {name}",
+        "save": "保存",
+        "saving": "正在保存…",
+        "unsaved": "有未保存的更改",
+        "upToDate": "已是最新版本"
+      },
+      "editorMeta": "{kind} · 修订版 {revision}",
+      "errors": {
+        "invalid": "Cloud Home 返回了无效响应。",
+        "missingFromList": "该文档已不在 Cloud Home 中。请重新加载列表。",
+        "network": "无法连接到 Cloud Home。请重试。",
+        "removedWhileEditing": "该文档已从 Cloud Home 中移除。",
+        "unauthorized": "请重新登录以访问 Cloud Home。",
+        "unavailable": "此账户目前无法使用 Cloud Home。"
+      },
+      "kinds": {
+        "archive": "归档",
+        "core_memory": "核心记忆",
+        "imported_markdown": "导入的 Markdown",
+        "memory": "记忆",
+        "memory_map": "记忆映射",
+        "personality": "个性",
+        "profile": "个人资料",
+        "user_markdown": "用户 Markdown"
+      },
+      "list": {
+        "emptyBody": "由 Stella 创建或从桌面端导入的文档将显示在此处。",
+        "emptyTitle": "尚无云端记忆",
+        "loading": "正在加载文档…",
+        "openDocumentLabel": "打开 {name}",
+        "retry": "重试",
+        "retryLabel": "重试加载 Cloud Home 记忆"
+      },
+      "listMeta": "{kind} · 修订版 {revision} · {size}",
+      "loading": "正在加载 Cloud Home…",
+      "notices": {
+        "loadedLatest": "已加载最新的云端版本。",
+        "saved": "已保存到 Cloud Home。"
+      },
+      "openSettingsLabel": "打开 Cloud Home 记忆",
+      "settingsRowBody": "查看和编辑 Stella 在云端的权威记忆版本。",
+      "settingsRowTitle": "记忆文档",
+      "settingsSection": "Cloud Home",
+      "signIn": "登录",
+      "signInAgain": "重新登录",
+      "signInBody": "记忆文档仅对你的 Stella 账户可见。",
+      "signInTitle": "登录以使用 Cloud Home",
+      "sizes": {
+        "bytes": "{count} B",
+        "kilobytes": "{count} KB",
+        "megabytes": "{count} MB"
+      },
+      "subtitle": "Stella 文档的云端权威版本",
+      "title": "Cloud Home 记忆",
+      "unavailableBody": "此部署目前未提供安全的 Cloud Home 服务。你的本地文件未被更改。",
+      "unavailableTitle": "Cloud Home 不可用"
+    },
     "common": {
       "back": "返回",
       "backChevron": "‹ 返回",
@@ -2052,623 +1068,1602 @@
       "goBack": "返回",
       "tryAgain": "重试"
     },
-    "boot": {
-      "crashTitle": "启动时出错",
-      "missingConfigTitle": "添加移动端环境变量",
-      "missingConfigBody": "启动应用前，请设置 EXPO_PUBLIC_STELLA_BACKEND_URL。",
-      "checkingSessionTitle": "正在检查您的会话",
-      "checkingSessionBody": "Stella 正在启动，请稍候。"
+    "computer": {
+      "connectedLabel": "电脑已连接",
+      "connectingLabel": "正在连接您的电脑",
+      "defaultDeviceLabel": "您的电脑",
+      "disconnectedLabel": "电脑已断开连接",
+      "guestHeroBody": "让 Stella 在您的电脑上做事 —— 浏览网页、整理文件、执行任务等等。",
+      "guestHeroTitle": "您的电脑，触手可及",
+      "pairLabel": "配对电脑",
+      "statusAsleep": "已休眠",
+      "statusChecking": "检查中…",
+      "statusConnected": "已连接"
     },
-    "authCallback": {
-      "failedTitle": "无法为您登录",
-      "invalidLink": "登录链接无效。",
-      "linkExpired": "此登录链接已过期。请重新获取一个。",
-      "genericFailure": "当前无法为您登录。请重试。",
-      "backToSignIn": "返回登录",
-      "signingInTitle": "正在为您登录",
-      "signingInBody": "请稍候..."
+    "desktop": {
+      "connecting": "正在连接桌面端",
+      "deviceUnreachable": "无法连接您的 {platform}",
+      "enterCode": "请输入电脑上显示的验证码。",
+      "guestBody": "在手机上直接查看您的 Stella 桌面应用。配对后，手机会自动重新连接。",
+      "guestSignInPrompt": "登录即可开始。",
+      "limitedCapabilities": "有些操作需要您的电脑",
+      "linkInterrupted": "与您电脑的连接已中断。",
+      "pairAnother": "配对另一台电脑",
+      "pairTitle": "配对您的手机",
+      "pairing": "正在配对这台手机",
+      "reconnecting": "正在重新连接...",
+      "repairNeeded": "这台手机需要重新与您的电脑配对。",
+      "retryLabel": "重新尝试连接",
+      "startPairingLabel": "开始配对电脑",
+      "unavailableBodyPaired": "请确认电脑上的 Stella 已打开并已联网。连接成功后，桌面应用就会出现在手机上。",
+      "unavailableBodyUnpaired": "在手机上直接查看您的 Stella 桌面应用。扫描电脑上 Stella 显示的二维码即可开始 —— 之后手机会自动重新连接。",
+      "unreachable": "无法连接您的桌面端"
+    },
+    "engineAccounts": {
+      "active": "使用中",
+      "backLabel": "返回设置",
+      "chatgptBrowserWaiting": "请在浏览器中完成 ChatGPT 登录。",
+      "chatgptSection": "ChatGPT",
+      "claudeNote": "在此添加账号会让 Stella 的云端在 Anthropic 自己的页面上登录 Claude Code。每台电脑使用各自的 Claude Code 登录。",
+      "claudeSection": "Claude",
+      "connectChatgpt": "连接 ChatGPT 账号",
+      "connectClaude": "添加 Claude 账号",
+      "connecting": "正在连接…",
+      "continueAsChatgpt": "以 {name} 身份继续使用 ChatGPT",
+      "continueWithChatgpt": "使用你的 ChatGPT 账号继续",
+      "enablePlanUsage": "启用 ChatGPT 套餐使用",
+      "errorBody": "出了点问题,请重试。",
+      "errorTitle": "无法更新账号",
+      "finish": "连接",
+      "manageUsage": "管理用量",
+      "moreLabel": "{name} 的选项",
+      "notSignedIn": "尚未在任何地方登录",
+      "openChatgptAgain": "再次打开 ChatGPT",
+      "openClaudeAgain": "再次打开登录页面",
+      "pasteFromClipboard": "粘贴",
+      "pasteHintChatgpt": "批准后，ChatGPT 会将你带到一个无法加载的页面。复制该页面的完整地址并粘贴到这里。",
+      "pasteHintClaude": "批准后，Anthropic 会显示一个代码。复制后粘贴到这里。",
+      "pastePlaceholder": "粘贴 Anthropic 显示的代码",
+      "pastePlaceholderUrl": "在此粘贴地址",
+      "placeCloud": "云端",
+      "placeComputer": "电脑",
+      "planUsageOffBody": "在你允许之前，Stella 无法使用你的 ChatGPT 套餐。请在账号上选择「启用 ChatGPT 套餐使用」。",
+      "planWelcomeBody": "Stella 云端中的 ChatGPT 请求会计入你的 ChatGPT 套餐。请在 ChatGPT 设置中查看用量并设置 Stella 的上限。",
+      "planWelcomeTitle": "你正在使用 ChatGPT 套餐",
+      "remove": "移除",
+      "removeBody": "Stella 会忘记这个 ChatGPT 账号。你之后可以再次登录。",
+      "removeClaudeBody": "Stella 会忘记这个 Claude 账号，并让云端退出登录。你的电脑会保留各自的 Claude Code 登录。",
+      "removeTitle": "要移除 {name} 吗？",
+      "revokeUnconfirmed": "ChatGPT 未确认退出登录。你可以在 ChatGPT 设置中断开 Stella。",
+      "signInAgain": "重新登录",
+      "signInCloud": "在云端登录",
+      "signOut": "退出登录",
+      "signOutBody": "Stella 将不再使用此账号。你可以随时重新添加。",
+      "signOutCloud": "从云端退出登录",
+      "signOutCloudBody": "在你重新登录之前，Stella 的云端将停止使用此账号。你的电脑会保留各自的 Claude Code 登录。",
+      "signOutCloudTitle": "要让 {name} 从云端退出登录吗？",
+      "signOutTitle": "要退出 {name} 吗?",
+      "signedInOn": "已登录：{places}",
+      "startAgain": "重新开始",
+      "statusPlanUsageOff": "未启用 ChatGPT 套餐使用",
+      "statusReauth": "重新登录以继续使用",
+      "statusSignedOut": "已退出登录",
+      "subtitle": "使用你已付费的 Claude 或 ChatGPT 套餐",
+      "title": "Claude 和 ChatGPT",
+      "useAccount": "使用此账号"
+    },
+    "login": {
+      "appleCompleteFailed": "无法完成 Apple 登录。",
+      "appleNoToken": "Apple 未返回身份令牌。",
+      "appleStartFailed": "无法启动 Apple 登录。",
+      "checkInbox": "查看收件箱并点按链接，即可自动登录。",
+      "continueAsGuest": "不登录继续",
+      "continueWithApple": "使用 Apple 继续",
+      "continueWithGoogle": "使用 Google 继续",
+      "emailPlaceholder": "邮箱",
+      "enterEmail": "请输入您的邮箱。",
+      "finishFailed": "无法完成登录。请重试。",
+      "googleStartFailed": "无法启动 Google 登录。",
+      "heroBody": "使用 Apple、Google，或您在电脑上使用的邮箱。",
+      "heroTitle": "您的助手，\n口袋大小。",
+      "incomplete": "登录未完成。请重试。",
+      "legalConjunction": "和",
+      "legalPrefix": "继续即表示您同意我们的",
+      "legalPrivacy": "隐私政策",
+      "legalSuffix": "。",
+      "legalTerms": "服务条款",
+      "linkExpired": "链接已过期。请重试。",
+      "openingApple": "正在打开 Apple...",
+      "openingGoogle": "正在打开 Google...",
+      "orUseEmail": "或使用邮箱",
+      "resend": "重新发送",
+      "resendLabel": "重新发送登录邮件",
+      "sendFailed": "登录邮件发送失败。",
+      "sending": "正在发送...",
+      "signingIn": "正在登录...",
+      "useDifferentEmail": "换一个邮箱"
     },
     "nav": {
-      "chat": "聊天",
-      "settings": "设置",
+      "account": "账户",
       "apps": "应用",
-      "openLabel": "打开导航",
+      "backToApps": "返回应用",
+      "backToChat": "返回聊天",
+      "chat": "聊天",
       "chatSettingsLabel": "聊天设置",
       "closeLabel": "关闭导航",
-      "account": "账户",
-      "signIn": "登录",
-      "backToChat": "返回聊天",
-      "backToApps": "返回应用"
-    },
-    "search": {
-      "placeholder": "搜索消息",
-      "openLabel": "搜索消息",
-      "clearLabel": "清除搜索",
-      "cancelLabel": "取消搜索"
+      "openLabel": "打开导航",
+      "settings": "设置",
+      "signIn": "登录"
     },
     "onboarding": {
-      "skip": "跳过",
-      "skipLabel": "跳过介绍",
-      "progressLabel": "第 {current} 步，共 {total} 步",
-      "composerPlaceholder": "也可以直接问我点什么",
-      "send": "发送",
-      "messages": {
-        "hello": "您好，我是 Stella。\n\n我不是聊天机器人。告诉我您需要什么，我会在后台把事情办好，您只管继续过好这一天。",
-        "showcase": "来看看是什么样子。",
-        "computer": "如果您有 Mac 或 PC，我也能在上面工作。",
-        "account": "想把这一切都留下来吗？Stella 账户会跟着您出现在每台设备上。",
-        "accountSignedIn": "您已登录，所以一切都会在设备之间跟着您。还有一个可选项：",
-        "theme": "接下来，我该是什么样子？",
-        "ready": "就这些。相处久了，我会慢慢了解您。\n\n我们先做点什么？"
+      "account": {
+        "chatgptDesc": "你的 ChatGPT 套餐，用于 Stella 云端",
+        "claudeDesc": "Pro 或 Max，通过 Claude Code",
+        "connect": "连接",
+        "connectLabel": "连接 {name}",
+        "connectedAs": "已连接 · {name}",
+        "guestSettled": "随时可在设置中登录",
+        "settledGuest": "正以访客身份使用 Stella",
+        "settledSignedIn": "已登录",
+        "signIn": "登录",
+        "signInBody": "让您的对话、设置和已连接的电脑出现在每台设备上。",
+        "signInTitle": "登录 Stella",
+        "skip": "暂时跳过",
+        "subscriptionsBody": "已经在付费使用 Claude 或 ChatGPT？连接后我会在云端使用它。你的电脑使用各自的登录。",
+        "subscriptionsLabel": "可选"
       },
-      "replies": {
-        "helloDone": "给我看看。",
-        "showcaseDone": "明白了。",
-        "computerDone": "已连接！",
-        "computerSkipped": "以后再说。",
-        "accountDone": "搞定。",
-        "accountSkipped": "暂时跳过。",
-        "themeDone": "就这个。",
-        "themeSkipped": "保持默认。"
+      "composerPlaceholder": "也可以直接问我点什么",
+      "computer": {
+        "body": "将这部手机与电脑上的 Stella 配对，您外出时，我可以在电脑上执行任务。",
+        "connectedBody": "随时随地开口，我来在您的电脑上完成。",
+        "connectedTo": "已连接到 {name}",
+        "guestHint": "配对与您的 Stella 账户关联，请先登录。我会从这里继续。",
+        "hint": "在电脑上打开 Stella，然后选择“配对手机”。",
+        "later": "稍后",
+        "pair": "配对我的电脑",
+        "point1": "找到文件并发给您",
+        "point2": "完成一次导出或下载",
+        "point3": "使用您已有的应用",
+        "settledConnectedDesc": "我可以通过您的手机在那台电脑上执行任务。",
+        "settledSkippedDesc": "您可以随时在设置中配对。",
+        "settledSkippedTitle": "还没有电脑",
+        "signInToPair": "登录后配对",
+        "title": "您的电脑，装进口袋"
       },
       "hello": {
         "cta": "给我看看",
-        "settledTitle": "认识 Stella",
         "pillars": {
-          "done": {
-            "title": "把事办成",
-            "body": "预订、下单、文件和调研，都替您办妥。"
+          "asks": {
+            "body": "凡是要花钱的事，都会等您点头。",
+            "title": "要紧处先问您"
           },
           "background": {
-            "title": "后台运行",
-            "body": "交给我就行，您继续忙。办好了我会告诉您。"
+            "body": "交给我就行，您继续忙。办好了我会告诉您。",
+            "title": "后台运行"
           },
-          "asks": {
-            "title": "要紧处先问您",
-            "body": "凡是要花钱的事，都会等您点头。"
+          "done": {
+            "body": "预订、下单、文件和调研，都替您办妥。",
+            "title": "把事办成"
           }
-        }
+        },
+        "settledTitle": "认识 Stella"
       },
+      "messages": {
+        "account": "想把这一切都留下来吗？Stella 账户会跟着您出现在每台设备上。",
+        "accountSignedIn": "您已登录，所以一切都会在设备之间跟着您。还有一个可选项：",
+        "computer": "如果您有 Mac 或 PC，我也能在上面工作。",
+        "hello": "您好，我是 Stella。\n\n我不是聊天机器人。告诉我您需要什么，我会在后台把事情办好，您只管继续过好这一天。",
+        "ready": "就这些。相处久了，我会慢慢了解您。\n\n我们先做点什么？",
+        "showcase": "来看看是什么样子。",
+        "theme": "接下来，我该是什么样子？"
+      },
+      "progressLabel": "第 {current} 步，共 {total} 步",
+      "ready": {
+        "start": "开始聊天",
+        "starters": {
+          "explain": {
+            "prompt": "用简单的话讲讲复利是怎么回事。",
+            "title": "讲解点什么"
+          },
+          "gift": {
+            "prompt": "为朋友挑一份有心意的生日礼物，$50 以内。",
+            "title": "挑选礼物"
+          },
+          "plan": {
+            "prompt": "帮我根据接下来的安排规划这一周。",
+            "title": "规划我的一周"
+          },
+          "remind": {
+            "prompt": "提醒我周日晚上 6 点给妈妈打电话。",
+            "title": "设置提醒"
+          }
+        },
+        "startersLabel": "试试这些"
+      },
+      "replies": {
+        "accountDone": "搞定。",
+        "accountSkipped": "暂时跳过。",
+        "computerDone": "已连接！",
+        "computerSkipped": "以后再说。",
+        "helloDone": "给我看看。",
+        "showcaseDone": "明白了。",
+        "themeDone": "就这个。",
+        "themeSkipped": "保持默认。"
+      },
+      "send": "发送",
       "showcase": {
-        "settledTitle": "快速导览",
-        "replay": "重播演示",
-        "tablist": "Stella 能做什么",
-        "placeholder": "问问 Stella",
         "chapters": {
           "errands": {
-            "word": "跑腿",
-            "title": "说一次，就当办好了。",
             "caption": "我会打开网站、填好信息、把事办完，就像您亲自来做一样。",
             "prompt": "订一张周五晚上 8 点的双人桌",
-            "working": "正在订位",
             "receipt1": "Osteria Lucia · 周五 20:00 · 2 位",
             "receipt2": "已添加到您的日历",
             "reply": "已订好 Osteria Lucia 周五晚上 8 点的位子，日历里也有了。",
             "scene": {
-              "site": "osterialucia.com",
-              "party": "人数",
-              "partyValue": "2 位",
               "date": "日期",
               "dateValue": "周五",
-              "time": "时间",
-              "timeValue": "20:00",
+              "party": "人数",
+              "partyValue": "2 位",
               "reserve": "预订",
-              "reserved": "已预订"
-            }
+              "reserved": "已预订",
+              "site": "osterialucia.com",
+              "time": "时间",
+              "timeValue": "20:00"
+            },
+            "title": "说一次，就当办好了。",
+            "word": "跑腿",
+            "working": "正在订位"
+          },
+          "research": {
+            "caption": "我对比各个选项、阅读评测，然后带着答案回来。",
+            "prompt": "找出 $2,000 以内最好的电动自行车",
+            "receipt1": "已阅读 24 条评测",
+            "receipt2": "对比结果已存入文件",
+            "reply": "Cityline 3：车架最轻，刹车最好，$1,799。",
+            "scene": {
+              "rank1": "Cityline 3",
+              "rank2": "Metro S",
+              "rank3": "Urban X",
+              "source1": "专业评测",
+              "source2": "车主论坛",
+              "source3": "规格表",
+              "title": "正在对比电动自行车"
+            },
+            "title": "读资料的事交给我。",
+            "word": "调研",
+            "working": "正在阅读评测"
+          },
+          "routines": {
+            "caption": "提醒、跟进和每日简报，按各自的时间表自动运行。",
+            "prompt": "每天早上 8 点，给我讲讲今天的安排",
+            "receipt1": "每天 08:00",
+            "reply": "好了。第一份简报明天早上 8 点送到。",
+            "scene": {
+              "body": "3 场会议，下午 5 点后有雨，今天是 Sam 的生日。",
+              "day": "明天",
+              "now": "现在",
+              "time": "8:00",
+              "title": "您的晨间简报",
+              "when": "明天 08:00"
+            },
+            "title": "设置一次，我来坚持。",
+            "word": "定时",
+            "working": "正在设置"
           },
           "shopping": {
-            "word": "购物",
-            "title": "您点头，我就能下单。",
-            "caption": "我找到商品，带到结账页。您确认总价，我再下单。",
-            "prompt": "再买一双我的跑鞋，10 码",
-            "working": "正在找您的鞋",
             "amount": "$129.99",
-            "confirmTitle": "确认购买？",
-            "confirmDetail": "Trail Runner 2 · 10 码",
+            "caption": "我找到商品，带到结账页。您确认总价，我再下单。",
             "confirm": "确认",
+            "confirmDetail": "Trail Runner 2 · 10 码",
+            "confirmTitle": "确认购买？",
             "confirmed": "已确认",
+            "prompt": "再买一双我的跑鞋，10 码",
             "receipt1": "Order #48213 · 周四送达",
             "reply": "已下单，周四送到。",
             "scene": {
-              "site": "trailco.com",
-              "product": "Trail Runner 2",
               "addToCart": "加入购物车",
-              "inCart": "已加入"
-            }
+              "inCart": "已加入",
+              "product": "Trail Runner 2",
+              "site": "trailco.com"
+            },
+            "title": "您点头，我就能下单。",
+            "word": "购物",
+            "working": "正在找您的鞋"
           },
           "work": {
-            "word": "工作",
-            "title": "真正的文件，真正办完。",
             "caption": "文档、表格和幻灯片：我来完成，并把文件存在您能打开的地方。",
             "prompt": "把我的 Q3 笔记做成周一用的演示文稿",
-            "working": "正在阅读您的笔记",
             "receipt1": "Q3 笔记 · 已阅读",
             "receipt2": "Q3 复盘演示文稿 · 12 页",
             "reply": "演示文稿做好了：共 12 页，已存入文件。",
             "scene": {
               "file": "Q3 复盘.pptx",
               "slideTitle": "Q3 复盘"
-            }
-          },
-          "routines": {
-            "word": "定时",
-            "title": "设置一次，我来坚持。",
-            "caption": "提醒、跟进和每日简报，按各自的时间表自动运行。",
-            "prompt": "每天早上 8 点，给我讲讲今天的安排",
-            "working": "正在设置",
-            "receipt1": "每天 08:00",
-            "reply": "好了。第一份简报明天早上 8 点送到。",
-            "scene": {
-              "when": "明天 08:00",
-              "day": "明天",
-              "time": "8:00",
-              "now": "现在",
-              "title": "您的晨间简报",
-              "body": "3 场会议，下午 5 点后有雨，今天是 Sam 的生日。"
-            }
-          },
-          "research": {
-            "word": "调研",
-            "title": "读资料的事交给我。",
-            "caption": "我对比各个选项、阅读评测，然后带着答案回来。",
-            "prompt": "找出 $2,000 以内最好的电动自行车",
-            "working": "正在阅读评测",
-            "receipt1": "已阅读 24 条评测",
-            "receipt2": "对比结果已存入文件",
-            "reply": "Cityline 3：车架最轻，刹车最好，$1,799。",
-            "scene": {
-              "title": "正在对比电动自行车",
-              "source1": "专业评测",
-              "source2": "车主论坛",
-              "source3": "规格表",
-              "rank1": "Cityline 3",
-              "rank2": "Metro S",
-              "rank3": "Urban X"
-            }
+            },
+            "title": "真正的文件，真正办完。",
+            "word": "工作",
+            "working": "正在阅读您的笔记"
           }
-        }
+        },
+        "placeholder": "问问 Stella",
+        "replay": "重播演示",
+        "settledTitle": "快速导览",
+        "tablist": "Stella 能做什么"
       },
-      "computer": {
-        "title": "您的电脑，装进口袋",
-        "body": "将这部手机与电脑上的 Stella 配对，您外出时，我可以在电脑上执行任务。",
-        "point1": "找到文件并发给您",
-        "point2": "完成一次导出或下载",
-        "point3": "使用您已有的应用",
-        "pair": "配对我的电脑",
-        "signInToPair": "登录后配对",
-        "later": "稍后",
-        "hint": "在电脑上打开 Stella，然后选择“配对手机”。",
-        "guestHint": "配对与您的 Stella 账户关联，请先登录。我会从这里继续。",
-        "connectedTo": "已连接到 {name}",
-        "connectedBody": "随时随地开口，我来在您的电脑上完成。",
-        "settledConnectedDesc": "我可以通过您的手机在那台电脑上执行任务。",
-        "settledSkippedTitle": "还没有电脑",
-        "settledSkippedDesc": "您可以随时在设置中配对。"
-      },
-      "account": {
-        "signInTitle": "登录 Stella",
-        "signInBody": "让您的对话、设置和已连接的电脑出现在每台设备上。",
-        "signIn": "登录",
-        "subscriptionsLabel": "可选",
-        "subscriptionsBody": "已经在付费使用 Claude 或 ChatGPT？连接后我会在云端使用它。你的电脑使用各自的登录。",
-        "claudeDesc": "Pro 或 Max，通过 Claude Code",
-        "chatgptDesc": "你的 ChatGPT 套餐，用于 Stella 云端",
-        "connect": "连接",
-        "connectLabel": "连接 {name}",
-        "connectedAs": "已连接 · {name}",
-        "skip": "暂时跳过",
-        "settledSignedIn": "已登录",
-        "settledGuest": "正以访客身份使用 Stella",
-        "guestSettled": "随时可在设置中登录"
-      },
+      "skip": "跳过",
+      "skipLabel": "跳过介绍",
       "theme": {
         "appearance": "外观",
-        "themes": "主题",
         "confirm": "完成",
-        "reset": "保持默认"
-      },
-      "ready": {
-        "startersLabel": "试试这些",
-        "start": "开始聊天",
-        "starters": {
-          "plan": {
-            "title": "规划我的一周",
-            "prompt": "帮我根据接下来的安排规划这一周。"
-          },
-          "gift": {
-            "title": "挑选礼物",
-            "prompt": "为朋友挑一份有心意的生日礼物，$50 以内。"
-          },
-          "remind": {
-            "title": "设置提醒",
-            "prompt": "提醒我周日晚上 6 点给妈妈打电话。"
-          },
-          "explain": {
-            "title": "讲解点什么",
-            "prompt": "用简单的话讲讲复利是怎么回事。"
-          }
-        }
+        "reset": "保持默认",
+        "themes": "主题"
       }
     },
-    "login": {
-      "heroTitle": "您的助手，\n口袋大小。",
-      "heroBody": "使用 Apple、Google，或您在电脑上使用的邮箱。",
-      "continueWithApple": "使用 Apple 继续",
-      "openingApple": "正在打开 Apple...",
-      "continueWithGoogle": "使用 Google 继续",
-      "openingGoogle": "正在打开 Google...",
-      "orUseEmail": "或使用邮箱",
-      "emailPlaceholder": "邮箱",
-      "sending": "正在发送...",
-      "signingIn": "正在登录...",
-      "checkInbox": "查看收件箱并点按链接，即可自动登录。",
-      "useDifferentEmail": "换一个邮箱",
-      "resend": "重新发送",
-      "resendLabel": "重新发送登录邮件",
-      "enterEmail": "请输入您的邮箱。",
-      "sendFailed": "登录邮件发送失败。",
-      "googleStartFailed": "无法启动 Google 登录。",
-      "appleStartFailed": "无法启动 Apple 登录。",
-      "appleCompleteFailed": "无法完成 Apple 登录。",
-      "appleNoToken": "Apple 未返回身份令牌。",
-      "finishFailed": "无法完成登录。请重试。",
-      "incomplete": "登录未完成。请重试。",
-      "linkExpired": "链接已过期。请重试。",
-      "legalPrefix": "继续即表示您同意我们的",
-      "legalTerms": "服务条款",
-      "legalConjunction": "和",
-      "legalPrivacy": "隐私政策",
-      "legalSuffix": "。",
-      "continueAsGuest": "不登录继续"
-    },
-    "chat": {
-      "emptyPrompt": "随便问 Stella",
-      "workingMany": "{count} 个任务进行中",
-      "composerPlaceholder": "给 Stella 发消息",
-      "mainChat": "主聊天",
-      "createFailed": "无法创建聊天。请重试。",
-      "loadMore": "加载更多"
-    },
-    "activityHub": {
-      "tabs": {
-        "activity": "活动",
-        "schedule": "日程",
-        "search": "搜索",
-        "files": "文件"
-      },
-      "task": {
-        "finished": "已完成",
-        "failed": "未能完成",
-        "stopped": "已停止",
-        "working": "正在后台工作"
-      },
-      "subagents": {
-        "count": {
-          "other": "{count} 个子智能体"
-        },
-        "done": {
-          "other": "已完成 {count} 个"
-        }
-      },
-      "conversation": {
-        "title": "此对话",
-        "subtitle": "主线程创建的文件"
-      },
-      "schedule": {
-        "customCadence": "自定义日程",
-        "paused": "已暂停",
-        "next": "下次运行 {when}",
-        "lastRunFailed": "上次运行失败：{error}",
-        "pauseSchedule": "暂停日程",
-        "resumeSchedule": "恢复日程",
-        "deleteSchedule": "删除日程",
-        "deleteConfirm": "“{title}”将停止运行。",
-        "alertTitle": "日程",
-        "actionFailed": "操作未成功。",
-        "loadFailed": "无法加载日程。",
-        "empty": "还没有日程。让电脑上的 Stella 定期运行一些任务，就会显示在这里。"
-      },
-      "search": {
-        "placeholder": "搜索活动和文件",
-        "clear": "清除搜索",
-        "close": "关闭搜索"
-      },
-      "files": {
-        "empty": "还没有文件。Stella 生成的所有内容都会显示在这里。",
-        "emptyFiltered": "没有匹配的文件。",
-        "searchPlaceholder": "搜索文件"
-      },
-      "activity": {
-        "empty": "还没有后台工作。",
-        "emptyFiltered": "没有匹配的活动或文件。"
-      }
-    },
-    "computer": {
-      "guestHeroTitle": "您的电脑，触手可及",
-      "guestHeroBody": "让 Stella 在您的电脑上做事 —— 浏览网页、整理文件、执行任务等等。",
-      "defaultDeviceLabel": "您的电脑",
-      "statusChecking": "检查中…",
-      "statusConnected": "已连接",
-      "statusAsleep": "已休眠",
-      "connectingLabel": "正在连接您的电脑",
-      "connectedLabel": "电脑已连接",
-      "disconnectedLabel": "电脑已断开连接",
-      "pairLabel": "配对电脑"
-    },
-    "desktop": {
-      "pairTitle": "配对您的手机",
-      "guestBody": "在手机上直接查看您的 Stella 桌面应用。配对后，手机会自动重新连接。",
-      "guestSignInPrompt": "登录即可开始。",
-      "connecting": "正在连接桌面端",
-      "pairing": "正在配对这台手机",
-      "unreachable": "无法连接您的桌面端",
-      "deviceUnreachable": "无法连接您的 {platform}",
-      "repairNeeded": "这台手机需要重新与您的电脑配对。",
-      "enterCode": "请输入电脑上显示的验证码。",
-      "linkInterrupted": "与您电脑的连接已中断。",
-      "unavailableBodyPaired": "请确认电脑上的 Stella 已打开并已联网。连接成功后，桌面应用就会出现在手机上。",
-      "unavailableBodyUnpaired": "在手机上直接查看您的 Stella 桌面应用。扫描电脑上 Stella 显示的二维码即可开始 —— 之后手机会自动重新连接。",
-      "pairAnother": "配对另一台电脑",
-      "startPairingLabel": "开始配对电脑",
-      "retryLabel": "重新尝试连接",
-      "reconnecting": "正在重新连接...",
-      "limitedCapabilities": "有些操作需要您的电脑"
+    "search": {
+      "cancelLabel": "取消搜索",
+      "clearLabel": "清除搜索",
+      "openLabel": "搜索消息",
+      "placeholder": "搜索消息"
     },
     "settings": {
-      "title": "设置",
-      "loadingSession": "正在加载会话…",
-      "signIn": "登录",
-      "signInTitle": "登录 Stella",
-      "showEmailLabel": "显示邮箱",
-      "hideEmailLabel": "隐藏邮箱",
-      "appearanceSection": "外观",
-      "computerSection": "电脑",
-      "computer": {
-        "sectionLabel": "Stella 在哪里工作",
-        "cloud": "云端",
-        "statusOnline": "在线",
-        "statusOffline": "离线",
-        "statusNotReady": "尚未就绪",
-        "statusNotEnabled": "尚未启用",
-        "statusAwaitingConsent": "等待那台电脑上的许可",
-        "statusDeclined": "已在那台电脑上拒绝",
-        "connecting": "正在连接…",
-        "enable": "启用",
-        "enabling": "正在启用…",
-        "enableLabel": "启用 {name}",
-        "enableFailedTitle": "无法启用那台电脑",
-        "connectFailedTitle": "无法连接那台电脑",
-        "pairingCode": "使用配对码"
-      },
+      "aboutSection": "关于",
       "appearance": {
-        "system": "系统",
+        "dark": "深色",
         "light": "浅色",
-        "dark": "深色"
+        "system": "系统"
       },
+      "appearanceSection": "外观",
       "background": {
-        "soft": "柔和",
-        "flat": "纯色"
+        "flat": "纯色",
+        "soft": "柔和"
       },
       "backgroundColor": {
         "relative": "相对",
         "strong": "浓郁"
       },
-      "useAppearanceLabel": "使用{name}外观",
-      "useBackgroundLabel": "使用{name}背景",
-      "useBackgroundColorLabel": "使用{name}背景色",
-      "useThemeLabel": "使用{name}主题",
+      "carPlayDiagnostics": "CarPlay 诊断",
+      "chatStorage": {
+        "description": "在所有设备上访问你的聊天。关闭后，聊天记录将单独保存在这台设备上。重新开启时，这些聊天不会被上传。AI 提供方仍会处理你的消息。"
+      },
+      "computer": {
+        "cloud": "云端",
+        "connectFailedTitle": "无法连接那台电脑",
+        "connecting": "正在连接…",
+        "enable": "启用",
+        "enableFailedTitle": "无法启用那台电脑",
+        "enableLabel": "启用 {name}",
+        "enabling": "正在启用…",
+        "pairingCode": "使用配对码",
+        "sectionLabel": "Stella 在哪里工作",
+        "statusAwaitingConsent": "等待那台电脑上的许可",
+        "statusDeclined": "已在那台电脑上拒绝",
+        "statusNotEnabled": "尚未启用",
+        "statusNotReady": "尚未就绪",
+        "statusOffline": "离线",
+        "statusOnline": "在线"
+      },
+      "computerSection": "电脑",
+      "deleteAccount": "删除账户",
+      "deleteAccountLabel": "删除您的 Stella 账户",
+      "deleteConfirmBody": "此操作将永久删除您的 Stella 账户，并移除我们服务器上与之关联的云端数据。无法撤销。",
+      "deleteConfirmTitle": "删除账户",
+      "deleteFailedTitle": "无法删除账户",
+      "deletingAccount": "正在删除账户…",
+      "forget": "忽略",
+      "forgetConfirmBody": "在您重新配对之前，这台手机将不再连接那台电脑。",
+      "forgetConfirmTitle": "忽略 {name}？",
+      "forgetLabel": "忽略 {name}",
+      "hideEmailLabel": "隐藏邮箱",
+      "loadingSession": "正在加载会话…",
       "notificationsSection": "通知",
-      "pushToggleLabel": "允许推送通知",
-      "pushToggleSub": "电脑完成请求时通知您。",
-      "pushToggleA11y": "切换推送通知",
-      "pairedSection": "已配对的电脑",
-      "pairedEmpty": "尚未配对任何电脑。",
-      "pairedOn": "配对于 {date}",
+      "openCarPlayDiagnosticsLabel": "打开 CarPlay 诊断",
+      "openPrivacyLabel": "打开隐私政策",
+      "openTermsLabel": "打开服务条款",
       "paired": {
         "unnamedComputer": "电脑 · {id}"
       },
-      "forget": "忽略",
-      "forgetLabel": "忽略 {name}",
-      "forgetConfirmTitle": "忽略 {name}？",
-      "forgetConfirmBody": "在您重新配对之前，这台手机将不再连接那台电脑。",
-      "carPlayDiagnostics": "CarPlay 诊断",
-      "aboutSection": "关于",
-      "openCarPlayDiagnosticsLabel": "打开 CarPlay 诊断",
-      "termsOfService": "服务条款",
-      "openTermsLabel": "打开服务条款",
+      "pairedEmpty": "尚未配对任何电脑。",
+      "pairedOn": "配对于 {date}",
+      "pairedSection": "已配对的电脑",
       "privacyPolicy": "隐私政策",
-      "openPrivacyLabel": "打开隐私政策",
-      "signOut": "退出登录",
-      "signingOut": "正在退出登录…",
-      "signOutLabel": "退出 Stella 登录",
-      "deleteAccount": "删除账户",
-      "deletingAccount": "正在删除账户…",
-      "deleteAccountLabel": "删除您的 Stella 账户",
-      "deleteConfirmTitle": "删除账户",
-      "deleteConfirmBody": "此操作将永久删除您的 Stella 账户，并移除我们服务器上与之关联的云端数据。无法撤销。",
-      "deleteFailedTitle": "无法删除账户",
-      "chatStorage": {
-        "description": "在所有设备上访问你的聊天。关闭后，聊天记录将单独保存在这台设备上。重新开启时，这些聊天不会被上传。AI 提供方仍会处理你的消息。"
-      }
-    },
-    "cloudHome": {
-      "settingsSection": "Cloud Home",
-      "settingsRowTitle": "记忆文档",
-      "settingsRowBody": "查看和编辑 Stella 在云端的权威记忆版本。",
-      "openSettingsLabel": "打开 Cloud Home 记忆",
-      "title": "Cloud Home 记忆",
-      "subtitle": "Stella 文档的云端权威版本",
-      "backToSettingsLabel": "返回设置",
-      "backToDocumentsLabel": "返回 Cloud Home 文档",
-      "editorMeta": "{kind} · 修订版 {revision}",
-      "listMeta": "{kind} · 修订版 {revision} · {size}",
-      "signInTitle": "登录以使用 Cloud Home",
-      "signInBody": "记忆文档仅对你的 Stella 账户可见。",
+      "pushToggleA11y": "切换推送通知",
+      "pushToggleLabel": "允许推送通知",
+      "pushToggleSub": "电脑完成请求时通知您。",
+      "showEmailLabel": "显示邮箱",
       "signIn": "登录",
-      "signInAgain": "重新登录",
-      "loading": "正在加载 Cloud Home…",
-      "unavailableTitle": "Cloud Home 不可用",
-      "unavailableBody": "此部署目前未提供安全的 Cloud Home 服务。你的本地文件未被更改。",
-      "errors": {
-        "unauthorized": "请重新登录以访问 Cloud Home。",
-        "unavailable": "此账户目前无法使用 Cloud Home。",
-        "invalid": "Cloud Home 返回了无效响应。",
-        "network": "无法连接到 Cloud Home。请重试。",
-        "missingFromList": "该文档已不在 Cloud Home 中。请重新加载列表。",
-        "removedWhileEditing": "该文档已从 Cloud Home 中移除。"
-      },
-      "notices": {
-        "saved": "已保存到 Cloud Home。",
-        "loadedLatest": "已加载最新的云端版本。"
-      },
-      "conflict": {
-        "title": "云端版本已更改",
-        "changedBody": "修订版 {revision} 已替换你所编辑的版本。你的草稿仍保留在此处。",
-        "removedBody": "你编辑期间，该文档已被移除。你的草稿仍保留在此处。",
-        "reloadLabel": "重新加载云端版本并替换此草稿",
-        "reloading": "正在重新加载…",
-        "reload": "重新加载云端版本"
-      },
-      "editor": {
-        "editLabel": "编辑 {name}",
-        "saving": "正在保存…",
-        "save": "保存",
-        "unsaved": "有未保存的更改",
-        "upToDate": "已是最新版本"
-      },
-      "list": {
-        "retryLabel": "重试加载 Cloud Home 记忆",
-        "retry": "重试",
-        "loading": "正在加载文档…",
-        "emptyTitle": "尚无云端记忆",
-        "emptyBody": "由 Stella 创建或从桌面端导入的文档将显示在此处。",
-        "openDocumentLabel": "打开 {name}"
-      },
-      "kinds": {
-        "memory": "记忆",
-        "profile": "个人资料",
-        "memory_map": "记忆映射",
-        "core_memory": "核心记忆",
-        "personality": "个性",
-        "imported_markdown": "导入的 Markdown",
-        "user_markdown": "用户 Markdown",
-        "archive": "归档"
-      },
-      "sizes": {
-        "bytes": "{count} B",
-        "kilobytes": "{count} KB",
-        "megabytes": "{count} MB"
-      }
-    },
-    "carPlayDiagnostics": {
-      "title": "CarPlay 诊断",
-      "subtitle": {
-        "other": "CarPlay 连接的日志记录（共 {count} 行，最新在前）。车内出现异常后，请复制并发送这些内容。"
-      },
-      "copyAll": "全部复制",
-      "copyAllLabel": "复制全部诊断信息",
-      "copied": "已复制 ✓",
-      "refresh": "刷新",
-      "refreshLabel": "刷新诊断信息",
-      "clear": "清除",
-      "clearLabel": "清除诊断信息",
-      "empty": "尚未记录任何 CarPlay 诊断信息。请先连接一次 CarPlay，然后回到这里。",
-      "clipboardEmpty": "（未记录 CarPlay 诊断信息）"
-    },
-    "account": {
-      "title": "账户"
-    },
-    "activity": {
-      "inProgress": {
-        "other": "{count} 项进行中"
-      },
-      "openLabel": "显示活动"
+      "signInTitle": "登录 Stella",
+      "signOut": "退出登录",
+      "signOutLabel": "退出 Stella 登录",
+      "signingOut": "正在退出登录…",
+      "termsOfService": "服务条款",
+      "title": "设置",
+      "useAppearanceLabel": "使用{name}外观",
+      "useBackgroundColorLabel": "使用{name}背景色",
+      "useBackgroundLabel": "使用{name}背景",
+      "useThemeLabel": "使用{name}主题"
     },
     "sidebar": {
       "searchPlaceholder": "搜索活动和文件",
       "signedOutHint": "登录以查看 Stella 正在后台处理的任务。"
-    },
-    "engineAccounts": {
-      "title": "Claude 和 ChatGPT",
-      "subtitle": "使用你已付费的 Claude 或 ChatGPT 套餐",
-      "backLabel": "返回设置",
-      "claudeSection": "Claude",
-      "chatgptSection": "ChatGPT",
-      "active": "使用中",
-      "useAccount": "使用此账号",
-      "signOut": "退出登录",
-      "moreLabel": "{name} 的选项",
-      "signOutTitle": "要退出 {name} 吗?",
-      "signOutBody": "Stella 将不再使用此账号。你可以随时重新添加。",
-      "pasteHintClaude": "批准后，Anthropic 会显示一个代码。复制后粘贴到这里。",
-      "pasteHintChatgpt": "批准后，ChatGPT 会将你带到一个无法加载的页面。复制该页面的完整地址并粘贴到这里。",
-      "pastePlaceholder": "粘贴 Anthropic 显示的代码",
-      "pasteFromClipboard": "粘贴",
-      "finish": "连接",
-      "connecting": "正在连接…",
-      "errorTitle": "无法更新账号",
-      "errorBody": "出了点问题,请重试。",
-      "pastePlaceholderUrl": "在此粘贴地址",
-      "openChatgptAgain": "再次打开 ChatGPT",
-      "chatgptBrowserWaiting": "请在浏览器中完成 ChatGPT 登录。",
-      "signInAgain": "重新登录",
-      "enablePlanUsage": "启用 ChatGPT 套餐使用",
-      "remove": "移除",
-      "removeTitle": "要移除 {name} 吗？",
-      "removeBody": "Stella 会忘记这个 ChatGPT 账号。你之后可以再次登录。",
-      "statusSignedOut": "已退出登录",
-      "statusReauth": "重新登录以继续使用",
-      "statusPlanUsageOff": "未启用 ChatGPT 套餐使用",
-      "planUsageOffBody": "在你允许之前，Stella 无法使用你的 ChatGPT 套餐。请在账号上选择「启用 ChatGPT 套餐使用」。",
-      "manageUsage": "管理用量",
-      "revokeUnconfirmed": "ChatGPT 未确认退出登录。你可以在 ChatGPT 设置中断开 Stella。",
-      "planWelcomeTitle": "你正在使用 ChatGPT 套餐",
-      "planWelcomeBody": "Stella 云端中的 ChatGPT 请求会计入你的 ChatGPT 套餐。请在 ChatGPT 设置中查看用量并设置 Stella 的上限。",
-      "connectClaude": "添加 Claude 账号",
-      "connectChatgpt": "连接 ChatGPT 账号",
-      "signInCloud": "在云端登录",
-      "signOutCloud": "从云端退出登录",
-      "signOutCloudTitle": "要让 {name} 从云端退出登录吗？",
-      "signOutCloudBody": "在你重新登录之前，Stella 的云端将停止使用此账号。你的电脑会保留各自的 Claude Code 登录。",
-      "removeClaudeBody": "Stella 会忘记这个 Claude 账号，并让云端退出登录。你的电脑会保留各自的 Claude Code 登录。",
-      "placeCloud": "云端",
-      "placeComputer": "电脑",
-      "signedInOn": "已登录：{places}",
-      "notSignedIn": "尚未在任何地方登录",
-      "claudeNote": "在此添加账号会让 Stella 的云端在 Anthropic 自己的页面上登录 Claude Code。每台电脑使用各自的 Claude Code 登录。",
-      "startAgain": "重新开始",
-      "openClaudeAgain": "再次打开登录页面",
-      "continueAsChatgpt": "以 {name} 身份继续使用 ChatGPT",
-      "continueWithChatgpt": "使用你的 ChatGPT 账号继续"
     }
   },
-  "companion": {
-    "menu": {
-      "openStella": "Open Stella",
-      "hide": "Hide companion",
-      "quit": "Quit Stella"
+  "onboarding": {
+    "chat": {
+      "capabilities": {
+        "build": {
+          "caption": "Apps and websites, made to order. Describe it in plain words and I'll build it, run it, and put it online.",
+          "title": "Say it. I'll build it.",
+          "word": "Build"
+        },
+        "errands": {
+          "caption": "我会找到对的地方，填好表单，再加进你的日历，就像你自己做的一样。",
+          "title": "Ask once. Consider it handled.",
+          "word": "Errands"
+        },
+        "replay": "Replay this demo",
+        "routines": {
+          "caption": "任何事都可以定时，我会准时完成，哪怕你正在睡觉。",
+          "title": "说一次，每天都会做。",
+          "word": "例行任务"
+        },
+        "settledTitle": "The quick tour",
+        "shopping": {
+          "caption": "I find it and get it to checkout. You confirm the total, and I place the order.",
+          "title": "I can buy things, with your OK.",
+          "word": "Shopping"
+        },
+        "tablist": "Capability demos",
+        "work": {
+          "caption": "我在这台电脑上的真实应用里工作，还能同时处理多项任务。",
+          "title": "真实的文件。多项任务同时进行。",
+          "word": "Work"
+        }
+      },
+      "composerPlaceholder": "Or just ask me something to get started",
+      "discovery": {
+        "alsoLabel": "Also include",
+        "assurance": "A one-time read, kept on this computer. You can see and edit what I keep at any time.",
+        "browserLabel": "Your browser",
+        "hint": "About a minute, in the background.",
+        "includeDev": "My coding setup"
+      },
+      "extras": {
+        "accessibilityDesc": "So I can act on selected text and what's under your cursor.",
+        "accessibilityTitle": "Accessibility",
+        "body": "Neither is required, but both make me a lot more useful.",
+        "bodyOne": "Not required, but it makes me a lot more useful.",
+        "enable": "Enable",
+        "enabled": "Enabled",
+        "extensionDesc": "Lets me see the page you're on and act inside your browser. Works in Chrome, Arc, Brave, and Edge.",
+        "extensionOpened": "Opened",
+        "extensionTitle": "Stella for Chrome",
+        "getExtension": "Get extension",
+        "hint": "All of this lives in Settings too.",
+        "memoryDesc": "Use what I've saved about you when it's relevant. Nothing is deleted if you turn this off.",
+        "memoryTitle": "Remember across chats",
+        "restart": "Restart Stella",
+        "restartHint": "Screen access needs a quick restart to take effect.",
+        "screenDesc": "So I can see the screen when you ask me to.",
+        "screenTitle": "Screen Recording",
+        "settledExtension": "Extension",
+        "settledMemory": "Memory",
+        "settledPermissions": "Permissions",
+        "settledSkippedTitle": "Extras skipped",
+        "settledTitle": "Extras",
+        "skip": "Skip for now",
+        "title": "Two quick extras",
+        "titleOne": "One quick extra"
+      },
+      "memory": {
+        "bodyChatbot": "A new chat every time, a sidebar full of old ones, and no memory of what you said last week.",
+        "bodyStella": "No new chats, no threads. Everything you've ever told me is in the same place, so when you ask about last week I go and find it.",
+        "settledDesc": "No threads to manage. I remember.",
+        "settledTitle": "One conversation",
+        "showStella": "Now ask me",
+        "skip": "Skip",
+        "titleChatbot": "You know this one",
+        "titleStella": "With me it's one conversation"
+      },
+      "messages": {
+        "capabilities": "你好，我是 Stella。\n\n我不是聊天机器人。我会用这台电脑在后台真正把事情做完，你只管忙你的。\n\n来看看是什么样子。",
+        "extras": "Almost done. A little housekeeping, then we start.",
+        "memory": "One more thing that makes me different.",
+        "quickstart": "就这些了。还有最后一件事，可选：快速上手。",
+        "quickstartDone": "好了。这是我了解到的内容，还有几件我们可以先做的事。",
+        "quickstartFailed": "这次我没能读完你的浏览器。我们可以直接开始，我会边用边了解。",
+        "selfmod": "因为我就住在你的电脑上，所以我可以改变自己。",
+        "signin": "接下来登录。可以用 Stella 账号，也可以用你已有的 Claude 或 ChatGPT 套餐。",
+        "theme": "Now, how should I look?"
+      },
+      "progress": "设置进度",
+      "quickstart": {
+        "body": "大多数助手都是从零开始。让我读一次你的浏览器，建立一份初始记忆，这样我从第一天起就能帮上忙。",
+        "continueInBackground": "开始聊天，在后台完成",
+        "eyebrow": "快速上手",
+        "failedBody": "读取被打断了。再试一次，或者直接开始聊天，我会边用边了解。",
+        "failedTitle": "没有完成",
+        "run": "运行快速上手",
+        "runningBody": "大约一分钟。你想进去就进去，我会在后台完成。",
+        "runningTitle": "正在了解你",
+        "skip": "跳过",
+        "stages": {
+          "notice": "正在留意对你重要的事",
+          "read": "正在读取你选择的内容",
+          "write": "正在写入你的初始记忆"
+        },
+        "title": "让我先走一步"
+      },
+      "ready": {
+        "generic": {
+          "browse": {
+            "prompt": "Find a well-reviewed dinner spot near me for this weekend and hold a reservation for two.",
+            "title": "Find me a good dinner spot"
+          },
+          "file": {
+            "prompt": "I have a document that needs cleaning up. I'll share it and you fix the structure and wording.",
+            "title": "Tidy up a document"
+          },
+          "plan": {
+            "prompt": "Help me plan my week. Ask me what's on my plate and lay it out day by day.",
+            "title": "Plan my week"
+          },
+          "watch": {
+            "prompt": "Keep an eye on a web page for me and tell me when it changes.",
+            "title": "Watch a site for changes"
+          }
+        },
+        "highlightsLabel": "What I picked up",
+        "hint": "Or type anything below.",
+        "notesFoot": "You can read or edit this any time in Settings › Memory.",
+        "notesSummary": "See everything I noted",
+        "start": "Start chatting",
+        "startersLabel": "Try one of these",
+        "startersLabelPersonal": "Made for you"
+      },
+      "replies": {
+        "capabilitiesDone": "Got it.",
+        "capabilitiesSkipped": "Skip the tour.",
+        "extrasDone": "Done.",
+        "extrasSkipped": "Skip for now.",
+        "memoryDone": "Nice.",
+        "memorySkipped": "Skip it.",
+        "selfmodDone": "太酷了。",
+        "signinDone": "好了。",
+        "themeDone": "That one.",
+        "themeSkipped": "Keep the default."
+      },
+      "selfmod": {
+        "body": "缺少某个功能，或者想让某样东西换种方式运作？直接告诉我。我会重写自己的代码，让你试用，是否保留由你决定。",
+        "hint": "更改只保留在这台电脑上。",
+        "settledDesc": "提出、预览、更新。随时可以撤销。",
+        "settledTitle": "我可以改变自己",
+        "steps": {
+          "ask": {
+            "body": "用平常的话描述你想要的更改。",
+            "title": "提出"
+          },
+          "preview": {
+            "body": "由智能体构建，并打开实时预览。",
+            "title": "预览"
+          },
+          "update": {
+            "body": "点一下即可应用。随时可以撤销。",
+            "title": "更新"
+          }
+        },
+        "title": "我可以改变自己"
+      },
+      "send": "Send",
+      "signin": {
+        "body": "任选其一就够了。其他的以后再添加。",
+        "claudeCliMissing": "请先安装 Claude Code，然后重试。",
+        "connect": "连接",
+        "error": "没能连接上。再试一次？",
+        "fine": "随时可以在“设置”中更改。",
+        "hint": "免费开始。",
+        "inUse": "使用中",
+        "options": {
+          "apikey": {
+            "body": "使用你自己的 Anthropic、OpenAI、Google 等密钥。",
+            "title": "API 密钥"
+          },
+          "chatgpt": {
+            "body": "使用 ChatGPT 登录，即可使用你的套餐。",
+            "title": "ChatGPT"
+          },
+          "claude": {
+            "body": "使用你的 Claude Pro 或 Max 套餐。",
+            "title": "Claude Code"
+          },
+          "stella": {
+            "body": "使用 Google 或邮箱。你的聊天会同步到手机。",
+            "title": "Stella 账号"
+          }
+        },
+        "settledDesc": "随时可以在“设置”中更改。",
+        "settledEngine": "正在使用 {name}",
+        "settledStella": "已登录 Stella",
+        "signIn": "登录",
+        "title": "登录",
+        "use": "使用",
+        "waiting": "请在浏览器中完成登录，然后回到这里。"
+      },
+      "skipSetup": "Skip setup",
+      "theme": {
+        "appearance": "Appearance",
+        "body": "Hover to try one on. Click to keep it.",
+        "confirm": "Done",
+        "gradient": {
+          "flat": "Flat",
+          "relative": "Relative",
+          "soft": "Soft",
+          "strong": "Strong"
+        },
+        "gradientColor": "Gradient color",
+        "gradientStyle": "Gradient style",
+        "hint": "Everything here changes live.",
+        "mode": {
+          "dark": "Dark",
+          "light": "Light",
+          "system": "System"
+        },
+        "settledTitle": "Default",
+        "skip": "Keep the default",
+        "themes": "Theme",
+        "title": "Pick a look"
+      }
     },
-    "composer": {
-      "placeholder": "Ask Stella…"
+    "legalFooter": "使用 Stella 即表示您同意我们的{terms}和{privacy}。",
+    "privacyPolicy": "隐私政策",
+    "termsOfService": "服务条款"
+  },
+  "settings": {
+    "account": {
+      "cloudHome": {
+        "actions": {
+          "blocked": "导入已被阻止",
+          "boundElsewhere": "已绑定其他账户",
+          "import": "导入此账户",
+          "sync": "立即同步",
+          "syncing": "正在同步…"
+        },
+        "authorizationNote": "上传的技能在其确切版本获得明确授权前，仍无法供代理使用。",
+        "label": "记忆和技能",
+        "summary": {
+          "attention": "本地数据不一致时，Cloud Home 保留了现有云端副本。请查看下方详情。",
+          "checking": "正在检查本地记忆和技能…",
+          "current": "Cloud Home 已是最新状态。已上传记忆：{memoryCount}。已上传技能包：{skillCount}。",
+          "intro": "Stella 会将本地记忆和适用的自定义技能安全导入你的云端账户。",
+          "unavailable": "Cloud Home 同步目前不可用。"
+        },
+        "title": "Cloud Home"
+      },
+      "deleteAccount": {
+        "action": "删除",
+        "description": "永久删除你的账户及其中的所有内容。",
+        "label": "删除账户",
+        "working": "正在删除…"
+      },
+      "deleteData": {
+        "action": "删除",
+        "description": "清除所有对话、记忆和已保存的 Stella 设置。",
+        "label": "删除数据",
+        "working": "正在删除…"
+      },
+      "dialog": {
+        "deleteAccountButton": "删除账户",
+        "deleteAccountDescription": "这将永久删除你的账户和 Stella 数据。此操作无法撤销。",
+        "deleteAccountTitle": "删除你的 Stella 账户？",
+        "deleteDataButton": "删除数据",
+        "deleteDataDescription": "这将清除你的对话、记忆、设置和本地 Stella 状态。此操作无法撤销。",
+        "deleteDataTitle": "删除你的 Stella 数据？",
+        "working": "正在删除…"
+      },
+      "legal": {
+        "privacy": "隐私政策",
+        "terms": "服务条款",
+        "title": "法律",
+        "view": "查看"
+      },
+      "signOut": {
+        "action": "退出登录",
+        "description": "在此设备上退出 Stella 登录。",
+        "label": "退出登录"
+      },
+      "title": "账户",
+      "toasts": {
+        "accountDeleted": "你的 Stella 账户已删除。",
+        "dataDeleted": "你的 Stella 数据已删除。",
+        "deleteAccountFailed": "无法删除你的账户。请重试。",
+        "deleteDataFailed": "无法删除你的数据。请重试。",
+        "signInBeforeDelete": "请先登录，然后再删除账户。"
+      }
     },
-    "bubble": {
-      "openStella": "Open in Stella",
-      "typing": "Stella is replying"
+    "agentModelPicker": {
+      "assistantPickerAriaLabel": "助手模型选择器",
+      "byokDescription": "使用你自己的 {provider} API 密钥。",
+      "chatGptManageUsage": "管理用量",
+      "chatGptPlanInUse": "正在使用 ChatGPT 套餐",
+      "chatGptRouted": "已路由到 {model}（已保存的模型不可用）。",
+      "default": "默认",
+      "errors": {
+        "chatGptMigration": "ChatGPT 路由迁移失败。",
+        "chatGptNoModels": "当前没有可用的 ChatGPT 模型。",
+        "chatGptNotConnected": "请先在这台电脑上使用 ChatGPT 登录。",
+        "chatGptPlanUsageOff": "此账号未启用 ChatGPT 套餐使用。请在「设置 › 账户」中启用，或选择其他模型。",
+        "chatGptVerify": "无法验证 ChatGPT 模型：{error}",
+        "chatGptVerifying": "请等待 ChatGPT 模型验证完成。",
+        "connectChatGpt": "连接 ChatGPT 失败。",
+        "loadPreferences": "加载模型设置失败。",
+        "refreshTitle": "无法刷新模型",
+        "updateChatGptSpeed": "更新 ChatGPT 速度失败。",
+        "updateDirectRuntime": "更新直连 {runtime} 设置失败。",
+        "updateEngine": "更新引擎失败。",
+        "updateImage": "更新图像设置失败。",
+        "updateModel": "更新模型设置失败。",
+        "updateReadAloud": "更新朗读提供商失败。",
+        "updateReasoning": "更新推理强度失败。",
+        "updateTitle": "无法更新模型设置",
+        "updateVoice": "更新语音设置失败。"
+      },
+      "imageProviderAriaLabel": "图像提供商",
+      "noChatGptModels": "此账号目前没有可用的 ChatGPT 模型。",
+      "savedModelUnavailable": "已保存的模型不可用。请另选一个模型。",
+      "stellaDefault": "Stella 默认",
+      "surfaceAriaLabel": "使用场景",
+      "tabs": {
+        "assistant": "助手",
+        "assistantTitle": "Stella 的主助手",
+        "image": "图像",
+        "imageTitle": "图像生成提供商",
+        "voice": "语音",
+        "voiceTitle": "实时语音提供商"
+      },
+      "unavailableChooseAnother": "不可用 — 请另选一个模型",
+      "verifyingChatGpt": "正在验证 ChatGPT 模型…",
+      "voiceProviderAriaLabel": "语音提供商",
+      "waitingForChatGpt": "正在等待 ChatGPT…"
     },
-    "arc": {
-      "readAloudOn": "Read replies aloud: on",
-      "readAloudOff": "Read replies aloud: off",
-      "dictate": "Dictate a message",
-      "dictateStop": "Stop dictating and send",
-      "voice": "Start voice conversation",
-      "voiceStop": "End voice conversation"
+    "audio": {
+      "dictationSounds": {
+        "description": "在听写开始和停止时播放声音。",
+        "label": "听写声音"
+      },
+      "errors": {
+        "listDevices": "无法列出音频设备。",
+        "micDenied": "麦克风访问被拒绝。请在系统设置中允许。",
+        "micDeniedReset": "之前麦克风访问被拒绝。请重置并重启 Stella，或打开系统设置。"
+      },
+      "microphone": {
+        "deviceDescription": "Stella 应该使用哪个麦克风？",
+        "deviceLabel": "麦克风",
+        "enableDescription": "与 Stella 对话所必需。",
+        "enableLabel": "启用麦克风",
+        "title": "麦克风"
+      },
+      "microphoneDeviceFallback": "麦克风 {index}",
+      "recovery": {
+        "closing": "正在关闭…",
+        "manageDescription": "如果麦克风权限卡住，你可以重置它并让 macOS 再次询问。",
+        "manageLabel": "管理麦克风访问权限",
+        "openSettings": "打开设置",
+        "recoverDescription": "一旦你拒绝，macOS 就不会自动再次询问。请重置权限，然后退出并重新打开 Stella。",
+        "recoverLabel": "恢复麦克风访问权限",
+        "reset": "重置并重启"
+      },
+      "speaker": {
+        "empty": "未找到扬声器。",
+        "emptyMicOff": "打开麦克风以查看你的扬声器。",
+        "outputDescription": "选择要使用的扬声器或耳机。",
+        "outputLabel": "输出设备",
+        "title": "扬声器"
+      },
+      "speakerDeviceFallback": "扬声器 {index}",
+      "superFast": {
+        "description": "让麦克风保持就绪，使听写以更少的延迟开始。",
+        "label": "超快听写"
+      },
+      "systemDefault": "系统默认",
+      "wakeWord": {
+        "description": "在后台监听「Hey Stella」并开始语音对话。关闭时，麦克风将保持空闲，直到你按下听写。",
+        "label": "唤醒词「Hey Stella」"
+      }
     },
-    "mark": {
-      "open": "Ask Stella",
-      "close": "Close the prompt"
+    "browserExtension": {
+      "action": "获取扩展",
+      "description": "让 Stella 查看你所在的页面并在浏览器中执行操作。",
+      "title": "Stella for Chrome"
     },
-    "badge": {
-      "running": "{count} agents working"
+    "chatStorage": {
+      "description": "在所有设备上访问你的聊天。关闭后，聊天记录将单独保存在这台电脑上。重新开启时，这些聊天不会被上传。AI 提供方仍会处理你的消息。",
+      "endVoice": "结束语音对话后才能更改聊天存储方式。",
+      "error": "无法更改聊天存储方式。请重试。",
+      "title": "将聊天记录保存到云端"
+    },
+    "compactModelList": {
+      "ariaLabel": "Stella 模型",
+      "empty": "没有可用的 Stella 模型。",
+      "loadFailed": "无法加载 Stella 模型。",
+      "loading": "正在加载 Stella 模型…",
+      "recent": "最近",
+      "restricted": "你的套餐使用 Stella 的推荐选择。",
+      "restrictedPlan": "{plan} 套餐使用 Stella 的推荐选择。",
+      "retry": "重试",
+      "unavailable": "不可用",
+      "unavailableTitle": "此模型已不再可用 — 请另选一个。",
+      "upgrade": "升级"
+    },
+    "companion": {
+      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
+      "error": "Couldn't update the desktop companion.",
+      "title": "Desktop companion"
+    },
+    "connectedProviders": {
+      "apiKey": "API 密钥",
+      "empty": "尚未连接任何提供商。在上方的模型选择器中选择 Stella 以外的选项，以添加 API 密钥或登录。",
+      "removeKey": "移除密钥",
+      "removingKey": "正在移除…",
+      "signOut": "退出登录",
+      "signedIn": "已登录",
+      "signingOut": "正在退出…",
+      "title": "已连接的提供商"
+    },
+    "developerPreviews": {
+      "description": "在聊天中显示代码更改，并在侧边面板中打开它们。",
+      "title": "开发者文件预览"
+    },
+    "engineAccounts": {
+      "active": "使用中",
+      "addChatgpt": "Add ChatGPT account",
+      "addChatgptCloud": "Add ChatGPT account in the cloud",
+      "addClaude": "添加 Claude 账号",
+      "addInCloud": "在云端",
+      "addOnComputer": "在这台电脑上",
+      "cardIntro": "使用你已付费的 Claude 或 ChatGPT 套餐。每个位置单独登录：每台电脑以及你的云端。",
+      "cardTitle": "Claude 和 ChatGPT 账号",
+      "chatgptBrowserWaiting": "请在浏览器中完成 ChatGPT 登录。",
+      "chatgptCloudSignedIn": "你的云端已登录 ChatGPT。",
+      "chatgptComputerSignedIn": "这台电脑已登录 ChatGPT。",
+      "chatgptTitle": "ChatGPT",
+      "claudeLogin": {
+        "codeLabel": "粘贴 Anthropic 显示的代码",
+        "failed": "登录未成功。",
+        "opened": "我们已打开 Anthropic 登录页面。",
+        "reopen": "再次打开",
+        "startAgain": "重新开始",
+        "starting": "正在打开 Anthropic 登录页面…",
+        "submit": "提交",
+        "submitting": "正在登录…",
+        "whereCloud": "正在你的云端登录 Claude Code。",
+        "whereComputer": "正在这台电脑上登录 Claude Code。"
+      },
+      "claudeTitle": "Claude (Pro/Max)",
+      "cliMissing": "这台电脑未安装 Claude Code。请先安装，才能在这里使用 Claude。",
+      "connecting": "正在连接…",
+      "defaultSignedOut": "这台电脑上的 Claude Code 未登录。",
+      "enablePlanUsage": "启用 ChatGPT 套餐使用",
+      "enablePlanUsageCloud": "Enable ChatGPT plan use in the cloud",
+      "errorGeneric": "操作未成功，请重试。",
+      "finish": "连接",
+      "moreLabel": "{name} 的选项",
+      "needsChatgptCloud": "请先继续为云端设置 ChatGPT",
+      "needsClaudeCloud": "请先在云端登录 Claude",
+      "openChatgptAgain": "再次打开 ChatGPT",
+      "pasteHintChatgpt": "批准后，ChatGPT 会将你带到一个无法加载的页面。复制该页面的完整地址并粘贴到这里。",
+      "pastePlaceholderUrl": "在此粘贴地址",
+      "placeCloud": "云端",
+      "placeComputer": "这台电脑",
+      "placeOtherComputer": "其他电脑",
+      "placeSignedIn": "{place}：已登录",
+      "placeSignedOut": "{place}：未登录",
+      "planUsageOffBody": "在你允许之前，Stella 无法使用你的 ChatGPT 套餐。请在账号上选择「启用 ChatGPT 套餐使用」，或使用其他模型。",
+      "planUsageOffTitle": "已登录，但未启用 ChatGPT 套餐使用",
+      "remove": "移除",
+      "removed": "已移除。",
+      "revokeTitleCloud": "已从云端退出 ChatGPT",
+      "revokeTitleComputer": "已在这台电脑上退出登录",
+      "revokeUnconfirmed": "ChatGPT 未确认退出登录。你可以在 ChatGPT 设置中断开 Stella。",
+      "runsOnLabel": "云端聊天运行于",
+      "signIn": "登录",
+      "signInAgain": "重新登录",
+      "signInCloud": "在云端登录",
+      "signInComputer": "在这台电脑上登录",
+      "signOut": "退出登录",
+      "signOutCloud": "从云端退出登录",
+      "signOutComputer": "在这台电脑上退出登录",
+      "signedInCloud": "你的云端已登录 Claude。",
+      "signedInCloudAs": "你的云端已以 {email} 登录 Claude。",
+      "signedInComputer": "这台电脑上的 Claude Code 已登录。",
+      "signedInComputerAs": "这台电脑上的 Claude Code 已以 {email} 登录。",
+      "signedOut": "已退出登录。",
+      "signedOutLogin": "已退出的 Claude Code 登录",
+      "statusPlanUsageOff": "未启用 ChatGPT 套餐使用",
+      "statusReauth": "重新登录以继续使用",
+      "statusSignedOut": "已退出登录",
+      "useAccount": "使用此账号"
+    },
+    "engineModels": {
+      "ariaLabel": "{engine} 模型",
+      "empty": "没有可用的 {engine} 模型。",
+      "loading": "正在加载 {engine} 模型…"
+    },
+    "errors": {
+      "loadLockedComputerUse": "加载锁屏时使用电脑的设置失败。",
+      "loadMemory": "加载记忆设置失败。",
+      "loadPermissions": "加载桌面权限状态失败。",
+      "loadPower": "加载电源设置失败。",
+      "loadSoundNotifications": "加载声音通知设置失败。",
+      "lockedComputerUseUnavailable": "此窗口中无法使用锁屏时使用电脑。",
+      "memoryUnavailable": "此窗口中无法使用记忆设置。",
+      "microphoneDeniedReopen": "之前麦克风访问被拒绝。请在系统设置中开启，然后重新打开 Stella。",
+      "microphoneStillOff": "麦克风访问仍处于关闭状态。请在系统设置中开启，然后重新打开 Stella。",
+      "powerUnavailable": "此窗口中无法使用电源设置。",
+      "resetPermission": "重置「{kind}」权限失败。",
+      "resetPermissionMaybeReopen": "无法重置「{kind}」权限。可能需要重新打开 Stella。",
+      "restart": "重启 Stella 失败。",
+      "saveLockedComputerUse": "更新锁屏时使用电脑失败。",
+      "saveMemory": "更新记忆设置失败。",
+      "savePermission": "更新「{kind}」权限失败。",
+      "savePower": "更新电源设置失败。",
+      "saveSoundNotifications": "更新声音通知设置失败。",
+      "soundNotificationsUnavailable": "此窗口中无法使用声音通知设置。"
+    },
+    "executionDevices": {
+      "disable": "Turn off",
+      "disabling": "Turning off…",
+      "empty": "No computer is signed in to this account yet.",
+      "enable": "Enable",
+      "enabling": "Enabling…",
+      "errors": {
+        "load": "Unable to read the computers on this account.",
+        "update": "That change didn't go through. Try again."
+      },
+      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
+      "offline": "Offline",
+      "online": "Online",
+      "state": {
+        "asking": "Waiting for an answer there",
+        "declined": "Declined there",
+        "enabled": "Accepting work",
+        "notEnabled": "Not enabled"
+      },
+      "thisComputer": "This computer",
+      "title": "Your computers",
+      "unnamed": "Computer"
+    },
+    "language": {
+      "description": "选择 Stella 在应用内和回复中使用的语言。",
+      "title": "语言"
+    },
+    "lockedComputerUse": {
+      "description": "允许 Stella 在此 Mac 锁定后继续电脑操作任务。需要管理员授权，并在 Stella 工作时遮盖屏幕。",
+      "title": "锁屏时使用电脑",
+      "unsupported": "锁屏时使用电脑仅在 macOS 上可用。"
+    },
+    "memory": {
+      "description": "将已保存的记忆和你的个人资料纳入 Stella 的模型上下文。云端副本是权威版本，并在传输和静态存储时加密；Stella 也可能保留本地副本。关闭此选项后，记忆不会用于后续对话，但不会被删除。",
+      "title": "记忆"
+    },
+    "modelPicker": {
+      "actions": {
+        "addKey": "添加密钥",
+        "cancel": "取消",
+        "custom": "自定义",
+        "signIn": "登录"
+      },
+      "apiKeyAriaLabel": "{provider} API 密钥",
+      "apiKeyPlaceholder": "API 密钥",
+      "authHint": {
+        "apiKey": "你的 API 密钥仅保存在此设备上。",
+        "both": "登录或粘贴 API 密钥。凭据仅保存在此设备上。",
+        "oauth": "凭据仅保存在此设备上。"
+      },
+      "cancelSignIn": "取消登录",
+      "closeSearch": "关闭搜索",
+      "empty": {
+        "noMatch": "没有匹配的模型。",
+        "none": "暂无可用模型。"
+      },
+      "errors": {
+        "oauthLogin": "OAuth 登录失败。",
+        "saveApiKey": "保存 API 密钥失败。"
+      },
+      "favorite": {
+        "add": "添加收藏",
+        "addTitle": "收藏 — 置顶显示",
+        "remove": "取消收藏"
+      },
+      "loadFailed": "Couldn't load models",
+      "local": {
+        "hint": "可使用任意本地 OpenAI 兼容服务器。Ollama 通常运行在下方的网址。",
+        "modelNameAriaLabel": "本地模型名称",
+        "serverUrlAriaLabel": "本地服务器网址"
+      },
+      "openRouter": {
+        "hintAfter": "ID。输入一个即可直接使用。",
+        "hintBefore": "OpenRouter 接受任意",
+        "modelIdAriaLabel": "OpenRouter 模型 ID"
+      },
+      "reasoning": {
+        "default": "自动",
+        "high": "高",
+        "label": "推理强度",
+        "low": "低",
+        "medium": "中",
+        "minimal": "极低",
+        "xhigh": "最高"
+      },
+      "refresh": "刷新模型目录",
+      "restrictedPlan": "{plan} 套餐不可用",
+      "retry": "Retry",
+      "saving": "正在保存…",
+      "searchAriaLabel": "搜索模型",
+      "searchPlaceholder": "搜索模型…",
+      "selected": "已选择",
+      "signInWith": "使用 {provider} 登录",
+      "signOut": {
+        "ariaLabel": "退出 {provider} 登录",
+        "confirmAriaLabel": "再次点击以退出 {provider} 登录",
+        "confirmTitle": "再次点击以确认"
+      },
+      "use": "使用"
+    },
+    "motion": {
+      "reduceMotion": {
+        "description": "尽量减少界面动画。",
+        "label": "减弱动态效果",
+        "off": "关闭",
+        "on": "开启",
+        "system": "系统"
+      },
+      "title": "动态效果"
+    },
+    "nativeFontSmoothing": {
+      "description": "像 macOS 应用那样渲染文本，使用灰度抗锯齿。",
+      "title": "原生字体平滑"
+    },
+    "notifications": {
+      "description": "当 Stella 完成一次智能体运行时播放声音。",
+      "title": "声音通知"
+    },
+    "onboardingReplay": {
+      "action": "Replay",
+      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched.",
+      "title": "Onboarding"
+    },
+    "permissions": {
+      "accessibility": {
+        "description": "让 Stella 读取选中的文本，并可在电脑任意位置通过 ⌘+右键快捷方式打开。",
+        "label": "辅助功能"
+      },
+      "enable": "启用",
+      "granted": "已授权",
+      "microphone": {
+        "description": "用于语音和听写。如果之前拒绝了 Stella 且 macOS 不再询问，请重置。",
+        "label": "麦克风"
+      },
+      "opening": "正在打开…",
+      "reset": "重置",
+      "resetting": "正在重置…",
+      "restart": {
+        "action": "重启",
+        "closing": "正在关闭…",
+        "description": "屏幕录制刚刚开启。请退出并重新打开 Stella 以完成设置。",
+        "label": "重启 Stella"
+      },
+      "screen": {
+        "description": "让 Stella 查看你的屏幕，以便协助你正在查看的内容。开启后你可能需要退出并重新打开 Stella。",
+        "label": "屏幕录制"
+      },
+      "title": "权限"
+    },
+    "phoneAccess": {
+      "copy": "复制",
+      "deviceFallback": "手机",
+      "errors": {
+        "createPairing": "无法创建配对代码。"
+      },
+      "expired": "已过期",
+      "getCode": "获取代码",
+      "intro": {
+        "headline": "将手机连接到电脑"
+      },
+      "pairedCount": {
+        "other": "已配对 {count} 部手机"
+      },
+      "pairing": {
+        "body": "在手机上打开 Stella 应用并扫描二维码，或输入下方的代码。此操作只需进行一次。",
+        "headline": "扫描或输入此代码",
+        "qrAlt": "扫描以配对你的手机"
+      },
+      "preparing": "正在准备...",
+      "remove": "移除",
+      "removing": "正在移除...",
+      "signedOut": {
+        "body": "登录你的 Stella 账户以与手机应用配对。",
+        "headline": "登录即可开始"
+      },
+      "steps": {
+        "appStoreQrAlt": "扫描以从 App Store 下载 Stella",
+        "connect": "连接你的手机",
+        "download": "下载应用",
+        "platformSelectorLabel": "选择移动平台",
+        "playStoreQrAlt": "扫描以从 Google Play 下载 Stella"
+      },
+      "timeLeft": "剩余 {time}",
+      "toasts": {
+        "codeCopied": "代码已复制到剪贴板",
+        "phoneRemoved": "手机已移除",
+        "removeFailed": "移除手机失败"
+      }
+    },
+    "power": {
+      "description": "在 Stella 打开时阻止电脑进入睡眠。",
+      "title": "保持电脑唤醒"
+    },
+    "providerConnected": {
+      "apply": "应用",
+      "applying": "正在应用…",
+      "assistant": {
+        "description": "将 Stella 的聊天助手路由到 {provider}。",
+        "label": "助手"
+      },
+      "description": "{provider} 可以驱动 Stella 的多个部分。选择你希望它接管的部分 — 其余仍由 Stella 负责。",
+      "errors": {
+        "apply": "应用提供商设置失败。"
+      },
+      "image": {
+        "description": "通过你的 {provider} 账户生成图像。",
+        "label": "图像"
+      },
+      "skip": "跳过",
+      "title": "为 Stella 使用 {provider}？",
+      "voice": {
+        "description": "使用 {provider} 进行实时语音对话。",
+        "label": "语音"
+      }
+    },
+    "providerPicker": {
+      "connect": "连接",
+      "connected": "已连接",
+      "opening": "正在打开…"
+    },
+    "reasoningEffort": {
+      "high": "高",
+      "low": "低",
+      "medium": "中",
+      "minimal": "极低",
+      "xhigh": "超高"
+    },
+    "resetCustomizations": {
+      "action": "恢复默认",
+      "description": "移除你的技能自定义和人格编辑，恢复 Stella 自带的默认设置。被移除的内容会保存在 ~/.stella/.trash 中，以便随时找回。",
+      "done": "已恢复默认设置。你之前的自定义内容已移至 ~/.stella/.trash。",
+      "error": "无法恢复默认设置。",
+      "none": "你已经在使用 Stella 的默认设置。",
+      "title": "使用 Stella 默认设置"
+    },
+    "search": {
+      "clear": "清除搜索",
+      "descriptions": {
+        "account": "退出登录、删除你的数据或永久删除你的账户。",
+        "legal": "服务条款和隐私政策。",
+        "microphone": "Stella 应该使用哪个麦克风？",
+        "permissions": "在 macOS 上授予辅助功能、屏幕录制和麦克风访问权限。",
+        "shortcuts": "更改听写和语音快捷键。",
+        "speaker": "选择播放 Stella 语音的扬声器或耳机。",
+        "wakeWord": "监听「Hey Stella」并开始语音对话。"
+      },
+      "noResultsBody": "请尝试更短或不同的词。",
+      "noResultsTitle": "没有与「{query}」匹配的设置",
+      "placeholder": "搜索设置",
+      "resultsAriaOne": "{count} 条结果",
+      "resultsAriaOther": "{count} 条结果",
+      "resultsOne": "{count} 条结果：",
+      "resultsOther": "{count} 条结果："
+    },
+    "shortcuts": {
+      "actions": {
+        "dictation": "听写",
+        "voice": "语音智能体"
+      },
+      "capturing": "请按下按键…",
+      "change": "更改",
+      "clear": "清除",
+      "dictation": {
+        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
+      },
+      "errors": {
+        "load": "加载快捷键失败。",
+        "unavailable": "此窗口中无法使用快捷键。",
+        "unavailableShortcut": "该快捷键不可用。",
+        "update": "更新快捷键失败。"
+      },
+      "off": "关闭",
+      "targets": {
+        "dictation": "听写",
+        "voice": "语音智能体"
+      },
+      "title": "快捷键",
+      "toasts": {
+        "clearedDescription": "在你设置新的快捷键之前，{action}已停用。",
+        "clearedTitle": "已清除「{action}」快捷键",
+        "failedTitle": "更新快捷键失败",
+        "unavailableTitle": "快捷键不可用",
+        "updatedDescription": "按 {keys} 即可开始{target}。",
+        "updatedTitle": "已更新「{action}」快捷键"
+      },
+      "voiceAgent": {
+        "description": "启动或停止 Stella 的实时语音智能体。"
+      }
+    },
+    "systemPrompt": {
+      "activeLabel": "当前提示词",
+      "agentLabel": "提示词对象",
+      "agentSublabel": "选择要修改哪个智能体的提示词。",
+      "agents": {
+        "assistant": "助手",
+        "worker": "执行者"
+      },
+      "cancel": "取消",
+      "defaultOption": "Stella 默认",
+      "delete": "删除",
+      "deleted": "提示词已删除。",
+      "description": "Stella 的默认提示词始终随应用更新。保存你自己的提示词即可改用它——它单独存放，更新永远不会覆盖。",
+      "duplicate": "复制",
+      "edit": "编辑",
+      "error": "出了点问题。",
+      "nameLabel": "名称",
+      "newFromDefault": "从默认新建",
+      "newName": "我的提示词",
+      "save": "保存",
+      "saved": "提示词已保存。",
+      "title": "系统提示词",
+      "usingCustom": "正在使用你保存的提示词。",
+      "usingDefault": "正在使用 Stella 的默认提示词。"
+    },
+    "tabs": {
+      "account": "账户与法律",
+      "audio": "音频",
+      "general": "通用",
+      "shortcuts": "快捷键"
+    },
+    "title": "设置",
+    "voiceAgent": {
+      "description": "显示语音和通话控件，让你可以直接和 Stella 说话。语音输入不受此设置影响。",
+      "error": "无法更新语音设置。",
+      "title": "语音对话"
+    },
+    "voiceCatalog": {
+      "label": "语音",
+      "menuAriaLabel": "{source} 语音",
+      "nextVoice": "下一个语音",
+      "previousVoice": "上一个语音",
+      "readAloud": {
+        "ariaLabel": "朗读语音提供商",
+        "description": "使用此提供商的语音朗读回复。",
+        "geminiTitle": "使用 Gemini TTS 朗读回复",
+        "label": "朗读",
+        "openaiTitle": "使用 OpenAI TTS 朗读回复"
+      },
+      "source": {
+        "gemini": "Gemini 语音",
+        "gptlive": "Stella 语音",
+        "openai": "OpenAI 语音",
+        "xai": "Grok 语音"
+      }
+    }
+  },
+  "shell": {
+    "agentProgress": {
+      "recentAgentMessages": "最近的智能体消息",
+      "recentProgress": "最近进展"
+    },
+    "appSource": {
+      "failed": "无法应用此更改",
+      "files": {
+        "other": "{count} 个文件"
+      },
+      "outdated": "基于旧版本创建",
+      "restarts": "将重启 Stella",
+      "title": "Stella 的更改",
+      "undo": "撤销",
+      "undoneAgo": "{ago}撤销",
+      "undoneJustNow": "刚刚撤销",
+      "update": "更新",
+      "updatedAgo": "{ago}更新",
+      "updatedJustNow": "刚刚更新",
+      "updates": {
+        "add": "添加",
+        "adding": "正在添加…",
+        "fromDevice": "你在 {device} 上做的更改",
+        "fromOtherComputer": "你在另一台电脑上做的更改",
+        "fromOtherComputers": "来自你另一台电脑的更改",
+        "get": "获取",
+        "history": "历史",
+        "justNow": "刚刚",
+        "newVersion": "Stella 新版本",
+        "newVersionDetail": "来自 Stella 团队的改进和修复",
+        "pill": {
+          "other": "{count} 个更新"
+        },
+        "readyChange": "可以添加的更改",
+        "removed": "已移除：{change}",
+        "skip": "跳过",
+        "skipped": "已跳过",
+        "undoing": "正在撤销…",
+        "upToDate": "没有待添加的内容",
+        "waiting": "待添加"
+      }
+    },
+    "audioPlayer": {
+      "pause": "暂停",
+      "play": "播放",
+      "seek": "定位"
+    },
+    "browser": {
+      "connected": "浏览器已连接",
+      "connecting": "正在等待扩展…",
+      "newTab": "打开新标签页"
+    },
+    "capture": {
+      "failedDescription": "截图时出了点问题。请重试。",
+      "failedTitle": "无法截取"
+    },
+    "chatSidebar": {
+      "add": "添加",
+      "dictationError": "听写：{error}",
+      "stop": "停止"
+    },
+    "connectors": {
+      "desktopRequired": "连接器可在 Stella 桌面应用中使用。",
+      "empty": "暂无可用的连接器。",
+      "loading": "正在加载连接器…",
+      "noMatches": "没有符合该搜索的连接器。",
+      "searchLabel": "搜索连接器",
+      "searchPlaceholder": "搜索",
+      "title": "连接器"
+    },
+    "display": {
+      "agentThread": {
+        "badge": "只读智能体线程",
+        "claudeAriaLabel": "Claude 子智能体只读对话",
+        "claudeBadge": "只读 Claude 子智能体",
+        "empty": "此线程中还没有消息。",
+        "loadFailed": "无法加载此线程。",
+        "newMessages": {
+          "other": "{count} 条新消息。"
+        },
+        "newMessagesButton": {
+          "other": "{count} 条新消息"
+        },
+        "newMessagesWithPreview": "{countPhrase} 最新 {role}：{preview}",
+        "reasoningGroup": {
+          "other": "{count} reasoning steps"
+        },
+        "retrying": "正在重试…",
+        "role": {
+          "assistant": "智能体",
+          "checkpoint": "线程检查点",
+          "lifecycle": "活动",
+          "reasoning": "推理",
+          "tool": "工具",
+          "user": "指令"
+        },
+        "showNewMessagesAria": "显示{countPhrase}",
+        "showingNewest": "正在显示最新消息。",
+        "status": {
+          "canceled": "已停止",
+          "completed": "已完成",
+          "error": "失败",
+          "running": "工作中"
+        },
+        "toolGroup": {
+          "other": "{count} tool calls"
+        },
+        "toolInput": "输入",
+        "toolOutput": "输出",
+        "toolRunning": "正在等待此工具完成…",
+        "unavailable": "智能体线程历史不可用。"
+      },
+      "canvas": {
+        "loadFailed": "无法加载此画布。",
+        "loading": "加载中"
+      },
+      "canvasShare": {
+        "copyLink": "复制链接",
+        "empty": "暂无有效的分享。发布一个画布即可获得公开链接。",
+        "expires": "{date}到期",
+        "links": "链接",
+        "live": "画布已上线",
+        "loadFailed": "无法加载你的分享。",
+        "publicLink": "画布公开链接",
+        "publishFailed": "无法发布此画布。请重试。",
+        "publishing": "正在发布画布…",
+        "revoke": "撤销分享",
+        "share": "分享",
+        "shared": "{date}分享",
+        "sharedLinks": "已分享的链接",
+        "sharedWithExpiry": "{shared}分享 · {expires}到期",
+        "toasts": {
+          "copyFailed": "无法复制链接",
+          "linkCopied": "分享链接已复制",
+          "revokeFailed": "无法撤销此分享",
+          "revoked": "分享已撤销"
+        },
+        "untitled": "未命名画布"
+      },
+      "diff": {
+        "changes": "更改",
+        "codeChanges": "代码更改",
+        "desktopRequired": "代码预览需要 Stella 桌面应用。",
+        "empty": "还没有文件更改。当智能体编辑代码时，更改会显示在这里。",
+        "noChanges": "未找到更改。"
+      },
+      "filePreview": {
+        "copy": "复制",
+        "loading": "加载中...",
+        "save": "保存"
+      },
+      "homeLauncher": {
+        "files": {
+          "description": "页面、图像、视频和文档",
+          "label": "文件"
+        },
+        "trash": {
+          "description": "你最近删除的内容",
+          "label": "废纸篓"
+        }
+      },
+      "markdown": {
+        "desktopRequired": "Markdown 预览需要 Stella 桌面应用。",
+        "eyebrow": "Markdown",
+        "noContent": "未找到内容。"
+      },
+      "media": {
+        "copied": "已复制",
+        "copy": "复制",
+        "copyFailed": "无法复制",
+        "delete": "删除",
+        "deleteConfirm": "再次点击以删除",
+        "expand": "展开",
+        "expandPanel": "展开面板",
+        "itemActions": "项目操作",
+        "missing": "文件已不可用。",
+        "revealInFinder": "在 Finder 中显示",
+        "save": "保存",
+        "saveFailed": "无法保存",
+        "saved": "已保存"
+      },
+      "office": {
+        "frameTitle": "{kind} 预览：{title}",
+        "kind": {
+          "document": "文档",
+          "presentation": "演示文稿",
+          "spreadsheet": "电子表格"
+        },
+        "livePreview": "实时预览",
+        "loadFailed": "无法加载此预览",
+        "preparing": "正在准备预览...",
+        "revealInFinder": "在 Finder 中显示",
+        "sessionError": "预览会话报告了一个错误。",
+        "sheetCount": {
+          "other": "{count} 个工作表"
+        },
+        "slideCount": {
+          "other": "{count} 张幻灯片"
+        },
+        "zoomAriaLabel": "预览缩放"
+      },
+      "preview": {
+        "limited": "预览内容有限。请保存或打开原始文件以查看全部内容。",
+        "unavailable": "无法准备此预览。"
+      },
+      "spreadsheet": {
+        "column": "第 {index} 列",
+        "desktopRequired": "电子表格预览需要 Stella 桌面应用。",
+        "eyebrow": "电子表格",
+        "noRows": "未找到任何行。"
+      },
+      "trash": {
+        "autoDeletesIn": "{time}后自动删除",
+        "deleteNow": "立即删除",
+        "deleting": "正在删除…",
+        "empty": "目前这里什么都没有。",
+        "emptyTrash": "清空废纸篓",
+        "emptying": "正在清空…",
+        "itemsAutoDeleted": {
+          "other": "{count} 个项目 — 24 小时后自动删除。"
+        },
+        "pendingPurge": "待清除",
+        "refresh": "刷新",
+        "title": "废纸篓",
+        "trashedAgo": "{time}前移入废纸篓"
+      },
+      "url": {
+        "eyebrow": "实时预览",
+        "openInBrowser": "在浏览器中打开",
+        "reload": "重新加载"
+      }
+    },
+    "displayPanel": {
+      "closePanel": "关闭面板",
+      "openPanel": "打开面板"
+    },
+    "rightSidebar": {
+      "resize": "调整显示面板大小",
+      "resizeHint": "拖动以调整大小 · 双击以重置",
+      "workspace": "工作区"
+    },
+    "sidebar": {
+      "account": {
+        "planAriaLabel": "{name}，{plan} 套餐",
+        "signOutDescription": "确定吗？",
+        "signOutTitle": "退出 Stella 登录？"
+      },
+      "feedback": {
+        "description": "你的留言以匿名方式发送 — 不会与你的账户关联。",
+        "fieldLabel": "反馈",
+        "placeholder": "告诉我们哪些好用、哪些不好用，或你希望看到什么…",
+        "send": "发送",
+        "sending": "正在发送…",
+        "title": "发送反馈",
+        "toasts": {
+          "failedTitle": "无法发送反馈",
+          "sentDescription": "谢谢 — 每一条留言都在帮助我们打磨 Stella。",
+          "sentTitle": "反馈已发送"
+        }
+      },
+      "nav": {
+        "apps": "应用",
+        "unreadAriaLabel": "{label}，{count} 条未读",
+        "unreadTitle": "{label}（{count} 条未读）"
+      }
+    },
+    "topbar": {
+      "conversation": {
+        "closeConversation": "关闭 {title}",
+        "delete": "删除 {title}",
+        "deleteConfirm": "再次点击以确认",
+        "deleteConfirmFor": "再次点击以删除 {title}",
+        "deleteFailed": "无法删除此对话",
+        "deleteFailedFor": "无法删除 {title}",
+        "history": "对话历史",
+        "historyEmpty": "还没有对话",
+        "historyRetry": "无法加载对话。请重试",
+        "newChat": "新对话",
+        "newChatConfirm": "Click again to confirm",
+        "openConversation": "打开 {title}",
+        "openConversations": "打开对话列表",
+        "unread": "未读消息"
+      }
+    },
+    "windowControls": {
+      "maximize": "最大化",
+      "minimize": "最小化",
+      "restore": "还原"
+    },
+    "workspace": {
+      "activity": "活动",
+      "moreFiles": {
+        "other": "{count} more files"
+      },
+      "viewFiles": {
+        "other": "查看 {count} 个文件"
+      }
+    }
+  },
+  "sidebar": {
+    "account": "账户",
+    "feedback": "发送反馈",
+    "newChat": "新对话",
+    "signIn": "登录",
+    "upgrade": "升级"
+  },
+  "ui": {
+    "imageLightbox": {
+      "close": "关闭预览",
+      "title": "图像预览"
     }
   }
 }

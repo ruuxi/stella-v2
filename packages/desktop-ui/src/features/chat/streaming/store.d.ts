@@ -16,6 +16,7 @@ export type RunRecord = {
     terminal: boolean;
     outcome?: 'completed' | 'error' | 'canceled';
     statusText: string | null;
+    compacting: boolean;
     hasToolActivity: boolean;
     /** Rejects any out-of-order response marker for a finalized preamble. */
     pendingToolAfterPreamble: boolean;
@@ -54,6 +55,7 @@ export type StreamStoreAction = {
     type: 'run-status';
     runId: string;
     statusText: string | null;
+    compacting?: boolean;
 } | {
     type: 'assistant-message-boundary';
     runId: string;

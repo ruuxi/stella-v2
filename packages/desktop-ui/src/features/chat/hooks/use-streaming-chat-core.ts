@@ -240,6 +240,7 @@ export function useStreamingChatCore({
   const {
     taskDecorations,
     runtimeStatusText,
+    isCompacting,
     activeToolCallId,
     activeToolName,
     latestCompletedTool,
@@ -599,6 +600,7 @@ export function useStreamingChatCore({
     acknowledgeMessages,
     queuedUserMessages,
     runtimeStatusText,
+    isCompacting,
     activeToolCallId,
     activeToolName,
     latestCompletedTool,

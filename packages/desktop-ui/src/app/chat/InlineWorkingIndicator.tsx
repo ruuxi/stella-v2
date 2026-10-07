@@ -62,14 +62,21 @@ export function InlineWorkingIndicator({
   runningTool,
   runningToolId,
   status,
+  compacting,
   minimumVisibleMs,
 }: InlineWorkingIndicatorMountProps) {
   // Snapshot the live props the moment `active` flips false so the exit
   // animation displays a stable last-known label even though upstream
   // tool/status flags clear out.
   const liveProps = useMemo<InlineWorkingIndicatorProps>(
-    () => ({ runningTool, runningToolId, status, minimumVisibleMs }),
-    [runningTool, runningToolId, status, minimumVisibleMs],
+    () => ({
+      runningTool,
+      runningToolId,
+      status,
+      compacting,
+      minimumVisibleMs,
+    }),
+    [runningTool, runningToolId, status, compacting, minimumVisibleMs],
   );
   const frozenPropsRef = useRef<InlineWorkingIndicatorProps>(liveProps);
 
@@ -206,6 +213,7 @@ export function InlineWorkingIndicator({
           status={displayProps.status ?? undefined}
           toolName={displayProps.runningTool}
           toolCallId={displayProps.runningToolId}
+          compacting={displayProps.compacting}
           isReasoning={!displayProps.runningTool}
           reasoningSeed={reasoningSeed}
           minimumVisibleMs={displayProps.minimumVisibleMs}

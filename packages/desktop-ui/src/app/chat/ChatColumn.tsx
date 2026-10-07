@@ -257,6 +257,7 @@ export const ChatColumn = memo(function ChatColumn({
         activeToolName: conversation.streaming.activeToolName,
         activeToolCallId: conversation.streaming.activeToolCallId,
         runtimeStatusText: conversation.streaming.runtimeStatusText,
+        isCompacting: Boolean(conversation.streaming.isCompacting),
       }),
     [
       conversation.streaming.isStreaming,
@@ -265,6 +266,7 @@ export const ChatColumn = memo(function ChatColumn({
       conversation.streaming.activeToolName,
       conversation.streaming.activeToolCallId,
       conversation.streaming.runtimeStatusText,
+      conversation.streaming.isCompacting,
     ],
   );
   // Drag-and-drop file attach stays live at all times, including while the

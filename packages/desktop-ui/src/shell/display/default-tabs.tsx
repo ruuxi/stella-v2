@@ -45,6 +45,7 @@ function ChatDisplayTab({
       isStreaming={chat.conversation.isStreaming}
       answerLanded={chat.conversation.streaming.answerLanded}
       runtimeStatusText={chat.conversation.streaming.runtimeStatusText}
+      isCompacting={chat.conversation.streaming.isCompacting}
       activeToolCallId={chat.conversation.streaming.activeToolCallId}
       activeToolName={chat.conversation.streaming.activeToolName}
       isToolActive={chat.conversation.streaming.isToolActive}

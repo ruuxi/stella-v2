@@ -54,6 +54,7 @@ const createEmptyRunRecord = (args) => ({
     terminal: args.terminal ?? false,
     ...(args.outcome ? { outcome: args.outcome } : {}),
     statusText: args.statusText ?? null,
+    compacting: false,
     hasToolActivity: false,
     latestCompletedTool: null,
     pendingToolAfterPreamble: false,
@@ -101,6 +102,7 @@ export function streamStoreReducer(state, action) {
                     [action.runId]: {
                         ...current,
                         statusText: action.statusText,
+                        compacting: Boolean(action.compacting),
                     },
                 },
             };
@@ -156,6 +158,7 @@ export function streamStoreReducer(state, action) {
                     [action.runId]: {
                         ...current,
                         hasToolActivity: true,
+                        compacting: false,
                         // A tool starting means the message before it was a preamble
                         // after all, whatever its boundary claimed: the run is not done
                         // answering. This is the ordering guard that matters, because a

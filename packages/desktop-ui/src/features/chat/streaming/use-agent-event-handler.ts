@@ -436,6 +436,7 @@ export function useAgentEventHandler({
                 ? event.statusText || 'Compacting context'
                 : event.statusText
               : null,
+            compacting: event.statusState === 'engine-compacting',
           })
           break
         }

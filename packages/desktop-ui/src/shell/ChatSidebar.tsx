@@ -107,6 +107,7 @@ interface ChatPanelTabProps {
   /** The run's final assistant message landed (no tool followed it). */
   answerLanded?: boolean;
   runtimeStatusText?: string | null;
+  isCompacting?: boolean;
   activeToolCallId?: string | null;
   activeToolName?: string | null;
   isToolActive?: boolean;
@@ -172,6 +173,7 @@ function AccountScopedChatPanelTab({
   isStreaming,
   answerLanded,
   runtimeStatusText,
+  isCompacting,
   activeToolCallId,
   activeToolName,
   isToolActive,
@@ -342,6 +344,7 @@ function AccountScopedChatPanelTab({
         activeToolName,
         activeToolCallId,
         runtimeStatusText,
+        isCompacting: Boolean(isCompacting),
       }),
     [
       isStreaming,
@@ -350,6 +353,7 @@ function AccountScopedChatPanelTab({
       activeToolName,
       activeToolCallId,
       runtimeStatusText,
+      isCompacting,
     ],
   );
 

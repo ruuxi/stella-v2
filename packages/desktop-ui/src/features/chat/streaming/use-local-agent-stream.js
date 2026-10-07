@@ -58,6 +58,7 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
         : null;
     const isStreaming = Boolean(activeRun && !activeRun.terminal);
     const runtimeStatusText = activeRun?.statusText ?? null;
+    const isCompacting = Boolean(activeRun?.compacting);
     const activeToolEntry = Object.entries(activeRun?.activeToolCalls ?? {}).at(-1);
     const activeToolCallId = activeToolEntry?.[0] ?? null;
     const activeToolName = activeToolEntry?.[1]?.toolName ?? null;
@@ -340,6 +341,7 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
     return {
         taskDecorations,
         runtimeStatusText,
+        isCompacting,
         activeToolCallId,
         activeToolName,
         latestCompletedTool,

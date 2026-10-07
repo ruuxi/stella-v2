@@ -249,6 +249,7 @@ export function useFullShellChat({
     optimisticEvents: localOptimisticEvents,
     acknowledgeMessages: acknowledgeLocalMessages,
     runtimeStatusText: localRuntimeStatusText,
+    isCompacting: localIsCompacting,
     activeToolCallId: localActiveToolCallId,
     activeToolName: localActiveToolName,
     latestCompletedTool: localLatestCompletedTool,
@@ -325,6 +326,7 @@ export function useFullShellChat({
   const runtimeStatusText = useCloudRun
     ? cloudChat.runtimeStatusText
     : localRuntimeStatusText;
+  const isCompacting = useCloudRun ? false : localIsCompacting;
   const activeToolCallId = useCloudRun ? cloudChat.activeToolCallId : localActiveToolCallId;
   const activeToolName = useCloudRun
     ? (localTurnHandedOff ? null : cloudChat.activeToolName)
@@ -1013,6 +1015,7 @@ export function useFullShellChat({
         isStreaming,
         answerLanded,
         runtimeStatusText,
+        isCompacting,
         activeToolCallId,
         activeToolName,
         latestCompletedTool,
@@ -1056,6 +1059,7 @@ export function useFullShellChat({
       removeQueuedUserMessage,
       reasoningText,
       runtimeStatusText,
+      isCompacting,
       isStreaming,
       answerLanded,
       isToolActive,

@@ -10,8 +10,11 @@ export const INLINE_WORKING_INDICATOR_MIN_VISIBLE_MS = 2000;
  */
 export const WORKING_INDICATOR_HANDOFF_MS = 240;
 
+export const WORKING_INDICATOR_COMPACTING_TEXT = "Compacting";
+
 export type InlineWorkingIndicatorProps = {
   runningTool?: string;
+  compacting?: boolean;
   /** Stable id of the in-flight tool call; seeds the friendly status
    * label so it doesn't churn on every re-render. */
   runningToolId?: string;
@@ -50,6 +53,7 @@ export function buildInlineWorkingIndicatorProps({
   activeToolName,
   activeToolCallId,
   runtimeStatusText,
+  isCompacting,
 }: {
   isStreaming: boolean;
   isToolActive: boolean;
@@ -58,6 +62,7 @@ export function buildInlineWorkingIndicatorProps({
   activeToolName?: string | null;
   activeToolCallId?: string | null;
   runtimeStatusText?: string | null;
+  isCompacting?: boolean;
 }): InlineWorkingIndicatorMountProps {
   // A tool still in flight outranks a landed answer: a preamble's message
   // boundary can race ahead of the tool start it precedes.
@@ -75,6 +80,7 @@ export function buildInlineWorkingIndicatorProps({
     runningTool: isToolActive ? (activeToolName ?? undefined) : undefined,
     runningToolId: isToolActive ? (activeToolCallId ?? undefined) : undefined,
     status: isThinking ? (runtimeStatusText ?? null) : null,
+    ...(isThinking && isCompacting ? { compacting: true } : {}),
   };
 }
 

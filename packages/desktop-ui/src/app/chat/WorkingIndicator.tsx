@@ -9,6 +9,7 @@ import {
   getWorkingIndicatorCharacterState,
   getWorkingIndicatorDisplayStatus,
   INLINE_WORKING_INDICATOR_MIN_VISIBLE_MS,
+  WORKING_INDICATOR_COMPACTING_TEXT,
   WORKING_INDICATOR_POSE_ROTATE_MS,
   type WorkingIndicatorCharacterState,
 } from "@/features/chat/working-indicator-state";
@@ -26,6 +27,7 @@ interface WorkingIndicatorProps {
    * friendly variation picker so the label doesn't flicker on each
    * re-render. */
   toolCallId?: string;
+  compacting?: boolean;
   isReasoning?: boolean;
   /** Per-turn seed so the reasoning/idle label varies across turns
    * instead of always landing on the first variation ("Thinking"). */
@@ -40,6 +42,7 @@ export function WorkingIndicator({
   status,
   toolName,
   toolCallId,
+  compacting,
   isReasoning,
   reasoningSeed,
   className,
@@ -94,8 +97,9 @@ export function WorkingIndicator({
     (a, b) => a.status === b.status && a.characterState === b.characterState,
   );
   // Thinking has nothing worth narrating, so it shows as the mark alone and
-  // the row stays quiet until a tool gives it something to say.
-  const dotsOnly = held.characterState === "thinking";
+  // the row stays quiet until a tool gives it something to say. Engine-side
+  // compaction is the exception: it is a minutes-long wait, so it is named.
+  const dotsOnly = held.characterState === "thinking" && !compacting;
 
   return (
     <div
@@ -112,7 +116,7 @@ export function WorkingIndicator({
       </div>
       {dotsOnly ? null : (
         <SwapText
-          text={held.status}
+          text={compacting ? WORKING_INDICATOR_COMPACTING_TEXT : held.status}
           active={animationActive}
           animateInitial={false}
           className="working-status"

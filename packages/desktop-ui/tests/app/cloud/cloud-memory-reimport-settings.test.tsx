@@ -118,9 +118,9 @@ describe("CloudMemoryReimportSettings", () => {
 
   it("requires a clear confirmation before authorizing local Memory import", async () => {
     await render();
-    expect(container.textContent).toContain("new epoch is empty");
+    expect(container.textContent).toContain("Cloud Memory was erased");
     expect(container.textContent).toContain(
-      "Skill synchronization is separate",
+      "Applies to every device signed in to this account",
     );
     expect(mocks.authorizeReimport).not.toHaveBeenCalled();
 

@@ -78,9 +78,8 @@ export function CloudMemoryReimportSettings() {
       <div className="settings-card" data-cloud-memory-reimport>
         <h3 className="settings-card-title">Import local Memory again</h3>
         <p className="settings-card-desc">
-          Cloud Memory was erased and its new epoch is empty. Stella will not
-          automatically upload local Memory documents. You must explicitly allow
-          that import for this account's new epoch.
+          Cloud Memory was erased, so Stella won't upload local Memory again
+          until you allow it. This does not restore what was erased.
         </p>
         <div className="settings-row">
           <div className="settings-row-info">
@@ -88,13 +87,7 @@ export function CloudMemoryReimportSettings() {
               Local Memory for this account
             </div>
             <div className="settings-row-sublabel">
-              Authorization applies account-wide to this new cloud epoch. This
-              Mac retries immediately; other Stella devices signed into this
-              account may import their local Memory on their next sync. It does
-              not restore the erased epoch.
-            </div>
-            <div className="settings-row-sublabel">
-              Skill synchronization is separate and remains available.
+              Applies to every device signed in to this account.
             </div>
             {phase === "error" ? (
               <div

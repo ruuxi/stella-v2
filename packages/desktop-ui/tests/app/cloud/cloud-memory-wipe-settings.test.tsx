@@ -224,7 +224,7 @@ describe("CloudMemoryWipeSettings", () => {
 
     expect(container.textContent).toContain("Memory wipe completed");
     expect(container.textContent).toContain("new empty epoch is open");
-    expect(container.textContent).toContain("non-content completion receipt");
+    expect(container.textContent).toContain("it cannot be undone");
   });
 
   it("closes an armed confirmation when the account identity changes", async () => {

@@ -105,9 +105,8 @@ export function CloudMemoryWipeSettings() {
       <div className="settings-card" data-cloud-memory-wipe>
         <h3 className="settings-card-title">Erase cloud Memory</h3>
         <p className="settings-card-desc">
-          Permanently erases Memory content, cloud objects, indexes, and
-          document metadata for this account. Stella keeps only a non-content
-          completion receipt, then opens a fresh, empty Memory epoch.
+          Erases this account's cloud Memory for good. Turning Memory off does
+          not do this, and it cannot be undone.
         </p>
 
         {phase === "loading" ? (
@@ -188,9 +187,6 @@ export function CloudMemoryWipeSettings() {
         <div className="settings-row">
           <div className="settings-row-info">
             <div className="settings-row-label">Permanent deletion</div>
-            <div className="settings-row-sublabel">
-              This is independent of turning Memory off and cannot be undone.
-            </div>
           </div>
           <div className="settings-row-control">
             <Button

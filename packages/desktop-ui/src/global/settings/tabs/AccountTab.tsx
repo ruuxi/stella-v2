@@ -23,7 +23,8 @@ import {
 } from "@/features/cloud/cloud-home-sync";
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import { CloudAccountCards } from "@/features/cloud/CloudAccountCards";
-import { ChatGptComputerCard } from "@/features/chatgpt/ChatGptComputerCard";
+import { CloudBoundary } from "@/features/cloud/CloudBoundary";
+import { ProviderAccountsCard } from "@/features/cloud/ProviderAccountsCard";
 import { CloudHomeMemorySettings } from "@/features/cloud/CloudHomeMemorySettings";
 import { CloudMemoryWipeSettings } from "@/features/cloud/CloudMemoryWipeSettings";
 import { CloudMemoryReimportSettings } from "@/features/cloud/CloudMemoryReimportSettings";
@@ -220,6 +221,9 @@ export function AccountTab({ onSignOut, onOpenLegal }: AccountTabProps) {
 
   return (
     <div className="settings-tab-content">
+      <CloudBoundary>
+        <ProviderAccountsCard />
+      </CloudBoundary>
       {window.electronAPI?.cloudHome ? (
         <div className="settings-card">
           <h3 className="settings-card-title">
@@ -251,9 +255,6 @@ export function AccountTab({ onSignOut, onOpenLegal }: AccountTabProps) {
                   {warning.path}: {warning.message}
                 </div>
               ))}
-              <div className="settings-row-sublabel">
-                {t("settings.account.cloudHome.authorizationNote")}
-              </div>
             </div>
             <div className="settings-row-control">
               <Button
@@ -296,16 +297,12 @@ export function AccountTab({ onSignOut, onOpenLegal }: AccountTabProps) {
         />
       ) : null}
       <CloudAccountCards />
-      <ChatGptComputerCard />
       <div className="settings-card">
         <h3 className="settings-card-title">{t("settings.account.title")}</h3>
         <div className="settings-row">
           <div className="settings-row-info">
             <div className="settings-row-label">
               {t("settings.account.signOut.label")}
-            </div>
-            <div className="settings-row-sublabel">
-              {t("settings.account.signOut.description")}
             </div>
           </div>
           <div className="settings-row-control">

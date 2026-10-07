@@ -198,7 +198,7 @@ export const createCloudAgentLifecycleMonitor = (
   let stopped = false;
   let epoch = 0;
   let activeOwnerGeneration: string | null = null;
-  const processing = new Set<string>();
+  const inFlight = new Map<string, Promise<void>>();
   /** Cancel thunks for pending per-row retry fibers (the old timer Set). */
   const retryCancels = new Map<string, () => void>();
   let restartCancel: (() => void) | null = null;
@@ -236,19 +236,10 @@ export const createCloudAgentLifecycleMonitor = (
     }
   };
 
-  const processRow = async (row: CloudAgentThreadRow) => {
-    const event = toLifecycleEvent(row);
-    const processingKey =
-      event?.eventId ??
-      `${row.threadId}:${row.ownerGeneration}:${row.attemptGeneration}:${row.updatedAt}:control`;
-    if (
-      processing.has(processingKey) ||
-      stopped ||
-      row.ownerGeneration !== activeOwnerGeneration
-    ) {
-      return;
-    }
-    processing.add(processingKey);
+  const deliverRow = async (
+    row: CloudAgentThreadRow,
+    event: AgentLifecycleEvent | null,
+  ) => {
     try {
       await options.onControlReceipt?.(row);
       if (!event?.eventId) return;
@@ -265,15 +256,32 @@ export const createCloudAgentLifecycleMonitor = (
       }
     } catch {
       if (event) scheduleRetry(row);
+    }
+  };
+
+  const processRow = async (row: CloudAgentThreadRow): Promise<void> => {
+    const event = toLifecycleEvent(row);
+    const processingKey =
+      event?.eventId ??
+      `${row.threadId}:${row.ownerGeneration}:${row.attemptGeneration}:${row.updatedAt}:control`;
+    const existing = inFlight.get(processingKey);
+    if (existing) {
+      await existing;
+      return;
+    }
+    if (stopped || row.ownerGeneration !== activeOwnerGeneration) return;
+    const delivery = deliverRow(row, event);
+    inFlight.set(processingKey, delivery);
+    try {
+      await delivery;
     } finally {
-      processing.delete(processingKey);
+      inFlight.delete(processingKey);
     }
   };
 
   const cancelRowRetries = () => {
     for (const cancel of retryCancels.values()) cancel();
     retryCancels.clear();
-    processing.clear();
   };
 
   const scheduleRestart = () => {

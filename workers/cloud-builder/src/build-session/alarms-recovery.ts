@@ -22,6 +22,7 @@ import {
   sandboxLifecycleFailureFields,
   type SandboxTarget,
 } from "../sandbox-lifecycle.js";
+import type { AgentHistoryRow } from "@stella/executor-cloud/agent-history";
 import type { BuildSessionInternals } from "./host.js";
 import { validBuilderFallbackMessages } from "./public-helpers.js";
 import {
@@ -558,12 +559,10 @@ export const runAlarm = async (
         });
         return;
       }
-      await host.deliverExecutorLossTerminal(turn, {
-        message:
-          "The agent stopped unexpectedly. Its workspace changes were saved, but its report could not be recovered.",
-        threadError:
-          "The agent stopped unexpectedly after saving its workspace changes.",
-      });
+      await host.deliverExecutorLossTerminal(
+        turn,
+        executorLossText(recoveredAgentReport(host, turn)),
+      );
       return;
     }
     const computeRecovery = await recoverOrphanedAgentCompute(host, turn);
@@ -776,6 +775,59 @@ const recoverOrphanedAgentCompute = async (
   });
   return "recovered";
 };
+
+const recoveredAgentReport = (
+  host: AlarmsRecoveryHost,
+  turn: TurnRequest,
+): string | null => {
+  let rows: AgentHistoryRow[];
+  try {
+    rows = host.fetchCanonicalAgentHistory(turn, { excludeCurrentTurn: false });
+  } catch {
+    return null;
+  }
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index];
+    if (!row || row.turnId !== turn.turnId || row.role !== "assistant") continue;
+    let payload: unknown;
+    try {
+      payload = JSON.parse(row.payloadJson);
+    } catch {
+      continue;
+    }
+    const content = (payload as { content?: unknown })?.content;
+    if (!Array.isArray(content)) continue;
+    const text = content
+      .flatMap((block) => {
+        const value = (block as { type?: unknown; text?: unknown })?.text;
+        return (block as { type?: unknown })?.type === "text" &&
+          typeof value === "string" &&
+          value.trim()
+          ? [value.trim()]
+          : [];
+      })
+      .join("\n\n")
+      .trim();
+    if (text) return text;
+  }
+  return null;
+};
+
+const executorLossText = (
+  report: string | null,
+): { message: string; threadError: string } =>
+  report
+    ? {
+        message: `The agent stopped unexpectedly before it could publish its report. Its workspace changes were saved, and this is the last report it had produced:\n\n${report}`,
+        threadError:
+          "The agent stopped unexpectedly after saving its workspace changes. Its last report was recovered from its transcript.",
+      }
+    : {
+        message:
+          "The agent stopped unexpectedly. Its workspace changes were saved, but its report could not be recovered.",
+        threadError:
+          "The agent stopped unexpectedly after saving its workspace changes.",
+      };
 
 /**
  * `resolveInput` runs after quiescence, never before. A resident turn's rows

@@ -18,12 +18,16 @@ const inflight = new Map<string, Promise<DriveFileUrl>>();
 const fresh = (entry: DriveFileUrl | undefined): entry is DriveFileUrl =>
   entry !== undefined && entry.expiresAt > Date.now() + REFRESH_MARGIN_MS;
 
-/** Resolve one drive path to a signed URL, sharing in-flight requests. */
-export const resolveCloudDriveFileUri = async (
+/**
+ * Resolve one drive path to its signed entry, sharing in-flight requests. The
+ * entry carries `sizeBytes` and `contentType`, which the attachment strip uses
+ * as the identity of a file it previews without downloading it whole.
+ */
+export const resolveCloudDriveFile = async (
   path: string,
-): Promise<string> => {
+): Promise<DriveFileUrl> => {
   const cached = cache.get(path);
-  if (fresh(cached)) return cached.url;
+  if (fresh(cached)) return cached;
   let pending = inflight.get(path);
   if (!pending) {
     pending = getBackendClient()
@@ -37,8 +41,13 @@ export const resolveCloudDriveFileUri = async (
       });
     inflight.set(path, pending);
   }
-  return (await pending).url;
+  return await pending;
 };
+
+/** Resolve one drive path to a signed URL, sharing in-flight requests. */
+export const resolveCloudDriveFileUri = async (
+  path: string,
+): Promise<string> => (await resolveCloudDriveFile(path)).url;
 
 /** Drop cached URLs when the signed-in owner changes. */
 export const clearCloudDriveFileUris = (): void => {

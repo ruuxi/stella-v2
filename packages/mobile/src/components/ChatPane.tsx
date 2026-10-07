@@ -91,7 +91,8 @@ import {
 } from "./MessageContextMenu";
 import { AppBackdrop } from "./AppBackdrop";
 import { useShellTopInset } from "./MainScreenSurface";
-import { ArtifactCard } from "./ArtifactCard";
+import { MessageEvidenceStrip } from "./evidence/MessageEvidenceStrip";
+import { artifactPrimaryFilePath } from "../lib/mobile-artifacts";
 import { AppPreviewCard } from "./AppPreviewCard";
 import { extractStellaAppLinkSlugs } from "@stella/contracts/workspace-apps";
 import { stellaFileChatArtifact } from "../lib/stella-file-links";
@@ -1421,6 +1422,7 @@ const generatedImageStyles = StyleSheet.create({
 
 const ChatMessageRow = memo(function ChatMessageRow({
   item,
+  conversationId,
   styles,
   colors,
   animate,
@@ -1442,6 +1444,8 @@ const ChatMessageRow = memo(function ChatMessageRow({
   receiptLabel,
 }: {
   item: ChatMessage;
+  /** Scopes this row's file reads, the way a tapped file link is scoped. */
+  conversationId: string;
   styles: ChatStyles;
   colors: Colors;
   animate: boolean;
@@ -1543,6 +1547,25 @@ const ChatMessageRow = memo(function ChatMessageRow({
     () => consolidateRowArtifacts(item.artifacts ?? [], item.tasks ?? []),
     [item.artifacts, item.tasks],
   );
+  // Every file this reply hands over, in the order it named them: the loose
+  // file artifacts of the turn, then the files its own text links. Generated
+  // images keep their own full-width presentation, so they stay out of it.
+  const evidencePaths = useMemo(() => {
+    if (item.role !== "assistant") return [];
+    const paths: string[] = [];
+    for (const artifact of consolidated.looseFiles) {
+      if (
+        artifact.payload.kind === "media" &&
+        artifact.payload.asset.kind === "image"
+      ) {
+        continue;
+      }
+      const filePath = artifactPrimaryFilePath(artifact.payload);
+      if (filePath) paths.push(filePath);
+    }
+    paths.push(...extractLocalFileLinkPaths(item.text ?? ""));
+    return paths;
+  }, [consolidated.looseFiles, item.role, item.text]);
   // Schedule tool results render their human-readable summaries as plain
   // text lines in the flow (desktop parity — no chip/card). Every settled
   // Schedule call in the turn gets its line, in call order; unparseable or
@@ -1764,22 +1787,17 @@ const ChatMessageRow = memo(function ChatMessageRow({
   // Assistant text no longer streams, so there is no partial-render window to
   // protect: every card mounts as soon as its artifact reaches the row.
   const showMapArtifacts = !isStandIn && mapArtifacts.length > 0;
-  const showFileArtifacts =
-    !isStandIn && Boolean(onOpenArtifact) && looseFiles.length > 0;
   const generatedImages = looseFiles.filter(
     (artifact) =>
       artifact.payload.kind === "media" &&
       artifact.payload.asset.kind === "image",
   );
-  const genericLooseFiles = looseFiles.filter(
-    (artifact) => !generatedImages.includes(artifact),
-  );
   const showGeneratedImages = !isStandIn && generatedImages.length > 0;
+  // Everything else the reply attached shows as the strip: one row of real
+  // media previews, then the rest as pills.
+  const showEvidence = !isStandIn && evidencePaths.length > 0;
   const showArtifacts =
-    showMapArtifacts ||
-    showFileArtifacts ||
-    showGeneratedImages ||
-    linkedAppSlugs.length > 0;
+    showMapArtifacts || showGeneratedImages || linkedAppSlugs.length > 0;
   // Desktop renders the complete markdown body once, then attaches activity
   // and artifact cards at the row boundary. Keep the same shape on mobile:
   // stored text offsets still describe event chronology, but must never become
@@ -1879,11 +1897,6 @@ const ChatMessageRow = memo(function ChatMessageRow({
           }
         />
       ) : null}
-      {showFileArtifacts && onOpenArtifact
-        ? genericLooseFiles.filter((artifact) => artifact.payload.kind === "canvas-html").map((artifact) => (
-            <ArtifactCard key={artifact.id} artifact={artifact} colors={colors} onPress={onOpenArtifact} />
-          ))
-        : null}
       {hasText && isSelecting ? (
         // "Select" mode: the reply's plain text in a selection surface with
         // everything selected and a Copy / Ask Stella pill.
@@ -1958,17 +1971,16 @@ const ChatMessageRow = memo(function ChatMessageRow({
                 );
               })
             : null}
-          {showFileArtifacts && onOpenArtifact
-            ? genericLooseFiles.filter((artifact) => artifact.payload.kind !== "canvas-html").map((artifact) => (
-                <ArtifactCard
-                  key={artifact.id}
-                  artifact={artifact}
-                  colors={colors}
-                  onPress={onOpenArtifact}
-                />
-              ))
-            : null}
         </View>
+      ) : null}
+      {showEvidence ? (
+        <MessageEvidenceStrip
+          filePaths={evidencePaths}
+          conversationId={conversationId}
+          access={desktopAccess ?? null}
+          colors={colors}
+          onOpen={onOpenStellaFile}
+        />
       ) : null}
       {item.stopped ? (
         <Text
@@ -4161,6 +4173,7 @@ export function ChatPane({
           ) : null}
           <ChatMessageRow
             item={item}
+            conversationId={conversationId ?? ""}
             animate={animate && item.id === lastMessage?.id && !historyLoading}
             styles={styles}
             colors={colors}
@@ -4204,6 +4217,7 @@ export function ChatPane({
       quoteMessage,
       onOpenActivity,
       desktopAccess,
+      conversationId,
     ],
   );
   // Legend re-renders a mounted row only when its item or `extraData`
@@ -4568,7 +4582,7 @@ export function ChatPane({
           hasOlder={hasOlderHistory} onLoadOlder={onLoadOlderHistory}
           // Inside focus the chain is already open, so rows carry no reply
           // count; a quote still appears for a link to *other* work.
-          renderMessage={(item, contexts) => <ChatMessageRow item={item} animate={false} styles={styles} colors={colors}
+          renderMessage={(item, contexts) => <ChatMessageRow item={item} conversationId={conversationId ?? ""} animate={false} styles={styles} colors={colors}
             menuActive={false} isSelecting={false} anySelecting={false}
             onOpenArtifact={onOpenArtifact} onOpenStellaFile={onOpenStellaFile}
             onOpenMessageMenu={setMessageMenu} onEndSelecting={stopSelectingMessage}
@@ -5005,6 +5019,7 @@ export function ChatPane({
           bubble={
             <ChatMessageRow
               item={messageMenu.message}
+              conversationId={conversationId ?? ""}
               animate={false}
               styles={styles}
               colors={colors}

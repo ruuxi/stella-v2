@@ -1917,8 +1917,14 @@ export class StellaRuntimeHost {
             }
             return await this.options.hostHandlers.signDeviceInput(input);
         });
-        peer.registerRequestHandler(METHOD_NAMES.HOST_CREDENTIALS_REQUEST, async (params) => {
-            return await this.options.hostHandlers.requestCredential(params);
+        peer.registerRequestHandler(METHOD_NAMES.HOST_ASK_USER_REQUEST, async (params) => {
+            return await this.options.hostHandlers.askUser(params);
+        });
+        peer.registerRequestHandler(METHOD_NAMES.HOST_SECURE_INPUT_REQUEST, async (params) => {
+            return await this.options.hostHandlers.requestSecureInput(params);
+        });
+        peer.registerRequestHandler(METHOD_NAMES.HOST_SECURE_VALUE_USE, async (params) => {
+            return await this.options.hostHandlers.useSecureValue(params);
         });
         peer.registerRequestHandler(METHOD_NAMES.HOST_LLM_CREDENTIALS_REQUEST, async (params) => {
             if (!this.options.hostHandlers.requestLlmCredentials) {

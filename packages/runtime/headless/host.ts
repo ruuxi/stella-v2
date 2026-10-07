@@ -151,8 +151,14 @@ export const createHeadlessHostHandlers = (
     },
     // Matches the desktop's no-window behavior (CredentialService throws
     // when there is no window to collect a secret in).
-    requestCredential: async () => {
-      throw new Error("Headless host has no UI to collect credentials.");
+    askUser: async () => {
+      throw new Error("Headless host has no UI to ask the user anything.");
+    },
+    requestSecureInput: async () => {
+      throw new Error("Headless host has no UI to collect secure input.");
+    },
+    useSecureValue: async () => {
+      throw new Error("Headless host has no secure value store.");
     },
     displayUpdate: () => {},
     showNotification: async () => {},

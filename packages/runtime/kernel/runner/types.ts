@@ -67,12 +67,9 @@ export type StellaHostRunnerOptions = {
   /** UDS path for the worker-side CLI bridge (see runtime/worker/cli-bridge-server.ts).
    *  Forwarded into PTY env as `STELLA_CLI_BRIDGE_SOCK`. */
   cliBridgeSocketPath?: string;
-  requestCredential?: (payload: {
-    provider: string;
-    label?: string;
-    description?: string;
-    placeholder?: string;
-  }) => Promise<{ secretId: string; provider: string; label: string }>;
+  askUser?: import("../tools/user.js").UserToolsConfig["askUser"];
+  requestSecureInput?: import("../tools/user.js").UserToolsConfig["requestSecureInput"];
+  useSecureValue?: import("../tools/user.js").UserToolsConfig["useSecureValue"];
   /**
    * Legacy exec compatibility hop for the inline "connect the Stella browser
    * extension" chat card. Production browser actions use the persistent
@@ -394,7 +391,9 @@ export type RunnerContext = {
   stellaMediaCliPath?: string;
   stellaXApiCliPath?: string;
   cliBridgeSocketPath?: string;
-  requestCredential?: StellaHostRunnerOptions["requestCredential"];
+  askUser?: StellaHostRunnerOptions["askUser"];
+  requestSecureInput?: StellaHostRunnerOptions["requestSecureInput"];
+  useSecureValue?: StellaHostRunnerOptions["useSecureValue"];
   requestComputerUseAppApproval?: StellaHostRunnerOptions["requestComputerUseAppApproval"];
   requestRuntimeAuthRefresh?: StellaHostRunnerOptions["requestRuntimeAuthRefresh"];
   requestChallengeToken?: StellaHostRunnerOptions["requestChallengeToken"];

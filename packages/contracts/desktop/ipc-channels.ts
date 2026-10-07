@@ -281,9 +281,16 @@ export const IPC_LLM_CREDENTIALS_DELETE_OAUTH =
 export const IPC_LLM_CREDENTIALS_SAVE = "llmCredentials:save" as const;
 export const IPC_LLM_CREDENTIALS_DELETE = "llmCredentials:delete" as const;
 export const IPC_APP_RESET_MESSAGES = "app:resetLocalMessages" as const;
-export const IPC_CREDENTIAL_REQUEST = "credential:request" as const;
-export const IPC_CREDENTIAL_SUBMIT = "credential:submit" as const;
-export const IPC_CREDENTIAL_CANCEL = "credential:cancel" as const;
+export const IPC_USER_ASK_OPENED = "userAsk:opened" as const;
+export const IPC_USER_ASK_UPDATED = "userAsk:updated" as const;
+export const IPC_USER_ASK_CLOSED = "userAsk:closed" as const;
+export const IPC_USER_ASK_LIST = "userAsk:list" as const;
+export const IPC_USER_ASK_ANSWER = "userAsk:answer" as const;
+export const IPC_USER_ASK_CANCEL = "userAsk:cancel" as const;
+export const IPC_USER_ASK_OVERRIDE_SENSITIVE =
+  "userAsk:overrideSensitive" as const;
+export const IPC_USER_ASK_POLICY_GET = "userAsk:policyGet" as const;
+export const IPC_USER_ASK_POLICY_SET = "userAsk:policySet" as const;
 
 // ── Onboarding ──────────────────────────────────────────────────────────────
 

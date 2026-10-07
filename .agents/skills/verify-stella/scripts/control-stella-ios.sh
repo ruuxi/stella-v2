@@ -402,6 +402,7 @@ bun run i18n:sync
 if test -n "$metro_only"; then
   exec bunx expo start --dev-client --port "$metro_port"
 fi
+bunx expo prebuild -p ios --no-install
 exec bunx expo run:ios --device "$udid" ${no_bundler:+--no-bundler}
 REMOTE
     ;;

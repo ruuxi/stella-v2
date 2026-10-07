@@ -29,7 +29,9 @@ const PAIRING_CODE_LENGTH = 8;
 const PAIR_SECRET_LENGTH = 48;
 const PAIR_SECRET_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 const EXPO_PUSH_ENDPOINT = "https://exp.host/--/api/v2/push/send";
+const PUSH_QUIET_MS = 60_000;
 export const DEVICES_SWEEP_JOB = "devices.sweep";
+export const DEVICES_PUSH_DIGEST_JOB = "devices.pushDigest";
 
 export const DEVICES_MIGRATION = {
   id: "devices.1-registry",
@@ -147,6 +149,19 @@ export const DEVICES_DROP_PHONE_BRIDGE_MIGRATION = {
     `DROP TABLE IF EXISTS bridge_registrations`,
     `DROP TABLE IF EXISTS bridge_sessions`,
     `DROP TABLE IF EXISTS tunnels`,
+  ],
+};
+
+export const DEVICES_PUSH_DIGEST_MIGRATION = {
+  id: "devices.4-push-digest",
+  statements: [
+    `CREATE TABLE push_digest (
+       id INTEGER PRIMARY KEY CHECK (id = 1),
+       last_sent_at INTEGER NOT NULL,
+       last_finish_at INTEGER NOT NULL,
+       completed INTEGER NOT NULL,
+       failed INTEGER NOT NULL
+     )`,
   ],
 };
 
@@ -710,12 +725,70 @@ const registerPushToken = (ctx: OwnerContext, input: { token: string; mobileDevi
   );
 };
 
-/** Send a notification to every phone of this owner through Expo. */
-const notifyPhones = async (ctx: OwnerContext, kind: ActivityNotificationKind): Promise<null> => {
+type PushDigest = { last_sent_at: number; last_finish_at: number; completed: number; failed: number };
+
+const readDigest = (ctx: OwnerContext): PushDigest =>
+  ctx.db.one<PushDigest>("SELECT last_sent_at, last_finish_at, completed, failed FROM push_digest WHERE id = 1") ??
+  { last_sent_at: 0, last_finish_at: 0, completed: 0, failed: 0 };
+
+const writeDigest = (ctx: OwnerContext, digest: PushDigest): void => {
+  ctx.db.run(
+    `INSERT INTO push_digest (id, last_sent_at, last_finish_at, completed, failed) VALUES (1, ?, ?, ?, ?)
+     ON CONFLICT (id) DO UPDATE SET last_sent_at = excluded.last_sent_at, last_finish_at = excluded.last_finish_at,
+       completed = excluded.completed, failed = excluded.failed`,
+    digest.last_sent_at,
+    digest.last_finish_at,
+    digest.completed,
+    digest.failed,
+  );
+};
+
+const taskCount = (count: number): string => `${count} ${count === 1 ? "task" : "tasks"}`;
+
+const digestCopy = ({ completed, failed }: PushDigest): { title: string; body: string } => {
+  if (completed + failed === 1) return ACTIVITY_COPY[failed ? "failed" : "completed"];
+  if (failed === 0) {
+    return { title: `Stella finished ${taskCount(completed)}`, body: `${taskCount(completed)} finished. Open Stella to see the results.` };
+  }
+  return {
+    title: "Stella needs attention",
+    body: completed === 0
+      ? `${taskCount(failed)} could not finish.`
+      : `${taskCount(completed)} finished, ${failed} could not finish.`,
+  };
+};
+
+const notifyActivity = async (ctx: OwnerContext, kind: ActivityNotificationKind): Promise<null> => {
   enforceOwnerRateLimit(ctx.db, ctx.now, "phone.notifyActivity", { count: 30, windowMs: 60_000 }, "Slow down a moment and try again.");
+  const digest = readDigest(ctx);
+  if (kind === "started") {
+    if (ctx.now - digest.last_sent_at < PUSH_QUIET_MS) return null;
+    writeDigest(ctx, { ...digest, last_sent_at: ctx.now });
+    return sendPush(ctx, ACTIVITY_COPY.started);
+  }
+  if (digest.completed + digest.failed === 0 && ctx.now - digest.last_finish_at >= PUSH_QUIET_MS) {
+    writeDigest(ctx, { ...digest, last_sent_at: ctx.now, last_finish_at: ctx.now });
+    return sendPush(ctx, ACTIVITY_COPY[kind]);
+  }
+  writeDigest(ctx, {
+    ...digest,
+    completed: digest.completed + (kind === "completed" ? 1 : 0),
+    failed: digest.failed + (kind === "failed" ? 1 : 0),
+  });
+  ctx.jobs.schedule(DEVICES_PUSH_DIGEST_JOB, digest.last_finish_at + PUSH_QUIET_MS, null, { id: DEVICES_PUSH_DIGEST_JOB });
+  return null;
+};
+
+const flushDigest = async (ctx: OwnerContext): Promise<void> => {
+  const digest = readDigest(ctx);
+  if (digest.completed + digest.failed === 0) return;
+  writeDigest(ctx, { last_sent_at: ctx.now, last_finish_at: ctx.now, completed: 0, failed: 0 });
+  await sendPush(ctx, digestCopy(digest));
+};
+
+const sendPush = async (ctx: OwnerContext, copy: { title: string; body: string }): Promise<null> => {
   const tokens = ctx.db.all<{ token: string }>("SELECT token FROM push_tokens ORDER BY updated_at DESC LIMIT ?", MAX_TOKENS);
   if (tokens.length === 0) return null;
-  const copy = ACTIVITY_COPY[kind];
   const response = await fetch(EXPO_PUSH_ENDPOINT, {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json" },
@@ -845,6 +918,7 @@ export const devicesDomain = {
     DEVICES_MIGRATION,
     DEVICES_REMOTE_EXECUTION_MIGRATION,
     DEVICES_DROP_PHONE_BRIDGE_MIGRATION,
+    DEVICES_PUSH_DIGEST_MIGRATION,
   ],
   calls: {
     "devices.identity": {
@@ -899,7 +973,7 @@ export const devicesDomain = {
       scope: "owner",
       requireAccount: true,
       parse: object({ kind: literal("started", "completed", "failed") }),
-      handler: (ctx: OwnerContext, args: DeviceCalls["phone.notifyActivity"]["args"]) => notifyPhones(ctx, args.kind),
+      handler: (ctx: OwnerContext, args: DeviceCalls["phone.notifyActivity"]["args"]) => notifyActivity(ctx, args.kind),
     },
   },
   /**
@@ -927,5 +1001,6 @@ export const devicesDomain = {
   },
   jobs: {
     [DEVICES_SWEEP_JOB]: { run: (ctx) => sweep(ctx), maxAttempts: 10 },
+    [DEVICES_PUSH_DIGEST_JOB]: { run: (ctx) => flushDigest(ctx), maxAttempts: 3 },
   },
 } satisfies OwnerDomain;

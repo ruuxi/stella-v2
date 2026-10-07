@@ -30,7 +30,14 @@ import { array, empty, json, literal, number, object, optional, string, type Par
 import { RpcError } from "../errors.js";
 import { enforceOwnerRateLimit } from "../rate-limit.js";
 import type { OwnerContext, OwnerDomain, OwnerPurgeMode } from "../registry.js";
-import { billingAccess, billingPlan, recordUsage } from "./billing.js";
+import {
+  billingAccess,
+  billingPlan,
+  recordUsage,
+  releaseReservation,
+  reserveUsage,
+  settleReservation,
+} from "./billing.js";
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -593,6 +600,72 @@ const prepareDictation = (ctx: OwnerContext, raw: unknown) => {
   };
 };
 
+const DICTATION_CLIP_MAX_BYTES = 15 * 60 * PCM_BYTES_PER_SECOND;
+const DICTATION_RESERVATION_MS = 10 * 60_000;
+const clipReservationId = (sessionId: string) => `dictation:${sessionId}`;
+
+const reserveDictationClip = (ctx: OwnerContext, raw: unknown) => {
+  const { sessionId, audioBytes } = object({
+    sessionId: string({ pattern: DICTATION_SESSION_ID }),
+    audioBytes: number({ int: true, min: 1, max: DICTATION_CLIP_MAX_BYTES }),
+  })(raw);
+  enforceOwnerRateLimit(ctx.db, ctx.now, "dictation", DICTATION_RATE, "Too many dictation sessions. Try again in a minute.");
+  const access = reserveUsage(ctx, {
+    id: clipReservationId(sessionId),
+    budgetMicroCents: usdToMicroCents((audioBytes / PCM_BYTES_PER_SECOND) * MUSE_STT_USD_PER_SECOND),
+    expiresAt: ctx.now + DICTATION_RESERVATION_MS,
+  });
+  if (!access.reserved) {
+    throw new RpcError("FORBIDDEN", access.message || "Your Stella usage allowance is too low for this recording.", {
+      reason: "usage_limit_reached",
+    });
+  }
+  return { sessionId };
+};
+
+const settleDictationSegment = (ctx: OwnerContext, raw: unknown) => {
+  const { sessionId, segment, audioBytes, costUsd } = object({
+    sessionId: string({ pattern: DICTATION_SESSION_ID }),
+    segment: number({ int: true, min: 0, max: 100 }),
+    audioBytes: number({ int: true, min: 0, max: DICTATION_CLIP_MAX_BYTES }),
+    costUsd: optional(number({ min: 0, max: 100 })),
+  })(raw);
+  const costMicroCents = usdToMicroCents(
+    costUsd ?? (audioBytes / PCM_BYTES_PER_SECOND) * MUSE_STT_USD_PER_SECOND,
+  );
+  recordUsage(ctx, [{ id: `${clipReservationId(sessionId)}:${segment}`, costMicroCents }]);
+  settleReservation(ctx, clipReservationId(sessionId), costMicroCents);
+  return { costMicroCents };
+};
+
+const MAPS_RATE = { count: 20, windowMs: 60_000 };
+const MAPS_PLACE_USD = 0.032;
+const MAPS_ROUTE_USD = 0.01;
+
+const admitMaps = (ctx: OwnerContext, raw: unknown) => {
+  const { requestId, places, route } = object({
+    requestId: string({ min: 8, max: 64 }),
+    places: number({ int: true, min: 0, max: 8 }),
+    route: literal(true, false),
+  })(raw);
+  enforceOwnerRateLimit(ctx.db, ctx.now, "maps", MAPS_RATE, "Too many map lookups. Try again in a minute.");
+  const access = billingAccess(ctx);
+  if (!access.allowed) {
+    throw new RpcError("FORBIDDEN", access.message || "Your Stella usage limit is reached.", {
+      reason: "usage_limit_reached",
+    });
+  }
+  const costMicroCents = usdToMicroCents(places * MAPS_PLACE_USD + (route ? MAPS_ROUTE_USD : 0));
+  recordUsage(ctx, [{ id: `maps:${requestId}`, costMicroCents }]);
+  return { costMicroCents };
+};
+
+const releaseDictationClip = (ctx: OwnerContext, raw: unknown) => {
+  const { sessionId } = object({ sessionId: string({ pattern: DICTATION_SESSION_ID }) })(raw);
+  releaseReservation(ctx, clipReservationId(sessionId));
+  return { ok: true };
+};
+
 const settleDictation = (ctx: OwnerContext, raw: unknown) => {
   const { sessionId, audioBytes } = object({
     sessionId: string({ pattern: DICTATION_SESSION_ID }),
@@ -709,6 +782,10 @@ export const voiceDomain = {
     },
     "dictation.prepare": prepareDictation,
     "dictation.settle": settleDictation,
+    "dictation.reserveClip": reserveDictationClip,
+    "dictation.settleSegment": settleDictationSegment,
+    "dictation.releaseClip": releaseDictationClip,
+    "maps.admit": admitMaps,
   },
   jobs: {
     [VOICE_REAP_JOB]: { run: (ctx: OwnerContext) => reap(ctx) },

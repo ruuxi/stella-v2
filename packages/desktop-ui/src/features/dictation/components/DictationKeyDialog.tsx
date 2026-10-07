@@ -20,22 +20,12 @@ const OPENROUTER_KEYS_URL = "https://openrouter.ai/keys";
 
 let mountedHosts = 0;
 
-/**
- * Ask for an OpenRouter key: this Stella has no managed dictation. Returns
- * false in a window without the dialog (the small companion panel).
- */
 export const requestDictationKey = (): boolean => {
   if (mountedHosts === 0) return false;
   window.dispatchEvent(new CustomEvent(DICTATION_KEY_NEEDED_EVENT));
   return true;
 };
 
-/**
- * The first mic press on a Stella without managed dictation lands here. The
- * key is saved in the device's local provider-key store (the same one
- * Settings → Models uses), so it also serves OpenRouter models if the user
- * picks them later. Saving starts the recording the press asked for.
- */
 export function DictationKeyDialog() {
   const t = useT();
   const [open, setOpen] = useState(false);

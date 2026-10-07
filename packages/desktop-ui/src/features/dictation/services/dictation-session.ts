@@ -1,21 +1,13 @@
-/**
- * DictationSession captures downsampled 16 kHz mono PCM while the user speaks,
- * then hands the whole recording to the transcriber (Stella's managed
- * dictation, or the user's own OpenRouter key through Electron main) when
- * they stop. Provider credentials stay outside the renderer.
- */
-
 import { uiState } from "@/platform/ui-state";
 import {
   acquireSharedMicrophone,
   setSharedMicrophoneKeepWarm,
   type SharedMicrophoneLease,
 } from "@/features/voice/services/shared-microphone";
-import {
-  floatToInt16Pcm,
-  resampleLinear,
-} from "@/features/voice/services/audio-encoding";
-import { encodeDictationWav, transcribeDictation } from "./dictation-transcriber";
+import { transcribeDictation } from "./dictation-transcriber";
+import { PcmRecording } from "./pcm-recording";
+
+type WorkletFrame = { pcm: Int16Array; rms: number };
 
 const TARGET_SAMPLE_RATE = 16_000;
 const PCM_WORKLET_NAME = "stella-dictation-pcm-capture";
@@ -114,15 +106,9 @@ class DictationWarmCapture {
       channelCountMode: "explicit",
       channelInterpretation: "speakers",
     });
-    const sourceRate = ctx.sampleRate;
-    worklet.port.onmessage = (event: MessageEvent<Float32Array>) => {
-      const samples = event.data;
-      if (!samples?.length) return;
-      const resampled =
-        sourceRate === TARGET_SAMPLE_RATE
-          ? samples
-          : resampleLinear(samples, sourceRate, TARGET_SAMPLE_RATE);
-      this.append(floatToInt16Pcm(resampled));
+    worklet.port.onmessage = (event: MessageEvent<WorkletFrame>) => {
+      const pcm = event.data?.pcm;
+      if (pcm?.length) this.append(pcm);
     };
     this.workletNode = worklet;
     source.connect(worklet);
@@ -186,8 +172,7 @@ export class DictationSession {
   private sourceNode: MediaStreamAudioSourceNode | null = null;
   private workletNode: AudioWorkletNode | null = null;
   private callbacks: DictationCallbacks = {};
-  private pcmChunks: Int16Array[] = [];
-  private totalSamples = 0;
+  private recording = new PcmRecording();
   private transcription: AbortController | null = null;
   private durationLimitTimer: ReturnType<typeof setTimeout> | null = null;
   private cancelled = false;
@@ -203,13 +188,10 @@ export class DictationSession {
     if (this.isActive()) return;
     this.callbacks = callbacks;
     this.cancelled = false;
-    this.pcmChunks = isDictationSuperFastEnabled()
-      ? warmCapture.snapshot()
-      : [];
-    this.totalSamples = this.pcmChunks.reduce(
-      (sum, chunk) => sum + chunk.length,
-      0,
-    );
+    this.recording = new PcmRecording();
+    if (isDictationSuperFastEnabled()) {
+      for (const chunk of warmCapture.snapshot()) this.recording.append(chunk);
+    }
 
     let lease: SharedMicrophoneLease;
     try {
@@ -265,11 +247,9 @@ export class DictationSession {
       this.audioContext = null;
     }
 
-    const chunks = this.pcmChunks;
-    const totalSamples = this.totalSamples;
-    this.pcmChunks = [];
-    this.totalSamples = 0;
-    if (this.cancelled || totalSamples === 0) {
+    const recording = this.recording;
+    this.recording = new PcmRecording();
+    if (this.cancelled || recording.sampleCount === 0) {
       this.setState("idle");
       return;
     }
@@ -279,7 +259,7 @@ export class DictationSession {
     this.transcription = controller;
     try {
       const transcript = await transcribeDictation(
-        encodeDictationWav(chunks),
+        recording.toWav(),
         controller.signal,
       );
       if (this.cancelled || !transcript) {
@@ -303,7 +283,12 @@ export class DictationSession {
   /** Stop without transcribing. Used on unmount / error paths. */
   async cancel(): Promise<void> {
     this.cancelled = true;
-    this.transcription?.abort();
+    if (this.state === "transcribing") {
+      this.transcription?.abort();
+      this.setState("idle");
+      this.callbacks = {};
+      return;
+    }
     await this.stop();
   }
 
@@ -322,24 +307,15 @@ export class DictationSession {
       channelCountMode: "explicit",
       channelInterpretation: "speakers",
     });
-    const sourceRate = ctx.sampleRate;
-    worklet.port.onmessage = (event: MessageEvent<Float32Array>) => {
-      const samples = event.data;
-      if (!samples || samples.length === 0) return;
-      let sumSq = 0;
-      for (let i = 0; i < samples.length; i += 1) {
-        const s = samples[i]!;
-        sumSq += s * s;
+    worklet.port.onmessage = (event: MessageEvent<WorkletFrame>) => {
+      const frame = event.data;
+      if (!frame?.pcm?.length) return;
+      if (frame.rms > this.peakSinceLastEmit) this.peakSinceLastEmit = frame.rms;
+      this.recording.append(frame.pcm);
+      if (this.recording.full && this.state === "listening") {
+        console.warn("[dictation] hit max recording length, auto-stopping");
+        void this.stop();
       }
-      const rms = Math.sqrt(sumSq / samples.length);
-      if (rms > this.peakSinceLastEmit) this.peakSinceLastEmit = rms;
-      const resampled =
-        sourceRate === TARGET_SAMPLE_RATE
-          ? samples
-          : resampleLinear(samples, sourceRate, TARGET_SAMPLE_RATE);
-      const pcm = floatToInt16Pcm(resampled);
-      this.pcmChunks.push(pcm);
-      this.totalSamples += pcm.length;
     };
     this.workletNode = worklet;
     source.connect(worklet);
@@ -379,8 +355,7 @@ export class DictationSession {
       this.durationLimitTimer = null;
     }
     this.stopLevelEmitter();
-    this.pcmChunks = [];
-    this.totalSamples = 0;
+    this.recording = new PcmRecording();
   }
 
   private startLevelEmitter(): void {

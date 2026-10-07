@@ -284,12 +284,42 @@ export const registerDictationHandlers = (options) => {
         return result;
     });
     ipcMain.handle("dictation:getShortcut", () => currentShortcut);
-    ipcMain.handle("dictation:hasOpenRouterKey", () => hasOpenRouterDictationKey(options.stellaAppDir));
-    ipcMain.handle("dictation:transcribeWithOpenRouter", (_event, wav) => {
-        if (!(wav instanceof ArrayBuffer) && !(wav instanceof Uint8Array)) {
+    let openRouterTranscription = null;
+    ipcMain.handle("dictation:hasOpenRouterKey", (event) => {
+        if (!options.assertPrivilegedSender(event, "dictation:hasOpenRouterKey")) {
+            throw new Error("Blocked untrusted dictation request.");
+        }
+        return hasOpenRouterDictationKey(options.getStellaDataDir());
+    });
+    ipcMain.handle("dictation:transcribeWithOpenRouter", async (event, payload) => {
+        if (!options.assertPrivilegedSender(event, "dictation:transcribeWithOpenRouter")) {
+            throw new Error("Blocked untrusted dictation request.");
+        }
+        const requestId = typeof payload?.requestId === "string" ? payload.requestId : "";
+        const wav = payload?.wav;
+        if (!requestId || (!(wav instanceof ArrayBuffer) && !(wav instanceof Uint8Array))) {
             throw new Error("Dictation audio was empty.");
         }
-        return transcribeWithOpenRouter(options.stellaAppDir, wav);
+        if (openRouterTranscription) {
+            throw new Error("Dictation is already transcribing a recording.");
+        }
+        const controller = new AbortController();
+        openRouterTranscription = { requestId, controller };
+        try {
+            return await transcribeWithOpenRouter(options.getStellaDataDir(), wav, controller.signal);
+        }
+        finally {
+            if (openRouterTranscription?.requestId === requestId)
+                openRouterTranscription = null;
+        }
+    });
+    ipcMain.on("dictation:cancelOpenRouter", (event, payload) => {
+        if (!options.assertPrivilegedSender(event, "dictation:cancelOpenRouter"))
+            return;
+        if (openRouterTranscription && openRouterTranscription.requestId === payload?.requestId) {
+            openRouterTranscription.controller.abort();
+            openRouterTranscription = null;
+        }
     });
     ipcMain.handle("dictation:getSoundEffectsEnabled", () => areDictationSoundsEnabled());
     ipcMain.handle("dictation:setSoundEffectsEnabled", (_event, enabled) => {

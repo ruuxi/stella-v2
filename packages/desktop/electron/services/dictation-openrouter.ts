@@ -1,9 +1,3 @@
-/**
- * Dictation with the user's own OpenRouter key, for a Stella that doesn't
- * serve managed dictation. The key stays in the main process: the renderer
- * hands over a 16 kHz mono PCM16 WAV and gets text back.
- */
-
 import { getLocalLlmCredential } from "@stella/runtime/kernel/storage/llm-credentials";
 
 const TRANSCRIPTIONS_URL = "https://openrouter.ai/api/v1/audio/transcriptions";
@@ -17,8 +11,8 @@ const WAV_HEADER_BYTES = 44;
 
 export const OPENROUTER_PROVIDER = "openrouter";
 
-export const hasOpenRouterDictationKey = (stellaAppDir: string | null | undefined): boolean =>
-  Boolean(stellaAppDir && getLocalLlmCredential(stellaAppDir, OPENROUTER_PROVIDER));
+export const hasOpenRouterDictationKey = (stellaDataDir: string | null | undefined): boolean =>
+  Boolean(stellaDataDir && getLocalLlmCredential(stellaDataDir, OPENROUTER_PROVIDER));
 
 const wavHeader = (dataBytes: number): Buffer => {
   const header = Buffer.alloc(WAV_HEADER_BYTES);
@@ -52,10 +46,11 @@ const describeFailure = (status: number, body: string): string => {
 };
 
 export const transcribeWithOpenRouter = async (
-  stellaAppDir: string | null | undefined,
+  stellaDataDir: string | null | undefined,
   wav: ArrayBuffer | Uint8Array,
+  signal: AbortSignal,
 ): Promise<{ text: string }> => {
-  const apiKey = stellaAppDir ? getLocalLlmCredential(stellaAppDir, OPENROUTER_PROVIDER) : null;
+  const apiKey = stellaDataDir ? getLocalLlmCredential(stellaDataDir, OPENROUTER_PROVIDER) : null;
   if (!apiKey) throw new Error("Add an OpenRouter API key to use dictation.");
   const bytes = Buffer.from(wav instanceof Uint8Array ? wav : new Uint8Array(wav));
   if (bytes.byteLength > MAX_BYTES) throw new Error("That recording is longer than 15 minutes.");
@@ -65,6 +60,7 @@ export const transcribeWithOpenRouter = async (
   const pcm = bytes.subarray(WAV_HEADER_BYTES);
   const parts: string[] = [];
   for (let offset = 0; offset < pcm.byteLength; offset += SEGMENT_BYTES) {
+    signal.throwIfAborted();
     const segment = pcm.subarray(offset, offset + SEGMENT_BYTES);
     const response = await fetch(TRANSCRIPTIONS_URL, {
       method: "POST",
@@ -81,7 +77,7 @@ export const transcribeWithOpenRouter = async (
           format: "wav",
         },
       }),
-      signal: AbortSignal.timeout(SEGMENT_TIMEOUT_MS),
+      signal: AbortSignal.any([signal, AbortSignal.timeout(SEGMENT_TIMEOUT_MS)]),
     });
     const body = await response.text();
     if (!response.ok) throw new Error(describeFailure(response.status, body));

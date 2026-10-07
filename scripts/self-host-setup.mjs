@@ -1,38 +1,33 @@
 #!/usr/bin/env bun
-/**
- * Generate and set every internal secret a self-hosted Stella needs, plus the
- * capability signing key pair and the model gateway's CAPABILITY_JWKS.
- *
- *   bun scripts/self-host-setup.mjs                    # dev, dry run: shows what it would set
- *   bun scripts/self-host-setup.mjs --apply            # dev: sets the secrets, edits wrangler.jsonc
- *   bun scripts/self-host-setup.mjs --env production --apply
- *
- * A secret the worker already has is never replaced: BETTER_AUTH_SECRET signs
- * every session, OWNER_SECRETS_KEK and BROWSER_PROFILE_KEK_V1 encrypt stored
- * data, and the capability key must match the gateway's JWKS. Delete a secret
- * by hand first if you really mean to rotate it.
- *
- * Third-party keys (OpenRouter, the R2 API token, providers in Part 2 of
- * SELF_HOSTING.md) are yours to supply; the script lists the required ones.
- * Values are never printed. STELLA_ADMIN_API_SECRET, which you need for the
- * admin API, is written to workers/cloud-builder/.dev.vars (dev) or
- * ~/.config/stella/admin-api-secret.production (prod), mode 600.
- */
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import {
-  appendFileSync,
-  chmodSync,
+  closeSync,
   existsSync,
+  fchmodSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readFileSync,
   rmSync,
   writeFileSync,
+  writeSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { generateCapabilityKeyPair } from "../packages/contracts/gateway/jwt.ts";
+
+const HELP = `Generate and set every internal secret a self-hosted Stella needs, plus the
+capability signing key pair and the model gateway's CAPABILITY_JWKS.
+
+  bun scripts/self-host-setup.mjs                    dev, dry run: shows what it would set
+  bun scripts/self-host-setup.mjs --apply            dev: sets the secrets, edits wrangler.jsonc
+  bun scripts/self-host-setup.mjs --env production --apply
+
+A secret a worker already has is never replaced. If a worker's secrets can't be
+listed, nothing is changed. Values are never printed. STELLA_ADMIN_API_SECRET is
+saved (mode 600) before anything remote changes: workers/cloud-builder/.dev.vars
+for dev, ~/.config/stella/admin-api-secret.production for prod.`;
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const ISSUER = "stella-cloud-builder";
@@ -44,7 +39,7 @@ const option = (name, fallback) => {
   return index >= 0 && args[index + 1] ? args[index + 1] : fallback;
 };
 if (flag("help")) {
-  console.log(readFileSync(new URL(import.meta.url), "utf8").split("*/")[0]);
+  console.log(HELP);
   process.exit(0);
 }
 
@@ -73,7 +68,7 @@ const GENERATED = {
     MEDIA_SIGNING_SECRET: hex,
     OWNER_SECRETS_KEK: base64,
     OAUTH_STATE_SECRET: hex,
-    STELLA_ADMIN_API_SECRET: hex,
+    STELLA_ADMIN_API_SECRET: () => savedAdminSecret() ?? hex(),
   },
   "browser-gateway": { BROWSER_PROFILE_KEK_V1: base64url },
   telemetry: { TELEMETRY_PSEUDONYM_KEY: hex, TELEMETRY_SERVER_SECRET: hex },
@@ -95,18 +90,25 @@ const wrangler = (worker, wranglerArgs, input) =>
     stdio: ["pipe", "pipe", "pipe"],
   });
 
+const WORKER_MISSING = /\b10007\b|does not exist|not found/i;
+
 const existingSecrets = (worker) => {
   const result = wrangler(worker, ["secret", "list", ...envArgs, "--format", "json"]);
-  if (result.status !== 0) return new Set();
+  if (result.status !== 0) {
+    if (WORKER_MISSING.test(`${result.stderr}\n${result.stdout}`)) return new Set();
+    console.error(`Couldn't list ${worker}'s secrets, so nothing was changed:\n${(result.stderr || result.stdout).trim()}`);
+    process.exit(1);
+  }
   try {
     const start = result.stdout.indexOf("[");
+    if (start < 0) throw new Error("no JSON list");
     return new Set(JSON.parse(result.stdout.slice(start)).map((entry) => entry.name));
-  } catch {
-    return new Set();
+  } catch (error) {
+    console.error(`Couldn't read ${worker}'s secret list (${error.message}), so nothing was changed.`);
+    process.exit(1);
   }
 };
 
-/** Replace the first `"NAME": "..."` line inside this env's block of a wrangler.jsonc. */
 const setJsoncVar = (file, name, value) => {
   const text = readFileSync(file, "utf8");
   const envBlock = text.indexOf('"env": {');
@@ -122,19 +124,37 @@ const setJsoncVar = (file, name, value) => {
   writeFileSync(file, text.slice(0, from) + replaced + text.slice(to));
 };
 
+const adminSecretFile = () =>
+  env === "dev"
+    ? path.join(workerDir("cloud-builder"), ".dev.vars")
+    : path.join(homedir(), ".config", "stella", "admin-api-secret.production");
+
+const ADMIN_LINE = /^STELLA_ADMIN_API_SECRET=(.+)$/m;
+
+const savedAdminSecret = () => {
+  const file = adminSecretFile();
+  if (!existsSync(file)) return null;
+  const text = readFileSync(file, "utf8");
+  const value = env === "dev" ? ADMIN_LINE.exec(text)?.[1] : text;
+  return value?.trim() || null;
+};
+
 const saveAdminSecret = (value) => {
-  if (env === "dev") {
-    const file = path.join(workerDir("cloud-builder"), ".dev.vars");
-    const current = existsSync(file) ? readFileSync(file, "utf8") : "";
-    if (/^STELLA_ADMIN_API_SECRET=/m.test(current)) return `${file} (kept its existing value)`;
-    appendFileSync(file, `${current && !current.endsWith("\n") ? "\n" : ""}STELLA_ADMIN_API_SECRET=${value}\n`);
-    chmodSync(file, 0o600);
-    return file;
+  const file = adminSecretFile();
+  if (savedAdminSecret() === value) return file;
+  mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  const fd = openSync(file, env === "dev" ? "a" : "w", 0o600);
+  try {
+    fchmodSync(fd, 0o600);
+    if (env === "dev") {
+      const current = readFileSync(file, "utf8");
+      writeSync(fd, `${current && !current.endsWith("\n") ? "\n" : ""}STELLA_ADMIN_API_SECRET=${value}\n`);
+    } else {
+      writeSync(fd, `${value}\n`);
+    }
+  } finally {
+    closeSync(fd);
   }
-  const dir = path.join(homedir(), ".config", "stella");
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const file = path.join(dir, "admin-api-secret.production");
-  writeFileSync(file, `${value}\n`, { mode: 0o600 });
   return file;
 };
 
@@ -193,8 +213,14 @@ if (missing.length) {
   console.log(`\nStill needed from you (SELF_HOSTING.md 1.3–1.4):\n  ${missing.join("\n  ")}`);
 }
 
+if (plan["cloud-builder"].existing.has("STELLA_ADMIN_API_SECRET") && !savedAdminSecret()) {
+  console.log(`\nNote: cloud-builder already has STELLA_ADMIN_API_SECRET but ${adminSecretFile()} doesn't hold it.`);
+}
+
 if (!apply) process.exit(0);
 
+const admin = plan["cloud-builder"].set.STELLA_ADMIN_API_SECRET;
+if (admin) console.log(`✓ STELLA_ADMIN_API_SECRET saved to ${saveAdminSecret(admin)}`);
 if (capability) {
   setJsoncVar(path.join(workerDir("model-gateway"), "wrangler.jsonc"), "CAPABILITY_JWKS", capability.jwks);
   setJsoncVar(path.join(workerDir("cloud-builder"), "wrangler.jsonc"), "CAPABILITY_SIGNING_KID", capability.kid);
@@ -204,8 +230,6 @@ for (const [worker, { set }] of Object.entries(plan)) {
   bulkPut(worker, set);
   console.log(`✓ ${worker}: ${Object.keys(set).length} secret(s) set`);
 }
-const admin = plan["cloud-builder"].set.STELLA_ADMIN_API_SECRET;
-if (admin) console.log(`✓ STELLA_ADMIN_API_SECRET saved to ${saveAdminSecret(admin)}`);
 if (capability) {
   console.log("\nCommit the wrangler.jsonc changes, then deploy model-gateway and cloud-builder (SELF_HOSTING.md 1.5).");
 }

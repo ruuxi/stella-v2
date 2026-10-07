@@ -483,6 +483,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         stellaAppDir: config.stellaAppDir,
         getCompanionController: () => state.companionController ?? null,
         getStellaDataDir: lifecycle.getStellaDataDir,
+        assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
         onDictationActiveChanged: (active) => {
             wakewordPausedForDictation = active;
             syncWakewordPause();

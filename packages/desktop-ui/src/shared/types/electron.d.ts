@@ -448,7 +448,9 @@ export type ElectronDictationApi = {
   /** Whether the user's own OpenRouter key is saved for dictation. */
   hasOpenRouterKey: () => Promise<boolean>;
   /** Transcribe a 16 kHz mono PCM16 WAV with the user's OpenRouter key. */
-  transcribeWithOpenRouter: (wav: ArrayBuffer) => Promise<{ text: string }>;
+  transcribeWithOpenRouter: (payload: { requestId: string; wav: ArrayBuffer }) => Promise<{ text: string }>;
+  /** Abort an own-key transcription that is still in flight. */
+  cancelOpenRouter: (payload: { requestId: string }) => void;
   activeChanged: (payload: { active: boolean }) => void;
   playSound: (payload: {
     sound: "startRecording" | "stopRecording" | "cancel";

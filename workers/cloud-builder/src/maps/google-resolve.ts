@@ -1,14 +1,3 @@
-/**
- * Resolve natural map inputs into a `map-route` artifact with Google Places
- * (New) text search and the Directions API, using the server-side
- * `GOOGLE_MAPS_SERVER_API_KEY`. Backs `POST /api/maps/resolve` for the desktop
- * `map` tool and runs in-process for the cloud one.
- *
- * Best-effort: partial place resolution succeeds with the misses listed in
- * `unresolved`; a failed route is an error, since a route card without a route
- * is useless.
- */
-
 import type {
   MapArtifactMarker,
   MapArtifactRoute,
@@ -40,7 +29,11 @@ type ResolveRequest = {
 
 export type MapResolveResult =
   | { status: 200; body: { map: MapRouteArtifact; unresolved: string[] } }
-  | { status: 400 | 422 | 502 | 503; body: { error: string } };
+  | { status: 400 | 403 | 422 | 429 | 502 | 503; body: { error: string } };
+
+export type MapsAdmission = (lookups: { places: number; route: boolean }) => Promise<
+  { ok: true } | { ok: false; status: 403 | 429; error: string }
+>;
 
 const asTrimmedString = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
 
@@ -230,11 +223,13 @@ export const mapsServerKey = (env: unknown): string | undefined => {
 export const resolveMapRequest = async (
   raw: unknown,
   apiKey: string | undefined,
-  options: { fetchImpl?: typeof fetch; signal?: AbortSignal } = {},
+  options: { fetchImpl?: typeof fetch; signal?: AbortSignal; admit: MapsAdmission },
 ): Promise<MapResolveResult> => {
   if (!apiKey) return { status: 503, body: { error: "Maps aren't set up on this Stella." } };
   const parsed = parseBody(raw);
   if (typeof parsed === "string") return { status: 400, body: { error: parsed } };
+  const admitted = await options.admit({ places: parsed.places.length, route: Boolean(parsed.origin) });
+  if (!admitted.ok) return { status: admitted.status, body: { error: admitted.error } };
   const fetchImpl = options.fetchImpl ?? fetch;
   try {
     const markers: MapArtifactMarker[] = [];

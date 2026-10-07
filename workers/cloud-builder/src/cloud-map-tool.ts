@@ -1,10 +1,3 @@
-/**
- * `map` for the cloud orchestrator — the device tool's exact model-visible
- * surface (`defs/map-def.ts`) over the backend's own Google resolver, called
- * in-process. The resolved `map-route` artifact lands on the tool result's
- * `details.map` and the chat renders the same card on every client.
- */
-
 import type { TSchema } from "@sinclair/typebox";
 import {
   MAP_TOOL_DESCRIPTION,
@@ -20,10 +13,12 @@ import {
   parseMapToolArgs,
 } from "@stella/runtime/kernel/tools/defs/map-resolve.js";
 import type { CloudCodeSourceAgentTool } from "./cloud-code-tool.js";
+import { ownerMapsAdmission } from "./maps/admission.js";
 import { resolveMapRequest } from "./maps/google-resolve.js";
 
 export type CloudMapToolOptions = Readonly<{
   apiKey: string | undefined;
+  ownerInternal: (name: string, args: unknown) => Promise<unknown>;
   fetchImpl?: typeof fetch;
 }>;
 
@@ -59,6 +54,7 @@ export const createCloudMapTool = (
       {
         ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
         signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+        admit: ownerMapsAdmission(options.ownerInternal),
       },
     );
     const outcome = mapOutcomeFromResolver(result.status, result.body);

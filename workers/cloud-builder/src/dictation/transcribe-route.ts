@@ -1,19 +1,7 @@
-/**
- * Managed dictation, record-then-transcribe:
- *
- *   GET  /api/dictation/transcribe   { available } — whether this backend serves dictation
- *   POST /api/dictation/transcribe   16 kHz mono PCM16 WAV body → { text, seconds }
- *
- * The audio goes to OpenRouter's transcription endpoint (Meta Muse) with the
- * backend's own `OPENROUTER_API_KEY`, in segments well under its upload
- * limit, and is charged once to the owner's allowance on success through the
- * voice domain's `dictation.prepare` / `dictation.settle`.
- */
-
 import { rpcErrorStatus } from "@stella/contracts/backend/protocol";
-import { DictationUsageError } from "../muse-transcribe-socket.js";
+import { RpcError } from "../owner-store/errors.js";
 import { verifyCaller } from "../owner-store/routes.js";
-import { ownerDictationControl } from "../voice/routes.js";
+import { ownerGeneration, voiceInternal } from "../voice/routes.js";
 
 export const DICTATION_TRANSCRIBE_PATH = "/api/dictation/transcribe";
 
@@ -22,7 +10,8 @@ const TRANSCRIPTIONS_URL = "https://openrouter.ai/api/v1/audio/transcriptions";
 const SAMPLE_RATE = 16_000;
 const PCM_BYTES_PER_SECOND = SAMPLE_RATE * 2;
 const MAX_SECONDS = 15 * 60;
-const MAX_BODY_BYTES = MAX_SECONDS * PCM_BYTES_PER_SECOND + 4096;
+const MAX_PCM_BYTES = MAX_SECONDS * PCM_BYTES_PER_SECOND;
+const MAX_BODY_BYTES = MAX_PCM_BYTES + 4096;
 const SEGMENT_BYTES = 3 * 60 * PCM_BYTES_PER_SECOND;
 const SEGMENT_TIMEOUT_MS = 60_000;
 
@@ -36,12 +25,36 @@ const fail = (status: number, error: string, code?: string): Response =>
 
 const apiKey = (env: DictationEnv): string | undefined => env.OPENROUTER_API_KEY?.trim() || undefined;
 
+const readBounded = async (request: Request, maxBytes: number): Promise<Uint8Array | null> => {
+  if (Number(request.headers.get("content-length") ?? "0") > maxBytes) return null;
+  if (!request.body) return new Uint8Array(0);
+  const reader = request.body.getReader();
+  const parts: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      return null;
+    }
+    parts.push(value);
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const part of parts) {
+    out.set(part, offset);
+    offset += part.byteLength;
+  }
+  return out;
+};
+
 const ascii = (bytes: Uint8Array, offset: number, length: number): string =>
   String.fromCharCode(...bytes.subarray(offset, offset + length));
 
-/** The PCM payload of a 16 kHz mono 16-bit WAV, or an error message. */
 const readPcm16Wav = (bytes: Uint8Array): Uint8Array | string => {
-  if (bytes.byteLength < 44 || ascii(bytes, 0, 4) !== "RIFF" || ascii(bytes, 8, 4) !== "WAVE") {
+  if (bytes.byteLength < 12 || ascii(bytes, 0, 4) !== "RIFF" || ascii(bytes, 8, 4) !== "WAVE") {
     return "Dictation audio must be a WAV file.";
   }
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -52,8 +65,8 @@ const readPcm16Wav = (bytes: Uint8Array): Uint8Array | string => {
     const size = view.getUint32(offset + 4, true);
     const body = offset + 8;
     if (id === "fmt ") {
+      if (size < 16 || body + 16 > bytes.byteLength) return "Dictation audio has a broken format chunk.";
       formatOk =
-        size >= 16 &&
         view.getUint16(body, true) === 1 &&
         view.getUint16(body + 2, true) === 1 &&
         view.getUint32(body + 4, true) === SAMPLE_RATE &&
@@ -105,7 +118,7 @@ const transcribeSegment = async (
   model: string,
   pcm: Uint8Array,
   signal: AbortSignal,
-): Promise<string> => {
+): Promise<{ text: string; costUsd: number | undefined }> => {
   const response = await fetch(TRANSCRIPTIONS_URL, {
     method: "POST",
     headers: {
@@ -118,12 +131,11 @@ const transcribeSegment = async (
     signal: AbortSignal.any([signal, AbortSignal.timeout(SEGMENT_TIMEOUT_MS)]),
   });
   const text = await response.text();
-  if (!response.ok) {
-    throw new Error(`Transcription failed (${response.status}): ${text.slice(0, 300)}`);
-  }
-  const body = JSON.parse(text) as { text?: unknown };
+  if (!response.ok) throw new Error(`Transcription failed (${response.status}): ${text.slice(0, 300)}`);
+  const body = JSON.parse(text) as { text?: unknown; usage?: { cost?: unknown } };
   if (typeof body.text !== "string") throw new Error("Transcription response was missing text.");
-  return body.text.trim();
+  const cost = body.usage?.cost;
+  return { text: body.text.trim(), costUsd: typeof cost === "number" && cost >= 0 ? cost : undefined };
 };
 
 export const handleDictationTranscribeRoute = async (
@@ -140,38 +152,45 @@ export const handleDictationTranscribeRoute = async (
   const key = apiKey(env);
   if (!key) return fail(503, "Dictation isn't set up on this Stella.", "dictation_unavailable");
 
-  if (Number(request.headers.get("content-length") ?? "0") > MAX_BODY_BYTES) {
-    return fail(413, "That recording is longer than 15 minutes.");
-  }
-  const bytes = new Uint8Array(await request.arrayBuffer());
-  if (bytes.byteLength > MAX_BODY_BYTES) return fail(413, "That recording is longer than 15 minutes.");
+  const bytes = await readBounded(request, MAX_BODY_BYTES);
+  if (!bytes) return fail(413, "That recording is longer than 15 minutes.");
   const pcm = readPcm16Wav(bytes);
   if (typeof pcm === "string") return fail(400, pcm);
+  if (pcm.byteLength > MAX_PCM_BYTES) return fail(413, "That recording is longer than 15 minutes.");
   if (pcm.byteLength < PCM_BYTES_PER_SECOND / 10) return json({ text: "", seconds: 0 });
 
-  const control = ownerDictationControl(env, verified.caller.ownerId);
+  const ownerId = verified.caller.ownerId;
+  const generation = await ownerGeneration(env, ownerId);
+  const call = <T>(name: string, args: unknown) => voiceInternal<T>(env, ownerId, generation, name, args);
   const sessionId = `muse_${crypto.randomUUID()}`;
   try {
-    const prepared = await control.prepare(sessionId);
-    if (prepared.maxAudioBytes !== undefined && pcm.byteLength > prepared.maxAudioBytes) {
-      return fail(403, "Your Stella usage allowance is too low for a recording this long.", "usage_limit_reached");
-    }
+    await call("dictation.reserveClip", { sessionId, audioBytes: pcm.byteLength });
   } catch (error) {
-    if (error instanceof DictationUsageError) return fail(403, error.message, "usage_limit_reached");
+    if (error instanceof RpcError && (error.code === "FORBIDDEN" || error.code === "RATE_LIMITED")) {
+      return fail(error.code === "RATE_LIMITED" ? 429 : 403, error.message, "usage_limit_reached");
+    }
     throw error;
   }
 
   const model = env.STELLA_DICTATION_MODEL?.trim() || DEFAULT_MODEL;
   const parts: string[] = [];
   try {
-    for (let offset = 0; offset < pcm.byteLength; offset += SEGMENT_BYTES) {
-      const part = await transcribeSegment(key, model, pcm.subarray(offset, offset + SEGMENT_BYTES), request.signal);
-      if (part) parts.push(part);
+    for (let offset = 0, segment = 0; offset < pcm.byteLength; offset += SEGMENT_BYTES, segment += 1) {
+      const slice = pcm.subarray(offset, offset + SEGMENT_BYTES);
+      const result = await transcribeSegment(key, model, slice, request.signal);
+      await call("dictation.settleSegment", {
+        sessionId,
+        segment,
+        audioBytes: slice.byteLength,
+        ...(result.costUsd !== undefined ? { costUsd: result.costUsd } : {}),
+      });
+      if (result.text) parts.push(result.text);
     }
   } catch (error) {
     console.error(JSON.stringify({ event: "dictation_transcribe_failed", message: (error as Error).message.slice(0, 300) }));
     return fail(502, "Stella couldn't transcribe that recording. Try again.");
+  } finally {
+    await call("dictation.releaseClip", { sessionId }).catch(() => undefined);
   }
-  await control.settle({ sessionId, audioBytes: pcm.byteLength, durationMs: 0, success: true });
   return json({ text: parts.join(" "), seconds: pcm.byteLength / PCM_BYTES_PER_SECOND });
 };

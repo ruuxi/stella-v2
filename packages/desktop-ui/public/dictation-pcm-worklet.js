@@ -1,13 +1,13 @@
-/**
- * Stella dictation PCM capture worklet.
- *
- * Loaded by `desktop-ui/src/features/dictation/services/dictation-session.ts`
- * from the renderer origin so it satisfies the renderer CSP (Blob URLs are
- * blocked by `script-src 'self'`). Mixes input channels to mono and posts
- * the raw Float32 frames back to the main thread, where downsampling, PCM
- * conversion happen before the chunk is sent over the dictation WebSocket.
- */
+const TARGET_RATE = 16000;
+
 class StellaDictationPcmProcessor extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.ratio = sampleRate / TARGET_RATE;
+    this.position = 0;
+    this.previous = 0;
+  }
+
   process(inputs) {
     const input = inputs[0];
     if (!input || input.length === 0) return true;
@@ -22,12 +22,30 @@ class StellaDictationPcmProcessor extends AudioWorkletProcessor {
         mono[i] += channelData[i];
       }
     }
-    if (channelCount > 1) {
-      for (let i = 0; i < frameCount; i += 1) {
-        mono[i] /= channelCount;
-      }
+    let sumSq = 0;
+    for (let i = 0; i < frameCount; i += 1) {
+      if (channelCount > 1) mono[i] /= channelCount;
+      sumSq += mono[i] * mono[i];
     }
-    this.port.postMessage(mono, [mono.buffer]);
+
+    const out = new Int16Array(Math.ceil(frameCount / this.ratio) + 2);
+    let written = 0;
+    let t = this.position;
+    while (t <= frameCount - 1) {
+      const index = Math.floor(t);
+      const frac = t - index;
+      const a = index < 0 ? this.previous : mono[index];
+      const b = index + 1 < frameCount ? mono[index + 1] : a;
+      const value = Math.max(-1, Math.min(1, a + (b - a) * frac));
+      out[written] = value < 0 ? value * 0x8000 : value * 0x7fff;
+      written += 1;
+      t += this.ratio;
+    }
+    this.position = t - frameCount;
+    this.previous = mono[frameCount - 1];
+
+    const pcm = out.slice(0, written);
+    this.port.postMessage({ pcm, rms: Math.sqrt(sumSq / frameCount) }, [pcm.buffer]);
     return true;
   }
 }

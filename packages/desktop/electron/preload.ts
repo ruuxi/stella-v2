@@ -853,10 +853,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ) as Promise<{ enabled: boolean }>,
     hasOpenRouterKey: () =>
       ipcRenderer.invoke("dictation:hasOpenRouterKey") as Promise<boolean>,
-    transcribeWithOpenRouter: (wav: ArrayBuffer) =>
-      ipcRenderer.invoke("dictation:transcribeWithOpenRouter", wav) as Promise<{
+    transcribeWithOpenRouter: (payload: { requestId: string; wav: ArrayBuffer }) =>
+      ipcRenderer.invoke("dictation:transcribeWithOpenRouter", payload) as Promise<{
         text: string;
       }>,
+    cancelOpenRouter: (payload: { requestId: string }) =>
+      ipcRenderer.send("dictation:cancelOpenRouter", payload),
     activeChanged: (payload: { active: boolean }) =>
       ipcRenderer.send("dictation:activeChanged", payload),
     playSound: (payload: {

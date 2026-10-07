@@ -482,6 +482,33 @@ export const reserveSessionGrant = (
   return { ...access, budgetMicroCents };
 };
 
+export const reserveUsage = (
+  ctx: OwnerContext,
+  input: { id: string; budgetMicroCents: number; expiresAt: number },
+): BillingAccess & { reserved: boolean } => {
+  ctx.db.run("DELETE FROM billing_grants WHERE expires_at + ? < ?", GRANT_SETTLEMENT_GRACE_MS, ctx.now);
+  const access = billingAccess(ctx);
+  if (!access.allowed) return { ...access, reserved: false };
+  const budget = Math.max(0, Math.ceil(input.budgetMicroCents));
+  if (access.remainingMicroCents === null) return { ...access, reserved: true };
+  if (access.remainingMicroCents - reservedGrants(ctx.db, ctx.now) < budget) return { ...access, reserved: false };
+  ctx.db.run(
+    "INSERT OR REPLACE INTO billing_grants (jti, budget, settled, expires_at) VALUES (?, ?, 0, ?)",
+    input.id,
+    budget,
+    input.expiresAt,
+  );
+  return { ...access, reserved: true };
+};
+
+export const settleReservation = (ctx: OwnerContext, id: string, costMicroCents: number): void => {
+  ctx.db.run("UPDATE billing_grants SET settled = settled + ? WHERE jti = ?", Math.max(0, Math.floor(costMicroCents)), id);
+};
+
+export const releaseReservation = (ctx: OwnerContext, id: string): void => {
+  ctx.db.run("DELETE FROM billing_grants WHERE jti = ?", id);
+};
+
 // ── Settling usage ─────────────────────────────────────────────────────────
 
 /**

@@ -11476,7 +11476,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         publishFiles: (writerKey, files) =>
           this.publishTurnFilesCard(turn.turnId, writerKey, files),
       }),
-      createCloudMapTool({ apiKey: mapsServerKey(this.env) }),
+      createCloudMapTool({ apiKey: mapsServerKey(this.env), ownerInternal: toolContext.ownerInternal }),
       createCloudReadTool({
         ...(agentHome.available
           ? { skills: { home: agentHome.cloudStore(), snapshot: skillCatalog } }

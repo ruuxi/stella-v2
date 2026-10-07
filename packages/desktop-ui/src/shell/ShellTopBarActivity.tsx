@@ -27,10 +27,13 @@ import {
   lazy,
   memo,
   Suspense,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
   animate,
@@ -66,10 +69,16 @@ import { StellaCharacter } from "@/ui/stella-character/StellaCharacter";
 import "./shell-topbar-activity.css";
 
 /** Keeps the whole Activity hierarchy out of the top bar's eager graph. */
+type ActivityOverviewComponent =
+  (typeof import("@/shell/sidebar-sections/HomeSection"))["ActivityOverview"];
+
+let loadedActivityOverview: ActivityOverviewComponent | null = null;
+
 const loadActivityOverview = () =>
-  import("@/shell/sidebar-sections/HomeSection").then((module) => ({
-    default: module.ActivityOverview,
-  }));
+  import("@/shell/sidebar-sections/HomeSection").then((module) => {
+    loadedActivityOverview = module.ActivityOverview;
+    return { default: module.ActivityOverview };
+  });
 
 const preloadActivityOverview = (): void => {
   // Opening the menu surfaces a real failure through the render boundary;
@@ -78,6 +87,21 @@ const preloadActivityOverview = (): void => {
 };
 
 const ActivityOverview = lazy(loadActivityOverview);
+
+const PRELOAD_IDLE_TIMEOUT_MS = 3000;
+const HOVER_OPEN_DELAY_MS = 80;
+const HOVER_CLOSE_DELAY_MS = 220;
+
+const schedulePreloadWhenIdle = (): (() => void) => {
+  if (typeof window.requestIdleCallback === "function") {
+    const handle = window.requestIdleCallback(preloadActivityOverview, {
+      timeout: PRELOAD_IDLE_TIMEOUT_MS,
+    });
+    return () => window.cancelIdleCallback(handle);
+  }
+  const handle = window.setTimeout(preloadActivityOverview, 1);
+  return () => window.clearTimeout(handle);
+};
 
 /** Sweep for the running label — matches the inline chat indicator. */
 const LABEL_SHIMMER_MS = 1900;
@@ -90,11 +114,16 @@ const MARK_EYE_COLOR = "var(--surface-base)";
 /** The menu's own list and cap come from `ActivityOverview` (overview variant),
  *  which is the list the right-hand activity panel used to show. */
 function ActivityMenu({ onNavigate }: { onNavigate: () => void }) {
+  const Loaded = loadedActivityOverview;
   return (
     <div className="shell-topbar-activity-menu">
-      <Suspense fallback={null}>
-        <ActivityOverview onNavigate={onNavigate} />
-      </Suspense>
+      {Loaded ? (
+        <Loaded onNavigate={onNavigate} />
+      ) : (
+        <Suspense fallback={null}>
+          <ActivityOverview onNavigate={onNavigate} />
+        </Suspense>
+      )}
     </div>
   );
 }
@@ -159,10 +188,97 @@ export const ShellTopBarActivity = memo(function ShellTopBarActivity() {
       ? pickWorkingIndicatorToolPose(running[0]?.id ?? "stella")
       : "idle";
 
+  useEffect(() => schedulePreloadWhenIdle(), []);
+
   const [open, setOpen] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const hoverTimer = useRef<number | null>(null);
+  const openedByHover = useRef(false);
+
+  const clearHoverTimer = useCallback(() => {
+    if (hoverTimer.current !== null) {
+      window.clearTimeout(hoverTimer.current);
+      hoverTimer.current = null;
+    }
+  }, []);
+
+  useEffect(() => clearHoverTimer, [clearHoverTimer]);
+
+  const closeMenu = useCallback(() => {
+    clearHoverTimer();
+    setOpen(false);
+    setPinned(false);
+  }, [clearHoverTimer]);
+
   useEffect(() => {
-    if (!busy && open) setOpen(false);
-  }, [busy, open]);
+    if (!busy && open) closeMenu();
+  }, [busy, open, closeMenu]);
+
+  const handleOpenChange = useCallback(
+    (next: boolean) => {
+      if (next) {
+        clearHoverTimer();
+        openedByHover.current = false;
+        setOpen(true);
+        setPinned(true);
+      } else {
+        closeMenu();
+      }
+    },
+    [clearHoverTimer, closeMenu],
+  );
+
+  const handlePointerEnter = useCallback(
+    (event: ReactPointerEvent) => {
+      if (event.pointerType !== "mouse") return;
+      preloadActivityOverview();
+      clearHoverTimer();
+      if (open || !busy) return;
+      hoverTimer.current = window.setTimeout(() => {
+        hoverTimer.current = null;
+        openedByHover.current = true;
+        setOpen(true);
+      }, HOVER_OPEN_DELAY_MS);
+    },
+    [busy, clearHoverTimer, open],
+  );
+
+  const handlePointerLeave = useCallback(
+    (event: ReactPointerEvent) => {
+      if (event.pointerType !== "mouse") return;
+      clearHoverTimer();
+      if (pinned) return;
+      hoverTimer.current = window.setTimeout(() => {
+        hoverTimer.current = null;
+        setOpen(false);
+      }, HOVER_CLOSE_DELAY_MS);
+    },
+    [clearHoverTimer, pinned],
+  );
+
+  const handleTriggerClick = useCallback(
+    (event: ReactMouseEvent) => {
+      event.preventDefault();
+      clearHoverTimer();
+      if (open && pinned) {
+        closeMenu();
+        return;
+      }
+      openedByHover.current = false;
+      setOpen(true);
+      setPinned(true);
+    },
+    [clearHoverTimer, closeMenu, open, pinned],
+  );
+
+  const handleOpenAutoFocus = useCallback((event: Event) => {
+    if (openedByHover.current) event.preventDefault();
+  }, []);
+
+  const handleCloseAutoFocus = useCallback((event: Event) => {
+    if (openedByHover.current) event.preventDefault();
+    openedByHover.current = false;
+  }, []);
 
   // The shared settle is a duration + damping ratio; `motion` expresses the
   // same curve as a duration and a bounce.
@@ -176,7 +292,7 @@ export const ShellTopBarActivity = memo(function ShellTopBarActivity() {
 
   return (
     <div className="shell-topbar-activity" data-busy={busy ? "true" : "false"}>
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover open={open} onOpenChange={handleOpenChange}>
         <PopoverTrigger asChild>
           <motion.button
             type="button"
@@ -185,7 +301,9 @@ export const ShellTopBarActivity = memo(function ShellTopBarActivity() {
             className="shell-topbar-activity__trigger"
             data-open={open || undefined}
             disabled={!busy}
-            onMouseEnter={preloadActivityOverview}
+            onPointerEnter={handlePointerEnter}
+            onPointerLeave={handlePointerLeave}
+            onClick={handleTriggerClick}
             onFocus={preloadActivityOverview}
             aria-label={
               busy && label
@@ -246,8 +364,12 @@ export const ShellTopBarActivity = memo(function ShellTopBarActivity() {
           sideOffset={6}
           collisionPadding={8}
           className="shell-topbar-activity-menu-popover"
+          onPointerEnter={handlePointerEnter}
+          onPointerLeave={handlePointerLeave}
+          onOpenAutoFocus={handleOpenAutoFocus}
+          onCloseAutoFocus={handleCloseAutoFocus}
         >
-          <ActivityMenu onNavigate={() => setOpen(false)} />
+          <ActivityMenu onNavigate={closeMenu} />
         </PopoverContent>
       </Popover>
     </div>

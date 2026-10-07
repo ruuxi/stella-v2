@@ -73,6 +73,20 @@ export const fadeExiting = (duration = 160) =>
   FadeOut.duration(duration).reduceMotion(ReduceMotion.System);
 
 /**
+ * A part of a demo thread arriving: it fades while rising the last few points
+ * into place, with no scale and no overshoot, the way the desktop onboarding
+ * films bring a layer on.
+ */
+export const threadEntering = (delay = 0) =>
+  FadeInDown.springify()
+    .damping(30)
+    .stiffness(210)
+    .mass(1)
+    .withInitialValues({ opacity: 0, transform: [{ translateY: 8 }] })
+    .delay(delay)
+    .reduceMotion(ReduceMotion.System);
+
+/**
  * A bubble-style pop: springs up from `fromScale` (around the view's
  * `transformOrigin`) while the fade finishes early, so it reads as solid by
  * the time it lands.

@@ -2,6 +2,9 @@
  * A scaled-down copy of the real chat for the showcase: the same bubbles,
  * working pill, activity rows and composer, at demo size. Every piece takes
  * its colors from the theme so the demo re-tints with the app.
+ *
+ * Like the desktop films, a piece arrives by fading into place and nothing
+ * already on screen springs around to make room for it.
  */
 import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import { StyleSheet, Text, View } from "react-native";
@@ -27,9 +30,8 @@ import { useColors } from "../../../theme/theme-context";
 import {
   fadeEntering,
   fadeExiting,
-  popEntering,
   SPRING_SNAPPY,
-  springLayout,
+  threadEntering,
   useSpringFlag,
 } from "../motion";
 
@@ -41,11 +43,7 @@ export function useMiniStyles() {
 export function MiniUserBubble({ children }: { children: string }) {
   const styles = useMiniStyles();
   return (
-    <Animated.View
-      layout={springLayout}
-      entering={bubbleEntering("right")}
-      style={[styles.userBubble, { transformOrigin: "bottom right" }]}
-    >
+    <Animated.View entering={threadEntering()} style={styles.userBubble}>
       <Text style={styles.userText}>{children}</Text>
     </Animated.View>
   );
@@ -55,11 +53,7 @@ export function MiniAssistantBubble({ children }: { children: string }) {
   const colors = useColors();
   const styles = useMiniStyles();
   return (
-    <Animated.View
-      layout={springLayout}
-      entering={bubbleEntering("left")}
-      style={[styles.assistantBubble, { transformOrigin: "bottom left" }]}
-    >
+    <Animated.View entering={threadEntering()} style={styles.assistantBubble}>
       <LinearGradient
         pointerEvents="none"
         colors={[colors.assistantBubbleFillTop, colors.assistantBubbleFillBottom]}
@@ -69,10 +63,6 @@ export function MiniAssistantBubble({ children }: { children: string }) {
     </Animated.View>
   );
 }
-
-/** iMessage-style pop out of the tail corner, at demo scale. */
-const bubbleEntering = (side: "left" | "right") =>
-  popEntering(side === "right" ? 0.84 : 0.9, 6);
 
 /** The working pill: the mark doing its thing beside a status line. */
 export function MiniWorking({
@@ -86,7 +76,6 @@ export function MiniWorking({
   const styles = useMiniStyles();
   return (
     <Animated.View
-      layout={springLayout}
       entering={fadeEntering(0, 240)}
       exiting={fadeExiting(140)}
       style={styles.working}
@@ -131,11 +120,7 @@ export function MiniReceipt({
     transform: [{ scale: 0.5 + 0.5 * settle.value }],
   }));
   return (
-    <Animated.View
-      layout={springLayout}
-      entering={fadeEntering(0, 220)}
-      style={styles.receipt}
-    >
+    <Animated.View entering={fadeEntering(0, 220)} style={styles.receipt}>
       <View style={styles.receiptGlyph}>
         <Animated.View style={[StyleSheet.absoluteFill, styles.center, starStyle]}>
           <StellaStarGlyph size={11} color={colors.textStrong} />
@@ -167,11 +152,7 @@ export function MiniAgentWindow({
   const colors = useColors();
   const styles = useMiniStyles();
   return (
-    <Animated.View
-      layout={springLayout}
-      entering={bubbleEntering("left")}
-      style={[styles.window, { transformOrigin: "top left" }]}
-    >
+    <Animated.View entering={threadEntering()} style={styles.window}>
       <View style={styles.windowBar}>
         <Icon name={icon} size={10} color={colors.textMuted} />
         <Text style={styles.windowTitle} numberOfLines={1}>
@@ -262,12 +243,10 @@ export function MiniConfirm({
   }));
   return (
     <Animated.View
-      layout={springLayout}
-      entering={bubbleEntering("left")}
+      entering={threadEntering()}
       style={[
         styles.confirm,
         done && { borderColor: fadeHex(colors.ok, 0.45) },
-        { transformOrigin: "top left" },
       ]}
     >
       <View style={styles.confirmIcon}>

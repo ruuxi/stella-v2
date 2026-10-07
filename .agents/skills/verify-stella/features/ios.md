@@ -1,17 +1,10 @@
 # iOS
 
-The iOS path builds and drives Stella on the iOS Simulator on the user's Mac. One helper, `.agents/skills/verify-stella/scripts/control-stella-ios.sh`, works in two transports and picks one itself:
-
-- **On the Mac** (`uname` is Darwin): every command runs locally. The Mac repo is the checkout the helper lives in.
-- **From Linux**: commands reach the Mac over the `stella-mac` SSH alias, and the Mac repo is `/Users/rahulnanda/projects/stella-v2`. Do not use the Mac's LAN IP or add another transport.
-
-`STELLA_IOS_SSH_HOST` forces SSH to a named host; `STELLA_IOS_MAC_REPO` overrides the Mac repo. `doctor` and `info` print the transport in use. When SSH is refused (Remote Login off on the Mac), run the work on the Mac itself instead, e.g. as an agent on that device.
-
-It is local verification infrastructure. Cloud environments cannot reach it; report that as a blocker.
+The iOS path builds and drives Stella on the iOS Simulator on the user's Mac with `.agents/skills/verify-stella/scripts/control-stella-ios.sh`, run on the Mac from its checkout (`/Users/rahulnanda/projects/stella-v2`; `STELLA_IOS_MAC_REPO` overrides). An agent elsewhere moves itself to the Mac for iOS work. Cloud environments cannot reach it; report that as a blocker.
 
 ## Sub-features
 
-- `ios-doctor` proves the transport, Mac repository, Bun, Xcode, runtime, and simulator inventory are usable.
+- `ios-doctor` proves the Mac repository, Bun, Xcode, runtime, and simulator inventory are usable.
 - `ios-semantic-drive` uses XcodeBuildMCP, as project-scoped MCP tools or as its CLI, to inspect the accessibility tree and interact by current element references.
 - `ios-stage` copies the current working-tree snapshot into a disposable directory on the Mac without touching the developer checkout.
 - `ios-build` generates, builds, installs, and launches the Expo development build on the booted simulator, pointed at the dev backend. `--metro-only` instead serves JS to an already-installed development build.
@@ -29,16 +22,16 @@ It is local verification infrastructure. Cloud environments cannot reach it; rep
 
 Preconditions:
 
-- Run from a stella-v2 checkout (Linux or the Mac). The Mac has Xcode with an available iOS Simulator runtime, Bun under `~/.bun/bin`, and Node.
+- Run on the Mac from a stella-v2 checkout. The Mac has Xcode with an available iOS Simulator runtime, Bun under `~/.bun/bin`, and Node.
 - `STELLA_ADMIN_API_SECRET` is exported or set in the gitignored `workers/cloud-builder/.dev.vars` of the checkout you run from. Only `sign-in` needs it.
 - Semantic input comes from XcodeBuildMCP (version `2.7.0` unless `STELLA_XCODEBUILDMCP_VERSION` moves it), over either of two interchangeable paths:
-  - **MCP tools**, when the agent's harness loads the project-scoped server from `.codex/config.toml` (`scripts/xcodebuildmcp-stella-ios.sh`, which runs locally on the Mac or over SSH from Linux). Those tool names are snake_case: `session_set_defaults`, `snapshot_ui`, `wait_for_ui`, `tap`, `type_text`. After adding or changing that config, restart the task before expecting the tools to appear. If no XcodeBuildMCP tool is in your catalog, the harness simply did not load it; do not edit config or restart mid-run, use the CLI.
+  - **MCP tools**, when the agent's harness loads the project-scoped server from `.codex/config.toml` (`scripts/xcodebuildmcp-stella-ios.sh`). Those tool names are snake_case: `session_set_defaults`, `snapshot_ui`, `wait_for_ui`, `tap`, `type_text`. After adding or changing that config, restart the task before expecting the tools to appear. If no XcodeBuildMCP tool is in your catalog, the harness simply did not load it; do not edit config or restart mid-run, use the CLI.
   - **The CLI**, usable by any agent on the Mac: `bunx xcodebuildmcp@2.7.0 <workflow> <tool> [flags]` (`npx -y xcodebuildmcp@2.7.0 …` is equivalent). Run it from a per-run scratch directory, never the checkout: `cd "$(mktemp -d /tmp/stella-ios-mcp.XXXXXX)"`. The CLI auto-starts a daemon keyed to that working directory, so a later `daemon stop` there cannot kill the daemon another agent is using under shared `/tmp`.
 - Never reset, clean, pull, switch, or overwrite the developer checkout on the Mac. `stage` creates a separate `/tmp/stella-ios-verify.*` source tree from `git ls-files`, including untracked non-ignored files and excluding ignored credentials and build products.
 
 Commands below are relative to the repo root (`H=.agents/skills/verify-stella/scripts/control-stella-ios.sh`).
 
-- **Doctor.** `$H doctor`. Require `transport=…`, Xcode 26.2 or newer, at least one available iPhone simulator, the Mac repo, Bun, Node, XcodeBuildMCP, and `semantic_input=yes`. A dirty Mac checkout is information, not permission to modify it. `mcp-doctor` is the shorter XcodeBuildMCP-only check. `screen_input=no` affects only the coordinate fallback.
+- **Doctor.** `$H doctor`. Require Xcode 26.2 or newer, at least one available iPhone simulator, the Mac repo, Bun, Node, XcodeBuildMCP, and `semantic_input=yes`. A dirty Mac checkout is information, not permission to modify it. `mcp-doctor` is the shorter XcodeBuildMCP-only check. `screen_input=no` affects only the coordinate fallback.
 - **Stage current source.** `$H stage`. Run it again after local source changes, after `clean-source`; do not layer a new snapshot over an old one. If `stage` says a staged source already exists and `info` shows a snapshot you did not create, leave it and ask, or `clean-source` only once you know it is abandoned.
 - **Boot.** `$H boot [udid]`. The helper records whether it booted the device so cleanup does not shut down a simulator it did not start. With no argument it takes the first available iPhone, which may be one another agent intends to use; prefer an explicit UDID from `$H devices` after checking `xcrun simctl list devices booted`. There is no reservation mechanism: a shut-down device is not proof that nobody else wants it.
 - **Check the baseline before claiming one.** A cold source build is not a clean app or account baseline — a reused simulator keeps the previous run's installed bundle, its data container, and its signed-in session, so `sign-in` can land straight on the main shell instead of onboarding. `$H app-status` reports `installed`, the bundle path and build time, and the data container path; follow it with `$H frame` to see which screen the app actually opens on. For a first-run or onboarding claim, run `$H uninstall` first (only when you own the device and nobody else needs that build) and record the pre-install state in the report. Never erase or reset the simulator itself.
@@ -66,8 +59,7 @@ Commands below are relative to the repo root (`H=.agents/skills/verify-stella/sc
 
 ## Gotchas
 
-- From Linux, the Mac and Linux checkouts can be on different commits. Always stage the tree you mean to verify.
-- `.run/ios-*` state lives in the checkout you run the helper from. Linux and Mac runs do not see each other's staged source or booted simulator records.
+- The Mac checkout can be behind the commit you mean to verify. Bring the tree you verify to that commit (or use a worktree of it) before `stage`; `stage` snapshots the checkout the helper runs from.
 - Simulator framebuffer screenshots exclude macOS window chrome and cannot locate desktop click coordinates. Use `screen` for coordinates and `frame` for app evidence.
 - `$H logs` runs through `simctl spawn`, which prints `getpwuid_r did not find a match for uid 501` to stderr; that line is noise, not a failure. The helper redacts `ott=`, bearer, and token values from the log text, but read any excerpt before pasting it into a report.
 - `app-status`, `launch`, `logs`, `frame`, and `open-url` target the UDID recorded by `boot`, and fall back to `booted` when nothing is recorded — which is ambiguous with several devices up. Run `boot` first so every command lands on your device.

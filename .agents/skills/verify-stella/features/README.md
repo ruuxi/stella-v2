@@ -4,7 +4,7 @@ These notes describe Stella's desktop and iOS surfaces, entry points, and non-ob
 
 The [verification skill](../SKILL.md) defines evidence and isolation boundaries. Driving sections are examples to adapt, not mandatory sequences or exhaustive acceptance criteria. Their expected states describe those examples; choose coverage from the requested behavior, current source, and observed app state.
 
-The [desktop reference](../references/desktop.md) covers harness setup and diagnostics. The [iOS infrastructure reference](ios.md) covers running on the Mac or over SSH, disposable source staging, dev builds, test-account sign-in, and Simulator control. Keep environment and resource-ownership requirements when adapting an example.
+The [desktop reference](../references/desktop.md) covers harness setup and diagnostics. The [iOS infrastructure reference](ios.md) covers running on the Mac, disposable source staging, dev builds, test-account sign-in, and Simulator control. Keep environment and resource-ownership requirements when adapting an example.
 
 ## Desktop features
 
@@ -22,7 +22,7 @@ The [desktop reference](../references/desktop.md) covers harness setup and diagn
 
 ## iOS features
 
-- [iOS verification infrastructure](./ios.md) covers the Mac transport, staging, Expo builds, test-account sign-in, Simulator control, evidence, and cleanup.
+- [iOS verification infrastructure](./ios.md) covers running on the Mac, staging, Expo builds, test-account sign-in, Simulator control, evidence, and cleanup.
 - [Mobile shell and authentication](./mobile-shell-auth.md) covers startup gates, sign-in (including the dev test-account link), onboarding, and main navigation.
 - [Mobile chat](./mobile-chat.md) covers thread selection, composer behavior, messages, artifacts, and browser intervention cards.
 - [Mobile account and pairing](./mobile-account-pairing.md) covers account settings, desktop pairing, Cloud Home, appearance, and sign-out.

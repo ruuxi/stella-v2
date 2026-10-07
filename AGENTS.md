@@ -45,9 +45,9 @@ emails must end in `@test.stella.local`.
 Build and setup steps are not scripted beyond CI; do them as needed. Desktop
 verification is documented in `TESTING.md` and driven through
 `.agents/skills/verify-stella/SKILL.md` (Electron needs an X display; use
-Xvfb on a headless host). iOS verification needs the Mac: run the iOS helper
-on the Mac itself, or from Linux over the `stella-mac` SSH alias. It is
-unavailable from cloud environments; treat that as a valid blocker. The iOS dev
+Xvfb on a headless host). iOS verification runs on the Mac: an agent elsewhere
+moves itself to the Mac for iOS work. It is unavailable from cloud
+environments; treat that as a valid blocker. The iOS dev
 build signs into a test account with `control-stella-ios.sh sign-in`.
 
 ## Learned User Preferences

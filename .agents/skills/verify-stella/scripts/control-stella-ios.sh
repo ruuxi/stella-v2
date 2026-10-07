@@ -7,32 +7,15 @@ run_dir="$skill_dir/.run"
 sim_state="$run_dir/ios-simulator"
 source_state="$run_dir/ios-source"
 xcodebuildmcp_version="${STELLA_XCODEBUILDMCP_VERSION:-2.7.0}"
-ssh_options=(-o BatchMode=yes -o ConnectTimeout=8)
 system_path="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-
-if [[ -n "${STELLA_IOS_SSH_HOST:-}" ]]; then
-  transport=ssh
-elif [[ "$(uname -s)" == Darwin ]]; then
-  transport=local
-else
-  transport=ssh
-fi
-if [[ "$transport" == local ]]; then
-  mac_host=""
-  mac_repo="${STELLA_IOS_MAC_REPO:-$repo_root}"
-  mac_path="$HOME/.bun/bin:$system_path"
-else
-  mac_host="${STELLA_IOS_SSH_HOST:-stella-mac}"
-  mac_repo="${STELLA_IOS_MAC_REPO:-/Users/rahulnanda/projects/stella-v2}"
-  mac_path="/Users/rahulnanda/.bun/bin:$system_path"
-fi
+mac_repo="${STELLA_IOS_MAC_REPO:-$repo_root}"
+mac_path="$HOME/.bun/bin:$system_path"
 
 usage() {
   cat <<'EOF'
 Usage: .agents/skills/verify-stella/scripts/control-stella-ios.sh <command> [options]
 
-Runs directly when invoked on macOS; from Linux it reaches the Mac over the
-`stella-mac` SSH alias (override with STELLA_IOS_SSH_HOST).
+Runs on the Mac. An agent elsewhere moves itself to the Mac for iOS work.
 
 Commands:
   doctor
@@ -61,48 +44,16 @@ Commands:
 EOF
 }
 
-remote_zsh() {
-  local remote_command="/bin/zsh -s --"
-  local argument
-  local quoted
-  for argument in "$@"; do
-    printf -v quoted '%q' "$argument"
-    remote_command+=" $quoted"
-  done
-  if [[ "$transport" == local ]]; then
-    {
-      printf 'export PATH=%q\n' "$mac_path"
-      /bin/cat
-    } | /bin/zsh -s -- "$@"
-    return
-  fi
+if [[ "$(uname -s)" != Darwin && "${1:-}" != "" ]]; then
+  printf 'control-stella-ios runs on the Mac. Move this agent to the Mac and run it there.\n' >&2
+  exit 2
+fi
+
+run_zsh() {
   {
     printf 'export PATH=%q\n' "$mac_path"
     /bin/cat
-  } | ssh "${ssh_options[@]}" "$mac_host" "$remote_command"
-}
-
-remote_raw() {
-  if [[ "$transport" == local ]]; then
-    "$@"
-    return
-  fi
-  local remote_command=""
-  local argument
-  local quoted
-  for argument in "$@"; do
-    printf -v quoted '%q' "$argument"
-    remote_command+=" $quoted"
-  done
-  ssh "${ssh_options[@]}" "$mac_host" "$remote_command"
-}
-
-fetch_remote_file() {
-  if [[ "$transport" == local ]]; then
-    /bin/cp -- "$1" "$2"
-  else
-    scp "${ssh_options[@]}" "$mac_host:$1" "$2" >/dev/null
-  fi
+  } | /bin/zsh -s -- "$@"
 }
 
 target_udid() {
@@ -118,7 +69,7 @@ target_udid() {
 }
 
 open_url() {
-  remote_zsh "$1" "$(target_udid)" <<'REMOTE'
+  run_zsh "$1" "$(target_udid)" <<'REMOTE'
 set -eu
 /usr/bin/xcrun simctl openurl "$2" "$1"
 REMOTE
@@ -151,7 +102,7 @@ validate_scratch_path() {
 require_free_disk() {
   local min_free_gb="$1"
   local free_gb
-  free_gb="$(remote_zsh <<'REMOTE'
+  free_gb="$(run_zsh <<'REMOTE'
 set -eu
 /bin/df -g / | /usr/bin/awk 'NR == 2 { print $4 }'
 REMOTE
@@ -167,7 +118,7 @@ REMOTE
 }
 
 require_screen_input() {
-  if ! remote_zsh <<'REMOTE'
+  if ! run_zsh <<'REMOTE'
 set -eu
 test "$(/usr/bin/osascript -e 'tell application "System Events" to get UI elements enabled')" = true
 /usr/bin/osascript -e 'tell application "System Events" to get name of first process whose frontmost is true' >/dev/null
@@ -188,7 +139,7 @@ shift
 
 case "$command" in
   doctor)
-    remote_zsh "$mac_repo" "$mac_path" "$xcodebuildmcp_version" "$mac_host" <<'REMOTE'
+    run_zsh "$mac_repo" "$mac_path" "$xcodebuildmcp_version" <<'REMOTE'
 set -eu
 repo="$1"
 export PATH="$2"
@@ -207,7 +158,6 @@ mcp_tools="$(cd /tmp && npx -y "xcodebuildmcp@$xcodebuildmcp_version" tools --js
 printf '%s' "$mcp_tools" | grep -Fq '"name": "snapshot-ui"'
 printf '%s' "$mcp_tools" | grep -Fq '"name": "tap"'
 printf '%s' "$mcp_tools" | grep -Fq '"name": "type-text"'
-if test -n "$4"; then printf 'transport=ssh:%s\n' "$4"; else printf 'transport=local\n'; fi
 printf 'macos=%s\n' "$(sw_vers -productVersion)"
 printf 'xcode=%s\n' "$(xcodebuild -version | tr '\n' ' ' | sed 's/ $//')"
 printf 'bun=%s\n' "$(bun --version)"
@@ -231,7 +181,7 @@ fi
 REMOTE
     ;;
   mcp-doctor)
-    remote_zsh "$xcodebuildmcp_version" "$mac_host" <<'REMOTE'
+    run_zsh "$xcodebuildmcp_version" <<'REMOTE'
 set -eu
 version="$1"
 command -v node >/dev/null
@@ -243,13 +193,13 @@ printf '%s' "$tools" | grep -Fq '"name": "snapshot-ui"'
 printf '%s' "$tools" | grep -Fq '"name": "tap"'
 printf '%s' "$tools" | grep -Fq '"name": "type-text"'
 printf 'xcodebuildmcp=%s\n' "$actual"
-if test -n "$2"; then printf 'mcp_transport=ssh-stdio\n'; else printf 'mcp_transport=local-stdio\n'; fi
+printf 'mcp_transport=local-stdio\n'
 printf 'workflows=simulator,ui-automation\n'
 printf 'semantic_input=yes\n'
 REMOTE
     ;;
   devices)
-    remote_zsh <<'REMOTE'
+    run_zsh <<'REMOTE'
 set -eu
 /usr/bin/xcrun simctl list devices available
 REMOTE
@@ -261,7 +211,7 @@ REMOTE
       printf 'A staged source already exists. Run clean-source first.\n' >&2
       exit 2
     fi
-    remote_source="$(remote_zsh <<'REMOTE'
+    remote_source="$(run_zsh <<'REMOTE'
 set -eu
 mktemp -d /tmp/stella-ios-verify.XXXXXX
 REMOTE
@@ -273,8 +223,8 @@ REMOTE
       fi
     done < <(git -C "$local_root" ls-files -co --exclude-standard -z) \
       | tar -C "$local_root" --null -T - -czf - \
-      | remote_raw /usr/bin/tar -xzf - -C "$remote_source"; then
-      remote_zsh "$remote_source" <<'REMOTE' || true
+      | /usr/bin/tar -xzf - -C "$remote_source"; then
+      run_zsh "$remote_source" <<'REMOTE' || true
 path="$1"
 case "$path" in
   /tmp/stella-ios-verify.*) /bin/rm -rf -- "$path" ;;
@@ -301,7 +251,7 @@ REMOTE
     fi
     remote_source="$(read_state_value "$source_state" PATH)"
     validate_scratch_path "$remote_source"
-    remote_zsh "$remote_source" <<'REMOTE'
+    run_zsh "$remote_source" <<'REMOTE'
 set -eu
 path="$1"
 case "$path" in
@@ -318,7 +268,7 @@ REMOTE
       validate_udid "$requested_udid"
     fi
     mkdir -p "$run_dir"
-    boot_result="$(remote_zsh "$requested_udid" <<'REMOTE'
+    boot_result="$(run_zsh "$requested_udid" <<'REMOTE'
 set -eu
 udid="$1"
 if test -z "$udid"; then
@@ -381,7 +331,7 @@ REMOTE
     if [[ -z "$metro_only" ]]; then
       require_free_disk "${STELLA_IOS_MIN_FREE_GB:-30}"
     fi
-    remote_zsh "$mac_repo" "$remote_source" "$boot_udid" "$backend_url" "$no_bundler" "$metro_only" "$metro_port" <<'REMOTE'
+    run_zsh "$mac_repo" "$remote_source" "$boot_udid" "$backend_url" "$no_bundler" "$metro_only" "$metro_port" <<'REMOTE'
 set -eu
 export LANG=en_US.UTF-8
 export LC_ALL=en_US.UTF-8
@@ -421,7 +371,7 @@ REMOTE
     printf '%s' "$minted" | node -e 'const p = JSON.parse(require("fs").readFileSync(0, "utf8")); process.stdout.write(`email=${p.email}\nowner_id=${p.ownerId}\nplan=${p.plan}\n`)'
     ;;
   info)
-    printf 'transport=%s\nmac_repo=%s\n' "${mac_host:-local}" "$mac_repo"
+    printf 'mac_repo=%s\n' "$mac_repo"
     if [[ -f "$sim_state" ]]; then
       cat "$sim_state"
     else
@@ -439,7 +389,7 @@ REMOTE
       printf 'Invalid bundle identifier\n' >&2
       exit 2
     }
-    remote_zsh "$bundle_id" "$(target_udid)" <<'REMOTE'
+    run_zsh "$bundle_id" "$(target_udid)" <<'REMOTE'
 set -eu
 bundle="$1"
 udid="$2"
@@ -468,7 +418,7 @@ REMOTE
     }
     boot_udid="$(read_state_value "$sim_state" UDID)"
     validate_udid "$boot_udid"
-    remote_zsh "$bundle_id" "$boot_udid" <<'REMOTE'
+    run_zsh "$bundle_id" "$boot_udid" <<'REMOTE'
 set -eu
 /usr/bin/xcrun simctl uninstall "$2" "$1"
 REMOTE
@@ -488,7 +438,7 @@ REMOTE
     }
     remote_source="$(read_state_value "$source_state" PATH)"
     validate_scratch_path "$remote_source"
-    remote_zsh "$remote_source" "$remove" <<'REMOTE'
+    run_zsh "$remote_source" "$remove" <<'REMOTE'
 set -eu
 setopt null_glob
 staged="$1"
@@ -525,7 +475,7 @@ REMOTE
     local_path="$2"
     mkdir -p "$(dirname "$local_path")"
     if [[ "$command" == "frame" ]]; then
-      remote_file="$(remote_zsh "$(target_udid)" <<'REMOTE'
+      remote_file="$(run_zsh "$(target_udid)" <<'REMOTE'
 set -eu
 path="/tmp/stella-ios-frame-$$.png"
 /usr/bin/xcrun simctl io "$1" screenshot "$path" >&2
@@ -533,7 +483,7 @@ printf '%s\n' "$path"
 REMOTE
 )"
     else
-      remote_file="$(remote_zsh <<'REMOTE'
+      remote_file="$(run_zsh <<'REMOTE'
 set -eu
 path="/tmp/stella-ios-screen-$$.png"
 /usr/sbin/screencapture -x "$path"
@@ -545,9 +495,9 @@ REMOTE
       printf 'Unexpected remote screenshot path: %s\n' "$remote_file" >&2
       exit 2
     }
-    fetch_remote_file "$remote_file" "$local_path"
+    /bin/cp -- "$remote_file" "$local_path"
     if [[ "$command" == "screen" ]]; then
-      screen_metrics="$(remote_zsh "$remote_file" <<'REMOTE'
+      screen_metrics="$(run_zsh "$remote_file" <<'REMOTE'
 set -eu
 /usr/bin/sips -g pixelWidth -g pixelHeight "$1" | /usr/bin/awk '/pixelWidth/ { w = $2 } /pixelHeight/ { h = $2 } END { printf "%d %d\n", w, h }'
 /usr/bin/osascript -e 'tell application "Finder" to get bounds of window of desktop' | /usr/bin/awk -F'[ ,]+' '{ printf "%d %d\n", $3, $4 }'
@@ -560,7 +510,7 @@ REMOTE
         "$(awk -v px="${pixel_size% *}" -v pt="${point_size% *}" 'BEGIN { if (pt > 0) printf "%.4g", px / pt; else print "unknown" }')"
       printf 'click_coordinates=points (divide pixel coordinates read from this image by scale)\n'
     fi
-    remote_zsh "$remote_file" <<'REMOTE'
+    run_zsh "$remote_file" <<'REMOTE'
 set -eu
 path="$1"
 case "$path" in
@@ -572,7 +522,7 @@ REMOTE
     ;;
   windows)
     require_screen_input
-    remote_zsh "$(target_udid)" <<'REMOTE'
+    run_zsh "$(target_udid)" <<'REMOTE'
 set -eu
 udid="$1"
 if test "$udid" != booted; then
@@ -600,7 +550,7 @@ REMOTE
       exit 2
     }
     require_screen_input
-    remote_zsh "$x" "$y" <<'REMOTE'
+    run_zsh "$x" "$y" <<'REMOTE'
 set -eu
 /usr/bin/osascript -e 'tell application "Simulator" to activate'
 /bin/sleep 0.3
@@ -614,7 +564,7 @@ REMOTE
       exit 2
     }
     require_screen_input
-    remote_zsh "$text" <<'REMOTE'
+    run_zsh "$text" <<'REMOTE'
 set -eu
 /usr/bin/osascript -e 'tell application "Simulator" to activate'
 /bin/sleep 0.3
@@ -628,7 +578,7 @@ REMOTE
       exit 2
     }
     require_screen_input
-    remote_zsh "$key_name" <<'REMOTE'
+    run_zsh "$key_name" <<'REMOTE'
 set -eu
 /usr/bin/osascript -e 'tell application "Simulator" to activate'
 /bin/sleep 0.3
@@ -651,13 +601,13 @@ REMOTE
       printf 'Invalid bundle identifier\n' >&2
       exit 2
     }
-    remote_zsh "$bundle_id" "$(target_udid)" <<'REMOTE'
+    run_zsh "$bundle_id" "$(target_udid)" <<'REMOTE'
 set -eu
 /usr/bin/xcrun simctl launch "$2" "$1"
 REMOTE
     ;;
   logs)
-    remote_zsh "$(target_udid)" <<'REMOTE'
+    run_zsh "$(target_udid)" <<'REMOTE'
 set -eu
 /usr/bin/xcrun simctl spawn "$1" log show --last 5m --style compact --predicate 'process == "Stella"' \
   | /usr/bin/tail -n 300 \
@@ -673,7 +623,7 @@ REMOTE
     boot_started="$(read_state_value "$sim_state" STARTED)"
     validate_udid "$boot_udid"
     if [[ "$boot_started" == "1" ]]; then
-      remote_zsh "$boot_udid" <<'REMOTE'
+      run_zsh "$boot_udid" <<'REMOTE'
 set -eu
 /usr/bin/xcrun simctl shutdown "$1"
 REMOTE

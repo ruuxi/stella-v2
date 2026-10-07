@@ -12,6 +12,10 @@ export type CloudAppsState = {
   httpOrigin: string | null;
 };
 export const isDeployedCloudApp = (app: CloudApp) => app.status === "ready";
+// Every poll is a backend round trip against the owner's objects, so this
+// refreshes slowly and only while the window is actually being looked at; a
+// window that comes back to the foreground refreshes immediately.
+const APPS_REFRESH_MS = 60_000;
 export function useCloudApps(): CloudAppsState {
   const { isCloudConversationReady, accountScope } =
     useCloudConversationSession();
@@ -24,8 +28,18 @@ export function useCloudApps(): CloudAppsState {
   useEffect(() => {
     if (!origin) return;
     let cancelled = false;
-    let timer: ReturnType<typeof setTimeout>;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let loading = false;
+    const visible = () =>
+      typeof document === "undefined" || document.visibilityState !== "hidden";
+    const schedule = () => {
+      clearTimeout(timer);
+      if (cancelled || !visible()) return;
+      timer = setTimeout(() => void load(), APPS_REFRESH_MS);
+    };
     const load = async () => {
+      if (cancelled || loading) return;
+      loading = true;
       try {
         const response = await fetch(`${origin}/owners/me/apps`, {
           headers: await getAuthHeaders(),
@@ -42,13 +56,21 @@ export function useCloudApps(): CloudAppsState {
             apps: previous?.scope === accountScope ? previous.apps : [],
             error: e instanceof Error ? e.message : "Apps could not be loaded.",
           }));
+      } finally {
+        loading = false;
+        schedule();
       }
-      if (!cancelled) timer = setTimeout(() => void load(), 5000);
     };
-    void load();
+    const onVisibilityChange = () => {
+      if (visible()) void load();
+      else clearTimeout(timer);
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    if (visible()) void load();
     return () => {
       cancelled = true;
       clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [origin, accountScope]);
   return useMemo(

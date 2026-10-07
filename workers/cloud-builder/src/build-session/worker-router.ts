@@ -957,29 +957,25 @@ app.all("/workspace-apps/:rest{.*}", (c) => serveWorkspaceApp(c.req.raw, c.env))
 // verifies it and forwards the proven identity to the DO in x-stella-*
 // headers, stripping whatever the client sent under those names first.
 
-const listOwnerApps = async (env: Env, ownerId: string, requestId: string) => {
+// Listing, minting an app URL and serving a preview only read owner state, so
+// none of them takes an activity lease: a lease would turn every poll into
+// durable register/assert/unregister writes, and a stale read cannot outlive a
+// purge because the minted capability carries the generation.
+const listOwnerApps = async (env: Env, ownerId: string) => {
   const world = env.WORLDS.getByName(await worldName(ownerId));
-  const generation = await ownerAccess(env, ownerId);
-  const apps = await cloudHomeLeaseRunner(env)(
-    ownerId,
-    generation,
-    `apps:${requestId}`,
-    async (assertActive) => {
-      await assertActive();
-      return world.listWorkspaceApps();
-    },
-  );
+  await ownerAccess(env, ownerId);
+  const apps = await world.listWorkspaceApps();
   return { world, apps };
 };
 app.get("/owners/me/apps", userAuth(), async (c) => {
-  const { apps } = await listOwnerApps(c.env, c.var.caller.ownerId, c.var.requestId);
+  const { apps } = await listOwnerApps(c.env, c.var.caller.ownerId);
   return json({ apps });
 });
 app.all("/owners/me/apps", methodNotAllowed("Method not allowed"));
 app.post(`/owners/me/apps/:slug{${APP_SLUG}}/session`, userAuth(), async (c) => {
   const { ownerId } = c.var.caller;
   const slug = c.req.param("slug");
-  const { apps } = await listOwnerApps(c.env, ownerId, c.var.requestId);
+  const { apps } = await listOwnerApps(c.env, ownerId);
   if (!apps.some((app) => app.slug === slug && app.status === "ready"))
     return json({ error: "App not found" }, 404);
   return json(await mintWorkspaceAppAccess(c.env, ownerId, slug));
@@ -988,7 +984,7 @@ app.all(`/owners/me/apps/:slug{${APP_SLUG}}/session`, methodNotAllowed("Method n
 app.get(`/owners/me/apps/:slug{${APP_SLUG}}/preview`, userAuth(), async (c) => {
   const { ownerId } = c.var.caller;
   const slug = c.req.param("slug");
-  const { world, apps } = await listOwnerApps(c.env, ownerId, c.var.requestId);
+  const { world, apps } = await listOwnerApps(c.env, ownerId);
   const app = apps.find((entry) => entry.slug === slug && entry.status === "ready");
   if (!app) return json({ error: "App not found" }, 404);
   return await serveWorkspaceAppPreview(c.env, ownerId, app, world);

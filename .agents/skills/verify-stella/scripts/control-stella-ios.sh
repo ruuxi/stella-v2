@@ -42,7 +42,7 @@ Commands:
   source
   clean-source
   boot [udid]
-  build [--no-bundler]
+  build [--no-bundler] [--metro-only] [--port <port>]
   sign-in [--plan pro|go|free] [--email <name>@test.stella.local]
   info
   frame --path <local-png>
@@ -101,10 +101,22 @@ fetch_remote_file() {
   fi
 }
 
+target_udid() {
+  local recorded=""
+  if [[ -f "$sim_state" ]]; then
+    recorded="$(read_state_value "$sim_state" UDID)"
+  fi
+  if [[ -n "$recorded" ]]; then
+    printf '%s\n' "$recorded"
+  else
+    printf 'booted\n'
+  fi
+}
+
 open_url() {
-  remote_zsh "$1" <<'REMOTE'
+  remote_zsh "$1" "$(target_udid)" <<'REMOTE'
 set -eu
-/usr/bin/xcrun simctl openurl booted "$1"
+/usr/bin/xcrun simctl openurl "$2" "$1"
 REMOTE
 }
 
@@ -133,6 +145,25 @@ validate_scratch_path() {
 }
 
 require_screen_input() {
+
+require_free_disk() {
+  local min_free_gb="$1"
+  local free_gb
+  free_gb="$(remote_zsh <<'REMOTE'
+set -eu
+/bin/df -g / | /usr/bin/awk 'NR == 2 { print $4 }'
+REMOTE
+)"
+  [[ "$free_gb" =~ ^[0-9]+$ ]] || {
+    printf 'Could not read free disk space on the Mac.\n' >&2
+    exit 3
+  }
+  if (( free_gb < min_free_gb )); then
+    printf 'Only %s GB free on the Mac; a native build needs about %s GB and filling the disk breaks every tool on it.\nUse `build --metro-only` against the already-installed development build, or free space first (STELLA_IOS_MIN_FREE_GB overrides this floor).\n' "$free_gb" "$min_free_gb" >&2
+    exit 3
+  fi
+}
+
   if ! remote_zsh <<'REMOTE'
 set -eu
 test "$(/usr/bin/osascript -e 'tell application "System Events" to get UI elements enabled')" = true
@@ -310,9 +341,27 @@ REMOTE
     ;;
   build)
     no_bundler=""
-    if [[ "${1:-}" == "--no-bundler" ]]; then
-      no_bundler="--no-bundler"
-    fi
+    metro_only=""
+    metro_port="8081"
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --no-bundler) no_bundler="--no-bundler" ;;
+        --metro-only) metro_only="1" ;;
+        --port)
+          metro_port="${2:-}"
+          [[ "$metro_port" =~ ^[0-9]{2,5}$ ]] || {
+            printf '--port requires a port number\n' >&2
+            exit 2
+          }
+          shift
+          ;;
+        *)
+          printf 'Unknown build option: %s\n' "$1" >&2
+          exit 2
+          ;;
+      esac
+      shift
+    done
     test -f "$source_state" || {
       printf 'No staged source. Run stage first.\n' >&2
       exit 2
@@ -326,7 +375,10 @@ REMOTE
     boot_udid="$(read_state_value "$sim_state" UDID)"
     validate_udid "$boot_udid"
     backend_url="${STELLA_BACKEND_URL:-https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev}"
-    remote_zsh "$mac_repo" "$remote_source" "$boot_udid" "$backend_url" "$no_bundler" <<'REMOTE'
+    if [[ -z "$metro_only" ]]; then
+      require_free_disk "${STELLA_IOS_MIN_FREE_GB:-30}"
+    fi
+    remote_zsh "$mac_repo" "$remote_source" "$boot_udid" "$backend_url" "$no_bundler" "$metro_only" "$metro_port" <<'REMOTE'
 set -eu
 export LANG=en_US.UTF-8
 export LC_ALL=en_US.UTF-8
@@ -335,6 +387,8 @@ staged="$2"
 udid="$3"
 backend="$4"
 no_bundler="$5"
+metro_only="$6"
+metro_port="$7"
 env_file="$repo/packages/mobile/.env.local"
 if test -f "$env_file"; then
   set -a
@@ -346,6 +400,9 @@ cd "$staged"
 bun install --frozen-lockfile
 cd packages/mobile
 bun run i18n:sync
+if test -n "$metro_only"; then
+  exec bunx expo start --dev-client --port "$metro_port"
+fi
 exec bunx expo run:ios --device "$udid" ${no_bundler:+--no-bundler}
 REMOTE
     ;;
@@ -380,10 +437,10 @@ REMOTE
     local_path="$2"
     mkdir -p "$(dirname "$local_path")"
     if [[ "$command" == "frame" ]]; then
-      remote_file="$(remote_zsh <<'REMOTE'
+      remote_file="$(remote_zsh "$(target_udid)" <<'REMOTE'
 set -eu
 path="/tmp/stella-ios-frame-$$.png"
-/usr/bin/xcrun simctl io booted screenshot "$path" >&2
+/usr/bin/xcrun simctl io "$1" screenshot "$path" >&2
 printf '%s\n' "$path"
 REMOTE
 )"
@@ -470,15 +527,15 @@ REMOTE
       printf 'Invalid bundle identifier\n' >&2
       exit 2
     }
-    remote_zsh "$bundle_id" <<'REMOTE'
+    remote_zsh "$bundle_id" "$(target_udid)" <<'REMOTE'
 set -eu
-/usr/bin/xcrun simctl launch booted "$1"
+/usr/bin/xcrun simctl launch "$2" "$1"
 REMOTE
     ;;
   logs)
-    remote_zsh <<'REMOTE'
+    remote_zsh "$(target_udid)" <<'REMOTE'
 set -eu
-/usr/bin/xcrun simctl spawn booted log show --last 5m --style compact --predicate 'process == "Stella"' | /usr/bin/tail -n 300
+/usr/bin/xcrun simctl spawn "$1" log show --last 5m --style compact --predicate 'process == "Stella"' | /usr/bin/tail -n 300
 REMOTE
     ;;
   shutdown)

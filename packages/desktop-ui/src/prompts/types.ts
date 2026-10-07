@@ -1,5 +1,6 @@
 type PromptTemplateValues = {
   "voice_orchestrator.base": undefined
+  "voice_orchestrator.function_call_handoff": undefined
   "synthesis.category_analysis.browsing_bookmarks.system": undefined
   "synthesis.category_analysis.dev_environment.system": undefined
   "synthesis.category_analysis.apps_system.system": undefined

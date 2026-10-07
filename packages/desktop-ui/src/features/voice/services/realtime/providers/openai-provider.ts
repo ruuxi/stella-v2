@@ -5,11 +5,13 @@
  * (`voiceApi.createOpenAISession`) and the connection uses OpenAI's WebRTC
  * realtime endpoint.
  *
- * No tool catalog is sent: Stella's voice model never calls tools itself.
- * On this BYOK route there is no delegation channel either, so the session is
- * conversation-only.
+ * The Realtime API has no delegation channel, so the same two-brain shape is
+ * expressed with function calling: exactly one tool, `ask_stella`, whose
+ * handler runs the orchestrator. Not a tool catalog — the model still has no
+ * actions of its own.
  */
 
+import { ASK_STELLA_SESSION_TOOLS } from "../ask-stella-tool";
 import { OpenAIWebRTCTransport } from "../transports/openai-webrtc-transport";
 import { bearerSdpFetcher } from "../transports/sdp-fetchers";
 import type {
@@ -25,6 +27,8 @@ export const buildOpenAIRealtimeSessionConfig = (
 ): Record<string, unknown> => ({
   type: "realtime",
   instructions: ctx.instructions,
+  tools: [...ASK_STELLA_SESSION_TOOLS],
+  tool_choice: "auto",
 });
 
 export const openaiProvider: ProviderModule = {

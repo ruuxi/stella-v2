@@ -6,10 +6,13 @@
  * endpoint, which is OpenAI-Realtime-compatible at the event level but ships
  * audio in-band rather than over a media track.
  *
- * Conversation-only, like the BYOK OpenAI route: no tool catalog is sent and
- * there is no delegation channel on this protocol.
+ * Like the BYOK OpenAI route it delegates through the single `ask_stella`
+ * function rather than a delegation channel. xAI reports the completed call as
+ * a top-level `response.function_call_arguments.done`, which the delegation
+ * controller accepts alongside OpenAI's `response.output_item.done`.
  */
 
+import { ASK_STELLA_SESSION_TOOLS } from "../ask-stella-tool";
 import { XaiWebSocketTransport } from "../transports/xai-websocket-transport";
 import type { ProviderModule, VoiceSessionToken } from "./types";
 
@@ -38,6 +41,7 @@ export const xaiProvider: ProviderModule = {
       model: token.model,
       voice: token.voice,
       instructions: ctx.instructions,
+      tools: ASK_STELLA_SESSION_TOOLS,
     });
   },
 };

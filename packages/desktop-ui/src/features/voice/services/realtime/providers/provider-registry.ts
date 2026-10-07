@@ -34,12 +34,14 @@ export async function resolveActiveProvider(): Promise<RealtimeProviderKey> {
 
 export async function createRealtimeTransport(
   ctx: ProviderTokenContext,
+  /** Pass the already-resolved route when the caller needed it earlier. */
+  activeProvider?: RealtimeProviderKey,
 ): Promise<{
   transport: RealtimeTransport;
   token: VoiceSessionToken;
   providerKey: RealtimeProviderKey;
 }> {
-  const providerKey = await resolveActiveProvider();
+  const providerKey = activeProvider ?? (await resolveActiveProvider());
   const provider = PROVIDERS[providerKey];
   const token = await provider.fetchToken(ctx);
   const transport = provider.createTransport(token, ctx);

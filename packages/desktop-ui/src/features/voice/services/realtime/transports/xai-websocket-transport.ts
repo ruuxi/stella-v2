@@ -33,6 +33,7 @@ import type {
   RealtimeTransportEvents,
   RealtimeTransportProvider,
 } from "./types";
+import type { RealtimeFunctionTool } from "../ask-stella-tool";
 
 const XAI_REALTIME_URL = "wss://api.x.ai/v1/realtime";
 const SUBPROTOCOL_PREFIX = "xai-client-secret.";
@@ -82,6 +83,8 @@ export interface XaiWebSocketTransportOptions {
   model: string;
   voice: string;
   instructions?: string;
+  /** The single delegation tool. Not a catalog; see ask-stella-tool.ts. */
+  tools?: readonly RealtimeFunctionTool[];
   inputSampleRate?: number;
   outputSampleRate?: number;
 }
@@ -93,6 +96,7 @@ export class XaiWebSocketTransport implements RealtimeTransport {
   private readonly clientSecret: string;
   private readonly voice: string;
   private readonly instructions?: string;
+  private readonly tools?: readonly RealtimeFunctionTool[];
   private readonly inputRate: number;
   private readonly outputRate: number;
 
@@ -117,6 +121,7 @@ export class XaiWebSocketTransport implements RealtimeTransport {
     this.model = options.model;
     this.voice = options.voice;
     this.instructions = options.instructions;
+    this.tools = options.tools;
     this.inputRate = options.inputSampleRate ?? DEFAULT_INPUT_RATE;
     this.outputRate = options.outputSampleRate ?? DEFAULT_OUTPUT_RATE;
 
@@ -240,6 +245,9 @@ export class XaiWebSocketTransport implements RealtimeTransport {
       session: {
         voice: this.voice,
         ...(this.instructions ? { instructions: this.instructions } : {}),
+        ...(this.tools?.length
+          ? { tools: [...this.tools], tool_choice: "auto" }
+          : {}),
         turn_detection: { type: "server_vad" },
         audio: {
           input: {

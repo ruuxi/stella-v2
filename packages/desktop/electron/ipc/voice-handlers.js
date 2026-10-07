@@ -249,9 +249,8 @@ export const registerVoiceHandlers = (options) => {
                     instructions: typeof payload?.instructions === "string"
                         ? payload.instructions
                         : undefined,
-                    ...(payload?.tools?.length
-                        ? { tools: payload.tools, tool_choice: "auto" }
-                        : {}),
+                    // The single ask_stella tool is applied client-side with
+                    // session.update, alongside the rest of the session config.
                     audio: {
                         output: {
                             voice,

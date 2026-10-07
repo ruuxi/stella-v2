@@ -51,12 +51,19 @@ import {
   type ConversationUpdateFeed,
 } from "@/features/voice/services/conversation-updates";
 import { DelegationController } from "./delegation-controller";
+import {
+  createAppendDelegationChannel,
+  createFunctionCallDelegationChannel,
+} from "./delegation-channels";
 import { SessionAppendChannel } from "./session-append-channel";
 import {
   TranscriptAccumulator,
   type CompletedTranscriptTurn,
 } from "./transcript-accumulator";
-import { createRealtimeTransport } from "./providers/provider-registry";
+import {
+  createRealtimeTransport,
+  resolveActiveProvider,
+} from "./providers/provider-registry";
 import { requireVoiceSessionAuthority } from "./providers/types";
 import type {
   RealtimeProviderKey,
@@ -242,16 +249,30 @@ export const buildVoiceStartupHistory = (
 /**
  * The spoken-conversation brief. Short by construction: the orchestrator
  * keeps Stella's real system prompt, and this model only needs to know how to
- * talk and when to hand off. The assertion guards the contract ceiling for a
- * locally edited prompt rather than truncating mid-sentence.
+ * talk and when to hand off.
+ *
+ * The BYOK routes get one extra paragraph, because they hand off by calling
+ * the `ask_stella` function rather than raising a delegation. The policy
+ * itself is the same text in both cases.
+ *
+ * The assertion guards the contract ceiling for a locally edited prompt
+ * rather than truncating mid-sentence.
  */
-const buildVoiceSessionInstructions = (): string => {
-  const instructions = getVoiceSessionPromptConfig().basePrompt.trim();
+const buildVoiceSessionInstructions = (
+  providerKey: RealtimeProviderKey,
+): string => {
+  const prompt = getVoiceSessionPromptConfig();
+  const sections = [prompt.basePrompt.trim()];
+  if (providerKey !== "stella") {
+    const handoff = prompt.functionCallHandoffPrompt.trim();
+    if (handoff) sections.push(handoff);
+  }
+  const instructions = sections.join("\n\n");
   if (instructions.length <= VOICE_INSTRUCTIONS_MAX_CHARS) {
     return instructions;
   }
   throw new Error(
-    `The voice prompt is ${instructions.length} characters, over the ${VOICE_INSTRUCTIONS_MAX_CHARS} GPT-Live accepts. Shorten it in Prompts.`,
+    `The voice prompt is ${instructions.length} characters, over the ${VOICE_INSTRUCTIONS_MAX_CHARS} limit. Shorten it in Prompts.`,
   );
 };
 
@@ -386,15 +407,21 @@ export class RealtimeVoiceSession {
           );
           return null;
         });
-      const instructions = buildVoiceSessionInstructions();
+      // The route decides how the model hands off, so it has to be known
+      // before the brief is written.
+      const activeProvider = await resolveActiveProvider();
+      const instructions = buildVoiceSessionInstructions(activeProvider);
       const history = buildVoiceStartupHistory(orchestratorConfig?.history);
       if (this.destroyed) return;
 
-      const { transport, token, providerKey } = await createRealtimeTransport({
-        conversationId,
-        instructions,
-        history,
-      });
+      const { transport, token, providerKey } = await createRealtimeTransport(
+        {
+          conversationId,
+          instructions,
+          history,
+        },
+        activeProvider,
+      );
       if (this.destroyed) {
         await transport.disconnect().catch(() => undefined);
         return;
@@ -584,8 +611,14 @@ export class RealtimeVoiceSession {
   }
 
   private startDelegation() {
+    // GPT-Live answers out of band; the Realtime routes answer the function
+    // call that asked. Everything between those two ends is shared.
+    const channel =
+      this.sessionProvider === "stella"
+        ? createAppendDelegationChannel(this.appends)
+        : createFunctionCallDelegationChannel((event) => this.sendEvent(event));
     this.delegation = new DelegationController({
-      appends: this.appends,
+      channel,
       transcript: this.transcript,
       getConversationId: () => this.conversationId,
       isInputActive: () => this.inputActive,
@@ -622,8 +655,15 @@ export class RealtimeVoiceSession {
    * Attach the conversation stream and adopt its current contents as already
    * known, so opening a call does not narrate the history the startup
    * `history` field already carried.
+   *
+   * Managed route only: mid-call context needs a channel that does not take a
+   * conversation turn, and `session.thinking.append` is the only one of those.
+   * Pushing the same updates into a Realtime session would mean writing
+   * conversation items behind the model's back, which is the desync the
+   * two-brain design removed.
    */
   private async startConversationUpdates(conversationId: string) {
+    if (this.sessionProvider !== "stella") return;
     const feed = createConversationUpdateFeed({
       conversationId,
       onUpdate: (update) => this.handleConversationUpdate(update),
@@ -959,7 +999,8 @@ export class RealtimeVoiceSession {
     const type = typeof event.type === "string" ? event.type : "";
 
     if (this.appends.handleEvent(event)) return;
-    if (this.delegation?.handleEvent(event)) return;
+    if (this.delegation?.handleDelegationEvent(event)) return;
+    if (this.delegation?.handleFunctionCallEvent(event)) return;
 
     switch (type) {
       case "session.started":

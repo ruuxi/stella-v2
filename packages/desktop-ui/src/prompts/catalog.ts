@@ -86,6 +86,22 @@ How to delegate:
 When the user clearly ends it — "bye", "goodbye", "see you later", "goodnight" — give one short, warm goodbye. The call may close itself afterwards.`,
     render: renderStatic,
   },
+  "voice_orchestrator.function_call_handoff": {
+    id: "voice_orchestrator.function_call_handoff",
+    module: "voice_orchestrator",
+    title: "Voice Handoff Addendum (own API key)",
+    defaultText: `# Handing off
+
+You have exactly one tool: \`ask_stella\`. It is how you reach Stella's backend, and the delegation policy above is what decides when to use it.
+
+- Call \`ask_stella\` with a \`request\`: one plain-language sentence saying what the user wants, in your own words.
+- Include anything the backend needs that only came up out loud — names, which item they meant, the file or app in question. Leave out spoken filler.
+- Say one short preamble first, then call it. Do not announce the tool, and do not say the word "tool".
+- It returns the answer. Tell the user that answer in your own words, briefly. Do not claim anything is done before it comes back.
+- Do not call it for greetings, small talk, acknowledgments, a clarifying question, or stable general knowledge.
+- One call per request. If the user changes their mind mid-task, call it again with the new request and ignore the earlier answer.`,
+    render: renderStatic,
+  },
   "synthesis.category_analysis.browsing_bookmarks.system": {
     id: "synthesis.category_analysis.browsing_bookmarks.system",
     module: "synthesis",

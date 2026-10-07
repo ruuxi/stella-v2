@@ -774,7 +774,8 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "מגניב מאוד.",
-        "signinDone": "בוצע."
+        "signinDone": "בוצע.",
+        "signinSkipped": "אעשה את זה מאוחר יותר."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -924,7 +925,7 @@
       },
       "signin": {
         "title": "התחברות",
-        "body": "כדי להתחיל, יש להתחבר עם חשבון Stella. אפשר להוסיף גם את המינוי ל-Claude או ל-ChatGPT.",
+        "body": "אחת מהאפשרויות מספיקה. אפשר להוסיף את האחרות אחר כך.",
         "options": {
           "stella": {
             "title": "חשבון Stella",
@@ -946,9 +947,11 @@
         "waiting": "סיים את ההתחברות בדפדפן, ואז חזור לכאן.",
         "error": "ההתחברות לא הצליחה. לנסות שוב?",
         "fine": "אפשר לשנות זאת בכל רגע בהגדרות.",
+        "skip": "לא עכשיו",
         "hint": "ההתחלה בחינם.",
         "settledEngine": "משתמש ב-{name}",
         "settledStella": "מחובר ל-Stella",
+        "settledSkipped": "עוד לא מחובר",
         "settledDesc": "אפשר לשנות זאת בכל רגע בהגדרות.",
         "claudeCliMissing": "קודם צריך להתקין את Claude Code, ואז לנסות שוב."
       },
@@ -998,6 +1001,7 @@
     },
     "capabilityRestriction": {
       "title": "התכונה {capability} לא כלולה בתוכנית שלך",
+      "signIn": "התכונה {capability} כלולה ב-Stella {plan}. התחבר כדי לשדרג ולפתוח אותה.",
       "upgrade": "התכונה {capability} כלולה ב-Stella {plan}. שדרג כדי לפתוח אותה.",
       "unavailable": "התכונה {capability} לא זמינה באף תוכנית כרגע.",
       "lockedBadge": "{plan}",
@@ -2003,6 +2007,7 @@
       "sendFailed": "שליחת אימייל ההתחברות נכשלה.",
       "magicLinkFailed": "שליחת הקישור הקסום נכשלה.",
       "finishFailed": "לא ניתן היה לסיים את ההתחברות. נסה שוב.",
+      "signInIncomplete": "ההתחברות לא הושלמה. נסה שוב.",
       "signInLinkExpired": "תוקף קישור ההתחברות פג. נסה שוב.",
       "tooManyRequests": {
         "one": "יותר מדי בקשות. נסה שוב בעוד שנייה {count}.",
@@ -2152,6 +2157,7 @@
         "computerDone": "מחובר!",
         "computerSkipped": "אולי אחר כך.",
         "accountDone": "הכול מוכן.",
+        "accountSkipped": "לא עכשיו.",
         "themeDone": "זה.",
         "themeSkipped": "להשאיר את ברירת המחדל."
       },
@@ -2300,7 +2306,10 @@
         "connect": "חיבור",
         "connectLabel": "חיבור {name}",
         "connectedAs": "מחובר · {name}",
-        "settledSignedIn": "מחוברים"
+        "skip": "לא עכשיו",
+        "settledSignedIn": "מחוברים",
+        "settledGuest": "משתמשים ב-Stella כאורחים",
+        "guestSettled": "אפשר להתחבר בכל זמן דרך ההגדרות"
       },
       "theme": {
         "appearance": "מראה",
@@ -2359,7 +2368,8 @@
       "legalTerms": "תנאי השירות",
       "legalConjunction": " ול",
       "legalPrivacy": "מדיניות הפרטיות",
-      "legalSuffix": "."
+      "legalSuffix": ".",
+      "continueAsGuest": "המשך ללא התחברות"
     },
     "chat": {
       "emptyPrompt": "שאלו את Stella כל דבר",
@@ -2426,6 +2436,8 @@
       }
     },
     "computer": {
+      "guestHeroTitle": "המחשב שלכם, בהישג יד",
+      "guestHeroBody": "בקשו מ-Stella לעשות דברים במחשב שלכם — לגלוש ברשת, לנהל קבצים, להריץ משימות ועוד.",
       "defaultDeviceLabel": "המחשב שלכם",
       "statusChecking": "בודק…",
       "statusConnected": "מחובר",
@@ -2437,6 +2449,8 @@
     },
     "desktop": {
       "pairTitle": "חברו את הטלפון שלכם",
+      "guestBody": "ראו את אפליקציית Stella למחשב ישירות בטלפון. אחרי החיבור הטלפון יתחבר מחדש אוטומטית.",
+      "guestSignInPrompt": "התחברו כדי להתחיל.",
       "connecting": "מתחבר למחשב",
       "pairing": "מחבר את הטלפון הזה",
       "unreachable": "אין גישה למחשב שלכם",

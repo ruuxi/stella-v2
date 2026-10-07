@@ -9,7 +9,7 @@ import { billingControl } from "./billing-control.js";
 /**
  * USAGE_QUEUE consumer. Each batch settles into the owners' billing ledgers
  * on cloud-builder (`BillingControl.ingestUsage`), which also takes the
- * owners' risk signals from it.
+ * owners' risk signals and the anonymous network allowance from it.
  * Settlement is idempotent on `requestId`, so a retried batch is safe.
  *
  *   settled   ack the whole batch (rejections are logged, never retried).

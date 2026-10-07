@@ -76,28 +76,11 @@ export const readOnboardingChatProgress = (): OnboardingChatProgress | null => {
         if (isStep(step) && isAnswer(answer)) answers[step] = answer;
       }
     }
-    if (answers.signin === "skipped") return rewindToSignIn(answers);
     return { step: parsed.step, answers };
   } catch {
     uiState.removeItem(PROGRESS_KEY);
     return null;
   }
-};
-
-const rewindToSignIn = (
-  answers: OnboardingChatProgress["answers"],
-): OnboardingChatProgress => {
-  const kept: OnboardingChatProgress["answers"] = {};
-  for (const step of ONBOARDING_CHAT_STEPS) {
-    if (step === "signin") break;
-    kept[step] = answers[step] ?? "done";
-  }
-  return { step: "signin", answers: kept };
-};
-
-/** Brings a returning, signed-out user back to the sign-in step. */
-export const reopenOnboardingChatAtSignIn = () => {
-  writeOnboardingChatProgress(rewindToSignIn({}));
 };
 
 export const writeOnboardingChatProgress = (

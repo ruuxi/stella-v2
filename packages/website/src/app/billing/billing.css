@@ -161,6 +161,20 @@
   letter-spacing: 0.02em;
 }
 
+.billing-anonymous-policy {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  max-width: 620px;
+}
+
+.billing-anonymous-policy p {
+  margin: 0;
+  color: var(--billing-muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
 .billing-meter-track {
   height: 3px;
   border-radius: 2px;

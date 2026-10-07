@@ -1740,7 +1740,6 @@
         "fromOtherComputers": "Modifications de votre autre ordinateur",
         "readyChange": "Une modification prête à ajouter",
         "add": "Ajouter",
-        "get": "Récupérer",
         "adding": "Ajout…",
         "skip": "Ignorer",
         "undoing": "Annulation…",
@@ -1748,7 +1747,6 @@
         "justNow": "À l’instant",
         "waiting": "En attente",
         "history": "Historique",
-        "skipped": "Ignorées",
         "upToDate": "Rien en attente"
       }
     },
@@ -2157,6 +2155,7 @@
         "computerDone": "Connecté !",
         "computerSkipped": "Plus tard.",
         "accountDone": "C'est fait.",
+        "accountSkipped": "Pas maintenant.",
         "themeDone": "Celui-ci.",
         "themeSkipped": "Garder celui par défaut."
       },
@@ -2305,7 +2304,10 @@
         "connect": "Connecter",
         "connectLabel": "Connecter {name}",
         "connectedAs": "Connecté · {name}",
-        "settledSignedIn": "Connecté"
+        "skip": "Pas maintenant",
+        "settledSignedIn": "Connecté",
+        "settledGuest": "Stella en mode invité",
+        "guestSettled": "Connectez-vous à tout moment depuis Paramètres"
       },
       "theme": {
         "appearance": "Apparence",
@@ -2364,7 +2366,8 @@
       "legalTerms": "Conditions",
       "legalConjunction": " et notre ",
       "legalPrivacy": "Politique de confidentialité",
-      "legalSuffix": "."
+      "legalSuffix": ".",
+      "continueAsGuest": "Continuer sans se connecter"
     },
     "chat": {
       "emptyPrompt": "Demandez ce que vous voulez à Stella",
@@ -2431,6 +2434,8 @@
       }
     },
     "computer": {
+      "guestHeroTitle": "Votre ordinateur à portée de main",
+      "guestHeroBody": "Demandez à Stella d'agir sur votre ordinateur : naviguer sur le web, gérer des fichiers, exécuter des tâches et bien plus.",
       "defaultDeviceLabel": "Votre ordinateur",
       "statusChecking": "Vérification…",
       "statusConnected": "Connecté",
@@ -2442,6 +2447,8 @@
     },
     "desktop": {
       "pairTitle": "Associez votre téléphone",
+      "guestBody": "Retrouvez votre app de bureau Stella directement sur votre téléphone. Après l'association, votre téléphone se reconnectera automatiquement.",
+      "guestSignInPrompt": "Connectez-vous pour commencer.",
       "connecting": "Connexion au bureau",
       "pairing": "Association de ce téléphone",
       "unreachable": "Impossible de joindre votre ordinateur de bureau",

@@ -208,6 +208,7 @@ export const sharesDomain = {
   calls: {
     "shares.publish": {
       scope: "owner",
+      requireAccount: true,
       // JSON-escaped HTML runs larger than its byte cap.
       maxBodyBytes: SHARE_MAX_HTML_BYTES * 2,
       parse: object({
@@ -218,6 +219,7 @@ export const sharesDomain = {
     },
     "shares.revoke": {
       scope: "owner",
+      requireAccount: true,
       parse: object({ slug: string({ min: 1, max: 128 }) }),
       handler: revoke,
     },

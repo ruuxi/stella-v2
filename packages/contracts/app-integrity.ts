@@ -25,12 +25,15 @@ export const APP_INTEGRITY_CHALLENGE_PATH = "/api/auth/integrity/challenge" as c
 /** Nonces are single-use and expire this long after issuance. */
 export const APP_INTEGRITY_NONCE_TTL_MS = 5 * 60_000;
 
-export type AppIntegrityPurpose = "magic-link";
+export type AppIntegrityPurpose = "anonymous-sign-in" | "magic-link";
 
-export const APP_INTEGRITY_PURPOSES: readonly AppIntegrityPurpose[] = ["magic-link"];
+export const APP_INTEGRITY_PURPOSES: readonly AppIntegrityPurpose[] = [
+  "anonymous-sign-in",
+  "magic-link",
+];
 
 export const isAppIntegrityPurpose = (value: unknown): value is AppIntegrityPurpose =>
-  value === "magic-link";
+  value === "anonymous-sign-in" || value === "magic-link";
 
 /** `POST /api/auth/integrity/challenge` body and response. */
 export type AppIntegrityChallengeRequest = { purpose: AppIntegrityPurpose };
@@ -38,7 +41,8 @@ export type AppIntegrityChallengeResponse = { nonce: string; expiresAt: number }
 
 /**
  * The string both sides feed to the platform API. iOS hashes it to the
- * clientDataHash; Android hashes it to the requestHash.
+ * clientDataHash; Android hashes it to the requestHash. Binding the purpose
+ * means a nonce minted for a magic link cannot vouch for an anonymous sign-in.
  */
 export const appIntegrityChallengeString = (
   purpose: AppIntegrityPurpose,

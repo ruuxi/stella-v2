@@ -78,7 +78,7 @@ if (typeof window !== "undefined") {
 
 /**
  * The target a send carries. Cloud and other computers run under a signed-in
- * account (the runtime's placement bridge refuses signed-out runtimes), so a
+ * account (the runtime's placement bridge refuses anonymous sessions), so a
  * signed-out send runs here; the stored choice applies again after sign-in.
  */
 export const getExecutionTargetSnapshot = (): DesktopExecutionTarget =>

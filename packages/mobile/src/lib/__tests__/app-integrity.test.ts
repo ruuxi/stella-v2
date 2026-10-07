@@ -116,11 +116,11 @@ describe("mobile app integrity", () => {
     platform = "ios";
 
     const firstProof = decodeAppIntegrityProof(
-      await getAppIntegrityProof("magic-link"),
+      await getAppIntegrityProof("anonymous-sign-in"),
     );
     expect(firstProof).toEqual({
       platform: "ios",
-      purpose: "magic-link",
+      purpose: "anonymous-sign-in",
       nonce: "nonce-0000000000000001",
       keyId: "a2V5LTE=",
       attestation: "YXR0ZXN0YXRpb24=",
@@ -130,7 +130,7 @@ describe("mobile app integrity", () => {
       {
         keyId: "a2V5LTE=",
         challenge: appIntegrityChallengeString(
-          "magic-link",
+          "anonymous-sign-in",
           "nonce-0000000000000001",
         ),
       },
@@ -149,7 +149,7 @@ describe("mobile app integrity", () => {
 
     const attemptedProofs: AppIntegrityProof[] = [];
     const retryResult = await requestWithAppIntegrity({
-      purpose: "magic-link",
+      purpose: "anonymous-sign-in",
       request: async (encodedProof) => {
         const proof = decodeAppIntegrityProof(encodedProof);
         if (!proof) throw new Error("expected an integrity proof");
@@ -164,14 +164,14 @@ describe("mobile app integrity", () => {
     expect(attemptedProofs).toEqual([
       {
         platform: "ios",
-        purpose: "magic-link",
+        purpose: "anonymous-sign-in",
         nonce: "nonce-0000000000000003",
         keyId: "a2V5LTE=",
         assertion: "YXNzZXJ0aW9u",
       },
       {
         platform: "ios",
-        purpose: "magic-link",
+        purpose: "anonymous-sign-in",
         nonce: "nonce-0000000000000004",
         keyId: "a2V5LTE=",
         attestation: "YXR0ZXN0YXRpb24=",

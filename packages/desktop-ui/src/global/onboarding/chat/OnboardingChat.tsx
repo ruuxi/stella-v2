@@ -121,17 +121,8 @@ export function OnboardingChat({ isAuthenticated, onComplete }: OnboardingChatPr
   const [activeLegalDoc, setActiveLegalDoc] = useState<LegalDocument | null>(null);
   const markRef = useRef<StellaMarkHandle | null>(null);
 
-  const {
-    entries,
-    currentStep,
-    answers,
-    indicator,
-    exiting,
-    answer,
-    finish,
-    skipToSignIn,
-  } = useOnboardingChat({ onFinished: onComplete });
-  const signInDone = isAuthenticated || answers.signin === "done";
+  const { entries, currentStep, answers, indicator, exiting, answer, finish } =
+    useOnboardingChat({ onFinished: onComplete });
 
   // Composer state — fully controlled, like the real chat surfaces.
   const [message, setMessage] = useState("");
@@ -139,12 +130,8 @@ export function OnboardingChat({ isAuthenticated, onComplete }: OnboardingChatPr
   const handleSend = useCallback(() => {
     const text = message.trim();
     if (!text) return;
-    if (!signInDone) {
-      skipToSignIn();
-      return;
-    }
     finish({ composerDraft: { text, send: true } });
-  }, [finish, message, signInDone, skipToSignIn]);
+  }, [finish, message]);
 
   const handleStart = useCallback(
     (draft?: PendingComposerDraft) => {
@@ -154,10 +141,7 @@ export function OnboardingChat({ isAuthenticated, onComplete }: OnboardingChatPr
     [finish],
   );
 
-  const handleSkipAll = useCallback(() => {
-    if (signInDone) finish({});
-    else skipToSignIn();
-  }, [finish, signInDone, skipToSignIn]);
+  const handleSkipAll = useCallback(() => finish({}), [finish]);
 
   /* ── Scrolling ────────────────────────────────────────────────────
    * A new assistant message scrolls into view from its top (cards are
@@ -441,7 +425,7 @@ export function OnboardingChat({ isAuthenticated, onComplete }: OnboardingChatPr
           size="small"
           variant="ghost"
           className="obc-dragbar__skip"
-          disabled={exiting || (!signInDone && currentStep === "signin")}
+          disabled={exiting}
           onClick={handleSkipAll}
         >
           {t("onboarding.chat.skipSetup")}

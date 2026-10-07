@@ -19,7 +19,13 @@ export type OwnerSnapshot = {
   ownerGeneration: string;
   /** Owner purged, write-fenced, or suspended: the gate refuses every admission. */
   writable: boolean;
-  /** Identity ladder rung (1 email … 3 paying); drives allowance shares. */
+  /**
+   * Anonymous (signed-out) owner. The chat lane is admitted under the
+   * anonymous allowance; the agent lane, app builds, and every helper that
+   * spends outside the model gateway answer `sign_in_required`.
+   */
+  isAnonymous: boolean;
+  /** Identity ladder rung (0 anonymous … 3 paying); drives allowance shares. */
   identityLevel: IdentityLevel;
   /** Enforcement status; absent means `ok`. Suspended also sets `writable: false`. */
   enforcement?: OwnerEnforcement;

@@ -71,6 +71,12 @@ const registry = createOwnerRegistry([
         parse: object({ who: string() }),
         handler: (ctx: any, args: { who: string }) => `${args.who}:${ctx.caller.subject}`,
       },
+      "test.accountOnly": {
+        scope: "global",
+        requireAccount: true,
+        parse: object({}),
+        handler: () => "ok",
+      },
     },
   } as unknown as OwnerDomain,
 ]);
@@ -126,8 +132,8 @@ describe("backend routes", () => {
     })));
     const forged = `${header}.${forgedPayload}.${signature}`;
     expect((await handleRpc(post("test.owner", {}, forged), env, registry)).status).toBe(401);
-    const anonymous = await handleRpc(post("test.owner", {}, await mint({ anon: true })), env, registry);
-    expect(anonymous.status).toBe(401);
+    const anonymous = await handleRpc(post("test.accountOnly", {}, await mint({ anon: true })), env, registry);
+    expect(anonymous.status).toBe(403);
     expect(ownerCalls).toEqual([]);
   });
 
@@ -151,6 +157,7 @@ describe("backend routes", () => {
     expect(await response!.text()).toBe("upgraded");
     const forwarded = forwardedLive[0]!;
     expect(forwarded.headers.get("x-stella-owner")).toBe("user-1");
+    expect(forwarded.headers.get("x-stella-anonymous")).toBe("0");
     expect(forwarded.headers.get("sec-websocket-protocol")).toBe("stella.live.v1");
   });
 

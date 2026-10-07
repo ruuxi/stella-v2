@@ -774,7 +774,8 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Foarte tare.",
-        "signinDone": "Gata."
+        "signinDone": "Gata.",
+        "signinSkipped": "O fac mai târziu."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -924,7 +925,7 @@
       },
       "signin": {
         "title": "Conectează-te",
-        "body": "Conectează-te cu un cont Stella ca să începi. Poți adăuga și abonamentul tău Claude sau ChatGPT.",
+        "body": "Oricare dintre acestea este de ajuns. Le poți adăuga pe celelalte mai târziu.",
         "options": {
           "stella": {
             "title": "Cont Stella",
@@ -946,9 +947,11 @@
         "waiting": "Termină autentificarea în browser, apoi revino aici.",
         "error": "Nu s-a conectat. Încerci din nou?",
         "fine": "Schimbă asta oricând din Setări.",
+        "skip": "Nu acum",
         "hint": "Gratuit la început.",
         "settledEngine": "Folosești {name}",
         "settledStella": "Conectat la Stella",
+        "settledSkipped": "Încă neconectat",
         "settledDesc": "Schimbă oricând din Setări.",
         "claudeCliMissing": "Instalează mai întâi Claude Code, apoi încearcă din nou."
       },
@@ -998,6 +1001,7 @@
     },
     "capabilityRestriction": {
       "title": "{capability} nu este în planul tău",
+      "signIn": "{capability} face parte din Stella {plan}. Conectează-te și fă upgrade pentru a debloca funcția.",
       "upgrade": "{capability} face parte din Stella {plan}. Fă upgrade pentru a debloca funcția.",
       "unavailable": "Momentan, {capability} nu se găsește în niciun plan.",
       "lockedBadge": "{plan}",
@@ -2003,6 +2007,7 @@
       "sendFailed": "Trimiterea e-mailului de conectare a eșuat.",
       "magicLinkFailed": "Trimiterea linkului magic a eșuat.",
       "finishFailed": "Conectarea nu a putut fi finalizată. Încearcă din nou.",
+      "signInIncomplete": "Conectare incompletă. Încearcă din nou.",
       "signInLinkExpired": "Linkul de conectare a expirat. Încearcă din nou.",
       "tooManyRequests": {
         "one": "Prea multe cereri. Încearcă din nou în {count} secundă.",
@@ -2152,6 +2157,7 @@
         "computerDone": "Conectat!",
         "computerSkipped": "Poate mai târziu.",
         "accountDone": "Gata.",
+        "accountSkipped": "Omite deocamdată.",
         "themeDone": "Pe acesta.",
         "themeSkipped": "Las-o pe cea implicită."
       },
@@ -2300,7 +2306,10 @@
         "connect": "Conectează",
         "connectLabel": "Conectează {name}",
         "connectedAs": "Conectat · {name}",
-        "settledSignedIn": "Te-ai conectat"
+        "skip": "Omite deocamdată",
+        "settledSignedIn": "Te-ai conectat",
+        "settledGuest": "Folosești Stella fără cont",
+        "guestSettled": "Te poți conecta oricând din Setări"
       },
       "theme": {
         "appearance": "Aspect",
@@ -2359,7 +2368,8 @@
       "legalTerms": "Termenii",
       "legalConjunction": " și ",
       "legalPrivacy": "Politica de confidențialitate",
-      "legalSuffix": "."
+      "legalSuffix": ".",
+      "continueAsGuest": "Continuă fără conectare"
     },
     "chat": {
       "emptyPrompt": "Întreab-o pe Stella orice",
@@ -2426,6 +2436,8 @@
       }
     },
     "computer": {
+      "guestHeroTitle": "Computerul tău, la îndemână",
+      "guestHeroBody": "Cere-i Stellei să facă lucruri pe computerul tău — să navigheze pe web, să gestioneze fișiere, să ruleze sarcini și multe altele.",
       "defaultDeviceLabel": "Computerul tău",
       "statusChecking": "Se verifică…",
       "statusConnected": "Conectat",
@@ -2437,6 +2449,8 @@
     },
     "desktop": {
       "pairTitle": "Asociază-ți telefonul",
+      "guestBody": "Vezi aplicația desktop Stella direct pe telefon. După asociere, telefonul se va reconecta automat.",
+      "guestSignInPrompt": "Conectează-te ca să începi.",
       "connecting": "Se conectează la desktop",
       "pairing": "Se asociază acest telefon",
       "unreachable": "Nu putem ajunge la desktopul tău",

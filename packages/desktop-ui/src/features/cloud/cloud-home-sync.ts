@@ -651,7 +651,7 @@ export const runCloudHomeSync = async (
           undefined,
           confirmationRequired
             ? "Confirm which account owns this Mac's local memory and custom skills before importing them."
-            : importOwnership === "signed_out"
+            : importOwnership === "anonymous"
               ? "Sign in to a connected account before importing this Mac's local memory and custom skills."
               : importOwnership === "corrupt"
                 ? "Stella could not verify this Mac's durable local-import owner record, so no local memory or skills were uploaded."

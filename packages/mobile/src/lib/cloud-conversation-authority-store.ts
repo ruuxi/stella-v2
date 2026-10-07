@@ -23,7 +23,7 @@ export type CloudAuthorityStorePorts = {
   resolve: (
     identity: CloudConversationIdentity,
   ) => Promise<CloudConversationAuthority>;
-  describeFailure: (error: unknown) => CloudAuthorityIssue;
+  describeFailure: (error: unknown, anonymous: boolean) => CloudAuthorityIssue;
   /**
    * Runs exactly once per identity-key change, before the new handshake
    * starts: the moment to drop the previous subject's bearer token and retire
@@ -45,6 +45,7 @@ export type CloudAuthorityStorePorts = {
  */
 export class CloudConversationAuthorityStore {
   private identity: CloudConversationIdentity | null = null;
+  private anonymous = false;
   private entry: CloudAuthorityEntry | null = null;
   private inflight: Promise<void> | null = null;
   private generation = 0;
@@ -66,13 +67,18 @@ export class CloudConversationAuthorityStore {
    * for the same identity key. Returns the promise for whichever handshake is
    * current, settled (never rejected) once it lands in the snapshot.
    */
-  ensure(identity: CloudConversationIdentity): Promise<void> {
+  ensure(
+    identity: CloudConversationIdentity,
+    anonymous: boolean,
+  ): Promise<void> {
     if (this.identity?.identityKey === identity.identityKey && this.entry) {
+      this.anonymous = anonymous;
       return this.inflight ?? Promise.resolve();
     }
     this.generation += 1;
     this.ports.onIdentityChange(identity);
     this.identity = identity;
+    this.anonymous = anonymous;
     return this.start();
   }
 
@@ -112,7 +118,7 @@ export class CloudConversationAuthorityStore {
         this.entry = {
           status: "failed",
           identityKey: identity.identityKey,
-          issue: this.ports.describeFailure(error),
+          issue: this.ports.describeFailure(error, this.anonymous),
         };
         this.emit();
       },

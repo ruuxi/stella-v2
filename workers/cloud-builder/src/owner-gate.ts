@@ -13,6 +13,7 @@ import { RpcError, toBackendError } from "./owner-store/errors.js";
 import { applyOwnerEventsToStore } from "./owner-store/owner-events.js";
 import type { RpcResponse } from "@stella/contracts/backend/protocol";
 import {
+  HEADER_ANONYMOUS,
   HEADER_IDENTITY_LEVEL,
   HEADER_OWNER,
   HEADER_SESSION,
@@ -79,6 +80,7 @@ import {
 import {
   abuseState,
   admitSession,
+  chargeAnonymousNetworks,
   enforcementForSnapshot,
   readEnforcement,
   recordGatewayUsageRisk,
@@ -730,6 +732,7 @@ const trustedOwnerCaller = (request: Request): OwnerCaller | null => {
     subject,
     sessionId,
     expiresAtMs,
+    isAnonymous: request.headers.get(HEADER_ANONYMOUS) === "1",
     ...(identityLevel === 0 || identityLevel === 1 || identityLevel === 2 || identityLevel === 3
       ? { identityLevel }
       : {}),
@@ -922,7 +925,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   /**
    * A session capability for a client runtime, asked for by the model
    * gateway. The abuse domain rules on admission (step-up, sybil pressure,
-   * suspension); this ledger reserves the
+   * suspension, the anonymous request chunk); this ledger reserves the
    * budget, and this Worker signs the capability.
    */
   async issueSessionCapability(
@@ -938,12 +941,12 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     }
     const admission = await this.billingWrite((ctx) => admitSession(ctx, { ...request, paying, snapshot }));
     if (!admission.ok) return admission;
-    const { ownerGeneration, identityLevel } = admission.body;
+    const { ownerGeneration, isAnonymous, identityLevel, maxRequests } = admission.body;
     const jti = crypto.randomUUID();
     const expiresAt =
       (Math.floor(now / 1000) + Math.ceil(GATEWAY_SESSION_CAPABILITY_TTL_MS / 1000)) * 1000;
     const grant = await this.billingWrite((ctx) => {
-      recordBillingIdentity(ctx, { identityLevel });
+      recordBillingIdentity(ctx, { isAnonymous, identityLevel });
       return reserveSessionGrant(ctx, { jti, expiresAt });
     });
     const signed = await signCapability(
@@ -956,6 +959,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         kind: "session",
         audience: grant.audience,
         budgetMicroCents: grant.budgetMicroCents,
+        ...(maxRequests !== undefined ? { maxRequests } : {}),
       },
       await capabilitySigningKey(this.env),
       { ttlMs: GATEWAY_SESSION_CAPABILITY_TTL_MS, now },
@@ -968,6 +972,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         audience: grant.audience,
         budgetMicroCents: grant.budgetMicroCents,
         identityLevel: grant.identityLevel,
+        ...(maxRequests !== undefined ? { maxRequests } : {}),
       },
     };
   }
@@ -981,6 +986,11 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       return settled;
     });
     const accepted = events.filter((event) => result.accepted.includes(event.requestId));
+    await chargeAnonymousNetworks(this.env as Cloudflare.Env, accepted, Date.now()).catch((error: unknown) => {
+      log("error", "anon_network_allowance_failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
     await this.reportCharges(accepted);
     return result;
   }
@@ -1057,8 +1067,12 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   }
 
   /** What this owner may spend now. */
-  async billingAccess(): Promise<BillingAccess> {
-    return billingAccess(this.ownerStore().context(null));
+  async billingAccess(identity?: { isAnonymous: boolean }): Promise<BillingAccess> {
+    if (!identity) return billingAccess(this.ownerStore().context(null));
+    return await this.billingWrite((ctx) => {
+      recordBillingIdentity(ctx, identity);
+      return billingAccess(ctx);
+    });
   }
 
   /** Admin and test accounts: set the plan outside Stripe. */
@@ -1404,11 +1418,12 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         ownerId: this.ownerId(),
         ownerGeneration: state.generation,
         writable: state.writable && enforcement?.status !== "suspended",
+        isAnonymous: state.isAnonymous,
         identityLevel: state.identityLevel,
         ...(enforcement ? { enforcement } : {}),
         plan: "free",
         allowance: {
-          audience: "free",
+          audience: state.isAnonymous ? "anonymous" : "free",
           budgetMicroCents: 0,
         },
         ...snapshotDevices(ctx.db),
@@ -1418,7 +1433,10 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       };
       let billing: ReturnType<typeof turnAllowance>;
       try {
-        recordBillingIdentity(ctx, { identityLevel: state.identityLevel });
+        recordBillingIdentity(ctx, {
+          isAnonymous: state.isAnonymous,
+          identityLevel: state.identityLevel,
+        });
         billing = turnAllowance(ctx);
       } catch (error) {
         if (!(error instanceof BillingConfigError)) throw error;
@@ -1439,7 +1457,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   }
 
   /** Record the identity a Worker-verified token claims, for the snapshot. */
-  async noteIdentity(input: { identityLevel?: IdentityLevel }): Promise<void> {
+  async noteIdentity(input: { isAnonymous: boolean; identityLevel?: IdentityLevel }): Promise<void> {
     const store = this.ownerStore();
     try {
       noteCallerIdentity(store.context(null).db, input);
@@ -1649,6 +1667,13 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       return refuse(
         "owner_purged",
         "This account's cloud data is being reset or deleted.",
+        false,
+      );
+    }
+    if (input.lane === "agent" && snapshot.isAnonymous) {
+      return refuse(
+        "sign_in_required",
+        "Sign in to Stella to use cloud agents.",
         false,
       );
     }

@@ -57,6 +57,7 @@ const PRE_ROLL_MAX_BYTES = 4 * DICTATION_SAMPLE_RATE * 2;
 export type DictationStatus = "idle" | "recording" | "transcribing";
 
 export type UseDictationOptions = {
+  anonymous: boolean;
   /** Retained for caller compatibility with the retired batch endpoint. */
   headers?: Record<string, string>;
   /** Optional BCP-47 hint reserved for future language biasing. */
@@ -311,7 +312,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
         chunks: [],
         bytes: 0,
         full: false,
-        live: openLive(),
+        live: options.anonymous ? null : openLive(),
       };
       capture = current;
       captureRef.current = current;
@@ -384,7 +385,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       }
       return false;
     }
-  }, [discardCapture, openLive, releaseAudioMode, safeSetStatus]);
+  }, [discardCapture, openLive, options.anonymous, releaseAudioMode, safeSetStatus]);
 
   const finalize = useCallback(
     async (commit: boolean): Promise<string | null> => {
@@ -485,10 +486,11 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
   stopRecordingRef.current = stop;
 
   useEffect(() => {
+    if (options.anonymous) return;
     void loadDictationStreamingAvailable()
       .then((available) => (available ? loadDictationRealtimeConfig() : null))
       .catch(() => undefined);
-  }, []);
+  }, [options.anonymous]);
 
   const toggle = useCallback(async () => {
     if (status === "idle") {

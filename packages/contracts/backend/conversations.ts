@@ -22,6 +22,7 @@ export type OwnerIdentity = {
   ownerId: string;
   /** Changes when the owner resets or deletes their data; fences stale work. */
   ownerGeneration: string;
+  isAnonymous: boolean;
 };
 
 export type ConversationCalls = {

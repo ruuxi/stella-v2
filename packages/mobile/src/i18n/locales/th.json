@@ -1716,7 +1716,6 @@
         "fromOtherComputers": "การเปลี่ยนแปลงจากคอมพิวเตอร์อีกเครื่องของคุณ",
         "readyChange": "การเปลี่ยนแปลงที่พร้อมเพิ่ม",
         "add": "เพิ่ม",
-        "get": "รับ",
         "adding": "กำลังเพิ่ม…",
         "skip": "ข้าม",
         "undoing": "กำลังเลิกทำ…",
@@ -1724,7 +1723,6 @@
         "justNow": "เมื่อสักครู่",
         "waiting": "รออยู่",
         "history": "ประวัติ",
-        "skipped": "ข้ามแล้ว",
         "upToDate": "ไม่มีอะไรรออยู่"
       }
     },
@@ -2117,6 +2115,7 @@
         "computerDone": "เชื่อมต่อแล้ว!",
         "computerSkipped": "ไว้ทีหลัง",
         "accountDone": "เรียบร้อย",
+        "accountSkipped": "ข้ามไปก่อน",
         "themeDone": "แบบนี้แหละ",
         "themeSkipped": "ใช้ค่าเริ่มต้น"
       },
@@ -2265,7 +2264,10 @@
         "connect": "เชื่อมต่อ",
         "connectLabel": "เชื่อมต่อ {name}",
         "connectedAs": "เชื่อมต่อแล้ว · {name}",
-        "settledSignedIn": "เข้าสู่ระบบแล้ว"
+        "skip": "ข้ามไปก่อน",
+        "settledSignedIn": "เข้าสู่ระบบแล้ว",
+        "settledGuest": "ใช้ Stella ในฐานะแขก",
+        "guestSettled": "เข้าสู่ระบบได้ทุกเมื่อจากการตั้งค่า"
       },
       "theme": {
         "appearance": "รูปลักษณ์",
@@ -2324,7 +2326,8 @@
       "legalTerms": "ข้อกำหนดการให้บริการ",
       "legalConjunction": "และ",
       "legalPrivacy": "นโยบายความเป็นส่วนตัว",
-      "legalSuffix": "ของเรา"
+      "legalSuffix": "ของเรา",
+      "continueAsGuest": "ดำเนินการต่อโดยไม่เข้าสู่ระบบ"
     },
     "chat": {
       "emptyPrompt": "ถาม Stella อะไรก็ได้",
@@ -2389,6 +2392,8 @@
       }
     },
     "computer": {
+      "guestHeroTitle": "คอมพิวเตอร์ของคุณ แค่ปลายนิ้ว",
+      "guestHeroBody": "สั่งให้ Stella ทำสิ่งต่าง ๆ บนคอมพิวเตอร์ของคุณ — เปิดเว็บ จัดการไฟล์ ทำงานต่าง ๆ และอีกมากมาย",
       "defaultDeviceLabel": "คอมพิวเตอร์ของคุณ",
       "statusChecking": "กำลังตรวจสอบ…",
       "statusConnected": "เชื่อมต่อแล้ว",
@@ -2400,6 +2405,8 @@
     },
     "desktop": {
       "pairTitle": "จับคู่มือถือของคุณ",
+      "guestBody": "ดูแอป Stella บนเดสก์ท็อปได้จากมือถือของคุณโดยตรง หลังจับคู่แล้ว มือถือจะเชื่อมต่อใหม่ให้เองโดยอัตโนมัติ",
+      "guestSignInPrompt": "เข้าสู่ระบบเพื่อเริ่มต้น",
       "connecting": "กำลังเชื่อมต่อกับเดสก์ท็อป",
       "pairing": "กำลังจับคู่มือถือเครื่องนี้",
       "unreachable": "เข้าถึงเดสก์ท็อปของคุณไม่ได้",

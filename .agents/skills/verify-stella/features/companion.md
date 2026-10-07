@@ -30,7 +30,7 @@ The control CLI only targets the full shell page. The companion is two CDP page 
 
 ## Gotchas
 
-- Signed-out runs cannot record: the dictation path shows the "Sign in to use dictation" notice. Use `--account pro` to exercise transcription.
+- Anonymous runs cannot record: the dictation path shows the "Sign in to use dictation" notice. Use `--account pro` to exercise transcription.
 - The window collapses the composer on OS blur only after it actually received focus; on a workspace the user is not viewing (Hyprland), focus may never be granted, which is expected.
 - Synthetic CDP mouse events carry inconsistent `screenX/Y`; drag assertions should use small moves and check direction, not exact distance.
 - Hover ends on a real `mouseout` from the mark window; dispatching a synthetic `mouseleave` does not reach React. Use `Input.dispatchMouseEvent` moves that exit the window, or accept that hover stays on in a scripted run.

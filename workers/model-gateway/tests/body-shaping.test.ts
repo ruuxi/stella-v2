@@ -65,7 +65,7 @@ const shape = (
     serviceTier?: string;
     reasoningEffort?: string;
     headers?: Record<string, string>;
-    audience?: "free" | "go" | "pro";
+    audience?: "anonymous" | "free" | "go" | "pro";
   } = {},
 ) => {
   const shaped = shapeUpstreamRequest({
@@ -93,8 +93,8 @@ describe("managed output caps", () => {
           generationConfig: { maxOutputTokens: 99_999 },
         },
         protocol: "openai-responses",
-        audience: "free",
-        modelCeiling: 2_048,
+        audience: "anonymous",
+        modelCeiling: undefined,
       }),
     ).toMatchObject({
       max_tokens: 2_048,
@@ -117,18 +117,30 @@ describe("managed output caps", () => {
       clampOutputTokens({
         requestJson: {},
         protocol: "google-generative-ai",
-        audience: "free",
+        audience: "anonymous",
         modelCeiling: 8_000,
       }).generationConfig,
-    ).toEqual({ maxOutputTokens: 8_000 });
+    ).toEqual({ maxOutputTokens: 2_048 });
     expect(
       clampOutputTokens({
         requestJson: { max_tokens: 100 },
         protocol: "openai-responses",
-        audience: "free",
-        modelCeiling: 2_048,
+        audience: "anonymous",
+        modelCeiling: undefined,
       }).max_output_tokens,
     ).toBe(100);
+  });
+
+  test("the upstream body receives the audience cap when callers omit it", () => {
+    const { json } = shape(
+      "openrouter",
+      "deepseek/deepseek-v4.1-flash",
+      "openai-responses",
+      "/v1/relay/responses",
+      { input: "hello" },
+      { audience: "anonymous" },
+    );
+    expect(json.max_output_tokens).toBe(2_048);
   });
 });
 

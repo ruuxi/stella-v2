@@ -18,6 +18,7 @@ import {
 import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
 import { verifyMobilePairingProof } from "@stella/contracts/turn-plane/pairing-proof";
 import {
+  HEADER_ANONYMOUS,
   HEADER_OWNER,
   HEADER_SESSION,
   HEADER_SUBJECT,
@@ -40,6 +41,9 @@ export const handleDeviceRequestRoute = async (
   deviceId: string,
   caller: ConversationCaller,
 ): Promise<Response> => {
+  if (caller.isAnonymous) {
+    return deviceRequestErrorResponse("unauthorized", "Sign in to reach your computer.");
+  }
   const text = await request.text();
   if (text.length > DEVICE_REQUEST_LIMITS.paramsBytes + 1024) {
     return deviceRequestErrorResponse("bad_request", "Request body is too large.");
@@ -108,6 +112,7 @@ export const handleDeviceRequestRoute = async (
   headers.set(HEADER_SUBJECT, caller.subject);
   if (caller.sessionId) headers.set(HEADER_SESSION, caller.sessionId);
   headers.set(HEADER_TOKEN_EXP, String(caller.expiresAtMs));
+  headers.set(HEADER_ANONYMOUS, "0");
   headers.set(HEADER_PRESENCE_DEVICE_ID, deviceId);
   headers.set(HEADER_DEVICE_REQUEST_MOBILE_ID, verified.mobileDeviceId);
   headers.set(HEADER_DEVICE_REQUEST_ID, requestId);

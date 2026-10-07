@@ -47,6 +47,15 @@ export const isCompleteGatewayConfigSnapshot = (
   if (!isObject(value) || value.v !== 1 || !Array.isArray(value.prices)) {
     return false;
   }
+  if (!isObject(value.anonymous)) return false;
+  if (
+    !isFiniteNonNegative(value.anonymous.maxRequestsPerOwner) ||
+    !Number.isInteger(value.anonymous.maxRequestsPerOwner) ||
+    !isFiniteNonNegative(value.anonymous.maxRequestsPerIp) ||
+    !Number.isInteger(value.anonymous.maxRequestsPerIp)
+  ) {
+    return false;
+  }
   if (
     !Array.isArray(value.tierCeilings) ||
     !isFiniteNonNegative(value.updatedAt)
@@ -70,18 +79,17 @@ export const isCompleteGatewayConfigSnapshot = (
     if (seenModels.has(price.model)) return false;
     seenModels.add(price.model);
   }
-  const requiredCeilings = new Set(["free"]);
+  const requiredCeilings = new Set(["anonymous", "free"]);
   const seenCeilings = new Set<string>();
   for (const ceiling of value.tierCeilings) {
     if (
       !isObject(ceiling) ||
-      typeof ceiling.audience !== "string" ||
+      !isManagedModelAudience(ceiling.audience) ||
       !isFiniteCeiling(ceiling.hourlyMicroCents) ||
       !isFiniteCeiling(ceiling.dailyMicroCents)
     ) {
       return false;
     }
-    if (!isManagedModelAudience(ceiling.audience)) continue;
     if (seenCeilings.has(ceiling.audience)) return false;
     seenCeilings.add(ceiling.audience);
     requiredCeilings.delete(ceiling.audience);

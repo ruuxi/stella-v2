@@ -130,6 +130,7 @@ const upload = async (
   const verified = await verifyCaller(env, header.startsWith("Bearer ") ? header.slice(7).trim() : "");
   if (!verified.ok) return fail(rpcErrorStatus(verified.error.code), verified.error.message);
   const { caller } = verified;
+  if (caller.isAnonymous) return fail(403, "Sign in with an account to use this.");
   if (Number(request.headers.get("content-length") ?? "0") > MAX_TAR_BYTES) {
     return fail(413, "The renderer is too large.");
   }

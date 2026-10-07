@@ -200,7 +200,7 @@ describe("desktop auth session revalidation", () => {
     await refresh;
 
     expect(mod.getAuthSessionSnapshot()).toMatchObject({
-      status: "signed_out",
+      status: "anonymous_required",
       data: null,
     });
   });

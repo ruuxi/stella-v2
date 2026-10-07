@@ -27,7 +27,11 @@ You must be at least 13 years of age to use the Service. If you are under 18, yo
 
 3. Accounts and Authentication
 
-Accounts — Using Stella's hosted services requires an account, which you create using magic-link email authentication or Google sign-in. You are responsible for maintaining the security of your login credentials and for all activity that occurs under your account.
+Anonymous Use — Stella can be used without creating an account. Anonymous users receive access to core functionality subject to rate limits.
+
+Registered Accounts — You may optionally create an account using magic-link email authentication or Google sign-in. If you create an account, you are responsible for maintaining the security of your login credentials and for all activity that occurs under your account.
+
+Account Linking — If you upgrade from anonymous use to a registered account, any anonymous session data may be linked to your new account.
 
 
 4. Description of the Service
@@ -181,6 +185,7 @@ Stella combines local execution with hosted services:
 
 • Stella's hosted services maintain the authoritative copy of conversations, event transcripts, tool outputs, activity records, and saved memory. That service data is encrypted in transit and at rest.
 • The desktop app may keep a rebuildable SQLite cache and device-local execution data. Removing that cache does not delete the cloud-authoritative copy.
+• No account is required. You can use Stella anonymously without providing any personal information.
 • The platform is open source. You can inspect exactly how your data is handled.
 
 
@@ -225,7 +230,7 @@ Stella Provider (Managed LLM Inference) — The Stella Provider is our managed L
 
 The Stella Provider forwards model response bytes as they arrive. Conversation events and model or tool results accepted into Stella's cloud journal become part of the cloud-authoritative record; upstream providers may separately store or retain request and response data under their own policies.
 
-We separately log usage metadata for billing, security, and rate limiting: timestamp, model, token count, duration, success or failure, safe upstream request identifiers, and your owner ID or device identifier. We do not put prompt or response bodies in those diagnostics. Supported BYOK model routes may send the model request directly to the provider, which remains subject to that provider's policies; the cloud-authoritative conversation record remains in Stella's hosted services.
+We separately log usage metadata for billing, security, and rate limiting: timestamp, model, token count, duration, success or failure, safe upstream request identifiers, and your owner ID or anonymous device identifier. We do not put prompt or response bodies in those diagnostics. Supported BYOK model routes may send the model request directly to the provider, which remains subject to that provider's policies; the cloud-authoritative conversation record remains in Stella's hosted services.
 
 Cloud Agent and Mobile Processing — Messages submitted from supported clients and cloud agent work are processed by Stella's hosted services. Accepted messages, responses, event transcripts, tool outputs, and activity records are written to the cloud-authoritative conversation history.
 
@@ -248,7 +253,7 @@ When an agent action requires AI inference, relevant task context is sent throug
 
 6. Information We Collect When You Create an Account
 
-When you sign in, we collect: your email address (for authentication and account identification), your name if provided (for display purposes), and your account creation timestamp (for account management).
+Account creation is optional. If you choose to sign in, we collect: your email address (for authentication and account identification), your name if provided (for display purposes), and your account creation timestamp (for account management).
 
 We use Better Auth for authentication, with magic-link email sign-in and optional Google sign-in. We do not collect passwords.
 
@@ -265,12 +270,17 @@ We do not store your full credit card number, CVV, or banking details. All payme
 When your desktop registers with our backend (for mobile bridge or connector functionality), we store: device ID (identifying your desktop for message routing), device public key (verifying device identity via cryptographic signatures), online status (determining whether to route to your device or the offline responder), platform — Windows/macOS (display purposes), and mobile bridge base URLs (allowing your phone to connect to your desktop).
 
 
-9. Third-Party Services
+9. Anonymous Device Usage
+
+If you use Stella without an account, we track: an anonymous device identifier (for rate limiting) and request count and timestamps (for enforcing fair-use limits). This data is not linked to any personal identity.
+
+
+10. Third-Party Services
 
 Stella integrates with third-party services. When your data reaches these services, it is subject to their respective privacy policies. This includes AI gateways and model providers (OpenRouter, Fireworks, Anthropic, OpenAI, and Google) when processing AI requests, Stripe when subscribing to a paid plan, fal.ai when using media generation features, Cloudflare for backend infrastructure, and services you connect through Stella integrations. Supported BYOK model requests may go directly from your device to the provider without using the Stella Provider; the cloud-authoritative conversation record remains in Stella's hosted services.
 
 
-10. Data Retention
+11. Data Retention
 
 Retention depends on the data category, the feature used, legal requirements, available deletion controls, and any third-party provider or integration policy. This policy does not promise a fixed retention period except where one is expressly stated.
 
@@ -281,53 +291,56 @@ Retention depends on the data category, the feature used, legal requirements, av
 • Usage metadata — rolling windows (5-hour, weekly, monthly); aggregates retained for billing reconciliation
 • Responses API request and response records — retained by the selected AI provider under its retention and deletion policies
 • Connector and integration data — retention depends on Stella's service operation and the connected provider's policies
+• Anonymous device usage — retained for service operation, security, and rate limiting
 
 
-11. Data Security
+12. Data Security
 
 We implement reasonable security measures to protect data processed by Stella: cloud-authoritative conversation and memory data is encrypted in transit and at rest; user-provided secrets stored on our backend are encrypted using AES-256-GCM with a versioned master key system; API keys stored on your device are encrypted locally; devices authenticate using Ed25519 cryptographic keypairs; and multi-layer rate limiting protects against abuse. No security measure eliminates all risk, and third-party providers and integrations apply their own security practices.
 
 
-12. Your Rights and Choices
+13. Your Rights and Choices
 
 Access and Control — You can manage device-local data through Stella's data directory and applicable in-app controls. Cloud conversation, memory, account, and other hosted data must be managed through the Service's data, reset, integration-revocation, or account-deletion controls where available. Clearing a local cache alone does not delete the cloud-authoritative copy.
 
 Discovery Opt-Out — During onboarding, each discovery category is individually selectable. The most sensitive category (Messages & Notes) is disabled by default and requires explicit opt-in. You can skip discovery entirely.
 
+Anonymous Use — You can use Stella's core features without creating an account or providing any personal information.
+
 BYOK — You can provide your own AI provider API keys for supported direct model routes. This avoids the Stella Provider for those model calls, but does not remove the cloud-authoritative conversation record from Stella's hosted services.
 
 
-13. Children's Privacy
+14. Children's Privacy
 
 Stella is not directed to children under 13 years of age. We do not knowingly collect personal information from children under 13. If you believe we have inadvertently collected such information, please contact us and we will promptly delete it.
 
 
-14. International Users
+15. International Users
 
 Our current hosted backend uses Cloudflare cloud infrastructure, including Cloudflare data centers in the United States. Cloudflare may place your account's data in the data center region nearest where it is first used, and a future deployment may use another disclosed region. If you access the Service from outside the hosting region, information that reaches the hosted Service may be transferred to and processed there.
 
 
-15. California Privacy Rights
+16. California Privacy Rights
 
 If you are a California resident, you may have additional rights under the California Consumer Privacy Act (CCPA), including rights concerning cloud conversation, memory, account, billing, device, and other personal information we process. You may exercise your rights to know, delete, or opt out by contacting us. We do not sell your personal information. We do not use your data for targeted advertising.
 
 
-16. European Privacy Rights
+17. European Privacy Rights
 
 If you are in the European Economic Area (EEA) or United Kingdom, you may have rights under the GDPR including the right to access, rectify, erase, restrict processing, data portability, and objection. These rights can apply to cloud conversation, memory, account, billing, device, and other personal data we process. Contact us to exercise these rights. Where we process personal data, we rely on applicable legal bases, which may include contractual necessity, legitimate interests such as security and abuse prevention, and consent for optional features.
 
 
-17. Changes to This Policy
+18. Changes to This Policy
 
 We may update this Privacy Policy from time to time. We will indicate the date of the most recent revision at the top. For material changes, we will make reasonable efforts to notify you. Your continued use of the Service after changes constitutes acceptance of the updated policy.
 
 
-18. Open Source Transparency
+19. Open Source Transparency
 
 Stella's platform is open source, and its source code can be reviewed.
 
 
-19. Contact Us
+20. Contact Us
 
 If you have questions about this Privacy Policy or wish to exercise any of your rights, contact us at:
 

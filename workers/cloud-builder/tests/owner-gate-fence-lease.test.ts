@@ -61,9 +61,10 @@ const gateHarness = (
   }).ownerStore().context(null);
   db.run(
     `INSERT INTO owner_state (id, generation, writable, closed, is_anonymous, identity_level, min_iat_ms)
-     VALUES (1, ?, ?, 0, 0, ?, 0)`,
+     VALUES (1, ?, ?, 0, ?, ?, 0)`,
     snapshot.ownerGeneration,
     snapshot.writable ? 1 : 0,
+    snapshot.isAnonymous ? 1 : 0,
     snapshot.identityLevel,
   );
   if (snapshot.enforcement) {

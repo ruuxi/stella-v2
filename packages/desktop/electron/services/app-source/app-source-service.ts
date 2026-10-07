@@ -179,7 +179,7 @@ const installs = (paths: string[]) =>
   paths.some((file) => file === "bun.lock" || file.endsWith("package.json"));
 const relaunches = (paths: string[]) =>
   installs(paths) || paths.some((file) => file.startsWith(RESTART_PREFIX));
-/** Public: signed-out users read upstream with a shared, edge-cached token. */
+/** Public: anonymous users read upstream with a shared, edge-cached token. */
 const BOOTSTRAP_PATH = "/api/app-source/bootstrap";
 const ACCESS_ATTEMPTS = 5;
 

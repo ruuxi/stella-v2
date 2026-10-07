@@ -4,9 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   writeBrowserSessionToken: vi.fn(),
-  readBrowserSessionToken: vi.fn(),
-  hasBrowserLegacyAnonymousSession: vi.fn(),
-  token: vi.fn(),
+  getAuthToken: vi.fn(),
   getAuthSessionSnapshot: vi.fn(),
   refreshAuthSession: vi.fn(),
   socialSignIn: vi.fn(),
@@ -18,19 +16,20 @@ vi.mock("@/global/auth/lib/auth-client", () => ({
   authClient: {
     signIn: { social: mocks.socialSignIn },
     updateSession: mocks.updateSession,
-    token: mocks.token,
   },
 }));
 
 vi.mock("@/global/auth/services/auth-session", () => ({
   getAuthSessionSnapshot: mocks.getAuthSessionSnapshot,
-  hasBrowserLegacyAnonymousSession: mocks.hasBrowserLegacyAnonymousSession,
   refreshAuthSession: mocks.refreshAuthSession,
 }));
 
 vi.mock("@/global/auth/services/auth-storage", () => ({
-  readBrowserSessionToken: mocks.readBrowserSessionToken,
   writeBrowserSessionToken: mocks.writeBrowserSessionToken,
+}));
+
+vi.mock("@/global/auth/services/auth-token", () => ({
+  getAuthToken: mocks.getAuthToken,
 }));
 
 vi.mock("@/platform/backend/backend-url", () => ({
@@ -63,8 +62,7 @@ describe("account connection renderer boundaries", () => {
       "/cloud?access_token=must-not-copy#ott=must-not-copy",
     );
     mocks.socialSignIn.mockResolvedValue({ data: null, error: null });
-    mocks.hasBrowserLegacyAnonymousSession.mockReturnValue(false);
-    mocks.readBrowserSessionToken.mockReturnValue("");
+    mocks.getAuthToken.mockResolvedValue("current-owner.jwt");
     mocks.fetch.mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -77,7 +75,7 @@ describe("account connection renderer boundaries", () => {
     vi.stubGlobal("fetch", mocks.fetch);
     mocks.refreshAuthSession.mockResolvedValue(undefined);
     mocks.getAuthSessionSnapshot.mockReturnValue({
-      data: { user: { id: "account-owner" } },
+      data: { user: { id: "account-owner", isAnonymous: false } },
       isPending: false,
       error: null,
       identityRevision: 2,
@@ -104,6 +102,7 @@ describe("account connection renderer boundaries", () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: "Bearer current-owner.jwt",
         },
         body: JSON.stringify({ returnTo: `${window.location.origin}/cloud` }),
       },
@@ -141,43 +140,49 @@ describe("account connection renderer boundaries", () => {
     expect(mocks.socialSignIn).not.toHaveBeenCalled();
   });
 
-  it("sends a plain browser magic link when no legacy anonymous session exists", () => {
-    expect(
+  it("binds browser magic-link sends to a freshly minted anonymous-owner JWT", async () => {
+    mocks.getAuthToken.mockResolvedValue("current-owner.jwt");
+
+    await expect(
       buildMagicLinkSendRequest("owner@example.com", "turnstile-token"),
-    ).toEqual({
+    ).resolves.toEqual({
       headers: {
         "Content-Type": "application/json",
         "x-captcha-response": "turnstile-token",
-      },
-      body: { email: "owner@example.com" },
-    });
-  });
-
-  it("binds a browser magic link to a legacy anonymous bearer so it upgrades in place", () => {
-    mocks.hasBrowserLegacyAnonymousSession.mockReturnValue(true);
-    mocks.readBrowserSessionToken.mockReturnValue("legacy.bearer");
-
-    expect(buildMagicLinkSendRequest("owner@example.com")).toEqual({
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer legacy.bearer",
+        Authorization: "Bearer current-owner.jwt",
       },
       body: {
         email: "owner@example.com",
         requireAnonymousOwner: true,
       },
     });
+    expect(mocks.getAuthToken).toHaveBeenCalledWith({ forceRefresh: true });
   });
 
-  it("never attaches a renderer bearer to an Electron magic link", () => {
-    setElectronApi({ system: {} });
-    mocks.hasBrowserLegacyAnonymousSession.mockReturnValue(true);
-    mocks.readBrowserSessionToken.mockReturnValue("legacy.bearer");
+  it("fails closed before a browser magic-link send when owner proof is unavailable", async () => {
+    mocks.getAuthToken.mockResolvedValue(null);
 
-    expect(buildMagicLinkSendRequest("owner@example.com")).toEqual({
-      headers: { "Content-Type": "application/json" },
-      body: { email: "owner@example.com" },
+    await expect(
+      buildMagicLinkSendRequest("owner@example.com"),
+    ).resolves.toBeNull();
+  });
+
+  it("binds Electron magic-link sends to its freshly minted anonymous-owner JWT", async () => {
+    setElectronApi({ system: {} });
+
+    await expect(
+      buildMagicLinkSendRequest("owner@example.com"),
+    ).resolves.toEqual({
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer current-owner.jwt",
+      },
+      body: {
+        email: "owner@example.com",
+        requireAnonymousOwner: true,
+      },
     });
+    expect(mocks.getAuthToken).toHaveBeenCalledWith({ forceRefresh: true });
   });
 
   it("stores a browser bearer and accepts it only after a connected owner revalidates", async () => {
@@ -190,9 +195,9 @@ describe("account connection renderer boundaries", () => {
     expect(mocks.refreshAuthSession).toHaveBeenCalledTimes(1);
   });
 
-  it("rejects an applied bearer when revalidation still resolves to no account", async () => {
+  it("rejects an applied bearer when revalidation still resolves to an anonymous owner", async () => {
     mocks.getAuthSessionSnapshot.mockReturnValue({
-      data: null,
+      data: { user: { id: "anonymous-owner", isAnonymous: true } },
       isPending: false,
       error: null,
       identityRevision: 1,

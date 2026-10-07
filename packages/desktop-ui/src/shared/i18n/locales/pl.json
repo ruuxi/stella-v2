@@ -775,7 +775,8 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Bardzo fajne.",
-        "signinDone": "Gotowe."
+        "signinDone": "Gotowe.",
+        "signinSkipped": "Zrobię to później."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -925,7 +926,7 @@
       },
       "signin": {
         "title": "Zaloguj się",
-        "body": "Zaloguj się na konto Stella, aby zacząć. Możesz też dodać swój plan Claude lub ChatGPT.",
+        "body": "Wystarczy jedna z tych opcji. Pozostałe dodasz później.",
         "options": {
           "stella": {
             "title": "Konto Stella",
@@ -947,9 +948,11 @@
         "waiting": "Dokończ logowanie w przeglądarce, a potem wróć tutaj.",
         "error": "Nie udało się połączyć. Spróbować ponownie?",
         "fine": "Zmienisz to w każdej chwili w Ustawieniach.",
+        "skip": "Nie teraz",
         "hint": "Na start za darmo.",
         "settledEngine": "Używasz: {name}",
         "settledStella": "Zalogowano w Stelli",
+        "settledSkipped": "Jeszcze nie zalogowano",
         "settledDesc": "Zmienisz to w każdej chwili w Ustawieniach.",
         "claudeCliMissing": "Najpierw zainstaluj Claude Code, a potem spróbuj ponownie."
       },
@@ -999,6 +1002,7 @@
     },
     "capabilityRestriction": {
       "title": "{capability} nie jest w Twoim planie",
+      "signIn": "{capability} jest częścią planu Stella {plan}. Zaloguj się i ulepsz plan, aby odblokować tę funkcję.",
       "upgrade": "{capability} jest częścią planu Stella {plan}. Ulepsz plan, aby odblokować tę funkcję.",
       "unavailable": "{capability} nie jest teraz dostępne w żadnym planie.",
       "lockedBadge": "{plan}",
@@ -2020,6 +2024,7 @@
       "sendFailed": "Nie udało się wysłać e-maila logowania.",
       "magicLinkFailed": "Nie udało się wysłać magicznego linku.",
       "finishFailed": "Nie udało się dokończyć logowania. Spróbuj ponownie.",
+      "signInIncomplete": "Logowanie niedokończone. Spróbuj ponownie.",
       "signInLinkExpired": "Link do logowania wygasł. Spróbuj ponownie.",
       "tooManyRequests": {
         "one": "Za dużo żądań. Spróbuj ponownie za {count} sekundę.",
@@ -2171,6 +2176,7 @@
         "computerDone": "Połączono!",
         "computerSkipped": "Może później.",
         "accountDone": "Gotowe.",
+        "accountSkipped": "Na razie pomiń.",
         "themeDone": "Ten.",
         "themeSkipped": "Zostaw domyślny."
       },
@@ -2319,7 +2325,10 @@
         "connect": "Połącz",
         "connectLabel": "Połącz {name}",
         "connectedAs": "Połączono · {name}",
-        "settledSignedIn": "Zalogowano"
+        "skip": "Na razie pomiń",
+        "settledSignedIn": "Zalogowano",
+        "settledGuest": "Korzystasz ze Stelli jako gość",
+        "guestSettled": "Zaloguj się w dowolnym momencie w Ustawieniach"
       },
       "theme": {
         "appearance": "Wygląd",
@@ -2378,7 +2387,8 @@
       "legalTerms": "Warunki korzystania",
       "legalConjunction": " oraz ",
       "legalPrivacy": "Politykę prywatności",
-      "legalSuffix": "."
+      "legalSuffix": ".",
+      "continueAsGuest": "Kontynuuj bez logowania"
     },
     "chat": {
       "emptyPrompt": "Zapytaj Stellę o cokolwiek",
@@ -2446,6 +2456,8 @@
       }
     },
     "computer": {
+      "guestHeroTitle": "Twój komputer w zasięgu ręki",
+      "guestHeroBody": "Poproś Stellę, żeby zrobiła coś na twoim komputerze — przeglądała sieć, zarządzała plikami, uruchamiała zadania i nie tylko.",
       "defaultDeviceLabel": "Twój komputer",
       "statusChecking": "Sprawdzanie…",
       "statusConnected": "Połączono",
@@ -2457,6 +2469,8 @@
     },
     "desktop": {
       "pairTitle": "Sparuj swój telefon",
+      "guestBody": "Miej aplikację Stella na komputerze prosto w telefonie. Po sparowaniu telefon połączy się automatycznie.",
+      "guestSignInPrompt": "Zaloguj się, aby zacząć.",
       "connecting": "Łączenie z komputerem",
       "pairing": "Parowanie tego telefonu",
       "unreachable": "Nie można połączyć się z komputerem",

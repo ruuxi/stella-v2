@@ -141,7 +141,7 @@ import {
   IPC_AUTH_REVOKE_SESSIONS,
   IPC_AUTH_GET_SESSION,
   IPC_AUTH_SESSION_INVALIDATED,
-  IPC_AUTH_SEND_LEGACY_MAGIC_LINK,
+  IPC_AUTH_SIGN_IN_ANONYMOUS,
   IPC_AUTH_SIGN_OUT,
   IPC_DIAGNOSTICS_RECORD_HEAP_TRACE,
   IPC_DIAGNOSTICS_EXPORT_LOGS,
@@ -1135,20 +1135,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("host:configurePiRuntime", config),
     getAuthSession: (options?: { allowCached?: boolean }) =>
       ipcRenderer.invoke(IPC_AUTH_GET_SESSION, options),
-    sendLegacyMagicLink: (payload: {
-      email: string;
-      claimHash: string;
-      turnstileToken?: string;
-    }) =>
-      ipcRenderer.invoke(IPC_AUTH_SEND_LEGACY_MAGIC_LINK, payload) as Promise<
-        | { handled: false }
-        | {
-            handled: true;
-            status: number;
-            retryAfter: string | null;
-            body: unknown;
-          }
-      >,
+    signInAnonymous: () => ipcRenderer.invoke(IPC_AUTH_SIGN_IN_ANONYMOUS),
     getChallengeToken: () =>
       ipcRenderer.invoke(IPC_AUTH_GET_CHALLENGE_TOKEN) as Promise<
         string | undefined

@@ -1740,7 +1740,6 @@
         "fromOtherComputers": "Alterações do seu outro computador",
         "readyChange": "Uma alteração pronta para adicionar",
         "add": "Adicionar",
-        "get": "Obter",
         "adding": "Adicionando…",
         "skip": "Pular",
         "undoing": "Desfazendo…",
@@ -1748,7 +1747,6 @@
         "justNow": "Agora mesmo",
         "waiting": "Aguardando",
         "history": "Histórico",
-        "skipped": "Ignoradas",
         "upToDate": "Nada aguardando"
       }
     },
@@ -2157,6 +2155,7 @@
         "computerDone": "Conectado!",
         "computerSkipped": "Talvez depois.",
         "accountDone": "Tudo certo.",
+        "accountSkipped": "Pular por enquanto.",
         "themeDone": "Esse.",
         "themeSkipped": "Manter o padrão."
       },
@@ -2305,7 +2304,10 @@
         "connect": "Conectar",
         "connectLabel": "Conectar {name}",
         "connectedAs": "Conectado · {name}",
-        "settledSignedIn": "Sessão iniciada"
+        "skip": "Pular por enquanto",
+        "settledSignedIn": "Sessão iniciada",
+        "settledGuest": "Usando a Stella sem conta",
+        "guestSettled": "Entre quando quiser em Configurações"
       },
       "theme": {
         "appearance": "Aparência",
@@ -2364,7 +2366,8 @@
       "legalTerms": "Termos",
       "legalConjunction": " e a ",
       "legalPrivacy": "Política de Privacidade",
-      "legalSuffix": "."
+      "legalSuffix": ".",
+      "continueAsGuest": "Continuar sem entrar"
     },
     "chat": {
       "emptyPrompt": "Pergunte qualquer coisa à Stella",
@@ -2431,6 +2434,8 @@
       }
     },
     "computer": {
+      "guestHeroTitle": "Seu computador na palma da mão",
+      "guestHeroBody": "Peça à Stella para fazer coisas no seu computador — navegar na web, gerenciar arquivos, executar tarefas e muito mais.",
       "defaultDeviceLabel": "Seu computador",
       "statusChecking": "Verificando…",
       "statusConnected": "Conectado",
@@ -2442,6 +2447,8 @@
     },
     "desktop": {
       "pairTitle": "Pareie seu celular",
+      "guestBody": "Veja o app de desktop da Stella direto no seu celular. Depois do pareamento, seu celular vai se reconectar automaticamente.",
+      "guestSignInPrompt": "Entre para começar.",
       "connecting": "Conectando ao desktop",
       "pairing": "Pareando este celular",
       "unreachable": "Não é possível acessar seu desktop",

@@ -104,6 +104,7 @@ const lookup = async (url: URL, env: AdminEnv): Promise<Response> => {
   ]);
   return json({
     ownerId,
+    isAnonymous: snapshot.isAnonymous,
     identityLevel: snapshot.identityLevel,
     plan: billing.plan,
     enforcement: snapshot.enforcement ?? { status: "ok" },

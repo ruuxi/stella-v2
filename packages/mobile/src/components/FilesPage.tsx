@@ -6,7 +6,8 @@ import { useCallback, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useT } from "../i18n";
 import { filterHubArtifacts } from "../lib/activity-hub-search";
-import { useAccountSession } from "../lib/auth-client";
+import { authClient } from "../lib/auth-client";
+import { isGuest } from "../lib/guest-mode";
 import { tapLight } from "../lib/haptics";
 import { useActivityHub } from "../lib/main-shell-store";
 import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
@@ -35,8 +36,8 @@ export function FilesPage() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const bottomInset = useSafeAreaInsets().bottom;
   const hub = useActivityHub();
-  const session = useAccountSession();
-  const signedIn = Boolean(session.data?.user);
+  const session = authClient.useSession();
+  const signedIn = Boolean(session.data?.user) && !isGuest();
   const artifacts = hub?.artifacts ?? EMPTY_ARTIFACTS;
   const [query, setQuery] = useState("");
   const [viewerArtifact, setViewerArtifact] = useState<ChatArtifact | null>(

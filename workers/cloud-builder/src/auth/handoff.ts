@@ -458,7 +458,7 @@ export const stellaHandoff = (config: HandoffConfig) => {
         if (!body) return fail(400, "Invalid JSON body");
         const returnTo = normalizeReturnTarget(text(body.returnTo), origin);
         if (!returnTo) return fail(400, "Invalid browser auth return target.");
-        const caller = await anonymousCaller(ctx as Endpoint, config, false);
+        const caller = await anonymousCaller(ctx as Endpoint, config, true);
         if (caller instanceof Response) return caller;
         const requestId = crypto.randomUUID();
         const now = Date.now();

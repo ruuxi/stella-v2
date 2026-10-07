@@ -777,7 +777,8 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "رائع جدًا.",
-        "signinDone": "تم."
+        "signinDone": "تم.",
+        "signinSkipped": "سأفعل ذلك لاحقًا."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -927,7 +928,7 @@
       },
       "signin": {
         "title": "تسجيل الدخول",
-        "body": "سجّل الدخول بحساب Stella للبدء. يمكنك أيضًا إضافة اشتراك Claude أو ChatGPT.",
+        "body": "يكفي أي خيار من هذه. يمكنك إضافة الباقي لاحقًا.",
         "options": {
           "stella": {
             "title": "حساب Stella",
@@ -949,9 +950,11 @@
         "waiting": "أكمل تسجيل الدخول في متصفحك، ثم عد إلى هنا.",
         "error": "تعذّر الاتصال. أتحاول مرة أخرى؟",
         "fine": "يمكنك تغيير هذا في أي وقت من الإعدادات.",
+        "skip": "ليس الآن",
         "hint": "البدء مجاني.",
         "settledEngine": "استخدام {name}",
         "settledStella": "تم تسجيل الدخول إلى Stella",
+        "settledSkipped": "لم يتم تسجيل الدخول بعد",
         "settledDesc": "يمكنك تغييره في أي وقت من الإعدادات.",
         "claudeCliMissing": "ثبّت Claude Code أولاً، ثم حاول مرة أخرى."
       },
@@ -1001,6 +1004,7 @@
     },
     "capabilityRestriction": {
       "title": "{capability} غير متاح في خطتك",
+      "signIn": "{capability} مضمّن في Stella {plan}. سجّل الدخول لترقية خطتك وفتح هذه الميزة.",
       "upgrade": "{capability} مضمّن في Stella {plan}. رقِّ خطتك لفتح هذه الميزة.",
       "unavailable": "{capability} غير متاح في أي خطة حاليًا.",
       "lockedBadge": "{plan}",
@@ -2054,6 +2058,7 @@
       "sendFailed": "تعذّر إرسال بريد تسجيل الدخول.",
       "magicLinkFailed": "تعذّر إرسال الرابط السحري.",
       "finishFailed": "تعذّر إتمام تسجيل الدخول. حاول مرة أخرى.",
+      "signInIncomplete": "تسجيل الدخول غير مكتمل. حاول مرة أخرى.",
       "signInLinkExpired": "انتهت صلاحية رابط تسجيل الدخول. حاول مرة أخرى.",
       "tooManyRequests": {
         "zero": "طلبات كثيرة جدًا. حاول مرة أخرى خلال {count} ثانية.",
@@ -2209,6 +2214,7 @@
         "computerDone": "تم الاتصال!",
         "computerSkipped": "ربما لاحقًا.",
         "accountDone": "اكتمل كل شيء.",
+        "accountSkipped": "تخطَّ الآن.",
         "themeDone": "هذا.",
         "themeSkipped": "أبقِ الافتراضي."
       },
@@ -2357,7 +2363,10 @@
         "connect": "ربط",
         "connectLabel": "ربط {name}",
         "connectedAs": "متصل · {name}",
-        "settledSignedIn": "تم تسجيل الدخول"
+        "skip": "تخطَّ الآن",
+        "settledSignedIn": "تم تسجيل الدخول",
+        "settledGuest": "استخدام Stella كضيف",
+        "guestSettled": "سجّل الدخول في أي وقت من الإعدادات"
       },
       "theme": {
         "appearance": "المظهر",
@@ -2416,7 +2425,8 @@
       "legalTerms": "شروط الخدمة",
       "legalConjunction": " و",
       "legalPrivacy": "سياسة الخصوصية",
-      "legalSuffix": "."
+      "legalSuffix": ".",
+      "continueAsGuest": "المتابعة دون تسجيل الدخول"
     },
     "chat": {
       "emptyPrompt": "اسأل Stella عن أي شيء",
@@ -2485,6 +2495,8 @@
       }
     },
     "computer": {
+      "guestHeroTitle": "كمبيوترك بين يديك",
+      "guestHeroBody": "اطلب من Stella إنجاز أشياء على كمبيوترك — تصفّح الويب وإدارة الملفات وتنفيذ المهام والمزيد.",
       "defaultDeviceLabel": "كمبيوترك",
       "statusChecking": "جارٍ التحقق…",
       "statusConnected": "متصل",
@@ -2496,6 +2508,8 @@
     },
     "desktop": {
       "pairTitle": "إقران هاتفك",
+      "guestBody": "شاهد تطبيق Stella لسطح المكتب على هاتفك مباشرة. بعد الإقران، سيعيد هاتفك الاتصال تلقائيًا.",
+      "guestSignInPrompt": "سجّل الدخول للبدء.",
       "connecting": "جارٍ الاتصال بسطح المكتب",
       "pairing": "جارٍ إقران هذا الهاتف",
       "unreachable": "تعذّر الوصول إلى سطح المكتب",

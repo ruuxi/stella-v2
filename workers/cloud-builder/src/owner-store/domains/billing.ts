@@ -43,6 +43,7 @@ const CREDIT_CURRENCY = "usd";
 const CREDIT_MIN_CENTS = 100;
 const CREDIT_MAX_CENTS = 50_000;
 const CREDIT_PRESET_CENTS = [500, 1_000, 2_500, 5_000];
+const ANON_RESET_AFTER_INACTIVITY_DAYS = 30;
 const STRIPE_RATE_LIMIT = { count: 10, windowMs: 60_000 };
 
 export const BILLING_MIGRATION = {
@@ -234,7 +235,7 @@ const isPaying = (row: AccountRow): boolean =>
 
 /** The identity rung: the auth claims know sign-in, this ledger knows payment. */
 const identityLevel = (row: AccountRow): IdentityLevel =>
-  isPaying(row) ? 3 : (Math.min(2, Math.max(1, row.identity_level)) as IdentityLevel);
+  row.is_anonymous ? 0 : isPaying(row) ? 3 : (Math.min(2, Math.max(1, row.identity_level)) as IdentityLevel);
 
 // ── Usage against the plan's windows ──────────────────────────────────────
 
@@ -253,9 +254,11 @@ type UsageSnapshot = {
 };
 
 const usageSnapshot = (config: BillingConfig, row: AccountRow, now: number): UsageSnapshot => {
+  const anonymous = row.is_anonymous === 1;
   const current = plan(row);
-  const planConfig = config.plans[current];
-  const share = current === "free" && identityLevel(row) === 1 ? config.freeEmailAllowanceShare : 1;
+  const planConfig = anonymous ? config.anonymous : config.plans[current];
+  const share =
+    !anonymous && current === "free" && identityLevel(row) === 1 ? config.freeEmailAllowanceShare : 1;
   const limit = (usd: number) => Math.round(usd * share * MICRO_CENTS_PER_USD);
 
   const rollingMs = Math.max(1, Math.floor(planConfig.rollingWindowHours * 60 * 60 * 1000));
@@ -310,6 +313,7 @@ const includedHeadroom = (snapshot: UsageSnapshot): number =>
 
 export type BillingAccess = {
   plan: BillingPlan;
+  isAnonymous: boolean;
   identityLevel: IdentityLevel;
   unlimited: boolean;
   allowed: boolean;
@@ -322,18 +326,24 @@ export type BillingAccess = {
   remainingMicroCents: number | null;
 };
 
-const audienceFor = (current: BillingPlan, downgraded: boolean): ManagedModelAudience =>
-  current === "free" ? "free" : downgraded ? `${current}_fallback` : current;
+const audienceFor = (
+  current: BillingPlan,
+  anonymous: boolean,
+  downgraded: boolean,
+): ManagedModelAudience =>
+  anonymous ? "anonymous" : current === "free" ? "free" : downgraded ? `${current}_fallback` : current;
 
 const accessFor = (config: BillingConfig, row: AccountRow, now: number): BillingAccess => {
   // Without billing every account is Pro with unlimited usage.
   const current = config.enabled ? plan(row) : "pro";
+  const anonymous = row.is_anonymous === 1;
   const unlimited = row.usage_mode === "unlimited" || !config.enabled;
   const snapshot = usageSnapshot(config, row, now);
   const credit = Math.max(0, row.credit_balance);
   const remaining = includedHeadroom(snapshot) + credit;
   const base = {
     plan: current,
+    isAnonymous: anonymous,
     identityLevel: identityLevel(row),
     unlimited,
     remainingMicroCents: unlimited ? null : remaining,
@@ -353,7 +363,7 @@ const accessFor = (config: BillingConfig, row: AccountRow, now: number): Billing
       ...base,
       allowed: true,
       downgraded: false,
-      audience: audienceFor(current, false),
+      audience: audienceFor(current, anonymous && config.enabled, false),
       retryAfterMs: 0,
       message: "",
     };
@@ -364,7 +374,7 @@ const accessFor = (config: BillingConfig, row: AccountRow, now: number): Billing
       ...base,
       allowed: false,
       downgraded: false,
-      audience: audienceFor(current, false),
+      audience: audienceFor(current, anonymous, false),
       retryAfterMs,
       message: blocking.lifetime
         ? "You've used your free Stella allowance. Upgrade to keep going."
@@ -375,7 +385,7 @@ const accessFor = (config: BillingConfig, row: AccountRow, now: number): Billing
     ...base,
     allowed: true,
     downgraded: true,
-    audience: audienceFor(current, true),
+    audience: audienceFor(current, anonymous, true),
     retryAfterMs,
     message: `${config.plans[current].label} plan managed-model limits reached. Falling back until usage resets.`,
   };
@@ -398,12 +408,12 @@ const capabilityBudget = (access: BillingAccess, reserved: number): number => {
 /** Note who the owner is, as the latest verified sign-in says. */
 export const recordBillingIdentity = (
   ctx: OwnerContext,
-  identity: { identityLevel?: IdentityLevel },
+  identity: { isAnonymous: boolean; identityLevel?: IdentityLevel },
 ): void => {
   const row = ensureAccount(ctx.db, ctx.now);
   const level = identity.identityLevel ?? row.identity_level;
-  if (row.is_anonymous === 0 && row.identity_level === level) return;
-  updateAccount(ctx.db, { is_anonymous: 0, identity_level: level });
+  if (row.is_anonymous === Number(identity.isAnonymous) && row.identity_level === level) return;
+  updateAccount(ctx.db, { is_anonymous: identity.isAnonymous ? 1 : 0, identity_level: level });
 };
 
 /** The owner pays: an active paid plan, or purchased credit left. */
@@ -963,12 +973,16 @@ const status = (ctx: {
   db: OwnerDbReader;
   env: Cloudflare.Env;
   now: number;
+  caller: { isAnonymous: boolean } | null;
 }): BillingStatus => {
   const config = billingConfig(ctx.env);
-  const row = readAccount(ctx.db, ctx.now);
+  const stored = readAccount(ctx.db, ctx.now);
+  const row = ctx.caller ? { ...stored, is_anonymous: ctx.caller.isAnonymous ? 1 : 0 } : stored;
+  const anonymous = row.is_anonymous === 1;
   const snapshot = usageSnapshot(config, row, ctx.now);
   return {
     authenticated: true,
+    isAnonymous: anonymous,
     identityLevel: identityLevel(row),
     plan: config.enabled ? plan(row) : "pro",
     subscriptionStatus: row.subscription_status,
@@ -984,7 +998,14 @@ const status = (ctx: {
       lifetimeUsedUsd: usd(row.total_used),
       lifetimeLimitUsd: snapshot.lifetime ? usd(snapshot.lifetime.limit) : null,
     },
-    usagePolicy: { kind: "managed_cost" },
+    usagePolicy: anonymous
+      ? {
+          kind: "anonymous_requests",
+          requestLimit: config.anonymousMaxRequests,
+          perIpRequestLimit: config.anonymousMaxRequestsPerIp,
+          resetAfterInactivityDays: ANON_RESET_AFTER_INACTIVITY_DAYS,
+        }
+      : { kind: "managed_cost" },
     plans: config.plans,
     credits: {
       currency: CREDIT_CURRENCY,
@@ -1009,6 +1030,7 @@ export const billingDomain = {
   calls: {
     "billing.checkout": {
       scope: "owner",
+      requireAccount: true,
       parse: object({
         plan: literal("go", "pro"),
         returnUrl: returnUrlArg,
@@ -1019,6 +1041,7 @@ export const billingDomain = {
     },
     "billing.creditCheckout": {
       scope: "owner",
+      requireAccount: true,
       parse: object({
         amountCents: number({ int: true, min: CREDIT_MIN_CENTS, max: CREDIT_MAX_CENTS }),
         returnUrl: returnUrlArg,
@@ -1028,6 +1051,7 @@ export const billingDomain = {
     },
     "billing.portal": {
       scope: "owner",
+      requireAccount: true,
       parse: object({ returnUrl: returnUrlArg }),
       handler: (ctx: OwnerContext, args: BillingCalls["billing.portal"]["args"]) => portal(ctx, args),
     },

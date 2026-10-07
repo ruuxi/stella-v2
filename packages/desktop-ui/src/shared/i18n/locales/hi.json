@@ -773,7 +773,8 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "बहुत बढ़िया।",
-        "signinDone": "हो गया।"
+        "signinDone": "हो गया।",
+        "signinSkipped": "मैं इसे बाद में कर लूँगी।"
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -923,7 +924,7 @@
       },
       "signin": {
         "title": "साइन इन करें",
-        "body": "शुरू करने के लिए Stella खाते से साइन इन करें। आप अपना Claude या ChatGPT प्लान भी जोड़ सकते हैं।",
+        "body": "इनमें से कोई एक काफ़ी है। बाकी बाद में जोड़ सकते हैं।",
         "options": {
           "stella": {
             "title": "Stella खाता",
@@ -945,9 +946,11 @@
         "waiting": "अपने ब्राउज़र में साइन इन पूरा करें, फिर यहाँ लौट आइए।",
         "error": "कनेक्ट नहीं हो पाया। फिर कोशिश करें?",
         "fine": "इसे कभी भी सेटिंग्स में बदलें।",
+        "skip": "अभी नहीं",
         "hint": "शुरू करना मुफ़्त है।",
         "settledEngine": "{name} इस्तेमाल हो रहा है",
         "settledStella": "Stella में साइन इन हो गया",
+        "settledSkipped": "अभी साइन इन नहीं है",
         "settledDesc": "इसे कभी भी सेटिंग्स में बदलें।",
         "claudeCliMissing": "पहले Claude Code इंस्टॉल करें, फिर से कोशिश करें।"
       },
@@ -997,6 +1000,7 @@
     },
     "capabilityRestriction": {
       "title": "{capability} आपके प्लान में नहीं है",
+      "signIn": "{capability} Stella {plan} में शामिल है। इसे अनलॉक करने के लिए साइन इन करें और अपग्रेड करें।",
       "upgrade": "{capability} Stella {plan} में शामिल है। इसे अनलॉक करने के लिए अपग्रेड करें।",
       "unavailable": "{capability} फ़िलहाल किसी भी प्लान में उपलब्ध नहीं है।",
       "lockedBadge": "{plan}",
@@ -1986,6 +1990,7 @@
       "sendFailed": "साइन-इन ईमेल भेजने में विफल।",
       "magicLinkFailed": "मैजिक लिंक भेजने में विफल।",
       "finishFailed": "साइन-इन पूरा नहीं हो सका। कृपया फिर कोशिश करें।",
+      "signInIncomplete": "साइन-इन अधूरा। कृपया फिर कोशिश करें।",
       "signInLinkExpired": "साइन-इन लिंक समाप्त हो गया। कृपया फिर कोशिश करें।",
       "tooManyRequests": {
         "one": "बहुत अधिक अनुरोध। {count} सेकंड में फिर कोशिश करें।",
@@ -2133,6 +2138,7 @@
         "computerDone": "कनेक्ट हो गया!",
         "computerSkipped": "बाद में।",
         "accountDone": "हो गया।",
+        "accountSkipped": "अभी नहीं।",
         "themeDone": "यही वाला।",
         "themeSkipped": "डिफ़ॉल्ट ही रहने दो।"
       },
@@ -2281,7 +2287,10 @@
         "connect": "कनेक्ट करें",
         "connectLabel": "{name} कनेक्ट करें",
         "connectedAs": "कनेक्टेड · {name}",
-        "settledSignedIn": "साइन इन हैं"
+        "skip": "अभी नहीं",
+        "settledSignedIn": "साइन इन हैं",
+        "settledGuest": "Stella अतिथि के रूप में",
+        "guestSettled": "सेटिंग्स से कभी भी साइन इन करें"
       },
       "theme": {
         "appearance": "रूप-रंग",
@@ -2340,7 +2349,8 @@
       "legalTerms": "सेवा की शर्तें",
       "legalConjunction": " और ",
       "legalPrivacy": "गोपनीयता नीति",
-      "legalSuffix": " से सहमत होते हैं।"
+      "legalSuffix": " से सहमत होते हैं।",
+      "continueAsGuest": "साइन इन किए बिना जारी रखें"
     },
     "chat": {
       "emptyPrompt": "Stella से कुछ भी पूछें",
@@ -2406,6 +2416,8 @@
       }
     },
     "computer": {
+      "guestHeroTitle": "आपका कंप्यूटर, आपकी उँगलियों पर",
+      "guestHeroBody": "Stella से अपने कंप्यूटर पर काम कराएँ — वेब ब्राउज़ करना, फ़ाइलें सँभालना, काम चलाना और भी बहुत कुछ।",
       "defaultDeviceLabel": "आपका कंप्यूटर",
       "statusChecking": "जाँच हो रही है…",
       "statusConnected": "कनेक्टेड",
@@ -2417,6 +2429,8 @@
     },
     "desktop": {
       "pairTitle": "अपना फ़ोन पेयर करें",
+      "guestBody": "अपना Stella डेस्कटॉप ऐप सीधे फ़ोन पर देखें। पेयर करने के बाद आपका फ़ोन अपने आप फिर से कनेक्ट हो जाएगा।",
+      "guestSignInPrompt": "शुरू करने के लिए साइन इन करें।",
       "connecting": "डेस्कटॉप से कनेक्ट हो रहा है",
       "pairing": "इस फ़ोन को पेयर किया जा रहा है",
       "unreachable": "आपके डेस्कटॉप तक नहीं पहुँच पा रहे",

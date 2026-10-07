@@ -110,37 +110,27 @@ function useMagicLinkAuthState(): MagicLinkAuthState {
     try {
       const backendUrl = requireBackendUrl();
       const turnstileToken = await getPlatformChallengeToken();
+      const sendRequest = await buildMagicLinkSendRequest(
+        targetEmail,
+        turnstileToken,
+      );
+      if (!sendRequest) {
+        // Do not start an unbound sign-in. The backend must be able to prove
+        // which anonymous owner is being upgraded before it emails a link.
+        throw new MagicLinkKeyError("global.auth.signInIncomplete");
+      }
       // Held in memory for this attempt only; the server stores just the hash
       // and returns nothing usable from /link/status.
       const claimSecret = generateClaimSecret();
       claimSecretRef.current = claimSecret;
-      const claimHash = await hashClaimSecret(claimSecret);
-      const legacySend = await window.electronAPI?.system.sendLegacyMagicLink?.(
-        {
-          email: targetEmail,
-          claimHash,
-          ...(turnstileToken ? { turnstileToken } : {}),
-        },
-      );
-      let response: Response;
-      if (legacySend?.handled) {
-        response = new Response(JSON.stringify(legacySend.body ?? {}), {
-          status: legacySend.status,
-          headers: legacySend.retryAfter
-            ? { "Retry-After": legacySend.retryAfter }
-            : {},
-        });
-      } else {
-        const sendRequest = buildMagicLinkSendRequest(
-          targetEmail,
-          turnstileToken,
-        );
-        response = await fetch(`${backendUrl}/api/auth/link/send`, {
-          method: "POST",
-          headers: sendRequest.headers,
-          body: JSON.stringify({ ...sendRequest.body, claimHash }),
-        });
-      }
+      const response = await fetch(`${backendUrl}/api/auth/link/send`, {
+        method: "POST",
+        headers: sendRequest.headers,
+        body: JSON.stringify({
+          ...sendRequest.body,
+          claimHash: await hashClaimSecret(claimSecret),
+        }),
+      });
 
       if (response.status === 429) {
         const retryAfterHeader = response.headers.get("Retry-After");

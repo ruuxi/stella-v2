@@ -50,7 +50,7 @@ const backendCall = (name: string, args: unknown) => {
   backendCalls.push({ kind: "call", name });
   switch (name) {
     case "owner.identity":
-      return { ownerId: "owner-1", ownerGeneration: "gen-1" };
+      return { ownerId: "owner-1", ownerGeneration: "gen-1", isAnonymous: false };
     case "conversations.create":
       return {
         conversationId: `conv:${(args as { clientCreateId: string }).clientCreateId}`,
@@ -400,6 +400,10 @@ describe("mobile execution placement client", () => {
   });
 
   test("fences conversation creation on the conversation identity, not device placement", async () => {
+    // Hosted chat is open to the anonymous owner; the execution-placement
+    // identity query refuses anonymous callers because it registers desktops
+    // for remote execution. Admitting a chat conversation through it made
+    // account-free mobile chat fail on its first turn.
     const conversationId = await ensureAutomaticExecutionConversation({
       threadId: "cloud",
       title: "Chat",
@@ -414,7 +418,7 @@ describe("mobile execution placement client", () => {
     );
   });
 
-  test("maps sign-in and suspended placement refusals to client copy", async () => {
+  test("maps anonymous and suspended placement refusals to client copy", async () => {
     for (const [code, message] of [
       ["sign_in_required", "Sign in to Stella to use cloud agents."],
       ["owner_suspended", "This account can't use Stella's cloud right now."],

@@ -16,8 +16,12 @@ import {
 } from "./helpers/env.js";
 
 describe("shared gateway config", () => {
-  test("the revision covers tier ceilings", async () => {
+  test("the revision covers anonymous caps and tier ceilings", async () => {
     const snapshot = completeConfigSnapshot();
+    const anonymousChanged = {
+      ...snapshot,
+      anonymous: { ...snapshot.anonymous, maxRequestsPerOwner: 21 },
+    };
     const ceilingChanged = {
       ...snapshot,
       tierCeilings: snapshot.tierCeilings.map((ceiling) =>
@@ -26,6 +30,9 @@ describe("shared gateway config", () => {
           : ceiling,
       ),
     };
+    expect(await gatewayConfigRevision(anonymousChanged)).not.toBe(
+      await gatewayConfigRevision(snapshot),
+    );
     expect(await gatewayConfigRevision(ceilingChanged)).not.toBe(
       await gatewayConfigRevision(snapshot),
     );
@@ -35,12 +42,28 @@ describe("shared gateway config", () => {
     const snapshot = completeConfigSnapshot();
     expect(isCompleteGatewayConfigSnapshot(snapshot)).toBe(true);
     expect(
+      isCompleteGatewayConfigSnapshot({ ...snapshot, anonymous: undefined }),
+    ).toBe(false);
+    expect(
       isCompleteGatewayConfigSnapshot({ ...snapshot, tierCeilings: [] }),
     ).toBe(false);
     expect(
       isCompleteGatewayConfigSnapshot({
         ...snapshot,
         tierCeilings: [...snapshot.tierCeilings, snapshot.tierCeilings[0]],
+      }),
+    ).toBe(false);
+    expect(
+      isCompleteGatewayConfigSnapshot({
+        ...snapshot,
+        tierCeilings: [
+          ...snapshot.tierCeilings,
+          {
+            audience: "unknown",
+            hourlyMicroCents: 1,
+            dailyMicroCents: 1,
+          },
+        ],
       }),
     ).toBe(false);
     expect(

@@ -239,10 +239,8 @@ live. Read the version.
 ## Smoke check after a prod deploy
 
 - `curl -s https://auth.stella.sh/api/auth/jwks` → 200.
-- Anonymous sign-in is gone: `POST /api/auth/sign-in/anonymous` → 404.
-- One chat turn needs a signed-in session (on dev a test account, see
-  `CLAUDE.md`; on prod a real account): `GET /api/auth/token`,
-  `POST /conversations/<uuid>/turns`
+- Anonymous sign-in, then one chat turn: `POST /api/auth/sign-in/anonymous`,
+  `GET /api/auth/token`, `POST /conversations/<uuid>/turns`
   `{"protocol":1,"clientMsgId":"<uuid>","prompt":"Reply with exactly: ok","lane":"chat"}`,
   then poll `GET /conversations/<uuid>/history` for the assistant reply.
 - Desktop against a given backend: `STELLA_BACKEND_URL=<backend> TMPDIR=/tmp node .agents/skills/verify-stella/control-stella.mjs session launch`.

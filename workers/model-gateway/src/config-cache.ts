@@ -25,6 +25,7 @@ export const CONFIG_TTL_MS = 5 * 60_000;
 export type GatewayConfig = {
   snapshot: GatewayConfigSnapshot;
   fetchedAt: number;
+  anonymous: { maxRequestsPerOwner: number | null };
   tierCeilings: ReadonlyMap<
     ManagedModelAudienceForLimits,
     { hourlyMicroCents: number; dailyMicroCents: number }
@@ -102,9 +103,17 @@ const indexPrices = (
       });
     }
   }
+  const maxRequestsPerOwner = snapshot.anonymous?.maxRequestsPerOwner;
   return {
     snapshot,
     fetchedAt: now,
+    anonymous: {
+      maxRequestsPerOwner:
+        typeof maxRequestsPerOwner === "number" &&
+        Number.isFinite(maxRequestsPerOwner)
+          ? Math.max(0, Math.floor(maxRequestsPerOwner))
+          : null,
+    },
     tierCeilings,
     priceFor: (model) => prices.get(model) ?? null,
   };

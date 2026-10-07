@@ -69,6 +69,7 @@ const callerFor = (ownerId: string): OwnerCaller => ({
   ownerId,
   subject: ownerId,
   sessionId: "session",
+  isAnonymous: false,
   expiresAtMs: Date.now() + 30 * 60_000,
 });
 
@@ -91,6 +92,7 @@ export default {
       forwarded.headers.set("x-stella-subject", caller.subject);
       forwarded.headers.set("x-stella-session", caller.sessionId);
       forwarded.headers.set("x-stella-token-exp", String(caller.expiresAtMs));
+      forwarded.headers.set("x-stella-anonymous", "0");
       return await gate.fetch(forwarded);
     }
     return new Response("not found", { status: 404 });

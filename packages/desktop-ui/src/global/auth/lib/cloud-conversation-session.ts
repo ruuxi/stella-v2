@@ -6,7 +6,6 @@ export type CloudConversationSessionGate = {
   hasExpectedSubject: boolean;
   authBootstrapReady: boolean;
   authBootstrapFailed: boolean;
-  authBootstrapSignedOut: boolean;
 };
 
 export const resolveCloudConversationSession = (
@@ -26,7 +25,6 @@ export const resolveCloudConversationSession = (
     isCloudConversationReady,
     isLoading:
       !args.authBootstrapFailed &&
-      !args.authBootstrapSignedOut &&
       (!args.authBootstrapReady ||
         args.sessionIsLoading ||
         args.authIsLoading ||

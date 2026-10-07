@@ -1716,7 +1716,6 @@
         "fromOtherComputers": "來自你另一台電腦的變更",
         "readyChange": "可以加入的變更",
         "add": "加入",
-        "get": "取得",
         "adding": "正在加入…",
         "skip": "略過",
         "undoing": "正在復原…",
@@ -1724,7 +1723,6 @@
         "justNow": "剛剛",
         "waiting": "待加入",
         "history": "歷史",
-        "skipped": "已略過",
         "upToDate": "沒有待加入的項目"
       }
     },
@@ -2117,6 +2115,7 @@
         "computerDone": "已連線！",
         "computerSkipped": "之後再說。",
         "accountDone": "搞定。",
+        "accountSkipped": "暫時略過。",
         "themeDone": "就這個。",
         "themeSkipped": "維持預設。"
       },
@@ -2265,7 +2264,10 @@
         "connect": "連結",
         "connectLabel": "連結 {name}",
         "connectedAs": "已連結 · {name}",
-        "settledSignedIn": "已登入"
+        "skip": "暫時略過",
+        "settledSignedIn": "已登入",
+        "settledGuest": "正以訪客身分使用 Stella",
+        "guestSettled": "隨時可在設定中登入"
       },
       "theme": {
         "appearance": "外觀",
@@ -2324,7 +2326,8 @@
       "legalTerms": "服務條款",
       "legalConjunction": "和",
       "legalPrivacy": "隱私權政策",
-      "legalSuffix": "。"
+      "legalSuffix": "。",
+      "continueAsGuest": "不登入繼續"
     },
     "chat": {
       "emptyPrompt": "什麼都可以問 Stella",
@@ -2389,6 +2392,8 @@
       }
     },
     "computer": {
+      "guestHeroTitle": "您的電腦，隨手可用",
+      "guestHeroBody": "請 Stella 在您的電腦上做事 —— 瀏覽網頁、管理檔案、執行工作等等。",
       "defaultDeviceLabel": "您的電腦",
       "statusChecking": "檢查中…",
       "statusConnected": "已連線",
@@ -2400,6 +2405,8 @@
     },
     "desktop": {
       "pairTitle": "配對您的手機",
+      "guestBody": "在手機上直接檢視您的 Stella 桌面應用程式。配對後，手機會自動重新連線。",
+      "guestSignInPrompt": "登入即可開始。",
       "connecting": "正在連線到桌面版",
       "pairing": "正在配對這支手機",
       "unreachable": "無法連線到您的桌面版",

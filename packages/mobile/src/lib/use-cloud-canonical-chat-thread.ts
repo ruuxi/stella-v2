@@ -19,7 +19,7 @@ import {
 import { AppState } from "react-native";
 import { notifySuccess } from "./haptics";
 import { ReplyArrivalHaptics } from "./reply-arrival-haptics";
-import { useAccountSession } from "./auth-client";
+import { authClient } from "./auth-client";
 import { clearCachedToken, getTokenOwnerForSubject } from "./auth-token";
 import {
   observeCloudConversationIdentity,
@@ -86,14 +86,19 @@ import {
 } from "./use-chat-thread";
 
 
-const safeAuthorityIssue = (error: unknown): CloudAuthorityIssue => {
+const safeAuthorityIssue = (
+  error: unknown,
+  anonymous: boolean,
+): CloudAuthorityIssue => {
   if (error instanceof CloudAuthorityError) {
     return { message: error.message, retryable: error.retryable };
   }
   const message = error instanceof Error ? error.message : String(error);
   if (/sign in|session|authentication|unauthorized/i.test(message)) {
     return {
-      message: "Stella could not verify this account. Sign in again.",
+      message: anonymous
+        ? "Stella could not verify this anonymous session. Try again."
+        : "Stella could not verify this account. Sign in again.",
       retryable: true,
     };
   }
@@ -191,8 +196,9 @@ const authorityStore = new CloudConversationAuthorityStore({
  */
 export const primeCloudConversationAuthority = (
   identity: CloudConversationIdentity,
+  anonymous: boolean,
 ): void => {
-  void authorityStore.ensure(identity);
+  void authorityStore.ensure(identity, anonymous);
 };
 
 /** Drops the cached handshake once the session is gone (sign-out). */
@@ -224,7 +230,8 @@ const retryCloudConversationAuthority = (): void => {
 
 /** Resolves and account-fences the one signed-in mobile Chat conversation. */
 export const useCloudConversationAuthority = (): CloudAuthorityHookState => {
-  const session = useAccountSession();
+  const session = authClient.useSession();
+  const anonymous = session.data?.user?.isAnonymous === true;
   const identity = useMemo(
     () => observeCloudConversationIdentity(session.data),
     [session.data],
@@ -238,11 +245,11 @@ export const useCloudConversationAuthority = (): CloudAuthorityHookState => {
   // this is a cache hit and does nothing.
   useLayoutEffect(() => {
     if (pending || !identity) return;
-    void authorityStore.ensure(identity);
+    void authorityStore.ensure(identity, anonymous);
     // `identity` is derived from the key; re-running on every session object
     // identity would only churn the (idempotent) ensure call.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [identityKey, pending]);
+  }, [anonymous, identityKey, pending]);
 
   const entry = useSyncExternalStore(
     authorityStore.subscribe,

@@ -1,6 +1,6 @@
 import * as Crypto from "expo-crypto";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useAccountSession } from "./auth-client";
+import { authClient } from "./auth-client";
 import { getBackendClient, useBackendView } from "./backend";
 import { selectCurrentConversationBrowserInteraction } from "./cloud-browser-interaction-selection";
 
@@ -75,7 +75,16 @@ let resetRequestId: string | null = null;
 
 const newRequestId = (): string => Crypto.randomUUID();
 
-const useCloudBrowserAccess = (): boolean => Boolean(useAccountSession().data);
+/**
+ * The cloud browser is a connected-account feature: every `browser.*`
+ * backend function refuses the Better Auth anonymous owner, so hold off until
+ * the session is a connected account. Mirrors desktop's
+ * `hasConnectedAccount` gate.
+ */
+const useCloudBrowserAccess = (): boolean => {
+  const session = authClient.useSession();
+  return Boolean(session.data) && session.data?.user?.isAnonymous !== true;
+};
 
 export function usePendingCloudBrowserInteractions(): readonly CloudBrowserInteractionSummary[] {
   const enabled = useCloudBrowserAccess();

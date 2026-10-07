@@ -38,15 +38,15 @@ describe("OwnerRelayGate", () => {
       const gate = ownerGate();
       expect(
         await gate.admitRelay({
-          audience: "free",
+          audience: "anonymous",
           requestId: "one",
-          throttled: true,
+          throttled: false,
         }),
       ).toEqual({ ok: true });
       const refused = await gate.admitRelay({
-        audience: "free",
+        audience: "anonymous",
         requestId: "two",
-        throttled: true,
+        throttled: false,
       });
       expect(refused).toMatchObject({
         ok: false,
@@ -56,25 +56,25 @@ describe("OwnerRelayGate", () => {
       // uncounted so the capability ledger can answer replay or in-flight.
       expect(
         await gate.admitRelay({
-          audience: "free",
+          audience: "anonymous",
           requestId: "one",
-          throttled: true,
+          throttled: false,
         }),
       ).toEqual({ ok: true, duplicate: true });
       await gate.releaseRelay("one");
       expect(
         await gate.admitRelay({
-          audience: "free",
+          audience: "anonymous",
           requestId: "two",
-          throttled: true,
+          throttled: false,
         }),
       ).toEqual({ ok: true });
       clock.now += GATEWAY_UPSTREAM_MAX_DURATION_MS + 60_001;
       expect(
         await gate.admitRelay({
-          audience: "free",
+          audience: "anonymous",
           requestId: "three",
-          throttled: true,
+          throttled: false,
         }),
       ).toEqual({ ok: true });
     });
@@ -85,13 +85,13 @@ describe("OwnerRelayGate", () => {
       const gate = ownerGate();
       for (
         let index = 0;
-        index < GATEWAY_OWNER_RELAY_LIMITS.free.perMinute;
+        index < GATEWAY_OWNER_RELAY_LIMITS.anonymous.perMinute;
         index += 1
       ) {
         const requestId = `relay-${index}`;
         expect(
           await gate.admitRelay({
-            audience: "free",
+            audience: "anonymous",
             requestId,
             throttled: false,
           }),
@@ -100,7 +100,7 @@ describe("OwnerRelayGate", () => {
       }
       expect(
         await gate.admitRelay({
-          audience: "free",
+          audience: "anonymous",
           requestId: "blocked",
           throttled: false,
         }),
@@ -108,7 +108,7 @@ describe("OwnerRelayGate", () => {
       clock.now += 60_001;
       expect(
         await gate.admitRelay({
-          audience: "free",
+          audience: "anonymous",
           requestId: "after-window",
           throttled: false,
         }),
@@ -153,8 +153,62 @@ describe("OwnerRelayGate", () => {
 });
 
 describe("NetworkGate", () => {
-  test("enforces the free daily relay limit but skips go/pro", async () => {
-    await withClock(20_000_000, async () => {
+  test("enforces anonymous hourly relay and daily mint limits", async () => {
+    await withClock(10_000_000, async (clock) => {
+      const relayGate = networkGate();
+      for (
+        let index = 0;
+        index < GATEWAY_NETWORK_LIMITS.anonymous.relayPerHour;
+        index += 1
+      ) {
+        expect(
+          await relayGate.admitRelay({
+            audience: "anonymous",
+            capShare: 1,
+          }),
+        ).toEqual({ ok: true });
+      }
+      expect(
+        await relayGate.admitRelay({ audience: "anonymous", capShare: 1 }),
+      ).toMatchObject({ ok: false, refused: "rate_limited" });
+      clock.now += 60 * 60_000 + 1;
+      expect(
+        await relayGate.admitRelay({ audience: "anonymous", capShare: 1 }),
+      ).toEqual({ ok: true });
+
+      const mintGate = networkGate();
+      for (
+        let index = 0;
+        index < GATEWAY_NETWORK_LIMITS.anonymous.mintsPerDay;
+        index += 1
+      ) {
+        expect(await mintGate.admitMint()).toEqual({ ok: true });
+      }
+      expect(await mintGate.admitMint()).toMatchObject({
+        ok: false,
+        refused: "rate_limited",
+      });
+    });
+  });
+
+  test("enforces anonymous and free daily relay limits but skips go/pro", async () => {
+    await withClock(20_000_000, async (clock) => {
+      const anonymous = networkGate();
+      for (let batch = 0; batch < 4; batch += 1) {
+        for (let index = 0; index < 250; index += 1) {
+          expect(
+            await anonymous.admitRelay({
+              audience: "anonymous",
+              capShare: 1,
+            }),
+          ).toEqual({ ok: true });
+        }
+        clock.now += 61 * 60_000;
+      }
+      expect(
+        await anonymous.admitRelay({ audience: "anonymous", capShare: 1 }),
+      ).toMatchObject({ ok: false, refused: "rate_limited" });
+
       const free = networkGate();
       for (
         let index = 0;
@@ -266,7 +320,7 @@ describe("TierBudget", () => {
     }) as typeof fetch;
     try {
       const gate = new TierBudget(
-        createDurableObjectState("free") as never,
+        createDurableObjectState("anonymous") as never,
         { STELLA_ALERT_WEBHOOK_URL: "https://alerts.test/hook" } as never,
       );
       await gate.reserve({
@@ -298,7 +352,7 @@ describe("TierBudget", () => {
       expect(alerts[0]).toEqual({
         text: JSON.stringify({
           source: "model-gateway",
-          audience: "free",
+          audience: "anonymous",
           window: "hourly",
           resetAt: 4_560_000,
         }),

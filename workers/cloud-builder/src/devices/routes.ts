@@ -37,6 +37,7 @@ const mobileRoute = async (request: Request, env: Cloudflare.Env, url: URL): Pro
   if (!verified.ok) {
     return json({ error: verified.error.message }, verified.error.code === "UNAUTHENTICATED" ? 401 : 503);
   }
+  if (verified.caller.isAnonymous) return json({ error: "Sign in with an account to use this." }, 403);
   const body = await readBody(request);
   if (!body) return json({ error: "Request body must be a JSON object" }, 400);
   const headers: Record<string, string> = {};

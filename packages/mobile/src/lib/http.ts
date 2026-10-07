@@ -82,6 +82,7 @@ async function requestJson(
   path: string,
   request: JsonRequest,
   options?: {
+    anonymous?: boolean;
     timeoutMs?: number;
     signal?: AbortSignal;
     /** Absolute origin override; defaults to the backend worker. */
@@ -89,7 +90,9 @@ async function requestJson(
   },
 ) {
   const origin = options?.origin?.replace(/\/+$/, "") || backendOrigin();
-  const authHeader = `Bearer ${await getAuthToken()}`;
+  const authHeader = options?.anonymous
+    ? null
+    : `Bearer ${await getAuthToken()}`;
   const controller = new AbortController();
   let timedOut = false;
   const timer = setTimeout(
@@ -107,7 +110,7 @@ async function requestJson(
     response = await fetch(`${origin}${path}`, {
       ...request,
       headers: {
-        Authorization: authHeader,
+        ...(authHeader ? { Authorization: authHeader } : {}),
         ...(request.method === "POST"
           ? { "Content-Type": "application/json" }
           : {}),
@@ -193,6 +196,29 @@ export const postJson = (
     },
   );
 
+export const postJsonAnonymous = (
+  path: string,
+  body: unknown,
+  options?: {
+    headers?: Record<string, string>;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+  },
+) =>
+  requestJson(
+    path,
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+      headers: options?.headers,
+    },
+    {
+      anonymous: true,
+      timeoutMs: options?.timeoutMs,
+      signal: options?.signal,
+    },
+  );
+
 /** Authenticated non-JSON POST to the backend (the voice SDP route). */
 export const postText = async (
   path: string,
@@ -254,7 +280,7 @@ function executeStream(
   path: string,
   body: unknown,
   onSegment: (text: string) => void,
-  authHeader: string,
+  authHeader: string | null,
   options?: StreamRequestOptions,
 ): Promise<void> {
   const origin = backendOrigin();
@@ -262,7 +288,9 @@ function executeStream(
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${origin}${path}`);
-    xhr.setRequestHeader("Authorization", authHeader);
+    if (authHeader) {
+      xhr.setRequestHeader("Authorization", authHeader);
+    }
     xhr.setRequestHeader("Content-Type", "application/json");
     for (const [name, value] of Object.entries(options?.headers ?? {})) {
       xhr.setRequestHeader(name, value);
@@ -383,3 +411,11 @@ export function postStream(
   );
 }
 
+export function postStreamAnonymous(
+  path: string,
+  body: unknown,
+  onSegment: (text: string) => void,
+  options?: StreamRequestOptions,
+): Promise<void> {
+  return executeStream(path, body, onSegment, null, options);
+}

@@ -1,6 +1,6 @@
 /**
  * Public read access to the published app (the `upstream` Artifacts repo) for
- * callers without an account: signed-out desktops checking for updates and the
+ * callers without an account: anonymous desktops checking for updates and the
  * launcher's first install. Upstream is the published app anyway, so one read
  * token is shared: cached in the isolate and at the edge for about 50 minutes
  * instead of minted per caller.

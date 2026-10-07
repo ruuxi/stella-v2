@@ -16,7 +16,6 @@ import { readConfiguredBackendUrl } from "@stella/contracts/stella-api";
 import {
   getAuthSessionIdentityIntent,
   getAuthSnapshotSession,
-  isLegacyAnonymousSession,
   isRecognizedAuthRejection,
   resolveAuthSessionObservation,
   resolveMissingCredentialSnapshot,
@@ -188,7 +187,7 @@ export class AuthService {
     }
     const harnessSessionToken = resolveDevHarnessSessionToken({
       isPackaged: app.isPackaged,
-      hasStoredBearer: Boolean(this.getStoredBearerToken()),
+      hasStoredBearer: Boolean(this.getBearerToken()),
     });
     delete process.env.STELLA_DEV_HARNESS_SESSION_TOKEN;
     if (harnessSessionToken) {
@@ -318,55 +317,30 @@ export class AuthService {
     this.credentialEpoch += 1;
   }
 
-  private getStoredBearerToken(): string {
+  private getBearerToken(): string {
     return this.getAuthStorageItem(BETTER_AUTH_TOKEN_STORAGE_KEY)?.trim() ?? "";
   }
 
-  private getBearerToken(): string {
-    return this.hasLegacyAnonymousCredential()
-      ? ""
-      : this.getStoredBearerToken();
-  }
-
-  private readStoredSessionData(): unknown | null {
+  private getStoredSession(): unknown | null {
     const stored = this.getAuthStorageItem(
       BETTER_AUTH_SESSION_DATA_STORAGE_KEY,
     );
     if (!stored) return null;
     try {
-      return JSON.parse(stored) as unknown;
+      const parsed = JSON.parse(stored) as unknown;
+      return getAuthSessionIdentityIntent(parsed) ? parsed : null;
     } catch {
       return null;
     }
   }
 
-  private getStoredSession(): unknown | null {
-    const parsed = this.readStoredSessionData();
-    return getAuthSessionIdentityIntent(parsed) ? parsed : null;
-  }
-
-  /**
-   * A bearer left by the retired anonymous sign-in. This device is signed out:
-   * the credential is never used for sessions, tokens, or the runtime, and is
-   * kept only so a sign-in can upgrade that user in place.
-   */
-  private hasLegacyAnonymousCredential(): boolean {
-    if (!this.getStoredBearerToken()) return false;
-    const intent = this.getAuthStorageItem(AUTH_IDENTITY_INTENT_STORAGE_KEY);
-    if (intent === "connected") return false;
-    return (
-      intent === "anonymous" ||
-      isLegacyAnonymousSession(this.readStoredSessionData())
-    );
-  }
-
   private getIdentityIntent(): AuthIdentityIntent | null {
     const stored = this.getAuthStorageItem(AUTH_IDENTITY_INTENT_STORAGE_KEY);
-    if (stored === "connected") return stored;
+    if (stored === "anonymous" || stored === "connected") return stored;
     return getAuthSessionIdentityIntent(this.getStoredSession());
   }
 
-  private setIdentityIntent(intent: AuthIdentityIntent | null) {
+  private setIdentityIntent(intent: AuthIdentityIntent) {
     this.setAuthStorageItem(AUTH_IDENTITY_INTENT_STORAGE_KEY, intent);
   }
 
@@ -381,7 +355,7 @@ export class AuthService {
       return;
     }
     const trimmed = token.trim();
-    if (trimmed && trimmed !== this.getStoredBearerToken()) {
+    if (trimmed && trimmed !== this.getBearerToken()) {
       this.setAuthStorageItem(BETTER_AUTH_TOKEN_STORAGE_KEY, trimmed);
     }
   }
@@ -395,7 +369,7 @@ export class AuthService {
     if (!headers.has("origin")) {
       headers.set("origin", DESKTOP_AUTH_ORIGIN);
     }
-    const token = this.getStoredBearerToken();
+    const token = this.getBearerToken();
     if (token) {
       headers.set("authorization", `Bearer ${token}`);
     }
@@ -568,10 +542,19 @@ export class AuthService {
     });
   }
 
+  /**
+   * `hasConnectedAccount` is derived here rather than reported by the
+   * renderer. An anonymous session is a real Stella identity on this branch
+   * (it owns cloud conversations), so the distinction that matters to the
+   * runner is anonymous versus connected, not signed-out versus signed-in.
+   */
   private applySessionDerivedState(session: unknown | null) {
+    const isAnonymous =
+      (session as { user?: { isAnonymous?: boolean | null } } | null)?.user
+        ?.isAnonymous === true;
     this.sessionStateDerived = true;
     this.hostAuthAuthenticated = Boolean(session);
-    this.setHostHasConnectedAccount(Boolean(session));
+    this.setHostHasConnectedAccount(Boolean(session) && !isAnonymous);
   }
 
   private setHostHasConnectedAccount(hasConnectedAccount: boolean) {
@@ -588,18 +571,34 @@ export class AuthService {
    * Seed the derived state from the persisted session blob so the runner knows
    * whether this is a connected account before the first network read
    * completes. Cloud mode and the builder WebSocket both branch on it during
-   * boot, and a signed-out-looking gap there would show the user a downgraded
+   * boot, and an anonymous-looking gap there would show the user a downgraded
    * shell for a round-trip. A network read still overwrites this.
    */
   private hydrateSessionStateFromDisk() {
     if (this.sessionStateDerived || !this.getBearerToken()) {
       return;
     }
-    if (!this.getStoredSession()) {
+    const stored = this.getAuthStorageItem(
+      BETTER_AUTH_SESSION_DATA_STORAGE_KEY,
+    );
+    if (!stored) {
       return;
     }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(stored);
+    } catch {
+      this.setAuthStorageItem(BETTER_AUTH_SESSION_DATA_STORAGE_KEY, null);
+      return;
+    }
+    if (!parsed || typeof parsed !== "object") {
+      return;
+    }
+    const isAnonymous =
+      (parsed as { user?: { isAnonymous?: boolean | null } }).user
+        ?.isAnonymous === true;
     this.hostAuthAuthenticated = true;
-    this.setHostHasConnectedAccount(true);
+    this.setHostHasConnectedAccount(!isAnonymous);
   }
 
   private async fetchBetterAuthSessionFromNetwork(): Promise<AuthSessionObservation> {
@@ -677,12 +676,6 @@ export class AuthService {
     this.sessionRefreshRetryTimer = timer;
   }
 
-  private getLastSignedOutReason() {
-    return this.lastSessionSnapshot?.status === "signed_out"
-      ? this.lastSessionSnapshot.reason
-      : undefined;
-  }
-
   private commitSessionSnapshot(snapshot: AuthSessionSnapshot) {
     this.lastSessionSnapshot = snapshot;
     if (snapshot.status === "authenticated") {
@@ -699,10 +692,8 @@ export class AuthService {
     } else if (snapshot.status === "reauth_required") {
       this.clearBearerPreservingCachedIdentity();
       this.stopAuthRefreshLoop();
-    } else if (this.hasLegacyAnonymousCredential()) {
-      this.stopAuthRefreshLoop();
     } else {
-      this.setIdentityIntent(null);
+      this.setIdentityIntent("anonymous");
       this.clearStoredCredentials();
       this.stopAuthRefreshLoop();
     }
@@ -717,11 +708,7 @@ export class AuthService {
     const pending = (async () => {
       if (!this.getBearerToken()) {
         return this.commitSessionSnapshot(
-          resolveMissingCredentialSnapshot({
-            identityIntent,
-            staleSession,
-            signedOutReason: this.getLastSignedOutReason(),
-          }),
+          resolveMissingCredentialSnapshot({ identityIntent, staleSession }),
         );
       }
       const observation = await this.fetchBetterAuthSessionFromNetwork();
@@ -732,15 +719,6 @@ export class AuthService {
             identityIntent: this.getIdentityIntent(),
             staleSession: this.getStoredSession(),
           })
-        );
-      }
-      if (
-        observation.kind === "authenticated" &&
-        isLegacyAnonymousSession(observation.session)
-      ) {
-        this.setAuthStorageItem(
-          BETTER_AUTH_SESSION_DATA_STORAGE_KEY,
-          JSON.stringify(observation.session),
         );
       }
       return this.commitSessionSnapshot(
@@ -764,11 +742,7 @@ export class AuthService {
     const staleSession = this.getStoredSession();
     if (!this.getBearerToken()) {
       return this.commitSessionSnapshot(
-        resolveMissingCredentialSnapshot({
-          identityIntent,
-          staleSession,
-          signedOutReason: this.getLastSignedOutReason(),
-        }),
+        resolveMissingCredentialSnapshot({ identityIntent, staleSession }),
       );
     }
     if (options.allowCached && staleSession) {
@@ -792,59 +766,35 @@ export class AuthService {
     return getAuthSnapshotSession(await this.getAuthSessionSnapshot());
   }
 
-  /**
-   * Sends the magic link from main when this device holds a legacy anonymous
-   * credential, so the backend can upgrade that user in place. The bearer
-   * never leaves main. Without such a credential the renderer sends a plain
-   * sign-in itself.
-   */
-  async sendLegacyMagicLink(input: {
-    email: string;
-    claimHash: string;
-    turnstileToken?: string;
-  }): Promise<
-    | { handled: false }
-    | {
-        handled: true;
-        status: number;
-        retryAfter: string | null;
-        body: unknown;
-      }
-  > {
-    if (!this.getBackendUrl() || !this.hasLegacyAnonymousCredential()) {
-      return { handled: false };
+  async signInAnonymous() {
+    if (this.getBearerToken() || this.getIdentityIntent() === "connected") {
+      throw new Error(
+        "Anonymous sign-in is not allowed while an existing credential or connected identity exists.",
+      );
     }
-    const email = typeof input?.email === "string" ? input.email.trim() : "";
-    const claimHash =
-      typeof input?.claimHash === "string" ? input.claimHash.trim() : "";
-    const turnstileToken =
-      typeof input?.turnstileToken === "string"
-        ? input.turnstileToken.trim()
-        : "";
-    if (
-      !email ||
-      email.length > 320 ||
-      !claimHash ||
-      claimHash.length > 256 ||
-      turnstileToken.length > TURNSTILE_TOKEN_MAX_LENGTH
-    ) {
-      throw new Error("Invalid sign-in request.");
-    }
-    const response = await this.authFetch("/link/send", {
+    const turnstileToken = await this.getChallengeToken();
+    const response = await this.authFetch("/sign-in/anonymous", {
       method: "POST",
       headers: {
         accept: "application/json",
         "content-type": "application/json",
         ...(turnstileToken ? { [AUTH_CAPTCHA_HEADER]: turnstileToken } : {}),
       },
-      body: JSON.stringify({ email, claimHash, requireAnonymousOwner: true }),
+      body: JSON.stringify({}),
     });
-    return {
-      handled: true,
-      status: response.status,
-      retryAfter: response.headers.get("retry-after"),
-      body: await response.json().catch(() => null),
-    };
+    if (!response.ok) {
+      const failure = await readAuthFailure(response);
+      console.warn("[auth] Anonymous sign-in failed.", {
+        status: failure.error.status,
+        code: failure.error.code,
+        requestId: failure.error.requestId,
+      });
+      throw new Error(`Anonymous sign-in failed with HTTP ${response.status}.`);
+    }
+    const body = await response.json().catch(() => ({ ok: true }));
+    this.setIdentityIntent("anonymous");
+    await this.resyncAfterCredentialChange();
+    return body;
   }
 
   async signOut() {
@@ -862,13 +812,13 @@ export class AuthService {
       );
       return null;
     });
-    this.setIdentityIntent(null);
+    this.setIdentityIntent("anonymous");
     this.clearStoredCredentials();
     this.stopAuthRefreshLoop();
     this.lastSessionSnapshot = resolveMissingCredentialSnapshot({
-      identityIntent: null,
+      identityIntent: "anonymous",
       staleSession: null,
-      signedOutReason: "explicit_sign_out",
+      anonymousReason: "explicit_sign_out",
     });
     return { ok: response?.ok !== false };
   }
@@ -905,13 +855,13 @@ export class AuthService {
     if (!response.ok) {
       throw new Error(`Account deletion failed with HTTP ${response.status}.`);
     }
-    this.setIdentityIntent(null);
+    this.setIdentityIntent("anonymous");
     this.clearStoredCredentials();
     this.stopAuthRefreshLoop();
     this.lastSessionSnapshot = resolveMissingCredentialSnapshot({
-      identityIntent: null,
+      identityIntent: "anonymous",
       staleSession: null,
-      signedOutReason: "explicit_sign_out",
+      anonymousReason: "explicit_sign_out",
     });
     return { ok: true };
   }
@@ -919,10 +869,9 @@ export class AuthService {
   /**
    * Adopt a bearer token obtained out of band: the magic-link or social
    * handoff claim, which the renderer performs against
-   * `/api/auth/link/claim`. This is where a sign-in lands (including the
-   * in-place upgrade of a legacy anonymous user), so the resync is awaited
-   * before returning — the caller must not observe the old identity's
-   * backend JWT after this resolves.
+   * `/api/auth/link/claim`. This is the anonymous-to-connected upgrade point,
+   * so the resync is awaited before returning — the caller must not observe
+   * the old identity's backend JWT after this resolves.
    */
   async applySessionToken(sessionToken: string) {
     const normalized =
@@ -1178,7 +1127,8 @@ export class AuthService {
           return result.token;
         }
         if (result.reason === "unauthorized") {
-          // Preserve connected identity intent and cached display identity.
+          // Preserve connected identity intent and cached display identity;
+          // only anonymous identities may rotate into a new anonymous owner.
           const snapshot = resolveAuthSessionObservation({
             observation: { kind: "rejected" },
             identityIntent: this.getIdentityIntent(),
@@ -1264,9 +1214,11 @@ export class AuthService {
       await this.awaitPendingResync();
       const epoch = this.credentialEpoch;
       if (this.getBackendUrl() && this.getBearerToken()) {
-        // The runtime branches on `hasConnectedAccount`. Minting alone never
-        // reads the session, so without this a boot-time refresh would report
-        // a connected user as signed out until some later path derived it.
+        // The runtime branches on `hasConnectedAccount`: an anonymous identity
+        // still owns cloud conversations, a connected one also gets the
+        // account-bound surfaces. Minting alone never reads the session, so
+        // without this a boot-time refresh would report a connected user as
+        // anonymous until some later path happened to derive it.
         if (!this.sessionStateDerived) {
           await this.getBetterAuthSession().catch(() => null);
         }

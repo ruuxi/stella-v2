@@ -16,9 +16,9 @@ const QUERY_FLAGS = ["role", "name", "selector", "within"];
 export const COMMANDS = [
   command("session", "launch", "launch", "Launch an isolated Stella instance", {
     aliases: ["launch"],
-    usage: "[--replace] [--account signed-out|signed-in|go|pro] [--fake-mic <wav>] [--browser-bridge shared|isolated] [--runtime-binary <native-executable>] [--model-gateway <origin>]",
+    usage: "[--replace] [--account anonymous|signed-in|go|pro] [--reuse] [--fake-mic <wav>] [--browser-bridge shared|isolated] [--runtime-binary <native-executable>] [--model-gateway <origin>]",
     flags: ["account", "fake-mic", "browser-bridge", "runtime-binary", "model-gateway"],
-    switches: ["replace"],
+    switches: ["replace", "reuse"],
   }),
   command("session", "doctor", "doctor", "Check the owned instance end to end; exit 2 when unhealthy", { aliases: ["doctor"] }),
   command("session", "info", "info", "Read the owned session record", { aliases: ["info"] }),

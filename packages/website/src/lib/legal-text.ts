@@ -5,8 +5,8 @@ export const LEGAL_TITLES: Record<LegalDocument, string> = {
   privacy: "Privacy Policy",
 };
 
-export const LEGAL_LAST_UPDATED = "October 6, 2026";
-export const PRIVACY_LAST_UPDATED = "October 6, 2026";
+export const LEGAL_LAST_UPDATED = "September 10, 2026";
+export const PRIVACY_LAST_UPDATED = "September 10, 2026";
 
 export const TERMS_OF_SERVICE = `Stella — FromYou LLC
 Last updated: ${LEGAL_LAST_UPDATED}
@@ -28,9 +28,11 @@ You must be at least 13 years of age to use the Service. If you are under 18, yo
 
 3. Accounts and Authentication
 
-Ways to Use Stella — You can use Stella by signing in to an account, which gives you access to Stella's managed models and hosted services, or by supplying your own AI provider API keys (BYOK).
+Anonymous Use — Stella can be used without creating an account. Anonymous users receive access to core functionality subject to rate limits.
 
-Registered Accounts — You can create an account using magic-link email authentication, Apple sign-in, or Google sign-in. You are responsible for maintaining the security of your login credentials and for all activity that occurs under your account.
+Registered Accounts — You may optionally create an account using magic-link email authentication or Google sign-in. If you create an account, you are responsible for maintaining the security of your login credentials and for all activity that occurs under your account.
+
+Account Linking — If you upgrade from anonymous use to a registered account, any anonymous session data may be linked to your new account.
 
 
 4. Description of the Service
@@ -195,7 +197,7 @@ The applications may keep caches, preferences, credentials, and workspace files 
 
 Depending on the features you use, our backend may process or store:
 
-Stella Provider (Managed LLM Inference) — When you use managed AI, your prompt, attachments, relevant conversation context, tool definitions or results, and model output pass through our infrastructure to the provider selected for the request. Depending on the model and routing path, providers may include OpenAI, Anthropic, Google, xAI, OpenRouter, or Fireworks. We record usage and operational metadata such as account identifier, model, agent type, token counts, duration, estimated cost, plan, timestamp, and success or failure. We do not intentionally retain provider request content as a model-training product. We may temporarily buffer plaintext response text, reasoning, and tool arguments for stream recovery; current relay access expires after brief inactivity and has a hard ten-minute lifetime, while cleanup and security records may persist longer. When a BYOK call goes directly from your device to your selected provider, FromYou's managed model relay is not involved, but the provider still processes the request under its own terms.
+Stella Provider (Managed LLM Inference) — When you use managed AI, your prompt, attachments, relevant conversation context, tool definitions or results, and model output pass through our infrastructure to the provider selected for the request. Depending on the model and routing path, providers may include OpenAI, Anthropic, Google, xAI, OpenRouter, or Fireworks. We record usage and operational metadata such as owner or anonymous identifier, model, agent type, token counts, duration, estimated cost, plan, timestamp, and success or failure. We do not intentionally retain provider request content as a model-training product. We may temporarily buffer plaintext response text, reasoning, and tool arguments for stream recovery; current relay access expires after brief inactivity and has a hard ten-minute lifetime, while cleanup and security records may persist longer. When a BYOK call goes directly from your device to your selected provider, FromYou's managed model relay is not involved, but the provider still processes the request under its own terms.
 
 Mobile and Connector Delivery — When you interact through the mobile app or a connected messaging service, our backend may store request text or references, delivery and routing metadata, request state, stream state, and response delivery data so a desktop or service can claim, cancel, complete, and deliver the work. Records are deleted or expire according to operational cleanup rules, which vary by record type.
 
@@ -213,9 +215,9 @@ Using your own model provider does not change Stella's storage of conversation a
 
 6. Information We Collect When You Create an Account
 
-An account is required to use Stella's managed models and hosted services; if you only use your own provider API keys, you do not need one. When you sign in, we collect: your email address (for authentication and account identification), your name if provided (for display purposes), and your account creation timestamp (for account management).
+Account creation is optional. If you choose to sign in, we collect: your email address (for authentication and account identification), your name if provided (for display purposes), and your account creation timestamp (for account management).
 
-We use Better Auth for authentication, with magic-link email sign-in and optional Apple or Google sign-in. We do not collect passwords.
+We use Better Auth for authentication, with magic-link email sign-in and optional Google sign-in. We do not collect passwords.
 
 
 7. Billing Information
@@ -230,26 +232,31 @@ We do not store your full credit card number, CVV, or banking details. All payme
 When your desktop registers with our backend (for mobile bridge or connector functionality), we store: device ID (identifying your desktop for message routing), device public key (verifying device identity via cryptographic signatures), online status (determining whether to route to your device or the offline responder), platform — Windows/macOS (display purposes), and mobile bridge base URLs (allowing your phone to connect to your desktop).
 
 
-9. Website Advertising Measurement
+9. Anonymous Device Usage
+
+If you use Stella without an account, we track: an anonymous device identifier (for rate limiting) and request count and timestamps (for enforcing fair-use limits). This data is not linked to any personal identity.
+
+
+10. Website Advertising Measurement
 
 If you arrive at the Stella website through a Google Ads click, we use the Google tag to measure whether that advertising visit leads to a Stella download. For those advertising referrals, Google may receive the ad click identifier (such as GCLID, GBRAID, or WBRAID), page and device information ordinarily sent by your browser, and a download conversion event. We retain a first-party attribution flag in your browser for up to 30 days so a later download can be associated with the advertising visit. The tag is not loaded for visitors who did not arrive through a Google Ads referral.
 
 We use this information only for aggregate advertising measurement and campaign optimization. We do not use enhanced conversions, do not send customer-provided data such as email addresses to Google for this purpose, and do not use this measurement for remarketing or targeted advertising. Google processes this information under its own privacy policy and data-processing terms. You can prevent or clear this measurement by blocking advertising cookies or clearing this site's local storage and cookies.
 
 
-10. Social Features
+11. Social Features
 
 If you use Stella's social features (friend system, chat rooms, collaborative sessions), the following is stored on our backend: social profile (username), friend relationships, chat room membership and messages, and collaborative session metadata and file operations. Social features are opt-in and require a signed-in account.
 
 
-11. Third-Party Services and Provider Retention
+12. Third-Party Services and Provider Retention
 
 Stella uses third-party services including AI gateways and model providers (which may include OpenAI, Anthropic, Google, xAI, OpenRouter, and Fireworks), fal.ai and other media providers, Exa and other search providers, Cloudflare for backend infrastructure, Stripe for billing, authentication and connected-service vendors, and Google Ads for advertising-referred download measurement.
 
 These providers process data under their own terms, privacy policies, and account configurations. Depending on the provider and feature, they may retain prompts, outputs, uploaded files, generated media, search requests, or metadata for safety, abuse prevention, service operation, or other stated purposes. Some providers offer optional or account-specific zero-data-retention controls, but availability and coverage vary. FromYou does not make a blanket zero-data-retention promise for third-party processing. When using BYOK, a model request may go directly from your device to the provider, but that does not change the provider's own practices.
 
 
-12. Google Workspace Connector and Google API Services User Data
+13. Google Workspace Connector and Google API Services User Data
 
 Stella includes a first-party Google Workspace connector that you can optionally enable to let Stella work with your Google account across Gmail, Google Calendar, Google Drive, Google Docs, Google Sheets, and Google Tasks. This section describes how that connector handles data received from Google APIs and applies in addition to the rest of this policy.
 
@@ -280,7 +287,7 @@ Retention, Deletion, and Revocation — Google tokens are retained while the con
 Limited Use — Stella's use and transfer to any other app of information received from Google APIs will adhere to the Google API Services User Data Policy (https://developers.google.com/terms/api-services-user-data-policy), including the Limited Use requirements.
 
 
-13. Data Retention
+14. Data Retention
 
 • Conversation and task content — retained to provide your history and the Service until deleted through available controls or an eligible deletion request, subject to legal, security, and operational retention needs
 • Device data — removing device data does not delete hosted content
@@ -290,50 +297,53 @@ Limited Use — Stella's use and transfer to any other app of information receiv
 • Temporary relay buffers — brief operational windows for stream recovery, subject to cleanup and hard lifetime limits
 • Mobile and connector delivery records — retained according to operational delivery, deduplication, and cleanup periods that vary by record type
 • Media inputs, outputs, and job records — retained as needed to submit, deliver, manage, and clean up media jobs; third-party copies follow provider policies
+• Anonymous device usage — retained for rate-limiting purposes; periodically pruned
 • Google Ads attribution flag — stored in your browser for up to 30 days
 • Social data — until you delete your account or the relevant content
 
 
-14. Data Security
+15. Data Security
 
 We implement reasonable security measures to protect data in our infrastructure: encryption in transit (all communication uses TLS/HTTPS), secret encryption (user-provided secrets stored on our backend are encrypted using AES-256-GCM with a versioned master key system), local encryption (API keys stored on your device are encrypted locally), device identity (devices authenticate using Ed25519 cryptographic keypairs), rate limiting (multi-layer rate limiting protects against abuse), and provider redaction (AI responses are scrubbed of upstream provider details before being returned to you).
 
 
-15. Your Rights and Choices
+16. Your Rights and Choices
 
 Access and Control — You can use available in-app controls to manage your information, revoke connected integrations, and contact us to request access to, export of, or deletion of your conversation history and eligible account data. Some records may be retained where required for legal, security, fraud-prevention, billing, or dispute-resolution purposes. Deleting data from Stella does not necessarily delete copies retained by third-party providers under their policies.
 
 Discovery Opt-Out — During onboarding, each discovery category is individually selectable. The most sensitive category (Messages & Notes) is disabled by default and requires explicit opt-in. You can skip discovery entirely.
 
-Ways to Use Stella — You can sign in to use Stella's managed models, or provide your own AI provider API keys where supported. Direct provider calls may bypass our managed model relay, but conversation and task content is still stored by Stella as described above.
+Anonymous Use — You can use Stella's core features without creating an account or providing any personal information.
+
+BYOK — You can provide your own AI provider API keys where supported. Direct provider calls may bypass our managed model relay, but conversation and task content is still stored by Stella as described above.
 
 
-16. Children's Privacy
+17. Children's Privacy
 
 Stella is not directed to children under 13 years of age. We do not knowingly collect personal information from children under 13. If you believe we have inadvertently collected such information, please contact us and we will promptly delete it.
 
 
-17. International Users
+18. International Users
 
 Our backend infrastructure is hosted in the United States. If you access the Service from outside the United States, your information may be transferred to and processed in the United States.
 
 
-18. California Privacy Rights
+19. California Privacy Rights
 
 If you are a California resident, you may have additional rights under the California Consumer Privacy Act (CCPA). Personal information we process may include conversation, task, account, billing, device, usage, delivery, and connected-service data. You may exercise your rights to know, delete, or opt out by contacting us. We do not sell your personal information. We do not use your data for targeted advertising.
 
 
-19. European Privacy Rights
+20. European Privacy Rights
 
 If you are in the European Economic Area (EEA) or United Kingdom, you may have rights under the GDPR including the right to access, rectify, erase, restrict processing, data portability, and objection. These rights apply to personal data we process, which may include conversation, task, account, billing, device, usage, delivery, and connected-service data. Contact us to exercise these rights. Where we process personal data, we rely as applicable on: (a) contractual necessity; (b) legitimate interests such as security and abuse prevention; and (c) consent for optional features.
 
 
-20. Changes to This Policy
+21. Changes to This Policy
 
 We may update this Privacy Policy from time to time. We will indicate the date of the most recent revision at the top. For material changes, we will make reasonable efforts to notify you. Your continued use of the Service after changes constitutes acceptance of the updated policy.
 
 
-21. Contact Us
+22. Contact Us
 
 If you have questions about this Privacy Policy or wish to exercise any of your rights, contact us at:
 

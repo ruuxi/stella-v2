@@ -16,6 +16,7 @@ import { worldName } from "../workspace.js";
  */
 
 import { Hono, type MiddlewareHandler } from "hono";
+import { GATEWAY_NETWORK_POLICY } from "@stella/contracts/gateway/api";
 import { TURN_BROKER_HEADERS } from "@stella/contracts/turn-credential-broker";
 import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
 import {
@@ -37,6 +38,7 @@ import {
   TURN_OWNER_GENERATION_HEADER,
   TURN_OWNER_ID_HEADER,
 } from "@stella/contracts/turn-plane/turn-start";
+import { classifyNetwork } from "../../../shared/network-class.js";
 import { verifyUserToken } from "../auth-jwt.js";
 import { noteOwnerIdentity } from "../owner-identity.js";
 import { readBoundedRequestText } from "../bounded-body.js";
@@ -223,6 +225,16 @@ const authenticateConversationCaller = async (
   return { ok: true, caller: { ...verified.token, issuer } };
 };
 
+const refusesAnonymousNetwork = async (
+  request: Request,
+  env: Env,
+): Promise<boolean> => {
+  const networkClass = await classifyNetwork(request, env.ASN_POLICY);
+  return GATEWAY_NETWORK_POLICY.anonymousRefused.some(
+    (refused) => refused === networkClass,
+  );
+};
+
 const forwardToConversation = async (
   request: Request,
   env: Env,
@@ -325,6 +337,16 @@ const handleTurnStartRoute = async (
             "Sign in to send messages.",
             false,
           );
+    }
+    if (
+      auth.caller.isAnonymous &&
+      (await refusesAnonymousNetwork(request, env))
+    ) {
+      return turnStartErrorResponse(
+        "sign_in_required",
+        "Sign in to Stella to continue from this network.",
+        false,
+      );
     }
     ownerId = auth.caller.ownerId;
     tokenExpiresAtMs = auth.caller.expiresAtMs;
@@ -469,7 +491,19 @@ const handleDispatchSubmitRoute = async (
     caller = {
       kind: "user",
       ownerId: auth.caller.ownerId,
+      isAnonymous: auth.caller.isAnonymous,
     };
+  }
+  if (
+    caller.kind !== "service" &&
+    caller.isAnonymous &&
+    (await refusesAnonymousNetwork(request, env))
+  ) {
+    return dispatchErrorResponse(
+      "sign_in_required",
+      "Sign in to Stella to continue from this network.",
+      false,
+    );
   }
   const authMs = Math.round(performance.now() - startedAt);
   let text: string;
@@ -501,6 +535,17 @@ const handleDispatchSubmitRoute = async (
   const parsed = parseDispatchSubmitRequest(body);
   if (!parsed.ok) {
     return dispatchErrorResponse("bad_request", parsed.message, false);
+  }
+  if (
+    caller.kind !== "service" &&
+    caller.isAnonymous &&
+    parsed.request.kind === "agent"
+  ) {
+    return dispatchErrorResponse(
+      "sign_in_required",
+      "Sign in to Stella to use cloud agents.",
+      false,
+    );
   }
   let submitted: DispatchSubmitRequest = parsed.request;
   const gate = env.OWNER_GATES.getByName(caller.ownerId);
@@ -567,6 +612,7 @@ const handleDispatchSubmitRoute = async (
     caller = {
       kind: "mobile",
       ownerId: caller.ownerId,
+      isAnonymous: caller.isAnonymous,
       mobileDeviceId: verified.mobileDeviceId,
       desktopDeviceId: verified.desktopDeviceId,
     };

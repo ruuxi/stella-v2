@@ -20,6 +20,7 @@ const caller: OwnerCaller = {
   ownerId: OWNER,
   subject: "user-1",
   sessionId: "session-1",
+  isAnonymous: false,
   expiresAtMs: Date.now() + 30 * 60_000,
 };
 

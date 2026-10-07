@@ -143,15 +143,16 @@ const readDispatchEnvelope = (
 };
 
 /**
- * Creates (or replays) the owner's conversation used by a mobile surface. A
- * client key, rather than a cached server UUID, makes a lost mutation response
- * and an app restart safe without ever creating two cloud conversation
- * identities for one surface.
+ * Creates (or replays) the owner's conversation used by a mobile surface, for
+ * connected and anonymous owners alike. A client key, rather than a cached
+ * server UUID, makes a lost mutation response and an app restart safe without
+ * ever creating two cloud conversation identities for one surface.
  */
 export const ensureAutomaticExecutionConversation = async (args: {
   threadId: string;
   title: string;
 }): Promise<string> => {
+  // `owner.identity` is open to anonymous owners: hosted chat needs no account.
   const identity = await getBackendClient().call("owner.identity", {});
   const expectedOwnerGeneration = identity.ownerGeneration.trim();
   if (!expectedOwnerGeneration) {

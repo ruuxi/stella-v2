@@ -74,11 +74,6 @@ const SubscriptionUpgradeDialog = lazy(() =>
     default: m.SubscriptionUpgradeDialog,
   })),
 );
-const AuthDialog = lazy(() =>
-  import("@/global/auth/AuthDialog").then((m) => ({
-    default: m.AuthDialog,
-  })),
-);
 import { ShellTopBarFull } from "@/shell/ShellTopBarFull";
 import { GlobalModelsControl } from "@/shell/GlobalModelsControl";
 import { DisplayPanelTopBar } from "@/shell/DisplayPanelTopBar";
@@ -580,13 +575,10 @@ function RootLayout() {
   // the splash — they need to be seen, and liveness will not arrive.
   const shellIsLive =
     conversationId !== null || (!isOnChatRoute && isCloudConversationReady);
-  const showsSignedOutGate =
-    !isPrivate && authBootstrapStatus === "signed_out";
   const shouldDismissLaunchSplash =
     shellIsLive ||
     Boolean(authBootstrapError) ||
     showsCloudCreateFailure ||
-    showsSignedOutGate ||
     authBootstrapStatus === "reauth_required";
   useEffect(() => {
     if (shouldDismissLaunchSplash) dismissLaunchSplash();
@@ -598,14 +590,6 @@ function RootLayout() {
         message={privateSelectionError}
         onRetry={() => setPrivateSelectionAttempt((attempt) => attempt + 1)}
       />
-    );
-  }
-
-  if (showsSignedOutGate) {
-    return (
-      <Suspense fallback={null}>
-        <AuthDialog open onOpenChange={() => {}} dismissible={false} />
-      </Suspense>
     );
   }
 

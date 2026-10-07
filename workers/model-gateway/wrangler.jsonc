@@ -121,6 +121,14 @@
       },
     ],
   },
+  "ratelimits": [
+    {
+      "name": "ANON_IP_LIMITER",
+      // Account-local integer namespace. Replace if already allocated.
+      "namespace_id": "41011",
+      "simple": { "limit": 60, "period": 60 },
+    },
+  ],
   "env": {
     "production": {
       "name": "stella-v2-model-gateway",
@@ -211,6 +219,14 @@
           },
         ],
       },
+      "ratelimits": [
+        {
+          "name": "ANON_IP_LIMITER",
+          // Must differ from development.
+          "namespace_id": "41012",
+          "simple": { "limit": 60, "period": 60 },
+        },
+      ],
     },
   },
 }

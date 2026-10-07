@@ -93,6 +93,7 @@ describe("turn capability signer", () => {
       },
     });
     expect(verified.claims.credential).toBeUndefined();
+    expect(verified.claims.maxRequests).toBeUndefined();
     expect(verified.claims.iat).toBe(Math.floor(NOW / 1000));
     expect(verified.claims.exp).toBe(
       Math.floor(NOW / 1000) + GATEWAY_TURN_CAPABILITY_TTL_MS / 1000,

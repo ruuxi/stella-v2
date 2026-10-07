@@ -1728,7 +1728,6 @@
         "fromOtherComputers": "Ændringer fra din anden computer",
         "readyChange": "En ændring klar til at blive tilføjet",
         "add": "Tilføj",
-        "get": "Hent",
         "adding": "Tilføjer…",
         "skip": "Spring over",
         "undoing": "Fortryder…",
@@ -1736,7 +1735,6 @@
         "justNow": "Lige nu",
         "waiting": "Venter",
         "history": "Historik",
-        "skipped": "Sprunget over",
         "upToDate": "Intet venter"
       }
     },
@@ -2138,6 +2136,7 @@
         "computerDone": "Forbundet!",
         "computerSkipped": "Måske senere.",
         "accountDone": "Så er det klaret.",
+        "accountSkipped": "Spring over for nu.",
         "themeDone": "Den her.",
         "themeSkipped": "Behold standarden."
       },
@@ -2286,7 +2285,10 @@
         "connect": "Forbind",
         "connectLabel": "Forbind {name}",
         "connectedAs": "Forbundet · {name}",
-        "settledSignedIn": "Logget ind"
+        "skip": "Spring over for nu",
+        "settledSignedIn": "Logget ind",
+        "settledGuest": "Bruger Stella som gæst",
+        "guestSettled": "Log ind når som helst fra Indstillinger"
       },
       "theme": {
         "appearance": "Udseende",
@@ -2345,7 +2347,8 @@
       "legalTerms": "Vilkår",
       "legalConjunction": " og ",
       "legalPrivacy": "Privatlivspolitik",
-      "legalSuffix": "."
+      "legalSuffix": ".",
+      "continueAsGuest": "Fortsæt uden at logge ind"
     },
     "chat": {
       "emptyPrompt": "Spørg Stella om hvad som helst",
@@ -2412,6 +2415,8 @@
       }
     },
     "computer": {
+      "guestHeroTitle": "Din computer lige ved hånden",
+      "guestHeroBody": "Bed Stella om at gøre ting på din computer — browse på nettet, håndtere filer, køre opgaver og meget mere.",
       "defaultDeviceLabel": "Din computer",
       "statusChecking": "Tjekker…",
       "statusConnected": "Tilsluttet",
@@ -2423,6 +2428,8 @@
     },
     "desktop": {
       "pairTitle": "Par din telefon",
+      "guestBody": "Se din Stella-computerapp direkte på telefonen. Efter parringen genopretter din telefon forbindelsen automatisk.",
+      "guestSignInPrompt": "Log ind for at komme i gang.",
       "connecting": "Opretter forbindelse til computeren",
       "pairing": "Parrer denne telefon",
       "unreachable": "Kan ikke nå din computer",

@@ -1822,6 +1822,7 @@ export const agentThreadsDomain = {
     },
     "agentThreads.spawnFromDesktop": {
       scope: "owner",
+      requireAccount: true,
       parse: object({
         ...origin,
         ownerGeneration: generation,
@@ -1837,6 +1838,7 @@ export const agentThreadsDomain = {
     },
     "agentThreads.continueFromDesktop": {
       scope: "owner",
+      requireAccount: true,
       parse: object({
         ...origin,
         ownerGeneration: generation,
@@ -1851,6 +1853,7 @@ export const agentThreadsDomain = {
     },
     "agentThreads.cancel": {
       scope: "owner",
+      requireAccount: true,
       parse: object({
         ...origin,
         ownerGeneration: generation,

@@ -35,16 +35,17 @@ const sharedRecord = async (
 describe("gateway config cache", () => {
   beforeEach(() => resetConfigCacheForTests());
 
-  test("indexes tier ceilings by limits audience", async () => {
+  test("indexes tier ceilings by limits audience and exposes the owner request cap", async () => {
     const harness = createTestEnv();
     const fetchMock = createFetchMock().on(
       (call) => call.url.pathname === "/api/gateway/config",
       () =>
         json(
           configSnapshot({
+            anonymous: { maxRequestsPerOwner: 17, maxRequestsPerIp: 90 },
             tierCeilings: [
               {
-                audience: "free",
+                audience: "anonymous",
                 hourlyMicroCents: 100,
                 dailyMicroCents: 1_000,
               },
@@ -62,7 +63,8 @@ describe("gateway config cache", () => {
       () => undefined,
       () => 1_000,
     );
-    expect(config.tierCeilings.get("free")).toEqual({
+    expect(config.anonymous.maxRequestsPerOwner).toBe(17);
+    expect(config.tierCeilings.get("anonymous")).toEqual({
       hourlyMicroCents: 100,
       dailyMicroCents: 1_000,
     });
@@ -72,7 +74,7 @@ describe("gateway config cache", () => {
     });
   });
 
-  test("accepts older snapshots with no ceiling fields", async () => {
+  test("accepts older snapshots with no ceiling or anonymous fields", async () => {
     const harness = createTestEnv();
     const fetchMock = createFetchMock().on(
       (call) => call.url.pathname === "/api/gateway/config",
@@ -87,6 +89,7 @@ describe("gateway config cache", () => {
       billingConfigLoader(fetchMock.fetch),
       () => undefined,
     );
+    expect(config.anonymous.maxRequestsPerOwner).toBeNull();
     expect(config.tierCeilings.size).toBe(0);
   });
   test("a restart restores fresh durable pricing without renewing its age", async () => {

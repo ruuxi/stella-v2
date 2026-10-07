@@ -7,7 +7,8 @@ import { ModelSettingsPanel } from "./ModelSettingsPanel";
 import { SegmentedControl } from "./SegmentedControl";
 import { ComputerSection } from "./settings/ComputerSection";
 import { makeSettingsStyles } from "./settings/settings-styles";
-import { useAccountSession } from "../lib/auth-client";
+import { authClient } from "../lib/auth-client";
+import { isGuest } from "../lib/guest-mode";
 import { useComputerControl } from "../lib/main-shell-store";
 import { fadeHex } from "../theme/oklch";
 import { useColors } from "../theme/theme-context";
@@ -61,9 +62,9 @@ export function ChatSettingsSheet({
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const settingsStyles = useMemo(() => makeSettingsStyles(colors), [colors]);
-  const session = useAccountSession();
+  const session = authClient.useSession();
   const computer = useComputerControl();
-  const signedIn = Boolean(session.data?.user);
+  const signedIn = Boolean(session.data?.user) && !isGuest();
   const [view, setView] = useState<SheetView>("models");
 
   return (

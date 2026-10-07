@@ -67,7 +67,7 @@ export function SubscriptionSection() {
   const debugTapRef = useRef(0);
 
   const plan = status ? status.plan : "free";
-  const signedIn = Boolean(status && status.authenticated);
+  const signedIn = Boolean(status && status.authenticated && !status.isAnonymous);
   const isPaid = PAID_PLANS.includes(plan);
   const eligible = storefront.status === "eligible";
   const plans = status ? status.plans : null;

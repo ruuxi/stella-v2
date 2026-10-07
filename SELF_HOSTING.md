@@ -240,11 +240,10 @@ and keep cloud-builder's `vars.CAPABILITY_SIGNING_KID` equal to the kid
 **telemetry:** `TELEMETRY_PSEUDONYM_KEY` and `TELEMETRY_SERVER_SECRET`, each
 `openssl rand -hex 32`.
 
-That is the whole required set, plus one sign-in method from 1.6. Billing is
-off when none of its secrets are set (see Part 2): every account is Pro with
-unlimited usage. **Anyone who can reach your backend and sign in can spend your
-OpenRouter credit**, so keep the URLs to yourself or set the billing limits in
-Part 2.
+That is the whole required set. Billing is off when none of its secrets are set
+(see Part 2): every account is Pro with unlimited usage. **Anyone who can reach
+your backend can sign in (anonymously, at least) and spend your OpenRouter
+credit**, so keep the URLs to yourself or set the billing limits in Part 2.
 
 ### 1.5 Migrations and deploy order
 
@@ -280,7 +279,8 @@ For prod, repeat 1.3–1.5 with the prod names, `--env production`, and the
 
 ### 1.6 Auth
 
-There is no anonymous sign-in, so set up at least one of these (Part 2):
+Anonymous sign-in works with no setup. Add these as you need them; each is
+optional (Part 2):
 
 - **Email (magic links):** Cloudflare Email Service. Enable sending for a domain
   on a zone in your account (`bunx wrangler email sending enable example.com`;
@@ -490,7 +490,7 @@ Secrets go on **cloud-builder** unless noted.
 | GitHub projects | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_WEBHOOK_SECRET`, `OAUTH_STATE_SECRET` | GitHub App | Unavailable |
 | Desktop OAuth connectors that exchange tokens on the server (Google Workspace, Box, Microsoft, Atlassian, ...) | `NATIVE_OAUTH_CLIENTS_JSON` (`{"<provider>": {"clientId": "...", "clientSecret": "..."}}`); desktop client ids can be overridden with `STELLA_NATIVE_OAUTH_<ID>_CLIENT_ID`. Providers that only allow https redirects use `<STELLA_WEB_URL>/oauth/<provider>/callback`, which `packages/website` doesn't serve (1.2) | each provider | Those connectors aren't offered |
 | Maps tool | `GOOGLE_MAPS_SERVER_API_KEY` (Places API (New) + Directions); the card's interactive view also needs `NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY` on the **website** | Google Maps Platform | The `map` tool says maps aren't set up |
-| Captcha on web magic-link sign-in | `TURNSTILE_SECRET_KEY`; site key in `VITE_TURNSTILE_SITE_KEY` (desktop web build) and `NEXT_PUBLIC_TURNSTILE_SITE_KEY` (website) | Cloudflare Turnstile | No captcha |
+| Captcha on anonymous web sign-in | `TURNSTILE_SECRET_KEY`; site key in `VITE_TURNSTILE_SITE_KEY` (desktop web build) and `NEXT_PUBLIC_TURNSTILE_SITE_KEY` (website) | Cloudflare Turnstile | No captcha |
 | Mobile app integrity | `APPLE_APP_ATTEST_TEAM_ID`, `GOOGLE_PLAY_INTEGRITY_SERVICE_ACCOUNT_JSON` (+ `EXPO_PUBLIC_PLAY_INTEGRITY_PROJECT_NUMBER`); `STELLA_APP_INTEGRITY_MODE` = `enforce` / `off` | Apple App Attest, Google Play Integrity | Off |
 | Admin API (test accounts, integrations catalog, billing tools) | `STELLA_ADMIN_API_SECRET`; test accounts also need var `STELLA_TEST_ACCOUNTS=1` (dev only) | none | Admin routes answer 503 |
 | Ops relay probe | `STELLA_RELAY_PROBE_SECRET` on **model-gateway** | none | No probe |

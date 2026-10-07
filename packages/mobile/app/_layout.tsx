@@ -12,7 +12,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { loadAsync, useFonts } from "expo-font";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
-import { useAccountSession } from "../src/lib/auth-client";
+import { authClient } from "../src/lib/auth-client";
 import { hasMobileConfig } from "../src/config/env";
 import {
   installNotificationCategoriesAndListeners,
@@ -22,6 +22,8 @@ import { installTextDefaults } from "../src/lib/setup-text-defaults";
 import { markSplashHidden } from "../src/lib/splash-state";
 
 installTextDefaults();
+import { loadGuestMode, isGuest, setGuestMode } from "../src/lib/guest-mode";
+import { signInMobileAnonymous } from "../src/lib/anonymous-sign-in";
 import { loadAiConsent } from "../src/lib/ai-consent";
 import { loadNotificationsMuted } from "../src/lib/notifications-prefs";
 import {
@@ -164,25 +166,60 @@ function RootStack() {
 }
 
 function AuthenticatedLayout() {
-  const session = useAccountSession();
+  const session = authClient.useSession();
   const router = useRouter();
   const pathname = usePathname();
-  const [startupReady, setStartupReady] = useState(false);
+  const [guestReady, setGuestReady] = useState(false);
   const [initialMainHref, setInitialMainHref] = useState<string | null>(null);
   const splashHiddenRef = useRef(false);
+  const anonymousBootstrapStartedRef = useRef(false);
 
   useEffect(() => {
     void Promise.all([
+      loadGuestMode(),
       loadAiConsent(),
       loadNotificationsMuted(),
       loadOnboardingSeen(),
       loadOnboardingProgress(),
       loadLastMainTabHref(),
-    ]).then(([, , , , href]) => {
+    ]).then(([, , , , , href]) => {
       setInitialMainHref(href);
-      setStartupReady(true);
+      setGuestReady(true);
     });
   }, []);
+
+  // Older builds stored guest intent locally without creating an auth
+  // principal. Upgrade that state in place so an existing guest lands in the
+  // anonymous canonical conversation instead of the retired sign-in wall.
+  useEffect(() => {
+    if (
+      session.isPending ||
+      !guestReady ||
+      session.data ||
+      !isGuest() ||
+      anonymousBootstrapStartedRef.current
+    ) {
+      return;
+    }
+
+    anonymousBootstrapStartedRef.current = true;
+    void signInMobileAnonymous()
+      .then(async (result) => {
+        if (result.error) {
+          throw new Error(
+            result.error.message ?? "Could not start an anonymous session.",
+          );
+        }
+        await setGuestMode(true);
+      })
+      .catch(async () => {
+        await setGuestMode(false);
+        router.replace("/login");
+      })
+      .finally(() => {
+        anonymousBootstrapStartedRef.current = false;
+      });
+  }, [guestReady, router, session.data, session.isPending]);
 
   // Start the account-authority handshake the moment the session is known,
   // while the native splash is still up. The chat screen reads the same
@@ -193,17 +230,18 @@ function AuthenticatedLayout() {
     [session.data],
   );
   const cloudIdentityKey = cloudIdentity?.identityKey ?? null;
+  const cloudAnonymous = session.data?.user?.isAnonymous === true;
   useEffect(() => {
     if (session.isPending) return;
     if (!cloudIdentity) {
       resetCloudConversationAuthority();
       return;
     }
-    primeCloudConversationAuthority(cloudIdentity);
+    primeCloudConversationAuthority(cloudIdentity, cloudAnonymous);
     // Keyed on the identity key: a refetched session object with the same
     // identity must not restart (or even re-poke) the handshake.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cloudIdentityKey, session.isPending]);
+  }, [cloudAnonymous, cloudIdentityKey, session.isPending]);
 
   useEffect(() => {
     let dispose: (() => void) | null = null;
@@ -222,7 +260,7 @@ function AuthenticatedLayout() {
   }, []);
 
   useEffect(() => {
-    if (session.isPending || !startupReady || !initialMainHref) {
+    if (session.isPending || !guestReady || !initialMainHref) {
       return;
     }
 
@@ -244,7 +282,15 @@ function AuthenticatedLayout() {
     }
 
     if (session.data) {
+      const anonymous = session.data.user?.isAnonymous === true;
+      if (isGuest() !== anonymous) void setGuestMode(anonymous);
       void registerForPushNotifications();
+      // Anonymous users still need to reach Login when they choose "Sign in"
+      // from Settings. Their anonymous Better Auth session must not bounce
+      // them straight back to Chat before they can upgrade the account.
+      if (onLogin && anonymous) {
+        return;
+      }
       if (!hasSeenOnboarding()) {
         router.replace("/onboarding");
         return;
@@ -255,15 +301,30 @@ function AuthenticatedLayout() {
       return;
     }
 
+    if (isGuest()) {
+      // Guests may open /login from Sign in buttons — don't bounce them back to chat.
+      if (onLogin) {
+        return;
+      }
+      if (!hasSeenOnboarding()) {
+        router.replace("/onboarding");
+        return;
+      }
+      if (onIndex) {
+        enterMainShell(router, initialMainHref);
+      }
+      return;
+    }
+
     if (onMain || onIndex) {
-      router.replace(hasSeenOnboarding() ? "/login" : "/onboarding");
+      router.replace("/login");
     }
   }, [
     pathname,
     router,
     session.data,
     session.isPending,
-    startupReady,
+    guestReady,
     initialMainHref,
   ]);
 
@@ -281,7 +342,7 @@ function AuthenticatedLayout() {
     useCloudConversationAuthoritySettled(cloudIdentityKey);
   const [authorityWaitExpired, setAuthorityWaitExpired] = useState(false);
   useEffect(() => {
-    if (session.isPending || !startupReady || !initialMainHref) return;
+    if (session.isPending || !guestReady || !initialMainHref) return;
     if (authoritySettled || authorityWaitExpired) return;
     const timer = setTimeout(
       () => setAuthorityWaitExpired(true),
@@ -291,7 +352,7 @@ function AuthenticatedLayout() {
   }, [
     authoritySettled,
     authorityWaitExpired,
-    startupReady,
+    guestReady,
     initialMainHref,
     session.isPending,
   ]);
@@ -299,7 +360,7 @@ function AuthenticatedLayout() {
     if (splashHiddenRef.current) {
       return;
     }
-    if (session.isPending || !startupReady || !initialMainHref) {
+    if (session.isPending || !guestReady || !initialMainHref) {
       return;
     }
     if (!authoritySettled && !authorityWaitExpired) {
@@ -313,7 +374,7 @@ function AuthenticatedLayout() {
     });
   }, [
     session.isPending,
-    startupReady,
+    guestReady,
     initialMainHref,
     authoritySettled,
     authorityWaitExpired,

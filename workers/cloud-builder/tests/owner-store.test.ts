@@ -19,6 +19,7 @@ const caller = (overrides: Partial<OwnerCaller> = {}): OwnerCaller => ({
   ownerId: OWNER,
   subject: "user-1",
   sessionId: "session-1",
+  isAnonymous: false,
   expiresAtMs: Date.now() + 30 * 60_000,
   ...overrides,
 });
@@ -58,6 +59,7 @@ const notesDomain = {
     },
     "notes.private": {
       scope: "owner",
+      requireAccount: true,
       parse: object({}),
       handler: () => "secret",
     },
@@ -199,6 +201,9 @@ describe("OwnerStore", () => {
     expect(
       await harness.store.call("notes.add", { id: "b", body: "x", extra: 1 }, caller()),
     ).toMatchObject({ ok: false, error: { code: "BAD_REQUEST" } });
+    expect(
+      await harness.store.call("notes.private", {}, caller({ isAnonymous: true })),
+    ).toMatchObject({ ok: false, error: { code: "FORBIDDEN" } });
     expect(
       await harness.store.call("notes.private", {}, caller({ ownerId: "someone-else" })),
     ).toMatchObject({ ok: false, error: { code: "FORBIDDEN" } });

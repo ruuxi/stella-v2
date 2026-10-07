@@ -65,8 +65,8 @@ export class GatewaySessionExchangeError extends Error {
 /**
  * Cache identity of a Better Auth JWT: who the token is for, not which
  * rotation of it. A rotated JWT for the same owner keeps using the still-valid
- * capability; a different owner (sign-out, sign-in, account switch) never
- * sees another's entry.
+ * capability; a different owner (sign-out, sign-in, anonymous -> signed in)
+ * never sees another's entry.
  */
 const authIdentity = (token: string): string => {
   let payload: Record<string, unknown>;
@@ -80,12 +80,15 @@ const authIdentity = (token: string): string => {
   const audience = Array.isArray(payload.aud)
     ? payload.aud.join(",")
     : pick("aud");
+  const anonymous =
+    typeof payload.isAnonymous === "boolean" ? String(payload.isAnonymous) : "";
   return [
     "jwt",
     pick("iss"),
     pick("sub"),
     pick("tokenIdentifier"),
     audience,
+    anonymous,
   ].join(":");
 };
 

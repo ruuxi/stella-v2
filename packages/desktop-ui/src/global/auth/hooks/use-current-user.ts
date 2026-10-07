@@ -4,6 +4,7 @@ import { useAuthSessionState } from "./use-auth-session-state";
 type CurrentUser = {
   email?: string;
   name?: string;
+  isAnonymous?: boolean;
 } | null | undefined;
 
 /**
@@ -18,6 +19,7 @@ export function useCurrentUser(): { user: CurrentUser; hasConnectedAccount: bool
       user: {
         ...(user.email ? { email: user.email } : {}),
         ...(user.name ? { name: user.name } : {}),
+        isAnonymous: user.isAnonymous === true,
       },
       hasConnectedAccount,
     };

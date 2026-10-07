@@ -125,6 +125,9 @@ const authenticate = async (request: Request, env: VoiceEnv): Promise<OwnerCalle
   const header = request.headers.get("authorization") ?? "";
   const verified = await verifyCaller(env, header.startsWith("Bearer ") ? header.slice(7).trim() : "");
   if (!verified.ok) throw verified.error;
+  if (verified.caller.isAnonymous) {
+    throw new RpcError("FORBIDDEN", "Sign in to Stella to use voice.");
+  }
   return verified.caller;
 };
 

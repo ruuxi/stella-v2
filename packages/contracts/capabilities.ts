@@ -28,10 +28,11 @@ export const CAPABILITIES = [
 
 export type Capability = (typeof CAPABILITIES)[number];
 
-export type CapabilityAudience = "free" | "go" | "pro";
+export type CapabilityAudience = "anonymous" | "free" | "go" | "pro";
 
 /** Weakest plan first — `minimumPlanForCapability` walks this order. */
 export const CAPABILITY_AUDIENCE_ORDER: readonly CapabilityAudience[] = [
+  "anonymous",
   "free",
   "go",
   "pro",
@@ -47,21 +48,25 @@ export const CAPABILITY_MATRIX: Record<
   Record<CapabilityAudience, boolean>
 > = {
   image_generation: {
+    anonymous: false,
     free: false,
     go: false,
     pro: true,
   },
   video_generation: {
+    anonymous: false,
     free: false,
     go: false,
     pro: true,
   },
   audio_generation: {
+    anonymous: false,
     free: false,
     go: false,
     pro: true,
   },
   three_d_generation: {
+    anonymous: false,
     free: false,
     go: false,
     pro: true,
@@ -112,6 +117,7 @@ export const toCapabilityAudience = (
   audience: ManagedCapabilityAudience | null | undefined,
 ): CapabilityAudience | null => {
   switch (audience) {
+    case "anonymous":
     case "free":
     case "go":
     case "pro":
@@ -133,6 +139,7 @@ export const CAPABILITY_LABELS: Record<Capability, string> = {
 };
 
 export const CAPABILITY_PLAN_LABELS: Record<CapabilityAudience, string> = {
+  anonymous: "Free",
   free: "Free",
   go: "Go",
   pro: "Pro",

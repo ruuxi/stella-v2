@@ -773,7 +773,8 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Nagyon menő.",
-        "signinDone": "Kész."
+        "signinDone": "Kész.",
+        "signinSkipped": "Később megteszem."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -923,7 +924,7 @@
       },
       "signin": {
         "title": "Bejelentkezés",
-        "body": "A kezdéshez jelentkezz be egy Stella-fiókkal. A Claude- vagy ChatGPT-előfizetésedet is hozzáadhatod.",
+        "body": "Bármelyik elég. A többit később is hozzáadhatod.",
         "options": {
           "stella": {
             "title": "Stella-fiók",
@@ -945,9 +946,11 @@
         "waiting": "Fejezd be a bejelentkezést a böngészőben, aztán gyere vissza ide.",
         "error": "Nem sikerült csatlakozni. Próbáljuk újra?",
         "fine": "Bármikor módosíthatod a Beállításokban.",
+        "skip": "Most nem",
         "hint": "Az indulás ingyenes.",
         "settledEngine": "{name} használatban",
         "settledStella": "Bejelentkezve a Stellába",
+        "settledSkipped": "Még nincs bejelentkezve",
         "settledDesc": "Bármikor módosíthatod a Beállításokban.",
         "claudeCliMissing": "Előbb telepítsd a Claude Code-ot, majd próbáld újra."
       },
@@ -997,6 +1000,7 @@
     },
     "capabilityRestriction": {
       "title": "A(z) {capability} nincs benne a csomagodban",
+      "signIn": "A(z) {capability} a Stella {plan} csomag része. Jelentkezz be, és válts csomagot a feloldásához.",
       "upgrade": "A(z) {capability} a Stella {plan} csomag része. Válts csomagot a feloldásához.",
       "unavailable": "A(z) {capability} jelenleg egyik csomagban sem érhető el.",
       "lockedBadge": "{plan}",
@@ -1986,6 +1990,7 @@
       "sendFailed": "Nem sikerült elküldeni a bejelentkezési e-mailt.",
       "magicLinkFailed": "Nem sikerült elküldeni a varázshivatkozást.",
       "finishFailed": "Nem sikerült befejezni a bejelentkezést. Próbáld újra.",
+      "signInIncomplete": "A bejelentkezés befejezetlen. Próbáld újra.",
       "signInLinkExpired": "A bejelentkezési hivatkozás lejárt. Próbáld újra.",
       "tooManyRequests": {
         "one": "Túl sok kérés. Próbáld újra {count} másodperc múlva.",
@@ -2133,6 +2138,7 @@
         "computerDone": "Csatlakoztatva!",
         "computerSkipped": "Majd később.",
         "accountDone": "Kész.",
+        "accountSkipped": "Most nem.",
         "themeDone": "Ez lesz.",
         "themeSkipped": "Maradjon az alapértelmezett."
       },
@@ -2281,7 +2287,10 @@
         "connect": "Csatlakoztatás",
         "connectLabel": "{name} csatlakoztatása",
         "connectedAs": "Csatlakoztatva · {name}",
-        "settledSignedIn": "Bejelentkezve"
+        "skip": "Most nem",
+        "settledSignedIn": "Bejelentkezve",
+        "settledGuest": "Stella vendégként",
+        "guestSettled": "Bármikor bejelentkezhetsz a Beállításokban"
       },
       "theme": {
         "appearance": "Megjelenés",
@@ -2340,7 +2349,8 @@
       "legalTerms": "Felhasználási feltételeket",
       "legalConjunction": " és az ",
       "legalPrivacy": "Adatvédelmi szabályzatot",
-      "legalSuffix": "."
+      "legalSuffix": ".",
+      "continueAsGuest": "Folytatás bejelentkezés nélkül"
     },
     "chat": {
       "emptyPrompt": "Kérdezz bármit a Stellától",
@@ -2406,6 +2416,8 @@
       }
     },
     "computer": {
+      "guestHeroTitle": "A számítógéped kéznyújtásnyira",
+      "guestHeroBody": "Kérd meg a Stellát, hogy csináljon dolgokat a számítógépeden — böngésszen, kezelje a fájlokat, futtasson feladatokat és még sok mást.",
       "defaultDeviceLabel": "A számítógéped",
       "statusChecking": "Ellenőrzés…",
       "statusConnected": "Csatlakoztatva",
@@ -2417,6 +2429,8 @@
     },
     "desktop": {
       "pairTitle": "Párosítsd a telefonod",
+      "guestBody": "Lásd a Stella asztali alkalmazását közvetlenül a telefonodon. A párosítás után a telefonod automatikusan újracsatlakozik.",
+      "guestSignInPrompt": "Jelentkezz be a kezdéshez.",
       "connecting": "Csatlakozás az asztali alkalmazáshoz",
       "pairing": "Telefon párosítása",
       "unreachable": "Nem érhető el az asztali alkalmazás",

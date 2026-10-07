@@ -115,6 +115,7 @@ export const createOwnerStoreHarness = (
     ownerId: OWNER_ID,
     subject: "user-1",
     sessionId: "session-1",
+    isAnonymous: false,
     expiresAtMs: Date.now() + 30 * 60_000,
     ...overrides,
   });

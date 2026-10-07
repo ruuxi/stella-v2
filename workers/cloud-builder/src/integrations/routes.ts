@@ -60,6 +60,7 @@ const authenticate = async (
   if (!verified.ok) {
     return { ok: false, response: fail(rpcErrorStatus(verified.error.code), verified.error.message) };
   }
+  if (verified.caller.isAnonymous) return { ok: false, response: fail(403, "sign_in_required") };
   return verified;
 };
 

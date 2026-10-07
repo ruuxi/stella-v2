@@ -1740,7 +1740,6 @@
         "fromOtherComputers": "Cambios de tu otro ordenador",
         "readyChange": "Un cambio listo para añadir",
         "add": "Añadir",
-        "get": "Obtener",
         "adding": "Añadiendo…",
         "skip": "Omitir",
         "undoing": "Deshaciendo…",
@@ -1748,7 +1747,6 @@
         "justNow": "Ahora mismo",
         "waiting": "Pendiente",
         "history": "Historial",
-        "skipped": "Omitidas",
         "upToDate": "No hay nada pendiente"
       }
     },
@@ -2157,6 +2155,7 @@
         "computerDone": "¡Conectado!",
         "computerSkipped": "Quizá más tarde.",
         "accountDone": "Todo listo.",
+        "accountSkipped": "Omitir por ahora.",
         "themeDone": "Esta.",
         "themeSkipped": "Dejar la predeterminada."
       },
@@ -2305,7 +2304,10 @@
         "connect": "Conectar",
         "connectLabel": "Conectar {name}",
         "connectedAs": "Conectado · {name}",
-        "settledSignedIn": "Sesión iniciada"
+        "skip": "Omitir por ahora",
+        "settledSignedIn": "Sesión iniciada",
+        "settledGuest": "Usando Stella como invitado",
+        "guestSettled": "Inicia sesión cuando quieras desde Ajustes"
       },
       "theme": {
         "appearance": "Apariencia",
@@ -2364,7 +2366,8 @@
       "legalTerms": "Términos",
       "legalConjunction": " y la ",
       "legalPrivacy": "Política de privacidad",
-      "legalSuffix": "."
+      "legalSuffix": ".",
+      "continueAsGuest": "Continuar sin iniciar sesión"
     },
     "chat": {
       "emptyPrompt": "Pregúntale lo que sea a Stella",
@@ -2431,6 +2434,8 @@
       }
     },
     "computer": {
+      "guestHeroTitle": "Tu ordenador, al alcance de la mano",
+      "guestHeroBody": "Pídele a Stella que haga cosas en tu ordenador: navegar por la web, gestionar archivos, ejecutar tareas y mucho más.",
       "defaultDeviceLabel": "Tu ordenador",
       "statusChecking": "Comprobando…",
       "statusConnected": "Conectado",
@@ -2442,6 +2447,8 @@
     },
     "desktop": {
       "pairTitle": "Vincula tu móvil",
+      "guestBody": "Consulta la app de escritorio de Stella en tu móvil. Tras la vinculación, tu móvil se reconectará automáticamente.",
+      "guestSignInPrompt": "Inicia sesión para empezar.",
       "connecting": "Conectando con el escritorio",
       "pairing": "Vinculando este móvil",
       "unreachable": "No se puede acceder a tu escritorio",

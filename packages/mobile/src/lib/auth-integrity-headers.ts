@@ -7,6 +7,12 @@ export const buildAuthIntegrityHeaders = (
   return normalized ? { [APP_INTEGRITY_HEADER]: normalized } : {};
 };
 
+export const buildAnonymousSignInOptions = (proof: string | undefined) => ({
+  fetchOptions: {
+    headers: buildAuthIntegrityHeaders(proof),
+  },
+});
+
 export const buildMagicLinkHeaders = (proof: string | undefined) => ({
   "Content-Type": "application/json",
   ...buildAuthIntegrityHeaders(proof),

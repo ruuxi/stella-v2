@@ -141,7 +141,7 @@ class CarPlaySession {
   private replies: RecentReply[] = [];
   private newReplyId: string | null = null;
   private converseOn = true;
-  /** Whether an account is signed in; signed out gets the sign-in row instead. */
+  /** Whether an account is signed in; a guest gets the sign-in row instead. */
   private signedIn = false;
   private timeRefreshTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -540,7 +540,7 @@ class CarPlaySession {
     return this.converseOn;
   }
 
-  /** Whether an account is signed in — signed out gets the sign-in row instead. */
+  /** Whether an account is signed in — a guest gets the sign-in row instead. */
   setSignedIn(signedIn: boolean) {
     if (this.signedIn === signedIn) return;
     this.signedIn = signedIn;

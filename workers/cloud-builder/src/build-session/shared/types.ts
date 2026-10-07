@@ -340,6 +340,7 @@ export type ConversationCaller = {
   sessionId: string;
   expiresAtMs: number;
   issuer: string;
+  isAnonymous: boolean;
 };
 
 /**
@@ -354,10 +355,11 @@ export type ConversationCaller = {
  */
 export type DispatchCaller =
   | { kind: "service"; ownerId: string; ownerGeneration: string }
-  | { kind: "user"; ownerId: string }
+  | { kind: "user"; ownerId: string; isAnonymous: boolean }
   | {
       kind: "mobile";
       ownerId: string;
+      isAnonymous: boolean;
       mobileDeviceId: string;
       desktopDeviceId: string;
     };

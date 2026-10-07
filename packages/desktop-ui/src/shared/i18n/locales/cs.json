@@ -775,7 +775,8 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Moc pěkné.",
-        "signinDone": "Hotovo."
+        "signinDone": "Hotovo.",
+        "signinSkipped": "Udělám to později."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -925,7 +926,7 @@
       },
       "signin": {
         "title": "Přihlásit se",
-        "body": "Začni přihlášením k účtu Stella. Můžeš přidat i svůj plán Claude nebo ChatGPT.",
+        "body": "Stačí kterákoli z těchto možností. Ostatní můžeš přidat později.",
         "options": {
           "stella": {
             "title": "Účet Stella",
@@ -947,9 +948,11 @@
         "waiting": "Dokonči přihlášení v prohlížeči a pak se vrať sem.",
         "error": "Nepodařilo se připojit. Zkusit znovu?",
         "fine": "Změnit to můžeš kdykoli v Nastavení.",
+        "skip": "Teď ne",
         "hint": "Začít je zdarma.",
         "settledEngine": "Používá se {name}",
         "settledStella": "Přihlášeno ke Stelle",
+        "settledSkipped": "Zatím nepřihlášeno",
         "settledDesc": "Změnit to můžeš kdykoli v Nastavení.",
         "claudeCliMissing": "Nejdřív nainstalujte Claude Code a pak to zkuste znovu."
       },
@@ -999,6 +1002,7 @@
     },
     "capabilityRestriction": {
       "title": "{capability} není ve vašem plánu",
+      "signIn": "{capability} je součástí plánu Stella {plan}. Přihlaste se a upgradujte plán, abyste tuto funkci odemkli.",
       "upgrade": "{capability} je součástí plánu Stella {plan}. Upgradujte plán, abyste tuto funkci odemkli.",
       "unavailable": "{capability} teď není dostupné v žádném plánu.",
       "lockedBadge": "{plan}",
@@ -2020,6 +2024,7 @@
       "sendFailed": "Přihlašovací e-mail se nepodařilo odeslat.",
       "magicLinkFailed": "Magický odkaz se nepodařilo odeslat.",
       "finishFailed": "Přihlášení se nepodařilo dokončit. Zkuste to prosím znovu.",
+      "signInIncomplete": "Přihlášení není dokončené. Zkuste to prosím znovu.",
       "signInLinkExpired": "Platnost přihlašovacího odkazu vypršela. Zkuste to prosím znovu.",
       "tooManyRequests": {
         "one": "Příliš mnoho požadavků. Zkuste to znovu za {count} sekundu.",
@@ -2171,6 +2176,7 @@
         "computerDone": "Připojeno!",
         "computerSkipped": "Možná později.",
         "accountDone": "Hotovo.",
+        "accountSkipped": "Zatím přeskočit.",
         "themeDone": "Tenhle.",
         "themeSkipped": "Ponechat výchozí."
       },
@@ -2319,7 +2325,10 @@
         "connect": "Připojit",
         "connectLabel": "Připojit {name}",
         "connectedAs": "Připojeno · {name}",
-        "settledSignedIn": "Přihlášeno"
+        "skip": "Zatím přeskočit",
+        "settledSignedIn": "Přihlášeno",
+        "settledGuest": "Stellu používáte jako host",
+        "guestSettled": "Přihlásit se můžete kdykoli v Nastavení"
       },
       "theme": {
         "appearance": "Vzhled",
@@ -2378,7 +2387,8 @@
       "legalTerms": "Podmínkami služby",
       "legalConjunction": " a ",
       "legalPrivacy": "Zásadami ochrany osobních údajů",
-      "legalSuffix": "."
+      "legalSuffix": ".",
+      "continueAsGuest": "Pokračovat bez přihlášení"
     },
     "chat": {
       "emptyPrompt": "Zeptejte se Stelly na cokoli",
@@ -2445,6 +2455,8 @@
       }
     },
     "computer": {
+      "guestHeroTitle": "Váš počítač na dosah ruky",
+      "guestHeroBody": "Požádejte Stellu, aby na vašem počítači něco udělala — prohlížela web, spravovala soubory, spouštěla úlohy a další.",
       "defaultDeviceLabel": "Váš počítač",
       "statusChecking": "Kontrola…",
       "statusConnected": "Připojeno",
@@ -2456,6 +2468,8 @@
     },
     "desktop": {
       "pairTitle": "Spárujte svůj telefon",
+      "guestBody": "Mějte desktopovou aplikaci Stella přímo v telefonu. Po spárování se telefon připojí automaticky.",
+      "guestSignInPrompt": "Začněte přihlášením.",
       "connecting": "Připojování k počítači",
       "pairing": "Párování tohoto telefonu",
       "unreachable": "Počítač je nedostupný",

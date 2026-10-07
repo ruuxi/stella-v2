@@ -640,7 +640,7 @@ export const conversationStore = (
 /**
  * Called synchronously at the auth boundary. A socket authenticated for a
  * previous subject must not remain warm or be reused when the same durable
- * conversation id is transferred during account linking.
+ * conversation id is transferred during anonymous account linking.
  */
 export const retireCloudConversationClientAuthority = (
   accountScope: string,

@@ -197,6 +197,9 @@ export const validateCapabilityClaims = (
   ) {
     return false;
   }
+  if (value.maxRequests !== undefined && !isFiniteNumber(value.maxRequests)) {
+    return false;
+  }
   if (value.credential !== undefined && value.credential !== "chatgpt") {
     return false;
   }

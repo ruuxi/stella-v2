@@ -775,7 +775,8 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Очень круто.",
-        "signinDone": "Готово."
+        "signinDone": "Готово.",
+        "signinSkipped": "Сделаю позже."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -925,7 +926,7 @@
       },
       "signin": {
         "title": "Вход",
-        "body": "Чтобы начать, войдите в аккаунт Stella. Также можно добавить свой тариф Claude или ChatGPT.",
+        "body": "Достаточно любого из вариантов. Остальные можно добавить позже.",
         "options": {
           "stella": {
             "title": "Аккаунт Stella",
@@ -947,9 +948,11 @@
         "waiting": "Завершите вход в браузере и возвращайтесь сюда.",
         "error": "Подключиться не удалось. Повторить?",
         "fine": "Это можно изменить в любой момент в Настройках.",
+        "skip": "Не сейчас",
         "hint": "Начать можно бесплатно.",
         "settledEngine": "Используется {name}",
         "settledStella": "Вход в Stella выполнен",
+        "settledSkipped": "Вход ещё не выполнен",
         "settledDesc": "Это можно изменить в любой момент в Настройках.",
         "claudeCliMissing": "Сначала установите Claude Code, затем попробуйте ещё раз."
       },
@@ -999,6 +1002,7 @@
     },
     "capabilityRestriction": {
       "title": "{capability} не входит в ваш тариф",
+      "signIn": "{capability} входит в Stella {plan}. Войдите и перейдите на этот тариф, чтобы открыть эту функцию.",
       "upgrade": "{capability} входит в Stella {plan}. Перейдите на этот тариф, чтобы открыть эту функцию.",
       "unavailable": "Сейчас {capability} нет ни в одном тарифе.",
       "lockedBadge": "{plan}",
@@ -2020,6 +2024,7 @@
       "sendFailed": "Не удалось отправить письмо для входа.",
       "magicLinkFailed": "Не удалось отправить волшебную ссылку.",
       "finishFailed": "Не удалось завершить вход. Попробуйте ещё раз.",
+      "signInIncomplete": "Вход не завершён. Попробуйте ещё раз.",
       "signInLinkExpired": "Срок действия ссылки для входа истёк. Попробуйте ещё раз.",
       "tooManyRequests": {
         "one": "Слишком много запросов. Повторите через {count} секунду.",
@@ -2171,6 +2176,7 @@
         "computerDone": "Подключено!",
         "computerSkipped": "Может, позже.",
         "accountDone": "Готово.",
+        "accountSkipped": "Пока пропустить.",
         "themeDone": "Вот эта.",
         "themeSkipped": "Оставить по умолчанию."
       },
@@ -2319,7 +2325,10 @@
         "connect": "Подключить",
         "connectLabel": "Подключить {name}",
         "connectedAs": "Подключено · {name}",
-        "settledSignedIn": "Вход выполнен"
+        "skip": "Пока пропустить",
+        "settledSignedIn": "Вход выполнен",
+        "settledGuest": "Вы используете Stella без аккаунта",
+        "guestSettled": "Войти можно в любой момент в Настройках"
       },
       "theme": {
         "appearance": "Оформление",
@@ -2378,7 +2387,8 @@
       "legalTerms": "Условия использования",
       "legalConjunction": " и ",
       "legalPrivacy": "Политику конфиденциальности",
-      "legalSuffix": "."
+      "legalSuffix": ".",
+      "continueAsGuest": "Продолжить без входа"
     },
     "chat": {
       "emptyPrompt": "Спросите у Stella что угодно",
@@ -2446,6 +2456,8 @@
       }
     },
     "computer": {
+      "guestHeroTitle": "Ваш компьютер под рукой",
+      "guestHeroBody": "Попросите Stella сделать что-нибудь на вашем компьютере — открыть сайт, разобрать файлы, запустить задачи и не только.",
       "defaultDeviceLabel": "Ваш компьютер",
       "statusChecking": "Проверяем…",
       "statusConnected": "Подключено",
@@ -2457,6 +2469,8 @@
     },
     "desktop": {
       "pairTitle": "Свяжите телефон",
+      "guestBody": "Смотрите приложение Stella для компьютера прямо на телефоне. После связывания телефон будет подключаться автоматически.",
+      "guestSignInPrompt": "Войдите, чтобы начать.",
       "connecting": "Подключение к компьютеру",
       "pairing": "Связывание этого телефона",
       "unreachable": "Не удаётся связаться с компьютером",

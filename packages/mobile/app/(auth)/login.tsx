@@ -28,6 +28,7 @@ import {
 } from "../../src/lib/claim-secret";
 import { env } from "../../src/config/env";
 import { userFacingError } from "../../src/lib/user-facing-error";
+import { setGuestMode } from "../../src/lib/guest-mode";
 import { type Colors } from "../../src/theme/colors";
 import { useColors, useTheme } from "../../src/theme/theme-context";
 import { fadeHex } from "../../src/theme/oklch";
@@ -38,6 +39,7 @@ import {
   loadLastMainTabHref,
 } from "../../src/lib/last-main-tab";
 import { useT } from "../../src/i18n";
+import { signInMobileAnonymous } from "../../src/lib/anonymous-sign-in";
 import { buildMagicLinkHeaders } from "../../src/lib/auth-integrity-headers";
 import {
   isIntegrityKeyUnknown,
@@ -110,6 +112,23 @@ export default function LoginScreen() {
     return () => subscription.remove();
   }, []);
   const [canResend, setCanResend] = useState(false);
+
+  const continueAsGuest = async () => {
+    setSubmitState({ type: "verifying" });
+    try {
+      const result = await signInMobileAnonymous();
+      if (result.error) {
+        throw new Error(
+          result.error.message ?? "Could not start an anonymous session.",
+        );
+      }
+
+      await setGuestMode(result.data?.user.isAnonymous === true);
+      enterMainShell(router, await loadLastMainTabHref());
+    } catch (error) {
+      setSubmitState({ type: "error", message: userFacingError(error) });
+    }
+  };
 
   const sendMagicLink = async () => {
     const trimmed = email.trim();
@@ -541,6 +560,25 @@ export default function LoginScreen() {
               </Text>
               {t("mobile.login.legalSuffix")}
             </Text>
+
+            <Pressable
+              onPress={() => void continueAsGuest()}
+              accessibilityLabel={t("mobile.login.continueAsGuest")}
+              accessibilityRole="button"
+              disabled={submitState.type === "verifying"}
+              style={({ pressed }) => [
+                styles.guestButton,
+                pressed && styles.guestButtonPressed,
+                submitState.type === "verifying"
+                  ? styles.primaryButtonDisabled
+                  : null,
+              ]}
+              testID="continue-without-signing-in-button"
+            >
+              <Text style={styles.guestButtonText}>
+                {t("mobile.login.continueAsGuest")}
+              </Text>
+            </Pressable>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -747,5 +785,19 @@ const makeStyles = (colors: Colors) =>
     },
     legalLink: {
       textDecorationLine: "underline",
+    },
+    guestButton: {
+      alignItems: "center",
+      marginTop: 8,
+      paddingVertical: 16,
+    },
+    guestButtonPressed: {
+      opacity: 0.6,
+    },
+    guestButtonText: {
+      color: colors.textMuted,
+      fontFamily: fonts.sans.medium,
+      fontSize: 15,
+      letterSpacing: -0.2,
     },
   } as const);

@@ -1752,7 +1752,6 @@
         "fromOtherComputers": "Zmiany z Twojego drugiego komputera",
         "readyChange": "Zmiana gotowa do dodania",
         "add": "Dodaj",
-        "get": "Pobierz",
         "adding": "Dodawanie…",
         "skip": "Pomiń",
         "undoing": "Cofanie…",
@@ -1760,7 +1759,6 @@
         "justNow": "Przed chwilą",
         "waiting": "Oczekuje",
         "history": "Historia",
-        "skipped": "Pominięte",
         "upToDate": "Nic nie oczekuje"
       }
     },
@@ -2176,6 +2174,7 @@
         "computerDone": "Połączono!",
         "computerSkipped": "Może później.",
         "accountDone": "Gotowe.",
+        "accountSkipped": "Na razie pomiń.",
         "themeDone": "Ten.",
         "themeSkipped": "Zostaw domyślny."
       },
@@ -2324,7 +2323,10 @@
         "connect": "Połącz",
         "connectLabel": "Połącz {name}",
         "connectedAs": "Połączono · {name}",
-        "settledSignedIn": "Zalogowano"
+        "skip": "Na razie pomiń",
+        "settledSignedIn": "Zalogowano",
+        "settledGuest": "Korzystasz ze Stelli jako gość",
+        "guestSettled": "Zaloguj się w dowolnym momencie w Ustawieniach"
       },
       "theme": {
         "appearance": "Wygląd",
@@ -2383,7 +2385,8 @@
       "legalTerms": "Warunki korzystania",
       "legalConjunction": " oraz ",
       "legalPrivacy": "Politykę prywatności",
-      "legalSuffix": "."
+      "legalSuffix": ".",
+      "continueAsGuest": "Kontynuuj bez logowania"
     },
     "chat": {
       "emptyPrompt": "Zapytaj Stellę o cokolwiek",
@@ -2451,6 +2454,8 @@
       }
     },
     "computer": {
+      "guestHeroTitle": "Twój komputer w zasięgu ręki",
+      "guestHeroBody": "Poproś Stellę, żeby zrobiła coś na twoim komputerze — przeglądała sieć, zarządzała plikami, uruchamiała zadania i nie tylko.",
       "defaultDeviceLabel": "Twój komputer",
       "statusChecking": "Sprawdzanie…",
       "statusConnected": "Połączono",
@@ -2462,6 +2467,8 @@
     },
     "desktop": {
       "pairTitle": "Sparuj swój telefon",
+      "guestBody": "Miej aplikację Stella na komputerze prosto w telefonie. Po sparowaniu telefon połączy się automatycznie.",
+      "guestSignInPrompt": "Zaloguj się, aby zacząć.",
       "connecting": "Łączenie z komputerem",
       "pairing": "Parowanie tego telefonu",
       "unreachable": "Nie można połączyć się z komputerem",

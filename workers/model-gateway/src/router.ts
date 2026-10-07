@@ -2,6 +2,7 @@ import { billingControl, billingGatewayConfig } from "./billing-control.js";
 import {
   GATEWAY_HEALTH_PATH,
   GATEWAY_MODEL_REVISION_HEADER,
+  GATEWAY_NETWORK_POLICY,
   GATEWAY_PREPARE_PATH,
   GATEWAY_RELAY_PREFIX,
   GATEWAY_REQUEST_ID_HEADER,
@@ -211,6 +212,18 @@ const handleSessionCapability = async (
     );
   }
   const networkClass = await classifyNetwork(request, env.ASN_POLICY);
+  if (
+    verified.token.isAnonymous &&
+    GATEWAY_NETWORK_POLICY.anonymousRefused.some(
+      (refused) => refused === networkClass,
+    )
+  ) {
+    throw new GatewayError(
+      403,
+      "sign_in_required",
+      "Sign in to Stella to continue from this network.",
+    );
+  }
   const body = await readJsonObject(request, { allowEmpty: true });
   const deviceKey = parseDeviceKeyProof(body.deviceKey);
   if (!deviceKey) {
@@ -255,7 +268,7 @@ const handleSessionCapability = async (
       "This account is suspended from model access.",
     );
   }
-  const audience = "free";
+  const audience = verified.token.isAnonymous ? "anonymous" : "free";
   const ownerGate = env.OWNER_RELAY_GATE.get(
     env.OWNER_RELAY_GATE.idFromName(ownerId),
   );
@@ -276,8 +289,27 @@ const handleSessionCapability = async (
     );
   }
   const ipHash = await ipHashFrom(request);
+  if (verified.token.isAnonymous) {
+    const networkGate = env.NETWORK_GATE.get(
+      env.NETWORK_GATE.idFromName(ipHash),
+    );
+    const networkAdmission = await networkGate.admitMint();
+    if (!networkAdmission.ok) {
+      throw new GatewayError(
+        429,
+        "rate_limited",
+        "Too many capability exchanges from this network.",
+        quotaErrorOptions({
+          scope: "network",
+          now: deps.now(),
+          resetAt: networkAdmission.resetAt,
+        }),
+      );
+    }
+  }
   const result = await billingControl(env).issueSessionCapability({
     ownerId,
+    isAnonymous: verified.token.isAnonymous,
     ipHash,
     networkClass,
     deviceKeyHash: deviceProof.deviceKeyHash,

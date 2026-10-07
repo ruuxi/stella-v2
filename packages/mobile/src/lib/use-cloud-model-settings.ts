@@ -9,7 +9,7 @@ import {
 import { isEngineConnectionUsable } from "@stella/contracts/backend/engines";
 import { useT } from "../i18n";
 import { getBackendClient, readBackendView } from "./backend";
-import { useAccountSession } from "./auth-client";
+import { authClient } from "./auth-client";
 import { getAuthTokenForSubject } from "./auth-token";
 import { observeCloudConversationIdentity } from "./cloud-conversation-auth";
 import { useTokenOwner } from "./use-token-owner";
@@ -79,7 +79,7 @@ const defaultModelFor = (
  */
 export function useCloudModelSettings(active: boolean) {
   const t = useT();
-  const session = useAccountSession();
+  const session = authClient.useSession();
   const identity = useMemo(
     () => observeCloudConversationIdentity(session.data),
     [session.data?.user?.id, session.data?.session?.id],

@@ -1728,7 +1728,6 @@
         "fromOtherComputers": "Ändringar från din andra dator",
         "readyChange": "En ändring redo att läggas till",
         "add": "Lägg till",
-        "get": "Hämta",
         "adding": "Lägger till…",
         "skip": "Hoppa över",
         "undoing": "Ångrar…",
@@ -1736,7 +1735,6 @@
         "justNow": "Just nu",
         "waiting": "Väntar",
         "history": "Historik",
-        "skipped": "Hoppade över",
         "upToDate": "Inget väntar"
       }
     },
@@ -2138,6 +2136,7 @@
         "computerDone": "Ansluten!",
         "computerSkipped": "Kanske senare.",
         "accountDone": "Klart.",
+        "accountSkipped": "Hoppa över för nu.",
         "themeDone": "Den där.",
         "themeSkipped": "Behåll standard."
       },
@@ -2286,7 +2285,10 @@
         "connect": "Anslut",
         "connectLabel": "Anslut {name}",
         "connectedAs": "Ansluten · {name}",
-        "settledSignedIn": "Inloggad"
+        "skip": "Hoppa över för nu",
+        "settledSignedIn": "Inloggad",
+        "settledGuest": "Använder Stella som gäst",
+        "guestSettled": "Logga in när som helst i Inställningar"
       },
       "theme": {
         "appearance": "Utseende",
@@ -2345,7 +2347,8 @@
       "legalTerms": "Villkor",
       "legalConjunction": " och vår ",
       "legalPrivacy": "Integritetspolicy",
-      "legalSuffix": "."
+      "legalSuffix": ".",
+      "continueAsGuest": "Fortsätt utan att logga in"
     },
     "chat": {
       "emptyPrompt": "Fråga Stella vad som helst",
@@ -2412,6 +2415,8 @@
       }
     },
     "computer": {
+      "guestHeroTitle": "Din dator inom räckhåll",
+      "guestHeroBody": "Be Stella göra saker på din dator — surfa på webben, hantera filer, köra uppgifter och mycket mer.",
       "defaultDeviceLabel": "Din dator",
       "statusChecking": "Kontrollerar…",
       "statusConnected": "Ansluten",
@@ -2423,6 +2428,8 @@
     },
     "desktop": {
       "pairTitle": "Parkoppla din telefon",
+      "guestBody": "Se Stellas datorapp direkt i telefonen. Efter parkopplingen återansluter telefonen automatiskt.",
+      "guestSignInPrompt": "Logga in för att komma igång.",
       "connecting": "Ansluter till datorn",
       "pairing": "Parkopplar den här telefonen",
       "unreachable": "Kan inte nå din dator",

@@ -13,8 +13,8 @@ import { readManagedModelPrices } from "./prices.js";
  * `GET /api/stella/models`: the public model catalog for Stella runtimes.
  * Which `stella/...` models the caller's audience may pick, the per-agent
  * defaults, each model's price, and where the model gateway lives. The
- * bearer is optional: without one the audience is Free; with one it is the
- * plan the owner's billing says. Clients revalidate with `If-None-Match`.
+ * bearer is optional: without one the audience is anonymous; with one it is
+ * the plan the owner's billing says. Clients revalidate with `If-None-Match`.
  */
 
 const CORS_HEADERS = {
@@ -43,13 +43,14 @@ const audienceFor = async (
 ): Promise<{ ok: true; audience: ManagedModelAudience } | { ok: false; response: Response }> => {
   const header = request.headers.get("authorization") ?? "";
   const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
-  if (!token) return { ok: true, audience: "free" };
+  if (!token) return { ok: true, audience: "anonymous" };
   const verified = await verifyCaller(env, token);
   if (!verified.ok) {
     const status = verified.error.code === "UNAUTHENTICATED" ? 401 : 503;
     return { ok: false, response: reply(status, { error: verified.error.message }) };
   }
-  const access = await env.OWNER_GATES.getByName(verified.caller.ownerId).billingAccess();
+  if (verified.caller.isAnonymous) return { ok: true, audience: "anonymous" };
+  const access = await env.OWNER_GATES.getByName(verified.caller.ownerId).billingAccess({ isAnonymous: false });
   return { ok: true, audience: access.audience };
 };
 

@@ -758,7 +758,7 @@
         "extras": "Almost done. A little housekeeping, then we start.",
         "memory": "One more thing that makes me different.",
         "selfmod": "And because I live on your computer, I can change myself.",
-        "signin": "Next, let's sign you in to Stella. You can add the Claude or ChatGPT plan you already have too.",
+        "signin": "Next, let's sign you in. Use a Stella account, or the Claude or ChatGPT plan you already have.",
         "quickstart": "That's everything. One last thing, and it's optional: a quickstart.",
         "quickstartDone": "Done. Here's what I picked up, and a few things we could start with.",
         "quickstartFailed": "I couldn't finish reading your browser this time. We can start anyway, and I'll learn as we go."
@@ -773,7 +773,8 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Very cool.",
-        "signinDone": "Done."
+        "signinDone": "Done.",
+        "signinSkipped": "I'll do it later."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -923,7 +924,7 @@
       },
       "signin": {
         "title": "Sign in",
-        "body": "Sign in with a Stella account to get started. You can add your Claude or ChatGPT plan too.",
+        "body": "Any one of these is enough. You can add the others later.",
         "options": {
           "stella": {
             "title": "Stella account",
@@ -945,9 +946,11 @@
         "waiting": "Finish signing in in your browser, then come back here.",
         "error": "That didn't connect. Try again?",
         "fine": "Change this any time in Settings.",
+        "skip": "Not now",
         "hint": "Free to start.",
         "settledEngine": "Using {name}",
         "settledStella": "Signed in to Stella",
+        "settledSkipped": "Not signed in yet",
         "settledDesc": "Change it any time in Settings.",
         "claudeCliMissing": "Install Claude Code first, then try again."
       },
@@ -999,6 +1002,7 @@
     },
     "capabilityRestriction": {
       "title": "{capability} isn't on your plan",
+      "signIn": "{capability} is included with Stella {plan}. Sign in to upgrade and unlock it.",
       "upgrade": "{capability} is included with Stella {plan}. Upgrade to unlock it.",
       "unavailable": "{capability} isn't available on any plan right now.",
       "lockedBadge": "{plan}",
@@ -1986,6 +1990,7 @@
       "sendFailed": "Failed to send sign-in email.",
       "magicLinkFailed": "Failed to send magic link.",
       "finishFailed": "Could not finish sign-in. Please try again.",
+      "signInIncomplete": "Sign-in incomplete. Please try again.",
       "signInLinkExpired": "Sign-in link expired. Please try again.",
       "tooManyRequests": {
         "one": "Too many requests. Try again in {count} second.",
@@ -2122,7 +2127,7 @@
         "hello": "Hi, I'm Stella.\n\nI'm not a chatbot. Tell me what you need and I get it done, in the background, while you get on with your day.",
         "showcase": "Here's what that looks like.",
         "computer": "If you have a Mac or PC, I can work on it too.",
-        "account": "To get started, sign in to Stella. Your account keeps everything with you on every device.",
+        "account": "Want to keep all of this? A Stella account follows you to every device.",
         "accountSignedIn": "You're signed in, so everything follows you between devices. One optional extra:",
         "theme": "Now, how should I look?",
         "ready": "That's it. I'll get to know you as we go.\n\nWhat should we do first?"
@@ -2133,6 +2138,7 @@
         "computerDone": "Connected!",
         "computerSkipped": "Maybe later.",
         "accountDone": "All set.",
+        "accountSkipped": "Skip for now.",
         "themeDone": "That one.",
         "themeSkipped": "Keep the default."
       },
@@ -2281,7 +2287,10 @@
         "connect": "Connect",
         "connectLabel": "Connect {name}",
         "connectedAs": "Connected · {name}",
-        "settledSignedIn": "Signed in"
+        "skip": "Skip for now",
+        "settledSignedIn": "Signed in",
+        "settledGuest": "Using Stella as a guest",
+        "guestSettled": "Sign in any time from Settings"
       },
       "theme": {
         "appearance": "Appearance",
@@ -2340,7 +2349,8 @@
       "legalTerms": "Terms",
       "legalConjunction": " and ",
       "legalPrivacy": "Privacy Policy",
-      "legalSuffix": "."
+      "legalSuffix": ".",
+      "continueAsGuest": "Continue without signing in"
     },
     "chat": {
       "emptyPrompt": "Ask Stella anything",
@@ -2406,6 +2416,8 @@
       }
     },
     "computer": {
+      "guestHeroTitle": "Your computer, at your fingertips",
+      "guestHeroBody": "Ask Stella to do things on your computer — browse the web, manage files, run tasks, and more.",
       "defaultDeviceLabel": "Your computer",
       "statusChecking": "Checking…",
       "statusConnected": "Connected",
@@ -2417,6 +2429,8 @@
     },
     "desktop": {
       "pairTitle": "Pair your phone",
+      "guestBody": "See your Stella desktop app right on your phone. After pairing, your phone will reconnect automatically.",
+      "guestSignInPrompt": "Sign in to get started.",
       "connecting": "Connecting to desktop",
       "pairing": "Pairing this phone",
       "unreachable": "Can't reach your desktop",

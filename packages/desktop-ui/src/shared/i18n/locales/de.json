@@ -773,7 +773,8 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Sehr cool.",
-        "signinDone": "Erledigt."
+        "signinDone": "Erledigt.",
+        "signinSkipped": "Mache ich später."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -923,7 +924,7 @@
       },
       "signin": {
         "title": "Anmelden",
-        "body": "Melde dich mit einem Stella-Konto an, um loszulegen. Du kannst auch dein Claude- oder ChatGPT-Abo hinzufügen.",
+        "body": "Eine Möglichkeit reicht. Die anderen kannst du später hinzufügen.",
         "options": {
           "stella": {
             "title": "Stella-Konto",
@@ -945,9 +946,11 @@
         "waiting": "Schließe die Anmeldung in deinem Browser ab und komm dann hierher zurück.",
         "error": "Das hat nicht geklappt. Nochmal versuchen?",
         "fine": "Du kannst das jederzeit in den Einstellungen ändern.",
+        "skip": "Nicht jetzt",
         "hint": "Der Start ist kostenlos.",
         "settledEngine": "{name} wird verwendet",
         "settledStella": "Bei Stella angemeldet",
+        "settledSkipped": "Noch nicht angemeldet",
         "settledDesc": "Jederzeit in den Einstellungen änderbar.",
         "claudeCliMissing": "Installiere zuerst Claude Code und versuche es dann erneut."
       },
@@ -997,6 +1000,7 @@
     },
     "capabilityRestriction": {
       "title": "{capability} ist nicht in deinem Tarif enthalten",
+      "signIn": "{capability} ist in Stella {plan} enthalten. Melde dich an und mach ein Upgrade, um die Funktion freizuschalten.",
       "upgrade": "{capability} ist in Stella {plan} enthalten. Mach ein Upgrade, um die Funktion freizuschalten.",
       "unavailable": "{capability} ist derzeit in keinem Tarif verfügbar.",
       "lockedBadge": "{plan}",
@@ -1986,6 +1990,7 @@
       "sendFailed": "Anmelde-E-Mail konnte nicht gesendet werden.",
       "magicLinkFailed": "Magic Link konnte nicht gesendet werden.",
       "finishFailed": "Die Anmeldung konnte nicht abgeschlossen werden. Bitte versuch es erneut.",
+      "signInIncomplete": "Anmeldung unvollständig. Bitte versuch es erneut.",
       "signInLinkExpired": "Der Anmeldelink ist abgelaufen. Bitte versuch es erneut.",
       "tooManyRequests": {
         "one": "Zu viele Anfragen. Versuch es in {count} Sekunde erneut.",
@@ -2133,6 +2138,7 @@
         "computerDone": "Verbunden!",
         "computerSkipped": "Vielleicht später.",
         "accountDone": "Alles klar.",
+        "accountSkipped": "Vorerst überspringen.",
         "themeDone": "Dieses.",
         "themeSkipped": "Standard beibehalten."
       },
@@ -2281,7 +2287,10 @@
         "connect": "Verbinden",
         "connectLabel": "{name} verbinden",
         "connectedAs": "Verbunden · {name}",
-        "settledSignedIn": "Angemeldet"
+        "skip": "Vorerst überspringen",
+        "settledSignedIn": "Angemeldet",
+        "settledGuest": "Stella als Gast nutzen",
+        "guestSettled": "Melde dich jederzeit in den Einstellungen an"
       },
       "theme": {
         "appearance": "Erscheinungsbild",
@@ -2340,7 +2349,8 @@
       "legalTerms": "Nutzungsbedingungen",
       "legalConjunction": " und der ",
       "legalPrivacy": "Datenschutzrichtlinie",
-      "legalSuffix": " zu."
+      "legalSuffix": " zu.",
+      "continueAsGuest": "Ohne Anmeldung fortfahren"
     },
     "chat": {
       "emptyPrompt": "Frag Stella alles",
@@ -2406,6 +2416,8 @@
       }
     },
     "computer": {
+      "guestHeroTitle": "Dein Computer, immer griffbereit",
+      "guestHeroBody": "Bitte Stella, Dinge auf deinem Computer zu erledigen — im Web surfen, Dateien verwalten, Aufgaben ausführen und mehr.",
       "defaultDeviceLabel": "Dein Computer",
       "statusChecking": "Wird geprüft…",
       "statusConnected": "Verbunden",
@@ -2417,6 +2429,8 @@
     },
     "desktop": {
       "pairTitle": "Koppel dein Handy",
+      "guestBody": "Sieh deine Stella-Desktop-App direkt auf deinem Handy. Nach dem Koppeln verbindet sich dein Handy automatisch wieder.",
+      "guestSignInPrompt": "Melde dich an, um loszulegen.",
       "connecting": "Verbindung zum Desktop",
       "pairing": "Dieses Handy wird gekoppelt",
       "unreachable": "Dein Desktop ist nicht erreichbar",

@@ -154,8 +154,7 @@ export const IPC_DEVTEST_FIX_VITE_ERROR = "devtest:fixViteError" as const;
 export const IPC_DEVICE_GET_ID = "device:getId" as const;
 export const IPC_HOST_CONFIGURE_RUNTIME = "host:configurePiRuntime" as const;
 export const IPC_AUTH_GET_SESSION = "auth:getSession" as const;
-export const IPC_AUTH_SEND_LEGACY_MAGIC_LINK =
-  "auth:sendLegacyMagicLink" as const;
+export const IPC_AUTH_SIGN_IN_ANONYMOUS = "auth:signInAnonymous" as const;
 export const IPC_AUTH_SIGN_OUT = "auth:signOut" as const;
 export const IPC_AUTH_DELETE_USER = "auth:deleteUser" as const;
 export const IPC_AUTH_APPLY_SESSION_TOKEN = "auth:applySessionToken" as const;

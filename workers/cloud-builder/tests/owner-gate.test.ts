@@ -57,9 +57,10 @@ const gateHarness = (
   const { db } = store.context(null);
   db.run(
     `INSERT INTO owner_state (id, generation, writable, closed, is_anonymous, identity_level, min_iat_ms)
-     VALUES (1, ?, ?, 0, 0, ?, 0)`,
+     VALUES (1, ?, ?, 0, ?, ?, 0)`,
     snapshot.ownerGeneration,
     snapshot.writable ? 1 : 0,
+    snapshot.isAnonymous ? 1 : 0,
     snapshot.identityLevel,
   );
   if (snapshot.enforcement) {
@@ -121,6 +122,26 @@ describe("OwnerGate admission", () => {
     expect((await instance.status(NOW)).running).toHaveLength(2);
     const stale = NOW + TURN_TIMEOUT_MS + OWNER_GATE_RUNNING_GRACE_MS + 1;
     expect((await instance.status(stale)).running).toHaveLength(0);
+  });
+
+  test("anonymous owners may chat but cannot enter the agent lane", async () => {
+    const { instance } = open({
+      snapshot: sampleOwnerSnapshot({ isAnonymous: true, identityLevel: 0 }),
+    });
+    expect((await instance.admit(chat("anonymous-chat"))).ok).toBe(true);
+    await instance.release({ turnId: "anonymous-chat" });
+    await expect(
+      instance.admit({
+        lane: "agent",
+        turnId: "anonymous-agent",
+        conversationId: "conversation-1",
+        now: NOW,
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: "sign_in_required",
+      retryable: false,
+    });
   });
 
   test("maps a suspended owner to owner_suspended for turns and dispatches", async () => {

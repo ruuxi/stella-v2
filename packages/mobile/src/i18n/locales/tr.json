@@ -1728,7 +1728,6 @@
         "fromOtherComputers": "Diğer bilgisayarınızdan değişiklikler",
         "readyChange": "Eklenmeye hazır bir değişiklik",
         "add": "Ekle",
-        "get": "Al",
         "adding": "Ekleniyor…",
         "skip": "Atla",
         "undoing": "Geri alınıyor…",
@@ -1736,7 +1735,6 @@
         "justNow": "Az önce",
         "waiting": "Bekliyor",
         "history": "Geçmiş",
-        "skipped": "Atlananlar",
         "upToDate": "Bekleyen bir şey yok"
       }
     },
@@ -2138,6 +2136,7 @@
         "computerDone": "Bağlandı!",
         "computerSkipped": "Belki sonra.",
         "accountDone": "Tamam.",
+        "accountSkipped": "Şimdilik geç.",
         "themeDone": "Bu olsun.",
         "themeSkipped": "Varsayılan kalsın."
       },
@@ -2286,7 +2285,10 @@
         "connect": "Bağla",
         "connectLabel": "{name} bağla",
         "connectedAs": "Bağlandı · {name}",
-        "settledSignedIn": "Giriş yapıldı"
+        "skip": "Şimdilik geç",
+        "settledSignedIn": "Giriş yapıldı",
+        "settledGuest": "Stella misafir olarak kullanılıyor",
+        "guestSettled": "İstediğiniz zaman Ayarlar'dan giriş yapın"
       },
       "theme": {
         "appearance": "Görünüm",
@@ -2345,7 +2347,8 @@
       "legalTerms": "Hizmet Koşullarını",
       "legalConjunction": " ve ",
       "legalPrivacy": "Gizlilik Politikasını",
-      "legalSuffix": " kabul edersiniz."
+      "legalSuffix": " kabul edersiniz.",
+      "continueAsGuest": "Giriş yapmadan devam et"
     },
     "chat": {
       "emptyPrompt": "Stella'ya istediğinizi sorun",
@@ -2411,6 +2414,8 @@
       }
     },
     "computer": {
+      "guestHeroTitle": "Bilgisayarınız parmaklarınızın ucunda",
+      "guestHeroBody": "Stella'dan bilgisayarınızda işler yapmasını isteyin — web'de gezinsin, dosyaları yönetsin, görevleri çalıştırsın ve daha fazlası.",
       "defaultDeviceLabel": "Bilgisayarınız",
       "statusChecking": "Denetleniyor…",
       "statusConnected": "Bağlandı",
@@ -2422,6 +2427,8 @@
     },
     "desktop": {
       "pairTitle": "Telefonunuzu eşleştirin",
+      "guestBody": "Stella masaüstü uygulamasını doğrudan telefonunuzda görün. Eşleştirmeden sonra telefonunuz otomatik olarak yeniden bağlanır.",
+      "guestSignInPrompt": "Başlamak için giriş yapın.",
       "connecting": "Masaüstüne bağlanılıyor",
       "pairing": "Bu telefon eşleştiriliyor",
       "unreachable": "Masaüstüne ulaşılamıyor",

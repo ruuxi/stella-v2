@@ -1,5 +1,6 @@
 import { createAuthClient } from "better-auth/client";
 import {
+  anonymousClient,
   jwtClient,
   magicLinkClient,
   oneTimeTokenClient,
@@ -19,11 +20,12 @@ import {
 // credential in `set-auth-token`.
 const createPlugins = () => [
   jwtClient(),
+  anonymousClient(),
   magicLinkClient(),
   oneTimeTokenClient(),
 ];
 
-// Capture the full plugin-aware return type so plugin endpoints are typed.
+// Capture the full plugin-aware return type so signIn.anonymous(), etc. are typed.
 type AuthClient = ReturnType<
   typeof createAuthClient<{ plugins: ReturnType<typeof createPlugins> }>
 >;

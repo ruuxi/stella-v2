@@ -1,12 +1,12 @@
 /**
  * Accounts, inside the conversation.
  *
- * Stella needs an account, so this step only settles signed in: a signed-out
- * user is sent to the existing sign-in screen (the onboarding resumes on this
- * message when they come back). Once signed in, they are offered their own
- * Claude or ChatGPT subscription for Stella's cloud through the same
- * paste-back flow Settings uses (Claude: the cloud's own `claude auth login`;
- * the phone never signs in to Claude itself), which is optional.
+ * A guest is offered a Stella account (the existing sign-in screen; the
+ * onboarding resumes on this message when they come back), and everyone is
+ * offered their own Claude or ChatGPT subscription for Stella's cloud
+ * through the same paste-back flow Settings uses (Claude: the cloud's own
+ * `claude auth login`; the phone never signs in to Claude itself). All of it
+ * is optional.
  */
 import { useMemo } from "react";
 import {
@@ -35,6 +35,7 @@ import { fadeEntering, rowEntering, springLayout, SpringPressable } from "../mot
 import {
   OnboardingCard,
   PrimaryAction,
+  SecondaryAction,
   SettledCard,
   useCardStyles,
 } from "../OnboardingCard";
@@ -67,10 +68,11 @@ const ENGINES: EngineSpec[] = [
 type AccountCardProps = {
   active: boolean;
   answered: "done" | "skipped" | undefined;
+  /** Signed in to a real (non-anonymous) Stella account. */
   signedIn: boolean;
   email: string | null;
   onSignIn: () => void;
-  onAnswer: (answer: "done") => void;
+  onAnswer: (answer: "done" | "skipped") => void;
 };
 
 export function AccountCard({
@@ -85,98 +87,66 @@ export function AccountCard({
   const colors = useColors();
   const cardStyles = useCardStyles();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-
-  if (signedIn) {
-    return (
-      <SignedInAccount
-        active={active}
-        answered={answered !== undefined}
-        email={email}
-        onAnswer={onAnswer}
-      />
-    );
-  }
-
-  if (answered) {
-    return (
-      <SettledCard
-        icon="user"
-        tone="neutral"
-        title={t("mobile.onboarding.account.signInTitle")}
-        description={t("mobile.onboarding.account.signInBody")}
-      />
-    );
-  }
-
-  return (
-    <OnboardingCard>
-      <View style={styles.block}>
-        <Text style={cardStyles.title}>{t("mobile.onboarding.account.signInTitle")}</Text>
-        <Text style={cardStyles.body}>{t("mobile.onboarding.account.signInBody")}</Text>
-        <PrimaryAction
-          label={t("mobile.onboarding.account.signIn")}
-          icon="user"
-          onPress={() => {
-            tapLight();
-            onSignIn();
-          }}
-          disabled={!active}
-        />
-      </View>
-    </OnboardingCard>
-  );
-}
-
-function SignedInAccount({
-  active,
-  answered,
-  email,
-  onAnswer,
-}: {
-  active: boolean;
-  answered: boolean;
-  email: string | null;
-  onAnswer: (answer: "done") => void;
-}) {
-  const t = useT();
-  const colors = useColors();
-  const cardStyles = useCardStyles();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
   const { value: engines } = useBackendView("engines.get", {});
   // A ChatGPT sign-in counts once Stella's cloud may use the plan.
   const connections = (engines?.connections ?? []).filter(isEngineConnectionUsable);
   const connectedNames = ENGINES.filter((spec) =>
     connections.some((row) => row.provider === spec.provider),
   ).map((spec) => spec.name);
+  const anythingDone = signedIn || connectedNames.length > 0;
 
   if (answered) {
+    const parts = [
+      signedIn ? (email ?? "") : t("mobile.onboarding.account.guestSettled"),
+      ...connectedNames,
+    ].filter(Boolean);
     return (
       <SettledCard
-        icon="check"
-        tone="success"
-        title={t("mobile.onboarding.account.settledSignedIn")}
-        description={[email ?? "", ...connectedNames].filter(Boolean).join(" · ")}
+        icon={signedIn ? "check" : "user"}
+        tone={signedIn ? "success" : "neutral"}
+        title={
+          signedIn
+            ? t("mobile.onboarding.account.settledSignedIn")
+            : t("mobile.onboarding.account.settledGuest")
+        }
+        description={parts.join(" · ")}
       />
     );
   }
 
   return (
     <OnboardingCard>
-      <Animated.View entering={fadeEntering(0, 240)} style={styles.signedRow}>
-        <View style={styles.okBadge}>
-          <Icon name="check" size={13} color={colors.ok} weight="bold" />
-        </View>
-        <View style={styles.flex}>
-          <Text style={styles.rowTitle} numberOfLines={1}>
-            {t("mobile.onboarding.account.settledSignedIn")}
-          </Text>
-          {email ? (
-            <Text style={styles.rowDesc} numberOfLines={1}>
-              {email}
+      {signedIn ? (
+        <Animated.View entering={fadeEntering(0, 240)} style={styles.signedRow}>
+          <View style={styles.okBadge}>
+            <Icon name="check" size={13} color={colors.ok} weight="bold" />
+          </View>
+          <View style={styles.flex}>
+            <Text style={styles.rowTitle} numberOfLines={1}>
+              {t("mobile.onboarding.account.settledSignedIn")}
             </Text>
-          ) : null}
+            {email ? (
+              <Text style={styles.rowDesc} numberOfLines={1}>
+                {email}
+              </Text>
+            ) : null}
+          </View>
+        </Animated.View>
+      ) : (
+        <View style={styles.block}>
+          <Text style={cardStyles.title}>{t("mobile.onboarding.account.signInTitle")}</Text>
+          <Text style={cardStyles.body}>{t("mobile.onboarding.account.signInBody")}</Text>
+          <PrimaryAction
+            label={t("mobile.onboarding.account.signIn")}
+            icon="user"
+            onPress={() => {
+              tapLight();
+              onSignIn();
+            }}
+            disabled={!active}
+          />
         </View>
-      </Animated.View>
+      )}
 
       <View style={styles.divider} />
 
@@ -200,12 +170,21 @@ function SignedInAccount({
       </View>
 
       <View style={cardStyles.actions}>
-        <PrimaryAction
-          label={t("mobile.common.continue")}
-          onPress={() => onAnswer("done")}
-          disabled={!active}
-          style={styles.flex}
-        />
+        {anythingDone ? (
+          <PrimaryAction
+            label={t("mobile.common.continue")}
+            onPress={() => onAnswer("done")}
+            disabled={!active}
+            style={styles.flex}
+          />
+        ) : (
+          <SecondaryAction
+            label={t("mobile.onboarding.account.skip")}
+            onPress={() => onAnswer("skipped")}
+            disabled={!active}
+            style={styles.flex}
+          />
+        )}
       </View>
     </OnboardingCard>
   );

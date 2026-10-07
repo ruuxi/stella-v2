@@ -218,6 +218,7 @@ const AUDIENCE_MODE_OVERRIDES: Record<
   ManagedModelAudience,
   Partial<Record<ModelMode, Partial<ModeConfig>>>
 > = {
+  anonymous: {},
   free: {},
   go: {},
   pro: {},
@@ -240,6 +241,7 @@ const DEFAULT_AGENT_OVERRIDES: Partial<Record<string, TaskModelSelection>> = {
 const AUDIENCE_AGENT_MODE_OVERRIDES: Partial<
   Record<ManagedModelAudience, Partial<Record<string, TaskModelSelection>>>
 > = {
+  anonymous: DEFAULT_AGENT_OVERRIDES,
   free: DEFAULT_AGENT_OVERRIDES,
   go: DEFAULT_AGENT_OVERRIDES,
   pro: DEFAULT_AGENT_OVERRIDES,
@@ -247,7 +249,7 @@ const AUDIENCE_AGENT_MODE_OVERRIDES: Partial<
   pro_fallback: DEFAULT_AGENT_OVERRIDES,
 };
 
-// Only the active Pro audience gets the model picker. Free, Go,
+// Only the active Pro audience gets the model picker. Anonymous, Free, Go,
 // and every fallback audience stay on their backend default, with
 // `stella/light` retained as the one explicit compatibility alias.
 export const canOverrideStellaModel = (
@@ -258,7 +260,10 @@ export const canOverrideStellaModel = (
 // (e.g. Stella Max) independently of the model-override restriction above:
 // `go` may not freely pin arbitrary models but is still a paid plan that can
 // select the paid-only modes.
-const UNPAID_MODEL_AUDIENCES = new Set<ManagedModelAudience>(["free"]);
+const UNPAID_MODEL_AUDIENCES = new Set<ManagedModelAudience>([
+  "anonymous",
+  "free",
+]);
 
 export const isPaidManagedAudience = (
   audience: ManagedModelAudience,
@@ -441,6 +446,7 @@ const AUDIENCE_MODE_CONFIGS: Record<
   ManagedModelAudience,
   Record<ModelMode, ModelConfig>
 > = {
+  anonymous: buildAudienceModeCatalog("anonymous"),
   free: buildAudienceModeCatalog("free"),
   go: buildAudienceModeCatalog("go"),
   pro: buildAudienceModeCatalog("pro"),
@@ -452,6 +458,10 @@ export const AUDIENCE_AGENT_MODELS: Record<
   ManagedModelAudience,
   Record<string, ModelConfig>
 > = {
+  anonymous: buildAudienceAgentCatalog(
+    "anonymous",
+    AUDIENCE_MODE_CONFIGS.anonymous,
+  ),
   free: buildAudienceAgentCatalog("free", AUDIENCE_MODE_CONFIGS.free),
   go: buildAudienceAgentCatalog("go", AUDIENCE_MODE_CONFIGS.go),
   pro: buildAudienceAgentCatalog("pro", AUDIENCE_MODE_CONFIGS.pro),
@@ -470,8 +480,12 @@ export const DEFAULT_MODEL = AGENT_MODELS[AGENT_IDS.OFFLINE_RESPONDER];
 
 export const resolveManagedModelAudience = (args: {
   plan: "free" | "go" | "pro";
+  isAnonymous?: boolean;
   downgraded?: boolean;
 }): ManagedModelAudience => {
+  if (args.isAnonymous) {
+    return "anonymous";
+  }
   if (args.plan === "free") {
     return "free";
   }

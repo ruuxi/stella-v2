@@ -773,7 +773,8 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Çok güzel.",
-        "signinDone": "Tamam."
+        "signinDone": "Tamam.",
+        "signinSkipped": "Sonra yaparım."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -923,7 +924,7 @@
       },
       "signin": {
         "title": "Oturum aç",
-        "body": "Başlamak için bir Stella hesabıyla giriş yap. Claude veya ChatGPT planını da ekleyebilirsin.",
+        "body": "Bunlardan biri yeterli. Diğerlerini sonra ekleyebilirsin.",
         "options": {
           "stella": {
             "title": "Stella hesabı",
@@ -945,9 +946,11 @@
         "waiting": "Oturum açmayı tarayıcında tamamla, sonra buraya dön.",
         "error": "Bağlanamadı. Tekrar denensin mi?",
         "fine": "Bunu istediğin zaman Ayarlar'dan değiştirebilirsin.",
+        "skip": "Şimdi değil",
         "hint": "Başlamak ücretsiz.",
         "settledEngine": "{name} kullanılıyor",
         "settledStella": "Stella'da oturum açıldı",
+        "settledSkipped": "Henüz oturum açılmadı",
         "settledDesc": "İstediğin zaman Ayarlar'dan değiştir.",
         "claudeCliMissing": "Önce Claude Code'u yükle, sonra tekrar dene."
       },
@@ -997,6 +1000,7 @@
     },
     "capabilityRestriction": {
       "title": "{capability} planınızda yok",
+      "signIn": "{capability} Stella {plan} planına dahildir. Yükseltip kullanmak için giriş yapın.",
       "upgrade": "{capability} Stella {plan} planına dahildir. Kullanmak için planınızı yükseltin.",
       "unavailable": "{capability} şu anda hiçbir planda kullanılamıyor.",
       "lockedBadge": "{plan}",
@@ -1986,6 +1990,7 @@
       "sendFailed": "Giriş e-postası gönderilemedi.",
       "magicLinkFailed": "Sihirli bağlantı gönderilemedi.",
       "finishFailed": "Giriş tamamlanamadı. Lütfen tekrar deneyin.",
+      "signInIncomplete": "Giriş tamamlanmadı. Lütfen tekrar deneyin.",
       "signInLinkExpired": "Giriş bağlantısının süresi doldu. Lütfen tekrar deneyin.",
       "tooManyRequests": {
         "one": "Çok fazla istek. {count} saniye içinde tekrar deneyin.",
@@ -2133,6 +2138,7 @@
         "computerDone": "Bağlandı!",
         "computerSkipped": "Belki sonra.",
         "accountDone": "Tamam.",
+        "accountSkipped": "Şimdilik geç.",
         "themeDone": "Bu olsun.",
         "themeSkipped": "Varsayılan kalsın."
       },
@@ -2281,7 +2287,10 @@
         "connect": "Bağla",
         "connectLabel": "{name} bağla",
         "connectedAs": "Bağlandı · {name}",
-        "settledSignedIn": "Giriş yapıldı"
+        "skip": "Şimdilik geç",
+        "settledSignedIn": "Giriş yapıldı",
+        "settledGuest": "Stella misafir olarak kullanılıyor",
+        "guestSettled": "İstediğiniz zaman Ayarlar'dan giriş yapın"
       },
       "theme": {
         "appearance": "Görünüm",
@@ -2340,7 +2349,8 @@
       "legalTerms": "Hizmet Koşullarını",
       "legalConjunction": " ve ",
       "legalPrivacy": "Gizlilik Politikasını",
-      "legalSuffix": " kabul edersiniz."
+      "legalSuffix": " kabul edersiniz.",
+      "continueAsGuest": "Giriş yapmadan devam et"
     },
     "chat": {
       "emptyPrompt": "Stella'ya istediğinizi sorun",
@@ -2406,6 +2416,8 @@
       }
     },
     "computer": {
+      "guestHeroTitle": "Bilgisayarınız parmaklarınızın ucunda",
+      "guestHeroBody": "Stella'dan bilgisayarınızda işler yapmasını isteyin — web'de gezinsin, dosyaları yönetsin, görevleri çalıştırsın ve daha fazlası.",
       "defaultDeviceLabel": "Bilgisayarınız",
       "statusChecking": "Denetleniyor…",
       "statusConnected": "Bağlandı",
@@ -2417,6 +2429,8 @@
     },
     "desktop": {
       "pairTitle": "Telefonunuzu eşleştirin",
+      "guestBody": "Stella masaüstü uygulamasını doğrudan telefonunuzda görün. Eşleştirmeden sonra telefonunuz otomatik olarak yeniden bağlanır.",
+      "guestSignInPrompt": "Başlamak için giriş yapın.",
       "connecting": "Masaüstüne bağlanılıyor",
       "pairing": "Bu telefon eşleştiriliyor",
       "unreachable": "Masaüstüne ulaşılamıyor",

@@ -45,7 +45,7 @@ interface CompactStellaModelListProps {
   onRetry?: () => void;
   /**
    * When true the user's plan can't override the default Stella model
-   * (free or Go). Non-default presets render disabled with
+   * (anonymous, free, or Go). Non-default presets render disabled with
    * a small "{plan} plan" footer + upgrade affordance instead of
    * surfacing as clickable.
    */

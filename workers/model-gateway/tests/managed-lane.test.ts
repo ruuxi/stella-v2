@@ -340,11 +340,10 @@ describe("managed lane: authorization matrix", () => {
   });
 
   test("releases owner concurrency when validation fails", async () => {
-    ctx.harness.enforcementValues.set(
-      OWNER_ID,
-      JSON.stringify({ status: "throttled", updatedAt: Date.now() }),
-    );
-    const { token } = await signSession({ audience: "free" });
+    const { token } = await signSession({
+      audience: "anonymous",
+      maxRequests: 1,
+    });
     const headers = agentHeaders({ "cf-connecting-ip": "203.0.113.31" });
     const malformed = await ctx.run(
       relayRequest("/v1/relay/responses", { token, headers }),
@@ -360,8 +359,8 @@ describe("managed lane: authorization matrix", () => {
     expect(valid.status).toBe(200);
   });
 
-  test("tier breaker errors identify tier scope for free", async () => {
-    for (const audience of ["free"] as const) {
+  test("tier breaker errors identify tier scope for anonymous and free", async () => {
+    for (const audience of ["anonymous", "free"] as const) {
       resetConfigCacheForTests();
       ctx = setup();
       ctx.fetchMock.on(
@@ -387,9 +386,9 @@ describe("managed lane: authorization matrix", () => {
           headers: agentHeaders({ "cf-connecting-ip": "203.0.113.32" }),
         }),
       );
-      expect(response.status).toBe(429);
+      expect(response.status).toBe(audience === "anonymous" ? 403 : 429);
       expect((await readError(response)).error).toMatchObject({
-        code: "tier_paused",
+        code: audience === "anonymous" ? "sign_in_required" : "tier_paused",
         quota: { scope: "tier" },
       });
       expect(ctx.fetchMock.callsTo("openrouter.ai")).toHaveLength(0);
@@ -558,6 +557,69 @@ describe("managed lane: authorization matrix", () => {
     );
     expect(response.status).toBe(402);
     expect((await readError(response)).error.code).toBe("budget_exhausted");
+    expect(ctx.fetchMock.callsTo("openrouter.ai")).toHaveLength(0);
+  });
+
+  test("request limit -> 429 request_limit after maxRequests", async () => {
+    const { token } = await signSession({
+      audience: "anonymous",
+      maxRequests: 1,
+    });
+    const first = await ctx.run(
+      relayRequest("/v1/relay/responses", {
+        token,
+        body: defaultBody(),
+        headers: agentHeaders({ "cf-connecting-ip": "203.0.113.9" }),
+      }),
+    );
+    expect(first.status).toBe(200);
+    const second = await ctx.run(
+      relayRequest("/v1/relay/responses", {
+        token,
+        body: defaultBody(),
+        headers: agentHeaders({ "cf-connecting-ip": "203.0.113.9" }),
+      }),
+    );
+    expect(second.status).toBe(429);
+    expect((await readError(second)).error.code).toBe("request_limit");
+    expect(ctx.harness.limiter.keys).toEqual(["203.0.113.9", "203.0.113.9"]);
+  });
+
+  test("anonymous per-IP limiter -> 429 rate_limited", async () => {
+    ctx.harness.limiter.success = false;
+    const { token } = await signSession({
+      audience: "anonymous",
+      maxRequests: 5,
+    });
+    const response = await ctx.run(
+      relayRequest("/v1/relay/responses", {
+        token,
+        body: defaultBody(),
+        headers: agentHeaders(),
+      }),
+    );
+    expect(response.status).toBe(429);
+    expect((await readError(response)).error.code).toBe("rate_limited");
+  });
+
+  test("an anonymous hosting network is refused before relay gates", async () => {
+    const { token } = await signSession({
+      audience: "anonymous",
+      maxRequests: 5,
+    });
+    const response = await ctx.run(
+      relayRequest("/v1/relay/responses", {
+        token,
+        body: defaultBody(),
+        headers: agentHeaders(),
+        cf: { asn: 16_509, asOrganization: "Amazon.com, Inc." },
+      }),
+    );
+    expect(response.status).toBe(403);
+    expect((await readError(response)).error.code).toBe("sign_in_required");
+    expect(ctx.harness.limiter.keys).toHaveLength(0);
+    expect(ctx.harness.networkGate.objects.size).toBe(0);
+    expect(ctx.harness.ownerGate.objects.size).toBe(0);
     expect(ctx.fetchMock.callsTo("openrouter.ai")).toHaveLength(0);
   });
 
@@ -861,7 +923,7 @@ describe("managed lane: completion, metering, replay", () => {
           : sseResponse(responsesFixture());
       },
     );
-    const { token, claims } = await signSession();
+    const { token, claims } = await signSession({ maxRequests: 1 });
     const first = await ctx.run(
       relayRequest("/v1/relay/responses", {
         token,
@@ -1147,7 +1209,7 @@ describe("managed lane: completion, metering, replay", () => {
       },
     );
     const abort = new AbortController();
-    const { token, claims } = await signSession();
+    const { token, claims } = await signSession({ maxRequests: 1 });
     setTimeout(() => abort.abort(), 5);
     const canceled = await ctx.run(
       relayRequest("/v1/relay/responses", {

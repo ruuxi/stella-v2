@@ -155,6 +155,7 @@ const ownerIdentity = async (ctx: OwnerContext) => {
   return {
     ownerId: ctx.ownerId,
     ownerGeneration: snapshot.ownerGeneration,
+    isAnonymous: ctx.caller?.isAnonymous ?? snapshot.isAnonymous,
   };
 };
 

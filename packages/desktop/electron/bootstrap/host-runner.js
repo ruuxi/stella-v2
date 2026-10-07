@@ -195,7 +195,9 @@ export const createHostRunnerHandlers = (context, options) => ({
     requestRuntimeAuthRefresh: async () => await context.services.authService.refreshRuntimeAuth(),
     getChallengeToken: async () => await context.services.authService.getChallengeToken(),
     getScheduleScriptAuth: async () => await context.services.authService.getScheduleScriptAuth(),
-    requestCredential: (payload) => context.services.credentialService.requestCredential(payload),
+    askUser: (payload) => context.services.userAskService.askUser(payload),
+    requestSecureInput: (payload) => context.services.userAskService.requestSecureInput(payload),
+    useSecureValue: (payload) => context.services.userAskService.useSecureValue(payload),
     requestLlmCredentials: async (request) => {
         const stellaDataDir = context.state.stellaDataDirPath;
         if (!stellaDataDir) {

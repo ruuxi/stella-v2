@@ -13,6 +13,7 @@ import { GlassToggle } from "./glass";
 import { Icon, type IconName } from "./Icon";
 import { PrimaryButton } from "./PrimaryButton";
 import { SubscriptionSection } from "./SubscriptionSection";
+import { UserAskEscalationSection } from "./settings/UserAskEscalationSection";
 import {
   makeSettingsStyles,
   type SettingsStyles,
@@ -533,6 +534,11 @@ export function SettingsContent() {
           </View>
         </View>
       </View>
+
+      <UserAskEscalationSection
+        enabled={isSignedIn}
+        styles={settingsStyles}
+      />
 
       <View style={settingsStyles.section}>
         <Text style={settingsStyles.sectionLabel}>

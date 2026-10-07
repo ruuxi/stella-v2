@@ -154,6 +154,30 @@ const TOOL_DESCRIPTORS: Record<string, ToolDescriptor> = {
   heartbeatupsert: { category: "schedule", phrase: () => "updated heartbeats" },
   request_credential: { category: "other", phrase: () => "requested access" },
   requestcredential: { category: "other", phrase: () => "requested access" },
+  ask_user: {
+    category: "message",
+    phrase: plural("asked you something", (n) => `asked you ${n} things`),
+  },
+  askuser: {
+    category: "message",
+    phrase: plural("asked you something", (n) => `asked you ${n} things`),
+  },
+  request_secure_input: {
+    category: "other",
+    phrase: () => "asked you for something private",
+  },
+  requestsecureinput: {
+    category: "other",
+    phrase: () => "asked you for something private",
+  },
+  use_secure_value: {
+    category: "other",
+    phrase: plural("used a saved secret", (n) => `used ${n} saved secrets`),
+  },
+  usesecurevalue: {
+    category: "other",
+    phrase: plural("used a saved secret", (n) => `used ${n} saved secrets`),
+  },
 };
 
 /** snake_case / CamelCase → "lower spaced words" for the generic fallback. */
@@ -260,6 +284,12 @@ const titleForCall = (
       return str(a.title) ?? "page";
     case "remember":
       return str(a.title) ?? str(a.name) ?? "note";
+    case "ask_user":
+      return str(a.question) ? clamp(str(a.question)!, 48) : "a question";
+    case "request_secure_input":
+      return str(a.purpose) ? clamp(str(a.purpose)!, 48) : "something private";
+    case "use_secure_value":
+      return str(a.label) ?? str(a.handle) ?? "a secret";
     default:
       return humanizeToolName(toolName);
   }

@@ -1481,11 +1481,71 @@
       "useBackgroundColorLabel": "{name} の背景色を使う",
       "useBackgroundLabel": "{name} の背景を使う",
       "useThemeLabel": "{name} のテーマを使う",
+      "userAsk": {
+        "ceiling": "どこまで強められるか",
+        "ceilingSub": "質問が到達できる上限です。",
+        "level": {
+          "alert": "警告",
+          "breakthrough": "割り込み",
+          "chat": "チャット",
+          "notify": "通知"
+        },
+        "quietCeiling": "静かな時間の上限",
+        "quietEnd": "終了",
+        "quietHours": "静かな時間",
+        "quietHoursSub": "{start}〜{end}",
+        "quietStart": "開始",
+        "rateLimit": "割り込みの回数",
+        "rateLimitSub": "1 時間あたりの質問の上限です。",
+        "rateLimitValue": "{count}/時",
+        "saveFailed": "保存できませんでした。もう一度お試しください。",
+        "section": "Stella があなたを必要とするとき",
+        "sound": "サウンド",
+        "soundSub": "質問が届いたら音を鳴らします。",
+        "stepDown": "{label} を減らす",
+        "stepUp": "{label} を増やす",
+        "unavailable": "この設定はまだ利用できません。"
+      },
       "voiceSection": "音声"
     },
     "sidebar": {
       "searchPlaceholder": "アクティビティとファイルを検索",
       "signedOutHint": "ログインすると、Stellaがバックグラウンドで行っている作業を確認できます。"
+    },
+    "userAsk": {
+      "answerFailed": "回答を送信できませんでした。もう一度お試しください。",
+      "answerOnComputer": "これは {device} で回答してください",
+      "answerOnComputerUnknown": "これは質問したコンピュータで回答してください",
+      "answerOnComputerWhy": "非公開の情報が必要ですが、この端末にはそのコンピュータ宛てに暗号化する鍵がありません。Stella が平文で送ることはありません。",
+      "askedBy": "{label} より",
+      "cancelFailed": "この質問を閉じられませんでした。もう一度お試しください。",
+      "cantRightNow": "今はできない",
+      "deadline": "残り {time}",
+      "deadlinePassed": "時間切れ",
+      "deadlineWithDefault": "残り {time} — それ以降は「{option}」",
+      "defaultOption": "既定",
+      "hideSecret": "{label} を隠す",
+      "missingFields": "必須項目をすべて入力してください。",
+      "notification": {
+        "answer": "回答",
+        "body": "タップして回答します。",
+        "dismiss": "閉じる",
+        "title": "Stella が待っています"
+      },
+      "optional": "任意",
+      "plain": "平文で送信されます",
+      "revealSecret": "{label} を表示",
+      "sealFailed": "この端末では暗号化できませんでした。",
+      "send": "送信",
+      "sendSecurely": "安全に送信",
+      "sending": "送信中…",
+      "sensitive": "エンドツーエンドで暗号化",
+      "sensitiveToggleA11y": "{label} を暗号化",
+      "sensitiveUnavailable": "この端末ではまだ暗号化できません",
+      "somethingElse": "ほかのこと",
+      "somethingElsePlaceholder": "代わりに何をするか Stella に伝える",
+      "unnamedComputer": "コンピュータ · {id}",
+      "waitingBadge": "あなたを待っています"
     }
   },
   "onboarding": {
@@ -2008,6 +2068,45 @@
       "savePower": "電源設定を更新できませんでした。",
       "saveSoundNotifications": "サウンド通知の設定を更新できませんでした。",
       "soundNotificationsUnavailable": "このウィンドウではサウンド通知の設定を利用できません。"
+    },
+    "escalation": {
+      "ceiling": {
+        "label": "Reach me at most by",
+        "sublabel": "Stella never escalates past this, however urgent the ask."
+      },
+      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "errors": {
+        "load": "Couldn't load these settings.",
+        "save": "Couldn't save that. Try again.",
+        "unavailable": "These settings aren't available on this computer yet."
+      },
+      "levels": {
+        "alert": "Sound and phone push",
+        "breakthrough": "Push that pierces focus mode",
+        "chat": "Chat only",
+        "notify": "Desktop notification"
+      },
+      "quietHours": {
+        "activeNow": "Quiet hours are on right now.",
+        "ceilingLabel": "During quiet hours, reach me at most by",
+        "ceilingSublabel": "Anything louder waits until quiet hours end.",
+        "end": "Until",
+        "label": "Quiet hours",
+        "start": "From",
+        "sublabel": "Hold back during a window you set, on every device.",
+        "window": "Quiet from",
+        "windowSublabel": "Interpreted in {zone}."
+      },
+      "rateLimit": {
+        "label": "Asks per hour",
+        "sublabel": "Stella holds anything past this limit.",
+        "value": "{count} an hour"
+      },
+      "sound": {
+        "label": "Play a sound",
+        "sublabel": "Audible alert when Stella escalates an ask."
+      },
+      "title": "When Stella needs you"
     },
     "executionDevices": {
       "disable": "Turn off",
@@ -2665,6 +2764,42 @@
     "imageLightbox": {
       "close": "プレビューを閉じる",
       "title": "画像のプレビュー"
+    }
+  },
+  "userAsk": {
+    "blocking": "Waiting on you",
+    "deadline": {
+      "closes": "Closes in {time}",
+      "closing": "Closing now",
+      "continues": "Continues with “{option}” in {time}",
+      "continuesNow": "Continuing with “{option}”"
+    },
+    "errors": {
+      "answer": "That didn't go through. Try again."
+    },
+    "eyebrow": {
+      "question": "Stella needs a decision",
+      "secureInput": "Stella needs a value from you"
+    },
+    "question": {
+      "send": "Send",
+      "sending": "Sending…",
+      "somethingElse": "Something else",
+      "somethingElseLabel": "What would you rather do?",
+      "somethingElsePlaceholder": "Tell Stella what to do instead"
+    },
+    "secureInput": {
+      "choosePlaceholder": "Choose",
+      "makePrivate": "Keep private",
+      "makeShared": "Share with Stella",
+      "optional": "optional",
+      "privateBadge": "Private — Stella never sees it",
+      "privateNote": "Private values stay on this device. Stella uses them without ever reading them.",
+      "required": "Fill in {label} first.",
+      "sharedBadge": "Shared with Stella",
+      "sharedNote": "Shared values are sent to Stella as plain text.",
+      "submit": "Send securely",
+      "submitting": "Sending…"
     }
   }
 }

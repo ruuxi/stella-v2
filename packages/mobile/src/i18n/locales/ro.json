@@ -1505,11 +1505,71 @@
       "useBackgroundColorLabel": "Folosește culoarea de fundal {name}",
       "useBackgroundLabel": "Folosește fundalul {name}",
       "useThemeLabel": "Folosește tema {name}",
+      "userAsk": {
+        "ceiling": "Cât de departe poate merge",
+        "ceilingSub": "Cel mai înalt nivel la care poate ajunge o întrebare.",
+        "level": {
+          "alert": "Alertă",
+          "breakthrough": "Întrerupe",
+          "chat": "Chat",
+          "notify": "Notifică"
+        },
+        "quietCeiling": "Limită în orele liniștite",
+        "quietEnd": "Se termină",
+        "quietHours": "Ore liniștite",
+        "quietHoursSub": "{start} până la {end}",
+        "quietStart": "Începe",
+        "rateLimit": "Întreruperi",
+        "rateLimitSub": "Cel mult atâtea întrebări pe oră.",
+        "rateLimitValue": "{count}/h",
+        "saveFailed": "Nu s-a putut salva. Încearcă din nou.",
+        "section": "Când Stella are nevoie de tine",
+        "sound": "Sunet",
+        "soundSub": "Redă un sunet când sosește o întrebare.",
+        "stepDown": "Scade {label}",
+        "stepUp": "Crește {label}",
+        "unavailable": "Aceste setări nu sunt încă disponibile."
+      },
       "voiceSection": "Voce"
     },
     "sidebar": {
       "searchPlaceholder": "Caută în activitate și fișiere",
       "signedOutHint": "Conectează-te pentru a vedea la ce lucrează Stella în fundal."
+    },
+    "userAsk": {
+      "answerFailed": "Răspunsul nu a putut fi trimis. Încearcă din nou.",
+      "answerOnComputer": "Răspunde la asta pe {device}",
+      "answerOnComputerUnknown": "Răspunde la asta pe calculatorul care întreabă",
+      "answerOnComputerWhy": "E nevoie de ceva privat, iar acest telefon nu are o cheie pentru a-l cripta către acel calculator. Stella nu îl va trimite necriptat.",
+      "askedBy": "De la {label}",
+      "cancelFailed": "Întrebarea nu a putut fi închisă. Încearcă din nou.",
+      "cantRightNow": "Nu acum",
+      "deadline": "{time} rămase",
+      "deadlinePassed": "Timpul a expirat",
+      "deadlineWithDefault": "{time} rămase — altfel „{option}”",
+      "defaultOption": "Implicit",
+      "hideSecret": "Ascunde {label}",
+      "missingFields": "Completează toate câmpurile obligatorii.",
+      "notification": {
+        "answer": "Răspunde",
+        "body": "Atinge pentru a răspunde.",
+        "dismiss": "Respinge",
+        "title": "Stella are nevoie de tine"
+      },
+      "optional": "Opțional",
+      "plain": "Trimis ca text simplu",
+      "revealSecret": "Arată {label}",
+      "sealFailed": "Nu s-a putut cripta pe acest dispozitiv.",
+      "send": "Trimite",
+      "sendSecurely": "Trimite în siguranță",
+      "sending": "Se trimite…",
+      "sensitive": "Criptat cap-coadă",
+      "sensitiveToggleA11y": "Criptează {label}",
+      "sensitiveUnavailable": "Acest dispozitiv nu poate încă să cripteze asta",
+      "somethingElse": "Altceva",
+      "somethingElsePlaceholder": "Spune-i Stellei ce să facă în schimb",
+      "unnamedComputer": "Calculator · {id}",
+      "waitingBadge": "Te așteaptă"
     }
   },
   "onboarding": {
@@ -2032,6 +2092,45 @@
       "savePower": "Nu s-a putut actualiza setarea de alimentare.",
       "saveSoundNotifications": "Nu s-a putut actualiza setarea notificărilor sonore.",
       "soundNotificationsUnavailable": "Setările notificărilor sonore nu sunt disponibile în această fereastră."
+    },
+    "escalation": {
+      "ceiling": {
+        "label": "Reach me at most by",
+        "sublabel": "Stella never escalates past this, however urgent the ask."
+      },
+      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "errors": {
+        "load": "Couldn't load these settings.",
+        "save": "Couldn't save that. Try again.",
+        "unavailable": "These settings aren't available on this computer yet."
+      },
+      "levels": {
+        "alert": "Sound and phone push",
+        "breakthrough": "Push that pierces focus mode",
+        "chat": "Chat only",
+        "notify": "Desktop notification"
+      },
+      "quietHours": {
+        "activeNow": "Quiet hours are on right now.",
+        "ceilingLabel": "During quiet hours, reach me at most by",
+        "ceilingSublabel": "Anything louder waits until quiet hours end.",
+        "end": "Until",
+        "label": "Quiet hours",
+        "start": "From",
+        "sublabel": "Hold back during a window you set, on every device.",
+        "window": "Quiet from",
+        "windowSublabel": "Interpreted in {zone}."
+      },
+      "rateLimit": {
+        "label": "Asks per hour",
+        "sublabel": "Stella holds anything past this limit.",
+        "value": "{count} an hour"
+      },
+      "sound": {
+        "label": "Play a sound",
+        "sublabel": "Audible alert when Stella escalates an ask."
+      },
+      "title": "When Stella needs you"
     },
     "executionDevices": {
       "disable": "Turn off",
@@ -2711,6 +2810,42 @@
     "imageLightbox": {
       "close": "Închide previzualizarea",
       "title": "Previzualizare imagine"
+    }
+  },
+  "userAsk": {
+    "blocking": "Waiting on you",
+    "deadline": {
+      "closes": "Closes in {time}",
+      "closing": "Closing now",
+      "continues": "Continues with “{option}” in {time}",
+      "continuesNow": "Continuing with “{option}”"
+    },
+    "errors": {
+      "answer": "That didn't go through. Try again."
+    },
+    "eyebrow": {
+      "question": "Stella needs a decision",
+      "secureInput": "Stella needs a value from you"
+    },
+    "question": {
+      "send": "Send",
+      "sending": "Sending…",
+      "somethingElse": "Something else",
+      "somethingElseLabel": "What would you rather do?",
+      "somethingElsePlaceholder": "Tell Stella what to do instead"
+    },
+    "secureInput": {
+      "choosePlaceholder": "Choose",
+      "makePrivate": "Keep private",
+      "makeShared": "Share with Stella",
+      "optional": "optional",
+      "privateBadge": "Private — Stella never sees it",
+      "privateNote": "Private values stay on this device. Stella uses them without ever reading them.",
+      "required": "Fill in {label} first.",
+      "sharedBadge": "Shared with Stella",
+      "sharedNote": "Shared values are sent to Stella as plain text.",
+      "submit": "Send securely",
+      "submitting": "Sending…"
     }
   }
 }

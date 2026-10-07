@@ -18,6 +18,9 @@ const NON_PARALLEL_TOOL_NAMES = new Set<string>([
   "node_repl",
   "request_credential",
   "RequestCredential",
+  "ask_user",
+  "request_secure_input",
+  "use_secure_value",
 ]);
 
 type ParallelToolDeps = {

@@ -1481,11 +1481,71 @@
       "useBackgroundColorLabel": "{name} 배경색 사용",
       "useBackgroundLabel": "{name} 배경 사용",
       "useThemeLabel": "{name} 테마 사용",
+      "userAsk": {
+        "ceiling": "어디까지 올릴 수 있나",
+        "ceilingSub": "질문이 도달할 수 있는 최대 단계예요.",
+        "level": {
+          "alert": "경고",
+          "breakthrough": "끼어들기",
+          "chat": "채팅",
+          "notify": "알림"
+        },
+        "quietCeiling": "조용한 시간의 한도",
+        "quietEnd": "종료",
+        "quietHours": "조용한 시간",
+        "quietHoursSub": "{start}부터 {end}까지",
+        "quietStart": "시작",
+        "rateLimit": "방해 횟수",
+        "rateLimitSub": "시간당 최대 이만큼의 질문이에요.",
+        "rateLimitValue": "{count}/시간",
+        "saveFailed": "저장하지 못했어요. 다시 시도해 주세요.",
+        "section": "Stella가 당신을 필요로 할 때",
+        "sound": "소리",
+        "soundSub": "질문이 오면 소리를 재생해요.",
+        "stepDown": "{label} 줄이기",
+        "stepUp": "{label} 늘리기",
+        "unavailable": "이 설정은 아직 사용할 수 없어요."
+      },
       "voiceSection": "음성"
     },
     "sidebar": {
       "searchPlaceholder": "활동과 파일 검색",
       "signedOutHint": "로그인하여 Stella가 백그라운드에서 진행 중인 작업을 확인하세요."
+    },
+    "userAsk": {
+      "answerFailed": "답변을 보내지 못했어요. 다시 시도해 주세요.",
+      "answerOnComputer": "이건 {device}에서 답해 주세요",
+      "answerOnComputerUnknown": "이건 질문한 컴퓨터에서 답해 주세요",
+      "answerOnComputerWhy": "비공개 정보가 필요한데, 이 휴대폰에는 그 컴퓨터로 암호화할 키가 없어요. Stella는 암호화 없이 보내지 않아요.",
+      "askedBy": "{label}에서",
+      "cancelFailed": "질문을 닫지 못했어요. 다시 시도해 주세요.",
+      "cantRightNow": "지금은 안 돼요",
+      "deadline": "{time} 남음",
+      "deadlinePassed": "시간이 다 됐어요",
+      "deadlineWithDefault": "{time} 남음 — 그 후에는 ‘{option}’",
+      "defaultOption": "기본값",
+      "hideSecret": "{label} 숨기기",
+      "missingFields": "필수 항목을 모두 채워 주세요.",
+      "notification": {
+        "answer": "답변",
+        "body": "탭하여 답변하세요.",
+        "dismiss": "닫기",
+        "title": "Stella가 기다려요"
+      },
+      "optional": "선택 사항",
+      "plain": "일반 텍스트로 전송",
+      "revealSecret": "{label} 표시",
+      "sealFailed": "이 기기에서 암호화할 수 없었어요.",
+      "send": "보내기",
+      "sendSecurely": "안전하게 보내기",
+      "sending": "보내는 중…",
+      "sensitive": "종단 간 암호화",
+      "sensitiveToggleA11y": "{label} 암호화",
+      "sensitiveUnavailable": "이 기기에서는 아직 암호화할 수 없어요",
+      "somethingElse": "다른 것",
+      "somethingElsePlaceholder": "대신 무엇을 할지 Stella에게 알려 주세요",
+      "unnamedComputer": "컴퓨터 · {id}",
+      "waitingBadge": "기다리고 있어요"
     }
   },
   "onboarding": {
@@ -2008,6 +2068,45 @@
       "savePower": "전원 설정을 업데이트하지 못했습니다.",
       "saveSoundNotifications": "소리 알림 설정을 업데이트하지 못했습니다.",
       "soundNotificationsUnavailable": "이 창에서는 소리 알림 설정을 사용할 수 없습니다."
+    },
+    "escalation": {
+      "ceiling": {
+        "label": "Reach me at most by",
+        "sublabel": "Stella never escalates past this, however urgent the ask."
+      },
+      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "errors": {
+        "load": "Couldn't load these settings.",
+        "save": "Couldn't save that. Try again.",
+        "unavailable": "These settings aren't available on this computer yet."
+      },
+      "levels": {
+        "alert": "Sound and phone push",
+        "breakthrough": "Push that pierces focus mode",
+        "chat": "Chat only",
+        "notify": "Desktop notification"
+      },
+      "quietHours": {
+        "activeNow": "Quiet hours are on right now.",
+        "ceilingLabel": "During quiet hours, reach me at most by",
+        "ceilingSublabel": "Anything louder waits until quiet hours end.",
+        "end": "Until",
+        "label": "Quiet hours",
+        "start": "From",
+        "sublabel": "Hold back during a window you set, on every device.",
+        "window": "Quiet from",
+        "windowSublabel": "Interpreted in {zone}."
+      },
+      "rateLimit": {
+        "label": "Asks per hour",
+        "sublabel": "Stella holds anything past this limit.",
+        "value": "{count} an hour"
+      },
+      "sound": {
+        "label": "Play a sound",
+        "sublabel": "Audible alert when Stella escalates an ask."
+      },
+      "title": "When Stella needs you"
     },
     "executionDevices": {
       "disable": "Turn off",
@@ -2665,6 +2764,42 @@
     "imageLightbox": {
       "close": "미리보기 닫기",
       "title": "이미지 미리보기"
+    }
+  },
+  "userAsk": {
+    "blocking": "Waiting on you",
+    "deadline": {
+      "closes": "Closes in {time}",
+      "closing": "Closing now",
+      "continues": "Continues with “{option}” in {time}",
+      "continuesNow": "Continuing with “{option}”"
+    },
+    "errors": {
+      "answer": "That didn't go through. Try again."
+    },
+    "eyebrow": {
+      "question": "Stella needs a decision",
+      "secureInput": "Stella needs a value from you"
+    },
+    "question": {
+      "send": "Send",
+      "sending": "Sending…",
+      "somethingElse": "Something else",
+      "somethingElseLabel": "What would you rather do?",
+      "somethingElsePlaceholder": "Tell Stella what to do instead"
+    },
+    "secureInput": {
+      "choosePlaceholder": "Choose",
+      "makePrivate": "Keep private",
+      "makeShared": "Share with Stella",
+      "optional": "optional",
+      "privateBadge": "Private — Stella never sees it",
+      "privateNote": "Private values stay on this device. Stella uses them without ever reading them.",
+      "required": "Fill in {label} first.",
+      "sharedBadge": "Shared with Stella",
+      "sharedNote": "Shared values are sent to Stella as plain text.",
+      "submit": "Send securely",
+      "submitting": "Sending…"
     }
   }
 }

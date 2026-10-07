@@ -14,7 +14,11 @@
 
 import { getCatastrophicShellCommandReason } from "./shell-command-safety.js";
 
-export const DEVICE_TOOL_NAMES = ["RequestCredential"] as const;
+export const DEVICE_TOOL_NAMES = [
+  "ask_user",
+  "request_secure_input",
+  "use_secure_value",
+] as const;
 
 export type DeviceToolName = (typeof DEVICE_TOOL_NAMES)[number];
 

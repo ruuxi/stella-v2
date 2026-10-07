@@ -1540,11 +1540,71 @@
       "useBackgroundColorLabel": "استخدام لون خلفية {name}",
       "useBackgroundLabel": "استخدام خلفية {name}",
       "useThemeLabel": "استخدام سِمة {name}",
+      "userAsk": {
+        "ceiling": "إلى أي حد يمكن أن تصل",
+        "ceilingSub": "أعلى مستوى مسموح به للسؤال.",
+        "level": {
+          "alert": "تنبيه",
+          "breakthrough": "مقاطعة",
+          "chat": "محادثة",
+          "notify": "إشعار"
+        },
+        "quietCeiling": "الحد أثناء الهدوء",
+        "quietEnd": "تنتهي",
+        "quietHours": "ساعات الهدوء",
+        "quietHoursSub": "من {start} إلى {end}",
+        "quietStart": "تبدأ",
+        "rateLimit": "المقاطعات",
+        "rateLimitSub": "هذا العدد من الأسئلة كحد أقصى في الساعة.",
+        "rateLimitValue": "{count}/ساعة",
+        "saveFailed": "تعذّر الحفظ. حاول مرة أخرى.",
+        "section": "عندما تحتاجك ستella",
+        "sound": "الصوت",
+        "soundSub": "تشغيل صوت عند وصول سؤال.",
+        "stepDown": "إنقاص {label}",
+        "stepUp": "زيادة {label}",
+        "unavailable": "هذه الإعدادات غير متاحة بعد."
+      },
       "voiceSection": "الصوت"
     },
     "sidebar": {
       "searchPlaceholder": "البحث في النشاط والملفات",
       "signedOutHint": "سجّل الدخول لمعرفة ما تعمل عليه Stella في الخلفية."
+    },
+    "userAsk": {
+      "answerFailed": "تعذّر إرسال الإجابة. حاول مرة أخرى.",
+      "answerOnComputer": "أجب عن هذا على {device}",
+      "answerOnComputerUnknown": "أجب عن هذا على الكمبيوتر الذي طلبه",
+      "answerOnComputerWhy": "هذا السؤال يحتاج معلومة خاصة، ولا يملك هذا الهاتف مفتاحًا لتشفيرها إلى ذلك الكمبيوتر. ولن ترسلها ستella بنص واضح.",
+      "askedBy": "من {label}",
+      "cancelFailed": "تعذّر إغلاق السؤال. حاول مرة أخرى.",
+      "cantRightNow": "ليس الآن",
+      "deadline": "بقي {time}",
+      "deadlinePassed": "انتهى الوقت",
+      "deadlineWithDefault": "بقي {time} — وإلا فسيُختار «{option}»",
+      "defaultOption": "الافتراضي",
+      "hideSecret": "إخفاء {label}",
+      "missingFields": "أكمل كل الحقول المطلوبة.",
+      "notification": {
+        "answer": "إجابة",
+        "body": "اضغط للإجابة.",
+        "dismiss": "تجاهل",
+        "title": "ستella بحاجة إليك"
+      },
+      "optional": "اختياري",
+      "plain": "يُرسل كنص عادي",
+      "revealSecret": "إظهار {label}",
+      "sealFailed": "تعذّر تشفير ذلك على هذا الجهاز.",
+      "send": "إرسال",
+      "sendSecurely": "إرسال بشكل آمن",
+      "sending": "جارٍ الإرسال…",
+      "sensitive": "مشفّر من الطرف إلى الطرف",
+      "sensitiveToggleA11y": "تشفير {label}",
+      "sensitiveUnavailable": "لا يمكن لهذا الجهاز تشفيره بعد",
+      "somethingElse": "شيء آخر",
+      "somethingElsePlaceholder": "أخبر ستella بما تريده بدلاً من ذلك",
+      "unnamedComputer": "كمبيوتر · {id}",
+      "waitingBadge": "في انتظارك"
     }
   },
   "onboarding": {
@@ -2067,6 +2127,45 @@
       "savePower": "تعذّر تحديث إعداد الطاقة.",
       "saveSoundNotifications": "تعذّر تحديث إعداد الإشعارات الصوتية.",
       "soundNotificationsUnavailable": "إعدادات الإشعارات الصوتية غير متاحة في هذه النافذة."
+    },
+    "escalation": {
+      "ceiling": {
+        "label": "Reach me at most by",
+        "sublabel": "Stella never escalates past this, however urgent the ask."
+      },
+      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "errors": {
+        "load": "Couldn't load these settings.",
+        "save": "Couldn't save that. Try again.",
+        "unavailable": "These settings aren't available on this computer yet."
+      },
+      "levels": {
+        "alert": "Sound and phone push",
+        "breakthrough": "Push that pierces focus mode",
+        "chat": "Chat only",
+        "notify": "Desktop notification"
+      },
+      "quietHours": {
+        "activeNow": "Quiet hours are on right now.",
+        "ceilingLabel": "During quiet hours, reach me at most by",
+        "ceilingSublabel": "Anything louder waits until quiet hours end.",
+        "end": "Until",
+        "label": "Quiet hours",
+        "start": "From",
+        "sublabel": "Hold back during a window you set, on every device.",
+        "window": "Quiet from",
+        "windowSublabel": "Interpreted in {zone}."
+      },
+      "rateLimit": {
+        "label": "Asks per hour",
+        "sublabel": "Stella holds anything past this limit.",
+        "value": "{count} an hour"
+      },
+      "sound": {
+        "label": "Play a sound",
+        "sublabel": "Audible alert when Stella escalates an ask."
+      },
+      "title": "When Stella needs you"
     },
     "executionDevices": {
       "disable": "Turn off",
@@ -2776,6 +2875,42 @@
     "imageLightbox": {
       "close": "أغلق المعاينة",
       "title": "معاينة الصورة"
+    }
+  },
+  "userAsk": {
+    "blocking": "Waiting on you",
+    "deadline": {
+      "closes": "Closes in {time}",
+      "closing": "Closing now",
+      "continues": "Continues with “{option}” in {time}",
+      "continuesNow": "Continuing with “{option}”"
+    },
+    "errors": {
+      "answer": "That didn't go through. Try again."
+    },
+    "eyebrow": {
+      "question": "Stella needs a decision",
+      "secureInput": "Stella needs a value from you"
+    },
+    "question": {
+      "send": "Send",
+      "sending": "Sending…",
+      "somethingElse": "Something else",
+      "somethingElseLabel": "What would you rather do?",
+      "somethingElsePlaceholder": "Tell Stella what to do instead"
+    },
+    "secureInput": {
+      "choosePlaceholder": "Choose",
+      "makePrivate": "Keep private",
+      "makeShared": "Share with Stella",
+      "optional": "optional",
+      "privateBadge": "Private — Stella never sees it",
+      "privateNote": "Private values stay on this device. Stella uses them without ever reading them.",
+      "required": "Fill in {label} first.",
+      "sharedBadge": "Shared with Stella",
+      "sharedNote": "Shared values are sent to Stella as plain text.",
+      "submit": "Send securely",
+      "submitting": "Sending…"
     }
   }
 }

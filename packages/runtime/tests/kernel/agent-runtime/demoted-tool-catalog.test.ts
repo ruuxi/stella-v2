@@ -304,10 +304,12 @@ describe("demoted tool catalog (createPiTools)", () => {
     // must not surface there directly nor join allowedToolNames.
     expect(tools.map((tool) => tool.name).sort()).toEqual([
       "NoResponse",
-      "RequestCredential",
+      "ask_user",
+      "request_secure_input",
+      "use_secure_value",
     ]);
     await tools
-      .find((tool) => tool.name === "RequestCredential")!
+      .find((tool) => tool.name === "ask_user")!
       .execute("call-1", {});
     expect(captured[0]?.allowedToolNames).not.toContain("connector_status");
   });

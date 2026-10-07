@@ -138,8 +138,16 @@ export const layer = Layer.effect(
       },
       getDefaultConversationId: () =>
         storage.chatStore.getOrCreateDefaultConversationId(),
-      requestCredential: async (payload) =>
-        await hostBus.request(METHOD_NAMES.HOST_CREDENTIALS_REQUEST, payload, {
+      askUser: async (payload) =>
+        await hostBus.request(METHOD_NAMES.HOST_ASK_USER_REQUEST, payload, {
+          retryOnDisconnect: true,
+        }),
+      requestSecureInput: async (payload) =>
+        await hostBus.request(METHOD_NAMES.HOST_SECURE_INPUT_REQUEST, payload, {
+          retryOnDisconnect: true,
+        }),
+      useSecureValue: async (payload) =>
+        await hostBus.request(METHOD_NAMES.HOST_SECURE_VALUE_USE, payload, {
           retryOnDisconnect: true,
         }),
       requestBrowserExtensionConnect: (payload, signal) =>

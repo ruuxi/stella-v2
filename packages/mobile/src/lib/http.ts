@@ -8,7 +8,7 @@ type JsonRequest =
       headers?: Record<string, string>;
     }
   | {
-      method: "POST";
+      method: "POST" | "PUT";
       body: string;
       headers?: Record<string, string>;
     };
@@ -111,9 +111,9 @@ async function requestJson(
       ...request,
       headers: {
         ...(authHeader ? { Authorization: authHeader } : {}),
-        ...(request.method === "POST"
-          ? { "Content-Type": "application/json" }
-          : {}),
+        ...(request.method === "GET"
+          ? {}
+          : { "Content-Type": "application/json" }),
         ...request.headers,
       },
       signal: controller.signal,
@@ -186,6 +186,30 @@ export const postJson = (
     path,
     {
       method: "POST",
+      body: JSON.stringify(body),
+      headers: options?.headers,
+    },
+    {
+      timeoutMs: options?.timeoutMs,
+      signal: options?.signal,
+      ...(options?.origin ? { origin: options.origin } : {}),
+    },
+  );
+
+export const putJson = (
+  path: string,
+  body: unknown,
+  options?: {
+    headers?: Record<string, string>;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+    origin?: string;
+  },
+) =>
+  requestJson(
+    path,
+    {
+      method: "PUT",
       body: JSON.stringify(body),
       headers: options?.headers,
     },

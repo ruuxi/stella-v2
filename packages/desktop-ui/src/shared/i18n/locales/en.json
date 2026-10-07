@@ -1493,11 +1493,71 @@
       "useBackgroundColorLabel": "Use {name} background color",
       "useBackgroundLabel": "Use {name} background",
       "useThemeLabel": "Use {name} theme",
+      "userAsk": {
+        "ceiling": "How far it can go",
+        "ceilingSub": "The loudest a question is allowed to get.",
+        "level": {
+          "alert": "Alert",
+          "breakthrough": "Break in",
+          "chat": "Chat",
+          "notify": "Notify"
+        },
+        "quietCeiling": "Limit while quiet",
+        "quietEnd": "Ends",
+        "quietHours": "Quiet hours",
+        "quietHoursSub": "{start} to {end}",
+        "quietStart": "Starts",
+        "rateLimit": "Interruptions",
+        "rateLimitSub": "At most this many questions an hour.",
+        "rateLimitValue": "{count}/hr",
+        "saveFailed": "Couldn't save that. Try again.",
+        "section": "When Stella needs you",
+        "sound": "Sound",
+        "soundSub": "Play a sound when a question arrives.",
+        "stepDown": "Decrease {label}",
+        "stepUp": "Increase {label}",
+        "unavailable": "These settings aren't available yet."
+      },
       "voiceSection": "Voice"
     },
     "sidebar": {
       "searchPlaceholder": "Search activity and files",
       "signedOutHint": "Sign in to see what Stella is working on in the background."
+    },
+    "userAsk": {
+      "answerFailed": "Couldn't send that answer. Try again.",
+      "answerOnComputer": "Answer this on {device}",
+      "answerOnComputerUnknown": "Answer this on the computer that asked",
+      "answerOnComputerWhy": "It needs something private, and this phone has no key to encrypt it to that computer. Stella won't send it in the clear.",
+      "askedBy": "From {label}",
+      "cancelFailed": "Couldn't close that question. Try again.",
+      "cantRightNow": "Can't right now",
+      "deadline": "{time} left",
+      "deadlinePassed": "Time's up",
+      "deadlineWithDefault": "{time} left — otherwise “{option}”",
+      "defaultOption": "Default",
+      "hideSecret": "Hide {label}",
+      "missingFields": "Fill in every required field.",
+      "notification": {
+        "answer": "Answer",
+        "body": "Tap to answer.",
+        "dismiss": "Dismiss",
+        "title": "Stella needs you"
+      },
+      "optional": "Optional",
+      "plain": "Sent as plain text",
+      "revealSecret": "Show {label}",
+      "sealFailed": "Couldn't encrypt that on this device.",
+      "send": "Send",
+      "sendSecurely": "Send securely",
+      "sending": "Sending…",
+      "sensitive": "Encrypted end to end",
+      "sensitiveToggleA11y": "Encrypt {label}",
+      "sensitiveUnavailable": "This device can't encrypt it yet",
+      "somethingElse": "Something else",
+      "somethingElsePlaceholder": "Tell Stella what to do instead",
+      "unnamedComputer": "Computer · {id}",
+      "waitingBadge": "Waiting on you"
     }
   },
   "onboarding": {
@@ -2020,6 +2080,45 @@
       "savePower": "Failed to update power setting.",
       "saveSoundNotifications": "Failed to update sound notification setting.",
       "soundNotificationsUnavailable": "Sound notification settings are unavailable in this window."
+    },
+    "escalation": {
+      "ceiling": {
+        "label": "Reach me at most by",
+        "sublabel": "Stella never escalates past this, however urgent the ask."
+      },
+      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "errors": {
+        "load": "Couldn't load these settings.",
+        "save": "Couldn't save that. Try again.",
+        "unavailable": "These settings aren't available on this computer yet."
+      },
+      "levels": {
+        "alert": "Sound and phone push",
+        "breakthrough": "Push that pierces focus mode",
+        "chat": "Chat only",
+        "notify": "Desktop notification"
+      },
+      "quietHours": {
+        "activeNow": "Quiet hours are on right now.",
+        "ceilingLabel": "During quiet hours, reach me at most by",
+        "ceilingSublabel": "Anything louder waits until quiet hours end.",
+        "end": "Until",
+        "label": "Quiet hours",
+        "start": "From",
+        "sublabel": "Hold back during a window you set, on every device.",
+        "window": "Quiet from",
+        "windowSublabel": "Interpreted in {zone}."
+      },
+      "rateLimit": {
+        "label": "Asks per hour",
+        "sublabel": "Stella holds anything past this limit.",
+        "value": "{count} an hour"
+      },
+      "sound": {
+        "label": "Play a sound",
+        "sublabel": "Audible alert when Stella escalates an ask."
+      },
+      "title": "When Stella needs you"
     },
     "executionDevices": {
       "disable": "Turn off",
@@ -2689,6 +2788,42 @@
     "imageLightbox": {
       "close": "Close preview",
       "title": "Image preview"
+    }
+  },
+  "userAsk": {
+    "blocking": "Waiting on you",
+    "deadline": {
+      "closes": "Closes in {time}",
+      "closing": "Closing now",
+      "continues": "Continues with “{option}” in {time}",
+      "continuesNow": "Continuing with “{option}”"
+    },
+    "errors": {
+      "answer": "That didn't go through. Try again."
+    },
+    "eyebrow": {
+      "question": "Stella needs a decision",
+      "secureInput": "Stella needs a value from you"
+    },
+    "question": {
+      "send": "Send",
+      "sending": "Sending…",
+      "somethingElse": "Something else",
+      "somethingElseLabel": "What would you rather do?",
+      "somethingElsePlaceholder": "Tell Stella what to do instead"
+    },
+    "secureInput": {
+      "choosePlaceholder": "Choose",
+      "makePrivate": "Keep private",
+      "makeShared": "Share with Stella",
+      "optional": "optional",
+      "privateBadge": "Private — Stella never sees it",
+      "privateNote": "Private values stay on this device. Stella uses them without ever reading them.",
+      "required": "Fill in {label} first.",
+      "sharedBadge": "Shared with Stella",
+      "sharedNote": "Shared values are sent to Stella as plain text.",
+      "submit": "Send securely",
+      "submitting": "Sending…"
     }
   }
 }

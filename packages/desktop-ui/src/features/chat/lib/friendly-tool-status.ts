@@ -43,6 +43,16 @@ const FRIENDLY_TOOL_LABELS: Record<string, FriendlyToolLabels> = {
   grep: { active: "Searching files", done: "Searched files" },
   // legacy — tool removed; keep for old-transcript rendering.
   tool_search: { active: "Finding a tool", done: "Found a tool" },
+  ask_user: { active: "Asking you", done: "Got your answer" },
+  request_secure_input: {
+    active: "Asking for a value",
+    done: "Got what it needed",
+  },
+  use_secure_value: {
+    active: "Using it without looking",
+    done: "Used it without looking",
+    failed: "Couldn't use it",
+  },
   web: { active: "Searching the web", done: "Searched the web" },
   web_search: { active: "Searching the web", done: "Searched the web" },
   search: { active: "Searching the web", done: "Searched the web" },

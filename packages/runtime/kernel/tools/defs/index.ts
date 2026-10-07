@@ -35,7 +35,11 @@ import { createMapTool } from "./map.js";
 import { createMultiToolUseParallelTool } from "./multi-tool-use-parallel.js";
 import { createCodeTool } from "./code.js";
 import { readTool } from "./read.js";
-import { createRequestCredentialTool } from "./request-credential.js";
+import { createAskUserTool } from "./ask-user.js";
+import {
+  createRequestSecureInputTool,
+  createUseSecureValueTool,
+} from "./secure-input.js";
 import { createScheduleManageTools } from "./schedule-manage.js";
 import { createScriptDraftTool } from "./script-draft.js";
 import { createAgentTools } from "./task.js";
@@ -123,9 +127,17 @@ export const buildBuiltinTools = (
       executeTool: options.executeTool,
     }),
   );
+  tools.push(createAskUserTool({ askUser: options.askUser }));
   tools.push(
-    createRequestCredentialTool({
-      requestCredential: options.requestCredential,
+    createRequestSecureInputTool({
+      requestSecureInput: options.requestSecureInput,
+      useSecureValue: options.useSecureValue,
+    }),
+  );
+  tools.push(
+    createUseSecureValueTool({
+      requestSecureInput: options.requestSecureInput,
+      useSecureValue: options.useSecureValue,
     }),
   );
   tools.push(createWebTool({ webSearch: options.webSearch }));

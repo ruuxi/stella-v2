@@ -1481,11 +1481,71 @@
       "useBackgroundColorLabel": "ใช้สีพื้นหลัง{name}",
       "useBackgroundLabel": "ใช้พื้นหลัง{name}",
       "useThemeLabel": "ใช้ธีม{name}",
+      "userAsk": {
+        "ceiling": "ไปได้ไกลแค่ไหน",
+        "ceilingSub": "ระดับสูงสุดที่คำถามไปถึงได้",
+        "level": {
+          "alert": "เตือน",
+          "breakthrough": "แทรกเข้ามา",
+          "chat": "แชท",
+          "notify": "แจ้งเตือน"
+        },
+        "quietCeiling": "ขีดจำกัดช่วงเงียบ",
+        "quietEnd": "สิ้นสุด",
+        "quietHours": "ช่วงเวลาเงียบ",
+        "quietHoursSub": "{start} ถึง {end}",
+        "quietStart": "เริ่ม",
+        "rateLimit": "การรบกวน",
+        "rateLimitSub": "มากที่สุดเท่านี้คำถามต่อชั่วโมง",
+        "rateLimitValue": "{count}/ชม.",
+        "saveFailed": "บันทึกไม่สำเร็จ ลองอีกครั้ง",
+        "section": "เมื่อ Stella ต้องการคุณ",
+        "sound": "เสียง",
+        "soundSub": "เล่นเสียงเมื่อมีคำถามเข้ามา",
+        "stepDown": "ลด {label}",
+        "stepUp": "เพิ่ม {label}",
+        "unavailable": "การตั้งค่านี้ยังใช้ไม่ได้"
+      },
       "voiceSection": "เสียง"
     },
     "sidebar": {
       "searchPlaceholder": "ค้นหาในกิจกรรมและไฟล์",
       "signedOutHint": "ลงชื่อเข้าใช้เพื่อดูว่า Stella กำลังทำอะไรอยู่เบื้องหลัง"
+    },
+    "userAsk": {
+      "answerFailed": "ส่งคำตอบไม่สำเร็จ ลองอีกครั้ง",
+      "answerOnComputer": "ตอบเรื่องนี้บน {device}",
+      "answerOnComputerUnknown": "ตอบเรื่องนี้บนคอมพิวเตอร์ที่ถาม",
+      "answerOnComputerWhy": "เรื่องนี้ต้องใช้ข้อมูลส่วนตัว และโทรศัพท์นี้ไม่มีกุญแจสำหรับเข้ารหัสไปยังคอมพิวเตอร์เครื่องนั้น Stella จะไม่ส่งแบบไม่เข้ารหัส",
+      "askedBy": "จาก {label}",
+      "cancelFailed": "ปิดคำถามไม่สำเร็จ ลองอีกครั้ง",
+      "cantRightNow": "ตอนนี้ไม่ได้",
+      "deadline": "เหลือ {time}",
+      "deadlinePassed": "หมดเวลาแล้ว",
+      "deadlineWithDefault": "เหลือ {time} — ไม่งั้นจะเลือก “{option}”",
+      "defaultOption": "ค่าเริ่มต้น",
+      "hideSecret": "ซ่อน {label}",
+      "missingFields": "กรอกข้อมูลที่จำเป็นให้ครบ",
+      "notification": {
+        "answer": "ตอบ",
+        "body": "แตะเพื่อตอบ",
+        "dismiss": "ปิด",
+        "title": "Stella กำลังรอคุณ"
+      },
+      "optional": "ไม่บังคับ",
+      "plain": "ส่งเป็นข้อความธรรมดา",
+      "revealSecret": "แสดง {label}",
+      "sealFailed": "เข้ารหัสบนอุปกรณ์นี้ไม่สำเร็จ",
+      "send": "ส่ง",
+      "sendSecurely": "ส่งอย่างปลอดภัย",
+      "sending": "กำลังส่ง…",
+      "sensitive": "เข้ารหัสแบบต้นทางถึงปลายทาง",
+      "sensitiveToggleA11y": "เข้ารหัส {label}",
+      "sensitiveUnavailable": "อุปกรณ์นี้ยังเข้ารหัสไม่ได้",
+      "somethingElse": "อย่างอื่น",
+      "somethingElsePlaceholder": "บอก Stella ว่าให้ทำอะไรแทน",
+      "unnamedComputer": "คอมพิวเตอร์ · {id}",
+      "waitingBadge": "กำลังรอคุณ"
     }
   },
   "onboarding": {
@@ -2008,6 +2068,45 @@
       "savePower": "อัปเดตการตั้งค่าพลังงานไม่สำเร็จ",
       "saveSoundNotifications": "อัปเดตการตั้งค่าการแจ้งเตือนด้วยเสียงไม่สำเร็จ",
       "soundNotificationsUnavailable": "การตั้งค่าการแจ้งเตือนด้วยเสียงไม่พร้อมใช้งานในหน้าต่างนี้"
+    },
+    "escalation": {
+      "ceiling": {
+        "label": "Reach me at most by",
+        "sublabel": "Stella never escalates past this, however urgent the ask."
+      },
+      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "errors": {
+        "load": "Couldn't load these settings.",
+        "save": "Couldn't save that. Try again.",
+        "unavailable": "These settings aren't available on this computer yet."
+      },
+      "levels": {
+        "alert": "Sound and phone push",
+        "breakthrough": "Push that pierces focus mode",
+        "chat": "Chat only",
+        "notify": "Desktop notification"
+      },
+      "quietHours": {
+        "activeNow": "Quiet hours are on right now.",
+        "ceilingLabel": "During quiet hours, reach me at most by",
+        "ceilingSublabel": "Anything louder waits until quiet hours end.",
+        "end": "Until",
+        "label": "Quiet hours",
+        "start": "From",
+        "sublabel": "Hold back during a window you set, on every device.",
+        "window": "Quiet from",
+        "windowSublabel": "Interpreted in {zone}."
+      },
+      "rateLimit": {
+        "label": "Asks per hour",
+        "sublabel": "Stella holds anything past this limit.",
+        "value": "{count} an hour"
+      },
+      "sound": {
+        "label": "Play a sound",
+        "sublabel": "Audible alert when Stella escalates an ask."
+      },
+      "title": "When Stella needs you"
     },
     "executionDevices": {
       "disable": "Turn off",
@@ -2665,6 +2764,42 @@
     "imageLightbox": {
       "close": "ปิดตัวอย่าง",
       "title": "ตัวอย่างรูปภาพ"
+    }
+  },
+  "userAsk": {
+    "blocking": "Waiting on you",
+    "deadline": {
+      "closes": "Closes in {time}",
+      "closing": "Closing now",
+      "continues": "Continues with “{option}” in {time}",
+      "continuesNow": "Continuing with “{option}”"
+    },
+    "errors": {
+      "answer": "That didn't go through. Try again."
+    },
+    "eyebrow": {
+      "question": "Stella needs a decision",
+      "secureInput": "Stella needs a value from you"
+    },
+    "question": {
+      "send": "Send",
+      "sending": "Sending…",
+      "somethingElse": "Something else",
+      "somethingElseLabel": "What would you rather do?",
+      "somethingElsePlaceholder": "Tell Stella what to do instead"
+    },
+    "secureInput": {
+      "choosePlaceholder": "Choose",
+      "makePrivate": "Keep private",
+      "makeShared": "Share with Stella",
+      "optional": "optional",
+      "privateBadge": "Private — Stella never sees it",
+      "privateNote": "Private values stay on this device. Stella uses them without ever reading them.",
+      "required": "Fill in {label} first.",
+      "sharedBadge": "Shared with Stella",
+      "sharedNote": "Shared values are sent to Stella as plain text.",
+      "submit": "Send securely",
+      "submitting": "Sending…"
     }
   }
 }

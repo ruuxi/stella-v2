@@ -35,6 +35,7 @@ export const IPC_DISPLAY_TRASH_FORCE_DELETE =
 export const IPC_OFFICE_PREVIEW_LIST = "officePreview:list" as const;
 export const IPC_OFFICE_PREVIEW_START = "officePreview:start" as const;
 export const IPC_OFFICE_PREVIEW_UPDATE = "officePreview:update" as const;
+export const IPC_CHAT_EVIDENCE_CARDS = "chatEvidence:cards" as const;
 
 // ── UI State ────────────────────────────────────────────────────────────────
 

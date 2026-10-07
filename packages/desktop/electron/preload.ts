@@ -11,6 +11,7 @@ import type {
   ThreadActivityUpdatedPayload,
 } from "@stella/contracts/local-chat";
 import type { OfficePreviewSnapshot } from "@stella/contracts/office-preview";
+import type { EvidenceCardSet } from "@stella/contracts/chat-evidence";
 import type {
   ChatGptProfileSummary,
   ChatGptProfilesState,
@@ -109,6 +110,7 @@ import {
   IPC_DISPLAY_OPEN_SHARED_CANVAS,
   IPC_DISPLAY_TRASH_FORCE_DELETE,
   IPC_DISPLAY_TRASH_LIST,
+  IPC_CHAT_EVIDENCE_CARDS,
   IPC_OFFICE_PREVIEW_LIST,
   IPC_OFFICE_PREVIEW_START,
   IPC_OFFICE_PREVIEW_UPDATE,
@@ -480,6 +482,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
         sourcePath: string;
       }>,
     onUpdate: onIpc<OfficePreviewSnapshot>(IPC_OFFICE_PREVIEW_UPDATE),
+  },
+
+  chatEvidence: {
+    cards: (filePaths: string[]) =>
+      ipcRenderer.invoke(IPC_CHAT_EVIDENCE_CARDS, {
+        filePaths,
+      }) as Promise<EvidenceCardSet>,
   },
 
   ui: {

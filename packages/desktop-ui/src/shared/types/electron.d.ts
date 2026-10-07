@@ -16,6 +16,7 @@ import type {
   CompanionVisibility,
 } from "@stella/contracts/desktop/companion";
 import type { UiState } from "./ui";
+import type { EvidenceCardSet } from "@stella/contracts/chat-evidence";
 import type { Theme } from "@stella/theme";
 import type { AgentStreamEvent } from "@stella/contracts/agent-stream";
 import type { StellaBrowserBridgeStatus } from "@stella/contracts/browser-bridge-status";
@@ -1514,6 +1515,10 @@ export type ElectronDisplayApi = {
   }>;
 };
 
+export type ElectronChatEvidenceApi = {
+  cards: (filePaths: string[]) => Promise<EvidenceCardSet>;
+};
+
 export type ElectronOfficePreviewApi = {
   list: (options?: {
     conversationId?: string | null;
@@ -1620,6 +1625,7 @@ export type ElectronApi = {
   };
   display: ElectronDisplayApi;
   officePreview: ElectronOfficePreviewApi;
+  chatEvidence: ElectronChatEvidenceApi;
   window: ElectronWindowApi;
   ui: ElectronUiApi;
   capture: ElectronCaptureApi;

@@ -18,6 +18,7 @@ import { WakewordService } from "../services/wakeword-service.js";
 import { loadLocalPreferences, saveLocalPreferences, } from "@stella/runtime/kernel/preferences/local-preferences";
 import { IPC_APP_SOURCE_STATE, IPC_PREFERENCES_GET_WAKE_WORD, IPC_PREFERENCES_SET_WAKE_WORD, } from "@stella/contracts/desktop/ipc-channels";
 import { registerOfficePreviewHandlers } from "../ipc/office-preview-handlers.js";
+import { registerChatEvidenceHandlers } from "../ipc/chat-evidence-handlers.js";
 import { createCloudConversationFileGrants } from "../services/cloud-conversation-file-grants.js";
 import { createDeviceFileLocator } from "../services/device-file-locator.js";
 import { registerScheduleHandlers } from "../ipc/schedule-handlers.js";
@@ -327,6 +328,10 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         getStellaAppDir: lifecycle.getStellaAppDir,
         getStellaDataDir: lifecycle.getStellaDataDir,
         localChatHistoryService: services.localChatHistoryService,
+        assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
+    });
+    registerChatEvidenceHandlers({
+        getStellaDataDir: lifecycle.getStellaDataDir,
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
     });
     const display = registerDisplayHandlers({

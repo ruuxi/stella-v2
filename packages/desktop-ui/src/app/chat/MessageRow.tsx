@@ -51,6 +51,7 @@ import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
 import { OfficePreviewCard } from "@/app/chat/OfficePreviewCard";
 import { BackgroundWorkCard } from "@/app/chat/BackgroundWorkCard";
 import { FilePills } from "@/app/chat/FilePills";
+import { MessageEvidence } from "@/app/chat/evidence/MessageEvidence";
 import { AppPreviewCard } from "@/features/cloud/AppPreviewCard";
 import { extractStellaAppLinkSlugs } from "@stella/contracts/workspace-apps";
 import { VoiceSessionCard } from "@/app/chat/VoiceSessionCard";
@@ -640,6 +641,14 @@ export const AssistantMessageRow = memo(
     const hasAgentCompletion = Boolean(
       row.agentCompletion && row.agentCompletion.sections.length > 0,
     );
+    const linkedFiles = row.linkedFiles ?? [];
+    const evidenceFiles = hasText
+      ? linkedFiles.filter((file) => !file.cloudDriveFile)
+      : [];
+    const evidencePaths = evidenceFiles.map((file) => file.path);
+    const unpreviewableFiles = linkedFiles.filter(
+      (file) => !evidenceFiles.includes(file),
+    );
     // Shared predicate with ChatTimeline (which drops renderless rows
     // before virtualization) — see assistant-row-content.ts.
     if (!assistantRowHasVisibleContent(row)) {
@@ -675,12 +684,14 @@ export const AssistantMessageRow = memo(
             // preambles render no control at all.
             <div className="message-line message-line--assistant">
               <div className="assistant-message-text chat-bubble-text">
-                <Markdown text={text} cacheKey={row.cacheKey} hideHorizontalRules
-                  hiddenFilePaths={[
-                    ...(conversationId ? row.agentCompletion?.sections.slice(0, 3).flatMap((section) => section.files) ?? [] : []),
-                    ...(row.linkedFiles ?? []),
-                  ].map((file) => file.cloudDriveFile ? `cloud:${file.cloudDriveFile.path}` : `local:${file.path}`)}
-                />
+                <MessageEvidence text={text} filePaths={evidencePaths}>
+                  <Markdown text={text} cacheKey={row.cacheKey} hideHorizontalRules
+                    hiddenFilePaths={[
+                      ...(conversationId ? row.agentCompletion?.sections.slice(0, 3).flatMap((section) => section.files) ?? [] : []),
+                      ...(row.linkedFiles ?? []),
+                    ].map((file) => file.cloudDriveFile ? `cloud:${file.cloudDriveFile.path}` : `local:${file.path}`)}
+                  />
+                </MessageEvidence>
               </div>
               {!row.isIntraTurn && (
                 <MessageActions
@@ -694,8 +705,8 @@ export const AssistantMessageRow = memo(
               )}
             </div>
           )}
-          {row.linkedFiles && row.linkedFiles.length > 0 ? (
-            <FilePills files={row.linkedFiles} />
+          {unpreviewableFiles.length > 0 ? (
+            <FilePills files={unpreviewableFiles} />
           ) : null}
           {hasText
             ? extractStellaAppLinkSlugs(text).map((slug) => (

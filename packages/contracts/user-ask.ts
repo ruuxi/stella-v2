@@ -242,6 +242,7 @@ export type UserAskEscalationPolicy = Readonly<{
   quietHours: UserAskQuietHours;
   quietHoursCeiling: UserAskUrgencyLevel;
   maxPerHour: number;
+  timeZone?: string;
 }>;
 
 export const USER_ASK_MAX_PER_HOUR_LIMIT = 20;
@@ -308,6 +309,9 @@ export const normalizeUserAskEscalationPolicy = (
         ? DEFAULT_USER_ASK_ESCALATION_POLICY.quietHoursCeiling
         : clampUrgency(source.quietHoursCeiling),
     maxPerHour,
+    ...(typeof source.timeZone === "string" && source.timeZone.trim()
+      ? { timeZone: source.timeZone.trim().slice(0, 64) }
+      : {}),
   };
 };
 
@@ -441,3 +445,102 @@ export const toUserAskSummary = (ask: UserAsk): UserAskSummary => ({
     ask.detail.kind === "question" ? ask.detail.question : ask.detail.purpose,
   ...(ask.deadlineAt === undefined ? {} : { deadlineAt: ask.deadlineAt }),
 });
+
+export const USER_ASK_SEAL_PURPOSE = "stella-user-ask-secure-input" as const;
+
+export const USER_ASK_SEAL_PUBLIC_KEY_BYTES = 32;
+export const USER_ASK_SEAL_IV_BYTES = 12;
+export const USER_ASK_SEAL_TAG_BYTES = 16;
+export const USER_ASK_SEAL_KEY_BYTES = 32;
+export const USER_ASK_SEAL_MAX_PLAINTEXT_BYTES = 4096;
+
+export type UserAskSealBinding = Readonly<{
+  askId: string;
+  keyId: string;
+  fieldId: string;
+}>;
+
+export type UserAskSealKdfInputs = Readonly<{
+  aad: Uint8Array;
+  salt: Uint8Array;
+  info: Uint8Array;
+  keyLengthBytes: number;
+}>;
+
+const sealStableJson = (value: unknown): string => {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value) ?? "null";
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => sealStableJson(entry)).join(",")}]`;
+  }
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, entry]) => entry !== undefined)
+    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
+  return `{${entries
+    .map(([key, entry]) => `${JSON.stringify(key)}:${sealStableJson(entry)}`)
+    .join(",")}}`;
+};
+
+const sealUtf8Bytes = (value: string): Uint8Array => {
+  const bytes: number[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    let codePoint = value.charCodeAt(index);
+    if (codePoint >= 0xd800 && codePoint <= 0xdbff && index + 1 < value.length) {
+      const low = value.charCodeAt(index + 1);
+      if (low >= 0xdc00 && low <= 0xdfff) {
+        codePoint = (codePoint - 0xd800) * 0x400 + (low - 0xdc00) + 0x10000;
+        index += 1;
+      }
+    }
+    if (codePoint < 0x80) {
+      bytes.push(codePoint);
+    } else if (codePoint < 0x800) {
+      bytes.push(0xc0 | (codePoint >> 6), 0x80 | (codePoint & 0x3f));
+    } else if (codePoint < 0x10000) {
+      bytes.push(
+        0xe0 | (codePoint >> 12),
+        0x80 | ((codePoint >> 6) & 0x3f),
+        0x80 | (codePoint & 0x3f),
+      );
+    } else {
+      bytes.push(
+        0xf0 | (codePoint >> 18),
+        0x80 | ((codePoint >> 12) & 0x3f),
+        0x80 | ((codePoint >> 6) & 0x3f),
+        0x80 | (codePoint & 0x3f),
+      );
+    }
+  }
+  return new Uint8Array(bytes);
+};
+
+export const userAskSealAadString = (binding: UserAskSealBinding): string =>
+  sealStableJson({
+    schemaVersion: USER_ASK_SCHEMA_VERSION,
+    purpose: USER_ASK_SEAL_PURPOSE,
+    algorithm: USER_ASK_SEAL_ALGORITHM,
+    askId: binding.askId,
+    keyId: binding.keyId,
+    fieldId: binding.fieldId,
+  });
+
+export const userAskSealAad = (binding: UserAskSealBinding): Uint8Array =>
+  sealUtf8Bytes(userAskSealAadString(binding));
+
+export const userAskSealSalt = (aadSha256Hex: string): Uint8Array =>
+  sealUtf8Bytes(aadSha256Hex.trim().toLowerCase());
+
+export const userAskSealKdfInputs = (args: {
+  binding: UserAskSealBinding;
+  sha256Hex: (bytes: Uint8Array) => string;
+}): UserAskSealKdfInputs => {
+  const aad = userAskSealAad(args.binding);
+  return {
+    aad,
+    salt: userAskSealSalt(args.sha256Hex(aad)),
+    info: aad,
+    keyLengthBytes: USER_ASK_SEAL_KEY_BYTES,
+  };
+};
+

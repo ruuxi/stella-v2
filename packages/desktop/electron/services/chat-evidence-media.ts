@@ -6,6 +6,11 @@ import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { nativeImage, type NativeImage } from "electron";
 import { EVIDENCE_PEAK_COUNT } from "@stella/contracts/chat-evidence";
+import {
+  offscreenAudioPeaks,
+  offscreenMediaDurationMs,
+  offscreenVideoPoster,
+} from "./offscreen-media-probe.js";
 
 const PROBE_TIMEOUT_MS = 20_000;
 const CSV_READ_CAP_BYTES = 512 * 1024;
@@ -13,6 +18,7 @@ const CSV_ROW_COUNT_CAP_BYTES = 32 * 1024 * 1024;
 const CSV_PREVIEW_ROWS = 4;
 const CSV_PREVIEW_COLUMNS = 6;
 const PEAK_SAMPLE_RATE = 8000;
+const OFFSCREEN_AUDIO_MAX_BYTES = 48 * 1024 * 1024;
 
 type RunResult = { code: number; stdout: string; stderr: string };
 
@@ -177,6 +183,8 @@ export const videoPosterRaster = async (
   boxWidth: number,
   boxHeight: number,
 ): Promise<string | null> => {
+  const offscreen = await offscreenVideoPoster(filePath, boxWidth, boxHeight);
+  if (offscreen) return offscreen;
   const ffmpeg = await resolveFfmpeg();
   if (ffmpeg) {
     const dir = await scratchDir();
@@ -200,6 +208,8 @@ export const videoPosterRaster = async (
 };
 
 export const probeDurationMs = async (filePath: string): Promise<number | null> => {
+  const offscreenDuration = await offscreenMediaDurationMs(filePath);
+  if (offscreenDuration) return offscreenDuration;
   const ffmpeg = await resolveFfmpeg();
   if (ffmpeg) {
     const probe = await run(ffmpeg, ["-i", filePath], PROBE_TIMEOUT_MS);
@@ -288,6 +298,11 @@ const peaksFromPcm = (
 export const extractAudioPeaks = async (
   filePath: string,
 ): Promise<{ peaks: number[]; durationMs: number | null } | null> => {
+  const stats = await fs.stat(filePath).catch(() => null);
+  if ((stats?.size ?? 0) <= OFFSCREEN_AUDIO_MAX_BYTES) {
+    const offscreen = await offscreenAudioPeaks(filePath);
+    if (offscreen) return offscreen;
+  }
   const dir = await scratchDir();
   try {
     const wav = path.join(dir, "mono.wav");
@@ -331,7 +346,7 @@ export const extractAudioPeaks = async (
       );
       decoded = result.code === 0;
     }
-    if (!decoded) return null;
+    if (!decoded) return await offscreenAudioPeaks(filePath);
     const buffer = await fs.readFile(wav);
     const chunk = findWaveDataChunk(buffer);
     if (!chunk) return null;
@@ -444,13 +459,21 @@ export const archiveEntryExtensions = async (
   filePath: string,
 ): Promise<string[] | null> => {
   if (path.extname(filePath).toLowerCase() !== ".zip") return null;
-  const listing = await run("/usr/bin/unzip", ["-Z", "-1", filePath]);
-  if (listing.code !== 0) return null;
-  return listing.stdout
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !line.endsWith("/"))
-    .map((line) => path.extname(line));
+  try {
+    const { BlobReader, ZipReader } = await import("@zip.js/zip.js");
+    const bytes = await fs.readFile(filePath);
+    const reader = new ZipReader(new BlobReader(new Blob([new Uint8Array(bytes)])));
+    try {
+      const entries = await reader.getEntries();
+      return entries
+        .filter((entry) => !entry.directory)
+        .map((entry) => path.extname(entry.filename));
+    } finally {
+      await reader.close().catch(() => undefined);
+    }
+  } catch {
+    return null;
+  }
 };
 
 export const folderEntryExtensions = async (

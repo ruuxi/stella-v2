@@ -4,6 +4,7 @@ import { net, session } from "electron";
 
 export const MEDIA_SCHEME = "stella-media";
 export const MEDIA_ORIGIN = `${MEDIA_SCHEME}://local`;
+export const MEDIA_PROBE_PARTITION = "persist:stella-media-probe";
 
 export const MEDIA_SCHEME_PRIVILEGES = {
   scheme: MEDIA_SCHEME,
@@ -49,9 +50,17 @@ export const serveMediaProtocol = (partition: string) => {
     const range = request.headers.get("range");
     if (range) headers.set("range", range);
     try {
-      return await net.fetch(pathToFileURL(filePath).toString(), {
+      const upstream = await net.fetch(pathToFileURL(filePath).toString(), {
         headers,
         bypassCustomProtocolHandlers: true,
+      });
+      const responseHeaders = new Headers(upstream.headers);
+      responseHeaders.set("access-control-allow-origin", "*");
+      responseHeaders.set("accept-ranges", "bytes");
+      return new Response(upstream.body, {
+        status: upstream.status,
+        statusText: upstream.statusText,
+        headers: responseHeaders,
       });
     } catch {
       return new Response("Not found", { status: 404 });

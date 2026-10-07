@@ -2,6 +2,24 @@
 
 Commit to `master`, `git fetch` + rebase before deploying, push after. Other
 sessions deploy dev too. Never print secrets: pipe them into `wrangler secret put`.
+Nothing user-facing deploys on push except the R2 asset workflows noted below.
+
+## What ships how
+
+| You changed | Ship it with | Users get it |
+|---|---|---|
+| Desktop UI, Electron shell, runtime (`packages/desktop*`, `packages/runtime`, …) | `app-source:publish` to `stella-app-dev` / `stella-app-prod` | "N updates" pill → Update |
+| Backend, including prompts (`workers/cloud-builder`) | cloud-builder deploy | Immediately (desktops refetch prompts on their next turn) |
+| Other workers | That worker's deploy | Immediately |
+| Mobile JS/TS | OTA (`publish-ota.sh`) | Downloaded on launch, applied on the next cold start |
+| Mobile native (`app.json`, native modules, plugins, `patches/`) | EAS store build + submit | Store update |
+| `launcher/` | `build-launchers.yml` with `publish=true` | Installed launchers self-update; new downloads |
+| `packages/native/`, `packages/stella-browser/cli` | Push to master (workflow publishes to R2) | Next launcher prepare (see below) |
+| Electron version (`package.json`) | Push (signed identity) + app-source publish | See the update gaps below |
+| Website / web chat (`packages/website`) | `deploy-stella.sh` to the website Worker | Immediately |
+
+There is no desktop build in CI and no installer to ship: the desktop app is
+a git checkout run from source by the native launchers.
 
 ## What lives where
 
@@ -13,10 +31,12 @@ sessions deploy dev too. Never print secrets: pipe them into `wrangler secret pu
 | App source (Artifacts) | `stella-app-dev` | `stella-app-prod` |
 | Website + web chat | Worker `stella-website-dev` (`stella-website-dev.lolruuxi.workers.dev`) | Worker `stella-website-prod` on `stella.sh` (Vercel kept as fallback, see the cutover below) |
 | Mobile OTA channel | `preview` | `production` |
-| Desktop | source checkout / verify harness | native launchers from R2 `launcher/stable/` |
+| Desktop | Source checkout / verify harness; dev-backend launchers read `stella-app-dev` | `stella-app-prod` upstream via launchers from R2 `launcher/stable/` |
 
 Other workers: `telemetry`, `browser-gateway`, `apps-host` (dev and prod envs),
-`canvas-share` (one deployment, `stellashare.app`).
+`canvas-share` (one deployment, `stellashare.app`). Which app-source namespace a
+launcher reads is set by the backend it talks to (`ARTIFACTS` binding in
+cloud-builder's `wrangler.jsonc`).
 
 ## Cloudflare workers
 
@@ -51,37 +71,65 @@ secrets before the prod deploy: `... | bunx wrangler secret put NAME --env produ
 
 ### Prompts
 
-Edit `packages/runtime/extensions/stella-runtime/agent-metadata/*.md` or
-`prompts/*.md`, run `bun run prompts:sync-defaults`, commit. Deploying
-cloud-builder publishes them. Check: `curl -s <backend>/api/stella/prompts`
+Edit `packages/runtime/extensions/stella-runtime/{agent-metadata,prompts}/*.md`,
+run `bun run prompts:sync-defaults`, commit. Deploying cloud-builder publishes
+them to cloud turns and to desktops, which fetch `/api/stella/prompts`; no
+app-source publish is needed. Check: `curl -s <backend>/api/stella/prompts`
 revision equals `bun run prompts:check-defaults`.
 
 ## Desktop
 
-The desktop app runs from source published to Artifacts; launchers install and
-update from it.
+The desktop app is a git checkout of the app-source `upstream` repo, run from
+source by the native launchers (no electron-builder, no electron-updater, no
+CI-built app). A publish appears in each install's Updates sidebar; nothing
+applies until the user clicks Update.
 
 1. **App source** (any desktop/runtime change):
    `env -u CLOUDFLARE_API_TOKEN bun run app-source:publish -- --namespace stella-app-dev`
-   (and `stella-app-prod` for prod). An unchanged tree publishes nothing.
-2. **Launchers** (only when `launcher/` changed): `gh workflow run build-launchers.yml --ref master -f publish=true`.
+   (and `stella-app-prod` for prod). It publishes `HEAD` by default
+   (`--ref` to choose). An unchanged tree publishes nothing.
+2. **Launchers** (only when `launcher/` changed): a push only builds and
+   self-tests them. Publish with `gh workflow run build-launchers.yml --ref master -f publish=true`.
    It signs and notarizes macOS (DMG + zip), signs `Stella.exe`, builds the Linux
    binaries, and uploads them with `VERSION` to `launcher/stable/`. Installed
    launchers update themselves from `VERSION`.
 3. **Electron version bump**: the push of `package.json` runs
    `build-electron-identity.yml`, which publishes the Developer ID-signed
-   `Stella.app` for that Electron version. Let it finish before users launch,
-   or macOS launchers fall back to an ad-hoc copy and prompt for the Keychain.
-4. **Native helpers** (only when `packages/native/` changed):
-   `build-native-helpers.yml` publishes them and self-verifies by reading
-   `current.json` back. What is live now:
-   `curl -s https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/native-helpers/current.json`.
+   `Stella.app` for that Electron version. Let it finish before publishing app
+   source, or macOS launchers fall back to an ad-hoc copy and prompt for the
+   Keychain.
+4. **Native helpers** (`packages/native/`) and **stella-browser**
+   (`packages/stella-browser/cli`): the push runs `build-native-helpers.yml` /
+   `build-stella-browser.yml`, which upload to R2 and move `current.json` only
+   when the commit is still master's head. What is live now:
+   `curl -s https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/native-helpers/current.json`
+   (`stella-browser/current.json` likewise). Installs fetch them in the
+   launcher's prepare step (`packages/desktop/scripts/prepare-install.mjs`),
+   which runs on install, relaunch and rollback.
 
 What users are actually on: each publish is one commit on that namespace's
 `upstream` repo carrying a `Stella-Source: <monorepo sha>` trailer, so reading
 that repo's head says which commit the channel serves — and therefore what a
 publish will really ship. Check it before calling a publish "one fix": the
 namespace can be many commits behind master.
+
+### What an applied update does (known gaps)
+
+Applying an update fast-forwards the checkout, then
+(`app-source-service.ts`): runs `bun install` if `bun.lock` or a
+`package.json` changed, restarts the runtime if `packages/runtime/` or
+`packages/contracts/` changed, relaunches through the launcher only if
+`packages/desktop/electron/` changed, and otherwise hot-swaps the renderer.
+
+- **Dependency-only changes don't restart the app.** New packages are
+  installed, but Electron main keeps the modules it already loaded until the
+  next launch. Ship a dependency change that main needs alongside a change
+  under `packages/desktop/electron/`, or tell users to quit and reopen.
+- **Native modules aren't rebuilt for a new Electron.** Nothing runs
+  `electron-rebuild` (neither the update nor the launcher's prepare), so a
+  native Node addon built for the old Electron ABI (today `uiohook-napi`,
+  `mac-screen-capture-permissions`) can fail to load after an Electron bump.
+  Check native dependencies before bumping Electron.
 
 ## Website and web chat
 

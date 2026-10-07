@@ -637,21 +637,21 @@ export class MobileRealtimeVoiceSession {
       return;
     }
     const pendingCount = this.delegatedRequests.size;
+    // The request lands in the chat as the user's own turn, so the call context
+    // stays to one readable line rather than a block of markup.
     const request = [
       transcript,
       "",
-      "<voice_call>",
-      this.options.execution === "computer"
-        ? "The user said this aloud in a live voice call, with work running on their connected computer."
-        : "The user said this aloud in a live voice call attached to this chat.",
-      "Answer in one to three short sentences that read well spoken aloud.",
-      pendingCount
-        ? `${pendingCount} earlier request${pendingCount === 1 ? "" : "s"} from this call ${pendingCount === 1 ? "is" : "are"} still running.`
-        : "",
-      "</voice_call>",
-    ]
-      .filter((line) => line !== "")
-      .join("\n");
+      [
+        this.options.execution === "computer"
+          ? "(Said aloud in a live voice call, with work running on the connected computer."
+          : "(Said aloud in a live voice call attached to this chat.",
+        "Answer in one to three short spoken sentences.",
+        pendingCount
+          ? `${pendingCount} earlier request${pendingCount === 1 ? "" : "s"} from this call ${pendingCount === 1 ? "is" : "are"} still running.)`
+          : ")",
+      ].join(" "),
+    ].join("\n");
 
     let dispatch: RealtimeVoiceActionDispatch = null;
     try {

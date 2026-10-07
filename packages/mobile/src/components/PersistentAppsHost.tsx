@@ -37,6 +37,11 @@ import {
   type AppFrame,
 } from "../lib/app-cache";
 
+// Every refresh is a backend round trip against the owner's objects, so the
+// list refreshes slowly; returning to the library or to the foreground
+// refreshes it immediately, which is what makes a slow interval enough.
+const APPS_REFRESH_MS = 60_000;
+
 /**
  * Agent-authored apps are raw web pages. Pin them to a device-width, unzoomable
  * viewport and stop the document itself from overscrolling so an app scrolls
@@ -218,7 +223,7 @@ function AppsHost({
       } finally {
         clearTimeout(timeout);
         if (!cancelled && visible)
-          timer = setTimeout(() => void load(), 15_000);
+          timer = setTimeout(() => void load(), APPS_REFRESH_MS);
       }
     };
     void load();

@@ -40,3 +40,20 @@
   color: var(--text-weak);
   font-variant-numeric: tabular-nums;
 }
+
+/* A call that failed shows the reason instead of a duration. It is allowed to
+   wrap: the backend's message is the whole point and must not be clipped. */
+.voice-session-pill--error {
+  align-items: flex-start;
+  border-radius: 14px;
+}
+
+.voice-session-pill--error .voice-session-pill__icon {
+  margin-top: 2px;
+}
+
+.voice-session-pill__reason {
+  color: var(--text-weak);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}

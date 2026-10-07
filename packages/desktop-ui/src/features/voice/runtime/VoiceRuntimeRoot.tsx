@@ -249,13 +249,17 @@ export function VoiceRuntimeRoot() {
         sessionStateRef.current = sessionState;
         if (sessionState === "error") {
           // This runtime lives in the hidden overlay window, so a local
-          // `showToast` would paint where the user can't see it. Forward
-          // actionable errors to the main process, which shows the toast in
-          // the visible app window (where the sign-in / settings CTA also
-          // routes correctly). Only forward failures the user must act on
-          // (not signed in / provider not connected) — transient blips ride
-          // the silent auto-retry. Dedupe per distinct message so retries
-          // don't restack the toast.
+          // `showToast` would paint where the user can't see it. Two separate
+          // forwards to the main process:
+          //   - the reason, always, so a voice surface can show why the call
+          //     failed rather than rendering an empty card;
+          //   - a toast, only for failures the user must act on (not signed
+          //     in, no Pro, provider not connected). Transient blips ride the
+          //     silent auto-retry, and the toast is deduped per distinct
+          //     message so retries don't restack it.
+          window.electronAPI?.voice.reportSessionErrorState?.(
+            errorMessage ?? "",
+          );
           const toast = resolveVoiceErrorToast(errorMessage, t);
           if (toast && lastVoiceErrorToastRef.current !== (errorMessage ?? "")) {
             lastVoiceErrorToastRef.current = errorMessage ?? "";
@@ -263,6 +267,9 @@ export function VoiceRuntimeRoot() {
           }
         } else {
           lastVoiceErrorToastRef.current = null;
+          if (sessionState === "connected") {
+            window.electronAPI?.voice.reportSessionErrorState?.("");
+          }
         }
         publishRuntimeState({
           sessionState,

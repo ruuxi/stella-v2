@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type RefObject,
+} from "react";
+import { voiceSessionErrorStore } from "@/features/voice/runtime/voice-session-error-state";
 import {
   RealtimeVoiceSession,
   type VoiceSessionEvent,
@@ -11,6 +18,8 @@ interface UseRealtimeVoiceResult {
   isSpeaking: boolean;
   isUserSpeaking: boolean;
   sessionState: VoiceSessionState;
+  /** Why the call failed, in the backend's own words. "" when healthy. */
+  errorMessage: string;
   micLevel: number;
   outputLevel: number;
   micLevelRef: RefObject<number>;
@@ -486,6 +495,11 @@ export function useRealtimeVoice(): UseRealtimeVoiceResult {
   );
   const micLevelRef = useRef(DEFAULT_RUNTIME_STATE.micLevel);
   const outputLevelRef = useRef(DEFAULT_RUNTIME_STATE.outputLevel);
+  const errorMessage = useSyncExternalStore(
+    voiceSessionErrorStore.subscribe,
+    voiceSessionErrorStore.getSnapshot,
+    voiceSessionErrorStore.getServerSnapshot,
+  );
 
   useEffect(() => {
     const api = window.electronAPI;
@@ -536,6 +550,7 @@ export function useRealtimeVoice(): UseRealtimeVoiceResult {
     isSpeaking: runtimeState.isSpeaking,
     isUserSpeaking: runtimeState.isUserSpeaking,
     sessionState: runtimeState.sessionState,
+    errorMessage,
     micLevel: runtimeState.micLevel,
     outputLevel: runtimeState.outputLevel,
     micLevelRef,

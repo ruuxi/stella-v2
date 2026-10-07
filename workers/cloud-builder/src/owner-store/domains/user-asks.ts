@@ -56,9 +56,9 @@ import type {
   OwnerDbReader,
   OwnerDomain,
 } from "../registry.js";
+import { livePushTokens } from "./devices.js";
 
 const EXPO_PUSH_ENDPOINT = "https://exp.host/--/api/v2/push/send";
-const MAX_TOKENS = 25;
 const MAX_OPEN_ASKS = 32;
 const MAX_SEALED_CIPHERTEXT = 16 * 1024;
 const MAX_PLAIN_VALUE = 4 * 1024;
@@ -667,10 +667,7 @@ const sendAskPush = async (
   level: UserAskUrgencyLevel,
   policy: UserAskEscalationPolicy,
 ): Promise<PushOutcome> => {
-  const tokens = ctx.db.all<{ token: string }>(
-    "SELECT token FROM push_tokens ORDER BY updated_at DESC LIMIT ?",
-    MAX_TOKENS,
-  );
+  const tokens = livePushTokens(ctx);
   if (tokens.length === 0) return "no_push_target";
   const copy = pushCopy(row);
   const payload: UserAskPushPayload = {

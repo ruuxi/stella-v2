@@ -14,7 +14,7 @@ import type {
 import { sha256Hex } from "@stella/contracts/turn-plane/pairing-proof";
 import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
 import type { DeviceRemoteExecution } from "@stella/contracts/turn-plane/placement";
-import { array, boolean, literal, object, optional, string } from "../args.js";
+import { array, boolean, empty, literal, object, optional, string } from "../args.js";
 import { RpcError } from "../errors.js";
 import { enforceOwnerRateLimit } from "../rate-limit.js";
 import type { OwnerCaller, OwnerContext, OwnerDbReader, OwnerDomain } from "../registry.js";
@@ -163,6 +163,14 @@ export const DEVICES_PUSH_DIGEST_MIGRATION = {
        completed INTEGER NOT NULL,
        failed INTEGER NOT NULL
      )`,
+  ],
+};
+
+export const DEVICES_PUSH_TOKEN_SESSION_MIGRATION = {
+  id: "devices.5-push-token-session",
+  statements: [
+    `ALTER TABLE push_tokens ADD COLUMN session_id TEXT`,
+    `DELETE FROM push_tokens`,
   ],
 };
 
@@ -714,27 +722,46 @@ const ACTIVITY_COPY: Record<ActivityNotificationKind, { title: string; body: str
   failed: { title: "Stella needs attention", body: "Stella could not finish on your desktop." },
 };
 
-const registerPushToken = (ctx: OwnerContext, input: { token: string; mobileDeviceId: string; platform?: string }) => {
+const registerPushToken = (
+  ctx: OwnerContext,
+  input: { token: string; mobileDeviceId: string; sessionId: string; platform?: string },
+) => {
   ctx.db.run(
-    `INSERT INTO push_tokens (token, mobile_device_id, platform, updated_at) VALUES (?, ?, ?, ?)
+    `INSERT INTO push_tokens (token, mobile_device_id, session_id, platform, updated_at) VALUES (?, ?, ?, ?, ?)
      ON CONFLICT (token) DO UPDATE SET mobile_device_id = excluded.mobile_device_id,
+       session_id = excluded.session_id,
        platform = COALESCE(excluded.platform, push_tokens.platform), updated_at = excluded.updated_at`,
     input.token,
     input.mobileDeviceId,
+    input.sessionId,
     input.platform ?? null,
     ctx.now,
   );
-  // One phone keeps one token; keep the newest few per owner.
   ctx.db.run(
-    "DELETE FROM push_tokens WHERE mobile_device_id = ? AND token != ?",
+    "DELETE FROM push_tokens WHERE (mobile_device_id = ? OR session_id = ?) AND token != ?",
     input.mobileDeviceId,
+    input.sessionId,
     input.token,
   );
   ctx.db.run(
-    "DELETE FROM push_tokens WHERE token NOT IN (SELECT token FROM push_tokens ORDER BY updated_at DESC LIMIT ?)",
+    "DELETE FROM push_tokens WHERE token NOT IN (SELECT token FROM push_tokens WHERE session_id IS NOT NULL ORDER BY updated_at DESC LIMIT ?)",
     MAX_TOKENS,
   );
 };
+
+const forgetSessionPushTokens = (ctx: OwnerContext, sessionId: string): void => {
+  ctx.db.run("DELETE FROM push_tokens WHERE session_id = ?", sessionId);
+};
+
+const forgetAllPushTokens = (ctx: OwnerContext): void => {
+  ctx.db.run("DELETE FROM push_tokens");
+};
+
+export const livePushTokens = (ctx: OwnerContext): { token: string }[] =>
+  ctx.db.all<{ token: string }>(
+    "SELECT token FROM push_tokens WHERE session_id IS NOT NULL ORDER BY updated_at DESC LIMIT ?",
+    MAX_TOKENS,
+  );
 
 type PushDigest = { last_sent_at: number; last_finish_at: number; completed: number; failed: number };
 
@@ -798,7 +825,7 @@ const flushDigest = async (ctx: OwnerContext): Promise<void> => {
 };
 
 const sendPush = async (ctx: OwnerContext, copy: { title: string; body: string }): Promise<null> => {
-  const tokens = ctx.db.all<{ token: string }>("SELECT token FROM push_tokens ORDER BY updated_at DESC LIMIT ?", MAX_TOKENS);
+  const tokens = livePushTokens(ctx);
   if (tokens.length === 0) return null;
   const response = await fetch(EXPO_PUSH_ENDPOINT, {
     method: "POST",
@@ -853,7 +880,7 @@ const error = (status: number, message: string): MobileRouteResult => ({ status,
 
 /** The phone routes, for a signed-in account. */
 export const handleMobileRoute = async (ctx: OwnerContext, input: MobileRouteInput): Promise<MobileRouteResult> => {
-  requireAccountCaller(input.caller);
+  const caller = requireAccountCaller(input.caller);
   const body = input.body;
   switch (input.route) {
     case "POST push-token": {
@@ -861,15 +888,24 @@ export const handleMobileRoute = async (ctx: OwnerContext, input: MobileRouteInp
       const mobileDeviceId = text(body.mobileDeviceId, 256) || text(input.headers["x-stella-mobile-device-id"], 256);
       if (!token) return error(400, "Push token required");
       if (!mobileDeviceId) return error(400, "mobileDeviceId required");
+      if (!caller.sessionId) return error(403, "Sign in again to receive notifications.");
       enforceOwnerRateLimit(ctx.db, ctx.now, "push.register", { count: 60, windowMs: 60_000 }, "Too many requests.");
       const platform = optionalText(body.platform, 64);
-      registerPushToken(ctx, { token, mobileDeviceId, ...(platform ? { platform } : {}) });
+      registerPushToken(ctx, {
+        token,
+        mobileDeviceId,
+        sessionId: caller.sessionId,
+        ...(platform ? { platform } : {}),
+      });
       return { status: 200, body: { ok: true } };
     }
     case "POST push-token/unregister": {
       const mobileDeviceId = text(body.mobileDeviceId, 256) || text(input.headers["x-stella-mobile-device-id"], 256);
-      if (!mobileDeviceId) return error(400, "mobileDeviceId required");
-      ctx.db.run("DELETE FROM push_tokens WHERE mobile_device_id = ?", mobileDeviceId);
+      const token = text(body.token, 512);
+      if (!mobileDeviceId && !token && !caller.sessionId) return error(400, "mobileDeviceId required");
+      if (mobileDeviceId) ctx.db.run("DELETE FROM push_tokens WHERE mobile_device_id = ?", mobileDeviceId);
+      if (token) ctx.db.run("DELETE FROM push_tokens WHERE token = ?", token);
+      if (caller.sessionId) forgetSessionPushTokens(ctx, caller.sessionId);
       return { status: 200, body: { ok: true } };
     }
     case "POST pairing/attach": {
@@ -930,6 +966,7 @@ export const devicesDomain = {
     DEVICES_REMOTE_EXECUTION_MIGRATION,
     DEVICES_DROP_PHONE_BRIDGE_MIGRATION,
     DEVICES_PUSH_DIGEST_MIGRATION,
+    DEVICES_PUSH_TOKEN_SESSION_MIGRATION,
   ],
   calls: {
     "devices.identity": {
@@ -1002,6 +1039,16 @@ export const devicesDomain = {
       ),
     "devices.requestRemoteExecution": (ctx: OwnerContext, raw: unknown) =>
       requestRemoteExecution(ctx, object({ deviceId: deviceIdArg })(raw)),
+    "devices.pushSessionEnded": (ctx: OwnerContext, raw: unknown) => {
+      const { sessionId } = object({ sessionId: string({ min: 1, max: 256 }) })(raw);
+      forgetSessionPushTokens(ctx, sessionId);
+      return null;
+    },
+    "devices.pushSessionsRevoked": (ctx: OwnerContext, raw: unknown) => {
+      empty()(raw);
+      forgetAllPushTokens(ctx);
+      return null;
+    },
   },
   views: {
     "phone.access": {

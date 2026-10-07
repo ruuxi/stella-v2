@@ -229,6 +229,35 @@ const nativeOttRedirect = (): BetterAuthPlugin => ({
   },
 });
 
+type EndingSession = { userId: string; sessionId: string };
+
+const endingSession = async (ctx: {
+  headers?: Headers | null;
+  context: { internalAdapter: { findSession(token: string): Promise<unknown> } };
+}): Promise<EndingSession | null> => {
+  const header = ctx.headers?.get("authorization") ?? "";
+  const bearer = header.startsWith("Bearer ") ? decodeURIComponent(header.slice(7).trim()) : "";
+  const resolved =
+    (await getSessionFromCtx(ctx as never).catch(() => null)) ??
+    (bearer ? await ctx.context.internalAdapter.findSession(bearer.split(".")[0]!).catch(() => null) : null);
+  const record = resolved as { user?: { id?: unknown }; session?: { id?: unknown } } | null;
+  const userId = typeof record?.user?.id === "string" ? record.user.id : "";
+  const sessionId = typeof record?.session?.id === "string" ? record.session.id : "";
+  if (!userId) return null;
+  return { userId, sessionId };
+};
+
+const ownerInternalCall = async (
+  env: AuthEnv,
+  userId: string,
+  name: string,
+  args: Record<string, unknown>,
+): Promise<void> => {
+  const gate = env.OWNER_GATES.getByName(userId);
+  const { ownerGeneration } = await gate.snapshot();
+  await gate.ownerInternal({ name, args, ownerGeneration });
+};
+
 /**
  * Signing out everywhere (`/revoke-sessions`) also refuses the JWTs already
  * minted, through the owner's `account.sessionsRevoked` floor; their
@@ -244,21 +273,42 @@ const revokedTokenFloor = (env: AuthEnv): BetterAuthPlugin => ({
         handler: createAuthMiddleware(async (ctx) => {
           // Before hooks can run ahead of bearer()'s, so fall back to the
           // bearer itself: `<session token>.<signature>`.
-          const header = ctx.headers?.get("authorization") ?? "";
-          const bearer = header.startsWith("Bearer ") ? decodeURIComponent(header.slice(7).trim()) : "";
-          const session =
-            (await getSessionFromCtx(ctx).catch(() => null)) ??
-            (bearer ? await ctx.context.internalAdapter.findSession(bearer.split(".")[0]!).catch(() => null) : null);
-          if (!session) {
+          const ending = await endingSession(ctx as never);
+          if (!ending) {
             console.warn(JSON.stringify({ event: "auth_revoke_floor_skipped", reason: "no_session" }));
             return;
           }
-          const gate = env.OWNER_GATES.getByName(session.user.id);
-          const { ownerGeneration } = await gate.snapshot();
-          await gate.ownerInternal({
-            name: "account.sessionsRevoked",
-            args: { minIatMs: Date.now() },
-            ownerGeneration,
+          await ownerInternalCall(env, ending.userId, "account.sessionsRevoked", {
+            minIatMs: Date.now(),
+          });
+          await ownerInternalCall(env, ending.userId, "devices.pushSessionsRevoked", {});
+        }),
+      },
+    ],
+  },
+});
+
+const pushSignOutTeardown = (env: AuthEnv): BetterAuthPlugin => ({
+  id: "stella-push-sign-out-teardown",
+  hooks: {
+    before: [
+      {
+        matcher: (ctx) => ctx.path === "/sign-out",
+        handler: createAuthMiddleware(async (ctx) => {
+          const ending = await endingSession(ctx as never);
+          if (!ending?.sessionId) {
+            console.warn(JSON.stringify({ event: "auth_push_teardown_skipped", reason: "no_session" }));
+            return;
+          }
+          await ownerInternalCall(env, ending.userId, "devices.pushSessionEnded", {
+            sessionId: ending.sessionId,
+          }).catch((error: unknown) => {
+            console.error(
+              JSON.stringify({
+                event: "auth_push_teardown_failed",
+                message: error instanceof Error ? error.message : String(error),
+              }),
+            );
           });
         }),
       },
@@ -427,6 +477,7 @@ const buildOptions = (env: AuthEnv) => {
       expoOAuthProxy(),
       bearer({ requireSignature: true }),
       revokedTokenFloor(env),
+      pushSignOutTeardown(env),
       oneTimeToken({ storeToken: "hashed", expiresIn: 3, disableClientRequest: true, setOttHeaderOnNewSession: true }),
       nativeOttRedirect(),
       anonymous({ emailDomainName: "anon.stella.local", disableDeleteAnonymousUser: true }),

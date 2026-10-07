@@ -2,7 +2,6 @@ import type {
   AppSourceCommit,
   AppSourceWaiting,
 } from "@stella/contracts/desktop/app-source";
-import { RefreshCw } from "@/ui/icons";
 import { useLocale, useT } from "@/shared/i18n";
 import {
   appSourceApi,
@@ -206,7 +205,6 @@ export function UpdatesSection() {
       <h2 className="updates-section__heading">{t("shell.appSource.updates.waiting")}</h2>
       {state.waiting.length === 0 ? (
         <div className="updates-section__quiet">
-          <RefreshCw size={14} strokeWidth={2} aria-hidden />
           {t("shell.appSource.updates.upToDate")}
         </div>
       ) : (

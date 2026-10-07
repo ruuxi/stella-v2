@@ -101,7 +101,6 @@ export type CloudTurnStartErrorCode =
   | "owner_purged"
   | "generation_stale"
   | "execution_unavailable"
-  /** Anonymous owners may not use this lane or helper; sign in to continue. */
   | "sign_in_required"
   /** The owner's enforcement status refuses service. */
   | "owner_suspended"

@@ -68,7 +68,6 @@ const ANSWER_TEXT_KEYS: Record<
   },
   signin: {
     done: "onboarding.chat.replies.signinDone",
-    skipped: "onboarding.chat.replies.signinSkipped",
   },
   theme: {
     done: "onboarding.chat.replies.themeDone",
@@ -211,6 +210,24 @@ export function useOnboardingChat({ onFinished }: UseOnboardingChatArgs) {
     [finish, progress, schedule, t],
   );
 
+  const skipToSignIn = useCallback(() => {
+    if (busyRef.current || finishedRef.current) return;
+    if (progress.step === "signin") return;
+    const answers: OnboardingChatProgress["answers"] = {};
+    for (const step of ONBOARDING_CHAT_STEPS) {
+      if (step === "signin") break;
+      answers[step] =
+        progress.answers[step] ??
+        (ANSWER_TEXT_KEYS[step].skipped ? "skipped" : "done");
+    }
+    const nextProgress: OnboardingChatProgress = { step: "signin", answers };
+    setProgress(nextProgress);
+    writeOnboardingChatProgress(nextProgress);
+    setTyping(false);
+    setHandoff(false);
+    setEntries(buildResumedEntries(nextProgress, t, false));
+  }, [progress, t]);
+
   const indicator = useMemo(
     () => ({ active: typing, handoff }),
     [handoff, typing],
@@ -224,5 +241,6 @@ export function useOnboardingChat({ onFinished }: UseOnboardingChatArgs) {
     exiting,
     answer,
     finish,
+    skipToSignIn,
   };
 }

@@ -13,6 +13,8 @@ import {
   type CSSProperties,
 } from "react";
 import { openSignInDialog } from "@/components/auth/sign-in-dialog";
+import { authClient } from "@/lib/auth-client";
+import { useDesktopBridgeAuthUser } from "@/lib/desktop-bridge-auth";
 
 type BillingPlan = "free" | "go" | "pro";
 type PaidBillingPlan = Exclude<BillingPlan, "free">;
@@ -37,24 +39,13 @@ type BillingUsage = {
   monthlyLimitUsd: number;
 };
 
-type BillingUsagePolicy =
-  | {
-      kind: "anonymous_requests";
-      requestLimit: number;
-      perIpRequestLimit: number;
-      resetAfterInactivityDays: number;
-    }
-  | { kind: "managed_cost" };
-
 type BillingStatus = {
   authenticated: boolean;
-  isAnonymous: boolean;
   plan: BillingPlan;
   subscriptionStatus: string;
   cancelAtPeriodEnd: boolean;
   currentPeriodEnd: number | null;
   usage: BillingUsage | null;
-  usagePolicy: BillingUsagePolicy;
   plans: Record<BillingPlan, BillingPlanConfig>;
 };
 
@@ -276,11 +267,19 @@ function BillingInteractive() {
 
   // The owner's billing ledger, live; the clock only re-renders labels.
   void billingNowMs;
+  const session = authClient.useSession();
+  const desktopUser = useDesktopBridgeAuthUser();
+  const sessionUser = (
+    session.data as { user?: { isAnonymous?: boolean | null } } | null | undefined
+  )?.user ?? desktopUser;
   const ledger = useBackendValue("billing.status", {});
   const billingStatus = ledger as BillingStatus | undefined;
+  const hasAccount = Boolean(
+    billingStatus?.authenticated && sessionUser?.isAnonymous !== true,
+  );
   const creditOptions: UsageCreditPurchaseOptions | undefined = ledger?.creditPurchase;
   const creditStatus: UsageCreditStatus | undefined = ledger
-    ? { authenticated: !ledger.isAnonymous, ...ledger.credits }
+    ? { authenticated: hasAccount, ...ledger.credits }
     : undefined;
   const startCheckout = useCallback(
     (args: { plan: PaidBillingPlan; returnUrl: string }): Promise<CheckoutSessionPayload> =>
@@ -301,10 +300,6 @@ function BillingInteractive() {
   const planCatalog = billingStatus?.plans;
   const currentPlan = billingStatus?.plan ?? "free";
   const usage = billingStatus?.usage;
-  const usagePolicy = billingStatus?.usagePolicy;
-  const hasAccount = Boolean(
-    billingStatus?.authenticated && !billingStatus.isAnonymous,
-  );
   const isLoadingStatus = billingStatus === undefined;
   // Once a user has any active paid plan, all plan changes (upgrade,
   // downgrade, cancel) must go through Stripe's Customer Portal — the
@@ -446,7 +441,7 @@ function BillingInteractive() {
   }, [hasAccount, openPortal]);
 
   const usageMeter: UsageMeter | null =
-    usage && planCatalog && usagePolicy?.kind === "managed_cost"
+    hasAccount && usage && planCatalog
       ? {
           percent: Math.max(
             toUsagePercent(usage.rollingUsedUsd, usage.rollingLimitUsd),
@@ -455,9 +450,6 @@ function BillingInteractive() {
           ),
         }
       : null;
-  const anonymousUsagePolicy =
-    usagePolicy?.kind === "anonymous_requests" ? usagePolicy : null;
-
   const renewalLabel = billingStatus?.cancelAtPeriodEnd
     ? "Cancellation pending"
     : "Next renewal";
@@ -536,14 +528,7 @@ function BillingInteractive() {
             ) : null}
           </div>
 
-          {anonymousUsagePolicy ? (
-            <div className="billing-anonymous-policy">
-              <div className="billing-status-meter-label">
-                <span>Anonymous preview</span>
-              </div>
-              <p>Sign in to continue with the Free plan.</p>
-            </div>
-          ) : usageMeter ? (
+          {usageMeter ? (
             <div className="billing-account-meters">
               <div className="billing-status-meter">
                 <div className="billing-status-meter-label">

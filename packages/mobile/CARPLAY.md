@@ -125,7 +125,7 @@ CarPlay does **not** work in Expo Go — it needs a dev/prebuild build.
    lands in **Recent replies**. Tap a reply row or **Read latest reply** to
    hear it again.
 
-   Make sure the app is signed in (or in guest mode) and AI consent + microphone
+   Make sure the app is signed in and AI consent + microphone
    permission have been granted once on the phone first — those prompts surface
    on the phone, not the car screen.
 

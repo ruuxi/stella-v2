@@ -17,7 +17,6 @@ export { toCapabilityAudience } from "@stella/contracts/capabilities";
 export type SubscriptionPlan = "free" | "go" | "pro";
 
 export type ManagedModelAudience =
-  | "anonymous"
   | "free"
   | "go"
   | "pro"
@@ -25,7 +24,6 @@ export type ManagedModelAudience =
   | "pro_fallback";
 
 const RESTRICTED_MODEL_OVERRIDE_AUDIENCES = new Set<ManagedModelAudience>([
-  "anonymous",
   "free",
   "go",
   "go_fallback",
@@ -39,7 +37,6 @@ export const isRestrictedModelOverrideAudience = (
   RESTRICTED_MODEL_OVERRIDE_AUDIENCES.has(audience);
 
 const PLAN_LABELS: Record<ManagedModelAudience, string> = {
-  anonymous: "Free",
   free: "Free",
   go: "Go",
   pro: "Pro",
@@ -50,21 +47,6 @@ const PLAN_LABELS: Record<ManagedModelAudience, string> = {
 export const getPlanLabel = (audience: ManagedModelAudience): string =>
   PLAN_LABELS[audience];
 
-/**
- * A signed-out user can't upgrade anything — they have to sign in first.
- * Everyone else is one Stripe checkout away. The same rule governs model
- * restrictions and capability restrictions, so both read it from here
- * rather than each growing its own copy.
- */
-export const getRestrictionActionKind = (
-  audience: ManagedModelAudience,
-): "sign-in" | "upgrade" => (audience === "anonymous" ? "sign-in" : "upgrade");
-
-export const getModelRestrictionActionLabel = (
-  audience: ManagedModelAudience,
-): string =>
-  getRestrictionActionKind(audience) === "sign-in" ? "Sign in" : "Upgrade";
-
 export const getModelRestrictionDescription = (args: {
   audience: ManagedModelAudience;
   modelLabel: string;
@@ -74,10 +56,6 @@ export const getModelRestrictionDescription = (args: {
     args.tense === "will"
       ? "Stella will use its recommended model."
       : "Stella is using its recommended model.";
-
-  if (args.audience === "anonymous") {
-    return `${args.modelLabel} is available after signing in and upgrading. ${recommendedPhrase}`;
-  }
 
   return `${args.modelLabel} isn't available on the ${getPlanLabel(args.audience)} plan. ${recommendedPhrase} Upgrade to switch models.`;
 };
@@ -102,7 +80,6 @@ type BillingUsage = {
 
 type ResolvableBillingStatus = {
   plan: SubscriptionPlan;
-  /** Null for anonymous owners, who have no spend windows. */
   usage: BillingUsage | null;
   authenticated?: boolean;
 };
@@ -116,7 +93,7 @@ const isUsageExceeded = (usage: BillingUsage | null): boolean =>
 /**
  * Resolves the desktop-side audience the same way the backend's
  * `resolveManagedModelAudience` does:
- * - signed-out → "anonymous"
+ * - signed-out → null (no Stella models until they sign in)
  * - free plan → "free"
  * - paid plan over usage cap → "{plan}_fallback"
  * - paid plan otherwise → plan id
@@ -129,10 +106,7 @@ export const resolveBillingAudience = (args: {
   hasConnectedAccount: boolean;
   billingStatus: ResolvableBillingStatus | undefined;
 }): ManagedModelAudience | null => {
-  if (!args.hasConnectedAccount) {
-    return "anonymous";
-  }
-  if (!args.billingStatus) {
+  if (!args.hasConnectedAccount || !args.billingStatus) {
     return null;
   }
   if (args.billingStatus.authenticated === false) {

@@ -9,7 +9,7 @@ import type { CloudExecutionSelection } from "../agent-engine.js";
  * and (for turns) the exact execution the turn was admitted with.
  *
  * cloud-builder signs every capability, inside the owner's Durable Object:
- *   - `session` capabilities for signed-in and anonymous desktop runtimes
+ *   - `session` capabilities for signed-in desktop runtimes
  *     (exchanged for a Better Auth JWT at the gateway);
  *   - `turn` capabilities for the turn it admitted, from its owner snapshot.
  *
@@ -34,7 +34,6 @@ export const GATEWAY_CAPABILITY_ALGORITHM = "ES256" as const;
 export type GatewayCapabilityKind = "session" | "turn";
 
 export const MANAGED_MODEL_AUDIENCES = [
-  "anonymous",
   "free",
   "go",
   "pro",
@@ -81,8 +80,6 @@ export type GatewayCapabilityClaims = {
   agentTypes?: string[];
   /** Total spend ceiling for the capability's lifetime, or GATEWAY_BUDGET_UNLIMITED. */
   budgetMicroCents: number;
-  /** Request-count ceiling. Used for anonymous trials; absent means unlimited. */
-  maxRequests?: number;
   /**
    * Session capabilities: base64url SHA-256 of the client's raw device public
    * key. Relay requests must carry a matching proof (see gateway/dpop.ts).

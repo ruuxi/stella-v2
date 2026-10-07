@@ -943,7 +943,7 @@ function DesktopAgentModelPicker({ active = true, onSelected, className, surface
         void Promise.all(jobs);
     }, [claudeCodeCatalog, claudeCodeSectionOpen, committedEngine, refresh]);
     /**
-     * On free / anonymous / Go plans the backend silently coerces any
+     * On free / Go plans the backend silently coerces any
      * non-default Stella-provider pick back to the recommended model.
      * Surface that up front by disabling those rows in the picker (the
      * default row + every BYOK provider stay enabled).

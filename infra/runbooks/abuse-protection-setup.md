@@ -31,8 +31,6 @@ Create a namespace with `bunx wrangler kv namespace create <BINDING> [--env <env
 
 What they hold: `OWNER_ENFORCEMENT` mirrors the suspend/throttle status that each owner's `OwnerGate` pushes to the gateway (`ModelGatewayControl.applyOwnerEnforcement`); you never write it by hand. `ASN_POLICY` is an optional override map, key = decimal ASN number, value = one of `hosting | vpn | residential | mobile | edu | unknown`; leave it empty unless the built-in classifier misclassifies a network.
 
-The gateway also uses Workers rate-limit namespaces `41011` (dev) and `41012` (prod) for `ANON_IP_LIMITER`.
-
 ## 2. Model gateway settings
 
 Run in `workers/model-gateway`, once without `--env` and once with `--env production`:
@@ -52,7 +50,7 @@ A new signing key pair comes from `bun scripts/generate-capability-keys.mjs <kid
 
 ## 3. Cloudflare Turnstile (web and desktop)
 
-Turnstile protects anonymous sign-in and magic link for the website, the embedded `/chat` app, and the Electron desktop app. Mobile does NOT use it (see section 6).
+Turnstile protects magic-link sign-in for the website, the embedded `/chat` app, and the Electron desktop app. Mobile does NOT use it (see section 6).
 
 1. Cloudflare dashboard → Turnstile → Add widget. Mode: **Managed**. Hostnames: the website host (e.g. `stella.sh`) and any preview hosts. The Electron app loads the hosted page `https://<website>/challenge`, so the website host covers desktop too.
 2. Copy the **site key** (public) and **secret key**.
@@ -70,8 +68,6 @@ Run in `workers/cloud-builder`: `bunx wrangler secret put NAME` (dev) and `bunx 
 
 | Variable | Purpose |
 | --- | --- |
-| `STELLA_ANON_LIFETIME_LIMIT_USD` | Total managed-model spend an anonymous owner may ever have (suggested `0.10`) |
-| `STELLA_ANON_MAX_REQUESTS` | Lifetime request count per anonymous owner (suggested `25`) |
 | `STELLA_FREE_ROLLING_LIMIT_USD`, `STELLA_FREE_ROLLING_WINDOW_HOURS`, `STELLA_FREE_WEEKLY_LIMIT_USD`, `STELLA_FREE_MONTHLY_LIMIT_USD` | Free plan windows |
 | `STELLA_ADMIN_API_SECRET` | Bearer for the `/api/admin/*` routes |
 
@@ -81,10 +77,6 @@ The rest of the plan catalog (paid prices, Stripe ids) is listed in the header o
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `STELLA_ANON_ROLLING_LIMIT_USD`, `STELLA_ANON_WEEKLY_LIMIT_USD`, `STELLA_ANON_MONTHLY_LIMIT_USD` | = lifetime value | Anonymous windows |
-| `STELLA_ANON_ROLLING_WINDOW_HOURS` | `5` | Anonymous rolling window |
-| `STELLA_ANON_MAX_REQUESTS_PER_IP` | 10 × per-owner | Anonymous requests per network bucket |
-| `STELLA_TIER_CEILING_ANON_HOURLY_USD` / `STELLA_TIER_CEILING_ANON_DAILY_USD` | `20` / `200` | Global anonymous spend breakers (`billing/control.ts`) |
 | `STELLA_TIER_CEILING_FREE_HOURLY_USD` / `STELLA_TIER_CEILING_FREE_DAILY_USD` | `100` / `1000` | Global Free spend breakers |
 | `STELLA_FREE_EMAIL_ALLOWANCE_SHARE` | `0.4` | Share of the Free allowance for email-only (magic link) accounts; Google/Apple accounts get 1.0 |
 | `STELLA_TEST_ACCOUNTS` | unset = disabled | `1` (a dev `var`) enables admin-minted `@test.stella.local` sessions; never set it on production |
@@ -98,7 +90,7 @@ The rest of the plan catalog (paid prices, Stripe ids) is listed in the header o
 
 ### 4.3 Recommended per deployment
 
-Dev: `STELLA_APP_INTEGRITY_MODE=off`; leave `TURNSTILE_SECRET_KEY` unset unless testing Turnstile (with it unset, step-up challenges are skipped too, since nothing could answer them; suspension and sign-in requirements still apply); set the required values in 4.1.
+Dev: `STELLA_APP_INTEGRITY_MODE=off`; leave `TURNSTILE_SECRET_KEY` unset unless testing Turnstile (with it unset, step-up challenges are skipped too, since nothing could answer them; suspension still applies); set the required values in 4.1.
 
 Production: set `TURNSTILE_SECRET_KEY`, `APPLE_APP_ATTEST_TEAM_ID`, `GOOGLE_PLAY_INTEGRITY_SERVICE_ACCOUNT_JSON` together. With only one of Turnstile or app integrity configured, the server refuses account creation from the other platform's clients (a web request must carry a Turnstile token, a mobile request must carry an integrity proof, and there is no third option in enforce mode).
 
@@ -112,7 +104,7 @@ Production: set `TURNSTILE_SECRET_KEY`, `APPLE_APP_ATTEST_TEAM_ID`, `GOOGLE_PLAY
 
 ## 6. Mobile app integrity (Apple App Attest, Google Play Integrity)
 
-The mobile app never uses Turnstile. It proves it is Stella's unmodified app on a real device on anonymous ("guest") sign-in and magic link. Server code: `workers/cloud-builder/src/auth/integrity.ts`. Client: `packages/mobile/src/lib/app-integrity.ts` using `@expo/app-integrity` 57.0.1.
+The mobile app never uses Turnstile. It proves it is Stella's unmodified app on a real device on magic-link sign-in. Server code: `workers/cloud-builder/src/auth/integrity.ts`. Client: `packages/mobile/src/lib/app-integrity.ts` using `@expo/app-integrity` 57.0.1.
 
 ### 6.1 Apple
 
@@ -133,13 +125,13 @@ The mobile app never uses Turnstile. It proves it is Stella's unmodified app on 
 
 ### 6.3 Behaviour to expect
 
-- iOS Simulator and Android emulators cannot produce proofs. On the dev deployment `STELLA_APP_INTEGRITY_MODE=off` accepts sign-ins without a proof (logged once). Production enforces, so simulators cannot create guest accounts against prod.
+- iOS Simulator and Android emulators cannot produce proofs. On the dev deployment `STELLA_APP_INTEGRITY_MODE=off` accepts sign-ins without a proof (logged once). Production enforces, so simulators cannot send magic links against prod.
 - First sign-in on a device attests a new App Attest key (stored server-side in `app_attest_keys`); later sign-ins send assertions with an increasing counter. If the server loses the key the client re-attests automatically (`integrity_key_unknown`).
-- Nonces come from `POST {backend}/api/auth/integrity/challenge` (`{ "purpose": "anonymous-sign-in" | "magic-link" }`), last 5 minutes, and are single-use.
+- Nonces come from `POST {backend}/api/auth/integrity/challenge` (`{ "purpose": "magic-link" }`), last 5 minutes, and are single-use.
 
 ## 7. Cloudflare zone hardening (recommended, not code)
 
-Both Workers are on `workers.dev`, so zone-level WAF, Bot Fight Mode, and rate-limiting rules currently protect nothing. Recommended: custom domains on the Stella zone for the two Workers (wrangler `routes` with `custom_domain: true`), then enable Bot Fight Mode and add a rate-limiting rule on `/api/auth/sign-in/anonymous`. This requires DNS changes and is the maintainer's call.
+Both Workers are on `workers.dev`, so zone-level WAF, Bot Fight Mode, and rate-limiting rules currently protect nothing. Recommended: custom domains on the Stella zone for the two Workers (wrangler `routes` with `custom_domain: true`), then enable Bot Fight Mode and add a rate-limiting rule on `/api/auth/sign-in/magic-link`. This requires DNS changes and is the maintainer's call.
 
 ## 8. Verification after setup
 
@@ -159,10 +151,10 @@ curl -s -X POST -H "authorization: Bearer $ADMIN" -H "content-type: application/
 curl -s -H "authorization: Bearer $ADMIN" "$BACKEND/api/admin/owners/top?limit=20"
 
 # App-integrity challenge issues a nonce
-curl -s -X POST -H "content-type: application/json" -d '{"purpose":"anonymous-sign-in"}' "$BACKEND/api/auth/integrity/challenge"
+curl -s -X POST -H "content-type: application/json" -d '{"purpose":"magic-link"}' "$BACKEND/api/auth/integrity/challenge"
 ```
 
-Expected client behaviour once everything is set: website and desktop anonymous sign-in show a Turnstile widget (usually invisible); mobile guest sign-in on a real device succeeds with no visible step; a curl to `/api/auth/sign-in/anonymous` without a token or proof is refused with `integrity_required`.
+Expected client behaviour once everything is set: website and desktop magic-link sign-in show a Turnstile widget (usually invisible); mobile magic-link sign-in on a real device succeeds with no visible step; a curl to `/api/auth/sign-in/magic-link` without a token or proof is refused with `integrity_required`.
 
 ## 9. Things intentionally not done in code
 

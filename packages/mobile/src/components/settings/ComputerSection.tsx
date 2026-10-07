@@ -184,7 +184,7 @@ export function ComputerSection({
     );
   };
 
-  // Nothing to show until the chat has resolved its access (or for a guest).
+  // Nothing to show until the chat has resolved its access (or while signed out).
   if (!control && !signedIn) return null;
 
   const target = control?.executionTarget ?? { mode: "cloud" as const };

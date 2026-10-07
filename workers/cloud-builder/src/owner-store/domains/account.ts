@@ -7,8 +7,8 @@
  *   reopens the owner when nothing is pending.
  * - **Closed.** Account deletion (`OwnerGate.closeOwner`) closes the owner for
  *   good and runs the same job in delete mode.
- * - **Identity.** Whether the owner is anonymous and its identity level, as
- *   the caller's last verified token said.
+ * - **Identity.** The owner's identity level, as the caller's last verified
+ *   token said.
  * - **Session revocation.** `account.sessionsRevoked` records a floor; tokens
  *   issued before it are refused (their 15-minute expiry bounds the rest).
  */
@@ -44,7 +44,6 @@ export type OwnerState = {
   generation: string;
   writable: boolean;
   closed: boolean;
-  isAnonymous: boolean;
   identityLevel: IdentityLevel;
   minIatMs: number;
   purge: { requestId: string; mode: OwnerPurgeMode } | null;
@@ -64,13 +63,13 @@ type OwnerStateRow = {
 const toIdentityLevel = (value: unknown): IdentityLevel =>
   value === 1 || value === 2 || value === 3 ? value : 0;
 
-/** The owner's state, created on first read: a fresh generation, writable, anonymous until a caller says otherwise. */
+/** The owner's state, created on first read: a fresh generation, writable. */
 export const readOwnerState = (db: OwnerDb): OwnerState => {
   let row = db.one<OwnerStateRow>("SELECT * FROM owner_state WHERE id = 1");
   if (!row) {
     db.run(
       `INSERT INTO owner_state (id, generation, writable, closed, is_anonymous, identity_level, min_iat_ms)
-       VALUES (1, ?, 1, 0, 1, 0, 0)`,
+       VALUES (1, ?, 1, 0, 0, 0, 0)`,
       crypto.randomUUID(),
     );
     row = db.one<OwnerStateRow>("SELECT * FROM owner_state WHERE id = 1")!;
@@ -79,7 +78,6 @@ export const readOwnerState = (db: OwnerDb): OwnerState => {
     generation: row.generation,
     writable: row.writable === 1,
     closed: row.closed === 1,
-    isAnonymous: row.is_anonymous === 1,
     identityLevel: toIdentityLevel(row.identity_level),
     minIatMs: row.min_iat_ms,
     purge:
@@ -92,16 +90,12 @@ export const readOwnerState = (db: OwnerDb): OwnerState => {
 /** Record who the caller's verified token says the owner is. */
 export const noteCallerIdentity = (
   db: OwnerDb,
-  caller: { isAnonymous: boolean; identityLevel?: IdentityLevel },
+  caller: { identityLevel?: IdentityLevel },
 ): void => {
   const state = readOwnerState(db);
-  const identityLevel = caller.isAnonymous ? 0 : (caller.identityLevel ?? Math.max(1, state.identityLevel));
-  if (state.isAnonymous === caller.isAnonymous && state.identityLevel === identityLevel) return;
-  db.run(
-    "UPDATE owner_state SET is_anonymous = ?, identity_level = ? WHERE id = 1",
-    caller.isAnonymous ? 1 : 0,
-    identityLevel,
-  );
+  const identityLevel = caller.identityLevel ?? Math.max(1, state.identityLevel);
+  if (state.identityLevel === identityLevel) return;
+  db.run("UPDATE owner_state SET is_anonymous = 0, identity_level = ? WHERE id = 1", identityLevel);
 };
 
 /** True when the caller's token predates the owner's last sign-out-everywhere. */
@@ -182,7 +176,6 @@ export const accountDomain: OwnerDomain = {
   calls: {
     "account.reset": {
       scope: "owner",
-      requireAccount: true,
       parse: empty(),
       handler: resetAccount,
     },

@@ -1728,6 +1728,7 @@
         "fromOtherComputers": "Wijzigingen van je andere computer",
         "readyChange": "Een wijziging klaar om toe te voegen",
         "add": "Toevoegen",
+        "get": "Ophalen",
         "adding": "Toevoegen…",
         "skip": "Overslaan",
         "undoing": "Ongedaan maken…",
@@ -1735,6 +1736,7 @@
         "justNow": "Zojuist",
         "waiting": "Wachtend",
         "history": "Geschiedenis",
+        "skipped": "Overgeslagen",
         "upToDate": "Niets in afwachting"
       }
     },
@@ -2136,7 +2138,6 @@
         "computerDone": "Verbonden!",
         "computerSkipped": "Misschien later.",
         "accountDone": "Alles klaar.",
-        "accountSkipped": "Nu even niet.",
         "themeDone": "Deze.",
         "themeSkipped": "Houd de standaard."
       },
@@ -2285,10 +2286,7 @@
         "connect": "Koppelen",
         "connectLabel": "{name} koppelen",
         "connectedAs": "Gekoppeld · {name}",
-        "skip": "Nu even niet",
-        "settledSignedIn": "Ingelogd",
-        "settledGuest": "Stella gebruiken als gast",
-        "guestSettled": "Log op elk moment in via Instellingen"
+        "settledSignedIn": "Ingelogd"
       },
       "theme": {
         "appearance": "Weergave",
@@ -2347,8 +2345,7 @@
       "legalTerms": "Voorwaarden",
       "legalConjunction": " en ons ",
       "legalPrivacy": "Privacybeleid",
-      "legalSuffix": ".",
-      "continueAsGuest": "Doorgaan zonder in te loggen"
+      "legalSuffix": "."
     },
     "chat": {
       "emptyPrompt": "Vraag Stella wat je wilt",
@@ -2414,8 +2411,6 @@
       }
     },
     "computer": {
-      "guestHeroTitle": "Je computer binnen handbereik",
-      "guestHeroBody": "Vraag Stella om dingen te doen op je computer — het web verkennen, bestanden beheren, taken uitvoeren en meer.",
       "defaultDeviceLabel": "Je computer",
       "statusChecking": "Controleren…",
       "statusConnected": "Verbonden",
@@ -2427,8 +2422,6 @@
     },
     "desktop": {
       "pairTitle": "Koppel je telefoon",
-      "guestBody": "Bekijk je Stella-desktopapp gewoon op je telefoon. Na het koppelen maakt je telefoon automatisch opnieuw verbinding.",
-      "guestSignInPrompt": "Log in om te beginnen.",
       "connecting": "Verbinden met desktop",
       "pairing": "Deze telefoon koppelen",
       "unreachable": "Kan je desktop niet bereiken",

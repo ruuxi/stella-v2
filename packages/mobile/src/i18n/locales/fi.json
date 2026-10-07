@@ -1728,6 +1728,7 @@
         "fromOtherComputers": "Muutoksia toiselta tietokoneeltasi",
         "readyChange": "Lisättävä muutos",
         "add": "Lisää",
+        "get": "Hae",
         "adding": "Lisätään…",
         "skip": "Ohita",
         "undoing": "Kumotaan…",
@@ -1735,6 +1736,7 @@
         "justNow": "Juuri nyt",
         "waiting": "Odottaa",
         "history": "Historia",
+        "skipped": "Ohitetut",
         "upToDate": "Mitään ei odota"
       }
     },
@@ -2136,7 +2138,6 @@
         "computerDone": "Yhdistetty!",
         "computerSkipped": "Ehkä myöhemmin.",
         "accountDone": "Valmista.",
-        "accountSkipped": "Ohita toistaiseksi.",
         "themeDone": "Tämä.",
         "themeSkipped": "Pidä oletus."
       },
@@ -2285,10 +2286,7 @@
         "connect": "Yhdistä",
         "connectLabel": "Yhdistä {name}",
         "connectedAs": "Yhdistetty · {name}",
-        "skip": "Ohita toistaiseksi",
-        "settledSignedIn": "Kirjautunut sisään",
-        "settledGuest": "Stellaa käytetään vieraana",
-        "guestSettled": "Kirjaudu sisään milloin tahansa asetuksista"
+        "settledSignedIn": "Kirjautunut sisään"
       },
       "theme": {
         "appearance": "Ulkoasu",
@@ -2347,8 +2345,7 @@
       "legalTerms": "käyttöehdot",
       "legalConjunction": " ja ",
       "legalPrivacy": "tietosuojakäytännön",
-      "legalSuffix": ".",
-      "continueAsGuest": "Jatka kirjautumatta sisään"
+      "legalSuffix": "."
     },
     "chat": {
       "emptyPrompt": "Kysy Stellalta mitä tahansa",
@@ -2414,8 +2411,6 @@
       }
     },
     "computer": {
-      "guestHeroTitle": "Tietokoneesi sormenpäissäsi",
-      "guestHeroBody": "Pyydä Stellaa tekemään asioita tietokoneellasi — selaamaan verkkoa, hallitsemaan tiedostoja, suorittamaan tehtäviä ja paljon muuta.",
       "defaultDeviceLabel": "Tietokoneesi",
       "statusChecking": "Tarkistetaan…",
       "statusConnected": "Yhdistetty",
@@ -2427,8 +2422,6 @@
     },
     "desktop": {
       "pairTitle": "Pariliitä puhelimesi",
-      "guestBody": "Näe Stellan työpöytäsovellus suoraan puhelimessasi. Pariliitoksen jälkeen puhelin yhdistää uudelleen automaattisesti.",
-      "guestSignInPrompt": "Kirjaudu sisään päästäksesi alkuun.",
       "connecting": "Yhdistetään työpöytään",
       "pairing": "Pariliitetään tätä puhelinta",
       "unreachable": "Työpöytää ei tavoiteta",

@@ -16,7 +16,6 @@ import type { GatewaySessionCapabilityResponse } from "@stella/contracts/gateway
 import type { RpcResponse } from "@stella/contracts/backend/protocol";
 import { dollarsToMicroCents } from "@stella/model-catalog/pricing";
 import { readManagedModelPrices } from "../catalog/prices.js";
-import { billingConfig } from "./plans.js";
 
 /** A breaker in USD from the Worker's env, -1 meaning none; else the default. */
 const tierCeilingMicroCents = (env: Env, name: string, defaultUsd: number): number => {
@@ -60,20 +59,10 @@ export class BillingControl extends WorkerEntrypoint<Env> implements BillingCont
    */
   async gatewayConfig(): Promise<GatewayConfigSnapshot> {
     const { prices, updatedAt } = await readManagedModelPrices(this.env);
-    const config = billingConfig(this.env);
     return {
       v: 1,
       prices,
-      anonymous: {
-        maxRequestsPerOwner: config.anonymousMaxRequests,
-        maxRequestsPerIp: config.anonymousMaxRequestsPerIp,
-      },
       tierCeilings: [
-        {
-          audience: "anonymous",
-          hourlyMicroCents: tierCeilingMicroCents(this.env, "STELLA_TIER_CEILING_ANON_HOURLY_USD", 20),
-          dailyMicroCents: tierCeilingMicroCents(this.env, "STELLA_TIER_CEILING_ANON_DAILY_USD", 200),
-        },
         {
           audience: "free",
           hourlyMicroCents: tierCeilingMicroCents(this.env, "STELLA_TIER_CEILING_FREE_HOURLY_USD", 100),

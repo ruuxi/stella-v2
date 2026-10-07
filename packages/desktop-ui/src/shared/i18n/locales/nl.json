@@ -773,8 +773,7 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Heel cool.",
-        "signinDone": "Klaar.",
-        "signinSkipped": "Ik doe het later."
+        "signinDone": "Klaar."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -924,7 +923,7 @@
       },
       "signin": {
         "title": "Inloggen",
-        "body": "Eén van deze is genoeg. De rest kun je later toevoegen.",
+        "body": "Log in met een Stella-account om te beginnen. Je kunt ook je Claude- of ChatGPT-abonnement toevoegen.",
         "options": {
           "stella": {
             "title": "Stella-account",
@@ -946,11 +945,9 @@
         "waiting": "Rond het inloggen af in je browser en kom dan hier terug.",
         "error": "Dat is niet gelukt. Opnieuw proberen?",
         "fine": "Wijzig dit op elk moment in Instellingen.",
-        "skip": "Niet nu",
         "hint": "Gratis om mee te beginnen.",
         "settledEngine": "{name} in gebruik",
         "settledStella": "Ingelogd bij Stella",
-        "settledSkipped": "Nog niet ingelogd",
         "settledDesc": "Wijzig het op elk moment in Instellingen.",
         "claudeCliMissing": "Installeer eerst Claude Code en probeer het daarna opnieuw."
       },
@@ -1000,7 +997,6 @@
     },
     "capabilityRestriction": {
       "title": "{capability} zit niet in je abonnement",
-      "signIn": "{capability} hoort bij Stella {plan}. Log in en upgrade om deze functie te ontgrendelen.",
       "upgrade": "{capability} hoort bij Stella {plan}. Upgrade om deze functie te ontgrendelen.",
       "unavailable": "{capability} is momenteel in geen enkel abonnement beschikbaar.",
       "lockedBadge": "{plan}",
@@ -1990,7 +1986,6 @@
       "sendFailed": "Versturen van de inlogmail mislukt.",
       "magicLinkFailed": "Versturen van de magic link mislukt.",
       "finishFailed": "Kon het inloggen niet afronden. Probeer het opnieuw.",
-      "signInIncomplete": "Inloggen niet voltooid. Probeer het opnieuw.",
       "signInLinkExpired": "Inloglink is verlopen. Probeer het opnieuw.",
       "tooManyRequests": {
         "one": "Te veel verzoeken. Probeer het over {count} seconde opnieuw.",
@@ -2138,7 +2133,6 @@
         "computerDone": "Verbonden!",
         "computerSkipped": "Misschien later.",
         "accountDone": "Alles klaar.",
-        "accountSkipped": "Nu even niet.",
         "themeDone": "Deze.",
         "themeSkipped": "Houd de standaard."
       },
@@ -2287,10 +2281,7 @@
         "connect": "Koppelen",
         "connectLabel": "{name} koppelen",
         "connectedAs": "Gekoppeld · {name}",
-        "skip": "Nu even niet",
-        "settledSignedIn": "Ingelogd",
-        "settledGuest": "Stella gebruiken als gast",
-        "guestSettled": "Log op elk moment in via Instellingen"
+        "settledSignedIn": "Ingelogd"
       },
       "theme": {
         "appearance": "Weergave",
@@ -2349,8 +2340,7 @@
       "legalTerms": "Voorwaarden",
       "legalConjunction": " en ons ",
       "legalPrivacy": "Privacybeleid",
-      "legalSuffix": ".",
-      "continueAsGuest": "Doorgaan zonder in te loggen"
+      "legalSuffix": "."
     },
     "chat": {
       "emptyPrompt": "Vraag Stella wat je wilt",
@@ -2416,8 +2406,6 @@
       }
     },
     "computer": {
-      "guestHeroTitle": "Je computer binnen handbereik",
-      "guestHeroBody": "Vraag Stella om dingen te doen op je computer — het web verkennen, bestanden beheren, taken uitvoeren en meer.",
       "defaultDeviceLabel": "Je computer",
       "statusChecking": "Controleren…",
       "statusConnected": "Verbonden",
@@ -2429,8 +2417,6 @@
     },
     "desktop": {
       "pairTitle": "Koppel je telefoon",
-      "guestBody": "Bekijk je Stella-desktopapp gewoon op je telefoon. Na het koppelen maakt je telefoon automatisch opnieuw verbinding.",
-      "guestSignInPrompt": "Log in om te beginnen.",
       "connecting": "Verbinden met desktop",
       "pairing": "Deze telefoon koppelen",
       "unreachable": "Kan je desktop niet bereiken",

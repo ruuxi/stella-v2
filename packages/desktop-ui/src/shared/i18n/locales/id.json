@@ -772,8 +772,7 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Keren sekali.",
-        "signinDone": "Selesai.",
-        "signinSkipped": "Saya akan melakukannya nanti."
+        "signinDone": "Selesai."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -923,7 +922,7 @@
       },
       "signin": {
         "title": "Masuk",
-        "body": "Salah satunya sudah cukup. Anda bisa menambahkan yang lain nanti.",
+        "body": "Masuk dengan akun Stella untuk memulai. Anda juga bisa menambahkan paket Claude atau ChatGPT Anda.",
         "options": {
           "stella": {
             "title": "Akun Stella",
@@ -945,11 +944,9 @@
         "waiting": "Selesaikan proses masuk di browser Anda, lalu kembali ke sini.",
         "error": "Tidak tersambung. Coba lagi?",
         "fine": "Ubah kapan saja di Pengaturan.",
-        "skip": "Nanti saja",
         "hint": "Gratis untuk memulai.",
         "settledEngine": "Menggunakan {name}",
         "settledStella": "Sudah masuk ke Stella",
-        "settledSkipped": "Belum masuk",
         "settledDesc": "Ubah kapan saja di Pengaturan.",
         "claudeCliMissing": "Pasang Claude Code terlebih dahulu, lalu coba lagi."
       },
@@ -999,7 +996,6 @@
     },
     "capabilityRestriction": {
       "title": "{capability} tidak ada di paket Anda",
-      "signIn": "{capability} termasuk dalam Stella {plan}. Masuk untuk meningkatkan paket dan membuka fitur ini.",
       "upgrade": "{capability} termasuk dalam Stella {plan}. Tingkatkan paket untuk membuka fitur ini.",
       "unavailable": "{capability} belum tersedia di paket mana pun saat ini.",
       "lockedBadge": "{plan}",
@@ -1971,7 +1967,6 @@
       "sendFailed": "Gagal mengirim email masuk.",
       "magicLinkFailed": "Gagal mengirim magic link.",
       "finishFailed": "Tidak dapat menyelesaikan proses masuk. Silakan coba lagi.",
-      "signInIncomplete": "Proses masuk belum selesai. Silakan coba lagi.",
       "signInLinkExpired": "Tautan masuk sudah kedaluwarsa. Silakan coba lagi.",
       "tooManyRequests": {
         "other": "Terlalu banyak permintaan. Coba lagi dalam {count} detik."
@@ -2117,7 +2112,6 @@
         "computerDone": "Terhubung!",
         "computerSkipped": "Nanti saja.",
         "accountDone": "Sudah siap.",
-        "accountSkipped": "Lewati dulu.",
         "themeDone": "Yang itu.",
         "themeSkipped": "Pakai bawaan."
       },
@@ -2266,10 +2260,7 @@
         "connect": "Hubungkan",
         "connectLabel": "Hubungkan {name}",
         "connectedAs": "Terhubung · {name}",
-        "skip": "Lewati dulu",
-        "settledSignedIn": "Sudah masuk",
-        "settledGuest": "Memakai Stella sebagai tamu",
-        "guestSettled": "Masuk kapan saja dari Pengaturan"
+        "settledSignedIn": "Sudah masuk"
       },
       "theme": {
         "appearance": "Tampilan",
@@ -2328,8 +2319,7 @@
       "legalTerms": "Ketentuan Layanan",
       "legalConjunction": " dan ",
       "legalPrivacy": "Kebijakan Privasi",
-      "legalSuffix": " kami.",
-      "continueAsGuest": "Lanjutkan tanpa masuk"
+      "legalSuffix": " kami."
     },
     "chat": {
       "emptyPrompt": "Tanya Stella apa saja",
@@ -2394,8 +2384,6 @@
       }
     },
     "computer": {
-      "guestHeroTitle": "Komputer Anda, dalam genggaman",
-      "guestHeroBody": "Minta Stella melakukan berbagai hal di komputer Anda — menjelajah web, mengelola berkas, menjalankan tugas, dan lainnya.",
       "defaultDeviceLabel": "Komputer Anda",
       "statusChecking": "Memeriksa…",
       "statusConnected": "Terhubung",
@@ -2407,8 +2395,6 @@
     },
     "desktop": {
       "pairTitle": "Pasangkan ponsel Anda",
-      "guestBody": "Lihat aplikasi desktop Stella langsung di ponsel Anda. Setelah dipasangkan, ponsel Anda akan terhubung kembali secara otomatis.",
-      "guestSignInPrompt": "Masuk untuk memulai.",
       "connecting": "Menghubungkan ke desktop",
       "pairing": "Memasangkan ponsel ini",
       "unreachable": "Tidak bisa menjangkau desktop Anda",

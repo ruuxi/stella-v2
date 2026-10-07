@@ -772,8 +772,7 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "太酷了。",
-        "signinDone": "好了。",
-        "signinSkipped": "我稍后再做。"
+        "signinDone": "好了。"
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -923,7 +922,7 @@
       },
       "signin": {
         "title": "登录",
-        "body": "任选其一就够了。其他的以后再添加。",
+        "body": "使用 Stella 账号登录即可开始。你也可以添加自己的 Claude 或 ChatGPT 套餐。",
         "options": {
           "stella": {
             "title": "Stella 账号",
@@ -945,11 +944,9 @@
         "waiting": "请在浏览器中完成登录，然后回到这里。",
         "error": "没能连接上。再试一次？",
         "fine": "随时可以在“设置”中更改。",
-        "skip": "暂不",
         "hint": "免费开始。",
         "settledEngine": "正在使用 {name}",
         "settledStella": "已登录 Stella",
-        "settledSkipped": "尚未登录",
         "settledDesc": "随时可以在“设置”中更改。",
         "claudeCliMissing": "请先安装 Claude Code，然后重试。"
       },
@@ -999,7 +996,6 @@
     },
     "capabilityRestriction": {
       "title": "你的套餐不包含{capability}",
-      "signIn": "{capability}包含在 Stella {plan} 套餐中。登录并升级即可解锁。",
       "upgrade": "{capability}包含在 Stella {plan} 套餐中。升级即可解锁。",
       "unavailable": "目前没有任何套餐提供{capability}。",
       "lockedBadge": "{plan}",
@@ -1971,7 +1967,6 @@
       "sendFailed": "发送登录邮件失败。",
       "magicLinkFailed": "发送魔法链接失败。",
       "finishFailed": "无法完成登录。请重试。",
-      "signInIncomplete": "登录未完成。请重试。",
       "signInLinkExpired": "登录链接已过期。请重试。",
       "tooManyRequests": {
         "other": "请求过于频繁。请在 {count} 秒后重试。"
@@ -2117,7 +2112,6 @@
         "computerDone": "已连接！",
         "computerSkipped": "以后再说。",
         "accountDone": "搞定。",
-        "accountSkipped": "暂时跳过。",
         "themeDone": "就这个。",
         "themeSkipped": "保持默认。"
       },
@@ -2266,10 +2260,7 @@
         "connect": "连接",
         "connectLabel": "连接 {name}",
         "connectedAs": "已连接 · {name}",
-        "skip": "暂时跳过",
-        "settledSignedIn": "已登录",
-        "settledGuest": "正以访客身份使用 Stella",
-        "guestSettled": "随时可在设置中登录"
+        "settledSignedIn": "已登录"
       },
       "theme": {
         "appearance": "外观",
@@ -2328,8 +2319,7 @@
       "legalTerms": "服务条款",
       "legalConjunction": "和",
       "legalPrivacy": "隐私政策",
-      "legalSuffix": "。",
-      "continueAsGuest": "不登录继续"
+      "legalSuffix": "。"
     },
     "chat": {
       "emptyPrompt": "随便问 Stella",
@@ -2394,8 +2384,6 @@
       }
     },
     "computer": {
-      "guestHeroTitle": "您的电脑，触手可及",
-      "guestHeroBody": "让 Stella 在您的电脑上做事 —— 浏览网页、整理文件、执行任务等等。",
       "defaultDeviceLabel": "您的电脑",
       "statusChecking": "检查中…",
       "statusConnected": "已连接",
@@ -2407,8 +2395,6 @@
     },
     "desktop": {
       "pairTitle": "配对您的手机",
-      "guestBody": "在手机上直接查看您的 Stella 桌面应用。配对后，手机会自动重新连接。",
-      "guestSignInPrompt": "登录即可开始。",
       "connecting": "正在连接桌面端",
       "pairing": "正在配对这台手机",
       "unreachable": "无法连接您的桌面端",

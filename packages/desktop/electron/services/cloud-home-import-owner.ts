@@ -102,7 +102,7 @@ export const getLocalCloudHomeImportOwnership = async (
   try {
     digest = accountScopeDigest(accountScope);
   } catch {
-    return "anonymous";
+    return "signed_out";
   }
   const marker = await readMarkerDigest(stellaDataDir);
   if (marker === "unclaimed" || marker === "corrupt") return marker;

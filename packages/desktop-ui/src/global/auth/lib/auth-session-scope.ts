@@ -2,7 +2,6 @@ export type AuthSessionScopeData =
   | {
       user?: {
         id?: string | null;
-        isAnonymous?: boolean | null;
       } | null;
       session?: {
         id?: string | null;
@@ -22,9 +21,7 @@ export const resolveAuthSessionCacheScope = (
   if (!sessionData) return "signed-out";
   const userId = sessionData.user?.id?.trim();
   const fallbackSessionId = sessionData.session?.id?.trim() || "unknown";
-  return sessionData.user?.isAnonymous === true
-    ? `anonymous:${userId || fallbackSessionId}`
-    : `account:${userId || fallbackSessionId}`;
+  return `account:${userId || fallbackSessionId}`;
 };
 
 export const advanceAuthIdentityRevision = (args: {

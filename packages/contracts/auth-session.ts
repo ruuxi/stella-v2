@@ -1,4 +1,6 @@
-export type AuthIdentityIntent = "anonymous" | "connected";
+export type AuthIdentityIntent = "connected";
+
+export type SignedOutReason = "first_install" | "explicit_sign_out";
 
 export type AuthSessionError = {
   kind: "network" | "http" | "malformed" | "ipc";
@@ -27,9 +29,9 @@ export type AuthSessionSnapshot<Session = unknown> =
       reason: "credential_missing" | "session_rejected";
     }
   | {
-      status: "anonymous_required";
-      identityIntent: "anonymous" | null;
-      reason: "first_install" | "explicit_sign_out" | "anonymous_rejected";
+      status: "signed_out";
+      identityIntent: null;
+      reason: SignedOutReason;
     };
 
 export type AuthSessionObservation<Session = unknown> =
@@ -54,17 +56,28 @@ export const isRecognizedAuthRejection = (args: {
   args.status === 401 &&
   Boolean(args.code && INVALID_SESSION_CODES.has(args.code.toUpperCase()));
 
+/**
+ * A session created by the retired anonymous sign-in. It is never a usable
+ * identity; its credential is kept only so a sign-in can upgrade that user
+ * in place and keep their history.
+ */
+export const isLegacyAnonymousSession = (session: unknown): boolean => {
+  if (!session || typeof session !== "object") return false;
+  const user = (session as { user?: unknown }).user;
+  if (!user || typeof user !== "object") return false;
+  return (user as { isAnonymous?: unknown }).isAnonymous === true;
+};
+
 export const getAuthSessionIdentityIntent = (
   session: unknown,
 ): AuthIdentityIntent | null => {
   if (!session || typeof session !== "object") return null;
+  if (isLegacyAnonymousSession(session)) return null;
   const user = (session as { user?: unknown }).user;
   if (!user || typeof user !== "object") return null;
   const id = (user as { id?: unknown }).id;
   if (typeof id !== "string" || !id.trim()) return null;
-  return (user as { isAnonymous?: unknown }).isAnonymous === true
-    ? "anonymous"
-    : "connected";
+  return "connected";
 };
 
 export const getAuthSnapshotSession = <Session>(
@@ -76,25 +89,30 @@ export const getAuthSnapshotSession = <Session>(
     case "unknown":
     case "reauth_required":
       return snapshot.staleSession;
-    case "anonymous_required":
+    case "signed_out":
       return null;
   }
 };
 
-export const canBootstrapAnonymous = (snapshot: AuthSessionSnapshot): boolean =>
-  snapshot.status === "anonymous_required";
+const signedOut = <Session>(
+  reason: SignedOutReason,
+): AuthSessionSnapshot<Session> => ({
+  status: "signed_out",
+  identityIntent: null,
+  reason,
+});
 
 export const resolveAuthSessionObservation = <Session>(args: {
   observation: AuthSessionObservation<Session>;
   identityIntent: AuthIdentityIntent | null;
   staleSession: Session | null;
-  anonymousReason?:
-    | "first_install"
-    | "explicit_sign_out"
-    | "anonymous_rejected";
+  signedOutReason?: SignedOutReason;
 }): AuthSessionSnapshot<Session> => {
   const { observation, staleSession } = args;
   if (observation.kind === "authenticated") {
+    if (isLegacyAnonymousSession(observation.session)) {
+      return signedOut(args.signedOutReason ?? "first_install");
+    }
     const observedIntent = getAuthSessionIdentityIntent(observation.session);
     if (!observedIntent) {
       return {
@@ -132,21 +150,13 @@ export const resolveAuthSessionObservation = <Session>(args: {
     };
   }
 
-  return {
-    status: "anonymous_required",
-    identityIntent: args.identityIntent,
-    reason:
-      args.anonymousReason ??
-      (args.identityIntent === "anonymous"
-        ? "anonymous_rejected"
-        : "first_install"),
-  };
+  return signedOut(args.signedOutReason ?? "first_install");
 };
 
 export const resolveMissingCredentialSnapshot = <Session>(args: {
   identityIntent: AuthIdentityIntent | null;
   staleSession: Session | null;
-  anonymousReason?: "first_install" | "explicit_sign_out";
+  signedOutReason?: SignedOutReason;
 }): AuthSessionSnapshot<Session> => {
   if (args.identityIntent === "connected") {
     return {
@@ -156,13 +166,5 @@ export const resolveMissingCredentialSnapshot = <Session>(args: {
       reason: "credential_missing",
     };
   }
-  return {
-    status: "anonymous_required",
-    identityIntent: args.identityIntent,
-    reason:
-      args.anonymousReason ??
-      (args.identityIntent === "anonymous"
-        ? "explicit_sign_out"
-        : "first_install"),
-  };
+  return signedOut(args.signedOutReason ?? "first_install");
 };

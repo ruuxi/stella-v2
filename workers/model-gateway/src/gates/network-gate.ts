@@ -5,8 +5,7 @@ import {
 } from "@stella/contracts/gateway/api";
 import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
 
-const HOUR_MS = 60 * 60_000;
-const DAY_MS = 24 * HOUR_MS;
+const DAY_MS = 24 * 60 * 60_000;
 
 export type NetworkAdmission =
   | { ok: true }
@@ -23,12 +22,6 @@ const SCHEMA = [
   )`,
   `CREATE INDEX IF NOT EXISTS network_relay_admissions_at
     ON relay_admissions(audience, admitted_at)`,
-  `CREATE TABLE IF NOT EXISTS mint_admissions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    admitted_at INTEGER NOT NULL
-  )`,
-  `CREATE INDEX IF NOT EXISTS network_mint_admissions_at
-    ON mint_admissions(admitted_at)`,
 ];
 
 /** One SQLite Durable Object per `sha256(ip).slice(0, 32)`. */
@@ -61,30 +54,11 @@ export class NetworkGate extends DurableObject<Env> {
     const capShare = Number.isFinite(args.capShare)
       ? Math.min(1, Math.max(0, args.capShare))
       : 0;
-    const baseDayLimit =
-      audience === "anonymous"
-        ? GATEWAY_NETWORK_LIMITS.anonymous.relayPerDay
-        : GATEWAY_NETWORK_LIMITS.free.relayPerDay;
-    const dayLimit = Math.floor(baseDayLimit * capShare);
+    const dayLimit = Math.floor(GATEWAY_NETWORK_LIMITS.free.relayPerDay * capShare);
     if (dayCount >= dayLimit) {
       return this.refusal({ audience, now, windowMs: DAY_MS });
     }
 
-    if (audience === "anonymous") {
-      const hourCount = this.ctx.storage.sql
-        .exec<CountRow>(
-          "SELECT COUNT(*) AS count FROM relay_admissions WHERE audience = ? AND admitted_at > ?",
-          audience,
-          now - HOUR_MS,
-        )
-        .one().count;
-      const hourLimit = Math.floor(
-        GATEWAY_NETWORK_LIMITS.anonymous.relayPerHour * capShare,
-      );
-      if (hourCount >= hourLimit) {
-        return this.refusal({ audience, now, windowMs: HOUR_MS });
-      }
-    }
 
     this.ctx.storage.sql.exec(
       "INSERT INTO relay_admissions (audience, admitted_at) VALUES (?, ?)",
@@ -94,36 +68,8 @@ export class NetworkGate extends DurableObject<Env> {
     return { ok: true };
   }
 
-  async admitMint(): Promise<NetworkAdmission> {
-    const now = Date.now();
-    this.ctx.storage.sql.exec(
-      "DELETE FROM mint_admissions WHERE admitted_at <= ?",
-      now - DAY_MS,
-    );
-    const count = this.ctx.storage.sql
-      .exec<CountRow>("SELECT COUNT(*) AS count FROM mint_admissions")
-      .one().count;
-    if (count >= GATEWAY_NETWORK_LIMITS.anonymous.mintsPerDay) {
-      const oldest = this.ctx.storage.sql
-        .exec<OldestRow>(
-          "SELECT MIN(admitted_at) AS oldest FROM mint_admissions",
-        )
-        .one().oldest;
-      return {
-        ok: false,
-        refused: "rate_limited",
-        resetAt: (oldest ?? now) + DAY_MS,
-      };
-    }
-    this.ctx.storage.sql.exec(
-      "INSERT INTO mint_admissions (admitted_at) VALUES (?)",
-      now,
-    );
-    return { ok: true };
-  }
-
   private refusal(args: {
-    audience: "anonymous" | "free";
+    audience: "free";
     now: number;
     windowMs: number;
   }): NetworkAdmission {

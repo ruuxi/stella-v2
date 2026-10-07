@@ -1716,6 +1716,7 @@
         "fromOtherComputers": "Perubahan dari komputer Anda yang lain",
         "readyChange": "Perubahan siap ditambahkan",
         "add": "Tambahkan",
+        "get": "Ambil",
         "adding": "Menambahkan…",
         "skip": "Lewati",
         "undoing": "Membatalkan…",
@@ -1723,6 +1724,7 @@
         "justNow": "Baru saja",
         "waiting": "Menunggu",
         "history": "Riwayat",
+        "skipped": "Dilewati",
         "upToDate": "Tidak ada yang menunggu"
       }
     },
@@ -2115,7 +2117,6 @@
         "computerDone": "Terhubung!",
         "computerSkipped": "Nanti saja.",
         "accountDone": "Sudah siap.",
-        "accountSkipped": "Lewati dulu.",
         "themeDone": "Yang itu.",
         "themeSkipped": "Pakai bawaan."
       },
@@ -2264,10 +2265,7 @@
         "connect": "Hubungkan",
         "connectLabel": "Hubungkan {name}",
         "connectedAs": "Terhubung · {name}",
-        "skip": "Lewati dulu",
-        "settledSignedIn": "Sudah masuk",
-        "settledGuest": "Memakai Stella sebagai tamu",
-        "guestSettled": "Masuk kapan saja dari Pengaturan"
+        "settledSignedIn": "Sudah masuk"
       },
       "theme": {
         "appearance": "Tampilan",
@@ -2326,8 +2324,7 @@
       "legalTerms": "Ketentuan Layanan",
       "legalConjunction": " dan ",
       "legalPrivacy": "Kebijakan Privasi",
-      "legalSuffix": " kami.",
-      "continueAsGuest": "Lanjutkan tanpa masuk"
+      "legalSuffix": " kami."
     },
     "chat": {
       "emptyPrompt": "Tanya Stella apa saja",
@@ -2392,8 +2389,6 @@
       }
     },
     "computer": {
-      "guestHeroTitle": "Komputer Anda, dalam genggaman",
-      "guestHeroBody": "Minta Stella melakukan berbagai hal di komputer Anda — menjelajah web, mengelola berkas, menjalankan tugas, dan lainnya.",
       "defaultDeviceLabel": "Komputer Anda",
       "statusChecking": "Memeriksa…",
       "statusConnected": "Terhubung",
@@ -2405,8 +2400,6 @@
     },
     "desktop": {
       "pairTitle": "Pasangkan ponsel Anda",
-      "guestBody": "Lihat aplikasi desktop Stella langsung di ponsel Anda. Setelah dipasangkan, ponsel Anda akan terhubung kembali secara otomatis.",
-      "guestSignInPrompt": "Masuk untuk memulai.",
       "connecting": "Menghubungkan ke desktop",
       "pairing": "Memasangkan ponsel ini",
       "unreachable": "Tidak bisa menjangkau desktop Anda",

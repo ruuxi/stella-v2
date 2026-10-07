@@ -22,7 +22,7 @@ Every public claim on this page should be checked against the current Stella mon
 - Stella can change its own UI and behavior when the user asks. Renderer changes go through Vite HMR where possible, with a morph cover over visible refreshes. Deeper changes may require a reload or relaunch.
 - Stella's managed model provider routes prompts and responses through Stella infrastructure and third-party providers. Stella does not intentionally retain provider request content as a model-training product, but may temporarily buffer responses and retains usage metadata for billing, limits, security, and reliability. Providers may retain submitted data under their own policies and configurations.
 - BYOK and local model paths avoid the Stella managed model proxy for those model calls. Local credentials are stored locally in encrypted form.
-- Anonymous managed-model usage is limited server-side with a salted hash of a device or client identifier plus request counts. Current retention for that anonymous usage row is seven days from last use.
+- There are two ways to use Stella: sign in to use Stella's managed models, or bring your own provider keys. Managed-model usage is limited per account by plan.
 - The mobile app works without a paired computer. Pairing enables tasks on that computer.
 
 ## Public Page Copy
@@ -87,7 +87,7 @@ Read the Privacy Policy for details on how Stella handles your information and t
 
 Stella has two model paths.
 
-The managed path is Stella Provider, so you can install the app and use supported models without setting up provider accounts. Requests pass through Stella's infrastructure and third-party providers. Stella may temporarily buffer response data for streaming recovery, and providers may retain submitted data under their own policies and configurations.
+The managed path is Stella Provider, so you can sign in once and use supported models without setting up provider accounts. Requests pass through Stella's infrastructure and third-party providers. Stella may temporarily buffer response data for streaming recovery, and providers may retain submitted data under their own policies and configurations.
 
 The provider-control path is bring your own provider or local models. You can add your own provider credentials, use local runtimes, and use Claude Code directly as the assistant engine. Direct provider requests remain subject to that provider's data practices.
 

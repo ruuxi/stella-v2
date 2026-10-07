@@ -299,7 +299,7 @@ const openSession = async (
     );
   }
   const access = billingAccess(ctx);
-  if (access.isAnonymous || access.plan !== "pro") {
+  if (access.plan !== "pro") {
     throw new RpcError("FORBIDDEN", "Realtime voice is part of Stella Pro.", { reason: "capability_required" });
   }
   if (!access.allowed || (access.remainingMicroCents !== null && access.remainingMicroCents < SESSION_CHARGE_CAP)) {
@@ -721,7 +721,6 @@ export const voiceDomain = {
   calls: {
     "voice.session": {
       scope: "owner",
-      requireAccount: true,
       parse: object({
         instructions: string({ min: 1, max: 100_000 }),
         tools: optional(array(toolArg, { max: 128 })),
@@ -735,7 +734,6 @@ export const voiceDomain = {
     },
     "voice.lease": {
       scope: "owner",
-      requireAccount: true,
       parse: object({
         leaseId: string({ min: 1, max: 200 }),
         event: literal("heartbeat", "ended", "expired", "lost"),
@@ -744,7 +742,6 @@ export const voiceDomain = {
     },
     "voice.usage": {
       scope: "owner",
-      requireAccount: true,
       parse: object({
         leaseId: string({ min: 1, max: 200 }),
         responseId: string({ min: 1, max: 200 }),
@@ -754,7 +751,6 @@ export const voiceDomain = {
     },
     "tts.prepare": {
       scope: "owner",
-      requireAccount: true,
       parse: object({ text: string({ min: 1, max: 100_000 }), voice: optional(string({ max: 100 })) }),
       handler: prepareTts,
     },

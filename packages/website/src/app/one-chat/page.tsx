@@ -199,7 +199,7 @@ export default function OneChatPage() {
               <h2>Nothing to set up — or bring your own.</h2>
               <p>
                 Out of the box, Stella runs on her own models. No keys, no
-                accounts, no setup — just open the app and go. Prefer something
+                setup — sign in and go. Prefer something
                 else? Plug in Claude, Codex, Cursor, or your own key and Stella
                 runs on that instead.
               </p>

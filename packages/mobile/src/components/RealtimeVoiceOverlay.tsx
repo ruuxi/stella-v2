@@ -32,7 +32,6 @@ type Props = {
   conversationId: string | null;
   execution: "phone" | "computer";
   desktopAccess?: StoredPhoneAccess | null;
-  signInRequired?: boolean;
   messages: ChatMessage[];
   tasks: readonly MobileTask[];
   chatBusy: boolean;
@@ -60,7 +59,6 @@ export function RealtimeVoiceOverlay({
   conversationId,
   execution,
   desktopAccess = null,
-  signInRequired = false,
   messages,
   tasks,
   chatBusy,
@@ -87,14 +85,6 @@ export function RealtimeVoiceOverlay({
   useEffect(() => {
     if (!visible) return;
     setSnapshot({ ...INITIAL_REALTIME_VOICE_SNAPSHOT });
-    if (signInRequired) {
-      setSnapshot({
-        ...INITIAL_REALTIME_VOICE_SNAPSHOT,
-        phase: "error",
-        error: "Sign in to Stella to use realtime voice.",
-      });
-      return;
-    }
     if (!conversationId) return;
     const session = new MobileRealtimeVoiceSession({
       conversationId,
@@ -116,7 +106,6 @@ export function RealtimeVoiceOverlay({
     desktopAccess,
     execution,
     retryKey,
-    signInRequired,
     visible,
   ]);
 

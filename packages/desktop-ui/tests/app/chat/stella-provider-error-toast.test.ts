@@ -196,16 +196,6 @@ describe("capability denials → toast", () => {
     expect(toast.action).toMatchObject({ label: "Upgrade" });
   });
 
-  it("asks signed-out users to sign in instead", () => {
-    const toast = resolveStellaProviderErrorToast(
-      "[capability/three_d_generation] capability_required",
-      { audience: "anonymous" },
-    );
-
-    expect(toast.title).toContain("3D generation");
-    expect(toast.action).toMatchObject({ label: "Sign in" });
-  });
-
   it("still offers an upgrade path when no capability is named", () => {
     const toast = resolveStellaProviderErrorToast(
       "PAID_PLAN_REQUIRED: this action requires a Stella subscription",

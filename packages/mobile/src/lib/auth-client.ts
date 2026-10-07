@@ -1,9 +1,5 @@
 import { createAuthClient } from "better-auth/react";
-import {
-  anonymousClient,
-  jwtClient,
-  magicLinkClient,
-} from "better-auth/client/plugins";
+import { jwtClient, magicLinkClient } from "better-auth/client/plugins";
 import { env } from "../config/env";
 import { assert } from "./assert";
 import { nativeBearerClient } from "./native-auth-client";
@@ -23,7 +19,6 @@ const plugins = [
   nativeBearerClient({
     scheme: env.mobileScheme,
   }),
-  anonymousClient(),
   magicLinkClient(),
   jwtClient(),
 ];
@@ -50,3 +45,15 @@ export const authClient = new Proxy({} as AuthClient, {
     return Reflect.get(instance, prop, receiver);
   },
 });
+
+const isLegacyAnonymousUser = (user: unknown): boolean =>
+  typeof user === "object" &&
+  user !== null &&
+  (user as { isAnonymous?: unknown }).isAnonymous === true;
+
+export const useAccountSession = () => {
+  const session = authClient.useSession();
+  return isLegacyAnonymousUser(session.data?.user)
+    ? { ...session, data: null }
+    : session;
+};

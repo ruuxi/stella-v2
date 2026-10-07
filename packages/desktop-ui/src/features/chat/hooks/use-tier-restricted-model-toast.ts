@@ -1,6 +1,6 @@
 /**
  * Surface a "this model isn't available on your plan" notice when a user on
- * a restricted tier (anonymous / free / go) submits a chat with a saved
+ * a restricted tier (free / go) submits a chat with a saved
  * non-default Stella model override AND Stella's own runtime is the
  * committed engine.
  *
@@ -16,7 +16,6 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { router } from "@/router";
 import {
-  getModelRestrictionActionLabel,
   getModelRestrictionDescription,
   isRestrictedModelOverrideAudience,
   type ManagedModelAudience,
@@ -108,7 +107,7 @@ export function useTierRestrictedModelToast() {
         tense: "is",
       }),
       action: {
-        label: getModelRestrictionActionLabel(audience),
+        label: "Upgrade",
         onClick: () => {
           void router.navigate({ to: "/billing" });
         },

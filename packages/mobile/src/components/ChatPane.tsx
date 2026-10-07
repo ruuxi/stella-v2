@@ -2967,8 +2967,6 @@ export type ChatPaneProps = {
    * files produced by an earlier computer turn.
    */
   desktopAccess?: StoredPhoneAccess | null;
-  /** Show sign-in before starting capture for an anonymous cloud user. */
-  realtimeVoiceSignInRequired?: boolean;
   /** Dispatches one action request into the attached text chat. */
   onRealtimeVoiceAction?: (
     request: string,
@@ -3001,8 +2999,6 @@ export type ChatPaneProps = {
   onAddQuote?: (text: string) => void;
   onRemoveQuote?: (id: string) => void;
 
-  /** Headers passed to the dictation upload (e.g. mobile device id for guests). */
-  dictationAnonymous: boolean;
   dictationHeaders?: Record<string, string>;
 
   /** Opens a desktop artifact linked from an assistant message. */
@@ -3088,7 +3084,6 @@ export function ChatPane({
   realtimeVoiceExecution = "phone",
   realtimeVoiceDesktopAccess = null,
   desktopAccess: desktopAccessProp = null,
-  realtimeVoiceSignInRequired = false,
   onRealtimeVoiceAction,
   enableAttachments,
   attachments,
@@ -3099,7 +3094,6 @@ export function ChatPane({
   quotes,
   onAddQuote,
   onRemoveQuote,
-  dictationAnonymous,
   dictationHeaders,
   onOpenArtifact,
   conversationId = null,
@@ -3538,7 +3532,6 @@ export function ChatPane({
   );
 
   const dictation = useDictation({
-    anonymous: dictationAnonymous,
     headers: dictationHeadersMemo,
     onTranscript: appendTranscript,
   });
@@ -3567,7 +3560,7 @@ export function ChatPane({
 
   const realtimeVoiceOpeningRef = useRef(false);
   const openRealtimeVoice = useCallback(async () => {
-    if (!realtimeVoiceSignInRequired && !hasAiConsent()) {
+    if (!hasAiConsent()) {
       requestAiConsent();
       return;
     }
@@ -3579,9 +3572,7 @@ export function ChatPane({
       // prompt suspends the app (Android reports it as `background`), which
       // used to close a voice screen that had only just opened. An already
       // granted permission resolves silently and never shows a prompt.
-      const permission = realtimeVoiceSignInRequired
-        ? ({ granted: true } as const)
-        : await ensureMicrophonePermission();
+      const permission = await ensureMicrophonePermission();
       if (!permission.granted) {
         Alert.alert(
           "Microphone access needed",
@@ -3609,7 +3600,7 @@ export function ChatPane({
     } finally {
       realtimeVoiceOpeningRef.current = false;
     }
-  }, [realtimeVoiceSignInRequired]);
+  }, []);
 
   const performRealtimeVoiceAction = useCallback(
     async (request: string) =>
@@ -5024,7 +5015,6 @@ export function ChatPane({
         conversationId={realtimeVoiceConversationId}
         execution={realtimeVoiceExecution}
         desktopAccess={realtimeVoiceDesktopAccess}
-        signInRequired={realtimeVoiceSignInRequired}
         messages={messages}
         tasks={activityTasks ?? []}
         chatBusy={streaming}

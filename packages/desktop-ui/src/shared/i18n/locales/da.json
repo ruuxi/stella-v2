@@ -773,8 +773,7 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Meget cool.",
-        "signinDone": "Færdig.",
-        "signinSkipped": "Jeg gør det senere."
+        "signinDone": "Færdig."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -924,7 +923,7 @@
       },
       "signin": {
         "title": "Log ind",
-        "body": "Én af disse er nok. Du kan tilføje de andre senere.",
+        "body": "Log ind med en Stella-konto for at komme i gang. Du kan også tilføje dit Claude- eller ChatGPT-abonnement.",
         "options": {
           "stella": {
             "title": "Stella-konto",
@@ -946,11 +945,9 @@
         "waiting": "Gør indlogningen færdig i din browser, og kom så tilbage hertil.",
         "error": "Det blev ikke forbundet. Vil du prøve igen?",
         "fine": "Du kan ændre det når som helst i Indstillinger.",
-        "skip": "Ikke nu",
         "hint": "Gratis at starte.",
         "settledEngine": "Bruger {name}",
         "settledStella": "Logget ind på Stella",
-        "settledSkipped": "Ikke logget ind endnu",
         "settledDesc": "Du kan ændre det når som helst i Indstillinger.",
         "claudeCliMissing": "Installer Claude Code først, og prøv så igen."
       },
@@ -1000,7 +997,6 @@
     },
     "capabilityRestriction": {
       "title": "{capability} er ikke med i din plan",
-      "signIn": "{capability} er inkluderet i Stella {plan}. Log ind for at opgradere og låse funktionen op.",
       "upgrade": "{capability} er inkluderet i Stella {plan}. Opgrader for at låse funktionen op.",
       "unavailable": "{capability} er ikke tilgængelig i nogen plan lige nu.",
       "lockedBadge": "{plan}",
@@ -1990,7 +1986,6 @@
       "sendFailed": "Kunne ikke sende login-e-mailen.",
       "magicLinkFailed": "Kunne ikke sende magisk link.",
       "finishFailed": "Kunne ikke fuldføre login. Prøv igen.",
-      "signInIncomplete": "Login blev ikke fuldført. Prøv igen.",
       "signInLinkExpired": "Loginlinket er udløbet. Prøv igen.",
       "tooManyRequests": {
         "one": "For mange anmodninger. Prøv igen om {count} sekund.",
@@ -2138,7 +2133,6 @@
         "computerDone": "Forbundet!",
         "computerSkipped": "Måske senere.",
         "accountDone": "Så er det klaret.",
-        "accountSkipped": "Spring over for nu.",
         "themeDone": "Den her.",
         "themeSkipped": "Behold standarden."
       },
@@ -2287,10 +2281,7 @@
         "connect": "Forbind",
         "connectLabel": "Forbind {name}",
         "connectedAs": "Forbundet · {name}",
-        "skip": "Spring over for nu",
-        "settledSignedIn": "Logget ind",
-        "settledGuest": "Bruger Stella som gæst",
-        "guestSettled": "Log ind når som helst fra Indstillinger"
+        "settledSignedIn": "Logget ind"
       },
       "theme": {
         "appearance": "Udseende",
@@ -2349,8 +2340,7 @@
       "legalTerms": "Vilkår",
       "legalConjunction": " og ",
       "legalPrivacy": "Privatlivspolitik",
-      "legalSuffix": ".",
-      "continueAsGuest": "Fortsæt uden at logge ind"
+      "legalSuffix": "."
     },
     "chat": {
       "emptyPrompt": "Spørg Stella om hvad som helst",
@@ -2417,8 +2407,6 @@
       }
     },
     "computer": {
-      "guestHeroTitle": "Din computer lige ved hånden",
-      "guestHeroBody": "Bed Stella om at gøre ting på din computer — browse på nettet, håndtere filer, køre opgaver og meget mere.",
       "defaultDeviceLabel": "Din computer",
       "statusChecking": "Tjekker…",
       "statusConnected": "Tilsluttet",
@@ -2430,8 +2418,6 @@
     },
     "desktop": {
       "pairTitle": "Par din telefon",
-      "guestBody": "Se din Stella-computerapp direkte på telefonen. Efter parringen genopretter din telefon forbindelsen automatisk.",
-      "guestSignInPrompt": "Log ind for at komme i gang.",
       "connecting": "Opretter forbindelse til computeren",
       "pairing": "Parrer denne telefon",
       "unreachable": "Kan ikke nå din computer",

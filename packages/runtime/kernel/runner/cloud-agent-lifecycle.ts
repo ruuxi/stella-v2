@@ -39,7 +39,7 @@ type CloudAgentLifecycleMonitorOptions = {
   onLifecycleEvent: (event: AgentLifecycleEvent) => void | Promise<void>;
   /** Persist exact control authority before a terminal row can be ACKed. */
   onControlReceipt?: (row: CloudAgentThreadRow) => void | Promise<void>;
-  /** Account-only subscriptions must stay dormant for anonymous sessions. */
+  /** Account-only subscriptions must stay dormant while signed out. */
   canStart?: () => boolean;
   retryDelayMs?: number;
 };

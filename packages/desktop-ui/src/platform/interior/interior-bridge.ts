@@ -3,7 +3,6 @@ export type StellaInteriorUser = {
   email: string | null;
   name: string | null;
   image: string | null;
-  isAnonymous: boolean;
 };
 
 export type StellaInteriorSession = {

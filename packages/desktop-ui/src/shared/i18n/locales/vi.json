@@ -772,8 +772,7 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Tuyệt thật.",
-        "signinDone": "Xong.",
-        "signinSkipped": "Tôi sẽ làm sau."
+        "signinDone": "Xong."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -923,7 +922,7 @@
       },
       "signin": {
         "title": "Đăng nhập",
-        "body": "Chỉ cần một trong số này là đủ. Bạn có thể thêm các cái khác sau.",
+        "body": "Đăng nhập bằng tài khoản Stella để bắt đầu. Bạn cũng có thể thêm gói Claude hoặc ChatGPT của mình.",
         "options": {
           "stella": {
             "title": "Tài khoản Stella",
@@ -945,11 +944,9 @@
         "waiting": "Hãy đăng nhập xong trong trình duyệt, rồi quay lại đây.",
         "error": "Chưa kết nối được. Thử lại nhé?",
         "fine": "Bạn có thể đổi bất cứ lúc nào trong Cài đặt.",
-        "skip": "Để sau",
         "hint": "Bắt đầu miễn phí.",
         "settledEngine": "Đang dùng {name}",
         "settledStella": "Đã đăng nhập vào Stella",
-        "settledSkipped": "Chưa đăng nhập",
         "settledDesc": "Đổi bất cứ lúc nào trong Cài đặt.",
         "claudeCliMissing": "Hãy cài Claude Code trước rồi thử lại."
       },
@@ -999,7 +996,6 @@
     },
     "capabilityRestriction": {
       "title": "{capability} không có trong gói của bạn",
-      "signIn": "{capability} có trong Stella {plan}. Đăng nhập để nâng cấp và mở khóa tính năng này.",
       "upgrade": "{capability} có trong Stella {plan}. Nâng cấp để mở khóa tính năng này.",
       "unavailable": "{capability} hiện không có trong bất kỳ gói nào.",
       "lockedBadge": "{plan}",
@@ -1971,7 +1967,6 @@
       "sendFailed": "Không gửi được email đăng nhập.",
       "magicLinkFailed": "Không gửi được liên kết đăng nhập nhanh.",
       "finishFailed": "Không hoàn tất được việc đăng nhập. Vui lòng thử lại.",
-      "signInIncomplete": "Đăng nhập chưa hoàn tất. Vui lòng thử lại.",
       "signInLinkExpired": "Liên kết đăng nhập đã hết hạn. Vui lòng thử lại.",
       "tooManyRequests": {
         "other": "Quá nhiều yêu cầu. Hãy thử lại sau {count} giây."
@@ -2117,7 +2112,6 @@
         "computerDone": "Đã kết nối!",
         "computerSkipped": "Để sau nhé.",
         "accountDone": "Xong rồi.",
-        "accountSkipped": "Bỏ qua lúc này.",
         "themeDone": "Chọn cái này.",
         "themeSkipped": "Giữ mặc định."
       },
@@ -2266,10 +2260,7 @@
         "connect": "Kết nối",
         "connectLabel": "Kết nối {name}",
         "connectedAs": "Đã kết nối · {name}",
-        "skip": "Bỏ qua lúc này",
-        "settledSignedIn": "Đã đăng nhập",
-        "settledGuest": "Đang dùng Stella với tư cách khách",
-        "guestSettled": "Đăng nhập bất cứ lúc nào trong Cài đặt"
+        "settledSignedIn": "Đã đăng nhập"
       },
       "theme": {
         "appearance": "Giao diện",
@@ -2328,8 +2319,7 @@
       "legalTerms": "Điều khoản dịch vụ",
       "legalConjunction": " và ",
       "legalPrivacy": "Chính sách quyền riêng tư",
-      "legalSuffix": ".",
-      "continueAsGuest": "Tiếp tục mà không đăng nhập"
+      "legalSuffix": "."
     },
     "chat": {
       "emptyPrompt": "Hỏi Stella bất cứ điều gì",
@@ -2394,8 +2384,6 @@
       }
     },
     "computer": {
-      "guestHeroTitle": "Máy tính của bạn, trong tầm tay",
-      "guestHeroBody": "Nhờ Stella làm việc trên máy tính của bạn — duyệt web, quản lý tệp, chạy tác vụ và hơn thế nữa.",
       "defaultDeviceLabel": "Máy tính của bạn",
       "statusChecking": "Đang kiểm tra…",
       "statusConnected": "Đã kết nối",
@@ -2407,8 +2395,6 @@
     },
     "desktop": {
       "pairTitle": "Ghép nối điện thoại",
-      "guestBody": "Xem ứng dụng Stella trên máy tính ngay trên điện thoại. Sau khi ghép nối, điện thoại sẽ tự kết nối lại.",
-      "guestSignInPrompt": "Đăng nhập để bắt đầu.",
       "connecting": "Đang kết nối tới máy tính",
       "pairing": "Đang ghép nối điện thoại này",
       "unreachable": "Không kết nối được máy tính của bạn",

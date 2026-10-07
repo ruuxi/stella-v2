@@ -2,11 +2,6 @@ export const AUTH_HANDOFF_TOKEN_PATTERN = /^[A-Za-z0-9._~-]{8,2048}$/;
 
 export type BrowserAuthHandoffResult = "none" | "redeemed" | "failed";
 
-export type AutomaticAnonymousBootstrapDecision =
-  | "create_anonymous"
-  | "session_exists"
-  | "handoff_failed";
-
 type BrowserHandoffLocation = Pick<Location, "hash" | "pathname" | "search">;
 
 type BrowserHandoffHistory = Pick<History, "replaceState" | "state">;
@@ -45,20 +40,4 @@ export const consumeBrowserAuthHandoffToken = (
 
   const token = tokens[0] ?? "";
   return AUTH_HANDOFF_TOKEN_PATTERN.test(token) ? token : null;
-};
-
-/**
- * Keep automatic anonymous auth behind the browser handoff barrier. Reading
- * the session only after that promise settles makes the decision independent
- * of React effect order or network timing.
- */
-export const decideAutomaticAnonymousBootstrap = async (
-  handoff: Promise<BrowserAuthHandoffResult>,
-  hasSession: () => boolean,
-): Promise<AutomaticAnonymousBootstrapDecision> => {
-  const result = await handoff;
-  if (result === "failed") {
-    return "handoff_failed";
-  }
-  return hasSession() ? "session_exists" : "create_anonymous";
 };

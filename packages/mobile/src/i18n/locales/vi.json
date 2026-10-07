@@ -1716,6 +1716,7 @@
         "fromOtherComputers": "Thay đổi từ máy tính khác của bạn",
         "readyChange": "Thay đổi sẵn sàng để thêm",
         "add": "Thêm",
+        "get": "Lấy",
         "adding": "Đang thêm…",
         "skip": "Bỏ qua",
         "undoing": "Đang hoàn tác…",
@@ -1723,6 +1724,7 @@
         "justNow": "Vừa xong",
         "waiting": "Đang chờ",
         "history": "Lịch sử",
+        "skipped": "Đã bỏ qua",
         "upToDate": "Không có gì đang chờ"
       }
     },
@@ -2115,7 +2117,6 @@
         "computerDone": "Đã kết nối!",
         "computerSkipped": "Để sau nhé.",
         "accountDone": "Xong rồi.",
-        "accountSkipped": "Bỏ qua lúc này.",
         "themeDone": "Chọn cái này.",
         "themeSkipped": "Giữ mặc định."
       },
@@ -2264,10 +2265,7 @@
         "connect": "Kết nối",
         "connectLabel": "Kết nối {name}",
         "connectedAs": "Đã kết nối · {name}",
-        "skip": "Bỏ qua lúc này",
-        "settledSignedIn": "Đã đăng nhập",
-        "settledGuest": "Đang dùng Stella với tư cách khách",
-        "guestSettled": "Đăng nhập bất cứ lúc nào trong Cài đặt"
+        "settledSignedIn": "Đã đăng nhập"
       },
       "theme": {
         "appearance": "Giao diện",
@@ -2326,8 +2324,7 @@
       "legalTerms": "Điều khoản dịch vụ",
       "legalConjunction": " và ",
       "legalPrivacy": "Chính sách quyền riêng tư",
-      "legalSuffix": ".",
-      "continueAsGuest": "Tiếp tục mà không đăng nhập"
+      "legalSuffix": "."
     },
     "chat": {
       "emptyPrompt": "Hỏi Stella bất cứ điều gì",
@@ -2392,8 +2389,6 @@
       }
     },
     "computer": {
-      "guestHeroTitle": "Máy tính của bạn, trong tầm tay",
-      "guestHeroBody": "Nhờ Stella làm việc trên máy tính của bạn — duyệt web, quản lý tệp, chạy tác vụ và hơn thế nữa.",
       "defaultDeviceLabel": "Máy tính của bạn",
       "statusChecking": "Đang kiểm tra…",
       "statusConnected": "Đã kết nối",
@@ -2405,8 +2400,6 @@
     },
     "desktop": {
       "pairTitle": "Ghép nối điện thoại",
-      "guestBody": "Xem ứng dụng Stella trên máy tính ngay trên điện thoại. Sau khi ghép nối, điện thoại sẽ tự kết nối lại.",
-      "guestSignInPrompt": "Đăng nhập để bắt đầu.",
       "connecting": "Đang kết nối tới máy tính",
       "pairing": "Đang ghép nối điện thoại này",
       "unreachable": "Không kết nối được máy tính của bạn",

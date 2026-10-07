@@ -55,8 +55,8 @@ const harness = () => {
       pending.push(next);
       return next.promise;
     },
-    describeFailure: (error, anonymous) => ({
-      message: `${anonymous ? "anon" : "account"}:${String(
+    describeFailure: (error) => ({
+      message: `account:${String(
         error instanceof Error ? error.message : error,
       )}`,
       retryable: true,
@@ -69,13 +69,13 @@ const harness = () => {
 describe("CloudConversationAuthorityStore", () => {
   test("a second mount for the same identity joins the cached result instead of re-running", async () => {
     const { store, resolves, identityChanges, pending } = harness();
-    const first = store.ensure(identityA, false);
+    const first = store.ensure(identityA);
     expect(store.getSnapshot()).toEqual({
       status: "loading",
       identityKey: identityA.identityKey,
     });
     // A remount while the handshake is in flight shares the same promise.
-    const second = store.ensure(identityA, false);
+    const second = store.ensure(identityA);
     expect(second).toBe(first);
     expect(resolves).toEqual([identityA.identityKey]);
     expect(identityChanges).toEqual([identityA.identityKey]);
@@ -88,18 +88,18 @@ describe("CloudConversationAuthorityStore", () => {
     });
 
     // A later remount reads the cached value with no network and no token clear.
-    await store.ensure(identityA, false);
+    await store.ensure(identityA);
     expect(resolves).toHaveLength(1);
     expect(identityChanges).toHaveLength(1);
   });
 
   test("only an identity-key change re-runs the boundary hook and the handshake", async () => {
     const { store, resolves, identityChanges, pending } = harness();
-    void store.ensure(identityA, false);
+    void store.ensure(identityA);
     pending[0]!.resolve(authorityFor(identityA));
-    await store.ensure(identityA, false);
+    await store.ensure(identityA);
 
-    void store.ensure(identityARotated, false);
+    void store.ensure(identityARotated);
     expect(identityChanges).toEqual([
       identityA.identityKey,
       identityARotated.identityKey,
@@ -118,8 +118,8 @@ describe("CloudConversationAuthorityStore", () => {
 
   test("a handshake that lands after the identity moved on is discarded", async () => {
     const { store, pending } = harness();
-    const first = store.ensure(identityA, false);
-    void store.ensure(identityB, false);
+    const first = store.ensure(identityA);
+    void store.ensure(identityB);
     pending[0]!.resolve(authorityFor(identityA));
     await first;
     expect(store.getSnapshot()).toEqual({
@@ -127,7 +127,7 @@ describe("CloudConversationAuthorityStore", () => {
       identityKey: identityB.identityKey,
     });
     pending[1]!.resolve(authorityFor(identityB));
-    await store.ensure(identityB, false);
+    await store.ensure(identityB);
     expect(store.getSnapshot()).toMatchObject({
       status: "ready",
       authority: { conversationId: "conversation:user-b" },
@@ -136,13 +136,13 @@ describe("CloudConversationAuthorityStore", () => {
 
   test("retry re-runs the handshake for the same identity without the boundary hook", async () => {
     const { store, resolves, identityChanges, pending } = harness();
-    const first = store.ensure(identityA, true);
+    const first = store.ensure(identityA);
     pending[0]!.reject(new Error("offline"));
     await first;
     expect(store.getSnapshot()).toEqual({
       status: "failed",
       identityKey: identityA.identityKey,
-      issue: { message: "anon:offline", retryable: true },
+      issue: { message: "account:offline", retryable: true },
     });
 
     const retried = store.retry();
@@ -163,7 +163,7 @@ describe("CloudConversationAuthorityStore", () => {
     const unsubscribe = store.subscribe(() => {
       notifications += 1;
     });
-    const first = store.ensure(identityA, false);
+    const first = store.ensure(identityA);
     pending[0]!.resolve(authorityFor(identityA));
     await first;
     expect(notifications).toBe(2);
@@ -174,7 +174,7 @@ describe("CloudConversationAuthorityStore", () => {
     unsubscribe();
 
     // Signing back in, even as the same account, is an identity change again.
-    void store.ensure(identityA, false);
+    void store.ensure(identityA);
     expect(identityChanges).toEqual([
       identityA.identityKey,
       identityA.identityKey,

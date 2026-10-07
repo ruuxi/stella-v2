@@ -334,8 +334,6 @@ export const HEADER_OWNER = "x-stella-owner";
 export const HEADER_SUBJECT = "x-stella-subject";
 export const HEADER_SESSION = "x-stella-session";
 export const HEADER_TOKEN_EXP = "x-stella-token-exp";
-/** `"1"` when the verified caller is an anonymous account. */
-export const HEADER_ANONYMOUS = "x-stella-anonymous";
 /** The verified token's identity level and `iat` (ms), for the owner object. */
 export const HEADER_IDENTITY_LEVEL = "x-stella-identity-level";
 export const HEADER_TOKEN_IAT = "x-stella-token-iat";

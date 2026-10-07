@@ -289,12 +289,6 @@ const withReceipt = <T>(
   return { replayed: false, result };
 };
 
-const signInRequired = (): never => {
-  throw new RpcError("FORBIDDEN", "Sign in with an account to use schedules.", {
-    reason: "sign_in_required",
-  });
-};
-
 type CreateInput = {
   requestId: string;
   prompt: string;
@@ -304,8 +298,7 @@ type CreateInput = {
   targetDeviceId?: string;
 };
 
-const createSchedule = (ctx: OwnerContext, input: CreateInput, isAnonymous: boolean) => {
-  if (isAnonymous) signInRequired();
+const createSchedule = (ctx: OwnerContext, input: CreateInput) => {
   const prompt = cleanPrompt(input.prompt);
   const schedule = normalizeSchedule(input.schedule);
   const description = cleanDescription(input.description, prompt);
@@ -363,8 +356,7 @@ type UpdateInput = {
   status?: "active" | "paused";
 };
 
-const updateSchedule = (ctx: OwnerContext, input: UpdateInput, isAnonymous: boolean) => {
-  if (isAnonymous && input.status === "active") signInRequired();
+const updateSchedule = (ctx: OwnerContext, input: UpdateInput) => {
   const prompt = input.prompt === undefined ? undefined : cleanPrompt(input.prompt);
   const schedule = input.schedule === undefined ? undefined : normalizeSchedule(input.schedule);
   return withReceipt(
@@ -472,7 +464,6 @@ const scheduleTool = async (ctx: OwnerContext, raw: unknown): Promise<ScheduleTo
   if (args.action === "list") return { ok: true, replayed: false, schedules: list() };
   if (!args.requestId) bad("requestId is required for schedule changes.");
   const requestId = args.requestId!;
-  const { isAnonymous } = await ctx.host.snapshot();
   if (args.action === "create") {
     if (!args.prompt) bad("prompt is required.");
     if (!args.schedule) bad("schedule is required.");
@@ -485,7 +476,6 @@ const scheduleTool = async (ctx: OwnerContext, raw: unknown): Promise<ScheduleTo
         ...(args.description !== undefined ? { description: args.description } : {}),
         ...(args.conversationId !== undefined ? { conversationId: args.conversationId } : {}),
       },
-      isAnonymous,
     );
     return { ok: true, replayed: created.replayed, schedule: created.result, schedules: list() };
   }
@@ -501,7 +491,6 @@ const scheduleTool = async (ctx: OwnerContext, raw: unknown): Promise<ScheduleTo
         ...(args.description !== undefined ? { description: args.description } : {}),
         ...(args.status !== undefined ? { status: args.status } : {}),
       },
-      isAnonymous,
     );
     return { ok: true, replayed: updated.replayed, schedule: updated.result, schedules: list() };
   }
@@ -737,13 +726,13 @@ export const schedulesDomain = {
       scope: "owner",
       parse: createArgs,
       handler: (ctx: OwnerContext, args: ScheduleCalls["schedules.create"]["args"]) =>
-        createSchedule(ctx, args, ctx.caller?.isAnonymous ?? false).result,
+        createSchedule(ctx, args).result,
     },
     "schedules.update": {
       scope: "owner",
       parse: updateArgs,
       handler: (ctx: OwnerContext, args: ScheduleCalls["schedules.update"]["args"]) =>
-        updateSchedule(ctx, args, ctx.caller?.isAnonymous ?? false).result,
+        updateSchedule(ctx, args).result,
     },
     "schedules.remove": {
       scope: "owner",

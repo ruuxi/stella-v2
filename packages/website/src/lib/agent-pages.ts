@@ -116,8 +116,8 @@ results, reminders, and scheduled work all land in the one conversation you
 already have — with the context still intact.
 
 ## Nothing to set up — or bring your own
-Out of the box, Stella runs on her own models. No keys, no accounts, no setup —
-just open the app and go. Prefer something else? Plug in Claude, Codex, Cursor,
+Out of the box, Stella runs on her own models. No keys, no setup — sign in
+and go. Prefer something else? Plug in Claude, Codex, Cursor,
 or your own key and Stella runs on that instead.
 
 ## Pictures, voice, and more — on Pro

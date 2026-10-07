@@ -1,7 +1,7 @@
 /**
  * Model-gateway session capabilities for the desktop runtime.
  *
- * A signed-in (or anonymous) runtime never sends its Better Auth JWT to the
+ * A signed-in runtime never sends its Better Auth JWT to the
  * gateway on model requests. It exchanges the JWT once at
  * `POST {gatewayOrigin}/v1/capabilities/session` for a session capability
  * (an ES256 JWT minted by the backend) and presents that capability as
@@ -201,7 +201,7 @@ export const dpopHeadersForSessionCapability = async (args: {
  * Cache identity of a Better Auth JWT: who the token is for, not which
  * rotation of it. A capability is bound to the owner, so a rotated JWT for
  * the same owner keeps using the still-valid capability; a different owner
- * (sign-out, sign-in, anonymous -> signed in) can never see another's entry.
+ * (sign-out, sign-in, account switch) can never see another's entry.
  */
 const authIdentity = (token: string): string => {
   const payload = decodeJwtPayload(token);
@@ -209,15 +209,12 @@ const authIdentity = (token: string): string => {
   const audience = Array.isArray(payload.aud)
     ? payload.aud.join(",")
     : jwtStringClaim(payload, "aud");
-  const anonymous =
-    typeof payload.isAnonymous === "boolean" ? String(payload.isAnonymous) : "";
   return [
     "jwt",
     jwtStringClaim(payload, "iss"),
     jwtStringClaim(payload, "sub"),
     jwtStringClaim(payload, "tokenIdentifier"),
     audience,
-    anonymous,
   ].join(":");
 };
 

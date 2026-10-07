@@ -1752,6 +1752,7 @@
         "fromOtherComputers": "Změny z vašeho druhého počítače",
         "readyChange": "Změna připravená k přidání",
         "add": "Přidat",
+        "get": "Získat",
         "adding": "Přidávání…",
         "skip": "Přeskočit",
         "undoing": "Vracení…",
@@ -1759,6 +1760,7 @@
         "justNow": "Právě teď",
         "waiting": "Čeká",
         "history": "Historie",
+        "skipped": "Přeskočené",
         "upToDate": "Nic nečeká"
       }
     },
@@ -2174,7 +2176,6 @@
         "computerDone": "Připojeno!",
         "computerSkipped": "Možná později.",
         "accountDone": "Hotovo.",
-        "accountSkipped": "Zatím přeskočit.",
         "themeDone": "Tenhle.",
         "themeSkipped": "Ponechat výchozí."
       },
@@ -2323,10 +2324,7 @@
         "connect": "Připojit",
         "connectLabel": "Připojit {name}",
         "connectedAs": "Připojeno · {name}",
-        "skip": "Zatím přeskočit",
-        "settledSignedIn": "Přihlášeno",
-        "settledGuest": "Stellu používáte jako host",
-        "guestSettled": "Přihlásit se můžete kdykoli v Nastavení"
+        "settledSignedIn": "Přihlášeno"
       },
       "theme": {
         "appearance": "Vzhled",
@@ -2385,8 +2383,7 @@
       "legalTerms": "Podmínkami služby",
       "legalConjunction": " a ",
       "legalPrivacy": "Zásadami ochrany osobních údajů",
-      "legalSuffix": ".",
-      "continueAsGuest": "Pokračovat bez přihlášení"
+      "legalSuffix": "."
     },
     "chat": {
       "emptyPrompt": "Zeptejte se Stelly na cokoli",
@@ -2453,8 +2450,6 @@
       }
     },
     "computer": {
-      "guestHeroTitle": "Váš počítač na dosah ruky",
-      "guestHeroBody": "Požádejte Stellu, aby na vašem počítači něco udělala — prohlížela web, spravovala soubory, spouštěla úlohy a další.",
       "defaultDeviceLabel": "Váš počítač",
       "statusChecking": "Kontrola…",
       "statusConnected": "Připojeno",
@@ -2466,8 +2461,6 @@
     },
     "desktop": {
       "pairTitle": "Spárujte svůj telefon",
-      "guestBody": "Mějte desktopovou aplikaci Stella přímo v telefonu. Po spárování se telefon připojí automaticky.",
-      "guestSignInPrompt": "Začněte přihlášením.",
       "connecting": "Připojování k počítači",
       "pairing": "Párování tohoto telefonu",
       "unreachable": "Počítač je nedostupný",

@@ -772,8 +772,7 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "정말 멋지네요.",
-        "signinDone": "완료했어요.",
-        "signinSkipped": "나중에 할게요."
+        "signinDone": "완료했어요."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -923,7 +922,7 @@
       },
       "signin": {
         "title": "로그인",
-        "body": "이 중 하나면 충분해요. 나머지는 나중에 추가할 수 있어요.",
+        "body": "시작하려면 Stella 계정으로 로그인하세요. Claude 또는 ChatGPT 요금제도 추가할 수 있어요.",
         "options": {
           "stella": {
             "title": "Stella 계정",
@@ -945,11 +944,9 @@
         "waiting": "브라우저에서 로그인을 마친 뒤 여기로 돌아오세요.",
         "error": "연결하지 못했어요. 다시 시도할까요?",
         "fine": "설정에서 언제든 바꿀 수 있어요.",
-        "skip": "나중에",
         "hint": "무료로 시작할 수 있어요.",
         "settledEngine": "{name} 사용 중",
         "settledStella": "Stella에 로그인됨",
-        "settledSkipped": "아직 로그인하지 않음",
         "settledDesc": "설정에서 언제든 바꿀 수 있어요.",
         "claudeCliMissing": "먼저 Claude Code를 설치한 후 다시 시도하세요."
       },
@@ -999,7 +996,6 @@
     },
     "capabilityRestriction": {
       "title": "{capability}은(는) 현재 요금제에 없습니다",
-      "signIn": "{capability}은(는) Stella {plan}에 포함되어 있습니다. 로그인 후 업그레이드하면 사용할 수 있습니다.",
       "upgrade": "{capability}은(는) Stella {plan}에 포함되어 있습니다. 업그레이드하면 사용할 수 있습니다.",
       "unavailable": "{capability}은(는) 현재 어떤 요금제에서도 사용할 수 없습니다.",
       "lockedBadge": "{plan}",
@@ -1971,7 +1967,6 @@
       "sendFailed": "로그인 이메일을 보내지 못했습니다.",
       "magicLinkFailed": "매직 링크를 보내지 못했습니다.",
       "finishFailed": "로그인을 완료할 수 없습니다. 다시 시도해 주세요.",
-      "signInIncomplete": "로그인이 완료되지 않았습니다. 다시 시도해 주세요.",
       "signInLinkExpired": "로그인 링크가 만료되었습니다. 다시 시도해 주세요.",
       "tooManyRequests": {
         "other": "요청이 너무 많습니다. {count}초 후에 다시 시도하세요."
@@ -2117,7 +2112,6 @@
         "computerDone": "연결했어요!",
         "computerSkipped": "나중에요.",
         "accountDone": "준비 완료.",
-        "accountSkipped": "나중에 할게요.",
         "themeDone": "이걸로 할게요.",
         "themeSkipped": "기본으로 둘게요."
       },
@@ -2266,10 +2260,7 @@
         "connect": "연결",
         "connectLabel": "{name} 연결",
         "connectedAs": "연결됨 · {name}",
-        "skip": "나중에 하기",
-        "settledSignedIn": "로그인됨",
-        "settledGuest": "게스트로 Stella 사용 중",
-        "guestSettled": "설정에서 언제든 로그인할 수 있어요"
+        "settledSignedIn": "로그인됨"
       },
       "theme": {
         "appearance": "모양",
@@ -2328,8 +2319,7 @@
       "legalTerms": "서비스 약관",
       "legalConjunction": " 및 ",
       "legalPrivacy": "개인정보 처리방침",
-      "legalSuffix": "에 동의하는 것으로 간주됩니다.",
-      "continueAsGuest": "로그인하지 않고 계속"
+      "legalSuffix": "에 동의하는 것으로 간주됩니다."
     },
     "chat": {
       "emptyPrompt": "Stella에게 무엇이든 물어보세요",
@@ -2394,8 +2384,6 @@
       }
     },
     "computer": {
-      "guestHeroTitle": "내 컴퓨터를 손안에",
-      "guestHeroBody": "웹 탐색, 파일 관리, 작업 실행 등 컴퓨터에서 할 일을 Stella에게 맡기세요.",
       "defaultDeviceLabel": "내 컴퓨터",
       "statusChecking": "확인 중…",
       "statusConnected": "연결됨",
@@ -2407,8 +2395,6 @@
     },
     "desktop": {
       "pairTitle": "휴대폰 페어링",
-      "guestBody": "Stella 데스크톱 앱을 휴대폰에서 바로 볼 수 있습니다. 페어링 후에는 자동으로 다시 연결됩니다.",
-      "guestSignInPrompt": "로그인하고 시작하세요.",
       "connecting": "데스크톱에 연결 중",
       "pairing": "이 휴대폰 페어링 중",
       "unreachable": "데스크톱에 연결할 수 없음",

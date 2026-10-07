@@ -196,7 +196,6 @@ export const appSourceDomain = {
     },
     "appSource.access": {
       scope: "owner",
-      requireAccount: true,
       parse: empty(),
       handler: (ctx: OwnerContext) => access(ctx),
     },

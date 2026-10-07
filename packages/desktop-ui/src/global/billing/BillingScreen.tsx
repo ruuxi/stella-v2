@@ -53,20 +53,12 @@ type BillingUsage = {
 
 type BillingStatus = {
   authenticated: boolean;
-  isAnonymous: boolean;
   plan: BillingPlan;
   subscriptionStatus: string;
   cancelAtPeriodEnd: boolean;
   currentPeriodEnd: number | null;
   usage: BillingUsage | null;
-  usagePolicy:
-    | {
-        kind: "anonymous_requests";
-        requestLimit: number;
-        perIpRequestLimit: number;
-        resetAfterInactivityDays: number;
-      }
-    | { kind: "managed_cost" };
+  usagePolicy: { kind: "managed_cost" };
   plans: Record<BillingPlan, BillingPlanConfig>;
 };
 
@@ -266,7 +258,7 @@ export function BillingPanel() {
   const billingStatus: BillingStatus | undefined = ledger;
   const creditOptions: UsageCreditOptions | undefined = ledger?.creditPurchase;
   const creditStatus: UsageCreditStatus | undefined = ledger
-    ? { authenticated: !ledger.isAnonymous, ...ledger.credits }
+    ? { authenticated: ledger.authenticated, ...ledger.credits }
     : undefined;
   const startCheckout = useCallback(
     (args: { plan: PaidBillingPlan; returnUrl: string; requestId: string }) =>
@@ -315,9 +307,7 @@ export function BillingPanel() {
   const currentPlan = billingStatus?.plan ?? "free";
   const usage = billingStatus?.usage;
   const hasAccount = Boolean(
-    hasConnectedAccount &&
-    billingStatus?.authenticated &&
-    !billingStatus.isAnonymous,
+    hasConnectedAccount && billingStatus?.authenticated,
   );
   const isLoadingStatus = hasConnectedAccount && billingStatus === undefined;
   // Active paid subscribers change/cancel plans through the Stripe portal —

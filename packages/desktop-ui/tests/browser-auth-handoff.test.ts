@@ -2,8 +2,6 @@ import { describe, expect, test } from "bun:test";
 import {
   AUTH_HANDOFF_TOKEN_PATTERN,
   consumeBrowserAuthHandoffToken,
-  decideAutomaticAnonymousBootstrap,
-  type BrowserAuthHandoffResult,
 } from "../src/global/auth/browser-auth-handoff";
 
 const makeLocation = (hash: string) => ({
@@ -92,48 +90,5 @@ describe("consumeBrowserAuthHandoffToken", () => {
     expect(AUTH_HANDOFF_TOKEN_PATTERN.test("abc_DEF-1~")).toBeTrue();
     expect(AUTH_HANDOFF_TOKEN_PATTERN.test("has/slash")).toBeFalse();
     expect(AUTH_HANDOFF_TOKEN_PATTERN.test("too few")).toBeFalse();
-  });
-});
-
-describe("decideAutomaticAnonymousBootstrap", () => {
-  test("does not decide until the browser handoff has settled", async () => {
-    let settle!: (result: BrowserAuthHandoffResult) => void;
-    const handoff = new Promise<BrowserAuthHandoffResult>((resolve) => {
-      settle = resolve;
-    });
-    let hasSession = false;
-    let decisionSettled = false;
-    const decision = decideAutomaticAnonymousBootstrap(
-      handoff,
-      () => hasSession,
-    ).then((result) => {
-      decisionSettled = true;
-      return result;
-    });
-
-    await Promise.resolve();
-    expect(decisionSettled).toBeFalse();
-
-    hasSession = true;
-    settle("redeemed");
-    expect(await decision).toBe("session_exists");
-  });
-
-  test("never falls through to anonymous bootstrap after handoff failure", async () => {
-    expect(
-      await decideAutomaticAnonymousBootstrap(
-        Promise.resolve("failed"),
-        () => false,
-      ),
-    ).toBe("handoff_failed");
-  });
-
-  test("allows normal anonymous bootstrap when no handoff exists", async () => {
-    expect(
-      await decideAutomaticAnonymousBootstrap(
-        Promise.resolve("none"),
-        () => false,
-      ),
-    ).toBe("create_anonymous");
   });
 });

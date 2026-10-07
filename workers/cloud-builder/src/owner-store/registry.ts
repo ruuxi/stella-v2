@@ -28,9 +28,8 @@ export type OwnerCaller = {
   ownerId: string;
   subject: string;
   sessionId: string;
-  isAnonymous: boolean;
   expiresAtMs: number;
-  /** The identity ladder rung the token claims (0 anonymous, 1 email, 2 social). */
+  /** The identity ladder rung the token claims (1 email, 2 social). */
   identityLevel?: import("@stella/contracts/gateway/api").IdentityLevel;
   /** The token's `iat`, for session revocation. */
   issuedAtMs?: number;
@@ -233,12 +232,7 @@ export type GlobalContext = {
   now: number;
 };
 
-type Access = {
-  /** Refuse anonymous callers. */
-  requireAccount?: boolean;
-};
-
-export type OwnerCallDef<K extends CallName> = Access & {
+export type OwnerCallDef<K extends CallName> = {
   scope: "owner";
   /** Largest request body this call accepts. Default 1 MiB. */
   maxBodyBytes?: number;
@@ -247,7 +241,7 @@ export type OwnerCallDef<K extends CallName> = Access & {
 };
 
 /** Runs in the Worker, for functions over global data (D1, catalogs). */
-export type GlobalCallDef<K extends CallName> = Access & {
+export type GlobalCallDef<K extends CallName> = {
   scope: "global";
   parse: Parser<CallArgs<K>>;
   handler: (ctx: GlobalContext, args: CallArgs<K>) => CallResult<K> | Promise<CallResult<K>>;
@@ -255,7 +249,7 @@ export type GlobalCallDef<K extends CallName> = Access & {
 
 export type CallDef<K extends CallName> = OwnerCallDef<K> | GlobalCallDef<K>;
 
-export type ViewDef<K extends ViewName> = Access & {
+export type ViewDef<K extends ViewName> = {
   parse: Parser<ViewArgs<K>>;
   /** Synchronous: a view is a read of the owner's database. */
   read: (ctx: OwnerViewContext, args: ViewArgs<K>) => ViewResult<K>;

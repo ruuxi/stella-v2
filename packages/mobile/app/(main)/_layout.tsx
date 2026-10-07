@@ -16,7 +16,6 @@ import {
   subscribeAiConsentRequested,
 } from "../../src/lib/ai-consent";
 import { authClient } from "../../src/lib/auth-client";
-import { setGuestMode } from "../../src/lib/guest-mode";
 import {
   SafeAreaView,
   useSafeAreaInsets,
@@ -135,12 +134,7 @@ export default function MainLayout() {
   const onConsentDecline = useCallback(() => {
     setConsentVisible(false);
     void (async () => {
-      try {
-        await authClient.signOut();
-      } catch {
-        /* ignore — guests have nothing to sign out of */
-      }
-      await setGuestMode(false);
+      await authClient.signOut().catch(() => undefined);
       router.replace("/login");
     })();
   }, [router]);

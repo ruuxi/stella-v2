@@ -1728,6 +1728,7 @@
         "fromOtherComputers": "Änderungen von deinem anderen Computer",
         "readyChange": "Eine Änderung, bereit zum Hinzufügen",
         "add": "Hinzufügen",
+        "get": "Holen",
         "adding": "Wird hinzugefügt…",
         "skip": "Überspringen",
         "undoing": "Wird rückgängig gemacht…",
@@ -1735,6 +1736,7 @@
         "justNow": "Gerade eben",
         "waiting": "Wartet",
         "history": "Verlauf",
+        "skipped": "Übersprungen",
         "upToDate": "Nichts wartet"
       }
     },
@@ -2136,7 +2138,6 @@
         "computerDone": "Verbunden!",
         "computerSkipped": "Vielleicht später.",
         "accountDone": "Alles klar.",
-        "accountSkipped": "Vorerst überspringen.",
         "themeDone": "Dieses.",
         "themeSkipped": "Standard beibehalten."
       },
@@ -2285,10 +2286,7 @@
         "connect": "Verbinden",
         "connectLabel": "{name} verbinden",
         "connectedAs": "Verbunden · {name}",
-        "skip": "Vorerst überspringen",
-        "settledSignedIn": "Angemeldet",
-        "settledGuest": "Stella als Gast nutzen",
-        "guestSettled": "Melde dich jederzeit in den Einstellungen an"
+        "settledSignedIn": "Angemeldet"
       },
       "theme": {
         "appearance": "Erscheinungsbild",
@@ -2347,8 +2345,7 @@
       "legalTerms": "Nutzungsbedingungen",
       "legalConjunction": " und der ",
       "legalPrivacy": "Datenschutzrichtlinie",
-      "legalSuffix": " zu.",
-      "continueAsGuest": "Ohne Anmeldung fortfahren"
+      "legalSuffix": " zu."
     },
     "chat": {
       "emptyPrompt": "Frag Stella alles",
@@ -2414,8 +2411,6 @@
       }
     },
     "computer": {
-      "guestHeroTitle": "Dein Computer, immer griffbereit",
-      "guestHeroBody": "Bitte Stella, Dinge auf deinem Computer zu erledigen — im Web surfen, Dateien verwalten, Aufgaben ausführen und mehr.",
       "defaultDeviceLabel": "Dein Computer",
       "statusChecking": "Wird geprüft…",
       "statusConnected": "Verbunden",
@@ -2427,8 +2422,6 @@
     },
     "desktop": {
       "pairTitle": "Koppel dein Handy",
-      "guestBody": "Sieh deine Stella-Desktop-App direkt auf deinem Handy. Nach dem Koppeln verbindet sich dein Handy automatisch wieder.",
-      "guestSignInPrompt": "Melde dich an, um loszulegen.",
       "connecting": "Verbindung zum Desktop",
       "pairing": "Dieses Handy wird gekoppelt",
       "unreachable": "Dein Desktop ist nicht erreichbar",

@@ -28,6 +28,7 @@ import "./AuthDialog.css";
 interface AuthDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  dismissible?: boolean;
 }
 
 type SocialSignInResult = {
@@ -120,17 +121,20 @@ const pollDesktopSocialAuth = async (
   throw new Error(t("global.auth.googleTimedOut"));
 };
 
-export const AuthDialog = ({ open, onOpenChange }: AuthDialogProps) => {
+export const AuthDialog = ({
+  open,
+  onOpenChange,
+  dismissible = true,
+}: AuthDialogProps) => {
   const t = useT();
   const { hasConnectedAccount } = useAuthSessionState();
-  // Signing in keeps the anonymous account's data (it is upgraded in place),
-  // so the dialog closes as soon as the account is connected.
+  // The dialog closes as soon as the account is connected.
   useEffect(() => {
     if (hasConnectedAccount && open) onOpenChange(false);
   }, [hasConnectedAccount, open, onOpenChange]);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={dismissible ? onOpenChange : () => {}}>
       <DialogContent fit className="auth-dialog-content">
         <VisuallyHidden asChild>
           <DialogTitle>{t("global.auth.welcomeTitle")}</DialogTitle>
@@ -140,7 +144,7 @@ export const AuthDialog = ({ open, onOpenChange }: AuthDialogProps) => {
             {t("global.auth.welcomeDescription")}
           </DialogDescription>
         </VisuallyHidden>
-        <DialogCloseButton className="auth-dialog-close" />
+        {dismissible ? <DialogCloseButton className="auth-dialog-close" /> : null}
         {
           <DialogBody className="auth-dialog-body">
             <div className="auth-dialog-hero">

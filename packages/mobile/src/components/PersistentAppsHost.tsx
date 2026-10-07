@@ -23,7 +23,7 @@ import { MainDetailSurface, useShellTopInset } from "./MainScreenSurface";
 import { useColors } from "../theme/theme-context";
 import { getAuthTokenForSubject } from "../lib/auth-token";
 import { fonts } from "../theme/fonts";
-import { authClient } from "../lib/auth-client";
+import { useAccountSession } from "../lib/auth-client";
 import { env } from "../config/env";
 import {
   clearPendingAppOpen,
@@ -69,7 +69,7 @@ true;`;
 
 /** Owned by the shell: navigating away must not discard the library or WebViews. */
 export function PersistentAppsHost({ visible }: { visible: boolean }) {
-  const { data: session, isPending } = authClient.useSession();
+  const { data: session, isPending } = useAccountSession();
   // Apps are served from the backend worker, whose origin is build config.
   const origin = env.backendUrl || null;
   const owner = session?.user.id;

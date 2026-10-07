@@ -774,8 +774,7 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Très cool.",
-        "signinDone": "C'est fait.",
-        "signinSkipped": "Je le ferai plus tard."
+        "signinDone": "C'est fait."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -925,7 +924,7 @@
       },
       "signin": {
         "title": "Se connecter",
-        "body": "Un seul suffit. Vous pourrez ajouter les autres plus tard.",
+        "body": "Connectez-vous avec un compte Stella pour commencer. Vous pouvez aussi ajouter votre forfait Claude ou ChatGPT.",
         "options": {
           "stella": {
             "title": "Compte Stella",
@@ -947,11 +946,9 @@
         "waiting": "Terminez la connexion dans votre navigateur, puis revenez ici.",
         "error": "La connexion a échoué. Réessayer ?",
         "fine": "Modifiable à tout moment dans les réglages.",
-        "skip": "Pas maintenant",
         "hint": "Gratuit pour commencer.",
         "settledEngine": "Utilise {name}",
         "settledStella": "Connecté à Stella",
-        "settledSkipped": "Pas encore connecté",
         "settledDesc": "Modifiable à tout moment dans les réglages.",
         "claudeCliMissing": "Installez d'abord Claude Code, puis réessayez."
       },
@@ -1001,7 +998,6 @@
     },
     "capabilityRestriction": {
       "title": "{capability} n'est pas dans votre plan",
-      "signIn": "{capability} fait partie de Stella {plan}. Connectez-vous pour passer à un plan supérieur et débloquer cette fonctionnalité.",
       "upgrade": "{capability} fait partie de Stella {plan}. Passez à un plan supérieur pour débloquer cette fonctionnalité.",
       "unavailable": "{capability} n'est disponible dans aucun plan pour le moment.",
       "lockedBadge": "{plan}",
@@ -2007,7 +2003,6 @@
       "sendFailed": "Échec de l’envoi de l’e-mail de connexion.",
       "magicLinkFailed": "Échec de l’envoi du lien magique.",
       "finishFailed": "Impossible de terminer la connexion. Veuillez réessayer.",
-      "signInIncomplete": "Connexion incomplète. Veuillez réessayer.",
       "signInLinkExpired": "Le lien de connexion a expiré. Veuillez réessayer.",
       "tooManyRequests": {
         "one": "Trop de requêtes. Réessayez dans {count} seconde.",
@@ -2157,7 +2152,6 @@
         "computerDone": "Connecté !",
         "computerSkipped": "Plus tard.",
         "accountDone": "C'est fait.",
-        "accountSkipped": "Pas maintenant.",
         "themeDone": "Celui-ci.",
         "themeSkipped": "Garder celui par défaut."
       },
@@ -2306,10 +2300,7 @@
         "connect": "Connecter",
         "connectLabel": "Connecter {name}",
         "connectedAs": "Connecté · {name}",
-        "skip": "Pas maintenant",
-        "settledSignedIn": "Connecté",
-        "settledGuest": "Stella en mode invité",
-        "guestSettled": "Connectez-vous à tout moment depuis Paramètres"
+        "settledSignedIn": "Connecté"
       },
       "theme": {
         "appearance": "Apparence",
@@ -2368,8 +2359,7 @@
       "legalTerms": "Conditions",
       "legalConjunction": " et notre ",
       "legalPrivacy": "Politique de confidentialité",
-      "legalSuffix": ".",
-      "continueAsGuest": "Continuer sans se connecter"
+      "legalSuffix": "."
     },
     "chat": {
       "emptyPrompt": "Demandez ce que vous voulez à Stella",
@@ -2436,8 +2426,6 @@
       }
     },
     "computer": {
-      "guestHeroTitle": "Votre ordinateur à portée de main",
-      "guestHeroBody": "Demandez à Stella d'agir sur votre ordinateur : naviguer sur le web, gérer des fichiers, exécuter des tâches et bien plus.",
       "defaultDeviceLabel": "Votre ordinateur",
       "statusChecking": "Vérification…",
       "statusConnected": "Connecté",
@@ -2449,8 +2437,6 @@
     },
     "desktop": {
       "pairTitle": "Associez votre téléphone",
-      "guestBody": "Retrouvez votre app de bureau Stella directement sur votre téléphone. Après l'association, votre téléphone se reconnectera automatiquement.",
-      "guestSignInPrompt": "Connectez-vous pour commencer.",
       "connecting": "Connexion au bureau",
       "pairing": "Association de ce téléphone",
       "unreachable": "Impossible de joindre votre ordinateur de bureau",

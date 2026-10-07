@@ -7,7 +7,6 @@ const authMocks = vi.hoisted(() => ({
   verifyOneTimeToken: vi.fn(),
   updateSession: vi.fn(),
   getSession: vi.fn(),
-  signInAnonymous: vi.fn(),
   signOut: vi.fn(),
   deleteUser: vi.fn(),
   getChallengeToken: vi.fn(),
@@ -24,7 +23,6 @@ vi.mock("@/global/auth/lib/auth-client", () => ({
     },
     updateSession: authMocks.updateSession,
     getSession: authMocks.getSession,
-    signIn: { anonymous: authMocks.signInAnonymous },
     signOut: authMocks.signOut,
     deleteUser: authMocks.deleteUser,
   },
@@ -211,32 +209,5 @@ describe("browser auth session handoff", () => {
     expect(await mod.waitForBrowserAuthHandoff()).toBe("none");
     expect(authMocks.verifyOneTimeToken).not.toHaveBeenCalled();
     expect(window.location.hash).toBe("#section=account");
-  });
-
-  it("attaches a fresh challenge token to browser anonymous sign-in", async () => {
-    authMocks.getChallengeToken.mockResolvedValue("turnstile-token");
-    authMocks.signInAnonymous.mockImplementation(() => {
-      window.localStorage.setItem(
-        "better-auth_session_token",
-        "anonymous.bearer.token",
-      );
-      return Promise.resolve({ error: null });
-    });
-    authMocks.getSession.mockResolvedValue({
-      data: {
-        user: { id: "anonymous-owner", isAnonymous: true },
-        session: { id: "anonymous-session" },
-      },
-      error: null,
-    });
-
-    const mod = await import("@/global/auth/services/auth-session");
-    await mod.signInAnonymous();
-
-    expect(authMocks.signInAnonymous).toHaveBeenCalledWith({
-      fetchOptions: {
-        headers: { [AUTH_CAPTCHA_HEADER]: "turnstile-token" },
-      },
-    });
   });
 });

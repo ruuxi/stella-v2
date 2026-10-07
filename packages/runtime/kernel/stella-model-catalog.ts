@@ -288,17 +288,12 @@ const getJwtCacheIdentity = (authorization: string | undefined): string => {
       : typeof payload.aud === "string"
         ? payload.aud
         : "";
-    const isAnonymous =
-      typeof payload.isAnonymous === "boolean"
-        ? String(payload.isAnonymous)
-        : "";
     return [
       "auth:jwt",
       issuer,
       subject,
       tokenIdentifier,
       audience,
-      isAnonymous,
     ].join(":");
   } catch {
     return `auth:jwt-unreadable:${createHash("sha256").update(token).digest("hex")}`;

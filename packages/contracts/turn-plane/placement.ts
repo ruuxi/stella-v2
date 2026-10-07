@@ -283,7 +283,6 @@ export type DispatchErrorCode =
   | "owner_purged"
   | "generation_stale"
   | "capability_unavailable"
-  /** Anonymous owners may not dispatch agent work; sign in to continue. */
   | "sign_in_required"
   | "owner_suspended"
   | "internal";

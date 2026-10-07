@@ -2,7 +2,7 @@ import { useBackendValue } from "@/platform/backend/use-backend-view";
 import type { BillingStatus } from "@stella/contracts/backend/billing";
 import { useCallback, useMemo } from "react";
 import { isWebsiteHost } from "@/platform/capabilities";
-import { useDesktopAuthSession, getAuthSessionSnapshot } from "@/global/auth/services/auth-session";
+import { useDesktopAuthSession } from "@/global/auth/services/auth-session";
 import { fetchStellaModels } from "@/platform/backend/stella-models";
 import {
   groupCatalogModelsByProvider,
@@ -35,7 +35,6 @@ type AuthSessionData =
       user?: {
         id?: string | null;
         email?: string | null;
-        isAnonymous?: boolean | null;
       } | null;
       session?: {
         id?: string | null;
@@ -120,17 +119,13 @@ function getSessionCacheKey(sessionData: AuthSessionData): string {
   const identity =
     user?.id ?? user?.email ?? sessionData.session?.id ?? "unknown";
   const sessionId = sessionData.session?.id ?? "no-session";
-  const kind = user?.isAnonymous === true ? "anonymous" : "account";
-  return `${kind}:${identity}:${sessionId}`;
+  return `account:${identity}:${sessionId}`;
 }
 
 export function useModelCatalog() {
   const session = useDesktopAuthSession();
   const sessionData = session.data as AuthSessionData;
-  const user = sessionData?.user ?? null;
-  const hasConnectedAccount = Boolean(
-    sessionData && user?.isAnonymous !== true,
-  );
+  const hasConnectedAccount = Boolean(sessionData);
   const sessionCacheScope = getSessionCacheKey(sessionData);
   const billingStatus = useBackendValue(
     "billing.status",
@@ -146,8 +141,7 @@ export function useModelCatalog() {
     [billingStatus, hasConnectedAccount],
   );
   const authAudienceKey = useMemo(() => {
-    if (session.isPending) return null;
-    if (!hasConnectedAccount) return `${sessionCacheScope}:audience:anonymous`;
+    if (session.isPending || !hasConnectedAccount) return null;
     // Once billing resolves we key by the precise audience. Until then fetch
     // under a provisional key rather than returning null — the backend derives
     // the real audience (and `allowedForAudience`) from the auth token, not
@@ -215,9 +209,10 @@ export function useModelCatalog() {
     allModels: mergedModels,
     defaults: stellaPayload.defaults,
     groups,
-    loading:
-      stellaCacheKey === null ||
-      (stellaQuery.isLoading && stellaPayload.models.length === 0),
+    loading: hasConnectedAccount
+      ? stellaCacheKey === null ||
+        (stellaQuery.isLoading && stellaPayload.models.length === 0)
+      : Boolean(session.isPending),
     error: errorMessage,
     searchModels,
     refresh,
@@ -226,22 +221,7 @@ export function useModelCatalog() {
   };
 }
 
-function buildAnonymousStellaCatalogKey(sessionData: AuthSessionData): string {
-  return `${getSessionCacheKey(sessionData)}:audience:anonymous`;
-}
-
 /** Intent-hover warm for the sidebar Models popover and composer entry points. */
 export function preloadModelCatalogCache(): void {
   if (!isWebsiteHost()) void managedGatewayStore.ensure("default");
-
-  const session = getAuthSessionSnapshot();
-  if (session.isPending) return;
-
-  const sessionData = session.data as AuthSessionData;
-  const hasConnectedAccount = Boolean(
-    sessionData && sessionData.user?.isAnonymous !== true,
-  );
-  if (hasConnectedAccount) return;
-
-  void stellaCatalogStore.ensure(buildAnonymousStellaCatalogKey(sessionData));
 }

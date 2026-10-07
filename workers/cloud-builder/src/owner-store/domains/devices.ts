@@ -230,8 +230,8 @@ const scheduleSweep = (ctx: OwnerContext): void => {
   ctx.jobs.schedule(DEVICES_SWEEP_JOB, ctx.now + SWEEP_INTERVAL_MS, null, { id: DEVICES_SWEEP_JOB });
 };
 
-const requireAccountCaller = (caller: OwnerCaller | null): OwnerCaller => {
-  if (!caller || caller.isAnonymous) {
+const requireCaller = (caller: OwnerCaller | null): OwnerCaller => {
+  if (!caller) {
     throw new RpcError("FORBIDDEN", "Sign in with an account to use this.");
   }
   return caller;
@@ -842,7 +842,7 @@ const error = (status: number, message: string): MobileRouteResult => ({ status,
 
 /** The phone routes, for a signed-in account. */
 export const handleMobileRoute = async (ctx: OwnerContext, input: MobileRouteInput): Promise<MobileRouteResult> => {
-  requireAccountCaller(input.caller);
+  requireCaller(input.caller);
   const body = input.body;
   switch (input.route) {
     case "POST push-token": {
@@ -923,13 +923,11 @@ export const devicesDomain = {
   calls: {
     "devices.identity": {
       scope: "owner",
-      requireAccount: true,
       parse: object({ deviceId: optional(string({ max: 256 })) }),
       handler: (ctx: OwnerContext, args: DeviceCalls["devices.identity"]["args"]) => identity(ctx, args),
     },
     "devices.register": {
       scope: "owner",
-      requireAccount: true,
       parse: object({
         deviceId: deviceIdArg,
         devicePublicKey: string({ min: 1, max: 512 }),
@@ -941,37 +939,31 @@ export const devicesDomain = {
     },
     "devices.setRemoteExecution": {
       scope: "owner",
-      requireAccount: true,
       parse: object({ deviceId: deviceIdArg, enabled: boolean() }),
       handler: (ctx: OwnerContext, args: DeviceCalls["devices.setRemoteExecution"]["args"]) => setRemoteExecution(ctx, args),
     },
     "devices.requestRemoteExecution": {
       scope: "owner",
-      requireAccount: true,
       parse: object({ deviceId: deviceIdArg }),
       handler: (ctx: OwnerContext, args: DeviceCalls["devices.requestRemoteExecution"]["args"]) => requestRemoteExecution(ctx, args),
     },
     "devices.adoptSuccession": {
       scope: "owner",
-      requireAccount: true,
       parse: object({ previousDeviceId: deviceIdArg, deviceId: deviceIdArg }),
       handler: (ctx: OwnerContext, args: DeviceCalls["devices.adoptSuccession"]["args"]) => adoptSuccession(ctx, args),
     },
     "phone.createPairing": {
       scope: "owner",
-      requireAccount: true,
       parse: object({ desktopDeviceId: deviceIdArg }),
       handler: (ctx: OwnerContext, args: DeviceCalls["phone.createPairing"]["args"]) => createPairing(ctx, args),
     },
     "phone.revoke": {
       scope: "owner",
-      requireAccount: true,
       parse: object({ desktopDeviceId: deviceIdArg, mobileDeviceId: deviceIdArg }),
       handler: (ctx: OwnerContext, args: DeviceCalls["phone.revoke"]["args"]) => revokePhone(ctx, args),
     },
     "phone.notifyActivity": {
       scope: "owner",
-      requireAccount: true,
       parse: object({ kind: literal("started", "completed", "failed") }),
       handler: (ctx: OwnerContext, args: DeviceCalls["phone.notifyActivity"]["args"]) => notifyActivity(ctx, args.kind),
     },
@@ -994,7 +986,6 @@ export const devicesDomain = {
   },
   views: {
     "phone.access": {
-      requireAccount: true,
       parse: object({ desktopDeviceId: deviceIdArg }),
       read: (ctx, args) => phoneAccess(ctx.db, args.desktopDeviceId, ctx.now),
     },

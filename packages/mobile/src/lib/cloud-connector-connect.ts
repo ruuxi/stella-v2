@@ -1,7 +1,7 @@
 import * as Crypto from "expo-crypto";
 import { useCallback, useMemo } from "react";
 import type { CloudConnectorConnectRequest } from "@stella/contracts/cloud-connector-connect";
-import { authClient } from "./auth-client";
+import { useAccountSession } from "./auth-client";
 import { getBackendClient, useBackendView } from "./backend";
 
 export type {
@@ -18,11 +18,8 @@ export type {
 const EMPTY: readonly CloudConnectorConnectRequest[] = [];
 const decisionRequestIds = new Map<string, string>();
 
-/** Connect cards are a connected-account feature; anonymous owners skip. */
-const useConnectedAccountAccess = (): boolean => {
-  const session = authClient.useSession();
-  return Boolean(session.data) && session.data?.user?.isAnonymous !== true;
-};
+const useConnectedAccountAccess = (): boolean =>
+  Boolean(useAccountSession().data);
 
 export function usePendingCloudConnectRequests(): readonly CloudConnectorConnectRequest[] {
   const enabled = useConnectedAccountAccess();

@@ -1716,6 +1716,7 @@
         "fromOtherComputers": "다른 컴퓨터의 변경 사항",
         "readyChange": "추가할 수 있는 변경 사항",
         "add": "추가",
+        "get": "가져오기",
         "adding": "추가 중…",
         "skip": "건너뛰기",
         "undoing": "실행 취소 중…",
@@ -1723,6 +1724,7 @@
         "justNow": "방금",
         "waiting": "대기 중",
         "history": "기록",
+        "skipped": "건너뜀",
         "upToDate": "대기 중인 항목이 없습니다"
       }
     },
@@ -2115,7 +2117,6 @@
         "computerDone": "연결했어요!",
         "computerSkipped": "나중에요.",
         "accountDone": "준비 완료.",
-        "accountSkipped": "나중에 할게요.",
         "themeDone": "이걸로 할게요.",
         "themeSkipped": "기본으로 둘게요."
       },
@@ -2264,10 +2265,7 @@
         "connect": "연결",
         "connectLabel": "{name} 연결",
         "connectedAs": "연결됨 · {name}",
-        "skip": "나중에 하기",
-        "settledSignedIn": "로그인됨",
-        "settledGuest": "게스트로 Stella 사용 중",
-        "guestSettled": "설정에서 언제든 로그인할 수 있어요"
+        "settledSignedIn": "로그인됨"
       },
       "theme": {
         "appearance": "모양",
@@ -2326,8 +2324,7 @@
       "legalTerms": "서비스 약관",
       "legalConjunction": " 및 ",
       "legalPrivacy": "개인정보 처리방침",
-      "legalSuffix": "에 동의하는 것으로 간주됩니다.",
-      "continueAsGuest": "로그인하지 않고 계속"
+      "legalSuffix": "에 동의하는 것으로 간주됩니다."
     },
     "chat": {
       "emptyPrompt": "Stella에게 무엇이든 물어보세요",
@@ -2392,8 +2389,6 @@
       }
     },
     "computer": {
-      "guestHeroTitle": "내 컴퓨터를 손안에",
-      "guestHeroBody": "웹 탐색, 파일 관리, 작업 실행 등 컴퓨터에서 할 일을 Stella에게 맡기세요.",
       "defaultDeviceLabel": "내 컴퓨터",
       "statusChecking": "확인 중…",
       "statusConnected": "연결됨",
@@ -2405,8 +2400,6 @@
     },
     "desktop": {
       "pairTitle": "휴대폰 페어링",
-      "guestBody": "Stella 데스크톱 앱을 휴대폰에서 바로 볼 수 있습니다. 페어링 후에는 자동으로 다시 연결됩니다.",
-      "guestSignInPrompt": "로그인하고 시작하세요.",
       "connecting": "데스크톱에 연결 중",
       "pairing": "이 휴대폰 페어링 중",
       "unreachable": "데스크톱에 연결할 수 없음",

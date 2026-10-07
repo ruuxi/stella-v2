@@ -103,7 +103,7 @@ describe("read-latest row", () => {
   });
 });
 
-describe("guest home", () => {
+describe("signed-out home", () => {
   test("offers sign-in instead of a talk row that could never answer", () => {
     const sections = buildHome({ ...base, signedIn: false });
     expect(sections.length).toBe(1);
@@ -112,7 +112,7 @@ describe("guest home", () => {
     expect(flattenActions(sections)).toEqual([{ kind: "signInHint" }]);
   });
 
-  test("a guest never sees replies from a previous signed-in drive", () => {
+  test("a signed-out phone never sees replies from a previous signed-in drive", () => {
     const sections = buildHome({
       ...base,
       signedIn: false,

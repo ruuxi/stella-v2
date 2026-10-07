@@ -11,8 +11,7 @@ import {
   type MobileSchedule,
   type MobileScheduleAction,
 } from "../lib/schedules";
-import { authClient } from "../lib/auth-client";
-import { isGuest } from "../lib/guest-mode";
+import { useAccountSession } from "../lib/auth-client";
 import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Colors } from "../theme/colors";
@@ -31,8 +30,8 @@ export function SchedulePage() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const rowStyles = useMemo(() => makeActivityRowStyles(colors), [colors]);
   const bottomInset = useSafeAreaInsets().bottom;
-  const session = authClient.useSession();
-  const signedIn = Boolean(session.data?.user) && !isGuest();
+  const session = useAccountSession();
+  const signedIn = Boolean(session.data?.user);
 
   const loaded = useMobileSchedules(signedIn);
   const schedules = loaded ?? EMPTY;

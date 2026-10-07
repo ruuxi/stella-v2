@@ -53,9 +53,7 @@ function ConfiguredSignInView() {
   const desktopUser = useDesktopBridgeAuthUser();
   const sessionData = session.data as { user?: SessionUser } | null | undefined;
   const user = sessionData?.user ?? desktopUser;
-  const isSignedIn = Boolean(user) && user?.isAnonymous !== true;
-
-  if (isSignedIn && user) {
+  if (user && user.isAnonymous !== true) {
     return <SignedInPanel user={user} />;
   }
 

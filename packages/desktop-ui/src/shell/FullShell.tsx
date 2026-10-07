@@ -15,6 +15,9 @@ import {
 import { setPendingComposerDraft } from "@/global/onboarding/chat/pending-handoff";
 import type { OnboardingChatHandoff } from "@/global/onboarding/chat/use-onboarding-chat";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
+import { useAuthBootstrapState } from "@/global/auth/BackendAuthProvider";
+import { useChatStorageMode } from "@/features/chat/services/chat-storage-preference";
+import { reopenOnboardingChatAtSignIn } from "@/global/onboarding/chat/onboarding-chat-flow";
 import { router } from "@/router";
 import { ShiftingGradient } from "./background/ShiftingGradient";
 import { AskStellaSelectionChip } from "./selection/AskStellaSelectionChip";
@@ -135,8 +138,18 @@ const WebsiteShell = () => {
 };
 
 const DesktopFullShell = () => {
-  const { completed: onboardingDone, hydrated: onboardingHydrated } =
-    useOnboardingState();
+  const {
+    completed: onboardingDone,
+    hydrated: onboardingHydrated,
+    reopen: reopenOnboarding,
+  } = useOnboardingState();
+  const { status: authStatus } = useAuthBootstrapState();
+  const storageMode = useChatStorageMode();
+  // Chats live in the Stella account, so a signed-out user (first run, after
+  // signing out, or holding a retired anonymous session) goes through
+  // onboarding to its sign-in step instead of a shell with no conversations.
+  // Chats kept on this computer need no account.
+  const needsAccount = authStatus === "signed_out" && storageMode === "cloud";
   // Returning users resolve `onboardingDone` synchronously from shared UI state,
   // so seed `hasEnteredApp` synchronously too. Otherwise the chat surface /
   // RouterProvider mount waits on the setTimeout(0) below. The splash stays up
@@ -148,6 +161,12 @@ const DesktopFullShell = () => {
   const onboardingResolved = onboardingHydrated || onboardingDone;
   const appReady = onboardingResolved && onboardingDone && hasEnteredApp;
   const needsOnboarding = onboardingHydrated && !onboardingDone;
+
+  useEffect(() => {
+    if (!needsAccount || !onboardingDone) return;
+    reopenOnboardingChatAtSignIn();
+    reopenOnboarding();
+  }, [needsAccount, onboardingDone, reopenOnboarding]);
 
   useEffect(() => {
     if (!onboardingResolved || !onboardingDone) return;

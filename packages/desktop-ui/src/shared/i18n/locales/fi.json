@@ -773,8 +773,7 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Todella hienoa.",
-        "signinDone": "Valmis.",
-        "signinSkipped": "Teen sen myöhemmin."
+        "signinDone": "Valmis."
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -924,7 +923,7 @@
       },
       "signin": {
         "title": "Kirjaudu sisään",
-        "body": "Yksi näistä riittää. Voit lisätä muut myöhemmin.",
+        "body": "Aloita kirjautumalla Stella-tilille. Voit lisätä myös Claude- tai ChatGPT-tilauksesi.",
         "options": {
           "stella": {
             "title": "Stella-tili",
@@ -946,11 +945,9 @@
         "waiting": "Viimeistele kirjautuminen selaimessasi ja palaa sitten tänne.",
         "error": "Yhdistäminen ei onnistunut. Yritetäänkö uudelleen?",
         "fine": "Voit muuttaa tämän milloin tahansa asetuksissa.",
-        "skip": "Ei nyt",
         "hint": "Aloittaminen on ilmaista.",
         "settledEngine": "Käytössä {name}",
         "settledStella": "Kirjauduttu Stellaan",
-        "settledSkipped": "Ei vielä kirjautunut",
         "settledDesc": "Voit muuttaa tämän milloin tahansa asetuksissa.",
         "claudeCliMissing": "Asenna ensin Claude Code ja yritä sitten uudelleen."
       },
@@ -1000,7 +997,6 @@
     },
     "capabilityRestriction": {
       "title": "{capability} ei sisälly tilaukseesi",
-      "signIn": "{capability} sisältyy Stella {plan} -tilaukseen. Kirjaudu sisään ja päivitä tilaus, niin saat ominaisuuden käyttöön.",
       "upgrade": "{capability} sisältyy Stella {plan} -tilaukseen. Päivitä tilaus, niin saat ominaisuuden käyttöön.",
       "unavailable": "{capability} ei ole tällä hetkellä saatavilla missään tilauksessa.",
       "lockedBadge": "{plan}",
@@ -1990,7 +1986,6 @@
       "sendFailed": "Kirjautumisviestin lähetys epäonnistui.",
       "magicLinkFailed": "Taikalinkin lähetys epäonnistui.",
       "finishFailed": "Kirjautumista ei voitu viimeistellä. Yritä uudelleen.",
-      "signInIncomplete": "Kirjautuminen jäi kesken. Yritä uudelleen.",
       "signInLinkExpired": "Kirjautumislinkki vanhentui. Yritä uudelleen.",
       "tooManyRequests": {
         "one": "Liikaa pyyntöjä. Yritä uudelleen {count} sekunnin kuluttua.",
@@ -2138,7 +2133,6 @@
         "computerDone": "Yhdistetty!",
         "computerSkipped": "Ehkä myöhemmin.",
         "accountDone": "Valmista.",
-        "accountSkipped": "Ohita toistaiseksi.",
         "themeDone": "Tämä.",
         "themeSkipped": "Pidä oletus."
       },
@@ -2287,10 +2281,7 @@
         "connect": "Yhdistä",
         "connectLabel": "Yhdistä {name}",
         "connectedAs": "Yhdistetty · {name}",
-        "skip": "Ohita toistaiseksi",
-        "settledSignedIn": "Kirjautunut sisään",
-        "settledGuest": "Stellaa käytetään vieraana",
-        "guestSettled": "Kirjaudu sisään milloin tahansa asetuksista"
+        "settledSignedIn": "Kirjautunut sisään"
       },
       "theme": {
         "appearance": "Ulkoasu",
@@ -2349,8 +2340,7 @@
       "legalTerms": "käyttöehdot",
       "legalConjunction": " ja ",
       "legalPrivacy": "tietosuojakäytännön",
-      "legalSuffix": ".",
-      "continueAsGuest": "Jatka kirjautumatta sisään"
+      "legalSuffix": "."
     },
     "chat": {
       "emptyPrompt": "Kysy Stellalta mitä tahansa",
@@ -2416,8 +2406,6 @@
       }
     },
     "computer": {
-      "guestHeroTitle": "Tietokoneesi sormenpäissäsi",
-      "guestHeroBody": "Pyydä Stellaa tekemään asioita tietokoneellasi — selaamaan verkkoa, hallitsemaan tiedostoja, suorittamaan tehtäviä ja paljon muuta.",
       "defaultDeviceLabel": "Tietokoneesi",
       "statusChecking": "Tarkistetaan…",
       "statusConnected": "Yhdistetty",
@@ -2429,8 +2417,6 @@
     },
     "desktop": {
       "pairTitle": "Pariliitä puhelimesi",
-      "guestBody": "Näe Stellan työpöytäsovellus suoraan puhelimessasi. Pariliitoksen jälkeen puhelin yhdistää uudelleen automaattisesti.",
-      "guestSignInPrompt": "Kirjaudu sisään päästäksesi alkuun.",
       "connecting": "Yhdistetään työpöytään",
       "pairing": "Pariliitetään tätä puhelinta",
       "unreachable": "Työpöytää ei tavoiteta",

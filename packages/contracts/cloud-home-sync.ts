@@ -19,7 +19,7 @@ export const CLOUD_HOME_LOCAL_SKILLS_SCAN_MAX_BYTES = 50 * 1024 * 1024;
 export type CloudHomeImportOwnership =
   | "owned"
   | "unclaimed"
-  | "anonymous"
+  | "signed_out"
   | "other_owner"
   | "corrupt";
 

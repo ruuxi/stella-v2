@@ -1728,6 +1728,7 @@
         "fromOtherComputers": "Változtatások a másik számítógépedről",
         "readyChange": "Hozzáadásra kész változtatás",
         "add": "Hozzáadás",
+        "get": "Lekérés",
         "adding": "Hozzáadás…",
         "skip": "Kihagyás",
         "undoing": "Visszavonás…",
@@ -1735,6 +1736,7 @@
         "justNow": "Épp most",
         "waiting": "Várakozik",
         "history": "Előzmények",
+        "skipped": "Kihagyva",
         "upToDate": "Semmi sem várakozik"
       }
     },
@@ -2136,7 +2138,6 @@
         "computerDone": "Csatlakoztatva!",
         "computerSkipped": "Majd később.",
         "accountDone": "Kész.",
-        "accountSkipped": "Most nem.",
         "themeDone": "Ez lesz.",
         "themeSkipped": "Maradjon az alapértelmezett."
       },
@@ -2285,10 +2286,7 @@
         "connect": "Csatlakoztatás",
         "connectLabel": "{name} csatlakoztatása",
         "connectedAs": "Csatlakoztatva · {name}",
-        "skip": "Most nem",
-        "settledSignedIn": "Bejelentkezve",
-        "settledGuest": "Stella vendégként",
-        "guestSettled": "Bármikor bejelentkezhetsz a Beállításokban"
+        "settledSignedIn": "Bejelentkezve"
       },
       "theme": {
         "appearance": "Megjelenés",
@@ -2347,8 +2345,7 @@
       "legalTerms": "Felhasználási feltételeket",
       "legalConjunction": " és az ",
       "legalPrivacy": "Adatvédelmi szabályzatot",
-      "legalSuffix": ".",
-      "continueAsGuest": "Folytatás bejelentkezés nélkül"
+      "legalSuffix": "."
     },
     "chat": {
       "emptyPrompt": "Kérdezz bármit a Stellától",
@@ -2414,8 +2411,6 @@
       }
     },
     "computer": {
-      "guestHeroTitle": "A számítógéped kéznyújtásnyira",
-      "guestHeroBody": "Kérd meg a Stellát, hogy csináljon dolgokat a számítógépeden — böngésszen, kezelje a fájlokat, futtasson feladatokat és még sok mást.",
       "defaultDeviceLabel": "A számítógéped",
       "statusChecking": "Ellenőrzés…",
       "statusConnected": "Csatlakoztatva",
@@ -2427,8 +2422,6 @@
     },
     "desktop": {
       "pairTitle": "Párosítsd a telefonod",
-      "guestBody": "Lásd a Stella asztali alkalmazását közvetlenül a telefonodon. A párosítás után a telefonod automatikusan újracsatlakozik.",
-      "guestSignInPrompt": "Jelentkezz be a kezdéshez.",
       "connecting": "Csatlakozás az asztali alkalmazáshoz",
       "pairing": "Telefon párosítása",
       "unreachable": "Nem érhető el az asztali alkalmazás",

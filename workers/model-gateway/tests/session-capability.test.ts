@@ -180,55 +180,10 @@ describe("POST /v1/capabilities/session", () => {
     )!;
     expect(JSON.parse(billingCall.body ?? "{}")).toEqual({
       ownerId: "user_ba_1",
-      isAnonymous: false,
       ipHash: "631f08140b24b7274d12df3c37a1a80c",
       networkClass: "unknown",
       deviceKeyHash: TEST_DEVICE_KEY_HASH,
     });
-  });
-
-  test("anonymous accounts are flagged from the JWT and an empty body is fine", async () => {
-    const token = await signJwt(
-      validPayload({ anon: true, sub: "anon_7" }),
-    );
-    const response = await ctx.run(sessionRequest(token));
-    expect(response.status).toBe(200);
-    const billingCall = ctx.fetchMock.calls.find(
-      (call) => call.url.pathname === "/api/gateway/session-capability",
-    )!;
-    expect(JSON.parse(billingCall.body ?? "{}")).toEqual({
-      ownerId: "anon_7",
-      isAnonymous: true,
-      ipHash: "631f08140b24b7274d12df3c37a1a80c",
-      networkClass: "unknown",
-      deviceKeyHash: TEST_DEVICE_KEY_HASH,
-    });
-    expect(ctx.harness.networkGate.objects.size).toBe(1);
-  });
-
-  test("refuses an anonymous hosting network before any admission gate", async () => {
-    const token = await signJwt(
-      validPayload({ anon: true, sub: "anon_hosting" }),
-    );
-    const response = await ctx.run(
-      sessionRequest(token, {}, { asn: 16_509, asOrganization: "Amazon" }),
-    );
-    expect(response.status).toBe(403);
-    expect((await readError(response)).error).toEqual({
-      code: "sign_in_required",
-      message: "Sign in to Stella to continue from this network.",
-      retryable: false,
-    });
-    expect(ctx.harness.ownerGate.objects.size).toBe(0);
-    expect(ctx.harness.networkGate.objects.size).toBe(0);
-    expect(ctx.harness.asnPolicyCalls).toEqual([
-      { key: "16509", cacheTtl: 300 },
-    ]);
-    expect(
-      ctx.fetchMock.calls.filter(
-        (call) => call.url.pathname === "/api/gateway/session-capability",
-      ),
-    ).toHaveLength(0);
   });
 
   test("passes the edge class and bounded Turnstile token to billing control", async () => {
@@ -246,7 +201,6 @@ describe("POST /v1/capabilities/session", () => {
     )!;
     expect(JSON.parse(billingCall.body ?? "{}")).toEqual({
       ownerId: "user_ba_1",
-      isAnonymous: false,
       ipHash: "631f08140b24b7274d12df3c37a1a80c",
       networkClass: "hosting",
       turnstileToken: "turnstile-token",

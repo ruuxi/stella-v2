@@ -30,7 +30,6 @@ type AuthSessionData =
       user?: {
         id?: string | null;
         email?: string | null;
-        isAnonymous?: boolean | null;
       } | null;
     }
   | null
@@ -49,10 +48,7 @@ export type CapabilityAccess = {
 export function useCapabilityAccess(): CapabilityAccess {
   const session = useDesktopAuthSession();
   const sessionData = session.data as AuthSessionData;
-  const user = sessionData?.user ?? null;
-  const hasConnectedAccount = Boolean(
-    sessionData && user?.isAnonymous !== true,
-  );
+  const hasConnectedAccount = Boolean(sessionData?.user?.id);
 
   const billingStatus = useBackendValue(
     "billing.status",

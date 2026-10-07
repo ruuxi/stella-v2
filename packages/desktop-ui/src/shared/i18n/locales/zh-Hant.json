@@ -772,8 +772,7 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "太酷了。",
-        "signinDone": "好了。",
-        "signinSkipped": "我稍後再做。"
+        "signinDone": "好了。"
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -923,7 +922,7 @@
       },
       "signin": {
         "title": "登入",
-        "body": "任選其一就夠了。其他的以後再加。",
+        "body": "使用 Stella 帳號登入即可開始。你也可以加入自己的 Claude 或 ChatGPT 方案。",
         "options": {
           "stella": {
             "title": "Stella 帳號",
@@ -945,11 +944,9 @@
         "waiting": "請在瀏覽器中完成登入，然後回到這裡。",
         "error": "沒能連上。再試一次？",
         "fine": "隨時可以在「設定」中變更。",
-        "skip": "暫不",
         "hint": "免費開始。",
         "settledEngine": "正在使用 {name}",
         "settledStella": "已登入 Stella",
-        "settledSkipped": "尚未登入",
         "settledDesc": "隨時可以在「設定」中變更。",
         "claudeCliMissing": "請先安裝 Claude Code，然後再試一次。"
       },
@@ -999,7 +996,6 @@
     },
     "capabilityRestriction": {
       "title": "你的方案不包含{capability}",
-      "signIn": "{capability}包含在 Stella {plan} 方案中。登入並升級方案即可解鎖。",
       "upgrade": "{capability}包含在 Stella {plan} 方案中。升級方案即可解鎖。",
       "unavailable": "目前沒有任何方案提供{capability}。",
       "lockedBadge": "{plan}",
@@ -1971,7 +1967,6 @@
       "sendFailed": "傳送登入郵件失敗。",
       "magicLinkFailed": "傳送魔法連結失敗。",
       "finishFailed": "無法完成登入。請再試一次。",
-      "signInIncomplete": "登入未完成。請再試一次。",
       "signInLinkExpired": "登入連結已過期。請再試一次。",
       "tooManyRequests": {
         "other": "請求太過頻繁。請在 {count} 秒後再試。"
@@ -2117,7 +2112,6 @@
         "computerDone": "已連線！",
         "computerSkipped": "之後再說。",
         "accountDone": "搞定。",
-        "accountSkipped": "暫時略過。",
         "themeDone": "就這個。",
         "themeSkipped": "維持預設。"
       },
@@ -2266,10 +2260,7 @@
         "connect": "連結",
         "connectLabel": "連結 {name}",
         "connectedAs": "已連結 · {name}",
-        "skip": "暫時略過",
-        "settledSignedIn": "已登入",
-        "settledGuest": "正以訪客身分使用 Stella",
-        "guestSettled": "隨時可在設定中登入"
+        "settledSignedIn": "已登入"
       },
       "theme": {
         "appearance": "外觀",
@@ -2328,8 +2319,7 @@
       "legalTerms": "服務條款",
       "legalConjunction": "和",
       "legalPrivacy": "隱私權政策",
-      "legalSuffix": "。",
-      "continueAsGuest": "不登入繼續"
+      "legalSuffix": "。"
     },
     "chat": {
       "emptyPrompt": "什麼都可以問 Stella",
@@ -2394,8 +2384,6 @@
       }
     },
     "computer": {
-      "guestHeroTitle": "您的電腦，隨手可用",
-      "guestHeroBody": "請 Stella 在您的電腦上做事 —— 瀏覽網頁、管理檔案、執行工作等等。",
       "defaultDeviceLabel": "您的電腦",
       "statusChecking": "檢查中…",
       "statusConnected": "已連線",
@@ -2407,8 +2395,6 @@
     },
     "desktop": {
       "pairTitle": "配對您的手機",
-      "guestBody": "在手機上直接檢視您的 Stella 桌面應用程式。配對後，手機會自動重新連線。",
-      "guestSignInPrompt": "登入即可開始。",
       "connecting": "正在連線到桌面版",
       "pairing": "正在配對這支手機",
       "unreachable": "無法連線到您的桌面版",

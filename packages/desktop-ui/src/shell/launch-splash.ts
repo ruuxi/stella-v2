@@ -8,9 +8,8 @@
  * enable and the conversation list fill in. Holding the splash until the
  * root layout reports liveness turns that into a single reveal.
  *
- * Liveness can be slow or never arrive (offline, a first-ever install that
- * has to create its anonymous account over the network), so the hold is
- * bounded: after `LAUNCH_SPLASH_MAX_HOLD_MS` the splash drops regardless and
+ * Liveness can be slow or never arrive (offline, a slow session check), so
+ * the hold is bounded: after `LAUNCH_SPLASH_MAX_HOLD_MS` the splash drops regardless and
  * the shell shows in whatever state it is in.
  */
 
@@ -23,8 +22,7 @@ const LAUNCH_SPLASH_EXIT_MS = 260;
  * Upper bound on how long the shell may stay hidden behind the splash while
  * waiting for liveness. A returning user on a normal connection reaches a
  * selected conversation in roughly 1.3s from first paint, so this only fires
- * on cold first installs (anonymous sign-up is a network round-trip), offline
- * starts, or a slow network.
+ * on offline starts or a slow network.
  */
 export const LAUNCH_SPLASH_MAX_HOLD_MS = 2_000;
 

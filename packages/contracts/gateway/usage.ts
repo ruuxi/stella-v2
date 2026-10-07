@@ -60,8 +60,6 @@ export type GatewayUsageEvent = {
   finishedAt: number;
   /** False for native-lane (owner subscription) traffic; those are never billed. */
   billable: boolean;
-  /** Anonymous trial accounting: the caller's network as the gateway hashed it. */
-  anonymous?: { ipHash?: string };
   /** Edge classification of the caller's network, for risk signals. */
   networkClass?: NetworkClass;
   /** Session capabilities: the `dpk` the request proved. */
@@ -135,12 +133,10 @@ export type GatewayModelPrice = {
 export type GatewayConfigSnapshot = {
   v: 1;
   prices: GatewayModelPrice[];
-  /** Anonymous trial ceilings (per anonymous owner, per network). */
-  anonymous: { maxRequestsPerOwner: number; maxRequestsPerIp: number };
   /**
    * Global spend breakers by audience. An audience absent here has no
-   * breaker. When one trips the gateway answers `tier_paused` (anonymous:
-   * `sign_in_required`) until the window rolls.
+   * breaker. When one trips the gateway answers `tier_paused` until the
+   * window rolls.
    */
   tierCeilings: GatewayTierCeiling[];
   updatedAt: number;
@@ -149,7 +145,6 @@ export type GatewayConfigSnapshot = {
 /** A session capability exchange, as the gateway forwards it to `BillingControl`. */
 export type SessionCapabilityRequest = {
   ownerId: string;
-  isAnonymous: boolean;
   /** sha256hex(client ip).slice(0, 32) as the gateway computes it for usage events. */
   ipHash?: string;
   /** Edge classification of the caller's network. */
@@ -162,11 +157,7 @@ export type SessionCapabilityRequest = {
 
 export type SessionAdmissionResponse = {
   ownerGeneration: string;
-  /** The account record's answer, authoritative over the gateway's token flag. */
-  isAnonymous: boolean;
   identityLevel: IdentityLevel;
-  /** Anonymous trials: the request chunk this capability may spend. */
-  maxRequests?: number;
 };
 
 /** Result of a `BillingControl` call, shaped like the gateway's control-plane results. */
@@ -180,7 +171,7 @@ export type BillingControlRpc = {
     request: SessionCapabilityRequest,
   ): Promise<BillingControlResult<GatewaySessionCapabilityResponse>>;
   ingestUsage(batch: GatewayUsageBatch): Promise<GatewayUsageBatchResult>;
-  /** Prices, anonymous ceilings and tier breakers; throws while unavailable. */
+  /** Prices and tier breakers; throws while unavailable. */
   gatewayConfig(): Promise<GatewayConfigSnapshot>;
   /** One owner's enforcement, seeding the gateway's owner object; throws while unavailable. */
   ownerEnforcement(ownerId: string): Promise<OwnerEnforcementState>;

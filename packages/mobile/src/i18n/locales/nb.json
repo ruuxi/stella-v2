@@ -1728,6 +1728,7 @@
         "fromOtherComputers": "Endringer fra den andre datamaskinen din",
         "readyChange": "En endring klar til å legges til",
         "add": "Legg til",
+        "get": "Hent",
         "adding": "Legger til…",
         "skip": "Hopp over",
         "undoing": "Angrer…",
@@ -1735,6 +1736,7 @@
         "justNow": "Akkurat nå",
         "waiting": "Venter",
         "history": "Historikk",
+        "skipped": "Hoppet over",
         "upToDate": "Ingenting venter"
       }
     },
@@ -2136,7 +2138,6 @@
         "computerDone": "Tilkoblet!",
         "computerSkipped": "Kanskje senere.",
         "accountDone": "Klart.",
-        "accountSkipped": "Hopp over nå.",
         "themeDone": "Den der.",
         "themeSkipped": "Behold standard."
       },
@@ -2285,10 +2286,7 @@
         "connect": "Koble til",
         "connectLabel": "Koble til {name}",
         "connectedAs": "Tilkoblet · {name}",
-        "skip": "Hopp over nå",
-        "settledSignedIn": "Logget inn",
-        "settledGuest": "Bruker Stella som gjest",
-        "guestSettled": "Logg inn når som helst fra Innstillinger"
+        "settledSignedIn": "Logget inn"
       },
       "theme": {
         "appearance": "Utseende",
@@ -2347,8 +2345,7 @@
       "legalTerms": "Vilkår",
       "legalConjunction": " og ",
       "legalPrivacy": "Personvernerklæring",
-      "legalSuffix": ".",
-      "continueAsGuest": "Fortsett uten å logge inn"
+      "legalSuffix": "."
     },
     "chat": {
       "emptyPrompt": "Spør Stella om hva som helst",
@@ -2415,8 +2412,6 @@
       }
     },
     "computer": {
-      "guestHeroTitle": "Datamaskinen din, rett ved hånden",
-      "guestHeroBody": "Be Stella gjøre ting på datamaskinen din — surfe på nettet, håndtere filer, kjøre oppgaver og mer.",
       "defaultDeviceLabel": "Datamaskinen din",
       "statusChecking": "Sjekker…",
       "statusConnected": "Tilkoblet",
@@ -2428,8 +2423,6 @@
     },
     "desktop": {
       "pairTitle": "Koble til telefonen din",
-      "guestBody": "Se Stella-skrivebordsappen rett på telefonen. Etter tilkoblingen kobler telefonen seg til automatisk.",
-      "guestSignInPrompt": "Logg inn for å komme i gang.",
       "connecting": "Kobler til skrivebordet",
       "pairing": "Kobler til denne telefonen",
       "unreachable": "Får ikke kontakt med skrivebordet",

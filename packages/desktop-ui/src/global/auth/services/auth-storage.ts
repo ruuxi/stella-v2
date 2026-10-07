@@ -68,25 +68,24 @@ export const clearBrowserSessionToken = (): void => {
   }
 };
 
-export const readBrowserIdentityIntent = ():
-  | "anonymous"
-  | "connected"
-  | null => {
+export const readBrowserIdentityIntent = (): "connected" | null => {
   if (window.electronAPI) return null;
   try {
     const value = window.localStorage.getItem(BROWSER_IDENTITY_INTENT_KEY);
-    return value === "anonymous" || value === "connected" ? value : null;
+    return value === "connected" ? value : null;
   } catch {
     return null;
   }
 };
 
-export const writeBrowserIdentityIntent = (
-  intent: "anonymous" | "connected",
-): void => {
+export const writeBrowserIdentityIntent = (intent: "connected" | null): void => {
   if (window.electronAPI) return;
   try {
-    window.localStorage.setItem(BROWSER_IDENTITY_INTENT_KEY, intent);
+    if (intent) {
+      window.localStorage.setItem(BROWSER_IDENTITY_INTENT_KEY, intent);
+    } else {
+      window.localStorage.removeItem(BROWSER_IDENTITY_INTENT_KEY);
+    }
   } catch {
     // Identity intent is also retained in memory for this browser lifetime.
   }

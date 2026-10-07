@@ -1,9 +1,8 @@
 /**
  * "Sign in" — how Stella thinks.
  *
- * Three ways in, any of which is enough: a Stella account (Google or email,
- * the same dialog as the top bar), or the Claude or ChatGPT plan the user
- * already pays for. Claude runs through Claude Code on Claude Code's own
+ * Three ways in: a Stella account (Google or email, the same dialog as the
+ * top bar), or the Claude or ChatGPT plan the user already pays for. Claude runs through Claude Code on Claude Code's own
  * sign-in: in the desktop app this computer's `claude` signs in (Anthropic's
  * page, then the code it shows pasted here); on the website the owner's
  * cloud signs in the same way. ChatGPT is Sign in with ChatGPT: in the
@@ -13,8 +12,9 @@
  * lens slides to whichever one is in use, and tapping another connected row
  * moves it.
  *
- * Nothing here blocks: every install already has an anonymous Stella
- * session with free previews, so the step can be skipped.
+ * The step cannot be skipped. Chats are stored in the user's Stella account,
+ * so it finishes once that account is signed in; only with chats kept on
+ * this computer (Settings) is a connected Claude or ChatGPT plan enough.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/ui/button";
@@ -24,6 +24,7 @@ import { useT } from "@/shared/i18n";
 import { AuthDialog } from "@/global/auth/AuthDialog";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
 import { useAuthState } from "@/global/auth/BackendAuthProvider";
+import { useChatStorageMode } from "@/features/chat/services/chat-storage-preference";
 import { useCloudEngines } from "@/features/cloud/cloud-engines-api";
 import { ClaudeLoginPrompt } from "@/features/claude/ClaudeLoginPrompt";
 import { useClaudeLocalAccounts } from "@/features/claude/use-claude-local-accounts";
@@ -95,6 +96,7 @@ export function SignInCard({ active, answered, onAnswer }: SignInCardProps) {
   // Claude: this computer's Claude Code in the desktop app; in a browser,
   // the owner's cloud.
   const claudeLocal = useClaudeLocalAccounts();
+  const storageMode = useChatStorageMode();
   const [authOpen, setAuthOpen] = useState(false);
   const [pending, setPending] = useState<OptionId | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -130,6 +132,8 @@ export function SignInCard({ active, answered, onAnswer }: SignInCardProps) {
     session.hasConnectedAccount,
   ]);
   const anyConnected = connected.stella || connected.claude || connected.chatgpt;
+  const canContinue =
+    connected.stella || (storageMode === "local" && anyConnected);
   const inUse: OptionId | null = engine ? ENGINE_TO_OPTION[engine] : null;
   // The lens only marks a choice the user can see is real.
   const lensOn: OptionId | null = inUse && connected[inUse] ? inUse : null;
@@ -236,9 +240,7 @@ export function SignInCard({ active, answered, onAnswer }: SignInCardProps) {
         ? t("onboarding.chat.signin.settledEngine", {
             name: t(`onboarding.chat.signin.options.${lensOn}.title`),
           })
-        : connected.stella
-          ? t("onboarding.chat.signin.settledStella")
-          : t("onboarding.chat.signin.settledSkipped");
+        : t("onboarding.chat.signin.settledStella");
     return (
       <div className="obc-card" data-settled>
         <span className="obc-card__settled-icon">
@@ -362,10 +364,10 @@ export function SignInCard({ active, answered, onAnswer }: SignInCardProps) {
         <Button
           type="button"
           variant="primary"
-          disabled={!active || busyOption !== null}
-          onClick={() => onAnswer(anyConnected ? "done" : "skipped")}
+          disabled={!active || busyOption !== null || !canContinue}
+          onClick={() => onAnswer("done")}
         >
-          {anyConnected ? t("common.continue") : t("onboarding.chat.signin.skip")}
+          {t("common.continue")}
         </Button>
         <span className="obc-actions__spacer" />
         <span className="obc-actions__hint">{t("onboarding.chat.signin.hint")}</span>

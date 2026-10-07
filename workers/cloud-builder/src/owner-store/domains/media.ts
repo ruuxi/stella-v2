@@ -67,7 +67,7 @@ import { empty, json, literal, number, object, optional, string, type Parser } f
 import { RpcError } from "../errors.js";
 import { enforceOwnerRateLimit } from "../rate-limit.js";
 import type { OwnerContext, OwnerDbReader, OwnerDomain } from "../registry.js";
-import { billingAccess, recordBillingIdentity, recordUsage } from "./billing.js";
+import { billingAccess, recordUsage } from "./billing.js";
 
 export const MEDIA_POLL_JOB = "media.poll";
 export const MEDIA_EXPIRE_JOB = "media.expire";
@@ -521,12 +521,7 @@ const completeJob = async (ctx: OwnerContext, row: JobRow, payload: unknown): Pr
 
 const admit = (ctx: OwnerContext, capabilityId: string): void => {
   const capability = getMediaCapability(capabilityId)!;
-  // A signed-in caller's identity is fresher than the ledger's last note of it.
-  if (ctx.caller) recordBillingIdentity(ctx, { isAnonymous: ctx.caller.isAnonymous });
   const access = billingAccess(ctx);
-  if (access.isAnonymous) {
-    throw new RpcError("FORBIDDEN", "Sign in to Stella to use media generation.", { reason: "account_required" });
-  }
   const required = planCapabilityFor(capability);
   if (required) {
     const audience = toCapabilityAudience(access.audience) ?? "free";
@@ -1220,13 +1215,11 @@ export const mediaDomain = {
     },
     "media.generate": {
       scope: "owner",
-      requireAccount: true,
       parse: generateArgs,
       handler: (ctx: OwnerContext, args: MediaGenerateRequest) => startJob(ctx, args),
     },
     "media.cancel": {
       scope: "owner",
-      requireAccount: true,
       parse: lookupArgs,
       handler: cancelJob,
     },

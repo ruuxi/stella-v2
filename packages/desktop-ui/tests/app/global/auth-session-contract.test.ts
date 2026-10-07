@@ -1,13 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
-  canBootstrapAnonymous,
   resolveAuthSessionObservation,
   resolveMissingCredentialSnapshot,
   type AuthSessionError,
 } from "@stella/contracts/auth-session";
 
 const connectedSession = {
-  user: { id: "connected-user", isAnonymous: false },
+  user: { id: "connected-user" },
 };
 
 const unknownErrors: AuthSessionError[] = [
@@ -20,7 +19,7 @@ const unknownErrors: AuthSessionError[] = [
 
 describe("auth session snapshot contract", () => {
   it.each(unknownErrors)(
-    "never turns a non-verdict $kind failure into anonymous or rejected state",
+    "never turns a non-verdict $kind failure into signed-out or rejected state",
     (error) => {
       const snapshot = resolveAuthSessionObservation({
         observation: { kind: "unknown", error },
@@ -29,7 +28,6 @@ describe("auth session snapshot contract", () => {
       });
 
       expect(snapshot.status).toBe("unknown");
-      expect(canBootstrapAnonymous(snapshot)).toBe(false);
       expect(snapshot).toMatchObject({ staleSession: connectedSession });
     },
   );
@@ -42,34 +40,30 @@ describe("auth session snapshot contract", () => {
     });
 
     expect(snapshot.status).toBe("reauth_required");
-    expect(canBootstrapAnonymous(snapshot)).toBe(false);
   });
 
-  it("allows first-install and dead-anonymous bootstrap only", () => {
+  it("is signed out on first install and for a legacy anonymous session", () => {
     expect(
-      canBootstrapAnonymous(
-        resolveMissingCredentialSnapshot({
-          identityIntent: null,
-          staleSession: null,
-        }),
-      ),
-    ).toBe(true);
+      resolveMissingCredentialSnapshot({
+        identityIntent: null,
+        staleSession: null,
+      }),
+    ).toMatchObject({ status: "signed_out", reason: "first_install" });
     expect(
-      canBootstrapAnonymous(
-        resolveAuthSessionObservation({
-          observation: { kind: "rejected" },
-          identityIntent: "anonymous",
-          staleSession: null,
-        }),
-      ),
-    ).toBe(true);
+      resolveAuthSessionObservation({
+        observation: {
+          kind: "authenticated",
+          session: { user: { id: "legacy-user", isAnonymous: true } },
+        },
+        identityIntent: null,
+        staleSession: null,
+      }),
+    ).toMatchObject({ status: "signed_out" });
     expect(
-      canBootstrapAnonymous(
-        resolveMissingCredentialSnapshot({
-          identityIntent: "connected",
-          staleSession: connectedSession,
-        }),
-      ),
-    ).toBe(false);
+      resolveMissingCredentialSnapshot({
+        identityIntent: "connected",
+        staleSession: connectedSession,
+      }).status,
+    ).toBe("reauth_required");
   });
 });

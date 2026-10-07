@@ -488,7 +488,6 @@ export const configSnapshot = (
     },
 
   ],
-  anonymous: { maxRequestsPerOwner: 20, maxRequestsPerIp: 60 },
   tierCeilings: [],
   updatedAt: 1_756_000_000_000,
   ...overrides,
@@ -500,7 +499,6 @@ export const completeConfigSnapshot = (
 ): GatewayConfigSnapshot =>
   configSnapshot({
     tierCeilings: [
-      { audience: "anonymous", hourlyMicroCents: 100, dailyMicroCents: 1_000 },
       { audience: "free", hourlyMicroCents: 200, dailyMicroCents: 2_000 },
     ],
     ...overrides,
@@ -597,7 +595,6 @@ export const billingConfigLoader =
 export const createTestEnv = (overrides: Record<string, unknown> = {}) => {
   const usageEvents: unknown[] = [];
   const pending: Promise<unknown>[] = [];
-  const limiter = { success: true, keys: [] as string[] };
   let env: Record<string, unknown> = {};
   // cloud-builder's BillingControl, served by the test's fetch mock at the
   // control-plane paths the tests already stub.
@@ -723,19 +720,12 @@ export const createTestEnv = (overrides: Record<string, unknown> = {}) => {
       },
     },
     BILLING: billing,
-    ANON_IP_LIMITER: {
-      limit: async ({ key }: { key: string }) => {
-        limiter.keys.push(key);
-        return { success: limiter.success };
-      },
-    },
     ...overrides,
   };
   return {
     env: env as unknown as Env,
     usageEvents,
     pending,
-    limiter,
     ledger,
     ownerGate,
     networkGate,

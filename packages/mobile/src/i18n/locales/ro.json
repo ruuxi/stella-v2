@@ -1740,6 +1740,7 @@
         "fromOtherComputers": "Modificări de pe celălalt computer",
         "readyChange": "O modificare gata de adăugat",
         "add": "Adaugă",
+        "get": "Preia",
         "adding": "Se adaugă…",
         "skip": "Omite",
         "undoing": "Se anulează…",
@@ -1747,6 +1748,7 @@
         "justNow": "Chiar acum",
         "waiting": "În așteptare",
         "history": "Istoric",
+        "skipped": "Omise",
         "upToDate": "Nimic în așteptare"
       }
     },
@@ -2155,7 +2157,6 @@
         "computerDone": "Conectat!",
         "computerSkipped": "Poate mai târziu.",
         "accountDone": "Gata.",
-        "accountSkipped": "Omite deocamdată.",
         "themeDone": "Pe acesta.",
         "themeSkipped": "Las-o pe cea implicită."
       },
@@ -2304,10 +2305,7 @@
         "connect": "Conectează",
         "connectLabel": "Conectează {name}",
         "connectedAs": "Conectat · {name}",
-        "skip": "Omite deocamdată",
-        "settledSignedIn": "Te-ai conectat",
-        "settledGuest": "Folosești Stella fără cont",
-        "guestSettled": "Te poți conecta oricând din Setări"
+        "settledSignedIn": "Te-ai conectat"
       },
       "theme": {
         "appearance": "Aspect",
@@ -2366,8 +2364,7 @@
       "legalTerms": "Termenii",
       "legalConjunction": " și ",
       "legalPrivacy": "Politica de confidențialitate",
-      "legalSuffix": ".",
-      "continueAsGuest": "Continuă fără conectare"
+      "legalSuffix": "."
     },
     "chat": {
       "emptyPrompt": "Întreab-o pe Stella orice",
@@ -2434,8 +2431,6 @@
       }
     },
     "computer": {
-      "guestHeroTitle": "Computerul tău, la îndemână",
-      "guestHeroBody": "Cere-i Stellei să facă lucruri pe computerul tău — să navigheze pe web, să gestioneze fișiere, să ruleze sarcini și multe altele.",
       "defaultDeviceLabel": "Computerul tău",
       "statusChecking": "Se verifică…",
       "statusConnected": "Conectat",
@@ -2447,8 +2442,6 @@
     },
     "desktop": {
       "pairTitle": "Asociază-ți telefonul",
-      "guestBody": "Vezi aplicația desktop Stella direct pe telefon. După asociere, telefonul se va reconecta automat.",
-      "guestSignInPrompt": "Conectează-te ca să începi.",
       "connecting": "Se conectează la desktop",
       "pairing": "Se asociază acest telefon",
       "unreachable": "Nu putem ajunge la desktopul tău",

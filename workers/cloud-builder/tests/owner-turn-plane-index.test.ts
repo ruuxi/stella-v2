@@ -54,7 +54,6 @@ describe("conversations", () => {
     expect(await h.call("conversations.bootstrap", { clientCreateId: "client-create-1" })).toEqual({
       ownerId: OWNER_ID,
       ownerGeneration: GEN,
-      isAnonymous: false,
       conversationId: first.conversationId,
     });
     expect(await h.call("conversations.bootstrap", { clientCreateId: "client-create-2" })).toMatchObject({
@@ -231,11 +230,9 @@ describe("desktop-dispatched cloud agents", () => {
     expect(conflict.code).toBe("CONFLICT");
   });
 
-  test("a stale generation and an anonymous caller are refused", async () => {
+  test("a stale generation is refused", async () => {
     const stale = await h.callError("agentThreads.spawnFromDesktop", spawnArgs({ ownerGeneration: "old" }));
     expect(stale).toMatchObject({ code: "CONFLICT", reason: "owner_generation_stale" });
-    const anonymous = await h.callError("agentThreads.spawnFromDesktop", spawnArgs(), h.caller({ isAnonymous: true }));
-    expect(anonymous.code).toBe("FORBIDDEN");
   });
 
   test("an unknown conversation is refused; no conversation means the newest one", async () => {

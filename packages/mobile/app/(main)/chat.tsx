@@ -8,7 +8,6 @@ import {
   View,
 } from "react-native";
 import { useIsFocused } from "expo-router";
-import { authClient } from "../../src/lib/auth-client";
 import {
   followDesktopDeviceIdSuccession,
   getPreferredPhoneAccess,
@@ -91,11 +90,10 @@ type DeviceStatus = {
 };
 
 /**
- * The one chat. Its transcript belongs to the current connected or anonymous
- * session, and each turn's execution placement is decided server-side: the
- * paired computer is offered first and cloud takes the turn when no computer
- * is reachable. Pairing
- * therefore only changes what Stella can reach, never where the conversation
+ * The one chat. Its transcript belongs to the signed-in account, and each
+ * turn's execution placement is decided server-side: the paired computer is
+ * offered first and cloud takes the turn when no computer is reachable.
+ * Pairing therefore only changes what Stella can reach, never where the conversation
  * lives, so the surface is the same with or without a computer.
  */
 export default function ChatScreen() {
@@ -295,8 +293,6 @@ function ChatSurface(props: {
   } = props;
   const colors = useColors();
   const t = useT();
-  const session = authClient.useSession();
-  const anonymous = session.data?.user?.isAnonymous === true;
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const topInset = useShellTopInset();
   const offline = useIsOffline();
@@ -661,7 +657,6 @@ function ChatSurface(props: {
         onAddQuote={thread.addQuote}
         onRemoveQuote={thread.removeQuote}
         maxAttachments={thread.maxAttachments}
-        dictationAnonymous={anonymous}
         onOpenArtifact={setSelectedArtifact}
         conversationId={thread.conversationId}
         activityTasks={thread.conversationTasks}

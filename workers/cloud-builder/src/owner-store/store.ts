@@ -251,9 +251,6 @@ export class OwnerStore {
       if (caller && caller.ownerId !== this.ownerIdOf()) {
         throw new RpcError("FORBIDDEN", "This request belongs to another account.");
       }
-      if (def.requireAccount && caller?.isAnonymous) {
-        throw new RpcError("FORBIDDEN", "Sign in with an account to use this.");
-      }
       const parsed = def.parse(args ?? {});
       const value = await def.handler(this.context(caller), parsed as never);
       return { ok: true, value: value ?? null };
@@ -514,9 +511,6 @@ export class OwnerStore {
     try {
       const def = this.registry.views.get(row.view);
       if (!def) throw new RpcError("NOT_FOUND", `Unknown view ${row.view}.`);
-      if (def.requireAccount && attachment.caller.isAnonymous) {
-        throw new RpcError("FORBIDDEN", "Sign in with an account to see this.");
-      }
       const args = def.parse(JSON.parse(row.args));
       const viewContext: OwnerViewContext = {
         ownerId: this.ownerIdOf(),

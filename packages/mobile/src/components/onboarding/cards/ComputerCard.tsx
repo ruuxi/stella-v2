@@ -59,7 +59,7 @@ type ComputerCardProps = {
   answered: "done" | "skipped" | undefined;
   onScreen: boolean;
   /**
-   * Pairing belongs to an account, so a guest is offered sign-in first (the
+   * Pairing belongs to an account, so a signed-out user is offered sign-in first (the
    * conversation resumes on this message when they come back).
    */
   canPair: boolean;

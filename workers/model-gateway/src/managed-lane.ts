@@ -11,7 +11,6 @@ import {
 } from "./ledger-client.js";
 import type { RelayTiming } from "./relay-timing.js";
 import {
-  GATEWAY_MAX_OUTPUT_TOKENS_BY_AUDIENCE,
   GATEWAY_NETWORK_POLICY,
   GATEWAY_TRACE_HEADER,
   GATEWAY_UPSTREAM_IDLE_TIMEOUT_MS,
@@ -77,7 +76,6 @@ import {
 } from "./owner-enforcement.js";
 import {
   agentTypeFrom,
-  clientIp,
   createUpstreamController,
   ipHashFrom,
   readJsonObject,
@@ -159,13 +157,10 @@ const outputTokenCap = (args: {
   audience: ManagedModelAudience;
   modelCeiling: number | undefined;
 }): number | null => {
-  const audienceCeiling =
-    GATEWAY_MAX_OUTPUT_TOKENS_BY_AUDIENCE[limitsAudienceFor(args.audience)];
-  const ceilings = [audienceCeiling, args.modelCeiling].filter(
-    (value): value is number =>
-      typeof value === "number" && Number.isFinite(value) && value >= 0,
-  );
-  return ceilings.length > 0 ? Math.floor(Math.min(...ceilings)) : null;
+  const ceiling = args.modelCeiling;
+  return typeof ceiling === "number" && Number.isFinite(ceiling) && ceiling >= 0
+    ? Math.floor(ceiling)
+    : null;
 };
 
 export const clampOutputTokens = (args: {
@@ -424,18 +419,15 @@ const reserveTierBudget = async (args: {
     }),
   );
   if (!reservation.ok) {
-    const anonymous = limitsAudience === "anonymous";
     throw new GatewayError(
-      anonymous ? 403 : 429,
-      anonymous ? "sign_in_required" : "tier_paused",
-      anonymous
-        ? "Sign in to continue using managed models."
-        : "Managed model access is paused for this plan.",
+      429,
+      "tier_paused",
+      "Managed model access is paused for this plan.",
       quotaErrorOptions({
         scope: "tier",
         now: args.now(),
         resetAt: reservation.resetAt,
-        retryable: !anonymous,
+        retryable: true,
       }),
     );
   }
@@ -558,18 +550,6 @@ export const handleManagedRelay = async (args: {
 
   const limitsAudience = limitsAudienceFor(claims.audience);
   const networkClass = await classifyNetwork(request, env.ASN_POLICY);
-  if (
-    limitsAudience === "anonymous" &&
-    GATEWAY_NETWORK_POLICY.anonymousRefused.some(
-      (refused) => refused === networkClass,
-    )
-  ) {
-    throw new GatewayError(
-      403,
-      "sign_in_required",
-      "Sign in to Stella to continue from this network.",
-    );
-  }
   const networkCapShare =
     limitsAudience === "free" &&
     GATEWAY_NETWORK_POLICY.freeChallenged.some(
@@ -578,26 +558,10 @@ export const handleManagedRelay = async (args: {
       ? 0.5
       : 1;
   let ipHash: string | undefined;
-  if (limitsAudience === "anonymous" || limitsAudience === "free") {
+  if (limitsAudience === "free") {
     ipHash = await ipHashFrom(request);
   }
-  if (limitsAudience === "anonymous" && !probe) {
-    const edgeResetAt = deps.now() + 60_000;
-    const outcome = await env.ANON_IP_LIMITER.limit({ key: clientIp(request) });
-    if (!outcome.success) {
-      throw new GatewayError(
-        429,
-        "rate_limited",
-        "Too many anonymous requests from this network.",
-        quotaErrorOptions({
-          scope: "network",
-          now: deps.now(),
-          resetAt: edgeResetAt,
-        }),
-      );
-    }
-  }
-  if (ipHash && (limitsAudience === "anonymous" || limitsAudience === "free")) {
+  if (ipHash && limitsAudience === "free") {
     const networkGate = env.NETWORK_GATE.get(
       env.NETWORK_GATE.idFromName(ipHash),
     );
@@ -795,7 +759,6 @@ export const handleManagedRelay = async (args: {
       const reservationArgs = {
         jti: claims.jti,
         budgetMicroCents: claims.budgetMicroCents,
-        maxRequests: claims.maxRequests,
         expiresAt: claims.exp * 1000,
         requestId,
         estimatedMicroCents,
@@ -933,9 +896,6 @@ export const handleManagedRelay = async (args: {
         billable: true,
         networkClass,
         ...(deviceKeyHash ? { deviceKeyHash } : {}),
-        ...(limitsAudience === "anonymous" && ipHash
-          ? { anonymous: { ipHash } }
-          : {}),
       };
       deps.waitUntil(
         env.USAGE_QUEUE.send(event).catch((error: unknown) => {

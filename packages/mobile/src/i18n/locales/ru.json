@@ -1752,6 +1752,7 @@
         "fromOtherComputers": "Изменения с другого компьютера",
         "readyChange": "Изменение готово к добавлению",
         "add": "Добавить",
+        "get": "Получить",
         "adding": "Добавление…",
         "skip": "Пропустить",
         "undoing": "Отмена…",
@@ -1759,6 +1760,7 @@
         "justNow": "Только что",
         "waiting": "Ожидают",
         "history": "История",
+        "skipped": "Пропущенные",
         "upToDate": "Ничего не ожидает"
       }
     },
@@ -2174,7 +2176,6 @@
         "computerDone": "Подключено!",
         "computerSkipped": "Может, позже.",
         "accountDone": "Готово.",
-        "accountSkipped": "Пока пропустить.",
         "themeDone": "Вот эта.",
         "themeSkipped": "Оставить по умолчанию."
       },
@@ -2323,10 +2324,7 @@
         "connect": "Подключить",
         "connectLabel": "Подключить {name}",
         "connectedAs": "Подключено · {name}",
-        "skip": "Пока пропустить",
-        "settledSignedIn": "Вход выполнен",
-        "settledGuest": "Вы используете Stella без аккаунта",
-        "guestSettled": "Войти можно в любой момент в Настройках"
+        "settledSignedIn": "Вход выполнен"
       },
       "theme": {
         "appearance": "Оформление",
@@ -2385,8 +2383,7 @@
       "legalTerms": "Условия использования",
       "legalConjunction": " и ",
       "legalPrivacy": "Политику конфиденциальности",
-      "legalSuffix": ".",
-      "continueAsGuest": "Продолжить без входа"
+      "legalSuffix": "."
     },
     "chat": {
       "emptyPrompt": "Спросите у Stella что угодно",
@@ -2454,8 +2451,6 @@
       }
     },
     "computer": {
-      "guestHeroTitle": "Ваш компьютер под рукой",
-      "guestHeroBody": "Попросите Stella сделать что-нибудь на вашем компьютере — открыть сайт, разобрать файлы, запустить задачи и не только.",
       "defaultDeviceLabel": "Ваш компьютер",
       "statusChecking": "Проверяем…",
       "statusConnected": "Подключено",
@@ -2467,8 +2462,6 @@
     },
     "desktop": {
       "pairTitle": "Свяжите телефон",
-      "guestBody": "Смотрите приложение Stella для компьютера прямо на телефоне. После связывания телефон будет подключаться автоматически.",
-      "guestSignInPrompt": "Войдите, чтобы начать.",
       "connecting": "Подключение к компьютеру",
       "pairing": "Связывание этого телефона",
       "unreachable": "Не удаётся связаться с компьютером",

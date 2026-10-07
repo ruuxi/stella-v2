@@ -617,7 +617,14 @@ export type ElectronSystemApi = {
   getAuthSession: (options?: {
     allowCached?: boolean;
   }) => Promise<import("@stella/contracts/auth-session").AuthSessionSnapshot>;
-  signInAnonymous: () => Promise<unknown>;
+  sendLegacyMagicLink: (payload: {
+    email: string;
+    claimHash: string;
+    turnstileToken?: string;
+  }) => Promise<
+    | { handled: false }
+    | { handled: true; status: number; retryAfter: string | null; body: unknown }
+  >;
   getChallengeToken: () => Promise<string | undefined>;
   signOutAuth: () => Promise<{ ok: boolean }>;
   deleteAuthUser: () => Promise<{ ok: boolean }>;

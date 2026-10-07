@@ -46,10 +46,7 @@ const REPLY_KEYS: Record<
     done: "mobile.onboarding.replies.computerDone",
     skipped: "mobile.onboarding.replies.computerSkipped",
   },
-  account: {
-    done: "mobile.onboarding.replies.accountDone",
-    skipped: "mobile.onboarding.replies.accountSkipped",
-  },
+  account: { done: "mobile.onboarding.replies.accountDone" },
   theme: {
     done: "mobile.onboarding.replies.themeDone",
     skipped: "mobile.onboarding.replies.themeSkipped",

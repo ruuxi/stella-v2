@@ -1728,6 +1728,7 @@
         "fromOtherComputers": "Changes from your other computer",
         "readyChange": "A change ready to add",
         "add": "Add",
+        "get": "Get",
         "adding": "Adding…",
         "skip": "Skip",
         "undoing": "Undoing…",
@@ -1735,6 +1736,7 @@
         "justNow": "Just now",
         "waiting": "Waiting",
         "history": "History",
+        "skipped": "Skipped",
         "upToDate": "Nothing waiting"
       }
     },
@@ -2125,7 +2127,7 @@
         "hello": "Hi, I'm Stella.\n\nI'm not a chatbot. Tell me what you need and I get it done, in the background, while you get on with your day.",
         "showcase": "Here's what that looks like.",
         "computer": "If you have a Mac or PC, I can work on it too.",
-        "account": "Want to keep all of this? A Stella account follows you to every device.",
+        "account": "To get started, sign in to Stella. Your account keeps everything with you on every device.",
         "accountSignedIn": "You're signed in, so everything follows you between devices. One optional extra:",
         "theme": "Now, how should I look?",
         "ready": "That's it. I'll get to know you as we go.\n\nWhat should we do first?"
@@ -2136,7 +2138,6 @@
         "computerDone": "Connected!",
         "computerSkipped": "Maybe later.",
         "accountDone": "All set.",
-        "accountSkipped": "Skip for now.",
         "themeDone": "That one.",
         "themeSkipped": "Keep the default."
       },
@@ -2285,10 +2286,7 @@
         "connect": "Connect",
         "connectLabel": "Connect {name}",
         "connectedAs": "Connected · {name}",
-        "skip": "Skip for now",
-        "settledSignedIn": "Signed in",
-        "settledGuest": "Using Stella as a guest",
-        "guestSettled": "Sign in any time from Settings"
+        "settledSignedIn": "Signed in"
       },
       "theme": {
         "appearance": "Appearance",
@@ -2347,8 +2345,7 @@
       "legalTerms": "Terms",
       "legalConjunction": " and ",
       "legalPrivacy": "Privacy Policy",
-      "legalSuffix": ".",
-      "continueAsGuest": "Continue without signing in"
+      "legalSuffix": "."
     },
     "chat": {
       "emptyPrompt": "Ask Stella anything",
@@ -2414,8 +2411,6 @@
       }
     },
     "computer": {
-      "guestHeroTitle": "Your computer, at your fingertips",
-      "guestHeroBody": "Ask Stella to do things on your computer — browse the web, manage files, run tasks, and more.",
       "defaultDeviceLabel": "Your computer",
       "statusChecking": "Checking…",
       "statusConnected": "Connected",
@@ -2427,8 +2422,6 @@
     },
     "desktop": {
       "pairTitle": "Pair your phone",
-      "guestBody": "See your Stella desktop app right on your phone. After pairing, your phone will reconnect automatically.",
-      "guestSignInPrompt": "Sign in to get started.",
       "connecting": "Connecting to desktop",
       "pairing": "Pairing this phone",
       "unreachable": "Can't reach your desktop",

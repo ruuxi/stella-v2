@@ -180,5 +180,19 @@ export function useOnboardingState() {
       });
   }, []);
 
-  return { completed, hydrated, complete, reset };
+  const reopen = useCallback(() => {
+    durableRevision += 1;
+    durableCompleted = false;
+    durableHydrated = true;
+    writeLocalOnboardingCompleted(false);
+    window.dispatchEvent(new Event(ONBOARDING_COMPLETE_EVENT));
+    notifyAll();
+    void window.electronAPI?.system
+      .setOnboardingCompleted?.(false)
+      .catch((error) => {
+        console.warn("Failed to reopen onboarding", error);
+      });
+  }, []);
+
+  return { completed, hydrated, complete, reset, reopen };
 }

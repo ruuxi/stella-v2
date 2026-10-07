@@ -272,8 +272,8 @@ export function useAgentEventHandler({
             args.outcome === AGENT_RUN_FINISH_OUTCOMES.CANCELED &&
             isStellaLimitOrAuthReason(finishReason)
           ) {
-            // A run that *stops mid-flight* because the user ran out of free
-            // anonymous previews / hit a usage limit can surface as a cancel
+            // A run that *stops mid-flight* because the user hit a usage or
+            // auth limit can surface as a cancel
             // rather than an error. Without this the user is left staring at a
             // halted agent with no explanation — the sign-in notice otherwise
             // only appeared the next time they sent a message. Only surface it

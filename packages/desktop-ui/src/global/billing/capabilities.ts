@@ -14,10 +14,9 @@
  * available across plans but intentionally marketed with Pro (multiple
  * agents). Only what is in `CAPABILITY_MATRIX` is enforced.
  *
- * Copy lives behind i18n keys rather than inline English. The action
- * rule — signed-out users get "Sign in", everybody else gets "Upgrade" —
- * is `getRestrictionActionKind` from `./audience`, the same rule the
- * model-restriction toasts already use.
+ * Copy lives behind i18n keys rather than inline English. Every
+ * restriction an audience can hit is an upgrade: a signed-out user has no
+ * audience and no Stella models at all.
  */
 import {
   hasCapability,
@@ -26,11 +25,7 @@ import {
   type Capability,
   type CapabilityAudience,
 } from "@stella/contracts/capabilities";
-import {
-  getPlanLabel,
-  getRestrictionActionKind,
-  type ManagedModelAudience,
-} from "./audience";
+import { getPlanLabel, type ManagedModelAudience } from "./audience";
 import { i18nFallback } from "@/shared/i18n/I18nProvider";
 import type { ToastOptions } from "@/ui/toast";
 import { showToast } from "@/ui/toast";
@@ -58,7 +53,7 @@ const defaultTranslate: Translate = (key, params) =>
  *
  * The streaming error path lives several layers below React (a stream
  * event arrives in a plain module, not a component) and still has to
- * choose between "Sign in" and "Upgrade" on a capability-denied error.
+ * name the plan that unlocks a capability-denied error.
  * Rather than threading billing state through the transport, the hook
  * publishes here and non-React callers read the snapshot. `null` means
  * "not known yet" and every consumer treats that as "don't block".
@@ -81,7 +76,6 @@ export type CapabilityRestriction = {
   audience: CapabilityAudience;
   /** Cheapest plan that unlocks it, or `null` if no plan does. */
   minimumPlan: CapabilityAudience | null;
-  actionKind: "sign-in" | "upgrade";
 };
 
 /**
@@ -113,7 +107,6 @@ export const resolveCapabilityRestriction = (
     capability,
     audience: capabilityAudience,
     minimumPlan: minimumPlanForCapability(capability),
-    actionKind: getRestrictionActionKind(capabilityAudience),
   };
 };
 
@@ -140,7 +133,6 @@ export const resolveDeniedCapability = (
     capability,
     audience: "free",
     minimumPlan: minimumPlanForCapability(capability),
-    actionKind: getRestrictionActionKind("free"),
   };
 };
 
@@ -152,12 +144,8 @@ export const getCapabilityLabel = (
 ): string => t(`billing.capability.${capability}`);
 
 export const getCapabilityRestrictionActionLabel = (
-  restriction: Pick<CapabilityRestriction, "actionKind">,
   t: Translate = defaultTranslate,
-): string =>
-  restriction.actionKind === "sign-in"
-    ? t("common.signIn")
-    : t("sidebar.upgrade");
+): string => t("sidebar.upgrade");
 
 export const getCapabilityRestrictionTitle = (
   restriction: CapabilityRestriction,
@@ -182,9 +170,7 @@ export const getCapabilityRestrictionDescription = (
     return t("billing.capabilityRestriction.unavailable", { capability });
   }
   const plan = getPlanLabel(restriction.minimumPlan);
-  return restriction.actionKind === "sign-in"
-    ? t("billing.capabilityRestriction.signIn", { capability, plan })
-    : t("billing.capabilityRestriction.upgrade", { capability, plan });
+  return t("billing.capabilityRestriction.upgrade", { capability, plan });
 };
 
 /** Short lock annotation for a pre-emptively disabled affordance. */
@@ -206,18 +192,6 @@ const openBilling = () => {
   });
 };
 
-const openSignInDialog = () => {
-  void import("@/router").then(({ router }) => {
-    void router.navigate({
-      to: ".",
-      search: (prev: { dialog?: "auth" | "connect" }) => ({
-        ...prev,
-        dialog: "auth" as const,
-      }),
-    });
-  });
-};
-
 export const buildCapabilityRestrictionToast = (
   restriction: CapabilityRestriction,
   t: Translate = defaultTranslate,
@@ -227,9 +201,8 @@ export const buildCapabilityRestrictionToast = (
   variant: "error",
   duration: 8000,
   action: {
-    label: getCapabilityRestrictionActionLabel(restriction, t),
-    onClick:
-      restriction.actionKind === "sign-in" ? openSignInDialog : openBilling,
+    label: getCapabilityRestrictionActionLabel(t),
+    onClick: openBilling,
   },
 });
 

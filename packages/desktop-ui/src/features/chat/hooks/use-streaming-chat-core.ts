@@ -556,7 +556,7 @@ export function useStreamingChatCore({
         }
 
         // Fire-and-forget: surface a "model not available on your plan"
-        // toast for restricted tiers (anonymous/free/go) when the user has a
+        // toast for restricted tiers (free/go) when the user has a
         // saved non-default override for orchestrator/general. The backend
         // silently coerces to the tier-default model regardless. Deduped so
         // it doesn't spam on every send.

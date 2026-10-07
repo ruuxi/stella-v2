@@ -126,9 +126,7 @@ export const gatewayModelResolutionRevision = async (
 
 /**
  * `POST /v1/capabilities/session` request (Better Auth JWT in Authorization).
- * Deliberately empty: the anonymous trial is keyed on the anonymous owner the
- * JWT names plus the caller's network as the gateway sees it. A client-chosen
- * device string is never an allowance key.
+ * A client-chosen device string is never an allowance key.
  */
 export type GatewaySessionCapabilityRequest = {
   /**
@@ -149,7 +147,6 @@ export type GatewaySessionCapabilityResponse = {
   expiresAt: number;
   audience: string;
   budgetMicroCents: number;
-  maxRequests?: number;
   /** Identity ladder rung the allowance was computed for. */
   identityLevel?: IdentityLevel;
 };
@@ -175,12 +172,10 @@ export type NetworkClass =
   | "unknown";
 
 /**
- * Step-up policy by network class. Anonymous callers from hosting or VPN
- * origins are refused (`sign_in_required`); Free callers from hosting origins
- * must pass a challenge at mint and run at half the network caps.
+ * Step-up policy by network class. Free callers from hosting origins must
+ * pass a challenge at mint and run at half the network caps.
  */
 export const GATEWAY_NETWORK_POLICY = {
-  anonymousRefused: ["hosting", "vpn"] as readonly NetworkClass[],
   freeChallenged: ["hosting"] as readonly NetworkClass[],
 } as const;
 
@@ -201,7 +196,6 @@ export type GatewayErrorCode =
   | "rate_limited"
   /** Owner-level in-flight ceiling for the audience (see GATEWAY_OWNER_RELAY_LIMITS). */
   | "concurrency_limit"
-  /** The anonymous tier is not allowed here (network policy or tier breaker). */
   | "sign_in_required"
   /** The audience's global spend breaker tripped; retry after `resetAt`. */
   | "tier_paused"
@@ -262,7 +256,6 @@ export type GatewayOwnerRelayLimit = {
 export const GATEWAY_OWNER_RELAY_LIMITS: Readonly<
   Record<ManagedModelAudienceForLimits, GatewayOwnerRelayLimit>
 > = {
-  anonymous: { inFlight: 1, perMinute: 20, mintsPerHour: 12 },
   free: { inFlight: 2, perMinute: 40, mintsPerHour: 12 },
   go: { inFlight: 4, perMinute: 80, mintsPerHour: 24 },
   pro: { inFlight: 8, perMinute: 120, mintsPerHour: 24 },
@@ -271,27 +264,8 @@ export const GATEWAY_OWNER_RELAY_LIMITS: Readonly<
 /** A throttled owner (enforcement status) gets this share of its tier limits. */
 export const GATEWAY_THROTTLED_LIMIT_SHARE = 0.5;
 
-/**
- * Output-token ceiling shaped into every managed request by audience
- * (`max_tokens` / `max_output_tokens` / `maxOutputTokens`). Absent means the
- * model's own ceiling.
- */
-export const GATEWAY_MAX_OUTPUT_TOKENS_BY_AUDIENCE: Readonly<
-  Partial<Record<ManagedModelAudienceForLimits, number>>
-> = {
-  anonymous: 2_048,
-};
-
 /** Per-network (client IP) ceilings enforced before any provider spend. */
 export const GATEWAY_NETWORK_LIMITS = {
-  anonymous: {
-    /** Relay requests per rolling hour from one IP. (The 60/min edge limiter stays.) */
-    relayPerHour: 300,
-    /** Relay requests per rolling 24 hours from one IP. */
-    relayPerDay: 1_000,
-    /** Session capability exchanges per rolling 24 hours from one IP. */
-    mintsPerDay: 20,
-  },
   free: {
     relayPerDay: 3_000,
   },
@@ -301,24 +275,18 @@ export const GATEWAY_NETWORK_LIMITS = {
 export const GATEWAY_SESSION_BUDGET_CHUNK_MICRO_CENTS: Readonly<
   Record<ManagedModelAudienceForLimits, number>
 > = {
-  anonymous: 10_000_000, // $0.10
   free: 100_000_000, // $1
   go: 200_000_000, // $2
   pro: 500_000_000, // $5
 };
 
-/** Request-count chunk one anonymous session capability carries. */
-export const GATEWAY_ANONYMOUS_REQUEST_CHUNK = 10;
-
 /** Base tier for limit lookups (fallback audiences inherit their paid tier). */
-export type ManagedModelAudienceForLimits = "anonymous" | "free" | "go" | "pro";
+export type ManagedModelAudienceForLimits = "free" | "go" | "pro";
 
 export const limitsAudienceFor = (
   audience: string,
 ): ManagedModelAudienceForLimits => {
   switch (audience) {
-    case "anonymous":
-      return "anonymous";
     case "go":
     case "go_fallback":
       return "go";

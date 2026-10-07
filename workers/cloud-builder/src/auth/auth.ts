@@ -8,19 +8,18 @@
  *   `GET /api/auth/jwks` publishes its public keys. The private keys are in
  *   D1's `jwks` table, encrypted under BETTER_AUTH_SECRET: rotating that
  *   secret means deleting those rows so new keys are minted.
- * - Anonymous users, magic links (Resend), Google and Apple, one-time tokens
- *   for browser-to-app returns, and the `stellaHandoff` endpoints.
- * - Mobile integrity and web Turnstile guard anonymous sign-in and magic
- *   links (src/auth/integrity.ts).
+ * - Magic links (Resend), Google and Apple, one-time tokens for
+ *   browser-to-app returns, and the `stellaHandoff` endpoints.
+ * - Mobile integrity and web Turnstile guard magic links
+ *   (src/auth/integrity.ts).
  * - Deleting a user closes its owner object first (`OwnerGate.closeOwner`).
  *
  * One instance per isolate.
  */
 
-import { APP_INTEGRITY_HEADER } from "@stella/contracts/app-integrity";
 import { betterAuth, type BetterAuthOptions, type BetterAuthPlugin } from "better-auth";
 import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
-import { anonymous, bearer, captcha, jwt, magicLink, oneTimeToken } from "better-auth/plugins";
+import { bearer, jwt, magicLink, oneTimeToken } from "better-auth/plugins";
 import { expo } from "@better-auth/expo";
 import { importPKCS8, SignJWT } from "jose";
 import { isDisposableEmail } from "./disposable-email-domains.js";
@@ -29,7 +28,6 @@ import { stellaHandoff, type HandoffApi } from "./handoff.js";
 import {
   integrityErrorMessage,
   integrityPurposeForPath,
-  turnstileSecret,
   verifyAuthRequestProof,
 } from "./integrity.js";
 
@@ -175,20 +173,6 @@ const parseMailbox = (value: string): string | { email: string; name: string } =
 };
 
 /**
- * Turnstile on anonymous sign-in for browsers. A native app sends an
- * integrity proof instead, which the before-hook verifies, so the plugin
- * stands aside for those requests.
- */
-const webCaptcha = (secretKey: string): BetterAuthPlugin => {
-  const plugin = captcha({ provider: "cloudflare-turnstile", secretKey, endpoints: ["/sign-in/anonymous"] });
-  return {
-    ...plugin,
-    onRequest: async (request, ctx) =>
-      request.headers.has(APP_INTEGRITY_HEADER) ? undefined : await plugin.onRequest!(request, ctx),
-  };
-};
-
-/**
  * Keep Expo's authorization proxy and origin handling without its after-hook,
  * which puts the session cookie in the native callback URL. The one-time
  * token below carries the native return instead.
@@ -321,7 +305,6 @@ const buildOptions = (env: AuthEnv) => {
   if (!env.DB) throw new Error("D1 is not bound.");
   const secret = required(env, "BETTER_AUTH_SECRET");
   const googleClientSecret = configured(env, "GOOGLE_CLIENT_SECRET");
-  const turnstile = turnstileSecret(env);
   const api = (): HandoffApi => (createAuth(env) as unknown as { api: HandoffApi }).api;
 
   return {
@@ -353,6 +336,7 @@ const buildOptions = (env: AuthEnv) => {
         // The identity ladder: 0 anonymous, 1 email, 2 social. Paying (3) is
         // the billing ledger's to say, not the user row's.
         identityLevel: { type: "number", required: false, defaultValue: 0, input: false },
+        isAnonymous: { type: "boolean", required: false, input: false },
       },
       deleteUser: {
         enabled: true,
@@ -384,7 +368,6 @@ const buildOptions = (env: AuthEnv) => {
           env,
           request: ctx.request,
           purpose,
-          captchaVerified: ctx.path === "/sign-in/anonymous" && turnstile !== undefined,
         });
         if (!result.ok) {
           throw new APIError(result.code === "integrity_required" ? "BAD_REQUEST" : "FORBIDDEN", {
@@ -429,9 +412,7 @@ const buildOptions = (env: AuthEnv) => {
       revokedTokenFloor(env),
       oneTimeToken({ storeToken: "hashed", expiresIn: 3, disableClientRequest: true, setOttHeaderOnNewSession: true }),
       nativeOttRedirect(),
-      anonymous({ emailDomainName: "anon.stella.local", disableDeleteAnonymousUser: true }),
       magicLink({ sendMagicLink: ({ email, url }) => sendMagicLinkEmail(env, email, url) }),
-      ...(turnstile ? [webCaptcha(turnstile)] : []),
       jwt({
         jwks: { keyPairConfig: { alg: "RS256", modulusLength: 2048 } },
         jwt: {

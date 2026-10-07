@@ -15,8 +15,7 @@ import {
   rebaseActivityWindow,
   sortHubTasksByRecency,
 } from "../../lib/activity-hub-model";
-import { authClient } from "../../lib/auth-client";
-import { isGuest } from "../../lib/guest-mode";
+import { useAccountSession } from "../../lib/auth-client";
 import { tapLight } from "../../lib/haptics";
 import type { MainTabId } from "../../lib/last-main-tab";
 import { useActivityHub } from "../../lib/main-shell-store";
@@ -88,8 +87,8 @@ export function SidebarPanel({
   const artifactsByTaskId = hub?.artifactsByTaskId ?? EMPTY_BY_TASK;
   const conversationArtifacts = hub?.conversationArtifacts ?? EMPTY_ARTIFACTS;
 
-  const session = authClient.useSession();
-  const signedIn = Boolean(session.data?.user) && !isGuest();
+  const session = useAccountSession();
+  const signedIn = Boolean(session.data?.user);
 
   const hubTasks = useMemo(() => sortHubTasksByRecency(tasks), [tasks]);
   // Group subagents under their parent agent (desktop-parity association):

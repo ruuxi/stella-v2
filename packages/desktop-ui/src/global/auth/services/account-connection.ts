@@ -1,10 +1,13 @@
 import { authClient } from "@/global/auth/lib/auth-client";
 import {
   getAuthSessionSnapshot,
+  hasBrowserLegacyAnonymousSession,
   refreshAuthSession,
 } from "@/global/auth/services/auth-session";
-import { writeBrowserSessionToken } from "@/global/auth/services/auth-storage";
-import { getAuthToken } from "@/global/auth/services/auth-token";
+import {
+  readBrowserSessionToken,
+  writeBrowserSessionToken,
+} from "@/global/auth/services/auth-storage";
 import { backendUrl } from "@/platform/backend/backend-url";
 import { platformCapabilities } from "@/platform/capabilities";
 import { captchaHeaders } from "@/platform/auth/challenge-token";
@@ -60,15 +63,15 @@ const readBrowserSocialBridgeCallback = (
 
 export const startBrowserGoogleSignIn = async () => {
   const siteUrl = backendUrl || null;
-  const authorization = await getBrowserOwnerAuthorization();
-  if (!siteUrl || !authorization) {
-    throw new Error("Browser account ownership could not be verified.");
+  if (!siteUrl) {
+    throw new Error("Stella backend URL is not set.");
   }
+  const authorization = getLegacySignInOwnerAuthorization();
   const response = await fetch(`${siteUrl}/api/auth/browser-social/start`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: authorization,
+      ...(authorization ? { Authorization: authorization } : {}),
     },
     body: JSON.stringify({
       returnTo: getBrowserSocialCallbackUrl(window.location),
@@ -91,15 +94,15 @@ export const startBrowserGoogleSignIn = async () => {
 };
 
 /**
- * Mint a fresh owner token immediately before beginning an account link. A
- * cached or missing token could bind the request to the wrong anonymous owner,
- * so callers must fail closed when this returns null.
+ * The credential a browser sign-in carries when this shell still holds a
+ * bearer from the retired anonymous sign-in, so the backend upgrades that user
+ * in place and keeps their history. Null for everyone else: a plain sign-in.
+ * Electron never reaches this; main sends that sign-in itself.
  */
-export const getBrowserOwnerAuthorization = async (): Promise<
-  string | null
-> => {
-  const token = (await getAuthToken({ forceRefresh: true }))?.trim();
-  return token ? `Bearer ${token}` : null;
+export const getLegacySignInOwnerAuthorization = (): string | null => {
+  if (window.electronAPI || !hasBrowserLegacyAnonymousSession()) return null;
+  const bearer = readBrowserSessionToken();
+  return bearer ? `Bearer ${bearer}` : null;
 };
 
 export type MagicLinkSendRequest = {
@@ -111,29 +114,23 @@ export type MagicLinkSendRequest = {
 };
 
 /**
- * Every shell binds the send to the current anonymous owner and refuses to
- * issue an unowned link. `getAuthToken` obtains Electron authority through
- * host IPC and browser authority through Better Auth, so the backend receives
- * the same proof without moving session cookies across either boundary.
+ * A shell holding a legacy anonymous session binds the send to that owner so
+ * the backend upgrades it in place; any other shell sends a plain sign-in.
  */
-export const buildMagicLinkSendRequest = async (
+export const buildMagicLinkSendRequest = (
   email: string,
   turnstileToken?: string,
-): Promise<MagicLinkSendRequest | null> => {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  const authorization = await getBrowserOwnerAuthorization();
-  if (!authorization) {
-    return null;
-  }
+): MagicLinkSendRequest => {
+  const authorization = getLegacySignInOwnerAuthorization();
   return {
     headers: {
-      ...headers,
+      "Content-Type": "application/json",
       ...captchaHeaders(turnstileToken),
-      Authorization: authorization,
+      ...(authorization ? { Authorization: authorization } : {}),
     },
-    body: { email, requireAnonymousOwner: true },
+    body: authorization
+      ? { email, requireAnonymousOwner: true }
+      : { email },
   };
 };
 
@@ -142,13 +139,11 @@ const readConnectedAccountOwnerId = (): string | null => {
     | {
         user?: {
           id?: string | null;
-          isAnonymous?: boolean | null;
         } | null;
       }
     | null
     | undefined;
-  const ownerId = data?.user?.id?.trim();
-  return ownerId && data?.user?.isAnonymous !== true ? ownerId : null;
+  return data?.user?.id?.trim() || null;
 };
 
 /**

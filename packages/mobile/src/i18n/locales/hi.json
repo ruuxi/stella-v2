@@ -1728,6 +1728,7 @@
         "fromOtherComputers": "आपके दूसरे कंप्यूटर से बदलाव",
         "readyChange": "जोड़ने के लिए तैयार बदलाव",
         "add": "जोड़ें",
+        "get": "पाएं",
         "adding": "जोड़ा जा रहा है…",
         "skip": "छोड़ें",
         "undoing": "पूर्ववत किया जा रहा है…",
@@ -1735,6 +1736,7 @@
         "justNow": "अभी",
         "waiting": "प्रतीक्षा में",
         "history": "इतिहास",
+        "skipped": "छोड़े गए",
         "upToDate": "कुछ भी प्रतीक्षा में नहीं है"
       }
     },
@@ -2136,7 +2138,6 @@
         "computerDone": "कनेक्ट हो गया!",
         "computerSkipped": "बाद में।",
         "accountDone": "हो गया।",
-        "accountSkipped": "अभी नहीं।",
         "themeDone": "यही वाला।",
         "themeSkipped": "डिफ़ॉल्ट ही रहने दो।"
       },
@@ -2285,10 +2286,7 @@
         "connect": "कनेक्ट करें",
         "connectLabel": "{name} कनेक्ट करें",
         "connectedAs": "कनेक्टेड · {name}",
-        "skip": "अभी नहीं",
-        "settledSignedIn": "साइन इन हैं",
-        "settledGuest": "Stella अतिथि के रूप में",
-        "guestSettled": "सेटिंग्स से कभी भी साइन इन करें"
+        "settledSignedIn": "साइन इन हैं"
       },
       "theme": {
         "appearance": "रूप-रंग",
@@ -2347,8 +2345,7 @@
       "legalTerms": "सेवा की शर्तें",
       "legalConjunction": " और ",
       "legalPrivacy": "गोपनीयता नीति",
-      "legalSuffix": " से सहमत होते हैं।",
-      "continueAsGuest": "साइन इन किए बिना जारी रखें"
+      "legalSuffix": " से सहमत होते हैं।"
     },
     "chat": {
       "emptyPrompt": "Stella से कुछ भी पूछें",
@@ -2414,8 +2411,6 @@
       }
     },
     "computer": {
-      "guestHeroTitle": "आपका कंप्यूटर, आपकी उँगलियों पर",
-      "guestHeroBody": "Stella से अपने कंप्यूटर पर काम कराएँ — वेब ब्राउज़ करना, फ़ाइलें सँभालना, काम चलाना और भी बहुत कुछ।",
       "defaultDeviceLabel": "आपका कंप्यूटर",
       "statusChecking": "जाँच हो रही है…",
       "statusConnected": "कनेक्टेड",
@@ -2427,8 +2422,6 @@
     },
     "desktop": {
       "pairTitle": "अपना फ़ोन पेयर करें",
-      "guestBody": "अपना Stella डेस्कटॉप ऐप सीधे फ़ोन पर देखें। पेयर करने के बाद आपका फ़ोन अपने आप फिर से कनेक्ट हो जाएगा।",
-      "guestSignInPrompt": "शुरू करने के लिए साइन इन करें।",
       "connecting": "डेस्कटॉप से कनेक्ट हो रहा है",
       "pairing": "इस फ़ोन को पेयर किया जा रहा है",
       "unreachable": "आपके डेस्कटॉप तक नहीं पहुँच पा रहे",

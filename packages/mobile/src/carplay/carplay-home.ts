@@ -38,7 +38,7 @@ export type CarPlayHomeState = {
   converseOn: boolean;
   /**
    * Whether an account is signed in. Stella's chat is the signed-in cloud
-   * conversation, so a guest has nothing to talk to and the home says so
+   * conversation, so a signed-out phone has nothing to talk to and the home says so
    * instead of offering a "Talk to Stella" row that could never answer.
    */
   signedIn: boolean;
@@ -165,7 +165,7 @@ export function buildConverseRow(state: CarPlayHomeState): HomeRow {
 }
 
 /**
- * The whole surface a guest gets. There is one Stella chat and it is the
+ * The whole surface a signed-out phone gets. There is one Stella chat and it is the
  * signed-in cloud conversation, so the honest row states the requirement
  * rather than promising a loop that would go nowhere.
  */

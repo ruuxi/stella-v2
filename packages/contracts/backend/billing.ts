@@ -37,21 +37,13 @@ export type BillingUsage = {
 
 export type BillingStatus = {
   authenticated: boolean;
-  isAnonymous: boolean;
   identityLevel: IdentityLevel;
   plan: BillingPlan;
   subscriptionStatus: string;
   cancelAtPeriodEnd: boolean;
   currentPeriodEnd: number | null;
   usage: BillingUsage | null;
-  usagePolicy:
-    | {
-        kind: "anonymous_requests";
-        requestLimit: number;
-        perIpRequestLimit: number;
-        resetAfterInactivityDays: number;
-      }
-    | { kind: "managed_cost" };
+  usagePolicy: { kind: "managed_cost" };
   plans: Record<BillingPlan, BillingPlanConfig>;
   credits: {
     currency: string;

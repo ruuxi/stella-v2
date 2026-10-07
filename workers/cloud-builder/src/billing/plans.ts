@@ -12,13 +12,10 @@ import type {
  *   STELLA_INCLUDED_USAGE_UTILIZATION_RATE   number in (0, 1]
  *   STELLA_GO_PRICE_CENTS, STELLA_PRO_PRICE_CENTS
  *   STELLA_FREE_{ROLLING,WEEKLY,MONTHLY}_LIMIT_USD, STELLA_FREE_ROLLING_WINDOW_HOURS
- *   STELLA_ANON_LIFETIME_LIMIT_USD, STELLA_ANON_MAX_REQUESTS
  *   STRIPE_PRICE_GO, STRIPE_PRICE_PRO
  * Optional:
  *   STELLA_<GO|PRO>_{ROLLING,WEEKLY,MONTHLY}_LIMIT_USD, _ROLLING_WINDOW_HOURS
  *   STELLA_FREE_LIFETIME_LIMIT_USD, STELLA_FREE_EMAIL_ALLOWANCE_SHARE
- *   STELLA_ANON_{ROLLING,WEEKLY,MONTHLY}_LIMIT_USD, STELLA_ANON_ROLLING_WINDOW_HOURS
- *   STELLA_ANON_MAX_REQUESTS_PER_IP
  *   STELLA_GO_INTRO_FIRST_MONTH_PRICE_CENTS with STRIPE_COUPON_GO_FIRST_MONTH
  *
  * With none of STELLA_INCLUDED_USAGE_UTILIZATION_RATE, STRIPE_SECRET_KEY,
@@ -38,9 +35,6 @@ export type BillingConfig = {
    */
   enabled: boolean;
   plans: PlanCatalog;
-  anonymous: BillingPlanConfig;
-  anonymousMaxRequests: number;
-  anonymousMaxRequestsPerIp: number;
   freeEmailAllowanceShare: number;
   stripePrices: Record<PaidBillingPlan, string>;
   goFirstMonthCoupon?: string;
@@ -52,7 +46,6 @@ const ROLLING_LIMIT_SHARE = 0.2;
 const WEEKLY_LIMIT_SHARE = 0.5;
 const DEFAULT_ROLLING_WINDOW_HOURS = 5;
 const DEFAULT_FREE_EMAIL_ALLOWANCE_SHARE = 0.4;
-const ANON_IP_CAP_DEFAULT_MULTIPLIER = 10;
 
 type EnvReader = (name: string) => string | undefined;
 
@@ -122,9 +115,6 @@ const openPlan = (label: string): BillingPlanConfig => ({
 const OPEN_BILLING_CONFIG: BillingConfig = {
   enabled: false,
   plans: { free: openPlan("Free"), go: openPlan("Go"), pro: openPlan("Pro") },
-  anonymous: openPlan("Anonymous"),
-  anonymousMaxRequests: 1_000_000_000,
-  anonymousMaxRequestsPerIp: 1_000_000_000,
   freeEmailAllowanceShare: 1,
   stripePrices: { go: "", pro: "" },
 };
@@ -146,8 +136,6 @@ const loadBillingConfig = (env: Cloudflare.Env): BillingConfig => {
   }
   if (intro !== undefined) go.introFirstMonthPriceCents = intro;
   const freeLifetime = optional(read, "STELLA_FREE_LIFETIME_LIMIT_USD");
-  const anonLifetime = required(read, "STELLA_ANON_LIFETIME_LIMIT_USD");
-  const anonymousMaxRequests = required(read, "STELLA_ANON_MAX_REQUESTS");
   const priceGo = read("STRIPE_PRICE_GO");
   const pricePro = read("STRIPE_PRICE_PRO");
   if (!priceGo || !pricePro) {
@@ -168,20 +156,6 @@ const loadBillingConfig = (env: Cloudflare.Env): BillingConfig => {
       go,
       pro: paidPlan(read, "pro", utilizationRate),
     },
-    anonymous: {
-      label: "Anonymous",
-      monthlyPriceCents: 0,
-      rollingLimitUsd: optional(read, "STELLA_ANON_ROLLING_LIMIT_USD") ?? anonLifetime,
-      rollingWindowHours:
-        optional(read, "STELLA_ANON_ROLLING_WINDOW_HOURS") ?? DEFAULT_ROLLING_WINDOW_HOURS,
-      weeklyLimitUsd: optional(read, "STELLA_ANON_WEEKLY_LIMIT_USD") ?? anonLifetime,
-      monthlyLimitUsd: optional(read, "STELLA_ANON_MONTHLY_LIMIT_USD") ?? anonLifetime,
-      lifetimeLimitUsd: anonLifetime,
-    },
-    anonymousMaxRequests,
-    anonymousMaxRequestsPerIp:
-      optional(read, "STELLA_ANON_MAX_REQUESTS_PER_IP") ??
-      anonymousMaxRequests * ANON_IP_CAP_DEFAULT_MULTIPLIER,
     freeEmailAllowanceShare:
       optional(read, "STELLA_FREE_EMAIL_ALLOWANCE_SHARE") ?? DEFAULT_FREE_EMAIL_ALLOWANCE_SHARE,
     stripePrices: { go: priceGo, pro: pricePro },

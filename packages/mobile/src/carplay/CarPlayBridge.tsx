@@ -15,9 +15,6 @@
  *   • text-to-speech   → {@link speakReply} from read-aloud (the same Gemini
  *     TTS the chat "read aloud" button uses), so replies sound identical.
  *
- * Account-free use has a Better Auth anonymous owner, so both anonymous and
- * connected sessions resolve the same cloud-canonical conversation pipeline.
- *
  * The hands-free loop: tap → record → stop → transcribe → send → await reply →
  * auto-speak it → offer one-tap replay. {@link carPlaySession} owns the actual
  * CarPlay templates; this component just drives its phases.
@@ -25,7 +22,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform } from "react-native";
-import { authClient } from "../lib/auth-client";
+import { useAccountSession } from "../lib/auth-client";
 import {
   useCloudCanonicalChatThread,
   useCloudConversationAuthority,
@@ -75,9 +72,8 @@ export function CarPlayBridge() {
  * conversation's journal socket open for the app's whole lifetime.
  */
 function CarPlayBridgeIOS() {
-  const session = authClient.useSession();
+  const session = useAccountSession();
   const hasSession = Boolean(session.data);
-  const anonymous = session.data?.user?.isAnonymous === true;
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
@@ -98,7 +94,7 @@ function CarPlayBridgeIOS() {
   }, [hasSession]);
 
   if (!hasSession || !connected) return null;
-  return <CarPlayCloudChatGate anonymous={anonymous} />;
+  return <CarPlayCloudChatGate />;
 }
 
 /**
@@ -106,7 +102,7 @@ function CarPlayBridgeIOS() {
  * it verifies, the home keeps its idle rows: a dictated turn has nowhere to go
  * yet, and the loop's own send guard would reject it anyway.
  */
-function CarPlayCloudChatGate({ anonymous }: { anonymous: boolean }) {
+function CarPlayCloudChatGate() {
   const authority = useCloudConversationAuthority();
   if (authority.status !== "ready") return null;
   return (
@@ -114,7 +110,6 @@ function CarPlayCloudChatGate({ anonymous }: { anonymous: boolean }) {
       key={`${authority.authority.accountScope}:${authority.authority.ownerGeneration}:${authority.authority.conversationId}`}
       authority={authority.authority}
       reloadAuthority={authority.retry}
-      anonymous={anonymous}
     />
   );
 }
@@ -122,11 +117,9 @@ function CarPlayCloudChatGate({ anonymous }: { anonymous: boolean }) {
 function CarPlayVoiceLoop({
   authority,
   reloadAuthority,
-  anonymous,
 }: {
   authority: CloudConversationAuthority;
   reloadAuthority: () => void;
-  anonymous: boolean;
 }) {
   // The head unit's own optimistic outbox, so a queued dictated turn is never
   // drained twice by the Chat tab's copy of the same conversation.
@@ -257,10 +250,7 @@ function CarPlayVoiceLoop({
     [goPhase, setDraft],
   );
 
-  const dictation = useDictation({
-    anonymous,
-    onTranscript,
-  });
+  const dictation = useDictation({ onTranscript });
 
   // Tap-to-talk toggle from the CarPlay home row: tap to start dictation, tap
   // again to stop listening and send. Tapping while Stella is speaking

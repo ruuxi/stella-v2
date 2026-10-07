@@ -23,7 +23,6 @@ export const sampleOwnerSnapshot = (
   ownerId: "owner-1",
   ownerGeneration: "generation-1",
   writable: true,
-  isAnonymous: false,
   identityLevel: 3,
   plan: "pro",
   allowance: { audience: "pro", budgetMicroCents: 250_000_000 },

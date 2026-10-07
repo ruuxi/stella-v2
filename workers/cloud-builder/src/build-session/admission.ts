@@ -279,19 +279,6 @@ export const admitAgentTurnThroughOwnerGate = async (
         ),
       };
     }
-    if (snapshot.isAnonymous) {
-      return {
-        ok: false,
-        response: Response.json(
-          {
-            error: "Sign in to Stella to use cloud agents.",
-            code: "sign_in_required",
-            retryable: false,
-          },
-          { status: 403, headers: { "cache-control": "no-store" } },
-        ),
-      };
-    }
   } else {
     const admission = await gate.admit({
       lane: "agent",

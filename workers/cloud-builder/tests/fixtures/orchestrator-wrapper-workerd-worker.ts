@@ -44,7 +44,6 @@ export class OwnerReaderRegistry extends DurableObject<Env> {
       ownerId,
       ownerGeneration: "generation-1",
       writable: true,
-      isAnonymous: false,
       identityLevel: 3,
       plan: "pro",
       allowance: { audience: "pro", budgetMicroCents: 1_000_000 },

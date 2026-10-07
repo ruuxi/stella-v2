@@ -867,7 +867,6 @@ export const integrationsDomain = {
     },
     "integrations.actions": {
       scope: "global",
-      requireAccount: true,
       parse: object({
         id: integrationId(),
         action: optional(string({ min: 2, max: 128, pattern: SAFE_ACTION_NAME })),
@@ -883,13 +882,11 @@ export const integrationsDomain = {
     },
     "integrations.connections": {
       scope: "owner",
-      requireAccount: true,
       parse: empty(),
       handler: listConnections,
     },
     "integrations.status": {
       scope: "owner",
-      requireAccount: true,
       parse: object({ id: integrationId() }),
       handler: async (ctx, args) => {
         await requireIntegration(ctx.env, args.id);
@@ -898,19 +895,16 @@ export const integrationsDomain = {
     },
     "integrations.connectLink": {
       scope: "owner",
-      requireAccount: true,
       parse: object({ id: integrationId() }),
       handler: (ctx, args) => connectLink(ctx, args.id),
     },
     "integrations.run": {
       scope: "owner",
-      requireAccount: true,
       parse: parseRun,
       handler: runAction,
     },
     "connect.decide": {
       scope: "owner",
-      requireAccount: true,
       parse: object({
         requestId: string({ min: 1, max: 128 }),
         expectedRevision: number({ int: true, min: 0 }),
@@ -921,19 +915,16 @@ export const integrationsDomain = {
     },
     "x.connectUrl": {
       scope: "owner",
-      requireAccount: true,
       parse: empty(),
       handler: xConnectUrl,
     },
     "x.connections": {
       scope: "owner",
-      requireAccount: true,
       parse: empty(),
       handler: (ctx) => xConnections(ctx.db),
     },
     "x.request": {
       scope: "owner",
-      requireAccount: true,
       parse: object({
         method: optional(string({ max: 10 })),
         path: string({ min: 1, max: 2_048 }),
@@ -945,7 +936,6 @@ export const integrationsDomain = {
   },
   views: {
     "connect.pending": {
-      requireAccount: true,
       parse: empty(),
       read: (ctx) => pendingConnectRequests(ctx.db, ctx.now),
     },

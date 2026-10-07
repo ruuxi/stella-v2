@@ -46,7 +46,7 @@ import {
   useOnScreen,
   ViewportContext,
 } from "../src/components/onboarding/viewport";
-import { authClient } from "../src/lib/auth-client";
+import { useAccountSession } from "../src/lib/auth-client";
 import { tapMedium } from "../src/lib/haptics";
 import {
   markOnboardingSeen,
@@ -68,8 +68,9 @@ const HORIZONTAL_INSET = 12;
 /**
  * First run, as a conversation. Stella introduces herself in scripted
  * messages that look exactly like the chat; each carries a card the user
- * answers (or skips), and typing anything into the composer goes straight
- * to the real chat with that message sent.
+ * answers (or skips), and typing anything into the composer goes to the real
+ * chat with that message sent, through sign-in first when signed out. The
+ * account step only settles signed in.
  */
 export default function OnboardingScreen() {
   const colors = useColors();
@@ -77,9 +78,8 @@ export default function OnboardingScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const session = authClient.useSession();
-  const anonymous = session.data?.user?.isAnonymous === true;
-  const signedIn = Boolean(session.data?.user) && !anonymous;
+  const session = useAccountSession();
+  const signedIn = Boolean(session.data?.user);
   const email = signedIn ? (session.data?.user?.email ?? null) : null;
 
   const splashHidden = useSplashHidden();
@@ -95,14 +95,16 @@ export default function OnboardingScreen() {
       setFinishing(true);
       tapMedium();
       if (prompt) setPendingComposerDraft({ text: prompt, send: true });
-      void markOnboardingSeen().finally(() => router.replace("/chat"));
+      void markOnboardingSeen().finally(() =>
+        router.replace(signedIn ? "/chat" : "/login"),
+      );
     },
-    [router],
+    [router, signedIn],
   );
 
   const goSignIn = useCallback(() => {
-    // Progress is already saved on this step, so coming back from sign-in
-    // (signed in, or as a guest again) lands on this same message.
+    // Progress is already saved on this step, so coming back signed in lands
+    // on this same message.
     router.replace("/login");
   }, [router]);
 

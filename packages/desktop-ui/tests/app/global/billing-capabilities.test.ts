@@ -56,7 +56,6 @@ describe("capability audience mapping", () => {
     // features.
     expect(toCapabilityAudience("pro_fallback")).toBe("pro");
     expect(toCapabilityAudience("go_fallback")).toBe("go");
-    expect(toCapabilityAudience("anonymous")).toBe("anonymous");
     expect(toCapabilityAudience("free")).toBe("free");
     expect(toCapabilityAudience(null)).toBeNull();
     expect(toCapabilityAudience(undefined)).toBeNull();
@@ -85,14 +84,7 @@ describe("client capability gate", () => {
       capability: "three_d_generation",
       audience: "free",
       minimumPlan: minimumPlanForCapability("three_d_generation"),
-      actionKind: "upgrade",
     });
-  });
-
-  it("asks signed-out users to sign in rather than to upgrade", () => {
-    expect(
-      resolveCapabilityRestriction("anonymous", "image_generation"),
-    ).toMatchObject({ actionKind: "sign-in" });
   });
 
   it("returns no restriction for an audience the matrix allows", () => {
@@ -107,7 +99,7 @@ describe("reactive capability denial", () => {
     // happened is authoritative and must still explain itself.
     expect(resolveDeniedCapability(null, "video_generation")).toMatchObject({
       capability: "video_generation",
-      actionKind: "upgrade",
+      audience: "free",
     });
   });
 
@@ -122,13 +114,7 @@ describe("capability restriction toast", () => {
     publishBillingAudience(null);
   });
 
-  it("offers Sign in to anonymous users and Upgrade to everyone else", () => {
-    const anonymous = buildCapabilityRestrictionToast(
-      resolveCapabilityRestriction("anonymous", "image_generation")!,
-    );
-    expect(anonymous.action?.label).toBe("Sign in");
-    expect(anonymous.description).toContain("Sign in to upgrade");
-
+  it("offers Upgrade with the plan that unlocks the capability", () => {
     const free = buildCapabilityRestrictionToast(
       resolveCapabilityRestriction("free", "image_generation")!,
     );

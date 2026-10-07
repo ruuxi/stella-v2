@@ -1716,6 +1716,7 @@
         "fromOtherComputers": "別のコンピュータからの変更",
         "readyChange": "追加できる変更",
         "add": "追加",
+        "get": "取得",
         "adding": "追加中…",
         "skip": "スキップ",
         "undoing": "取り消し中…",
@@ -1723,6 +1724,7 @@
         "justNow": "たった今",
         "waiting": "待機中",
         "history": "履歴",
+        "skipped": "スキップ済み",
         "upToDate": "待機中のものはありません"
       }
     },
@@ -2115,7 +2117,6 @@
         "computerDone": "接続できた！",
         "computerSkipped": "あとで。",
         "accountDone": "完了。",
-        "accountSkipped": "今はやめておく。",
         "themeDone": "これにする。",
         "themeSkipped": "デフォルトのままで。"
       },
@@ -2264,10 +2265,7 @@
         "connect": "接続",
         "connectLabel": "{name} を接続",
         "connectedAs": "接続済み · {name}",
-        "skip": "今はスキップ",
-        "settledSignedIn": "サインイン済み",
-        "settledGuest": "ゲストとしてStellaを使用中",
-        "guestSettled": "設定からいつでもサインインできます"
+        "settledSignedIn": "サインイン済み"
       },
       "theme": {
         "appearance": "外観",
@@ -2326,8 +2324,7 @@
       "legalTerms": "利用規約",
       "legalConjunction": "および",
       "legalPrivacy": "プライバシーポリシー",
-      "legalSuffix": "に同意したものとみなされます。",
-      "continueAsGuest": "サインインせずに続ける"
+      "legalSuffix": "に同意したものとみなされます。"
     },
     "chat": {
       "emptyPrompt": "Stella に何でも聞いてください",
@@ -2392,8 +2389,6 @@
       }
     },
     "computer": {
-      "guestHeroTitle": "あなたのコンピュータを手元に",
-      "guestHeroBody": "ウェブの閲覧、ファイル整理、タスク実行など、コンピュータでの操作を Stella に頼めます。",
       "defaultDeviceLabel": "あなたのコンピュータ",
       "statusChecking": "確認中…",
       "statusConnected": "接続済み",
@@ -2405,8 +2400,6 @@
     },
     "desktop": {
       "pairTitle": "携帯をペアリング",
-      "guestBody": "Stella デスクトップアプリを携帯でそのまま表示できます。ペアリング後は自動的に再接続されます。",
-      "guestSignInPrompt": "サインインして始めましょう。",
       "connecting": "デスクトップに接続しています",
       "pairing": "この携帯をペアリングしています",
       "unreachable": "デスクトップに接続できません",

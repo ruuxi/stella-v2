@@ -1740,6 +1740,7 @@
         "fromOtherComputers": "שינויים מהמחשב האחר שלך",
         "readyChange": "שינוי מוכן להוספה",
         "add": "הוספה",
+        "get": "קבל",
         "adding": "מוסיף…",
         "skip": "דילוג",
         "undoing": "מבטל…",
@@ -1747,6 +1748,7 @@
         "justNow": "עכשיו",
         "waiting": "ממתין",
         "history": "היסטוריה",
+        "skipped": "דולגו",
         "upToDate": "אין דבר שממתין"
       }
     },
@@ -2155,7 +2157,6 @@
         "computerDone": "מחובר!",
         "computerSkipped": "אולי אחר כך.",
         "accountDone": "הכול מוכן.",
-        "accountSkipped": "לא עכשיו.",
         "themeDone": "זה.",
         "themeSkipped": "להשאיר את ברירת המחדל."
       },
@@ -2304,10 +2305,7 @@
         "connect": "חיבור",
         "connectLabel": "חיבור {name}",
         "connectedAs": "מחובר · {name}",
-        "skip": "לא עכשיו",
-        "settledSignedIn": "מחוברים",
-        "settledGuest": "משתמשים ב-Stella כאורחים",
-        "guestSettled": "אפשר להתחבר בכל זמן דרך ההגדרות"
+        "settledSignedIn": "מחוברים"
       },
       "theme": {
         "appearance": "מראה",
@@ -2366,8 +2364,7 @@
       "legalTerms": "תנאי השירות",
       "legalConjunction": " ול",
       "legalPrivacy": "מדיניות הפרטיות",
-      "legalSuffix": ".",
-      "continueAsGuest": "המשך ללא התחברות"
+      "legalSuffix": "."
     },
     "chat": {
       "emptyPrompt": "שאלו את Stella כל דבר",
@@ -2434,8 +2431,6 @@
       }
     },
     "computer": {
-      "guestHeroTitle": "המחשב שלכם, בהישג יד",
-      "guestHeroBody": "בקשו מ-Stella לעשות דברים במחשב שלכם — לגלוש ברשת, לנהל קבצים, להריץ משימות ועוד.",
       "defaultDeviceLabel": "המחשב שלכם",
       "statusChecking": "בודק…",
       "statusConnected": "מחובר",
@@ -2447,8 +2442,6 @@
     },
     "desktop": {
       "pairTitle": "חברו את הטלפון שלכם",
-      "guestBody": "ראו את אפליקציית Stella למחשב ישירות בטלפון. אחרי החיבור הטלפון יתחבר מחדש אוטומטית.",
-      "guestSignInPrompt": "התחברו כדי להתחיל.",
       "connecting": "מתחבר למחשב",
       "pairing": "מחבר את הטלפון הזה",
       "unreachable": "אין גישה למחשב שלכם",

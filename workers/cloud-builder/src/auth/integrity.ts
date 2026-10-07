@@ -80,7 +80,6 @@ export const turnstileSecret = (env: unknown): string | undefined =>
 
 /** Which proof purpose an auth path needs, or null when it needs none. */
 export const integrityPurposeForPath = (path: string | undefined): AppIntegrityPurpose | null => {
-  if (path === "/sign-in/anonymous") return "anonymous-sign-in";
   if (path === "/sign-in/magic-link" || path === "/link/send") return "magic-link";
   return null;
 };
@@ -166,15 +165,12 @@ export const verifyTurnstile = async (env: unknown, token: string, remoteIp?: st
 
 /**
  * A request to a protected endpoint passes with a valid integrity proof or a
- * valid Turnstile answer. `captchaVerified` means the captcha plugin already
- * spent the Turnstile token (anonymous sign-in); Turnstile tokens are single
- * use, so it is not checked twice.
+ * valid Turnstile answer.
  */
 export const verifyAuthRequestProof = async (args: {
   env: IntegrityEnv;
   request: Request;
   purpose: AppIntegrityPurpose;
-  captchaVerified?: boolean;
 }): Promise<AuthProofResult> => {
   const { env, request, purpose } = args;
   const mode = integrityMode(env);
@@ -188,7 +184,6 @@ export const verifyAuthRequestProof = async (args: {
   let sawInvalidProof = false;
 
   if (turnstileEnabled && captcha) {
-    if (args.captchaVerified) return { ok: true };
     if (await verifyTurnstile(env, captcha, request.headers.get("cf-connecting-ip") ?? undefined)) {
       return { ok: true };
     }

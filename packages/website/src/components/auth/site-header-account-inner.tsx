@@ -21,9 +21,7 @@ export function SiteHeaderAccountInner() {
   const user =
     (session.data as { user?: SessionUser } | null | undefined)?.user ??
     desktopUser;
-  const isSignedIn = Boolean(user) && user?.isAnonymous !== true;
-
-  if (isSignedIn && user) {
+  if (user && user.isAnonymous !== true) {
     return <AccountMenu user={user} />;
   }
 

@@ -177,14 +177,6 @@ const post = (
     body: typeof body === "string" ? body : JSON.stringify(body),
   });
 
-const withCf = (
-  request: Request,
-  cf: { asn: number; asOrganization?: string },
-): Request => {
-  Object.defineProperty(request, "cf", { value: cf });
-  return request;
-};
-
 const errorBody = async (response: Response) =>
   (await response.json()) as {
     error: { code: string; message: string; retryable: boolean };
@@ -222,45 +214,6 @@ describe("POST /conversations/:id/turns", () => {
     expect(JSON.parse(body)).toEqual(
       validBody({ locale: "es", attachments: ["Photos/a.png"] }),
     );
-  });
-
-  test("allows an anonymous JWT to start a chat-lane turn", async () => {
-    const { env, forwarded } = environment();
-    const response = await worker.fetch(
-      post(validBody(), {
-        authorization: `Bearer ${await userJwt({ anon: true })}`,
-      }),
-      env,
-      {} as ExecutionContext,
-    );
-    expect(response.status).toBe(202);
-    expect(forwarded).toHaveLength(1);
-    expect(forwarded[0]!.request.headers.get(HEADER_TURN_AUTH_KIND)).toBe(
-      "user",
-    );
-  });
-
-  test("refuses an anonymous hosting network before addressing the conversation", async () => {
-    const { env, forwarded } = environment();
-    const response = await worker.fetch(
-      withCf(
-        post(validBody(), {
-          authorization: `Bearer ${await userJwt({ anon: true })}`,
-        }),
-        { asn: 16_509, asOrganization: "Amazon.com, Inc." },
-      ),
-      env,
-      {} as ExecutionContext,
-    );
-    expect(response.status).toBe(403);
-    expect(await errorBody(response)).toEqual({
-      error: {
-        code: "sign_in_required",
-        message: "Sign in to Stella to continue from this network.",
-        retryable: false,
-      },
-    });
-    expect(forwarded).toHaveLength(0);
   });
 
   test("forwards a service caller with the owner and generation it named", async () => {
@@ -491,75 +444,5 @@ describe("POST /conversations/:id/turns", () => {
     expect(response.status).toBe(503);
     expect(response.headers.get("retry-after")).toBe("4");
     expect((await errorBody(response)).error.code).toBe("internal");
-  });
-});
-
-describe("POST /owners/me/dispatches", () => {
-  test("refuses an anonymous hosting network before addressing the owner gate", async () => {
-    const { env, submissions } = environment();
-    const response = await worker.fetch(
-      withCf(
-        new Request("https://builder.example/owners/me/dispatches", {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${await userJwt({ anon: true })}`,
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({ malformed: "body is not read" }),
-        }),
-        { asn: 13_335, asOrganization: "Cloudflare, Inc." },
-      ),
-      env,
-      {} as ExecutionContext,
-    );
-    expect(response.status).toBe(403);
-    expect((await errorBody(response)).error).toMatchObject({
-      code: "sign_in_required",
-      message: "Sign in to Stella to continue from this network.",
-      retryable: false,
-    });
-    expect(submissions).toHaveLength(0);
-  });
-
-  test("refuses an anonymous agent dispatch before addressing the owner gate", async () => {
-    const { env, submissions } = environment();
-    const response = await worker.fetch(
-      new Request("https://builder.example/owners/me/dispatches", {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${await userJwt({ anon: true })}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          protocol: 1,
-          idempotencyKey: "agent-dispatch-1",
-          kind: "agent",
-          ingress: "browser",
-          subject: "cloud",
-          targetMode: "cloud",
-          conversationId: "conversation-1",
-          threadId: "thread-1",
-          requiredCapabilities: ["agent"],
-          payload: {
-            schemaVersion: 1,
-            prompt: "Research this",
-            conversationId: "conversation-1",
-            clientMsgId: "agent-dispatch-1",
-            description: "Research this",
-          },
-        }),
-      }),
-      env,
-      {} as ExecutionContext,
-    );
-    expect(response.status).toBe(403);
-    expect(await errorBody(response)).toEqual({
-      error: {
-        code: "sign_in_required",
-        message: "Sign in to Stella to use cloud agents.",
-        retryable: false,
-      },
-    });
-    expect(submissions).toHaveLength(0);
   });
 });

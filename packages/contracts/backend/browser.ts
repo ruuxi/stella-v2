@@ -4,8 +4,6 @@
  * in the owner's object; the private Browser Gateway holds everything secret
  * (the login URL, the Live View, the session), and these calls fetch it on
  * demand. `browser.decide` answers the wait and resumes the agent.
- *
- * Every call needs a connected (non-anonymous) account.
  */
 
 import type {

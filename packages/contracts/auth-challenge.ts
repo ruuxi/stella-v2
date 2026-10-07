@@ -16,7 +16,6 @@ export const AUTH_CAPTCHA_HEADER = "x-captcha-response" as const;
 
 /** Better Auth endpoint suffixes (after the `/api/auth` base) that require a token. */
 export const AUTH_CAPTCHA_ENDPOINTS = [
-  "/sign-in/anonymous",
   "/sign-in/magic-link",
 ] as const;
 

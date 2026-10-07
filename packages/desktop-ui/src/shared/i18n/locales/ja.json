@@ -772,8 +772,7 @@
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "すごいですね。",
-        "signinDone": "完了しました。",
-        "signinSkipped": "あとでやります。"
+        "signinDone": "完了しました。"
       },
       "discovery": {
         "browserLabel": "Your browser",
@@ -923,7 +922,7 @@
       },
       "signin": {
         "title": "サインイン",
-        "body": "どれかひとつで十分です。ほかはあとから追加できます。",
+        "body": "始めるには Stella アカウントでサインインしてください。Claude や ChatGPT のプランも追加できます。",
         "options": {
           "stella": {
             "title": "Stella アカウント",
@@ -945,11 +944,9 @@
         "waiting": "ブラウザーでサインインを完了して、こちらに戻ってください。",
         "error": "接続できませんでした。もう一度試しますか？",
         "fine": "設定でいつでも変更できます。",
-        "skip": "今はしない",
         "hint": "無料で始められます。",
         "settledEngine": "{name} を使用中",
         "settledStella": "Stella にサインイン済み",
-        "settledSkipped": "まだサインインしていません",
         "settledDesc": "設定でいつでも変更できます。",
         "claudeCliMissing": "先に Claude Code をインストールしてから、もう一度お試しください。"
       },
@@ -999,7 +996,6 @@
     },
     "capabilityRestriction": {
       "title": "{capability} は現在のプランに含まれていません",
-      "signIn": "{capability} は Stella {plan} に含まれています。サインインしてアップグレードすると利用できます。",
       "upgrade": "{capability} は Stella {plan} に含まれています。アップグレードすると利用できます。",
       "unavailable": "{capability} は現在どのプランでも利用できません。",
       "lockedBadge": "{plan}",
@@ -1971,7 +1967,6 @@
       "sendFailed": "サインイン用メールを送信できませんでした。",
       "magicLinkFailed": "マジックリンクを送信できませんでした。",
       "finishFailed": "サインインを完了できませんでした。もう一度お試しください。",
-      "signInIncomplete": "サインインが完了していません。もう一度お試しください。",
       "signInLinkExpired": "サインインリンクの有効期限が切れました。もう一度お試しください。",
       "tooManyRequests": {
         "other": "リクエストが多すぎます。{count} 秒後にもう一度お試しください。"
@@ -2117,7 +2112,6 @@
         "computerDone": "接続できた！",
         "computerSkipped": "あとで。",
         "accountDone": "完了。",
-        "accountSkipped": "今はやめておく。",
         "themeDone": "これにする。",
         "themeSkipped": "デフォルトのままで。"
       },
@@ -2266,10 +2260,7 @@
         "connect": "接続",
         "connectLabel": "{name} を接続",
         "connectedAs": "接続済み · {name}",
-        "skip": "今はスキップ",
-        "settledSignedIn": "サインイン済み",
-        "settledGuest": "ゲストとしてStellaを使用中",
-        "guestSettled": "設定からいつでもサインインできます"
+        "settledSignedIn": "サインイン済み"
       },
       "theme": {
         "appearance": "外観",
@@ -2328,8 +2319,7 @@
       "legalTerms": "利用規約",
       "legalConjunction": "および",
       "legalPrivacy": "プライバシーポリシー",
-      "legalSuffix": "に同意したものとみなされます。",
-      "continueAsGuest": "サインインせずに続ける"
+      "legalSuffix": "に同意したものとみなされます。"
     },
     "chat": {
       "emptyPrompt": "Stella に何でも聞いてください",
@@ -2394,8 +2384,6 @@
       }
     },
     "computer": {
-      "guestHeroTitle": "あなたのコンピュータを手元に",
-      "guestHeroBody": "ウェブの閲覧、ファイル整理、タスク実行など、コンピュータでの操作を Stella に頼めます。",
       "defaultDeviceLabel": "あなたのコンピュータ",
       "statusChecking": "確認中…",
       "statusConnected": "接続済み",
@@ -2407,8 +2395,6 @@
     },
     "desktop": {
       "pairTitle": "携帯をペアリング",
-      "guestBody": "Stella デスクトップアプリを携帯でそのまま表示できます。ペアリング後は自動的に再接続されます。",
-      "guestSignInPrompt": "サインインして始めましょう。",
       "connecting": "デスクトップに接続しています",
       "pairing": "この携帯をペアリングしています",
       "unreachable": "デスクトップに接続できません",

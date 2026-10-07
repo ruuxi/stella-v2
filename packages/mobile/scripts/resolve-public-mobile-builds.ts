@@ -22,7 +22,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
+import { isDeepStrictEqual, promisify } from "node:util";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -386,7 +386,30 @@ const nativeVersions = (lock: string): Map<string, string> => {
   return new Map([...versions].map(([name, set]) => [name, [...set].sort().join(",")]));
 };
 
+const MOBILE_IDENTITY_ENV = [
+  "STELLA_MOBILE_OWNER",
+  "STELLA_MOBILE_SLUG",
+  "STELLA_MOBILE_EAS_PROJECT_ID",
+  "STELLA_MOBILE_APPLE_TEAM_ID",
+  "STELLA_MOBILE_IOS_BUNDLE_ID",
+  "STELLA_MOBILE_ANDROID_PACKAGE",
+  "EXPO_PUBLIC_STELLA_MOBILE_SCHEME",
+];
+
+const appConfigIsIdentity = async (): Promise<boolean> => {
+  const appJson = JSON.parse(readFileSync(join(mobileRoot, "app.json"), "utf8")).expo;
+  const { default: appConfig } = await import(join(mobileRoot, "app.config.ts"));
+  const resolved = appConfig({ config: structuredClone(appJson), projectRoot: mobileRoot, staticConfigPath: null, packageJsonPath: null });
+  return isDeepStrictEqual(resolved, appJson);
+};
+
 const verifyNativeMatch = async (target: PublicMobileTarget) => {
+  const overrides = MOBILE_IDENTITY_ENV.filter((name) => process.env[name]?.trim());
+  if (overrides.length > 0) {
+    throw new Error(
+      `${target.platform} native identity is overridden by ${overrides.join(", ")}; only a store build can ship it.`,
+    );
+  }
   const repoRoot = resolve(mobileRoot, "../..");
   const git = async (...args: string[]) =>
     (await execFileAsync("git", args, { cwd: repoRoot, maxBuffer: 256 * 1024 * 1024 })).stdout;
@@ -399,7 +422,7 @@ const verifyNativeMatch = async (target: PublicMobileTarget) => {
   const nativeFiles = (
     await git(
       "diff", "--name-only", target.gitCommitHash, "HEAD", "--",
-      "packages/mobile/app.json", "packages/mobile/plugins", "packages/mobile/modules",
+      "packages/mobile/app.json", "packages/mobile/app.config.ts", "packages/mobile/plugins", "packages/mobile/modules",
       "packages/mobile/widgets", "packages/mobile/targets", "packages/mobile/patches", "patches",
     )
   )
@@ -412,6 +435,8 @@ const verifyNativeMatch = async (target: PublicMobileTarget) => {
         !file.endsWith(".patch") ||
         NATIVE_PACKAGE.test(decodeURIComponent(file.split("/").pop()!).replace(/@[^@]*\.patch$/, "")),
     );
+  const configIndex = nativeFiles.indexOf("packages/mobile/app.config.ts");
+  if (configIndex >= 0 && (await appConfigIsIdentity())) nativeFiles.splice(configIndex, 1);
   if (changed.length > 0 || nativeFiles.length > 0) {
     throw new Error(
       `${target.platform} native side differs from the store build's commit ${target.gitCommitHash}: ` +

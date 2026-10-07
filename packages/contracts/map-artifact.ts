@@ -62,12 +62,6 @@ export type MapRouteArtifact = {
   route?: MapArtifactRoute;
 };
 
-/* -------------------------------------------------------------------------
- * Provider config. MAPS_SITE_BASE_URL is the default website; callers pass
- * `siteBaseUrl` for another one (the desktop renderer passes
- * VITE_STELLA_WEB_URL).
- * ---------------------------------------------------------------------- */
-
 export const MAPS_SITE_BASE_URL = "https://stella.sh";
 export const MAPS_RESOLVE_PATH = "/api/maps/resolve";
 export const MAPS_EMBED_PATH = "/maps/embed";

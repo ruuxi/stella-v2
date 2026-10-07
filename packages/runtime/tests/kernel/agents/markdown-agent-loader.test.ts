@@ -73,7 +73,7 @@ describe("loadParsedAgentsFromDir", () => {
   // On Windows that URL's `pathname` is `/C:/...` with `%20`-encoded
   // characters, which `URL.pathname` (the old impl) turned into an
   // unreadable path so every agent was silently skipped — collapsing the
-  // orchestrator to only the universal RequestCredential/no_response
+  // orchestrator to only the universal ask/no_response
   // tools. A directory containing a space reproduces the encoding half of
   // that failure on any platform.
   it("loads agents from a file:// URL whose path needs decoding", () => {

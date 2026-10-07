@@ -1334,24 +1334,28 @@ EOF`,
     }
   });
 
-  it("RequestCredential delegates to the device callback", async () => {
+  it("request_secure_input delegates to the device callback", async () => {
     const root = await createTempDir();
     const host = createToolHost({
       stellaAppDir: root,
-      requestCredential: async (payload) => ({
-        secretId: `secret:${payload.provider}`,
-        provider: payload.provider,
-        label: payload.label ?? payload.provider,
+      requestSecureInput: async (request) => ({
+        outcome: "answered" as const,
+        askId: "ask-1",
+        values: { email: "rahul@example.com" },
+        handles: { password: `stella-secret:${request.fields[1]!.id}` },
+        answeredAt: 1,
       }),
     });
 
     try {
       const result = await host.executeTool(
-        "RequestCredential",
+        "request_secure_input",
         {
-          provider: "github_token",
-          label: "GitHub Token",
-          description: "Needed for API access",
+          purpose: "Sign in to the airline",
+          fields: [
+            { id: "email", label: "Email", type: "text", sensitive: false },
+            { id: "password", label: "Password", type: "secret" },
+          ],
         },
         {
           conversationId: "c1",
@@ -1359,15 +1363,15 @@ EOF`,
           requestId: "r1",
           agentType: "general",
           stellaAppDir: root,
-          allowedToolNames: ["RequestCredential"],
+          allowedToolNames: ["request_secure_input"],
         },
       );
 
       expect(result.error).toBeUndefined();
       expect(result.result).toEqual({
-        secretId: "secret:github_token",
-        provider: "github_token",
-        label: "GitHub Token",
+        outcome: "answered",
+        values: { email: "rahul@example.com" },
+        handles: { password: "stella-secret:password" },
       });
     } finally {
       await host.shutdown();

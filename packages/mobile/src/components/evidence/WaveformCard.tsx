@@ -30,7 +30,11 @@ const barsFrom = (peaks: readonly number[]): number[] => {
     const start = Math.floor(index * span);
     const end = Math.max(start + 1, Math.floor((index + 1) * span));
     let peak = 0;
-    for (let cursor = start; cursor < end && cursor < peaks.length; cursor += 1) {
+    for (
+      let cursor = start;
+      cursor < end && cursor < peaks.length;
+      cursor += 1
+    ) {
       peak = Math.max(peak, peaks[cursor] ?? 0);
     }
     bars.push(peak);
@@ -73,12 +77,32 @@ export function WaveformCard({
   const trackWidth = BAR_COUNT * BAR_WIDTH + (BAR_COUNT - 1) * BAR_GAP;
   const progress = useSharedValue(0);
   const playerRef = useRef<AudioPlayer | null>(null);
+  const subscriptionRef = useRef<{ remove: () => void } | null>(null);
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  const attachCompletion = useCallback(
+    (player: AudioPlayer) => {
+      const subscription = player.addListener(
+        "playbackStatusUpdate",
+        (status) => {
+          if (!status.didJustFinish) return;
+          cancelAnimation(progress);
+          progress.value = 0;
+          setPlaying(false);
+          void player.seekTo(0);
+        },
+      );
+      subscriptionRef.current = subscription;
+    },
+    [progress],
+  );
 
   useEffect(
     () => () => {
       cancelAnimation(progress);
+      subscriptionRef.current?.remove();
+      subscriptionRef.current = null;
       const player = playerRef.current;
       playerRef.current = null;
       if (player) {
@@ -102,7 +126,8 @@ export function WaveformCard({
       return;
     }
     if (existing) {
-      const from = existing.duration > 0 ? existing.currentTime / existing.duration : 0;
+      const from =
+        existing.duration > 0 ? existing.currentTime / existing.duration : 0;
       const remaining = Math.max(120, durationMs * (1 - from));
       void configurePlaybackAudioSession()
         .then(() => {
@@ -122,11 +147,17 @@ export function WaveformCard({
       return;
     }
     setLoading(true);
-    void evidenceAudioFileUri({ filePath, kind: "audio", conversationId, access })
+    void evidenceAudioFileUri({
+      filePath,
+      kind: "audio",
+      conversationId,
+      access,
+    })
       .then(async (uri) => {
         if (!(await configurePlaybackAudioSession())) return;
         const player = createAudioPlayer({ uri });
         playerRef.current = player;
+        attachCompletion(player);
         player.play();
         setPlaying(true);
         progress.value = 0;
@@ -137,7 +168,14 @@ export function WaveformCard({
       })
       .catch(() => undefined)
       .finally(() => setLoading(false));
-  }, [access, conversationId, durationMs, filePath, progress]);
+  }, [
+    access,
+    attachCompletion,
+    conversationId,
+    durationMs,
+    filePath,
+    progress,
+  ]);
 
   const cursorStyle = useAnimatedStyle(() => ({
     width: progress.value * trackWidth,
@@ -224,6 +262,12 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     paddingHorizontal: 12,
   },
-  played: { left: 0, overflow: "hidden", position: "absolute", top: 0, bottom: 0 },
+  played: {
+    left: 0,
+    overflow: "hidden",
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+  },
   track: { flexDirection: "row", height: "54%", justifyContent: "flex-start" },
 });

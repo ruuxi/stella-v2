@@ -94,6 +94,8 @@ export type DesktopChatsOptions = {
   journal?(conversationId: string): DesktopJournal | undefined;
   /** For a conversation stored in the cloud: its cloud agents, run in its object. */
   cloudAgents?(conversationId: string): RemoteAgentHost | undefined;
+  /** An agent finished and reported to Stella (the app shows a notification). */
+  agentReported?(agent: { conversationId: string; threadId: string; description: string; failed: boolean }): void;
   /** A watched conversation's events, for every attached client. */
   emit(payload: PiChatEventsPayload): void;
   report(error: unknown): void;
@@ -144,12 +146,16 @@ export function desktopChats(options: DesktopChatsOptions) {
   // them without waiting for a window to open them.
   const activeFile = path.join(directory, "active.json");
   let active: Promise<Set<string>> | undefined;
+  /** The same set once read, for `busy()`. */
+  let activeNow: ReadonlySet<string> = new Set();
   let saving = Promise.resolve();
   const activeSet = () =>
-    (active ??= readFile(activeFile, "utf8").then(
-      (text) => new Set((JSON.parse(text) as unknown[]).filter((id): id is string => typeof id === "string")),
-      () => new Set<string>(),
-    ));
+    (active ??= readFile(activeFile, "utf8")
+      .then(
+        (text) => new Set((JSON.parse(text) as unknown[]).filter((id): id is string => typeof id === "string")),
+        () => new Set<string>(),
+      )
+      .then((ids) => (activeNow = ids)));
   const markActive = async (conversationId: string, busy: boolean) => {
     const ids = await activeSet();
     if (ids.has(conversationId) === busy) return;
@@ -252,12 +258,15 @@ export function desktopChats(options: DesktopChatsOptions) {
               destination,
               locale: async () =>
                 opened && (await opened.harness.snapshot(LocaleDoc, opened.root.id, context))?.locale,
+              cloudStored: !conversationId.startsWith("local_"),
             }),
             agents: (() => {
               const cloud = options.cloudAgents?.(conversationId);
+              const reported = options.agentReported;
               return desktopAgentsHost({
                 ...(options.deviceId ? { deviceId: options.deviceId } : {}),
                 ...(cloud ? { cloud } : {}),
+                ...(reported ? { agentReported: (agent) => reported({ conversationId, ...agent }) } : {}),
               });
             })(),
             ...(options.tools ? { tools: options.tools(conversationId) } : {}),
@@ -628,6 +637,10 @@ export function desktopChats(options: DesktopChatsOptions) {
     steerPlacedAgent,
     voiceTranscript,
     voiceHistory,
+    /** Whether any conversation has work in flight here, so the process must stay up. */
+    busy(): boolean {
+      return activeNow.size > 0;
+    },
     /** Reopen the conversations a previous process left with work in flight. */
     async resumeActive(): Promise<void> {
       for (const conversationId of await activeSet()) {

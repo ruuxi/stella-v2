@@ -9,6 +9,7 @@ import type { Context } from "@earendil-works/chord";
 import type { ExecutionContextSnapshot } from "@stella/contracts/execution-context";
 import type { StellaPromptEnvironment } from "@stella/contracts/stella-prompts";
 import type { ConversationId } from "@earendil-works/pi-durable";
+import type { StellaAgentRole } from "./agent-doc.ts";
 
 /** Prompt ids from the served bundle (`/api/stella/prompts`). */
 export type StellaAgentPromptId = "agents/orchestrator.md" | "agents/general.md";
@@ -37,4 +38,6 @@ export type StellaContextSources = {
   executionContext(conversationId: ConversationId, context: Context): Promise<ExecutionContextSnapshot | undefined>;
   /** The user's preferred response language (a BCP-47 tag); English when absent. */
   locale?(context: Context): Promise<string | undefined>;
+  /** Whether this agent's `code` tool can read the conversation's history (`history.sql`, `history.read`). */
+  codeHistory?(agentType: StellaAgentRole["agentType"], context: Context): Promise<boolean>;
 };

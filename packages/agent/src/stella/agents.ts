@@ -193,6 +193,8 @@ export type StellaAgentsHost = {
    * conversation. The cloud sends it through its turn plane instead.
    */
   deliverReport?(report: AgentReport, context: Context): Promise<void>;
+  /** An agent's report reached the orchestrator: the desktop tells the user. */
+  agentReported?(agent: { threadId: string; description: string; failed: boolean }): void;
 };
 
 const slug = (text: string): string =>
@@ -369,6 +371,14 @@ export function stellaAgents(host: StellaAgentsHost) {
           } else {
             const root = await runtime.conversation(runtime.conversationId, context);
             await root?.submit({ type: "input", content: report, whenBusy: "followUp", requestId: delivery.requestId }, context);
+          }
+          if (host.agentReported && !origin) {
+            const agent = (await runtime.snapshot(StellaAgentsDoc, runtime.conversationId, context))?.agents[reporter.input.threadId];
+            host.agentReported({
+              threadId: reporter.input.threadId,
+              description: agent?.description ?? reporter.input.threadId,
+              failed: report.trimStart().startsWith("[Task failed]"),
+            });
           }
         }
         await runtime.commit(async (tx) => {

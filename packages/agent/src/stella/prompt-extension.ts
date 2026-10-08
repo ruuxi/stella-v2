@@ -16,6 +16,12 @@ import {
   renderMediaAccess,
 } from "@stella/contracts/execution-context";
 import { renderStellaPrompt, stellaPromptTools } from "@stella/contracts/stella-prompts";
+import {
+  CORE_MEMORY_INJECTED_MAX_CHARS,
+  MEMORY_INDEX_INJECTED_MAX_CHARS,
+  USER_PROFILE_INJECTED_MAX_CHARS,
+} from "@stella/runtime/kernel/memory/memory-layout";
+import { shapeResidentMemoryDoc } from "@stella/runtime/kernel/memory/resident-doc-shape";
 import { responseLanguageSection } from "@stella/runtime/kernel/runner/locale-prompt";
 import { StellaAgentDoc, type StellaAgentRole } from "./agent-doc.ts";
 import type { StellaAgentPromptId, StellaContextSources } from "./context.ts";
@@ -32,6 +38,10 @@ const startupDoc = (path: string, content: string | undefined): string | undefin
   content === undefined || content.trim() === ""
     ? undefined
     : `<startup_doc path="${path}">\n${content.trim()}\n</startup_doc>`;
+
+/** A memory file as the model reads it on every host: comments stripped, secrets redacted, capped. */
+const memoryDoc = (path: string, raw: string | undefined, maxChars: number): string | undefined =>
+  startupDoc(path, raw === undefined ? undefined : shapeResidentMemoryDoc(raw, maxChars));
 
 const role = async (input: PromptInput, context: Context): Promise<StellaAgentRole> =>
   (await input.read.snapshot(StellaAgentDoc, input.conversationId, context)) ?? { agentType: "orchestrator", depth: 0 };
@@ -57,9 +67,13 @@ export function stellaPromptExtension(sources: StellaContextSources) {
           const source = await sources.agentPrompt(promptIdFor(agent), context);
           if (source === undefined) return undefined;
           const memoryOn = agent.agentType === "orchestrator" && (await memory(context)).enabled;
+          const hasCode = input.agent.tools.some((tool) => tool.name === "code");
           const tools = stellaPromptTools(
             input.agent.tools.map((tool) => tool.name),
-            { history: false, memory: memoryOn && input.agent.tools.some((tool) => tool.name === "code") },
+            {
+              history: hasCode && ((await sources.codeHistory?.(agent.agentType, context)) ?? false),
+              memory: memoryOn && hasCode,
+            },
           );
           return renderStellaPrompt(promptBody(source), { env: sources.env, tools });
         },
@@ -74,7 +88,7 @@ export function stellaPromptExtension(sources: StellaContextSources) {
         "core-memory",
         orchestratorOnly(async (_input, context) => {
           const docs = await memory(context);
-          return docs.enabled ? startupDoc("~/.stella/core-memory.md", docs.core) : undefined;
+          return docs.enabled ? memoryDoc("~/.stella/core-memory.md", docs.core, CORE_MEMORY_INJECTED_MAX_CHARS) : undefined;
         }),
         { tag: false },
       ),
@@ -82,7 +96,9 @@ export function stellaPromptExtension(sources: StellaContextSources) {
         "memory-profile",
         orchestratorOnly(async (_input, context) => {
           const docs = await memory(context);
-          return docs.enabled ? startupDoc("~/.stella/memories/profile.md", docs.profile) : undefined;
+          return docs.enabled
+            ? memoryDoc("~/.stella/memories/profile.md", docs.profile, USER_PROFILE_INJECTED_MAX_CHARS)
+            : undefined;
         }),
         { tag: false },
       ),
@@ -90,7 +106,9 @@ export function stellaPromptExtension(sources: StellaContextSources) {
         "memory-index",
         orchestratorOnly(async (_input, context) => {
           const docs = await memory(context);
-          return docs.enabled ? startupDoc("~/.stella/memories/index.md", docs.index) : undefined;
+          return docs.enabled
+            ? memoryDoc("~/.stella/memories/index.md", docs.index, MEMORY_INDEX_INJECTED_MAX_CHARS)
+            : undefined;
         }),
         { tag: false },
       ),

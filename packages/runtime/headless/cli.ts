@@ -360,15 +360,17 @@ const main = async (): Promise<void> => {
     );
   });
 
-  if (options.model) {
+  // On pi-durable every headless turn is an automation turn: pi answers it
+  // and hands back the final text.
+  if (options.model || process.env.STELLA_AGENT_RUNTIME === "pi") {
     const resultPromise = host.runAutomationTurn({
       conversationId,
       userPrompt: options.prompt,
-      modelOverride: options.model,
+      ...(options.model ? { modelOverride: options.model } : {}),
       ...(options.agentType ? { agentType: options.agentType } : {}),
     }) as Promise<{ status: string; finalText: string; error?: string }>;
     log(
-      `automation turn started (conversation=${conversationId} model=${options.model})`,
+      `automation turn started (conversation=${conversationId} model=${options.model ?? "default"})`,
     );
     const result = await resultPromise;
     clearTimeout(timeout);

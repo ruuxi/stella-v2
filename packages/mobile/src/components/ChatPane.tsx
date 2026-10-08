@@ -317,6 +317,8 @@ const LEGEND_TAIL_SCROLL_AT_END = {
   on: { dataChange: true, itemLayout: false, layout: false },
 } as const;
 const MESSAGE_LIST_GAP = 10;
+/** `assistantRow`'s vertical padding, part of the visible gap between bubbles. */
+const ASSISTANT_ROW_PAD_VERTICAL = 2;
 /**
  * Fixed reading-area floor below the last message (desktop's
  * `.event-list-trailing-region` `min-height`). The inline working indicator
@@ -5188,9 +5190,12 @@ const makeStyles = (colors: Colors) =>
     itemSeparator: { height: MESSAGE_LIST_GAP },
     // Fixed-height tail below the last message. Hosts the inline working
     // indicator and keeps its footprint constant whether or not it's showing.
+    // Its top padding matches the user-to-assistant bubble gap (separator plus
+    // the assistant row's padding), so the indicator bubble sits as far below
+    // the last message as the next reply will.
     chatTail: {
       minHeight: CHAT_TAIL_GAP,
-      paddingTop: 4,
+      paddingTop: MESSAGE_LIST_GAP + ASSISTANT_ROW_PAD_VERTICAL,
       justifyContent: "flex-start",
     },
 
@@ -5381,7 +5386,7 @@ const makeStyles = (colors: Colors) =>
       letterSpacing: -0.1,
     },
 
-    assistantRow: { paddingVertical: 2 },
+    assistantRow: { paddingVertical: ASSISTANT_ROW_PAD_VERTICAL },
     /**
      * Mirror of `userBubble`, flipped: same radius family with the tightened
      * corner on the bottom LEFT, the quieter elevated surface (`card`) instead

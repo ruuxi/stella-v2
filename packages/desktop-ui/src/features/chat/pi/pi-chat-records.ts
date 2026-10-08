@@ -4,7 +4,8 @@
  * the cloud journal carries, so they go through the journal's projection
  * (`journalRecordsToMessageRecords`): a turn is a user entry and the entries
  * after it. Agent reports arrive as user input and render hidden, as wakes
- * do; a generation that failed ends its turn with a notice.
+ * do; a generation that failed ends its turn with a notice. What a voice call
+ * said is model history and stays out; the call's summary shows.
  */
 import {
   piMessageText,
@@ -42,6 +43,8 @@ const userPayload = (message: PiUserMessage): Record<string, unknown> => {
     role: "user",
     content: [{ type: "text", text }, ...images],
     timestamp: message.timestamp,
+    ...(message.source ? { source: message.source } : {}),
+    ...(message.voiceSession ? { voiceSession: message.voiceSession } : {}),
     ...(files.length > 0 ? { attachments: files } : {}),
     ...(display?.context ? { metadata: { context: display.context } } : {}),
   };
@@ -92,7 +95,10 @@ export const projectPiChat = (state: Pick<PiChatState, "entries" | "requestIds">
         ...(clientMsgId ? { clientMsgId } : {}),
         payload: userPayload(message),
       });
-    } else if (turn.hidden) {
+    } else if (entry.kind === "pi.assistant" && message.role === "assistant" && message.voiceSession) {
+      // A voice call's summary shows wherever the call ended.
+      records.push({ ...base, role: "assistant", hidden: false, payload: message as unknown as Record<string, unknown> });
+    } else if (turn.hidden || (message.role === "assistant" && message.stella?.hidden)) {
       continue;
     } else if (entry.kind === "pi.assistant" && message.role === "assistant") {
       records.push({ ...base, role: "assistant", hidden: false, payload: message as unknown as Record<string, unknown> });

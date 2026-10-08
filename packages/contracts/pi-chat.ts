@@ -45,7 +45,10 @@ export type PiContentBlock =
 /** A part of a user message: text or an image, maybe marked. */
 export type PiUserPart = Extract<PiContentBlock, { type: "text" } | { type: "image" }>;
 
-export type PiUserMessage = { role: "user"; content: string | PiContentBlock[]; timestamp: number };
+/** What a voice session wrote: what was said, or the session's summary (`voiceSession`). */
+export type PiVoiceMarks = { source?: "voice"; voiceSession?: { durationMs: number } };
+
+export type PiUserMessage = { role: "user"; content: string | PiContentBlock[]; timestamp: number } & PiVoiceMarks;
 export type PiAssistantMessage = {
   role: "assistant";
   content: PiContentBlock[];
@@ -54,7 +57,9 @@ export type PiAssistantMessage = {
   stopReason?: string;
   errorMessage?: string;
   timestamp: number;
-};
+  /** Model history the timeline leaves out (what the voice model said). */
+  stella?: { hidden?: true };
+} & PiVoiceMarks;
 export type PiToolResultMessage = {
   role: "toolResult";
   toolCallId: string;

@@ -8,7 +8,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import type { ModelThinkingLevel, TextContent } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Message, ModelThinkingLevel, TextContent } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
 import {
   ConversationBusy,
@@ -21,11 +21,13 @@ import {
   type UserInput,
 } from "@earendil-works/pi-durable";
 import type { ExecutionDestination } from "@stella/contracts/execution-context";
+import { splitReplyRefs } from "@stella/contracts/reply-refs";
 import {
   mergePiEntries,
   piEntriesForClients,
   piMessageText,
   piEventsForClients,
+  piUserView,
   type PiChatEvent,
   type PiChatEventsPayload,
   type PiChatAgentsResult,
@@ -33,6 +35,7 @@ import {
   type PiChatRequest,
   type PiChatWatchResult,
   type PiEntry,
+  type PiUserMessage,
 } from "@stella/contracts/pi-chat";
 import type { DeviceSigner } from "@stella/runtime/kernel/home/device";
 import {
@@ -59,6 +62,10 @@ import { desktopContextSources } from "./desktop-sources.ts";
 const HISTORY_PAGE = 200;
 /** A page of entries over IPC stays small enough to parse off the frame budget. */
 const CLIENT_PAGE_BYTES = 2 * 1024 * 1024;
+/** How far back a voice call's history reaches, in entries. */
+const VOICE_HISTORY_ENTRIES = 200;
+/** An agent's report, which the user did not write. */
+const REPORT = /^\[(Agent completed|Task failed|Task canceled|Subagent paused)\]/;
 /** How often an open conversation is checked for being idle again. */
 const IDLE_CHECK_MS = 30_000;
 /** Until signed in, recovered work retries the provider this often. */
@@ -366,9 +373,30 @@ export function desktopChats(options: DesktopChatsOptions) {
    */
   const automation = async (
     conversationId: string,
-    turn: { requestId: string; prompt: string; visible: boolean; rejectIfBusy?: boolean },
+    turn: {
+      requestId: string;
+      prompt: string;
+      visible: boolean;
+      rejectIfBusy?: boolean;
+      /** The conversation's events while the turn is open (a voice call narrates its tools). */
+      observe?: (events: PiChatEvent[]) => void;
+    },
   ): Promise<{ status: "ok"; finalText: string } | { status: "busy" | "error"; finalText: ""; error: string }> => {
     const chat = await ready(conversationId);
+    const { observe } = turn;
+    const observer = observe ? await watchEvents(chat.harness, chat.root.id, context) : undefined;
+    observer?.start(async (events) => observe?.(events as unknown as PiChatEvent[]));
+    try {
+      return await automationTurn(chat, turn);
+    } finally {
+      await observer?.stop().catch(() => undefined);
+    }
+  };
+
+  const automationTurn = async (
+    chat: Chat,
+    turn: { requestId: string; prompt: string; visible: boolean; rejectIfBusy?: boolean },
+  ): Promise<{ status: "ok"; finalText: string } | { status: "busy" | "error"; finalText: ""; error: string }> => {
     let submission;
     try {
       submission = await chat.root.submit(
@@ -395,7 +423,81 @@ export function desktopChats(options: DesktopChatsOptions) {
     if (answer === undefined) return { status: "ok", finalText: "" };
     const page = await chat.root.entries({ minEntryId: answer, maxEntryId: answer }, 1, undefined, context);
     const message = (page.items[0] as unknown as PiEntry | undefined)?.model?.[0];
-    return { status: "ok", finalText: piMessageText(message) };
+    // What gets delivered or spoken is the prose, without the reply's citations.
+    return { status: "ok", finalText: splitReplyRefs(piMessageText(message)).text.trim() };
+  };
+
+  /**
+   * What a voice call said, written into the transcript without a run: the
+   * user's and the voice model's words as model history the timeline leaves
+   * out, and the call's summary, which it shows. Once per `eventId`.
+   */
+  const voiceTranscript = async (
+    conversationId: string,
+    said: {
+      eventId?: string;
+      role: "user" | "assistant";
+      text: string;
+      timestamp?: number;
+      hidden?: boolean;
+      voiceSession?: { durationMs: number };
+    },
+  ): Promise<void> => {
+    const chat = await open(conversationId);
+    const timestamp = said.timestamp ?? Date.now();
+    const marks = { source: "voice" as const, ...(said.voiceSession ? { voiceSession: said.voiceSession } : {}) };
+    const message =
+      said.role === "user"
+        ? {
+            role: "user" as const,
+            content: [{ type: "text" as const, text: said.text, ...(said.hidden ? { stella: { hidden: true } } : {}) }],
+            timestamp,
+            ...marks,
+          }
+        : ({
+            role: "assistant",
+            content: [{ type: "text", text: said.text }],
+            api: "stella-voice",
+            provider: "stella",
+            model: "realtime-voice",
+            usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+            stopReason: "stop",
+            timestamp,
+            ...marks,
+            ...(said.hidden ? { stella: { hidden: true } } : {}),
+          } as AssistantMessage);
+    await chat.root.submit(
+      {
+        type: "write",
+        ...(said.eventId ? { requestId: `voice-said:${said.eventId}` } : {}),
+        entry: { kind: said.role === "user" ? "pi.user" : "pi.assistant", model: [message as Message] },
+      },
+      context,
+    );
+  };
+
+  /** The conversation so far as a voice call starts with it: what was said, oldest first. */
+  const voiceHistory = async (
+    conversationId: string,
+  ): Promise<Array<{ role: "user" | "assistant"; content: string; timestamp: number }>> => {
+    const chat = await open(conversationId);
+    const page = await chat.root.entries({}, VOICE_HISTORY_ENTRIES, undefined, context);
+    const items: Array<{ role: "user" | "assistant"; content: string; timestamp: number }> = [];
+    for (const entry of [...page.items].reverse() as unknown as PiEntry[]) {
+      const message = entry.model?.[0];
+      if (entry.kind === "pi.user" && message?.role === "user") {
+        // What the user typed or said; not the context and notices sent along,
+        // a report, or a prompt the app wrote.
+        const text = piUserView(message).text || ((message as PiUserMessage).source === "voice" ? piMessageText(message) : "");
+        if (text.trim() && !REPORT.test(text.trimStart())) {
+          items.push({ role: "user", content: text, timestamp: message.timestamp });
+        }
+      } else if (entry.kind === "pi.assistant" && message?.role === "assistant") {
+        const text = splitReplyRefs(piMessageText(message)).text.trim();
+        if (text.trim()) items.push({ role: "assistant", content: text, timestamp: message.timestamp });
+      }
+    }
+    return items;
   };
 
   /** An agent the host starts in a conversation (an app-source merge, memory sync). */
@@ -435,6 +537,8 @@ export function desktopChats(options: DesktopChatsOptions) {
     automation,
     startAgent,
     messageAgent,
+    voiceTranscript,
+    voiceHistory,
     /** Reopen the conversations a previous process left with work in flight. */
     async resumeActive(): Promise<void> {
       for (const conversationId of await activeSet()) {

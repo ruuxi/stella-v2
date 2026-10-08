@@ -35,4 +35,6 @@ export type StellaContextSources = {
   skillsCatalog(context: Context): Promise<string | undefined>;
   /** Connected devices, this conversation's destination and media access. */
   executionContext(conversationId: ConversationId, context: Context): Promise<ExecutionContextSnapshot | undefined>;
+  /** The user's preferred response language (a BCP-47 tag); English when absent. */
+  locale?(context: Context): Promise<string | undefined>;
 };

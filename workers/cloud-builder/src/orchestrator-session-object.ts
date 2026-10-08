@@ -5906,6 +5906,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         ),
         skillsCatalog: buildCloudSkillsBlock(home.skillCatalog) || undefined,
         executionContext,
+        locale: await this.resolveTurnLocale(turn),
       },
     };
     const runtime = await this.openPiRuntime(args.gatewayOrigin);

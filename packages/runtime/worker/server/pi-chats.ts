@@ -1,7 +1,19 @@
 import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { METHOD_NAMES, NOTIFICATION_NAMES } from "@stella/contracts/protocol";
+import type { PiChatRequest } from "@stella/contracts/pi-chat";
+import {
+  METHOD_NAMES,
+  NOTIFICATION_NAMES,
+  type RuntimeChatPayload,
+} from "@stella/contracts/protocol";
+import {
+  getModelOverride,
+  getReasoningEffort,
+  loadLocalPreferences,
+} from "../../kernel/preferences/local-preferences.js";
+import { prepareChatInput } from "./chat-input.js";
+import { piUserContent } from "./pi-chat-input.js";
 import {
   createRemoteDeviceSigner,
   HOST_DEVICE_SIGNING_METHOD,
@@ -16,6 +28,7 @@ import type { OpenSession } from "./sessions.js";
  * events go to the app as `piChat.events` notifications.
  */
 type DesktopChats = import("@stella/agent/host/desktop-chats").DesktopChats;
+
 
 const chatsBySession = new WeakMap<OpenSession, Promise<DesktopChats>>();
 
@@ -32,6 +45,12 @@ export const piChatsFor = (
       deviceId: session.config.deviceId,
       workspace: os.homedir(),
       siteAuth: () => session.runnerCell.get()?.getStellaSiteAuth() ?? null,
+      memoryEnabled: () => loadLocalPreferences(session.config.get().stellaDataDirPath).memoryEnabled,
+      stellaModel: () => getModelOverride(session.config.get().stellaDataDirPath, "orchestrator"),
+      thinkingLevel: () => {
+        const effort = getReasoningEffort(session.config.get().stellaDataDirPath, "orchestrator");
+        return effort === "default" ? "off" : effort;
+      },
       refreshAuthToken: async () => {
         const result = (await hostBus.request(
           METHOD_NAMES.HOST_RUNTIME_AUTH_REFRESH,
@@ -100,4 +119,32 @@ export const resumePiChats = async (
     return;
   }
   await (await piChatsFor(session, hostBus)).resumeActive();
+};
+
+/**
+ * A pi chat request from the app. A composer send arrives as the composer
+ * sent it and is prepared here as the agent loops prepare it (images sized
+ * and spilled, files saved, chat context), then submitted as one user input.
+ */
+export const piChatRequest = async (
+  session: OpenSession,
+  hostBus: HostBus.Interface,
+  request: PiChatRequest,
+): Promise<unknown> => {
+  const chats = await piChatsFor(session, hostBus);
+  if (request.op !== "submit" || !request.send) return await chats.request(request);
+  const payload: RuntimeChatPayload = {
+    ...(request.send as Omit<RuntimeChatPayload, "conversationId" | "userPrompt">),
+    conversationId: request.conversationId,
+    userPrompt: request.text,
+    userMessageEventId: request.requestId,
+  };
+  const prepared = await prepareChatInput(payload, {
+    stellaDataDirPath: session.config.get().stellaDataDirPath,
+    resolveImageTarget: async () =>
+      (await session.runnerCell.get()?.resolveImageTarget(payload.agentType)) ?? undefined,
+  });
+  return await chats.submit(request.conversationId, request.requestId, piUserContent(payload, prepared), {
+    ...(payload.locale ? { locale: payload.locale } : {}),
+  });
 };

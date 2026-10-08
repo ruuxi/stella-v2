@@ -16,6 +16,7 @@ import {
   renderMediaAccess,
 } from "@stella/contracts/execution-context";
 import { renderStellaPrompt, stellaPromptTools } from "@stella/contracts/stella-prompts";
+import { responseLanguageSection } from "@stella/runtime/kernel/runner/locale-prompt";
 import { StellaAgentDoc, type StellaAgentRole } from "./agent-doc.ts";
 import type { StellaAgentPromptId, StellaContextSources } from "./context.ts";
 
@@ -109,6 +110,11 @@ export function stellaPromptExtension(sources: StellaContextSources) {
         const snapshot = await sources.executionContext(input.conversationId, context);
         return snapshot && renderMediaAccess(snapshot);
       }),
+      section(
+        "response-language",
+        orchestratorOnly(async (_input, context) => responseLanguageSection(await sources.locale?.(context))?.text),
+        { tag: false },
+      ),
     ],
   });
 }

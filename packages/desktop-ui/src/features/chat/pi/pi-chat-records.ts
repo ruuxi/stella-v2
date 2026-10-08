@@ -6,7 +6,13 @@
  * after it. Agent reports arrive as user input and render hidden, as wakes
  * do; a generation that failed ends its turn with a notice.
  */
-import { piMessageText, type PiChatState } from "@stella/contracts/pi-chat";
+import {
+  piMessageText,
+  piUserView,
+  type PiChatState,
+  type PiContentBlock,
+  type PiUserMessage,
+} from "@stella/contracts/pi-chat";
 import type { MessageRecord } from "@stella/contracts/local-chat";
 import type { JournalRecord } from "@/features/cloud/conversation-protocol";
 import { journalRecordsToMessageRecords } from "@/features/cloud/journal-message-records";
@@ -16,6 +22,30 @@ import {
 } from "@/features/chat/streaming/streaming-types";
 
 const REPORT_RE = /^\[(Agent completed|Task failed|Task canceled|Subagent paused)\]/;
+
+/**
+ * A user entry as the journal projection reads a user message: the text the
+ * user typed, the attachment previews (images as image blocks, files as
+ * declared attachments) and the context chips. Parts the runtime added for
+ * the model are marked hidden and left out.
+ */
+const userPayload = (message: PiUserMessage): Record<string, unknown> => {
+  const { text, display } = piUserView(message);
+  const images: PiContentBlock[] = [];
+  const files: Array<Record<string, unknown>> = [];
+  for (const attachment of display?.attachments ?? []) {
+    const match = attachment.kind === "image" ? /^data:([^;,]+);base64,(.+)$/s.exec(attachment.url ?? "") : null;
+    if (match) images.push({ type: "image", mimeType: match[1]!, data: match[2]! });
+    else if (attachment.kind === "file") files.push({ ...attachment, kind: "file" });
+  }
+  return {
+    role: "user",
+    content: [{ type: "text", text }, ...images],
+    timestamp: message.timestamp,
+    ...(files.length > 0 ? { attachments: files } : {}),
+    ...(display?.context ? { metadata: { context: display.context } } : {}),
+  };
+};
 
 type Turn = { userMessageId?: string; assistantMessages: number };
 
@@ -44,7 +74,7 @@ export const projectPiChat = (state: Pick<PiChatState, "entries" | "requestIds">
         role: "user",
         hidden: REPORT_RE.test(piMessageText(message).trimStart()),
         ...(clientMsgId ? { clientMsgId } : {}),
-        payload: message as unknown as Record<string, unknown>,
+        payload: userPayload(message),
       });
     } else if (entry.kind === "pi.assistant" && message.role === "assistant") {
       records.push({ ...base, role: "assistant", hidden: false, payload: message as unknown as Record<string, unknown> });

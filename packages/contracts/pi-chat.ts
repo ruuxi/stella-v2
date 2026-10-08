@@ -11,11 +11,39 @@
  * read, so this module stays dependency-free.
  */
 
+/**
+ * Stella's marks on a part of a user message. Providers read only a part's
+ * `type`, `text` and `data`, so the model never sees them.
+ */
+export type PiPartMarks = {
+  /** Model input the user did not type: context, attachment notices, images sized for the model. */
+  hidden?: true;
+  /** How the user's message shows besides its text; one part carries it. */
+  display?: PiUserDisplay;
+};
+
+export type PiUserDisplay = {
+  /** What the user attached: image previews and file references. */
+  attachments?: Array<{
+    kind: "image" | "file";
+    name?: string;
+    mimeType?: string;
+    size?: number;
+    url?: string;
+    path?: string;
+  }>;
+  /** The context the composer sent along: app selection, activity, quoted and pasted text. */
+  context?: Record<string, unknown>;
+};
+
 export type PiContentBlock =
-  | { type: "text"; text: string }
+  | { type: "text"; text: string; stella?: PiPartMarks }
   | { type: "thinking"; thinking: string }
-  | { type: "image"; data: string; mimeType: string }
+  | { type: "image"; data: string; mimeType: string; stella?: PiPartMarks }
   | { type: "toolCall"; id: string; name: string; arguments: Record<string, unknown> };
+
+/** A part of a user message: text or an image, maybe marked. */
+export type PiUserPart = Extract<PiContentBlock, { type: "text" } | { type: "image" }>;
 
 export type PiUserMessage = { role: "user"; content: string | PiContentBlock[]; timestamp: number };
 export type PiAssistantMessage = {
@@ -108,8 +136,22 @@ export type PiChatEvent =
 
 // ---- host ↔ client requests --------------------------------------------------
 
+/** The rest of a desktop composer send (`RuntimeChatPayload`), which the runtime prepares for the model. */
+export type PiChatSend = {
+  selectedText?: string | null;
+  chatContext?: unknown;
+  attachments?: unknown[];
+  deviceId?: string;
+  platform?: string;
+  timezone?: string;
+  locale?: string;
+  mode?: string;
+  messageMetadata?: Record<string, unknown>;
+  agentType?: string;
+};
+
 export type PiChatRequest =
-  | { op: "submit"; conversationId: string; requestId: string; text: string }
+  | { op: "submit"; conversationId: string; requestId: string; text: string; send?: PiChatSend }
   | { op: "abort"; conversationId: string }
   | { op: "watch"; conversationId: string }
   | { op: "unwatch"; conversationId: string }
@@ -303,6 +345,18 @@ export const piMessageText = (message: PiMessage | undefined): string => {
   if (!message || message.role === "system") return "";
   if (typeof message.content === "string") return message.content;
   return message.content.map((block) => (block.type === "text" ? block.text : "")).join("");
+};
+
+/** What a user message shows: its unmarked text and what its marks display. */
+export const piUserView = (message: PiUserMessage): { text: string; display?: PiUserDisplay } => {
+  if (typeof message.content === "string") return { text: message.content };
+  let display: PiUserDisplay | undefined;
+  const text: string[] = [];
+  for (const part of message.content) {
+    if ((part.type === "text" || part.type === "image") && part.stella?.display) display ??= part.stella.display;
+    if (part.type === "text" && !part.stella?.hidden) text.push(part.text);
+  }
+  return { text: text.join("\n"), ...(display ? { display } : {}) };
 };
 
 // ---- what reaches clients ---------------------------------------------------------

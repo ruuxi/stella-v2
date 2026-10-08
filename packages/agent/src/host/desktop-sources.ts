@@ -62,6 +62,8 @@ export type DesktopSourcesOptions = {
   /** This device, where a desktop conversation runs. */
   destination: ExecutionDestination;
   media?: () => MediaAccess | undefined;
+  /** The response language the user's latest message asked for. */
+  locale?: () => Promise<string | undefined>;
 };
 
 export function desktopContextSources(options: DesktopSourcesOptions): StellaContextSources {
@@ -86,5 +88,6 @@ export function desktopContextSources(options: DesktopSourcesOptions): StellaCon
         destination: options.destination,
         media: options.media?.(),
       }),
+    locale: async () => options.locale?.(),
   };
 }

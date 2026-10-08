@@ -4,6 +4,11 @@
  *
  *   bun packages/agent/src/headless.ts --data-dir <dir> --test-account <email> --prompt "Hi"
  *   bun packages/agent/src/headless.ts --data-dir <dir> --test-account <email> --resume
+ *   bun packages/agent/src/headless.ts --data-dir <dir> --test-account <email> --start-agent <description> --prompt "..."
+ *
+ * `--start-agent` starts an agent the way the app does for work nobody typed
+ * (an app-source merge, memory sync): the prompt is the agent's brief, and
+ * its report reaches the orchestrator like a spawned agent's.
  *
  * `--resume` reopens the conversation and waits for whatever an earlier
  * process left unanswered, which is how a killed run is picked up. Output
@@ -34,6 +39,7 @@ const { values } = parseArgs({
     "auth-token": { type: "string" },
     "test-account": { type: "string" },
     prompt: { type: "string" },
+    "start-agent": { type: "string" },
     "request-id": { type: "string" },
     resume: { type: "boolean", default: false },
     workspace: { type: "string" },
@@ -117,7 +123,7 @@ async function main() {
   await mkdir(workspace, { recursive: true });
   const storage = await openBunSqliteStorage(database);
   const environments = desktopEnvironments(workspace);
-  const { harness } = await openStellaHarness(
+  const { harness, startAgent } = await openStellaHarness(
     {
       storage,
       models,
@@ -155,7 +161,13 @@ async function main() {
   harness.resume();
 
   const waiting: SubmissionRecord[] = [];
-  if (values.prompt) {
+  if (values["start-agent"] && values.prompt) {
+    const started = await startAgent(
+      { key: values["request-id"] ?? crypto.randomUUID(), description: values["start-agent"], prompt: values.prompt },
+      context,
+    );
+    out({ kind: "agent-started", ...started });
+  } else if (values.prompt) {
     const requestId = values["request-id"] ?? crypto.randomUUID();
     const submission = await root.submit({ type: "input", content: values.prompt, requestId }, context);
     out({ kind: "submitted", submissionId: submission.id, requestId });

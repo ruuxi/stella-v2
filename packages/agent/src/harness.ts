@@ -17,7 +17,7 @@ import {
   type Storage,
 } from "@earendil-works/pi-durable";
 import { STELLA_PROVIDER_ID, stellaModelId } from "./provider/stella.ts";
-import { stellaAgentsExtension, type StellaAgentsHost } from "./stella/agents.ts";
+import { stellaAgents, type StellaAgentsHost } from "./stella/agents.ts";
 import { STELLA_CODING_EXTENSION, StellaCoding } from "./stella/coding.ts";
 import type { StellaContextSources } from "./stella/context.ts";
 import { STELLA_AGENT_TOOLS, stellaToolExtensions, type StellaToolHost } from "./stella/host-tools.ts";
@@ -77,12 +77,18 @@ export type OpenStellaHarness = {
   registry: Registry;
   /** Offer the host's tools as they are now (its catalog changed). */
   refreshTools(): void;
+  /** Start an agent the host asked for (see `stellaAgents`). */
+  startAgent(
+    args: { key: string; description: string; prompt: string },
+    context: Context,
+  ): Promise<{ threadId: string; existing: boolean }>;
 };
 
 export async function openStellaHarness(options: StellaHarnessOptions, context: Context): Promise<OpenStellaHarness> {
   const registry = createRegistry();
   registry.install(stellaPromptExtension(options.sources));
-  registry.install(stellaAgentsExtension(options.agents));
+  const agents = stellaAgents(options.agents);
+  registry.install(agents.extension);
   registry.install(StellaCoding);
   const refreshTools = () => {
     for (const extension of stellaToolExtensions(options.tools)) registry.install(extension);
@@ -100,5 +106,10 @@ export async function openStellaHarness(options: StellaHarnessOptions, context: 
     },
     context,
   );
-  return { harness, registry, refreshTools };
+  return {
+    harness,
+    registry,
+    refreshTools,
+    startAgent: (args, startContext) => agents.startAgent(harness, args, startContext),
+  };
 }

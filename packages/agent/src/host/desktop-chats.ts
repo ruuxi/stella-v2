@@ -8,9 +8,10 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
+import type { ModelThinkingLevel, TextContent } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
 import {
+  ConversationBusy,
   defineDoc,
   watchEvents,
   type AgentEventStream,
@@ -23,6 +24,7 @@ import type { ExecutionDestination } from "@stella/contracts/execution-context";
 import {
   mergePiEntries,
   piEntriesForClients,
+  piMessageText,
   piEventsForClients,
   type PiChatEvent,
   type PiChatEventsPayload,
@@ -35,6 +37,7 @@ import type { DeviceSigner } from "@stella/runtime/kernel/home/device";
 import {
   offersAgentTools,
   openStellaHarness,
+  type OpenStellaHarness,
   orchestratorAgent,
   STELLA_DEFAULT_ALIAS,
   stellaModelRef,
@@ -85,6 +88,7 @@ type Chat = {
   harness: Harness;
   root: Conversation;
   refreshTools(): void;
+  startAgent: OpenStellaHarness["startAgent"];
   stream?: AgentEventStream;
   watchers: number;
   idleCheck: ReturnType<typeof setInterval>;
@@ -213,7 +217,7 @@ export function desktopChats(options: DesktopChatsOptions) {
           deviceId: options.deviceId ?? "this-computer",
           label: "This computer",
         };
-        const { harness, refreshTools } = await openStellaHarness(
+        const { harness, refreshTools, startAgent } = await openStellaHarness(
           {
             storage,
             models,
@@ -247,7 +251,7 @@ export function desktopChats(options: DesktopChatsOptions) {
           );
         }, IDLE_CHECK_MS);
         idleCheck.unref?.();
-        opened = { harness, root, refreshTools, watchers: 0, idleCheck };
+        opened = { harness, root, refreshTools, startAgent, watchers: 0, idleCheck };
         return opened;
       })().catch((error: unknown) => {
         chats.delete(conversationId);
@@ -343,6 +347,64 @@ export function desktopChats(options: DesktopChatsOptions) {
     return { submissionId: submission.id };
   };
 
+  /** The conversation open and its model ready, for work the host starts in it. */
+  const ready = async (conversationId: string): Promise<Chat> => {
+    const chat = await open(conversationId);
+    await ensureProvider(aliasOf((await chat.root.agent(context)).model));
+    chat.refreshTools();
+    await markActive(conversationId, true);
+    return chat;
+  };
+
+  /**
+   * A turn the host starts (a schedule fire, a watch escalation): its prompt
+   * shown as the user's only when the user wrote it, answered after whatever
+   * the conversation is doing. Settles with the answer's text.
+   */
+  const automation = async (
+    conversationId: string,
+    turn: { requestId: string; prompt: string; visible: boolean; rejectIfBusy?: boolean },
+  ): Promise<{ status: "ok"; finalText: string } | { status: "busy" | "error"; finalText: ""; error: string }> => {
+    const chat = await ready(conversationId);
+    let submission;
+    try {
+      submission = await chat.root.submit(
+        {
+          type: "input",
+          // A prompt the user did not write is read by the model, not shown.
+          content: turn.visible ? turn.prompt : [{ type: "text", text: turn.prompt, stella: { hidden: true } } as TextContent],
+          requestId: turn.requestId,
+          whenBusy: turn.rejectIfBusy ? "reject" : "followUp",
+        },
+        context,
+      );
+    } catch (error) {
+      if (error instanceof ConversationBusy) {
+        return { status: "busy", finalText: "", error: "Stella is already handling another turn." };
+      }
+      throw error;
+    }
+    const settled = await submission.wait(context);
+    if (settled.status === "unanswered") {
+      return { status: "error", finalText: "", error: settled.reason ?? "The turn did not finish." };
+    }
+    const answer = settled.type === "input" ? settled.answer : undefined;
+    if (answer === undefined) return { status: "ok", finalText: "" };
+    const page = await chat.root.entries({ minEntryId: answer, maxEntryId: answer }, 1, undefined, context);
+    const message = (page.items[0] as unknown as PiEntry | undefined)?.model?.[0];
+    return { status: "ok", finalText: piMessageText(message) };
+  };
+
+  /** An agent the host starts in a conversation (an app-source merge, memory sync). */
+  const startAgent = async (
+    conversationId: string,
+    agent: { key: string; description: string; prompt: string },
+  ): Promise<{ threadId: string }> => {
+    const chat = await ready(conversationId);
+    const { threadId } = await chat.startAgent(agent, context);
+    return { threadId };
+  };
+
   const older = async (conversationId: string, beforeEntryId: number): Promise<PiChatOlderResult> =>
     history(await open(conversationId), beforeEntryId);
 
@@ -350,6 +412,8 @@ export function desktopChats(options: DesktopChatsOptions) {
     /** Reopen the conversations a previous process left with work in flight. */
     /** Submit a prepared message (text and marked parts). */
     submit,
+    automation,
+    startAgent,
     async resumeActive(): Promise<void> {
       for (const conversationId of await activeSet()) {
         await open(conversationId).catch((error: unknown) => options.report(error));

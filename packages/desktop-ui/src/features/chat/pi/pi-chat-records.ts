@@ -47,7 +47,16 @@ const userPayload = (message: PiUserMessage): Record<string, unknown> => {
   };
 };
 
-type Turn = { userMessageId?: string; assistantMessages: number };
+type Turn = {
+  userMessageId?: string;
+  assistantMessages: number;
+  /**
+   * A turn the host started with a prompt the user never sees (a schedule
+   * fire, a watch escalation): the reply stays out of the timeline too,
+   * since the scheduler delivers what it decides to.
+   */
+  hidden?: true;
+};
 
 export type PiChatProjection = {
   records: JournalRecord[];
@@ -67,15 +76,24 @@ export const projectPiChat = (state: Pick<PiChatState, "entries" | "requestIds">
     if (entry.kind === "pi.user" && message.role === "user") {
       turnId = `pi:${entry.id}`;
       const clientMsgId = state.requestIds[entry.id];
-      turn = { userMessageId: clientMsgId ?? `cloud:${turnId}:message:${entry.id}`, assistantMessages: 0 };
+      const view = piUserView(message);
+      const report = REPORT_RE.test(piMessageText(message).trimStart());
+      const automation = !report && !view.text.trim() && !view.display;
+      turn = {
+        userMessageId: clientMsgId ?? `cloud:${turnId}:message:${entry.id}`,
+        assistantMessages: 0,
+        ...(automation ? { hidden: true as const } : {}),
+      };
       records.push({
         ...base,
         turnId,
         role: "user",
-        hidden: REPORT_RE.test(piMessageText(message).trimStart()),
+        hidden: report || automation,
         ...(clientMsgId ? { clientMsgId } : {}),
         payload: userPayload(message),
       });
+    } else if (turn.hidden) {
+      continue;
     } else if (entry.kind === "pi.assistant" && message.role === "assistant") {
       records.push({ ...base, role: "assistant", hidden: false, payload: message as unknown as Record<string, unknown> });
       if (piMessageText(message).trim()) turn.assistantMessages += 1;
@@ -102,7 +120,7 @@ export const piStreamingOverlay = (
   turn: Turn,
 ): StreamingAssistantOverlay[] => {
   const text = piMessageText(state.streaming);
-  if (!state.streaming || !text.trim() || !turn.userMessageId) return [];
+  if (!state.streaming || !text.trim() || !turn.userMessageId || turn.hidden) return [];
   return [
     {
       _id: streamingAssistantOverlayId(turn.userMessageId, turn.assistantMessages),

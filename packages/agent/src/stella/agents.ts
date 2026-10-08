@@ -28,6 +28,8 @@ import {
   LiveDoc,
   type ConversationId,
   type EntryId,
+  type Harness,
+  type Tx,
   type ModelRef,
   type TaskId,
   type TaskRuntime,
@@ -158,7 +160,7 @@ const Anchor = defineTask<null, { phase: "done" }, null>({
 type ReporterInput = { threadId: string; conversationId: number; message: string };
 type ReporterState = { phase: "deliver" } | { phase: "report"; report?: string };
 
-export function stellaAgentsExtension(host: StellaAgentsHost) {
+export function stellaAgents(host: StellaAgentsHost) {
   const Reporter = defineTask<ReporterInput, ReporterState, null>({
     name: "stella.agent-reporter",
     version: 1,
@@ -265,6 +267,66 @@ export function stellaAgentsExtension(host: StellaAgentsHost) {
   const callerPlacement = async (api: ToolExecutionApi, context: Context): Promise<StellaPlacement> =>
     placementOf(await api.snapshot(StellaPlacementDoc, api.conversationId, context)) ?? host.rootPlacement;
 
+  /**
+   * Create an agent under `parentConversationId` and its first reporter,
+   * once per `callKey`: an agent conversation owned by a background anchor,
+   * its role, placement and tools, and its entry in the parent's agents.
+   */
+  const createAgent = async (
+    tx: Tx,
+    args: {
+      parentConversationId: ConversationId;
+      callKey: string;
+      depth: number;
+      description: string;
+      prompt: string;
+      model: ModelRef | undefined;
+      placement: StellaPlacement;
+    },
+  ): Promise<{ threadId: string; existing: boolean }> => {
+    const { parentConversationId, depth, description, model, placement } = args;
+    const state = await tx.doc(StellaAgentsDoc, parentConversationId);
+    const prior = state.calls[args.callKey];
+    if (prior) return { threadId: prior.threadId, existing: true };
+    const anchor = await tx.createTask(Anchor, null, {
+      ownership: { kind: "conversation" },
+      background: true,
+      conversationId: parentConversationId,
+    });
+    const child = await tx.createConversation({ ownership: { kind: "task", taskId: anchor } });
+    const threadId = `${slug(description)}-${child.id}`;
+    await configure(tx, child.id, {
+      ...(model ? { model } : {}),
+      // An agent has file, shell and agent tools, not the orchestrator's
+      // (it copied the starter's selection); one at the depth limit cannot
+      // start agents.
+      extensions: agentToolSelection,
+      tools: depth >= MAX_AGENT_DEPTH ? { remove: [spawnAgent, pauseAgent] } : null,
+    });
+    const role = await tx.doc(StellaAgentDoc, child.id);
+    role.agentType = "general";
+    role.depth = depth;
+    role.description = description;
+    role.threadId = threadId;
+    role.parentConversationId = parentConversationId;
+    const where = await tx.doc(StellaPlacementDoc, child.id);
+    where.kind = placement.kind;
+    if (placement.kind === "device") where.deviceId = placement.deviceId;
+    state.agents[threadId] = {
+      conversationId: child.id,
+      description,
+      placement: { kind: placement.kind, ...(placement.kind === "device" ? { deviceId: placement.deviceId } : {}) },
+      reported: [],
+    };
+    const reporter = await tx.createTask(
+      Reporter,
+      { threadId, conversationId: child.id, message: args.prompt },
+      { ownership: { kind: "conversation" }, background: true, conversationId: parentConversationId },
+    );
+    state.calls[args.callKey] = { threadId, reporter };
+    return { threadId, existing: false };
+  };
+
   const spawnAgent = defineTool({
     name: "spawn_agent",
     description:
@@ -299,44 +361,19 @@ export function stellaAgentsExtension(host: StellaAgentsHost) {
           ? { provider: STELLA_PROVIDER_ID, modelId: stellaModelId("general", requested) }
           : childModel(callerAgent.model);
       const description = args.description.trim() || "agent";
-      const { threadId, existing } = await api.commit(async (tx) => {
-        const state = await tx.doc(StellaAgentsDoc, api.conversationId);
-        const prior = state.calls[String(api.taskId)];
-        if (prior) return { threadId: prior.threadId, existing: true };
-        const anchor = await tx.createTask(Anchor, null, { ownership: { kind: "conversation" }, background: true });
-        const child = await tx.createConversation({ ownership: { kind: "task", taskId: anchor } });
-        const threadId = `${slug(description)}-${child.id}`;
-        await configure(tx, child.id, {
-          ...(model ? { model } : {}),
-          // An agent has file, shell and agent tools, not the orchestrator's
-          // (it copied the starter's selection); one at the depth limit cannot
-          // start agents.
-          extensions: agentToolSelection,
-          tools: depth >= MAX_AGENT_DEPTH ? { remove: [spawnAgent, pauseAgent] } : null,
-        });
-        const role = await tx.doc(StellaAgentDoc, child.id);
-        role.agentType = "general";
-        role.depth = depth;
-        role.description = description;
-        role.threadId = threadId;
-        role.parentConversationId = api.conversationId;
-        const where = await tx.doc(StellaPlacementDoc, child.id);
-        where.kind = placement.kind;
-        if (placement.kind === "device") where.deviceId = placement.deviceId;
-        state.agents[threadId] = {
-          conversationId: child.id,
-          description,
-          placement: { kind: placement.kind, ...(placement.kind === "device" ? { deviceId: placement.deviceId } : {}) },
-          reported: [],
-        };
-        const reporter = await tx.createTask(
-          Reporter,
-          { threadId, conversationId: child.id, message: args.prompt },
-          { ownership: { kind: "conversation" }, background: true },
-        );
-        state.calls[String(api.taskId)] = { threadId, reporter };
-        return { threadId, existing: false };
-      }, context);
+      const { threadId, existing } = await api.commit(
+        (tx) =>
+          createAgent(tx, {
+            parentConversationId: api.conversationId,
+            callKey: String(api.taskId),
+            depth,
+            description,
+            prompt: args.prompt,
+            model,
+            placement,
+          }),
+        context,
+      );
       await api.details({ thread_id: threadId }, context);
       return {
         content: [
@@ -442,11 +479,41 @@ export function stellaAgentsExtension(host: StellaAgentsHost) {
     },
   });
 
-  return defineExtension({
+  /**
+   * Start an agent the host asked for rather than a tool call (an app-source
+   * merge, memory sync): under the orchestrator, at depth 1, reporting to it
+   * like a spawned agent. Once per `key`.
+   */
+  const startAgent = async (
+    harness: Harness,
+    args: { key: string; description: string; prompt: string },
+    context: Context,
+  ): Promise<{ threadId: string; existing: boolean }> => {
+    const root = await harness.root(context);
+    const model = childModel((await root.agent(context)).model);
+    return await harness.commit(
+      (tx) =>
+        createAgent(tx, {
+          parentConversationId: root.id,
+          callKey: `host:${args.key}`,
+          depth: 1,
+          description: args.description.trim() || "agent",
+          prompt: args.prompt,
+          model,
+          placement: host.rootPlacement,
+        }),
+      context,
+    );
+  };
+
+  const extension = defineExtension({
     name: STELLA_AGENTS_EXTENSION,
     tasks: [Anchor, Reporter],
     tools: [spawnAgent, sendMessage, agentStatus, pauseAgent],
   });
+  return { extension, startAgent };
 }
+
+export const stellaAgentsExtension = (host: StellaAgentsHost) => stellaAgents(host).extension;
 
 export type { TaskId, EntryId };

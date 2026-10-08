@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { Effect } from "effect";
 import {
   METHOD_NAMES,
@@ -13,6 +14,8 @@ import {
   RunnerUnavailableError,
   WorkerNotInitializedError,
 } from "../errors.js";
+import * as HostBus from "../host-bus.js";
+import { piChatsFor, piRuntimeEnabled } from "../pi-chats.js";
 import * as WorkerSessions from "../sessions.js";
 import { fromPromise, type WorkerRpcHandlers } from "../rpc.js";
 import type { AgentEventPayload } from "../types.js";
@@ -127,6 +130,29 @@ export const runsHandlers: WorkerRpcHandlers = {
       const session = yield* WorkerSessions.sessionOrFail(
         () => new RunnerUnavailableError(),
       );
+      const automation = params as {
+        conversationId: string;
+        userPrompt: string;
+        rejectIfBusy?: boolean;
+        executionPlacementRunId?: string;
+        userMessageEventId?: string;
+        userAuthoredPrompt?: boolean;
+      };
+      // On pi-durable the host's own turns (schedule fires, watch
+      // escalations, heartbeats) run in the conversation's harness. A chat
+      // placed here from another device keeps the loop until placement runs
+      // on pi too.
+      if (piRuntimeEnabled() && !automation.executionPlacementRunId) {
+        const hostBus = yield* HostBus.Service;
+        return yield* fromPromise(async () =>
+          (await piChatsFor(session, hostBus)).automation(automation.conversationId, {
+            requestId: automation.userMessageEventId || `automation:${crypto.randomUUID()}`,
+            prompt: automation.userPrompt,
+            visible: automation.userAuthoredPrompt === true,
+            ...(automation.rejectIfBusy ? { rejectIfBusy: true } : {}),
+          }),
+        );
+      }
       return yield* fromPromise(() =>
         session.agentRuns.runAutomation(
           params as {
@@ -273,6 +299,18 @@ export const runsHandlers: WorkerRpcHandlers = {
         () => new RunnerUnavailableError(),
       );
       const payload = params as RuntimeLocalAgentRequest;
+      // On pi-durable an agent the app starts (an app-source merge, memory
+      // sync) is a pi agent of the conversation's orchestrator.
+      if (piRuntimeEnabled()) {
+        const hostBus = yield* HostBus.Service;
+        return yield* fromPromise(async () =>
+          (await piChatsFor(session, hostBus)).startAgent(payload.conversationId, {
+            key: payload.threadId || crypto.randomUUID(),
+            description: payload.description,
+            prompt: payload.prompt,
+          }),
+        );
+      }
       const runner = yield* fromPromise(() =>
         session.runner.ensureInitialized(),
       );

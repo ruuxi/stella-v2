@@ -30,6 +30,9 @@ import type { OpenSession } from "./sessions.js";
 type DesktopChats = import("@stella/agent/host/desktop-chats").DesktopChats;
 
 
+/** Whether this desktop runs its chat on pi-durable (launched with `STELLA_AGENT_RUNTIME=pi`). */
+export const piRuntimeEnabled = (): boolean => process.env.STELLA_AGENT_RUNTIME === "pi";
+
 const chatsBySession = new WeakMap<OpenSession, Promise<DesktopChats>>();
 
 export const piChatsFor = (

@@ -58,6 +58,8 @@
     "mobile:typecheck": "cd packages/mobile && bun run i18n:sync && node ../../node_modules/typescript-7/bin/tsc --noEmit",
     "mobile:lint": "cd packages/mobile && bun run lint",
     "mobile:test": "cd packages/mobile && bun run test",
+    "agent:typecheck": "node node_modules/typescript-7/bin/tsc -p packages/agent/tsconfig.json --pretty false --noEmit",
+    "agent:headless": "bun packages/agent/src/headless.ts",
     "runtime:typecheck": "node node_modules/typescript-7/bin/tsc -p packages/runtime/tsconfig.json --pretty false --noEmit",
     "runtime:test": "cd packages/runtime && bun run test",
     "runtime:perf:check": "bun packages/runtime/scripts/perf/bench.mjs check --counts-only --sizes 1000",

@@ -37,6 +37,17 @@ import { loadLocalPreferences } from "./preferences/local-preferences.js";
 
 const logger = createRuntimeLogger("thread-runtime");
 
+/** A data-dir-relative file reader for the resident fold; null when absent. */
+const readStellaDataFile =
+  (stellaDataDir: string) =>
+  (relativePath: string): string | null => {
+    try {
+      return fs.readFileSync(path.join(stellaDataDir, relativePath), "utf-8");
+    } catch {
+      return null;
+    }
+  };
+
 const THREAD_CHECKPOINT_MARKER = "[[THREAD_CHECKPOINT]]";
 export const resolveThreadCompactionSystemPrompt = (): string =>
   readRuntimePrompt("thread-compaction") ?? "";
@@ -2304,7 +2315,9 @@ export const maybeCompactRuntimeThread = async (args: {
   try {
     residentFold = buildResidentFold({
       messages: storedMessages,
-      ...(args.stellaDataDir ? { stellaDataDir: args.stellaDataDir } : {}),
+      ...(args.stellaDataDir
+        ? { readDiskFile: readStellaDataFile(args.stellaDataDir) }
+        : {}),
       refreshMemoryDocsFromDisk: args.stellaDataDir
         ? loadLocalPreferences(args.stellaDataDir).memoryEnabled !== false
         : false,

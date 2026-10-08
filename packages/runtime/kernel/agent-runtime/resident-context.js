@@ -6,7 +6,10 @@
  * position in the provider request for the lifetime of a thread so that
  * provider prompt caches keep hitting: the pinned startup docs (personality,
  * core memory, user profile) and the skill catalog.
- * Every block registers here once and gets exactly two mutation paths:
+ * Every block registers here once and gets exactly two mutation paths. The
+ * registry does no I/O: each host (the desktop runtime, the cloud
+ * orchestrator) reads its own files and hands the raw text in, so both shape
+ * and place every block the same way.
  *
  *   1. Mid-thread delta (`buildResidentContextMessages`): each turn the
  *      block re-renders from current state and is compared byte-for-byte
@@ -30,9 +33,12 @@
  * (`runner/reminder-window-gate.ts`) already resets on compaction. They
  * compose cleanly alongside this mechanism and stay hooks.
  */
-import fs from "node:fs";
-import path from "node:path";
-import { redactMemoryText } from "../memory/redaction.js";
+import { shapeResidentMemoryDoc } from "../memory/resident-doc-shape.js";
+import {
+  CORE_MEMORY_INJECTED_MAX_CHARS,
+  MEMORY_INDEX_INJECTED_MAX_CHARS,
+  USER_PROFILE_INJECTED_MAX_CHARS,
+} from "../memory/memory-layout.js";
 import {
   renderExecutionDevices,
   renderExecutionDestination,
@@ -96,7 +102,7 @@ const buildStartupDocText = (displayPath, content) =>
  *                   (deterministic — same state, same bytes);
  *   - `diskFile`    optional data-dir-relative file the compaction fold-in
  *                   re-reads for a fresh render (`renderDiskBody` applies
- *                   the same redaction/truncation as `resolve`).
+ *                   the same shaping as `resolve`).
  */
 export const RESIDENT_BLOCKS = [
   {
@@ -116,23 +122,23 @@ export const RESIDENT_BLOCKS = [
     memoryDoc: true,
     resolve: (context) =>
       context.coreMemory
-        ? redactMemoryText(context.coreMemory.trim()) || undefined
+        ? shapeResidentMemoryDoc(context.coreMemory, CORE_MEMORY_INJECTED_MAX_CHARS)
         : undefined,
     renderDiskBody: (raw) =>
-      raw.trim() ? redactMemoryText(raw.trim()) || undefined : undefined,
+      shapeResidentMemoryDoc(raw, CORE_MEMORY_INJECTED_MAX_CHARS),
   },
   {
     id: "user-profile",
     customType: BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE,
     docPath: LIFE_USER_PROFILE_DISPLAY_PATH,
-    diskFile: path.join("memories", "profile.md"),
+    diskFile: "memories/profile.md",
     memoryDoc: true,
     resolve: (context) =>
       context.userProfile
-        ? redactMemoryText(context.userProfile.trim()) || undefined
+        ? shapeResidentMemoryDoc(context.userProfile, USER_PROFILE_INJECTED_MAX_CHARS)
         : undefined,
     renderDiskBody: (raw) =>
-      raw.trim() ? redactMemoryText(raw.trim()) || undefined : undefined,
+      shapeResidentMemoryDoc(raw, USER_PROFILE_INJECTED_MAX_CHARS),
   },
   {
     // The routing index: one line per nested memory file. Resident because an
@@ -141,14 +147,14 @@ export const RESIDENT_BLOCKS = [
     id: "memory-index",
     customType: BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE,
     docPath: LIFE_MEMORY_INDEX_DISPLAY_PATH,
-    diskFile: path.join("memories", "index.md"),
+    diskFile: "memories/index.md",
     memoryDoc: true,
     resolve: (context) =>
       context.memoryIndex
-        ? redactMemoryText(context.memoryIndex.trim()) || undefined
+        ? shapeResidentMemoryDoc(context.memoryIndex, MEMORY_INDEX_INJECTED_MAX_CHARS)
         : undefined,
     renderDiskBody: (raw) =>
-      raw.trim() ? redactMemoryText(raw.trim()) || undefined : undefined,
+      shapeResidentMemoryDoc(raw, MEMORY_INDEX_INJECTED_MAX_CHARS),
   },
   {
     id: "skills",
@@ -201,6 +207,33 @@ export const renderResidentBlockText = (block, context) => {
   const body = block.resolve(context);
   if (!body) return undefined;
   return block.docPath ? buildStartupDocText(block.docPath, body) : body;
+};
+
+/** The memory documents kept resident, by the display path the model sees. */
+export const RESIDENT_MEMORY_DISPLAY_PATHS = [
+  LIFE_CORE_MEMORY_DISPLAY_PATH,
+  LIFE_USER_PROFILE_DISPLAY_PATH,
+  LIFE_MEMORY_INDEX_DISPLAY_PATH,
+];
+
+const MEMORY_FIELD_BY_DISPLAY_PATH = new Map([
+  [LIFE_CORE_MEMORY_DISPLAY_PATH, "coreMemory"],
+  [LIFE_USER_PROFILE_DISPLAY_PATH, "userProfile"],
+  [LIFE_MEMORY_INDEX_DISPLAY_PATH, "memoryIndex"],
+]);
+
+/**
+ * The resident memory fields from a host's documents, keyed by the display
+ * path the model sees (`~/.stella/core-memory.md`, ...). Documents at any
+ * other path are not resident; they are read on demand.
+ */
+export const residentMemoryFromDocs = (docs) => {
+  const fields = {};
+  for (const doc of docs) {
+    const field = MEMORY_FIELD_BY_DISPLAY_PATH.get(doc.displayPath);
+    if (field && doc.content.trim()) fields[field] = doc.content;
+  }
+  return fields;
 };
 
 export const customMessageContentText = (content) => {
@@ -323,14 +356,6 @@ const canonicalizeInThreadDocText = (identity, text) => {
     : text;
 };
 
-const readOptionalDiskFile = (filePath) => {
-  try {
-    return fs.readFileSync(filePath, "utf-8");
-  } catch {
-    return null;
-  }
-};
-
 /** Upper bound on folded docs; guards against a pathological thread. */
 const MAX_FOLD_DOCS = 16;
 
@@ -340,9 +365,10 @@ const MAX_FOLD_DOCS = 16;
  * that accumulated duplicate appends), then re-renders registered docs from
  * current disk state where possible:
  *
- *   - personality/core-memory/profile re-read their files
- *     (memory docs only when `refreshMemoryDocsFromDisk`), falling back to
- *     the newest in-thread copy when the file is missing/empty;
+ *   - personality/core-memory/profile/index re-read their files through
+ *     the host's `readDiskFile` (memory docs only when
+ *     `refreshMemoryDocsFromDisk`), falling back to the newest in-thread
+ *     copy when the file is missing/empty;
  *   - the skills block keeps the newest in-thread copy — its render options
  *     (engine-specific omissions) are unknown at compaction time, and the
  *     per-turn delta path re-appends a fresh catalog next turn if disk
@@ -375,7 +401,7 @@ export const buildResidentFold = (args) => {
     return null;
   }
 
-  const stellaDataDir = args.stellaDataDir?.trim();
+  const readDiskFile = args.readDiskFile;
   const refreshMemoryDocs = args.refreshMemoryDocsFromDisk === true;
   const docs = [];
   const emitted = new Set();
@@ -388,12 +414,10 @@ export const buildResidentFold = (args) => {
     if (
       block?.diskFile &&
       block.renderDiskBody &&
-      stellaDataDir &&
+      readDiskFile &&
       (!block.memoryDoc || refreshMemoryDocs)
     ) {
-      const raw = readOptionalDiskFile(
-        path.join(stellaDataDir, block.diskFile),
-      );
+      const raw = readDiskFile(block.diskFile);
       const body = raw === null ? undefined : block.renderDiskBody(raw);
       if (body) {
         text = buildStartupDocText(block.docPath, body);

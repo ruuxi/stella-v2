@@ -2,23 +2,44 @@ import type {
   AgentMessage,
   AgentTool,
 } from "@stella/runtime/kernel/agent-core/types.js";
+import type { RuntimePromptMessage } from "@stella/contracts/protocol";
+import {
+  advanceFrozenContext,
+  freezeContext,
+  frozenProviderTools,
+  type FrozenContext,
+  type SystemPromptSection,
+} from "@stella/runtime/kernel/agent-runtime/frozen-context.js";
+import {
+  buildResidentContextMessages,
+  residentIdentityForCustomMessage,
+  type ResidentContext,
+} from "@stella/runtime/kernel/agent-runtime/resident-context.js";
 import type { MemoryPolicy } from "@stella/contracts/turn-plane/memory-policy";
 import type { ContextCheckpoint } from "./context-compaction.js";
 import { WORLD_ROOT } from "./workspace.js";
 
-export const PROMPT_CONTEXT_KEY = "cloudPromptContext:v1";
-type ToolSnapshot = Pick<AgentTool, "name" | "description" | "parameters">;
+export const PROMPT_CONTEXT_KEY = "cloudPromptContext:v2";
+
+/** A hidden context message the model reads before a user message. */
+export type ResidentPrompt = { customType: string; text: string };
+
+/**
+ * One frozen provider context: what the model was given at the last boundary
+ * (thread start, compaction, a memory policy change). Between boundaries the
+ * provider receives these bytes unchanged and every change is appended.
+ */
 export type PromptContext = {
-  version: 1;
+  version: 2;
   epoch: string;
   journalEpoch: number;
   ownerGeneration: string;
   memoryEpoch: string;
   memoryEnabled: boolean;
-  systemPrompt: string;
-  tools: ToolSnapshot[];
-  latestSystemPrompt: string;
-  latestTools: string;
+  /** The system prompt and tool definitions, frozen; see `frozen-context.ts`. */
+  frozen: FrozenContext;
+  /** The resident blocks pinned at the head of this context. */
+  head: ResidentPrompt[];
   startSeq: number;
 };
 
@@ -52,98 +73,139 @@ export const promptContextCheckpointChanged = (args: {
     : Boolean(args.storedCheckpoint) ||
       args.storedContext !== args.previousContext;
 
-const snapshotTools = (tools: AgentTool[]): ToolSnapshot[] =>
-  tools.map(({ name, description, parameters }) => ({
-    name,
-    description,
-    parameters: structuredClone(parameters),
-  }));
+const residentPrompt = (message: RuntimePromptMessage): ResidentPrompt => ({
+  customType: message.customType ?? "",
+  text: message.text,
+});
 
-/** Freeze provider descriptors, while every executable closure belongs to this turn. */
+const residentHistoryEntry = (prompt: ResidentPrompt) => ({
+  role: "runtimeInternal",
+  customMessage: { customType: prompt.customType, content: prompt.text },
+});
+
+/**
+ * This turn's frozen context and what to append before its user message,
+ * through the same resident registry and frozen-context policy as a desktop
+ * thread: at a boundary everything is rendered fresh and frozen; otherwise
+ * only what changed since the model last saw it is appended.
+ */
 export const preparePromptContext = (args: {
   previous?: PromptContext;
   policy: MemoryPolicy;
-  systemPrompt: string;
+  sections: SystemPromptSection[];
   tools: AgentTool[];
+  /** Fresh resident values for this turn. */
+  resident: Omit<ResidentContext, "threadHistory">;
+  /** The resident prompts this context already appended (its rows' prepends). */
+  sent: readonly ResidentPrompt[];
   startSeq: number;
   journalEpoch: number;
 }) => {
   const { previous, policy } = args;
-  const liveDescriptors = snapshotTools(args.tools);
-  const signature = JSON.stringify(liveDescriptors);
-  // A shortened history already breaks the cache. Privacy changes must never
-  // retain a frozen prompt that contains newly disabled or erased memory.
-  const boundary =
-    !previous ||
-    previous.journalEpoch !== args.journalEpoch ||
-    previous.startSeq !== args.startSeq ||
-    previous.ownerGeneration !== policy.ownerGeneration ||
-    previous.memoryEpoch !== policy.memoryEpoch ||
-    previous.memoryEnabled !== policy.memoryEnabled;
+  const boundary = !previous || crossesContextBoundary(previous, args);
   let state: PromptContext;
+  const prepend: ResidentPrompt[] = [];
   if (boundary) {
     state = {
-      version: 1,
+      version: 2,
       epoch: crypto.randomUUID(),
       journalEpoch: args.journalEpoch,
       ownerGeneration: policy.ownerGeneration,
       memoryEpoch: policy.memoryEpoch,
       memoryEnabled: policy.memoryEnabled,
-      systemPrompt: args.systemPrompt,
-      tools: liveDescriptors,
-      latestSystemPrompt: args.systemPrompt,
-      latestTools: signature,
+      frozen: freezeContext(args.sections, args.tools),
+      head: buildResidentContextMessages(args.resident).map(residentPrompt),
       startSeq: args.startSeq,
     };
-  } else if (
-    previous.latestSystemPrompt === args.systemPrompt &&
-    previous.latestTools === signature
-  ) {
-    state = previous;
   } else {
-    state = {
-      ...previous,
-      latestSystemPrompt: args.systemPrompt,
-      latestTools: signature,
-    };
-  }
-  const deltas: string[] = [];
-  if (!boundary && previous.latestSystemPrompt !== args.systemPrompt) {
-    deltas.push(
-      `<system-reminder>Stella's current context has changed. Use this updated context for subsequent work. Earlier context remains in the transcript for continuity.\n${args.systemPrompt}\n</system-reminder>`,
+    const resident = buildResidentContextMessages({
+      ...args.resident,
+      threadHistory: [...previous.head, ...args.sent].map(residentHistoryEntry),
+    });
+    const advanced = advanceFrozenContext(
+      previous.frozen,
+      args.sections,
+      args.tools,
     );
+    state =
+      advanced.frozen === previous.frozen
+        ? previous
+        : { ...previous, frozen: advanced.frozen };
+    prepend.push(...[...resident, ...advanced.deltas].map(residentPrompt));
   }
-  if (!boundary && previous.latestTools !== signature) {
-    deltas.push(
-      `<system-reminder>Tool availability or definitions changed. Existing provider tool definitions stay fixed until context compaction. Removed tools are unavailable; newly added tools become visible after compaction. Current definitions:\n${signature}\n</system-reminder>`,
-    );
-  }
-  const live = new Map(args.tools.map((tool) => [tool.name, tool]));
-  const tools: AgentTool[] = state.tools.map((snapshot) => {
-    const current = live.get(snapshot.name);
-    return current
-      ? { ...current, ...snapshot }
-      : {
-          ...snapshot,
-          label: snapshot.name,
-          execute: async () => ({
-            content: [
-              {
-                type: "text",
-                text: "This tool is no longer available. Wait for context compaction or use another available tool.",
-              },
-            ],
-            details: { unavailable: true },
-          }),
-        };
-  });
-  return { state, tools, deltas, boundary };
+  return {
+    state,
+    tools: providerTools(state, args.tools),
+    prepend,
+    boundary,
+  };
 };
 
+/**
+ * The request a lost isolate was sending, rebuilt for a resumed turn: the
+ * stored frozen context, bound to this turn's tool implementations. Throws
+ * across a boundary, whose frozen context may carry context that must not be
+ * sent again.
+ */
+export const resumePromptContext = (args: {
+  previous: PromptContext;
+  policy: MemoryPolicy;
+  tools: AgentTool[];
+  startSeq: number;
+  journalEpoch: number;
+}): { state: PromptContext; tools: AgentTool[] } | null =>
+  crossesContextBoundary(args.previous, args)
+    ? null
+    : { state: args.previous, tools: providerTools(args.previous, args.tools) };
+
+/**
+ * A shortened history already breaks the cache. Privacy changes must never
+ * retain a frozen context that contains newly disabled or erased memory.
+ */
+const crossesContextBoundary = (
+  previous: PromptContext,
+  args: { policy: MemoryPolicy; startSeq: number; journalEpoch: number },
+): boolean =>
+  previous.journalEpoch !== args.journalEpoch ||
+  previous.startSeq !== args.startSeq ||
+  previous.ownerGeneration !== args.policy.ownerGeneration ||
+  previous.memoryEpoch !== args.policy.memoryEpoch ||
+  previous.memoryEnabled !== args.policy.memoryEnabled;
+
+const providerTools = (
+  context: PromptContext,
+  liveTools: AgentTool[],
+): AgentTool[] =>
+  frozenProviderTools(
+    context.frozen,
+    liveTools,
+    (snapshot, text): AgentTool => ({
+      name: snapshot.name,
+      label: snapshot.name,
+      description: snapshot.description,
+      parameters: snapshot.parameters as AgentTool["parameters"],
+      execute: async () => ({
+        content: [{ type: "text", text }],
+        details: { unavailable: true },
+      }),
+    }),
+  );
+
+/** The resident prompts a context's rows already appended. */
+export const sentResidentPrompts = (
+  messages: readonly AgentMessage[],
+  epoch: string,
+): ResidentPrompt[] =>
+  messages.flatMap((message) => {
+    const metadata =
+      message.role === "user" ? providerContextMetadata(message) : undefined;
+    return metadata?.epoch === epoch ? metadata.prepend : [];
+  });
+
 type ProviderContextMetadata = {
-  version: 1;
+  version: 2;
   epoch: string;
-  prepend: string[];
+  prepend: ResidentPrompt[];
   clock: string;
   attachments?: string[];
 };
@@ -157,21 +219,32 @@ const providerContextMetadata = (
     !context ||
     typeof context !== "object" ||
     !("version" in context) ||
-    context.version !== 1 ||
+    (context.version !== 1 && context.version !== 2) ||
     !("epoch" in context) ||
     typeof context.epoch !== "string" ||
     !("clock" in context) ||
     typeof context.clock !== "string" ||
     !("prepend" in context) ||
-    !Array.isArray(context.prepend) ||
-    !context.prepend.every((text): text is string => typeof text === "string")
+    !Array.isArray(context.prepend)
   )
     return;
+  // A version 1 row predates resident prompts; its epoch never matches a
+  // version 2 context, so only its clock and attachments still render.
+  const prepend =
+    context.version === 2
+      ? context.prepend.filter(
+          (entry): entry is ResidentPrompt =>
+            !!entry &&
+            typeof entry === "object" &&
+            typeof entry.customType === "string" &&
+            typeof entry.text === "string",
+        )
+      : [];
   return {
-    version: 1,
+    version: 2,
     epoch: context.epoch,
     clock: context.clock,
-    prepend: context.prepend,
+    prepend,
     ...("attachments" in context &&
     Array.isArray(context.attachments) &&
     context.attachments.every((path): path is string => typeof path === "string")
@@ -195,9 +268,9 @@ export const materializeProviderContext = (
         : message.content;
     return [
       ...(metadata.epoch === epoch ? metadata.prepend : []).map(
-        (text): AgentMessage => ({
+        (prompt): AgentMessage => ({
           role: "user",
-          content: [{ type: "text", text }],
+          content: [{ type: "text", text: prompt.text }],
           timestamp: message.timestamp,
         }),
       ),
@@ -239,3 +312,62 @@ export const materializeProviderContext = (
       },
     ];
   });
+
+/**
+ * The provider history for a context, laid out like a desktop thread: the
+ * pinned resident head, the compaction summary when there is one, then the
+ * window's messages with the hidden context each of them carries.
+ */
+export const providerHistory = (args: {
+  context: PromptContext;
+  checkpoint?: ContextCheckpoint;
+  messages: AgentMessage[];
+}): AgentMessage[] => [
+  ...args.context.head.map(
+    (prompt): AgentMessage => ({
+      role: "user",
+      content: [{ type: "text", text: prompt.text }],
+      timestamp: 0,
+    }),
+  ),
+  ...(args.checkpoint
+    ? [
+        {
+          role: "user" as const,
+          content: [
+            {
+              type: "text" as const,
+              text: `<conversation-summary>\n${args.checkpoint.summary}\n</conversation-summary>`,
+            },
+          ],
+          timestamp: 0,
+        },
+      ]
+    : []),
+  ...materializeProviderContext(args.messages, args.context.epoch),
+];
+
+/**
+ * Resident prompts for an engine that keeps its own session (Claude Code):
+ * what to send before this turn's message, and what that session will have
+ * seen once it takes the turn. A fresh session (`seen` empty) gets the whole
+ * head; a continuing one only what changed, as on a desktop thread.
+ */
+export const sessionResidentPrompts = (args: {
+  resident: Omit<ResidentContext, "threadHistory">;
+  seen: readonly ResidentPrompt[];
+}): { prompts: ResidentPrompt[]; seen: ResidentPrompt[] } => {
+  const prompts = buildResidentContextMessages({
+    ...args.resident,
+    threadHistory: args.seen.map(residentHistoryEntry),
+  }).map(residentPrompt);
+  const latest = new Map<string, ResidentPrompt>();
+  for (const prompt of [...args.seen, ...prompts]) {
+    const identity = residentIdentityForCustomMessage({
+      customType: prompt.customType,
+      content: prompt.text,
+    });
+    if (identity) latest.set(identity, prompt);
+  }
+  return { prompts, seen: [...latest.values()] };
+};

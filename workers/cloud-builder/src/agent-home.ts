@@ -4,9 +4,9 @@
  * Desktop Stella keeps user-owned Markdown under `~/.stella`. Owner-fenced
  * Cloud Home import/sync copies applicable documents into generation-scoped R2
  * state, and the DO reads that authoritative cloud state at turn start.
- * Remember writes `profile.md`. `MEMORY.md`, `memory_map.md` and archive
- * documents are now read-only: nothing in the cloud writes
- * them, and they exist only when desktop or mobile sync imported them.
+ * Remember writes `profile.md`. Only the documents the shared resident
+ * registry keeps resident are injected (`readDocuments`); `MEMORY.md`,
+ * `memory_map.md` and archive documents are never injected.
  * Explicit Cloud Home sync can also materialize personality and imported
  * user-owned Markdown.
  *
@@ -17,6 +17,7 @@
  */
 
 import { redactMemoryText } from "@stella/runtime/kernel/memory/redaction.js";
+import { RESIDENT_MEMORY_DISPLAY_PATHS } from "@stella/runtime/kernel/agent-runtime/resident-context.js";
 import { sha256Hex } from "./hash.js";
 import {
   CloudHomeProtocolError,
@@ -36,29 +37,8 @@ export const MEMORY_DOC_NAMES = [
 
 export type MemoryDocName = (typeof MEMORY_DOC_NAMES)[number];
 
-/**
- * Display paths mirror `kernel/memory/resident-docs.ts` so the model sees the
- * same document identity it sees on the desktop. Duplicated rather than
- * imported: that module reads node:fs at load time.
- */
-const DISPLAY_PATHS: Record<MemoryDocName, string> = {
-  "MEMORY.md": "~/.stella/memories/MEMORY.md",
-  "profile.md": "~/.stella/memories/profile.md",
-  "memory_map.md": "~/.stella/memories/memory_map.md",
-};
-
 /** Matches `MAX_USER_PROFILE_CHARS` in the desktop user-profile store. */
 export const MAX_USER_PROFILE_CHARS = 6_000;
-
-// Read-side caps. The orchestrator pays for these bytes on every single turn,
-// including cheap ones, so they are deliberately tighter than the desktop's
-// budgets and the total is capped again below.
-const DOC_MAX_CHARS: Record<MemoryDocName, number> = {
-  "MEMORY.md": 8_000,
-  "profile.md": 7_000,
-  "memory_map.md": 6_000,
-};
-const INJECTED_TOTAL_MAX_CHARS = 16_000;
 
 const PROFILE_HEADER = [
   "# User Profile",
@@ -73,30 +53,6 @@ export type MemoryDocument = {
   name: string;
   displayPath: string;
   content: string;
-};
-
-export const importedMemoryDocumentFromKey = (
-  ownerRoot: string,
-  key: string,
-): { name: string; policyName: MemoryDocName; displayPath: string } | null => {
-  const importedPrefix = `${ownerRoot}__stella_imported__/`;
-  if (!key.startsWith(importedPrefix)) return null;
-  const relative = key.slice(importedPrefix.length);
-  const segments = relative.split("/");
-  const fileName = segments.at(-1);
-  if (
-    segments.length < 3 ||
-    segments.at(-2) !== "memories" ||
-    !MEMORY_DOC_NAMES.includes(fileName as MemoryDocName)
-  ) {
-    return null;
-  }
-  const source = segments.slice(0, -2).join("/");
-  return {
-    name: `${fileName} (imported ${source.slice(0, 12)})`,
-    policyName: fileName as MemoryDocName,
-    displayPath: `~/.stella/imported/${source}/${fileName}`,
-  };
 };
 
 export type ProfileAction = "add" | "replace" | "remove";
@@ -124,15 +80,6 @@ const collapseWhitespace = (value: string): string =>
 const sameEntry = (a: string, b: string): boolean =>
   a.toLocaleLowerCase() === b.toLocaleLowerCase();
 
-const truncateAtLineBoundary = (text: string, maxChars: number): string => {
-  if (text.length <= maxChars) return text;
-  const marker = "\n...[truncated]";
-  const budget = Math.max(0, maxChars - marker.length);
-  const cut = text.slice(0, budget);
-  const lastBreak = cut.lastIndexOf("\n");
-  return `${lastBreak > 0 ? cut.slice(0, lastBreak) : cut}${marker}`;
-};
-
 export const parseProfileEntries = (content: string): string[] => {
   const entries: string[] = [];
   for (const line of content.split(/\r?\n/)) {
@@ -149,25 +96,6 @@ const renderProfile = (entries: string[]): string =>
 
 const entriesBodyLength = (entries: string[]): number =>
   entries.reduce((sum, entry) => sum + entry.length + 3, 0);
-
-/**
- * Wrap a document the way the desktop prompt builder does, so the model reads
- * cloud memory with exactly the framing it reads local memory with.
- */
-export const buildStartupDocBlock = (
-  displayPath: string,
-  content: string,
-): string =>
-  [`<startup_doc path="${displayPath}">`, content, "</startup_doc>"].join("\n");
-
-export const buildResidentMemorySection = (
-  documents: MemoryDocument[],
-): string =>
-  documents
-    .map((document) =>
-      buildStartupDocBlock(document.displayPath, document.content),
-    )
-    .join("\n\n");
 
 export class AgentHomeUnavailableError extends Error {
   constructor() {
@@ -261,121 +189,31 @@ export class AgentHome {
   }
 
   /**
-   * The resident documents, redacted and capped, newest-policy order: core
-   * memory, then durable profile facts, then the routing map. Missing or
-   * empty documents are simply absent — a first-time owner has none.
+   * The owner's resident memory documents (`~/.stella/core-memory.md`,
+   * `memories/profile.md`, `memories/index.md`) as raw file text, keyed by
+   * the display path the model sees. The shared resident registry shapes
+   * them (redaction, caps) exactly as it does on the desktop; every other
+   * document is opened on demand, never injected.
    */
   async readDocuments(
     snapshotHeads?: readonly CloudMemoryHead[],
   ): Promise<MemoryDocument[]> {
-    if (!this.bucket) return [];
-    if (this.cloud) {
-      const heads = snapshotHeads ?? (await this.cloud.listMemoryHeads(100));
-      const canonicalOrder = new Map([
-        ["core-memory.md", 0],
-        ["MEMORY.md", 1],
-        ["memories/profile.md", 2],
-        ["memories/memory_map.md", 3],
-      ]);
-      const candidates = heads
-        .filter(
-          (head) =>
-            head.kind !== "personality" && head.name !== "PERSONALITY.md",
-        )
-        .sort(
-          (a, b) =>
-            (canonicalOrder.get(a.name) ?? 10) -
-              (canonicalOrder.get(b.name) ?? 10) ||
-            b.updatedAt - a.updatedAt ||
-            a.name.localeCompare(b.name),
-        );
-      const documents: MemoryDocument[] = [];
-      let budget = INJECTED_TOTAL_MAX_CHARS;
-      for (const head of candidates) {
-        if (budget <= 0) break;
-        // Once the owner's home advertises an authoritative head,
-        // missing/corrupt bytes are a blocking integrity failure. Continuing
-        // with an apparently ordinary memoryless turn would hide data loss.
-        const bytes = await this.cloud.readMemoryHeadBytes(head);
-        const raw = utf8Text(bytes).trim();
-        if (!raw) continue;
-        const perDocumentMax =
-          head.kind === "memory"
-            ? DOC_MAX_CHARS["MEMORY.md"]
-            : head.kind === "profile"
-              ? DOC_MAX_CHARS["profile.md"]
-              : head.kind === "memory_map"
-                ? DOC_MAX_CHARS["memory_map.md"]
-                : head.kind === "core_memory"
-                  ? 6_000
-                  : 4_000;
-        const capped = truncateAtLineBoundary(
-          redactMemoryText(raw),
-          Math.min(perDocumentMax, budget),
-        );
-        if (!capped.trim()) continue;
-        budget -= capped.length;
-        documents.push({
-          name: head.name,
-          displayPath: head.displayPath,
-          content: capped,
-        });
-      }
-      // An empty authoritative catalog is the only valid memoryless state.
-      return documents;
-    }
-    const canonicalPrefix = await this.prefix();
-    const ownerRoot = await this.ownerRoot();
-    const imported = await this.bucket
-      .list({
-        prefix: `${ownerRoot}__stella_imported__/`,
-        limit: 20,
-      })
-      .catch(() => ({ objects: [] as R2Object[] }));
-    const candidates = [
-      ...MEMORY_DOC_NAMES.map((name) => ({
-        name,
-        policyName: name,
-        displayPath: DISPLAY_PATHS[name],
-        key: `${canonicalPrefix}${name}`,
-      })),
-      ...imported.objects.flatMap((object) => {
-        const parsed = importedMemoryDocumentFromKey(ownerRoot, object.key);
-        return parsed ? [{ ...parsed, key: object.key }] : [];
-      }),
-    ];
-    const settled = await Promise.all(
-      candidates.map(async (candidate) => {
-        try {
-          return {
-            ...candidate,
-            stored: await this.readKey(candidate.key),
-          };
-        } catch {
-          // A memory read must never be the reason a turn fails.
-          return { ...candidate, stored: null };
-        }
-      }),
+    if (!this.bucket || !this.cloud) return [];
+    const cloud = this.cloud;
+    const heads = (snapshotHeads ?? (await cloud.listMemoryHeads(100))).filter(
+      (head) => RESIDENT_MEMORY_DISPLAY_PATHS.includes(head.displayPath),
     );
-    const documents: MemoryDocument[] = [];
-    let budget = INJECTED_TOTAL_MAX_CHARS;
-    for (const { name, policyName, displayPath, stored } of settled) {
-      const raw = stored?.content?.trim();
-      if (!raw) continue;
-      const capped = truncateAtLineBoundary(
-        redactMemoryText(raw),
-        Math.min(DOC_MAX_CHARS[policyName], budget),
-      );
-      if (!capped.trim()) continue;
-      budget -= capped.length;
-      documents.push({
-        name,
-        displayPath,
-        content: capped,
-      });
-      if (budget <= 0) break;
-    }
-    return documents;
+    // Once the owner's home advertises an authoritative head, missing or
+    // corrupt bytes are a blocking integrity failure. Continuing with an
+    // apparently ordinary memoryless turn would hide data loss.
+    const documents = await Promise.all(
+      heads.map(async (head) => ({
+        name: head.name,
+        displayPath: head.displayPath,
+        content: utf8Text(await cloud.readMemoryHeadBytes(head)),
+      })),
+    );
+    return documents.filter((document) => document.content.trim());
   }
 
   /**
@@ -387,32 +225,14 @@ export class AgentHome {
   async readPersonality(
     snapshotHead?: CloudMemoryHead | null,
   ): Promise<string | null> {
-    if (!this.bucket) return null;
-    if (this.cloud) {
-      const head =
-        snapshotHead !== undefined
-          ? snapshotHead
-          : await this.cloud.getMemoryHead("PERSONALITY.md", "personality");
-      if (head) {
-        const bytes = await this.cloud.readMemoryHeadBytes(head);
-        const content = redactMemoryText(utf8Text(bytes)).trim();
-        return content ? truncateAtLineBoundary(content, 6_000) : null;
-      }
-      return null;
-    }
-    try {
-      const prefix = await this.prefix();
-      const object = await this.bucket.get(
-        `${prefix.replace(/memories\/$/, "")}PERSONALITY.md`,
-      );
-      if (!object) return null;
-      const content = redactMemoryText(await object.text()).trim();
-      if (!content) return null;
-      return truncateAtLineBoundary(content, 6_000);
-    } catch {
-      // Legacy, control-plane-free readers retain their compatibility behavior.
-      return null;
-    }
+    if (!this.bucket || !this.cloud) return null;
+    const head =
+      snapshotHead !== undefined
+        ? snapshotHead
+        : await this.cloud.getMemoryHead("PERSONALITY.md", "personality");
+    if (!head) return null;
+    const content = utf8Text(await this.cloud.readMemoryHeadBytes(head));
+    return content.trim() ? content : null;
   }
 
   /**

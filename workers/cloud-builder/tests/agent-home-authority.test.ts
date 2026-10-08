@@ -1,8 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  AgentHome,
-  buildResidentMemorySection,
-} from "../src/agent-home.js";
+import { AgentHome } from "../src/agent-home.js";
 import { utf8Bytes, utf8Text } from "../src/cloud-home-store.js";
 import { sha256BytesHex, sha256Hex } from "../src/hash.js";
 
@@ -66,9 +63,9 @@ const harness = async (
   const objects = new Map<string, Stored>([[r2Key, { bytes }]]);
   const head = {
     documentId: "doc-memory",
-    name: "MEMORY.md",
-    displayPath: "~/.stella/memories/MEMORY.md",
-    kind: "memory",
+    name: "memories/profile.md",
+    displayPath: "~/.stella/memories/profile.md",
+    kind: "profile",
     source: "desktop_sync",
     ownerGeneration,
     memoryEpoch,
@@ -127,7 +124,7 @@ describe("authoritative Agent Home startup", () => {
         .memoryEnabled,
     ).toBe(true);
     const documents = await first.agentHome.readDocuments();
-    expect(buildResidentMemorySection(documents)).toContain(
+    expect(documents.map((document) => document.content).join("\n")).toContain(
       "exact restart receipt is durable and visible later",
     );
 
@@ -135,7 +132,9 @@ describe("authoritative Agent Home startup", () => {
     // authoritative head and immutable bytes rather than process memory.
     const restarted = await harness(stored);
     expect(
-      buildResidentMemorySection(await restarted.agentHome.readDocuments()),
+      (await restarted.agentHome.readDocuments())
+        .map((document) => document.content)
+        .join("\n"),
     ).toContain("Restart receipt");
   });
 

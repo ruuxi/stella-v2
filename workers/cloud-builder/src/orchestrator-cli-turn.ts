@@ -44,6 +44,7 @@ import {
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import { formatMessageRefTag } from "@stella/contracts/reply-refs";
 import { HEADER_GATE_ADMITTED } from "./turn-start-request.js";
+import type { ResidentPrompt } from "./prompt-context.js";
 
 // ---------------------------------------------------------------------------
 // Durable state
@@ -96,9 +97,16 @@ export type OrchestratorCliTurnRecord = CloudCliTurnIdentity & {
   terminal?: CloudCliTurnTerminal;
   /** The DO's turn ended; no frame for this identity is accepted again. */
   finished?: boolean;
+  /** The resident prompts the session will have seen once this turn lands. */
+  resident?: ResidentPrompt[];
 };
 
-export type OrchestratorCliDelivered = { journalEpoch: number; seq: number };
+export type OrchestratorCliDelivered = {
+  journalEpoch: number;
+  seq: number;
+  /** The resident prompts the CLI session has seen, newest per block. */
+  resident?: ResidentPrompt[];
+};
 
 export type OrchestratorCliToolCallRecord = {
   fingerprint: string;
@@ -455,11 +463,14 @@ export const renderOrchestratorCliContextBlock = (args: {
 
 /**
  * The one prompt string a CLI turn receives: the context block (seed or
- * delta), then the new message exactly as the Stella loop would see it — the
- * clock, the text with its reply-ref tag, and attached Drive paths.
+ * delta), the resident blocks the session has not seen, then the new message
+ * exactly as the Stella loop would see it — the clock, the text with its
+ * reply-ref tag, and attached Drive paths.
  */
 export const composeOrchestratorCliPrompt = (args: {
   context: string | null;
+  /** Resident blocks the session has not seen yet, as on a desktop thread. */
+  resident: readonly ResidentPrompt[];
   text: string;
   promptSeq: number;
   hidden: boolean;
@@ -471,6 +482,7 @@ export const composeOrchestratorCliPrompt = (args: {
     : `${args.text.replace(/\s+$/u, "")}\n\n${formatMessageRefTag(args.promptSeq)}`;
   return [
     ...(args.context ? [args.context] : []),
+    ...args.resident.map((prompt) => prompt.text),
     `<current-time>${args.clock}</current-time>`,
     message,
     ...(args.attachments?.length

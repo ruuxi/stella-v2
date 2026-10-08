@@ -7,7 +7,6 @@ import type { LocalAgentContext } from "../agents/local-agent-manager.js";
 import type { RuntimeStore } from "../storage/runtime-store.js";
 import type { HookEmitter } from "../extensions/hook-emitter.js";
 import type { RuntimePromptMessage } from "@stella/contracts/protocol";
-import { wrapSystemReminder } from "@stella/contracts/system-reminders";
 import {
   buildSafetyAbortSwapRoute,
   isProviderContentAbortMessage,
@@ -25,10 +24,7 @@ import {
   getThreadTokenEstimate,
   MAX_ACTIVE_THREAD_IMAGES,
 } from "../thread-runtime.js";
-import {
-  CONTEXT_DELTA_CUSTOM_TYPE_PREFIX,
-  PINNED_INSTRUCTION_ENTRY_ID_MARKER,
-} from "./resident-context.js";
+import { PINNED_INSTRUCTION_ENTRY_ID_MARKER } from "./resident-context.js";
 import {
   checkPromptPrefixStability,
   clearPromptPrefixSnapshot,
@@ -47,9 +43,13 @@ import {
 } from "./context-budget.js";
 import { runCompactionWithHooks } from "./run-completion.js";
 import {
+  advanceFrozenContext,
+  freezeContext,
+  frozenProviderTools,
   renderSystemPrompt,
+  type FrozenContext,
   type SystemPromptSection,
-} from "./run-preparation.js";
+} from "./frozen-context.js";
 import type { BackgroundCompactionScheduler } from "./compaction-scheduler.js";
 import type { OrchestratorRunOptions } from "./types.js";
 import {
@@ -227,20 +227,6 @@ const hasExactDurableRawTail = (args: {
   return true;
 };
 
-/** Provider-visible bytes per tool, snapshotted when the thread context freezes. */
-const snapshotToolSchemas = (tools: RuntimeAgentTools | undefined) =>
-  new Map(
-    (tools ?? []).map((tool) => [
-      tool.name,
-      {
-        description: tool.description,
-        parameters: structuredClone(tool.parameters),
-        parametersJson: safeSchemaJson(tool.parameters),
-      },
-    ]),
-  );
-
-type FrozenToolSchemas = ReturnType<typeof snapshotToolSchemas>;
 
 /**
  * Shared mutable Pi-Agent state for long-lived runtime sessions.
@@ -266,17 +252,8 @@ export class PiSessionCore {
    * snapshot re-adopts fresh values only at legitimate cache boundaries:
    * compaction/history refresh or the memory-preference toggle.
    */
-  private frozenSystemPrompt: string | null = null;
-  private frozenToolSchemas: FrozenToolSchemas | null = null;
+  private frozenContext: FrozenContext | null = null;
   private adoptFreshContextSnapshot = false;
-  /** Signature of the last announced frozen-tools drift (dedup). */
-  private announcedToolDriftSignature: string | null = null;
-  /**
-   * Each system prompt section as the model last saw it: the frozen prompt
-   * plus every section update appended since. Drift is announced per section
-   * against this, so a change re-sends only the sections that changed.
-   */
-  private announcedSections = new Map<string, string>();
   /**
    * Hidden `runtime.context_delta.*` messages queued by the freeze logic,
    * consumed into the next prompt build so the model hears about resident
@@ -1170,46 +1147,9 @@ export class PiSessionCore {
     sections: readonly SystemPromptSection[],
     tools: RuntimeAgentTools,
   ): void {
-    this.frozenSystemPrompt = renderSystemPrompt(sections);
-    this.announcedSections = new Map(
-      sections.map((section) => [section.id, section.text]),
-    );
+    this.frozenContext = freezeContext(sections, tools);
     this.pendingContextDeltaMessages = [];
-    this.frozenToolSchemas = snapshotToolSchemas(tools);
-    this.announcedToolDriftSignature = null;
     this.adoptFreshContextSnapshot = false;
-  }
-
-  /**
-   * The appended update for system prompt sections that changed since the
-   * model last saw them, or undefined when none did. Records the new texts as
-   * announced, so each change is sent once.
-   */
-  private takeSystemPromptSectionUpdate(
-    sections: readonly SystemPromptSection[],
-  ): string | undefined {
-    const changed = sections.filter(
-      (section) => this.announcedSections.get(section.id) !== section.text,
-    );
-    const live = new Set(sections.map((section) => section.id));
-    const removed = [...this.announcedSections].filter(([id]) => !live.has(id));
-    if (changed.length === 0 && removed.length === 0) return undefined;
-    this.announcedSections = new Map(
-      sections.map((section) => [section.id, section.text]),
-    );
-    return wrapSystemReminder(
-      [
-        "Part of your system prompt changed. Each section below replaces the earlier version of the same section; the rest of your instructions still apply.",
-        ...changed.map(
-          (section) =>
-            `<section name="${section.id}">\n${section.text}\n</section>`,
-        ),
-        ...removed.map(
-          ([id, text]) =>
-            `<section name="${id}" removed="true">No longer applies: ${text.split("\n", 1)[0]}</section>`,
-        ),
-      ].join("\n"),
-    );
   }
 
   /** Drain the queued resident-context delta messages for this turn's prompt. */
@@ -1230,6 +1170,9 @@ export class PiSessionCore {
    *     node_repl's demoted-tool catalog), queue ONE hidden
    *     `runtime.context_delta.tools` note so the model learns about the
    *     change as an append. The real bytes swap at the next boundary.
+   *
+   * The policy itself is `frozen-context.ts`, which the cloud orchestrator
+   * runs too; this method only holds its state for the live Agent.
    */
   private applyFrozenContext(args: {
     systemPromptSections: SystemPromptSection[];
@@ -1238,9 +1181,8 @@ export class PiSessionCore {
   }): void {
     const agent = this.agent;
     if (!agent) return;
-    const frozen = this.frozenToolSchemas;
-    const frozenSystemPrompt = this.frozenSystemPrompt;
-    if (this.adoptFreshContextSnapshot || !frozen || !frozenSystemPrompt) {
+    const frozen = this.frozenContext;
+    if (this.adoptFreshContextSnapshot || !frozen) {
       agent.state.systemPrompt = renderSystemPrompt(args.systemPromptSections);
       agent.state.tools = args.tools;
       this.freezeContextSnapshot(args.systemPromptSections, args.tools);
@@ -1254,59 +1196,34 @@ export class PiSessionCore {
       });
       return;
     }
-    agent.state.systemPrompt = frozenSystemPrompt;
-    const liveTools = new Map(args.tools.map((tool) => [tool.name, tool]));
-    const toolsAdded = args.tools
-      .filter((tool) => !frozen.has(tool.name))
-      .map((tool) => tool.name);
-    const toolsRemoved: string[] = [];
-    const toolsChanged: string[] = [];
-    agent.state.tools = [...frozen].map(([name, snapshot]): RuntimeAgentTool => {
-      const tool = liveTools.get(name);
-      if (!tool) {
-        toolsRemoved.push(name);
-        return { name, label: name, description: snapshot.description, parameters: snapshot.parameters,
-          execute: async () => ({ content: [{ type: "text", text: "This tool is no longer available. Use another available tool." }], details: { unavailable: true } }),
-        };
-      }
-      if (tool.description !== snapshot.description || safeSchemaJson(tool.parameters) !== snapshot.parametersJson) toolsChanged.push(name);
-      return { ...tool, description: snapshot.description, parameters: snapshot.parameters };
-    });
-    const sectionUpdate = this.takeSystemPromptSectionUpdate(
+    const advanced = advanceFrozenContext(
+      frozen,
       args.systemPromptSections,
+      args.tools,
     );
-    if (sectionUpdate) {
-      this.pendingContextDeltaMessages.push({
-        text: sectionUpdate,
-        uiVisibility: "hidden", messageType: "message",
-        customType: `${CONTEXT_DELTA_CUSTOM_TYPE_PREFIX}system`,
-      });
-    }
-    const driftedToolNames = [...toolsAdded, ...toolsRemoved, ...toolsChanged];
-    if (driftedToolNames.length > 0) {
-      const signature = safeSchemaJson(
-        args.tools.map((tool) => [tool.name, tool.description, safeSchemaJson(tool.parameters)]),
-      );
-      if (this.announcedToolDriftSignature !== signature) {
-        this.announcedToolDriftSignature = signature;
-        this.pendingContextDeltaMessages.push({
-          text: `<system-reminder>Available tools changed mid-conversation — for example the integration tools reachable from the current delivery surface.${toolsAdded.length > 0 ? ` Added: ${toolsAdded.join(", ")}.` : ""}${toolsRemoved.length > 0 ? ` Removed (calls now fail): ${toolsRemoved.join(", ")}.` : ""}${toolsChanged.length > 0 ? ` Changed: ${toolsChanged.join(", ")}.` : ""} Your visible tool schemas are a thread-start snapshot and refresh at the next context compaction; current callable names and compact signatures are discoverable inside code via await tools.$search({ query: "<capability>" }), and one selected live schema is available via await tools.$describe(name).</system-reminder>`,
-          uiVisibility: "hidden",
-          messageType: "message",
-          customType: `${CONTEXT_DELTA_CUSTOM_TYPE_PREFIX}tools`,
-        });
-        this.logger.debug("frozen-context.tool-drift-held", {
-          threadKey: this.threadKey,
-          driftedToolNames,
-          ...args.logContext,
-        });
-      }
-    } else if (this.announcedToolDriftSignature !== null) {
-      this.announcedToolDriftSignature = null;
-      this.pendingContextDeltaMessages.push({
-        text: "<system-reminder>The available tools now match the visible tool definitions again.</system-reminder>",
-        uiVisibility: "hidden", messageType: "message",
-        customType: `${CONTEXT_DELTA_CUSTOM_TYPE_PREFIX}tools`,
+    this.frozenContext = advanced.frozen;
+    agent.state.systemPrompt = frozen.systemPrompt;
+    agent.state.tools = frozenProviderTools(
+      frozen,
+      args.tools,
+      (snapshot, text): RuntimeAgentTool => ({
+        name: snapshot.name,
+        label: snapshot.name,
+        description: snapshot.description,
+        parameters: snapshot.parameters as RuntimeAgentTool["parameters"],
+        execute: async () => ({
+          content: [{ type: "text", text }],
+          details: { unavailable: true },
+        }),
+      }),
+    );
+    this.pendingContextDeltaMessages.push(...advanced.deltas);
+    const { added, removed, changed } = advanced.drift;
+    if (added.length + removed.length + changed.length > 0) {
+      this.logger.debug("frozen-context.tool-drift-held", {
+        threadKey: this.threadKey,
+        driftedToolNames: [...added, ...removed, ...changed],
+        ...args.logContext,
       });
     }
     checkPromptPrefixStability({
@@ -1427,11 +1344,8 @@ export class PiSessionCore {
     this.currentResolvedLlm = null;
     this.pendingHistoryRefresh = false;
     this.lastMemoryEnabled = null;
-    this.frozenSystemPrompt = null;
-    this.frozenToolSchemas = null;
-    this.announcedSections = new Map();
+    this.frozenContext = null;
     this.adoptFreshContextSnapshot = false;
-    this.announcedToolDriftSignature = null;
     this.pendingContextDeltaMessages = [];
     clearPromptPrefixSnapshot(this.threadKey);
     clearProviderContextWindow(this.threadKey);

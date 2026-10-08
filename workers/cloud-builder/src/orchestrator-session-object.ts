@@ -22,15 +22,24 @@ import {
   preparePromptContext,
   promptContextCheckpointChanged,
   promptContextHistoryStartAfterSeq,
+  providerHistory,
+  resumePromptContext,
   reusablePromptContext,
+  sentResidentPrompts,
+  sessionResidentPrompts,
   type PromptContext,
+  type ResidentPrompt,
 } from "./prompt-context.js";
 import {
   cloudAgentActivationCard,
   cloudAgentTerminalCard,
 } from "./cloud-agent-lifecycle.js";
-import { createExecutionContextSnapshot, mediaAccessForAudience } from "@stella/contracts/execution-context";
-import { executionContextHistoryEntries } from "@stella/runtime/kernel/agent-runtime/execution-context-history";
+import {
+  createExecutionContextSnapshot,
+  mediaAccessForAudience,
+  type ExecutionContextSnapshot,
+} from "@stella/contracts/execution-context";
+import { renderSystemPrompt } from "@stella/runtime/kernel/agent-runtime/frozen-context.js";
 /**
  * The cloud orchestrator: Stella's delegation-only agent loop running inside
  * a Durable Object — one DO per conversation, one turn at a time, ~token
@@ -194,9 +203,8 @@ import {
   turnStartErrorResponse,
 } from "./turn-start-request.js";
 import { CLOUD_HISTORY_TOKEN_BUDGET } from "@stella/executor-cloud/prune-history";
-import { AgentHome, buildResidentMemorySection } from "./agent-home.js";
+import { AgentHome } from "./agent-home.js";
 import type { CloudSkillCatalogSnapshot } from "./cloud-home-store.js";
-import { buildCloudSkillsBlock } from "./cloud-skills.js";
 import { resolveCloudSpawnExecution } from "./cloud-spawn-model.js";
 import { sha256Hex, stableValueMarker } from "./hash.js";
 import { worldName } from "./workspace.js";
@@ -243,12 +251,12 @@ import {
   type DevAcceptanceProbeState,
 } from "./dev-acceptance-probes.js";
 import {
-  buildCloudSystemPrompt,
+  buildCloudSystemPromptSections,
   CANONICAL_PROMPTS,
+  cloudResidentContext,
   type CanonicalPrompts,
 } from "./cloud-prompt.js";
 import { stellaPromptTools } from "@stella/contracts/stella-prompts";
-import { getResponseLanguageSystemPrompt } from "@stella/runtime/kernel/runner/locale-prompt.js";
 import { createMemoryTools } from "./orchestrator-tools.js";
 import { resolveOpenToolCall } from "./tool-replay.js";
 import { runHistoryQuery } from "./history-sql.js";
@@ -683,6 +691,21 @@ type CliTurnRuntime = {
 };
 
 /** Poll the BuildSession this often while a CLI turn waits for its terminal. */
+/**
+ * The execution context a cloud turn runs under, as a resident block reads
+ * it. Provider keys live on the user's devices, so the cloud has only the
+ * plan for media.
+ */
+const cloudExecutionContext = (
+  turn: Pick<ChatTurnRequest, "audience">,
+  destinations: DevicesResponse | null,
+): ExecutionContextSnapshot =>
+  createExecutionContextSnapshot({
+    devices: destinations?.devices ?? null,
+    destination: { kind: "cloud" },
+    media: { stella: mediaAccessForAudience(turn.audience) },
+  });
+
 const CLI_TURN_POLL_MS = 20_000;
 /** A tool forward waits this long for a resumed turn to rebuild its tools. */
 const CLI_RUNTIME_WAIT_MS = 60_000;
@@ -4873,7 +4896,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       // Filled by exactly one of the two branches below: a fresh turn
       // prepares its window and journals its prompt; a resumed turn rebuilds
       // both from what its lost isolate already made durable.
-      let turnContext!: ReturnType<typeof preparePromptContext>;
+      let turnContext!: { state: PromptContext; tools: AgentTool[] };
       let turnRelaySession!: Awaited<typeof preparationWork>[5];
       let turnHistory!: AgentMessage[];
       let turnCurrentPrompt!: AgentMessage[];
@@ -4949,14 +4972,10 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           skillCatalog,
           memoryEnabled,
         );
-        const freshSystemPrompt = buildCloudSystemPrompt({
+        const sections = buildCloudSystemPromptSections({
           canonicalBody: canonicalPrompts.orchestratorBody,
           tools: turnTools.promptTools,
-          personalityBody:
-            personalityOverride ?? canonicalPrompts.personalityBody,
-          localeDirective: getResponseLanguageSystemPrompt(locale),
-          residentSection: buildResidentMemorySection(memoryDocuments),
-          skillSection: buildCloudSkillsBlock(skillCatalog),
+          locale,
           threadId: turn.conversationId,
         });
         const compaction = await compactCloudHistory({
@@ -4998,24 +5017,29 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         journalHistory = compaction.messages;
         const contextStartSeq =
           compaction.rows[0]?.seq ?? this.journal.meta().next_seq;
+        const executionContext = cloudExecutionContext(turn, destinations);
         const context = preparePromptContext({
           previous: previousContext,
           policy: memoryPreference,
-          systemPrompt: freshSystemPrompt,
+          sections,
           tools: turnTools.tools,
+          resident: cloudResidentContext({
+            personality:
+              personalityOverride ?? canonicalPrompts.personalityBody,
+            memoryDocuments,
+            skillCatalog,
+            executionContext,
+          }),
+          sent: previousContext
+            ? sentResidentPrompts(journalHistory, previousContext.epoch)
+            : [],
           startSeq: contextStartSeq,
           journalEpoch,
         });
         turnContext = context;
-        const prepend = context.deltas;
+        const prepend = context.prepend;
         const report = await this.wakeReport(turn);
         await assertExactTurnActive();
-        const executionContext = createExecutionContextSnapshot({
-          devices: destinations?.devices ?? null,
-          destination: { kind: "cloud" },
-          // Provider keys live on the user's devices, so the cloud has only the plan.
-          media: { stella: mediaAccessForAudience(turn.audience) },
-        });
         const durablePrompt = {
           role: "user",
           content: [{ type: "text", text: report.prompt }],
@@ -5025,7 +5049,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             ? { originUserMessageId: turn.originUserMessageId }
             : {}),
           providerContext: {
-            version: 1,
+            version: 2,
             epoch: context.state.epoch,
             prepend,
             clock: new Date(now).toISOString(),
@@ -5106,41 +5130,15 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             },
           ],
         )[0]!;
-        const renderHistory = (messages: AgentMessage[]) =>
-          materializeProviderContext(
-            executionContextHistoryEntries(messages).map(
-              (entry): AgentMessage =>
-                entry.kind === "message"
-                  ? entry.message
-                  : {
-                      role: "user",
-                      content: [{ type: "text", text: entry.prompt.text }],
-                      timestamp: entry.timestamp,
-                    },
-            ),
-            context.state.epoch,
-          );
-        const replayedHistory = renderHistory(journalHistory);
-        const history: AgentMessage[] = compaction.checkpoint
-          ? [
-              {
-                role: "user",
-                content: [
-                  {
-                    type: "text",
-                    text: `<conversation-summary>\n${compaction.checkpoint.summary}\n</conversation-summary>`,
-                  },
-                ],
-                timestamp: 0,
-              },
-              ...replayedHistory,
-            ]
-          : replayedHistory;
-        turnHistory = history;
-        const currentPrompt = renderHistory([
-          ...journalHistory,
-          currentMessage,
-        ]).slice(replayedHistory.length);
+        turnHistory = providerHistory({
+          context: context.state,
+          checkpoint: compaction.checkpoint,
+          messages: journalHistory,
+        });
+        const currentPrompt = materializeProviderContext(
+          [currentMessage],
+          context.state.epoch,
+        );
         if (attachmentImages.length > 0) {
           const user = currentPrompt.at(-1);
           if (user?.role === "user" && Array.isArray(user.content))
@@ -5198,47 +5196,23 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           skillCatalog,
           memoryPreference.memoryEnabled,
         );
-        const context = preparePromptContext({
+        const context = resumePromptContext({
           previous: previousContext,
           policy: memoryPreference,
-          systemPrompt: buildCloudSystemPrompt({
-            canonicalBody: canonicalPrompts.orchestratorBody,
-            tools: turnTools.promptTools,
-            personalityBody:
-              personalityOverride ?? canonicalPrompts.personalityBody,
-            localeDirective: getResponseLanguageSystemPrompt(locale),
-            residentSection: buildResidentMemorySection(memoryDocuments),
-            skillSection: buildCloudSkillsBlock(skillCatalog),
-            threadId: turn.conversationId,
-          }),
           tools: turnTools.tools,
           startSeq: range.startSeq,
           journalEpoch,
         });
         // A boundary (memory disabled or erased, an owner reset) means the
-        // frozen prompt the lost isolate sent may carry context that must not
-        // be sent again. Fail rather than resume across it.
-        if (context.state.epoch !== previousContext.epoch) {
+        // frozen context the lost isolate sent may carry context that must
+        // not be sent again. Fail rather than resume across it.
+        if (!context) {
           throw new ChatTurnNotResumableError("context_boundary");
         }
         turnContext = context;
         const checkpoint = await this.getTurnState<ContextCheckpoint>(
           CONTEXT_CHECKPOINT_KEY,
         );
-        const renderHistory = (messages: AgentMessage[]) =>
-          materializeProviderContext(
-            executionContextHistoryEntries(messages).map(
-              (entry): AgentMessage =>
-                entry.kind === "message"
-                  ? entry.message
-                  : {
-                      role: "user",
-                      content: [{ type: "text", text: entry.prompt.text }],
-                      timestamp: entry.timestamp,
-                    },
-            ),
-            context.state.epoch,
-          );
         const selection = this.journal.selectRange(
           turn.turnId,
           range.startSeq,
@@ -5248,22 +5222,11 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           await this.hydrateWindow(selection),
           selection.rows,
         );
-        const replayedHistory = renderHistory(journalHistory);
-        turnHistory = checkpoint
-          ? [
-              {
-                role: "user",
-                content: [
-                  {
-                    type: "text",
-                    text: `<conversation-summary>\n${checkpoint.summary}\n</conversation-summary>`,
-                  },
-                ],
-                timestamp: 0,
-              },
-              ...replayedHistory,
-            ]
-          : replayedHistory;
+        turnHistory = providerHistory({
+          context: context.state,
+          checkpoint,
+          messages: journalHistory,
+        });
         const own = this.journal.selectTurnMessages(turn.turnId);
         const ownMessages = await this.hydrateWindow(own);
         if (own.rows[0]?.role !== "user" || !ownMessages[0]) {
@@ -5273,10 +5236,10 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           [ownMessages[0]],
           [own.rows[0]],
         )[0]!;
-        const currentPrompt = renderHistory([
-          ...journalHistory,
-          promptMessage,
-        ]).slice(replayedHistory.length);
+        const currentPrompt = materializeProviderContext(
+          [promptMessage],
+          context.state.epoch,
+        );
         if (attachmentImages.length > 0) {
           const user = currentPrompt.at(-1);
           if (user?.role === "user" && Array.isArray(user.content))
@@ -5363,7 +5326,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       assertTurnExecutionActive(turnCancellation, executionSignal);
       const agent: RuntimeAgent = new Agent({
         initialState: {
-          systemPrompt: turnContext.state.systemPrompt,
+          systemPrompt: turnContext.state.frozen.systemPrompt,
           model: turnRelaySession.model,
           tools: turnContext.tools,
           messages: resumeTurn
@@ -5781,14 +5744,20 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           memoryPreference.memoryEnabled,
         ),
     );
-    const systemPrompt = buildCloudSystemPrompt({
-      canonicalBody: canonicalPrompts.orchestratorBody,
-      tools: promptTools,
-      personalityBody: personalityOverride ?? canonicalPrompts.personalityBody,
-      localeDirective: getResponseLanguageSystemPrompt(locale),
-      residentSection: buildResidentMemorySection(memoryDocuments),
-      skillSection: buildCloudSkillsBlock(skillCatalog),
-      threadId: turn.conversationId,
+    const systemPrompt = renderSystemPrompt(
+      buildCloudSystemPromptSections({
+        canonicalBody: canonicalPrompts.orchestratorBody,
+        tools: promptTools,
+        locale,
+        threadId: turn.conversationId,
+      }),
+    );
+    const executionContext = cloudExecutionContext(turn, destinations);
+    const resident = cloudResidentContext({
+      personality: personalityOverride ?? canonicalPrompts.personalityBody,
+      memoryDocuments,
+      skillCatalog,
+      executionContext,
     });
     const spec = parseCloudOrchestratorCliTurnSpec({
       systemPrompt,
@@ -5824,12 +5793,18 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         const promptSeq =
           args.resumeTurn && this.journal.hasRow(promptKey)
             ? this.journal.selectTurnMessages(turn.turnId).rows[0]?.seq
-            : await this.journalCliPrompt(turn, destinations, report);
+            : await this.journalCliPrompt(turn, executionContext, report);
         if (promptSeq === undefined) {
           throw new ChatTurnNotResumableError("prompt_row");
         }
         const context = await this.cliPromptContext(promptSeq);
         this.journal.setTurnContext(turn.turnId, context.startSeq, promptSeq);
+        // A seeded session starts with nothing; a continuing one has seen
+        // what its last delivered turn carried.
+        const residentPrompts = sessionResidentPrompts({
+          resident,
+          seen: context.kind === "history" ? [] : context.residentSeen,
+        });
         this.live = {
           turnId: turn.turnId,
           streamId: null,
@@ -5856,6 +5831,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         );
         const prompt = composeOrchestratorCliPrompt({
           context: context.block,
+          resident: residentPrompts.prompts,
           text: report.prompt,
           promptSeq,
           hidden: turn.hiddenMessage === true,
@@ -5871,6 +5847,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             promptSeq,
             appliedBatchSeq: 0,
             dispatchedAt: Date.now(),
+            resident: residentPrompts.seen,
           } satisfies OrchestratorCliTurnRecord,
         });
         dispatched = true;
@@ -6018,7 +5995,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
    */
   private async journalCliPrompt(
     turn: ChatTurnRequest,
-    destinations: DevicesResponse | null,
+    executionContext: ExecutionContextSnapshot,
     report: WakeReport,
   ): Promise<number> {
     const now = Date.now();
@@ -6026,16 +6003,12 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       role: "user",
       content: [{ type: "text", text: report.prompt }],
       timestamp: now,
-      executionContext: createExecutionContextSnapshot({
-        devices: destinations?.devices ?? null,
-        destination: { kind: "cloud" },
-        media: { stella: mediaAccessForAudience(turn.audience) },
-      }),
+      executionContext,
       ...(turn.originUserMessageId
         ? { originUserMessageId: turn.originUserMessageId }
         : {}),
       providerContext: {
-        version: 1,
+        version: 2,
         epoch: `claude-code:${turn.turnId}`,
         prepend: [],
         clock: new Date(now).toISOString(),
@@ -6092,6 +6065,8 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
   private async cliPromptContext(promptSeq: number): Promise<{
     block: string | null;
     kind: "history" | "updates";
+    /** The resident prompts the continuing session has already seen. */
+    residentSeen: ResidentPrompt[];
     rows: number;
     /** Lowest seq the turn's context depends on; keeps rollover above it. */
     startSeq: number;
@@ -6134,6 +6109,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     return {
       block,
       kind: seed ? "history" : "updates",
+      residentSeen: seed ? [] : (delivered.resident ?? []),
       rows: selection.rows.length,
       startSeq,
     };
@@ -6324,6 +6300,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       entries[ORCHESTRATOR_CLI_DELIVERED_KEY] = {
         journalEpoch: this.journal.meta().epoch,
         seq: deliveredThrough,
+        ...(record.resident ? { resident: record.resident } : {}),
       } satisfies OrchestratorCliDelivered;
     }
     await this.putTurnState(entries);

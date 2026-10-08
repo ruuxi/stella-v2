@@ -8,12 +8,23 @@
  * `orchestrator.md` is one source for every environment: what differs in the
  * cloud sits in its `<!-- when cloud -->` fences and in tool fences that
  * follow this turn's real tools (`Remember` and `history` exist only while
- * cloud memory is on), so nothing here overrides or rewrites it.
+ * cloud memory is on), so nothing here overrides or rewrites it. Everything
+ * else the model reads (personality, memory, skills, execution context) is
+ * placed by the same resident registry as on the desktop.
  */
 
 import { renderStellaPrompt } from "@stella/contracts/stella-prompts";
 
-import { buildStartupDocBlock } from "./agent-home.js";
+import type { SystemPromptSection } from "@stella/runtime/kernel/agent-runtime/frozen-context.js";
+import { responseLanguageSection } from "@stella/runtime/kernel/runner/locale-prompt.js";
+import {
+  residentMemoryFromDocs,
+  type ResidentContext,
+} from "@stella/runtime/kernel/agent-runtime/resident-context.js";
+import type { ExecutionContextSnapshot } from "@stella/contracts/execution-context";
+
+import type { CloudSkillCatalogSnapshot } from "./cloud-home-store.js";
+import { buildCloudSkillsBlock } from "./cloud-skills.js";
 import { bundledPrompt } from "./prompts/bundled.js";
 
 export type CanonicalPrompts = {
@@ -27,29 +38,46 @@ export const CANONICAL_PROMPTS: CanonicalPrompts = {
   personalityBody: bundledPrompt("prompts/personality.md"),
 };
 
-export const buildCloudSystemPrompt = (args: {
+/**
+ * The orchestrator's system prompt sections, named as on the desktop. The
+ * personality, memory, skills and execution context are not here: they are
+ * resident blocks (`resident-context.js`), appended to the thread like on
+ * every other host, so a change appends instead of rewriting the prompt.
+ */
+export const buildCloudSystemPromptSections = (args: {
   canonicalBody: string;
   /** This turn's tools, as `stellaPromptTools` builds them. */
   tools: ReadonlySet<string>;
-  personalityBody: string | null;
-  localeDirective: string | undefined;
-  residentSection: string;
-  skillSection?: string;
+  locale: string | undefined;
   /** The conversation id, which is the orchestrator's thread id. */
   threadId: string;
-}): string =>
-  [
-    renderStellaPrompt(args.canonicalBody, {
-      env: "cloud",
-      tools: args.tools,
-    }).trimEnd(),
-    args.localeDirective ?? "",
-    args.personalityBody
-      ? buildStartupDocBlock("~/.stella/PERSONALITY.md", args.personalityBody)
-      : "",
-    args.residentSection,
-    args.skillSection ?? "",
-    `Thread ID: ${args.threadId}`,
-  ]
-    .filter((section) => section.length > 0)
-    .join("\n\n");
+}): SystemPromptSection[] => {
+  const language = responseLanguageSection(args.locale);
+  return [
+    {
+      id: "instructions",
+      text: renderStellaPrompt(args.canonicalBody, {
+        env: "cloud",
+        tools: args.tools,
+      }).trim(),
+    },
+    ...(language ? [language] : []),
+    { id: "thread-id", text: `Thread ID: ${args.threadId}` },
+  ];
+};
+
+/**
+ * This turn's resident values for the shared registry: the same fields a
+ * desktop orchestrator turn fills, from the owner's cloud home.
+ */
+export const cloudResidentContext = (args: {
+  personality: string;
+  memoryDocuments: ReadonlyArray<{ displayPath: string; content: string }>;
+  skillCatalog: CloudSkillCatalogSnapshot;
+  executionContext: ExecutionContextSnapshot;
+}): Omit<ResidentContext, "threadHistory"> => ({
+  personality: args.personality,
+  ...residentMemoryFromDocs(args.memoryDocuments),
+  skillsCatalog: buildCloudSkillsBlock(args.skillCatalog) || undefined,
+  executionContext: args.executionContext,
+});

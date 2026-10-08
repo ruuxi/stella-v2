@@ -13,6 +13,10 @@ import type {
   RuntimeAttachmentRef,
   RuntimePromptMessage,
 } from "@stella/contracts/protocol";
+import {
+  renderSystemPrompt,
+  type SystemPromptSection,
+} from "./frozen-context.js";
 import { resolveAgentWorkingDirectory } from "./shared.js";
 import { buildSystemPromptSections } from "./thread-memory.js";
 import type { OrchestratorRunOptions, SubagentRunOptions } from "./types.js";
@@ -189,12 +193,7 @@ export const createRuntimePromptAgentMessage = (
   };
 };
 
-/** One named part of a system prompt; see `buildSystemPromptSections`. */
-export type SystemPromptSection = { id: string; text: string };
-
-export const renderSystemPrompt = (
-  sections: readonly SystemPromptSection[],
-): string => sections.map((section) => section.text).join("\n\n");
+export { renderSystemPrompt, type SystemPromptSection };
 
 const workingDirectorySection = (
   opts: Pick<

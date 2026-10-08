@@ -121,7 +121,7 @@ import {
   toCloudExecutionSelection,
 } from "./agent-model-config.js";
 import type { ResolvedLlmRoute } from "../model-routing.js";
-import { getResponseLanguageSystemPrompt } from "./locale-prompt.js";
+import { responseLanguageSection } from "./locale-prompt.js";
 import { createBackendSession, initialBackendUrl } from "./backend-session.js";
 import { hostname } from "node:os";
 import { resolveJwtOwnerScope } from "./computer-agent-cloud-records.js";
@@ -1629,13 +1629,8 @@ export const buildAgentContext = async (
   // dynamic context. It's a single line, comes from the latest
   // `user_message` event's `locale` payload, and is `undefined` for
   // English so we don't waste tokens on a no-op directive.
-  const responseLanguageDirective = getResponseLanguageSystemPrompt(userLocale);
-  if (responseLanguageDirective) {
-    dynamicContextSections.push({
-      id: "user-language",
-      text: `## User Language\n${responseLanguageDirective}`,
-    });
-  }
+  const languageSection = responseLanguageSection(userLocale);
+  if (languageSection) dynamicContextSections.push(languageSection);
 
   if (args.toolWorkspaceRoot?.trim()) {
     dynamicContextSections.push({

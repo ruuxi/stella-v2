@@ -63,3 +63,13 @@ export const getResponseLanguageSystemPrompt = (
     "Keep code, commands, filenames, API names, and quoted source text in their original language.",
   ].join(" ");
 };
+
+/** The system prompt section for the user's language, on every host. */
+export const responseLanguageSection = (
+  locale: string | undefined,
+): { id: string; text: string } | undefined => {
+  const directive = getResponseLanguageSystemPrompt(locale);
+  return directive
+    ? { id: "user-language", text: `## User Language\n${directive}` }
+    : undefined;
+};

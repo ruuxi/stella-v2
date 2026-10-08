@@ -34,10 +34,14 @@ export const LIFE_USER_PROFILE_DISPLAY_PATH: "~/.stella/memories/profile.md";
 export const LIFE_MEMORY_INDEX_DISPLAY_PATH: "~/.stella/memories/index.md";
 export const RETIRED_MEMORY_DISPLAY_PATHS: string[];
 export const RESIDENT_BLOCKS: ResidentBlock[];
+export const RESIDENT_MEMORY_DISPLAY_PATHS: string[];
 export function renderResidentBlockText(
   block: ResidentBlock,
   context: ResidentContext,
 ): string | undefined;
+export function residentMemoryFromDocs(
+  docs: ReadonlyArray<{ displayPath: string; content: string }>,
+): Pick<ResidentContext, "coreMemory" | "userProfile" | "memoryIndex">;
 export function customMessageContentText(
   content: CustomMessage["content"],
 ): string;
@@ -53,7 +57,8 @@ export function residentIdentityForCustomMessage(
 ): string | null;
 export function buildResidentFold(args: {
   messages: readonly HistoryEntry[];
-  stellaDataDir?: string;
+  /** Reads a data-dir-relative file (e.g. `memories/profile.md`), or null. */
+  readDiskFile?: (relativePath: string) => string | null;
   refreshMemoryDocsFromDisk?: boolean;
 }): ResidentFold | null;
 export function parseResidentFold(

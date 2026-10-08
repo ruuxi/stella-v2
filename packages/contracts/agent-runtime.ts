@@ -2,7 +2,6 @@ export const AGENT_IDS = {
   ORCHESTRATOR: "orchestrator",
   GENERAL: "general",
   OFFLINE_RESPONDER: "offline_responder",
-  EXPLORE: "explore",
 } as const;
 
 export type AgentId = (typeof AGENT_IDS)[keyof typeof AGENT_IDS];
@@ -57,8 +56,6 @@ type AgentDefinition = {
   activityLabel: string | null;
   bundledCore: boolean;
   runsAsSubagent: boolean;
-  /** When false, omitted from the orchestrator-visible agent roster (internal flows only). */
-  includeInAgentRoster?: boolean;
   usesLocalCliRuntime: boolean;
   promptRole: AgentPromptRole;
   localCliWorkingDirectory: LocalCliWorkingDirectory | null;
@@ -129,23 +126,6 @@ const BUILTIN_AGENT_DEFINITIONS = [
     modelSettings: {
       description: "Responds when Stella is offline",
       order: 9,
-    },
-  },
-  {
-    id: AGENT_IDS.EXPLORE,
-    name: "Explore",
-    description:
-      "Stateless one-shot helper. Reads ~/.stella/ to surface relevant paths for an upcoming General task.",
-    activityLabel: "Exploring",
-    bundledCore: true,
-    runsAsSubagent: false,
-    includeInAgentRoster: false,
-    usesLocalCliRuntime: false,
-    promptRole: "subagent",
-    localCliWorkingDirectory: null,
-    modelSettings: {
-      description: "Finds relevant context before a task starts",
-      order: 3,
     },
   },
 ] as const satisfies readonly AgentDefinition[];

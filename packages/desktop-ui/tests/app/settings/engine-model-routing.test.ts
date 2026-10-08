@@ -29,10 +29,10 @@ const preferences = {
   modelOverrides: {
     orchestrator: "anthropic/claude-opus-4.8",
     general: "anthropic/claude-opus-4.8",
-    explore: "stella/light",
+    offline_responder: "stella/light",
   },
   stellaConversationModelOverrides: {},
-  assistantPropagatedAgents: ["general", "explore"],
+  assistantPropagatedAgents: ["general", "offline_responder"],
   agentRuntimeEngine: "default" as const,
   codexModel: "gpt-5.4",
   claudeCodeModel: "sonnet",
@@ -287,9 +287,9 @@ describe("engine model routing", () => {
       modelOverrides: {
         orchestrator: "chatgpt/gpt-5.4",
         general: "chatgpt/gpt-5.4",
-        explore: "stella/light",
+        offline_responder: "stella/light",
       },
-      assistantPropagatedAgents: ["explore"],
+      assistantPropagatedAgents: ["offline_responder"],
       stellaConversationModelOverrides: {
         orchestrator: "anthropic/claude-opus-4.8",
         general: "anthropic/claude-opus-4.8",
@@ -310,9 +310,9 @@ describe("engine model routing", () => {
 
     expect(buildEngineRoutingPatch(chatGptPreferences, "default")).toEqual({
       agentRuntimeEngine: "default",
-      modelOverrides: { explore: "stella/light" },
+      modelOverrides: { offline_responder: "stella/light" },
       stellaConversationModelOverrides: {},
-      assistantPropagatedAgents: ["explore"],
+      assistantPropagatedAgents: ["offline_responder"],
     });
   });
 
@@ -327,7 +327,7 @@ describe("engine model routing", () => {
         orchestrator: "anthropic/claude-opus-4.8",
         general: "anthropic/claude-opus-4.8",
       },
-      assistantPropagatedAgents: ["explore"],
+      assistantPropagatedAgents: ["offline_responder"],
     });
   });
 
@@ -447,7 +447,7 @@ describe("engine model routing", () => {
       modelOverrides: {
         orchestrator: "openrouter/existing-orchestrator",
         general: "anthropic/claude-opus-4.8",
-        explore: "stella/light",
+        offline_responder: "stella/light",
       },
       stellaConversationModelOverrides: {
         orchestrator: "openrouter/existing-orchestrator",

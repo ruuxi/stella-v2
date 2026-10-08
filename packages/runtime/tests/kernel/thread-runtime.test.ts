@@ -633,7 +633,6 @@ describe("role-specific compaction policy", () => {
     );
     expect(resolveCompactionSplitPolicy(undefined)).toBe("orchestrator");
     expect(resolveCompactionSplitPolicy(AGENT_IDS.GENERAL)).toBe("general");
-    expect(resolveCompactionSplitPolicy(AGENT_IDS.EXPLORE)).toBe("general");
 
     expect(getCompactionTriggerTokens(route(1_000_000))).toBe(500_000);
     expect(

@@ -129,7 +129,7 @@ describe("loadLocalPreferences", () => {
     writePreferences(stellaDataDir, {
       defaultModels: {
         orchestrator: "stella/default",
-        explore: " stella/light ",
+        general: " stella/light ",
       },
       modelOverrides: {
         orchestrator: "stella/default",
@@ -139,7 +139,7 @@ describe("loadLocalPreferences", () => {
     });
 
     expect(loadLocalPreferences(stellaDataDir).defaultModels).toEqual({
-      explore: "stella/light",
+      general: "stella/light",
     });
     expect(loadLocalPreferences(stellaDataDir).modelOverrides).toEqual({
       general: "stella/standard",
@@ -163,7 +163,7 @@ describe("loadLocalPreferences", () => {
       },
       modelOverrides: {
         orchestrator: "fal/assistant-model",
-        explore: "openai/gpt-5.5",
+        general: "openai/gpt-5.5",
       },
       imageGeneration: {
         provider: "fal",
@@ -173,7 +173,7 @@ describe("loadLocalPreferences", () => {
 
     const loaded = loadLocalPreferences(stellaDataDir);
     expect(loaded.defaultModels).toEqual({});
-    expect(loaded.modelOverrides).toEqual({ explore: "openai/gpt-5.5" });
+    expect(loaded.modelOverrides).toEqual({ general: "openai/gpt-5.5" });
     expect(loaded.imageGeneration).toEqual({
       provider: "fal",
       model: "fal/openai/gpt-image-2",
@@ -252,7 +252,7 @@ describe("loadLocalPreferences", () => {
       },
       modelOverrides: {
         general: "chatgpt/gpt-5.1-codex-max",
-        explore: "chatgpt/custom-codex-model",
+        orchestrator: "chatgpt/custom-codex-model",
       },
     });
 
@@ -263,7 +263,7 @@ describe("loadLocalPreferences", () => {
     });
     expect(loaded.modelOverrides).toEqual({
       general: "chatgpt/gpt-6.1-sol",
-      explore: "chatgpt/custom-codex-model",
+      orchestrator: "chatgpt/custom-codex-model",
     });
   });
 

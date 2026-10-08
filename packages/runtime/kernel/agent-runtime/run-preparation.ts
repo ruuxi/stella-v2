@@ -266,7 +266,7 @@ export const buildRuntimeSystemPrompt = (
 // Symmetric with `buildRuntimeSystemPrompt` (orchestrator). Subagents get the
 // same `before_agent_start` fan-out so user extensions that subscribe to the
 // event for a subagent agentType (e.g. layering additional system-prompt
-// context onto General/Explore runs) are invoked without extensions needing
+// context onto General runs) are invoked without extensions needing
 // engine-specific knowledge.
 export const buildSubagentSystemPrompt = (
   opts: SubagentRunOptions & { runId?: string },

@@ -101,8 +101,8 @@ describe("getBackgroundWork spawn vs send_input follow-up", () => {
 
   it("excludes orchestrator-reserved builtin agents from the card entirely", () => {
     const work = getBackgroundWork([
-      started("explore-thread", "Find the relevant paths", {
-        agentType: "explore",
+      started("offline-thread", "Reply while offline", {
+        agentType: "offline_responder",
         statusText: "comparing options",
         isFollowUp: true,
       }),

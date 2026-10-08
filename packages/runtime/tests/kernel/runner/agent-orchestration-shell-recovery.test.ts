@@ -73,7 +73,7 @@ describe("subagent shell recovery scope", () => {
     await manager.opts.runSubagent({
       conversationId: "conversation-1",
       userMessageId: "message-1",
-      agentType: AGENT_IDS.EXPLORE,
+      agentType: AGENT_IDS.GENERAL,
       agentId: "agent-1",
       rootRunId: "root-run-1",
       agentContext: {

@@ -40,8 +40,8 @@ Every worker the bench spawns gets:
     moves on); anything else throws and is counted (`fetch.blocked`).
   - **Scripted fake provider** (`STELLA_PERF_FAKE_PROVIDER=1`, source entry
     only). Registers api `perf-scripted`. The bench writes a `models.json`
-    provider `perf` / model `scripted` and pins `orchestrator`, `general`
-    and `explore` to `perf/scripted` in `preferences.json`. Replies are
+    provider `perf` / model `scripted` and pins `orchestrator` and
+    `general` to `perf/scripted` in `preferences.json`. Replies are
     synchronous and instant, so a turn's wall-clock is pure runtime overhead.
     A prompt containing `[perf:tool]` gets one tool call
     (`STELLA_PERF_FAKE_TOOL`, default `Read` of a 3-line fixture), then

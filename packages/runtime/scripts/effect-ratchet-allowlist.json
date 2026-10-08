@@ -10,7 +10,6 @@
   "kernel/agent-core/explicit-model-agent.ts": 1,
   "kernel/agent-runtime/agent-run-retry.ts": 1,
   "kernel/agent-runtime/compaction-scheduler.ts": 1,
-  "kernel/agent-runtime/explore.ts": 3,
   "kernel/agent-runtime/external-engine-lifecycle.ts": 2,
   "kernel/agent-runtime/provider-stream-lifecycle.ts": 2,
   "kernel/agent-runtime/run-completion.ts": 1,

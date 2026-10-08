@@ -11,10 +11,8 @@ import {
 import { runSubagentTask, shutdownSubagentRuntimes } from "../agent-runtime.js";
 import { createAgentLifecycleResponseTarget } from "../agent-runtime/response-target.js";
 import { persistThreadCustomMessage } from "../agent-runtime/thread-memory.js";
-import { runExplore } from "../agent-runtime/explore.js";
 import { resolvePlacedAgentModel } from "./placed-agent-model.js";
 import { resolveOrchestratorThreadKey } from "../thread-runtime.js";
-import { shouldUseAutomaticSkillExplore } from "../shared/skill-catalog.js";
 import { LocalAgentManager } from "../agents/local-agent-manager.js";
 import { writeRestartInterruptedSnapshot } from "../restart-continuation.js";
 import type {
@@ -679,24 +677,7 @@ export const createAgentOrchestration = (
         context.state.conversationCallbacks.get(conversationId) ??
         null;
 
-      let exploreFindingsBlock = "";
-      if (
-        !resume &&
-        agentType === AGENT_IDS.GENERAL &&
-        (await shouldUseAutomaticSkillExplore(context.stellaDataDir))
-      ) {
-        exploreFindingsBlock = await runExplore({
-          context,
-          conversationId,
-          taskDescription,
-          taskPrompt,
-          signal: abortSignal,
-        });
-      }
-
-      const composedUserPrompt = exploreFindingsBlock
-        ? `${exploreFindingsBlock}\n\n${taskDescription}\n\n${taskPrompt}`
-        : `${taskDescription}\n\n${taskPrompt}`;
+      const composedUserPrompt = `${taskDescription}\n\n${taskPrompt}`;
 
       const result = await runSubagentTask({
         ...(typeof durableRunId === "string" && durableRunId

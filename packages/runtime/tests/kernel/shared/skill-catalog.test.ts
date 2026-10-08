@@ -4,9 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  INLINE_SKILL_CATALOG_THRESHOLD,
-  buildSkillCatalogPromptState,
-  renderFullSkillCatalogBlock,
+  listSkillCatalogEntries,
   renderSkillCatalogBlock,
 } from "@stella/runtime/kernel/shared/skill-catalog";
 
@@ -57,15 +55,14 @@ describe("skill catalog", () => {
     await writeSkill(stellaAppDir, "stella-browser", "Control browser tabs.");
     await writeSkill(stellaAppDir, "pdf", "Work with PDFs.");
 
-    const state = await buildSkillCatalogPromptState(stellaAppDir, {
+    const entries = await listSkillCatalogEntries(stellaAppDir, {
       omitSkillIds: ["stella-browser", "pdf"],
     });
     const block = await renderSkillCatalogBlock(stellaAppDir, {
       omitSkillIds: ["stella-browser", "pdf"],
     });
 
-    expect(state.totalSkills).toBe(1);
-    expect(state.entries.map((entry) => entry.id)).toEqual([
+    expect(entries.map((entry) => entry.id)).toEqual([
       "create-stella-cloud-app",
     ]);
     expect(block).toContain("`create-stella-cloud-app`");
@@ -89,36 +86,10 @@ describe("skill catalog", () => {
       recursive: true,
     });
 
-    const state = await buildSkillCatalogPromptState(stellaAppDir);
-    expect(state.entries.map((entry) => entry.id)).toEqual(["stella-media"]);
-    expect(state.entries[0]?.path).toBe(
+    const entries = await listSkillCatalogEntries(stellaAppDir);
+    expect(entries.map((entry) => entry.id)).toEqual(["stella-media"]);
+    expect(entries[0]?.path).toBe(
       "~/.stella/skills/stella-media/SKILL.md",
     );
-  });
-
-  it("renders every skill inline above the threshold for Explore", async () => {
-    const stellaAppDir = await createStellaAppDir();
-    const count = INLINE_SKILL_CATALOG_THRESHOLD + 5;
-    for (let i = 0; i < count; i += 1) {
-      await writeSkill(
-        stellaAppDir,
-        `skill-${String(i).padStart(3, "0")}`,
-        `Does thing ${i}.`,
-      );
-    }
-
-    // The budget-aware renderer degrades to a placeholder above the threshold.
-    const placeholder = await renderSkillCatalogBlock(stellaAppDir);
-    expect(placeholder).toContain("over the inline limit");
-
-    // Explore's renderer always inlines every entry instead.
-    const full = await renderFullSkillCatalogBlock(stellaAppDir);
-    expect(full).not.toContain("over the inline limit");
-    expect(full).toContain("`skill-000`");
-    expect(full).toContain(`\`skill-${String(count - 1).padStart(3, "0")}\``);
-    const entryLines = full
-      .split("\n")
-      .filter((line) => line.startsWith("- `skill-"));
-    expect(entryLines).toHaveLength(count);
   });
 });

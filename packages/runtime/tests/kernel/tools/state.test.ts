@@ -681,8 +681,8 @@ describe("state tools", () => {
         conversationId: "conversation-1",
         deviceId: "device-1",
         requestId: "request-1",
-        agentType: AGENT_IDS.EXPLORE,
-        agentId: "explore-1",
+        agentType: AGENT_IDS.OFFLINE_RESPONDER,
+        agentId: "offline-responder-1",
       },
     );
 

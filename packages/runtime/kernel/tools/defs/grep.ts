@@ -1,5 +1,5 @@
 /**
- * `Grep` — local ripgrep wrapper used by the Explore subagent.
+ * `Grep` — local ripgrep wrapper.
  */
 
 import { handleGrep } from "../search.js";

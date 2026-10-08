@@ -721,19 +721,6 @@ export const updateLocalModelPreferences = (
   return getLocalModelPreferences(stellaDataDir);
 };
 
-/**
- * Resolve the model name for the Explore agent. Prefers an explicit override
- * (modelOverrides["explore"]), then returns undefined to let resolveLlmRoute
- * fall back to Stella's backend-owned default.
- *
- * Explore is meant to be a fast cheap pass over ~/.stella/. Users who want to
- * spend more should set modelOverrides["explore"] explicitly.
- */
-export const getExploreModel = (stellaDataDir: string): string | undefined => {
-  const prefs = loadLocalPreferences(stellaDataDir);
-  return prefs.modelOverrides["explore"];
-};
-
 export const getPreventComputerSleep = (stellaDataDir: string): boolean => {
   return loadLocalPreferences(stellaDataDir).preventComputerSleep;
 };

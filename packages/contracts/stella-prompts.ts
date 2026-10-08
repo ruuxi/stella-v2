@@ -3,7 +3,6 @@ export const STELLA_PROMPT_SCHEMA_VERSION = 2 as const;
 export const STELLA_PROMPT_IDS = [
   "agents/orchestrator.md",
   "agents/general.md",
-  "agents/explore.md",
   "prompts/thread-compaction.md",
   "prompts/fallback-orchestrator.md",
   "prompts/fallback-subagent.md",

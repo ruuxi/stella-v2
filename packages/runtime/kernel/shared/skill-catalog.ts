@@ -5,21 +5,12 @@ import { extractFrontmatter } from "../frontmatter.js";
 import { statSignature } from "./fs-signature.js";
 import { renderInlineSkillCatalogBlock } from "./skill-catalog-render.js";
 
-export const INLINE_SKILL_CATALOG_THRESHOLD = 50;
-
 export type SkillCatalogEntry = {
   id: string;
   name: string;
   description: string;
   path: string;
   hasProgram: boolean;
-};
-
-export type SkillCatalogPromptState = {
-  mode: "inline" | "placeholder";
-  totalSkills: number;
-  entries: SkillCatalogEntry[];
-  block: string;
 };
 
 export type SkillCatalogRenderOptions = {
@@ -177,84 +168,10 @@ export const listSkillCatalogEntries = async (
   return await Promise.all(locations.map(readSkillCatalogEntry));
 };
 
-export const shouldUseAutomaticSkillExplore = async (
-  stellaAppDir: string,
-): Promise<boolean> => {
-  const locations = await listSkillLocations(stellaAppDir);
-  return locations.length > INLINE_SKILL_CATALOG_THRESHOLD;
-};
-
-const renderPlaceholderSkillCatalogBlock = (totalSkills: number): string =>
-  [
-    "<skills>",
-    "## Skills",
-    `- ${totalSkills} saved skills are available under \`~/.stella/skills/\`.`,
-    `- The full skill catalog is omitted because it is over the inline limit (${INLINE_SKILL_CATALOG_THRESHOLD}).`,
-    "- Automatic Explore fallback may surface the relevant skill paths before a General task starts.",
-    "## How to use skills",
-    "- If automatic findings point to a skill, or you know a likely skill path, open its `SKILL.md` first with `Read`.",
-    "</skills>",
-  ].join("\n");
-
-export const buildSkillCatalogPromptState = async (
-  stellaAppDir: string,
-  options: SkillCatalogRenderOptions = {},
-): Promise<SkillCatalogPromptState> => {
-  const locations = filterSkillLocations(
-    await listSkillLocations(stellaAppDir),
-    options,
-  );
-  if (locations.length > INLINE_SKILL_CATALOG_THRESHOLD) {
-    return {
-      mode: "placeholder",
-      totalSkills: locations.length,
-      entries: [],
-      block: renderPlaceholderSkillCatalogBlock(locations.length),
-    };
-  }
-
-  const entries = await Promise.all(locations.map(readSkillCatalogEntry));
-  return {
-    mode: "inline",
-    totalSkills: entries.length,
-    entries,
-    block: renderInlineSkillCatalogBlock(entries),
-  };
-};
-
 export const renderSkillCatalogBlock = async (
   stellaAppDir: string,
   options: SkillCatalogRenderOptions = {},
-): Promise<string> => {
-  const state = await buildSkillCatalogPromptState(stellaAppDir, options);
-  return state.block;
-};
-
-/**
- * Render every skill as an inline catalog, ignoring the inline/placeholder
- * threshold. Used by the Explore agent, whose entire job is skill selection —
- * it should always see the full catalog rather than the placeholder, even
- * (especially) when the count is above {@link INLINE_SKILL_CATALOG_THRESHOLD}.
- * Omits the general-agent "how to use" footer; Explore has its own usage rules.
- */
-export const renderFullSkillCatalogBlock = async (
-  stellaAppDir: string,
-  options: SkillCatalogRenderOptions = {},
-): Promise<string> => {
-  const entries = await listSkillCatalogEntries(stellaAppDir, options);
-  const lines = ["<skills>", "## Available skills"];
-  if (entries.length === 0) {
-    lines.push("- No saved skills yet.");
-  } else {
-    for (const entry of entries) {
-      const suffix = entry.hasProgram
-        ? " Includes optional `scripts/program.ts`."
-        : "";
-      lines.push(
-        `- \`${entry.id}\` — ${entry.description} (path: ${entry.path})${suffix}`,
-      );
-    }
-  }
-  lines.push("</skills>");
-  return lines.join("\n");
-};
+): Promise<string> =>
+  renderInlineSkillCatalogBlock(
+    await listSkillCatalogEntries(stellaAppDir, options),
+  );

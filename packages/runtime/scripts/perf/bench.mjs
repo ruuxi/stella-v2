@@ -197,7 +197,6 @@ const prepareDataDir = (dataDir) => {
       modelOverrides: {
         orchestrator: "perf/scripted",
         general: "perf/scripted",
-        explore: "perf/scripted",
       },
     });
   }

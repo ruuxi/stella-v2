@@ -188,16 +188,11 @@ export default {
         sha256,
       },
     ];
-    const delta = await world.diff(listing);
-    const missing = await world.pushDiff({
-      entries: listing,
-      deleted: delta.deleted,
-    });
+    // A container pushes only what it changed since it last agreed with the
+    // world: here, one new file and no deletions.
+    const missing = await world.pushChanges({ entries: listing, deleted: [] });
     await world.putBlobs(fragment(blobFrame(sha256, newBytes), 2));
-    const pushed = await world.pushDiff({
-      entries: listing,
-      deleted: delta.deleted,
-    });
+    const pushed = await world.pushChanges({ entries: listing, deleted: [] });
     const exported = await world.exportTar();
     const tar = new Uint8Array(await new Response(exported.body).arrayBuffer());
     return Response.json({
@@ -207,11 +202,11 @@ export default {
       firstChangeRevision: firstChanges.revision,
       secondChangeRevision: secondChanges.revision,
       idempotent: first.manifestId === second.manifestId,
-      changed: delta.changed,
-      deleted: delta.deleted,
       missing: missing.missingBlobs,
+      missingRevision: missing.revision,
       pushed: pushed.missingBlobs,
       pushRevision: pushed.revision,
+      pushPreviousRevision: pushed.previousRevision,
       after: decoder.decode(
         (await world.readFile("pushed.txt", {})) ?? new Uint8Array(),
       ),

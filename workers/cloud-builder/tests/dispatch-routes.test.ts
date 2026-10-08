@@ -133,6 +133,7 @@ const environment = async (
       CLOUD_BUILDER_PUBLIC_URL: ISSUER,
       OWNER_GATES: {
         getByName: (ownerId: string) => ({
+          noteIdentity: async () => undefined,
           snapshot: async () => snapshot,
           submit: async (input: Record<string, unknown>) => {
             submits.push({ ownerId, input });

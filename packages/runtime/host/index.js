@@ -25,7 +25,7 @@ import { RuntimeWorkerLifecycleController, } from "./worker-lifecycle.js";
 import { buildStdioConnectionFactory } from "./stdio-connection.js";
 import { buildInprocConnectionFactory } from "./inproc-connection.js";
 import { resolveRuntimePaths } from "../worker/runtime-paths.js";
-import { Cause, Exit, Fiber } from "effect";
+import { Cause, Effect, Exit, Fiber } from "effect";
 import { forkDelayed, hostRuntime, } from "./effect-runtime.js";
 import { clearPendingWorkerRestartFlag, evaluateWorkerStaleness, persistPendingWorkerRestartFlag, quiescencePollEffect, } from "./staleness.js";
 import { HOST_CHALLENGE_TOKEN_METHOD } from "./challenge-token-method.js";
@@ -1372,11 +1372,11 @@ export class StellaRuntimeHost {
         this.pendingDestinationHandoffs.set(conversationId, pending);
         void (async () => {
             const deadline = Date.now() + DESTINATION_HANDOFF_MAX_WAIT_MS;
-            await new Promise((resolve) => setTimeout(resolve, DESTINATION_HANDOFF_POLL_MS));
+            await hostRuntime.runPromise(Effect.sleep(DESTINATION_HANDOFF_POLL_MS));
             while (!pending.canceled && Date.now() < deadline) {
                 const health = await this.getWorkerHealth({ ensureWorker: false }).catch(() => null);
                 if (health?.activeRun?.conversationId !== conversationId) break;
-                await new Promise((resolve) => setTimeout(resolve, DESTINATION_HANDOFF_POLL_MS));
+                await hostRuntime.runPromise(Effect.sleep(DESTINATION_HANDOFF_POLL_MS));
             }
             if (pending.canceled) return;
             if (this.pendingDestinationHandoffs.get(conversationId) === pending) {

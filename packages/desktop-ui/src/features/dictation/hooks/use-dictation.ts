@@ -458,6 +458,12 @@ export const useDictation = ({
     };
   }, [transcriptPreview]);
 
+  // Stable so the memoized mic button skips re-rendering on every keystroke.
+  const prewarm = useCallback(() => {
+    if (cachedDictationRoute() === "streaming") prewarmDictationSocket();
+    else prewarmDictation();
+  }, []);
+
   return {
     isRecording: state === "listening",
     isRecordingVisible: state === "listening" && showRecordingBar,
@@ -465,10 +471,7 @@ export const useDictation = ({
     showControls,
     state,
     toggle,
-    prewarm: () => {
-      if (cachedDictationRoute() === "streaming") prewarmDictationSocket();
-      else prewarmDictation();
-    },
+    prewarm,
     cancel,
     commitAndSend,
     levels,

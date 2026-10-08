@@ -53,7 +53,7 @@ const resolution = (
   overrides: Partial<GatewayModelResolution> = {},
 ): GatewayModelResolution => ({
   requestedModel: "stella/default",
-  resolvedModel: "deepseek/deepseek-v4.1-flash",
+  resolvedModel: "openai/gpt-6-luna",
   provider: "openrouter",
   protocol: "openai-responses",
   reasoning: true,
@@ -85,13 +85,9 @@ describe("managed relay registry loading", () => {
     expect(session.model.baseUrl).toBe(`${GATEWAY}/v1/relay`);
   });
 
-  test("keeps OpenRouter V4.1 Flash descriptors on the registry-independent path", async () => {
+  test("keeps OpenRouter GPT-6 Luna descriptors on the registry-independent path", async () => {
     for (const [provider, requestedModel, resolvedModel] of [
-      [
-        "openrouter",
-        "stella/deepseek/deepseek-v4.1-flash",
-        "deepseek/deepseek-v4.1-flash",
-      ],
+      ["openrouter", "stella/openai/gpt-6-luna", "openai/gpt-6-luna"],
     ] as const) {
       loadModelRegistryCalls = 0;
       const model = await createCloudRelayModel({

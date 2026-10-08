@@ -260,7 +260,7 @@ describe("i18n catalog parity", () => {
         .map(([path]) => path)
         .sort();
 
-      expect(cloudHomeLeaves).toHaveLength(53);
+      expect(cloudHomeLeaves).toHaveLength(7);
       expect(
         exactEnglishMatches.length,
         `English Cloud Home filler remains in ${locale}:\n${exactEnglishMatches.join("\n")}`,

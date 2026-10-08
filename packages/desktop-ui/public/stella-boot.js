@@ -30,21 +30,25 @@
     root.setAttribute("data-platform", "mobile");
   }
 
-  var themeId = readStorage("stella-theme-id") || "pearl";
-  var colorMode = readStorage("stella-color-mode") || "light";
-  var resolvedColorMode = "light";
-  if (themeId === "noir") {
+  // Dark is the default appearance; mirrors theme-context.tsx. Retired theme
+  // ids were pinned to one appearance and still win until React migrates them.
+  var themeId = readStorage("stella-theme-id");
+  var colorMode = readStorage("stella-color-mode") || "dark";
+  var resolvedColorMode = "dark";
+  if (themeId === "noir" || themeId === "dark") {
     resolvedColorMode = "dark";
-  } else if (themeId === "pearl") {
+  } else if (themeId === "pearl" || themeId === "light") {
     resolvedColorMode = "light";
-  } else if (colorMode === "dark") {
-    resolvedColorMode = "dark";
+  } else if (colorMode === "light") {
+    resolvedColorMode = "light";
   } else if (
     colorMode === "system" &&
-    window.matchMedia &&
-    window.matchMedia("(prefers-color-scheme: dark)").matches
+    !(
+      window.matchMedia &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches
+    )
   ) {
-    resolvedColorMode = "dark";
+    resolvedColorMode = "light";
   }
   root.dataset.stellaBootTheme = resolvedColorMode;
   root.classList.toggle("dark", resolvedColorMode === "dark");

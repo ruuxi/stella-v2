@@ -34,18 +34,7 @@ const resolveDesktopCliEntrypoint = (
       return packaged;
     }
   }
-  const desktopLocal = path.join(
-    stellaAppDir,
-    "desktop",
-    packageName,
-    "bin",
-    entrypoint,
-  );
-  if (existsSync(desktopLocal)) {
-    return desktopLocal;
-  }
-
-  return path.join(stellaAppDir, packageName, "bin", entrypoint);
+  return path.join(stellaAppDir, "packages", packageName, "bin", entrypoint);
 };
 
 // Resolve a runtime CLI: its TypeScript source, or the packaged bundle.

@@ -89,6 +89,19 @@ export class OrchestratorSession extends DurableObject<Env> {
     ).webSocketClose(ws, code, reason, wasClean);
   }
 
+  /**
+   * Dev verification only (the admin route checks `STELLA_TEST_ACCOUNTS`):
+   * restart this object as an eviction would, after the reply leaves.
+   */
+  async restartForVerification(): Promise<{ restartScheduled: true }> {
+    this.ctx.waitUntil(
+      scheduler.wait(50).then(() => {
+        this.ctx.abort("dev verification restart");
+      }),
+    );
+    return { restartScheduled: true };
+  }
+
   async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
     await (await this.loadImplementation()).webSocketError(ws, error);
   }

@@ -223,6 +223,10 @@ export const parseCloudTurnStartRequest = (
     if (!control) return fail("agentThreadControl is malformed.");
     request.agentThreadControl = control;
   }
+  if (value.agentRuntime !== undefined) {
+    if (value.agentRuntime !== "pi") return fail("agentRuntime must be pi.");
+    request.agentRuntime = value.agentRuntime;
+  }
   const agentWake =
     request.lane === "wake" && request.source === "agent-thread";
   const promptMax = !agentWake

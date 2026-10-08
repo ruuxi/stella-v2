@@ -4,8 +4,11 @@
 // verifier, then polls the conversation's canonical history on the worker
 // until the turn's final assistant message lands.
 //
-//   node .agents/skills/verify-stella/cloud-turn.mjs --prompt "..." [--conversation <id>] [--email <owner>] [--wait 180]
+//   node .agents/skills/verify-stella/cloud-turn.mjs --prompt "..." [--conversation <id>] [--email <owner>] [--wait 180] [--agent-runtime pi]
 //   (--prompt-file <path> instead of --prompt for prompts too long for one argument)
+//
+// `--agent-runtime pi` creates the conversation on the pi-durable runtime; it
+// only takes effect on the turn that creates the conversation.
 //
 // A follow-up into an existing conversation must arrive as the same owner, so
 // pass the `--email` the first run printed together with its `--conversation`.
@@ -35,6 +38,7 @@ if (!prompt) {
   process.exit(2);
 }
 const waitSeconds = Number(flag("--wait", "180"));
+const agentRuntime = flag("--agent-runtime");
 const devVarsPath = new URL("../../../workers/cloud-builder/.dev.vars", import.meta.url).pathname;
 const devVar = (name) => {
   if (!existsSync(devVarsPath)) return "";
@@ -75,6 +79,7 @@ const started = await fetch(`${builderUrl}/conversations/${conversationId}/turns
     clientMsgId: randomUUID(),
     prompt,
     lane: "chat",
+    ...(agentRuntime ? { agentRuntime } : {}),
   }),
 });
 const startedBody = await started.json().catch(() => null);

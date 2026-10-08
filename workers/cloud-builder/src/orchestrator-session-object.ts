@@ -23,9 +23,13 @@ import {
   reusablePromptContext,
   sentResidentPrompts,
   sessionResidentPrompts,
+  attachedFilesText,
   type PromptContext,
   type ResidentPrompt,
 } from "./prompt-context.js";
+import { resolveManagedModelDescriptor } from "@stella/model-catalog/gateway-resolution";
+import { formatMessageRefTag } from "@stella/contracts/reply-refs";
+import { buildCloudSkillsBlock } from "./cloud-skills.js";
 import {
   cloudAgentActivationCard,
   cloudAgentTerminalCard,
@@ -641,6 +645,10 @@ class OwnerFenceLeaseConflictError extends Error {}
 class OwnerFenceRegistrationUncertainError extends Error {}
 
 const CHAT_WATCHDOG_MS = 5 * 60_000;
+/** Durable key: this conversation runs on pi-durable (`pi-runtime.ts`). */
+const AGENT_RUNTIME_KEY = "agentRuntime";
+/** The newest pi entry this conversation's journal has mirrored. */
+const PI_MIRRORED_KEY = "piMirroredEntry";
 /**
  * While a chat turn runs, its alarm fires at least this often. The alarm is
  * what wakes a replaced object (a deploy, an eviction) so the wake can resume
@@ -2117,6 +2125,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         // its loop this reaches the provider/tool AbortController; before that
         // point the turn latch and the admission checks below are authoritative.
         if (this.activeTurnId === turn.turnId) this.currentAgent?.abort();
+        if (this.activeTurnId === turn.turnId) this.currentPiRun?.abort();
       },
     });
     this.turnExecutions.set(turn.turnId, execution);
@@ -2960,6 +2969,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       if (error instanceof OwnerPurgeFenceError) {
         this.currentTurnCancellation?.abort();
         this.currentAgent?.abort();
+        this.currentPiRun?.abort();
         return;
       }
       throw error;
@@ -2997,6 +3007,15 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       // metered relay calls for output runTurn will discard.
       this.currentTurnCancellation?.abort();
       this.currentAgent?.abort();
+      this.currentPiRun?.abort();
+      if (!this.currentPiRun) {
+        await this.abortPiConversation().catch((error: unknown) => {
+          log("error", "pi_conversation_abort_failed", {
+            turnId: turn.turnId,
+            message: errorMessage(error),
+          });
+        });
+      }
       log("error", "chat_turn_timed_out", {
         turnId: turn.turnId,
         conversationId: turn.conversationId,
@@ -3331,6 +3350,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         await this.ctx.storage.put("terminal", true);
         this.currentTurnCancellation?.abort();
         this.currentAgent?.abort();
+        this.currentPiRun?.abort();
       }
       const execution = currentMatches
         ? this.turnExecutions.get(turnId)
@@ -3773,6 +3793,11 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         // has none yet, and an explicit hint never overwrites a chosen one.
         this.journal.setTitle(conversationTitleFor(start));
       }
+      // The agent runtime is chosen by the turn that creates the conversation
+      // and kept for its life: one transcript, one engine.
+      if (createdConversation && start.agentRuntime === "pi") {
+        await this.ctx.storage.put(AGENT_RUNTIME_KEY, "pi");
+      }
       if (this.ownerGeneration !== snapshot.ownerGeneration) {
         this.ownerGeneration = snapshot.ownerGeneration;
         await this.ctx.storage.put(
@@ -4096,6 +4121,10 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
   // classification reads it to refuse retries after a cancel/timeout, and an
   // abort during retry backoff wakes the sleep instead of waiting it out.
   private currentTurnCancellation?: TurnRetryCancellation;
+  /** The pi-durable run of the live turn, for the same Stop and watchdog paths. */
+  private currentPiRun?: { abort(): void };
+  /** This conversation's pi-durable harness, opened once per isolate. */
+  private piRuntime?: Promise<import("./pi-runtime.js").PiConversationRuntime>;
 
   private async finishPreCanceledTurn(
     turn: ChatTurnRequest,
@@ -4529,9 +4558,15 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       // The durable turn is claimed before the heavy loop implementation is
       // evaluated. Load it alongside read-only preparation on actual turns;
       // object wake, admission, status, and cancellation stay on the lean path.
-      const agentRuntimeWork = harnessExecution
-        ? loadRuntimeAgent()
-        : undefined;
+      // Stella-model turns of a conversation created on pi-durable run there
+      // (`runPiTurn`); other engines keep their own paths.
+      const piExecution =
+        harnessExecution?.engine === "stella" &&
+        (await this.ctx.storage.get<string>(AGENT_RUNTIME_KEY)) === "pi"
+          ? harnessExecution
+          : undefined;
+      const agentRuntimeWork =
+        harnessExecution && !piExecution ? loadRuntimeAgent() : undefined;
       void agentRuntimeWork?.catch(() => undefined);
       // Admission already bound the owner; this only re-asserts it and sets
       // the title on a turn that carried one.
@@ -4763,6 +4798,157 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         void modelGrantWork.catch(() => undefined);
         return await modelGrantWork;
       };
+      // The turn's one transport to the model gateway: owner fence, model
+      // grant and managed cancellation on every physical request.
+      const relayFetch = async (
+        input: RequestInfo | URL,
+        init?: RequestInit,
+      ): Promise<Response> => {
+        const request = new Request(input, init);
+        // Resolution contains no prompt and can overlap home loading.
+        if (new URL(request.url).pathname === GATEWAY_RESOLVE_PATH) {
+          return measurePreparation("modelResolutionTransportMs", () =>
+            modelGateway.fetch(request),
+          );
+        }
+        const execute = async (physicalRequest: Request) => {
+          const localGrant = await modelGrantForPhysicalRequest();
+          const activeGrant = localGrant
+            ? this.localOwnerModelGrants.begin(
+                localGrant.grant,
+                localGrant.expected,
+                physicalRequest.signal,
+              )
+            : undefined;
+          const guardedRequest = activeGrant
+            ? new Request(physicalRequest, {
+                signal: activeGrant.requestSignal,
+              })
+            : physicalRequest;
+          try {
+            // An eligible signed request goes straight to its owner
+            // DO; the DO retains every check.
+            const relayOwners =
+              executionSelection.engine === "stella" &&
+              turnCapability.claims.ledgerScope === "owner-relay-v2"
+                ? this.env.MODEL_GATEWAY_OWNERS
+                : undefined;
+            const guard = (requestToGuard: Request) =>
+              guardedModelFetch({
+                request: requestToGuard,
+                fetch: (value) =>
+                  relayOwners
+                    ? relayOwners
+                        .get(
+                          relayOwners.idFromName(
+                            turnCapability.claims.sub,
+                          ),
+                        )
+                        .fetch(value)
+                    : modelGateway.fetch(value),
+                mode: activeGrant
+                  ? "authorize-before-fetch"
+                  : "gate-body",
+                authorize: async () => {
+                  await assertExactTurnActive();
+                  const { memoryPreference } =
+                    await measuredHomePreparation;
+                  if (
+                    !turn.ownerPurgeGeneration ||
+                    !turn.ownerPurgeLeaseId
+                  ) {
+                    throw new OwnerPurgeFenceError();
+                  }
+                  assertTurnExecutionActive(
+                    turnCancellation,
+                    executionSignal,
+                  );
+                  if (activeGrant) activeGrant.assertValid();
+                  else {
+                    const policyStartedAt = performance.now();
+                    await requireCloudContext(
+                      "agent_home_memory",
+                      this.ownerGate(turn.ownerId).assertMemoryPolicy(
+                        memoryPreference,
+                        turn.ownerPurgeGeneration,
+                        turn.ownerPurgeLeaseId,
+                        turn.turnId,
+                      ),
+                    );
+                    log("info", "chat_model_dispatch_prepared", {
+                      turnId: turn.turnId,
+                      memoryRevalidationMs: Math.round(
+                        performance.now() - policyStartedAt,
+                      ),
+                    });
+                  }
+                  // Count physical requests after privacy validation, including
+                  // compaction and tool continuations, rather than Agent invocations.
+                  await this.noteDevAcceptanceProviderDispatch();
+                  assertTurnExecutionActive(
+                    turnCancellation,
+                    executionSignal,
+                  );
+                  // The dev counter is an asynchronous boundary. Freeze may
+                  // arrive while it is pending, so check the local grant again
+                  // at the last point before the request body is released.
+                  activeGrant?.assertValid();
+                },
+              });
+            const response =
+              executionSelection.engine === "stella"
+                ? await (() => {
+                    const control = this.env.MODEL_GATEWAY_CONTROL;
+                    if (!control)
+                      throw new Error(
+                        "Model gateway cancellation is not configured.",
+                      );
+                    return fetchWithManagedCancellation({
+                      request: guardedRequest,
+                      capability: turnCapability.token,
+                      control: control as ModelGatewayControl & Fetcher,
+                      waitUntil: (work) => this.ctx.waitUntil(work),
+                      fetch: guard,
+                    });
+                  })()
+                : await guard(guardedRequest);
+            if (!response.ok) {
+              subscriptionLimitNotice = nativeSubscriptionLimitNotice(
+                response.headers.get(GATEWAY_SUBSCRIPTION_LIMIT_HEADER),
+              );
+            }
+            return activeGrant
+              ? releaseOwnerModelGrantAfterBody(
+                  response,
+                  activeGrant.release,
+                )
+              : response;
+          } catch (error) {
+            activeGrant?.release();
+            throw error;
+          }
+        };
+        return execute(request);
+      };
+      if (piExecution) {
+        return await this.runPiTurn({
+          turn,
+          turnCancellation,
+          executionSignal,
+          resumeTurn,
+          started,
+          execution: piExecution,
+          capability: turnCapability.token,
+          relayFetch,
+          gatewayOrigin: modelGatewayOrigin,
+          homeWork: measuredHomePreparation,
+          canonicalPromptsWork,
+          destinationsWork,
+          measurePreparation,
+          preparationTimings,
+          assertExactTurnActive,
+        });
+      }
       // Only memory reads depend on memory policy. Model resolution and other
       // context can run alongside that chain; no provider call starts here.
       const preparationWork = Promise.all([
@@ -4785,133 +4971,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             agentType: "orchestrator",
             execution: executionSelection,
             signal: executionSignal,
-            fetch: async (input, init) => {
-              const request = new Request(input, init);
-              // Resolution contains no prompt and can overlap home loading.
-              if (new URL(request.url).pathname === GATEWAY_RESOLVE_PATH) {
-                return measurePreparation("modelResolutionTransportMs", () =>
-                  modelGateway.fetch(request),
-                );
-              }
-              const execute = async (physicalRequest: Request) => {
-                const localGrant = await modelGrantForPhysicalRequest();
-                const activeGrant = localGrant
-                  ? this.localOwnerModelGrants.begin(
-                      localGrant.grant,
-                      localGrant.expected,
-                      physicalRequest.signal,
-                    )
-                  : undefined;
-                const guardedRequest = activeGrant
-                  ? new Request(physicalRequest, {
-                      signal: activeGrant.requestSignal,
-                    })
-                  : physicalRequest;
-                try {
-                  // An eligible signed request goes straight to its owner
-                  // DO; the DO retains every check.
-                  const relayOwners =
-                    executionSelection.engine === "stella" &&
-                    turnCapability.claims.ledgerScope === "owner-relay-v2"
-                      ? this.env.MODEL_GATEWAY_OWNERS
-                      : undefined;
-                  const guard = (requestToGuard: Request) =>
-                    guardedModelFetch({
-                      request: requestToGuard,
-                      fetch: (value) =>
-                        relayOwners
-                          ? relayOwners
-                              .get(
-                                relayOwners.idFromName(
-                                  turnCapability.claims.sub,
-                                ),
-                              )
-                              .fetch(value)
-                          : modelGateway.fetch(value),
-                      mode: activeGrant
-                        ? "authorize-before-fetch"
-                        : "gate-body",
-                      authorize: async () => {
-                        await assertExactTurnActive();
-                        const { memoryPreference } =
-                          await measuredHomePreparation;
-                        if (
-                          !turn.ownerPurgeGeneration ||
-                          !turn.ownerPurgeLeaseId
-                        ) {
-                          throw new OwnerPurgeFenceError();
-                        }
-                        assertTurnExecutionActive(
-                          turnCancellation,
-                          executionSignal,
-                        );
-                        if (activeGrant) activeGrant.assertValid();
-                        else {
-                          const policyStartedAt = performance.now();
-                          await requireCloudContext(
-                            "agent_home_memory",
-                            this.ownerGate(turn.ownerId).assertMemoryPolicy(
-                              memoryPreference,
-                              turn.ownerPurgeGeneration,
-                              turn.ownerPurgeLeaseId,
-                              turn.turnId,
-                            ),
-                          );
-                          log("info", "chat_model_dispatch_prepared", {
-                            turnId: turn.turnId,
-                            memoryRevalidationMs: Math.round(
-                              performance.now() - policyStartedAt,
-                            ),
-                          });
-                        }
-                        // Count physical requests after privacy validation, including
-                        // compaction and tool continuations, rather than Agent invocations.
-                        await this.noteDevAcceptanceProviderDispatch();
-                        assertTurnExecutionActive(
-                          turnCancellation,
-                          executionSignal,
-                        );
-                        // The dev counter is an asynchronous boundary. Freeze may
-                        // arrive while it is pending, so check the local grant again
-                        // at the last point before the request body is released.
-                        activeGrant?.assertValid();
-                      },
-                    });
-                  const response =
-                    executionSelection.engine === "stella"
-                      ? await (() => {
-                          const control = this.env.MODEL_GATEWAY_CONTROL;
-                          if (!control)
-                            throw new Error(
-                              "Model gateway cancellation is not configured.",
-                            );
-                          return fetchWithManagedCancellation({
-                            request: guardedRequest,
-                            capability: turnCapability.token,
-                            control: control as ModelGatewayControl & Fetcher,
-                            waitUntil: (work) => this.ctx.waitUntil(work),
-                            fetch: guard,
-                          });
-                        })()
-                      : await guard(guardedRequest);
-                  if (!response.ok) {
-                    subscriptionLimitNotice = nativeSubscriptionLimitNotice(
-                      response.headers.get(GATEWAY_SUBSCRIPTION_LIMIT_HEADER),
-                    );
-                  }
-                  return activeGrant
-                    ? releaseOwnerModelGrantAfterBody(
-                        response,
-                        activeGrant.release,
-                      )
-                    : response;
-                } catch (error) {
-                  activeGrant?.release();
-                  throw error;
-                }
-              };
-              return execute(request);
-            },
+            fetch: relayFetch,
           }),
         ),
       ]);
@@ -5727,6 +5787,243 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
    * session), and the turn is dispatched once: a resumed turn that finds its
    * dispatch record waits for that exact attempt's terminal instead.
    */
+  /**
+   * A Stella-model turn of a conversation that runs on pi-durable. The turn
+   * plane around it is unchanged: admission, owner fence, the turn's model
+   * capability and guarded transport, watchdog, terminal delivery. pi owns
+   * the run: the prompt goes to its root conversation under the turn id, so
+   * a turn resumed after an eviction finds the same submission, and pi's
+   * committed messages are mirrored into the journal for `/history`, the
+   * socket and the existing clients.
+   */
+  private async runPiTurn(args: {
+    turn: ChatTurnRequest;
+    turnCancellation: TurnRetryCancellation;
+    executionSignal: AbortSignal;
+    resumeTurn: boolean;
+    started: number;
+    execution: Extract<CloudExecutionSelection, { engine: "stella" }>;
+    capability: string;
+    relayFetch: typeof fetch;
+    gatewayOrigin: string;
+    homeWork: ReturnType<OrchestratorSessionObject["prepareCloudHomeContext"]>;
+    canonicalPromptsWork: Promise<CanonicalPrompts>;
+    destinationsWork: Promise<DevicesResponse | null>;
+    measurePreparation: <T>(name: string, work: () => Promise<T>) => Promise<T>;
+    preparationTimings: Record<string, number>;
+    assertExactTurnActive: () => Promise<void>;
+  }): Promise<Response> {
+    const { turn, turnCancellation, executionSignal, assertExactTurnActive } =
+      args;
+    const [home, canonicalPrompts, destinations, pi] = await Promise.all([
+      args.homeWork,
+      args.canonicalPromptsWork,
+      args.destinationsWork,
+      import("./pi-runtime.js"),
+    ]);
+    await assertExactTurnActive();
+    const executionContext = cloudExecutionContext(turn, destinations);
+    const descriptor = resolveManagedModelDescriptor({
+      agentType: "orchestrator",
+      requestedModel: args.execution.model,
+      audience: turn.audience,
+    });
+    const binding: import("./pi-runtime.js").PiTurnBinding = {
+      turnId: turn.turnId,
+      capability: args.capability,
+      fetch: args.relayFetch,
+      model: {
+        agentType: "orchestrator",
+        alias: args.execution.model,
+        protocol: descriptor.protocol,
+        reasoning: descriptor.reasoning,
+        supportsImages: descriptor.supportsImages,
+        ...(descriptor.contextWindow !== undefined
+          ? { contextWindow: descriptor.contextWindow }
+          : {}),
+        ...(descriptor.maxOutputTokens !== undefined
+          ? { maxOutputTokens: descriptor.maxOutputTokens }
+          : {}),
+      },
+      thinkingLevel: pi.thinkingLevelFor(args.execution.reasoningEffort),
+      sources: {
+        orchestratorPrompt: canonicalPrompts.orchestratorBody,
+        personality:
+          home.personalityOverride ?? canonicalPrompts.personalityBody,
+        memory: pi.memoryFromDocuments(
+          home.memoryPreference.memoryEnabled,
+          home.memoryDocuments,
+        ),
+        skillsCatalog: buildCloudSkillsBlock(home.skillCatalog) || undefined,
+        executionContext,
+      },
+    };
+    const runtime = await this.openPiRuntime(args.gatewayOrigin);
+    const unbind = runtime.bind(binding);
+    const context = pi.contextFor(executionSignal);
+    let stream: Awaited<ReturnType<typeof runtime.follow>> | undefined;
+    let mirrored = (await this.ctx.storage.get<number>(PI_MIRRORED_KEY)) ?? 0;
+    try {
+      const report = await this.wakeReport(turn);
+      const promptKey = `turn:${turn.turnId}:prompt`;
+      const promptSeq =
+        args.resumeTurn && this.journal.hasRow(promptKey)
+          ? this.journal.selectTurnMessages(turn.turnId).rows[0]?.seq
+          : await this.journalCliPrompt(turn, executionContext, report, "pi");
+      if (promptSeq === undefined) {
+        throw new ChatTurnNotResumableError("prompt_row");
+      }
+      this.live = {
+        turnId: turn.turnId,
+        streamId: null,
+        partialText: "",
+        tools: [],
+      };
+      void this.index
+        .flush({ activity: "running", updatedAt: Date.now() })
+        .catch(() => undefined);
+      await runtime.configureRoot(binding, context);
+      stream = await runtime.follow(
+        mirrored,
+        (entry) => {
+          mirrored = Math.max(mirrored, entry.id);
+          if (entry.kind !== "pi.assistant" && entry.kind !== "pi.tool-result")
+            return;
+          const message = entry.model?.[0];
+          if (!message) return;
+          const appended = this.appendProduced(
+            turn,
+            message as unknown as AgentMessage,
+            {
+              writer: "orchestrator",
+              writerKey: `pi:${entry.id}`,
+              streamId: null,
+            },
+          );
+          if (appended) this.publish(appended.record);
+        },
+        context,
+      );
+      await assertExactTurnActive();
+      const { root } = await runtime.open();
+      const clock = new Date().toISOString();
+      const text = turn.hiddenMessage
+        ? report.prompt
+        : `${report.prompt.replace(/\s+$/u, "")}\n\n${formatMessageRefTag(promptSeq)}`;
+      const submission = await root.submit(
+        {
+          type: "input",
+          requestId: `turn:${turn.turnId}`,
+          whenBusy: "followUp",
+          content: [
+            { type: "text", text: `<current-time>${clock}</current-time>` },
+            { type: "text", text },
+            ...(turn.attachments?.length
+              ? [
+                  {
+                    type: "text" as const,
+                    text: attachedFilesText(turn.attachments, {
+                      readableHere: true,
+                    }),
+                  },
+                ]
+              : []),
+          ],
+        },
+        context,
+      );
+      log("info", "pi_turn_submitted", {
+        turnId: turn.turnId,
+        conversationId: turn.conversationId,
+        submissionId: submission.id,
+        resumed: args.resumeTurn,
+        preparationMs: Math.round(performance.now() - args.started),
+        ...args.preparationTimings,
+      });
+      this.currentPiRun = {
+        abort: () => {
+          void root.abort(pi.contextFor()).catch((error: unknown) => {
+            log("error", "pi_turn_abort_failed", {
+              turnId: turn.turnId,
+              message: errorMessage(error),
+            });
+          });
+        },
+      };
+      if (executionSignal.aborted || turnCancellation.aborted) {
+        this.currentPiRun.abort();
+      }
+      let settled: Awaited<ReturnType<typeof submission.wait>>;
+      try {
+        settled = await submission.wait(context);
+      } catch (error) {
+        if (
+          turnCancellation.aborted ||
+          executionSignal.aborted ||
+          (await this.getTurnState<boolean>("terminal"))
+        ) {
+          // Stop or the watchdog wrote the terminal; pi was aborted with it.
+          this.currentPiRun?.abort();
+          await this.afterTerminal(turn);
+          return json({ ok: false, canceled: true });
+        }
+        throw error;
+      }
+      if (await this.getTurnState<boolean>("terminal")) {
+        await this.afterTerminal(turn);
+        return json({ ok: false, canceled: true });
+      }
+      if (settled.status !== "done") {
+        throw new Error(
+          `Stella could not answer this turn (${settled.reason}).`,
+        );
+      }
+      const finalText = (await runtime.answer(settled, context)).trim();
+      log("info", "pi_turn_answered", {
+        turnId: turn.turnId,
+        conversationId: turn.conversationId,
+        wallClockMs: Math.round(performance.now() - args.started),
+      });
+      return await this.completeChatTurn(turn, finalText, args.started);
+    } finally {
+      this.currentPiRun = undefined;
+      unbind();
+      await stream?.stop().catch(() => undefined);
+      await this.ctx.storage.put(PI_MIRRORED_KEY, mirrored).catch(() => undefined);
+    }
+  }
+
+  /** This conversation's pi-durable harness, opened once per isolate. */
+  private async openPiRuntime(
+    gatewayOrigin: string,
+  ): Promise<import("./pi-runtime.js").PiConversationRuntime> {
+    this.piRuntime ??= import("./pi-runtime.js").then(
+      ({ PiConversationRuntime }) =>
+        new PiConversationRuntime({
+          storage: this.ctx.storage,
+          gatewayOrigin,
+          report: (error) =>
+            log("error", "pi_runtime_report", { message: errorMessage(error) }),
+        }),
+    );
+    const runtime = await this.piRuntime;
+    await runtime.open();
+    return runtime;
+  }
+
+  /**
+   * Abort what pi is running for this conversation when no live turn here
+   * holds the run: a watchdog firing in an isolate that never resumed it.
+   */
+  private async abortPiConversation(): Promise<void> {
+    if ((await this.ctx.storage.get<string>(AGENT_RUNTIME_KEY)) !== "pi") return;
+    const gatewayOrigin = this.env.MODEL_GATEWAY_URL?.trim() ?? "";
+    const runtime = await this.openPiRuntime(gatewayOrigin);
+    const { root } = await runtime.open();
+    const { contextFor } = await import("./pi-runtime.js");
+    await root.abort(contextFor());
+  }
+
   private async runCliTurn(args: {
     turn: ChatTurnRequest;
     turnCancellation: TurnRetryCancellation;
@@ -6051,6 +6348,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     turn: ChatTurnRequest,
     executionContext: ExecutionContextSnapshot,
     report: WakeReport,
+    engine: "claude-code" | "pi" = "claude-code",
   ): Promise<number> {
     const now = Date.now();
     const durablePrompt = {
@@ -6063,7 +6361,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         : {}),
       providerContext: {
         version: 2,
-        epoch: `claude-code:${turn.turnId}`,
+        epoch: `${engine}:${turn.turnId}`,
         prepend: [],
         clock: new Date(now).toISOString(),
         ...(turn.attachments?.length
@@ -7454,6 +7752,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         this.live ||
         this.activeTurnId ||
         this.currentAgent ||
+        this.currentPiRun ||
         this.currentTurnCancellation ||
         this.journal.inboxSize().rows > 0,
     );

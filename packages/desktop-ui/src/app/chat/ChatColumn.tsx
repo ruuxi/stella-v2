@@ -412,7 +412,13 @@ export const ChatColumn = memo(function ChatColumn({
             strip — instead of sitting at the inside edge of the
             centered chat column. */}
           <div className="chat-viewport-region">
-            <div style={{ height: "100%" }} inert={Boolean(focus) || undefined}>
+            <div
+              style={{
+                height: "100%",
+                visibility: scroll.isOpeningScroll ? "hidden" : undefined,
+              }}
+              inert={Boolean(focus) || undefined}
+            >
               <MessageReplyContext.Provider value={handleReplyToMessage}>
                 <ConversationEvents
                   messages={messages}

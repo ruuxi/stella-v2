@@ -56,13 +56,20 @@ export type StellaModelSpec = {
   name?: string;
 };
 
+/** Which conversation a request belongs to: pi-durable passes its provider session id. */
+export type StellaRequestRoute = { sessionId?: string };
+
 export type StellaGatewayAccess = {
   /** `<gateway origin>/v1/relay`. */
   relayBaseUrl: string;
   /** The capability pi-ai sends as `Authorization: Bearer`. */
   capability(signal: AbortSignal): Promise<string>;
-  /** One relay request; adds the host's proof headers. */
-  fetch: typeof fetch;
+  /**
+   * One relay request; adds the host's proof headers. A host that bills
+   * conversations separately (the cloud: each agent run is admitted on its
+   * own) picks the conversation's capability by `route`.
+   */
+  fetch(input: string | URL | Request, init?: RequestInit, route?: StellaRequestRoute): Promise<Response>;
 };
 
 export const stellaModelId = (agentType: StellaAgentType, alias: string): string => `${agentType}:${alias}`;
@@ -118,11 +125,11 @@ const protocolForPath = (pathname: string): string | undefined => {
  * JSON request with the bare alias and the agent type header, and its JSON
  * answer comes back as SSE.
  */
-export function managedRelayFetch(host: typeof fetch): typeof fetch {
-  const relay = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+export function managedRelayFetch(host: StellaGatewayAccess["fetch"]) {
+  return async (input: string | URL | Request, init?: RequestInit, route?: StellaRequestRoute): Promise<Response> => {
     const request = input instanceof Request ? new Request(input, init) : new Request(String(input), init);
     const protocol = protocolForPath(new URL(request.url).pathname);
-    if (request.method !== "POST" || protocol === undefined) return host(request);
+    if (request.method !== "POST" || protocol === undefined) return host(request, undefined, route);
     const body = (await request.json()) as Record<string, unknown>;
     const headers = new Headers(request.headers);
     const streamed = body.stream === true;
@@ -137,15 +144,20 @@ export function managedRelayFetch(host: typeof fetch): typeof fetch {
         headers.set(GATEWAY_AGENT_TYPE_HEADER, parsed.agentType);
       }
     }
+    // The Anthropic adapter sends its key as `x-api-key`; the gateway reads only the bearer.
+    const apiKey = headers.get("x-api-key");
+    if (apiKey !== null) {
+      if (!headers.has("authorization")) headers.set("authorization", `Bearer ${apiKey}`);
+      headers.delete("x-api-key");
+    }
     if (!headers.has(GATEWAY_REQUEST_ID_HEADER)) headers.set(GATEWAY_REQUEST_ID_HEADER, crypto.randomUUID());
     headers.set("content-type", "application/json");
     headers.delete("content-length");
-    const response = await host(request.url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      signal: request.signal,
-    });
+    const response = await host(
+      request.url,
+      { method: "POST", headers, body: JSON.stringify(body), signal: request.signal },
+      route,
+    );
     if (!streamed || !response.ok) return response;
     const convert = toSse[protocol]!;
     const text = convert(await response.json());
@@ -155,12 +167,18 @@ export function managedRelayFetch(host: typeof fetch): typeof fetch {
     replayHeaders.delete("content-encoding");
     return new Response(text, { status: 200, statusText: "OK", headers: replayHeaders });
   };
-  return relay as typeof fetch;
 }
 
-const withFetch = (streams: ProviderStreams, relay: typeof globalThis.fetch): ProviderStreams => ({
-  stream: (model, context, options) => streams.stream(model, context, { ...options, fetch: relay }),
-  streamSimple: (model, context, options) => streams.streamSimple(model, context, { ...options, fetch: relay }),
+type RelayFetch = ReturnType<typeof managedRelayFetch>;
+
+/** The adapter's fetch, bound to the request's conversation. */
+const routed = (relay: RelayFetch, sessionId: string | undefined): typeof fetch =>
+  ((input: string | URL | Request, init?: RequestInit) => relay(input, init, { ...(sessionId ? { sessionId } : {}) })) as typeof fetch;
+
+const withFetch = (streams: ProviderStreams, relay: RelayFetch): ProviderStreams => ({
+  stream: (model, context, options) => streams.stream(model, context, { ...options, fetch: routed(relay, options?.sessionId) }),
+  streamSimple: (model, context, options) =>
+    streams.streamSimple(model, context, { ...options, fetch: routed(relay, options?.sessionId) }),
 });
 
 export type StellaProviderOptions = {

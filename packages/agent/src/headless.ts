@@ -16,7 +16,8 @@ import { parseArgs } from "node:util";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { AssistantEntry, watchEvents, type Conversation, type Harness, type SubmissionRecord } from "@earendil-works/pi-durable";
-import { openStellaHarness, stellaModelRef } from "./harness.ts";
+import { openStellaHarness, orchestratorAgent, stellaModelRef } from "./harness.ts";
+import { desktopAgentsHost, desktopEnvironments } from "./host/desktop-agents.ts";
 import { desktopContextSources } from "./host/desktop-sources.ts";
 import { desktopGatewayAccess, resolveStellaModels } from "./host/desktop-gateway.ts";
 import { stellaProvider } from "./provider/stella.ts";
@@ -35,6 +36,7 @@ const { values } = parseArgs({
     prompt: { type: "string" },
     "request-id": { type: "string" },
     resume: { type: "boolean", default: false },
+    workspace: { type: "string" },
     timeout: { type: "string", default: "600" },
   },
 });
@@ -111,7 +113,10 @@ async function main() {
   models.setProvider(stellaProvider({ access, models: specs }));
 
   const database = path.join(dataDir!, "agent", `${values.conversation}.sqlite`);
+  const workspace = path.resolve(values.workspace ?? path.join(dataDir!, "workspace"));
+  await mkdir(workspace, { recursive: true });
   const storage = await openBunSqliteStorage(database);
+  const environments = desktopEnvironments(workspace);
   const { harness } = await openStellaHarness(
     {
       storage,
@@ -121,10 +126,12 @@ async function main() {
         backendUrl,
         destination: { kind: "device", deviceId: "headless", label: "This computer (headless)" },
       }),
+      agents: desktopAgentsHost({ deviceId: "headless" }),
+      env: environments.env,
     },
     context,
   );
-  const root = await harness.root(context, { agent: { model: stellaModelRef("orchestrator") } });
+  const root = await harness.root(context, { agent: orchestratorAgent(stellaModelRef("orchestrator")) });
   out({ kind: "start", pid: process.pid, database, conversationId: root.id });
 
   const events = await watchEvents(harness, root.id, context);
@@ -173,11 +180,30 @@ async function main() {
         : { kind: "unanswered", submissionId: record.id, requestId: record.requestId, reason: settled.status === "unanswered" ? settled.reason : undefined },
     );
   }
-  await root.waitForIdle(context);
+  // Agents work in the background and report back as new orchestrator runs;
+  // wait until nothing at all is left running.
+  for (;;) {
+    await root.waitForIdle(context);
+    const live = (await harness.inspect(context)).tasks;
+    if (live.length === 0) break;
+    if (deadline.aborted) throw new Error("timed out waiting for background work");
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
   const view = await root.context(context);
-  out({ kind: "transcript", entries: view.entries.map((entry) => ({ id: entry.id, kind: entry.kind })) });
+  out({
+    kind: "transcript",
+    entries: view.entries.map((entry) => {
+      const message = entry.model?.[0];
+      const text =
+        message?.role === "assistant" || message?.role === "user" || message?.role === "toolResult"
+          ? (typeof message.content === "string" ? message.content : message.content.map((part) => ("text" in part ? part.text : part.type === "toolCall" ? `[call ${part.name}]` : "")).join(""))
+          : undefined;
+      return { id: entry.id, kind: entry.kind, ...(text ? { text: text.slice(0, 400) } : {}) };
+    }),
+  });
   await events.stop();
   await harness.close(context);
+  await environments.cleanup(context);
 }
 
 await main();

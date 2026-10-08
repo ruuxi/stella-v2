@@ -16,6 +16,8 @@ import {
   type Storage,
 } from "@earendil-works/pi-durable";
 import { STELLA_PROVIDER_ID, stellaModelId } from "./provider/stella.ts";
+import { stellaAgentsExtension, type StellaAgentsHost } from "./stella/agents.ts";
+import { StellaCoding } from "./stella/coding.ts";
 import type { StellaContextSources } from "./stella/context.ts";
 import { stellaPromptExtension } from "./stella/prompt-extension.ts";
 
@@ -40,11 +42,19 @@ export const stellaHarnessSettings = (overrides: Partial<HarnessSettings> = {}):
   ...overrides,
 });
 
+/** What the orchestrator runs with: everything but an agent's file and shell tools. */
+export const orchestratorAgent = (model: ModelRef) => ({
+  model,
+  tools: { remove: StellaCoding.tools ?? [] },
+});
+
 export type StellaHarnessOptions = {
   storage: Storage;
   models: Models;
   sources: StellaContextSources;
-  /** Tool and agent extensions the host offers, after the prompt extension. */
+  /** Agents: where they may run and how their runs are admitted. */
+  agents: StellaAgentsHost;
+  /** Further extensions the host offers, after Stella's own. */
   extensions?: readonly Extension[];
   env?: HarnessOptions["env"];
   settings?: HarnessSettings;
@@ -56,6 +66,8 @@ export type OpenStellaHarness = { harness: Harness; registry: Registry };
 export async function openStellaHarness(options: StellaHarnessOptions, context: Context): Promise<OpenStellaHarness> {
   const registry = createRegistry();
   registry.install(stellaPromptExtension(options.sources));
+  registry.install(stellaAgentsExtension(options.agents));
+  registry.install(StellaCoding);
   for (const extension of options.extensions ?? []) registry.install(extension);
   const harness = await Harness.open(
     options.storage,

@@ -1151,6 +1151,17 @@
         "signInToPair": "ลงชื่อเข้าใช้เพื่อจับคู่",
         "title": "คอมพิวเตอร์ของคุณ อยู่ในกระเป๋า"
       },
+      "gmail": {
+        "body": "ค้นหาอีเมล ตามอ่านเธรด และร่างคำตอบ แค่บอกมา",
+        "connect": "เชื่อมต่อ Gmail",
+        "connected": "เชื่อมต่อแล้ว",
+        "error": "เชื่อมต่อ Gmail ไม่สำเร็จ ลองอีกครั้ง หรือข้ามไปก่อน",
+        "settledSkippedTitle": "ยังไม่ใช้ Gmail",
+        "settledTitle": "เชื่อมต่อ Gmail แล้ว",
+        "skip": "ไว้ทีหลัง",
+        "title": "เชื่อมต่อ Gmail",
+        "waiting": "กำลังรอ Google…"
+      },
       "hello": {
         "cta": "ขอดูหน่อย",
         "pillars": {
@@ -1173,6 +1184,7 @@
         "account": "อยากเก็บทั้งหมดนี้ไว้ไหม บัญชี Stella จะตามคุณไปทุกอุปกรณ์",
         "accountSignedIn": "คุณเข้าสู่ระบบแล้ว ทุกอย่างจึงตามคุณไปทุกอุปกรณ์ และมีอีกอย่างที่เลือกได้:",
         "computer": "ถ้าคุณมี Mac หรือ PC ฉันก็ทำงานบนเครื่องนั้นได้เหมือนกัน",
+        "gmail": "ชีวิตหลายอย่างผ่านทางอีเมล เชื่อมต่อ Gmail แล้วฉันจะช่วยจัดการอีเมลของคุณ",
         "hello": "สวัสดี ฉันคือ Stella\n\nฉันไม่ใช่แชทบอต บอกมาว่าคุณต้องการอะไร แล้วฉันจะจัดการให้เสร็จเบื้องหลัง ระหว่างที่คุณใช้วันของคุณไปตามปกติ",
         "ready": "เสร็จแล้ว ฉันจะค่อย ๆ ทำความรู้จักคุณไปเรื่อย ๆ\n\nเราเริ่มจากอะไรดี",
         "showcase": "ลองดูว่าเป็นอย่างไร",
@@ -1206,6 +1218,8 @@
         "accountSkipped": "ข้ามไปก่อน",
         "computerDone": "เชื่อมต่อแล้ว!",
         "computerSkipped": "ไว้ทีหลัง",
+        "gmailDone": "เรียบร้อย",
+        "gmailSkipped": "ไว้ทีหลัง",
         "helloDone": "ขอดูหน่อย",
         "showcaseDone": "เข้าใจแล้ว",
         "themeDone": "แบบนี้แหละ",
@@ -1536,6 +1550,18 @@
         "title": "Two quick extras",
         "titleOne": "One quick extra"
       },
+      "gmail": {
+        "body": "ค้นหาอีเมล ตามอ่านเธรด และร่างคำตอบ แค่บอกมา",
+        "connect": "เชื่อมต่อ Gmail",
+        "connected": "เชื่อมต่อแล้ว",
+        "connecting": "กำลังรอ Google…",
+        "error": "เชื่อมต่อ Gmail ไม่สำเร็จ ลองอีกครั้ง หรือข้ามไปก่อน",
+        "settledDesc": "จัดการได้ทุกเมื่อในตัวเชื่อมต่อ",
+        "settledSkippedTitle": "ยังไม่ใช้ Gmail",
+        "settledTitle": "เชื่อมต่อ Gmail แล้ว",
+        "skip": "ไว้ทีหลัง",
+        "title": "Gmail"
+      },
       "memory": {
         "bodyChatbot": "A new chat every time, a sidebar full of old ones, and no memory of what you said last week.",
         "bodyStella": "No new chats, no threads. Everything you've ever told me is in the same place, so when you ask about last week I go and find it.",
@@ -1549,6 +1575,7 @@
       "messages": {
         "capabilities": "สวัสดี ฉันคือ Stella\n\nฉันไม่ใช่แชตบอต ฉันใช้คอมพิวเตอร์เครื่องนี้ลงมือทำงานให้คุณจริง ๆ อยู่เบื้องหลัง ขณะที่คุณทำสิ่งของคุณต่อไป\n\nลองดูว่าเป็นอย่างไร",
         "extras": "Almost done. A little housekeeping, then we start.",
+        "gmail": "ชีวิตหลายอย่างผ่านทางอีเมล เชื่อมต่อ Gmail แล้วฉันจะช่วยจัดการอีเมลของคุณ",
         "memory": "One more thing that makes me different.",
         "quickstart": "เรียบร้อยแล้ว เหลืออีกอย่างเดียว และเป็นตัวเลือก: การเริ่มต้นด่วน",
         "quickstartDone": "เสร็จแล้ว นี่คือสิ่งที่ฉันได้เรียนรู้ และสิ่งที่เราเริ่มทำด้วยกันได้",
@@ -1607,6 +1634,8 @@
         "capabilitiesSkipped": "Skip the tour.",
         "extrasDone": "Done.",
         "extrasSkipped": "Skip for now.",
+        "gmailDone": "เรียบร้อย",
+        "gmailSkipped": "ไว้ทีหลัง",
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "เจ๋งมาก",

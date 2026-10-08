@@ -1161,6 +1161,17 @@
         "signInToPair": "Eşlemek için giriş yapın",
         "title": "Bilgisayarınız, cebinizde"
       },
+      "gmail": {
+        "body": "E-postaları bul, yazışmalara yetiş ve yanıt taslakları hazırla, sadece iste.",
+        "connect": "Gmail'i bağla",
+        "connected": "Bağlandı",
+        "error": "Gmail bağlanamadı. Tekrar dene veya şimdilik atla.",
+        "settledSkippedTitle": "Şimdilik Gmail yok",
+        "settledTitle": "Gmail bağlandı",
+        "skip": "Şimdi değil",
+        "title": "Gmail'i bağla",
+        "waiting": "Google bekleniyor…"
+      },
       "hello": {
         "cta": "Göster",
         "pillars": {
@@ -1183,6 +1194,7 @@
         "account": "Bunların hepsini saklamak ister misiniz? Bir Stella hesabı sizinle her cihaza gelir.",
         "accountSignedIn": "Giriş yaptınız, yani her şey cihazlar arasında sizinle birlikte. İsteğe bağlı bir ekstra daha:",
         "computer": "Bir Mac'iniz ya da PC'niz varsa onda da çalışabilirim.",
+        "gmail": "Hayatın büyük kısmı e-postadan geçiyor. Gmail'i bağla, sana yardım edeyim.",
         "hello": "Merhaba, ben Stella.\n\nSohbet botu değilim. Neye ihtiyacınız olduğunu söyleyin, siz gününüze devam ederken ben arka planda hallederim.",
         "ready": "Hepsi bu. Zamanla sizi tanıyacağım.\n\nİlk olarak ne yapalım?",
         "showcase": "İşte nasıl göründüğü.",
@@ -1216,6 +1228,8 @@
         "accountSkipped": "Şimdilik geç.",
         "computerDone": "Bağlandı!",
         "computerSkipped": "Belki sonra.",
+        "gmailDone": "Tamam.",
+        "gmailSkipped": "Şimdi değil.",
         "helloDone": "Göster.",
         "showcaseDone": "Anladım.",
         "themeDone": "Bu olsun.",
@@ -1546,6 +1560,18 @@
         "title": "Two quick extras",
         "titleOne": "One quick extra"
       },
+      "gmail": {
+        "body": "E-postaları bul, yazışmalara yetiş ve yanıt taslakları hazırla, sadece iste.",
+        "connect": "Gmail'i bağla",
+        "connected": "Bağlandı",
+        "connecting": "Google bekleniyor…",
+        "error": "Gmail bağlanamadı. Tekrar dene veya şimdilik atla.",
+        "settledDesc": "İstediğin zaman Bağlayıcılar bölümünden yönet.",
+        "settledSkippedTitle": "Şimdilik Gmail yok",
+        "settledTitle": "Gmail bağlandı",
+        "skip": "Şimdi değil",
+        "title": "Gmail"
+      },
       "memory": {
         "bodyChatbot": "A new chat every time, a sidebar full of old ones, and no memory of what you said last week.",
         "bodyStella": "No new chats, no threads. Everything you've ever told me is in the same place, so when you ask about last week I go and find it.",
@@ -1559,6 +1585,7 @@
       "messages": {
         "capabilities": "Merhaba, ben Stella.\n\nBen bir sohbet botu değilim. Bu bilgisayarı kullanarak senin için işleri gerçekten hallederim, sen kendi işine devam ederken arka planda.\n\nİşte nasıl göründüğü.",
         "extras": "Almost done. A little housekeeping, then we start.",
+        "gmail": "Hayatın büyük kısmı e-postadan geçiyor. Gmail'i bağla, sana yardım edeyim.",
         "memory": "One more thing that makes me different.",
         "quickstart": "Hepsi bu kadar. Son bir şey var, o da isteğe bağlı: hızlı başlangıç.",
         "quickstartDone": "Tamam. İşte öğrendiklerim ve birlikte başlayabileceğimiz birkaç şey.",
@@ -1617,6 +1644,8 @@
         "capabilitiesSkipped": "Skip the tour.",
         "extrasDone": "Done.",
         "extrasSkipped": "Skip for now.",
+        "gmailDone": "Tamam.",
+        "gmailSkipped": "Şimdi değil.",
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Çok güzel.",

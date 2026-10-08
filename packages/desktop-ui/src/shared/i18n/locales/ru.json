@@ -1181,6 +1181,17 @@
         "signInToPair": "Войдите, чтобы подключить",
         "title": "Ваш компьютер, прямо из кармана"
       },
+      "gmail": {
+        "body": "Находите письма, догоняйте переписки и готовьте черновики ответов, просто попросив.",
+        "connect": "Подключить Gmail",
+        "connected": "Подключено",
+        "error": "Не удалось подключить Gmail. Попробуйте ещё раз или пропустите пока.",
+        "settledSkippedTitle": "Пока без Gmail",
+        "settledTitle": "Gmail подключён",
+        "skip": "Не сейчас",
+        "title": "Подключить Gmail",
+        "waiting": "Ждём Google…"
+      },
       "hello": {
         "cta": "Показать",
         "pillars": {
@@ -1203,6 +1214,7 @@
         "account": "Хотите сохранить всё это? Аккаунт Stella следует за вами на любое устройство.",
         "accountSignedIn": "Вы вошли, так что всё следует за вами между устройствами. Ещё один необязательный штрих:",
         "computer": "Если у вас есть Mac или PC, я могу работать и на нём.",
+        "gmail": "Большая часть жизни проходит через почту. Подключите Gmail, и я помогу с вашей.",
         "hello": "Привет, я Stella.\n\nЯ не чат-бот. Скажите, что вам нужно, и я всё сделаю в фоновом режиме, пока вы занимаетесь своими делами.",
         "ready": "Вот и всё. Я буду узнавать вас по ходу дела.\n\nС чего начнём?",
         "showcase": "Вот как это выглядит.",
@@ -1236,6 +1248,8 @@
         "accountSkipped": "Пока пропустить.",
         "computerDone": "Подключено!",
         "computerSkipped": "Может, позже.",
+        "gmailDone": "Готово.",
+        "gmailSkipped": "Не сейчас.",
         "helloDone": "Покажи.",
         "showcaseDone": "Понятно.",
         "themeDone": "Вот эта.",
@@ -1566,6 +1580,18 @@
         "title": "Two quick extras",
         "titleOne": "One quick extra"
       },
+      "gmail": {
+        "body": "Находите письма, догоняйте переписки и готовьте черновики ответов, просто попросив.",
+        "connect": "Подключить Gmail",
+        "connected": "Подключено",
+        "connecting": "Ждём Google…",
+        "error": "Не удалось подключить Gmail. Попробуйте ещё раз или пропустите пока.",
+        "settledDesc": "Управлять можно в любое время в разделе «Коннекторы».",
+        "settledSkippedTitle": "Пока без Gmail",
+        "settledTitle": "Gmail подключён",
+        "skip": "Не сейчас",
+        "title": "Gmail"
+      },
       "memory": {
         "bodyChatbot": "A new chat every time, a sidebar full of old ones, and no memory of what you said last week.",
         "bodyStella": "No new chats, no threads. Everything you've ever told me is in the same place, so when you ask about last week I go and find it.",
@@ -1579,6 +1605,7 @@
       "messages": {
         "capabilities": "Привет, я Stella.\n\nЯ не чат-бот. Я использую этот компьютер, чтобы на самом деле делать дела за вас, в фоновом режиме, пока вы занимаетесь своими.\n\nВот как это выглядит.",
         "extras": "Almost done. A little housekeeping, then we start.",
+        "gmail": "Большая часть жизни проходит через почту. Подключите Gmail, и я помогу с вашей.",
         "memory": "One more thing that makes me different.",
         "quickstart": "Это всё. Остался один шаг, необязательный: быстрый старт.",
         "quickstartDone": "Готово. Вот что я узнала, и несколько дел, с которых можно начать.",
@@ -1637,6 +1664,8 @@
         "capabilitiesSkipped": "Skip the tour.",
         "extrasDone": "Done.",
         "extrasSkipped": "Skip for now.",
+        "gmailDone": "Готово.",
+        "gmailSkipped": "Не сейчас.",
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Очень круто.",

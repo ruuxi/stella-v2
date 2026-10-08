@@ -1181,6 +1181,17 @@
         "signInToPair": "Přihlásit se a spárovat",
         "title": "Váš počítač z kapsy"
       },
+      "gmail": {
+        "body": "Najdi e-maily, dožeň konverzace a nech si napsat odpovědi, stačí říct.",
+        "connect": "Připojit Gmail",
+        "connected": "Připojeno",
+        "error": "Gmail se nepodařilo připojit. Zkus to znovu, nebo to zatím přeskoč.",
+        "settledSkippedTitle": "Zatím bez Gmailu",
+        "settledTitle": "Gmail připojen",
+        "skip": "Teď ne",
+        "title": "Připojit Gmail",
+        "waiting": "Čekám na Google…"
+      },
       "hello": {
         "cta": "Ukaž mi to",
         "pillars": {
@@ -1203,6 +1214,7 @@
         "account": "Chcete si to všechno zachovat? Účet Stella vás doprovází na každém zařízení.",
         "accountSignedIn": "Jste přihlášeni, takže vás vše provází mezi zařízeními. Jedna volitelná věc navíc:",
         "computer": "Pokud máte Mac nebo PC, můžu pracovat i na něm.",
+        "gmail": "Spousta života se odehrává v e-mailu. Připoj Gmail a pomůžu ti s ním.",
         "hello": "Dobrý den, jsem Stella.\n\nNejsem chatbot. Řekněte mi, co potřebujete, a já to zařídím, na pozadí, zatímco se věnujete svému dni.",
         "ready": "To je vše. Poznám vás postupně.\n\nCo uděláme jako první?",
         "showcase": "Takhle to vypadá.",
@@ -1236,6 +1248,8 @@
         "accountSkipped": "Zatím přeskočit.",
         "computerDone": "Připojeno!",
         "computerSkipped": "Možná později.",
+        "gmailDone": "Hotovo.",
+        "gmailSkipped": "Teď ne.",
         "helloDone": "Ukaž mi to.",
         "showcaseDone": "Rozumím.",
         "themeDone": "Tenhle.",
@@ -1566,6 +1580,18 @@
         "title": "Two quick extras",
         "titleOne": "One quick extra"
       },
+      "gmail": {
+        "body": "Najdi e-maily, dožeň konverzace a nech si napsat odpovědi, stačí říct.",
+        "connect": "Připojit Gmail",
+        "connected": "Připojeno",
+        "connecting": "Čekám na Google…",
+        "error": "Gmail se nepodařilo připojit. Zkus to znovu, nebo to zatím přeskoč.",
+        "settledDesc": "Spravovat ho můžeš kdykoli v sekci Konektory.",
+        "settledSkippedTitle": "Zatím bez Gmailu",
+        "settledTitle": "Gmail připojen",
+        "skip": "Teď ne",
+        "title": "Gmail"
+      },
       "memory": {
         "bodyChatbot": "A new chat every time, a sidebar full of old ones, and no memory of what you said last week.",
         "bodyStella": "No new chats, no threads. Everything you've ever told me is in the same place, so when you ask about last week I go and find it.",
@@ -1579,6 +1605,7 @@
       "messages": {
         "capabilities": "Ahoj, jsem Stella.\n\nNejsem chatbot. Používám tento počítač, abych za tebe skutečně dělala věci, na pozadí, zatímco ty pokračuješ ve svém.\n\nTakhle to vypadá.",
         "extras": "Almost done. A little housekeeping, then we start.",
+        "gmail": "Spousta života se odehrává v e-mailu. Připoj Gmail a pomůžu ti s ním.",
         "memory": "One more thing that makes me different.",
         "quickstart": "To je všechno. Ještě jedna věc, a je nepovinná: rychlý start.",
         "quickstartDone": "Hotovo. Tohle jsem se dozvěděla a tady je pár věcí, kterými bychom mohli začít.",
@@ -1637,6 +1664,8 @@
         "capabilitiesSkipped": "Skip the tour.",
         "extrasDone": "Done.",
         "extrasSkipped": "Skip for now.",
+        "gmailDone": "Hotovo.",
+        "gmailSkipped": "Teď ne.",
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Moc pěkné.",

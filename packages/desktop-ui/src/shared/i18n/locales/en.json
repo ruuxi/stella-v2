@@ -622,7 +622,7 @@
       "confirmBody": "Stella will ask you to sign in again next time.",
       "confirmTitle": "Sign out of all sites?",
       "defaultProfile": "Saved sign-ins",
-      "description": "Sites Stella has signed in to for you. Reset to sign out of all of them.",
+      "description": "Sites Stella has signed in to for you.",
       "reset": "Reset",
       "resetComplete": "Signed out of all sites.",
       "resetFailed": "Couldn't sign out. Try again.",
@@ -1161,6 +1161,17 @@
         "signInToPair": "Sign in to pair",
         "title": "Your computer, from your pocket"
       },
+      "gmail": {
+        "body": "Find emails, catch up on threads, and draft replies, just by asking.",
+        "connect": "Connect Gmail",
+        "connected": "Connected",
+        "error": "Couldn't connect Gmail. Try again, or skip for now.",
+        "settledSkippedTitle": "No Gmail for now",
+        "settledTitle": "Gmail connected",
+        "skip": "Not now",
+        "title": "Connect Gmail",
+        "waiting": "Waiting for Google…"
+      },
       "hello": {
         "cta": "Show me",
         "pillars": {
@@ -1183,6 +1194,7 @@
         "account": "Want to keep all of this? A Stella account follows you to every device.",
         "accountSignedIn": "You're signed in, so everything follows you between devices. One optional extra:",
         "computer": "If you have a Mac or PC, I can work on it too.",
+        "gmail": "So much of life runs through email. Connect Gmail and I can help with yours.",
         "hello": "Hi, I'm Stella.\n\nI'm not a chatbot. Tell me what you need and I get it done, in the background, while you get on with your day.",
         "ready": "That's it. I'll get to know you as we go.\n\nWhat should we do first?",
         "showcase": "Here's what that looks like.",
@@ -1216,6 +1228,8 @@
         "accountSkipped": "Skip for now.",
         "computerDone": "Connected!",
         "computerSkipped": "Maybe later.",
+        "gmailDone": "Done.",
+        "gmailSkipped": "Not now.",
         "helloDone": "Show me.",
         "showcaseDone": "Got it.",
         "themeDone": "That one.",
@@ -1546,6 +1560,18 @@
         "title": "Two quick extras",
         "titleOne": "One quick extra"
       },
+      "gmail": {
+        "body": "Find emails, catch up on threads, and draft replies, just by asking.",
+        "connect": "Connect Gmail",
+        "connected": "Connected",
+        "connecting": "Waiting for Google…",
+        "error": "Couldn't connect Gmail. Try again, or skip for now.",
+        "settledDesc": "Manage it any time in Connectors.",
+        "settledSkippedTitle": "No Gmail for now",
+        "settledTitle": "Gmail connected",
+        "skip": "Not now",
+        "title": "Gmail"
+      },
       "memory": {
         "bodyChatbot": "A new chat every time, a sidebar full of old ones, and no memory of what you said last week.",
         "bodyStella": "No new chats, no threads. Everything you've ever told me is in the same place, so when you ask about last week I go and find it.",
@@ -1559,6 +1585,7 @@
       "messages": {
         "capabilities": "Hi, I'm Stella.\n\nI'm not a chatbot. I use this computer to actually get things done for you, in the background, while you keep going.\n\nHere's what that looks like.",
         "extras": "Almost done. A little housekeeping, then we start.",
+        "gmail": "So much of life runs through email. Connect Gmail and I can help with yours.",
         "memory": "One more thing that makes me different.",
         "quickstart": "That's everything. One last thing, and it's optional: a quickstart.",
         "quickstartDone": "Done. Here's what I picked up, and a few things we could start with.",
@@ -1617,6 +1644,8 @@
         "capabilitiesSkipped": "Skip the tour.",
         "extrasDone": "Done.",
         "extrasSkipped": "Skip for now.",
+        "gmailDone": "Done.",
+        "gmailSkipped": "Not now.",
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Very cool.",
@@ -1720,24 +1749,24 @@
           "syncing": "Syncing…"
         },
         "memory": {
-          "error": "Couldn't sync just now. Stella will try again.",
-          "heldOtherAccount": "This computer's memory syncs with a different Stella account, so it stays out of this one.",
-          "heldWiped": "Paused. Cloud memory was erased, and this computer still has memory from before. Choose below what happens to it.",
-          "lastSynced": "Last synced {time}.",
-          "merging": "Changed here and in the cloud at the same time. A background agent is merging the two.",
-          "off": "Memory is off, so nothing syncs.",
-          "refused": "Too long to sync, so kept on this computer only: {files}",
-          "signedOut": "Sign in to keep memory the same on this computer and in the cloud.",
-          "synced": "Kept the same on this computer and in the cloud. A change on either side syncs to the other.",
-          "syncing": "Syncing with the cloud…"
+          "error": "Couldn't sync. Retrying soon.",
+          "heldOtherAccount": "Synced with a different Stella account.",
+          "heldWiped": "Paused after cloud Memory was erased. Choose below.",
+          "lastSynced": "Synced {time}",
+          "merging": "Merging changes from both sides…",
+          "off": "Memory is off.",
+          "refused": "Too large to sync: {files}",
+          "signedOut": "Sign in to sync.",
+          "synced": "Synced",
+          "syncing": "Syncing…"
         },
         "skillsLabel": "Skills",
         "summary": {
-          "attention": "Cloud Home kept existing cloud copies where local data differed. Review the details below.",
-          "checking": "Checking this computer's skills…",
-          "current": "Cloud Home is current. Skill packages uploaded: {skillCount}.",
-          "intro": "Stella securely uploads this computer's custom skills to your cloud account.",
-          "unavailable": "Cloud Home sync is currently unavailable."
+          "attention": "Some skills differ from the cloud copies.",
+          "checking": "Checking…",
+          "current": "Up to date · {skillCount} uploaded",
+          "intro": "Uploads this computer's custom skills.",
+          "unavailable": "Unavailable right now."
         },
         "title": "Cloud Home"
       },
@@ -1769,7 +1798,7 @@
         "view": "View"
       },
       "signOut": {
-        "action": "Sign Out",
+        "action": "Sign out",
         "description": "Sign out of Stella on this device.",
         "label": "Sign out"
       },

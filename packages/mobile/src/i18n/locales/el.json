@@ -1161,6 +1161,17 @@
         "signInToPair": "Συνδεθείτε για σύζευξη",
         "title": "Ο υπολογιστής σας, από την τσέπη σας"
       },
+      "gmail": {
+        "body": "Βρες email, ενημερώσου για συζητήσεις και γράψε πρόχειρες απαντήσεις, απλώς ζητώντας το.",
+        "connect": "Σύνδεση Gmail",
+        "connected": "Συνδέθηκε",
+        "error": "Δεν ήταν δυνατή η σύνδεση του Gmail. Δοκίμασε ξανά ή παράλειψέ το προς το παρόν.",
+        "settledSkippedTitle": "Χωρίς Gmail προς το παρόν",
+        "settledTitle": "Το Gmail συνδέθηκε",
+        "skip": "Όχι τώρα",
+        "title": "Σύνδεση Gmail",
+        "waiting": "Αναμονή για Google…"
+      },
       "hello": {
         "cta": "Δείξε μου",
         "pillars": {
@@ -1183,6 +1194,7 @@
         "account": "Θέλετε να τα κρατήσετε όλα αυτά; Ένας λογαριασμός Stella σας ακολουθεί σε κάθε συσκευή.",
         "accountSignedIn": "Έχετε συνδεθεί, οπότε όλα σας ακολουθούν από συσκευή σε συσκευή. Ένα προαιρετικό έξτρα:",
         "computer": "Αν έχετε Mac ή PC, μπορώ να δουλεύω και εκεί.",
+        "gmail": "Μεγάλο μέρος της ζωής περνά από το email. Σύνδεσε το Gmail και θα σε βοηθήσω με το δικό σου.",
         "hello": "Γεια σας, είμαι η Stella.\n\nΔεν είμαι chatbot. Πείτε μου τι χρειάζεστε και θα το φροντίσω, στο παρασκήνιο, ενώ εσείς συνεχίζετε τη μέρα σας.",
         "ready": "Αυτό ήταν. Θα σας γνωρίσω σιγά σιγά.\n\nΤι να κάνουμε πρώτα;",
         "showcase": "Να πώς φαίνεται αυτό.",
@@ -1216,6 +1228,8 @@
         "accountSkipped": "Παράλειψη προς το παρόν.",
         "computerDone": "Συνδέθηκε!",
         "computerSkipped": "Ίσως αργότερα.",
+        "gmailDone": "Έγινε.",
+        "gmailSkipped": "Όχι τώρα.",
         "helloDone": "Δείξε μου.",
         "showcaseDone": "Κατάλαβα.",
         "themeDone": "Αυτό.",
@@ -1546,6 +1560,18 @@
         "title": "Two quick extras",
         "titleOne": "One quick extra"
       },
+      "gmail": {
+        "body": "Βρες email, ενημερώσου για συζητήσεις και γράψε πρόχειρες απαντήσεις, απλώς ζητώντας το.",
+        "connect": "Σύνδεση Gmail",
+        "connected": "Συνδέθηκε",
+        "connecting": "Αναμονή για Google…",
+        "error": "Δεν ήταν δυνατή η σύνδεση του Gmail. Δοκίμασε ξανά ή παράλειψέ το προς το παρόν.",
+        "settledDesc": "Διαχειρίσου το οποτεδήποτε από τις Συνδέσεις.",
+        "settledSkippedTitle": "Χωρίς Gmail προς το παρόν",
+        "settledTitle": "Το Gmail συνδέθηκε",
+        "skip": "Όχι τώρα",
+        "title": "Gmail"
+      },
       "memory": {
         "bodyChatbot": "A new chat every time, a sidebar full of old ones, and no memory of what you said last week.",
         "bodyStella": "No new chats, no threads. Everything you've ever told me is in the same place, so when you ask about last week I go and find it.",
@@ -1559,6 +1585,7 @@
       "messages": {
         "capabilities": "Γεια, είμαι η Stella.\n\nΔεν είμαι chatbot. Χρησιμοποιώ αυτόν τον υπολογιστή για να κάνω πραγματικά πράγματα για σένα, στο παρασκήνιο, ενώ εσύ συνεχίζεις τη δουλειά σου.\n\nΝα πώς φαίνεται αυτό.",
         "extras": "Almost done. A little housekeeping, then we start.",
+        "gmail": "Μεγάλο μέρος της ζωής περνά από το email. Σύνδεσε το Gmail και θα σε βοηθήσω με το δικό σου.",
         "memory": "One more thing that makes me different.",
         "quickstart": "Αυτό ήταν όλο. Ένα τελευταίο πράγμα, προαιρετικό: μια γρήγορη εκκίνηση.",
         "quickstartDone": "Έτοιμο. Να τι έμαθα και μερικά πράγματα με τα οποία θα μπορούσαμε να ξεκινήσουμε.",
@@ -1617,6 +1644,8 @@
         "capabilitiesSkipped": "Skip the tour.",
         "extrasDone": "Done.",
         "extrasSkipped": "Skip for now.",
+        "gmailDone": "Έγινε.",
+        "gmailSkipped": "Όχι τώρα.",
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Πολύ ωραίο.",

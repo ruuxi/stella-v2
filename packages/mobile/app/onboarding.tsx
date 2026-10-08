@@ -33,6 +33,7 @@ import {
 } from "../src/components/onboarding/motion";
 import { AccountCard } from "../src/components/onboarding/cards/AccountCard";
 import { ComputerCard } from "../src/components/onboarding/cards/ComputerCard";
+import { GmailCard } from "../src/components/onboarding/cards/GmailCard";
 import { HelloCard } from "../src/components/onboarding/cards/HelloCard";
 import { ReadyCard } from "../src/components/onboarding/cards/ReadyCard";
 import { ThemeCard } from "../src/components/onboarding/cards/ThemeCard";
@@ -88,6 +89,7 @@ export default function OnboardingScreen() {
     useOnboardingChat({
       started: splashHidden,
       skipPairing: pairingNeeded === false,
+      skipGmail: !signedIn,
     });
   const [finishing, setFinishing] = useState(false);
   const finishingRef = useRef(false);
@@ -237,6 +239,14 @@ export default function OnboardingScreen() {
             email={email}
             onSignIn={goSignIn}
             onAnswer={(kind) => answer("account", kind)}
+          />
+        );
+      case "gmail":
+        return (
+          <GmailCard
+            active={active}
+            answered={answered}
+            onAnswer={(kind) => answer("gmail", kind)}
           />
         );
       case "theme":

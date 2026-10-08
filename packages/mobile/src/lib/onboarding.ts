@@ -12,6 +12,7 @@ export type OnboardingStep =
   | "showcase"
   | "computer"
   | "account"
+  | "gmail"
   | "theme"
   | "ready";
 
@@ -20,6 +21,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
   "showcase",
   "computer",
   "account",
+  "gmail",
   "theme",
   "ready",
 ];

@@ -1171,6 +1171,17 @@
         "signInToPair": "Conectează-te ca să asociezi",
         "title": "Computerul tău, direct din buzunar"
       },
+      "gmail": {
+        "body": "Găsește e-mailuri, recuperează conversațiile și scrie ciorne de răspuns, doar cerând.",
+        "connect": "Conectează Gmail",
+        "connected": "Conectat",
+        "error": "Nu am putut conecta Gmail. Încearcă din nou sau sari peste deocamdată.",
+        "settledSkippedTitle": "Fără Gmail deocamdată",
+        "settledTitle": "Gmail conectat",
+        "skip": "Nu acum",
+        "title": "Conectează Gmail",
+        "waiting": "Se așteaptă Google…"
+      },
       "hello": {
         "cta": "Arată-mi",
         "pillars": {
@@ -1193,6 +1204,7 @@
         "account": "Vrei să păstrezi tot ce vezi aici? Un cont Stella te urmează pe toate dispozitivele.",
         "accountSignedIn": "Te-ai conectat, așa că totul te urmează de la un dispozitiv la altul. Încă un extra, opțional:",
         "computer": "Dacă ai un Mac sau un PC, pot lucra și pe el.",
+        "gmail": "O mare parte din viață trece prin e-mail. Conectează Gmail și te ajut cu al tău.",
         "hello": "Salut, sunt Stella.\n\nNu sunt un chatbot. Spune-mi ce ai nevoie și mă ocup eu, pe fundal, cât timp tu îți vezi de ziua ta.",
         "ready": "Asta e tot. Te voi cunoaște pe parcurs.\n\nCu ce începem?",
         "showcase": "Uite cum arată asta.",
@@ -1226,6 +1238,8 @@
         "accountSkipped": "Omite deocamdată.",
         "computerDone": "Conectat!",
         "computerSkipped": "Poate mai târziu.",
+        "gmailDone": "Gata.",
+        "gmailSkipped": "Nu acum.",
         "helloDone": "Arată-mi.",
         "showcaseDone": "Am înțeles.",
         "themeDone": "Pe acesta.",
@@ -1556,6 +1570,18 @@
         "title": "Two quick extras",
         "titleOne": "One quick extra"
       },
+      "gmail": {
+        "body": "Găsește e-mailuri, recuperează conversațiile și scrie ciorne de răspuns, doar cerând.",
+        "connect": "Conectează Gmail",
+        "connected": "Conectat",
+        "connecting": "Se așteaptă Google…",
+        "error": "Nu am putut conecta Gmail. Încearcă din nou sau sari peste deocamdată.",
+        "settledDesc": "Îl poți gestiona oricând din Conectori.",
+        "settledSkippedTitle": "Fără Gmail deocamdată",
+        "settledTitle": "Gmail conectat",
+        "skip": "Nu acum",
+        "title": "Gmail"
+      },
       "memory": {
         "bodyChatbot": "A new chat every time, a sidebar full of old ones, and no memory of what you said last week.",
         "bodyStella": "No new chats, no threads. Everything you've ever told me is in the same place, so when you ask about last week I go and find it.",
@@ -1569,6 +1595,7 @@
       "messages": {
         "capabilities": "Bună, sunt Stella.\n\nNu sunt un chatbot. Folosesc acest computer ca să rezolv lucruri pentru tine, pe bune, în fundal, în timp ce tu mergi mai departe.\n\nIată cum arată asta.",
         "extras": "Almost done. A little housekeeping, then we start.",
+        "gmail": "O mare parte din viață trece prin e-mail. Conectează Gmail și te ajut cu al tău.",
         "memory": "One more thing that makes me different.",
         "quickstart": "Asta e tot. Încă un singur lucru, opțional: un start rapid.",
         "quickstartDone": "Gata. Iată ce am aflat și câteva lucruri cu care putem începe.",
@@ -1627,6 +1654,8 @@
         "capabilitiesSkipped": "Skip the tour.",
         "extrasDone": "Done.",
         "extrasSkipped": "Skip for now.",
+        "gmailDone": "Gata.",
+        "gmailSkipped": "Nu acum.",
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Foarte tare.",

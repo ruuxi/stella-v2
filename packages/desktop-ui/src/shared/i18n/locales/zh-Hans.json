@@ -1151,6 +1151,17 @@
         "signInToPair": "登录后配对",
         "title": "您的电脑，装进口袋"
       },
+      "gmail": {
+        "body": "查找邮件、跟进会话、起草回复，只需开口。",
+        "connect": "连接 Gmail",
+        "connected": "已连接",
+        "error": "无法连接 Gmail。请重试，或暂时跳过。",
+        "settledSkippedTitle": "暂不使用 Gmail",
+        "settledTitle": "Gmail 已连接",
+        "skip": "暂不",
+        "title": "连接 Gmail",
+        "waiting": "正在等待 Google…"
+      },
       "hello": {
         "cta": "给我看看",
         "pillars": {
@@ -1173,6 +1184,7 @@
         "account": "想把这一切都留下来吗？Stella 账户会跟着您出现在每台设备上。",
         "accountSignedIn": "您已登录，所以一切都会在设备之间跟着您。还有一个可选项：",
         "computer": "如果您有 Mac 或 PC，我也能在上面工作。",
+        "gmail": "生活中很多事都通过邮件进行。连接 Gmail，我就能帮你处理邮件。",
         "hello": "您好，我是 Stella。\n\n我不是聊天机器人。告诉我您需要什么，我会在后台把事情办好，您只管继续过好这一天。",
         "ready": "就这些。相处久了，我会慢慢了解您。\n\n我们先做点什么？",
         "showcase": "来看看是什么样子。",
@@ -1206,6 +1218,8 @@
         "accountSkipped": "暂时跳过。",
         "computerDone": "已连接！",
         "computerSkipped": "以后再说。",
+        "gmailDone": "好了。",
+        "gmailSkipped": "暂不。",
         "helloDone": "给我看看。",
         "showcaseDone": "明白了。",
         "themeDone": "就这个。",
@@ -1536,6 +1550,18 @@
         "title": "Two quick extras",
         "titleOne": "One quick extra"
       },
+      "gmail": {
+        "body": "查找邮件、跟进会话、起草回复，只需开口。",
+        "connect": "连接 Gmail",
+        "connected": "已连接",
+        "connecting": "正在等待 Google…",
+        "error": "无法连接 Gmail。请重试，或暂时跳过。",
+        "settledDesc": "随时可在连接器中管理。",
+        "settledSkippedTitle": "暂不使用 Gmail",
+        "settledTitle": "Gmail 已连接",
+        "skip": "暂不",
+        "title": "Gmail"
+      },
       "memory": {
         "bodyChatbot": "A new chat every time, a sidebar full of old ones, and no memory of what you said last week.",
         "bodyStella": "No new chats, no threads. Everything you've ever told me is in the same place, so when you ask about last week I go and find it.",
@@ -1549,6 +1575,7 @@
       "messages": {
         "capabilities": "你好，我是 Stella。\n\n我不是聊天机器人。我会用这台电脑在后台真正把事情做完，你只管忙你的。\n\n来看看是什么样子。",
         "extras": "Almost done. A little housekeeping, then we start.",
+        "gmail": "生活中很多事都通过邮件进行。连接 Gmail，我就能帮你处理邮件。",
         "memory": "One more thing that makes me different.",
         "quickstart": "就这些了。还有最后一件事，可选：快速上手。",
         "quickstartDone": "好了。这是我了解到的内容，还有几件我们可以先做的事。",
@@ -1607,6 +1634,8 @@
         "capabilitiesSkipped": "Skip the tour.",
         "extrasDone": "Done.",
         "extrasSkipped": "Skip for now.",
+        "gmailDone": "好了。",
+        "gmailSkipped": "暂不。",
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "太酷了。",

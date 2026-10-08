@@ -12,10 +12,12 @@ import type {
   HookRuntimeContext,
 } from "../extensions/types.js";
 import type {
+  PersistedCanvasHtmlDetails,
   PersistedRuntimeThreadPayload,
   PersistedToolResultDetails,
 } from "../storage/shared.js";
 import { isMapRouteArtifact } from "@stella/contracts/map-artifact";
+import { HTML_TOOL_NAME } from "../tools/defs/html-def.js";
 import type { RuntimeStore } from "../storage/runtime-store.js";
 import type { RunTaskCapturedMessage } from "../storage/run-task.js";
 import { assistantMessageHasUsableOutput } from "./run-shared.js";
@@ -869,13 +871,43 @@ export const snapshotCapturedTranscript = (
   }));
 };
 
+/**
+ * The canvas handle an `html` result carries. Without it the durable
+ * transcript keeps only the tool's sentence, and every later reader — the
+ * chat's canvas card, the Files index, another device replaying the journal —
+ * has no artifact to open, so the canvas exists on disk and nowhere else.
+ */
+const persistedCanvasHtmlDetails = (
+  record: Record<string, unknown>,
+): PersistedCanvasHtmlDetails | undefined => {
+  const filePath = typeof record.filePath === "string" ? record.filePath : "";
+  if (!filePath) return undefined;
+  const title = typeof record.title === "string" ? record.title.trim() : "";
+  const slug = typeof record.slug === "string" ? record.slug : "";
+  const createdAt =
+    typeof record.createdAt === "number" && Number.isFinite(record.createdAt)
+      ? record.createdAt
+      : Date.now();
+  return {
+    filePath,
+    title: title || filePath.split(/[\\/]/).pop() || "Canvas",
+    createdAt,
+    ...(slug ? { slug } : {}),
+    ...(record.driveBacked === true ? { driveBacked: true as const } : {}),
+  };
+};
+
 const persistedToolResultDetails = (
+  toolName: string,
   details: unknown,
 ): PersistedToolResultDetails | undefined => {
   if (!details || typeof details !== "object" || Array.isArray(details)) {
     return undefined;
   }
   const record = details as Record<string, unknown>;
+  if (toolName === HTML_TOOL_NAME) {
+    return persistedCanvasHtmlDetails(record);
+  }
   const maps = (Array.isArray(record.maps) ? record.maps : [record.map]).filter(
     isMapRouteArtifact,
   );
@@ -927,7 +959,10 @@ export const toPersistedThreadPayload = (
     };
   }
   if (message.role === "toolResult") {
-    const details = persistedToolResultDetails(message.details);
+    const details = persistedToolResultDetails(
+      message.toolName,
+      message.details,
+    );
     return {
       role: "toolResult",
       toolCallId: message.toolCallId,

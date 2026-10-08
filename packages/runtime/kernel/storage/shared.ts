@@ -122,9 +122,23 @@ export type LocalChatSyncMessage = {
   deviceId?: string;
 };
 
+/**
+ * The canvas an `html` tool call produced, as the durable transcript keeps it.
+ * The file is the artifact; this is the handle every client needs to render it
+ * as a canvas (and to list it in Files) long after the turn streamed.
+ */
+export type PersistedCanvasHtmlDetails = {
+  filePath: string;
+  title: string;
+  createdAt: number;
+  slug?: string;
+  driveBacked?: true;
+};
+
 export type PersistedToolResultDetails =
   | { map: MapRouteArtifact }
-  | { maps: MapRouteArtifact[] };
+  | { maps: MapRouteArtifact[] }
+  | PersistedCanvasHtmlDetails;
 
 export type PersistedRuntimeThreadPayload =
   | UserMessage

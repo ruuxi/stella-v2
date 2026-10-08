@@ -120,7 +120,7 @@ describe("CloudMemoryReimportSettings", () => {
     await render();
     expect(container.textContent).toContain("Cloud Memory was erased");
     expect(container.textContent).toContain(
-      "Applies to every device signed in to this account",
+      "Applies to every computer signed in to this account",
     );
     expect(mocks.authorizeReimport).not.toHaveBeenCalled();
 
@@ -132,12 +132,12 @@ describe("CloudMemoryReimportSettings", () => {
     const dialog = document.body.querySelector<HTMLElement>(
       "[data-cloud-memory-reimport-confirmation]",
     )!;
-    expect(dialog.textContent).toContain("local Memory documents");
-    expect(dialog.textContent).toContain("new, empty cloud Memory epoch");
+    expect(dialog.textContent).toContain("kept Memory from before the erase");
+    expect(dialog.textContent).toContain("merges it into the cloud's new Memory");
     expect(dialog.textContent).toContain(
-      "erased epoch stays permanently deleted",
+      "What was erased from the cloud stays erased",
     );
-    expect(dialog.textContent).toContain("Allow reimport");
+    expect(dialog.textContent).toContain("Allow upload");
     expect(dialog.textContent).not.toContain("Upload local Memory");
 
     await click(

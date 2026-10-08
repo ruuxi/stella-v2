@@ -159,7 +159,15 @@ export type ErrorFrame = {
   ref?: string;
 };
 
+/** The pi-durable view (`pi=1` sockets): its snapshot, then its event batches. */
+export type PiSnapshotFrame = { type: "pi.snapshot"; snapshot: unknown; hasOlder: boolean };
+export type PiEventsFrame = { type: "pi.events"; events: readonly unknown[] };
+export type PiOlderFrame = { type: "pi.older"; requestId: string; entries: unknown[]; hasOlder: boolean };
+
 export type ServerFrame =
+  | PiSnapshotFrame
+  | PiEventsFrame
+  | PiOlderFrame
   | ReadyFrame
   | RecordFrame
   | BackfillFrame
@@ -174,7 +182,8 @@ export type ServerFrame =
 export type ClientFrame =
   | { type: "auth"; token: string }
   | { type: "backfill"; requestId: string; fromSeq: number; toSeq: number }
-  | { type: "cancel"; turnId: string };
+  | { type: "cancel"; turnId: string }
+  | { type: "pi.older"; requestId: string; beforeEntryId: number };
 
 // ---------------------------------------------------------------------------
 // Worker → DO handoff
@@ -324,6 +333,8 @@ type SocketAttachment = {
   rateBackfill: number;
   rateCancel: number;
   rateAuth: number;
+  /** Watches the pi-durable view. */
+  pi?: boolean;
 };
 
 const readAttachment = (ws: WebSocket): SocketAttachment | null => {
@@ -471,6 +482,11 @@ class ConversationHubImpl implements ConversationHub {
       );
     }
 
+    // Settled before the last await below, like everything the accept needs.
+    const pi =
+      url.searchParams.get("pi") === "1" &&
+      (await this.deps.pi?.enabled().catch(() => false)) === true;
+
     // Tagged by a hash of the owner, not the owner: the raw `${issuer}|${sub}`
     // can exceed the 256-char tag limit and is PII-shaped in logs. The tag
     // exists so a service-secret route can kill every socket belonging to one
@@ -519,6 +535,7 @@ class ConversationHubImpl implements ConversationHub {
       rateBackfill: 0,
       rateCancel: 0,
       rateAuth: 0,
+      ...(pi ? { pi: true } : {}),
     };
 
     this.deps.ctx.acceptWebSocket(server, [tag]);
@@ -590,7 +607,9 @@ class ConversationHubImpl implements ConversationHub {
       headSeq: fresh.headSeq,
       delivered: records.length,
       reset: opening.reset ?? undefined,
+      ...(pi ? { pi } : {}),
     });
+    if (pi) this.deps.ctx.waitUntil(this.sendPiSnapshot(server));
 
     return new Response(null, {
       status: 101,
@@ -769,6 +788,57 @@ class ConversationHubImpl implements ConversationHub {
     if (sockets.length === 0) return;
     const payload = JSON.stringify(frame);
     for (const ws of sockets) this.sendSerialized(ws, payload);
+  }
+
+  // ── The pi-durable view ─────────────────────────────────────────────────
+
+  private piSockets(): WebSocket[] {
+    return this.deps.ctx.getWebSockets().filter((ws) => readAttachment(ws)?.pi === true);
+  }
+
+  piSocketCount(): number {
+    return this.piSockets().length;
+  }
+
+  private async sendPiSnapshot(ws: WebSocket): Promise<void> {
+    try {
+      const view = await this.deps.pi!.attach();
+      this.sendFrame(ws, { type: "pi.snapshot", ...view });
+    } catch (error) {
+      this.deps.log("error", "conversation_pi_snapshot_failed", {
+        conversationId: this.deps.conversationId(),
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  broadcastPi(events: readonly unknown[]): void {
+    try {
+      const sockets = this.piSockets();
+      if (sockets.length === 0) return;
+      const payload = JSON.stringify({ type: "pi.events", events } satisfies PiEventsFrame);
+      for (const ws of sockets) this.sendSerialized(ws, payload);
+    } catch (error) {
+      this.deps.log("error", "conversation_pi_broadcast_failed", {
+        conversationId: this.deps.conversationId(),
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async handlePiOlder(
+    ws: WebSocket,
+    attachment: SocketAttachment,
+    frame: { requestId?: unknown; beforeEntryId?: unknown },
+  ): Promise<void> {
+    const requestId = typeof frame.requestId === "string" ? frame.requestId.slice(0, 128) : "";
+    const before = frame.beforeEntryId;
+    if (!attachment.pi || !this.deps.pi || typeof before !== "number" || !Number.isSafeInteger(before) || before < 1) {
+      this.closeWith(ws, CLOSE_BAD_REQUEST, "Unsupported message.");
+      return;
+    }
+    const page = await this.deps.pi.older(before);
+    this.sendFrame(ws, { type: "pi.older", requestId, ...page });
   }
 
   // ── Records ──────────────────────────────────────────────────────────────
@@ -998,6 +1068,21 @@ class ConversationHubImpl implements ConversationHub {
         await this.handleCancel(ws, frame);
         return;
       }
+      case "pi.older": {
+        attachment.rateBackfill += 1;
+        if (attachment.rateBackfill > RATE_BACKFILL_PER_MIN) {
+          this.closeWith(
+            ws,
+            CLOSE_RATE_LIMITED,
+            "Too many history requests. Reconnecting in a moment.",
+            true,
+          );
+          return;
+        }
+        ws.serializeAttachment(attachment);
+        await this.handlePiOlder(ws, attachment, frame);
+        return;
+      }
       default:
         this.closeWith(ws, CLOSE_BAD_REQUEST, "Unsupported message.");
     }
@@ -1185,6 +1270,14 @@ class ConversationHubImpl implements ConversationHub {
       // Already closed; the accounting below is the only thing left to do.
     }
     this.warned.delete(ws);
+    // The last pi watcher gone: the pi view's stream can stop.
+    if (readAttachment(ws)?.pi && this.piSockets().every((socket) => socket === ws)) {
+      try {
+        this.deps.pi?.detach();
+      } catch {
+        // Advisory teardown.
+      }
+    }
     if (!wasClean) {
       this.deps.log("info", "conversation_socket_closed", {
         conversationId: this.deps.conversationId(),

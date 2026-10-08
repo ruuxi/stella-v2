@@ -304,3 +304,54 @@ export const piMessageText = (message: PiMessage | undefined): string => {
   if (typeof message.content === "string") return message.content;
   return message.content.map((block) => (block.type === "text" ? block.text : "")).join("");
 };
+
+// ---- what reaches clients ---------------------------------------------------------
+
+/** Prompt sections stay with the host; they are large and no client renders them. */
+const isHostOnly = (entry: PiEntry | undefined): boolean => entry?.kind === "pi.system";
+
+/** Provider signatures (encrypted reasoning) mean nothing to a client. */
+const unsigned = <T>(value: T): T =>
+  JSON.parse(JSON.stringify(value, (key, field) => (key === "thinkingSignature" || key === "textSignature" ? undefined : field))) as T;
+
+/** Events as clients receive them: no prompt sections, no provider signatures. */
+export const piEventsForClients = (events: readonly PiChatEvent[]): PiChatEvent[] => {
+  const out: PiChatEvent[] = [];
+  for (const event of events) {
+    switch (event.type) {
+      case "snapshot":
+        out.push(unsigned({ ...event, entries: event.entries.filter((entry) => !isHostOnly(entry)) }));
+        break;
+      case "message_end":
+      case "entry_appended":
+        if (!isHostOnly(event.entry)) out.push(unsigned(event));
+        break;
+      case "message_start":
+      case "message_update":
+      case "tool_execution_end":
+        out.push(unsigned(event));
+        break;
+      default:
+        out.push(event);
+    }
+  }
+  return out;
+};
+
+/** Entries as clients receive them, newest kept first within `maxBytes`. */
+export const piEntriesForClients = (
+  entries: readonly PiEntry[],
+  maxBytes: number,
+): { entries: PiEntry[]; trimmed: boolean } => {
+  const kept: PiEntry[] = [];
+  let bytes = 0;
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index]!;
+    if (isHostOnly(entry)) continue;
+    const clean = unsigned(entry);
+    bytes += JSON.stringify(clean).length;
+    if (bytes > maxBytes && kept.length > 0) return { entries: kept.reverse(), trimmed: true };
+    kept.push(clean);
+  }
+  return { entries: kept.reverse(), trimmed: false };
+};

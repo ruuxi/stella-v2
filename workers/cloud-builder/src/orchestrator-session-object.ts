@@ -1171,6 +1171,21 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       conversationId: () => this.conversationId(),
       log,
       verifyToken: (token) => verifyUserToken(token, this.env as unknown as Cloudflare.Env),
+      pi: {
+        enabled: async () =>
+          (await this.ctx.storage.get<string>(AGENT_RUNTIME_KEY)) === "pi",
+        attach: () => this.attachPiClients(),
+        older: async (beforeEntryId) => {
+          const runtime = await this.openPiRuntime(this.piGatewayOrigin());
+          const { contextFor } = await import("./pi-runtime.js");
+          return await runtime.olderForClients(beforeEntryId, contextFor());
+        },
+        detach: () => {
+          void this.piRuntime
+            ?.then((runtime) => runtime.stopWatchingForClients())
+            .catch(() => undefined);
+        },
+      },
     });
     // Set in the constructor rather than at accept time: whether an
     // auto-response survives DO eviction is not something the docs settle, and
@@ -4141,6 +4156,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
   private currentPiRun?: { abort(): void };
   /** This conversation's pi-durable harness, opened once per isolate. */
   private piRuntime?: Promise<import("./pi-runtime.js").PiConversationRuntime>;
+  private piClientsAttaching = false;
 
   private async finishPreCanceledTurn(
     turn: ChatTurnRequest,
@@ -6024,6 +6040,27 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     }
   }
 
+  private piGatewayOrigin(): string {
+    return this.env.MODEL_GATEWAY_URL?.trim() ?? "";
+  }
+
+  /** Attaching for one more socket re-sends the snapshot to every pi socket. */
+  private async attachPiClients(): Promise<{ snapshot: unknown; hasOlder: boolean }> {
+    // This attach is the one the opening would otherwise start.
+    const attaching = this.piClientsAttaching;
+    this.piClientsAttaching = true;
+    try {
+      const runtime = await this.openPiRuntime(this.piGatewayOrigin());
+      const { contextFor } = await import("./pi-runtime.js");
+      return await runtime.watchForClients(
+        (events) => this.hub.broadcastPi(events),
+        contextFor(),
+      );
+    } finally {
+      this.piClientsAttaching = attaching;
+    }
+  }
+
   /** This conversation's pi-durable harness, opened once per isolate. */
   private async openPiRuntime(
     gatewayOrigin: string,
@@ -6050,6 +6087,31 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     );
     const runtime = await this.piRuntime;
     await runtime.open();
+    // Sockets that watched the pi view through an eviction get a new stream
+    // and a fresh snapshot.
+    if (
+      !runtime.watchingForClients &&
+      !this.piClientsAttaching &&
+      this.hub.piSocketCount() > 0
+    ) {
+      this.piClientsAttaching = true;
+      void import("./pi-runtime.js")
+        .then(async ({ contextFor }) => {
+          const view = await runtime.watchForClients(
+            (events) => this.hub.broadcastPi(events),
+            contextFor(),
+          );
+          this.hub.broadcastPi([view.snapshot]);
+        })
+        .catch((error: unknown) => {
+          log("error", "pi_clients_attach_failed", {
+            message: errorMessage(error),
+          });
+        })
+        .finally(() => {
+          this.piClientsAttaching = false;
+        });
+    }
     return runtime;
   }
 

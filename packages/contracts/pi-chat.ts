@@ -155,7 +155,8 @@ export type PiChatRequest =
   | { op: "abort"; conversationId: string }
   | { op: "watch"; conversationId: string }
   | { op: "unwatch"; conversationId: string }
-  | { op: "older"; conversationId: string; beforeEntryId: number };
+  | { op: "older"; conversationId: string; beforeEntryId: number }
+  | { op: "agents"; conversationId: string };
 
 export type PiChatWatchResult = {
   /** The snapshot, its entries widened to the latest page of the whole history. */
@@ -164,6 +165,20 @@ export type PiChatWatchResult = {
 };
 
 export type PiChatOlderResult = { entries: PiEntry[]; hasOlder: boolean };
+
+/** One of a conversation's agents, as the app lists it (`agents`). */
+export type PiChatAgent = {
+  threadId: string;
+  description: string;
+  status: "running" | "completed" | "error";
+  startedAt: number;
+  updatedAt: number;
+  /** Its latest prose, oldest first. */
+  assistantMessages: string[];
+  error?: string;
+};
+
+export type PiChatAgentsResult = { agents: PiChatAgent[] };
 
 export type PiChatEventsPayload = { conversationId: string; events: PiChatEvent[] };
 

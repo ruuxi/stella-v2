@@ -6,11 +6,14 @@
  * runtime for a snapshot; batches that arrive before it answers are held and
  * applied after it, so nothing is lost or applied out of order.
  */
+import type { DesktopThreadActivityRecord } from "@/features/chat/thread-activity-types";
 import {
   emptyPiChat,
   mergePiEntries,
   reducePiChat,
+  type PiChatAgentsResult,
   type PiChatEvent,
+  type PiChatEventsPayload,
   type PiChatOlderResult,
   type PiChatSend,
   type PiChatState,
@@ -171,3 +174,32 @@ export const submitPiChat = async (
 export const abortPiChat = (conversationId: string): void => {
   void api()?.request({ op: "abort", conversationId }).catch(() => undefined);
 };
+
+/** A conversation's pi agents as the task rows, cards and focus view read them. */
+export const piChatAgents = async (conversationId: string): Promise<DesktopThreadActivityRecord[]> => {
+  const chat = api();
+  if (!chat) return [];
+  const { agents } = (await chat.request({ op: "agents", conversationId })) as PiChatAgentsResult;
+  return agents.map((agent) => {
+    const latest = agent.assistantMessages[agent.assistantMessages.length - 1];
+    return {
+      source: "stella",
+      threadId: agent.threadId,
+      conversationId,
+      agentType: "general",
+      description: agent.description,
+      status: agent.status,
+      startedAt: agent.startedAt,
+      updatedAt: agent.updatedAt,
+      ...(agent.status === "running" ? {} : { completedAt: agent.updatedAt }),
+      ...(agent.status === "completed" && latest ? { result: latest } : {}),
+      ...(agent.error ? { error: agent.error } : {}),
+      assistantMessages: agent.assistantMessages,
+      assistantMessagesUpdatedAt: agent.updatedAt,
+    };
+  });
+};
+
+/** Batches of pi events for every watched conversation, as they arrive. */
+export const onPiChatEvents = (listener: (payload: PiChatEventsPayload) => void): (() => void) =>
+  api()?.onEvents(listener) ?? (() => {});

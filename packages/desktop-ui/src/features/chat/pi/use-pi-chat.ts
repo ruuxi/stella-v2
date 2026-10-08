@@ -6,6 +6,7 @@
  */
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import { piMessageText } from "@stella/contracts/pi-chat";
+import { provideLineageSource } from "@/features/chat/services/lineage-messages-store";
 import {
   abortPiChat,
   loadOlderPiChat,
@@ -62,6 +63,21 @@ export const usePiChat = (conversationId: string | null) => {
     lastMessage.stopReason === "stop" &&
     piMessageText(lastMessage).trim().length > 0;
 
+  // The focus view of a message or an agent is derived from the loaded
+  // transcript: the spawn turn, and the replies that relay its reports.
+  const hasOlder = state.hasOlder;
+  const isLoadingOlder = (loading & 2) === 2;
+  useEffect(() => {
+    if (!enabled || !conversationId) return;
+    provideLineageSource(conversationId, {
+      messages: projection.messages,
+      hasOlder,
+      isLoadingOlder,
+      loadOlder: () => loadOlderPiChat(conversationId),
+    });
+    return () => provideLineageSource(conversationId, null);
+  }, [conversationId, enabled, hasOlder, isLoadingOlder, projection.messages]);
+
   const cancel = useCallback(() => {
     if (conversationId) abortPiChat(conversationId);
   }, [conversationId]);
@@ -90,7 +106,7 @@ export const usePiChat = (conversationId: string | null) => {
     cancelCurrentStream: cancel,
     hasOlderMessages: state.hasOlder,
     isInitialLoading: (loading & 1) === 1 && state.entries.length === 0,
-    isLoadingOlder: (loading & 2) === 2,
+    isLoadingOlder,
     loadOlderMessages: loadOlder,
   };
 };

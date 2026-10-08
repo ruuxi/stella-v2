@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { Effect } from "effect";
 import {
   METHOD_NAMES,
@@ -9,6 +10,8 @@ import {
   WorkerRequestError,
 } from "../errors.js";
 import { asTrimmedString } from "../attachments.js";
+import * as HostBus from "../host-bus.js";
+import { piChatsFor, piRuntimeEnabled } from "../pi-chats.js";
 import * as WorkerSessions from "../sessions.js";
 import { fromPromise, type WorkerRpcHandlers } from "../rpc.js";
 
@@ -52,6 +55,18 @@ export const chatHandlers: WorkerRpcHandlers = {
       const session = yield* WorkerSessions.sessionOrFail(
         () => new RunnerUnavailableError(),
       );
+      // On pi-durable the agent is one of the conversation's pi agents.
+      if (piRuntimeEnabled()) {
+        const hostBus = yield* HostBus.Service;
+        return yield* fromPromise(async () => {
+          await (await piChatsFor(session, hostBus)).messageAgent(conversationId, {
+            key: crypto.randomUUID(),
+            threadId,
+            message,
+          });
+          return { delivered: true as const };
+        });
+      }
       return yield* fromPromise(() =>
         session.agentRuns.sendAgentInput({
           conversationId,

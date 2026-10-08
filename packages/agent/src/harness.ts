@@ -17,7 +17,7 @@ import {
   type Storage,
 } from "@earendil-works/pi-durable";
 import { STELLA_PROVIDER_ID, stellaModelId } from "./provider/stella.ts";
-import { stellaAgents, type StellaAgentsHost } from "./stella/agents.ts";
+import { stellaAgents, type StellaAgentRecord, type StellaAgentsHost } from "./stella/agents.ts";
 import { STELLA_CODING_EXTENSION, StellaCoding } from "./stella/coding.ts";
 import type { StellaContextSources } from "./stella/context.ts";
 import { STELLA_AGENT_TOOLS, stellaToolExtensions, type StellaToolHost } from "./stella/host-tools.ts";
@@ -82,6 +82,10 @@ export type OpenStellaHarness = {
     args: { key: string; description: string; prompt: string },
     context: Context,
   ): Promise<{ threadId: string; existing: boolean }>;
+  /** The orchestrator's agents, as the app lists them. */
+  agentRecords(context: Context): Promise<StellaAgentRecord[]>;
+  /** A message from the user to one of the orchestrator's agents. */
+  messageAgent(args: { key: string; threadId: string; message: string }, context: Context): Promise<void>;
 };
 
 export async function openStellaHarness(options: StellaHarnessOptions, context: Context): Promise<OpenStellaHarness> {
@@ -111,5 +115,7 @@ export async function openStellaHarness(options: StellaHarnessOptions, context: 
     registry,
     refreshTools,
     startAgent: (args, startContext) => agents.startAgent(harness, args, startContext),
+    agentRecords: (recordsContext) => agents.agentRecords(harness, recordsContext),
+    messageAgent: (args, messageContext) => agents.messageAgent(harness, args, messageContext),
   };
 }

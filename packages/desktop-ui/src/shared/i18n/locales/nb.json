@@ -1161,6 +1161,17 @@
         "signInToPair": "Logg inn for å koble til",
         "title": "Datamaskinen din, rett fra lomma"
       },
+      "gmail": {
+        "body": "Finn e-poster, hold deg oppdatert på tråder og lag utkast til svar, bare ved å spørre.",
+        "connect": "Koble til Gmail",
+        "connected": "Tilkoblet",
+        "error": "Kunne ikke koble til Gmail. Prøv igjen, eller hopp over inntil videre.",
+        "settledSkippedTitle": "Ingen Gmail foreløpig",
+        "settledTitle": "Gmail tilkoblet",
+        "skip": "Ikke nå",
+        "title": "Koble til Gmail",
+        "waiting": "Venter på Google…"
+      },
       "hello": {
         "cta": "Vis meg",
         "pillars": {
@@ -1183,6 +1194,7 @@
         "account": "Vil du beholde alt dette? En Stella-konto følger deg til alle enhetene dine.",
         "accountSignedIn": "Du er logget inn, så alt følger deg mellom enhetene. Ett valgfritt tillegg:",
         "computer": "Har du en Mac eller PC, kan jeg jobbe på den også.",
+        "gmail": "Mye av livet går via e-post. Koble til Gmail, så kan jeg hjelpe deg med din.",
         "hello": "Hei, jeg er Stella.\n\nJeg er ikke en chatbot. Si hva du trenger, så ordner jeg det i bakgrunnen mens du går videre med dagen din.",
         "ready": "Det var det. Jeg blir kjent med deg etter hvert.\n\nHva skal vi gjøre først?",
         "showcase": "Slik ser det ut.",
@@ -1216,6 +1228,8 @@
         "accountSkipped": "Hopp over nå.",
         "computerDone": "Tilkoblet!",
         "computerSkipped": "Kanskje senere.",
+        "gmailDone": "Ferdig.",
+        "gmailSkipped": "Ikke nå.",
         "helloDone": "Vis meg.",
         "showcaseDone": "Skjønner.",
         "themeDone": "Den der.",
@@ -1546,6 +1560,18 @@
         "title": "Two quick extras",
         "titleOne": "One quick extra"
       },
+      "gmail": {
+        "body": "Finn e-poster, hold deg oppdatert på tråder og lag utkast til svar, bare ved å spørre.",
+        "connect": "Koble til Gmail",
+        "connected": "Tilkoblet",
+        "connecting": "Venter på Google…",
+        "error": "Kunne ikke koble til Gmail. Prøv igjen, eller hopp over inntil videre.",
+        "settledDesc": "Administrer det når som helst under Tilkoblinger.",
+        "settledSkippedTitle": "Ingen Gmail foreløpig",
+        "settledTitle": "Gmail tilkoblet",
+        "skip": "Ikke nå",
+        "title": "Gmail"
+      },
       "memory": {
         "bodyChatbot": "A new chat every time, a sidebar full of old ones, and no memory of what you said last week.",
         "bodyStella": "No new chats, no threads. Everything you've ever told me is in the same place, so when you ask about last week I go and find it.",
@@ -1559,6 +1585,7 @@
       "messages": {
         "capabilities": "Hei, jeg er Stella.\n\nJeg er ikke en chatbot. Jeg bruker denne datamaskinen til å faktisk få ting gjort for deg, i bakgrunnen, mens du fortsetter med det du holder på med.\n\nSånn ser det ut.",
         "extras": "Almost done. A little housekeeping, then we start.",
+        "gmail": "Mye av livet går via e-post. Koble til Gmail, så kan jeg hjelpe deg med din.",
         "memory": "One more thing that makes me different.",
         "quickstart": "Det var alt. Én siste ting, og den er valgfri: en hurtigstart.",
         "quickstartDone": "Ferdig. Her er det jeg har lært, og noen ting vi kan begynne med.",
@@ -1617,6 +1644,8 @@
         "capabilitiesSkipped": "Skip the tour.",
         "extrasDone": "Done.",
         "extrasSkipped": "Skip for now.",
+        "gmailDone": "Ferdig.",
+        "gmailSkipped": "Ikke nå.",
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Veldig kult.",

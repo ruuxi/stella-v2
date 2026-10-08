@@ -1151,6 +1151,17 @@
         "signInToPair": "Masuk untuk memasangkan",
         "title": "Komputer Anda, dari saku Anda"
       },
+      "gmail": {
+        "body": "Cari email, ikuti percakapan, dan buat draf balasan, cukup dengan meminta.",
+        "connect": "Hubungkan Gmail",
+        "connected": "Terhubung",
+        "error": "Gagal menghubungkan Gmail. Coba lagi, atau lewati dulu.",
+        "settledSkippedTitle": "Belum pakai Gmail",
+        "settledTitle": "Gmail terhubung",
+        "skip": "Nanti saja",
+        "title": "Hubungkan Gmail",
+        "waiting": "Menunggu Google…"
+      },
       "hello": {
         "cta": "Tunjukkan",
         "pillars": {
@@ -1173,6 +1184,7 @@
         "account": "Ingin menyimpan semua ini? Akun Stella ikut bersama Anda ke setiap perangkat.",
         "accountSignedIn": "Anda sudah masuk, jadi semuanya ikut berpindah antarperangkat. Satu tambahan opsional:",
         "computer": "Kalau Anda punya Mac atau PC, saya bisa bekerja di sana juga.",
+        "gmail": "Banyak urusan hidup lewat email. Hubungkan Gmail dan aku bisa membantu mengurusnya.",
         "hello": "Hai, saya Stella.\n\nSaya bukan chatbot. Katakan apa yang Anda butuhkan, dan saya yang menyelesaikannya di latar belakang, selagi Anda menjalani hari.",
         "ready": "Itu saja. Saya akan mengenal Anda seiring waktu.\n\nApa yang sebaiknya kita kerjakan lebih dulu?",
         "showcase": "Seperti inilah wujudnya.",
@@ -1206,6 +1218,8 @@
         "accountSkipped": "Lewati dulu.",
         "computerDone": "Terhubung!",
         "computerSkipped": "Nanti saja.",
+        "gmailDone": "Selesai.",
+        "gmailSkipped": "Nanti saja.",
         "helloDone": "Tunjukkan.",
         "showcaseDone": "Mengerti.",
         "themeDone": "Yang itu.",
@@ -1536,6 +1550,18 @@
         "title": "Two quick extras",
         "titleOne": "One quick extra"
       },
+      "gmail": {
+        "body": "Cari email, ikuti percakapan, dan buat draf balasan, cukup dengan meminta.",
+        "connect": "Hubungkan Gmail",
+        "connected": "Terhubung",
+        "connecting": "Menunggu Google…",
+        "error": "Gagal menghubungkan Gmail. Coba lagi, atau lewati dulu.",
+        "settledDesc": "Kelola kapan saja di Konektor.",
+        "settledSkippedTitle": "Belum pakai Gmail",
+        "settledTitle": "Gmail terhubung",
+        "skip": "Nanti saja",
+        "title": "Gmail"
+      },
       "memory": {
         "bodyChatbot": "A new chat every time, a sidebar full of old ones, and no memory of what you said last week.",
         "bodyStella": "No new chats, no threads. Everything you've ever told me is in the same place, so when you ask about last week I go and find it.",
@@ -1549,6 +1575,7 @@
       "messages": {
         "capabilities": "Halo, saya Stella.\n\nSaya bukan chatbot. Saya memakai komputer ini untuk benar-benar menyelesaikan pekerjaan Anda, di latar belakang, sementara Anda terus melanjutkan aktivitas.\n\nBeginilah tampaknya.",
         "extras": "Almost done. A little housekeeping, then we start.",
+        "gmail": "Banyak urusan hidup lewat email. Hubungkan Gmail dan aku bisa membantu mengurusnya.",
         "memory": "One more thing that makes me different.",
         "quickstart": "Itu saja. Satu hal terakhir, dan ini opsional: panduan mulai cepat.",
         "quickstartDone": "Selesai. Ini yang saya pelajari, dan beberapa hal yang bisa kita mulai.",
@@ -1607,6 +1634,8 @@
         "capabilitiesSkipped": "Skip the tour.",
         "extrasDone": "Done.",
         "extrasSkipped": "Skip for now.",
+        "gmailDone": "Selesai.",
+        "gmailSkipped": "Nanti saja.",
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Keren sekali.",

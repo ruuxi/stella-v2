@@ -31,12 +31,10 @@ import { MemoryCard } from "./cards/MemoryCard";
 import { SignInCard } from "./cards/SignInCard";
 import { ThemeCard } from "./cards/ThemeCard";
 import { ExtrasCard } from "./cards/ExtrasCard";
+import { GmailCard } from "./cards/GmailCard";
 import { QuickstartCard } from "./cards/QuickstartCard";
 import { useDiscoveryJob } from "./discovery-job";
-import {
-  ONBOARDING_CHAT_STEPS,
-  type OnboardingChatStep,
-} from "./onboarding-chat-flow";
+import type { OnboardingChatStep } from "./onboarding-chat-flow";
 import type { PendingComposerDraft } from "./pending-handoff";
 import {
   useOnboardingChat,
@@ -64,6 +62,7 @@ const STEP_MOODS: Record<OnboardingChatStep, StellaCharacterState> = {
   selfmod: "idle",
   memory: "idle",
   signin: "listening",
+  gmail: "idle",
   theme: "listening",
   extras: "idle",
   quickstart: "happy",
@@ -121,8 +120,23 @@ export function OnboardingChat({ isAuthenticated, onComplete }: OnboardingChatPr
   const [activeLegalDoc, setActiveLegalDoc] = useState<LegalDocument | null>(null);
   const markRef = useRef<StellaMarkHandle | null>(null);
 
-  const { entries, currentStep, answers, indicator, exiting, answer, finish } =
-    useOnboardingChat({ onFinished: onComplete });
+  // Gmail connects through the desktop app's connector service and a Stella
+  // account; without either, the step never shows.
+  const canConnectGmail =
+    isAuthenticated && Boolean(window.electronAPI?.nativeIntegrations?.enable);
+  const {
+    entries,
+    steps,
+    currentStep,
+    answers,
+    indicator,
+    exiting,
+    answer,
+    finish,
+  } = useOnboardingChat({
+    onFinished: onComplete,
+    skipGmail: !canConnectGmail,
+  });
 
   // Composer state — fully controlled, like the real chat surfaces.
   const [message, setMessage] = useState("");
@@ -236,9 +250,7 @@ export function OnboardingChat({ isAuthenticated, onComplete }: OnboardingChatPr
   }, [lastFreshAssistantId]);
 
   // Steps answered so far; the finale counts once the user heads in.
-  const progressCount = exiting
-    ? ONBOARDING_CHAT_STEPS.length
-    : ONBOARDING_CHAT_STEPS.indexOf(currentStep);
+  const progressCount = exiting ? steps.length : steps.indexOf(currentStep);
 
   const jobBusy =
     job.status === "collecting" ||
@@ -300,6 +312,14 @@ export function OnboardingChat({ isAuthenticated, onComplete }: OnboardingChatPr
       case "signin":
         return (
           <SignInCard
+            active={active}
+            answered={answered}
+            onAnswer={(kind) => answer(step, kind)}
+          />
+        );
+      case "gmail":
+        return (
+          <GmailCard
             active={active}
             answered={answered}
             onAnswer={(kind) => answer(step, kind)}
@@ -396,10 +416,10 @@ export function OnboardingChat({ isAuthenticated, onComplete }: OnboardingChatPr
           role="progressbar"
           aria-label={t("onboarding.chat.progress")}
           aria-valuemin={0}
-          aria-valuemax={ONBOARDING_CHAT_STEPS.length}
+          aria-valuemax={steps.length}
           aria-valuenow={progressCount}
         >
-          {ONBOARDING_CHAT_STEPS.map((step, index) => (
+          {steps.map((step, index) => (
             <span
               key={step}
               className="obc-progress__seg"

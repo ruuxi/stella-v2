@@ -1171,6 +1171,17 @@
         "signInToPair": "Entre para parear",
         "title": "Seu computador, direto do bolso"
       },
+      "gmail": {
+        "body": "Encontre e-mails, acompanhe conversas e crie rascunhos de respostas, só pedindo.",
+        "connect": "Conectar Gmail",
+        "connected": "Conectado",
+        "error": "Não foi possível conectar o Gmail. Tente de novo ou pule por enquanto.",
+        "settledSkippedTitle": "Sem Gmail por enquanto",
+        "settledTitle": "Gmail conectado",
+        "skip": "Agora não",
+        "title": "Conectar Gmail",
+        "waiting": "Aguardando o Google…"
+      },
       "hello": {
         "cta": "Mostre",
         "pillars": {
@@ -1193,6 +1204,7 @@
         "account": "Quer guardar tudo isso? Uma conta Stella acompanha você em todos os dispositivos.",
         "accountSignedIn": "Você já entrou, então tudo acompanha você entre os dispositivos. Um extra opcional:",
         "computer": "Se você tem um Mac ou PC, posso trabalhar nele também.",
+        "gmail": "Boa parte da vida passa pelo e-mail. Conecte o Gmail e eu ajudo com o seu.",
         "hello": "Oi, eu sou a Stella.\n\nNão sou um chatbot. Diga o que você precisa e eu resolvo, em segundo plano, enquanto você segue com o seu dia.",
         "ready": "Pronto. Vou conhecer você aos poucos.\n\nPor onde vamos começar?",
         "showcase": "É assim que funciona.",
@@ -1226,6 +1238,8 @@
         "accountSkipped": "Pular por enquanto.",
         "computerDone": "Conectado!",
         "computerSkipped": "Talvez depois.",
+        "gmailDone": "Pronto.",
+        "gmailSkipped": "Agora não.",
         "helloDone": "Mostre.",
         "showcaseDone": "Entendi.",
         "themeDone": "Esse.",
@@ -1556,6 +1570,18 @@
         "title": "Two quick extras",
         "titleOne": "One quick extra"
       },
+      "gmail": {
+        "body": "Encontre e-mails, acompanhe conversas e crie rascunhos de respostas, só pedindo.",
+        "connect": "Conectar Gmail",
+        "connected": "Conectado",
+        "connecting": "Aguardando o Google…",
+        "error": "Não foi possível conectar o Gmail. Tente de novo ou pule por enquanto.",
+        "settledDesc": "Gerencie quando quiser em Conectores.",
+        "settledSkippedTitle": "Sem Gmail por enquanto",
+        "settledTitle": "Gmail conectado",
+        "skip": "Agora não",
+        "title": "Gmail"
+      },
       "memory": {
         "bodyChatbot": "A new chat every time, a sidebar full of old ones, and no memory of what you said last week.",
         "bodyStella": "No new chats, no threads. Everything you've ever told me is in the same place, so when you ask about last week I go and find it.",
@@ -1569,6 +1595,7 @@
       "messages": {
         "capabilities": "Olá, eu sou a Stella.\n\nNão sou um chatbot. Uso este computador para realmente resolver as coisas por você, em segundo plano, enquanto você segue com o seu dia.\n\nÉ assim que isso funciona.",
         "extras": "Almost done. A little housekeeping, then we start.",
+        "gmail": "Boa parte da vida passa pelo e-mail. Conecte o Gmail e eu ajudo com o seu.",
         "memory": "One more thing that makes me different.",
         "quickstart": "É tudo. Falta só uma coisa, e é opcional: um início rápido.",
         "quickstartDone": "Pronto. Veja o que aprendi e algumas coisas com que podemos começar.",
@@ -1627,6 +1654,8 @@
         "capabilitiesSkipped": "Skip the tour.",
         "extrasDone": "Done.",
         "extrasSkipped": "Skip for now.",
+        "gmailDone": "Pronto.",
+        "gmailSkipped": "Agora não.",
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Muito legal.",

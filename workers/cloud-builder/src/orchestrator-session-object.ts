@@ -643,6 +643,13 @@ const PI_MIRRORED_KEY = "piMirroredEntry";
 /** Set while pi has work in flight here, so a wake after eviction resumes it. */
 const PI_LIVE_KEY = "piLive";
 const PI_HEARTBEAT_MS = 30_000;
+/** The agent tools a pi-durable conversation's harness has itself. */
+const PI_HARNESS_AGENT_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "spawn_agent",
+  "send_message",
+  "agent_status",
+  "pause_agent",
+]);
 /**
  * While a chat turn runs, its alarm fires at least this often. The alarm is
  * what wakes a replaced object (a deploy, an eviction) so the wake can resume
@@ -5886,6 +5893,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             this.cloudAgentHome(turn),
             home.skillCatalog,
             home.memoryPreference.memoryEnabled,
+            "pi",
           )
         ).catalog,
       sources: {
@@ -11574,10 +11582,15 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     agentHome: AgentHome,
     skillCatalog: CloudSkillCatalogSnapshot,
     memoryEnabled: boolean,
+    /**
+     * `pi`: the tools for a pi-durable conversation, whose harness has the
+     * agent tools itself, so code's `tools.<name>` never reaches this loop's.
+     */
+    harness?: "pi",
   ): Promise<{
     tools: AgentTool[];
     promptTools: ReadonlySet<string>;
-    /** Every tool but code, demoted ones included, for a harness with its own code tool. */
+    /** Code and every other tool, demoted ones included. */
     catalog: readonly CloudCodeSourceAgentTool[];
   }> {
     const toolContext = {
@@ -12254,7 +12267,10 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         : undefined;
     const codeTool = await createCloudCodeAgentTool({
       loader: this.env.LOADER,
-      tools,
+      tools:
+        harness === "pi"
+          ? tools.filter((tool) => !PI_HARNESS_AGENT_TOOL_NAMES.has(tool.name))
+          : tools,
       executionScope: `${turn.ownerGeneration}:${turn.conversationId}:${turn.turnId}`,
       connect: createCloudConnectClient(connectors),
       ...(memory ? { memory } : {}),
@@ -12282,7 +12298,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     );
     return {
       tools: [codeTool, ...direct],
-      catalog: tools,
+      catalog: [codeTool, ...tools],
       // The prompt renders against everything this turn can call, demoted
       // tools inside code included, and `history` and `memory` only when
       // code has them.

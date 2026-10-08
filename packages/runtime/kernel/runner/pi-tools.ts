@@ -2,9 +2,14 @@
  * The desktop's Stella tools for the pi-durable harness (`@stella/agent`'s
  * `StellaToolHost`). An agent type is offered what its frontmatter allows and
  * the demoted tools it may reach, except the tools the harness has itself:
- * the agent tools, an agent's file and shell tools, and `code`. A call runs
- * the agent loops' pipeline (`executeModelToolCall`), so hooks, validation,
- * truncation, spill and images behave as they do there.
+ * the agent tools and an agent's file and shell tools. A call runs the agent
+ * loops' pipeline (`executeModelToolCall`), so hooks, validation, truncation,
+ * spill and images behave as they do there.
+ *
+ * `code` is the persistent REPL the browser and computer-use skills drive:
+ * its `tools.<name>` reach exactly these tools (demoted ones only through it),
+ * and its kernel lives as long as the conversation's orchestrator, or the
+ * agent, that calls it.
  */
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import {
@@ -12,6 +17,7 @@ import {
   executeModelToolCall,
 } from "../agent-runtime/tool-adapters.js";
 import type { AgentToolResult } from "../agent-core/types.js";
+import { buildDemotedCodeSuffix } from "../tools/code-catalog.js";
 import { CODE_TOOL_NAME, toolRequiresExplicitApproval } from "../tools/code-tool.js";
 import type { ToolMetadata } from "../tools/types.js";
 import { resolveAgent, resolveAgentModelRoute } from "./context.js";
@@ -32,7 +38,6 @@ const HARNESS_TOOL_NAMES = new Set([
   "Grep",
   "multi_tool_use_parallel",
   "NoResponse",
-  CODE_TOOL_NAME,
   "node_repl",
   // Moving the chat is the old runtime's; pi places agents per conversation.
   "switch_destination",
@@ -82,13 +87,22 @@ const offeredTools = (
   );
 };
 
-const runIdFor = (callId: string) => `pi-${callId.replace(/[^A-Za-z0-9_-]/g, "_")}`;
+/** One run id per orchestrator conversation or agent: `code` keeps its kernel across calls by it. */
+const runIdFor = (owner: string) => `pi-${owner.replace(/[^A-Za-z0-9_-]/g, "_")}`;
+
+/** Demoted tools reachable inside code: those without a top-level approval flow. */
+const codeReachableDemoted = (offered: readonly ToolMetadata[]) =>
+  offered.filter((tool) => tool.demoted && !toolRequiresExplicitApproval(tool.approval));
 
 export const createRunnerPiTools = (context: RunnerContext): RunnerPiTools => ({
-  specs: (agentType) =>
-    offeredTools(context, agentType).map((tool) => ({
+  specs: (agentType) => {
+    const offered = offeredTools(context, agentType);
+    return offered.map((tool) => ({
       name: tool.name,
-      description: tool.description,
+      description:
+        tool.name === CODE_TOOL_NAME
+          ? `${tool.description}${buildDemotedCodeSuffix(codeReachableDemoted(offered))}`
+          : tool.description,
       parameters: tool.parameters,
       ...(tool.replay ? { replay: tool.replay } : {}),
       ...(tool.demoted && !toolRequiresExplicitApproval(tool.approval)
@@ -98,7 +112,8 @@ export const createRunnerPiTools = (context: RunnerContext): RunnerPiTools => ({
             },
           }
         : {}),
-    })),
+    }));
+  },
   run: async (call) => {
     const offered = offeredTools(context, call.agentType);
     if (!offered.some((tool) => tool.name === call.name)) {
@@ -116,7 +131,7 @@ export const createRunnerPiTools = (context: RunnerContext): RunnerPiTools => ({
     return await executeModelToolCall(
       {
         executionHost: "device",
-        runId: runIdFor(call.callId),
+        runId: runIdFor(call.agentId ?? call.conversationId),
         conversationId: call.conversationId,
         storageMode: "local",
         agentType,

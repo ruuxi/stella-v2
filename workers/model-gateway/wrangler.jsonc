@@ -188,7 +188,12 @@
       ],
       "kv_namespaces": [
         {
+          // The namespace production is really bound to
+          // (titled stella-v2-model-gateway-config-snapshot). It was left
+          // without an id, so a deploy had to provision or pick one and could
+          // have repointed the binding and orphaned the live snapshot.
           "binding": "CONFIG_SNAPSHOT",
+          "id": "4a6ff4e237de4cf59d85334c1053645b",
         },
         {
           "binding": "OWNER_ENFORCEMENT",

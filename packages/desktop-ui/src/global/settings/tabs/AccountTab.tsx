@@ -259,7 +259,7 @@ export function AccountTab({ onSignOut, onOpenLegal }: AccountTabProps) {
       : t("settings.account.dialog.deleteDataButton");
 
   return (
-    <div className="settings-tab-content">
+    <div className="settings-tab-content settings-tab-content--account">
       <CloudBoundary>
         <ProviderAccountsCard />
       </CloudBoundary>
@@ -274,15 +274,14 @@ export function AccountTab({ onSignOut, onOpenLegal }: AccountTabProps) {
                 {t("settings.memory.title")}
               </div>
               <div className="settings-row-sublabel" role="status">
-                {memorySyncSummary(t, memorySync)}
+                {memorySync?.phase === "synced" &&
+                memorySync.merging === 0 &&
+                memorySync.lastSyncedAt
+                  ? t("settings.account.cloudHome.memory.lastSynced", {
+                      time: syncedAtLabel(locale, memorySync.lastSyncedAt),
+                    })
+                  : memorySyncSummary(t, memorySync)}
               </div>
-              {memorySync?.phase === "synced" && memorySync.lastSyncedAt ? (
-                <div className="settings-row-sublabel">
-                  {t("settings.account.cloudHome.memory.lastSynced", {
-                    time: syncedAtLabel(locale, memorySync.lastSyncedAt),
-                  })}
-                </div>
-              ) : null}
               {memorySync && memorySync.refused.length > 0 ? (
                 <div className="settings-row-sublabel" role="alert">
                   {t("settings.account.cloudHome.memory.refused", {
@@ -381,9 +380,6 @@ export function AccountTab({ onSignOut, onOpenLegal }: AccountTabProps) {
             <div className="settings-row-label">
               {t("settings.account.deleteData.label")}
             </div>
-            <div className="settings-row-sublabel">
-              {t("settings.account.deleteData.description")}
-            </div>
           </div>
           <div className="settings-row-control">
             <Button
@@ -403,9 +399,6 @@ export function AccountTab({ onSignOut, onOpenLegal }: AccountTabProps) {
           <div className="settings-row-info">
             <div className="settings-row-label">
               {t("settings.account.deleteAccount.label")}
-            </div>
-            <div className="settings-row-sublabel">
-              {t("settings.account.deleteAccount.description")}
             </div>
           </div>
           <div className="settings-row-control">
@@ -427,39 +420,23 @@ export function AccountTab({ onSignOut, onOpenLegal }: AccountTabProps) {
         <h3 className="settings-card-title">
           {t("settings.account.legal.title")}
         </h3>
-        <div className="settings-row">
-          <div className="settings-row-info">
-            <div className="settings-row-label">
-              {t("settings.account.legal.terms")}
-            </div>
-          </div>
-          <div className="settings-row-control">
-            <Button
-              type="button"
-              variant="ghost"
-              className="pill-btn"
-              onClick={() => onOpenLegal?.("terms")}
-            >
-              {t("settings.account.legal.view")}
-            </Button>
-          </div>
-        </div>
-        <div className="settings-row">
-          <div className="settings-row-info">
-            <div className="settings-row-label">
-              {t("settings.account.legal.privacy")}
-            </div>
-          </div>
-          <div className="settings-row-control">
-            <Button
-              type="button"
-              variant="ghost"
-              className="pill-btn"
-              onClick={() => onOpenLegal?.("privacy")}
-            >
-              {t("settings.account.legal.view")}
-            </Button>
-          </div>
+        <div className="settings-row-control">
+          <Button
+            type="button"
+            variant="ghost"
+            className="pill-btn"
+            onClick={() => onOpenLegal?.("terms")}
+          >
+            {t("settings.account.legal.terms")}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            className="pill-btn"
+            onClick={() => onOpenLegal?.("privacy")}
+          >
+            {t("settings.account.legal.privacy")}
+          </Button>
         </div>
       </div>
       <Dialog

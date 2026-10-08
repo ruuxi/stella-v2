@@ -413,6 +413,12 @@
   border-top: 1px solid color-mix(in oklch, var(--foreground) 7%, transparent);
 }
 
+/* Account & Legal reads as short lists; cards already separate the sections,
+   so rows inside them go without hairlines. */
+.settings-tab-content--account .settings-row + .settings-row {
+  border-top: none;
+}
+
 .settings-card > .settings-row:first-of-type {
   padding-top: 4px;
 }

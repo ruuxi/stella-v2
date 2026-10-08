@@ -99,6 +99,8 @@ export type OrchestratorCliTurnRecord = CloudCliTurnIdentity & {
   finished?: boolean;
   /** The resident prompts the session will have seen once this turn lands. */
   resident?: ResidentPrompt[];
+  /** Claude Code compacted its own transcript during this turn. */
+  compacted?: boolean;
 };
 
 export type OrchestratorCliDelivered = {

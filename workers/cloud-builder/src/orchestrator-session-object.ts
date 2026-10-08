@@ -6327,10 +6327,15 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       deliveredThrough !== undefined &&
       (completed || record.appliedBatchSeq > 0)
     ) {
+      // Claude Code summarized its own transcript during the turn, so the
+      // resident blocks it was given may be gone: the next turn sends them
+      // all again, as the desktop does after the same event.
       entries[ORCHESTRATOR_CLI_DELIVERED_KEY] = {
         journalEpoch: this.journal.meta().epoch,
         seq: deliveredThrough,
-        ...(record.resident ? { resident: record.resident } : {}),
+        ...(record.resident && !record.compacted
+          ? { resident: record.resident }
+          : {}),
       } satisfies OrchestratorCliDelivered;
     }
     await this.putTurnState(entries);
@@ -6649,6 +6654,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       return json({ ok: false, code: "turn_inactive" }, 409);
     }
     let usage = record.usage;
+    let compacted = record.compacted === true;
     for (const event of forward.events) {
       if (event.type === "usage") {
         usage = {
@@ -6657,6 +6663,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           llmCalls: event.llmCalls,
         };
       } else if (event.type === "status") {
+        if (event.state === "compacting") compacted = true;
         log("info", "orchestrator_cli_turn_status", {
           turnId: turn.turnId,
           state: event.state,
@@ -6686,6 +6693,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           ...record,
           appliedBatchSeq: forward.batchSeq,
           ...(usage ? { usage } : {}),
+          ...(compacted ? { compacted: true } : {}),
         } satisfies OrchestratorCliTurnRecord);
         return rows;
       });

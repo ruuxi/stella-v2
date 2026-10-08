@@ -103,6 +103,8 @@ type Chat = {
   startAgent: OpenStellaHarness["startAgent"];
   agentRecords: OpenStellaHarness["agentRecords"];
   messageAgent: OpenStellaHarness["messageAgent"];
+  runPlacedAgent: OpenStellaHarness["runPlacedAgent"];
+  steerPlacedAgent: OpenStellaHarness["steerPlacedAgent"];
   /** For a conversation stored in the cloud: its journal mirror. */
   mirror?: JournalMirror;
   stream?: AgentEventStream;
@@ -131,6 +133,8 @@ const fileName = (conversationId: string): string => {
 
 export function desktopChats(options: DesktopChatsOptions) {
   const chats = new Map<string, Promise<Chat>>();
+  /** The conversation each agent placed here runs in, by its key at the placing host. */
+  const placedIn = new Map<string, string>();
   const directory = path.join(options.dataDir, "agent");
 
   // Conversations with work in flight, so a new runtime process resumes
@@ -233,7 +237,8 @@ export function desktopChats(options: DesktopChatsOptions) {
           deviceId: options.deviceId ?? "this-computer",
           label: "This computer",
         };
-        const { harness, refreshTools, startAgent, agentRecords, messageAgent } = await openStellaHarness(
+        const { harness, refreshTools, startAgent, agentRecords, messageAgent, runPlacedAgent, steerPlacedAgent } =
+          await openStellaHarness(
           {
             storage,
             models,
@@ -281,6 +286,8 @@ export function desktopChats(options: DesktopChatsOptions) {
           startAgent,
           agentRecords,
           messageAgent,
+          runPlacedAgent,
+          steerPlacedAgent,
           ...(mirror ? { mirror } : {}),
           watchers: 0,
           idleCheck,
@@ -570,6 +577,27 @@ export function desktopChats(options: DesktopChatsOptions) {
     await chat.messageAgent(message, context);
   };
 
+  /**
+   * An agent another host placed on this computer (a cloud conversation's
+   * agent on a device), run in the conversation here to its answer, which
+   * goes back to that host.
+   */
+  const runPlacedAgent = async (
+    conversationId: string,
+    run: Parameters<OpenStellaHarness["runPlacedAgent"]>[0],
+  ): ReturnType<OpenStellaHarness["runPlacedAgent"]> => {
+    placedIn.set(run.agentKey, conversationId);
+    const chat = await ready(conversationId);
+    return await chat.runPlacedAgent(run, context);
+  };
+
+  /** A message for an agent placed here, from the host that placed it; false when it is not running here. */
+  const steerPlacedAgent = async (message: { key: string; agentKey: string; message: string }): Promise<boolean> => {
+    const conversationId = placedIn.get(message.agentKey);
+    if (!conversationId) return false;
+    return await (await open(conversationId)).steerPlacedAgent(message, context);
+  };
+
   const older = async (conversationId: string, beforeEntryId: number): Promise<PiChatOlderResult> =>
     history(await open(conversationId), beforeEntryId);
 
@@ -579,6 +607,8 @@ export function desktopChats(options: DesktopChatsOptions) {
     automation,
     startAgent,
     messageAgent,
+    runPlacedAgent,
+    steerPlacedAgent,
     voiceTranscript,
     voiceHistory,
     /** Reopen the conversations a previous process left with work in flight. */

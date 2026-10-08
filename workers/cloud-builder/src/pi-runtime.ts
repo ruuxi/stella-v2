@@ -52,7 +52,13 @@ import {
   type StellaRequestRoute,
 } from "@stella/agent/provider/stella";
 import { StellaAgentDoc } from "@stella/agent/stella/agent-doc";
-import { StellaAgentsDoc, type AgentReport, type AgentRun, type StellaAgentsHost } from "@stella/agent/stella/agents";
+import {
+  StellaAgentsDoc,
+  type AgentReport,
+  type AgentRun,
+  type RemoteAgentHost,
+  type StellaAgentsHost,
+} from "@stella/agent/stella/agents";
 import {
   STELLA_HARNESS_TOOL_NAMES,
   type StellaToolHost,
@@ -131,6 +137,17 @@ type PiAgentState = {
   lastTurnId?: string;
 };
 
+export type PiDeviceAgents = {
+  start(
+    args: { key: string; deviceId: string; description: string; prompt: string },
+    authority: PiAuthority,
+    parentTurnId: string,
+  ): Promise<{ threadId: string }>;
+  message(args: { key: string; threadId: string; message: string }, authority: PiAuthority, parentTurnId: string): Promise<void>;
+  status(threadId: string, authority: PiAuthority, parentTurnId: string): Promise<string>;
+  pause(args: { key: string; threadId: string }, authority: PiAuthority, parentTurnId: string): Promise<void>;
+};
+
 /** One of the orchestrator's agents, as its lifecycle cards name it. */
 export type PiAgentInfo = {
   description: string;
@@ -186,6 +203,11 @@ export type PiRuntimeOptions = {
   deliverReport(report: AgentReport, authority: PiAuthority, agent: PiAgentInfo): Promise<void>;
   /** An agent started work (a spawn or a follow-up), during or just after `turnId`. */
   agentStarted?(event: PiAgentInfo & { threadId: string; turnId: string }): void;
+  /**
+   * Agents on the owner's devices, run there as a whole through the owner's
+   * agent threads as the loop's are; their reports come back as wake turns.
+   */
+  deviceAgents?: PiDeviceAgents;
   /** Keep this object waking while agents run. */
   heartbeat(): void;
   /** An agent's own tools (web, code with connectors), on the agents' authority. */
@@ -514,10 +536,12 @@ export class PiConversationRuntime {
       rootPlacement: { kind: "cloud" },
       place: (destination, caller) => {
         if (destination.kind === "here" || destination.kind === "cloud") return { kind: "cloud" };
-        return caller.kind === "cloud"
-          ? { error: `A cloud agent cannot start an agent on device ${destination.deviceId} yet.` }
-          : { error: `This conversation cannot start an agent on device ${destination.deviceId} yet.` };
+        if (this.#options.deviceAgents && caller.kind === "cloud") {
+          return { kind: "device", deviceId: destination.deviceId };
+        }
+        return { error: `This conversation cannot start an agent on device ${destination.deviceId}.` };
       },
+      remote: (placement) => (placement.kind === "device" ? this.#deviceAgentHost(placement.deviceId) : undefined),
       beginAgentRun: async (run, context) => {
         const { authority } = await this.#agentState();
         const turnId = `pi:${authority.conversationId}:${run.runId}`;
@@ -573,6 +597,34 @@ export class PiConversationRuntime {
       deliverReport: async (report, context) => {
         const { authority } = await this.#agentState();
         await this.#options.deliverReport(report, authority, await this.#agentInfo(report.threadId, context));
+      },
+    };
+  }
+
+  /** The host of agents on one of the owner's devices. */
+  #deviceAgentHost(deviceId: string): RemoteAgentHost | undefined {
+    const devices = this.#options.deviceAgents;
+    if (!devices) return undefined;
+    const scope = async () => {
+      const { authority } = await this.#agentState();
+      return { authority, parentTurnId: this.#binding?.turnId ?? this.#state?.lastTurnId ?? `pi:${authority.conversationId}` };
+    };
+    return {
+      start: async (args) => {
+        const { authority, parentTurnId } = await scope();
+        return await devices.start({ ...args, deviceId }, authority, parentTurnId);
+      },
+      message: async (args) => {
+        const { authority, parentTurnId } = await scope();
+        await devices.message(args, authority, parentTurnId);
+      },
+      status: async (threadId) => {
+        const { authority, parentTurnId } = await scope();
+        return await devices.status(threadId, authority, parentTurnId);
+      },
+      pause: async (threadId) => {
+        const { authority, parentTurnId } = await scope();
+        await devices.pause({ key: `pause:${threadId}:${Date.now()}`, threadId }, authority, parentTurnId);
       },
     };
   }

@@ -656,6 +656,9 @@ const piReportOutcome = (
   return { kind: "failed", body: field("error") };
 };
 
+/** Durable key prefix: a cloud pi agent on a device's control receipt, by thread id. */
+const PI_DEVICE_AGENT_PREFIX = "pi:device-agent:";
+
 /** Journal records read per batch when importing other writers' turns into pi. */
 const PI_JOURNAL_IMPORT_BATCH = 200;
 const PI_JOURNAL_IMPORT_BYTES = 4 * 1024 * 1024;
@@ -6141,6 +6144,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
               },
             }),
           agentTools: (authority) => this.createPiAgentTools(authority),
+          deviceAgents: this.piDeviceAgents(),
           heartbeat: () => {
             void (async () => {
               await this.ctx.storage.put(PI_LIVE_KEY, true);
@@ -6184,6 +6188,71 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
    * the same admission as any turn. Its request id is the turn's
    * `clientMsgId`, so a report sent again after an eviction is a replay.
    */
+  /**
+   * Agents a cloud pi conversation places on the owner's devices: started,
+   * messaged and paused through the owner's agent threads, the loop's device
+   * agents' plane. The device runs one as a whole; its report comes back as
+   * the same wake turn. Control receipts are kept per thread.
+   */
+  private piDeviceAgents(): import("./pi-runtime.js").PiDeviceAgents {
+    type Authority = import("./pi-runtime.js").PiAuthority;
+    const caller = (authority: Authority, parentTurnId: string): DeviceAgentCaller => ({
+      ownerInternal: async (name, args) =>
+        unwrapRpc(
+          await this.ownerGate(authority.ownerId).ownerInternal({
+            name,
+            args,
+            ownerGeneration: authority.ownerGeneration,
+          }),
+        ),
+      ownerGeneration: authority.ownerGeneration,
+      conversationId: authority.conversationId,
+      parentTurnId,
+    });
+    const receiptKey = (threadId: string) => `${PI_DEVICE_AGENT_PREFIX}${threadId}`;
+    const receipt = async (threadId: string): Promise<CloudAgentControlReceipt> => {
+      const prior = await this.ctx.storage.get<CloudAgentControlReceipt>(receiptKey(threadId));
+      if (!prior) throw new Error(`No agent ${threadId} here.`);
+      return prior;
+    };
+    // The owner's agent threads replay by request id across conversations.
+    const requestId = (authority: Authority, key: string) =>
+      `pi:${authority.conversationId}:${key}`.slice(0, 128);
+    return {
+      start: async (args, authority, parentTurnId) => {
+        const started = await spawnDeviceAgent(caller(authority, parentTurnId), {
+          clientMsgId: requestId(authority, args.key),
+          targetDeviceId: args.deviceId,
+          description: args.description,
+          prompt: args.prompt,
+        });
+        await this.ctx.storage.put(receiptKey(started.threadId), started);
+        return { threadId: started.threadId };
+      },
+      message: async (args, authority, parentTurnId) => {
+        const next = await continueDeviceAgent(
+          caller(authority, parentTurnId),
+          await receipt(args.threadId),
+          { controlRequestId: requestId(authority, args.key), message: args.message },
+        );
+        await this.ctx.storage.put(receiptKey(args.threadId), next);
+      },
+      status: async (threadId, authority, parentTurnId) => {
+        const current = await readDeviceAgent(caller(authority, parentTurnId), await receipt(threadId));
+        await this.ctx.storage.put(receiptKey(threadId), current);
+        return `${current.status} on device ${current.executorDeviceId ?? "?"}`;
+      },
+      pause: async (args, authority, parentTurnId) => {
+        const next = await cancelDeviceAgent(
+          caller(authority, parentTurnId),
+          await receipt(args.threadId),
+          requestId(authority, args.key),
+        );
+        await this.ctx.storage.put(receiptKey(args.threadId), next);
+      },
+    };
+  }
+
   private async deliverPiAgentReport(
     report: import("@stella/agent/stella/agents").AgentReport,
     authority: import("./pi-runtime.js").PiAuthority,

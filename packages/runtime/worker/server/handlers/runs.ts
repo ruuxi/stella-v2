@@ -20,6 +20,19 @@ import * as WorkerSessions from "../sessions.js";
 import { fromPromise, type WorkerRpcHandlers } from "../rpc.js";
 import type { AgentEventPayload } from "../types.js";
 
+/** A placed agent's brief, with where the files the user attached are on this computer. */
+const withAttachedFiles = (
+  prompt: string,
+  attachments: readonly RuntimeAttachmentRef[],
+): string => {
+  const paths = attachments.flatMap((attachment) =>
+    attachment.sourcePath ? [JSON.stringify(attachment.sourcePath)] : [],
+  );
+  return paths.length === 0
+    ? prompt
+    : `${prompt}\n\nThe user attached these files; they are on this computer at: ${paths.join(", ")}.`;
+};
+
 export const runsHandlers: WorkerRpcHandlers = {
   [METHOD_NAMES.INTERNAL_WORKER_GET_ACTIVE]: () =>
     Effect.gen(function* () {
@@ -207,9 +220,6 @@ export const runsHandlers: WorkerRpcHandlers = {
         () => new RunnerUnavailableError(),
       );
       const payload = params as RuntimeLocalAgentRequest;
-      const runner = yield* fromPromise(() =>
-        session.runner.ensureInitialized(),
-      );
       // Before the agent starts, so its brief can name real paths. A failed
       // download fails the agent here rather than starting one that will
       // report it cannot find the file the user attached.
@@ -218,6 +228,26 @@ export const runsHandlers: WorkerRpcHandlers = {
           conversationId: payload.conversationId,
           ...(payload.attachments ? { attachments: payload.attachments } : {}),
         }),
+      );
+      // On pi-durable an agent another device placed here runs in the
+      // conversation's harness; its answer goes back through the placement.
+      if (piRuntimeEnabled()) {
+        const hostBus = yield* HostBus.Service;
+        const agentKey = payload.threadId || payload.executionId || crypto.randomUUID();
+        return yield* fromPromise(async () => {
+          const result = await (await piChatsFor(session, hostBus)).runPlacedAgent(payload.conversationId, {
+            agentKey,
+            runKey: payload.executionId || agentKey,
+            description: payload.description,
+            prompt: withAttachedFiles(payload.prompt, attachments),
+          });
+          return result.status === "ok"
+            ? { status: "ok" as const, finalText: result.finalText, threadId: result.threadId }
+            : { status: "error" as const, finalText: "" as const, error: result.error, threadId: result.threadId };
+        });
+      }
+      const runner = yield* fromPromise(() =>
+        session.runner.ensureInitialized(),
       );
       return yield* fromPromise(() =>
         runner.runBlockingLocalAgent({
@@ -234,6 +264,16 @@ export const runsHandlers: WorkerRpcHandlers = {
         () => new RunnerUnavailableError(),
       );
       const payload = params as RuntimeLocalAgentSteerRequest;
+      if (piRuntimeEnabled()) {
+        const hostBus = yield* HostBus.Service;
+        return yield* fromPromise(async () => ({
+          delivered: await (await piChatsFor(session, hostBus)).steerPlacedAgent({
+            key: String(payload.messageId || crypto.randomUUID()),
+            agentKey: String(payload.agentId ?? ""),
+            message: String(payload.text ?? ""),
+          }),
+        }));
+      }
       const runner = yield* fromPromise(() =>
         session.runner.ensureInitialized(),
       );

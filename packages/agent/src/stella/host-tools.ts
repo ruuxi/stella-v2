@@ -11,6 +11,7 @@
  * it runs.
  */
 import type { Context, JsonValue } from "@earendil-works/chord";
+import { withAbortSignal, withoutAbortSignal } from "@earendil-works/chord/context";
 import type { ImageContent, TextContent, TSchema } from "@earendil-works/pi-ai";
 import { defineExtension, type Extension, type ToolRegistration } from "@earendil-works/pi-durable";
 import { StellaAgentDoc } from "./agent-doc.ts";
@@ -96,16 +97,29 @@ const register = (role: StellaToolRole, spec: StellaToolSpec, host: StellaToolHo
   replay: spec.replay === "safe" || spec.replay === "keyed" ? "safe" : "unsafe",
   async execute(args, api, context) {
     const agent = role === "general" ? await api.snapshot(StellaAgentDoc, api.conversationId, context) : undefined;
-    const outcome = await host.run(
-      {
-        role,
-        name: spec.name,
-        callId: api.callId,
-        args: (args ?? {}) as Record<string, unknown>,
-        ...(agent?.threadId ? { threadId: agent.threadId } : {}),
-      },
-      context,
-    );
+    // pi-durable cancels a call's context when the call ends. Work a tool
+    // leaves running (a code cell that yielded) must outlive the call, so the
+    // host's signal follows the context only while the call is in flight.
+    const controller = new AbortController();
+    const parent = context.abortSignal;
+    const forward = () => controller.abort(parent?.reason);
+    if (parent?.aborted) forward();
+    else parent?.addEventListener("abort", forward, { once: true });
+    let outcome: StellaToolOutcome;
+    try {
+      outcome = await host.run(
+        {
+          role,
+          name: spec.name,
+          callId: api.callId,
+          args: (args ?? {}) as Record<string, unknown>,
+          ...(agent?.threadId ? { threadId: agent.threadId } : {}),
+        },
+        withAbortSignal(controller.signal, withoutAbortSignal(context)),
+      );
+    } finally {
+      parent?.removeEventListener("abort", forward);
+    }
     const details = jsonDetails(outcome.details);
     return {
       content: outcome.content.length > 0 ? outcome.content : [{ type: "text", text: "(no output)" }],

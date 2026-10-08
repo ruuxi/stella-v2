@@ -75,8 +75,6 @@ import type { ManagedModelAudience } from "@stella/contracts/gateway/capability"
 import { toolRequiresExplicitApproval } from "@stella/runtime/kernel/tools/code-tool.js";
 import { mintTurnCapability } from "./capability-signer.js";
 import type { CloudCodeSourceAgentTool } from "./cloud-code-tool.js";
-import { createCloudWebTool } from "./cloud-web-tool.js";
-import { unwrapRpc } from "./owner-store/errors.js";
 import {
   fetchWithManagedCancellation,
   type ModelGatewayControl,
@@ -124,6 +122,8 @@ type PiAgentState = {
   executionContext: ExecutionContextSnapshot;
   /** The orchestrator's tools as the latest turn offered them, for work recovered before a turn binds. */
   tools?: StellaToolSpec[];
+  /** The agents' own tools, likewise. */
+  agentTools?: StellaToolSpec[];
 };
 
 export type PiTurnSources = {
@@ -172,6 +172,8 @@ export type PiRuntimeOptions = {
   deliverReport(report: AgentReport, authority: PiAuthority): Promise<void>;
   /** Keep this object waking while agents run. */
   heartbeat(): void;
+  /** An agent's own tools (web, code with connectors), on the agents' authority. */
+  agentTools(authority: PiAuthority): Promise<readonly CloudCodeSourceAgentTool[]>;
 };
 
 /** A pi call context: cancelled with `signal`, which only cancels that call or wait. */
@@ -429,29 +431,16 @@ export class PiConversationRuntime {
     return this.#turnTools.tools;
   }
 
-  /** A server-internal operation on the owner's object, on the kept authority. */
-  async #ownerInternal(name: string, args: unknown): Promise<unknown> {
-    const { authority } = await this.#agentState();
-    return unwrapRpc(
-      await this.#gate(authority).ownerInternal({ name, args, ownerGeneration: authority.ownerGeneration }),
-    );
-  }
-
-  /** The agents' own tools in the cloud: web (files and shell are their container's). */
-  #agentTools(): CloudCodeSourceAgentTool[] {
-    return [createCloudWebTool({ ownerInternal: (name, args) => this.#ownerInternal(name, args) })];
-  }
-
   #tools(): StellaToolHost {
     return {
-      specs: (role) => (role === "orchestrator" ? (this.#state?.tools ?? []) : this.#agentTools().map(toolSpec)),
+      specs: (role) => (role === "orchestrator" ? this.#state?.tools : this.#state?.agentTools) ?? [],
       run: async (call, context) => {
         const signal = context.abortSignal;
         // The orchestrator's tools are its turn's: recovered work waits for the turn to bind again.
         const tools =
           call.role === "orchestrator"
             ? await this.#turnToolsFor(await this.#turn(signal))
-            : this.#agentTools();
+            : await this.#options.agentTools((await this.#agentState()).authority);
         const tool = tools.find((candidate) => candidate.name === call.name);
         if (!tool) throw new Error(`${call.name} is not available here.`);
         const started = Date.now();
@@ -723,9 +712,10 @@ export class PiConversationRuntime {
    * agents need later is kept. Returns the unbind for the turn's `finally`.
    */
   async bind(binding: PiTurnBinding): Promise<() => void> {
-    const tools = (await this.#turnToolsFor(binding))
-      .filter((tool) => !STELLA_HARNESS_TOOL_NAMES.has(tool.name))
-      .map(toolSpec);
+    const offered = (tools: readonly CloudCodeSourceAgentTool[]) =>
+      tools.filter((tool) => !STELLA_HARNESS_TOOL_NAMES.has(tool.name)).map(toolSpec);
+    const tools = offered(await this.#turnToolsFor(binding));
+    const agentTools = offered(await this.#options.agentTools(binding.authority));
     const state: PiAgentState = {
       version: 1,
       authority: binding.authority,
@@ -733,6 +723,7 @@ export class PiConversationRuntime {
       ...(binding.sources.skillsCatalog ? { skillsCatalog: binding.sources.skillsCatalog } : {}),
       executionContext: binding.sources.executionContext,
       tools,
+      agentTools,
     };
     if (JSON.stringify(state) !== JSON.stringify(this.#state)) {
       await this.#options.storage.put(PI_AGENT_STATE_KEY, state);

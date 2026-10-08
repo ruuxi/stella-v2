@@ -638,6 +638,24 @@ class OwnerFenceRegistrationUncertainError extends Error {}
 const CHAT_WATCHDOG_MS = 5 * 60_000;
 /** Durable key: this conversation runs on pi-durable (`pi-runtime.ts`). */
 const AGENT_RUNTIME_KEY = "agentRuntime";
+/**
+ * How a pi agent's report (`[Agent completed]` / `[Task failed]`) ended, and
+ * its result or error, for the agent's lifecycle card.
+ */
+const piReportOutcome = (
+  text: string,
+): { kind: "completed" | "failed" | "canceled"; body: string } => {
+  const field = (name: string) => {
+    const match = new RegExp(`(?:^|\\n)${name}: ([\\s\\S]*?)(?=\\n(?:agent_state|routing|presentation):|$)`).exec(text);
+    return match?.[1]?.trim() ?? "";
+  };
+  if (text.startsWith("[Agent completed]")) return { kind: "completed", body: field("result") };
+  if (text.startsWith("[Task canceled]") || text.startsWith("[Subagent paused]")) {
+    return { kind: "canceled", body: field("error") };
+  }
+  return { kind: "failed", body: field("error") };
+};
+
 /** Journal records read per batch when importing other writers' turns into pi. */
 const PI_JOURNAL_IMPORT_BATCH = 200;
 const PI_JOURNAL_IMPORT_BYTES = 4 * 1024 * 1024;
@@ -6103,8 +6121,25 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           report: (error) =>
             log("error", "pi_runtime_report", { message: errorMessage(error) }),
           log: (event, fields) => log("info", event, fields),
-          deliverReport: (report, authority) =>
-            this.deliverPiAgentReport(report, authority),
+          deliverReport: (report, authority, agent) =>
+            this.deliverPiAgentReport(report, authority, agent),
+          // Every client lists the agents a conversation runs from these
+          // cards, as it does the loop's.
+          agentStarted: (event) =>
+            this.publishAgentLifecycleCard(event.turnId, Date.now(), {
+              type: "agent-lifecycle",
+              eventId: `pi-agent:${event.threadId}:${event.attempt}:started`,
+              event: {
+                type: "agent-started",
+                payload: {
+                  agentId: event.threadId,
+                  attemptGeneration: event.attempt,
+                  description: event.description,
+                  agentType: "general",
+                  ...(event.attempt > 1 ? { isFollowUp: true } : {}),
+                },
+              },
+            }),
           agentTools: (authority) => this.createPiAgentTools(authority),
           heartbeat: () => {
             void (async () => {
@@ -6152,6 +6187,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
   private async deliverPiAgentReport(
     report: import("@stella/agent/stella/agents").AgentReport,
     authority: import("./pi-runtime.js").PiAuthority,
+    agent: import("./pi-runtime.js").PiAgentInfo,
   ): Promise<void> {
     const limit = AGENT_MESSAGE_FRAMED_MAX_CHARS;
     const prompt =
@@ -6189,6 +6225,28 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       threadId: report.threadId,
       requestId: report.requestId,
       status: response.status,
+    });
+    // The agent's attempt ends on the turn its report wakes.
+    const wakeTurnId = (() => {
+      try {
+        return (JSON.parse(body) as { turnId?: unknown }).turnId;
+      } catch {
+        return undefined;
+      }
+    })();
+    if (typeof wakeTurnId !== "string" || !wakeTurnId) return;
+    const outcome = piReportOutcome(report.text);
+    const identity = { agentId: report.threadId, attemptGeneration: agent.attempt };
+    this.publishAgentLifecycleCard(wakeTurnId, Date.now(), {
+      type: "agent-lifecycle",
+      eventId: `pi-agent:${report.threadId}:${agent.attempt}:${outcome.kind}`,
+      event:
+        outcome.kind === "completed"
+          ? { type: "agent-completed", payload: { ...identity, result: outcome.body } }
+          : {
+              type: outcome.kind === "failed" ? "agent-failed" : "agent-canceled",
+              payload: { ...identity, ...(outcome.body ? { error: outcome.body } : {}) },
+            },
     });
   }
 

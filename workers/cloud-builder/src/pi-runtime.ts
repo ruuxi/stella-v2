@@ -52,7 +52,7 @@ import {
   type StellaRequestRoute,
 } from "@stella/agent/provider/stella";
 import { StellaAgentDoc } from "@stella/agent/stella/agent-doc";
-import type { AgentReport, AgentRun, StellaAgentsHost } from "@stella/agent/stella/agents";
+import { StellaAgentsDoc, type AgentReport, type AgentRun, type StellaAgentsHost } from "@stella/agent/stella/agents";
 import {
   STELLA_HARNESS_TOOL_NAMES,
   type StellaToolHost,
@@ -127,6 +127,15 @@ type PiAgentState = {
   /** The agents' own tools, likewise. */
   agentTools?: StellaToolSpec[];
   locale?: string;
+  /** The latest turn bound, which an agent a reporter starts after it belongs to. */
+  lastTurnId?: string;
+};
+
+/** One of the orchestrator's agents, as its lifecycle cards name it. */
+export type PiAgentInfo = {
+  description: string;
+  /** How many messages it has been given: 1 for the spawn, then one more per follow-up. */
+  attempt: number;
 };
 
 export type PiTurnSources = {
@@ -174,7 +183,9 @@ export type PiRuntimeOptions = {
   report(error: unknown): void;
   log(event: string, fields: Record<string, unknown>): void;
   /** An agent's report for the orchestrator, as a hidden wake turn. */
-  deliverReport(report: AgentReport, authority: PiAuthority): Promise<void>;
+  deliverReport(report: AgentReport, authority: PiAuthority, agent: PiAgentInfo): Promise<void>;
+  /** An agent started work (a spawn or a follow-up), during or just after `turnId`. */
+  agentStarted?(event: PiAgentInfo & { threadId: string; turnId: string }): void;
   /** Keep this object waking while agents run. */
   heartbeat(): void;
   /** An agent's own tools (web, code with connectors), on the agents' authority. */
@@ -530,6 +541,14 @@ export class PiConversationRuntime {
         this.#notify(active.sessionId);
         this.#options.heartbeat();
         this.#options.log("pi_agent_run_started", { threadId: run.threadId, turnId });
+        const spawnedIn = this.#binding?.turnId ?? this.#state?.lastTurnId;
+        if (spawnedIn) {
+          this.#options.agentStarted?.({
+            threadId: run.threadId,
+            turnId: spawnedIn,
+            ...(await this.#agentInfo(run.threadId, context)),
+          });
+        }
       },
       endAgentRun: async (run) => {
         let ended: ActiveRun | undefined;
@@ -551,11 +570,19 @@ export class PiConversationRuntime {
         if (!busy) await this.#releaseContainer(run).catch((error: unknown) => this.#options.report(error));
         this.#options.log("pi_agent_run_ended", { threadId: run.threadId, turnId: ended?.turnId });
       },
-      deliverReport: async (report) => {
+      deliverReport: async (report, context) => {
         const { authority } = await this.#agentState();
-        await this.#options.deliverReport(report, authority);
+        await this.#options.deliverReport(report, authority, await this.#agentInfo(report.threadId, context));
       },
     };
+  }
+
+  /** What an agent's lifecycle cards say about it. */
+  async #agentInfo(threadId: string, context: Context): Promise<PiAgentInfo> {
+    const { harness, root } = await this.open();
+    const state = await harness.snapshot(StellaAgentsDoc, root.id, context);
+    const calls = Object.values(state?.calls ?? {}).filter((call) => call.threadId === threadId).length;
+    return { description: state?.agents[threadId]?.description ?? threadId, attempt: Math.max(1, calls) };
   }
 
   // ---- agent containers -----------------------------------------------------
@@ -741,6 +768,7 @@ export class PiConversationRuntime {
       tools,
       agentTools,
       ...(binding.sources.locale ? { locale: binding.sources.locale } : {}),
+      lastTurnId: binding.turnId,
     };
     if (JSON.stringify(state) !== JSON.stringify(this.#state)) {
       await this.#options.storage.put(PI_AGENT_STATE_KEY, state);

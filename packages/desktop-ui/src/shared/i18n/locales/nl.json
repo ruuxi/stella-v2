@@ -981,73 +981,13 @@
       "mainChat": "Hoofdchat"
     },
     "cloudHome": {
-      "backToDocumentsLabel": "Terug naar Cloud Home-documenten",
       "backToSettingsLabel": "Terug naar Instellingen",
-      "conflict": {
-        "changedBody": "Revisie {revision} heeft de versie vervangen die je hebt bewerkt. Je concept staat hier nog.",
-        "reload": "Cloudversie opnieuw laden",
-        "reloadLabel": "Cloudversie opnieuw laden en dit concept vervangen",
-        "reloading": "Opnieuw laden…",
-        "removedBody": "Dit document is verwijderd terwijl je het bewerkte. Je concept staat hier nog.",
-        "title": "Cloudversie gewijzigd"
-      },
-      "editor": {
-        "editLabel": "{name} bewerken",
-        "save": "Opslaan",
-        "saving": "Opslaan…",
-        "unsaved": "Niet-opgeslagen wijzigingen",
-        "upToDate": "Actueel"
-      },
-      "editorMeta": "{kind} · revisie {revision}",
-      "errors": {
-        "invalid": "Cloud Home heeft een ongeldig antwoord geretourneerd.",
-        "missingFromList": "Dat document staat niet meer in Cloud Home. Laad de lijst opnieuw.",
-        "network": "Cloud Home kon niet worden bereikt. Probeer het opnieuw.",
-        "removedWhileEditing": "Dat document is verwijderd uit Cloud Home.",
-        "unauthorized": "Log opnieuw in om toegang te krijgen tot Cloud Home.",
-        "unavailable": "Cloud Home is momenteel niet beschikbaar voor dit account."
-      },
-      "kinds": {
-        "archive": "archief",
-        "core_memory": "kerngeheugen",
-        "imported_markdown": "geïmporteerde Markdown",
-        "memory": "geheugen",
-        "memory_map": "geheugenkaart",
-        "personality": "persoonlijkheid",
-        "profile": "profiel",
-        "user_markdown": "gebruikers-Markdown"
-      },
-      "list": {
-        "emptyBody": "Documenten die Stella maakt of die vanaf de desktop worden geïmporteerd, verschijnen hier.",
-        "emptyTitle": "Nog geen cloudgeheugen",
-        "loading": "Documenten laden…",
-        "openDocumentLabel": "{name} openen",
-        "retry": "Opnieuw proberen",
-        "retryLabel": "Opnieuw proberen het Cloud Home-geheugen te laden"
-      },
-      "listMeta": "{kind} · revisie {revision} · {size}",
-      "loading": "Cloud Home laden…",
-      "notices": {
-        "loadedLatest": "De nieuwste cloudversie is geladen.",
-        "saved": "Opgeslagen in Cloud Home."
-      },
       "openSettingsLabel": "Cloud Home-geheugen openen",
-      "settingsRowBody": "Lees en bewerk je canonieke Stella-geheugen in de cloud.",
-      "settingsRowTitle": "Geheugendocumenten",
       "settingsSection": "Cloud Home",
       "signIn": "Inloggen",
-      "signInAgain": "Opnieuw inloggen",
-      "signInBody": "Geheugendocumenten zijn privé en alleen toegankelijk via je Stella-account.",
+      "signInBody": "Je geheugen is privé en hoort bij je Stella-account.",
       "signInTitle": "Log in om Cloud Home te gebruiken",
-      "sizes": {
-        "bytes": "{count} B",
-        "kilobytes": "{count} KB",
-        "megabytes": "{count} MB"
-      },
-      "subtitle": "Je canonieke Stella-documenten in de cloud",
-      "title": "Cloud Home-geheugen",
-      "unavailableBody": "Deze omgeving biedt momenteel geen toegang tot de beveiligde Cloud Home-service. Je lokale bestanden zijn niet gewijzigd.",
-      "unavailableTitle": "Cloud Home is niet beschikbaar"
+      "title": "Cloud Home-geheugen"
     },
     "common": {
       "back": "Terug",
@@ -1779,13 +1719,24 @@
           "sync": "Nu synchroniseren",
           "syncing": "Synchroniseren…"
         },
-        "authorizationNote": "Geüploade skills blijven niet beschikbaar voor agents totdat hun exacte versie expliciet is geautoriseerd.",
-        "label": "Geheugen en skills",
+        "memory": {
+          "error": "Synchroniseren lukte nu niet. Stella probeert het opnieuw.",
+          "heldOtherAccount": "Het geheugen van deze computer wordt gesynchroniseerd met een ander Stella-account en blijft daarom buiten dit account.",
+          "heldWiped": "Gepauzeerd. Het cloudgeheugen is gewist en deze computer heeft nog geheugen van daarvoor. Kies hieronder wat ermee gebeurt.",
+          "lastSynced": "Laatst gesynchroniseerd: {time}.",
+          "merging": "Hier en in de cloud tegelijk gewijzigd. Een agent op de achtergrond voegt de twee versies samen.",
+          "off": "Geheugen staat uit, dus er wordt niets gesynchroniseerd.",
+          "refused": "Te lang om te synchroniseren, dus alleen op deze computer bewaard: {files}",
+          "signedOut": "Log in om het geheugen gelijk te houden op deze computer en in de cloud.",
+          "synced": "Hetzelfde op deze computer en in de cloud. Een wijziging aan de ene kant wordt naar de andere gesynchroniseerd.",
+          "syncing": "Synchroniseren met de cloud…"
+        },
+        "skillsLabel": "Skills",
         "summary": {
           "attention": "Cloud Home heeft bestaande cloudkopieën behouden waar lokale gegevens afweken. Bekijk de details hieronder.",
-          "checking": "Lokaal geheugen en lokale skills controleren…",
-          "current": "Cloud Home is bijgewerkt. Geheugen geüpload: {memoryCount}. Skillpakketten geüpload: {skillCount}.",
-          "intro": "Stella importeert lokaal geheugen en toepasselijke aangepaste skills veilig naar je cloudaccount.",
+          "checking": "Skills van deze computer controleren…",
+          "current": "Cloud Home is bijgewerkt. Skillpakketten geüpload: {skillCount}.",
+          "intro": "Stella uploadt de aangepaste skills van deze computer veilig naar je cloudaccount.",
           "unavailable": "Cloud Home-synchronisatie is momenteel niet beschikbaar."
         },
         "title": "Cloud Home"
@@ -2134,7 +2085,7 @@
       "unsupported": "Gebruik bij vergrendelde computer is alleen beschikbaar op macOS."
     },
     "memory": {
-      "description": "Neem opgeslagen herinneringen en je profiel op in de modelcontext van Stella. De cloudkopie is leidend en versleuteld tijdens overdracht en opslag; Stella kan ook een lokale kopie bewaren. Als je dit uitschakelt, wordt het geheugen niet gebruikt in toekomstige gesprekken, maar niet verwijderd.",
+      "description": "Neem opgeslagen herinneringen en je profiel op in de modelcontext van Stella. Je computers en de cloud houden hetzelfde geheugen bij, versleuteld tijdens overdracht en opslag. Als je dit uitschakelt, wordt dat gepauzeerd en wordt het geheugen niet gebruikt in toekomstige gesprekken, maar niet verwijderd.",
       "title": "Geheugen"
     },
     "modelPicker": {

@@ -11,6 +11,7 @@ import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conve
 import { backendClient } from "@/platform/backend/backend-client";
 import { useBackendView } from "@/platform/backend/use-backend-view";
 import { cloudHomeSyncRetryStore } from "./cloud-home-sync";
+import { requestMemorySync } from "./use-memory-sync-status";
 import {
   beginCloudMemoryReimport,
   CloudMemoryReimportError,
@@ -68,8 +69,10 @@ const statusIsEligible = (status: MemoryWipeStatus | null): boolean =>
   status?.state === "open" && status.importDisposition === "explicit_required";
 
 /**
- * Explicit, account-fenced authorization for importing this Mac's local
- * Memory into a fresh post-wipe epoch. It does not authorize skills.
+ * Explicit, account-fenced authorization for the memory computers kept from
+ * before a wipe to sync into the fresh epoch (`memory.authorizeReimport`).
+ * Until it is given, the desktop memory sync holds on those computers. It
+ * does not authorize skills.
  */
 export function useCloudMemoryReimport(): CloudMemoryReimportView {
   const mode = useCloudConversationSession();
@@ -170,6 +173,8 @@ export function useCloudMemoryReimport(): CloudMemoryReimportView {
       statusRef.current = status;
       setView({ phase: "authorized", status, issueCode: null });
       cloudHomeSyncRetryStore.request();
+      // This computer's held memory goes up on the pass this starts.
+      void requestMemorySync();
       return true;
     },
     [],

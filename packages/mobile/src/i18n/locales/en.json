@@ -981,73 +981,13 @@
       "mainChat": "Main chat"
     },
     "cloudHome": {
-      "backToDocumentsLabel": "Back to Cloud Home documents",
       "backToSettingsLabel": "Back to Settings",
-      "conflict": {
-        "changedBody": "Revision {revision} replaced the version you edited. Your draft is still here.",
-        "reload": "Reload cloud version",
-        "reloadLabel": "Reload cloud version and replace this draft",
-        "reloading": "Reloading…",
-        "removedBody": "This document was removed while you were editing. Your draft is still here.",
-        "title": "Cloud version changed"
-      },
-      "editor": {
-        "editLabel": "Edit {name}",
-        "save": "Save",
-        "saving": "Saving…",
-        "unsaved": "Unsaved changes",
-        "upToDate": "Up to date"
-      },
-      "editorMeta": "{kind} · revision {revision}",
-      "errors": {
-        "invalid": "Cloud Home returned an invalid response.",
-        "missingFromList": "That document is no longer in Cloud Home. Reload the list.",
-        "network": "Cloud Home could not be reached. Try again.",
-        "removedWhileEditing": "That document was removed from Cloud Home.",
-        "unauthorized": "Sign in again to access Cloud Home.",
-        "unavailable": "Cloud Home is not available for this account right now."
-      },
-      "kinds": {
-        "archive": "archive",
-        "core_memory": "core memory",
-        "imported_markdown": "imported markdown",
-        "memory": "memory",
-        "memory_map": "memory map",
-        "personality": "personality",
-        "profile": "profile",
-        "user_markdown": "user markdown"
-      },
-      "list": {
-        "emptyBody": "Documents created by Stella or imported from desktop will appear here.",
-        "emptyTitle": "No cloud memory yet",
-        "loading": "Loading documents…",
-        "openDocumentLabel": "Open {name}",
-        "retry": "Retry",
-        "retryLabel": "Retry loading Cloud Home memory"
-      },
-      "listMeta": "{kind} · revision {revision} · {size}",
-      "loading": "Loading Cloud Home…",
-      "notices": {
-        "loadedLatest": "Loaded the latest cloud version.",
-        "saved": "Saved to Cloud Home."
-      },
       "openSettingsLabel": "Open Cloud Home memory",
-      "settingsRowBody": "Read and edit your cloud-canonical Stella memory.",
-      "settingsRowTitle": "Memory documents",
       "settingsSection": "Cloud Home",
       "signIn": "Sign in",
-      "signInAgain": "Sign in again",
-      "signInBody": "Memory documents are private to your Stella account.",
+      "signInBody": "Your memory is private to your Stella account.",
       "signInTitle": "Sign in to use Cloud Home",
-      "sizes": {
-        "bytes": "{count} B",
-        "kilobytes": "{count} KB",
-        "megabytes": "{count} MB"
-      },
-      "subtitle": "Your cloud-canonical Stella documents",
-      "title": "Cloud Home memory",
-      "unavailableBody": "This deployment does not currently expose the secure Cloud Home service. Your local files have not been changed.",
-      "unavailableTitle": "Cloud Home is unavailable"
+      "title": "Cloud Home memory"
     },
     "common": {
       "back": "Back",
@@ -1779,13 +1719,24 @@
           "sync": "Sync now",
           "syncing": "Syncing…"
         },
-        "authorizationNote": "Uploaded skills remain unavailable to agents until their exact version is explicitly authorized.",
-        "label": "Memory and skills",
+        "memory": {
+          "error": "Couldn't sync just now. Stella will try again.",
+          "heldOtherAccount": "This computer's memory syncs with a different Stella account, so it stays out of this one.",
+          "heldWiped": "Paused. Cloud memory was erased, and this computer still has memory from before. Choose below what happens to it.",
+          "lastSynced": "Last synced {time}.",
+          "merging": "Changed here and in the cloud at the same time. A background agent is merging the two.",
+          "off": "Memory is off, so nothing syncs.",
+          "refused": "Too long to sync, so kept on this computer only: {files}",
+          "signedOut": "Sign in to keep memory the same on this computer and in the cloud.",
+          "synced": "Kept the same on this computer and in the cloud. A change on either side syncs to the other.",
+          "syncing": "Syncing with the cloud…"
+        },
+        "skillsLabel": "Skills",
         "summary": {
           "attention": "Cloud Home kept existing cloud copies where local data differed. Review the details below.",
-          "checking": "Checking local memory and skills…",
-          "current": "Cloud Home is current. Memory uploaded: {memoryCount}. Skill packages uploaded: {skillCount}.",
-          "intro": "Stella securely imports local memory and applicable custom skills into your cloud account.",
+          "checking": "Checking this computer's skills…",
+          "current": "Cloud Home is current. Skill packages uploaded: {skillCount}.",
+          "intro": "Stella securely uploads this computer's custom skills to your cloud account.",
           "unavailable": "Cloud Home sync is currently unavailable."
         },
         "title": "Cloud Home"
@@ -2134,7 +2085,7 @@
       "unsupported": "Locked computer use is only available on macOS."
     },
     "memory": {
-      "description": "Include saved memories and your profile in Stella’s model context. The cloud copy is authoritative and encrypted in transit and at rest; Stella may also keep a local copy. Turning this off excludes memory from future turns but does not delete it.",
+      "description": "Include saved memories and your profile in Stella’s model context. Your computers and the cloud keep the same memory, encrypted in transit and at rest. Turning this off pauses that and leaves memory out of future turns, but doesn’t delete it.",
       "title": "Memory"
     },
     "modelPicker": {

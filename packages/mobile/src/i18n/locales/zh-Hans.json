@@ -971,73 +971,13 @@
       "mainChat": "主聊天"
     },
     "cloudHome": {
-      "backToDocumentsLabel": "返回 Cloud Home 文档",
       "backToSettingsLabel": "返回设置",
-      "conflict": {
-        "changedBody": "修订版 {revision} 已替换你所编辑的版本。你的草稿仍保留在此处。",
-        "reload": "重新加载云端版本",
-        "reloadLabel": "重新加载云端版本并替换此草稿",
-        "reloading": "正在重新加载…",
-        "removedBody": "你编辑期间，该文档已被移除。你的草稿仍保留在此处。",
-        "title": "云端版本已更改"
-      },
-      "editor": {
-        "editLabel": "编辑 {name}",
-        "save": "保存",
-        "saving": "正在保存…",
-        "unsaved": "有未保存的更改",
-        "upToDate": "已是最新版本"
-      },
-      "editorMeta": "{kind} · 修订版 {revision}",
-      "errors": {
-        "invalid": "Cloud Home 返回了无效响应。",
-        "missingFromList": "该文档已不在 Cloud Home 中。请重新加载列表。",
-        "network": "无法连接到 Cloud Home。请重试。",
-        "removedWhileEditing": "该文档已从 Cloud Home 中移除。",
-        "unauthorized": "请重新登录以访问 Cloud Home。",
-        "unavailable": "此账户目前无法使用 Cloud Home。"
-      },
-      "kinds": {
-        "archive": "归档",
-        "core_memory": "核心记忆",
-        "imported_markdown": "导入的 Markdown",
-        "memory": "记忆",
-        "memory_map": "记忆映射",
-        "personality": "个性",
-        "profile": "个人资料",
-        "user_markdown": "用户 Markdown"
-      },
-      "list": {
-        "emptyBody": "由 Stella 创建或从桌面端导入的文档将显示在此处。",
-        "emptyTitle": "尚无云端记忆",
-        "loading": "正在加载文档…",
-        "openDocumentLabel": "打开 {name}",
-        "retry": "重试",
-        "retryLabel": "重试加载 Cloud Home 记忆"
-      },
-      "listMeta": "{kind} · 修订版 {revision} · {size}",
-      "loading": "正在加载 Cloud Home…",
-      "notices": {
-        "loadedLatest": "已加载最新的云端版本。",
-        "saved": "已保存到 Cloud Home。"
-      },
       "openSettingsLabel": "打开 Cloud Home 记忆",
-      "settingsRowBody": "查看和编辑 Stella 在云端的权威记忆版本。",
-      "settingsRowTitle": "记忆文档",
       "settingsSection": "Cloud Home",
       "signIn": "登录",
-      "signInAgain": "重新登录",
-      "signInBody": "记忆文档仅对你的 Stella 账户可见。",
+      "signInBody": "你的记忆仅属于你的 Stella 账户，保持私密。",
       "signInTitle": "登录以使用 Cloud Home",
-      "sizes": {
-        "bytes": "{count} B",
-        "kilobytes": "{count} KB",
-        "megabytes": "{count} MB"
-      },
-      "subtitle": "Stella 文档的云端权威版本",
-      "title": "Cloud Home 记忆",
-      "unavailableBody": "此部署目前未提供安全的 Cloud Home 服务。你的本地文件未被更改。",
-      "unavailableTitle": "Cloud Home 不可用"
+      "title": "Cloud Home 记忆"
     },
     "common": {
       "back": "返回",
@@ -1769,13 +1709,24 @@
           "sync": "立即同步",
           "syncing": "正在同步…"
         },
-        "authorizationNote": "上传的技能在其确切版本获得明确授权前，仍无法供代理使用。",
-        "label": "记忆和技能",
+        "memory": {
+          "error": "暂时无法同步。Stella 会再试一次。",
+          "heldOtherAccount": "这台电脑的记忆与另一个 Stella 账户同步，因此不会进入此账户。",
+          "heldWiped": "已暂停。云端记忆已被清除，而这台电脑上仍有之前的记忆。请在下方选择如何处理。",
+          "lastSynced": "上次同步：{time}。",
+          "merging": "这里和云端同时发生了更改。后台代理正在合并两个版本。",
+          "off": "记忆已关闭，因此不会同步任何内容。",
+          "refused": "内容过长无法同步，因此仅保存在这台电脑上：{files}",
+          "signedOut": "登录后，这台电脑和云端的记忆将保持一致。",
+          "synced": "这台电脑和云端的内容一致。任何一端的更改都会同步到另一端。",
+          "syncing": "正在与云端同步…"
+        },
+        "skillsLabel": "技能",
         "summary": {
           "attention": "本地数据不一致时，Cloud Home 保留了现有云端副本。请查看下方详情。",
-          "checking": "正在检查本地记忆和技能…",
-          "current": "Cloud Home 已是最新状态。已上传记忆：{memoryCount}。已上传技能包：{skillCount}。",
-          "intro": "Stella 会将本地记忆和适用的自定义技能安全导入你的云端账户。",
+          "checking": "正在检查这台电脑的技能…",
+          "current": "Cloud Home 已是最新状态。已上传技能包：{skillCount}。",
+          "intro": "Stella 会将这台电脑的自定义技能安全上传到你的云端账户。",
           "unavailable": "Cloud Home 同步目前不可用。"
         },
         "title": "Cloud Home"
@@ -2124,7 +2075,7 @@
       "unsupported": "锁屏时使用电脑仅在 macOS 上可用。"
     },
     "memory": {
-      "description": "将已保存的记忆和你的个人资料纳入 Stella 的模型上下文。云端副本是权威版本，并在传输和静态存储时加密；Stella 也可能保留本地副本。关闭此选项后，记忆不会用于后续对话，但不会被删除。",
+      "description": "将已保存的记忆和你的个人资料纳入 Stella 的模型上下文。你的电脑和云端保存相同的记忆，并在传输和静态存储时加密。关闭此选项后，同步会暂停，记忆不会用于后续对话，但不会被删除。",
       "title": "记忆"
     },
     "modelPicker": {

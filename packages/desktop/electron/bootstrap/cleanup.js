@@ -11,6 +11,11 @@ export const registerBootstrapProcessCleanups = (context) => {
         context.services.claudeLocalAccounts.dispose();
         context.services.engineAccountAccess.dispose();
     });
+    // A memory edit made just before quit still reaches the cloud.
+    processRuntime.registerCleanup("before-quit", "memory-sync", async () => {
+        await context.services.memorySync.flush(3000);
+        context.services.memorySync.dispose();
+    });
     processRuntime.registerCleanup("before-quit", "remote-telemetry", async () => {
         await context.services.telemetry.record({
             type: "app.lifecycle",

@@ -981,73 +981,13 @@
       "mainChat": "Pääkeskustelu"
     },
     "cloudHome": {
-      "backToDocumentsLabel": "Takaisin Cloud Home -asiakirjoihin",
       "backToSettingsLabel": "Takaisin asetuksiin",
-      "conflict": {
-        "changedBody": "Versio {revision} korvasi muokkaamasi version. Luonnoksesi on yhä täällä.",
-        "reload": "Lataa pilviversio uudelleen",
-        "reloadLabel": "Lataa pilviversio uudelleen ja korvaa tämä luonnos",
-        "reloading": "Ladataan uudelleen…",
-        "removedBody": "Asiakirja poistettiin muokkauksen aikana. Luonnoksesi on yhä täällä.",
-        "title": "Pilviversio on muuttunut"
-      },
-      "editor": {
-        "editLabel": "Muokkaa kohdetta {name}",
-        "save": "Tallenna",
-        "saving": "Tallennetaan…",
-        "unsaved": "Tallentamattomia muutoksia",
-        "upToDate": "Ajan tasalla"
-      },
-      "editorMeta": "{kind} · versio {revision}",
-      "errors": {
-        "invalid": "Cloud Home palautti virheellisen vastauksen.",
-        "missingFromList": "Asiakirja ei ole enää Cloud Homessa. Lataa luettelo uudelleen.",
-        "network": "Cloud Homeen ei saatu yhteyttä. Yritä uudelleen.",
-        "removedWhileEditing": "Asiakirja poistettiin Cloud Homesta.",
-        "unauthorized": "Kirjaudu uudelleen päästäksesi Cloud Homeen.",
-        "unavailable": "Cloud Home ei ole juuri nyt käytettävissä tällä tilillä."
-      },
-      "kinds": {
-        "archive": "arkisto",
-        "core_memory": "ydinmuisti",
-        "imported_markdown": "tuotu Markdown",
-        "memory": "muisti",
-        "memory_map": "muistikartta",
-        "personality": "persoonallisuus",
-        "profile": "profiili",
-        "user_markdown": "käyttäjän Markdown"
-      },
-      "list": {
-        "emptyBody": "Stellan luomat tai työpöytäsovelluksesta tuodut asiakirjat näkyvät täällä.",
-        "emptyTitle": "Ei vielä pilvimuistia",
-        "loading": "Asiakirjoja ladataan…",
-        "openDocumentLabel": "Avaa {name}",
-        "retry": "Yritä uudelleen",
-        "retryLabel": "Yritä ladata Cloud Home -muisti uudelleen"
-      },
-      "listMeta": "{kind} · versio {revision} · {size}",
-      "loading": "Cloud Homea ladataan…",
-      "notices": {
-        "loadedLatest": "Uusin pilviversio on ladattu.",
-        "saved": "Tallennettu Cloud Homeen."
-      },
       "openSettingsLabel": "Avaa Cloud Home -muisti",
-      "settingsRowBody": "Katsele ja muokkaa pilvessä olevaa Stellan ensisijaista muistia.",
-      "settingsRowTitle": "Muistiasiakirjat",
       "settingsSection": "Cloud Home",
       "signIn": "Kirjaudu sisään",
-      "signInAgain": "Kirjaudu uudelleen",
-      "signInBody": "Muistiasiakirjat ovat yksityisiä ja kuuluvat Stella-tilillesi.",
+      "signInBody": "Muistisi on yksityinen ja kuuluu Stella-tiliisi.",
       "signInTitle": "Kirjaudu sisään käyttääksesi Cloud Homea",
-      "sizes": {
-        "bytes": "{count} B",
-        "kilobytes": "{count} KB",
-        "megabytes": "{count} MB"
-      },
-      "subtitle": "Pilvessä olevat ensisijaiset Stella-asiakirjasi",
-      "title": "Cloud Home -muisti",
-      "unavailableBody": "Tämä käyttöönotto ei tällä hetkellä tarjoa suojattua Cloud Home -palvelua. Paikallisia tiedostojasi ei ole muutettu.",
-      "unavailableTitle": "Cloud Home ei ole käytettävissä"
+      "title": "Cloud Home -muisti"
     },
     "common": {
       "back": "Takaisin",
@@ -1779,13 +1719,24 @@
           "sync": "Synkronoi nyt",
           "syncing": "Synkronoidaan…"
         },
-        "authorizationNote": "Ladatut taidot eivät ole agenttien käytettävissä, ennen kuin niiden tarkka versio on erikseen valtuutettu.",
-        "label": "Muisti ja taidot",
+        "memory": {
+          "error": "Synkronointi ei onnistunut juuri nyt. Stella yrittää uudelleen.",
+          "heldOtherAccount": "Tämän tietokoneen muisti synkronoidaan toisen Stella-tilin kanssa, joten se pysyy tämän tilin ulkopuolella.",
+          "heldWiped": "Keskeytetty. Pilven muisti poistettiin, ja tällä tietokoneella on yhä aiempaa muistia. Valitse alta, mitä sille tehdään.",
+          "lastSynced": "Synkronoitu viimeksi {time}.",
+          "merging": "Muuttui täällä ja pilvessä samaan aikaan. Taustalla toimiva agentti yhdistää versiot.",
+          "off": "Muisti on pois päältä, joten mitään ei synkronoida.",
+          "refused": "Liian pitkä synkronoitavaksi, joten se säilyy vain tällä tietokoneella: {files}",
+          "signedOut": "Kirjaudu sisään, jotta muisti pysyy samana tällä tietokoneella ja pilvessä.",
+          "synced": "Sama tällä tietokoneella ja pilvessä. Muutos kummalla tahansa puolella synkronoidaan toiselle.",
+          "syncing": "Synkronoidaan pilven kanssa…"
+        },
+        "skillsLabel": "Taidot",
         "summary": {
           "attention": "Cloud Home säilytti aiemmat pilvikopiot niissä tapauksissa, joissa paikalliset tiedot poikkesivat niistä. Tarkista tiedot alta.",
-          "checking": "Tarkistetaan paikallista muistia ja taitoja…",
-          "current": "Cloud Home on ajan tasalla. Ladattu muisti: {memoryCount}. Ladatut taitopaketit: {skillCount}.",
-          "intro": "Stella tuo paikallisen muistin ja soveltuvat mukautetut taidot turvallisesti pilvitilillesi.",
+          "checking": "Tarkistetaan tämän tietokoneen taitoja…",
+          "current": "Cloud Home on ajan tasalla. Ladatut taitopaketit: {skillCount}.",
+          "intro": "Stella lataa tämän tietokoneen mukautetut taidot turvallisesti pilvitilillesi.",
           "unavailable": "Cloud Home -synkronointi ei ole tällä hetkellä käytettävissä."
         },
         "title": "Cloud Home"
@@ -2134,7 +2085,7 @@
       "unsupported": "Käyttö lukitulla tietokoneella on saatavilla vain macOS:ssä."
     },
     "memory": {
-      "description": "Sisällytä tallennetut muistot ja profiilisi Stellan mallikontekstiin. Pilvikopio on ensisijainen ja salattu siirron aikana sekä levossa; Stella voi säilyttää myös paikallisen kopion. Kun poistat tämän käytöstä, muistia ei käytetä tulevissa keskusteluissa, mutta sitä ei poisteta.",
+      "description": "Sisällytä tallennetut muistot ja profiilisi Stellan mallikontekstiin. Tietokoneillasi ja pilvessä on sama muisti, joka on salattu siirron aikana sekä levossa. Kun poistat tämän käytöstä, synkronointi keskeytyy eikä muistia käytetä tulevissa keskusteluissa, mutta sitä ei poisteta.",
       "title": "Muisti"
     },
     "modelPicker": {

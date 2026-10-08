@@ -1001,73 +1001,13 @@
       "mainChat": "Główny czat"
     },
     "cloudHome": {
-      "backToDocumentsLabel": "Wróć do dokumentów Cloud Home",
       "backToSettingsLabel": "Wróć do Ustawień",
-      "conflict": {
-        "changedBody": "Wersja {revision} zastąpiła edytowaną przez Ciebie wersję. Twój szkic nadal jest tutaj.",
-        "reload": "Wczytaj ponownie wersję z chmury",
-        "reloadLabel": "Wczytaj ponownie wersję z chmury i zastąp ten szkic",
-        "reloading": "Ponowne wczytywanie…",
-        "removedBody": "Ten dokument został usunięty podczas edycji. Twój szkic nadal jest tutaj.",
-        "title": "Wersja w chmurze uległa zmianie"
-      },
-      "editor": {
-        "editLabel": "Edytuj {name}",
-        "save": "Zapisz",
-        "saving": "Zapisywanie…",
-        "unsaved": "Niezapisane zmiany",
-        "upToDate": "Aktualne"
-      },
-      "editorMeta": "{kind} · wersja {revision}",
-      "errors": {
-        "invalid": "Cloud Home zwrócił nieprawidłową odpowiedź.",
-        "missingFromList": "Tego dokumentu nie ma już w Cloud Home. Wczytaj listę ponownie.",
-        "network": "Nie udało się połączyć z Cloud Home. Spróbuj ponownie.",
-        "removedWhileEditing": "Ten dokument został usunięty z Cloud Home.",
-        "unauthorized": "Zaloguj się ponownie, aby uzyskać dostęp do Cloud Home.",
-        "unavailable": "Cloud Home nie jest teraz dostępny dla tego konta."
-      },
-      "kinds": {
-        "archive": "archiwum",
-        "core_memory": "pamięć główna",
-        "imported_markdown": "zaimportowany Markdown",
-        "memory": "pamięć",
-        "memory_map": "mapa pamięci",
-        "personality": "osobowość",
-        "profile": "profil",
-        "user_markdown": "Markdown użytkownika"
-      },
-      "list": {
-        "emptyBody": "Tutaj pojawią się dokumenty utworzone przez Stellę lub zaimportowane z aplikacji komputerowej.",
-        "emptyTitle": "Brak pamięci w chmurze",
-        "loading": "Wczytywanie dokumentów…",
-        "openDocumentLabel": "Otwórz {name}",
-        "retry": "Spróbuj ponownie",
-        "retryLabel": "Spróbuj ponownie wczytać pamięć Cloud Home"
-      },
-      "listMeta": "{kind} · wersja {revision} · {size}",
-      "loading": "Wczytywanie Cloud Home…",
-      "notices": {
-        "loadedLatest": "Wczytano najnowszą wersję z chmury.",
-        "saved": "Zapisano w Cloud Home."
-      },
       "openSettingsLabel": "Otwórz pamięć Cloud Home",
-      "settingsRowBody": "Wyświetlaj i edytuj pamięć Stelli, której nadrzędna wersja znajduje się w chmurze.",
-      "settingsRowTitle": "Dokumenty pamięci",
       "settingsSection": "Cloud Home",
       "signIn": "Zaloguj się",
-      "signInAgain": "Zaloguj się ponownie",
-      "signInBody": "Dokumenty pamięci są prywatne i przypisane do Twojego konta Stella.",
+      "signInBody": "Twoja pamięć jest prywatna i należy do Twojego konta Stella.",
       "signInTitle": "Zaloguj się, aby używać Cloud Home",
-      "sizes": {
-        "bytes": "{count} B",
-        "kilobytes": "{count} KB",
-        "megabytes": "{count} MB"
-      },
-      "subtitle": "Nadrzędne dokumenty Stelli w chmurze",
-      "title": "Pamięć Cloud Home",
-      "unavailableBody": "To wdrożenie nie udostępnia obecnie bezpiecznej usługi Cloud Home. Twoje pliki lokalne nie zostały zmienione.",
-      "unavailableTitle": "Cloud Home jest niedostępny"
+      "title": "Pamięć Cloud Home"
     },
     "common": {
       "back": "Wstecz",
@@ -1799,13 +1739,24 @@
           "sync": "Synchronizuj teraz",
           "syncing": "Synchronizowanie…"
         },
-        "authorizationNote": "Przesłane umiejętności pozostają niedostępne dla agentów, dopóki ich dokładna wersja nie zostanie wyraźnie autoryzowana.",
-        "label": "Pamięć i umiejętności",
+        "memory": {
+          "error": "Nie udało się teraz zsynchronizować. Stella spróbuje ponownie.",
+          "heldOtherAccount": "Pamięć tego komputera jest synchronizowana z innym kontem Stella, więc pozostaje poza tym kontem.",
+          "heldWiped": "Wstrzymano. Pamięć w chmurze została wymazana, a ten komputer nadal ma pamięć sprzed tego. Wybierz poniżej, co z nią zrobić.",
+          "lastSynced": "Ostatnia synchronizacja: {time}.",
+          "merging": "Zmieniono tutaj i w chmurze jednocześnie. Agent w tle scala obie wersje.",
+          "off": "Pamięć jest wyłączona, więc nic nie jest synchronizowane.",
+          "refused": "Za długie do synchronizacji, więc pozostaje tylko na tym komputerze: {files}",
+          "signedOut": "Zaloguj się, aby pamięć była taka sama na tym komputerze i w chmurze.",
+          "synced": "Taka sama na tym komputerze i w chmurze. Zmiana po jednej stronie jest synchronizowana z drugą.",
+          "syncing": "Synchronizowanie z chmurą…"
+        },
+        "skillsLabel": "Umiejętności",
         "summary": {
           "attention": "Cloud Home zachował istniejące kopie w chmurze w przypadkach, gdy dane lokalne się różniły. Zapoznaj się ze szczegółami poniżej.",
-          "checking": "Sprawdzanie lokalnej pamięci i umiejętności…",
-          "current": "Cloud Home jest aktualny. Przesłana pamięć: {memoryCount}. Przesłane pakiety umiejętności: {skillCount}.",
-          "intro": "Stella bezpiecznie importuje lokalną pamięć i odpowiednie niestandardowe umiejętności na Twoje konto w chmurze.",
+          "checking": "Sprawdzanie umiejętności tego komputera…",
+          "current": "Cloud Home jest aktualny. Przesłane pakiety umiejętności: {skillCount}.",
+          "intro": "Stella bezpiecznie przesyła niestandardowe umiejętności z tego komputera na Twoje konto w chmurze.",
           "unavailable": "Synchronizacja Cloud Home jest obecnie niedostępna."
         },
         "title": "Cloud Home"
@@ -2154,7 +2105,7 @@
       "unsupported": "Użycie przy zablokowanym komputerze jest dostępne tylko w macOS."
     },
     "memory": {
-      "description": "Uwzględniaj zapisane wspomnienia i swój profil w kontekście modelu Stelli. Kopia w chmurze jest nadrzędna i szyfrowana podczas przesyłania oraz przechowywania; Stella może też zachować kopię lokalną. Wyłączenie tej opcji wyklucza pamięć z przyszłych rozmów, ale jej nie usuwa.",
+      "description": "Uwzględniaj zapisane wspomnienia i swój profil w kontekście modelu Stelli. Twoje komputery i chmura mają tę samą pamięć, szyfrowaną podczas przesyłania oraz przechowywania. Wyłączenie tej opcji wstrzymuje to i wyklucza pamięć z przyszłych rozmów, ale jej nie usuwa.",
       "title": "Pamięć"
     },
     "modelPicker": {

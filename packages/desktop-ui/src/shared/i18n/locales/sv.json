@@ -981,73 +981,13 @@
       "mainChat": "Huvudchatt"
     },
     "cloudHome": {
-      "backToDocumentsLabel": "Tillbaka till dokumenten i Cloud Home",
       "backToSettingsLabel": "Tillbaka till Inställningar",
-      "conflict": {
-        "changedBody": "Revision {revision} ersatte versionen du redigerade. Ditt utkast finns kvar.",
-        "reload": "Läs in molnversionen igen",
-        "reloadLabel": "Läs in molnversionen igen och ersätt utkastet",
-        "reloading": "Läser in igen…",
-        "removedBody": "Dokumentet togs bort medan du redigerade det. Ditt utkast finns kvar.",
-        "title": "Molnversionen har ändrats"
-      },
-      "editor": {
-        "editLabel": "Redigera {name}",
-        "save": "Spara",
-        "saving": "Sparar…",
-        "unsaved": "Osparade ändringar",
-        "upToDate": "Aktuellt"
-      },
-      "editorMeta": "{kind} · revision {revision}",
-      "errors": {
-        "invalid": "Cloud Home returnerade ett ogiltigt svar.",
-        "missingFromList": "Dokumentet finns inte längre i Cloud Home. Läs in listan igen.",
-        "network": "Det gick inte att nå Cloud Home. Försök igen.",
-        "removedWhileEditing": "Dokumentet har tagits bort från Cloud Home.",
-        "unauthorized": "Logga in igen för att komma åt Cloud Home.",
-        "unavailable": "Cloud Home är inte tillgängligt för det här kontot just nu."
-      },
-      "kinds": {
-        "archive": "arkiv",
-        "core_memory": "kärnminne",
-        "imported_markdown": "importerad Markdown",
-        "memory": "minne",
-        "memory_map": "minneskarta",
-        "personality": "personlighet",
-        "profile": "profil",
-        "user_markdown": "användarens Markdown"
-      },
-      "list": {
-        "emptyBody": "Dokument som Stella skapar eller som importeras från datorn visas här.",
-        "emptyTitle": "Inget molnminne ännu",
-        "loading": "Läser in dokument…",
-        "openDocumentLabel": "Öppna {name}",
-        "retry": "Försök igen",
-        "retryLabel": "Försök läsa in minnet i Cloud Home igen"
-      },
-      "listMeta": "{kind} · revision {revision} · {size}",
-      "loading": "Cloud Home läses in…",
-      "notices": {
-        "loadedLatest": "Den senaste molnversionen har lästs in.",
-        "saved": "Sparat i Cloud Home."
-      },
       "openSettingsLabel": "Öppna minnet i Cloud Home",
-      "settingsRowBody": "Läs och redigera Stellas primära minne i molnet.",
-      "settingsRowTitle": "Minnesdokument",
       "settingsSection": "Cloud Home",
       "signIn": "Logga in",
-      "signInAgain": "Logga in igen",
-      "signInBody": "Minnesdokumenten är privata och knutna till ditt Stella-konto.",
+      "signInBody": "Ditt minne är privat för ditt Stella-konto.",
       "signInTitle": "Logga in för att använda Cloud Home",
-      "sizes": {
-        "bytes": "{count} B",
-        "kilobytes": "{count} KB",
-        "megabytes": "{count} MB"
-      },
-      "subtitle": "Dina primära Stella-dokument i molnet",
-      "title": "Minne i Cloud Home",
-      "unavailableBody": "Den här distributionen ger för närvarande inte åtkomst till den säkra Cloud Home-tjänsten. Dina lokala filer har inte ändrats.",
-      "unavailableTitle": "Cloud Home är inte tillgängligt"
+      "title": "Minne i Cloud Home"
     },
     "common": {
       "back": "Tillbaka",
@@ -1779,13 +1719,24 @@
           "sync": "Synkronisera nu",
           "syncing": "Synkroniserar…"
         },
-        "authorizationNote": "Uppladdade färdigheter förblir otillgängliga för agenter tills deras exakta version uttryckligen har auktoriserats.",
-        "label": "Minne och färdigheter",
+        "memory": {
+          "error": "Det gick inte att synkronisera just nu. Stella försöker igen.",
+          "heldOtherAccount": "Den här datorns minne synkroniseras med ett annat Stella-konto och hålls därför utanför det här.",
+          "heldWiped": "Pausat. Minnet i molnet raderades, och den här datorn har fortfarande minne från tidigare. Välj nedan vad som ska hända med det.",
+          "lastSynced": "Senast synkroniserat {time}.",
+          "merging": "Ändrat här och i molnet samtidigt. En bakgrundsagent slår ihop de två versionerna.",
+          "off": "Minne är avstängt, så inget synkroniseras.",
+          "refused": "För långt för att synkronisera, så det finns bara på den här datorn: {files}",
+          "signedOut": "Logga in för att hålla minnet likadant på den här datorn och i molnet.",
+          "synced": "Samma på den här datorn och i molnet. En ändring på ena sidan synkroniseras till den andra.",
+          "syncing": "Synkroniserar med molnet…"
+        },
+        "skillsLabel": "Färdigheter",
         "summary": {
           "attention": "Cloud Home behöll befintliga molnkopior där lokala data skilde sig. Granska informationen nedan.",
-          "checking": "Kontrollerar lokalt minne och färdigheter…",
-          "current": "Cloud Home är uppdaterat. Uppladdat minne: {memoryCount}. Uppladdade färdighetspaket: {skillCount}.",
-          "intro": "Stella importerar säkert lokalt minne och relevanta anpassade färdigheter till ditt molnkonto.",
+          "checking": "Kontrollerar den här datorns färdigheter…",
+          "current": "Cloud Home är uppdaterat. Uppladdade färdighetspaket: {skillCount}.",
+          "intro": "Stella laddar säkert upp den här datorns anpassade färdigheter till ditt molnkonto.",
           "unavailable": "Cloud Home-synkronisering är inte tillgänglig just nu."
         },
         "title": "Cloud Home"
@@ -2134,7 +2085,7 @@
       "unsupported": "Datoranvändning vid låst skärm är endast tillgänglig på macOS."
     },
     "memory": {
-      "description": "Inkludera sparade minnen och din profil i Stellas modellkontext. Molnkopian är den auktoritativa versionen och krypteras både under överföring och lagring; Stella kan också spara en lokal kopia. Om du stänger av detta utesluts minnet från framtida konversationer, men det raderas inte.",
+      "description": "Inkludera sparade minnen och din profil i Stellas modellkontext. Dina datorer och molnet har samma minne, krypterat både under överföring och lagring. Om du stänger av detta pausas det och minnet utesluts från framtida konversationer, men det raderas inte.",
       "title": "Minne"
     },
     "modelPicker": {

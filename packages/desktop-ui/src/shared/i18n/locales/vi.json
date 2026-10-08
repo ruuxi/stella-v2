@@ -971,73 +971,13 @@
       "mainChat": "Trò chuyện chính"
     },
     "cloudHome": {
-      "backToDocumentsLabel": "Quay lại tài liệu Cloud Home",
       "backToSettingsLabel": "Quay lại Cài đặt",
-      "conflict": {
-        "changedBody": "Bản sửa đổi {revision} đã thay thế phiên bản bạn đang chỉnh sửa. Bản nháp của bạn vẫn còn ở đây.",
-        "reload": "Tải lại phiên bản trên đám mây",
-        "reloadLabel": "Tải lại phiên bản trên đám mây và thay thế bản nháp này",
-        "reloading": "Đang tải lại…",
-        "removedBody": "Tài liệu này đã bị xóa trong khi bạn chỉnh sửa. Bản nháp của bạn vẫn còn ở đây.",
-        "title": "Phiên bản trên đám mây đã thay đổi"
-      },
-      "editor": {
-        "editLabel": "Chỉnh sửa {name}",
-        "save": "Lưu",
-        "saving": "Đang lưu…",
-        "unsaved": "Thay đổi chưa lưu",
-        "upToDate": "Đã cập nhật"
-      },
-      "editorMeta": "{kind} · bản sửa đổi {revision}",
-      "errors": {
-        "invalid": "Cloud Home trả về phản hồi không hợp lệ.",
-        "missingFromList": "Tài liệu đó không còn trong Cloud Home. Hãy tải lại danh sách.",
-        "network": "Không thể kết nối với Cloud Home. Hãy thử lại.",
-        "removedWhileEditing": "Tài liệu đó đã bị xóa khỏi Cloud Home.",
-        "unauthorized": "Đăng nhập lại để truy cập Cloud Home.",
-        "unavailable": "Cloud Home hiện không khả dụng cho tài khoản này."
-      },
-      "kinds": {
-        "archive": "kho lưu trữ",
-        "core_memory": "bộ nhớ cốt lõi",
-        "imported_markdown": "Markdown đã nhập",
-        "memory": "bộ nhớ",
-        "memory_map": "bản đồ bộ nhớ",
-        "personality": "tính cách",
-        "profile": "hồ sơ",
-        "user_markdown": "Markdown của người dùng"
-      },
-      "list": {
-        "emptyBody": "Tài liệu do Stella tạo hoặc được nhập từ ứng dụng máy tính sẽ xuất hiện tại đây.",
-        "emptyTitle": "Chưa có bộ nhớ trên đám mây",
-        "loading": "Đang tải tài liệu…",
-        "openDocumentLabel": "Mở {name}",
-        "retry": "Thử lại",
-        "retryLabel": "Thử tải lại bộ nhớ Cloud Home"
-      },
-      "listMeta": "{kind} · bản sửa đổi {revision} · {size}",
-      "loading": "Đang tải Cloud Home…",
-      "notices": {
-        "loadedLatest": "Đã tải phiên bản mới nhất trên đám mây.",
-        "saved": "Đã lưu vào Cloud Home."
-      },
       "openSettingsLabel": "Mở bộ nhớ Cloud Home",
-      "settingsRowBody": "Xem và chỉnh sửa bộ nhớ Stella có bản chính thức trên đám mây.",
-      "settingsRowTitle": "Tài liệu bộ nhớ",
       "settingsSection": "Cloud Home",
       "signIn": "Đăng nhập",
-      "signInAgain": "Đăng nhập lại",
-      "signInBody": "Tài liệu bộ nhớ là dữ liệu riêng tư trong tài khoản Stella của bạn.",
+      "signInBody": "Bộ nhớ của bạn là riêng tư trong tài khoản Stella của bạn.",
       "signInTitle": "Đăng nhập để sử dụng Cloud Home",
-      "sizes": {
-        "bytes": "{count} B",
-        "kilobytes": "{count} KB",
-        "megabytes": "{count} MB"
-      },
-      "subtitle": "Các tài liệu Stella chính thức của bạn trên đám mây",
-      "title": "Bộ nhớ Cloud Home",
-      "unavailableBody": "Bản triển khai này hiện không cung cấp dịch vụ Cloud Home bảo mật. Các tệp cục bộ của bạn không bị thay đổi.",
-      "unavailableTitle": "Cloud Home không khả dụng"
+      "title": "Bộ nhớ Cloud Home"
     },
     "common": {
       "back": "Quay lại",
@@ -1769,13 +1709,24 @@
           "sync": "Đồng bộ ngay",
           "syncing": "Đang đồng bộ…"
         },
-        "authorizationNote": "Các kỹ năng đã tải lên vẫn không khả dụng với tác nhân cho đến khi phiên bản chính xác của chúng được cấp quyền rõ ràng.",
-        "label": "Bộ nhớ và kỹ năng",
+        "memory": {
+          "error": "Không thể đồng bộ lúc này. Stella sẽ thử lại.",
+          "heldOtherAccount": "Bộ nhớ của máy tính này được đồng bộ với một tài khoản Stella khác nên không nằm trong tài khoản này.",
+          "heldWiped": "Đã tạm dừng. Bộ nhớ trên đám mây đã bị xóa và máy tính này vẫn còn bộ nhớ từ trước đó. Hãy chọn bên dưới cách xử lý bộ nhớ đó.",
+          "lastSynced": "Đồng bộ lần cuối lúc {time}.",
+          "merging": "Đã thay đổi ở đây và trên đám mây cùng lúc. Một tác tử chạy nền đang hợp nhất hai phiên bản.",
+          "off": "Bộ nhớ đang tắt nên không có gì được đồng bộ.",
+          "refused": "Quá dài để đồng bộ nên chỉ được giữ trên máy tính này: {files}",
+          "signedOut": "Đăng nhập để giữ bộ nhớ giống nhau trên máy tính này và trên đám mây.",
+          "synced": "Giống nhau trên máy tính này và trên đám mây. Thay đổi ở bên nào cũng được đồng bộ sang bên kia.",
+          "syncing": "Đang đồng bộ với đám mây…"
+        },
+        "skillsLabel": "Kỹ năng",
         "summary": {
           "attention": "Cloud Home đã giữ lại các bản sao hiện có trên đám mây ở những nơi dữ liệu cục bộ khác biệt. Hãy xem lại chi tiết bên dưới.",
-          "checking": "Đang kiểm tra bộ nhớ và kỹ năng cục bộ…",
-          "current": "Cloud Home hiện là phiên bản mới nhất. Bộ nhớ đã tải lên: {memoryCount}. Gói kỹ năng đã tải lên: {skillCount}.",
-          "intro": "Stella nhập bộ nhớ cục bộ và các kỹ năng tùy chỉnh phù hợp vào tài khoản đám mây của bạn một cách an toàn.",
+          "checking": "Đang kiểm tra kỹ năng của máy tính này…",
+          "current": "Cloud Home hiện là phiên bản mới nhất. Gói kỹ năng đã tải lên: {skillCount}.",
+          "intro": "Stella tải các kỹ năng tùy chỉnh của máy tính này lên tài khoản đám mây của bạn một cách an toàn.",
           "unavailable": "Tính năng đồng bộ Cloud Home hiện không khả dụng."
         },
         "title": "Cloud Home"
@@ -2124,7 +2075,7 @@
       "unsupported": "Sử dụng máy tính khi đã khóa chỉ có trên macOS."
     },
     "memory": {
-      "description": "Đưa các ký ức đã lưu và hồ sơ của bạn vào ngữ cảnh mô hình của Stella. Bản sao trên đám mây là bản chính thức và được mã hóa cả khi truyền lẫn khi lưu trữ; Stella cũng có thể giữ một bản sao cục bộ. Việc tắt tùy chọn này sẽ loại bộ nhớ khỏi các cuộc trò chuyện sau nhưng không xóa bộ nhớ đó.",
+      "description": "Đưa các ký ức đã lưu và hồ sơ của bạn vào ngữ cảnh mô hình của Stella. Các máy tính của bạn và đám mây giữ cùng một bộ nhớ, được mã hóa cả khi truyền lẫn khi lưu trữ. Việc tắt tùy chọn này sẽ tạm dừng điều đó và loại bộ nhớ khỏi các cuộc trò chuyện sau nhưng không xóa bộ nhớ đó.",
       "title": "Bộ nhớ"
     },
     "modelPicker": {

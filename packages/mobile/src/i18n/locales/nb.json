@@ -981,73 +981,13 @@
       "mainChat": "Hovedchat"
     },
     "cloudHome": {
-      "backToDocumentsLabel": "Tilbake til Cloud Home-dokumentene",
       "backToSettingsLabel": "Tilbake til Innstillinger",
-      "conflict": {
-        "changedBody": "Revisjon {revision} erstattet versjonen du redigerte. Utkastet ditt er fortsatt her.",
-        "reload": "Last inn skyversjonen på nytt",
-        "reloadLabel": "Last inn skyversjonen på nytt, og erstatt dette utkastet",
-        "reloading": "Laster inn på nytt…",
-        "removedBody": "Dokumentet ble fjernet mens du redigerte det. Utkastet ditt er fortsatt her.",
-        "title": "Skyversjonen er endret"
-      },
-      "editor": {
-        "editLabel": "Rediger {name}",
-        "save": "Lagre",
-        "saving": "Lagrer…",
-        "unsaved": "Ulagrede endringer",
-        "upToDate": "Oppdatert"
-      },
-      "editorMeta": "{kind} · revisjon {revision}",
-      "errors": {
-        "invalid": "Cloud Home returnerte et ugyldig svar.",
-        "missingFromList": "Dokumentet finnes ikke lenger i Cloud Home. Last inn listen på nytt.",
-        "network": "Kunne ikke koble til Cloud Home. Prøv igjen.",
-        "removedWhileEditing": "Dokumentet ble fjernet fra Cloud Home.",
-        "unauthorized": "Logg inn igjen for å få tilgang til Cloud Home.",
-        "unavailable": "Cloud Home er ikke tilgjengelig for denne kontoen akkurat nå."
-      },
-      "kinds": {
-        "archive": "arkiv",
-        "core_memory": "kjerneminne",
-        "imported_markdown": "importert Markdown",
-        "memory": "minne",
-        "memory_map": "minnekart",
-        "personality": "personlighet",
-        "profile": "profil",
-        "user_markdown": "brukerens Markdown"
-      },
-      "list": {
-        "emptyBody": "Dokumenter som Stella oppretter, eller som importeres fra skrivebordsappen, vises her.",
-        "emptyTitle": "Ingen skyminner ennå",
-        "loading": "Laster inn dokumenter…",
-        "openDocumentLabel": "Åpne {name}",
-        "retry": "Prøv igjen",
-        "retryLabel": "Prøv å laste inn Cloud Home-minnet på nytt"
-      },
-      "listMeta": "{kind} · revisjon {revision} · {size}",
-      "loading": "Laster inn Cloud Home…",
-      "notices": {
-        "loadedLatest": "Den nyeste skyversjonen er lastet inn.",
-        "saved": "Lagret i Cloud Home."
-      },
       "openSettingsLabel": "Åpne Cloud Home-minnet",
-      "settingsRowBody": "Les og rediger Stellas autoritative minne i skyen.",
-      "settingsRowTitle": "Minnedokumenter",
       "settingsSection": "Cloud Home",
       "signIn": "Logg inn",
-      "signInAgain": "Logg inn igjen",
-      "signInBody": "Minnedokumentene er private for Stella-kontoen din.",
+      "signInBody": "Minnet ditt er privat for Stella-kontoen din.",
       "signInTitle": "Logg inn for å bruke Cloud Home",
-      "sizes": {
-        "bytes": "{count} B",
-        "kilobytes": "{count} KB",
-        "megabytes": "{count} MB"
-      },
-      "subtitle": "Dine autoritative Stella-dokumenter i skyen",
-      "title": "Cloud Home-minne",
-      "unavailableBody": "Denne distribusjonen tilbyr for øyeblikket ikke den sikre Cloud Home-tjenesten. De lokale filene dine er ikke endret.",
-      "unavailableTitle": "Cloud Home er utilgjengelig"
+      "title": "Cloud Home-minne"
     },
     "common": {
       "back": "Tilbake",
@@ -1779,13 +1719,24 @@
           "sync": "Synkroniser nå",
           "syncing": "Synkroniserer…"
         },
-        "authorizationNote": "Opplastede ferdigheter er fortsatt utilgjengelige for agenter til den nøyaktige versjonen deres er uttrykkelig autorisert.",
-        "label": "Minne og ferdigheter",
+        "memory": {
+          "error": "Kunne ikke synkronisere akkurat nå. Stella prøver igjen.",
+          "heldOtherAccount": "Minnet på denne datamaskinen synkroniseres med en annen Stella-konto, så det holdes utenfor denne.",
+          "heldWiped": "Satt på pause. Minnet i skyen ble slettet, og denne datamaskinen har fortsatt minne fra før. Velg nedenfor hva som skal skje med det.",
+          "lastSynced": "Sist synkronisert {time}.",
+          "merging": "Endret her og i skyen samtidig. En bakgrunnsagent slår sammen de to versjonene.",
+          "off": "Minne er slått av, så ingenting synkroniseres.",
+          "refused": "For lang til å synkroniseres, så den blir bare på denne datamaskinen: {files}",
+          "signedOut": "Logg på for å holde minnet likt på denne datamaskinen og i skyen.",
+          "synced": "Det samme på denne datamaskinen og i skyen. En endring på den ene siden synkroniseres til den andre.",
+          "syncing": "Synkroniserer med skyen…"
+        },
+        "skillsLabel": "Ferdigheter",
         "summary": {
           "attention": "Cloud Home beholdt eksisterende skykopier der lokale data var forskjellige. Se gjennom detaljene nedenfor.",
-          "checking": "Kontrollerer lokalt minne og ferdigheter…",
-          "current": "Cloud Home er oppdatert. Opplastet minne: {memoryCount}. Opplastede ferdighetspakker: {skillCount}.",
-          "intro": "Stella importerer lokalt minne og relevante egendefinerte ferdigheter sikkert til skykontoen din.",
+          "checking": "Kontrollerer denne datamaskinens ferdigheter…",
+          "current": "Cloud Home er oppdatert. Opplastede ferdighetspakker: {skillCount}.",
+          "intro": "Stella laster trygt opp de egendefinerte ferdighetene fra denne datamaskinen til skykontoen din.",
           "unavailable": "Cloud Home-synkronisering er utilgjengelig for øyeblikket."
         },
         "title": "Cloud Home"
@@ -2134,7 +2085,7 @@
       "unsupported": "Bruk ved låst maskin er bare tilgjengelig på macOS."
     },
     "memory": {
-      "description": "Ta med lagrede minner og profilen din i Stellas modellkontekst. Kopien i skyen er autoritativ og kryptert både under overføring og lagring; Stella kan også beholde en lokal kopi. Når du slår dette av, utelates minnet fra fremtidige samtaler, men det slettes ikke.",
+      "description": "Ta med lagrede minner og profilen din i Stellas modellkontekst. Datamaskinene dine og skyen har det samme minnet, kryptert både under overføring og lagring. Når du slår dette av, settes det på pause og minnet utelates fra fremtidige samtaler, men det slettes ikke.",
       "title": "Minne"
     },
     "modelPicker": {

@@ -308,6 +308,13 @@ export const IPC_CLOUD_HOME_GET_IMPORT_OWNERSHIP =
 export const IPC_CLOUD_HOME_CONFIRM_IMPORT_OWNERSHIP =
   "cloudHome:confirmImportOwnership" as const;
 
+// ── Memory sync ─────────────────────────────────────────────────────────────
+
+export const IPC_MEMORY_SYNC_GET_STATUS = "memorySync:getStatus" as const;
+export const IPC_MEMORY_SYNC_STATUS = "memorySync:status" as const;
+export const IPC_MEMORY_SYNC_NOW = "memorySync:syncNow" as const;
+export const IPC_MEMORY_SYNC_ERASE_LOCAL = "memorySync:eraseLocal" as const;
+
 // ── Discovery ───────────────────────────────────────────────────────────────
 
 export const IPC_DISCOVERY_CORE_MEMORY_EXISTS =

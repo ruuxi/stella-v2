@@ -397,7 +397,10 @@ export const initializeStellaHostRunner = async (context) => {
             loadDeviceSigner,
             clearSupersededDeviceId,
         }),
-        onAuthTokenChanged: (token) => services.engineAccountAccess.noteAuthToken(token),
+        onAuthTokenChanged: (token) => {
+            services.engineAccountAccess.noteAuthToken(token);
+            services.memorySync.noteAuthToken(token);
+        },
     }));
     await connectHostRunner(context);
     if (state.appReady && !state.officePreviewBridgeStop) {

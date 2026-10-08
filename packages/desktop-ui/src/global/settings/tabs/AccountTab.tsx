@@ -14,7 +14,8 @@ import { deleteAuthUser } from "@/global/auth/services/auth-session";
 import { clearCachedToken } from "@/global/auth/services/auth-token";
 import { uiState } from "@/platform/ui-state";
 import type { LegalDocument } from "@/global/legal/legal-text";
-import { useT } from "@/shared/i18n";
+import { useLocale, useT } from "@/shared/i18n";
+import type { MemorySyncStatus } from "@stella/contracts/desktop/memory-sync";
 import { getSettingsErrorMessage } from "./shared";
 import {
   cloudHomeStatusForAccount,
@@ -27,8 +28,45 @@ import { CloudBoundary } from "@/features/cloud/CloudBoundary";
 import { ProviderAccountsCard } from "@/features/cloud/ProviderAccountsCard";
 import { CloudMemoryWipeSettings } from "@/features/cloud/CloudMemoryWipeSettings";
 import { CloudMemoryReimportSettings } from "@/features/cloud/CloudMemoryReimportSettings";
+import {
+  requestMemorySync,
+  useMemorySyncStatus,
+} from "@/features/cloud/use-memory-sync-status";
 
 type AccountDeleteAction = "data" | "account";
+
+type Translate = ReturnType<typeof useT>;
+
+const memorySyncSummary = (
+  t: Translate,
+  status: MemorySyncStatus | null,
+): string => {
+  const key = "settings.account.cloudHome.memory";
+  switch (status?.phase) {
+    case "synced":
+      return status.merging > 0 ? t(`${key}.merging`) : t(`${key}.synced`);
+    case "syncing":
+      return t(`${key}.syncing`);
+    case "off":
+      return t(`${key}.off`);
+    case "held":
+      return status.heldReason === "other_account"
+        ? t(`${key}.heldOtherAccount`)
+        : t(`${key}.heldWiped`);
+    case "error":
+      return t(`${key}.error`);
+    default:
+      return t(`${key}.signedOut`);
+  }
+};
+
+const syncedAtLabel = (locale: string, at: number): string => {
+  const sameDay = new Date(at).toDateString() === new Date().toDateString();
+  return new Intl.DateTimeFormat(
+    locale,
+    sameDay ? { timeStyle: "short" } : { dateStyle: "medium", timeStyle: "short" },
+  ).format(at);
+};
 
 const deleteIndexedDatabase = (name: string) =>
   new Promise<void>((resolve) => {
@@ -101,6 +139,8 @@ interface AccountTabProps {
 
 export function AccountTab({ onSignOut, onOpenLegal }: AccountTabProps) {
   const t = useT();
+  const locale = useLocale();
+  const memorySync = useMemorySyncStatus();
   const { hasConnectedAccount } = useAuthSessionState();
   const [pendingDeleteAction, setPendingDeleteAction] =
     useState<AccountDeleteAction | null>(null);
@@ -143,12 +183,12 @@ export function AccountTab({ onSignOut, onOpenLegal }: AccountTabProps) {
       }
     }
     cloudHomeSyncRetryStore.request();
+    void requestMemorySync();
   }, [accountScope, cloudHomeNeedsConfirmation]);
   const cloudHomeSummary = cloudHomeBusy
     ? t("settings.account.cloudHome.summary.checking")
     : cloudHomeStatus.phase === "complete"
       ? t("settings.account.cloudHome.summary.current", {
-          memoryCount: 0,
           skillCount: cloudHomeStatus.skillsUploaded,
         })
       : cloudHomeStatus.phase === "attention"
@@ -228,10 +268,34 @@ export function AccountTab({ onSignOut, onOpenLegal }: AccountTabProps) {
           <h3 className="settings-card-title">
             {t("settings.account.cloudHome.title")}
           </h3>
+          <div className="settings-row" data-memory-sync={memorySync?.phase}>
+            <div className="settings-row-info">
+              <div className="settings-row-label">
+                {t("settings.memory.title")}
+              </div>
+              <div className="settings-row-sublabel" role="status">
+                {memorySyncSummary(t, memorySync)}
+              </div>
+              {memorySync?.phase === "synced" && memorySync.lastSyncedAt ? (
+                <div className="settings-row-sublabel">
+                  {t("settings.account.cloudHome.memory.lastSynced", {
+                    time: syncedAtLabel(locale, memorySync.lastSyncedAt),
+                  })}
+                </div>
+              ) : null}
+              {memorySync && memorySync.refused.length > 0 ? (
+                <div className="settings-row-sublabel" role="alert">
+                  {t("settings.account.cloudHome.memory.refused", {
+                    files: memorySync.refused.join(", "),
+                  })}
+                </div>
+              ) : null}
+            </div>
+          </div>
           <div className="settings-row">
             <div className="settings-row-info">
               <div className="settings-row-label">
-                {t("settings.account.cloudHome.label")}
+                {t("settings.account.cloudHome.skillsLabel")}
               </div>
               <div className="settings-row-sublabel" role="status">
                 {cloudHomeSummary}

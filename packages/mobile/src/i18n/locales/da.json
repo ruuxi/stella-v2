@@ -981,73 +981,13 @@
       "mainChat": "Hovedchat"
     },
     "cloudHome": {
-      "backToDocumentsLabel": "Tilbage til Cloud Home-dokumenter",
       "backToSettingsLabel": "Tilbage til Indstillinger",
-      "conflict": {
-        "changedBody": "Revision {revision} har erstattet den version, du redigerede. Din kladde er stadig her.",
-        "reload": "Indlæs cloudversionen igen",
-        "reloadLabel": "Indlæs cloudversionen igen, og erstat denne kladde",
-        "reloading": "Indlæser igen…",
-        "removedBody": "Dokumentet blev fjernet, mens du redigerede det. Din kladde er stadig her.",
-        "title": "Cloudversionen er ændret"
-      },
-      "editor": {
-        "editLabel": "Rediger {name}",
-        "save": "Gem",
-        "saving": "Gemmer…",
-        "unsaved": "Ikke-gemte ændringer",
-        "upToDate": "Ajourført"
-      },
-      "editorMeta": "{kind} · revision {revision}",
-      "errors": {
-        "invalid": "Cloud Home returnerede et ugyldigt svar.",
-        "missingFromList": "Dokumentet findes ikke længere i Cloud Home. Indlæs listen igen.",
-        "network": "Der kunne ikke oprettes forbindelse til Cloud Home. Prøv igen.",
-        "removedWhileEditing": "Dokumentet er blevet fjernet fra Cloud Home.",
-        "unauthorized": "Log ind igen for at få adgang til Cloud Home.",
-        "unavailable": "Cloud Home er ikke tilgængelig for denne konto lige nu."
-      },
-      "kinds": {
-        "archive": "arkiv",
-        "core_memory": "kernehukommelse",
-        "imported_markdown": "importeret Markdown",
-        "memory": "hukommelse",
-        "memory_map": "hukommelseskort",
-        "personality": "personlighed",
-        "profile": "profil",
-        "user_markdown": "bruger-Markdown"
-      },
-      "list": {
-        "emptyBody": "Dokumenter, som Stella opretter, eller som importeres fra desktopappen, vises her.",
-        "emptyTitle": "Ingen cloudhukommelse endnu",
-        "loading": "Indlæser dokumenter…",
-        "openDocumentLabel": "Åbn {name}",
-        "retry": "Prøv igen",
-        "retryLabel": "Prøv at indlæse Cloud Home-hukommelsen igen"
-      },
-      "listMeta": "{kind} · revision {revision} · {size}",
-      "loading": "Indlæser Cloud Home…",
-      "notices": {
-        "loadedLatest": "Den seneste cloudversion er indlæst.",
-        "saved": "Gemt i Cloud Home."
-      },
       "openSettingsLabel": "Åbn Cloud Home-hukommelse",
-      "settingsRowBody": "Læs og rediger den autoritative version af Stellas hukommelse i skyen.",
-      "settingsRowTitle": "Hukommelsesdokumenter",
       "settingsSection": "Cloud Home",
       "signIn": "Log ind",
-      "signInAgain": "Log ind igen",
-      "signInBody": "Hukommelsesdokumenter er private for din Stella-konto.",
+      "signInBody": "Din hukommelse er privat for din Stella-konto.",
       "signInTitle": "Log ind for at bruge Cloud Home",
-      "sizes": {
-        "bytes": "{count} B",
-        "kilobytes": "{count} KB",
-        "megabytes": "{count} MB"
-      },
-      "subtitle": "Dine autoritative Stella-dokumenter i skyen",
-      "title": "Cloud Home-hukommelse",
-      "unavailableBody": "Denne udrulning stiller i øjeblikket ikke den sikre Cloud Home-tjeneste til rådighed. Dine lokale filer er ikke blevet ændret.",
-      "unavailableTitle": "Cloud Home er ikke tilgængelig"
+      "title": "Cloud Home-hukommelse"
     },
     "common": {
       "back": "Tilbage",
@@ -1779,13 +1719,24 @@
           "sync": "Synkroniser nu",
           "syncing": "Synkroniserer…"
         },
-        "authorizationNote": "Uploadede færdigheder forbliver utilgængelige for agenter, indtil deres præcise version udtrykkeligt er autoriseret.",
-        "label": "Hukommelse og færdigheder",
+        "memory": {
+          "error": "Kunne ikke synkronisere lige nu. Stella prøver igen.",
+          "heldOtherAccount": "Denne computers hukommelse synkroniseres med en anden Stella-konto, så den holdes uden for denne.",
+          "heldWiped": "Sat på pause. Hukommelsen i skyen blev slettet, og denne computer har stadig hukommelse fra før. Vælg nedenfor, hvad der skal ske med den.",
+          "lastSynced": "Sidst synkroniseret {time}.",
+          "merging": "Ændret her og i skyen på samme tid. En baggrundsagent fletter de to versioner.",
+          "off": "Hukommelse er slået fra, så intet synkroniseres.",
+          "refused": "For lang til at synkronisere, så den bliver kun på denne computer: {files}",
+          "signedOut": "Log ind for at holde hukommelsen ens på denne computer og i skyen.",
+          "synced": "Den samme på denne computer og i skyen. En ændring på den ene side synkroniseres til den anden.",
+          "syncing": "Synkroniserer med skyen…"
+        },
+        "skillsLabel": "Færdigheder",
         "summary": {
           "attention": "Cloud Home beholdt eksisterende kopier i skyen, hvor de lokale data var forskellige. Gennemgå oplysningerne nedenfor.",
-          "checking": "Kontrollerer lokal hukommelse og færdigheder…",
-          "current": "Cloud Home er opdateret. Uploadet hukommelse: {memoryCount}. Uploadede færdighedspakker: {skillCount}.",
-          "intro": "Stella importerer sikkert lokal hukommelse og relevante brugerdefinerede færdigheder til din cloudkonto.",
+          "checking": "Kontrollerer denne computers færdigheder…",
+          "current": "Cloud Home er opdateret. Uploadede færdighedspakker: {skillCount}.",
+          "intro": "Stella uploader sikkert denne computers brugerdefinerede færdigheder til din cloudkonto.",
           "unavailable": "Cloud Home-synkronisering er ikke tilgængelig i øjeblikket."
         },
         "title": "Cloud Home"
@@ -2134,7 +2085,7 @@
       "unsupported": "Brug ved låst computer er kun tilgængelig på macOS."
     },
     "memory": {
-      "description": "Medtag gemte minder og din profil i Stellas modelkontekst. Cloudkopien er den autoritative version og er krypteret under overførsel og lagring; Stella kan også gemme en lokal kopi. Hvis du slår dette fra, udelades hukommelsen fra fremtidige samtaler, men den slettes ikke.",
+      "description": "Medtag gemte minder og din profil i Stellas modelkontekst. Dine computere og skyen har den samme hukommelse, krypteret under overførsel og lagring. Hvis du slår dette fra, sættes det på pause, og hukommelsen udelades fra fremtidige samtaler, men den slettes ikke.",
       "title": "Hukommelse"
     },
     "modelPicker": {

@@ -28,7 +28,8 @@ export type EngineAccountAccessOptions = {
   getAuthToken: () => Promise<string | null>;
 };
 
-const tokenSubject = (token: string | null): string | null => {
+/** The account a Stella session token is for (its `sub`). */
+export const tokenSubject = (token: string | null): string | null => {
   const payload = token?.split(".")[1];
   if (!payload) return null;
   try {

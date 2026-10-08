@@ -981,73 +981,13 @@
       "mainChat": "Ana sohbet"
     },
     "cloudHome": {
-      "backToDocumentsLabel": "Cloud Home belgelerine dön",
       "backToSettingsLabel": "Ayarlar'a dön",
-      "conflict": {
-        "changedBody": "{revision} revizyonu, düzenlediğiniz sürümün yerini aldı. Taslağınız hâlâ burada.",
-        "reload": "Bulut sürümünü yeniden yükle",
-        "reloadLabel": "Bulut sürümünü yeniden yükle ve bu taslağı değiştir",
-        "reloading": "Yeniden yükleniyor…",
-        "removedBody": "Bu belge siz düzenlerken kaldırıldı. Taslağınız hâlâ burada.",
-        "title": "Bulut sürümü değişti"
-      },
-      "editor": {
-        "editLabel": "{name} öğesini düzenle",
-        "save": "Kaydet",
-        "saving": "Kaydediliyor…",
-        "unsaved": "Kaydedilmemiş değişiklikler",
-        "upToDate": "Güncel"
-      },
-      "editorMeta": "{kind} · revizyon {revision}",
-      "errors": {
-        "invalid": "Cloud Home geçersiz bir yanıt döndürdü.",
-        "missingFromList": "Bu belge artık Cloud Home'da değil. Listeyi yeniden yükleyin.",
-        "network": "Cloud Home'a ulaşılamadı. Yeniden deneyin.",
-        "removedWhileEditing": "Bu belge Cloud Home'dan kaldırıldı.",
-        "unauthorized": "Cloud Home'a erişmek için yeniden oturum açın.",
-        "unavailable": "Cloud Home şu anda bu hesap için kullanılamıyor."
-      },
-      "kinds": {
-        "archive": "arşiv",
-        "core_memory": "temel bellek",
-        "imported_markdown": "içe aktarılan Markdown",
-        "memory": "bellek",
-        "memory_map": "bellek haritası",
-        "personality": "kişilik",
-        "profile": "profil",
-        "user_markdown": "kullanıcı Markdown'ı"
-      },
-      "list": {
-        "emptyBody": "Stella tarafından oluşturulan veya bilgisayardan içe aktarılan belgeler burada görünür.",
-        "emptyTitle": "Henüz bulut belleği yok",
-        "loading": "Belgeler yükleniyor…",
-        "openDocumentLabel": "{name} öğesini aç",
-        "retry": "Yeniden dene",
-        "retryLabel": "Cloud Home belleğini yeniden yüklemeyi dene"
-      },
-      "listMeta": "{kind} · revizyon {revision} · {size}",
-      "loading": "Cloud Home yükleniyor…",
-      "notices": {
-        "loadedLatest": "En son bulut sürümü yüklendi.",
-        "saved": "Cloud Home'a kaydedildi."
-      },
       "openSettingsLabel": "Cloud Home belleğini aç",
-      "settingsRowBody": "Buluttaki esas Stella belleğinizi okuyun ve düzenleyin.",
-      "settingsRowTitle": "Bellek belgeleri",
       "settingsSection": "Cloud Home",
       "signIn": "Oturum aç",
-      "signInAgain": "Yeniden oturum aç",
-      "signInBody": "Bellek belgeleri Stella hesabınıza özeldir.",
+      "signInBody": "Belleğiniz Stella hesabınıza özeldir.",
       "signInTitle": "Cloud Home'u kullanmak için oturum açın",
-      "sizes": {
-        "bytes": "{count} B",
-        "kilobytes": "{count} KB",
-        "megabytes": "{count} MB"
-      },
-      "subtitle": "Buluttaki esas Stella belgeleriniz",
-      "title": "Cloud Home belleği",
-      "unavailableBody": "Bu dağıtım şu anda güvenli Cloud Home hizmetine erişim sunmuyor. Yerel dosyalarınız değiştirilmedi.",
-      "unavailableTitle": "Cloud Home kullanılamıyor"
+      "title": "Cloud Home belleği"
     },
     "common": {
       "back": "Geri",
@@ -1779,13 +1719,24 @@
           "sync": "Şimdi eşitle",
           "syncing": "Eşitleniyor…"
         },
-        "authorizationNote": "Yüklenen beceriler, tam sürümleri açıkça yetkilendirilene kadar aracılar tarafından kullanılamaz.",
-        "label": "Bellek ve beceriler",
+        "memory": {
+          "error": "Şu anda senkronize edilemedi. Stella yeniden deneyecek.",
+          "heldOtherAccount": "Bu bilgisayarın belleği başka bir Stella hesabıyla senkronize ediliyor, bu yüzden bu hesabın dışında kalıyor.",
+          "heldWiped": "Duraklatıldı. Buluttaki bellek silindi ve bu bilgisayarda hâlâ öncesinden kalan bellek var. Buna ne olacağını aşağıdan seçin.",
+          "lastSynced": "Son senkronizasyon: {time}.",
+          "merging": "Burada ve bulutta aynı anda değişti. Arka plandaki bir ajan iki sürümü birleştiriyor.",
+          "off": "Bellek kapalı, bu yüzden hiçbir şey senkronize edilmiyor.",
+          "refused": "Senkronize etmek için fazla uzun, bu yüzden yalnızca bu bilgisayarda tutuluyor: {files}",
+          "signedOut": "Belleğin bu bilgisayarda ve bulutta aynı kalması için oturum açın.",
+          "synced": "Bu bilgisayarda ve bulutta aynı. Herhangi bir taraftaki değişiklik diğerine senkronize edilir.",
+          "syncing": "Bulutla senkronize ediliyor…"
+        },
+        "skillsLabel": "Beceriler",
         "summary": {
           "attention": "Yerel verilerin farklı olduğu yerlerde Cloud Home mevcut bulut kopyalarını korudu. Aşağıdaki ayrıntıları inceleyin.",
-          "checking": "Yerel bellek ve beceriler kontrol ediliyor…",
-          "current": "Cloud Home güncel. Yüklenen bellek belgesi: {memoryCount}. Yüklenen beceri paketi: {skillCount}.",
-          "intro": "Stella, yerel belleği ve uygun özel becerileri bulut hesabınıza güvenli şekilde aktarır.",
+          "checking": "Bu bilgisayarın becerileri kontrol ediliyor…",
+          "current": "Cloud Home güncel. Yüklenen beceri paketi: {skillCount}.",
+          "intro": "Stella, bu bilgisayardaki özel becerileri bulut hesabınıza güvenli şekilde yükler.",
           "unavailable": "Cloud Home eşitlemesi şu anda kullanılamıyor."
         },
         "title": "Cloud Home"
@@ -2134,7 +2085,7 @@
       "unsupported": "Kilitliyken bilgisayar kullanımı yalnızca macOS'te kullanılabilir."
     },
     "memory": {
-      "description": "Kaydedilen anıları ve profilinizi Stella'nın model bağlamına dahil edin. Bulut kopyası esas kopyadır ve aktarım sırasında ve depolanırken şifrelenir; Stella ayrıca yerel bir kopya tutabilir. Bunu kapatmak belleği gelecekteki konuşmalardan hariç tutar ancak silmez.",
+      "description": "Kaydedilen anıları ve profilinizi Stella'nın model bağlamına dahil edin. Bilgisayarlarınız ve bulut, aktarım sırasında ve depolanırken şifrelenen aynı belleği tutar. Bunu kapatmak senkronizasyonu duraklatır ve belleği gelecekteki konuşmalardan hariç tutar ancak silmez.",
       "title": "Bellek"
     },
     "modelPicker": {

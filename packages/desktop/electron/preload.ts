@@ -42,6 +42,10 @@ import type {
   LocalCloudHomeScan,
 } from "@stella/contracts/cloud-home-sync";
 import type {
+  MemorySyncEraseResult,
+  MemorySyncStatus,
+} from "@stella/contracts/desktop/memory-sync";
+import type {
   CloudConversationCacheAuthority,
   CloudConversationCacheLifecycleAuthority,
   CloudConversationCachePurgeResult,
@@ -61,6 +65,10 @@ import {
   IPC_CLOUD_HOME_CONFIRM_IMPORT_OWNERSHIP,
   IPC_CLOUD_HOME_GET_IMPORT_OWNERSHIP,
   IPC_CLOUD_HOME_SCAN_LOCAL,
+  IPC_MEMORY_SYNC_ERASE_LOCAL,
+  IPC_MEMORY_SYNC_GET_STATUS,
+  IPC_MEMORY_SYNC_NOW,
+  IPC_MEMORY_SYNC_STATUS,
   IPC_COMPANION_ACTIVITY,
   IPC_COMPANION_DRAG_END,
   IPC_COMPANION_DRAG_MOVE,
@@ -363,6 +371,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ),
     confirmImportOwnership: (accountScope: string) =>
       invokeIpc<boolean>(IPC_CLOUD_HOME_CONFIRM_IMPORT_OWNERSHIP, accountScope),
+  },
+
+  memorySync: {
+    getStatus: () => invokeIpc<MemorySyncStatus>(IPC_MEMORY_SYNC_GET_STATUS),
+    onStatus: onIpc<MemorySyncStatus>(IPC_MEMORY_SYNC_STATUS),
+    syncNow: () => invokeIpc<MemorySyncStatus>(IPC_MEMORY_SYNC_NOW),
+    eraseLocal: () =>
+      invokeIpc<MemorySyncEraseResult>(IPC_MEMORY_SYNC_ERASE_LOCAL),
   },
 
   cloudConversationCache: {

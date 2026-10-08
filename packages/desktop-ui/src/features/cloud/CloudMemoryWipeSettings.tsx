@@ -51,7 +51,7 @@ const dialogActionsStyle = {
   marginTop: 20,
 };
 
-/** Dedicated destructive surface; document editing and the Memory toggle stay independent. */
+/** Dedicated destructive surface; the Memory toggle stays independent. */
 export function CloudMemoryWipeSettings() {
   const t = useT();
   const {
@@ -105,8 +105,9 @@ export function CloudMemoryWipeSettings() {
       <div className="settings-card" data-cloud-memory-wipe>
         <h3 className="settings-card-title">Erase cloud Memory</h3>
         <p className="settings-card-desc">
-          Erases this account's cloud Memory for good. Turning Memory off does
-          not do this, and it cannot be undone.
+          Erases this account's cloud Memory for good. Your computers keep
+          their own copies until you choose what happens to them. Turning
+          Memory off does not do this, and it cannot be undone.
         </p>
 
         {phase === "loading" ? (
@@ -153,8 +154,9 @@ export function CloudMemoryWipeSettings() {
               </div>
               <div className="settings-row-sublabel">
                 The previous Memory epoch has no reusable or recoverable Memory
-                content. A new empty epoch is open. Local Memory from this Mac
-                will stay blocked until you explicitly choose to import it.
+                content. A new empty epoch is open. A computer that still has
+                Memory from before pauses its Memory sync until you choose to
+                upload that Memory or erase it there.
               </div>
               <div className="settings-row-sublabel">{progress}</div>
             </div>

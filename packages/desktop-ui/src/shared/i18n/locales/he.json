@@ -991,73 +991,13 @@
       "mainChat": "צ׳אט ראשי"
     },
     "cloudHome": {
-      "backToDocumentsLabel": "חזרה למסמכי Cloud Home",
       "backToSettingsLabel": "חזרה להגדרות",
-      "conflict": {
-        "changedBody": "גרסה {revision} החליפה את הגרסה שערכתם. הטיוטה שלכם עדיין כאן.",
-        "reload": "טעינת הגרסה בענן מחדש",
-        "reloadLabel": "טעינה מחדש של הגרסה בענן והחלפת הטיוטה הזו",
-        "reloading": "מתבצעת טעינה מחדש…",
-        "removedBody": "המסמך הזה הוסר בזמן שערכתם אותו. הטיוטה שלכם עדיין כאן.",
-        "title": "הגרסה בענן השתנתה"
-      },
-      "editor": {
-        "editLabel": "עריכת {name}",
-        "save": "שמירה",
-        "saving": "מתבצעת שמירה…",
-        "unsaved": "שינויים שלא נשמרו",
-        "upToDate": "עדכני"
-      },
-      "editorMeta": "{kind} · גרסה {revision}",
-      "errors": {
-        "invalid": "התקבלה תגובה לא תקינה מ-Cloud Home.",
-        "missingFromList": "המסמך הזה כבר אינו נמצא ב-Cloud Home. טענו מחדש את הרשימה.",
-        "network": "לא ניתן היה להתחבר ל-Cloud Home. נסו שוב.",
-        "removedWhileEditing": "המסמך הזה הוסר מ-Cloud Home.",
-        "unauthorized": "יש להיכנס מחדש כדי לגשת ל-Cloud Home.",
-        "unavailable": "Cloud Home אינו זמין כרגע לחשבון הזה."
-      },
-      "kinds": {
-        "archive": "ארכיון",
-        "core_memory": "זיכרון ליבה",
-        "imported_markdown": "Markdown מיובא",
-        "memory": "זיכרון",
-        "memory_map": "מפת זיכרון",
-        "personality": "אישיות",
-        "profile": "פרופיל",
-        "user_markdown": "Markdown של המשתמש"
-      },
-      "list": {
-        "emptyBody": "מסמכים ש-Stella יוצרת או שמיובאים מאפליקציית שולחן העבודה יופיעו כאן.",
-        "emptyTitle": "עדיין אין זיכרון בענן",
-        "loading": "המסמכים נטענים…",
-        "openDocumentLabel": "פתיחת {name}",
-        "retry": "ניסיון נוסף",
-        "retryLabel": "ניסיון נוסף לטעון את הזיכרון של Cloud Home"
-      },
-      "listMeta": "{kind} · גרסה {revision} · {size}",
-      "loading": "Cloud Home נטען…",
-      "notices": {
-        "loadedLatest": "הגרסה העדכנית מהענן נטענה.",
-        "saved": "נשמר ב-Cloud Home."
-      },
       "openSettingsLabel": "פתיחת הזיכרון של Cloud Home",
-      "settingsRowBody": "הציגו וערכו את זיכרון Stella הקובע בענן.",
-      "settingsRowTitle": "מסמכי זיכרון",
       "settingsSection": "Cloud Home",
       "signIn": "כניסה",
-      "signInAgain": "כניסה מחדש",
-      "signInBody": "מסמכי הזיכרון פרטיים לחשבון Stella שלכם.",
+      "signInBody": "הזיכרון שלכם פרטי לחשבון Stella שלכם.",
       "signInTitle": "יש להיכנס כדי להשתמש ב-Cloud Home",
-      "sizes": {
-        "bytes": "{count} B",
-        "kilobytes": "{count} KB",
-        "megabytes": "{count} MB"
-      },
-      "subtitle": "מסמכי Stella הקובעים בענן",
-      "title": "הזיכרון של Cloud Home",
-      "unavailableBody": "פריסה זו אינה מספקת כרגע את שירות Cloud Home המאובטח. הקבצים המקומיים שלכם לא השתנו.",
-      "unavailableTitle": "Cloud Home אינו זמין"
+      "title": "הזיכרון של Cloud Home"
     },
     "common": {
       "back": "חזרה",
@@ -1789,13 +1729,24 @@
           "sync": "סנכרן עכשיו",
           "syncing": "מסנכרן…"
         },
-        "authorizationNote": "כישורים שהועלו אינם זמינים לסוכנים עד לאישור מפורש של הגרסה המדויקת שלהם.",
-        "label": "זיכרון וכישורים",
+        "memory": {
+          "error": "לא ניתן היה לסנכרן כרגע. Stella תנסה שוב.",
+          "heldOtherAccount": "הזיכרון של המחשב הזה מסונכרן עם חשבון Stella אחר, ולכן הוא נשאר מחוץ לחשבון הזה.",
+          "heldWiped": "מושהה. הזיכרון בענן נמחק, ובמחשב הזה עדיין יש זיכרון מלפני כן. בחרו למטה מה ייעשה בו.",
+          "lastSynced": "סונכרן לאחרונה: {time}.",
+          "merging": "השתנה כאן ובענן בו־זמנית. סוכן ברקע ממזג את שתי הגרסאות.",
+          "off": "הזיכרון כבוי, לכן שום דבר לא מסונכרן.",
+          "refused": "ארוך מכדי לסנכרן, לכן נשמר רק במחשב הזה: {files}",
+          "signedOut": "התחברו כדי שהזיכרון יישאר זהה במחשב הזה ובענן.",
+          "synced": "זהה במחשב הזה ובענן. שינוי בצד אחד מסונכרן לצד השני.",
+          "syncing": "מסנכרן עם הענן…"
+        },
+        "skillsLabel": "כישורים",
         "summary": {
           "attention": "Cloud Home שמר על העותקים הקיימים בענן במקומות שבהם הנתונים המקומיים היו שונים. עיין בפרטים למטה.",
-          "checking": "בודק זיכרון וכישורים מקומיים…",
-          "current": "Cloud Home מעודכן. זיכרונות שהועלו: {memoryCount}. חבילות כישורים שהועלו: {skillCount}.",
-          "intro": "Stella מייבאת באופן מאובטח זיכרון מקומי וכישורים מותאמים אישית מתאימים לחשבון הענן שלך.",
+          "checking": "בודק את הכישורים של המחשב הזה…",
+          "current": "Cloud Home מעודכן. חבילות כישורים שהועלו: {skillCount}.",
+          "intro": "Stella מעלה באופן מאובטח את הכישורים המותאמים אישית של המחשב הזה לחשבון הענן שלך.",
           "unavailable": "סנכרון Cloud Home אינו זמין כרגע."
         },
         "title": "Cloud Home"
@@ -2144,7 +2095,7 @@
       "unsupported": "שימוש במחשב נעול זמין רק ב-macOS."
     },
     "memory": {
-      "description": "כללו זיכרונות שמורים ואת הפרופיל שלכם בהקשר המודל של Stella. העותק בענן הוא העותק הקובע והוא מוצפן בתעבורה ובמנוחה; Stella עשויה לשמור גם עותק מקומי. השבתת האפשרות מחריגה את הזיכרון משיחות עתידיות, אך אינה מוחקת אותו.",
+      "description": "כללו זיכרונות שמורים ואת הפרופיל שלכם בהקשר המודל של Stella. המחשבים שלכם והענן שומרים על אותו זיכרון, מוצפן בתעבורה ובמנוחה. השבתת האפשרות משהה זאת ומחריגה את הזיכרון משיחות עתידיות, אך אינה מוחקת אותו.",
       "title": "זיכרון"
     },
     "modelPicker": {

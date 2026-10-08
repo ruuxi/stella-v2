@@ -80,6 +80,10 @@ import type {
   DiscoveryKnowledgeSeedPayload,
 } from "@stella/contracts/discovery";
 import type {
+  MemorySyncEraseResult,
+  MemorySyncStatus,
+} from "@stella/contracts/desktop/memory-sync";
+import type {
   OnboardingSynthesisRequest,
   OnboardingSynthesisResponse,
 } from "@stella/contracts/onboarding";
@@ -1610,6 +1614,13 @@ export type ElectronApi = {
       accountScope: string,
     ) => Promise<CloudHomeImportOwnership>;
     confirmImportOwnership: (accountScope: string) => Promise<boolean>;
+  };
+  /** This computer's two-way memory sync with the cloud, run in main. */
+  memorySync: {
+    getStatus: () => Promise<MemorySyncStatus>;
+    onStatus: (callback: (status: MemorySyncStatus) => void) => () => void;
+    syncNow: () => Promise<MemorySyncStatus>;
+    eraseLocal: () => Promise<MemorySyncEraseResult>;
   };
   cloudConversationCache: {
     retainAccount: (

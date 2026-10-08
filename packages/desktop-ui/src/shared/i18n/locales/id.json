@@ -971,73 +971,13 @@
       "mainChat": "Obrolan utama"
     },
     "cloudHome": {
-      "backToDocumentsLabel": "Kembali ke dokumen Cloud Home",
       "backToSettingsLabel": "Kembali ke Pengaturan",
-      "conflict": {
-        "changedBody": "Revisi {revision} menggantikan versi yang Anda edit. Draf Anda masih ada di sini.",
-        "reload": "Muat ulang versi cloud",
-        "reloadLabel": "Muat ulang versi cloud dan ganti draf ini",
-        "reloading": "Memuat ulang…",
-        "removedBody": "Dokumen ini dihapus saat Anda mengeditnya. Draf Anda masih ada di sini.",
-        "title": "Versi cloud telah berubah"
-      },
-      "editor": {
-        "editLabel": "Edit {name}",
-        "save": "Simpan",
-        "saving": "Menyimpan…",
-        "unsaved": "Perubahan belum disimpan",
-        "upToDate": "Sudah terbaru"
-      },
-      "editorMeta": "{kind} · revisi {revision}",
-      "errors": {
-        "invalid": "Cloud Home mengembalikan respons yang tidak valid.",
-        "missingFromList": "Dokumen itu sudah tidak ada di Cloud Home. Muat ulang daftar.",
-        "network": "Cloud Home tidak dapat dijangkau. Coba lagi.",
-        "removedWhileEditing": "Dokumen itu telah dihapus dari Cloud Home.",
-        "unauthorized": "Masuk lagi untuk mengakses Cloud Home.",
-        "unavailable": "Cloud Home saat ini tidak tersedia untuk akun ini."
-      },
-      "kinds": {
-        "archive": "arsip",
-        "core_memory": "memori inti",
-        "imported_markdown": "Markdown yang diimpor",
-        "memory": "memori",
-        "memory_map": "peta memori",
-        "personality": "kepribadian",
-        "profile": "profil",
-        "user_markdown": "Markdown pengguna"
-      },
-      "list": {
-        "emptyBody": "Dokumen yang dibuat oleh Stella atau diimpor dari aplikasi desktop akan muncul di sini.",
-        "emptyTitle": "Belum ada memori cloud",
-        "loading": "Memuat dokumen…",
-        "openDocumentLabel": "Buka {name}",
-        "retry": "Coba lagi",
-        "retryLabel": "Coba lagi memuat memori Cloud Home"
-      },
-      "listMeta": "{kind} · revisi {revision} · {size}",
-      "loading": "Memuat Cloud Home…",
-      "notices": {
-        "loadedLatest": "Versi cloud terbaru telah dimuat.",
-        "saved": "Disimpan ke Cloud Home."
-      },
       "openSettingsLabel": "Buka memori Cloud Home",
-      "settingsRowBody": "Lihat dan edit memori Stella yang menjadi versi acuan di cloud.",
-      "settingsRowTitle": "Dokumen memori",
       "settingsSection": "Cloud Home",
       "signIn": "Masuk",
-      "signInAgain": "Masuk lagi",
-      "signInBody": "Dokumen memori bersifat pribadi untuk akun Stella Anda.",
+      "signInBody": "Memori Anda bersifat pribadi untuk akun Stella Anda.",
       "signInTitle": "Masuk untuk menggunakan Cloud Home",
-      "sizes": {
-        "bytes": "{count} B",
-        "kilobytes": "{count} KB",
-        "megabytes": "{count} MB"
-      },
-      "subtitle": "Dokumen Stella yang menjadi versi acuan di cloud",
-      "title": "Memori Cloud Home",
-      "unavailableBody": "Penerapan ini saat ini belum menyediakan layanan Cloud Home yang aman. File lokal Anda tidak diubah.",
-      "unavailableTitle": "Cloud Home tidak tersedia"
+      "title": "Memori Cloud Home"
     },
     "common": {
       "back": "Kembali",
@@ -1769,13 +1709,24 @@
           "sync": "Sinkronkan sekarang",
           "syncing": "Menyinkronkan…"
         },
-        "authorizationNote": "Skill yang diunggah tetap tidak tersedia bagi agen hingga versi persisnya diotorisasi secara eksplisit.",
-        "label": "Memori dan skill",
+        "memory": {
+          "error": "Tidak dapat menyinkronkan saat ini. Stella akan mencoba lagi.",
+          "heldOtherAccount": "Memori komputer ini disinkronkan dengan akun Stella lain, jadi tidak masuk ke akun ini.",
+          "heldWiped": "Dijeda. Memori cloud telah dihapus, dan komputer ini masih memiliki memori dari sebelumnya. Pilih di bawah apa yang terjadi padanya.",
+          "lastSynced": "Terakhir disinkronkan {time}.",
+          "merging": "Berubah di sini dan di cloud pada saat yang sama. Agen latar belakang sedang menggabungkan keduanya.",
+          "off": "Memori nonaktif, jadi tidak ada yang disinkronkan.",
+          "refused": "Terlalu panjang untuk disinkronkan, jadi hanya disimpan di komputer ini: {files}",
+          "signedOut": "Masuk agar memori tetap sama di komputer ini dan di cloud.",
+          "synced": "Sama di komputer ini dan di cloud. Perubahan di salah satu sisi disinkronkan ke sisi lainnya.",
+          "syncing": "Menyinkronkan dengan cloud…"
+        },
+        "skillsLabel": "Skill",
         "summary": {
           "attention": "Cloud Home mempertahankan salinan cloud yang sudah ada ketika data lokal berbeda. Tinjau detail di bawah.",
-          "checking": "Memeriksa memori dan skill lokal…",
-          "current": "Cloud Home sudah mutakhir. Memori yang diunggah: {memoryCount}. Paket skill yang diunggah: {skillCount}.",
-          "intro": "Stella mengimpor memori lokal dan skill kustom yang relevan dengan aman ke akun cloud Anda.",
+          "checking": "Memeriksa skill di komputer ini…",
+          "current": "Cloud Home sudah mutakhir. Paket skill yang diunggah: {skillCount}.",
+          "intro": "Stella mengunggah skill kustom dari komputer ini dengan aman ke akun cloud Anda.",
           "unavailable": "Sinkronisasi Cloud Home saat ini tidak tersedia."
         },
         "title": "Cloud Home"
@@ -2124,7 +2075,7 @@
       "unsupported": "Penggunaan komputer saat terkunci hanya tersedia di macOS."
     },
     "memory": {
-      "description": "Sertakan memori tersimpan dan profil Anda dalam konteks model Stella. Salinan cloud adalah salinan utama dan dienkripsi saat dikirim maupun disimpan; Stella juga dapat menyimpan salinan lokal. Menonaktifkan opsi ini akan mengecualikan memori dari percakapan berikutnya, tetapi tidak menghapusnya.",
+      "description": "Sertakan memori tersimpan dan profil Anda dalam konteks model Stella. Komputer Anda dan cloud menyimpan memori yang sama, dienkripsi saat dikirim maupun disimpan. Menonaktifkan opsi ini akan menjedanya dan mengecualikan memori dari percakapan berikutnya, tetapi tidak menghapusnya.",
       "title": "Memori"
     },
     "modelPicker": {

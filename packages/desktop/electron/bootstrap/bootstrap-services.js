@@ -8,16 +8,18 @@ import { ConnectorCredentialService } from "../services/connector-credential-ser
 import { ConnectorOAuthService } from "../services/connector-oauth-service.js";
 import { ConnectorConnectService } from "../services/connector-connect-service.js";
 import { EngineAccountAccess } from "../services/engine-account-access.js";
+import { MemorySyncService } from "../services/memory-sync/memory-sync-service.js";
 import { ClaudeLocalAccounts } from "../services/claude-local-accounts.js";
 import { ExternalLinkService } from "../services/external-link-service.js";
 import { readConfiguredCanvasShareBaseUrl, resolveSharedCanvasPayload, } from "../services/canvas-share-service.js";
 import { isCanvasShareUrl } from "@stella/contracts/canvas-share";
-import { IPC_AUTH_SESSION_INVALIDATED } from "@stella/contracts/desktop/ipc-channels";
+import { IPC_AUTH_SESSION_INVALIDATED, IPC_MEMORY_SYNC_STATUS, } from "@stella/contracts/desktop/ipc-channels";
 import { LocalChatHistoryService } from "../services/local-chat-history-service.js";
 import { SecurityPolicyService } from "../services/security-policy-service.js";
 import { UiStateService } from "../services/ui-state-service.js";
 import { RENDERER_ORIGIN } from "../source/origin.js";
 import { initMainProcessTelemetry } from "../observability/main-telemetry.js";
+import { getMainLogger } from "../observability/main-logger.js";
 export const createBootstrapServices = (options) => {
     const { config, lifecycle, state } = options;
     const uiStateService = new UiStateService();
@@ -125,7 +127,41 @@ export const createBootstrapServices = (options) => {
             }
         },
     });
-    app.on("browser-window-focus", () => claudeLocalAccounts.noteWindowFocus());
+    // Memory files kept the same here and in the cloud, both ways. Started by
+    // the session token (host-runner's onAuthTokenChanged).
+    const memorySync = new MemorySyncService({
+        stellaDataDir: config.stellaDataDirPath,
+        getBackendUrl: () => authService.getBackendUrl(),
+        getAuthToken: () => authService.getAuthToken(),
+        hasConnectedAccount: () => authService.getHostHasConnectedAccount(),
+        // Memory edited on both sides goes to a background agent to merge,
+        // the way app-source briefs do: no user message is synthesized.
+        dispatchAgentBrief: async (brief) => {
+            const runner = lifecycle.getRunner();
+            const conversationId = uiStateService.state.conversationId;
+            if (!runner || !conversationId) {
+                throw new Error("Stella isn't ready to start an agent yet.");
+            }
+            await runner.createBackgroundAgent({
+                conversationId,
+                description: brief.description,
+                prompt: brief.prompt,
+                agentType: "general",
+            });
+        },
+        broadcast: (status) => {
+            for (const window of options.getAllWindows()) {
+                if (!window.isDestroyed()) {
+                    window.webContents.send(IPC_MEMORY_SYNC_STATUS, status);
+                }
+            }
+        },
+        log: (event, data) => getMainLogger()?.process(event, data),
+    });
+    app.on("browser-window-focus", () => {
+        claudeLocalAccounts.noteWindowFocus();
+        memorySync.noteWindowFocus();
+    });
     const connectorOAuthService = new ConnectorOAuthService();
     connectorCredentialService = new ConnectorCredentialService({
         windowManagerTarget: lifecycle,
@@ -164,6 +200,7 @@ export const createBootstrapServices = (options) => {
         connectorConnectService,
         engineAccountAccess,
         claudeLocalAccounts,
+        memorySync,
         externalLinkService,
         localChatHistoryService,
         securityPolicyService,

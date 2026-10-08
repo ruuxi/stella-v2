@@ -991,73 +991,13 @@
       "mainChat": "Chat principale"
     },
     "cloudHome": {
-      "backToDocumentsLabel": "Torna ai documenti di Cloud Home",
       "backToSettingsLabel": "Torna alle Impostazioni",
-      "conflict": {
-        "changedBody": "La revisione {revision} ha sostituito la versione che stavi modificando. La bozza è ancora qui.",
-        "reload": "Ricarica la versione nel cloud",
-        "reloadLabel": "Ricarica la versione nel cloud e sostituisci questa bozza",
-        "reloading": "Ricaricamento…",
-        "removedBody": "Il documento è stato rimosso mentre lo modificavi. La bozza è ancora qui.",
-        "title": "La versione nel cloud è cambiata"
-      },
-      "editor": {
-        "editLabel": "Modifica {name}",
-        "save": "Salva",
-        "saving": "Salvataggio…",
-        "unsaved": "Modifiche non salvate",
-        "upToDate": "Aggiornato"
-      },
-      "editorMeta": "{kind} · revisione {revision}",
-      "errors": {
-        "invalid": "Cloud Home ha restituito una risposta non valida.",
-        "missingFromList": "Il documento non è più presente in Cloud Home. Ricarica l'elenco.",
-        "network": "Impossibile raggiungere Cloud Home. Riprova.",
-        "removedWhileEditing": "Il documento è stato rimosso da Cloud Home.",
-        "unauthorized": "Accedi di nuovo per usare Cloud Home.",
-        "unavailable": "Cloud Home non è al momento disponibile per questo account."
-      },
-      "kinds": {
-        "archive": "archivio",
-        "core_memory": "memoria principale",
-        "imported_markdown": "Markdown importato",
-        "memory": "memoria",
-        "memory_map": "mappa della memoria",
-        "personality": "personalità",
-        "profile": "profilo",
-        "user_markdown": "Markdown dell'utente"
-      },
-      "list": {
-        "emptyBody": "I documenti creati da Stella o importati dall'app desktop verranno visualizzati qui.",
-        "emptyTitle": "Ancora nessuna memoria nel cloud",
-        "loading": "Caricamento dei documenti…",
-        "openDocumentLabel": "Apri {name}",
-        "retry": "Riprova",
-        "retryLabel": "Riprova a caricare la memoria di Cloud Home"
-      },
-      "listMeta": "{kind} · revisione {revision} · {size}",
-      "loading": "Caricamento di Cloud Home…",
-      "notices": {
-        "loadedLatest": "È stata caricata la versione più recente dal cloud.",
-        "saved": "Salvato in Cloud Home."
-      },
       "openSettingsLabel": "Apri la memoria di Cloud Home",
-      "settingsRowBody": "Consulta e modifica la memoria canonica di Stella nel cloud.",
-      "settingsRowTitle": "Documenti della memoria",
       "settingsSection": "Cloud Home",
       "signIn": "Accedi",
-      "signInAgain": "Accedi di nuovo",
-      "signInBody": "I documenti della memoria sono privati e associati al tuo account Stella.",
+      "signInBody": "La tua memoria è privata e legata al tuo account Stella.",
       "signInTitle": "Accedi per usare Cloud Home",
-      "sizes": {
-        "bytes": "{count} B",
-        "kilobytes": "{count} KB",
-        "megabytes": "{count} MB"
-      },
-      "subtitle": "I tuoi documenti canonici di Stella nel cloud",
-      "title": "Memoria di Cloud Home",
-      "unavailableBody": "Questa distribuzione non rende attualmente disponibile il servizio sicuro Cloud Home. I file locali non sono stati modificati.",
-      "unavailableTitle": "Cloud Home non è disponibile"
+      "title": "Memoria di Cloud Home"
     },
     "common": {
       "back": "Indietro",
@@ -1789,13 +1729,24 @@
           "sync": "Sincronizza ora",
           "syncing": "Sincronizzazione…"
         },
-        "authorizationNote": "Le skill caricate restano non disponibili per gli agenti finché la loro versione esatta non viene autorizzata esplicitamente.",
-        "label": "Memoria e skill",
+        "memory": {
+          "error": "Impossibile sincronizzare in questo momento. Stella riproverà.",
+          "heldOtherAccount": "La memoria di questo computer è sincronizzata con un altro account Stella, quindi resta fuori da questo.",
+          "heldWiped": "In pausa. La memoria nel cloud è stata cancellata e questo computer ha ancora la memoria di prima. Scegli qui sotto cosa farne.",
+          "lastSynced": "Ultima sincronizzazione: {time}.",
+          "merging": "Modificata qui e nel cloud contemporaneamente. Un agente in background sta unendo le due versioni.",
+          "off": "La memoria è disattivata, quindi non viene sincronizzato nulla.",
+          "refused": "Troppo lungo da sincronizzare, quindi resta solo su questo computer: {files}",
+          "signedOut": "Accedi per mantenere la stessa memoria su questo computer e nel cloud.",
+          "synced": "Uguale su questo computer e nel cloud. Una modifica da una parte viene sincronizzata con l'altra.",
+          "syncing": "Sincronizzazione con il cloud…"
+        },
+        "skillsLabel": "Skill",
         "summary": {
           "attention": "Cloud Home ha mantenuto le copie cloud esistenti nei casi in cui i dati locali erano diversi. Controlla i dettagli qui sotto.",
-          "checking": "Verifica della memoria e delle skill locali…",
-          "current": "Cloud Home è aggiornato. Memoria caricata: {memoryCount}. Pacchetti di skill caricati: {skillCount}.",
-          "intro": "Stella importa in modo sicuro la memoria locale e le skill personalizzate applicabili nel tuo account cloud.",
+          "checking": "Verifica delle skill di questo computer…",
+          "current": "Cloud Home è aggiornato. Pacchetti di skill caricati: {skillCount}.",
+          "intro": "Stella carica in modo sicuro le skill personalizzate di questo computer nel tuo account cloud.",
           "unavailable": "La sincronizzazione di Cloud Home non è al momento disponibile."
         },
         "title": "Cloud Home"
@@ -2144,7 +2095,7 @@
       "unsupported": "L'uso a computer bloccato è disponibile solo su macOS."
     },
     "memory": {
-      "description": "Includi i ricordi salvati e il tuo profilo nel contesto del modello di Stella. La copia nel cloud è quella autorevole ed è crittografata sia in transito sia a riposo; Stella può conservare anche una copia locale. Disattivando questa opzione, la memoria viene esclusa dalle conversazioni future ma non eliminata.",
+      "description": "Includi i ricordi salvati e il tuo profilo nel contesto del modello di Stella. I tuoi computer e il cloud mantengono la stessa memoria, crittografata sia in transito sia a riposo. Disattivando questa opzione la sincronizzazione si mette in pausa e la memoria viene esclusa dalle conversazioni future, ma non eliminata.",
       "title": "Memoria"
     },
     "modelPicker": {

@@ -991,73 +991,13 @@
       "mainChat": "Chat principal"
     },
     "cloudHome": {
-      "backToDocumentsLabel": "Înapoi la documentele Cloud Home",
       "backToSettingsLabel": "Înapoi la Setări",
-      "conflict": {
-        "changedBody": "Revizia {revision} a înlocuit versiunea pe care ai editat-o. Ciorna ta este încă aici.",
-        "reload": "Reîncarcă versiunea din cloud",
-        "reloadLabel": "Reîncarcă versiunea din cloud și înlocuiește această ciornă",
-        "reloading": "Se reîncarcă…",
-        "removedBody": "Acest document a fost eliminat în timp ce îl editai. Ciorna ta este încă aici.",
-        "title": "Versiunea din cloud s-a schimbat"
-      },
-      "editor": {
-        "editLabel": "Editează {name}",
-        "save": "Salvează",
-        "saving": "Se salvează…",
-        "unsaved": "Modificări nesalvate",
-        "upToDate": "Actualizat"
-      },
-      "editorMeta": "{kind} · revizia {revision}",
-      "errors": {
-        "invalid": "Cloud Home a returnat un răspuns nevalid.",
-        "missingFromList": "Documentul nu mai există în Cloud Home. Reîncarcă lista.",
-        "network": "Cloud Home nu a putut fi accesat. Încearcă din nou.",
-        "removedWhileEditing": "Documentul a fost eliminat din Cloud Home.",
-        "unauthorized": "Autentifică-te din nou pentru a accesa Cloud Home.",
-        "unavailable": "Cloud Home nu este disponibil momentan pentru acest cont."
-      },
-      "kinds": {
-        "archive": "arhivă",
-        "core_memory": "memorie de bază",
-        "imported_markdown": "Markdown importat",
-        "memory": "memorie",
-        "memory_map": "hartă a memoriei",
-        "personality": "personalitate",
-        "profile": "profil",
-        "user_markdown": "Markdown al utilizatorului"
-      },
-      "list": {
-        "emptyBody": "Documentele create de Stella sau importate de pe computer vor apărea aici.",
-        "emptyTitle": "Nicio memorie în cloud încă",
-        "loading": "Se încarcă documentele…",
-        "openDocumentLabel": "Deschide {name}",
-        "retry": "Încearcă din nou",
-        "retryLabel": "Reîncearcă încărcarea memoriei Cloud Home"
-      },
-      "listMeta": "{kind} · revizia {revision} · {size}",
-      "loading": "Se încarcă Cloud Home…",
-      "notices": {
-        "loadedLatest": "Cea mai recentă versiune din cloud a fost încărcată.",
-        "saved": "Salvat în Cloud Home."
-      },
       "openSettingsLabel": "Deschide memoria Cloud Home",
-      "settingsRowBody": "Citește și editează memoria canonică Stella din cloud.",
-      "settingsRowTitle": "Documente de memorie",
       "settingsSection": "Cloud Home",
       "signIn": "Autentificare",
-      "signInAgain": "Autentifică-te din nou",
-      "signInBody": "Documentele de memorie sunt private și asociate contului tău Stella.",
+      "signInBody": "Memoria ta este privată și aparține contului tău Stella.",
       "signInTitle": "Autentifică-te pentru a folosi Cloud Home",
-      "sizes": {
-        "bytes": "{count} B",
-        "kilobytes": "{count} KB",
-        "megabytes": "{count} MB"
-      },
-      "subtitle": "Documentele tale canonice Stella din cloud",
-      "title": "Memorie Cloud Home",
-      "unavailableBody": "Această implementare nu oferă momentan acces la serviciul securizat Cloud Home. Fișierele tale locale nu au fost modificate.",
-      "unavailableTitle": "Cloud Home nu este disponibil"
+      "title": "Memorie Cloud Home"
     },
     "common": {
       "back": "Înapoi",
@@ -1789,13 +1729,24 @@
           "sync": "Sincronizează acum",
           "syncing": "Se sincronizează…"
         },
-        "authorizationNote": "Abilitățile încărcate rămân indisponibile agenților până când versiunea lor exactă este autorizată explicit.",
-        "label": "Memorie și abilități",
+        "memory": {
+          "error": "Sincronizarea nu a reușit acum. Stella va încerca din nou.",
+          "heldOtherAccount": "Memoria acestui computer se sincronizează cu alt cont Stella, așa că rămâne în afara acestuia.",
+          "heldWiped": "Întrerupt. Memoria din cloud a fost ștearsă, iar acest computer are încă memorie de dinainte. Alege mai jos ce se întâmplă cu ea.",
+          "lastSynced": "Ultima sincronizare: {time}.",
+          "merging": "Modificată aici și în cloud în același timp. Un agent în fundal combină cele două versiuni.",
+          "off": "Memoria este dezactivată, așa că nu se sincronizează nimic.",
+          "refused": "Prea lung pentru sincronizare, așa că rămâne doar pe acest computer: {files}",
+          "signedOut": "Conectează-te ca memoria să rămână la fel pe acest computer și în cloud.",
+          "synced": "La fel pe acest computer și în cloud. O modificare pe oricare parte se sincronizează cu cealaltă.",
+          "syncing": "Se sincronizează cu cloudul…"
+        },
+        "skillsLabel": "Abilități",
         "summary": {
           "attention": "Cloud Home a păstrat copiile existente în cloud acolo unde datele locale erau diferite. Verifică detaliile de mai jos.",
-          "checking": "Se verifică memoria și abilitățile locale…",
-          "current": "Cloud Home este actualizat. Memorie încărcată: {memoryCount}. Pachete de abilități încărcate: {skillCount}.",
-          "intro": "Stella importă în siguranță memoria locală și abilitățile personalizate aplicabile în contul tău cloud.",
+          "checking": "Se verifică abilitățile acestui computer…",
+          "current": "Cloud Home este actualizat. Pachete de abilități încărcate: {skillCount}.",
+          "intro": "Stella încarcă în siguranță abilitățile personalizate ale acestui computer în contul tău cloud.",
           "unavailable": "Sincronizarea Cloud Home nu este disponibilă momentan."
         },
         "title": "Cloud Home"
@@ -2144,7 +2095,7 @@
       "unsupported": "Utilizarea cu computerul blocat este disponibilă doar pe macOS."
     },
     "memory": {
-      "description": "Include amintirile salvate și profilul tău în contextul modelului Stella. Copia din cloud este cea de referință și este criptată atât în tranzit, cât și în repaus; Stella poate păstra și o copie locală. Dezactivarea acestei opțiuni exclude memoria din conversațiile viitoare, dar nu o șterge.",
+      "description": "Include amintirile salvate și profilul tău în contextul modelului Stella. Computerele tale și cloudul păstrează aceeași memorie, criptată atât în tranzit, cât și în repaus. Dezactivarea acestei opțiuni o întrerupe și exclude memoria din conversațiile viitoare, dar nu o șterge.",
       "title": "Memorie"
     },
     "modelPicker": {

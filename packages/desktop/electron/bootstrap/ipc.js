@@ -6,6 +6,7 @@ import { registerDiscoveryHandlers } from "../ipc/discovery-handlers.js";
 import { registerRemoteExecutionConsentHandlers } from "../ipc/remote-execution-consent-handlers.js";
 import { registerCaptureHandlers } from "../ipc/capture-handlers.js";
 import { registerCloudHomeSyncHandlers } from "../ipc/cloud-home-sync-handlers.js";
+import { registerMemorySyncHandlers } from "../ipc/memory-sync-handlers.js";
 import { registerMeetingCaptureHandlers } from "../ipc/meeting-capture-handlers.js";
 import { registerDisplayHandlers } from "../ipc/display-handlers.js";
 import { registerHomeHandlers } from "../ipc/home-handlers.js";
@@ -241,6 +242,10 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
     });
     registerCloudHomeSyncHandlers({
         getStellaDataDir: lifecycle.getStellaDataDir,
+        assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
+    });
+    registerMemorySyncHandlers({
+        service: services.memorySync,
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
     });
     registerMeetingCaptureHandlers({

@@ -1001,73 +1001,13 @@
       "mainChat": "Hlavní chat"
     },
     "cloudHome": {
-      "backToDocumentsLabel": "Zpět k dokumentům Cloud Home",
       "backToSettingsLabel": "Zpět do nastavení",
-      "conflict": {
-        "changedBody": "Revize {revision} nahradila verzi, kterou jste upravovali. Váš koncept je stále zde.",
-        "reload": "Znovu načíst cloudovou verzi",
-        "reloadLabel": "Znovu načíst cloudovou verzi a nahradit tento koncept",
-        "reloading": "Opětovné načítání…",
-        "removedBody": "Tento dokument byl během úprav odstraněn. Váš koncept je stále zde.",
-        "title": "Cloudová verze se změnila"
-      },
-      "editor": {
-        "editLabel": "Upravit {name}",
-        "save": "Uložit",
-        "saving": "Ukládání…",
-        "unsaved": "Neuložené změny",
-        "upToDate": "Aktuální"
-      },
-      "editorMeta": "{kind} · revize {revision}",
-      "errors": {
-        "invalid": "Cloud Home vrátil neplatnou odpověď.",
-        "missingFromList": "Tento dokument už v Cloud Home není. Načtěte seznam znovu.",
-        "network": "Ke službě Cloud Home se nepodařilo připojit. Zkuste to znovu.",
-        "removedWhileEditing": "Tento dokument byl z Cloud Home odstraněn.",
-        "unauthorized": "Chcete-li otevřít Cloud Home, přihlaste se znovu.",
-        "unavailable": "Cloud Home nyní není pro tento účet k dispozici."
-      },
-      "kinds": {
-        "archive": "archiv",
-        "core_memory": "základní paměť",
-        "imported_markdown": "importovaný Markdown",
-        "memory": "paměť",
-        "memory_map": "mapa paměti",
-        "personality": "osobnost",
-        "profile": "profil",
-        "user_markdown": "uživatelský Markdown"
-      },
-      "list": {
-        "emptyBody": "Zde se zobrazí dokumenty vytvořené Stellou nebo importované z desktopové aplikace.",
-        "emptyTitle": "V cloudu zatím není žádná paměť",
-        "loading": "Načítání dokumentů…",
-        "openDocumentLabel": "Otevřít {name}",
-        "retry": "Zkusit znovu",
-        "retryLabel": "Zkusit znovu načíst paměť Cloud Home"
-      },
-      "listMeta": "{kind} · revize {revision} · {size}",
-      "loading": "Načítání Cloud Home…",
-      "notices": {
-        "loadedLatest": "Nejnovější cloudová verze byla načtena.",
-        "saved": "Uloženo do Cloud Home."
-      },
       "openSettingsLabel": "Otevřít paměť služby Cloud Home",
-      "settingsRowBody": "Čtěte a upravujte paměť Stelly, jejíž směrodatná verze je v cloudu.",
-      "settingsRowTitle": "Paměťové dokumenty",
       "settingsSection": "Cloud Home",
       "signIn": "Přihlásit se",
-      "signInAgain": "Přihlásit se znovu",
-      "signInBody": "Paměťové dokumenty jsou soukromé a patří k vašemu účtu Stella.",
+      "signInBody": "Vaše paměť je soukromá a patří k vašemu účtu Stella.",
       "signInTitle": "Přihlaste se, chcete-li používat Cloud Home",
-      "sizes": {
-        "bytes": "{count} B",
-        "kilobytes": "{count} KB",
-        "megabytes": "{count} MB"
-      },
-      "subtitle": "Směrodatné dokumenty Stelly v cloudu",
-      "title": "Paměť služby Cloud Home",
-      "unavailableBody": "Toto nasazení momentálně nezpřístupňuje zabezpečenou službu Cloud Home. Vaše místní soubory se nezměnily.",
-      "unavailableTitle": "Cloud Home není k dispozici"
+      "title": "Paměť služby Cloud Home"
     },
     "common": {
       "back": "Zpět",
@@ -1799,13 +1739,24 @@
           "sync": "Synchronizovat nyní",
           "syncing": "Synchronizace…"
         },
-        "authorizationNote": "Nahrané dovednosti zůstanou pro agenty nedostupné, dokud jejich přesná verze nebude výslovně autorizována.",
-        "label": "Paměť a dovednosti",
+        "memory": {
+          "error": "Synchronizace se teď nezdařila. Stella to zkusí znovu.",
+          "heldOtherAccount": "Paměť tohoto počítače se synchronizuje s jiným účtem Stella, a proto zůstává mimo tento účet.",
+          "heldWiped": "Pozastaveno. Paměť v cloudu byla vymazána a tento počítač má stále paměť z doby předtím. Níže zvolte, co se s ní stane.",
+          "lastSynced": "Naposledy synchronizováno {time}.",
+          "merging": "Změnila se zde i v cloudu zároveň. Agent na pozadí obě verze slučuje.",
+          "off": "Paměť je vypnutá, takže se nic nesynchronizuje.",
+          "refused": "Příliš dlouhé na synchronizaci, proto zůstává jen v tomto počítači: {files}",
+          "signedOut": "Přihlaste se, aby paměť zůstala stejná v tomto počítači i v cloudu.",
+          "synced": "Stejná v tomto počítači i v cloudu. Změna na kterékoli straně se synchronizuje na druhou.",
+          "syncing": "Synchronizace s cloudem…"
+        },
+        "skillsLabel": "Dovednosti",
         "summary": {
           "attention": "Cloud Home zachoval existující cloudové kopie tam, kde se místní data lišila. Projděte si podrobnosti níže.",
-          "checking": "Kontroluje se místní paměť a dovednosti…",
-          "current": "Cloud Home je aktuální. Nahraná paměť: {memoryCount}. Nahrané balíčky dovedností: {skillCount}.",
-          "intro": "Stella bezpečně importuje místní paměť a použitelné vlastní dovednosti do vašeho cloudového účtu.",
+          "checking": "Kontrolují se dovednosti tohoto počítače…",
+          "current": "Cloud Home je aktuální. Nahrané balíčky dovedností: {skillCount}.",
+          "intro": "Stella bezpečně nahrává vlastní dovednosti z tohoto počítače do vašeho cloudového účtu.",
           "unavailable": "Synchronizace Cloud Home momentálně není dostupná."
         },
         "title": "Cloud Home"
@@ -2154,7 +2105,7 @@
       "unsupported": "Použití při zamčeném počítači je dostupné pouze v systému macOS."
     },
     "memory": {
-      "description": "Zahrňte uložené vzpomínky a svůj profil do kontextu modelu Stella. Cloudová kopie je směrodatná a šifrovaná při přenosu i uložení; Stella může uchovávat také místní kopii. Vypnutím se paměť vyloučí z budoucích konverzací, ale nesmaže se.",
+      "description": "Zahrňte uložené vzpomínky a svůj profil do kontextu modelu Stella. Vaše počítače i cloud mají stejnou paměť, šifrovanou při přenosu i uložení. Vypnutím se to pozastaví a paměť se vyloučí z budoucích konverzací, ale nesmaže se.",
       "title": "Paměť"
     },
     "modelPicker": {

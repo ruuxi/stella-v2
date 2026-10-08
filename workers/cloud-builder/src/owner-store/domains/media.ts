@@ -32,9 +32,16 @@ import type {
 import { buildCapabilityDenial, hasCapability, toCapabilityAudience } from "@stella/contracts/capabilities";
 import { MEDIA_MODELS, mediaModel, type MediaModel } from "@stella/contracts/media-models";
 import { sha256Hex } from "../../hash.js";
-import { cancelFal, FalError, falWebhookUrl, pollFal, submitFal } from "../../media/fal.js";
+import {
+  cancelFal,
+  constantTimeEqual,
+  FalError,
+  falWebhookUrl,
+  mintWebhookToken,
+  pollFal,
+  submitFal,
+} from "../../media/fal.js";
 import { presignR2Url, r2Signer, type R2Signer } from "../../r2-presign.js";
-import { mediaSigningSecret } from "../../voice/ticket.js";
 import { empty, json, literal, number, object, optional, string, type Parser } from "../args.js";
 import { RpcError } from "../errors.js";
 import { enforceOwnerRateLimit } from "../rate-limit.js";
@@ -109,6 +116,12 @@ export const MEDIA_MODEL_MIGRATION = {
   ],
 };
 
+/** The random token in a job's fal webhook URL; only that URL can settle it. */
+export const MEDIA_WEBHOOK_TOKEN_MIGRATION = {
+  id: "media.4-webhook-token",
+  statements: ["ALTER TABLE media_jobs ADD COLUMN webhook_token TEXT"],
+};
+
 type JobRow = {
   job_id: string;
   client_request_key: string | null;
@@ -120,6 +133,7 @@ type JobRow = {
   error_json: string | null;
   cost_micro_cents: number | null;
   billed: number;
+  webhook_token: string | null;
   conversation_id: string | null;
   turn_id: string | null;
   created_at: number;
@@ -509,22 +523,23 @@ const startJob = async (
   admit(ctx, model, request.input);
   const apiKey = secret(ctx.env, "FAL_KEY");
   const baseUrl = ctx.env.CLOUD_BUILDER_PUBLIC_URL;
-  const signingSecret = mediaSigningSecret(ctx.env);
-  if (!apiKey || !baseUrl || !signingSecret) throw unavailable();
+  if (!apiKey || !baseUrl) throw unavailable();
   const jobId = crypto.randomUUID();
+  const webhookToken = mintWebhookToken();
   const now = Date.now();
   const summary = (input: unknown): string => JSON.stringify({ input, hash } as StoredRequest);
   // No await between the key check above and this insert, so a concurrent
   // retry under the same key reattaches instead of starting a second job.
   ctx.db.run(
     `INSERT INTO media_jobs (job_id, client_request_key, model, status, request_json, billed,
-       conversation_id, turn_id, created_at, updated_at)
-     VALUES (?, ?, ?, 'submitting', ?, 0, ?, ?, ?, ?)`,
+       webhook_token, conversation_id, turn_id, created_at, updated_at)
+     VALUES (?, ?, ?, 'submitting', ?, 0, ?, ?, ?, ?, ?)`,
     jobId,
     clientRequestKey,
     model.id,
     // Inline sources are swapped for their staged URLs below; rows stay small.
     summary(withoutInlineSources(request.input)),
+    webhookToken,
     origin.conversationId ?? null,
     origin.turnId ?? null,
     now,
@@ -551,7 +566,7 @@ const startJob = async (
         apiKey,
         endpointId: model.id,
         input: staged,
-        webhookUrl: await falWebhookUrl({ baseUrl, secret: signingSecret, ownerId: ctx.ownerId, jobId, now }),
+        webhookUrl: falWebhookUrl({ baseUrl, ownerId: ctx.ownerId, jobId, token: webhookToken }),
       });
       ctx.db.run(
         `UPDATE media_jobs SET provider_request_id = ?,
@@ -698,6 +713,7 @@ const lookupArgs = object({
 
 const webhookArgs = object({
   jobId: string({ max: 100 }),
+  token: string({ max: 100 }),
   body: json({ maxBytes: 4 * 1024 * 1024 }),
 });
 
@@ -706,9 +722,12 @@ const webhookArgs = object({
  * copies the outputs; the webhook answers at once so fal is not kept waiting.
  */
 const falWebhook = (ctx: OwnerContext, raw: unknown): { received: true; discarded?: string } => {
-  const { jobId, body } = webhookArgs(raw);
+  const { jobId, token, body } = webhookArgs(raw);
   const row = getRow(ctx.db, jobId);
   if (!row) return { received: true, discarded: "not_found" };
+  if (!row.webhook_token || !constantTimeEqual(row.webhook_token, token)) {
+    return { received: true, discarded: "bad_token" };
+  }
   if (TERMINAL.has(row.status)) return { received: true, discarded: "terminal" };
   const event = isRecord(body) ? body : {};
   const requestId = typeof event.request_id === "string" ? event.request_id : null;
@@ -811,7 +830,7 @@ const statusArg = literal("queued", "running", "succeeded", "failed", "canceled"
 
 export const mediaDomain = {
   name: "media",
-  migrations: [MEDIA_MIGRATION, MEDIA_CHARGE_MIGRATION, MEDIA_MODEL_MIGRATION],
+  migrations: [MEDIA_MIGRATION, MEDIA_CHARGE_MIGRATION, MEDIA_MODEL_MIGRATION, MEDIA_WEBHOOK_TOKEN_MIGRATION],
   calls: {
     "media.models": {
       scope: "global",

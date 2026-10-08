@@ -230,35 +230,31 @@ const OWN_KEY_NAMES: Record<NonNullable<MediaAccess["ownImageKey"]>["provider"],
   fal: "fal",
 };
 
-/**
- * Whether the user can generate media, and if not, what they have to do:
- * the agent says this instead of starting a generation that is refused.
- */
+/** Whether the user can generate media, and if not, what turns it on. */
 export const renderMediaAccess = (snapshot: ExecutionContextSnapshot): string | undefined => {
   const media = snapshot.media;
   if (!media) return undefined;
-  const lines = ["# Media generation"];
+  const key = media.ownImageKey;
+  const name = key ? OWN_KEY_NAMES[key.provider] : "";
+  const keyLine = key?.saved
+    ? `Still images use their own ${name} key.`
+    : key
+      ? `Still images are set to their own ${name} key, but none is saved: ask them to add it in Settings → Image.`
+      : null;
   if (media.stella === "included") {
-    lines.push(
-      "On: the user's Stella plan includes generating images, video, music, speech and 3D models (`image_gen`; agents use the `stella-media` skill).",
-    );
-  } else {
-    lines.push(
-      media.stella === "sign_in"
-        ? "Off: the user has no Stella account yet, and media generation needs one with a Stella Pro subscription."
-        : "Off: the user's Stella plan does not include media generation; it needs a Stella Pro subscription.",
-      "When the user asks for media, do not start it. Tell them what turns it on: " +
-        (media.stella === "sign_in" ? "signing in and subscribing to Stella Pro" : "subscribing to Stella Pro (Account, top right)") +
-        (media.ownImageKey?.saved ? "." : ", or, for still images only, adding their own OpenAI, OpenRouter or fal key in Settings (model picker, Image tab)."),
-    );
+    return ["# Media generation", "On: included in the user's plan.", keyLine].filter(Boolean).join("\n");
   }
-  if (media.ownImageKey) {
-    const name = OWN_KEY_NAMES[media.ownImageKey.provider];
-    lines.push(
-      media.ownImageKey.saved
-        ? `Still images (\`image_gen\`) run on the user's own ${name} key, whatever their plan.`
-        : `\`image_gen\` is set to use the user's own ${name} key, but none is saved: ask them to add it in Settings (model picker, Image tab) before generating images.`,
-    );
+  const fix =
+    media.stella === "sign_in" ? "sign in and subscribe to Stella Pro" : "subscribe to Stella Pro (Account, top right)";
+  const why = media.stella === "sign_in" ? "no Stella account" : "not in the user's plan";
+  if (key?.saved) {
+    return `# Media generation\nStill images only, on their own ${name} key; the rest is off (${why}). For other media, don't try; tell them to ${fix}.`;
   }
-  return lines.join("\n");
+  return [
+    "# Media generation",
+    `Off: ${why}. If they ask for media, don't try; tell them to ${fix}, or for still images, add their own OpenAI, OpenRouter or fal key in Settings → Image.`,
+    keyLine,
+  ]
+    .filter(Boolean)
+    .join("\n");
 };

@@ -30,8 +30,8 @@ import {
 import { DEFAULT_GPT_LIVE_VOICE } from "@stella/contracts/realtime-voice-catalog";
 import { log } from "../../build-session/shared/keys.js";
 import { resolveGeminiTtsVoice, ttsProvider } from "../../voice/tts.js";
-import { synthesizeHls } from "../../voice/hls.js";
-import { mediaSigningSecret, signTtsTicket, ttsOwnerPrefix } from "../../voice/ticket.js";
+import { HLS_MANIFEST_FILE, synthesizeHls, type HlsManifest } from "../../voice/hls.js";
+import { mintTtsTicket, ttsObjectKey, ttsOwnerPrefix } from "../../voice/ticket.js";
 import { array, empty, json, literal, number, object, optional, string, type Parser } from "../args.js";
 import { RpcError } from "../errors.js";
 import { enforceOwnerRateLimit } from "../rate-limit.js";
@@ -482,12 +482,18 @@ const prepareTts = async (
 ): Promise<{ ticket: string; playlistPath: string; expiresAt: number }> => {
   const text = ttsText(args.text);
   if (!text) throw new RpcError("BAD_REQUEST", "text is required.");
-  const signingSecret = mediaSigningSecret(ctx.env);
-  if (!signingSecret || !ctx.env.MEDIA || !ttsProvider(ctx.env)) {
+  if (!ctx.env.MEDIA || !ttsProvider(ctx.env)) {
     throw new RpcError("UNAVAILABLE", "Stella read-aloud is not configured yet.", { retryable: false });
   }
   admitTts(ctx, text.length);
-  const ticket = await signTtsTicket(signingSecret, ctx.ownerId, ctx.now + TTS_TICKET_TTL_MS);
+  const ticket = await mintTtsTicket(ctx.ownerId, ctx.now + TTS_TICKET_TTL_MS);
+  // The stream's objects are what make its ticket valid: an empty manifest
+  // exists before the ticket is handed out (synthesis fills it in).
+  await ctx.env.MEDIA.put(
+    ttsObjectKey(ticket.ticket, HLS_MANIFEST_FILE),
+    JSON.stringify({ segments: [], done: false, error: false } satisfies HlsManifest),
+    { httpMetadata: { contentType: "application/json" } },
+  );
   ctx.db.run("DELETE FROM tts_streams WHERE created_at < ?", ctx.now - TTS_TICKET_TTL_MS);
   ctx.db.run("INSERT INTO tts_streams (id, status, created_at) VALUES (?, 'synthesizing', ?)", ticket.id, ctx.now);
   ctx.jobs.schedule(

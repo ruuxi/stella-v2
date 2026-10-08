@@ -5,7 +5,7 @@
  *   POST   /api/media/v1/generate         `media.generate`; `Idempotency-Key` is its client request key
  *   GET    /api/media/v1/job              one job by `jobId` or `clientRequestKey`, outputs freshly signed
  *   DELETE /api/media/v1/job              `media.cancel` for the `Idempotency-Key`
- *   POST   /api/media/v1/webhooks/fal     fal's completion webhook (fal ED25519 + our routing HMAC)
+ *   POST   /api/media/v1/webhooks/fal     fal's completion webhook (fal ED25519 + the job's own token)
  *
  * Bearer JWTs are verified here and the work runs in the owner's object,
  * exactly as `/api/rpc` does; these routes only adapt the wire shape.
@@ -17,8 +17,7 @@ import { verifyCaller } from "../owner-store/routes.js";
 import type { OwnerCaller } from "../owner-store/registry.js";
 import { MEDIA_MODELS } from "@stella/contracts/media-models";
 import { MEDIA_DOCS_URL } from "../owner-store/domains/media.js";
-import { mediaSigningSecret } from "../voice/ticket.js";
-import { FAL_WEBHOOK_PATH, verifyFalSignature, verifyFalWebhookToken } from "./fal.js";
+import { FAL_WEBHOOK_PATH, readFalWebhookUrl, verifyFalSignature } from "./fal.js";
 
 const BASE = "/api/media/v1";
 /** Inline sources ride in the body; the owner object stages them in R2. */
@@ -122,11 +121,9 @@ const job = async (request: Request, env: RouteEnv): Promise<Response> => {
 };
 
 const falWebhook = async (request: Request, env: RouteEnv): Promise<Response> => {
-  const signingSecret = mediaSigningSecret(env as Cloudflare.Env);
-  if (!signingSecret) return fail(503, "Media webhooks are not configured.");
   const now = Date.now();
-  const target = await verifyFalWebhookToken(new URL(request.url), signingSecret, now);
-  if (!target) return fail(401, "Invalid webhook token.");
+  const target = readFalWebhookUrl(new URL(request.url));
+  if (!target) return fail(401, "Invalid webhook URL.");
   const raw = await readText(request, MAX_WEBHOOK_BYTES);
   if (raw === null) return fail(413, "Webhook body is too large.");
   if (!(await verifyFalSignature(request.headers, raw, now))) return fail(400, "Invalid fal webhook signature.");
@@ -136,7 +133,11 @@ const falWebhook = async (request: Request, env: RouteEnv): Promise<Response> =>
   } catch {
     return fail(400, "Invalid fal webhook payload.");
   }
-  const response = await internal(env, target.ownerId, "media.falWebhook", { jobId: target.jobId, body });
+  const response = await internal(env, target.ownerId, "media.falWebhook", {
+    jobId: target.jobId,
+    token: target.token,
+    body,
+  });
   if (!response.ok) {
     // fal retries a non-2xx; only an outage is worth another delivery.
     if (response.error.code === "UNAVAILABLE" || response.error.code === "INTERNAL") return failRpc(response);

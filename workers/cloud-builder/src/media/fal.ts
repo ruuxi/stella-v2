@@ -1,9 +1,10 @@
 /**
- * fal's queue API and webhooks, plus the webhook routing token: fal calls back to
- * `/api/media/v1/webhooks/fal?o=<owner>&j=<job>&e=<exp>&sig=<hmac>`, and the
- * HMAC (`mediaSigningSecret`, derived from `BETTER_AUTH_SECRET`) over owner, job and expiry is what lets the
- * route address the owner's object without an index. fal's own ED25519
- * signature proves the body came from fal.
+ * fal's queue API and webhooks. fal calls back to
+ * `/api/media/v1/webhooks/fal?o=<owner>&j=<job>&t=<token>`: owner and job
+ * address the owner's object without an index, and `t` is a random token
+ * minted for that one job and kept in its row, so only the URL Stella gave
+ * fal can settle the job. fal's own ED25519 signature proves the body came
+ * from fal.
  */
 
 const QUEUE_BASE = "https://queue.fal.run";
@@ -11,8 +12,6 @@ const JWKS_URL = "https://rest.alpha.fal.ai/.well-known/jwks.json";
 const MAX_SKEW_SECONDS = 300;
 const TIMEOUT_MS = 30_000;
 export const FAL_WEBHOOK_PATH = "/api/media/v1/webhooks/fal";
-/** fal runs a request for up to an hour and retries its webhook for two. */
-const WEBHOOK_TOKEN_TTL_MS = 4 * 60 * 60_000;
 
 export class FalError extends Error {
   /** fal refused the request outright; nothing will run or bill. */
@@ -31,51 +30,32 @@ const encoder = new TextEncoder();
 const hex = (bytes: ArrayBuffer): string =>
   Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
 
-const hmacHex = async (secret: string, message: string): Promise<string> => {
-  const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, [
-    "sign",
-  ]);
-  return hex(await crypto.subtle.sign("HMAC", key, encoder.encode(message)));
+/** A fresh per-job webhook token. */
+export const mintWebhookToken = (): string => `${crypto.randomUUID()}${crypto.randomUUID()}`.replace(/-/g, "");
+
+/** The URL fal calls when `jobId` settles. */
+export const falWebhookUrl = (args: { baseUrl: string; ownerId: string; jobId: string; token: string }): string => {
+  const url = new URL(FAL_WEBHOOK_PATH, args.baseUrl);
+  url.searchParams.set("o", args.ownerId);
+  url.searchParams.set("j", args.jobId);
+  url.searchParams.set("t", args.token);
+  return url.toString();
 };
 
-const constantTimeEqual = (a: string, b: string): boolean => {
+/** The owner, job and token a webhook URL names, or null when one is missing. */
+export const readFalWebhookUrl = (url: URL): { ownerId: string; jobId: string; token: string } | null => {
+  const ownerId = url.searchParams.get("o") ?? "";
+  const jobId = url.searchParams.get("j") ?? "";
+  const token = url.searchParams.get("t") ?? "";
+  return ownerId && jobId && /^[0-9a-f]{64}$/.test(token) ? { ownerId, jobId, token } : null;
+};
+
+/** Equal strings, compared in time that does not depend on where they differ. */
+export const constantTimeEqual = (a: string, b: string): boolean => {
   if (a.length !== b.length) return false;
   let diff = 0;
   for (let index = 0; index < a.length; index += 1) diff |= a.charCodeAt(index) ^ b.charCodeAt(index);
   return diff === 0;
-};
-
-const tokenMessage = (ownerId: string, jobId: string, exp: number) => `fal:${ownerId}:${jobId}:${exp}`;
-
-/** The URL fal calls when `jobId` settles. */
-export const falWebhookUrl = async (args: {
-  baseUrl: string;
-  secret: string;
-  ownerId: string;
-  jobId: string;
-  now: number;
-}): Promise<string> => {
-  const exp = args.now + WEBHOOK_TOKEN_TTL_MS;
-  const url = new URL(FAL_WEBHOOK_PATH, args.baseUrl);
-  url.searchParams.set("o", args.ownerId);
-  url.searchParams.set("j", args.jobId);
-  url.searchParams.set("e", String(exp));
-  url.searchParams.set("sig", await hmacHex(args.secret, tokenMessage(args.ownerId, args.jobId, exp)));
-  return url.toString();
-};
-
-/** The owner and job a webhook URL addresses, or null when its token is bad or stale. */
-export const verifyFalWebhookToken = async (
-  url: URL,
-  secret: string,
-  now: number,
-): Promise<{ ownerId: string; jobId: string } | null> => {
-  const ownerId = url.searchParams.get("o") ?? "";
-  const jobId = url.searchParams.get("j") ?? "";
-  const exp = Number(url.searchParams.get("e"));
-  const sig = url.searchParams.get("sig") ?? "";
-  if (!ownerId || !jobId || !Number.isSafeInteger(exp) || exp < now || !sig) return null;
-  return constantTimeEqual(await hmacHex(secret, tokenMessage(ownerId, jobId, exp)), sig) ? { ownerId, jobId } : null;
 };
 
 let webhookKeys: { expiresAt: number; keys: CryptoKey[] } | null = null;

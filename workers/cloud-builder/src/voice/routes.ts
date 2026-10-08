@@ -37,7 +37,7 @@ import type { OwnerCaller } from "../owner-store/registry.js";
 import { ttsText } from "../owner-store/domains/voice.js";
 import { createPcmMp3Encoder, estimateTtsUsage, openTtsPcm, pcmToWav, resolveGeminiTtsVoice, ttsProvider } from "./tts.js";
 import { buildHlsPlaylist, HLS_MANIFEST_FILE, type HlsManifest } from "./hls.js";
-import { mediaSigningSecret, ttsObjectKey, verifyTtsTicket } from "./ticket.js";
+import { readTtsTicket, ttsObjectKey } from "./ticket.js";
 
 type VoiceEnv = Cloudflare.Env;
 
@@ -301,11 +301,7 @@ const ttsOneShot = async (request: Request, env: VoiceEnv): Promise<Response> =>
 const ttsCancel = async (request: Request, env: VoiceEnv): Promise<Response> => {
   const caller = await authenticate(request, env);
   const body = await readJson(request);
-  const signingSecret = mediaSigningSecret(env);
-  const ticket =
-    signingSecret && typeof body.ticket === "string"
-      ? await verifyTtsTicket(signingSecret, body.ticket.trim(), Date.now())
-      : null;
+  const ticket = typeof body.ticket === "string" ? readTtsTicket(body.ticket.trim(), Date.now()) : null;
   // An expired or foreign ticket has nothing left to stop.
   if (ticket && ticket.ownerHash === (await sha256Hex(caller.ownerId))) {
     await callOwner(env, caller.ownerId, "tts.cancel", { id: ticket.id });
@@ -343,21 +339,22 @@ const audioResponse = (bytes: Uint8Array, range: string | null): Response => {
 const ttsHls = async (request: Request, env: VoiceEnv, path: string): Promise<Response> => {
   const rest = path.slice(VOICE_TTS_HLS_PREFIX.length);
   const slash = rest.indexOf("/");
-  const signingSecret = mediaSigningSecret(env);
-  if (slash <= 0 || !signingSecret || !env.MEDIA) throw new RpcError("NOT_FOUND", "Not found.");
+  if (slash <= 0 || !env.MEDIA) throw new RpcError("NOT_FOUND", "Not found.");
   let raw: string;
   try {
     raw = decodeURIComponent(rest.slice(0, slash));
   } catch {
     throw new RpcError("NOT_FOUND", "Not found.");
   }
-  const ticket = await verifyTtsTicket(signingSecret, raw, Date.now());
+  const ticket = readTtsTicket(raw, Date.now());
   if (!ticket) throw new RpcError("NOT_FOUND", "Stream is invalid or expired.");
   const file = rest.slice(slash + 1);
 
   if (file === "index.m3u8") {
     const deadline = Date.now() + PLAYLIST_WAIT_MS;
     let manifest = await readManifest(env.MEDIA, ticket.ticket);
+    // Every issued ticket has a manifest from the start, so none means a ticket Stella never issued.
+    if (!manifest) throw new RpcError("NOT_FOUND", "Stream is invalid or expired.");
     while ((!manifest || (manifest.segments.length === 0 && !manifest.done)) && Date.now() < deadline) {
       await Effect.runPromise(Effect.sleep(PLAYLIST_POLL_MS));
       manifest = await readManifest(env.MEDIA, ticket.ticket);

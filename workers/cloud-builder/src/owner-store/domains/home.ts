@@ -14,6 +14,11 @@
  *   reclaimed by `home.intentSweep`.
  * - **Wipe:** `home.memoryWipe` erases the memory files from the owner's
  *   world, then opens a new memory epoch.
+ * - **Desktop sync:** `memory.files.*` let each of the owner's computers keep
+ *   its `~/.stella` memory the same as the world's, by compare-and-set, only
+ *   while memory is on, and only in the epoch the computer listed. Memory a
+ *   computer kept from before a wipe goes up only once the owner allowed it
+ *   (`memory.authorizeReimport`).
  * - **Context:** every skill or policy change bumps `content_revision` and
  *   tells the gate (`host.homeChanged`) so cached turn context is rebuilt.
  */
@@ -35,12 +40,18 @@ import type {
   MemoryPolicyChange,
 } from "@stella/contracts/turn-plane/memory-policy";
 import { sha256Hex } from "../../hash.js";
-import { ownerMemoryWorld, wipeWorldMemory } from "../../world-memory.js";
+import {
+  MemorySyncFileError,
+  createWorldMemorySync,
+  ownerMemoryWorld,
+  wipeWorldMemory,
+} from "../../world-memory.js";
 import {
   array,
   boolean,
   empty,
   literal,
+  nullable,
   number,
   object,
   string,
@@ -608,6 +619,64 @@ const callerSubject = (ctx: { caller: { ownerId: string } | null; ownerId: strin
   ctx.caller?.ownerId ?? ctx.ownerId;
 
 const generationArg = string({ min: 1, max: 512 });
+
+// ── Memory sync ──────────────────────────────────────────────────────────
+
+const memoryOff = () =>
+  conflict("CLOUD_MEMORY_OFF", "Memory is off for this account.");
+
+const reimportRequired = () =>
+  conflict(
+    "CLOUD_MEMORY_REIMPORT_REQUIRED",
+    "Cloud memory was erased. Memory a computer kept from before goes up only after you allow it.",
+  );
+
+/** Sync runs while memory is on and open, in the epoch the caller listed. */
+const assertSyncOpen = (db: OwnerDbReader, expectedEpoch?: string): StateRow => {
+  const state = assertMemoryOpen(db, expectedEpoch);
+  if (state.memory_enabled !== 1) throw memoryOff();
+  return state;
+};
+
+const memorySync = (ctx: OwnerContext) =>
+  createWorldMemorySync(() => ownerMemoryWorld(ctx.env.WORLDS, ctx.ownerId));
+
+const fileRefusal = async <T>(work: () => Promise<T>): Promise<T> => {
+  try {
+    return await work();
+  } catch (error) {
+    if (error instanceof MemorySyncFileError) {
+      throw new RpcError("BAD_REQUEST", error.message, {
+        reason: "CLOUD_MEMORY_FILE_REFUSED",
+        retryable: false,
+      });
+    }
+    throw error;
+  }
+};
+
+/**
+ * A wipe that began while a sync write was on its way to the world may have
+ * swept before the write landed. Take the write back out, then refuse it, so
+ * a computer can never put memory into the epoch after the one it listed.
+ */
+const settleAgainstWipe = async (
+  ctx: OwnerContext,
+  epoch: string,
+  path: string,
+  sha: string,
+): Promise<void> => {
+  const state = readState(ctx.db);
+  if (state.memory_state !== "wiping" && state.memory_epoch === epoch) return;
+  await memorySync(ctx)
+    .remove(path, sha)
+    .catch(() => undefined);
+  throw state.memory_state === "wiping" ? wipeActive() : epochStale();
+};
+
+const syncPathArg = string({ min: 1, max: 240 });
+const syncEpochArg = string({ min: 1, max: 128 });
+const syncShaArg = string({ pattern: SHA256 });
 
 // ── Skills ────────────────────────────────────────────────────────────────
 
@@ -1188,6 +1257,65 @@ export const homeDomain = {
           });
         }
         return wipeStatus(ctx.db, callerSubject(ctx));
+      },
+    },
+    "memory.files.list": {
+      scope: "owner",
+      parse: empty(),
+      handler: async (ctx: OwnerContext) => {
+        const before = assertSyncOpen(ctx.db);
+        const files = await fileRefusal(() => memorySync(ctx).list());
+        // The listing holds only for the epoch it was taken in.
+        const state = assertSyncOpen(ctx.db, before.memory_epoch);
+        return {
+          memoryEpoch: state.memory_epoch,
+          importDisposition: state.import_disposition as MemoryImportDisposition,
+          files,
+        };
+      },
+    },
+    "memory.files.read": {
+      scope: "owner",
+      parse: object({ path: syncPathArg, expectedMemoryEpoch: syncEpochArg }),
+      handler: async (ctx: OwnerContext, args: HomeCalls["memory.files.read"]["args"]) => {
+        assertSyncOpen(ctx.db, args.expectedMemoryEpoch);
+        return await fileRefusal(() => memorySync(ctx).read(args.path));
+      },
+    },
+    "memory.files.write": {
+      scope: "owner",
+      parse: object({
+        path: syncPathArg,
+        expectedMemoryEpoch: syncEpochArg,
+        // The shared caps refuse anything longer once redacted.
+        content: string({ max: 200_000 }),
+        expectSha: nullable(syncShaArg),
+        importing: boolean(),
+      }),
+      handler: async (ctx: OwnerContext, args: HomeCalls["memory.files.write"]["args"]) => {
+        const state = assertSyncOpen(ctx.db, args.expectedMemoryEpoch);
+        if (args.importing && state.import_disposition === "explicit_required") {
+          throw reimportRequired();
+        }
+        const outcome = await fileRefusal(() =>
+          memorySync(ctx).write(args.path, args.content, args.expectSha),
+        );
+        if (outcome.status === "written") {
+          await settleAgainstWipe(ctx, args.expectedMemoryEpoch, args.path, outcome.sha);
+        }
+        return outcome;
+      },
+    },
+    "memory.files.delete": {
+      scope: "owner",
+      parse: object({
+        path: syncPathArg,
+        expectedMemoryEpoch: syncEpochArg,
+        expectSha: syncShaArg,
+      }),
+      handler: async (ctx: OwnerContext, args: HomeCalls["memory.files.delete"]["args"]) => {
+        assertSyncOpen(ctx.db, args.expectedMemoryEpoch);
+        return await fileRefusal(() => memorySync(ctx).remove(args.path, args.expectSha));
       },
     },
     "skills.deleteMirrored": {

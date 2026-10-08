@@ -25,6 +25,7 @@ import {
   MEMORIES_DIR,
   MEMORY_INDEX_FILE,
   MEMORY_INDEX_INJECTED_MAX_CHARS,
+  PERSONALITY_FILE,
   USER_PROFILE_FILE,
   USER_PROFILE_INJECTED_MAX_CHARS,
 } from "./memory-layout.js";
@@ -54,8 +55,9 @@ export type MemoryWriteResult = { sha: string; bytes: number };
 /**
  * One host's raw memory files. Paths are already validated memory paths.
  * `write` must compare and write atomically: with `expectSha` set it writes
- * only when the file's current sha is exactly that, and otherwise reports
- * what it found (`null` for a missing file).
+ * only when the file's current sha is exactly that (`null`: only when there
+ * is no file), and otherwise reports what it found (`null` for a missing
+ * file).
  */
 export type MemoryFileStore = {
   read(path: string): Promise<Uint8Array | null>;
@@ -63,7 +65,7 @@ export type MemoryFileStore = {
     path: string,
     bytes: Uint8Array,
     sha: string,
-    expectSha: string | undefined,
+    expectSha: string | null | undefined,
   ): Promise<{ ok: true } | { ok: false; actualSha: string | null }>;
   /** Every memory file, each with its sha. Non-memory paths may be included. */
   list(): Promise<MemoryFileInfo[]>;
@@ -156,6 +158,13 @@ export const isMemoryPath = (path: string): boolean => {
   }
 };
 
+/**
+ * Whether `path` is one of the `~/.stella` files every computer and the cloud
+ * keep the same: a memory path, or the personality override.
+ */
+export const isSyncedMemoryPath = (path: string): boolean =>
+  path === PERSONALITY_FILE || isMemoryPath(path);
+
 /** Characters one memory file may hold after redaction. */
 export const memoryFileMaxChars = (path: string): number => {
   if (path === CORE_MEMORY_FILE) return CORE_MEMORY_INJECTED_MAX_CHARS;
@@ -188,6 +197,27 @@ const expectShaOption = (options: unknown): string | undefined => {
 const shortSha = (sha: string | null): string =>
   sha ? `${sha.slice(0, 12)}…` : "no file";
 
+/**
+ * The bytes a write of `content` to `path` stores: redacted, and refused over
+ * the file's cap. The model's `memory.write` and the desktop/cloud memory
+ * sync both write through this.
+ */
+export const prepareMemoryWrite = async (
+  path: string,
+  content: string,
+): Promise<{ bytes: Uint8Array; sha: string }> => {
+  const text = redactMemoryText(content);
+  const chars = codePoints(text);
+  const maxChars = memoryFileMaxChars(path);
+  if (chars > maxChars) {
+    throw new Error(
+      `memory.write: ${path} would be ${chars.toLocaleString("en-US")} characters; its limit is ${maxChars.toLocaleString("en-US")}. Nothing was written. Curate it down (rewrite stale lines, or move detail into its own file under memories/ with one line in memories/index.md) and write again.`,
+    );
+  }
+  const bytes = encoder.encode(text);
+  return { bytes, sha: await memorySha(bytes) };
+};
+
 /** The `memory` client over one host's files. */
 export const createMemoryClient = (store: MemoryFileStore): MemoryClient => ({
   read: async (input) => {
@@ -201,16 +231,7 @@ export const createMemoryClient = (store: MemoryFileStore): MemoryClient => ({
       throw new Error(`memory.write: content for ${path} must be a string.`);
     }
     const expectSha = expectShaOption(options);
-    const text = redactMemoryText(content);
-    const chars = codePoints(text);
-    const maxChars = memoryFileMaxChars(path);
-    if (chars > maxChars) {
-      throw new Error(
-        `memory.write: ${path} would be ${chars.toLocaleString("en-US")} characters; its limit is ${maxChars.toLocaleString("en-US")}. Nothing was written. Curate it down (rewrite stale lines, or move detail into its own file under memories/ with one line in memories/index.md) and write again.`,
-      );
-    }
-    const bytes = encoder.encode(text);
-    const sha = await memorySha(bytes);
+    const { bytes, sha } = await prepareMemoryWrite(path, content);
     const outcome = await store.write(path, bytes, sha, expectSha);
     if (!outcome.ok) {
       throw new Error(

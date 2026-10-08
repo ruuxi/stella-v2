@@ -6,7 +6,9 @@
  * snapshot at `~/.stella/core-memory.md`). The orchestrator edits it through
  * the `memory` client inside `code` (`memory-client.ts`); every other agent
  * uses its ordinary file tools. In the cloud the same files live in the
- * owner's world under `/workspace/world/.stella/`.
+ * owner's world under `/workspace/world/.stella/`, and each of the owner's
+ * computers keeps its copy the same as the cloud's, both ways (the desktop's
+ * memory sync in Electron main, over cloud-builder's `memory.files.*`).
  *
  * Three documents are always resident, and only these three:
  *
@@ -34,6 +36,12 @@ export const MEMORIES_DIR = "memories";
 export const CORE_MEMORY_FILE = "core-memory.md";
 export const USER_PROFILE_FILE = "profile.md";
 export const MEMORY_INDEX_FILE = "index.md";
+/**
+ * The user's personality override beside memory, `~/.stella/PERSONALITY.md`.
+ * Not memory to the model (`memory.*` never names it), but it is kept the
+ * same on every computer and in the cloud, and a memory wipe erases it.
+ */
+export const PERSONALITY_FILE = "PERSONALITY.md";
 
 /** Display paths — these are what the model sees and what it edits. */
 export const CORE_MEMORY_DISPLAY_PATH = "~/.stella/core-memory.md";

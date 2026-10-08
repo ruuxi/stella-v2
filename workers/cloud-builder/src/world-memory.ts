@@ -14,24 +14,33 @@
  * ones in `memory-client.ts`), and the turn reads the resident ones fresh
  * every time (`AgentHome.readDocuments`). The world has no locks, so the last
  * write wins; `memory.write`'s `expectSha` is the one compare-and-set.
+ *
+ * Each of the owner's computers keeps its `~/.stella` copy the same as these
+ * through `createWorldMemorySync` (the `memory.files.*` calls), which writes
+ * and deletes only by compare-and-set, so a sync never loses a cloud edit.
  */
 
 import {
   MEMORY_LIST_MAX_FILES,
   createMemoryClient,
+  isSyncedMemoryPath,
+  memorySha,
+  prepareMemoryWrite,
   type MemoryClient,
+  type MemoryFileInfo,
   type MemoryFileStore,
 } from "@stella/runtime/kernel/memory/memory-client.js";
 import {
   CORE_MEMORY_FILE,
   MEMORIES_DIR,
+  PERSONALITY_FILE,
 } from "@stella/runtime/kernel/memory/memory-layout.js";
 import { worldName } from "./workspace.js";
 import type { WorldEntry, WorldListingEntry } from "./world/types.js";
 
 /** The world directory that stands for the desktop's `~/.stella`. */
 export const WORLD_STELLA_DIR = ".stella";
-export const WORLD_PERSONALITY_FILE = "PERSONALITY.md";
+export const WORLD_PERSONALITY_FILE = PERSONALITY_FILE;
 
 /** What memory needs from the owner's `WorldStore`. */
 export type MemoryWorld = Readonly<{
@@ -143,15 +152,25 @@ const createWorldMemoryStore = (
       `memory: ${relative} kept changing while it was being written; nothing was written. Try again.`,
     );
   },
-  list: async () => {
-    const store = await world();
-    const [core, nested] = await Promise.all([
-      store.stat(worldStellaPath(CORE_MEMORY_FILE)),
-      store.list(worldStellaPath(MEMORIES_DIR), {
-        limit: MEMORY_LIST_MAX_FILES * 4,
-      }),
-    ]);
-    return [core, ...nested.entries].flatMap((entry) =>
+  list: async () => (await listWorldMemoryFiles(await world())).files,
+});
+
+/**
+ * The memory files in the world (`core-memory.md`, `PERSONALITY.md`,
+ * `memories/**`), and whether the `memories/` listing was cut short.
+ */
+const listWorldMemoryFiles = async (
+  store: MemoryWorld,
+): Promise<{ files: MemoryFileInfo[]; cutShort: boolean }> => {
+  const [core, personality, nested] = await Promise.all([
+    store.stat(worldStellaPath(CORE_MEMORY_FILE)),
+    store.stat(worldStellaPath(PERSONALITY_FILE)),
+    store.list(worldStellaPath(MEMORIES_DIR), {
+      limit: MEMORY_LIST_MAX_FILES * 4,
+    }),
+  ]);
+  return {
+    files: [core, personality, ...nested.entries].flatMap((entry) =>
       entry?.kind === "file" && entry.sha256
         ? [
             {
@@ -162,14 +181,131 @@ const createWorldMemoryStore = (
             },
           ]
         : [],
-    );
-  },
-});
+    ),
+    cutShort: nested.cursor !== undefined,
+  };
+};
 
 /** The memory client over the owner's world. */
 export const createWorldMemory = (
   world: () => Promise<MemoryWorld>,
 ): MemoryClient => createMemoryClient(createWorldMemoryStore(world));
+
+/** Largest file the desktop sync reads back; written files are far smaller. */
+export const MEMORY_SYNC_READ_MAX_BYTES = 512 * 1024;
+
+export class MemorySyncFileError extends Error {}
+
+const syncedPath = (path: string): string => {
+  if (!isSyncedMemoryPath(path)) {
+    throw new MemorySyncFileError(
+      `${JSON.stringify(path)} is not a memory file.`,
+    );
+  }
+  return path;
+};
+
+/**
+ * What a desktop's memory sync does to the owner's world: the synced files
+ * (`isSyncedMemoryPath`) with their shas, and compare-and-set writes and
+ * deletes. Writes go through the same redaction and caps as `memory.write`
+ * (`prepareMemoryWrite`); `expectSha: null` writes only a file that does
+ * not exist yet.
+ */
+export const createWorldMemorySync = (world: () => Promise<MemoryWorld>) => {
+  const store = createWorldMemoryStore(world);
+  return {
+    /**
+     * Every synced file. Refuses rather than answer a listing cut short,
+     * which a computer would read as deletions.
+     */
+    list: async (): Promise<MemoryFileInfo[]> => {
+      const { files, cutShort } = await listWorldMemoryFiles(await world());
+      if (cutShort) {
+        throw new MemorySyncFileError(
+          "Cloud memory holds more files than sync handles.",
+        );
+      }
+      return files.filter((file) => isSyncedMemoryPath(file.path));
+    },
+    read: async (
+      input: string,
+    ): Promise<{ content: string; sha: string } | null> => {
+      const path = syncedPath(input);
+      const entry = await (await world()).stat(worldStellaPath(path));
+      if (!entry || entry.kind !== "file") return null;
+      if (entry.size > MEMORY_SYNC_READ_MAX_BYTES) {
+        throw new MemorySyncFileError(`${path} is too large to sync.`);
+      }
+      const bytes = await store.read(path);
+      if (bytes === null) return null;
+      return { content: decoder.decode(bytes), sha: await memorySha(bytes) };
+    },
+    write: async (
+      input: string,
+      content: string,
+      expectSha: string | null,
+    ): Promise<
+      | { status: "written"; sha: string; bytes: number }
+      | { status: "conflict"; actualSha: string | null }
+    > => {
+      const path = syncedPath(input);
+      let prepared: { bytes: Uint8Array; sha: string };
+      try {
+        prepared = await prepareMemoryWrite(path, content);
+      } catch (error) {
+        throw new MemorySyncFileError(
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+      const outcome = await store.write(
+        path,
+        prepared.bytes,
+        prepared.sha,
+        expectSha,
+      );
+      return outcome.ok
+        ? {
+            status: "written",
+            sha: prepared.sha,
+            bytes: prepared.bytes.byteLength,
+          }
+        : { status: "conflict", actualSha: outcome.actualSha };
+    },
+    remove: async (
+      input: string,
+      expectSha: string,
+    ): Promise<
+      | { status: "deleted" | "missing" }
+      | { status: "conflict"; actualSha: string | null }
+    > => {
+      const relative = syncedPath(input);
+      const target = await world();
+      const path = worldStellaPath(relative);
+      for (let attempt = 0; attempt < COMMIT_ATTEMPTS; attempt += 1) {
+        const { revision } = await target.head();
+        const current = await target.stat(path);
+        if (!current) return { status: "missing" };
+        if (current.kind !== "file" || current.sha256 !== expectSha) {
+          return { status: "conflict", actualSha: current.sha256 ?? null };
+        }
+        // Lands only if nothing wrote this path after `revision`.
+        const committed = await target.commitShell({
+          baseRevision: revision,
+          reads: { paths: [path], children: [] },
+          entries: [],
+          deleted: [path],
+        });
+        if (committed.status === "committed") return { status: "deleted" };
+      }
+      throw new Error(
+        `memory: ${relative} kept changing while it was being deleted; nothing was deleted. Try again.`,
+      );
+    },
+  };
+};
+
+export type WorldMemorySync = ReturnType<typeof createWorldMemorySync>;
 
 /** Everything a memory wipe erases, as world paths. */
 export const WORLD_MEMORY_WIPE_PATHS: readonly string[] = [

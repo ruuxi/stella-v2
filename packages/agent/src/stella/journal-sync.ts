@@ -49,6 +49,16 @@ export type JournalSyncState = {
   /** The newest transcript entry mirrored into the journal. */
   mirrored?: number;
   open?: JournalOpenTurn;
+  /**
+   * The journal epoch the transcript follows. A rewind starts a new one,
+   * whose seqs repeat the old ones': its imports are new writes.
+   */
+  epoch?: number;
+  /**
+   * After a rewind, the journal through this seq is imported whole, the
+   * host's own turns included: the reset dropped them from its context.
+   */
+  importAllThrough?: number;
 };
 
 /** How far the transcript and the journal are in step, per conversation. */
@@ -91,7 +101,9 @@ export async function importJournal(
   throughSeq: number,
   context: Context,
 ): Promise<number> {
-  const imported = (await harness.snapshot(JournalSyncDoc, root.id, context))?.importedSeq ?? -1;
+  const state = await harness.snapshot(JournalSyncDoc, root.id, context);
+  const imported = state?.importedSeq ?? -1;
+  const requestId = (seq: number) => (state?.epoch ? `journal:${state.epoch}:${seq}` : `journal:${seq}`);
   let written = 0;
   for (const record of messages) {
     if (record.seq <= imported) continue;
@@ -101,7 +113,7 @@ export async function importJournal(
       const known = await harness.commit((tx) => noteRemoteReport(tx, root.id, record.report), context);
       if (known && text) {
         await root.submit(
-          { type: "input", requestId: `journal:${record.seq}`, content: [{ type: "text", text }], whenBusy: "followUp" },
+          { type: "input", requestId: requestId(record.seq), content: [{ type: "text", text }], whenBusy: "followUp" },
           context,
         );
         written += 1;
@@ -111,7 +123,7 @@ export async function importJournal(
     await root.submit(
       {
         type: "write",
-        requestId: `journal:${record.seq}`,
+        requestId: requestId(record.seq),
         entry: { kind: ENTRY_KIND[record.role], model: [asWritten(record)], data: { journalSeq: record.seq } },
       },
       context,

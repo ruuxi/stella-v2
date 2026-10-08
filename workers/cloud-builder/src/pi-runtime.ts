@@ -228,6 +228,19 @@ export type PiRuntimeOptions = {
   heartbeat(): void;
   /** An agent's own tools (web, code with connectors), on the agents' authority. */
   agentTools(authority: PiAuthority): Promise<readonly CloudCodeSourceAgentTool[]>;
+  /**
+   * Holds one agent run to the owner's purge fence, as a chat turn is held:
+   * a lease while it runs, and a model grant (under the owner's memory
+   * policy) on each of its requests, revoked by a purge or privacy change.
+   */
+  agentGuard?(authority: PiAuthority, turnId: string): Promise<PiAgentGuard>;
+};
+
+/** One agent run's hold on the owner's purge fence (`PiRuntimeOptions.agentGuard`). */
+export type PiAgentGuard = {
+  /** A model request, sent only under a valid grant. */
+  fetch(request: Request): Promise<Response>;
+  release(): Promise<void>;
 };
 
 /** A pi call context: cancelled with `signal`, which only cancels that call or wait. */
@@ -292,6 +305,7 @@ type ActiveRun = {
   turnId: string;
   sessionId: string;
   capability: { token: string; expiresAt: number };
+  guard?: PiAgentGuard;
 };
 
 /** An agent's container, from its first command until its last run ends. */
@@ -438,7 +452,7 @@ export class PiConversationRuntime {
       capability,
       control: control as unknown as ModelGatewayControl,
       waitUntil: (work) => this.#options.waitUntil(work),
-      fetch: (value) => gateway.fetch(value),
+      fetch: (value) => (active.guard ? active.guard.fetch(value) : gateway.fetch(value)),
     });
   }
 
@@ -575,11 +589,16 @@ export class PiConversationRuntime {
         });
         if (!admission.ok) throw new Error(admission.message);
         const { harness } = await this.open();
+        const guard = await this.#options.agentGuard?.(authority, turnId).catch(async (error: unknown) => {
+          await this.#gate(authority).release({ turnId }).catch(() => undefined);
+          throw error;
+        });
         const active: ActiveRun = {
           run,
           turnId,
           sessionId: await this.#providerSession(harness, run.agentConversationId, context),
           capability: await this.#mint(authority, turnId),
+          ...(guard ? { guard } : {}),
         };
         const runs = this.#runs.get(active.sessionId) ?? [];
         runs.push(active);
@@ -603,6 +622,7 @@ export class PiConversationRuntime {
           if (runs.length === 0) this.#runs.delete(sessionId);
           break;
         }
+        await ended?.guard?.release().catch((error: unknown) => this.#options.report(error));
         const authority = this.#state?.authority;
         if (!authority) return;
         await this.#gate(authority)
@@ -939,23 +959,26 @@ export class PiConversationRuntime {
    * Write what other writers journaled into the root conversation before a
    * turn answers: a computer's mirrored turns, another engine's. A record of
    * a turn this conversation ran itself (submitted as `turn:<id>`) is its own,
-   * and so is the turn about to run. `read` gives journal records after a seq.
+   * and so is the turn about to run, except what a rewind dropped from its
+   * context (`rewind`). `read` gives journal records after a seq. Returns
+   * the seq the transcript now holds the journal through.
    */
   async importJournal(
-    read: (afterSeq: number) => { records: readonly JournalRecordLike[]; complete: boolean },
+    read: (afterSeq: number) => Promise<{ records: readonly JournalRecordLike[]; complete: boolean }>,
     currentTurnId: string,
     context: Context,
   ): Promise<number> {
     const { harness, root } = await this.open();
-    let after = (await harness.snapshot(JournalSyncDoc, root.id, context))?.importedSeq ?? -1;
+    const state = await harness.snapshot(JournalSyncDoc, root.id, context);
+    let after = state?.importedSeq ?? -1;
+    const whole = state?.importAllThrough ?? -1;
     const ran = new Map<string, boolean>();
-    let written = 0;
     for (;;) {
-      const page = read(after);
+      const page = await read(after);
       const messages: JournalMessage[] = [];
       for (const record of page.records) {
         if (record.kind !== "message" || !record.role || record.turnId === currentTurnId) continue;
-        let own = ran.get(record.turnId);
+        let own = record.seq <= whole ? false : ran.get(record.turnId);
         if (own === undefined) {
           own = Boolean(await root.commit((tx) => tx.submissionByRequest(root.id, `turn:${record.turnId}`), context));
           ran.set(record.turnId, own);
@@ -965,10 +988,28 @@ export class PiConversationRuntime {
         messages.push({ seq: record.seq, turnId: record.turnId, role: record.role, hidden: record.hidden === true, message });
       }
       const through: number = page.records.at(-1)?.seq ?? after;
-      written += await importJournal(harness, root, messages, through, context);
-      if (page.complete || through <= after) return written;
+      await importJournal(harness, root, messages, through, context);
+      if (page.complete || through <= after) return through;
       after = through;
     }
+  }
+
+  /**
+   * The journal was rewound to `throughSeq` (its epoch is now `epoch`): the
+   * root's context starts over, and the next import brings back the whole
+   * journal that is left, this conversation's own turns too. Once per epoch.
+   */
+  async rewind(epoch: number, throughSeq: number, context: Context): Promise<void> {
+    const { harness, root } = await this.open();
+    if (((await harness.snapshot(JournalSyncDoc, root.id, context))?.epoch ?? 0) >= epoch) return;
+    await root.reset(undefined, context);
+    await harness.commit(async (tx) => {
+      const doc = await tx.doc(JournalSyncDoc, root.id);
+      doc.epoch = epoch;
+      doc.importedSeq = -1;
+      doc.importAllThrough = throughSeq;
+      return undefined;
+    }, context);
   }
 
   /** Entries of the root conversation as they commit, from `afterEntryId` on. */
@@ -1067,5 +1108,29 @@ export class PiConversationRuntime {
     this.#opening = undefined;
     const opened = await opening?.catch(() => undefined);
     await opened?.harness.close(BACKGROUND_CONTEXT);
+  }
+
+  /**
+   * The conversation is being purged: stop every run here, and let go of
+   * what they hold (leases, owner admissions, containers). Its storage goes
+   * with the object's.
+   */
+  async discard(): Promise<number> {
+    const runs = [...this.#runs.values()].flat();
+    this.#runs.clear();
+    await this.close();
+    const authority = this.#state?.authority;
+    await Promise.all(
+      runs.map(async (active) => {
+        await active.guard?.release().catch((error: unknown) => this.#options.report(error));
+        await this.#releaseContainer(active.run).catch((error: unknown) => this.#options.report(error));
+        if (authority) {
+          await this.#gate(authority)
+            .release({ turnId: active.turnId })
+            .catch((error: unknown) => this.#options.report(error));
+        }
+      }),
+    );
+    return runs.length;
   }
 }

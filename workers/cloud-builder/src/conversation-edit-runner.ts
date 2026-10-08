@@ -57,11 +57,13 @@ const fork = async (
   const acquired = await post<{
     sourceEpoch: number;
     sourceLastSeq: number;
+    agentRuntime?: string;
   }>(source, "/internal/edit/fork-source/acquire", request);
   await post(target, "/internal/edit/fork-target/begin", {
     ...request,
     sourceEpoch: acquired.sourceEpoch,
     sourceLastSeq: acquired.sourceLastSeq,
+    ...(acquired.agentRuntime ? { sourceAgentRuntime: acquired.agentRuntime } : {}),
   });
 
   for (let page = 0; page < CONVERSATION_EDIT_PAGES_PER_PASS; page += 1) {

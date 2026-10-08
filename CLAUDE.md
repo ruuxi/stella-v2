@@ -32,8 +32,9 @@ that we publish, plus a private fork per user.
   Updates section of the right sidebar (Add / Skip, then history with Undo).
   When an update conflicts with the user's own changes, an agent merges in the
   background.
-- The app only ever fast-forwards; any divergence is merged by an agent, never
-  by git's automatic three-way merge.
+- The checkout only ever moves forward. When histories diverge, the app takes
+  a clean three-way merge (`git merge-tree`) itself once it builds; real
+  conflicts, or a merge that does not build, go to a background agent.
 - Code lives in `packages/desktop/electron/services/app-source/` and
   `packages/desktop-ui/src/features/app-source/`; publishing upstream is
   `bun run app-source:publish -- --namespace <ns>`. Fetch from Artifacts over

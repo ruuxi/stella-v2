@@ -5,6 +5,7 @@
 // until the turn's final assistant message lands.
 //
 //   node .agents/skills/verify-stella/cloud-turn.mjs --prompt "..." [--conversation <id>] [--email <owner>] [--wait 180]
+//   (--prompt-file <path> instead of --prompt for prompts too long for one argument)
 //
 // A follow-up into an existing conversation must arrive as the same owner, so
 // pass the `--email` the first run printed together with its `--conversation`.
@@ -27,9 +28,10 @@ const flag = (name, fallback) => {
 const builderUrl = (
   process.env.STELLA_BACKEND_URL ?? "https://stella-v2-cloud-builder-dev.fromyou.workers.dev"
 ).replace(/\/+$/, "");
-const prompt = flag("--prompt");
+const promptFile = flag("--prompt-file");
+const prompt = flag("--prompt") ?? (promptFile ? readFileSync(promptFile, "utf8") : undefined);
 if (!prompt) {
-  console.error("--prompt is required");
+  console.error("--prompt or --prompt-file is required");
   process.exit(2);
 }
 const waitSeconds = Number(flag("--wait", "180"));

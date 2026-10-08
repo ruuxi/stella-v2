@@ -25,8 +25,11 @@ that we publish, plus a private fork per user.
   is the seeded skill `packages/home-seed/skills/modify-stella/SKILL.md`.
 - The user's other computers fetch the fork and offer what it would actually
   change there; a fork whose files this computer already has (duplicate merge
-  history) is joined silently and never offered. Nothing is applied on a
-  device without a click there.
+  history) is joined silently and never offered. Neither is a fork that holds
+  only merges beyond the published version (another computer's resolution of
+  an update this one takes too): a computer keeps its own resolution, and
+  one taking an update the fork already merged takes that merge rather than
+  resolving it again. Nothing is applied on a device without a click there.
 - Our official updates are merges from `upstream`. Everything that can be
   added shows as an "N updates" pill above the composer, which opens the
   Updates section of the right sidebar (Add / Skip, then history with Undo).

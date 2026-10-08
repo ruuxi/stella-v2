@@ -52,7 +52,7 @@ Finish only after the check above passed (for UI changes, after you saw the chan
 1. Commit everything as one normal commit with a plain, descriptive message (no tags or trailers). If git has no identity, add `-c user.name=Stella -c user.email=stella@localhost`.
 2. Rebase onto the checkout's current branch so the draft is a fast-forward: `git rebase "$(git -C "$STELLA_APP_DIR" branch --show-current)"`. Resolve any conflicts yourself, then typecheck again.
 3. Remove the worktree: `git -C "$STELLA_APP_DIR" worktree remove "$STELLA_DRAFTS_DIR/<name>"`. The `draft/<name>` branch stays; that is the finished draft.
-4. Tell the user it is ready and that they apply it with the Update button. Never apply it yourself. (The exception is work Stella sent you a brief for, below: some of that it takes on its own, because the user already pressed the button.)
+4. Tell the user it is ready and that they apply it with the Update button. Never apply it yourself.
 
 What it takes to take effect after Update, so you can tell the user:
 
@@ -68,8 +68,8 @@ When that happens you get a brief, not a chat message. It already names the shas
 
 Do the work in a draft and finish as above, with these differences:
 
-- **Stale draft** (a finished change of theirs made against an older version): work on its existing branch — `git worktree add "$STELLA_DRAFTS_DIR/<name>" draft/<name>` (no `-b`) — rebase onto the checkout's current branch, resolve, check, finish. **Stella takes it when you are done**; don't ask the user to press Update.
-- **Changes from another computer diverged:** the fork is at `refs/remotes/stella-fork/<branch>`. Start a draft named `update-<sha12>` of the fork's tip, `git merge refs/remotes/stella-fork/<branch>`, resolve, check, finish. Keep the merge commit; do not squash or rebase it. Both sides are the user's own work, so neither wins by default. **Stella takes this one too.**
+- **Stale draft** (a finished change of theirs made against an older version): work on its existing branch — `git worktree add "$STELLA_DRAFTS_DIR/<name>" draft/<name>` (no `-b`) — rebase onto the checkout's current branch, resolve, check, finish. When you finish, it waits in Updates until the user adds it.
+- **Changes from another computer diverged:** the fork is at `refs/remotes/stella-fork/<branch>`. Start a draft named `update-<sha12>` of the fork's tip, `git merge refs/remotes/stella-fork/<branch>`, resolve, check, finish. Keep the merge commit; do not squash or rebase it. Both sides are the user's own work, so neither wins by default. It too waits in Updates until the user adds it.
 - **Undo that conflicts or doesn't build:** start a draft, `git revert --no-edit <base>..<sha>` (the brief gives the range: everything that arrived together), resolve, check, finish. **This one the user applies themselves** — what to keep of the work built on top of the change is a judgement, so tell them it is ready and let them see it before it lands. Say plainly in your completion if the change and the later work are genuinely incompatible.
 
 If a worktree directory was deleted by hand, run `git -C "$STELLA_APP_DIR" worktree prune`.
@@ -78,7 +78,7 @@ If a worktree directory was deleted by hand, run `git -C "$STELLA_APP_DIR" workt
 
 Most updates never reach you. Pressing Add on the new version in the Updates list (opened from the pill above the composer) fast-forwards when it can, and when the user's own history has diverged Stella still merges and applies it by itself as long as git finds no conflict and the merged tree builds. You are sent an update only when there is a judgement to make: real conflicting files, or a clean merge whose result fails that build.
 
-When that happens you get a brief, not a chat message — it already names the upstream sha, the merge base, the conflicting files or the build output, and the draft name to use. Stella takes the finished `update-` draft on its own (the user already pressed Update), so don't ask them to press Update for it, and don't tell them anything about conflicts: they are told only that Stella is updating. The published version is at `refs/remotes/stella-upstream/main` (Stella fetches it; never fetch or pull yourself). Merge it in a draft:
+When that happens you get a brief, not a chat message — it already names the upstream sha, the merge base, the conflicting files or the build output, and the draft name to use. The finished `update-` draft waits in Updates until the user adds it, so Stella never relaunches under them. Don't tell them anything about conflicts: they are told only that Stella is updating. The published version is at `refs/remotes/stella-upstream/main` (Stella fetches it; never fetch or pull yourself). Merge it in a draft:
 
 1. Use the draft name from the brief, `update-<sha12>` (the first 12 characters of `git -C "$STELLA_APP_DIR" rev-parse refs/remotes/stella-upstream/main`), and start it as usual.
 2. In the draft, `git merge refs/remotes/stella-upstream/main`. Resolve every conflict keeping the user's changes: take the new version's code, then carry the user's changes over onto it so both work.

@@ -118,6 +118,8 @@ import {
 import { raceWithTimeoutError } from "./cloud-effect-runtime.js";
 import {
   APPLY_PATCH_TOOL_NAME,
+  EDIT_TOOL_NAME,
+  WRITE_TOOL_NAME,
   getFileEditToolFamily,
   rewriteFileEditToolNames,
 } from "../tools/file-edit-policy.js";
@@ -630,89 +632,89 @@ export const createRunnerContext = ({
    * model its requester asked for.
    */
   const spawnModelSupport: SpawnModelSupport = {
-  // spawn_agent's `model` parameter: throws the standard route-failure
-  // message when a plain model reference can't be resolved, so the spawn
-  // fails loudly instead of silently falling back to the default.
-  validateSpawnModel: (modelName) => {
-    resolveRunnerLlmRoute(context, AGENT_IDS.GENERAL, modelName);
-  },
-  validateSpawnModelWithMetadata: async (modelName, reasoningEffort) => {
-    await resolveRunnerLlmRouteWithMetadata(
-      context,
-      AGENT_IDS.GENERAL,
-      modelName,
-      reasoningEffort,
-    );
-  },
-  captureSpawnModelConfig: async ({
-    agentType,
-    spawnEngine,
-    useConfiguredEngine,
-    model: spawnModel,
-    spawnReasoningEffort,
-  }) => {
-    const configuredEngine = getAgentRuntimeEngine(stellaDataDir);
-    const selectedEngine = useConfiguredEngine
-      ? configuredEngine
-      : spawnEngine.engine;
-    const subscriptionHarnessEnabled = getSubscriptionHarnessEnabled(
-      stellaDataDir,
-      selectedEngine,
-    );
-    const agent = resolveAgent(context, agentType);
-    const configuredModel =
-      spawnModel ?? getConfiguredModel(context, agentType, agent);
-    const configuredReasoningEffort = getReasoningEffort(
-      stellaDataDir,
+    // spawn_agent's `model` parameter: throws the standard route-failure
+    // message when a plain model reference can't be resolved, so the spawn
+    // fails loudly instead of silently falling back to the default.
+    validateSpawnModel: (modelName) => {
+      resolveRunnerLlmRoute(context, AGENT_IDS.GENERAL, modelName);
+    },
+    validateSpawnModelWithMetadata: async (modelName, reasoningEffort) => {
+      await resolveRunnerLlmRouteWithMetadata(
+        context,
+        AGENT_IDS.GENERAL,
+        modelName,
+        reasoningEffort,
+      );
+    },
+    captureSpawnModelConfig: async ({
       agentType,
-    );
-    const sampledEngineConfig = sampleAgentEngineConfig({
-      stellaDataDir,
-      engine: selectedEngine,
-      configuredModel,
-      engineModelOverride: useConfiguredEngine
-        ? undefined
-        : spawnEngine.model,
-      reasoningEffort: spawnReasoningEffort ?? configuredReasoningEffort,
-    });
-    const sampledSpawnEngine: SpawnEngineSelection =
-      selectedEngine === "default"
-        ? { engine: "default" }
-        : {
-            engine: selectedEngine,
-            ...(sampledEngineConfig.engineModel
-              ? { model: sampledEngineConfig.engineModel }
-              : {}),
-          };
-    const harnessRouteModel = resolveSubscriptionHarnessRouteModel({
-      stellaDataDir,
-      agentType,
-      configuredEngine,
-      subscriptionHarnessEnabled,
-      configuredModel,
-      spawnEngine: sampledSpawnEngine,
-    });
-    const model = harnessRouteModel ?? configuredModel;
-    const resolvedLlm = await resolveRunnerLlmRouteWithMetadata(
-      context,
-      agentType,
-      model,
+      spawnEngine,
+      useConfiguredEngine,
+      model: spawnModel,
       spawnReasoningEffort,
-    );
-    return captureEffectiveModelConfig({
-      stellaDataDir,
-      engine: selectedEngine,
-      subscriptionHarnessEnabled,
-      configuredModel: model,
-      engineModelOverride: sampledEngineConfig.engineModel,
-      ...(sampledEngineConfig.serviceTier
-        ? { serviceTierOverride: sampledEngineConfig.serviceTier }
-        : {}),
-      engineConfigSampled: true,
-      resolvedLlm,
-      reasoningEffort: sampledEngineConfig.reasoningEffort,
-    });
-  },
+    }) => {
+      const configuredEngine = getAgentRuntimeEngine(stellaDataDir);
+      const selectedEngine = useConfiguredEngine
+        ? configuredEngine
+        : spawnEngine.engine;
+      const subscriptionHarnessEnabled = getSubscriptionHarnessEnabled(
+        stellaDataDir,
+        selectedEngine,
+      );
+      const agent = resolveAgent(context, agentType);
+      const configuredModel =
+        spawnModel ?? getConfiguredModel(context, agentType, agent);
+      const configuredReasoningEffort = getReasoningEffort(
+        stellaDataDir,
+        agentType,
+      );
+      const sampledEngineConfig = sampleAgentEngineConfig({
+        stellaDataDir,
+        engine: selectedEngine,
+        configuredModel,
+        engineModelOverride: useConfiguredEngine
+          ? undefined
+          : spawnEngine.model,
+        reasoningEffort: spawnReasoningEffort ?? configuredReasoningEffort,
+      });
+      const sampledSpawnEngine: SpawnEngineSelection =
+        selectedEngine === "default"
+          ? { engine: "default" }
+          : {
+              engine: selectedEngine,
+              ...(sampledEngineConfig.engineModel
+                ? { model: sampledEngineConfig.engineModel }
+                : {}),
+            };
+      const harnessRouteModel = resolveSubscriptionHarnessRouteModel({
+        stellaDataDir,
+        agentType,
+        configuredEngine,
+        subscriptionHarnessEnabled,
+        configuredModel,
+        spawnEngine: sampledSpawnEngine,
+      });
+      const model = harnessRouteModel ?? configuredModel;
+      const resolvedLlm = await resolveRunnerLlmRouteWithMetadata(
+        context,
+        agentType,
+        model,
+        spawnReasoningEffort,
+      );
+      return captureEffectiveModelConfig({
+        stellaDataDir,
+        engine: selectedEngine,
+        subscriptionHarnessEnabled,
+        configuredModel: model,
+        engineModelOverride: sampledEngineConfig.engineModel,
+        ...(sampledEngineConfig.serviceTier
+          ? { serviceTierOverride: sampledEngineConfig.serviceTier }
+          : {}),
+        engineConfigSampled: true,
+        resolvedLlm,
+        reasoningEffort: sampledEngineConfig.reasoningEffort,
+      });
+    },
   };
 
   const toolHost = createToolHost({
@@ -795,7 +797,11 @@ export const createRunnerContext = ({
       cloudCancel: cloudThreadController.cancelThread,
       lookupConversationAgentThread: async (threadId, conversationId) => {
         const client = backend.client();
-        if (!client || !isCloudSignedIn() || conversationId.startsWith("local_")) {
+        if (
+          !client ||
+          !isCloudSignedIn() ||
+          conversationId.startsWith("local_")
+        ) {
           return null;
         }
         const thread = await raceWithTimeoutError(
@@ -875,9 +881,10 @@ export const createRunnerContext = ({
         if (!record) return null;
         const liveStateInput = { agentStatus: record.status };
         const engine = record.modelConfigSnapshot?.engine;
-        const delivery = context.state.localAgentManager?.describeReportDelivery?.(
-          agentId,
-        ) as Pick<AgentThreadStatusRead, "owner" | "reportDeliveredTo"> | undefined;
+        const delivery =
+          context.state.localAgentManager?.describeReportDelivery?.(agentId) as
+            | Pick<AgentThreadStatusRead, "owner" | "reportDeliveredTo">
+            | undefined;
         return {
           ...(delivery
             ? {
@@ -1319,18 +1326,18 @@ export const resolveEffectiveAgentExecutionConfig = (
         }
       : args.modelConfigSnapshot
     : captureEffectiveModelConfig({
-      stellaDataDir: context.stellaDataDir,
-      agentType: args.agentType,
-      engine: agentEngine,
-      subscriptionHarnessEnabled: capturedSubscriptionHarness,
-      configuredModel: args.model,
-      engineModelOverride:
-        args.sampledEngineConfig?.engineModel ?? restoredSpawnEngine?.model,
-      serviceTierOverride: args.sampledEngineConfig?.serviceTier,
-      engineConfigSampled: Boolean(args.sampledEngineConfig),
-      ...(restoredSpawnEngine ? { spawnEngine: restoredSpawnEngine } : {}),
-      resolvedLlm: args.resolvedLlm,
-      reasoningEffort: effectiveReasoningEffort,
+        stellaDataDir: context.stellaDataDir,
+        agentType: args.agentType,
+        engine: agentEngine,
+        subscriptionHarnessEnabled: capturedSubscriptionHarness,
+        configuredModel: args.model,
+        engineModelOverride:
+          args.sampledEngineConfig?.engineModel ?? restoredSpawnEngine?.model,
+        serviceTierOverride: args.sampledEngineConfig?.serviceTier,
+        engineConfigSampled: Boolean(args.sampledEngineConfig),
+        ...(restoredSpawnEngine ? { spawnEngine: restoredSpawnEngine } : {}),
+        resolvedLlm: args.resolvedLlm,
+        reasoningEffort: effectiveReasoningEffort,
       });
 
   return {
@@ -1539,7 +1546,11 @@ export const buildAgentContext = async (
     agent?.toolsAllowlist,
     fileEditToolFamily,
   );
-  if (fileEditToolFamily === "write_edit") {
+  if (
+    fileEditToolFamily === "write_edit" &&
+    (toolsAllowlist?.includes(WRITE_TOOL_NAME) ||
+      toolsAllowlist?.includes(EDIT_TOOL_NAME))
+  ) {
     dynamicContextSections.push({
       id: "file-editing-tools",
       text: [

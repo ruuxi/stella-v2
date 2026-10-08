@@ -46,6 +46,19 @@ const STELLA_TOOLS_REPLACED_BY_NATIVE: Readonly<
   Glob: [],
 };
 
+/**
+ * The orchestrator never writes files, natively or over MCP: memory edits
+ * and every other change are delegated to an agent. Withheld even when an
+ * agent definition lists them, so a prompt override cannot hand them back.
+ */
+export const CLAUDE_CODE_ORCHESTRATOR_WITHHELD_TOOLS: readonly string[] = [
+  "Write",
+  "Edit",
+  "apply_patch",
+  "exec_command",
+  "write_stdin",
+];
+
 export const resolveClaudeCodeNativeTools = (
   role: ClaudeCodeNativeToolRole,
 ): readonly string[] =>
@@ -53,14 +66,20 @@ export const resolveClaudeCodeNativeTools = (
     ? CLAUDE_CODE_ORCHESTRATOR_NATIVE_TOOLS
     : CLAUDE_CODE_WORKER_NATIVE_TOOLS;
 
-/** Drop the Stella MCP tools that an enabled built-in supersedes. */
+/**
+ * Drop the Stella MCP tools that an enabled built-in supersedes, plus the
+ * ones the role must never hold.
+ */
 export const withoutToolsReplacedByNative = <
   T extends Pick<ToolMetadata, "name">,
 >(
   tools: readonly T[],
   nativeTools: readonly string[],
+  role: ClaudeCodeNativeToolRole = "worker",
 ): T[] => {
-  const replaced = new Set<string>();
+  const replaced = new Set<string>(
+    role === "orchestrator" ? CLAUDE_CODE_ORCHESTRATOR_WITHHELD_TOOLS : [],
+  );
   for (const nativeTool of nativeTools) {
     for (const name of STELLA_TOOLS_REPLACED_BY_NATIVE[nativeTool] ?? []) {
       replaced.add(name);

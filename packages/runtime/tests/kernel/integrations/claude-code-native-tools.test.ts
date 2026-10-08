@@ -59,19 +59,26 @@ describe("claude code native tools", () => {
     const orchestrator = withoutToolsReplacedByNative(
       catalog,
       CLAUDE_CODE_ORCHESTRATOR_NATIVE_TOOLS,
+      "orchestrator",
     ).map((tool) => tool.name);
-    // Its MCP Write/Edit stay: memory editing still goes through Stella.
-    expect(orchestrator).toEqual([
-      "Write",
-      "Edit",
-      "apply_patch",
-      "exec_command",
-      "write_stdin",
-      "code",
-      "html",
-      "web",
-      "spawn_agent",
-    ]);
+    // The orchestrator never writes files, over MCP or natively, and never
+    // gets a shell: memory edits and everything else are delegated.
+    expect(orchestrator).toEqual(["code", "html", "web", "spawn_agent"]);
+  });
+
+  it("withholds writers and shells from the orchestrator even when its definition lists them", () => {
+    expect(
+      withoutToolsReplacedByNative(
+        catalog,
+        CLAUDE_CODE_ORCHESTRATOR_NATIVE_TOOLS,
+        "orchestrator",
+      ).map((tool) => tool.name),
+    ).toEqual(["code", "html", "web", "spawn_agent"]);
+    expect(
+      withoutToolsReplacedByNative(catalog, [], "orchestrator").map(
+        (tool) => tool.name,
+      ),
+    ).toEqual(["Read", "Grep", "code", "html", "web", "spawn_agent"]);
   });
 
   it("leaves the catalog untouched when no built-in is enabled", () => {

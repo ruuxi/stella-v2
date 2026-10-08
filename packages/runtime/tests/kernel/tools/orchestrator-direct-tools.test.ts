@@ -166,7 +166,6 @@ describe("working orchestrator surface", () => {
       "code",
       "web",
       "Read",
-      "apply_patch",
       "spawn_agent",
       "send_input",
       "pause_agent",
@@ -220,7 +219,6 @@ describe("working orchestrator surface", () => {
     expect(providerTools.map((tool) => tool.name).sort()).toEqual([
       "Read",
       "agent_status",
-      "apply_patch",
       "code",
       "html",
       "image_gen",
@@ -249,7 +247,6 @@ describe("working orchestrator surface", () => {
       "Read",
       "ScriptDraft",
       "agent_status",
-      "apply_patch",
       "connector_status",
       "html",
       "image_gen",

@@ -1322,14 +1322,14 @@ const runClaudeHostedTurn = async (args: {
   // The CLI keeps its own file and shell built-ins (in-process, no MCP hop).
   // The orchestrator only coordinates, so it may read and search but never
   // gets a native shell or writer; workers get the full set.
+  const nativeToolRole =
+    args.session.kind === "orchestrator" ||
+    args.opts.agentType === AGENT_IDS.ORCHESTRATOR
+      ? "orchestrator"
+      : "worker";
   const nativeTools = vanilla
     ? []
-    : resolveClaudeCodeNativeTools(
-        args.session.kind === "orchestrator" ||
-          args.opts.agentType === AGENT_IDS.ORCHESTRATOR
-          ? "orchestrator"
-          : "worker",
-      );
+    : resolveClaudeCodeNativeTools(nativeToolRole);
   // Parity with createPiTools: node_repl carries the bounded deferred catalog;
   // profiles without it get the safe direct-schema fallback instead. Stella
   // tools a built-in supersedes are left out so the model sees one spelling.
@@ -1342,6 +1342,7 @@ const runClaudeHostedTurn = async (args: {
           connectorProvider: args.opts.connectorDeliveryTarget?.provider,
         }),
         nativeTools,
+        nativeToolRole,
       );
   const claudeCodeModelId = getClaudeCodeAgentModelId(
     args.opts.stellaAppDir,

@@ -25,6 +25,29 @@ import type { ChatArtifact, ChatMessage, MobileTask } from "../types";
  */
 export const RUNNING_TASK_STALE_MS = 5 * 60_000;
 
+/**
+ * How long a row the journal's own running-agent snapshot names stays running
+ * with no fresher evidence.
+ *
+ * That snapshot is a fold over the journal: an agent is in it because no
+ * terminal row ever settled it, not because anything reported it alive. Some
+ * agents end without writing one. A computer's agent canceled when the app
+ * quits or relaunches for an update, or paused back to the orchestrator,
+ * reports nothing (the runtime suppresses that wake on purpose), and the
+ * journal has no other way to hear about it. Those agents stayed in the
+ * snapshot for good, which is the phantom "N running" the phone kept showing
+ * long after the computer had moved on; desktop never shows them because its
+ * rows come from the runtime itself.
+ *
+ * So the snapshot outranks this device's silence (the short window above) but
+ * not silence from everywhere. A cloud agent refreshes its evidence with every
+ * progress card. An agent a computer runs has only its start row (and a new
+ * one per `send_message` resume), so one that genuinely works longer than this
+ * drops out of the phone's count early; that is the accepted cost until the
+ * computer reports its live agents itself. Only the chrome is affected.
+ */
+export const AUTHORITATIVE_RUNNING_STALE_MS = 2 * 60 * 60_000;
+
 /** Freshest evidence that a task was still alive. */
 const lastSeenAt = (task: MobileTask): number =>
   task.updatedAt ?? task.completedAt ?? task.createdAt;
@@ -46,12 +69,15 @@ export const settleStaleHubTasks = (
   tasks.map((task) => {
     if (task.status !== "running") return task;
     // The journal itself says this agent is working. Silence in the rows this
-    // device happens to hold says nothing about that, and settling it here is
-    // exactly how a phone that had been closed for a while came back claiming
-    // nothing was in progress while several agents were.
-    if (task.authoritativeRunning) return task;
-    if (nowMs - lastSeenAt(task) <= RUNNING_TASK_STALE_MS) return task;
-    const { statusText: _statusText, ...rest } = task;
+    // device happens to hold says nothing about that, and settling it on the
+    // short window is exactly how a phone that had been closed for a while
+    // came back claiming nothing was in progress while several agents were.
+    // It still gets the long window (`AUTHORITATIVE_RUNNING_STALE_MS`).
+    const staleAfterMs = task.authoritativeRunning
+      ? AUTHORITATIVE_RUNNING_STALE_MS
+      : RUNNING_TASK_STALE_MS;
+    if (nowMs - lastSeenAt(task) <= staleAfterMs) return task;
+    const { authoritativeRunning: _authoritative, statusText: _statusText, ...rest } = task;
     return { ...rest, status: "completed" as const };
   });
 

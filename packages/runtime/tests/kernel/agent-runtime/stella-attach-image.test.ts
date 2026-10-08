@@ -285,7 +285,7 @@ App=com.apple.finder (pid 504)
   });
 
   it("extracts a marker embedded inside a JSON-stringified tool result", async () => {
-    // Mirrors the exec_command tool result shape: stdout is wrapped inside
+    // Mirrors the Bash tool result shape: stdout is wrapped inside
     // a JSON envelope where real newlines become escaped `\n` characters.
     // Before the regex fix, the start-of-line anchor meant the marker was
     // never matched in this shape and the model had to call view_image

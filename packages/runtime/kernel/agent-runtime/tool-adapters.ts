@@ -70,7 +70,7 @@ export const STELLA_LOCAL_TOOLS = [
   TOOL_IDS.NO_RESPONSE,
 ] as const;
 
-const COMMAND_OUTPUT_TOOL_NAMES = new Set(["exec_command", "write_stdin"]);
+const COMMAND_OUTPUT_TOOL_NAMES = new Set(["Bash", "exec_command", "write_stdin"]);
 const MULTI_TOOL_USE_PARALLEL_TOOL_NAME = "multi_tool_use_parallel";
 export const MODEL_VISIBLE_COMMAND_RESULT_MAX_BYTES = 10_000;
 // Codex's ExecCommandToolOutput::model_output_policy compares the model's
@@ -389,7 +389,7 @@ export const preserveModelVisibleToolText = async (
 // model doesn't waste tokens describing a path it doesn't need to see.
 //
 // This is a local-runtime compatibility parser only. Tool output such as an
-// `exec_command` stdout stream is model-controlled and therefore cannot grant
+// `Bash` stdout stream is model-controlled and therefore cannot grant
 // a privileged Cloud adapter permission to reopen a path. Cloud callers use
 // `neutralizeLegacyAttachImageMarkers` and accept only symbol-carried bytes
 // from a descriptor-authorized read. The marker can appear anywhere in local

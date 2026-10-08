@@ -75,7 +75,7 @@ const assistantWithCall = (id: string): AgentMessage =>
       {
         type: "toolCall",
         id,
-        name: "exec_command",
+        name: "Bash",
         arguments: { command: "bun test" },
       },
     ],

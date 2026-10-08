@@ -18,6 +18,7 @@ describe("working indicator character state", () => {
     expect(getWorkingIndicatorCharacterState("write_file")).toBe("writing");
     expect(getWorkingIndicatorCharacterState("apply_patch")).toBe("working");
     expect(getWorkingIndicatorCharacterState("edit_file")).toBe("writing");
+    expect(getWorkingIndicatorCharacterState("Bash")).toBe("working");
     expect(getWorkingIndicatorCharacterState("exec_command")).toBe("working");
   });
 

@@ -41,7 +41,7 @@ const STELLA_TOOLS_REPLACED_BY_NATIVE: Readonly<
   Read: ["Read"],
   Edit: ["Edit"],
   Write: ["Write"],
-  Bash: ["exec_command", "write_stdin"],
+  Bash: ["Bash", "exec_command", "write_stdin"],
   Grep: ["Grep"],
   Glob: [],
 };
@@ -55,6 +55,7 @@ export const CLAUDE_CODE_ORCHESTRATOR_WITHHELD_TOOLS: readonly string[] = [
   "Write",
   "Edit",
   "apply_patch",
+  "Bash",
   "exec_command",
   "write_stdin",
 ];

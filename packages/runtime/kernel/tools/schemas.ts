@@ -9,7 +9,7 @@
  * What remains in this file:
  *   - `DEVICE_TOOL_NAMES`: tools the agent runtime treats as device-local.
  *   - `getDangerousCommandReason`: the catastrophic-operation guard consumed
- *     by `exec_command` and other shell paths.
+ *     by `Bash` and other shell paths.
  */
 
 import { getCatastrophicShellCommandReason } from "./shell-command-safety.js";

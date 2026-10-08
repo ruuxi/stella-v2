@@ -220,7 +220,7 @@ if (env.STELLA_PERF_FAKE_PROVIDER === "1") {
     "../../ai/utils/event-stream.js"
   );
   const chunkCount = Math.max(1, Number(env.STELLA_PERF_FAKE_CHUNKS ?? "8") || 8);
-  const toolName = env.STELLA_PERF_FAKE_TOOL ?? "exec_command";
+  const toolName = env.STELLA_PERF_FAKE_TOOL ?? "Bash";
   const toolArgs = JSON.parse(env.STELLA_PERF_FAKE_TOOL_ARGS ?? '{"cmd":"true"}');
   const replyText = "Scripted perf-lab reply. ".repeat(4).trim();
   let callSeq = 0;

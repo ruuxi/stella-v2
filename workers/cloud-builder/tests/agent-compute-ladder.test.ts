@@ -127,7 +127,7 @@ const harness = (
   return { ladder, journal, events, record: () => persisted };
 };
 
-const call = (toolCallId: string, toolName = "exec_command") => ({
+const call = (toolCallId: string, toolName = "Bash") => ({
   toolCallId,
   toolName,
   params: { command: "ls" },
@@ -251,8 +251,17 @@ describe("agent compute ladder", () => {
 
     expect(result.outcome.kind).toBe("error");
     expect(journal.calls.filter((entry) => entry.startsWith("tool:"))).toEqual([
-      "tool:exec_command:call-1",
+      "tool:Bash:call-1",
     ]);
+  });
+
+  test("the shell tool's old name still attaches and reaches the daemon", async () => {
+    const { ladder, journal } = harness();
+
+    const result = await ladder.execute(call("call-1", "exec_command"));
+
+    expect(result.outcome.kind).toBe("ok");
+    expect(journal.calls).toContain("tool:exec_command:call-1");
   });
 
   test("an unbridged tool never reaches the daemon", async () => {
@@ -281,7 +290,7 @@ describe("agent compute ladder", () => {
       "remember:large",
       `boot:${SANDBOX_ID}:large`,
       "control:boot_report",
-      "tool:exec_command:call-1",
+      "tool:Bash:call-1",
     ]);
   });
 

@@ -114,7 +114,7 @@ describe("executeRuntimeAgentPrompt", () => {
         {
           type: "toolCall" as const,
           id: "tool-call-1",
-          name: "exec_command",
+          name: "Bash",
           arguments: {},
         },
       ],
@@ -130,7 +130,7 @@ describe("executeRuntimeAgentPrompt", () => {
       return stream;
     });
     const tool = {
-      name: "exec_command",
+      name: "Bash",
       label: "Exec",
       description: "test tool",
       parameters: { type: "object", properties: {} } as never,
@@ -820,7 +820,7 @@ describe("executeRuntimeAgentPrompt", () => {
       idleListener?.({
         type: "tool_execution_start",
         toolCallId: "tool-1",
-        toolName: "exec_command",
+        toolName: "Bash",
         args: {},
       } as never);
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -830,7 +830,7 @@ describe("executeRuntimeAgentPrompt", () => {
       idleListener?.({
         type: "tool_execution_end",
         toolCallId: "tool-1",
-        toolName: "exec_command",
+        toolName: "Bash",
         result: { content: [], details: {} },
         isError: false,
       } as never);
@@ -879,7 +879,7 @@ describe("executeRuntimeAgentPrompt", () => {
       idleListener?.({
         type: "tool_execution_start",
         toolCallId: "tool-leaked",
-        toolName: "exec_command",
+        toolName: "Bash",
         args: {},
       } as never);
       // Outlives the plain idle window (25ms) because a tool is in flight...

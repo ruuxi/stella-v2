@@ -180,7 +180,7 @@ describe("shell hardening", () => {
       },
       context,
     );
-    // exec_command may yield while a real shell is still starting under load.
+    // Bash may yield while a real shell is still starting under load.
     if ((result.details as { running?: boolean })?.running) {
       result = await handleWriteStdin(state, {
         session_id: (result.details as { session_id: string }).session_id,
@@ -789,7 +789,7 @@ describe("shell hardening", () => {
       exitCode: 1,
       cwd: root,
     });
-    expect(record.output).toContain("Failed to start exec_command shell");
+    expect(record.output).toContain("Failed to start Bash shell");
     expect(record.output).toContain(`cwd=${JSON.stringify(root)}`);
     expect(record.output).toContain("cause=Error: posix_spawn '/bin/bash'");
     expect(state.shells.get(record.id)).toBe(record);
@@ -808,7 +808,7 @@ describe("shell hardening", () => {
       500,
     );
 
-    expect(output).toContain("Failed to start exec_command shell");
+    expect(output).toContain("Failed to start Bash shell");
     expect(output).toContain(`cwd=${JSON.stringify(root)}`);
     expect(output).toContain("cause=Error: synchronous spawn failure");
   });

@@ -1,7 +1,7 @@
 import type { ToolContext, ToolHandlerExtras, ToolResult } from "./types.js";
 
 export const MULTI_TOOL_USE_PARALLEL_TOOL_NAME = "multi_tool_use_parallel";
-const COMMAND_OUTPUT_TOOL_NAMES = new Set(["exec_command", "write_stdin"]);
+const COMMAND_OUTPUT_TOOL_NAMES = new Set(["Bash", "exec_command", "write_stdin"]);
 
 /**
  * Tools that mutate session state and must never be invoked concurrently

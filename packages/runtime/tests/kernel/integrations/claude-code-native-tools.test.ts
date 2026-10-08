@@ -14,7 +14,7 @@ const catalog = [
   "Edit",
   "apply_patch",
   "Grep",
-  "exec_command",
+  "Bash",
   "write_stdin",
   "code",
   "html",
@@ -88,5 +88,14 @@ describe("claude code native tools", () => {
   it("tells MCP tool names apart from CLI built-ins", () => {
     expect(isClaudeCodeNativeToolName("Bash")).toBe(true);
     expect(isClaudeCodeNativeToolName("mcp__stella__Read")).toBe(false);
+  });
+
+  it("treats the shell tool's old exec_command name as superseded by native Bash too", () => {
+    const legacy = [{ name: "exec_command" }, { name: "write_stdin" }, { name: "code" }];
+    expect(
+      withoutToolsReplacedByNative(legacy, CLAUDE_CODE_WORKER_NATIVE_TOOLS).map(
+        (tool) => tool.name,
+      ),
+    ).toEqual(["code"]);
   });
 });

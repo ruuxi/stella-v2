@@ -357,8 +357,8 @@ describe("OrchestratorSession", () => {
     expect(afterReload?.systemPrompt).toContain(
       "You are Stella, the user's personal AI assistant.",
     );
-    expect(beforeReload?.toolsAllowlist).not.toContain("exec_command");
-    expect(afterReload?.toolsAllowlist).not.toContain("exec_command");
+    expect(beforeReload?.toolsAllowlist).not.toContain("Bash");
+    expect(afterReload?.toolsAllowlist).not.toContain("Bash");
     expect(afterReload?.toolsAllowlist).toContain("code");
     expect(afterReload?.toolsAllowlist).not.toContain("node_repl");
 
@@ -423,7 +423,7 @@ describe("OrchestratorSession", () => {
       }),
     );
     expect(advertisedTools[2]).toEqual(updatedTools);
-    expect(advertisedTools[2]).not.toContain("exec_command");
+    expect(advertisedTools[2]).not.toContain("Bash");
     expect(advertisedTools[2]).toContain("code");
     expect(advertisedTools[2]).not.toContain("node_repl");
     await rm(tempRoot, { recursive: true, force: true });

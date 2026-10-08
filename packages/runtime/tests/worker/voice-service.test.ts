@@ -287,7 +287,7 @@ describe("VoiceRuntimeService direct tool execution", () => {
       tools: [
         {
           type: "function" as const,
-          name: "exec_command",
+          name: "Bash",
           description: "Run a command.",
           parameters: { type: "object" },
         },
@@ -303,7 +303,7 @@ describe("VoiceRuntimeService direct tool execution", () => {
       requestId: "voice-session-1",
       conversationId: "conv-1",
       callId: "call-shell",
-      name: "exec_command",
+      name: "Bash",
       args: { cmd: "make deck" },
     });
 
@@ -315,7 +315,7 @@ describe("VoiceRuntimeService direct tool execution", () => {
       (event) => event.type === "tool_result",
     );
     expect(toolResult?.payload).toMatchObject({
-      toolName: "exec_command",
+      toolName: "Bash",
       agentType: "orchestrator",
       officePreviewRef,
       details: {

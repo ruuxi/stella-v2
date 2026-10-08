@@ -157,7 +157,7 @@ const withTimeout = async (
 
 /**
  * Shared low-level offer path for direct browser transports that do not return
- * an exec_command-shaped ToolResult. Returns null when the failure is unrelated
+ * an Bash-shaped ToolResult. Returns null when the failure is unrelated
  * to a missing extension and otherwise returns the connect-card outcome.
  */
 export const maybeRequestBrowserExtensionConnect = async (options: {
@@ -222,7 +222,7 @@ export const maybeRequestBrowserExtensionConnect = async (options: {
 };
 
 /**
- * Wrap a completed legacy `exec_command` browser result: on an extension-
+ * Wrap a completed legacy `Bash` browser result: on an extension-
  * bridge failure, offer the inline connect card and retry the intercepted
  * operation once after the user connects. Returns either the annotated
  * original result or the retried result.

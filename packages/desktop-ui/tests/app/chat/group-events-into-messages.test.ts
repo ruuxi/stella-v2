@@ -23,13 +23,13 @@ describe("groupEventsIntoMessages", () => {
         _id: "t1",
         type: "tool_request",
         timestamp: 3,
-        payload: { toolName: "exec_command", args: { cmd: "ls" } },
+        payload: { toolName: "Bash", args: { cmd: "ls" } },
       }),
       event({
         _id: "t2",
         type: "tool_result",
         timestamp: 4,
-        payload: { toolName: "exec_command" },
+        payload: { toolName: "Bash" },
       }),
       event({ _id: "a2-final", type: "assistant_message", timestamp: 5 }),
     ];
@@ -51,13 +51,13 @@ describe("groupEventsIntoMessages", () => {
         _id: "t1",
         type: "tool_request",
         timestamp: 3,
-        payload: { toolName: "exec_command", args: { cmd: "ls" } },
+        payload: { toolName: "Bash", args: { cmd: "ls" } },
       }),
       event({
         _id: "t2",
         type: "tool_result",
         timestamp: 4,
-        payload: { toolName: "exec_command" },
+        payload: { toolName: "Bash" },
       }),
       event({
         _id: "ac1",

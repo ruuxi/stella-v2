@@ -143,4 +143,4 @@ Coordinates are screenshot pixels, not macOS screen points. They require a state
 
 Spotify and other Chromium/Electron apps can expose sparse state briefly. Do not add sleeps; `get_app_state` performs adaptive settling and waits longer only while the app continues changing.
 
-Do not use AppleScript, `osascript`, `open -a`, app-bundle internals, or shell commands to drive desktop apps. Use `exec_command` only to diagnose the Computer Use runtime itself.
+Do not use AppleScript, `osascript`, `open -a`, app-bundle internals, or shell commands to drive desktop apps. Use `Bash` only to diagnose the Computer Use runtime itself.

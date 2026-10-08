@@ -890,7 +890,7 @@ export const runResidentAgentTurn = async (
       ])
     : undefined;
 
-  // exec_command runs in the just-bash worker shell until this turn attaches
+  // Bash runs in the just-bash worker shell until this turn attaches
   // a sandbox, and in the sandbox from then on. The shell reads the world
   // through a loopback scoped to this owner world; only this
   // Durable Object commits what a run changed.

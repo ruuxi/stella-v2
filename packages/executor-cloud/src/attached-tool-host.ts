@@ -3,7 +3,7 @@
  *
  * One daemon per turn, started when the Durable Object attaches the container
  * and joined when the turn quiesces. It exists because `write_stdin` writes to
- * the PTY `exec_command` created: a per-call exec would lose that shell, so
+ * the PTY `Bash` created: a per-call exec would lose that shell, so
  * the shell state has to outlive any single call and the tool host is created
  * exactly once here.
  *
@@ -43,7 +43,9 @@ import {
   AttachedToolProtocolError,
   decodeAttachedToolFrame,
   encodeAttachedToolFrame,
+  canonicalAttachedToolName,
   isAttachedToolName,
+  isShellCommandToolName,
   parseAttachedToolControlRequest,
   parseAttachedToolRequest,
   type AttachedToolControlResponse,
@@ -499,7 +501,7 @@ export const runAttachedToolHost = (
       ): Promise<SerializedAgentToolResult> => {
         calls.set(key, { kind: "running" });
         const syncAtBoundary =
-          toolName === "exec_command" ||
+          isShellCommandToolName(toolName) ||
           toolName === "write_stdin" ||
           toolName === "Read" ||
           toolName === "Write" ||
@@ -519,10 +521,16 @@ export const runAttachedToolHost = (
         }
         let result: ToolResult;
         try {
-          result = await toolHost.executeTool(toolName, params, {
-            ...context,
-            requestId: toolCallId,
-          });
+          // The host registers the shell tool as `Bash`; an older caller's
+          // `exec_command` is the same tool.
+          result = await toolHost.executeTool(
+            canonicalAttachedToolName(toolName),
+            params,
+            {
+              ...context,
+              requestId: toolCallId,
+            },
+          );
         } catch (error) {
           if (syncAtBoundary) {
             await pushWorldProjection({

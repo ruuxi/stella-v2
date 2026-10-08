@@ -9,7 +9,7 @@ Stella ships a managed media gateway that fronts every supported provider. Use i
 
 ## Still images
 
-General does not call `image_gen` directly. The orchestrator's `image_gen` honors the image provider selected in Settings: Stella uses the managed gateway, while OpenAI, OpenRouter, and Fal use the user's locally saved provider credential directly. The call stays pending through generation and local artifact materialization, then returns terminal success, failure, cancellation, or a distinct unknown outcome. Do not poll or resubmit it. Local references sent through Stella managed generation require explicit per-call upload consent; BYOK references bypass Stella managed storage. Use the documented `stella-media` command for General-agent `exec_command` workflows.
+General does not call `image_gen` directly. The orchestrator's `image_gen` honors the image provider selected in Settings: Stella uses the managed gateway, while OpenAI, OpenRouter, and Fal use the user's locally saved provider credential directly. The call stays pending through generation and local artifact materialization, then returns terminal success, failure, cancellation, or a distinct unknown outcome. Do not poll or resubmit it. Local references sent through Stella managed generation require explicit per-call upload consent; BYOK references bypass Stella managed storage. Use the documented `stella-media` command for General-agent `Bash` workflows.
 
 ## Video, audio, 3D — read the relevant doc page first
 

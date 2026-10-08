@@ -81,7 +81,7 @@ const toolResult = (toolCallId: string, text: string): AgentMessage =>
   ({
     role: "toolResult",
     toolCallId,
-    toolName: "exec_command",
+    toolName: "Bash",
     content: [{ type: "text", text }],
     isError: false,
     timestamp: 3,
@@ -110,7 +110,7 @@ describe("agent turn journal", () => {
   test("stages rows in append order under one exact attempt", () => {
     const journal = openJournal(openSql());
     journal.append(userMessage("ship it"));
-    journal.append(assistantWithToolCalls([{ id: "call-1", name: "exec_command" }]));
+    journal.append(assistantWithToolCalls([{ id: "call-1", name: "Bash" }]));
     journal.append(toolResult("call-1", "done"));
     journal.append(assistantText("shipped"));
     expect(journal.rows().map((row) => [row.ordinal, row.role])).toEqual([
@@ -190,9 +190,9 @@ describe("agent turn journal", () => {
   test("refuses to seal an unanswered tool call that did not suspend", async () => {
     const journal = openJournal(openSql());
     journal.append(userMessage("ship it"));
-    journal.append(assistantWithToolCalls([{ id: "call-1", name: "exec_command" }]));
+    journal.append(assistantWithToolCalls([{ id: "call-1", name: "Bash" }]));
     expect(journal.openToolCalls()).toEqual([
-      { toolCallId: "call-1", toolName: "exec_command", params: { command: "ls" } },
+      { toolCallId: "call-1", toolName: "Bash", params: { command: "ls" } },
     ]);
     await expect(journal.seal({ suspended: false })).rejects.toThrow(
       /unanswered tool calls/u,
@@ -209,7 +209,7 @@ describe("agent turn journal", () => {
 
   test("gives a workspace-mutating turn with no transcript an explicit row pair", async () => {
     const journal = openJournal(openSql(), {
-      terminal: { ...TERMINAL, error: "exec_command failed" },
+      terminal: { ...TERMINAL, error: "Bash failed" },
     });
     const sealed = await journal.seal({ suspended: false });
     expect(sealed.rows.map((row) => row.role)).toEqual(["user", "assistant"]);
@@ -218,9 +218,9 @@ describe("agent turn journal", () => {
       stopReason: string;
       errorMessage: string;
     };
-    expect(assistant.content[0]!.text).toBe("exec_command failed");
+    expect(assistant.content[0]!.text).toBe("Bash failed");
     expect(assistant.stopReason).toBe("error");
-    expect(assistant.errorMessage).toBe("exec_command failed");
+    expect(assistant.errorMessage).toBe("Bash failed");
   });
 
   test("reopens the same attempt's rows rather than starting over", () => {
@@ -251,8 +251,8 @@ describe("agent turn journal tail repair", () => {
     journal.append(userMessage("ship it"));
     journal.append(
       assistantWithToolCalls([
-        { id: "call-1", name: "exec_command" },
-        { id: "call-2", name: "exec_command" },
+        { id: "call-1", name: "Bash" },
+        { id: "call-2", name: "Bash" },
       ]),
     );
     const asked: string[] = [];

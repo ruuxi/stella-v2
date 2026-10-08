@@ -4,6 +4,9 @@ import {
   ATTACHED_TOOL_REQUEST_MAX_BYTES,
   AttachedToolProtocolError,
   attachedToolPaths,
+  canonicalAttachedToolName,
+  isAttachedToolName,
+  isShellCommandToolName,
   attachedToolFingerprint,
   decodeAttachedToolFrame,
   encodeAttachedToolFrame,
@@ -20,7 +23,7 @@ const request = (overrides: Record<string, unknown> = {}) => ({
   attemptGeneration: 1,
   toolCallId: "call-1",
   fingerprint: "a".repeat(64),
-  toolName: "exec_command",
+  toolName: "Bash",
   params: { command: "ls" },
   ...overrides,
 });
@@ -190,17 +193,30 @@ describe("attached tool protocol", () => {
     ).toThrow(AttachedToolProtocolError);
   });
 
+  test("still accepts the shell tool under its old name and folds it into Bash", () => {
+    expect(isAttachedToolName("Bash")).toBe(true);
+    expect(isAttachedToolName("exec_command")).toBe(true);
+    expect(isShellCommandToolName("Bash")).toBe(true);
+    expect(isShellCommandToolName("exec_command")).toBe(true);
+    expect(isShellCommandToolName("write_stdin")).toBe(false);
+    expect(canonicalAttachedToolName("exec_command")).toBe("Bash");
+    expect(canonicalAttachedToolName("Read")).toBe("Read");
+    expect(
+      parseAttachedToolRequest(request({ toolName: "exec_command" })).toolName,
+    ).toBe("exec_command");
+  });
+
   test("fingerprints the same call identically regardless of key order", async () => {
     const left = await attachedToolFingerprint({
-      toolName: "exec_command",
+      toolName: "Bash",
       params: { command: "ls", cwd: "/world" },
     });
     const right = await attachedToolFingerprint({
-      toolName: "exec_command",
+      toolName: "Bash",
       params: { cwd: "/world", command: "ls" },
     });
     const other = await attachedToolFingerprint({
-      toolName: "exec_command",
+      toolName: "Bash",
       params: { command: "rm -rf /", cwd: "/world" },
     });
     expect(left).toBe(right);

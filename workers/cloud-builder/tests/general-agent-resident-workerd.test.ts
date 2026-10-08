@@ -189,7 +189,7 @@ describe("resident general-agent turn in workerd", () => {
     );
     expect(turn.body.residualJournalRows).toBe(0);
     expect(turn.body.toolNames).toEqual([
-      "exec_command",
+      "Bash",
       "write_stdin",
       "apply_patch",
       "web",

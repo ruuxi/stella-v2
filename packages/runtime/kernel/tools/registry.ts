@@ -8,7 +8,7 @@
  *
  * What's left here:
  *   - `mergeToolHandlers`: small utility used by the host
- *   - `createShellToolHandlers`: legacy companions to `exec_command` /
+ *   - `createShellToolHandlers`: legacy companions to `Bash` /
  *     `write_stdin` (Bash / ShellStatus / KillShell). Reachable only via
  *     direct `executeTool` calls from non-model code paths; not exposed in
  *     the model-facing catalog.
@@ -29,13 +29,12 @@ export const mergeToolHandlers = (
   ...groups: Array<Record<string, ToolHandler>>
 ): Record<string, ToolHandler> => Object.assign({}, ...groups);
 
-// Bash / ShellStatus / KillShell remain here; exec_command and write_stdin
-// live in defs/exec-command.ts and defs/write-stdin.ts now.
+// ShellStatus / KillShell remain here; the model-facing `Bash` (and its
+// `write_stdin` companion) live in defs/exec-command.ts and
+// defs/write-stdin.ts now, so the old one-shot `Bash` handler is gone.
 export const createShellToolHandlers = (
   shellState: ShellState,
 ): Record<string, ToolHandler> => ({
-  Bash: (args, context, extras) =>
-    handleBash(shellState, args, context, extras?.signal),
   ShellStatus: (args, context) => handleShellStatus(shellState, args, context),
   KillShell: (args, context) => handleKillShell(shellState, args, context),
 });

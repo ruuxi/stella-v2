@@ -31,8 +31,21 @@
  * and no descriptor, so it never reaches the model and the daemon has nothing
  * to dispatch it to.
  */
+/** The shell tool, named like Claude Code's built-in. */
+export const SHELL_COMMAND_TOOL_NAME = "Bash";
+/**
+ * What the shell tool was called before the rename. An older desktop or
+ * resident turn may still send it, so the daemon keeps accepting it and
+ * executes it as `Bash`.
+ */
+export const LEGACY_SHELL_COMMAND_TOOL_NAME = "exec_command";
+
+export const isShellCommandToolName = (value: unknown): boolean =>
+  value === SHELL_COMMAND_TOOL_NAME || value === LEGACY_SHELL_COMMAND_TOOL_NAME;
+
 export const ATTACHED_TOOL_NAMES = [
-  "exec_command",
+  SHELL_COMMAND_TOOL_NAME,
+  LEGACY_SHELL_COMMAND_TOOL_NAME,
   "write_stdin",
   "Read",
   "Write",
@@ -49,6 +62,12 @@ const ATTACHED_TOOL_NAME_SET: ReadonlySet<string> = new Set(
 
 export const isAttachedToolName = (value: unknown): value is AttachedToolName =>
   typeof value === "string" && ATTACHED_TOOL_NAME_SET.has(value);
+
+/** The name the tool host executes: the legacy shell name folds into `Bash`. */
+export const canonicalAttachedToolName = (toolName: string): string =>
+  toolName === LEGACY_SHELL_COMMAND_TOOL_NAME
+    ? SHELL_COMMAND_TOOL_NAME
+    : toolName;
 
 /**
  * v2: tool results no longer carry `fileChanges` / `producedFiles` /

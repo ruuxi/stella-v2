@@ -1,12 +1,12 @@
 {
   "name": "write_stdin",
-  "description": "Continue or control an exec_command session owned by the current conversation/agent thread. Same-session interactions are serialized; different sessions remain parallel. Omit operation to write when chars is nonempty or poll when empty. Optional write_id makes retried writes idempotent within the session's bounded receipt window. Explicit operations also support terminate, pipe-only close_stdin, and PTY-only resize. Result details include stable interaction/chunk receipts and retain shell_session_id after completion. Required: session_id.",
+  "description": "Interact with a still-running Bash session owned by the current conversation/agent thread: send input, wait for more output, or stop it. Do not use it merely to wait for a background job to finish; if your turn ends while a session runs, its exit and output are delivered to you automatically. Same-session interactions are serialized; different sessions remain parallel. Omit operation to write when chars is nonempty or poll when empty. Optional write_id makes retried writes idempotent within the session's bounded receipt window. Explicit operations also support terminate, pipe-only close_stdin, and PTY-only resize. Result details include stable interaction/chunk receipts and retain shell_session_id after completion. Required: session_id.",
   "parameters": {
     "type": "object",
     "properties": {
       "session_id": {
         "type": "string",
-        "description": "Identifier returned by exec_command. Completed results keep it as shell_session_id provenance even when session_id becomes null."
+        "description": "Identifier returned by Bash. Completed results keep it as shell_session_id provenance even when session_id becomes null."
       },
       "chars": {
         "type": "string",
@@ -41,7 +41,7 @@
       },
       "yield_time_ms": {
         "type": "number",
-        "description": "Maximum wait. A write defaults to 250 ms and caps at 30000; an empty poll defaults to 5000 and caps at 300000. Polls return on the first new output/activity, and all calls return early when the process exits."
+        "description": "Maximum wait. A write defaults to 250 ms and caps at 30000; an empty poll defaults to 30000 and caps at 600000. Polls return on the first new output/activity, and all calls return early when the process exits."
       },
       "max_output_tokens": {
         "type": "integer",

@@ -2,7 +2,7 @@
  * `write_stdin` tool — continue/poll a pipe-backed or PTY exec session.
  *
  * Pass empty `chars` to poll for more output without sending input.
- * Required: `session_id` returned by a still-running `exec_command`.
+ * Required: `session_id` returned by a still-running `Bash`.
  *
  * The model-visible surface (name, description, parameters) lives in
  * `write-stdin-def.ts` so workerd hosts expose the identical tool; this file
@@ -51,10 +51,10 @@ export const createWriteStdinTool = (
       extras?.signal,
     );
     if (!options.requestBrowserExtensionConnect) return result;
-    // A cold-start stella-browser failure usually outlives exec_command's
+    // A cold-start stella-browser failure usually outlives Bash's
     // default yield (the daemon waits up to 60s for the extension), so the
     // "Extension not connected" error typically surfaces on a poll here
-    // rather than on the original exec_command call. Same offer + re-run
+    // rather than on the original Bash call. Same offer + re-run
     // flow, reconstructing the command from the completed session record.
     const payload = result.details;
     const record =

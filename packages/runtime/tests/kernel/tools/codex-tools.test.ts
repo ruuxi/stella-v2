@@ -76,7 +76,7 @@ const execTextOf = (result: { result?: unknown }): string =>
 
 describe("general agent tools", () => {
 
-  it("exec_command defaults to the turn workspace and rejects poisoned runtime cwd fallbacks", async () => {
+  it("Bash defaults to the turn workspace and rejects poisoned runtime cwd fallbacks", async () => {
     const root = await createTempDir();
     const workspaceRoot = await createTempDir();
     const appAsar = path.join(root, "app.asar");
@@ -114,7 +114,7 @@ describe("general agent tools", () => {
     expect(execTextOf(fallbackResult)).toContain(path.basename(os.homedir()));
   });
 
-  it("exec_command honors an explicit shell and non-login mode", async () => {
+  it("Bash honors an explicit shell and non-login mode", async () => {
     if (process.platform === "win32") return;
     const root = await createTempDir();
     const shellState = createShellState(root);
@@ -145,7 +145,7 @@ describe("general agent tools", () => {
     expect(execTextOf(result).split("\nOutput:\n").at(-1)).not.toContain("l");
   });
 
-  it("exec_command follows the Unix login shell with Codex-style fallbacks", () => {
+  it("Bash follows the Unix login shell with Codex-style fallbacks", () => {
     const macFiles = new Set(["/bin/zsh", "/bin/bash", "/bin/sh"]);
     const macExists = (candidate: string) => macFiles.has(candidate);
     expect(
@@ -219,7 +219,7 @@ describe("general agent tools", () => {
     ).toBe("/bin/sh");
   });
 
-  it("exec_command preserves native syntax for an explicitly selected fish shell", async () => {
+  it("Bash preserves native syntax for an explicitly selected fish shell", async () => {
     const root = await createTempDir();
     const state = createShellState(root);
     const command = "set stella_marker ready; printf '%s' $stella_marker";
@@ -241,7 +241,7 @@ describe("general agent tools", () => {
   });
 
   runIfUnixFish(
-    "exec_command runs real fish syntax without a POSIX compatibility preamble",
+    "Bash runs real fish syntax without a POSIX compatibility preamble",
     async () => {
       const root = await createTempDir();
       const output = await runShell(
@@ -279,7 +279,7 @@ describe("general agent tools", () => {
   });
 
   runIfUnixPowerShell(
-    "exec_command preserves native failures through real Unix PowerShell shims",
+    "Bash preserves native failures through real Unix PowerShell shims",
     async () => {
       const root = await createTempDir();
       const state = createShellState(root);
@@ -347,7 +347,7 @@ describe("general agent tools", () => {
     4 * PWSH_COMMAND_BUDGET_MS + 10_000,
   );
 
-  it("exec_command defaults Windows to pwsh, then Windows PowerShell, then cmd", () => {
+  it("Bash defaults Windows to pwsh, then Windows PowerShell, then cmd", () => {
     const pwshPath = "C:\\Program Files\\PowerShell\\7\\pwsh.exe";
     const windowsPowerShellPath =
       "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
@@ -399,7 +399,7 @@ describe("general agent tools", () => {
     expect(source).toContain("$global:LASTEXITCODE");
   });
 
-  it("exec_command uses PowerShell-native arguments on Windows", () => {
+  it("Bash uses PowerShell-native arguments on Windows", () => {
     const command =
       'git --version; & "C:\\Program Files\\GitHub CLI\\gh.exe" --version';
     const launch = resolveShellLaunch(
@@ -441,7 +441,7 @@ describe("general agent tools", () => {
     expect(interactiveLaunch.args).toContain("-EncodedCommand");
   });
 
-  it("exec_command preserves quoted source for an explicit cmd.exe shell", () => {
+  it("Bash preserves quoted source for an explicit cmd.exe shell", () => {
     const command =
       '"C:\\Program Files\\GitHub CLI\\gh.exe" --version & cd /d "C:\\Program Files\\Git"';
     const launch = resolveShellLaunch(
@@ -460,7 +460,7 @@ describe("general agent tools", () => {
     expect(launch.args.at(-1)).not.toContain('\\"');
   });
 
-  it("exec_command uses Unix command flags for Git Bash on Windows", () => {
+  it("Bash uses Unix command flags for Git Bash on Windows", () => {
     const launch = resolveShellLaunch(
       'printf "%s" ready',
       { shell: "C:\\Program Files\\Git\\bin\\bash.exe", login: false },
@@ -475,7 +475,7 @@ describe("general agent tools", () => {
     });
   });
 
-  it("exec_command spawn failures identify the runner and resolved executable", async () => {
+  it("Bash spawn failures identify the runner and resolved executable", async () => {
     if (process.platform === "win32") return;
     const root = await createTempDir();
     const shellState = createShellState(root);
@@ -504,14 +504,14 @@ describe("general agent tools", () => {
       exit_code: 1,
     });
     const output = execTextOf(result);
-    expect(output).toContain("Failed to start exec_command shell");
+    expect(output).toContain("Failed to start Bash shell");
     expect(output).toContain("runner=node:child_process.spawn");
     expect(output).toContain("namespace=runtime-worker");
     expect(output).toContain(`executable=${JSON.stringify(missingShell)}`);
     expect(output).toContain("login=false");
   });
 
-  it("exec_command diagnostics name an explicit file used as cwd", async () => {
+  it("Bash diagnostics name an explicit file used as cwd", async () => {
     const root = await createTempDir();
     const cwdFile = path.join(root, "not-a-directory");
     await writeFile(cwdFile, "file cwd", "utf-8");
@@ -539,7 +539,7 @@ describe("general agent tools", () => {
       cwd: cwdFile,
     });
     const output = execTextOf(result);
-    expect(output).toContain("Failed to start exec_command shell");
+    expect(output).toContain("Failed to start Bash shell");
     expect(output).toContain(`cwd=${JSON.stringify(cwdFile)}`);
   });
 
@@ -554,7 +554,7 @@ describe("general agent tools", () => {
       ),
     ),
   )(
-    "exec_command uses a real PTY and keeps write_stdin session semantics",
+    "Bash uses a real PTY and keeps write_stdin session semantics",
     async () => {
       const root = await createTempDir();
       const bunExecutable = path.join(
@@ -674,7 +674,7 @@ describe("general agent tools", () => {
     },
   );
 
-  it("exec_command exposes the bundled Node.js runtime", async () => {
+  it("Bash exposes the bundled Node.js runtime", async () => {
     const root = await createTempDir();
     const shellState = createShellState(root);
 
@@ -702,13 +702,13 @@ describe("general agent tools", () => {
     expect(execTextOf(result)).toContain("\nOutput:\n42");
   });
 
-  it("General launches Node.js through the ToolHost exec_command boundary", async () => {
+  it("General launches Node.js through the ToolHost Bash boundary", async () => {
     const root = await createTempDir();
     const host = createToolHost({ stellaAppDir: root });
 
     try {
       const result = await host.executeTool(
-        "exec_command",
+        "Bash",
         {
           cmd: 'node -e "process.stdout.write(JSON.stringify({runtime: process.release.name}))"',
           yield_time_ms: 500,
@@ -719,7 +719,7 @@ describe("general agent tools", () => {
           requestId: "r-general-node",
           agentType: "general",
           stellaAppDir: root,
-          allowedToolNames: ["exec_command"],
+          allowedToolNames: ["Bash"],
         },
       );
 
@@ -734,7 +734,7 @@ describe("general agent tools", () => {
     }
   });
 
-  it("exec_command exposes Node.js to env shebang scripts", async () => {
+  it("Bash exposes Node.js to env shebang scripts", async () => {
     const root = await createTempDir();
     const scriptPath = path.join(root, "answer.js");
     await writeFile(
@@ -747,7 +747,9 @@ describe("general agent tools", () => {
 
     const result = await handleExecCommand(
       shellState,
-      { cmd: JSON.stringify(scriptPath), yield_time_ms: 500 },
+      // Bash waits for exit by default; a fixed short wait made this flake
+      // whenever `node` took longer than it to start under load.
+      { cmd: JSON.stringify(scriptPath) },
       {
         conversationId: "c-node-shebang",
         deviceId: "d-node-shebang",
@@ -1042,7 +1044,7 @@ EOF`,
     );
   });
 
-  it("exec_command payload reports wall_time_seconds and original_token_count", async () => {
+  it("Bash payload reports wall_time_seconds and original_token_count", async () => {
     const root = await createTempDir();
     const shellState = createShellState(root);
 
@@ -1071,7 +1073,7 @@ EOF`,
     expect(result.modelOutputTokens).toBe(256);
   });
 
-  it("exec_command accepts zero and rejects invalid max_output_tokens before execution", async () => {
+  it("Bash accepts zero and rejects invalid max_output_tokens before execution", async () => {
     const root = await createTempDir();
     const shellState = createShellState(root);
     const markerPath = path.join(root, "should-not-exist.txt");
@@ -1194,7 +1196,7 @@ EOF`,
         {
           tool_uses: [
             {
-              recipient_name: "exec_command",
+              recipient_name: "Bash",
               parameters: {
                 cmd: "printf ran > parallel-ran.txt",
                 workdir: root,
@@ -1217,7 +1219,7 @@ EOF`,
           agentType: "general",
           stellaAppDir: root,
           allowedToolNames: [
-            "exec_command",
+            "Bash",
             "apply_patch",
             "multi_tool_use_parallel",
           ],
@@ -1245,7 +1247,7 @@ EOF`,
         {
           tool_uses: [
             {
-              recipient_name: "exec_command",
+              recipient_name: "Bash",
               parameters: {
                 cmd: "printf one",
                 yield_time_ms: 500,
@@ -1253,7 +1255,7 @@ EOF`,
               },
             },
             {
-              recipient_name: "functions.exec_command",
+              recipient_name: "functions.Bash",
               parameters: {
                 cmd: "printf two",
                 yield_time_ms: 500,
@@ -1268,7 +1270,7 @@ EOF`,
           requestId: "r1",
           agentType: "general",
           stellaAppDir: root,
-          allowedToolNames: ["exec_command", "multi_tool_use_parallel"],
+          allowedToolNames: ["Bash", "multi_tool_use_parallel"],
         },
       );
 
@@ -1287,7 +1289,7 @@ EOF`,
       };
       expect(details.results).toHaveLength(2);
       for (const [index, nested] of details.results.entries()) {
-        expect(nested.tool_name).toBe("exec_command");
+        expect(nested.tool_name).toBe("Bash");
         expect(nested).not.toHaveProperty("result");
         expect(nested.details).not.toHaveProperty("output");
         expect(nested.modelOutputTokens).toBe(index === 0 ? 128 : 256);

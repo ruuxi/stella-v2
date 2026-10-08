@@ -51,6 +51,7 @@ import {
   EXEC_COMMAND_TOOL_NAME,
   EXEC_COMMAND_TOOL_PARAMETERS,
   EXEC_COMMAND_TOOL_REPLAY,
+  LEGACY_EXEC_COMMAND_TOOL_NAME,
 } from "@stella/runtime/kernel/tools/defs/exec-command-def.js";
 import {
   GREP_TOOL_DESCRIPTION,
@@ -88,7 +89,7 @@ import {
  * Where a general-agent tool's work happens.
  *
  * `container` needs a real process or the world filesystem, so the first such
- * call attaches the Cloudflare Sandbox. `exec_command` is the one container
+ * call attaches the Cloudflare Sandbox. `Bash` is the one container
  * tool with a way around that: until the turn attaches, the resident turn's
  * bridge (`worker-shell-router.ts`) first offers each command to a just-bash
  * Dynamic Worker over the world, and attaches only for the ones it cannot run. `do_local` runs against worker-side
@@ -149,11 +150,20 @@ const GENERAL_AGENT_TOOL_REPLAY = {
   agent_status: AGENT_STATUS_TOOL_REPLAY,
 } as const satisfies Record<GeneralAgentToolName, ToolReplayPolicy>;
 
+/**
+ * The shell tool used to be called `exec_command`. A journal row or a
+ * resumed call from before the rename still says so; it is the same tool.
+ */
+const canonicalGeneralAgentToolName = (toolName: string): string =>
+  toolName === LEGACY_EXEC_COMMAND_TOOL_NAME
+    ? EXEC_COMMAND_TOOL_NAME
+    : toolName;
+
 export const replayForGeneralAgentTool = (
   toolName: string,
 ): ToolReplayPolicy =>
   (GENERAL_AGENT_TOOL_REPLAY as Record<string, ToolReplayPolicy | undefined>)[
-    toolName
+    canonicalGeneralAgentToolName(toolName)
   ] ?? "unsafe";
 
 export const GENERAL_AGENT_TOOL_NAMES = Object.keys(
@@ -178,7 +188,7 @@ export const computeForTool = (toolName: string): GeneralAgentToolCompute => {
       string,
       GeneralAgentToolCompute | undefined
     >
-  )[toolName];
+  )[canonicalGeneralAgentToolName(toolName)];
   if (!compute) throw new UnknownGeneralAgentToolError(toolName);
   return compute;
 };
@@ -266,8 +276,9 @@ export const GENERAL_AGENT_TOOL_DESCRIPTORS: readonly GeneralAgentToolDescriptor
 export const descriptorForTool = (
   toolName: string,
 ): GeneralAgentToolDescriptor => {
+  const canonical = canonicalGeneralAgentToolName(toolName);
   const descriptor = GENERAL_AGENT_TOOL_DESCRIPTORS.find(
-    (candidate) => candidate.name === toolName,
+    (candidate) => candidate.name === canonical,
   );
   if (!descriptor) throw new UnknownGeneralAgentToolError(toolName);
   return descriptor;

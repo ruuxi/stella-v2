@@ -78,7 +78,7 @@ export class ShellHost extends DurableObject<Env> {
     const started = Date.now();
     const first = await router.execute({
       toolCallId: `call-${started}`,
-      toolName: "exec_command",
+      toolName: "Bash",
       params: { cmd: input.cmd, ...input.params },
       ...(signal ? { signal } : {}),
     });
@@ -127,7 +127,7 @@ export class ShellHost extends DurableObject<Env> {
     for (const cmd of input.commands) {
       const result = await router.execute({
         toolCallId: `call-${outputs.length}`,
-        toolName: "exec_command",
+        toolName: "Bash",
         params: { cmd },
       });
       outputs.push(

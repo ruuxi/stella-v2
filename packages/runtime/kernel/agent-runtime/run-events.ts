@@ -426,7 +426,7 @@ const extractToolUpdateStatusText = (
     return undefined;
   }
   const text = firstTextBlock.text.trim();
-  // Progress payloads (exec_command results, pretty-printed objects) are
+  // Progress payloads (Bash results, pretty-printed objects) are
   // model-facing, not working-indicator copy.
   return looksLikeMachineStatusText(text) ? undefined : text;
 };

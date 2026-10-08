@@ -185,7 +185,7 @@ describe("cloud native-state containment", () => {
     expect(cloudGeneralToolNames("stella")).toContain("code");
     for (const engine of ["anthropic", "chatgpt"] as const) {
       expect(cloudGeneralToolNames(engine)).not.toContain("code");
-      expect(cloudGeneralToolNames(engine)).toContain("exec_command");
+      expect(cloudGeneralToolNames(engine)).toContain("Bash");
       expect(cloudGeneralToolNames(engine)).toContain("Write");
       expect(cloudGeneralToolNames(engine)).toContain("Edit");
       expect(cloudGeneralToolNames(engine)).toContain("Grep");

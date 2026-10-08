@@ -31,7 +31,7 @@ describe("deriveTurnResource", () => {
   it("ignores tool file metadata, including large intermediate sets", () => {
     const result = deriveTurnResource([
       event("tool_result", {
-        toolName: "exec_command",
+        toolName: "Bash",
         fileChanges: [{ path: "/out/report.pdf", kind: { type: "add" } }],
         producedFiles: Array.from({ length: 1_000 }, (_, index) => ({
           path: `/tmp/frame-${index}.png`,

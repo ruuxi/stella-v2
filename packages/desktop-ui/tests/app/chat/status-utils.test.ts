@@ -27,15 +27,19 @@ const EXEC_COMMAND_RESULT_TEXT = [
 describe("normalizeDisplayStatusText", () => {
   it("maps verb-prefixed runtime tool names to friendly copy", () => {
     expect(normalizeDisplayStatusText("Running Web")).toBe("Searching");
+    expect(normalizeDisplayStatusText("Running Bash")).toBe(
+      computeStatus({ toolName: "Bash", seed: "" }),
+    );
+    // Older transcripts still carry the shell tool as `exec_command`.
     expect(normalizeDisplayStatusText("Running exec_command")).toBe(
-      computeStatus({ toolName: "exec_command", seed: "" }),
+      computeStatus({ toolName: "Bash", seed: "" }),
     );
     expect(normalizeDisplayStatusText("Running node_repl")).toBe(
       computeStatus({ toolName: "node_repl", seed: "" }),
     );
   });
 
-  it("maps leaked exec_command payloads to friendly command copy", () => {
+  it("maps leaked Bash payloads to friendly command copy", () => {
     expect(normalizeDisplayStatusText(EXEC_COMMAND_RESULT_JSON)).toBe(
       "Command failed",
     );
@@ -65,8 +69,11 @@ describe("normalizeDisplayStatusText", () => {
       computeStatus({ toolName: "unknown", seed: "{ not json" }),
     );
     expect(
+      normalizeDisplayStatusText("Running Bash with internal details"),
+    ).toBe(computeStatus({ toolName: "Bash", seed: "" }));
+    expect(
       normalizeDisplayStatusText("Running exec_command with internal details"),
-    ).toBe(computeStatus({ toolName: "exec_command", seed: "" }));
+    ).toBe(computeStatus({ toolName: "Bash", seed: "" }));
   });
 
   it("leaves genuine human-readable status text untouched", () => {

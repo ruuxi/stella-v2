@@ -52,7 +52,7 @@ describe("loadParsedAgentsFromDir", () => {
     );
     const orchestrator = agents.find((agent) => agent.id === "orchestrator");
 
-    expect(orchestrator?.toolsAllowlist).not.toContain("exec_command");
+    expect(orchestrator?.toolsAllowlist).not.toContain("Bash");
     expect(orchestrator?.toolsAllowlist).toEqual(
       expect.arrayContaining(["code", "spawn_agent", "send_input", "pause_agent"]),
     );
@@ -67,6 +67,27 @@ describe("loadParsedAgentsFromDir", () => {
 
     expect(agents.map((agent) => agent.id)).toEqual(["orchestrator"]);
     expect(agents[0]?.toolsAllowlist).toContain("spawn_agent");
+  });
+
+  it("keeps an agent file that still lists the old exec_command name working", () => {
+    const dir = tempDirs.create("agent-loader-legacy-");
+    writeFileSync(
+      path.join(dir, "worker.md"),
+      [
+        "---",
+        "name: Worker",
+        "description: Legacy worker definition from a user's home directory.",
+        "tools: exec_command, write_stdin, Bash, Read",
+        "---",
+        "Do the work.",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const agents = loadParsedAgentsFromDir(dir);
+
+    // The old spelling resolves to the current tool, once.
+    expect(agents[0]?.toolsAllowlist).toEqual(["Bash", "write_stdin", "Read"]);
   });
 
   // Production callers pass a `file://` URL built from `import.meta.url`.

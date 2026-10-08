@@ -120,7 +120,7 @@ const toolFrame = (overrides: Record<string, unknown> = {}) => ({
   attemptGeneration: IDENTITY.attemptGeneration,
   toolCallId: "call-1",
   fingerprint: "a".repeat(64),
-  toolName: "exec_command",
+  toolName: "Bash",
   params: { command: "ls" },
   ...overrides,
 });
@@ -170,6 +170,15 @@ describe("attached tool dispatcher", () => {
 
     expect(first).toEqual(replay);
     expect(first.status).toBe("completed");
+    expect(runs).toEqual(["call-1:" + "a".repeat(64)]);
+  });
+
+  test("dispatches a call that still names the shell tool exec_command", async () => {
+    const { instance, runs } = dispatcher();
+
+    const answer = await instance.answer(toolFrame({ toolName: "exec_command" }));
+
+    expect(answer.status).toBe("completed");
     expect(runs).toEqual(["call-1:" + "a".repeat(64)]);
   });
 

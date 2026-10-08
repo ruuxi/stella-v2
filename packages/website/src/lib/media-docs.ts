@@ -78,8 +78,9 @@ Music and transcription finish inside the request, so their response is
 ## Watching for completion
 
 Use the local \`stella-media\` command when you want normal
-\`exec_command\`-style behavior. It submits the same gateway request, can wait
-until the job reaches a terminal state, and saves completed outputs to
+\`Bash\`-style behavior: one call that waits for the result. It submits the
+same gateway request, can wait until the job reaches a terminal state, and
+saves completed outputs to
 \`state/media/outputs/\`.
 
 \`\`\`bash

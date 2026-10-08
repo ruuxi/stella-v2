@@ -38,10 +38,10 @@ describe("file edit tool policy", () => {
 
     expect(
       rewriteFileEditToolNames(
-        ["exec_command", "apply_patch", "web"],
+        ["Bash", "apply_patch", "web"],
         "write_edit",
       ),
-    ).toEqual(["exec_command", "Write", "Edit", "web"]);
+    ).toEqual(["Bash", "Write", "Edit", "web"]);
   });
 
   it("uses Write/Edit for Claude Code runtime even when the configured model is OpenAI-authored", () => {

@@ -302,7 +302,7 @@ export type RunnerState = {
   initializationStarted: import("../shared/readiness-latch.js").ReadinessLatch;
   localAgentManager: LocalAgentManager | null;
   /**
-   * Watches `exec_command` sessions a finished run left running and wakes
+   * Watches `Bash` sessions a finished run left running and wakes
    * the owning thread when they exit. Null until the runner is initialized
    * (it needs both the tool host and the agent manager).
    */

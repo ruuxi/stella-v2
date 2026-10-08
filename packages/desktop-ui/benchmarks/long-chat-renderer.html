@@ -67,7 +67,7 @@
       timestamp: index,
       type: index % 2 ? "tool_result" : "tool_request",
       payload: {
-        toolName: "exec_command",
+        toolName: "Bash",
         output: index >= count - largeTail
           ? `${index}:` + "x".repeat(projected ? 768 : 5000)
           : "ok",

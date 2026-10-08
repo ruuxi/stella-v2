@@ -15,12 +15,16 @@ const activity = (
 
 describe("friendlyInlineToolStatus", () => {
   it("uses state-aware friendly labels for common tools", () => {
+    expect(friendlyInlineToolStatus(activity("Bash", "started"))).toBe(
+      "Running command",
+    );
+    expect(friendlyInlineToolStatus(activity("Bash", "completed", 0))).toBe(
+      "Ran command",
+    );
+    // Older transcripts still carry the shell tool as `exec_command`.
     expect(friendlyInlineToolStatus(activity("exec_command", "started"))).toBe(
       "Running command",
     );
-    expect(
-      friendlyInlineToolStatus(activity("exec_command", "completed", 0)),
-    ).toBe("Ran command");
     expect(friendlyInlineToolStatus(activity("Edit", "completed"))).toBe(
       "Edited files",
     );
@@ -30,6 +34,9 @@ describe("friendlyInlineToolStatus", () => {
   });
 
   it("turns non-zero command exits into a friendly failure", () => {
+    expect(friendlyInlineToolStatus(activity("Bash", "completed", 2))).toBe(
+      "Command failed",
+    );
     expect(
       friendlyInlineToolStatus(activity("exec_command", "completed", 2)),
     ).toBe("Command failed");

@@ -24,6 +24,7 @@ import {
   ATTACHED_TOOL_PROTOCOL_VERSION,
   attachedToolFingerprint,
   isAttachedToolName,
+  isShellCommandToolName,
   type AttachedToolName,
 } from "@stella/executor-cloud/attached-tool-protocol";
 import type { TurnComputeUse } from "./general-agent-turn.js";
@@ -226,7 +227,7 @@ export type AgentComputeLadder = Readonly<{
 }>;
 
 const reasonFor = (toolName: AttachedToolName): AttachReason =>
-  toolName === "exec_command" || toolName === "write_stdin"
+  isShellCommandToolName(toolName) || toolName === "write_stdin"
     ? "process_tool"
     : "filesystem_tool";
 

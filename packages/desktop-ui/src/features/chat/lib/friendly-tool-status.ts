@@ -6,12 +6,16 @@ type FriendlyToolLabels = {
   failed?: string;
 };
 
+const SHELL_COMMAND_LABELS: FriendlyToolLabels = {
+  active: "Running command",
+  done: "Ran command",
+  failed: "Command failed",
+};
+
 const FRIENDLY_TOOL_LABELS: Record<string, FriendlyToolLabels> = {
-  exec_command: {
-    active: "Running command",
-    done: "Ran command",
-    failed: "Command failed",
-  },
+  // The shell tool is `Bash`; older transcripts carry it as `exec_command`.
+  bash: SHELL_COMMAND_LABELS,
+  exec_command: SHELL_COMMAND_LABELS,
   code: { active: "Running code", done: "Ran code" },
   // Legacy transcript compatibility; never advertised to new turns.
   node_repl: { active: "Running code", done: "Ran code" },

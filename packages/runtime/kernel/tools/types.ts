@@ -528,7 +528,7 @@ export type ToolHostOptions = {
   requestSecureInput?: import("./user.js").UserToolsConfig["requestSecureInput"];
   useSecureValue?: import("./user.js").UserToolsConfig["useSecureValue"];
   /**
-   * Optional desktop hop for `exec_command`: render an inline "connect the
+   * Optional desktop hop for `Bash`: render an inline "connect the
    * Stella browser extension" card in the chat when a stella-browser command
    * fails on the missing extension bridge, resolving once the user connects
    * or declines so the tool can re-run the command automatically.
@@ -604,7 +604,7 @@ export type { ToolReplayPolicy };
  * see it.
  */
 export type ToolDefinition = {
-  /** Tool name surfaced to the model (e.g. `web`, `exec_command`). */
+  /** Tool name surfaced to the model (e.g. `web`, `Bash`). */
   name: string;
   /** Human-readable label surfaced to the UI. */
   label?: string;

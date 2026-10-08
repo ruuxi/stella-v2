@@ -68,7 +68,7 @@ describe("workspace file descriptor boundary", () => {
     try {
       await expect(
         host.executeTool(
-          "exec_command",
+          "Bash",
           { cmd: "pwd" },
           {
             executionHost: "sandbox",
@@ -108,7 +108,7 @@ describe("workspace file descriptor boundary", () => {
         expect(code.error).toContain("not available in sandbox execution");
 
         const outside = await host.executeTool(
-          "exec_command",
+          "Bash",
           { cmd: "pwd", workdir: privateState },
           context,
         );
@@ -133,7 +133,7 @@ describe("workspace file descriptor boundary", () => {
       };
       try {
         const shell = await host.executeTool(
-          "exec_command",
+          "Bash",
           { cmd: "echo device-shell-ok", yield_time_ms: 3_000 },
           context,
         );

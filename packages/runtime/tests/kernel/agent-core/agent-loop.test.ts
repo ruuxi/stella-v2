@@ -23,11 +23,11 @@ const makePrepared = (execute: AgentTool["execute"]): PreparedToolCall => ({
   toolCall: {
     type: "toolCall",
     id: "tool-call-1",
-    name: "exec_command",
+    name: "Bash",
     arguments: {},
   } as never,
   tool: {
-    name: "exec_command",
+    name: "Bash",
     label: "Exec",
     description: "test tool",
     parameters: { type: "object", properties: {} } as never,
@@ -301,7 +301,7 @@ describe("active-turn working-set boundaries", () => {
         {
           type: "toolCall",
           id: "release-tool",
-          name: "exec_command",
+          name: "Bash",
           arguments: {},
         },
       ],
@@ -320,7 +320,7 @@ describe("active-turn working-set boundaries", () => {
       messages: [oldHistory] as AgentMessage[],
       tools: [
         {
-          name: "exec_command",
+          name: "Bash",
           label: "Exec",
           description: "test tool",
           parameters: { type: "object", properties: {} } as never,
@@ -411,7 +411,7 @@ describe("active-turn working-set boundaries", () => {
         {
           type: "toolCall",
           id: "boundary-tool-1",
-          name: "exec_command",
+          name: "Bash",
           arguments: {},
         },
       ],
@@ -427,7 +427,7 @@ describe("active-turn working-set boundaries", () => {
       return stream;
     });
     const tool = {
-      name: "exec_command",
+      name: "Bash",
       label: "Exec",
       description: "test tool",
       parameters: { type: "object", properties: {} } as never,
@@ -510,7 +510,7 @@ describe("active-turn working-set boundaries", () => {
         {
           type: "toolCall",
           id: "boundary-tool-error",
-          name: "exec_command",
+          name: "Bash",
           arguments: {},
         },
       ],
@@ -529,7 +529,7 @@ describe("active-turn working-set boundaries", () => {
         model,
         tools: [
           {
-            name: "exec_command",
+            name: "Bash",
             label: "Exec",
             description: "test tool",
             parameters: { type: "object", properties: {} } as never,

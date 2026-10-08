@@ -11,7 +11,7 @@ const createCommandTool = ({
   stellaDataDir,
   toolResult,
   onRawUpdate,
-  toolName = "exec_command",
+  toolName = "Bash",
 }: {
   stellaDataDir: string;
   toolResult: {
@@ -21,7 +21,7 @@ const createCommandTool = ({
     modelOutputTokens?: number;
   };
   onRawUpdate?: (update: unknown) => void;
-  toolName?: "exec_command" | "write_stdin" | "multi_tool_use_parallel";
+  toolName?: "Bash" | "write_stdin" | "multi_tool_use_parallel";
 }) => {
   const [tool] = createPiTools({
     runId: "run-command-output",
@@ -155,7 +155,7 @@ describe("command output pipeline", () => {
       });
       const event = recorder.recordToolEnd({
         toolCallId: "call-command-output",
-        toolName: "exec_command",
+        toolName: "Bash",
         result: modelText,
         details,
         isError: adapted.isError,
@@ -200,7 +200,7 @@ describe("command output pipeline", () => {
     }
   });
 
-  it.each(["exec_command", "write_stdin"] as const)(
+  it.each(["Bash", "write_stdin"] as const)(
     "%s applies max_output_tokens as a four-byte model-output budget",
     async (toolName) => {
       const stellaDataDir = await mkdtemp(
@@ -360,8 +360,8 @@ describe("command output pipeline", () => {
           result: rawModelText,
           details: {
             results: [
-              { tool_name: "exec_command", modelOutputTokens: 128 },
-              { tool_name: "exec_command", modelOutputTokens: 256 },
+              { tool_name: "Bash", modelOutputTokens: 128 },
+              { tool_name: "Bash", modelOutputTokens: 256 },
             ],
           },
           modelOutputTokens: 384,

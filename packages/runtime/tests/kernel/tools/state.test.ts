@@ -1006,7 +1006,7 @@ describe("agent_status tool", () => {
     payload: {
       role: "toolResult",
       toolCallId,
-      toolName: "exec_command",
+      toolName: "Bash",
       content: [{ type: "text", text }],
     } as AgentThreadStatusMessage["payload"],
   });
@@ -1054,7 +1054,7 @@ describe("agent_status tool", () => {
         {
           type: "toolCall",
           id: "call-1",
-          name: "exec_command",
+          name: "Bash",
           arguments: { cmd: "sleep 1800", yield_time_ms: 1_800_000 },
         },
       ]),
@@ -1111,7 +1111,7 @@ describe("agent_status tool", () => {
     // The latest tool CALL (name + args), never the tool result.
     expect(payload.latest_tool_call).toEqual({
       timestamp: new Date(3_000).toISOString(),
-      tool_name: "exec_command",
+      tool_name: "Bash",
       arguments: { cmd: "sleep 1800", yield_time_ms: 1_800_000 },
     });
     expect(JSON.stringify(payload)).not.toContain(

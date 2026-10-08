@@ -497,7 +497,7 @@ export const createToolHost = ({
   // Names of built-in tools live in a dedicated Set so the
   // extension-registration paths below can reject collisions instead
   // of silently overwriting handlers. Without this guard, an extension
-  // that registers `web` or `exec_command` would replace the built-in
+  // that registers `web` or `Bash` would replace the built-in
   // implementation; on F1 reload `unregisterExtensionTools` would then
   // delete the name entirely, leaving the runtime without a built-in
   // handler until the worker restarts.
@@ -806,7 +806,7 @@ export const createToolHost = ({
     shutdown,
     registerExtensionTools: (tools: ToolDefinition[]) => {
       // Reject tools that collide with built-in names. Pre-fix, an
-      // extension registering e.g. `web` or `exec_command` would
+      // extension registering e.g. `web` or `Bash` would
       // overwrite the built-in handler/catalog entry AND get tracked in
       // `extensionToolNames`. On F1 reload `unregisterExtensionTools`
       // would then `delete` that name from both maps, leaving the

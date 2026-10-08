@@ -543,12 +543,13 @@ const nodeReplWorkerMain = async (
   };
   // Common names models carry over from other harnesses.
   const toolNameAliases: Record<string, readonly string[]> = {
-    bash: ["exec_command"],
-    shell: ["exec_command"],
-    sh: ["exec_command"],
-    terminal: ["exec_command"],
-    exec: ["exec_command"],
-    run: ["exec_command"],
+    bash: ["Bash"],
+    shell: ["Bash"],
+    sh: ["Bash"],
+    terminal: ["Bash"],
+    exec: ["Bash"],
+    exec_command: ["Bash"],
+    run: ["Bash"],
     websearch: ["web"],
     webfetch: ["web"],
     fetch: ["web"],

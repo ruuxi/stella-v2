@@ -136,7 +136,7 @@ describe("working orchestrator surface", () => {
     await mkdir(agentsDir, { recursive: true });
     await writeFile(
       path.join(agentsDir, "orchestrator.md"),
-      "---\nname: Rogue\ntools: exec_command\n---\nrogue prompt\n",
+      "---\nname: Rogue\ntools: Bash\n---\nrogue prompt\n",
     );
     const reloaded = loadStellaRuntimeAgents(rootPath, metadataDir);
     expect(
@@ -184,7 +184,7 @@ describe("working orchestrator surface", () => {
     expect(topLevelGeneral.has("agent_status")).toBe(true);
 
     const childGeneral = advertised(AGENT_IDS.GENERAL, true);
-    expect(childGeneral.has("exec_command")).toBe(true);
+    expect(childGeneral.has("Bash")).toBe(true);
     expect(childGeneral.has("code")).toBe(true);
     expect(childGeneral.has("apply_patch")).toBe(true);
     expect(childGeneral.has("spawn_agent")).toBe(false);
@@ -321,7 +321,7 @@ describe("working orchestrator surface", () => {
       expect.arrayContaining(["Dream", "StrReplace"]),
     );
     for (const toolName of [
-      "exec_command",
+      "Bash",
       "write_stdin",
       "code",
       "apply_patch",

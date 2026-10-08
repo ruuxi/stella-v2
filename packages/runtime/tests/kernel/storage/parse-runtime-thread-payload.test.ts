@@ -81,7 +81,7 @@ describe("parseRuntimeThreadPayload", () => {
       JSON.stringify({
         role: "toolResult",
         toolCallId: "call_zero_budget",
-        toolName: "exec_command",
+        toolName: "Bash",
         isError: false,
         content: [{ type: "text", text: "spill marker" }],
         modelOutputTokens: 0,

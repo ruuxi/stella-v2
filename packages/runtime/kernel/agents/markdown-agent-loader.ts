@@ -3,6 +3,30 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { extractFrontmatter } from "../frontmatter.js";
 import type { ParsedAgent } from "./types.js";
+import {
+  EXEC_COMMAND_TOOL_NAME,
+  LEGACY_EXEC_COMMAND_TOOL_NAME,
+} from "../tools/defs/exec-command-def.js";
+
+/**
+ * Tool names that were renamed. Agent definitions live in user home dirs and
+ * forks, so an old spelling keeps resolving to the current tool.
+ */
+const LEGACY_TOOL_NAME_ALIASES: Readonly<Record<string, string>> = {
+  [LEGACY_EXEC_COMMAND_TOOL_NAME]: EXEC_COMMAND_TOOL_NAME,
+};
+
+const normalizeLegacyToolNames = (
+  toolNames: string[] | undefined,
+): string[] | undefined => {
+  if (!toolNames) return undefined;
+  const normalized: string[] = [];
+  for (const toolName of toolNames) {
+    const current = LEGACY_TOOL_NAME_ALIASES[toolName] ?? toolName;
+    if (!normalized.includes(current)) normalized.push(current);
+  }
+  return normalized;
+};
 
 const parseStringList = (value: unknown): string[] | undefined => {
   if (typeof value === "string") {
@@ -54,7 +78,7 @@ const normalizeAgent = (
   }
 
   const agentTypes = parseStringList(metadata.agentTypes) ?? [id];
-  const toolsAllowlist = parseStringList(metadata.tools);
+  const toolsAllowlist = normalizeLegacyToolNames(parseStringList(metadata.tools));
   const model =
     typeof metadata.model === "string" && metadata.model.trim().length > 0
       ? metadata.model.trim()

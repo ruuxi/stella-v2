@@ -114,6 +114,11 @@ const TOOL_DESCRIPTORS: Record<string, ToolDescriptor> = {
     category: "web",
     phrase: plural("imported a source", (n) => `imported ${n} sources`),
   },
+  // The shell tool is `Bash`; older transcripts carry it as `exec_command`.
+  bash: {
+    category: "command",
+    phrase: plural("ran a command", (n) => `ran ${n} commands`),
+  },
   exec_command: {
     category: "command",
     phrase: plural("ran a command", (n) => `ran ${n} commands`),
@@ -272,6 +277,7 @@ const titleForCall = (
       }
       return "the web";
     }
+    case "bash":
     case "exec_command": {
       const cmd = str(a.cmd) ?? str(a.command);
       return cmd ? clamp(cmd, 48) : "command";

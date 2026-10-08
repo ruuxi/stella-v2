@@ -240,7 +240,7 @@ beforeAll(() => {
       const pathologicalTail =
         turn === TURN_COUNT - 1 && event >= TOOL_EVENTS_PER_TURN - 893;
       append(event % 2 === 0 ? "tool_request" : "tool_result", {
-        toolName: "exec_command",
+        toolName: "Bash",
         event,
         output: pathologicalTail ? "x".repeat(5_000) : "ok",
       });
@@ -267,7 +267,7 @@ beforeAll(() => {
     .get(CONVERSATION_ID, VISIBLE_MESSAGES) as { sequence: number };
   legacyCutoffSequence = cutoff.sequence;
 
-  append("tool_result", { toolName: "exec_command", output: "new tail event" });
+  append("tool_result", { toolName: "Bash", output: "new tail event" });
   db.prepare(`UPDATE conversation SET next_seq = ? WHERE id = ?`).run(
     sequence + 1,
     CONVERSATION_ID,

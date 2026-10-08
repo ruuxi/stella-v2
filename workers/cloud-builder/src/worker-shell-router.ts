@@ -1,5 +1,5 @@
 /**
- * Chooses where each exec_command runs: the just-bash worker shell, or the
+ * Chooses where each Bash command runs: the just-bash worker shell, or the
  * sandbox container.
  *
  * The rule is simple because the worker shell is transactional. A command
@@ -15,8 +15,10 @@
  * go there.
  */
 
-import type { SerializedAgentToolResult } from "@stella/executor-cloud/attached-tool-protocol";
-import { EXEC_COMMAND_TOOL_NAME } from "@stella/runtime/kernel/tools/defs/exec-command-def.js";
+import {
+  isShellCommandToolName,
+  type SerializedAgentToolResult,
+} from "@stella/executor-cloud/attached-tool-protocol";
 import type { GeneralAgentComputeBridge } from "./general-agent-tools.js";
 import type {
   WorkerShellRunner,
@@ -80,7 +82,7 @@ export type WorkerShellRouteInput = Readonly<{
   dangerousReason: (command: string, cwd: string) => Promise<string | null>;
 }>;
 
-/** Decide where one exec_command runs. Pure apart from the guard. */
+/** Decide where one Bash command runs. Pure apart from the guard. */
 export const routeExecCommand = async (
   input: WorkerShellRouteInput,
 ): Promise<WorkerShellRoute> => {
@@ -160,7 +162,7 @@ const joinOutput = (stdout: string, stderr: string): string =>
     : `${stdout}\n${stderr}`;
 
 /**
- * The container's exec_command result shape (`formatExecToolResult`), so a
+ * The container's Bash result shape (`formatExecToolResult`), so a
  * model sees one tool whichever runtime answered.
  */
 export const formatWorkerShellResult = (
@@ -243,7 +245,9 @@ export const createWorkerShellRouter = (
     input.ladder.execute({ toolCallId, toolName, params });
   return {
     async execute(call) {
-      if (call.toolName !== EXEC_COMMAND_TOOL_NAME || !shell) {
+      // Older callers still name the shell tool `exec_command`; it is the
+      // same tool and takes the same route.
+      if (!isShellCommandToolName(call.toolName) || !shell) {
         return await toSandbox(call);
       }
       const route = await routeExecCommand({

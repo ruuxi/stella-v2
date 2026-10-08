@@ -1,5 +1,5 @@
 /**
- * Runs one exec_command in the just-bash worker shell and commits its effect.
+ * Runs one Bash command in the just-bash worker shell and commits its effect.
  *
  * The Dynamic Worker proposes; this module disposes. It pins the world
  * revision before the run starts, and after the run hands back its change

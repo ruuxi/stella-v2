@@ -27,7 +27,7 @@ What master already has on the cloud side (all in `workers/cloud-builder`):
   tools over a root-only Unix socket; the DO relays one call at a time through
   a request file, a one-shot client, and a bounded result file.
 - The closed capability table (`general-agent-tools.ts`) is the whole ladder:
-  `exec_command`, `write_stdin`, `Read`, `apply_patch` are `container`;
+  `Bash` (still accepted under its old name `exec_command`), `write_stdin`, `Read`, `apply_patch` are `container`;
   `code` is `js_sandbox` (a Dynamic Worker); `web` is `do_local`.
   `Grep`, `Write`, `Edit` do not
   exist in the cloud.
@@ -195,7 +195,7 @@ compatibility paths, no migrations):
    session and daemon directory per turn, cold start materialized from the
    world, turn end releases the session only.
 4. `fa21869e6` sync at command boundaries: revision + change log in the DO,
-   daemon pulls before and pushes after every exec_command/write_stdin, a
+   daemon pulls before and pushes after every Bash/write_stdin, a
    per-daemon capability for the turn.
 5. `c5332b5df` isolation on request: world forks, `spawn_agent.workspace`,
    forked agents under `/workspace/forks/<forkId>/world`, terminals report
@@ -303,7 +303,7 @@ and patches never attaches a container.
   `Write`, `Edit`, `Grep` descriptor modules beside the existing
   `*-def.ts` files so both catalogs stay byte-identical.
 - Reclassify in `general-agent-tools.ts`: `Read`, `apply_patch`, `Write`,
-  `Edit`, `Grep` become `do_local`. `exec_command` and `write_stdin` stay
+  `Edit`, `Grep` become `do_local`. `Bash` and `write_stdin` stay
   `container`.
 - Authority: the DO world is the source of truth from the first turn that
   lands this. The squashfs archive path stays for the container (see 4.2).

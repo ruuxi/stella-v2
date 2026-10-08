@@ -291,13 +291,13 @@ export const createSuspendedAgentTurnResult = (args: {
  *
  * The document and media stack adds no tool names — the host exposes
  * `stella-office`, poppler and `mediainfo` as shell commands, so they arrive
- * through `exec_command`. `Read` is the one catalog addition they need: a
+ * through `Bash`. `Read` is the one catalog addition they need: a
  * plain-text read of extracted document text that does not cost a PTY turn.
  * File mutation and search are advertised here too, although resident turns
  * execute them in the world Durable Object rather than this container host.
  */
 const CLOUD_GENERAL_TOOLS = [
-  "exec_command",
+  "Bash",
   "write_stdin",
   "apply_patch",
   "web",
@@ -496,7 +496,7 @@ export const commitTurnStateBeforeTranscript = async (args: {
 /**
  * The office CLI ships inside the image next to the runtime. The tool host
  * turns this into a `stella-office` shell function plus `STELLA_OFFICE_BIN`,
- * so document work runs through `exec_command` rather than a dedicated tool.
+ * so document work runs through `Bash` rather than a dedicated tool.
  */
 const resolveOfficeBinPath = (): string | undefined => {
   const candidate =

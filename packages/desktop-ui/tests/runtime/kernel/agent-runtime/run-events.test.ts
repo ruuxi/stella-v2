@@ -773,18 +773,18 @@ describe("subscribeRuntimeAgentEvents", () => {
       runId,
       conversationId,
       toolCallId: "call-command",
-      toolName: "exec_command",
+      toolName: "Bash",
     });
     state = streamStoreReducer(state, {
       type: "tool-end",
       runId,
       toolCallId: "call-command",
-      toolName: "exec_command",
+      toolName: "Bash",
       exitCode: 0,
     });
     expect(state.runsById[runId]?.latestCompletedTool).toEqual({
       toolCallId: "call-command",
-      toolName: "exec_command",
+      toolName: "Bash",
       exitCode: 0,
     });
 
@@ -1129,7 +1129,7 @@ describe("sensitive runtime event payloads", () => {
     );
     const toolStart = recorder.recordToolStart({
       toolCallId: "tool-redaction",
-      toolName: "exec_command",
+      toolName: "Bash",
       statusText: "Authorization: Basic c3RhdHVzOnNlY3JldA==",
       toolArgs: {
         command: "API_TOKEN=command-secret curl --password flag-secret",
@@ -1139,7 +1139,7 @@ describe("sensitive runtime event payloads", () => {
     });
     const toolEnd = recorder.recordToolEnd({
       toolCallId: "tool-redaction",
-      toolName: "exec_command",
+      toolName: "Bash",
       result: "Cookie: session=result-secret",
       details: {
         output: `Authorization: Bearer detail-secret ${jwt}`,
@@ -1189,7 +1189,7 @@ describe("sensitive runtime event payloads", () => {
     __privateTaskDecorationStore.resetForTests();
   });
 
-  it("does not publish exec_command results as working-indicator status", () => {
+  it("does not publish Bash results as working-indicator status", () => {
     const listeners = new Set<(event: AgentEvent) => void>();
     const agent = {
       state: { messages: [] },
@@ -1239,7 +1239,7 @@ describe("sensitive runtime event payloads", () => {
         listener({
           type: "tool_execution_update",
           toolCallId: "call-exec",
-          toolName: "exec_command",
+          toolName: "Bash",
           args: { cmd: details.command },
           partialResult: {
             content: [{ type: "text", text: commandResult }],

@@ -317,7 +317,7 @@ const TOOL_REQUEST: AttachedToolRequest = {
   attemptGeneration: 1,
   toolCallId: "call-1",
   fingerprint: "a".repeat(64),
-  toolName: "exec_command",
+  toolName: "Bash",
   params: { command: "ls" },
 };
 

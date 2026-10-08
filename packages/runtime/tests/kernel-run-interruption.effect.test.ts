@@ -484,11 +484,11 @@ describe("agent-loop pending tool teardown", () => {
     toolCall: {
       type: "toolCall",
       id: "tool-call-1",
-      name: "exec_command",
+      name: "Bash",
       arguments: {},
     } as never,
     tool: {
-      name: "exec_command",
+      name: "Bash",
       label: "Exec",
       description: "test tool",
       parameters: { type: "object", properties: {} } as never,

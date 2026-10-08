@@ -361,8 +361,8 @@ describe("spawn-anchored background task lifecycle", () => {
       statusText: "Compressing files",
       toolActivity: {
         toolCallId: "call-1",
-        toolName: "exec_command",
-        label: "exec_command exited 0",
+        toolName: "Bash",
+        label: "Bash exited 0",
         state: "completed",
         exitCode: 0,
       },
@@ -385,7 +385,7 @@ describe("spawn-anchored background task lifecycle", () => {
     expect(resolved.failedThreadIds).toEqual(["builder"]);
     expect(resolved.progressTexts.builder).toBe("Compressing files");
     expect(resolved.toolActivities.builder).toMatchObject({
-      toolName: "exec_command",
+      toolName: "Bash",
       state: "completed",
       exitCode: 0,
     });

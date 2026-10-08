@@ -992,7 +992,7 @@ describe("session-store", () => {
           type: "tool_request",
           timestamp: baseTs + 2 + t,
           requestId: `req-${i}-${t}`,
-          payload: { toolName: "exec_command", args: { cmd: "echo" } },
+          payload: { toolName: "Bash", args: { cmd: "echo" } },
         });
       }
     }
@@ -1220,7 +1220,7 @@ describe("session-store", () => {
           type: index % 2 === 0 ? "tool_request" : "tool_result",
           timestamp: 1_001 + index,
           payload: {
-            toolName: "exec_command",
+            toolName: "Bash",
             index,
             output:
               `${index}:` +
@@ -1336,12 +1336,12 @@ describe("session-store", () => {
       _id: "large-tool",
       timestamp: 1,
       type: "tool_result",
-      payload: { toolName: "exec_command", output: "😀".repeat(10_000) },
+      payload: { toolName: "Bash", output: "😀".repeat(10_000) },
     });
     expect(
       new TextEncoder().encode(JSON.stringify(toolEvent)).byteLength,
     ).toBeLessThanOrEqual(4_300);
-    expect(toolEvent.payload?.toolName).toBe("exec_command");
+    expect(toolEvent.payload?.toolName).toBe("Bash");
 
     const text = "a".repeat(10_000);
     const assistantEvent = {
@@ -1530,7 +1530,7 @@ describe("session-store", () => {
       type: "tool_result",
       timestamp: 1_011,
       payload: {
-        toolName: "exec_command",
+        toolName: "Bash",
         producedFiles: [{ path: "/tmp/report.pdf", kind: { type: "add" } }],
       },
     });
@@ -1587,7 +1587,7 @@ describe("session-store", () => {
         payload:
           index === 20
             ? {
-                toolName: "exec_command",
+                toolName: "Bash",
                 producedFiles: [
                   { path: "/tmp/middle.pdf", kind: { type: "add" } },
                 ],

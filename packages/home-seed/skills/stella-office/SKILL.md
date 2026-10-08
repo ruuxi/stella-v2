@@ -5,13 +5,13 @@ description: Create, analyze, proofread, and modify Office documents (.docx, .xl
 
 # stella-office
 
-AI-friendly CLI for `.docx`, `.xlsx`, `.pptx`. Stella bundles this command directly into `exec_command`. No Office installation and no separate CLI install flow.
+AI-friendly CLI for `.docx`, `.xlsx`, `.pptx`. Stella bundles this command directly into `Bash`. No Office installation and no separate CLI install flow.
 
 ## Availability
 
-- Call `stella-office` through `exec_command` with `cmd: "stella-office ..."`. Stella auto-injects the binary into shell PATH.
+- Call `stella-office` through `Bash` with `cmd: "stella-office ..."`. Stella auto-injects the binary into shell PATH, and the call returns the command's full output once it exits.
 - If the command is unexpectedly unavailable, the bundled binary for this platform may not be present yet.
-- For live chat previews inside Stella, use `exec_command` with `cmd: "stella-office preview <file>"`.
+- For live chat previews inside Stella, use `Bash` with `cmd: "stella-office preview <file>"`.
 
 ```json
 { "cmd": "stella-office docx view /abs/path/report.docx text" }

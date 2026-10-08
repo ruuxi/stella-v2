@@ -45,7 +45,7 @@ describe("conversation display message merge", () => {
           _id: "tool-1",
           timestamp: 4,
           type: "tool_result",
-          payload: { toolName: "exec_command" },
+          payload: { toolName: "Bash" },
         }),
       ],
     });

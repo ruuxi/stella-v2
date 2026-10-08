@@ -298,7 +298,7 @@ const hasShellToolGuidance = (context) => {
  * Agents were writing checks the runtime couldn't cash — "I'll report back
  * when the benchmark lands" — and their threads stopped forever; one left a
  * GPU pod idle-billing for hours. There are exactly two ways to wait now
- * and no tool for either: a background `exec_command` session wakes the
+ * and no tool for either: a background `Bash` session wakes the
  * thread when it exits, and everything else is polled inside the turn.
  * Since the covered case is defined by what the tool host can see, the
  * boundary has to be spelled out too.
@@ -309,8 +309,8 @@ const buildBackgroundWaitPrompt = (context) => {
   }
   return [
     "Waiting on long work:",
-    "- A command still running when `exec_command` yields keeps running after your turn ends, and the runtime watches it for you. When it exits you are resumed in this thread, with your history, holding its command, exit code, and output. So you may start a long job, end your turn, and genuinely be woken when it finishes — several exits close together arrive as one wake.",
-    "- That covers sessions `exec_command` gave you a `session_id` for. It does NOT cover a process you detach from that session (`nohup … &`, `disown`, a daemon that forks away): the session exits immediately and the thing you actually care about is invisible to the runtime. Run long work in the foreground of its own session and let it hold the session open.",
+    "- A command still running when `Bash` yields keeps running after your turn ends, and the runtime watches it for you. When it exits you are resumed in this thread, with your history, holding its command, exit code, and output. So you may start a long job, end your turn, and genuinely be woken when it finishes — several exits close together arrive as one wake.",
+    "- That covers sessions `Bash` gave you a `session_id` for. It does NOT cover a process you detach from that session (`nohup … &`, `disown`, a daemon that forks away): the session exits immediately and the thing you actually care about is invisible to the runtime. Run long work in the foreground of its own session and let it hold the session open.",
     "- For anything else you need to wait on — a file appearing, a remote job flipping to done, an endpoint going healthy — poll inside the current turn. `write_stdin` with empty `chars` blocks on a session until it prints or exits, up to 5 minutes per call; a foreground `sleep N && check` loop works for the rest. There is no tool that wakes you later, so a wait you do not either background as a session or finish in-turn is a wait nobody is keeping.",
     "- Never claim you'll report back on something outside those two paths. If a wait is genuinely unattended, say so plainly and hand over the exact command to check it.",
   ].join("\n");
@@ -326,7 +326,7 @@ const buildFileEditingPrompt = (context) => {
       "File edits:",
       "- Use `Write` for new files or full-file replacements.",
       "- Use `Edit` for targeted text replacements inside existing files.",
-      "- Use `exec_command` for read-only inspection, builds/tests, package-manager commands, and commands that create external artifacts.",
+      "- Use `Bash` for read-only inspection, builds/tests, package-manager commands, and commands that create external artifacts.",
       "- Do not use shell heredocs or `cat > file` for source edits when `Write` or `Edit` can express the change.",
     ].join("\n");
   }
@@ -336,7 +336,7 @@ const buildFileEditingPrompt = (context) => {
   return [
     "File edits:",
     "- Prefer `apply_patch` for source and text-file edits so changes are tracked as structured patches.",
-    "- Use `exec_command` for read-only inspection, builds/tests, package-manager commands, and commands that create external artifacts.",
+    "- Use `Bash` for read-only inspection, builds/tests, package-manager commands, and commands that create external artifacts.",
     "- Do not use shell heredocs or `cat > file` for source edits when `apply_patch` can express the change.",
   ].join("\n");
 };

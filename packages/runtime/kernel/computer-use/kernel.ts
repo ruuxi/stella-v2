@@ -944,7 +944,7 @@ class NodeReplKernel {
     if (BLOCKED_NODE_MODULE_RE.test(code)) {
       return Promise.reject(
         new Error(
-          "Direct process spawning is blocked in code; use sky for computer use or exec_command for explicit shell work.",
+          "Direct process spawning is blocked in code; use sky for computer use or Bash for explicit shell work.",
         ),
       );
     }

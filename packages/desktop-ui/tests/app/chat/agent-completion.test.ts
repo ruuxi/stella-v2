@@ -78,7 +78,7 @@ describe("deriveAgentCompletionFiles", () => {
         type: "tool_result",
         timestamp: 5,
         payload: {
-          toolName: "exec_command",
+          toolName: "Bash",
           agentId: "a1",
           producedFiles: [{ kind: { type: "add" }, path: "/out/direct.png" }],
         },

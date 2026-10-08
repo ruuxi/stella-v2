@@ -17,7 +17,7 @@ pub fn native_definitions(allowed: &[&str]) -> Vec<Value> {
 }
 pub static EXEC_COMMAND: LazyLock<Value> = LazyLock::new(|| {
     serde_json::from_str(include_str!("../assets/tools/exec-command.json"))
-        .expect("built-in exec_command")
+        .expect("built-in Bash")
 });
 pub static WRITE_STDIN: LazyLock<Value> = LazyLock::new(|| {
     serde_json::from_str(include_str!("../assets/tools/write-stdin.json"))

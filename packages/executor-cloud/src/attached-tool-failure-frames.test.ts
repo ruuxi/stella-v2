@@ -24,7 +24,7 @@ const toolRequest = {
   attemptGeneration: 1,
   toolCallId: TOOL_CALL_ID,
   fingerprint: FINGERPRINT,
-  toolName: "exec_command",
+  toolName: "Bash",
   params: { cmd: "true" },
 };
 

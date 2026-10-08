@@ -26,7 +26,7 @@ describe("run-owned tool execution lifecycle", () => {
     let received: AbortSignal | undefined;
     const result = await supervise({
       toolCallId: "call-1",
-      toolName: "exec_command",
+      toolName: "Bash",
       signal: outer.signal,
       run: async (signal) => {
         received = signal;
@@ -35,7 +35,7 @@ describe("run-owned tool execution lifecycle", () => {
     });
     expect(result).toBe("ok");
     expect(resources).toHaveLength(1);
-    expect(resources[0].label).toBe("tool:exec_command:call-1");
+    expect(resources[0].label).toBe("tool:Bash:call-1");
     // Child signal, not the loop signal itself.
     expect(received).toBeDefined();
     expect(received).not.toBe(outer.signal);
@@ -51,7 +51,7 @@ describe("run-owned tool execution lifecycle", () => {
 
     const execution = supervise({
       toolCallId: "call-2",
-      toolName: "exec_command",
+      toolName: "Bash",
       signal: outer.signal,
       run: (signal) =>
         new Promise((resolve) => {
@@ -78,7 +78,7 @@ describe("run-owned tool execution lifecycle", () => {
     let cleanedUp = false;
     void supervise({
       toolCallId: "call-3",
-      toolName: "exec_command",
+      toolName: "Bash",
       signal: undefined,
       run: (signal) =>
         new Promise((resolve) => {
@@ -127,7 +127,7 @@ describe("run-owned tool execution lifecycle", () => {
     let release: () => void = () => {};
     const first = supervise({
       toolCallId: "call-5",
-      toolName: "exec_command",
+      toolName: "Bash",
       signal: undefined,
       run: () =>
         new Promise<string>((resolve) => {
@@ -139,11 +139,11 @@ describe("run-owned tool execution lifecycle", () => {
     await expect(
       supervise({
         toolCallId: "call-5",
-        toolName: "exec_command",
+        toolName: "Bash",
         signal: undefined,
         run: async () => "second",
       }),
-    ).rejects.toThrow("Tool call call-5 (exec_command) is already executing.");
+    ).rejects.toThrow("Tool call call-5 (Bash) is already executing.");
 
     release();
     await expect(first).resolves.toBe("first");
@@ -151,7 +151,7 @@ describe("run-owned tool execution lifecycle", () => {
     await expect(
       supervise({
         toolCallId: "call-5",
-        toolName: "exec_command",
+        toolName: "Bash",
         signal: undefined,
         run: async () => "third",
       }),
@@ -164,7 +164,7 @@ describe("run-owned tool execution lifecycle", () => {
     let received: AbortSignal | undefined;
     await supervise({
       toolCallId: "call-6",
-      toolName: "exec_command",
+      toolName: "Bash",
       signal: outer.signal,
       run: async (signal) => {
         received = signal;
@@ -183,7 +183,7 @@ describe("run-owned tool execution lifecycle", () => {
     await expect(
       supervise({
         toolCallId: "call-7",
-        toolName: "exec_command",
+        toolName: "Bash",
         signal: undefined,
         run: async () => {
           throw failure;

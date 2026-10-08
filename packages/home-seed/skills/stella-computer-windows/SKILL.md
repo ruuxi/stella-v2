@@ -133,4 +133,4 @@ Coordinates are screenshot pixels and require a state captured with `screenshot_
 
 Do not add sleeps. `get_app_state` performs adaptive settling and extends its wait only while UI Automation events indicate continued changes.
 
-Do not use PowerShell, registry edits, app-bundle paths, or app-specific scripting to drive desktop apps. Use `exec_command` only to diagnose the Computer Use runtime itself.
+Do not use PowerShell, registry edits, app-bundle paths, or app-specific scripting to drive desktop apps. Use `Bash` only to diagnose the Computer Use runtime itself.

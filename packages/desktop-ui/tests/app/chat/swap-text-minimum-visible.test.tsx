@@ -179,9 +179,9 @@ describe("SwapText minimum visible duration", () => {
     const props = buildInlineWorkingIndicatorProps({
       isStreaming: true,
       isToolActive: true,
-      activeToolName: "exec_command",
+      activeToolName: "Bash",
       activeToolCallId: "call-1",
-      runtimeStatusText: "Running exec_command with internal details",
+      runtimeStatusText: "Running Bash with internal details",
     });
 
     expect(props.status).toBeNull();
@@ -191,6 +191,6 @@ describe("SwapText minimum visible duration", () => {
         toolName: props.runningTool,
         toolCallId: props.runningToolId,
       }),
-    ).not.toContain("exec_command");
+    ).not.toContain("Bash");
   });
 });

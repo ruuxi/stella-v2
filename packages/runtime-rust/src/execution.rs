@@ -50,7 +50,7 @@ impl Execution for NativeExecution {
     }
     async fn execute(&self, call: &ToolCall) -> Result<ToolResult> {
         match call.name.as_str() {
-            "exec_command" => {
+            "Bash" | "exec_command" => {
                 self.shells
                     .exec(
                         call.arguments.clone(),

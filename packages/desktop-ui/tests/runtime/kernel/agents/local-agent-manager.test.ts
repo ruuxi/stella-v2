@@ -1234,8 +1234,8 @@ describe("LocalAgentManager file records across queued send_input turns", () => 
           runId: args.runId,
           seq: 1,
           toolCallId: "call-1",
-          toolName: "exec_command",
-          statusText: "Running exec_command",
+          toolName: "Bash",
+          statusText: "Running Bash",
         });
         toolStarted?.();
         await runGate;
@@ -1243,7 +1243,7 @@ describe("LocalAgentManager file records across queued send_input turns", () => 
           runId: args.runId,
           seq: 2,
           toolCallId: "call-1",
-          toolName: "exec_command",
+          toolName: "Bash",
           resultPreview: "ok",
         });
         return { runId: args.runId, result: "done" };
@@ -1273,7 +1273,7 @@ describe("LocalAgentManager file records across queued send_input turns", () => 
       beforeCreate,
     );
     expect(midToolSnapshot?.activeToolCount).toBe(1);
-    expect(midToolSnapshot?.recentActivity).toEqual(["Running exec_command"]);
+    expect(midToolSnapshot?.recentActivity).toEqual(["Running Bash"]);
 
     // Real manager behavior while the tool keeps running: the stamp does
     // NOT move (nothing re-stamps it mid-call) — `activeToolCount` is the

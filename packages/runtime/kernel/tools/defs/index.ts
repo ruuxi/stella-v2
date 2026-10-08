@@ -59,7 +59,7 @@ export type BuildBuiltinToolsContext = ToolHostOptions & {
    * silently fall back to the install/repo root.
    */
   stellaDataDir: string;
-  /** Initialized PTY shell state shared by exec_command / write_stdin. */
+  /** Initialized PTY shell state shared by Bash / write_stdin. */
   shellState: ShellState;
   /** Initialized state context for the durable spawn_agent / send_input / pause_agent tools. */
   stateContext: StateContext;

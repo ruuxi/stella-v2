@@ -1,7 +1,7 @@
 /**
  * Automatic wake on background command exit.
  *
- * An agent's turn is the only place its own code runs. `exec_command`
+ * An agent's turn is the only place its own code runs. `Bash`
  * sessions deliberately outlive the run that started them (see the
  * teardown comment in `tools/host.ts`), so a build, benchmark, or training
  * job the agent left running keeps running after the turn ends — but

@@ -63,13 +63,13 @@ const reasoningAssistantTurn = (
     {
       type: "toolCall",
       id: "call_0vJ4wdByAAfxKnYgNyfEWhZz",
-      name: "exec_command",
+      name: "Bash",
       arguments: { cmd: "git status --short" },
     },
     {
       type: "toolCall",
       id: "call_hZK6s3sX7fICtwTRWgph3ct1",
-      name: "exec_command",
+      name: "Bash",
       arguments: { cmd: "rg --files -g '*model*'" },
     },
   ],
@@ -91,7 +91,7 @@ const reasoningAssistantTurn = (
 const toolResult = (id: string): ToolResultMessage => ({
   role: "toolResult",
   toolCallId: id,
-  toolName: "exec_command",
+  toolName: "Bash",
   content: [{ type: "text", text: "ok" }],
   isError: false,
   timestamp: 0,
@@ -187,13 +187,13 @@ const deepseekReasoningTurn = (): AssistantMessage => ({
     {
       type: "toolCall",
       id: "call_ds_0",
-      name: "exec_command",
+      name: "Bash",
       arguments: { cmd: "git status --short" },
     },
     {
       type: "toolCall",
       id: "call_ds_1",
-      name: "exec_command",
+      name: "Bash",
       arguments: { cmd: "rg --files -g '*model*'" },
     },
   ],

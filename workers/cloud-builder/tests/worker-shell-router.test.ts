@@ -138,7 +138,7 @@ const fakeLadder = (attached = false) => {
 
 const exec = (cmd: string, extra: Record<string, unknown> = {}) => ({
   toolCallId: `call-${Math.random()}`,
-  toolName: "exec_command",
+  toolName: "Bash",
   params: { cmd, ...extra },
 });
 
@@ -301,7 +301,7 @@ describe("worker shell runner", () => {
   });
 });
 
-describe("exec_command routing", () => {
+describe("Bash routing", () => {
   test("the sandbox takes every command once it is attached", async () => {
     expect(
       await routeExecCommand({
@@ -376,7 +376,7 @@ describe("exec_command routing", () => {
 });
 
 describe("worker shell router", () => {
-  test("answers in the container's exec_command shape without a sandbox", async () => {
+  test("answers in the container's Bash shape without a sandbox", async () => {
     const h = await harness({ "a.txt": "hello\n" });
     const { ladder, calls } = fakeLadder();
     let clock = 1_000;
@@ -407,6 +407,24 @@ describe("worker shell router", () => {
     });
   });
 
+  test("a call that still says exec_command takes the worker shell too", async () => {
+    const h = await harness({ "a.txt": "hello\n" });
+    const { ladder, calls } = fakeLadder();
+    const router = createWorkerShellRouter({
+      ladder,
+      shell: h.runner,
+      root: ROOT,
+      dangerousReason: noDanger,
+    });
+    const result = await router.execute({
+      ...exec("cat a.txt"),
+      toolName: "exec_command",
+    });
+    expect(calls).toHaveLength(0);
+    expect(result.outcome.kind).toBe("ok");
+    expect(result.details).toMatchObject({ runtime: "worker_shell" });
+  });
+
   test("a mixed command runs once, in the sandbox, with none of the shell's effects", async () => {
     const h = await harness({ "counter.txt": "0\n" });
     const { ladder, calls } = fakeLadder();
@@ -418,9 +436,9 @@ describe("worker shell router", () => {
     });
     const call = exec("echo 1 >> counter.txt\nrm counter.txt\nnpm test");
     const result = await router.execute(call);
-    expect(result.outcome).toEqual({ kind: "ok", text: "sandbox ran exec_command" });
+    expect(result.outcome).toEqual({ kind: "ok", text: "sandbox ran Bash" });
     expect(calls).toEqual([
-      { toolCallId: call.toolCallId, toolName: "exec_command", params: call.params },
+      { toolCallId: call.toolCallId, toolName: "Bash", params: call.params },
     ]);
     // The only effect is whatever the sandbox does; the shell left no trace.
     expect(h.commits).toHaveLength(0);
@@ -468,7 +486,7 @@ describe("worker shell router", () => {
     await createWorkerShellRouter({ ladder, root: ROOT }).execute(exec("ls"));
     expect(calls.map((call) => call.toolName)).toEqual([
       "write_stdin",
-      "exec_command",
+      "Bash",
     ]);
     expect(h.runs).toHaveLength(0);
   });

@@ -10,7 +10,7 @@ import {
 } from "../kernel/tools/shell.js";
 
 /**
- * Shell ownership classification (phase 3 batch 2): an exec_command that
+ * Shell ownership classification (phase 3 batch 2): an Bash that
  * aborts BEFORE its session id reaches the model owns its shell (nothing
  * can ever address it) and must kill it; a session whose id was already
  * delivered is conversation-scoped and an aborted write_stdin poll must
@@ -53,7 +53,7 @@ const makeRoot = async () => {
 };
 
 describe("shell ownership on abort", () => {
-  it("kills a run-owned shell when exec_command aborts before returning", async () => {
+  it("kills a run-owned shell when Bash aborts before returning", async () => {
     const root = await makeRoot();
     const state = createShellState(root);
     const abort = new AbortController();

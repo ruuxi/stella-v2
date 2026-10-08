@@ -20,7 +20,7 @@ describe("executeToolWithInactivityBound", () => {
 
   it("keeps a tool alive while it reports activity", async () => {
     const result = await executeToolWithInactivityBound({
-      toolName: "exec_command",
+      toolName: "Bash",
       timeoutMs: 40,
       run: async (_signal, onActivity) => {
         for (let i = 0; i < 4; i++) {

@@ -10,7 +10,9 @@ import {
   UnknownGeneralAgentToolError,
   computeForTool,
   createResidentGeneralAgentTools,
+  descriptorForTool,
   generalAgentToolNamesFor,
+  replayForGeneralAgentTool,
 } from "../src/general-agent-tools.js";
 
 const stubTool = (name: string): AgentTool => ({
@@ -61,6 +63,17 @@ describe("pinned resident catalog", () => {
     );
   });
 
+  test("classifies the shell tool's old name exactly like Bash", () => {
+    expect(computeForTool("Bash")).toBe("container");
+    expect(computeForTool("exec_command")).toBe("container");
+    expect(descriptorForTool("exec_command").name).toBe("Bash");
+    expect(replayForGeneralAgentTool("exec_command")).toBe(
+      replayForGeneralAgentTool("Bash"),
+    );
+    expect(generalAgentToolNamesFor("container")).toContain("Bash");
+    expect(generalAgentToolNamesFor("container")).not.toContain("exec_command");
+  });
+
   test("routes each bridged tool through the ladder when one is supplied", async () => {
     const seen: string[] = [];
     const catalog = createResidentGeneralAgentTools(doLocalStubs(), {
@@ -73,7 +86,7 @@ describe("pinned resident catalog", () => {
       },
     });
 
-    for (const name of ["exec_command", "write_stdin"]) {
+    for (const name of ["Bash", "write_stdin"]) {
       const tool = catalog.find((entry) => entry.name === name);
       const result = await tool!.execute("call-1", {});
       expect(result.isError).toBeUndefined();
@@ -81,7 +94,7 @@ describe("pinned resident catalog", () => {
         { type: "text", text: "from the workspace" },
       ]);
     }
-    expect(seen).toEqual(["exec_command:call-1", "write_stdin:call-1"]);
+    expect(seen).toEqual(["Bash:call-1", "write_stdin:call-1"]);
   });
 
   test("never sends code to the ladder; without a JS sandbox it refuses with its own reason", async () => {
@@ -111,7 +124,7 @@ describe("pinned resident catalog", () => {
     });
 
     const result = await catalog
-      .find((entry) => entry.name === "exec_command")!
+      .find((entry) => entry.name === "Bash")!
       .execute("call-1", {});
 
     expect(result.isError).toBe(true);

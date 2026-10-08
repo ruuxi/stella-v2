@@ -47,9 +47,9 @@ describe("canonical mobile working state", () => {
   test("a queued send preserves the current turn's live tool status", () => {
     expect(canonicalWorkingState({
       ...base, records: [prompt, phase("started")], hasQueuedSend: true,
-      live: { ...base.live, toolName: "exec_command", toolLabel: "Running command" },
+      live: { ...base.live, toolName: "Bash", toolLabel: "Running command" },
     })).toMatchObject({ sending: true, workingIndicator: { active: true,
-      toolName: "exec_command", status: "Running command" } });
+      toolName: "Bash", status: "Running command" } });
   });
   test("an answer does not hide pending queued work before terminal", () => {
     expect(canonicalWorkingState({ ...base, records: [prompt, phase("started"), answer], hasQueuedSend: true }))
@@ -69,7 +69,7 @@ describe("canonical mobile working state", () => {
     test(`${terminal} clears busy despite stale live tool and pending placement poll`, () => {
       expect(canonicalWorkingState({
         ...base,
-        live: { ...base.live, toolName: "exec_command" },
+        live: { ...base.live, toolName: "Bash" },
         records: [prompt, phase("started"), phase(terminal)],
       })).toMatchObject({ sending: false, workingIndicator: { active: false, exitImmediately: true } });
     });
@@ -82,11 +82,11 @@ describe("canonical mobile working state", () => {
   });
   test("tool work after an assistant preamble remains visible", () => {
     const tool: JournalRecord = { ...answer, seq: 4, payload: { content: [
-      { type: "toolCall", id: "tool-1", name: "exec_command", arguments: {} },
+      { type: "toolCall", id: "tool-1", name: "Bash", arguments: {} },
     ] } };
     expect(canonicalWorkingState({
       ...base, records: [prompt, phase("started"), answer, tool],
-      live: { ...base.live, toolName: "exec_command" },
+      live: { ...base.live, toolName: "Bash" },
     })).toMatchObject({ sending: true, workingIndicator: { active: true, exitImmediately: false } });
   });
   test("another active turn survives the local turn's completion", () => {

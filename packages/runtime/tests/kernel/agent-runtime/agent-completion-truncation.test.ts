@@ -85,7 +85,7 @@ describe("getAgentCompletion truncated-reasoning detection", () => {
       assistantMessage({
         stopReason: "length",
         content: [
-          { type: "toolCall", id: "t1", name: "exec_command", arguments: {} },
+          { type: "toolCall", id: "t1", name: "Bash", arguments: {} },
         ],
       }),
     );

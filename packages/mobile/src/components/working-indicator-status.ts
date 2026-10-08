@@ -27,6 +27,21 @@ const AGENT_WORK_VARIATIONS: readonly string[] = [
   "One moment",
 ];
 
+/**
+ * The shell tool is `Bash` (the key below is its normalized form); older
+ * transcripts carry it as `exec_command`. Both share one pool.
+ */
+const SHELL_COMMAND_VARIATIONS: readonly string[] = [
+  "Running it",
+  "Working on it",
+  "Running a command",
+  "Getting it done",
+  "On it",
+  "Handling it",
+  "Making it happen",
+  "Just a sec",
+];
+
 const TOOL_STATUS_BY_NAME: Record<string, readonly string[]> = {
   image_gen: [
     "Sketching",
@@ -105,16 +120,9 @@ const TOOL_STATUS_BY_NAME: Record<string, readonly string[]> = {
   // These run inside spawned agents. Raw `Running <toolName>` status text maps
   // through this same table so the bare tool identifier never reaches the
   // working indicator. Keep the first entry as the canonical phrase.
-  exec_command: [
-    "Running it",
-    "Working on it",
-    "Running a command",
-    "Getting it done",
-    "On it",
-    "Handling it",
-    "Making it happen",
-    "Just a sec",
-  ],
+  bash: SHELL_COMMAND_VARIATIONS,
+  // Legacy transcript compatibility; never advertised to new turns.
+  exec_command: SHELL_COMMAND_VARIATIONS,
   code: [
     "Running code",
     "Working on it",
@@ -135,14 +143,6 @@ const TOOL_STATUS_BY_NAME: Record<string, readonly string[]> = {
     "Handling it",
     "Making it happen",
     "Just a sec",
-  ],
-  bash: [
-    "Running it",
-    "Working on it",
-    "Running a command",
-    "Getting it done",
-    "On it",
-    "Handling it",
   ],
   read: [
     "Reading",
@@ -457,7 +457,7 @@ const tryFriendlyExecCommandStatus = (value: string): string | undefined => {
   } catch {
     // Truncated or pretty-printed payloads still must not render raw.
   }
-  return computeWorkingIndicatorStatus({ toolName: "exec_command", seed: "" });
+  return computeWorkingIndicatorStatus({ toolName: "Bash", seed: "" });
 };
 
 const looksLikeRawToolIdentifier = (value: string): boolean => {

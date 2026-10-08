@@ -118,7 +118,7 @@ const RESIDENT_CODE_SCRIPT = `async () => ({
 const SCRIPTS: Record<string, readonly AssistantMessage[]> = {
   text: [assistantText("We decided to ship the ladder.")],
   container_tool: [
-    assistantCalls("exec_command"),
+    assistantCalls("Bash"),
     assistantText("I answered without a workspace."),
   ],
   code_tool: [

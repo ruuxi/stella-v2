@@ -1,5 +1,5 @@
 /**
- * Shell tools: platform shell plus `exec_command` / `write_stdin` handlers.
+ * Shell tools: platform shell plus `Bash` / `write_stdin` handlers.
  *
  * Effect-native concurrency spine (M5 kernel/tools pass), behind the exact
  * pre-Effect exported names/signatures/strings:
@@ -205,7 +205,7 @@ type PrunedShellSession = {
   owner?: ShellSessionOwner;
 };
 
-// `exec_command` blocks until the process exits, up to a timeout, the same
+// `Bash` blocks until the process exits, up to a timeout, the same
 // way Claude Code's Bash tool does. Every early yield costs a full model
 // round-trip (the model has to call `write_stdin` to keep waiting), and at
 // a few hundred thousand tokens of context that is both slow and expensive;
@@ -860,7 +860,7 @@ export const resolveDefaultShell = (
 };
 
 export type ShellLaunchOptions = {
-  /** Explicit executable requested by exec_command. */
+  /** Explicit executable requested by Bash. */
   shell?: string;
   /** Login-shell semantics are the default for compatibility with prior runs. */
   login?: boolean;
@@ -1003,7 +1003,7 @@ const describeShellSpawnFailure = (
   const requestedShell = options.shell?.trim() || "platform-default";
   const login = options.login !== false;
   return [
-    "Failed to start exec_command shell.",
+    "Failed to start Bash shell.",
     `runner=${runner} namespace=runtime-worker platform=${process.platform} runtime_pid=${process.pid}`,
     `executable=${JSON.stringify(launch.shell)} requested_shell=${JSON.stringify(requestedShell)} login=${login} tty=${options.tty === true}`,
     `cwd=${JSON.stringify(cwd)}`,

@@ -106,12 +106,12 @@ const seedConversation = (
       eventId: `${conversationId}-tool-req-${turn}`,
       requestId: `call-${turn}`,
       timestamp: t + 2,
-      payload: { toolName: "exec_command", args: { command: "ls" } },
+      payload: { toolName: "Bash", args: { command: "ls" } },
     });
     insertLegacyRunEvent(db, conversationId, runId, t + 3, {
       type: "tool_start",
       toolCallId: `call-${turn}`,
-      toolName: "exec_command",
+      toolName: "Bash",
     });
     store.appendEvent({
       conversationId,
@@ -119,7 +119,7 @@ const seedConversation = (
       eventId: `${conversationId}-tool-res-${turn}`,
       requestId: `call-${turn}`,
       timestamp: t + 4,
-      payload: { toolName: "exec_command", resultPreview: "ok" },
+      payload: { toolName: "Bash", resultPreview: "ok" },
     });
     insertLegacyRunEvent(db, conversationId, runId, t + 5, {
       type: "tool_end",
@@ -247,13 +247,13 @@ describe("run_event writes", () => {
       listener?.({
         type: "tool_execution_start",
         toolCallId,
-        toolName: "exec_command",
+        toolName: "Bash",
         args: { command: "ls" },
       });
       listener?.({
         type: "tool_execution_end",
         toolCallId,
-        toolName: "exec_command",
+        toolName: "Bash",
         result: {
           content: [{ type: "text", text: "file.txt" }],
           details: { exitCode: 0 },

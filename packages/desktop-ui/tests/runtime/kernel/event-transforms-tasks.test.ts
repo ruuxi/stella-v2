@@ -206,15 +206,15 @@ describe("extractStepsFromEvents", () => {
   it("does not guess a tool result target when the result has no request id", () => {
     const steps = extractStepsFromEvents([
       event("1", 100, "tool_request", {
-        toolName: "exec_command",
+        toolName: "Bash",
         requestId: "tool-1",
       }),
       event("2", 200, "tool_request", {
-        toolName: "exec_command",
+        toolName: "Bash",
         requestId: "tool-2",
       }),
       event("3", 300, "tool_result", {
-        toolName: "exec_command",
+        toolName: "Bash",
       }),
     ]);
 
@@ -314,6 +314,9 @@ describe("getWorkingIndicatorCharacterState", () => {
     );
     // Anything without a pose of its own falls back to plain work rather than
     // guessing; the label already says what is running.
+    expect(getWorkingIndicatorCharacterState({ toolName: "Bash" })).toBe(
+      "working",
+    );
     expect(getWorkingIndicatorCharacterState({ toolName: "exec_command" })).toBe(
       "working",
     );

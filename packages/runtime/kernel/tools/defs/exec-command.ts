@@ -1,5 +1,5 @@
 /**
- * `exec_command` tool — shell execution for Stella agents, with opt-in PTY.
+ * `Bash` tool (formerly `exec_command`) — shell execution for Stella agents, with opt-in PTY.
  *
  * Returns immediate output, or a `session_id` when the process is still
  * running so the model can poll / interact via `write_stdin`.

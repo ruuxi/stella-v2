@@ -667,7 +667,7 @@ describe("local chat mobile artifacts", () => {
             timestamp: 1_100,
             type: "tool_result",
             payload: {
-              toolName: "exec_command",
+              toolName: "Bash",
               agentType: "general",
               producedFiles: [
                 { path: "/tmp/delegated.pdf", kind: { type: "add" } },
@@ -679,7 +679,7 @@ describe("local chat mobile artifacts", () => {
             timestamp: 1_200,
             type: "tool_result",
             payload: {
-              toolName: "exec_command",
+              toolName: "Bash",
               agentType: "orchestrator",
               producedFiles: [
                 { path: "/tmp/direct.pdf", kind: { type: "add" } },
@@ -693,7 +693,7 @@ describe("local chat mobile artifacts", () => {
             timestamp: 1_300,
             type: "tool_result",
             payload: {
-              toolName: "exec_command",
+              toolName: "Bash",
               producedFiles: [
                 { path: "/tmp/legacy.pdf", kind: { type: "add" } },
               ],
@@ -716,7 +716,7 @@ describe("local chat mobile artifacts", () => {
             timestamp: 1_100,
             type: "tool_result",
             payload: {
-              toolName: "exec_command",
+              toolName: "Bash",
               producedFiles: [
                 {
                   path: "/Users/me/.brave-profile/state.pdf",
@@ -747,7 +747,7 @@ describe("local chat mobile artifacts", () => {
             timestamp: 1_100,
             type: "tool_result",
             payload: {
-              toolName: "exec_command",
+              toolName: "Bash",
               fileChanges: [
                 {
                   path: "/Users/me/.stella/outputs/recall-report.html",

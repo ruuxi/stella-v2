@@ -7,7 +7,7 @@ description: Control Stella-owned browser tabs through the persistent code runti
 
 Use `code` for production browser automation. Its persistent JavaScript runtime exposes a deeply frozen `browser` object with top-level `await`. Bindings and `Tab` and `Locator` identities persist across calls, so create handles once and reuse them.
 
-Use `var` for reusable REPL bindings. Browser actions are not exposed through `exec_command`; use the frozen `browser` API only.
+Use `var` for reusable REPL bindings. Browser actions are not exposed through `Bash`; use the frozen `browser` API only.
 
 ## Production Workflow
 

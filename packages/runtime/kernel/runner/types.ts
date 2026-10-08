@@ -312,6 +312,11 @@ export type RunnerState = {
   activeOrchestratorUiVisibility: "visible" | "hidden";
   activeOrchestratorSession: ActiveOrchestratorSession | null;
   /**
+   * The orchestrator controller's `sendMessage`, bound once the controller
+   * exists so tools built earlier can reach a conversation's Stella.
+   */
+  sendRuntimeMessage?: (input: RuntimeSendMessageInput) => Promise<void>;
+  /**
    * Long-lived orchestrator sessions keyed by `conversationId`. Each session
    * owns one live Pi `Agent` for the lifetime of the conversation and is
    * reused across turns to keep provider prompt-cache prefixes stable. See

@@ -90,38 +90,6 @@ describe("session-store", () => {
     expect(store.listLegacyChatCloudImportCandidates()).toEqual([]);
   });
 
-  it("does not arm an Other Threads roster when a child summary changes", () => {
-    const { store } = createTestContext();
-    const { threadId } = store.resolveOrCreateActiveThread({
-      conversationId: "conv-child-summary",
-      agentType: "general",
-    });
-
-    store.updateThreadSummary(threadId, "Child summary changed.");
-
-    expect(
-      store.getOrchestratorReminderState("conv-child-summary")
-        .shouldInjectDynamicReminder,
-    ).toBe(false);
-  });
-
-  it("keeps a compaction-owned roster flag armed until durable consumption", () => {
-    const { store } = createTestContext();
-    const conversationId = "conv-roster-consumption";
-
-    store.forceOrchestratorReminderOnNextTurn(conversationId);
-    expect(
-      store.getOrchestratorReminderState(conversationId)
-        .shouldInjectDynamicReminder,
-    ).toBe(true);
-
-    store.consumeOrchestratorReminder(conversationId);
-    expect(
-      store.getOrchestratorReminderState(conversationId)
-        .shouldInjectDynamicReminder,
-    ).toBe(false);
-  });
-
   it("rolls back an entire assistant/tool group when one SQLite append fails", () => {
     const { db, store } = createTestContext();
     const { threadId } = store.resolveOrCreateActiveThread({

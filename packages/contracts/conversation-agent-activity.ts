@@ -11,7 +11,7 @@
  *
  * Two kinds of evidence, because two placements record agents differently:
  *  - a cloud-placed turn writes `agent-lifecycle` cards;
- *  - a turn a computer ran is mirrored with its `spawn_agent` / `send_input`
+ *  - a turn a computer ran is mirrored with its `spawn_agent` / `send_message`
  *    tool results and the hidden wake prompt (`[Agent completed]` and friends)
  *    that reported the outcome.
  * A lifecycle card always wins: when an agent has cards, its mirrored rows are
@@ -143,7 +143,27 @@ const toolResultThreadId = (
 };
 
 /**
- * A `spawn_agent` / `send_input` call waiting for its result row.
+ * A string field of a tool result, from its details or its JSON text. A
+ * `send_message` result's `delivered` says whether it started anything: only
+ * `resumed` does, and only for an agent this conversation already knows; a
+ * steer lands in a running agent and a queued note starts no agent here.
+ */
+const toolResultField = (
+  payload: Record<string, unknown> | undefined,
+  field: string,
+): string | undefined => {
+  const details = asRecord(payload?.details);
+  if (typeof details?.[field] === "string") return details[field] as string;
+  try {
+    const parsed = asRecord(JSON.parse(agentActivityMessageText(payload)));
+    return typeof parsed?.[field] === "string" ? (parsed[field] as string) : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * A `spawn_agent` / `send_message` call waiting for its result row.
  *
  * Exposed so a long-lived reader can keep the map across folds: the call and
  * the tool result that names the agent are separate journal rows, and an
@@ -305,10 +325,13 @@ export const foldAgentActivity = (
       typeof record.payload?.toolName === "string"
         ? bareToolName(record.payload.toolName)
         : call?.name;
-    if (toolName !== "spawn_agent" && toolName !== "send_input") continue;
+    if (toolName !== "spawn_agent" && toolName !== "send_message") continue;
     const threadId = toolResultThreadId(record.payload) ?? call?.threadId ?? null;
     if (!threadId || state.carded.has(threadId)) continue;
-    if (toolName === "send_input") {
+    if (toolName === "send_message") {
+      const delivered = toolResultField(record.payload, "delivered");
+      if (delivered !== undefined && delivered !== "resumed") continue;
+      if (delivered === "resumed" && !state.entries.has(threadId)) continue;
       if (state.entries.get(threadId)?.status === "running") continue;
       start(threadId, undefined, record.createdAtMs);
       continue;

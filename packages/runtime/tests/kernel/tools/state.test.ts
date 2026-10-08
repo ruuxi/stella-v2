@@ -6,7 +6,7 @@ import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import {
   createStateContext,
   handleAgentStatus,
-  handleSendInput,
+  handleSendMessage,
   handleSpawnAgent,
   parseSpawnAgentModel,
 } from "@stella/runtime/kernel/tools/state";
@@ -27,7 +27,7 @@ const COLON_BEARING_REGISTRY_REFERENCES = Object.entries(MODELS).flatMap(
 );
 
 describe("state tools", () => {
-  it("uses a domain name at spawn and preserves it for send_input", () => {
+  it("uses a domain name at spawn and preserves it for send_message", () => {
     const ctx = createStateContext("/tmp", {
       createAgent: async () => ({ threadId: "thread-1" }),
       getAgent: async () => null,
@@ -35,7 +35,7 @@ describe("state tools", () => {
     });
     const tools = createAgentTools(ctx);
     const spawnAgent = tools.find((tool) => tool.name === "spawn_agent");
-    const sendInput = tools.find((tool) => tool.name === "send_input");
+    const sendMessage = tools.find((tool) => tool.name === "send_message");
 
     expect(
       spawnAgent?.parameters.properties?.description?.description,
@@ -43,52 +43,23 @@ describe("state tools", () => {
     expect(spawnAgent?.description).toContain(
       "Agents can delegate independent parts to subagents.",
     );
-    expect(spawnAgent?.description).toContain("Continue related work with an existing agent through send_input");
+    expect(spawnAgent?.description).toContain("Continue related work with an existing agent through send_message");
     expect(spawnAgent?.description).toContain(
       "immediate result means work has started; completion arrives in [Agent completed]",
     );
-    expect(sendInput?.description).toContain(
-      "Preserves the thread's context",
+    expect(sendMessage?.description).toContain(
+      "A successful result means the message was delivered, not that any work finished",
     );
-    expect(sendInput?.description).toContain(
-      "successful result means the input was accepted, not that the work finished",
-    );
-    expect(sendInput?.parameters.properties).not.toHaveProperty("description");
-    expect(sendInput?.parameters.required).toEqual(["thread_id", "message"]);
+    expect(sendMessage?.parameters.properties).not.toHaveProperty("description");
+    expect(sendMessage?.parameters.required).toEqual(["thread_id", "message"]);
   });
 
   it("defaults spawn_agent to the general agent", async () => {
-    const now = Date.now();
     let createdRequest: AgentToolRequest | null = null;
     const ctx = createStateContext("/tmp", {
       createAgent: async (request) => {
         createdRequest = request;
-        return {
-          threadId: "thread-1",
-          activeThreads: [
-            {
-              threadId: "thread-1",
-              name: "thread-1",
-              conversationId: "conversation-1",
-              agentType: AGENT_IDS.GENERAL,
-              status: "active",
-              createdAt: 1,
-              lastUsedAt: now,
-              description: "Do work",
-            },
-            {
-              threadId: "thread-0",
-              name: "thread-0",
-              conversationId: "conversation-1",
-              agentType: AGENT_IDS.GENERAL,
-              status: "active",
-              createdAt: 1,
-              lastUsedAt: now,
-              description: "Previous task",
-              agentStatus: "running",
-            },
-          ],
-        };
+        return { threadId: "thread-1" };
       },
       getAgent: async () => null,
       cancelAgent: async () => ({ canceled: false }),
@@ -113,18 +84,10 @@ describe("state tools", () => {
       result: {
         status: "spawned_running_in_background",
         thread_id: "thread-1",
-        note: "The agent is now working in the background and has NOT finished. Do not describe the task as if it never started, and do not call send_input to check on it — wait for the [Agent completed] event. In this turn, reply to the user with at most one short line, or say nothing.",
+        note: "The agent is now working in the background and has NOT finished. Do not describe the task as if it never started, and do not call send_message to check on it — wait for the [Agent completed] event. In this turn, reply to the user with at most one short line, or say nothing.",
         created: true,
         running_in_background: true,
         follow_up_on_completion: true,
-        other_threads: [
-          {
-            thread_id: "thread-0",
-            status: "active",
-            last_active: "just now",
-            description: "Previous task",
-          },
-        ],
       },
     });
     expect(Object.keys((result as { result: Record<string, unknown> }).result)[0]).toBe(
@@ -820,7 +783,7 @@ describe("state tools", () => {
     });
   });
 
-  it("passes the current root run through send_input", async () => {
+  it("passes the current root run through send_message", async () => {
     const sendCalls: Array<{
       threadId: string;
       message: string;
@@ -828,8 +791,7 @@ describe("state tools", () => {
       options:
         | {
             rootRunId?: string;
-            ownerAgentId?: string | null;
-            deliveryKind?: "manager-event" | "external-input";
+            deliveryKind?: "child-report" | "external-input" | "agent-message";
           }
         | undefined;
     }> = [];
@@ -837,13 +799,18 @@ describe("state tools", () => {
       createAgent: async () => ({ threadId: "thread-1" }),
       getAgent: async () => null,
       cancelAgent: async () => ({ canceled: false }),
+      readLocalAgentThread: (threadId) => ({
+        threadId,
+        conversationId: "conversation-1",
+        description: "Requirements",
+      }),
       sendAgentMessage: async (threadId, message, from, options) => {
         sendCalls.push({ threadId, message, from, options });
-        return { delivered: true };
+        return { delivered: true, steered: true };
       },
     });
 
-    const result = await handleSendInput(
+    const result = await handleSendMessage(
       ctx,
       {
         thread_id: "thread-7",
@@ -858,12 +825,11 @@ describe("state tools", () => {
       },
     );
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       result: {
-        status: "delivered_agent_still_working",
+        status: "delivered",
         thread_id: "thread-7",
-        note: "Delivered. This does NOT mean the task is done — the agent is still working. Wait for the [Agent completed] event; do not immediately re-check status.",
-        delivered: true,
+        delivered: "steered",
       },
     });
     expect(sendCalls).toEqual([
@@ -873,19 +839,24 @@ describe("state tools", () => {
         from: "orchestrator",
         options: {
           deliveryKind: "external-input",
-          ownerAgentId: null,
           rootRunId: "root-current",
         },
       },
     ]);
   });
 
-  it("never leaks the orchestrator model snapshot on a subagent's send_input", async () => {
+  it("never leaks the orchestrator model snapshot on a subagent's send_message", async () => {
     const sendCalls: Array<Record<string, unknown> | undefined> = [];
     const ctx = createStateContext("/tmp", {
       createAgent: async () => ({ threadId: "unused" }),
       getAgent: async () => null,
       cancelAgent: async () => ({ canceled: false }),
+      readLocalAgentThread: (threadId) => ({
+        threadId,
+        conversationId: "conversation-1",
+        parentAgentId: "parent-thread",
+        description: "Build",
+      }),
       sendAgentMessage: async (_threadId, _message, _from, options) => {
         sendCalls.push(options as Record<string, unknown> | undefined);
         return { delivered: true };
@@ -893,7 +864,7 @@ describe("state tools", () => {
     });
 
     await expect(
-      handleSendInput(
+      handleSendMessage(
         ctx,
         {
           thread_id: "existing-thread",
@@ -912,13 +883,8 @@ describe("state tools", () => {
           },
         },
       ),
-    ).resolves.toMatchObject({ result: { delivered: true } });
-    expect(sendCalls).toEqual([
-      {
-        deliveryKind: "external-input",
-        ownerAgentId: "parent-thread",
-      },
-    ]);
+    ).resolves.toMatchObject({ result: { status: "delivered" } });
+    expect(sendCalls).toEqual([{ deliveryKind: "external-input" }]);
   });
 
   it("returns thread-not-found when pause_agent targets an unknown thread", async () => {
@@ -1200,12 +1166,13 @@ describe("agent_status tool", () => {
     const ctx = createStatusContext(null, mutations);
 
     await expect(handleAgentStatus(ctx, {}, toolContext)).resolves.toEqual({
-      error: "thread_id is required",
+      error: "Agent status is not available on this device.",
     });
     await expect(
       handleAgentStatus(ctx, { thread_id: "thread-9" }, toolContext),
     ).resolves.toEqual({
-      error: "Thread not found: thread-9",
+      error:
+        "Thread not found: thread-9. Call agent_status without a thread_id to list who you can reach.",
     });
     expect(mutations).toEqual([]);
   });
@@ -1280,6 +1247,7 @@ describe("agent tools on a thread this conversation started elsewhere", () => {
   };
   const lookups: Array<[string, string]> = [];
   const sent: string[] = [];
+  const messaged: Array<{ messageId: string; to: string; text: string }> = [];
   const stateContext = () =>
     createStateContext("/tmp", {
       createAgent: async () => ({ threadId: "never" }),
@@ -1302,6 +1270,11 @@ describe("agent tools on a thread this conversation started elsewhere", () => {
         lookups.push([threadId, conversationId]);
         const thread = ledger[threadId];
         return thread ? { thread, thisDeviceId: THIS_COMPUTER } : null;
+      },
+      messageCloudThread: async ({ messageId, to, text }) => {
+        messaged.push({ messageId, to, text });
+        if (!ledger[to]) throw new Error(`No agent or session ${to}.`);
+        return { delivered: "steered", threadId: to };
       },
     });
 
@@ -1343,16 +1316,23 @@ describe("agent tools on a thread this conversation started elsewhere", () => {
     );
   });
 
-  it("send_input and pause_agent say which computer can reach a thread another computer started", async () => {
+  it("send_message reaches a thread another computer started through the cloud, and pause_agent says which computer can", async () => {
     const ctx = stateContext();
-    const input = await handleSendInput(
+    const input = await handleSendMessage(
       ctx,
       { thread_id: "thr-started-from-mac", message: "Also check the drafts." },
       toolContext,
     );
-    expect(input.error).toContain("Thread thr-started-from-mac (Composer bugs) runs locally on Rahul's Mac and is running");
-    expect(input.error).toContain("only Rahul's Mac can send it input or pause it");
-    expect(input.error).toContain("so nothing was sent.");
+    expect(input.result).toMatchObject({
+      status: "delivered",
+      thread_id: "thr-started-from-mac",
+      delivered: "steered",
+    });
+    expect(messaged.at(-1)).toEqual({
+      messageId: "msg:request-1",
+      to: "thr-started-from-mac",
+      text: "Also check the drafts.",
+    });
 
     const pause = await handleSpawnAgent(
       ctx,
@@ -1363,21 +1343,23 @@ describe("agent tools on a thread this conversation started elsewhere", () => {
     expect(pause.error).toContain("so nothing was paused.");
   });
 
-  it("send_input to a thread this computer started keeps the cloud's own answer", async () => {
-    const input = await handleSendInput(
+  it("send_message to a thread the cloud does not know returns the cloud's answer", async () => {
+    const input = await handleSendMessage(
       stateContext(),
-      { thread_id: "thr-device-started-here", message: "Continue." },
+      { thread_id: "thread-9", message: "Continue." },
       toolContext,
     );
-    expect(input.error).toBe(
-      "No durable cloud control receipt is available for thread thr-device-started-here.",
-    );
+    expect(sent.at(-1)).toBe("thread-9");
+    expect(input.error).toBe("No agent or session thread-9.");
   });
 
   it("a thread no conversation knows stays not found", async () => {
     await expect(
       handleAgentStatus(stateContext(), { thread_id: "thread-9" }, toolContext),
-    ).resolves.toEqual({ error: "Thread not found: thread-9" });
+    ).resolves.toEqual({
+      error:
+        "Thread not found: thread-9. Call agent_status without a thread_id to list who you can reach.",
+    });
     const pause = await handleSpawnAgent(
       stateContext(),
       { action: "cancel", thread_id: "thread-9" },

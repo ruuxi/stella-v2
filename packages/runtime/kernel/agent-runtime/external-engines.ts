@@ -71,7 +71,7 @@ import {
   persistThreadCustomMessage,
   persistThreadPayloadMessage,
 } from "./thread-memory.js";
-import { ORCHESTRATOR_ROSTER_CUSTOM_TYPE } from "../storage/shared.js";
+import { AGENT_MESSAGE_CUSTOM_TYPE } from "../storage/shared.js";
 import type {
   BaseRunOptions,
   OrchestratorRunOptions,
@@ -372,9 +372,6 @@ const persistExternalPromptMessages = (
           ? { preservePayloadExactly: true }
           : {}),
       });
-      if (promptInput.customType === ORCHESTRATOR_ROSTER_CUSTOM_TYPE) {
-        opts.store.consumeOrchestratorReminder?.(opts.conversationId);
-      }
     }
   }
 };
@@ -618,6 +615,7 @@ const recordClaudeHistoryDelivery = (args: {
 const EXTERNAL_DELTA_CUSTOM_TYPES: ReadonlySet<string> = new Set([
   "runtime.task_lifecycle",
   "runtime.task_update",
+  AGENT_MESSAGE_CUSTOM_TYPE,
 ]);
 
 /**

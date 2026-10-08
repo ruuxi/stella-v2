@@ -168,7 +168,7 @@ const DO_LOCAL = new Map([
   ["Edit", doLocalTool("Edit")],
   ["Grep", doLocalTool("Grep")],
   ["spawn_agent", doLocalTool("spawn_agent")],
-  ["send_input", doLocalTool("send_input")],
+  ["send_message", doLocalTool("send_message")],
   ["pause_agent", doLocalTool("pause_agent")],
   ["agent_status", doLocalTool("agent_status")],
 ]);

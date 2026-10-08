@@ -1,5 +1,5 @@
 /**
- * State tools: spawn_agent / pause_agent / send_input / agent_status handlers.
+ * State tools: spawn_agent / pause_agent / send_message / agent_status handlers.
  */
 
 import type {
@@ -8,16 +8,18 @@ import type {
   AgentRecord,
   AgentToolApi,
 } from "./types.js";
-import {
-  deriveRuntimeThreadLiveState,
-  formatRuntimeThreadAge,
-  runtimeThreadLastActiveAt,
-  type RuntimeThreadRecord,
-} from "../runtime-threads.js";
 import { AGENT_PAUSE_CANCEL_REASON } from "../agents/local-agent-manager.js";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { parseSpawnDestination } from "./defs/agent-orchestration-def.js";
 import { STELLA_DEFAULT_MODEL } from "@stella/contracts/stella-api";
+import {
+  AGENT_MESSAGE_MAX_CHARS,
+  STELLA_MESSAGE_TARGET,
+  buildAgentDirectoryResult,
+  formatAgentMessage,
+  type AgentDirectorySessionRow,
+  type AgentMessageSender,
+} from "@stella/contracts/agent-directory";
 import {
   agentThreadLookupController,
   agentThreadLookupLocation,
@@ -77,7 +79,7 @@ const toOptionalString = (value: unknown): string | undefined => {
 
 
 /**
- * `send_input` no longer asks the caller for a description, but the cloud
+ * `send_message` asks the caller for no description, but the cloud
  * continuation mutation still requires a non-empty one and this device holds no
  * mirror of the cloud thread's current title. Local threads keep their spawn
  * name; only the cloud path needs a label, so derive it from the follow-up.
@@ -229,31 +231,6 @@ export const parseSpawnAgentModel = (
   };
 };
 
-const buildOtherThreadsResult = (
-  threads: Array<
-    Pick<
-      RuntimeThreadRecord,
-      | "threadId"
-      | "description"
-      | "lastUsedAt"
-      | "agentStatus"
-      | "agentUpdatedAt"
-    >
-  >,
-  currentThreadId: string,
-) =>
-  threads
-    .filter((thread) => thread.threadId !== currentThreadId)
-    .map((thread) => ({
-      thread_id: thread.threadId,
-      // Live execution state from the same runtime signal as the "# Other
-      // Threads" roster: "active" = executing a turn now, "paused" = idle
-      // but resumable via send_input.
-      status: deriveRuntimeThreadLiveState(thread),
-      last_active: formatRuntimeThreadAge(runtimeThreadLastActiveAt(thread)),
-      ...(thread.description ? { description: thread.description } : {}),
-    }));
-
 export const createStateContext = (
   stateRoot: string,
   agentApi?: AgentToolApi,
@@ -282,123 +259,175 @@ const lookupConversationThread = async (
     .catch(() => null);
 };
 
-const unreachableThreadError = async (
+const unreachablePauseError = async (
   ctx: StateContext,
   threadId: string,
   conversationId: string | undefined,
-  action: "send_input" | "pause_agent",
 ): Promise<string | null> => {
   const found = await lookupConversationThread(ctx, threadId, conversationId);
   if (!found) return null;
   const viewer = { host: "desktop" as const, deviceId: found.thisDeviceId };
   if (agentThreadLookupStartedByViewer(found.thread, viewer)) return null;
-  return `${describeAgentThreadLookup(found.thread, viewer)} ${action} from this computer cannot reach it, so nothing was ${action === "send_input" ? "sent" : "paused"}.`;
+  return `${describeAgentThreadLookup(found.thread, viewer)} pause_agent from this computer cannot reach it, so nothing was paused.`;
 };
 
-export const handleSendInput = async (
+const DELIVERY_NOTE =
+  "Delivered. Delivery is not completion: the receiver works on it in its own time, and an agent's finished work still arrives in [Agent completed].";
+
+const delivered = (
+  threadId: string,
+  delivery: "steered" | "queued" | "resumed",
+): ToolResult => ({
+  result: {
+    status: "delivered",
+    thread_id: threadId,
+    delivered: delivery,
+    note: DELIVERY_NOTE,
+  },
+});
+
+const localDelivery = (outcome: {
+  resumed?: boolean;
+  steered?: boolean;
+}): "steered" | "queued" | "resumed" =>
+  outcome.resumed ? "resumed" : outcome.steered ? "steered" : "queued";
+
+/** Backend message ids are 8-128 of [A-Za-z0-9._:-]; a retried call reuses its id. */
+const agentMessageId = (requestId: string): string => {
+  const sanitized = `msg:${requestId}`.replace(/[^A-Za-z0-9._:-]/g, "_");
+  return sanitized.length > 128 ? sanitized.slice(0, 128) : sanitized;
+};
+
+/**
+ * `send_message`. To an agent the caller owns (Stella's top-level agents, or
+ * an agent's own subagents) it is an instruction; to anyone else it arrives
+ * framed as a note from the caller. Either way it steers a running thread,
+ * queues for its next turn, or resumes a finished one, and it never changes
+ * who the target reports to.
+ */
+export const handleSendMessage = async (
   ctx: StateContext,
   args: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolResult> => {
-  const threadId =
-    toOptionalString(args.thread_id) ?? toOptionalString(context.agentId);
-  if (!ctx.agentApi?.sendAgentMessage) {
-    return { error: "Agent input is not configured on this device." };
+  const api = ctx.agentApi;
+  if (!api?.sendAgentMessage) {
+    return { error: "Agent messaging is not configured on this device." };
   }
-  if (!threadId) {
+  const requested = toOptionalString(args.thread_id);
+  if (!requested) {
     return { error: "thread_id is required" };
   }
   const message = toOptionalString(args.message);
   if (!message) {
     return { error: "message is required" };
   }
-  // Sending input directly to a thread takes ownership of it: its report must
-  // come back to whoever asked, not to whatever spawned it long ago. The
-  // orchestrator re-homes the thread to the user's conversation; an agent
-  // steering its own subagent re-homes it to itself.
-  const callerOwnsThread = context.agentId && context.agentId !== threadId;
-  const ownerAgentId =
-    context.agentType === AGENT_IDS.ORCHESTRATOR
-      ? null
-      : callerOwnsThread
-        ? context.agentId
-        : undefined;
-  const delivered = await ctx.agentApi.sendAgentMessage(
-    threadId,
-    message,
-    "orchestrator",
-    {
-      ...(context.rootRunId ? { rootRunId: context.rootRunId } : {}),
-      ...(context.agentType === AGENT_IDS.ORCHESTRATOR &&
-      context.modelConfigSnapshot
-        ? { modelConfigSnapshot: context.modelConfigSnapshot }
-        : {}),
-      ...(ownerAgentId !== undefined ? { ownerAgentId } : {}),
-      deliveryKind: "external-input",
-    },
-  );
-  if (!delivered.delivered) {
-    if (ctx.agentApi.cloudContinue) {
-      const continued = await ctx.agentApi.cloudContinue({
-        threadId,
-        description: cloudContinuationLabel(message),
-        message,
-        conversationId: context.conversationId,
-        requestId: context.requestId,
-        ...(context.ownerGeneration
-          ? { ownerGeneration: context.ownerGeneration }
-          : {}),
-      });
-      if (continued.delivered) {
-        return {
-          result: {
-            thread_id: threadId,
-            status: "updated",
-            delivered: true,
-            ...(continued.control
-              ? {
-                  attempt_generation: continued.control.attemptGeneration,
-                  thread_updated_at: continued.control.threadUpdatedAt,
-                  thread_status: continued.control.status,
-                }
-              : {}),
-            note: continued.steered
-              ? "Delivered to the running agent; it uses the message before its next step. Its report will return to this conversation, including after a desktop restart."
-              : "The thread is running again. Its report will return to this conversation, including after a desktop restart.",
-          },
-        };
-      }
-      return {
-        error:
-          (await unreachableThreadError(
-            ctx,
-            threadId,
-            context.conversationId,
-            "send_input",
-          )) ??
-          continued.reason ??
-          `Thread not found: ${threadId}`,
-      };
-    }
+  if (message.length > AGENT_MESSAGE_MAX_CHARS) {
     return {
-      error:
-        (await unreachableThreadError(
-          ctx,
-          threadId,
-          context.conversationId,
-          "send_input",
-        )) ??
-        delivered.reason ??
-        `Thread not found: ${threadId}`,
+      error: `message is ${message.length} characters; the limit is ${AGENT_MESSAGE_MAX_CHARS}. Send the essentials, or write the rest to a file and point to it.`,
     };
   }
+  const isOrchestrator = context.agentType === AGENT_IDS.ORCHESTRATOR;
+  const callerThreadId = isOrchestrator
+    ? undefined
+    : toOptionalString(context.agentId);
+  const selfThreadId = callerThreadId ?? context.conversationId;
+  const threadId =
+    requested.toLowerCase() === STELLA_MESSAGE_TARGET
+      ? context.conversationId
+      : requested;
+  if (threadId === selfThreadId) {
+    return { error: "That thread_id is you. Message another agent or session." };
+  }
+  const sender: AgentMessageSender = {
+    threadId: selfThreadId,
+    label: isOrchestrator
+      ? "Stella"
+      : (callerThreadId && api.readLocalAgentThread?.(callerThreadId)?.description) ||
+        "An agent",
+  };
+  const framed = formatAgentMessage(sender, message);
+  const isLocalOnlyChat = context.conversationId.startsWith("local_");
+
+  const target = api.readLocalAgentThread?.(threadId) ?? null;
+  if (target) {
+    const owns =
+      context.fromUser === true ||
+      (isOrchestrator &&
+        !target.parentAgentId &&
+        target.conversationId === context.conversationId) ||
+      (callerThreadId !== undefined && target.parentAgentId === callerThreadId);
+    const outcome = owns
+      ? await api.sendAgentMessage(threadId, message, "orchestrator", {
+          ...(context.rootRunId ? { rootRunId: context.rootRunId } : {}),
+          ...(isOrchestrator && context.modelConfigSnapshot
+            ? { modelConfigSnapshot: context.modelConfigSnapshot }
+            : {}),
+          deliveryKind: "external-input",
+        })
+      : await api.sendAgentMessage(threadId, framed, "orchestrator", {
+          deliveryKind: "agent-message",
+        });
+    if (!outcome.delivered) {
+      return {
+        error:
+          outcome.reason ??
+          `Agent ${threadId} could not take the message right now.`,
+      };
+    }
+    return delivered(threadId, localDelivery(outcome));
+  }
+
+  const session =
+    threadId === context.conversationId
+      ? { conversationId: threadId }
+      : (api.readLocalSession?.(threadId) ?? null);
+  if (session && api.messageStellaSession) {
+    try {
+      const outcome = await api.messageStellaSession({
+        conversationId: session.conversationId,
+        text: framed,
+      });
+      return delivered(threadId, outcome.delivered);
+    } catch (error) {
+      return { error: (error as Error).message };
+    }
+  }
+
+  if (isOrchestrator && api.cloudContinue) {
+    const continued = await api.cloudContinue({
+      threadId,
+      description: cloudContinuationLabel(message),
+      message,
+      conversationId: context.conversationId,
+      requestId: context.requestId,
+      ...(context.ownerGeneration
+        ? { ownerGeneration: context.ownerGeneration }
+        : {}),
+    });
+    if (continued.delivered) {
+      return delivered(threadId, continued.steered ? "steered" : "resumed");
+    }
+  }
+
+  if (!isLocalOnlyChat && !context.fromUser && api.messageCloudThread) {
+    try {
+      const outcome = await api.messageCloudThread({
+        messageId: agentMessageId(context.requestId),
+        to: threadId,
+        text: message,
+        from: sender,
+      });
+      if (outcome) return delivered(outcome.threadId, outcome.delivered);
+    } catch (error) {
+      return { error: (error as Error).message };
+    }
+  }
+
   return {
-    result: {
-      status: "delivered_agent_still_working",
-      thread_id: threadId,
-      note: "Delivered. This does NOT mean the task is done — the agent is still working. Wait for the [Agent completed] event; do not immediately re-check status.",
-      delivered: true,
-    },
+    error: isLocalOnlyChat
+      ? `No agent or session on this computer has thread_id ${threadId}. This chat is stored only on this computer, so it can message only agents and sessions here. Call agent_status without a thread_id to list them.`
+      : `No agent or session has thread_id ${threadId}. Call agent_status without a thread_id to list who you can reach.`,
   };
 };
 
@@ -480,35 +509,99 @@ const describeReportDisposition = (snapshot: {
     : ` Its report belongs to its owning agent (${ownerThreadId}), not to you; that agent reports to you separately.`;
 };
 
+const sessionStatus = (session: AgentDirectorySessionRow): ToolResult => ({
+  result: {
+    thread_id: session.conversationId,
+    kind: "stella_session",
+    title: session.title.trim() || "Untitled chat",
+    status: session.active ? "running" : "idle",
+    where: session.where,
+    last_active_at: new Date(session.updatedAt).toISOString(),
+    current_time: new Date().toISOString(),
+    note: "Another Stella session (conversation). Message it with send_message.",
+  },
+});
+
+/** `agent_status` without a thread_id: everyone the caller can reach. */
+const agentDirectoryStatus = async (
+  ctx: StateContext,
+  context: Pick<ToolContext, "conversationId" | "agentId" | "agentType" | "parentAgentId">,
+): Promise<ToolResult> => {
+  if (!ctx.agentApi?.readAgentDirectory) {
+    return { error: "Agent status is not available on this device." };
+  }
+  const listing = await ctx.agentApi.readAgentDirectory(context.conversationId);
+  const callerThreadId =
+    context.agentType === AGENT_IDS.ORCHESTRATOR
+      ? undefined
+      : toOptionalString(context.agentId);
+  const result = buildAgentDirectoryResult({
+    caller: {
+      conversationId: context.conversationId,
+      ...(callerThreadId ? { threadId: callerThreadId } : {}),
+      ...(callerThreadId && context.parentAgentId
+        ? { parentThreadId: context.parentAgentId }
+        : {}),
+    },
+    agents: listing.agents,
+    sessions: listing.sessions,
+  });
+  return {
+    result: listing.cloudUnavailable
+      ? {
+          ...result,
+          note: `${result.note} Stella's cloud did not answer, so agents running in the cloud or on other devices are not listed right now.`,
+        }
+      : result,
+  };
+};
+
 /**
- * Read-only `agent_status` handler. Projects a durable-thread snapshot into
- * the live status, the last few assistant messages (reasoning summaries for
+ * Read-only `agent_status` handler. Without a thread_id it lists everyone the
+ * caller can reach. With one it projects a durable-thread snapshot into the
+ * live status, the last few assistant messages (reasoning summaries for
  * Codex-engine threads), and the most recent tool CALL — never a tool result,
  * and never any delivery into the target thread.
  */
 export const handleAgentStatus = async (
   ctx: StateContext,
   args: Record<string, unknown>,
-  context?: Pick<ToolContext, "conversationId">,
+  context: Pick<
+    ToolContext,
+    "conversationId" | "agentId" | "agentType" | "parentAgentId"
+  >,
 ): Promise<ToolResult> => {
   const threadId = toOptionalString(args.thread_id);
   if (!threadId) {
-    return { error: "thread_id is required" };
+    return await agentDirectoryStatus(ctx, context);
   }
   const snapshot = ctx.agentApi?.readAgentThreadStatus
     ? await ctx.agentApi.readAgentThreadStatus(threadId)
     : null;
   if (!snapshot) {
+    const localSession = ctx.agentApi?.readLocalSession?.(threadId);
+    if (localSession) return sessionStatus(localSession);
     const found = await lookupConversationThread(
       ctx,
       threadId,
-      context?.conversationId,
+      context.conversationId,
     );
     if (found) return conversationThreadStatus(found);
+    const cloudSession =
+      threadId !== context.conversationId && ctx.agentApi?.readAgentDirectory
+        ? (
+            await ctx.agentApi
+              .readAgentDirectory(context.conversationId)
+              .catch(() => null)
+          )?.sessions.find((row) => row.conversationId === threadId)
+        : undefined;
+    if (cloudSession) return sessionStatus(cloudSession);
     if (!ctx.agentApi?.readAgentThreadStatus) {
       return { error: "Agent status is not available on this device." };
     }
-    return { error: `Thread not found: ${threadId}` };
+    return {
+      error: `Thread not found: ${threadId}. Call agent_status without a thread_id to list who you can reach.`,
+    };
   }
   // ChatGPT/Codex surfaces reasoning summaries as its visible narration;
   // other engines author plain text blocks. Chronological walk keeps "latest
@@ -566,7 +659,6 @@ export const handleAgentStatus = async (
   return {
     result: {
       thread_id: threadId,
-      // Same live signal as the "# Other Threads" roster.
       status: snapshot.status,
       ...(snapshot.statusLabel && snapshot.statusLabel !== snapshot.status
         ? { status_detail: snapshot.statusLabel }
@@ -584,7 +676,7 @@ export const handleAgentStatus = async (
       ),
       ...(latestToolCall ? { latest_tool_call: latestToolCall } : {}),
       current_time: new Date(now).toISOString(),
-      note: `Read-only snapshot; the agent was NOT interrupted or messaged. To steer or ask it something, use send_input.${describeReportDisposition(snapshot)}`,
+      note: `Read-only snapshot; the agent was NOT interrupted or messaged. To steer or ask it something, use send_message.${describeReportDisposition(snapshot)}`,
     },
   };
 };
@@ -641,11 +733,10 @@ export const handleSpawnAgent = async (
           }
           return {
             error:
-              (await unreachableThreadError(
+              (await unreachablePauseError(
                 ctx,
                 explicitThreadId,
                 context.conversationId,
-                "pause_agent",
               )) ??
               cloudCanceled.reason ??
               `Thread not found: ${explicitThreadId}`,
@@ -653,11 +744,10 @@ export const handleSpawnAgent = async (
         }
         return {
           error:
-            (await unreachableThreadError(
+            (await unreachablePauseError(
               ctx,
               explicitThreadId,
               context.conversationId,
-              "pause_agent",
             )) ?? `Thread not found: ${explicitThreadId}`,
         };
       }
@@ -860,7 +950,7 @@ export const handleSpawnAgent = async (
         attempt_generation: dispatched.attemptGeneration,
         thread_updated_at: dispatched.threadUpdatedAt,
         thread_status: dispatched.status,
-        note: `${targetDeviceId ? `Running on device ${targetDeviceId}.` : "Running in Stella's cloud."} Its completion will return to this conversation, including after a desktop restart. Use send_input to continue this thread once it finishes, or pause_agent to stop it.`,
+        note: `${targetDeviceId ? `Running on device ${targetDeviceId}.` : "Running in Stella's cloud."} Its completion will return to this conversation, including after a desktop restart. Use send_message to continue this thread once it finishes, or pause_agent to stop it.`,
       },
     };
   }
@@ -939,20 +1029,15 @@ export const handleSpawnAgent = async (
       // errors the model can act on, not as runner-level crashes.
       return { error: (error as Error).message };
     }
-    const otherThreads =
-      context.agentType === AGENT_IDS.ORCHESTRATOR && created.activeThreads
-        ? buildOtherThreadsResult(created.activeThreads, created.threadId)
-        : [];
     return {
       result: {
         status: "spawned_running_in_background",
         thread_id: created.threadId,
-        note: "The agent is now working in the background and has NOT finished. Do not describe the task as if it never started, and do not call send_input to check on it — wait for the [Agent completed] event. In this turn, reply to the user with at most one short line, or say nothing.",
+        note: "The agent is now working in the background and has NOT finished. Do not describe the task as if it never started, and do not call send_message to check on it — wait for the [Agent completed] event. In this turn, reply to the user with at most one short line, or say nothing.",
         // Back-compat booleans (kept after status/note so they can't read as "done").
         created: true,
         running_in_background: true,
         follow_up_on_completion: true,
-        ...(otherThreads.length > 0 ? { other_threads: otherThreads } : {}),
       },
     };
   }
@@ -967,26 +1052,15 @@ export const handleSpawnAgent = async (
     completedAt: null,
   };
   ctx.tasks.set(id, record);
-  const activeThreads = [...ctx.tasks.values()].slice(-16).map((task) => ({
-    threadId: task.id,
-    description: task.description,
-    lastUsedAt: task.completedAt ?? task.startedAt,
-    agentStatus: task.status,
-  }));
-  const otherThreads =
-    context.agentType === AGENT_IDS.ORCHESTRATOR
-      ? buildOtherThreadsResult(activeThreads, id)
-      : [];
   return {
     result: {
       status: "spawned_running_in_background",
       thread_id: id,
-      note: "The agent is now working in the background and has NOT finished. Do not describe the task as if it never started, and do not call send_input to check on it — wait for the [Agent completed] event. In this turn, reply to the user with at most one short line, or say nothing.",
+      note: "The agent is now working in the background and has NOT finished. Do not describe the task as if it never started, and do not call send_message to check on it — wait for the [Agent completed] event. In this turn, reply to the user with at most one short line, or say nothing.",
       // Back-compat booleans (kept after status/note so they can't read as "done").
       created: true,
       running_in_background: true,
       follow_up_on_completion: true,
-      ...(otherThreads.length > 0 ? { other_threads: otherThreads } : {}),
     },
   };
 };

@@ -135,7 +135,7 @@ describe("journal tasks", () => {
     expect(running(tasks)).toEqual(["Summarise inbox"]);
   });
 
-  test("send_input resumes a finished mirrored task, and failures stay settled", () => {
+  test("send_message resumes a finished mirrored task, and failures stay settled", () => {
     const base = [
       spawnCall(1, "call-1", "spawn_agent", "Write report"),
       message(2, "toolResult", { toolCallId: "call-1", toolName: "spawn_agent", details: { thread_id: "report" } }),
@@ -146,15 +146,15 @@ describe("journal tasks", () => {
     const resumed = collectJournalTasks([
       ...base,
       message(4, "assistant", {
-        content: [{ type: "toolCall", id: "call-2", name: "send_input", arguments: { thread_id: "report" } }],
+        content: [{ type: "toolCall", id: "call-2", name: "send_message", arguments: { thread_id: "report" } }],
       }),
-      message(5, "toolResult", { toolCallId: "call-2", toolName: "send_input", content: "ok" }),
+      message(5, "toolResult", { toolCallId: "call-2", toolName: "send_message", content: "ok" }),
     ]);
     expect(running(resumed)).toEqual(["Write report"]);
 
     const rejected = collectJournalTasks([
       ...base,
-      message(4, "toolResult", { toolCallId: "call-3", toolName: "send_input", isError: true, details: { thread_id: "report" } }),
+      message(4, "toolResult", { toolCallId: "call-3", toolName: "send_message", isError: true, details: { thread_id: "report" } }),
     ]);
     expect(running(rejected)).toEqual([]);
   });

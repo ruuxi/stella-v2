@@ -137,6 +137,8 @@ export const agentSteerPath = (threadId: string): string =>
 
 export type CloudAgentSteerKind =
   | "input"
+  /** A note from another agent or Stella, already framed by `formatAgentMessage`. */
+  | "message"
   | "child_completed"
   | "child_canceled"
   | "child_failed";

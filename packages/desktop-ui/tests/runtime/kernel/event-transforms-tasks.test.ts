@@ -382,7 +382,7 @@ describe("seen-running expansion stickiness", () => {
     expect(pruned.has("a1")).toBe(false);
   });
 
-  it("survives a send_input re-run cycle (running → completed → running → completed)", () => {
+  it("survives a send_message re-run cycle (running → completed → running → completed)", () => {
     let seen: ReadonlySet<string> = new Set();
     seen = updateSeenRunningTaskIds(seen, [task({ id: "a1" })]);
     seen = updateSeenRunningTaskIds(seen, [
@@ -457,7 +457,7 @@ describe("buildActivityTasks", () => {
     expect(done?.reasoningText).toBeUndefined();
   });
 
-  it("shows the durable spawn description after a send_input follow-up", () => {
+  it("shows the durable spawn description after a send_message follow-up", () => {
     // Rows carry the runtime's own description verbatim. A follow-up no
     // longer re-describes the thread, so the spawn's domain name is what the
     // folded sidebar row keeps showing.

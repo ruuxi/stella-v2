@@ -984,7 +984,7 @@ export const describeCurrentThreadState = (
         sentinels.restartCancelReasons.includes(record.error)
       ) {
         return {
-          label: "canceled by the restart — resumable via send_input",
+          label: "canceled by the restart — resumable via send_message",
           resumable: true,
           paused: false,
         };
@@ -1042,7 +1042,7 @@ export const buildRestartContinuationPrompt = (args: {
   }
   lines.push(
     "",
-    "Decide which interrupted threads should continue and resume each one with send_input(threadId, ...) instructing it to continue from where it left off. Leave paused threads paused. Then tell the user briefly what you resumed (or that nothing needed resuming).",
+    "Decide which interrupted threads should continue and resume each one with send_message(threadId, ...) instructing it to continue from where it left off. Leave paused threads paused. Then tell the user briefly what you resumed (or that nothing needed resuming).",
   );
   return lines.join("\n");
 };
@@ -1067,7 +1067,7 @@ export const buildRestartReminderText = (args: {
     ),
     args.syntheticTurnCompleted
       ? "An automatic resume turn already ran after the restart and surfaced this state — treat this as confirmation and do not duplicate resumption."
-      : "No automatic resume turn ran for this conversation. If any of these threads should continue, resume them with send_input; leave paused threads paused.",
+      : "No automatic resume turn ran for this conversation. If any of these threads should continue, resume them with send_message; leave paused threads paused.",
   ];
   return lines.join("\n");
 };

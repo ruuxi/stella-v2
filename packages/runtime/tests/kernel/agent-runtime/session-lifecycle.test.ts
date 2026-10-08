@@ -328,7 +328,7 @@ describe("OrchestratorSession", () => {
     );
     const oldMetadataDir = path.join(tempRoot, "old-agent-metadata");
     await mkdir(oldMetadataDir, { recursive: true });
-    const oldTools = ["spawn_agent", "send_input", "pause_agent"];
+    const oldTools = ["spawn_agent", "send_message", "pause_agent"];
     await writeFile(
       path.join(oldMetadataDir, "orchestrator.md"),
       [

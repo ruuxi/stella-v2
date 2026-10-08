@@ -26,6 +26,14 @@ import type {
   ComputerThreadRecord,
   DeviceAgentThread,
 } from "@stella/contracts/backend/agent-threads";
+import {
+  AGENT_MESSAGE_MAX_CHARS,
+  STELLA_MESSAGE_TARGET,
+  formatAgentMessage,
+  normalizeAgentDirectoryStatus,
+  type AgentDirectoryAgentRow,
+  type AgentDirectorySessionRow,
+} from "@stella/contracts/agent-directory";
 import { SELECTED_DEVICE_NEEDS_CONSENT } from "@stella/contracts/turn-plane/placement";
 import {
   AGENT_PROMPT_MAX_CHARS,
@@ -335,6 +343,7 @@ const runDispatch = async (ctx: OwnerContext, job: DispatchJob): Promise<void> =
       ...(thread.origin_conversation_id
         ? { originConversationId: thread.origin_conversation_id }
         : {}),
+      ...(thread.parent_thread_id ? { parentThreadId: thread.parent_thread_id } : {}),
       ...(job.browserResume ? { browserResume: job.browserResume } : {}),
     });
     ctx.db.run("DELETE FROM agent_dispatch_prompts WHERE turn_id = ?", turn.turn_id);
@@ -380,13 +389,13 @@ const steerDeviceThread = async (
   if (steered.reason === "unreachable") {
     throw new RpcError(
       "UNAVAILABLE",
-      `The device running ${thread.thread_id} can't be reached right now. Try send_input again shortly.`,
+      `The device running ${thread.thread_id} can't be reached right now. Send the message again shortly.`,
       { retryable: true, reason: "device_unreachable" },
     );
   }
   throw new RpcError(
     "CONFLICT",
-    `${thread.thread_id} is between runs on its device (starting up or just finishing). Check agent_status, then send_input again.`,
+    `${thread.thread_id} is between runs on its device (starting up or just finishing). Check agent_status, then send_message again.`,
     { reason: "thread_changed" },
   );
 };
@@ -724,6 +733,19 @@ const deviceThreadForCloud = (ctx: OwnerContext, raw: unknown): AgentThreadSumma
   return summary(readCloudDeviceThread(ctx, args), ctx.ownerId);
 };
 
+/** The owner's device names by id; empty when the gate can't list them. */
+const deviceLabels = async (ctx: OwnerContext): Promise<Map<string, string>> => {
+  const labels = new Map<string, string>();
+  try {
+    for (const device of await ctx.host.deviceDestinations()) {
+      if (device.label) labels.set(device.deviceId, device.label);
+    }
+  } catch {
+    labels.clear();
+  }
+  return labels;
+};
+
 const lookupConversationThread = async (
   ctx: OwnerContext,
   args: { conversationId: string; threadId: string; ownerGeneration?: string },
@@ -739,16 +761,10 @@ const lookupConversationThread = async (
   ) {
     return null;
   }
-  const labels = new Map<string, string>();
-  if (thread.executor_device_id || thread.origin_device_id) {
-    try {
-      for (const device of await ctx.host.deviceDestinations()) {
-        if (device.label) labels.set(device.deviceId, device.label);
-      }
-    } catch {
-      labels.clear();
-    }
-  }
+  const labels =
+    thread.executor_device_id || thread.origin_device_id
+      ? await deviceLabels(ctx)
+      : new Map<string, string>();
   const executorLabel = thread.executor_device_id ? labels.get(thread.executor_device_id) : undefined;
   const originLabel = thread.origin_device_id ? labels.get(thread.origin_device_id) : undefined;
   return {
@@ -1162,6 +1178,241 @@ const continueFromDesktop = async (
     prompt: args.prompt,
   });
   return control(continued);
+};
+
+// ── Agent directory and messages ──────────────────────────────────────────
+
+const DIRECTORY_AGENTS_RECENT = 50;
+const DIRECTORY_SESSIONS_RECENT = 20;
+const LIVE_STATUSES_SQL = "('running', 'resuming', 'waiting_for_user')";
+const AGENT_MESSAGE_RECEIPT_TTL_MS = 24 * 60 * 60_000;
+
+/** The device a thread runs on: its executor, or the desktop a local thread lives on. */
+const threadDeviceId = (row: ThreadRow): string | null =>
+  row.executor_device_id ?? (row.placement === "computer" ? row.origin_device_id : null);
+
+type DirectoryResult = AgentThreadCalls["agentThreads.directory"]["result"];
+
+/**
+ * One conversation's agents from every placement, matched by the cloud
+ * conversation or the desktop conversation that started them, and the
+ * owner's other cloud conversations. Every live agent is kept; the rest are
+ * the newest few.
+ */
+const agentDirectory = async (
+  ctx: OwnerContext,
+  args: { conversationId: string },
+): Promise<DirectoryResult> => {
+  const rows = new Map<string, ThreadRow>();
+  for (const column of ["conversation_id", "origin_conversation_id"] as const) {
+    for (const row of [
+      ...ctx.db.all<ThreadRow>(
+        `SELECT * FROM agent_threads WHERE ${column} = ? AND status IN ${LIVE_STATUSES_SQL}`,
+        args.conversationId,
+      ),
+      ...ctx.db.all<ThreadRow>(
+        `SELECT * FROM agent_threads WHERE ${column} = ?
+          ORDER BY updated_at DESC, thread_id DESC LIMIT ?`,
+        args.conversationId,
+        DIRECTORY_AGENTS_RECENT,
+      ),
+    ]) {
+      rows.set(row.thread_id, row);
+    }
+  }
+  const labels = [...rows.values()].some((row) => threadDeviceId(row) !== null)
+    ? await deviceLabels(ctx)
+    : new Map<string, string>();
+  const agents = [...rows.values()].map((row): AgentDirectoryAgentRow => {
+    const deviceId = threadDeviceId(row);
+    return {
+      threadId: row.thread_id,
+      conversationId: args.conversationId,
+      ...(row.parent_thread_id !== null ? { parentThreadId: row.parent_thread_id } : {}),
+      description: row.description,
+      status: normalizeAgentDirectoryStatus(row.status),
+      where: deviceId ? (labels.get(deviceId) ?? "another computer") : "cloud",
+      updatedAt: row.updated_at,
+    };
+  });
+  const sessions = ctx.db
+    .all<{ conversation_id: string; title: string; updated_at: number; activity: string | null }>(
+      `SELECT conversation_id, title, updated_at, activity FROM conversations
+        WHERE deleted_at IS NULL ORDER BY updated_at DESC, conversation_id DESC LIMIT ?`,
+      DIRECTORY_SESSIONS_RECENT + 1,
+    )
+    .filter((row) => row.conversation_id !== args.conversationId)
+    .slice(0, DIRECTORY_SESSIONS_RECENT)
+    .map(
+      (row): AgentDirectorySessionRow => ({
+        conversationId: row.conversation_id,
+        title: row.title,
+        active: row.activity === "running",
+        where: "cloud",
+        updatedAt: row.updated_at,
+      }),
+    );
+  return { agents, sessions };
+};
+
+type MessageArgs = AgentThreadCalls["agentThreads.message"]["args"];
+type MessageDelivery = AgentThreadCalls["agentThreads.message"]["result"];
+
+/**
+ * `send_message` to a thread the caller does not own. A cloud conversation
+ * id queues a hidden wake turn on that conversation's Stella; a running agent
+ * reads the message before its next model call; an idle one resumes with it
+ * as its next attempt, under the same parent, so its report still goes where
+ * it always did. Idempotent per `messageId`.
+ */
+const messageAgent = async (ctx: OwnerContext, args: MessageArgs): Promise<MessageDelivery> => {
+  if (!CONTROL_REQUEST_ID_PATTERN.test(args.messageId)) {
+    throw new RpcError("BAD_REQUEST", "That message could not be sent. Try again.");
+  }
+  const to = args.to.trim();
+  const text = args.text.trim();
+  if (!text || text.length > AGENT_MESSAGE_MAX_CHARS) {
+    throw new RpcError("BAD_REQUEST", `A message must be 1 to ${AGENT_MESSAGE_MAX_CHARS} characters.`);
+  }
+  if (to === STELLA_MESSAGE_TARGET) {
+    throw new RpcError(
+      "BAD_REQUEST",
+      `"${STELLA_MESSAGE_TARGET}" names the sender's own Stella; send its conversation id instead.`,
+    );
+  }
+  if (to === args.from.threadId) {
+    throw new RpcError("BAD_REQUEST", "That thread_id is the sender's own.");
+  }
+  const fingerprint = await sha256Hex(
+    JSON.stringify(["agent-message/v1", to, text, args.from.threadId, args.from.label]),
+  );
+  const receipt = ctx.db.one<{ fingerprint: string; result_json: string }>(
+    "SELECT fingerprint, result_json FROM agent_message_receipts WHERE message_id = ?",
+    args.messageId,
+  );
+  if (receipt) {
+    if (receipt.fingerprint !== fingerprint) {
+      throw new RpcError("CONFLICT", "That message id was already used for a different message.");
+    }
+    return JSON.parse(receipt.result_json) as MessageDelivery;
+  }
+  await assertGeneration(ctx, args.ownerGeneration);
+  enforceOwnerRateLimit(
+    ctx.db,
+    ctx.now,
+    "agentThreads.message",
+    { count: 120, windowMs: 10 * 60_000 },
+    "Too many agent messages at once. Wait a moment and try again.",
+  );
+  const delivery = await deliverAgentMessage(ctx, {
+    ownerGeneration: args.ownerGeneration,
+    messageId: args.messageId,
+    to,
+    framed: formatAgentMessage(args.from, text),
+  });
+  ctx.db.run(
+    "DELETE FROM agent_message_receipts WHERE created_at < ?",
+    ctx.now - AGENT_MESSAGE_RECEIPT_TTL_MS,
+  );
+  ctx.db.run(
+    `INSERT INTO agent_message_receipts (message_id, fingerprint, result_json, created_at)
+     VALUES (?, ?, ?, ?) ON CONFLICT (message_id) DO NOTHING`,
+    args.messageId,
+    fingerprint,
+    JSON.stringify(delivery),
+    ctx.now,
+  );
+  return delivery;
+};
+
+const deliverAgentMessage = async (
+  ctx: OwnerContext,
+  args: { ownerGeneration: string; messageId: string; to: string; framed: string },
+): Promise<MessageDelivery> => {
+  const { to } = args;
+  const conversation = ctx.db.one<{ conversation_id: string }>(
+    "SELECT conversation_id FROM conversations WHERE conversation_id = ? AND deleted_at IS NULL",
+    to,
+  );
+  if (conversation) {
+    await ctx.host.startAgentMessageTurn({
+      ownerGeneration: args.ownerGeneration,
+      conversationId: to,
+      clientMsgId: `msg:${(await sha256Hex(args.messageId)).slice(0, 48)}`,
+      prompt: args.framed,
+    });
+    return { delivered: "queued", threadId: to };
+  }
+  const thread = readThread(ctx.db, to);
+  if (
+    !thread ||
+    (thread.owner_generation !== null && thread.owner_generation !== args.ownerGeneration)
+  ) {
+    throw new RpcError(
+      "NOT_FOUND",
+      `No agent or Stella session has the thread_id ${to}. agent_status without a thread_id lists who you can reach.`,
+      { reason: "message_target_not_found" },
+    );
+  }
+  if (!thread.executor_device_id && thread.placement === "computer") {
+    const deviceId = thread.origin_device_id ?? "";
+    const name = (await deviceLabels(ctx)).get(deviceId) || deviceId || "another computer";
+    throw new RpcError(
+      "CONFLICT",
+      `${to} runs locally on ${name}, so it can only be messaged from that computer.`,
+      { reason: "thread_local_to_device" },
+    );
+  }
+  if (ACTIVE_STATUSES.has(thread.status)) {
+    if (thread.executor_device_id) {
+      await steerDeviceThread(ctx, thread, args.messageId, args.framed);
+      return { delivered: "steered", threadId: to };
+    }
+    const steered = await ctx.host.steerAgentTurn({
+      threadId: to,
+      messageId: args.messageId,
+      text: args.framed,
+      kind: "message",
+    });
+    if (steered) return { delivered: "steered", threadId: to };
+    // Not running yet is not finished: superseding a queued first attempt
+    // would drop its prompt.
+    const queued = ctx.db.one<{ turn_id: string }>(
+      `SELECT t.turn_id FROM agent_turns t JOIN agent_dispatch_prompts p ON p.turn_id = t.turn_id
+        WHERE t.thread_id = ? AND t.attempt_generation = ? LIMIT 1`,
+      to,
+      thread.attempt_generation,
+    );
+    if (queued) {
+      throw new RpcError("CONFLICT", `${to} is starting up. Send the message again in a moment.`, {
+        retryable: true,
+        reason: "thread_starting",
+      });
+    }
+  } else if (thread.executor_device_id) {
+    await assertDeviceDestination(ctx, thread.executor_device_id);
+  }
+  const current = readThread(ctx.db, to);
+  if (!current || current.attempt_generation !== thread.attempt_generation) {
+    throw threadChanged(to);
+  }
+  ctx.db.run(
+    `UPDATE agent_threads SET
+       status = 'running', attempt_generation = ?, origin_delivery_ack_at = NULL,
+       result_json = NULL, error_message = NULL, updated_at = ?
+     WHERE thread_id = ?`,
+    current.attempt_generation + 1,
+    ctx.now,
+    to,
+  );
+  startAttempt(ctx, {
+    thread: readThread(ctx.db, to)!,
+    turnId: crypto.randomUUID(),
+    clientMsgId: args.messageId,
+    fingerprint: "agent-message",
+    prompt: args.framed,
+  });
+  return { delivered: "resumed", threadId: to };
 };
 
 /**
@@ -1781,6 +2032,13 @@ const threadPage = (
 const id = (max = 128) => string({ min: 1, max });
 const generation = id(512);
 const origin = { originDeviceId: id(256), originConversationId: id(256) };
+const messageParser = object({
+  ownerGeneration: generation,
+  messageId: id(),
+  to: id(256),
+  text: string({ max: AGENT_MESSAGE_MAX_CHARS * 2 }),
+  from: object({ threadId: id(256), label: string({ max: 2_000 }) }),
+});
 
 export const agentThreadsDomain = {
   name: "agent-threads",
@@ -1804,6 +2062,21 @@ export const agentThreadsDomain = {
         "ALTER TABLE agent_dispatch_prompts ADD COLUMN attachments TEXT",
       ],
     },
+    {
+      id: "agent-threads.6-agent-messages",
+      statements: [
+        `CREATE INDEX agent_threads_origin_conversation
+           ON agent_threads (origin_conversation_id, updated_at DESC)
+           WHERE origin_conversation_id IS NOT NULL`,
+        `CREATE TABLE agent_message_receipts (
+           message_id TEXT PRIMARY KEY,
+           fingerprint TEXT NOT NULL,
+           result_json TEXT NOT NULL,
+           created_at INTEGER NOT NULL
+         )`,
+        "CREATE INDEX agent_message_receipts_created ON agent_message_receipts (created_at)",
+      ],
+    },
   ],
   calls: {
     "agentThreads.page": {
@@ -1819,6 +2092,17 @@ export const agentThreadsDomain = {
       scope: "owner",
       parse: object({ conversationId: id(256), threadId: id(256) }),
       handler: (ctx, args) => lookupConversationThread(ctx, args),
+    },
+    "agentThreads.directory": {
+      scope: "owner",
+      parse: object({ conversationId: id(256) }),
+      handler: agentDirectory,
+    },
+    "agentThreads.message": {
+      scope: "owner",
+      requireAccount: true,
+      parse: messageParser,
+      handler: messageAgent,
     },
     "agentThreads.spawnFromDesktop": {
       scope: "owner",
@@ -1973,6 +2257,9 @@ export const agentThreadsDomain = {
     "agentThreads.continueOnDevice": continueDeviceForCloud,
     "agentThreads.cancelOnDevice": cancelDeviceForCloud,
     "agentThreads.deviceSettled": deviceSettled,
+    "agentThreads.directory": async (ctx, raw) =>
+      await agentDirectory(ctx, object({ ownerGeneration: generation, conversationId: id(256) })(raw)),
+    "agentThreads.message": async (ctx, raw) => await messageAgent(ctx, messageParser(raw)),
   },
   jobs: {
     "agentThreads.dispatch": {

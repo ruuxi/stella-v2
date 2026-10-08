@@ -53,7 +53,7 @@ describe("loadParsedAgentsFromDir", () => {
 
     expect(orchestrator?.toolsAllowlist).not.toContain("Bash");
     expect(orchestrator?.toolsAllowlist).toEqual(
-      expect.arrayContaining(["code", "spawn_agent", "send_input", "pause_agent"]),
+      expect.arrayContaining(["code", "spawn_agent", "send_message", "pause_agent"]),
     );
     expect(orchestrator?.maxAgentDepth).toBe(2);
   });

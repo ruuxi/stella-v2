@@ -102,7 +102,7 @@ export const buildAgentEventPrompt = (
   }
   if (event.type === "agent-completed") {
     lines.push(
-      "agent_state: paused; use send_input on the same thread if follow-up work is needed.",
+      "agent_state: paused; use send_message on the same thread if follow-up work is needed.",
     );
     if (toParentAgent) {
       lines.push(

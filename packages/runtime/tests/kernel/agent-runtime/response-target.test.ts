@@ -21,7 +21,7 @@ describe("orchestrator response target tracking", () => {
   it("classifies task follow-up tools by thread id", () => {
     const tracker = createOrchestratorResponseTargetTracker();
 
-    tracker.noteToolStart("send_input", {
+    tracker.noteToolStart("send_message", {
       thread_id: "task-1",
     });
 

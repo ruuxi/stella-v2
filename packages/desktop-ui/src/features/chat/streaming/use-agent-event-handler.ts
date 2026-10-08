@@ -503,7 +503,7 @@ export function useAgentEventHandler({
           }
 
           if (event.type === AGENT_STREAM_EVENT_TYPES.AGENT_STARTED) {
-            // A fresh start (spawn or send_input re-activation) begins a
+            // A fresh start (spawn or send_message re-activation) begins a
             // clean decoration — stale reasoning/status from the previous
             // attempt must not bleed into the new one.
             discardPendingReasoningChunks(event.agentId)

@@ -32,7 +32,7 @@ describe("deriveAgentActivityRow", () => {
     expect(row.glyph).toBe("check");
   });
 
-  test("settled send_input follow-up shows the arrow, not the check", () => {
+  test("settled send_message follow-up shows the arrow, not the check", () => {
     const row = deriveAgentActivityRow(
       payload({ state: "done", followUp: true }),
     );

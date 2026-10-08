@@ -171,7 +171,7 @@ const RESIDENT_TOOLS = createResidentGeneralAgentTools(
     ["Edit", noopDoLocalTool("Edit")],
     ["Grep", noopDoLocalTool("Grep")],
     ["spawn_agent", noopDoLocalTool("spawn_agent")],
-    ["send_input", noopDoLocalTool("send_input")],
+    ["send_message", noopDoLocalTool("send_message")],
     ["pause_agent", noopDoLocalTool("pause_agent")],
     ["agent_status", noopDoLocalTool("agent_status")],
   ]),

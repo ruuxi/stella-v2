@@ -76,8 +76,16 @@ export type OwnerHost = {
    * dispatch. Throws `DispatchError` when the device cannot take it.
    */
   dispatchDeviceAgentTurn(input: DeviceAgentTurnDispatch): Promise<{ dispatchId: string }>;
-  /** New input for a cloud agent's running attempt; false when none is running. */
-  steerAgentTurn(input: { threadId: string; messageId: string; text: string }): Promise<boolean>;
+  /**
+   * New input, or a framed message from another agent, for a cloud agent's
+   * running attempt; false when none is running.
+   */
+  steerAgentTurn(input: {
+    threadId: string;
+    messageId: string;
+    text: string;
+    kind?: "input" | "message";
+  }): Promise<boolean>;
   /** New input for a device attempt that is running. */
   steerDeviceAgentTurn(input: {
     dispatchId: string;
@@ -125,6 +133,17 @@ export type OwnerHost = {
    * policy, which closes model grants first. Throws `RpcError` on refusal.
    */
   changeMemoryPolicy(change: MemoryPolicyChange): Promise<void>;
+  /**
+   * Queue an agent's framed message as a hidden wake turn on a cloud
+   * conversation's Stella. Idempotent per `clientMsgId`; throws `RpcError`
+   * when the conversation refuses it.
+   */
+  startAgentMessageTurn(input: {
+    ownerGeneration: string;
+    conversationId: string;
+    clientMsgId: string;
+    prompt: string;
+  }): Promise<void>;
   /** Start a scheduled prompt as a turn, in a cloud chat or on a named desktop. */
   startScheduledTurn(input: ScheduledTurnStart): Promise<void>;
   /**
@@ -157,6 +176,8 @@ export type AgentTurnDispatch = {
   execution: import("@stella/contracts/agent-engine").CloudExecutionSelection;
   originDeviceId?: string;
   originConversationId?: string;
+  /** The cloud agent that started the thread, which its report returns to. */
+  parentThreadId?: string;
   /** Resume a hosted-browser wait with this answer. */
   browserResume?: import("@stella/contracts/cloud-browser").CloudBrowserResumeReceipt;
 };

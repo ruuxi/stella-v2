@@ -316,7 +316,7 @@ const cloudAgentTool = async (
   targetTurn: ReturnType<typeof turn>,
   name:
     | "spawn_agent"
-    | "send_input"
+    | "send_message"
     | "pause_agent"
     | "agent_status",
 ): Promise<ExecutableCloudTool> => {
@@ -3500,7 +3500,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
     expect(controlWithoutWake.status).toBe(400);
   });
 
-  test("send_input dispatches the next attempt straight to the BuildSession and fences ABA", async () => {
+  test("send_message dispatches the next attempt straight to the BuildSession and fences ABA", async () => {
     const values = new Map<string, unknown>();
     const gates = fakeOwnerGates();
     const outbox = fakeOwnerEvents();
@@ -3519,12 +3519,12 @@ describe("execution-placement exact cloud turn cancellation", () => {
     const restarted = sessionHarness(values, { gates, outbox });
     const calls = installBuildSessions(restarted, acceptedAgentTurn);
     const parentTurn = turn("turn-send-input-control");
-    const sendInput = await cloudAgentTool(
+    const sendMessage = await cloudAgentTool(
       restarted.instance,
       parentTurn,
-      "send_input",
+      "send_message",
     );
-    const delivered = await sendInput.execute("tool-send-normal", {
+    const delivered = await sendMessage.execute("tool-send-normal", {
       thread_id: "thread-control-1",
       description: "Continued task",
       message: "Continue from the last result.",
@@ -3606,7 +3606,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
     const replayedSendInput = await cloudAgentTool(
       responseLostRestart.instance,
       parentTurn,
-      "send_input",
+      "send_message",
     );
     const replayedDelivery = await replayedSendInput.execute(
       "tool-send-normal",
@@ -3645,7 +3645,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
         { status: 409 },
       );
     });
-    const staleContinuation = sendInput.execute("tool-send-stale", {
+    const staleContinuation = sendMessage.execute("tool-send-stale", {
       thread_id: "thread-control-1",
       description: "Stale continuation",
       message: "This must not bind to the successor.",
@@ -3680,7 +3680,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
     });
   });
 
-  test("send_input steers a running cloud agent without admitting another attempt", async () => {
+  test("send_message steers a running cloud agent without admitting another attempt", async () => {
     const harness = sessionHarness();
     await (
       harness.instance["rememberCloudAgentControlReceipt"] as (
@@ -3707,12 +3707,12 @@ describe("execution-placement exact cloud turn cancellation", () => {
         attemptGeneration: 2,
       });
     });
-    const sendInput = await cloudAgentTool(
+    const sendMessage = await cloudAgentTool(
       harness.instance,
       turn("turn-steer-running"),
-      "send_input",
+      "send_message",
     );
-    const result = await sendInput.execute("tool-steer-running", {
+    const result = await sendMessage.execute("tool-steer-running", {
       thread_id: "thread-running",
       message: "Prioritize the newest evidence.",
     });
@@ -3901,12 +3901,12 @@ describe("execution-placement exact cloud turn cancellation", () => {
       status: "running",
     });
     const calls = installBuildSessions(harness, acceptedAgentTurn);
-    const sendInput = await cloudAgentTool(
+    const sendMessage = await cloudAgentTool(
       harness.instance,
       turn("turn-equal-clock"),
-      "send_input",
+      "send_message",
     );
-    await sendInput.execute("tool-equal-clock", {
+    await sendMessage.execute("tool-equal-clock", {
       thread_id: "thread-equal-clock",
       description: "Continue after completion",
       message: "Continue.",
@@ -5051,8 +5051,8 @@ describe("cloud agent tools for threads this conversation started elsewhere", ()
       description: "Disk cleanup",
     });
 
-    const sendInput = await cloudAgentTool(session.instance, afterRestart, "send_input");
-    const delivered = await sendInput.execute("tool-input-after-restart", {
+    const sendMessage = await cloudAgentTool(session.instance, afterRestart, "send_message");
+    const delivered = await sendMessage.execute("tool-input-after-restart", {
       thread_id: threadId,
       message: "Also empty the Downloads folder.",
     });
@@ -5066,7 +5066,7 @@ describe("cloud agent tools for threads this conversation started elsewhere", ()
     owner.close();
   });
 
-  test("a thread another computer started is reported with where it runs, and input or pause explain who can reach it", async () => {
+  test("a thread another computer started is reported with where it runs, takes a message as a note, and pause explains who can reach it", async () => {
     const { owner, session, steered, canceled } = await ownerStoreFor();
     const started = (await owner.call("agentThreads.spawnFromDesktop", {
       ownerGeneration: "generation-1",
@@ -5078,6 +5078,7 @@ describe("cloud agent tools for threads this conversation started elsewhere", ()
       conversationId: "conversation-1",
       targetDeviceId: "mac-1",
     })) as { threadId: string };
+    await owner.runJobs(Date.now() + 1_000);
 
     const afterRestart = turn("turn-after-restart");
     const status = await cloudAgentTool(session.instance, afterRestart, "agent_status");
@@ -5092,15 +5093,19 @@ describe("cloud agent tools for threads this conversation started elsewhere", ()
     expect(snapshot.content[0]?.text).toContain("runs on Rahul's Mac");
     expect(snapshot.content[0]?.text).toContain("only omarchy can send it input or pause it");
 
-    const sendInput = await cloudAgentTool(session.instance, afterRestart, "send_input");
-    await expect(
-      sendInput.execute("tool-input-foreign", { thread_id: started.threadId, message: "Hurry." }),
-    ).rejects.toThrow("so nothing was sent.");
+    const sendMessage = await cloudAgentTool(session.instance, afterRestart, "send_message");
+    const delivered = await sendMessage.execute("tool-input-foreign", {
+      thread_id: started.threadId,
+      message: "Hurry.",
+    });
+    expect(delivered.details).toMatchObject({ thread_id: started.threadId, delivered: "steered" });
+    expect(steered).toEqual([
+      '<agent-message from="Stella" thread_id="conversation-1">\nHurry.\n</agent-message>',
+    ]);
     const pause = await cloudAgentTool(session.instance, afterRestart, "pause_agent");
     await expect(
       pause.execute("tool-pause-foreign", { thread_id: started.threadId }),
     ).rejects.toThrow("so nothing was paused.");
-    expect(steered).toEqual([]);
     expect(canceled).toEqual([]);
 
     await expect(

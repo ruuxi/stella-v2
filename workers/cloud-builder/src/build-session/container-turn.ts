@@ -396,7 +396,7 @@ export const runContainerAgentTurn = async (
     );
     execution.assertActive();
 
-    // Thread transcript for send_input continuations: the DO fetches it
+    // Thread transcript for send_message continuations: the DO fetches it
     // (service secret) and hands it to the executor, which holds only the
     // turn token. Fetched once, before any sandbox exists, so an escalation
     // retry does not pay for it twice.

@@ -31,7 +31,7 @@ const completedBeforeStream = event({
   payload: { agentId: "agent-a" },
 });
 
-/** `send_input` follow-up fired WHILE the orchestrator text was streaming. */
+/** `send_message` follow-up fired WHILE the orchestrator text was streaming. */
 const followUpMidStream = event({
   _id: "s1",
   type: "agent-started",
@@ -142,7 +142,7 @@ describe("routeLifecycleEvents", () => {
   it("routes a mid-stream lifecycle event below the streaming text and keeps pre-stream events above it", () => {
     // Rahul's sequence, live: finished card painted first (user anchor),
     // orchestrator text streaming below it (overlay first chunk at t=300),
-    // then send_input creates a follow-up card at t=400. The follow-up must
+    // then send_message creates a follow-up card at t=400. The follow-up must
     // land on the overlay row (below the text); the finished card must stay
     // on the user anchor (above the text).
     const user = message({

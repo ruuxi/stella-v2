@@ -363,7 +363,7 @@ describe("LocalAgentManager cloud-owned computer lifecycle", () => {
     }
   });
 
-  test("keeps rejected generation send_input and lost-response retries out of providers", async () => {
+  test("keeps rejected generation send_message and lost-response retries out of providers", async () => {
     const starts: Array<{ attemptGeneration: number; ownerGeneration?: string }> = [];
     const terminals: unknown[] = [];
     let providerRuns = 0;
@@ -444,7 +444,7 @@ describe("LocalAgentManager cloud-owned computer lifecycle", () => {
           "Try the stale thread again",
           "orchestrator",
         ),
-      ).resolves.toEqual({ delivered: true });
+      ).resolves.toEqual({ delivered: true, resumed: true });
       await waitFor(
         () =>
           starts.length === 2 &&

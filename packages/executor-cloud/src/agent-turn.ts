@@ -214,7 +214,7 @@ export type AgentTurnInput = CloudCliTurnRoleInput & {
    * runs on (a directory key and the account's email, never a credential).
    */
   claudeAccount?: CloudClaudeAccountInput;
-  /** Prior thread transcript rows, oldest first (send_input continuations). */
+  /** Prior thread transcript rows, oldest first (send_message continuations). */
   history?: AgentHistoryRow[];
   /** Safe approval receipt used to resume a previously suspended code call. */
   browserResume?: CloudBrowserResumeReceipt;
@@ -908,7 +908,7 @@ export const runAgentTurn = (
         );
       }
 
-      // Long-running threads accumulate transcript across send_input
+      // Long-running threads accumulate transcript across send_message
       // continuations; keep the newest window that fits the model.
 
       let llmCalls = 0;

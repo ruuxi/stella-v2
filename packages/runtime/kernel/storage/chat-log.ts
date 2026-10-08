@@ -173,6 +173,13 @@ export const readReplyRefs = (
   return result;
 };
 
+/** A chat's title is its newest visible message, as the history list shows it. */
+const conversationTitle = (payloadJson: string | null): string => {
+  const payload = parseJsonRecord(payloadJson);
+  const rawText = typeof payload?.text === "string" ? payload.text : "";
+  return rawText.replace(/\s+/g, " ").trim().slice(0, 240) || "New chat";
+};
+
 export class ChatLog {
   private readonly cached: CachedStatements;
 
@@ -463,12 +470,9 @@ export class ChatLog {
     const hasMore = rows.length > limit;
     const pageRows = hasMore ? rows.slice(0, limit) : rows;
     const conversations = pageRows.map((row) => {
-      const payload = parseJsonRecord(row.payloadJson);
-      const rawText = typeof payload?.text === "string" ? payload.text : "";
-      const title = rawText.replace(/\s+/g, " ").trim().slice(0, 240);
       return {
         conversationId: row.conversationId,
-        title: title || "New chat",
+        title: conversationTitle(row.payloadJson),
         ...(row.latestMessageId ? { latestMessageId: row.latestMessageId } : {}),
         ...(typeof row.latestMessageAt === "number"
           ? { latestMessageAt: row.latestMessageAt }
@@ -489,6 +493,45 @@ export class ChatLog {
             },
           }
         : {}),
+    };
+  }
+
+  /** One active chat's summary row, or null when this computer has no such chat. */
+  getConversationSummary(conversationId: string): {
+    conversationId: string;
+    title: string;
+    updatedAt: number;
+  } | null {
+    const row = this.cached
+      .prepare(
+        `SELECT
+           conversation.id AS conversationId,
+           conversation.updated_at AS updatedAt,
+           latest.payload AS payloadJson
+         FROM conversation
+         LEFT JOIN entry AS latest ON latest.rowid = (
+           SELECT candidate.rowid
+           FROM entry AS candidate
+           WHERE candidate.conversation_id = conversation.id
+             AND candidate.visible = 1
+             AND candidate.search_text IS NOT NULL
+             AND trim(candidate.search_text) <> ''
+           ORDER BY candidate.seq DESC
+           LIMIT 1
+         )
+         WHERE conversation.id = ?
+           AND conversation.kind = 'chat'
+           AND conversation.status = 'active'
+         LIMIT 1`,
+      )
+      .get(conversationId) as
+      | { conversationId: string; updatedAt: number; payloadJson: string | null }
+      | undefined;
+    if (!row) return null;
+    return {
+      conversationId: row.conversationId,
+      title: conversationTitle(row.payloadJson),
+      updatedAt: row.updatedAt,
     };
   }
 
@@ -519,11 +562,6 @@ export class ChatLog {
         .run(conversationId);
       this.cached
         .prepare("DELETE FROM thread WHERE conversation_id = ?")
-        .run(conversationId);
-      this.cached
-        .prepare(
-          "DELETE FROM runtime_conversation_state WHERE conversation_id = ?",
-        )
         .run(conversationId);
       this.cached
         .prepare("DELETE FROM settings WHERE key = ? AND value = ?")

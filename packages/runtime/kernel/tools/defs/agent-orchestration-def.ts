@@ -18,7 +18,7 @@ export const parseSpawnDestination = (value: unknown): SpawnDestination => {
 export const SPAWN_AGENT_TOOL_DESCRIPTOR = {
   name: "spawn_agent",
   description:
-    "Start a background agent for work that needs its own owner. Continue related work with an existing agent through send_input, even when it is busy. Agents can delegate independent parts to subagents. The immediate result means work has started; completion arrives in [Agent completed].",
+    "Start a background agent for work that needs its own owner. Continue related work with an existing agent through send_message, even when it is busy. Agents can delegate independent parts to subagents. The immediate result means work has started; completion arrives in [Agent completed].",
   parameters: {
     type: "object",
     properties: {
@@ -46,20 +46,22 @@ export const SPAWN_AGENT_TOOL_DESCRIPTOR = {
   },
 } as const;
 
-export const SEND_INPUT_TOOL_DESCRIPTOR = {
-  name: "send_input",
+export const SEND_MESSAGE_TOOL_DESCRIPTOR = {
+  name: "send_message",
   description:
-    "Send new or changed instructions to an existing agent, including while it is busy. Preserves the thread's context. A successful result means the input was accepted, not that the work finished; completion arrives in [Agent completed].",
+    'Message an agent or Stella session by thread_id, including while it is busy; it reads the message before its next step. To an agent you started, the message is an instruction: steer it, correct it, or resume it on the same thread after it finished or was paused. To anyone else (Stella, the agent that started you, teammates, other sessions) it arrives as a note from you, which they weigh against their own work and can answer with send_message. "stella" reaches the Stella you work for. A successful result means the message was delivered, not that any work finished; completion still arrives in [Agent completed]. agent_status without a thread_id lists who you can reach.',
   parameters: {
     type: "object",
     properties: {
       thread_id: {
         type: "string",
-        description: "Durable thread id to continue or revise.",
+        description:
+          'Who to message: a thread_id from agent_status, or "stella".',
       },
       message: {
         type: "string",
-        description: "Follow-up instruction to deliver to the agent.",
+        description:
+          "The message. To your own agent, send only what is new or changed.",
       },
     },
     required: ["thread_id", "message"],
@@ -69,7 +71,7 @@ export const SEND_INPUT_TOOL_DESCRIPTOR = {
 export const PAUSE_AGENT_TOOL_DESCRIPTOR = {
   name: "pause_agent",
   description:
-    "Pause a running agent by thread_id. Resume the same thread later with send_input.",
+    "Pause a running agent by thread_id. Resume the same thread later with send_message.",
   parameters: {
     type: "object",
     properties: {
@@ -89,31 +91,40 @@ export const PAUSE_AGENT_TOOL_DESCRIPTOR = {
 export const AGENT_STATUS_TOOL_DESCRIPTOR = {
   name: "agent_status",
   description:
-    "Read an agent's status, recent assistant messages, latest tool call, and timestamps. Active means executing a turn; paused means idle and resumable. Does not interrupt or send input to the agent.",
+    "Without thread_id: list who you can reach — subagents you started, your teammates (Stella and the other agents in this conversation), other Stella sessions on this computer, and the user's cloud sessions — with each one's thread_id, what it is working on, where it runs, and its status. With thread_id: that agent's status, recent assistant messages, latest tool call, and timestamps. Read-only: it never interrupts or messages anyone.",
   parameters: {
     type: "object",
     properties: {
       thread_id: {
         type: "string",
-        description: "Durable thread id of the agent to check.",
+        description:
+          "The agent to inspect. Omit it to list everyone you can reach.",
       },
     },
-    required: ["thread_id"],
   },
 } as const;
 
 export const AGENT_ORCHESTRATION_TOOL_DESCRIPTORS = [
   SPAWN_AGENT_TOOL_DESCRIPTOR,
-  SEND_INPUT_TOOL_DESCRIPTOR,
+  SEND_MESSAGE_TOOL_DESCRIPTOR,
   PAUSE_AGENT_TOOL_DESCRIPTOR,
   AGENT_STATUS_TOOL_DESCRIPTOR,
 ] as const;
 
 export const AGENT_ORCHESTRATION_TOOL_NAMES: readonly string[] = [
   "spawn_agent",
-  "send_input",
+  "send_message",
   "pause_agent",
   "agent_status",
+];
+
+/**
+ * The orchestration tools an agent at the depth limit loses. It keeps
+ * agent_status and send_message, so it can still see and message others.
+ */
+export const AGENT_CONTROL_TOOL_NAMES: readonly string[] = [
+  "spawn_agent",
+  "pause_agent",
 ];
 
 /**
@@ -127,8 +138,8 @@ export const AGENT_STATUS_TOOL_REPLAY = "safe" as const;
 /** Pausing an agent that is already paused or finished is a no-op. */
 export const PAUSE_AGENT_TOOL_REPLAY = "safe" as const;
 /**
- * A steer is keyed by an id derived from the tool call, but the child deletes
- * the mailbox row once it consumes it, so a rerun after consumption delivers
- * the instruction twice.
+ * A steer is keyed by an id derived from the tool call, but the receiver
+ * deletes the mailbox row once it consumes it, so a rerun after consumption
+ * delivers the message twice.
  */
-export const SEND_INPUT_TOOL_REPLAY = "unsafe" as const;
+export const SEND_MESSAGE_TOOL_REPLAY = "unsafe" as const;

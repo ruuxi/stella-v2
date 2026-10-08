@@ -362,6 +362,7 @@ export const createStellaHostRunner = (
     getConfiguredModel: (agentType, agent) =>
       getConfiguredModel(context, agentType, agent as never),
   });
+  context.state.sendRuntimeMessage = orchestratorController.sendMessage;
   const taskOrchestration = createAgentOrchestration(context, {
     buildAgentContext: buildAgentContextWithResolvedRoute,
     resolveAgentModelConfig: async (args) => {

@@ -5,7 +5,6 @@ import type {
 } from "../../kernel/extensions/types.js";
 import { createConnectorAvailabilityReminderHook } from "./hooks/connector-availability-reminder.hook.js";
 import { createConnectorFormatReminderHook } from "./hooks/connector-format-reminder.hook.js";
-import { createOrchestratorReminderHook } from "./hooks/orchestrator-reminder.hook.js";
 import { createStaleUserReminderHook } from "./hooks/stale-user-reminder.hook.js";
 import { createThreadSummariesRecordHook } from "./hooks/thread-summaries-record.hook.js";
 import { resolveRuntimeSourceAsset } from "../../kernel/shared/runtime-paths.js";
@@ -32,7 +31,6 @@ export const loadStellaRuntimeAgents = (
  *
  *   - Agent registration from bundled runtime metadata and prompt bodies
  *   - Stale-user reminder
- *   - Orchestrator reminder (active-threads roster)
  *   - Thread-summaries record (post-subagent finalize, capability-gated)
  *
  * Lives in `runtime/extensions/stella-runtime/` so power users can fork
@@ -60,7 +58,6 @@ const stellaRuntimeExtension: ExtensionFactory = (pi, services) => {
   };
 
   register(createStaleUserReminderHook());
-  register(createOrchestratorReminderHook());
   // Connector-format reminder: one hidden `<system-reminder>` on the
   // single turn where the user's routing surface changes (desktop ⇄
   // connector / connector ⇄ different connector). Cheap — the

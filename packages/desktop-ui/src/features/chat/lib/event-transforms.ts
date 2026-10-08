@@ -60,7 +60,7 @@ export const getEventText = (event: EventRecord): string => {
 type AgentLifecycleFields = {
   /** Root orchestrator run that observed this task transition. This correlates
    * lifecycle packets, but is not a card identity by itself: one root run can
-   * call `send_input` on the same thread more than once. Timeline cards use
+   * call `send_message` on the same thread more than once. Timeline cards use
    * the matching persisted `agent-started` event id. */
   rootRunId?: string
   /** Durable execution epoch for a reused thread. New lifecycle events carry
@@ -76,7 +76,7 @@ type AgentStartedEventPayload = AgentLifecycleFields & {
   agentDepth?: number
   maxAgentDepth?: number
   statusText?: string
-  /** `true` when this start re-activates an existing thread (a `send_input`
+  /** `true` when this start re-activates an existing thread (a `send_message`
    *  follow-up) rather than spawning fresh work. The explicit signal the
    *  inline background-work card keys its follow-up variant off. Absent on a
    *  fresh spawn (and on legacy persisted events, which read as spawns). */

@@ -384,17 +384,11 @@ const fanOutBeforeUserMessage = async (args) => {
       ...(args.staleUserReminderText !== undefined
         ? { staleUserReminderText: args.staleUserReminderText }
         : {}),
-      ...(args.orchestratorReminderText !== undefined
-        ? { orchestratorReminderText: args.orchestratorReminderText }
-        : {}),
       ...(args.connectorTransitionReminderText !== undefined
         ? {
             connectorTransitionReminderText:
               args.connectorTransitionReminderText,
           }
-        : {}),
-      ...(args.shouldInjectDynamicReminder !== undefined
-        ? { shouldInjectDynamicReminder: args.shouldInjectDynamicReminder }
         : {}),
       ...(args.hookContext.conversationId
         ? { conversationId: args.hookContext.conversationId }
@@ -464,8 +458,7 @@ export const buildSubagentPromptMessages = async (args) => {
 export const buildOrchestratorPromptMessages = async (args) => {
   const trimmedUserPrompt = args.userPrompt.trim();
   const messages = [];
-  // Stale-user / orchestrator reminders used to be inline branches
-  // here; they now live as `before_user_message` hooks in
+  // Stale-user reminders used to be inline branches here; they now live as `before_user_message` hooks in
   // `runtime/extensions/stella-runtime/hooks/`. The reminder text is
   // forwarded through the hook payload so the hooks can decide whether
   // to inject. When no hook emitter is wired (legacy / direct test
@@ -479,19 +472,10 @@ export const buildOrchestratorPromptMessages = async (args) => {
       ...(args.context.staleUserReminderText !== undefined
         ? { staleUserReminderText: args.context.staleUserReminderText }
         : {}),
-      ...(args.context.orchestratorReminderText !== undefined
-        ? { orchestratorReminderText: args.context.orchestratorReminderText }
-        : {}),
       ...(args.context.connectorTransitionReminderText !== undefined
         ? {
             connectorTransitionReminderText:
               args.context.connectorTransitionReminderText,
-          }
-        : {}),
-      ...(args.context.shouldInjectDynamicReminder !== undefined
-        ? {
-            shouldInjectDynamicReminder:
-              args.context.shouldInjectDynamicReminder,
           }
         : {}),
     });

@@ -20,7 +20,7 @@
  * follow-up user]` — i.e. the same conversation continuing with a new
  * user turn. The cached prefix doesn't change, prompt cache is preserved.
  *
- * `send_input` steers a live native Pi agent at its next safe boundary. The
+ * `send_message` steers a live native Pi agent at its next safe boundary. The
  * current provider response and any issued tools finish first, then the new
  * user message is appended and the same loop continues. If input lands before
  * a live Pi agent exists, it remains queued for the next natural turn.
@@ -34,7 +34,7 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { Cause, Deferred, Effect, Exit, Layer, ManagedRuntime, Scope, } from "effect";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
-import { AGENT_ORCHESTRATION_TOOL_NAMES } from "../tools/defs/task.js";
+import { AGENT_CONTROL_TOOL_NAMES } from "../tools/defs/task.js";
 import { sanitizeForLogs, truncate } from "../tools/utils.js";
 import { getOrCreateSubagentSession } from "../agent-runtime/subagent-session.js";
 import { isCloudAgentStartAdmissionError } from "../runner/computer-agent-cloud-records.js";
@@ -144,7 +144,7 @@ const EXEC_MUTATION_PATTERNS = [
     /\btools\s*\.\s*display\s*\(/,
     /\btools\s*\.\s*memory\s*\(/,
     /\btools\s*\.\s*spawn_agent\s*\(/,
-    /\btools\s*\.\s*send_input\s*\(/,
+    /\btools\s*\.\s*send_message\s*\(/,
     /\btools\s*\.\s*pause_agent\s*\(/,
     /\btools\s*\.\s*cron_(?:add|update|remove|run)\s*\(/,
     /\btools\s*\.\s*heartbeat_(?:upsert|run)\s*\(/,
@@ -817,33 +817,43 @@ export class LocalAgentManager {
             return null;
         }
     }
-    consumeTaskMessages(task, recipient) {
-        const queue = recipient === "subagent" ? task.toSubagentQueue : task.toOrchestratorQueue;
+    consumeTaskMessages(task) {
+        const queue = task.toSubagentQueue;
         if (queue.length === 0) return [];
         const out = [...queue];
         queue.length = 0;
         return out;
     }
-    formatTaskPrompt(task, updates, delivery) {
-        if (updates.length === 0) {
+    /**
+     * Queued input becomes one prompt: the owner's instructions as a numbered
+     * "Task update", then each message from another agent verbatim, already
+     * framed by its sender.
+     */
+    formatTaskPrompt(task, queued, delivery) {
+        if (queued.length === 0) {
             return task.prompt;
         }
-        const updateBlock = updates.map((text, index) => `${index + 1}. ${text}`).join("\n");
-        const updateInstruction =
-            "Apply each update per its intent. Preserve unfinished work unless the update replaces or cancels it; a question or status request does not cancel it. Newer instructions take precedence where they conflict.";
-        if (task.turnCount === 0) {
-            return [task.prompt, "Task updates:", updateBlock, updateInstruction].join("\n\n");
+        const updates = queued.filter((item) => item.kind !== "agent-message").map((item) => item.text);
+        const agentMessages = queued.filter((item) => item.kind === "agent-message").map((item) => item.text);
+        const sections = task.turnCount === 0 ? [task.prompt] : [];
+        if (updates.length > 0) {
+            const updateBlock = updates.map((text, index) => `${index + 1}. ${text}`).join("\n");
+            const updateInstruction =
+                "Apply each update per its intent. Preserve unfinished work unless the update replaces or cancels it; a question or status request does not cancel it. Newer instructions take precedence where they conflict.";
+            if (task.turnCount === 0) {
+                sections.push("Task updates:", updateBlock, updateInstruction);
+            }
+            else {
+                sections.push("Task update:", updateBlock, delivery === "steering"
+                    ? updateInstruction
+                    : `Your previous turn finished before this queued update was delivered. ${updateInstruction}`);
+            }
         }
-        return [
-            "Task update:",
-            updateBlock,
-            delivery === "steering"
-                ? updateInstruction
-                : `Your previous turn finished before this queued update was delivered. ${updateInstruction}`,
-        ].join("\n\n");
+        sections.push(...agentMessages);
+        return sections.join("\n\n");
     }
     buildTaskPrompt(task) {
-        return this.formatTaskPrompt(task, this.consumeTaskMessages(task, "subagent"), "next-turn");
+        return this.formatTaskPrompt(task, this.consumeTaskMessages(task), "next-turn");
     }
     /**
      * Wake-up seam for blocking waiters. Purely a notification: waiters
@@ -856,7 +866,7 @@ export class LocalAgentManager {
     /**
      * Per-thread settlement latches, completed exactly when a terminal
      * transition (completed/error/canceled) is persisted for the thread. A
-     * `send_input` resurrection re-arms naturally: the next waiter creates a
+     * `send_message` resurrection re-arms naturally: the next waiter creates a
      * fresh latch that the next terminal transition completes.
      */
     settlementLatches = new Map();
@@ -1268,7 +1278,6 @@ export class LocalAgentManager {
         task.lastActivityAt = Date.now();
         task.activeToolCount = 0;
         task.toSubagentQueue.length = 0;
-        task.toOrchestratorQueue.length = 0;
         // Effect-ratchet pin: `task.controller` is the subagent attempt's
         // cooperative cancellation seam — a REAL AbortSignal threaded through
         // the plain-TS agent session/tools; each new attempt gets a fresh one.
@@ -1313,12 +1322,11 @@ export class LocalAgentManager {
             activeToolCount: 0,
             progressBuffer: "",
             toSubagentQueue: [],
-            toOrchestratorQueue: [],
             messageLog: [],
             turnCount: 0,
             terminalEventEmitted: false,
             pendingStartStatusText: formatTaskUpdateStatusText(statusText),
-            // Resuming an evicted/persisted thread is always a `send_input`
+            // Resuming an evicted/persisted thread is always a `send_message`
             // follow-up (this helper is only reached from that path).
             pendingStartIsFollowUp: true,
             // A terminal record can be evicted while its canceled execution is
@@ -1368,7 +1376,7 @@ export class LocalAgentManager {
         // turn's eventual real finish surfaces a completion card.
         task.pendingStartStatusText = pendingStartStatusText;
         task.pendingStartAudience = pendingStartAudience;
-        // Interjected in-flight work is a `send_input` follow-up, not a spawn.
+        // Interjected in-flight work is a `send_message` follow-up, not a spawn.
         task.pendingStartIsFollowUp = true;
         task.recentActivity = [pendingStartStatusText ?? "Applying task update."];
         this.pendingQueue.unshift(task.threadId);
@@ -1519,7 +1527,7 @@ export class LocalAgentManager {
             let cloudStartAdmission = null;
             if (task.storageMode === "cloud") {
                 // The local thread id is also the canonical cloud Activity id. Publish
-                // every attempt (including send_input continuations) with its
+                // every attempt (including send_message continuations) with its
                 // generation so a late terminal from the prior attempt cannot close
                 // the newly-running row.
                 task.cloudAgentId = task.threadId;
@@ -1554,7 +1562,7 @@ export class LocalAgentManager {
                     return { generation, admitted: false, error };
                 });
                 // Capture the exact promise on the physical attempt. A later
-                // send_input generation replaces task.cloudCreatePromise, but it
+                // send_message generation replaces task.cloudCreatePromise, but it
                 // must never let this generation adopt the successor's admission.
                 cloudStartAdmission = task.cloudCreatePromise;
             }
@@ -1723,12 +1731,12 @@ export class LocalAgentManager {
             context.parentAgentId = task.parentAgentId;
             if (task.parentAgentId && context.toolsAllowlist) {
                 // A parent-owned agent runs a top-level agent's toolset minus the
-                // orchestration tools. Pruned from the allowlist, not just from the
+                // agent control tools. Pruned from the allowlist, not just from the
                 // catalog: the allowlist is the authoritative activation list, and a
                 // name on it that is missing from the catalog is still registered
                 // against synthesized metadata rather than dropped.
                 context.toolsAllowlist = context.toolsAllowlist.filter(
-                    (toolName) => !AGENT_ORCHESTRATION_TOOL_NAMES.includes(toolName),
+                    (toolName) => !AGENT_CONTROL_TOOL_NAMES.includes(toolName),
                 );
             }
             context.attemptGeneration = attempt.generation;
@@ -2197,7 +2205,6 @@ export class LocalAgentManager {
             activeToolCount: 0,
             progressBuffer: "",
             toSubagentQueue: [],
-            toOrchestratorQueue: [],
             messageLog: [],
             turnCount: 0,
             terminalEventEmitted: false,
@@ -2208,10 +2215,7 @@ export class LocalAgentManager {
         // spawn-during-pause race if thread/cloud setup later gains an await.
         this.assertActiveParentChain(request);
         this.enqueueTask(task);
-        return {
-            threadId: task.threadId,
-            activeThreads: this.opts.listActiveThreads?.(request.conversationId),
-        };
+        return { threadId: task.threadId };
     }
     /**
      * Run a single agent turn OUTSIDE the durable task surface: no thread
@@ -2710,6 +2714,14 @@ export class LocalAgentManager {
         }
         return result;
     }
+    /**
+     * Delivers input to a thread: steered into a live turn, queued for the
+     * next one, or resuming a finished, paused, or evicted thread as its next
+     * attempt. `deliveryKind` says what it is: the owner's instruction
+     * (`external-input`), a subagent's report (`child-report`), or a note from
+     * another agent (`agent-message`, delivered verbatim). Delivery never
+     * changes who the thread reports to.
+     */
     async sendAgentMessage(agentId, message, from, options) {
         const text = message.trim();
         if (!text) return { delivered: false };
@@ -2717,6 +2729,7 @@ export class LocalAgentManager {
         // orchestration layer, so the delivered turn input is a pointer rather
         // than a second copy of the report.
         const isChildReport = options?.deliveryKind === "child-report";
+        const queuedKind = options?.deliveryKind === "agent-message" ? "agent-message" : "update";
         // Every retryable orchestrator delivery may carry a stable receipt id.
         // Child reports and background-exit wakes share the same bounded,
         // durable ledger so an acknowledgement lost after enqueue/resume does
@@ -2740,10 +2753,17 @@ export class LocalAgentManager {
         const deliveredInput = isChildReport
             ? "A subagent you started has finished. Review its newly persisted report in this thread and continue your task."
             : text;
-        if (!task) {
-            if (from !== "orchestrator") {
-                return { delivered: false };
+        const logMessage = (target) => {
+            target.messageLog.push({
+                from,
+                text: truncate(text, 500),
+                timestamp: Date.now(),
+            });
+            if (target.messageLog.length > LocalAgentManager.MAX_LOG_MESSAGES) {
+                target.messageLog.splice(0, target.messageLog.length - LocalAgentManager.MAX_LOG_MESSAGES);
             }
+        };
+        if (!task) {
             if (!persisted) {
                 return { delivered: false };
             }
@@ -2771,9 +2791,8 @@ export class LocalAgentManager {
                 return { delivered: false, reason: "owner-terminal" };
             }
             // Re-activate the durable thread row (and its whole group) so the
-            // resumed work re-enters the active slot budget and reappears under
-            // "Other Threads" — without this, an evicted thread keeps running
-            // with status 'evicted' and stays invisible to the orchestrator.
+            // resumed work re-enters the active slot budget — without this, an
+            // evicted thread keeps running with status 'evicted'.
             this.opts.resolveTaskThread?.({
                 conversationId: persisted.conversationId,
                 agentType: persisted.agentType,
@@ -2783,12 +2802,6 @@ export class LocalAgentManager {
             if (rootRunId) {
                 resumedTask.rootRunId = rootRunId;
             }
-            if (options?.parentAgentId) {
-                resumedTask.parentAgentId = options.parentAgentId;
-            }
-            else if (options?.ownerAgentId !== undefined) {
-                resumedTask.parentAgentId = options.ownerAgentId ?? undefined;
-            }
             if (deliveryEventId) {
                 this.rememberDeliveryEventId(resumedTask, deliveryEventId);
                 resumedTask.descendantWakePending = true;
@@ -2796,13 +2809,9 @@ export class LocalAgentManager {
             if (isChildReport) {
                 resumedTask.pendingStartAudience = "orchestrator-only";
             }
-            resumedTask.messageLog.push({
-                from,
-                text: truncate(text, 500),
-                timestamp: Date.now(),
-            });
+            logMessage(resumedTask);
             this.enqueueTask(resumedTask);
-            return { delivered: true };
+            return { delivered: true, resumed: true };
         }
         if (isChildReport) {
             // The orchestration layer persisted the report before calling us. Make
@@ -2818,24 +2827,8 @@ export class LocalAgentManager {
                 return { delivered: false, reason: "owner-terminal" };
             }
         }
-        if (options?.parentAgentId) {
-            task.parentAgentId = options.parentAgentId;
-        }
-        else if (options?.ownerAgentId !== undefined) {
-            task.parentAgentId = options.ownerAgentId ?? undefined;
-        }
         if (task.status === "completed" || task.status === "error" || task.status === "canceled") {
-            if (from !== "orchestrator") {
-                return { delivered: false };
-            }
-            task.messageLog.push({
-                from,
-                text: truncate(text, 500),
-                timestamp: Date.now(),
-            });
-            if (task.messageLog.length > LocalAgentManager.MAX_LOG_MESSAGES) {
-                task.messageLog.splice(0, task.messageLog.length - LocalAgentManager.MAX_LOG_MESSAGES);
-            }
+            logMessage(task);
             if (rootRunId) {
                 task.rootRunId = rootRunId;
             }
@@ -2856,7 +2849,7 @@ export class LocalAgentManager {
             this.resetTaskForNextAttempt(task, deliveredInput);
             task.pendingStartStatusText = updateStatusText;
             task.pendingStartAudience = isChildReport ? "orchestrator-only" : undefined;
-            // Re-activating a terminal thread is a `send_input` follow-up.
+            // Re-activating a terminal thread is a `send_message` follow-up.
             task.pendingStartIsFollowUp = true;
             task.recentActivity = [updateStatusText];
             this.opts.onAgentEvent?.({
@@ -2872,77 +2865,64 @@ export class LocalAgentManager {
                 ...(isChildReport ? { audience: "orchestrator-only" } : {}),
             });
             this.enqueueTask(task);
-            return { delivered: true };
+            return { delivered: true, resumed: true };
         }
-        const targetQueue = from === "orchestrator" ? task.toSubagentQueue : task.toOrchestratorQueue;
         if (deliveryEventId) {
             this.rememberDeliveryEventId(task, deliveryEventId);
             task.descendantWakePending = true;
         }
-        targetQueue.push(deliveredInput);
-        if (targetQueue.length > LocalAgentManager.MAX_QUEUE_MESSAGES) {
-            targetQueue.splice(0, targetQueue.length - LocalAgentManager.MAX_QUEUE_MESSAGES);
+        task.toSubagentQueue.push({ text: deliveredInput, kind: queuedKind });
+        if (task.toSubagentQueue.length > LocalAgentManager.MAX_QUEUE_MESSAGES) {
+            task.toSubagentQueue.splice(0, task.toSubagentQueue.length - LocalAgentManager.MAX_QUEUE_MESSAGES);
         }
-        task.messageLog.push({
-            from,
-            text: truncate(text, 500),
-            timestamp: Date.now(),
+        logMessage(task);
+        if (rootRunId) {
+            task.rootRunId = rootRunId;
+        }
+        task.pendingStartStatusText = updateStatusText;
+        task.pendingStartAudience = isChildReport ? "orchestrator-only" : undefined;
+        task.recentActivity = [updateStatusText];
+        this.opts.onAgentEvent?.({
+            type: "agent-progress",
+            conversationId: task.conversationId,
+            rootRunId: task.rootRunId,
+            agentId: task.threadId,
+            agentType: task.agentType,
+            description: task.description,
+            parentAgentId: task.parentAgentId,
+            attemptGeneration: task.attemptGeneration,
+            statusText: updateStatusText,
+            ...(isChildReport ? { audience: "orchestrator-only" } : {}),
         });
-        if (task.messageLog.length > LocalAgentManager.MAX_LOG_MESSAGES) {
-            task.messageLog.splice(0, task.messageLog.length - LocalAgentManager.MAX_LOG_MESSAGES);
-        }
-        if (from === "orchestrator") {
-            if (rootRunId) {
-                task.rootRunId = rootRunId;
-            }
-            task.pendingStartStatusText = updateStatusText;
-            task.pendingStartAudience = isChildReport ? "orchestrator-only" : undefined;
-            task.recentActivity = [updateStatusText];
-            this.opts.onAgentEvent?.({
-                type: "agent-progress",
-                conversationId: task.conversationId,
-                rootRunId: task.rootRunId,
-                agentId: task.threadId,
-                agentType: task.agentType,
-                description: task.description,
-                parentAgentId: task.parentAgentId,
-                attemptGeneration: task.attemptGeneration,
-                statusText: updateStatusText,
-                ...(isChildReport ? { audience: "orchestrator-only" } : {}),
-            });
-            if (task.status === "running" && !task.controller.signal.aborted) {
-                const session = this.subagentSessions.get(task.threadId);
-                if (session?.canSteer) {
-                    const updates = [...task.toSubagentQueue];
-                    const steeringPrompt = this.formatTaskPrompt(task, updates, "steering");
-                    if (session.steer(steeringPrompt)) {
-                        task.toSubagentQueue.splice(0, updates.length);
-                        task.pendingStartStatusText = undefined;
-                        task.pendingStartAudience = undefined;
-                        this.opts.onAgentEvent?.({
-                            type: "agent-started",
-                            conversationId: task.conversationId,
-                            rootRunId: task.rootRunId,
-                            agentId: task.threadId,
-                            agentType: task.agentType,
-                            description: task.description,
-                            parentAgentId: task.parentAgentId,
-                            attemptGeneration: task.attemptGeneration,
-                            statusText: updateStatusText,
-                            isFollowUp: true,
-                            ...(isChildReport ? { audience: "orchestrator-only" } : {}),
-                        });
-                    }
+        let steered = false;
+        if (task.status === "running" && !task.controller.signal.aborted) {
+            const session = this.subagentSessions.get(task.threadId);
+            if (session?.canSteer) {
+                const queued = [...task.toSubagentQueue];
+                const steeringPrompt = this.formatTaskPrompt(task, queued, "steering");
+                if (session.steer(steeringPrompt)) {
+                    steered = true;
+                    task.toSubagentQueue.splice(0, queued.length);
+                    task.pendingStartStatusText = undefined;
+                    task.pendingStartAudience = undefined;
+                    this.opts.onAgentEvent?.({
+                        type: "agent-started",
+                        conversationId: task.conversationId,
+                        rootRunId: task.rootRunId,
+                        agentId: task.threadId,
+                        agentType: task.agentType,
+                        description: task.description,
+                        parentAgentId: task.parentAgentId,
+                        attemptGeneration: task.attemptGeneration,
+                        statusText: updateStatusText,
+                        isFollowUp: true,
+                        ...(isChildReport ? { audience: "orchestrator-only" } : {}),
+                    });
                 }
             }
         }
         this.persistTask(task);
-        return { delivered: true };
-    }
-    async drainAgentMessages(agentId, recipient) {
-        const task = this.tasks.get(agentId);
-        if (!task) return [];
-        return this.consumeTaskMessages(task, recipient);
+        return { delivered: true, ...(steered ? { steered: true } : {}) };
     }
 }
 const optsValueOrDefault = (value, fallback) => (Number.isFinite(value) ? Math.floor(value) : fallback);

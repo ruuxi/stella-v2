@@ -3,11 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  MAX_ACTIVE_RUNTIME_THREADS,
-  buildActiveThreadsPrompt,
-  type RuntimeThreadRecord,
-} from "@stella/runtime/kernel/runtime-threads";
+import { MAX_ACTIVE_RUNTIME_THREADS } from "@stella/runtime/kernel/runtime-threads";
 import { slugify } from "@stella/runtime/kernel/shared/slug";
 import {
   getDesktopDatabasePath,
@@ -86,7 +82,14 @@ const activeThreadIds = (
   store: SessionStore,
   conversationId: string,
 ): string[] =>
-  store.listActiveThreads(conversationId).map((thread) => thread.threadId);
+  store.listActiveThreadsByAge(conversationId).map((thread) => thread.threadId);
+
+const threadName = (db: SqliteDatabase, threadId: string): string =>
+  (
+    db.prepare("SELECT name FROM thread WHERE id = ?").get(threadId) as {
+      name: string;
+    }
+  ).name;
 
 describe("slugify", () => {
   it("strips diacritics", () => {
@@ -120,7 +123,7 @@ const mintedKey = (base: string) =>
 
 describe("slug-based thread naming", () => {
   it("mints the thread key from the nameHint slug and stores the hint as name", () => {
-    const { store } = createTestContext();
+    const { db, store } = createTestContext();
     const conversationId = "conv-naming";
     const result = spawnThread(
       store,
@@ -129,14 +132,11 @@ describe("slug-based thread naming", () => {
     );
     expect(result.threadId).toMatch(mintedKey("compare-flight-prices-tokyo"));
     expect(result.reused).toBe(false);
-    const record = store
-      .listActiveThreads(conversationId)
-      .find((thread) => thread.threadId === result.threadId);
-    expect(record?.name).toBe("Compare flight prices Tokyo");
+    expect(threadName(db, result.threadId)).toBe("Compare flight prices Tokyo");
   });
 
   it("collapses whitespace in the stored name", () => {
-    const { store } = createTestContext();
+    const { db, store } = createTestContext();
     const conversationId = "conv-naming-ws";
     const result = spawnThread(
       store,
@@ -144,10 +144,7 @@ describe("slug-based thread naming", () => {
       "  Compare   flight\tprices  ",
     );
     expect(result.threadId).toMatch(mintedKey("compare-flight-prices"));
-    const record = store
-      .listActiveThreads(conversationId)
-      .find((thread) => thread.threadId === result.threadId);
-    expect(record?.name).toBe("Compare flight prices");
+    expect(threadName(db, result.threadId)).toBe("Compare flight prices");
   });
 
   it("gives identical descriptions distinct keys", () => {
@@ -161,7 +158,7 @@ describe("slug-based thread naming", () => {
   });
 
   it("falls back to task keys when the hint slugs to nothing", () => {
-    const { store } = createTestContext();
+    const { db, store } = createTestContext();
     const conversationId = "conv-emoji";
     const first = spawnThread(store, conversationId, "🔥🚀✨");
     const second = spawnThread(store, conversationId, "💡");
@@ -169,10 +166,7 @@ describe("slug-based thread naming", () => {
     expect(second.threadId).toMatch(mintedKey("task"));
     expect(second.threadId).not.toBe(first.threadId);
     // The display name still keeps the raw (trimmed) hint.
-    const record = store
-      .listActiveThreads(conversationId)
-      .find((thread) => thread.threadId === first.threadId);
-    expect(record?.name).toBe("🔥🚀✨");
+    expect(threadName(db, first.threadId)).toBe("🔥🚀✨");
   });
 
   // `grp-` used to be a reserved namespace for thread groups. Groups are
@@ -195,7 +189,7 @@ describe("per-thread active budget", () => {
         spawnThread(store, conversationId, `Singleton task ${i}`).threadId,
       );
     }
-    expect(store.listActiveThreads(conversationId)).toHaveLength(
+    expect(activeThreadIds(store, conversationId)).toHaveLength(
       MAX_ACTIVE_RUNTIME_THREADS,
     );
 
@@ -229,102 +223,6 @@ describe("per-thread active budget", () => {
     expect(threadStatus(db, oldest.threadId)).toBe("active");
     // Reactivating at budget evicts the LRU thread.
     expect(threadStatus(db, fillers[0]!)).toBe("evicted");
-  });
-});
-
-describe("buildActiveThreadsPrompt", () => {
-  const makeThread = (
-    overrides: Partial<RuntimeThreadRecord> & { threadId: string },
-  ): RuntimeThreadRecord => ({
-    conversationId: "conv-prompt",
-    name: overrides.threadId,
-    agentType: "general",
-    status: "active",
-    createdAt: 0,
-    lastUsedAt: 0,
-    ...overrides,
-  });
-
-
-  it("labels a currently executing thread active and an idle one paused", () => {
-    const now = 1_700_000_000_000;
-    const prompt = buildActiveThreadsPrompt(
-      [
-        makeThread({
-          threadId: "running-now",
-          lastUsedAt: now - 10 * 60_000,
-          // A fresh agent turn keeps recency honest even if the thread row
-          // wasn't re-touched.
-          agentUpdatedAt: now - 60_000,
-          agentStatus: "running",
-        }),
-        makeThread({
-          threadId: "idle-thread",
-          lastUsedAt: now - 5 * 60_000,
-          agentStatus: "completed",
-        }),
-        makeThread({
-          threadId: "errored-thread",
-          lastUsedAt: now - 2 * 60_000,
-          agentStatus: "error",
-        }),
-      ],
-      now,
-    );
-
-    expect(prompt).toContain("\n- running-now (active, last active 1m ago)");
-    expect(prompt).toContain("\n- idle-thread (paused, last active 5m ago)");
-    expect(prompt).toContain(
-      "\n- errored-thread (paused (last run errored), last active 2m ago)",
-    );
-    // The roster is flat and recency-ordered, and still points at history.
-    expect(prompt.indexOf("running-now")).toBeLessThan(
-      prompt.indexOf("errored-thread"),
-    );
-    expect(prompt).not.toContain("##");
-    expect(prompt).toContain("found with history in code");
-  });
-
-  it("derives active vs paused end-to-end from the runtime_agents.status join", () => {
-    // Full-stack proof: real SessionStore + real SQLite. The roster's
-    // active/paused signal must come from runtime_agents.status via the
-    // LEFT JOIN, not from anything the caller mocks.
-    const { store } = createTestContext();
-    const conversationId = "conv-live-state";
-    const running = spawnThread(store, conversationId, "Deploy the backend");
-    const idle = spawnThread(store, conversationId, "Draft the budget memo");
-
-    const persistAgent = (
-      threadId: string,
-      status: "running" | "completed",
-    ): void => {
-      const at = Date.now();
-      store.saveAgentRecord({
-        threadId,
-        conversationId,
-        agentType: "general",
-        description:
-          threadId === running.threadId
-            ? "Deploy the backend"
-            : "Draft the budget memo",
-        agentDepth: 1,
-        status,
-        startedAt: at,
-        completedAt: status === "completed" ? at : null,
-        updatedAt: at,
-      });
-    };
-    persistAgent(running.threadId, "running");
-    persistAgent(idle.threadId, "completed");
-
-    const now = Date.now();
-    const prompt = buildActiveThreadsPrompt(
-      store.listActiveThreads(conversationId),
-      now,
-    );
-
-    expect(prompt).toContain(`- ${running.threadId} (active, last active`);
-    expect(prompt).toContain(`- ${idle.threadId} (paused, last active`);
   });
 });
 

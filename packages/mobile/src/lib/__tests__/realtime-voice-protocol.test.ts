@@ -302,7 +302,7 @@ describe("realtime voice protocol", () => {
       toolSteps: [
         {
           id: "resume-1",
-          toolName: "send_input",
+          toolName: "send_message",
           status: "completed" as const,
           args: { thread_id: "agent-1" },
         },

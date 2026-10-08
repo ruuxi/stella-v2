@@ -27,6 +27,7 @@ import {
   type CloudTurnStartErrorCode,
   type CloudTurnStartRequest,
 } from "@stella/contracts/turn-plane/turn-start";
+import { AGENT_MESSAGE_FRAMED_MAX_CHARS } from "./agent-messaging.js";
 
 /**
  * How the Worker authenticated the caller of a forwarded turn start. Stamped
@@ -222,12 +223,15 @@ export const parseCloudTurnStartRequest = (
     if (!control) return fail("agentThreadControl is malformed.");
     request.agentThreadControl = control;
   }
-  const agentReport =
-    request.lane === "wake" &&
-    request.source === "agent-thread" &&
-    request.agentThreadControl !== undefined;
-  if (!agentReport && prompt.length > TURN_PROMPT_MAX_CHARS) {
-    return fail(`prompt must be at most ${TURN_PROMPT_MAX_CHARS} characters.`);
+  const agentWake =
+    request.lane === "wake" && request.source === "agent-thread";
+  const promptMax = !agentWake
+    ? TURN_PROMPT_MAX_CHARS
+    : request.agentThreadControl
+      ? Number.POSITIVE_INFINITY
+      : AGENT_MESSAGE_FRAMED_MAX_CHARS;
+  if (prompt.length > promptMax) {
+    return fail(`prompt must be at most ${promptMax} characters.`);
   }
   return { ok: true, request };
 };

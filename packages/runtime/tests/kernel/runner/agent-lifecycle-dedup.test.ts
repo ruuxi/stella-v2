@@ -297,7 +297,6 @@ describe("task lifecycle deduping", () => {
       },
       listAgentRecordsByStatus: (status: string) =>
         record.status === status ? [record] : [],
-      listActiveThreads: () => [],
       loadRawThreadMessages: () => persistedMessages,
       hasEvent: (
         candidateConversationId: string,
@@ -439,7 +438,7 @@ describe("task lifecycle deduping", () => {
     );
     expect(completedPrompt).toContain("result: Spotify is now open");
     expect(completedPrompt).toContain(
-      "agent_state: paused; use send_input on the same thread if follow-up work is needed.",
+      "agent_state: paused; use send_message on the same thread if follow-up work is needed.",
     );
     expect(completedPrompt).toContain(
       "presentation: for a report or dense result, present it as a canvas with the `html` tool",

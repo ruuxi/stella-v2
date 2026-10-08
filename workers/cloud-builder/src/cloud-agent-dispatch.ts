@@ -54,7 +54,7 @@ export type CloudAgentControlReceipt = {
   executorDeviceId?: string;
 };
 
-export type CloudAgentToolKind = "spawn_agent" | "send_input" | "pause_agent";
+export type CloudAgentToolKind = "spawn_agent" | "send_message" | "pause_agent";
 
 export type CloudAgentToolOutcome = {
   kind: CloudAgentToolKind;
@@ -368,7 +368,7 @@ export type CloudAgentDispatchDependencies = Readonly<{
 export const toolScopedId = async (args: {
   ownerGeneration: string;
   parentTurnId: string;
-  purpose: "thread" | "turn";
+  purpose: "thread" | "turn" | "message";
   toolCallId: string;
 }): Promise<string> => {
   const hex = await sha256Hex(
@@ -635,7 +635,7 @@ export const agentStatusResult = (
       ? "It is executing a turn right now; its report arrives as an [Agent completed] message. This snapshot did not interrupt it."
       : report !== undefined
         ? "This attempt is finished; its report is included below. No follow-up is needed to retrieve it. This snapshot did not message it."
-        : "It is idle; send_input resumes it with its history. This snapshot did not message it.",
+        : "It is idle; send_message resumes it with its history. This snapshot did not message it.",
     report !== undefined ? `Report for this attempt:\n${report}${reportTruncated ? "\n[Report truncated]" : ""}` : "",
   ]
     .filter(Boolean)
@@ -652,7 +652,7 @@ export const agentStatusResult = (
       current_time: currentTime,
       ...(report !== undefined ? { result: report } : {}),
       ...(reportTruncated ? { result_truncated: true } : {}),
-      note: "Read-only snapshot; the agent was NOT interrupted or messaged. To steer or ask it something, use send_input.",
+      note: "Read-only snapshot; the agent was NOT interrupted or messaged. To steer or ask it something, use send_message.",
     },
   };
 };
@@ -666,10 +666,10 @@ export const pauseResult = (
       type: "text",
       text:
         disposition === "pending"
-          ? `Pause requested for ${control.threadId}. It is stopping now and can be resumed later with send_input.`
+          ? `Pause requested for ${control.threadId}. It is stopping now and can be resumed later with send_message.`
           : disposition === "already_terminal"
-            ? `${control.threadId} had already stopped. Resume it later with send_input.`
-            : `Paused ${control.threadId}. Resume it later with send_input.`,
+            ? `${control.threadId} had already stopped. Resume it later with send_message.`
+            : `Paused ${control.threadId}. Resume it later with send_message.`,
     },
   ],
   details: {

@@ -29,7 +29,7 @@ const RUNNING_REST_ALPHA = AGENT_ACTIVITY_INK.runningRestAlpha;
  * desktop `agent-activity-row`. No card surface, no border, no badges, no
  * provider icons: an optional leading slot that doubles as the status tell
  * (static star while the shimmering title carries the running motion, a quiet
- * grey check once done, an arrow for `send_input` follow-ups; failed rows keep
+ * grey check once done, an arrow for `send_message` follow-ups; failed rows keep
  * the plain star), the task DESCRIPTION on a single line, and a trailing
  * chevron as the tap-through affordance.
  *

@@ -167,7 +167,7 @@ describe("working orchestrator surface", () => {
       "web",
       "Read",
       "spawn_agent",
-      "send_input",
+      "send_message",
       "pause_agent",
       "agent_status",
     ]) {
@@ -179,7 +179,7 @@ describe("working orchestrator surface", () => {
     // read-only agent_status.
     const topLevelGeneral = advertised(AGENT_IDS.GENERAL);
     expect(topLevelGeneral.has("spawn_agent")).toBe(true);
-    expect(topLevelGeneral.has("send_input")).toBe(true);
+    expect(topLevelGeneral.has("send_message")).toBe(true);
     expect(topLevelGeneral.has("pause_agent")).toBe(true);
     expect(topLevelGeneral.has("agent_status")).toBe(true);
 
@@ -188,9 +188,9 @@ describe("working orchestrator surface", () => {
     expect(childGeneral.has("code")).toBe(true);
     expect(childGeneral.has("apply_patch")).toBe(true);
     expect(childGeneral.has("spawn_agent")).toBe(false);
-    expect(childGeneral.has("send_input")).toBe(false);
     expect(childGeneral.has("pause_agent")).toBe(false);
-    expect(childGeneral.has("agent_status")).toBe(false);
+    expect(childGeneral.has("send_message")).toBe(true);
+    expect(childGeneral.has("agent_status")).toBe(true);
   });
 
   it("builds the real orchestrated provider request with only the bounded deferred surface", async () => {
@@ -223,7 +223,7 @@ describe("working orchestrator surface", () => {
       "html",
       "image_gen",
       "pause_agent",
-      "send_input",
+      "send_message",
       "spawn_agent",
       "web",
     ]);
@@ -256,7 +256,7 @@ describe("working orchestrator surface", () => {
       "schedule_list",
       "schedule_remove",
       "schedule_update",
-      "send_input",
+      "send_message",
       "spawn_agent",
       "web",
     ]);

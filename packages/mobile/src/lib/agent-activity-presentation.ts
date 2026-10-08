@@ -43,7 +43,7 @@ export type AgentActivityRowModel = {
   /**
    * Leading-slot status tell, mirroring desktop `BackgroundWorkCard`:
    * star while running (the shimmer alone carries progress), an arrow for a
-   * settled `send_input` follow-up, a quiet grey check once done, and the
+   * settled `send_message` follow-up, a quiet grey check once done, and the
    * star again for other settled rows — failed/canceled stay plain, with no
    * status glyph.
    */

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import {
   createStateContext,
-  handleSendInput,
+  handleSendMessage,
   handleSpawnAgent,
 } from "../tools/state.js";
 import type { AgentToolApi, ToolContext } from "../tools/types.js";
@@ -77,7 +77,7 @@ const agentApi = (overrides: Partial<AgentToolApi>): AgentToolApi =>
   }) as AgentToolApi;
 
 describe("desktop cloud thread controls", () => {
-  test("send_input falls through to an owned cloud continuation", async () => {
+  test("send_message falls through to an owned cloud continuation", async () => {
     const requests: unknown[] = [];
     const state = createStateContext(
       "/tmp/stella-cloud-control-test",
@@ -98,7 +98,7 @@ describe("desktop cloud thread controls", () => {
       }),
     );
 
-    const result = await handleSendInput(
+    const result = await handleSendMessage(
       state,
       {
         thread_id: "thr-cloud",
@@ -107,7 +107,7 @@ describe("desktop cloud thread controls", () => {
       { ...toolContext, ownerGeneration: OWNER_GENERATION },
     );
 
-    // `send_input` no longer takes a description, but the cloud continuation
+    // `send_message` takes no description, but the cloud continuation
     // mutation still requires a non-empty one, so the label comes from the
     // follow-up itself rather than re-titling the thread from the caller.
     expect(requests).toEqual([
@@ -122,11 +122,9 @@ describe("desktop cloud thread controls", () => {
     ]);
     expect(result).toMatchObject({
       result: {
+        status: "delivered",
         thread_id: "thr-cloud",
-        delivered: true,
-        attempt_generation: 4,
-        thread_updated_at: 400,
-        thread_status: "running",
+        delivered: "resumed",
       },
     });
   });

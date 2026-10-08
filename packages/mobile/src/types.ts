@@ -179,7 +179,7 @@ export type MobileDisplayPayload =
        */
       agents?: MobileAgentWorkFileSection[];
       /**
-       * The card's latest activation was a `send_input` follow-up (a steer of
+       * The card's latest activation was a `send_message` follow-up (a steer of
        * an already-spawned thread) rather than a fresh spawn. Settled
        * follow-up rows show the arrow tell instead of the done check,
        * matching the desktop `BackgroundWorkCard`.
@@ -240,7 +240,7 @@ export type ChatMessage = {
   /** Durable reply relationships; UI hides adjacent context. */
   replyRefs?: ReplyRef[];
   /**
-   * Agent threads this row's `spawn_agent` / `send_input` calls started, from
+   * Agent threads this row's `spawn_agent` / `send_message` calls started, from
    * the tool result details. Feeds reply context (the exchange owns the
    * task) even when no lifecycle card reached the transcript.
    */

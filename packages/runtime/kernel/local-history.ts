@@ -37,7 +37,7 @@ import {
 // hidden transcript messages instead of being reconstructed from UI events.
 const INTERNAL_TASK_TOOL_NAMES = new Set([
   "spawn_agent",
-  "send_input",
+  "send_message",
   "pause_agent",
 ]);
 

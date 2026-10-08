@@ -99,7 +99,7 @@ export type AssistantRowViewModel = {
   replyToUserMessageId?: string;
   /**
    * Agent threads this row's tool events started (`agent-started`, or a
-   * `spawn_agent` / `send_input` result naming its thread). Feeds reply
+   * `spawn_agent` / `send_message` result naming its thread). Feeds reply
    * context even when no inline card is drawn for the spawn.
    */
   spawnedThreadIds?: string[];
@@ -159,7 +159,7 @@ export type AssistantRowViewModel = {
   /**
    * Inline "background work" card for a turn that kicked off (or updated)
    * one background-work occurrence (orchestrator `spawn_agent` /
-   * `spawn_agent` / `send_input`). Multiple starts in the same turn render
+   * `spawn_agent` / `send_message`). Multiple starts in the same turn render
    * as separate rows, preserving the distinct spawn and follow-up receipts.
    * Lifecycle state is keyed by each persisted `agent-started` event id.
    * Progress/completion/failure update this descriptor in place; completion
@@ -174,15 +174,15 @@ export type AssistantRowViewModel = {
      *  spawn (and any completion) — the thread was paused (the orchestrator's
      *  pause_agent lands as a cancel; the runtime treats non-running threads
      *  as paused/resumable). The card renders a "Paused" label and stops its
-     *  shimmer for these; a resume (`send_input`) emits a fresh
+     *  shimmer for these; a resume (`send_message`) emits a fresh
      *  `agent-started` whose newer card supersedes this one. */
     pausedThreadIds?: string[];
     supersededThreadIds?: string[];
     /** Per-thread work description (the spawn's user-friendly summary),
      *  used as the card title — mirrors the sidebar Activity surface. */
     descriptions: Record<string, string>;
-    /** Per-thread follow-up text for threads re-activated via `send_input` on
-     *  this turn. A `send_input` reuses the thread's original `description`, so
+    /** Per-thread follow-up text for threads re-activated via `send_message` on
+     *  this turn. A `send_message` reuses the thread's original `description`, so
      *  this carries the follow-up's own message/description for the card title;
      *  absent for plain spawns. See `getBackgroundWork`. */
     statusTexts?: Record<string, string>;
@@ -192,7 +192,7 @@ export type AssistantRowViewModel = {
     /** Raw structured tool state retained for event/history fidelity;
      * assistant-summary surfaces intentionally do not present it. */
     toolActivities?: Record<string, TaskToolActivity>;
-    /** Threads on this card that are `send_input` follow-ups (an update to an
+    /** Threads on this card that are `send_message` follow-ups (an update to an
      *  already-spawned thread) rather than fresh spawns — drives the distinct
      *  "follow-up" card variant. */
     followUpThreadIds?: string[];
@@ -201,7 +201,7 @@ export type AssistantRowViewModel = {
      *  it as forever-working when its lifecycle aged out of the windows. */
     spawnedAtMs?: Record<string, number>;
     /** Canonical occurrence identity and insertion anchor. `agentId` is a
-     * durable thread and `rootRunId` can cover several send_input cycles, so
+     * durable thread and `rootRunId` can cover several send_message cycles, so
      * neither is sufficient by itself. */
     startEventIdsByThread: Record<string, string>;
     /** Durable execution epoch captured by this `agent-started` occurrence. */

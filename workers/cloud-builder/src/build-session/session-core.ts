@@ -958,7 +958,7 @@ export const assertAppTurnIdentity = (
  *
  * It used to be a `GET /api/cloud/context` on the continuation's critical
  * path, which made the control plane the authority for rows only this object ever
- * writes and put a control-plane round trip in front of every send_input.
+ * writes and put a control-plane round trip in front of every send_message.
  */
 export const fetchCanonicalAgentHistory = (
   host: SessionCoreHost,
@@ -1030,7 +1030,7 @@ export const scheduleDurabilityAlarm = async (
 };
 
 // The detached agent-turn promise and the alarm share this DO's storage;
-// a stale turn (superseded by a send_input continuation on the same
+// a stale turn (superseded by a send_message continuation on the same
 // thread) must never mutate the successor's state or complete its thread.
 export const ownsExactTurn = async (
   host: SessionCoreHost,

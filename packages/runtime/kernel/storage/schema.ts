@@ -205,11 +205,6 @@ CREATE TABLE IF NOT EXISTS durable_thread_summaries (
 );
 CREATE INDEX IF NOT EXISTS idx_durable_thread_summaries_updated
   ON durable_thread_summaries(source_updated_at);
-
-CREATE TABLE IF NOT EXISTS runtime_conversation_state (
-  conversation_id TEXT PRIMARY KEY,
-  force_reminder_on_next_turn INTEGER NOT NULL DEFAULT 0
-);
 `;
 
 /**

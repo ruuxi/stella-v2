@@ -21,58 +21,19 @@ import {
   parseJsonValue,
   truncateAuthoredUpdate,
 } from "./view.js";
-import { MAX_ACTIVE_RUNTIME_THREADS } from "../runtime-threads.js";
 
 const DESKTOP_THREAD_ACTIVITY_HYDRATION_LIMIT = 500;
+const CONVERSATION_AGENT_TERMINAL_LIMIT = 32;
 
-export const RUNTIME_THREAD_SELECT = `
-  SELECT
-    thread.id AS threadId,
-    thread.conversation_id AS conversationId,
-    thread.name AS name,
-    thread.agent_type AS agentType,
-    thread.status AS status,
-    thread.created_at AS createdAt,
-    thread.last_used_at AS lastUsedAt,
-    thread.summary AS summary,
-    agent.description AS description,
-    agent.status AS agentStatus,
-    agent.updated_at AS agentUpdatedAt
-  FROM thread
-  LEFT JOIN agent ON agent.thread_id = thread.id
-`;
-
-export type RuntimeThreadListing = {
+/** One conversation's agent, as `agent_status` lists it. */
+export type ConversationAgentListing = {
   threadId: string;
   conversationId: string;
-  name: string;
-  agentType: string;
-  // Dev tightening over main: the columns only ever hold these values, and
-  // dev's runtime typecheck feeds listings into RuntimeThreadRecord helpers.
-  status: "active" | "evicted";
-  createdAt: number;
-  lastUsedAt: number;
-  agentStatus?: TaskLifecycleStatus;
-  agentUpdatedAt?: number;
-  description?: string;
-  summary?: string;
+  parentAgentId?: string;
+  description: string;
+  status: string;
+  updatedAt: number;
 };
-
-export const deserializeRuntimeThread = (row: any): RuntimeThreadListing => ({
-  threadId: row.threadId,
-  conversationId: row.conversationId,
-  name: row.name,
-  agentType: row.agentType,
-  status: row.status,
-  createdAt: row.createdAt,
-  lastUsedAt: row.lastUsedAt,
-  ...(row.agentStatus ? { agentStatus: row.agentStatus } : {}),
-  ...(typeof row.agentUpdatedAt === "number"
-    ? { agentUpdatedAt: row.agentUpdatedAt }
-    : {}),
-  ...(row.description ? { description: row.description } : {}),
-  ...(row.summary ? { summary: row.summary } : {}),
-});
 
 /** Persisted agent (task) record shape returned by the registry reads. */
 export type PersistedAgentRecord = {
@@ -95,7 +56,7 @@ export type PersistedAgentRecord = {
   /** Persisted ownership epoch so lifecycle ids remain unique after restart. */
   attemptGeneration: number;
   recordRevision?: number;
-  /** Root run that owns the thread's latest lifecycle (send_input rebinds it). */
+  /** Root run that owns the thread's latest lifecycle (send_message rebinds it). */
   rootRunId?: string;
   /** Latest attempt whose terminal state reached the durable cloud outbox. */
   cloudTerminalReceiptGeneration?: number;
@@ -355,16 +316,36 @@ export class AgentRegistry {
     return rows.map((row) => this.deserializeAgentRow(row));
   }
 
-  listActiveThreads(conversationId: string): RuntimeThreadListing[] {
-    const rows = this.cached
+  /**
+   * Every live agent of a conversation plus its newest finished ones, at
+   * every depth. Reads the agent rows only, never a transcript.
+   */
+  listConversationAgents(conversationId: string): ConversationAgentListing[] {
+    const columns = `thread_id, conversation_id, parent_agent_id, description,
+      status, updated_at`;
+    const live = this.cached
       .prepare(
-        `${RUNTIME_THREAD_SELECT}
-         WHERE thread.conversation_id = ? AND thread.status = 'active'
-         ORDER BY thread.last_used_at DESC
+        `SELECT ${columns} FROM agent
+         WHERE conversation_id = ? AND status IN ('pending', 'running')
+         ORDER BY updated_at DESC, thread_id`,
+      )
+      .all(conversationId);
+    const finished = this.cached
+      .prepare(
+        `SELECT ${columns} FROM agent
+         WHERE conversation_id = ? AND status NOT IN ('pending', 'running')
+         ORDER BY updated_at DESC, thread_id
          LIMIT ?`,
       )
-      .all(conversationId, MAX_ACTIVE_RUNTIME_THREADS);
-    return rows.map((row) => deserializeRuntimeThread(row));
+      .all(conversationId, CONVERSATION_AGENT_TERMINAL_LIMIT);
+    return [...live, ...finished].map((row: any) => ({
+      threadId: row.thread_id,
+      conversationId: row.conversation_id,
+      ...(row.parent_agent_id ? { parentAgentId: row.parent_agent_id } : {}),
+      description: row.description,
+      status: row.status,
+      updatedAt: row.updated_at,
+    }));
   }
 
   /* ------------------------------------------------------------------ */

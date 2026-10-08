@@ -13,6 +13,8 @@ import type {
 import type { MapRouteArtifact } from "@stella/contracts/map-artifact";
 
 export const ORCHESTRATOR_ROSTER_CUSTOM_TYPE = "runtime.orchestrator_reminder";
+/** A `send_message` note another agent left for a conversation's Stella. */
+export const AGENT_MESSAGE_CUSTOM_TYPE = "runtime.agent_message";
 /** Structured descendant lifecycle rows used only by exact-thread UI.
  * They are never part of model history or the conversation-wide event table. */
 export const RUNTIME_PRIVATE_TASK_LIFECYCLE_CUSTOM_TYPE =

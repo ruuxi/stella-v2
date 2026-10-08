@@ -2,7 +2,7 @@ import type { RuntimeAgentEventPayload } from "@stella/contracts/protocol";
 
 // Sub-agent management tool names. These all share the same task ids and
 // `thread_id`-shaped payloads.
-const TASK_TOOL_NAMES = new Set(["spawn_agent", "send_input", "pause_agent"]);
+const TASK_TOOL_NAMES = new Set(["spawn_agent", "send_message", "pause_agent"]);
 
 const isSpawnName = (toolName: string): boolean => toolName === "spawn_agent";
 

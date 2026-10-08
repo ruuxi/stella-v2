@@ -2,7 +2,7 @@
  * Active work is budgeted in SLOTS, not raw threads: a thread group
  * (several related threads spawned for one request) occupies one slot,
  * and an ungrouped thread is its own slot. Eviction flips whole slots
- * to 'evicted'; the rows survive and stay resumable via `send_input`
+ * to 'evicted'; the rows survive and stay resumable via `send_message`
  * and stay in the `thread` table.
  */
 import type { TaskLifecycleStatus } from "@stella/contracts/agent-runtime";
@@ -13,7 +13,7 @@ export const MAX_ACTIVE_RUNTIME_THREADS = 16;
  * Cap on active member threads per group so one fan-out can't grow the
  * injected context block without bound. The 9th spawn into a group is
  * rejected with an instructive error (continue a member with
- * `send_input` instead).
+ * `send_message` instead).
  */
 export const MAX_GROUP_MEMBER_THREADS = 8;
 
@@ -64,16 +64,6 @@ export const deriveRuntimeThreadLiveState = (
   record.agentStatus === "running" ? "active" : "paused";
 
 /**
- * Genuine last-activity time: the newer of the durable thread row's
- * `lastUsedAt` and the agent record's `updatedAt`. A running turn bumps the
- * agent record even when the thread row wasn't re-touched, so this keeps the
- * recency the orchestrator reasons about honest.
- */
-export const runtimeThreadLastActiveAt = (
-  record: Pick<RuntimeThreadRecord, "lastUsedAt" | "agentUpdatedAt">,
-): number => Math.max(record.lastUsedAt, record.agentUpdatedAt ?? 0);
-
-/**
  * Compact, machine-legible status token for a single thread. Primary token
  * is always active/paused; a paused thread whose last run errored keeps that
  * detail (still resumable, but worth flagging) so the orchestrator isn't
@@ -88,22 +78,6 @@ export const formatRuntimeThreadStatusLabel = (
     : "paused";
 };
 
-/**
- * The `(<status>, last active <age>)` suffix of the injected "# Other Threads"
- * roster.
- */
-export const formatRuntimeThreadStatusSuffix = (
-  record: Pick<
-    RuntimeThreadRecord,
-    "agentStatus" | "lastUsedAt" | "agentUpdatedAt"
-  >,
-  now = Date.now(),
-): string =>
-  `${formatRuntimeThreadStatusLabel(record)}, last active ${formatRuntimeThreadAge(
-    runtimeThreadLastActiveAt(record),
-    now,
-  )}`;
-
 export const normalizeRuntimeThreadId = (value: string): string | undefined => {
   // Preserve case: conversation ids are case-sensitive and orchestrator thread
   // keys are derived directly from them.
@@ -114,57 +88,4 @@ export const normalizeRuntimeThreadId = (value: string): string | undefined => {
 export const estimateRuntimeTokens = (value: string): number => {
   const trimmed = value.trim();
   return trimmed.length > 0 ? Math.max(1, Math.ceil(trimmed.length / 4)) : 0;
-};
-
-export const formatRuntimeThreadAge = (
-  timestamp: number,
-  now = Date.now(),
-): string => {
-  const ageMs = Math.max(0, now - timestamp);
-  if (ageMs < 60_000) return "just now";
-  if (ageMs < 3_600_000) return `${Math.floor(ageMs / 60_000)}m ago`;
-  if (ageMs < 86_400_000) return `${Math.floor(ageMs / 3_600_000)}h ago`;
-  return `${Math.floor(ageMs / 86_400_000)}d ago`;
-};
-
-const formatPromptValue = (
-  value: string | undefined,
-  fallback: string,
-): string => {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed.replace(/\s+/g, " ").slice(0, 180) : fallback;
-};
-
-const formatThreadLines = (
-  thread: RuntimeThreadRecord,
-  now: number,
-  indent: string,
-): string => {
-  const summary = formatPromptValue(thread.summary, "");
-  return [
-    `${indent}- ${thread.threadId} (${formatRuntimeThreadStatusSuffix(thread, now)})`,
-    `${indent}  description: ${formatPromptValue(
-      thread.description ??
-        (thread.name !== thread.threadId ? thread.name : undefined),
-      "No description recorded",
-    )}`,
-    ...(summary ? [`${indent}  summary: ${summary}`] : []),
-  ].join("\n");
-};
-
-export const buildActiveThreadsPrompt = (
-  threads: RuntimeThreadRecord[],
-  now = Date.now(),
-): string => {
-  if (threads.length === 0) return "";
-  const ordered = [...threads]
-    .sort(
-      (a, b) =>
-        runtimeThreadLastActiveAt(b) - runtimeThreadLastActiveAt(a) ||
-        a.threadId.localeCompare(b.threadId),
-    )
-    .slice(0, MAX_ACTIVE_RUNTIME_THREADS);
-  return `# Other Threads\nDurable past and ongoing work. Each entry shows its live state: "active" means the agent is executing a turn right now; "paused" means idle but resumable. Any thread_id can be reused later with send_input, even after cancellation or completion. Older threads not listed here can be found with history in code.\n${ordered
-    .map((thread) => formatThreadLines(thread, now, ""))
-    .join("\n")}`;
 };

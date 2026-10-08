@@ -2723,14 +2723,14 @@ describe("claude native tool-use integrity gate", () => {
     const cut = fullJson.slice(0, 1000);
     streamToolUse(correlator, {
       id: "toolu_stop_cut",
-      name: "mcp__stella__send_input",
+      name: "mcp__stella__send_message",
       json: cut,
       stop: true,
     });
     const dispatched = repairPartialToolInputJson(cut);
     expect(dispatched).toBeDefined();
     const verdict = await correlator.resolveToolUseIntegrity(
-      "send_input",
+      "send_message",
       dispatched as Record<string, unknown>,
       undefined,
       10,

@@ -1,5 +1,4 @@
 import type { Agent } from "../agent-core/agent.js";
-import { isOrchestratorAgentType } from "@stella/contracts/agent-runtime";
 import { createRuntimeLogger } from "../debug.js";
 import { isThreadCompactionForced } from "./context-budget.js";
 import { resetSkillReadDedup } from "../tools/skill-read-dedup.js";
@@ -404,12 +403,6 @@ export const runCompactionWithHooks = async (args: {
       : {}),
   });
 
-  if (result.compacted && isOrchestratorAgentType(args.opts.agentType)) {
-    args.opts.store.forceOrchestratorReminderOnNextTurn?.(
-      args.opts.conversationId,
-    );
-  }
-
   // Only notify observers when an overlay was actually written.
   if (result.compacted && args.opts.hookEmitter && hookCompaction?.summary) {
     void args.opts.hookEmitter
@@ -559,7 +552,7 @@ export const finalizeOrchestratorInterrupted = (args: {
  * "thinking-only stop" pathology even after the agent-loop retry.
  */
 export const SUBAGENT_EMPTY_RESULT_SENTINEL =
-  "(Agent completed without a user-visible reply. Re-prompt with send_input if you need the outcome.)";
+  "(Agent completed without a user-visible reply. Re-prompt with send_message if you need the outcome.)";
 
 export const finalizeSubagentSuccess = async (args: {
   opts: SubagentRunOptions;

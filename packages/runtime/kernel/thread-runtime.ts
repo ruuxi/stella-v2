@@ -1444,7 +1444,7 @@ const SUMMARY_STRUCTURE = `## Topic
 const buildSummaryGuidelines = (hasDurableMemoryReference: boolean): string =>
   [
     "Guidelines:",
-    '- Thread ids: delegated/background work appears in the conversation as spawn_agent / send_input / check-status tool calls and results carrying a `thread_id`. Name that exact thread_id alongside every workstream you mention (e.g. "shell redesign polish — thread_id: shell-redesign-v2-full-polish") so follow-ups after this checkpoint route to the existing thread instead of spawning a duplicate.',
+    '- Thread ids: delegated/background work appears in the conversation as spawn_agent / send_message / check-status tool calls and results carrying a `thread_id`. Name that exact thread_id alongside every workstream you mention (e.g. "shell redesign polish — thread_id: shell-redesign-v2-full-polish") so follow-ups after this checkpoint route to the existing thread instead of spawning a duplicate.',
     "- Pending user decisions: any question posed to the user that was not yet answered by the end of the conversation goes under Open Items with the exact question quoted verbatim; if the user gave a partial or nuanced answer, quote the user's exact relevant words too. Never paraphrase half-answered decisions — quote them.",
     "- Resume-critical state: preserve the task objective and constraints; every working path, branch, and commit SHA; every child thread id with its status and concrete result; completed and unresolved work; and the latest user instruction. Quote the latest user instruction verbatim when its wording affects how work must resume.",
     '- Current task/instruction: the newest user message in the conversation (a follow-up request or a "Task update:" steer) defines what the agent is doing RIGHT NOW. Preserve it faithfully — quote it verbatim (or near-verbatim if very long) under Current State or Open Items so the agent resumes exactly that work after compaction, not an earlier task.',
@@ -1550,7 +1550,7 @@ Use this EXACT format:
 - [Or "(none)" if not applicable]
 
 Keep each section concise. Preserve exact file paths, function names, and error messages.
-Preserve exact \`thread_id\` values from spawn_agent / send_input / check-status tool calls so follow-ups can resume existing threads.`;
+Preserve exact \`thread_id\` values from spawn_agent / send_message / check-status tool calls so follow-ups can resume existing threads.`;
 
 const GENERAL_UPDATE_SUMMARIZATION_PROMPT = `The messages above are NEW conversation messages to incorporate into the existing summary provided in <previous-summary> tags.
 
@@ -1590,7 +1590,7 @@ Use this EXACT format:
 - [Preserve important context, add new if needed]
 
 Keep each section concise. Preserve exact file paths, function names, and error messages.
-Preserve exact \`thread_id\` values from spawn_agent / send_input / check-status tool calls so follow-ups can resume existing threads.`;
+Preserve exact \`thread_id\` values from spawn_agent / send_message / check-status tool calls so follow-ups can resume existing threads.`;
 
 // Conversation content and instructions are separate sections, and the task
 // is framed as a continuation checkpoint: Claude Fable refused the earlier

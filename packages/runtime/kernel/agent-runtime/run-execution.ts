@@ -28,7 +28,6 @@ import {
   persistThreadPayloadMessage,
 } from "./thread-memory.js";
 import { THREAD_PERSISTENCE_ERROR_CODE } from "./agent-run-retry.js";
-import { ORCHESTRATOR_ROSTER_CUSTOM_TYPE } from "../storage/shared.js";
 
 type RuntimeExecutableAgent = {
   state: {
@@ -575,12 +574,6 @@ export const executeRuntimeAgentPrompt = async (args: {
               ? { preservePayloadExactly: true }
               : {}),
           });
-        }
-        if (
-          promptInput.customType === ORCHESTRATOR_ROSTER_CUSTOM_TYPE &&
-          args.conversationId
-        ) {
-          args.threadStore.consumeOrchestratorReminder?.(args.conversationId);
         }
       }
       const uiVisibility = promptInput?.uiVisibility;

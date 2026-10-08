@@ -62,7 +62,7 @@ export type ToolActivityGroup = {
 // Owned by other surfaces / not real calls — never shown in the trace.
 const EXCLUDED_TOOLS = new Set([
   "spawn_agent",
-  "send_input",
+  "send_message",
   "pause_agent",
   "resume_agent",
   "search_threads",

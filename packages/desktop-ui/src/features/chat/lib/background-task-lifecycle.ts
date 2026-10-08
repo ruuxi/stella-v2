@@ -21,7 +21,7 @@ export type BackgroundTaskCardStatus =
 
 /**
  * Canonical state for one visible background-work occurrence. Identity is the
- * persisted `agent-started` event id, not the durable thread id: `send_input`
+ * persisted `agent-started` event id, not the durable thread id: `send_message`
  * reuses a thread and can even start it more than once inside one root run.
  */
 export type BackgroundTaskCardState = {

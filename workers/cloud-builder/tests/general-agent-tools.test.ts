@@ -42,7 +42,7 @@ describe("general-agent capability table", () => {
 });
 
 describe("pinned resident catalog", () => {
-  test("withholds all orchestration tools from a depth-2 agent", () => {
+  test("withholds spawn and pause from a depth-2 agent, which can still see and message others", () => {
     const catalog = createResidentGeneralAgentTools(
       doLocalStubs(),
       undefined,
@@ -50,9 +50,9 @@ describe("pinned resident catalog", () => {
       { agentDepth: 2 },
     );
     expect(catalog.map((tool) => tool.name)).not.toContain("spawn_agent");
-    expect(catalog.map((tool) => tool.name)).not.toContain("send_input");
     expect(catalog.map((tool) => tool.name)).not.toContain("pause_agent");
-    expect(catalog.map((tool) => tool.name)).not.toContain("agent_status");
+    expect(catalog.map((tool) => tool.name)).toContain("send_message");
+    expect(catalog.map((tool) => tool.name)).toContain("agent_status");
   });
 
   test("refuses to build a catalog missing a do-local implementation", () => {

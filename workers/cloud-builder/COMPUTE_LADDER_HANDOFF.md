@@ -184,7 +184,7 @@ All five steps are on master, each as its own commit, greenfield (no
 compatibility paths, no migrations):
 
 1. `baac4aabd` policy: plan quotas, owner-gate windows/ceilings and the world
-   lease deleted; cloud generals get spawn_agent/send_input/pause_agent/
+   lease deleted; cloud generals get spawn_agent/send_message/pause_agent/
    agent_status (shared dispatch in `cloud-agent-dispatch.ts`, steer mailbox,
    child terminals steer a running parent, depth 2).
 2. `371c4ada8` `WorldStore` per owner world (binding `WORLDS`, migration v9,
@@ -269,7 +269,7 @@ telemetry principal-scope test in desktop-ui.
    must be released once its leases expire.
 5. Re-run the follow-up cell: one conversation through
    `.agents/skills/verify-stella/cloud-turn.mjs`, a first turn that reads a
-   file, then a `send_input` follow-up. Expect the daemon to survive, no
+   file, then a `send_message` follow-up. Expect the daemon to survive, no
    `attached_session_terminated` event, and `sandbox_ready` on both turns.
 6. Read the `errorName` field on any remaining
    `sandbox_keep_alive_release_failed` log line. `TypeError` would mean the

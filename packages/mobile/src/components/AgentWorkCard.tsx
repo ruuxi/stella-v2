@@ -13,7 +13,7 @@ type AgentWorkPayload = Extract<MobileDisplayPayload, { kind: "agent-work" }>;
  * chrome-less one-line row (no card surface, no badges, no provider icons)
  * carrying the task DESCRIPTION only. The leading slot doubles as the status
  * tell — static star while the shimmering title carries the running motion,
- * a quiet grey check once done, an arrow for `send_input` follow-ups;
+ * a quiet grey check once done, an arrow for `send_message` follow-ups;
  * failed/canceled rows settle plain with the star. State is live-reconciled,
  * so a running row never fakes "finished" (see `applyLiveAgentWorkState`).
  */

@@ -117,8 +117,8 @@ import {
   AGENT_STATUS_TOOL_REPLAY,
   PAUSE_AGENT_TOOL_DESCRIPTOR,
   PAUSE_AGENT_TOOL_REPLAY,
-  SEND_INPUT_TOOL_DESCRIPTOR,
-  SEND_INPUT_TOOL_REPLAY,
+  SEND_MESSAGE_TOOL_DESCRIPTOR,
+  SEND_MESSAGE_TOOL_REPLAY,
   SPAWN_AGENT_TOOL_DESCRIPTOR,
   parseSpawnDestination,
 } from "@stella/runtime/kernel/tools/defs/agent-orchestration-def.js";
@@ -211,6 +211,13 @@ import {
   spawnDeviceAgent,
   type DeviceAgentCaller,
 } from "./device-agent-tools.js";
+import {
+  agentDirectoryStatus,
+  agentMessageResult,
+  sendAgentMessage,
+  sessionStatus,
+} from "./agent-messaging.js";
+import { STELLA_MESSAGE_TARGET } from "@stella/contracts/agent-directory";
 import {
   agentStatusResult as sharedAgentStatusResult,
   commitCloudAgentToolOutcome as commitSharedCloudAgentToolOutcome,
@@ -3404,10 +3411,12 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       }
     }
     const lane: CloudTurnLane = start.lane ?? "chat";
-    if ((lane === "wake") !== (start.agentThreadControl !== undefined)) {
+    // A wake is an agent's report (with agentThreadControl) or an agent's
+    // message to this Stella (without); no other lane carries a control.
+    if (lane !== "wake" && start.agentThreadControl !== undefined) {
       return turnStartErrorResponse(
         "bad_request",
-        "wake turns carry agentThreadControl; other lanes must not.",
+        "Only wake turns carry agentThreadControl.",
         false,
       );
     }
@@ -10819,7 +10828,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
   /**
    * The cloud orchestrator's tool catalog: the desktop orchestrator's exact
    * model-visible contract (`orchestrator.md`'s allowlist — code, html,
-   * image_gen, web, map, Read, Remember, spawn_agent, send_input,
+   * image_gen, web, map, Read, Remember, spawn_agent, send_message,
    * pause_agent, agent_status — plus the demoted
    * schedule_* and connector_status tools reachable inside code, and the
    * `connect` and `history` clients inside code). The model reads one description and
@@ -10896,7 +10905,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
      * classify it as a replay instead of admitting a second agent.
      */
     const toolScopedId = async (
-      purpose: "thread" | "turn",
+      purpose: "thread" | "turn" | "message",
       toolCallId: string,
     ): Promise<string> =>
       await sharedToolScopedId({
@@ -10913,11 +10922,26 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     };
     const threadNotFound = (threadId: string) =>
       new Error(
-        `Thread not found in this conversation: ${threadId}. agent_status only sees agents spawned from this conversation.`,
+        `Thread not found in this conversation: ${threadId}. agent_status without a thread_id lists who you can reach.`,
       );
-    const requireConversationAgentControl = async (
+    /** An agent this conversation controls, or null for anyone else. */
+    const ownConversationAgentControl = async (
       threadId: string,
-      action: "send_input" | "pause_agent",
+    ): Promise<CloudAgentControlReceipt | null> => {
+      try {
+        return await this.requireCloudAgentControlReceipt(threadId, "any");
+      } catch {
+        const found = await resolveConversationAgentThread(
+          deviceCaller,
+          threadId,
+        ).catch(() => null);
+        return found?.kind === "adopted"
+          ? await this.rememberCloudAgentControlReceipt(found.control)
+          : null;
+      }
+    };
+    const requirePausableAgentControl = async (
+      threadId: string,
     ): Promise<CloudAgentControlReceipt> => {
       try {
         return await this.requireCloudAgentControlReceipt(threadId, "any");
@@ -10928,7 +10952,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         ).catch(() => null);
         if (!found) throw threadNotFound(threadId);
         if (found.kind === "elsewhere") {
-          throw agentThreadElsewhereError(found, action);
+          throw agentThreadElsewhereError(found);
         }
         return await this.rememberCloudAgentControlReceipt(found.control);
       }
@@ -11084,7 +11108,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
                 type: "text",
                 text: waitingForDevice
                   ? `Queued agent (thread_id: ${control.threadId}, status: queued, description: "${args.description}", device_id: ${control.executorDeviceId}). ${DEVICE_AGENT_QUEUED_NOTE} Either way an [Agent completed] or [Agent failed] message will arrive on this conversation. Stop it with pause_agent.`
-                  : `Spawned agent (thread_id: ${control.threadId}, status: running, description: "${args.description}"${control.executorDeviceId ? `, device_id: ${control.executorDeviceId}` : ""}). It is running in the background and has NOT finished — an [Agent completed] message will arrive on this conversation with its report. Check on it with agent_status, steer it with send_input, or stop it with pause_agent.`,
+                  : `Spawned agent (thread_id: ${control.threadId}, status: running, description: "${args.description}"${control.executorDeviceId ? `, device_id: ${control.executorDeviceId}` : ""}). It is running in the background and has NOT finished — an [Agent completed] message will arrive on this conversation with its report. Check on it with agent_status, steer it with send_message, or stop it with pause_agent.`,
               },
             ],
             details: {
@@ -11102,31 +11126,46 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         },
       },
       {
-        ...SEND_INPUT_TOOL_DESCRIPTOR,
-        label: "Send input",
-        replay: SEND_INPUT_TOOL_REPLAY,
-        parameters: SEND_INPUT_TOOL_DESCRIPTOR.parameters as unknown as TSchema,
+        ...SEND_MESSAGE_TOOL_DESCRIPTOR,
+        label: "Send message",
+        replay: SEND_MESSAGE_TOOL_REPLAY,
+        parameters: SEND_MESSAGE_TOOL_DESCRIPTOR.parameters as unknown as TSchema,
         execute: async (toolCallId, params, signal) => {
           const args = params as {
             thread_id: string;
             message: string;
           };
           const threadId = args.thread_id.trim();
-          const fingerprint = await toolFingerprint("send_input", {
+          if (
+            threadId === STELLA_MESSAGE_TARGET ||
+            threadId === turn.conversationId
+          ) {
+            throw new Error(
+              `${threadId} is you: you are Stella for this conversation. Message an agent or another session by its thread_id.`,
+            );
+          }
+          const fingerprint = await toolFingerprint("send_message", {
             threadId,
             message: args.message,
           });
           let outcome = await this.readCloudAgentToolOutcome(
             turn,
             toolCallId,
-            "send_input",
+            "send_message",
             fingerprint,
           );
           if (!outcome) {
-            const prior = await requireConversationAgentControl(
-              threadId,
-              "send_input",
-            );
+            const prior = await ownConversationAgentControl(threadId);
+            if (!prior) {
+              return agentMessageResult(
+                await sendAgentMessage(toolContext, {
+                  messageId: await toolScopedId("message", toolCallId),
+                  to: threadId,
+                  text: args.message,
+                  from: { threadId: turn.conversationId, label: "Stella" },
+                }),
+              );
+            }
             let admitted: CloudAgentControlReceipt;
             let disposition: "steered" | "resumed";
             if (prior.executorDeviceId) {
@@ -11201,7 +11240,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             outcome = await this.commitCloudAgentToolOutcome(
               turn,
               toolCallId,
-              "send_input",
+              "send_message",
               fingerprint,
               admitted,
               disposition,
@@ -11236,7 +11275,11 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         execute: async (_toolCallId, params) => {
           const args = params as { thread_id?: string };
           const threadId = (args.thread_id ?? "").trim();
-          if (!threadId) throw new Error("thread_id is required.");
+          if (!threadId) {
+            return await agentDirectoryStatus(toolContext, {
+              conversationId: turn.conversationId,
+            });
+          }
           let control: CloudAgentControlReceipt;
           try {
             control = await this.requireCloudAgentControlReceipt(
@@ -11248,7 +11291,15 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
               deviceCaller,
               threadId,
             ).catch(() => null);
-            if (!found) throw threadNotFound(threadId);
+            if (!found) {
+              const session = await sessionStatus(
+                toolContext,
+                turn.conversationId,
+                threadId,
+              ).catch(() => null);
+              if (session) return session;
+              throw threadNotFound(threadId);
+            }
             if (found.kind === "elsewhere") {
               return agentThreadElsewhereStatus(found);
             }
@@ -11292,10 +11343,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
                 : "paused",
             );
           }
-          const control = await requireConversationAgentControl(
-            threadId,
-            "pause_agent",
-          );
+          const control = await requirePausableAgentControl(threadId);
           let disposition: "paused" | "pending" | "already_terminal";
           let finalControl = control;
           if (!isCloudAgentControlActive(control.status)) {

@@ -3,6 +3,7 @@ import type {
   CloudAgentSteerMessage,
 } from "@stella/contracts/turn-plane/turn-start";
 import { AGENT_HISTORY_ROW_MAX_BYTES } from "@stella/executor-cloud/agent-history";
+import { AGENT_MESSAGE_FRAMED_MAX_CHARS } from "./agent-messaging.js";
 
 export type SteerMessageKind = CloudAgentSteerKind;
 export type SteerMessage = Readonly<CloudAgentSteerMessage>;
@@ -18,10 +19,17 @@ type SteerRow = {
 
 const STEER_KINDS: readonly SteerMessageKind[] = [
   "input",
+  "message",
   "child_completed",
   "child_canceled",
   "child_failed",
 ];
+
+/** A child's lifecycle report, as opposed to input or a message for this agent. */
+export const isChildTerminalSteer = (kind: SteerMessageKind): boolean =>
+  kind === "child_completed" ||
+  kind === "child_canceled" ||
+  kind === "child_failed";
 
 const MAX_STEER_ID_CHARS = 256;
 const MAX_STEER_INPUT_CHARS = 8_000;
@@ -58,6 +66,7 @@ export const parseSteerMessage = (value: unknown): SteerMessage | null => {
     id.length > MAX_STEER_ID_CHARS ||
     !text ||
     (row.kind === "input" && text.length > MAX_STEER_INPUT_CHARS) ||
+    (row.kind === "message" && text.length > AGENT_MESSAGE_FRAMED_MAX_CHARS) ||
     !STEER_KINDS.includes(row.kind as SteerMessageKind) ||
     !Number.isSafeInteger(row.createdAt) ||
     (row.createdAt as number) < 0
@@ -79,7 +88,7 @@ export const parseSteerMessage = (value: unknown): SteerMessage | null => {
   ) {
     return null;
   }
-  const childTerminal = row.kind !== "input";
+  const childTerminal = isChildTerminalSteer(row.kind as SteerMessageKind);
   if (
     childTerminal !== (threadId.length > 0 && attemptGeneration !== undefined)
   ) {

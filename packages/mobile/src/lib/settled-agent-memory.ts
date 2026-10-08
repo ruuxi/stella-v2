@@ -21,7 +21,7 @@ import type { MobileTask } from "../types";
  * snapshot stays a FLOOR for agents there is no local evidence about, rather
  * than an override of evidence there is. A restart is still respected — a
  * snapshot entry newer than the terminal we remember wins, which is what a
- * `send_input` follow-up on a settled thread looks like.
+ * `send_message` follow-up on a settled thread looks like.
  */
 export type SettledAgentMemory = ReadonlyMap<string, number>;
 

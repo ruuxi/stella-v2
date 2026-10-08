@@ -233,7 +233,7 @@ describe("inlineAgentWorkCardSections", () => {
 
   test("hides files while the card is still running (finish-only inline)", () => {
     // A running card can already carry sections: a multi-agent group with
-    // stragglers, or a thread resumed via send_input keeps a prior run's
+    // stragglers, or a thread resumed via send_message keeps a prior run's
     // rollup files. Inline chat must not show them mid-run.
     expect(inlineAgentWorkCardSections(work("running"))).toBe(null);
   });

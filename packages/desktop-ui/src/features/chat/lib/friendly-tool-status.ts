@@ -29,7 +29,7 @@ const FRIENDLY_TOOL_LABELS: Record<string, FriendlyToolLabels> = {
     active: "Starting work",
     done: "Started work",
   },
-  send_input: {
+  send_message: {
     active: "Updating work",
     done: "Updated work",
   },

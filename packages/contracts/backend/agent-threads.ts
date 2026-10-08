@@ -1,4 +1,18 @@
 import type { CloudExecutionSelection } from "../agent-engine.js";
+import type {
+  AgentDirectoryAgentRow,
+  AgentDirectorySessionRow,
+  AgentMessageSender,
+} from "../agent-directory.js";
+
+/**
+ * How a `send_message` landed: `steered` into a running agent, `resumed` an
+ * idle one as its next attempt, or `queued` as a Stella session's next turn.
+ */
+export type AgentMessageDelivery = {
+  delivered: "steered" | "resumed" | "queued";
+  threadId: string;
+};
 
 /**
  * Agent threads: every background agent the owner has, cloud or desktop,
@@ -89,6 +103,33 @@ export type AgentThreadCalls = {
   "agentThreads.lookup": {
     args: { conversationId: string; threadId: string };
     result: AgentThreadLookup | null;
+  };
+  /**
+   * What `agent_status` without a thread_id lists from the owner's index:
+   * this conversation's agents (every placement) and the other conversations.
+   */
+  "agentThreads.directory": {
+    args: { conversationId: string };
+    result: {
+      agents: AgentDirectoryAgentRow[];
+      sessions: AgentDirectorySessionRow[];
+    };
+  };
+  /**
+   * `send_message` to a thread this caller cannot reach itself: a running
+   * agent takes it before its next model call, an idle one resumes with it,
+   * and a conversation id queues it as that Stella's next turn. Idempotent
+   * per `messageId`.
+   */
+  "agentThreads.message": {
+    args: {
+      ownerGeneration: string;
+      messageId: string;
+      to: string;
+      text: string;
+      from: AgentMessageSender;
+    };
+    result: AgentMessageDelivery;
   };
   /** Send a follow-up to a finished desktop-dispatched cloud thread. */
   "agentThreads.continueFromDesktop": {

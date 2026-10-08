@@ -9,7 +9,7 @@ import type { AgentLifecycleEvent } from "@stella/runtime/kernel/agents/local-ag
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import {
   createStateContext,
-  handleSendInput,
+  handleSendMessage,
 } from "@stella/runtime/kernel/tools/state";
 import type {
   ToolContext,
@@ -252,7 +252,7 @@ describe("LocalAgentManager lifecycle observability", () => {
           "continue after cancellation",
           "orchestrator",
         ),
-      ).resolves.toEqual({ delivered: true });
+      ).resolves.toEqual({ delivered: true, resumed: true });
 
       // Releasing the global scheduler slot is not physical quiescence: the
       // same thread remains fenced until its abort-ignoring provider settles.
@@ -540,7 +540,7 @@ describe("LocalAgentManager Exec fs locking", () => {
     expect(manager.listActiveAgentRuns()).toEqual([]);
   });
 
-  it("routes send_input task lifecycle through the current root run and clears composer chip state on completion", async () => {
+  it("routes send_message task lifecycle through the current root run and clears composer chip state on completion", async () => {
     const events: AgentLifecycleEvent[] = [];
     let runCount = 0;
     let secondRunStarted: (() => void) | null = null;
@@ -596,12 +596,20 @@ describe("LocalAgentManager Exec fs locking", () => {
       getAgent: async (threadId) => manager.getAgent(threadId),
       cancelAgent: async (threadId, reason) =>
         manager.cancelAgent(threadId, reason),
+      readLocalAgentThread: (threadId) =>
+        threadId === task.threadId
+          ? {
+              threadId,
+              conversationId: "conv-1",
+              description: "Research current Nvidia news",
+            }
+          : null,
       sendAgentMessage: async (threadId, message, from, options) =>
         manager.sendAgentMessage(threadId, message, from, options),
     });
 
     await expect(
-      handleSendInput(
+      handleSendMessage(
         toolContext,
         {
           thread_id: task.threadId,
@@ -618,8 +626,8 @@ describe("LocalAgentManager Exec fs locking", () => {
     ).resolves.toMatchObject({
       result: {
         thread_id: task.threadId,
-        status: "delivered_agent_still_working",
-        delivered: true,
+        status: "delivered",
+        delivered: "resumed",
       },
     });
 
@@ -642,7 +650,7 @@ describe("LocalAgentManager Exec fs locking", () => {
     expect(spawnStarted?.isFollowUp).toBeUndefined();
 
     const resumedEvents = events.slice(eventOffset);
-    // The send_input re-activation IS explicitly flagged a follow-up and
+    // The send_message re-activation IS explicitly flagged a follow-up and
     // reuses the durable spawn description on `statusText`.
     expect(resumedEvents).toEqual(
       expect.arrayContaining([
@@ -841,7 +849,7 @@ describe("LocalAgentManager Exec fs locking", () => {
         runCount += 1;
         if (runCount === 1) {
           firstRunStarted?.();
-          // This mock does not attach any live agent, so send_input must stay
+          // This mock does not attach any live agent, so send_message must stay
           // queued while the current engine run finishes naturally.
           await new Promise<void>((resolve) => {
             releaseFirstRun = resolve;
@@ -1076,7 +1084,7 @@ describe("LocalAgentManager Exec fs locking", () => {
   });
 });
 
-describe("LocalAgentManager file records across queued send_input turns", () => {
+describe("LocalAgentManager file records across queued send_message turns", () => {
   it("banks a naturally finished internal boundary into the eventual completion rollup, then drains", async () => {
     const events: AgentLifecycleEvent[] = [];
     let runCount = 0;
@@ -1297,7 +1305,7 @@ describe("LocalAgentManager file records across queued send_input turns", () => 
   });
 });
 
-describe("send_input durable description and run rebind", () => {
+describe("send_message durable description and run rebind", () => {
   it("keeps an internal child-report wake-up out of root-chat lifecycle cards", async () => {
     const events: AgentLifecycleEvent[] = [];
     let runCount = 0;
@@ -1373,7 +1381,7 @@ describe("send_input durable description and run rebind", () => {
     // The folded Activity row is keyed per thread and titled by
     // `description`. A follow-up steers the same work rather than re-tasking
     // the thread, so the durable domain name from the spawn stays on every
-    // lifecycle event after the send_input.
+    // lifecycle event after the send_message.
     const events: AgentLifecycleEvent[] = [];
     let runCount = 0;
     let releaseFirstRun: (() => void) | null = null;
@@ -1449,7 +1457,7 @@ describe("send_input durable description and run rebind", () => {
 
   it("rebinds a thread's decoration to the follow-up's run without leaking per-run copies", () => {
     // The old per-run task store leaked a frozen "running" copy under the
-    // spawn run when send_input rebound a thread to the caller's run —
+    // spawn run when send_message rebound a thread to the caller's run —
     // that copy pinned the Activity row open forever. Decorations are
     // keyed by thread: a rebind is an in-place update, and the terminal
     // stream event clears it. Authoritative status lives in the

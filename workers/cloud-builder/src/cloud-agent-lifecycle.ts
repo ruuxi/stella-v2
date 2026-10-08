@@ -39,7 +39,7 @@ export const cloudAgentActivationCard = (args: {
         ...identity,
         description: control.description ?? "Background task",
         agentType: "general",
-        ...(outcome.kind === "send_input" ? { isFollowUp: true } : {}),
+        ...(outcome.kind === "send_message" ? { isFollowUp: true } : {}),
       },
     },
   };

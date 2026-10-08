@@ -199,7 +199,7 @@ describe("resident general-agent turn in workerd", () => {
       "Grep",
       "code",
       "spawn_agent",
-      "send_input",
+      "send_message",
       "pause_agent",
       "agent_status",
     ]);

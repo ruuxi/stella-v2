@@ -4,7 +4,6 @@ export type BeforeUserMessagePayload = {
   agentType: string;
   userPrompt: string;
   staleUserReminderText?: string;
-  orchestratorReminderText?: string;
   /**
    * Pre-rendered hidden reminder text describing a change in the user's
    * routing surface (desktop ⇄ connector / connector ⇄ different
@@ -14,7 +13,6 @@ export type BeforeUserMessagePayload = {
    * the format guidance on the transition turn.
    */
   connectorTransitionReminderText?: string;
-  shouldInjectDynamicReminder?: boolean;
 };
 
 export type BeforeUserMessageHookResult = {

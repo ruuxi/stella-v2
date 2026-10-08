@@ -387,6 +387,10 @@ export class SessionStore {
     return this.chat.listConversationSummaries(args);
   }
 
+  getConversationSummary(conversationId: string) {
+    return this.chat.getConversationSummary(conversationId);
+  }
+
   /* ------------------------------------------------------------------ */
   /* Legacy chat cloud import (dev-only)                                 */
   /* ------------------------------------------------------------------ */
@@ -2271,8 +2275,8 @@ export class SessionStore {
   /* Thread rows                                                         */
   /* ------------------------------------------------------------------ */
 
-  listActiveThreads(conversationId: string) {
-    return this.agents.listActiveThreads(conversationId);
+  listConversationAgents(conversationId: string) {
+    return this.agents.listConversationAgents(conversationId);
   }
 
   listActiveThreadsByAge(conversationId: string) {
@@ -2445,47 +2449,5 @@ export class SessionStore {
         ...(record.rootRunId ? { rootRunId: record.rootRunId } : {}),
       },
     });
-  }
-
-  /* ------------------------------------------------------------------ */
-  /* Orchestrator reminder state                                         */
-  /* ------------------------------------------------------------------ */
-
-  getOrchestratorReminderState(conversationId: string): {
-    shouldInjectDynamicReminder: boolean;
-  } {
-    const row = this.cached
-      .prepare(
-        `SELECT force_reminder_on_next_turn AS forceReminderOnNextTurn
-         FROM runtime_conversation_state
-         WHERE conversation_id = ?
-         LIMIT 1`,
-      )
-      .get(conversationId) as { forceReminderOnNextTurn?: number } | undefined;
-    return {
-      shouldInjectDynamicReminder: row?.forceReminderOnNextTurn === 1,
-    };
-  }
-
-  forceOrchestratorReminderOnNextTurn(conversationId: string): void {
-    this.cached
-      .prepare(
-        `INSERT INTO runtime_conversation_state (
-           conversation_id, force_reminder_on_next_turn
-         ) VALUES (?, 1)
-         ON CONFLICT(conversation_id) DO UPDATE SET
-           force_reminder_on_next_turn = 1`,
-      )
-      .run(conversationId);
-  }
-
-  consumeOrchestratorReminder(conversationId: string): void {
-    this.cached
-      .prepare(
-        `UPDATE runtime_conversation_state
-         SET force_reminder_on_next_turn = 0
-         WHERE conversation_id = ?`,
-      )
-      .run(conversationId);
   }
 }

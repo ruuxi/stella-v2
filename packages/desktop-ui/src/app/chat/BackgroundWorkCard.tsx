@@ -14,13 +14,13 @@
  * provider icons, no completion excerpt. One line: a leading glyph that
  * doubles as the status tell (static star while the shimmering title
  * carries the running motion; a quiet grey check once done; an arrow for
- * `send_input` follow-ups), the task DESCRIPTION, and a trailing chevron.
+ * `send_message` follow-ups), the task DESCRIPTION, and a trailing chevron.
  * Clicking anywhere opens the agent's thread tab.
  *
  * Two variants share the same surface:
  *   - spawn ("started X" — `spawn_agent` kicked off new
  *     background work)
- *   - follow-up ("update sent to X" — `send_input` advanced an already-
+ *   - follow-up ("update sent to X" — `send_message` advanced an already-
  *     spawned thread). A follow-up reuses the thread's original description,
  *     so the runtime carries the follow-up's own message on `statusText`;
  *     the row surfaces THAT (not the stale spawn description) and reads as a
@@ -95,9 +95,9 @@ export function BackgroundWorkCard({
   /** Per-thread spawn/last-advanced time (ms) for the stale-spawn fallback. */
   spawnedAtMs?: Record<string, number>;
   descriptions?: Record<string, string>;
-  /** Per-thread follow-up text for `send_input` re-activations. */
+  /** Per-thread follow-up text for `send_message` re-activations. */
   statusTexts?: Record<string, string>;
-  /** Threads on this card that are `send_input` follow-ups, not fresh spawns. */
+  /** Threads on this card that are `send_message` follow-ups, not fresh spawns. */
   followUpThreadIds?: string[];
   cardId: string;
   startEventIdsByThread: Record<string, string>;
@@ -164,7 +164,7 @@ export function BackgroundWorkCard({
   const resolved = resolveDescriptions(threadIds, descriptions ?? {});
   const multi = threadIds.length > 1;
 
-  // A single-thread card whose one thread was re-activated via `send_input`
+  // A single-thread card whose one thread was re-activated via `send_message`
   // renders as a follow-up: its own message (the spawn description is stale
   // for an update). Multi-thread cards stay a plain spawn tally — that
   // collapse is about volume, not the spawn/update distinction.
@@ -238,7 +238,7 @@ export function BackgroundWorkCard({
     >
       {/* Leading slot doubles as the status tell: star while running (the
           title shimmer alone carries progress — no spinner), an arrow for
-          `send_input` follow-ups, a quiet grey check once done, and the
+          `send_message` follow-ups, a quiet grey check once done, and the
           star again for other settled rows (failed/paused stay plain). */}
       <span className="agent-activity-row__glyph" aria-hidden="true">
         {!working && isFollowUp ? (

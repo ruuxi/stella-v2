@@ -1181,10 +1181,9 @@ export const layer = Layer.effect(
       const delivered = await (
         await runnerHandle.ensureInitialized()
       ).executeTool(
-        "send_input",
+        "send_message",
         {
           thread_id: threadId,
-          description: message,
           message,
         },
         {
@@ -1194,6 +1193,7 @@ export const layer = Layer.effect(
           requestId,
           agentType: AGENT_IDS.ORCHESTRATOR,
           storageMode: "cloud",
+          fromUser: true,
         },
       );
       if (delivered.error) {

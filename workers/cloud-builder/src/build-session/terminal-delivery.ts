@@ -31,6 +31,7 @@ import {
 } from "../sandbox-lifecycle.js";
 import {
   SteerMailbox,
+  isChildTerminalSteer,
   parseSteerMessage,
   steerMessageFitsAgentHistory,
 } from "../steer-mailbox.js";
@@ -781,7 +782,7 @@ export const handleSteer = async (
     if (result === "full") {
       return json({ accepted: false, reason: "mailbox_full" }, 503);
     }
-    if (message.kind !== "input") {
+    if (isChildTerminalSteer(message.kind)) {
       await rememberCloudAgentControlReceipt(host.ctx.storage, {
         threadId: message.threadId,
         attemptGeneration: message.attemptGeneration,

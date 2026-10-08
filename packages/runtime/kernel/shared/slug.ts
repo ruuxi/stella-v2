@@ -4,7 +4,7 @@
  *
  * Slugs are derived once at write time from orchestrator-authored text
  * (spawn descriptions, group labels) and never regenerated, so the ids
- * the model quotes back (`send_input`, `pause_agent`) stay readable and
+ * the model quotes back (`send_message`, `pause_agent`) stay readable and
  * stable. The output alphabet is a strict subset of
  * `STELLA_TRAILER_VALUE_REGEX`, so a slug is always safe to stamp into
  * a git trailer without further sanitizing.

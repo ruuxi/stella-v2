@@ -10,7 +10,6 @@ import {
   persistThreadCustomMessage,
   persistThreadPayloadMessage,
 } from "../agent-runtime/thread-memory.js";
-import { ORCHESTRATOR_ROSTER_CUSTOM_TYPE } from "../storage/shared.js";
 import { decorateUserTranscriptContent } from "../agent-runtime/transcript-decoration.js";
 import { appendMessageRefTag } from "@stella/contracts/reply-refs";
 import { scheduleRemotePromptRevalidation } from "../prompts/remote-prompts.js";
@@ -53,6 +52,7 @@ import {
   normalizeChatRunInput,
 } from "./orchestrator-policy.js";
 import { shouldPersistLocalChatTranscript } from "./conversation-storage-mode.js";
+import { AGENT_MESSAGE_CUSTOM_TYPE } from "../storage/shared.js";
 import {
   getPlacementCancellation,
   normalizePlacementExecutionId,
@@ -74,7 +74,8 @@ export const resolveRuntimeMessageCallbacks = (
   customType: string | undefined,
 ): AgentCallbacks | null =>
   callbacks ??
-  (customType === "runtime.task_lifecycle"
+  (customType === "runtime.task_lifecycle" ||
+  customType === AGENT_MESSAGE_CUSTOM_TYPE
     ? DETACHED_LIFECYCLE_CALLBACKS
     : null);
 
@@ -662,11 +663,6 @@ export const createOrchestratorController = (
           ...(message.eventId ? { eventId: message.eventId } : {}),
           preservePayloadExactly: true,
         });
-        if (message.customType === ORCHESTRATOR_ROSTER_CUSTOM_TYPE) {
-          context.runtimeStore.consumeOrchestratorReminder?.(
-            input.conversationId,
-          );
-        }
         context.state.orchestratorSessions
           .get(input.conversationId)
           ?.notifyHistoryChanged();

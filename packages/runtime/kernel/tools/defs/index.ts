@@ -61,7 +61,7 @@ export type BuildBuiltinToolsContext = ToolHostOptions & {
   stellaDataDir: string;
   /** Initialized PTY shell state shared by Bash / write_stdin. */
   shellState: ShellState;
-  /** Initialized state context for the durable spawn_agent / send_input / pause_agent tools. */
+  /** Initialized state context for the durable spawn_agent / send_message / pause_agent tools. */
   stateContext: StateContext;
   /** ToolHost-owned persistent Node kernels, disposed with the host. */
   nodeReplRegistry: NodeReplKernelRegistry;

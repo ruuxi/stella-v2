@@ -12,7 +12,7 @@
  * So the runtime watches instead of asking the agent to. When a run ends
  * with sessions it started still alive, we attach exit watchers here. When
  * they exit, the exits are coalesced into one message and delivered to the
- * owning thread through the same `send_input` path a human or the
+ * owning thread through the same `send_message` path a human or the
  * orchestrator would use — which rehydrates an evicted or finished thread
  * with its full history. The agent picks up where it left off, holding the
  * command, its exit code, and its output.

@@ -142,8 +142,8 @@ describe("a conversation finds agents it started somewhere else", () => {
       started_from_device_id: "desk-1",
       controllable_here: false,
     });
-    expect(agentThreadElsewhereError(found, "send_input").message).toContain("so nothing was sent.");
-    expect(agentThreadElsewhereError(found, "pause_agent").message).toContain("so nothing was paused.");
+    expect(status.content[0]?.text).toContain("send_message still reaches it, as a note from you.");
+    expect(agentThreadElsewhereError(found).message).toContain("so nothing was paused.");
   });
 
   test("a helper another agent started stays with that agent", async () => {

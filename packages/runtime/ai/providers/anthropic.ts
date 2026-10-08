@@ -546,7 +546,7 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
 
 			// Reactive safety net for the Anthropic "thinking blocks in the latest
 			// assistant message cannot be modified" 400. Interrupting a turn
-			// mid-reasoning (send_input / follow-up while the assistant is thinking)
+			// mid-reasoning (send_message / follow-up while the assistant is thinking)
 			// can leave a modified/partial thinking block in the latest assistant
 			// message; convertMessages strips dangling ones preemptively, but if a
 			// modified block still slips through, drop the most-recent thinking /
@@ -1543,7 +1543,7 @@ export function stripThinkingFromLastAssistantParam(messages: MessageParam[]): M
  * Preventive strip: clear dangling / incomplete `thinking` blocks from the
  * latest assistant message before it is serialized to the Anthropic API.
  *
- * Interrupting a turn mid-reasoning (send_input / follow-up while the assistant
+ * Interrupting a turn mid-reasoning (send_message / follow-up while the assistant
  * is thinking) can leave the latest assistant message with a thinking block that
  * is either trailing (a completed turn always ends in text or a tool call, never
  * a bare thinking block) or incomplete (no signature, so it cannot be replayed

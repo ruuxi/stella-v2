@@ -367,7 +367,7 @@ export type SubagentRunOptions = BaseRunOptions & {
   /**
    * Long-lived per-task subagent session. When provided, the Pi engine
    * path routes through `session.runTurn(opts)` so the underlying `Agent`
-   * survives across `send_input` / restart-on-input cycles. The external
+   * survives across `send_message` / restart-on-input cycles. The external
    * engine path ignores this. See `SubagentSession` for lifecycle.
    */
   subagentSession?: SubagentSession;

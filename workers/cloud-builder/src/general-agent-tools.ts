@@ -22,11 +22,11 @@ import type {
   AgentToolResult,
 } from "@stella/runtime/kernel/agent-core/types.js";
 import {
+  AGENT_CONTROL_TOOL_NAMES,
   AGENT_ORCHESTRATION_TOOL_DESCRIPTORS,
-  AGENT_ORCHESTRATION_TOOL_NAMES,
   AGENT_STATUS_TOOL_REPLAY,
   PAUSE_AGENT_TOOL_REPLAY,
-  SEND_INPUT_TOOL_REPLAY,
+  SEND_MESSAGE_TOOL_REPLAY,
 } from "@stella/runtime/kernel/tools/defs/agent-orchestration-def.js";
 import {
   APPLY_PATCH_TOOL_DESCRIPTION,
@@ -120,7 +120,7 @@ const GENERAL_AGENT_TOOL_COMPUTE = {
   [GREP_TOOL_NAME]: "do_local",
   [CODE_TOOL_NAME]: "js_sandbox",
   spawn_agent: "do_local",
-  send_input: "do_local",
+  send_message: "do_local",
   pause_agent: "do_local",
   agent_status: "do_local",
 } as const satisfies Record<string, GeneralAgentToolCompute>;
@@ -145,7 +145,7 @@ const GENERAL_AGENT_TOOL_REPLAY = {
   [GREP_TOOL_NAME]: GREP_TOOL_REPLAY,
   [CODE_TOOL_NAME]: CODE_TOOL_REPLAY,
   spawn_agent: "keyed",
-  send_input: SEND_INPUT_TOOL_REPLAY,
+  send_message: SEND_MESSAGE_TOOL_REPLAY,
   pause_agent: PAUSE_AGENT_TOOL_REPLAY,
   agent_status: AGENT_STATUS_TOOL_REPLAY,
 } as const satisfies Record<GeneralAgentToolName, ToolReplayPolicy>;
@@ -399,7 +399,7 @@ export const createResidentGeneralAgentTools = (
   GENERAL_AGENT_TOOL_DESCRIPTORS.filter(
     (descriptor) =>
       (options.agentDepth ?? 0) < 2 ||
-      !AGENT_ORCHESTRATION_TOOL_NAMES.includes(descriptor.name),
+      !AGENT_CONTROL_TOOL_NAMES.includes(descriptor.name),
   ).map((descriptor): ReplayableAgentTool => ({
     ...residentToolFor(descriptor, doLocal, compute, jsSandbox),
     replay: replayForGeneralAgentTool(descriptor.name),

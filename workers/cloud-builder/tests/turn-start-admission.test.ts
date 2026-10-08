@@ -653,11 +653,11 @@ describe("OrchestratorSession turn admission", () => {
     );
     expect(noGeneration.status).toBe(400);
 
-    const wakeWithoutControl = await h.dispatch(
-      start({ clientMsgId: "wake-no-control-1", lane: "wake" }),
+    const chatWithControl = await h.dispatch(
+      start({ clientMsgId: "chat-control-1", agentThreadControl: control }),
       { kind: "service", ownerId: "owner-1", generation: "generation-1" },
     );
-    expect(wakeWithoutControl.status).toBe(400);
+    expect(chatWithControl.status).toBe(400);
   });
 
   test("refuses a request that did not come through the Worker's verification", async () => {

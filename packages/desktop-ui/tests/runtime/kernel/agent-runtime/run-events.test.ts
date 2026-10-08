@@ -344,18 +344,18 @@ describe("subscribeRuntimeAgentEvents", () => {
     expect(pauseAgent.statusAfterToolEnd).toBeNull();
     expect(pauseAgent.displayStatus).toBe("Pausing");
 
-    const sendInput = await runToolStatusIntegration("send_input");
-    expect(sendInput.rawStatusText).toBe("Running Send Input");
-    expect(sendInput.rawToolStartStatusText).toBe("Running Send Input");
-    expect(sendInput.rawToolEndName).toBe("send_input");
-    expect(sendInput.emittedToolStartEvent).toEqual(
-      expect.objectContaining({ toolName: "send_input" }),
+    const sendMessage = await runToolStatusIntegration("send_message");
+    expect(sendMessage.rawStatusText).toBe("Running Send Message");
+    expect(sendMessage.rawToolStartStatusText).toBe("Running Send Message");
+    expect(sendMessage.rawToolEndName).toBe("send_message");
+    expect(sendMessage.emittedToolStartEvent).toEqual(
+      expect.objectContaining({ toolName: "send_message" }),
     );
-    expect(sendInput.activeBeforeTool).toBe(true);
-    expect(sendInput.activeDuringTool).toBe(true);
-    expect(sendInput.activeAfterToolBeforeAnswer).toBe(true);
-    expect(sendInput.statusAfterToolEnd).toBeNull();
-    expect(sendInput.displayStatus).toBe("On it");
+    expect(sendMessage.activeBeforeTool).toBe(true);
+    expect(sendMessage.activeDuringTool).toBe(true);
+    expect(sendMessage.activeAfterToolBeforeAnswer).toBe(true);
+    expect(sendMessage.statusAfterToolEnd).toBeNull();
+    expect(sendMessage.displayStatus).toBe("On it");
   });
 
   it("keeps the indicator up while a spawned sub-agent runs (no early dismiss)", () => {

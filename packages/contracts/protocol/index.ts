@@ -202,9 +202,6 @@ export const METHOD_NAMES = {
     "internal.worker.schedule.getConversationEventCount",
   INTERNAL_WORKER_ONE_SHOT_COMPLETION: "internal.worker.oneShotCompletion",
   INTERNAL_STORE_LOAD_THREAD_MESSAGES: "internal.store.loadThreadMessages",
-  INTERNAL_STORE_LIST_ACTIVE_THREADS: "internal.store.listActiveThreads",
-  INTERNAL_STORE_GET_ORCHESTRATOR_REMINDER_STATE:
-    "internal.store.getOrchestratorReminderState",
   INTERNAL_STORE_RESOLVE_OR_CREATE_ACTIVE_THREAD:
     "internal.store.resolveOrCreateActiveThread",
   INTERNAL_STORE_APPEND_THREAD_MESSAGE: "internal.store.appendThreadMessage",

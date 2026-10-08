@@ -93,6 +93,27 @@ export type GateHostDependencies = {
   log: (level: "info" | "error", event: string, fields: Record<string, unknown>) => void;
 };
 
+/** A service-authenticated turn start on a conversation's orchestrator. */
+const startOrchestratorTurn = async (
+  deps: GateHostDependencies,
+  target: { conversationId: string; ownerGeneration: string },
+  body: CloudTurnStartRequest,
+): Promise<Response> =>
+  await deps.env.ORCHESTRATOR_SESSIONS.getByName(target.conversationId).fetch(
+    `${ORCHESTRATOR_INTERNAL_ORIGIN}/turn`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        [HEADER_OWNER]: deps.ownerId(),
+        [HEADER_TURN_AUTH_KIND]: "service",
+        [HEADER_CONVERSATION_ID]: target.conversationId,
+        [TURN_OWNER_GENERATION_HEADER]: target.ownerGeneration,
+      },
+      body: JSON.stringify(body),
+    },
+  );
+
 export const createGateHost = (deps: GateHostDependencies): OwnerHost => ({
   snapshot: deps.snapshot,
   purgeOwner: deps.purgeOwner,
@@ -154,7 +175,7 @@ export const createGateHost = (deps: GateHostDependencies): OwnerHost => ({
       threadId: input.threadId,
       message: {
         id: input.messageId.slice(0, 256),
-        kind: "input",
+        kind: input.kind ?? "input",
         text: input.text,
         createdAt: Date.now(),
       },
@@ -198,7 +219,7 @@ export const createGateHost = (deps: GateHostDependencies): OwnerHost => ({
       });
       if (steered.accepted) return;
     }
-    const body: CloudTurnStartRequest = {
+    const response = await startOrchestratorTurn(deps, input, {
       protocol: TURN_PLANE_PROTOCOL,
       clientMsgId: `wake:${input.threadId}:${input.attemptGeneration}`.slice(0, 64),
       prompt: text,
@@ -212,25 +233,37 @@ export const createGateHost = (deps: GateHostDependencies): OwnerHost => ({
         threadUpdatedAt: input.threadUpdatedAt,
         status: input.status,
       },
-    };
-    const response = await deps.env.ORCHESTRATOR_SESSIONS.getByName(input.conversationId).fetch(
-      `${ORCHESTRATOR_INTERNAL_ORIGIN}/turn`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          [HEADER_OWNER]: deps.ownerId(),
-          [HEADER_TURN_AUTH_KIND]: "service",
-          [HEADER_CONVERSATION_ID]: input.conversationId,
-          [TURN_OWNER_GENERATION_HEADER]: input.ownerGeneration,
-        },
-        body: JSON.stringify(body),
-      },
-    );
+    });
     await response.body?.cancel().catch(() => undefined);
     if (!response.ok) {
       throw new Error(`Agent completion wake was refused (${response.status}).`);
     }
+  },
+
+  async startAgentMessageTurn(input) {
+    const response = await startOrchestratorTurn(deps, input, {
+      protocol: TURN_PLANE_PROTOCOL,
+      clientMsgId: input.clientMsgId,
+      prompt: input.prompt,
+      lane: "wake",
+      source: "agent-thread",
+      hiddenMessage: true,
+    });
+    if (response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      return;
+    }
+    const body = (await response.json().catch(() => null)) as {
+      error?: { message?: unknown; retryable?: unknown };
+    } | null;
+    const retryable = body?.error?.retryable === true || response.status >= 500;
+    throw new RpcError(
+      retryable ? "UNAVAILABLE" : "CONFLICT",
+      typeof body?.error?.message === "string"
+        ? `That Stella session did not take the message: ${body.error.message}`
+        : `That Stella session did not take the message (${response.status}).`,
+      retryable ? { retryable: true } : undefined,
+    );
   },
 
   async dispatchAgentTurn(input: AgentTurnDispatch): Promise<void> {
@@ -252,7 +285,8 @@ export const createGateHost = (deps: GateHostDependencies): OwnerHost => ({
           ownerId: deps.ownerId(),
           ownerGeneration: input.ownerGeneration,
           conversationId: input.conversationId,
-          agentDepth: 0,
+          ...(input.parentThreadId ? { parentThreadId: input.parentThreadId } : {}),
+          agentDepth: input.parentThreadId ? 1 : 0,
         },
         attempt: {
           threadId: input.threadId,
@@ -262,7 +296,11 @@ export const createGateHost = (deps: GateHostDependencies): OwnerHost => ({
           description: input.description,
           prompt: input.prompt,
           execution: input.execution,
-          source: input.browserResume ? "browser-resume" : "desktop",
+          source: input.browserResume
+            ? "browser-resume"
+            : input.originDeviceId
+              ? "desktop"
+              : "agent-thread",
           ...(input.originDeviceId ? { originDeviceId: input.originDeviceId } : {}),
           ...(input.originConversationId
             ? { originConversationId: input.originConversationId }

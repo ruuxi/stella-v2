@@ -79,7 +79,7 @@ const toolCallsById = (records: readonly JournalRecord[]) => {
 /**
  * Background tasks as the conversation journal records them, in journal
  * order. A cloud-placed turn writes `agent-lifecycle` cards; a turn the
- * computer ran is mirrored with only its `spawn_agent` / `send_input` results
+ * computer ran is mirrored with only its `spawn_agent` / `send_message` results
  * and the hidden wake prompt (`[Agent completed]` and friends) that reported
  * the outcome. Both read into the same task rows, so the chat can tell what
  * is running without a live connection to the computer that runs it.
@@ -241,10 +241,10 @@ export const collectJournalTasks = (
       typeof record.payload.toolName === "string"
         ? bareToolName(record.payload.toolName)
         : call?.name;
-    if (toolName !== "spawn_agent" && toolName !== "send_input") continue;
+    if (toolName !== "spawn_agent" && toolName !== "send_message") continue;
     const threadId = toolResultThreadId(record) ?? call?.threadId ?? null;
     if (!threadId || carded.has(threadId)) continue;
-    if (toolName === "send_input") {
+    if (toolName === "send_message") {
       if (tasks.get(threadId)?.status === "running") continue;
       start(threadId, undefined, record.createdAtMs);
       continue;

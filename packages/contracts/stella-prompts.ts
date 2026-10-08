@@ -49,6 +49,7 @@ export const STELLA_PROMPT_FENCE_TOOLS = [
   "ask_user",
   "history",
   "request_secure_input",
+  "send_message",
   "spawn_agent",
   "switch_destination",
   "use_secure_value",

@@ -1384,7 +1384,7 @@ export function useChatThread(opts: {
 
   // The transcript's agent-work cards must agree with the pill above: their
   // synced `state` was settled desktop-side (where elapsed time counts as
-  // completion), so re-derive it from the same live task fold. A `send_input`
+  // completion), so re-derive it from the same live task fold. A `send_message`
   // follow-up steering a still-running thread renders as in-progress instead
   // of a false "Finished". Render-only — the raw fold stays what persists.
   const displayMessages = useMemo(

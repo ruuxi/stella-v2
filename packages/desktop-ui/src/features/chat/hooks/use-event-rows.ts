@@ -88,7 +88,7 @@ const asNonEmptyString = (value: unknown): string | undefined =>
  * handler returns its `thread_id` under `result`, which the runtime persists
  * only as a preview *string* (the structured object never lands on the
  * tool_result event payload), so the id isn't reliably recoverable there.
- * `agent-started` carries `agentId` directly. It also fires on `send_input`
+ * `agent-started` carries `agentId` directly. It also fires on `send_message`
  * re-activation (so updating a thread drops a fresh card lower in the chat)
  * and for agents spawned via `multi_tool_use_parallel`, and never fires for
  * a failed spawn (so no phantom card).
@@ -108,15 +108,15 @@ export const getBackgroundWork = (
       descriptions: Record<string, string>;
       spawnedAtMs: Record<string, number>;
       /** Per-thread follow-up message/description for threads re-activated via
-       *  `send_input` on this turn (the card title for a follow-up), lifted
+       *  `send_message` on this turn (the card title for a follow-up), lifted
        *  from the `agent-started` `statusText`. Absent for plain spawns. */
       statusTexts: Record<string, string>;
-      /** Threads on this card whose `agent-started` was flagged a `send_input`
+      /** Threads on this card whose `agent-started` was flagged a `send_message`
        *  follow-up (re-activation) rather than a fresh spawn — the explicit
        *  discriminator the card reads to pick its follow-up variant. */
       followUpThreadIds: string[];
       /** Canonical identity/anchor for each task occurrence. Unlike agentId
-       *  and rootRunId, this changes for every `send_input` activation. */
+       *  and rootRunId, this changes for every `send_message` activation. */
       startEventIdsByThread: Record<string, string>;
       attemptGenerationsByThread: Record<string, number>;
       rootRunIdsByThread: Record<string, string>;
@@ -180,7 +180,7 @@ export const getBackgroundWork = (
         followUpThreadIds.splice(previousFollowUpIndex, 1);
       }
       delete statusTexts[agentId];
-      // Explicit runtime signal: a `send_input` re-activation stamps
+      // Explicit runtime signal: a `send_message` re-activation stamps
       // `isFollowUp`; statusText is that occurrence's own title.
       if (event.payload.isFollowUp) {
         followUpThreadIds.push(agentId);
@@ -208,13 +208,13 @@ export const getBackgroundWork = (
 
 /**
  * Preserve one inline receipt per lifecycle start occurrence. A spawn and a
- * `send_input` follow-up can share the same assistant row, but they are still
+ * `send_message` follow-up can share the same assistant row, but they are still
  * separate user-visible actions and must not be flattened into one card.
  */
 /**
  * Agent threads a set of tool events started, for reply context. Unlike the
  * inline card this needs no lifecycle event: a cloud journal spreads the
- * `spawn_agent` / `send_input` result details (`thread_id`) onto the
+ * `spawn_agent` / `send_message` result details (`thread_id`) onto the
  * `tool_result` payload, and a local transcript carries `agent-started`.
  * Either is enough to say "this exchange owns that task".
  */
@@ -234,9 +234,9 @@ export const getSpawnedThreadIds = (
     const payload = event.payload as
       | { toolName?: unknown; thread_id?: unknown; result?: unknown; args?: { thread_id?: unknown } }
       | undefined;
-    if (payload?.toolName !== "spawn_agent" && payload?.toolName !== "send_input") continue;
+    if (payload?.toolName !== "spawn_agent" && payload?.toolName !== "send_message") continue;
     if (event.type === "tool_request") {
-      // `send_input` names the thread it steers in its arguments.
+      // `send_message` names the thread it steers in its arguments.
       add(payload.args?.thread_id);
       continue;
     }
@@ -380,7 +380,7 @@ export const assistantRowHasNonBackgroundContent = (
  * drawing two identical completion cards. Key each section by `agentId` +
  * `completedAtMs`: the same pair on two rows is the same completion (the
  * latest row wins, mirroring the background-work `latestOwnerByThread`
- * duplicated handling); a different `completedAtMs` is a genuine `send_input`
+ * duplicated handling); a different `completedAtMs` is a genuine `send_message`
  * re-run's later completion and both stay. Redundant copies strip their
  * duplicated sections and the row is marked dropped when nothing else
  * remains. Mutates `rows` / `droppedRowIndices` in place (same contract as
@@ -810,7 +810,7 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
             : {}),
         };
         produced.push(row);
-        // A fire-and-forget spawn / send_input that never produced an
+        // A fire-and-forget spawn / send_message that never produced an
         // assistant message has its tools anchored on this user_message.
         // Surface the card on a synthetic assistant row right under it so
         // background work is still visible (the working indicator steps

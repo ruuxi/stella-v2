@@ -89,7 +89,7 @@ const rankDeliverablesFirst = (
 /**
  * Fold every `agent-started` event across the loaded window into a per-agent
  * metadata map. The first non-empty value for each field wins so a later
- * `send_input` re-activation (which reuses the original description) doesn't
+ * `send_message` re-activation (which reuses the original description) doesn't
  * clobber a richer earlier label.
  */
 export function buildAgentMetaMap(

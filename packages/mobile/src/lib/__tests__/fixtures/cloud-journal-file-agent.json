@@ -128,7 +128,7 @@
    "content": [
     {
      "type": "text",
-     "text": "Spawned agent (thread_id: e3e7b83a-ca68-454a-82d0-162714ff7390, status: running, description: \"create hello.txt in drive\"). It is running in the background and has NOT finished \u2014 an [Agent completed] message will arrive on this conversation with its report. Check on it with agent_status, steer it with send_input, or stop it with pause_agent."
+     "text": "Spawned agent (thread_id: e3e7b83a-ca68-454a-82d0-162714ff7390, status: running, description: \"create hello.txt in drive\"). It is running in the background and has NOT finished \u2014 an [Agent completed] message will arrive on this conversation with its report. Check on it with agent_status, steer it with send_message, or stop it with pause_agent."
     }
    ],
    "details": {

@@ -46,7 +46,7 @@ describe("friendlyInlineToolStatus", () => {
     expect(friendlyInlineToolStatus(activity("spawn_agent", "started"))).toBe(
       "Starting work",
     );
-    expect(friendlyInlineToolStatus(activity("send_input", "completed"))).toBe(
+    expect(friendlyInlineToolStatus(activity("send_message", "completed"))).toBe(
       "Updated work",
     );
     expect(friendlyInlineToolStatus(activity("pause_agent", "started"))).toBe(

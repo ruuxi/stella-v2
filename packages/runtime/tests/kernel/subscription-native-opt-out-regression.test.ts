@@ -61,11 +61,6 @@ const contextFor = (stellaDataDir: string): RunnerContext =>
     deviceId: "native-opt-out-regression",
     runtimeStore: {
       loadThreadMessages: () => [],
-      listActiveThreads: () => [],
-      getOrchestratorReminderState: () => ({
-        shouldInjectDynamicReminder: false,
-        reminderTokensSinceLastInjection: 0,
-      }),
     },
     state: { loadedAgents: [] },
   }) as unknown as RunnerContext;

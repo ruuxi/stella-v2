@@ -133,7 +133,7 @@
    "content": [
     {
      "type": "text",
-     "text": "Spawned agent (thread_id: ee2c399c-f452-4b85-8c94-24c5f21ec652, status: running, description: \"create notes.md hello\"). It is running in the background and has NOT finished \u2014 an [Agent completed] message will arrive on this conversation with its report. Check on it with agent_status, steer it with send_input, or stop it with pause_agent."
+     "text": "Spawned agent (thread_id: ee2c399c-f452-4b85-8c94-24c5f21ec652, status: running, description: \"create notes.md hello\"). It is running in the background and has NOT finished \u2014 an [Agent completed] message will arrive on this conversation with its report. Check on it with agent_status, steer it with send_message, or stop it with pause_agent."
     }
    ],
    "details": {

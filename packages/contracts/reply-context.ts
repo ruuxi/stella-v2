@@ -102,7 +102,7 @@ export function projectReplyContexts(
       .map((id) => exchanges.get(id))
       .filter((set): set is Set<string> => Boolean(set) && set !== context);
     for (const prior of rejoined) for (const key of prior) context.add(key);
-    // A later `send_input` re-activation moves the task to the ask that
+    // A later `send_message` re-activation moves the task to the ask that
     // steered it, so its next report counts for that ask.
     const origin = answers.find((id) => exchanges.has(id)) ?? exchangeUserId;
     if (origin) {

@@ -3,18 +3,28 @@ import type { AgentToolResult } from "@stella/runtime/kernel/agent-core/types.js
 import {
   AGENT_STATUS_TOOL_DESCRIPTOR,
   PAUSE_AGENT_TOOL_DESCRIPTOR,
-  SEND_INPUT_TOOL_DESCRIPTOR,
+  SEND_MESSAGE_TOOL_DESCRIPTOR,
   SPAWN_AGENT_TOOL_DESCRIPTOR,
   parseSpawnDestination,
 } from "@stella/runtime/kernel/tools/defs/agent-orchestration-def.js";
+import { STELLA_MESSAGE_TARGET } from "@stella/contracts/agent-directory";
+import {
+  agentDirectoryStatus,
+  agentMessageResult,
+  sendAgentMessage,
+  sessionStatus,
+} from "./agent-messaging.js";
 import {
   DEVICE_AGENT_QUEUED_NOTE,
+  agentThreadElsewhereStatus,
   cancelDeviceAgent,
   continueDeviceAgent,
+  lookupConversationAgentThread,
   readDeviceAgent,
   spawnDeviceAgent,
   type DeviceAgentCaller,
 } from "./device-agent-tools.js";
+import { describeAgentThreadLookup } from "@stella/contracts/backend/agent-thread-lookup";
 import { unwrapRpc } from "./owner-store/errors.js";
 import {
   CLOUD_AGENT_DEPTH_LIMIT_ERROR,
@@ -46,6 +56,10 @@ export type BuildSessionAgentControlParent = Readonly<{
   conversationId: string;
   turnId: string;
   threadId: string;
+  /** The agent that started this one; absent when Stella did. */
+  parentThreadId?: string;
+  /** This agent's description, which labels the messages it sends. */
+  description: string;
   agentDepth: number;
   execution: CloudExecutionSelection;
 }>;
@@ -72,7 +86,7 @@ export const createBuildSessionAgentControl = (
   const now = deps.now ?? Date.now;
   const parent = deps.parent;
   const scopedId = async (
-    purpose: "thread" | "turn",
+    purpose: "thread" | "turn" | "message",
     toolCallId: string,
   ): Promise<string> =>
     await toolScopedId({
@@ -222,7 +236,7 @@ export const createBuildSessionAgentControl = (
         return textResult(
           waitingForDevice
             ? `Queued agent (thread_id: ${outcome.control.threadId}, status: queued, description: "${description}", device_id: ${outcome.control.executorDeviceId}). ${DEVICE_AGENT_QUEUED_NOTE} Either way an [Agent completed] or [Agent failed] message will arrive on this agent thread. Stop it with pause_agent.`
-            : `Spawned agent (thread_id: ${outcome.control.threadId}, status: running, description: "${description}"${outcome.control.executorDeviceId ? `, device_id: ${outcome.control.executorDeviceId}` : ""}). It is running in the background and has NOT finished — an [Agent completed] message will arrive on this agent thread with its report. Check on it with agent_status, steer it with send_input, or stop it with pause_agent.`,
+            : `Spawned agent (thread_id: ${outcome.control.threadId}, status: running, description: "${description}"${outcome.control.executorDeviceId ? `, device_id: ${outcome.control.executorDeviceId}` : ""}). It is running in the background and has NOT finished — an [Agent completed] message will arrive on this agent thread with its report. Check on it with agent_status, steer it with send_message, or stop it with pause_agent.`,
           {
             thread_id: outcome.control.threadId,
             status: "running",
@@ -237,18 +251,31 @@ export const createBuildSessionAgentControl = (
         );
       }
 
-      if (toolName === SEND_INPUT_TOOL_DESCRIPTOR.name) {
+      if (toolName === SEND_MESSAGE_TOOL_DESCRIPTOR.name) {
         const threadId =
           typeof params.thread_id === "string" ? params.thread_id.trim() : "";
         const message =
           typeof params.message === "string" ? params.message : "";
-        const value = await fingerprint("send_input", { threadId, message });
-        let outcome = await readOutcome(toolCallId, "send_input", value);
+        const value = await fingerprint("send_message", { threadId, message });
+        let outcome = await readOutcome(toolCallId, "send_message", value);
         if (!outcome) {
           const prior = await requireCloudAgentControlReceipt({
             storage: deps.storage,
             threadId,
-          });
+          }).catch(() => null);
+          if (!prior) {
+            return agentMessageResult(
+              await sendAgentMessage(deviceCaller, {
+                messageId: await scopedId("message", toolCallId),
+                to:
+                  threadId === STELLA_MESSAGE_TARGET
+                    ? parent.conversationId
+                    : threadId,
+                text: message,
+                from: { threadId: parent.threadId, label: parent.description },
+              }),
+            );
+          }
           let control: CloudAgentControlReceipt;
           let disposition: "steered" | "resumed";
           if (prior.executorDeviceId) {
@@ -321,7 +348,7 @@ export const createBuildSessionAgentControl = (
           }
           outcome = await commitOutcome(
             toolCallId,
-            "send_input",
+            "send_message",
             value,
             control,
             disposition,
@@ -343,7 +370,15 @@ export const createBuildSessionAgentControl = (
       if (toolName === AGENT_STATUS_TOOL_DESCRIPTOR.name) {
         const threadId =
           typeof params.thread_id === "string" ? params.thread_id.trim() : "";
-        if (!threadId) throw new Error("thread_id is required.");
+        if (!threadId) {
+          return await agentDirectoryStatus(deviceCaller, {
+            conversationId: parent.conversationId,
+            threadId: parent.threadId,
+            ...(parent.parentThreadId
+              ? { parentThreadId: parent.parentThreadId }
+              : {}),
+          });
+        }
         let control: CloudAgentControlReceipt;
         try {
           control = await requireCloudAgentControlReceipt({
@@ -351,8 +386,25 @@ export const createBuildSessionAgentControl = (
             threadId,
           });
         } catch {
+          const thread = await lookupConversationAgentThread(
+            deviceCaller,
+            threadId,
+          ).catch(() => null);
+          if (thread) {
+            return agentThreadElsewhereStatus({
+              kind: "elsewhere",
+              thread,
+              text: describeAgentThreadLookup(thread, { host: "cloud" }),
+            });
+          }
+          const session = await sessionStatus(
+            deviceCaller,
+            parent.conversationId,
+            threadId,
+          ).catch(() => null);
+          if (session) return session;
           throw new Error(
-            `Thread not found in this agent: ${threadId}. agent_status only sees agents spawned from this agent thread.`,
+            `Thread not found: ${threadId}. agent_status without a thread_id lists who you can reach.`,
           );
         }
         if (control.executorDeviceId) {

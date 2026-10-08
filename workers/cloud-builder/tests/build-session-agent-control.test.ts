@@ -175,7 +175,7 @@ describe("BuildSession agent orchestration", () => {
       } satisfies BuildSessionAgentControlDependencies);
 
     const steered = await makeControl(running.storage).execute(
-      "send_input",
+      "send_message",
       "tool-steer",
       { thread_id: "child-running", message: "Change direction." },
     );
@@ -196,7 +196,7 @@ describe("BuildSession agent orchestration", () => {
       description: "Finished child",
     });
     const resumed = await makeControl(finished.storage).execute(
-      "send_input",
+      "send_message",
       "tool-resume",
       { thread_id: "child-finished", message: "Continue." },
     );

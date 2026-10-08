@@ -144,6 +144,7 @@ export const purgeConversationData: PurgeDef = async (ctx) => {
     "agent_dispatch_prompts",
     "agent_turns",
     "agent_cancel_receipts",
+    "agent_message_receipts",
     "conversation_edits",
   ]) {
     ctx.db.run(`DELETE FROM ${table}`);

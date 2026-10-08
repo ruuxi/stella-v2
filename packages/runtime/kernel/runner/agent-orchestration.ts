@@ -585,8 +585,6 @@ export const createAgentOrchestration = (
         ...(nameHint ? { nameHint } : {}),
       });
     },
-    listActiveThreads: (conversationId: string) =>
-      context.runtimeStore.listActiveThreads(conversationId),
     onAgentEvent: (event: AgentLifecycleEvent) => {
       reconcileBackgroundExitWake(context, event);
       const delivery = handleAgentLifecycleEvent(event);
@@ -1197,8 +1195,12 @@ export const createAgentOrchestration = (
       .listActiveAgentRuns()
       .some((run) => run.runId === exactAgentId);
     if (!running) return { delivered: false };
+    // The cloud frames another agent's note before it gets here; the
+    // owner's instruction arrives bare.
     return await manager.sendAgentMessage(exactAgentId, text, "orchestrator", {
-      deliveryKind: "external-input",
+      deliveryKind: text.trimStart().startsWith("<agent-message ")
+        ? "agent-message"
+        : "external-input",
       ...(messageId.trim() ? { deliveryEventId: messageId.trim() } : {}),
     });
   };

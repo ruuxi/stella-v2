@@ -23,7 +23,7 @@ const activation = (attempt: number, turnId: string, steered = false) =>
     parentTurnId: turnId,
     toolCallId: `call-${attempt}-${steered}`,
     outcome: {
-      kind: attempt === 1 ? "spawn_agent" : "send_input",
+      kind: attempt === 1 ? "spawn_agent" : "send_message",
       fingerprint: "test",
       control: { ...control, attemptGeneration: attempt },
       ...(steered ? { disposition: "steered" } : {}),

@@ -779,6 +779,8 @@ export const runResidentAgentTurn = async (
       conversationId: turn.conversationId!,
       turnId: turn.turnId,
       threadId: turn.threadId!,
+      ...(turn.parentThreadId ? { parentThreadId: turn.parentThreadId } : {}),
+      description: turn.description?.trim() || "Agent",
       agentDepth: turn.agentDepth,
       execution: plan.execution,
     },

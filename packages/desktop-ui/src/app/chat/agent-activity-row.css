@@ -4,7 +4,7 @@
    no colored badges, no provider icons: a single line of text with a
    leading slot that doubles as the status tell (static star while the
    title shimmer carries the running motion, a quiet grey check once done,
-   an arrow for `send_input` follow-ups) and a trailing chevron as the
+   an arrow for `send_message` follow-ups) and a trailing chevron as the
    click-through affordance. Shared by BackgroundWorkCard and
    the task quote bubble (ReplyPreview) and FilePills.
    ============================================================ */

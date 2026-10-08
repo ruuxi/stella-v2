@@ -232,7 +232,7 @@ describe("local chat mobile artifacts", () => {
     });
   });
 
-  it("marks a single-thread card as a follow-up when its latest activation is a send_input steer", () => {
+  it("marks a single-thread card as a follow-up when its latest activation is a send_message steer", () => {
     const now = Date.now();
     const rows = buildMobileSyncMessages(
       [

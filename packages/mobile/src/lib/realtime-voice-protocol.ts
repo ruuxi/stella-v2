@@ -332,7 +332,7 @@ export const findVoiceActionCompletion = (
     const name = normalizedToolName(step.toolName);
     return (
       step.status === "completed" &&
-      (name === "send_input" || name === "pause_agent")
+      (name === "send_message" || name === "pause_agent")
     );
   });
   const referencedTaskIds = new Set(

@@ -368,7 +368,7 @@ export const projectCloudConversationMessages = (args: {
       const tools: ToolStep[] = toolCalls(record).flatMap((call) => {
         const result = toolResults.get(call.id);
         if (!result) return [];
-        if (call.name === "spawn_agent" || call.name === "send_input") {
+        if (call.name === "spawn_agent" || call.name === "send_message") {
           const details = result.payload.details;
           const threadId = details && typeof details === "object" && "thread_id" in details ? details.thread_id : undefined;
           const argThreadId = call.args && "thread_id" in call.args ? call.args.thread_id : undefined;

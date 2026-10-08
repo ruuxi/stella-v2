@@ -8,9 +8,15 @@ import {
 import { createCloudTranscriptWriter } from "./cloud-transcript-write.js";
 import { createToolHost } from "../tools/host.js";
 import type {
+  AgentDirectoryListing,
   AgentThreadStatusRead,
   SpawnModelSupport,
 } from "../tools/types.js";
+import {
+  normalizeAgentDirectoryStatus,
+  type AgentDirectoryAgentRow,
+  type AgentDirectorySessionRow,
+} from "@stella/contracts/agent-directory";
 import { HookEmitter } from "../extensions/hook-emitter.js";
 import {
   getAgentRuntimeEngine,
@@ -23,7 +29,10 @@ import {
 import { readOrSeedPersonality } from "../personality/personality.js";
 // Deprecated pre-transition compat shim; see `buildOrchestratorThreadHistory`.
 import { buildLocalHistoryFromEvents } from "../local-history.js";
-import type { LocalContextEvent } from "../storage/shared.js";
+import {
+  AGENT_MESSAGE_CUSTOM_TYPE,
+  type LocalContextEvent,
+} from "../storage/shared.js";
 import {
   createListedLocalChatEventWindow,
   filterLocalChatEventWindow,
@@ -39,7 +48,6 @@ import {
   parseThreadCheckpoint,
 } from "../thread-runtime.js";
 import {
-  buildActiveThreadsPrompt,
   deriveRuntimeThreadLiveState,
   estimateRuntimeTokens,
   formatRuntimeThreadStatusLabel,
@@ -151,6 +159,31 @@ type ThreadHistoryEntry = {
 /** Newest chat events the orchestrator context build considers. */
 const ORCHESTRATOR_LOCAL_EVENT_WINDOW = 800;
 const CONVERSATION_THREAD_LOOKUP_TIMEOUT_MS = 5_000;
+const AGENT_DIRECTORY_SESSION_LIMIT = 12;
+const THIS_COMPUTER = "this computer";
+
+const mergeDirectorySessions = (
+  local: AgentDirectorySessionRow[],
+  cloud: AgentDirectorySessionRow[],
+): AgentDirectorySessionRow[] => {
+  const merged = new Map(cloud.map((row) => [row.conversationId, row]));
+  for (const row of local) {
+    const remote = merged.get(row.conversationId);
+    merged.set(
+      row.conversationId,
+      remote
+        ? {
+            ...remote,
+            title: row.title.trim() ? row.title : remote.title,
+            active: row.active || remote.active,
+            where: row.conversationId.startsWith("local_") ? row.where : remote.where,
+            updatedAt: Math.max(row.updatedAt, remote.updatedAt),
+          }
+        : row,
+    );
+  }
+  return [...merged.values()];
+};
 const LOCAL_CONTEXT_EVENT_TYPE_LIST = [...LOCAL_CONTEXT_EVENT_TYPES];
 /** Newest context events read for the reminders and locale before widening. */
 const RECENT_CONTEXT_EVENT_READ = 16;
@@ -564,6 +597,19 @@ export const createRunnerContext = ({
     store: runtimeStore,
     isSignedIn: isCloudSignedIn,
   });
+  const localSessionRow = (summary: {
+    conversationId: string;
+    title: string;
+    updatedAt: number;
+  }): AgentDirectorySessionRow => ({
+    conversationId: summary.conversationId,
+    title: summary.title,
+    active:
+      Boolean(context.state?.activeOrchestratorRunId) &&
+      context.state.activeOrchestratorConversationId === summary.conversationId,
+    where: summary.conversationId.startsWith("local_") ? THIS_COMPUTER : "cloud",
+    updatedAt: summary.updatedAt,
+  });
   const cloudThreadController = createCloudThreadController({
     backend: cloudAgentBackend,
     deviceId,
@@ -863,23 +909,112 @@ export const createRunnerContext = ({
           options,
         );
       },
-      drainAgentMessages: async (agentId, recipient) => {
+      readLocalAgentThread: (threadId) => {
+        const record = context.runtimeStore?.getAgentRecord(threadId);
+        return record
+          ? {
+              threadId: record.threadId,
+              conversationId: record.conversationId,
+              ...(record.parentAgentId
+                ? { parentAgentId: record.parentAgentId }
+                : {}),
+              description: record.description,
+            }
+          : null;
+      },
+      readLocalSession: (conversationId) => {
+        const summary =
+          context.runtimeStore?.getConversationSummary(conversationId);
+        return summary ? localSessionRow(summary) : null;
+      },
+      readAgentDirectory: async (conversationId) => {
+        const agents: AgentDirectoryAgentRow[] = (
+          context.runtimeStore?.listConversationAgents(conversationId) ?? []
+        ).map((row) => ({
+          threadId: row.threadId,
+          conversationId: row.conversationId,
+          ...(row.parentAgentId ? { parentThreadId: row.parentAgentId } : {}),
+          description: row.description,
+          status: normalizeAgentDirectoryStatus(row.status),
+          where: THIS_COMPUTER,
+          updatedAt: row.updatedAt,
+        }));
+        const sessions = (
+          context.runtimeStore?.listConversationSummaries({
+            limit: AGENT_DIRECTORY_SESSION_LIMIT,
+          }).conversations ?? []
+        ).map(localSessionRow);
+        const client = backend.client();
         if (
-          !context.state.localAgentManager ||
-          typeof context.state.localAgentManager.drainAgentMessages !==
-            "function"
+          !client ||
+          !isCloudSignedIn() ||
+          conversationId.startsWith("local_")
         ) {
-          return [];
+          return { agents, sessions } satisfies AgentDirectoryListing;
         }
-        return await context.state.localAgentManager.drainAgentMessages(
-          agentId,
-          recipient,
+        const cloud = await raceWithTimeoutError(
+          client.call("agentThreads.directory", { conversationId }),
+          CONVERSATION_THREAD_LOOKUP_TIMEOUT_MS,
+          () => new Error("Stella's cloud did not answer the agent directory."),
+        ).catch(() => null);
+        if (!cloud) {
+          return { agents, sessions, cloudUnavailable: true };
+        }
+        const known = new Set(agents.map((row) => row.threadId));
+        return {
+          agents: [
+            ...agents,
+            ...cloud.agents.filter((row) => !known.has(row.threadId)),
+          ],
+          sessions: mergeDirectorySessions(sessions, cloud.sessions),
+        };
+      },
+      messageStellaSession: async ({ conversationId, text }) => {
+        const send = context.state.sendRuntimeMessage;
+        if (!send) {
+          throw new Error("Stella is still starting, so the message was not sent.");
+        }
+        const live = context.state.activeOrchestratorSession;
+        const steered = Boolean(
+          live &&
+            live.conversationId === conversationId &&
+            live.agentType === AGENT_IDS.ORCHESTRATOR &&
+            live.agent.state.isStreaming,
+        );
+        const ownerGeneration = conversationId.startsWith("local_")
+          ? undefined
+          : await getCloudOwnerGeneration();
+        await send({
+          conversationId,
+          text,
+          uiVisibility: "hidden",
+          agentType: AGENT_IDS.ORCHESTRATOR,
+          deliverAs: "steer",
+          customType: AGENT_MESSAGE_CUSTOM_TYPE,
+          display: false,
+          ...(ownerGeneration ? { ownerGeneration } : {}),
+        });
+        return { delivered: steered ? "steered" : "queued" };
+      },
+      messageCloudThread: async ({ messageId, to, text, from }) => {
+        if (!backend.client() || !isCloudSignedIn()) return null;
+        const ownerGeneration = await getCloudOwnerGeneration();
+        return await raceWithTimeoutError(
+          backend.require().call("agentThreads.message", {
+            ownerGeneration,
+            messageId,
+            to,
+            text,
+            from,
+          }),
+          CONVERSATION_THREAD_LOOKUP_TIMEOUT_MS,
+          () => new Error("Stella's cloud did not answer, so the message may not have been delivered."),
         );
       },
       // Read-only backing for `agent_status`: durable-store SELECTs only, so
       // checking on a thread can never deliver input to it or resume it. The
-      // live-state derivation is the exact signal `other_threads` uses
-      // (`runtime_agents.status` via deriveRuntimeThreadLiveState).
+      // live state comes from the agent row's status
+      // (deriveRuntimeThreadLiveState).
       readAgentThreadStatus: async (agentId) => {
         const store = context.runtimeStore;
         if (!store) return null;
@@ -1023,7 +1158,7 @@ export const createRunnerContext = ({
       if (typeof isCurrent === "function" && !isCurrent()) {
         return false;
       }
-      // Same door as `send_input`: rehydrates an evicted or finished thread
+      // Same door as `send_message`: rehydrates an evicted or finished thread
       // with its own history instead of starting a stranger.
       const result = await manager.sendAgentMessage(
         agentId,
@@ -1395,8 +1530,7 @@ export const buildAgentContext = async (
   // local-events stream.
   let userLocale: string | undefined;
   // The orchestrator-shape thread history (merged stored thread messages +
-  // recent local events) and the runtime reminders (stale-user reminder,
-  // active-threads prompt) are gated by the `injectsRuntimeReminders`
+  // recent local events) and the stale-user reminder are gated by the `injectsRuntimeReminders`
   // capability rather than a literal `agentType === ORCHESTRATOR` check, so
   // future user-facing agents inherit the shape by data, not code.
   const injectsRuntimeReminders = agentHasCapability(
@@ -1489,11 +1623,6 @@ export const buildAgentContext = async (
     }
   }
 
-  const activeThreadsPrompt = injectsRuntimeReminders
-    ? buildActiveThreadsPrompt(
-        context.runtimeStore.listActiveThreads(args.conversationId),
-      )
-    : "";
   const dynamicContextSections: Array<{ id: string; text: string }> = [];
 
   // Inject the user's response-language directive at the top of the
@@ -1519,12 +1648,6 @@ export const buildAgentContext = async (
       ].join("\n"),
     });
   }
-  const reminderState =
-    injectsRuntimeReminders && activeThreadsPrompt
-      ? context.runtimeStore.getOrchestratorReminderState(args.conversationId)
-      : {
-          shouldInjectDynamicReminder: false,
-        };
   // A persisted snapshot is authoritative. New Orchestrator/General turns
   // capture the current selection once; resumed turns restore it without
   // consulting later preference changes.
@@ -1639,8 +1762,6 @@ export const buildAgentContext = async (
         : undefined) ??
       defaultPromptForAgentType(args.agentType, context.stellaDataDir),
     dynamicContextSections,
-    orchestratorReminderText: activeThreadsPrompt || undefined,
-    shouldInjectDynamicReminder: reminderState.shouldInjectDynamicReminder,
     staleUserReminderText,
     connectorTransitionReminderText,
     executionContext: agentHasCapability(

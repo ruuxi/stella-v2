@@ -424,11 +424,11 @@ describe("buildAgentCompletionSections", () => {
   });
 });
 
-describe("append-only across a send_input re-run", () => {
+describe("append-only across a send_message re-run", () => {
   it("a resumed thread's earlier AND later completions each render a card (0.0.389 regression)", () => {
     // Regression shape: a thread finishes (its completion emits
     // immediately under the state-based rule in local-agent-manager),
-    // then a send_input on the idle thread starts a new run that finishes
+    // then a send_message on the idle thread starts a new run that finishes
     // again. Both completions must survive the per-row derivation +
     // handoff dedup as their own cards — nothing about a thread's SECOND
     // completion may suppress either card.
@@ -575,7 +575,7 @@ describe("dedupeAgentCompletionRows — SQLite/stream handoff", () => {
     ).toHaveLength(1);
   });
 
-  it("keeps distinct completions (send_input re-run) on both rows", () => {
+  it("keeps distinct completions (send_message re-run) on both rows", () => {
     const first = completionRow("assistant-1", [
       section("a1", 10, ["/out/v1.md"]),
     ]);

@@ -5,7 +5,7 @@
  * Status is conveyed by motion, not badges or color:
  *   - running → the description shimmers (TextShimmer) beside a tiny
  *     spinner;
- *   - follow-up (`send_input`) → an arrow status glyph once settled;
+ *   - follow-up (`send_message`) → an arrow status glyph once settled;
  *   - completed (without completion payload) → the quiet grey check;
  *   - failed → no invented treatment, just the settled row.
  * The leading glyph is Stella's star, or the provider's icon when the

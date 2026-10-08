@@ -3,7 +3,15 @@
  */
 
 import type { TaskLifecycleStatus } from "@stella/contracts/agent-runtime";
-import type { AgentThreadLookup } from "@stella/contracts/backend/agent-threads";
+import type {
+  AgentMessageDelivery,
+  AgentThreadLookup,
+} from "@stella/contracts/backend/agent-threads";
+import type {
+  AgentDirectoryAgentRow,
+  AgentDirectorySessionRow,
+  AgentMessageSender,
+} from "@stella/contracts/agent-directory";
 import type {
   AgentModelConfigSnapshot,
   CloudExecutionSelection,
@@ -17,10 +25,7 @@ import type {
   LocalHeartbeatConfigRecord,
   LocalHeartbeatUpsertInput,
 } from "@stella/contracts/scheduling";
-import type {
-  RuntimeThreadLiveState,
-  RuntimeThreadRecord,
-} from "../runtime-threads.js";
+import type { RuntimeThreadLiveState } from "../runtime-threads.js";
 import type { RuntimeAttachmentRef } from "@stella/contracts/protocol";
 import type { PersistedRuntimeThreadPayload } from "../storage/shared.js";
 import type { ToolReplayPolicy } from "./defs/replay-policy.js";
@@ -103,6 +108,11 @@ export type ToolContext = {
   parentAgentId?: string;
   agentDepth?: number;
   maxAgentDepth?: number;
+  /**
+   * Set only by the host when the user typed this input into an agent's
+   * thread: `send_message` then delivers it as the owner's instruction.
+   */
+  fromUser?: boolean;
   modelConfigSnapshot?: AgentModelConfigSnapshot;
   allowedToolNames?: string[];
   /** External adapters acknowledge image delivery after transcript storage. */
@@ -274,7 +284,7 @@ export type CloudAgentControlReceipt = {
 };
 
 export type CloudDispatchResult = CloudAgentControlReceipt & {
-  /** Cloud thread id, addressable by desktop send_input and pause_agent. */
+  /** Cloud thread id, addressable by desktop send_message and pause_agent. */
   threadId: string;
   /** Cloud conversation the agent reports into. */
   conversationId: string;
@@ -327,7 +337,7 @@ export type AgentThreadStatusMessage = {
  * steers the target thread.
  */
 export type AgentThreadStatusRead = {
-  /** Live execution state from the same signal as `other_threads`. */
+  /** Live execution state: active while a turn runs, otherwise paused. */
   status: RuntimeThreadLiveState;
   /** Roster-style label, e.g. "active" or "paused (last run errored)". */
   statusLabel: string;
@@ -349,6 +359,22 @@ export type AgentThreadStatusRead = {
   messages: AgentThreadStatusMessage[];
 };
 
+/** Everyone `agent_status` without a thread_id lists, before rendering. */
+export type AgentDirectoryListing = {
+  agents: AgentDirectoryAgentRow[];
+  sessions: AgentDirectorySessionRow[];
+  /** The owner's cloud index could not be read, so only local rows are listed. */
+  cloudUnavailable?: boolean;
+};
+
+/** A local agent row, as `send_message` needs it to decide ownership. */
+export type LocalAgentThreadIdentity = {
+  threadId: string;
+  conversationId: string;
+  parentAgentId?: string;
+  description: string;
+};
+
 export type AgentToolApi = {
   /**
    * Read-only snapshot backing `agent_status`. Implementations must not
@@ -361,10 +387,7 @@ export type AgentToolApi = {
     threadId: string,
     conversationId: string,
   ) => Promise<{ thread: AgentThreadLookup; thisDeviceId: string } | null>;
-  createAgent: (request: AgentToolRequest) => Promise<{
-    threadId: string;
-    activeThreads?: RuntimeThreadRecord[];
-  }>;
+  createAgent: (request: AgentToolRequest) => Promise<{ threadId: string }>;
   getAgent: (threadId: string) => Promise<AgentToolSnapshot | null>;
   cancelAgent: (
     threadId: string,
@@ -376,23 +399,43 @@ export type AgentToolApi = {
     from: "orchestrator" | "subagent",
     options?: {
       rootRunId?: string;
-      /** Parent agent thread that owns this thread's completion routing. */
-      parentAgentId?: string;
       /**
-       * Re-home the thread's report routing to whoever is sending this input:
-       * a thread id, or `null` for the user's own conversation. Omit to leave
-       * the current owner untouched.
+       * The owner's instruction (`external-input`), a subagent's report
+       * (`child-report`), or another agent's note delivered verbatim
+       * (`agent-message`). None of them changes who the thread reports to.
        */
-      ownerAgentId?: string | null;
-      /** Internal child report vs. direct orchestrator status/steering input. */
-      deliveryKind?: "child-report" | "external-input";
+      deliveryKind?: "child-report" | "external-input" | "agent-message";
       modelConfigSnapshot?: AgentModelConfigSnapshot;
     },
-  ) => Promise<{ delivered: boolean; reason?: string }>;
-  drainAgentMessages?: (
-    threadId: string,
-    recipient: "orchestrator" | "subagent",
-  ) => Promise<string[]>;
+  ) => Promise<{
+    delivered: boolean;
+    reason?: string;
+    /** A finished, paused, or evicted thread started its next attempt. */
+    resumed?: boolean;
+    /** A running turn took the message before its next step. */
+    steered?: boolean;
+  }>;
+  /** This computer's agent row for a thread, read without loading its transcript. */
+  readLocalAgentThread?: (threadId: string) => LocalAgentThreadIdentity | null;
+  /** A conversation on this computer, as a `send_message` target. */
+  readLocalSession?: (conversationId: string) => AgentDirectorySessionRow | null;
+  /** Agents and sessions the caller can reach, local rows merged with the cloud's. */
+  readAgentDirectory?: (conversationId: string) => Promise<AgentDirectoryListing>;
+  /** Hands an already-framed message to a conversation's Stella on this computer. */
+  messageStellaSession?: (request: {
+    conversationId: string;
+    text: string;
+  }) => Promise<{ delivered: "steered" | "queued" }>;
+  /**
+   * Delivers through the owner's cloud index to an agent or session this
+   * computer cannot reach itself. `null` when this device is signed out.
+   */
+  messageCloudThread?: (request: {
+    messageId: string;
+    to: string;
+    text: string;
+    from: AgentMessageSender;
+  }) => Promise<AgentMessageDelivery | null>;
   /**
    * Hands a cloud-placed spawn to Stella's cloud runtime and returns the
    * cloud thread it created. Injected only by hosts that can reach the
@@ -428,18 +471,6 @@ export type AgentToolApi = {
     canceled: boolean;
     reason?: string;
     control?: CloudAgentControlReceipt;
-  }>;
-  /** Manager-only upward reporting channel. */
-  reportManager?: (request: {
-    threadId: string;
-    message: string;
-    final: boolean;
-    attemptGeneration: number;
-    reportId: string;
-  }) => Promise<{
-    accepted: boolean;
-    final: boolean;
-    reason?: string;
   }>;
 };
 

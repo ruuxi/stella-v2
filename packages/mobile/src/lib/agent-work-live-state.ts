@@ -7,7 +7,7 @@ import type { ChatArtifact, ChatMessage, MobileTask } from "../types";
  * The synced `agent-work` payload's `state` is settled desktop-side at
  * derivation time, where elapsed time doubles as evidence of completion
  * (`AGENT_WORK_STALE_MS` in `local-chat-artifacts.ts`): a thread that has
- * simply been working longer than the stale window — e.g. a `send_input`
+ * simply been working longer than the stale window — e.g. a `send_message`
  * follow-up steering a long task — syncs as `done`, so the card reads
  * "Finished" with a check while the activity pill (fed by the desktop's
  * authoritative `runtime_agents` rows via `overlayDesktopThreadTasks`)

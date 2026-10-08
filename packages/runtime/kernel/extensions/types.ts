@@ -130,8 +130,8 @@ export type BeforeAgentStartHookResult = {
  * subagent (`buildSubagentPromptMessages`) prompt builds. Read
  * `payload.agentType` to scope behavior to a specific agent.
  *
- * Reminder fields (`staleUserReminderText`, `orchestratorReminderText`,
- * `shouldInjectDynamicReminder`) are forwarded from the orchestrator's
+ * Reminder fields (`staleUserReminderText`,
+ * `connectorTransitionReminderText`) are forwarded from the orchestrator's
  * agent-context so the stella-runtime reminder hooks can read them
  * without the kernel passing an opaque agentContext blob through the
  * payload. They're undefined for subagent builds.

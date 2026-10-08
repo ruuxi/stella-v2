@@ -33,7 +33,7 @@ const wakeText = [
   "description: create local-notes file",
   "thread_id: create-local-notes-file",
   "result: Created it.\n\n[local-notes.md](/Users/me/local-notes.md)",
-  "agent_state: paused; use send_input on the same thread if follow-up work is needed.",
+  "agent_state: paused; use send_message on the same thread if follow-up work is needed.",
   "presentation: keep it short.",
 ].join("\n");
 

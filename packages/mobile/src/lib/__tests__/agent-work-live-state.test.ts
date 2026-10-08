@@ -7,7 +7,7 @@ import { applyLiveAgentWorkState } from "../agent-work-live-state";
  * The transcript's agent-work cards must agree with the activity pill: the
  * synced payload's `state` is settled desktop-side where elapsed time counts
  * as completion (`AGENT_WORK_STALE_MS`), so a long-running thread — notably a
- * `send_input` follow-up — can sync as a false "Finished" while the pill's
+ * `send_message` follow-up — can sync as a false "Finished" while the pill's
  * live task fold still counts it running. `applyLiveAgentWorkState` re-derives
  * the card state from that same fold.
  */
@@ -55,7 +55,7 @@ const payloadOf = (chatMessage: ChatMessage, index = 0) => {
 };
 
 describe("applyLiveAgentWorkState", () => {
-  test("send_input follow-up on a running thread renders as in-progress, not Finished", () => {
+  test("send_message follow-up on a running thread renders as in-progress, not Finished", () => {
     // The desktop projection stale-settled the follow-up card to "done"
     // (spawned longer than the stale window ago, no terminal event), while
     // the live fold behind the pill still has the thread running.
@@ -94,7 +94,7 @@ describe("applyLiveAgentWorkState", () => {
   });
 
   test("only the latest card covering a thread follows live state; earlier turns stay settled", () => {
-    // Turn 1 spawned the agent; turn 2 steered it via send_input. Desktop
+    // Turn 1 spawned the agent; turn 2 steered it via send_message. Desktop
     // freezes superseded occurrences as settled — the older card keeps its
     // synced done state, only the newest shimmers.
     const spawnCard = agentWorkArtifact({ agentIds: ["agent-a"] });

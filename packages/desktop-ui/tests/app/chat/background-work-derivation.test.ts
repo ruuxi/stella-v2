@@ -8,7 +8,7 @@ import type { EventRecord } from "@/features/chat/lib/event-transforms";
 
 /**
  * `agent-started` lifecycle event as persisted into a turn's `toolEvents`.
- * A fresh `spawn_agent` leaves `isFollowUp` unset; a `send_input` re-activation
+ * A fresh `spawn_agent` leaves `isFollowUp` unset; a `send_message` re-activation
  * carries the thread's ORIGINAL `description` but stamps `isFollowUp: true` and
  * puts the follow-up's own message on `statusText`. The card keys its follow-up
  * variant off the explicit `isFollowUp` flag (not a description/statusText
@@ -38,7 +38,7 @@ const started = (
     },
   }) as unknown as EventRecord;
 
-describe("getBackgroundWork spawn vs send_input follow-up", () => {
+describe("getBackgroundWork spawn vs send_message follow-up", () => {
   it("reads a fresh spawn as a non-follow-up card titled by its description", () => {
     // Spawn: no isFollowUp flag; statusText mirrors the spawn description.
     const work = getBackgroundWork([
@@ -53,8 +53,8 @@ describe("getBackgroundWork spawn vs send_input follow-up", () => {
     expect(work?.statusTexts["thread-a"]).toBeUndefined();
   });
 
-  it("reads a send_input re-activation as a follow-up carrying the follow-up text, not the stale spawn description", () => {
-    // send_input to the SAME thread: description is the original spawn summary,
+  it("reads a send_message re-activation as a follow-up carrying the follow-up text, not the stale spawn description", () => {
+    // send_message to the SAME thread: description is the original spawn summary,
     // statusText is the follow-up's own message, and isFollowUp is set.
     const work = getBackgroundWork([
       started("thread-a", "Research flights to Tokyo", {
@@ -124,7 +124,7 @@ describe("getBackgroundWork spawn vs send_input follow-up", () => {
     });
   });
 
-  it("classifies send_input to a manager as a follow-up card", () => {
+  it("classifies send_message to a manager as a follow-up card", () => {
     const work = getBackgroundWork([
       started("manager-thread", "Coordinate the launch", {
         agentType: "manager",
@@ -169,7 +169,7 @@ describe("derivePausedThreadIds — paused state for the inline cards", () => {
   });
 
   it("ignores a cancel from a PREVIOUS run (before this card's spawn)", () => {
-    // Thread paused earlier, then re-activated via send_input: the follow-up
+    // Thread paused earlier, then re-activated via send_message: the follow-up
     // card (spawn 300) must read as active again — labels + shimmer return.
     const paused = derivePausedThreadIds(
       ["thread-a"],

@@ -126,7 +126,7 @@ describe("LocalAgentManager pause_agent cancellation", () => {
     expect(progressCount).toBe(2);
   });
 
-  it("reuses the spawn description as lifecycle status text when send_input interrupts a running agent", async () => {
+  it("reuses the spawn description as lifecycle status text when send_message interrupts a running agent", async () => {
     const lifecycleEvents: AgentLifecycleEvent[] = [];
     let started: (() => void) | null = null;
     let finishRun: (() => void) | null = null;
@@ -192,7 +192,7 @@ describe("LocalAgentManager pause_agent cancellation", () => {
     await waitForAgentSettled(manager, created.threadId);
   });
 
-  it("continues queued send_input as the next turn after natural completion", async () => {
+  it("continues queued send_message as the next turn after natural completion", async () => {
     const prompts: string[] = [];
     let startedFirst: (() => void) | null = null;
     let finishFirst: (() => void) | null = null;
@@ -242,7 +242,7 @@ describe("LocalAgentManager pause_agent cancellation", () => {
 
     await waitFor(
       () => prompts.length === 2,
-      "queued send_input did not start after natural completion.",
+      "queued send_message did not start after natural completion.",
     );
     await waitForAgentSettled(manager, created.threadId);
 
@@ -303,7 +303,7 @@ describe("LocalAgentManager pause_agent cancellation", () => {
     );
     await waitFor(
       () => prompts.length === 2,
-      "send_input did not resume the completed agent.",
+      "send_message did not resume the completed agent.",
     );
     await waitForAgentSettled(manager, created.threadId);
 

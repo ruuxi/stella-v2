@@ -34,7 +34,7 @@ const doLocalStubs = (): ReadonlyMap<string, AgentTool> =>
 describe("general-agent capability table", () => {
   test("fails closed on a name it does not classify", () => {
     expect(() => computeForTool("spawn")).toThrow(UnknownGeneralAgentToolError);
-    expect(() => computeForTool("Remember")).toThrow(
+    expect(() => computeForTool("memory")).toThrow(
       UnknownGeneralAgentToolError,
     );
     expect(() => computeForTool("")).toThrow(UnknownGeneralAgentToolError);

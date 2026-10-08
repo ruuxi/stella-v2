@@ -75,6 +75,9 @@ import { createWindowsComputerUseSession } from "../computer-use/windows-session
 import { createComputerUseSession } from "../computer-use/session.js";
 import { cleanupWindowsStellaComputerSessionDaemon } from "../cli/stella-computer-windows.js";
 import { createReplConnectClient } from "../connectors/connect-service.js";
+import { createDiskMemory } from "../memory/disk-memory.js";
+import { runMemoryRequest } from "../memory/memory-client.js";
+import { loadLocalPreferences } from "../preferences/local-preferences.js";
 
 import type { ToolDefinition } from "../extensions/types.js";
 import type { HookEmitter } from "../extensions/hook-emitter.js";
@@ -352,6 +355,25 @@ export const createToolHost = ({
         query,
         limit,
       ),
+    // `memory.*`: the orchestrator's own edits to its memory files under
+    // `~/.stella`, forwarded to the desktop memory module. Every other agent
+    // edits those files with its ordinary file tools.
+    ...(stellaDataDir
+      ? {
+          memory: (() => {
+            const memory = createDiskMemory(
+              stellaDataDir,
+              () => loadLocalPreferences(stellaDataDir).memoryEnabled,
+            );
+            return {
+              available: (context: ToolContext) =>
+                context.agentType === AGENT_IDS.ORCHESTRATOR,
+              call: (args: Record<string, unknown>) =>
+                runMemoryRequest(memory, args),
+            };
+          })(),
+        }
+      : {}),
     // `history.sql` / `history.read`: the conversation lives in its cloud
     // session DO, which answers both exactly as the cloud code tool does.
     queryHistory: codeHistoryQuery ?? (async (args, context) => {

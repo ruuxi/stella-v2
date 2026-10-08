@@ -1727,10 +1727,14 @@ export const buildAgentContext = async (
   // else the shipped bundled body (mtime-gated — unchanged files are not
   // re-read). Falls back to the registered prompt for extension agents.
   // The prompt's tool fences follow what this agent can really call: its
-  // allowlist after the file-edit rewrite, and `history` inside `code`.
+  // allowlist after the file-edit rewrite, `history` inside `code`, and the
+  // orchestrator's `memory` inside `code` while memory is on.
   const requestedToolNames = getRequestedRuntimeToolNames(toolsAllowlist);
+  const hasCode = requestedToolNames.includes(CODE_TOOL_NAME);
   const promptTools = stellaPromptTools(requestedToolNames, {
-    history: requestedToolNames.includes(CODE_TOOL_NAME),
+    history: hasCode,
+    memory:
+      hasCode && memoryEnabled && args.agentType === AGENT_IDS.ORCHESTRATOR,
   });
   const bundledSystemPrompt = await loadAgentSystemPrompt(
     agent?.id ?? args.agentType,

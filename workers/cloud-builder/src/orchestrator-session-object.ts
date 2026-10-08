@@ -1,9 +1,4 @@
 import {
-  ConversationHomeCache,
-  CONVERSATION_HOME_CACHE_KEY,
-  type ConversationHomeSnapshot,
-} from "./conversation-home-cache.js";
-import {
   chatTurnFingerprintSource,
   type AdmittedCloudChat,
   type CloudChatPreparation,
@@ -205,6 +200,7 @@ import {
 } from "./turn-start-request.js";
 import { CLOUD_HISTORY_TOKEN_BUDGET } from "@stella/executor-cloud/prune-history";
 import { AgentHome } from "./agent-home.js";
+import { createWorldMemory, ownerMemoryWorld } from "./world-memory.js";
 import type { CloudSkillCatalogSnapshot } from "./cloud-home-store.js";
 import { resolveCloudSpawnExecution } from "./cloud-spawn-model.js";
 import { sha256Hex, stableValueMarker } from "./hash.js";
@@ -258,7 +254,6 @@ import {
   type CanonicalPrompts,
 } from "./cloud-prompt.js";
 import { stellaPromptTools } from "@stella/contracts/stella-prompts";
-import { createMemoryTools } from "./orchestrator-tools.js";
 import { resolveOpenToolCall } from "./tool-replay.js";
 import { runHistoryQuery } from "./history-sql.js";
 import {
@@ -4163,34 +4158,13 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     return { frozen: true };
   }
 
-  private readonly conversationHomeCache = new ConversationHomeCache({
-    read: () =>
-      this.ctx.storage.kv.get<ConversationHomeSnapshot>(
-        CONVERSATION_HOME_CACHE_KEY,
-      ),
-    write: (snapshot) =>
-      this.ctx.storage.kv.put(CONVERSATION_HOME_CACHE_KEY, snapshot),
-    clear: () => {
-      this.ctx.storage.kv.delete(CONVERSATION_HOME_CACHE_KEY);
-    },
-    purged: () => this.purged(),
-  });
-
   private async prepareCloudHomeContext(
     turn: ChatTurnRequest,
     admittedContext?: OwnerHomeContext,
   ) {
     const timings: Record<string, number> = {};
     const measure = measureInto(timings);
-    const home = new AgentHome(
-      this.env.AGENT_HOME,
-      turn.ownerId,
-      turn.ownerGeneration,
-      {
-        control: (op, body) => this.ownerGate(turn.ownerId).homeControl({ op, body }),
-        ownerGeneration: turn.ownerGeneration,
-      },
-    );
+    const home = this.cloudAgentHome(turn);
     const metadata =
       admittedContext ??
       (await measure("homeMetadataMs", async () => {
@@ -4209,56 +4183,49 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         );
       }));
     timings.homeMetadataRevision = metadata.revision;
-    const result = await this.conversationHomeCache.load({
-      ownerId: turn.ownerId,
-      metadata,
-      readContent: () => this.readHomeContext(home, metadata, measure),
-    });
-    return { ...result, timings };
+    if (this.purged()) throw new Error("Conversation was purged.");
+    const memoryPreference = metadata.memory.preference;
+    // Memory is plain world files that change without a home revision, so
+    // the resident documents and the personality are read fresh every turn.
+    const [memoryDocuments, personalityOverride] =
+      memoryPreference.memoryEnabled
+        ? await Promise.all([
+            measure("memoryDocumentsMs", () =>
+              requireCloudContext("agent_home_memory", home.readDocuments()),
+            ),
+            measure("personalityMs", () =>
+              requireCloudContext(
+                "agent_home_personality",
+                home.readPersonality(),
+              ),
+            ),
+          ])
+        : [[], null];
+    return {
+      memoryPreference,
+      memoryDocuments,
+      personalityOverride,
+      skillCatalog: metadata.skills,
+      timings,
+    };
   }
 
-  private async readHomeContext(
-    home: AgentHome,
-    metadata: OwnerHomeContext,
-    measure: <T>(name: string, work: () => Promise<T>) => Promise<T>,
-  ) {
-    const [memory, skillCatalog] = await Promise.all([
-      (async () => {
-        const context = await measure("memorySnapshotMs", () =>
-          requireCloudContext(
-            "agent_home_memory",
-            Promise.resolve(metadata.memory),
-          ),
-        );
-        const [memoryDocuments, personalityOverride] = await Promise.all([
-          context.preference.memoryEnabled
-            ? measure("memoryDocumentsMs", () =>
-                requireCloudContext(
-                  "agent_home_memory",
-                  home.readDocuments(context.documentHeads),
-                ),
-              )
-            : Promise.resolve([]),
-          context.preference.memoryEnabled
-            ? measure("personalityMs", () =>
-                requireCloudContext(
-                  "agent_home_personality",
-                  home.readPersonality(context.personalityHead),
-                ),
-              )
-            : Promise.resolve(null),
-        ]);
-        return {
-          memoryPreference: context.preference,
-          memoryDocuments,
-          personalityOverride,
-        };
-      })(),
-      measure("skillCatalogMs", () =>
-        requireCloudContext("skill_catalog", Promise.resolve(metadata.skills)),
-      ),
-    ]);
-    return { ...memory, skillCatalog };
+  /**
+   * The owner's agent home for one turn: skills from the cloud home, memory
+   * from the owner's world.
+   */
+  private cloudAgentHome(turn: ChatTurnRequest): AgentHome {
+    const worlds = this.env.WORLDS as typeof this.env.WORLDS | undefined;
+    return new AgentHome(
+      this.env.AGENT_HOME,
+      turn.ownerId,
+      {
+        control: (op, body) =>
+          this.ownerGate(turn.ownerId).homeControl({ op, body }),
+        ownerGeneration: turn.ownerGeneration,
+      },
+      worlds ? () => ownerMemoryWorld(worlds, turn.ownerId) : undefined,
+    );
   }
 
   private async runTurn(
@@ -4545,7 +4512,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             .devices()
             .catch(() => null),
       );
-      const agentHome = this.turnAgentHome(turn, assertExactTurnActive);
+      const agentHome = this.cloudAgentHome(turn);
       if (!harnessExecution) {
         return await this.runCliTurn({
           turn,
@@ -5651,23 +5618,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
   // ---------------------------------------------------------------------------
   // Claude Code orchestrator turns (execution engine `anthropic`)
   // ---------------------------------------------------------------------------
-
-  private turnAgentHome(
-    turn: ChatTurnRequest,
-    assertExactTurnActive: () => Promise<void>,
-  ): AgentHome {
-    return new AgentHome(this.env.AGENT_HOME, turn.ownerId, turn.ownerGeneration, {
-      control: (op, body) => this.ownerGate(turn.ownerId).homeControl({ op, body }),
-      ownerGeneration: turn.ownerGeneration,
-      // The orchestrator turn holds this activity lease until its terminal
-      // finally block. Reassert it immediately before each R2 PUT so reset
-      // cannot finish its owner-prefix sweep ahead of an in-flight writer.
-      assertExternalWrite: async () => {
-        await this.assertOwnerTurn(turn);
-        await assertExactTurnActive();
-      },
-    });
-  }
 
   /**
    * Wake the conversation's orchestrator container for a Claude Code turn that
@@ -10843,10 +10793,10 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
   /**
    * The cloud orchestrator's tool catalog: the desktop orchestrator's exact
    * model-visible contract (`orchestrator.md`'s allowlist — code, html,
-   * image_gen, web, map, Read, Remember, spawn_agent, send_message,
-   * pause_agent, agent_status — plus the demoted
-   * schedule_* and connector_status tools reachable inside code, and the
-   * `connect` and `history` clients inside code). The model reads one description and
+   * image_gen, web, map, Read, spawn_agent, send_message, pause_agent,
+   * agent_status — plus the demoted schedule_* and connector_status tools
+   * reachable inside code, and the `connect`, `history` and `memory` clients
+   * inside code). The model reads one description and
    * calls one shape on either host; only the execution behind each tool
    * differs, and every cloud-specific difference is stated in the cloud
    * session overlay.
@@ -10864,7 +10814,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       ownerId: turn.ownerId,
       ownerGeneration: turn.ownerGeneration,
       conversationId: turn.conversationId,
-      agentHome,
       ownerInternal: async (name: string, args: unknown) =>
         unwrapRpc(
           await this.ownerGate(turn.ownerId).ownerInternal({
@@ -11559,7 +11508,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         publishFiles: (writerKey, files) =>
           this.publishTurnFilesCard(turn.turnId, writerKey, files),
       }),
-      ...(memoryEnabled ? createMemoryTools(toolContext) : []),
       createCloudHtmlTool({
         turnId: turn.turnId,
         ownerInternal: toolContext.ownerInternal,
@@ -11587,11 +11535,18 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           ),
       }),
     ];
+    // The orchestrator's memory files are world files; with memory off it has
+    // no `memory` client at all.
+    const memory =
+      memoryEnabled && worldBinding
+        ? createWorldMemory(() => ownerMemoryWorld(worldBinding, turn.ownerId))
+        : undefined;
     const codeTool = await createCloudCodeAgentTool({
       loader: this.env.LOADER,
       tools,
       executionScope: `${turn.ownerGeneration}:${turn.conversationId}:${turn.turnId}`,
       connect: createCloudConnectClient(connectors),
+      ...(memory ? { memory } : {}),
       ...(memoryEnabled
         ? {
             history: {
@@ -11617,10 +11572,11 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     return {
       tools: [codeTool, ...direct],
       // The prompt renders against everything this turn can call, demoted
-      // tools inside code included, and `history` only when code has it.
+      // tools inside code included, and `history` and `memory` only when
+      // code has them.
       promptTools: stellaPromptTools(
         [codeTool.name, ...tools.map((tool) => tool.name)],
-        { history: memoryEnabled },
+        { history: memoryEnabled, memory: memory !== undefined },
       ),
     };
   }

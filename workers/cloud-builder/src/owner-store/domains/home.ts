@@ -1,19 +1,20 @@
 /**
- * Cloud home: memory and skills metadata for the owner's agents. The content
- * itself stays in `AGENT_HOME`, under `agent-home/<sha256(owner)>/generations/
- * <sha256(generation)>/`.
+ * Cloud home: the owner's memory policy and mirrored skills metadata. Skill
+ * bytes stay in `AGENT_HOME`, under `agent-home/<sha256(owner)>/generations/
+ * <sha256(generation)>/`. Memory itself is plain files in the owner's world
+ * (`world-memory.ts`); this domain only governs it.
  *
  * - **Memory policy:** one `home_state` row holds the memory switch, the
  *   memory epoch and the wipe/import state. Changes to the switch and wipes go
  *   through the gate's `OwnerMemoryPolicy` (it closes model grants first), whose
  *   transport is `readMemoryPolicy` / `applyMemoryPolicyChange` below.
- * - **Writes are R2-first:** `memory.begin` / `skills.begin` reserve an exact
- *   object key and digest, the caller uploads and verifies those bytes, and
- *   `memory.commit` / `skills.commit` advance the head. Reservations that never
- *   commit are reclaimed by `home.intentSweep`.
- * - **Wipe:** `home.memoryWipe` sweeps the memory namespaces in R2 one page at
- *   a time, then deletes the memory rows and opens a new memory epoch.
- * - **Context:** every content or policy change bumps `content_revision` and
+ * - **Skill writes are R2-first:** `skills.begin` reserves exact object keys
+ *   and digests, the caller uploads and verifies those bytes, and
+ *   `skills.commit` advances the head. Reservations that never commit are
+ *   reclaimed by `home.intentSweep`.
+ * - **Wipe:** `home.memoryWipe` erases the memory files from the owner's
+ *   world, then opens a new memory epoch.
+ * - **Context:** every skill or policy change bumps `content_revision` and
  *   tells the gate (`host.homeChanged`) so cached turn context is rebuilt.
  */
 
@@ -34,7 +35,7 @@ import type {
   MemoryPolicyChange,
 } from "@stella/contracts/turn-plane/memory-policy";
 import { sha256Hex } from "../../hash.js";
-import { sweepMemoryWipePage } from "../../memory-wipe.js";
+import { ownerMemoryWorld, wipeWorldMemory } from "../../world-memory.js";
 import {
   array,
   boolean,
@@ -42,9 +43,7 @@ import {
   literal,
   number,
   object,
-  optional,
   string,
-  type Parser,
 } from "../args.js";
 import { RpcError } from "../errors.js";
 import type {
@@ -57,7 +56,6 @@ import type {
 
 // ── Limits ────────────────────────────────────────────────────────────────
 
-const MAX_MEMORY_DOCUMENTS = 100;
 const WRITE_INTENT_TTL_MS = 15 * 60_000;
 /** Bytes a writer reserved may land a little after its reservation expired. */
 const INTENT_SWEEP_GRACE_MS = 5 * 60_000;
@@ -66,9 +64,6 @@ const SKILL_MAX_FILES = 256;
 const SKILL_MAX_FILE_BYTES = 5 * 1024 * 1024;
 const SKILL_MAX_TOTAL_BYTES = 25 * 1024 * 1024;
 const WIPE_RETRY_MAX_MS = 15 * 60_000;
-/** R2 keys one wipe run deletes before it yields to the next alarm. */
-const WIPE_RUN_DELETES = 250;
-const WIPE_RUN_PASSES = 16;
 /** Before any write, every owner starts in this epoch. Opaque, never ordered. */
 const INITIAL_MEMORY_EPOCH = "initial";
 
@@ -117,65 +112,6 @@ export const HOME_MIGRATION = {
        completed_at INTEGER,
        updated_at INTEGER NOT NULL
      )`,
-    `CREATE TABLE memory_docs (
-       name TEXT PRIMARY KEY,
-       document_id TEXT NOT NULL,
-       display_path TEXT NOT NULL,
-       kind TEXT NOT NULL,
-       source TEXT NOT NULL,
-       owner_generation TEXT NOT NULL,
-       memory_epoch TEXT NOT NULL,
-       version_id TEXT NOT NULL,
-       revision INTEGER NOT NULL,
-       r2_key TEXT NOT NULL,
-       sha256 TEXT NOT NULL,
-       size_bytes INTEGER NOT NULL,
-       created_at INTEGER NOT NULL,
-       updated_at INTEGER NOT NULL
-     )`,
-    `CREATE INDEX memory_docs_updated ON memory_docs (updated_at)`,
-    `CREATE TABLE memory_doc_versions (
-       version_id TEXT PRIMARY KEY,
-       document_id TEXT NOT NULL,
-       owner_generation TEXT NOT NULL,
-       memory_epoch TEXT NOT NULL,
-       name TEXT NOT NULL,
-       revision INTEGER NOT NULL,
-       base_version_id TEXT,
-       r2_key TEXT NOT NULL,
-       sha256 TEXT NOT NULL,
-       size_bytes INTEGER NOT NULL,
-       writer TEXT NOT NULL,
-       idempotency_key TEXT NOT NULL,
-       created_at INTEGER NOT NULL
-     )`,
-    `CREATE INDEX memory_doc_versions_key ON memory_doc_versions (r2_key)`,
-    `CREATE TABLE memory_write_intents (
-       intent_id TEXT PRIMARY KEY,
-       idempotency_key TEXT NOT NULL UNIQUE,
-       owner_generation TEXT NOT NULL,
-       memory_epoch TEXT NOT NULL,
-       document_id TEXT NOT NULL,
-       name TEXT NOT NULL,
-       display_path TEXT NOT NULL,
-       kind TEXT NOT NULL,
-       source TEXT NOT NULL,
-       base_revision INTEGER NOT NULL,
-       base_version_id TEXT,
-       version_id TEXT NOT NULL,
-       next_revision INTEGER NOT NULL,
-       r2_key TEXT NOT NULL,
-       sha256 TEXT NOT NULL,
-       size_bytes INTEGER NOT NULL,
-       writer TEXT NOT NULL,
-       status TEXT NOT NULL,
-       conflict_revision INTEGER,
-       conflict_version_id TEXT,
-       expires_at INTEGER NOT NULL,
-       created_at INTEGER NOT NULL,
-       updated_at INTEGER NOT NULL
-     )`,
-    `CREATE INDEX memory_write_intents_open ON memory_write_intents (status, expires_at)`,
     `CREATE TABLE skills (
        skill_id TEXT PRIMARY KEY,
        slug TEXT NOT NULL UNIQUE,
@@ -251,9 +187,6 @@ export const HOME_MIGRATION = {
 const HOME_TABLES = [
   "home_state",
   "memory_wipe",
-  "memory_docs",
-  "memory_doc_versions",
-  "memory_write_intents",
   "skills",
   "skill_versions",
   "skill_files",
@@ -298,36 +231,6 @@ const opaqueArg = (value: string, label: string): string => {
 
 const revisionArg = number({ int: true, min: 0 });
 
-export type CloudMemoryKind =
-  | "memory"
-  | "profile"
-  | "memory_map"
-  | "core_memory"
-  | "personality"
-  | "imported_markdown"
-  | "user_markdown"
-  | "archive";
-
-const MEMORY_KINDS = [
-  "memory",
-  "profile",
-  "memory_map",
-  "core_memory",
-  "personality",
-  "imported_markdown",
-  "user_markdown",
-  "archive",
-] as const;
-
-const MEMORY_WRITERS = [
-  "remember",
-  "desktop_sync",
-  "mobile_sync",
-  "user_edit",
-  "owner_migration",
-  "system_seed",
-] as const;
-
 const SKILL_SOURCES = [
   "bundled",
   "desktop_sync",
@@ -339,21 +242,6 @@ type SkillSource = (typeof SKILL_SOURCES)[number];
 
 const SKILL_AVAILABILITY = ["orchestrator", "general", "both"] as const;
 type SkillAvailability = (typeof SKILL_AVAILABILITY)[number];
-
-const CANONICAL_MEMORY_DOCUMENTS: Record<
-  string,
-  { kind: CloudMemoryKind; displayPath: string; maxBytes: number }
-> = {
-  "MEMORY.md": { kind: "memory", displayPath: "~/.stella/memories/MEMORY.md", maxBytes: 256 * 1024 },
-  "memories/profile.md": { kind: "profile", displayPath: "~/.stella/memories/profile.md", maxBytes: 32 * 1024 },
-  "memories/memory_map.md": {
-    kind: "memory_map",
-    displayPath: "~/.stella/memories/memory_map.md",
-    maxBytes: 32 * 1024,
-  },
-  "core-memory.md": { kind: "core_memory", displayPath: "~/.stella/core-memory.md", maxBytes: 64 * 1024 },
-  "PERSONALITY.md": { kind: "personality", displayPath: "~/.stella/PERSONALITY.md", maxBytes: 64 * 1024 },
-};
 
 /** A safe relative path: no absolute, parent, hidden or control-character segments. */
 const safeRelativePath = (value: string, label: string): string => {
@@ -372,40 +260,6 @@ const safeRelativePath = (value: string, label: string): string => {
     throw badRequest(`Invalid ${label}.`);
   }
   return path;
-};
-
-type NormalizedMemoryDocument = {
-  name: string;
-  displayPath: string;
-  kind: CloudMemoryKind;
-  maxBytes: number;
-};
-
-const normalizeMemoryDocument = (rawName: string, kind: CloudMemoryKind): NormalizedMemoryDocument => {
-  const name = rawName.normalize("NFC").trim().replace(/^\.\//u, "");
-  const canonical = CANONICAL_MEMORY_DOCUMENTS[name];
-  if (canonical) {
-    if (canonical.kind !== kind) throw badRequest(`Cloud-home document kind does not match ${name}.`);
-    return { name, ...canonical };
-  }
-  const safe = safeRelativePath(name, "cloud-home Markdown path");
-  if (!safe.toLowerCase().endsWith(".md")) throw badRequest("Invalid cloud-home Markdown path.");
-  if (safe.startsWith("imports/")) {
-    if (kind !== "imported_markdown") throw badRequest("Imported documents require imported_markdown kind.");
-    if (safe.split("/").length < 3) {
-      throw badRequest("Imported documents require a source and Markdown file name.");
-    }
-    return { name: safe, displayPath: `~/.stella/${safe}`, kind, maxBytes: 512 * 1024 };
-  }
-  if (safe.startsWith("markdown/")) {
-    if (kind !== "user_markdown") throw badRequest("User Markdown requires user_markdown kind.");
-    return { name: safe, displayPath: `~/.stella/${safe}`, kind, maxBytes: 512 * 1024 };
-  }
-  if (safe.startsWith("archive/")) {
-    if (kind !== "archive") throw badRequest("Memory archive documents require archive kind.");
-    return { name: safe, displayPath: `~/.stella/memories/${safe}`, kind, maxBytes: 512 * 1024 };
-  }
-  throw badRequest("Unsupported cloud-home Markdown path.");
 };
 
 const normalizeLabel = (value: string, label: string, maxChars: number): string => {
@@ -430,12 +284,6 @@ const generationPrefix = async (ownerId: string, ownerGeneration: string): Promi
   const [ownerHash, generationHash] = await Promise.all([sha256Hex(ownerId), sha256Hex(ownerGeneration)]);
   return `agent-home/${ownerHash}/generations/${generationHash}/`;
 };
-
-const memoryDocumentId = async (ownerId: string, name: string) =>
-  `memdoc-${(await sha256Hex(`${ownerId}\0${name}`)).slice(0, 40)}`;
-
-const memoryVersionId = async (ownerId: string, documentId: string, idempotencyKey: string, sha256: string) =>
-  `memver-${(await sha256Hex(`${ownerId}\0${documentId}\0${idempotencyKey}\0${sha256}`)).slice(0, 40)}`;
 
 const skillIdOf = async (ownerId: string, slug: string) =>
   `skill-${(await sha256Hex(`${ownerId}\0${slug}`)).slice(0, 40)}`;
@@ -634,23 +482,10 @@ const startWipe = (
     ctx.now,
     ctx.now,
   );
-  // A writer that already reserved bytes can no longer commit them. Their
-  // keys are swept with the namespace, and again by the intent sweep in case
-  // an upload lands after the sweep passes it.
-  ctx.db.run(
-    "UPDATE memory_write_intents SET status = 'aborted', updated_at = ? WHERE status = 'prepared'",
-    ctx.now,
-  );
-  ctx.jobs.schedule(WIPE_JOB, ctx.now, { operationId, cursor: 0 }, { id: wipeJobId(operationId) });
+  ctx.jobs.schedule(WIPE_JOB, ctx.now, { operationId }, { id: wipeJobId(operationId) });
 };
 
-type WipePayload = { operationId: string; cursor: number; startAfter?: string };
-
-const parseWipePayload: Parser<WipePayload> = object({
-  operationId: string({ max: 128 }),
-  cursor: number({ int: true, min: 0 }),
-  startAfter: optional(string({ max: 1_024 })),
-});
+const parseWipePayload = object({ operationId: string({ max: 128 }) });
 
 const currentWipe = (db: OwnerDbReader, operationId: string): WipeRow | null => {
   const wipe = readWipe(db);
@@ -660,20 +495,8 @@ const currentWipe = (db: OwnerDbReader, operationId: string): WipeRow | null => 
     : null;
 };
 
-/** Delete the memory metadata and open the next epoch. Synchronous: one write. */
-const finishWipe = (ctx: OwnerContext, wipe: WipeRow): number => {
-  const count = (table: string, where = "") =>
-    ctx.db.one<{ n: number }>(`SELECT COUNT(*) AS n FROM ${table} ${where}`)?.n ?? 0;
-  const rows =
-    count("memory_docs") + count("memory_doc_versions") + count("memory_write_intents", "WHERE status = 'committed'");
-  ctx.db.run("DELETE FROM memory_docs");
-  ctx.db.run("DELETE FROM memory_doc_versions");
-  // Uncommitted reservations stay until the intent sweep reclaims their keys.
-  ctx.db.run("DELETE FROM memory_write_intents WHERE status = 'committed'");
-  ctx.db.run(
-    "UPDATE memory_write_intents SET status = 'aborted', updated_at = ? WHERE status = 'prepared'",
-    ctx.now,
-  );
+/** Open the next memory epoch once the files are gone. Synchronous: one write. */
+const finishWipe = (ctx: OwnerContext, wipe: WipeRow, filesDeleted: number): number => {
   writeState(ctx.db, wipe.owner_generation, {
     memory_epoch: wipe.next_epoch,
     memory_state: "open",
@@ -682,53 +505,31 @@ const finishWipe = (ctx: OwnerContext, wipe: WipeRow): number => {
     reimport_request_id: null,
   });
   ctx.db.run(
-    `UPDATE memory_wipe SET stage = 'completed', rows_deleted = rows_deleted + ?, last_error_code = NULL,
+    `UPDATE memory_wipe SET stage = 'completed', objects_deleted = objects_deleted + ?, last_error_code = NULL,
        next_retry_at = ?, completed_at = ?, updated_at = ? WHERE id = 1`,
-    rows,
+    filesDeleted,
     ctx.now,
     ctx.now,
     ctx.now,
   );
-  scheduleIntentSweep(ctx);
   return bumpContent(ctx.db, wipe.owner_generation);
 };
 
 /**
- * Sweep the memory namespaces in R2, up to `WIPE_RUN_DELETES` keys per run
- * (empty namespaces cost one listing each), rescheduled until every one reads
- * back empty. Then delete the metadata and open the next epoch. Failures retry
- * with backoff from the last good cursor and stay visible in the status.
+ * Erase the memory files (`core-memory.md`, `memories/`, `PERSONALITY.md`
+ * under `.stella/`) from the owner's world, then open the next epoch. A
+ * failure retries with backoff and stays visible in the status.
  */
 const runMemoryWipe = async (ctx: OwnerContext, rawPayload: unknown): Promise<void> => {
   const payload = parseWipePayload(rawPayload);
-  const wipe = currentWipe(ctx.db, payload.operationId);
-  if (!wipe) return;
-  const bucket = ctx.env.AGENT_HOME;
-  let next: WipePayload = payload;
+  if (!currentWipe(ctx.db, payload.operationId)) return;
   let deleted = 0;
-  let complete = false;
-  let failure: string | null = bucket ? null : "MEMORY_WIPE_STORAGE_UNAVAILABLE";
-  if (bucket) {
-    try {
-      for (let pass = 0; pass < WIPE_RUN_PASSES && !complete && deleted < WIPE_RUN_DELETES; pass += 1) {
-        const page = await sweepMemoryWipePage(bucket, {
-          ownerId: ctx.ownerId,
-          ownerGeneration: wipe.owner_generation,
-          cursor: next.cursor,
-          ...(next.startAfter ? { startAfter: next.startAfter } : {}),
-        });
-        deleted += page.deleted;
-        complete = page.complete;
-        next = {
-          operationId: payload.operationId,
-          cursor: page.cursor,
-          ...(page.startAfter ? { startAfter: page.startAfter } : {}),
-        };
-      }
-    } catch {
-      // R2 errors can carry internal URLs or object keys; keep only the class.
-      failure = "MEMORY_WIPE_STORAGE_FAILURE";
-    }
+  let failure: string | null = null;
+  try {
+    deleted = await wipeWorldMemory(await ownerMemoryWorld(ctx.env.WORLDS, ctx.ownerId));
+  } catch {
+    // World errors can carry internal paths; keep only the class.
+    failure = "MEMORY_WIPE_STORAGE_FAILURE";
   }
   const now = Date.now();
   const current = currentWipe(ctx.db, payload.operationId);
@@ -737,30 +538,16 @@ const runMemoryWipe = async (ctx: OwnerContext, rawPayload: unknown): Promise<vo
     const attempts = current.attempts + 1;
     const delay = Math.min(WIPE_RETRY_MAX_MS, 1_000 * 2 ** Math.min(attempts, 10));
     ctx.db.run(
-      `UPDATE memory_wipe SET objects_deleted = objects_deleted + ?, attempts = ?, next_retry_at = ?,
-         last_error_code = ?, updated_at = ? WHERE id = 1`,
-      deleted,
+      `UPDATE memory_wipe SET attempts = ?, next_retry_at = ?, last_error_code = ?, updated_at = ? WHERE id = 1`,
       attempts,
       now + delay,
       failure,
       now,
     );
-    ctx.jobs.schedule(WIPE_JOB, now + delay, next, { id: wipeJobId(payload.operationId) });
+    ctx.jobs.schedule(WIPE_JOB, now + delay, payload, { id: wipeJobId(payload.operationId) });
     return;
   }
-  ctx.db.run(
-    `UPDATE memory_wipe SET objects_deleted = objects_deleted + ?, attempts = 0, last_error_code = NULL,
-       next_retry_at = ?, updated_at = ? WHERE id = 1`,
-    deleted,
-    now,
-    now,
-  );
-  if (!complete) {
-    // `+ 1`: the run that is finishing keeps its own row until it returns.
-    ctx.jobs.schedule(WIPE_JOB, Math.max(now, ctx.now) + 1, next, { id: wipeJobId(payload.operationId) });
-    return;
-  }
-  const revision = finishWipe({ ...ctx, now }, current);
+  const revision = finishWipe({ ...ctx, now }, current, deleted);
   await announce(ctx, current.owner_generation, revision);
 };
 
@@ -820,321 +607,7 @@ const requestGeneration = async (ctx: OwnerContext, expected: string): Promise<s
 const callerSubject = (ctx: { caller: { ownerId: string } | null; ownerId: string }) =>
   ctx.caller?.ownerId ?? ctx.ownerId;
 
-// ── Memory documents ──────────────────────────────────────────────────────
-
-type DocRow = {
-  name: string;
-  document_id: string;
-  display_path: string;
-  kind: string;
-  source: string;
-  owner_generation: string;
-  memory_epoch: string;
-  version_id: string;
-  revision: number;
-  r2_key: string;
-  sha256: string;
-  size_bytes: number;
-  updated_at: number;
-};
-
-const memoryHead = (row: DocRow) => ({
-  documentId: row.document_id,
-  name: row.name,
-  displayPath: row.display_path,
-  kind: row.kind as CloudMemoryKind,
-  source: row.source,
-  ownerGeneration: row.owner_generation,
-  memoryEpoch: row.memory_epoch,
-  revision: row.revision,
-  versionId: row.version_id,
-  r2Key: row.r2_key,
-  sha256: row.sha256,
-  sizeBytes: row.size_bytes,
-  updatedAt: row.updated_at,
-});
-
-const findDoc = (db: OwnerDbReader, name: string): DocRow | null =>
-  db.one<DocRow>("SELECT * FROM memory_docs WHERE name = ?", name);
-
-const listDocs = (db: OwnerDbReader, limit: number): DocRow[] =>
-  db.all<DocRow>("SELECT * FROM memory_docs ORDER BY updated_at DESC LIMIT ?", limit);
-
-type MemoryIntentRow = {
-  intent_id: string;
-  idempotency_key: string;
-  owner_generation: string;
-  memory_epoch: string;
-  document_id: string;
-  name: string;
-  display_path: string;
-  kind: string;
-  source: string;
-  base_revision: number;
-  base_version_id: string | null;
-  version_id: string;
-  next_revision: number;
-  r2_key: string;
-  sha256: string;
-  size_bytes: number;
-  writer: string;
-  status: string;
-  conflict_revision: number | null;
-  conflict_version_id: string | null;
-  expires_at: number;
-};
-
-const memoryReceipt = (row: MemoryIntentRow) => ({
-  intentId: row.intent_id,
-  status: row.status,
-  ownerGeneration: row.owner_generation,
-  memoryEpoch: row.memory_epoch,
-  documentId: row.document_id,
-  name: row.name,
-  displayPath: row.display_path,
-  kind: row.kind,
-  baseRevision: row.base_revision,
-  ...(row.base_version_id ? { baseVersionId: row.base_version_id } : {}),
-  versionId: row.version_id,
-  nextRevision: row.next_revision,
-  r2Key: row.r2_key,
-  sha256: row.sha256,
-  sizeBytes: row.size_bytes,
-  expiresAt: row.expires_at,
-  ...(row.conflict_revision !== null ? { conflictRevision: row.conflict_revision } : {}),
-  ...(row.conflict_version_id ? { conflictVersionId: row.conflict_version_id } : {}),
-});
-
-const memoryIntent = (db: OwnerDbReader, column: "intent_id" | "idempotency_key", value: string) =>
-  db.one<MemoryIntentRow>(`SELECT * FROM memory_write_intents WHERE ${column} = ?`, value);
-
 const generationArg = string({ min: 1, max: 512 });
-
-const memoryBeginArgs = object({
-  ownerGeneration: generationArg,
-  name: string({ min: 1, max: 240 }),
-  kind: literal(...MEMORY_KINDS),
-  source: string({ max: 120 }),
-  expectedRevision: revisionArg,
-  sha256: string({ max: 64 }),
-  sizeBytes: number({ int: true, min: 0 }),
-  writer: literal(...MEMORY_WRITERS),
-  idempotencyKey: string({ max: 128 }),
-  expectedMemoryEpoch: optional(string({ max: 128 })),
-});
-
-/**
- * Reserve an immutable R2 key and a compare-and-swap on the document head.
- * The key goes only to this Worker; the writer uploads and verifies exactly
- * these bytes before `memory.commit`.
- */
-const beginMemoryWrite = async (ctx: OwnerContext, raw: unknown) => {
-  const args = memoryBeginArgs(raw);
-  const normalized = normalizeMemoryDocument(args.name, args.kind);
-  const source = args.source.trim() || "cloud";
-  const sha256 = sha256Arg(args.sha256);
-  if (args.sizeBytes > normalized.maxBytes) {
-    throw badRequest(`Cloud-home content must be between 0 and ${normalized.maxBytes} bytes.`);
-  }
-  const idempotencyKey = idempotencyArg(args.idempotencyKey);
-  // Every digest first: the reads and writes below run with no await between.
-  const documentId = await memoryDocumentId(ctx.ownerId, normalized.name);
-  const versionId = await memoryVersionId(ctx.ownerId, documentId, idempotencyKey, sha256);
-  const prefix = await generationPrefix(ctx.ownerId, args.ownerGeneration);
-  const r2Key = `${prefix}memory-versions/${documentId}/${versionId}/${sha256}.md`;
-
-  const state = assertMemoryOpen(ctx.db, args.expectedMemoryEpoch);
-  if (
-    (args.writer === "desktop_sync" || args.writer === "mobile_sync") &&
-    state.import_disposition === "explicit_required"
-  ) {
-    throw conflict(
-      "CLOUD_MEMORY_REIMPORT_CONFIRMATION_REQUIRED",
-      "Local memory import requires explicit confirmation after a cloud wipe.",
-    );
-  }
-  if (args.writer === "remember" && state.memory_enabled !== 1) {
-    throw conflict("CLOUD_MEMORY_DISABLED", "Cloud memory is disabled for this account.");
-  }
-  const replay = memoryIntent(ctx.db, "idempotency_key", idempotencyKey);
-  if (replay) {
-    if (
-      replay.name !== normalized.name ||
-      replay.kind !== normalized.kind ||
-      replay.source !== source ||
-      replay.base_revision !== args.expectedRevision ||
-      replay.sha256 !== sha256 ||
-      replay.size_bytes !== args.sizeBytes ||
-      replay.writer !== args.writer
-    ) {
-      throw conflict("CLOUD_HOME_IDEMPOTENCY_CONFLICT", "That cloud-home idempotency key names a different write.");
-    }
-    return memoryReceipt(replay);
-  }
-  const current = findDoc(ctx.db, normalized.name);
-  if (current && current.memory_epoch !== state.memory_epoch) throw epochStale();
-  const currentRevision = current?.revision ?? 0;
-  if (currentRevision !== args.expectedRevision) {
-    throw conflict("CLOUD_HOME_REVISION_CONFLICT", "The cloud memory document changed before this write began.");
-  }
-  if (!current) {
-    const documents = ctx.db.one<{ n: number }>("SELECT COUNT(*) AS n FROM memory_docs")?.n ?? 0;
-    if (documents >= MAX_MEMORY_DOCUMENTS) {
-      throw badRequest(`Cloud memory supports at most ${MAX_MEMORY_DOCUMENTS} documents.`);
-    }
-  }
-  const intentId = `memintent-${crypto.randomUUID()}`;
-  ctx.db.run(
-    `INSERT INTO memory_write_intents
-       (intent_id, idempotency_key, owner_generation, memory_epoch, document_id, name, display_path,
-        kind, source, base_revision, base_version_id, version_id, next_revision, r2_key, sha256,
-        size_bytes, writer, status, conflict_revision, conflict_version_id, expires_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'prepared', NULL, NULL, ?, ?, ?)`,
-    intentId,
-    idempotencyKey,
-    args.ownerGeneration,
-    state.memory_epoch,
-    documentId,
-    normalized.name,
-    normalized.displayPath,
-    normalized.kind,
-    source,
-    currentRevision,
-    current?.version_id ?? null,
-    versionId,
-    currentRevision + 1,
-    r2Key,
-    sha256,
-    args.sizeBytes,
-    args.writer,
-    ctx.now + WRITE_INTENT_TTL_MS,
-    ctx.now,
-    ctx.now,
-  );
-  scheduleIntentSweep(ctx);
-  return memoryReceipt(memoryIntent(ctx.db, "intent_id", intentId)!);
-};
-
-const memoryCommitArgs = object({
-  ownerGeneration: generationArg,
-  memoryEpoch: string({ min: 1, max: 128 }),
-  intentId: string({ max: 128 }),
-  versionId: string({ max: 128 }),
-  r2Key: string({ max: 1_024 }),
-  sha256: string({ max: 64 }),
-  sizeBytes: number({ int: true, min: 0 }),
-});
-
-const setMemoryIntentStatus = (
-  ctx: OwnerContext,
-  intent: MemoryIntentRow,
-  status: string,
-  conflictWith?: { revision: number; versionId: string | null },
-): MemoryIntentRow => {
-  ctx.db.run(
-    `UPDATE memory_write_intents SET status = ?, conflict_revision = ?, conflict_version_id = ?, updated_at = ?
-     WHERE intent_id = ?`,
-    status,
-    conflictWith?.revision ?? null,
-    conflictWith?.versionId ?? null,
-    ctx.now,
-    intent.intent_id,
-  );
-  return memoryIntent(ctx.db, "intent_id", intent.intent_id)!;
-};
-
-const commitMemoryWrite = async (ctx: OwnerContext, raw: unknown) => {
-  const args = memoryCommitArgs(raw);
-  assertMemoryOpen(ctx.db, args.memoryEpoch);
-  const intent = memoryIntent(ctx.db, "intent_id", opaqueArg(args.intentId, "memory intent id"));
-  if (!intent) throw new RpcError("NOT_FOUND", "Memory write intent not found.");
-  if (
-    intent.owner_generation !== args.ownerGeneration ||
-    intent.memory_epoch !== args.memoryEpoch ||
-    intent.version_id !== args.versionId ||
-    intent.r2_key !== args.r2Key ||
-    intent.sha256 !== sha256Arg(args.sha256) ||
-    intent.size_bytes !== args.sizeBytes
-  ) {
-    throw badRequest("Memory write receipt does not match its intent.");
-  }
-  if (intent.status === "committed" || intent.status === "conflict") return memoryReceipt(intent);
-  if (intent.status !== "prepared") {
-    throw conflict("CLOUD_HOME_INTENT_INACTIVE", "Memory write intent is no longer active.");
-  }
-  if (intent.writer === "remember" && readState(ctx.db).memory_enabled !== 1) {
-    return memoryReceipt(setMemoryIntentStatus(ctx, intent, "aborted"));
-  }
-  if (intent.expires_at < ctx.now) return memoryReceipt(setMemoryIntentStatus(ctx, intent, "aborted"));
-  const current = findDoc(ctx.db, intent.name);
-  if (current && current.memory_epoch !== args.memoryEpoch) throw epochStale();
-  if ((current?.revision ?? 0) !== intent.base_revision || (current?.version_id ?? null) !== intent.base_version_id) {
-    return memoryReceipt(
-      setMemoryIntentStatus(ctx, intent, "conflict", {
-        revision: current?.revision ?? 0,
-        versionId: current?.version_id ?? null,
-      }),
-    );
-  }
-  const duplicate = ctx.db.one<{ r2_key: string; sha256: string }>(
-    "SELECT r2_key, sha256 FROM memory_doc_versions WHERE version_id = ?",
-    intent.version_id,
-  );
-  if (duplicate) {
-    if (duplicate.r2_key !== intent.r2_key || duplicate.sha256 !== intent.sha256) {
-      throw new Error("Memory version id collision.");
-    }
-  } else {
-    ctx.db.run(
-      `INSERT INTO memory_doc_versions
-         (version_id, document_id, owner_generation, memory_epoch, name, revision, base_version_id,
-          r2_key, sha256, size_bytes, writer, idempotency_key, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      intent.version_id,
-      intent.document_id,
-      intent.owner_generation,
-      intent.memory_epoch,
-      intent.name,
-      intent.next_revision,
-      intent.base_version_id,
-      intent.r2_key,
-      intent.sha256,
-      intent.size_bytes,
-      intent.writer,
-      intent.idempotency_key,
-      ctx.now,
-    );
-  }
-  ctx.db.run(
-    `INSERT INTO memory_docs
-       (name, document_id, display_path, kind, source, owner_generation, memory_epoch, version_id,
-        revision, r2_key, sha256, size_bytes, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT (name) DO UPDATE SET
-       document_id = excluded.document_id, display_path = excluded.display_path, kind = excluded.kind,
-       source = excluded.source, owner_generation = excluded.owner_generation,
-       memory_epoch = excluded.memory_epoch, version_id = excluded.version_id,
-       revision = excluded.revision, r2_key = excluded.r2_key, sha256 = excluded.sha256,
-       size_bytes = excluded.size_bytes, updated_at = excluded.updated_at`,
-    intent.name,
-    intent.document_id,
-    intent.display_path,
-    intent.kind,
-    intent.source,
-    intent.owner_generation,
-    intent.memory_epoch,
-    intent.version_id,
-    intent.next_revision,
-    intent.r2_key,
-    intent.sha256,
-    intent.size_bytes,
-    ctx.now,
-    ctx.now,
-  );
-  const committed = setMemoryIntentStatus(ctx, intent, "committed");
-  await announce(ctx, args.ownerGeneration, bumpContent(ctx.db, args.ownerGeneration));
-  return memoryReceipt(committed);
-};
 
 // ── Skills ────────────────────────────────────────────────────────────────
 
@@ -1578,9 +1051,7 @@ const deleteMirroredSkill = async (
 /** Arm the sweep for the earliest reservation that never committed. */
 const scheduleIntentSweep = (ctx: OwnerContext): void => {
   const next = ctx.db.one<{ at: number | null }>(
-    `SELECT MIN(expires_at) AS at FROM (
-       SELECT expires_at FROM memory_write_intents WHERE status != 'committed'
-       UNION ALL SELECT expires_at FROM skill_write_intents WHERE status != 'committed')`,
+    "SELECT MIN(expires_at) AS at FROM skill_write_intents WHERE status != 'committed'",
   )?.at;
   if (typeof next === "number") {
     ctx.jobs.schedule(INTENT_SWEEP_JOB, next + INTENT_SWEEP_GRACE_MS, {}, { id: INTENT_SWEEP_JOB_ID });
@@ -1594,19 +1065,11 @@ const scheduleIntentSweep = (ctx: OwnerContext): void => {
  */
 const runIntentSweep = async (ctx: OwnerContext): Promise<void> => {
   const cutoff = ctx.now - INTENT_SWEEP_GRACE_MS;
-  const memory = ctx.db.all<{ intent_id: string; r2_key: string }>(
-    "SELECT intent_id, r2_key FROM memory_write_intents WHERE status != 'committed' AND expires_at <= ? LIMIT 100",
-    cutoff,
-  );
   const skills = ctx.db.all<{ intent_id: string; manifest_r2_key: string; files_json: string }>(
     "SELECT intent_id, manifest_r2_key, files_json FROM skill_write_intents WHERE status != 'committed' AND expires_at <= ? LIMIT 20",
     cutoff,
   );
   const keys = new Set<string>();
-  for (const intent of memory) {
-    const used = ctx.db.one("SELECT 1 AS used FROM memory_doc_versions WHERE r2_key = ?", intent.r2_key);
-    if (!used) keys.add(intent.r2_key);
-  }
   for (const intent of skills) {
     if (!ctx.db.one("SELECT 1 AS used FROM skill_versions WHERE manifest_r2_key = ?", intent.manifest_r2_key)) {
       keys.add(intent.manifest_r2_key);
@@ -1623,13 +1086,10 @@ const runIntentSweep = async (ctx: OwnerContext): Promise<void> => {
       await bucket.delete(list.slice(index, index + 1_000));
     }
   }
-  for (const intent of memory) ctx.db.run("DELETE FROM memory_write_intents WHERE intent_id = ?", intent.intent_id);
   for (const intent of skills) ctx.db.run("DELETE FROM skill_write_intents WHERE intent_id = ?", intent.intent_id);
-  // Reschedule past this run's own row (see `runMemoryWipe`).
+  // `+ 1`: the run that is finishing keeps its own job row until it returns.
   const next = ctx.db.one<{ at: number | null }>(
-    `SELECT MIN(expires_at) AS at FROM (
-       SELECT expires_at FROM memory_write_intents WHERE status != 'committed'
-       UNION ALL SELECT expires_at FROM skill_write_intents WHERE status != 'committed')`,
+    "SELECT MIN(expires_at) AS at FROM skill_write_intents WHERE status != 'committed'",
   )?.at;
   if (typeof next === "number") {
     ctx.jobs.schedule(
@@ -1643,58 +1103,15 @@ const runIntentSweep = async (ctx: OwnerContext): Promise<void> => {
 
 // ── Internal operations ───────────────────────────────────────────────────
 
-const headArgs = object({
-  ownerGeneration: generationArg,
-  name: string({ min: 1, max: 240 }),
-  kind: literal(...MEMORY_KINDS),
-});
-
-const catalogArgs = object({
-  ownerGeneration: generationArg,
-  limit: optional(number({ int: true, min: 1, max: MAX_MEMORY_DOCUMENTS })),
-});
-
 const generationOnly = object({ ownerGeneration: generationArg });
 
 const internal: Record<string, InternalDef> = {
-  /** One document head, or null. Refused while a wipe runs. */
-  "memory.head": (ctx, raw) => {
-    const args = headArgs(raw);
-    assertMemoryOpen(ctx.db);
-    const row = findDoc(ctx.db, normalizeMemoryDocument(args.name, args.kind).name);
-    return row ? memoryHead(row) : null;
-  },
-  /** The newest document heads. */
-  "memory.catalog": (ctx, raw) => {
-    const args = catalogArgs(raw);
-    assertMemoryOpen(ctx.db);
-    return listDocs(ctx.db, args.limit ?? MAX_MEMORY_DOCUMENTS).map(memoryHead);
-  },
-  /** The policy a turn runs under, with the heads it injects (none when off). */
+  /** The policy a turn runs under. Refused while a wipe runs. */
   "memory.context": (ctx, raw) => {
     const args = generationOnly(raw);
     assertMemoryOpen(ctx.db);
-    const policy = readMemoryPolicy(ctx.db, args.ownerGeneration);
-    if (!policy.memoryEnabled) return { ...policy, documentHeads: [], personalityHead: null };
-    const personality = findDoc(ctx.db, "PERSONALITY.md");
-    return {
-      ...policy,
-      documentHeads: listDocs(ctx.db, MAX_MEMORY_DOCUMENTS).map(memoryHead),
-      personalityHead: personality ? memoryHead(personality) : null,
-    };
+    return readMemoryPolicy(ctx.db, args.ownerGeneration);
   },
-  /** Fails unless `memoryEpoch` is the open epoch. Run right before an upload. */
-  "memory.epochAssert": (ctx, raw) => {
-    const args = object({ ownerGeneration: generationArg, memoryEpoch: string({ min: 1, max: 128 }) })(raw);
-    const state = assertMemoryOpen(ctx.db, args.memoryEpoch);
-    return { memoryEpoch: state.memory_epoch };
-  },
-  "memory.wipeStatus": (ctx, raw) => {
-    const args = generationOnly(raw);
-    return wipeStatus(ctx.db, ctx.ownerId, args.ownerGeneration);
-  },
-  "memory.begin": beginMemoryWrite,
-  "memory.commit": commitMemoryWrite,
   "skills.catalog": (ctx, raw) => {
     const args = object({ ownerGeneration: generationArg, agentType: literal("orchestrator", "general") })(raw);
     return skillCatalog(ctx.db, args.agentType);

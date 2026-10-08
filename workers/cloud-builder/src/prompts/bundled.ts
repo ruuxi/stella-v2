@@ -21,11 +21,15 @@ export const bundledPrompt = (id: string): string => {
   return prompt.content;
 };
 
+/** A cloud General agent's prompt; only the orchestrator carries `memory`. */
 export const renderCloudAgentPrompt = (
-  id: "agents/orchestrator.md" | "agents/general.md",
+  id: "agents/general.md",
   tools: Readonly<{ names: Iterable<string>; history: boolean }>,
 ): string =>
   renderStellaPrompt(bundledPrompt(id), {
     env: "cloud",
-    tools: stellaPromptTools(tools.names, { history: tools.history }),
+    tools: stellaPromptTools(tools.names, {
+      history: tools.history,
+      memory: false,
+    }),
   });

@@ -7,7 +7,7 @@
  *
  * `orchestrator.md` is one source for every environment: what differs in the
  * cloud sits in its `<!-- when cloud -->` fences and in tool fences that
- * follow this turn's real tools (`Remember` and `history` exist only while
+ * follow this turn's real tools (`memory` and `history` exist only while
  * cloud memory is on), so nothing here overrides or rewrites it. Everything
  * else the model reads (personality, memory, skills, execution context) is
  * placed by the same resident registry as on the desktop.

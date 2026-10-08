@@ -129,7 +129,7 @@ describe("buildStartupPromptMessages", () => {
             },
           },
         ],
-        // Remember replaced the fact after the old doc was persisted.
+        // A memory edit replaced the fact after the old doc was persisted.
         userProfile: "# User Profile\n\n- The user goes by Robert",
       },
     });
@@ -140,7 +140,7 @@ describe("buildStartupPromptMessages", () => {
     expect(promptText).not.toContain("The user goes by Bob");
   });
 
-  it("keeps one unchanged canonical profile after compaction and appends a real Remember update once", async () => {
+  it("keeps one unchanged canonical profile after compaction and appends a real memory edit once", async () => {
     const initialProfile = "# Profile\n\n- Preferred editor: Zed";
     const initial = await buildStartupPromptMessages({
       context: {

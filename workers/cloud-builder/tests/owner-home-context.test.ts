@@ -13,8 +13,6 @@ const initial = (): Omit<OwnerHomeContext, "revision"> => ({
       revision: 0,
       updatedAt: 1,
     },
-    documentHeads: [],
-    personalityHead: null,
   },
   skills: {
     ownerGeneration: "gen-1",

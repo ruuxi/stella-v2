@@ -17,6 +17,10 @@ import {
   type DemotedToolCatalogEntry,
 } from "@stella/runtime/kernel/tools/code-catalog.js";
 import { sanitizeToolVisibleText } from "@stella/runtime/kernel/tools/safety.js";
+import {
+  runMemoryRequest,
+  type MemoryClient,
+} from "@stella/runtime/kernel/memory/memory-client.js";
 import { AgentToolSuspendedError } from "@stella/runtime/kernel/agent-core/suspension.js";
 import {
   isMapRouteArtifact,
@@ -47,6 +51,7 @@ import {
   CLOUD_CODE_DESCRIBE_INTRINSIC,
   CLOUD_CODE_FS_MAX_FILE_BYTES,
   CLOUD_CODE_HISTORY_INTRINSIC,
+  CLOUD_CODE_MEMORY_INTRINSIC,
   CLOUD_CODE_SEARCH_INTRINSIC,
   CLOUD_CODE_WORLD_INTRINSIC,
   CLOUD_CODE_WORLD_ROOT,
@@ -235,6 +240,12 @@ export type CreateCloudCodeAgentToolOptions = Readonly<{
   connect?: CloudConnectClient;
   /** Absent means `history.*` rejects with an explanation. */
   history?: CloudHistoryClient;
+  /**
+   * The orchestrator's `memory` client over its memory files. Present, the
+   * sandbox gets a `memory` global; absent (General agents, or memory off),
+   * there is none.
+   */
+  memory?: MemoryClient;
   /**
    * The turn's cloud browser. Present, the sandbox gets a `browser` global and
    * a login handoff ends the call as `AgentToolSuspendedError`; absent, there
@@ -729,6 +740,12 @@ const worldIntrinsic =
     }
   };
 
+/** `memory.read` / `memory.write` / `memory.list` — forwarded to the memory module. */
+const memoryIntrinsic =
+  (client: MemoryClient): CloudCodeIntrinsic =>
+  async (input) =>
+    await runMemoryRequest(client, input);
+
 const isScreenshotResult = (
   value: unknown,
 ): value is ResidentBrowserScreenshot =>
@@ -805,6 +822,11 @@ export const createCloudCodeAgentTool = async (
       : {}),
     ...(options.reach?.world
       ? { [CLOUD_CODE_WORLD_INTRINSIC]: worldIntrinsic(options.reach.world) }
+      : {}),
+    ...(options.memory
+      ? {
+          [CLOUD_CODE_MEMORY_INTRINSIC]: memoryIntrinsic(options.memory),
+        }
       : {}),
   };
   const executeCode = options.executeCode ?? executeCloudCode;

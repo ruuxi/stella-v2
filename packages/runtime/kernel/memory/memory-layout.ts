@@ -3,15 +3,15 @@
  * injected from it.
  *
  * Memory is plain markdown under `~/.stella/memories/` (plus the onboarding
- * snapshot at `~/.stella/core-memory.md`). There is no bespoke memory tool:
- * the agent reads and edits these files with the ordinary file tools, so the
- * model's normal editing ability is the whole write path.
+ * snapshot at `~/.stella/core-memory.md`). The orchestrator edits it through
+ * the `memory` client inside `code` (`memory-client.ts`); every other agent
+ * uses its ordinary file tools. In the cloud the same files live in the
+ * owner's world under `/workspace/world/.stella/`.
  *
  * Three documents are always resident, and only these three:
  *
- *   - `core-memory.md`  the onboarding-derived snapshot of who the user is.
- *     Written by discovery (`runtime/discovery/browser-data.ts`), not by the
- *     agent during conversation.
+ *   - `core-memory.md`  the onboarding-derived snapshot of who the user is,
+ *     written by discovery (`runtime/discovery/browser-data.ts`).
  *   - `memories/profile.md`  curated durable facts and standing rules.
  *   - `memories/index.md`  a routing index: one line per nested memory file,
  *     saying what lives there. This is what makes on-demand memory reachable;

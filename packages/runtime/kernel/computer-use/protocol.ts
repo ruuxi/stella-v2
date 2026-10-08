@@ -29,6 +29,8 @@ export const NODE_REPL_TOOL_SEARCH_NAME = "$search";
 export const NODE_REPL_TOOL_DESCRIBE_NAME = "$describe";
 /** Reserved `history.sql` / `history.read` intrinsic; see the `$search` note above. */
 export const NODE_REPL_TOOL_HISTORY_NAME = "$history";
+/** Reserved `memory.read` / `memory.write` / `memory.list` intrinsic; see the `$search` note above. */
+export const NODE_REPL_TOOL_MEMORY_NAME = "$memory";
 
 export type SkyMethod = keyof SkyClient;
 export type BrowserMethod = "command" | "chain" | "use";
@@ -107,6 +109,8 @@ export type NodeReplWorkerData = {
   maxPendingConnectCalls: number;
   maxToolDrainWaitMs: number;
   toolNames: string[];
+  /** Whether this REPL gets the `memory` global (the orchestrator's only). */
+  memory: boolean;
 };
 
 export type ParentToNodeReplWorkerMessage =

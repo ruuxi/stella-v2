@@ -497,6 +497,19 @@ const nodeReplWorkerMain = async (
     read: (fromSeq: number, toSeq: number) =>
       callTool("$history", { op: "read", fromSeq, toSeq }),
   });
+  // `memory.read` / `memory.write` / `memory.list` ride the same path as the
+  // `$memory` intrinsic; only the orchestrator's REPL is given the global.
+  const memory = Object.freeze({
+    read: (path: string) => callTool("$memory", { op: "read", path }),
+    write: (path: string, content: string, options?: { expectSha?: string }) =>
+      callTool("$memory", {
+        op: "write",
+        path,
+        content,
+        ...(options === undefined ? {} : { options }),
+      }),
+    list: () => callTool("$memory", { op: "list" }),
+  });
   const IDENTIFIER_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
   const toolAccess = (name: string) =>
     IDENTIFIER_RE.test(name)
@@ -934,6 +947,16 @@ const nodeReplWorkerMain = async (
       writable: false,
       configurable: false,
     },
+    ...(workerData.memory
+      ? {
+          memory: {
+            value: memory,
+            enumerable: true,
+            writable: false,
+            configurable: false,
+          },
+        }
+      : {}),
     tools: {
       value: tools,
       enumerable: true,

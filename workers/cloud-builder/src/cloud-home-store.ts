@@ -21,7 +21,7 @@ export const CLOUD_SKILL_RUNTIME_MAX_FILES = 1_000;
 export const CLOUD_SKILL_RUNTIME_MAX_BYTES = 50 * 1024 * 1024;
 
 /**
- * One cloud-home control operation (`memory.*`, `skills.*`) on the owner's
+ * One cloud-home control operation (`memory.context`, `skills.*`) on the owner's
  * object: `OwnerGate.homeControl` from a Worker route or another object, or
  * the gate's own `homeControl` from inside it.
  */
@@ -48,69 +48,12 @@ export type CloudHomeEndpoint = {
   assertExternalWrite?: () => Promise<void>;
 };
 
-export type CloudMemoryKind =
-  | "memory"
-  | "profile"
-  | "memory_map"
-  | "core_memory"
-  | "personality"
-  | "imported_markdown"
-  | "user_markdown"
-  | "archive";
-
-export type CloudMemoryWriter =
-  | "remember"
-  | "desktop_sync"
-  | "mobile_sync"
-  | "user_edit"
-  | "owner_migration"
-  | "system_seed";
-
-export type CloudMemoryHead = {
-  documentId: string;
-  name: string;
-  displayPath: string;
-  kind: CloudMemoryKind;
-  source: string;
-  ownerGeneration: string;
-  memoryEpoch: string;
-  revision: number;
-  versionId: string;
-  r2Key: string;
-  sha256: string;
-  sizeBytes: number;
-  updatedAt: number;
-};
-
-export type CloudMemoryDocument = CloudMemoryHead & { bytes: Uint8Array };
-
 export type CloudMemoryPreference = {
   ownerGeneration: string;
   memoryEpoch: string;
   memoryEnabled: boolean;
   revision: number;
   updatedAt: number;
-};
-
-export type CloudMemoryWriteReceipt = {
-  intentId: string;
-  status: "prepared" | "committed" | "conflict" | "aborted";
-  ownerGeneration: string;
-  memoryEpoch: string;
-  documentId: string;
-  name: string;
-  displayPath: string;
-  kind: CloudMemoryKind;
-  baseRevision: number;
-  baseVersionId?: string;
-  versionId: string;
-  nextRevision: number;
-  r2Key: string;
-  sha256: string;
-  sizeBytes: number;
-  expiresAt: number;
-  conflictRevision?: number;
-  conflictVersionId?: string;
 };
 
 export type CloudSkillFileDescriptor = {
@@ -156,29 +99,6 @@ export type CloudSkillUploadFile = {
   contentType: string;
 };
 
-export type CloudMemoryWipeStatus = {
-  subject: string;
-  ownerGeneration: string;
-  state: "open" | "wiping";
-  memoryEpoch: string;
-  importDisposition:
-    | "automatic_allowed"
-    | "explicit_required"
-    | "explicit_allowed";
-  lastWipedEpoch?: string;
-  job: {
-    operationId: string;
-    stage: "sweeping" | "metadata" | "releasing" | "completed";
-    attempts: number;
-    nextRetryAt: number;
-    lastErrorCode?: string;
-    objectsDeleted: number;
-    rowsDeleted: number;
-    completedAt?: number;
-    updatedAt: number;
-  } | null;
-};
-
 type SkillWriteReceipt = {
   intentId: string;
   status: "prepared" | "committed" | "conflict" | "aborted";
@@ -208,7 +128,7 @@ type ImmutableObjectMetadata = {
   sha256: string;
   versionId: string;
   ownerHash: string;
-  kind: "memory" | "skill-manifest" | "skill-file";
+  kind: "skill-manifest" | "skill-file";
 };
 
 export class CloudHomeProtocolError extends Error {
@@ -288,40 +208,6 @@ const metadataMatches = (
   object.customMetadata?.stellaOwnerHash === metadata.ownerHash &&
   object.customMetadata?.stellaKind === metadata.kind;
 
-const parseMemoryHead = (value: unknown): CloudMemoryHead => {
-  const row = asRecord(value, "Cloud memory head");
-  const kind = exactString(row.kind, "Memory kind") as CloudMemoryKind;
-  if (
-    ![
-      "memory",
-      "profile",
-      "memory_map",
-      "core_memory",
-      "personality",
-      "imported_markdown",
-      "user_markdown",
-      "archive",
-    ].includes(kind)
-  ) {
-    throw new CloudHomeProtocolError("Memory kind was invalid.");
-  }
-  return {
-    documentId: exactString(row.documentId, "Document id"),
-    name: exactString(row.name, "Document name"),
-    displayPath: exactString(row.displayPath, "Document display path"),
-    kind,
-    source: exactString(row.source, "Document source"),
-    ownerGeneration: exactString(row.ownerGeneration, "Owner generation"),
-    memoryEpoch: exactString(row.memoryEpoch, "Memory epoch"),
-    revision: exactInteger(row.revision, "Document revision"),
-    versionId: exactString(row.versionId, "Document version id"),
-    r2Key: exactString(row.r2Key, "Document object key", 1_024),
-    sha256: exactSha256(row.sha256, "Document digest"),
-    sizeBytes: exactInteger(row.sizeBytes, "Document size"),
-    updatedAt: exactInteger(row.updatedAt, "Document update time"),
-  };
-};
-
 const parseMemoryPreference = (value: unknown): CloudMemoryPreference => {
   const row = asRecord(value, "Cloud memory preference");
   return {
@@ -330,53 +216,6 @@ const parseMemoryPreference = (value: unknown): CloudMemoryPreference => {
     memoryEnabled: exactBoolean(row.memoryEnabled, "Memory enabled"),
     revision: exactInteger(row.revision, "Memory preference revision"),
     updatedAt: exactInteger(row.updatedAt, "Memory preference update time"),
-  };
-};
-
-const parseMemoryReceipt = (value: unknown): CloudMemoryWriteReceipt => {
-  const row = asRecord(value, "Cloud memory receipt");
-  const status = exactString(
-    row.status,
-    "Memory receipt status",
-  ) as CloudMemoryWriteReceipt["status"];
-  if (!["prepared", "committed", "conflict", "aborted"].includes(status)) {
-    throw new CloudHomeProtocolError("Memory receipt status was invalid.");
-  }
-  return {
-    intentId: exactString(row.intentId, "Memory intent id"),
-    status,
-    ownerGeneration: exactString(row.ownerGeneration, "Owner generation"),
-    memoryEpoch: exactString(row.memoryEpoch, "Memory epoch"),
-    documentId: exactString(row.documentId, "Document id"),
-    name: exactString(row.name, "Document name"),
-    displayPath: exactString(row.displayPath, "Document display path"),
-    kind: exactString(row.kind, "Document kind") as CloudMemoryKind,
-    baseRevision: exactInteger(row.baseRevision, "Base revision"),
-    ...(row.baseVersionId === undefined
-      ? {}
-      : { baseVersionId: exactString(row.baseVersionId, "Base version id") }),
-    versionId: exactString(row.versionId, "Memory version id"),
-    nextRevision: exactInteger(row.nextRevision, "Next revision"),
-    r2Key: exactString(row.r2Key, "Memory object key", 1_024),
-    sha256: exactSha256(row.sha256, "Memory digest"),
-    sizeBytes: exactInteger(row.sizeBytes, "Memory size"),
-    expiresAt: exactInteger(row.expiresAt, "Memory intent expiry"),
-    ...(row.conflictRevision === undefined
-      ? {}
-      : {
-          conflictRevision: exactInteger(
-            row.conflictRevision,
-            "Conflict revision",
-          ),
-        }),
-    ...(row.conflictVersionId === undefined
-      ? {}
-      : {
-          conflictVersionId: exactString(
-            row.conflictVersionId,
-            "Conflict version id",
-          ),
-        }),
   };
 };
 
@@ -446,87 +285,6 @@ const parseSkillEntry = (value: unknown): CloudSkillCatalogEntry => {
     totalSizeBytes,
     files,
     updatedAt: exactInteger(row.updatedAt, "Skill update time"),
-  };
-};
-
-const parseMemoryWipeStatus = (value: unknown): CloudMemoryWipeStatus => {
-  const row = asRecord(value, "Cloud memory wipe status");
-  const state = exactString(row.state, "Memory lifecycle state");
-  if (state !== "open" && state !== "wiping") {
-    throw new CloudHomeProtocolError("Memory lifecycle state was invalid.");
-  }
-  let job: CloudMemoryWipeStatus["job"] = null;
-  if (row.job !== null) {
-    const input = asRecord(row.job, "Cloud memory wipe job");
-    const stage = exactString(input.stage, "Memory wipe stage");
-    if (
-      stage !== "sweeping" &&
-      stage !== "metadata" &&
-      stage !== "releasing" &&
-      stage !== "completed"
-    ) {
-      throw new CloudHomeProtocolError("Memory wipe stage was invalid.");
-    }
-    job = {
-      operationId: exactString(input.operationId, "Memory wipe operation id"),
-      stage,
-      attempts: exactInteger(input.attempts, "Memory wipe attempts"),
-      nextRetryAt: exactInteger(input.nextRetryAt, "Memory wipe retry time"),
-      ...(input.lastErrorCode === undefined
-        ? {}
-        : {
-            lastErrorCode: exactString(
-              input.lastErrorCode,
-              "Memory wipe error code",
-              120,
-            ),
-          }),
-      objectsDeleted: exactInteger(
-        input.objectsDeleted,
-        "Memory wipe object count",
-      ),
-      rowsDeleted: exactInteger(input.rowsDeleted, "Memory wipe row count"),
-      ...(input.completedAt === undefined
-        ? {}
-        : {
-            completedAt: exactInteger(
-              input.completedAt,
-              "Memory wipe completion time",
-            ),
-          }),
-      updatedAt: exactInteger(input.updatedAt, "Memory wipe update time"),
-    };
-  }
-  return {
-    subject: exactString(row.subject, "Cloud session subject"),
-    ownerGeneration: exactString(row.ownerGeneration, "Owner generation"),
-    state,
-    memoryEpoch: exactString(row.memoryEpoch, "Memory epoch"),
-    importDisposition: (() => {
-      const disposition = exactString(
-        row.importDisposition,
-        "Memory import disposition",
-      );
-      if (
-        disposition !== "automatic_allowed" &&
-        disposition !== "explicit_required" &&
-        disposition !== "explicit_allowed"
-      ) {
-        throw new CloudHomeProtocolError(
-          "Memory import disposition was invalid.",
-        );
-      }
-      return disposition;
-    })(),
-    ...(row.lastWipedEpoch === undefined
-      ? {}
-      : {
-          lastWipedEpoch: exactString(
-            row.lastWipedEpoch,
-            "Last wiped memory epoch",
-          ),
-        }),
-    job,
   };
 };
 
@@ -628,16 +386,6 @@ export class CloudHomeStore {
     return response.value;
   }
 
-  private async assertMemoryEpoch(memoryEpoch: string): Promise<void> {
-    const row = asRecord(
-      await this.control("memory.epochAssert", { memoryEpoch }),
-      "Memory epoch assertion",
-    );
-    if (exactString(row.memoryEpoch, "Memory epoch") !== memoryEpoch) {
-      throw new CloudHomeProtocolError("Cloud memory epoch changed.");
-    }
-  }
-
   private async verifyObject(
     key: string,
     expected: { bytes?: Uint8Array; sha256: string; sizeBytes: number },
@@ -682,7 +430,6 @@ export class CloudHomeStore {
     bytes: Uint8Array,
     metadata: ImmutableObjectMetadata,
     contentType: string,
-    memoryEpoch?: string,
   ): Promise<void> {
     await this.assertOwnedKey(key);
     if (
@@ -700,7 +447,6 @@ export class CloudHomeStore {
           "Cloud-home publication requires an owner activity lease.",
         );
       }
-      if (memoryEpoch) await this.assertMemoryEpoch(memoryEpoch);
       // This is deliberately the last await before PUT. Owner generation
       // fencing alone cannot make an external R2 write transactional with a
       // reset. The still-held worker lease makes purge wait for this operation
@@ -724,179 +470,18 @@ export class CloudHomeStore {
     );
   }
 
-  async getMemoryHead(
-    name: string,
-    kind: CloudMemoryKind,
-  ): Promise<CloudMemoryHead | null> {
-    const payload = await this.control("memory.head", { name, kind });
-    if (payload === null) return null;
-    const head = parseMemoryHead(payload);
-    if (head.ownerGeneration !== this.endpoint.ownerGeneration) {
-      throw new CloudHomeProtocolError("Cloud memory head is stale.");
-    }
-    await this.assertOwnedKey(head.r2Key);
-    return head;
-  }
-
-  async getMemoryContext() {
-    const payload = asRecord(
+  /**
+   * The memory policy a turn runs under. The memory itself is world files
+   * (`world-memory.ts`), read by the turn, not by this store.
+   */
+  async getMemoryContext(): Promise<{ preference: CloudMemoryPreference }> {
+    const preference = parseMemoryPreference(
       await this.control("memory.context", {}),
-      "Cloud memory context",
     );
-    const preference = parseMemoryPreference(payload);
-    if (
-      !Array.isArray(payload.documentHeads) ||
-      payload.personalityHead === undefined
-    ) {
-      throw new CloudHomeProtocolError("Cloud memory context was incomplete.");
-    }
-    const documentHeads = payload.documentHeads.map(parseMemoryHead);
-    const personalityHead =
-      payload.personalityHead === null
-        ? null
-        : parseMemoryHead(payload.personalityHead);
-    const heads = [
-      ...documentHeads,
-      ...(personalityHead ? [personalityHead] : []),
-    ];
-    if (
-      preference.ownerGeneration !== this.endpoint.ownerGeneration ||
-      heads.some(
-        (head) =>
-          head.ownerGeneration !== preference.ownerGeneration ||
-          head.memoryEpoch !== preference.memoryEpoch,
-      )
-    ) {
+    if (preference.ownerGeneration !== this.endpoint.ownerGeneration) {
       throw new CloudHomeProtocolError("Cloud memory context is stale.");
     }
-    if (!preference.memoryEnabled && heads.length > 0) {
-      throw new CloudHomeProtocolError(
-        "Disabled memory context contained documents.",
-      );
-    }
-    await Promise.all(heads.map((head) => this.assertOwnedKey(head.r2Key)));
-    return { preference, documentHeads, personalityHead };
-  }
-
-  async getMemoryWipeStatus(): Promise<CloudMemoryWipeStatus> {
-    const status = parseMemoryWipeStatus(
-      await this.control("memory.wipeStatus", {}),
-    );
-    if (
-      status.subject !== this.endpoint.ownerId ||
-      status.ownerGeneration !== this.endpoint.ownerGeneration
-    ) {
-      throw new CloudHomeProtocolError("Cloud memory wipe status is stale.");
-    }
-    return status;
-  }
-
-  async listMemoryHeads(limit = 100): Promise<CloudMemoryHead[]> {
-    const payload = await this.control("memory.catalog", { limit });
-    if (!Array.isArray(payload)) {
-      throw new CloudHomeProtocolError("Cloud memory catalog was invalid.");
-    }
-    const rows = payload.map(parseMemoryHead);
-    if (
-      rows.some((row) => row.ownerGeneration !== this.endpoint.ownerGeneration)
-    ) {
-      throw new CloudHomeProtocolError("Cloud memory catalog is stale.");
-    }
-    await Promise.all(rows.map((row) => this.assertOwnedKey(row.r2Key)));
-    return rows;
-  }
-
-  async readMemoryDocument(
-    name: string,
-    kind: CloudMemoryKind,
-  ): Promise<CloudMemoryDocument | null> {
-    const head = await this.getMemoryHead(name, kind);
-    if (!head) return null;
-    const bytes = await this.readMemoryHeadBytes(head);
-    return { ...head, bytes };
-  }
-
-  async readMemoryHeadBytes(head: CloudMemoryHead): Promise<Uint8Array> {
-    await this.assertOwnedKey(head.r2Key);
-    await this.assertMemoryEpoch(head.memoryEpoch);
-    return await this.verifyObject(head.r2Key, {
-      sha256: head.sha256,
-      sizeBytes: head.sizeBytes,
-    });
-  }
-
-  async publishMemory(args: {
-    name: string;
-    kind: CloudMemoryKind;
-    source: string;
-    expectedRevision: number;
-    bytes: Uint8Array;
-    writer: CloudMemoryWriter;
-    idempotencyKey: string;
-    expectedMemoryEpoch?: string;
-  }): Promise<CloudMemoryWriteReceipt> {
-    const bytes = cloneBytes(args.bytes);
-    const sha256 = await sha256BytesHex(bytes);
-    const prepared = parseMemoryReceipt(
-      await this.control("memory.begin", {
-        name: args.name,
-        kind: args.kind,
-        source: args.source,
-        expectedRevision: args.expectedRevision,
-        sha256,
-        sizeBytes: bytes.byteLength,
-        writer: args.writer,
-        idempotencyKey: args.idempotencyKey,
-        ...(args.expectedMemoryEpoch
-          ? { expectedMemoryEpoch: args.expectedMemoryEpoch }
-          : {}),
-      }),
-    );
-    if (
-      prepared.ownerGeneration !== this.endpoint.ownerGeneration ||
-      prepared.sha256 !== sha256 ||
-      prepared.sizeBytes !== bytes.byteLength
-    ) {
-      throw new CloudHomeProtocolError(
-        "Cloud memory reservation contradicted the requested write.",
-      );
-    }
-    if (prepared.status === "conflict" || prepared.status === "aborted") {
-      return prepared;
-    }
-    const ownerHash = await this.ownerHash();
-    await this.putImmutable(
-      prepared.r2Key,
-      bytes,
-      {
-        sha256,
-        versionId: prepared.versionId,
-        ownerHash,
-        kind: "memory",
-      },
-      "text/markdown; charset=utf-8",
-      prepared.memoryEpoch,
-    );
-    const committed = parseMemoryReceipt(
-      await this.control("memory.commit", {
-        intentId: prepared.intentId,
-        versionId: prepared.versionId,
-        r2Key: prepared.r2Key,
-        memoryEpoch: prepared.memoryEpoch,
-        sha256,
-        sizeBytes: bytes.byteLength,
-      }),
-    );
-    if (
-      committed.intentId !== prepared.intentId ||
-      committed.versionId !== prepared.versionId ||
-      committed.r2Key !== prepared.r2Key ||
-      committed.memoryEpoch !== prepared.memoryEpoch ||
-      committed.sha256 !== sha256
-    ) {
-      throw new CloudHomeProtocolError("Cloud memory commit receipt changed.");
-    }
-    return committed;
+    return { preference };
   }
 
   async loadSkillCatalog(

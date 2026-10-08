@@ -28,7 +28,8 @@ export const STELLA_PROMPT_REVISION_PATTERN = /^[0-9a-f]{64}$/;
  *
  * `tool:NAME` holds when NAME is in the agent's tool set for this turn. The
  * set is the agent's real tool names, plus `history` when its `code` tool
- * carries the conversation history client. Only the names in
+ * carries the conversation history client and `memory` when it carries the
+ * orchestrator's memory client. Only the names in
  * `STELLA_PROMPT_FENCE_TOOLS` may be named, so a typo fails the bundle sync
  * instead of silently dropping text.
  *
@@ -45,9 +46,9 @@ export type StellaPromptRenderContext = Readonly<{
 }>;
 
 export const STELLA_PROMPT_FENCE_TOOLS = [
-  "Remember",
   "ask_user",
   "history",
+  "memory",
   "request_secure_input",
   "send_message",
   "spawn_agent",
@@ -57,13 +58,17 @@ export const STELLA_PROMPT_FENCE_TOOLS = [
 
 const FENCE_TOOL_SET = new Set<string>(STELLA_PROMPT_FENCE_TOOLS);
 
-/** The tool set a prompt renders against: tool names plus `history`. */
+/**
+ * The tool set a prompt renders against: tool names plus the `history` and
+ * `memory` clients its `code` tool carries.
+ */
 export const stellaPromptTools = (
   toolNames: Iterable<string>,
-  options: Readonly<{ history: boolean }>,
+  options: Readonly<{ history: boolean; memory: boolean }>,
 ): ReadonlySet<string> => {
   const tools = new Set(toolNames);
   if (options.history) tools.add("history");
+  if (options.memory) tools.add("memory");
   return tools;
 };
 

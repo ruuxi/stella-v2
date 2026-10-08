@@ -47,9 +47,10 @@ const STELLA_TOOLS_REPLACED_BY_NATIVE: Readonly<
 };
 
 /**
- * The orchestrator never writes files, natively or over MCP: memory edits
- * and every other change are delegated to an agent. Withheld even when an
- * agent definition lists them, so a prompt override cannot hand them back.
+ * The orchestrator never writes files, natively or over MCP: its memory
+ * goes through the `memory` client inside `code`, and every other change is
+ * delegated to an agent. Withheld even when an agent definition lists them,
+ * so a prompt override cannot hand them back.
  */
 export const CLAUDE_CODE_ORCHESTRATOR_WITHHELD_TOOLS: readonly string[] = [
   "Write",

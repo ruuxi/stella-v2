@@ -99,230 +99,6 @@ const ownerGeneration = "generation-1";
 const memoryEpoch = "epoch-1";
 
 describe("CloudHomeStore", () => {
-  test("holds the worker owner fence through an R2-first memory CAS", async () => {
-    const r2 = fakeBucket();
-    const bytes = utf8Bytes("# Profile\n\n- Likes exact receipts.\n");
-    const sha256 = await sha256BytesHex(bytes);
-    const ownerHash = await sha256Hex(ownerId);
-    const key = `agent-home/${ownerHash}/memory-versions/doc-1/ver-1/${sha256}.md`;
-    const calls: string[] = [];
-    let liveAssertions = 0;
-    let leaseHeld = false;
-    let purgeRequested = false;
-    let sweepStarted = false;
-    let releasePurgeWait: (() => void) | undefined;
-    let purgePromise: Promise<void> | undefined;
-    const requestPurge = () => {
-      purgeRequested = true;
-      purgePromise = (async () => {
-        if (leaseHeld) {
-          await new Promise<void>((resolve) => {
-            releasePurgeWait = resolve;
-          });
-        }
-        sweepStarted = true;
-      })();
-    };
-    const prepared = {
-      intentId: "memintent-1",
-      status: "prepared",
-      ownerGeneration,
-      memoryEpoch,
-      documentId: "doc-1",
-      name: "memories/profile.md",
-      displayPath: "~/.stella/memories/profile.md",
-      kind: "profile",
-      baseRevision: 0,
-      versionId: "ver-1",
-      nextRevision: 1,
-      r2Key: key,
-      sha256,
-      sizeBytes: bytes.byteLength,
-      expiresAt: Date.now() + 60_000,
-    };
-    const store = new CloudHomeStore(r2.bucket, {
-      ownerId,
-      ownerGeneration,
-      assertExternalWrite: async () => {
-        expect(leaseHeld).toBe(true);
-        expect(purgeRequested).toBe(false);
-        liveAssertions += 1;
-      },
-      control: control(async (op) => {
-        calls.push(op);
-        if (op === "memory.begin") return prepared;
-        if (op === "memory.epochAssert") return { memoryEpoch };
-        if (op === "memory.commit") {
-          expect(leaseHeld).toBe(true);
-          requestPurge();
-          await Promise.resolve();
-          expect(sweepStarted).toBe(false);
-          return { ...prepared, status: "committed" };
-        }
-        throw new Error("unexpected");
-      }),
-    });
-
-    leaseHeld = true;
-    let receipt;
-    try {
-      receipt = await store.publishMemory({
-        name: "memories/profile.md",
-        kind: "profile",
-        source: "remember",
-        expectedRevision: 0,
-        bytes,
-        writer: "remember",
-        idempotencyKey: "remember-turn-1",
-      });
-      expect(sweepStarted).toBe(false);
-    } finally {
-      leaseHeld = false;
-      releasePurgeWait?.();
-    }
-    await purgePromise;
-
-    expect(receipt.status).toBe("committed");
-    expect(calls).toEqual(["memory.begin", "memory.epochAssert", "memory.commit"]);
-    expect(liveAssertions).toBe(1);
-    expect(purgeRequested).toBe(true);
-    expect(sweepStarted).toBe(true);
-    expect(r2.putCount()).toBe(1);
-    expect(utf8Text(r2.objects.get(key)!.bytes)).toContain("exact receipts");
-    expect(r2.objects.get(key)!.customMetadata).toEqual({
-      stellaSha256: sha256,
-      stellaVersionId: "ver-1",
-      stellaOwnerHash: ownerHash,
-      stellaKind: "memory",
-    });
-  });
-
-  test("a reset race fails closed before writing any R2 bytes", async () => {
-    const r2 = fakeBucket();
-    const bytes = utf8Bytes("memory");
-    const sha256 = await sha256BytesHex(bytes);
-    const ownerHash = await sha256Hex(ownerId);
-    const store = new CloudHomeStore(r2.bucket, {
-      ownerId,
-      ownerGeneration,
-      assertExternalWrite: async () => {
-        throw new Error("owner purge began");
-      },
-      control: control(() => ({
-          intentId: "memintent-reset-race",
-          status: "prepared",
-          ownerGeneration,
-          memoryEpoch,
-          documentId: "doc-reset-race",
-          name: "MEMORY.md",
-          displayPath: "~/.stella/memories/MEMORY.md",
-          kind: "memory",
-          baseRevision: 0,
-          versionId: "ver-reset-race",
-          nextRevision: 1,
-          r2Key: `agent-home/${ownerHash}/memory-versions/doc-reset-race/ver-reset-race/${sha256}.md`,
-          sha256,
-          sizeBytes: bytes.byteLength,
-          expiresAt: Date.now() + 60_000,
-        })),
-    });
-
-    await expect(
-      store.publishMemory({
-        name: "MEMORY.md",
-        kind: "memory",
-        source: "desktop_sync",
-        expectedRevision: 0,
-        bytes,
-        writer: "desktop_sync",
-        idempotencyKey: "reset-race",
-      }),
-    ).rejects.toThrow("owner purge began");
-    expect(r2.putCount()).toBe(0);
-    expect(r2.objects.size).toBe(0);
-  });
-
-  test("does not need a new PUT when an exact immutable object survived response loss", async () => {
-    const r2 = fakeBucket();
-    const bytes = utf8Bytes("same bytes");
-    const sha256 = await sha256BytesHex(bytes);
-    const ownerHash = await sha256Hex(ownerId);
-    const key = `agent-home/${ownerHash}/memory-versions/doc-1/ver-1/${sha256}.md`;
-    r2.objects.set(key, {
-      bytes,
-      customMetadata: {
-        stellaSha256: sha256,
-        stellaVersionId: "ver-1",
-        stellaOwnerHash: ownerHash,
-        stellaKind: "memory",
-      },
-    });
-    const receipt = {
-      intentId: "memintent-1",
-      status: "committed",
-      ownerGeneration,
-      memoryEpoch,
-      documentId: "doc-1",
-      name: "MEMORY.md",
-      displayPath: "~/.stella/memories/MEMORY.md",
-      kind: "memory",
-      baseRevision: 0,
-      versionId: "ver-1",
-      nextRevision: 1,
-      r2Key: key,
-      sha256,
-      sizeBytes: bytes.byteLength,
-      expiresAt: Date.now() + 60_000,
-    };
-    const store = new CloudHomeStore(r2.bucket, {
-      ownerId,
-      ownerGeneration,
-      assertExternalWrite: async () => {
-        throw new Error("must not be called for an existing object");
-      },
-      control: control(() => receipt),
-    });
-    const replay = await store.publishMemory({
-      name: "MEMORY.md",
-      kind: "memory",
-      source: "desktop_sync",
-      expectedRevision: 0,
-      bytes,
-      writer: "desktop_sync",
-      idempotencyKey: "replay-1",
-    });
-    expect(replay.status).toBe("committed");
-    expect(r2.putCount()).toBe(0);
-  });
-
-  test("rejects cross-owner locators before touching R2", async () => {
-    const r2 = fakeBucket();
-    const otherHash = await sha256Hex("other-owner");
-    const store = new CloudHomeStore(r2.bucket, {
-      ownerId,
-      ownerGeneration,
-      control: control(() => ({
-          documentId: "doc-1",
-          name: "MEMORY.md",
-          displayPath: "~/.stella/memories/MEMORY.md",
-          kind: "memory",
-          source: "desktop_sync",
-          ownerGeneration,
-          memoryEpoch,
-          revision: 1,
-          versionId: "ver-1",
-          r2Key: `agent-home/${otherHash}/memory-versions/doc-1/ver-1/x.md`,
-          sha256: "0".repeat(64),
-          sizeBytes: 1,
-          updatedAt: 1,
-        })),
-    });
-    await expect(
-      store.readMemoryDocument("MEMORY.md", "memory"),
-    ).rejects.toBeInstanceOf(CloudHomeProtocolError);
-    expect(r2.getCount()).toBe(0);
-  });
-
   test("pins exact mirrored skill files for discovery and use", async () => {
     const r2 = fakeBucket();
     const ownerHash = await sha256Hex(ownerId);
@@ -372,12 +148,11 @@ describe("CloudHomeStore", () => {
   });
 });
 
-test("loads a bounded memory context in one request and rejects stale or incomplete snapshots", async () => {
+test("loads the memory policy in one request and rejects a stale generation", async () => {
   const r2 = fakeBucket();
   let calls = 0;
   let response: Record<string, unknown> = {
     ownerGeneration, memoryEpoch, memoryEnabled: false, revision: 1, updatedAt: 1,
-    documentHeads: [], personalityHead: null,
   };
   const store = new CloudHomeStore(r2.bucket, {
     ownerId, ownerGeneration,
@@ -387,10 +162,10 @@ test("loads a bounded memory context in one request and rejects stale or incompl
       return response;
     }),
   });
-  expect(await store.getMemoryContext()).toMatchObject({ preference: { memoryEnabled: false }, documentHeads: [], personalityHead: null });
+  expect(await store.getMemoryContext()).toEqual({
+    preference: { ownerGeneration, memoryEpoch, memoryEnabled: false, revision: 1, updatedAt: 1 },
+  });
   expect(calls).toBe(1);
   response = { ...response, ownerGeneration: "stale" };
   await expect(store.getMemoryContext()).rejects.toThrow("stale");
-  response = { ownerGeneration, memoryEpoch, memoryEnabled: false, revision: 1, updatedAt: 1 };
-  await expect(store.getMemoryContext()).rejects.toThrow("incomplete");
 });

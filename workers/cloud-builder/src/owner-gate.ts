@@ -918,7 +918,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     return response;
   }
 
-  /** Cloud home's control operations (`memory.*`, `skills.*`) for `CloudHomeStore`. */
+  /** Cloud home's control operations (`memory.context`, `skills.*`) for `CloudHomeStore`. */
   async homeControl(input: {
     op: string;
     body: { ownerGeneration: string } & Record<string, unknown>;

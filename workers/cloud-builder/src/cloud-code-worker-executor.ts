@@ -25,6 +25,12 @@ export const CLOUD_CODE_BROWSER_INTRINSIC = "$browser";
  * revision its reads are checked against, and the commit of one `fs` write.
  */
 export const CLOUD_CODE_WORLD_INTRINSIC = "$world";
+/**
+ * Present only for the orchestrator's code while memory is on: its
+ * `memory.read` / `memory.write` / `memory.list` over the memory files. It is
+ * not `fs`: it reaches those files and nothing else in the world.
+ */
+export const CLOUD_CODE_MEMORY_INTRINSIC = "$memory";
 export const CLOUD_CODE_INTRINSIC_NAMES: ReadonlySet<string> = new Set([
   CLOUD_CODE_SEARCH_INTRINSIC,
   CLOUD_CODE_DESCRIBE_INTRINSIC,
@@ -32,6 +38,7 @@ export const CLOUD_CODE_INTRINSIC_NAMES: ReadonlySet<string> = new Set([
   CLOUD_CODE_HISTORY_INTRINSIC,
   CLOUD_CODE_BROWSER_INTRINSIC,
   CLOUD_CODE_WORLD_INTRINSIC,
+  CLOUD_CODE_MEMORY_INTRINSIC,
 ]);
 
 /** The model's workspace path; `~` names the same directory. */
@@ -307,6 +314,26 @@ const BROWSER_GLOBAL_LINES = [
   '      close: () => __browserCall("close", []),',
   '      requestLoginTakeover: (options) => __browserCall("requestLoginTakeover", [options]),',
   '      requestDeviceCodeFixture: (options) => __browserCall("requestDeviceCodeFixture", [options]),',
+  "    });",
+] as const;
+
+/**
+ * The sandbox `memory` global, the orchestrator's only. Omitted arguments are
+ * left out of the request because the value bridge refuses `undefined`; the
+ * host validates every field.
+ */
+const MEMORY_GLOBAL_LINES = [
+  "    const __memoryCall = (op, fields) => {",
+  "      const request = { op };",
+  "      for (const [key, value] of Object.entries(fields)) {",
+  "        if (value !== undefined) request[key] = value;",
+  "      }",
+  '      return __dispatch("$memory", [request]);',
+  "    };",
+  "    const memory = Object.freeze({",
+  '      read: (path) => __memoryCall("read", { path }),',
+  '      write: (path, content, options) => __memoryCall("write", { path, content, options }),',
+  '      list: () => __memoryCall("list", {}),',
   "    });",
 ] as const;
 
@@ -637,6 +664,7 @@ const buildWorkerModule = (
   toolNames: readonly string[],
   browser: boolean,
   world = false,
+  memory = false,
 ): string =>
   [
     'import { WorkerEntrypoint } from "cloudflare:workers";',
@@ -780,6 +808,7 @@ const buildWorkerModule = (
     "    });",
     ...(browser ? BROWSER_GLOBAL_LINES : []),
     ...(world ? [FS_GLOBAL_SOURCE] : []),
+    ...(memory ? MEMORY_GLOBAL_LINES : []),
     "    try {",
     "      __startClock();",
     "      const result = await Promise.race([",
@@ -935,6 +964,7 @@ export class StellaDynamicWorkerExecutor implements StellaDisposableExecutor {
             toolNames,
             sanitizedNames.has(CLOUD_CODE_BROWSER_INTRINSIC),
             world,
+            sanitizedNames.has(CLOUD_CODE_MEMORY_INTRINSIC),
           ),
         },
         ...(world ? { env: { WORLD: this.#world } } : {}),

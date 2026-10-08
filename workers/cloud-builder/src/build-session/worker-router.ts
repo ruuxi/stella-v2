@@ -1147,9 +1147,6 @@ app.all("/cloud-home/:rest{.*}", userAuth(), async (c, next) => {
     request: c.req.raw,
     env: c.env,
     ownerId: c.var.caller.ownerId,
-    // `ownerId` is the JWT `sub`; the raw JWT `sub` is
-    // deliberately insufficient for a cross-issuer session fence.
-    subject: c.var.caller.ownerId,
     withLease: cloudHomeLeaseRunner(c.env),
   });
   if (response) return response;

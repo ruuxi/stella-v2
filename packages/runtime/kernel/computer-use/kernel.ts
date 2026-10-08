@@ -68,6 +68,7 @@ import {
   MAX_NODE_REPL_PROTOCOL_MESSAGE_BYTES,
   NODE_REPL_TOOL_DESCRIBE_NAME,
   NODE_REPL_TOOL_HISTORY_NAME,
+  NODE_REPL_TOOL_MEMORY_NAME,
   NODE_REPL_TOOL_SEARCH_NAME,
   type ConnectMethod,
   type NodeReplContentItem,
@@ -238,7 +239,22 @@ export type NodeReplKernelManagerOptions = {
     args: Record<string, unknown>,
     context: ToolContext,
   ) => Promise<unknown>;
+  /**
+   * Host side of the in-REPL `memory` client (`memory.read`, `memory.write`,
+   * `memory.list`) over the user's memory files. `available` decides per
+   * kernel whether its REPL gets the global at all; calls are intercepted
+   * before the allowlist gate like `$history`.
+   */
+  memory?: NodeReplMemoryHost;
 };
+
+export type NodeReplMemoryHost = Readonly<{
+  available: (context: ToolContext) => boolean;
+  call: (
+    args: Record<string, unknown>,
+    context: ToolContext,
+  ) => Promise<unknown>;
+}>;
 
 export type ComputerUseSessionFactoryOptions = Readonly<{
   sessionId: string;
@@ -768,6 +784,7 @@ class NodeReplKernel {
   private readonly searchTools?: NodeReplKernelManagerOptions["searchTools"];
   private readonly describeTool?: NodeReplKernelManagerOptions["describeTool"];
   private readonly queryHistory?: NodeReplKernelManagerOptions["queryHistory"];
+  private readonly memory?: NodeReplMemoryHost;
   private readonly connectClient?: ReplConnectClient;
   private readonly onTerminated: (kernel: NodeReplKernel) => void;
   private tail: Promise<void> = Promise.resolve();
@@ -808,6 +825,8 @@ class NodeReplKernel {
       searchTools?: NodeReplKernelManagerOptions["searchTools"];
       describeTool?: NodeReplKernelManagerOptions["describeTool"];
       queryHistory?: NodeReplKernelManagerOptions["queryHistory"];
+      /** Present only when this kernel's context may use `memory`. */
+      memory?: NodeReplMemoryHost;
       connectClient?: ReplConnectClient;
       /** The context's validated tool account; the REPL child runs as it. */
       processIdentity?: ToolProcessIdentity;
@@ -828,6 +847,7 @@ class NodeReplKernel {
     this.searchTools = options.searchTools;
     this.describeTool = options.describeTool;
     this.queryHistory = options.queryHistory;
+    this.memory = options.memory;
     this.connectClient = options.connectClient;
     this.browserSessionId = options.browserSessionId;
     const getSignal = () => this.active?.controller.signal;
@@ -865,6 +885,7 @@ class NodeReplKernel {
       maxPendingConnectCalls: MAX_NODE_REPL_PENDING_CONNECT_CALLS,
       maxToolDrainWaitMs: options.toolDrainTimeoutMs,
       toolNames: options.toolNames,
+      memory: options.memory !== undefined,
     };
     this.worker = createNodeReplTransport(
       createNodeReplWorkerSource(),
@@ -1846,6 +1867,33 @@ class NodeReplKernel {
       return;
     }
 
+    if (message.toolName === NODE_REPL_TOOL_MEMORY_NAME) {
+      try {
+        if (!this.memory) {
+          throw new Error("memory is unavailable in this session.");
+        }
+        const result = await this.memory.call(message.args, active.context);
+        if (serializedSize(result) > MAX_NODE_REPL_PROTOCOL_MESSAGE_BYTES) {
+          throw new Error(
+            "memory result exceeds the code-runtime protocol limit.",
+          );
+        }
+        if (!this.closed && this.active === active) {
+          this.post({
+            type: "tool-result",
+            callId: message.callId,
+            ok: true,
+            value: result,
+          });
+        }
+      } catch (error) {
+        if (!this.closed && this.active === active) {
+          this.postToolError(message.callId, error);
+        }
+      }
+      return;
+    }
+
     const allowedToolNames = new Set(active.context.allowedToolNames ?? []);
     if (
       !this.executeTool ||
@@ -2679,6 +2727,9 @@ export class NodeReplKernelRegistry {
         searchTools: this.options.searchTools,
         describeTool: this.options.describeTool,
         queryHistory: this.options.queryHistory,
+        ...(this.options.memory?.available(context)
+          ? { memory: this.options.memory }
+          : {}),
         connectClient: this.options.connectClient,
         toolNames: replToolNamesForContext(context),
         browserSessionId,

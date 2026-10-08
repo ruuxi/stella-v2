@@ -28,6 +28,7 @@ import {
   piEventsForClients,
   type PiChatEvent,
   type PiChatEventsPayload,
+  type PiChatAgentsResult,
   type PiChatOlderResult,
   type PiChatRequest,
   type PiChatWatchResult,
@@ -89,6 +90,8 @@ type Chat = {
   root: Conversation;
   refreshTools(): void;
   startAgent: OpenStellaHarness["startAgent"];
+  agentRecords: OpenStellaHarness["agentRecords"];
+  messageAgent: OpenStellaHarness["messageAgent"];
   stream?: AgentEventStream;
   watchers: number;
   idleCheck: ReturnType<typeof setInterval>;
@@ -217,7 +220,7 @@ export function desktopChats(options: DesktopChatsOptions) {
           deviceId: options.deviceId ?? "this-computer",
           label: "This computer",
         };
-        const { harness, refreshTools, startAgent } = await openStellaHarness(
+        const { harness, refreshTools, startAgent, agentRecords, messageAgent } = await openStellaHarness(
           {
             storage,
             models,
@@ -251,7 +254,7 @@ export function desktopChats(options: DesktopChatsOptions) {
           );
         }, IDLE_CHECK_MS);
         idleCheck.unref?.();
-        opened = { harness, root, refreshTools, startAgent, watchers: 0, idleCheck };
+        opened = { harness, root, refreshTools, startAgent, agentRecords, messageAgent, watchers: 0, idleCheck };
         return opened;
       })().catch((error: unknown) => {
         chats.delete(conversationId);
@@ -405,15 +408,34 @@ export function desktopChats(options: DesktopChatsOptions) {
     return { threadId };
   };
 
+  /** The conversation's agents, as the app lists them. */
+  const agents = async (conversationId: string): Promise<PiChatAgentsResult> => {
+    const chat = await open(conversationId);
+    const records = await chat.agentRecords(context);
+    return {
+      agents: records.map(({ placement: _placement, ...agent }) => agent),
+    };
+  };
+
+  /** What the user typed into one agent's thread, delivered once per `key`. */
+  const messageAgent = async (
+    conversationId: string,
+    message: { key: string; threadId: string; message: string },
+  ): Promise<void> => {
+    const chat = await ready(conversationId);
+    await chat.messageAgent(message, context);
+  };
+
   const older = async (conversationId: string, beforeEntryId: number): Promise<PiChatOlderResult> =>
     history(await open(conversationId), beforeEntryId);
 
   return {
-    /** Reopen the conversations a previous process left with work in flight. */
     /** Submit a prepared message (text and marked parts). */
     submit,
     automation,
     startAgent,
+    messageAgent,
+    /** Reopen the conversations a previous process left with work in flight. */
     async resumeActive(): Promise<void> {
       for (const conversationId of await activeSet()) {
         await open(conversationId).catch((error: unknown) => options.report(error));
@@ -433,6 +455,8 @@ export function desktopChats(options: DesktopChatsOptions) {
           return { ok: true };
         case "older":
           return older(request.conversationId, request.beforeEntryId);
+        case "agents":
+          return agents(request.conversationId);
       }
     },
     async close(): Promise<void> {

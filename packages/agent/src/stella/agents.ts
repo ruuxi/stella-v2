@@ -57,6 +57,19 @@ type AgentRecord = {
   reported: number[];
 };
 
+/** One of the orchestrator's agents as the app lists it. */
+export type StellaAgentRecord = {
+  threadId: string;
+  description: string;
+  placement: AgentRecord["placement"];
+  status: "running" | "completed" | "error";
+  startedAt: number;
+  updatedAt: number;
+  /** Its latest prose, oldest first. */
+  assistantMessages: string[];
+  error?: string;
+};
+
 /** The agents a conversation started, by thread id. */
 export const StellaAgentsDoc = defineDoc<{
   agents: Record<string, AgentRecord>;
@@ -123,12 +136,22 @@ const MAX_REPORT_CHARS = 30_000;
 const bounded = (text: string): string =>
   text.length <= MAX_REPORT_CHARS ? text : `${text.slice(0, MAX_REPORT_CHARS)}\n[truncated ${text.length - MAX_REPORT_CHARS} chars]`;
 
-export const completedReport = (args: { threadId: string; description: string; result: string; toParentAgent: boolean }): string =>
+export const completedReport = (args: {
+  threadId: string;
+  description: string;
+  result: string;
+  toParentAgent: boolean;
+  /** What the user wrote to the agent in its thread, when this answers it. */
+  userMessage?: string;
+}): string =>
   [
     "[Agent completed]",
     `description: ${args.description}`,
     `thread_id: ${args.threadId}`,
     "agent_type: general",
+    ...(args.userMessage === undefined
+      ? []
+      : [`user_message: the user wrote to this agent in its thread: ${JSON.stringify(bounded(args.userMessage))}`]),
     `result: ${bounded(args.result || "(no reply)")}`,
     "agent_state: paused; use send_message on the same thread if follow-up work is needed.",
     ...(args.toParentAgent
@@ -157,7 +180,13 @@ const Anchor = defineTask<null, { phase: "done" }, null>({
   abort: (_anchor, runtime, context) => runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), context),
 });
 
-type ReporterInput = { threadId: string; conversationId: number; message: string };
+type ReporterInput = {
+  threadId: string;
+  conversationId: number;
+  message: string;
+  /** The user wrote the message in the agent's thread, not the parent. */
+  fromUser?: true;
+};
 type ReporterState = { phase: "deliver" } | { phase: "report"; report?: string };
 
 export function stellaAgents(host: StellaAgentsHost) {
@@ -216,7 +245,13 @@ export function stellaAgents(host: StellaAgentsHost) {
           agent.reported.push(settled.answer);
           const answer = (await tx.entry(AssistantEntry, settled.answer))?.model?.[0] as AssistantMessage | undefined;
           return next(
-            completedReport({ threadId, description, result: textOf(answer), toParentAgent: self.agentType !== "orchestrator" }),
+            completedReport({
+              threadId,
+              description,
+              result: textOf(answer),
+              toParentAgent: self.agentType !== "orchestrator",
+              ...(reporter.input.fromUser ? { userMessage: message } : {}),
+            }),
           );
         }, context);
       },
@@ -506,12 +541,82 @@ export function stellaAgents(host: StellaAgentsHost) {
     );
   };
 
+  /**
+   * The orchestrator's agents as the app lists them: each one's status,
+   * description, start and latest activity, and its latest prose.
+   */
+  const agentRecords = async (harness: Harness, context: Context): Promise<StellaAgentRecord[]> => {
+    const root = await harness.root(context);
+    const state = await harness.snapshot(StellaAgentsDoc, root.id, context);
+    const records: StellaAgentRecord[] = [];
+    for (const [threadId, agent] of Object.entries(state?.agents ?? {})) {
+      const conversationId = agent.conversationId as ConversationId;
+      const [live, [first, recent]] = await Promise.all([
+        harness.snapshot(LiveDoc, conversationId, context),
+        harness.commit(
+          async (tx) =>
+            [
+              (await tx.scanEntries({ conversationId, order: "ascending" }, 1)).items[0],
+              (await tx.scanEntries({ conversationId, order: "descending" }, 40)).items,
+            ] as const,
+          context,
+        ),
+      ]);
+      const answers = recent
+        .filter((entry) => entry.kind === "pi.assistant")
+        .map((entry) => entry.model?.[0] as AssistantMessage | undefined)
+        .filter((message): message is AssistantMessage => message !== undefined);
+      const latest = answers[0];
+      const prose = answers.map(textOf).filter((text) => text.trim()).reverse().slice(-5);
+      const oldest = first?.model?.[0] as { timestamp?: number } | undefined;
+      const running = live?.run !== undefined;
+      records.push({
+        threadId,
+        description: agent.description,
+        placement: agent.placement,
+        status: running ? "running" : latest?.stopReason === "error" ? "error" : "completed",
+        startedAt: oldest?.timestamp ?? latest?.timestamp ?? Date.now(),
+        updatedAt: latest?.timestamp ?? oldest?.timestamp ?? Date.now(),
+        assistantMessages: prose,
+        ...(latest?.stopReason === "error" && latest.errorMessage ? { error: latest.errorMessage } : {}),
+      });
+    }
+    return records;
+  };
+
+  /**
+   * A message from the user to one of the orchestrator's agents, carried
+   * like `send_message`: a reporter delivers it and reports the answer up.
+   * Once per `key`.
+   */
+  const messageAgent = async (
+    harness: Harness,
+    args: { key: string; threadId: string; message: string },
+    context: Context,
+  ): Promise<void> => {
+    const root = await harness.root(context);
+    await harness.commit(async (tx) => {
+      const state = await tx.doc(StellaAgentsDoc, root.id);
+      const callKey = `user:${args.key}`;
+      if (state.calls[callKey]) return undefined;
+      const agent = state.agents[args.threadId];
+      if (!agent) throw new Error(`No agent ${args.threadId} here.`);
+      const reporter = await tx.createTask(
+        Reporter,
+        { threadId: args.threadId, conversationId: agent.conversationId, message: args.message, fromUser: true },
+        { ownership: { kind: "conversation" }, background: true, conversationId: root.id },
+      );
+      state.calls[callKey] = { threadId: args.threadId, reporter };
+      return undefined;
+    }, context);
+  };
+
   const extension = defineExtension({
     name: STELLA_AGENTS_EXTENSION,
     tasks: [Anchor, Reporter],
     tools: [spawnAgent, sendMessage, agentStatus, pauseAgent],
   });
-  return { extension, startAgent };
+  return { extension, startAgent, agentRecords, messageAgent };
 }
 
 export const stellaAgentsExtension = (host: StellaAgentsHost) => stellaAgents(host).extension;

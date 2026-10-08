@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { AgentMessage } from "@stella/runtime/kernel/agent-core/types.js";
 import {
   buildOrchestratorSummaryPrompt,
@@ -64,7 +65,7 @@ const lastReportedContextTokens = (
   return undefined;
 };
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number) => Effect.runPromise(Effect.sleep(ms));
 
 /**
  * The orchestrator's compaction policy (`orchestrator-compaction.ts`, shared

@@ -225,6 +225,7 @@ describe("working orchestrator surface", () => {
       "pause_agent",
       "send_message",
       "spawn_agent",
+      "switch_destination",
       "web",
     ]);
     for (const toolName of BUILT_IN_DEMOTED_TOOL_NAMES) {
@@ -248,6 +249,8 @@ describe("working orchestrator surface", () => {
       "ScriptDraft",
       "agent_status",
       "connector_status",
+      "drive_download",
+      "drive_upload",
       "html",
       "image_gen",
       "map",
@@ -258,6 +261,7 @@ describe("working orchestrator surface", () => {
       "schedule_update",
       "send_message",
       "spawn_agent",
+      "switch_destination",
       "web",
     ]);
     const deferredTokens = estimateProviderPayloadTokens(
@@ -273,7 +277,7 @@ describe("working orchestrator surface", () => {
       1,
     );
     expect(providerTools).toHaveLength(10);
-    expect(fallbackTools).toHaveLength(16);
+    expect(fallbackTools).toHaveLength(18);
     expect(deferredTokens).toBeLessThan(fallbackTokens);
     expect(fallbackTokens - deferredTokens).toBeGreaterThan(1_000);
 
@@ -341,6 +345,8 @@ describe("working orchestrator surface", () => {
     ).toEqual([
       "ScriptDraft",
       "connector_status",
+      "drive_download",
+      "drive_upload",
       "map",
       "schedule_add",
       "schedule_list",

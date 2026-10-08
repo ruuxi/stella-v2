@@ -1998,6 +1998,7 @@
       "chatgptComputerSignedIn": "На этом компьютере выполнен вход в ChatGPT.",
       "chatgptTitle": "ChatGPT",
       "claudeLogin": {
+        "approve": "Подтвердите на открывшейся странице Anthropic, и вход завершится сам.",
         "codeLabel": "Вставьте код, который показывает Anthropic",
         "failed": "Не удалось войти.",
         "opened": "Мы открыли страницу входа Anthropic.",
@@ -2006,6 +2007,7 @@
         "starting": "Открываем страницу входа Anthropic…",
         "submit": "Отправить",
         "submitting": "Выполняется вход…",
+        "useCode": "Использовать код",
         "whereCloud": "Вход в Claude Code в вашем облаке.",
         "whereComputer": "Вход в Claude Code на этом компьютере."
       },

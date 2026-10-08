@@ -1998,6 +1998,7 @@
       "chatgptComputerSignedIn": "Tento počítač je přihlášený k ChatGPT.",
       "chatgptTitle": "ChatGPT",
       "claudeLogin": {
+        "approve": "Schvalte to na stránce Anthropic, která se otevřela, a přihlášení se dokončí samo.",
         "codeLabel": "Vložte kód, který zobrazí Anthropic",
         "failed": "Přihlášení se nezdařilo.",
         "opened": "Otevřeli jsme přihlašovací stránku Anthropic.",
@@ -2006,6 +2007,7 @@
         "starting": "Otevírání přihlašovací stránky Anthropic…",
         "submit": "Odeslat",
         "submitting": "Přihlašování…",
+        "useCode": "Použít místo toho kód",
         "whereCloud": "Přihlašování ke Claude Code ve vašem cloudu.",
         "whereComputer": "Přihlašování ke Claude Code na tomto počítači."
       },

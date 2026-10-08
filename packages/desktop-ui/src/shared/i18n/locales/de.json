@@ -1978,6 +1978,7 @@
       "chatgptComputerSignedIn": "Dieser Computer ist bei ChatGPT angemeldet.",
       "chatgptTitle": "ChatGPT",
       "claudeLogin": {
+        "approve": "Bestätige auf der geöffneten Seite von Anthropic, dann wird die Anmeldung automatisch abgeschlossen.",
         "codeLabel": "Code von Anthropic einfügen",
         "failed": "Die Anmeldung hat nicht geklappt.",
         "opened": "Wir haben die Anmeldeseite von Anthropic geöffnet.",
@@ -1986,6 +1987,7 @@
         "starting": "Anmeldeseite von Anthropic wird geöffnet…",
         "submit": "Senden",
         "submitting": "Anmeldung läuft…",
+        "useCode": "Stattdessen einen Code verwenden",
         "whereCloud": "Anmeldung bei Claude Code in deiner Cloud.",
         "whereComputer": "Anmeldung bei Claude Code auf diesem Computer."
       },

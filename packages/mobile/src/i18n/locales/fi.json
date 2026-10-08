@@ -1978,6 +1978,7 @@
       "chatgptComputerSignedIn": "Tämä tietokone on kirjautunut ChatGPT:hen.",
       "chatgptTitle": "ChatGPT",
       "claudeLogin": {
+        "approve": "Hyväksy avautuneella Anthropicin sivulla, niin kirjautuminen valmistuu itsestään.",
         "codeLabel": "Liitä Anthropicin näyttämä koodi",
         "failed": "Kirjautuminen epäonnistui.",
         "opened": "Avasimme Anthropicin kirjautumissivun.",
@@ -1986,6 +1987,7 @@
         "starting": "Avataan Anthropicin kirjautumissivua…",
         "submit": "Lähetä",
         "submitting": "Kirjaudutaan…",
+        "useCode": "Käytä koodia sen sijaan",
         "whereCloud": "Kirjaudutaan Claude Codeen pilvessäsi.",
         "whereComputer": "Kirjaudutaan Claude Codeen tällä tietokoneella."
       },

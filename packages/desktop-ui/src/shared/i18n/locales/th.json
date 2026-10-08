@@ -1968,6 +1968,7 @@
       "chatgptComputerSignedIn": "คอมพิวเตอร์เครื่องนี้ลงชื่อเข้าใช้ ChatGPT แล้ว",
       "chatgptTitle": "ChatGPT",
       "claudeLogin": {
+        "approve": "อนุมัติในหน้า Anthropic ที่เปิดขึ้น แล้วการลงชื่อเข้าใช้จะเสร็จเอง",
         "codeLabel": "วางรหัสที่ Anthropic แสดง",
         "failed": "ลงชื่อเข้าใช้ไม่สำเร็จ",
         "opened": "เราเปิดหน้าลงชื่อเข้าใช้ของ Anthropic แล้ว",
@@ -1976,6 +1977,7 @@
         "starting": "กำลังเปิดหน้าลงชื่อเข้าใช้ของ Anthropic…",
         "submit": "ส่ง",
         "submitting": "กำลังลงชื่อเข้าใช้…",
+        "useCode": "ใช้รหัสแทน",
         "whereCloud": "กำลังลงชื่อเข้าใช้ Claude Code ในคลาวด์ของคุณ",
         "whereComputer": "กำลังลงชื่อเข้าใช้ Claude Code บนคอมพิวเตอร์เครื่องนี้"
       },

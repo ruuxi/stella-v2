@@ -1978,6 +1978,7 @@
       "chatgptComputerSignedIn": "यह कंप्यूटर ChatGPT में साइन इन है।",
       "chatgptTitle": "ChatGPT",
       "claudeLogin": {
+        "approve": "खुले हुए Anthropic पेज पर स्वीकृति दें, साइन-इन अपने आप पूरा हो जाएगा।",
         "codeLabel": "Anthropic द्वारा दिखाया गया कोड पेस्ट करें",
         "failed": "साइन इन नहीं हो सका।",
         "opened": "हमने Anthropic का साइन-इन पेज खोल दिया है।",
@@ -1986,6 +1987,7 @@
         "starting": "Anthropic का साइन-इन पेज खोला जा रहा है…",
         "submit": "सबमिट करें",
         "submitting": "साइन इन हो रहा है…",
+        "useCode": "इसके बजाय कोड का उपयोग करें",
         "whereCloud": "आपके क्लाउड में Claude Code में साइन इन किया जा रहा है।",
         "whereComputer": "इस कंप्यूटर पर Claude Code में साइन इन किया जा रहा है।"
       },

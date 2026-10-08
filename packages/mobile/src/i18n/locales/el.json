@@ -1978,6 +1978,7 @@
       "chatgptComputerSignedIn": "Αυτός ο υπολογιστής είναι συνδεδεμένος στο ChatGPT.",
       "chatgptTitle": "ChatGPT",
       "claudeLogin": {
+        "approve": "Εγκρίνετε στη σελίδα της Anthropic που άνοιξε και η σύνδεση θα ολοκληρωθεί αυτόματα.",
         "codeLabel": "Επικόλλησε τον κωδικό που εμφανίζει η Anthropic",
         "failed": "Η σύνδεση απέτυχε.",
         "opened": "Ανοίξαμε τη σελίδα σύνδεσης της Anthropic.",
@@ -1986,6 +1987,7 @@
         "starting": "Άνοιγμα της σελίδας σύνδεσης της Anthropic…",
         "submit": "Υποβολή",
         "submitting": "Σύνδεση…",
+        "useCode": "Χρήση κωδικού αντί γι' αυτό",
         "whereCloud": "Σύνδεση στο Claude Code στο cloud σας.",
         "whereComputer": "Σύνδεση στο Claude Code σε αυτόν τον υπολογιστή."
       },

@@ -1988,6 +1988,7 @@
       "chatgptComputerSignedIn": "Questo computer ha eseguito l’accesso a ChatGPT.",
       "chatgptTitle": "ChatGPT",
       "claudeLogin": {
+        "approve": "Approva nella pagina di Anthropic che si è aperta e l'accesso si completerà da solo.",
         "codeLabel": "Incolla il codice mostrato da Anthropic",
         "failed": "Accesso non riuscito.",
         "opened": "Abbiamo aperto la pagina di accesso di Anthropic.",
@@ -1996,6 +1997,7 @@
         "starting": "Apertura della pagina di accesso di Anthropic…",
         "submit": "Invia",
         "submitting": "Accesso in corso…",
+        "useCode": "Usa invece un codice",
         "whereCloud": "Accesso a Claude Code nel tuo cloud.",
         "whereComputer": "Accesso a Claude Code su questo computer."
       },

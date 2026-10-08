@@ -1,5 +1,5 @@
 import path from "path";
-import { app, shell } from "electron";
+import { app } from "electron";
 import { AuthService } from "../services/auth-service.js";
 import { CaptureService } from "../services/capture-service.js";
 import { MouseHookManager } from "../input/mouse-hook.js";
@@ -117,7 +117,6 @@ export const createBootstrapServices = (options) => {
         stellaDataDir: config.stellaDataDirPath,
         engineAccounts: engineAccountAccess,
         loadDeviceId: async () => (await options.loadDeviceId?.()) ?? null,
-        openUrl: (url) => void shell.openExternal(url),
         onChanged: () => {
             for (const window of options.getAllWindows()) {
                 if (!window.isDestroyed()) {

@@ -1978,6 +1978,7 @@
       "chatgptComputerSignedIn": "Deze computer is ingelogd bij ChatGPT.",
       "chatgptTitle": "ChatGPT",
       "claudeLogin": {
+        "approve": "Keur goed op de geopende pagina van Anthropic, dan wordt het vanzelf afgerond.",
         "codeLabel": "Plak de code die Anthropic toont",
         "failed": "Inloggen is niet gelukt.",
         "opened": "We hebben de inlogpagina van Anthropic geopend.",
@@ -1986,6 +1987,7 @@
         "starting": "Inlogpagina van Anthropic openen…",
         "submit": "Versturen",
         "submitting": "Inloggen…",
+        "useCode": "Gebruik in plaats daarvan een code",
         "whereCloud": "Inloggen bij Claude Code in je cloud.",
         "whereComputer": "Inloggen bij Claude Code op deze computer."
       },

@@ -1529,6 +1529,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
         configId: options?.configId,
         email: options?.email,
       }) as Promise<ClaudeLocalLoginStart>,
+    waitClaudeLocalLogin: (loginId: string) =>
+      ipcRenderer.invoke("claudeAccounts:waitLogin", { loginId }) as Promise<ClaudeLocalConfig>,
     finishClaudeLocalLogin: (loginId: string, code: string) =>
       ipcRenderer.invoke("claudeAccounts:finishLogin", {
         loginId,

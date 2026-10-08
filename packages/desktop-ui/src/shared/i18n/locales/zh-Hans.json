@@ -1968,6 +1968,7 @@
       "chatgptComputerSignedIn": "这台电脑已登录 ChatGPT。",
       "chatgptTitle": "ChatGPT",
       "claudeLogin": {
+        "approve": "在打开的 Anthropic 页面上批准，登录会自动完成。",
         "codeLabel": "粘贴 Anthropic 显示的代码",
         "failed": "登录未成功。",
         "opened": "我们已打开 Anthropic 登录页面。",
@@ -1976,6 +1977,7 @@
         "starting": "正在打开 Anthropic 登录页面…",
         "submit": "提交",
         "submitting": "正在登录…",
+        "useCode": "改用验证码",
         "whereCloud": "正在你的云端登录 Claude Code。",
         "whereComputer": "正在这台电脑上登录 Claude Code。"
       },

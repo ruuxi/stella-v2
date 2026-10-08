@@ -1978,6 +1978,7 @@
       "chatgptComputerSignedIn": "Bu bilgisayarda ChatGPT oturumu açık.",
       "chatgptTitle": "ChatGPT",
       "claudeLogin": {
+        "approve": "Açılan Anthropic sayfasında onaylayın, oturum açma kendiliğinden tamamlanır.",
         "codeLabel": "Anthropic'in gösterdiği kodu yapıştırın",
         "failed": "Oturum açılamadı.",
         "opened": "Anthropic giriş sayfasını açtık.",
@@ -1986,6 +1987,7 @@
         "starting": "Anthropic giriş sayfası açılıyor…",
         "submit": "Gönder",
         "submitting": "Oturum açılıyor…",
+        "useCode": "Bunun yerine kod kullan",
         "whereCloud": "Bulutunda Claude Code'da oturum açılıyor.",
         "whereComputer": "Bu bilgisayarda Claude Code'da oturum açılıyor."
       },

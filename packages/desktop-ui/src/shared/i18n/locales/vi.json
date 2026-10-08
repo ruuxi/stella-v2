@@ -1968,6 +1968,7 @@
       "chatgptComputerSignedIn": "Máy tính này đã đăng nhập ChatGPT.",
       "chatgptTitle": "ChatGPT",
       "claudeLogin": {
+        "approve": "Phê duyệt trên trang Anthropic vừa mở, việc đăng nhập sẽ tự hoàn tất.",
         "codeLabel": "Dán mã mà Anthropic hiển thị",
         "failed": "Đăng nhập không thành công.",
         "opened": "Chúng tôi đã mở trang đăng nhập của Anthropic.",
@@ -1976,6 +1977,7 @@
         "starting": "Đang mở trang đăng nhập của Anthropic…",
         "submit": "Gửi",
         "submitting": "Đang đăng nhập…",
+        "useCode": "Dùng mã thay thế",
         "whereCloud": "Đang đăng nhập Claude Code trên đám mây của bạn.",
         "whereComputer": "Đang đăng nhập Claude Code trên máy tính này."
       },

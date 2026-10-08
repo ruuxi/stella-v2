@@ -1978,6 +1978,7 @@
       "chatgptComputerSignedIn": "Ez a számítógép be van jelentkezve a ChatGPT-be.",
       "chatgptTitle": "ChatGPT",
       "claudeLogin": {
+        "approve": "Hagyd jóvá a megnyílt Anthropic-oldalon, és a bejelentkezés magától befejeződik.",
         "codeLabel": "Illeszd be az Anthropic által mutatott kódot",
         "failed": "A bejelentkezés nem sikerült.",
         "opened": "Megnyitottuk az Anthropic bejelentkezési oldalát.",
@@ -1986,6 +1987,7 @@
         "starting": "Az Anthropic bejelentkezési oldalának megnyitása…",
         "submit": "Küldés",
         "submitting": "Bejelentkezés…",
+        "useCode": "Inkább kód használata",
         "whereCloud": "Bejelentkezés a Claude Code-ba a felhődben.",
         "whereComputer": "Bejelentkezés a Claude Code-ba ezen a számítógépen."
       },

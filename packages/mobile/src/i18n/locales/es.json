@@ -1988,6 +1988,7 @@
       "chatgptComputerSignedIn": "Este ordenador tiene la sesión iniciada en ChatGPT.",
       "chatgptTitle": "ChatGPT",
       "claudeLogin": {
+        "approve": "Aprueba en la página de Anthropic que se abrió y terminará solo.",
         "codeLabel": "Pega el código que muestra Anthropic",
         "failed": "No se pudo iniciar sesión.",
         "opened": "Hemos abierto la página de inicio de sesión de Anthropic.",
@@ -1996,6 +1997,7 @@
         "starting": "Abriendo la página de inicio de sesión de Anthropic…",
         "submit": "Enviar",
         "submitting": "Iniciando sesión…",
+        "useCode": "Usar un código en su lugar",
         "whereCloud": "Iniciando sesión en Claude Code en tu nube.",
         "whereComputer": "Iniciando sesión en Claude Code en este ordenador."
       },

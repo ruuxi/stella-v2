@@ -4,12 +4,12 @@
  * Four ways in, any of which is enough: a Stella account (Google or email,
  * the same dialog as the top bar), the Claude or ChatGPT plan the user
  * already pays for, or their own provider API key. Claude runs through Claude
- * Code on Claude Code's own
- * sign-in: in the desktop app this computer's `claude` signs in (Anthropic's
- * page, then the code it shows pasted here); on the website the owner's
- * cloud signs in the same way. ChatGPT is Sign in with ChatGPT: in the
- * desktop app this computer signs in on its own; on the website it signs in
- * Stella's cloud. Connecting one also makes
+ * Code on Claude Code's own sign-in: in the desktop app this computer's
+ * `claude` signs in (approve on Anthropic's page and it finishes by itself);
+ * on the website the owner's cloud signs in, with the code Anthropic's page
+ * shows pasted here. ChatGPT is Sign in with ChatGPT: in the desktop app this
+ * computer signs in on its own; on the website it signs in Stella's cloud.
+ * Connecting one also makes
  * it the engine Stella runs on, the same switch the model picker makes; a
  * lens slides to whichever one is in use, and tapping another connected row
  * moves it.
@@ -266,7 +266,7 @@ export function SignInCard({ active, answered, onAnswer }: SignInCardProps) {
     },
   });
   const { start: startClaudeLogin } = claudeLogin;
-  // A Claude sign-in waits on the pasted code rather than on a promise.
+  // A Claude sign-in is open until it finishes or is canceled, not a promise.
   const busyOption: OptionId | null = pending ?? (claudeLogin.open ? "claude" : null);
 
   const handleRow = useCallback(

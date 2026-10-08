@@ -1988,6 +1988,7 @@
       "chatgptComputerSignedIn": "המחשב הזה מחובר ל-ChatGPT.",
       "chatgptTitle": "ChatGPT",
       "claudeLogin": {
+        "approve": "אשרו בדף של Anthropic שנפתח, וההתחברות תושלם מעצמה.",
         "codeLabel": "הדביקו את הקוד ש-Anthropic מציגה",
         "failed": "ההתחברות לא הצליחה.",
         "opened": "פתחנו את דף ההתחברות של Anthropic.",
@@ -1996,6 +1997,7 @@
         "starting": "פותחים את דף ההתחברות של Anthropic…",
         "submit": "שליחה",
         "submitting": "מתחבר…",
+        "useCode": "שימוש בקוד במקום",
         "whereCloud": "מתחברים ל-Claude Code בענן שלכם.",
         "whereComputer": "מתחברים ל-Claude Code במחשב הזה."
       },

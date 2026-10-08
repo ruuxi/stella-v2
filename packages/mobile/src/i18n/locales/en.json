@@ -1978,6 +1978,7 @@
       "chatgptComputerSignedIn": "This computer is signed in to ChatGPT.",
       "chatgptTitle": "ChatGPT",
       "claudeLogin": {
+        "approve": "Approve on Anthropic's page that opened, and it finishes by itself.",
         "codeLabel": "Paste the code Anthropic shows",
         "failed": "That didn't sign in.",
         "opened": "We opened Anthropic's sign-in page.",
@@ -1986,6 +1987,7 @@
         "starting": "Opening Anthropic's sign-in page…",
         "submit": "Submit",
         "submitting": "Signing in…",
+        "useCode": "Use a code instead",
         "whereCloud": "Signing in to Claude Code in your cloud.",
         "whereComputer": "Signing in to Claude Code on this computer."
       },

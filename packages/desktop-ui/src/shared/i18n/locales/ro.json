@@ -1988,6 +1988,7 @@
       "chatgptComputerSignedIn": "Acest computer este conectat la ChatGPT.",
       "chatgptTitle": "ChatGPT",
       "claudeLogin": {
+        "approve": "Aprobă pe pagina Anthropic care s-a deschis și conectarea se încheie singură.",
         "codeLabel": "Lipește codul afișat de Anthropic",
         "failed": "Conectarea nu a reușit.",
         "opened": "Am deschis pagina de conectare Anthropic.",
@@ -1996,6 +1997,7 @@
         "starting": "Se deschide pagina de conectare Anthropic…",
         "submit": "Trimite",
         "submitting": "Se conectează…",
+        "useCode": "Folosește un cod în schimb",
         "whereCloud": "Conectare la Claude Code în cloudul tău.",
         "whereComputer": "Conectare la Claude Code pe acest computer."
       },

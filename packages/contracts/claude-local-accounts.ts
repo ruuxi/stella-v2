@@ -33,9 +33,15 @@ export type ClaudeLocalAccountsState = {
   activeEmail?: string;
 };
 
-/** A `claude auth login` waiting for the code Anthropic shows. */
+/**
+ * A `claude auth login` under way. The CLI has opened Anthropic's page and
+ * finishes by itself once the user approves there.
+ */
 export type ClaudeLocalLoginStart = {
   loginId: string;
-  /** Anthropic's sign-in page, as the CLI printed it. */
+  /**
+   * The CLI's printed fallback: Anthropic's page that shows a code to paste
+   * instead, for when the browser didn't open.
+   */
   authorizeUrl: string;
 };

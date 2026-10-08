@@ -1968,6 +1968,7 @@
       "chatgptComputerSignedIn": "Komputer ini sudah masuk ke ChatGPT.",
       "chatgptTitle": "ChatGPT",
       "claudeLogin": {
+        "approve": "Setujui di halaman Anthropic yang terbuka, lalu proses masuk selesai dengan sendirinya.",
         "codeLabel": "Tempel kode yang ditampilkan Anthropic",
         "failed": "Gagal masuk.",
         "opened": "Kami telah membuka halaman masuk Anthropic.",
@@ -1976,6 +1977,7 @@
         "starting": "Membuka halaman masuk Anthropic…",
         "submit": "Kirim",
         "submitting": "Sedang masuk…",
+        "useCode": "Gunakan kode sebagai gantinya",
         "whereCloud": "Masuk ke Claude Code di cloud Anda.",
         "whereComputer": "Masuk ke Claude Code di komputer ini."
       },

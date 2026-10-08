@@ -901,6 +901,8 @@ export type ElectronSystemApi = {
     email?: string;
   }) => Promise<ClaudeLocalLoginStart>;
   /** Rejects with the CLI's own error (e.g. a wrong code). */
+  /** Settles when the sign-in's CLI exits: approved in the browser, or a pasted code. */
+  waitClaudeLocalLogin: (loginId: string) => Promise<ClaudeLocalConfig>;
   finishClaudeLocalLogin: (loginId: string, code: string) => Promise<ClaudeLocalConfig>;
   cancelClaudeLocalLogin: (loginId: string) => Promise<{ canceled: boolean }>;
   /** Extra configs only: `claude auth logout` with that config, then delete it. */

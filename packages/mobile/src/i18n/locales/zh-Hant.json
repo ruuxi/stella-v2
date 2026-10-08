@@ -1968,6 +1968,7 @@
       "chatgptComputerSignedIn": "這台電腦已登入 ChatGPT。",
       "chatgptTitle": "ChatGPT",
       "claudeLogin": {
+        "approve": "在開啟的 Anthropic 頁面上核准，登入會自動完成。",
         "codeLabel": "貼上 Anthropic 顯示的代碼",
         "failed": "登入未成功。",
         "opened": "我們已開啟 Anthropic 登入頁面。",
@@ -1976,6 +1977,7 @@
         "starting": "正在開啟 Anthropic 登入頁面…",
         "submit": "送出",
         "submitting": "正在登入…",
+        "useCode": "改用驗證碼",
         "whereCloud": "正在你的雲端登入 Claude Code。",
         "whereComputer": "正在這台電腦上登入 Claude Code。"
       },

@@ -2018,6 +2018,7 @@
       "chatgptComputerSignedIn": "تم تسجيل دخول هذا الكمبيوتر إلى ChatGPT.",
       "chatgptTitle": "ChatGPT",
       "claudeLogin": {
+        "approve": "وافق في صفحة Anthropic التي فُتحت، وسيكتمل تسجيل الدخول تلقائيًا.",
         "codeLabel": "الصق الرمز الذي تعرضه Anthropic",
         "failed": "لم يتم تسجيل الدخول.",
         "opened": "فتحنا صفحة تسجيل الدخول من Anthropic.",
@@ -2026,6 +2027,7 @@
         "starting": "جارٍ فتح صفحة تسجيل الدخول من Anthropic…",
         "submit": "إرسال",
         "submitting": "جارٍ تسجيل الدخول…",
+        "useCode": "استخدم رمزًا بدلًا من ذلك",
         "whereCloud": "جارٍ تسجيل الدخول إلى Claude Code في سحابتك.",
         "whereComputer": "جارٍ تسجيل الدخول إلى Claude Code على هذا الكمبيوتر."
       },

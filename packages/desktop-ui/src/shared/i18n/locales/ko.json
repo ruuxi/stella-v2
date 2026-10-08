@@ -1968,6 +1968,7 @@
       "chatgptComputerSignedIn": "이 컴퓨터가 ChatGPT에 로그인되어 있습니다.",
       "chatgptTitle": "ChatGPT",
       "claudeLogin": {
+        "approve": "열린 Anthropic 페이지에서 승인하면 자동으로 완료됩니다.",
         "codeLabel": "Anthropic이 표시한 코드 붙여넣기",
         "failed": "로그인하지 못했습니다.",
         "opened": "Anthropic 로그인 페이지를 열었습니다.",
@@ -1976,6 +1977,7 @@
         "starting": "Anthropic 로그인 페이지를 여는 중…",
         "submit": "제출",
         "submitting": "로그인 중…",
+        "useCode": "대신 코드 사용",
         "whereCloud": "클라우드의 Claude Code에 로그인하는 중입니다.",
         "whereComputer": "이 컴퓨터의 Claude Code에 로그인하는 중입니다."
       },

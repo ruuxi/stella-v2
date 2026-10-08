@@ -1978,6 +1978,7 @@
       "chatgptComputerSignedIn": "Denne computer er logget ind på ChatGPT.",
       "chatgptTitle": "ChatGPT",
       "claudeLogin": {
+        "approve": "Godkend på Anthropics side, der blev åbnet, så afsluttes det af sig selv.",
         "codeLabel": "Indsæt koden, Anthropic viser",
         "failed": "Login mislykkedes.",
         "opened": "Vi har åbnet Anthropics loginside.",
@@ -1986,6 +1987,7 @@
         "starting": "Åbner Anthropics loginside…",
         "submit": "Send",
         "submitting": "Logger ind…",
+        "useCode": "Brug en kode i stedet",
         "whereCloud": "Logger ind på Claude Code i din cloud.",
         "whereComputer": "Logger ind på Claude Code på denne computer."
       },

@@ -1383,6 +1383,10 @@ export const registerSystemHandlers = (options) => {
         event.sender.once("destroyed", () => claudeAccounts.cancelLogin(started.loginId));
         return started;
     });
+    ipcMain.handle("claudeAccounts:waitLogin", async (event, payload) => {
+        guardClaude(event, "claudeAccounts:waitLogin");
+        return await claudeAccounts.waitLogin(asTrimmedString(payload?.loginId));
+    });
     ipcMain.handle("claudeAccounts:finishLogin", async (event, payload) => {
         guardClaude(event, "claudeAccounts:finishLogin");
         return await claudeAccounts.finishLogin(asTrimmedString(payload?.loginId), typeof payload?.code === "string" ? payload.code : "");

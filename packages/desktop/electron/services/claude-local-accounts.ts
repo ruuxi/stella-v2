@@ -74,6 +74,8 @@ type PendingLogin = {
   exited: Promise<number | null>;
   exitCode: number | null | undefined;
   timer: ReturnType<typeof setTimeout>;
+  /** Settles when the CLI exits: the signed-in config, or the CLI's error. */
+  outcome: Promise<ClaudeLocalConfig>;
   finishing: boolean;
   canceled: boolean;
 };
@@ -88,7 +90,6 @@ export type ClaudeLocalAccountsOptions = {
   stellaDataDir: string;
   engineAccounts: EngineAccountAccess;
   loadDeviceId: () => Promise<string | null>;
-  openUrl: (url: string) => void;
   /** The state changed ("claudeAccounts:changed"). */
   onChanged: () => void;
 };
@@ -191,8 +192,10 @@ export class ClaudeLocalAccounts {
   /**
    * Start `claude auth login`. No `configId`: a new Stella-managed config
    * dir; "default": the CLI's default config (only while it is signed out);
-   * an extra config id: sign that one in again. Opens Anthropic's sign-in
-   * page; the user brings back the code it shows (`finishLogin`).
+   * an extra config id: sign that one in again. The CLI opens Anthropic's
+   * page itself and finishes on its own localhost redirect once the user
+   * approves (`waitLogin`). The URL it prints is its fallback page, which
+   * shows a code to paste instead (`finishLogin`).
    */
   async startLogin(options: { configId?: string; email?: string } = {}): Promise<ClaudeLocalLoginStart> {
     const executable = this.resolveCli();
@@ -231,13 +234,14 @@ export class ClaudeLocalAccounts {
       executable,
       ["auth", "login", "--claudeai", ...(email ? ["--email", email] : [])],
       {
-        env: { ...this.childEnv(executable, dir), BROWSER: "true" },
+        env: this.childEnv(executable, dir),
         stdio: ["pipe", "pipe", "pipe"],
         windowsHide: true,
       },
     );
     const loginId = randomBytes(12).toString("hex");
     let resolveExit!: (code: number | null) => void;
+    const exited = new Promise<number | null>((resolve) => (resolveExit = resolve));
     const pending: PendingLogin = {
       loginId,
       configId,
@@ -245,12 +249,14 @@ export class ClaudeLocalAccounts {
       isNew,
       child,
       output: "",
-      exited: new Promise((resolve) => (resolveExit = resolve)),
+      exited,
       exitCode: undefined,
       timer: setTimeout(() => this.endLogin(pending, { kill: true }), LOGIN_TIMEOUT_MS),
+      outcome: exited.then((code) => this.settleLogin(pending, code)),
       finishing: false,
       canceled: false,
     };
+    void pending.outcome.catch(() => undefined);
     this.logins.set(loginId, pending);
     const append = (chunk: Buffer) => {
       pending.output += chunk.toString("utf8");
@@ -266,8 +272,6 @@ export class ClaudeLocalAccounts {
     child.once("exit", (code) => {
       pending.exitCode = code;
       resolveExit(code);
-      // A sign-in nobody is finishing ended (killed, timed out, or failed).
-      if (!pending.finishing) this.endLogin(pending, { kill: false });
     });
 
     try {
@@ -290,12 +294,22 @@ export class ClaudeLocalAccounts {
           reject(new Error(lastErrorLine(pending.output) ?? "Claude Code's sign-in ended."));
         });
       });
-      this.options.openUrl(authorizeUrl);
       return { loginId, authorizeUrl };
     } catch (error) {
       this.endLogin(pending, { kill: true });
       throw error;
     }
+  }
+
+  /**
+   * The sign-in's outcome: resolves the signed-in config once the CLI exits
+   * signed in (approved in the browser, or a pasted code); rejects with the
+   * CLI's own error.
+   */
+  async waitLogin(loginId: string): Promise<ClaudeLocalConfig> {
+    const pending = this.logins.get(loginId);
+    if (!pending) throw new Error("This Claude sign-in ended. Start it again.");
+    return await pending.outcome;
   }
 
   /**
@@ -331,27 +345,7 @@ export class ClaudeLocalAccounts {
           lastErrorLine(pending.output.slice(before)) ?? "Claude Code didn't accept that code.",
         );
       }
-      if (pending.exitCode !== 0) {
-        const message = pending.canceled
-          ? "Claude sign-in was canceled."
-          : (lastErrorLine(pending.output) ?? "Claude sign-in failed.");
-        this.endLogin(pending, { kill: false });
-        throw new Error(message);
-      }
-      this.endLogin(pending, { kill: false, succeeded: true });
-      await this.refresh();
-      const signedIn = this.configs?.find((config) => config.configId === pending.configId);
-      if (!signedIn?.loggedIn) {
-        throw new Error("Claude Code finished the sign-in but reports no login. Try again.");
-      }
-      if (pending.isNew) this.removeOlderDuplicates(signedIn);
-      return {
-        configId: signedIn.configId,
-        isDefault: signedIn.isDefault,
-        loggedIn: true,
-        ...(signedIn.email ? { email: signedIn.email } : {}),
-        ...(signedIn.plan ? { plan: signedIn.plan } : {}),
-      };
+      return await pending.outcome;
     } finally {
       pending.finishing = false;
     }
@@ -573,6 +567,32 @@ export class ClaudeLocalAccounts {
       await this.runCli(executable, dir, ["auth", "logout"], LOGOUT_TIMEOUT_MS);
     }
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+
+  /** The CLI exited: the config it signed in, or its error. */
+  private async settleLogin(pending: PendingLogin, code: number | null): Promise<ClaudeLocalConfig> {
+    if (code !== 0 || pending.canceled) {
+      this.endLogin(pending, { kill: false });
+      throw new Error(
+        pending.canceled
+          ? "Claude sign-in was canceled."
+          : (lastErrorLine(pending.output) ?? "Claude sign-in failed."),
+      );
+    }
+    this.endLogin(pending, { kill: false, succeeded: true });
+    await this.refresh();
+    const signedIn = this.configs?.find((config) => config.configId === pending.configId);
+    if (!signedIn?.loggedIn) {
+      throw new Error("Claude Code finished the sign-in but reports no login. Try again.");
+    }
+    if (pending.isNew) this.removeOlderDuplicates(signedIn);
+    return {
+      configId: signedIn.configId,
+      isDefault: signedIn.isDefault,
+      loggedIn: true,
+      ...(signedIn.email ? { email: signedIn.email } : {}),
+      ...(signedIn.plan ? { plan: signedIn.plan } : {}),
+    };
   }
 
   private endLogin(

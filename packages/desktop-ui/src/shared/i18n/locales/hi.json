@@ -1161,6 +1161,17 @@
         "signInToPair": "जोड़ने के लिए साइन इन करें",
         "title": "आपका कंप्यूटर, आपकी जेब में"
       },
+      "gmail": {
+        "body": "ईमेल खोजें, थ्रेड्स पर अपडेट रहें और जवाबों के ड्राफ़्ट लिखवाएँ, बस कहकर।",
+        "connect": "Gmail कनेक्ट करें",
+        "connected": "कनेक्ट हो गया",
+        "error": "Gmail कनेक्ट नहीं हो सका। फिर से कोशिश करें, या अभी छोड़ दें।",
+        "settledSkippedTitle": "अभी Gmail नहीं",
+        "settledTitle": "Gmail कनेक्ट हो गया",
+        "skip": "अभी नहीं",
+        "title": "Gmail कनेक्ट करें",
+        "waiting": "Google का इंतज़ार…"
+      },
       "hello": {
         "cta": "दिखाओ",
         "pillars": {
@@ -1183,6 +1194,7 @@
         "account": "क्या यह सब सहेजकर रखना चाहेंगे? Stella अकाउंट हर डिवाइस पर आपके साथ रहता है।",
         "accountSignedIn": "आप साइन इन हैं, इसलिए सब कुछ आपके डिवाइसों के बीच साथ चलता है। एक वैकल्पिक चीज़ और:",
         "computer": "अगर आपके पास Mac या PC है, तो मैं उस पर भी काम कर सकती हूँ।",
+        "gmail": "ज़िंदगी का बहुत कुछ ईमेल से होकर गुज़रता है। Gmail कनेक्ट करें और मैं आपके ईमेल में मदद करूँगी।",
         "hello": "नमस्ते, मैं Stella हूँ।\n\nमैं कोई चैटबॉट नहीं हूँ। बस बताइए कि आपको क्या चाहिए, और मैं उसे बैकग्राउंड में पूरा कर दूँगी, जब तक आप अपने दिन के काम निपटाते हैं।",
         "ready": "बस, इतना ही। साथ चलते-चलते मैं आपको जान जाऊँगी।\n\nहम पहले क्या करें?",
         "showcase": "देखिए, यह ऐसा दिखता है।",
@@ -1216,6 +1228,8 @@
         "accountSkipped": "अभी नहीं।",
         "computerDone": "कनेक्ट हो गया!",
         "computerSkipped": "बाद में।",
+        "gmailDone": "हो गया।",
+        "gmailSkipped": "अभी नहीं।",
         "helloDone": "दिखाओ।",
         "showcaseDone": "ठीक है।",
         "themeDone": "यही वाला।",
@@ -1546,6 +1560,18 @@
         "title": "Two quick extras",
         "titleOne": "One quick extra"
       },
+      "gmail": {
+        "body": "ईमेल खोजें, थ्रेड्स पर अपडेट रहें और जवाबों के ड्राफ़्ट लिखवाएँ, बस कहकर।",
+        "connect": "Gmail कनेक्ट करें",
+        "connected": "कनेक्ट हो गया",
+        "connecting": "Google का इंतज़ार…",
+        "error": "Gmail कनेक्ट नहीं हो सका। फिर से कोशिश करें, या अभी छोड़ दें।",
+        "settledDesc": "इसे कभी भी कनेक्टर में मैनेज करें।",
+        "settledSkippedTitle": "अभी Gmail नहीं",
+        "settledTitle": "Gmail कनेक्ट हो गया",
+        "skip": "अभी नहीं",
+        "title": "Gmail"
+      },
       "memory": {
         "bodyChatbot": "A new chat every time, a sidebar full of old ones, and no memory of what you said last week.",
         "bodyStella": "No new chats, no threads. Everything you've ever told me is in the same place, so when you ask about last week I go and find it.",
@@ -1559,6 +1585,7 @@
       "messages": {
         "capabilities": "नमस्ते, मैं Stella हूँ।\n\nमैं कोई चैटबॉट नहीं हूँ। मैं इस कंप्यूटर का इस्तेमाल करके सचमुच आपके काम निपटाती हूँ, बैकग्राउंड में, जबकि आप अपने काम में लगे रहते हैं।\n\nदेखिए, यह कैसा दिखता है।",
         "extras": "Almost done. A little housekeeping, then we start.",
+        "gmail": "ज़िंदगी का बहुत कुछ ईमेल से होकर गुज़रता है। Gmail कनेक्ट करें और मैं आपके ईमेल में मदद करूँगी।",
         "memory": "One more thing that makes me different.",
         "quickstart": "बस इतना ही। एक आख़िरी बात, और वह भी वैकल्पिक है: क्विकस्टार्ट।",
         "quickstartDone": "हो गया। यह रहा जो मैंने सीखा, और कुछ चीज़ें जिनसे हम शुरू कर सकते हैं।",
@@ -1617,6 +1644,8 @@
         "capabilitiesSkipped": "Skip the tour.",
         "extrasDone": "Done.",
         "extrasSkipped": "Skip for now.",
+        "gmailDone": "हो गया।",
+        "gmailSkipped": "अभी नहीं।",
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "बहुत बढ़िया।",

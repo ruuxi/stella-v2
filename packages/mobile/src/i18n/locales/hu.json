@@ -1161,6 +1161,17 @@
         "signInToPair": "Jelentkezz be a párosításhoz",
         "title": "A számítógéped, a zsebedből"
       },
+      "gmail": {
+        "body": "Keress e-maileket, zárkózz fel a beszélgetésekre, és írass válaszvázlatokat, csak kérned kell.",
+        "connect": "Gmail csatlakoztatása",
+        "connected": "Csatlakoztatva",
+        "error": "Nem sikerült csatlakoztatni a Gmailt. Próbáld újra, vagy most hagyd ki.",
+        "settledSkippedTitle": "Egyelőre Gmail nélkül",
+        "settledTitle": "Gmail csatlakoztatva",
+        "skip": "Most nem",
+        "title": "Gmail csatlakoztatása",
+        "waiting": "Várakozás a Google-re…"
+      },
       "hello": {
         "cta": "Mutasd",
         "pillars": {
@@ -1183,6 +1194,7 @@
         "account": "Szeretnéd megőrizni mindezt? A Stella-fiók minden eszközödre elkísér.",
         "accountSignedIn": "Be vagy jelentkezve, így minden követ az eszközeid között. Még egy opcionális dolog:",
         "computer": "Ha van Mac-ed vagy PC-d, azon is tudok dolgozni.",
+        "gmail": "Az élet nagy része e-mailen zajlik. Csatlakoztasd a Gmailt, és segítek vele.",
         "hello": "Szia, Stella vagyok.\n\nNem vagyok chatbot. Mondd el, mire van szükséged, és én elintézem a háttérben, amíg te a napoddal foglalkozol.",
         "ready": "Ennyi. Menet közben megismerlek.\n\nMivel kezdjük?",
         "showcase": "Így néz ez ki a gyakorlatban.",
@@ -1216,6 +1228,8 @@
         "accountSkipped": "Most nem.",
         "computerDone": "Csatlakoztatva!",
         "computerSkipped": "Majd később.",
+        "gmailDone": "Kész.",
+        "gmailSkipped": "Most nem.",
         "helloDone": "Mutasd.",
         "showcaseDone": "Értem.",
         "themeDone": "Ez lesz.",
@@ -1546,6 +1560,18 @@
         "title": "Two quick extras",
         "titleOne": "One quick extra"
       },
+      "gmail": {
+        "body": "Keress e-maileket, zárkózz fel a beszélgetésekre, és írass válaszvázlatokat, csak kérned kell.",
+        "connect": "Gmail csatlakoztatása",
+        "connected": "Csatlakoztatva",
+        "connecting": "Várakozás a Google-re…",
+        "error": "Nem sikerült csatlakoztatni a Gmailt. Próbáld újra, vagy most hagyd ki.",
+        "settledDesc": "Bármikor kezelheted itt: Összekötők.",
+        "settledSkippedTitle": "Egyelőre Gmail nélkül",
+        "settledTitle": "Gmail csatlakoztatva",
+        "skip": "Most nem",
+        "title": "Gmail"
+      },
       "memory": {
         "bodyChatbot": "A new chat every time, a sidebar full of old ones, and no memory of what you said last week.",
         "bodyStella": "No new chats, no threads. Everything you've ever told me is in the same place, so when you ask about last week I go and find it.",
@@ -1559,6 +1585,7 @@
       "messages": {
         "capabilities": "Szia, én Stella vagyok.\n\nNem vagyok chatbot. Ezt a számítógépet használom, hogy valóban elvégezzem helyetted a dolgokat, a háttérben, miközben te haladsz tovább.\n\nÍgy néz ez ki.",
         "extras": "Almost done. A little housekeeping, then we start.",
+        "gmail": "Az élet nagy része e-mailen zajlik. Csatlakoztasd a Gmailt, és segítek vele.",
         "memory": "One more thing that makes me different.",
         "quickstart": "Ez minden. Még egy dolog, és az is opcionális: egy gyorsindítás.",
         "quickstartDone": "Kész. Ezt tanultam meg rólad, és néhány dolog, amivel kezdhetjük.",
@@ -1617,6 +1644,8 @@
         "capabilitiesSkipped": "Skip the tour.",
         "extrasDone": "Done.",
         "extrasSkipped": "Skip for now.",
+        "gmailDone": "Kész.",
+        "gmailSkipped": "Most nem.",
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Nagyon menő.",

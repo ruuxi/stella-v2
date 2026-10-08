@@ -1161,6 +1161,17 @@
         "signInToPair": "Kirjaudu ja pariliitä",
         "title": "Tietokoneesi taskustasi"
       },
+      "gmail": {
+        "body": "Etsi viestejä, pysy keskustelujen tasalla ja luonnostele vastauksia pelkällä pyynnöllä.",
+        "connect": "Yhdistä Gmail",
+        "connected": "Yhdistetty",
+        "error": "Gmailin yhdistäminen epäonnistui. Yritä uudelleen tai ohita toistaiseksi.",
+        "settledSkippedTitle": "Ei Gmailia toistaiseksi",
+        "settledTitle": "Gmail yhdistetty",
+        "skip": "Ei nyt",
+        "title": "Yhdistä Gmail",
+        "waiting": "Odotetaan Googlea…"
+      },
       "hello": {
         "cta": "Näytä",
         "pillars": {
@@ -1183,6 +1194,7 @@
         "account": "Haluatko säilyttää kaiken tämän? Stella-tili seuraa sinua jokaiselle laitteelle.",
         "accountSignedIn": "Olet kirjautunut sisään, joten kaikki seuraa sinua laitteelta toiselle. Yksi valinnainen lisä:",
         "computer": "Jos sinulla on Mac tai PC, voin työskennellä myös sillä.",
+        "gmail": "Suuri osa elämästä kulkee sähköpostin kautta. Yhdistä Gmail, niin autan sinua sen kanssa.",
         "hello": "Hei, olen Stella.\n\nEn ole chatbot. Kerro, mitä tarvitset, niin hoidan sen taustalla, kun sinä jatkat päiväsi touhuja.",
         "ready": "Siinä kaikki. Opin tuntemaan sinut matkan varrella.\n\nMistä aloitetaan?",
         "showcase": "Tältä se näyttää.",
@@ -1216,6 +1228,8 @@
         "accountSkipped": "Ohita toistaiseksi.",
         "computerDone": "Yhdistetty!",
         "computerSkipped": "Ehkä myöhemmin.",
+        "gmailDone": "Valmis.",
+        "gmailSkipped": "Ei nyt.",
         "helloDone": "Näytä.",
         "showcaseDone": "Selvä.",
         "themeDone": "Tämä.",
@@ -1546,6 +1560,18 @@
         "title": "Two quick extras",
         "titleOne": "One quick extra"
       },
+      "gmail": {
+        "body": "Etsi viestejä, pysy keskustelujen tasalla ja luonnostele vastauksia pelkällä pyynnöllä.",
+        "connect": "Yhdistä Gmail",
+        "connected": "Yhdistetty",
+        "connecting": "Odotetaan Googlea…",
+        "error": "Gmailin yhdistäminen epäonnistui. Yritä uudelleen tai ohita toistaiseksi.",
+        "settledDesc": "Hallitse sitä milloin tahansa kohdassa Liitännät.",
+        "settledSkippedTitle": "Ei Gmailia toistaiseksi",
+        "settledTitle": "Gmail yhdistetty",
+        "skip": "Ei nyt",
+        "title": "Gmail"
+      },
       "memory": {
         "bodyChatbot": "A new chat every time, a sidebar full of old ones, and no memory of what you said last week.",
         "bodyStella": "No new chats, no threads. Everything you've ever told me is in the same place, so when you ask about last week I go and find it.",
@@ -1559,6 +1585,7 @@
       "messages": {
         "capabilities": "Hei, olen Stella.\n\nEn ole chatbotti. Käytän tätä tietokonetta saadakseni asioita oikeasti tehtyä puolestasi taustalla, kun sinä jatkat omiasi.\n\nNäin se näyttää.",
         "extras": "Almost done. A little housekeeping, then we start.",
+        "gmail": "Suuri osa elämästä kulkee sähköpostin kautta. Yhdistä Gmail, niin autan sinua sen kanssa.",
         "memory": "One more thing that makes me different.",
         "quickstart": "Siinä kaikki. Vielä yksi asia, ja se on valinnainen: pikaopastus.",
         "quickstartDone": "Valmis. Tämän opin, ja tässä muutamia asioita, joista voisimme aloittaa.",
@@ -1617,6 +1644,8 @@
         "capabilitiesSkipped": "Skip the tour.",
         "extrasDone": "Done.",
         "extrasSkipped": "Skip for now.",
+        "gmailDone": "Valmis.",
+        "gmailSkipped": "Ei nyt.",
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Todella hienoa.",

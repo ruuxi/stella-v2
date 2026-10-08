@@ -1161,6 +1161,17 @@
         "signInToPair": "Log in om te koppelen",
         "title": "Je computer, vanuit je broekzak"
       },
+      "gmail": {
+        "body": "Vind e-mails, lees gesprekken bij en laat antwoorden opstellen, gewoon door het te vragen.",
+        "connect": "Gmail koppelen",
+        "connected": "Gekoppeld",
+        "error": "Gmail kon niet worden gekoppeld. Probeer het opnieuw of sla het nu over.",
+        "settledSkippedTitle": "Voorlopig geen Gmail",
+        "settledTitle": "Gmail gekoppeld",
+        "skip": "Niet nu",
+        "title": "Gmail koppelen",
+        "waiting": "Wachten op Google…"
+      },
       "hello": {
         "cta": "Laat zien",
         "pillars": {
@@ -1183,6 +1194,7 @@
         "account": "Wil je dit allemaal bewaren? Een Stella-account volgt je naar elk apparaat.",
         "accountSignedIn": "Je bent ingelogd, dus alles volgt je tussen je apparaten. Nog één optioneel extraatje:",
         "computer": "Heb je een Mac of PC, dan kan ik daar ook aan het werk.",
+        "gmail": "Veel van het leven loopt via e-mail. Koppel Gmail en ik help je met de jouwe.",
         "hello": "Hoi, ik ben Stella.\n\nIk ben geen chatbot. Vertel me wat je nodig hebt en ik regel het, op de achtergrond, terwijl jij verder gaat met je dag.",
         "ready": "Dat was het. Ik leer je gaandeweg kennen.\n\nWat gaan we als eerste doen?",
         "showcase": "Zo ziet dat eruit.",
@@ -1216,6 +1228,8 @@
         "accountSkipped": "Nu even niet.",
         "computerDone": "Verbonden!",
         "computerSkipped": "Misschien later.",
+        "gmailDone": "Klaar.",
+        "gmailSkipped": "Niet nu.",
         "helloDone": "Laat maar zien.",
         "showcaseDone": "Begrepen.",
         "themeDone": "Deze.",
@@ -1546,6 +1560,18 @@
         "title": "Two quick extras",
         "titleOne": "One quick extra"
       },
+      "gmail": {
+        "body": "Vind e-mails, lees gesprekken bij en laat antwoorden opstellen, gewoon door het te vragen.",
+        "connect": "Gmail koppelen",
+        "connected": "Gekoppeld",
+        "connecting": "Wachten op Google…",
+        "error": "Gmail kon niet worden gekoppeld. Probeer het opnieuw of sla het nu over.",
+        "settledDesc": "Beheer het altijd via Connectors.",
+        "settledSkippedTitle": "Voorlopig geen Gmail",
+        "settledTitle": "Gmail gekoppeld",
+        "skip": "Niet nu",
+        "title": "Gmail"
+      },
       "memory": {
         "bodyChatbot": "A new chat every time, a sidebar full of old ones, and no memory of what you said last week.",
         "bodyStella": "No new chats, no threads. Everything you've ever told me is in the same place, so when you ask about last week I go and find it.",
@@ -1559,6 +1585,7 @@
       "messages": {
         "capabilities": "Hoi, ik ben Stella.\n\nIk ben geen chatbot. Ik gebruik deze computer om dingen echt voor je gedaan te krijgen, op de achtergrond, terwijl jij gewoon doorgaat.\n\nZo ziet dat eruit.",
         "extras": "Almost done. A little housekeeping, then we start.",
+        "gmail": "Veel van het leven loopt via e-mail. Koppel Gmail en ik help je met de jouwe.",
         "memory": "One more thing that makes me different.",
         "quickstart": "Dat was alles. Nog één ding, en dat is optioneel: een snelstart.",
         "quickstartDone": "Klaar. Dit heb ik opgepikt, plus een paar dingen waarmee we kunnen beginnen.",
@@ -1617,6 +1644,8 @@
         "capabilitiesSkipped": "Skip the tour.",
         "extrasDone": "Done.",
         "extrasSkipped": "Skip for now.",
+        "gmailDone": "Klaar.",
+        "gmailSkipped": "Niet nu.",
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Heel cool.",

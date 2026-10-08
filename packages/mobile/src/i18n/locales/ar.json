@@ -1201,6 +1201,17 @@
         "signInToPair": "سجّل الدخول للإقران",
         "title": "الكمبيوتر في جيبك"
       },
+      "gmail": {
+        "body": "ابحث عن الرسائل، والحق بالمحادثات، واكتب مسودات الردود بمجرد أن تطلب.",
+        "connect": "ربط Gmail",
+        "connected": "متصل",
+        "error": "تعذّر ربط Gmail. حاول مجددًا أو تخطَّ الآن.",
+        "settledSkippedTitle": "بدون Gmail حاليًا",
+        "settledTitle": "تم ربط Gmail",
+        "skip": "ليس الآن",
+        "title": "ربط Gmail",
+        "waiting": "بانتظار Google…"
+      },
       "hello": {
         "cta": "أرني",
         "pillars": {
@@ -1223,6 +1234,7 @@
         "account": "هل تريد الاحتفاظ بكل هذا؟ حساب Stella يرافقك إلى كل جهاز.",
         "accountSignedIn": "لقد سجّلت دخولك، فكل شيء يرافقك بين أجهزتك. وإضافة اختيارية واحدة:",
         "computer": "إن كان لديك Mac أو PC، فيمكنني العمل عليه أيضًا.",
+        "gmail": "الكثير من الحياة يمر عبر البريد الإلكتروني. اربط Gmail وسأساعدك في بريدك.",
         "hello": "مرحبًا، أنا Stella.\n\nلست روبوت دردشة. أخبرني بما تحتاجه وسأنجزه في الخلفية، بينما تمضي في يومك.",
         "ready": "هذا كل شيء. سأتعرّف عليك مع الوقت.\n\nماذا نفعل أولًا؟",
         "showcase": "هكذا يبدو الأمر.",
@@ -1256,6 +1268,8 @@
         "accountSkipped": "تخطَّ الآن.",
         "computerDone": "تم الاتصال!",
         "computerSkipped": "ربما لاحقًا.",
+        "gmailDone": "تم.",
+        "gmailSkipped": "ليس الآن.",
         "helloDone": "أرني.",
         "showcaseDone": "فهمت.",
         "themeDone": "هذا.",
@@ -1586,6 +1600,18 @@
         "title": "Two quick extras",
         "titleOne": "One quick extra"
       },
+      "gmail": {
+        "body": "ابحث عن الرسائل، والحق بالمحادثات، واكتب مسودات الردود بمجرد أن تطلب.",
+        "connect": "ربط Gmail",
+        "connected": "متصل",
+        "connecting": "بانتظار Google…",
+        "error": "تعذّر ربط Gmail. حاول مجددًا أو تخطَّ الآن.",
+        "settledDesc": "يمكنك إدارته في أي وقت من الموصلات.",
+        "settledSkippedTitle": "بدون Gmail حاليًا",
+        "settledTitle": "تم ربط Gmail",
+        "skip": "ليس الآن",
+        "title": "Gmail"
+      },
       "memory": {
         "bodyChatbot": "A new chat every time, a sidebar full of old ones, and no memory of what you said last week.",
         "bodyStella": "No new chats, no threads. Everything you've ever told me is in the same place, so when you ask about last week I go and find it.",
@@ -1599,6 +1625,7 @@
       "messages": {
         "capabilities": "مرحبًا، أنا Stella.\n\nلست روبوت دردشة. أستخدم هذا الكمبيوتر لأنجز الأشياء فعلًا نيابةً عنك، في الخلفية، بينما تواصل عملك.\n\nهكذا يبدو الأمر.",
         "extras": "Almost done. A little housekeeping, then we start.",
+        "gmail": "الكثير من الحياة يمر عبر البريد الإلكتروني. اربط Gmail وسأساعدك في بريدك.",
         "memory": "One more thing that makes me different.",
         "quickstart": "هذا كل شيء. بقي أمر أخير، وهو اختياري: بداية سريعة.",
         "quickstartDone": "تم. إليك ما تعلّمته، وبعض الأشياء التي يمكننا أن نبدأ بها.",
@@ -1657,6 +1684,8 @@
         "capabilitiesSkipped": "Skip the tour.",
         "extrasDone": "Done.",
         "extrasSkipped": "Skip for now.",
+        "gmailDone": "تم.",
+        "gmailSkipped": "ليس الآن.",
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "رائع جدًا.",

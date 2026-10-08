@@ -15,7 +15,7 @@ export const classifyCanvasNavigation = (href: string): CanvasNavigation => {
       return { kind: "external", url: url.href };
     }
   } catch {
-    // Relative URLs have nowhere meaningful to go in a srcdoc canvas.
+    // Relative URLs have nowhere meaningful to go from a single-file canvas.
   }
   return { kind: "blocked" };
 };

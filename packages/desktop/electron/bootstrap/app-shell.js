@@ -35,6 +35,7 @@ const initializeWindowShell = (context) => {
     state.rendererSource = serveRendererSource({
         partition: config.sessionPartition,
         sourceRoot: config.stellaAppDir,
+        stellaDataDir: state.stellaDataDirPath,
         mode: resolveRendererBuildMode({
             isInstalledProduct: config.isInstalledProduct,
         }),

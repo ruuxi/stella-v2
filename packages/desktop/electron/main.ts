@@ -6,6 +6,7 @@ import { configureLinuxGraphics } from "./linux-graphics.js";
 import { configureLinuxProtectedStorage } from "./linux-protected-storage.js";
 import { configureDevHarnessProtectedStorage } from "./bootstrap/dev-harness-protected-storage.js";
 import { registerRendererScheme } from "./source/renderer-protocol.js";
+import { guardCanvasFrames } from "./source/canvas-protocol.js";
 import { configureBrowserBridgeNamespace } from "./services/stella-browser-bridge-namespace.js";
 
 // Before anything resolves the browser bridge socket directory (the bridge
@@ -15,6 +16,7 @@ import { configureBrowserBridgeNamespace } from "./services/stella-browser-bridg
 configureBrowserBridgeNamespace({ isPackaged: app.isPackaged });
 
 registerRendererScheme();
+guardCanvasFrames();
 configureLinuxGraphics({
   commandLine: app.commandLine,
 });

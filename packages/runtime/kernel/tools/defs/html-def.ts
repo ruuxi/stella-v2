@@ -8,7 +8,7 @@
 export const HTML_TOOL_NAME = "html";
 
 export const HTML_TOOL_DESCRIPTION =
-  "Write a complete HTML document and show it as a canvas artifact in the workspace panel. Use whenever a richer answer than markdown helps — plans, diagrams (SVG), comparisons, mockups, dashboards, structured reports, documentation, long-form writeups, side-by-side options, anything with tables/colors/illustrations. Do NOT use to build a real Stella app (that's spawn_agent). The iframe has network — pull in Google Fonts, Tailwind, Chart.js, D3, three.js, icon sets, or any CDN asset that makes the canvas better. Returns immediately once the file is written.";
+  "Write a complete HTML document and show it as a canvas artifact in the workspace panel. Use whenever a richer answer than markdown helps — plans, diagrams (SVG), comparisons, mockups, dashboards, structured reports, documentation, long-form writeups, side-by-side options, anything with tables/colors/illustrations. Do NOT use to build a real Stella app (that's spawn_agent). The canvas runs sandboxed: inline scripts and styles work, and scripts, styles and fonts load from cdn.jsdelivr.net, unpkg.com, cdnjs.cloudflare.com, cdn.tailwindcss.com, esm.sh and Google Fonts (Tailwind, Chart.js, D3, three.js, icon sets); images load from any https URL. Nothing else on the network is reachable. Returns immediately once the file is written.";
 
 export const HTML_TOOL_PROMPT_SNIPPET =
   "Write a self-contained HTML doc to ~/.stella/outputs/html/<slug>.html and show it in the Canvas tab";
@@ -29,7 +29,7 @@ export const HTML_TOOL_PARAMETERS: Record<string, unknown> = {
     html: {
       type: "string",
       description:
-        "Complete <!doctype html> document. The iframe has network — freely pull in Google Fonts, Tailwind, Chart.js, D3, three.js, icon sets, or any CDN asset via <link>, <script src>, or @import. Aim for a polished native-feeling canvas: spacious layout, soft borders, rounded cards, subtle shadows, Cormorant Garamond for display type and Manrope for body.",
+        "Complete <!doctype html> document. Load libraries and fonts via <link>, <script src>, or @import from cdn.jsdelivr.net, unpkg.com, cdnjs.cloudflare.com, cdn.tailwindcss.com, esm.sh or Google Fonts only, with the exact library version in the URL (e.g. chart.js@4.4.1); fetch() reaches only those hosts too. Write the content into the HTML itself so it still reads if a CDN fails to load. Aim for a polished native-feeling canvas: spacious layout, soft borders, rounded cards, subtle shadows, Cormorant Garamond for display type and Manrope for body.",
     },
   },
   required: ["slug", "title", "html"],

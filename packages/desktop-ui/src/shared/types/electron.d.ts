@@ -1480,6 +1480,14 @@ export type ElectronDisplayApi = {
     title: string;
     createdAt: number;
   } | null>;
+  /**
+   * The `stella-canvas://` URL a canvas iframe loads a local HTML file from
+   * (its own origin and CSP, with the Ask Stella bridge injected).
+   * `missing` when the file is on no device that can serve it.
+   */
+  canvasFileUrl: (filePath: string) => Promise<{ url: string } | { missing: true }>;
+  /** Holds `html` (a cloud canvas) in main and returns its `stella-canvas://` URL. */
+  canvasHtmlUrl: (html: string) => Promise<{ url: string }>;
   listTrash: () => Promise<{
     items: Array<{
       id: string;

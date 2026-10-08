@@ -4,6 +4,8 @@ import type { FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
 import {
+  IPC_DISPLAY_CANVAS_FILE_URL,
+  IPC_DISPLAY_CANVAS_HTML_URL,
   IPC_DISPLAY_LIST_CANVAS_HTML,
   IPC_DISPLAY_OPEN_SHARED_CANVAS,
   IPC_DISPLAY_READ_FILE,
@@ -24,6 +26,11 @@ import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
 import { isCloudWorkspacePath } from "@stella/contracts/cloud-world-paths";
 import type { LocalChatEventRecord } from "@stella/runtime/kernel/storage/shared";
 import { planDisplayFileRead } from "./display-read-limit.js";
+import {
+  canvasUrlForOutputsFile,
+  MAX_CANVAS_HTML_BYTES,
+  registerCanvasHtml,
+} from "../source/canvas-protocol.js";
 import { resolveJwtOwnerScope } from "@stella/runtime/kernel/runner/computer-agent-cloud-records";
 import { resolveCanonicalConversationFilePaths } from "../services/canonical-conversation-file-paths.js";
 import type { CloudConversationFileGrants } from "../services/cloud-conversation-file-grants.js";
@@ -544,6 +551,56 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
         baseUrl: readConfiguredCanvasShareBaseUrl(),
         stellaDataDir: requireStellaDataDir(),
       });
+    },
+  );
+
+  // Canvases render from `stella-canvas://` (source/canvas-protocol.ts). A
+  // file under `outputs/` is served from disk; any other file (elsewhere on
+  // disk, or kept on another device) is read through the display lane above
+  // and held in memory, like a cloud canvas's HTML.
+  ipcMain.handle(
+    IPC_DISPLAY_CANVAS_FILE_URL,
+    async (event, payload?: { filePath?: unknown }) => {
+      if (!options.assertPrivilegedSender(event, IPC_DISPLAY_CANVAS_FILE_URL)) {
+        throw new Error(`Blocked untrusted ${IPC_DISPLAY_CANVAS_FILE_URL} request.`);
+      }
+      const filePath =
+        typeof payload?.filePath === "string" ? payload.filePath.trim() : "";
+      if (!filePath) {
+        throw new Error(`${IPC_DISPLAY_CANVAS_FILE_URL} requires a filePath.`);
+      }
+      const url = await canvasUrlForOutputsFile(requireStellaDataDir(), filePath);
+      if (url) return { url };
+      const read = await readDisplayFile(
+        { filePath, maxBytes: MAX_CANVAS_HTML_BYTES },
+        { remote: false },
+      );
+      if (read.missing) return { missing: true as const };
+      if (read.truncated) {
+        throw new Error(
+          `Canvas too large to display (${read.sizeBytes} bytes, limit ${MAX_CANVAS_HTML_BYTES}).`,
+        );
+      }
+      const bytes = Buffer.from(
+        read.bytes.buffer,
+        read.bytes.byteOffset,
+        read.bytes.byteLength,
+      );
+      return { url: registerCanvasHtml(bytes.toString("utf8")) };
+    },
+  );
+
+  ipcMain.handle(
+    IPC_DISPLAY_CANVAS_HTML_URL,
+    (event, payload?: { html?: unknown }) => {
+      if (!options.assertPrivilegedSender(event, IPC_DISPLAY_CANVAS_HTML_URL)) {
+        throw new Error(`Blocked untrusted ${IPC_DISPLAY_CANVAS_HTML_URL} request.`);
+      }
+      const html = typeof payload?.html === "string" ? payload.html : "";
+      if (!html) {
+        throw new Error(`${IPC_DISPLAY_CANVAS_HTML_URL} requires html.`);
+      }
+      return { url: registerCanvasHtml(html) };
     },
   );
 

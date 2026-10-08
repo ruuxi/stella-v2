@@ -112,6 +112,8 @@ import {
   IPC_DISCOVERY_LIST_BROWSER_PROFILES,
   IPC_DISCOVERY_WRITE_CORE_MEMORY,
   IPC_DISCOVERY_WRITE_KNOWLEDGE,
+  IPC_DISPLAY_CANVAS_FILE_URL,
+  IPC_DISPLAY_CANVAS_HTML_URL,
   IPC_DISPLAY_LIST_CANVAS_HTML,
   IPC_DISPLAY_OPEN_SHARED_CANVAS,
   IPC_DISPLAY_TRASH_FORCE_DELETE,
@@ -468,6 +470,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
         title: string;
         createdAt: number;
       } | null>,
+    canvasFileUrl: (filePath: string) =>
+      ipcRenderer.invoke(IPC_DISPLAY_CANVAS_FILE_URL, { filePath }) as Promise<
+        { url: string } | { missing: true }
+      >,
+    canvasHtmlUrl: (html: string) =>
+      ipcRenderer.invoke(IPC_DISPLAY_CANVAS_HTML_URL, { html }) as Promise<{
+        url: string;
+      }>,
     listTrash: () => ipcRenderer.invoke(IPC_DISPLAY_TRASH_LIST),
     forceDeleteTrash: (payload: { id?: string; all?: boolean }) =>
       ipcRenderer.invoke(IPC_DISPLAY_TRASH_FORCE_DELETE, payload),

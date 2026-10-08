@@ -1,5 +1,6 @@
 import { session, type WebContents } from "electron";
 import { RENDERER_ORIGIN } from "../source/origin.js";
+import { isCanvasUrl } from "../source/canvas-protocol.js";
 
 const APP_ALLOWED_PERMISSIONS = new Set([
   "media",
@@ -44,19 +45,27 @@ export const configureStellaSessionPermissions = ({
   };
   const appSession = session.fromPartition(appPartition);
 
+  // The window is the app's, but a canvas frame inside it is model-authored
+  // content: whatever it asks for (camera, clipboard, notifications, ...) is
+  // refused, judged by the frame that asked rather than the window.
   appSession.setPermissionRequestHandler(
-    (webContents, permission, callback) => {
+    (webContents, permission, callback, details) => {
       callback(
-        APP_ALLOWED_PERMISSIONS.has(permission) &&
+        !isCanvasUrl(details.requestingUrl) &&
+          APP_ALLOWED_PERMISSIONS.has(permission) &&
           isTrustedAppContents(webContents),
       );
     },
   );
 
-  appSession.setPermissionCheckHandler((webContents, permission) => {
-    return (
-      APP_ALLOWED_PERMISSIONS.has(permission) &&
-      isTrustedAppContents(webContents)
-    );
-  });
+  appSession.setPermissionCheckHandler(
+    (webContents, permission, requestingOrigin, details) => {
+      return (
+        !isCanvasUrl(details.requestingUrl ?? "") &&
+        !isCanvasUrl(requestingOrigin) &&
+        APP_ALLOWED_PERMISSIONS.has(permission) &&
+        isTrustedAppContents(webContents)
+      );
+    },
+  );
 };

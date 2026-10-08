@@ -2,6 +2,7 @@ import path from "node:path";
 import { app, protocol, session, webContents } from "electron";
 import { RENDERER_ORIGIN, RENDERER_SCHEME } from "./origin.js";
 import { MEDIA_SCHEME_PRIVILEGES, serveMediaProtocol } from "./media-protocol.js";
+import { CANVAS_SCHEME_PRIVILEGES, serveCanvasProtocol } from "./canvas-protocol.js";
 import type { RendererSource } from "./renderer-source.js";
 
 /** Must run before `ready`: the scheme behaves like https (ESM, fetch, CSP 'self'). */
@@ -19,6 +20,7 @@ export const registerRendererScheme = () => {
       },
     },
     MEDIA_SCHEME_PRIVILEGES,
+    CANVAS_SCHEME_PRIVILEGES,
   ]);
 };
 
@@ -77,11 +79,14 @@ export const serveRendererSource = (options: {
   sourceRoot: string;
   /** Repo root whose packages/desktop-ui .env files supply the defines; defaults to sourceRoot. */
   envRoot?: string;
+  /** Stella data dir, whose `outputs/` canvases are served from. */
+  stellaDataDir: string;
   mode: RendererBuildMode;
   log: (message: string) => void;
 }): RendererSourceHandle => {
   const partitionSession = session.fromPartition(options.partition);
   serveMediaProtocol(options.partition);
+  serveCanvasProtocol(options.partition, options.stellaDataDir);
   const pages = () =>
     webContents
       .getAllWebContents()

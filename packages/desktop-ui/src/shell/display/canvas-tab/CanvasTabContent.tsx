@@ -1,12 +1,16 @@
 /**
  * Canvas viewer for one HTML artifact the orchestrator produced via the
- * `html` tool: a share bar over a sandboxed iframe rendering the file as
- * `srcdoc`. Which canvas is showing is the Files section's business, so this
- * takes the item it should render rather than picking one.
+ * `html` tool: a share bar over a sandboxed iframe. On desktop the iframe
+ * loads the canvas from `stella-canvas://`, its own origin with its own CSP
+ * (CDN scripts, styles and fonts load; the app's DOM, storage and preload API
+ * are out of reach), where main injects the Ask Stella / link bridge. Which
+ * canvas is showing is the Files section's business, so this takes the item
+ * it should render rather than picking one.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useDisplayPanelOpen } from "@/features/workspace-display/tab-store";
 import { useDisplayFileBytes } from "@/shared/hooks/use-display-file-data";
+import { DisplayFileSourceContext } from "@/shared/hooks/display-file-source";
 import { useCloudDriveHtml } from "@/features/cloud/use-cloud-drive-html";
 import { openExternalUrl } from "@/platform/electron/open-external";
 import { CanvasIllustration } from "../illustrations/CanvasIllustration";
@@ -18,168 +22,21 @@ import "./canvas-tab.css";
 import type { ReactNode } from "react";
 
 const decoder = new TextDecoder("utf-8");
-const CANVAS_SELECTION_BRIDGE_SCRIPT = String.raw `
-(() => {
-  const navigate = (rawHref) => {
-    const href = rawHref.trim();
-    if (href.startsWith("#")) {
-      const fragment = decodeURIComponent(href.slice(1));
-      if (!fragment) {
-        window.scrollTo({ top: 0, behavior: "auto" });
-        return;
-      }
-      const target = document.getElementById(fragment) ||
-        document.querySelector('[name="' + CSS.escape(fragment) + '"]');
-      target?.scrollIntoView();
-      return;
-    }
-    try {
-      const url = new URL(href);
-      if (url.protocol === "http:" || url.protocol === "https:") {
-        parent.postMessage({ type: "stella:canvas-open-external", url: url.href }, "*");
-      }
-    } catch {
-      // A relative destination cannot exist outside this single srcdoc file.
-    }
-  };
 
-  document.addEventListener("click", (event) => {
-    const target = event.target;
-    const anchor = target && typeof target.closest === "function"
-      ? target.closest("a[href]")
-      : null;
-    if (!anchor) return;
-    event.preventDefault();
-    event.stopPropagation();
-    navigate(anchor.getAttribute("href") || "");
-  }, true);
+/**
+ * `src`: a `stella-canvas://` document. `srcDoc`: the website, which has no
+ * canvas origin; there the HTML runs under the page's own CSP.
+ */
+type CanvasFrame = { src: string } | { srcDoc: string };
 
-  document.addEventListener("submit", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const form = event.target;
-    if (form && typeof form.getAttribute === "function") {
-      navigate(form.getAttribute("action") || "");
-    }
-  }, true);
-
-  const composeButton = document.createElement("button");
-  composeButton.type = "button";
-  composeButton.textContent = "Ask Stella";
-  composeButton.setAttribute("aria-label", "Ask Stella about this");
-  Object.assign(composeButton.style, {
-    position: "fixed",
-    zIndex: "2147483647",
-    display: "none",
-    alignItems: "center",
-    border: "1px solid rgba(255,255,255,0.18)",
-    borderRadius: "999px",
-    background: "rgba(20,20,22,0.92)",
-    color: "white",
-    boxShadow: "0 8px 24px rgba(0,0,0,0.24)",
-    padding: "5px 9px",
-    font: "600 12px system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
-    cursor: "default",
-  });
-  (document.body || document.documentElement).appendChild(composeButton);
-  let activeComposeText = "";
-  let hideTimer = 0;
-
-  const findComposeTarget = (target) => {
-    if (!target || typeof target.closest !== "function") return null;
-    return target.closest("[data-stella-compose]");
-  };
-
-  const readComposeText = (target) => {
-    const raw = target.getAttribute("data-stella-compose") || target.textContent || "";
-    return raw.replace(/\s+/g, " ").trim();
-  };
-
-  const showComposeButton = (target) => {
-    window.clearTimeout(hideTimer);
-    const text = readComposeText(target);
-    if (!text) return;
-    activeComposeText = text;
-    const rect = target.getBoundingClientRect();
-    composeButton.style.left = Math.max(8, Math.min(window.innerWidth - 104, rect.right - 96)) + "px";
-    composeButton.style.top = Math.max(8, rect.top + 8) + "px";
-    composeButton.style.display = "inline-flex";
-  };
-
-  const hideComposeButtonSoon = () => {
-    window.clearTimeout(hideTimer);
-    hideTimer = window.setTimeout(() => {
-      composeButton.style.display = "none";
-      activeComposeText = "";
-    }, 180);
-  };
-
-  document.addEventListener("mouseover", (event) => {
-    const target = findComposeTarget(event.target);
-    if (target) showComposeButton(target);
-  }, true);
-  document.addEventListener("mouseout", (event) => {
-    const target = findComposeTarget(event.target);
-    if (target) hideComposeButtonSoon();
-  }, true);
-  composeButton.addEventListener("mouseover", () => window.clearTimeout(hideTimer));
-  composeButton.addEventListener("mouseout", hideComposeButtonSoon);
-  composeButton.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (activeComposeText) {
-      parent.postMessage({ type: "stella:canvas-compose", text: activeComposeText }, "*");
-    }
-    composeButton.style.display = "none";
-  });
-
-  const post = () => {
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-      parent.postMessage({ type: "stella:canvas-selection", selected: false }, "*");
-      return;
-    }
-    const text = selection.toString();
-    const trimmed = text.trim();
-    if (trimmed.length < 2) {
-      parent.postMessage({ type: "stella:canvas-selection", selected: false }, "*");
-      return;
-    }
-    const range = selection.getRangeAt(0);
-    const rect = range.getBoundingClientRect();
-    if ((rect.width === 0 && rect.height === 0) || !Number.isFinite(rect.left)) {
-      parent.postMessage({ type: "stella:canvas-selection", selected: false }, "*");
-      return;
-    }
-    parent.postMessage({
-      type: "stella:canvas-selection",
-      selected: true,
-      text,
-      rect: {
-        left: rect.left,
-        top: rect.top,
-        width: rect.width,
-        height: rect.height,
-      },
-    }, "*");
-  };
-  window.addEventListener("mouseup", () => setTimeout(post, 0), true);
-  document.addEventListener("selectionchange", () => setTimeout(post, 0));
-  window.addEventListener("message", (event) => {
-    if (event.data && event.data.type === "stella:canvas-selection-clear") {
-      window.getSelection()?.removeAllRanges();
-      post();
-    }
-  });
-})();
-`;
-const injectCanvasSelectionBridge = (html: string) : string => {
-    const script = `<script>${CANVAS_SELECTION_BRIDGE_SCRIPT}</script>`;
-    if (/<\/body>/i.test(html)) {
-        return html.replace(/<\/body>/i, `${script}</body>`);
-    }
-    return `${html}${script}`;
+const canvasUrlApi = () => {
+    const display = typeof window === "undefined" ? undefined : window.electronAPI?.display;
+    return typeof display?.canvasFileUrl === "function" &&
+        typeof display.canvasHtmlUrl === "function"
+        ? display
+        : null;
 };
+const errorMessage = (caught: unknown) => caught instanceof Error ? caught.message : String(caught);
 const CanvasLoadingDots = () => (<span className="canvas-tab__loading-dots" aria-hidden>
     <span>.</span>
     <span>.</span>
@@ -191,28 +48,99 @@ const CanvasIllustrationSpot = ({ label }: { label?: ReactNode }) => (<div class
     </div>
     {label ? (<div className="canvas-tab__illustration-label">{label}</div>) : null}
   </div>);
-/** Local canvas: bytes from `~/.stella/outputs/html` over the display bridge. */
-const LocalCanvasHeroFrameContent = ({ item }: { item: CanvasHtmlItem }) => {
-    const { bytes, error, loading } = useDisplayFileBytes(item.filePath, "Canvas preview requires the Stella desktop app.", undefined,
+/**
+ * Local canvas on desktop: main hands back the URL (a file under `outputs/`
+ * is served from disk; any other is read there and held in memory).
+ */
+const LocalFileCanvasHeroFrameContent = ({ item }: { item: CanvasHtmlItem }) => {
     // Same-slug canvases overwrite the same file in place; folding
-    // `createdAt` into the read forces a fresh disk read (and iframe
-    // remount below) so a re-opened/re-rendered canvas never shows stale
-    // content served from the display-file cache.
-    item.createdAt);
+    // `createdAt` into the key re-resolves (and the iframe below remounts)
+    // so a re-opened/re-rendered canvas never shows stale content.
+    const key = `${item.filePath}\0${item.createdAt}`;
+    const [resolved, setResolved] = useState<{
+        key: string;
+        src: string | null;
+        error: string | null;
+    } | null>(null);
+    useEffect(() => {
+        const api = canvasUrlApi();
+        if (!api)
+            return;
+        let cancelled = false;
+        void api.canvasFileUrl(item.filePath).then((result) => {
+            if (!cancelled)
+                setResolved({ key, src: "url" in result ? result.url : null, error: null });
+        }, (caught: unknown) => {
+            if (!cancelled)
+                setResolved({ key, src: null, error: errorMessage(caught) });
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [item.filePath, key]);
+    const settled = resolved?.key === key ? resolved : null;
+    return <CanvasHeroFrameDocument item={item} frame={settled?.src ? { src: settled.src } : null} error={settled?.error ?? null} loading={!settled}/>;
+};
+/**
+ * HTML already in hand (a cloud canvas, a Drive file): on desktop it is
+ * registered with main and loaded from its `stella-canvas://` URL.
+ */
+const HtmlCanvasHeroFrameContent = ({ item, html, error, loading, }: {
+  item: CanvasHtmlItem;
+  html: string;
+  error: string | null;
+  loading: boolean;
+}) => {
+    const hasCanvasOrigin = canvasUrlApi() !== null;
+    const [registered, setRegistered] = useState<{
+        html: string;
+        src: string | null;
+        error: string | null;
+    } | null>(null);
+    useEffect(() => {
+        const api = canvasUrlApi();
+        if (!api || !html)
+            return;
+        let cancelled = false;
+        void api.canvasHtmlUrl(html).then(({ url }) => {
+            if (!cancelled)
+                setRegistered({ html, src: url, error: null });
+        }, (caught: unknown) => {
+            if (!cancelled)
+                setRegistered({ html, src: null, error: errorMessage(caught) });
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [html]);
+    if (!hasCanvasOrigin) {
+        return <CanvasHeroFrameDocument item={item} frame={html ? { srcDoc: html } : null} error={error} loading={loading}/>;
+    }
+    const settled = html && registered?.html === html ? registered : null;
+    return <CanvasHeroFrameDocument item={item} frame={settled?.src ? { src: settled.src } : null} error={error ?? settled?.error ?? null} loading={loading || (Boolean(html) && !settled)}/>;
+};
+/** Bytes over the display bridge: a Drive file, or the website's device copies. */
+const BytesCanvasHeroFrameContent = ({ item }: { item: CanvasHtmlItem }) => {
+    const { bytes, error, loading } = useDisplayFileBytes(item.filePath, "Canvas preview requires the Stella desktop app.", undefined, item.createdAt);
     const html = useMemo(() => (bytes ? decoder.decode(bytes) : ""), [bytes]);
-    return <CanvasHeroFrameDocument item={item} html={html} error={error} loading={loading}/>;
+    return <HtmlCanvasHeroFrameContent item={item} html={html} error={error} loading={loading}/>;
 };
 /** Cloud canvas: the html the cloud `html` tool wrote into the owner's drive. */
 const CloudCanvasHeroFrameContent = ({ item }: { item: CanvasHtmlItem }) => {
     const { html, error, loading } = useCloudDriveHtml(item.filePath, item.createdAt);
-    return <CanvasHeroFrameDocument item={item} html={html ?? ""} error={error} loading={loading}/>;
+    return <HtmlCanvasHeroFrameContent item={item} html={html ?? ""} error={error} loading={loading}/>;
 };
-const CanvasHeroFrameContent = ({ item }: { item: CanvasHtmlItem }) => item.driveBacked
-    ? <CloudCanvasHeroFrameContent item={item}/>
-    : <LocalCanvasHeroFrameContent item={item}/>;
-const CanvasHeroFrameDocument = ({ item, html, error, loading, }: {
+const CanvasHeroFrameContent = ({ item }: { item: CanvasHtmlItem }) => {
+    const fileSource = useContext(DisplayFileSourceContext);
+    if (item.driveBacked)
+        return <CloudCanvasHeroFrameContent item={item}/>;
+    if (fileSource || !canvasUrlApi())
+        return <BytesCanvasHeroFrameContent item={item}/>;
+    return <LocalFileCanvasHeroFrameContent item={item}/>;
+};
+const CanvasHeroFrameDocument = ({ item, frame, error, loading, }: {
   item: CanvasHtmlItem;
-  html: string;
+  frame: CanvasFrame | null;
   error: string | null;
   loading: boolean;
 }) => {
@@ -220,9 +148,10 @@ const CanvasHeroFrameDocument = ({ item, html, error, loading, }: {
     const iframeRef = useRef<HTMLIFrameElement | null>(null);
     const loadCountRef = useRef(0);
     const [navigationReset, setNavigationReset] = useState(0);
-    const srcDoc = useMemo(() => (html ? injectCanvasSelectionBridge(html) : ""), [html]);
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
+            // The canvas origin is opaque ("null"), so the sender is
+            // identified by its window, never by origin.
             if (event.source !== iframeRef.current?.contentWindow)
                 return;
             const data = event.data;
@@ -242,17 +171,20 @@ const CanvasHeroFrameDocument = ({ item, html, error, loading, }: {
         {t("shell.display.canvas.loadFailed")}
       </div>);
     }
-    if (loading || !html) {
+    if (loading || !frame) {
         return (<CanvasIllustrationSpot label={<div className="canvas-tab__loading-label">
             {t("shell.display.canvas.loading")}
             <CanvasLoadingDots />
           </div>}/>);
     }
     return (<div className="canvas-tab__frame-wrap">
-      <iframe key={`${item.id}:${item.createdAt}:${navigationReset}`} ref={iframeRef} title={item.title} className="canvas-tab__iframe" srcDoc={srcDoc} sandbox="allow-scripts allow-popups allow-modals allow-forms" referrerPolicy="no-referrer" onLoad={() => {
-            // The first load is srcdoc. Any later load means script-driven or
-            // otherwise uncaught navigation escaped the click/form bridge;
-            // remount the original document instead of leaving a broken frame.
+      <iframe key={`${item.id}:${item.createdAt}:${navigationReset}`} ref={iframeRef} title={item.title} className="canvas-tab__iframe" {...("src" in frame
+            ? { src: frame.src, sandbox: "allow-scripts" }
+            : { srcDoc: frame.srcDoc, sandbox: "allow-scripts allow-popups allow-modals allow-forms" })} referrerPolicy="no-referrer" onLoad={() => {
+            // The first load is the canvas document. Main stops a canvas
+            // navigating itself, so a later load means something got past
+            // that; remount the original document instead of leaving a
+            // broken frame.
             loadCountRef.current += 1;
             if (loadCountRef.current > 1) {
                 loadCountRef.current = 0;
@@ -271,8 +203,8 @@ const CanvasHeroFrame = ({ item, panelOpen, }: {
         if (!panelOpen || ready)
             return;
         // A canvas can already be mounted in the hidden keep-alive host when a
-        // sidebar artifact is clicked. Starting its file read (or replacing its
-        // srcdoc iframe) during that click blocks Chromium's renderer before the
+        // sidebar artifact is clicked. Starting its load (or replacing its
+        // iframe) during that click blocks Chromium's renderer before the
         // panel gets a chance to paint. Wait for a frame of the open shell first;
         // the keyed boundary below also makes a same-path overwrite start from
         // this lightweight loading state instead of remounting with stale bytes.

@@ -81,6 +81,8 @@ const ELECTRON_SYSTEM_ENV_KEYS = [
   // development mode. Pass this through to verify the production build the
   // installed product serves (see resolveRendererBuildMode).
   "STELLA_RENDERER_MODE",
+  // `pi` runs the desktop chat on pi-durable (the migration flag).
+  "STELLA_AGENT_RUNTIME",
 ];
 
 const usage = helpText();

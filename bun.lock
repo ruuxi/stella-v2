@@ -275,6 +275,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@modelcontextprotocol/sdk": "1.32.0",
+        "@stella/agent": "workspace:*",
         "@stella/contracts": "workspace:*",
         "effect": "4.0.0",
         "json5": "^2.2.3",

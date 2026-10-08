@@ -138,7 +138,11 @@ import {
   IPC_APP_SOURCE_STATE,
   IPC_APP_SOURCE_UNDO,
   IPC_WINDOW_SET_NATIVE_BUTTONS_VISIBLE,
+  IPC_PI_CHAT_ENABLED,
+  IPC_PI_CHAT_EVENTS,
+  IPC_PI_CHAT_REQUEST,
 } from "@stella/contracts/desktop/ipc-channels";
+import type { PiChatEventsPayload, PiChatRequest } from "@stella/contracts/pi-chat";
 import type {
   AppSourceActionResult,
   AppSourceState,
@@ -915,6 +919,19 @@ contextBridge.exposeInMainWorld("electronAPI", {
     setVisible: (visible: boolean) =>
       ipcRenderer.invoke(IPC_COMPANION_SET_VISIBLE, visible) as Promise<CompanionVisibility>,
     onVisibleChanged: onIpc<CompanionVisibility>(IPC_COMPANION_VISIBLE_CHANGED),
+  },
+
+  piChat: {
+    enabled: (() => {
+      try {
+        return ipcRenderer.sendSync(IPC_PI_CHAT_ENABLED) === true;
+      } catch {
+        return false;
+      }
+    })(),
+    request: (request: PiChatRequest) =>
+      ipcRenderer.invoke(IPC_PI_CHAT_REQUEST, request) as Promise<unknown>,
+    onEvents: onIpc<PiChatEventsPayload>(IPC_PI_CHAT_EVENTS),
   },
 
   agent: {

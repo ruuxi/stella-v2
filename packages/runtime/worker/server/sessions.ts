@@ -24,6 +24,7 @@ import { ProtocolMismatchError } from "./errors.js";
 import * as HostBus from "./host-bus.js";
 import * as ModelCatalog from "./model-catalog.js";
 import * as RunnerModule from "./runner-module.js";
+import { resumePiChats } from "./pi-chats.js";
 import * as SessionConfig from "./session/config.js";
 import * as SessionStorage from "./session/storage.js";
 import * as RunEventBus from "./session/run-events.js";
@@ -554,6 +555,13 @@ export const layer = Layer.effect(
                             (error as Error).message,
                           );
                         });
+                      // Conversations on pi-durable resume their own work.
+                      void resumePiChats(session, hostBus).catch((error) => {
+                        console.warn(
+                          "[runtime-worker] pi chat resume failed:",
+                          (error as Error).message,
+                        );
+                      });
                     }
                   })(),
                 ]);

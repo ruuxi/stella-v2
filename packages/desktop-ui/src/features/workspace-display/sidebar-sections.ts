@@ -301,7 +301,8 @@ export const sidebarSections = {
    *
    * - If a tab for this exact concrete item (kind + location) is already open,
    *   it is focused — never duplicated. A single-tab surface (Updates) is
-   *   focused wherever its one tab is.
+   *   focused wherever its one tab is, closing the empty Home tab it was
+   *   picked from.
    * - Else, if the active tab is a launcher/list surface (the empty Home
    *   launcher, or a Files/Apps list with nothing drilled in), that SAME tab is
    *   reused in place — selecting an item from a list/launcher is in-place
@@ -324,7 +325,20 @@ export const sidebarSections = {
           (SINGLE_TAB_SECTIONS.has(kind) || tab.location === loc),
       );
       if (existing) {
-        if (snapshot.activeTabId !== existing.id) {
+        // Reached from an empty Home tab opened just to get there: switching
+        // to the one already open leaves no empty tab behind.
+        const active = activeTabOf(snapshot);
+        if (
+          active &&
+          active.id !== existing.id &&
+          active.kind === "home" &&
+          SINGLE_TAB_SECTIONS.has(kind)
+        ) {
+          emit({
+            tabs: snapshot.tabs.filter((tab) => tab.id !== active.id),
+            activeTabId: existing.id,
+          });
+        } else if (snapshot.activeTabId !== existing.id) {
           emit({ ...snapshot, activeTabId: existing.id });
         }
         displayTabs.setPanelOpen(true);

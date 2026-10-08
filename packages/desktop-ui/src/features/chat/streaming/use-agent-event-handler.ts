@@ -31,6 +31,7 @@ import {
   presentStellaProviderError,
 } from './stella-provider-error-toast'
 import { clearComposerNotices } from '@/features/chat/composer-notice-store'
+import { openCanvasFromToolEnd } from '@/features/workspace-display/open-created-canvas'
 import type {
   AgentResponseTarget,
   AgentStreamEvent as BaseAgentStreamEvent,
@@ -542,6 +543,13 @@ export function useAgentEventHandler({
             ...(event.toolCallId ? { toolCallId: event.toolCallId } : {}),
             ...(event.toolName ? { toolName: event.toolName } : {}),
             ...(exitCode !== undefined ? { exitCode } : {}),
+          })
+          openCanvasFromToolEnd({
+            ...(event.toolName ? { toolName: event.toolName } : {}),
+            ...(event.toolCallId ? { toolCallId: event.toolCallId } : {}),
+            ...(event.agentType ? { agentType: event.agentType } : {}),
+            ...(event.isError !== undefined ? { isError: event.isError } : {}),
+            details: event.details,
           })
           break
         }

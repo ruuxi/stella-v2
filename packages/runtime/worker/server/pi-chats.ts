@@ -52,6 +52,27 @@ export const piChatsFor = (
         });
         return pending;
       },
+      tools: (conversationId) => ({
+        specs: (role) => session.runnerCell.get()?.piTools.specs(role) ?? [],
+        run: async (call, context) => {
+          const runner = session.runnerCell.get();
+          if (!runner) throw new Error("Stella's runtime is restarting; try again.");
+          const result = await runner.piTools.run({
+            agentType: call.role,
+            name: call.name,
+            callId: call.callId,
+            args: call.args,
+            conversationId,
+            ...(call.threadId ? { agentId: call.threadId } : {}),
+            ...(context.abortSignal ? { signal: context.abortSignal } : {}),
+          });
+          return {
+            content: result.content,
+            details: result.details,
+            ...(result.isError ? { isError: true } : {}),
+          };
+        },
+      }),
       emit: (payload) => hostBus.notify(NOTIFICATION_NAMES.PI_CHAT_EVENTS, payload),
       report: (error) => console.error("[pi-chat]", error),
     }),

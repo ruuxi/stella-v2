@@ -1152,6 +1152,46 @@ contextBridge.exposeInMainWorld("electronAPI", {
     fixViteError: () => ipcRenderer.invoke("devtest:fixViteError"),
   },
 
+  // The renderer reads asks as electronAPI.userAsk (user-ask-store).
+  userAsk: {
+    onOpened: onIpcWithEvent<UserAsk>("userAsk:opened"),
+    onUpdated: onIpcWithEvent<UserAsk>("userAsk:updated"),
+    onClosed: onIpcWithEvent<{
+      askId: string;
+      state: UserAskState;
+    }>("userAsk:closed"),
+    list: () => ipcRenderer.invoke("userAsk:list") as Promise<UserAsk[]>,
+    answer: (payload: UserAskAnswer) =>
+      ipcRenderer.invoke("userAsk:answer", payload) as Promise<{
+        ok: boolean;
+        late?: boolean;
+        error?: string;
+      }>,
+    cancel: (payload: { askId: string; revision?: number }) =>
+      ipcRenderer.invoke("userAsk:cancel", payload) as Promise<{
+        ok: boolean;
+        error?: string;
+      }>,
+    overrideSensitive: (payload: {
+      askId: string;
+      fieldId: string;
+      sensitive: boolean;
+    }) =>
+      ipcRenderer.invoke("userAsk:overrideSensitive", payload) as Promise<{
+        ok: boolean;
+        error?: string;
+      }>,
+    policyGet: () =>
+      ipcRenderer.invoke(
+        "userAsk:policyGet",
+      ) as Promise<UserAskEscalationPolicy>,
+    policySet: (policy: UserAskEscalationPolicy) =>
+      ipcRenderer.invoke(
+        "userAsk:policySet",
+        policy,
+      ) as Promise<UserAskEscalationPolicy>,
+  },
+
   system: {
     getDeviceId: () => ipcRenderer.invoke("device:getId"),
     signDevice: (input: string) =>
@@ -1640,44 +1680,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       }>,
     resetMessages: () =>
       ipcRenderer.invoke("app:resetLocalMessages") as Promise<{ ok: boolean }>,
-    userAsk: {
-      onOpened: onIpcWithEvent<UserAsk>("userAsk:opened"),
-      onUpdated: onIpcWithEvent<UserAsk>("userAsk:updated"),
-      onClosed: onIpcWithEvent<{
-        askId: string;
-        state: UserAskState;
-      }>("userAsk:closed"),
-      list: () => ipcRenderer.invoke("userAsk:list") as Promise<UserAsk[]>,
-      answer: (payload: UserAskAnswer) =>
-        ipcRenderer.invoke("userAsk:answer", payload) as Promise<{
-          ok: boolean;
-          late?: boolean;
-          error?: string;
-        }>,
-      cancel: (payload: { askId: string; revision?: number }) =>
-        ipcRenderer.invoke("userAsk:cancel", payload) as Promise<{
-          ok: boolean;
-          error?: string;
-        }>,
-      overrideSensitive: (payload: {
-        askId: string;
-        fieldId: string;
-        sensitive: boolean;
-      }) =>
-        ipcRenderer.invoke("userAsk:overrideSensitive", payload) as Promise<{
-          ok: boolean;
-          error?: string;
-        }>,
-      policyGet: () =>
-        ipcRenderer.invoke(
-          "userAsk:policyGet",
-        ) as Promise<UserAskEscalationPolicy>,
-      policySet: (policy: UserAskEscalationPolicy) =>
-        ipcRenderer.invoke(
-          "userAsk:policySet",
-          policy,
-        ) as Promise<UserAskEscalationPolicy>,
-    },
     onConnectorCredentialRequest: onIpcWithEvent<{
       requestId: string;
       tokenKey: string;

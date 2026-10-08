@@ -1138,7 +1138,7 @@ export const resolveToolReplayPolicy = (
     : "unsafe";
 };
 
-export const createPiTools = (opts: {
+export type CreatePiToolsOptions = {
   executionHost: "device" | "sandbox";
   runId: string;
   rootRunId?: string;
@@ -1184,7 +1184,141 @@ export const createPiTools = (opts: {
    * duplicate-execution guard). When absent, tools run without supervision.
    */
   superviseRunResource?: RunResourceRegistrar;
-}): AgentTool[] => {
+};
+
+/** What one tool call needs from its run: the loop's options and the names nested calls may reach. */
+export type ModelToolCallOptions = Omit<
+  CreatePiToolsOptions,
+  "toolsAllowlist" | "toolCatalog" | "superviseRunResource"
+> & { allowedToolNames: string[] };
+
+/**
+ * One model-issued Stella tool call: the tool pipeline (hooks, then the
+ * executor), then what the model sees of its result — formatted, truncated
+ * or spilled, with any images attached. The agent loops run it under their
+ * run's supervision; the pi-durable harness runs it directly.
+ */
+export const executeModelToolCall = async (
+  opts: ModelToolCallOptions,
+  call: {
+    toolName: string;
+    toolCallId: string;
+    params: unknown;
+    signal?: AbortSignal;
+    onUpdate?: AgentToolUpdateCallback;
+  },
+): Promise<AgentToolResult<unknown>> => {
+  const { toolName, toolCallId, params, signal, onUpdate } = call;
+  const args = (params as Record<string, unknown>) ?? {};
+  const toolResult = await executeRuntimeToolCall({
+    toolCallId,
+    executionHost: opts.executionHost,
+    toolName,
+    args,
+    runId: opts.runId,
+    rootRunId: opts.rootRunId,
+    agentId: opts.agentId,
+    conversationId: opts.conversationId,
+    storageMode: opts.storageMode,
+    ownerGeneration: opts.ownerGeneration,
+    agentType: opts.agentType,
+    deviceId: opts.deviceId,
+    stellaAppDir: opts.stellaAppDir,
+    stellaDataDir: opts.stellaDataDir,
+    toolWorkspaceRoot: opts.toolWorkspaceRoot,
+    parentAgentId: opts.parentAgentId,
+    agentDepth: opts.agentDepth,
+    maxAgentDepth: opts.maxAgentDepth,
+    modelConfigSnapshot: opts.modelConfigSnapshot,
+    connectorDeliveryTarget: opts.connectorDeliveryTarget,
+    allowedToolNames: opts.allowedToolNames,
+    store: opts.store,
+    toolExecutor: opts.toolExecutor,
+    hookEmitter: opts.hookEmitter,
+    signal,
+    onUpdate: onUpdate
+      ? (partialResult: ToolResult) => {
+          const formattedPartial = formatToolResult(partialResult, toolName);
+          const truncatedPartial = truncateModelVisibleToolText(
+            formattedPartial.text,
+            modelVisibleLimitsFor(toolName, partialResult),
+          );
+          onUpdate({
+            content: [{ type: "text", text: truncatedPartial.text }],
+            details: formattedPartial.details,
+          });
+        }
+      : undefined,
+  });
+  const formatted = formatToolResult(toolResult, toolName);
+  // Device tools retain their legacy path-marker bridge. Sandbox tool
+  // output is model-controlled and must never authorize the host adapter
+  // to reopen a pathname, so neutralize it without I/O there.
+  const { text: forwardedText, images: legacyImages } =
+    opts.executionHost === "sandbox"
+      ? {
+          text: neutralizeLegacyAttachImageMarkers(formatted.text),
+          images: [],
+        }
+      : await extractAttachImageBlocks(formatted.text, opts.imageCapTarget);
+  const codeImages =
+    opts.executionHost === "sandbox"
+      ? []
+      : await extractCodeImageBlocks(formatted.details, opts.imageCapTarget);
+  const authorizedImages = await prepareAuthorizedToolImageBlocks(
+    toolResult[TOOL_RESULT_AUTHORIZED_IMAGES],
+    opts.imageCapTarget,
+  );
+  const preservedText = await preserveModelVisibleToolText(
+    forwardedText,
+    {
+      stellaDataDir: opts.stellaDataDir,
+      runId: opts.runId,
+      toolCallId,
+    },
+    modelVisibleLimitsFor(toolName, toolResult),
+  );
+  const truncatedText = preservedText.text;
+  const content: Array<TextContent | ImageBlock> = [];
+  const attachedImages = [...codeImages, ...legacyImages, ...authorizedImages];
+  const screenshotNote =
+    attachedImages.length > 0
+      ? "\n\n[Image attached below. Inspect it directly. If it is a UI screenshot and the accessibility tree is sparse or missing a visible control, use screenshot x/y coordinates.]"
+      : "";
+  if (truncatedText || attachedImages.length === 0) {
+    content.push({
+      type: "text" as const,
+      text: `${truncatedText}${screenshotNote}`,
+    });
+  } else if (screenshotNote) {
+    content.push({
+      type: "text" as const,
+      text: screenshotNote.trim(),
+    });
+  }
+  content.push(...attachedImages);
+  return {
+    content,
+    details: preservedText.artifact
+      ? {
+          ...(formatted.details &&
+          typeof formatted.details === "object" &&
+          !Array.isArray(formatted.details)
+            ? (formatted.details as Record<string, unknown>)
+            : formatted.details === undefined
+              ? {}
+              : { result: formatted.details }),
+          toolOutputArtifact: preservedText.artifact,
+        }
+      : formatted.details,
+    isError: Boolean(toolResult.error),
+    ...(typeof toolResult.modelOutputTokens === "number"
+      ? { modelOutputTokens: toolResult.modelOutputTokens }
+      : {}),
+  };
+};
+
+export const createPiTools = (opts: CreatePiToolsOptions): AgentTool[] => {
   const requested = getRequestedRuntimeToolNames(opts.toolsAllowlist);
   const catalog = new Map<string, ToolMetadata>(
     (opts.toolCatalog ?? []).map((tool) => [tool.name, tool]),
@@ -1262,130 +1396,22 @@ export const createPiTools = (opts: {
       params: unknown,
       signal: AbortSignal | undefined,
       onUpdate: AgentToolUpdateCallback | undefined,
-    ): Promise<AgentToolResult<unknown>> => {
-      const args = (params as Record<string, unknown>) ?? {};
-      const toolResult = await executeRuntimeToolCall({
-        toolCallId,
-        executionHost: opts.executionHost,
-        toolName,
-        args,
-        runId: opts.runId,
-        rootRunId: opts.rootRunId,
-        agentId: opts.agentId,
-        conversationId: opts.conversationId,
-        storageMode: opts.storageMode,
-        ownerGeneration: opts.ownerGeneration,
-        agentType: opts.agentType,
-        deviceId: opts.deviceId,
-        stellaAppDir: opts.stellaAppDir,
-        stellaDataDir: opts.stellaDataDir,
-        toolWorkspaceRoot: opts.toolWorkspaceRoot,
-        parentAgentId: opts.parentAgentId,
-        agentDepth: opts.agentDepth,
-        maxAgentDepth: opts.maxAgentDepth,
-        modelConfigSnapshot: opts.modelConfigSnapshot,
-        connectorDeliveryTarget: opts.connectorDeliveryTarget,
+    ): Promise<AgentToolResult<unknown>> =>
+      await executeModelToolCall(
         // Code-reachable union: nested dispatch (and
         // multi_tool_use_parallel) must pass the host allowlist
         // gate for demoted tools that are absent from the direct
         // list. Without code the union collapses to the
         // active set — demoted tools were registered directly.
-        allowedToolNames: contextAllowedToolNames(),
-        store: opts.store,
-        toolExecutor: opts.toolExecutor,
-        hookEmitter: opts.hookEmitter,
-        signal,
-        onUpdate: onUpdate
-          ? (partialResult: ToolResult) => {
-              const formattedPartial = formatToolResult(
-                partialResult,
-                toolName,
-              );
-              const truncatedPartial = truncateModelVisibleToolText(
-                formattedPartial.text,
-                modelVisibleLimitsFor(toolName, partialResult),
-              );
-              onUpdate({
-                content: [{ type: "text", text: truncatedPartial.text }],
-                details: formattedPartial.details,
-              });
-            }
-          : undefined,
-      });
-      const formatted = formatToolResult(toolResult, toolName);
-      // Device tools retain their legacy path-marker bridge. Sandbox tool
-      // output is model-controlled and must never authorize the host adapter
-      // to reopen a pathname, so neutralize it without I/O there.
-      const { text: forwardedText, images: legacyImages } =
-        opts.executionHost === "sandbox"
-          ? {
-              text: neutralizeLegacyAttachImageMarkers(formatted.text),
-              images: [],
-            }
-          : await extractAttachImageBlocks(formatted.text, opts.imageCapTarget);
-      const codeImages =
-        opts.executionHost === "sandbox"
-          ? []
-          : await extractCodeImageBlocks(
-              formatted.details,
-              opts.imageCapTarget,
-            );
-      const authorizedImages = await prepareAuthorizedToolImageBlocks(
-        toolResult[TOOL_RESULT_AUTHORIZED_IMAGES],
-        opts.imageCapTarget,
-      );
-      const preservedText = await preserveModelVisibleToolText(
-        forwardedText,
+        { ...opts, allowedToolNames: contextAllowedToolNames() },
         {
-          stellaDataDir: opts.stellaDataDir,
-          runId: opts.runId,
+          toolName,
           toolCallId,
+          params,
+          ...(signal ? { signal } : {}),
+          ...(onUpdate ? { onUpdate } : {}),
         },
-        modelVisibleLimitsFor(toolName, toolResult),
       );
-      const truncatedText = preservedText.text;
-      const content: Array<TextContent | ImageBlock> = [];
-      const attachedImages = [
-        ...codeImages,
-        ...legacyImages,
-        ...authorizedImages,
-      ];
-      const screenshotNote =
-        attachedImages.length > 0
-          ? "\n\n[Image attached below. Inspect it directly. If it is a UI screenshot and the accessibility tree is sparse or missing a visible control, use screenshot x/y coordinates.]"
-          : "";
-      if (truncatedText || attachedImages.length === 0) {
-        content.push({
-          type: "text" as const,
-          text: `${truncatedText}${screenshotNote}`,
-        });
-      } else if (screenshotNote) {
-        content.push({
-          type: "text" as const,
-          text: screenshotNote.trim(),
-        });
-      }
-      content.push(...attachedImages);
-      return {
-        content,
-        details: preservedText.artifact
-          ? {
-              ...(formatted.details &&
-              typeof formatted.details === "object" &&
-              !Array.isArray(formatted.details)
-                ? (formatted.details as Record<string, unknown>)
-                : formatted.details === undefined
-                  ? {}
-                  : { result: formatted.details }),
-              toolOutputArtifact: preservedText.artifact,
-            }
-          : formatted.details,
-        isError: Boolean(toolResult.error),
-        ...(typeof toolResult.modelOutputTokens === "number"
-          ? { modelOutputTokens: toolResult.modelOutputTokens }
-          : {}),
-      };
-    };
     const prepareArguments = getToolArgumentPreparer(toolName);
     const tool: AgentTool & { replay?: ToolReplayPolicy } = {
       name: toolName,

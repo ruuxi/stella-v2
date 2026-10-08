@@ -13,6 +13,7 @@ import { forkDelayedCall } from "./runner/cloud-effect-runtime.js";
 import type { WebSearchResult } from "@stella/contracts/backend/search";
 import { scheduleRemotePromptRevalidation } from "./prompts/remote-prompts.js";
 import { createOrchestratorController } from "./runner/orchestrator.js";
+import { createRunnerPiTools } from "./runner/pi-tools.js";
 import { createRuntimeInitialization } from "./runner/runtime-initialization.js";
 import { createAgentOrchestration } from "./runner/agent-orchestration.js";
 import { createCloudAgentLifecycleMonitor } from "./runner/cloud-agent-lifecycle.js";
@@ -559,6 +560,7 @@ export const createStellaHostRunner = (
         signal,
         onUpdate,
       ),
+    piTools: createRunnerPiTools(context),
     agentHealthCheck: orchestratorController.agentHealthCheck,
     warmModelCatalog,
     resolveImageTarget: async (agentType = AGENT_IDS.ORCHESTRATOR) => {

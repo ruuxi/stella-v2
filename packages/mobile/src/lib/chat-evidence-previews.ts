@@ -24,7 +24,6 @@
  */
 import { Directory, File, Paths } from "expo-file-system";
 import { Image } from "expo-image";
-import * as VideoThumbnails from "expo-video-thumbnails";
 import { extractPreviewBars } from "@siteed/audio-studio";
 import { cloudWorldDrivePath } from "@stella/contracts/cloud-world-paths";
 import { EVIDENCE_PEAK_COUNT } from "@stella/contracts/chat-evidence";
@@ -230,10 +229,12 @@ const videoPreviewFor = async (
         directoryFor("source"),
         `${stableKey(request.filePath)}${extensionOf(request.filePath)}`,
       ).uri;
-  const frame = await VideoThumbnails.getThumbnailAsync(source, {
-    time: 0,
-    quality: 0.7,
-  });
+  void source;
+  // The store build serving this OTA has no video thumbnailer; the caller
+  // turns this into a pill row, as it does for an unreadable codec.
+  const frame: { uri: string } = await Promise.reject(
+    new Error("Video poster frames need a newer app build."),
+  );
   const poster = new File(
     directoryFor("poster"),
     `${stableKey(identity)}-${POSTER_WIDTH}.jpg`,

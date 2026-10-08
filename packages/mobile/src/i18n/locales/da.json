@@ -2446,6 +2446,7 @@
       "undoneAgo": "Fortrudt {ago}",
       "undoneJustNow": "Fortrudt lige nu",
       "update": "Opdater",
+      "updateAvailable": "Opdatering tilgængelig",
       "updatedAgo": "Opdateret {ago}",
       "updatedJustNow": "Opdateret lige nu",
       "updates": {
@@ -2459,10 +2460,6 @@
         "justNow": "Lige nu",
         "newVersion": "Ny version af Stella",
         "newVersionDetail": "Forbedringer og rettelser fra Stella-teamet",
-        "pill": {
-          "one": "{count} opdatering",
-          "other": "{count} opdateringer"
-        },
         "readyChange": "En ændring klar til at blive tilføjet",
         "removed": "Fjernet: {change}",
         "skip": "Spring over",
@@ -2470,7 +2467,8 @@
         "undoing": "Fortryder…",
         "upToDate": "Intet venter",
         "waiting": "Venter"
-      }
+      },
+      "updating": "Opdaterer…"
     },
     "audioPlayer": {
       "pause": "Pause",

@@ -2470,6 +2470,7 @@
       "undoneAgo": "Отменено {ago}",
       "undoneJustNow": "Только что отменено",
       "update": "Обновить",
+      "updateAvailable": "Доступно обновление",
       "updatedAgo": "Обновлено {ago}",
       "updatedJustNow": "Только что обновлено",
       "updates": {
@@ -2483,12 +2484,6 @@
         "justNow": "Только что",
         "newVersion": "Новая версия Stella",
         "newVersionDetail": "Улучшения и исправления от команды Stella",
-        "pill": {
-          "few": "{count} обновления",
-          "many": "{count} обновлений",
-          "one": "{count} обновление",
-          "other": "{count} обновления"
-        },
         "readyChange": "Изменение готово к добавлению",
         "removed": "Удалено: {change}",
         "skip": "Пропустить",
@@ -2496,7 +2491,8 @@
         "undoing": "Отмена…",
         "upToDate": "Ничего не ожидает",
         "waiting": "Ожидают"
-      }
+      },
+      "updating": "Обновление…"
     },
     "audioPlayer": {
       "pause": "Пауза",

@@ -2446,6 +2446,7 @@
       "undoneAgo": "{ago} पूर्ववत हुआ",
       "undoneJustNow": "अभी पूर्ववत हुआ",
       "update": "अपडेट करें",
+      "updateAvailable": "अपडेट उपलब्ध है",
       "updatedAgo": "{ago} अपडेट हुआ",
       "updatedJustNow": "अभी अपडेट हुआ",
       "updates": {
@@ -2459,10 +2460,6 @@
         "justNow": "अभी",
         "newVersion": "Stella का नया संस्करण",
         "newVersionDetail": "Stella टीम की ओर से सुधार और फ़िक्स",
-        "pill": {
-          "one": "{count} अपडेट",
-          "other": "{count} अपडेट"
-        },
         "readyChange": "जोड़ने के लिए तैयार बदलाव",
         "removed": "हटाया गया: {change}",
         "skip": "छोड़ें",
@@ -2470,7 +2467,8 @@
         "undoing": "पूर्ववत किया जा रहा है…",
         "upToDate": "कुछ भी प्रतीक्षा में नहीं है",
         "waiting": "प्रतीक्षा में"
-      }
+      },
+      "updating": "अपडेट हो रहा है…"
     },
     "audioPlayer": {
       "pause": "रोकें",

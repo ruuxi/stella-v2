@@ -2446,6 +2446,7 @@
       "undoneAgo": "Rückgängig gemacht {ago}",
       "undoneJustNow": "Gerade rückgängig gemacht",
       "update": "Update",
+      "updateAvailable": "Update verfügbar",
       "updatedAgo": "Aktualisiert {ago}",
       "updatedJustNow": "Gerade aktualisiert",
       "updates": {
@@ -2459,10 +2460,6 @@
         "justNow": "Gerade eben",
         "newVersion": "Neue Version von Stella",
         "newVersionDetail": "Verbesserungen und Fehlerbehebungen vom Stella-Team",
-        "pill": {
-          "one": "{count} Update",
-          "other": "{count} Updates"
-        },
         "readyChange": "Eine Änderung, bereit zum Hinzufügen",
         "removed": "Entfernt: {change}",
         "skip": "Überspringen",
@@ -2470,7 +2467,8 @@
         "undoing": "Wird rückgängig gemacht…",
         "upToDate": "Nichts wartet",
         "waiting": "Wartet"
-      }
+      },
+      "updating": "Wird aktualisiert…"
     },
     "audioPlayer": {
       "pause": "Pause",

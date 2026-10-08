@@ -2434,6 +2434,7 @@
       "undoneAgo": "ยกเลิก{ago}",
       "undoneJustNow": "ยกเลิกเมื่อสักครู่",
       "update": "อัปเดต",
+      "updateAvailable": "มีอัปเดต",
       "updatedAgo": "อัปเดต{ago}",
       "updatedJustNow": "อัปเดตเมื่อสักครู่",
       "updates": {
@@ -2447,9 +2448,6 @@
         "justNow": "เมื่อสักครู่",
         "newVersion": "Stella เวอร์ชันใหม่",
         "newVersionDetail": "การปรับปรุงและการแก้ไขจากทีม Stella",
-        "pill": {
-          "other": "อัปเดต {count} รายการ"
-        },
         "readyChange": "การเปลี่ยนแปลงที่พร้อมเพิ่ม",
         "removed": "นำออกแล้ว: {change}",
         "skip": "ข้าม",
@@ -2457,7 +2455,8 @@
         "undoing": "กำลังเลิกทำ…",
         "upToDate": "ไม่มีอะไรรออยู่",
         "waiting": "รออยู่"
-      }
+      },
+      "updating": "กำลังอัปเดต…"
     },
     "audioPlayer": {
       "pause": "หยุดชั่วคราว",

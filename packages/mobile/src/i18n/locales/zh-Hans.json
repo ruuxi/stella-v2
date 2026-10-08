@@ -2434,6 +2434,7 @@
       "undoneAgo": "{ago}撤销",
       "undoneJustNow": "刚刚撤销",
       "update": "更新",
+      "updateAvailable": "有可用更新",
       "updatedAgo": "{ago}更新",
       "updatedJustNow": "刚刚更新",
       "updates": {
@@ -2447,9 +2448,6 @@
         "justNow": "刚刚",
         "newVersion": "Stella 新版本",
         "newVersionDetail": "来自 Stella 团队的改进和修复",
-        "pill": {
-          "other": "{count} 个更新"
-        },
         "readyChange": "可以添加的更改",
         "removed": "已移除：{change}",
         "skip": "跳过",
@@ -2457,7 +2455,8 @@
         "undoing": "正在撤销…",
         "upToDate": "没有待添加的内容",
         "waiting": "待添加"
-      }
+      },
+      "updating": "正在更新…"
     },
     "audioPlayer": {
       "pause": "暂停",

@@ -11,7 +11,7 @@
  *   model spend is metered through the normal agent path. The object is
  *   single-threaded, so there is no dispatch-lease ledger.
  * - **Read-aloud:** free on every plan, bounded by a rate limit and a daily
- *   character allowance. `tts.prepare` signs an HLS ticket and runs one
+ *   character allowance. `tts.prepare` mints an HLS ticket and runs one
  *   synthesis job that writes segments to `MEDIA` at `tts/<ticket>/`.
  * - **Dictation:** the Muse relay sizes a session with `dictation.prepare`
  *   and charges its audio once with `dictation.settle`.

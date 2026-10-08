@@ -175,7 +175,7 @@ const stripForSpeech = (text: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-// Ask the backend to synthesize a read-aloud reply under a signed ticket, so
+// Ask the backend to synthesize a read-aloud reply under a random ticket, so
 // the native audio player can progressively stream it from a GET URL. The
 // (long) assistant text is posted here and never appears in the URL.
 async function prepareReadAloudStream(

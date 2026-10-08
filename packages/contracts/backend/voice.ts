@@ -12,7 +12,7 @@
  *   spend is metered through the normal agent path.
  * - **Read-aloud:** desktop streams `audio/mpeg` from `VOICE_TTS_STREAM_PATH`
  *   (or one-shot audio from `VOICE_TTS_PATH`). Mobile's native player needs a
- *   GET URL without headers, so `tts.prepare` returns a signed ticket and the
+ *   GET URL without headers, so `tts.prepare` returns a random ticket and the
  *   playlist path that carries it.
  * - **Dictation:** `dictation.realtimeConfig` names the relay socket's origin.
  */

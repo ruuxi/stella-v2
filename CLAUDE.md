@@ -46,21 +46,13 @@ The dev and prod release flow (Cloudflare workers, app source, launchers,
 website, mobile OTA) is in `DEPLOY.md`. Follow it as written.
 Running Stella on another Cloudflare account is `SELF_HOSTING.md`.
 
-## Cloud agents: required environment
+## Verifying changes
 
-The clone plus `bun install --frozen-lockfile` is enough to typecheck and run
-every test suite (see `.github/workflows/ci.yml`). Anything that talks to a
-live deployment needs these variables in the agent's environment. If a
-`wrangler` command fails on auth, a missing one of these is the blocker;
-report it rather than working around it.
+Unit tests are banned: don't write, update, or run them. Prove a change works
+in the real product instead, through `.agents/skills/verify-stella/SKILL.md`
+(desktop) and `.agents/skills/verify-stella/cloud-turn.mjs` (cloud turns).
 
-Secrets (set in the agent platform's secret store, never committed):
-
-- `CLOUDFLARE_API_TOKEN`: token with Workers Scripts and Durable Objects edit.
-- `CLOUDFLARE_ACCOUNT_ID`: the Cloudflare account that owns the workers.
-- `STELLA_ADMIN_API_SECRET`: the dev backend's admin bearer (test accounts).
-  Export it, or put `STELLA_ADMIN_API_SECRET=...` in the gitignored
-  `workers/cloud-builder/.dev.vars`, which the verify-stella scripts read.
+## Dev backend
 
 The backend is the cloud-builder worker. Its dev URL is a public service
 location, the same one source builds use for `VITE_STELLA_BACKEND_URL`:

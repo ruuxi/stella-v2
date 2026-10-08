@@ -260,9 +260,13 @@ export function WorkList({ section = "files", idleContent = null }) {
     setExpandedGroupIds(new Set());
   }, [state.conversationId]);
   const dragCounterRef = useRef(0);
+  // Canvases are files on disk that no store hears about until someone reads
+  // the directory, so re-read it every time this list is shown rather than
+  // once per launch — otherwise a canvas written after the list first mounted
+  // stays invisible for the rest of the session.
   useEffect(() => {
     void loadCanvasHtmlHistory();
-  }, []);
+  }, [activeSection, panelOpen, section]);
   useEffect(() => {
     if (!showSearch) return;
     if (!searchOpen) {

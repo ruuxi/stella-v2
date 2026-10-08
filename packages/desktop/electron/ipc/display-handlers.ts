@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import type { Dirent } from "node:fs";
+import type { FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
 import {
@@ -110,6 +111,41 @@ const MIME_BY_EXTENSION: Record<string, string> = {
 };
 
 const ALLOWED_EXTENSIONS = new Set(Object.keys(MIME_BY_EXTENSION));
+
+/** Head of a canvas document; the `<title>` is written near the top of it. */
+const CANVAS_TITLE_SCAN_BYTES = 8192;
+const CANVAS_TITLE_RE = /<title[^>]*>([\s\S]*?)<\/title>/i;
+
+/**
+ * The title the canvas itself declares, which is what the author named it —
+ * the slug is a filename, and reads as one in a file list.
+ */
+const canvasDocumentTitle = async (
+  filePath: string,
+): Promise<string | null> => {
+  let handle: FileHandle | undefined;
+  try {
+    handle = await fs.open(filePath, "r");
+    const buffer = Buffer.alloc(CANVAS_TITLE_SCAN_BYTES);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    const title = CANVAS_TITLE_RE.exec(buffer.subarray(0, bytesRead).toString("utf8"))?.[1];
+    if (!title) return null;
+    const decoded = title
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/\s+/g, " ")
+      .trim();
+    return decoded.length > 0 ? decoded : null;
+  } catch {
+    return null;
+  } finally {
+    await handle?.close().catch(() => {});
+  }
+};
+
 
 export const isDisplayReadPathInLocalChatFiles = (
   events: ReadonlyArray<LocalChatEventRecord>,
@@ -478,9 +514,11 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
           return {
             filePath,
             slug,
-            title: slug
-              .replace(/[-_]+/g, " ")
-              .replace(/\b\w/g, (char: string) => char.toUpperCase()),
+            title:
+              (await canvasDocumentTitle(filePath)) ??
+              slug
+                .replace(/[-_]+/g, " ")
+                .replace(/\b\w/g, (char: string) => char.toUpperCase()),
             createdAt: stats.mtimeMs,
           };
         }),

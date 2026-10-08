@@ -159,32 +159,53 @@ export const removeCanvasHtmlItem = (
   return snapshot;
 };
 
-let historyLoadStarted = false;
+let historyLoadInFlight: Promise<void> | null = null;
 
+/**
+ * Re-read `~/.stella/outputs/html/` into the index. Every mount of the Files
+ * list calls this: a canvas written after launch is on disk and nowhere in
+ * renderer memory until something looks, so a one-shot load at startup left
+ * the whole session's canvases invisible. Concurrent callers share one
+ * enumeration; a later call always re-reads.
+ */
 export const loadCanvasHtmlHistory = async (): Promise<void> => {
-  if (historyLoadStarted) return;
-  historyLoadStarted = true;
+  if (historyLoadInFlight) return historyLoadInFlight;
   const listCanvasHtml = window.electronAPI?.display?.listCanvasHtml;
   if (typeof listCanvasHtml !== "function") return;
 
-  try {
-    const discovered = await listCanvasHtml();
-    let changed = false;
-    for (const entry of discovered) {
-      if (itemsByPath.has(entry.filePath)) continue;
-      seedItem({
-        id: entry.filePath,
-        filePath: entry.filePath,
-        title: entry.title,
-        slug: entry.slug,
-        createdAt: entry.createdAt,
-      });
-      changed = true;
+  historyLoadInFlight = (async () => {
+    try {
+      const discovered = await listCanvasHtml();
+      let changed = false;
+      for (const entry of discovered) {
+        const existing = itemsByPath.get(entry.filePath);
+        if (existing) {
+          // A rewritten canvas keeps its entry but must re-render: `createdAt`
+          // is the viewer's refresh key.
+          if (entry.createdAt > existing.createdAt) {
+            existing.createdAt = entry.createdAt;
+            existing.title = entry.title;
+            changed = true;
+          }
+          continue;
+        }
+        seedItem({
+          id: entry.filePath,
+          filePath: entry.filePath,
+          title: entry.title,
+          slug: entry.slug,
+          createdAt: entry.createdAt,
+        });
+        changed = true;
+      }
+      if (changed) emit();
+    } catch {
+      // Keep the list usable even if filesystem enumeration is unavailable.
+    } finally {
+      historyLoadInFlight = null;
     }
-    if (changed) emit();
-  } catch {
-    // Keep the list usable even if filesystem enumeration is unavailable.
-  }
+  })();
+  return historyLoadInFlight;
 };
 
 for (const item of readPersistedItems()) {

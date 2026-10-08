@@ -20,13 +20,26 @@ export const CLOUD_CODE_CONNECT_INTRINSIC = "$connect";
 export const CLOUD_CODE_HISTORY_INTRINSIC = "$history";
 /** Present only for a turn that holds a cloud browser (resident agents). */
 export const CLOUD_CODE_BROWSER_INTRINSIC = "$browser";
+/**
+ * Present only for an agent's code, which reaches the owner world: the
+ * revision its reads are checked against, and the commit of one `fs` write.
+ */
+export const CLOUD_CODE_WORLD_INTRINSIC = "$world";
 export const CLOUD_CODE_INTRINSIC_NAMES: ReadonlySet<string> = new Set([
   CLOUD_CODE_SEARCH_INTRINSIC,
   CLOUD_CODE_DESCRIBE_INTRINSIC,
   CLOUD_CODE_CONNECT_INTRINSIC,
   CLOUD_CODE_HISTORY_INTRINSIC,
   CLOUD_CODE_BROWSER_INTRINSIC,
+  CLOUD_CODE_WORLD_INTRINSIC,
 ]);
+
+/** The model's workspace path; `~` names the same directory. */
+export const CLOUD_CODE_WORLD_ROOT = "/workspace/world";
+/** One `fs` file, read or written; larger files belong to Bash. */
+export const CLOUD_CODE_FS_MAX_FILE_BYTES = 16 * 1024 * 1024;
+/** The world loopback refuses more than 8 MiB in one read. */
+const CLOUD_CODE_FS_READ_CHUNK_BYTES = 8 * 1024 * 1024;
 
 let cloudflareCodeModePromise: Promise<CloudflareCodeModeModule> | undefined;
 
@@ -297,11 +310,328 @@ const BROWSER_GLOBAL_LINES = [
   "    });",
 ] as const;
 
+/**
+ * The sandbox `fs` global over the owner world, for an agent's code only.
+ *
+ * Reads go straight to `env.WORLD`, the read-only world loopback the host
+ * bound into this Worker, so file bytes never pass through the agent's
+ * Durable Object. A write uploads its content through the same loopback as an
+ * unreferenced blob and then asks the host to commit one change through
+ * `$world`; the host applies it only if nothing this call read since its last
+ * write or nested tool call changed meanwhile (`WorldStore.commitShell`).
+ * Writes run one at a time so a read-modify-write such as `appendFile` checks
+ * its own read; reads run concurrently. A nested `tools.*` call changes the
+ * world on its own, so after one the read set starts over.
+ *
+ * Symlinks resolve inside the world only; a link that leaves it is refused.
+ */
+const FS_GLOBAL_SOURCE = String.raw`
+    const __fsWorld = this.env.WORLD;
+    const __FS_ROOT = "${CLOUD_CODE_WORLD_ROOT}";
+    const __FS_MAX_FILE_BYTES = ${CLOUD_CODE_FS_MAX_FILE_BYTES};
+    const __FS_READ_CHUNK_BYTES = ${CLOUD_CODE_FS_READ_CHUNK_BYTES};
+    const __FS_ROOT_ENTRY = Object.freeze({ path: "", kind: "dir", mode: 0o755, mtime: 0, size: 0 });
+    const __fsEncoder = new TextEncoder();
+    const __fsDecoder = new TextDecoder();
+    let __fsBase = null;
+    const __fsReadPaths = new Set();
+    const __fsListed = new Set();
+    let __fsWrites = Promise.resolve();
+    const __fsForget = () => {
+      __fsBase = null;
+      __fsReadPaths.clear();
+      __fsListed.clear();
+    };
+    const __fsError = (code, message, op, path) => {
+      const error = new Error(code + ": " + message + ", " + op + " '" + String(path) + "'");
+      error.code = code;
+      return error;
+    };
+    const __fsShellPath = (worldPath) => (worldPath ? __FS_ROOT + "/" + worldPath : __FS_ROOT);
+    const __fsWorldPath = (input, op) => {
+      if (typeof input !== "string" || input.length === 0) {
+        throw new TypeError("fs." + op + ": path must be a non-empty string.");
+      }
+      const absolute = input === "~" ? __FS_ROOT
+        : input.startsWith("~/") ? __FS_ROOT + input.slice(1)
+          : input.startsWith("/") ? input
+            : __FS_ROOT + "/" + input;
+      const segments = [];
+      for (const segment of absolute.split("/")) {
+        if (!segment || segment === ".") continue;
+        if (segment === "..") segments.pop();
+        else segments.push(segment);
+      }
+      const normalized = "/" + segments.join("/");
+      if (normalized === __FS_ROOT) return "";
+      if (!normalized.startsWith(__FS_ROOT + "/")) {
+        throw __fsError("EACCES", "only " + __FS_ROOT + " (~) is reachable from code", op, input);
+      }
+      return normalized.slice(__FS_ROOT.length + 1);
+    };
+    const __fsPin = async () => {
+      if (__fsBase !== null) return;
+      const head = await __dispatch("$world", [{ op: "head" }]);
+      if (__fsBase === null) __fsBase = head.revision;
+    };
+    const __fsResolve = async (worldPath, followLast, op, display) => {
+      await __fsPin();
+      let current = worldPath;
+      for (let hops = 0; hops <= 40; hops += 1) {
+        if (current === "") return { path: "", entry: __FS_ROOT_ENTRY, parentMissing: false };
+        const parts = current.split("/");
+        if (parts.length > 256) throw __fsError("ENAMETOOLONG", "path has too many components", op, display);
+        const prefixes = [];
+        for (let index = 0; index < parts.length; index += 1) {
+          prefixes.push(index === 0 ? parts[0] : prefixes[index - 1] + "/" + parts[index]);
+        }
+        const entries = await __fsWorld.stat(prefixes);
+        for (const prefix of prefixes) __fsReadPaths.add(prefix);
+        let next = null;
+        for (let index = 0; index < parts.length; index += 1) {
+          const entry = entries[index];
+          const last = index === parts.length - 1;
+          if (!entry) return { path: current, entry: null, parentMissing: !last };
+          if (entry.kind === "symlink" && (!last || followLast)) {
+            const target = typeof entry.target === "string" ? entry.target : "";
+            const base = index === 0 ? "" : prefixes[index - 1];
+            const resolved = __fsWorldPath(target.startsWith("/") ? target : __fsShellPath(base) + "/" + target, op);
+            const rest = parts.slice(index + 1).join("/");
+            next = rest ? (resolved ? resolved + "/" + rest : rest) : resolved;
+            break;
+          }
+          if (!last && entry.kind !== "dir") throw __fsError("ENOTDIR", "not a directory", op, display);
+          if (last) return { path: current, entry, parentMissing: false };
+        }
+        current = next;
+      }
+      throw __fsError("ELOOP", "too many symbolic links", op, display);
+    };
+    const __fsEncoding = (options, op) => {
+      const encoding = typeof options === "string" ? options
+        : options && typeof options === "object" ? options.encoding : undefined;
+      if (encoding === undefined || encoding === "utf8" || encoding === "utf-8") return "utf8";
+      if (encoding === null || encoding === "bytes") return "bytes";
+      if (encoding === "base64") return "base64";
+      throw new TypeError("fs." + op + ': encoding must be "utf8", "base64" or "bytes".');
+    };
+    const __fsToBase64 = (bytes) => {
+      let binary = "";
+      for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+      }
+      return btoa(binary);
+    };
+    const __fsBytesOf = (data, options, op) => {
+      if (typeof data === "string") {
+        if (__fsEncoding(options, op) !== "base64") return __fsEncoder.encode(data);
+        try {
+          return Uint8Array.from(atob(data), (character) => character.charCodeAt(0));
+        } catch {
+          throw new TypeError("fs." + op + ": data is not valid base64.");
+        }
+      }
+      const view = data instanceof ArrayBuffer ? new Uint8Array(data)
+        : ArrayBuffer.isView(data) ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+          : null;
+      if (!view) throw new TypeError("fs." + op + ": data must be a string or bytes.");
+      return view.byteOffset === 0 && view.byteLength === view.buffer.byteLength ? view : view.slice();
+    };
+    const __fsRead = async (worldPath, entry, op, display) => {
+      if (entry.kind !== "file") throw __fsError("EISDIR", "illegal operation on a directory", op, display);
+      if (entry.size > __FS_MAX_FILE_BYTES) {
+        throw __fsError("EFBIG", "files over 16 MiB cannot be read from code; use Bash", op, display);
+      }
+      const bytes = new Uint8Array(entry.size);
+      let offset = 0;
+      while (offset < entry.size) {
+        const chunk = await __fsWorld.read(worldPath, {
+          offset,
+          length: Math.min(__FS_READ_CHUNK_BYTES, entry.size - offset),
+        });
+        if (!chunk) throw __fsError("ENOENT", "no such file or directory", op, display);
+        if (chunk.byteLength === 0) break;
+        bytes.set(chunk.subarray(0, Math.min(chunk.byteLength, entry.size - offset)), offset);
+        offset += chunk.byteLength;
+      }
+      return offset >= entry.size ? bytes : bytes.subarray(0, offset);
+    };
+    const __fsDecode = (bytes, options, op) => {
+      const encoding = __fsEncoding(options, op);
+      return encoding === "bytes" ? bytes : encoding === "base64" ? __fsToBase64(bytes) : __fsDecoder.decode(bytes);
+    };
+    const __fsCommit = async (change, op, display) => {
+      const outcome = await __dispatch("$world", [{
+        op: "commit",
+        baseRevision: __fsBase,
+        reads: [...__fsReadPaths],
+        children: [...__fsListed],
+        entries: change.entries,
+        deleted: change.deleted,
+      }]);
+      if (outcome && outcome.status === "committed") {
+        __fsBase = outcome.revision;
+        __fsReadPaths.clear();
+        __fsListed.clear();
+        return;
+      }
+      __fsForget();
+      if (outcome && outcome.status === "conflict") {
+        const paths = Array.isArray(outcome.paths) ? outcome.paths.slice(0, 5).map(__fsShellPath) : [];
+        throw __fsError("EAGAIN", "the workspace changed after this call read it" + (paths.length > 0 ? " (" + paths.join(", ") + ")" : "") + "; nothing was written, so read it again and retry", op, display);
+      }
+      throw __fsError("EIO", "the workspace did not accept this write", op, display);
+    };
+    const __fsWrite = (work) => {
+      const run = __fsWrites.then(work);
+      __fsWrites = run.then(() => undefined, () => undefined);
+      return run;
+    };
+    const __fsPut = async (worldPath, entry, bytes, op, display) => {
+      if (bytes.byteLength > __FS_MAX_FILE_BYTES) {
+        throw __fsError("EFBIG", "files over 16 MiB cannot be written from code; use Bash", op, display);
+      }
+      const blob = await __fsWorld.putBlob(bytes);
+      await __fsCommit({
+        entries: [{ path: worldPath, kind: "file", mode: entry ? entry.mode : 0o644, size: blob.size, sha256: blob.sha256 }],
+        deleted: [],
+      }, op, display);
+    };
+    const __fsStat = (worldPath, entry) => Object.freeze({
+      path: __fsShellPath(worldPath),
+      kind: entry.kind,
+      size: entry.size,
+      mode: entry.mode,
+      mtimeMs: entry.mtime,
+      isFile: entry.kind === "file",
+      isDirectory: entry.kind === "dir",
+      isSymbolicLink: entry.kind === "symlink",
+      ...(typeof entry.target === "string" ? { target: entry.target } : {}),
+    });
+    const __fsExisting = async (path, followLast, op) => {
+      const found = await __fsResolve(__fsWorldPath(path, op), followLast, op, path);
+      if (!found.entry) throw __fsError("ENOENT", "no such file or directory", op, path);
+      return found;
+    };
+    for (const [__name, __call] of __toolFunctions) {
+      __toolFunctions.set(__name, Object.freeze((args = {}) => __call(args).finally(__fsForget)));
+    }
+    const fs = Object.freeze({
+      readFile: async (path, options) => {
+        const found = await __fsExisting(path, true, "readFile");
+        return __fsDecode(await __fsRead(found.path, found.entry, "readFile", path), options, "readFile");
+      },
+      writeFile: (path, data, options) => __fsWrite(async () => {
+        const bytes = __fsBytesOf(data, options, "writeFile");
+        const found = await __fsResolve(__fsWorldPath(path, "writeFile"), true, "writeFile", path);
+        if (found.entry && found.entry.kind !== "file") throw __fsError("EISDIR", "illegal operation on a directory", "writeFile", path);
+        await __fsPut(found.path, found.entry, bytes, "writeFile", path);
+      }),
+      appendFile: (path, data, options) => __fsWrite(async () => {
+        const added = __fsBytesOf(data, options, "appendFile");
+        const found = await __fsResolve(__fsWorldPath(path, "appendFile"), true, "appendFile", path);
+        const prior = found.entry ? await __fsRead(found.path, found.entry, "appendFile", path) : new Uint8Array(0);
+        const combined = new Uint8Array(prior.byteLength + added.byteLength);
+        combined.set(prior, 0);
+        combined.set(added, prior.byteLength);
+        await __fsPut(found.path, found.entry, combined, "appendFile", path);
+      }),
+      readdir: async (path, options) => {
+        const found = await __fsExisting(path, true, "readdir");
+        if (found.entry.kind !== "dir") throw __fsError("ENOTDIR", "not a directory", "readdir", path);
+        const children = await __fsWorld.children(found.path);
+        __fsListed.add(found.path);
+        const nameOf = (child) => child.path.slice(child.path.lastIndexOf("/") + 1);
+        return options && typeof options === "object" && options.withFileTypes
+          ? children.map((child) => Object.freeze({
+              name: nameOf(child),
+              kind: child.kind,
+              isFile: child.kind === "file",
+              isDirectory: child.kind === "dir",
+              isSymbolicLink: child.kind === "symlink",
+            }))
+          : children.map(nameOf);
+      },
+      stat: async (path) => {
+        const found = await __fsExisting(path, true, "stat");
+        return __fsStat(found.path, found.entry);
+      },
+      lstat: async (path) => {
+        const found = await __fsExisting(path, false, "lstat");
+        return __fsStat(found.path, found.entry);
+      },
+      exists: async (path) => {
+        try {
+          return Boolean((await __fsResolve(__fsWorldPath(path, "exists"), true, "exists", path)).entry);
+        } catch (error) {
+          if (error && (error.code === "ENOTDIR" || error.code === "ELOOP")) return false;
+          throw error;
+        }
+      },
+      mkdir: (path, options) => __fsWrite(async () => {
+        const recursive = Boolean(options && typeof options === "object" && options.recursive);
+        const found = await __fsResolve(__fsWorldPath(path, "mkdir"), true, "mkdir", path);
+        if (found.entry) {
+          if (found.entry.kind === "dir" && recursive) return undefined;
+          throw __fsError("EEXIST", "file already exists", "mkdir", path);
+        }
+        if (found.parentMissing && !recursive) throw __fsError("ENOENT", "no such file or directory", "mkdir", path);
+        await __fsCommit({ entries: [{ path: found.path, kind: "dir", mode: 0o755, size: 0 }], deleted: [] }, "mkdir", path);
+        return undefined;
+      }),
+      rm: (path, options) => __fsWrite(async () => {
+        const recursive = Boolean(options && typeof options === "object" && options.recursive);
+        const force = Boolean(options && typeof options === "object" && options.force);
+        const worldPath = __fsWorldPath(path, "rm");
+        if (worldPath === "") throw __fsError("EPERM", "the workspace root cannot be removed", "rm", path);
+        const found = await __fsResolve(worldPath, false, "rm", path);
+        if (!found.entry) {
+          if (force) return undefined;
+          throw __fsError("ENOENT", "no such file or directory", "rm", path);
+        }
+        if (found.entry.kind === "dir" && !recursive) {
+          throw __fsError("EISDIR", "is a directory; pass { recursive: true }", "rm", path);
+        }
+        await __fsCommit({ entries: [], deleted: [found.path] }, "rm", path);
+        return undefined;
+      }),
+      rename: (from, to) => __fsWrite(async () => {
+        const source = await __fsExisting(from, false, "rename");
+        if (source.entry.kind === "dir") {
+          throw __fsError("EISDIR", "directories cannot be renamed from code; use Bash", "rename", from);
+        }
+        const target = await __fsResolve(__fsWorldPath(to, "rename"), false, "rename", to);
+        if (target.path === "" || (target.entry && target.entry.kind === "dir")) {
+          throw __fsError("EISDIR", "illegal operation on a directory", "rename", to);
+        }
+        if (target.path === source.path) return undefined;
+        const { path: _path, mtime: _mtime, ...node } = source.entry;
+        await __fsCommit({ entries: [{ path: target.path, ...node }], deleted: [source.path] }, "rename", from);
+        return undefined;
+      }),
+      copyFile: (from, to) => __fsWrite(async () => {
+        const source = await __fsExisting(from, true, "copyFile");
+        if (source.entry.kind !== "file") throw __fsError("EISDIR", "illegal operation on a directory", "copyFile", from);
+        const target = await __fsResolve(__fsWorldPath(to, "copyFile"), true, "copyFile", to);
+        if (target.path === "" || (target.entry && target.entry.kind === "dir")) {
+          throw __fsError("EISDIR", "illegal operation on a directory", "copyFile", to);
+        }
+        if (target.path === source.path) return undefined;
+        await __fsCommit({
+          entries: [{ path: target.path, kind: "file", mode: source.entry.mode, size: source.entry.size, sha256: source.entry.sha256 }],
+          deleted: [],
+        }, "copyFile", from);
+        return undefined;
+      }),
+    });
+`;
+
 const buildWorkerModule = (
   normalizedCode: string,
   timeoutMs: number,
   toolNames: readonly string[],
   browser: boolean,
+  world = false,
 ): string =>
   [
     'import { WorkerEntrypoint } from "cloudflare:workers";',
@@ -444,6 +774,7 @@ const buildWorkerModule = (
     '      read: (fromSeq, toSeq) => __historyCall("read", [fromSeq, toSeq]),',
     "    });",
     ...(browser ? BROWSER_GLOBAL_LINES : []),
+    ...(world ? [FS_GLOBAL_SOURCE] : []),
     "    try {",
     "      __startClock();",
     "      const result = await Promise.race([",
@@ -500,15 +831,28 @@ const disposeResource = async (
 export class StellaDynamicWorkerExecutor implements StellaDisposableExecutor {
   readonly #loader: WorkerLoader;
   readonly #timeoutMs: number;
+  readonly #globalOutbound: Fetcher | null;
+  readonly #world: unknown;
   #worker: WorkerStub | undefined;
   #entrypoint: CodeEntrypoint | undefined;
   #disposePromise: Promise<StellaWorkerCleanupStatus> | undefined;
   #closed = false;
   #started = false;
 
-  constructor(options: Readonly<{ loader: WorkerLoader; timeout: number }>) {
+  constructor(
+    options: Readonly<{
+      loader: WorkerLoader;
+      timeout: number;
+      /** An agent's egress entrypoint; absent, the Worker has no network. */
+      globalOutbound?: Fetcher;
+      /** An agent's world loopback, bound as `env.WORLD` for `fs`. */
+      world?: unknown;
+    }>,
+  ) {
     this.#loader = options.loader;
     this.#timeoutMs = options.timeout;
+    this.#globalOutbound = options.globalOutbound ?? null;
+    this.#world = options.world;
   }
 
   async execute(
@@ -570,6 +914,11 @@ export class StellaDynamicWorkerExecutor implements StellaDisposableExecutor {
       (name) => !CLOUD_CODE_INTRINSIC_NAMES.has(name),
     );
 
+    // `fs` needs both halves: the loopback its reads use and the host
+    // intrinsic that commits its writes.
+    const world =
+      this.#world !== undefined &&
+      sanitizedNames.has(CLOUD_CODE_WORLD_INTRINSIC);
     try {
       this.#worker = this.#loader.load({
         compatibilityDate: "2025-06-01",
@@ -580,9 +929,11 @@ export class StellaDynamicWorkerExecutor implements StellaDisposableExecutor {
             this.#timeoutMs,
             toolNames,
             sanitizedNames.has(CLOUD_CODE_BROWSER_INTRINSIC),
+            world,
           ),
         },
-        globalOutbound: null,
+        ...(world ? { env: { WORLD: this.#world } } : {}),
+        globalOutbound: this.#globalOutbound,
       });
       this.#entrypoint =
         this.#worker.getEntrypoint() as unknown as CodeEntrypoint;

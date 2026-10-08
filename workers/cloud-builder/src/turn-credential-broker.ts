@@ -1,5 +1,6 @@
 import {
   TURN_BROKER_AUTH_SCHEME,
+  TURN_BROKER_CODE_PATHS,
   TURN_BROKER_HEADERS,
   TURN_BROKER_NATIVE_STATE_CHECKPOINT_PATH,
   TURN_BROKER_RESPONSE_HEADERS,
@@ -93,7 +94,9 @@ export type TurnBrokerTarget = {
     | "thread-messages"
     | "user-ask"
     | "orchestrator-tool"
-    | "orchestrator-events";
+    | "orchestrator-events"
+    | "code-connect"
+    | "code-history";
   method: "POST";
   path: string;
   maxBodyBytes: number;
@@ -431,20 +434,44 @@ export const validateTurnBrokerTarget = (
       maxBodyBytes: MAX_CONTROL_BODY_BYTES,
     };
   }
+  // A connector action's arguments can carry a document or an attachment.
+  if (parsed.pathname === TURN_BROKER_CODE_PATHS.connect) {
+    return {
+      kind: "code-connect",
+      method: "POST",
+      path: parsed.pathname,
+      maxBodyBytes: MAX_CALLBACK_BODY_BYTES,
+    };
+  }
+  if (parsed.pathname === TURN_BROKER_CODE_PATHS.history) {
+    return {
+      kind: "code-history",
+      method: "POST",
+      path: parsed.pathname,
+      maxBodyBytes: MAX_CONTROL_BODY_BYTES,
+    };
+  }
   return null;
 };
 
 /**
  * Engine-scoped targets. Callbacks are engine-agnostic; the Browser Gateway
- * belongs to Stella's own tool loop and is refused for connected engines,
- * and the orchestrator routes exist only for the Claude Code CLI's turn
- * (the session also requires the turn's `agentRole`).
+ * and the `code` cell's connect and history belong to Stella's own tool loop
+ * and are refused for connected engines, and the orchestrator routes exist
+ * only for the Claude Code CLI's turn (the session also requires the turn's
+ * `agentRole`).
  */
 export const turnBrokerTargetMatchesEngine = (
   target: TurnBrokerTarget,
   engine: TurnBrokerEngine,
 ): boolean => {
-  if (target.kind === "browser-gateway") return engine === "stella";
+  if (
+    target.kind === "browser-gateway" ||
+    target.kind === "code-connect" ||
+    target.kind === "code-history"
+  ) {
+    return engine === "stella";
+  }
   if (
     target.kind === "orchestrator-tool" ||
     target.kind === "orchestrator-events"

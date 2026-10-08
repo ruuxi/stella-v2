@@ -134,6 +134,10 @@ import {
   type AgentToolSuspendedError,
 } from "@stella/runtime/kernel/agent-core/suspension.js";
 import { createTurnBrokerBrowserSessionFactory } from "./cloud-browser-session.js";
+import {
+  createBrokerConnectClient,
+  createBrokerHistoryQuery,
+} from "./cloud-code-services.js";
 
 export { CLOUD_TOOL_PROCESS_IDENTITY } from "./cloud-process-isolation.js";
 
@@ -753,6 +757,16 @@ export const runAgentTurn = (
                   allowCloudCode: true,
                   browserSessionFactory:
                     createTurnBrokerBrowserSessionFactory(broker),
+                  // `code` has no CLI bridge or backend auth here; its
+                  // connectors and history come through the broker.
+                  codeConnectClient: createBrokerConnectClient({
+                    post: postJson,
+                    turnId: input.turnId,
+                  }),
+                  codeHistoryQuery: createBrokerHistoryQuery({
+                    post: postJson,
+                    turnId: input.turnId,
+                  }),
                 }
               : {}),
             ...(officeBinPath ? { stellaOfficeBinPath: officeBinPath } : {}),
@@ -790,6 +804,9 @@ export const runAgentTurn = (
         workspaceRoot,
         workspaceStateDir,
         toolHome,
+        // `code` reaches the turn's other tools as `tools.<name>`, as on the
+        // desktop.
+        allowedToolNames: cloudGeneralToolNames(input.execution.engine),
       });
 
       const cloudCodeToolCallIds: string[] = [];

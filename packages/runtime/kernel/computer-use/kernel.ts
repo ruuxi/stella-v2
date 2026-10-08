@@ -18,9 +18,12 @@ import {
 } from "@stella/contracts/map-artifact";
 import type {
   ToolContext,
+  ToolProcessIdentity,
   ToolResult,
   ToolUpdateCallback,
 } from "../tools/types.js";
+import { isolateToolProcessLaunch } from "../tools/process-isolation.js";
+import { resolveToolProcessIdentity } from "../tools/shell.js";
 import { acquireAbortLatch } from "../agent-core/abort-bridge.js";
 import {
   isAgentToolSuspendedError,
@@ -597,10 +600,41 @@ export const nodeReplChildUsesElectronRuntime = (
   return Boolean(env.STELLA_HOST_EXECUTABLE_PATH?.trim());
 };
 
+/**
+ * The tool account a sandboxed host's REPL runs as, and the workspace it
+ * starts in. A context that carries a `toolProcessIdentity` (the cloud
+ * container) gets the same privilege drop as `Bash`: never the host's own
+ * user and environment, where `node:fs` could read the host's private state
+ * and `/proc/self/environ` would hand over its secrets.
+ */
+export type NodeReplProcessIsolation = Readonly<{
+  identity: ToolProcessIdentity;
+  cwd: string;
+}>;
+
 type ExternalNodeReplTransportOptions = Readonly<{
   env?: NodeJS.ProcessEnv;
   spawnProcess?: typeof spawn;
+  isolation?: NodeReplProcessIsolation;
 }>;
+
+/**
+ * The whole environment an isolated REPL child gets: the tool account's own
+ * home and a fixed PATH, as a `Bash` command's identity overrides set them,
+ * and nothing inherited from the host.
+ */
+const isolatedNodeReplEnvironment = (
+  identity: ToolProcessIdentity,
+): NodeJS.ProcessEnv => ({
+  PATH: "/usr/local/bin:/usr/bin:/bin",
+  HOME: identity.home,
+  USER: identity.user,
+  LOGNAME: identity.user,
+  XDG_CONFIG_HOME: path.join(identity.home, ".config"),
+  XDG_CACHE_HOME: path.join(identity.home, ".cache"),
+  XDG_STATE_HOME: path.join(identity.home, ".local", "state"),
+  LANG: "C.UTF-8",
+});
 
 /**
  * Bun cannot host the hardened REPL in-process, so production starts the
@@ -619,16 +653,28 @@ export const createExternalNodeReplTransport = (
     env.STELLA_NODE_BIN?.trim() ||
     env.STELLA_HOST_EXECUTABLE_PATH?.trim() ||
     "node";
-  const child = (options.spawnProcess ?? spawn)(executable, ["-"], {
+  const isolation = options.isolation;
+  const launch = isolation
+    ? isolateToolProcessLaunch({
+        command: executable,
+        commandArgs: ["-"],
+        identity: isolation.identity,
+      })
+    : { command: executable, args: ["-"] };
+  const child = (options.spawnProcess ?? spawn)(launch.command, launch.args, {
     env: {
-      ...env,
+      ...(isolation ? isolatedNodeReplEnvironment(isolation.identity) : env),
       ...(nodeReplChildUsesElectronRuntime(env)
         ? { ELECTRON_RUN_AS_NODE: "1" }
         : {}),
       STELLA_NODE_REPL_WORKER_DATA: JSON.stringify(workerData),
     },
+    ...(isolation ? { cwd: isolation.cwd } : {}),
     stdio: ["pipe", "ignore", "ignore", "ipc"],
     windowsHide: true,
+    ...("nativeIdentity" in launch && launch.nativeIdentity
+      ? { uid: launch.nativeIdentity.uid, gid: launch.nativeIdentity.gid }
+      : {}),
   });
 
   const errorListeners = new Set<(error: Error) => void>();
@@ -696,11 +742,18 @@ const createNodeReplTransport = (
   source: string,
   workerData: NodeReplWorkerData,
   name: string,
+  isolation?: NodeReplProcessIsolation,
 ): NodeReplTransport => {
-  if (!isBunNodeReplRuntime()) {
+  // A worker thread shares the host's user and environment, so an isolated
+  // REPL is always a child process, whatever runtime hosts the kernel.
+  if (!isolation && !isBunNodeReplRuntime()) {
     return new Worker(source, { eval: true, workerData, name });
   }
-  return createExternalNodeReplTransport(source, workerData);
+  return createExternalNodeReplTransport(
+    source,
+    workerData,
+    isolation ? { isolation } : {},
+  );
 };
 
 class NodeReplKernel {
@@ -755,6 +808,8 @@ class NodeReplKernel {
       describeTool?: NodeReplKernelManagerOptions["describeTool"];
       queryHistory?: NodeReplKernelManagerOptions["queryHistory"];
       connectClient?: ReplConnectClient;
+      /** The context's validated tool account; the REPL child runs as it. */
+      processIdentity?: ToolProcessIdentity;
       toolNames: string[];
       browserSessionId: string;
       ownerLeaseId: string;
@@ -812,6 +867,9 @@ class NodeReplKernel {
       createNodeReplWorkerSource(),
       workerData,
       `stella-node-repl-${id.slice(0, 48)}`,
+      options.processIdentity
+        ? { identity: options.processIdentity, cwd }
+        : undefined,
     );
     this.worker.on("message", (message: unknown) =>
       this.handleMessage(message),
@@ -2592,9 +2650,12 @@ export class NodeReplKernelRegistry {
         this.lastOwnerLeaseIssuedAt + 1,
       );
       this.lastOwnerLeaseIssuedAt = ownerLeaseIssuedAt;
+      // Validated before anything spawns, exactly as a `Bash` command's is.
+      const processIdentity = resolveToolProcessIdentity(context);
       const generation = (this.generations.get(id) ?? 0) + 1;
       this.generations.set(id, generation);
       kernel = new NodeReplKernel(id, generation, cwd, {
+        ...(processIdentity ? { processIdentity } : {}),
         sessionFactory,
         authorizeApp: this.options.authorizeApp,
         browserBinPath: this.options.browserBinPath,

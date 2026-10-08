@@ -225,6 +225,8 @@ export const createToolHost = ({
   webSearch,
   getStellaSiteAuth,
   getCloudBackendAuth,
+  codeConnectClient,
+  codeHistoryQuery,
 }: ToolHostOptions) => {
   const stateRoot = stellaDataDir ?? stellaAppDir;
   const toolCatalog = new Map<string, ToolMetadata>();
@@ -352,7 +354,7 @@ export const createToolHost = ({
       ),
     // `history.sql` / `history.read`: the conversation lives in its cloud
     // session DO, which answers both exactly as the cloud code tool does.
-    queryHistory: async (args, context) => {
+    queryHistory: codeHistoryQuery ?? (async (args, context) => {
       const auth = getCloudBackendAuth?.();
       if (!auth) {
         throw new Error("history is unavailable in this session.");
@@ -380,7 +382,7 @@ export const createToolHost = ({
         throw new Error(message);
       }
       return body;
-    },
+    }),
     describeTool: (name, context, cursor) => {
       const tool = collectReplSearchableTools(
         toolCatalog.values(),
@@ -436,13 +438,16 @@ export const createToolHost = ({
     },
     // In-REPL `connect` client — the only agent surface for third-party
     // app integrations: catalog from the shared disk cache, action
-    // execution through the CLI bridge → backend connector action broker.
-    connectClient: createReplConnectClient({
-      stellaAppDir: stateRoot,
-      ...(cliBridgeSocketPath ? { cliBridgeSocketPath } : {}),
-      onBridgeUnreachable: (message) =>
-        logError("code connect bridge unreachable", message),
-    }),
+    // execution through the CLI bridge → backend connector action broker,
+    // unless the host supplies its own (the cloud container's broker).
+    connectClient:
+      codeConnectClient ??
+      createReplConnectClient({
+        stellaAppDir: stateRoot,
+        ...(cliBridgeSocketPath ? { cliBridgeSocketPath } : {}),
+        onBridgeUnreachable: (message) =>
+          logError("code connect bridge unreachable", message),
+      }),
   });
 
   if (recoverStaleSecrets) {

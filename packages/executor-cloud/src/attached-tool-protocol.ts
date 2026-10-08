@@ -23,9 +23,12 @@
  * `code` is deliberately absent. A resident turn runs `code` in a Dynamic
  * Worker the Durable Object loads itself (see `general-agent-tools.ts`,
  * placement `js_sandbox`), so it never crosses this channel: there is no
- * container to attach for it and nothing for the daemon to serve. The
- * in-container `code` of an eager container turn is a different tool host
- * with the turn-broker browser session factory; it is not bridged either.
+ * container to attach for it and nothing for the daemon to serve. It stays
+ * there after a container attaches, because its nested tools are the
+ * DO-local ones and its browser and login handoff belong to the Durable
+ * Object; moving a cell here would change both mid-turn. The in-container
+ * `code` of an eager container turn is a different tool host with the
+ * turn-broker browser session factory; it is not bridged either.
  *
  * `view_image` is absent for a different reason: it has no runtime definition
  * and no descriptor, so it never reaches the model and the daemon has nothing

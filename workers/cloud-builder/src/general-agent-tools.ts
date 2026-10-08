@@ -100,14 +100,16 @@ import {
 export type GeneralAgentToolCompute = "container" | "do_local" | "js_sandbox";
 
 /**
- * `code` runs in the JS sandbox, exactly as the cloud orchestrator's `code`
- * does: the same Dynamic Worker executor, the same read-only nested-tool
- * rules, and no browser facility. The resident agent therefore never boots a
- * container just to evaluate JavaScript; a turn that needs a process or the
- * world filesystem still attaches on its first container tool. Until this
- * classification, `code` sat in `container` yet was never bridged to the
- * daemon, so every cloud background agent that reached for code mode got the
- * "no workspace attached" refusal and nothing else.
+ * `code` runs in the JS sandbox on the cloud orchestrator's Dynamic Worker
+ * executor, for the whole turn. Unlike the orchestrator's, an agent's cell
+ * also reaches the public network, the account's connectors, the turn's
+ * cloud browser, and the owner world through its `fs` global, so the
+ * resident agent never boots a container just to evaluate JavaScript or
+ * touch a file; a turn that needs a process still attaches on its first
+ * container tool. Until this classification, `code` sat in `container` yet
+ * was never bridged to the daemon, so every cloud background agent that
+ * reached for code mode got the "no workspace attached" refusal and nothing
+ * else.
  */
 const GENERAL_AGENT_TOOL_COMPUTE = {
   [EXEC_COMMAND_TOOL_NAME]: "container",

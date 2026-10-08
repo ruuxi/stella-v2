@@ -49,6 +49,10 @@ import type {
   TurnStateWorkspaceHead,
 } from "../turn-state-registry.js";
 import { worldName } from "../workspace.js";
+import { invokeCloudConnect } from "../cloud-code-tool.js";
+import { redactSensitiveText } from "@stella/contracts/sensitive-data";
+import type { TurnBrokerCodeResponse } from "@stella/contracts/turn-credential-broker";
+import { agentConnectClient } from "./agent-connect.js";
 import type { BuildSessionInternals } from "./host.js";
 import {
   AgentTurnAuthorityLostError,
@@ -1016,6 +1020,57 @@ export const serveTurnUserAskRequest = async (
   return driveJson(response.value);
 };
 
+/**
+ * The container `code` cell's `connect` and `history`, answered exactly as
+ * the resident isolate answers them: connectors through the owner object
+ * under this turn's owner generation, history through the conversation the
+ * agent was spawned from. A refused or failed call is still a 200 carrying
+ * the error the cell rejects with; only a malformed frame denies the broker.
+ */
+export const serveTurnCodeRequest = async (
+  env: Pick<Cloudflare.Env, "OWNER_GATES" | "DB" | "ORCHESTRATOR_SESSIONS">,
+  turn: Pick<TurnRequest, "ownerId" | "ownerGeneration" | "conversationId">,
+  kind: "code-connect" | "code-history",
+  body: Record<string, unknown>,
+): Promise<Response> => {
+  if (
+    kind === "code-connect"
+      ? typeof body.method !== "string" || !Array.isArray(body.args)
+      : !isRecord(body.request)
+  ) {
+    return brokerFailure(400);
+  }
+  let answer: TurnBrokerCodeResponse;
+  try {
+    if (kind === "code-connect") {
+      answer = {
+        ok: true,
+        value: await invokeCloudConnect(
+          agentConnectClient(env, turn),
+          body.method as string,
+          body.args as unknown[],
+        ),
+      };
+    } else {
+      const conversationId = turn.conversationId;
+      if (!conversationId) {
+        throw new Error("history is unavailable in this session.");
+      }
+      answer = {
+        ok: true,
+        value: await env.ORCHESTRATOR_SESSIONS.getByName(
+          conversationId,
+        ).queryHistory(turn.ownerId, body.request),
+      };
+    }
+  } catch (error) {
+    answer = {
+      ok: false,
+      error: redactSensitiveText(errorMessage(error)).slice(0, 4_000),
+    };
+  }
+  return Response.json(answer, { headers: { "cache-control": "no-store" } });
+};
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -1211,6 +1266,9 @@ const handleBrokerLocalRequest = async (
     }
     if (target.kind === "user-ask") {
       return await serveTurnUserAskRequest(host.env, turn, body);
+    }
+    if (target.kind === "code-connect" || target.kind === "code-history") {
+      return await serveTurnCodeRequest(host.env, turn, target.kind, body);
     }
     if (target.kind === "drive") {
       return await serveTurnDriveRequest(host.env, turn, target.path, body);
@@ -1449,7 +1507,9 @@ export const handleTurnBroker = async (
       claimed.target.kind === "search" ||
       claimed.target.kind === "user-ask" ||
       claimed.target.kind === "orchestrator-tool" ||
-      claimed.target.kind === "orchestrator-events"
+      claimed.target.kind === "orchestrator-events" ||
+      claimed.target.kind === "code-connect" ||
+      claimed.target.kind === "code-history"
     ) {
       // The turn's events and its thread transcript are this object's own
       // state now, and the drive and web search are the owner object's. The

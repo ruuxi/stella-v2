@@ -39,7 +39,12 @@ import {
 } from "../resident-browser.js";
 import { createWorkerShellRouter } from "../worker-shell-router.js";
 import { hydrateResidentDrive } from "../resident-drive.js";
-import { createWorkerShellRunner } from "../worker-shell-runner.js";
+import {
+  createWorkerShellRunner,
+  type WorkerShellWorldCommit,
+} from "../worker-shell-runner.js";
+import { createWorldWriteGate } from "../world-write-gate.js";
+import { agentConnectClient } from "./agent-connect.js";
 import {
   parseTurnComputePlan,
   runResidentStellaLoop,
@@ -768,6 +773,21 @@ export const runResidentAgentTurn = async (
         .catch(() => undefined);
     },
   });
+  // Every container call goes through `containerCalls`, and every change
+  // this object commits to the world directly goes through `worldWrites`:
+  // a direct commit must not land between a container call's pull and the
+  // push that would delete it again (`world-write-gate.ts`).
+  const writeGate = createWorldWriteGate();
+  const containerCalls = {
+    execute: (call: Parameters<typeof ladder.execute>[0]) =>
+      writeGate.shared(() => ladder.execute(call)),
+    attached: () => ladder.attached(),
+  };
+  const worldWrites: WorkerShellWorldCommit = {
+    head: async () => await world.head(),
+    commitShell: (change) =>
+      writeGate.exclusive(async () => await world.commitShell(change)),
+  };
 
   const agentControl = createBuildSessionAgentControl({
     storage: host.ctx.storage,
@@ -830,7 +850,7 @@ export const runResidentAgentTurn = async (
     world: {
       tool: async (call, toolCallId) => {
         if (!(await prepareWorkspace()) || ladder.attached()) {
-          const result = await ladder.execute({
+          const result = await containerCalls.execute({
             toolCallId,
             toolName: call.name,
             params: call.arguments,
@@ -839,7 +859,9 @@ export const runResidentAgentTurn = async (
             ? { ok: true, output: result.outcome.text }
             : { ok: false, output: result.outcome.message };
         }
-        return world.tool(call);
+        return call.name === "Read" || call.name === "Grep"
+          ? world.tool(call)
+          : writeGate.exclusive(() => world.tool(call));
       },
     },
     signal: execution.signal,
@@ -860,10 +882,14 @@ export const runResidentAgentTurn = async (
     : undefined;
   // `code` runs in a Dynamic Worker the DO loads on demand, the same
   // executor the cloud orchestrator uses, so a resident agent evaluates
-  // JavaScript without reserving a container. Only the DO-local tools are
-  // reachable from inside code, and only the read-only ones among them, plus
-  // the turn's cloud browser; a deployment without the loader keeps the
-  // model-visible refusal instead.
+  // JavaScript without reserving a container. It stays there for the whole
+  // turn, even once a container attaches: its nested tools are the DO-local
+  // ones and its browser is this object's client, and neither exists in the
+  // container's tool host. Unlike the orchestrator's, an agent's code reaches
+  // the public network through `CodeEgress`, the account's connectors, and
+  // the owner world through `fs`, whose reads use the same loopback as the
+  // worker shell and whose writes this object commits through the write
+  // gate. A deployment without the loader keeps the model-visible refusal.
   // `history` reads the conversation this agent was spawned from, through
   // that conversation's own Durable Object.
   const conversationId = turn.conversationId;
@@ -889,6 +915,26 @@ export const runResidentAgentTurn = async (
             loader: host.env.LOADER,
             tools: [...doLocal.values()],
             executionScope: `${turn.ownerGeneration}:${turn.threadId}:${turn.turnId}:${attemptGeneration}`,
+            connect: agentConnectClient(host.env, turn),
+            reach: {
+              network: () =>
+                host.ctx.exports.CodeEgress({
+                  props: { scope: ownerWorldName },
+                }),
+              world: {
+                loopback: () =>
+                  host.ctx.exports.WorldShellFs({
+                    props: { worldName: ownerWorldName },
+                  }),
+                // A cell's first `fs` touch is when the drive must be
+                // current in the world, exactly as for the worker shell.
+                head: async () => {
+                  await prepareWorkspace();
+                  return await world.head();
+                },
+                commitShell: worldWrites.commitShell,
+              },
+            },
             ...(browser ? { browser } : {}),
             ...(history ? { history } : {}),
           }),
@@ -902,7 +948,7 @@ export const runResidentAgentTurn = async (
   // Durable Object commits what a run changed.
   const workspaceRoot = WORLD_ROOT;
   const compute = createWorkerShellRouter({
-    ladder,
+    ladder: containerCalls,
     root: workspaceRoot,
     prepareWorkspace,
     signal: execution.signal,
@@ -919,10 +965,7 @@ export const runResidentAgentTurn = async (
               host.ctx.exports.WorldShellFs({
                 props: { worldName: ownerWorldName },
               }),
-            world: {
-              head: () => world.head(),
-              commitShell: (change) => world.commitShell(change),
-            },
+            world: worldWrites,
             root: workspaceRoot,
             scope: ownerWorldName,
           }),

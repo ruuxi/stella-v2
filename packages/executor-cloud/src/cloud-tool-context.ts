@@ -18,7 +18,15 @@ export const cloudAgentToolContext = (args: {
   workspaceStateDir: string;
   toolHome: string;
   requestId?: string;
+  /**
+   * The tools a `code` cell may call as `tools.<name>`. The REPL offers
+   * exactly this list (minus `code` itself); without it `tools` is empty.
+   */
+  allowedToolNames?: readonly string[];
 }): ToolContext => ({
+  ...(args.allowedToolNames
+    ? { allowedToolNames: [...args.allowedToolNames] }
+    : {}),
   executionHost: "sandbox",
   conversationId: args.threadId,
   deviceId: "cloud",

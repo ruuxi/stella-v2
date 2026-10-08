@@ -554,6 +554,17 @@ export type ToolHostOptions = {
    * while signed out. Backs `history.sql` / `history.read` in `code`.
    */
   getCloudBackendAuth?: () => { baseUrl: string; authToken: string } | null;
+  /**
+   * The in-`code` `connect` client and `history` handler, for a host that
+   * reaches them its own way: the cloud container, which has neither the CLI
+   * bridge nor backend auth, answers both through its turn broker. Absent,
+   * `connect` uses the CLI bridge and `history` the cloud backend auth.
+   */
+  codeConnectClient?: import("../connectors/connect-service.js").ReplConnectClient;
+  codeHistoryQuery?: (
+    args: Record<string, unknown>,
+    context: ToolContext,
+  ) => Promise<unknown>;
   stellaDataDir?: string;
   askUser?: import("./user.js").UserToolsConfig["askUser"];
   requestSecureInput?: import("./user.js").UserToolsConfig["requestSecureInput"];

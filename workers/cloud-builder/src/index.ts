@@ -12,6 +12,7 @@ export { OwnerGate };
 export { BillingControl } from "./billing/control.js";
 export { WorldStore } from "./world-store.js";
 export { WorldShellFs } from "./world-shell-fs.js";
+export { CodeEgress } from "./code-egress.js";
 
 /**
  * Every sandbox, of either size and either workload, is one object in this

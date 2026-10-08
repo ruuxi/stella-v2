@@ -8,6 +8,35 @@ export const TURN_BROKER_TURN_STATE_CHECKPOINT_PATH =
 export const TURN_BROKER_NATIVE_STATE_CHECKPOINT_PATH =
   TURN_BROKER_TURN_STATE_CHECKPOINT_PATH;
 
+/**
+ * What the container's `code` cell reaches through the broker: one
+ * `connect.<method>(...args)` call against the account's connectors, and one
+ * `history` operation over the conversation the agent was spawned from.
+ * Bodies carry the turn id; answers are `{ ok: true, value }` or
+ * `{ ok: false, error }`, both HTTP 200, so a refused call never revokes the
+ * broker.
+ */
+export const TURN_BROKER_CODE_PATHS = {
+  connect: "/api/cloud/code/connect",
+  history: "/api/cloud/code/history",
+} as const;
+
+export type TurnBrokerCodeConnectRequest = {
+  turnId: string;
+  method: string;
+  args: unknown[];
+};
+
+export type TurnBrokerCodeHistoryRequest = {
+  turnId: string;
+  /** `{ op: "sql", query, params }` or `{ op: "read", fromSeq, toSeq }`. */
+  request: Record<string, unknown>;
+};
+
+export type TurnBrokerCodeResponse =
+  | { ok: true; value: unknown }
+  | { ok: false; error: string };
+
 export const TURN_BROKER_HEADERS = {
   ownerId: "x-stella-broker-owner-id",
   ownerGeneration: "x-stella-broker-owner-generation",

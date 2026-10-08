@@ -92,7 +92,7 @@ export function desktopGatewayAccess(options: DesktopGatewayOptions): StellaGate
       if (!capability) throw new Error("Stella is not signed in.");
       return capability;
     },
-    fetch: relayFetch as typeof fetch,
+    fetch: (input, init) => relayFetch(input, init),
   };
 }
 

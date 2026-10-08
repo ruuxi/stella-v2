@@ -134,6 +134,7 @@ import {
 } from "@stella/runtime/kernel/tools/defs/agent-orchestration-def.js";
 import type { TSchema } from "@sinclair/typebox";
 import { guardedModelFetch } from "./guarded-model-fetch.js";
+import { AGENT_MESSAGE_FRAMED_MAX_CHARS } from "./agent-messaging.js";
 import {
   fetchWithManagedCancellation,
   type ModelGatewayControl,
@@ -477,6 +478,8 @@ type Env = Pick<
       | "MODEL_GATEWAY_CONTROL"
       | "MODEL_GATEWAY_OWNERS"
       | "MODEL_GATEWAY_URL"
+      | "Sandbox"
+      | "SANDBOX_IDLE_TIMEOUT_MS"
       | "CLOUD_BUILDER_PUBLIC_URL"
       | "CAPABILITY_SIGNING_KEY"
       | "CAPABILITY_SIGNING_KID"
@@ -649,6 +652,9 @@ const CHAT_WATCHDOG_MS = 5 * 60_000;
 const AGENT_RUNTIME_KEY = "agentRuntime";
 /** The newest pi entry this conversation's journal has mirrored. */
 const PI_MIRRORED_KEY = "piMirroredEntry";
+/** Set while pi has work in flight here, so a wake after eviction resumes it. */
+const PI_LIVE_KEY = "piLive";
+const PI_HEARTBEAT_MS = 30_000;
 /**
  * While a chat turn runs, its alarm fires at least this often. The alarm is
  * what wakes a replaced object (a deploy, an eviction) so the wake can resume
@@ -2899,6 +2905,16 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
   }
 
   async alarm(): Promise<void> {
+    try {
+      await this.conversationAlarm();
+    } finally {
+      await this.piHeartbeat().catch((error: unknown) => {
+        log("error", "pi_heartbeat_failed", { message: errorMessage(error) });
+      });
+    }
+  }
+
+  private async conversationAlarm(): Promise<void> {
     // A turn can finish after its remote lease was removed but before the
     // unregister response arrived. Reconcile that durable debt before using
     // this wake-up for the conversation lifecycle. Same for projections the
@@ -5823,17 +5839,14 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     ]);
     await assertExactTurnActive();
     const executionContext = cloudExecutionContext(turn, destinations);
-    const descriptor = resolveManagedModelDescriptor({
-      agentType: "orchestrator",
-      requestedModel: args.execution.model,
-      audience: turn.audience,
-    });
-    const binding: import("./pi-runtime.js").PiTurnBinding = {
-      turnId: turn.turnId,
-      capability: args.capability,
-      fetch: args.relayFetch,
-      model: {
-        agentType: "orchestrator",
+    const modelSpec = (agentType: "orchestrator" | "general") => {
+      const descriptor = resolveManagedModelDescriptor({
+        agentType,
+        requestedModel: args.execution.model,
+        audience: turn.audience,
+      });
+      return {
+        agentType,
         alias: args.execution.model,
         protocol: descriptor.protocol,
         reasoning: descriptor.reasoning,
@@ -5844,7 +5857,23 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         ...(descriptor.maxOutputTokens !== undefined
           ? { maxOutputTokens: descriptor.maxOutputTokens }
           : {}),
+      };
+    };
+    const binding: import("./pi-runtime.js").PiTurnBinding = {
+      turnId: turn.turnId,
+      capability: args.capability,
+      fetch: args.relayFetch,
+      // Agents this turn starts run on this owner's authority after it ends.
+      authority: {
+        ownerId: turn.ownerId,
+        ownerGeneration: turn.ownerGeneration,
+        conversationId: turn.conversationId,
+        audience: turn.audience,
+        budgetMicroCents: turn.budgetMicroCents,
+        execution: args.execution,
       },
+      model: modelSpec("orchestrator"),
+      agentModel: modelSpec("general"),
       thinkingLevel: pi.thinkingLevelFor(args.execution.reasoningEffort),
       sources: {
         orchestratorPrompt: canonicalPrompts.orchestratorBody,
@@ -5859,7 +5888,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       },
     };
     const runtime = await this.openPiRuntime(args.gatewayOrigin);
-    const unbind = runtime.bind(binding);
+    const unbind = await runtime.bind(binding);
     const context = pi.contextFor(executionSignal);
     let stream: Awaited<ReturnType<typeof runtime.follow>> | undefined;
     let mirrored = (await this.ctx.storage.get<number>(PI_MIRRORED_KEY)) ?? 0;
@@ -5990,6 +6019,8 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       unbind();
       await stream?.stop().catch(() => undefined);
       await this.ctx.storage.put(PI_MIRRORED_KEY, mirrored).catch(() => undefined);
+      // Agents this turn started keep running after it.
+      await this.piHeartbeat().catch(() => undefined);
     }
   }
 
@@ -6001,14 +6032,95 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       ({ PiConversationRuntime }) =>
         new PiConversationRuntime({
           storage: this.ctx.storage,
+          env: this.env,
           gatewayOrigin,
+          waitUntil: (work) => this.ctx.waitUntil(work),
           report: (error) =>
             log("error", "pi_runtime_report", { message: errorMessage(error) }),
+          log: (event, fields) => log("info", event, fields),
+          deliverReport: (report, authority) =>
+            this.deliverPiAgentReport(report, authority),
+          heartbeat: () => {
+            void (async () => {
+              await this.ctx.storage.put(PI_LIVE_KEY, true);
+              await this.armAlarmNoLaterThan(Date.now() + PI_HEARTBEAT_MS);
+            })().catch(() => undefined);
+          },
         }),
     );
     const runtime = await this.piRuntime;
     await runtime.open();
     return runtime;
+  }
+
+  /**
+   * An agent's report reaches the orchestrator as a hidden wake turn, through
+   * the same admission as any turn. Its request id is the turn's
+   * `clientMsgId`, so a report sent again after an eviction is a replay.
+   */
+  private async deliverPiAgentReport(
+    report: import("@stella/agent/stella/agents").AgentReport,
+    authority: import("./pi-runtime.js").PiAuthority,
+  ): Promise<void> {
+    const limit = AGENT_MESSAGE_FRAMED_MAX_CHARS;
+    const prompt =
+      report.text.length <= limit
+        ? report.text
+        : `${report.text.slice(0, limit - 40)}\n[report truncated]`;
+    const start: CloudTurnStartRequest = {
+      protocol: TURN_PLANE_PROTOCOL,
+      clientMsgId: report.requestId.slice(0, 64),
+      prompt,
+      lane: "wake",
+      source: "agent-thread",
+      hiddenMessage: true,
+    };
+    const response = await this.handleTurnStart(
+      new Request("https://orchestrator-session/turn", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          [HEADER_OWNER]: authority.ownerId,
+          [HEADER_TURN_AUTH_KIND]: "service",
+          [TURN_OWNER_GENERATION_HEADER]: authority.ownerGeneration,
+        },
+        body: JSON.stringify(start),
+      }),
+    );
+    const body = await response.text().catch(() => "");
+    if (response.status !== 202 && response.status !== 200) {
+      throw new Error(
+        `The agent's report was refused (${response.status}): ${body.slice(0, 300)}`,
+      );
+    }
+    log("info", "pi_agent_report_delivered", {
+      conversationId: authority.conversationId,
+      threadId: report.threadId,
+      requestId: report.requestId,
+      status: response.status,
+    });
+  }
+
+  /**
+   * While pi has work in flight here (agents running, their reports on the
+   * way), wake this object every {@link PI_HEARTBEAT_MS}. A wake after an
+   * eviction reopens the harness, which resumes that work.
+   */
+  private async piHeartbeat(): Promise<void> {
+    if ((await this.ctx.storage.get<string>(AGENT_RUNTIME_KEY)) !== "pi") return;
+    const live = await this.ctx.storage.get<boolean>(PI_LIVE_KEY);
+    if (!this.piRuntime && !live) return;
+    const reopening = !this.piRuntime;
+    const gatewayOrigin = this.env.MODEL_GATEWAY_URL?.trim() ?? "";
+    const runtime = await this.openPiRuntime(gatewayOrigin);
+    const { contextFor } = await import("./pi-runtime.js");
+    const busy = await runtime.busy(contextFor());
+    if (reopening) log("info", "pi_heartbeat_reopened", { busy });
+    if (busy !== Boolean(live)) {
+      if (busy) await this.ctx.storage.put(PI_LIVE_KEY, true);
+      else await this.ctx.storage.delete(PI_LIVE_KEY);
+    }
+    if (busy) await this.armAlarmNoLaterThan(Date.now() + PI_HEARTBEAT_MS);
   }
 
   /**

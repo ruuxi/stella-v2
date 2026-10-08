@@ -103,10 +103,10 @@ export const preparePromptContext = (args: {
   journalEpoch: number;
 }) => {
   const { previous, policy } = args;
-  const boundary = !previous || crossesContextBoundary(previous, args);
+  const boundary = promptContextBoundary(args);
   let state: PromptContext;
   const prepend: ResidentPrompt[] = [];
-  if (boundary) {
+  if (boundary || !previous) {
     state = {
       version: 2,
       epoch: crypto.randomUUID(),
@@ -158,6 +158,17 @@ export const resumePromptContext = (args: {
   crossesContextBoundary(args.previous, args)
     ? null
     : { state: args.previous, tools: providerTools(args.previous, args.tools) };
+
+/**
+ * Whether this turn's context starts fresh: the head is rendered whole, so
+ * boundary-only resident values (the agent roster) are worth fetching.
+ */
+export const promptContextBoundary = (args: {
+  previous?: PromptContext;
+  policy: MemoryPolicy;
+  startSeq: number;
+  journalEpoch: number;
+}): boolean => !args.previous || crossesContextBoundary(args.previous, args);
 
 /**
  * A shortened history already breaks the cache. Privacy changes must never

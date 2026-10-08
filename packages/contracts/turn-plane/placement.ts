@@ -312,6 +312,13 @@ export type DeviceAvailability = {
   capabilities: ExecutionCapability[];
 };
 
+export type AgentMessageDeviceOutcome =
+  | "steered"
+  | "queued"
+  | "resumed"
+  | "not_found"
+  | "refused";
+
 /** Server -> device. */
 export type DevicePresenceServerFrame =
   | {
@@ -350,6 +357,20 @@ export type DevicePresenceServerFrame =
       text: string;
     }
   | { type: "dispatch"; dispatch: DispatchSummary }
+  | {
+      /**
+       * A `send_message` for an agent this device runs locally (started by
+       * its own Stella, so there is no dispatch). The device steers it if it
+       * is running, resumes it if idle, and answers with `agent-message.ack`.
+       * `messageId` is stable across redeliveries; the device dedupes on it.
+       */
+      type: "agent-message";
+      messageId: string;
+      threadId: string;
+      ownerGeneration: string;
+      /** The framed `<agent-message>` text the agent reads. */
+      text: string;
+    }
   | {
       /**
        * Something tried to dispatch work here and this device has not agreed
@@ -391,6 +412,13 @@ export type DevicePresenceDeviceFrame =
       dispatchId: string;
       messageId: string;
       delivered: boolean;
+    }
+  | {
+      /** How an `agent-message` landed; `not_found` means no such local agent. */
+      type: "agent-message.ack";
+      messageId: string;
+      threadId: string;
+      outcome: AgentMessageDeviceOutcome;
     }
   | {
       /**

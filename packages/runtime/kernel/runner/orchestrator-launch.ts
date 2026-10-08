@@ -18,6 +18,9 @@ import {
 } from "../agent-runtime/run-preparation.js";
 import { buildThreadMessagePreview } from "../agent-runtime/thread-memory.js";
 import { executionContextHistoryEntries } from "../agent-runtime/execution-context-history.js";
+import { hasResidentHead } from "../agent-runtime/resident-context.js";
+import { renderAgentRoster } from "@stella/contracts/agent-directory";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import {
   resolveAgentModelRoute,
   type BuildAgentContextArgs,
@@ -44,6 +47,23 @@ import {
 type BuildAgentContext = (
   args: BuildAgentContextArgs,
 ) => Promise<LocalAgentContext>;
+
+/**
+ * Whether this computer supplies Stella's agent list for a turn stored here.
+ * A cloud turn's history and compaction live in the conversation's journal,
+ * so it reads the list once that history is seeded.
+ */
+const readsAgentRoster = (args: {
+  agentType: string;
+  storageMode?: "cloud" | "local";
+}): boolean =>
+  args.agentType === AGENT_IDS.ORCHESTRATOR && args.storageMode !== "cloud";
+
+const readAgentRoster = async (
+  context: RunnerContext,
+  conversationId: string,
+): Promise<string | undefined> =>
+  renderAgentRoster(await context.readConversationAgentRows(conversationId));
 
 type DeferredTerminalCallback =
   | { kind: "end"; event: RuntimeEndEvent }
@@ -591,6 +611,14 @@ export const prepareOrchestratorRun = async (args: {
         : {}),
       ...resolvedAgentModel,
     });
+    // The list is a snapshot from where the context starts, so only a thread
+    // without its resident head yet pays for the read.
+    const agentRoster =
+      readsAgentRoster(args) && !hasResidentHead(agentContext)
+        ? await readAgentRoster(args.context, args.conversationId).catch(
+            () => undefined,
+          )
+        : undefined;
     if (abortController.signal.aborted) {
       throw new Error("Run canceled.");
     }
@@ -617,7 +645,7 @@ export const prepareOrchestratorRun = async (args: {
       ...(args.toolWorkspaceRoot
         ? { toolWorkspaceRoot: args.toolWorkspaceRoot }
         : {}),
-      agentContext,
+      agentContext: agentRoster ? { ...agentContext, agentRoster } : agentContext,
       resolvedLlm,
       abortController,
       ...(args.durable ? { durable: args.durable } : {}),
@@ -775,6 +803,20 @@ export const launchPreparedOrchestratorRun = (args: {
         const begin = await beginCloudTurn();
         leaseToken = begin.leaseToken;
         seedCloudHistory(begin);
+        // The journal's window starts a fresh head on a new thread and after
+        // the cloud compacts it; that head carries Stella's agent list.
+        if (
+          prepared.agentType === AGENT_IDS.ORCHESTRATOR &&
+          !hasResidentHead(prepared.agentContext)
+        ) {
+          const agentRoster = await readAgentRoster(
+            context,
+            prepared.conversationId,
+          ).catch(() => undefined);
+          if (agentRoster) {
+            prepared.agentContext = { ...prepared.agentContext, agentRoster };
+          }
+        }
       }
 
       const runPromise = runOrchestratorTurn({
@@ -854,6 +896,12 @@ export const launchPreparedOrchestratorRun = (args: {
             },
           ),
         compactionScheduler: context.state.compactionScheduler,
+        ...(readsAgentRoster(prepared)
+          ? {
+              readAgentRoster: () =>
+                readAgentRoster(context, prepared.conversationId),
+            }
+          : {}),
       });
       await runPromise;
     } catch (error) {

@@ -410,6 +410,13 @@ export type RunnerContext = {
   appendLocalChatEvent?: StellaHostRunnerOptions["appendLocalChatEvent"];
   notifyThreadActivityUpdated?: StellaHostRunnerOptions["notifyThreadActivityUpdated"];
   getDefaultConversationId?: StellaHostRunnerOptions["getDefaultConversationId"];
+  /**
+   * A conversation's agents as `agent_status` lists them: local rows plus the
+   * cloud's, the local row winning; local rows alone when the cloud is silent.
+   */
+  readConversationAgentRows: (
+    conversationId: string,
+  ) => Promise<import("@stella/contracts/agent-directory").AgentDirectoryAgentRow[]>;
   /** Desktop's writer into a cloud conversation's DO-resident transcript. */
   cloudTranscript: import("./cloud-transcript-write.js").CloudTranscriptWriter;
   linkedFilePublisher: import("../device-files/linked-file-publisher.js").LinkedFilePublisher;
@@ -554,6 +561,16 @@ export type RunnerPublicApi = {
     text: string,
     messageId: string,
   ) => Promise<{ delivered: boolean }>;
+  /**
+   * Another agent's `send_message` for one of this computer's own agents,
+   * relayed by the cloud: steers it if running, resumes it if idle.
+   */
+  deliverLocalAgentMessage: (
+    threadId: string,
+    text: string,
+    messageId: string,
+    ownerGeneration: string,
+  ) => Promise<import("@stella/contracts/turn-plane/placement").AgentMessageDeviceOutcome>;
   /** Exact local-only cancel with a pre-create tombstone; never falls to cloud. */
   cancelBlockingLocalAgent: (
     agentId: string,

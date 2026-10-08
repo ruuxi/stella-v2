@@ -10,7 +10,14 @@ export const STELLA_MESSAGE_TARGET = "stella";
 
 export const AGENT_MESSAGE_MAX_CHARS = 8_000;
 
-const DIRECTORY_AGENT_LIMIT = 24;
+/** Where the orchestrator's resident agent list renders. */
+export const AGENT_ROSTER_DOC_PATH = "stella://context/agents";
+
+/** Active agents listed at most; past this the rest are counted, not shown. */
+export const AGENT_ROSTER_ACTIVE_LIMIT = 200;
+/** Slots inactive agents fill once the active ones are listed. */
+export const AGENT_ROSTER_SLOTS = 16;
+
 const DIRECTORY_SESSION_LIMIT = 10;
 
 export type AgentDirectoryStatus =
@@ -88,6 +95,69 @@ const formatAge = (timestamp: number, now: number): string => {
 const isLive = (status: AgentDirectoryStatus) =>
   status === "running" || status === "waiting";
 
+const newestFirst = (a: AgentDirectoryAgentRow, b: AgentDirectoryAgentRow) =>
+  b.updatedAt - a.updatedAt || a.threadId.localeCompare(b.threadId);
+
+/**
+ * Which agents a list shows: every active one up to the active limit, newest
+ * first, then the most recent inactive ones in whatever is left of the slots.
+ * 12 active leaves room for 4 inactive; 16 or more active leaves none.
+ */
+export const selectAgentRoster = (rows: readonly AgentDirectoryAgentRow[]) => {
+  const unique = [...new Map(rows.map((row) => [row.threadId, row])).values()];
+  const active = unique.filter((row) => isLive(row.status)).sort(newestFirst);
+  const inactive = unique.filter((row) => !isLive(row.status)).sort(newestFirst);
+  const shownActive = active.slice(0, AGENT_ROSTER_ACTIVE_LIMIT);
+  const shownInactive = inactive.slice(
+    0,
+    Math.max(0, AGENT_ROSTER_SLOTS - shownActive.length),
+  );
+  return {
+    active: shownActive,
+    inactive: shownInactive,
+    hiddenActive: active.length - shownActive.length,
+    hiddenInactive: inactive.length - shownInactive.length,
+  };
+};
+
+const rosterLine = (row: AgentDirectoryAgentRow, now: number): string =>
+  [
+    `- ${row.threadId}`,
+    row.status,
+    row.where,
+    `last active ${formatAge(row.updatedAt, now)}`,
+    ...(row.parentThreadId ? [`started by ${row.parentThreadId}`] : []),
+  ].join(" · ") + `\n  ${row.description.replace(/\s+/g, " ").trim().slice(0, 200)}`;
+
+/**
+ * The orchestrator's resident agent list: a snapshot taken where its context
+ * starts (thread start, each compaction), so it says when it was taken and
+ * points at agent_status for a live view. Undefined when there are no agents.
+ */
+export const renderAgentRoster = (
+  rows: readonly AgentDirectoryAgentRow[],
+  now = Date.now(),
+): string | undefined => {
+  const roster = selectAgentRoster(rows);
+  if (roster.active.length === 0 && roster.inactive.length === 0) return undefined;
+  const section = (title: string, list: AgentDirectoryAgentRow[], hidden: number) =>
+    list.length === 0 && hidden === 0
+      ? []
+      : [
+          `${title}:`,
+          ...list.map((row) => rosterLine(row, now)),
+          ...(hidden > 0 ? [`- ${hidden} more not shown`] : []),
+        ];
+  return [
+    `Your agents as of ${new Date(now).toISOString().slice(0, 16).replace("T", " ")} UTC. This list is refreshed when your context is compacted; agent_status without a thread_id gives a live one, and send_message reaches any thread_id here.`,
+    ...section("Active", roster.active, roster.hiddenActive),
+    ...section("Recent", roster.inactive, 0),
+    ...(roster.hiddenInactive > 0
+      ? ["Older agents are in the history."]
+      : []),
+  ].join("\n");
+};
+
 const agentEntry = (row: AgentDirectoryAgentRow, now: number) => ({
   thread_id: row.threadId,
   description: row.description,
@@ -99,8 +169,8 @@ const agentEntry = (row: AgentDirectoryAgentRow, now: number) => ({
 
 /**
  * The model-facing listing. Agents are this conversation's; sessions are the
- * other conversations. Every live agent is kept, then the newest others up to
- * the cap; older work stays reachable through the history.
+ * other conversations. Agents follow `selectAgentRoster`; older work stays
+ * reachable through the history.
  */
 export const buildAgentDirectoryResult = (input: {
   caller: AgentDirectoryCaller;
@@ -110,23 +180,14 @@ export const buildAgentDirectoryResult = (input: {
 }) => {
   const now = input.now ?? Date.now();
   const { caller } = input;
-  const seen = new Set<string>();
-  const agents = input.agents
-    .filter((row) => {
-      if (row.conversationId !== caller.conversationId) return false;
-      if (row.threadId === caller.threadId || seen.has(row.threadId)) return false;
-      seen.add(row.threadId);
-      return true;
-    })
-    .sort(
-      (a, b) =>
-        Number(isLive(b.status)) - Number(isLive(a.status)) ||
-        b.updatedAt - a.updatedAt ||
-        a.threadId.localeCompare(b.threadId),
-    );
-  const kept = agents.filter(
-    (row, index) => isLive(row.status) || index < DIRECTORY_AGENT_LIMIT,
+  const roster = selectAgentRoster(
+    input.agents.filter(
+      (row) =>
+        row.conversationId === caller.conversationId &&
+        row.threadId !== caller.threadId,
+    ),
   );
+  const kept = [...roster.active, ...roster.inactive];
   const isOwn = (row: AgentDirectoryAgentRow) =>
     caller.threadId
       ? row.parentThreadId === caller.threadId
@@ -149,7 +210,7 @@ export const buildAgentDirectoryResult = (input: {
       where: row.where,
       last_active: formatAge(row.updatedAt, now),
     }));
-  const hidden = agents.length - kept.length;
+  const hidden = roster.hiddenActive + roster.hiddenInactive;
   return {
     you: caller.threadId
       ? { thread_id: caller.threadId }

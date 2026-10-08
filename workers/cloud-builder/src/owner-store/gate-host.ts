@@ -76,6 +76,8 @@ export type GateHostDependencies = {
   submit: (input: OwnerGateSubmitInput) => Promise<OwnerGateDispatchResult>;
   /** The gate's steer of a running device agent. */
   steerDispatch: OwnerHost["steerDeviceAgentTurn"];
+  /** The gate's message to an agent a device runs locally. */
+  messageLocalAgent: OwnerHost["messageLocalAgent"];
   /** The gate's own dispatch cancellation. */
   cancelDispatch: (input: OwnerGateCancelInput) => Promise<OwnerGateStatusResult>;
   /** The gate's devices, with live presence. */
@@ -168,6 +170,8 @@ export const createGateHost = (deps: GateHostDependencies): OwnerHost => ({
   },
 
   steerDeviceAgentTurn: (input) => deps.steerDispatch(input),
+
+  messageLocalAgent: (input) => deps.messageLocalAgent(input),
 
   async steerAgentTurn(input) {
     const steered = await steerCloudAgent({

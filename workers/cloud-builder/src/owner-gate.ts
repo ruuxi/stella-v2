@@ -121,6 +121,7 @@ import {
   type DeviceAvailability,
   type DeviceDestination,
   type DeviceRemoteExecution,
+  type AgentMessageDeviceOutcome,
   type DevicePresenceDeviceFrame,
   type DevicePresenceServerFrame,
   type DevicesResponse,
@@ -420,6 +421,14 @@ const DDL = [
 
 /** How long a steer waits for the device to confirm the agent took it. */
 const STEER_ACK_TIMEOUT_MS = 10_000;
+const LOCAL_AGENT_MESSAGE_ACK_TIMEOUT_MS = 8_000;
+const AGENT_MESSAGE_OUTCOMES: ReadonlySet<string> = new Set<AgentMessageDeviceOutcome>([
+  "steered",
+  "queued",
+  "resumed",
+  "not_found",
+  "refused",
+]);
 
 /**
  * The floor under every re-arm. A deadline that is already past due would
@@ -778,6 +787,11 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   private schemaReady = false;
   /** Steers waiting for their device's `steer.ack`, by dispatch and message. */
   private readonly steerAcks = new Map<string, (delivered: boolean) => void>();
+  /** Local-agent messages waiting for `agent-message.ack`, by device and message. */
+  private readonly localAgentMessageAcks = new Map<
+    string,
+    (outcome: AgentMessageDeviceOutcome) => void
+  >();
   private deviceRequestRelayState?: DeviceRequestRelay;
   private ownerStoreState?: OwnerStore;
   private ownerHostState?: OwnerHost;
@@ -795,6 +809,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       submit: (input) => this.submit(input),
       cancelDispatch: (input) => this.cancelDispatch(input),
       steerDispatch: (input) => this.steerDispatch(input),
+      messageLocalAgent: (input) => this.messageLocalAgent(input),
       devices: () => this.devices(),
       homeChanged: (ownerGeneration, revision) =>
         this.homeContextCache().changed(ownerGeneration, revision),
@@ -1823,6 +1838,17 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     }
   }
 
+  /** The device's connected socket, only while its presence is not stale. */
+  private liveSocket(deviceId: string): WebSocket | null {
+    const socket = this.connectedSocket(deviceId);
+    if (!socket) return null;
+    const presence = this.presenceRow(deviceId);
+    return presence?.connected &&
+      presence.lastSeenAt + DEVICE_PRESENCE_STALE_AFTER_MS > Date.now()
+      ? socket
+      : null;
+  }
+
   /** The one connected, proven socket for a device, if it has one. */
   private connectedSocket(deviceId: string): WebSocket | null {
     for (const socket of this.sockets(deviceId)) {
@@ -2136,6 +2162,16 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         presenceSessionId: attachment.presenceSessionId,
         serverTimeMs: now,
       });
+      const flushed = await this.ownerStore().internalCall(
+        "agentThreads.flushDeviceMessages",
+        { deviceId: attachment.deviceId },
+      );
+      if (!flushed.ok) {
+        log("error", "device_agent_messages_flush_failed", {
+          deviceId: attachment.deviceId,
+          message: flushed.error.message,
+        });
+      }
       await this.scheduleAlarm(now);
       return;
     }
@@ -2207,20 +2243,24 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       );
       return;
     }
+    if (frame.type === "agent-message.ack") {
+      const messageId =
+        typeof frame.messageId === "string" ? frame.messageId : "";
+      if (!messageId || !AGENT_MESSAGE_OUTCOMES.has(frame.outcome)) {
+        this.closeSocket(socket, DEVICE_PRESENCE_CLOSE.protocol, "bad_request");
+        return;
+      }
+      this.localAgentMessageAcks.get(`${attachment.deviceId}:${messageId}`)?.(
+        frame.outcome,
+      );
+      return;
+    }
     await this.handleExecutorFrame(socket, attachment, frame, now);
   }
 
   private deviceRequestRelay(): DeviceRequestRelay {
     return (this.deviceRequestRelayState ??= new DeviceRequestRelay({
-      liveSocket: (deviceId) => {
-        const socket = this.connectedSocket(deviceId);
-        if (!socket) return null;
-        const presence = this.presenceRow(deviceId);
-        return presence?.connected &&
-          presence.lastSeenAt + DEVICE_PRESENCE_STALE_AFTER_MS > Date.now()
-          ? socket
-          : null;
-      },
+      liveSocket: (deviceId) => this.liveSocket(deviceId),
       send: (socket, frame) => this.send(socket, frame),
       log: (event, fields) =>
         log("error", event, { ownerId: this.ownerId(), ...fields }),
@@ -3758,6 +3798,46 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     return (await acknowledged)
       ? { delivered: true }
       : { delivered: false, reason: "not_running" };
+  }
+
+  /**
+   * Hand a framed message to an agent a device runs locally, and wait for the
+   * device to say how it landed. `unreachable` means no live socket;
+   * `timeout` that no answer came in time, so it may still have landed.
+   */
+  async messageLocalAgent(input: {
+    deviceId: string;
+    threadId: string;
+    ownerGeneration: string;
+    messageId: string;
+    text: string;
+  }): Promise<{
+    outcome: AgentMessageDeviceOutcome | "unreachable" | "timeout";
+  }> {
+    const socket = this.liveSocket(input.deviceId);
+    if (!socket) return { outcome: "unreachable" };
+    const key = `${input.deviceId}:${input.messageId}`;
+    const acknowledged = withTimeout(
+      new Promise<AgentMessageDeviceOutcome>((resolve) => {
+        this.localAgentMessageAcks.set(key, (outcome) => {
+          this.localAgentMessageAcks.delete(key);
+          resolve(outcome);
+        });
+      }),
+      LOCAL_AGENT_MESSAGE_ACK_TIMEOUT_MS,
+      "agent message acknowledgement timed out",
+    ).catch(() => {
+      this.localAgentMessageAcks.delete(key);
+      return "timeout" as const;
+    });
+    this.send(socket, {
+      type: "agent-message",
+      messageId: input.messageId,
+      threadId: input.threadId,
+      ownerGeneration: input.ownerGeneration,
+      text: input.text,
+    });
+    return { outcome: await acknowledged };
   }
 
   async cancelDispatch(

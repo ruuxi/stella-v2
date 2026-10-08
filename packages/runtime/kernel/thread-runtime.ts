@@ -1514,6 +1514,8 @@ export const maybeCompactRuntimeThread = async (args: {
    * passed to the summarizer as an "already known — do not repeat" reference.
    */
   stellaDataDir?: string;
+  /** Stella's agent list for the folded head; orchestrator threads only. */
+  readAgentRoster?: () => Promise<string | undefined>;
 }): Promise<ThreadCompactionResult> => {
   const compactionStartedAt = Date.now();
   const forcedBeforeProbe = isThreadCompactionForced(args.threadKey);
@@ -1818,6 +1820,17 @@ export const maybeCompactRuntimeThread = async (args: {
   // all older copies + accumulated `runtime.context_delta.*` appends —
   // which also heals legacy threads that accumulated duplicate doc appends.
   // Best-effort: a fold failure must never fail a compaction.
+  let agentRoster: string | undefined;
+  if (policy === "orchestrator" && args.readAgentRoster) {
+    try {
+      agentRoster = await args.readAgentRoster();
+    } catch (error) {
+      logger.warn("thread.compaction.agent-roster-failed", {
+        threadKey: args.threadKey,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
   let residentFold: unknown = null;
   try {
     residentFold = buildResidentFold({
@@ -1828,6 +1841,7 @@ export const maybeCompactRuntimeThread = async (args: {
       refreshMemoryDocsFromDisk: args.stellaDataDir
         ? loadLocalPreferences(args.stellaDataDir).memoryEnabled !== false
         : false,
+      ...(agentRoster ? { fresh: { agentRoster } } : {}),
     });
   } catch (error) {
     residentFold = null;

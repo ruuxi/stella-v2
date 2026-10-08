@@ -160,6 +160,8 @@ export const METHOD_NAMES = {
   INTERNAL_WORKER_RUN_BLOCKING_AGENT: "internal.worker.runBlockingAgent",
   INTERNAL_WORKER_CANCEL_BLOCKING_AGENT: "internal.worker.cancelBlockingAgent",
   INTERNAL_WORKER_STEER_BLOCKING_AGENT: "internal.worker.steerBlockingAgent",
+  /** A `send_message` from the cloud for one of this computer's own agents. */
+  INTERNAL_WORKER_DELIVER_AGENT_MESSAGE: "internal.worker.deliverAgentMessage",
   INTERNAL_WORKER_CREATE_BACKGROUND_AGENT:
     "internal.worker.createBackgroundAgent",
   INTERNAL_WORKER_GET_AGENT_SNAPSHOT: "internal.worker.getAgentSnapshot",
@@ -616,6 +618,16 @@ export type RuntimeLocalAgentSteerRequest = {
   text: string;
   /** Stable across a retried steer, so the agent takes it once. */
   messageId: string;
+};
+
+export type RuntimeLocalAgentMessageRequest = {
+  /** The local agent id, which is also its cloud thread id. */
+  threadId: string;
+  /** The framed `<agent-message>` text, delivered verbatim. */
+  text: string;
+  /** Stable across redeliveries, so the agent takes it once. */
+  messageId: string;
+  ownerGeneration: string;
 };
 
 export type RuntimeLocalAgentCancellationRequest = {

@@ -319,6 +319,11 @@ export type BaseRunOptions = {
    */
   compactionScheduler: BackgroundCompactionScheduler;
   /**
+   * Stella's agent list as her resident block renders it, read fresh when
+   * her thread compacts. Orchestrator turns stored on this computer only.
+   */
+  readAgentRoster?: () => Promise<string | undefined>;
+  /**
    * Keep a durable `run_task` row for this run so it can resume after the
    * worker process dies (`kernel/storage/run-task.ts`). `launch` is the
    * caller's relaunch metadata, stored verbatim.

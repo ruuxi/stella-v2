@@ -534,6 +534,9 @@ export const compactRuntimeThreadHistory = async (args) => {
         ? { preserveLastN: args.preserveLastN }
         : {}),
       ...(args.stellaDataDir ? { stellaDataDir: args.stellaDataDir } : {}),
+      ...(args.readAgentRoster
+        ? { readAgentRoster: args.readAgentRoster }
+        : {}),
     });
   } catch (error) {
     logger.warn("thread.compaction.failed", {

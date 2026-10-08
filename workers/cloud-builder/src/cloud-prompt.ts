@@ -78,9 +78,12 @@ export const cloudResidentContext = (args: {
   memoryDocuments: ReadonlyArray<{ displayPath: string; content: string }>;
   skillCatalog: CloudSkillCatalogSnapshot;
   executionContext: ExecutionContextSnapshot;
+  /** Rendered roster; supplied only where the context starts. */
+  agentRoster?: string;
 }): Omit<ResidentContext, "threadHistory"> => ({
   personality: args.personality,
   ...residentMemoryFromDocs(args.memoryDocuments),
   skillsCatalog: buildCloudSkillsBlock(args.skillCatalog) || undefined,
   executionContext: args.executionContext,
+  ...(args.agentRoster ? { agentRoster: args.agentRoster } : {}),
 });

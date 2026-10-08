@@ -906,6 +906,14 @@ export class StellaRuntimeHost {
                 });
                 return result?.delivered === true;
             },
+            deliverAgentMessage: async ({ threadId, messageId, text, ownerGeneration }) => {
+                const result = await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_DELIVER_AGENT_MESSAGE, { threadId, text, messageId, ownerGeneration }, {
+                    ensureWorker: true,
+                    recordActivity: true,
+                    retryOnceOnDisconnect: false,
+                });
+                return result?.outcome ?? "refused";
+            },
             cancelExecution: async ({ dispatchId, kind, conversationId, payload }) => {
                 if (kind === "agent") {
                     const remoteThreadId = typeof payload?.threadId === "string" && payload.threadId.trim()

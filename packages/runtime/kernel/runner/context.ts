@@ -159,6 +159,8 @@ type ThreadHistoryEntry = {
 /** Newest chat events the orchestrator context build considers. */
 const ORCHESTRATOR_LOCAL_EVENT_WINDOW = 800;
 const CONVERSATION_THREAD_LOOKUP_TIMEOUT_MS = 5_000;
+/** Outlasts the cloud's wait for a device to acknowledge a delivery. */
+const AGENT_MESSAGE_TIMEOUT_MS = 15_000;
 const AGENT_DIRECTORY_SESSION_LIMIT = 12;
 const THIS_COMPUTER = "this computer";
 
@@ -610,6 +612,48 @@ export const createRunnerContext = ({
     where: summary.conversationId.startsWith("local_") ? THIS_COMPUTER : "cloud",
     updatedAt: summary.updatedAt,
   });
+  /**
+   * This conversation's agents: the local rows, plus the cloud's for agents
+   * placed elsewhere (a local row wins). Agent rows only, never a transcript;
+   * when the cloud does not answer, the local rows alone.
+   */
+  const readConversationAgents = async (
+    conversationId: string,
+  ): Promise<{
+    agents: AgentDirectoryAgentRow[];
+    cloudSessions?: AgentDirectorySessionRow[];
+    cloudUnavailable?: true;
+  }> => {
+    const agents: AgentDirectoryAgentRow[] = (
+      context.runtimeStore?.listConversationAgents(conversationId) ?? []
+    ).map((row) => ({
+      threadId: row.threadId,
+      conversationId: row.conversationId,
+      ...(row.parentAgentId ? { parentThreadId: row.parentAgentId } : {}),
+      description: row.description,
+      status: normalizeAgentDirectoryStatus(row.status),
+      where: THIS_COMPUTER,
+      updatedAt: row.updatedAt,
+    }));
+    const client = backend.client();
+    if (!client || !isCloudSignedIn() || conversationId.startsWith("local_")) {
+      return { agents };
+    }
+    const cloud = await raceWithTimeoutError(
+      client.call("agentThreads.directory", { conversationId }),
+      CONVERSATION_THREAD_LOOKUP_TIMEOUT_MS,
+      () => new Error("Stella's cloud did not answer the agent directory."),
+    ).catch(() => null);
+    if (!cloud) return { agents, cloudUnavailable: true };
+    const known = new Set(agents.map((row) => row.threadId));
+    return {
+      agents: [
+        ...agents,
+        ...cloud.agents.filter((row) => !known.has(row.threadId)),
+      ],
+      cloudSessions: cloud.sessions,
+    };
+  };
   const cloudThreadController = createCloudThreadController({
     backend: cloudAgentBackend,
     deviceId,
@@ -928,46 +972,20 @@ export const createRunnerContext = ({
         return summary ? localSessionRow(summary) : null;
       },
       readAgentDirectory: async (conversationId) => {
-        const agents: AgentDirectoryAgentRow[] = (
-          context.runtimeStore?.listConversationAgents(conversationId) ?? []
-        ).map((row) => ({
-          threadId: row.threadId,
-          conversationId: row.conversationId,
-          ...(row.parentAgentId ? { parentThreadId: row.parentAgentId } : {}),
-          description: row.description,
-          status: normalizeAgentDirectoryStatus(row.status),
-          where: THIS_COMPUTER,
-          updatedAt: row.updatedAt,
-        }));
+        const { agents, cloudSessions, cloudUnavailable } =
+          await readConversationAgents(conversationId);
         const sessions = (
           context.runtimeStore?.listConversationSummaries({
             limit: AGENT_DIRECTORY_SESSION_LIMIT,
           }).conversations ?? []
         ).map(localSessionRow);
-        const client = backend.client();
-        if (
-          !client ||
-          !isCloudSignedIn() ||
-          conversationId.startsWith("local_")
-        ) {
-          return { agents, sessions } satisfies AgentDirectoryListing;
-        }
-        const cloud = await raceWithTimeoutError(
-          client.call("agentThreads.directory", { conversationId }),
-          CONVERSATION_THREAD_LOOKUP_TIMEOUT_MS,
-          () => new Error("Stella's cloud did not answer the agent directory."),
-        ).catch(() => null);
-        if (!cloud) {
-          return { agents, sessions, cloudUnavailable: true };
-        }
-        const known = new Set(agents.map((row) => row.threadId));
         return {
-          agents: [
-            ...agents,
-            ...cloud.agents.filter((row) => !known.has(row.threadId)),
-          ],
-          sessions: mergeDirectorySessions(sessions, cloud.sessions),
-        };
+          agents,
+          sessions: cloudSessions
+            ? mergeDirectorySessions(sessions, cloudSessions)
+            : sessions,
+          ...(cloudUnavailable ? { cloudUnavailable } : {}),
+        } satisfies AgentDirectoryListing;
       },
       messageStellaSession: async ({ conversationId, text }) => {
         const send = context.state.sendRuntimeMessage;
@@ -1007,7 +1025,7 @@ export const createRunnerContext = ({
             text,
             from,
           }),
-          CONVERSATION_THREAD_LOOKUP_TIMEOUT_MS,
+          AGENT_MESSAGE_TIMEOUT_MS,
           () => new Error("Stella's cloud did not answer, so the message may not have been delivered."),
         );
       },
@@ -1048,6 +1066,8 @@ export const createRunnerContext = ({
   Object.assign(context, {
     backend,
     deviceId,
+    readConversationAgentRows: async (conversationId: string) =>
+      (await readConversationAgents(conversationId)).agents,
     stellaAppDir,
     stellaDataDir,
     stellaBrowserBinPath,

@@ -97,13 +97,18 @@ export const agentMessageResult = (
   content: [
     {
       type: "text",
-      text:
-        delivery.delivered === "steered"
+      text: delivery.note
+        ? `Queued for ${delivery.threadId}. ${delivery.note}`
+        : delivery.delivered === "steered"
           ? `Delivered to ${delivery.threadId}. It is working and reads your message before its next step.`
           : delivery.delivered === "resumed"
             ? `Delivered to ${delivery.threadId}. It was idle, so your message started its next run.`
             : `Delivered to ${delivery.threadId}. That Stella reads it as its next turn.`,
     },
   ],
-  details: { thread_id: delivery.threadId, delivered: delivery.delivered },
+  details: {
+    thread_id: delivery.threadId,
+    delivered: delivery.delivered,
+    ...(delivery.note ? { note: delivery.note } : {}),
+  },
 });

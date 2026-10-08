@@ -79,6 +79,14 @@ const deleteThreadRows = (db: OwnerDb, jobs: OwnerJobs, conversationId: string):
       WHERE thread_id IN (SELECT thread_id FROM agent_threads WHERE conversation_id = ?)`,
     conversationId,
   );
+  for (const { message_id } of db.all<{ message_id: string }>(
+    `SELECT message_id FROM agent_device_messages
+      WHERE thread_id IN (SELECT thread_id FROM agent_threads WHERE conversation_id = ?)`,
+    conversationId,
+  )) {
+    jobs.cancel(`devmsg:${message_id}`);
+    db.run("DELETE FROM agent_device_messages WHERE message_id = ?", message_id);
+  }
   db.run("DELETE FROM agent_threads WHERE conversation_id = ?", conversationId);
 };
 
@@ -131,7 +139,7 @@ export const purgeConversationData: PurgeDef = async (ctx) => {
     return { pending: true };
   }
   // Every conversation is gone; what is left has no conversation to name.
-  for (const kind of ["agentThreads.dispatch", CONVERSATION_PURGE_JOB]) {
+  for (const kind of ["agentThreads.dispatch", "agentThreads.deviceMessage", CONVERSATION_PURGE_JOB]) {
     for (const { id } of ctx.db.all<{ id: string }>(
       "SELECT id FROM owner_jobs WHERE kind = ?",
       kind,
@@ -145,6 +153,7 @@ export const purgeConversationData: PurgeDef = async (ctx) => {
     "agent_turns",
     "agent_cancel_receipts",
     "agent_message_receipts",
+    "agent_device_messages",
     "conversation_edits",
   ]) {
     ctx.db.run(`DELETE FROM ${table}`);

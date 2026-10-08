@@ -12,6 +12,8 @@ import type {
 export type AgentMessageDelivery = {
   delivered: "steered" | "resumed" | "queued";
   threadId: string;
+  /** Why the message waits, when it was queued for a computer that is offline. */
+  note?: string;
 };
 
 /**

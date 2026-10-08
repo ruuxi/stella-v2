@@ -84,6 +84,13 @@ export interface AgentOptions {
   steeringMode?: "all" | "one-at-a-time";
 
   /**
+   * Host-held steering, polled after the queued `steer()` messages at every
+   * steering boundary. Lets the host decide what to inject at the moment it
+   * is injected instead of when it was queued.
+   */
+  getSteeringMessages?: () => Promise<AgentMessage[]>;
+
+  /**
    * Follow-up mode: "all" = send all follow-up messages at once, "one-at-a-time" = one per turn
    */
   followUpMode?: "all" | "one-at-a-time";
@@ -195,6 +202,7 @@ export class ExplicitModelAgent {
   private steeringQueue: AgentMessage[] = [];
   private followUpQueue: AgentMessage[] = [];
   private steeringMode: "all" | "one-at-a-time";
+  private hostSteeringMessages?: () => Promise<AgentMessage[]>;
   private followUpMode: "all" | "one-at-a-time";
   public streamFn: StreamFn;
   private _sessionId?: string;
@@ -252,6 +260,7 @@ export class ExplicitModelAgent {
     this.convertToLlm = opts.convertToLlm || defaultConvertToLlm;
     this.transformContext = opts.transformContext;
     this.steeringMode = opts.steeringMode || "one-at-a-time";
+    this.hostSteeringMessages = opts.getSteeringMessages;
     this.followUpMode = opts.followUpMode || "one-at-a-time";
     this.streamFn = opts.streamFn || streamSimple;
     this._sessionId = opts.sessionId;
@@ -799,10 +808,17 @@ export class ExplicitModelAgent {
           skipInitialSteeringPoll = false;
           return [];
         }
+        let queued: AgentMessage[] = [];
         try {
-          return this.dequeueSteeringMessages();
+          queued = this.dequeueSteeringMessages();
         } catch {
-          return [];
+          queued = [];
+        }
+        if (!this.hostSteeringMessages) return queued;
+        try {
+          return [...queued, ...(await this.hostSteeringMessages())];
+        } catch {
+          return queued;
         }
       },
       getFollowUpMessages: async () => {

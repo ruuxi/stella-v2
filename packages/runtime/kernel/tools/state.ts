@@ -277,12 +277,13 @@ const DELIVERY_NOTE =
 const delivered = (
   threadId: string,
   delivery: "steered" | "queued" | "resumed",
+  note?: string,
 ): ToolResult => ({
   result: {
     status: "delivered",
     thread_id: threadId,
     delivered: delivery,
-    note: DELIVERY_NOTE,
+    note: note ? `${note} ${DELIVERY_NOTE}` : DELIVERY_NOTE,
   },
 });
 
@@ -418,7 +419,9 @@ export const handleSendMessage = async (
         text: message,
         from: sender,
       });
-      if (outcome) return delivered(outcome.threadId, outcome.delivered);
+      if (outcome) {
+        return delivered(outcome.threadId, outcome.delivered, outcome.note);
+      }
     } catch (error) {
       return { error: (error as Error).message };
     }

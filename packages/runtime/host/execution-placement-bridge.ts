@@ -15,6 +15,7 @@ import {
   dispatchCancelPath,
   dispatchPath,
   executionDeviceRegistration,
+  type AgentMessageDeviceOutcome,
   type DeviceAvailability,
   type DevicePresenceDeviceFrame,
   type DevicePresenceServerFrame,
@@ -157,6 +158,17 @@ type PlacementBridgeOptions = {
     messageId: string;
     text: string;
   }) => Promise<boolean>;
+  /**
+   * A `send_message` for an agent this computer runs on its own (no
+   * dispatch): steer it if running, resume it if idle. `messageId` is stable
+   * across redeliveries.
+   */
+  deliverAgentMessage?: (args: {
+    threadId: string;
+    messageId: string;
+    text: string;
+    ownerGeneration: string;
+  }) => Promise<AgentMessageDeviceOutcome>;
   /**
    * Something tried to dispatch work here and this computer has not agreed to
    * accept any. The host shows the question on this machine's own screen and
@@ -1370,6 +1382,10 @@ export class ExecutionPlacementBridge {
         await this.steerAccepted(frame.dispatchId, frame.messageId, frame.text);
         return;
       }
+      case "agent-message": {
+        await this.deliverAgentMessage(frame);
+        return;
+      }
       case "consent.request": {
         // Only raise the question. This computer answers when its own user
         // does, and the attempt that triggered the ask has already been told
@@ -1428,6 +1444,32 @@ export class ExecutionPlacementBridge {
       }
     }
     this.send({ type: "steer.ack", dispatchId, messageId, delivered });
+  }
+
+  /** Hand a message to one of this computer's own agents, then report back. */
+  private async deliverAgentMessage(
+    frame: Extract<DevicePresenceServerFrame, { type: "agent-message" }>,
+  ): Promise<void> {
+    const { messageId, threadId } = frame;
+    if (typeof messageId !== "string" || typeof threadId !== "string") return;
+    let outcome: AgentMessageDeviceOutcome = "refused";
+    if (
+      typeof frame.text === "string" &&
+      frame.ownerGeneration === this.ownerGeneration &&
+      this.options.deliverAgentMessage
+    ) {
+      try {
+        outcome = await this.options.deliverAgentMessage({
+          threadId,
+          messageId,
+          text: frame.text,
+          ownerGeneration: frame.ownerGeneration,
+        });
+      } catch (error) {
+        this.log("warn", "An agent message was not delivered.", error);
+      }
+    }
+    this.send({ type: "agent-message.ack", messageId, threadId, outcome });
   }
 
   private settleClaim(

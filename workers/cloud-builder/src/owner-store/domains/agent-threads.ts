@@ -54,6 +54,7 @@ import type {
 import { TURN_ATTACHMENTS_MAX } from "@stella/contracts/turn-plane/turn-start";
 import { parseCloudExecutionSelection } from "../../turn-start-request.js";
 import { normalizeDrivePath } from "./drive.js";
+import { resolveCurrentDeviceId } from "./devices.js";
 import { array, literal, number, object, optional, string, type Parser } from "../args.js";
 import { RpcError } from "../errors.js";
 import { enforceOwnerRateLimit } from "../rate-limit.js";
@@ -181,6 +182,10 @@ const DEVICE_AVAILABILITY_CODES = new Set<string>([
   "SELECTED_DEVICE_UNAVAILABLE",
   SELECTED_DEVICE_NEEDS_CONSENT,
 ]);
+const DEVICE_MESSAGE_JOB = "agentThreads.deviceMessage";
+const DEVICE_MESSAGE_RETRY_MS = 10_000;
+const DEVICE_MESSAGE_WAIT_MS = 60 * 60_000;
+const DEVICE_MESSAGE_TTL_MS = 24 * 60 * 60_000;
 const TERMINAL_STATUSES = new Set(["completed", "failed", "canceled"]);
 const ACTIVE_STATUSES = new Set(["running", "resuming"]);
 
@@ -1355,13 +1360,7 @@ const deliverAgentMessage = async (
     );
   }
   if (!thread.executor_device_id && thread.placement === "computer") {
-    const deviceId = thread.origin_device_id ?? "";
-    const name = (await deviceLabels(ctx)).get(deviceId) || deviceId || "another computer";
-    throw new RpcError(
-      "CONFLICT",
-      `${to} runs locally on ${name}, so it can only be messaged from that computer.`,
-      { reason: "thread_local_to_device" },
-    );
+    return await messageLocalThread(ctx, thread, args);
   }
   if (ACTIVE_STATUSES.has(thread.status)) {
     if (thread.executor_device_id) {
@@ -1413,6 +1412,185 @@ const deliverAgentMessage = async (
     prompt: args.framed,
   });
   return { delivered: "resumed", threadId: to };
+};
+
+// ── Messages for agents a desktop runs locally ────────────────────────────
+
+type DeviceMessageRow = {
+  message_id: string;
+  device_id: string;
+  thread_id: string;
+  owner_generation: string;
+  text: string;
+  created_at: number;
+  attempts: number;
+};
+
+const deviceMessageJobId = (messageId: string): string => `devmsg:${messageId}`;
+
+const deviceName = async (ctx: OwnerContext, deviceId: string): Promise<string> =>
+  (await deviceLabels(ctx)).get(deviceId) || "that computer";
+
+/**
+ * `send_message` to an agent a desktop's own Stella started and runs there.
+ * The desktop owns that thread's attempts, so this only carries the message:
+ * to the device now when it answers, otherwise kept and offered again until
+ * it reconnects, for up to an hour. The device dedupes on `messageId`.
+ */
+const messageLocalThread = async (
+  ctx: OwnerContext,
+  thread: ThreadRow,
+  args: { ownerGeneration: string; messageId: string; framed: string },
+): Promise<MessageDelivery> => {
+  const threadId = thread.thread_id;
+  if (!thread.origin_device_id) {
+    throw new RpcError("CONFLICT", `${threadId} has no computer to deliver the message to.`, {
+      reason: "thread_local_to_device",
+    });
+  }
+  const deviceId = resolveCurrentDeviceId(ctx.db, thread.origin_device_id);
+  const sent = await ctx.host.messageLocalAgent({
+    deviceId,
+    threadId,
+    ownerGeneration: args.ownerGeneration,
+    messageId: args.messageId,
+    text: args.framed,
+  });
+  switch (sent.outcome) {
+    case "steered":
+    case "resumed":
+      return { delivered: sent.outcome, threadId };
+    case "queued":
+      return {
+        delivered: "queued",
+        threadId,
+        note: `The computer running ${threadId} holds it for the agent's next step.`,
+      };
+    case "not_found":
+      throw new RpcError(
+        "NOT_FOUND",
+        `${threadId} is no longer on ${await deviceName(ctx, deviceId)}. agent_status without a thread_id lists who you can reach.`,
+        { reason: "message_target_not_found" },
+      );
+    case "refused":
+      throw new RpcError(
+        "CONFLICT",
+        `${await deviceName(ctx, deviceId)} did not accept the message for ${threadId}.`,
+        { reason: "message_refused" },
+      );
+  }
+  ctx.db.run("DELETE FROM agent_device_messages WHERE created_at < ?", ctx.now - DEVICE_MESSAGE_TTL_MS);
+  ctx.db.run(
+    `INSERT INTO agent_device_messages
+       (message_id, device_id, thread_id, owner_generation, text, created_at, attempts)
+     VALUES (?, ?, ?, ?, ?, ?, 1) ON CONFLICT (message_id) DO NOTHING`,
+    args.messageId,
+    deviceId,
+    threadId,
+    args.ownerGeneration,
+    args.framed,
+    ctx.now,
+  );
+  ctx.jobs.schedule(
+    DEVICE_MESSAGE_JOB,
+    ctx.now + DEVICE_MESSAGE_RETRY_MS,
+    { messageId: args.messageId },
+    { id: deviceMessageJobId(args.messageId) },
+  );
+  const name = await deviceName(ctx, deviceId);
+  return {
+    delivered: "queued",
+    threadId,
+    note:
+      sent.outcome === "unreachable"
+        ? `${name} is offline. The message waits and is delivered to ${threadId} when ${name} reconnects, if that is within an hour.`
+        : `${name} did not answer in time. The message is offered to ${threadId} again until ${name} answers, for up to an hour.`,
+  };
+};
+
+const settleDeviceMessage = (ctx: OwnerContext, row: DeviceMessageRow, outcome: string): void => {
+  ctx.db.run(
+    "UPDATE agent_device_messages SET outcome = ?, delivered_at = ? WHERE message_id = ?",
+    outcome,
+    ctx.now,
+    row.message_id,
+  );
+};
+
+const dropDeviceMessage = (ctx: OwnerContext, row: DeviceMessageRow, outcome: string): void => {
+  settleDeviceMessage(ctx, row, outcome);
+  console.error(
+    JSON.stringify({
+      event: "device_agent_message_dropped",
+      messageId: row.message_id,
+      threadId: row.thread_id,
+      outcome,
+      attempts: row.attempts,
+    }),
+  );
+};
+
+/** One more offer of a kept message, rescheduled until the device answers. */
+const runDeviceMessage = async (ctx: OwnerContext, payload: { messageId?: unknown }): Promise<void> => {
+  if (typeof payload?.messageId !== "string") return;
+  const row = ctx.db.one<DeviceMessageRow>(
+    "SELECT * FROM agent_device_messages WHERE message_id = ? AND delivered_at IS NULL",
+    payload.messageId,
+  );
+  if (!row) return;
+  if (ctx.now - row.created_at >= DEVICE_MESSAGE_WAIT_MS) {
+    dropDeviceMessage(ctx, row, "expired");
+    return;
+  }
+  const thread = readThread(ctx.db, row.thread_id);
+  if (!thread || (thread.owner_generation !== null && thread.owner_generation !== row.owner_generation)) {
+    dropDeviceMessage(ctx, row, "not_found");
+    return;
+  }
+  const sent = await ctx.host.messageLocalAgent({
+    deviceId: resolveCurrentDeviceId(ctx.db, row.device_id),
+    threadId: row.thread_id,
+    ownerGeneration: row.owner_generation,
+    messageId: row.message_id,
+    text: row.text,
+  });
+  ctx.db.run(
+    "UPDATE agent_device_messages SET attempts = attempts + 1 WHERE message_id = ?",
+    row.message_id,
+  );
+  if (sent.outcome === "unreachable" || sent.outcome === "timeout") {
+    ctx.jobs.schedule(
+      DEVICE_MESSAGE_JOB,
+      ctx.now + DEVICE_MESSAGE_RETRY_MS,
+      { messageId: row.message_id },
+      { id: deviceMessageJobId(row.message_id) },
+    );
+    return;
+  }
+  if (sent.outcome === "not_found" || sent.outcome === "refused") {
+    dropDeviceMessage(ctx, { ...row, attempts: row.attempts + 1 }, sent.outcome);
+    return;
+  }
+  settleDeviceMessage(ctx, row, sent.outcome);
+};
+
+/** A device just proved its presence: offer it everything kept for it now. */
+const flushDeviceMessages = (ctx: OwnerContext, raw: unknown): { scheduled: number } => {
+  const { deviceId } = object({ deviceId: id(256) })(raw);
+  let scheduled = 0;
+  for (const row of ctx.db.all<{ message_id: string; device_id: string }>(
+    "SELECT message_id, device_id FROM agent_device_messages WHERE delivered_at IS NULL",
+  )) {
+    if (resolveCurrentDeviceId(ctx.db, row.device_id) !== deviceId) continue;
+    ctx.jobs.schedule(
+      DEVICE_MESSAGE_JOB,
+      ctx.now,
+      { messageId: row.message_id },
+      { id: deviceMessageJobId(row.message_id) },
+    );
+    scheduled += 1;
+  }
+  return { scheduled };
 };
 
 /**
@@ -2077,6 +2255,25 @@ export const agentThreadsDomain = {
         "CREATE INDEX agent_message_receipts_created ON agent_message_receipts (created_at)",
       ],
     },
+    {
+      // `send_message` for an agent a desktop runs locally while that
+      // desktop is offline, kept until it reconnects or an hour passes.
+      id: "agent-threads.7-device-messages",
+      statements: [
+        `CREATE TABLE agent_device_messages (
+           message_id TEXT PRIMARY KEY,
+           device_id TEXT NOT NULL,
+           thread_id TEXT NOT NULL,
+           owner_generation TEXT NOT NULL,
+           text TEXT NOT NULL,
+           created_at INTEGER NOT NULL,
+           attempts INTEGER NOT NULL DEFAULT 0,
+           delivered_at INTEGER,
+           outcome TEXT
+         )`,
+        "CREATE INDEX agent_device_messages_created ON agent_device_messages (created_at)",
+      ],
+    },
   ],
   calls: {
     "agentThreads.page": {
@@ -2260,6 +2457,7 @@ export const agentThreadsDomain = {
     "agentThreads.directory": async (ctx, raw) =>
       await agentDirectory(ctx, object({ ownerGeneration: generation, conversationId: id(256) })(raw)),
     "agentThreads.message": async (ctx, raw) => await messageAgent(ctx, messageParser(raw)),
+    "agentThreads.flushDeviceMessages": flushDeviceMessages,
   },
   jobs: {
     "agentThreads.dispatch": {
@@ -2267,6 +2465,10 @@ export const agentThreadsDomain = {
       // the attempt failed; the store-level backoff is only for crashes.
       maxAttempts: 3,
       run: async (ctx, payload) => await runDispatch(ctx, payload as DispatchJob),
+    },
+    [DEVICE_MESSAGE_JOB]: {
+      maxAttempts: 3,
+      run: async (ctx, payload) => await runDeviceMessage(ctx, payload as { messageId?: unknown }),
     },
   },
 } satisfies OwnerDomain;

@@ -13,12 +13,15 @@ export type ResidentContext = {
   memoryIndex?: string;
   skillsCatalog?: string;
   executionContext?: ExecutionContextSnapshot;
+  /** The orchestrator's agent list (`renderAgentRoster`); boundary-only. */
+  agentRoster?: string;
   threadHistory?: HistoryEntry[];
 };
 type ResidentBlock = {
   id: string;
   customType: string;
   docPath?: string;
+  boundaryOnly?: boolean;
   resolve: (context: ResidentContext) => string | undefined;
 };
 type ResidentFold = { docs: Array<{ customType: string; text: string }> };
@@ -51,6 +54,10 @@ export function isRetiredMemoryCustomMessage(
 export function buildResidentContextMessages(
   context: ResidentContext,
 ): RuntimePromptMessage[];
+/** Whether the thread already carries any resident block (its head was sent). */
+export function hasResidentHead(
+  context: Pick<ResidentContext, "threadHistory">,
+): boolean;
 export function parseStartupDocPath(text: string): string | null;
 export function residentIdentityForCustomMessage(
   message?: CustomMessage | null,
@@ -60,6 +67,8 @@ export function buildResidentFold(args: {
   /** Reads a data-dir-relative file (e.g. `memories/profile.md`), or null. */
   readDiskFile?: (relativePath: string) => string | null;
   refreshMemoryDocsFromDisk?: boolean;
+  /** Fresh values for boundary-only blocks; without one, the block is dropped. */
+  fresh?: Pick<ResidentContext, "agentRoster">;
 }): ResidentFold | null;
 export function parseResidentFold(
   details: unknown,

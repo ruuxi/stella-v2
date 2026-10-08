@@ -26,6 +26,7 @@ import type {
 } from "../agents/local-agent-manager.js";
 import { AGENT_IDS, isLocalCliAgentId } from "@stella/contracts/agent-runtime";
 import type { RunnerContext } from "./types.js";
+import type { AgentMessageDeviceOutcome } from "@stella/contracts/turn-plane/placement";
 import { buildAgentEventPrompt } from "./shared.js";
 import type { LocalChatEventRecord } from "../storage/shared.js";
 import type { ThreadActivityRecord } from "@stella/contracts/local-chat";
@@ -1205,6 +1206,36 @@ export const createAgentOrchestration = (
     });
   };
 
+  const deliverLocalAgentMessage = async (
+    threadId: string,
+    text: string,
+    messageId: string,
+    ownerGeneration: string,
+  ): Promise<AgentMessageDeviceOutcome> => {
+    const manager = context.state.localAgentManager;
+    const exactThreadId = threadId.trim();
+    if (!manager || !text.trim()) return "refused";
+    const record = exactThreadId
+      ? context.runtimeStore.getAgentRecord?.(exactThreadId)
+      : null;
+    if (!record) return "not_found";
+    if (record.ownerGeneration && record.ownerGeneration !== ownerGeneration) {
+      return "refused";
+    }
+    const delivery = await manager.sendAgentMessage(
+      exactThreadId,
+      text,
+      "orchestrator",
+      {
+        deliveryKind: "agent-message",
+        ...(messageId.trim() ? { deliveryEventId: messageId.trim() } : {}),
+      },
+    );
+    if (!delivery.delivered) return "not_found";
+    if (delivery.resumed) return "resumed";
+    return "steered" in delivery && delivery.steered ? "steered" : "queued";
+  };
+
   const shutdown = async (): Promise<void> => {
     await context.state.localAgentManager?.shutdown();
     shutdownSubagentRuntimes();
@@ -1216,6 +1247,7 @@ export const createAgentOrchestration = (
     cancelLocalAgent,
     cancelBlockingLocalAgent,
     steerBlockingLocalAgent,
+    deliverLocalAgentMessage,
     handleExternalAgentLifecycleEvent: handleAgentLifecycleEvent,
     hasDurableExternalLifecycleEvent: (event: AgentLifecycleEvent) =>
       hasDurableAgentLifecycleEvent(context, event),

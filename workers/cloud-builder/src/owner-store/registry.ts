@@ -92,6 +92,14 @@ export type OwnerHost = {
     messageId: string;
     text: string;
   }): Promise<{ delivered: boolean; reason?: "not_running" | "unreachable" }>;
+  /**
+   * A framed message for an agent a device runs locally (started by its own
+   * Stella, so there is no dispatch). `unreachable` means no live socket;
+   * `timeout` that no answer came, so it may still have landed.
+   */
+  messageLocalAgent(input: LocalAgentMessage): Promise<{
+    outcome: import("@stella/contracts/turn-plane/placement").AgentMessageDeviceOutcome | "unreachable" | "timeout";
+  }>;
   /** Stop a device attempt's dispatch. Idempotent per `cancelRequestId`. */
   cancelDeviceAgentTurn(input: {
     dispatchId: string;
@@ -151,6 +159,15 @@ export type OwnerHost = {
    * rejoining the fence `requestId` opened. Returns the stores still pending.
    */
   purgeOwner(mode: OwnerPurgeMode, requestId: string): Promise<{ pending: string[] }>;
+};
+
+export type LocalAgentMessage = {
+  deviceId: string;
+  threadId: string;
+  ownerGeneration: string;
+  /** Stable across redeliveries; the device dedupes on it. */
+  messageId: string;
+  text: string;
 };
 
 export type ScheduledTurnStart = {

@@ -3,6 +3,7 @@ import {
   METHOD_NAMES,
   type RuntimeAttachmentRef,
   type RuntimeLocalAgentCancellationRequest,
+  type RuntimeLocalAgentMessageRequest,
   type RuntimeLocalAgentSteerRequest,
   type RuntimeLocalAgentRequest,
   type RuntimeOneShotCompletionRequest,
@@ -217,6 +218,26 @@ export const runsHandlers: WorkerRpcHandlers = {
           String(payload.messageId ?? ""),
         ),
       );
+    }),
+
+  [METHOD_NAMES.INTERNAL_WORKER_DELIVER_AGENT_MESSAGE]: (params) =>
+    Effect.gen(function* () {
+      const session = yield* WorkerSessions.sessionOrFail(
+        () => new RunnerUnavailableError(),
+      );
+      const payload = params as RuntimeLocalAgentMessageRequest;
+      const runner = yield* fromPromise(() =>
+        session.runner.ensureInitialized(),
+      );
+      const outcome = yield* fromPromise(() =>
+        runner.deliverLocalAgentMessage(
+          String(payload.threadId ?? ""),
+          String(payload.text ?? ""),
+          String(payload.messageId ?? ""),
+          String(payload.ownerGeneration ?? ""),
+        ),
+      );
+      return { outcome };
     }),
 
   [METHOD_NAMES.INTERNAL_WORKER_CANCEL_BLOCKING_AGENT]: (params) =>

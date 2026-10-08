@@ -1225,6 +1225,9 @@ const persistCompletedExternalReply = async (args: {
     agentType: args.opts.agentType,
     content: args.text,
     stellaDataDir: args.opts.stellaDataDir,
+    ...(args.opts.readAgentRoster
+      ? { readAgentRoster: args.opts.readAgentRoster }
+      : {}),
     runId: args.session.runId,
     ...(typeof args.opts.agentContext.attemptGeneration === "number"
       ? { attemptGeneration: args.opts.agentContext.attemptGeneration }
@@ -1696,6 +1699,9 @@ const runClaudeHostedTurn = async (args: {
           agentType: args.opts.agentType,
           content: text,
           stellaDataDir: args.opts.stellaDataDir,
+          ...(args.opts.readAgentRoster
+            ? { readAgentRoster: args.opts.readAgentRoster }
+            : {}),
           runId,
           ...(typeof args.opts.agentContext.attemptGeneration === "number"
             ? { attemptGeneration: args.opts.agentContext.attemptGeneration }

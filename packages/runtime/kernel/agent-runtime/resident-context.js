@@ -45,6 +45,7 @@ import {
   renderMediaAccess,
 } from "@stella/contracts/execution-context";
 import { wrapSystemReminder } from "@stella/contracts/system-reminders";
+import { AGENT_ROSTER_DOC_PATH } from "@stella/contracts/agent-directory";
 
 export const BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE = "bootstrap.startup_doc";
 export const BOOTSTRAP_SKILLS_CUSTOM_TYPE = "bootstrap.skills_catalog";
@@ -102,7 +103,10 @@ const buildStartupDocText = (displayPath, content) =>
  *                   (deterministic — same state, same bytes);
  *   - `diskFile`    optional data-dir-relative file the compaction fold-in
  *                   re-reads for a fresh render (`renderDiskBody` applies
- *                   the same shaping as `resolve`).
+ *                   the same shaping as `resolve`);
+ *   - `boundaryOnly` renders only where a context starts (a fresh head or a
+ *                   compaction fold), never as a per-turn delta: for state
+ *                   that changes too often to append every time it moves.
  */
 export const RESIDENT_BLOCKS = [
   {
@@ -200,6 +204,16 @@ export const RESIDENT_BLOCKS = [
         `What the user can generate changed:\n${renderMediaAccess(context.executionContext)}`,
       ),
   },
+  {
+    // Stella's agents: active ones first, then the most recent inactive.
+    // Agents change constantly, so the list is a snapshot from where the
+    // context started; agent_status gives a live one.
+    id: "agents",
+    customType: BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE,
+    docPath: AGENT_ROSTER_DOC_PATH,
+    boundaryOnly: true,
+    resolve: (context) => context.agentRoster?.trim() || undefined,
+  },
 ];
 
 /** Full message text for a block, or undefined when the block is absent. */
@@ -269,6 +283,14 @@ const latestResidentText = (context, block) => {
   return undefined;
 };
 
+/** Whether the thread already carries any resident block (its head was sent). */
+export const hasResidentHead = (context) =>
+  (context.threadHistory ?? []).some(
+    (entry) =>
+      entry.role === "runtimeInternal" &&
+      residentIdentityForCustomMessage(entry.customMessage) !== null,
+  );
+
 const createInternalPromptMessage = (text, customType) => ({
   text,
   uiVisibility: "hidden",
@@ -284,7 +306,9 @@ const createInternalPromptMessage = (text, customType) => ({
  */
 export const buildResidentContextMessages = (context) => {
   const messages = [];
+  const freshHead = !hasResidentHead(context);
   for (const block of RESIDENT_BLOCKS) {
+    if (block.boundaryOnly && !freshHead) continue;
     const text = renderResidentBlockText(block, context);
     if (!text) continue;
     // Compare with the latest copy, not any historical match: A → B → A
@@ -397,7 +421,15 @@ export const buildResidentFold = (args) => {
       text: customMessageContentText(message.customMessage.content).trim(),
     });
   }
-  if (newestByIdentity.size === 0) {
+  const freshText = (block) => {
+    const text = args.fresh ? renderResidentBlockText(block, args.fresh) : undefined;
+    return text?.trim() || undefined;
+  };
+  const boundaryDocs = RESIDENT_BLOCKS.filter((block) => block.boundaryOnly);
+  if (
+    newestByIdentity.size === 0 &&
+    !boundaryDocs.some((block) => freshText(block))
+  ) {
     return null;
   }
 
@@ -407,6 +439,13 @@ export const buildResidentFold = (args) => {
   const emitted = new Set();
   const emit = (identity) => {
     if (emitted.has(identity) || docs.length >= MAX_FOLD_DOCS) return;
+    const boundaryBlock = blockByDocIdentity.get(identity);
+    if (boundaryBlock?.boundaryOnly) {
+      emitted.add(identity);
+      const text = freshText(boundaryBlock);
+      if (text) docs.push({ customType: boundaryBlock.customType, text });
+      return;
+    }
     const inThread = newestByIdentity.get(identity);
     if (!inThread?.text) return;
     const block = blockByDocIdentity.get(identity);

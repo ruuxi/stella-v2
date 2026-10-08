@@ -338,6 +338,7 @@ export const runCompactionWithHooks = async (args: {
     | "store"
     | "hookEmitter"
     | "stellaDataDir"
+    | "readAgentRoster"
   >;
   threadKey: string;
   runId: string;
@@ -392,6 +393,9 @@ export const runCompactionWithHooks = async (args: {
     resolvedLlm: args.opts.resolvedLlm,
     agentType: args.opts.agentType,
     stellaDataDir: args.opts.stellaDataDir,
+    ...(args.opts.readAgentRoster
+      ? { readAgentRoster: args.opts.readAgentRoster }
+      : {}),
     ...(args.abortSignal ? { abortSignal: args.abortSignal } : {}),
     ...(hookCompaction
       ? {

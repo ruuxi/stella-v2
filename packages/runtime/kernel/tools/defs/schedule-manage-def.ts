@@ -127,11 +127,11 @@ export const SCHEDULE_ADD_TOOL_DESCRIPTOR: ScheduleToolDescriptor = {
   label: "Add schedule",
   workingText: "Adding schedule",
   description:
-    "Create a scheduled trigger in the local schedule store. Three kinds: " +
-    "'reminder' fires a fixed message as a chat line + native notification (no LLM at fire time); " +
+    "Create a scheduled trigger. Three kinds: " +
+    "'reminder' delivers a fixed message word for word at fire time; " +
     "'task' fires the stored intent prompt as a turn to you (the assistant), which then acts as normal; " +
     "'watch' runs a deterministic check script each cycle — silent when unchanged, and it escalates a detected change or a sensor failure to you as a turn. " +
-    "For a watch, first have an agent investigate the target, author the check script (fetch + extract + diff against a `<scriptPath>.state.json` baseline), and dry-run-verify it with ScriptDraft; only pass a scriptPath that ran successfully. Fires work even while the app is closed.",
+    "For a watch, first have an agent investigate the target, author the check script (fetch + extract + diff against a `<scriptPath>.state.json` baseline), and dry-run-verify it with ScriptDraft; only pass a scriptPath that ran successfully. Reminders and tasks are kept with the user's account and fire even while this computer is off; a watch runs on this computer and only while Stella is running here.",
   parameters: {
     type: "object",
     properties: {

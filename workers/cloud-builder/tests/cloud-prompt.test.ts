@@ -14,7 +14,8 @@ describe("cloud prompt", () => {
       threadId: "conversation-1",
     });
     expect(prompt).toContain("The owner has disabled cloud memory");
-    expect(prompt).not.toContain("Read, Remember, spawn_agent");
-    expect(prompt).toContain("Read, spawn_agent");
+    expect(prompt).not.toContain("Read, Remember");
+    expect(prompt).not.toContain("with Remember");
+    expect(prompt).toContain("Read, drive, spawn_agent");
   });
 });

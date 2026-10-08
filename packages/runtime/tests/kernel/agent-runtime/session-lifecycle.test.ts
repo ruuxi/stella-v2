@@ -355,7 +355,7 @@ describe("OrchestratorSession", () => {
     );
     expect(beforeReload?.systemPrompt).toBe("Legacy-compatible metadata body.");
     expect(afterReload?.systemPrompt).toContain(
-      "You are Stella, the user's personal AI assistant.",
+      "You are Stella, the user's personal AI assistant, with access to their computers",
     );
     expect(beforeReload?.toolsAllowlist).not.toContain("Bash");
     expect(afterReload?.toolsAllowlist).not.toContain("Bash");

@@ -121,7 +121,7 @@ describe("working orchestrator surface", () => {
     expect(
       agents.find((agent) => agent.id === AGENT_IDS.ORCHESTRATOR)?.systemPrompt,
     ).toContain(
-      "You are Stella, the user's personal AI assistant.",
+      "You are Stella, the user's personal AI assistant, with access to their computers",
     );
     expect(
       agents.find((agent) => agent.id === AGENT_IDS.ORCHESTRATOR)?.systemPrompt,
@@ -145,7 +145,7 @@ describe("working orchestrator surface", () => {
     expect(
       reloaded.find((agent) => agent.id === AGENT_IDS.ORCHESTRATOR)
         ?.systemPrompt,
-    ).toContain("You are Stella, the user's personal AI assistant.");
+    ).toContain("You are Stella, the user's personal AI assistant, with access to their computers");
   });
 
   it("offers coordinator tools and keeps child agents one level deep", async () => {

@@ -36,7 +36,7 @@ be awake. Where this section conflicts with anything above, this section \
 wins.
 
 - Your tools are the same as on the desktop — code, html, image_gen, web, \
-Read, Remember, spawn_agent, send_input, pause_agent, agent_status, \
+Read, Remember, drive, spawn_agent, send_input, pause_agent, agent_status, \
 plus the demoted map, schedule_add/list/update/remove and \
 connector_status inside code, and the connect and history clients inside code — called \
 exactly as described above. Skills may provide instructions and assets but \
@@ -53,8 +53,11 @@ run through connect.call. connect.addMcp/remove are desktop-only (custom \
 MCP and API connectors run on their computer).
 - Read sees two trees: skills at ~/.stella/skills/<id>/… exactly as the \
 <skills> block lists them, and the user's cloud world at /workspace/world/… \
-(drive/, projects/<name>/, apps/<name>/). Images cannot be read here; an \
-attached photo reaches you through the prompt.
+(drive/, projects/<name>/, apps/<name>/). Nothing else under ~/.stella \
+exists here.
+- There is no "Other Threads" list here. agent_status sees the agents \
+spawned from this conversation, and the history holds every earlier \
+thread_id.
 - html saves the canvas into the user's drive (outputs/html/<slug>.html) \
 and the chat opens it as a canvas on every client; do not describe the \
 canvas contents afterwards.
@@ -100,6 +103,12 @@ tag. Use it for anything time-shaped instead of guessing, and name the \
 timezone whenever you state a time, since you only know the user's \
 timezone if they tell you.`;
 
+const CLOUD_MEMORY_OVERLAY = `# Cloud memory
+
+Memory here is core-memory.md and memories/profile.md, both already in your \
+context; there is no index.md and no nested memory file. Record or revise a \
+durable fact or rule with Remember instead of spawning a memory agent.`;
+
 const CLOUD_MEMORY_DISABLED_OVERLAY = `# Cloud memory preference
 
 The owner has disabled cloud memory. Do not infer or claim durable recall. \
@@ -120,13 +129,13 @@ export const buildCloudSystemPrompt = (args: {
   const cloudOverlay = memoryEnabled
     ? CLOUD_SESSION_OVERLAY
     : CLOUD_SESSION_OVERLAY.replace(
-        "Read, Remember, spawn_agent",
-        "Read, spawn_agent",
+        "Read, Remember, drive",
+        "Read, drive",
       );
   return [
     args.canonicalBody,
     cloudOverlay,
-    memoryEnabled ? "" : CLOUD_MEMORY_DISABLED_OVERLAY,
+    memoryEnabled ? CLOUD_MEMORY_OVERLAY : CLOUD_MEMORY_DISABLED_OVERLAY,
     args.localeDirective ?? "",
     args.personalityBody
       ? buildStartupDocBlock("~/.stella/PERSONALITY.md", args.personalityBody)

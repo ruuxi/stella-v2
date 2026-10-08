@@ -28,6 +28,7 @@ stella-media generate --wait --request '{"model":"<id>","input":{ ...the model's
 
 ## Rules
 
+- Your context's `# Media generation` section says whether the user can generate media. If it is off, don't try: tell the user what turns it on, as it says.
 - Use Stella's models for generated media unless the task needs something they can't do. Calling providers directly bypasses the user's plan and Stella's copy of the files.
 - Set the length and quality the user asked for; don't pick the most expensive options on your own (video bills per second, so set `duration` instead of leaving it to the model).
 - **Signed out:** the error says to sign in. Stop, tell the Orchestrator to ask the user to sign in, and retry once they confirm. Don't loop.

@@ -1,3 +1,9 @@
+import {
+  CAPABILITIES,
+  hasCapability,
+  toCapabilityAudience,
+  type ManagedCapabilityAudience,
+} from "./capabilities.js";
 import type { DeviceDestination } from "./turn-plane/placement.js";
 
 export type ExecutionDestination =
@@ -9,10 +15,35 @@ export type ExecutionContextDevice = Pick<
   "deviceId" | "label" | "online" | "remoteExecutionEnabled" | "remoteExecution"
 >;
 
+/**
+ * What media the user can generate right now, so an agent says what to do
+ * instead of starting a generation that is refused.
+ */
+export type MediaAccess = {
+  /**
+   * Stella's own media models: in the user's plan, not in it, or no Stella
+   * account to have a plan on.
+   */
+  stella: "included" | "upgrade" | "sign_in";
+  /** `image_gen` is set to the user's own provider key, and whether one is saved. */
+  ownImageKey?: { provider: "openai" | "openrouter" | "fal"; saved: boolean };
+};
+
+/** Whether a plan audience includes Stella's media models. */
+export const mediaAccessForAudience = (
+  audience: ManagedCapabilityAudience | string,
+): MediaAccess["stella"] => {
+  const plan = toCapabilityAudience(audience as ManagedCapabilityAudience) ?? "free";
+  if (plan === "anonymous") return "sign_in";
+  return CAPABILITIES.every((capability) => hasCapability(plan, capability)) ? "included" : "upgrade";
+};
+
 export type ExecutionContextSnapshot = {
   devices: ExecutionContextDevice[];
   destination: ExecutionDestination;
   devicesKnown: boolean;
+  /** Absent when it could not be worked out (offline, plan still loading). */
+  media?: MediaAccess;
 };
 
 const MAX_DEVICES = 100;
@@ -26,6 +57,7 @@ const labelText = (value: string): string =>
 export const createExecutionContextSnapshot = (args: {
   devices: readonly DeviceDestination[] | null;
   destination: ExecutionDestination;
+  media?: MediaAccess | undefined;
 }): ExecutionContextSnapshot => ({
   destination:
     args.destination.kind === "cloud"
@@ -48,7 +80,39 @@ export const createExecutionContextSnapshot = (args: {
       remoteExecutionEnabled: device.remoteExecutionEnabled,
       remoteExecution: device.remoteExecution,
     })),
+  ...(args.media
+    ? {
+        media: {
+          stella: args.media.stella,
+          ...(args.media.ownImageKey
+            ? {
+                ownImageKey: {
+                  provider: args.media.ownImageKey.provider,
+                  saved: args.media.ownImageKey.saved,
+                },
+              }
+            : {}),
+        },
+      }
+    : {}),
 });
+
+const readMediaAccess = (value: unknown): MediaAccess | undefined => {
+  if (!isRecord(value)) return undefined;
+  const stella = value.stella;
+  if (stella !== "included" && stella !== "upgrade" && stella !== "sign_in")
+    return undefined;
+  const key = value.ownImageKey;
+  const provider = isRecord(key) ? key.provider : undefined;
+  return {
+    stella,
+    ...(isRecord(key) &&
+    (provider === "openai" || provider === "openrouter" || provider === "fal") &&
+    typeof key.saved === "boolean"
+      ? { ownImageKey: { provider, saved: key.saved } }
+      : {}),
+  };
+};
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -115,6 +179,7 @@ export const readExecutionContextSnapshot = (
   return createExecutionContextSnapshot({
     devices: snapshot.devicesKnown ? devices : null,
     destination,
+    media: readMediaAccess(snapshot.media),
   });
 };
 
@@ -158,3 +223,42 @@ export const renderExecutionDestination = (
   snapshot.destination.kind === "cloud"
     ? "Current execution destination: Cloud."
     : `Current execution destination: ${snapshot.destination.label || snapshot.destination.deviceId} [device_id: ${snapshot.destination.deviceId}].`;
+
+const OWN_KEY_NAMES: Record<NonNullable<MediaAccess["ownImageKey"]>["provider"], string> = {
+  openai: "OpenAI",
+  openrouter: "OpenRouter",
+  fal: "fal",
+};
+
+/**
+ * Whether the user can generate media, and if not, what they have to do:
+ * the agent says this instead of starting a generation that is refused.
+ */
+export const renderMediaAccess = (snapshot: ExecutionContextSnapshot): string | undefined => {
+  const media = snapshot.media;
+  if (!media) return undefined;
+  const lines = ["# Media generation"];
+  if (media.stella === "included") {
+    lines.push(
+      "On: the user's Stella plan includes generating images, video, music, speech and 3D models (`image_gen`; agents use the `stella-media` skill).",
+    );
+  } else {
+    lines.push(
+      media.stella === "sign_in"
+        ? "Off: the user has no Stella account yet, and media generation needs one with a Stella Pro subscription."
+        : "Off: the user's Stella plan does not include media generation; it needs a Stella Pro subscription.",
+      "When the user asks for media, do not start it. Tell them what turns it on: " +
+        (media.stella === "sign_in" ? "signing in and subscribing to Stella Pro" : "subscribing to Stella Pro (Account, top right)") +
+        (media.ownImageKey?.saved ? "." : ", or, for still images only, adding their own OpenAI, OpenRouter or fal key in Settings (model picker, Image tab)."),
+    );
+  }
+  if (media.ownImageKey) {
+    const name = OWN_KEY_NAMES[media.ownImageKey.provider];
+    lines.push(
+      media.ownImageKey.saved
+        ? `Still images (\`image_gen\`) run on the user's own ${name} key, whatever their plan.`
+        : `\`image_gen\` is set to use the user's own ${name} key, but none is saved: ask them to add it in Settings (model picker, Image tab) before generating images.`,
+    );
+  }
+  return lines.join("\n");
+};

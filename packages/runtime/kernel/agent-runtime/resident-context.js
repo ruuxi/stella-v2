@@ -36,6 +36,7 @@ import { redactMemoryText } from "../memory/redaction.js";
 import {
   renderExecutionDevices,
   renderExecutionDestination,
+  renderMediaAccess,
 } from "@stella/contracts/execution-context";
 import { wrapSystemReminder } from "@stella/contracts/system-reminders";
 
@@ -175,6 +176,22 @@ export const RESIDENT_BLOCKS = [
     changeReminder: (context) =>
       wrapSystemReminder(
         `The execution destination changed. ${renderExecutionDestination(context.executionContext)} Existing agents keep their own execution locations.`,
+      ),
+  },
+  {
+    // Whether the user can generate media right now. Rides the execution
+    // context snapshot stamped on each user message, so a plan or key change
+    // mid-thread lands as a delta and compaction folds in the latest copy.
+    id: "media-access",
+    customType: BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE,
+    docPath: "stella://context/media-access",
+    resolve: (context) =>
+      context.executionContext
+        ? renderMediaAccess(context.executionContext)
+        : undefined,
+    changeReminder: (context) =>
+      wrapSystemReminder(
+        `What the user can generate changed:\n${renderMediaAccess(context.executionContext)}`,
       ),
   },
 ];

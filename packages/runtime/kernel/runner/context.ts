@@ -1,4 +1,4 @@
-import { loadDeviceExecutionContext } from "./execution-context.js";
+import { loadDeviceExecutionContext, loadMediaAccess } from "./execution-context.js";
 import { resolveRuntimeSourceAsset } from "../shared/runtime-paths.js";
 import { stripMessageRefTag } from "@stella/contracts/reply-refs";
 import {
@@ -933,6 +933,12 @@ export const createRunnerContext = ({
         deviceId,
         baseUrl: authToken ? await cloudRealtimeBaseUrl() : null,
         authToken,
+        loadMedia: () =>
+          loadMediaAccess({
+            stellaDataDir,
+            hasConnectedAccount: context.state.hasConnectedAccount === true,
+            client: context.backend.client(),
+          }),
       });
     },
     paths: {

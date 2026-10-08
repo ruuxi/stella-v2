@@ -19,6 +19,8 @@ import { AgentTurnJournal } from "../agent-turn-journal.js";
 import { createBuildSessionAgentControl } from "../build-session-agent-control.js";
 import {
   createExecutionContextSnapshot,
+  mediaAccessForAudience,
+  renderMediaAccess,
   renderExecutionDestination,
   renderExecutionDevices,
 } from "@stella/contracts/execution-context";
@@ -170,6 +172,7 @@ export type ResidentTurnHost = Pick<
 const cloudAgentExecutionContext = async (
   env: Pick<Cloudflare.Env, "OWNER_GATES">,
   ownerId: string,
+  audience: string,
 ): Promise<string> => {
   let devices: DeviceDestination[] | null = null;
   try {
@@ -180,8 +183,9 @@ const cloudAgentExecutionContext = async (
   const snapshot = createExecutionContextSnapshot({
     devices,
     destination: { kind: "cloud" },
+    media: { stella: mediaAccessForAudience(audience) },
   });
-  return `${renderExecutionDevices(snapshot)}\n\n${renderExecutionDestination(snapshot)}`;
+  return `${renderExecutionDevices(snapshot)}\n\n${renderExecutionDestination(snapshot)}\n\n${renderMediaAccess(snapshot)}`;
 };
 
 export const repairedResidentJournal = async (
@@ -988,6 +992,7 @@ export const runResidentAgentTurn = async (
               executionContext: await cloudAgentExecutionContext(
                 host.env,
                 turn.ownerId,
+                turn.audience,
               ),
             }
           : {}),

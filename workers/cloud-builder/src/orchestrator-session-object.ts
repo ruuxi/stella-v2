@@ -29,7 +29,7 @@ import {
   cloudAgentActivationCard,
   cloudAgentTerminalCard,
 } from "./cloud-agent-lifecycle.js";
-import { createExecutionContextSnapshot } from "@stella/contracts/execution-context";
+import { createExecutionContextSnapshot, mediaAccessForAudience } from "@stella/contracts/execution-context";
 import { executionContextHistoryEntries } from "@stella/runtime/kernel/agent-runtime/execution-context-history";
 /**
  * The cloud orchestrator: Stella's delegation-only agent loop running inside
@@ -5002,6 +5002,8 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         const executionContext = createExecutionContextSnapshot({
           devices: destinations?.devices ?? null,
           destination: { kind: "cloud" },
+          // Provider keys live on the user's devices, so the cloud has only the plan.
+          media: { stella: mediaAccessForAudience(turn.audience) },
         });
         const durablePrompt = {
           role: "user",
@@ -6013,6 +6015,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       executionContext: createExecutionContextSnapshot({
         devices: destinations?.devices ?? null,
         destination: { kind: "cloud" },
+        media: { stella: mediaAccessForAudience(turn.audience) },
       }),
       ...(turn.originUserMessageId
         ? { originUserMessageId: turn.originUserMessageId }

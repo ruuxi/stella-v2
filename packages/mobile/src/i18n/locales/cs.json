@@ -2441,6 +2441,7 @@
       "undoneAgo": "Vráceno {ago}",
       "undoneJustNow": "Vráceno právě teď",
       "update": "Aktualizovat",
+      "updateAvailable": "K dispozici je aktualizace",
       "updatedAgo": "Aktualizováno {ago}",
       "updatedJustNow": "Aktualizováno právě teď",
       "updates": {
@@ -2454,12 +2455,6 @@
         "justNow": "Právě teď",
         "newVersion": "Nová verze Stelly",
         "newVersionDetail": "Vylepšení a opravy od týmu Stelly",
-        "pill": {
-          "few": "{count} aktualizace",
-          "many": "{count} aktualizace",
-          "one": "{count} aktualizace",
-          "other": "{count} aktualizací"
-        },
         "readyChange": "Změna připravená k přidání",
         "removed": "Odebráno: {change}",
         "skip": "Přeskočit",
@@ -2467,7 +2462,8 @@
         "undoing": "Vracení…",
         "upToDate": "Nic nečeká",
         "waiting": "Čeká"
-      }
+      },
+      "updating": "Aktualizace…"
     },
     "audioPlayer": {
       "pause": "Pozastavit",

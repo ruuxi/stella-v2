@@ -2405,6 +2405,7 @@
       "undoneAgo": "Dibatalkan {ago}",
       "undoneJustNow": "Baru saja dibatalkan",
       "update": "Perbarui",
+      "updateAvailable": "Pembaruan tersedia",
       "updatedAgo": "Diperbarui {ago}",
       "updatedJustNow": "Baru saja diperbarui",
       "updates": {
@@ -2418,9 +2419,6 @@
         "justNow": "Baru saja",
         "newVersion": "Versi baru Stella",
         "newVersionDetail": "Peningkatan dan perbaikan dari tim Stella",
-        "pill": {
-          "other": "{count} pembaruan"
-        },
         "readyChange": "Perubahan siap ditambahkan",
         "removed": "Dihapus: {change}",
         "skip": "Lewati",
@@ -2428,7 +2426,8 @@
         "undoing": "Membatalkan…",
         "upToDate": "Tidak ada yang menunggu",
         "waiting": "Menunggu"
-      }
+      },
+      "updating": "Memperbarui…"
     },
     "audioPlayer": {
       "pause": "Jeda",

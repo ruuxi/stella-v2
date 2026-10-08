@@ -2417,6 +2417,7 @@
       "undoneAgo": "Visszavonva: {ago}",
       "undoneJustNow": "Épp most visszavonva",
       "update": "Frissítés",
+      "updateAvailable": "Frissítés érhető el",
       "updatedAgo": "Frissítve: {ago}",
       "updatedJustNow": "Épp most frissítve",
       "updates": {
@@ -2430,10 +2431,6 @@
         "justNow": "Épp most",
         "newVersion": "A Stella új verziója",
         "newVersionDetail": "Fejlesztések és javítások a Stella csapatától",
-        "pill": {
-          "one": "{count} frissítés",
-          "other": "{count} frissítés"
-        },
         "readyChange": "Hozzáadásra kész változtatás",
         "removed": "Eltávolítva: {change}",
         "skip": "Kihagyás",
@@ -2441,7 +2438,8 @@
         "undoing": "Visszavonás…",
         "upToDate": "Semmi sem várakozik",
         "waiting": "Várakozik"
-      }
+      },
+      "updating": "Frissítés…"
     },
     "audioPlayer": {
       "pause": "Szünet",

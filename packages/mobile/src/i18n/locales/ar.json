@@ -2465,6 +2465,7 @@
       "undoneAgo": "تم التراجع {ago}",
       "undoneJustNow": "تم التراجع للتو",
       "update": "تحديث",
+      "updateAvailable": "يتوفر تحديث",
       "updatedAgo": "تم التحديث {ago}",
       "updatedJustNow": "تم التحديث للتو",
       "updates": {
@@ -2478,14 +2479,6 @@
         "justNow": "الآن",
         "newVersion": "إصدار جديد من Stella",
         "newVersionDetail": "تحسينات وإصلاحات من فريق Stella",
-        "pill": {
-          "few": "{count} تحديثات",
-          "many": "{count} تحديثًا",
-          "one": "تحديث واحد",
-          "other": "{count} تحديث",
-          "two": "تحديثان",
-          "zero": "لا تحديثات"
-        },
         "readyChange": "تغيير جاهز للإضافة",
         "removed": "تمت الإزالة: {change}",
         "skip": "تخطٍّ",
@@ -2493,7 +2486,8 @@
         "undoing": "جارٍ التراجع…",
         "upToDate": "لا شيء بانتظارك",
         "waiting": "بانتظارك"
-      }
+      },
+      "updating": "جارٍ التحديث…"
     },
     "audioPlayer": {
       "pause": "إيقاف مؤقت",

@@ -29,7 +29,7 @@ import {
   startTurnExecution,
   type TurnExecutionContext,
 } from "../turn-cancellation.js";
-import { worldSandboxId } from "../workspace.js";
+import { agentSandboxId } from "../workspace.js";
 import type { BuildSessionInternals } from "./host.js";
 import { AgentTurnAuthorityLostError } from "./shared/errors.js";
 import {
@@ -437,7 +437,9 @@ export const acceptAgentTurn = async (
         orphan?: PendingTerminal;
         orphanTurn?: TurnRequest;
       };
-  const sharedWorldSandboxId = await worldSandboxId(turn.ownerId);
+  const agentContainerId = turn.threadId
+    ? await agentSandboxId(turn.ownerId, turn.threadId)
+    : undefined;
   const admission = await host.ctx.blockConcurrencyWhile(
     async (): Promise<Admission> => {
       const current = await host.ctx.storage.get<TurnRequest>("turn");
@@ -537,8 +539,8 @@ export const acceptAgentTurn = async (
       const computePlan = admittedComputePlan(host, turn);
       const resident = computePlan?.plan.kind === "resident_stella";
       // A resident turn still starts without compute. If it attaches, it
-      // uses the same owner-world container as the eager path.
-      const sandboxId = resident ? undefined : sharedWorldSandboxId;
+      // uses the same agent container as the eager path.
+      const sandboxId = resident ? undefined : agentContainerId;
       // A predecessor whose terminal state was never delivered left it
       // here. Taking over the DO takes the alarm with it, so this is its last
       // chance; the stale delivery below cannot mutate this successor.

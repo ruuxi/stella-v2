@@ -87,8 +87,11 @@ export interface SandboxHandle extends Omit<ExecutionSession, "id"> {
   deleteSession(id: string): Promise<void>;
   getState(): Promise<SandboxState>;
   destroy(options?: { keepSnapshot?: boolean }): Promise<void>;
-  /** Snapshot the filesystem shortly, for the next cold start of this world. */
-  requestSnapshot(): Promise<void>;
+  /**
+   * The turn is done with this container: snapshot it shortly for the
+   * owner's next agent container to start from, then stop it.
+   */
+  release(): Promise<void>;
 }
 
 type Stub = DurableObjectStub<Sandbox>;
@@ -195,8 +198,8 @@ export const sandboxClient = (
     destroy: async (options) => {
       await stub.destroy(options);
     },
-    requestSnapshot: async () => {
-      await stub.requestSnapshot();
+    release: async () => {
+      await stub.release();
     },
   };
 };

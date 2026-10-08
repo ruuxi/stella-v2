@@ -32,41 +32,67 @@ export type WorldSandboxLifecycleIdentity = Readonly<{
   workspaceKey: string;
 }>;
 
+export type AgentSandboxLifecycleIdentity = WorldSandboxLifecycleIdentity &
+  Readonly<{ threadId: string }>;
+
 const bytesToHex = (bytes: Uint8Array): string =>
   [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 
+const fingerprint = async (parts: readonly string[]): Promise<string> =>
+  bytesToHex(
+    new Uint8Array(
+      await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(
+          ["stella-sandbox-lifecycle-v1", ...parts].join("\u0000"),
+        ),
+      ),
+    ),
+  ).slice(0, 40);
+
 /**
- * Stable for an exact app attempt or for an owner's one world container.
+ * Stable for an exact app attempt, for one agent thread's container in an
+ * owner's world, or for the owner's own world container (Claude sign-in).
  * Only a SHA-256 fingerprint enters the SDK-visible id; authority material
  * and user-controlled prefixes never do.
  */
 export const sandboxLifecycleId = async (
-  workloadPrefix: "app" | "echo" | "world",
-  identity: SandboxLifecycleIdentity | WorldSandboxLifecycleIdentity,
+  workloadPrefix: "agent" | "app" | "echo" | "world",
+  identity:
+    | SandboxLifecycleIdentity
+    | WorldSandboxLifecycleIdentity
+    | AgentSandboxLifecycleIdentity,
 ): Promise<string> => {
+  if (workloadPrefix === "agent") {
+    if (
+      !("threadId" in identity) ||
+      !identity.ownerId ||
+      !identity.workspaceKey ||
+      !identity.threadId
+    ) {
+      throw new TypeError("Agent sandbox lifecycle identity must be exact.");
+    }
+    return `agent-${await fingerprint([
+      "agent",
+      identity.ownerId,
+      identity.workspaceKey,
+      identity.threadId,
+    ])}`;
+  }
   if (workloadPrefix === "world") {
     if (
       !("workspaceKey" in identity) ||
+      "threadId" in identity ||
       !identity.ownerId ||
       !identity.workspaceKey
     ) {
       throw new TypeError("World sandbox lifecycle identity must be exact.");
     }
-    const canonical = [
-      "stella-sandbox-lifecycle-v1",
+    return `world-${await fingerprint([
       "world",
       identity.ownerId,
       identity.workspaceKey,
-    ].join("\u0000");
-    const digest = bytesToHex(
-      new Uint8Array(
-        await crypto.subtle.digest(
-          "SHA-256",
-          new TextEncoder().encode(canonical),
-        ),
-      ),
-    );
-    return `world-${digest.slice(0, 40)}`;
+    ])}`;
   }
   if (
     "workspaceKey" in identity ||
@@ -78,23 +104,13 @@ export const sandboxLifecycleId = async (
   ) {
     throw new TypeError("Sandbox lifecycle identity must be exact.");
   }
-  const canonical = [
-    "stella-sandbox-lifecycle-v1",
+  return `${workloadPrefix}-${await fingerprint([
     workloadPrefix,
     identity.ownerId,
     identity.ownerGeneration,
     identity.turnId,
     String(identity.attemptGeneration),
-  ].join("\u0000");
-  const digest = bytesToHex(
-    new Uint8Array(
-      await crypto.subtle.digest(
-        "SHA-256",
-        new TextEncoder().encode(canonical),
-      ),
-    ),
-  );
-  return `${workloadPrefix}-${digest.slice(0, 40)}`;
+  ])}`;
 };
 
 export type SandboxLifecycleFailureFields = Readonly<{

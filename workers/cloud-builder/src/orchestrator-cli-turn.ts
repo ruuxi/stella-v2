@@ -758,11 +758,12 @@ export const pollOrchestratorCliTurn = async (args: {
 };
 
 /**
- * Warm the owner's world container before a CLI turn needs it (admission,
- * socket connect), so the turn pays only for attach. Best effort; never
- * throws. `POST https://build-session/orchestrator-turn/prewarm` `{ ownerId }`
- * on the conversation's orchestrator session: 200 `{ prewarmed: true,
- * alreadyRunning, startMs? }`, 502 `start_failed`, 409 `owner_mismatch`.
+ * Warm the orchestrator thread's own container before a CLI turn needs it
+ * (admission, socket connect), so the turn pays only for attach. Best effort;
+ * never throws. `POST https://build-session/orchestrator-turn/prewarm`
+ * `{ ownerId, threadId }` on the conversation's orchestrator session: 200
+ * `{ prewarmed: true, alreadyRunning, startMs? }`, 502 `start_failed`, 409
+ * `owner_mismatch`.
  */
 export const prewarmOrchestratorCli = async (args: {
   env: BuildSessionEnv;
@@ -784,7 +785,7 @@ export const prewarmOrchestratorCli = async (args: {
           "content-type": "application/json",
           "x-stella-build-session-name": threadId,
         },
-        body: JSON.stringify({ ownerId: args.ownerId }),
+        body: JSON.stringify({ ownerId: args.ownerId, threadId }),
         // A cold container start can take a while; nothing waits on this.
         signal: AbortSignal.timeout(60_000),
       },

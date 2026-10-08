@@ -1,5 +1,5 @@
 /**
- * The world container's caches and installed dependencies, kept across images.
+ * The agent containers' caches and installed dependencies, kept across images.
  *
  * A container snapshot cannot cross images and nearly every deploy changes the
  * image, so a cold start usually begins from a clean disk: the world comes back
@@ -8,8 +8,9 @@
  * world store: the tool home (caches, config and state under
  * `/workspace/.stella-tool-home`) and the `node_modules` directories under the
  * world. Both go into one size-capped archive per owner in `BACKUP_BUCKET`,
- * outside the world quota, written when a turn releases the container and only
- * when something in them changed.
+ * outside the world quota, shared by every agent container of the owner:
+ * written when a turn releases its container and something in them changed
+ * there, and restored by any of them that starts without a snapshot.
  *
  * Only the tool account's own files leave the container. Anything owned by
  * another user (root's in particular) is excluded file by file, the root-only
@@ -41,8 +42,12 @@ export const DEPENDENCY_RESTORE_ROOT = "/home/stella-host-state/dependency-resto
 /** Above this many foreign-owned entries the archive is skipped, not bloated with patterns. */
 export const DEPENDENCY_FOREIGN_LIMIT = 1_000;
 
-export const dependencyBackupPrefix = (sandboxObjectId: string): string =>
-  `sandbox-dependencies/v1/${sandboxObjectId}/`;
+/**
+ * One prefix per owner, keyed by the owner's world name: every agent
+ * container of the owner restores from and archives into it.
+ */
+export const dependencyBackupPrefix = (worldName: string): string =>
+  `sandbox-dependencies/v1/${worldName}/`;
 
 const TOOL_HOME = CLOUD_TOOL_HOME.slice(`${DEPENDENCY_BACKUP_DIR}/`.length);
 const WORLD = WORLD_ROOT.slice(`${DEPENDENCY_BACKUP_DIR}/`.length);
@@ -180,7 +185,7 @@ export const dependencyAdoptionLines = (indexPath: string): string[] => [
   `rm -rf -- "${indexPath}.tmp" ${DEPENDENCY_RESTORE_ROOT}`,
 ];
 
-/** What the sandbox object keeps about its archive. */
+/** What the owner's world store keeps about the owner's archive. */
 export type StoredDependencyBackup = {
   record: import("@cloudflare/sandbox").DirectoryBackupRecord;
   /** sha256 of the sorted `node_modules` paths the archive holds. */

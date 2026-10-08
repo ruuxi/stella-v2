@@ -1,7 +1,23 @@
 import { DurableObject } from "cloudflare:workers";
 import { WorkspaceApps } from "./workspace-apps.js";
 import { WorldSqlStore } from "./world/store.js";
+import type { StoredDependencyBackup } from "./sandbox-dependencies.js";
 import type { WorldListingEntry, WorldToolCall } from "./world/types.js";
+
+/**
+ * A filesystem snapshot of one of this owner's agent containers, the image it
+ * was taken on, and the sandbox object it came from.
+ */
+export type ContainerSnapshot = {
+  id: string;
+  size: number;
+  image: string;
+  takenAt: number;
+  sandbox: string;
+};
+
+const CONTAINER_SNAPSHOT_KEY = "containerSnapshot";
+const DEPENDENCY_BACKUP_KEY = "dependencyBackup";
 
 export class WorldStore extends DurableObject<Env> {
   private readonly world: WorldSqlStore;
@@ -132,12 +148,67 @@ export class WorldStore extends DurableObject<Env> {
     return this.world.head();
   }
 
-  selectContainerSize(initial: "small" | "large") {
-    return this.world.selectContainerSize(initial);
+  // ---- the owner's agent containers --------------------------------------
+  //
+  // Every agent thread has a container of its own. They share one latest
+  // snapshot and one caches-and-dependencies archive, kept here beside the
+  // world they all sync: whichever container released last wrote them, and
+  // every new container starts from them. The world itself comes down by
+  // sync either way, so a snapshot only ever saves setup, never truth.
+
+  containerSnapshot(): ContainerSnapshot | null {
+    return (
+      this.ctx.storage.kv.get<ContainerSnapshot>(CONTAINER_SNAPSHOT_KEY) ?? null
+    );
   }
 
-  rememberContainerSize(size: "small" | "large") {
-    return this.world.rememberContainerSize(size);
+  recordContainerSnapshot(snapshot: ContainerSnapshot): void {
+    this.ctx.storage.kv.put(CONTAINER_SNAPSHOT_KEY, snapshot);
+  }
+
+  /**
+   * Forget the latest snapshot if it is the one named: by its id after a
+   * restore from it failed, or by the container it came from when that
+   * container's state is being discarded. A newer one is kept.
+   */
+  forgetContainerSnapshot(match: { id?: string; sandbox?: string }): void {
+    const current = this.containerSnapshot();
+    if (
+      current &&
+      ((match.id !== undefined && current.id === match.id) ||
+        (match.sandbox !== undefined && current.sandbox === match.sandbox))
+    ) {
+      this.ctx.storage.kv.delete(CONTAINER_SNAPSHOT_KEY);
+    }
+  }
+
+  dependencyBackup(): StoredDependencyBackup | null {
+    return (
+      this.ctx.storage.kv.get<StoredDependencyBackup>(DEPENDENCY_BACKUP_KEY) ??
+      null
+    );
+  }
+
+  /** Make `next` the archive new containers restore; returns the one replaced. */
+  replaceDependencyBackup(
+    next: StoredDependencyBackup,
+  ): StoredDependencyBackup | null {
+    const previous = this.dependencyBackup();
+    this.ctx.storage.kv.put(DEPENDENCY_BACKUP_KEY, next);
+    return previous;
+  }
+
+  /** Forget the archive if it is still `record`, which no longer restores. */
+  forgetDependencyBackup(recordId: string): void {
+    if (this.dependencyBackup()?.record.id === recordId) {
+      this.ctx.storage.kv.delete(DEPENDENCY_BACKUP_KEY);
+    }
+  }
+
+  /** Owner purge: no later container may start from either. */
+  forgetContainerState(): void {
+    this.ctx.storage.kv.delete(CONTAINER_SNAPSHOT_KEY);
+    this.ctx.storage.kv.delete(DEPENDENCY_BACKUP_KEY);
   }
 
   /** One agent container's own changes (`WorldSqlStore.pushChanges`). */

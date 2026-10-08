@@ -79,10 +79,12 @@ import {
   isTurnStateAuthorityError,
 } from "./shared/errors.js";
 import {
+  AGENT_CONTAINER_LARGE_KEY,
   AGENT_RECOVERY_PENDING_KEY,
   AGENT_TURN_HEARTBEAT_MS,
   AGENT_WATCHDOG_DEADLINE_KEY,
   agentComputeRecoveryClaimKey,
+  agentContainerSize,
   agentExecutionMarkerKey,
   agentRecoveryIdentity,
   cloudBrowserSuspensionMarker,
@@ -98,6 +100,7 @@ import {
   turnBrokerCredentialsPath,
   withInfrastructureDeadline,
 } from "./shared/keys.js";
+import { acquireAgentContainerSlot } from "./session-sandbox.js";
 import type {
   AgentComputeRecoveryClaim,
   AgentExecutionMarker,
@@ -269,7 +272,7 @@ export const quiesceCurrentAgentSession = async (
   const executionSessionId =
     compute?.sessionId ?? agentTurnSessionId(turn.turnId);
   if (!(await host.sandboxContainerRunning(sandbox))) return;
-  // The container is shared by every agent of the owner world and the SDK's
+  // The container is this agent thread's own, but the SDK's
   // `killAllProcesses` ignores its session argument, so only this attempt's
   // own executor process is killed before its session is deleted.
   await sandbox
@@ -375,17 +378,19 @@ export const runContainerAgentTurn = async (
 ): Promise<void> => {
   const commandTimeoutMs = Number(host.env.TURN_TIMEOUT_MS);
   const requestStarted = performance.now();
-  let sandbox = host.sandbox(sandboxId, "large", "world");
+  const ownerWorld = await worldName(turn.ownerId);
+  let sandbox = host.sandbox(sandboxId, "large", "world", ownerWorld);
   const sessionId = agentTurnSessionId(turn.turnId);
   const daemonDirectory = attachedToolPaths({
     turnId: turn.turnId,
     attemptGeneration: turn.attemptGeneration!,
   }).directory;
-  const world = host.env.WORLDS.getByName(await worldName(turn.ownerId));
   log("info", "agent_turn_started", {
     turnId: turn.turnId,
     threadId: turn.threadId,
     sessionId: host.ctx.id.toString(),
+    // The first 16 characters name this agent's own container in the tail.
+    sandbox: sandboxId.slice(0, 16),
   });
   try {
     await host.assertAgentExecutionActive(turn, execution);
@@ -474,10 +479,11 @@ export const runContainerAgentTurn = async (
     const proposedSize: InstanceSize = initialInstanceSize({
       prompt: turn.prompt,
     });
-    let size = await world.selectContainerSize(proposedSize);
+    let size = await agentContainerSize(host.ctx.storage, proposedSize);
     await host.ctx.storage.put("sandboxSize", size);
     execution.assertActive();
-    sandbox = host.sandbox(sandboxId, size, "world");
+    await acquireAgentContainerSlot(host, turn, sandboxId, execution);
+    sandbox = host.sandbox(sandboxId, size, "world", ownerWorld);
     let escalated = false;
     let attempt = await host.runAgentAttempt({
       turn,
@@ -516,10 +522,10 @@ export const runContainerAgentTurn = async (
       execution.assertActive();
       size = "large";
       escalated = true;
-      await world.rememberContainerSize("large");
       await host.ctx.storage.put({
         sandboxId,
         sandboxSize: size,
+        [AGENT_CONTAINER_LARGE_KEY]: true,
       });
       execution.assertActive();
       await host.assertAgentExecutionActive(turn, execution);
@@ -555,7 +561,7 @@ export const runContainerAgentTurn = async (
         )
         .catch(() => undefined);
       execution.assertActive();
-      sandbox = host.sandbox(sandboxId, size, "world");
+      sandbox = host.sandbox(sandboxId, size, "world", ownerWorld);
       attempt = await host.runAgentAttempt({
         turn,
         execution,
@@ -1189,7 +1195,7 @@ export const attachAgentWorld = async (
     commandTimeoutMs: args.commandTimeoutMs,
     env: executorSessionEnvironment(),
   };
-  // A failed attach leaves its session behind in the shared container; the
+  // A failed attach leaves its session behind in the agent's container; the
   // retry owns the same id, so an existing session is replaced, never reused.
   const session = await sandbox
     .createSession(sessionOptions)
@@ -1209,8 +1215,7 @@ export const attachAgentWorld = async (
   turnExecution.assertActive();
   const restoreStarted = performance.now();
   // The orchestrator's CLI has no file tools and works in an empty
-  // directory of its own: the world is not put on disk for it, and the
-  // shared world root other threads use is left exactly as it is.
+  // directory of its own: the world is not put on disk for it.
   const materializeWorld = turn.agentRole !== "orchestrator";
   const worldMetadataStarted = performance.now();
   const preparedName = await worldNamePreparation;
@@ -1488,9 +1493,11 @@ export const runAgentAttempt = async (
       admitted.engine === "anthropic"
         ? await claudeCloudAccountFor(host.env, turn)
         : null;
-    // A container started from a new image gets the owner's Claude Code
-    // logins back before the CLI looks for them.
-    if (claudeAccount) await restoreClaudeCloudLogins(host.env, turn.ownerId);
+    // This agent's container gets the owner's current Claude Code logins
+    // before the CLI looks for them; its own copy may be older.
+    if (claudeAccount) {
+      await restoreClaudeCloudLogins(host.env, turn.ownerId, sandbox);
+    }
     turnExecution.assertActive();
 
     // The turn input sits in the root-only attempt directory, above the
@@ -1794,7 +1801,9 @@ export const runAgentAttempt = async (
       .catch(() => undefined);
     // The CLI may have rotated its refresh token during the turn.
     if (turn.execution?.engine === "anthropic") {
-      await backupClaudeCloudLogins(host.env, turn.ownerId).catch(() => false);
+      await backupClaudeCloudLogins(host.env, turn.ownerId, sandbox).catch(
+        () => false,
+      );
     }
     await host.ctx.storage.transaction(async (txn) => {
       const current = await txn.get<TurnBrokerRecord>(brokerRecordKey);

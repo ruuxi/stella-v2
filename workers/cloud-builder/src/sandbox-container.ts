@@ -30,6 +30,7 @@ import {
   type StoredDependencyBackup,
 } from "./sandbox-dependencies.js";
 import type { Env } from "./build-session/shared/env.js";
+import type { ContainerSnapshot } from "./world-store.js";
 
 export type SandboxInstanceSize = "small" | "large";
 export type SandboxWorkloadKind = "world" | "app-build";
@@ -39,6 +40,13 @@ export type SandboxBoot = {
   size: SandboxInstanceSize;
   workload: SandboxWorkloadKind;
   idleTimeoutMs?: number;
+  /**
+   * The owner's world store, for an agent container. Every agent container of
+   * an owner starts from the latest snapshot any of them took and restores
+   * the same caches and dependencies archive, both kept there; a container
+   * without one keeps neither.
+   */
+  world?: string;
 };
 
 export type SandboxExecRequest = {
@@ -76,14 +84,6 @@ export type SandboxSessionConfig = {
   commandTimeoutMs?: number;
 };
 
-/** A filesystem snapshot of this world's container and the image it came from. */
-type StoredSnapshot = {
-  id: string;
-  size: number;
-  image: string;
-  takenAt: number;
-};
-
 export type SandboxState = {
   status: "running" | "stopped";
   size?: SandboxInstanceSize;
@@ -99,11 +99,18 @@ const MAX_IDLE_TIMEOUT_MS = 6 * 60 * 60_000;
 const READY_DEADLINE_MS = 120_000;
 const SESSION_PREFIX = "session:";
 const PROCESS_ROOT = "/run/stella-processes";
-const SNAPSHOT_KEY = "snapshot";
-const SNAPSHOT_DUE_KEY = "snapshotDueAt";
-const DEPENDENCY_BACKUP_KEY = "dependencyBackup";
+const WORLD_KEY = "world";
+const RELEASE_DUE_KEY = "releaseDueAt";
+/** Set by a release; any later call that needs the container clears it. */
+const STOP_PENDING_KEY = "stopPending";
+/**
+ * The archive this container's caches and dependencies last matched: the one
+ * it restored or last wrote. Only a change since then is archived again, so a
+ * container that changed nothing never replaces a newer archive.
+ */
+const DEPENDENCY_BASELINE_KEY = "dependencyBaseline";
 /** Lets a released turn finish its last writes before the filesystem is frozen. */
-const SNAPSHOT_DELAY_MS = 2_000;
+const RELEASE_DELAY_MS = 2_000;
 /** The 0.12 SDK ran commands here unless a call named another directory. */
 const DEFAULT_CWD = "/workspace";
 
@@ -249,10 +256,14 @@ export class SandboxEgress extends WorkerEntrypoint<Env, EgressProps> {
 const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
+type DependencyBaseline = Pick<StoredDependencyBackup, "mark" | "fingerprint">;
+
 export class Sandbox extends DurableObject<Env> {
   #booting: Promise<void> | null = null;
+  /** A released container being stopped; a new call waits, then starts it. */
+  #stopping: Promise<void> | null = null;
   #files?: Files;
-  #dependencies?: DirectoryBackup;
+  #dependencies?: { world: string; backups: DirectoryBackup };
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -279,17 +290,24 @@ export class Sandbox extends DurableObject<Env> {
     return this.#files;
   }
 
-  /** This world's caches and dependencies archive (`sandbox-dependencies.ts`). */
-  get #dependencyBackups(): DirectoryBackup {
-    this.#dependencies ??= new DirectoryBackup(
-      this.#container,
-      this.ctx.exports.DirectoryBackupGateway,
-      {
-        binding: "BACKUP_BUCKET",
-        prefix: dependencyBackupPrefix(this.ctx.id.toString()),
-      },
-    );
-    return this.#dependencies;
+  /** The owner's caches and dependencies archive (`sandbox-dependencies.ts`). */
+  #dependencyBackups(world: string): DirectoryBackup {
+    if (this.#dependencies?.world !== world) {
+      this.#dependencies = {
+        world,
+        backups: new DirectoryBackup(
+          this.#container,
+          this.ctx.exports.DirectoryBackupGateway,
+          { binding: "BACKUP_BUCKET", prefix: dependencyBackupPrefix(world) },
+        ),
+      };
+    }
+    return this.#dependencies.backups;
+  }
+
+  /** The owner's world store an agent container shares its state through. */
+  #world(boot: SandboxBoot | undefined) {
+    return boot?.world ? this.env.WORLDS.getByName(boot.world) : undefined;
   }
 
   async #configure(boot: SandboxBoot): Promise<void> {
@@ -297,7 +315,7 @@ export class Sandbox extends DurableObject<Env> {
     const policy = boot.workload === "app-build" ? "sealed" : "general";
     // The archive's own host must be registered before the catch-all, which
     // takes every hostname registered after it.
-    await this.#dependencyBackups.intercept();
+    if (boot.world) await this.#dependencyBackups(boot.world).intercept();
     await container.interceptAllOutboundHttp(
       this.ctx.exports.SandboxEgress({
         props: { containerId: this.ctx.id.toString(), policy },
@@ -332,17 +350,22 @@ export class Sandbox extends DurableObject<Env> {
   }
 
   /**
-   * Start from this world's last snapshot when it was taken on the image this
-   * deploy runs, so the world projection, native state, and caches are already
-   * on disk. A snapshot cannot cross images; any other case starts clean, with
-   * the world's caches and dependencies brought back from their archive.
+   * Start from the latest snapshot any of the owner's agent containers took,
+   * when it was taken on the image this deploy runs, so a world projection,
+   * caches and installed dependencies are already on disk; the world catches
+   * up by sync. A snapshot cannot cross images; any other case starts clean,
+   * with the owner's caches and dependencies brought back from their archive.
    */
   async #start(boot: SandboxBoot): Promise<void> {
     const container = this.#container;
     const image = container.images.sandbox!;
-    const stored = this.#snapshotsEnabled
-      ? this.ctx.storage.kv.get<StoredSnapshot>(SNAPSHOT_KEY)
-      : undefined;
+    const world = this.#world(boot);
+    // The owner's shared state only ever saves setup: an unreadable slot
+    // starts this container clean rather than not at all.
+    const stored =
+      this.#snapshotsEnabled && world
+        ? await world.containerSnapshot().catch(() => null)
+        : null;
     const snapshot = stored?.image === image ? stored : undefined;
     const startedAt = Date.now();
     let restored = false;
@@ -351,7 +374,9 @@ export class Sandbox extends DurableObject<Env> {
         await this.#boot(boot, { containerSnapshot: { id: snapshot.id } });
         restored = true;
       } catch (error) {
-        this.ctx.storage.kv.delete(SNAPSHOT_KEY);
+        await world
+          ?.forgetContainerSnapshot({ id: snapshot.id })
+          .catch(() => undefined);
         console.log(
           JSON.stringify({
             level: "error",
@@ -362,11 +387,22 @@ export class Sandbox extends DurableObject<Env> {
       }
     }
     if (!restored) await this.#boot(boot, { image });
+    // A baseline describes the disk it was taken against, which is gone.
+    this.ctx.storage.kv.delete(DEPENDENCY_BASELINE_KEY);
     if (restored) {
       // Process records belong to the container that wrote them.
       await this.#run(["rm", "-rf", "--", PROCESS_ROOT]);
-    } else if (boot.workload === "world") {
-      await this.#restoreDependencies();
+      // Its caches and dependencies are, as near as anything says, the
+      // owner's latest archive: both were taken at the same release.
+      const latest = await world?.dependencyBackup().catch(() => null);
+      if (latest) {
+        this.ctx.storage.kv.put(DEPENDENCY_BASELINE_KEY, {
+          mark: latest.mark,
+          fingerprint: latest.fingerprint,
+        } satisfies DependencyBaseline);
+      }
+    } else if (boot.workload === "world" && boot.world) {
+      await this.#restoreDependencies(boot.world);
     }
     console.log(
       JSON.stringify({
@@ -374,7 +410,16 @@ export class Sandbox extends DurableObject<Env> {
         event: "sandbox_container_started",
         workload: boot.workload,
         instanceSize: boot.size,
+        // Names this container in the tail: one per agent thread.
+        sandbox: this.ctx.id.toString().slice(0, 12),
+        ...(this.ctx.id.name ? { name: this.ctx.id.name.slice(0, 16) } : {}),
         source: restored ? "snapshot" : "image",
+        ...(restored
+          ? {
+              snapshotFrom:
+                snapshot!.sandbox === this.ctx.id.toString() ? "self" : "owner",
+            }
+          : {}),
         ...(stored && !snapshot ? { snapshotSkipped: "image_changed" } : {}),
         readyMs: Date.now() - startedAt,
       }),
@@ -418,6 +463,12 @@ export class Sandbox extends DurableObject<Env> {
   }
 
   async #ensure(boot: SandboxBoot): Promise<void> {
+    // Someone needs the container again: a release still waiting to stop it
+    // takes its snapshot but leaves it running.
+    if (this.ctx.storage.kv.get<boolean>(STOP_PENDING_KEY)) {
+      this.ctx.storage.kv.delete(STOP_PENDING_KEY);
+    }
+    if (this.#stopping) await this.#stopping;
     if (this.#booting) {
       await this.#booting;
       if (this.#container.running) {
@@ -429,10 +480,26 @@ export class Sandbox extends DurableObject<Env> {
       await this.#extendIdleTimeout(boot);
       return;
     }
-    this.#booting = this.#start(boot).finally(() => {
+    this.#booting = this.#start(this.#withWorld(boot)).finally(() => {
       this.#booting = null;
     });
     await this.#booting;
+  }
+
+  /**
+   * An agent container belongs to one owner's world for good, so the world a
+   * caller once named is remembered and a later start without one still
+   * shares the owner's snapshot and archive.
+   */
+  #withWorld(boot: SandboxBoot): SandboxBoot {
+    if (boot.world) {
+      if (this.ctx.storage.kv.get<string>(WORLD_KEY) !== boot.world) {
+        this.ctx.storage.kv.put(WORLD_KEY, boot.world);
+      }
+      return boot;
+    }
+    const world = this.ctx.storage.kv.get<string>(WORLD_KEY);
+    return world ? { ...boot, world } : boot;
   }
 
   async #run(
@@ -466,14 +533,19 @@ export class Sandbox extends DurableObject<Env> {
   }
 
   /**
-   * Stop the container. Unless the caller is only resizing it, also forget the
-   * snapshot so the next start cannot bring back the state being discarded.
-   * The platform has no snapshot delete; an unreferenced one expires in 30 days.
+   * Stop the container. Unless the caller is only resizing it, the owner's
+   * latest snapshot is forgotten too when it is this container's, so the next
+   * start cannot bring back the state being discarded; another container's
+   * newer one is kept. The platform has no snapshot delete; an unreferenced
+   * one expires in 30 days.
    */
   async destroy(options: { keepSnapshot?: boolean } = {}): Promise<void> {
     if (!options.keepSnapshot) {
-      this.ctx.storage.kv.delete(SNAPSHOT_KEY);
-      this.ctx.storage.kv.delete(SNAPSHOT_DUE_KEY);
+      this.ctx.storage.kv.delete(RELEASE_DUE_KEY);
+      this.ctx.storage.kv.delete(STOP_PENDING_KEY);
+      await this.#world(this.ctx.storage.kv.get<SandboxBoot>("boot"))
+        ?.forgetContainerSnapshot({ sandbox: this.ctx.id.toString() })
+        .catch(() => undefined);
     }
     if (this.#booting) await this.#booting.catch(() => undefined);
     if (this.ctx.container?.running) {
@@ -482,86 +554,102 @@ export class Sandbox extends DurableObject<Env> {
   }
 
   /**
-   * Owner purge: discard the container, its snapshot and its caches and
-   * dependencies archive, so neither a later start nor a later archive can
-   * bring any of it back. The caller sweeps the archive prefix afterwards.
+   * The turn using this container has let go of it: snapshot it for the next
+   * agent container of this owner to start from, bring the owner's caches and
+   * dependencies archive up to date, then stop it rather than leave it idle.
+   * The alarm does all three, so the caller's turn never waits; a call that
+   * needs the container before then keeps it running.
    */
-  async purge(): Promise<void> {
-    await this.destroy();
-    const stored = this.ctx.storage.kv.get<StoredDependencyBackup>(
-      DEPENDENCY_BACKUP_KEY,
-    );
-    this.ctx.storage.kv.delete(DEPENDENCY_BACKUP_KEY);
-    if (stored) await this.#dependencyBackups.delete(stored.record);
-  }
-
-  /**
-   * Ask for a snapshot, and for the caches and dependencies archive to catch
-   * up, once the turn using the container has let go of it. The alarm does
-   * both, so the caller's turn never waits on either.
-   */
-  async requestSnapshot(): Promise<void> {
+  async release(): Promise<void> {
     if (!this.ctx.container?.running) return;
-    const due = Date.now() + SNAPSHOT_DELAY_MS;
-    this.ctx.storage.kv.put(SNAPSHOT_DUE_KEY, due);
+    const due = Date.now() + RELEASE_DELAY_MS;
+    this.ctx.storage.kv.put(RELEASE_DUE_KEY, due);
+    this.ctx.storage.kv.put(STOP_PENDING_KEY, true);
     const alarm = await this.ctx.storage.getAlarm();
     if (alarm === null || alarm > due) await this.ctx.storage.setAlarm(due);
   }
 
   async alarm(): Promise<void> {
-    // 0.12 left an alarm armed while its container ran; that one finds no key.
-    const due = this.ctx.storage.kv.get<number>(SNAPSHOT_DUE_KEY);
+    const due = this.ctx.storage.kv.get<number>(RELEASE_DUE_KEY);
     if (due === undefined) return;
     if (due > Date.now()) {
       await this.ctx.storage.setAlarm(due);
       return;
     }
-    this.ctx.storage.kv.delete(SNAPSHOT_DUE_KEY);
+    this.ctx.storage.kv.delete(RELEASE_DUE_KEY);
     if (this.#booting) await this.#booting.catch(() => undefined);
     const container = this.ctx.container;
     if (!container?.running) return;
+    const boot = this.ctx.storage.kv.get<SandboxBoot>("boot");
+    const world = this.#world(boot);
     try {
-      if (this.#snapshotsEnabled) {
+      if (this.#snapshotsEnabled && world) {
         const startedAt = Date.now();
         const info = await container.inspect();
         const snapshot = await container.snapshotContainer({
           name: "stella-world",
         });
-        const stored: StoredSnapshot = {
+        await world.recordContainerSnapshot({
           id: snapshot.id,
           size: snapshot.size,
           image: info?.image ?? container.images.sandbox!,
           takenAt: Date.now(),
-        };
-        this.ctx.storage.kv.put(SNAPSHOT_KEY, stored);
+          sandbox: this.ctx.id.toString(),
+        } satisfies ContainerSnapshot);
         console.log(
           JSON.stringify({
             level: "info",
             event: "sandbox_snapshot_taken",
+            sandbox: this.ctx.id.toString().slice(0, 12),
             sizeBytes: snapshot.size,
             snapshotMs: Date.now() - startedAt,
           }),
         );
       }
     } finally {
-      await this.#backupDependencies();
+      if (boot?.world) await this.#backupDependencies(boot.world);
+      if (this.ctx.storage.kv.get<boolean>(STOP_PENDING_KEY)) {
+        this.ctx.storage.kv.delete(STOP_PENDING_KEY);
+        // A stop that fails leaves the inactivity timeout to do it.
+        let failure: string | undefined;
+        this.#stopping = (
+          this.ctx.container?.running
+            ? this.#container.destroy()
+            : Promise.resolve()
+        )
+          .catch((error: unknown) => {
+            failure = errorText(error);
+          })
+          .finally(() => {
+            this.#stopping = null;
+          });
+        await this.#stopping;
+        console.log(
+          JSON.stringify({
+            level: failure ? "error" : "info",
+            event: failure ? "sandbox_container_stop_failed" : "sandbox_container_stopped",
+            sandbox: this.ctx.id.toString().slice(0, 12),
+            reason: "released",
+            ...(failure ? { message: failure } : {}),
+          }),
+        );
+      }
     }
   }
 
   /**
-   * Bring the world's caches and dependencies back into a container that just
+   * Bring the owner's caches and dependencies back into a container that just
    * started from the image. Never fails the start: without the archive the
    * container is only slower.
    */
-  async #restoreDependencies(): Promise<void> {
-    const stored = this.ctx.storage.kv.get<StoredDependencyBackup>(
-      DEPENDENCY_BACKUP_KEY,
-    );
+  async #restoreDependencies(worldName: string): Promise<void> {
+    const world = this.env.WORLDS.getByName(worldName);
+    const stored = await world.dependencyBackup().catch(() => null);
     if (!stored) return;
     const startedAt = Date.now();
     try {
       await this.#run(["rm", "-rf", "--", DEPENDENCY_RESTORE_ROOT]);
-      await this.#dependencyBackups.restore(stored.record, {
+      await this.#dependencyBackups(worldName).restore(stored.record, {
         dir: DEPENDENCY_RESTORE_ROOT,
         signal: AbortSignal.timeout(DEPENDENCY_TRANSFER_TIMEOUT_MS),
       });
@@ -573,6 +661,10 @@ export class Sandbox extends DurableObject<Env> {
       if (!placed.success) {
         throw new Error(placed.stderr.trim().slice(-500) || "placement failed");
       }
+      this.ctx.storage.kv.put(DEPENDENCY_BASELINE_KEY, {
+        mark: stored.mark,
+        fingerprint: stored.fingerprint,
+      } satisfies DependencyBaseline);
       console.log(
         JSON.stringify({
           level: "info",
@@ -589,7 +681,9 @@ export class Sandbox extends DurableObject<Env> {
         SandboxBackupError.is(error) &&
         (error.code === "BACKUP_NOT_FOUND" || error.code === "BACKUP_INTEGRITY")
       ) {
-        this.ctx.storage.kv.delete(DEPENDENCY_BACKUP_KEY);
+        await world
+          .forgetDependencyBackup(stored.record.id)
+          .catch(() => undefined);
       }
       await this.#run(["rm", "-rf", "--", DEPENDENCY_RESTORE_ROOT]).catch(
         () => undefined,
@@ -607,15 +701,17 @@ export class Sandbox extends DurableObject<Env> {
 
   /**
    * Archive the tool home and the world's `node_modules` when anything in them
-   * changed since the last archive and the whole is under the cap. A skipped or
-   * failed archive keeps the previous one.
+   * changed since this container's baseline and the whole is under the cap,
+   * and make it the owner's archive. A skipped or failed archive keeps the
+   * owner's current one; the one replaced is deleted.
    */
-  async #backupDependencies(): Promise<void> {
+  async #backupDependencies(worldName: string): Promise<void> {
     if (this.ctx.storage.kv.get<SandboxBoot>("boot")?.workload !== "world") {
       return;
     }
-    const previous = this.ctx.storage.kv.get<StoredDependencyBackup>(
-      DEPENDENCY_BACKUP_KEY,
+    const world = this.env.WORLDS.getByName(worldName);
+    const previous = this.ctx.storage.kv.get<DependencyBaseline>(
+      DEPENDENCY_BASELINE_KEY,
     );
     const startedAt = Date.now();
     const skipped = (reason: string, fields: Record<string, unknown> = {}) =>
@@ -661,23 +757,29 @@ export class Sandbox extends DurableObject<Env> {
         return skipped("foreign_files", { foreignCount: probe.foreign.length });
       }
       const archiveStartedAt = Date.now();
-      const record = await this.#dependencyBackups.backup({
+      const backups = this.#dependencyBackups(worldName);
+      const record = await backups.backup({
         dir: DEPENDENCY_BACKUP_DIR,
         name: "stella-dependencies",
         exclude: [...DEPENDENCY_BACKUP_EXCLUDES, ...(foreign as string[])],
         signal: AbortSignal.timeout(DEPENDENCY_TRANSFER_TIMEOUT_MS),
       });
-      this.ctx.storage.kv.put(DEPENDENCY_BACKUP_KEY, {
+      const next: StoredDependencyBackup = {
         record,
         fingerprint: probe.fingerprint,
         mark: probe.now,
         bytes: probe.bytes,
         takenAt: Date.now(),
-      } satisfies StoredDependencyBackup);
-      if (previous) {
-        await this.#dependencyBackups
-          .delete(previous.record)
-          .catch(() => undefined);
+      };
+      // Last writer wins: concurrent releases each replace the one before,
+      // and each deletes what it replaced, so no archive is left unnamed.
+      const replaced = await world.replaceDependencyBackup(next);
+      this.ctx.storage.kv.put(DEPENDENCY_BASELINE_KEY, {
+        mark: next.mark,
+        fingerprint: next.fingerprint,
+      } satisfies DependencyBaseline);
+      if (replaced && replaced.record.id !== record.id) {
+        await backups.delete(replaced.record).catch(() => undefined);
       }
       console.log(
         JSON.stringify({

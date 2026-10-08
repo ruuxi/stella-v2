@@ -58,7 +58,6 @@ type ForkRow = {
   created_by_thread_id: string | null;
   created_at: number;
 };
-type ContainerSize = "small" | "large";
 type ChangeKind = "upsert" | "delete";
 type ChangeRow = { revision: number; path: string; kind: ChangeKind };
 type PendingChanges = { forkId: string; paths: Map<string, ChangeKind> };
@@ -478,31 +477,6 @@ export class WorldSqlStore implements WorldToolFileApi {
 
   private liveManifest(fork = "shared"): string {
     return this.forkRow(fork).head_manifest_id;
-  }
-
-  selectContainerSize(initial: ContainerSize): ContainerSize {
-    if (initial !== "small" && initial !== "large") {
-      throw new TypeError("Invalid world container size.");
-    }
-    const existing = this.sql
-      .exec<MetaRow>("SELECT value FROM world_meta WHERE key = 'containerSize'")
-      .toArray()[0]?.value;
-    if (existing === "small" || existing === "large") return existing;
-    this.sql.exec(
-      "INSERT INTO world_meta(key, value) VALUES ('containerSize', ?)",
-      initial,
-    );
-    return initial;
-  }
-
-  rememberContainerSize(size: ContainerSize): void {
-    if (size !== "small" && size !== "large") {
-      throw new TypeError("Invalid world container size.");
-    }
-    this.sql.exec(
-      "INSERT INTO world_meta(key, value) VALUES ('containerSize', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-      size,
-    );
   }
 
   private entryRow(path: string, manifestId: string): EntryRow | null {

@@ -294,6 +294,7 @@ export interface BuildSessionInternals {
     id: string,
     size?: InstanceSize,
     workload?: SandboxWorkload,
+    world?: string,
   ): SandboxHandle;
   sandboxContainerRunning(
     sandbox: ReturnType<BuildSessionInternals["sandbox"]>,

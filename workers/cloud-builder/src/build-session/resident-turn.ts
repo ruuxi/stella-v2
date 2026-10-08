@@ -51,6 +51,7 @@ import {
   type WorkerShellWorldCommit,
 } from "../worker-shell-runner.js";
 import { agentConnectClient } from "./agent-connect.js";
+import { acquireAgentContainerSlot } from "./session-sandbox.js";
 import {
   parseTurnComputePlan,
   runResidentStellaLoop,
@@ -70,10 +71,10 @@ import { issueWorldCapability } from "../world-capability.js";
 import { forwardBrowserGatewayCommand } from "./turn-broker.js";
 import { deliverWorldLinkedFiles } from "./world-linked-files.js";
 import {
+  agentSandboxId,
   agentTurnSessionId,
   worldName,
   WORLD_ROOT,
-  worldSandboxId,
 } from "../workspace.js";
 import type { createAgentControlPlane } from "../agent-control-plane.js";
 import type { SealedTurnTranscript } from "../agent-turn-journal.js";
@@ -97,9 +98,11 @@ import {
   isTurnStateAuthorityError,
 } from "./shared/errors.js";
 import {
+  AGENT_CONTAINER_LARGE_KEY,
   AGENT_TURN_HEARTBEAT_MS,
   AGENT_WATCHDOG_DEADLINE_KEY,
   OBSERVED_BROWSER_SUSPENSION_KEY,
+  agentContainerSize,
   bindObservedBrowserSuspensionToCanonicalCursor,
   cloudBrowserSuspensionMarker,
   errorMessage,
@@ -626,7 +629,7 @@ export const runResidentAgentTurn = async (
     turn.turnBrokerRoute.sessionId,
   );
 
-  const sandboxId = await worldSandboxId(turn.ownerId);
+  const sandboxId = await agentSandboxId(turn.ownerId, turn.threadId);
   const ownerWorldName = await worldName(turn.ownerId);
   const world = host.env.WORLDS.getByName(ownerWorldName);
   const proposedSize: InstanceSize = initialInstanceSize({
@@ -648,8 +651,9 @@ export const runResidentAgentTurn = async (
         instanceSize: size,
         sessionId: attachedSessionId,
       }) => {
+        await acquireAgentContainerSlot(host, turn, sandboxId, execution);
         await host.ctx.storage.put({ sandboxId, sandboxSize: size });
-        residentSandbox = host.sandbox(sandboxId, size, "world");
+        residentSandbox = host.sandbox(sandboxId, size, "world", ownerWorldName);
         // The thread before this turn — exactly what the container path
         // resolves against. Read here rather than at admission so a
         // chat-only resident turn never pays for it. Resolving against an
@@ -748,9 +752,11 @@ export const runResidentAgentTurn = async (
     daemonDirectory,
     initialInstanceSize: instanceSize,
     selectInstanceSize: async (initial) =>
-      await world.selectContainerSize(initial),
+      await agentContainerSize(host.ctx.storage, initial),
     rememberInstanceSize: async (size) => {
-      await world.rememberContainerSize(size);
+      if (size === "large") {
+        await host.ctx.storage.put(AGENT_CONTAINER_LARGE_KEY, true);
+      }
     },
     store: {
       read: async () =>

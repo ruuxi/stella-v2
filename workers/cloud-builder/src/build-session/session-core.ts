@@ -30,6 +30,7 @@ import { checkpointKey } from "../workspace.js";
 import type { BuildSessionInternals } from "./host.js";
 import type { Env } from "./shared/env.js";
 import {
+  AGENT_CONTAINER_LARGE_KEY,
   BACKUP_ID_PATTERN,
   OWNER_EVENT_DEBT_KEY,
   OWNER_EVENT_DEBT_MAX,
@@ -113,7 +114,8 @@ export { mintAgentTurnModelGateway } from "./shared/keys.js";
  * is captured while input is gated and the deletion is one transaction, so
  * a crash or concurrent Stop cannot open a tombstone-loss window. Sandbox
  * destroy debt is retained too: terminal delivery is never authority to
- * forget a container whose teardown has not been confirmed.
+ * forget a container whose teardown has not been confirmed. So is the
+ * thread's container size, which belongs to the thread, not the turn.
  */
 export const deleteTurnStoragePreservingExactCancellations = async (
   host: SessionCoreHost,
@@ -141,6 +143,7 @@ export const deleteTurnStoragePreservingExactCancellations = async (
       (key) =>
         key !== EXACT_TURN_CANCELLATIONS_KEY &&
         key !== OWNER_EVENT_DEBT_KEY &&
+        key !== AGENT_CONTAINER_LARGE_KEY &&
         !isSandboxDestroyDebtKey(key) &&
         !isBuildOwnerFenceDurabilityKey(key),
     );

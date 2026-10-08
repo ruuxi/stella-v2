@@ -13,6 +13,7 @@ import { mintTurnCapability } from "../../capability-signer.js";
 import { sha256Hex } from "../../hash.js";
 import { inSubshell } from "../../shell-subshell.js";
 import { sandboxLifecycleId } from "../../sandbox-lifecycle.js";
+import type { InstanceSize } from "../../instance-size.js";
 import { APP_BUILD_ROOT, WORLD_ROOT } from "../../workspace.js";
 import type { OwnerGateRefusalCode } from "../../owner-gate.js";
 import { AgentTurnAuthorityLostError } from "./errors.js";
@@ -25,6 +26,22 @@ import type { ObservedBrowserSuspension, TurnRequest } from "./types.js";
 
 /** Owner events the owner object refused, kept for the alarm to retry. */
 export const OWNER_EVENT_DEBT_KEY = "ownerEventDebt";
+
+/**
+ * Set once this agent thread's container ran out of memory. It outlives the
+ * turn, so the thread's next turns start large; no other agent's container
+ * is affected.
+ */
+export const AGENT_CONTAINER_LARGE_KEY = "agentContainerLarge";
+
+/** The size this thread's container starts at: large once it ran out of memory. */
+export const agentContainerSize = async (
+  storage: Pick<DurableObjectStorage, "get">,
+  initial: InstanceSize,
+): Promise<InstanceSize> =>
+  (await storage.get<boolean>(AGENT_CONTAINER_LARGE_KEY)) === true
+    ? "large"
+    : initial;
 
 export const OWNER_EVENT_DEBT_MAX = 200;
 

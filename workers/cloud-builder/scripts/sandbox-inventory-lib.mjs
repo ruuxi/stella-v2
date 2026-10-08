@@ -349,7 +349,9 @@ export const inferWorkload = (className, name) => {
       candidates: ["app-build"],
     };
   }
-  if (name?.startsWith("world-")) {
+  // `agent-` is one agent thread's container; `world-` is the owner's own
+  // (Claude sign-in). Both run the world workload.
+  if (name?.startsWith("agent-") || name?.startsWith("world-")) {
     return {
       classification: "world",
       candidates: ["world"],

@@ -9,6 +9,7 @@ import { sha256Hex } from "../hash.js";
 import {
   checkpointBackupName,
   checkpointKey,
+  worldName,
   worldSandboxId,
 } from "../workspace.js";
 import { dependencyBackupPrefix } from "../sandbox-dependencies.js";
@@ -402,17 +403,23 @@ export const purgeOwnerStorage = async (
     }
   })();
 
-  // The world container's caches and dependencies archive. The container and
-  // its snapshot go first, so a running container cannot archive its disk
-  // again; the prefix sweep then catches an archive whose record was lost.
+  // The owner's containers, their latest snapshot, and their caches and
+  // dependencies archive. Every container holding a slot and the sign-in
+  // container are stopped first, so none can snapshot or archive its disk
+  // again; then the world forgets both, and the prefix sweep catches the
+  // archive objects.
   await (async (): Promise<void> => {
     const store = "sandbox-dependencies";
     try {
-      const name = (await worldSandboxId(ownerId)).toLowerCase();
-      await env.Sandbox.getByName(name).purge();
+      const agents = await env.OWNER_GATES.getByName(ownerId).agentContainers();
+      for (const sandboxId of [...agents, await worldSandboxId(ownerId)]) {
+        await env.Sandbox.getByName(sandboxId.toLowerCase()).destroy();
+      }
+      const world = await worldName(ownerId);
+      await env.WORLDS.getByName(world).forgetContainerState();
       const swept = await sweepR2Prefix(
         env.BACKUP_BUCKET,
-        dependencyBackupPrefix(env.Sandbox.idFromName(name).toString()),
+        dependencyBackupPrefix(world),
       );
       deleted += swept.deleted;
       if (!swept.done) pending.push(store);

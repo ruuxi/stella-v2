@@ -702,8 +702,9 @@ export class BuildSessionObject extends DurableObject<Env> {
     id: string,
     size: InstanceSize = "large",
     workload: SandboxWorkload = "app-build",
+    world?: string,
   ) {
-    return sandbox(this.self, id, size, workload);
+    return sandbox(this.self, id, size, workload, world);
   }
 
   /** @see src/build-session/session-sandbox.ts */

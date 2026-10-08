@@ -199,14 +199,14 @@ export type AgentSandboxAttachmentDeps = Readonly<{
     command: string,
     options: Readonly<{ cwd: string; processId: string }>,
   ) => Promise<Process>;
-  /** Release one turn without stopping the shared container. */
+  /** Release one turn: its session goes, and its container snapshots and stops. */
   release(args: {
     sandboxId: string;
     instanceSize: "small" | "large";
     sessionId: string;
     daemonDirectory: string;
   }): Promise<void>;
-  /** Destroy the shared container only for OOM escalation or retirement. */
+  /** Destroy this agent's container only for OOM escalation or retirement. */
   destroy(args: {
     sandboxId: string;
     instanceSize: "small" | "large";

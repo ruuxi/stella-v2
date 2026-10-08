@@ -15,7 +15,7 @@ import {
   isCloudClaudeAccountKey,
 } from "@stella/contracts/cloud-native-state";
 import { presignR2Url, r2Signer } from "./r2-presign.js";
-import { sandboxClient } from "./sandbox-client.js";
+import { sandboxClient, type SandboxHandle } from "./sandbox-client.js";
 import { worldSandboxId } from "./workspace.js";
 
 
@@ -52,8 +52,8 @@ cli_error() {
     | tail -n 3
 }
 action=$1
-# The accounts directory is created only by a sign-in or a restore: its
-# absence is how a container started from a new image is recognised.
+# The accounts directory is created only by a sign-in or a restore: a
+# container without one has no logins, and must never back up an empty set.
 if [ "$action" != restore ] && [ "$action" != backup ] && [ "$action" != probe-inspect ]; then
   mkdir -p "$accounts" "$logins"
   chmod 700 "$accounts" "$logins"
@@ -146,9 +146,9 @@ backup)
   json '{ok:true}'
   ;;
 restore)
-  # Only into a container that has no accounts directory yet: one started
-  # from a new image. A snapshot-restored container already has its own.
-  [ -d "$accounts" ] && { json '{ok:true,restored:false}'; exit 0; }
+  # The stored backup is the owner's logins; whatever this container's disk
+  # or snapshot carried may be older, so it is replaced. Without a backup
+  # the container keeps what it has.
   parent=$(dirname "$accounts")
   archive=$parent/.claude-accounts-restore.tgz
   stage=$parent/.claude-accounts-restore
@@ -166,8 +166,10 @@ restore)
   rm -f -- "$archive"
   name=$(basename "$accounts")
   if [ ! -d "$stage/$name" ] || [ -L "$stage/$name" ]; then rm -rf -- "$stage"; fail "The Claude Code login backup is malformed."; fi
+  rm -rf -- "$accounts.old"
+  [ -e "$accounts" ] && mv -- "$accounts" "$accounts.old"
   mv -- "$stage/$name" "$accounts" && chown root:root "$accounts" && chmod 700 "$accounts"
-  rm -rf -- "$stage"
+  rm -rf -- "$stage" "$accounts.old"
   json '{ok:true,restored:true}'
   ;;
 probe-plant)
@@ -185,7 +187,7 @@ probe-inspect)
   dir="$accounts/$2"
   perms=$(stat -c '%U:%G %a %n' "$(dirname "$accounts")" "$accounts" "$dir" "$dir/.credentials.json" "$dir/.claude.json" 2>&1)
   sums=$(cd "$dir" 2>/dev/null && sha256sum .credentials.json .claude.json 2>&1)
-  # Read-only: never create the directory the restore looks for.
+  # Read-only: never create the accounts directory a backup would then store.
   status=""
   if [ -d "$dir" ]; then status=$(env -u ANTHROPIC_API_KEY -u CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CONFIG_DIR="$dir" timeout 60 claude auth status --json 2>/dev/null | jq -c '{loggedIn, authMethod, email, subscriptionType}' 2>/dev/null); fi
   json --arg perms "$perms" --arg sums "$sums" --arg status "$status" --arg image "$(cat /opt/stella/image-build.json 2>/dev/null | jq -c . 2>/dev/null)" --arg boot "$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)" '{ok:true,perms:$perms,sha256:$sums,authStatus:$status,image:$image,bootId:$boot}'
@@ -200,18 +202,29 @@ const shellQuote = (value: string): string => `'${value.replaceAll("'", `'\\''`)
 
 type ScriptResult = { ok: true; [key: string]: unknown } | { ok: false; error: string };
 
-const runScript = async (
-  env: Cloudflare.Env,
-  ownerId: string,
-  args: string[],
-  options: { code?: string; url?: string; extraEnv?: Record<string, string>; timeoutMs: number },
-): Promise<ScriptResult> => {
-  const sandbox = sandboxClient(
+/** The owner's own container, where signing in and out happens. */
+const signInContainer = async (env: Cloudflare.Env, ownerId: string): Promise<SandboxHandle> =>
+  sandboxClient(
     (env as unknown as { Sandbox: DurableObjectNamespace<import("./sandbox-container.js").Sandbox> })
       .Sandbox,
     await worldSandboxId(ownerId),
     { size: "small", workload: "world" },
   );
+
+const runScript = async (
+  env: Cloudflare.Env,
+  ownerId: string,
+  args: string[],
+  options: {
+    code?: string;
+    url?: string;
+    extraEnv?: Record<string, string>;
+    timeoutMs: number;
+    /** An agent's own container; the owner's sign-in container otherwise. */
+    container?: SandboxHandle;
+  },
+): Promise<ScriptResult> => {
+  const sandbox = options.container ?? (await signInContainer(env, ownerId));
   const result = await sandbox.exec(
     ["bash", "-c", shellQuote(SCRIPT), "claude-login", ...args.map(shellQuote)].join(" "),
     {
@@ -247,10 +260,13 @@ const runScript = async (
   return { ok: false, error: "Your cloud couldn't run Claude Code's sign-in. Try again." };
 };
 
-// --- Surviving a new container image ----------------------------------------
+// --- One set of logins across the owner's containers ------------------------
 //
-// A container snapshot cannot cross images, so the accounts directory is also
-// kept as one opaque archive object in the owner's backup storage. The
+// Sign-in happens in the owner's own container, but every agent thread runs
+// Claude Code in a container of its own, and none of their disks outlive a
+// new image. So the accounts directory is kept as one opaque archive object
+// in the owner's backup storage: it is the authority, restored into a
+// container before Claude Code runs there and stored back after. The
 // container itself packs and uploads it, and downloads and unpacks it, over
 // presigned URLs: the Worker signs a URL and never carries, opens or parses
 // the bytes. The object is separate from every session checkpoint.
@@ -274,16 +290,22 @@ const loginBackupUrl = async (
 };
 
 /**
- * Store the owner's container Claude Code logins (after a sign-in, a sign-out,
- * and every Claude turn, since the CLI may have rotated its refresh token).
+ * Store the owner's Claude Code logins from one container (the sign-in
+ * container after a sign-in or a sign-out, an agent's after every Claude
+ * turn, since the CLI may have rotated its refresh token there).
  */
 export const backupClaudeCloudLogins = async (
   env: Cloudflare.Env,
   ownerId: string,
+  container?: SandboxHandle,
 ): Promise<boolean> => {
   const url = await loginBackupUrl(env, ownerId, "PUT");
   if (!url) return false;
-  const result = await runScript(env, ownerId, ["backup"], { url, timeoutMs: 120_000 });
+  const result = await runScript(env, ownerId, ["backup"], {
+    url,
+    timeoutMs: 120_000,
+    ...(container ? { container } : {}),
+  });
   if (!result.ok) {
     console.error(
       JSON.stringify({ level: "error", event: "claude_cloud_login_backup_failed", message: result.error }),
@@ -293,16 +315,22 @@ export const backupClaudeCloudLogins = async (
 };
 
 /**
- * Bring the owner's Claude Code logins back into a container started from a
- * new image (no accounts directory yet). A no-op everywhere else.
+ * Put the owner's stored Claude Code logins into one container, replacing
+ * whatever older copy its disk or snapshot carried. Without a stored backup
+ * the container keeps what it has.
  */
 export const restoreClaudeCloudLogins = async (
   env: Cloudflare.Env,
   ownerId: string,
+  container?: SandboxHandle,
 ): Promise<boolean> => {
   const url = await loginBackupUrl(env, ownerId, "GET");
   if (!url) return false;
-  const result = await runScript(env, ownerId, ["restore"], { url, timeoutMs: 120_000 });
+  const result = await runScript(env, ownerId, ["restore"], {
+    url,
+    timeoutMs: 120_000,
+    ...(container ? { container } : {}),
+  });
   if (!result.ok) {
     console.error(
       JSON.stringify({ level: "error", event: "claude_cloud_login_restore_failed", message: result.error }),
@@ -323,9 +351,8 @@ export const CLAUDE_LOGIN_PROBE_EMAIL = "probe@test.stella.local";
 /**
  * `plant` a fake login in the probe account's directory, `inspect` its
  * permissions, digests and `claude auth status`, `backup`, `restore`, or
- * `replace` the owner's container (forgetting its snapshot, so the next start
- * is a fresh container from the current image). Callers gate this on dev
- * test accounts.
+ * `replace` the owner's sign-in container (so the next start is a fresh
+ * container from the current image). Callers gate this on dev test accounts.
  */
 export const claudeLoginProbe = async (
   env: Cloudflare.Env,
@@ -336,12 +363,7 @@ export const claudeLoginProbe = async (
   if (action === "backup") return { ok: await backupClaudeCloudLogins(env, ownerId) };
   if (action === "restore") return { ok: await restoreClaudeCloudLogins(env, ownerId) };
   if (action === "replace") {
-    await sandboxClient(
-      (env as unknown as { Sandbox: DurableObjectNamespace<import("./sandbox-container.js").Sandbox> })
-        .Sandbox,
-      await worldSandboxId(ownerId),
-      { size: "small", workload: "world" },
-    ).destroy();
+    await (await signInContainer(env, ownerId)).destroy();
     return { ok: true };
   }
   if (action === "plant") {
@@ -425,17 +447,8 @@ export const finishClaudeCloudLogin = async (
     return { ok: false, error: "Claude Code signed in but didn't say which account." };
   }
   const plan = typeof result.plan === "string" && result.plan ? result.plan : undefined;
+  // Every agent container restores the logins from here before it runs.
   await backupClaudeCloudLogins(env, ownerId);
-  // The container's own disk is where the login lives; keep it across the
-  // next cold start.
-  await sandboxClient(
-    (env as unknown as { Sandbox: DurableObjectNamespace<import("./sandbox-container.js").Sandbox> })
-      .Sandbox,
-    await worldSandboxId(ownerId),
-    { size: "small", workload: "world" },
-  )
-    .requestSnapshot()
-    .catch(() => undefined);
   return { ok: true, email, key, ...(plan ? { plan } : {}) };
 };
 

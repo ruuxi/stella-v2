@@ -292,6 +292,18 @@ export type OwnerGateSnapshotWithLease =
 
 /** Grace added to `TURN_TIMEOUT_MS` before a running row is presumed released. */
 export const OWNER_GATE_RUNNING_GRACE_MS = 60_000;
+/**
+ * Agent containers one owner may run at once. Every agent thread has a
+ * container of its own (standard-2, about $0.057/h while it runs), so this is
+ * what bounds an owner's container spend and keeps a runaway fan-out from
+ * taking the account's container capacity: six small ones are about $0.34/h.
+ * It is above any parallel spawn the orchestrator makes in practice, and an
+ * agent that would be the seventh waits for one to finish
+ * (`AGENT_CONTAINER_WAIT_MS`) rather than failing outright. The
+ * orchestrator's own container does not count, so the user's chat is never
+ * queued behind background work.
+ */
+export const OWNER_AGENT_CONTAINER_LIMIT = 6;
 /** A cloud start refused as unavailable (503) is retried once, after this. */
 export const DISPATCH_CLOUD_RETRY_DELAY_MS = 1_000;
 export const DISPATCH_CLOUD_MAX_ATTEMPTS = 2;
@@ -323,6 +335,13 @@ const DDL = [
      started_at      INTEGER NOT NULL
    )`,
   `CREATE INDEX IF NOT EXISTS running_lane ON running(lane)`,
+  // One row per agent container that is running a turn
+  // (`acquireAgentContainer`). Keyed by the container, so an attach retry or
+  // an OOM restart of the same agent never takes a second slot.
+  `CREATE TABLE IF NOT EXISTS agent_containers (
+     sandbox_id  TEXT    PRIMARY KEY,
+     acquired_at INTEGER NOT NULL
+   )`,
   // One row per device that has ever proven itself here. `connected` goes
   // false on close rather than deleting the row, so an offline device still
   // reports its last availability to `GET /owners/me/devices`.
@@ -1764,6 +1783,68 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     const turnId = input.turnId?.trim() ?? "";
     if (!turnId) return;
     this.ctx.storage.sql.exec(`DELETE FROM running WHERE turn_id = ?`, turnId);
+  }
+
+  /**
+   * Claim a slot for one agent container about to run a turn, up to
+   * `OWNER_AGENT_CONTAINER_LIMIT`. The same container claiming again (an
+   * attach retry, an OOM restart) keeps its slot. A slot whose release was
+   * lost expires with the turn it was claimed for.
+   */
+  async acquireAgentContainer(input: {
+    sandboxId: string;
+    now?: number;
+  }): Promise<{ ok: boolean; running: number; limit: number }> {
+    this.ensureSchema();
+    const now = input.now ?? Date.now();
+    const sandboxId = input.sandboxId?.trim() ?? "";
+    if (!sandboxId) throw new TypeError("acquireAgentContainer needs a sandbox id.");
+    const sql = this.ctx.storage.sql;
+    sql.exec(
+      `DELETE FROM agent_containers WHERE acquired_at < ?`,
+      now - (this.turnTimeoutMs() + OWNER_GATE_RUNNING_GRACE_MS),
+    );
+    const held =
+      sql
+        .exec(`SELECT 1 FROM agent_containers WHERE sandbox_id = ?`, sandboxId)
+        .toArray().length > 0;
+    const running = sql
+      .exec<{ count: number }>(`SELECT COUNT(*) AS count FROM agent_containers`)
+      .one().count;
+    if (!held && running >= OWNER_AGENT_CONTAINER_LIMIT) {
+      return { ok: false, running, limit: OWNER_AGENT_CONTAINER_LIMIT };
+    }
+    sql.exec(
+      `INSERT INTO agent_containers (sandbox_id, acquired_at) VALUES (?, ?)
+       ON CONFLICT(sandbox_id) DO UPDATE SET acquired_at = excluded.acquired_at`,
+      sandboxId,
+      now,
+    );
+    return {
+      ok: true,
+      running: held ? running : running + 1,
+      limit: OWNER_AGENT_CONTAINER_LIMIT,
+    };
+  }
+
+  /** Idempotent: the container's turn ended and its container is stopping. */
+  async releaseAgentContainer(input: { sandboxId: string }): Promise<void> {
+    this.ensureSchema();
+    const sandboxId = input.sandboxId?.trim() ?? "";
+    if (!sandboxId) return;
+    this.ctx.storage.sql.exec(
+      `DELETE FROM agent_containers WHERE sandbox_id = ?`,
+      sandboxId,
+    );
+  }
+
+  /** Every agent container holding a slot, for owner purge. */
+  async agentContainers(): Promise<string[]> {
+    this.ensureSchema();
+    return this.ctx.storage.sql
+      .exec<{ sandbox_id: string }>(`SELECT sandbox_id FROM agent_containers`)
+      .toArray()
+      .map((row) => row.sandbox_id);
   }
 
   /** Diagnostics for tests and operators; never on a turn's path. */

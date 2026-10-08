@@ -50,7 +50,6 @@ import {
   createWorkerShellRunner,
   type WorkerShellWorldCommit,
 } from "../worker-shell-runner.js";
-import { createWorldWriteGate } from "../world-write-gate.js";
 import { agentConnectClient } from "./agent-connect.js";
 import {
   parseTurnComputePlan,
@@ -776,20 +775,12 @@ export const runResidentAgentTurn = async (
         .catch(() => undefined);
     },
   });
-  // Every container call goes through `containerCalls`, and every change
-  // this object commits to the world directly goes through `worldWrites`:
-  // a direct commit must not land between a container call's pull and the
-  // push that would delete it again (`world-write-gate.ts`).
-  const writeGate = createWorldWriteGate();
-  const containerCalls = {
-    execute: (call: Parameters<typeof ladder.execute>[0]) =>
-      writeGate.shared(() => ladder.execute(call)),
-    attached: () => ladder.attached(),
-  };
+  // A change this object commits to the world directly may land while a
+  // container call runs: the container's push sends only what its own disk
+  // changed, so it cannot undo the commit, and its next pull brings it down.
   const worldWrites: WorkerShellWorldCommit = {
     head: async () => await world.head(),
-    commitShell: (change) =>
-      writeGate.exclusive(async () => await world.commitShell(change)),
+    commitShell: async (change) => await world.commitShell(change),
   };
 
   const agentControl = createBuildSessionAgentControl({
@@ -840,7 +831,7 @@ export const runResidentAgentTurn = async (
     world: {
       tool: async (call, toolCallId) => {
         if (ladder.attached()) {
-          const result = await containerCalls.execute({
+          const result = await ladder.execute({
             toolCallId,
             toolName: call.name,
             params: call.arguments,
@@ -849,11 +840,7 @@ export const runResidentAgentTurn = async (
             ? { ok: true, output: result.outcome.text }
             : { ok: false, output: result.outcome.message };
         }
-        return call.name === "Read" || call.name === "Grep"
-          ? await runWorldToolWithDrive(call, worldTools, drive)
-          : await writeGate.exclusive(() =>
-              runWorldToolWithDrive(call, worldTools, drive),
-            );
+        return await runWorldToolWithDrive(call, worldTools, drive);
       },
     },
     signal: execution.signal,
@@ -880,8 +867,8 @@ export const runResidentAgentTurn = async (
   // container's tool host. Unlike the orchestrator's, an agent's code reaches
   // the public network through `CodeEgress`, the account's connectors, and
   // the owner world through `fs`, whose reads use the same loopback as the
-  // worker shell and whose writes this object commits through the write
-  // gate. A deployment without the loader keeps the model-visible refusal.
+  // worker shell and whose writes this object commits. A deployment without
+  // the loader keeps the model-visible refusal.
   // `history` reads the conversation this agent was spawned from, through
   // that conversation's own Durable Object.
   const conversationId = turn.conversationId;
@@ -937,7 +924,7 @@ export const runResidentAgentTurn = async (
   // Durable Object commits what a run changed.
   const workspaceRoot = WORLD_ROOT;
   const compute = createWorkerShellRouter({
-    ladder: containerCalls,
+    ladder,
     root: workspaceRoot,
     signal: execution.signal,
     emitEvent: (kind, payload) => {

@@ -140,8 +140,23 @@ export class WorldStore extends DurableObject<Env> {
     return this.world.rememberContainerSize(size);
   }
 
-  diff(listing: WorldListingEntry[]) {
-    return this.world.diff(listing);
+  /** One agent container's own changes (`WorldSqlStore.pushChanges`). */
+  async pushChanges(input: {
+    entries: WorldListingEntry[];
+    deleted: string[];
+  }) {
+    const result = await this.ctx.blockConcurrencyWhile(() =>
+      this.world.pushChanges(input),
+    );
+    if (
+      result.revision !== result.previousRevision &&
+      [...input.entries.map((entry) => entry.path), ...input.deleted].some(
+        (path) =>
+          path === "stella.app.json" || path.endsWith("/stella.app.json"),
+      )
+    )
+      await this.apps.reconcile();
+    return result;
   }
 
   async pushDiff(input: {

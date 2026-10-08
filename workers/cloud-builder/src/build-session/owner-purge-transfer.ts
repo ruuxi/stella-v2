@@ -490,10 +490,19 @@ export const boundedIngressRequest = async (
   }
 };
 
-const parseWorldPushListing = (value: unknown): WorldListingEntry[] | null => {
+/** One container's own changes: entries it created or changed, paths it deleted. */
+const parseWorldPush = (
+  value: unknown,
+): { entries: WorldListingEntry[]; deleted: string[] } | null => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const entries = (value as Record<string, unknown>).entries;
+  const { entries, deleted } = value as Record<string, unknown>;
   if (!Array.isArray(entries) || entries.length > 200_000) return null;
+  if (
+    !Array.isArray(deleted) ||
+    deleted.length > 200_000 ||
+    deleted.some((path) => typeof path !== "string")
+  )
+    return null;
   const parsed: WorldListingEntry[] = [];
   for (const value of entries) {
     if (!value || typeof value !== "object" || Array.isArray(value))
@@ -522,7 +531,7 @@ const parseWorldPushListing = (value: unknown): WorldListingEntry[] | null => {
       ...(typeof row.target === "string" ? { target: row.target } : {}),
     });
   }
-  return parsed;
+  return { entries: parsed, deleted: deleted as string[] };
 };
 
 export const handleWorldRoute = async (
@@ -634,13 +643,8 @@ export const handleWorldRoute = async (
       );
     }
   }
-  const listing = parseWorldPushListing(await request.json().catch(() => null));
-  if (!listing) return json({ error: "Malformed world listing." }, 400);
-  const delta = await stub.diff(listing);
-  const changed = new Set(delta.changed);
-  const pushed = await stub.pushDiff({
-    entries: listing.filter((entry) => changed.has(entry.path)),
-    deleted: delta.deleted,
-  });
+  const changes = parseWorldPush(await request.json().catch(() => null));
+  if (!changes) return json({ error: "Malformed world changes." }, 400);
+  const pushed = await stub.pushChanges(changes);
   return json({ ok: pushed.missingBlobs.length === 0, ...pushed });
 };

@@ -574,9 +574,9 @@ export const runAttachedToolHost = (
         await toolHost.shutdown();
         // A file the turn wrote through the Durable Object's own Write/Edit
         // tools after this sandbox's last sync is in the world but not on
-        // this disk. A push replaces the world with this disk's listing, so
-        // pushing first would delete that file; bring the world down first,
-        // exactly as every exec boundary does, then push, then collect.
+        // this disk. Bring the world down first, exactly as every exec
+        // boundary does, so the linked files collected below can include it,
+        // then push this disk's own changes.
         await pullWorldProjection({
           root: workspaceRoot,
           access: input.world,

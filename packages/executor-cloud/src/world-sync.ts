@@ -13,6 +13,7 @@ import {
   readlink,
   rename,
   rm,
+  rmdir,
   symlink,
   utimes,
   writeFile,
@@ -46,13 +47,22 @@ export type WorldListingEntry = {
   target?: string;
 };
 
-type WorldIndexEntry = {
-  size: number;
-  mtime: number;
-  sha256?: string;
-};
+export type WorldIndexEntry = Omit<WorldListingEntry, "path">;
 
-type WorldIndex = Record<string, WorldIndexEntry>;
+/**
+ * What this disk last agreed with the world on, path by path: the base every
+ * push is a diff against. Several containers sync one world, so a push sends
+ * only what changed here since this base, never the whole disk.
+ */
+export type WorldIndex = Record<string, WorldIndexEntry>;
+
+/**
+ * The index file. `complete` is false only for the seed a cold
+ * materialization writes, which names the export's `node_modules` roots and
+ * nothing else; the first pull turns the freshly extracted disk into the
+ * base.
+ */
+type StoredWorldIndex = { complete: boolean; entries: WorldIndex };
 
 type WorldChanges = {
   revision: number;
@@ -140,40 +150,100 @@ const fileSha256 = async (filePath: string): Promise<string> => {
   return hash.digest("hex");
 };
 
-const readIndex = async (indexPath: string): Promise<WorldIndex> => {
+/** The stored index, or null when this disk has none. */
+const readIndex = async (
+  indexPath: string,
+): Promise<StoredWorldIndex | null> => {
+  let text: string;
   try {
-    const value = JSON.parse(await readFile(indexPath, "utf8")) as unknown;
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
-      throw new Error("World index is invalid.");
+    const stat = await lstat(indexPath);
+    if (!stat.isFile() || stat.isSymbolicLink()) {
+      throw new Error("World index is not a regular file.");
     }
-    const index: WorldIndex = {};
-    for (const [entryPath, raw] of Object.entries(value)) {
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-        throw new Error("World index is invalid.");
-      }
-      const row = raw as Record<string, unknown>;
-      if (
-        !Number.isSafeInteger(row.size) ||
-        Number(row.size) < 0 ||
-        !Number.isSafeInteger(row.mtime) ||
-        (row.sha256 !== undefined &&
-          (typeof row.sha256 !== "string" ||
-            !/^[0-9a-f]{64}$/u.test(row.sha256)))
-      ) {
-        throw new Error("World index is invalid.");
-      }
-      index[validateRelativePath(entryPath)] = {
-        size: Number(row.size),
-        mtime: Number(row.mtime),
-        ...(typeof row.sha256 === "string" ? { sha256: row.sha256 } : {}),
-      };
-    }
-    return index;
+    text = await readFile(indexPath, "utf8");
   } catch (error) {
-    if (isErrno(error, "ENOENT")) return {};
+    if (isErrno(error, "ENOENT")) return null;
     throw asError(error);
   }
+  const value = JSON.parse(text) as unknown;
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    typeof (value as { complete?: unknown }).complete !== "boolean"
+  ) {
+    throw new Error("World index is invalid.");
+  }
+  const stored = value as { complete: boolean; entries?: unknown };
+  if (
+    !stored.entries ||
+    typeof stored.entries !== "object" ||
+    Array.isArray(stored.entries)
+  ) {
+    throw new Error("World index is invalid.");
+  }
+  const entries: WorldIndex = {};
+  for (const [entryPath, raw] of Object.entries(stored.entries)) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      throw new Error("World index is invalid.");
+    }
+    const row = raw as Record<string, unknown>;
+    if (
+      (row.kind !== "file" && row.kind !== "dir" && row.kind !== "symlink") ||
+      !Number.isSafeInteger(row.mode) ||
+      Number(row.mode) < 0 ||
+      !Number.isSafeInteger(row.size) ||
+      Number(row.size) < 0 ||
+      !Number.isSafeInteger(row.mtime) ||
+      (row.sha256 !== undefined &&
+        (typeof row.sha256 !== "string" ||
+          !/^[0-9a-f]{64}$/u.test(row.sha256))) ||
+      (row.target !== undefined && typeof row.target !== "string")
+    ) {
+      throw new Error("World index is invalid.");
+    }
+    entries[validateRelativePath(entryPath)] = {
+      kind: row.kind,
+      mode: Number(row.mode),
+      size: Number(row.size),
+      mtime: Number(row.mtime),
+      ...(typeof row.sha256 === "string" ? { sha256: row.sha256 } : {}),
+      ...(typeof row.target === "string" ? { target: row.target } : {}),
+    };
+  }
+  return { complete: stored.complete, entries };
 };
+
+const writeIndex = async (root: string, entries: WorldIndex): Promise<void> =>
+  await writeJsonAtomic(statePaths(root).index, {
+    complete: true,
+    entries,
+  } satisfies StoredWorldIndex);
+
+/**
+ * Whether the world and this disk hold the same thing at one path. A
+ * directory's mtime moves with every child and a file's with every save, so
+ * neither alone is a change worth sending or applying.
+ */
+const sameContent = (
+  base: WorldIndexEntry | undefined,
+  entry: WorldIndexEntry,
+): boolean =>
+  base !== undefined &&
+  base.kind === entry.kind &&
+  base.mode === entry.mode &&
+  (entry.kind === "dir" ||
+    (entry.kind === "file" &&
+      base.sha256 === entry.sha256 &&
+      base.size === entry.size) ||
+    (entry.kind === "symlink" && base.target === entry.target));
+
+/** Paths the world sync owns at all; everything else stays on this disk. */
+const isSyncedPath = (relative: string): boolean =>
+  relative !== ".stella/world-manifest" &&
+  !isWorldUnsyncedPath(relative) &&
+  !isDriveCopy(relative) &&
+  !relative.startsWith("drive/");
 
 const writeJsonAtomic = async (
   filePath: string,
@@ -303,7 +373,7 @@ export const listWorldProjection = async (
       if (isDriveCopy(child)) continue;
       // Dependency installations are explicitly ephemeral. If a node_modules
       // subtree came from the durable index, however, scan it rather than
-      // turning the policy into an accidental authoritative deletion.
+      // reading it as deleted.
       const durableNodeModulesEntry =
         insideDurableNodeModules || durableNodeModules.has(child);
       if (
@@ -320,11 +390,18 @@ export const listWorldProjection = async (
         size: kind === "dir" ? 0 : stat.size,
       };
       if (kind === "symlink") {
-        entries.push({ ...common, kind, target: await readlink(childPath) });
-        index[child] = { size: common.size, mtime: common.mtime };
+        const target = await readlink(childPath);
+        entries.push({ ...common, kind, target });
+        index[child] = {
+          kind,
+          mode: common.mode,
+          size: common.size,
+          mtime: common.mtime,
+          target,
+        };
       } else if (kind === "dir") {
         entries.push({ ...common, kind });
-        index[child] = { size: 0, mtime: common.mtime };
+        index[child] = { kind, mode: common.mode, size: 0, mtime: common.mtime };
         await walk(child, durableNodeModulesEntry);
       } else {
         if (stat.size > WORLD_FILE_LIMIT_BYTES) {
@@ -332,13 +409,20 @@ export const listWorldProjection = async (
         }
         const prior = previous[child];
         const sha256 =
-          prior?.sha256 &&
+          prior?.kind === "file" &&
+          prior.sha256 &&
           prior.size === common.size &&
           prior.mtime === common.mtime
             ? prior.sha256
             : await hashFile(childPath);
         entries.push({ ...common, kind, sha256 });
-        index[child] = { size: common.size, mtime: common.mtime, sha256 };
+        index[child] = {
+          kind,
+          mode: common.mode,
+          size: common.size,
+          mtime: common.mtime,
+          sha256,
+        };
       }
       if (entries.length > WORLD_ENTRY_LIMIT) {
         throw new Error("World projection exceeds 200000 entries.");
@@ -586,29 +670,52 @@ const applyFile = async (
   }
 };
 
+/**
+ * Bring one revision down onto this disk and into its base. What the world
+ * reports is compared with the base, not the disk: an entry the base already
+ * agrees with (this container's own push coming back, most often) is left
+ * as it is, so a newer local write is never replaced by its older self. A
+ * deletion removes only what the base knew about, children first, and keeps
+ * a directory that still holds something only this disk has.
+ */
 const applyChanges = async (
   root: string,
   access: WorldSyncAccess,
   received: WorldChanges,
+  base: WorldIndex,
 ): Promise<void> => {
   // The world store never holds these, so nothing it says may touch them.
   const changes: WorldChanges = {
     ...received,
-    entries: received.entries.filter(
-      (entry) => !isWorldUnsyncedPath(entry.path),
-    ),
-    deleted: received.deleted.filter((entry) => !isWorldUnsyncedPath(entry)),
+    entries: received.entries.filter((entry) => isSyncedPath(entry.path)),
+    deleted: received.deleted.filter((entry) => isSyncedPath(entry)),
   };
   for (const deleted of [...changes.deleted].sort(
     (left, right) => right.length - left.length,
   )) {
-    await rm(absoluteWorldPath(root, deleted), {
-      recursive: true,
-      force: true,
+    if (!base[deleted]) continue;
+    delete base[deleted];
+    const absolute = absoluteWorldPath(root, deleted);
+    const stat = await lstat(absolute).catch((error: unknown) => {
+      if (isErrno(error, "ENOENT")) return null;
+      throw error;
     });
+    if (!stat) continue;
+    if (stat.isDirectory() && !stat.isSymbolicLink()) {
+      await rmdir(absolute).catch((error: unknown) => {
+        if (!isErrno(error, "ENOTEMPTY") && !isErrno(error, "EEXIST")) {
+          throw error;
+        }
+      });
+    } else {
+      await rm(absolute, { force: true });
+    }
   }
   const directories = changes.entries
-    .filter((entry) => entry.kind === "dir")
+    .filter(
+      ({ path: entryPath, ...entry }) =>
+        entry.kind === "dir" && !sameContent(base[entryPath], entry),
+    )
     .sort((left, right) => left.path.length - right.path.length);
   for (const entry of directories) {
     await ensureParentDirectories(root, entry.path);
@@ -628,12 +735,15 @@ const applyChanges = async (
   }
   for (const entry of changes.entries) {
     if (entry.kind === "dir") continue;
+    const { path: entryPath, ...indexed } = entry;
+    if (sameContent(base[entryPath], indexed)) continue;
     if (entry.kind === "file" && entry.sha256) {
       await applyFile(root, access, {
         ...entry,
         kind: "file",
         sha256: entry.sha256,
       });
+      base[entryPath] = indexed;
       continue;
     }
     if (entry.kind !== "symlink" || entry.target === undefined) {
@@ -645,10 +755,13 @@ const applyChanges = async (
     await symlink(entry.target, destination);
     await lutimes(destination, entry.mtime / 1_000, entry.mtime / 1_000);
     await setEntryOwnership(destination, true);
+    base[entryPath] = indexed;
   }
   for (const entry of [...directories].reverse()) {
     const destination = absoluteWorldPath(root, entry.path);
     await utimes(destination, entry.mtime / 1_000, entry.mtime / 1_000);
+    const { path: entryPath, ...indexed } = entry;
+    base[entryPath] = indexed;
   }
 };
 
@@ -674,7 +787,12 @@ const indexRestoredNodeModules = async (root: string): Promise<WorldIndex> => {
         // A directory present in an authoritative export is durable historical
         // data, not a newly generated dependency tree. One root marker is
         // enough: listWorldProjection preserves its entire nested subtree.
-        index[child] = { size: 0, mtime: Math.trunc(stat.mtimeMs) };
+        index[child] = {
+          kind: "dir",
+          mode: stat.mode & 0o7777,
+          size: 0,
+          mtime: Math.trunc(stat.mtimeMs),
+        };
         continue;
       }
       await walk(child);
@@ -725,25 +843,33 @@ const extractWorldExport = async (
   return { manifestId, revision };
 };
 
-const updateIndexForPull = (
-  index: WorldIndex,
-  changes: WorldChanges,
-): WorldIndex => {
-  for (const deleted of changes.deleted) {
-    for (const entryPath of Object.keys(index)) {
-      if (entryPath === deleted || entryPath.startsWith(`${deleted}/`)) {
-        delete index[entryPath];
-      }
-    }
-  }
-  for (const entry of changes.entries) {
-    index[entry.path] = {
-      size: entry.size,
-      mtime: entry.mtime,
-      ...(entry.sha256 ? { sha256: entry.sha256 } : {}),
-    };
-  }
-  return index;
+/**
+ * A disk that holds exactly a world export is the base. The export's own
+ * `node_modules` are durable world data, so they are listed as such; any
+ * restored beside them later are not (`dependencyAdoptionLines`).
+ */
+const baseFromExport = async (
+  root: string,
+  seed: WorldIndex,
+): Promise<WorldIndex> => {
+  const base = (await listWorldProjection(root, seed)).index;
+  await writeIndex(root, base);
+  return base;
+};
+
+/**
+ * The base this disk syncs against. A cold materialization leaves only a seed
+ * (or nothing): the disk then holds exactly the export, and nothing has run
+ * on it yet, so the disk itself becomes the base before the first revision
+ * is applied.
+ */
+const establishedBase = async (root: string): Promise<WorldIndex> => {
+  const stored = await readIndex(statePaths(root).index);
+  if (stored?.complete) return stored.entries;
+  return await baseFromExport(
+    root,
+    stored?.entries ?? (await indexRestoredNodeModules(root)),
+  );
 };
 
 export const pullWorldProjection = async (args: {
@@ -752,42 +878,45 @@ export const pullWorldProjection = async (args: {
 }): Promise<WorldMarker> =>
   await withWorldSyncLock(args.root, async () => {
     let marker = await readWorldMarker(args.root);
-    let index = await readIndex(statePaths(args.root).index);
+    const base = await establishedBase(args.root);
     for (;;) {
       const changes = await getChanges(args.access, marker.revision);
       if (changes.resync) {
         marker = await extractWorldExport(args.root, args.access);
-        // The export is authoritative. Seed the otherwise fresh index with
-        // any dependency roots it restored so the following authoritative
-        // push cannot reinterpret historical durable data as ephemeral.
-        index = await indexRestoredNodeModules(args.root);
-        await writeJsonAtomic(statePaths(args.root).index, index);
+        await baseFromExport(
+          args.root,
+          await indexRestoredNodeModules(args.root),
+        );
         await writeWorldMarker(args.root, marker);
         return marker;
       }
       if (changes.revision <= marker.revision) return marker;
-      await applyChanges(args.root, args.access, changes);
-      index = updateIndexForPull(index, changes);
+      await applyChanges(args.root, args.access, changes, base);
       marker = { ...marker, revision: changes.revision };
-      await writeJsonAtomic(statePaths(args.root).index, index);
+      await writeIndex(args.root, base);
       await writeWorldMarker(args.root, marker);
     }
   });
 
-const postListing = async (
+const postChanges = async (
   access: WorldSyncAccess,
-  entries: WorldListingEntry[],
-): Promise<{ missingBlobs: string[]; revision: number }> => {
+  changes: Readonly<{ entries: WorldListingEntry[]; deleted: string[] }>,
+): Promise<{
+  missingBlobs: string[];
+  revision: number;
+  previousRevision: number;
+}> => {
   const requestHeaders = headers(access);
   requestHeaders.set("content-type", "application/json");
   const response = await fetch(routeUrl(access, "push"), {
     method: "POST",
     headers: requestHeaders,
-    body: JSON.stringify({ entries }),
+    body: JSON.stringify(changes),
   });
   const value = (await response.json().catch(() => null)) as {
     missingBlobs?: unknown;
     revision?: unknown;
+    previousRevision?: unknown;
   } | null;
   if (
     !response.ok ||
@@ -802,6 +931,7 @@ const postListing = async (
   return {
     missingBlobs: value.missingBlobs,
     revision: parseRevision(value.revision),
+    previousRevision: parseRevision(value.previousRevision),
   };
 };
 
@@ -974,41 +1104,44 @@ const uploadBatches = async (
   );
 };
 
+/**
+ * Send the world what this disk changed since its base, and nothing else:
+ * every file created or changed here, every path the base had that is gone.
+ * Other agents push into the same world from their own containers, so a
+ * file this disk merely has an older copy of is never sent, and a file it
+ * never saw is never deleted. Per path, the later push wins.
+ *
+ * A cold disk whose first pull never ran has only a seed for a base; then
+ * every file reads as created, the world skips what it already holds, and
+ * an older copy here can overwrite a newer one there. That is the one case
+ * a push can undo another agent's write.
+ */
 export const pushWorldProjection = async (args: {
   root: string;
   access: WorldSyncAccess;
   hashFile?: (filePath: string) => Promise<string>;
 }): Promise<WorldMarker> =>
   await withWorldSyncLock(args.root, async () => {
-    const paths = statePaths(args.root);
     const marker = await readWorldMarker(args.root);
-    const indexExists = await lstat(paths.index)
-      .then((stat) => {
-        if (!stat.isFile() || stat.isSymbolicLink()) {
-          throw new Error("World index is not a regular file.");
-        }
-        return true;
-      })
-      .catch((error: unknown) => {
-        if (isErrno(error, "ENOENT")) return false;
-        throw error;
-      });
-    const previous = await readIndex(paths.index);
-    if (!indexExists && marker.revision > 0) {
-      const unclassifiedNodeModules = await indexRestoredNodeModules(args.root);
-      if (Object.keys(unclassifiedNodeModules).length > 0) {
-        throw new Error(
-          "World index is missing; refusing to omit unclassified node_modules from an authoritative push.",
-        );
-      }
-    }
+    const stored = await readIndex(statePaths(args.root).index);
+    const base = stored?.entries ?? (await indexRestoredNodeModules(args.root));
     const projection = await listWorldProjection(
       args.root,
-      previous,
+      base,
       args.hashFile,
     );
+    const entries = projection.entries.filter(
+      ({ path: entryPath, ...entry }) => !sameContent(base[entryPath], entry),
+    );
+    const deleted = Object.keys(base).filter(
+      (entryPath) => !projection.index[entryPath] && isSyncedPath(entryPath),
+    );
+    if (entries.length === 0 && deleted.length === 0) {
+      await writeIndex(args.root, projection.index);
+      return marker;
+    }
     const files = new Map(
-      projection.entries
+      entries
         .filter(
           (
             entry,
@@ -1024,7 +1157,7 @@ export const pushWorldProjection = async (args: {
           },
         ]),
     );
-    let pushed = await postListing(args.access, projection.entries);
+    let pushed = await postChanges(args.access, { entries, deleted });
     while (pushed.missingBlobs.length > 0) {
       const uploads = pushed.missingBlobs.map((sha256) => {
         const upload = files.get(sha256);
@@ -1033,10 +1166,16 @@ export const pushWorldProjection = async (args: {
         return upload;
       });
       await uploadBatches(args.access, batchWorldBlobUploads(uploads));
-      pushed = await postListing(args.access, projection.entries);
+      pushed = await postChanges(args.access, { entries, deleted });
     }
-    const nextMarker = { ...marker, revision: pushed.revision };
-    await writeJsonAtomic(paths.index, projection.index);
+    // Only a push nothing else landed before may move the marker past the
+    // revisions this disk has not pulled; otherwise the next pull brings them
+    // down, this push's own revision included, which the base already holds.
+    const nextMarker =
+      pushed.previousRevision === marker.revision
+        ? { ...marker, revision: pushed.revision }
+        : marker;
+    await writeIndex(args.root, projection.index);
     await writeWorldMarker(args.root, nextMarker);
     return nextMarker;
   });

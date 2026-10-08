@@ -161,15 +161,16 @@ if [ ! -d "$stage/${WORLD}" ]; then rm -rf -- "$stage"; fi
  * disk and before any agent process: move each restored `node_modules` back
  * under its project when the project is still there and has none, then drop
  * the rest. The world index is seeded first with the export's own
- * `node_modules` (`indexRestoredNodeModules` in world-sync), so the first push
- * keeps treating the restored ones as ephemeral rather than refusing to run.
- * `$root` is the world root; nothing else is running in the container yet, so
- * the parent checks cannot be raced. A failure here costs only the restored
- * dependencies, never the materialization.
+ * `node_modules` (`indexRestoredNodeModules` in world-sync), as an incomplete
+ * base the first pull completes from the disk, so the restored ones stay
+ * ephemeral and are never pushed. `$root` is the world root; nothing else is
+ * running in the container yet, so the parent checks cannot be raced. A
+ * failure here costs only the restored dependencies, never the
+ * materialization.
  */
 export const dependencyAdoptionLines = (indexPath: string): string[] => [
   `restored=${DEPENDENCY_RESTORE_ROOT}/${WORLD}`,
-  `if [ -d "$restored" ] && find "$root" -type d -name node_modules -prune -printf '%P\\0%T@\\0' | jq -cRs 'split("\\u0000") as $f | [range(0; ($f | length) - 1; 2) | {key: $f[.], value: {size: 0, mtime: (($f[. + 1] | tonumber) * 1000 | floor)}}] | from_entries' >"${indexPath}.tmp" && mv -f -- "${indexPath}.tmp" "${indexPath}"; then`,
+  `if [ -d "$restored" ] && find "$root" -type d -name node_modules -prune -printf '%P\\0%T@\\0%m\\0' | jq -cRs 'split("\\u0000") as $f | {complete: false, entries: ([range(0; ($f | length) - 2; 3) | {key: $f[.], value: {kind: "dir", mode: ($f[. + 2] | explode | reduce .[] as $digit (0; . * 8 + $digit - 48)), size: 0, mtime: (($f[. + 1] | tonumber) * 1000 | floor)}}] | from_entries)}' >"${indexPath}.tmp" && mv -f -- "${indexPath}.tmp" "${indexPath}"; then`,
   `find "$restored" -type d -name node_modules -prune -printf '%P\\0' | while IFS= read -r -d '' rel; do`,
   'target="$root/$rel"',
   'parent=${target%/*}',

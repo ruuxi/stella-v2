@@ -184,6 +184,22 @@ const storedBytes = (
   return total;
 };
 
+/**
+ * Whether two entries hold the same thing. A directory's mtime moves with
+ * every child and a file's with every save, so neither alone is a change.
+ */
+const sameWorldContent = (
+  existing: WorldEntry,
+  incoming: WorldListingEntry,
+): boolean =>
+  existing.kind === incoming.kind &&
+  existing.mode === incoming.mode &&
+  (existing.kind === "dir" ||
+    (existing.kind === "file" &&
+      existing.sha256 === incoming.sha256 &&
+      existing.size === incoming.size) ||
+    (existing.kind === "symlink" && existing.target === incoming.target));
+
 const direntParts = (path: string): { parent: string; name: string } => ({
   parent: parentPath(path),
   name: baseName(path),
@@ -1347,37 +1363,118 @@ export class WorldSqlStore implements WorldToolFileApi {
     };
   }
 
-  async diff(
-    listing: WorldListingEntry[],
-  ): Promise<{ changed: string[]; deleted: string[] }> {
+  /**
+   * Apply one container's own changes: what it created, changed or deleted on
+   * its disk since it last agreed with the world. Every agent has its own
+   * container and they all push into this one world, so a push names only
+   * the paths its container changed and touches nothing else. An entry the
+   * world already holds with the same content is skipped, and a deletion
+   * never removes what the container did not know about: a directory that
+   * still has children after the push's own deletions stays. Per path, the
+   * later push wins.
+   *
+   * `previousRevision` is the world's revision just before this push. When it
+   * is the revision the container last pulled, nothing else landed in
+   * between and the container may move its marker to `revision`; otherwise
+   * its next pull still owes it the revisions in between.
+   */
+  async pushChanges(input: {
+    entries: WorldListingEntry[];
+    deleted: string[];
+  }): Promise<{
+    missingBlobs: string[];
+    revision: number;
+    previousRevision: number;
+  }> {
     const forkId = this.forkRow().fork_id;
-    const current = new Map(
-      (await this.allEntries("", forkId)).map((entry) => [entry.path, entry]),
-    );
-    // A sandbox's working copy of the drive is not part of the world: a
-    // listing that still carries one is pushed without it, and whatever the
-    // world held there before is deleted.
-    const incoming = new Map(
-      listing
-        .map((entry) => [normalizeWorldPath(entry.path), entry] as const)
-        .filter(([path]) => !isWorldDrivePath(path)),
-    );
-    const changed: string[] = [];
-    for (const [path, entry] of incoming) {
-      const existing = current.get(path);
+    const previousRevision = this.revision(forkId);
+    const manifest = this.liveManifest(forkId);
+    const entries: WorldListingEntry[] = [];
+    const missing = new Set<string>();
+    for (const entry of input.entries) {
+      const path = normalizeWorldPath(entry.path);
+      // A sandbox's working copy of the drive is not part of the world.
+      if (isWorldDrivePath(path)) continue;
       if (
-        !existing ||
-        existing.kind !== entry.kind ||
-        existing.mode !== entry.mode ||
-        existing.mtime !== (entry.mtime ?? existing.mtime) ||
-        existing.size !== entry.size ||
-        existing.sha256 !== entry.sha256 ||
-        existing.target !== entry.target
-      )
-        changed.push(path);
+        !Number.isSafeInteger(entry.mode) ||
+        entry.mode < 0 ||
+        !Number.isSafeInteger(entry.size) ||
+        entry.size < 0
+      ) {
+        throw new Error(`Invalid world listing entry: ${entry.path}`);
+      }
+      const existing = this.entryRow(path, manifest);
+      if (existing && sameWorldContent(rowEntry(existing), entry)) continue;
+      entries.push({ ...entry, path });
+      if (entry.kind !== "file") continue;
+      if (!entry.sha256)
+        throw new Error(`File listing is missing sha256: ${entry.path}`);
+      const blob = this.blobRow(entry.sha256);
+      if (!blob) missing.add(entry.sha256);
+      else if (blob.size !== entry.size)
+        throw new Error(`Blob size mismatch for ${entry.path}.`);
     }
-    const deleted = [...current.keys()].filter((path) => !incoming.has(path));
-    return { changed: changed.sort(), deleted: deleted.sort() };
+    if (missing.size > 0) {
+      return {
+        missingBlobs: [...missing].sort(),
+        revision: previousRevision,
+        previousRevision,
+      };
+    }
+    const deleted = [
+      ...new Set(input.deleted.map((path) => normalizeWorldPath(path))),
+    ]
+      .filter((path) => !isWorldDrivePath(path))
+      .sort((left, right) => right.length - left.length);
+    if (entries.length === 0 && deleted.length === 0) {
+      return { missingBlobs: [], revision: previousRevision, previousRevision };
+    }
+    if (entries.some((entry) => entry.kind === "file")) {
+      const projected = new Map(
+        (await this.allEntries("", forkId)).map((entry) => [entry.path, entry]),
+      );
+      for (const path of deleted) projected.delete(path);
+      for (const entry of entries) {
+        projected.set(entry.path, {
+          ...entry,
+          mtime: entry.mtime ?? this.now(),
+        });
+      }
+      if (storedBytes(projected.values()) > WORLD_QUOTA_BYTES)
+        throw new Error("world_quota_exceeded");
+    }
+    const mutation = await this.mutate(forkId, async () => {
+      for (const path of deleted) {
+        const row = this.entryRow(path, this.liveManifest(forkId));
+        if (!row) continue;
+        if (row.kind === "dir" && this.hasChildren(path, forkId)) continue;
+        await this.remove(path);
+      }
+      for (const entry of entries.sort(
+        (left, right) => left.path.length - right.path.length,
+      )) {
+        this.putNode(entry, this.liveManifest(forkId), forkId);
+        if (entry.kind === "file" && entry.sha256) {
+          this.sql.exec(
+            "DELETE FROM world_blob_pins WHERE sha256 = ?",
+            entry.sha256,
+          );
+        }
+      }
+    });
+    return { missingBlobs: [], revision: mutation.revision, previousRevision };
+  }
+
+  private hasChildren(path: string, forkId: string): boolean {
+    return (
+      this.sql
+        .exec<{ found: number }>(
+          "SELECT 1 AS found FROM world_dirents WHERE manifest_id = ? AND parent_path = ? LIMIT 1",
+          this.liveManifest(forkId),
+          path,
+        )
+        .toArray().length > 0
+    );
   }
 
   async pushDiff(input: {
@@ -1636,10 +1733,9 @@ export class WorldSqlStore implements WorldToolFileApi {
       // Only a world that stored the drive before it moved out can name it
       // here, and a sandbox's working copy is not the world's to change.
       if (isWorldDrivePath(row.path)) continue;
-      if (row.kind === "delete") {
-        deleted.push(row.path);
-        continue;
-      }
+      // Every path is reported as it is now, whichever way this revision
+      // touched it: a deletion a later push undid must not delete the path
+      // again from a container that pulls this revision late.
       const entry = this.entryRow(row.path, this.liveManifest(forkId));
       if (entry) entries.push(rowEntry(entry));
       else deleted.push(row.path);
@@ -1742,8 +1838,8 @@ export class WorldSqlStore implements WorldToolFileApi {
         for (const row of rows) {
           assertLiveUnchanged();
           const entry = rowEntry(row);
-          // A world that stored the drive before it moved out still lists it
-          // until the next sandbox push deletes it; it is never exported.
+          // A world that stored the drive before it moved out still lists
+          // it; it is never exported or counted.
           if (isWorldDrivePath(entry.path)) continue;
           const pax = paxPayload(entry);
           if (pax) {

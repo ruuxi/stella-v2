@@ -327,6 +327,34 @@ build's: a build row can read "Ready to Submit" in TestFlight while the version 
 is "Waiting for Review", and the public-build resolver only ever reports what is already
 live. Read the version.
 
+`eas submit` only uploads the binary. Creating the App Store version, attaching
+the build, setting "What's New" and actually submitting for review are App Store
+Connect API calls, and the Play release notes are a Play API call — `eas submit`
+leaves them empty, so a Play release otherwise goes live with no "What's new" at
+all. Both private keys can be read back out of EAS through Expo's GraphQL
+(`appStoreConnectApiKey { keyP8 issuerIdentifier }`,
+`googleServiceAccountKey { keyJson }`), so neither needs a key on disk.
+`~/.stella/outputs/mobile-release-tools/{asc,play}.mjs` drive the rest and are
+the fastest way to run or re-read a submission.
+
+Two traps there. **The ASC key EAS submits with is not allowed to create a
+version**: the `stella-ai` key (`V5TBYBR59A`) can read, but `POST
+/v1/appStoreVersions` answers 403 `the API key in use does not allow this
+request`. The ADMIN key lives on the **`ruuxilol`** account (`3K28358BZB`) on the
+same issuer, so pick the key whose `roles` contain `ADMIN` rather than the one
+the submit profile uses. And review submission is the modern three-call flow —
+`reviewSubmissions`, then `reviewSubmissionItems`, then PATCH `submitted: true` —
+not the retired `appStoreVersionSubmissions`.
+
+**Keep the `expo.version` bump off `master` until the store build is live.**
+`app.json` is an OTA native input, so bumping master to 1.0.44 makes
+`--native-match` refuse every OTA aimed at the 1.0.43 builds the stores are
+still serving. Carry the bump on a release branch, build both platforms from
+that one commit so the stores agree, and merge it to master only once the new
+build is the one being served. Android needs its own build and submit; an iOS
+release covers nothing on Play.
+
+
 ## Smoke check after a prod deploy
 
 - `curl -s https://auth.stella.sh/api/auth/jwks` → 200.

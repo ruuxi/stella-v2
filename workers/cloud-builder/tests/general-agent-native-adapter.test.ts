@@ -15,7 +15,10 @@ mock.module("cloudflare:workers", () => ({
   WorkerEntrypoint: class {},
 }));
 mock.module("@cloudflare/sandbox", () => ({
+  DirectoryBackup: class {},
+  DirectoryBackupGateway: class {},
   Files: class {},
+  SandboxBackupError: { is: () => false },
   SandboxFileError: { is: () => false },
 }));
 const { parseAgentExecutorResult } = await import(

@@ -21,6 +21,12 @@ export { CodeEgress } from "./code-egress.js";
 export { Sandbox, SandboxEgress } from "./sandbox-container.js";
 
 /**
+ * Moves a world's caches and dependencies archive between its container and
+ * `BACKUP_BUCKET`; the sandbox object reaches it through `ctx.exports`.
+ */
+export { DirectoryBackupGateway } from "@cloudflare/sandbox";
+
+/**
  * Run a strict (`set -eu`) script scoped to a subshell. The subshell's exit
  * status is the script's.
  * Defined in `shell-subshell.ts` so the checkpoint archive scripts share it

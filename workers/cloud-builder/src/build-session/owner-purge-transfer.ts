@@ -6,7 +6,12 @@
 // methods call with an explicit `env`.
 import type { LegacyDirectoryBackup as DirectoryBackup } from "../sandbox-client.js";
 import { sha256Hex } from "../hash.js";
-import { checkpointBackupName, checkpointKey } from "../workspace.js";
+import {
+  checkpointBackupName,
+  checkpointKey,
+  worldSandboxId,
+} from "../workspace.js";
+import { dependencyBackupPrefix } from "../sandbox-dependencies.js";
 import {
   isOwnerAppBuildPrefix,
   ownerAppBuildRoot,
@@ -392,6 +397,25 @@ export const purgeOwnerStorage = async (
       // the log to see how much an account actually held, and a fixed number
       // of unconditional KV deletes would drown that.
       if (descriptor) deleted += 1;
+    } catch (error) {
+      fail(store, error);
+    }
+  })();
+
+  // The world container's caches and dependencies archive. The container and
+  // its snapshot go first, so a running container cannot archive its disk
+  // again; the prefix sweep then catches an archive whose record was lost.
+  await (async (): Promise<void> => {
+    const store = "sandbox-dependencies";
+    try {
+      const name = (await worldSandboxId(ownerId)).toLowerCase();
+      await env.Sandbox.getByName(name).purge();
+      const swept = await sweepR2Prefix(
+        env.BACKUP_BUCKET,
+        dependencyBackupPrefix(env.Sandbox.idFromName(name).toString()),
+      );
+      deleted += swept.deleted;
+      if (!swept.done) pending.push(store);
     } catch (error) {
       fail(store, error);
     }

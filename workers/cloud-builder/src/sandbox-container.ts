@@ -7,9 +7,28 @@
  * Callers never hold a container handle. `src/sandbox-client.ts` wraps the
  * stub in the session/process shapes the turn code uses.
  */
-import { Files, SandboxFileError } from "@cloudflare/sandbox";
+import {
+  DirectoryBackup,
+  Files,
+  SandboxBackupError,
+  SandboxFileError,
+} from "@cloudflare/sandbox";
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import { appBuildEgress, generalAgentEgress } from "./sandbox-egress-policy.js";
+import {
+  DEPENDENCY_BACKUP_DIR,
+  DEPENDENCY_BACKUP_EXCLUDES,
+  DEPENDENCY_BACKUP_MAX_BYTES,
+  DEPENDENCY_FOREIGN_LIMIT,
+  DEPENDENCY_PLACE_TOOL_HOME_SCRIPT,
+  DEPENDENCY_PROBE_SCRIPT,
+  DEPENDENCY_RESTORE_ROOT,
+  DEPENDENCY_TRANSFER_TIMEOUT_MS,
+  dependencyBackupPrefix,
+  dependencyExcludeForPath,
+  parseDependencyProbe,
+  type StoredDependencyBackup,
+} from "./sandbox-dependencies.js";
 import type { Env } from "./build-session/shared/env.js";
 
 export type SandboxInstanceSize = "small" | "large";
@@ -82,6 +101,7 @@ const SESSION_PREFIX = "session:";
 const PROCESS_ROOT = "/run/stella-processes";
 const SNAPSHOT_KEY = "snapshot";
 const SNAPSHOT_DUE_KEY = "snapshotDueAt";
+const DEPENDENCY_BACKUP_KEY = "dependencyBackup";
 /** Lets a released turn finish its last writes before the filesystem is frozen. */
 const SNAPSHOT_DELAY_MS = 2_000;
 /** The 0.12 SDK ran commands here unless a call named another directory. */
@@ -226,9 +246,13 @@ export class SandboxEgress extends WorkerEntrypoint<Env, EgressProps> {
   }
 }
 
+const errorText = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
 export class Sandbox extends DurableObject<Env> {
   #booting: Promise<void> | null = null;
   #files?: Files;
+  #dependencies?: DirectoryBackup;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -255,9 +279,25 @@ export class Sandbox extends DurableObject<Env> {
     return this.#files;
   }
 
+  /** This world's caches and dependencies archive (`sandbox-dependencies.ts`). */
+  get #dependencyBackups(): DirectoryBackup {
+    this.#dependencies ??= new DirectoryBackup(
+      this.#container,
+      this.ctx.exports.DirectoryBackupGateway,
+      {
+        binding: "BACKUP_BUCKET",
+        prefix: dependencyBackupPrefix(this.ctx.id.toString()),
+      },
+    );
+    return this.#dependencies;
+  }
+
   async #configure(boot: SandboxBoot): Promise<void> {
     const container = this.#container;
     const policy = boot.workload === "app-build" ? "sealed" : "general";
+    // The archive's own host must be registered before the catch-all, which
+    // takes every hostname registered after it.
+    await this.#dependencyBackups.intercept();
     await container.interceptAllOutboundHttp(
       this.ctx.exports.SandboxEgress({
         props: { containerId: this.ctx.id.toString(), policy },
@@ -294,7 +334,8 @@ export class Sandbox extends DurableObject<Env> {
   /**
    * Start from this world's last snapshot when it was taken on the image this
    * deploy runs, so the world projection, native state, and caches are already
-   * on disk. A snapshot cannot cross images; any other case starts clean.
+   * on disk. A snapshot cannot cross images; any other case starts clean, with
+   * the world's caches and dependencies brought back from their archive.
    */
   async #start(boot: SandboxBoot): Promise<void> {
     const container = this.#container;
@@ -324,6 +365,8 @@ export class Sandbox extends DurableObject<Env> {
     if (restored) {
       // Process records belong to the container that wrote them.
       await this.#run(["rm", "-rf", "--", PROCESS_ROOT]);
+    } else if (boot.workload === "world") {
+      await this.#restoreDependencies();
     }
     console.log(
       JSON.stringify({
@@ -439,11 +482,26 @@ export class Sandbox extends DurableObject<Env> {
   }
 
   /**
-   * Ask for a snapshot once the turn using the container has let go of it.
-   * The alarm takes it, so the caller's turn never waits on the freeze.
+   * Owner purge: discard the container, its snapshot and its caches and
+   * dependencies archive, so neither a later start nor a later archive can
+   * bring any of it back. The caller sweeps the archive prefix afterwards.
+   */
+  async purge(): Promise<void> {
+    await this.destroy();
+    const stored = this.ctx.storage.kv.get<StoredDependencyBackup>(
+      DEPENDENCY_BACKUP_KEY,
+    );
+    this.ctx.storage.kv.delete(DEPENDENCY_BACKUP_KEY);
+    if (stored) await this.#dependencyBackups.delete(stored.record);
+  }
+
+  /**
+   * Ask for a snapshot, and for the caches and dependencies archive to catch
+   * up, once the turn using the container has let go of it. The alarm does
+   * both, so the caller's turn never waits on either.
    */
   async requestSnapshot(): Promise<void> {
-    if (!this.#snapshotsEnabled || !this.ctx.container?.running) return;
+    if (!this.ctx.container?.running) return;
     const due = Date.now() + SNAPSHOT_DELAY_MS;
     this.ctx.storage.kv.put(SNAPSHOT_DUE_KEY, due);
     const alarm = await this.ctx.storage.getAlarm();
@@ -461,25 +519,187 @@ export class Sandbox extends DurableObject<Env> {
     this.ctx.storage.kv.delete(SNAPSHOT_DUE_KEY);
     if (this.#booting) await this.#booting.catch(() => undefined);
     const container = this.ctx.container;
-    if (!this.#snapshotsEnabled || !container?.running) return;
-    const startedAt = Date.now();
-    const info = await container.inspect();
-    const snapshot = await container.snapshotContainer({ name: "stella-world" });
-    const stored: StoredSnapshot = {
-      id: snapshot.id,
-      size: snapshot.size,
-      image: info?.image ?? container.images.sandbox!,
-      takenAt: Date.now(),
-    };
-    this.ctx.storage.kv.put(SNAPSHOT_KEY, stored);
-    console.log(
-      JSON.stringify({
-        level: "info",
-        event: "sandbox_snapshot_taken",
-        sizeBytes: snapshot.size,
-        snapshotMs: Date.now() - startedAt,
-      }),
+    if (!container?.running) return;
+    try {
+      if (this.#snapshotsEnabled) {
+        const startedAt = Date.now();
+        const info = await container.inspect();
+        const snapshot = await container.snapshotContainer({
+          name: "stella-world",
+        });
+        const stored: StoredSnapshot = {
+          id: snapshot.id,
+          size: snapshot.size,
+          image: info?.image ?? container.images.sandbox!,
+          takenAt: Date.now(),
+        };
+        this.ctx.storage.kv.put(SNAPSHOT_KEY, stored);
+        console.log(
+          JSON.stringify({
+            level: "info",
+            event: "sandbox_snapshot_taken",
+            sizeBytes: snapshot.size,
+            snapshotMs: Date.now() - startedAt,
+          }),
+        );
+      }
+    } finally {
+      await this.#backupDependencies();
+    }
+  }
+
+  /**
+   * Bring the world's caches and dependencies back into a container that just
+   * started from the image. Never fails the start: without the archive the
+   * container is only slower.
+   */
+  async #restoreDependencies(): Promise<void> {
+    const stored = this.ctx.storage.kv.get<StoredDependencyBackup>(
+      DEPENDENCY_BACKUP_KEY,
     );
+    if (!stored) return;
+    const startedAt = Date.now();
+    try {
+      await this.#run(["rm", "-rf", "--", DEPENDENCY_RESTORE_ROOT]);
+      await this.#dependencyBackups.restore(stored.record, {
+        dir: DEPENDENCY_RESTORE_ROOT,
+        signal: AbortSignal.timeout(DEPENDENCY_TRANSFER_TIMEOUT_MS),
+      });
+      const placed = await this.#run([
+        "bash",
+        "-c",
+        DEPENDENCY_PLACE_TOOL_HOME_SCRIPT,
+      ]);
+      if (!placed.success) {
+        throw new Error(placed.stderr.trim().slice(-500) || "placement failed");
+      }
+      console.log(
+        JSON.stringify({
+          level: "info",
+          event: "sandbox_dependencies_restored",
+          sizeBytes: stored.record.size,
+          sourceBytes: stored.bytes,
+          restoreMs: Date.now() - startedAt,
+        }),
+      );
+    } catch (error) {
+      // An archive that is gone or altered can never restore; a transfer
+      // failure may be transient, so that record is kept for the next start.
+      if (
+        SandboxBackupError.is(error) &&
+        (error.code === "BACKUP_NOT_FOUND" || error.code === "BACKUP_INTEGRITY")
+      ) {
+        this.ctx.storage.kv.delete(DEPENDENCY_BACKUP_KEY);
+      }
+      await this.#run(["rm", "-rf", "--", DEPENDENCY_RESTORE_ROOT]).catch(
+        () => undefined,
+      );
+      console.log(
+        JSON.stringify({
+          level: "error",
+          event: "sandbox_dependencies_restore_failed",
+          restoreMs: Date.now() - startedAt,
+          message: errorText(error),
+        }),
+      );
+    }
+  }
+
+  /**
+   * Archive the tool home and the world's `node_modules` when anything in them
+   * changed since the last archive and the whole is under the cap. A skipped or
+   * failed archive keeps the previous one.
+   */
+  async #backupDependencies(): Promise<void> {
+    if (this.ctx.storage.kv.get<SandboxBoot>("boot")?.workload !== "world") {
+      return;
+    }
+    const previous = this.ctx.storage.kv.get<StoredDependencyBackup>(
+      DEPENDENCY_BACKUP_KEY,
+    );
+    const startedAt = Date.now();
+    const skipped = (reason: string, fields: Record<string, unknown> = {}) =>
+      console.log(
+        JSON.stringify({
+          level: "info",
+          event: "sandbox_dependencies_backup_skipped",
+          reason,
+          ...fields,
+          probeMs: Date.now() - startedAt,
+        }),
+      );
+    try {
+      const result = await this.#run(
+        [
+          "bash",
+          "-c",
+          DEPENDENCY_PROBE_SCRIPT,
+          "probe",
+          String(previous?.mark ?? 0),
+          previous?.fingerprint ?? "",
+        ],
+        { cwd: DEPENDENCY_BACKUP_DIR },
+      );
+      const probe = parseDependencyProbe(result.stdout);
+      if (!probe) {
+        throw new Error(
+          result.stderr.trim().slice(-500) || "the probe printed no result",
+        );
+      }
+      if (probe.state !== "changed") return skipped(probe.state);
+      if (probe.bytes > DEPENDENCY_BACKUP_MAX_BYTES) {
+        return skipped("over_cap", {
+          sourceBytes: probe.bytes,
+          capBytes: DEPENDENCY_BACKUP_MAX_BYTES,
+        });
+      }
+      const foreign = probe.foreign.map(dependencyExcludeForPath);
+      if (
+        probe.foreign.length > DEPENDENCY_FOREIGN_LIMIT ||
+        foreign.some((pattern) => pattern === null)
+      ) {
+        return skipped("foreign_files", { foreignCount: probe.foreign.length });
+      }
+      const archiveStartedAt = Date.now();
+      const record = await this.#dependencyBackups.backup({
+        dir: DEPENDENCY_BACKUP_DIR,
+        name: "stella-dependencies",
+        exclude: [...DEPENDENCY_BACKUP_EXCLUDES, ...(foreign as string[])],
+        signal: AbortSignal.timeout(DEPENDENCY_TRANSFER_TIMEOUT_MS),
+      });
+      this.ctx.storage.kv.put(DEPENDENCY_BACKUP_KEY, {
+        record,
+        fingerprint: probe.fingerprint,
+        mark: probe.now,
+        bytes: probe.bytes,
+        takenAt: Date.now(),
+      } satisfies StoredDependencyBackup);
+      if (previous) {
+        await this.#dependencyBackups
+          .delete(previous.record)
+          .catch(() => undefined);
+      }
+      console.log(
+        JSON.stringify({
+          level: "info",
+          event: "sandbox_dependencies_backed_up",
+          sizeBytes: record.size,
+          sourceBytes: probe.bytes,
+          excludedForeign: probe.foreign.length,
+          probeMs: archiveStartedAt - startedAt,
+          backupMs: Date.now() - archiveStartedAt,
+        }),
+      );
+    } catch (error) {
+      console.log(
+        JSON.stringify({
+          level: "error",
+          event: "sandbox_dependencies_backup_failed",
+          backupMs: Date.now() - startedAt,
+          message: errorText(error),
+        }),
+      );
+    }
   }
 
   // ---- sessions ----------------------------------------------------------

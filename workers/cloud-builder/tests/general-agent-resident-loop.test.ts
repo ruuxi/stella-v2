@@ -28,7 +28,10 @@ import type { AgentTurnJournal } from "../src/agent-turn-journal.js";
  */
 let getSandboxCalls = 0;
 mock.module("@cloudflare/sandbox", () => ({
+  DirectoryBackup: class {},
+  DirectoryBackupGateway: class {},
   Files: class {},
+  SandboxBackupError: { is: () => false },
   SandboxFileError: { is: () => false },
 }));
 mock.module("../src/sandbox-client.js", () => ({

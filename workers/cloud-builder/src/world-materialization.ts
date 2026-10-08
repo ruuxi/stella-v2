@@ -1,4 +1,6 @@
+import { dependencyAdoptionLines } from "./sandbox-dependencies.js";
 import { inSubshell } from "./shell-subshell.js";
+import { WORLD_ROOT } from "./workspace.js";
 
 const shellQuote = (value: string): string => {
   if (value.includes("\0")) throw new TypeError("Shell value contains NUL.");
@@ -16,12 +18,14 @@ export const worldMaterializationCommand = (args: {
     throw new TypeError("World materialization target must be exact.");
   }
   const marker = `${args.worldRoot}/.stella/world-manifest`;
+  const index = `${args.worldRoot.slice(0, args.worldRoot.lastIndexOf("/"))}/.stella-world-index.json`;
   return inSubshell(
     [
       "set -euo pipefail",
       "umask 077",
       "exec 9>/workspace/.world-materialize.lock",
       "/usr/bin/flock --exclusive 9",
+      `root=${shellQuote(args.worldRoot)}`,
       `marker=${shellQuote(marker)}`,
       'if [ ! -f "$marker" ]; then',
       "headers=/workspace/.world-export-headers",
@@ -36,6 +40,9 @@ export const worldMaterializationCommand = (args: {
       `chown -R 42424:42424 ${shellQuote(args.worldRoot)}`,
       'chown 0:0 "$marker"',
       'chmod 0600 "$marker"',
+      // A container started from a new image restored the previous one's
+      // dependencies beside the world; they go back in now.
+      ...(args.worldRoot === WORLD_ROOT ? dependencyAdoptionLines(index) : []),
       "fi",
     ].join("\n"),
   );

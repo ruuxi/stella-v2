@@ -2053,6 +2053,7 @@ class ClaudeCodeSessionRuntime {
     delete childEnv.ANTHROPIC_API_KEY;
     delete childEnv.ANTHROPIC_AUTH_TOKEN;
     delete childEnv.CLAUDE_CODE_OAUTH_TOKEN;
+    if (request.shellEnv) Object.assign(childEnv, request.shellEnv);
     if (claudeConfigDir) {
       childEnv.CLAUDE_CONFIG_DIR = claudeConfigDir;
     }

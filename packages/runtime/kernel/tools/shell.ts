@@ -62,6 +62,7 @@ import { toolStateEnvironment } from "@stella/contracts/cloud-tool-home";
 import { purgeExpiredDeferredDeletes } from "./deferred-delete.js";
 import { resolveToolFallbackCwd } from "./cwd.js";
 import { isolateToolProcessLaunch } from "./process-isolation.js";
+import { stellaAgentShellEnvironment } from "./stella-agent-env.js";
 
 export type ShellState = {
   shells: Map<string, ManagedShellRecord>;
@@ -2238,21 +2239,8 @@ const resolveManagedShellCommand = (
       ),
     );
   }
-  // The app's own checkout and where drafts of changes to it live (see the
-  // modify-stella skill). Drafts stay outside the checkout.
-  if (context?.executionHost !== "sandbox") {
-    if (context?.stellaAppDir) {
-      envOverrides.STELLA_APP_DIR = path.resolve(context.stellaAppDir);
-    }
-    if (context?.stellaDataDir) {
-      envOverrides.STELLA_DRAFTS_DIR = path.join(
-        path.resolve(context.stellaDataDir),
-        "drafts",
-      );
-    }
-    // Lets the checkout's git hook note which agent made a draft, so the
-    // chat offers Update on that agent's completion.
-    if (context?.agentId) envOverrides.STELLA_AGENT_ID = context.agentId;
+  if (context && context.executionHost !== "sandbox") {
+    Object.assign(envOverrides, stellaAgentShellEnvironment(context));
   }
   const stellaComputerSessionId = getStellaComputerSessionId(context);
   const localBinPaths = [

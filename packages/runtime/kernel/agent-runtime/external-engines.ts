@@ -86,6 +86,7 @@ import type {
 } from "@stella/contracts/protocol";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { sanitizeSensitiveData } from "@stella/contracts/sensitive-data";
+import { stellaAgentShellEnvironment } from "../tools/stella-agent-env.js";
 import { markImageOperationDelivered } from "../tools/image-operation-store.js";
 
 /**
@@ -1766,6 +1767,17 @@ const runClaudeHostedTurn = async (args: {
         ...(activeSessionId ? { persistedSessionId: activeSessionId } : {}),
         modelId: claudeCodeModelId,
         stellaAppDir: args.opts.stellaAppDir,
+        // The CLI's native Bash replaces Stella's shell tool, so it needs
+        // the same Stella variables (checkout, drafts, agent id).
+        ...(args.opts.executionHost !== "sandbox"
+          ? {
+              shellEnv: stellaAgentShellEnvironment({
+                stellaAppDir: args.opts.stellaAppDir,
+                stellaDataDir: args.opts.stellaDataDir,
+                agentId: args.opts.agentId,
+              }),
+            }
+          : {}),
         ...(args.opts.cliBridgeSocketPath
           ? { cliBridgeSocketPath: args.opts.cliBridgeSocketPath }
           : {}),

@@ -44,7 +44,13 @@ import {
 } from "@earendil-works/pi-durable";
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
 import { ShellExecutionEnv, type ShellBackend } from "@stella/agent/env/shell-env";
-import { offersAgentTools, openStellaHarness, orchestratorAgent, stellaModelRef } from "@stella/agent/harness";
+import {
+  offersAgentTools,
+  openStellaHarness,
+  orchestratorAgent,
+  stellaModelRef,
+  type OpenStellaHarness,
+} from "@stella/agent/harness";
 import {
   stellaProvider,
   type StellaGatewayAccess,
@@ -98,6 +104,8 @@ const CAPABILITY_RENEW_MS = 60_000;
 /** How long an agent waits for one of the owner's container slots. */
 const CONTAINER_SLOT_WAIT_MS = 10 * 60_000;
 const CONTAINER_SLOT_POLL_MS = 5_000;
+/** How long a computer's pause holds its turn: the run is marked at once, then winds down on its own. */
+const ORIGIN_PAUSE_HOLD_MS = 5_000;
 /** A command without its own timeout. */
 const DEFAULT_COMMAND_TIMEOUT_MS = 15 * 60_000;
 /** Storage key of what agents need between turns. */
@@ -153,6 +161,8 @@ export type PiAgentInfo = {
   description: string;
   /** How many messages it has been given: 1 for the spawn, then one more per follow-up. */
   attempt: number;
+  /** Started for a computer's orchestrator, whose own turns show it. */
+  origin?: { deviceId: string };
 };
 
 export type PiTurnSources = {
@@ -201,6 +211,12 @@ export type PiRuntimeOptions = {
   log(event: string, fields: Record<string, unknown>): void;
   /** An agent's report for the orchestrator, as a hidden wake turn. */
   deliverReport(report: AgentReport, authority: PiAuthority, agent: PiAgentInfo): Promise<void>;
+  /**
+   * A report of an agent a computer's orchestrator started here: it goes
+   * back to that computer (an `agent-report` card in the journal), not to
+   * this conversation's orchestrator. `turnId` is the latest turn.
+   */
+  deliverOriginReport?(report: AgentReport & { origin: { deviceId: string } }, turnId: string): Promise<void>;
   /** An agent started work (a spawn or a follow-up), during or just after `turnId`. */
   agentStarted?(event: PiAgentInfo & { threadId: string; turnId: string }): void;
   /**
@@ -287,7 +303,13 @@ type AgentContainer = {
   slot?: Promise<void>;
 };
 
-type Opened = { harness: Harness; root: Conversation; rootSession: string; refreshTools(): void };
+type Opened = {
+  harness: Harness;
+  root: Conversation;
+  rootSession: string;
+  refreshTools(): void;
+  agents: Pick<OpenStellaHarness, "startAgent" | "messageAgent" | "pauseAgent">;
+};
 
 /** A cloud tool as the harness offers it. */
 const toolSpec = (tool: CloudCodeSourceAgentTool): StellaToolSpec => ({
@@ -566,12 +588,10 @@ export class PiConversationRuntime {
         this.#options.heartbeat();
         this.#options.log("pi_agent_run_started", { threadId: run.threadId, turnId });
         const spawnedIn = this.#binding?.turnId ?? this.#state?.lastTurnId;
-        if (spawnedIn) {
-          this.#options.agentStarted?.({
-            threadId: run.threadId,
-            turnId: spawnedIn,
-            ...(await this.#agentInfo(run.threadId, context)),
-          });
+        const info = await this.#agentInfo(run.threadId, context);
+        // A computer's agent shows in that computer's own turns.
+        if (spawnedIn && !info.origin) {
+          this.#options.agentStarted?.({ threadId: run.threadId, turnId: spawnedIn, ...info });
         }
       },
       endAgentRun: async (run) => {
@@ -596,6 +616,15 @@ export class PiConversationRuntime {
       },
       deliverReport: async (report, context) => {
         const { authority } = await this.#agentState();
+        if (report.origin && this.#options.deliverOriginReport) {
+          await this.#options.deliverOriginReport(
+            { ...report, origin: report.origin },
+            this.#binding?.turnId ?? this.#state?.lastTurnId ?? `pi:${authority.conversationId}`,
+          );
+          return;
+        }
+        // Only the host that started it counts what settled without a report.
+        if (report.settled) return;
         await this.#options.deliverReport(report, authority, await this.#agentInfo(report.threadId, context));
       },
     };
@@ -634,7 +663,12 @@ export class PiConversationRuntime {
     const { harness, root } = await this.open();
     const state = await harness.snapshot(StellaAgentsDoc, root.id, context);
     const calls = Object.values(state?.calls ?? {}).filter((call) => call.threadId === threadId).length;
-    return { description: state?.agents[threadId]?.description ?? threadId, attempt: Math.max(1, calls) };
+    const agent = state?.agents[threadId];
+    return {
+      description: agent?.description ?? threadId,
+      attempt: Math.max(1, calls),
+      ...(agent?.origin ? { origin: agent.origin } : {}),
+    };
   }
 
   // ---- agent containers -----------------------------------------------------
@@ -779,7 +813,7 @@ export class PiConversationRuntime {
         this.#setModels(kept.models);
       }
       const storage = await openDurableObjectSqliteStorage(this.#options.storage);
-      const { harness, refreshTools } = await openStellaHarness(
+      const { harness, refreshTools, startAgent, messageAgent, pauseAgent } = await openStellaHarness(
         {
           storage,
           models: this.#models,
@@ -794,7 +828,7 @@ export class PiConversationRuntime {
       const root = await harness.root(BACKGROUND_CONTEXT);
       const rootSession = await this.#providerSession(harness, root.id, BACKGROUND_CONTEXT);
       harness.resume();
-      return { harness, root, rootSession, refreshTools };
+      return { harness, root, rootSession, refreshTools, agents: { startAgent, messageAgent, pauseAgent } };
     })().catch((error: unknown) => {
       this.#opening = undefined;
       throw error;
@@ -855,6 +889,50 @@ export class PiConversationRuntime {
     const { harness } = await this.open();
     const inspection = await harness.inspect(context);
     return inspection.tasks.length > 0 || inspection.submissions.length > 0;
+  }
+
+  /**
+   * A computer's orchestrator controlling its cloud agent here (a `piAgent`
+   * turn): start it under its own thread id, message it, or pause it. The
+   * turn is marked this conversation's own, so its prompt is not imported
+   * as someone else's.
+   */
+  async originAgent(
+    request: { op: "start" | "message" | "pause"; threadId: string; description?: string; originDeviceId: string },
+    prompt: string,
+    turnId: string,
+    context: Context,
+  ): Promise<void> {
+    const { root, agents } = await this.open();
+    await root.submit(
+      {
+        type: "write",
+        requestId: `turn:${turnId}`,
+        entry: { kind: "stella.agent-op", data: { op: request.op, threadId: request.threadId } },
+      },
+      context,
+    );
+    if (request.op === "start") {
+      await agents.startAgent(
+        {
+          key: `origin:${request.originDeviceId}:${request.threadId}`,
+          description: request.description ?? request.threadId,
+          prompt,
+          threadId: request.threadId,
+          origin: { deviceId: request.originDeviceId },
+        },
+        context,
+      );
+    } else if (request.op === "message") {
+      await agents.messageAgent(
+        { key: `origin:${turnId}`, threadId: request.threadId, message: prompt, fromOrchestrator: true },
+        context,
+      );
+    } else {
+      const paused = agents.pauseAgent(request.threadId, context);
+      paused.catch((error: unknown) => this.#options.report(error));
+      await Promise.race([paused, waitFor(ORIGIN_PAUSE_HOLD_MS)]);
+    }
   }
 
   /**

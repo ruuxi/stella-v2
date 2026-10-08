@@ -21,6 +21,7 @@ import {
   importJournal,
   journalSeqOf,
   JournalSyncDoc,
+  type JournalAgentReport,
   type JournalMessage,
   type JournalOpenTurn,
   type JournalSyncState,
@@ -34,10 +35,19 @@ export type JournalReadRecord = {
   role?: "user" | "assistant" | "toolResult";
   hidden?: boolean;
   payload?: unknown;
+  /** A card record's card. */
+  card?: unknown;
+  /** A prompt row's client message id. */
+  clientMsgId?: string;
 };
+
+/** A computer's cloud agent's brief or message (`pi-cloud-agents`): the agent's, not the conversation's. */
+const AGENT_OPERATION = /^pia:/;
 
 /** The conversation's journal, as this computer reaches it. */
 export type DesktopJournal = {
+  /** This computer, which a cloud agent's report card names when it is for it. */
+  deviceId: string;
   /** Where the conversation's bounded model context starts, for a first import. */
   contextStartSeq(): Promise<number>;
   /** Records after `afterSeq`, ascending, a batch at a time. */
@@ -76,6 +86,21 @@ export type JournalMirror = {
 const PAGE = 100;
 /** Events after which the transcript may have something to mirror. */
 const MIRRORED_EVENTS = new Set(["entry_appended", "message_end", "tool_execution_end", "run_end"]);
+
+/** A report of this computer's cloud agent, or that one of its messages settled without one. */
+const reportFor = (record: JournalReadRecord, deviceId: string): JournalAgentReport | undefined => {
+  const card = record.card as
+    | { type?: unknown; reportFor?: unknown; threadId?: unknown; requestId?: unknown; text?: unknown; settled?: unknown }
+    | undefined;
+  if (record.kind !== "card" || card?.type !== "agent-report" || card.reportFor !== deviceId) return undefined;
+  if (typeof card.threadId !== "string" || typeof card.requestId !== "string") return undefined;
+  const text = card.settled === true ? undefined : typeof card.text === "string" && card.text ? card.text : undefined;
+  if (text === undefined && card.settled !== true) return undefined;
+  return {
+    seq: record.seq,
+    report: { threadId: card.threadId, requestId: card.requestId, ...(text === undefined ? {} : { text }) },
+  };
+};
 
 const asJournalMessage = (record: JournalReadRecord): JournalMessage | undefined => {
   if (record.kind !== "message" || !record.role) return undefined;
@@ -116,9 +141,14 @@ export async function journalMirror(args: {
     let atPrompt = imported !== undefined;
     for (;;) {
       const page = await journal.read(after);
-      const messages: JournalMessage[] = [];
+      const messages: (JournalMessage | JournalAgentReport)[] = [];
       for (const record of page.records) {
-        if (journal.ownTurn(record.turnId)) continue;
+        const report = reportFor(record, journal.deviceId);
+        if (report) {
+          messages.push(report);
+          continue;
+        }
+        if (journal.ownTurn(record.turnId) || AGENT_OPERATION.test(record.clientMsgId ?? "")) continue;
         const message = asJournalMessage(record);
         if (!message) continue;
         if (!atPrompt && message.role !== "user") continue;

@@ -10,6 +10,7 @@
 import type { Context } from "@earendil-works/chord";
 import type { Message } from "@earendil-works/pi-ai";
 import { defineDoc, type Conversation, type EntryRecord, type Harness } from "@earendil-works/pi-durable";
+import { noteRemoteReport } from "./agents.ts";
 
 /** One journaled message, as a reader of the journal gets it. */
 export type JournalMessage = {
@@ -20,6 +21,15 @@ export type JournalMessage = {
   /** A prompt no client shows (a wake, a report); still model context. */
   hidden: boolean;
   message: Message;
+};
+
+/**
+ * A report of this host's cloud agent, for its orchestrator to answer; with
+ * no text, one of the agent's messages settled without one of its own.
+ */
+export type JournalAgentReport = {
+  seq: number;
+  report: { threadId: string; requestId: string; text?: string };
 };
 
 /** The journal turn a transcript is mirroring now. */
@@ -77,7 +87,7 @@ const asWritten = ({ message, hidden }: JournalMessage): Message => {
 export async function importJournal(
   harness: Harness,
   root: Conversation,
-  messages: readonly JournalMessage[],
+  messages: readonly (JournalMessage | JournalAgentReport)[],
   throughSeq: number,
   context: Context,
 ): Promise<number> {
@@ -85,6 +95,19 @@ export async function importJournal(
   let written = 0;
   for (const record of messages) {
     if (record.seq <= imported) continue;
+    if ("report" in record) {
+      const { text } = record.report;
+      // Only an agent this conversation started reports to its orchestrator.
+      const known = await harness.commit((tx) => noteRemoteReport(tx, root.id, record.report), context);
+      if (known && text) {
+        await root.submit(
+          { type: "input", requestId: `journal:${record.seq}`, content: [{ type: "text", text }], whenBusy: "followUp" },
+          context,
+        );
+        written += 1;
+      }
+      continue;
+    }
     await root.submit(
       {
         type: "write",

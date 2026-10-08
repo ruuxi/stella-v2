@@ -24,6 +24,7 @@ export const cloudJournalFor = (
     return current;
   };
   return {
+    deviceId,
     contextStartSeq: async () =>
       (await runner().cloudJournal.history(conversationId)).contextStartSeq,
     read: async (afterSeq) => {

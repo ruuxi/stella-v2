@@ -520,6 +520,8 @@ export type ChatTurnRequest = {
    * rebound to whichever mutable attempt happens to be current.
    */
   agentThreadControl?: CloudAgentControlReceipt;
+  /** A computer's orchestrator controlling its cloud agent; the turn does that instead of answering. */
+  piAgent?: import("@stella/contracts/turn-plane/turn-start").CloudPiAgentRequest;
   wakeReportSpillKey?: string;
   watchdogMs?: number;
   /** Worker-issued owner purge lease generation. */
@@ -3876,7 +3878,9 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           : {}),
         ...(start.source ? { source: start.source } : {}),
         ...(start.title ? { title: start.title } : {}),
-        ...(start.hiddenMessage ? { hiddenMessage: true } : {}),
+        // A computer's agent brief is context for the agent, not a message.
+        ...(start.hiddenMessage || start.piAgent ? { hiddenMessage: true } : {}),
+        ...(start.piAgent ? { piAgent: start.piAgent } : {}),
         ...(start.locale ? { locale: start.locale } : {}),
         ...(start.attachments ? { attachments: start.attachments } : {}),
         ...(start.agentThreadControl
@@ -4611,11 +4615,18 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       // object wake, admission, status, and cancellation stay on the lean path.
       // Stella-model turns of a conversation created on pi-durable run there
       // (`runPiTurn`); other engines keep their own paths.
+      // A computer's cloud agent runs on pi-durable in any conversation.
       const piExecution =
         harnessExecution?.engine === "stella" &&
-        (await this.ctx.storage.get<string>(AGENT_RUNTIME_KEY)) === "pi"
+        (turn.piAgent ||
+          (await this.ctx.storage.get<string>(AGENT_RUNTIME_KEY)) === "pi")
           ? harnessExecution
           : undefined;
+      if (turn.piAgent && !piExecution) {
+        throw new Error(
+          "A computer's cloud agents run on Stella's models; this conversation's cloud turns use another engine.",
+        );
+      }
       const agentRuntimeWork =
         harnessExecution && !piExecution ? loadRuntimeAgent() : undefined;
       void agentRuntimeWork?.catch(() => undefined);
@@ -5982,6 +5993,16 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         context,
       );
       await assertExactTurnActive();
+      if (turn.piAgent) {
+        await runtime.originAgent(turn.piAgent, turn.prompt, turn.turnId, context);
+        log("info", "pi_origin_agent_op", {
+          turnId: turn.turnId,
+          conversationId: turn.conversationId,
+          op: turn.piAgent.op,
+          threadId: turn.piAgent.threadId,
+        });
+        return await this.completeChatTurn(turn, "", args.started);
+      }
       // What other writers journaled since (a computer's turns, another
       // engine's) is part of the conversation this turn answers.
       const [, images] = await Promise.all([
@@ -6126,6 +6147,31 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           log: (event, fields) => log("info", event, fields),
           deliverReport: (report, authority, agent) =>
             this.deliverPiAgentReport(report, authority, agent),
+          // A computer's cloud agent reports to that computer: its journal
+          // import takes the card and gives it to its orchestrator.
+          deliverOriginReport: async (report, turnId) => {
+            const appended = this.journal.appendCard({
+              turnId,
+              createdAt: Date.now(),
+              card: {
+                type: "agent-report",
+                reportFor: report.origin.deviceId,
+                threadId: report.threadId,
+                requestId: report.requestId,
+                text: report.text,
+                ...(report.settled ? { settled: true as const } : {}),
+              },
+              writer: "orchestrator",
+              writerKey: `pi-report:${report.requestId}`,
+            });
+            if (appended.inserted) this.publish(appended.record);
+            log("info", "pi_origin_report_journaled", {
+              threadId: report.threadId,
+              settled: report.settled === true,
+              reportFor: report.origin.deviceId,
+              seq: appended.seq,
+            });
+          },
           // Every client lists the agents a conversation runs from these
           // cards, as it does the loop's.
           agentStarted: (event) =>
@@ -6325,7 +6371,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
    * eviction reopens the harness, which resumes that work.
    */
   private async piHeartbeat(): Promise<void> {
-    if ((await this.ctx.storage.get<string>(AGENT_RUNTIME_KEY)) !== "pi") return;
+    // Any conversation may hold pi work: its own, or a computer's cloud agent.
     const live = await this.ctx.storage.get<boolean>(PI_LIVE_KEY);
     if (!this.piRuntime && !live) return;
     const reopening = !this.piRuntime;

@@ -14,6 +14,7 @@ import {
 } from "../../kernel/preferences/local-preferences.js";
 import { prepareChatInput } from "./chat-input.js";
 import { piUserContent } from "./pi-chat-input.js";
+import { cloudAgentsFor } from "./pi-cloud-agents.js";
 import { cloudJournalFor } from "./pi-journal.js";
 import {
   createRemoteDeviceSigner,
@@ -97,6 +98,7 @@ export const piChatsFor = (
         },
       }),
       journal: (conversationId) => cloudJournalFor(session, conversationId),
+      cloudAgents: (conversationId) => cloudAgentsFor(session, conversationId),
       emit: (payload) => hostBus.notify(NOTIFICATION_NAMES.PI_CHAT_EVENTS, payload),
       report: (error) => console.error("[pi-chat]", error),
     }),

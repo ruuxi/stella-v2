@@ -47,6 +47,7 @@ import {
   STELLA_DEFAULT_ALIAS,
   stellaModelRef,
 } from "../harness.ts";
+import type { RemoteAgentHost } from "../stella/agents.ts";
 import type { StellaToolHost } from "../stella/host-tools.ts";
 import {
   parseStellaModelId,
@@ -91,6 +92,8 @@ export type DesktopChatsOptions = {
   tools?(conversationId: string): StellaToolHost;
   /** The cloud journal of a conversation stored in the cloud, which its turns are mirrored into. */
   journal?(conversationId: string): DesktopJournal | undefined;
+  /** For a conversation stored in the cloud: its cloud agents, run in its object. */
+  cloudAgents?(conversationId: string): RemoteAgentHost | undefined;
   /** A watched conversation's events, for every attached client. */
   emit(payload: PiChatEventsPayload): void;
   report(error: unknown): void;
@@ -250,7 +253,13 @@ export function desktopChats(options: DesktopChatsOptions) {
               locale: async () =>
                 opened && (await opened.harness.snapshot(LocaleDoc, opened.root.id, context))?.locale,
             }),
-            agents: desktopAgentsHost({ ...(options.deviceId ? { deviceId: options.deviceId } : {}) }),
+            agents: (() => {
+              const cloud = options.cloudAgents?.(conversationId);
+              return desktopAgentsHost({
+                ...(options.deviceId ? { deviceId: options.deviceId } : {}),
+                ...(cloud ? { cloud } : {}),
+              });
+            })(),
             ...(options.tools ? { tools: options.tools(conversationId) } : {}),
             env: environments.env,
             onReport: options.report,
@@ -270,13 +279,21 @@ export function desktopChats(options: DesktopChatsOptions) {
           : undefined;
         void mirror?.importNow().catch((error: unknown) => options.report(error));
         const idleCheck = setInterval(() => {
-          void harness.inspect(context).then(
-            (inspection) =>
-              markActive(conversationId, inspection.tasks.length > 0 || inspection.submissions.length > 0),
-            (error: unknown) => options.report(error),
-          );
-          // While someone looks at it, what other devices said shows up here too.
-          if (opened?.watchers) void mirror?.importNow().catch((error: unknown) => options.report(error));
+          void (async () => {
+            const inspection = await harness.inspect(context);
+            // A cloud agent still working is work here too: its report comes
+            // back through the journal, for this computer to answer.
+            const awaitingCloud = mirror
+              ? (await agentRecords(context)).some((agent) => agent.placement.kind === "cloud" && agent.status === "running")
+              : false;
+            await markActive(
+              conversationId,
+              inspection.tasks.length > 0 || inspection.submissions.length > 0 || awaitingCloud,
+            );
+            // While someone looks at it, or a report is due, what the journal
+            // gained shows up here.
+            if (opened?.watchers || awaitingCloud) await mirror?.importNow();
+          })().catch((error: unknown) => options.report(error));
         }, IDLE_CHECK_MS);
         idleCheck.unref?.();
         opened = {

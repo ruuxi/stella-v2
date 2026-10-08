@@ -85,13 +85,18 @@ export type OpenStellaHarness = {
   refreshTools(): void;
   /** Start an agent the host asked for (see `stellaAgents`). */
   startAgent(
-    args: { key: string; description: string; prompt: string },
+    args: { key: string; description: string; prompt: string; threadId?: string; origin?: { deviceId: string } },
     context: Context,
   ): Promise<{ threadId: string; existing: boolean }>;
+  /** Pause one of the orchestrator's agents by thread id. */
+  pauseAgent(threadId: string, context: Context): Promise<void>;
   /** The orchestrator's agents, as the app lists them. */
   agentRecords(context: Context): Promise<StellaAgentRecord[]>;
   /** A message from the user to one of the orchestrator's agents. */
-  messageAgent(args: { key: string; threadId: string; message: string }, context: Context): Promise<void>;
+  messageAgent(
+    args: { key: string; threadId: string; message: string; fromOrchestrator?: boolean },
+    context: Context,
+  ): Promise<void>;
   /** An agent another host placed here, run to its answer. */
   runPlacedAgent(args: PlacedAgentRun, context: Context): Promise<PlacedAgentResult>;
   /** A message for an agent another host placed here; false when it is not here. */
@@ -127,6 +132,7 @@ export async function openStellaHarness(options: StellaHarnessOptions, context: 
     startAgent: (args, startContext) => agents.startAgent(harness, args, startContext),
     agentRecords: (recordsContext) => agents.agentRecords(harness, recordsContext),
     messageAgent: (args, messageContext) => agents.messageAgent(harness, args, messageContext),
+    pauseAgent: (threadId, pauseContext) => agents.pauseAgentByThread(harness, threadId, pauseContext),
     runPlacedAgent: (args, runContext) => agents.runPlacedAgent(harness, args, runContext),
     steerPlacedAgent: (args, steerContext) => agents.steerPlacedAgent(harness, args, steerContext),
   };

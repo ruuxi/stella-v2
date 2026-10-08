@@ -58,6 +58,17 @@ type AgentRecord = {
   reported: number[];
   /** It runs on another host as a whole (`StellaAgentsHost.remote`). */
   remote?: true;
+  /** When a remote agent was started; a local one dates from its first entry. */
+  startedAt?: number;
+  /**
+   * The reports that came back from a remote agent, by request id: one per
+   * message it was given (`noteRemoteReport`), so it runs while it has fewer.
+   */
+  answered?: string[];
+  /** Its latest report was a failure. */
+  failed?: true;
+  /** It was started here for another host's orchestrator, which gets its reports. */
+  origin?: { deviceId: string };
 };
 
 /** One of the orchestrator's agents as the app lists it. */
@@ -105,6 +116,35 @@ export type AgentReport = {
   text: string;
   /** Exactly-once key for the delivery. */
   requestId: string;
+  /** The agent was started here for another host's orchestrator: the report is for it. */
+  origin?: { deviceId: string };
+  /**
+   * For an agent started for another host: one of its messages was answered
+   * within another report, or its run was paused. No text; that host counts
+   * one report per message it sent.
+   */
+  settled?: true;
+};
+
+/**
+ * A report of a remote agent came back to the conversation that started it
+ * (`StellaAgentsHost.remote`), or one of its messages was settled without
+ * one. Once per `requestId`. False when the conversation never started that
+ * agent: the report is not for it.
+ */
+export const noteRemoteReport = async (
+  tx: Pick<Tx, "doc">,
+  conversationId: ConversationId,
+  report: { threadId: string; requestId: string; text?: string },
+): Promise<boolean> => {
+  const agent = (await tx.doc(StellaAgentsDoc, conversationId)).agents[report.threadId];
+  if (!agent?.remote) return false;
+  if (agent.answered?.includes(report.requestId)) return true;
+  agent.answered = [...(agent.answered ?? []), report.requestId];
+  if (report.text === undefined) return true;
+  if (report.text.trimStart().startsWith("[Task failed]")) agent.failed = true;
+  else delete agent.failed;
+  return true;
 };
 
 /** An agent another host placed here, and one run of it (`runPlacedAgent`). */
@@ -299,12 +339,30 @@ export function stellaAgents(host: StellaAgentsHost) {
       report: async (reporter, runtime, context) => {
         const report = reporter.state.checkpoint.report;
         const self = await roleOf(runtime, runtime.conversationId, context);
+        const origin =
+          self.agentType === "orchestrator" || self.parentConversationId === undefined
+            ? (await runtime.snapshot(StellaAgentsDoc, runtime.conversationId, context))?.agents[reporter.input.threadId]?.origin
+            : undefined;
+        if (report === undefined && origin && host.deliverReport) {
+          await host.deliverReport(
+            {
+              rootConversationId: runtime.conversationId,
+              threadId: reporter.input.threadId,
+              text: "",
+              requestId: `agent-report:${reporter.id}`,
+              origin,
+              settled: true,
+            },
+            context,
+          );
+        }
         if (report !== undefined && (self.agentType === "orchestrator" || self.parentConversationId === undefined)) {
           const delivery: AgentReport = {
             rootConversationId: runtime.conversationId,
             threadId: reporter.input.threadId,
             text: report,
             requestId: `agent-report:${reporter.id}`,
+            ...(origin ? { origin } : {}),
           };
           if (host.deliverReport) {
             await host.deliverReport(delivery, context);
@@ -360,6 +418,10 @@ export function stellaAgents(host: StellaAgentsHost) {
       placement: StellaPlacement;
       /** Its caller runs it and reads its answer itself; nothing reports here. */
       detached?: boolean;
+      /** The thread id another host chose for it, instead of one made here. */
+      threadId?: string;
+      /** Started here for another host's orchestrator. */
+      origin?: { deviceId: string };
     },
   ): Promise<{ threadId: string; existing: boolean }> => {
     const { parentConversationId, depth, description, model, placement } = args;
@@ -372,7 +434,7 @@ export function stellaAgents(host: StellaAgentsHost) {
       conversationId: parentConversationId,
     });
     const child = await tx.createConversation({ ownership: { kind: "task", taskId: anchor } });
-    const threadId = `${slug(description)}-${child.id}`;
+    const threadId = args.threadId && !state.agents[args.threadId] ? args.threadId : `${slug(description)}-${child.id}`;
     await configure(tx, child.id, {
       ...(model ? { model } : {}),
       // An agent has file, shell and agent tools, not the orchestrator's
@@ -395,6 +457,7 @@ export function stellaAgents(host: StellaAgentsHost) {
       description,
       placement: { kind: placement.kind, ...(placement.kind === "device" ? { deviceId: placement.deviceId } : {}) },
       reported: [],
+      ...(args.origin ? { origin: args.origin } : {}),
     };
     if (args.detached) {
       state.calls[args.callKey] = { threadId, reporter: -1 };
@@ -460,6 +523,7 @@ export function stellaAgents(host: StellaAgentsHost) {
             placement: { kind: placement.kind, ...(placement.kind === "device" ? { deviceId: placement.deviceId } : {}) },
             reported: [],
             remote: true,
+            startedAt: Date.now(),
           };
           state.calls[callKey] = { threadId, reporter: -1 };
         }, context);
@@ -516,6 +580,7 @@ export function stellaAgents(host: StellaAgentsHost) {
       if (known?.remote) {
         if (!remote) throw new Error(`${threadId} runs where this conversation cannot reach it now.`);
         await remote.message({ key: `message:${api.taskId}`, threadId, message: args.message }, context);
+        await expectRemoteReport(api, api.conversationId, String(api.taskId), threadId, context);
         return { content: [{ type: "text", text: `Delivered to ${threadId}.` }] };
       }
       await api.commit(async (tx) => {
@@ -533,6 +598,19 @@ export function stellaAgents(host: StellaAgentsHost) {
       return { content: [{ type: "text", text: `Delivered to ${threadId}.` }] };
     },
   });
+
+  /** A message given to a remote agent is answered by a report like its start, so it counts until one comes back. */
+  const expectRemoteReport = (
+    on: { commit: Harness["commit"] },
+    conversationId: ConversationId,
+    callKey: string,
+    threadId: string,
+    context: Context,
+  ) =>
+    on.commit(async (tx) => {
+      const state = await tx.doc(StellaAgentsDoc, conversationId);
+      state.calls[callKey] ??= { threadId, reporter: -1 };
+    }, context);
 
   const remoteHostOf = (agent: AgentRecord): RemoteAgentHost | undefined => {
     const placement = placementOf(agent.placement);
@@ -624,7 +702,15 @@ export function stellaAgents(host: StellaAgentsHost) {
    */
   const startAgent = async (
     harness: Harness,
-    args: { key: string; description: string; prompt: string },
+    args: {
+      key: string;
+      description: string;
+      prompt: string;
+      /** The thread id another host chose for it. */
+      threadId?: string;
+      /** Started for another host's orchestrator, which gets its reports. */
+      origin?: { deviceId: string };
+    },
     context: Context,
   ): Promise<{ threadId: string; existing: boolean }> => {
     const root = await harness.root(context);
@@ -639,9 +725,19 @@ export function stellaAgents(host: StellaAgentsHost) {
           prompt: args.prompt,
           model,
           placement: host.rootPlacement,
+          ...(args.threadId ? { threadId: args.threadId } : {}),
+          ...(args.origin ? { origin: args.origin } : {}),
         }),
       context,
     );
+  };
+
+  /** Pause one of the orchestrator's agents by thread id (for the host that started it). */
+  const pauseAgentByThread = async (harness: Harness, threadId: string, context: Context): Promise<void> => {
+    const root = await harness.root(context);
+    const agent = (await harness.snapshot(StellaAgentsDoc, root.id, context))?.agents[threadId];
+    if (!agent || agent.remote) throw new Error(`No agent ${threadId} here.`);
+    await (await harness.conversation(agent.conversationId as ConversationId, context))?.abort(context);
   };
 
   /**
@@ -653,7 +749,7 @@ export function stellaAgents(host: StellaAgentsHost) {
     const state = await harness.snapshot(StellaAgentsDoc, root.id, context);
     const records: StellaAgentRecord[] = [];
     // An agent that runs elsewhere is done once a report came back for each
-    // message it was given.
+    // message it was given; what it said is what its reports carried.
     const remoteAgents = Object.entries(state?.agents ?? {}).filter(([, agent]) => agent.remote);
     const reports =
       remoteAgents.length === 0
@@ -664,17 +760,22 @@ export function stellaAgents(host: StellaAgentsHost) {
             .filter(({ text }) => /^\[(Agent completed|Task failed|Task canceled)\]/.test(text.trimStart()));
     for (const [threadId, agent] of remoteAgents) {
       const given = Object.values(state?.calls ?? {}).filter((call) => call.threadId === threadId).length;
-      const back = reports.filter(({ text }) => text.includes(threadId));
-      const latest = back[0];
-      const at = (latest?.entry.model?.[0] as { timestamp?: number } | undefined)?.timestamp ?? Date.now();
+      // Newest first, as scanned.
+      const back = reports.filter(({ text }) => text.includes(`\nthread_id: ${threadId}\n`));
+      const at = (back[0]?.entry.model?.[0] as { timestamp?: number } | undefined)?.timestamp;
+      const said = back
+        .map(({ text }) => /\n(?:result|error): ([\s\S]*?)(?=\n(?:agent_state|routing|presentation): |$)/.exec(text)?.[1]?.trim() ?? "")
+        .filter((text) => text && text !== "(no reply)")
+        .reverse()
+        .slice(-5);
       records.push({
         threadId,
         description: agent.description,
         placement: agent.placement,
-        status: back.length >= given ? (latest?.text.trimStart().startsWith("[Task failed]") ? "error" : "completed") : "running",
-        startedAt: at,
-        updatedAt: at,
-        assistantMessages: [],
+        status: (agent.answered?.length ?? 0) >= given ? (agent.failed ? "error" : "completed") : "running",
+        startedAt: agent.startedAt ?? at ?? Date.now(),
+        updatedAt: at ?? agent.startedAt ?? Date.now(),
+        assistantMessages: said,
       });
     }
     for (const [threadId, agent] of Object.entries(state?.agents ?? {})) {
@@ -720,7 +821,13 @@ export function stellaAgents(host: StellaAgentsHost) {
    */
   const messageAgent = async (
     harness: Harness,
-    args: { key: string; threadId: string; message: string },
+    args: {
+      key: string;
+      threadId: string;
+      message: string;
+      /** The orchestrator that started it wrote this, not the user in its thread. */
+      fromOrchestrator?: boolean;
+    },
     context: Context,
   ): Promise<void> => {
     const root = await harness.root(context);
@@ -729,6 +836,7 @@ export function stellaAgents(host: StellaAgentsHost) {
       const remote = remoteHostOf(known);
       if (!remote) throw new Error(`${args.threadId} runs where this conversation cannot reach it now.`);
       await remote.message({ key: `user:${args.key}`, threadId: args.threadId, message: args.message }, context);
+      await expectRemoteReport(harness, root.id, `user:${args.key}`, args.threadId, context);
       return;
     }
     await harness.commit(async (tx) => {
@@ -739,7 +847,12 @@ export function stellaAgents(host: StellaAgentsHost) {
       if (!agent) throw new Error(`No agent ${args.threadId} here.`);
       const reporter = await tx.createTask(
         Reporter,
-        { threadId: args.threadId, conversationId: agent.conversationId, message: args.message, fromUser: true },
+        {
+          threadId: args.threadId,
+          conversationId: agent.conversationId,
+          message: args.message,
+          ...(args.fromOrchestrator ? {} : { fromUser: true as const }),
+        },
         { ownership: { kind: "conversation" }, background: true, conversationId: root.id },
       );
       state.calls[callKey] = { threadId: args.threadId, reporter };
@@ -808,7 +921,7 @@ export function stellaAgents(host: StellaAgentsHost) {
     tasks: [Anchor, Reporter],
     tools: [spawnAgent, sendMessage, agentStatus, pauseAgent],
   });
-  return { extension, startAgent, agentRecords, messageAgent, runPlacedAgent, steerPlacedAgent };
+  return { extension, startAgent, agentRecords, messageAgent, pauseAgentByThread, runPlacedAgent, steerPlacedAgent };
 }
 
 export const stellaAgentsExtension = (host: StellaAgentsHost) => stellaAgents(host).extension;

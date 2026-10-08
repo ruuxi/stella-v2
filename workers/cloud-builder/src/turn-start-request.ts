@@ -14,6 +14,7 @@ import {
 import { isManagedModelAudience } from "@stella/contracts/gateway/capability";
 import {
   CLIENT_MSG_ID_PATTERN,
+  PI_AGENT_THREAD_ID_PATTERN,
   TURN_ATTACHMENTS_MAX,
   TURN_PLANE_PROTOCOL,
   TURN_PROMPT_MAX_CHARS,
@@ -226,6 +227,31 @@ export const parseCloudTurnStartRequest = (
   if (value.agentRuntime !== undefined) {
     if (value.agentRuntime !== "pi") return fail("agentRuntime must be pi.");
     request.agentRuntime = value.agentRuntime;
+  }
+  if (value.piAgent !== undefined) {
+    const agent = value.piAgent as Record<string, unknown> | null;
+    if (
+      !agent ||
+      typeof agent !== "object" ||
+      !["start", "message", "pause"].includes(agent.op as string) ||
+      typeof agent.threadId !== "string" ||
+      !PI_AGENT_THREAD_ID_PATTERN.test(agent.threadId) ||
+      typeof agent.originDeviceId !== "string" ||
+      !agent.originDeviceId.trim() ||
+      agent.originDeviceId.length > 256 ||
+      (agent.description !== undefined &&
+        (typeof agent.description !== "string" || agent.description.length > 1_000))
+    ) {
+      return fail("piAgent is malformed.");
+    }
+    request.piAgent = {
+      op: agent.op as "start" | "message" | "pause",
+      threadId: agent.threadId,
+      originDeviceId: agent.originDeviceId.trim(),
+      ...(typeof agent.description === "string" && agent.description.trim()
+        ? { description: agent.description.trim() }
+        : {}),
+    };
   }
   const agentWake =
     request.lane === "wake" && request.source === "agent-thread";

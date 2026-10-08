@@ -180,6 +180,20 @@ export type TurnPhase =
 
 export type ConversationCard =
   | CloudAgentLifecycleCard
+  /**
+   * A report of a cloud agent a computer's orchestrator started, for that
+   * computer, which gives it to its orchestrator. Clients do not show it;
+   * the computer's own turn that answers it does.
+   */
+  | {
+      type: "agent-report";
+      reportFor: string;
+      threadId: string;
+      requestId: string;
+      text: string;
+      /** One of the agent's messages settled without a report of its own (answered within another, or paused). */
+      settled?: true;
+    }
   | { type: "build"; buildId: string; appId?: string }
   | { type: "operation"; operation: string; args?: unknown; result?: unknown }
   | {

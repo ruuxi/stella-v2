@@ -139,8 +139,14 @@ const errorMessage = (data: unknown, fallback: string): string => {
     const detail = record.detail;
     if (typeof detail === "string") return detail;
     if (Array.isArray(detail)) {
-      const first = detail[0] as { msg?: unknown } | undefined;
-      if (typeof first?.msg === "string") return first.msg;
+      // Validation errors: say which input field and why, for every one.
+      const lines = detail.flatMap((entry) => {
+        const item = entry as { msg?: unknown; loc?: unknown };
+        if (typeof item.msg !== "string") return [];
+        const loc = Array.isArray(item.loc) ? item.loc.filter((part) => part !== "body").join(".") : "";
+        return [loc ? `${loc}: ${item.msg}` : item.msg];
+      });
+      if (lines.length > 0) return lines.join("; ");
     }
     if (typeof record.message === "string") return record.message;
     if (typeof record.error === "string") return record.error;

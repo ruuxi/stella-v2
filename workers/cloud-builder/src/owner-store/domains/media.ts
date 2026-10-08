@@ -727,15 +727,27 @@ const falWebhook = (ctx: OwnerContext, raw: unknown): { received: true; discarde
     });
     return { received: true };
   }
+  // fal's `error` is generic ("Unexpected status code: 422"); the payload's
+  // `detail` is the model's own complaint, which says what to change.
   const detail = isRecord(event.payload) ? event.payload.detail : undefined;
+  const detailText =
+    typeof detail === "string"
+      ? detail
+      : Array.isArray(detail)
+        ? detail
+            .map((entry) => {
+              if (!isRecord(entry) || typeof entry.msg !== "string") return null;
+              const loc = Array.isArray(entry.loc) ? entry.loc.filter((part) => part !== "body").join(".") : "";
+              return loc ? `${loc}: ${entry.msg}` : entry.msg;
+            })
+            .filter((entry): entry is string => entry !== null)
+            .join("; ")
+        : "";
+  const errorText = typeof event.error === "string" ? event.error : "";
   failJob(ctx, jobId, {
-    message:
-      (typeof event.error === "string" && event.error) ||
-      (typeof detail === "string" && detail) ||
-      (Array.isArray(detail) && typeof (detail[0] as { msg?: unknown })?.msg === "string"
-        ? String((detail[0] as { msg: string }).msg)
-        : "Media generation failed upstream."),
+    message: detailText || errorText || "Media generation failed upstream.",
     ...(typeof event.error_type === "string" ? { code: event.error_type } : {}),
+    ...(detail !== undefined ? { details: { detail } } : {}),
   });
   return { received: true };
 };

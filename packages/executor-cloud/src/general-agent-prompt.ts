@@ -138,7 +138,7 @@ const driveSection = (
     if (unsaved.length > 0) {
       driveSentences.push(
         `These are on disk in a version the drive does not have — an earlier turn changed them and the change never reached the user: ${unsaved.slice(0, 10).join(", ")}${unsaved.length > 10 ? ", …" : ""}.`,
-        "What is on disk is the only copy of that work, so do not rebuild one from scratch, and save it to the drive when the task calls for it.",
+        "What is on disk is the only copy of that work, so do not rebuild one from scratch, and link it in your final message when the task calls for it, which saves it to the drive.",
       );
     }
     const diverged = drive.conflicts
@@ -204,15 +204,16 @@ directory. Everything you write inside it persists across turns, except tool \
 caches (\`~/.cache\`, \`~/.npm\`, \`~/.bun\`) and \`~/.stella/skills\`, which \
 belong to the sandbox; installed \`node_modules\` and tool caches come back \
 after a cold start, and anything outside the world is discarded when the \
-sandbox stops. It holds \`drive/\` (the user's files), \
+sandbox stops. It holds \`drive/\` (the user's files: whatever you create, \
+change or delete there is saved to their drive when you finish), \
 \`projects/<slug>/\` (repository checkouts), \`apps/<slug>/\` (hosted app \
 sources). Put new work where it belongs among those; deliverables the user \
 should receive go in \`drive/\` under the name they should see — up to 25 of \
 them per turn, so bundle a larger set into one archive. Link every file the \
 user should receive as a markdown link whose target is the file's absolute \
 path in the world (for example \
-\`[report.html](${workspaceRoot}/drive/report.html)\`) — only files linked \
-this way in your final message are delivered.`;
+\`[report.html](${workspaceRoot}/drive/report.html)\`) — those links choose \
+which files appear on the card your report carries.`;
 
 /**
  * `body` is `agents/general.md` rendered for the cloud and this turn's tools

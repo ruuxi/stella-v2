@@ -1,7 +1,7 @@
 /**
  * Generic one-shot text completion driven by the runtime's BYOK-aware route
  * resolver. Used by renderer surfaces that previously rolled their own
- * `callChatCompletion`/backend call (the music-prompt shaper, etc.) so
+ * `callChatCompletion`/backend call (prompt shapers, etc.) so
  * the user's per-agent model override + local provider credentials are
  * honored just like the orchestrator and subsidiary agents.
  *
@@ -9,7 +9,7 @@
  *   1. Explicit `modelOverrides[agentType]` (e.g. user picked a model for
  *      this agent specifically).
  *   2. Any `fallbackAgentTypes` (in order) — lets internal helpers like
- *      `music_prompt` ride the user's Assistant-tab BYOK pick without being
+ *      prompt shapers ride the user's Assistant-tab BYOK pick without being
  *      listed as user-configurable agents themselves.
  *   3. Stella's backend-owned default for the agent/audience.
  *

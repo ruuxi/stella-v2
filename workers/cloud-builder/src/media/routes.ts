@@ -17,6 +17,7 @@ import { verifyCaller } from "../owner-store/routes.js";
 import type { OwnerCaller } from "../owner-store/registry.js";
 import { MEDIA_MODELS } from "@stella/contracts/media-models";
 import { MEDIA_DOCS_URL } from "../owner-store/domains/media.js";
+import { mediaSigningSecret } from "../voice/ticket.js";
 import { FAL_WEBHOOK_PATH, verifyFalSignature, verifyFalWebhookToken } from "./fal.js";
 
 const BASE = "/api/media/v1";
@@ -121,8 +122,8 @@ const job = async (request: Request, env: RouteEnv): Promise<Response> => {
 };
 
 const falWebhook = async (request: Request, env: RouteEnv): Promise<Response> => {
-  const signingSecret = (env as unknown as Record<string, unknown>).MEDIA_SIGNING_SECRET;
-  if (typeof signingSecret !== "string" || !signingSecret) return fail(503, "Media webhooks are not configured.");
+  const signingSecret = mediaSigningSecret(env as Cloudflare.Env);
+  if (!signingSecret) return fail(503, "Media webhooks are not configured.");
   const now = Date.now();
   const target = await verifyFalWebhookToken(new URL(request.url), signingSecret, now);
   if (!target) return fail(401, "Invalid webhook token.");

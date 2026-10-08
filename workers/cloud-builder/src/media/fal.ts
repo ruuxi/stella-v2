@@ -1,7 +1,7 @@
 /**
  * fal's queue API and webhooks, plus the webhook routing token: fal calls back to
  * `/api/media/v1/webhooks/fal?o=<owner>&j=<job>&e=<exp>&sig=<hmac>`, and the
- * HMAC (`MEDIA_SIGNING_SECRET`) over owner, job and expiry is what lets the
+ * HMAC (`mediaSigningSecret`, derived from `BETTER_AUTH_SECRET`) over owner, job and expiry is what lets the
  * route address the owner's object without an index. fal's own ED25519
  * signature proves the body came from fal.
  */

@@ -234,8 +234,6 @@ export const STELLA_MEDIA_MODELS = {
   /** `image_gen` through Stella: text to image, and with references, edit. */
   image: "openai/gpt-image-2.5/flare/text-to-image",
   imageEdit: "openai/gpt-image-2.5/flare/edit",
-  /** The music player. */
-  music: "google/lyria-3.5",
   /** Read-aloud; fal and OpenRouter both name it this. */
   speech: "google/gemini-3.8-flash-lite-tts",
   /** Record-then-transcribe dictation, on OpenRouter (Stella's key or the user's own). */

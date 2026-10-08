@@ -2,7 +2,7 @@
  * Subscribes to every succeeded media job for the current viewer and
  * materializes its outputs into `~/.stella/media/outputs/`. This is the single
  * place that turns a remote media job (started by `image_gen`, by an
- * agent's `stella-media`, by the music player, …) into a local file plus a
+ * agent's `stella-media`, …) into a local file plus a
  * `DisplayPayload` the sidebar can render when the user opens it.
  *
  * Decoupling production from materialization is what makes "all generated

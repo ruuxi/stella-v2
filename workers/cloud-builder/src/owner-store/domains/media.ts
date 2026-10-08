@@ -34,6 +34,7 @@ import { MEDIA_MODELS, mediaModel, type MediaModel } from "@stella/contracts/med
 import { sha256Hex } from "../../hash.js";
 import { cancelFal, FalError, falWebhookUrl, pollFal, submitFal } from "../../media/fal.js";
 import { presignR2Url, r2Signer, type R2Signer } from "../../r2-presign.js";
+import { mediaSigningSecret } from "../../voice/ticket.js";
 import { empty, json, literal, number, object, optional, string, type Parser } from "../args.js";
 import { RpcError } from "../errors.js";
 import { enforceOwnerRateLimit } from "../rate-limit.js";
@@ -508,7 +509,7 @@ const startJob = async (
   admit(ctx, model, request.input);
   const apiKey = secret(ctx.env, "FAL_KEY");
   const baseUrl = ctx.env.CLOUD_BUILDER_PUBLIC_URL;
-  const signingSecret = secret(ctx.env, "MEDIA_SIGNING_SECRET");
+  const signingSecret = mediaSigningSecret(ctx.env);
   if (!apiKey || !baseUrl || !signingSecret) throw unavailable();
   const jobId = crypto.randomUUID();
   const now = Date.now();

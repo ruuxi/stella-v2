@@ -1,6 +1,6 @@
 /**
  * Read-aloud HLS tickets: `<ownerHash>.<id>.<exp>.<sig>`, where `sig` is an
- * HMAC (`MEDIA_SIGNING_SECRET`) over the first three parts. A native player
+ * HMAC (`mediaSigningSecret`) over the first three parts. A native player
  * fetches the playlist and its segments with no headers, so the ticket in the
  * path is the whole authorization. `ownerHash` is `sha256(ownerId)`: it keeps
  * the owner out of URLs and logs, binds the ticket to its owner, and makes
@@ -13,9 +13,15 @@ const TICKET_PATTERN = /^([0-9a-f]{64})\.([0-9a-f]{32})\.([0-9a-z]{1,12})\.([A-Z
 
 export type TtsTicket = { ticket: string; ownerHash: string; id: string; expiresAt: number };
 
+/**
+ * The key Stella signs its own media URLs with (read-aloud tickets, fal's
+ * webhook routing tokens). It is derived from `BETTER_AUTH_SECRET`, which
+ * every deployment already has, so there is no separate secret to set; the
+ * label keeps these signatures apart from anything else that secret keys.
+ */
 export const mediaSigningSecret = (env: Cloudflare.Env): string | null => {
-  const value = (env as unknown as Record<string, unknown>).MEDIA_SIGNING_SECRET;
-  return typeof value === "string" && value.trim() ? value.trim() : null;
+  const value = (env as unknown as Record<string, unknown>).BETTER_AUTH_SECRET;
+  return typeof value === "string" && value.trim() ? `stella-media-signing:${value.trim()}` : null;
 };
 
 const hmac = async (secret: string, message: string): Promise<string> => {

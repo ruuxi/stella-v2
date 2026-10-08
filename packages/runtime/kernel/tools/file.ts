@@ -37,7 +37,10 @@ import {
   isSkillInstructionPath,
   recordFullSkillRead,
 } from "./skill-read-dedup.js";
-import { readWorkspaceFileNoFollow } from "./workspace-file-boundary.js";
+import {
+  readWorkspaceFileNoFollow,
+  writeWorkspaceFileNoFollow,
+} from "./workspace-file-boundary.js";
 import { decodeAndValidateImage } from "./image-decode-validation.js";
 import { MAX_IMAGE_REFERENCE_BYTES } from "./image-reference-policy.js";
 import {
@@ -134,6 +137,28 @@ export const readTextFile = async (
   return { path: filePath, content: await fs.readFile(filePath, "utf8") };
 };
 
+// A scoped tool workspace (the cloud sandbox) writes through the same
+// no-follow boundary as apply_patch, owned by the tool identity, so the
+// tool account can read back what Write and Edit produced.
+const writeToolFile = async (
+  filePath: string,
+  content: string,
+  context?: ToolContext,
+): Promise<void> => {
+  const scopedRoot = context?.toolWorkspaceRoot?.trim();
+  if (scopedRoot) {
+    await writeWorkspaceFileNoFollow(
+      filePath,
+      scopedRoot,
+      content,
+      context?.toolProcessIdentity ? { owner: context.toolProcessIdentity } : {},
+    );
+    return;
+  }
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await writeFileWithNulGuard(filePath, content);
+};
+
 export const writeTextFile = async (
   rawPath: unknown,
   content: string,
@@ -165,8 +190,7 @@ export const writeTextFile = async (
       ? restoreLineEndings(normalizedContent, originalEnding)
       : content;
 
-    await fs.mkdir(path.dirname(filePath), { recursive: true });
-    await writeFileWithNulGuard(filePath, finalContent);
+    await writeToolFile(filePath, finalContent, context);
 
     return { path: filePath, created: !existed };
   });
@@ -212,7 +236,7 @@ export const replaceTextInFile = async (
     }
 
     const final = bom + restoreLineEndings(applied.content, originalEnding);
-    await writeFileWithNulGuard(filePath, final);
+    await writeToolFile(filePath, final, context);
 
     return { path: filePath, replacements: applied.replacements };
   });
@@ -269,7 +293,7 @@ export const applyAnchoredEditToFile = async (
     }
 
     const final = bom + restoreLineEndings(applied.content, originalEnding);
-    await writeFileWithNulGuard(filePath, final);
+    await writeToolFile(filePath, final, context);
     return { path: filePath, ...applied };
   });
 };
@@ -301,7 +325,7 @@ export const applyEditsToFile = async (
     const originalEnding = detectLineEnding(text);
     const applied = applyEditsToContent(normalizeToLF(text), specs);
     const final = bom + restoreLineEndings(applied.content, originalEnding);
-    await writeFileWithNulGuard(filePath, final);
+    await writeToolFile(filePath, final, context);
     return { path: filePath, edits: specs.length, lines: applied.lines };
   });
 };

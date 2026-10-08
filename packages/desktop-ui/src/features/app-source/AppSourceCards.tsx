@@ -14,6 +14,7 @@ import {
   usePendingAppSourceAction,
 } from "./app-source-store";
 import { UpdateCard } from "./UpdateCard";
+import "./app-update-message.css";
 
 /**
  * Changes to Stella in the chat: an agent's draft shows on the message that
@@ -169,8 +170,9 @@ export const addOffer = (offer: AppSourceWaiting) => {
 
 /**
  * Changes waiting to be added that aren't the Stella team's: a change the
- * user made on another computer, or a draft made by hand. Each pins above the
- * composer as a card with one button; skipping one is the Updates tab's.
+ * user made on another computer, or a draft made by hand. Each is a message
+ * from Stella in the chat, in the assistant's own bubble, with one button;
+ * skipping one is the Updates tab's.
  */
 export const AppSourceOffers = memo(function AppSourceOffers() {
   const t = useT();
@@ -187,34 +189,44 @@ export const AppSourceOffers = memo(function AppSourceOffers() {
   if (offers.length === 0) return null;
   const blocked = state.busy || pending !== null || merging;
   return (
-    <div className="app-update-offers" data-testid="app-source-offers">
-      {offers.map((offer) => (
-        <UpdateCard
-          key={offer.key}
-          placement="composer"
-          tone="update"
-          title={
-            offer.kind === "other-computer"
-              ? offer.device
-                ? t("shell.appSource.updates.fromDevice", {
-                    device: deviceLabel(offer.device),
-                  })
-                : t("shell.appSource.updates.fromOtherComputer")
-              : t("shell.appSource.updates.readyChange")
-          }
-          detail={subjectOf(offer.summary)}
-          busy={offer.adding || pending === offer.key}
-          disabled={blocked}
-          action={{
-            label:
-              offer.kind === "other-computer"
-                ? t("shell.appSource.updates.get")
-                : t("shell.appSource.updates.add"),
-            primary: true,
-            onClick: () => void run(offer.key, () => addOffer(offer)),
-          }}
-        />
-      ))}
+    <div className="app-update-messages" data-testid="app-source-offers">
+      {offers.map((offer) => {
+        const adding = offer.adding || pending === offer.key;
+        return (
+          <div key={offer.key} className="event-row event-row--assistant">
+            <div className="event-item assistant">
+              <div className="message-line message-line--assistant">
+                <div className="assistant-message-text chat-bubble-text app-update-message">
+                  <p className="app-update-message__title">
+                    {offer.kind === "other-computer"
+                      ? offer.device
+                        ? t("shell.appSource.updates.fromDevice", {
+                            device: deviceLabel(offer.device),
+                          })
+                        : t("shell.appSource.updates.fromOtherComputer")
+                      : t("shell.appSource.updates.readyChange")}
+                  </p>
+                  <p className="app-update-message__summary">
+                    {subjectOf(offer.summary)}
+                  </p>
+                  <button
+                    type="button"
+                    className="app-update-message__button"
+                    disabled={adding || blocked}
+                    onClick={() => void run(offer.key, () => addOffer(offer))}
+                  >
+                    {adding
+                      ? t("shell.appSource.updates.adding")
+                      : offer.kind === "other-computer"
+                        ? t("shell.appSource.updates.get")
+                        : t("shell.appSource.updates.add")}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 });

@@ -31,11 +31,14 @@ export type CanonicalPrompts = {
   /** The raw `agents/orchestrator.md` source; rendered per turn. */
   orchestratorBody: string;
   personalityBody: string;
+  /** The summarizer's system prompt, as on the desktop. */
+  compactionSystemPrompt: string;
 };
 
 export const CANONICAL_PROMPTS: CanonicalPrompts = {
   orchestratorBody: bundledPrompt("agents/orchestrator.md"),
   personalityBody: bundledPrompt("prompts/personality.md"),
+  compactionSystemPrompt: bundledPrompt("prompts/thread-compaction.md"),
 };
 
 /**

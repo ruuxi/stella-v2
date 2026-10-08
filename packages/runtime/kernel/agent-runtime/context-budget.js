@@ -1,4 +1,10 @@
 import { Buffer } from "node:buffer";
+import {
+  DEFAULT_ESTIMATED_IMAGE_TOKENS,
+  estimateModelVisibleImageTokens,
+} from "./image-tokens.js";
+
+export { DEFAULT_ESTIMATED_IMAGE_TOKENS, estimateModelVisibleImageTokens };
 
 const providerBudgets = new Map();
 const providerPayloadEstimates = new Map();
@@ -8,11 +14,6 @@ const forcedCompactions = new Map();
 const MAX_INPUT_FRACTION = 0.7;
 const ESTIMATED_BYTES_PER_TOKEN = 3;
 /** Fallback when an image-bearing provider item does not expose dimensions. */
-export const DEFAULT_ESTIMATED_IMAGE_TOKENS = 1_200;
-const IMAGE_TILE_EDGE_PX = 512;
-const IMAGE_DETAIL_MAX_EDGE_PX = 2_048;
-const IMAGE_BASE_TOKENS = 85;
-const IMAGE_TILE_TOKENS = 170;
 const EXACT_INSPECTION_FRACTION = 0.75;
 const JSON_ESCAPE_RE = /["\\\u0000-\u001f\ud800-\udfff]/;
 // JSON.stringify writes these as two bytes (`\"`, `\n`, ...) and every other
@@ -85,29 +86,6 @@ export const getLastProviderPayloadTokens = (threadKey) => {
   return typeof value === "number" && Number.isFinite(value)
     ? value
     : undefined;
-};
-
-const positiveDimension = (value) => {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : undefined;
-};
-
-/**
- * Dimension-aware vision estimate shared by provider preflight and persisted
- * thread accounting. The tile formula is intentionally provider-neutral; an
- * unknown-size image uses the same conservative fallback in both paths.
- */
-export const estimateModelVisibleImageTokens = (value) => {
-  const width = positiveDimension(value?.width ?? value?.widthPx);
-  const height = positiveDimension(value?.height ?? value?.heightPx);
-  if (!width || !height) return DEFAULT_ESTIMATED_IMAGE_TOKENS;
-  const scale = Math.min(1, IMAGE_DETAIL_MAX_EDGE_PX / Math.max(width, height));
-  const scaledWidth = Math.max(1, Math.ceil(width * scale));
-  const scaledHeight = Math.max(1, Math.ceil(height * scale));
-  const tiles =
-    Math.ceil(scaledWidth / IMAGE_TILE_EDGE_PX) *
-    Math.ceil(scaledHeight / IMAGE_TILE_EDGE_PX);
-  return IMAGE_BASE_TOKENS + IMAGE_TILE_TOKENS * tiles;
 };
 
 /** Exact decoded size for ordinary padded or unpadded base64 payloads. */

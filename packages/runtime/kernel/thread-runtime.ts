@@ -34,6 +34,31 @@ import {
   toolResultQuarantineKey,
 } from "./agent-runtime/provider-abort-containment.js";
 import { loadLocalPreferences } from "./preferences/local-preferences.js";
+import {
+  MIN_TAIL_MESSAGES,
+  MIN_TRIGGER_TOKENS,
+  SUMMARY_RETRY_DELAYS_MS,
+  alignCutForward,
+  buildOrchestratorSummaryPrompt,
+  capSummaryConversation,
+  contextWindowTokens,
+  durableMemoryReference,
+  ellipsize,
+  estimatePayloadTokens,
+  formatCheckpointText,
+  orchestratorCompactionTriggerTokens,
+  orchestratorKeepRecentTokens,
+  pinnedInstructionText,
+  planOrchestratorCompaction,
+  summaryInputCharBudget,
+  summaryLinesForPayload,
+  summaryMaxTokens,
+  summaryOverheadChars,
+  summaryTargetTokens,
+  THREAD_CHECKPOINT_MARKER,
+  truncateForSummary,
+  type CompactionMessageView,
+} from "./agent-runtime/orchestrator-compaction.js";
 
 const logger = createRuntimeLogger("thread-runtime");
 
@@ -48,43 +73,9 @@ const readStellaDataFile =
     }
   };
 
-const THREAD_CHECKPOINT_MARKER = "[[THREAD_CHECKPOINT]]";
 export const resolveThreadCompactionSystemPrompt = (): string =>
   readRuntimePrompt("thread-compaction") ?? "";
-const THREAD_COMPACTION_RESERVE_TOKENS = 49_152;
-/**
- * Fraction of the model's real context window at which a thread compacts.
- * Keyed off `route.model.contextWindow` (the real, provider-catalog-derived
- * window) so the trigger scales with the active model. Compared against the
- * full model-visible request — the last preflight-measured outbound payload
- * (system prompt + tool schemas + resident context + history) when one has
- * been captured, with the history-only estimate as the floor for threads
- * that have not dispatched a turn yet (e.g. right after a worker restart).
- */
-const THREAD_COMPACTION_TRIGGER_PCT = 0.5;
 const THREAD_COMPACTION_PROTECT_HEAD_MESSAGES = 3;
-const THREAD_COMPACTION_KEEP_RECENT_TOKENS = 20_000;
-/**
- * Fraction of the model's window the kept tail may occupy. Bounds the fixed
- * keep-recent budget on small-window models so a compaction always frees
- * enough room for the retry to fit.
- *
- * Orchestrator-only. General/subagent compaction uses a fixed 20k tail
- * (pi-mono) with a small-window safety clamp instead of this 10% policy.
- */
-const THREAD_COMPACTION_KEEP_RECENT_WINDOW_PCT = 0.1;
-const THREAD_COMPACTION_MIN_TAIL_MESSAGES = 2;
-/**
- * Char cap for the pinned copy of the latest user instruction carried
- * verbatim across a compaction checkpoint (~3-4k tokens). The pin never
- * moves the tail cut — its cost is exactly one capped message.
- *
- * Orchestrator-only. General/subagent compaction follows pi-mono and does
- * not emit a synthetic pin.
- */
-const THREAD_COMPACTION_PINNED_INSTRUCTION_MAX_CHARS = 12_000;
-const DEFAULT_CONTEXT_WINDOW_TOKENS = 128_000;
-const MIN_TRIGGER_TOKENS = 8_000;
 /**
  * General/subagent compaction trigger. Deliberately not pi-mono's
  * `window - 16k` and not the orchestrator's 50%.
@@ -100,8 +91,6 @@ const GENERAL_COMPACTION_KEEP_RECENT_TOKENS = 20_000;
  * policy.
  */
 const GENERAL_COMPACTION_SMALL_WINDOW_RESERVE_TOKENS = 4_096;
-const MAX_BLOCK_CHARS = 100_000;
-const TOOL_RESULT_MAX_CHARS = 2_000;
 export const MAX_ACTIVE_THREAD_IMAGES = 8;
 export const ACTIVE_THREAD_IMAGE_DECODED_BYTE_BUDGET = 12 * 1024 * 1024;
 
@@ -173,21 +162,6 @@ type ThreadImageReceipt = {
 
 export type ThreadCompactionSplitPolicy = "orchestrator" | "general";
 
-const truncateWithSuffix = (
-  value: string,
-  maxChars: number,
-  suffix = "...(truncated)",
-): string =>
-  value.length <= maxChars ? value : `${value.slice(0, maxChars)}${suffix}`;
-
-const ellipsize = (value: string): string =>
-  truncateWithSuffix(value.trim(), MAX_BLOCK_CHARS);
-
-const truncateForSummary = (value: string, maxChars: number): string =>
-  value.length <= maxChars
-    ? value
-    : `${value.slice(0, maxChars)}\n\n[... ${value.length - maxChars} more characters truncated]`;
-
 const stringifyMessage = (message: ThreadMessage): string => {
   const content = message.content.trim();
   if (!content) {
@@ -202,97 +176,17 @@ const stringifyMessage = (message: ThreadMessage): string => {
   return `[Assistant] ${ellipsize(content)}`;
 };
 
-const stringifyPayloadMessage = (
-  payload: PersistedRuntimeThreadPayload,
-): string[] => {
-  if (payload.role === "user") {
-    const content =
-      typeof payload.content === "string"
-        ? payload.content
-        : payload.content
-            .map((block) =>
-              block.type === "text"
-                ? block.text
-                : `[Image receipt: ${block.mimeType}${block.sourcePath ? ` path=${block.sourcePath}` : ""}]`,
-            )
-            .join("\n");
-    return content.trim() ? [`[User] ${content.trim()}`] : [];
-  }
-
-  if (payload.role === "assistant") {
-    const parts: string[] = [];
-    const textParts: string[] = [];
-    const thinkingParts: string[] = [];
-    const toolCalls: string[] = [];
-
-    for (const block of payload.content) {
-      if (block.type === "text") {
-        if (block.text.trim()) {
-          textParts.push(block.text);
-        }
-        continue;
-      }
-      if (block.type === "thinking") {
-        if (block.thinking.trim()) {
-          thinkingParts.push(block.thinking);
-        }
-        continue;
-      }
-      toolCalls.push(
-        `${block.name}(${Object.entries(block.arguments ?? {})
-          .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
-          .join(", ")})`,
-      );
-    }
-
-    if (thinkingParts.length > 0) {
-      parts.push(`[Assistant thinking] ${thinkingParts.join("\n")}`);
-    }
-    if (textParts.length > 0) {
-      parts.push(`[Assistant] ${textParts.join("\n")}`);
-    }
-    if (toolCalls.length > 0) {
-      parts.push(`[Assistant tool calls] ${toolCalls.join("; ")}`);
-    }
-    return parts;
-  }
-
-  const content = payload.content
-    .map((block) =>
-      block.type === "text"
-        ? block.text
-        : `[Image receipt: ${block.mimeType}${block.sourcePath ? ` path=${block.sourcePath}` : ""}]`,
-    )
-    .join("\n")
-    .trim();
-  return content
-    ? [`[Tool result] ${truncateForSummary(content, TOOL_RESULT_MAX_CHARS)}`]
-    : [];
-};
-
 const stringifyStoredMessage = (message: StoredThreadMessage): string[] => {
   if (message.customMessage?.customType === QUARANTINE_CUSTOM_TYPE) {
     return [];
   }
   if (message.payload) {
-    if (
-      message.payload.role === "assistant" &&
-      (message.payload.stopReason === "error" ||
-        message.payload.stopReason === "aborted" ||
-        !message.payload.content.some(
-          (block) =>
-            block.type === "toolCall" ||
-            (block.type === "text" && block.text.trim().length > 0),
-        ))
-    ) {
-      return [];
-    }
-    return stringifyPayloadMessage(message.payload);
+    return summaryLinesForPayload(message.payload);
   }
   if (message.role === "toolResult") {
     const content = message.content.trim();
     return content
-      ? [`[Tool result] ${truncateForSummary(content, TOOL_RESULT_MAX_CHARS)}`]
+      ? [`[Tool result] ${truncateForSummary(content, 2_000)}`]
       : [];
   }
   return [stringifyMessage(message as ThreadMessage)].filter(
@@ -368,55 +262,6 @@ const maskQuarantinedCompactionMessages = (
 const estimateMessageTokens = (message: ThreadMessage): number =>
   Math.max(1, Math.ceil((message.content ?? "").length / 4));
 
-const estimatePayloadTokens = (
-  payload: PersistedRuntimeThreadPayload,
-): number => {
-  if (payload.role === "user") {
-    if (typeof payload.content === "string") {
-      return Math.max(1, Math.ceil(payload.content.length / 4));
-    }
-    let tokens = 0;
-    for (const block of payload.content) {
-      tokens +=
-        block.type === "text"
-          ? Math.max(1, Math.ceil(block.text.length / 4))
-          : estimateModelVisibleImageTokens(block);
-    }
-    return tokens;
-  }
-
-  if (payload.role === "assistant") {
-    let tokens = 0;
-    for (const block of payload.content) {
-      if (block.type === "text") {
-        tokens += Math.max(1, Math.ceil(block.text.length / 4));
-        continue;
-      }
-      if (block.type === "thinking") {
-        tokens += Math.max(1, Math.ceil(block.thinking.length / 4));
-        continue;
-      }
-      tokens += Math.max(
-        1,
-        Math.ceil(
-          (block.name.length + JSON.stringify(block.arguments ?? {}).length) /
-            4,
-        ),
-      );
-    }
-    return tokens;
-  }
-
-  let tokens = 0;
-  for (const block of payload.content) {
-    tokens +=
-      block.type === "text"
-        ? Math.max(1, Math.ceil(block.text.length / 4))
-        : estimateModelVisibleImageTokens(block);
-  }
-  return tokens;
-};
-
 const storedMessageImageBlocks = (message: StoredThreadMessage) => {
   const payload = message.payload;
   if (payload && typeof payload.content !== "string") {
@@ -438,13 +283,8 @@ const estimateStoredMessageTokens = (message: StoredThreadMessage): number => {
   return estimateMessageTokens(message as ThreadMessage) + imageTokens;
 };
 
-const getContextWindow = (route: ResolvedLlmRoute): number => {
-  const value = Number(route.model.contextWindow);
-  if (!Number.isFinite(value) || value <= 0) {
-    return DEFAULT_CONTEXT_WINDOW_TOKENS;
-  }
-  return Math.floor(value);
-};
+const getContextWindow = (route: ResolvedLlmRoute): number =>
+  contextWindowTokens(route.model.contextWindow);
 
 export const resolveCompactionSplitPolicy = (
   agentType?: string,
@@ -456,16 +296,13 @@ export const resolveCompactionSplitPolicy = (
 export const getCompactionTriggerTokens = (
   route: ResolvedLlmRoute,
   agentType?: string,
-): number => {
-  const triggerPct =
-    resolveCompactionSplitPolicy(agentType) === "general"
-      ? GENERAL_COMPACTION_TRIGGER_PCT
-      : THREAD_COMPACTION_TRIGGER_PCT;
-  return Math.max(
-    MIN_TRIGGER_TOKENS,
-    Math.floor(getContextWindow(route) * triggerPct),
-  );
-};
+): number =>
+  resolveCompactionSplitPolicy(agentType) === "general"
+    ? Math.max(
+        MIN_TRIGGER_TOKENS,
+        Math.floor(getContextWindow(route) * GENERAL_COMPACTION_TRIGGER_PCT),
+      )
+    : orchestratorCompactionTriggerTokens(getContextWindow(route));
 
 export const getThreadTokenEstimate = (
   messages: StoredThreadMessage[],
@@ -523,145 +360,51 @@ const extractUserMessageText = (message: StoredThreadMessage): string => {
   return message.content;
 };
 
-const hasToolCalls = (message: StoredThreadMessage): boolean =>
-  message.role === "assistant" &&
-  message.payload?.role === "assistant" &&
-  message.payload.content.some((block) => block.type === "toolCall");
-
-const getToolCallIds = (message: StoredThreadMessage): Set<string> => {
-  const ids = new Set<string>();
-  if (message.role !== "assistant" || message.payload?.role !== "assistant") {
-    return ids;
-  }
-  for (const block of message.payload.content) {
-    if (block.type === "toolCall" && typeof block.id === "string") {
-      ids.add(block.id);
-    }
-  }
-  return ids;
-};
-
-const getToolResultId = (message: StoredThreadMessage): string | undefined => {
-  if (message.role !== "toolResult") {
-    return undefined;
-  }
-  if (
-    message.payload?.role === "toolResult" &&
-    message.payload.toolCallId.trim()
-  ) {
-    return message.payload.toolCallId.trim();
-  }
-  return message.toolCallId?.trim();
-};
-
-const findContainingToolCallGroup = (
-  messages: StoredThreadMessage[],
-  messageIndex: number,
-): { startIndex: number; endIndex: number } | null => {
-  for (let startIndex = messageIndex; startIndex >= 0; startIndex -= 1) {
-    const assistant = messages[startIndex];
-    if (!assistant) return null;
-    if (assistant.role !== "assistant") continue;
-    if (!hasToolCalls(assistant)) return null;
-
-    const callIds = getToolCallIds(assistant);
-    const matchedCallIds = new Set<string>();
-    let endIndex = startIndex;
-    for (let index = startIndex + 1; index < messages.length; index += 1) {
-      const message = messages[index]!;
-      // Live user steering and runtime notices are persisted immediately and
-      // can therefore appear between an assistant tool call and the result
-      // that the running Agent records later. Only a newer assistant turn ends
-      // ownership of the tool-call group.
-      if (message.role === "assistant") break;
-      endIndex = index;
-      const toolCallId = getToolResultId(message);
-      if (toolCallId && callIds.has(toolCallId)) {
-        matchedCallIds.add(toolCallId);
-        if (matchedCallIds.size === callIds.size) break;
+/** The cut planner's view of a stored message. */
+const compactionView = (message: StoredThreadMessage): CompactionMessageView => ({
+  role: message.role,
+  toolCallIds:
+    message.role === "assistant" && message.payload?.role === "assistant"
+      ? message.payload.content.flatMap((block) =>
+          block.type === "toolCall" && typeof block.id === "string"
+            ? [block.id]
+            : [],
+        )
+      : [],
+  ...(message.role === "toolResult"
+    ? {
+        toolResultId:
+          message.payload?.role === "toolResult" &&
+          message.payload.toolCallId.trim()
+            ? message.payload.toolCallId.trim()
+            : message.toolCallId?.trim(),
       }
-    }
-    return messageIndex <= endIndex ? { startIndex, endIndex } : null;
-  }
-  return null;
-};
+    : {}),
+  tokens: estimateStoredMessageTokens(message),
+});
 
 const alignBoundaryForward = (
   messages: StoredThreadMessage[],
   index: number,
-): number => {
-  if (index <= 0 || index >= messages.length) {
-    return index;
-  }
-  const containingGroup = findContainingToolCallGroup(messages, index);
-  return containingGroup && index > containingGroup.startIndex
-    ? containingGroup.endIndex + 1
-    : index;
-};
-
-const alignBoundaryBackward = (
-  messages: StoredThreadMessage[],
-  index: number,
-): number => {
-  if (index <= 0 || index >= messages.length) {
-    return index;
-  }
-  const containingGroup = findContainingToolCallGroup(messages, index);
-  return containingGroup && index > containingGroup.startIndex
-    ? containingGroup.startIndex
-    : index;
-};
-
-const findTailStartIndexByTokenBudget = (
-  messages: StoredThreadMessage[],
-  headEnd: number,
-  keepRecentTokens = THREAD_COMPACTION_KEEP_RECENT_TOKENS,
-  minTailMessages = THREAD_COMPACTION_MIN_TAIL_MESSAGES,
-): number => {
-  let accumulatedTokens = 0;
-  let tailStartIndex = messages.length;
-
-  for (let index = messages.length - 1; index >= headEnd; index -= 1) {
-    const messageTokens = estimateStoredMessageTokens(messages[index]!);
-    if (
-      accumulatedTokens + messageTokens > keepRecentTokens &&
-      tailStartIndex < messages.length
-    ) {
-      break;
-    }
-    accumulatedTokens += messageTokens;
-    tailStartIndex = index;
-  }
-
-  const minCutIndex = messages.length - minTailMessages;
-  const cutIndex =
-    minCutIndex >= headEnd
-      ? Math.min(tailStartIndex, minCutIndex)
-      : tailStartIndex;
-  return alignBoundaryBackward(messages, cutIndex);
-};
+): number => alignCutForward(messages.map(compactionView), index);
 
 export const splitThreadMessagesForCompaction = (
   messages: StoredThreadMessage[],
   protectHeadMessages = THREAD_COMPACTION_PROTECT_HEAD_MESSAGES,
-  keepRecentTokens = THREAD_COMPACTION_KEEP_RECENT_TOKENS,
-  minTailMessages = THREAD_COMPACTION_MIN_TAIL_MESSAGES,
+  keepRecentTokens = 20_000,
+  minTailMessages = MIN_TAIL_MESSAGES,
 ): ThreadCompactionPlan | null => {
-  if (messages.length <= protectHeadMessages + minTailMessages) {
-    return null;
-  }
-
-  let compressionStart = Math.min(protectHeadMessages, messages.length);
-  compressionStart = alignBoundaryForward(messages, compressionStart);
-  const tailStartIndex = findTailStartIndexByTokenBudget(
-    messages,
-    compressionStart,
+  const plan = planOrchestratorCompaction({
+    messages: messages.map(compactionView),
+    protectHead: protectHeadMessages,
     keepRecentTokens,
     minTailMessages,
-  );
-  if (tailStartIndex <= compressionStart) {
+  });
+  if (!plan) {
     return null;
   }
+  const compressionStart = plan.start;
+  const tailStartIndex = plan.tailStart;
 
   const middleMessages = messages
     .slice(compressionStart, tailStartIndex)
@@ -677,17 +420,10 @@ export const splitThreadMessagesForCompaction = (
   // bounded cost: when it sits inside the summarized middle it is carried
   // across the checkpoint as one capped pinned copy (re-emitted by the
   // overlay materializer) — the tail cut is never moved back for it.
-  let latestUserMessage: StoredThreadMessage | undefined;
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index]!;
-    if (message.role !== "user") {
-      continue;
-    }
-    if (index >= compressionStart && index < tailStartIndex) {
-      latestUserMessage = message;
-    }
-    break;
-  }
+  const latestUserMessage =
+    plan.latestUserIndex !== undefined
+      ? messages[plan.latestUserIndex]
+      : undefined;
 
   const previousSummary = messages
     .map((message) => parseThreadCheckpoint(message.content)?.summary)
@@ -1307,223 +1043,26 @@ export const parseThreadCheckpoint = (
 
 export const formatThreadCheckpointMessage = (
   checkpoint: ThreadCheckpoint,
-): string =>
-  [THREAD_CHECKPOINT_MARKER, "", checkpoint.summary.trim()].join("\n");
-
-/**
- * Output cap for one summary request (pi-mono `generateSummaryWithUsage` /
- * `generateTurnPrefixSummary`): 0.8 × the compaction reserve for history
- * summaries, 0.5 × for split-turn prefixes, never above the model's own
- * output limit. A summary that hits the cap stops with "length" and is
- * rejected below, so the requested target length stays well under it.
- */
-const getSummaryMaxTokens = (
-  route: ResolvedLlmRoute,
-  promptKind: "history" | "turnPrefix",
-): number => {
-  const modelMaxTokens = Number(route.model.maxTokens);
-  return Math.min(
-    Math.floor(
-      (promptKind === "turnPrefix" ? 0.5 : 0.8) *
-        THREAD_COMPACTION_RESERVE_TOKENS,
-    ),
-    Number.isFinite(modelMaxTokens) && modelMaxTokens > 0
-      ? Math.floor(modelMaxTokens)
-      : Number.POSITIVE_INFINITY,
-  );
-};
+): string => formatCheckpointText(checkpoint.summary);
 
 const computeSummaryBudget = (
   messages: StoredThreadMessage[],
   maxTokens: number,
-): number =>
-  Math.max(
-    100,
-    Math.min(
-      Math.floor(getThreadTokenEstimate(messages) * 0.2),
-      Math.floor(maxTokens * 0.5),
-    ),
-  );
+): number => summaryTargetTokens(getThreadTokenEstimate(messages), maxTokens);
 
-/**
- * Retry backoff for the summary request. Compaction runs at the moment of
- * heaviest provider usage, so transient failures (429/overloaded/network,
- * a credential-refresh blip) are expected — every attempt re-resolves the
- * API key and retries after the delay instead of failing the compaction.
- */
-const THREAD_SUMMARY_RETRY_DELAYS_MS = [1_000, 2_000, 5_000, 10_000];
-
-let summaryRetryDelaysMs: readonly number[] = THREAD_SUMMARY_RETRY_DELAYS_MS;
+let summaryRetryDelaysMs: readonly number[] = SUMMARY_RETRY_DELAYS_MS;
 
 /** Test seam: shorten (or restore) the summary retry backoff. */
 export const setThreadSummaryRetryDelaysForTest = (
   delays?: readonly number[],
 ): void => {
-  summaryRetryDelaysMs = delays ?? THREAD_SUMMARY_RETRY_DELAYS_MS;
+  summaryRetryDelaysMs = delays ?? SUMMARY_RETRY_DELAYS_MS;
 };
 
 const sleep = (ms: number): Promise<void> =>
   ms > 0
     ? new Promise((resolve) => setTimeout(resolve, ms))
     : Promise.resolve();
-
-/**
- * Estimated chars-per-token used to cap the summary request input. Deliberately
- * conservative (dense code/JSON runs ~3–3.5 chars per token, CJK far less) so
- * the capped request can never itself overflow the summarizer's window.
- */
-const SUMMARY_INPUT_CHARS_PER_TOKEN = 3;
-
-/**
- * Cap the formatted conversation fed to the summary model so a large backlog
- * of uncompacted turns can never push the request over the summarizer's
- * context window. Without this, one failed compaction lets the middle grow
- * turn over turn until every subsequent attempt overflows the window and
- * fails too — compaction then never recovers. Keeps the most recent tail
- * (the previous checkpoint summary already covers older ground) and notes
- * the elision.
- */
-const capSummaryConversation = (
-  formatted: string,
-  maxChars: number,
-): string => {
-  if (maxChars <= 0 || formatted.length <= maxChars) {
-    return formatted;
-  }
-  const omittedChars = formatted.length - maxChars;
-  return [
-    `[Compaction input truncated: the oldest ~${Math.round(
-      omittedChars / SUMMARY_INPUT_CHARS_PER_TOKEN,
-    )} tokens of unsummarized conversation were omitted so this request fits the summary model's context window. Rely on the previous summary (when present) for older details.]`,
-    formatted.slice(formatted.length - maxChars),
-  ].join("\n\n");
-};
-
-/**
- * Char budget for the formatted conversation in one summary request.
- * `overheadChars` accounts for everything else riding along in the request —
- * the system prompt, the previous checkpoint summary, the durable-memory
- * reference, and the prompt template — so the whole request stays inside
- * the model's window, not just the conversation part.
- */
-const getSummaryInputCharBudget = (
-  route: ResolvedLlmRoute,
-  overheadChars: number,
-): number =>
-  Math.max(
-    MIN_TRIGGER_TOKENS * SUMMARY_INPUT_CHARS_PER_TOKEN,
-    Math.max(
-      MIN_TRIGGER_TOKENS,
-      getContextWindow(route) - THREAD_COMPACTION_RESERVE_TOKENS,
-    ) *
-      SUMMARY_INPUT_CHARS_PER_TOKEN -
-      overheadChars,
-  );
-
-/**
- * Non-conversation chars that ride along every summary request (system
- * prompt, previous checkpoint summary, durable-memory reference, and the
- * fixed prompt template). Shared by the single-pass budget check and
- * `generateThreadSummary` so the "does the middle fit one pass?" decision
- * uses the same accounting the request itself does.
- */
-const estimateSummaryOverheadChars = (args: {
-  systemPromptChars: number;
-  previousSummary?: string;
-  durableMemoryReference?: string;
-}): number =>
-  args.systemPromptChars +
-  (args.previousSummary?.length ?? 0) +
-  (args.durableMemoryReference?.length ?? 0) +
-  SUMMARY_PROMPT_TEMPLATE_CHARS;
-
-/** Char slack for the fixed prompt template (structure, guidelines, footer). */
-const SUMMARY_PROMPT_TEMPLATE_CHARS = 4_000;
-
-const SUMMARY_STRUCTURE = `## Topic
-[What the conversation is about]
-
-## Key Points
-[Important information, decisions, and conclusions from the conversation]
-
-## Current State
-[Where things stand now — what has been done, what is in progress]
-
-## Open Items
-[Unresolved questions, pending tasks, or next steps discussed]`;
-
-const buildSummaryGuidelines = (hasDurableMemoryReference: boolean): string =>
-  [
-    "Guidelines:",
-    '- Thread ids: delegated/background work appears in the conversation as spawn_agent / send_message / check-status tool calls and results carrying a `thread_id`. Name that exact thread_id alongside every workstream you mention (e.g. "shell redesign polish — thread_id: shell-redesign-v2-full-polish") so follow-ups after this checkpoint route to the existing thread instead of spawning a duplicate.',
-    "- Pending user decisions: any question posed to the user that was not yet answered by the end of the conversation goes under Open Items with the exact question quoted verbatim; if the user gave a partial or nuanced answer, quote the user's exact relevant words too. Never paraphrase half-answered decisions — quote them.",
-    "- Resume-critical state: preserve the task objective and constraints; every working path, branch, and commit SHA; every child thread id with its status and concrete result; completed and unresolved work; and the latest user instruction. Quote the latest user instruction verbatim when its wording affects how work must resume.",
-    '- Current task/instruction: the newest user message in the conversation (a follow-up request or a "Task update:" steer) defines what the agent is doing RIGHT NOW. Preserve it faithfully — quote it verbatim (or near-verbatim if very long) under Current State or Open Items so the agent resumes exactly that work after compaction, not an earlier task.',
-    "- Never return an empty or near-empty summary. After compaction this summary is the only carrier of the compacted span's thread-specific context, so it must stand alone: even if most of the conversation is already covered by durable memory or the previous summary, restate the thread-specific workstreams, decisions, current state, and open items. A bare heading or a one-line fragment is never an acceptable summary.",
-    // The durable-memory rule only applies when the always-loaded docs are
-    // actually injected for this agent (orchestrator); for other agents the
-    // summary is the only carrier of such facts, so omitting them would lose
-    // information.
-    ...(hasDurableMemoryReference
-      ? [
-          "- Do not restate durable memory: facts already present in the ALREADY KNOWN section below (user profile facts, addresses, standing rules, workflow tiers, long-term preferences) must be omitted from the summary — the assistant is given that section separately on every turn. Summarize only thread-specific state.",
-        ]
-      : []),
-  ].join("\n");
-
-const buildAlreadyKnownSection = (
-  durableMemoryReference: string | undefined,
-): string =>
-  durableMemoryReference?.trim()
-    ? `ALREADY KNOWN (durable memory, injected separately on every turn — do NOT repeat any of this in the summary):
-${durableMemoryReference.trim()}
-
-`
-    : "";
-
-const buildSummaryPrompt = (
-  formattedConversation: string,
-  previousSummary: string | undefined,
-  budget: number,
-  durableMemoryReference?: string,
-): string => {
-  if (!formattedConversation) {
-    return previousSummary?.trim() ?? "";
-  }
-  const guidelines = buildSummaryGuidelines(
-    Boolean(durableMemoryReference?.trim()),
-  );
-  const alreadyKnown = buildAlreadyKnownSection(durableMemoryReference);
-  const footer = `${guidelines}
-
-Target ~${budget} tokens. Be factual — only include information that was explicitly discussed in the conversation. Do NOT invent file paths, commands, or details that were not mentioned. Write only the summary body.`;
-  if (previousSummary?.trim()) {
-    return `You are updating a conversation summary. A previous summary exists below. New conversation turns have occurred since then and need to be incorporated.
-
-${alreadyKnown}PREVIOUS SUMMARY:
-${previousSummary.trim()}
-
-NEW TURNS TO INCORPORATE:
-${formattedConversation}
-
-Update the summary. PRESERVE existing information that is still relevant. ADD new information. Remove information only if it is clearly obsolete.
-
-${SUMMARY_STRUCTURE}
-
-${footer}`;
-  }
-
-  return `Create a concise summary of this conversation that preserves the important information for future context.
-
-${alreadyKnown}CONVERSATION TO SUMMARIZE:
-${formattedConversation}
-
-Use this structure:
-
-${SUMMARY_STRUCTURE}
-
-${footer}`;
-};
 
 const GENERAL_SUMMARIZATION_SYSTEM_PROMPT = `You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.
 
@@ -1643,27 +1182,9 @@ export const buildGeneralTurnPrefixPrompt = (
 // Per-doc cap for the ALREADY KNOWN reference. The docs are small
 // always-loaded files; the cap only guards against a runaway doc inflating
 // the compaction request.
-const DURABLE_MEMORY_DOC_MAX_CHARS = 8_000;
-
 /**
- * Read one always-loaded durable-memory doc. Mirrors
- * `readResidentMemoryDoc` in runner/shared.ts, which cannot be imported here
- * without creating a module cycle (runner/shared → local-agent-manager →
- * subagent-session → pi-session-core → thread-memory → thread-runtime).
- */
-const readDurableMemoryDoc = (filePath: string): string | undefined => {
-  try {
-    const content = fs.readFileSync(filePath, "utf-8").trim();
-    return content ? redactMemoryText(content) : undefined;
-  } catch {
-    return undefined;
-  }
-};
-
-/**
- * Build the "already known — do not repeat" reference from the always-loaded
- * durable user profile, so the
- * summarizer can skip restating facts the assistant sees on every turn.
+ * The "already known — do not repeat" reference for the summarizer, from the
+ * always-loaded user profile.
  */
 export const buildDurableMemoryReference = (
   stellaDataDir: string | undefined,
@@ -1674,23 +1195,14 @@ export const buildDurableMemoryReference = (
   if (loadLocalPreferences(stellaDataDir).memoryEnabled === false) {
     return undefined;
   }
-  const sections = [
-    {
-      label: "User profile (memories/profile.md)",
-      docPath: path.join(stellaDataDir, "memories", "profile.md"),
-    },
-  ]
-    .map(({ label, docPath }) => {
-      const text = readDurableMemoryDoc(docPath);
-      if (!text) return "";
-      const capped =
-        text.length > DURABLE_MEMORY_DOC_MAX_CHARS
-          ? `${text.slice(0, DURABLE_MEMORY_DOC_MAX_CHARS)}\n[truncated]`
-          : text;
-      return `### ${label}\n${capped}`;
-    })
-    .filter((section) => section.length > 0);
-  return sections.length > 0 ? sections.join("\n\n") : undefined;
+  try {
+    const content = fs
+      .readFileSync(path.join(stellaDataDir, "memories", "profile.md"), "utf-8")
+      .trim();
+    return durableMemoryReference(content ? redactMemoryText(content) : "");
+  } catch {
+    return undefined;
+  }
 };
 
 const generateThreadSummary = async (args: {
@@ -1708,7 +1220,7 @@ const generateThreadSummary = async (args: {
       ? GENERAL_SUMMARIZATION_SYSTEM_PROMPT
       : resolveThreadCompactionSystemPrompt();
   const previousSummary = args.previousSummary?.trim();
-  const overheadChars = estimateSummaryOverheadChars({
+  const overheadChars = summaryOverheadChars({
     systemPromptChars: systemPrompt.length,
     previousSummary,
     durableMemoryReference:
@@ -1716,7 +1228,7 @@ const generateThreadSummary = async (args: {
   });
   const formattedConversation = capSummaryConversation(
     formatThreadMessagesForCompaction(args.messages).trim(),
-    getSummaryInputCharBudget(args.resolvedLlm, overheadChars),
+    summaryInputCharBudget(getContextWindow(args.resolvedLlm), overheadChars),
   );
   if (!formattedConversation) {
     return {
@@ -1725,8 +1237,8 @@ const generateThreadSummary = async (args: {
     };
   }
 
-  const maxTokens = getSummaryMaxTokens(
-    args.resolvedLlm,
+  const maxTokens = summaryMaxTokens(
+    args.resolvedLlm.model.maxTokens,
     args.promptKind ?? "history",
   );
   const promptBody =
@@ -1734,12 +1246,12 @@ const generateThreadSummary = async (args: {
       ? args.promptKind === "turnPrefix"
         ? buildGeneralTurnPrefixPrompt(formattedConversation)
         : buildGeneralSummaryPrompt(formattedConversation, previousSummary)
-      : buildSummaryPrompt(
+      : buildOrchestratorSummaryPrompt({
           formattedConversation,
           previousSummary,
-          computeSummaryBudget(args.messages, maxTokens),
-          args.durableMemoryReference,
-        );
+          targetTokens: computeSummaryBudget(args.messages, maxTokens),
+          durableMemoryReference: args.durableMemoryReference,
+        });
 
   // Every failure mode is treated as transient and retried with backoff:
   // provider errors (429/overloaded/network/400), thrown transport errors,
@@ -1839,9 +1351,9 @@ const generateThreadSummaryWithoutElision = async (args: {
   let offset = 0;
 
   while (offset < args.messages.length) {
-    const maxChars = getSummaryInputCharBudget(
-      args.resolvedLlm,
-      estimateSummaryOverheadChars({
+    const maxChars = summaryInputCharBudget(
+      getContextWindow(args.resolvedLlm),
+      summaryOverheadChars({
         systemPromptChars: systemPrompt.length,
         previousSummary,
         durableMemoryReference:
@@ -1958,12 +1470,7 @@ const resolveKeepRecentTokens = (
   policy: ThreadCompactionSplitPolicy = "orchestrator",
 ): number => {
   if (policy === "orchestrator") {
-    return Math.min(
-      THREAD_COMPACTION_KEEP_RECENT_TOKENS,
-      Math.floor(
-        getContextWindow(route) * THREAD_COMPACTION_KEEP_RECENT_WINDOW_PCT,
-      ),
-    );
+    return orchestratorKeepRecentTokens(getContextWindow(route));
   }
   const window = getContextWindow(route);
   const triggerTokens = Math.max(
@@ -2132,7 +1639,7 @@ export const maybeCompactRuntimeThread = async (args: {
           Number.isFinite(args.preserveLastN) &&
             args.preserveLastN !== undefined
             ? Math.max(0, Math.floor(args.preserveLastN))
-            : THREAD_COMPACTION_MIN_TAIL_MESSAGES,
+            : MIN_TAIL_MESSAGES,
         );
   if (
     !splitMessages &&
@@ -2336,11 +1843,10 @@ export const maybeCompactRuntimeThread = async (args: {
   // checkpoint message. Bounded by construction — the tail cut never moves.
   // Orchestrator-only: general/subagent compaction follows pi-mono and
   // does not emit a synthetic pin.
-  const pinnedInstructionText =
+  const pinnedInstruction =
     policy === "orchestrator" && splitMessages.latestUserMessage
-      ? truncateForSummary(
-          extractUserMessageText(splitMessages.latestUserMessage).trim(),
-          THREAD_COMPACTION_PINNED_INSTRUCTION_MAX_CHARS,
+      ? pinnedInstructionText(
+          extractUserMessageText(splitMessages.latestUserMessage),
         )
       : "";
   const generalFileOps =
@@ -2355,8 +1861,8 @@ export const maybeCompactRuntimeThread = async (args: {
     // thread has no resident documents to fold.
     replaceDerivedContext: true,
     ...(residentFold ? { residentFold } : {}),
-    ...(pinnedInstructionText
-      ? { pinnedUserInstruction: { text: pinnedInstructionText } }
+    ...(pinnedInstruction
+      ? { pinnedUserInstruction: { text: pinnedInstruction } }
       : {}),
     ...(quarantineKeys.size > 0
       ? { quarantinedToolResultKeys: [...quarantineKeys].sort() }

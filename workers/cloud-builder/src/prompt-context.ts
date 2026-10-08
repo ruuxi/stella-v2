@@ -10,6 +10,7 @@ import {
   type FrozenContext,
   type SystemPromptSection,
 } from "@stella/runtime/kernel/agent-runtime/frozen-context.js";
+import { checkpointMessages } from "@stella/runtime/kernel/agent-runtime/orchestrator-compaction.js";
 import {
   buildResidentContextMessages,
   residentIdentityForCustomMessage,
@@ -328,8 +329,9 @@ export const materializeProviderContext = (
 
 /**
  * The provider history for a context, laid out like a desktop thread: the
- * pinned resident head, the compaction summary when there is one, then the
- * window's messages with the hidden context each of them carries.
+ * pinned resident head, the checkpoint and pinned instruction when the
+ * conversation was compacted, then the window's messages with the hidden
+ * context each of them carries.
  */
 export const providerHistory = (args: {
   context: PromptContext;
@@ -344,18 +346,11 @@ export const providerHistory = (args: {
     }),
   ),
   ...(args.checkpoint
-    ? [
-        {
-          role: "user" as const,
-          content: [
-            {
-              type: "text" as const,
-              text: `<conversation-summary>\n${args.checkpoint.summary}\n</conversation-summary>`,
-            },
-          ],
-          timestamp: 0,
-        },
-      ]
+    ? checkpointMessages({
+        summary: args.checkpoint.summary,
+        pinnedInstruction: args.checkpoint.pinnedInstruction,
+        timestamp: 0,
+      })
     : []),
   ...materializeProviderContext(args.messages, args.context.epoch),
 ];

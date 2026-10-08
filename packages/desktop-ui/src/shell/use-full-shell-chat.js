@@ -50,6 +50,8 @@ const MAX_RETAINED_TAB_STATE = 20;
  * (agent cards, activity cards, images) settles and grows the scroll height.
  */
 const OPEN_BOTTOM_SETTLE_MS = 600;
+// Frames the height must hold still before an opening chat is shown.
+const OPEN_BOTTOM_STABLE_FRAMES = 3;
 const NO_NEWER_CLOUD_MESSAGES = () => false;
 const EMPTY_STREAMING_ASSISTANTS = [];
 const hasNonWhitespaceText = (text) => text.trim().length > 0;
@@ -147,6 +149,13 @@ export function useFullShellChat({
   activeConversationIdRef.current = activeConversationId;
   const previousComposerConversationIdRef = useRef(activeConversationId);
   const restoredConversationScrollRef = useRef(null);
+  const [settledScrollConversationId, setSettledScrollConversationId] =
+    useState(null);
+  const markScrollSettled = useCallback((conversationId) => {
+    setSettledScrollConversationId((current) =>
+      current === conversationId ? current : conversationId,
+    );
+  }, []);
   // Text the onboarding hand-off asked to submit as soon as the composer can.
   const pendingAutoSendTextRef = useRef(null);
   // Auth scope is a hard renderer privacy boundary. Clear composer content,
@@ -553,6 +562,9 @@ export function useFullShellChat({
       displayMessages.length === 0 ||
       restoredConversationScrollRef.current === activeConversationId
     ) {
+      if (restoredConversationScrollRef.current === activeConversationId) {
+        markScrollSettled(activeConversationId);
+      }
       return;
     }
     const conversationId = activeConversationId;
@@ -570,6 +582,7 @@ export function useFullShellChat({
           top: Math.min(remembered.scrollTop, maximumScrollTop),
           behavior: "instant",
         });
+        markScrollSettled(conversationId);
       } else {
         scrollToBottom("instant");
         // Agent cards, activity cards, and images near the bottom can
@@ -579,19 +592,33 @@ export function useFullShellChat({
         // Keep re-pinning to the end through that post-open settling
         // (until the height stops changing, a short window elapses, or
         // the user takes over) so we always end at the actual bottom.
+        //
+        // The timeline stays hidden (`isOpeningScroll`) until the height has
+        // held still for a few frames, so a reload or relaunch shows the
+        // chat already at the bottom instead of drawing it at the top and
+        // then scrolling down.
         let lastHeight = element ? element.scrollHeight : 0;
+        let stableFrames = 0;
         const deadline = performance.now() + OPEN_BOTTOM_SETTLE_MS;
         const settle = () => {
           settleRaf = null;
           const node = listRef.current?.getScrollableNode();
           // Bail once the user has scrolled away — never yank them back.
-          if (!node || !getIsFollowing()) return;
+          if (!node || !getIsFollowing()) {
+            markScrollSettled(conversationId);
+            return;
+          }
           if (node.scrollHeight !== lastHeight) {
             lastHeight = node.scrollHeight;
+            stableFrames = 0;
             void listRef.current?.scrollToEnd({ animated: false });
+          } else if (++stableFrames === OPEN_BOTTOM_STABLE_FRAMES) {
+            markScrollSettled(conversationId);
           }
           if (performance.now() < deadline) {
             settleRaf = window.requestAnimationFrame(settle);
+          } else {
+            markScrollSettled(conversationId);
           }
         };
         settleRaf = window.requestAnimationFrame(settle);
@@ -608,8 +635,13 @@ export function useFullShellChat({
     getIsFollowing,
     isInitialLoadingMessages,
     listRef,
+    markScrollSettled,
     scrollToBottom,
   ]);
+  const isOpeningScroll =
+    Boolean(activeConversationId) &&
+    displayMessages.length > 0 &&
+    settledScrollConversationId !== activeConversationId;
   const handleSend = useCallback(async () => {
     // Follow the send to the bottom whenever the freshest turn is on
     // screen — near/at bottom OR meaningfully scrolled up but still within
@@ -1140,8 +1172,10 @@ export function useFullShellChat({
       getIsFollowing,
       scrollToBottom,
       thumbRef,
+      isOpeningScroll,
     }),
     [
+      isOpeningScroll,
       listRef,
       showScrollButton,
       isAtBottom,

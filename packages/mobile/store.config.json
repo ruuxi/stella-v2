@@ -26,7 +26,7 @@
         "title": "Stella - Your AI",
         "subtitle": "Your Personal AI Assistant",
         "privacyPolicyUrl": "https://stella.sh/privacy",
-        "releaseNotes": "Improved menus, text selection, and chat scrolling."
+        "releaseNotes": "• Answer Stella's questions from your phone. When Stella needs a decision or a detail to keep going, you can reply right in the chat.\n• Voice conversations have been rebuilt, and there's now a setting to turn voice on or off.\n• Photos, videos, and files in a conversation now appear as previews instead of plain links.\n• Dictation transcribes as you speak, and tells you when it can't hear you.\n• A clearer picture of what Stella is working on, including how many tasks are in progress.\n• Fixes for signing out, notifications, getting started, and chat layout."
       }
     },
     "categories": [

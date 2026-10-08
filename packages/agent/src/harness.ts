@@ -17,7 +17,13 @@ import {
   type Storage,
 } from "@earendil-works/pi-durable";
 import { STELLA_PROVIDER_ID, stellaModelId } from "./provider/stella.ts";
-import { stellaAgents, type StellaAgentRecord, type StellaAgentsHost } from "./stella/agents.ts";
+import {
+  stellaAgents,
+  type PlacedAgentResult,
+  type PlacedAgentRun,
+  type StellaAgentRecord,
+  type StellaAgentsHost,
+} from "./stella/agents.ts";
 import { STELLA_CODING_EXTENSION, StellaCoding } from "./stella/coding.ts";
 import type { StellaContextSources } from "./stella/context.ts";
 import { STELLA_AGENT_TOOLS, stellaToolExtensions, type StellaToolHost } from "./stella/host-tools.ts";
@@ -86,6 +92,10 @@ export type OpenStellaHarness = {
   agentRecords(context: Context): Promise<StellaAgentRecord[]>;
   /** A message from the user to one of the orchestrator's agents. */
   messageAgent(args: { key: string; threadId: string; message: string }, context: Context): Promise<void>;
+  /** An agent another host placed here, run to its answer. */
+  runPlacedAgent(args: PlacedAgentRun, context: Context): Promise<PlacedAgentResult>;
+  /** A message for an agent another host placed here; false when it is not here. */
+  steerPlacedAgent(args: { key: string; agentKey: string; message: string }, context: Context): Promise<boolean>;
 };
 
 export async function openStellaHarness(options: StellaHarnessOptions, context: Context): Promise<OpenStellaHarness> {
@@ -117,5 +127,7 @@ export async function openStellaHarness(options: StellaHarnessOptions, context: 
     startAgent: (args, startContext) => agents.startAgent(harness, args, startContext),
     agentRecords: (recordsContext) => agents.agentRecords(harness, recordsContext),
     messageAgent: (args, messageContext) => agents.messageAgent(harness, args, messageContext),
+    runPlacedAgent: (args, runContext) => agents.runPlacedAgent(harness, args, runContext),
+    steerPlacedAgent: (args, steerContext) => agents.steerPlacedAgent(harness, args, steerContext),
   };
 }

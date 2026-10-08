@@ -28,6 +28,12 @@ export type ContextCheckpoint = {
   coveredThroughSeq: number;
   summary: string;
   pinnedInstruction?: string;
+  /**
+   * The newest row when the checkpoint was written. Sizes reported for
+   * responses at or before it measured the uncompacted history, so they no
+   * longer say anything (the desktop clears its recorded usage the same way).
+   */
+  writtenAtSeq?: number;
 };
 export const CONTEXT_CHECKPOINT_KEY = "cloudContextCheckpoint:v1";
 
@@ -41,9 +47,12 @@ const isConversationMessage = (
 /** The request size the provider reported for the newest response, if any. */
 const lastReportedContextTokens = (
   messages: readonly AgentMessage[],
+  rows: ReadonlyArray<{ seq: number }>,
+  afterSeq: number,
 ): number | undefined => {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]!;
+    if ((rows[index]?.seq ?? Infinity) <= afterSeq) return undefined;
     if (message.role !== "assistant") continue;
     const usage = message.usage;
     const prompt =
@@ -81,6 +90,7 @@ export const compactCloudHistory = async (args: {
   }) => Promise<string>;
   /** Called after a failed attempt, before the next; throws to stop. */
   beforeRetry?: (attempt: number, error: unknown) => Promise<void>;
+  retryDelaysMs?: readonly number[];
 }) => {
   const unchanged = { ...args, compacted: false as const };
   const window = contextWindowTokens(args.contextWindow);
@@ -90,7 +100,12 @@ export const compactCloudHistory = async (args: {
       : { role: message.role, toolCallIds: [], tokens: 1 },
   );
   const estimated = views.reduce((sum, view) => sum + view.tokens, 0);
-  const measured = lastReportedContextTokens(args.messages) ?? estimated;
+  const measured =
+    lastReportedContextTokens(
+      args.messages,
+      args.rows,
+      args.checkpoint?.writtenAtSeq ?? -1,
+    ) ?? estimated;
   if (measured < orchestratorCompactionTriggerTokens(window)) return unchanged;
 
   const plan = planOrchestratorCompaction({
@@ -131,6 +146,7 @@ export const compactCloudHistory = async (args: {
   });
   if (!prompt) return unchanged;
 
+  const retryDelays = args.retryDelaysMs ?? SUMMARY_RETRY_DELAYS_MS;
   let summary = "";
   for (let attempt = 1; ; attempt += 1) {
     let failure: unknown;
@@ -143,9 +159,9 @@ export const compactCloudHistory = async (args: {
     } catch (error) {
       failure = error;
     }
-    if (attempt > SUMMARY_RETRY_DELAYS_MS.length) break;
+    if (attempt > retryDelays.length) break;
     await args.beforeRetry?.(attempt, failure);
-    await sleep(SUMMARY_RETRY_DELAYS_MS[attempt - 1]!);
+    await sleep(retryDelays[attempt - 1]!);
   }
   // Like the desktop, a failed summary leaves the conversation as it was.
   if (!summary) return unchanged;
@@ -174,6 +190,7 @@ export const compactCloudHistory = async (args: {
       coveredThroughSeq,
       summary,
       ...(pinned ? { pinnedInstruction: pinned } : {}),
+      writtenAtSeq: args.rows.at(-1)?.seq ?? coveredThroughSeq,
     },
     compacted: true as const,
   };

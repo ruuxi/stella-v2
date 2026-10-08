@@ -76,6 +76,8 @@ export type ChatColumnConversation = {
      * reply instead of lingering behind it.
      */
     answerLanded?: boolean;
+    /** The engine is compacting the conversation; the indicator says so. */
+    isCompacting?: boolean;
     pendingUserMessageId: string | null;
     queuedUserMessages: QueuedUserMessage[];
     /**

@@ -3,7 +3,7 @@
     "owner": "stella-ai",
     "name": "Stella",
     "slug": "stella-mobile",
-    "version": "1.0.43",
+    "version": "1.0.44",
     "runtimeVersion": {
       "policy": "fingerprint"
     },

@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
 /**
@@ -105,12 +105,6 @@ const collectStampLines = (
  * callers must treat that as "unknown", never as a definite mismatch.
  */
 export const computeRuntimeBuildStamp = (workerEntryPath: string): string => {
-  const nativeBinary = process.env.STELLA_RUNTIME_BINARY?.trim();
-  if (nativeBinary) {
-    try {
-      return `rust:${crypto.createHash("sha256").update(readFileSync(nativeBinary)).digest("hex")}`;
-    } catch { return RUNTIME_BUILD_STAMP_UNAVAILABLE; }
-  }
   const trimmedEntry = workerEntryPath?.trim();
   if (!trimmedEntry) return RUNTIME_BUILD_STAMP_UNAVAILABLE;
   try {

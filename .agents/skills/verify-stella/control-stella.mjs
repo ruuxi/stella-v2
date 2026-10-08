@@ -746,8 +746,6 @@ const cmdLaunch = async (options) => {
   if (options.reuse && accountMode !== "anonymous")
     fail("--reuse applies to anonymous launches only; test accounts are minted per run.");
 
-  const runtimeBinary = options["runtime-binary"] ? path.resolve(options["runtime-binary"]) : null;
-  if (runtimeBinary && !existsSync(runtimeBinary)) fail(`--runtime-binary file not found: ${runtimeBinary}`);
   const modelGateway = options["model-gateway"] ? new URL(options["model-gateway"]).origin : null;
   const fakeMic = options["fake-mic"] ? path.resolve(options["fake-mic"]) : null;
   if (fakeMic && !existsSync(fakeMic)) fail(`--fake-mic file not found: ${fakeMic}`);
@@ -840,7 +838,6 @@ const cmdLaunch = async (options) => {
       cwd: repoRoot,
       env: {
         ...isolatedElectronEnvironment(),
-        ...(runtimeBinary ? { STELLA_RUNTIME_BINARY: runtimeBinary } : {}),
         ...(modelGateway ? { STELLA_MODEL_GATEWAY_URL: modelGateway } : {}),
         ...(browserBridge ? { STELLA_BROWSER_BRIDGE: browserBridge } : {}),
         ...providerHomes,

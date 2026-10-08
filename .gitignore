@@ -105,9 +105,3 @@ packages/runtime/kernel/exec/.exec-worker-cache/
 # Nothing named .env.local is tracked; this only guards against one being
 # committed later.
 .env.local
-
-/packages/runtime-core/target/
-/packages/runtime-rust/target/
-/workers/runtime-rust/target/
-/workers/runtime-rust/build/
-/workers/runtime-rust/.toolchain/

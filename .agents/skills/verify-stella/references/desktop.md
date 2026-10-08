@@ -56,12 +56,8 @@ Shared with the host: the user account and its home directory (`HOME` is not ove
 
 The harness runs an isolated browser bridge by default, so the Browser section shows "Extension isn't connected" and the user's Chrome extension cannot reach it. `--browser-bridge shared` sets `STELLA_BROWSER_BRIDGE=shared`, which claims the per-user shared bridge (fixed extension port and native-messaging host) from any running Stella, including the user's installed app. Use it only when an extension-backed browser claim needs proof and taking over the bridge on that machine is acceptable; relaunching the installed app reclaims it.
 
-During the native runtime migration, `--runtime-binary packages/runtime-rust/target/debug/stella-runtime`
-selects an explicitly built Rust executable. The helper forwards its absolute path
-through the restricted launch environment and isolates its IPC directory. The
-optional `--model-gateway <origin>` overrides gateway discovery for a specific
-deployment; omit it to verify discovery from the signed-in catalog. The native
-process remains an incomplete replacement until the runtime migration is finished.
+The optional `--model-gateway <origin>` overrides gateway discovery for a specific
+deployment; omit it to verify discovery from the signed-in catalog.
 
 Doctor exits successfully only when the recorded Electron process is alive, CDP has Stella's full-window page target (`index.html?window=full`; the run also exposes `overlay.html?window=overlay` and, when enabled, the two companion targets), the full-window top bar `.shell-topbar-full` exists, Electron device identity is available, and the runtime host answers its health check. A painted shell alone is not healthy.
 

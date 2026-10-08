@@ -23,10 +23,8 @@ export const buildStdioConnectionFactory = (
   options: StdioWorkerConnectionFactoryOptions = {},
 ) => {
   return async (workerEntryPath: string): Promise<WorkerConnection> => {
-    const nativeBinary = process.env.STELLA_RUNTIME_BINARY?.trim();
     const bunBinaryPath = options.bunBinaryPath ?? resolveBunBinaryPath();
-    const runtimeExecutable = nativeBinary ?? bunBinaryPath;
-    const child = spawn(runtimeExecutable, nativeBinary ? [] : ["run", workerEntryPath], {
+    const child = spawn(bunBinaryPath, ["run", workerEntryPath], {
       // stderr is inherited so worker diagnostics surface on the host's
       // stderr instead of disappearing (stdout carries the JSON-RPC frames).
       stdio: ["pipe", "pipe", "inherit"],
@@ -40,7 +38,7 @@ export const buildStdioConnectionFactory = (
       const onSpawnError = (error: Error) => {
         reject(
           new Error(
-            `Failed to launch runtime worker via ${runtimeExecutable}: ${error.message}`,
+            `Failed to launch runtime worker via ${bunBinaryPath}: ${error.message}`,
             { cause: error },
           ),
         );

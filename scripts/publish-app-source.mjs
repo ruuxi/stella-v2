@@ -33,7 +33,6 @@ const EXCLUDED_PATHS = [
   "packages/executor-cloud",
   "packages/mobile",
   "packages/mobile-screenshots",
-  "packages/runtime-rust",
   "packages/website",
 ];
 

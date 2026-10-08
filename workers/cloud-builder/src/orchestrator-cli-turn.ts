@@ -44,7 +44,7 @@ import {
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import { formatMessageRefTag } from "@stella/contracts/reply-refs";
 import { HEADER_GATE_ADMITTED } from "./turn-start-request.js";
-import type { ResidentPrompt } from "./prompt-context.js";
+import { attachedFilesText, type ResidentPrompt } from "./prompt-context.js";
 
 // ---------------------------------------------------------------------------
 // Durable state
@@ -465,7 +465,7 @@ export const renderOrchestratorCliContextBlock = (args: {
  * The one prompt string a CLI turn receives: the context block (seed or
  * delta), the resident blocks the session has not seen, then the new message
  * exactly as the Stella loop would see it — the clock, the text with its
- * reply-ref tag, and attached Drive paths.
+ * reply-ref tag, and the attached files.
  */
 export const composeOrchestratorCliPrompt = (args: {
   context: string | null;
@@ -486,9 +486,7 @@ export const composeOrchestratorCliPrompt = (args: {
     `<current-time>${args.clock}</current-time>`,
     message,
     ...(args.attachments?.length
-      ? [
-          `<attached-drive-files>\nThe user attached these exact Drive paths to this message. Read these files, and pass these paths to any agent handling the attachments. Do not substitute other files found by searching the Drive.\n${JSON.stringify(args.attachments)}\n</attached-drive-files>`,
-        ]
+      ? [attachedFilesText(args.attachments, { readableHere: false })]
       : []),
   ].join("\n\n");
 };

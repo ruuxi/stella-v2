@@ -205,19 +205,28 @@ type PrunedShellSession = {
   owner?: ShellSessionOwner;
 };
 
-// Stella defaults: 10s for exec_command, 250ms for write_stdin. Letting
-// short commands finish on the first call dramatically reduces the
-// "got a session_id, must call write_stdin to drain" round-trip the model
-// would otherwise need for every fast shell invocation.
-export const DEFAULT_EXEC_YIELD_MS = 10_000;
+// `exec_command` blocks until the process exits, up to a timeout, the same
+// way Claude Code's Bash tool does. Every early yield costs a full model
+// round-trip (the model has to call `write_stdin` to keep waiting), and at
+// a few hundred thousand tokens of context that is both slow and expensive;
+// measured Stella sessions spent more wall-clock polling shells than
+// thinking. Only a genuinely long job (past the timeout) or an explicit
+// `run_in_background` hands back a session_id.
+export const DEFAULT_EXEC_YIELD_MS = 120_000;
 export const DEFAULT_WRITE_STDIN_YIELD_MS = 250;
-const MAX_EXEC_YIELD_MS = 30_000;
+const MAX_EXEC_YIELD_MS = 600_000;
+/**
+ * `run_in_background` still waits this long before returning so an instant
+ * spawn failure or a command that finishes immediately is reported in the
+ * same call instead of on a later wake.
+ */
+export const BACKGROUND_EXEC_SETTLE_MS = 250;
 // An empty `write_stdin` is a poll, not an interaction: nobody is waiting on
 // the other side of the pipe, so it can afford to block much longer than a
-// write. Codex sizes the same case at 5s..5min; matching that lets an agent
-// sit out a quiet build inside its turn instead of round-tripping every 30s.
-export const DEFAULT_EMPTY_POLL_YIELD_MS = 5_000;
-const MAX_EMPTY_POLL_YIELD_MS = 5 * 60_000;
+// write. The default is long on purpose: a poll exists to wait, and a turn
+// that ends with the process still running is woken automatically on exit.
+export const DEFAULT_EMPTY_POLL_YIELD_MS = 30_000;
+const MAX_EMPTY_POLL_YIELD_MS = 10 * 60_000;
 export const DEFAULT_EXEC_OUTPUT_TOKENS = 10_000;
 export const EXEC_UPDATE_MAX_BYTES = 8 * 1024;
 const MAX_EXEC_UPDATE_CHUNKS = 10_000;
@@ -2436,7 +2445,7 @@ const formatExecToolResult = (
   drained: DrainedOutput,
 ): string => {
   const status = payload.running
-    ? `Process running with session ID ${payload.session_id}`
+    ? `Process still running with session ID ${payload.session_id}. If your turn ends while it runs, its exit and output are delivered to you automatically; use write_stdin only to interact with it or to wait for it within this turn.`
     : `Process exited with code ${payload.exit_code ?? "unknown"}`;
   return [
     `Wall time: ${payload.wall_time_seconds.toFixed(4)} seconds`,
@@ -2622,10 +2631,16 @@ export const handleExecCommand = async (
     return { error: "max_output_tokens must be a non-negative safe integer." };
   }
   const modelOutputTokens = resolveExecOutputTokens(args.max_output_tokens);
-  const yieldTimeMs = resolveExecYieldTime(
-    args.yield_time_ms,
+  const runInBackground = args.run_in_background === true;
+  // `timeout_ms` is the advertised parameter; `yield_time_ms` is the name
+  // the tool shipped with and stays accepted for older prompts and callers.
+  const timeoutMs = resolveExecYieldTime(
+    args.timeout_ms ?? args.yield_time_ms,
     DEFAULT_EXEC_YIELD_MS,
   );
+  const yieldTimeMs = runInBackground
+    ? Math.min(timeoutMs, BACKGROUND_EXEC_SETTLE_MS)
+    : timeoutMs;
   const deadlineAt = callStartedAt + yieldTimeMs;
   if (signal?.aborted) {
     return { error: toolErrorMessage(signal.reason ?? new Error("Aborted")) };

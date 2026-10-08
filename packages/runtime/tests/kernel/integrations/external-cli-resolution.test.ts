@@ -9,6 +9,7 @@ import {
 } from "@stella/runtime/kernel/integrations/claude-code-session-runtime";
 import {
   buildExternalCliChildEnv,
+  resetExternalCliResolutionCache,
   resolveExternalCliPath,
 } from "@stella/runtime/kernel/integrations/external-cli-resolution";
 
@@ -51,7 +52,18 @@ describe("external CLI resolution", () => {
   afterEach(() => {
     shutdownClaudeCodeRuntime();
     restoreTrackedEnv();
+    resetExternalCliResolutionCache();
   });
+
+  /** Version probe keyed by executable path; never spawns anything. */
+  const fakeProbe = (versions: Record<string, string | null>) => {
+    const calls: string[] = [];
+    const probeVersion = (executablePath: string): string | null => {
+      calls.push(executablePath);
+      return versions[fs.realpathSync(executablePath)] ?? null;
+    };
+    return { probeVersion, calls };
+  };
 
   it("uses override, PATH, and well-known locations in order", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "stella-cli-order-"));
@@ -75,19 +87,189 @@ describe("external CLI resolution", () => {
       STELLA_CLAUDE_CLI_PATH: overrideClaude,
       CLAUDE_CLI_PATH: genericOverrideClaude,
     };
+    // Equal versions: discovery order alone decides.
+    const { probeVersion } = fakeProbe({
+      [fs.realpathSync(pathClaude)]: "2.1.293",
+      [fs.realpathSync(bunClaude)]: "2.1.293",
+    });
     try {
-      expect(resolveExternalCliPath("claude", { env })).toBe(overrideClaude);
+      expect(resolveExternalCliPath("claude", { env, probeVersion })).toBe(
+        overrideClaude,
+      );
 
       delete env.STELLA_CLAUDE_CLI_PATH;
-      expect(resolveExternalCliPath("claude", { env })).toBe(
+      expect(resolveExternalCliPath("claude", { env, probeVersion })).toBe(
         genericOverrideClaude,
       );
 
       delete env.CLAUDE_CLI_PATH;
-      expect(resolveExternalCliPath("claude", { env })).toBe(pathClaude);
+      expect(resolveExternalCliPath("claude", { env, probeVersion })).toBe(
+        pathClaude,
+      );
 
       env.PATH = path.join(root, "empty-path");
-      expect(resolveExternalCliPath("claude", { env })).toBe(bunClaude);
+      expect(resolveExternalCliPath("claude", { env, probeVersion })).toBe(
+        bunClaude,
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("prefers the newest installed copy over PATH order", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "stella-cli-newest-"));
+    const home = path.join(root, "home");
+    const bunClaude = path.join(home, ".bun", "bin", "claude");
+    const localClaude = path.join(home, ".local", "bin", "claude");
+    writeExecutable(bunClaude);
+    writeExecutable(localClaude);
+    const { probeVersion } = fakeProbe({
+      [fs.realpathSync(bunClaude)]: "2.1.231 (Claude Code)",
+      [fs.realpathSync(localClaude)]: "2.1.293 (Claude Code)",
+    });
+    const env: NodeJS.ProcessEnv = {
+      HOME: home,
+      // The stale bun copy is first on PATH; the newer one is only in the
+      // well-known installer directory.
+      PATH: path.dirname(bunClaude),
+    };
+    try {
+      expect(resolveExternalCliPath("claude", { env, probeVersion })).toBe(
+        localClaude,
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("lets an explicit override win even when it is older", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "stella-cli-override-"));
+    const home = path.join(root, "home");
+    const overrideClaude = path.join(root, "pinned", "claude");
+    const localClaude = path.join(home, ".local", "bin", "claude");
+    writeExecutable(overrideClaude);
+    writeExecutable(localClaude);
+    const { probeVersion, calls } = fakeProbe({
+      [fs.realpathSync(overrideClaude)]: "1.0.0",
+      [fs.realpathSync(localClaude)]: "2.1.293",
+    });
+    const env: NodeJS.ProcessEnv = {
+      HOME: home,
+      PATH: path.dirname(localClaude),
+      STELLA_CLAUDE_CLI_PATH: overrideClaude,
+    };
+    try {
+      expect(resolveExternalCliPath("claude", { env, probeVersion })).toBe(
+        overrideClaude,
+      );
+      expect(calls).toEqual([]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("ranks a package-manager copy whose version is unknown below a versioned one", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "stella-cli-unknown-"));
+    const home = path.join(root, "home");
+    const brokenClaude = path.join(home, ".bun", "bin", "claude");
+    const localClaude = path.join(home, ".local", "bin", "claude");
+    writeExecutable(brokenClaude);
+    writeExecutable(localClaude);
+    const { probeVersion } = fakeProbe({
+      [fs.realpathSync(brokenClaude)]: null,
+      [fs.realpathSync(localClaude)]: "2.0.0",
+    });
+    const env: NodeJS.ProcessEnv = {
+      HOME: home,
+      PATH: path.dirname(brokenClaude),
+    };
+    try {
+      expect(resolveExternalCliPath("claude", { env, probeVersion })).toBe(
+        localClaude,
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("honors a PATH copy outside the known install directories without probing", () => {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "stella-cli-deliberate-"),
+    );
+    const home = path.join(root, "home");
+    const wrapperClaude = path.join(root, "wrappers", "claude");
+    const localClaude = path.join(home, ".local", "bin", "claude");
+    writeExecutable(wrapperClaude);
+    writeExecutable(localClaude);
+    const { probeVersion, calls } = fakeProbe({
+      [fs.realpathSync(wrapperClaude)]: null,
+      [fs.realpathSync(localClaude)]: "9.9.9",
+    });
+    const env: NodeJS.ProcessEnv = {
+      HOME: home,
+      PATH: path.dirname(wrapperClaude),
+    };
+    try {
+      // A wrapper, pinned build, or test double the user put on PATH is a
+      // deliberate choice; a newer copy elsewhere must not override it.
+      expect(resolveExternalCliPath("claude", { env, probeVersion })).toBe(
+        wrapperClaude,
+      );
+      expect(calls).toEqual([]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not re-probe an unchanged executable", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "stella-cli-cache-"));
+    const home = path.join(root, "home");
+    const bunClaude = path.join(home, ".bun", "bin", "claude");
+    const localClaude = path.join(home, ".local", "bin", "claude");
+    writeExecutable(bunClaude);
+    writeExecutable(localClaude);
+    const { probeVersion, calls } = fakeProbe({
+      [fs.realpathSync(bunClaude)]: "2.1.231",
+      [fs.realpathSync(localClaude)]: "2.1.293",
+    });
+    const env: NodeJS.ProcessEnv = {
+      HOME: home,
+      PATH: path.join(root, "none"),
+    };
+    try {
+      expect(resolveExternalCliPath("claude", { env, probeVersion })).toBe(
+        localClaude,
+      );
+      expect(calls).toHaveLength(2);
+      expect(resolveExternalCliPath("claude", { env, probeVersion })).toBe(
+        localClaude,
+      );
+      expect(calls).toHaveLength(2);
+
+      // An upgrade rewrites the file; the next resolution probes it again.
+      writeExecutable(bunClaude, "#!/bin/sh\n# upgraded\nexit 0\n");
+      resolveExternalCliPath("claude", { env, probeVersion });
+      expect(calls).toHaveLength(3);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("skips version probing when only one copy is installed", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "stella-cli-single-"));
+    const home = path.join(root, "home");
+    const bunClaude = path.join(home, ".bun", "bin", "claude");
+    writeExecutable(bunClaude);
+    const { probeVersion, calls } = fakeProbe({});
+    const env: NodeJS.ProcessEnv = {
+      HOME: home,
+      PATH: path.join(root, "none"),
+    };
+    try {
+      expect(resolveExternalCliPath("claude", { env, probeVersion })).toBe(
+        bunClaude,
+      );
+      expect(calls).toEqual([]);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -106,10 +288,11 @@ describe("external CLI resolution", () => {
     });
     const pathEntries = env.PATH?.split(path.delimiter);
 
+    // ~/.bun/bin is appended after the user's own PATH, never ahead of it.
     expect(pathEntries).toEqual([
       path.dirname(executable),
-      path.join(home, ".bun", "bin"),
       originalPath,
+      path.join(home, ".bun", "bin"),
     ]);
     expect(env.ANTHROPIC_API_KEY).toBe("preserved-auth");
     expect(env.STELLA_CLI_BRIDGE_SOCK).toBeUndefined();

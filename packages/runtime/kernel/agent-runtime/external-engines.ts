@@ -25,6 +25,10 @@ import {
   shouldUseClaudeCodeAgentRuntime,
 } from "../integrations/claude-code-agent-runtime.js";
 import {
+  resolveClaudeCodeNativeTools,
+  withoutToolsReplacedByNative,
+} from "../integrations/claude-code-native-tools.js";
+import {
   buildRuntimeSystemPrompt,
   buildSubagentSystemPrompt,
   createRuntimePromptAgentMessage,
@@ -1315,15 +1319,30 @@ const runClaudeHostedTurn = async (args: {
     threadKey,
     engine: sessionEngine,
   });
+  // The CLI keeps its own file and shell built-ins (in-process, no MCP hop).
+  // The orchestrator only coordinates, so it may read and search but never
+  // gets a native shell or writer; workers get the full set.
+  const nativeTools = vanilla
+    ? []
+    : resolveClaudeCodeNativeTools(
+        args.session.kind === "orchestrator" ||
+          args.opts.agentType === AGENT_IDS.ORCHESTRATOR
+          ? "orchestrator"
+          : "worker",
+      );
   // Parity with createPiTools: node_repl carries the bounded deferred catalog;
-  // profiles without it get the safe direct-schema fallback instead.
+  // profiles without it get the safe direct-schema fallback instead. Stella
+  // tools a built-in supersedes are left out so the model sees one spelling.
   const toolMetadata = vanilla
     ? []
-    : getProviderToolMetadata({
-        toolsAllowlist: args.opts.agentContext.toolsAllowlist,
-        toolCatalog: args.opts.toolCatalog,
-        connectorProvider: args.opts.connectorDeliveryTarget?.provider,
-      });
+    : withoutToolsReplacedByNative(
+        getProviderToolMetadata({
+          toolsAllowlist: args.opts.agentContext.toolsAllowlist,
+          toolCatalog: args.opts.toolCatalog,
+          connectorProvider: args.opts.connectorDeliveryTarget?.provider,
+        }),
+        nativeTools,
+      );
   const claudeCodeModelId = getClaudeCodeAgentModelId(
     args.opts.stellaAppDir,
     args.opts.agentContext.model,
@@ -1486,6 +1505,79 @@ const runClaudeHostedTurn = async (args: {
       },
     });
     return toolResult;
+  };
+  // The CLI's own built-ins (Read, Edit, Bash, ...) never reach the MCP
+  // host, so the session runtime mirrors them off the stream and these
+  // record them exactly like an MCP call: journal event, working indicator,
+  // and the persisted thread transcript Stella reseeds from.
+  const recordNativeToolStart = ({
+    toolCallId,
+    toolName,
+    toolArgs,
+  }: {
+    toolCallId: string;
+    toolName: string;
+    toolArgs: Record<string, unknown>;
+  }): void => {
+    flushPreambleBeforeTool({ toolCallId, toolName, toolArgs });
+    responseTargetTracker?.noteToolStart(toolName, toolArgs);
+    const toolStartEvent = runEvents.recordToolStart({
+      toolCallId,
+      toolName,
+      toolArgs,
+    });
+    args.callbacks?.onToolStart?.(toolStartEvent);
+    persistThreadPayloadMessage(args.opts.store, {
+      threadKey,
+      payload: buildToolCallPayload({
+        toolCallId,
+        toolName,
+        toolArgs: toolStartEvent.args,
+      }),
+    });
+  };
+  const recordNativeToolEnd = ({
+    toolCallId,
+    toolName,
+    result,
+    isError,
+  }: {
+    toolCallId: string;
+    toolName: string;
+    result: string;
+    isError: boolean;
+  }): void => {
+    const toolResult: ToolResult = isError ? { error: result } : { result };
+    responseTargetTracker?.noteToolEnd(toolName, undefined);
+    args.callbacks?.onToolEnd?.(
+      runEvents.recordToolEnd({
+        toolCallId,
+        toolName,
+        result: toolResult,
+        isError,
+      }),
+    );
+    const sanitizedToolResult = sanitizeSensitiveData(toolResult) as ToolResult;
+    // Built-in results carry no Stella image markers; text alone is enough
+    // for the transcript, and the CLI already holds the full result.
+    persistThreadPayloadMessage(args.opts.store, {
+      threadKey,
+      payload: {
+        role: "toolResult",
+        toolCallId,
+        toolName,
+        content: [
+          {
+            type: "text",
+            text: truncateModelVisibleToolText(
+              buildToolResultText(sanitizedToolResult),
+            ).text,
+          },
+        ],
+        isError,
+        timestamp: now(),
+      },
+    });
   };
 
   const deliversHistoryIncrementally = args.session.kind === "orchestrator";
@@ -1684,6 +1776,9 @@ const runClaudeHostedTurn = async (args: {
         cwd: localCliCwd,
         attachments: nextAttachments,
         tools: toolMetadata,
+        nativeTools,
+        onNativeToolStart: recordNativeToolStart,
+        onNativeToolEnd: recordNativeToolEnd,
         abortSignal: args.opts.abortSignal,
         onTurnControl: ({ inject }: { inject: ClaudeTurnInject }) =>
           args.liveAgent?.beginSteerableTurn(() => {

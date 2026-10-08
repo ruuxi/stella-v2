@@ -10,7 +10,7 @@
 export const EXEC_COMMAND_TOOL_NAME = "exec_command";
 
 export const EXEC_COMMAND_TOOL_DESCRIPTION =
-  "Run a command in a shell process. By default stdin/stdout/stderr use ordinary pipes; set tty: true for a real Unix PTY on macOS/Linux or ConPTY on supported Windows. Returns immediate output, or a session_id if the process is still running so you can poll/interact via write_stdin. Streaming updates are incremental UTF-8 deltas with stable cursor receipts; final details retain shell_session_id even after completion. Required: cmd. Node.js and Stella CLIs (stella-browser, stella-office, stella-computer, stella-media, stella-x-api) are auto-injected into PATH.";
+  "Run a shell command and wait for it to finish, returning its full output in one result. Waits up to timeout_ms (default 120000, max 600000); a command still running at the timeout keeps running and the result carries a session_id for write_stdin. Set run_in_background: true for a job you do not need to wait on: the call returns right away with a session_id, and if your turn ends while it runs, its exit code and output are delivered to you automatically, so never poll just to wait. By default stdin/stdout/stderr use ordinary pipes; set tty: true for a real Unix PTY on macOS/Linux or ConPTY on supported Windows when a program needs a terminal. Required: cmd. Node.js and Stella CLIs (stella-browser, stella-office, stella-computer, stella-media, stella-x-api) are auto-injected into PATH.";
 
 export const EXEC_COMMAND_TOOL_PROMPT_SNIPPET =
   "Execute shell commands (git, build, package managers, file scripts)";
@@ -34,10 +34,15 @@ export const EXEC_COMMAND_TOOL_PARAMETERS: Record<string, unknown> = {
       description:
         "True allocates a real pseudo-terminal for interactive terminal programs; false or omitted uses ordinary pipes. Uses a Unix PTY on macOS/Linux and ConPTY on supported Windows.",
     },
-    yield_time_ms: {
+    timeout_ms: {
       type: "number",
       description:
-        "How long to wait (in milliseconds) for output before yielding control back to you with a session_id. Defaults to 10000.",
+        "How long to wait (in milliseconds) for the command to exit before returning with a session_id for the still-running process. Defaults to 120000; maximum 600000. Raise it for builds and test suites instead of polling.",
+    },
+    run_in_background: {
+      type: "boolean",
+      description:
+        "True starts the command and returns immediately with a session_id instead of waiting. Its completion reaches you automatically once your turn ends. Use for servers, watchers, and long jobs whose result you do not need right now.",
     },
     max_output_tokens: {
       type: "integer",

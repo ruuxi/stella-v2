@@ -8,7 +8,7 @@
 export const WRITE_STDIN_TOOL_NAME = "write_stdin";
 
 export const WRITE_STDIN_TOOL_DESCRIPTION =
-  "Continue or control an exec_command session owned by the current conversation/agent thread. Same-session interactions are serialized; different sessions remain parallel. Omit operation to write when chars is nonempty or poll when empty. Optional write_id makes retried writes idempotent within the session's bounded receipt window. Explicit operations also support terminate, pipe-only close_stdin, and PTY-only resize. Result details include stable interaction/chunk receipts and retain shell_session_id after completion. Required: session_id.";
+  "Interact with a still-running exec_command session owned by the current conversation/agent thread: send input, wait for more output, or stop it. Do not use it merely to wait for a background job to finish; if your turn ends while a session runs, its exit and output are delivered to you automatically. Same-session interactions are serialized; different sessions remain parallel. Omit operation to write when chars is nonempty or poll when empty. Optional write_id makes retried writes idempotent within the session's bounded receipt window. Explicit operations also support terminate, pipe-only close_stdin, and PTY-only resize. Result details include stable interaction/chunk receipts and retain shell_session_id after completion. Required: session_id.";
 
 export const WRITE_STDIN_TOOL_PROMPT_SNIPPET =
   "Continue or poll a long-running exec_command session";
@@ -54,7 +54,7 @@ export const WRITE_STDIN_TOOL_PARAMETERS: Record<string, unknown> = {
     yield_time_ms: {
       type: "number",
       description:
-        "Maximum wait. A write defaults to 250 ms and caps at 30000; an empty poll defaults to 5000 and caps at 300000. Polls return on the first new output/activity, and all calls return early when the process exits.",
+        "Maximum wait. A write defaults to 250 ms and caps at 30000; an empty poll defaults to 30000 and caps at 600000. Polls return on the first new output/activity, and all calls return early when the process exits.",
     },
     max_output_tokens: {
       type: "integer",

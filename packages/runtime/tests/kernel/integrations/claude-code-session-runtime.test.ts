@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  buildClaudeCodeNativeToolRuntimePrompt,
   claudeCodeSessionHasActiveProcess,
   createClaudeNativeToolUseCorrelator,
   repairPartialToolInputJson,
@@ -2753,5 +2754,216 @@ describe("claude native tool-use integrity gate", () => {
       10,
     );
     expect(verdict).toBeUndefined();
+  });
+});
+
+describe("claude code native built-in tools", () => {
+  const writeMcpAwareFakeClaude = (dir: string, handleBody: string[]) => {
+    const binDir = path.join(dir, "bin");
+    const helperPath = path.join(dir, "fake-claude.mjs");
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.symlinkSync(
+      path.resolve(process.cwd(), "../../node_modules"),
+      path.join(dir, "node_modules"),
+      "dir",
+    );
+    const fakeClaude = path.join(binDir, "claude");
+    fs.writeFileSync(
+      helperPath,
+      [
+        "import fs from 'node:fs';",
+        "import { Client } from '@modelcontextprotocol/sdk/client/index.js';",
+        "import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';",
+        "let buffer = '';",
+        "const argv = process.argv.slice(2);",
+        "function emit(payload) { process.stdout.write(JSON.stringify(payload) + '\\n'); }",
+        "function handle(line) {",
+        "  const parsed = JSON.parse(line);",
+        "  fs.appendFileSync(process.env.STELLA_FAKE_CLAUDE_LOG, JSON.stringify({ argv, content: parsed.message.content }) + '\\n');",
+        ...handleBody,
+        "}",
+        "process.stdin.on('data', chunk => {",
+        "  buffer += chunk.toString('utf8');",
+        "  for (;;) {",
+        "    const idx = buffer.indexOf('\\n');",
+        "    if (idx === -1) break;",
+        "    const line = buffer.slice(0, idx).trim();",
+        "    buffer = buffer.slice(idx + 1);",
+        "    if (line) handle(line);",
+        "  }",
+        "});",
+        "const configPath = argv[argv.indexOf('--mcp-config') + 1];",
+        "const config = JSON.parse(fs.readFileSync(configPath, 'utf8')).mcpServers.stella;",
+        "const client = new Client({ name: 'fake-claude', version: '1.0.0' }, { capabilities: {} });",
+        "const transport = new StreamableHTTPClientTransport(new URL(config.url), { requestInit: { headers: config.headers } });",
+        "await client.connect(transport);",
+        "await client.listTools();",
+      ].join("\n"),
+    );
+    fs.writeFileSync(
+      fakeClaude,
+      '#!/bin/sh\nexec node "$STELLA_FAKE_CLAUDE_HELPER" "$@"\n',
+    );
+    fs.chmodSync(fakeClaude, 0o755);
+    return { binDir, helperPath };
+  };
+
+  const withFakeClaudeEnv = async (
+    dir: string,
+    helperPath: string,
+    binDir: string,
+    logPath: string,
+    run: () => Promise<void>,
+  ) => {
+    const previousPath = process.env.PATH;
+    const previousHelper = process.env.STELLA_FAKE_CLAUDE_HELPER;
+    const previousLogPath = process.env.STELLA_FAKE_CLAUDE_LOG;
+    process.env.PATH = `${binDir}${path.delimiter}${previousPath ?? ""}`;
+    process.env.STELLA_FAKE_CLAUDE_HELPER = helperPath;
+    process.env.STELLA_FAKE_CLAUDE_LOG = logPath;
+    try {
+      await run();
+    } finally {
+      shutdownClaudeCodeRuntime();
+      process.env.PATH = previousPath;
+      if (previousHelper === undefined) {
+        delete process.env.STELLA_FAKE_CLAUDE_HELPER;
+      } else {
+        process.env.STELLA_FAKE_CLAUDE_HELPER = previousHelper;
+      }
+      if (previousLogPath === undefined) {
+        delete process.env.STELLA_FAKE_CLAUDE_LOG;
+      } else {
+        process.env.STELLA_FAKE_CLAUDE_LOG = previousLogPath;
+      }
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  it("keeps the requested built-ins on next to the Stella MCP catalog and says so in the prompt", async () => {
+    const dir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "stella-fake-claude-native-builtins-"),
+    );
+    const logPath = path.join(dir, "prompts.log");
+    const { binDir, helperPath } = writeMcpAwareFakeClaude(dir, [
+      "  emit({ type: 'result', session_id: 'native-session', is_error: false, usage: { input_tokens: 1, output_tokens: 1 }, result: 'Done.' });",
+    ]);
+    await withFakeClaudeEnv(dir, helperPath, binDir, logPath, async () => {
+      const result = await runClaudeCodeTurn({
+        runId: "run-native-builtins",
+        sessionKey: `test-native-builtins:${Date.now()}`,
+        prompt: "Answer normally.",
+        modelId: "claude-code/default",
+        systemPrompt: "You are a worker.",
+        nativeTools: ["Read", "Grep", "Glob"],
+        tools: [
+          {
+            name: "get_weather",
+            description: "Get weather",
+            parameters: { type: "object" },
+          },
+        ],
+        executeTool: async () => ({ result: "unused" }),
+      });
+      expect(result.text).toBe("Done.");
+      const records = fs
+        .readFileSync(logPath, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as { argv: string[] });
+      const argv = records[0]?.argv ?? [];
+      expect(argv[argv.indexOf("--tools") + 1]).toBe(
+        "Read,Grep,Glob,mcp__stella__*",
+      );
+      expect(argv[argv.indexOf("--allowedTools") + 1]).toBe(
+        "Read,Grep,Glob,mcp__stella__get_weather",
+      );
+      const systemPrompt = argv[argv.indexOf("--system-prompt") + 1] ?? "";
+      expect(systemPrompt).toContain("You are a worker.");
+      expect(systemPrompt).toContain(
+        "built-in tools for this session are Read, Grep, Glob",
+      );
+      expect(systemPrompt).not.toContain("built-in tools are disabled");
+    });
+  });
+
+  it("keeps every built-in off when none is requested", () => {
+    expect(buildClaudeCodeNativeToolRuntimePrompt("Base.", [])).toContain(
+      "Claude Code built-in tools are disabled for this session.",
+    );
+    expect(
+      buildClaudeCodeNativeToolRuntimePrompt("Base.", [
+        "Bash",
+        " Read ",
+        "Bash",
+      ]),
+    ).toContain(
+      "built-in tools for this session are Bash, Read; use them for files and shell commands",
+    );
+  });
+
+  it("mirrors the CLI's own tool calls into Stella tool events and the crash ledger", async () => {
+    const dir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "stella-fake-claude-native-events-"),
+    );
+    const logPath = path.join(dir, "prompts.log");
+    const { binDir, helperPath } = writeMcpAwareFakeClaude(dir, [
+      "  emit({ type: 'assistant', session_id: 'native-session', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_read_1', name: 'Read', input: { file_path: '/tmp/notes.md' } }] } });",
+      "  emit({ type: 'user', session_id: 'native-session', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_read_1', content: [{ type: 'text', text: 'hello from the file' }] }] } });",
+      "  emit({ type: 'assistant', session_id: 'native-session', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_bash_1', name: 'Bash', input: { command: 'false' } }] } });",
+      "  emit({ type: 'user', session_id: 'native-session', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_bash_1', is_error: true, content: 'exit 1' }] } });",
+      "  emit({ type: 'result', session_id: 'native-session', is_error: false, usage: { input_tokens: 1, output_tokens: 1 }, result: 'Read it.' });",
+    ]);
+    await withFakeClaudeEnv(dir, helperPath, binDir, logPath, async () => {
+      const starts: unknown[] = [];
+      const ends: unknown[] = [];
+      const executeTool = vi.fn(async () => ({ result: "unused" }));
+      const result = await runClaudeCodeTurn({
+        runId: "run-native-events",
+        sessionKey: `test-native-events:${Date.now()}`,
+        prompt: "Read the notes.",
+        modelId: "claude-code/default",
+        nativeTools: ["Read", "Bash"],
+        tools: [
+          {
+            name: "get_weather",
+            description: "Get weather",
+            parameters: { type: "object" },
+          },
+        ],
+        onNativeToolStart: (event: unknown) => starts.push(event),
+        onNativeToolEnd: (event: unknown) => ends.push(event),
+        executeTool,
+      });
+      expect(result.text).toBe("Read it.");
+      // Built-ins run inside the CLI: the MCP executor never sees them.
+      expect(executeTool).not.toHaveBeenCalled();
+      expect(starts).toEqual([
+        {
+          toolCallId: "toolu_read_1",
+          toolName: "Read",
+          toolArgs: { file_path: "/tmp/notes.md" },
+        },
+        {
+          toolCallId: "toolu_bash_1",
+          toolName: "Bash",
+          toolArgs: { command: "false" },
+        },
+      ]);
+      expect(ends).toEqual([
+        {
+          toolCallId: "toolu_read_1",
+          toolName: "Read",
+          result: "hello from the file",
+          isError: false,
+        },
+        {
+          toolCallId: "toolu_bash_1",
+          toolName: "Bash",
+          result: "exit 1",
+          isError: true,
+        },
+      ]);
+    });
   });
 });

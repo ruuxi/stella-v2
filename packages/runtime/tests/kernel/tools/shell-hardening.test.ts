@@ -812,4 +812,74 @@ describe("shell hardening", () => {
     expect(output).toContain(`cwd=${JSON.stringify(root)}`);
     expect(output).toContain("cause=Error: synchronous spawn failure");
   });
+
+  it("blocks until a short command exits without any timeout argument", async () => {
+    const root = createTempDir();
+    const startedAt = Date.now();
+    const result = await handleExecCommand(createShellState(root), {
+      cmd: `node -e 'setTimeout(() => process.stdout.write("slow-but-done"), 300)'`,
+      workdir: root,
+    });
+    expect(result.result).toContain("slow-but-done");
+    expect(result.result).toContain("Process exited with code 0");
+    expect((result.details as { running?: boolean }).running).toBe(false);
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(250);
+  });
+
+  it("hands back a session id only once timeout_ms elapses, and still accepts the legacy yield_time_ms name", async () => {
+    const root = createTempDir();
+    const state = createShellState(root);
+    const context = toolContext("timeout-alias");
+    const viaTimeout = await handleExecCommand(
+      state,
+      { cmd: "node -e 'setTimeout(() => {}, 5000)'", workdir: root, timeout_ms: 100 },
+      context,
+    );
+    expect((viaTimeout.details as { running?: boolean }).running).toBe(true);
+    expect(viaTimeout.result).toContain("delivered to you automatically");
+    const viaLegacy = await handleExecCommand(
+      state,
+      { cmd: "node -e 'setTimeout(() => {}, 5000)'", workdir: root, yield_time_ms: 100 },
+      context,
+    );
+    expect((viaLegacy.details as { running?: boolean }).running).toBe(true);
+    for (const started of [viaTimeout, viaLegacy]) {
+      await handleWriteStdin(
+        state,
+        {
+          session_id: (started.details as { session_id: string }).session_id,
+          operation: "terminate",
+          yield_time_ms: 1_000,
+        },
+        context,
+      );
+    }
+  });
+
+  it("returns promptly from run_in_background with a live session id", async () => {
+    const root = createTempDir();
+    const state = createShellState(root);
+    const context = toolContext("background-exec");
+    const startedAt = Date.now();
+    const started = await handleExecCommand(
+      state,
+      {
+        cmd: "node -e 'setTimeout(() => {}, 5000)'",
+        workdir: root,
+        run_in_background: true,
+      },
+      context,
+    );
+    expect(Date.now() - startedAt).toBeLessThan(2_000);
+    const details = started.details as { running?: boolean; session_id: string };
+    expect(details.running).toBe(true);
+    expect(listRunningShellSessionsOwnedBy(state, { conversationId: "background-exec" })).toContain(
+      details.session_id,
+    );
+    await handleWriteStdin(
+      state,
+      { session_id: details.session_id, operation: "terminate", yield_time_ms: 1_000 },
+      context,
+    );
+  });
 });

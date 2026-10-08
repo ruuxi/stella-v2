@@ -869,15 +869,132 @@ const buildInitialPrompt = (session, request) => {
     .filter((section) => section.trim().length > 0)
     .join("\n\n");
 };
-export const buildClaudeCodeNativeToolRuntimePrompt = (systemPrompt) =>
-  [
+const normalizeNativeTools = (nativeTools) =>
+  Array.isArray(nativeTools)
+    ? [
+        ...new Set(
+          nativeTools
+            .filter((name) => typeof name === "string")
+            .map((name) => name.trim())
+            .filter(Boolean),
+        ),
+      ]
+    : [];
+export const buildClaudeCodeNativeToolRuntimePrompt = (
+  systemPrompt,
+  nativeTools = [],
+) => {
+  const enabled = normalizeNativeTools(nativeTools);
+  return [
     systemPrompt?.trim() ?? "",
-    "Claude Code built-in tools are disabled for this session. Use the available Stella tools when needed and answer the user normally when finished.",
+    enabled.length > 0
+      ? `Your Claude Code built-in tools for this session are ${enabled.join(", ")}; use them for files and ${enabled.includes("Bash") ? "shell commands" : "searches"}. Other built-ins are disabled. Use the available Stella tools for everything else and answer the user normally when finished.`
+      : "Claude Code built-in tools are disabled for this session. Use the available Stella tools when needed and answer the user normally when finished.",
     "If you successfully call NoResponse and have nothing else to say, finish without adding a user-visible response.",
     "Never mention MCP, missing Claude tools, or the raw tool protocol to the user.",
   ]
     .filter((section) => section.trim().length > 0)
     .join("\n\n");
+};
+/** Text of one stream-json `tool_result` block, for Stella's own journal. */
+const nativeToolResultText = (block) => {
+  const content = block?.content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((raw) => {
+      const part = asObject(raw);
+      if (part?.type === "text" && typeof part.text === "string") {
+        return part.text;
+      }
+      if (part?.type === "image") return "[image]";
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n");
+};
+/**
+ * Mirror the CLI's own built-in tool calls into Stella's tool events. Native
+ * calls never pass through the MCP host, so without this the journal, the
+ * working indicator, and crash-recovery reconciliation would not know a
+ * Bash or Edit ran. Returns true when the event announced or settled a
+ * native call.
+ */
+const observeNativeToolCalls = (event, pending) => {
+  const content = asObject(event.message)?.content;
+  if (!Array.isArray(content)) return false;
+  let changed = false;
+  if (event.type === "assistant") {
+    for (const raw of content) {
+      const block = asObject(raw);
+      if (
+        block?.type !== "tool_use" ||
+        typeof block.id !== "string" ||
+        typeof block.name !== "string" ||
+        block.name.startsWith("mcp__") ||
+        pending.nativeToolCalls.has(block.id)
+      ) {
+        continue;
+      }
+      const toolArgs = asObject(block.input) ?? {};
+      pending.nativeToolCalls.set(block.id, { toolName: block.name, toolArgs });
+      pending.mcpCalls.push({
+        toolCallId: block.id,
+        toolName: block.name,
+        status: "started",
+        argsSummary: summarizeMcpLedgerValue(toolArgs, 4_000),
+      });
+      changed = true;
+      try {
+        pending.request.onNativeToolStart?.({
+          toolCallId: block.id,
+          toolName: block.name,
+          toolArgs,
+        });
+      } catch {
+        // Journal observers must never disrupt the engine stream.
+      }
+    }
+    return changed;
+  }
+  if (event.type !== "user") return false;
+  for (const raw of content) {
+    const block = asObject(raw);
+    if (
+      block?.type !== "tool_result" ||
+      typeof block.tool_use_id !== "string"
+    ) {
+      continue;
+    }
+    const call = pending.nativeToolCalls.get(block.tool_use_id);
+    if (!call || call.settled) continue;
+    call.settled = true;
+    const text = nativeToolResultText(block);
+    const isError = block.is_error === true;
+    const record = pending.mcpCalls.find(
+      (entry) => entry.toolCallId === block.tool_use_id,
+    );
+    if (record) {
+      record.status = "completed";
+      record.outcomeSummary = summarizeMcpLedgerValue(
+        isError ? { error: text } : { result: text },
+        6_000,
+      );
+    }
+    changed = true;
+    try {
+      pending.request.onNativeToolEnd?.({
+        toolCallId: block.tool_use_id,
+        toolName: call.toolName,
+        result: text,
+        isError,
+      });
+    } catch {
+      // Journal observers must never disrupt the engine stream.
+    }
+  }
+  return changed;
+};
 /**
  * One stream-json user line. Claude Code's stream-json input accepts Anthropic
  * image content blocks directly, so screenshots reach vision without enabling
@@ -1389,7 +1506,10 @@ class ClaudeCodeSessionRuntime {
     // Stella runtime contract, no system-prompt override.
     const effectiveSystemPrompt = request.vanilla
       ? ""
-      : buildClaudeCodeNativeToolRuntimePrompt(request.systemPrompt);
+      : buildClaudeCodeNativeToolRuntimePrompt(
+          request.systemPrompt,
+          request.nativeTools,
+        );
     const prompt = buildInitialPrompt(session, request);
     // Every user message reattempts the configured model: a fallback from a
     // previous turn does not stick to the session. The next
@@ -1782,21 +1902,26 @@ class ClaudeCodeSessionRuntime {
       if (!mcpHost || !session.mcpConfigPath) {
         throw new Error("Claude Code native tool host is unavailable.");
       }
-      // Native takeover: Claude owns the tool loop. Its built-ins and all
-      // ambient/user MCP servers remain disabled; only this run-private,
-      // token-authenticated Stella server is visible.
-      const allowedStellaTools = request.tools
-        .map((tool) => `mcp__stella__${tool.name}`)
-        .join(",");
+      // Native takeover: Claude owns the tool loop. Only the built-ins the
+      // caller asked for stay on (file and shell tools that are far cheaper
+      // in-process than over MCP; none for a bare catalog); every other
+      // built-in and all ambient/user MCP servers remain disabled, so besides
+      // those the run-private, token-authenticated Stella server is all
+      // that is visible.
+      const nativeTools = normalizeNativeTools(request.nativeTools);
+      const allowedTools = [
+        ...nativeTools,
+        ...request.tools.map((tool) => `mcp__stella__${tool.name}`),
+      ].join(",");
       args.push(
         "--strict-mcp-config",
         "--mcp-config",
         session.mcpConfigPath,
         "--disable-slash-commands",
         "--tools",
-        "mcp__stella__*",
+        [...nativeTools, "mcp__stella__*"].join(","),
         "--allowedTools",
-        allowedStellaTools,
+        allowedTools,
       );
     }
     if (effectiveSystemPrompt.trim()) {
@@ -1816,6 +1941,7 @@ class ClaudeCodeSessionRuntime {
       request.effortLevel?.trim() ?? "",
       Boolean(request.vanilla),
       mcpHost?.toolCatalogHash ?? "",
+      normalizeNativeTools(request.nativeTools),
       effectiveSystemPrompt.trim(),
       request.autoCompactWindowTokens ?? null,
       request.autoCompactTriggerPct ?? null,
@@ -2119,6 +2245,9 @@ class ClaudeCodeSessionRuntime {
           ) {
             this.refreshPendingIdleTimer(processState, current);
           }
+          if (!current.request.vanilla) {
+            observeNativeToolCalls(parsedLine, current);
+          }
           if (status) {
             current.request.onStatusChange?.(status);
           }
@@ -2318,6 +2447,8 @@ class ClaudeCodeSessionRuntime {
         emitStreamDelta: createClaudeCodeStreamEmitter(request.onStream),
         mcpCalls: [],
         activeNativeToolUseIds: new Set(),
+        /** Built-in tool calls seen on the stream, keyed by tool_use id. */
+        nativeToolCalls: new Map(),
         injections: new Map(),
       };
       this.refreshPendingIdleTimer(processState, pending);

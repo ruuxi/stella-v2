@@ -9,6 +9,7 @@ import type { ToolContext, ToolResult } from "./types.js";
 import { resolveRipgrepPath } from "./ripgrep.js";
 import {
   expandHomePath,
+  toolContextHome,
   toPosix,
   globToRegExp,
   walkFiles,
@@ -263,6 +264,7 @@ export const handleGrep = async (
         context?.stellaAppDir ??
         process.cwd(),
     ),
+    toolContextHome(context),
   );
   const basePath =
     scopedRoot && !path.isAbsolute(rawPath)

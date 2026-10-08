@@ -58,6 +58,7 @@ import { isDangerousCommand } from "./command-safety.js";
 import { getStellaComputerSessionId } from "./stella-computer-session.js";
 import { sanitizeToolVisibleText } from "./safety.js";
 import type { OfficePreviewRef } from "@stella/contracts/office-preview";
+import { toolStateEnvironment } from "@stella/contracts/cloud-tool-home";
 import { purgeExpiredDeferredDeletes } from "./deferred-delete.js";
 import { resolveToolFallbackCwd } from "./cwd.js";
 import { isolateToolProcessLaunch } from "./process-isolation.js";
@@ -1713,7 +1714,7 @@ export const resolveToolProcessIdentity = (
     );
   }
   const home = path.resolve(identity.home);
-  const roots = [workspaceRoot, context?.stellaDataDir, context?.toolHomeRoot]
+  const roots = [workspaceRoot, context?.stellaDataDir, context?.toolStateRoot]
     .filter((candidate): candidate is string => Boolean(candidate?.trim()))
     .filter((candidate) => path.isAbsolute(candidate))
     .map((candidate) => path.resolve(candidate));
@@ -2227,12 +2228,14 @@ const resolveManagedShellCommand = (
     envOverrides.HOME = processIdentity.home;
     envOverrides.USER = processIdentity.user;
     envOverrides.LOGNAME = processIdentity.user;
-    envOverrides.XDG_CONFIG_HOME = path.join(processIdentity.home, ".config");
-    envOverrides.XDG_CACHE_HOME = path.join(processIdentity.home, ".cache");
-    envOverrides.XDG_STATE_HOME = path.join(
-      processIdentity.home,
-      ".local",
-      "state",
+    const stateRoot = context?.toolStateRoot?.trim();
+    Object.assign(
+      envOverrides,
+      toolStateEnvironment(
+        stateRoot && path.isAbsolute(stateRoot)
+          ? path.resolve(stateRoot)
+          : processIdentity.home,
+      ),
     );
   }
   // The app's own checkout and where drafts of changes to it live (see the

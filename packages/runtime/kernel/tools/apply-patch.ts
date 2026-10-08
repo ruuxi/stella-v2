@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { isBlockedPath } from "./command-safety.js";
 import type { ToolContext, ToolResult } from "./types.js";
-import { expandHomePath } from "./utils.js";
+import { expandHomePath, toolContextHome } from "./utils.js";
 import {
   withFileWriteLock,
   withFileWriteLocks,
@@ -44,8 +44,8 @@ type HunkLine =
  * is enforced in resolveOp.
  * Empty paths are rejected.
  */
-const normalizeRawPath = (raw: string): string => {
-  const expanded = expandHomePath(raw.trim());
+const normalizeRawPath = (raw: string, home?: string): string => {
+  const expanded = expandHomePath(raw.trim(), home);
   if (!expanded) throw new Error("apply_patch requires a file path.");
   return expanded;
 };
@@ -84,7 +84,7 @@ const stripHeredocWrapper = (text: string): string => {
   return text;
 };
 
-const parsePatch = (input: string): FileOp[] => {
+const parsePatch = (input: string, home?: string): FileOp[] => {
   const normalized = input.replace(/\r\n/g, "\n").trim();
   const text = stripHeredocWrapper(normalized);
   const lines = text.split("\n");
@@ -103,7 +103,7 @@ const parsePatch = (input: string): FileOp[] => {
       return ops;
     }
     if (line.startsWith("*** Add File: ")) {
-      const filePath = normalizeRawPath(line.slice("*** Add File: ".length));
+      const filePath = normalizeRawPath(line.slice("*** Add File: ".length), home);
       i++;
       const collected: string[] = [];
       while (i < lines.length) {
@@ -121,17 +121,26 @@ const parsePatch = (input: string): FileOp[] => {
       continue;
     }
     if (line.startsWith("*** Delete File: ")) {
-      const filePath = normalizeRawPath(line.slice("*** Delete File: ".length));
+      const filePath = normalizeRawPath(
+        line.slice("*** Delete File: ".length),
+        home,
+      );
       ops.push({ kind: "delete", path: filePath });
       i++;
       continue;
     }
     if (line.startsWith("*** Update File: ")) {
-      const filePath = normalizeRawPath(line.slice("*** Update File: ".length));
+      const filePath = normalizeRawPath(
+        line.slice("*** Update File: ".length),
+        home,
+      );
       i++;
       let moveTo: string | undefined;
       if (lines[i]?.startsWith("*** Move to: ")) {
-        moveTo = normalizeRawPath(lines[i]!.slice("*** Move to: ".length));
+        moveTo = normalizeRawPath(
+          lines[i]!.slice("*** Move to: ".length),
+          home,
+        );
         i++;
       }
       const hunks: Hunk[] = [];
@@ -786,7 +795,9 @@ export const handleApplyPatch = async (
   }
 
   try {
-    const ops = parsePatch(patch).map((op) => resolveOp(op));
+    const ops = parsePatch(patch, toolContextHome(context)).map((op) =>
+      resolveOp(op),
+    );
     if (context?.toolWorkspaceRoot && context.toolWorkspaceRoot.trim()) {
       const scopeError = ensurePatchOpsWithinRoot(
         ops,

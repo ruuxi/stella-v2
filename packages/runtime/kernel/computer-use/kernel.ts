@@ -24,6 +24,7 @@ import type {
 } from "../tools/types.js";
 import { isolateToolProcessLaunch } from "../tools/process-isolation.js";
 import { resolveToolProcessIdentity } from "../tools/shell.js";
+import { toolStateEnvironment } from "@stella/contracts/cloud-tool-home";
 import { acquireAbortLatch } from "../agent-core/abort-bridge.js";
 import {
   isAgentToolSuspendedError,
@@ -610,6 +611,8 @@ export const nodeReplChildUsesElectronRuntime = (
 export type NodeReplProcessIsolation = Readonly<{
   identity: ToolProcessIdentity;
   cwd: string;
+  /** The context's `toolStateRoot`: caches, config and state go there, not HOME. */
+  stateRoot?: string;
 }>;
 
 type ExternalNodeReplTransportOptions = Readonly<{
@@ -620,19 +623,17 @@ type ExternalNodeReplTransportOptions = Readonly<{
 
 /**
  * The whole environment an isolated REPL child gets: the tool account's own
- * home and a fixed PATH, as a `Bash` command's identity overrides set them,
- * and nothing inherited from the host.
+ * home and state directories and a fixed PATH, as a `Bash` command's identity
+ * overrides set them, and nothing inherited from the host.
  */
 const isolatedNodeReplEnvironment = (
-  identity: ToolProcessIdentity,
+  isolation: NodeReplProcessIsolation,
 ): NodeJS.ProcessEnv => ({
   PATH: "/usr/local/bin:/usr/bin:/bin",
-  HOME: identity.home,
-  USER: identity.user,
-  LOGNAME: identity.user,
-  XDG_CONFIG_HOME: path.join(identity.home, ".config"),
-  XDG_CACHE_HOME: path.join(identity.home, ".cache"),
-  XDG_STATE_HOME: path.join(identity.home, ".local", "state"),
+  HOME: isolation.identity.home,
+  USER: isolation.identity.user,
+  LOGNAME: isolation.identity.user,
+  ...toolStateEnvironment(isolation.stateRoot ?? isolation.identity.home),
   LANG: "C.UTF-8",
 });
 
@@ -663,7 +664,7 @@ export const createExternalNodeReplTransport = (
     : { command: executable, args: ["-"] };
   const child = (options.spawnProcess ?? spawn)(launch.command, launch.args, {
     env: {
-      ...(isolation ? isolatedNodeReplEnvironment(isolation.identity) : env),
+      ...(isolation ? isolatedNodeReplEnvironment(isolation) : env),
       ...(nodeReplChildUsesElectronRuntime(env)
         ? { ELECTRON_RUN_AS_NODE: "1" }
         : {}),
@@ -810,6 +811,8 @@ class NodeReplKernel {
       connectClient?: ReplConnectClient;
       /** The context's validated tool account; the REPL child runs as it. */
       processIdentity?: ToolProcessIdentity;
+      /** The context's `toolStateRoot`, for the child's state directories. */
+      toolStateRoot?: string;
       toolNames: string[];
       browserSessionId: string;
       ownerLeaseId: string;
@@ -868,7 +871,13 @@ class NodeReplKernel {
       workerData,
       `stella-node-repl-${id.slice(0, 48)}`,
       options.processIdentity
-        ? { identity: options.processIdentity, cwd }
+        ? {
+            identity: options.processIdentity,
+            cwd,
+            ...(options.toolStateRoot
+              ? { stateRoot: options.toolStateRoot }
+              : {}),
+          }
         : undefined,
     );
     this.worker.on("message", (message: unknown) =>
@@ -2652,10 +2661,14 @@ export class NodeReplKernelRegistry {
       this.lastOwnerLeaseIssuedAt = ownerLeaseIssuedAt;
       // Validated before anything spawns, exactly as a `Bash` command's is.
       const processIdentity = resolveToolProcessIdentity(context);
+      const toolStateRoot = context.toolStateRoot?.trim();
       const generation = (this.generations.get(id) ?? 0) + 1;
       this.generations.set(id, generation);
       kernel = new NodeReplKernel(id, generation, cwd, {
         ...(processIdentity ? { processIdentity } : {}),
+        ...(toolStateRoot && path.isAbsolute(toolStateRoot)
+          ? { toolStateRoot: path.resolve(toolStateRoot) }
+          : {}),
         sessionFactory,
         authorizeApp: this.options.authorizeApp,
         browserBinPath: this.options.browserBinPath,

@@ -20,6 +20,10 @@ import {
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { Readable } from "node:stream";
+import {
+  isWorldUnsyncedPath,
+  WORLD_UNSYNCED_PATHS,
+} from "@stella/contracts/cloud-tool-home";
 
 export type WorldSyncAccess = Readonly<{
   origin: string;
@@ -287,6 +291,8 @@ export const listWorldProjection = async (
         );
       }
       if (child === ".stella/world-manifest") continue;
+      // HOME's caches and the mirrored skills live only on this disk.
+      if (isWorldUnsyncedPath(child)) continue;
       // Dependency installations are explicitly ephemeral. If a node_modules
       // subtree came from the durable index, however, scan it rather than
       // turning the policy into an accidental authoritative deletion.
@@ -460,7 +466,8 @@ const setEntryOwnership = async (
 
 const setTreeOwnership = async (root: string): Promise<void> => {
   if (typeof process.getuid !== "function" || process.getuid() !== 0) return;
-  const walk = async (absolute: string): Promise<void> => {
+  const walk = async (relative: string): Promise<void> => {
+    const absolute = relative ? absoluteWorldPath(root, relative) : root;
     const stat = await lstat(absolute);
     if (stat.isSymbolicLink()) {
       await lchown(absolute, WORLD_UID, WORLD_GID);
@@ -469,10 +476,35 @@ const setTreeOwnership = async (root: string): Promise<void> => {
     await chown(absolute, WORLD_UID, WORLD_GID);
     if (!stat.isDirectory()) return;
     for (const name of await readdir(absolute)) {
-      await walk(path.join(absolute, name));
+      const child = relative ? `${relative}/${name}` : name;
+      if (!isWorldUnsyncedPath(child)) await walk(child);
     }
   };
-  await walk(root);
+  await walk("");
+};
+
+/**
+ * Empty the world for an export, except what the world store never holds:
+ * the unsynced subtrees, and the directories on the way to them.
+ */
+const clearSyncedEntries = async (
+  root: string,
+  relative = "",
+): Promise<void> => {
+  const absolute = relative ? absoluteWorldPath(root, relative) : root;
+  for (const name of await readdir(absolute)) {
+    const child = relative ? `${relative}/${name}` : name;
+    if (isWorldUnsyncedPath(child)) continue;
+    const childPath = absoluteWorldPath(root, child);
+    if (WORLD_UNSYNCED_PATHS.some((entry) => entry.startsWith(`${child}/`))) {
+      const stat = await lstat(childPath);
+      if (stat.isDirectory() && !stat.isSymbolicLink()) {
+        await clearSyncedEntries(root, child);
+        continue;
+      }
+    }
+    await rm(childPath, { recursive: true, force: true });
+  }
 };
 
 const writeResponseToFile = async (
@@ -549,8 +581,16 @@ const applyFile = async (
 const applyChanges = async (
   root: string,
   access: WorldSyncAccess,
-  changes: WorldChanges,
+  received: WorldChanges,
 ): Promise<void> => {
+  // The world store never holds these, so nothing it says may touch them.
+  const changes: WorldChanges = {
+    ...received,
+    entries: received.entries.filter(
+      (entry) => !isWorldUnsyncedPath(entry.path),
+    ),
+    deleted: received.deleted.filter((entry) => !isWorldUnsyncedPath(entry)),
+  };
   for (const deleted of [...changes.deleted].sort(
     (left, right) => right.length - left.length,
   )) {
@@ -611,6 +651,7 @@ const indexRestoredNodeModules = async (root: string): Promise<WorldIndex> => {
     const absolute = relative ? absoluteWorldPath(root, relative) : root;
     for (const name of await readdir(absolute)) {
       const child = relative ? `${relative}/${name}` : name;
+      if (isWorldUnsyncedPath(child)) continue;
       if (Buffer.byteLength(child, "utf8") > WORLD_PATH_LIMIT_BYTES) {
         throw new Error(`World path exceeds 1024 UTF-8 bytes: ${child}`);
       }
@@ -649,9 +690,7 @@ const extractWorldExport = async (
     Number(response.headers.get("x-stella-world-revision")),
   );
   if (!manifestId) throw new Error("World export manifest is invalid.");
-  for (const name of await readdir(root)) {
-    await rm(path.join(root, name), { recursive: true, force: true });
-  }
+  await clearSyncedEntries(root);
   const tar = spawn(
     "/usr/bin/tar",
     ["-x", "-f", "-", "-C", root, "--no-same-owner"],

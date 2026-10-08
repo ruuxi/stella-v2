@@ -53,14 +53,6 @@ const BLOCKED_WRITE_PATH_PREFIXES: string[] = (() => {
     "/private/etc",
     "/private/var/",
     "/private/var",
-    path.join(os.homedir(), ".ssh"),
-    path.join(os.homedir(), ".aws"),
-    path.join(os.homedir(), ".gnupg"),
-    path.join(os.homedir(), ".kube"),
-    path.join(os.homedir(), ".docker"),
-    path.join(os.homedir(), ".azure"),
-    path.join(os.homedir(), ".config", "gh"),
-    path.join(os.homedir(), ".config", "gcloud"),
   ];
 
   // Windows system directories — normalized with forward slashes
@@ -80,6 +72,18 @@ const BLOCKED_WRITE_PATH_PREFIXES: string[] = (() => {
 
   return prefixes;
 })();
+
+/** Credential directories under HOME, blocked like the system directories. */
+const BLOCKED_HOME_DIRECTORIES = [
+  ".ssh",
+  ".aws",
+  ".gnupg",
+  ".kube",
+  ".docker",
+  ".azure",
+  path.join(".config", "gh"),
+  path.join(".config", "gcloud"),
+];
 
 const BLOCKED_DEVICE_PATHS = new Set([
   "/dev/zero",
@@ -161,9 +165,9 @@ const isBlockedDevice = (normalized: string): boolean => {
   return /^\/proc\/\d+\/fd\/[0-2]$/u.test(normalized);
 };
 
-const isSensitiveHomePath = (normalized: string): boolean => {
+const isSensitiveHomePath = (normalized: string, home: string): boolean => {
   for (const rel of SENSITIVE_HOME_FILES) {
-    if (normalized === normalizePath(path.join(os.homedir(), rel))) {
+    if (normalized === normalizePath(path.join(home, rel))) {
       return true;
     }
   }
@@ -195,22 +199,31 @@ const isSensitiveStellaPath = (
  */
 export const isBlockedPath = (
   filePath: string,
-  context?: { stellaDataDir?: string; stellaAppDir?: string },
+  context?: {
+    stellaDataDir?: string;
+    stellaAppDir?: string;
+    /** Whose HOME the credential files are looked for under. */
+    toolProcessIdentity?: { home: string };
+  },
 ): string | null => {
   const normalized = normalizePath(filePath);
+  const home = context?.toolProcessIdentity?.home ?? os.homedir();
 
   if (isBlockedDevice(normalized)) {
     return "Path blocked: device files that can block or produce infinite output are not available to file tools.";
   }
 
   if (
-    isSensitiveHomePath(normalized) ||
+    isSensitiveHomePath(normalized, home) ||
     isSensitiveStellaPath(normalized, context)
   ) {
     return "Path blocked: credential, token, or internal Stella state files are not available to file tools.";
   }
 
-  for (const prefix of BLOCKED_WRITE_PATH_PREFIXES) {
+  for (const prefix of [
+    ...BLOCKED_WRITE_PATH_PREFIXES,
+    ...BLOCKED_HOME_DIRECTORIES.map((entry) => path.join(home, entry)),
+  ]) {
     if (pathMatchesPrefix(normalized, prefix)) {
       return "Path blocked: file operations in system directories are not allowed for safety.";
     }

@@ -1,8 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
-import {
-  CLOUD_TOOL_HOME,
-  CLOUD_TOOL_PROCESS_IDENTITY,
-} from "../../../packages/executor-cloud/src/cloud-process-isolation.js";
+import { CLOUD_TOOL_PROCESS_IDENTITY } from "../../../packages/executor-cloud/src/cloud-process-isolation.js";
+import { CLOUD_TOOL_HOME } from "@stella/contracts/cloud-tool-home";
 import { buildGeneralAgentPrompt } from "@stella/executor-cloud/general-agent-prompt";
 import type { SerializedAgentToolResult } from "@stella/executor-cloud/attached-tool-protocol";
 import { WORKER_SHELL_COMMANDS } from "../src/worker-shell/eligibility.js";
@@ -22,7 +20,6 @@ const { createWorkerShellRunner } = await import("../src/worker-shell-runner.js"
 const {
   createWorkerShellRouter,
   routeExecCommand,
-  WORKER_SHELL_TOOL_HOME,
   WORKER_SHELL_TOOL_USER,
 } = await import("../src/worker-shell-router.js");
 mock.restore();
@@ -538,7 +535,6 @@ describe("worker shell router", () => {
   });
 
   test("gives commands the container's tool environment", async () => {
-    expect(WORKER_SHELL_TOOL_HOME).toBe(CLOUD_TOOL_HOME);
     expect(WORKER_SHELL_TOOL_USER).toBe(CLOUD_TOOL_PROCESS_IDENTITY.user);
     const h = await harness({});
     const { ladder } = fakeLadder();
@@ -548,10 +544,12 @@ describe("worker shell router", () => {
       root: ROOT,
       dangerousReason: noDanger,
     });
-    const result = await router.execute(exec("echo $HOME $USER $PWD"));
+    const result = await router.execute(
+      exec("echo $HOME $USER $PWD $XDG_CACHE_HOME"),
+    );
     expect(result.outcome).toMatchObject({
       text: expect.stringContaining(
-        `Output:\n${CLOUD_TOOL_HOME} stella-tools ${ROOT}\n`,
+        `Output:\n${ROOT} stella-tools ${ROOT} ${CLOUD_TOOL_HOME}/.cache\n`,
       ),
     });
   });

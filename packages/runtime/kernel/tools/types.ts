@@ -39,9 +39,10 @@ export type ToolProcessIdentity = {
   uid: number;
   gid: number;
   /**
-   * Writable home for the dropped-credential child. It must sit inside
-   * `toolWorkspaceRoot`, the context's `stellaDataDir`, or the trusted
-   * `toolHomeRoot` the host declared; the shell refuses anything else.
+   * HOME for the dropped-credential child, and what `~` means to the file
+   * tools. It must sit inside `toolWorkspaceRoot`, the context's
+   * `stellaDataDir`, or the trusted `toolStateRoot` the host declared; the
+   * shell refuses anything else.
    */
   home: string;
   user: string;
@@ -89,13 +90,14 @@ export type ToolContext = {
   /** POSIX child credential drop selected only by the trusted runtime host. */
   toolProcessIdentity?: ToolProcessIdentity;
   /**
-   * A host-validated directory outside the workspace that may hold the tool
-   * account's home. The cloud keeps the tool home beside the checkpointed
-   * world rather than inside it, so caches never ride along in a checkpoint;
-   * the executor verifies the directory's ownership and mode before naming it
-   * here. Like `toolProcessIdentity`, only the trusted host sets this.
+   * A host-validated directory outside the workspace for the tool account's
+   * caches, config and state: the shell points XDG and the common tool caches
+   * into it instead of HOME. The cloud's HOME is the checkpointed world, and
+   * this keeps caches out of it; the executor verifies the directory's
+   * ownership and mode before naming it here. Like `toolProcessIdentity`,
+   * only the trusted host sets this.
    */
-  toolHomeRoot?: string;
+  toolStateRoot?: string;
   storageMode?: "cloud" | "local";
   /** Exact owner-data epoch for cloud computer-agent lifecycle writes. */
   ownerGeneration?: string;

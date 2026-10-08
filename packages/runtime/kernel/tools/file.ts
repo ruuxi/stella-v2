@@ -17,6 +17,7 @@ import {
   normalizeToLF,
   restoreLineEndings,
   stripBom,
+  toolContextHome,
 } from "./utils.js";
 import {
   applyAnchoredEdit,
@@ -54,9 +55,12 @@ const isPathInsideRoot = (candidate: string, root: string): boolean => {
   );
 };
 
-export const requireAbsoluteFilePath = (rawPath: unknown): string => {
+export const requireAbsoluteFilePath = (
+  rawPath: unknown,
+  home?: string,
+): string => {
   const raw = String(rawPath ?? "");
-  const expandedPath = expandHomePath(raw);
+  const expandedPath = expandHomePath(raw, home);
   if (!path.isAbsolute(expandedPath)) {
     throw new Error(
       `File tool paths must be absolute. Received relative path '${raw}'. ` +
@@ -71,7 +75,10 @@ export const resolveFilePath = (
   rawPath: unknown,
   context?: ToolContext,
 ): string => {
-  const resolvedPath = requireAbsoluteFilePath(rawPath);
+  const resolvedPath = requireAbsoluteFilePath(
+    rawPath,
+    toolContextHome(context),
+  );
   const scopedRoot = context?.toolWorkspaceRoot?.trim()
     ? path.resolve(context.toolWorkspaceRoot)
     : null;

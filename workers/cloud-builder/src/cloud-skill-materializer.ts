@@ -6,8 +6,73 @@ import {
   type CloudSkillCatalogSnapshot,
 } from "./cloud-home-store.js";
 import { sha256Hex } from "./hash.js";
+import type { ExecutionSession } from "./sandbox-client.js";
+import { strictSessionExec } from "./strict-session-process.js";
+import { WORLD_ROOT } from "./workspace.js";
 
 export const CLOUD_SKILL_SANDBOX_ROOT = "/tmp/stella-cloud-skills";
+
+/**
+ * The same skills where a device keeps them: `~/.stella/skills/<slug>`, HOME
+ * being the world. The world sync leaves this subtree out
+ * (`WORLD_UNSYNCED_PATHS`), so the bodies never reach the world store.
+ */
+export const CLOUD_SKILL_HOME_ROOT = `${WORLD_ROOT}/.stella/skills`;
+
+const SKILL_SLUG = /^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/u;
+
+/**
+ * Run as the tool account, so nothing an agent did to the tree can turn the
+ * copy into a write anywhere else. The new copies are built inside the
+ * skills directory, which the sync never sees, and renamed into place.
+ * Arguments: the skills directory, then slug and version root pairs.
+ */
+const MIRROR_SKILLS_SCRIPT = `set -eu
+umask 022
+skills=$1
+shift
+mkdir -p -- "$skills"
+find "$skills" -mindepth 1 -maxdepth 1 \\( -name '.stage-*' -o -name '.old-*' \\) -mmin +10 -exec rm -rf -- {} +
+stage=$(mktemp -d "$skills/.stage-XXXXXX")
+old=$(mktemp -d "$skills/.old-XXXXXX")
+while [ "$#" -gt 1 ]; do cp -R -- "$2" "$stage/$1"; shift 2; done
+for entry in "$skills"/*; do
+  if [ -e "$entry" ] || [ -L "$entry" ]; then mv -T -- "$entry" "$old/\${entry##*/}"; fi
+done
+for entry in "$stage"/*; do
+  if [ -e "$entry" ]; then mv -T -- "$entry" "$skills/\${entry##*/}"; fi
+done
+rm -rf -- "$stage" "$old"`;
+
+/**
+ * Put a materialized catalog at `~/.stella/skills/<slug>` too, replacing
+ * whatever an earlier turn left there.
+ */
+export const mirrorCloudSkillsIntoHome = async (args: {
+  session: Pick<ExecutionSession, "exec">;
+  catalog: MaterializedCloudSkillCatalog;
+}): Promise<void> => {
+  const pairs = args.catalog.entries
+    .filter((entry) => SKILL_SLUG.test(entry.slug))
+    .flatMap((entry) => [entry.slug, entry.root]);
+  const result = await strictSessionExec(
+    args.session,
+    [
+      "/bin/bash",
+      "-c",
+      MIRROR_SKILLS_SCRIPT,
+      "mirror-skills",
+      CLOUD_SKILL_HOME_ROOT,
+      ...pairs,
+    ],
+    { origin: "internal" },
+  );
+  if (!result.success) {
+    throw new Error(
+      result.stderr.trim().slice(-500) || `exit code ${result.exitCode}`,
+    );
+  }
+};
 
 const SAFE_SKILL_PATH =
   /^(?!\/)(?!.*(?:^|\/)\.{1,2}(?:\/|$))(?!.*\\)(?!.*(?:^|\/)\.)[^\u0000-\u001f\u007f]+$/u;

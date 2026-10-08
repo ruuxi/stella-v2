@@ -124,10 +124,10 @@ import {
   assertCloudMountedDirectoryBoundary,
   assertToolOwnedDirectory,
   CLOUD_HOST_STATE,
-  CLOUD_TOOL_HOME,
   CLOUD_TOOL_PROCESS_IDENTITY,
   proveStrictCloudProcessIsolation,
 } from "./cloud-process-isolation.js";
+import { CLOUD_TOOL_HOME } from "@stella/contracts/cloud-tool-home";
 import { cloudAgentToolContext } from "./cloud-tool-context.js";
 import {
   isAgentToolSuspendedError,
@@ -1242,7 +1242,7 @@ export const runAgentTurn = (
             drivePrefix: "",
             processIdentity: {
               ...CLOUD_TOOL_PROCESS_IDENTITY,
-              home: toolHome,
+              home: workspaceRoot,
             },
           }).catch(() => null);
           const files = collected?.files ?? [];

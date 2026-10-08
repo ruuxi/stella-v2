@@ -8,9 +8,11 @@ import { CLOUD_TOOL_PROCESS_IDENTITY } from "./cloud-process-isolation.js";
  * single test run the runtime's real identity guard against exactly what the
  * cloud sends, so the two paths cannot drift apart in what the shell accepts.
  *
- * `toolHome` sits beside the checkpointed world, not inside it, and is owned
- * by the tool account (validated by `prepareCloudToolFilesystem` before this
- * context is used). It is therefore declared as the trusted `toolHomeRoot`.
+ * HOME is the world itself, so `~` and `~/.stella` mean in the cloud what
+ * they mean on a device. Caches, config and state go to `toolHome` instead,
+ * beside the checkpointed world and owned by the tool account (validated by
+ * `prepareCloudToolFilesystem` before this context is used), which is
+ * therefore declared as the trusted `toolStateRoot`.
  */
 export const cloudAgentToolContext = (args: {
   threadId: string;
@@ -36,11 +38,11 @@ export const cloudAgentToolContext = (args: {
   stellaAppDir: args.workspaceRoot,
   stellaDataDir: args.workspaceStateDir,
   toolWorkspaceRoot: args.workspaceRoot,
-  toolHomeRoot: args.toolHome,
+  toolStateRoot: args.toolHome,
   storageMode: "cloud",
   toolProcessIdentity: {
     ...CLOUD_TOOL_PROCESS_IDENTITY,
-    home: args.toolHome,
+    home: args.workspaceRoot,
   },
   agentId: args.threadId,
   agentDepth: 1,

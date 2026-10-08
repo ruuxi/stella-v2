@@ -17,6 +17,10 @@
  * never inside the archived tree, and the credential stores the file tools
  * already refuse to touch (`command-safety.ts`) are left out of the tool home.
  */
+import {
+  CLOUD_TOOL_HOME,
+  WORLD_UNSYNCED_PATHS,
+} from "@stella/contracts/cloud-tool-home";
 import { WORLD_ROOT } from "./workspace.js";
 
 /** A larger tree is not archived; the previous archive, if any, is kept. */
@@ -40,8 +44,15 @@ export const DEPENDENCY_FOREIGN_LIMIT = 1_000;
 export const dependencyBackupPrefix = (sandboxObjectId: string): string =>
   `sandbox-dependencies/v1/${sandboxObjectId}/`;
 
-const TOOL_HOME = ".stella-tool-home";
+const TOOL_HOME = CLOUD_TOOL_HOME.slice(`${DEPENDENCY_BACKUP_DIR}/`.length);
 const WORLD = WORLD_ROOT.slice(`${DEPENDENCY_BACKUP_DIR}/`.length);
+
+/**
+ * World subtrees the archive never looks into: the user's drive syncs on its
+ * own, the world's `.stella` holds per-container state, and the unsynced
+ * HOME caches are disposable by design.
+ */
+const WORLD_SKIPPED = ["drive", ".stella", ...WORLD_UNSYNCED_PATHS];
 
 /** Credential stores under the tool home that never leave the container. */
 const TOOL_HOME_CREDENTIALS = [
@@ -64,8 +75,7 @@ const TOOL_HOME_CREDENTIALS = [
 /**
  * Gitignore patterns over `/workspace`, last match wins: every directory is
  * walked, but the only files kept are the tool home's and those inside a
- * `node_modules`. The user's drive syncs on its own, and the world's
- * `.stella` holds per-container state.
+ * `node_modules` outside `WORLD_SKIPPED`.
  */
 export const DEPENDENCY_BACKUP_EXCLUDES: readonly string[] = [
   "*",
@@ -75,8 +85,7 @@ export const DEPENDENCY_BACKUP_EXCLUDES: readonly string[] = [
   "/*",
   `!/${WORLD}/`,
   `!/${TOOL_HOME}/`,
-  `/${WORLD}/drive/`,
-  `/${WORLD}/.stella/`,
+  ...WORLD_SKIPPED.map((entry) => `/${WORLD}/${entry}/`),
   ...TOOL_HOME_CREDENTIALS.map((entry) => `/${TOOL_HOME}/${entry}`),
 ];
 
@@ -112,7 +121,7 @@ if [ -e ${DEPENDENCY_RESTORE_ROOT} ]; then jq -cn --argjson now "$now" '{state:"
 work=$(mktemp -d)
 trap 'rm -rf -- "$work"' EXIT
 # A turn may still be deleting files; a vanished path is not a failure.
-{ find ${WORLD} \\( -path ${WORLD}/drive -o -path ${WORLD}/.stella \\) -prune -o -type d -name node_modules -prune -print0 2>/dev/null || true; } | sort -z >"$work/roots"
+{ find ${WORLD} \\( ${WORLD_SKIPPED.map((entry) => `-path ${WORLD}/${entry}`).join(" -o ")} \\) -prune -o -type d -name node_modules -prune -print0 2>/dev/null || true; } | sort -z >"$work/roots"
 fingerprint=$(sha256sum <"$work/roots" | cut -c1-64)
 { if [ -d ${TOOL_HOME} ]; then printf '%s\\0' ${TOOL_HOME}; fi; cat "$work/roots"; } >"$work/targets"
 if [ "$mark" != 0 ] && [ "$fingerprint" = "$previous" ]; then

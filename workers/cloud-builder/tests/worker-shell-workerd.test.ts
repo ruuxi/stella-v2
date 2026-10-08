@@ -177,7 +177,8 @@ describe("worker shell in workerd", () => {
       ["cat etc-link", "outside_workspace"],
       ["cat /etc/hostname", "outside_workspace"],
       ["echo x > /tmp/scratch", "outside_workspace"],
-      ["ls ~", "outside_workspace"],
+      ["ls ~/.cache", "sandbox_only_path"],
+      ["ls $XDG_CACHE_HOME", "outside_workspace"],
     ] as const) {
       const response = await exec("boundaries", script);
       expect({ script, reason: fallbackReason(response) }).toEqual({

@@ -30,11 +30,20 @@ export const normalizeWorldPath = (
   return segments.join("/");
 };
 
+/**
+ * The world is the cloud agent's HOME, so `~` and `$HOME` name its root in a
+ * file tool exactly as they do in the agent's shell.
+ */
+export const expandWorldHome = (
+  value: string,
+  root: string = WORLD_ROOT,
+): string => value.replace(/^(?:~|\$HOME|\$\{HOME\})(?=$|\/)/u, () => root);
+
 export const worldRelativeToolPath = (
   value: unknown,
   root: string = WORLD_ROOT,
 ): string => {
-  const raw = String(value ?? "");
+  const raw = expandWorldHome(String(value ?? ""), root);
   if (!raw.startsWith("/")) {
     throw new Error(
       `File tool paths must be absolute. Received relative path '${raw}'. ` +

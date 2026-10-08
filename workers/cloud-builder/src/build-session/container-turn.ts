@@ -12,7 +12,10 @@ import {
 import { classifyAgentFailureDiagnostic } from "../agent-failure-diagnostic.js";
 import { CloudHomeStore, gateHomeControl } from "../cloud-home-store.js";
 import type { CloudSkillCatalogSnapshot } from "../cloud-home-store.js";
-import { materializeCloudSkillSnapshot } from "../cloud-skill-materializer.js";
+import {
+  materializeCloudSkillSnapshot,
+  mirrorCloudSkillsIntoHome,
+} from "../cloud-skill-materializer.js";
 import { devAcceptanceProbesEnabled } from "../dev-acceptance-probes.js";
 import { executorSessionEnvironment } from "../executor-session-env.js";
 import { requiresExactThreadCandidate } from "../general-agent-turn.js";
@@ -1384,6 +1387,17 @@ export const runAgentAttempt = async (
       session,
       assertActive: () => turnExecution.assertActive(),
     });
+    turnExecution.assertActive();
+    // The pinned roots above stay authoritative; HOME's copy is for an agent
+    // that looks where a device keeps them.
+    await mirrorCloudSkillsIntoHome({ session, catalog: cloudSkills }).catch(
+      (error: unknown) => {
+        log("error", "cloud_skills_home_mirror_failed", {
+          turnId: turn.turnId,
+          message: errorMessage(error),
+        });
+      },
+    );
     turnExecution.assertActive();
   }
 

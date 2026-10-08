@@ -11,7 +11,6 @@ export const CLOUD_TOOL_PROCESS_IDENTITY = {
   requireNoNewPrivileges: true,
 } as const;
 
-export const CLOUD_TOOL_HOME = "/workspace/.stella-tool-home";
 export const CLOUD_HOST_STATE = "/home/stella-host-state";
 
 const modeBits = (mode: number): number => mode & 0o7777;

@@ -18,6 +18,11 @@ describe("strict Builder session process boundary", () => {
       XDG_CONFIG_HOME: "/workspace/.stella-tool-home/.config",
       XDG_CACHE_HOME: "/workspace/.stella-tool-home/.cache",
       XDG_STATE_HOME: "/workspace/.stella-tool-home/.local/state",
+      XDG_DATA_HOME: "/workspace/.stella-tool-home/.local/share",
+      npm_config_cache: "/workspace/.stella-tool-home/.npm",
+      BUN_INSTALL_CACHE_DIR: "/workspace/.stella-tool-home/.bun/install/cache",
+      PLAYWRIGHT_BROWSERS_PATH: "/workspace/.stella-tool-home/.cache/ms-playwright",
+      PUPPETEER_CACHE_DIR: "/workspace/.stella-tool-home/.cache/puppeteer",
     });
     expect(JSON.stringify(APP_BUILD_SESSION_ENV)).not.toContain(
       "STELLA_TURN_TOKEN",

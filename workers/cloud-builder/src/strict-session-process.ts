@@ -7,6 +7,10 @@ import type {
 } from "./sandbox-client.js";
 import { Effect } from "effect";
 import {
+  CLOUD_TOOL_HOME,
+  toolStateEnvironment,
+} from "@stella/contracts/cloud-tool-home";
+import {
   runToolEffect,
   sleepWithAbortEffect,
 } from "@stella/runtime/kernel/tools/effect-runtime.js";
@@ -17,10 +21,8 @@ export const APP_BUILD_SESSION_ENV = Object.freeze({
   STELLA_CLOUD_WORKSPACE_ROOT: "/workspace/app",
   USER: "stella-tools",
   LOGNAME: "stella-tools",
-  HOME: "/workspace/.stella-tool-home",
-  XDG_CONFIG_HOME: "/workspace/.stella-tool-home/.config",
-  XDG_CACHE_HOME: "/workspace/.stella-tool-home/.cache",
-  XDG_STATE_HOME: "/workspace/.stella-tool-home/.local/state",
+  HOME: CLOUD_TOOL_HOME,
+  ...toolStateEnvironment(CLOUD_TOOL_HOME),
 });
 
 const quoteShellArg = (value: string): string => {

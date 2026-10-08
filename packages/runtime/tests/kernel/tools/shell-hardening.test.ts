@@ -115,7 +115,7 @@ describe("shell hardening", () => {
     ).toThrow("only on POSIX");
   });
 
-  it("accepts a home inside the trusted home root the host declared, and nothing else", () => {
+  it("accepts a home inside the trusted state root the host declared, and nothing else", () => {
     const root = createTempDir();
     const trustedHome = createTempDir();
     const identity = {
@@ -124,13 +124,13 @@ describe("shell hardening", () => {
       home: path.join(trustedHome, "home"),
       user: "stella-tools",
     };
-    // The cloud keeps the tool home beside the checkpointed world; the host
-    // names that directory explicitly after validating it.
+    // A host that keeps its tool state beside the workspace names that
+    // directory explicitly after validating it.
     expect(
       resolveToolProcessIdentity({
         ...toolContext("identity-home-root"),
         toolWorkspaceRoot: root,
-        toolHomeRoot: trustedHome,
+        toolStateRoot: trustedHome,
         toolProcessIdentity: identity,
       }),
     ).toMatchObject({ home: path.join(trustedHome, "home") });
@@ -147,7 +147,7 @@ describe("shell hardening", () => {
       resolveToolProcessIdentity({
         ...toolContext("identity-home-root-relative"),
         toolWorkspaceRoot: root,
-        toolHomeRoot: "relative/home",
+        toolStateRoot: "relative/home",
         toolProcessIdentity: identity,
       }),
     ).toThrow("must stay inside the workspace");

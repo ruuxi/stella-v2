@@ -42,6 +42,7 @@ import {
   resolveCloudSkillPath,
 } from "./cloud-skills.js";
 import { WORLD_ROOT } from "./workspace.js";
+import { expandWorldHome } from "./world/path.js";
 
 const MAX_SKILL_TEXT_CHARS = 120_000;
 const DEFAULT_READ_LIMIT = 2000;
@@ -194,7 +195,9 @@ export const createCloudReadTool = (
         `File not found: ${filePath}. Only ${WORLD_ROOT}/... (the user's cloud drive, projects, and apps) and ~/.stella/skills/... exist in this session.`,
       );
     }
-    if (!filePath.startsWith("/")) {
+    // The world is HOME in the cloud, as it is for the agents' shells.
+    const worldPath = expandWorldHome(filePath);
+    if (!worldPath.startsWith("/")) {
       return failure(
         `File tool paths must be absolute. Received relative path '${filePath}'. The user's cloud files live under ${WORLD_ROOT}/ (drive/, projects/<name>/, apps/<name>/).`,
       );
@@ -206,31 +209,31 @@ export const createCloudReadTool = (
     // mislabeled `.png` is reported as what it actually is rather than sent
     // to a provider that will reject it.
     const world = options.world;
-    if (imageMimeTypeFromPath(filePath) && world.stat && world.readFile) {
-      const entry = await world.stat(filePath).catch(() => null);
+    if (imageMimeTypeFromPath(worldPath) && world.stat && world.readFile) {
+      const entry = await world.stat(worldPath).catch(() => null);
       if (entry && entry.kind === "file") {
         if (entry.size > MAX_READ_IMAGE_BYTES) {
           return failure(
-            `That image is ${entry.size} bytes, over this session's ${MAX_READ_IMAGE_BYTES}-byte limit for reading an image into the conversation: ${filePath}`,
+            `That image is ${entry.size} bytes, over this session's ${MAX_READ_IMAGE_BYTES}-byte limit for reading an image into the conversation: ${worldPath}`,
           );
         }
-        const bytes = await world.readFile(filePath).catch(() => null);
+        const bytes = await world.readFile(worldPath).catch(() => null);
         if (bytes) {
           const mimeType = detectImageMimeTypeFromBytes(bytes);
           if (!mimeType) {
             return failure(
-              `That file is named like an image but its bytes are not a complete PNG, JPEG, GIF, or WEBP: ${filePath}`,
+              `That file is named like an image but its bytes are not a complete PNG, JPEG, GIF, or WEBP: ${worldPath}`,
             );
           }
           return {
             content: [
               {
                 type: "text",
-                text: `Image file: ${filePath} (${mimeType}, ${bytes.length} bytes)`,
+                text: `Image file: ${worldPath} (${mimeType}, ${bytes.length} bytes)`,
               },
               { type: "image", data: base64FromBytes(bytes), mimeType },
             ],
-            details: { path: filePath, mimeType, sizeBytes: bytes.length },
+            details: { path: worldPath, mimeType, sizeBytes: bytes.length },
           };
         }
       }
@@ -239,14 +242,14 @@ export const createCloudReadTool = (
     const result = await options.world.tool({
       name: "Read",
       arguments: {
-        file_path: filePath,
+        file_path: worldPath,
         ...(args.offset !== undefined ? { offset: args.offset } : {}),
         ...(args.limit !== undefined ? { limit: args.limit } : {}),
       },
     });
     return {
       content: [{ type: "text", text: result.output || "(no output)" }],
-      details: { path: filePath },
+      details: { path: worldPath },
       ...(result.ok ? {} : { isError: true }),
     };
   },

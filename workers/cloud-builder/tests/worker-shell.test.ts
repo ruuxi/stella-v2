@@ -17,7 +17,7 @@ const request = (
   script,
   root: ROOT,
   cwd: ROOT,
-  env: { HOME: "/workspace/.stella-tool-home" },
+  env: { HOME: ROOT },
   timeoutMs: 5_000,
   sandboxOnly: ["drive"],
   ...overrides,
@@ -135,7 +135,7 @@ describe("worker shell run", () => {
         // just-bash pads uniq -c counts to four columns; GNU uses seven.
         "   2 beta",
         "notes/a.txt notes/b.txt",
-        "a  b c $HOME /workspace/.stella-tool-home",
+        "a  b c $HOME /workspace/world",
         "3",
         "42",
         "",
@@ -283,7 +283,7 @@ describe("worker shell run", () => {
       "cat /etc/passwd",
       "echo x > /tmp/out.txt",
       "ls /",
-      "cat ~/.bashrc",
+      "cat /workspace/.stella-tool-home/.config/git/config",
       "cd /tmp && ls",
     ]) {
       const outcome = fellBack(

@@ -26,6 +26,11 @@ import type {
 } from "./worker-shell-runner.js";
 import { WORKER_SHELL_MAX_TIMEOUT_MS } from "./worker-shell/protocol.js";
 import { normalizeShellPath } from "./worker-shell/paths.js";
+import {
+  CLOUD_TOOL_HOME,
+  toolStateEnvironment,
+  WORLD_UNSYNCED_PATHS,
+} from "@stella/contracts/cloud-tool-home";
 
 export type WorkerShellLadder = Readonly<{
   execute(call: {
@@ -37,13 +42,12 @@ export type WorkerShellLadder = Readonly<{
 }>;
 
 /**
- * The environment the container gives a tool process
- * (`CLOUD_TOOL_HOME`, `CLOUD_TOOL_PROCESS_IDENTITY` and
- * `executorSessionEnvironment`). The container module spawns processes and
- * cannot load in a Durable Object; `worker-shell-router.test.ts` pins these
- * against it.
+ * The tool account the container runs a tool process as
+ * (`CLOUD_TOOL_PROCESS_IDENTITY`). The container module spawns processes and
+ * cannot load in a Durable Object; `worker-shell-router.test.ts` pins this
+ * against it. HOME and the cache, config and state directories come from
+ * `@stella/contracts/cloud-tool-home`, as they do in the container.
  */
-export const WORKER_SHELL_TOOL_HOME = "/workspace/.stella-tool-home";
 export const WORKER_SHELL_TOOL_USER = "stella-tools";
 
 /**
@@ -268,14 +272,20 @@ export const createWorkerShellRouter = (
           script: route.script,
           cwd: route.cwd,
           env: {
-            HOME: WORKER_SHELL_TOOL_HOME,
+            HOME: input.root,
             USER: WORKER_SHELL_TOOL_USER,
             LOGNAME: WORKER_SHELL_TOOL_USER,
+            ...toolStateEnvironment(CLOUD_TOOL_HOME),
             STELLA_CLOUD_WORKSPACE_ROOT: input.root,
             PWD: route.cwd,
           },
           timeoutMs: route.timeoutMs,
-          sandboxOnly: input.prepareWorkspace ? [] : WORKER_SHELL_SANDBOX_ONLY,
+          // HOME's caches and the mirrored skills exist only on the
+          // sandbox's disk, so touching one hands the command over.
+          sandboxOnly: [
+            ...WORLD_UNSYNCED_PATHS,
+            ...(input.prepareWorkspace ? [] : WORKER_SHELL_SANDBOX_ONLY),
+          ],
         },
         call.signal ?? input.signal,
       );

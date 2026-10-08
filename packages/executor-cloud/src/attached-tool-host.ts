@@ -70,9 +70,9 @@ import {
 import { driveHydrationNotice } from "./general-agent-prompt.js";
 import {
   CLOUD_HOST_STATE,
-  CLOUD_TOOL_HOME,
   CLOUD_TOOL_PROCESS_IDENTITY,
 } from "./cloud-process-isolation.js";
+import { CLOUD_TOOL_HOME } from "@stella/contracts/cloud-tool-home";
 import { cloudAgentToolContext } from "./cloud-tool-context.js";
 import {
   toolStateDir,
@@ -589,7 +589,7 @@ export const runAttachedToolHost = (
           drivePrefix: "",
           processIdentity: {
             ...CLOUD_TOOL_PROCESS_IDENTITY,
-            home: CLOUD_TOOL_HOME,
+            home: workspaceRoot,
           },
         }).catch((error) => {
           // Delivery is best-effort, but a swallowed failure here is the

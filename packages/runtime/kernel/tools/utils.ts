@@ -39,8 +39,17 @@ export const sanitizeForLogs = (value: unknown) => sanitizeSensitiveData(value);
 
 export const toPosix = (value: string) => value.replace(/\\/g, "/");
 
-export const expandHomePath = (value: string) => {
-  const home = os.homedir();
+/** The HOME a context's file tools resolve `~` against. */
+export const toolContextHome = (context?: {
+  toolProcessIdentity?: { home: string };
+}): string => context?.toolProcessIdentity?.home ?? os.homedir();
+
+/**
+ * `home` is the HOME of whoever the path is for: a tool context with a process
+ * identity passes that identity's (`toolContextHome`), so `~` in a cloud
+ * file tool is the agent's HOME, exactly as it is in its shell.
+ */
+export const expandHomePath = (value: string, home: string = os.homedir()) => {
   const userProfile = process.env.USERPROFILE || home;
   const localAppData =
     process.env.LOCALAPPDATA || path.join(userProfile, "AppData", "Local");

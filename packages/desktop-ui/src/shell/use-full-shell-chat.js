@@ -34,6 +34,7 @@ import { useStellaSendMessageBridge } from "./use-stella-send-message-bridge";
 import { composerDraftFromUserRow } from "@/app/chat/message-composer-restore";
 import { useChatStore } from "@/context/chat-store-context";
 import { useCloudChatBridge } from "@/features/cloud/use-cloud-chat-bridge";
+import { usePiChat } from "@/features/chat/pi/use-pi-chat";
 import { cloudAttachmentsStore } from "@/features/cloud/cloud-composer-store";
 import { useOwnDeviceRemoteCancel } from "@/features/cloud/use-own-device-remote-cancel";
 import { backendClient } from "@/platform/backend/backend-client";
@@ -272,9 +273,12 @@ export function useFullShellChat({
     () => buildActivityTasks(threadActivityRecords, localTaskDecorations),
     [threadActivityRecords, localTaskDecorations],
   );
+  // A launch with STELLA_AGENT_RUNTIME=pi runs the chat on pi-durable in the
+  // runtime and renders it from there; the journal bridge stays off.
+  const piChat = usePiChat(activeConversationId);
   const cloudChat = useCloudChatBridge({
     conversationId: activeConversationId,
-    enabled: cloudFeaturesEnabled,
+    enabled: cloudFeaturesEnabled && !piChat.enabled,
     localMessages: localPersistedMessages,
     localActivities,
     localFiles: localPersistedFiles,
@@ -286,7 +290,9 @@ export function useFullShellChat({
     enabled: cloudFeaturesEnabled && isLocalStorage && !cloudChat.isWebShell,
     onCancel: localCancelCurrentStream,
   });
-  const persistedMessages = cloudChat.persistedMessages;
+  const persistedMessages = piChat.enabled
+    ? piChat.messages
+    : cloudChat.persistedMessages;
   // Cloud placement can acknowledge IPC before its journal reaches this
   // window. Keep pending sends working until canonical history takes over,
   // and retire their overlays even when no SQLite write occurs on this device.
@@ -306,9 +312,11 @@ export function useFullShellChat({
     : localOptimisticEvents;
   // The web shell has no in-memory overlay: a cloud reply becomes visible when
   // its journal row commits, not before.
-  const streamingAssistants = cloudChat.isWebShell
-    ? EMPTY_STREAMING_ASSISTANTS
-    : localStreamingAssistants;
+  const streamingAssistants = piChat.enabled
+    ? piChat.streamingAssistants
+    : cloudChat.isWebShell
+      ? EMPTY_STREAMING_ASSISTANTS
+      : localStreamingAssistants;
   // Desktop placement stops owning a run when the cloud accepts it.
   // Follow the canonical turn while no local execution owns the controls.
   // Remember the canonical turn this window executed. Its live-clear frame
@@ -323,31 +331,49 @@ export function useFullShellChat({
   const localTurnHandedOff = !localIsStreaming && Boolean(cloudLiveTurnId) &&
     locallyOwnedCloudTurnRef.current === cloudLiveTurnId;
   const useCloudRun = cloudChat.isWebShell || (!localIsStreaming && cloudChat.isStreaming);
-  const runtimeStatusText = useCloudRun
-    ? cloudChat.runtimeStatusText
-    : localRuntimeStatusText;
-  const isCompacting = useCloudRun ? false : localIsCompacting;
-  const activeToolCallId = useCloudRun ? cloudChat.activeToolCallId : localActiveToolCallId;
-  const activeToolName = useCloudRun
-    ? (localTurnHandedOff ? null : cloudChat.activeToolName)
-    : localActiveToolName;
-  const latestCompletedTool = useCloudRun
+  const runtimeStatusText = piChat.enabled
+    ? piChat.runtimeStatusText
+    : useCloudRun
+      ? cloudChat.runtimeStatusText
+      : localRuntimeStatusText;
+  const isCompacting = piChat.enabled
+    ? piChat.isCompacting
+    : useCloudRun ? false : localIsCompacting;
+  const activeToolCallId = piChat.enabled
+    ? piChat.activeToolCallId
+    : useCloudRun ? cloudChat.activeToolCallId : localActiveToolCallId;
+  const activeToolName = piChat.enabled
+    ? piChat.activeToolName
+    : useCloudRun
+      ? (localTurnHandedOff ? null : cloudChat.activeToolName)
+      : localActiveToolName;
+  const latestCompletedTool = useCloudRun || piChat.enabled
     ? null
     : localLatestCompletedTool;
-  const hasToolActivity = useCloudRun
-    ? Boolean(cloudChat.activeToolName)
-    : localHasToolActivity;
-  const isToolActive = useCloudRun
-    ? Boolean(activeToolName)
-    : localIsToolActive;
-  const reasoningText = useCloudRun ? "" : localReasoningText;
-  const isStreaming = cloudChat.isStreaming || localIsStreaming || awaitingMessageAdmission;
+  const hasToolActivity = piChat.enabled
+    ? piChat.hasToolActivity
+    : useCloudRun
+      ? Boolean(cloudChat.activeToolName)
+      : localHasToolActivity;
+  const isToolActive = piChat.enabled
+    ? piChat.isToolActive
+    : useCloudRun
+      ? Boolean(activeToolName)
+      : localIsToolActive;
+  const reasoningText = useCloudRun || piChat.enabled ? "" : localReasoningText;
+  const isStreaming = piChat.enabled
+    ? piChat.isStreaming || awaitingMessageAdmission
+    : cloudChat.isStreaming || localIsStreaming || awaitingMessageAdmission;
   // The committed reply hands off before the terminal turn frame arrives.
   const answerLanded = !awaitingMessageAdmission &&
-    (useCloudRun ? (cloudChat.answerLanded || localTurnHandedOff) : localAnswerLanded);
-  const pendingUserMessageId = cloudChat.isWebShell
-    ? cloudChat.pendingUserMessageId
-    : localPendingUserMessageId;
+    (piChat.enabled
+      ? piChat.answerLanded
+      : useCloudRun ? (cloudChat.answerLanded || localTurnHandedOff) : localAnswerLanded);
+  const pendingUserMessageId = piChat.enabled
+    ? piChat.pendingUserMessageId
+    : cloudChat.isWebShell
+      ? cloudChat.pendingUserMessageId
+      : localPendingUserMessageId;
   const queuedUserMessages = cloudChat.isWebShell
     ? []
     : localQueuedUserMessages;
@@ -357,32 +383,42 @@ export function useFullShellChat({
   const sendMessage = cloudChat.isWebShell
     ? cloudChat.sendMessage
     : localSendMessage;
-  const cancelCurrentStream = useCloudRun
-    ? cloudChat.cancelCurrentStream
-    : localCancelCurrentStream;
+  const cancelCurrentStream = piChat.enabled
+    ? piChat.cancelCurrentStream
+    : useCloudRun
+      ? cloudChat.cancelCurrentStream
+      : localCancelCurrentStream;
   // Page only the selected history; local and cloud cursors never mix.
-  const hasOlderMessages = storageMode === "local"
-    ? localMessageFeed.hasOlderMessages
-    : cloudChat.conversation.state.hasOlder;
-  const hasNewerMessages = storageMode === "local"
+  const hasOlderMessages = piChat.enabled
+    ? piChat.hasOlderMessages
+    : storageMode === "local"
+      ? localMessageFeed.hasOlderMessages
+      : cloudChat.conversation.state.hasOlder;
+  const hasNewerMessages = storageMode === "local" && !piChat.enabled
     ? localMessageFeed.hasNewerMessages
     : false;
-  const isLoadingOlderMessages = storageMode === "local"
-    ? localMessageFeed.isLoadingOlder
-    : cloudChat.conversation.state.loadingOlder;
-  const isLoadingNewerMessages = storageMode === "local"
+  const isLoadingOlderMessages = piChat.enabled
+    ? piChat.isLoadingOlder
+    : storageMode === "local"
+      ? localMessageFeed.isLoadingOlder
+      : cloudChat.conversation.state.loadingOlder;
+  const isLoadingNewerMessages = storageMode === "local" && !piChat.enabled
     ? localMessageFeed.isLoadingNewer
     : false;
-  const isInitialLoadingMessages = storageMode === "local"
-    ? localMessageFeed.isInitialLoading
-    : cloudChat.isInitialLoading;
-  const loadOlderMessages = storageMode === "local"
-    ? localMessageFeed.loadOlder
-    : cloudChat.conversation.loadOlder;
-  const loadNewerMessages = storageMode === "local"
+  const isInitialLoadingMessages = piChat.enabled
+    ? piChat.isInitialLoading
+    : storageMode === "local"
+      ? localMessageFeed.isInitialLoading
+      : cloudChat.isInitialLoading;
+  const loadOlderMessages = piChat.enabled
+    ? piChat.loadOlderMessages
+    : storageMode === "local"
+      ? localMessageFeed.loadOlder
+      : cloudChat.conversation.loadOlder;
+  const loadNewerMessages = storageMode === "local" && !piChat.enabled
     ? localMessageFeed.loadNewer
     : NO_NEWER_CLOUD_MESSAGES;
-  const loadLatestMessages = storageMode === "local"
+  const loadLatestMessages = storageMode === "local" && !piChat.enabled
     ? localMessageFeed.loadLatest
     : NO_NEWER_CLOUD_MESSAGES;
   const hasOlderActivity = storageMode === "local"

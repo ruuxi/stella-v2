@@ -734,6 +734,13 @@ export class RuntimeHostAdapter {
     onThreadActivityUpdated(listener) {
         return this.host.on("thread-activity-updated", listener);
     }
+    /** The pi-durable chat (`@stella/contracts/pi-chat`). */
+    piChat(request) {
+        return this.host.piChat(request);
+    }
+    onPiChatEvents(listener) {
+        return this.host.on("pi-chat-events", listener);
+    }
     killAllShells() {
         return void this.host.killAllShells();
     }

@@ -10,6 +10,7 @@ import { ensureStellaDataDirSeeded } from "@stella/runtime/kernel/home/stella-ho
 import { createStellaHostRunner, } from "../stella-host-runner.js";
 import { broadcastLocalChatUpdated, broadcastThreadActivityUpdated, broadcastScheduleUpdated, broadcastToWindows, } from "./context.js";
 import { startOfficePreviewBridge } from "./office-preview-bridge.js";
+import { IPC_PI_CHAT_EVENTS } from "@stella/contracts/desktop/ipc-channels";
 import { showStellaNotification } from "../services/notification-service.js";
 import { serveDeviceRequest } from "../services/device-request-service.js";
 import { requestMacPermission } from "../utils/macos-permissions.js";
@@ -309,6 +310,8 @@ const clearHostRunnerSubscriptions = (context) => {
     state.localChatUpdateUnsubscribe = null;
     state.threadActivityUpdateUnsubscribe?.();
     state.threadActivityUpdateUnsubscribe = null;
+    state.piChatEventsUnsubscribe?.();
+    state.piChatEventsUnsubscribe = null;
     state.scheduleUpdateUnsubscribe?.();
     state.scheduleUpdateUnsubscribe = null;
 };
@@ -329,6 +332,9 @@ const connectHostRunner = async (context) => {
     });
     state.scheduleUpdateUnsubscribe = runner.onScheduleUpdated(() => {
         broadcastScheduleUpdated(context);
+    });
+    state.piChatEventsUnsubscribe = runner.onPiChatEvents((payload) => {
+        broadcastToWindows(context, IPC_PI_CHAT_EVENTS, payload);
     });
     const logger = getMainLogger();
     const connectBeganAt = Math.round(process.uptime() * 1000);

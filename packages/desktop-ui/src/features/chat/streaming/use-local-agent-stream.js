@@ -12,6 +12,7 @@ import { resolveAgentNotReadyToast } from "./agent-stream-errors";
 import { executionTargetStore, getExecutionTargetSnapshot, } from "@/features/execution-placement/execution-target-store";
 import { presentComposerNotice } from "@/features/chat/composer-notice-store";
 import { isStellaLimitOrAuthReason, resolveStellaProviderErrorToast, } from "./stella-provider-error-toast";
+import { piChatEnabled, submitPiChat } from "@/features/chat/pi/pi-chat-store";
 export function useLocalAgentStream({ activeConversationId, storageMode, onRunStarted, onRunFinished, }) {
     const [storeState, dispatch] = useReducer(streamStoreReducer, initialStoreState);
     const [pendingUserMessageId, setPendingUserMessageId] = useState(null);
@@ -242,6 +243,15 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
             await Promise.resolve();
             if (attemptId !== startAttemptRef.current) {
                 return false;
+            }
+            // On pi-durable the message goes to the conversation's harness;
+            // its timeline and run state come from the pi chat store, keyed
+            // by this request id.
+            if (piChatEnabled()) {
+                const text = args.userPrompt?.trim() ||
+                    (typeof args.selectedText === "string" ? args.selectedText.trim() : "");
+                await submitPiChat(activeConversationId, args.userMessageEventId || crypto.randomUUID(), text);
+                return true;
             }
             const { requestId, userMessageId } = await window.electronAPI.agent.startChat({
                 conversationId: activeConversationId,

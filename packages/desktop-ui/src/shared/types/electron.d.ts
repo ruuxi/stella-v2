@@ -19,6 +19,7 @@ import type { UiState } from "./ui";
 import type { EvidenceCardSet } from "@stella/contracts/chat-evidence";
 import type { Theme } from "@stella/theme";
 import type { AgentStreamEvent } from "@stella/contracts/agent-stream";
+import type { PiChatEventsPayload, PiChatRequest } from "@stella/contracts/pi-chat";
 import type { StellaBrowserBridgeStatus } from "@stella/contracts/browser-bridge-status";
 import type {
   LocalChatAgentReport,
@@ -1601,6 +1602,14 @@ export type ElectronUserAskApi = {
   ) => () => void;
 };
 
+/** The desktop chat on pi-durable (`@stella/contracts/pi-chat`). */
+export type ElectronPiChatApi = {
+  /** Whether this launch runs the desktop chat on pi-durable (`STELLA_AGENT_RUNTIME=pi`). */
+  enabled: boolean;
+  request: (request: PiChatRequest) => Promise<unknown>;
+  onEvents: (callback: (payload: PiChatEventsPayload) => void) => () => void;
+};
+
 export type ElectronApi = {
   platform: string;
   arch: string;
@@ -1654,6 +1663,7 @@ export type ElectronApi = {
   dictation: ElectronDictationApi;
   companion: ElectronCompanionApi;
   agent: ElectronAgentApi;
+  piChat?: ElectronPiChatApi;
   system: ElectronSystemApi;
   remoteExecution: ElectronRemoteExecutionApi;
   executionTarget?: ElectronExecutionTargetApi;

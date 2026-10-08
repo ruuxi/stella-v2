@@ -1876,6 +1876,22 @@ export const driveDomain = {
       const { plan, unlimited } = billingPlan(ctx);
       return { ...usage(ctx.db), plan, unlimited, quota: unlimited ? UNLIMITED_QUOTA : PLAN_QUOTAS[plan] };
     },
+    // The cloud `drive` tool's list and fetch, called with no caller.
+    "drive.list": (ctx: OwnerContext, raw: unknown) => {
+      const input = record(raw);
+      const limit = finiteNumber(input.limit);
+      return {
+        files: listFiles(ctx.db, {
+          ...(typeof input.prefix === "string" ? { prefix: input.prefix.slice(0, 4_000) } : {}),
+          ...(limit !== undefined ? { limit } : {}),
+        }),
+      };
+    },
+    "drive.fileUrl": (ctx: OwnerContext, raw: unknown) => {
+      const input = record(raw);
+      if (typeof input.path !== "string") throw invalid("A drive path is required.");
+      return fileUrl(ctx, { path: input.path });
+    },
     "drive.turnFiles": turnFiles,
     "drive.turnStage": turnStage,
     "drive.turnDelete": turnDelete,

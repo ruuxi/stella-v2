@@ -648,6 +648,21 @@ export const AssistantMessageRow = memo(
     const unpreviewableFiles = linkedFiles.filter(
       (file) => file.cloudDriveFile || !evidencePathSet.has(file.path),
     );
+    // A canvas this turn produced is an attachment of the reply, not a
+    // citation of it: it belongs in the same strip under the bubble that the
+    // reply's other files use, never in the reply-preview chip above it.
+    const canvasPayload =
+      row.resourcePayload?.kind === "canvas-html" ? row.resourcePayload : null;
+    const attachedFiles = canvasPayload
+      ? [
+          ...unpreviewableFiles,
+          {
+            path: canvasPayload.filePath,
+            timestamp: canvasPayload.createdAt,
+            payload: canvasPayload,
+          },
+        ]
+      : unpreviewableFiles;
     // Shared predicate with ChatTimeline (which drops renderless rows
     // before virtualization) — see assistant-row-content.ts.
     if (!assistantRowHasVisibleContent(row)) {
@@ -672,9 +687,6 @@ export const AssistantMessageRow = memo(
               completions={row.agentCompletion?.sections}
               conversationId={conversationId}
             />
-          ) : null}
-          {row.resourcePayload?.kind === "canvas-html" ? (
-            <EndResourceCard payload={row.resourcePayload} />
           ) : null}
           {hasText && (
             // Bubble + its hover control share one horizontal line, so the
@@ -705,8 +717,8 @@ export const AssistantMessageRow = memo(
               )}
             </div>
           )}
-          {unpreviewableFiles.length > 0 ? (
-            <FilePills files={unpreviewableFiles} />
+          {attachedFiles.length > 0 ? (
+            <FilePills files={attachedFiles} />
           ) : null}
           {hasText
             ? extractStellaAppLinkSlugs(text).map((slug) => (

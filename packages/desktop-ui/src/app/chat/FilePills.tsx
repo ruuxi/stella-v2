@@ -18,6 +18,7 @@ import {
   localFilePathForPayload,
 } from "@/features/workspace-display/path-to-viewer";
 import type { ConversationFileEntry } from "@/features/workspace-display/derive-conversation-files";
+import { getDisplayPayloadTitle } from "@stella/contracts/desktop/display-payload";
 import { OpenWithMenu } from "./OpenWithMenu";
 import { useT, useTPlural } from "@/shared/i18n";
 import { useOpenConversationFile } from "@/features/cloud/use-cloud-drive-open";
@@ -25,6 +26,16 @@ import "./agent-activity-row.css";
 
 /** Pills shown before the "+N more" control kicks in. */
 const PILL_CAP = 5;
+
+/**
+ * A canvas is named by its author, not by its slug: `tea-brewing-guide.html`
+ * is a filename, "Tea Brewing Guide" is the thing the chip reopens. Every
+ * other file is still known by its basename.
+ */
+const pillName = (entry: ConversationFileEntry): string =>
+  entry.payload.kind === "canvas-html"
+    ? getDisplayPayloadTitle(entry.payload)
+    : basenameOf(entry.path);
 
 const FilePillView = ({
   entry,
@@ -53,7 +64,7 @@ const FilePillView = ({
           />
         </span>
         <span className="agent-activity-files__pill-name">
-          {basenameOf(entry.path)}
+          {pillName(entry)}
         </span>
       </button>
       {localFilePath ? (
